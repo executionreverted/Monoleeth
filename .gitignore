@@ -1,0 +1,6 @@
+.venv
+tmp
+node_modules
+build
+dist
+out
