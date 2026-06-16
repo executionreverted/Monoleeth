@@ -4,3 +4,9 @@ node_modules
 build
 dist
 out
+.env
+.env.*
+!.env.example
+.symphony/
+symphony-workspaces/
+log/
