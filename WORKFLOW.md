@@ -1,10 +1,9 @@
 ---
 tracker:
-  kind: linear
-  api_key: $LINEAR_API_KEY
-  project_slug: "REPLACE_WITH_LINEAR_PROJECT_SLUG"
+  kind: local
+  local_root: .symphony/tasks
   required_labels:
-    - symphony
+    - local
   active_states:
     - Todo
     - In Progress
@@ -24,8 +23,7 @@ workspace:
 hooks:
   after_create: |
     set -euo pipefail
-    : "${SOURCE_REPO_URL:?Set SOURCE_REPO_URL before starting Symphony.}"
-    git clone "$SOURCE_REPO_URL" .
+    git clone file:///Users/canersevince/gameproject .
 
     if [ -f package.json ]; then
       if [ -f package-lock.json ]; then
@@ -59,9 +57,13 @@ codex:
     networkAccess: true
   turn_timeout_ms: 3600000
   stall_timeout_ms: 300000
+
+server:
+  host: 0.0.0.0
+  port: 4000
 ---
 
-You are working inside a Symphony-managed workspace for Linear issue `{{ issue.identifier }}`.
+You are working inside a Symphony-managed workspace for local task `{{ issue.identifier }}`.
 
 Issue context:
 - Title: {{ issue.title }}
