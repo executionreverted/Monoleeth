@@ -113,8 +113,8 @@ reputation_token
 - [ ] Implement `DebitWallet`.
 - [ ] Implement `TransferCurrency`.
 - [ ] Implement cargo capacity validation using server-side stat input.
-- [ ] Implement item trade flag validation helpers.
-- [ ] Implement premium bucket eligibility helper.
+- [x] Implement item trade flag validation helpers.
+- [x] Implement premium bucket eligibility helper.
 - [ ] Implement ledger reference uniqueness for idempotent operations.
 - [ ] Emit inventory, cargo, wallet, and ledger events after mutation.
 
@@ -153,8 +153,8 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [x] RemoveItem writes one decrease ledger entry with source balance.
 - [x] RemoveItem insufficient quantity fails without mutation.
 - [x] Escrow, reserved, and system items cannot be removed by generic player remove.
-- [ ] Craft reserved item cannot be listed or equipped.
-- [ ] Premium earned bucket cannot be used where paid premium is required.
+- [x] Craft reserved item cannot be listed or equipped by policy helper.
+- [x] Premium earned bucket cannot be used where paid premium is required by policy helper.
 - [ ] Transaction rollback does not leave ledger-only changes.
 
 ## Abuse And Safety Checks
@@ -163,8 +163,10 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [ ] Duplicate reward exploit blocked.
 - [ ] Escrow bypass blocked.
 - [x] Generic RemoveItem cannot bypass escrow, reserved, or system source locations.
+- [x] Player trade/equip policy helper blocks equipped, escrow, reserved, and system locations.
 - [ ] Cargo capacity race blocked.
 - [ ] Premium laundering blocked by bucket split.
+- [x] Paid-only premium policy helper rejects earned premium and handles market-acquired premium explicitly.
 - [ ] Currency overflow handled or rejected.
 
 ## Done Criteria
