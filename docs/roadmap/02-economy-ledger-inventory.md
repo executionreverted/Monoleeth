@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: In progress
+- State: Complete, audited 2026-06-17
 - Owner: Economy foundation
 - Depends on: Phase 01
 - Unlocks: loot, craft, market, auction, death, premium, production
@@ -155,28 +155,28 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [x] Escrow, reserved, and system items cannot be removed by generic player remove.
 - [x] Craft reserved item cannot be listed or equipped by policy helper.
 - [x] Premium earned bucket cannot be used where paid premium is required by policy helper.
-- [ ] Transaction rollback does not leave ledger-only changes.
+- [x] Transaction rollback does not leave ledger-only changes. Verified 2026-06-17 by release/commit failure tests plus Phase 02 rollback snapshot audit coverage for reservation mutations, ledger rows, and move references.
 
 ## Abuse And Safety Checks
 
-- [ ] Negative amount exploit blocked.
+- [x] Negative amount exploit blocked. Verified 2026-06-17 across wallet, cargo, inventory add/move/remove, ledger primitives, and reservation requirements.
 - [x] Duplicate reward exploit blocked.
-- [ ] Escrow bypass blocked.
+- [x] Escrow bypass blocked. Verified 2026-06-17 by generic move/remove source blockers and player trade/equip policy helper coverage for escrow, reserved, system, and equipped items.
 - [x] Generic RemoveItem cannot bypass escrow, reserved, or system source locations.
 - [x] Player trade/equip policy helper blocks equipped, escrow, reserved, and system locations.
 - [x] Cargo capacity race blocked.
-- [ ] Premium laundering blocked by bucket split.
+- [x] Premium laundering blocked by bucket split. Verified 2026-06-17 by paid, earned, and market-acquired premium bucket model and eligibility policy tests.
 - [x] Paid-only premium policy helper rejects earned premium and handles market-acquired premium explicitly.
-- [ ] Currency overflow handled or rejected.
+- [x] Currency overflow handled or rejected. Verified 2026-06-17 by Phase 02 CreditWallet and TransferCurrency overflow rejection tests.
 
 ## Done Criteria
 
-- [ ] Inventory, cargo, wallet, and ledger services exist.
-- [ ] All value movements require reason and reference ID.
-- [ ] All value movements write ledger entries.
-- [ ] Reservation flow is available for craft and market phases.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] Inventory, cargo, wallet, and ledger services exist. Verified 2026-06-17 by direct code audit of `InventoryService`, `CargoService`, `WalletService`, and ledger models/tests.
+- [x] All value movements require reason and reference ID. Verified 2026-06-17 by service input validation, ledger validation, and reservation-derived release/commit references.
+- [x] All value movements write ledger entries. Verified 2026-06-17 by add/move/remove, wallet credit/debit/transfer, cargo add, and reservation reserve/release/commit ledger tests.
+- [x] Reservation flow is available for craft and market phases. Verified 2026-06-17 by reservation kind/location tests for craft, market, and auction plus market/auction commit behavior.
+- [x] `go test ./...` passes. Verified 2026-06-17 with `GOCACHE=/private/tmp/TASK-0027-go-build go test ./...`.
+- [x] `git diff --check` passes. Verified 2026-06-17.
 
 ## Resume Notes
 
