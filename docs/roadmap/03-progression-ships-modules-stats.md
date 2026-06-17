@@ -76,12 +76,12 @@ Keep MVP small:
 - [x] Define unlocked skill node state.
 - [x] Implement deterministic main level XP table.
 - [x] Implement deterministic role level XP table.
-- [ ] Implement `GrantXP` with source type, source ID, and idempotency key.
-- [ ] Implement XP source uniqueness.
-- [ ] Implement `TryRankUp` with simple requirement table.
-- [ ] Implement rank history.
-- [ ] Grant one pilot skill point on rank up.
-- [ ] Emit stat invalidation on rank up and role level up.
+- [x] Implement `GrantXP` with source type, source ID, and idempotency key.
+- [x] Implement XP source uniqueness.
+- [x] Implement `TryRankUp` with simple requirement table.
+- [x] Implement rank history.
+- [x] Grant one pilot skill point on rank up.
+- [x] Emit stat invalidation on rank up and role level up.
 - [ ] Implement `UnlockPilotSkill`.
 - [ ] Implement pilot skill prerequisite validation.
 - [ ] Implement pilot skill respec skeleton.
@@ -129,10 +129,10 @@ Keep MVP small:
 
 ## Tests
 
-- [ ] XP grant idempotent.
+- [x] XP grant idempotent.
 - [x] Main level threshold works.
 - [x] Role level threshold works.
-- [ ] Rank up double-click grants one rank and one skill point.
+- [x] Rank up double-click grants one rank and one skill point.
 - [ ] Locked skill node cannot be unlocked.
 - [ ] Skill unlock consumes points once.
 - [ ] Respec invalidates stat snapshot.
@@ -152,7 +152,7 @@ Keep MVP small:
 ## Abuse And Safety Checks
 
 - [ ] Client cannot spoof XP source completion.
-- [ ] Client cannot spoof rank milestone.
+- [x] Client cannot spoof rank milestone.
 - [ ] Client cannot unlock hidden or locked skill node.
 - [x] Client cannot activate locked ship.
 - [x] Client cannot bypass cargo capacity via ship swap.
@@ -186,3 +186,4 @@ Verified slices:
 - Stat service `GetEffectiveStats`, explicit active-session cache versioning, cargo capacity output, and broken-module exclusion are implemented in `internal/game/stats`.
 - Starter guarantee, idempotent ship unlock, active ship selection, safe-area/combat/disabled/cargo swap validation, and active-ship stat invalidation signal are implemented in `internal/game/ships`.
 - Loadout model, `SaveLoadout`, `ApplyLoadout`, ownership/location/slot/rank/role/durability/duplicate-instance validation, and equip invalidation signals are implemented in `internal/game/modules`.
+- Progression `GrantXP`, role XP, XP source/idempotency uniqueness, `TryRankUp`, rank history, rank-up skill point grant, and progression stat invalidation signals are implemented in `internal/game/progression`.
