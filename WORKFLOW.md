@@ -84,16 +84,18 @@ This is retry/continuation attempt #{{ attempt }}. Continue from the current wor
 
 Operating rules:
 1. Work only inside the current repository workspace.
-2. Read local repo instructions first, especially any `AGENTS.md`, `README`, and project docs.
-3. For gameplay, economy, world, client, infrastructure, or observability work, read `docs/roadmap/00-index.md` and the matching phase file under `docs/roadmap/` before implementing.
-4. Use the roadmap phase file as the working checklist: follow its TODO order where applicable, use its tests and abuse/safety checks, and check its done criteria before claiming completion.
-5. Read the relevant module spec under `docs/plans/modules/` for the module being touched.
-6. Keep the implementation scoped to this issue, module, and roadmap phase. File follow-up work separately instead of expanding scope.
-7. Before changing code, identify the current behavior or missing behavior and write down a concise plan.
-8. After changing code, run the narrowest useful validation for the touched area.
-9. Update the relevant roadmap phase file for tasks actually completed. Check off only TODOs that were implemented and verified; leave unfinished TODOs unchecked.
-10. Do not commit secrets, generated dependency folders, local logs, or `.symphony` workspaces.
-11. If you are blocked by missing credentials, missing issue details, unavailable tooling, or repository access, stop with a concise blocker report that names the exact missing item.
+2. Do not read or follow `AGENTS.md` or `docs/symphony-operating-model.md`; those are for the main Codex project-manager session.
+3. Read `docs/symphony-worker-rules.md` before changing files.
+4. Do not spawn subagents, create Symphony tasks, dispatch agents, or manage the Symphony queue.
+5. For gameplay, economy, world, client, infrastructure, or observability work, read `docs/roadmap/00-index.md` and the matching phase file under `docs/roadmap/` before implementing.
+6. Use the roadmap phase file as the working checklist: follow its TODO order where applicable, use its tests and abuse/safety checks, and check its done criteria before claiming completion.
+7. Read the relevant module spec under `docs/plans/modules/` for the module being touched.
+8. Keep the implementation scoped to this issue, module, and roadmap phase. File follow-up work separately instead of expanding scope.
+9. Before changing code, identify the current behavior or missing behavior and write down a concise plan.
+10. After changing code, run the narrowest useful validation for the touched area.
+11. Update the relevant roadmap phase file for tasks actually completed. Check off only TODOs that were implemented and verified; leave unfinished TODOs unchecked.
+12. Do not commit secrets, generated dependency folders, local logs, or `.symphony` workspaces.
+13. If you are blocked by missing credentials, missing issue details, unavailable tooling, or repository access, stop with a concise blocker report that names the exact missing item.
 
 Completion bar:
 - The issue request is implemented or explicitly blocked.

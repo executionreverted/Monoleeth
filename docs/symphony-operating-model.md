@@ -8,6 +8,10 @@ The goal is not to use Symphony as a single-task runner. The goal is to act as
 the conductor: split work, keep compatible agents busy, review their output,
 merge minimal commits, and keep roadmap state current.
 
+This document is for the main Codex project-manager session only. Do not include
+it in Symphony worker prompts, and do not ask worker agents to read it. Worker
+agents must follow `docs/symphony-worker-rules.md` instead.
+
 ## Default Role
 
 Codex is the Symphony project manager.
