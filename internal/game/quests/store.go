@@ -19,6 +19,7 @@ type InMemoryQuestStore struct {
 	quests          map[foundation.QuestID]PlayerQuest
 	questsByPlayer  map[foundation.PlayerID][]foundation.QuestID
 	progressEvents  map[foundation.EventID]struct{}
+	claimResults    map[foundation.QuestID]ClaimRewardResult
 }
 
 type questOfferStoreKey struct {
@@ -34,6 +35,7 @@ func NewInMemoryQuestStore() *InMemoryQuestStore {
 		quests:          make(map[foundation.QuestID]PlayerQuest),
 		questsByPlayer:  make(map[foundation.PlayerID][]foundation.QuestID),
 		progressEvents:  make(map[foundation.EventID]struct{}),
+		claimResults:    make(map[foundation.QuestID]ClaimRewardResult),
 	}
 }
 

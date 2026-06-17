@@ -87,13 +87,13 @@ Board rules:
 - [x] Update progress only for matching active quests. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
 - [x] Mark quest completed when objective is met. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
 - [x] Prevent progress overflow after completion. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
-- [ ] Implement `ClaimReward`.
-- [ ] Lock quest during claim.
-- [ ] Mark claimed before granting or within a transaction-safe flow.
-- [ ] Grant credits through wallet service.
-- [ ] Grant items through inventory service.
-- [ ] Grant XP through progression service.
-- [ ] Use reference `quest_reward:<player_quest_id>`.
+- [x] Implement `ClaimReward`. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
+- [x] Lock quest during claim. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
+- [x] Mark claimed before granting or within a transaction-safe flow. Verified rollback-safe retry flow 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
+- [x] Grant credits through wallet service. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
+- [x] Grant items through inventory service. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
+- [x] Grant XP through progression service. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
+- [x] Use reference `quest_reward:<player_quest_id>`. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
 
 ## TODO: Reroll
 
@@ -119,14 +119,14 @@ Board rules:
 - [x] Loot event progresses only matching quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
 - [x] Craft event progresses only matching quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
 - [x] Completed quest does not progress further incorrectly. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
-- [ ] Reward claim grants exactly once.
-- [ ] Duplicate reward claim does not duplicate XP/items/currency.
+- [x] Reward claim grants exactly once. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
+- [x] Duplicate reward claim does not duplicate XP/items/currency. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
 - [ ] Rare reward cap hook can block excessive rare offers.
 
 ## Abuse And Safety Checks
 
 - [ ] Client cannot send quest progress directly.
-- [ ] Reward duplicate blocked by quest state and ledger reference.
+- [x] Reward duplicate blocked by quest state and ledger reference. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
 - [ ] Reroll rare farming has cost and cap hooks.
 - [ ] Market quest wash-trade remains out of MVP.
 - [ ] Reward error messages do not leak hidden quest targets.
@@ -134,7 +134,7 @@ Board rules:
 ## Done Criteria
 
 - [ ] Quest board gives players directional tasks.
-- [ ] Quest rewards are idempotent.
+- [x] Quest rewards are idempotent. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
 - [ ] Quest events integrate combat, loot, craft, and XP.
 - [ ] MVP rank milestones can depend on quest completion.
 - [ ] `go test ./...` passes.
