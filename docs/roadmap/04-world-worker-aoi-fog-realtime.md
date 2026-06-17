@@ -100,15 +100,15 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 
 ## TODO: Visibility And Fog
 
-- [ ] Implement `CanSendEntityToClient`.
-- [ ] Implement `CanInteract`.
-- [ ] Add radar range input from effective stats.
-- [ ] Add entity signature field.
-- [ ] Add hidden entity flag.
+- [x] Implement `CanSendEntityToClient`.
+- [x] Implement `CanInteract`.
+- [x] Add radar range input from effective stats.
+- [x] Add entity signature field.
+- [x] Add hidden entity flag.
 - [ ] Ensure hidden entities never serialize.
-- [ ] Add fog memory model skeleton for discovered planets.
-- [ ] Add scanner bridge event skeleton.
-- [ ] Add generic hidden/not-found error behavior.
+- [x] Add fog memory model skeleton for discovered planets.
+- [x] Add scanner bridge event skeleton.
+- [x] Add generic hidden/not-found error behavior.
 
 ## TODO: Realtime Contracts
 
@@ -129,8 +129,8 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 - [x] Spatial hash does not return far entities after exact distance check.
 - [ ] Hidden entity is not serialized.
 - [ ] Entity leaving AOI emits left/despawn.
-- [ ] Fog memory does not grant live interaction permission.
-- [ ] Interaction with hidden entity fails.
+- [x] Fog memory does not grant live interaction permission.
+- [x] Interaction with hidden entity fails.
 - [x] Duplicate request ID returns safe retry behavior.
 - [x] Invalid payload is rejected.
 - [ ] Error messages for hidden entities do not leak hidden truth.
@@ -140,7 +140,7 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 
 - [ ] Packet sniffing hidden data is impossible because hidden data is not serialized.
 - [ ] Entity ID memory attack fails because interaction rechecks visibility.
-- [ ] Radar spoof fails because radar comes from stat snapshot.
+- [x] Radar spoof fails because radar comes from stat snapshot.
 - [ ] Procedural gameplay seed is not present in payloads.
 - [x] Operation flood has at least a placeholder rate-limit path.
 
@@ -148,7 +148,7 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 
 - [x] A test worker can spawn a player and move them server-authoritatively.
 - [ ] Visible snapshots contain only allowed entities.
-- [ ] Hidden entities cannot be interacted with.
+- [x] Hidden entities cannot be interacted with.
 - [x] Realtime envelope types exist.
 - [ ] Combat phase can call visibility/range helpers.
 - [ ] `go test ./...` passes.
@@ -165,3 +165,4 @@ Verified slices:
 - Spatial hash cell coordinates, entity insert/update/remove membership, deterministic radius queries, and exact distance filtering are implemented in `internal/game/world/spatial`.
 - Realtime JSON request/response/error/event envelopes, Phase 04 operation registry, client event constants, request ID cache skeleton, and rate-limit posture metadata are implemented in `internal/game/realtime`.
 - A single-zone in-process worker harness with FIFO command mailbox, fixed tick delta, deterministic command drain, delayed task scheduler skeleton, entity lifecycle, player session attachment, and server-speed movement is implemented in `internal/game/world/worker`.
+- Visibility filtering, generic hidden/not-visible interaction errors, server-stat radar range input, entity signature/hidden flags, fog memory summaries, and scanner bridge event shells are implemented in `internal/game/world/visibility`.
