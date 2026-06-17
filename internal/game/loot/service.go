@@ -3,6 +3,7 @@ package loot
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -57,6 +58,7 @@ type Service struct {
 	nextDropSequence int64
 	drops            map[world.EntityID]Drop
 	sourceDrops      map[sourceKey][]world.EntityID
+	pendingClaims    map[world.EntityID]struct{}
 	ownerLockEvents  map[world.EntityID]struct{}
 	expiredEvents    map[world.EntityID]struct{}
 
@@ -117,6 +119,7 @@ func NewService(config Config) (*Service, error) {
 		pickupRange:       config.PickupRange,
 		drops:             make(map[world.EntityID]Drop),
 		sourceDrops:       make(map[sourceKey][]world.EntityID),
+		pendingClaims:     make(map[world.EntityID]struct{}),
 		ownerLockEvents:   make(map[world.EntityID]struct{}),
 		expiredEvents:     make(map[world.EntityID]struct{}),
 	}, nil
@@ -204,34 +207,40 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 		return PickupResult{}, err
 	}
 
-	var emitted []events.EventEnvelope
-	var emitter EventEmitter
 	service.mu.Lock()
-	defer func() {
-		service.mu.Unlock()
-		emitEvents(emitter, emitted)
-	}()
-
 	now := service.clock.Now()
 	drop, ok := service.drops[input.DropID]
 	if !ok {
+		service.mu.Unlock()
 		return PickupResult{}, fmt.Errorf("drop %q: %w", input.DropID, ErrUnknownDrop)
 	}
 	if drop.ClaimedAt != nil {
+		service.mu.Unlock()
+		return PickupResult{}, ErrDropClaimed
+	}
+	if _, pending := service.pendingClaims[input.DropID]; pending {
+		service.mu.Unlock()
 		return PickupResult{}, ErrDropClaimed
 	}
 	if !now.Before(drop.ExpiresAt) {
+		service.mu.Unlock()
 		return PickupResult{}, ErrDropExpired
 	}
 	if now.Before(drop.OwnerLockUntil) && drop.OwnerPlayerID != input.PlayerID {
+		service.mu.Unlock()
 		return PickupResult{}, ErrDropOwnerLocked
 	}
 	if err := visibility.CanInteract(input.Viewer, visibilityEntityFromDrop(drop)); err != nil {
+		service.mu.Unlock()
 		return PickupResult{}, ErrPickupNotVisible
 	}
 	if input.Viewer.Position.Distance(drop.Position) > service.pickupRange {
+		service.mu.Unlock()
 		return PickupResult{}, ErrPickupOutOfRange
 	}
+	service.pendingClaims[input.DropID] = struct{}{}
+	drop = cloneDrop(drop)
+	service.mu.Unlock()
 
 	cargoResult, err := service.cargo.AddItem(economy.CargoAddItemInput{
 		PlayerID:           input.PlayerID,
@@ -243,13 +252,37 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 		ReferenceKey:       foundation.IdempotencyKey("loot_pickup:" + drop.ID.String()),
 	})
 	if err != nil {
+		service.clearPendingClaim(input.DropID)
 		return PickupResult{}, err
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
+	service.mu.Lock()
+	now = service.clock.Now()
+	current, ok := service.drops[input.DropID]
+	if !ok {
+		delete(service.pendingClaims, input.DropID)
+		service.mu.Unlock()
+		return PickupResult{}, fmt.Errorf("drop %q: %w", input.DropID, ErrUnknownDrop)
+	}
+	if current.ClaimedAt != nil {
+		delete(service.pendingClaims, input.DropID)
+		service.mu.Unlock()
+		return PickupResult{}, ErrDropClaimed
+	}
+	drop = current
 	drop.ClaimedBy = input.PlayerID
 	claimedAt := now
 	drop.ClaimedAt = &claimedAt
 	service.drops[input.DropID] = cloneDrop(drop)
+	delete(service.pendingClaims, input.DropID)
+	emitter = service.emitter
+	if emitter != nil {
+		emitted = append(emitted, service.newEventLocked(EventLootPickedUp, dropPayload(drop, now), now))
+	}
+	service.mu.Unlock()
+	emitEvents(emitter, emitted)
 
 	var xpResult *progression.GrantXPResult
 	if service.progression != nil && drop.SourceType.eligibleForLootXP() {
@@ -266,15 +299,18 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 		xpResult = &grant
 	}
 
-	emitter = service.emitter
-	if emitter != nil {
-		emitted = append(emitted, service.newEventLocked(EventLootPickedUp, dropPayload(drop, now), now))
-	}
 	return PickupResult{
 		Drop:        cloneDrop(drop),
 		CargoResult: cargoResult,
 		XPResult:    xpResult,
 	}, nil
+}
+
+func (service *Service) clearPendingClaim(dropID world.EntityID) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	delete(service.pendingClaims, dropID)
 }
 
 // VisibleDrops returns client-safe drops that pass AOI/fog visibility.
@@ -294,6 +330,9 @@ func (service *Service) VisibleDrops(viewer Viewer) []DropPayload {
 		}
 		payloads = append(payloads, dropPayload(drop, now))
 	}
+	sort.Slice(payloads, func(i, j int) bool {
+		return payloads[i].ID < payloads[j].ID
+	})
 	return payloads
 }
 
