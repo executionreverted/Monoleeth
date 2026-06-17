@@ -69,8 +69,8 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [x] Add idempotency key helper conventions for domain operations.
 - [x] Add `catalog` package for versioned static definitions.
 - [x] Add catalog version field helpers so recipes, quests, loot tables, and auction lots can remember source versions.
-- [ ] Add in-memory event recorder for service tests.
-- [ ] Add test helpers for fake clock, fake RNG, and assertion of emitted events.
+- [x] Add in-memory event recorder for service tests.
+- [x] Add test helpers for fake clock, fake RNG, and assertion of emitted events.
 - [x] Document package boundaries in a short `internal/game/README.md`.
 
 ## Tests
