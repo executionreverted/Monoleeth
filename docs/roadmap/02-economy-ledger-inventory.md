@@ -112,7 +112,7 @@ reputation_token
 - [x] Implement `CreditWallet`.
 - [x] Implement `DebitWallet`.
 - [x] Implement `TransferCurrency`.
-- [ ] Implement cargo capacity validation using server-side stat input.
+- [x] Implement cargo capacity validation using server-side stat input.
 - [x] Implement item trade flag validation helpers.
 - [x] Implement premium bucket eligibility helper.
 - [ ] Implement ledger reference uniqueness for idempotent operations.
@@ -144,8 +144,8 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [x] Debit writes a matching ledger entry.
 - [x] Credit writes a matching ledger entry.
 - [x] Transfer writes debit and credit ledger entries.
-- [ ] Cargo capacity blocks over-capacity add.
-- [ ] Concurrent cargo pickup simulation only allows capacity-safe result.
+- [x] Cargo capacity blocks over-capacity add.
+- [x] Concurrent cargo pickup simulation only allows capacity-safe result.
 - [x] Stack merge respects max stack.
 - [x] Instance item quantity cannot exceed 1.
 - [x] Escrow item cannot be moved by generic player move.
@@ -164,7 +164,7 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [ ] Escrow bypass blocked.
 - [x] Generic RemoveItem cannot bypass escrow, reserved, or system source locations.
 - [x] Player trade/equip policy helper blocks equipped, escrow, reserved, and system locations.
-- [ ] Cargo capacity race blocked.
+- [x] Cargo capacity race blocked.
 - [ ] Premium laundering blocked by bucket split.
 - [x] Paid-only premium policy helper rejects earned premium and handles market-acquired premium explicitly.
 - [ ] Currency overflow handled or rejected.
