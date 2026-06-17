@@ -105,3 +105,17 @@ type Snapshot struct {
 	Claimed             []string                `json:"claimed"`
 	LastRefreshError    string                  `json:"last_refresh_error,omitempty"`
 }
+
+type TaskWaitResult struct {
+	ID            string            `json:"id"`
+	Identifier    string            `json:"identifier,omitempty"`
+	State         string            `json:"state,omitempty"`
+	Settled       bool              `json:"settled"`
+	Running       bool              `json:"running"`
+	Blocked       bool              `json:"blocked"`
+	Retrying      bool              `json:"retrying"`
+	TimedOut      bool              `json:"timed_out,omitempty"`
+	LastError     string            `json:"last_error,omitempty"`
+	Task          *Issue            `json:"task,omitempty"`
+	DisplayEvents []DisplayRunEvent `json:"display_events"`
+}

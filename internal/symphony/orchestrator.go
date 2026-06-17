@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 )
 
 const maxRunLogEntriesPerTask = 1000
+
+var ErrTaskNotFound = errors.New("task not found")
 
 type Orchestrator struct {
 	mu            sync.Mutex
@@ -31,6 +34,7 @@ type Orchestrator struct {
 	blocked       map[string]BlockedEntry
 	retries       map[string]RetryEntry
 	runLogs       map[string][]RunLogEntry
+	waiters       map[string][]chan struct{}
 	autoRunPaused bool
 	nextPollDue   *time.Time
 	polling       bool
@@ -52,6 +56,7 @@ func NewOrchestrator(workflow WorkflowDefinition, logger *Logger) *Orchestrator 
 		blocked:   map[string]BlockedEntry{},
 		retries:   map[string]RetryEntry{},
 		runLogs:   map[string][]RunLogEntry{},
+		waiters:   map[string][]chan struct{}{},
 	}
 }
 
@@ -168,6 +173,134 @@ func (o *Orchestrator) TaskRunLog(issueID string) []RunLogEntry {
 	out := make([]RunLogEntry, len(entries))
 	copy(out, entries)
 	return out
+}
+
+func (o *Orchestrator) WaitForTask(ctx context.Context, issueID string) (TaskWaitResult, error) {
+	for {
+		result, ok := o.TaskWaitResult(issueID)
+		if !ok {
+			return TaskWaitResult{}, ErrTaskNotFound
+		}
+		if result.Settled {
+			return result, nil
+		}
+		notify, unregister := o.registerTaskWaiter(issueID)
+		result, ok = o.TaskWaitResult(issueID)
+		if !ok {
+			unregister()
+			return TaskWaitResult{}, ErrTaskNotFound
+		}
+		if result.Settled {
+			unregister()
+			return result, nil
+		}
+		select {
+		case <-ctx.Done():
+			unregister()
+			result, ok := o.TaskWaitResult(issueID)
+			if !ok {
+				return TaskWaitResult{}, ErrTaskNotFound
+			}
+			result.TimedOut = true
+			return result, nil
+		case <-notify:
+		}
+	}
+}
+
+func (o *Orchestrator) TaskWaitResult(issueID string) (TaskWaitResult, bool) {
+	snapshot := o.Snapshot()
+	workflow := o.workflowSnapshot()
+	result := TaskWaitResult{ID: issueID}
+	found := false
+	for _, task := range snapshot.Tasks {
+		if task.ID == issueID {
+			current := task
+			result.Task = &current
+			result.Identifier = task.Identifier
+			result.State = task.State
+			found = true
+			break
+		}
+	}
+	if running, ok := snapshot.Running[issueID]; ok {
+		result.Running = true
+		if result.Identifier == "" {
+			result.Identifier = running.Identifier
+		}
+		if result.State == "" {
+			result.State = running.Issue.State
+		}
+		found = true
+	}
+	if retry, ok := snapshot.Retries[issueID]; ok {
+		result.Retrying = true
+		result.LastError = retry.Error
+		if result.Identifier == "" {
+			result.Identifier = retry.Identifier
+		}
+		found = true
+	}
+	if blocked, ok := snapshot.Blocked[issueID]; ok {
+		result.Blocked = true
+		result.LastError = blocked.Error
+		if result.Identifier == "" {
+			result.Identifier = blocked.Identifier
+		}
+		if result.State == "" {
+			result.State = blocked.Issue.State
+		}
+		found = true
+	}
+	if !found {
+		return TaskWaitResult{}, false
+	}
+	if containsString(snapshot.Completed, issueID) || terminalIssueState(result.State, workflow.Config.Tracker.TerminalStates) {
+		result.Settled = true
+	}
+	if result.Blocked || normalizeState(result.State) == "blocked" {
+		result.Blocked = true
+		result.Settled = true
+	}
+	result.DisplayEvents = DisplayRunEvents(o.TaskRunLog(issueID))
+	return result, true
+}
+
+func (o *Orchestrator) registerTaskWaiter(issueID string) (<-chan struct{}, func()) {
+	ch := make(chan struct{})
+	o.mu.Lock()
+	o.waiters[issueID] = append(o.waiters[issueID], ch)
+	o.mu.Unlock()
+	var once sync.Once
+	unregister := func() {
+		once.Do(func() {
+			o.mu.Lock()
+			waiters := o.waiters[issueID]
+			for i, waiter := range waiters {
+				if waiter == ch {
+					waiters = append(waiters[:i], waiters[i+1:]...)
+					break
+				}
+			}
+			if len(waiters) == 0 {
+				delete(o.waiters, issueID)
+			} else {
+				o.waiters[issueID] = waiters
+			}
+			o.mu.Unlock()
+		})
+	}
+	return ch, unregister
+}
+
+func (o *Orchestrator) notifyTaskWaiters(issueID string) {
+	o.mu.Lock()
+	waiters := o.waiters[issueID]
+	delete(o.waiters, issueID)
+	o.mu.Unlock()
+	for _, waiter := range waiters {
+		close(waiter)
+	}
 }
 
 func (o *Orchestrator) IssuePayload(identifier string) (map[string]any, bool) {
@@ -294,6 +427,7 @@ func (o *Orchestrator) UpdateTaskState(ctx context.Context, issueID string, stat
 		delete(o.retries, issueID)
 		delete(o.claimed, issueID)
 		o.mu.Unlock()
+		o.notifyTaskWaiters(issueID)
 		o.ForcePoll()
 		return nil
 	}
@@ -305,6 +439,7 @@ func (o *Orchestrator) UpdateTaskState(ctx context.Context, issueID string, stat
 		delete(o.retries, issueID)
 		delete(o.claimed, issueID)
 		o.mu.Unlock()
+		o.notifyTaskWaiters(issueID)
 		o.ForcePoll()
 	}
 	return nil
@@ -416,6 +551,7 @@ func (o *Orchestrator) dispatch(ctx context.Context, issue Issue, attempt int) {
 	o.running[issue.ID] = entry
 	delete(o.retries, issue.ID)
 	o.mu.Unlock()
+	o.notifyTaskWaiters(issue.ID)
 	o.recordRunEvent(issue, attempt, 0, "dispatch_started", map[string]any{"state": issue.State}, "Dispatched to agent")
 	o.logger.Info("dispatching issue to agent", "issue_id", issue.ID, "issue_identifier", issue.Identifier, "attempt", attempt)
 	o.updateTrackerState(context.Background(), issue.ID, "In Progress")
@@ -506,6 +642,7 @@ func (o *Orchestrator) handleRunFinished(issue Issue, attempt int, err error) {
 		delete(o.claimed, issue.ID)
 		workflow := o.workflow
 		o.mu.Unlock()
+		o.notifyTaskWaiters(issue.ID)
 		if workflow.Config.Tracker.Kind == "local" || workflow.Config.Tracker.Kind == "memory" {
 			return
 		}
@@ -531,6 +668,7 @@ func (o *Orchestrator) handleRunFinished(issue Issue, attempt int, err error) {
 			LastTimestamp: entry.LastCodexTimestamp,
 		}
 		o.mu.Unlock()
+		o.notifyTaskWaiters(issue.ID)
 		return
 	}
 
@@ -559,6 +697,7 @@ func (o *Orchestrator) scheduleRetry(issue Issue, attempt int, errorText string,
 	o.mu.Lock()
 	o.retries[issue.ID] = RetryEntry{IssueID: issue.ID, Identifier: issue.Identifier, Attempt: attempt, DueAt: due, Error: errorText}
 	o.mu.Unlock()
+	o.notifyTaskWaiters(issue.ID)
 	o.recordRunEvent(issue, attempt, 0, "retry_scheduled", map[string]any{"due_at": iso8601(due), "error": errorText}, "Retry scheduled")
 	ctx := o.retryContext()
 	go func() {
@@ -593,6 +732,7 @@ func (o *Orchestrator) retryIssue(ctx context.Context, issueID string) {
 		delete(o.claimed, issueID)
 		delete(o.retries, issueID)
 		o.mu.Unlock()
+		o.notifyTaskWaiters(issueID)
 		return
 	}
 	if o.availableSlotsForState(issue.State, workflow) <= 0 {
@@ -709,6 +849,7 @@ func (o *Orchestrator) stopRunning(issueID string, cleanup bool) {
 		entry.Cancel()
 	}
 	o.recordRunEvent(entry.Issue, entry.Attempt, entry.TurnCount, "task_stopped", map[string]any{"cleanup": cleanup}, "Task stopped")
+	o.notifyTaskWaiters(issueID)
 	if cleanup {
 		workspace.RemoveIssueWorkspace(context.Background(), entry.Identifier)
 	}
@@ -982,6 +1123,15 @@ func sortedKeys(values map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func min(a, b int) int {

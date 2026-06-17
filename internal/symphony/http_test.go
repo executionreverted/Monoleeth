@@ -2,6 +2,7 @@ package symphony
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -84,6 +85,34 @@ func TestHTTPDashboardTasksAndPresenterEndpoints(t *testing.T) {
 	}
 	if len(stream.DisplayEvents) != 1 || stream.DisplayEvents[0].Title != "Test event" {
 		t.Fatalf("unexpected display stream payload: %#v", stream.DisplayEvents)
+	}
+
+	var waitTimeout TaskWaitResult
+	decodeGET(t, server.URL+"/api/v1/tasks/"+created.ID+"/wait?timeout_ms=1", &waitTimeout)
+	if !waitTimeout.TimedOut || waitTimeout.Settled || waitTimeout.State != "Todo" {
+		t.Fatalf("unexpected timeout wait payload: %#v", waitTimeout)
+	}
+
+	if err := orchestrator.UpdateTaskState(context.Background(), created.ID, "Done"); err != nil {
+		t.Fatal(err)
+	}
+	var waitDone TaskWaitResult
+	decodeGET(t, server.URL+"/api/v1/tasks/"+created.ID+"/wait?timeout_ms=1000", &waitDone)
+	if !waitDone.Settled || waitDone.TimedOut || waitDone.State != "Done" {
+		t.Fatalf("unexpected done wait payload: %#v", waitDone)
+	}
+	if len(waitDone.DisplayEvents) != 1 || waitDone.DisplayEvents[0].Title != "Test event" {
+		t.Fatalf("unexpected done wait display events: %#v", waitDone.DisplayEvents)
+	}
+
+	missingWaitResp, err := http.Get(server.URL + "/api/v1/tasks/missing/wait?timeout_ms=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer missingWaitResp.Body.Close()
+	if missingWaitResp.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(missingWaitResp.Body)
+		t.Fatalf("missing wait status = %d body = %s", missingWaitResp.StatusCode, string(body))
 	}
 
 	var listed struct {

@@ -2,6 +2,7 @@ package symphony
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,6 +110,74 @@ func TestUpdateTaskStateTerminalStopsRunning(t *testing.T) {
 	}
 	if _, ok := orchestrator.retries[task.ID]; ok {
 		t.Fatalf("terminal state should clear retry entry")
+	}
+}
+
+func TestWaitForTaskResolvesOnTerminalState(t *testing.T) {
+	logger := newDiscardLogger(t)
+	defer logger.Close()
+	orchestrator := NewOrchestrator(testWorkflow(t), logger)
+	task, err := orchestrator.CreateTask(context.Background(), CreateTaskInput{Title: "Wait for done"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator.recordRunEvent(task, 0, 0, "dispatch_started", nil, "Dispatched")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	done := make(chan TaskWaitResult, 1)
+	go func() {
+		result, err := orchestrator.WaitForTask(ctx, task.ID)
+		if err != nil {
+			t.Errorf("WaitForTask returned error: %v", err)
+			return
+		}
+		done <- result
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	if err := orchestrator.UpdateTaskState(context.Background(), task.ID, "Done"); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case result := <-done:
+		if !result.Settled || result.TimedOut || result.State != "Done" {
+			t.Fatalf("unexpected wait result: %#v", result)
+		}
+		if len(result.DisplayEvents) == 0 {
+			t.Fatalf("expected display events in wait result")
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("WaitForTask did not resolve after terminal state")
+	}
+}
+
+func TestWaitForTaskTimeoutReturnsCurrentState(t *testing.T) {
+	logger := newDiscardLogger(t)
+	defer logger.Close()
+	orchestrator := NewOrchestrator(testWorkflow(t), logger)
+	task, err := orchestrator.CreateTask(context.Background(), CreateTaskInput{Title: "Wait timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	result, err := orchestrator.WaitForTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Settled || !result.TimedOut || result.State != "Todo" {
+		t.Fatalf("unexpected timeout result: %#v", result)
+	}
+}
+
+func TestWaitForTaskMissingTask(t *testing.T) {
+	logger := newDiscardLogger(t)
+	defer logger.Close()
+	orchestrator := NewOrchestrator(testWorkflow(t), logger)
+	if _, err := orchestrator.WaitForTask(context.Background(), "missing"); !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("expected ErrTaskNotFound, got %v", err)
 	}
 }
 

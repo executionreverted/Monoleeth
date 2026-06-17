@@ -4,9 +4,11 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,6 +18,11 @@ type HTTPServer struct {
 	orchestrator *Orchestrator
 	logger       *Logger
 }
+
+const (
+	defaultTaskWaitTimeout = 5 * time.Minute
+	maxTaskWaitTimeout     = 30 * time.Minute
+)
 
 func NewHTTPServer(host string, port int, orchestrator *Orchestrator, logger *Logger) *HTTPServer {
 	mux := http.NewServeMux()
@@ -155,6 +162,24 @@ func (s *HTTPServer) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && action == "stream":
 		events := s.orchestrator.TaskRunLog(issueID)
 		writeJSON(w, map[string]any{"events": events, "display_events": DisplayRunEvents(events)})
+	case r.Method == http.MethodGet && action == "wait":
+		timeout, err := parseTaskWaitTimeout(r)
+		if err != nil {
+			writeError(w, err, http.StatusBadRequest)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+		result, err := s.orchestrator.WaitForTask(ctx, issueID)
+		if errors.Is(err, ErrTaskNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			writeError(w, err, http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, result)
 	case r.Method == http.MethodPost && action == "run":
 		if err := s.orchestrator.RunTask(r.Context(), issueID); err != nil {
 			writeError(w, err, http.StatusBadRequest)
@@ -177,6 +202,28 @@ func (s *HTTPServer) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func parseTaskWaitTimeout(r *http.Request) (time.Duration, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("timeout_ms"))
+	if raw == "" {
+		return defaultTaskWaitTimeout, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("timeout_ms must be an integer")
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("timeout_ms must be non-negative")
+	}
+	timeout := time.Duration(value) * time.Millisecond
+	if timeout == 0 {
+		return 0, nil
+	}
+	if timeout > maxTaskWaitTimeout {
+		return maxTaskWaitTimeout, nil
+	}
+	return timeout, nil
 }
 
 func (s *HTTPServer) handleIssue(w http.ResponseWriter, r *http.Request) {
