@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"errors"
 	"testing"
 
 	"gameproject/internal/game/foundation"
@@ -181,5 +182,41 @@ func TestRecordPlanetOwnerChangeMarksOlderIntelStale(t *testing.T) {
 	}
 	if updated || got.State != IntelStateStale || !got.LastSeenAt.Equal(testTime(10)) {
 		t.Fatalf("old share updated = %v intel = %+v, want preserved stale marker at %s", updated, got, testTime(10))
+	}
+}
+
+func TestRecordPlanetOwnerChangeDoesNotOverwriteDifferentOwner(t *testing.T) {
+	store := NewInMemoryStore()
+	planetID := foundation.PlanetID("planet-1")
+	if _, err := store.MaterializePlanet(MaterializePlanetInput{
+		CandidateKey: "candidate-a",
+		Planet:       testPlanet(planetID, testTime(0)),
+	}); err != nil {
+		t.Fatalf("MaterializePlanet() error = %v, want nil", err)
+	}
+	if _, err := store.RecordPlanetOwnerChange(PlanetOwnerChangeInput{
+		PlanetID:         planetID,
+		NewOwnerPlayerID: "player-owner",
+		ChangedAt:        testTime(10),
+		SourceReference:  "planet.claimed:event-1",
+	}); err != nil {
+		t.Fatalf("first RecordPlanetOwnerChange() error = %v, want nil", err)
+	}
+
+	_, err := store.RecordPlanetOwnerChange(PlanetOwnerChangeInput{
+		PlanetID:         planetID,
+		NewOwnerPlayerID: "player-thief",
+		ChangedAt:        testTime(20),
+		SourceReference:  "planet.claimed:event-2",
+	})
+	if !errors.Is(err, ErrPlanetAlreadyOwned) {
+		t.Fatalf("second RecordPlanetOwnerChange() error = %v, want ErrPlanetAlreadyOwned", err)
+	}
+	stored, ok, err := store.Planet(planetID)
+	if err != nil || !ok {
+		t.Fatalf("Planet() ok = %v err = %v, want true nil", ok, err)
+	}
+	if stored.OwnerPlayerID != "player-owner" || stored.OwnerChangedAt == nil || !stored.OwnerChangedAt.Equal(testTime(10)) {
+		t.Fatalf("stored owner = %+v, want original owner at %s", stored, testTime(10))
 	}
 }

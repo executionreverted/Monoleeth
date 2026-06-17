@@ -238,11 +238,14 @@ func (store *InMemoryStore) RecordPlanetOwnerChange(input PlanetOwnerChangeInput
 	if !ok {
 		return PlanetOwnerChangeResult{}, fmt.Errorf("planet %q: %w", input.PlanetID, ErrUnknownPlanet)
 	}
-	changedAt := input.ChangedAt.UTC()
-	if planet.OwnerChangedAt != nil && !changedAt.After(*planet.OwnerChangedAt) {
+	if planet.OwnerPlayerID == input.NewOwnerPlayerID {
 		return PlanetOwnerChangeResult{Planet: clonePlanet(planet)}, nil
 	}
-	if planet.OwnerPlayerID == input.NewOwnerPlayerID {
+	if !planet.OwnerPlayerID.IsZero() {
+		return PlanetOwnerChangeResult{}, fmt.Errorf("planet %q: %w", input.PlanetID, ErrPlanetAlreadyOwned)
+	}
+	changedAt := input.ChangedAt.UTC()
+	if planet.OwnerChangedAt != nil && !changedAt.After(*planet.OwnerChangedAt) {
 		return PlanetOwnerChangeResult{Planet: clonePlanet(planet)}, nil
 	}
 

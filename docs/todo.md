@@ -90,6 +90,13 @@ for phase status; this file is a compact pending-work index.
 - [ ] Replace Phase 08 in-memory discovery stores, idempotency maps, and local
   event slices with durable repositories/outbox records before multi-process
   runtime or DB-backed deployment.
+- [ ] Move Phase 08 planet claim into a durable transaction/CAS boundary that
+  ties unowned-owner transition, X Core reservation/consume, idempotency, and
+  event emission together; current MVP blocks owner overwrite in-memory but
+  does not provide cross-process atomicity.
+- [ ] Add pending/complete or compensation handling around Phase 08 coordinate
+  scroll item mint/consume plus metadata/intel writes before using real durable
+  economy storage.
 - [ ] Add gateway/session authorization for discovery commands so client input
   can only express scan/share/claim/use intents for the authenticated player;
   never accept client-authored coordinates, planet candidates, XP, X Core

@@ -199,7 +199,7 @@ func validateScannerSnapshot(snapshot stats.StatSnapshot, playerID foundation.Pl
 
 func scannerCooldownDuration(effective stats.EffectiveStats) time.Duration {
 	if effective.Exploration.ScanInterval <= 0 {
-		return 0
+		return time.Second
 	}
 	return time.Duration(effective.Exploration.ScanInterval * float64(time.Second))
 }
@@ -251,6 +251,12 @@ func scanPulseMatchesStartInput(pulse scanPulse, input StartScanPulseInput) bool
 		pulse.worldID == input.WorldID &&
 		pulse.zoneID == input.ZoneID &&
 		pulse.shipID == input.ShipID
+}
+
+func scanPulseMatchesResolveInput(pulse scanPulse, input ResolveScanPulseInput) bool {
+	return pulse.playerID == input.PlayerID &&
+		pulse.worldID == input.WorldID &&
+		pulse.zoneID == input.ZoneID
 }
 
 func scannerMaterializationKey(

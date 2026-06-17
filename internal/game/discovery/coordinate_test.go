@@ -117,9 +117,9 @@ func TestCreateCoordinateScrollStoresServerAuthoredMetadataFromKnownIntel(t *tes
 		t.Fatalf("metadata create fields = %+v, want creator %q at %s", metadata, sourceIntel.PlayerID, coordinateTestNow())
 	}
 
-	stored, ok, err := service.CoordinateScrollMetadata(result.ScrollItemInstanceID)
+	stored, ok, err := service.coordinateScrollMetadata(result.ScrollItemInstanceID)
 	if err != nil || !ok {
-		t.Fatalf("CoordinateScrollMetadata() ok = %v err = %v, want true nil", ok, err)
+		t.Fatalf("coordinateScrollMetadata() ok = %v err = %v, want true nil", ok, err)
 	}
 	if stored != metadata {
 		t.Fatalf("stored metadata = %+v, want result metadata %+v", stored, metadata)
@@ -171,9 +171,9 @@ func TestUseCoordinateScrollIgnoresMutatedMetadataCopy(t *testing.T) {
 	})
 	createResult := createCoordinateTestScroll(t, service, sourceIntel.PlayerID, planet.ID, "create-copy-immutable")
 
-	metadataCopy, ok, err := service.CoordinateScrollMetadata(createResult.ScrollItemInstanceID)
+	metadataCopy, ok, err := service.coordinateScrollMetadata(createResult.ScrollItemInstanceID)
 	if err != nil || !ok {
-		t.Fatalf("CoordinateScrollMetadata() ok = %v err = %v, want true nil", ok, err)
+		t.Fatalf("coordinateScrollMetadata() ok = %v err = %v, want true nil", ok, err)
 	}
 	metadataCopy.PlanetID = "planet-forged"
 	metadataCopy.Coordinates = world.Vec2{X: 9999, Y: 9999}
@@ -244,9 +244,9 @@ func TestUseCoordinateScrollConsumesOnceAndWritesIntel(t *testing.T) {
 	if storedIntel.Coordinates != sourceIntel.Coordinates || storedIntel.State != sourceIntel.State || storedIntel.Confidence != sourceIntel.Confidence {
 		t.Fatalf("stored intel = %+v, want source scroll intel %+v", storedIntel, sourceIntel)
 	}
-	storedMetadata, ok, err := service.CoordinateScrollMetadata(createResult.ScrollItemInstanceID)
+	storedMetadata, ok, err := service.coordinateScrollMetadata(createResult.ScrollItemInstanceID)
 	if err != nil || !ok {
-		t.Fatalf("CoordinateScrollMetadata() ok = %v err = %v, want true nil", ok, err)
+		t.Fatalf("coordinateScrollMetadata() ok = %v err = %v, want true nil", ok, err)
 	}
 	if storedMetadata.UsedAt == nil || !storedMetadata.UsedAt.Equal(coordinateTestNow()) || storedMetadata.UsedBy != "player-receiver" || storedMetadata.UseReference != "use-success" {
 		t.Fatalf("stored metadata used fields = %+v, want receiver use at %s", storedMetadata, coordinateTestNow())

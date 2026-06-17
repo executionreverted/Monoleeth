@@ -50,11 +50,11 @@ type ClaimPlanetInput struct {
 
 // ClaimPlanetResult reports authoritative owner state after a claim attempt.
 type ClaimPlanetResult struct {
-	Planet       Planet              `json:"planet"`
-	Claimed      bool                `json:"claimed"`
-	AlreadyOwned bool                `json:"already_owned,omitempty"`
-	Duplicate    bool                `json:"duplicate,omitempty"`
-	StaleIntel   []PlayerPlanetIntel `json:"stale_intel,omitempty"`
+	Planet          Planet `json:"planet"`
+	Claimed         bool   `json:"claimed"`
+	AlreadyOwned    bool   `json:"already_owned,omitempty"`
+	Duplicate       bool   `json:"duplicate,omitempty"`
+	StaleIntelCount int    `json:"stale_intel_count,omitempty"`
 }
 
 // ClaimEventRecord is a local event/outbox-shaped record for planet claims.
@@ -230,7 +230,7 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 		return result, nil
 	}
 	if !planet.OwnerPlayerID.IsZero() {
-		return ClaimPlanetResult{}, fmt.Errorf("planet %q owner %q: %w", planet.ID, planet.OwnerPlayerID, ErrPlanetAlreadyOwned)
+		return ClaimPlanetResult{}, fmt.Errorf("planet %q: %w", planet.ID, ErrPlanetAlreadyOwned)
 	}
 
 	if err := service.validateProximity(input.PlayerID, planet); err != nil {
@@ -257,9 +257,9 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 	service.events = append(service.events, event)
 
 	result := ClaimPlanetResult{
-		Planet:     ownerChange.Planet,
-		Claimed:    ownerChange.Planet.OwnerPlayerID == input.PlayerID,
-		StaleIntel: append([]PlayerPlanetIntel(nil), ownerChange.StaleIntel...),
+		Planet:          ownerChange.Planet,
+		Claimed:         ownerChange.Planet.OwnerPlayerID == input.PlayerID,
+		StaleIntelCount: len(ownerChange.StaleIntel),
 	}
 	service.claims[input.ClaimReference] = claimRecord{input: input, result: cloneClaimPlanetResult(result)}
 	return result, nil
@@ -529,6 +529,5 @@ func claimOwnerChangeSourceReference(event ClaimEventRecord) string {
 
 func cloneClaimPlanetResult(result ClaimPlanetResult) ClaimPlanetResult {
 	result.Planet = clonePlanet(result.Planet)
-	result.StaleIntel = append([]PlayerPlanetIntel(nil), result.StaleIntel...)
 	return result
 }

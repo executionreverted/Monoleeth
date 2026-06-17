@@ -161,6 +161,11 @@ func (service *ScannerService) ResolveScanPulse(input ResolveScanPulseInput) (Re
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
+	pulse, ok := service.pulses[input.PulseReference]
+	if !ok || !scanPulseMatchesResolveInput(pulse, input) {
+		return ResolveScanPulseResult{}, ErrScanPulseNotFound
+	}
+
 	if result, ok := service.results[input.PulseReference]; ok {
 		duplicate := cloneResolveScanPulseResult(result)
 		duplicate.Duplicate = true
@@ -168,10 +173,6 @@ func (service *ScannerService) ResolveScanPulse(input ResolveScanPulseInput) (Re
 		return duplicate, nil
 	}
 
-	pulse, ok := service.pulses[input.PulseReference]
-	if !ok || pulse.playerID != input.PlayerID || pulse.worldID != input.WorldID || pulse.zoneID != input.ZoneID {
-		return ResolveScanPulseResult{}, ErrScanPulseNotFound
-	}
 	now := service.clock.Now().UTC()
 	if now.Before(pulse.resolveAfter) {
 		return ResolveScanPulseResult{}, ErrScanPulseNotReady

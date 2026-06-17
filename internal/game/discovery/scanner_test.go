@@ -115,6 +115,32 @@ func TestStartScanPulseDuplicateReferenceIsScopedAndDoesNotRestartCooldown(t *te
 	}
 }
 
+func TestStartScanPulseZeroScanIntervalUsesMinimumCooldown(t *testing.T) {
+	seed := scannerTestSeed(t)
+	_, candidate := findScannerTestCandidate(t, seed)
+	cooldowns := &recordingScannerCooldownProvider{accepted: true}
+	service := newScannerTestService(t, scannerTestServiceOptions{
+		seed:      seed,
+		store:     NewInMemoryStore(),
+		position:  candidate.Position(),
+		snapshot:  scannerSnapshot(candidate, 10_000, scannerRadarRangeFor(candidate), 0),
+		moduleOK:  true,
+		cooldowns: cooldowns,
+		xp:        &recordingScanXPProvider{},
+	})
+
+	result, err := service.StartScanPulse(scannerStartInput("pulse_min_cooldown"))
+	if err != nil {
+		t.Fatalf("StartScanPulse() error = %v, want nil", err)
+	}
+	if got := cooldowns.inputs[0].Duration; got != time.Second {
+		t.Fatalf("cooldown duration = %s, want %s", got, time.Second)
+	}
+	if want := scannerTestTime().Add(time.Second); !result.ResolveAfter.Equal(want) {
+		t.Fatalf("resolve_after = %s, want %s", result.ResolveAfter, want)
+	}
+}
+
 func TestResolveScanPulseRadarTooLowReturnsGenericNoSignal(t *testing.T) {
 	seed := scannerTestSeed(t)
 	_, candidate := findScannerTestCandidate(t, seed)
@@ -268,6 +294,12 @@ func TestResolveScanPulseDuplicateIsIdempotent(t *testing.T) {
 	}
 	if got := len(service.Events()); got != eventCount {
 		t.Fatalf("scanner events after duplicate = %d, want unchanged %d", got, eventCount)
+	}
+
+	crossPlayer := scannerResolveInput("pulse_duplicate")
+	crossPlayer.PlayerID = "player_other"
+	if _, err := service.ResolveScanPulse(crossPlayer); !errors.Is(err, ErrScanPulseNotFound) {
+		t.Fatalf("cross-player duplicate ResolveScanPulse() error = %v, want ErrScanPulseNotFound", err)
 	}
 }
 
@@ -505,10 +537,12 @@ type recordingScannerCooldownProvider struct {
 	accepted bool
 	readyAt  time.Time
 	calls    int
+	inputs   []ScannerCooldownInput
 }
 
-func (provider *recordingScannerCooldownProvider) StartScanCooldown(ScannerCooldownInput) (ScannerCooldownResult, error) {
+func (provider *recordingScannerCooldownProvider) StartScanCooldown(input ScannerCooldownInput) (ScannerCooldownResult, error) {
 	provider.calls++
+	provider.inputs = append(provider.inputs, input)
 	return ScannerCooldownResult{
 		Accepted: provider.accepted,
 		ReadyAt:  provider.readyAt,

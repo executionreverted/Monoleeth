@@ -94,7 +94,7 @@ Does not own:
 - [x] Consume X Core through inventory service.
 - [x] Set global planet owner.
 - [x] Emit `planet.claimed`.
-- [x] Mark stale listed intel skeleton event for future market phase.
+- [x] Mark older personal intel stale on planet ownership change.
 
 ## TODO: Intel Sharing And Items
 
@@ -109,7 +109,7 @@ Does not own:
 - [x] Store scroll metadata server-side.
 - [x] Implement coordinate scroll use.
 - [x] Consume scroll on use in MVP.
-- [x] Add stale marking hook when planet ownership changes.
+- [x] Add personal-intel stale marking hook when planet ownership changes.
 
 ## Tests
 

@@ -368,8 +368,10 @@ func (service *CoordinateScrollService) UseCoordinateScroll(input UseCoordinateS
 	return cloneUseCoordinateScrollResult(result), nil
 }
 
-// CoordinateScrollMetadata returns the server-side metadata for one scroll item.
-func (service *CoordinateScrollService) CoordinateScrollMetadata(scrollItemInstanceID foundation.ItemID) (CoordinateScrollMetadata, bool, error) {
+// coordinateScrollMetadata returns the server-side metadata for one scroll item.
+// It is intentionally unexported because coordinate payload lookup needs a
+// player/item authorization boundary before becoming a public query.
+func (service *CoordinateScrollService) coordinateScrollMetadata(scrollItemInstanceID foundation.ItemID) (CoordinateScrollMetadata, bool, error) {
 	if err := scrollItemInstanceID.Validate(); err != nil {
 		return CoordinateScrollMetadata{}, false, err
 	}

@@ -159,8 +159,8 @@ func TestClaimPlanetSuccessConsumesXCoreSetsOwnerEmitsEventAndMarksIntelStale(t 
 	if len(events) != 1 || events[0].Type != ClaimEventPlanetClaimed {
 		t.Fatalf("claim events = %+v, want one %s", events, ClaimEventPlanetClaimed)
 	}
-	if !claimStaleIntelIncludes(result.StaleIntel, "player_cartographer") {
-		t.Fatalf("stale intel = %+v, want player_cartographer", result.StaleIntel)
+	if result.StaleIntelCount != 2 {
+		t.Fatalf("stale intel count = %d, want 2", result.StaleIntelCount)
 	}
 	stale, ok, err := store.PlayerPlanetIntel("player_cartographer", planet.ID)
 	if err != nil || !ok {
@@ -225,6 +225,9 @@ func TestClaimPlanetAlreadyOwnedByAnotherPlayerRejected(t *testing.T) {
 	_, err := service.ClaimPlanet(claimInput("claim_owned_other", planet.ID))
 	if !errors.Is(err, ErrPlanetAlreadyOwned) {
 		t.Fatalf("ClaimPlanet() error = %v, want ErrPlanetAlreadyOwned", err)
+	}
+	if strings.Contains(err.Error(), "player_other") {
+		t.Fatalf("ClaimPlanet() error leaked owner id: %v", err)
 	}
 	if got := len(consumer.calls); got != 0 {
 		t.Fatalf("x core consume calls = %d, want 0", got)
@@ -322,15 +325,6 @@ func claimTestXCoreDefinition(t *testing.T) economy.ItemDefinition {
 
 func claimTestTime() time.Time {
 	return testTime(10)
-}
-
-func claimStaleIntelIncludes(records []PlayerPlanetIntel, playerID foundation.PlayerID) bool {
-	for _, record := range records {
-		if record.PlayerID == playerID && record.State == IntelStateStale {
-			return true
-		}
-	}
-	return false
 }
 
 type fixedClaimClock struct {
