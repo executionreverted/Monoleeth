@@ -36,10 +36,11 @@ type InventoryService struct {
 	nextItemSequence   int64
 	nextLedgerSequence int64
 
-	stackableItems    []StackableItem
-	instanceItems     []InstanceItem
-	itemLedgerEntries []ItemLedgerEntry
-	addItemReferences map[inventoryReferenceKey]AddItemResult
+	stackableItems     []StackableItem
+	instanceItems      []InstanceItem
+	itemLedgerEntries  []ItemLedgerEntry
+	addItemReferences  map[inventoryReferenceKey]AddItemResult
+	moveItemReferences map[inventoryReferenceKey]MoveItemResult
 }
 
 type inventoryReferenceKey struct {
@@ -54,8 +55,9 @@ func NewInventoryService(clock foundation.Clock) *InventoryService {
 		clock = foundation.RealClock{}
 	}
 	return &InventoryService{
-		clock:             clock,
-		addItemReferences: make(map[inventoryReferenceKey]AddItemResult),
+		clock:              clock,
+		addItemReferences:  make(map[inventoryReferenceKey]AddItemResult),
+		moveItemReferences: make(map[inventoryReferenceKey]MoveItemResult),
 	}
 }
 

@@ -104,7 +104,7 @@ reputation_token
 - [x] Define currency ledger entry model.
 - [x] Define reservation model for craft, market, and auction.
 - [x] Implement `AddItem`.
-- [ ] Implement `MoveItem`.
+- [x] Implement `MoveItem`.
 - [ ] Implement `RemoveItem`.
 - [ ] Implement `ReserveItems`.
 - [ ] Implement `ReleaseReservation`.
@@ -146,9 +146,9 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [ ] Transfer writes debit and credit ledger entries.
 - [ ] Cargo capacity blocks over-capacity add.
 - [ ] Concurrent cargo pickup simulation only allows capacity-safe result.
-- [ ] Stack merge respects max stack.
+- [x] Stack merge respects max stack.
 - [x] Instance item quantity cannot exceed 1.
-- [ ] Escrow item cannot be moved by generic player move.
+- [x] Escrow item cannot be moved by generic player move.
 - [ ] Craft reserved item cannot be listed or equipped.
 - [ ] Premium earned bucket cannot be used where paid premium is required.
 - [ ] Transaction rollback does not leave ledger-only changes.
