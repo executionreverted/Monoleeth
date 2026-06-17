@@ -23,6 +23,13 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			want:  "craft_complete:craft-job-4",
 		},
 		{
+			name: "death cargo drop",
+			build: func() (IdempotencyKey, error) {
+				return DeathCargoDropIdempotencyKey(EventID("death-combat-9"), ItemID("iron-stack-1"))
+			},
+			want: "death_cargo_drop:death-combat-9:iron-stack-1",
+		},
+		{
 			name:  "loot pickup",
 			build: func() (IdempotencyKey, error) { return LootPickupIdempotencyKey("drop-8") },
 			want:  "loot_pickup:drop-8",
@@ -138,6 +145,8 @@ func TestIdempotencyKeyRejectsMalformedKeys(t *testing.T) {
 		"unknown:part",
 		"quest_reward:",
 		"quest_reward:player-quest-9:extra",
+		"death_cargo_drop:death-combat-9",
+		"death_cargo_drop:death-combat-9:iron-stack-1:extra",
 		"offline_settlement:planet-4",
 		"market_buy:listing-9:player-2",
 		"ship_repair:fighter_t1",
@@ -184,6 +193,18 @@ func TestIdempotencyKeyHelpersRejectDelimiterParts(t *testing.T) {
 			build: func() (IdempotencyKey, error) { return CraftCompleteIdempotencyKey("craft:job:4") },
 		},
 		{
+			name: "death cargo drop death id delimiter",
+			build: func() (IdempotencyKey, error) {
+				return DeathCargoDropIdempotencyKey(EventID("death:combat:9"), ItemID("iron-stack-1"))
+			},
+		},
+		{
+			name: "death cargo drop stack id delimiter",
+			build: func() (IdempotencyKey, error) {
+				return DeathCargoDropIdempotencyKey(EventID("death-combat-9"), ItemID("iron:stack:1"))
+			},
+		},
+		{
 			name: "offline settlement delimiter",
 			build: func() (IdempotencyKey, error) {
 				return OfflineSettlementIdempotencyKey(PlanetID("planet-4"), "window:20260617")
@@ -225,6 +246,18 @@ func TestIdempotencyKeyHelpersRejectBlankParts(t *testing.T) {
 		{
 			name:  "craft complete job id",
 			build: func() (IdempotencyKey, error) { return CraftCompleteIdempotencyKey(" ") },
+		},
+		{
+			name: "death cargo drop death id",
+			build: func() (IdempotencyKey, error) {
+				return DeathCargoDropIdempotencyKey(EventID(""), ItemID("iron-stack-1"))
+			},
+		},
+		{
+			name: "death cargo drop stack id",
+			build: func() (IdempotencyKey, error) {
+				return DeathCargoDropIdempotencyKey(EventID("death-combat-9"), ItemID(""))
+			},
 		},
 		{
 			name:  "loot pickup drop id",

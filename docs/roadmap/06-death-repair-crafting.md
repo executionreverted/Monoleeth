@@ -117,10 +117,15 @@ Crafting:
 ## Tests
 
 - [x] Death processed once for duplicate lethal event.
+- [x] Death zone/policy mismatch is rejected before mutation. Verified 2026-06-17 by `DeathService.ProcessDeath` hardening tests.
+- [x] Ship disable failure leaves cargo and loot untouched. Verified 2026-06-17 by `DeathService.ProcessDeath` hardening tests.
+- [x] New lethal event for an already-disabled active ship does not create another cargo drop/death cycle. Verified 2026-06-17 by `DeathService.ProcessDeath` hardening tests.
 - [x] Cargo drop percent is inside zone range.
 - [x] Non-droppable item stays in cargo.
 - [x] Dropped items become world drops.
 - [x] Active ship becomes disabled.
+- [x] Death cargo removal ledger uses `death_cargo_drop:*` references instead of `loot_pickup:*`. Verified 2026-06-17 by `DeathService.ProcessDeath` hardening tests.
+- [x] Death cargo rows from another owner, another ship cargo location, or non-ship-cargo location are rejected before inventory mutation. Verified 2026-06-17 by `DeathService.ProcessDeath` hardening tests.
 - [ ] Dead/disabled ship cannot fight.
 - [x] Starter fallback works when all ships disabled.
 - [x] Repair charges correct wallet amount. Verified 2026-06-17 by successful repair debit ledger test.

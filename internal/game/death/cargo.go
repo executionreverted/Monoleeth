@@ -62,6 +62,7 @@ type CargoDrop struct {
 	Definition        CargoItemDefinition    `json:"definition"`
 	Type              economy.ItemType       `json:"item_type"`
 	EconomyDefinition economy.ItemDefinition `json:"item_definition,omitempty"`
+	OwnerPlayerID     foundation.PlayerID    `json:"owner_player_id,omitempty"`
 	SourceLocation    economy.ItemLocation   `json:"source_location"`
 	Quantity          int64                  `json:"quantity"`
 }
@@ -334,6 +335,7 @@ func cargoDropFromStack(stack CargoStack, quantity int64) CargoDrop {
 		Definition:        stack.Definition,
 		Type:              stack.Definition.Type,
 		EconomyDefinition: stack.EconomyDefinition,
+		OwnerPlayerID:     stack.OwnerPlayerID,
 		SourceLocation:    stack.Location,
 		Quantity:          quantity,
 	}

@@ -27,6 +27,7 @@ type IdempotencyKey string
 const (
 	idempotencyQuestReward       = "quest_reward"
 	idempotencyCraftComplete     = "craft_complete"
+	idempotencyDeathCargoDrop    = "death_cargo_drop"
 	idempotencyLootPickup        = "loot_pickup"
 	idempotencyAuctionClose      = "auction_close"
 	idempotencyPremiumWebhook    = "premium_webhook"
@@ -51,6 +52,11 @@ func QuestRewardIdempotencyKey(playerQuestID QuestID) (IdempotencyKey, error) {
 // CraftCompleteIdempotencyKey returns craft_complete:<job_id>.
 func CraftCompleteIdempotencyKey(jobID string) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyCraftComplete, jobID)
+}
+
+// DeathCargoDropIdempotencyKey returns death_cargo_drop:<death_id>:<stack_id>.
+func DeathCargoDropIdempotencyKey(deathID EventID, stackID ItemID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyDeathCargoDrop, deathID.String(), stackID.String())
 }
 
 // LootPickupIdempotencyKey returns loot_pickup:<drop_id>.
@@ -178,7 +184,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 		return 2, true
 	case idempotencyMarketBuy:
 		return 3, true
-	case idempotencyShipRepair:
+	case idempotencyShipRepair,
+		idempotencyDeathCargoDrop:
 		return 2, true
 	default:
 		return 0, false

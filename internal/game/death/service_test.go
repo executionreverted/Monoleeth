@@ -2,6 +2,7 @@ package death_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,6 +71,16 @@ func TestDeathServiceProcessDeathDropsCargoCreatesLootDisablesShipRecordsRespawn
 	if got, want := len(result.CargoRemovalResults), 1; got != want {
 		t.Fatalf("CargoRemovalResults len = %d, want %d", got, want)
 	}
+	if got, want := len(result.CargoRemovalResults[0].LedgerEntries), 1; got != want {
+		t.Fatalf("cargo removal ledger entries = %d, want %d", got, want)
+	}
+	wantReference := "death_cargo_drop:death-lethal-event-1:" + result.CargoDrops[0].SourceStackID.String()
+	if got := result.CargoRemovalResults[0].LedgerEntries[0].ReferenceKey.String(); got != wantReference {
+		t.Fatalf("death cargo ledger reference = %q, want %q", got, wantReference)
+	}
+	if got := result.CargoRemovalResults[0].LedgerEntries[0].ReferenceKey.String(); strings.HasPrefix(got, "loot_pickup:") {
+		t.Fatalf("death cargo ledger reference = %q, must not use loot_pickup", got)
+	}
 	if got, want := len(result.LootDrops), 1; got != want {
 		t.Fatalf("LootDrops len = %d, want %d", got, want)
 	}
@@ -95,6 +106,28 @@ func TestDeathServiceProcessDeathDropsCargoCreatesLootDisablesShipRecordsRespawn
 		result.ModuleDurabilityResult == nil ||
 		len(result.ModuleDurabilityResult.SelectedItemIDs) != 2 {
 		t.Fatalf("module hook call/result = %+v / %+v, want selected equipped ids", hook.calls[0], result.ModuleDurabilityResult)
+	}
+}
+
+func TestDeathServiceProcessDeathRejectsZonePolicyMismatch(t *testing.T) {
+	fixture := newDeathServiceFixture(t, nil, nil)
+	policy, err := death.NewZoneCargoDropPolicy("zone-2", 0.50, 0.50)
+	if err != nil {
+		t.Fatalf("NewZoneCargoDropPolicy() error = %v", err)
+	}
+
+	_, err = fixture.death.ProcessDeath(death.ProcessDeathInput{
+		LethalEventID:     "lethal-event-zone-mismatch",
+		PlayerID:          "player-1",
+		WorldID:           "world-1",
+		ZoneID:            "zone-1",
+		Position:          world.Vec2{X: 12, Y: 34},
+		Reason:            death.DeathReasonCombat,
+		CargoDropPolicy:   policy,
+		RespawnLocationID: "origin-station",
+	})
+	if !errors.Is(err, death.ErrCargoDropPolicyZoneMismatch) {
+		t.Fatalf("ProcessDeath() error = %v, want ErrCargoDropPolicyZoneMismatch", err)
 	}
 }
 
@@ -155,6 +188,66 @@ func TestDeathServiceProcessDeathDuplicateLethalEventDoesNotMutateTwice(t *testi
 		t.Fatalf("module hook calls after duplicate = %d, want 1", len(hook.calls))
 	}
 	assertDeathServiceFighterDisabledAt(t, fixture.ships, firstDisabledAt)
+}
+
+func TestDeathServiceProcessDeathAlreadyDisabledActiveShipNewLethalEventDoesNotDropAgain(t *testing.T) {
+	fixture := newDeathServiceFixture(t, nil, nil)
+	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
+	cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
+	added := fixture.addCargo(t, iron, 10, cargoLocation)
+	input := death.ProcessDeathInput{
+		LethalEventID:   "lethal-event-first-disable",
+		PlayerID:        "player-1",
+		WorldID:         "world-1",
+		ZoneID:          "zone-1",
+		Position:        world.Vec2{X: 1, Y: 2},
+		Reason:          death.DeathReasonCombat,
+		CargoDropPolicy: cargoPolicy(t, 0.50, 0.50),
+		Cargo: []death.CargoStack{
+			cargoStackFromDeathServiceStackable(t, added.StackableItems[0], iron),
+		},
+		RespawnLocationID: "origin-station",
+	}
+	first, err := fixture.death.ProcessDeath(input)
+	if err != nil {
+		t.Fatalf("first ProcessDeath() error = %v", err)
+	}
+	if got := len(first.LootDrops); got != 1 {
+		t.Fatalf("first loot drops = %d, want 1", got)
+	}
+	ledgerCount := len(fixture.inventory.ItemLedgerEntries())
+	if got := fixture.inventory.TotalItemQuantity("player-1", iron.ItemID, cargoLocation); got != 5 {
+		t.Fatalf("remaining cargo after first death = %d, want 5", got)
+	}
+
+	input.LethalEventID = "lethal-event-after-disabled"
+	second, err := fixture.death.ProcessDeath(input)
+	if err != nil {
+		t.Fatalf("new lethal ProcessDeath() error = %v", err)
+	}
+	if !second.Duplicate || !second.ShipDisableResult.Duplicate {
+		t.Fatalf("new lethal result = %+v, want duplicate disabled no-op", second)
+	}
+	if len(second.CargoDrops) != 0 || len(second.CargoRemovalResults) != 0 || len(second.LootDrops) != 0 {
+		t.Fatalf("new lethal mutated death outputs = %+v, want no cargo removal or loot", second)
+	}
+	if got := fixture.inventory.TotalItemQuantity("player-1", iron.ItemID, cargoLocation); got != 5 {
+		t.Fatalf("remaining cargo after new lethal = %d, want 5", got)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != ledgerCount {
+		t.Fatalf("ledger entries after new lethal = %d, want %d", got, ledgerCount)
+	}
+
+	retry, err := fixture.death.ProcessDeath(input)
+	if err != nil {
+		t.Fatalf("same lethal retry ProcessDeath() error = %v", err)
+	}
+	if !retry.Duplicate || !retry.ShipDisableResult.Duplicate {
+		t.Fatalf("same lethal retry result = %+v, want cached duplicate", retry)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != ledgerCount {
+		t.Fatalf("ledger entries after same lethal retry = %d, want %d", got, ledgerCount)
+	}
 }
 
 func TestDeathServiceProcessDeathRetryAfterLootFailureDoesNotRemoveCargoTwice(t *testing.T) {
@@ -280,11 +373,12 @@ func TestDeathServiceProcessDeathRetryAfterFailureReusesOriginalCargoSelection(t
 	}
 }
 
-func TestDeathServiceProcessDeathRetryAfterShipFailureDoesNotDuplicateCargoOrLoot(t *testing.T) {
+func TestDeathServiceProcessDeathShipDisableFailureLeavesCargoAndLootUntouched(t *testing.T) {
 	fixture := newDeathServiceFixture(t, nil, nil)
 	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
 	cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
 	added := fixture.addCargo(t, iron, 10, cargoLocation)
+	recordingLoot := &recordingDeathServiceLoot{delegate: fixture.loot}
 	flakyShips := &failOnceDeathServiceShips{
 		delegate: fixture.ships,
 		err:      errors.New("temporary ship store outage"),
@@ -293,7 +387,7 @@ func TestDeathServiceProcessDeathRetryAfterShipFailureDoesNotDuplicateCargoOrLoo
 		Clock:     fixture.clock,
 		RNG:       testutil.NewFakeRNG(nil, nil),
 		Inventory: fixture.inventory,
-		Loot:      fixture.loot,
+		Loot:      recordingLoot,
 		Ships:     flakyShips,
 	})
 	if err != nil {
@@ -316,9 +410,13 @@ func TestDeathServiceProcessDeathRetryAfterShipFailureDoesNotDuplicateCargoOrLoo
 	if _, err := deathService.ProcessDeath(input); !errors.Is(err, flakyShips.err) {
 		t.Fatalf("first ProcessDeath() error = %v, want %v", err, flakyShips.err)
 	}
-	if got := fixture.inventory.TotalItemQuantity("player-1", iron.ItemID, cargoLocation); got != 5 {
-		t.Fatalf("remaining cargo after failed ship disable = %d, want 5", got)
+	if got := fixture.inventory.TotalItemQuantity("player-1", iron.ItemID, cargoLocation); got != 10 {
+		t.Fatalf("remaining cargo after failed ship disable = %d, want 10", got)
 	}
+	if recordingLoot.calls != 0 {
+		t.Fatalf("loot calls after failed ship disable = %d, want 0", recordingLoot.calls)
+	}
+	assertDeathServiceFighterActive(t, fixture.ships)
 	ledgerCount := len(fixture.inventory.ItemLedgerEntries())
 
 	result, err := deathService.ProcessDeath(input)
@@ -328,16 +426,83 @@ func TestDeathServiceProcessDeathRetryAfterShipFailureDoesNotDuplicateCargoOrLoo
 	if got := fixture.inventory.TotalItemQuantity("player-1", iron.ItemID, cargoLocation); got != 5 {
 		t.Fatalf("remaining cargo after retry = %d, want 5", got)
 	}
-	if got := len(fixture.inventory.ItemLedgerEntries()); got != ledgerCount {
-		t.Fatalf("ledger entries after retry = %d, want %d", got, ledgerCount)
+	if got, want := len(fixture.inventory.ItemLedgerEntries()), ledgerCount+1; got != want {
+		t.Fatalf("ledger entries after retry = %d, want %d", got, want)
 	}
-	if got := len(result.CargoRemovalResults); got != 1 || !result.CargoRemovalResults[0].Duplicate {
-		t.Fatalf("retry removal results = %+v, want one duplicate inventory result", result.CargoRemovalResults)
+	if got := len(result.CargoRemovalResults); got != 1 || result.CargoRemovalResults[0].Duplicate {
+		t.Fatalf("retry removal results = %+v, want one non-duplicate inventory result", result.CargoRemovalResults)
 	}
 	if got := len(result.LootDrops); got != 1 {
 		t.Fatalf("retry loot drops = %d, want 1", got)
 	}
+	if recordingLoot.calls != 1 {
+		t.Fatalf("loot calls after retry = %d, want 1", recordingLoot.calls)
+	}
 	assertDeathServiceFighterDisabled(t, fixture.ships)
+}
+
+func TestDeathServiceProcessDeathRejectsCargoOutsidePlayerActiveShipBeforeMutation(t *testing.T) {
+	cases := []struct {
+		name    string
+		mutate  func(*testing.T, *death.CargoStack)
+		wantErr error
+	}{
+		{
+			name: "another player owner",
+			mutate: func(t *testing.T, stack *death.CargoStack) {
+				stack.OwnerPlayerID = "player-2"
+			},
+			wantErr: death.ErrDeathCargoOwnerMismatch,
+		},
+		{
+			name: "another ship cargo",
+			mutate: func(t *testing.T, stack *death.CargoStack) {
+				stack.Location = mustDeathServiceCargoLocation(t, ships.ShipIDStarter.String())
+			},
+			wantErr: death.ErrDeathCargoLocationMismatch,
+		},
+		{
+			name: "non ship cargo location",
+			mutate: func(t *testing.T, stack *death.CargoStack) {
+				stack.Location = mustDeathServiceLocation(t, economy.LocationKindAccountInventory, "player-1")
+			},
+			wantErr: death.ErrDeathCargoLocationMismatch,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newDeathServiceFixture(t, nil, nil)
+			iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
+			cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
+			added := fixture.addCargo(t, iron, 10, cargoLocation)
+			stack := cargoStackFromDeathServiceStackable(t, added.StackableItems[0], iron)
+			tc.mutate(t, &stack)
+			ledgerCount := len(fixture.inventory.ItemLedgerEntries())
+
+			_, err := fixture.death.ProcessDeath(death.ProcessDeathInput{
+				LethalEventID:     "lethal-event-invalid-cargo",
+				PlayerID:          "player-1",
+				WorldID:           "world-1",
+				ZoneID:            "zone-1",
+				Position:          world.Vec2{X: 1, Y: 2},
+				Reason:            death.DeathReasonCombat,
+				CargoDropPolicy:   cargoPolicy(t, 0.50, 0.50),
+				Cargo:             []death.CargoStack{stack},
+				RespawnLocationID: "origin-station",
+			})
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("ProcessDeath() error = %v, want %v", err, tc.wantErr)
+			}
+			if got := fixture.inventory.TotalItemQuantity("player-1", iron.ItemID, cargoLocation); got != 10 {
+				t.Fatalf("remaining cargo after reject = %d, want 10", got)
+			}
+			if got := len(fixture.inventory.ItemLedgerEntries()); got != ledgerCount {
+				t.Fatalf("ledger entries after reject = %d, want %d", got, ledgerCount)
+			}
+			assertDeathServiceFighterActive(t, fixture.ships)
+		})
+	}
 }
 
 func TestDeathServiceProcessDeathPreservesProtectedCargo(t *testing.T) {
@@ -561,9 +726,34 @@ func assertDeathServiceFighterDisabledAt(t *testing.T, service *ships.HangarServ
 	t.Fatalf("fighter_t1 missing from hangar snapshot %+v", snapshot)
 }
 
+func assertDeathServiceFighterActive(t *testing.T, service *ships.HangarService) {
+	t.Helper()
+	snapshot, err := service.GetHangar("player-1")
+	if err != nil {
+		t.Fatalf("GetHangar() error = %v", err)
+	}
+	if !snapshot.HasActiveShip || snapshot.ActiveShip.ShipID != ships.ShipIDFighterT1 {
+		t.Fatalf("active ship = %+v has=%v, want fighter_t1", snapshot.ActiveShip, snapshot.HasActiveShip)
+	}
+	for _, playerShip := range snapshot.Ships {
+		if playerShip.ShipID == ships.ShipIDFighterT1 {
+			if playerShip.State != ships.ShipStateActive {
+				t.Fatalf("fighter state = %+v, want active", playerShip)
+			}
+			return
+		}
+	}
+	t.Fatalf("fighter_t1 missing from hangar snapshot %+v", snapshot)
+}
+
 func mustDeathServiceCargoLocation(t *testing.T, id string) economy.ItemLocation {
 	t.Helper()
-	location, err := economy.NewItemLocation(economy.LocationKindShipCargo, id)
+	return mustDeathServiceLocation(t, economy.LocationKindShipCargo, id)
+}
+
+func mustDeathServiceLocation(t *testing.T, kind economy.LocationKind, id string) economy.ItemLocation {
+	t.Helper()
+	location, err := economy.NewItemLocation(kind, id)
 	if err != nil {
 		t.Fatalf("NewItemLocation() error = %v", err)
 	}
@@ -613,10 +803,24 @@ func (service *failOnceDeathServiceLoot) CreateDropsForPlayerDeath(input loot.Cr
 	return service.delegate.CreateDropsForPlayerDeath(input)
 }
 
+type recordingDeathServiceLoot struct {
+	delegate death.PlayerDeathDropCreator
+	calls    int
+}
+
+func (service *recordingDeathServiceLoot) CreateDropsForPlayerDeath(input loot.CreatePlayerDeathDropsInput) (loot.CreateDropsResult, error) {
+	service.calls++
+	return service.delegate.CreateDropsForPlayerDeath(input)
+}
+
 type failOnceDeathServiceShips struct {
 	delegate death.ActiveShipDisabler
 	err      error
 	calls    int
+}
+
+func (service *failOnceDeathServiceShips) GetHangar(playerID foundation.PlayerID) (ships.HangarSnapshot, error) {
+	return service.delegate.GetHangar(playerID)
 }
 
 func (service *failOnceDeathServiceShips) DisableActiveShipForDeath(input ships.DisableActiveShipForDeathInput) (ships.DisableActiveShipForDeathResult, error) {

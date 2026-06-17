@@ -2,6 +2,7 @@ package death
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 
 	"gameproject/internal/game/catalog"
@@ -21,9 +22,12 @@ const (
 )
 
 var (
-	ErrNilInventoryService = errors.New("nil inventory service")
-	ErrNilLootService      = errors.New("nil loot service")
-	ErrNilShipService      = errors.New("nil ship service")
+	ErrNilInventoryService         = errors.New("nil inventory service")
+	ErrNilLootService              = errors.New("nil loot service")
+	ErrNilShipService              = errors.New("nil ship service")
+	ErrCargoDropPolicyZoneMismatch = errors.New("cargo drop policy zone mismatch")
+	ErrDeathCargoOwnerMismatch     = errors.New("death cargo owner mismatch")
+	ErrDeathCargoLocationMismatch  = errors.New("death cargo location mismatch")
 )
 
 // InventoryRemover is the inventory boundary DeathService needs for cargo loss.
@@ -39,6 +43,7 @@ type PlayerDeathDropCreator interface {
 
 // ActiveShipDisabler is the ship boundary DeathService needs after lethal damage.
 type ActiveShipDisabler interface {
+	GetHangar(foundation.PlayerID) (ships.HangarSnapshot, error)
 	DisableActiveShipForDeath(ships.DisableActiveShipForDeathInput) (ships.DisableActiveShipForDeathResult, error)
 }
 
@@ -76,7 +81,9 @@ type DeathService struct {
 }
 
 type processDeathAttempt struct {
-	selection CargoDropSelection
+	selection         CargoDropSelection
+	shipDisabled      bool
+	shipDisableResult ships.DisableActiveShipForDeathResult
 }
 
 // ProcessDeathInput is one authoritative lethal event to process once.
@@ -189,6 +196,48 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 
 	attempt, ok := service.attempts[lethalKey]
 	if !ok {
+		activeShipID, activeShipDisabled, err := service.activeShipForDeath(input.PlayerID)
+		if err != nil {
+			return ProcessDeathResult{}, err
+		}
+		if activeShipDisabled {
+			shipDisable, err := service.ships.DisableActiveShipForDeath(ships.DisableActiveShipForDeathInput{
+				PlayerID: input.PlayerID,
+			})
+			if err != nil {
+				return ProcessDeathResult{}, err
+			}
+			result := ProcessDeathResult{
+				ShipDisableResult: shipDisable,
+				Duplicate:         true,
+			}
+			service.processed[lethalKey] = cloneProcessDeathResult(result)
+			return cloneProcessDeathResult(result), nil
+		}
+		if err := validateDeathCargoStacks(input.PlayerID, activeShipID, input.Cargo); err != nil {
+			return ProcessDeathResult{}, err
+		}
+	}
+
+	shipDisable, err := service.ships.DisableActiveShipForDeath(ships.DisableActiveShipForDeathInput{
+		PlayerID: input.PlayerID,
+	})
+	if err != nil {
+		return ProcessDeathResult{}, err
+	}
+	if shipDisable.Duplicate && !ok {
+		result := ProcessDeathResult{
+			ShipDisableResult: shipDisable,
+			Duplicate:         true,
+		}
+		service.processed[lethalKey] = cloneProcessDeathResult(result)
+		return cloneProcessDeathResult(result), nil
+	}
+
+	if !ok {
+		if err := validateDeathCargoStacks(input.PlayerID, shipDisable.ActiveShip.ShipID, input.Cargo); err != nil {
+			return ProcessDeathResult{}, err
+		}
 		selection, err := SelectCargoDrops(SelectCargoDropsInput{
 			Policy: input.CargoDropPolicy,
 			Cargo:  input.Cargo,
@@ -197,14 +246,27 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 		if err != nil {
 			return ProcessDeathResult{}, err
 		}
-		attempt = processDeathAttempt{selection: cloneCargoDropSelection(selection)}
+		if err := validateDeathCargoDrops(input.PlayerID, shipDisable.ActiveShip.ShipID, selection.Drops); err != nil {
+			return ProcessDeathResult{}, err
+		}
+		attempt = processDeathAttempt{
+			selection:         cloneCargoDropSelection(selection),
+			shipDisabled:      shipDisable.Disabled,
+			shipDisableResult: shipDisable,
+		}
 		service.attempts[lethalKey] = attempt
 	}
 	selection := cloneCargoDropSelection(attempt.selection)
+	if err := validateDeathCargoDrops(input.PlayerID, shipDisable.ActiveShip.ShipID, selection.Drops); err != nil {
+		return ProcessDeathResult{}, err
+	}
+	if attempt.shipDisabled && shipDisable.Duplicate {
+		shipDisable = attempt.shipDisableResult
+	}
 
 	removalResults := make([]economy.RemoveItemResult, 0, len(selection.Drops))
 	for _, drop := range selection.Drops {
-		removed, err := service.inventory.RemoveItem(removeInputForDrop(input.PlayerID, input.LethalEventID, drop))
+		removed, err := service.inventory.RemoveItem(removeInputForDrop(input.PlayerID, deathID, drop))
 		if err != nil {
 			return ProcessDeathResult{}, err
 		}
@@ -221,13 +283,6 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 		if err != nil {
 			return ProcessDeathResult{}, err
 		}
-	}
-
-	shipDisable, err := service.ships.DisableActiveShipForDeath(ships.DisableActiveShipForDeathInput{
-		PlayerID: input.PlayerID,
-	})
-	if err != nil {
-		return ProcessDeathResult{}, err
 	}
 
 	var durabilityResult *ModuleDurabilityResult
@@ -305,6 +360,9 @@ func (input ProcessDeathInput) validate() error {
 	if err := input.CargoDropPolicy.Validate(); err != nil {
 		return err
 	}
+	if input.CargoDropPolicy.ZoneID != input.ZoneID {
+		return fmt.Errorf("cargo drop policy zone %q does not match death zone %q: %w", input.CargoDropPolicy.ZoneID, input.ZoneID, ErrCargoDropPolicyZoneMismatch)
+	}
 	if err := input.RespawnLocationID.Validate(); err != nil {
 		return err
 	}
@@ -321,14 +379,74 @@ func (input ProcessDeathInput) validate() error {
 	return nil
 }
 
-func removeInputForDrop(playerID foundation.PlayerID, lethalEventID foundation.EventID, drop CargoDrop) economy.RemoveItemInput {
+func (service *DeathService) activeShipForDeath(playerID foundation.PlayerID) (foundation.ShipID, bool, error) {
+	snapshot, err := service.ships.GetHangar(playerID)
+	if err != nil {
+		return "", false, err
+	}
+	if !snapshot.HasActiveShip {
+		return "", false, ships.ErrNoActiveShip
+	}
+	activeShipID := snapshot.ActiveShip.ShipID
+	for _, playerShip := range snapshot.Ships {
+		if playerShip.ShipID == activeShipID {
+			return activeShipID, playerShip.State == ships.ShipStateDisabled, nil
+		}
+	}
+	return "", false, fmt.Errorf("active ship %q: %w", activeShipID, ships.ErrShipNotUnlocked)
+}
+
+func validateDeathCargoStacks(playerID foundation.PlayerID, activeShipID foundation.ShipID, cargo []CargoStack) error {
+	if err := activeShipID.Validate(); err != nil {
+		return err
+	}
+	for index, stack := range cargo {
+		if err := stack.Validate(); err != nil {
+			return fmt.Errorf("cargo[%d]: %w", index, err)
+		}
+		if stack.OwnerPlayerID != playerID {
+			return fmt.Errorf("cargo[%d] owner %q does not match player %q: %w", index, stack.OwnerPlayerID, playerID, ErrDeathCargoOwnerMismatch)
+		}
+		if err := validateDeathCargoLocation(fmt.Sprintf("cargo[%d]", index), activeShipID, stack.Location); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateDeathCargoDrops(playerID foundation.PlayerID, activeShipID foundation.ShipID, drops []CargoDrop) error {
+	if err := activeShipID.Validate(); err != nil {
+		return err
+	}
+	for index, drop := range drops {
+		if drop.OwnerPlayerID != playerID {
+			return fmt.Errorf("cargo_drop[%d] owner %q does not match player %q: %w", index, drop.OwnerPlayerID, playerID, ErrDeathCargoOwnerMismatch)
+		}
+		if err := validateDeathCargoLocation(fmt.Sprintf("cargo_drop[%d]", index), activeShipID, drop.SourceLocation); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateDeathCargoLocation(label string, activeShipID foundation.ShipID, location economy.ItemLocation) error {
+	if location.Kind != economy.LocationKindShipCargo {
+		return fmt.Errorf("%s source location %q is not ship cargo for active ship %q: %w", label, location.Kind, activeShipID, ErrDeathCargoLocationMismatch)
+	}
+	if location.ID.String() != activeShipID.String() {
+		return fmt.Errorf("%s source location %q does not match active ship %q: %w", label, location.ID, activeShipID, ErrDeathCargoLocationMismatch)
+	}
+	return nil
+}
+
+func removeInputForDrop(playerID foundation.PlayerID, deathID foundation.EventID, drop CargoDrop) economy.RemoveItemInput {
 	definition, err := economyDefinitionForDrop(drop)
 	if err != nil {
 		// Input was already validated by SelectCargoDrops. Returning a zero
 		// definition here makes RemoveItem surface the validation error.
 		definition = economy.ItemDefinition{}
 	}
-	referenceKey, err := inventoryRemoveReferenceKey(lethalEventID, drop)
+	referenceKey, err := inventoryRemoveReferenceKey(deathID, drop)
 	if err != nil {
 		referenceKey = ""
 	}
@@ -450,14 +568,8 @@ func deathIDForLethalKey(key LethalEventKey) (foundation.EventID, error) {
 	return deathID, nil
 }
 
-func inventoryRemoveReferenceKey(lethalEventID foundation.EventID, drop CargoDrop) (foundation.IdempotencyKey, error) {
-	if err := lethalEventID.Validate(); err != nil {
-		return "", err
-	}
-	if err := drop.SourceStackID.Validate(); err != nil {
-		return "", err
-	}
-	return foundation.LootPickupIdempotencyKey("death-" + lethalEventID.String() + "-" + drop.SourceStackID.String())
+func inventoryRemoveReferenceKey(deathID foundation.EventID, drop CargoDrop) (foundation.IdempotencyKey, error) {
+	return foundation.DeathCargoDropIdempotencyKey(deathID, drop.SourceStackID)
 }
 
 func duplicateProcessDeathResult(result ProcessDeathResult) ProcessDeathResult {
