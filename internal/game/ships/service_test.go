@@ -96,7 +96,7 @@ func TestUnlockShipIsIdempotentByPlayerAndShip(t *testing.T) {
 }
 
 func TestUnlockShipRejectsRankGatedShipBeforePlayerRank(t *testing.T) {
-	service, _ := newTestHangarServiceWithRanks(t, StaticPlayerRankProvider{"player-1": 1})
+	service, _ := newTestHangarServiceWithRanksAndCargo(t, StaticPlayerRankProvider{"player-1": 1}, BaseShipCargoCapacityProvider{})
 
 	_, err := service.UnlockShip(UnlockShipInput{
 		PlayerID: "player-1",
@@ -165,7 +165,7 @@ func TestSetActiveShipSwapsInSafeHangarAndReturnsStatInvalidation(t *testing.T) 
 }
 
 func TestSetActiveShipRejectsRankGatedActiveShip(t *testing.T) {
-	service, _ := newTestHangarServiceWithRanks(t, StaticPlayerRankProvider{"player-1": 1})
+	service, _ := newTestHangarServiceWithRanksAndCargo(t, StaticPlayerRankProvider{"player-1": 1}, BaseShipCargoCapacityProvider{})
 	if _, err := service.EnsureStarterShip("player-1"); err != nil {
 		t.Fatalf("EnsureStarterShip error = %v, want nil", err)
 	}
@@ -186,6 +186,53 @@ func TestSetActiveShipRejectsRankGatedActiveShip(t *testing.T) {
 	})
 	if !errors.Is(err, ErrShipRankRequirementNotMet) {
 		t.Fatalf("SetActiveShip(rank gated) error = %v, want ErrShipRankRequirementNotMet", err)
+	}
+}
+
+func TestSetActiveShipUsesEffectiveTargetCargoCapacity(t *testing.T) {
+	service, _ := newTestHangarServiceWithCargo(t, StaticShipCargoCapacityProvider{
+		NewShipCargoCapacityKey("player-1", ShipIDFighterT1): 80,
+	})
+	ensureStarterAndUnlockFighter(t, service)
+
+	result, err := service.SetActiveShip(SetActiveShipInput{
+		PlayerID: "player-1",
+		ShipID:   ShipIDFighterT1,
+		Context: ShipSwapContext{
+			InSafeHangarArea:  true,
+			CurrentCargoUnits: 75,
+		},
+	})
+	if err != nil {
+		t.Fatalf("SetActiveShip with effective cargo error = %v, want nil", err)
+	}
+	if !result.ActiveChanged || result.ActiveShip.ShipID != ShipIDFighterT1 {
+		t.Fatalf("SetActiveShip result = %+v, want active fighter", result)
+	}
+}
+
+func TestSetActiveShipRejectsInvalidEffectiveTargetCargoCapacity(t *testing.T) {
+	service, _ := newTestHangarServiceWithCargo(t, StaticShipCargoCapacityProvider{
+		NewShipCargoCapacityKey("player-1", ShipIDFighterT1): -1,
+	})
+	ensureStarterAndUnlockFighter(t, service)
+
+	_, err := service.SetActiveShip(SetActiveShipInput{
+		PlayerID: "player-1",
+		ShipID:   ShipIDFighterT1,
+		Context: ShipSwapContext{
+			InSafeHangarArea: true,
+		},
+	})
+	if !errors.Is(err, ErrInvalidTargetCargoCapacity) {
+		t.Fatalf("SetActiveShip invalid target capacity error = %v, want ErrInvalidTargetCargoCapacity", err)
+	}
+	active, ok := service.store.ActiveShip("player-1")
+	if !ok {
+		t.Fatalf("active ship missing after failed swap")
+	}
+	if active.ShipID != ShipIDStarter {
+		t.Fatalf("active ship = %q, want %q after failed swap", active.ShipID, ShipIDStarter)
 	}
 }
 
@@ -314,10 +361,19 @@ func TestSetActiveShipRejectsUnknownLockedAndInvalidCargo(t *testing.T) {
 
 func newTestHangarService(t *testing.T) (*HangarService, *testutil.FakeClock) {
 	t.Helper()
-	return newTestHangarServiceWithRanks(t, StaticPlayerRankProvider{"player-1": 2})
+	return newTestHangarServiceWithRanksAndCargo(t, StaticPlayerRankProvider{"player-1": 2}, BaseShipCargoCapacityProvider{})
 }
 
-func newTestHangarServiceWithRanks(t *testing.T, ranks StaticPlayerRankProvider) (*HangarService, *testutil.FakeClock) {
+func newTestHangarServiceWithCargo(t *testing.T, cargo ShipCargoCapacityProvider) (*HangarService, *testutil.FakeClock) {
+	t.Helper()
+	return newTestHangarServiceWithRanksAndCargo(t, StaticPlayerRankProvider{"player-1": 2}, cargo)
+}
+
+func newTestHangarServiceWithRanksAndCargo(
+	t *testing.T,
+	ranks StaticPlayerRankProvider,
+	cargo ShipCargoCapacityProvider,
+) (*HangarService, *testutil.FakeClock) {
 	t.Helper()
 
 	catalogRows, err := MVPShipCatalog()
@@ -325,7 +381,7 @@ func newTestHangarServiceWithRanks(t *testing.T, ranks StaticPlayerRankProvider)
 		t.Fatalf("MVPShipCatalog error = %v", err)
 	}
 	clock := testutil.NewFakeClock(testShipServiceNow)
-	service, err := NewHangarService(catalogRows, NewInMemoryHangarStore(), ranks, clock)
+	service, err := NewHangarService(catalogRows, NewInMemoryHangarStore(), ranks, cargo, clock)
 	if err != nil {
 		t.Fatalf("NewHangarService error = %v", err)
 	}

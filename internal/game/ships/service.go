@@ -16,8 +16,10 @@ var (
 	ErrShipDisabled                 = errors.New("ship disabled")
 	ErrShipUnavailable              = errors.New("ship unavailable")
 	ErrInvalidCurrentCargoAmount    = errors.New("invalid current cargo amount")
+	ErrInvalidTargetCargoCapacity   = errors.New("invalid target cargo capacity")
 	ErrCargoExceedsTargetCapacity   = errors.New("current cargo exceeds target ship capacity")
 	ErrNilPlayerRankProvider        = errors.New("nil player rank provider")
+	ErrNilCargoCapacityProvider     = errors.New("nil cargo capacity provider")
 	ErrShipRankRequirementNotMet    = errors.New("ship rank requirement not met")
 )
 
@@ -30,6 +32,7 @@ type HangarService struct {
 	catalog Catalog
 	store   *InMemoryHangarStore
 	ranks   PlayerRankProvider
+	cargo   ShipCargoCapacityProvider
 	clock   foundation.Clock
 }
 
@@ -41,6 +44,25 @@ type PlayerRankProvider interface {
 // StaticPlayerRankProvider is a deterministic provider for tests and early
 // single-process slices.
 type StaticPlayerRankProvider map[foundation.PlayerID]int
+
+// ShipCargoCapacityProvider returns the authoritative effective cargo capacity
+// for a target ship. Runtime composition can back this with stat aggregation.
+type ShipCargoCapacityProvider interface {
+	CargoCapacityForShip(playerID foundation.PlayerID, target ShipDefinition) (int64, error)
+}
+
+// BaseShipCargoCapacityProvider returns catalog base cargo capacity. It is the
+// safe fallback before module-aware stat aggregation is wired at runtime.
+type BaseShipCargoCapacityProvider struct{}
+
+type shipCargoCapacityKey struct {
+	playerID foundation.PlayerID
+	shipID   foundation.ShipID
+}
+
+// StaticShipCargoCapacityProvider is a deterministic provider for tests and
+// early single-process slices. Missing entries fall back to catalog base cargo.
+type StaticShipCargoCapacityProvider map[shipCargoCapacityKey]int64
 
 // UnlockShipInput describes one authoritative ship unlock request.
 type UnlockShipInput struct {
@@ -122,9 +144,10 @@ func NewShipService(
 	catalogRows Catalog,
 	store *InMemoryHangarStore,
 	ranks PlayerRankProvider,
+	cargo ShipCargoCapacityProvider,
 	clock foundation.Clock,
 ) (*ShipService, error) {
-	return NewHangarService(catalogRows, store, ranks, clock)
+	return NewHangarService(catalogRows, store, ranks, cargo, clock)
 }
 
 // NewHangarService returns a hangar service backed by an in-memory hangar store.
@@ -132,6 +155,7 @@ func NewHangarService(
 	catalogRows Catalog,
 	store *InMemoryHangarStore,
 	ranks PlayerRankProvider,
+	cargo ShipCargoCapacityProvider,
 	clock foundation.Clock,
 ) (*HangarService, error) {
 	if _, ok := catalogRows.Get(ShipIDStarter); !ok {
@@ -139,6 +163,9 @@ func NewHangarService(
 	}
 	if ranks == nil {
 		return nil, ErrNilPlayerRankProvider
+	}
+	if cargo == nil {
+		return nil, ErrNilCargoCapacityProvider
 	}
 	if store == nil {
 		store = NewInMemoryHangarStore()
@@ -150,6 +177,7 @@ func NewHangarService(
 		catalog: catalogRows,
 		store:   store,
 		ranks:   ranks,
+		cargo:   cargo,
 		clock:   clock,
 	}, nil
 }
@@ -261,6 +289,13 @@ func (service *HangarService) SetActiveShip(input SetActiveShipInput) (SetActive
 	if err := service.validateRankRequirement(input.PlayerID, input.ShipID); err != nil {
 		return SetActiveShipResult{}, err
 	}
+	targetCargoCapacity, err := service.cargo.CargoCapacityForShip(input.PlayerID, targetDefinition)
+	if err != nil {
+		return SetActiveShipResult{}, err
+	}
+	if err := validateCargoCapacity(targetCargoCapacity); err != nil {
+		return SetActiveShipResult{}, err
+	}
 
 	now := service.clock.Now()
 	var result SetActiveShipResult
@@ -272,7 +307,7 @@ func (service *HangarService) SetActiveShip(input SetActiveShipInput) (SetActive
 		if err := validateTargetShipForActivation(targetShip); err != nil {
 			return err
 		}
-		if err := input.Context.validateForTarget(targetDefinition); err != nil {
+		if err := input.Context.validateForTargetCapacity(targetCargoCapacity); err != nil {
 			return err
 		}
 
@@ -363,8 +398,11 @@ func (input SetActiveShipInput) validate() error {
 	return input.Context.validateCargoAmount()
 }
 
-func (context ShipSwapContext) validateForTarget(target ShipDefinition) error {
+func (context ShipSwapContext) validateForTargetCapacity(targetCargoCapacity int64) error {
 	if err := context.validateCargoAmount(); err != nil {
+		return err
+	}
+	if err := validateCargoCapacity(targetCargoCapacity); err != nil {
 		return err
 	}
 	if context.InCombat {
@@ -373,11 +411,11 @@ func (context ShipSwapContext) validateForTarget(target ShipDefinition) error {
 	if !context.InSafeHangarArea {
 		return ErrNotInHangarArea
 	}
-	if context.CurrentCargoUnits > target.BaseStats.CargoCapacity {
+	if context.CurrentCargoUnits > targetCargoCapacity {
 		return fmt.Errorf(
 			"current cargo %d target capacity %d: %w",
 			context.CurrentCargoUnits,
-			target.BaseStats.CargoCapacity,
+			targetCargoCapacity,
 			ErrCargoExceedsTargetCapacity,
 		)
 	}
@@ -390,6 +428,16 @@ func (context ShipSwapContext) validateCargoAmount() error {
 	}
 	if context.CurrentCargoUnits > foundation.MaxAmount {
 		return fmt.Errorf("current cargo %d exceeds max %d: %w", context.CurrentCargoUnits, foundation.MaxAmount, ErrInvalidCurrentCargoAmount)
+	}
+	return nil
+}
+
+func validateCargoCapacity(capacity int64) error {
+	if capacity < 0 {
+		return fmt.Errorf("target cargo capacity %d: %w", capacity, ErrInvalidTargetCargoCapacity)
+	}
+	if capacity > foundation.MaxAmount {
+		return fmt.Errorf("target cargo capacity %d exceeds max %d: %w", capacity, foundation.MaxAmount, ErrInvalidTargetCargoCapacity)
 	}
 	return nil
 }
@@ -407,6 +455,42 @@ func (provider StaticPlayerRankProvider) RankForPlayer(playerID foundation.Playe
 		return 0, fmt.Errorf("rank %d: %w", rank, ErrShipRankRequirementNotMet)
 	}
 	return rank, nil
+}
+
+// CargoCapacityForShip returns the catalog base cargo capacity.
+func (BaseShipCargoCapacityProvider) CargoCapacityForShip(
+	playerID foundation.PlayerID,
+	target ShipDefinition,
+) (int64, error) {
+	if err := playerID.Validate(); err != nil {
+		return 0, err
+	}
+	if err := target.Validate(); err != nil {
+		return 0, err
+	}
+	return target.BaseStats.CargoCapacity, nil
+}
+
+// NewShipCargoCapacityKey returns a static provider key for one player ship.
+func NewShipCargoCapacityKey(playerID foundation.PlayerID, shipID foundation.ShipID) shipCargoCapacityKey {
+	return shipCargoCapacityKey{playerID: playerID, shipID: shipID}
+}
+
+// CargoCapacityForShip returns a configured effective capacity or base cargo.
+func (provider StaticShipCargoCapacityProvider) CargoCapacityForShip(
+	playerID foundation.PlayerID,
+	target ShipDefinition,
+) (int64, error) {
+	if err := playerID.Validate(); err != nil {
+		return 0, err
+	}
+	if err := target.Validate(); err != nil {
+		return 0, err
+	}
+	if capacity, ok := provider[NewShipCargoCapacityKey(playerID, target.ShipID)]; ok {
+		return capacity, nil
+	}
+	return target.BaseStats.CargoCapacity, nil
 }
 
 func (service *HangarService) validateRankRequirement(playerID foundation.PlayerID, shipID foundation.ShipID) error {

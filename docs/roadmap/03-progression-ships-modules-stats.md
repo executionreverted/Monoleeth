@@ -191,11 +191,13 @@ Verified slices:
 - Pilot skill definitions, `UnlockPilotSkill`, prerequisite/rank/role/point validation, duplicate unlock safety, and respec stat invalidation signals are implemented in `internal/game/progression`.
 - Final verification passed with `go test ./...`, `git diff --check`, and `go test -race ./internal/game/progression ./internal/game/modules ./internal/game/ships ./internal/game/stats`.
 - Review hardening batch 1 added concrete ship slot-layout validation for loadouts, player-scoped loadout ids, mandatory rank-up idempotency keys, no-op stat invalidation suppression for unchanged loadout apply and empty respec, non-zero active ship timestamp validation, ship rank requirement enforcement through a server-side rank provider, and module rank/role validation through a server-side progression provider.
+- Review hardening batch 2 changed ship swap cargo validation to use a server-side cargo capacity provider, so target capacity can come from effective stat aggregation instead of only catalog base cargo.
 
 Remaining follow-up:
 
 - XP source completion spoofing remains open until XP grants are wired behind concrete domain owners such as quest, combat, scanner, production, or crafting completion services.
 - Ship rank checks now go through `PlayerRankProvider`; wire that provider to the authoritative progression snapshot/store when the runtime composition layer lands.
 - Module rank/role checks now go through `PilotProgressionProvider`; wire that provider to the authoritative progression snapshot/store when the runtime composition layer lands.
+- Ship swap target cargo capacity now goes through `ShipCargoCapacityProvider`; wire that provider to authoritative effective stat snapshots before combat, scanner, or cargo-heavy flows consume ship swapping.
 - Module equip should move/bind item locations through an inventory ledger transaction.
 - Stat snapshots need an authoritative input builder from ship/module/progression records plus atomic invalidation/recalculation semantics before combat or scanner consume them.
