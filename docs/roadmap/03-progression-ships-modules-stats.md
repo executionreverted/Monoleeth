@@ -190,11 +190,12 @@ Verified slices:
 - Progression `GrantXP`, role XP, XP source/idempotency uniqueness, `TryRankUp`, rank history, rank-up skill point grant, and progression stat invalidation signals are implemented in `internal/game/progression`.
 - Pilot skill definitions, `UnlockPilotSkill`, prerequisite/rank/role/point validation, duplicate unlock safety, and respec stat invalidation signals are implemented in `internal/game/progression`.
 - Final verification passed with `go test ./...`, `git diff --check`, and `go test -race ./internal/game/progression ./internal/game/modules ./internal/game/ships ./internal/game/stats`.
-- Review hardening batch 1 added concrete ship slot-layout validation for loadouts, player-scoped loadout ids, mandatory rank-up idempotency keys, no-op stat invalidation suppression for unchanged loadout apply and empty respec, non-zero active ship timestamp validation, and ship rank requirement enforcement through a server-side rank provider.
+- Review hardening batch 1 added concrete ship slot-layout validation for loadouts, player-scoped loadout ids, mandatory rank-up idempotency keys, no-op stat invalidation suppression for unchanged loadout apply and empty respec, non-zero active ship timestamp validation, ship rank requirement enforcement through a server-side rank provider, and module rank/role validation through a server-side progression provider.
 
 Remaining follow-up:
 
 - XP source completion spoofing remains open until XP grants are wired behind concrete domain owners such as quest, combat, scanner, production, or crafting completion services.
 - Ship rank checks now go through `PlayerRankProvider`; wire that provider to the authoritative progression snapshot/store when the runtime composition layer lands.
-- Module equip should derive rank/role gates from authoritative progression state and move/bind item locations through an inventory ledger transaction.
+- Module rank/role checks now go through `PilotProgressionProvider`; wire that provider to the authoritative progression snapshot/store when the runtime composition layer lands.
+- Module equip should move/bind item locations through an inventory ledger transaction.
 - Stat snapshots need an authoritative input builder from ship/module/progression records plus atomic invalidation/recalculation semantics before combat or scanner consume them.

@@ -11,32 +11,35 @@ import (
 )
 
 var (
-	ErrEmptyLoadoutID             = errors.New("empty loadout id")
-	ErrEmptyLoadoutName           = errors.New("empty loadout name")
-	ErrZeroLoadoutTimestamp       = errors.New("zero loadout timestamp")
-	ErrUnknownLoadout             = errors.New("unknown loadout")
-	ErrLoadoutOwnerMismatch       = errors.New("loadout owner mismatch")
-	ErrLoadoutShipMismatch        = errors.New("loadout ship mismatch")
-	ErrDuplicateModuleAssignment  = errors.New("duplicate module assignment")
-	ErrUnknownModuleItem          = errors.New("unknown module item")
-	ErrModuleItemNotOwned         = errors.New("module item not owned")
-	ErrModuleItemInstanceMismatch = errors.New("module item instance mismatch")
-	ErrModuleItemAlreadyEquipped  = errors.New("module item already equipped")
-	ErrModuleItemNotEquipped      = errors.New("module item not equipped")
-	ErrInvalidModuleItemLocation  = errors.New("invalid module item location")
-	ErrBlockedModuleItemLocation  = errors.New("blocked module item location")
-	ErrNilShipSlotLayoutProvider  = errors.New("nil ship slot layout provider")
-	ErrUnknownShipSlotLayout      = errors.New("unknown ship slot layout")
-	ErrInvalidShipSlotLayout      = errors.New("invalid ship slot layout")
-	ErrModuleSlotUnavailable      = errors.New("module slot unavailable on ship")
-	ErrUnknownModuleDefinition    = errors.New("unknown module definition")
-	ErrWrongModuleSlotType        = errors.New("wrong module slot type")
-	ErrPlayerRankTooLow           = errors.New("player rank too low")
-	ErrPlayerRoleLevelTooLow      = errors.New("player role level too low")
-	ErrInvalidPlayerRoleLevel     = errors.New("invalid player role level")
-	ErrModuleBroken               = errors.New("module broken")
-	ErrActiveShipNotFound         = errors.New("active ship not found")
-	ErrNilLoadoutStore            = errors.New("nil loadout store")
+	ErrEmptyLoadoutID              = errors.New("empty loadout id")
+	ErrEmptyLoadoutName            = errors.New("empty loadout name")
+	ErrZeroLoadoutTimestamp        = errors.New("zero loadout timestamp")
+	ErrUnknownLoadout              = errors.New("unknown loadout")
+	ErrLoadoutOwnerMismatch        = errors.New("loadout owner mismatch")
+	ErrLoadoutShipMismatch         = errors.New("loadout ship mismatch")
+	ErrDuplicateModuleAssignment   = errors.New("duplicate module assignment")
+	ErrUnknownModuleItem           = errors.New("unknown module item")
+	ErrModuleItemNotOwned          = errors.New("module item not owned")
+	ErrModuleItemInstanceMismatch  = errors.New("module item instance mismatch")
+	ErrModuleItemAlreadyEquipped   = errors.New("module item already equipped")
+	ErrModuleItemNotEquipped       = errors.New("module item not equipped")
+	ErrInvalidModuleItemLocation   = errors.New("invalid module item location")
+	ErrBlockedModuleItemLocation   = errors.New("blocked module item location")
+	ErrNilShipSlotLayoutProvider   = errors.New("nil ship slot layout provider")
+	ErrUnknownShipSlotLayout       = errors.New("unknown ship slot layout")
+	ErrInvalidShipSlotLayout       = errors.New("invalid ship slot layout")
+	ErrModuleSlotUnavailable       = errors.New("module slot unavailable on ship")
+	ErrNilPilotProgressionProvider = errors.New("nil pilot progression provider")
+	ErrUnknownPilotProgression     = errors.New("unknown pilot progression")
+	ErrInvalidPilotRank            = errors.New("invalid pilot rank")
+	ErrUnknownModuleDefinition     = errors.New("unknown module definition")
+	ErrWrongModuleSlotType         = errors.New("wrong module slot type")
+	ErrPlayerRankTooLow            = errors.New("player rank too low")
+	ErrPlayerRoleLevelTooLow       = errors.New("player role level too low")
+	ErrInvalidPlayerRoleLevel      = errors.New("invalid player role level")
+	ErrModuleBroken                = errors.New("module broken")
+	ErrActiveShipNotFound          = errors.New("active ship not found")
+	ErrNilLoadoutStore             = errors.New("nil loadout store")
 )
 
 // LoadoutID identifies a saved module assignment set.
@@ -61,6 +64,22 @@ type ShipSlotLayoutProvider interface {
 // catalog-backed early slices.
 type StaticShipSlotLayoutProvider map[foundation.ShipID]ShipSlotLayout
 
+// PilotProgression records the authoritative progression fields needed by
+// module validation.
+type PilotProgression struct {
+	Rank       int               `json:"rank"`
+	RoleLevels map[PilotRole]int `json:"role_levels,omitempty"`
+}
+
+// PilotProgressionProvider returns authoritative progression for a player.
+type PilotProgressionProvider interface {
+	ProgressionForPlayer(playerID foundation.PlayerID) (PilotProgression, error)
+}
+
+// StaticPilotProgressionProvider is deterministic progression input for tests
+// and early runtime composition.
+type StaticPilotProgressionProvider map[foundation.PlayerID]PilotProgression
+
 // Loadout records one saved set of desired module assignments for a ship.
 type Loadout struct {
 	LoadoutID       LoadoutID           `json:"loadout_id"`
@@ -83,21 +102,25 @@ type LoadoutValidationContext struct {
 }
 
 // SaveLoadoutInput records the caller-owned data needed to save a loadout.
+// PlayerRank and RoleLevels are ignored by LoadoutService; authoritative
+// progression is read from PilotProgressionProvider.
 type SaveLoadoutInput struct {
 	LoadoutID       LoadoutID           `json:"loadout_id"`
 	PlayerID        foundation.PlayerID `json:"player_id"`
 	ShipID          foundation.ShipID   `json:"ship_id"`
 	Name            string              `json:"name"`
 	SlotAssignments SlotAssignments     `json:"slot_assignments_json"`
-	PlayerRank      int                 `json:"player_rank"`
+	PlayerRank      int                 `json:"player_rank,omitempty"`
 	RoleLevels      map[PilotRole]int   `json:"role_levels,omitempty"`
 }
 
 // ApplyLoadoutInput records the caller-owned data needed to apply a loadout.
+// PlayerRank and RoleLevels are ignored by LoadoutService; authoritative
+// progression is read from PilotProgressionProvider.
 type ApplyLoadoutInput struct {
 	PlayerID   foundation.PlayerID `json:"player_id"`
 	LoadoutID  LoadoutID           `json:"loadout_id"`
-	PlayerRank int                 `json:"player_rank"`
+	PlayerRank int                 `json:"player_rank,omitempty"`
 	RoleLevels map[PilotRole]int   `json:"role_levels,omitempty"`
 }
 
@@ -228,6 +251,38 @@ func (provider StaticShipSlotLayoutProvider) SlotLayoutForShip(shipID foundation
 	return layout, nil
 }
 
+// Validate reports whether progression has sane rank and role levels.
+func (progression PilotProgression) Validate() error {
+	if progression.Rank <= 0 {
+		return ErrInvalidPilotRank
+	}
+	for role, level := range progression.RoleLevels {
+		if err := role.Validate(); err != nil {
+			return err
+		}
+		if level < 0 {
+			return fmt.Errorf("role %q level %d: %w", role, level, ErrInvalidPlayerRoleLevel)
+		}
+	}
+	return nil
+}
+
+// ProgressionForPlayer returns one configured player progression snapshot.
+func (provider StaticPilotProgressionProvider) ProgressionForPlayer(playerID foundation.PlayerID) (PilotProgression, error) {
+	if err := playerID.Validate(); err != nil {
+		return PilotProgression{}, err
+	}
+	progression, ok := provider[playerID]
+	if !ok {
+		return PilotProgression{}, fmt.Errorf("player %q: %w", playerID, ErrUnknownPilotProgression)
+	}
+	if err := progression.Validate(); err != nil {
+		return PilotProgression{}, err
+	}
+	progression.RoleLevels = cloneRoleLevels(progression.RoleLevels)
+	return progression, nil
+}
+
 // Clone returns an owned copy of assignments.
 func (assignments SlotAssignments) Clone() SlotAssignments {
 	if len(assignments) == 0 {
@@ -303,23 +358,23 @@ func (ctx LoadoutValidationContext) validate() error {
 	return nil
 }
 
-func (input SaveLoadoutInput) validationContext(shipSlots ShipSlotLayout) LoadoutValidationContext {
+func (input SaveLoadoutInput) validationContext(shipSlots ShipSlotLayout, progression PilotProgression) LoadoutValidationContext {
 	return LoadoutValidationContext{
 		PlayerID:   input.PlayerID,
 		ShipID:     input.ShipID,
 		ShipSlots:  shipSlots,
-		PlayerRank: input.PlayerRank,
-		RoleLevels: cloneRoleLevels(input.RoleLevels),
+		PlayerRank: progression.Rank,
+		RoleLevels: cloneRoleLevels(progression.RoleLevels),
 	}
 }
 
-func (input ApplyLoadoutInput) validationContext(shipID foundation.ShipID, shipSlots ShipSlotLayout) LoadoutValidationContext {
+func (input ApplyLoadoutInput) validationContext(shipID foundation.ShipID, shipSlots ShipSlotLayout, progression PilotProgression) LoadoutValidationContext {
 	return LoadoutValidationContext{
 		PlayerID:   input.PlayerID,
 		ShipID:     shipID,
 		ShipSlots:  shipSlots,
-		PlayerRank: input.PlayerRank,
-		RoleLevels: cloneRoleLevels(input.RoleLevels),
+		PlayerRank: progression.Rank,
+		RoleLevels: cloneRoleLevels(progression.RoleLevels),
 	}
 }
 

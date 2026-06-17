@@ -25,10 +25,11 @@ type LoadoutStore interface {
 
 // LoadoutService validates saved loadouts and applies them to the active ship.
 type LoadoutService struct {
-	catalog Catalog
-	store   LoadoutStore
-	ships   ShipSlotLayoutProvider
-	clock   foundation.Clock
+	catalog     Catalog
+	store       LoadoutStore
+	ships       ShipSlotLayoutProvider
+	progression PilotProgressionProvider
+	clock       foundation.Clock
 }
 
 // NewLoadoutService returns a loadout service over explicit storage.
@@ -36,6 +37,7 @@ func NewLoadoutService(
 	moduleCatalog Catalog,
 	store LoadoutStore,
 	ships ShipSlotLayoutProvider,
+	progression PilotProgressionProvider,
 	clock foundation.Clock,
 ) (LoadoutService, error) {
 	if store == nil {
@@ -44,14 +46,18 @@ func NewLoadoutService(
 	if ships == nil {
 		return LoadoutService{}, ErrNilShipSlotLayoutProvider
 	}
+	if progression == nil {
+		return LoadoutService{}, ErrNilPilotProgressionProvider
+	}
 	if clock == nil {
 		clock = foundation.RealClock{}
 	}
 	return LoadoutService{
-		catalog: moduleCatalog,
-		store:   store,
-		ships:   ships,
-		clock:   clock,
+		catalog:     moduleCatalog,
+		store:       store,
+		ships:       ships,
+		progression: progression,
+		clock:       clock,
 	}, nil
 }
 
@@ -70,7 +76,11 @@ func (service LoadoutService) SaveLoadout(input SaveLoadoutInput) (Loadout, erro
 	if err != nil {
 		return Loadout{}, err
 	}
-	if _, err := service.ValidateModuleAssignments(input.validationContext(shipSlots), input.SlotAssignments); err != nil {
+	progression, err := service.progression.ProgressionForPlayer(input.PlayerID)
+	if err != nil {
+		return Loadout{}, err
+	}
+	if _, err := service.ValidateModuleAssignments(input.validationContext(shipSlots, progression), input.SlotAssignments); err != nil {
 		return Loadout{}, err
 	}
 
@@ -125,8 +135,12 @@ func (service LoadoutService) ApplyLoadout(input ApplyLoadoutInput) (ApplyLoadou
 	if err != nil {
 		return ApplyLoadoutResult{}, err
 	}
+	progression, err := service.progression.ProgressionForPlayer(input.PlayerID)
+	if err != nil {
+		return ApplyLoadoutResult{}, err
+	}
 
-	if _, err := service.ValidateModuleAssignments(input.validationContext(activeShipID, shipSlots), loadout.SlotAssignments); err != nil {
+	if _, err := service.ValidateModuleAssignments(input.validationContext(activeShipID, shipSlots, progression), loadout.SlotAssignments); err != nil {
 		return ApplyLoadoutResult{}, err
 	}
 
@@ -283,8 +297,12 @@ func validateRoleLevels(roleLevels map[PilotRole]int, definition ModuleDefinitio
 		}
 	}
 	for _, requirement := range definition.RequiredRoleLevels {
-		if roleLevels[requirement.Role] < requirement.Level {
-			return fmt.Errorf("role %q level %d required %d for %q: %w", requirement.Role, roleLevels[requirement.Role], requirement.Level, definition.ItemID, ErrPlayerRoleLevelTooLow)
+		level := 1
+		if storedLevel, ok := roleLevels[requirement.Role]; ok {
+			level = storedLevel
+		}
+		if level < requirement.Level {
+			return fmt.Errorf("role %q level %d required %d for %q: %w", requirement.Role, level, requirement.Level, definition.ItemID, ErrPlayerRoleLevelTooLow)
 		}
 	}
 	return nil

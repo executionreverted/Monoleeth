@@ -154,6 +154,7 @@ func TestSaveLoadoutRejectsInvalidModuleAssignments(t *testing.T) {
 		assignments SlotAssignments
 		playerRank  int
 		roleLevels  map[PilotRole]int
+		progression StaticPilotProgressionProvider
 		setup       func(t *testing.T, store *InMemoryLoadoutStore, item economy.InstanceItem)
 		wantErr     error
 	}{
@@ -166,20 +167,22 @@ func TestSaveLoadoutRejectsInvalidModuleAssignments(t *testing.T) {
 			wantErr:     ErrWrongModuleSlotType,
 		},
 		{
-			name:        "rank too low",
+			name:        "invalid authoritative rank",
 			item:        testModuleItem(t, "laser-instance-1", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 100),
 			assignments: SlotAssignments{ModuleSlotOffensive1: "laser-instance-1"},
-			playerRank:  0,
+			playerRank:  1,
 			roleLevels:  map[PilotRole]int{PilotRoleCombat: 1},
-			wantErr:     ErrPlayerRankTooLow,
+			progression: StaticPilotProgressionProvider{playerID: {Rank: 0}},
+			wantErr:     ErrInvalidPilotRank,
 		},
 		{
-			name:        "role too low",
+			name:        "invalid authoritative role level",
 			item:        testModuleItem(t, "laser-instance-1", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 100),
 			assignments: SlotAssignments{ModuleSlotOffensive1: "laser-instance-1"},
 			playerRank:  1,
 			roleLevels:  map[PilotRole]int{PilotRoleCombat: 0},
-			wantErr:     ErrPlayerRoleLevelTooLow,
+			progression: StaticPilotProgressionProvider{playerID: {Rank: 1, RoleLevels: map[PilotRole]int{PilotRoleCombat: -1}}},
+			wantErr:     ErrInvalidPlayerRoleLevel,
 		},
 		{
 			name:        "broken module",
@@ -259,7 +262,7 @@ func TestSaveLoadoutRejectsInvalidModuleAssignments(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			service, store := newLoadoutTestService(t)
+			service, store := newLoadoutTestServiceWithProgression(t, tc.progression)
 			putModuleItem(t, store, tc.item)
 			if tc.setup != nil {
 				tc.setup(t, store, tc.item)
@@ -278,6 +281,43 @@ func TestSaveLoadoutRejectsInvalidModuleAssignments(t *testing.T) {
 				t.Fatalf("SaveLoadout() error = %v, want %v", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestSaveLoadoutIgnoresSpoofedRankAndRoleInput(t *testing.T) {
+	service, store := newLoadoutTestService(t)
+	playerID := foundation.PlayerID("player-1")
+	laser := testModuleItem(t, "laser-instance-1", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 100)
+	putModuleItem(t, store, laser)
+
+	_, err := service.SaveLoadout(SaveLoadoutInput{
+		LoadoutID:       "spoofed-client-input",
+		PlayerID:        playerID,
+		ShipID:          "ship-1",
+		Name:            "Spoofed Client Input",
+		SlotAssignments: SlotAssignments{ModuleSlotOffensive1: laser.ItemInstanceID},
+		PlayerRank:      999,
+		RoleLevels:      map[PilotRole]int{PilotRoleCombat: 999},
+	})
+	if err != nil {
+		t.Fatalf("SaveLoadout() error = %v, want nil from authoritative provider baseline", err)
+	}
+
+	lowProgressionService, lowProgressionStore := newLoadoutTestServiceWithProgression(t, StaticPilotProgressionProvider{
+		playerID: {Rank: 0},
+	})
+	putModuleItem(t, lowProgressionStore, laser)
+	_, err = lowProgressionService.SaveLoadout(SaveLoadoutInput{
+		LoadoutID:       "spoofed-client-input",
+		PlayerID:        playerID,
+		ShipID:          "ship-1",
+		Name:            "Spoofed Client Input",
+		SlotAssignments: SlotAssignments{ModuleSlotOffensive1: laser.ItemInstanceID},
+		PlayerRank:      999,
+		RoleLevels:      map[PilotRole]int{PilotRoleCombat: 999},
+	})
+	if !errors.Is(err, ErrInvalidPilotRank) {
+		t.Fatalf("SaveLoadout() with bad authoritative rank error = %v, want ErrInvalidPilotRank", err)
 	}
 }
 
@@ -603,7 +643,21 @@ func (clock fixedLoadoutClock) Now() time.Time {
 
 func newLoadoutTestService(t *testing.T) (LoadoutService, *InMemoryLoadoutStore) {
 	t.Helper()
+	return newLoadoutTestServiceWithProgression(t, nil)
+}
+
+func newLoadoutTestServiceWithProgression(
+	t *testing.T,
+	progression StaticPilotProgressionProvider,
+) (LoadoutService, *InMemoryLoadoutStore) {
+	t.Helper()
 	store := NewInMemoryLoadoutStore()
+	if progression == nil {
+		progression = StaticPilotProgressionProvider{
+			"player-1": {Rank: 1},
+			"player-2": {Rank: 1},
+		}
+	}
 	service, err := NewLoadoutService(
 		MustMVPCatalog(),
 		store,
@@ -613,6 +667,7 @@ func newLoadoutTestService(t *testing.T) (LoadoutService, *InMemoryLoadoutStore)
 			"ship-1":     {Offensive: 2, Defensive: 1, Utility: 1},
 			"ship-2":     {Offensive: 2, Defensive: 1, Utility: 1},
 		},
+		progression,
 		fixedLoadoutClock{now: time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)},
 	)
 	if err != nil {
