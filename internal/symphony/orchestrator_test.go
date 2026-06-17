@@ -227,6 +227,24 @@ func TestRunLogRecordsCodexEventsAndBoundsEntries(t *testing.T) {
 	}
 }
 
+func TestTaskRunLogLoadsPersistedEntries(t *testing.T) {
+	logger := newDiscardLogger(t)
+	defer logger.Close()
+	workflow := testWorkflow(t)
+	orchestrator := NewOrchestrator(workflow, logger)
+	task, err := orchestrator.CreateTask(context.Background(), CreateTaskInput{Title: "Persist me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestrator.recordRunEvent(task, 0, 1, "task_completed", nil, "Task completed")
+
+	reloaded := NewOrchestrator(workflow, logger)
+	entries := reloaded.TaskRunLog(task.ID)
+	if len(entries) != 1 || entries[0].Event != "task_completed" {
+		t.Fatalf("unexpected persisted entries: %#v", entries)
+	}
+}
+
 func TestLocalTaskCompletesAfterSuccessfulTurn(t *testing.T) {
 	dir := t.TempDir()
 	fake := filepath.Join(dir, "fake-codex.sh")

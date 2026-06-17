@@ -75,11 +75,15 @@ func TestHTTPDashboardTasksAndPresenterEndpoints(t *testing.T) {
 	orchestrator.recordRunEvent(created, 0, 0, "test_event", map[string]any{"summary": "hello"}, "hello")
 
 	var stream struct {
-		Events []RunLogEntry `json:"events"`
+		Events        []RunLogEntry     `json:"events"`
+		DisplayEvents []DisplayRunEvent `json:"display_events"`
 	}
 	decodeGET(t, server.URL+"/api/v1/tasks/"+created.ID+"/stream", &stream)
 	if len(stream.Events) != 1 || stream.Events[0].Event != "test_event" {
 		t.Fatalf("unexpected stream payload: %#v", stream.Events)
+	}
+	if len(stream.DisplayEvents) != 1 || stream.DisplayEvents[0].Title != "Test event" {
+		t.Fatalf("unexpected display stream payload: %#v", stream.DisplayEvents)
 	}
 
 	var listed struct {

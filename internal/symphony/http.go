@@ -153,7 +153,8 @@ func (s *HTTPServer) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case r.Method == http.MethodGet && action == "stream":
-		writeJSON(w, map[string]any{"events": s.orchestrator.TaskRunLog(issueID)})
+		events := s.orchestrator.TaskRunLog(issueID)
+		writeJSON(w, map[string]any{"events": events, "display_events": DisplayRunEvents(events)})
 	case r.Method == http.MethodPost && action == "run":
 		if err := s.orchestrator.RunTask(r.Context(), issueID); err != nil {
 			writeError(w, err, http.StatusBadRequest)
@@ -544,7 +545,7 @@ const tasksHTML = `<!doctype html>
     .stream-entry-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; color: var(--muted); font-size: 0.78rem; }
     .stream-entry-title { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
     .stream-event { color: var(--ink); font-weight: 600; }
-    .stream-summary { margin: 0; color: var(--ink); line-height: 1.45; word-break: break-word; }
+    .stream-summary { margin: 0; color: var(--ink); line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
     .agent-island { position: fixed; left: 50%; bottom: 1rem; z-index: 40; width: min(calc(100vw - 1rem), 46rem); transform: translateX(-50%); border: 1px solid var(--line-strong); border-radius: 1rem; background: rgba(255, 255, 255, 0.96); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.14); backdrop-filter: blur(18px); overflow: hidden; }
     .agent-island-top { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; padding: 0.72rem; border-bottom: 1px solid var(--line); }
     .agent-island-title { display: flex; align-items: center; gap: 0.5rem; min-width: 0; font-weight: 700; }
@@ -560,7 +561,7 @@ const tasksHTML = `<!doctype html>
     .agent-island-body { padding: 0.7rem 0.72rem 0.8rem; display: grid; gap: 0.45rem; max-height: 14rem; overflow: auto; }
     .agent-island-line { display: grid; gap: 0.2rem; padding: 0.45rem 0.52rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--card-muted); }
     .agent-island-line-head { display: flex; justify-content: space-between; gap: 0.6rem; color: var(--muted); font-size: 0.72rem; }
-    .agent-island-line-text { margin: 0; font-size: 0.86rem; color: var(--ink); line-height: 1.4; word-break: break-word; }
+    .agent-island-line-text { margin: 0; font-size: 0.86rem; color: var(--ink); line-height: 1.4; word-break: break-word; white-space: pre-wrap; }
     .agent-island[data-collapsed="true"] .agent-island-body { display: none; }
     .agent-island[data-collapsed="true"] .agent-island-top { border-bottom: 0; }
     .code-panel { overflow: auto; }
@@ -757,10 +758,10 @@ const tasksHTML = `<!doctype html>
       list.innerHTML = events.slice().reverse().map(event =>
         '<article class="stream-entry">' +
           '<div class="stream-entry-head">' +
-            '<span class="stream-entry-title"><span class="stream-event">' + escapeHTML(event.event) + '</span><span>attempt ' + escapeHTML(event.attempt || 0) + '</span><span>turn ' + escapeHTML(event.turn_count || 0) + '</span></span>' +
+            '<span class="stream-entry-title"><span class="stream-event">' + escapeHTML(event.title || event.event || "Event") + '</span><span>' + escapeHTML(event.kind || "raw") + '</span><span>turn ' + escapeHTML(event.turn_count || 0) + '</span></span>' +
             '<span class="mono numeric">' + escapeHTML(event.timestamp || "n/a") + '</span>' +
           '</div>' +
-          '<p class="stream-summary">' + escapeHTML(event.summary || JSON.stringify(event.details || {})) + '</p>' +
+          '<p class="stream-summary">' + escapeHTML(event.body || event.summary || JSON.stringify(event.details || {})) + '</p>' +
         '</article>'
       ).join("");
     }
@@ -771,7 +772,7 @@ const tasksHTML = `<!doctype html>
         return;
       }
       const payload = await api("/api/v1/tasks/" + encodeURIComponent(selectedTaskID) + "/stream");
-      renderStream(payload.events || []);
+      renderStream(payload.display_events || payload.events || []);
     }
 
     function sortedRunningEntries(raw) {
@@ -819,8 +820,8 @@ const tasksHTML = `<!doctype html>
       }
       body.innerHTML = events.slice(-8).reverse().map(event =>
         '<article class="agent-island-line">' +
-          '<div class="agent-island-line-head"><span>' + escapeHTML(event.event || "event") + '</span><span class="mono numeric">' + escapeHTML(event.timestamp || "n/a") + '</span></div>' +
-          '<p class="agent-island-line-text">' + escapeHTML(event.summary || JSON.stringify(event.details || {})) + '</p>' +
+          '<div class="agent-island-line-head"><span>' + escapeHTML(event.title || event.event || "Event") + ' · ' + escapeHTML(event.kind || "raw") + '</span><span class="mono numeric">' + escapeHTML(event.timestamp || "n/a") + '</span></div>' +
+          '<p class="agent-island-line-text">' + escapeHTML(event.body || event.summary || JSON.stringify(event.details || {})) + '</p>' +
         '</article>'
       ).join("");
     }
@@ -838,7 +839,7 @@ const tasksHTML = `<!doctype html>
         return;
       }
       const payload = await api("/api/v1/tasks/" + encodeURIComponent(islandTaskID) + "/stream");
-      renderAgentIsland(raw, payload.events || []);
+      renderAgentIsland(raw, payload.display_events || payload.events || []);
     }
 
     async function refresh() {

@@ -1,6 +1,7 @@
 package symphony
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 	"time"
 )
 
-const maxRunLogEntriesPerTask = 200
+const maxRunLogEntriesPerTask = 1000
 
 type Orchestrator struct {
 	mu            sync.Mutex
@@ -152,8 +153,18 @@ func (o *Orchestrator) AutoRunPaused() bool {
 
 func (o *Orchestrator) TaskRunLog(issueID string) []RunLogEntry {
 	o.mu.Lock()
+	workflow := o.workflow
 	defer o.mu.Unlock()
 	entries := o.runLogs[issueID]
+	if len(entries) == 0 {
+		entries = readRunLogFile(workflow, issueID)
+		if len(entries) > maxRunLogEntriesPerTask {
+			entries = entries[len(entries)-maxRunLogEntriesPerTask:]
+		}
+		if len(entries) > 0 {
+			o.runLogs[issueID] = append([]RunLogEntry(nil), entries...)
+		}
+	}
 	out := make([]RunLogEntry, len(entries))
 	copy(out, entries)
 	return out
@@ -804,10 +815,7 @@ func (o *Orchestrator) recordRunEvent(issue Issue, attempt int, turnCount int, e
 }
 
 func appendRunLogFile(workflow WorkflowDefinition, entry RunLogEntry) error {
-	dir := filepath.Join(workflow.Config.Tracker.LocalRoot, "_runs")
-	if strings.TrimSpace(workflow.Config.Tracker.LocalRoot) == "" {
-		dir = filepath.Join(workflow.Dir, ".symphony", "tasks", "_runs")
-	}
+	dir := runLogDir(workflow)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -824,6 +832,31 @@ func appendRunLogFile(workflow WorkflowDefinition, entry RunLogEntry) error {
 		return err
 	}
 	return nil
+}
+
+func readRunLogFile(workflow WorkflowDefinition, issueID string) []RunLogEntry {
+	file, err := os.Open(filepath.Join(runLogDir(workflow), safeRunLogName(issueID)+".jsonl"))
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	var entries []RunLogEntry
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		var entry RunLogEntry
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err == nil {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+func runLogDir(workflow WorkflowDefinition) string {
+	if strings.TrimSpace(workflow.Config.Tracker.LocalRoot) == "" {
+		return filepath.Join(workflow.Dir, ".symphony", "tasks", "_runs")
+	}
+	return filepath.Join(workflow.Config.Tracker.LocalRoot, "_runs")
 }
 
 func safeRunLogName(value string) string {
