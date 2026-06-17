@@ -94,17 +94,17 @@ Crafting:
 
 ## TODO: Crafting
 
-- [ ] Define recipe catalog.
-- [ ] Define craft job model.
-- [ ] Define recipe input requirements.
-- [ ] Define recipe location requirements.
+- [x] Define recipe catalog.
+- [x] Define craft job model.
+- [x] Define recipe input requirements.
+- [x] Define recipe location requirements.
 - [ ] Implement `StartCraft`.
-- [ ] Validate rank requirement.
-- [ ] Validate role level requirement.
-- [ ] Validate location requirement.
+- [x] Validate rank requirement.
+- [x] Validate role level requirement.
+- [x] Validate location requirement.
 - [ ] Reserve or consume materials using inventory service.
 - [ ] Debit craft fee using wallet service.
-- [ ] Create running craft job with server `completes_at`.
+- [x] Create running craft job with server `completes_at`.
 - [ ] Implement `CompleteCraft`.
 - [ ] Reject early completion.
 - [ ] Commit reservation or consume inputs.
@@ -112,7 +112,7 @@ Crafting:
 - [ ] Grant ship unlock output through ship service.
 - [ ] Mark job completed once.
 - [ ] Grant craft XP once.
-- [ ] Store recipe version on job.
+- [x] Store recipe version on job.
 
 ## Tests
 
