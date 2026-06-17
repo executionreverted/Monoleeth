@@ -22,6 +22,7 @@ var (
 	ErrModuleItemNotOwned         = errors.New("module item not owned")
 	ErrModuleItemInstanceMismatch = errors.New("module item instance mismatch")
 	ErrModuleItemAlreadyEquipped  = errors.New("module item already equipped")
+	ErrModuleItemNotEquipped      = errors.New("module item not equipped")
 	ErrInvalidModuleItemLocation  = errors.New("invalid module item location")
 	ErrBlockedModuleItemLocation  = errors.New("blocked module item location")
 	ErrUnknownModuleDefinition    = errors.New("unknown module definition")
@@ -79,6 +80,14 @@ type ApplyLoadoutInput struct {
 	RoleLevels map[PilotRole]int   `json:"role_levels,omitempty"`
 }
 
+// BreakEquippedModuleInput records the authoritative item break transition for
+// one equipped module instance.
+type BreakEquippedModuleInput struct {
+	PlayerID       foundation.PlayerID `json:"player_id"`
+	ShipID         foundation.ShipID   `json:"ship_id"`
+	ItemInstanceID foundation.ItemID   `json:"item_instance_id"`
+}
+
 // ValidatedModuleAssignment records one assignment after catalog, item, and
 // player requirement checks have passed.
 type ValidatedModuleAssignment struct {
@@ -92,9 +101,10 @@ type ValidatedModuleAssignment struct {
 type StatInvalidationReason string
 
 const (
-	StatInvalidationReasonModuleEquipped   StatInvalidationReason = "module.equipped"
-	StatInvalidationReasonModuleUnequipped StatInvalidationReason = "module.unequipped"
-	StatInvalidationReasonLoadoutApplied   StatInvalidationReason = "ship.loadout_applied"
+	StatInvalidationReasonModuleEquipped         StatInvalidationReason = "module.equipped"
+	StatInvalidationReasonModuleUnequipped       StatInvalidationReason = "module.unequipped"
+	StatInvalidationReasonModuleDurabilityBroken StatInvalidationReason = "module.durability_changed_to_broken"
+	StatInvalidationReasonLoadoutApplied         StatInvalidationReason = "ship.loadout_applied"
 )
 
 // StatInvalidationSignal is a local handoff value for the eventual stat cache
@@ -114,6 +124,13 @@ type ApplyLoadoutResult struct {
 	Current           []EquippedModule         `json:"current"`
 	Equipped          []EquippedModule         `json:"equipped"`
 	Unequipped        []EquippedModule         `json:"unequipped"`
+	StatInvalidations []StatInvalidationSignal `json:"stat_invalidations"`
+}
+
+// BreakEquippedModuleResult reports the broken equipped module and any stat
+// invalidation caused by the durability transition.
+type BreakEquippedModuleResult struct {
+	Broken            EquippedModule           `json:"broken"`
 	StatInvalidations []StatInvalidationSignal `json:"stat_invalidations"`
 }
 

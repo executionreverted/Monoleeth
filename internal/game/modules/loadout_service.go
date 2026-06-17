@@ -20,6 +20,7 @@ type LoadoutStore interface {
 	EquippedModules(playerID foundation.PlayerID, shipID foundation.ShipID) ([]EquippedModule, error)
 	EquippedModuleByItem(itemInstanceID foundation.ItemID) (EquippedModule, bool, error)
 	ReplaceEquippedModules(playerID foundation.PlayerID, shipID foundation.ShipID, equipped []EquippedModule) error
+	MarkEquippedModuleBroken(playerID foundation.PlayerID, shipID foundation.ShipID, itemInstanceID foundation.ItemID) (EquippedModule, bool, error)
 }
 
 // LoadoutService validates saved loadouts and applies them to the active ship.
@@ -128,6 +129,50 @@ func (service LoadoutService) ApplyLoadout(input ApplyLoadoutInput) (ApplyLoadou
 		Equipped:          cloneEquippedModules(equipped),
 		Unequipped:        cloneEquippedModules(unequipped),
 		StatInvalidations: buildStatInvalidationSignals(input.PlayerID, activeShipID, input.LoadoutID, equipped, unequipped, now),
+	}
+	return result, nil
+}
+
+// BreakEquippedModule records an equipped module crossing to broken durability
+// and returns the stat invalidation caused by that state change.
+func (service LoadoutService) BreakEquippedModule(input BreakEquippedModuleInput) (BreakEquippedModuleResult, error) {
+	if err := input.PlayerID.Validate(); err != nil {
+		return BreakEquippedModuleResult{}, err
+	}
+	if err := input.ShipID.Validate(); err != nil {
+		return BreakEquippedModuleResult{}, err
+	}
+	if err := input.ItemInstanceID.Validate(); err != nil {
+		return BreakEquippedModuleResult{}, err
+	}
+
+	item, err := service.store.ModuleItem(input.ItemInstanceID)
+	if err != nil {
+		return BreakEquippedModuleResult{}, err
+	}
+	if err := item.Validate(); err != nil {
+		return BreakEquippedModuleResult{}, err
+	}
+	if item.ItemInstanceID != input.ItemInstanceID {
+		return BreakEquippedModuleResult{}, fmt.Errorf("lookup %q returned %q: %w", input.ItemInstanceID, item.ItemInstanceID, ErrModuleItemInstanceMismatch)
+	}
+	if item.OwnerPlayerID != input.PlayerID {
+		return BreakEquippedModuleResult{}, fmt.Errorf("item %q owner %q player %q: %w", item.ItemInstanceID, item.OwnerPlayerID, input.PlayerID, ErrModuleItemNotOwned)
+	}
+	if _, ok := service.catalog.Lookup(item.ItemID); !ok {
+		return BreakEquippedModuleResult{}, fmt.Errorf("item %q definition %q: %w", item.ItemInstanceID, item.ItemID, ErrUnknownModuleDefinition)
+	}
+
+	broken, changed, err := service.store.MarkEquippedModuleBroken(input.PlayerID, input.ShipID, input.ItemInstanceID)
+	if err != nil {
+		return BreakEquippedModuleResult{}, err
+	}
+
+	result := BreakEquippedModuleResult{Broken: broken}
+	if changed {
+		result.StatInvalidations = []StatInvalidationSignal{
+			buildModuleBreakStatInvalidationSignal(input.PlayerID, input.ShipID, input.ItemInstanceID, service.clock.Now()),
+		}
 	}
 	return result, nil
 }
@@ -338,6 +383,21 @@ func buildStatInvalidationSignals(
 		CreatedAt: createdAt,
 	})
 	return signals
+}
+
+func buildModuleBreakStatInvalidationSignal(
+	playerID foundation.PlayerID,
+	shipID foundation.ShipID,
+	itemInstanceID foundation.ItemID,
+	createdAt time.Time,
+) StatInvalidationSignal {
+	return StatInvalidationSignal{
+		PlayerID:  playerID,
+		ShipID:    shipID,
+		Reason:    StatInvalidationReasonModuleDurabilityBroken,
+		SourceID:  itemInstanceID.String(),
+		CreatedAt: createdAt,
+	}
 }
 
 func sortEquippedModules(equipped []EquippedModule) {

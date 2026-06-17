@@ -115,7 +115,7 @@ Keep MVP small:
 - [x] Validate module durability.
 - [x] Prevent same module instance in two slots.
 - [x] Prevent escrow/reserved modules from being equipped.
-- [ ] Emit stat invalidation on equip/unequip/break.
+- [x] Emit stat invalidation on equip/unequip/break.
 
 ## TODO: Stat Aggregation
 
@@ -186,5 +186,6 @@ Verified slices:
 - Stat service `GetEffectiveStats`, explicit active-session cache versioning, cargo capacity output, and broken-module exclusion are implemented in `internal/game/stats`.
 - Starter guarantee, idempotent ship unlock, active ship selection, safe-area/combat/disabled/cargo swap validation, and active-ship stat invalidation signal are implemented in `internal/game/ships`.
 - Loadout model, `SaveLoadout`, `ApplyLoadout`, ownership/location/slot/rank/role/durability/duplicate-instance validation, and equip invalidation signals are implemented in `internal/game/modules`.
+- Equipped module break handling emits one stat invalidation, is idempotent after the first durability transition, and rejects non-equipped/wrong-owner/wrong-ship spoof attempts in `internal/game/modules`.
 - Progression `GrantXP`, role XP, XP source/idempotency uniqueness, `TryRankUp`, rank history, rank-up skill point grant, and progression stat invalidation signals are implemented in `internal/game/progression`.
 - Pilot skill definitions, `UnlockPilotSkill`, prerequisite/rank/role/point validation, duplicate unlock safety, and respec stat invalidation signals are implemented in `internal/game/progression`.

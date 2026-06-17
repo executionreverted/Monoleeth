@@ -292,6 +292,129 @@ func TestApplyLoadoutReplacesEquippedModulesAndReturnsInvalidations(t *testing.T
 	}
 }
 
+func TestBreakEquippedModuleMarksBrokenAndReturnsOneInvalidation(t *testing.T) {
+	service, store := newLoadoutTestService(t)
+	playerID := foundation.PlayerID("player-1")
+	shipID := foundation.ShipID("ship-1")
+	laser := testModuleItem(t, "laser-instance-1", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 9)
+	putModuleItem(t, store, laser)
+	equipModuleForTest(t, store, playerID, shipID, ModuleSlotOffensive1, laser.ItemInstanceID)
+
+	result, err := service.BreakEquippedModule(BreakEquippedModuleInput{
+		PlayerID:       playerID,
+		ShipID:         shipID,
+		ItemInstanceID: laser.ItemInstanceID,
+	})
+	if err != nil {
+		t.Fatalf("BreakEquippedModule() error = %v, want nil", err)
+	}
+	if result.Broken.ItemInstanceID != laser.ItemInstanceID {
+		t.Fatalf("Broken item = %q, want %q", result.Broken.ItemInstanceID, laser.ItemInstanceID)
+	}
+	if got, want := len(result.StatInvalidations), 1; got != want {
+		t.Fatalf("StatInvalidations len = %d, want %d", got, want)
+	}
+	signal := result.StatInvalidations[0]
+	if signal.PlayerID != playerID || signal.ShipID != shipID {
+		t.Fatalf("signal subject = (%q, %q), want (%q, %q)", signal.PlayerID, signal.ShipID, playerID, shipID)
+	}
+	if signal.Reason != StatInvalidationReasonModuleDurabilityBroken {
+		t.Fatalf("signal Reason = %q, want %q", signal.Reason, StatInvalidationReasonModuleDurabilityBroken)
+	}
+	if signal.SourceID != laser.ItemInstanceID.String() {
+		t.Fatalf("signal SourceID = %q, want %q", signal.SourceID, laser.ItemInstanceID)
+	}
+	if want := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC); !signal.CreatedAt.Equal(want) {
+		t.Fatalf("signal CreatedAt = %v, want %v", signal.CreatedAt, want)
+	}
+
+	stored, err := store.ModuleItem(laser.ItemInstanceID)
+	if err != nil {
+		t.Fatalf("ModuleItem() error = %v, want nil", err)
+	}
+	if got, want := stored.DurabilityCurrent, int64(0); got != want {
+		t.Fatalf("stored DurabilityCurrent = %d, want %d", got, want)
+	}
+
+	retry, err := service.BreakEquippedModule(BreakEquippedModuleInput{
+		PlayerID:       playerID,
+		ShipID:         shipID,
+		ItemInstanceID: laser.ItemInstanceID,
+	})
+	if err != nil {
+		t.Fatalf("second BreakEquippedModule() error = %v, want nil", err)
+	}
+	if got, want := len(retry.StatInvalidations), 0; got != want {
+		t.Fatalf("second StatInvalidations len = %d, want %d", got, want)
+	}
+}
+
+func TestBreakEquippedModuleRejectsSpoofedInvalidations(t *testing.T) {
+	playerID := foundation.PlayerID("player-1")
+	shipID := foundation.ShipID("ship-1")
+
+	cases := []struct {
+		name    string
+		item    economy.InstanceItem
+		setup   func(t *testing.T, store *InMemoryLoadoutStore, item economy.InstanceItem)
+		wantErr error
+	}{
+		{
+			name:    "non-equipped item",
+			item:    testModuleItem(t, "laser-instance-1", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 9),
+			wantErr: ErrModuleItemNotEquipped,
+		},
+		{
+			name: "wrong owner item",
+			item: testModuleItem(t, "laser-instance-1", "laser_alpha_t1", "other-player", economy.LocationKindAccountInventory, 9),
+			setup: func(t *testing.T, store *InMemoryLoadoutStore, item economy.InstanceItem) {
+				t.Helper()
+				equipModuleForTest(t, store, item.OwnerPlayerID, shipID, ModuleSlotOffensive1, item.ItemInstanceID)
+			},
+			wantErr: ErrModuleItemNotOwned,
+		},
+		{
+			name: "wrong ship item",
+			item: testModuleItem(t, "laser-instance-1", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 9),
+			setup: func(t *testing.T, store *InMemoryLoadoutStore, item economy.InstanceItem) {
+				t.Helper()
+				equipModuleForTest(t, store, playerID, "ship-2", ModuleSlotOffensive1, item.ItemInstanceID)
+			},
+			wantErr: ErrModuleItemNotEquipped,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			service, store := newLoadoutTestService(t)
+			putModuleItem(t, store, tc.item)
+			if tc.setup != nil {
+				tc.setup(t, store, tc.item)
+			}
+
+			result, err := service.BreakEquippedModule(BreakEquippedModuleInput{
+				PlayerID:       playerID,
+				ShipID:         shipID,
+				ItemInstanceID: tc.item.ItemInstanceID,
+			})
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("BreakEquippedModule() error = %v, want %v", err, tc.wantErr)
+			}
+			if got, want := len(result.StatInvalidations), 0; got != want {
+				t.Fatalf("StatInvalidations len = %d, want %d", got, want)
+			}
+
+			stored, err := store.ModuleItem(tc.item.ItemInstanceID)
+			if err != nil {
+				t.Fatalf("ModuleItem() error = %v, want nil", err)
+			}
+			if got, want := stored.DurabilityCurrent, tc.item.DurabilityCurrent; got != want {
+				t.Fatalf("stored DurabilityCurrent = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
 func TestApplyLoadoutRejectsActiveShipMismatch(t *testing.T) {
 	service, store := newLoadoutTestService(t)
 	playerID := foundation.PlayerID("player-1")
@@ -385,5 +508,26 @@ func putModuleItem(t *testing.T, store *InMemoryLoadoutStore, item economy.Insta
 	t.Helper()
 	if err := store.PutModuleItem(item); err != nil {
 		t.Fatalf("PutModuleItem() error = %v, want nil", err)
+	}
+}
+
+func equipModuleForTest(
+	t *testing.T,
+	store *InMemoryLoadoutStore,
+	playerID foundation.PlayerID,
+	shipID foundation.ShipID,
+	slotID ModuleSlotID,
+	itemInstanceID foundation.ItemID,
+) {
+	t.Helper()
+	err := store.ReplaceEquippedModules(playerID, shipID, []EquippedModule{{
+		PlayerID:       playerID,
+		ShipID:         shipID,
+		SlotID:         slotID,
+		ItemInstanceID: itemInstanceID,
+		EquippedAt:     time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC),
+	}})
+	if err != nil {
+		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
 	}
 }

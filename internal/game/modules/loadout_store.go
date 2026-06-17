@@ -212,6 +212,50 @@ func (store *InMemoryLoadoutStore) ReplaceEquippedModules(
 	return nil
 }
 
+// MarkEquippedModuleBroken records a positive-to-zero durability transition for
+// an item that is currently equipped by playerID on shipID.
+func (store *InMemoryLoadoutStore) MarkEquippedModuleBroken(
+	playerID foundation.PlayerID,
+	shipID foundation.ShipID,
+	itemInstanceID foundation.ItemID,
+) (EquippedModule, bool, error) {
+	if err := playerID.Validate(); err != nil {
+		return EquippedModule{}, false, err
+	}
+	if err := shipID.Validate(); err != nil {
+		return EquippedModule{}, false, err
+	}
+	if err := itemInstanceID.Validate(); err != nil {
+		return EquippedModule{}, false, err
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	item, ok := store.items[itemInstanceID]
+	if !ok {
+		return EquippedModule{}, false, fmt.Errorf("item %q: %w", itemInstanceID, ErrUnknownModuleItem)
+	}
+	if item.OwnerPlayerID != playerID {
+		return EquippedModule{}, false, fmt.Errorf("item %q owner %q player %q: %w", itemInstanceID, item.OwnerPlayerID, playerID, ErrModuleItemNotOwned)
+	}
+
+	equipped, ok := store.equippedByItem[itemInstanceID]
+	if !ok {
+		return EquippedModule{}, false, fmt.Errorf("item %q: %w", itemInstanceID, ErrModuleItemNotEquipped)
+	}
+	if equipped.PlayerID != playerID || equipped.ShipID != shipID {
+		return EquippedModule{}, false, fmt.Errorf("item %q equipped by player %q ship %q target player %q ship %q: %w", itemInstanceID, equipped.PlayerID, equipped.ShipID, playerID, shipID, ErrModuleItemNotEquipped)
+	}
+	if item.DurabilityCurrent <= 0 {
+		return equipped, false, nil
+	}
+
+	item.DurabilityCurrent = 0
+	store.items[itemInstanceID] = cloneInstanceItem(item)
+	return equipped, true, nil
+}
+
 func playerShipStoreKey(playerID foundation.PlayerID, shipID foundation.ShipID) string {
 	return playerID.String() + "\x00" + shipID.String()
 }
