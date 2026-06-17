@@ -12,12 +12,13 @@ const MaxActivePlayerQuests = 3
 
 // QuestService owns Phase 07 quest board persistence and acceptance.
 type QuestService struct {
-	clock       foundation.Clock
-	catalog     QuestCatalog
-	store       *InMemoryQuestStore
-	wallet      QuestRewardWalletService
-	inventory   QuestRewardInventoryService
-	progression QuestRewardProgressionService
+	clock        foundation.Clock
+	catalog      QuestCatalog
+	store        *InMemoryQuestStore
+	wallet       QuestRewardWalletService
+	rerollWallet QuestRerollWalletService
+	inventory    QuestRewardInventoryService
+	progression  QuestRewardProgressionService
 }
 
 // AcceptQuestInput carries server-owned player state plus the offer id from a
@@ -49,8 +50,16 @@ func NewQuestService(clock foundation.Clock, catalog QuestCatalog, store *InMemo
 // by ClaimReward.
 func (service *QuestService) SetRewardServices(services QuestRewardServices) {
 	service.wallet = services.Wallet
+	if rerollWallet, ok := services.Wallet.(QuestRerollWalletService); ok {
+		service.rerollWallet = rerollWallet
+	}
 	service.inventory = services.Inventory
 	service.progression = services.Progression
+}
+
+// SetRerollServices wires the wallet boundary used by RerollBoard.
+func (service *QuestService) SetRerollServices(services QuestRerollServices) {
+	service.rerollWallet = services.Wallet
 }
 
 // GenerateAndStoreBoard generates a server-owned board and persists its offers.

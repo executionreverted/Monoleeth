@@ -26,6 +26,7 @@ type IdempotencyKey string
 
 const (
 	idempotencyQuestReward       = "quest_reward"
+	idempotencyQuestReroll       = "quest_reroll"
 	idempotencyCraftStart        = "craft_start"
 	idempotencyCraftComplete     = "craft_complete"
 	idempotencyDeathCargoDrop    = "death_cargo_drop"
@@ -48,6 +49,11 @@ func ParseIdempotencyKey(value string) (IdempotencyKey, error) {
 // QuestRewardIdempotencyKey returns quest_reward:<player_quest_id>.
 func QuestRewardIdempotencyKey(playerQuestID QuestID) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyQuestReward, playerQuestID.String())
+}
+
+// QuestRerollIdempotencyKey returns quest_reroll:<player_id>:<reroll_reference>.
+func QuestRerollIdempotencyKey(playerID PlayerID, rerollReference string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyQuestReroll, playerID.String(), rerollReference)
 }
 
 // CraftStartIdempotencyKey returns craft_start:<start_reference>.
@@ -188,6 +194,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyPremiumWebhook:
 		return 1, true
 	case idempotencyOfflineSettlement:
+		return 2, true
+	case idempotencyQuestReroll:
 		return 2, true
 	case idempotencyMarketBuy:
 		return 3, true

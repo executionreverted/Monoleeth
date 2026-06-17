@@ -18,6 +18,11 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			want:  "quest_reward:player-quest-9",
 		},
 		{
+			name:  "quest reroll",
+			build: func() (IdempotencyKey, error) { return QuestRerollIdempotencyKey(PlayerID("player-2"), "20260618") },
+			want:  "quest_reroll:player-2:20260618",
+		},
+		{
 			name:  "craft start",
 			build: func() (IdempotencyKey, error) { return CraftStartIdempotencyKey("start-4") },
 			want:  "craft_start:start-4",
@@ -150,6 +155,8 @@ func TestIdempotencyKeyRejectsMalformedKeys(t *testing.T) {
 		"unknown:part",
 		"quest_reward:",
 		"quest_reward:player-quest-9:extra",
+		"quest_reroll:player-2",
+		"quest_reroll:player-2:20260618:extra",
 		"death_cargo_drop:death-combat-9",
 		"death_cargo_drop:death-combat-9:iron-stack-1:extra",
 		"offline_settlement:planet-4",
@@ -196,6 +203,12 @@ func TestIdempotencyKeyHelpersRejectDelimiterParts(t *testing.T) {
 		{
 			name:  "craft start delimiter",
 			build: func() (IdempotencyKey, error) { return CraftStartIdempotencyKey("start:4") },
+		},
+		{
+			name: "quest reroll reference delimiter",
+			build: func() (IdempotencyKey, error) {
+				return QuestRerollIdempotencyKey(PlayerID("player-2"), "seed:20260618")
+			},
 		},
 		{
 			name:  "craft complete delimiter",
@@ -251,6 +264,14 @@ func TestIdempotencyKeyHelpersRejectBlankParts(t *testing.T) {
 		{
 			name:  "quest reward player quest id",
 			build: func() (IdempotencyKey, error) { return QuestRewardIdempotencyKey(QuestID("")) },
+		},
+		{
+			name:  "quest reroll player id",
+			build: func() (IdempotencyKey, error) { return QuestRerollIdempotencyKey(PlayerID(""), "20260618") },
+		},
+		{
+			name:  "quest reroll reference",
+			build: func() (IdempotencyKey, error) { return QuestRerollIdempotencyKey(PlayerID("player-2"), " ") },
 		},
 		{
 			name:  "craft start reference",

@@ -20,6 +20,7 @@ type InMemoryQuestStore struct {
 	questsByPlayer  map[foundation.PlayerID][]foundation.QuestID
 	progressEvents  map[foundation.EventID]struct{}
 	claimResults    map[foundation.QuestID]ClaimRewardResult
+	rerollResults   map[foundation.IdempotencyKey]RerollBoardResult
 }
 
 type questOfferStoreKey struct {
@@ -36,6 +37,7 @@ func NewInMemoryQuestStore() *InMemoryQuestStore {
 		questsByPlayer:  make(map[foundation.PlayerID][]foundation.QuestID),
 		progressEvents:  make(map[foundation.EventID]struct{}),
 		claimResults:    make(map[foundation.QuestID]ClaimRewardResult),
+		rerollResults:   make(map[foundation.IdempotencyKey]RerollBoardResult),
 	}
 }
 
@@ -64,14 +66,7 @@ func (store *InMemoryQuestStore) StoreGeneratedBoardOffers(offers []GeneratedBoa
 	defer store.mu.Unlock()
 
 	for _, offer := range cloned {
-		key := newQuestOfferStoreKey(offer.PlayerID, offer.OfferID)
-		if _, accepted := store.acceptedByOffer[key]; accepted {
-			continue
-		}
-		if existing, ok := store.offers[key]; ok && existing.AcceptedAt != nil {
-			continue
-		}
-		store.offers[key] = cloneGeneratedBoardOffer(offer)
+		store.storeGeneratedBoardOfferLocked(offer)
 	}
 	return nil
 }
@@ -211,6 +206,59 @@ func (store *InMemoryQuestStore) appendPlayerQuestLocked(playerID foundation.Pla
 		}
 	}
 	store.questsByPlayer[playerID] = append(store.questsByPlayer[playerID], questID)
+}
+
+func (store *InMemoryQuestStore) storeGeneratedBoardOfferLocked(offer GeneratedBoardOffer) {
+	key := newQuestOfferStoreKey(offer.PlayerID, offer.OfferID)
+	if _, accepted := store.acceptedByOffer[key]; accepted {
+		return
+	}
+	if existing, ok := store.offers[key]; ok && existing.AcceptedAt != nil {
+		return
+	}
+	store.offers[key] = cloneGeneratedBoardOffer(offer)
+}
+
+func (store *InMemoryQuestStore) ensureRerollOffersCanStoreLocked(playerID foundation.PlayerID, offers []GeneratedBoardOffer) error {
+	if len(offers) != BoardOfferCount {
+		return fmt.Errorf("reroll offers %d want %d: %w", len(offers), BoardOfferCount, ErrInvalidQuestReroll)
+	}
+	for _, offer := range offers {
+		if offer.PlayerID != playerID {
+			return fmt.Errorf("offer %q player %q want %q: %w", offer.OfferID, offer.PlayerID, playerID, ErrQuestOfferOwnerMismatch)
+		}
+		key := newQuestOfferStoreKey(playerID, offer.OfferID)
+		if _, accepted := store.acceptedByOffer[key]; accepted {
+			return fmt.Errorf("offer %q already accepted: %w", offer.OfferID, ErrQuestOfferAlreadyAccepted)
+		}
+		if existing, ok := store.offers[key]; ok && existing.AcceptedAt != nil {
+			return fmt.Errorf("offer %q already accepted: %w", offer.OfferID, ErrQuestOfferAlreadyAccepted)
+		}
+	}
+	return nil
+}
+
+func (store *InMemoryQuestStore) expireUnacceptedOffersForPlayerLocked(playerID foundation.PlayerID) {
+	for key, offer := range store.offers {
+		if key.playerID != playerID || offer.AcceptedAt != nil {
+			continue
+		}
+		if _, accepted := store.acceptedByOffer[key]; accepted {
+			continue
+		}
+		delete(store.offers, key)
+	}
+}
+
+func (store *InMemoryQuestStore) storeRerolledBoardOffersLocked(playerID foundation.PlayerID, offers []GeneratedBoardOffer) error {
+	if err := store.ensureRerollOffersCanStoreLocked(playerID, offers); err != nil {
+		return err
+	}
+	store.expireUnacceptedOffersForPlayerLocked(playerID)
+	for _, offer := range offers {
+		store.offers[newQuestOfferStoreKey(playerID, offer.OfferID)] = cloneGeneratedBoardOffer(offer)
+	}
+	return nil
 }
 
 func (store *InMemoryQuestStore) applyProgressEventLocked(

@@ -38,6 +38,10 @@ var (
 	ErrUnexpectedQuestProgress              = errors.New("unexpected quest progress")
 	ErrInvalidQuestCompletion               = errors.New("invalid quest completion")
 	ErrInvalidQuestClaim                    = errors.New("invalid quest claim")
+	ErrInvalidQuestReroll                   = errors.New("invalid quest reroll")
+	ErrInvalidQuestRerollCost               = errors.New("invalid quest reroll cost")
+	ErrInvalidQuestRerollHook               = errors.New("invalid quest reroll hook")
+	ErrInvalidQuestRerollSeed               = errors.New("invalid quest reroll seed")
 	ErrAcceptedQuestExpiresTooEarly         = errors.New("accepted quest expires before acceptance")
 	ErrDuplicateQuestOffer                  = errors.New("duplicate quest offer")
 	ErrQuestOfferNotFound                   = errors.New("quest offer not found")
@@ -52,6 +56,7 @@ var (
 	ErrMissingQuestRewardWalletService      = errors.New("missing quest reward wallet service")
 	ErrMissingQuestRewardInventoryService   = errors.New("missing quest reward inventory service")
 	ErrMissingQuestRewardProgressionService = errors.New("missing quest reward progression service")
+	ErrMissingQuestRerollWalletService      = errors.New("missing quest reroll wallet service")
 )
 
 var (

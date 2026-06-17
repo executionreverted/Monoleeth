@@ -97,12 +97,12 @@ Board rules:
 
 ## TODO: Reroll
 
-- [ ] Implement board reroll command.
-- [ ] Debit reroll credits.
-- [ ] Expire old unaccepted offers.
-- [ ] Generate new offers.
-- [ ] Add rare reward cap hook.
-- [ ] Add reroll cost scaling hook.
+- [x] Implement board reroll command. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./internal/game/quests -count=1`.
+- [x] Debit reroll credits. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./internal/game/quests -count=1`.
+- [x] Expire old unaccepted offers. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./internal/game/quests -count=1`.
+- [x] Generate new offers. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./internal/game/quests -count=1`.
+- [x] Add rare reward cap hook. Verified placeholder exposure 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./internal/game/quests -count=1`.
+- [x] Add reroll cost scaling hook. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./internal/game/quests -count=1`.
 
 ## Tests
 
@@ -113,8 +113,8 @@ Board rules:
 - [x] Accept rejects another player's offer. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
 - [x] Duplicate accept returns the same accepted quest without creating another active quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
 - [x] Accept rechecks requirements at accept time. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
-- [ ] Reroll charges credits.
-- [ ] Reroll does not affect accepted quests.
+- [x] Reroll charges credits. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./internal/game/quests -count=1`.
+- [x] Reroll does not affect accepted quests. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./internal/game/quests -count=1`.
 - [x] Kill event progresses only matching quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
 - [x] Loot event progresses only matching quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
 - [x] Craft event progresses only matching quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
@@ -127,7 +127,7 @@ Board rules:
 
 - [ ] Client cannot send quest progress directly.
 - [x] Reward duplicate blocked by quest state and ledger reference. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
-- [ ] Reroll rare farming has cost and cap hooks.
+- [x] Reroll rare farming has cost and cap hooks. Verified placeholder hooks 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./internal/game/quests -count=1`.
 - [ ] Market quest wash-trade remains out of MVP.
 - [ ] Reward error messages do not leak hidden quest targets.
 
@@ -137,8 +137,8 @@ Board rules:
 - [x] Quest rewards are idempotent. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
 - [ ] Quest events integrate combat, loot, craft, and XP.
 - [ ] MVP rank milestones can depend on quest completion.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] `go test ./...` passes. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./...`; plain `go test ./...` was blocked by sandbox cache permissions outside the workspace.
+- [x] `git diff --check` passes. Verified 2026-06-17 by `git diff --check`.
 
 ## Resume Notes
 

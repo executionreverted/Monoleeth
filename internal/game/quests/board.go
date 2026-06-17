@@ -376,7 +376,10 @@ func generateRewardPayload(snapshot PlayerQuestBoardSnapshot, template QuestTemp
 			Amount: difficulty,
 		})
 	}
-	return RewardPayload{Grants: grants}
+	return RewardPayload{
+		Grants:       grants,
+		RareCapHooks: rareCapHooksForGeneratedRewards(snapshot),
+	}
 }
 
 func stableOfferID(input BoardGenerationInput, template QuestTemplate, slot int, catalogFingerprint string) foundation.QuestID {
