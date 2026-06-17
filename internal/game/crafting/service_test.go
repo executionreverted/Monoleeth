@@ -3,6 +3,7 @@ package crafting
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"gameproject/internal/game/ships"
 	"gameproject/internal/game/testutil"
 )
+
+var errTestCraftLocationRejected = errors.New("test craft location rejected")
 
 func TestStartCraftMissingMaterialFailsWithoutWalletDebitOrJob(t *testing.T) {
 	fixture := newCraftingServiceFixture(t)
@@ -355,6 +358,72 @@ func TestStartCraftReferenceCacheIsScopedByPlayer(t *testing.T) {
 	}
 }
 
+func TestStartCraftLocationAuthorizerRejectsBeforeEconomyMutation(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	fixture.seedCraftingRole(t, 1)
+	recipe := fixture.recipe(t, RecipeIDRefinedAlloy)
+	fixture.seedRecipeInputs(t, recipe, "location-authorizer")
+	fixture.seedCredits(t, recipe.RequiredCredits.Int64(), "location-authorizer-credits")
+	authorizer := &recordingCraftLocationAuthorizer{err: errTestCraftLocationRejected}
+	fixture.service.locationAuth = authorizer
+	countingReservations := newCountingReservationService(fixture.reservations)
+	fixture.service.reservations = countingReservations
+
+	walletLedgerCount := len(fixture.wallet.CurrencyLedgerEntries())
+	itemLedgerCount := len(fixture.inventory.ItemLedgerEntries())
+
+	_, err := fixture.service.StartCraft(fixture.startInput(recipe.RecipeID))
+	if !errors.Is(err, errTestCraftLocationRejected) {
+		t.Fatalf("StartCraft error = %v, want authorizer rejection", err)
+	}
+	if !authorizer.called {
+		t.Fatal("location authorizer was not called")
+	}
+	if authorizer.input.PlayerID != fixture.playerID || authorizer.input.Recipe.RecipeID != recipe.RecipeID || authorizer.input.Location != fixture.location {
+		t.Fatalf("authorizer input = %#v, want player recipe and location", authorizer.input)
+	}
+
+	assertNoStartCraftEconomyMutation(t, fixture, recipe, "craft-job-1", walletLedgerCount, itemLedgerCount)
+	if got := countingReservations.reserveCalls.Load(); got != 0 {
+		t.Fatalf("ReserveItems calls = %d, want 0", got)
+	}
+}
+
+func TestStartCraftRejectsAlreadyOwnedNonRepeatableShipBeforeEconomyMutation(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	fixture.seedRank2(t)
+	fixture.seedCraftingRole(t, 2)
+	recipe := fixture.recipe(t, RecipeIDScoutT1)
+	fixture.seedRecipeInputs(t, recipe, "owned-ship")
+	fixture.seedCredits(t, recipe.RequiredCredits.Int64(), "owned-ship-credits")
+	if _, err := fixture.ships.UnlockShip(ships.UnlockShipInput{
+		PlayerID:    fixture.playerID,
+		ShipID:      ships.ShipIDScoutT1,
+		Source:      "test",
+		ReferenceID: "already-owned",
+	}); err != nil {
+		t.Fatalf("seed UnlockShip: %v", err)
+	}
+	countingReservations := newCountingReservationService(fixture.reservations)
+	fixture.service.reservations = countingReservations
+
+	walletLedgerCount := len(fixture.wallet.CurrencyLedgerEntries())
+	itemLedgerCount := len(fixture.inventory.ItemLedgerEntries())
+
+	_, err := fixture.service.StartCraft(fixture.startInput(recipe.RecipeID))
+	if !errors.Is(err, ErrCraftOutputAlreadyOwned) {
+		t.Fatalf("StartCraft error = %v, want ErrCraftOutputAlreadyOwned", err)
+	}
+
+	assertNoStartCraftEconomyMutation(t, fixture, recipe, "craft-job-1", walletLedgerCount, itemLedgerCount)
+	if got := countingReservations.reserveCalls.Load(); got != 0 {
+		t.Fatalf("ReserveItems calls = %d, want 0", got)
+	}
+	if got := countShip(mustHangar(t, fixture.ships, fixture.playerID), ships.ShipIDScoutT1); got != 1 {
+		t.Fatalf("scout unlock count = %d, want 1", got)
+	}
+}
+
 func TestStartCraftReservesMaterialsAndDebitsFee(t *testing.T) {
 	fixture := newCraftingServiceFixture(t)
 	fixture.seedCraftingRole(t, 1)
@@ -466,6 +535,42 @@ func TestCompleteCraftAfterTimeCreatesItemOnceForDuplicateCompletion(t *testing.
 	}
 }
 
+func TestConcurrentCompleteCraftItemOutputUsesOneCanonicalResult(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	recipe := fixture.startReadyRecipe(t, RecipeIDLaserAlphaT1, "concurrent-item")
+	started := fixture.mustStartCraft(t, recipe.RecipeID)
+	fixture.clock.Advance(recipe.CraftDuration)
+
+	blockingInventory := newBlockingInventoryService(fixture.inventory)
+	fixture.service.inventory = blockingInventory
+
+	results := completeTwiceWhileFirstOutputIsBlocked(t, fixture.service, fixture.playerID, started.Job.JobID, blockingInventory.entered, blockingInventory.release)
+
+	assertOneCanonicalCompleteResult(t, results)
+	if got := blockingInventory.calls.Load(); got != 1 {
+		t.Fatalf("AddItem calls = %d, want 1", got)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.playerID, recipe.Output.ItemID, fixture.sourceLocation); got != recipe.Output.Quantity.Int64() {
+		t.Fatalf("output quantity = %d, want %d", got, recipe.Output.Quantity.Int64())
+	}
+	if got := countCraftXPRecords(fixture.progressionStore, fixture.playerID); got != 1 {
+		t.Fatalf("craft XP records = %d, want 1", got)
+	}
+	canonical := canonicalCompleteResult(t, results)
+	if canonical.ReservationCommit.Duplicate {
+		t.Fatal("canonical ReservationCommit Duplicate = true, want false")
+	}
+	if canonical.ItemOutput == nil {
+		t.Fatal("canonical ItemOutput is nil, want item output")
+	}
+	if canonical.ItemOutput.Duplicate {
+		t.Fatal("canonical ItemOutput Duplicate = true, want false")
+	}
+	if canonical.XPGrant.Duplicate {
+		t.Fatal("canonical XPGrant Duplicate = true, want false")
+	}
+}
+
 func TestCompleteCraftShipUnlockRecipeIsIdempotent(t *testing.T) {
 	fixture := newCraftingServiceFixture(t)
 	fixture.seedRank2(t)
@@ -500,6 +605,46 @@ func TestCompleteCraftShipUnlockRecipeIsIdempotent(t *testing.T) {
 	}
 	if got := countCraftXPRecords(fixture.progressionStore, fixture.playerID); got != 1 {
 		t.Fatalf("craft XP records = %d, want 1", got)
+	}
+}
+
+func TestConcurrentCompleteCraftShipUnlockUsesOneCanonicalResult(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	fixture.seedRank2(t)
+	fixture.seedCraftingRole(t, 2)
+	recipe := fixture.recipe(t, RecipeIDScoutT1)
+	fixture.seedRecipeInputs(t, recipe, "concurrent-ship-unlock")
+	fixture.seedCredits(t, recipe.RequiredCredits.Int64(), "concurrent-ship-unlock-credits")
+	started := fixture.mustStartCraft(t, recipe.RecipeID)
+	fixture.clock.Advance(recipe.CraftDuration)
+
+	blockingShips := newBlockingShipService(fixture.ships)
+	fixture.service.ships = blockingShips
+
+	results := completeTwiceWhileFirstOutputIsBlocked(t, fixture.service, fixture.playerID, started.Job.JobID, blockingShips.entered, blockingShips.release)
+
+	assertOneCanonicalCompleteResult(t, results)
+	if got := blockingShips.calls.Load(); got != 1 {
+		t.Fatalf("UnlockShip calls = %d, want 1", got)
+	}
+	if got := countShip(mustHangar(t, fixture.ships, fixture.playerID), ships.ShipIDScoutT1); got != 1 {
+		t.Fatalf("scout unlock count = %d, want 1", got)
+	}
+	if got := countCraftXPRecords(fixture.progressionStore, fixture.playerID); got != 1 {
+		t.Fatalf("craft XP records = %d, want 1", got)
+	}
+	canonical := canonicalCompleteResult(t, results)
+	if canonical.ReservationCommit.Duplicate {
+		t.Fatal("canonical ReservationCommit Duplicate = true, want false")
+	}
+	if canonical.ShipUnlock == nil {
+		t.Fatal("canonical ShipUnlock is nil, want ship unlock")
+	}
+	if canonical.ShipUnlock.Duplicate {
+		t.Fatal("canonical ShipUnlock Duplicate = true, want false")
+	}
+	if canonical.XPGrant.Duplicate {
+		t.Fatal("canonical XPGrant Duplicate = true, want false")
 	}
 }
 
@@ -883,4 +1028,224 @@ func countShip(snapshot ships.HangarSnapshot, shipID foundation.ShipID) int {
 		}
 	}
 	return count
+}
+
+func assertNoStartCraftEconomyMutation(
+	t *testing.T,
+	fixture *craftingServiceFixture,
+	recipe RecipeDefinition,
+	reservedJobID string,
+	walletLedgerCount int,
+	itemLedgerCount int,
+) {
+	t.Helper()
+
+	for _, input := range recipe.Inputs {
+		if got := fixture.inventory.TotalItemQuantity(fixture.playerID, input.ItemID, fixture.sourceLocation); got != input.Quantity.Int64() {
+			t.Fatalf("source quantity for %q = %d, want %d", input.ItemID, got, input.Quantity.Int64())
+		}
+		if got := fixture.inventory.TotalItemQuantity(fixture.playerID, input.ItemID, fixture.reservedLocation(CraftJobID(reservedJobID))); got != 0 {
+			t.Fatalf("reserved quantity for %q = %d, want 0", input.ItemID, got)
+		}
+	}
+	if got := fixture.wallet.Balance(fixture.playerID, economy.CurrencyBucketCredits); got != recipe.RequiredCredits.Int64() {
+		t.Fatalf("wallet balance = %d, want %d", got, recipe.RequiredCredits.Int64())
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != walletLedgerCount {
+		t.Fatalf("wallet ledger entries = %d, want %d", got, walletLedgerCount)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != itemLedgerCount {
+		t.Fatalf("item ledger entries = %d, want %d", got, itemLedgerCount)
+	}
+	if got := len(fixture.service.Jobs()); got != 0 {
+		t.Fatalf("jobs len = %d, want 0", got)
+	}
+}
+
+func completeTwiceWhileFirstOutputIsBlocked(
+	t *testing.T,
+	service *CraftingService,
+	playerID foundation.PlayerID,
+	jobID CraftJobID,
+	entered <-chan struct{},
+	release chan struct{},
+) []CompleteCraftResult {
+	t.Helper()
+
+	results := make([]CompleteCraftResult, 2)
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		results[0], errs[0] = service.CompleteCraft(CompleteCraftInput{PlayerID: playerID, JobID: jobID})
+	}()
+	waitForSignal(t, entered, "first output mutation")
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		results[1], errs[1] = service.CompleteCraft(CompleteCraftInput{PlayerID: playerID, JobID: jobID})
+	}()
+	close(release)
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	waitForSignal(t, done, "concurrent completions")
+
+	for index, err := range errs {
+		if err != nil {
+			t.Fatalf("CompleteCraft[%d]: %v", index, err)
+		}
+	}
+	return results
+}
+
+func waitForSignal(t *testing.T, ch <-chan struct{}, label string) {
+	t.Helper()
+
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %s", label)
+	}
+}
+
+func assertOneCanonicalCompleteResult(t *testing.T, results []CompleteCraftResult) {
+	t.Helper()
+
+	canonicalCount := 0
+	duplicateCount := 0
+	var canonical CompleteCraftResult
+	for _, result := range results {
+		if result.Duplicate {
+			duplicateCount++
+			continue
+		}
+		canonicalCount++
+		canonical = result
+	}
+	if canonicalCount != 1 {
+		t.Fatalf("canonical result count = %d, want 1; results = %#v", canonicalCount, results)
+	}
+	if duplicateCount != len(results)-1 {
+		t.Fatalf("duplicate result count = %d, want %d", duplicateCount, len(results)-1)
+	}
+	for index, result := range results {
+		if result.Job.JobID != canonical.Job.JobID {
+			t.Fatalf("result[%d] job id = %q, want %q", index, result.Job.JobID, canonical.Job.JobID)
+		}
+		if result.ReferenceKey != canonical.ReferenceKey {
+			t.Fatalf("result[%d] reference = %q, want %q", index, result.ReferenceKey, canonical.ReferenceKey)
+		}
+	}
+}
+
+func canonicalCompleteResult(t *testing.T, results []CompleteCraftResult) CompleteCraftResult {
+	t.Helper()
+
+	for _, result := range results {
+		if !result.Duplicate {
+			return result
+		}
+	}
+	t.Fatal("canonical result not found")
+	return CompleteCraftResult{}
+}
+
+func mustHangar(t *testing.T, service ShipService, playerID foundation.PlayerID) ships.HangarSnapshot {
+	t.Helper()
+
+	hangar, err := service.GetHangar(playerID)
+	if err != nil {
+		t.Fatalf("GetHangar: %v", err)
+	}
+	return hangar
+}
+
+type recordingCraftLocationAuthorizer struct {
+	called bool
+	input  CraftLocationAuthorizationInput
+	err    error
+}
+
+func (authorizer *recordingCraftLocationAuthorizer) AuthorizeCraftLocation(input CraftLocationAuthorizationInput) error {
+	authorizer.called = true
+	authorizer.input = input
+	return authorizer.err
+}
+
+type blockingInventoryService struct {
+	delegate InventoryService
+	entered  chan struct{}
+	release  chan struct{}
+	calls    atomic.Int64
+}
+
+func newBlockingInventoryService(delegate InventoryService) *blockingInventoryService {
+	return &blockingInventoryService{
+		delegate: delegate,
+		entered:  make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+}
+
+func (service *blockingInventoryService) AddItem(input economy.AddItemInput) (economy.AddItemResult, error) {
+	if service.calls.Add(1) == 1 {
+		close(service.entered)
+		<-service.release
+	}
+	return service.delegate.AddItem(input)
+}
+
+type countingReservationService struct {
+	delegate     ReservationService
+	reserveCalls atomic.Int64
+}
+
+func newCountingReservationService(delegate ReservationService) *countingReservationService {
+	return &countingReservationService{delegate: delegate}
+}
+
+func (service *countingReservationService) ReserveItems(input economy.ReserveItemsInput) (economy.ReserveItemsResult, error) {
+	service.reserveCalls.Add(1)
+	return service.delegate.ReserveItems(input)
+}
+
+func (service *countingReservationService) ReleaseReservation(reservationID economy.ReservationID) (economy.ReleaseReservationResult, error) {
+	return service.delegate.ReleaseReservation(reservationID)
+}
+
+func (service *countingReservationService) CommitReservation(reservationID economy.ReservationID) (economy.CommitReservationResult, error) {
+	return service.delegate.CommitReservation(reservationID)
+}
+
+type blockingShipService struct {
+	delegate ShipService
+	entered  chan struct{}
+	release  chan struct{}
+	calls    atomic.Int64
+}
+
+func newBlockingShipService(delegate ShipService) *blockingShipService {
+	return &blockingShipService{
+		delegate: delegate,
+		entered:  make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+}
+
+func (service *blockingShipService) UnlockShip(input ships.UnlockShipInput) (ships.UnlockShipResult, error) {
+	if service.calls.Add(1) == 1 {
+		close(service.entered)
+		<-service.release
+	}
+	return service.delegate.UnlockShip(input)
+}
+
+func (service *blockingShipService) GetHangar(playerID foundation.PlayerID) (ships.HangarSnapshot, error) {
+	return service.delegate.GetHangar(playerID)
 }

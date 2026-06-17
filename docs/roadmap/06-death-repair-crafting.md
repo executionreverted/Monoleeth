@@ -102,6 +102,8 @@ Crafting:
 - [x] Validate rank requirement.
 - [x] Validate role level requirement.
 - [x] Validate location requirement.
+- [x] Add craft location authorization hook before material reservation, wallet debit, and job creation. Verified 2026-06-17 by `CraftingService.StartCraft` authorizer rejection test.
+- [x] Reject already-owned non-repeatable ship unlock crafts before material reservation, wallet debit, and job creation. Verified 2026-06-17 by `CraftingService.StartCraft` owned-output test.
 - [x] Reserve or consume materials using inventory service.
 - [x] Debit craft fee using wallet service.
 - [x] Create running craft job with server `completes_at`.
@@ -113,6 +115,7 @@ Crafting:
 - [x] Mark job completed once.
 - [x] Grant craft XP once.
 - [x] Store recipe version on job.
+- [x] Serialize concurrent completion retries for the same job and return later callers the cached canonical duplicate result. Verified 2026-06-17 by concurrent item-output and ship-unlock completion tests.
 
 ## Tests
 
@@ -135,6 +138,8 @@ Crafting:
 - [x] Missing credits fails craft start.
 - [x] Rank too low fails craft start.
 - [x] Wrong location fails craft start.
+- [x] Location authorizer rejection fails craft start before reservation, wallet debit, or job creation. Verified 2026-06-17 by `CraftingService.StartCraft` authorizer rejection test.
+- [x] Already-owned non-repeatable ship unlock craft fails before reservation, wallet debit, or job creation. Verified 2026-06-17 by `CraftingService.StartCraft` owned-output test.
 - [x] Start craft reserves or consumes materials.
 - [x] Missing craft start reference is rejected. Verified 2026-06-17 by `CraftingService.StartCraft` idempotency hardening tests.
 - [x] Duplicate craft start with the same player/reference/recipe/location returns the original job without another reservation or wallet debit. Verified 2026-06-17 by `CraftingService.StartCraft` idempotency hardening tests.
@@ -143,6 +148,7 @@ Crafting:
 - [x] Complete before time fails.
 - [x] Complete after time creates output once.
 - [x] Duplicate complete does not duplicate output.
+- [x] Concurrent complete retries create one item output, one ship unlock, and one craft XP grant while returning duplicate callers the canonical result. Verified 2026-06-17 by `CraftingService.CompleteCraft` concurrent retry tests.
 - [x] Ship unlock recipe is idempotent.
 - [x] Craft XP granted once.
 
@@ -156,6 +162,7 @@ Crafting:
 - [x] Craft start retry duplication blocked by player-scoped idempotency reference. Verified 2026-06-17 by `CraftingService.StartCraft` duplicate-reference tests.
 - [x] Early craft completion blocked by server time.
 - [x] Unknown recipe and wrong MVP station location type blocked by server catalog validation.
+- [x] Craft completion retry races are serialized per job in the in-memory Phase 06 service. Verified 2026-06-17 by concurrent completion tests.
 - [ ] Planet/building craft location ownership validation blocks fake locations.
 - [ ] Low-tier craft XP spam has at least a tracking hook for later balancing.
 

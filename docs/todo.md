@@ -50,6 +50,17 @@ for phase status; this file is a compact pending-work index.
   still needs recovery.
 - [ ] Add craft location ownership/building validation before enabling
   owned-planet or planet-building recipes beyond the current station MVP.
+- [ ] Wire `CraftLocationAuthorizer` to authoritative runtime station, planet,
+  and building ownership providers before exposing non-station craft recipes;
+  the Phase 06 service now has a pre-mutation hook, but no runtime provider is
+  connected yet.
+- [ ] Add gateway/security tests for craft start authorization using the
+  authenticated server-side player id, including hidden or unowned planet and
+  building ids with leak-safe errors.
+- [ ] Replace the process-local `CraftingService.CompleteCraft` in-flight guard
+  with durable per-job state transitions or row locks plus metrics for
+  completion wait time and duplicate retry rate before multi-process runtime
+  deployment.
 - [ ] Narrow DeathService and RepairService lock scope from global service mutex
   to per-player/per-reference coordination before these services move to a
   higher-concurrency runtime path.

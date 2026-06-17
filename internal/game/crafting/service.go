@@ -62,21 +62,38 @@ type ProgressionService interface {
 	GrantXP(input progression.GrantXPInput) (progression.GrantXPResult, error)
 }
 
+// CraftLocationAuthorizationInput contains the server-owned context needed to
+// authorize a recipe location before crafting reserves materials or debits fees.
+type CraftLocationAuthorizationInput struct {
+	PlayerID foundation.PlayerID `json:"player_id"`
+	Recipe   RecipeDefinition    `json:"recipe"`
+	Location CraftLocation       `json:"location"`
+}
+
+// CraftLocationAuthorizer validates that a player can craft this recipe at the
+// requested location. Runtime station, planet, and building ownership checks can
+// plug in behind this boundary without changing crafting economy flows.
+type CraftLocationAuthorizer interface {
+	AuthorizeCraftLocation(input CraftLocationAuthorizationInput) error
+}
+
 // ShipService is the ship boundary used by ship unlock recipes.
 type ShipService interface {
 	UnlockShip(input ships.UnlockShipInput) (ships.UnlockShipResult, error)
+	GetHangar(playerID foundation.PlayerID) (ships.HangarSnapshot, error)
 }
 
 // CraftingServiceConfig wires CraftingService to public gameplay boundaries.
 type CraftingServiceConfig struct {
-	Clock           foundation.Clock
-	Recipes         RecipeCatalog
-	ItemDefinitions ItemDefinitionProvider
-	Reservations    ReservationService
-	Inventory       InventoryService
-	Wallet          WalletService
-	Progression     ProgressionService
-	Ships           ShipService
+	Clock              foundation.Clock
+	Recipes            RecipeCatalog
+	ItemDefinitions    ItemDefinitionProvider
+	Reservations       ReservationService
+	Inventory          InventoryService
+	Wallet             WalletService
+	Progression        ProgressionService
+	Ships              ShipService
+	LocationAuthorizer CraftLocationAuthorizer
 }
 
 // CraftingService owns in-memory craft job orchestration for the Phase 06 MVP.
@@ -91,12 +108,20 @@ type CraftingService struct {
 	wallet          WalletService
 	progression     ProgressionService
 	ships           ShipService
+	locationAuth    CraftLocationAuthorizer
 
 	nextJobSequence int64
 	jobs            map[CraftJobID]CraftJob
 	startResults    map[craftStartReferenceKey]StartCraftResult
 	startInFlight   map[craftStartReferenceKey]*startCraftInFlight
 	completions     map[CraftJobID]CompleteCraftResult
+	completing      map[CraftJobID]*completionInFlight
+}
+
+type completionInFlight struct {
+	done   chan struct{}
+	result CompleteCraftResult
+	err    error
 }
 
 type craftStartReferenceKey struct {
@@ -186,10 +211,12 @@ func NewCraftingService(config CraftingServiceConfig) (*CraftingService, error) 
 		wallet:          config.Wallet,
 		progression:     config.Progression,
 		ships:           config.Ships,
+		locationAuth:    config.LocationAuthorizer,
 		jobs:            make(map[CraftJobID]CraftJob),
 		startResults:    make(map[craftStartReferenceKey]StartCraftResult),
 		startInFlight:   make(map[craftStartReferenceKey]*startCraftInFlight),
 		completions:     make(map[CraftJobID]CompleteCraftResult),
+		completing:      make(map[CraftJobID]*completionInFlight),
 	}, nil
 }
 
@@ -221,6 +248,18 @@ func (service *CraftingService) StartCraft(input StartCraftInput) (StartCraftRes
 		return StartCraftResult{}, err
 	}
 	if err := recipe.ValidateRequirements(snapshot.Player.Rank, roleLevelsForRequirements(snapshot), input.Location); err != nil {
+		return StartCraftResult{}, err
+	}
+	if service.locationAuth != nil {
+		if err := service.locationAuth.AuthorizeCraftLocation(CraftLocationAuthorizationInput{
+			PlayerID: input.PlayerID,
+			Recipe:   recipe,
+			Location: input.Location,
+		}); err != nil {
+			return StartCraftResult{}, err
+		}
+	}
+	if err := service.rejectOwnedNonRepeatableShipOutput(input.PlayerID, recipe); err != nil {
 		return StartCraftResult{}, err
 	}
 	sourceLocation, err := craftItemLocation(input.PlayerID, input.Location)
@@ -330,32 +369,51 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 		service.mu.Unlock()
 		return CompleteCraftResult{}, fmt.Errorf("craft job %q completes at %s: %w", input.JobID, job.CompletesAt, ErrCraftNotReady)
 	}
+	if inFlight, ok := service.completing[input.JobID]; ok {
+		service.mu.Unlock()
+		<-inFlight.done
+		if inFlight.err != nil {
+			return CompleteCraftResult{}, inFlight.err
+		}
+		result := cloneCompleteCraftResult(inFlight.result)
+		result.Duplicate = true
+		return result, nil
+	}
+	inFlight := &completionInFlight{done: make(chan struct{})}
+	service.completing[input.JobID] = inFlight
 	service.mu.Unlock()
+
+	failCompletion := func(err error) (CompleteCraftResult, error) {
+		service.mu.Lock()
+		service.finishCompletionInFlightLocked(input.JobID, CompleteCraftResult{}, err)
+		service.mu.Unlock()
+		return CompleteCraftResult{}, err
+	}
 
 	recipe, err := service.recipeForJob(job)
 	if err != nil {
-		return CompleteCraftResult{}, err
+		return failCompletion(err)
 	}
 	referenceKey, err := craftCompleteReferenceKey(job.JobID)
 	if err != nil {
-		return CompleteCraftResult{}, err
+		return failCompletion(err)
 	}
 	outputLocation, err := craftItemLocation(job.PlayerID, job.Location)
 	if err != nil {
-		return CompleteCraftResult{}, err
+		return failCompletion(err)
 	}
 
 	var outputDefinition economy.ItemDefinition
 	if recipe.Output.Kind == RecipeOutputKindItem {
 		outputDefinition, err = service.itemDefinition(recipe.Output.ItemID)
 		if err != nil {
-			return CompleteCraftResult{}, err
+			return failCompletion(err)
 		}
 	}
 
 	commitResult, err := service.reservations.CommitReservation(job.ReservationID)
 	if err != nil {
-		return CompleteCraftResult{}, err
+		return failCompletion(err)
 	}
 	commitTime := service.clock.Now()
 
@@ -372,7 +430,7 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 			ReferenceKey:   referenceKey,
 		})
 		if err != nil {
-			return CompleteCraftResult{}, err
+			return failCompletion(err)
 		}
 		cloned := cloneAddItemResult(result)
 		itemOutput = &cloned
@@ -384,12 +442,12 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 			ReferenceID: referenceKey.String(),
 		})
 		if err != nil {
-			return CompleteCraftResult{}, err
+			return failCompletion(err)
 		}
 		cloned := result
 		shipUnlock = &cloned
 	default:
-		return CompleteCraftResult{}, fmt.Errorf("recipe output %q: %w", recipe.Output.Kind, ErrUnsupportedRecipeOutput)
+		return failCompletion(fmt.Errorf("recipe output %q: %w", recipe.Output.Kind, ErrUnsupportedRecipeOutput))
 	}
 	outputTime := service.clock.Now()
 
@@ -404,7 +462,7 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 		},
 	})
 	if err != nil {
-		return CompleteCraftResult{}, err
+		return failCompletion(err)
 	}
 	xpTime := service.clock.Now()
 
@@ -415,7 +473,7 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 	job.XPGrantedAt = &xpTime
 	job.CompletedAt = &completedAt
 	if err := job.Validate(); err != nil {
-		return CompleteCraftResult{}, err
+		return failCompletion(err)
 	}
 
 	result := CompleteCraftResult{
@@ -434,10 +492,12 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 	if previous, ok := service.completions[input.JobID]; ok {
 		duplicate := cloneCompleteCraftResult(previous)
 		duplicate.Duplicate = true
+		service.finishCompletionInFlightLocked(input.JobID, previous, nil)
 		return duplicate, nil
 	}
 	service.jobs[input.JobID] = cloneCraftJob(job)
 	service.completions[input.JobID] = cloneCompleteCraftResult(result)
+	service.finishCompletionInFlightLocked(input.JobID, result, nil)
 
 	return cloneCompleteCraftResult(result), nil
 }
@@ -512,6 +572,35 @@ func (service *CraftingService) reserveRequirements(
 		})
 	}
 	return requirements, nil
+}
+
+func (service *CraftingService) rejectOwnedNonRepeatableShipOutput(playerID foundation.PlayerID, recipe RecipeDefinition) error {
+	if recipe.Repeatable || recipe.Output.Kind != RecipeOutputKindShipUnlock {
+		return nil
+	}
+	hangar, err := service.ships.GetHangar(playerID)
+	if err != nil {
+		return err
+	}
+	for _, playerShip := range hangar.Ships {
+		if playerShip.ShipID == recipe.Output.ShipID {
+			return fmt.Errorf("ship %q: %w", recipe.Output.ShipID, ErrCraftOutputAlreadyOwned)
+		}
+	}
+	return nil
+}
+
+func (service *CraftingService) finishCompletionInFlightLocked(jobID CraftJobID, result CompleteCraftResult, err error) {
+	inFlight, ok := service.completing[jobID]
+	if !ok {
+		return
+	}
+	if err == nil {
+		inFlight.result = cloneCompleteCraftResult(result)
+	}
+	inFlight.err = err
+	delete(service.completing, jobID)
+	close(inFlight.done)
 }
 
 func (service *CraftingService) itemDefinition(itemID foundation.ItemID) (economy.ItemDefinition, error) {
