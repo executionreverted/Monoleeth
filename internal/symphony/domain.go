@@ -119,3 +119,15 @@ type TaskWaitResult struct {
 	Task          *Issue            `json:"task,omitempty"`
 	DisplayEvents []DisplayRunEvent `json:"display_events"`
 }
+
+type WorkspaceDiffPacket struct {
+	ID             string   `json:"id"`
+	Identifier     string   `json:"identifier"`
+	State          string   `json:"state"`
+	WorkspacePath  string   `json:"workspace_path"`
+	GitStatus      string   `json:"git_status"`
+	DiffStat       string   `json:"diff_stat"`
+	TrackedDiff    string   `json:"tracked_diff"`
+	UntrackedFiles []string `json:"untracked_files"`
+	Patch          string   `json:"patch"`
+}

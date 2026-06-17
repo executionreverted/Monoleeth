@@ -162,6 +162,21 @@ func (s *HTTPServer) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && action == "stream":
 		events := s.orchestrator.TaskRunLog(issueID)
 		writeJSON(w, map[string]any{"events": events, "display_events": DisplayRunEvents(events)})
+	case r.Method == http.MethodGet && action == "workspace-diff":
+		packet, err := s.orchestrator.WorkspaceDiff(r.Context(), issueID)
+		if errors.Is(err, ErrTaskNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		if errors.Is(err, ErrWorkspaceNotFound) {
+			writeError(w, err, http.StatusConflict)
+			return
+		}
+		if err != nil {
+			writeError(w, err, http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, packet)
 	case r.Method == http.MethodGet && action == "wait":
 		timeout, err := parseTaskWaitTimeout(r)
 		if err != nil {
@@ -593,6 +608,9 @@ const tasksHTML = `<!doctype html>
     .stream-entry-title { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
     .stream-event { color: var(--ink); font-weight: 600; }
     .stream-summary { margin: 0; color: var(--ink); line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
+    .patch-grid { display: grid; grid-template-columns: minmax(0, 0.65fr) minmax(0, 1.35fr); gap: 0.75rem; align-items: start; }
+    .patch-list { display: grid; gap: 0.45rem; color: var(--muted); font-size: 0.88rem; }
+    .patch-panel { max-height: 32rem; white-space: pre; }
     .agent-island { position: fixed; left: 50%; bottom: 1rem; z-index: 40; width: min(calc(100vw - 1rem), 46rem); transform: translateX(-50%); border: 1px solid var(--line-strong); border-radius: 1rem; background: rgba(255, 255, 255, 0.96); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.14); backdrop-filter: blur(18px); overflow: hidden; }
     .agent-island-top { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; padding: 0.72rem; border-bottom: 1px solid var(--line); }
     .agent-island-title { display: flex; align-items: center; gap: 0.5rem; min-width: 0; font-weight: 700; }
@@ -613,7 +631,7 @@ const tasksHTML = `<!doctype html>
     .agent-island[data-collapsed="true"] .agent-island-top { border-bottom: 0; }
     .code-panel { overflow: auto; }
     @media (min-width: 768px) { .agent-island-top { grid-template-columns: minmax(0, 1fr) auto; align-items: center; } .agent-island-actions { justify-content: flex-end; } }
-    @media (max-width: 980px) { .board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .form-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 980px) { .board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .form-grid, .patch-grid { grid-template-columns: 1fr; } }
     @media (max-width: 560px) { .board-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -695,6 +713,19 @@ const tasksHTML = `<!doctype html>
         <div class="stream-list" id="streamList"><p class="empty-state">No task selected.</p></div>
       </section>
 
+      <section class="section-card" id="patchSection">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Patch review</h2>
+            <p class="section-copy" id="patchSubtitle">Select a task to inspect its workspace diff.</p>
+          </div>
+        </div>
+        <div class="patch-grid">
+          <div class="patch-list" id="patchMeta"><p class="empty-state">No task selected.</p></div>
+          <pre class="code-panel patch-panel" id="patchDiff">No patch loaded.</pre>
+        </div>
+      </section>
+
       <section class="section-card">
         <div class="section-header"><div><h2 class="section-title">Raw state</h2><p class="section-copy">Debug payload from /api/v1/raw-state.</p></div></div>
         <pre class="code-panel" id="rawState">Loading...</pre>
@@ -725,6 +756,8 @@ const tasksHTML = `<!doctype html>
     const errorCard = document.getElementById("errorCard");
     let selectedTaskID = "";
     let selectedTaskIdentifier = "";
+    let selectedPatchID = "";
+    let selectedPatchIdentifier = "";
     let islandTaskID = "";
     let islandPinned = false;
     let islandCollapsed = false;
@@ -765,6 +798,7 @@ const tasksHTML = `<!doctype html>
         '<div class="task-actions">' +
           '<button class="ghost" type="button" data-run="' + escapeHTML(task.id) + '">Run</button>' +
           '<button class="ghost" type="button" data-stream="' + escapeHTML(task.id) + '" data-identifier="' + escapeHTML(task.identifier) + '">Stream</button>' +
+          '<button class="ghost" type="button" data-patch="' + escapeHTML(task.id) + '" data-identifier="' + escapeHTML(task.identifier) + '">Patch</button>' +
           '<button class="ghost" type="button" data-state="' + escapeHTML(task.id) + '" data-next="Todo">Todo</button>' +
           '<button class="ghost" type="button" data-state="' + escapeHTML(task.id) + '" data-next="Done">Done</button>' +
         '</div>' +
@@ -820,6 +854,34 @@ const tasksHTML = `<!doctype html>
       }
       const payload = await api("/api/v1/tasks/" + encodeURIComponent(selectedTaskID) + "/stream");
       renderStream(payload.display_events || payload.events || []);
+    }
+
+    function renderPatch(packet) {
+      const meta = document.getElementById("patchMeta");
+      const diff = document.getElementById("patchDiff");
+      if (!selectedPatchID) {
+        document.getElementById("patchSubtitle").textContent = "Select a task to inspect its workspace diff.";
+        meta.innerHTML = '<p class="empty-state">No task selected.</p>';
+        diff.textContent = "No patch loaded.";
+        return;
+      }
+      document.getElementById("patchSubtitle").textContent = "Workspace diff for " + selectedPatchIdentifier + ".";
+      meta.innerHTML =
+        '<div><strong>State</strong><br>' + escapeHTML(packet.state || "n/a") + '</div>' +
+        '<div><strong>Workspace</strong><br><span class="mono">' + escapeHTML(packet.workspace_path || "n/a") + '</span></div>' +
+        '<div><strong>Status</strong><pre class="code-panel">' + escapeHTML(packet.git_status || "clean") + '</pre></div>' +
+        '<div><strong>Untracked</strong><br>' + escapeHTML((packet.untracked_files || []).join(", ") || "none") + '</div>' +
+        '<div><strong>Stat</strong><pre class="code-panel">' + escapeHTML(packet.diff_stat || "No tracked diff.") + '</pre></div>';
+      diff.textContent = packet.patch || packet.tracked_diff || "No patch changes.";
+    }
+
+    async function refreshSelectedPatch() {
+      if (!selectedPatchID) {
+        renderPatch(null);
+        return;
+      }
+      const packet = await api("/api/v1/tasks/" + encodeURIComponent(selectedPatchID) + "/workspace-diff");
+      renderPatch(packet);
     }
 
     function sortedRunningEntries(raw) {
@@ -902,6 +964,7 @@ const tasksHTML = `<!doctype html>
         document.getElementById("metricBlocked").textContent = state.counts?.blocked || 0;
         renderBoard(tasks);
         await refreshSelectedStream();
+        await refreshSelectedPatch();
         await refreshAgentIsland(raw);
         rawState.textContent = JSON.stringify(raw, null, 2);
       } catch (error) {
@@ -954,6 +1017,7 @@ const tasksHTML = `<!doctype html>
     board.addEventListener("click", async event => {
       const run = event.target.closest("[data-run]");
       const stream = event.target.closest("[data-stream]");
+      const patch = event.target.closest("[data-patch]");
       const state = event.target.closest("[data-state]");
       if (run) {
         await api("/api/v1/tasks/" + run.dataset.run + "/run", { method: "POST", body: "{}" });
@@ -962,6 +1026,10 @@ const tasksHTML = `<!doctype html>
         selectedTaskID = stream.dataset.stream;
         selectedTaskIdentifier = stream.dataset.identifier || selectedTaskID;
         await refreshSelectedStream();
+      } else if (patch) {
+        selectedPatchID = patch.dataset.patch;
+        selectedPatchIdentifier = patch.dataset.identifier || selectedPatchID;
+        await refreshSelectedPatch();
       } else if (state) {
         await api("/api/v1/tasks/" + state.dataset.state + "/state", { method: "PATCH", body: JSON.stringify({ state: state.dataset.next }) });
         await refresh();

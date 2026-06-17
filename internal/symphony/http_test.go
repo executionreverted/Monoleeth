@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -32,7 +34,7 @@ func TestHTTPDashboardTasksAndPresenterEndpoints(t *testing.T) {
 	}
 
 	tasksPage := getBody(t, server.URL+"/tasks")
-	for _, want := range []string{"Symphony Tasks", "Create & run", "Task board", "Pause auto-run", "Run stream", "Agent stream", "Follow latest", "agentIsland"} {
+	for _, want := range []string{"Symphony Tasks", "Create & run", "Task board", "Pause auto-run", "Run stream", "Patch review", "Agent stream", "Follow latest", "agentIsland"} {
 		if !strings.Contains(tasksPage, want) {
 			t.Fatalf("tasks page missing %q:\n%s", want, tasksPage)
 		}
@@ -73,6 +75,42 @@ func TestHTTPDashboardTasksAndPresenterEndpoints(t *testing.T) {
 	if len(created.Labels) != 1 || created.Labels[0] != "local" {
 		t.Fatalf("expected required label fallback, got %#v", created.Labels)
 	}
+	missingWorkspaceResp, err := http.Get(server.URL + "/api/v1/tasks/" + created.ID + "/workspace-diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer missingWorkspaceResp.Body.Close()
+	if missingWorkspaceResp.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(missingWorkspaceResp.Body)
+		t.Fatalf("missing workspace diff status = %d body = %s", missingWorkspaceResp.StatusCode, string(body))
+	}
+
+	workspace := filepath.Join(orchestrator.workflow.Config.Workspace.Root, SafeIdentifier(created.Identifier))
+	setupWorkspaceDiffRepo(t, workspace)
+	var diffPacket WorkspaceDiffPacket
+	decodeGET(t, server.URL+"/api/v1/tasks/"+created.ID+"/workspace-diff", &diffPacket)
+	if diffPacket.ID != created.ID || diffPacket.Identifier != created.Identifier || diffPacket.State != created.State {
+		t.Fatalf("unexpected workspace diff identity: %#v", diffPacket)
+	}
+	if diffPacket.WorkspacePath != workspace {
+		t.Fatalf("workspace path = %q, want %q", diffPacket.WorkspacePath, workspace)
+	}
+	if !strings.Contains(diffPacket.GitStatus, "M tracked.txt") {
+		t.Fatalf("workspace diff git status missing tracked file: %q", diffPacket.GitStatus)
+	}
+	if !strings.Contains(diffPacket.DiffStat, "tracked.txt") {
+		t.Fatalf("workspace diff stat missing tracked file: %q", diffPacket.DiffStat)
+	}
+	if !strings.Contains(diffPacket.TrackedDiff, "-before") || !strings.Contains(diffPacket.TrackedDiff, "+after") {
+		t.Fatalf("workspace tracked diff missing expected content:\n%s", diffPacket.TrackedDiff)
+	}
+	if len(diffPacket.UntrackedFiles) != 1 || diffPacket.UntrackedFiles[0] != "new.txt" {
+		t.Fatalf("workspace untracked files = %#v, want new.txt", diffPacket.UntrackedFiles)
+	}
+	if !strings.Contains(diffPacket.Patch, "diff --git") || !strings.Contains(diffPacket.Patch, "new.txt") {
+		t.Fatalf("workspace patch missing tracked or untracked content:\n%s", diffPacket.Patch)
+	}
+
 	orchestrator.recordRunEvent(created, 0, 0, "test_event", map[string]any{"summary": "hello"}, "hello")
 
 	var stream struct {
@@ -113,6 +151,15 @@ func TestHTTPDashboardTasksAndPresenterEndpoints(t *testing.T) {
 	if missingWaitResp.StatusCode != http.StatusNotFound {
 		body, _ := io.ReadAll(missingWaitResp.Body)
 		t.Fatalf("missing wait status = %d body = %s", missingWaitResp.StatusCode, string(body))
+	}
+	missingDiffResp, err := http.Get(server.URL + "/api/v1/tasks/missing/workspace-diff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer missingDiffResp.Body.Close()
+	if missingDiffResp.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(missingDiffResp.Body)
+		t.Fatalf("missing workspace diff status = %d body = %s", missingDiffResp.StatusCode, string(body))
 	}
 
 	var listed struct {
@@ -237,6 +284,37 @@ func newDiscardLogger(t *testing.T) *Logger {
 		t.Fatal(err)
 	}
 	return logger
+}
+
+func setupWorkspaceDiffRepo(t *testing.T, workspace string) {
+	t.Helper()
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "symphony@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Symphony Test")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTestGit(t, workspace, "add", "tracked.txt")
+	runTestGit(t, workspace, "commit", "-m", "seed")
+	if err := os.WriteFile(filepath.Join(workspace, "tracked.txt"), []byte("after\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "new.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runTestGit(t *testing.T, workspace string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = workspace
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v output=%s", strings.Join(args, " "), err, string(output))
+	}
 }
 
 func getBody(t *testing.T, url string) string {
