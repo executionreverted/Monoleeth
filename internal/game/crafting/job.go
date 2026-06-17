@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 )
 
@@ -14,6 +15,7 @@ func NewCraftJob(
 	jobID CraftJobID,
 	playerID foundation.PlayerID,
 	recipe RecipeDefinition,
+	reservationID economy.ReservationID,
 	location CraftLocation,
 	startedAt time.Time,
 ) (CraftJob, error) {
@@ -25,13 +27,14 @@ func NewCraftJob(
 	}
 
 	job := CraftJob{
-		JobID:        jobID,
-		PlayerID:     playerID,
-		RecipeSource: recipe.Source,
-		Location:     location,
-		State:        CraftJobStateRunning,
-		StartedAt:    startedAt,
-		CompletesAt:  startedAt.Add(recipe.CraftDuration),
+		JobID:         jobID,
+		PlayerID:      playerID,
+		RecipeSource:  recipe.Source,
+		ReservationID: reservationID,
+		Location:      location,
+		State:         CraftJobStateRunning,
+		StartedAt:     startedAt,
+		CompletesAt:   startedAt.Add(recipe.CraftDuration),
 	}
 	if err := job.Validate(); err != nil {
 		return CraftJob{}, err
@@ -69,6 +72,9 @@ func (job CraftJob) Validate() error {
 	if err := job.RecipeSource.Validate(); err != nil {
 		return err
 	}
+	if err := job.ReservationID.Validate(); err != nil {
+		return err
+	}
 	if err := job.Location.Validate(); err != nil {
 		return err
 	}
@@ -88,6 +94,39 @@ func (job CraftJob) Validate() error {
 		if job.CompletedAt.Before(job.CompletesAt) {
 			return fmt.Errorf("completed_at %s before completes_at %s: %w", *job.CompletedAt, job.CompletesAt, ErrInvalidCraftJobTime)
 		}
+		for label, value := range map[string]*time.Time{
+			"reservation_committed_at": job.ReservationCommittedAt,
+			"output_granted_at":        job.OutputGrantedAt,
+			"xp_granted_at":            job.XPGrantedAt,
+		} {
+			if value == nil || value.IsZero() {
+				return fmt.Errorf("%s: %w", label, ErrZeroCraftJobTime)
+			}
+			if value.Before(job.CompletesAt) {
+				return fmt.Errorf("%s %s before completes_at %s: %w", label, *value, job.CompletesAt, ErrInvalidCraftJobTime)
+			}
+		}
 	}
 	return nil
+}
+
+func cloneCraftJob(job CraftJob) CraftJob {
+	cloned := job
+	if job.ReservationCommittedAt != nil {
+		reservationCommittedAt := *job.ReservationCommittedAt
+		cloned.ReservationCommittedAt = &reservationCommittedAt
+	}
+	if job.OutputGrantedAt != nil {
+		outputGrantedAt := *job.OutputGrantedAt
+		cloned.OutputGrantedAt = &outputGrantedAt
+	}
+	if job.XPGrantedAt != nil {
+		xpGrantedAt := *job.XPGrantedAt
+		cloned.XPGrantedAt = &xpGrantedAt
+	}
+	if job.CompletedAt != nil {
+		completedAt := *job.CompletedAt
+		cloned.CompletedAt = &completedAt
+	}
+	return cloned
 }

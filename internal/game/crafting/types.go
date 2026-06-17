@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"gameproject/internal/game/catalog"
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/progression"
 )
@@ -91,14 +92,18 @@ const (
 
 // CraftJob records durable state for a recipe that has been started.
 type CraftJob struct {
-	JobID        CraftJobID                  `json:"job_id"`
-	PlayerID     foundation.PlayerID         `json:"player_id"`
-	RecipeSource catalog.VersionedDefinition `json:"recipe_source"`
-	Location     CraftLocation               `json:"location"`
-	State        CraftJobState               `json:"state"`
-	StartedAt    time.Time                   `json:"started_at"`
-	CompletesAt  time.Time                   `json:"completes_at"`
-	CompletedAt  *time.Time                  `json:"completed_at,omitempty"`
+	JobID                  CraftJobID                  `json:"job_id"`
+	PlayerID               foundation.PlayerID         `json:"player_id"`
+	RecipeSource           catalog.VersionedDefinition `json:"recipe_source"`
+	ReservationID          economy.ReservationID       `json:"reservation_id"`
+	Location               CraftLocation               `json:"location"`
+	State                  CraftJobState               `json:"state"`
+	StartedAt              time.Time                   `json:"started_at"`
+	CompletesAt            time.Time                   `json:"completes_at"`
+	ReservationCommittedAt *time.Time                  `json:"reservation_committed_at,omitempty"`
+	OutputGrantedAt        *time.Time                  `json:"output_granted_at,omitempty"`
+	XPGrantedAt            *time.Time                  `json:"xp_granted_at,omitempty"`
+	CompletedAt            *time.Time                  `json:"completed_at,omitempty"`
 }
 
 // String returns the stable category representation.

@@ -28,6 +28,9 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.
+- [ ] Add request-id idempotency for `CraftingService.StartCraft` before
+  exposing craft start through a realtime/API gateway; the Phase 06 in-memory
+  domain service currently creates a new job per accepted start call.
 
 ## Completed
 

@@ -206,7 +206,7 @@ func TestCraftJobStoresRecipeVersionCompletesAtAndState(t *testing.T) {
 
 	startedAt := time.Date(2026, 6, 17, 15, 0, 0, 0, time.UTC)
 	location := CraftLocation{Type: CraftLocationStation, ID: "origin-station"}
-	job, err := NewCraftJob("craft-job-1", "player-1", definition, location, startedAt)
+	job, err := NewCraftJob("craft-job-1", "player-1", definition, "craft-job-1", location, startedAt)
 	if err != nil {
 		t.Fatalf("NewCraftJob() error = %v, want nil", err)
 	}
@@ -222,6 +222,9 @@ func TestCraftJobStoresRecipeVersionCompletesAtAndState(t *testing.T) {
 	}
 	if job.State != CraftJobStateRunning {
 		t.Fatalf("State = %q, want %q", job.State, CraftJobStateRunning)
+	}
+	if job.ReservationID != "craft-job-1" {
+		t.Fatalf("ReservationID = %q, want craft-job-1", job.ReservationID)
 	}
 	if err := job.Validate(); err != nil {
 		t.Fatalf("job Validate() = %v, want nil", err)

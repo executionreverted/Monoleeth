@@ -98,20 +98,20 @@ Crafting:
 - [x] Define craft job model.
 - [x] Define recipe input requirements.
 - [x] Define recipe location requirements.
-- [ ] Implement `StartCraft`.
+- [x] Implement `StartCraft`.
 - [x] Validate rank requirement.
 - [x] Validate role level requirement.
 - [x] Validate location requirement.
-- [ ] Reserve or consume materials using inventory service.
-- [ ] Debit craft fee using wallet service.
+- [x] Reserve or consume materials using inventory service.
+- [x] Debit craft fee using wallet service.
 - [x] Create running craft job with server `completes_at`.
-- [ ] Implement `CompleteCraft`.
-- [ ] Reject early completion.
-- [ ] Commit reservation or consume inputs.
-- [ ] Create item output through inventory service.
-- [ ] Grant ship unlock output through ship service.
-- [ ] Mark job completed once.
-- [ ] Grant craft XP once.
+- [x] Implement `CompleteCraft`.
+- [x] Reject early completion.
+- [x] Commit reservation or consume inputs.
+- [x] Create item output through inventory service.
+- [x] Grant ship unlock output through ship service.
+- [x] Mark job completed once.
+- [x] Grant craft XP once.
 - [x] Store recipe version on job.
 
 ## Tests
@@ -126,16 +126,16 @@ Crafting:
 - [ ] Repair charges correct wallet amount.
 - [x] Repair restores ship.
 - [ ] Repair rollback prevents partial charge/state change.
-- [ ] Missing material fails craft start.
-- [ ] Missing credits fails craft start.
-- [ ] Rank too low fails craft start.
-- [ ] Wrong location fails craft start.
-- [ ] Start craft reserves or consumes materials.
-- [ ] Complete before time fails.
-- [ ] Complete after time creates output once.
-- [ ] Duplicate complete does not duplicate output.
-- [ ] Ship unlock recipe is idempotent.
-- [ ] Craft XP granted once.
+- [x] Missing material fails craft start.
+- [x] Missing credits fails craft start.
+- [x] Rank too low fails craft start.
+- [x] Wrong location fails craft start.
+- [x] Start craft reserves or consumes materials.
+- [x] Complete before time fails.
+- [x] Complete after time creates output once.
+- [x] Duplicate complete does not duplicate output.
+- [x] Ship unlock recipe is idempotent.
+- [x] Craft XP granted once.
 
 ## Abuse And Safety Checks
 
@@ -143,16 +143,16 @@ Crafting:
 - [ ] Cargo hiding during death blocked.
 - [ ] Repair cost is server-calculated.
 - [ ] Client cannot avoid module durability loss after death.
-- [ ] Material duplication blocked by reservation state.
-- [ ] Early craft completion blocked by server time.
-- [ ] Hidden recipe or fake location blocked by server catalog validation.
+- [x] Material duplication blocked by reservation state.
+- [x] Early craft completion blocked by server time.
+- [x] Hidden recipe or fake location blocked by server catalog validation.
 - [ ] Low-tier craft XP spam has at least a tracking hook for later balancing.
 
 ## Done Criteria
 
 - [ ] Death and repair loop works in tests.
-- [ ] Crafting produces first module and ship unlock.
-- [ ] Crafting consumes materials and credits safely.
+- [x] Crafting produces first module and ship unlock.
+- [x] Crafting consumes materials and credits safely.
 - [x] Disabled ship and starter fallback rules are enforced.
 - [ ] `go test ./...` passes.
 - [ ] `git diff --check` passes.
