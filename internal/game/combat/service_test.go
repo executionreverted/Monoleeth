@@ -3,6 +3,7 @@ package combat_test
 import (
 	"errors"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -119,6 +120,68 @@ func TestExecuteBasicAttackAppliesShieldOverflowAndKillsNPCOnce(t *testing.T) {
 	_, err = service.ExecuteBasicAttack(combat.BasicAttackInput{AttackerID: "player_entity_1", TargetID: "npc_1"})
 	if !errors.Is(err, combat.ErrTargetDead) {
 		t.Fatalf("second ExecuteBasicAttack() error = %v, want ErrTargetDead", err)
+	}
+}
+
+func TestSimultaneousLethalDamageProcessesNPCDeathOnce(t *testing.T) {
+	service := newCombatService(t, []float64{0, 0})
+	recorder := testutil.NewEventRecorder()
+	service.SetEventEmitter(recorder)
+	first := playerActor("player_entity_1", "player_1", world.Vec2{})
+	first.Stats.Stats.Combat.WeaponDamage = 100
+	second := playerActor("player_entity_2", "player_2", world.Vec2{X: 0, Y: 5})
+	second.Stats.Stats.Combat.WeaponDamage = 100
+	target := npcActor("npc_1", world.Vec2{X: 10, Y: 0})
+	target.HP = 50
+	target.Shield = 0
+	for _, actor := range []combat.ActorState{first, second, target} {
+		if err := service.UpsertActor(actor); err != nil {
+			t.Fatalf("UpsertActor(%s) error = %v", actor.EntityID, err)
+		}
+	}
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	results := make([]combat.BasicAttackResult, 2)
+	errs := make([]error, 2)
+	for index, attackerID := range []world.EntityID{"player_entity_1", "player_entity_2"} {
+		wg.Add(1)
+		go func(index int, attackerID world.EntityID) {
+			defer wg.Done()
+			<-start
+			results[index], errs[index] = service.ExecuteBasicAttack(combat.BasicAttackInput{
+				AttackerID: attackerID,
+				TargetID:   "npc_1",
+			})
+		}(index, attackerID)
+	}
+	close(start)
+	wg.Wait()
+
+	kills := 0
+	deadTargetErrors := 0
+	for index, err := range errs {
+		if err == nil && results[index].Killed && results[index].KillEvent != nil {
+			kills++
+			continue
+		}
+		if errors.Is(err, combat.ErrTargetDead) {
+			deadTargetErrors++
+			continue
+		}
+		t.Fatalf("attack %d result = %+v, error = %v; want one kill and one ErrTargetDead", index, results[index], err)
+	}
+	if kills != 1 || deadTargetErrors != 1 {
+		t.Fatalf("kills = %d, dead target errors = %d; want 1/1", kills, deadTargetErrors)
+	}
+	testutil.AssertRecordedEventTypes(t, recorder, combat.EventBasicAttack, combat.EventNPCKilled)
+
+	after, ok := service.Actor("npc_1")
+	if !ok {
+		t.Fatal("Actor(npc_1) ok = false, want true")
+	}
+	if !after.Dead || after.DiedAt == nil || after.HP != 0 {
+		t.Fatalf("target after concurrent lethal damage = %+v, want dead once with zero HP", after)
 	}
 }
 
