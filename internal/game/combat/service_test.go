@@ -250,6 +250,42 @@ func TestUpsertActorRejectsInvalidEffectiveCombatStats(t *testing.T) {
 	}
 }
 
+func TestNewActorFromSnapshotUsesAuthoritativeStatsAndRejectsMismatch(t *testing.T) {
+	snapshot := statSnapshot("player_1", 100, 8, 12)
+	actor, err := combat.NewActorFromSnapshot(combat.ActorFromSnapshotInput{
+		EntityID:  "player_entity_1",
+		Type:      world.EntityTypePlayer,
+		PlayerID:  "player_1",
+		WorldID:   "world_1",
+		ZoneID:    "zone_1",
+		Position:  world.Vec2{X: 1, Y: 2},
+		Signature: visibility.EntitySignature(10),
+		Snapshot:  snapshot,
+	})
+	if err != nil {
+		t.Fatalf("NewActorFromSnapshot() error = %v", err)
+	}
+	if actor.HP != snapshot.Stats.Core.HPMax ||
+		actor.Shield != snapshot.Stats.Core.ShieldMax ||
+		actor.Energy != snapshot.Stats.Core.EnergyMax {
+		t.Fatalf("actor live resources = hp %v shield %v energy %v, want snapshot maxes", actor.HP, actor.Shield, actor.Energy)
+	}
+
+	_, err = combat.NewActorFromSnapshot(combat.ActorFromSnapshotInput{
+		EntityID:  "player_entity_2",
+		Type:      world.EntityTypePlayer,
+		PlayerID:  "player_2",
+		WorldID:   "world_1",
+		ZoneID:    "zone_1",
+		Position:  world.Vec2{},
+		Signature: visibility.EntitySignature(10),
+		Snapshot:  snapshot,
+	})
+	if !errors.Is(err, combat.ErrInvalidActorState) {
+		t.Fatalf("mismatched NewActorFromSnapshot() error = %v, want ErrInvalidActorState", err)
+	}
+}
+
 func newCombatService(t *testing.T, floats []float64) *combat.Service {
 	t.Helper()
 	start := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
