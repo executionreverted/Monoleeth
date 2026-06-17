@@ -57,7 +57,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 ## TODO
 
 - [x] Create `internal/game/foundation` package.
-- [ ] Add typed identifiers for player, account, world, zone, entity, item, ship, module, quest, planet, route, listing, auction, event, and request.
+- [x] Add typed identifiers for player, account, world, zone, entity, item, ship, module, quest, planet, route, listing, auction, event, and request.
 - [ ] Add a small `Clock` interface with real and fake implementations.
 - [ ] Add an RNG interface with deterministic test implementation.
 - [ ] Add `Money`, `Quantity`, and positive amount validation helpers.
