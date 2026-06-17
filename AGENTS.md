@@ -55,17 +55,56 @@ For stack and architecture context, read:
 docs/2026-06-16-space-morpg-architecture-notes.md
 ```
 
+## Roadmap And Phase Tracking
+
+The implementation roadmap lives under:
+
+```text
+docs/roadmap/
+```
+
+Start with:
+
+```text
+docs/roadmap/00-index.md
+```
+
+Before implementing gameplay, economy, world, client, infrastructure, or observability work:
+- read `docs/roadmap/00-index.md`
+- identify the exact roadmap phase or phases touched
+- read each matching phase file under `docs/roadmap/`
+- read the module specs referenced by those phase files
+- respect phase dependencies unless the user explicitly asks to do work out of order
+
+Use roadmap phase files as working checklists:
+- follow the phase TODO order where it applies
+- use the phase's test list when choosing validation
+- use the phase's abuse/safety checklist during review
+- use the phase's done criteria before claiming the phase or slice is complete
+- use the phase's resume notes when continuing interrupted work
+
+When work completes:
+- update the relevant roadmap phase file for tasks actually completed
+- check off only TODOs that were implemented and verified
+- leave unfinished TODOs unchecked
+- add short notes or links if a new implementation plan, commit, PR, or follow-up exists
+- update `docs/roadmap/00-index.md` if phases are added, renamed, reordered, or completed
+
+If a request crosses multiple phases, update every affected phase file. If the task intentionally skips phase order, record the remaining risk in the final handoff.
+
 ## Workflow
 
-1. Read the issue/request and identify the exact module being touched.
-2. Read the matching file in `docs/plans/modules/`.
-3. Keep the change scoped to that module unless the request explicitly crosses boundaries.
-4. Write down a short plan before large code changes.
-5. Prefer small vertical slices over broad rewrites.
-6. Add or update tests for server rules, transactions, and edge cases.
-7. Run the narrowest useful test during development.
-8. Run `go test ./...` and `git diff --check` before final handoff.
-9. Report what changed, what was tested, and any remaining risk.
+1. Read the issue/request and identify the exact module and roadmap phase being touched.
+2. Read `docs/roadmap/00-index.md` and the matching phase file under `docs/roadmap/`.
+3. Read the matching file in `docs/plans/modules/`.
+4. Keep the change scoped to that module and phase unless the request explicitly crosses boundaries.
+5. Write down a short plan before large code changes.
+6. Prefer small vertical slices over broad rewrites.
+7. Add or update tests for server rules, transactions, and edge cases.
+8. Run the narrowest useful test during development.
+9. Update the relevant roadmap checklist for work actually completed.
+10. Run `go test ./...` and `git diff --check` before final handoff.
+11. Report what changed, what roadmap phase was touched, what was tested, and any remaining risk.
 
 ## Architecture Guardrails
 
@@ -294,6 +333,8 @@ When adding a new gameplay system:
 - document testing checklist
 
 When a design decision changes, update the docs in the same change as the code.
+
+When implementation progress changes, update the matching roadmap phase in `docs/roadmap/` in the same change as the code.
 
 ## Library And Cloud Documentation
 

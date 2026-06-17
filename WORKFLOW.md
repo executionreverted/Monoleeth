@@ -85,13 +85,19 @@ This is retry/continuation attempt #{{ attempt }}. Continue from the current wor
 Operating rules:
 1. Work only inside the current repository workspace.
 2. Read local repo instructions first, especially any `AGENTS.md`, `README`, and project docs.
-3. Keep the implementation scoped to this issue. File follow-up work separately instead of expanding scope.
-4. Before changing code, identify the current behavior or missing behavior and write down a concise plan.
-5. After changing code, run the narrowest useful validation for the touched area.
-6. Do not commit secrets, generated dependency folders, local logs, or `.symphony` workspaces.
-7. If you are blocked by missing credentials, missing issue details, unavailable tooling, or repository access, stop with a concise blocker report that names the exact missing item.
+3. For gameplay, economy, world, client, infrastructure, or observability work, read `docs/roadmap/00-index.md` and the matching phase file under `docs/roadmap/` before implementing.
+4. Use the roadmap phase file as the working checklist: follow its TODO order where applicable, use its tests and abuse/safety checks, and check its done criteria before claiming completion.
+5. Read the relevant module spec under `docs/plans/modules/` for the module being touched.
+6. Keep the implementation scoped to this issue, module, and roadmap phase. File follow-up work separately instead of expanding scope.
+7. Before changing code, identify the current behavior or missing behavior and write down a concise plan.
+8. After changing code, run the narrowest useful validation for the touched area.
+9. Update the relevant roadmap phase file for tasks actually completed. Check off only TODOs that were implemented and verified; leave unfinished TODOs unchecked.
+10. Do not commit secrets, generated dependency folders, local logs, or `.symphony` workspaces.
+11. If you are blocked by missing credentials, missing issue details, unavailable tooling, or repository access, stop with a concise blocker report that names the exact missing item.
 
 Completion bar:
 - The issue request is implemented or explicitly blocked.
+- The relevant roadmap phase file was checked and updated when implementation progress changed.
 - Relevant validation has run and the outcome is reported.
+- The final report names the roadmap phase or phases touched.
 - Any created branch, commit, PR, or follow-up issue is referenced in the final report when available.
