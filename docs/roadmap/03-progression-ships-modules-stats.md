@@ -91,15 +91,15 @@ Keep MVP small:
 - [x] Define ship catalog.
 - [x] Define player ship state.
 - [x] Define active ship state.
-- [ ] Implement starter ship guarantee.
-- [ ] Implement idempotent ship unlock.
-- [ ] Implement active ship selection.
-- [ ] Implement safe-area ship swap validation.
-- [ ] Block ship swap in combat.
-- [ ] Block ship swap outside hangar/safe area.
-- [ ] Block active use of disabled ships.
-- [ ] Block swap if current cargo exceeds target cargo capacity.
-- [ ] Emit stat invalidation when active ship changes.
+- [x] Implement starter ship guarantee.
+- [x] Implement idempotent ship unlock.
+- [x] Implement active ship selection.
+- [x] Implement safe-area ship swap validation.
+- [x] Block ship swap in combat.
+- [x] Block ship swap outside hangar/safe area.
+- [x] Block active use of disabled ships.
+- [x] Block swap if current cargo exceeds target cargo capacity.
+- [x] Emit stat invalidation when active ship changes.
 
 ## TODO: Loadouts And Modules
 
@@ -136,12 +136,12 @@ Keep MVP small:
 - [ ] Locked skill node cannot be unlocked.
 - [ ] Skill unlock consumes points once.
 - [ ] Respec invalidates stat snapshot.
-- [ ] Starter ship always exists.
-- [ ] Duplicate ship unlock is no-op.
-- [ ] Swap in combat fails.
-- [ ] Swap outside safe area fails.
-- [ ] Swap to lower cargo ship fails when cargo does not fit.
-- [ ] Destroyed ship cannot become active.
+- [x] Starter ship always exists.
+- [x] Duplicate ship unlock is no-op.
+- [x] Swap in combat fails.
+- [x] Swap outside safe area fails.
+- [x] Swap to lower cargo ship fails when cargo does not fit.
+- [x] Destroyed ship cannot become active.
 - [ ] Wrong module slot type fails.
 - [ ] Rank-too-low module equip fails.
 - [ ] Broken module equip fails.
@@ -154,14 +154,14 @@ Keep MVP small:
 - [ ] Client cannot spoof XP source completion.
 - [ ] Client cannot spoof rank milestone.
 - [ ] Client cannot unlock hidden or locked skill node.
-- [ ] Client cannot activate locked ship.
-- [ ] Client cannot bypass cargo capacity via ship swap.
+- [x] Client cannot activate locked ship.
+- [x] Client cannot bypass cargo capacity via ship swap.
 - [ ] Client cannot inject module stats or tier metadata.
 
 ## Done Criteria
 
 - [x] Player progression snapshot exists.
-- [ ] Starter ship flow exists.
+- [x] Starter ship flow exists.
 - [ ] Loadout and equip validation exists.
 - [x] Effective stats are server-calculated.
 - [x] Cargo capacity can be read from effective stats.
@@ -184,3 +184,4 @@ Verified slices:
 - Module catalog validation and equipped module state are implemented in `internal/game/modules`.
 - Effective stat model, deterministic aggregation order, snapshot versioning, and invalidation state are implemented in `internal/game/stats`.
 - Stat service `GetEffectiveStats`, explicit active-session cache versioning, cargo capacity output, and broken-module exclusion are implemented in `internal/game/stats`.
+- Starter guarantee, idempotent ship unlock, active ship selection, safe-area/combat/disabled/cargo swap validation, and active-ship stat invalidation signal are implemented in `internal/game/ships`.
