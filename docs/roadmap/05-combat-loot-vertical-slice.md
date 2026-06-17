@@ -95,8 +95,8 @@ Loot:
 - [x] Implement server-only loot roll.
 - [x] Create drops on `combat.npc_killed`.
 - [x] Set owner lock and expiration timestamps.
-- [ ] Schedule owner lock expiration.
-- [ ] Schedule drop despawn.
+- [x] Schedule owner lock expiration.
+- [x] Schedule drop despawn.
 - [x] Serialize visible drops only.
 - [x] Implement pickup command.
 - [x] Validate pickup range.
@@ -110,13 +110,13 @@ Loot:
 ## TODO: Vertical Slice Harness
 
 - [x] Add a deterministic test scenario with one player and one NPC.
-- [ ] Spawn starter ship with laser stats.
-- [ ] Move player into range.
+- [x] Spawn starter ship with laser stats.
+- [x] Move player into range.
 - [x] Attack until NPC dies.
 - [x] Create loot.
 - [x] Pick loot into cargo.
 - [x] Grant combat XP once.
-- [ ] Produce a player snapshot after mutation.
+- [x] Produce a player snapshot after mutation.
 
 ## Tests
 
@@ -127,7 +127,7 @@ Loot:
 - [x] Energy exactly equal to cost is allowed.
 - [ ] Client timestamp is ignored.
 - [x] Shield overflow applies HP damage.
-- [ ] Simultaneous lethal damage processes NPC death once.
+- [x] Simultaneous lethal damage processes NPC death once.
 - [x] Highest valid contributor receives loot lock.
 - [x] Duplicate NPC death does not duplicate drops.
 - [x] Owner can pick up during lock.
@@ -138,7 +138,7 @@ Loot:
 - [x] Hidden pickup fails.
 - [x] Concurrent pickup only one succeeds.
 - [x] Cargo full blocks pickup and drop remains.
-- [ ] Player-death source gives no loot XP.
+- [x] Player-death source gives no loot XP.
 
 ## Abuse And Safety Checks
 
@@ -168,12 +168,13 @@ Verified slices:
 - Basic laser combat is implemented in `internal/game/combat` with server-owned actor state, cooldowns, energy, visibility/range validation, hit roll, shield-first damage, NPC death-once state, damage contribution tracking, and combat events.
 - `stats.CombatStats` now includes `WeaponEnergyCost`, so energy cost comes from server-calculated stat snapshots instead of client payloads.
 - Loot drops are implemented in `internal/game/loot` with server-only roll tables, owner lock/public/expired windows, visible-only payload filtering, cargo-backed pickup, claim-once behavior, loot events, and loot XP grants for eligible server-generated drops.
-- A deterministic backend vertical slice test kills one NPC, grants combat XP idempotently, creates loot, picks it into ship cargo through `CargoService`, and grants loot XP.
+- Loot owner-lock expiry and despawn now produce explicit scheduled drop tasks that the world worker delayed scheduler can drain and map back into `LootService`.
+- Player-death drops can be created from server-calculated item stacks and are explicitly not eligible for loot XP.
+- A deterministic backend vertical slice test ensures a starter ship, composes Laser Alpha stats through `StatService`, moves the player into range through the world worker, kills one NPC, grants combat XP idempotently, creates loot, picks it into ship cargo through `CargoService`, grants loot XP, and reads the final player progression snapshot.
 - Final verification for this wave passed with `go test ./...`, `go test -race ./internal/game/combat ./internal/game/loot`, and `git diff --check`.
 
 Remaining follow-up:
 
-- Wire owner-lock expiry and despawn into the world worker scheduler instead of only deriving state from timestamps.
-- Connect the vertical slice to real starter ship/stat provider composition rather than direct test actor setup.
-- Add player-death drop source behavior and assert it never grants loot XP.
+- Add a client-timestamp regression around combat intents once a concrete gateway command exists.
+- Replace the vertical-slice test-local stat input adapter with real Phase 03 runtime provider wiring before exposing gateway combat/loot commands.
 - Add realtime gateway commands after authenticated session/player resolution is wired.
