@@ -509,7 +509,10 @@ func (service *Service) HandleScheduledDropTask(task ScheduledDropTask) (Schedul
 	emitter = service.emitter
 	switch task.Kind {
 	case ScheduledDropTaskOwnerLockExpired:
-		if now.Before(drop.OwnerLockUntil) || !service.markOwnerLockExpiredLocked(task.DropID) {
+		if now.Before(drop.OwnerLockUntil) {
+			return ScheduledDropTaskResult{Drop: cloneDrop(drop), RetryAt: drop.OwnerLockUntil}, nil
+		}
+		if !service.markOwnerLockExpiredLocked(task.DropID) {
 			return ScheduledDropTaskResult{Drop: cloneDrop(drop)}, nil
 		}
 		if emitter != nil {
@@ -517,7 +520,10 @@ func (service *Service) HandleScheduledDropTask(task ScheduledDropTask) (Schedul
 		}
 		return ScheduledDropTaskResult{Drop: cloneDrop(drop), Handled: true}, nil
 	case ScheduledDropTaskDespawn:
-		if now.Before(drop.ExpiresAt) || !service.markExpiredLocked(task.DropID) {
+		if now.Before(drop.ExpiresAt) {
+			return ScheduledDropTaskResult{Drop: cloneDrop(drop), RetryAt: drop.ExpiresAt}, nil
+		}
+		if !service.markExpiredLocked(task.DropID) {
 			return ScheduledDropTaskResult{Drop: cloneDrop(drop)}, nil
 		}
 		if emitter != nil {

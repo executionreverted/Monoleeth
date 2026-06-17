@@ -164,6 +164,7 @@ type ScheduledDropTask struct {
 type ScheduledDropTaskResult struct {
 	Drop    Drop
 	Handled bool
+	RetryAt time.Time
 }
 
 // CreateDropsResult reports drop creation for one source event.

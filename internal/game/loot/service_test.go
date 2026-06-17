@@ -396,6 +396,9 @@ func TestHandleScheduledDropTaskEmitsOwnerLockAndExpiryIdempotently(t *testing.T
 	if early.Handled {
 		t.Fatal("early owner-lock task Handled = true, want false")
 	}
+	if !early.RetryAt.Equal(ownerTask.DueAt) {
+		t.Fatalf("early owner-lock task RetryAt = %s, want %s", early.RetryAt, ownerTask.DueAt)
+	}
 	testutil.AssertRecordedEventTypes(t, recorder)
 
 	clock.Advance(loot.DefaultOwnerLockDuration)
@@ -415,6 +418,9 @@ func TestHandleScheduledDropTaskEmitsOwnerLockAndExpiryIdempotently(t *testing.T
 	}
 	if again.Handled {
 		t.Fatal("duplicate owner-lock task Handled = true, want false")
+	}
+	if !again.RetryAt.IsZero() {
+		t.Fatalf("duplicate owner-lock task RetryAt = %s, want zero", again.RetryAt)
 	}
 	testutil.AssertRecordedEventTypes(t, recorder)
 

@@ -34,16 +34,19 @@ func (handler LootScheduledTaskHandler) HandlesScheduledTaskKind(kind string) bo
 }
 
 // HandleScheduledTask applies one due loot task through LootService.
-func (handler LootScheduledTaskHandler) HandleScheduledTask(task ScheduledTask) error {
+func (handler LootScheduledTaskHandler) HandleScheduledTask(task ScheduledTask) (ScheduledTaskHandleResult, error) {
 	if handler.service == nil {
-		return ErrNilLootService
+		return ScheduledTaskHandleResult{}, ErrNilLootService
 	}
 	lootTask, ok := LootScheduledDropTask(task)
 	if !ok {
-		return fmt.Errorf("loot scheduled task %q: %w", task.Kind, ErrInvalidWorkerConfig)
+		return ScheduledTaskHandleResult{}, fmt.Errorf("loot scheduled task %q: %w", task.Kind, ErrInvalidWorkerConfig)
 	}
-	_, err := handler.service.HandleScheduledDropTask(lootTask)
-	return err
+	result, err := handler.service.HandleScheduledDropTask(lootTask)
+	if err != nil {
+		return ScheduledTaskHandleResult{}, err
+	}
+	return ScheduledTaskHandleResult{RetryAt: result.RetryAt}, nil
 }
 
 // ScheduleLootDropTasks maps loot-owned delayed work into the worker's local

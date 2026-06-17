@@ -105,10 +105,16 @@ type ScheduledTaskError struct {
 	Err  error
 }
 
+// ScheduledTaskHandleResult lets a domain handler keep ownership of side
+// effects while asking the worker to retry work that was not yet applicable.
+type ScheduledTaskHandleResult struct {
+	RetryAt time.Time
+}
+
 // ScheduledTaskHandler applies domain-owned effects for due worker tasks.
 type ScheduledTaskHandler interface {
 	HandlesScheduledTaskKind(kind string) bool
-	HandleScheduledTask(task ScheduledTask) error
+	HandleScheduledTask(task ScheduledTask) (ScheduledTaskHandleResult, error)
 }
 
 // Snapshot is a deterministic copy of worker-owned state.
@@ -339,8 +345,15 @@ func (worker *Worker) dispatchScheduledTasks(tasks []ScheduledTask) []ScheduledT
 		if !ok {
 			continue
 		}
-		if err := handler.HandleScheduledTask(task); err != nil {
+		handleResult, err := handler.HandleScheduledTask(task)
+		if err != nil {
 			errs = append(errs, ScheduledTaskError{Task: task, Err: err})
+			continue
+		}
+		if !handleResult.RetryAt.IsZero() {
+			retry := task
+			retry.DueAt = handleResult.RetryAt
+			worker.scheduler.schedule(retry)
 		}
 	}
 	return errs

@@ -172,6 +172,7 @@ Verified slices:
 - Loot drops are implemented in `internal/game/loot` with server-only roll tables, owner lock/public/expired windows, visible-only payload filtering, cargo-backed pickup, claim-once behavior, loot events, and loot XP grants for eligible server-generated drops.
 - Loot owner-lock expiry and despawn now produce explicit scheduled drop tasks that the world worker delayed scheduler can drain and map back into `LootService`.
 - Zone worker ticks can dispatch due scheduled loot tasks to registered handlers, so callers do not need to manually inspect `TickResult.DueTasks` to expire owner locks or despawn drops.
+- Scheduled loot tasks that are due on the worker clock but still early on the loot service clock now request retry instead of being permanently drained; handler errors are recorded without blocking later due tasks.
 - Player-death drops can be created from server-calculated item stacks and are explicitly not eligible for loot XP.
 - Combat XP is granted through an `NPCKillXPHandler` boundary over authoritative `combat.NPCKilledEvent` payloads instead of ad hoc caller-built progression inputs.
 - Loot XP pickup results now persist `LootXPReconciliation` metadata on the claimed drop for success, duplicate, failure, and not-eligible cases. Durable retry/outbox repair is still a later infrastructure slice.
