@@ -179,18 +179,11 @@ func TestTryRankUpGrantsHistorySkillPointAndInvalidationOnce(t *testing.T) {
 
 	staleTargetInput := input
 	staleTargetInput.IdempotencyKey = ""
-	staleTargetResult, err := service.TryRankUp(staleTargetInput)
-	if err != nil {
-		t.Fatalf("stale target TryRankUp() = %v, want nil", err)
-	}
-	if !staleTargetResult.Duplicate || !staleTargetResult.AlreadyAtRank {
-		t.Fatalf("stale target result duplicate/already = %t/%t, want true/true", staleTargetResult.Duplicate, staleTargetResult.AlreadyAtRank)
+	if _, err := service.TryRankUp(staleTargetInput); !errors.Is(err, ErrMissingRankUpIdempotencyKey) {
+		t.Fatalf("missing idempotency TryRankUp() error = %v, want ErrMissingRankUpIdempotencyKey", err)
 	}
 	if got := len(store.RankHistory("player-1")); got != 1 {
 		t.Fatalf("RankHistory len = %d, want 1", got)
-	}
-	if got := staleTargetResult.Snapshot.SkillPoints.TotalPoints; got != 1 {
-		t.Fatalf("skill points after stale target = %d, want 1", got)
 	}
 
 	duplicateGrant, err := service.GrantXP(GrantXPInput{
@@ -221,8 +214,9 @@ func TestTryRankUpReportsMissingRequirementsWithoutMutation(t *testing.T) {
 	service := NewProgressionService(clock, store)
 
 	result, err := service.TryRankUp(TryRankUpInput{
-		PlayerID:   "player-1",
-		TargetRank: 2,
+		PlayerID:       "player-1",
+		TargetRank:     2,
+		IdempotencyKey: "rank-up-player-1-rank-2",
 	})
 	if err != nil {
 		t.Fatalf("TryRankUp() = %v, want nil", err)
@@ -244,6 +238,31 @@ func TestTryRankUpReportsMissingRequirementsWithoutMutation(t *testing.T) {
 	}
 	if got := len(store.StatInvalidationSignals("player-1")); got != 0 {
 		t.Fatalf("StatInvalidationSignals len = %d, want 0", got)
+	}
+}
+
+func TestRespecPilotSkillsNoopDoesNotInvalidateStats(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 16, 30, 0, 0, time.UTC))
+	store := NewInMemoryProgressionStore()
+	service := NewProgressionService(clock, store)
+
+	result, err := service.RespecPilotSkills(RespecPilotSkillsInput{
+		PlayerID: "player-1",
+	})
+	if err != nil {
+		t.Fatalf("RespecPilotSkills() = %v, want nil", err)
+	}
+	if result.Respecced {
+		t.Fatal("Respecced = true, want false")
+	}
+	if result.RefundedPoints != 0 || len(result.ClearedNodeIDs) != 0 {
+		t.Fatalf("noop respec refunded/cleared = %d/%+v, want zero/nil", result.RefundedPoints, result.ClearedNodeIDs)
+	}
+	if len(result.StatInvalidationSignals) != 0 {
+		t.Fatalf("noop respec invalidations = %+v, want none", result.StatInvalidationSignals)
+	}
+	if got := len(store.StatInvalidationSignals("player-1")); got != 0 {
+		t.Fatalf("stored invalidations len = %d, want 0", got)
 	}
 }
 

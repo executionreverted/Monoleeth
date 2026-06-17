@@ -31,4 +31,5 @@ var (
 	ErrInvalidXPGrantAmount        = errors.New("invalid xp grant amount")
 	ErrEmptyXPGrant                = errors.New("empty xp grant")
 	ErrInvalidRankTarget           = errors.New("invalid rank target")
+	ErrMissingRankUpIdempotencyKey = errors.New("missing rank up idempotency key")
 )

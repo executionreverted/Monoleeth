@@ -2,7 +2,14 @@ package modules
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+)
+
+const (
+	maxOffensiveModuleSlots = 4
+	maxDefensiveModuleSlots = 3
+	maxUtilityModuleSlots   = 4
 )
 
 // Validate reports whether slotType is supported.
@@ -17,29 +24,40 @@ func (slotType ModuleSlotType) Validate() error {
 
 // Validate reports whether slotID is supported.
 func (slotID ModuleSlotID) Validate() error {
-	switch slotID {
-	case ModuleSlotOffensive1, ModuleSlotOffensive2, ModuleSlotDefensive1, ModuleSlotUtility1:
-		return nil
-	default:
-		return fmt.Errorf("module slot id %q: %w", slotID, ErrInvalidModuleSlotID)
-	}
+	_, _, err := slotID.SlotTypeAndOrdinal()
+	return err
 }
 
 // SlotType returns the slot type required by slotID.
 func (slotID ModuleSlotID) SlotType() (ModuleSlotType, error) {
-	if err := slotID.Validate(); err != nil {
-		return "", err
+	slotType, _, err := slotID.SlotTypeAndOrdinal()
+	return slotType, err
+}
+
+// SlotTypeAndOrdinal returns the family and 1-based index encoded in slotID.
+func (slotID ModuleSlotID) SlotTypeAndOrdinal() (ModuleSlotType, int, error) {
+	raw := string(slotID)
+	prefix, ordinalText, ok := strings.Cut(raw, "_")
+	if !ok || strings.TrimSpace(prefix) == "" || strings.TrimSpace(ordinalText) == "" {
+		return "", 0, fmt.Errorf("module slot id %q: %w", slotID, ErrInvalidModuleSlotID)
 	}
-	switch slotID {
-	case ModuleSlotOffensive1, ModuleSlotOffensive2:
-		return ModuleSlotTypeOffensive, nil
-	case ModuleSlotDefensive1:
-		return ModuleSlotTypeDefensive, nil
-	case ModuleSlotUtility1:
-		return ModuleSlotTypeUtility, nil
-	default:
-		return "", fmt.Errorf("module slot id %q: %w", slotID, ErrInvalidModuleSlotID)
+	ordinal, err := strconv.Atoi(ordinalText)
+	if err != nil || ordinal <= 0 {
+		return "", 0, fmt.Errorf("module slot id %q: %w", slotID, ErrInvalidModuleSlotID)
 	}
+
+	slotType := ModuleSlotType(prefix)
+	if err := slotType.Validate(); err != nil {
+		return "", 0, fmt.Errorf("module slot id %q: %w", slotID, ErrInvalidModuleSlotID)
+	}
+	maxSlots, err := maxSlotsForType(slotType)
+	if err != nil {
+		return "", 0, err
+	}
+	if ordinal > maxSlots {
+		return "", 0, fmt.Errorf("module slot id %q max %d: %w", slotID, maxSlots, ErrInvalidModuleSlotID)
+	}
+	return slotType, ordinal, nil
 }
 
 // Validate reports whether category is supported.
@@ -395,4 +413,17 @@ func validateNonNegativeBounded(name string, value int64, target error) error {
 		return fmt.Errorf("%s %d exceeds max %d: %w", name, value, maxCatalogNumericValue, target)
 	}
 	return nil
+}
+
+func maxSlotsForType(slotType ModuleSlotType) (int, error) {
+	switch slotType {
+	case ModuleSlotTypeOffensive:
+		return maxOffensiveModuleSlots, nil
+	case ModuleSlotTypeDefensive:
+		return maxDefensiveModuleSlots, nil
+	case ModuleSlotTypeUtility:
+		return maxUtilityModuleSlots, nil
+	default:
+		return 0, fmt.Errorf("module slot type %q: %w", slotType, ErrInvalidModuleSlotType)
+	}
 }

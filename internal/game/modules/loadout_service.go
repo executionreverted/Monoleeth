@@ -27,13 +27,22 @@ type LoadoutStore interface {
 type LoadoutService struct {
 	catalog Catalog
 	store   LoadoutStore
+	ships   ShipSlotLayoutProvider
 	clock   foundation.Clock
 }
 
 // NewLoadoutService returns a loadout service over explicit storage.
-func NewLoadoutService(moduleCatalog Catalog, store LoadoutStore, clock foundation.Clock) (LoadoutService, error) {
+func NewLoadoutService(
+	moduleCatalog Catalog,
+	store LoadoutStore,
+	ships ShipSlotLayoutProvider,
+	clock foundation.Clock,
+) (LoadoutService, error) {
 	if store == nil {
 		return LoadoutService{}, ErrNilLoadoutStore
+	}
+	if ships == nil {
+		return LoadoutService{}, ErrNilShipSlotLayoutProvider
 	}
 	if clock == nil {
 		clock = foundation.RealClock{}
@@ -41,6 +50,7 @@ func NewLoadoutService(moduleCatalog Catalog, store LoadoutStore, clock foundati
 	return LoadoutService{
 		catalog: moduleCatalog,
 		store:   store,
+		ships:   ships,
 		clock:   clock,
 	}, nil
 }
@@ -56,7 +66,11 @@ func (service LoadoutService) SaveLoadout(input SaveLoadoutInput) (Loadout, erro
 	if err := input.ShipID.Validate(); err != nil {
 		return Loadout{}, err
 	}
-	if _, err := service.ValidateModuleAssignments(input.validationContext(), input.SlotAssignments); err != nil {
+	shipSlots, err := service.ships.SlotLayoutForShip(input.ShipID)
+	if err != nil {
+		return Loadout{}, err
+	}
+	if _, err := service.ValidateModuleAssignments(input.validationContext(shipSlots), input.SlotAssignments); err != nil {
 		return Loadout{}, err
 	}
 
@@ -107,8 +121,12 @@ func (service LoadoutService) ApplyLoadout(input ApplyLoadoutInput) (ApplyLoadou
 	if activeShipID != loadout.ShipID {
 		return ApplyLoadoutResult{}, fmt.Errorf("loadout ship %q active ship %q: %w", loadout.ShipID, activeShipID, ErrLoadoutShipMismatch)
 	}
+	shipSlots, err := service.ships.SlotLayoutForShip(activeShipID)
+	if err != nil {
+		return ApplyLoadoutResult{}, err
+	}
 
-	if _, err := service.ValidateModuleAssignments(input.validationContext(activeShipID), loadout.SlotAssignments); err != nil {
+	if _, err := service.ValidateModuleAssignments(input.validationContext(activeShipID, shipSlots), loadout.SlotAssignments); err != nil {
 		return ApplyLoadoutResult{}, err
 	}
 
@@ -124,12 +142,16 @@ func (service LoadoutService) ApplyLoadout(input ApplyLoadoutInput) (ApplyLoadou
 	}
 
 	result := ApplyLoadoutResult{
-		Loadout:           cloneLoadout(loadout),
-		Current:           cloneEquippedModules(target),
-		Equipped:          cloneEquippedModules(equipped),
-		Unequipped:        cloneEquippedModules(unequipped),
-		StatInvalidations: buildStatInvalidationSignals(input.PlayerID, activeShipID, input.LoadoutID, equipped, unequipped, now),
+		Loadout:    cloneLoadout(loadout),
+		Current:    cloneEquippedModules(target),
+		Equipped:   cloneEquippedModules(equipped),
+		Unequipped: cloneEquippedModules(unequipped),
 	}
+	if len(equipped) == 0 && len(unequipped) == 0 {
+		result.Noop = true
+		return result, nil
+	}
+	result.StatInvalidations = buildStatInvalidationSignals(input.PlayerID, activeShipID, input.LoadoutID, equipped, unequipped, now)
 	return result, nil
 }
 
@@ -194,6 +216,9 @@ func (service LoadoutService) ValidateModuleAssignments(
 	for _, assignment := range sortedSlotAssignments(assignments) {
 		slotType, err := assignment.slotID.SlotType()
 		if err != nil {
+			return nil, err
+		}
+		if err := ctx.ShipSlots.ValidateSlot(assignment.slotID); err != nil {
 			return nil, err
 		}
 		item, err := service.store.ModuleItem(assignment.itemInstanceID)

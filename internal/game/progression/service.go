@@ -339,6 +339,15 @@ func (service *ProgressionService) RespecPilotSkills(input RespecPilotSkillsInpu
 
 	skillPoints := service.store.skillPoints[input.PlayerID]
 	refundedPoints := skillPoints.SpentPoints
+	if refundedPoints == 0 && len(clearedNodeIDs) == 0 {
+		snapshot, err := service.store.snapshotLocked(input.PlayerID)
+		if err != nil {
+			return RespecPilotSkillsResult{}, err
+		}
+		return RespecPilotSkillsResult{
+			Snapshot: snapshot,
+		}, nil
+	}
 	skillPoints.SpentPoints = 0
 	skillPoints.UpdatedAt = now
 	service.store.skillPoints[input.PlayerID] = skillPoints
@@ -444,10 +453,11 @@ func (input TryRankUpInput) validate() error {
 			return err
 		}
 	}
-	if !input.IdempotencyKey.IsZero() {
-		if err := input.IdempotencyKey.Validate(); err != nil {
-			return err
-		}
+	if input.IdempotencyKey.IsZero() {
+		return ErrMissingRankUpIdempotencyKey
+	}
+	if err := input.IdempotencyKey.Validate(); err != nil {
+		return err
 	}
 	return nil
 }

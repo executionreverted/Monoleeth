@@ -50,8 +50,15 @@ type ModuleSlotID string
 const (
 	ModuleSlotOffensive1 ModuleSlotID = "offensive_1"
 	ModuleSlotOffensive2 ModuleSlotID = "offensive_2"
+	ModuleSlotOffensive3 ModuleSlotID = "offensive_3"
+	ModuleSlotOffensive4 ModuleSlotID = "offensive_4"
 	ModuleSlotDefensive1 ModuleSlotID = "defensive_1"
+	ModuleSlotDefensive2 ModuleSlotID = "defensive_2"
+	ModuleSlotDefensive3 ModuleSlotID = "defensive_3"
 	ModuleSlotUtility1   ModuleSlotID = "utility_1"
+	ModuleSlotUtility2   ModuleSlotID = "utility_2"
+	ModuleSlotUtility3   ModuleSlotID = "utility_3"
+	ModuleSlotUtility4   ModuleSlotID = "utility_4"
 )
 
 // ModuleCategory identifies the gameplay category used by module catalogs.
@@ -189,8 +196,15 @@ func DefaultSlotDefinitions() []SlotDefinition {
 	return []SlotDefinition{
 		{SlotID: ModuleSlotOffensive1, Type: ModuleSlotTypeOffensive},
 		{SlotID: ModuleSlotOffensive2, Type: ModuleSlotTypeOffensive},
+		{SlotID: ModuleSlotOffensive3, Type: ModuleSlotTypeOffensive},
+		{SlotID: ModuleSlotOffensive4, Type: ModuleSlotTypeOffensive},
 		{SlotID: ModuleSlotDefensive1, Type: ModuleSlotTypeDefensive},
+		{SlotID: ModuleSlotDefensive2, Type: ModuleSlotTypeDefensive},
+		{SlotID: ModuleSlotDefensive3, Type: ModuleSlotTypeDefensive},
 		{SlotID: ModuleSlotUtility1, Type: ModuleSlotTypeUtility},
+		{SlotID: ModuleSlotUtility2, Type: ModuleSlotTypeUtility},
+		{SlotID: ModuleSlotUtility3, Type: ModuleSlotTypeUtility},
+		{SlotID: ModuleSlotUtility4, Type: ModuleSlotTypeUtility},
 	}
 }
 

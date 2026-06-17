@@ -25,6 +25,10 @@ var (
 	ErrModuleItemNotEquipped      = errors.New("module item not equipped")
 	ErrInvalidModuleItemLocation  = errors.New("invalid module item location")
 	ErrBlockedModuleItemLocation  = errors.New("blocked module item location")
+	ErrNilShipSlotLayoutProvider  = errors.New("nil ship slot layout provider")
+	ErrUnknownShipSlotLayout      = errors.New("unknown ship slot layout")
+	ErrInvalidShipSlotLayout      = errors.New("invalid ship slot layout")
+	ErrModuleSlotUnavailable      = errors.New("module slot unavailable on ship")
 	ErrUnknownModuleDefinition    = errors.New("unknown module definition")
 	ErrWrongModuleSlotType        = errors.New("wrong module slot type")
 	ErrPlayerRankTooLow           = errors.New("player rank too low")
@@ -40,6 +44,22 @@ type LoadoutID string
 
 // SlotAssignments maps concrete ship slots to item instance ids.
 type SlotAssignments map[ModuleSlotID]foundation.ItemID
+
+// ShipSlotLayout records concrete slot counts available on one ship.
+type ShipSlotLayout struct {
+	Offensive int `json:"offensive"`
+	Defensive int `json:"defensive"`
+	Utility   int `json:"utility"`
+}
+
+// ShipSlotLayoutProvider returns authoritative slot counts for a ship.
+type ShipSlotLayoutProvider interface {
+	SlotLayoutForShip(shipID foundation.ShipID) (ShipSlotLayout, error)
+}
+
+// StaticShipSlotLayoutProvider is a deterministic provider for tests and
+// catalog-backed early slices.
+type StaticShipSlotLayoutProvider map[foundation.ShipID]ShipSlotLayout
 
 // Loadout records one saved set of desired module assignments for a ship.
 type Loadout struct {
@@ -57,6 +77,7 @@ type Loadout struct {
 type LoadoutValidationContext struct {
 	PlayerID   foundation.PlayerID `json:"player_id"`
 	ShipID     foundation.ShipID   `json:"ship_id"`
+	ShipSlots  ShipSlotLayout      `json:"ship_slots"`
 	PlayerRank int                 `json:"player_rank"`
 	RoleLevels map[PilotRole]int   `json:"role_levels,omitempty"`
 }
@@ -124,6 +145,7 @@ type ApplyLoadoutResult struct {
 	Current           []EquippedModule         `json:"current"`
 	Equipped          []EquippedModule         `json:"equipped"`
 	Unequipped        []EquippedModule         `json:"unequipped"`
+	Noop              bool                     `json:"noop"`
 	StatInvalidations []StatInvalidationSignal `json:"stat_invalidations"`
 }
 
@@ -145,6 +167,65 @@ func (id LoadoutID) Validate() error {
 		return ErrEmptyLoadoutID
 	}
 	return nil
+}
+
+// Validate reports whether layout has non-negative counts and at least one slot.
+func (layout ShipSlotLayout) Validate() error {
+	if layout.Offensive < 0 || layout.Defensive < 0 || layout.Utility < 0 {
+		return ErrInvalidShipSlotLayout
+	}
+	if layout.Offensive+layout.Defensive+layout.Utility == 0 {
+		return ErrInvalidShipSlotLayout
+	}
+	return nil
+}
+
+// Count returns the available slots for slotType.
+func (layout ShipSlotLayout) Count(slotType ModuleSlotType) (int, error) {
+	if err := layout.Validate(); err != nil {
+		return 0, err
+	}
+	switch slotType {
+	case ModuleSlotTypeOffensive:
+		return layout.Offensive, nil
+	case ModuleSlotTypeDefensive:
+		return layout.Defensive, nil
+	case ModuleSlotTypeUtility:
+		return layout.Utility, nil
+	default:
+		return 0, fmt.Errorf("module slot type %q: %w", slotType, ErrInvalidModuleSlotType)
+	}
+}
+
+// ValidateSlot reports whether slotID exists on this concrete ship layout.
+func (layout ShipSlotLayout) ValidateSlot(slotID ModuleSlotID) error {
+	slotType, ordinal, err := slotID.SlotTypeAndOrdinal()
+	if err != nil {
+		return err
+	}
+	count, err := layout.Count(slotType)
+	if err != nil {
+		return err
+	}
+	if ordinal > count {
+		return fmt.Errorf("slot %q ordinal %d count %d: %w", slotID, ordinal, count, ErrModuleSlotUnavailable)
+	}
+	return nil
+}
+
+// SlotLayoutForShip returns one configured ship layout.
+func (provider StaticShipSlotLayoutProvider) SlotLayoutForShip(shipID foundation.ShipID) (ShipSlotLayout, error) {
+	if err := shipID.Validate(); err != nil {
+		return ShipSlotLayout{}, err
+	}
+	layout, ok := provider[shipID]
+	if !ok {
+		return ShipSlotLayout{}, fmt.Errorf("ship %q: %w", shipID, ErrUnknownShipSlotLayout)
+	}
+	if err := layout.Validate(); err != nil {
+		return ShipSlotLayout{}, err
+	}
+	return layout, nil
 }
 
 // Clone returns an owned copy of assignments.
@@ -208,6 +289,9 @@ func (ctx LoadoutValidationContext) validate() error {
 	if err := ctx.ShipID.Validate(); err != nil {
 		return err
 	}
+	if err := ctx.ShipSlots.Validate(); err != nil {
+		return err
+	}
 	for role, level := range ctx.RoleLevels {
 		if err := role.Validate(); err != nil {
 			return err
@@ -219,19 +303,21 @@ func (ctx LoadoutValidationContext) validate() error {
 	return nil
 }
 
-func (input SaveLoadoutInput) validationContext() LoadoutValidationContext {
+func (input SaveLoadoutInput) validationContext(shipSlots ShipSlotLayout) LoadoutValidationContext {
 	return LoadoutValidationContext{
 		PlayerID:   input.PlayerID,
 		ShipID:     input.ShipID,
+		ShipSlots:  shipSlots,
 		PlayerRank: input.PlayerRank,
 		RoleLevels: cloneRoleLevels(input.RoleLevels),
 	}
 }
 
-func (input ApplyLoadoutInput) validationContext(shipID foundation.ShipID) LoadoutValidationContext {
+func (input ApplyLoadoutInput) validationContext(shipID foundation.ShipID, shipSlots ShipSlotLayout) LoadoutValidationContext {
 	return LoadoutValidationContext{
 		PlayerID:   input.PlayerID,
 		ShipID:     shipID,
+		ShipSlots:  shipSlots,
 		PlayerRank: input.PlayerRank,
 		RoleLevels: cloneRoleLevels(input.RoleLevels),
 	}

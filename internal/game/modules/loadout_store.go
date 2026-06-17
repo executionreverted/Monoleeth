@@ -13,7 +13,7 @@ import (
 type InMemoryLoadoutStore struct {
 	mu sync.RWMutex
 
-	loadouts       map[LoadoutID]Loadout
+	loadouts       map[string]Loadout
 	activeShips    map[foundation.PlayerID]foundation.ShipID
 	items          map[foundation.ItemID]economy.InstanceItem
 	equippedByKey  map[string]map[ModuleSlotID]EquippedModule
@@ -23,7 +23,7 @@ type InMemoryLoadoutStore struct {
 // NewInMemoryLoadoutStore returns an empty in-memory loadout store.
 func NewInMemoryLoadoutStore() *InMemoryLoadoutStore {
 	return &InMemoryLoadoutStore{
-		loadouts:       make(map[LoadoutID]Loadout),
+		loadouts:       make(map[string]Loadout),
 		activeShips:    make(map[foundation.PlayerID]foundation.ShipID),
 		items:          make(map[foundation.ItemID]economy.InstanceItem),
 		equippedByKey:  make(map[string]map[ModuleSlotID]EquippedModule),
@@ -66,10 +66,11 @@ func (store *InMemoryLoadoutStore) SaveLoadout(loadout Loadout) error {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if existing, ok := store.loadouts[loadout.LoadoutID]; ok && existing.PlayerID != loadout.PlayerID {
+	key := playerLoadoutStoreKey(loadout.PlayerID, loadout.LoadoutID)
+	if existing, ok := store.loadouts[key]; ok && existing.PlayerID != loadout.PlayerID {
 		return fmt.Errorf("loadout %q owner %q player %q: %w", loadout.LoadoutID, existing.PlayerID, loadout.PlayerID, ErrLoadoutOwnerMismatch)
 	}
-	store.loadouts[loadout.LoadoutID] = cloneLoadout(loadout)
+	store.loadouts[key] = cloneLoadout(loadout)
 	return nil
 }
 
@@ -84,7 +85,7 @@ func (store *InMemoryLoadoutStore) Loadout(playerID foundation.PlayerID, loadout
 
 	store.mu.RLock()
 	defer store.mu.RUnlock()
-	loadout, ok := store.loadouts[loadoutID]
+	loadout, ok := store.loadouts[playerLoadoutStoreKey(playerID, loadoutID)]
 	if !ok {
 		return Loadout{}, fmt.Errorf("loadout %q: %w", loadoutID, ErrUnknownLoadout)
 	}
@@ -258,6 +259,10 @@ func (store *InMemoryLoadoutStore) MarkEquippedModuleBroken(
 
 func playerShipStoreKey(playerID foundation.PlayerID, shipID foundation.ShipID) string {
 	return playerID.String() + "\x00" + shipID.String()
+}
+
+func playerLoadoutStoreKey(playerID foundation.PlayerID, loadoutID LoadoutID) string {
+	return playerID.String() + "\x00" + loadoutID.String()
 }
 
 func cloneInstanceItem(item economy.InstanceItem) economy.InstanceItem {

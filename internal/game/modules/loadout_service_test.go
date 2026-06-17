@@ -44,6 +44,106 @@ func TestSaveLoadoutValidatesStoresAndClonesAssignments(t *testing.T) {
 	}
 }
 
+func TestSaveLoadoutValidatesAssignmentsAgainstShipSlotLayout(t *testing.T) {
+	service, store := newLoadoutTestService(t)
+	playerID := foundation.PlayerID("player-1")
+	laser1 := testModuleItem(t, "laser-instance-1", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 100)
+	laser2 := testModuleItem(t, "laser-instance-2", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 100)
+	laser3 := testModuleItem(t, "laser-instance-3", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 100)
+	laser4 := testModuleItem(t, "laser-instance-4", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 100)
+	putModuleItem(t, store, laser1)
+	putModuleItem(t, store, laser2)
+	putModuleItem(t, store, laser3)
+	putModuleItem(t, store, laser4)
+
+	_, err := service.SaveLoadout(SaveLoadoutInput{
+		LoadoutID: "starter-invalid",
+		PlayerID:  playerID,
+		ShipID:    "starter",
+		Name:      "Starter Invalid",
+		SlotAssignments: SlotAssignments{
+			ModuleSlotOffensive2: laser2.ItemInstanceID,
+		},
+		PlayerRank: 1,
+		RoleLevels: map[PilotRole]int{
+			PilotRoleCombat: 1,
+		},
+	})
+	if !errors.Is(err, ErrModuleSlotUnavailable) {
+		t.Fatalf("starter offensive_2 SaveLoadout() error = %v, want ErrModuleSlotUnavailable", err)
+	}
+
+	_, err = service.SaveLoadout(SaveLoadoutInput{
+		LoadoutID: "fighter-four",
+		PlayerID:  playerID,
+		ShipID:    "fighter_t1",
+		Name:      "Fighter Four",
+		SlotAssignments: SlotAssignments{
+			ModuleSlotOffensive1: laser1.ItemInstanceID,
+			ModuleSlotOffensive2: laser2.ItemInstanceID,
+			ModuleSlotOffensive3: laser3.ItemInstanceID,
+			ModuleSlotOffensive4: laser4.ItemInstanceID,
+		},
+		PlayerRank: 1,
+		RoleLevels: map[PilotRole]int{
+			PilotRoleCombat: 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("fighter four offensive slots SaveLoadout() error = %v, want nil", err)
+	}
+}
+
+func TestLoadoutIDsAreScopedByPlayer(t *testing.T) {
+	service, store := newLoadoutTestService(t)
+	firstPlayer := foundation.PlayerID("player-1")
+	secondPlayer := foundation.PlayerID("player-2")
+	firstLaser := testModuleItem(t, "laser-instance-1", "laser_alpha_t1", firstPlayer, economy.LocationKindAccountInventory, 100)
+	secondLaser := testModuleItem(t, "laser-instance-2", "laser_alpha_t1", secondPlayer, economy.LocationKindAccountInventory, 100)
+	putModuleItem(t, store, firstLaser)
+	putModuleItem(t, store, secondLaser)
+
+	for _, input := range []SaveLoadoutInput{
+		{
+			LoadoutID:       "default",
+			PlayerID:        firstPlayer,
+			ShipID:          "ship-1",
+			Name:            "Default",
+			SlotAssignments: SlotAssignments{ModuleSlotOffensive1: firstLaser.ItemInstanceID},
+			PlayerRank:      1,
+			RoleLevels:      map[PilotRole]int{PilotRoleCombat: 1},
+		},
+		{
+			LoadoutID:       "default",
+			PlayerID:        secondPlayer,
+			ShipID:          "ship-1",
+			Name:            "Default",
+			SlotAssignments: SlotAssignments{ModuleSlotOffensive1: secondLaser.ItemInstanceID},
+			PlayerRank:      1,
+			RoleLevels:      map[PilotRole]int{PilotRoleCombat: 1},
+		},
+	} {
+		if _, err := service.SaveLoadout(input); err != nil {
+			t.Fatalf("SaveLoadout(%q, %q) error = %v, want nil", input.PlayerID, input.LoadoutID, err)
+		}
+	}
+
+	first, err := store.Loadout(firstPlayer, "default")
+	if err != nil {
+		t.Fatalf("Loadout(first) error = %v, want nil", err)
+	}
+	second, err := store.Loadout(secondPlayer, "default")
+	if err != nil {
+		t.Fatalf("Loadout(second) error = %v, want nil", err)
+	}
+	if first.SlotAssignments[ModuleSlotOffensive1] != firstLaser.ItemInstanceID {
+		t.Fatalf("first player loadout item = %q, want %q", first.SlotAssignments[ModuleSlotOffensive1], firstLaser.ItemInstanceID)
+	}
+	if second.SlotAssignments[ModuleSlotOffensive1] != secondLaser.ItemInstanceID {
+		t.Fatalf("second player loadout item = %q, want %q", second.SlotAssignments[ModuleSlotOffensive1], secondLaser.ItemInstanceID)
+	}
+}
+
 func TestSaveLoadoutRejectsInvalidModuleAssignments(t *testing.T) {
 	playerID := foundation.PlayerID("player-1")
 	shipID := foundation.ShipID("ship-1")
@@ -292,6 +392,49 @@ func TestApplyLoadoutReplacesEquippedModulesAndReturnsInvalidations(t *testing.T
 	}
 }
 
+func TestApplyLoadoutNoopDoesNotInvalidateStats(t *testing.T) {
+	service, store := newLoadoutTestService(t)
+	playerID := foundation.PlayerID("player-1")
+	shipID := foundation.ShipID("ship-1")
+	laser := testModuleItem(t, "laser-instance-1", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 100)
+	putModuleItem(t, store, laser)
+	if err := store.SetActiveShip(playerID, shipID); err != nil {
+		t.Fatalf("SetActiveShip() error = %v, want nil", err)
+	}
+	equipModuleForTest(t, store, playerID, shipID, ModuleSlotOffensive1, laser.ItemInstanceID)
+
+	_, err := service.SaveLoadout(SaveLoadoutInput{
+		LoadoutID:       "current",
+		PlayerID:        playerID,
+		ShipID:          shipID,
+		Name:            "Current",
+		SlotAssignments: SlotAssignments{ModuleSlotOffensive1: laser.ItemInstanceID},
+		PlayerRank:      1,
+		RoleLevels:      map[PilotRole]int{PilotRoleCombat: 1},
+	})
+	if err != nil {
+		t.Fatalf("SaveLoadout() error = %v, want nil", err)
+	}
+
+	result, err := service.ApplyLoadout(ApplyLoadoutInput{
+		PlayerID:   playerID,
+		LoadoutID:  "current",
+		PlayerRank: 1,
+		RoleLevels: map[PilotRole]int{
+			PilotRoleCombat: 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyLoadout() error = %v, want nil", err)
+	}
+	if !result.Noop {
+		t.Fatal("Noop = false, want true")
+	}
+	if got := len(result.StatInvalidations); got != 0 {
+		t.Fatalf("StatInvalidations len = %d, want 0", got)
+	}
+}
+
 func TestBreakEquippedModuleMarksBrokenAndReturnsOneInvalidation(t *testing.T) {
 	service, store := newLoadoutTestService(t)
 	playerID := foundation.PlayerID("player-1")
@@ -464,6 +607,12 @@ func newLoadoutTestService(t *testing.T) (LoadoutService, *InMemoryLoadoutStore)
 	service, err := NewLoadoutService(
 		MustMVPCatalog(),
 		store,
+		StaticShipSlotLayoutProvider{
+			"starter":    {Offensive: 1, Defensive: 1, Utility: 1},
+			"fighter_t1": {Offensive: 4, Defensive: 2, Utility: 1},
+			"ship-1":     {Offensive: 2, Defensive: 1, Utility: 1},
+			"ship-2":     {Offensive: 2, Defensive: 1, Utility: 1},
+		},
 		fixedLoadoutClock{now: time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)},
 	)
 	if err != nil {

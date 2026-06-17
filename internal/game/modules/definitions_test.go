@@ -288,12 +288,19 @@ func TestEquippedModuleStateValidation(t *testing.T) {
 }
 
 func TestSlotCategoryAndJSONBehaviorIsStable(t *testing.T) {
-	slotType, err := ModuleSlotOffensive2.SlotType()
+	slotType, err := ModuleSlotOffensive4.SlotType()
 	if err != nil {
 		t.Fatalf("SlotType() error = %v, want nil", err)
 	}
 	if slotType != ModuleSlotTypeOffensive {
 		t.Fatalf("SlotType() = %q, want %q", slotType, ModuleSlotTypeOffensive)
+	}
+	slotType, ordinal, err := ModuleSlotUtility4.SlotTypeAndOrdinal()
+	if err != nil {
+		t.Fatalf("SlotTypeAndOrdinal() error = %v, want nil", err)
+	}
+	if slotType != ModuleSlotTypeUtility || ordinal != 4 {
+		t.Fatalf("SlotTypeAndOrdinal() = %q/%d, want utility/4", slotType, ordinal)
 	}
 	if got := ModuleCategoryUtility.String(); got != "utility" {
 		t.Fatalf("ModuleCategoryUtility.String() = %q, want utility", got)

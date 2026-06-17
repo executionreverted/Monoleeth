@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"gameproject/internal/game/foundation"
 )
@@ -42,12 +43,20 @@ func TestActiveShipStateValidatesIDs(t *testing.T) {
 	if err := activeShip.Validate(); err != nil {
 		t.Fatalf("ActiveShipState.Validate() = %v, want nil", err)
 	}
+	if activeShip.ActivatedAt.IsZero() || activeShip.UpdatedAt.IsZero() {
+		t.Fatalf("NewActiveShipState timestamps = %v/%v, want non-zero", activeShip.ActivatedAt, activeShip.UpdatedAt)
+	}
 
 	if _, err := NewActiveShipState("", ShipIDStarter); !errors.Is(err, foundation.ErrEmptyID) {
 		t.Fatalf("blank active player id error = %v, want foundation.ErrEmptyID", err)
 	}
 	if _, err := NewActiveShipState("player-1", ""); !errors.Is(err, foundation.ErrEmptyID) {
 		t.Fatalf("blank active ship id error = %v, want foundation.ErrEmptyID", err)
+	}
+
+	activeShip.ActivatedAt = time.Time{}
+	if err := activeShip.Validate(); !errors.Is(err, ErrZeroActiveShipTimestamp) {
+		t.Fatalf("zero active timestamp error = %v, want ErrZeroActiveShipTimestamp", err)
 	}
 }
 

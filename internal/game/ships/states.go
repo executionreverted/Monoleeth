@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	ErrInvalidShipState    = errors.New("invalid ship state")
-	ErrInvalidMetadataJSON = errors.New("invalid ship metadata json")
+	ErrInvalidShipState        = errors.New("invalid ship state")
+	ErrInvalidMetadataJSON     = errors.New("invalid ship metadata json")
+	ErrZeroActiveShipTimestamp = errors.New("zero active ship timestamp")
 )
 
 // ShipState records the hangar state of one player-owned ship.
@@ -60,9 +61,12 @@ func NewPlayerShipState(playerID foundation.PlayerID, shipID foundation.ShipID, 
 
 // NewActiveShipState validates and returns active ship state.
 func NewActiveShipState(playerID foundation.PlayerID, shipID foundation.ShipID) (ActiveShipState, error) {
+	now := time.Now().UTC()
 	activeShip := ActiveShipState{
-		PlayerID: playerID,
-		ShipID:   shipID,
+		PlayerID:    playerID,
+		ShipID:      shipID,
+		ActivatedAt: now,
+		UpdatedAt:   now,
 	}
 	if err := activeShip.Validate(); err != nil {
 		return ActiveShipState{}, err
@@ -124,6 +128,9 @@ func (activeShip ActiveShipState) Validate() error {
 	}
 	if err := activeShip.ShipID.Validate(); err != nil {
 		return err
+	}
+	if activeShip.ActivatedAt.IsZero() || activeShip.UpdatedAt.IsZero() {
+		return ErrZeroActiveShipTimestamp
 	}
 	return nil
 }
