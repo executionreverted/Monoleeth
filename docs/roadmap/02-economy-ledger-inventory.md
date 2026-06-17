@@ -108,7 +108,7 @@ reputation_token
 - [x] Implement `RemoveItem`.
 - [x] Implement `ReserveItems`.
 - [x] Implement `ReleaseReservation`.
-- [ ] Implement `CommitReservation`.
+- [x] Implement `CommitReservation`.
 - [x] Implement `CreditWallet`.
 - [x] Implement `DebitWallet`.
 - [x] Implement `TransferCurrency`.
