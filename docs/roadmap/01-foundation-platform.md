@@ -60,7 +60,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [x] Add typed identifiers for player, account, world, zone, entity, item, ship, module, quest, planet, route, listing, auction, event, and request.
 - [x] Add a small `Clock` interface with real and fake implementations.
 - [x] Add an RNG interface with deterministic test implementation.
-- [ ] Add `Money`, `Quantity`, and positive amount validation helpers.
+- [x] Add `Money`, `Quantity`, and positive amount validation helpers.
 - [ ] Add common domain error type with public `Code`, safe `Message`, and internal detail support.
 - [ ] Add shared error codes from `15-api-events-errors.md`.
 - [ ] Add request envelope model with `request_id`, `op`, `payload`, `client_seq`, and version.
@@ -75,7 +75,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 
 ## Tests
 
-- [ ] Unit test positive amount validation rejects zero and negative values.
+- [x] Unit test positive amount validation rejects zero and negative values.
 - [ ] Unit test error codes serialize without leaking internal details.
 - [x] Unit test fake clock can advance deterministically.
 - [x] Unit test fake RNG returns deterministic values.
@@ -87,7 +87,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 
 - [ ] Ensure client-facing error messages can be generic for hidden/not-found cases.
 - [ ] Ensure domain error internal details are not part of public response payload by default.
-- [ ] Ensure amount helpers cannot turn negative input into a positive mutation.
+- [x] Ensure amount helpers cannot turn negative input into a positive mutation.
 - [ ] Ensure request IDs are modeled separately from domain idempotency keys.
 
 ## Done Criteria
