@@ -109,9 +109,9 @@ reputation_token
 - [ ] Implement `ReserveItems`.
 - [ ] Implement `ReleaseReservation`.
 - [ ] Implement `CommitReservation`.
-- [ ] Implement `CreditWallet`.
-- [ ] Implement `DebitWallet`.
-- [ ] Implement `TransferCurrency`.
+- [x] Implement `CreditWallet`.
+- [x] Implement `DebitWallet`.
+- [x] Implement `TransferCurrency`.
 - [ ] Implement cargo capacity validation using server-side stat input.
 - [x] Implement item trade flag validation helpers.
 - [x] Implement premium bucket eligibility helper.
@@ -139,11 +139,11 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [x] Negative quantity is rejected.
 - [x] Zero quantity is rejected.
 - [x] Duplicate reference ID does not duplicate item grants.
-- [ ] Duplicate reference ID does not duplicate currency grants.
-- [ ] Debit fails when balance is insufficient.
-- [ ] Debit writes a matching ledger entry.
-- [ ] Credit writes a matching ledger entry.
-- [ ] Transfer writes debit and credit ledger entries.
+- [x] Duplicate reference ID does not duplicate currency grants.
+- [x] Debit fails when balance is insufficient.
+- [x] Debit writes a matching ledger entry.
+- [x] Credit writes a matching ledger entry.
+- [x] Transfer writes debit and credit ledger entries.
 - [ ] Cargo capacity blocks over-capacity add.
 - [ ] Concurrent cargo pickup simulation only allows capacity-safe result.
 - [x] Stack merge respects max stack.
