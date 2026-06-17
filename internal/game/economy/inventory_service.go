@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 )
 
@@ -42,6 +43,9 @@ type InventoryService struct {
 	addItemReferences    map[inventoryReferenceKey]AddItemResult
 	moveItemReferences   map[inventoryReferenceKey]MoveItemResult
 	removeItemReferences map[inventoryReferenceKey]RemoveItemResult
+
+	emitter           EventEmitter
+	nextEventSequence uint64
 }
 
 type inventoryReferenceKey struct {
@@ -70,8 +74,14 @@ func (service *InventoryService) AddItem(input AddItemInput) (AddItemResult, err
 		return AddItemResult{}, err
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+	emitter = service.emitter
 
 	reference := inventoryReferenceKey{
 		playerID:     input.PlayerID,
@@ -118,6 +128,9 @@ func (service *InventoryService) AddItem(input AddItemInput) (AddItemResult, err
 		LedgerEntry:    ledgerEntry,
 	}
 	service.addItemReferences[reference] = cloneAddItemResult(result)
+	if emitter != nil {
+		emitted = service.addItemEventsLocked(input, result, now)
+	}
 	return cloneAddItemResult(result), nil
 }
 

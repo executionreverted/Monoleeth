@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 )
 
@@ -44,8 +45,14 @@ func (service *InventoryService) RemoveItem(input RemoveItemInput) (RemoveItemRe
 		return RemoveItemResult{}, err
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+	emitter = service.emitter
 
 	reference := inventoryReferenceKey{
 		playerID:     input.PlayerID,
@@ -74,6 +81,9 @@ func (service *InventoryService) RemoveItem(input RemoveItemInput) (RemoveItemRe
 
 	service.itemLedgerEntries = append(service.itemLedgerEntries, result.LedgerEntries...)
 	service.removeItemReferences[reference] = cloneRemoveItemResult(result)
+	if emitter != nil {
+		emitted = service.removeItemEventsLocked(input, result, now)
+	}
 	return cloneRemoveItemResult(result), nil
 }
 

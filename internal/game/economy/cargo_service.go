@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"gameproject/internal/game/catalog"
+	"gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 )
 
@@ -35,6 +36,9 @@ type CargoService struct {
 	inventory *InventoryService
 
 	definitions map[cargoDefinitionKey]ItemDefinition
+
+	emitter           EventEmitter
+	nextEventSequence uint64
 }
 
 type cargoDefinitionKey struct {
@@ -60,8 +64,14 @@ func (service *CargoService) AddItem(input CargoAddItemInput) (AddItemResult, er
 		return AddItemResult{}, ErrNilInventoryService
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+	emitter = service.emitter
 
 	if result, ok := service.duplicateAddItemResultLocked(input); ok {
 		return result, nil
@@ -99,6 +109,11 @@ func (service *CargoService) AddItem(input CargoAddItemInput) (AddItemResult, er
 	}
 
 	service.definitions[cargoKeyForDefinition(input.ItemDefinition)] = input.ItemDefinition
+	if emitter != nil && !result.Duplicate {
+		emitted = []events.EventEnvelope{
+			service.cargoUpdatedEventLocked(input, result, result.LedgerEntry.CreatedAt),
+		}
+	}
 	return result, nil
 }
 

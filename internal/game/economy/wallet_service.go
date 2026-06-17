@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 )
 
@@ -83,6 +84,9 @@ type WalletService struct {
 	creditReferences      map[walletReferenceKey]CreditWalletResult
 	debitReferences       map[walletReferenceKey]DebitWalletResult
 	transferReferences    map[walletReferenceKey]TransferCurrencyResult
+
+	emitter           EventEmitter
+	nextEventSequence uint64
 }
 
 type walletBalanceKey struct {
@@ -117,8 +121,14 @@ func (service *WalletService) CreditWallet(input CreditWalletInput) (CreditWalle
 		return CreditWalletResult{}, err
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+	emitter = service.emitter
 
 	reference := walletReferenceKey{
 		playerID:     input.PlayerID,
@@ -161,6 +171,20 @@ func (service *WalletService) CreditWallet(input CreditWalletInput) (CreditWalle
 		LedgerEntry: ledgerEntry,
 	}
 	service.creditReferences[reference] = result
+	if emitter != nil {
+		emitted = []events.EventEnvelope{
+			service.walletMutationEventLocked(EventWalletCredited, WalletMutationPayload{
+				PlayerID:     input.PlayerID,
+				Currency:     input.Currency,
+				Amount:       input.Amount,
+				BalanceAfter: balanceAfter,
+				Reason:       input.Reason,
+				ReferenceKey: input.ReferenceKey,
+				LedgerID:     ledgerEntry.LedgerID,
+			}, now),
+		}
+		emitted = append(emitted, service.currencyLedgerEventsLocked([]CurrencyLedgerEntry{ledgerEntry}, now)...)
+	}
 	return result, nil
 }
 
@@ -171,8 +195,14 @@ func (service *WalletService) DebitWallet(input DebitWalletInput) (DebitWalletRe
 		return DebitWalletResult{}, err
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+	emitter = service.emitter
 
 	reference := walletReferenceKey{
 		playerID:     input.PlayerID,
@@ -215,6 +245,20 @@ func (service *WalletService) DebitWallet(input DebitWalletInput) (DebitWalletRe
 		LedgerEntry: ledgerEntry,
 	}
 	service.debitReferences[reference] = result
+	if emitter != nil {
+		emitted = []events.EventEnvelope{
+			service.walletMutationEventLocked(EventWalletDebited, WalletMutationPayload{
+				PlayerID:     input.PlayerID,
+				Currency:     input.Currency,
+				Amount:       input.Amount,
+				BalanceAfter: balanceAfter,
+				Reason:       input.Reason,
+				ReferenceKey: input.ReferenceKey,
+				LedgerID:     ledgerEntry.LedgerID,
+			}, now),
+		}
+		emitted = append(emitted, service.currencyLedgerEventsLocked([]CurrencyLedgerEntry{ledgerEntry}, now)...)
+	}
 	return result, nil
 }
 
@@ -225,8 +269,14 @@ func (service *WalletService) TransferCurrency(input TransferCurrencyInput) (Tra
 		return TransferCurrencyResult{}, err
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+	emitter = service.emitter
 
 	reference := walletReferenceKey{
 		playerID:     input.FromPlayerID,
@@ -295,6 +345,30 @@ func (service *WalletService) TransferCurrency(input TransferCurrencyInput) (Tra
 		LedgerEntries: []CurrencyLedgerEntry{debitEntry, creditEntry},
 	}
 	service.transferReferences[reference] = cloneTransferCurrencyResult(result)
+	if emitter != nil {
+		emitted = []events.EventEnvelope{
+			service.walletMutationEventLocked(EventWalletDebited, WalletMutationPayload{
+				PlayerID:     input.FromPlayerID,
+				Currency:     input.Currency,
+				Amount:       input.Amount,
+				BalanceAfter: fromBalanceAfter,
+				Reason:       input.Reason,
+				ReferenceKey: input.ReferenceKey,
+				LedgerID:     debitEntry.LedgerID,
+			}, now),
+		}
+		emitted = append(emitted, service.currencyLedgerEventsLocked([]CurrencyLedgerEntry{debitEntry}, now)...)
+		emitted = append(emitted, service.walletMutationEventLocked(EventWalletCredited, WalletMutationPayload{
+			PlayerID:     input.ToPlayerID,
+			Currency:     input.Currency,
+			Amount:       input.Amount,
+			BalanceAfter: toBalanceAfter,
+			Reason:       input.Reason,
+			ReferenceKey: input.ReferenceKey,
+			LedgerID:     creditEntry.LedgerID,
+		}, now))
+		emitted = append(emitted, service.currencyLedgerEventsLocked([]CurrencyLedgerEntry{creditEntry}, now)...)
+	}
 	return cloneTransferCurrencyResult(result), nil
 }
 

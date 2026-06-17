@@ -116,7 +116,7 @@ reputation_token
 - [x] Implement item trade flag validation helpers.
 - [x] Implement premium bucket eligibility helper.
 - [x] Implement ledger reference uniqueness for idempotent operations. Verified 2026-06-17 by operation-scoped inventory, wallet, cargo, and reservation idempotency tests.
-- [ ] Emit inventory, cargo, wallet, and ledger events after mutation.
+- [x] Emit inventory, cargo, wallet, and ledger events after mutation. Verified 2026-06-17 by EventRecorder coverage for inventory add/move/remove, cargo add, wallet credit/debit/transfer, reservation-backed item moves, validation failures, and idempotent duplicate no-emission.
 
 ## Transaction Rules
 

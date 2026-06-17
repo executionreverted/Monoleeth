@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 )
 
@@ -120,8 +121,13 @@ func (service *ReservationService) ReserveItems(input ReserveItemsInput) (Reserv
 		return ReserveItemsResult{}, ErrMissingInventoryService
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
 	service.ensureMapsLocked()
 
 	reference := reservationReferenceKey{
@@ -180,6 +186,10 @@ func (service *ReservationService) ReserveItems(input ReserveItemsInput) (Reserv
 	service.reservations[reservation.ReservationID] = cloneReservation(reservation)
 	service.reservationItemDefinitions[reservation.ReservationID] = cloneItemDefinitions(validated.definitions)
 	service.reserveItemsReferences[reference] = cloneReserveItemsResult(result)
+	emitter = inventory.emitter
+	if emitter != nil {
+		emitted = inventory.moveResultsEventsLocked(validated.moveInputs, moves, now)
+	}
 
 	return cloneReserveItemsResult(result), nil
 }
@@ -193,8 +203,13 @@ func (service *ReservationService) ReleaseReservation(reservationID ReservationI
 		return ReleaseReservationResult{}, ErrMissingInventoryService
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
 	service.ensureMapsLocked()
 
 	reservation, ok := service.reservations[reservationID]
@@ -252,6 +267,10 @@ func (service *ReservationService) ReleaseReservation(reservationID ReservationI
 		Moves:       moves,
 	}
 	service.releaseReservationResults[reservationID] = cloneReleaseReservationResult(result)
+	emitter = inventory.emitter
+	if emitter != nil {
+		emitted = inventory.moveResultsEventsLocked(moveInputs, moves, now)
+	}
 
 	return cloneReleaseReservationResult(result), nil
 }
@@ -265,8 +284,13 @@ func (service *ReservationService) CommitReservation(reservationID ReservationID
 		return CommitReservationResult{}, ErrMissingInventoryService
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
 	service.ensureMapsLocked()
 
 	reservation, ok := service.reservations[reservationID]
@@ -289,14 +313,19 @@ func (service *ReservationService) CommitReservation(reservationID ReservationID
 	}
 
 	var moves []MoveItemResult
+	var moveInputs []MoveItemInput
+	var inventory *InventoryService
+	var now time.Time
 	switch reservation.Kind {
 	case ReservationKindCraft:
-		moveInputs, quantities, err := service.commitMoveInputsLocked(reservation)
+		var quantities []foundation.Quantity
+		var err error
+		moveInputs, quantities, err = service.commitMoveInputsLocked(reservation)
 		if err != nil {
 			return CommitReservationResult{}, err
 		}
 
-		inventory := service.inventory
+		inventory = service.inventory
 		inventory.mu.Lock()
 		defer inventory.mu.Unlock()
 
@@ -305,7 +334,7 @@ func (service *ReservationService) CommitReservation(reservationID ReservationID
 		}
 
 		snapshot := inventory.snapshotReservationMutationLocked()
-		now := inventory.clock.Now()
+		now = inventory.clock.Now()
 		moves = make([]MoveItemResult, 0, len(moveInputs))
 		for index, moveInput := range moveInputs {
 			moveResult, err := inventory.moveItemValidatedLocked(moveInput, quantities[index], now)
@@ -332,6 +361,12 @@ func (service *ReservationService) CommitReservation(reservationID ReservationID
 		Moves:       moves,
 	}
 	service.commitReservationResults[reservationID] = cloneCommitReservationResult(result)
+	if inventory != nil {
+		emitter = inventory.emitter
+		if emitter != nil {
+			emitted = inventory.moveResultsEventsLocked(moveInputs, moves, now)
+		}
+	}
 
 	return cloneCommitReservationResult(result), nil
 }

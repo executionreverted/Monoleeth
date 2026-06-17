@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 )
 
@@ -49,11 +50,24 @@ func (service *InventoryService) MoveItem(input MoveItemInput) (MoveItemResult, 
 		return MoveItemResult{}, err
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+	emitter = service.emitter
 
 	now := service.clock.Now()
-	return service.moveItemValidatedLocked(input, quantity, now)
+	result, err := service.moveItemValidatedLocked(input, quantity, now)
+	if err != nil {
+		return MoveItemResult{}, err
+	}
+	if emitter != nil && !result.Duplicate {
+		emitted = service.moveItemEventsLocked(input, result, now)
+	}
+	return result, nil
 }
 
 func (service *InventoryService) moveItemValidatedLocked(input MoveItemInput, quantity foundation.Quantity, now time.Time) (MoveItemResult, error) {
