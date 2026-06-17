@@ -10,11 +10,17 @@ import (
 	"gameproject/internal/game/foundation"
 )
 
-const reserveItemsOperation = "reserve_items"
+const (
+	reserveItemsOperation    = "reserve_items"
+	releaseReservationReason = LedgerReason("release_reservation")
+)
 
 var (
 	ErrMissingInventoryService        = errors.New("missing inventory service")
 	ErrReservationAlreadyExists       = errors.New("reservation already exists")
+	ErrReservationNotFound            = errors.New("reservation not found")
+	ErrReservationNotActive           = errors.New("reservation is not active")
+	ErrReservationItemDefinition      = errors.New("reservation item definition missing")
 	ErrReservationMoveReferenceExists = errors.New("reservation move reference already exists")
 	ErrInvalidReservationLocation     = errors.New("invalid reservation location")
 	ErrDuplicateInstanceReservation   = errors.New("duplicate instance reservation")
@@ -47,13 +53,22 @@ type ReserveItemsResult struct {
 	Duplicate   bool             `json:"duplicate"`
 }
 
+// ReleaseReservationResult reports the reservation and item moves released by ReleaseReservation.
+type ReleaseReservationResult struct {
+	Reservation Reservation      `json:"reservation"`
+	Moves       []MoveItemResult `json:"moves"`
+	Duplicate   bool             `json:"duplicate"`
+}
+
 // ReservationService coordinates in-memory item reservations.
 type ReservationService struct {
 	mu        sync.Mutex
 	inventory *InventoryService
 
-	reservations           map[ReservationID]Reservation
-	reserveItemsReferences map[reservationReferenceKey]ReserveItemsResult
+	reservations               map[ReservationID]Reservation
+	reservationItemDefinitions map[ReservationID][]ItemDefinition
+	reserveItemsReferences     map[reservationReferenceKey]ReserveItemsResult
+	releaseReservationResults  map[ReservationID]ReleaseReservationResult
 }
 
 type reservationReferenceKey struct {
@@ -70,15 +85,18 @@ type validatedReserveItemsInput struct {
 	expiresAt     *time.Time
 	moveInputs    []MoveItemInput
 	quantities    []foundation.Quantity
+	definitions   []ItemDefinition
 	itemLines     []ReservationItemLine
 }
 
 // NewReservationService returns an in-memory reservation coordinator.
 func NewReservationService(inventory *InventoryService) *ReservationService {
 	return &ReservationService{
-		inventory:              inventory,
-		reservations:           make(map[ReservationID]Reservation),
-		reserveItemsReferences: make(map[reservationReferenceKey]ReserveItemsResult),
+		inventory:                  inventory,
+		reservations:               make(map[ReservationID]Reservation),
+		reservationItemDefinitions: make(map[ReservationID][]ItemDefinition),
+		reserveItemsReferences:     make(map[reservationReferenceKey]ReserveItemsResult),
+		releaseReservationResults:  make(map[ReservationID]ReleaseReservationResult),
 	}
 }
 
@@ -150,9 +168,82 @@ func (service *ReservationService) ReserveItems(input ReserveItemsInput) (Reserv
 		Moves:       moves,
 	}
 	service.reservations[reservation.ReservationID] = cloneReservation(reservation)
+	service.reservationItemDefinitions[reservation.ReservationID] = cloneItemDefinitions(validated.definitions)
 	service.reserveItemsReferences[reference] = cloneReserveItemsResult(result)
 
 	return cloneReserveItemsResult(result), nil
+}
+
+// ReleaseReservation releases an active reservation's items back to their original locations.
+func (service *ReservationService) ReleaseReservation(reservationID ReservationID) (ReleaseReservationResult, error) {
+	if err := reservationID.Validate(); err != nil {
+		return ReleaseReservationResult{}, err
+	}
+	if service == nil || service.inventory == nil {
+		return ReleaseReservationResult{}, ErrMissingInventoryService
+	}
+
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.ensureMapsLocked()
+
+	reservation, ok := service.reservations[reservationID]
+	if !ok {
+		return ReleaseReservationResult{}, fmt.Errorf("reservation %q: %w", reservationID, ErrReservationNotFound)
+	}
+	if reservation.State == ReservationStateReleased {
+		if previous, ok := service.releaseReservationResults[reservationID]; ok {
+			result := cloneReleaseReservationResult(previous)
+			result.Duplicate = true
+			return result, nil
+		}
+		return ReleaseReservationResult{
+			Reservation: cloneReservation(reservation),
+			Duplicate:   true,
+		}, nil
+	}
+	if reservation.State != ReservationStateActive {
+		return ReleaseReservationResult{}, fmt.Errorf("reservation %q state %q: %w", reservationID, reservation.State, ErrReservationNotActive)
+	}
+
+	moveInputs, quantities, err := service.releaseMoveInputsLocked(reservation)
+	if err != nil {
+		return ReleaseReservationResult{}, err
+	}
+
+	inventory := service.inventory
+	inventory.mu.Lock()
+	defer inventory.mu.Unlock()
+
+	if err := inventory.validateReleaseReservationAvailableLocked(moveInputs, quantities); err != nil {
+		return ReleaseReservationResult{}, err
+	}
+
+	snapshot := inventory.snapshotReleaseMutationLocked()
+	now := inventory.clock.Now()
+	moves := make([]MoveItemResult, 0, len(moveInputs))
+	for index, moveInput := range moveInputs {
+		moveResult, err := inventory.moveItemValidatedLocked(moveInput, quantities[index], now)
+		if err != nil {
+			inventory.restoreReleaseMutationLocked(snapshot)
+			return ReleaseReservationResult{}, err
+		}
+		if moveResult.Duplicate {
+			inventory.restoreReleaseMutationLocked(snapshot)
+			return ReleaseReservationResult{}, fmt.Errorf("release line %d reference %q: %w", index, moveInput.ReferenceKey, ErrReservationMoveReferenceExists)
+		}
+		moves = append(moves, moveResult)
+	}
+
+	reservation.State = ReservationStateReleased
+	service.reservations[reservationID] = cloneReservation(reservation)
+	result := ReleaseReservationResult{
+		Reservation: reservation,
+		Moves:       moves,
+	}
+	service.releaseReservationResults[reservationID] = cloneReleaseReservationResult(result)
+
+	return cloneReleaseReservationResult(result), nil
 }
 
 func (input ReserveItemsInput) validate() (validatedReserveItemsInput, error) {
@@ -182,6 +273,7 @@ func (input ReserveItemsInput) validate() (validatedReserveItemsInput, error) {
 
 	moveInputs := make([]MoveItemInput, 0, len(input.Requirements))
 	quantities := make([]foundation.Quantity, 0, len(input.Requirements))
+	definitions := make([]ItemDefinition, 0, len(input.Requirements))
 	itemLines := make([]ReservationItemLine, 0, len(input.Requirements))
 	for index, requirement := range input.Requirements {
 		referenceKey, err := reserveItemMoveReference(input.ReferenceKey, index, len(input.Requirements))
@@ -217,6 +309,7 @@ func (input ReserveItemsInput) validate() (validatedReserveItemsInput, error) {
 
 		moveInputs = append(moveInputs, moveInput)
 		quantities = append(quantities, quantity)
+		definitions = append(definitions, requirement.Definition)
 		itemLines = append(itemLines, itemLine)
 	}
 
@@ -228,8 +321,61 @@ func (input ReserveItemsInput) validate() (validatedReserveItemsInput, error) {
 		expiresAt:     cloneTimePointer(input.ExpiresAt),
 		moveInputs:    moveInputs,
 		quantities:    quantities,
+		definitions:   definitions,
 		itemLines:     itemLines,
 	}, nil
+}
+
+func (service *ReservationService) releaseMoveInputsLocked(reservation Reservation) ([]MoveItemInput, []foundation.Quantity, error) {
+	if len(reservation.ItemLines) == 0 {
+		return nil, nil, nil
+	}
+
+	definitions, ok := service.reservationItemDefinitions[reservation.ReservationID]
+	if !ok || len(definitions) != len(reservation.ItemLines) {
+		return nil, nil, fmt.Errorf("reservation %q: %w", reservation.ReservationID, ErrReservationItemDefinition)
+	}
+	expectedReservedKind, err := reservation.Kind.ReservedLocationKind()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	moveInputs := make([]MoveItemInput, 0, len(reservation.ItemLines))
+	quantities := make([]foundation.Quantity, 0, len(reservation.ItemLines))
+	for index, line := range reservation.ItemLines {
+		if line.ReservedLocation.Kind != expectedReservedKind {
+			return nil, nil, fmt.Errorf("reservation %q line %d reserved location %q: %w", reservation.ReservationID, index, line.ReservedLocation.Kind, ErrInvalidReservationLocation)
+		}
+		definition := definitions[index]
+		if definition.ItemID != line.ItemID {
+			return nil, nil, fmt.Errorf("reservation %q line %d: %w", reservation.ReservationID, index, ErrReservationItemDefinition)
+		}
+		referenceKey, err := releaseReservationMoveReference(reservation.ReferenceKey, index, len(reservation.ItemLines))
+		if err != nil {
+			return nil, nil, err
+		}
+		moveInput := MoveItemInput{
+			PlayerID: reservation.PlayerID,
+			ItemRef: MoveItemRef{
+				Definition:     definition,
+				ItemInstanceID: line.ItemInstanceID,
+			},
+			FromLocation: line.ReservedLocation,
+			ToLocation:   line.FromLocation,
+			Quantity:     line.Quantity.Int64(),
+			Reason:       releaseReservationReason,
+			ReferenceKey: referenceKey,
+		}
+		quantity, err := moveInput.validateSystemMove()
+		if err != nil {
+			return nil, nil, fmt.Errorf("release line %d: %w", index, err)
+		}
+
+		moveInputs = append(moveInputs, moveInput)
+		quantities = append(quantities, quantity)
+	}
+
+	return moveInputs, quantities, nil
 }
 
 func (input ReserveItemsInput) reservedLocation() (ItemLocation, error) {
@@ -253,8 +399,14 @@ func (service *ReservationService) ensureMapsLocked() {
 	if service.reservations == nil {
 		service.reservations = make(map[ReservationID]Reservation)
 	}
+	if service.reservationItemDefinitions == nil {
+		service.reservationItemDefinitions = make(map[ReservationID][]ItemDefinition)
+	}
 	if service.reserveItemsReferences == nil {
 		service.reserveItemsReferences = make(map[reservationReferenceKey]ReserveItemsResult)
+	}
+	if service.releaseReservationResults == nil {
+		service.releaseReservationResults = make(map[ReservationID]ReleaseReservationResult)
 	}
 }
 
@@ -294,6 +446,48 @@ func (service *InventoryService) validateReserveItemsAvailableLocked(moveInputs 
 			instanceRequirements[key] = struct{}{}
 		default:
 			return fmt.Errorf("requirement %d: %w", index, moveInput.ItemRef.Definition.Type.Validate())
+		}
+	}
+
+	return nil
+}
+
+func (service *InventoryService) validateReleaseReservationAvailableLocked(moveInputs []MoveItemInput, quantities []foundation.Quantity) error {
+	stackRequirements := make(map[reserveStackKey]int64)
+	instanceRequirements := make(map[reserveInstanceKey]struct{})
+
+	for index, moveInput := range moveInputs {
+		reference := inventoryReferenceKey{
+			playerID:     moveInput.PlayerID,
+			operation:    moveItemOperation,
+			referenceKey: moveInput.ReferenceKey,
+		}
+		if _, ok := service.moveItemReferences[reference]; ok {
+			return fmt.Errorf("release line %d reference %q: %w", index, moveInput.ReferenceKey, ErrReservationMoveReferenceExists)
+		}
+
+		switch moveInput.ItemRef.Definition.Type {
+		case ItemTypeStackable:
+			key := newReserveStackKey(moveInput)
+			stackRequirements[key] += quantities[index].Int64()
+			available := service.stackableQuantityForDefinitionLocked(moveInput.PlayerID, moveInput.ItemRef.Definition, moveInput.FromLocation)
+			if available <= 0 {
+				return fmt.Errorf("release line %d: %w", index, ErrItemNotOwned)
+			}
+			if stackRequirements[key] > available {
+				return fmt.Errorf("release line %d have %d need %d: %w", index, available, stackRequirements[key], ErrInsufficientItemQuantity)
+			}
+		case ItemTypeInstance:
+			key := newReserveInstanceKey(moveInput)
+			if _, ok := instanceRequirements[key]; ok {
+				return fmt.Errorf("release line %d instance %q: %w", index, moveInput.ItemRef.ItemInstanceID, ErrDuplicateInstanceReservation)
+			}
+			if service.instanceItemIndexLocked(moveInput) < 0 {
+				return fmt.Errorf("release line %d: %w", index, ErrItemNotOwned)
+			}
+			instanceRequirements[key] = struct{}{}
+		default:
+			return fmt.Errorf("release line %d: %w", index, moveInput.ItemRef.Definition.Type.Validate())
 		}
 	}
 
@@ -347,7 +541,29 @@ func reserveItemMoveReference(referenceKey foundation.IdempotencyKey, lineIndex 
 	return foundation.ParseIdempotencyKey(strings.Join(parts, ":"))
 }
 
+func releaseReservationMoveReference(referenceKey foundation.IdempotencyKey, lineIndex int, lineCount int) (foundation.IdempotencyKey, error) {
+	parts := strings.Split(referenceKey.String(), ":")
+	if len(parts) == 0 {
+		return "", foundation.ErrInvalidIdempotencyKey
+	}
+	if lineCount == 1 {
+		parts[len(parts)-1] = fmt.Sprintf("%s-release", parts[len(parts)-1])
+	} else {
+		parts[len(parts)-1] = fmt.Sprintf("%s-release-line-%d", parts[len(parts)-1], lineIndex+1)
+	}
+	return foundation.ParseIdempotencyKey(strings.Join(parts, ":"))
+}
+
 func cloneReserveItemsResult(result ReserveItemsResult) ReserveItemsResult {
+	result.Reservation = cloneReservation(result.Reservation)
+	result.Moves = append([]MoveItemResult(nil), result.Moves...)
+	for index := range result.Moves {
+		result.Moves[index] = cloneMoveItemResult(result.Moves[index])
+	}
+	return result
+}
+
+func cloneReleaseReservationResult(result ReleaseReservationResult) ReleaseReservationResult {
 	result.Reservation = cloneReservation(result.Reservation)
 	result.Moves = append([]MoveItemResult(nil), result.Moves...)
 	for index := range result.Moves {
@@ -363,10 +579,65 @@ func cloneReservation(reservation Reservation) Reservation {
 	return reservation
 }
 
+func cloneItemDefinitions(definitions []ItemDefinition) []ItemDefinition {
+	cloned := make([]ItemDefinition, len(definitions))
+	for index, definition := range definitions {
+		cloned[index] = cloneItemDefinition(definition)
+	}
+	return cloned
+}
+
+func cloneItemDefinition(definition ItemDefinition) ItemDefinition {
+	definition.TradeFlags = append([]TradeFlag(nil), definition.TradeFlags...)
+	definition.BindRules = append([]BindRule(nil), definition.BindRules...)
+	definition.MetadataSchema = cloneRawJSON(definition.MetadataSchema)
+	return definition
+}
+
 func cloneTimePointer(value *time.Time) *time.Time {
 	if value == nil {
 		return nil
 	}
 	cloned := *value
 	return &cloned
+}
+
+type inventoryReleaseMutationSnapshot struct {
+	nextItemSequence   int64
+	nextLedgerSequence int64
+	stackableItems     []StackableItem
+	instanceItems      []InstanceItem
+	itemLedgerEntries  []ItemLedgerEntry
+	moveItemReferences map[inventoryReferenceKey]MoveItemResult
+}
+
+func (service *InventoryService) snapshotReleaseMutationLocked() inventoryReleaseMutationSnapshot {
+	return inventoryReleaseMutationSnapshot{
+		nextItemSequence:   service.nextItemSequence,
+		nextLedgerSequence: service.nextLedgerSequence,
+		stackableItems:     append([]StackableItem(nil), service.stackableItems...),
+		instanceItems:      append([]InstanceItem(nil), service.instanceItems...),
+		itemLedgerEntries:  append([]ItemLedgerEntry(nil), service.itemLedgerEntries...),
+		moveItemReferences: cloneMoveItemReferences(service.moveItemReferences),
+	}
+}
+
+func (service *InventoryService) restoreReleaseMutationLocked(snapshot inventoryReleaseMutationSnapshot) {
+	service.nextItemSequence = snapshot.nextItemSequence
+	service.nextLedgerSequence = snapshot.nextLedgerSequence
+	service.stackableItems = append([]StackableItem(nil), snapshot.stackableItems...)
+	service.instanceItems = append([]InstanceItem(nil), snapshot.instanceItems...)
+	service.itemLedgerEntries = append([]ItemLedgerEntry(nil), snapshot.itemLedgerEntries...)
+	service.moveItemReferences = cloneMoveItemReferences(snapshot.moveItemReferences)
+}
+
+func cloneMoveItemReferences(references map[inventoryReferenceKey]MoveItemResult) map[inventoryReferenceKey]MoveItemResult {
+	if references == nil {
+		return nil
+	}
+	cloned := make(map[inventoryReferenceKey]MoveItemResult, len(references))
+	for key, result := range references {
+		cloned[key] = cloneMoveItemResult(result)
+	}
+	return cloned
 }

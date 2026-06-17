@@ -88,6 +88,14 @@ func (service *InventoryService) moveItemValidatedLocked(input MoveItemInput, qu
 }
 
 func (input MoveItemInput) validate() (foundation.Quantity, error) {
+	return input.validateWithSourcePolicy(true)
+}
+
+func (input MoveItemInput) validateSystemMove() (foundation.Quantity, error) {
+	return input.validateWithSourcePolicy(false)
+}
+
+func (input MoveItemInput) validateWithSourcePolicy(validateSourcePolicy bool) (foundation.Quantity, error) {
 	if err := input.PlayerID.Validate(); err != nil {
 		return foundation.Quantity{}, err
 	}
@@ -103,8 +111,10 @@ func (input MoveItemInput) validate() (foundation.Quantity, error) {
 	if input.FromLocation == input.ToLocation {
 		return foundation.Quantity{}, ErrMoveItemSameSourceAndTarget
 	}
-	if err := validateGenericMoveSourceLocation(input.FromLocation); err != nil {
-		return foundation.Quantity{}, err
+	if validateSourcePolicy {
+		if err := validateGenericMoveSourceLocation(input.FromLocation); err != nil {
+			return foundation.Quantity{}, err
+		}
 	}
 	quantity, err := foundation.NewQuantity(input.Quantity)
 	if err != nil {
