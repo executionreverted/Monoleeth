@@ -144,6 +144,12 @@ func (service *Service) CreateDropsForNPCKill(event combat.NPCKilledEvent, table
 	if err := event.OwnerPlayerID.Validate(); err != nil {
 		return CreateDropsResult{}, err
 	}
+	if err := event.WorldID.Validate(); err != nil {
+		return CreateDropsResult{}, err
+	}
+	if err := event.ZoneID.Validate(); err != nil {
+		return CreateDropsResult{}, err
+	}
 	if err := event.Position.Validate(); err != nil {
 		return CreateDropsResult{}, err
 	}

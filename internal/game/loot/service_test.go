@@ -199,8 +199,7 @@ func TestConcurrentPickupOnlyOneSucceeds(t *testing.T) {
 func TestVisibleDropsFiltersByVisibilityAndOmitsClaimedOrExpired(t *testing.T) {
 	service, clock, _, _ := newLootService(t, []int{0, 0}, []float64{0, 0})
 	visible := createOneDropWithEvent(t, service, "npc_visible")
-	hidden := createOneDropWithEvent(t, service, "npc_hidden")
-	_ = hidden
+	createOneDropWithEvent(t, service, "npc_hidden")
 
 	payloads := service.VisibleDrops(viewerAt(visible.Position))
 	if len(payloads) != 2 {
