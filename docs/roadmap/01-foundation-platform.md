@@ -58,8 +58,8 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 
 - [x] Create `internal/game/foundation` package.
 - [x] Add typed identifiers for player, account, world, zone, entity, item, ship, module, quest, planet, route, listing, auction, event, and request.
-- [ ] Add a small `Clock` interface with real and fake implementations.
-- [ ] Add an RNG interface with deterministic test implementation.
+- [x] Add a small `Clock` interface with real and fake implementations.
+- [x] Add an RNG interface with deterministic test implementation.
 - [ ] Add `Money`, `Quantity`, and positive amount validation helpers.
 - [ ] Add common domain error type with public `Code`, safe `Message`, and internal detail support.
 - [ ] Add shared error codes from `15-api-events-errors.md`.
@@ -77,8 +77,8 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 
 - [ ] Unit test positive amount validation rejects zero and negative values.
 - [ ] Unit test error codes serialize without leaking internal details.
-- [ ] Unit test fake clock can advance deterministically.
-- [ ] Unit test fake RNG returns deterministic values.
+- [x] Unit test fake clock can advance deterministically.
+- [x] Unit test fake RNG returns deterministic values.
 - [ ] Unit test event envelopes include event type, ID, sequence, and server time.
 - [ ] Unit test idempotency key helpers produce stable keys.
 - [x] Unit test gameplay packages do not import `internal/symphony`.
