@@ -67,8 +67,8 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [x] Add response and error envelope model.
 - [x] Add event envelope model with `event_id`, `type`, `payload`, `server_time`, and sequence.
 - [x] Add idempotency key helper conventions for domain operations.
-- [ ] Add `catalog` package for versioned static definitions.
-- [ ] Add catalog version field helpers so recipes, quests, loot tables, and auction lots can remember source versions.
+- [x] Add `catalog` package for versioned static definitions.
+- [x] Add catalog version field helpers so recipes, quests, loot tables, and auction lots can remember source versions.
 - [ ] Add in-memory event recorder for service tests.
 - [ ] Add test helpers for fake clock, fake RNG, and assertion of emitted events.
 - [x] Document package boundaries in a short `internal/game/README.md`.
