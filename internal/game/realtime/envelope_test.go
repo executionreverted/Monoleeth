@@ -20,6 +20,12 @@ func TestDecodeRequestEnvelopeRejectsMissingOp(t *testing.T) {
 	requireInvalidPayload(t, err)
 }
 
+func TestDecodeRequestEnvelopeRejectsUnsupportedProtocolVersion(t *testing.T) {
+	_, err := DecodeRequestEnvelope([]byte(`{"request_id":"request-1","op":"move_to","payload":{"x":10,"y":20},"client_seq":7,"v":999}`))
+
+	requireInvalidPayload(t, err)
+}
+
 func TestDecodeRequestEnvelopeRejectsInvalidOrMissingPayload(t *testing.T) {
 	tests := []struct {
 		name string

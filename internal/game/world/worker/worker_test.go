@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"errors"
 	"math"
 	"reflect"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
+	"gameproject/internal/game/world/spatial"
 )
 
 func TestWorkerCanSpawnPlayer(t *testing.T) {
@@ -139,6 +141,44 @@ func TestMoveToCommandDoesNotExposeClientFinalPosition(t *testing.T) {
 		t.Fatal("PlayerEntity() ok = false, want true")
 	}
 	assertVecNear(t, entity.Position, world.Vec2{X: 7, Y: 0})
+}
+
+func TestTickReportsSpatialUpdateFailureDuringMovement(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{}, 10)
+
+	if err := zoneWorker.Submit(MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, world.Vec2{X: 100, Y: 0}),
+	}); err != nil {
+		t.Fatalf("Submit(move_to) error = %v", err)
+	}
+	assertNoCommandErrors(t, zoneWorker.Tick())
+
+	before, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() ok = false, want true")
+	}
+	zoneWorker.index.Remove(spatial.EntityID("entity-player-1"))
+
+	result := zoneWorker.Tick()
+	if len(result.CommandErrors) != 1 {
+		t.Fatalf("command errors = %+v, want one spatial update error", result.CommandErrors)
+	}
+	if result.CommandErrors[0].Index != -1 {
+		t.Fatalf("command error index = %d, want -1 for movement advance", result.CommandErrors[0].Index)
+	}
+	if !errors.Is(result.CommandErrors[0].Err, spatial.ErrEntityNotIndexed) {
+		t.Fatalf("command error = %v, want ErrEntityNotIndexed", result.CommandErrors[0].Err)
+	}
+
+	after, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() after tick ok = false, want true")
+	}
+	if after.Position != before.Position {
+		t.Fatalf("position mutated after failed spatial update: got %+v, want %+v", after.Position, before.Position)
+	}
 }
 
 func TestCommandDrainOrderIsDeterministic(t *testing.T) {

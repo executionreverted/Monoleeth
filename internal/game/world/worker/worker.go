@@ -96,6 +96,9 @@ type ScheduledTask struct {
 }
 
 // Snapshot is a deterministic copy of worker-owned state.
+//
+// Snapshot is internal server state and is not client-safe. Use the AOI and
+// visibility packages to build filtered payloads for clients.
 type Snapshot struct {
 	WorldID  world.WorldID
 	ZoneID   world.ZoneID
@@ -195,7 +198,7 @@ func (worker *Worker) Tick() TickResult {
 		}
 	}
 
-	worker.advanceMovement()
+	result.CommandErrors = append(result.CommandErrors, worker.advanceMovement()...)
 	result.DueTasks = worker.scheduler.drainDue(worker.clock.Now())
 	worker.tick++
 	return result
@@ -481,7 +484,8 @@ func (worker *Worker) playerEntityForMutation(playerID foundation.PlayerID) (wor
 	return entity, nil
 }
 
-func (worker *Worker) advanceMovement() {
+func (worker *Worker) advanceMovement() []CommandError {
+	movementErrors := make([]CommandError, 0)
 	entityIDs := make([]world.EntityID, 0, len(worker.entities))
 	for entityID := range worker.entities {
 		entityIDs = append(entityIDs, entityID)
@@ -501,9 +505,16 @@ func (worker *Worker) advanceMovement() {
 		if done {
 			entity.Movement = world.MovementState{}
 		}
+		if err := worker.index.Update(spatial.EntityID(entity.ID.String()), spatialPosition(entity.Position)); err != nil {
+			movementErrors = append(movementErrors, CommandError{
+				Index: -1,
+				Err:   fmt.Errorf("advance movement for entity %q: %w", entity.ID, err),
+			})
+			continue
+		}
 		worker.entities[entityID] = entity
-		_ = worker.index.Update(spatial.EntityID(entity.ID.String()), spatialPosition(entity.Position))
 	}
+	return movementErrors
 }
 
 func (worker *Worker) validateOwnedEntity(entity world.Entity) error {

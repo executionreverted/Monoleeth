@@ -169,6 +169,9 @@ func (envelope RequestEnvelope) Validate() error {
 	if err := envelope.RequestID.Validate(); err != nil {
 		return invalidRequest("request_id is required.", err)
 	}
+	if envelope.Version != 0 && envelope.Version != CurrentVersion {
+		return invalidRequest("protocol version is not supported.", nil)
+	}
 	if strings.TrimSpace(string(envelope.Op)) == "" {
 		return invalidRequest("op is required.", nil)
 	}
