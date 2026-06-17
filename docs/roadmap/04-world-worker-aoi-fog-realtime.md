@@ -118,7 +118,7 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 - [x] Add request ID cache skeleton for retry safety.
 - [x] Add per-op rate limit placeholders.
 - [x] Define common client events: `player.snapshot`, `aoi.entity_entered`, `aoi.entity_left`, `position.corrected`.
-- [ ] Ensure internal event payload can differ from filtered client event payload.
+- [x] Ensure internal event payload can differ from filtered client event payload.
 - [x] Add commit-then-broadcast convention to package docs.
 
 ## Tests
@@ -133,15 +133,15 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 - [x] Interaction with hidden entity fails.
 - [x] Duplicate request ID returns safe retry behavior.
 - [x] Invalid payload is rejected.
-- [ ] Error messages for hidden entities do not leak hidden truth.
+- [x] Error messages for hidden entities do not leak hidden truth.
 - [x] AOI stress test with many entities stays deterministic.
 
 ## Abuse And Safety Checks
 
 - [x] Packet sniffing hidden data is impossible because hidden data is not serialized.
-- [ ] Entity ID memory attack fails because interaction rechecks visibility.
+- [x] Entity ID memory attack fails because interaction rechecks visibility.
 - [x] Radar spoof fails because radar comes from stat snapshot.
-- [ ] Procedural gameplay seed is not present in payloads.
+- [x] Procedural gameplay seed is not present in payloads.
 - [x] Operation flood has at least a placeholder rate-limit path.
 
 ## Done Criteria
@@ -150,9 +150,9 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 - [x] Visible snapshots contain only allowed entities.
 - [x] Hidden entities cannot be interacted with.
 - [x] Realtime envelope types exist.
-- [ ] Combat phase can call visibility/range helpers.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] Combat phase can call visibility/range helpers.
+- [x] `go test ./...` passes.
+- [x] `git diff --check` passes.
 
 ## Resume Notes
 
@@ -167,3 +167,8 @@ Verified slices:
 - A single-zone in-process worker harness with FIFO command mailbox, fixed tick delta, deterministic command drain, delayed task scheduler skeleton, entity lifecycle, player session attachment, and server-speed movement is implemented in `internal/game/world/worker`.
 - Visibility filtering, generic hidden/not-visible interaction errors, server-stat radar range input, entity signature/hidden flags, fog memory summaries, and scanner bridge event shells are implemented in `internal/game/world/visibility`.
 - Client-safe AOI snapshots and deterministic entered/updated/left diffs are implemented in `internal/game/world/aoi`; snapshot payloads omit hidden/internal metadata, seeds, movement internals, world/zone ids, and future spawn data.
+- Final verification passed with `go test ./...`, `git diff --check`, and `go test -race ./internal/game/world/... ./internal/game/realtime`.
+
+Remaining follow-up:
+
+- Player/session resolution from realtime request envelopes remains open until a gateway/session layer is implemented; the current worker has session attachment primitives but no network gateway.
