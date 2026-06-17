@@ -27,6 +27,7 @@ type TrackerConfig struct {
 	Endpoint       string   `yaml:"endpoint" json:"endpoint"`
 	APIKey         string   `yaml:"api_key" json:"-"`
 	ProjectSlug    string   `yaml:"project_slug" json:"project_slug"`
+	LocalRoot      string   `yaml:"local_root" json:"local_root,omitempty"`
 	Assignee       string   `yaml:"assignee" json:"assignee,omitempty"`
 	RequiredLabels []string `yaml:"required_labels" json:"required_labels"`
 	ActiveStates   []string `yaml:"active_states" json:"active_states"`
@@ -121,6 +122,7 @@ func finalizeConfig(cfg Config, workflowDir string) (Config, error) {
 	cfg.Tracker.APIKey = resolveSecretSetting(cfg.Tracker.APIKey, os.Getenv("LINEAR_API_KEY"))
 	cfg.Tracker.Assignee = resolveSecretSetting(cfg.Tracker.Assignee, os.Getenv("LINEAR_ASSIGNEE"))
 	cfg.Tracker.RequiredLabels = normalizeLabels(cfg.Tracker.RequiredLabels)
+	cfg.Tracker.LocalRoot = resolvePathValue(cfg.Tracker.LocalRoot, workflowDir, filepath.Join(workflowDir, ".symphony", "tasks"))
 	cfg.Agent.MaxConcurrentAgentsByState = normalizeStateLimits(cfg.Agent.MaxConcurrentAgentsByState)
 	cfg.Workspace.Root = resolvePathValue(cfg.Workspace.Root, workflowDir, filepath.Join(os.TempDir(), "symphony_workspaces"))
 
@@ -164,7 +166,7 @@ func (c Config) ValidateDispatch() error {
 	switch {
 	case c.Tracker.Kind == "":
 		return errors.New("missing tracker kind")
-	case c.Tracker.Kind != "linear" && c.Tracker.Kind != "memory":
+	case c.Tracker.Kind != "linear" && c.Tracker.Kind != "memory" && c.Tracker.Kind != "local":
 		return fmt.Errorf("unsupported tracker kind: %s", c.Tracker.Kind)
 	case c.Tracker.Kind == "linear" && c.Tracker.APIKey == "":
 		return errors.New("missing Linear API token")

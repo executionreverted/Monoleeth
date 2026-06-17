@@ -8,5 +8,6 @@ out
 .env.*
 !.env.example
 .symphony/
+.cache/
 symphony-workspaces/
 log/

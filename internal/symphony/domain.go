@@ -39,11 +39,23 @@ type RuntimeEvent struct {
 	Details   map[string]any `json:"details,omitempty"`
 }
 
+type RunLogEntry struct {
+	Timestamp  time.Time      `json:"timestamp"`
+	IssueID    string         `json:"issue_id"`
+	Identifier string         `json:"identifier"`
+	Event      string         `json:"event"`
+	Attempt    int            `json:"attempt,omitempty"`
+	TurnCount  int            `json:"turn_count,omitempty"`
+	Summary    string         `json:"summary,omitempty"`
+	Details    map[string]any `json:"details,omitempty"`
+}
+
 type RunningEntry struct {
 	IssueID            string         `json:"issue_id"`
 	Identifier         string         `json:"identifier"`
 	Issue              Issue          `json:"issue"`
 	Attempt            int            `json:"attempt"`
+	TurnCount          int            `json:"turn_count,omitempty"`
 	WorkspacePath      string         `json:"workspace_path,omitempty"`
 	SessionID          string         `json:"session_id,omitempty"`
 	ThreadID           string         `json:"thread_id,omitempty"`
@@ -57,15 +69,16 @@ type RunningEntry struct {
 }
 
 type BlockedEntry struct {
-	IssueID       string     `json:"issue_id"`
-	Identifier    string     `json:"identifier"`
-	Issue         Issue      `json:"issue"`
-	WorkspacePath string     `json:"workspace_path,omitempty"`
-	SessionID     string     `json:"session_id,omitempty"`
-	Error         string     `json:"error"`
-	BlockedAt     time.Time  `json:"blocked_at"`
-	LastEvent     string     `json:"last_codex_event,omitempty"`
-	LastTimestamp *time.Time `json:"last_codex_timestamp,omitempty"`
+	IssueID       string         `json:"issue_id"`
+	Identifier    string         `json:"identifier"`
+	Issue         Issue          `json:"issue"`
+	WorkspacePath string         `json:"workspace_path,omitempty"`
+	SessionID     string         `json:"session_id,omitempty"`
+	Error         string         `json:"error"`
+	BlockedAt     time.Time      `json:"blocked_at"`
+	LastEvent     string         `json:"last_codex_event,omitempty"`
+	LastMessage   map[string]any `json:"last_codex_message,omitempty"`
+	LastTimestamp *time.Time     `json:"last_codex_timestamp,omitempty"`
 }
 
 type RetryEntry struct {
@@ -78,9 +91,13 @@ type RetryEntry struct {
 
 type Snapshot struct {
 	WorkflowPath        string                  `json:"workflow_path"`
+	WorkspaceRoot       string                  `json:"workspace_root,omitempty"`
 	PollIntervalMS      int                     `json:"poll_interval_ms"`
+	TrackerKind         string                  `json:"tracker_kind"`
 	NextPollDueAt       *time.Time              `json:"next_poll_due_at,omitempty"`
 	PollCheckInProgress bool                    `json:"poll_check_in_progress"`
+	AutoRunPaused       bool                    `json:"auto_run_paused"`
+	Tasks               []Issue                 `json:"tasks,omitempty"`
 	Running             map[string]RunningEntry `json:"running"`
 	Blocked             map[string]BlockedEntry `json:"blocked"`
 	Retries             map[string]RetryEntry   `json:"retries"`

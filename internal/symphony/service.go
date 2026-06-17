@@ -43,7 +43,9 @@ func (s *Service) Run(ctx context.Context) error {
 	var httpServer *HTTPServer
 	if port > 0 {
 		httpServer = NewHTTPServer(workflow.Config.Server.Host, port, orchestrator, logger)
-		httpServer.Start()
+		if err := httpServer.Start(); err != nil {
+			return fmt.Errorf("start HTTP server: %w", err)
+		}
 	}
 
 	err = orchestrator.Run(ctx)

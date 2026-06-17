@@ -80,6 +80,15 @@ type Tracker interface {
 	GraphQL(context.Context, string, map[string]any, string) (map[string]any, error)
 }
 
+type IssueStateUpdater interface {
+	UpdateIssueState(context.Context, string, string) error
+}
+
+type LocalTaskCreator interface {
+	CreateTask(context.Context, CreateTaskInput) (Issue, error)
+	ListTasks(context.Context) ([]Issue, error)
+}
+
 type LinearClient struct {
 	config Config
 	client *http.Client
