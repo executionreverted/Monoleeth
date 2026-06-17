@@ -25,6 +25,94 @@ func TestPhase02SafetyReserveItemsRejectsNegativeQuantityWithoutLedger(t *testin
 	}
 }
 
+func TestPhase02ReserveItemsRollbackRestoresPartialMoveFailure(t *testing.T) {
+	inventory := newTestInventoryService()
+	definition := validStackableDefinition(t)
+	sourceLocation := validLocation(t)
+	addStackableItems(t, inventory, definition, 9, sourceLocation, "loot_pickup:reserve-rollback-seed")
+
+	input := validReserveItemsInput(t)
+	input.ReservationID = "craft-reservation-reserve-rollback"
+	input.ReservedLocationID = "craft-job-reserve-rollback"
+	input.ReferenceKey = validReferenceKey(t, "craft_complete:reserve-rollback")
+	input.Requirements = []ReserveItemRequirement{
+		{
+			Definition:   definition,
+			Quantity:     4,
+			FromLocation: sourceLocation,
+		},
+		{
+			Definition:   definition,
+			Quantity:     3,
+			FromLocation: sourceLocation,
+		},
+	}
+	validated, err := input.validate()
+	if err != nil {
+		t.Fatalf("validate reserve input: %v", err)
+	}
+	if len(validated.moveInputs) != 2 {
+		t.Fatalf("move inputs len = %d, want 2", len(validated.moveInputs))
+	}
+
+	reservedLocation := validLocationKind(t, LocationKindCraftingReserved, input.ReservedLocationID.String())
+	firstReference := inventoryReferenceKey{
+		playerID:     input.PlayerID,
+		operation:    moveItemOperation,
+		referenceKey: validated.moveInputs[0].ReferenceKey,
+	}
+	secondReference := inventoryReferenceKey{
+		playerID:     input.PlayerID,
+		operation:    moveItemOperation,
+		referenceKey: validated.moveInputs[1].ReferenceKey,
+	}
+
+	inventory.mu.Lock()
+	inventory.moveItemReferences[secondReference] = MoveItemResult{}
+	_, err = inventory.moveReservationItemsWithRollbackLocked("reserve line", validated.moveInputs, validated.quantities, inventory.clock.Now())
+	if !errors.Is(err, ErrReservationMoveReferenceExists) {
+		inventory.mu.Unlock()
+		t.Fatalf("moveReservationItemsWithRollbackLocked error = %v, want ErrReservationMoveReferenceExists", err)
+	}
+	if got := inventory.totalItemQuantityLocked(input.PlayerID, definition.ItemID, sourceLocation); got != 9 {
+		inventory.mu.Unlock()
+		t.Fatalf("source quantity after restore = %d, want 9", got)
+	}
+	if got := inventory.totalItemQuantityLocked(input.PlayerID, definition.ItemID, reservedLocation); got != 0 {
+		inventory.mu.Unlock()
+		t.Fatalf("reserved quantity after restore = %d, want 0", got)
+	}
+	if got := len(inventory.itemLedgerEntries); got != 1 {
+		inventory.mu.Unlock()
+		t.Fatalf("ledger entries after restore = %d, want 1", got)
+	}
+	if _, ok := inventory.moveItemReferences[firstReference]; ok {
+		inventory.mu.Unlock()
+		t.Fatalf("first reserve reference %q survived rollback restore", firstReference.referenceKey)
+	}
+	if _, ok := inventory.moveItemReferences[secondReference]; !ok {
+		inventory.mu.Unlock()
+		t.Fatalf("pre-existing second reserve reference %q was removed by rollback restore", secondReference.referenceKey)
+	}
+	delete(inventory.moveItemReferences, secondReference)
+	inventory.mu.Unlock()
+
+	reservations := NewReservationService(inventory)
+	result, err := reservations.ReserveItems(input)
+	if err != nil {
+		t.Fatalf("ReserveItems after rollback restore: %v", err)
+	}
+	if result.Duplicate {
+		t.Fatal("ReserveItems Duplicate = true, want false")
+	}
+	if got := inventory.TotalItemQuantity(input.PlayerID, definition.ItemID, sourceLocation); got != 2 {
+		t.Fatalf("source TotalItemQuantity() = %d, want 2", got)
+	}
+	if got := inventory.TotalItemQuantity(input.PlayerID, definition.ItemID, reservedLocation); got != 7 {
+		t.Fatalf("reserved TotalItemQuantity() = %d, want 7", got)
+	}
+}
+
 func TestPhase02RollbackSnapshotRestoresReservationReleaseAndCommitMutations(t *testing.T) {
 	cases := []struct {
 		name       string
