@@ -99,10 +99,10 @@ reputation_token
 - [x] Define stackable item model.
 - [x] Define instance item model.
 - [x] Define item location model.
-- [ ] Define wallet balance model.
-- [ ] Define item ledger entry model.
-- [ ] Define currency ledger entry model.
-- [ ] Define reservation model for craft, market, and auction.
+- [x] Define wallet balance model.
+- [x] Define item ledger entry model.
+- [x] Define currency ledger entry model.
+- [x] Define reservation model for craft, market, and auction.
 - [ ] Implement `AddItem`.
 - [ ] Implement `MoveItem`.
 - [ ] Implement `RemoveItem`.
