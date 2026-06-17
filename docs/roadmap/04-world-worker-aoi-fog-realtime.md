@@ -95,8 +95,8 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 - [x] Implement entity membership updates.
 - [x] Implement radius query with exact distance check.
 - [x] Implement AOI candidate query.
-- [ ] Implement visible entity diff: entered, updated, left.
-- [ ] Implement snapshot payload that includes visible entities only.
+- [x] Implement visible entity diff: entered, updated, left.
+- [x] Implement snapshot payload that includes visible entities only.
 
 ## TODO: Visibility And Fog
 
@@ -105,7 +105,7 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 - [x] Add radar range input from effective stats.
 - [x] Add entity signature field.
 - [x] Add hidden entity flag.
-- [ ] Ensure hidden entities never serialize.
+- [x] Ensure hidden entities never serialize.
 - [x] Add fog memory model skeleton for discovered planets.
 - [x] Add scanner bridge event skeleton.
 - [x] Add generic hidden/not-found error behavior.
@@ -127,18 +127,18 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 - [x] Client-supplied impossible position is ignored.
 - [x] Spatial hash returns nearby entities.
 - [x] Spatial hash does not return far entities after exact distance check.
-- [ ] Hidden entity is not serialized.
-- [ ] Entity leaving AOI emits left/despawn.
+- [x] Hidden entity is not serialized.
+- [x] Entity leaving AOI emits left/despawn.
 - [x] Fog memory does not grant live interaction permission.
 - [x] Interaction with hidden entity fails.
 - [x] Duplicate request ID returns safe retry behavior.
 - [x] Invalid payload is rejected.
 - [ ] Error messages for hidden entities do not leak hidden truth.
-- [ ] AOI stress test with many entities stays deterministic.
+- [x] AOI stress test with many entities stays deterministic.
 
 ## Abuse And Safety Checks
 
-- [ ] Packet sniffing hidden data is impossible because hidden data is not serialized.
+- [x] Packet sniffing hidden data is impossible because hidden data is not serialized.
 - [ ] Entity ID memory attack fails because interaction rechecks visibility.
 - [x] Radar spoof fails because radar comes from stat snapshot.
 - [ ] Procedural gameplay seed is not present in payloads.
@@ -147,7 +147,7 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 ## Done Criteria
 
 - [x] A test worker can spawn a player and move them server-authoritatively.
-- [ ] Visible snapshots contain only allowed entities.
+- [x] Visible snapshots contain only allowed entities.
 - [x] Hidden entities cannot be interacted with.
 - [x] Realtime envelope types exist.
 - [ ] Combat phase can call visibility/range helpers.
@@ -166,3 +166,4 @@ Verified slices:
 - Realtime JSON request/response/error/event envelopes, Phase 04 operation registry, client event constants, request ID cache skeleton, and rate-limit posture metadata are implemented in `internal/game/realtime`.
 - A single-zone in-process worker harness with FIFO command mailbox, fixed tick delta, deterministic command drain, delayed task scheduler skeleton, entity lifecycle, player session attachment, and server-speed movement is implemented in `internal/game/world/worker`.
 - Visibility filtering, generic hidden/not-visible interaction errors, server-stat radar range input, entity signature/hidden flags, fog memory summaries, and scanner bridge event shells are implemented in `internal/game/world/visibility`.
+- Client-safe AOI snapshots and deterministic entered/updated/left diffs are implemented in `internal/game/world/aoi`; snapshot payloads omit hidden/internal metadata, seeds, movement internals, world/zone ids, and future spawn data.
