@@ -2,6 +2,7 @@ package quests
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"gameproject/internal/game/foundation"
@@ -15,6 +16,7 @@ type QuestService struct {
 	clock        foundation.Clock
 	catalog      QuestCatalog
 	store        *InMemoryQuestStore
+	servicesMu   sync.RWMutex
 	wallet       QuestRewardWalletService
 	rerollWallet QuestRerollWalletService
 	inventory    QuestRewardInventoryService
@@ -49,6 +51,9 @@ func NewQuestService(clock foundation.Clock, catalog QuestCatalog, store *InMemo
 // SetRewardServices wires the economy and progression service boundaries used
 // by ClaimReward.
 func (service *QuestService) SetRewardServices(services QuestRewardServices) {
+	service.servicesMu.Lock()
+	defer service.servicesMu.Unlock()
+
 	service.wallet = services.Wallet
 	if rerollWallet, ok := services.Wallet.(QuestRerollWalletService); ok {
 		service.rerollWallet = rerollWallet
@@ -59,7 +64,28 @@ func (service *QuestService) SetRewardServices(services QuestRewardServices) {
 
 // SetRerollServices wires the wallet boundary used by RerollBoard.
 func (service *QuestService) SetRerollServices(services QuestRerollServices) {
+	service.servicesMu.Lock()
+	defer service.servicesMu.Unlock()
+
 	service.rerollWallet = services.Wallet
+}
+
+func (service *QuestService) rewardServices() QuestRewardServices {
+	service.servicesMu.RLock()
+	defer service.servicesMu.RUnlock()
+
+	return QuestRewardServices{
+		Wallet:      service.wallet,
+		Inventory:   service.inventory,
+		Progression: service.progression,
+	}
+}
+
+func (service *QuestService) rerollWalletService() QuestRerollWalletService {
+	service.servicesMu.RLock()
+	defer service.servicesMu.RUnlock()
+
+	return service.rerollWallet
 }
 
 // GenerateAndStoreBoard generates a server-owned board and persists its offers.

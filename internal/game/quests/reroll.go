@@ -55,11 +55,13 @@ type RerollCostHook struct {
 	AppliedRank   int                `json:"applied_rank,omitempty"`
 }
 
-// RerollBoardInput carries server-owned player state and a deterministic seed.
+// RerollBoardInput carries server-owned player state, a deterministic
+// generation seed, and a one-shot reroll reference for idempotency.
 type RerollBoardInput struct {
-	Player    PlayerQuestBoardSnapshot `json:"player"`
-	Seed      int64                    `json:"seed"`
-	CreatedAt time.Time                `json:"created_at"`
+	Player      PlayerQuestBoardSnapshot `json:"player"`
+	Seed        int64                    `json:"seed"`
+	ReferenceID string                   `json:"reference_id"`
+	CreatedAt   time.Time                `json:"created_at"`
 
 	WeightHook QuestWeightHook     `json:"-"`
 	CostHook   QuestRerollCostHook `json:"-"`
@@ -106,22 +108,25 @@ func (service *QuestService) RerollBoard(input RerollBoardInput) (RerollBoardRes
 	rareCapHooks := rareCapHooksFromOffers(offers)
 
 	service.store.mu.Lock()
-	defer service.store.mu.Unlock()
-
 	if previous, ok := service.store.rerollResults[referenceKey]; ok {
+		service.store.mu.Unlock()
 		result := cloneRerollBoardResult(previous)
 		result.Duplicate = true
 		result.WalletDebit.Duplicate = true
 		return result, nil
 	}
 	if err := service.store.ensureRerollOffersCanStoreLocked(input.Player.PlayerID, offers); err != nil {
+		service.store.mu.Unlock()
 		return RerollBoardResult{}, err
 	}
-	if service.rerollWallet == nil {
+	service.store.mu.Unlock()
+
+	rerollWallet := service.rerollWalletService()
+	if rerollWallet == nil {
 		return RerollBoardResult{}, ErrMissingQuestRerollWalletService
 	}
 
-	walletDebit, err := service.rerollWallet.DebitWallet(economy.DebitWalletInput{
+	walletDebit, err := rerollWallet.DebitWallet(economy.DebitWalletInput{
 		PlayerID:     input.Player.PlayerID,
 		Currency:     cost.Currency,
 		Amount:       cost.Amount,
@@ -132,6 +137,15 @@ func (service *QuestService) RerollBoard(input RerollBoardInput) (RerollBoardRes
 		return RerollBoardResult{}, err
 	}
 
+	service.store.mu.Lock()
+	defer service.store.mu.Unlock()
+
+	if previous, ok := service.store.rerollResults[referenceKey]; ok {
+		result := cloneRerollBoardResult(previous)
+		result.Duplicate = true
+		result.WalletDebit.Duplicate = true
+		return result, nil
+	}
 	if err := service.store.storeRerolledBoardOffersLocked(input.Player.PlayerID, offers); err != nil {
 		return RerollBoardResult{}, err
 	}
@@ -151,7 +165,7 @@ func (service *QuestService) RerollBoard(input RerollBoardInput) (RerollBoardRes
 }
 
 // Validate reports whether the reroll request has server-owned player state,
-// a deterministic positive seed, and a server timestamp.
+// a deterministic positive seed, a one-shot reference, and a server timestamp.
 func (input RerollBoardInput) Validate() error {
 	if err := input.Player.Validate(); err != nil {
 		return err
@@ -159,15 +173,18 @@ func (input RerollBoardInput) Validate() error {
 	if input.Seed <= 0 {
 		return fmt.Errorf("seed %d: %w", input.Seed, ErrInvalidQuestRerollSeed)
 	}
+	if strings.TrimSpace(input.ReferenceID) == "" || input.ReferenceID != strings.TrimSpace(input.ReferenceID) {
+		return fmt.Errorf("reference_id %q: %w", input.ReferenceID, ErrInvalidQuestRerollReference)
+	}
 	if input.CreatedAt.IsZero() {
 		return fmt.Errorf("created_at: %w", ErrZeroQuestTime)
 	}
 	return nil
 }
 
-// StableReferenceKey returns quest_reroll:<player_id>:<seed>.
+// StableReferenceKey returns quest_reroll:<player_id>:<reference_id>.
 func (input RerollBoardInput) StableReferenceKey() (foundation.IdempotencyKey, error) {
-	return foundation.QuestRerollIdempotencyKey(input.Player.PlayerID, strconv.FormatInt(input.Seed, 10))
+	return foundation.QuestRerollIdempotencyKey(input.Player.PlayerID, input.ReferenceID)
 }
 
 // ResolveCost applies the configured cost hook or the default rank-scaling

@@ -80,9 +80,18 @@ type rewardClaimPlan struct {
 	roleXP       []progression.RoleXPGrant
 }
 
-// ClaimReward grants a completed quest's generated rewards exactly once. The
-// in-memory quest store lock is held until the grant sequence finishes so a
-// duplicate request cannot interleave with an in-progress claim.
+type rewardClaimPreparation struct {
+	quest        PlayerQuest
+	claimedQuest PlayerQuest
+	referenceKey foundation.IdempotencyKey
+	claimPlan    rewardClaimPlan
+	result       ClaimRewardResult
+}
+
+// ClaimReward grants a completed quest's generated rewards exactly once. Quest
+// state is checked and finalized under the store lock, while value-service calls
+// happen outside that lock and rely on the quest_reward reference for duplicate
+// safety.
 func (service *QuestService) ClaimReward(input ClaimRewardInput) (ClaimRewardResult, error) {
 	if err := input.Validate(); err != nil {
 		return ClaimRewardResult{}, err
@@ -94,9 +103,70 @@ func (service *QuestService) ClaimReward(input ClaimRewardInput) (ClaimRewardRes
 	}
 
 	service.store.mu.Lock()
+	prep, duplicate, err := service.prepareClaimRewardLocked(input, claimedAt)
+	service.store.mu.Unlock()
+	if err != nil || duplicate {
+		return cloneClaimRewardResult(prep.result), err
+	}
+
+	services := service.rewardServices()
+	result := cloneClaimRewardResult(prep.result)
+
+	if prep.claimPlan.creditAmount > 0 {
+		if services.Wallet == nil {
+			return ClaimRewardResult{}, ErrMissingQuestRewardWalletService
+		}
+		credits, err := services.Wallet.CreditWallet(economy.CreditWalletInput{
+			PlayerID:     prep.quest.PlayerID,
+			Currency:     economy.CurrencyBucketCredits,
+			Amount:       prep.claimPlan.creditAmount,
+			Reason:       questRewardLedgerReason,
+			ReferenceKey: prep.referenceKey,
+		})
+		if err != nil {
+			return result, err
+		}
+		result.Credits = &credits
+	}
+
+	if len(prep.claimPlan.items) > 0 {
+		if services.Inventory == nil {
+			return ClaimRewardResult{}, ErrMissingQuestRewardInventoryService
+		}
+		items, err := services.Inventory.GrantQuestRewardItems(QuestRewardItemGrantInput{
+			PlayerID:     prep.quest.PlayerID,
+			Items:        cloneQuestRewardItemGrants(prep.claimPlan.items),
+			Reason:       questRewardLedgerReason,
+			ReferenceKey: prep.referenceKey,
+		})
+		if err != nil {
+			return result, err
+		}
+		result.Items = cloneQuestRewardItemGrantResultPtr(items)
+	}
+
+	if prep.claimPlan.mainXP > 0 || len(prep.claimPlan.roleXP) > 0 {
+		if services.Progression == nil {
+			return ClaimRewardResult{}, ErrMissingQuestRewardProgressionService
+		}
+		xp, err := services.Progression.GrantXP(progression.GrantXPInput{
+			PlayerID:       prep.quest.PlayerID,
+			Amount:         prep.claimPlan.mainXP,
+			SourceType:     progression.XPSourceTypeQuest,
+			SourceID:       progression.XPSourceID(prep.quest.PlayerQuestID.String()),
+			IdempotencyKey: progression.XPIdempotencyKey(prep.referenceKey.String()),
+			RoleXP:         cloneRoleXPGrants(prep.claimPlan.roleXP),
+		})
+		if err != nil {
+			return result, err
+		}
+		result.XP = cloneGrantXPResultPtr(xp)
+	}
+
+	service.store.mu.Lock()
 	defer service.store.mu.Unlock()
 
-	return service.claimRewardLocked(input, claimedAt)
+	return service.finalizeClaimRewardLocked(input, prep.claimedQuest, result)
 }
 
 // Validate reports whether input identifies a player-owned quest.
@@ -110,32 +180,33 @@ func (input ClaimRewardInput) Validate() error {
 	return nil
 }
 
-func (service *QuestService) claimRewardLocked(input ClaimRewardInput, claimedAt time.Time) (ClaimRewardResult, error) {
+func (service *QuestService) prepareClaimRewardLocked(input ClaimRewardInput, claimedAt time.Time) (rewardClaimPreparation, bool, error) {
 	quest, ok := service.store.quests[input.PlayerQuestID]
 	if !ok {
-		return ClaimRewardResult{}, fmt.Errorf("quest %q: %w", input.PlayerQuestID, ErrPlayerQuestNotFound)
+		return rewardClaimPreparation{}, false, fmt.Errorf("quest %q: %w", input.PlayerQuestID, ErrPlayerQuestNotFound)
 	}
 	if quest.PlayerID != input.PlayerID {
-		return ClaimRewardResult{}, fmt.Errorf("quest %q owner %q player %q: %w", input.PlayerQuestID, quest.PlayerID, input.PlayerID, ErrPlayerQuestOwnerMismatch)
+		return rewardClaimPreparation{}, false, fmt.Errorf("quest %q owner %q player %q: %w", input.PlayerQuestID, quest.PlayerID, input.PlayerID, ErrPlayerQuestOwnerMismatch)
 	}
 
 	if quest.State == QuestStateClaimed {
-		return service.duplicateClaimResultLocked(quest)
+		result, err := service.duplicateClaimResultLocked(quest)
+		return rewardClaimPreparation{result: result}, true, err
 	}
 	if quest.State != QuestStateCompleted {
-		return ClaimRewardResult{}, fmt.Errorf("quest %q state %q: %w", input.PlayerQuestID, quest.State, ErrInvalidQuestClaim)
+		return rewardClaimPreparation{}, false, fmt.Errorf("quest %q state %q: %w", input.PlayerQuestID, quest.State, ErrInvalidQuestClaim)
 	}
 	if err := quest.Validate(); err != nil {
-		return ClaimRewardResult{}, err
+		return rewardClaimPreparation{}, false, err
 	}
 
 	referenceKey, err := rewardReferenceKeyForQuest(quest)
 	if err != nil {
-		return ClaimRewardResult{}, err
+		return rewardClaimPreparation{}, false, err
 	}
 	claimPlan, err := buildRewardClaimPlan(quest.RewardPayload)
 	if err != nil {
-		return ClaimRewardResult{}, err
+		return rewardClaimPreparation{}, false, err
 	}
 
 	claimedQuest := clonePlayerQuest(quest)
@@ -144,63 +215,34 @@ func (service *QuestService) claimRewardLocked(input ClaimRewardInput, claimedAt
 	claimedQuest.RewardClaimedAt = cloneTimePtr(&claimedAt)
 	claimedQuest.RewardReferenceID = referenceKey.String()
 	if err := claimedQuest.Validate(); err != nil {
-		return ClaimRewardResult{}, err
+		return rewardClaimPreparation{}, false, err
 	}
 
-	result := ClaimRewardResult{
-		Quest:        clonePlayerQuest(claimedQuest),
-		ReferenceKey: referenceKey,
-	}
-
-	if claimPlan.creditAmount > 0 {
-		if service.wallet == nil {
-			return ClaimRewardResult{}, ErrMissingQuestRewardWalletService
-		}
-		credits, err := service.wallet.CreditWallet(economy.CreditWalletInput{
-			PlayerID:     quest.PlayerID,
-			Currency:     economy.CurrencyBucketCredits,
-			Amount:       claimPlan.creditAmount,
-			Reason:       questRewardLedgerReason,
+	return rewardClaimPreparation{
+		quest:        clonePlayerQuest(quest),
+		claimedQuest: clonePlayerQuest(claimedQuest),
+		referenceKey: referenceKey,
+		claimPlan:    claimPlan,
+		result: ClaimRewardResult{
+			Quest:        clonePlayerQuest(claimedQuest),
 			ReferenceKey: referenceKey,
-		})
-		if err != nil {
-			return result, err
-		}
-		result.Credits = &credits
-	}
+		},
+	}, false, nil
+}
 
-	if len(claimPlan.items) > 0 {
-		if service.inventory == nil {
-			return ClaimRewardResult{}, ErrMissingQuestRewardInventoryService
-		}
-		items, err := service.inventory.GrantQuestRewardItems(QuestRewardItemGrantInput{
-			PlayerID:     quest.PlayerID,
-			Items:        cloneQuestRewardItemGrants(claimPlan.items),
-			Reason:       questRewardLedgerReason,
-			ReferenceKey: referenceKey,
-		})
-		if err != nil {
-			return result, err
-		}
-		result.Items = cloneQuestRewardItemGrantResultPtr(items)
+func (service *QuestService) finalizeClaimRewardLocked(input ClaimRewardInput, claimedQuest PlayerQuest, result ClaimRewardResult) (ClaimRewardResult, error) {
+	current, ok := service.store.quests[input.PlayerQuestID]
+	if !ok {
+		return ClaimRewardResult{}, fmt.Errorf("quest %q: %w", input.PlayerQuestID, ErrPlayerQuestNotFound)
 	}
-
-	if claimPlan.mainXP > 0 || len(claimPlan.roleXP) > 0 {
-		if service.progression == nil {
-			return ClaimRewardResult{}, ErrMissingQuestRewardProgressionService
-		}
-		xp, err := service.progression.GrantXP(progression.GrantXPInput{
-			PlayerID:       quest.PlayerID,
-			Amount:         claimPlan.mainXP,
-			SourceType:     progression.XPSourceTypeQuest,
-			SourceID:       progression.XPSourceID(quest.PlayerQuestID.String()),
-			IdempotencyKey: progression.XPIdempotencyKey(referenceKey.String()),
-			RoleXP:         cloneRoleXPGrants(claimPlan.roleXP),
-		})
-		if err != nil {
-			return result, err
-		}
-		result.XP = cloneGrantXPResultPtr(xp)
+	if current.PlayerID != input.PlayerID {
+		return ClaimRewardResult{}, fmt.Errorf("quest %q owner %q player %q: %w", input.PlayerQuestID, current.PlayerID, input.PlayerID, ErrPlayerQuestOwnerMismatch)
+	}
+	if current.State == QuestStateClaimed {
+		return service.duplicateClaimResultLocked(current)
+	}
+	if current.State != QuestStateCompleted {
+		return ClaimRewardResult{}, fmt.Errorf("quest %q state %q: %w", input.PlayerQuestID, current.State, ErrInvalidQuestClaim)
 	}
 
 	service.store.quests[claimedQuest.PlayerQuestID] = clonePlayerQuest(claimedQuest)

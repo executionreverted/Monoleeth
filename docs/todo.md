@@ -68,6 +68,22 @@ for phase status; this file is a compact pending-work index.
 - [ ] Narrow DeathService and RepairService lock scope from global service mutex
   to per-player/per-reference coordination before these services move to a
   higher-concurrency runtime path.
+- [ ] Add a concrete Phase 07 quest item reward adapter from
+  `QuestRewardInventoryService` to `economy.InventoryService.AddItem` once the
+  quest reward item-definition catalog/provider is wired; current claim tests
+  prove the quest boundary and idempotency reference but use fakes.
+- [ ] Enforce rare reward caps before enabling rare quest rewards such as X Core
+  or premium rewards; Phase 07 currently stores rare-cap hooks as policy markers
+  and leaves the actual cap check unchecked in the roadmap.
+- [ ] Make quest board queries expiry-aware before exposing them through
+  gateway/client APIs; `AcceptQuest` rejects expired offers, but `BoardOffers`
+  currently returns stored unaccepted offers without a clock-aware expiry filter.
+- [ ] Collapse or document the preferred quest objective schema shape before the
+  quest API becomes public; `ObjectiveSchema` currently supports both
+  `Objectives []Objective` and legacy single-objective fields.
+- [ ] Add per-player offer/active-quest indexes plus TTL/compaction or durable
+  uniqueness for quest in-memory caches (`progressEvents`, `claimResults`,
+  `rerollResults`) before long-running or multi-process deployment.
 
 ## Completed
 

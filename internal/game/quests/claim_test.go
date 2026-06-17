@@ -143,6 +143,39 @@ func TestClaimRewardGrantFailureLeavesQuestRetryableWithSameReference(t *testing
 	assertClaimGrantReferences(t, wallet, inventory, xp, wantReference)
 }
 
+func TestClaimRewardDoesNotHoldStoreLockWhileGranting(t *testing.T) {
+	fixture, wallet, inventory, xp := newClaimRewardFixture(t)
+	quest := seedClaimQuest(t, fixture, QuestStateCompleted)
+	reentrantWallet := &reentrantQuestRewardWallet{
+		fake:     wallet,
+		store:    fixture.store,
+		playerID: quest.PlayerID,
+	}
+	fixture.service.SetRewardServices(QuestRewardServices{
+		Wallet:      reentrantWallet,
+		Inventory:   inventory,
+		Progression: xp,
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := fixture.service.ClaimReward(ClaimRewardInput{
+			PlayerID:      quest.PlayerID,
+			PlayerQuestID: quest.PlayerQuestID,
+		})
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ClaimReward() = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ClaimReward deadlocked while reward wallet re-entered quest store")
+	}
+}
+
 func newClaimRewardFixture(t *testing.T) (questServiceFixture, *fakeQuestRewardWallet, *fakeQuestRewardInventory, *fakeQuestRewardProgression) {
 	t.Helper()
 	fixture := newQuestServiceFixture(t, MustMVPQuestCatalog(), time.Date(2026, 6, 17, 12, 5, 0, 0, time.UTC))
@@ -234,6 +267,19 @@ type fakeQuestRewardWallet struct {
 	totalCredits int64
 	seen         map[foundation.IdempotencyKey]economy.CreditWalletResult
 	fail         error
+}
+
+type reentrantQuestRewardWallet struct {
+	fake     *fakeQuestRewardWallet
+	store    *InMemoryQuestStore
+	playerID foundation.PlayerID
+}
+
+func (wallet *reentrantQuestRewardWallet) CreditWallet(input economy.CreditWalletInput) (economy.CreditWalletResult, error) {
+	if _, err := wallet.store.PlayerQuests(wallet.playerID); err != nil {
+		return economy.CreditWalletResult{}, err
+	}
+	return wallet.fake.CreditWallet(input)
 }
 
 func newFakeQuestRewardWallet() *fakeQuestRewardWallet {

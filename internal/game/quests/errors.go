@@ -41,6 +41,7 @@ var (
 	ErrInvalidQuestReroll                   = errors.New("invalid quest reroll")
 	ErrInvalidQuestRerollCost               = errors.New("invalid quest reroll cost")
 	ErrInvalidQuestRerollHook               = errors.New("invalid quest reroll hook")
+	ErrInvalidQuestRerollReference          = errors.New("invalid quest reroll reference")
 	ErrInvalidQuestRerollSeed               = errors.New("invalid quest reroll seed")
 	ErrAcceptedQuestExpiresTooEarly         = errors.New("accepted quest expires before acceptance")
 	ErrDuplicateQuestOffer                  = errors.New("duplicate quest offer")

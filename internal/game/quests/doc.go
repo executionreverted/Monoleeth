@@ -2,7 +2,7 @@
 // accepted player quest state, objective schemas, progress, and reward payloads
 // for the Phase 07 model slice.
 //
-// This package intentionally does not grant rewards or accept client progress.
-// Later services must mutate progress only from server-owned events and must
-// grant value through wallet, inventory, and progression services.
+// This package intentionally does not accept client-authored progress. Progress
+// mutates only from server-owned event consumers, and reward claims grant value
+// through explicit wallet, inventory, and progression boundaries.
 package quests

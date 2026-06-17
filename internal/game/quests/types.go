@@ -62,8 +62,8 @@ const (
 	DeliveryTargetPlanet  DeliveryTargetKind = "planet"
 )
 
-// RewardKind identifies a reward grant that a later QuestRewardService must
-// apply through the owning wallet, inventory, or progression service.
+// RewardKind identifies a reward grant that ClaimReward applies through the
+// owning wallet, inventory, or progression boundary.
 type RewardKind string
 
 const (

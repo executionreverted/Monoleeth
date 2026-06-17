@@ -187,7 +187,7 @@ func TestRerollBoardUsesStableReferenceAndExposesCostAndCapHooks(t *testing.T) {
 		t.Fatalf("RerollBoard() = %v, want nil", err)
 	}
 
-	wantReference := "quest_reroll:player_1:20260618"
+	wantReference := "quest_reroll:player_1:reroll-20260618"
 	if result.ReferenceKey.String() != wantReference {
 		t.Fatalf("reference = %q, want %q", result.ReferenceKey, wantReference)
 	}
@@ -210,6 +210,71 @@ func TestRerollBoardUsesStableReferenceAndExposesCostAndCapHooks(t *testing.T) {
 	}
 }
 
+func TestRerollBoardAllowsSameGenerationSeedWithDifferentReference(t *testing.T) {
+	fixture, wallet := newRerollFixture(t, 2_000)
+	input := validBoardGenerationInput(t, fixture.catalog)
+	if _, err := fixture.service.GenerateAndStoreBoard(input); err != nil {
+		t.Fatalf("GenerateAndStoreBoard() = %v, want nil", err)
+	}
+	firstInput := validRerollBoardInput(input.Player, 20260618, fixture.clock.Now())
+	secondInput := firstInput
+	secondInput.ReferenceID = "reroll-20260618-b"
+	fixture.clock.Advance(time.Hour)
+	secondInput.CreatedAt = fixture.clock.Now()
+
+	first, err := fixture.service.RerollBoard(firstInput)
+	if err != nil {
+		t.Fatalf("RerollBoard(first) = %v, want nil", err)
+	}
+	second, err := fixture.service.RerollBoard(secondInput)
+	if err != nil {
+		t.Fatalf("RerollBoard(second) = %v, want nil", err)
+	}
+
+	if second.Duplicate {
+		t.Fatal("second reroll Duplicate = true, want false with new reference")
+	}
+	if len(wallet.calls) != 2 {
+		t.Fatalf("wallet calls = %d, want 2", len(wallet.calls))
+	}
+	if first.ReferenceKey == second.ReferenceKey {
+		t.Fatalf("references both %q, want different references", first.ReferenceKey)
+	}
+	if reflect.DeepEqual(first.Offers, second.Offers) {
+		t.Fatal("offers for same seed with different references are equal, want new deterministic board")
+	}
+}
+
+func TestRerollBoardDoesNotHoldStoreLockWhileDebiting(t *testing.T) {
+	fixture, wallet := newRerollFixture(t, 1_000)
+	input := validBoardGenerationInput(t, fixture.catalog)
+	if _, err := fixture.service.GenerateAndStoreBoard(input); err != nil {
+		t.Fatalf("GenerateAndStoreBoard() = %v, want nil", err)
+	}
+	fixture.service.SetRerollServices(QuestRerollServices{
+		Wallet: &reentrantQuestRerollWallet{
+			fake:     wallet,
+			store:    fixture.store,
+			playerID: input.Player.PlayerID,
+		},
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := fixture.service.RerollBoard(validRerollBoardInput(input.Player, 20260618, fixture.clock.Now()))
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RerollBoard() = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RerollBoard deadlocked while wallet debit re-entered quest store")
+	}
+}
+
 func newRerollFixture(t *testing.T, walletBalance int64) (questServiceFixture, *fakeQuestRerollWallet) {
 	t.Helper()
 	fixture := newQuestServiceFixture(t, MustMVPQuestCatalog(), time.Date(2026, 6, 17, 13, 0, 0, 0, time.UTC))
@@ -220,9 +285,10 @@ func newRerollFixture(t *testing.T, walletBalance int64) (questServiceFixture, *
 
 func validRerollBoardInput(player PlayerQuestBoardSnapshot, seed int64, createdAt time.Time) RerollBoardInput {
 	return RerollBoardInput{
-		Player:    player,
-		Seed:      seed,
-		CreatedAt: createdAt,
+		Player:      player,
+		Seed:        seed,
+		ReferenceID: fmt.Sprintf("reroll-%d", seed),
+		CreatedAt:   createdAt,
 	}
 }
 
@@ -239,6 +305,19 @@ type fakeQuestRerollWallet struct {
 	balance int64
 	debited int64
 	seen    map[foundation.IdempotencyKey]economy.DebitWalletResult
+}
+
+type reentrantQuestRerollWallet struct {
+	fake     *fakeQuestRerollWallet
+	store    *InMemoryQuestStore
+	playerID foundation.PlayerID
+}
+
+func (wallet *reentrantQuestRerollWallet) DebitWallet(input economy.DebitWalletInput) (economy.DebitWalletResult, error) {
+	if _, err := wallet.store.BoardOffers(wallet.playerID); err != nil {
+		return economy.DebitWalletResult{}, err
+	}
+	return wallet.fake.DebitWallet(input)
 }
 
 func newFakeQuestRerollWallet(balance int64) *fakeQuestRerollWallet {

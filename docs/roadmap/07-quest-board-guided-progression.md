@@ -91,7 +91,7 @@ Board rules:
 - [x] Lock quest during claim. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
 - [x] Mark claimed before granting or within a transaction-safe flow. Verified rollback-safe retry flow 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
 - [x] Grant credits through wallet service. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
-- [x] Grant items through inventory service. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
+- [x] Grant items through a quest inventory boundary. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`; concrete economy inventory adapter is tracked in `docs/todo.md`.
 - [x] Grant XP through progression service. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
 - [x] Use reference `quest_reward:<player_quest_id>`. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
 
