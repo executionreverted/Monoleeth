@@ -112,14 +112,14 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 
 ## TODO: Realtime Contracts
 
-- [ ] Define JSON operation registry.
-- [ ] Validate request envelope fields.
+- [x] Define JSON operation registry.
+- [x] Validate request envelope fields.
 - [ ] Resolve player/session server-side.
-- [ ] Add request ID cache skeleton for retry safety.
-- [ ] Add per-op rate limit placeholders.
-- [ ] Define common client events: `player.snapshot`, `aoi.entity_entered`, `aoi.entity_left`, `position.corrected`.
+- [x] Add request ID cache skeleton for retry safety.
+- [x] Add per-op rate limit placeholders.
+- [x] Define common client events: `player.snapshot`, `aoi.entity_entered`, `aoi.entity_left`, `position.corrected`.
 - [ ] Ensure internal event payload can differ from filtered client event payload.
-- [ ] Add commit-then-broadcast convention to package docs.
+- [x] Add commit-then-broadcast convention to package docs.
 
 ## Tests
 
@@ -131,8 +131,8 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 - [ ] Entity leaving AOI emits left/despawn.
 - [ ] Fog memory does not grant live interaction permission.
 - [ ] Interaction with hidden entity fails.
-- [ ] Duplicate request ID returns safe retry behavior.
-- [ ] Invalid payload is rejected.
+- [x] Duplicate request ID returns safe retry behavior.
+- [x] Invalid payload is rejected.
 - [ ] Error messages for hidden entities do not leak hidden truth.
 - [ ] AOI stress test with many entities stays deterministic.
 
@@ -142,14 +142,14 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 - [ ] Entity ID memory attack fails because interaction rechecks visibility.
 - [ ] Radar spoof fails because radar comes from stat snapshot.
 - [ ] Procedural gameplay seed is not present in payloads.
-- [ ] Operation flood has at least a placeholder rate-limit path.
+- [x] Operation flood has at least a placeholder rate-limit path.
 
 ## Done Criteria
 
 - [ ] A test worker can spawn a player and move them server-authoritatively.
 - [ ] Visible snapshots contain only allowed entities.
 - [ ] Hidden entities cannot be interacted with.
-- [ ] Realtime envelope types exist.
+- [x] Realtime envelope types exist.
 - [ ] Combat phase can call visibility/range helpers.
 - [ ] `go test ./...` passes.
 - [ ] `git diff --check` passes.
@@ -163,3 +163,4 @@ Verified slices:
 - World, zone, entity, position, movement target, and movement intent primitives are implemented in `internal/game/world`.
 - `AdvanceMovement` moves toward a target by server-provided speed and tick delta, stops without overshoot, and exposes no client final-position input.
 - Spatial hash cell coordinates, entity insert/update/remove membership, deterministic radius queries, and exact distance filtering are implemented in `internal/game/world/spatial`.
+- Realtime JSON request/response/error/event envelopes, Phase 04 operation registry, client event constants, request ID cache skeleton, and rate-limit posture metadata are implemented in `internal/game/realtime`.
