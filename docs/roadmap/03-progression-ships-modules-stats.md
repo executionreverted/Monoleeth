@@ -88,9 +88,9 @@ Keep MVP small:
 
 ## TODO: Ships And Hangar
 
-- [ ] Define ship catalog.
-- [ ] Define player ship state.
-- [ ] Define active ship state.
+- [x] Define ship catalog.
+- [x] Define player ship state.
+- [x] Define active ship state.
 - [ ] Implement starter ship guarantee.
 - [ ] Implement idempotent ship unlock.
 - [ ] Implement active ship selection.
@@ -180,3 +180,4 @@ Current Symphony wave plan:
 Verified slices:
 
 - Progression state, snapshot, main XP table, and role XP table are implemented in `internal/game/progression`.
+- Ship catalog, player ship state, and active ship state are implemented in `internal/game/ships`.
