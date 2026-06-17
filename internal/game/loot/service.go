@@ -1,0 +1,429 @@
+package loot
+
+import (
+	"encoding/json"
+	"fmt"
+	"sync"
+	"time"
+
+	"gameproject/internal/game/combat"
+	"gameproject/internal/game/economy"
+	"gameproject/internal/game/events"
+	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/progression"
+	"gameproject/internal/game/world"
+	"gameproject/internal/game/world/visibility"
+)
+
+const (
+	EventLootCreated          = "loot.created"
+	EventLootPickedUp         = "loot.picked_up"
+	EventLootOwnerLockExpired = "loot.owner_lock_expired"
+	EventLootExpired          = "loot.expired"
+)
+
+// CargoAdder is the cargo boundary used by pickup.
+type CargoAdder interface {
+	AddItem(economy.CargoAddItemInput) (economy.AddItemResult, error)
+}
+
+// XPGranter is the progression boundary used for loot XP.
+type XPGranter interface {
+	GrantXP(progression.GrantXPInput) (progression.GrantXPResult, error)
+}
+
+// EventEmitter is the optional post-mutation event hook.
+type EventEmitter interface {
+	Record(events.EventEnvelope)
+}
+
+// Viewer aliases the Phase 04 visibility viewer for pickup validation.
+type Viewer = visibility.Viewer
+
+// Service is the in-memory Phase 05 loot service.
+type Service struct {
+	mu    sync.Mutex
+	clock foundation.Clock
+	rng   foundation.RNG
+
+	cargo       CargoAdder
+	progression XPGranter
+
+	ownerLockDuration time.Duration
+	publicDuration    time.Duration
+	totalLifetime     time.Duration
+	pickupRange       float64
+
+	nextDropSequence int64
+	drops            map[world.EntityID]Drop
+	sourceDrops      map[sourceKey][]world.EntityID
+	ownerLockEvents  map[world.EntityID]struct{}
+	expiredEvents    map[world.EntityID]struct{}
+
+	emitter           EventEmitter
+	nextEventSequence uint64
+}
+
+type sourceKey struct {
+	sourceType DropSourceType
+	sourceID   world.EntityID
+}
+
+// Config describes service dependencies and tuning.
+type Config struct {
+	Clock foundation.Clock
+	RNG   foundation.RNG
+
+	Cargo       CargoAdder
+	Progression XPGranter
+
+	OwnerLockDuration time.Duration
+	PublicDuration    time.Duration
+	TotalLifetime     time.Duration
+	PickupRange       float64
+}
+
+// NewService returns an in-memory loot service.
+func NewService(config Config) (*Service, error) {
+	if config.Cargo == nil {
+		return nil, ErrNilCargoService
+	}
+	if config.Clock == nil {
+		config.Clock = foundation.RealClock{}
+	}
+	if config.OwnerLockDuration == 0 {
+		config.OwnerLockDuration = DefaultOwnerLockDuration
+	}
+	if config.PublicDuration == 0 {
+		config.PublicDuration = DefaultPublicDuration
+	}
+	if config.TotalLifetime == 0 {
+		config.TotalLifetime = DefaultTotalLifetime
+	}
+	if config.PickupRange == 0 {
+		config.PickupRange = DefaultPickupRange
+	}
+	if config.OwnerLockDuration < 0 || config.PublicDuration < 0 || config.TotalLifetime <= 0 || config.PickupRange < 0 {
+		return nil, ErrInvalidLootDurations
+	}
+	return &Service{
+		clock:             config.Clock,
+		rng:               config.RNG,
+		cargo:             config.Cargo,
+		progression:       config.Progression,
+		ownerLockDuration: config.OwnerLockDuration,
+		publicDuration:    config.PublicDuration,
+		totalLifetime:     config.TotalLifetime,
+		pickupRange:       config.PickupRange,
+		drops:             make(map[world.EntityID]Drop),
+		sourceDrops:       make(map[sourceKey][]world.EntityID),
+		ownerLockEvents:   make(map[world.EntityID]struct{}),
+		expiredEvents:     make(map[world.EntityID]struct{}),
+	}, nil
+}
+
+// SetEventEmitter configures the optional post-mutation event hook.
+func (service *Service) SetEventEmitter(emitter EventEmitter) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	service.emitter = emitter
+}
+
+// CreateDropsForNPCKill rolls and creates drops once for a combat kill event.
+func (service *Service) CreateDropsForNPCKill(event combat.NPCKilledEvent, table LootTable) (CreateDropsResult, error) {
+	if err := table.validate(); err != nil {
+		return CreateDropsResult{}, err
+	}
+	if err := event.NPCEntityID.Validate(); err != nil {
+		return CreateDropsResult{}, err
+	}
+	if err := event.OwnerPlayerID.Validate(); err != nil {
+		return CreateDropsResult{}, err
+	}
+	if err := event.Position.Validate(); err != nil {
+		return CreateDropsResult{}, err
+	}
+
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
+	service.mu.Lock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+
+	key := sourceKey{sourceType: DropSourceNPCDeath, sourceID: event.NPCEntityID}
+	if existingIDs, ok := service.sourceDrops[key]; ok {
+		return CreateDropsResult{Drops: service.dropsForIDsLocked(existingIDs), Duplicate: true}, nil
+	}
+
+	now := service.clock.Now()
+	rows := service.rollRows(table)
+	service.sourceDrops[key] = make([]world.EntityID, 0, len(rows))
+	drops := make([]Drop, 0, len(rows))
+	for _, row := range rows {
+		drop := Drop{
+			ID:             service.nextDropID(),
+			WorldID:        event.WorldID,
+			ZoneID:         event.ZoneID,
+			Position:       event.Position,
+			ItemDefinition: row.ItemDefinition,
+			Quantity:       row.quantity,
+			OwnerPlayerID:  event.OwnerPlayerID,
+			OwnerLockUntil: now.Add(service.ownerLockDuration),
+			PublicUntil:    now.Add(service.ownerLockDuration + service.publicDuration),
+			ExpiresAt:      now.Add(service.totalLifetime),
+			CreatedAt:      now,
+			SourceType:     DropSourceNPCDeath,
+			SourceID:       event.NPCEntityID,
+		}
+		service.drops[drop.ID] = cloneDrop(drop)
+		service.sourceDrops[key] = append(service.sourceDrops[key], drop.ID)
+		drops = append(drops, drop)
+	}
+
+	emitter = service.emitter
+	if emitter != nil {
+		for _, drop := range drops {
+			emitted = append(emitted, service.newEventLocked(EventLootCreated, dropPayload(drop, now), now))
+		}
+	}
+	return CreateDropsResult{Drops: cloneDrops(drops)}, nil
+}
+
+// PickupDrop validates ownership, visibility, range, cargo capacity, and claims one drop.
+func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
+	if err := input.PlayerID.Validate(); err != nil {
+		return PickupResult{}, err
+	}
+	if err := input.DropID.Validate(); err != nil {
+		return PickupResult{}, err
+	}
+	if err := input.ActiveCargo.Validate(); err != nil {
+		return PickupResult{}, err
+	}
+
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
+	service.mu.Lock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+
+	now := service.clock.Now()
+	drop, ok := service.drops[input.DropID]
+	if !ok {
+		return PickupResult{}, fmt.Errorf("drop %q: %w", input.DropID, ErrUnknownDrop)
+	}
+	if drop.ClaimedAt != nil {
+		return PickupResult{}, ErrDropClaimed
+	}
+	if !now.Before(drop.ExpiresAt) {
+		return PickupResult{}, ErrDropExpired
+	}
+	if now.Before(drop.OwnerLockUntil) && drop.OwnerPlayerID != input.PlayerID {
+		return PickupResult{}, ErrDropOwnerLocked
+	}
+	if err := visibility.CanInteract(input.Viewer, visibilityEntityFromDrop(drop)); err != nil {
+		return PickupResult{}, ErrPickupNotVisible
+	}
+	if input.Viewer.Position.Distance(drop.Position) > service.pickupRange {
+		return PickupResult{}, ErrPickupOutOfRange
+	}
+
+	cargoResult, err := service.cargo.AddItem(economy.CargoAddItemInput{
+		PlayerID:           input.PlayerID,
+		ActiveCargo:        input.ActiveCargo,
+		ItemDefinition:     drop.ItemDefinition,
+		Quantity:           drop.Quantity,
+		CargoCapacityUnits: input.CargoCapacityUnits,
+		Reason:             LedgerReasonLootPickup,
+		ReferenceKey:       foundation.IdempotencyKey("loot_pickup:" + drop.ID.String()),
+	})
+	if err != nil {
+		return PickupResult{}, err
+	}
+
+	drop.ClaimedBy = input.PlayerID
+	claimedAt := now
+	drop.ClaimedAt = &claimedAt
+	service.drops[input.DropID] = cloneDrop(drop)
+
+	var xpResult *progression.GrantXPResult
+	if service.progression != nil && drop.SourceType.eligibleForLootXP() {
+		grant, err := service.progression.GrantXP(progression.GrantXPInput{
+			PlayerID:       input.PlayerID,
+			Amount:         5,
+			SourceType:     progression.XPSourceTypeLoot,
+			SourceID:       progression.XPSourceID(drop.ID.String()),
+			IdempotencyKey: progression.XPIdempotencyKey("loot_pickup:" + drop.ID.String()),
+		})
+		if err != nil {
+			return PickupResult{}, err
+		}
+		xpResult = &grant
+	}
+
+	emitter = service.emitter
+	if emitter != nil {
+		emitted = append(emitted, service.newEventLocked(EventLootPickedUp, dropPayload(drop, now), now))
+	}
+	return PickupResult{
+		Drop:        cloneDrop(drop),
+		CargoResult: cargoResult,
+		XPResult:    xpResult,
+	}, nil
+}
+
+// VisibleDrops returns client-safe drops that pass AOI/fog visibility.
+func (service *Service) VisibleDrops(viewer Viewer) []DropPayload {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	now := service.clock.Now()
+	payloads := make([]DropPayload, 0)
+	for _, drop := range service.drops {
+		state := drop.State(now)
+		if state == DropStateClaimed || state == DropStateExpired {
+			continue
+		}
+		if visibility.CanInteract(viewer, visibilityEntityFromDrop(drop)) != nil {
+			continue
+		}
+		payloads = append(payloads, dropPayload(drop, now))
+	}
+	return payloads
+}
+
+// ExpireDrops emits owner-lock and expiry events derived from server time.
+func (service *Service) ExpireDrops() []Drop {
+	var emitted []events.EventEnvelope
+	var expired []Drop
+	var emitter EventEmitter
+	service.mu.Lock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+
+	now := service.clock.Now()
+	emitter = service.emitter
+	for id, drop := range service.drops {
+		if drop.ClaimedAt != nil {
+			continue
+		}
+		if !now.Before(drop.OwnerLockUntil) {
+			if _, seen := service.ownerLockEvents[id]; !seen {
+				service.ownerLockEvents[id] = struct{}{}
+				if emitter != nil {
+					emitted = append(emitted, service.newEventLocked(EventLootOwnerLockExpired, dropPayload(drop, now), now))
+				}
+			}
+		}
+		if !now.Before(drop.ExpiresAt) {
+			if _, seen := service.expiredEvents[id]; !seen {
+				service.expiredEvents[id] = struct{}{}
+				expired = append(expired, cloneDrop(drop))
+				if emitter != nil {
+					emitted = append(emitted, service.newEventLocked(EventLootExpired, dropPayload(drop, now), now))
+				}
+			}
+		}
+	}
+	return expired
+}
+
+// Drop returns a copy of one drop.
+func (service *Service) Drop(dropID world.EntityID) (Drop, bool) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	drop, ok := service.drops[dropID]
+	return cloneDrop(drop), ok
+}
+
+type rolledRow struct {
+	ItemDefinition economy.ItemDefinition
+	quantity       int64
+}
+
+func (service *Service) rollRows(table LootTable) []rolledRow {
+	rows := make([]rolledRow, 0, len(table.Rows))
+	for _, row := range table.Rows {
+		if service.rng != nil && service.rng.Float64() > row.Chance {
+			continue
+		}
+		quantity := row.MinQuantity
+		if row.MaxQuantity > row.MinQuantity {
+			if service.rng == nil {
+				quantity = row.MaxQuantity
+			} else {
+				quantity += int64(service.rng.Intn(int(row.MaxQuantity-row.MinQuantity) + 1))
+			}
+		}
+		rows = append(rows, rolledRow{ItemDefinition: row.ItemDefinition, quantity: quantity})
+	}
+	return rows
+}
+
+func (service *Service) dropsForIDsLocked(ids []world.EntityID) []Drop {
+	drops := make([]Drop, 0, len(ids))
+	for _, id := range ids {
+		if drop, ok := service.drops[id]; ok {
+			drops = append(drops, cloneDrop(drop))
+		}
+	}
+	return drops
+}
+
+func (service *Service) nextDropID() world.EntityID {
+	service.nextDropSequence++
+	return world.EntityID(fmt.Sprintf("drop_%d", service.nextDropSequence))
+}
+
+func visibilityEntityFromDrop(drop Drop) visibility.Entity {
+	return visibility.Entity{
+		WorldID:   drop.WorldID,
+		ZoneID:    drop.ZoneID,
+		ID:        drop.ID,
+		Position:  drop.Position,
+		Signature: visibility.EntitySignature(1),
+	}
+}
+
+func dropPayload(drop Drop, now time.Time) DropPayload {
+	return DropPayload{
+		ID:        drop.ID,
+		Position:  drop.Position,
+		ItemID:    drop.ItemDefinition.ItemID,
+		Quantity:  drop.Quantity,
+		State:     drop.State(now),
+		ExpiresAt: drop.ExpiresAt,
+	}
+}
+
+func (service *Service) newEventLocked(eventType string, payload any, now time.Time) events.EventEnvelope {
+	service.nextEventSequence++
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		rawPayload = json.RawMessage(`{}`)
+	}
+	return events.NewEventEnvelope(
+		foundation.EventID(fmt.Sprintf("loot-%d", service.nextEventSequence)),
+		eventType,
+		rawPayload,
+		now.UnixMilli(),
+		service.nextEventSequence,
+	)
+}
+
+func emitEvents(emitter EventEmitter, emitted []events.EventEnvelope) {
+	if emitter == nil {
+		return
+	}
+	for _, event := range emitted {
+		emitter.Record(event)
+	}
+}
