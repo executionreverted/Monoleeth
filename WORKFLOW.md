@@ -43,11 +43,11 @@ hooks:
   timeout_ms: 120000
 
 agent:
-  max_concurrent_agents: 2
+  max_concurrent_agents: 4
   max_turns: 12
   max_retry_backoff_ms: 300000
   max_concurrent_agents_by_state:
-    "in progress": 1
+    "in progress": 4
 
 codex:
   command: "${CODEX_BIN:-codex} --config shell_environment_policy.inherit=all app-server"
