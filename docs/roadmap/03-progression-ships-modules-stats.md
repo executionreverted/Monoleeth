@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Not started
+- State: In progress
 - Owner: Player progression and ship build systems
 - Depends on: Phase 01, Phase 02
 - Unlocks: combat, scanning, cargo validation, planet rank checks, crafting outputs
@@ -172,3 +172,7 @@ Keep MVP small:
 ## Resume Notes
 
 If resuming here, search for any code using client-provided stat values. Replace with `StatAggregationService` output before moving to combat or world worker phases.
+
+Current Symphony wave plan:
+
+- `docs/plans/2026-06-17-phase-03-progression-ships-stats-wave.md`
