@@ -165,9 +165,9 @@ Keep MVP small:
 - [x] Loadout and equip validation exists.
 - [x] Effective stats are server-calculated.
 - [x] Cargo capacity can be read from effective stats.
-- [ ] Combat and scanner can use stat snapshots next phase.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] Combat and scanner can use stat snapshots next phase.
+- [x] `go test ./...` passes.
+- [x] `git diff --check` passes.
 
 ## Resume Notes
 
@@ -189,3 +189,8 @@ Verified slices:
 - Equipped module break handling emits one stat invalidation, is idempotent after the first durability transition, and rejects non-equipped/wrong-owner/wrong-ship spoof attempts in `internal/game/modules`.
 - Progression `GrantXP`, role XP, XP source/idempotency uniqueness, `TryRankUp`, rank history, rank-up skill point grant, and progression stat invalidation signals are implemented in `internal/game/progression`.
 - Pilot skill definitions, `UnlockPilotSkill`, prerequisite/rank/role/point validation, duplicate unlock safety, and respec stat invalidation signals are implemented in `internal/game/progression`.
+- Final verification passed with `go test ./...`, `git diff --check`, and `go test -race ./internal/game/progression ./internal/game/modules ./internal/game/ships ./internal/game/stats`.
+
+Remaining follow-up:
+
+- XP source completion spoofing remains open until XP grants are wired behind concrete domain owners such as quest, combat, scanner, production, or crafting completion services.
