@@ -1,7 +1,8 @@
-// Package modules contains server-authoritative module catalog primitives.
+// Package modules contains server-authoritative module catalog and loadout
+// validation primitives.
 //
-// This package intentionally stops at static definitions and durable equipped
-// state models for the Phase 03 catalog slice. Equip/unequip commands, loadout
-// persistence, ownership checks, and stat aggregation services belong in later
-// Phase 03 slices.
+// This package owns module definitions, equipped module state, saved loadouts,
+// and the validation needed to apply loadouts to an active ship. Stat
+// aggregation remains separate; loadout mutations return invalidation signals
+// for a later stats cache/event integration.
 package modules

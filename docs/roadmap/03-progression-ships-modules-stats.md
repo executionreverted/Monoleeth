@@ -105,16 +105,16 @@ Keep MVP small:
 
 - [x] Define module catalog.
 - [x] Define equipped module state.
-- [ ] Define loadout model.
-- [ ] Implement `SaveLoadout`.
-- [ ] Implement `ApplyLoadout`.
-- [ ] Validate module ownership.
-- [ ] Validate item location is equip-eligible.
-- [ ] Validate slot type compatibility.
-- [ ] Validate rank and role requirements.
-- [ ] Validate module durability.
-- [ ] Prevent same module instance in two slots.
-- [ ] Prevent escrow/reserved modules from being equipped.
+- [x] Define loadout model.
+- [x] Implement `SaveLoadout`.
+- [x] Implement `ApplyLoadout`.
+- [x] Validate module ownership.
+- [x] Validate item location is equip-eligible.
+- [x] Validate slot type compatibility.
+- [x] Validate rank and role requirements.
+- [x] Validate module durability.
+- [x] Prevent same module instance in two slots.
+- [x] Prevent escrow/reserved modules from being equipped.
 - [ ] Emit stat invalidation on equip/unequip/break.
 
 ## TODO: Stat Aggregation
@@ -142,10 +142,10 @@ Keep MVP small:
 - [x] Swap outside safe area fails.
 - [x] Swap to lower cargo ship fails when cargo does not fit.
 - [x] Destroyed ship cannot become active.
-- [ ] Wrong module slot type fails.
-- [ ] Rank-too-low module equip fails.
-- [ ] Broken module equip fails.
-- [ ] Duplicate module equip fails.
+- [x] Wrong module slot type fails.
+- [x] Rank-too-low module equip fails.
+- [x] Broken module equip fails.
+- [x] Duplicate module equip fails.
 - [x] Stat aggregation is deterministic.
 - [x] Broken equipped module is removed from effective stats.
 
@@ -156,13 +156,13 @@ Keep MVP small:
 - [ ] Client cannot unlock hidden or locked skill node.
 - [x] Client cannot activate locked ship.
 - [x] Client cannot bypass cargo capacity via ship swap.
-- [ ] Client cannot inject module stats or tier metadata.
+- [x] Client cannot inject module stats or tier metadata.
 
 ## Done Criteria
 
 - [x] Player progression snapshot exists.
 - [x] Starter ship flow exists.
-- [ ] Loadout and equip validation exists.
+- [x] Loadout and equip validation exists.
 - [x] Effective stats are server-calculated.
 - [x] Cargo capacity can be read from effective stats.
 - [ ] Combat and scanner can use stat snapshots next phase.
@@ -185,3 +185,4 @@ Verified slices:
 - Effective stat model, deterministic aggregation order, snapshot versioning, and invalidation state are implemented in `internal/game/stats`.
 - Stat service `GetEffectiveStats`, explicit active-session cache versioning, cargo capacity output, and broken-module exclusion are implemented in `internal/game/stats`.
 - Starter guarantee, idempotent ship unlock, active ship selection, safe-area/combat/disabled/cargo swap validation, and active-ship stat invalidation signal are implemented in `internal/game/ships`.
+- Loadout model, `SaveLoadout`, `ApplyLoadout`, ownership/location/slot/rank/role/durability/duplicate-instance validation, and equip invalidation signals are implemented in `internal/game/modules`.
