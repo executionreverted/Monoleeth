@@ -102,6 +102,52 @@ func TestStatInputProviderBuildsShipAndEquippedModuleStats(t *testing.T) {
 	assertFloat(t, got.Combat.WeaponCooldown, 1.2)
 }
 
+func TestStatInputProviderBuildsScannerAndRadarStats(t *testing.T) {
+	shipCatalog := mustShipCatalog(t)
+	moduleCatalog := modules.MustMVPCatalog()
+	loadout := modules.NewInMemoryLoadoutStore()
+	playerID := foundation.PlayerID("player-1")
+	shipID := ships.ShipIDScoutT1
+
+	putRuntimeModuleItem(t, loadout, "scanner-instance-1", "scanner_t1", playerID, 100)
+	putRuntimeModuleItem(t, loadout, "radar-instance-1", "radar_t1", playerID, 100)
+	equippedAt := time.Date(2026, 6, 17, 16, 0, 0, 0, time.UTC)
+	if err := loadout.ReplaceEquippedModules(playerID, shipID, []modules.EquippedModule{
+		{
+			PlayerID:       playerID,
+			ShipID:         shipID,
+			SlotID:         modules.ModuleSlotUtility1,
+			ItemInstanceID: "scanner-instance-1",
+			EquippedAt:     equippedAt,
+		},
+		{
+			PlayerID:       playerID,
+			ShipID:         shipID,
+			SlotID:         modules.ModuleSlotUtility2,
+			ItemInstanceID: "radar-instance-1",
+			EquippedAt:     equippedAt,
+		},
+	}); err != nil {
+		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
+	}
+
+	provider, err := NewStatInputProvider(shipCatalog, moduleCatalog, loadout)
+	if err != nil {
+		t.Fatalf("NewStatInputProvider() error = %v, want nil", err)
+	}
+	input, err := provider.BuildStatsInput(stats.NewStatSubject(playerID, shipID))
+	if err != nil {
+		t.Fatalf("BuildStatsInput() error = %v, want nil", err)
+	}
+	got := stats.AggregateStats(input.AggregationInput())
+
+	assertFloat(t, got.Exploration.ScanPower, 10)
+	assertFloat(t, got.Exploration.ScanRadius, 450)
+	assertFloat(t, got.Exploration.ScanInterval, 3)
+	assertFloat(t, got.Exploration.RadarRange, 1370)
+	assertFloat(t, got.Combat.WeaponCooldown, 0)
+}
+
 func TestStatInputProviderIgnoresBrokenEquippedModules(t *testing.T) {
 	shipCatalog := mustShipCatalog(t)
 	loadout := modules.NewInMemoryLoadoutStore()

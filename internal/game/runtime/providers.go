@@ -210,11 +210,23 @@ func moduleDefinitionModifier(definition modules.ModuleDefinition) stats.ModuleM
 		modifier.Flat.Combat.WeaponEnergyCost += float64(definition.Energy.ActivationCost)
 	}
 	for _, cooldown := range definition.Cooldowns {
-		if cooldown.Key == modules.CooldownBasicAttack {
-			modifier.Flat.Combat.WeaponCooldown += float64(cooldown.DurationMS) / 1000
-		}
+		applyModuleCooldown(&modifier.Flat, cooldown)
 	}
 	return modifier
+}
+
+func applyModuleCooldown(flat *stats.FlatStats, cooldown modules.Cooldown) {
+	durationSeconds := float64(cooldown.DurationMS) / 1000
+	switch cooldown.Key {
+	case modules.CooldownBasicAttack:
+		flat.Combat.WeaponCooldown += durationSeconds
+	case modules.CooldownScanPulse:
+		flat.Exploration.ScanInterval += durationSeconds
+	case modules.CooldownRadarSweep:
+		// Radar has range in the current effective stats model, but no
+		// separate sweep interval field yet. Keep this cooldown in catalog
+		// metadata until the radar command path has a concrete stat target.
+	}
 }
 
 func applyModuleStat(modifier *stats.ModuleModifier, statModifier modules.StatModifier) {

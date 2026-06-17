@@ -177,6 +177,7 @@ Verified slices:
 - Combat XP is granted through an `NPCKillXPHandler` boundary over authoritative `combat.NPCKilledEvent` payloads instead of ad hoc caller-built progression inputs.
 - Loot XP pickup results now persist `LootXPReconciliation` metadata on the claimed drop for success, duplicate, failure, and not-eligible cases. Durable retry/outbox repair is still a later infrastructure slice.
 - Phase 03 runtime provider wiring exists under `internal/game/runtime` for progression rank/role adapters, module-aware stat input composition, and effective-stat cargo capacity. The vertical slice now uses this runtime stat provider instead of a test-local stat adapter.
+- Runtime stat input composition now maps scanner scan-pulse cooldown metadata to `Exploration.ScanInterval`; radar sweep cooldown remains catalog metadata because the current effective stat model has radar range but no radar interval field.
 - A deterministic backend vertical slice test ensures a starter ship, composes Laser Alpha stats through runtime providers and `StatService`, moves the player into range through the world worker, kills one NPC, grants combat XP idempotently, creates loot, picks it into ship cargo through `CargoService`, grants loot XP, records XP reconciliation, and reads the final player progression snapshot.
 - Final verification for this wave passed with `go test ./...`, `go test -race ./internal/game/combat ./internal/game/loot`, and `git diff --check`.
 
