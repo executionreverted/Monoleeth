@@ -73,7 +73,7 @@ kill NPC
 loot raw materials into cargo
 gain XP/rank progress
 equip crafted module
-discover planet through scanner
+discover planet through scanner in our procedural world
 claim planet with rank + X Core validation
 produce resources
 route resources
