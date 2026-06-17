@@ -286,6 +286,14 @@ Keep Symphony/orchestration code in Go.
 
 Symphony code should stay separate from game server domain code. Do not mix issue orchestration, OpenAI client logic, or workflow runner concerns into gameplay modules.
 
+When using Symphony to implement roadmap work, read:
+
+```text
+docs/symphony-operating-model.md
+```
+
+Codex should act as the Symphony project manager: split work into independent waves, keep compatible agents busy in parallel, review workspace diffs, apply and verify patches one at a time, commit minimal slices, and keep roadmap tracking current.
+
 When changing Symphony:
 - keep prompts/templates explicit and testable
 - avoid hidden global state
