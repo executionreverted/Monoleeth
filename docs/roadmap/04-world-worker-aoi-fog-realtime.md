@@ -78,13 +78,13 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 ## TODO: Worker Core
 
 - [x] Define world, zone, entity, and position types.
-- [ ] Define command mailbox interface.
-- [ ] Implement single worker tick loop.
-- [ ] Implement fixed tick delta.
-- [ ] Implement command drain order.
-- [ ] Implement delayed task scheduler skeleton.
-- [ ] Implement entity insert/remove/update.
-- [ ] Implement player session attachment model.
+- [x] Define command mailbox interface.
+- [x] Implement single worker tick loop.
+- [x] Implement fixed tick delta.
+- [x] Implement command drain order.
+- [x] Implement delayed task scheduler skeleton.
+- [x] Implement entity insert/remove/update.
+- [x] Implement player session attachment model.
 - [x] Implement server-owned movement target state.
 - [x] Implement movement from server stat speed.
 - [x] Reject client final position as truth.
@@ -146,7 +146,7 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 
 ## Done Criteria
 
-- [ ] A test worker can spawn a player and move them server-authoritatively.
+- [x] A test worker can spawn a player and move them server-authoritatively.
 - [ ] Visible snapshots contain only allowed entities.
 - [ ] Hidden entities cannot be interacted with.
 - [x] Realtime envelope types exist.
@@ -164,3 +164,4 @@ Verified slices:
 - `AdvanceMovement` moves toward a target by server-provided speed and tick delta, stops without overshoot, and exposes no client final-position input.
 - Spatial hash cell coordinates, entity insert/update/remove membership, deterministic radius queries, and exact distance filtering are implemented in `internal/game/world/spatial`.
 - Realtime JSON request/response/error/event envelopes, Phase 04 operation registry, client event constants, request ID cache skeleton, and rate-limit posture metadata are implemented in `internal/game/realtime`.
+- A single-zone in-process worker harness with FIFO command mailbox, fixed tick delta, deterministic command drain, delayed task scheduler skeleton, entity lifecycle, player session attachment, and server-speed movement is implemented in `internal/game/world/worker`.
