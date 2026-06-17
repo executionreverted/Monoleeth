@@ -39,7 +39,7 @@ loadouts, and stat aggregation are ready before combat/world work starts.
 Files:
 
 - Create: `internal/game/progression/`
-- Modify: `docs/roadmap/03-progression-ships-modules-stats.md`
+- Do not modify roadmap; manager updates checklist after patch review.
 
 Scope:
 
@@ -61,7 +61,7 @@ git diff --check
 Files:
 
 - Create: `internal/game/ships/`
-- Modify: `docs/roadmap/03-progression-ships-modules-stats.md`
+- Do not modify roadmap; manager updates checklist after patch review.
 
 Scope:
 
@@ -82,7 +82,7 @@ git diff --check
 Files:
 
 - Create: `internal/game/modules/`
-- Modify: `docs/roadmap/03-progression-ships-modules-stats.md`
+- Do not modify roadmap; manager updates checklist after patch review.
 
 Scope:
 
@@ -103,7 +103,7 @@ git diff --check
 Files:
 
 - Create: `internal/game/stats/`
-- Modify: `docs/roadmap/03-progression-ships-modules-stats.md`
+- Do not modify roadmap; manager updates checklist after patch review.
 
 Scope:
 
