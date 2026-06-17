@@ -179,3 +179,7 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 ## Resume Notes
 
 If resuming here, first inspect whether any later system directly edits item or wallet state. If yes, stop and route it through these services before continuing.
+
+Current Symphony wave plan:
+
+- `docs/plans/2026-06-17-phase-02-economy-symphony-wave.md`
