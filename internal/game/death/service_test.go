@@ -219,6 +219,67 @@ func TestDeathServiceProcessDeathRetryAfterLootFailureDoesNotRemoveCargoTwice(t 
 	}
 }
 
+func TestDeathServiceProcessDeathRetryAfterFailureReusesOriginalCargoSelection(t *testing.T) {
+	fixture := newDeathServiceFixture(t, nil, nil)
+	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
+	carbon := deathServiceItemDefinition(t, "carbon_shards", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
+	cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
+	ironAdded := fixture.addCargo(t, iron, 10, cargoLocation)
+	carbonAdded := fixture.addCargo(t, carbon, 10, cargoLocation)
+	flakyLoot := &failOnceDeathServiceLoot{
+		delegate: fixture.loot,
+		err:      errors.New("temporary loot outage"),
+	}
+	deathService, err := death.NewDeathService(death.Config{
+		Clock:     fixture.clock,
+		RNG:       testutil.NewFakeRNG([]int{1, 0}, []float64{0.50, 0.50}),
+		Inventory: fixture.inventory,
+		Loot:      flakyLoot,
+		Ships:     fixture.ships,
+	})
+	if err != nil {
+		t.Fatalf("death.NewDeathService() error = %v", err)
+	}
+
+	input := death.ProcessDeathInput{
+		LethalEventID:   "lethal-event-reuse-selection",
+		PlayerID:        "player-1",
+		WorldID:         "world-1",
+		ZoneID:          "zone-1",
+		Position:        world.Vec2{X: 1, Y: 2},
+		Reason:          death.DeathReasonCombat,
+		CargoDropPolicy: cargoPolicy(t, 0.50, 0.50),
+		Cargo: []death.CargoStack{
+			cargoStackFromDeathServiceStackable(t, ironAdded.StackableItems[0], iron),
+			cargoStackFromDeathServiceStackable(t, carbonAdded.StackableItems[0], carbon),
+		},
+		RespawnLocationID: "origin-station",
+	}
+	if _, err := deathService.ProcessDeath(input); !errors.Is(err, flakyLoot.err) {
+		t.Fatalf("first ProcessDeath() error = %v, want %v", err, flakyLoot.err)
+	}
+
+	result, err := deathService.ProcessDeath(input)
+	if err != nil {
+		t.Fatalf("retry ProcessDeath() error = %v", err)
+	}
+	if got := len(result.CargoDrops); got != 1 {
+		t.Fatalf("retry CargoDrops len = %d, want 1", got)
+	}
+	if result.CargoDrops[0].ItemID != iron.ItemID {
+		t.Fatalf("retry cargo drop item = %q, want original iron selection", result.CargoDrops[0].ItemID)
+	}
+	if got := fixture.inventory.TotalItemQuantity("player-1", iron.ItemID, cargoLocation); got != 0 {
+		t.Fatalf("iron after retry = %d, want 0", got)
+	}
+	if got := fixture.inventory.TotalItemQuantity("player-1", carbon.ItemID, cargoLocation); got != 10 {
+		t.Fatalf("carbon after retry = %d, want 10", got)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != 3 {
+		t.Fatalf("ledger entries after retry = %d, want 2 seeds + 1 death remove", got)
+	}
+}
+
 func TestDeathServiceProcessDeathRetryAfterShipFailureDoesNotDuplicateCargoOrLoot(t *testing.T) {
 	fixture := newDeathServiceFixture(t, nil, nil)
 	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})

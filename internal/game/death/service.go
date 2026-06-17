@@ -71,7 +71,12 @@ type DeathService struct {
 	ships            ActiveShipDisabler
 	moduleDurability ModuleDurabilityHook
 
+	attempts  map[LethalEventKey]processDeathAttempt
 	processed map[LethalEventKey]ProcessDeathResult
+}
+
+type processDeathAttempt struct {
+	selection CargoDropSelection
 }
 
 // ProcessDeathInput is one authoritative lethal event to process once.
@@ -148,6 +153,7 @@ func NewDeathService(config Config) (*DeathService, error) {
 		loot:             config.Loot,
 		ships:            config.Ships,
 		moduleDurability: config.ModuleDurability,
+		attempts:         make(map[LethalEventKey]processDeathAttempt),
 		processed:        make(map[LethalEventKey]ProcessDeathResult),
 	}, nil
 }
@@ -181,14 +187,20 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 		return duplicateProcessDeathResult(existing), nil
 	}
 
-	selection, err := SelectCargoDrops(SelectCargoDropsInput{
-		Policy: input.CargoDropPolicy,
-		Cargo:  input.Cargo,
-		RNG:    service.rng,
-	})
-	if err != nil {
-		return ProcessDeathResult{}, err
+	attempt, ok := service.attempts[lethalKey]
+	if !ok {
+		selection, err := SelectCargoDrops(SelectCargoDropsInput{
+			Policy: input.CargoDropPolicy,
+			Cargo:  input.Cargo,
+			RNG:    service.rng,
+		})
+		if err != nil {
+			return ProcessDeathResult{}, err
+		}
+		attempt = processDeathAttempt{selection: cloneCargoDropSelection(selection)}
+		service.attempts[lethalKey] = attempt
 	}
+	selection := cloneCargoDropSelection(attempt.selection)
 
 	removalResults := make([]economy.RemoveItemResult, 0, len(selection.Drops))
 	for _, drop := range selection.Drops {
@@ -262,6 +274,7 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 		ModuleDurabilityResult: durabilityResult,
 	}
 	service.processed[lethalKey] = cloneProcessDeathResult(result)
+	delete(service.attempts, lethalKey)
 	return cloneProcessDeathResult(result), nil
 }
 

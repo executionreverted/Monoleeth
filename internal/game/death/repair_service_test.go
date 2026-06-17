@@ -167,6 +167,26 @@ func TestRepairServiceRestoreFailureAfterDebitRefundsAndCachesFailure(t *testing
 	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != 3 {
 		t.Fatalf("wallet ledger entries after duplicate compensated retry = %d, want 3", got)
 	}
+
+	freshRepairService, err := death.NewRepairService(death.RepairConfig{
+		ShipCatalog: fixture.catalog,
+		Wallet:      fixture.wallet,
+		Ships:       fixture.ships,
+	})
+	if err != nil {
+		t.Fatalf("death.NewRepairService(fresh) error = %v", err)
+	}
+	third, err := freshRepairService.RepairShip(input)
+	if !errors.Is(err, death.ErrRepairPreviouslyCompensated) {
+		t.Fatalf("fresh service compensated RepairShip() error = %v, want ErrRepairPreviouslyCompensated", err)
+	}
+	if !third.Compensated || third.Repaired {
+		t.Fatalf("fresh service compensated result = %+v, want compensated non-repair", third)
+	}
+	assertRepairServiceShipState(t, fixture.ships, ships.ShipIDFighterT1, ships.ShipStateDisabled)
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != 3 {
+		t.Fatalf("wallet ledger entries after fresh retry = %d, want 3", got)
+	}
 }
 
 type repairServiceFixture struct {

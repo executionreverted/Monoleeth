@@ -36,6 +36,23 @@ for phase status; this file is a compact pending-work index.
   in-memory Phase 06 slice. Restore failure after debit is currently net-zero
   compensated, but it is not a true atomic rollback. Source:
   `docs/roadmap/06-death-repair-crafting.md`.
+- [ ] Move `DeathService.ProcessDeath` from caller-supplied cargo/drop/loadout
+  inputs to authoritative zone inventory, loadout, respawn, and drop-policy
+  providers before exposing death processing through gateway/runtime callers.
+- [ ] Block or serialize cargo transfers while a lethal/death transaction is in
+  progress for the player ship; current death processing is retry-safe but does
+  not lock live cargo movement.
+- [ ] Wire disabled ship state into combat runtime actor ownership so a stale
+  combat actor cannot attack after `DisableActiveShipForDeath`.
+- [ ] Add durable completion/reconciliation for `CraftingService.CompleteCraft`
+  after reservation commit; current in-memory retry path is idempotent, but a
+  crash between reservation commit, output grant, XP grant, and job completion
+  still needs recovery.
+- [ ] Add craft location ownership/building validation before enabling
+  owned-planet or planet-building recipes beyond the current station MVP.
+- [ ] Narrow DeathService and RepairService lock scope from global service mutex
+  to per-player/per-reference coordination before these services move to a
+  higher-concurrency runtime path.
 
 ## Completed
 

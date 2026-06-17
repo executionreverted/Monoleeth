@@ -40,6 +40,10 @@ type RepairWallet interface {
 	CreditWallet(economy.CreditWalletInput) (economy.CreditWalletResult, error)
 }
 
+type repairWalletLedgerReader interface {
+	CurrencyLedgerEntries() []economy.CurrencyLedgerEntry
+}
+
 // ShipRepairer is the ship boundary RepairService needs for validation and
 // wallet-free restore. It intentionally uses public ship service methods.
 type ShipRepairer interface {
@@ -171,6 +175,16 @@ func (service *RepairService) RepairShip(input RepairShipInput) (RepairShipResul
 	if err := service.requireDisabledShip(input.PlayerID, input.ShipID); err != nil {
 		return RepairShipResult{}, err
 	}
+	if service.previouslyRefundedRepair(input) {
+		return RepairShipResult{
+			PlayerID:     input.PlayerID,
+			ShipID:       input.ShipID,
+			ReferenceKey: input.ReferenceKey,
+			Currency:     economy.CurrencyBucketCredits,
+			RepairCost:   cost,
+			Compensated:  true,
+		}, ErrRepairPreviouslyCompensated
+	}
 
 	var debit economy.DebitWalletResult
 	if cost > 0 {
@@ -236,6 +250,23 @@ func (service *RepairService) requireDisabledShip(playerID foundation.PlayerID, 
 		return nil
 	}
 	return fmt.Errorf("ship %q: %w", shipID, ships.ErrShipNotUnlocked)
+}
+
+func (service *RepairService) previouslyRefundedRepair(input RepairShipInput) bool {
+	reader, ok := service.wallet.(repairWalletLedgerReader)
+	if !ok {
+		return false
+	}
+	for _, entry := range reader.CurrencyLedgerEntries() {
+		if entry.PlayerID == input.PlayerID &&
+			entry.Currency == economy.CurrencyBucketCredits &&
+			entry.Action == economy.LedgerActionIncrease &&
+			entry.Reason == LedgerReasonShipRepairRefund &&
+			entry.ReferenceKey == input.ReferenceKey {
+			return true
+		}
+	}
+	return false
 }
 
 func (service *RepairService) compensateFailedRestore(

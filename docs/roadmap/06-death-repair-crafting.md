@@ -121,11 +121,11 @@ Crafting:
 - [x] Non-droppable item stays in cargo.
 - [x] Dropped items become world drops.
 - [x] Active ship becomes disabled.
-- [x] Dead/disabled ship cannot fight.
+- [ ] Dead/disabled ship cannot fight.
 - [x] Starter fallback works when all ships disabled.
 - [x] Repair charges correct wallet amount. Verified 2026-06-17 by successful repair debit ledger test.
 - [x] Repair restores ship.
-- [x] Repair rollback prevents partial charge/state change. Verified 2026-06-17 by restore-failure compensation test.
+- [x] Repair restore failure compensates wallet charge. Verified 2026-06-17 by restore-failure compensation test.
 - [x] Missing material fails craft start.
 - [x] Missing credits fails craft start.
 - [x] Rank too low fails craft start.
@@ -145,14 +145,15 @@ Crafting:
 - [ ] Client cannot avoid module durability loss after death.
 - [x] Material duplication blocked by reservation state.
 - [x] Early craft completion blocked by server time.
-- [x] Hidden recipe or fake location blocked by server catalog validation.
+- [x] Unknown recipe and wrong MVP station location type blocked by server catalog validation.
+- [ ] Planet/building craft location ownership validation blocks fake locations.
 - [ ] Low-tier craft XP spam has at least a tracking hook for later balancing.
 
 ## Done Criteria
 
 - [ ] Death and repair loop works in tests.
 - [x] Crafting produces first module and ship unlock.
-- [x] Crafting consumes materials and credits safely.
+- [ ] Crafting consumes materials and credits safely.
 - [x] Disabled ship and starter fallback rules are enforced.
 - [ ] `go test ./...` passes.
 - [ ] `git diff --check` passes.
