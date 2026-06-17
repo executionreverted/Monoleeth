@@ -191,6 +191,53 @@ func TestPickupDropReportsXPFailureWithoutUndoingClaimOrCargo(t *testing.T) {
 	}
 }
 
+func TestPickupDropRecordsDuplicateLootXPReconciliationWithoutUndoingClaimOrCargo(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	inventory := economy.NewInventoryService(clock)
+	cargo := economy.NewCargoService(inventory)
+	service, err := loot.NewService(loot.Config{
+		Clock:       clock,
+		RNG:         testutil.NewFakeRNG([]int{0}, []float64{0}),
+		Cargo:       cargo,
+		Progression: duplicateXPGranter{},
+	})
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	drop := createOneDrop(t, service)
+	cargoLocation := mustCargoLocation(t, "ship_1")
+
+	result, err := service.PickupDrop(loot.PickupInput{
+		PlayerID:           drop.OwnerPlayerID,
+		DropID:             drop.ID,
+		Viewer:             viewerAt(drop.Position),
+		ActiveCargo:        cargoLocation,
+		CargoCapacityUnits: 100,
+	})
+	if err != nil {
+		t.Fatalf("PickupDrop() error = %v", err)
+	}
+	if result.XPError != nil {
+		t.Fatalf("XPError = %v, want nil duplicate result", result.XPError)
+	}
+	if result.XPResult == nil || !result.XPResult.Duplicate {
+		t.Fatalf("XPResult = %+v, want duplicate loot XP result", result.XPResult)
+	}
+	if result.Drop.ClaimedAt == nil || result.Drop.ClaimedBy != drop.OwnerPlayerID {
+		t.Fatalf("drop claim = %+v, want claimed by owner", result.Drop)
+	}
+	if inventory.TotalItemQuantity(drop.OwnerPlayerID, rawOreDefinition(t).ItemID, cargoLocation) != drop.Quantity {
+		t.Fatal("cargo item was not added despite duplicate loot XP")
+	}
+	assertLootXPReconciliation(t, result.Drop, loot.LootXPReconciliationDuplicate, "")
+
+	storedDrop, ok := service.Drop(result.Drop.ID)
+	if !ok {
+		t.Fatalf("Drop(%q) ok = false, want true", result.Drop.ID)
+	}
+	assertLootXPReconciliation(t, storedDrop, loot.LootXPReconciliationDuplicate, "")
+}
+
 func TestPlayerDeathDropPickupDoesNotGrantLootXP(t *testing.T) {
 	service, _, inventory, progressionService := newLootService(t, nil, nil)
 	result, err := service.CreateDropsForPlayerDeath(loot.CreatePlayerDeathDropsInput{
@@ -648,4 +695,10 @@ type failingXPGranter struct{}
 
 func (failingXPGranter) GrantXP(progression.GrantXPInput) (progression.GrantXPResult, error) {
 	return progression.GrantXPResult{}, fmt.Errorf("xp store unavailable")
+}
+
+type duplicateXPGranter struct{}
+
+func (duplicateXPGranter) GrantXP(progression.GrantXPInput) (progression.GrantXPResult, error) {
+	return progression.GrantXPResult{Duplicate: true}, nil
 }
