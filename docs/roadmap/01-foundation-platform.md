@@ -66,7 +66,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [x] Add request envelope model with `request_id`, `op`, `payload`, `client_seq`, and version.
 - [x] Add response and error envelope model.
 - [x] Add event envelope model with `event_id`, `type`, `payload`, `server_time`, and sequence.
-- [ ] Add idempotency key helper conventions for domain operations.
+- [x] Add idempotency key helper conventions for domain operations.
 - [ ] Add `catalog` package for versioned static definitions.
 - [ ] Add catalog version field helpers so recipes, quests, loot tables, and auction lots can remember source versions.
 - [ ] Add in-memory event recorder for service tests.
@@ -80,7 +80,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [x] Unit test fake clock can advance deterministically.
 - [x] Unit test fake RNG returns deterministic values.
 - [x] Unit test event envelopes include event type, ID, sequence, and server time.
-- [ ] Unit test idempotency key helpers produce stable keys.
+- [x] Unit test idempotency key helpers produce stable keys.
 - [x] Unit test gameplay packages do not import `internal/symphony`.
 
 ## Abuse And Safety Checks
