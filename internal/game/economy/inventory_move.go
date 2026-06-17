@@ -52,6 +52,11 @@ func (service *InventoryService) MoveItem(input MoveItemInput) (MoveItemResult, 
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
+	now := service.clock.Now()
+	return service.moveItemValidatedLocked(input, quantity, now)
+}
+
+func (service *InventoryService) moveItemValidatedLocked(input MoveItemInput, quantity foundation.Quantity, now time.Time) (MoveItemResult, error) {
 	reference := inventoryReferenceKey{
 		playerID:     input.PlayerID,
 		operation:    moveItemOperation,
@@ -63,8 +68,8 @@ func (service *InventoryService) MoveItem(input MoveItemInput) (MoveItemResult, 
 		return result, nil
 	}
 
-	now := service.clock.Now()
 	var result MoveItemResult
+	var err error
 	switch input.ItemRef.Definition.Type {
 	case ItemTypeStackable:
 		result, err = service.moveStackableItemLocked(input, quantity, now)
