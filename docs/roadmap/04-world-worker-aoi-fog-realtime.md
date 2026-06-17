@@ -77,7 +77,7 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 
 ## TODO: Worker Core
 
-- [ ] Define world, zone, entity, and position types.
+- [x] Define world, zone, entity, and position types.
 - [ ] Define command mailbox interface.
 - [ ] Implement single worker tick loop.
 - [ ] Implement fixed tick delta.
@@ -85,9 +85,9 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 - [ ] Implement delayed task scheduler skeleton.
 - [ ] Implement entity insert/remove/update.
 - [ ] Implement player session attachment model.
-- [ ] Implement server-owned movement target state.
-- [ ] Implement movement from server stat speed.
-- [ ] Reject client final position as truth.
+- [x] Implement server-owned movement target state.
+- [x] Implement movement from server stat speed.
+- [x] Reject client final position as truth.
 
 ## TODO: Spatial Hash And AOI
 
@@ -123,8 +123,8 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 
 ## Tests
 
-- [ ] Movement intent updates position by server speed.
-- [ ] Client-supplied impossible position is ignored.
+- [x] Movement intent updates position by server speed.
+- [x] Client-supplied impossible position is ignored.
 - [ ] Spatial hash returns nearby entities.
 - [ ] Spatial hash does not return far entities after exact distance check.
 - [ ] Hidden entity is not serialized.
@@ -157,3 +157,8 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 ## Resume Notes
 
 If resuming here, first run or inspect tests that prove hidden entities never serialize. Do not start combat until visibility and position authority are working.
+
+Verified slices:
+
+- World, zone, entity, position, movement target, and movement intent primitives are implemented in `internal/game/world`.
+- `AdvanceMovement` moves toward a target by server-provided speed and tick delta, stops without overshoot, and exposes no client final-position input.
