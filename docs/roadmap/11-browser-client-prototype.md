@@ -137,6 +137,14 @@ Do not start with a marketing landing page. The first screen should be the usabl
 - [ ] Visual assets are used for the game world.
 - [ ] Debug labels can be toggled off.
 
+## Asset Prep Notes
+
+- 2026-06-17: Background exploration kept under
+  `output/assets/mockup-hud/background/`. The rejected raster HUD/game sprite
+  pack was removed; Phase 11 client implementation remains not started.
+- 2026-06-17: Mockup-aligned HUD SVG assets generated under
+  `output/assets/hud-svg/` for later browser client integration.
+
 ## Done Criteria
 
 - [ ] Client can connect to local server.

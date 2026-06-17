@@ -1,0 +1,252 @@
+[
+  {
+    "path": "icons/sector.svg",
+    "role": "icon",
+    "notes": "Sector/crosshair status icon."
+  },
+  {
+    "path": "icons/danger.svg",
+    "role": "icon",
+    "notes": "Danger/skull status icon."
+  },
+  {
+    "path": "icons/energy.svg",
+    "role": "icon",
+    "notes": "Energy lightning icon."
+  },
+  {
+    "path": "icons/cargo.svg",
+    "role": "icon",
+    "notes": "Cargo cube icon."
+  },
+  {
+    "path": "icons/credits.svg",
+    "role": "icon",
+    "notes": "Credits/currency icon."
+  },
+  {
+    "path": "icons/capacity.svg",
+    "role": "icon",
+    "notes": "Capacity gauge icon."
+  },
+  {
+    "path": "icons/mail.svg",
+    "role": "icon",
+    "notes": "Mail icon with notification indicator."
+  },
+  {
+    "path": "icons/users.svg",
+    "role": "icon",
+    "notes": "Fleet/social formation icon."
+  },
+  {
+    "path": "icons/menu.svg",
+    "role": "icon",
+    "notes": "Menu icon."
+  },
+  {
+    "path": "icons/inventory.svg",
+    "role": "icon",
+    "notes": "Inventory cube icon."
+  },
+  {
+    "path": "icons/shop.svg",
+    "role": "icon",
+    "notes": "Market/trade terminal icon."
+  },
+  {
+    "path": "icons/galaxy.svg",
+    "role": "icon",
+    "notes": "Galaxy spiral icon."
+  },
+  {
+    "path": "icons/wormholes.svg",
+    "role": "icon",
+    "notes": "Wormhole vortex icon."
+  },
+  {
+    "path": "icons/planets.svg",
+    "role": "icon",
+    "notes": "Planet with orbital ring icon."
+  },
+  {
+    "path": "icons/hangar.svg",
+    "role": "icon",
+    "notes": "Hangar/ship bay icon."
+  },
+  {
+    "path": "icons/build.svg",
+    "role": "icon",
+    "notes": "Hammer centered over lower-left package build icon."
+  },
+  {
+    "path": "icons/upgrade.svg",
+    "role": "icon",
+    "notes": "Upgrade chevrons icon."
+  },
+  {
+    "path": "icons/route.svg",
+    "role": "icon",
+    "notes": "Route nodes icon."
+  },
+  {
+    "path": "icons/auto.svg",
+    "role": "icon",
+    "notes": "Auto target icon."
+  },
+  {
+    "path": "icons/laser.svg",
+    "role": "icon",
+    "notes": "Laser cannon weapon icon."
+  },
+  {
+    "path": "icons/rocket.svg",
+    "role": "icon",
+    "notes": "Rocket/missile ability icon."
+  },
+  {
+    "path": "icons/scan.svg",
+    "role": "icon",
+    "notes": "Radar scan ability icon."
+  },
+  {
+    "path": "icons/shield.svg",
+    "role": "icon",
+    "notes": "Shield ability icon."
+  },
+  {
+    "path": "icons/warp.svg",
+    "role": "icon",
+    "notes": "Warp ability icon."
+  },
+  {
+    "path": "icons/gather.svg",
+    "role": "icon",
+    "notes": "Mining/gather beam icon."
+  },
+  {
+    "path": "icons/plus.svg",
+    "role": "icon",
+    "notes": "Plus control icon."
+  },
+  {
+    "path": "icons/minus.svg",
+    "role": "icon",
+    "notes": "Minus control icon."
+  },
+  {
+    "path": "markers/player-triangle.svg",
+    "role": "marker",
+    "notes": "Player minimap/world marker."
+  },
+  {
+    "path": "markers/friendly-diamond.svg",
+    "role": "marker",
+    "notes": "Friendly marker."
+  },
+  {
+    "path": "markers/outpost-diamond.svg",
+    "role": "marker",
+    "notes": "Outpost marker."
+  },
+  {
+    "path": "markers/hostile-diamond.svg",
+    "role": "marker",
+    "notes": "Hostile marker."
+  },
+  {
+    "path": "markers/portal-circle.svg",
+    "role": "marker",
+    "notes": "Portal/wormhole marker."
+  },
+  {
+    "path": "markers/unknown-question.svg",
+    "role": "marker",
+    "notes": "Unknown signal marker."
+  },
+  {
+    "path": "panels/top-status-bar.svg",
+    "role": "panel",
+    "notes": "Full-width top status HUD bar."
+  },
+  {
+    "path": "panels/ship-status.svg",
+    "role": "panel",
+    "notes": "Left ship status frame."
+  },
+  {
+    "path": "panels/nav-menu.svg",
+    "role": "panel",
+    "notes": "Left navigation menu frame."
+  },
+  {
+    "path": "panels/log.svg",
+    "role": "panel",
+    "notes": "Terminal log panel."
+  },
+  {
+    "path": "panels/planet-list.svg",
+    "role": "panel",
+    "notes": "Right planet list panel."
+  },
+  {
+    "path": "panels/selected-planet.svg",
+    "role": "panel",
+    "notes": "Selected planet detail panel."
+  },
+  {
+    "path": "panels/sector-map.svg",
+    "role": "panel",
+    "notes": "Sector minimap panel."
+  },
+  {
+    "path": "buttons/button-88x72.svg",
+    "role": "button",
+    "notes": "HUD button frame."
+  },
+  {
+    "path": "buttons/button-88x72-selected.svg",
+    "role": "button",
+    "notes": "HUD button frame."
+  },
+  {
+    "path": "buttons/ability-slot-96.svg",
+    "role": "button",
+    "notes": "HUD button frame."
+  },
+  {
+    "path": "buttons/ability-slot-96-selected.svg",
+    "role": "button",
+    "notes": "HUD button frame."
+  },
+  {
+    "path": "bars/segmented-empty-170x18.svg",
+    "role": "bar",
+    "notes": "0/10 segmented HUD bar."
+  },
+  {
+    "path": "bars/segmented-hull-76-170x18.svg",
+    "role": "bar",
+    "notes": "8/10 segmented HUD bar."
+  },
+  {
+    "path": "bars/segmented-shield-54-170x18.svg",
+    "role": "bar",
+    "notes": "5/10 segmented HUD bar."
+  },
+  {
+    "path": "bars/segmented-cap-68-170x18.svg",
+    "role": "bar",
+    "notes": "7/10 segmented HUD bar."
+  },
+  {
+    "path": "bars/segmented-energy-cyan-68-170x18.svg",
+    "role": "bar",
+    "notes": "7/10 segmented HUD bar."
+  },
+  {
+    "path": "preview/hud-svg-overview.svg",
+    "role": "preview",
+    "notes": "Self-contained overview preview."
+  }
+]

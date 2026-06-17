@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 235" fill="none" shape-rendering="geometricPrecision">
+<defs>
+  <filter id="hud-glow" x="-80%" y="-80%" width="260%" height="260%">
+    <feGaussianBlur stdDeviation="1.8" result="blur"/>
+    <feMerge>
+      <feMergeNode in="blur"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+  <linearGradient id="panel-sheen" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#1fdcf6" stop-opacity="0.10"/>
+    <stop offset="0.42" stop-color="#1fdcf6" stop-opacity="0.02"/>
+    <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+  </linearGradient>
+</defs>
+<style>
+.line {
+  fill: none;
+  stroke: #d8ddde;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.thin { stroke-width: 1.25; }
+.micro { stroke-width: 0.8; }
+.muted { stroke: #7c8a90; opacity: 0.72; }
+.panel-fill { fill: #03080a; fill-opacity: 0.78; }
+.panel-fill-2 { fill: #081014; fill-opacity: 0.54; }
+.panel-border {
+  fill: none;
+  stroke: #d8ddde;
+  stroke-opacity: 0.46;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.cyan { stroke: #1fdcf6; }
+.green { stroke: #44e878; }
+.red { stroke: #ff4236; }
+.amber { stroke: #f6a40f; }
+.purple { stroke: #b25fff; }
+.fill-line { fill: #d8ddde; stroke: none; }
+.fill-muted { fill: #7c8a90; stroke: none; opacity: 0.72; }
+.fill-cyan { fill: #1fdcf6; stroke: none; }
+.fill-green { fill: #44e878; stroke: none; }
+.fill-red { fill: #ff4236; stroke: none; }
+.fill-amber { fill: #f6a40f; stroke: none; }
+.fill-purple { fill: #b25fff; stroke: none; }
+.soft { opacity: 0.36; }
+.ghost { opacity: 0.18; }
+.label {
+  font-family: Menlo, Consolas, Monaco, monospace;
+  font-size: 13px;
+  letter-spacing: 0;
+  fill: #d8ddde;
+}
+.small-label {
+  font-family: Menlo, Consolas, Monaco, monospace;
+  font-size: 10px;
+  letter-spacing: 0;
+  fill: #7c8a90;
+}
+</style>
+<rect x="0.5" y="0.5" width="429" height="234" rx="7" class="panel-fill"/>
+<rect x="0.5" y="0.5" width="429" height="234" rx="7" fill="url(#panel-sheen)"/>
+<rect x="0.5" y="0.5" width="429" height="234" rx="7" class="panel-border"/>
+<path d="M8 18 V8 H18 M412 8 H422 V18 M422 217 V227 H412 M18 227 H8 V217" class="line thin muted"/>
+<path d="M18 42h394M18 200h394" class="line micro muted"/>
+<text x="22" y="31" class="small-label">LOG</text>
+</svg>

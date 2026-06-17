@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" shape-rendering="geometricPrecision">
+<defs>
+  <filter id="hud-glow" x="-80%" y="-80%" width="260%" height="260%">
+    <feGaussianBlur stdDeviation="1.8" result="blur"/>
+    <feMerge>
+      <feMergeNode in="blur"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+  <linearGradient id="panel-sheen" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#1fdcf6" stop-opacity="0.10"/>
+    <stop offset="0.42" stop-color="#1fdcf6" stop-opacity="0.02"/>
+    <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+  </linearGradient>
+</defs>
+<style>
+.line {
+  fill: none;
+  stroke: #d8ddde;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.thin { stroke-width: 1.25; }
+.micro { stroke-width: 0.8; }
+.muted { stroke: #7c8a90; opacity: 0.72; }
+.panel-fill { fill: #03080a; fill-opacity: 0.78; }
+.panel-fill-2 { fill: #081014; fill-opacity: 0.54; }
+.panel-border {
+  fill: none;
+  stroke: #d8ddde;
+  stroke-opacity: 0.46;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.cyan { stroke: #1fdcf6; }
+.green { stroke: #44e878; }
+.red { stroke: #ff4236; }
+.amber { stroke: #f6a40f; }
+.purple { stroke: #b25fff; }
+.fill-line { fill: #d8ddde; stroke: none; }
+.fill-muted { fill: #7c8a90; stroke: none; opacity: 0.72; }
+.fill-cyan { fill: #1fdcf6; stroke: none; }
+.fill-green { fill: #44e878; stroke: none; }
+.fill-red { fill: #ff4236; stroke: none; }
+.fill-amber { fill: #f6a40f; stroke: none; }
+.fill-purple { fill: #b25fff; stroke: none; }
+.soft { opacity: 0.36; }
+.ghost { opacity: 0.18; }
+.label {
+  font-family: Menlo, Consolas, Monaco, monospace;
+  font-size: 13px;
+  letter-spacing: 0;
+  fill: #d8ddde;
+}
+.small-label {
+  font-family: Menlo, Consolas, Monaco, monospace;
+  font-size: 10px;
+  letter-spacing: 0;
+  fill: #7c8a90;
+}
+</style>
+<path d="M11 42l10-13 16 5 7 13-12 9-16-3z" class="line"/>
+<path d="M20 43l8-8 9 4M24 52l11-9M16 52l6-10" class="line thin muted"/>
+<path d="M48 9l10 10-10 10-10-10z" class="line"/>
+<path d="M48 14v10M43 19h10" class="line thin cyan"/>
+<path d="M40 26L28 37M46 30L34 44M53 25L38 49" class="line thin cyan" filter="url(#hud-glow)"/>
+<circle cx="22" cy="31" r="2" class="fill-cyan"/>
+<circle cx="37" cy="35" r="1.6" class="fill-cyan"/>
+<path d="M8 35h6M39 56h7" class="line thin muted"/>
+</svg>

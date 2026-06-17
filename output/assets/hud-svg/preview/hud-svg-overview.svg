@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" fill="none" shape-rendering="geometricPrecision">
+<defs>
+  <filter id="hud-glow" x="-80%" y="-80%" width="260%" height="260%">
+    <feGaussianBlur stdDeviation="1.8" result="blur"/>
+    <feMerge>
+      <feMergeNode in="blur"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+  <linearGradient id="panel-sheen" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#1fdcf6" stop-opacity="0.10"/>
+    <stop offset="0.42" stop-color="#1fdcf6" stop-opacity="0.02"/>
+    <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+  </linearGradient>
+</defs>
+<style>
+.line {
+  fill: none;
+  stroke: #d8ddde;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.thin { stroke-width: 1.25; }
+.micro { stroke-width: 0.8; }
+.muted { stroke: #7c8a90; opacity: 0.72; }
+.panel-fill { fill: #03080a; fill-opacity: 0.78; }
+.panel-fill-2 { fill: #081014; fill-opacity: 0.54; }
+.panel-border {
+  fill: none;
+  stroke: #d8ddde;
+  stroke-opacity: 0.46;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.cyan { stroke: #1fdcf6; }
+.green { stroke: #44e878; }
+.red { stroke: #ff4236; }
+.amber { stroke: #f6a40f; }
+.purple { stroke: #b25fff; }
+.fill-line { fill: #d8ddde; stroke: none; }
+.fill-muted { fill: #7c8a90; stroke: none; opacity: 0.72; }
+.fill-cyan { fill: #1fdcf6; stroke: none; }
+.fill-green { fill: #44e878; stroke: none; }
+.fill-red { fill: #ff4236; stroke: none; }
+.fill-amber { fill: #f6a40f; stroke: none; }
+.fill-purple { fill: #b25fff; stroke: none; }
+.soft { opacity: 0.36; }
+.ghost { opacity: 0.18; }
+.label {
+  font-family: Menlo, Consolas, Monaco, monospace;
+  font-size: 13px;
+  letter-spacing: 0;
+  fill: #d8ddde;
+}
+.small-label {
+  font-family: Menlo, Consolas, Monaco, monospace;
+  font-size: 10px;
+  letter-spacing: 0;
+  fill: #7c8a90;
+}
+</style>
+<rect width="1200" height="760" fill="#05090b"/>
+<text x="32" y="44" class="label" style="font-size:24px">HUD SVG Asset Pack</text>
+<text x="32" y="74" class="small-label">Individual files live in icons, markers, panels, buttons, and bars.</text>
+<rect x="28" y="102" width="1144" height="1" class="fill-muted ghost"/>
+<text x="32" y="138" class="label">Palette</text>
+<circle cx="44" cy="170" r="10" class="fill-cyan"/><text x="64" y="175" class="small-label">cyan friendly/status</text>
+<circle cx="244" cy="170" r="10" class="fill-green"/><text x="264" y="175" class="small-label">green owned/outpost</text>
+<circle cx="464" cy="170" r="10" class="fill-red"/><text x="484" y="175" class="small-label">red hostile</text>
+<circle cx="654" cy="170" r="10" class="fill-amber"/><text x="674" y="175" class="small-label">amber unknown</text>
+<circle cx="854" cy="170" r="10" class="fill-purple"/><text x="874" y="175" class="small-label">purple portal</text>
+<rect x="32" y="220" width="350" height="180" rx="7" class="panel-fill"/>
+<rect x="32" y="220" width="350" height="180" rx="7" class="panel-border"/>
+<path d="M40 238V228h10M364 228h10v10M374 382v10h-10M50 392H40v-10" class="line thin muted"/>
+<text x="52" y="254" class="small-label">PANEL FRAME SAMPLE</text>
+<rect x="52" y="288" width="116" height="18" class="fill-line"/>
+<rect x="52" y="322" width="164" height="10" class="fill-cyan"/>
+<rect x="52" y="350" width="250" height="1" class="fill-muted ghost"/>
+<g transform="translate(470 230)">
+  <path d="M32 9l17 44-17-10-17 10z" class="fill-line"/>
+  <path d="M112 10l22 22-22 22-22-22z" class="line cyan"/>
+  <path d="M192 10l22 22-22 22-22-22z" class="line red"/>
+  <circle cx="272" cy="32" r="19" class="line purple"/>
+  <text x="352" y="42" text-anchor="middle" class="label" style="font-size:31px;fill:#f6a40f">?</text>
+</g>
+<text x="470" y="332" class="small-label">markers</text>
+<g transform="translate(470 382)">
+  <circle cx="32" cy="32" r="24" class="line"/>
+  <circle cx="32" cy="32" r="15" class="line thin"/>
+  <circle cx="32" cy="32" r="5" class="line cyan"/>
+  <path d="M113 15l16 17-16 17h10l16-17-16-17z" class="fill-line"/>
+  <path d="M215 8l18 8v16c0 11-7 19-18 25-11-6-18-14-18-25V16z" class="line"/>
+  <path d="M294 49l35-35M297 17l30 30" class="line"/>
+</g>
+<text x="470" y="488" class="small-label">sample ability icons</text>
+</svg>
