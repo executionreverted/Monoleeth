@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Not started
+- State: In progress
 - Owner: Risk loop and item production
 - Depends on: Phase 02, Phase 03, Phase 05
 - Unlocks: module economy, ship unlock recipes, quest craft objectives, market supply
@@ -72,7 +72,7 @@ Crafting:
 - [ ] Preserve non-droppable and soulbound items.
 - [ ] Remove dropped cargo through cargo service.
 - [ ] Create world drops through loot service.
-- [ ] Mark active ship disabled.
+- [x] Mark active ship disabled.
 - [ ] Record respawn location.
 - [ ] Emit player death, ship disabled, and cargo dropped events.
 - [ ] Block cargo transfer while in lethal/dead transaction.
@@ -87,10 +87,10 @@ Crafting:
 - [ ] Implement repair cost formula.
 - [ ] Implement repair command.
 - [ ] Debit wallet through wallet service.
-- [ ] Restore disabled ship to available.
-- [ ] Prevent repair of non-disabled ship.
-- [ ] Ensure starter ship fallback when no usable ship exists.
-- [ ] Add login safety check for starter ship.
+- [x] Restore disabled ship to available.
+- [x] Prevent repair of non-disabled ship.
+- [x] Ensure starter ship fallback when no usable ship exists.
+- [x] Add login safety check for starter ship.
 
 ## TODO: Crafting
 
@@ -120,11 +120,11 @@ Crafting:
 - [ ] Cargo drop percent is inside zone range.
 - [ ] Non-droppable item stays in cargo.
 - [ ] Dropped items become world drops.
-- [ ] Active ship becomes disabled.
-- [ ] Dead/disabled ship cannot fight.
-- [ ] Starter fallback works when all ships disabled.
+- [x] Active ship becomes disabled.
+- [x] Dead/disabled ship cannot fight.
+- [x] Starter fallback works when all ships disabled.
 - [ ] Repair charges correct wallet amount.
-- [ ] Repair restores ship.
+- [x] Repair restores ship.
 - [ ] Repair rollback prevents partial charge/state change.
 - [ ] Missing material fails craft start.
 - [ ] Missing credits fails craft start.
@@ -153,7 +153,7 @@ Crafting:
 - [ ] Death and repair loop works in tests.
 - [ ] Crafting produces first module and ship unlock.
 - [ ] Crafting consumes materials and credits safely.
-- [ ] Disabled ship and starter fallback rules are enforced.
+- [x] Disabled ship and starter fallback rules are enforced.
 - [ ] `go test ./...` passes.
 - [ ] `git diff --check` passes.
 

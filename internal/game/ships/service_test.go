@@ -164,6 +164,250 @@ func TestSetActiveShipSwapsInSafeHangarAndReturnsStatInvalidation(t *testing.T) 
 	}
 }
 
+func TestDisableActiveShipForDeathDisablesActiveAndBlocksActivation(t *testing.T) {
+	service, _ := newTestHangarService(t)
+	ensureStarterAndUnlockFighter(t, service)
+	activateFighter(t, service)
+
+	result, err := service.DisableActiveShipForDeath(DisableActiveShipForDeathInput{
+		PlayerID: "player-1",
+	})
+	if err != nil {
+		t.Fatalf("DisableActiveShipForDeath error = %v, want nil", err)
+	}
+	if !result.Disabled || result.Duplicate {
+		t.Fatalf("DisableActiveShipForDeath result = %+v, want disabled non-duplicate", result)
+	}
+	if result.PlayerShip.ShipID != ShipIDFighterT1 || result.PlayerShip.State != ShipStateDisabled {
+		t.Fatalf("disabled ship = %+v, want disabled fighter", result.PlayerShip)
+	}
+	if result.PlayerShip.DisabledReason != DisabledReasonDeath {
+		t.Fatalf("DisabledReason = %q, want %q", result.PlayerShip.DisabledReason, DisabledReasonDeath)
+	}
+	if result.PlayerShip.DisabledAt == nil || !result.PlayerShip.DisabledAt.Equal(testShipServiceNow) {
+		t.Fatalf("DisabledAt = %v, want %s", result.PlayerShip.DisabledAt, testShipServiceNow)
+	}
+	assertStatInvalidationAt(
+		t,
+		result.StatInvalidation,
+		"player-1",
+		"",
+		ShipIDFighterT1,
+		StatInvalidationReasonActiveShipStateChanged,
+		testShipServiceNow,
+	)
+
+	_, err = service.SetActiveShip(SetActiveShipInput{
+		PlayerID: "player-1",
+		ShipID:   ShipIDFighterT1,
+		Context: ShipSwapContext{
+			InSafeHangarArea: true,
+		},
+	})
+	if !errors.Is(err, ErrShipDisabled) {
+		t.Fatalf("SetActiveShip(disabled active) error = %v, want ErrShipDisabled", err)
+	}
+}
+
+func TestDisableActiveShipForDeathDuplicateDoesNotMutateTwice(t *testing.T) {
+	service, clock := newTestHangarService(t)
+	ensureStarterAndUnlockFighter(t, service)
+	activateFighter(t, service)
+
+	first, err := service.DisableActiveShipForDeath(DisableActiveShipForDeathInput{
+		PlayerID: "player-1",
+	})
+	if err != nil {
+		t.Fatalf("DisableActiveShipForDeath first error = %v, want nil", err)
+	}
+	if first.PlayerShip.DisabledAt == nil {
+		t.Fatalf("first DisabledAt = nil, want timestamp")
+	}
+	firstDisabledAt := *first.PlayerShip.DisabledAt
+	firstActiveUpdatedAt := first.ActiveShip.UpdatedAt
+
+	clock.Advance(time.Minute)
+	second, err := service.DisableActiveShipForDeath(DisableActiveShipForDeathInput{
+		PlayerID: "player-1",
+	})
+	if err != nil {
+		t.Fatalf("DisableActiveShipForDeath duplicate error = %v, want nil", err)
+	}
+	if !second.Duplicate || second.Disabled {
+		t.Fatalf("duplicate result = %+v, want duplicate no-op", second)
+	}
+	if second.StatInvalidation != nil {
+		t.Fatalf("duplicate stat invalidation = %+v, want nil", second.StatInvalidation)
+	}
+	if second.PlayerShip.DisabledAt == nil || !second.PlayerShip.DisabledAt.Equal(firstDisabledAt) {
+		t.Fatalf("duplicate DisabledAt = %v, want %s", second.PlayerShip.DisabledAt, firstDisabledAt)
+	}
+	if !second.ActiveShip.UpdatedAt.Equal(firstActiveUpdatedAt) {
+		t.Fatalf("duplicate active UpdatedAt = %s, want %s", second.ActiveShip.UpdatedAt, firstActiveUpdatedAt)
+	}
+}
+
+func TestRepairShipRejectsNonDisabledShip(t *testing.T) {
+	service, _ := newTestHangarService(t)
+	if _, err := service.EnsureStarterShip("player-1"); err != nil {
+		t.Fatalf("EnsureStarterShip error = %v, want nil", err)
+	}
+
+	_, err := service.RepairShip(RepairShipInput{
+		PlayerID: "player-1",
+		ShipID:   ShipIDStarter,
+	})
+	if !errors.Is(err, ErrShipNotDisabled) {
+		t.Fatalf("RepairShip(non-disabled) error = %v, want ErrShipNotDisabled", err)
+	}
+}
+
+func TestRepairShipRestoresInactiveDisabledShipAvailable(t *testing.T) {
+	service, clock := newTestHangarService(t)
+	ensureStarterAndUnlockFighter(t, service)
+	disabledAt := testShipServiceNow
+	fighter, ok := service.store.PlayerShip("player-1", ShipIDFighterT1)
+	if !ok {
+		t.Fatalf("fighter ship missing")
+	}
+	fighter.State = ShipStateDisabled
+	fighter.DisabledReason = DisabledReasonDeath
+	fighter.DisabledAt = &disabledAt
+	if err := service.store.PutPlayerShip(fighter); err != nil {
+		t.Fatalf("PutPlayerShip(disabled fighter) error = %v", err)
+	}
+
+	repairedAt := clock.Advance(time.Minute)
+	result, err := service.RepairShip(RepairShipInput{
+		PlayerID: "player-1",
+		ShipID:   ShipIDFighterT1,
+	})
+	if err != nil {
+		t.Fatalf("RepairShip(inactive) error = %v, want nil", err)
+	}
+	if result.PlayerShip.State != ShipStateAvailable {
+		t.Fatalf("inactive repaired ship state = %q, want available", result.PlayerShip.State)
+	}
+	if result.PlayerShip.LastRepairedAt == nil || !result.PlayerShip.LastRepairedAt.Equal(repairedAt) {
+		t.Fatalf("inactive LastRepairedAt = %v, want %s", result.PlayerShip.LastRepairedAt, repairedAt)
+	}
+	if result.StatInvalidation != nil {
+		t.Fatalf("inactive repair stat invalidation = %+v, want nil", result.StatInvalidation)
+	}
+}
+
+func TestRepairShipRestoresDisabledShip(t *testing.T) {
+	service, clock := newTestHangarService(t)
+	ensureStarterAndUnlockFighter(t, service)
+	activateFighter(t, service)
+	if _, err := service.DisableActiveShipForDeath(DisableActiveShipForDeathInput{PlayerID: "player-1"}); err != nil {
+		t.Fatalf("DisableActiveShipForDeath error = %v, want nil", err)
+	}
+
+	repairedAt := clock.Advance(time.Minute)
+	result, err := service.RepairShip(RepairShipInput{
+		PlayerID: "player-1",
+		ShipID:   ShipIDFighterT1,
+	})
+	if err != nil {
+		t.Fatalf("RepairShip error = %v, want nil", err)
+	}
+	if !result.Repaired {
+		t.Fatalf("RepairShip Repaired = false, want true")
+	}
+	if result.PlayerShip.State != ShipStateActive {
+		t.Fatalf("repaired active ship state = %q, want active", result.PlayerShip.State)
+	}
+	if result.PlayerShip.DisabledReason != "" || result.PlayerShip.DisabledAt != nil {
+		t.Fatalf("repaired disabled fields = reason %q at %v, want cleared", result.PlayerShip.DisabledReason, result.PlayerShip.DisabledAt)
+	}
+	if result.PlayerShip.LastRepairedAt == nil || !result.PlayerShip.LastRepairedAt.Equal(repairedAt) {
+		t.Fatalf("LastRepairedAt = %v, want %s", result.PlayerShip.LastRepairedAt, repairedAt)
+	}
+	assertStatInvalidationAt(
+		t,
+		result.StatInvalidation,
+		"player-1",
+		"",
+		ShipIDFighterT1,
+		StatInvalidationReasonActiveShipStateChanged,
+		repairedAt,
+	)
+
+	retry, err := service.SetActiveShip(SetActiveShipInput{
+		PlayerID: "player-1",
+		ShipID:   ShipIDFighterT1,
+		Context: ShipSwapContext{
+			InSafeHangarArea: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("SetActiveShip(repaired active) error = %v, want nil", err)
+	}
+	if retry.ActiveChanged {
+		t.Fatalf("SetActiveShip(repaired active) ActiveChanged = true, want no-op")
+	}
+}
+
+func TestEnsureStarterShipFallbackRestoresAndActivatesStarterWhenAllShipsDisabled(t *testing.T) {
+	service, clock := newTestHangarService(t)
+	ensureStarterAndUnlockFighter(t, service)
+	activateFighter(t, service)
+
+	disabledAt := testShipServiceNow
+	starter, ok := service.store.PlayerShip("player-1", ShipIDStarter)
+	if !ok {
+		t.Fatalf("starter ship missing")
+	}
+	starter.State = ShipStateDisabled
+	starter.DisabledReason = DisabledReasonDeath
+	starter.DisabledAt = &disabledAt
+	if err := service.store.PutPlayerShip(starter); err != nil {
+		t.Fatalf("PutPlayerShip(disabled starter) error = %v", err)
+	}
+	if _, err := service.DisableActiveShipForDeath(DisableActiveShipForDeathInput{PlayerID: "player-1"}); err != nil {
+		t.Fatalf("DisableActiveShipForDeath(fighter) error = %v, want nil", err)
+	}
+
+	restoredAt := clock.Advance(time.Minute)
+	result, err := service.EnsureStarterShip("player-1")
+	if err != nil {
+		t.Fatalf("EnsureStarterShip fallback error = %v, want nil", err)
+	}
+	if !result.Restored || !result.ActiveChanged {
+		t.Fatalf("fallback result = %+v, want restored active change", result)
+	}
+	if !result.HasActiveShip || result.ActiveShip.ShipID != ShipIDStarter {
+		t.Fatalf("fallback active ship = %+v has=%v, want starter", result.ActiveShip, result.HasActiveShip)
+	}
+	if result.PlayerShip.State != ShipStateActive {
+		t.Fatalf("starter state = %q, want active", result.PlayerShip.State)
+	}
+	if result.PlayerShip.DisabledReason != "" || result.PlayerShip.DisabledAt != nil {
+		t.Fatalf("starter disabled fields = reason %q at %v, want cleared", result.PlayerShip.DisabledReason, result.PlayerShip.DisabledAt)
+	}
+	if result.PlayerShip.LastRepairedAt == nil || !result.PlayerShip.LastRepairedAt.Equal(restoredAt) {
+		t.Fatalf("starter LastRepairedAt = %v, want %s", result.PlayerShip.LastRepairedAt, restoredAt)
+	}
+	assertStatInvalidationAt(
+		t,
+		result.StatInvalidation,
+		"player-1",
+		ShipIDFighterT1,
+		ShipIDStarter,
+		StatInvalidationReasonActiveShipChanged,
+		restoredAt,
+	)
+
+	fighter, ok := service.store.PlayerShip("player-1", ShipIDFighterT1)
+	if !ok {
+		t.Fatalf("fighter ship missing")
+	}
+	if fighter.State != ShipStateDisabled {
+		t.Fatalf("fighter state = %q, want disabled after fallback", fighter.State)
+	}
+}
+
 func TestSetActiveShipRejectsRankGatedActiveShip(t *testing.T) {
 	service, _ := newTestHangarServiceWithRanksAndCargo(t, StaticPlayerRankProvider{"player-1": 1}, BaseShipCargoCapacityProvider{})
 	if _, err := service.EnsureStarterShip("player-1"); err != nil {
@@ -399,12 +643,52 @@ func ensureStarterAndUnlockFighter(t *testing.T, service *HangarService) {
 	}
 }
 
+func activateFighter(t *testing.T, service *HangarService) {
+	t.Helper()
+
+	result, err := service.SetActiveShip(SetActiveShipInput{
+		PlayerID: "player-1",
+		ShipID:   ShipIDFighterT1,
+		Context: ShipSwapContext{
+			InSafeHangarArea: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("SetActiveShip(fighter) error = %v, want nil", err)
+	}
+	if !result.ActiveChanged || result.ActiveShip.ShipID != ShipIDFighterT1 {
+		t.Fatalf("SetActiveShip(fighter) = %+v, want active fighter", result)
+	}
+}
+
 func assertStatInvalidation(
 	t *testing.T,
 	signal *StatInvalidationSignal,
 	playerID foundation.PlayerID,
 	previousShipID foundation.ShipID,
 	activeShipID foundation.ShipID,
+) {
+	t.Helper()
+
+	assertStatInvalidationAt(
+		t,
+		signal,
+		playerID,
+		previousShipID,
+		activeShipID,
+		StatInvalidationReasonActiveShipChanged,
+		testShipServiceNow,
+	)
+}
+
+func assertStatInvalidationAt(
+	t *testing.T,
+	signal *StatInvalidationSignal,
+	playerID foundation.PlayerID,
+	previousShipID foundation.ShipID,
+	activeShipID foundation.ShipID,
+	reason StatInvalidationReason,
+	createdAt time.Time,
 ) {
 	t.Helper()
 
@@ -420,11 +704,11 @@ func assertStatInvalidation(
 	if signal.ActiveShipID != activeShipID {
 		t.Fatalf("signal active ship = %q, want %q", signal.ActiveShipID, activeShipID)
 	}
-	if signal.Reason != StatInvalidationReasonActiveShipChanged {
-		t.Fatalf("signal reason = %q, want %q", signal.Reason, StatInvalidationReasonActiveShipChanged)
+	if signal.Reason != reason {
+		t.Fatalf("signal reason = %q, want %q", signal.Reason, reason)
 	}
-	if !signal.CreatedAt.Equal(testShipServiceNow) {
-		t.Fatalf("signal CreatedAt = %s, want %s", signal.CreatedAt, testShipServiceNow)
+	if !signal.CreatedAt.Equal(createdAt) {
+		t.Fatalf("signal CreatedAt = %s, want %s", signal.CreatedAt, createdAt)
 	}
 }
 

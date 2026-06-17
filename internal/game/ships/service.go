@@ -21,6 +21,8 @@ var (
 	ErrNilPlayerRankProvider        = errors.New("nil player rank provider")
 	ErrNilCargoCapacityProvider     = errors.New("nil cargo capacity provider")
 	ErrShipRankRequirementNotMet    = errors.New("ship rank requirement not met")
+	ErrNoActiveShip                 = errors.New("no active ship")
+	ErrShipNotDisabled              = errors.New("ship not disabled")
 )
 
 // ShipService is the ship-facing name for the hangar service slice.
@@ -94,6 +96,9 @@ const (
 	// StatInvalidationReasonActiveShipChanged is returned when active ship
 	// changes and effective stats must be recalculated by the stats package.
 	StatInvalidationReasonActiveShipChanged StatInvalidationReason = "active_ship_changed"
+	// StatInvalidationReasonActiveShipStateChanged is returned when the active
+	// ship remains selected but its usability state changes.
+	StatInvalidationReasonActiveShipStateChanged StatInvalidationReason = "active_ship_state_changed"
 )
 
 // StatInvalidationSignal is returned by this package instead of wiring directly
@@ -110,6 +115,7 @@ type StatInvalidationSignal struct {
 type EnsureStarterShipResult struct {
 	PlayerShip       PlayerShipState         `json:"player_ship"`
 	Created          bool                    `json:"created"`
+	Restored         bool                    `json:"restored"`
 	ActiveShip       ActiveShipState         `json:"active_ship,omitempty"`
 	HasActiveShip    bool                    `json:"has_active_ship"`
 	ActiveChanged    bool                    `json:"active_changed"`
@@ -182,8 +188,9 @@ func NewHangarService(
 	}, nil
 }
 
-// EnsureStarterShip guarantees the starter ship exists. If the player has no
-// active ship and the starter is usable, it also becomes active.
+// EnsureStarterShip guarantees the starter ship exists. If no usable ship
+// exists, it restores and activates the starter as a login-safe fallback. If the
+// player has no active ship and the starter is usable, it also becomes active.
 func (service *HangarService) EnsureStarterShip(playerID foundation.PlayerID) (EnsureStarterShipResult, error) {
 	if err := playerID.Validate(); err != nil {
 		return EnsureStarterShipResult{}, err
@@ -208,7 +215,21 @@ func (service *HangarService) EnsureStarterShip(playerID foundation.PlayerID) (E
 		}
 
 		active, hasActive := record.activeShip()
-		if !hasActive || active.ShipID == ShipIDStarter {
+		if !record.hasUsableShip() {
+			previousShipID := foundation.ShipID("")
+			if hasActive {
+				previousShipID = active.ShipID
+			}
+			restored, activeShip, err := restoreStarterFallback(record, starter, now)
+			if err != nil {
+				return err
+			}
+			result.Restored = restored
+			result.ActiveChanged = true
+			result.StatInvalidation = newStatInvalidationSignal(playerID, previousShipID, ShipIDStarter, now)
+			result.ActiveShip = activeShip
+			result.HasActiveShip = true
+		} else if !hasActive || active.ShipID == ShipIDStarter {
 			activated, activeShip, err := activateStarterIfUsable(record, starter, now)
 			if err != nil {
 				return err
@@ -518,6 +539,19 @@ func validateTargetShipForActivation(playerShip PlayerShipState) error {
 	return nil
 }
 
+func (record hangarRecord) hasUsableShip() bool {
+	for _, playerShip := range record.ships {
+		if isUsableShipState(playerShip.State) {
+			return true
+		}
+	}
+	return false
+}
+
+func isUsableShipState(state ShipState) bool {
+	return state == ShipStateAvailable || state == ShipStateActive
+}
+
 func activateStarterIfUsable(record *hangarRecord, starter PlayerShipState, now time.Time) (bool, ActiveShipState, error) {
 	if starter.State == ShipStateDisabled {
 		return false, ActiveShipState{}, nil
@@ -546,6 +580,28 @@ func activateStarterIfUsable(record *hangarRecord, starter PlayerShipState, now 
 	return true, activeShip, nil
 }
 
+func restoreStarterFallback(record *hangarRecord, starter PlayerShipState, now time.Time) (bool, ActiveShipState, error) {
+	restored := !isUsableShipState(starter.State) || starter.DisabledReason != "" || starter.DisabledAt != nil
+	repairedAt := now
+	starter.State = ShipStateActive
+	starter.DisabledReason = ""
+	starter.DisabledAt = nil
+	starter.LastRepairedAt = &repairedAt
+	record.putShip(starter)
+
+	activeShip := ActiveShipState{
+		PlayerID:    starter.PlayerID,
+		ShipID:      ShipIDStarter,
+		ActivatedAt: now,
+		UpdatedAt:   now,
+	}
+	if err := activeShip.Validate(); err != nil {
+		return false, ActiveShipState{}, err
+	}
+	record.putActiveShip(activeShip)
+	return restored, activeShip, nil
+}
+
 func markOtherActiveShipsAvailable(record *hangarRecord, targetShipID foundation.ShipID) {
 	for shipID, playerShip := range record.ships {
 		if shipID == targetShipID || playerShip.State != ShipStateActive {
@@ -562,11 +618,27 @@ func newStatInvalidationSignal(
 	activeShipID foundation.ShipID,
 	now time.Time,
 ) *StatInvalidationSignal {
+	return newStatInvalidationSignalWithReason(
+		playerID,
+		previousShipID,
+		activeShipID,
+		StatInvalidationReasonActiveShipChanged,
+		now,
+	)
+}
+
+func newStatInvalidationSignalWithReason(
+	playerID foundation.PlayerID,
+	previousShipID foundation.ShipID,
+	activeShipID foundation.ShipID,
+	reason StatInvalidationReason,
+	now time.Time,
+) *StatInvalidationSignal {
 	return &StatInvalidationSignal{
 		PlayerID:       playerID,
 		PreviousShipID: previousShipID,
 		ActiveShipID:   activeShipID,
-		Reason:         StatInvalidationReasonActiveShipChanged,
+		Reason:         reason,
 		CreatedAt:      now,
 	}
 }
