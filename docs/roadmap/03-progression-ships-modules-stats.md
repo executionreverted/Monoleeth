@@ -103,8 +103,8 @@ Keep MVP small:
 
 ## TODO: Loadouts And Modules
 
-- [ ] Define module catalog.
-- [ ] Define equipped module state.
+- [x] Define module catalog.
+- [x] Define equipped module state.
 - [ ] Define loadout model.
 - [ ] Implement `SaveLoadout`.
 - [ ] Implement `ApplyLoadout`.
@@ -181,3 +181,4 @@ Verified slices:
 
 - Progression state, snapshot, main XP table, and role XP table are implemented in `internal/game/progression`.
 - Ship catalog, player ship state, and active ship state are implemented in `internal/game/ships`.
+- Module catalog validation and equipped module state are implemented in `internal/game/modules`.
