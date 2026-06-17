@@ -433,6 +433,33 @@ func TestTransferCurrencyDuplicateReferenceDoesNotDuplicateTransferOrLedger(t *t
 	}
 }
 
+func TestTransferCurrencyRejectsSelfTransferWithoutMutationOrLedgerEntry(t *testing.T) {
+	service := newTestWalletService()
+	creditWalletForTest(t, service, "player-1", CurrencyBucketCredits, 500, "quest_reward:wallet-transfer-self-seed")
+	input := validTransferCurrencyInput(t, "quest_reward:wallet-transfer-self")
+	input.ToPlayerID = input.FromPlayerID
+
+	_, err := service.TransferCurrency(input)
+	if !errors.Is(err, ErrWalletSelfTransfer) {
+		t.Fatalf("TransferCurrency error = %v, want ErrWalletSelfTransfer", err)
+	}
+	if got := service.Balance(input.FromPlayerID, input.Currency); got != 500 {
+		t.Fatalf("Balance() = %d, want 500", got)
+	}
+	if got := len(service.CurrencyLedgerEntries()); got != 1 {
+		t.Fatalf("ledger entries len = %d, want 1", got)
+	}
+
+	input.ToPlayerID = "player-2"
+	result, err := service.TransferCurrency(input)
+	if err != nil {
+		t.Fatalf("retry TransferCurrency with same reference after self-transfer rejection: %v", err)
+	}
+	if result.Duplicate {
+		t.Fatal("retry TransferCurrency Duplicate = true, want false")
+	}
+}
+
 func TestTransferCurrencyRejectsInsufficientFundsWithoutMutationOrLedgerEntry(t *testing.T) {
 	service := newTestWalletService()
 	creditWalletForTest(t, service, "player-1", CurrencyBucketCredits, 100, "quest_reward:wallet-transfer-insufficient-seed")

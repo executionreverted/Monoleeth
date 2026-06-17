@@ -20,6 +20,7 @@ const (
 var (
 	ErrInsufficientWalletFunds = errors.New("insufficient wallet funds")
 	ErrWalletBalanceOverflow   = errors.New("wallet balance overflow")
+	ErrWalletSelfTransfer      = errors.New("wallet self transfer")
 )
 
 // CreditWalletInput describes one authoritative currency grant.
@@ -452,6 +453,9 @@ func (input TransferCurrencyInput) validate() (foundation.Money, error) {
 	}
 	if err := input.ToPlayerID.Validate(); err != nil {
 		return foundation.Money{}, err
+	}
+	if input.FromPlayerID == input.ToPlayerID {
+		return foundation.Money{}, ErrWalletSelfTransfer
 	}
 	if err := input.Currency.Validate(); err != nil {
 		return foundation.Money{}, err
