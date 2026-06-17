@@ -32,7 +32,7 @@ Non-negotiable rules:
 
 ## Roadmap Phases
 
-1. [Foundation Platform](./01-foundation-platform.md)
+1. [Foundation Platform](./01-foundation-platform.md) - complete, audited 2026-06-17
 2. [Economy Ledger And Inventory](./02-economy-ledger-inventory.md)
 3. [Progression, Ships, Modules, And Stats](./03-progression-ships-modules-stats.md)
 4. [World Worker, AOI, Fog, And Realtime Contracts](./04-world-worker-aoi-fog-realtime.md)
@@ -102,11 +102,12 @@ Some frontend work may start after phase 04 with a debug client, but the polishe
 
 ## Current Project State
 
-As of this roadmap:
+As of the 2026-06-17 Phase 01 audit:
 
-- Gameplay code has not started.
-- Existing Go code is Symphony/orchestration under `internal/symphony`.
-- Gameplay code should start in separate packages such as `internal/game/...`.
+- Phase 01 foundation gameplay code exists under `internal/game/...`.
+- Shared primitives are available in `internal/game/foundation`, `internal/game/contracts`, `internal/game/catalog`, `internal/game/events`, and `internal/game/testutil`.
+- Later gameplay phases should reference these foundation packages instead of defining duplicate IDs, clocks, RNG, error codes, envelopes, catalog version refs, idempotency keys, or event test helpers.
+- Existing Symphony/orchestration code remains separate under `internal/symphony`.
 - Do not mix OpenAI/Symphony orchestration concerns into game domain packages.
 
 ## Global Verification Commands
@@ -121,6 +122,6 @@ git diff --check
 ## Global TODO
 
 - [ ] Keep this index updated when phase files are added, renamed, or completed.
-- [ ] Add phase status markers after implementation begins.
+- [x] Add phase status markers after implementation begins.
 - [ ] Add links to implementation plans under `docs/plans/` when created.
 - [ ] Add links to commits or PRs when each phase is delivered.

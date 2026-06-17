@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Not started
+- State: Complete, audited 2026-06-17
 - Owner: Backend/game platform
 - Depends on: none
 - Unlocks: every later gameplay and economy phase
@@ -96,8 +96,18 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [x] Tests for foundation helpers pass.
 - [x] `go test ./...` passes.
 - [x] `git diff --check` passes.
-- [ ] Later phase files can reference foundation primitives instead of defining their own.
+- [x] Later phase files can reference foundation primitives instead of defining their own.
 
 ## Resume Notes
 
-If returning to this phase later, start by checking whether `internal/game` exists and whether tests cover IDs, errors, clocks, RNG, envelopes, and idempotency helpers. If those are missing, finish them before starting economy or combat.
+Phase 01 audit on 2026-06-17 verified the foundation implementation under `internal/game/...`.
+
+Later phases should reuse:
+
+- `internal/game/foundation` for typed IDs, `Money`, `Quantity`, `Clock`, `RNG`, domain errors, shared codes, and domain idempotency keys.
+- `internal/game/contracts` for request, response, and error envelopes.
+- `internal/game/events` for event envelopes.
+- `internal/game/catalog` for versioned static definition references.
+- `internal/game/testutil` for fake clock, fake RNG, and event recorder assertions.
+
+If returning to this phase later, start by checking whether new gameplay packages still use these primitives and whether `internal/game/boundary_test.go` still prevents imports from `internal/symphony`.
