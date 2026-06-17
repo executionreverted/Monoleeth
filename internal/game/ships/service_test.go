@@ -95,6 +95,18 @@ func TestUnlockShipIsIdempotentByPlayerAndShip(t *testing.T) {
 	}
 }
 
+func TestUnlockShipRejectsRankGatedShipBeforePlayerRank(t *testing.T) {
+	service, _ := newTestHangarServiceWithRanks(t, StaticPlayerRankProvider{"player-1": 1})
+
+	_, err := service.UnlockShip(UnlockShipInput{
+		PlayerID: "player-1",
+		ShipID:   ShipIDFighterT1,
+	})
+	if !errors.Is(err, ErrShipRankRequirementNotMet) {
+		t.Fatalf("UnlockShip(rank gated) error = %v, want ErrShipRankRequirementNotMet", err)
+	}
+}
+
 func TestSetActiveShipSwapsInSafeHangarAndReturnsStatInvalidation(t *testing.T) {
 	service, _ := newTestHangarService(t)
 	ensureStarterAndUnlockFighter(t, service)
@@ -149,6 +161,31 @@ func TestSetActiveShipSwapsInSafeHangarAndReturnsStatInvalidation(t *testing.T) 
 	}
 	if retry.ActiveChanged || retry.StatInvalidation != nil {
 		t.Fatalf("retry result = %+v, want no active change or invalidation", retry)
+	}
+}
+
+func TestSetActiveShipRejectsRankGatedActiveShip(t *testing.T) {
+	service, _ := newTestHangarServiceWithRanks(t, StaticPlayerRankProvider{"player-1": 1})
+	if _, err := service.EnsureStarterShip("player-1"); err != nil {
+		t.Fatalf("EnsureStarterShip error = %v, want nil", err)
+	}
+	fighter, err := NewPlayerShipState("player-1", ShipIDFighterT1, ShipStateAvailable)
+	if err != nil {
+		t.Fatalf("NewPlayerShipState(fighter) error = %v, want nil", err)
+	}
+	if err := service.store.PutPlayerShip(fighter); err != nil {
+		t.Fatalf("PutPlayerShip(fighter) error = %v, want nil", err)
+	}
+
+	_, err = service.SetActiveShip(SetActiveShipInput{
+		PlayerID: "player-1",
+		ShipID:   ShipIDFighterT1,
+		Context: ShipSwapContext{
+			InSafeHangarArea: true,
+		},
+	})
+	if !errors.Is(err, ErrShipRankRequirementNotMet) {
+		t.Fatalf("SetActiveShip(rank gated) error = %v, want ErrShipRankRequirementNotMet", err)
 	}
 }
 
@@ -277,13 +314,18 @@ func TestSetActiveShipRejectsUnknownLockedAndInvalidCargo(t *testing.T) {
 
 func newTestHangarService(t *testing.T) (*HangarService, *testutil.FakeClock) {
 	t.Helper()
+	return newTestHangarServiceWithRanks(t, StaticPlayerRankProvider{"player-1": 2})
+}
+
+func newTestHangarServiceWithRanks(t *testing.T, ranks StaticPlayerRankProvider) (*HangarService, *testutil.FakeClock) {
+	t.Helper()
 
 	catalogRows, err := MVPShipCatalog()
 	if err != nil {
 		t.Fatalf("MVPShipCatalog error = %v", err)
 	}
 	clock := testutil.NewFakeClock(testShipServiceNow)
-	service, err := NewHangarService(catalogRows, NewInMemoryHangarStore(), clock)
+	service, err := NewHangarService(catalogRows, NewInMemoryHangarStore(), ranks, clock)
 	if err != nil {
 		t.Fatalf("NewHangarService error = %v", err)
 	}

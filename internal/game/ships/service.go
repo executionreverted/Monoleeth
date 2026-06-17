@@ -17,6 +17,8 @@ var (
 	ErrShipUnavailable              = errors.New("ship unavailable")
 	ErrInvalidCurrentCargoAmount    = errors.New("invalid current cargo amount")
 	ErrCargoExceedsTargetCapacity   = errors.New("current cargo exceeds target ship capacity")
+	ErrNilPlayerRankProvider        = errors.New("nil player rank provider")
+	ErrShipRankRequirementNotMet    = errors.New("ship rank requirement not met")
 )
 
 // ShipService is the ship-facing name for the hangar service slice.
@@ -27,8 +29,18 @@ type ShipService = HangarService
 type HangarService struct {
 	catalog Catalog
 	store   *InMemoryHangarStore
+	ranks   PlayerRankProvider
 	clock   foundation.Clock
 }
+
+// PlayerRankProvider returns the authoritative current rank for a player.
+type PlayerRankProvider interface {
+	RankForPlayer(playerID foundation.PlayerID) (int, error)
+}
+
+// StaticPlayerRankProvider is a deterministic provider for tests and early
+// single-process slices.
+type StaticPlayerRankProvider map[foundation.PlayerID]int
 
 // UnlockShipInput describes one authoritative ship unlock request.
 type UnlockShipInput struct {
@@ -106,14 +118,27 @@ type HangarSnapshot struct {
 }
 
 // NewShipService returns a ship service backed by an in-memory hangar store.
-func NewShipService(catalogRows Catalog, store *InMemoryHangarStore, clock foundation.Clock) (*ShipService, error) {
-	return NewHangarService(catalogRows, store, clock)
+func NewShipService(
+	catalogRows Catalog,
+	store *InMemoryHangarStore,
+	ranks PlayerRankProvider,
+	clock foundation.Clock,
+) (*ShipService, error) {
+	return NewHangarService(catalogRows, store, ranks, clock)
 }
 
 // NewHangarService returns a hangar service backed by an in-memory hangar store.
-func NewHangarService(catalogRows Catalog, store *InMemoryHangarStore, clock foundation.Clock) (*HangarService, error) {
+func NewHangarService(
+	catalogRows Catalog,
+	store *InMemoryHangarStore,
+	ranks PlayerRankProvider,
+	clock foundation.Clock,
+) (*HangarService, error) {
 	if _, ok := catalogRows.Get(ShipIDStarter); !ok {
 		return nil, ErrMissingStarterShipDefinition
+	}
+	if ranks == nil {
+		return nil, ErrNilPlayerRankProvider
 	}
 	if store == nil {
 		store = NewInMemoryHangarStore()
@@ -124,6 +149,7 @@ func NewHangarService(catalogRows Catalog, store *InMemoryHangarStore, clock fou
 	return &HangarService{
 		catalog: catalogRows,
 		store:   store,
+		ranks:   ranks,
 		clock:   clock,
 	}, nil
 }
@@ -190,6 +216,9 @@ func (service *HangarService) UnlockShip(input UnlockShipInput) (UnlockShipResul
 	if _, err := service.catalog.MustGet(input.ShipID); err != nil {
 		return UnlockShipResult{}, err
 	}
+	if err := service.validateRankRequirement(input.PlayerID, input.ShipID); err != nil {
+		return UnlockShipResult{}, err
+	}
 
 	now := service.clock.Now()
 	var result UnlockShipResult
@@ -227,6 +256,9 @@ func (service *HangarService) SetActiveShip(input SetActiveShipInput) (SetActive
 	}
 	targetDefinition, err := service.catalog.MustGet(input.ShipID)
 	if err != nil {
+		return SetActiveShipResult{}, err
+	}
+	if err := service.validateRankRequirement(input.PlayerID, input.ShipID); err != nil {
 		return SetActiveShipResult{}, err
 	}
 
@@ -358,6 +390,36 @@ func (context ShipSwapContext) validateCargoAmount() error {
 	}
 	if context.CurrentCargoUnits > foundation.MaxAmount {
 		return fmt.Errorf("current cargo %d exceeds max %d: %w", context.CurrentCargoUnits, foundation.MaxAmount, ErrInvalidCurrentCargoAmount)
+	}
+	return nil
+}
+
+// RankForPlayer returns a configured rank for playerID.
+func (provider StaticPlayerRankProvider) RankForPlayer(playerID foundation.PlayerID) (int, error) {
+	if err := playerID.Validate(); err != nil {
+		return 0, err
+	}
+	rank, ok := provider[playerID]
+	if !ok {
+		return 0, fmt.Errorf("player %q: %w", playerID, ErrShipRankRequirementNotMet)
+	}
+	if rank < 1 {
+		return 0, fmt.Errorf("rank %d: %w", rank, ErrShipRankRequirementNotMet)
+	}
+	return rank, nil
+}
+
+func (service *HangarService) validateRankRequirement(playerID foundation.PlayerID, shipID foundation.ShipID) error {
+	definition, err := service.catalog.MustGet(shipID)
+	if err != nil {
+		return err
+	}
+	rank, err := service.ranks.RankForPlayer(playerID)
+	if err != nil {
+		return err
+	}
+	if rank < definition.RankRequirement {
+		return fmt.Errorf("player rank %d ship %q requires %d: %w", rank, shipID, definition.RankRequirement, ErrShipRankRequirementNotMet)
 	}
 	return nil
 }
