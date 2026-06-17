@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/loot"
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/spatial"
@@ -273,6 +274,67 @@ func TestDelayedTaskSchedulerDrainsDueTasksInOrder(t *testing.T) {
 	result = zoneWorker.Tick()
 	if got, want := taskIDs(result.DueTasks), []string{"task-a", "task-b"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("due tasks = %v, want %v", got, want)
+	}
+}
+
+func TestScheduleLootDropTasksMapsDueTasksToLootContract(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	zoneWorker, err := NewWorker(Config{
+		WorldID:   "world-1",
+		ZoneID:    "zone-1",
+		TickDelta: time.Second,
+		Clock:     clock,
+	})
+	if err != nil {
+		t.Fatalf("NewWorker() error = %v", err)
+	}
+	tasks := []loot.ScheduledDropTask{
+		{
+			ID:     "drop-1:owner",
+			Kind:   loot.ScheduledDropTaskOwnerLockExpired,
+			DropID: "drop-1",
+			DueAt:  clock.Now().Add(time.Second),
+		},
+		{
+			ID:     "drop-1:despawn",
+			Kind:   loot.ScheduledDropTaskDespawn,
+			DropID: "drop-1",
+			DueAt:  clock.Now().Add(2 * time.Second),
+		},
+	}
+
+	scheduled, err := zoneWorker.ScheduleLootDropTasks(tasks)
+	if err != nil {
+		t.Fatalf("ScheduleLootDropTasks() error = %v", err)
+	}
+	if len(scheduled) != 2 {
+		t.Fatalf("scheduled len = %d, want 2", len(scheduled))
+	}
+
+	clock.Advance(time.Second)
+	result := zoneWorker.Tick()
+	if len(result.DueTasks) != 1 {
+		t.Fatalf("due task len = %d, want 1", len(result.DueTasks))
+	}
+	lootTask, ok := LootScheduledDropTask(result.DueTasks[0])
+	if !ok {
+		t.Fatalf("LootScheduledDropTask(%+v) ok = false, want true", result.DueTasks[0])
+	}
+	if lootTask.Kind != loot.ScheduledDropTaskOwnerLockExpired || lootTask.DropID != "drop-1" {
+		t.Fatalf("loot scheduled task = %+v, want owner-lock task for drop-1", lootTask)
+	}
+
+	clock.Advance(time.Second)
+	result = zoneWorker.Tick()
+	if len(result.DueTasks) != 1 {
+		t.Fatalf("second due task len = %d, want 1", len(result.DueTasks))
+	}
+	lootTask, ok = LootScheduledDropTask(result.DueTasks[0])
+	if !ok {
+		t.Fatalf("LootScheduledDropTask(%+v) ok = false, want true", result.DueTasks[0])
+	}
+	if lootTask.Kind != loot.ScheduledDropTaskDespawn || lootTask.DropID != "drop-1" {
+		t.Fatalf("loot scheduled task = %+v, want despawn task for drop-1", lootTask)
 	}
 }
 

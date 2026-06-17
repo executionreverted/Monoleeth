@@ -37,6 +37,19 @@ func TestCreateDropsForNPCKillRollsServerSideAndIsIdempotent(t *testing.T) {
 	if result.Drops[0].OwnerPlayerID != event.OwnerPlayerID {
 		t.Fatalf("owner = %q, want %q", result.Drops[0].OwnerPlayerID, event.OwnerPlayerID)
 	}
+	if got, want := len(result.ScheduledTasks), 2; got != want {
+		t.Fatalf("scheduled tasks len = %d, want %d", got, want)
+	}
+	if result.ScheduledTasks[0].Kind != loot.ScheduledDropTaskOwnerLockExpired ||
+		result.ScheduledTasks[0].DropID != result.Drops[0].ID ||
+		!result.ScheduledTasks[0].DueAt.Equal(result.Drops[0].OwnerLockUntil) {
+		t.Fatalf("owner-lock scheduled task = %+v, want drop owner-lock expiry", result.ScheduledTasks[0])
+	}
+	if result.ScheduledTasks[1].Kind != loot.ScheduledDropTaskDespawn ||
+		result.ScheduledTasks[1].DropID != result.Drops[0].ID ||
+		!result.ScheduledTasks[1].DueAt.Equal(result.Drops[0].ExpiresAt) {
+		t.Fatalf("despawn scheduled task = %+v, want drop expiry", result.ScheduledTasks[1])
+	}
 
 	duplicate, err := service.CreateDropsForNPCKill(event, table)
 	if err != nil {
@@ -47,6 +60,9 @@ func TestCreateDropsForNPCKillRollsServerSideAndIsIdempotent(t *testing.T) {
 	}
 	if len(duplicate.Drops) != 1 || duplicate.Drops[0].ID != result.Drops[0].ID {
 		t.Fatalf("duplicate drops = %+v, want original drop id %q", duplicate.Drops, result.Drops[0].ID)
+	}
+	if len(duplicate.ScheduledTasks) != 0 {
+		t.Fatalf("duplicate scheduled tasks = %+v, want none", duplicate.ScheduledTasks)
 	}
 }
 
@@ -273,6 +289,91 @@ func TestVisibleDropsFiltersByVisibilityAndOmitsClaimedOrExpired(t *testing.T) {
 	if len(payloads) != 0 {
 		t.Fatalf("visible drops after claimed/expired len = %d, want 0", len(payloads))
 	}
+}
+
+func TestHandleScheduledDropTaskEmitsOwnerLockAndExpiryIdempotently(t *testing.T) {
+	service, clock, _, _ := newLootService(t, []int{0}, []float64{0})
+	recorder := testutil.NewEventRecorder()
+	service.SetEventEmitter(recorder)
+	result, err := service.CreateDropsForNPCKill(npcKilledEvent(), lootTable(t, 3, 3, 1))
+	if err != nil {
+		t.Fatalf("CreateDropsForNPCKill() error = %v", err)
+	}
+	testutil.AssertRecordedEventTypes(t, recorder, loot.EventLootCreated)
+	recorder.Reset()
+
+	ownerTask := result.ScheduledTasks[0]
+	early, err := service.HandleScheduledDropTask(ownerTask)
+	if err != nil {
+		t.Fatalf("early HandleScheduledDropTask(owner) error = %v", err)
+	}
+	if early.Handled {
+		t.Fatal("early owner-lock task Handled = true, want false")
+	}
+	testutil.AssertRecordedEventTypes(t, recorder)
+
+	clock.Advance(loot.DefaultOwnerLockDuration)
+	handled, err := service.HandleScheduledDropTask(ownerTask)
+	if err != nil {
+		t.Fatalf("HandleScheduledDropTask(owner) error = %v", err)
+	}
+	if !handled.Handled {
+		t.Fatal("owner-lock task Handled = false, want true")
+	}
+	testutil.AssertRecordedEventTypes(t, recorder, loot.EventLootOwnerLockExpired)
+	recorder.Reset()
+
+	again, err := service.HandleScheduledDropTask(ownerTask)
+	if err != nil {
+		t.Fatalf("duplicate HandleScheduledDropTask(owner) error = %v", err)
+	}
+	if again.Handled {
+		t.Fatal("duplicate owner-lock task Handled = true, want false")
+	}
+	testutil.AssertRecordedEventTypes(t, recorder)
+
+	clock.Advance(loot.DefaultTotalLifetime - loot.DefaultOwnerLockDuration)
+	expireTask := result.ScheduledTasks[1]
+	expired, err := service.HandleScheduledDropTask(expireTask)
+	if err != nil {
+		t.Fatalf("HandleScheduledDropTask(expire) error = %v", err)
+	}
+	if !expired.Handled {
+		t.Fatal("expire task Handled = false, want true")
+	}
+	testutil.AssertRecordedEventTypes(t, recorder, loot.EventLootExpired)
+}
+
+func TestHandleScheduledDropTaskNoOpsForClaimedDrop(t *testing.T) {
+	service, _, _, _ := newLootService(t, []int{0}, []float64{0})
+	recorder := testutil.NewEventRecorder()
+	service.SetEventEmitter(recorder)
+	result, err := service.CreateDropsForNPCKill(npcKilledEvent(), lootTable(t, 3, 3, 1))
+	if err != nil {
+		t.Fatalf("CreateDropsForNPCKill() error = %v", err)
+	}
+	drop := result.Drops[0]
+	if _, err := service.PickupDrop(loot.PickupInput{
+		PlayerID:           drop.OwnerPlayerID,
+		DropID:             drop.ID,
+		Viewer:             viewerAt(drop.Position),
+		ActiveCargo:        mustCargoLocation(t, "ship_1"),
+		CargoCapacityUnits: 100,
+	}); err != nil {
+		t.Fatalf("PickupDrop() error = %v", err)
+	}
+	recorder.Reset()
+
+	for _, task := range result.ScheduledTasks {
+		taskResult, err := service.HandleScheduledDropTask(task)
+		if err != nil {
+			t.Fatalf("HandleScheduledDropTask(%s) error = %v", task.Kind, err)
+		}
+		if taskResult.Handled {
+			t.Fatalf("claimed drop scheduled task %s Handled = true, want false", task.Kind)
+		}
+	}
+	testutil.AssertRecordedEventTypes(t, recorder)
 }
 
 func newLootService(t *testing.T, ints []int, floats []float64) (*loot.Service, *testutil.FakeClock, *economy.InventoryService, *progression.ProgressionService) {

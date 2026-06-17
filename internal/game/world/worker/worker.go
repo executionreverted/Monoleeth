@@ -90,9 +90,10 @@ type CommandError struct {
 
 // ScheduledTask is a local delayed job owned by the worker.
 type ScheduledTask struct {
-	ID    string
-	DueAt time.Time
-	Kind  string
+	ID        string
+	DueAt     time.Time
+	Kind      string
+	SubjectID string
 }
 
 // Snapshot is a deterministic copy of worker-owned state.

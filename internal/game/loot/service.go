@@ -175,6 +175,7 @@ func (service *Service) CreateDropsForNPCKill(event combat.NPCKilledEvent, table
 	rows := service.rollRows(table)
 	service.sourceDrops[key] = make([]world.EntityID, 0, len(rows))
 	drops := make([]Drop, 0, len(rows))
+	scheduledTasks := make([]ScheduledDropTask, 0, len(rows)*2)
 	for _, row := range rows {
 		drop := Drop{
 			ID:             service.nextDropID(),
@@ -194,6 +195,7 @@ func (service *Service) CreateDropsForNPCKill(event combat.NPCKilledEvent, table
 		service.drops[drop.ID] = cloneDrop(drop)
 		service.sourceDrops[key] = append(service.sourceDrops[key], drop.ID)
 		drops = append(drops, drop)
+		scheduledTasks = append(scheduledTasks, scheduledDropTasks(drop)...)
 	}
 
 	emitter = service.emitter
@@ -202,7 +204,7 @@ func (service *Service) CreateDropsForNPCKill(event combat.NPCKilledEvent, table
 			emitted = append(emitted, service.newEventLocked(EventLootCreated, dropPayload(drop, now), now))
 		}
 	}
-	return CreateDropsResult{Drops: cloneDrops(drops)}, nil
+	return CreateDropsResult{Drops: cloneDrops(drops), ScheduledTasks: cloneScheduledDropTasks(scheduledTasks)}, nil
 }
 
 // PickupDrop validates ownership, visibility, range, cargo capacity, and claims one drop.
@@ -367,16 +369,14 @@ func (service *Service) ExpireDrops() []Drop {
 			continue
 		}
 		if !now.Before(drop.OwnerLockUntil) {
-			if _, seen := service.ownerLockEvents[id]; !seen {
-				service.ownerLockEvents[id] = struct{}{}
+			if service.markOwnerLockExpiredLocked(id) {
 				if emitter != nil {
 					emitted = append(emitted, service.newEventLocked(EventLootOwnerLockExpired, dropPayload(drop, now), now))
 				}
 			}
 		}
 		if !now.Before(drop.ExpiresAt) {
-			if _, seen := service.expiredEvents[id]; !seen {
-				service.expiredEvents[id] = struct{}{}
+			if service.markExpiredLocked(id) {
 				expired = append(expired, cloneDrop(drop))
 				if emitter != nil {
 					emitted = append(emitted, service.newEventLocked(EventLootExpired, dropPayload(drop, now), now))
@@ -387,6 +387,53 @@ func (service *Service) ExpireDrops() []Drop {
 	return expired
 }
 
+// HandleScheduledDropTask applies one due loot scheduler task. It is idempotent:
+// already claimed, missing, early, or previously handled tasks are no-ops.
+func (service *Service) HandleScheduledDropTask(task ScheduledDropTask) (ScheduledDropTaskResult, error) {
+	if err := task.DropID.Validate(); err != nil {
+		return ScheduledDropTaskResult{}, err
+	}
+
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
+	service.mu.Lock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+
+	now := service.clock.Now()
+	drop, ok := service.drops[task.DropID]
+	if !ok {
+		return ScheduledDropTaskResult{}, nil
+	}
+	if drop.ClaimedAt != nil {
+		return ScheduledDropTaskResult{Drop: cloneDrop(drop)}, nil
+	}
+
+	emitter = service.emitter
+	switch task.Kind {
+	case ScheduledDropTaskOwnerLockExpired:
+		if now.Before(drop.OwnerLockUntil) || !service.markOwnerLockExpiredLocked(task.DropID) {
+			return ScheduledDropTaskResult{Drop: cloneDrop(drop)}, nil
+		}
+		if emitter != nil {
+			emitted = append(emitted, service.newEventLocked(EventLootOwnerLockExpired, dropPayload(drop, now), now))
+		}
+		return ScheduledDropTaskResult{Drop: cloneDrop(drop), Handled: true}, nil
+	case ScheduledDropTaskDespawn:
+		if now.Before(drop.ExpiresAt) || !service.markExpiredLocked(task.DropID) {
+			return ScheduledDropTaskResult{Drop: cloneDrop(drop)}, nil
+		}
+		if emitter != nil {
+			emitted = append(emitted, service.newEventLocked(EventLootExpired, dropPayload(drop, now), now))
+		}
+		return ScheduledDropTaskResult{Drop: cloneDrop(drop), Handled: true}, nil
+	default:
+		return ScheduledDropTaskResult{}, fmt.Errorf("loot scheduled task kind %q: %w", task.Kind, ErrInvalidScheduledTask)
+	}
+}
+
 // Drop returns a copy of one drop.
 func (service *Service) Drop(dropID world.EntityID) (Drop, bool) {
 	service.mu.Lock()
@@ -394,6 +441,48 @@ func (service *Service) Drop(dropID world.EntityID) (Drop, bool) {
 
 	drop, ok := service.drops[dropID]
 	return cloneDrop(drop), ok
+}
+
+func (service *Service) markOwnerLockExpiredLocked(dropID world.EntityID) bool {
+	if _, seen := service.ownerLockEvents[dropID]; seen {
+		return false
+	}
+	service.ownerLockEvents[dropID] = struct{}{}
+	return true
+}
+
+func (service *Service) markExpiredLocked(dropID world.EntityID) bool {
+	if _, seen := service.expiredEvents[dropID]; seen {
+		return false
+	}
+	service.expiredEvents[dropID] = struct{}{}
+	return true
+}
+
+func scheduledDropTasks(drop Drop) []ScheduledDropTask {
+	return []ScheduledDropTask{
+		{
+			ID:     fmt.Sprintf("%s:%s", drop.ID, ScheduledDropTaskOwnerLockExpired),
+			Kind:   ScheduledDropTaskOwnerLockExpired,
+			DropID: drop.ID,
+			DueAt:  drop.OwnerLockUntil,
+		},
+		{
+			ID:     fmt.Sprintf("%s:%s", drop.ID, ScheduledDropTaskDespawn),
+			Kind:   ScheduledDropTaskDespawn,
+			DropID: drop.ID,
+			DueAt:  drop.ExpiresAt,
+		},
+	}
+}
+
+func cloneScheduledDropTasks(tasks []ScheduledDropTask) []ScheduledDropTask {
+	if tasks == nil {
+		return nil
+	}
+	cloned := make([]ScheduledDropTask, len(tasks))
+	copy(cloned, tasks)
+	return cloned
 }
 
 type rolledRow struct {

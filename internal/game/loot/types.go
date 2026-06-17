@@ -33,6 +33,7 @@ var (
 	ErrPickupNotVisible     = errors.New("loot pickup not visible")
 	ErrNilCargoService      = errors.New("nil cargo service")
 	ErrInvalidLootDurations = errors.New("invalid loot durations")
+	ErrInvalidScheduledTask = errors.New("invalid loot scheduled task")
 )
 
 type DropSourceType string
@@ -52,6 +53,13 @@ const (
 	DropStatePublic      DropState = "public"
 	DropStateExpired     DropState = "expired"
 	DropStateClaimed     DropState = "claimed"
+)
+
+type ScheduledDropTaskKind string
+
+const (
+	ScheduledDropTaskOwnerLockExpired ScheduledDropTaskKind = "loot.owner_lock_expired"
+	ScheduledDropTaskDespawn          ScheduledDropTaskKind = "loot.drop_despawn"
 )
 
 // LootRow is one server-owned loot table roll.
@@ -101,10 +109,26 @@ type DropPayload struct {
 	ExpiresAt time.Time         `json:"expires_at"`
 }
 
+// ScheduledDropTask is the loot-owned delayed work contract consumed by a zone
+// worker scheduler. The worker owns timing; the loot service owns effects.
+type ScheduledDropTask struct {
+	ID     string
+	Kind   ScheduledDropTaskKind
+	DropID world.EntityID
+	DueAt  time.Time
+}
+
+// ScheduledDropTaskResult reports the effect of one due scheduled task.
+type ScheduledDropTaskResult struct {
+	Drop    Drop
+	Handled bool
+}
+
 // CreateDropsResult reports drop creation for one source event.
 type CreateDropsResult struct {
-	Drops     []Drop
-	Duplicate bool
+	Drops          []Drop
+	ScheduledTasks []ScheduledDropTask
+	Duplicate      bool
 }
 
 // PickupInput describes one server-authoritative pickup attempt.
