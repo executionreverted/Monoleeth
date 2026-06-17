@@ -113,6 +113,22 @@ func TestPositiveAmountTypesRejectZeroAndNegativeValues(t *testing.T) {
 	}
 }
 
+func TestPositiveAmountTypesRejectValuesAboveSafetyBound(t *testing.T) {
+	for _, tc := range positiveAmountCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.newValue(MaxAmount + 1)
+			if !errors.Is(err, ErrAmountTooLarge) {
+				t.Fatalf("new amount above max error = %v, want ErrAmountTooLarge", err)
+			}
+
+			_, err = tc.parse("1000000000001")
+			if !errors.Is(err, ErrAmountTooLarge) {
+				t.Fatalf("parse amount above max error = %v, want ErrAmountTooLarge", err)
+			}
+		})
+	}
+}
+
 func TestPositiveAmountTypesRejectInvalidStrings(t *testing.T) {
 	for _, tc := range positiveAmountCases() {
 		t.Run(tc.name, func(t *testing.T) {

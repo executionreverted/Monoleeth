@@ -21,3 +21,28 @@ func TestFakeRNGReturnsConfiguredDeterministicValues(t *testing.T) {
 		t.Fatalf("second Float64() = %g, want 0.75", got)
 	}
 }
+
+func TestFakeRNGDoesNotConsumeInvalidIntValue(t *testing.T) {
+	rng := NewFakeRNG([]int{5, 2}, nil)
+
+	assertPanics(t, func() {
+		rng.Intn(3)
+	})
+	if got := rng.Intn(6); got != 5 {
+		t.Fatalf("Intn after invalid bound panic = %d, want original queued value 5", got)
+	}
+	if got := rng.Intn(3); got != 2 {
+		t.Fatalf("next Intn = %d, want 2", got)
+	}
+}
+
+func TestFakeRNGDoesNotConsumeInvalidFloatValue(t *testing.T) {
+	rng := NewFakeRNG(nil, []float64{1.5})
+
+	assertPanics(t, func() {
+		rng.Float64()
+	})
+	assertPanics(t, func() {
+		rng.Float64()
+	})
+}

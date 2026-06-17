@@ -54,6 +54,21 @@ func TestGameplayIDsRejectEmptyValues(t *testing.T) {
 	}
 }
 
+func TestGameplayIDsRejectNonCanonicalValues(t *testing.T) {
+	invalidValues := []string{" player-1", "player-1 ", "player:1", "player\n1"}
+
+	for _, tc := range gameplayIDCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, value := range invalidValues {
+				_, err := tc.parse(value)
+				if !errors.Is(err, ErrInvalidID) {
+					t.Fatalf("parse %q error = %v, want ErrInvalidID", value, err)
+				}
+			}
+		})
+	}
+}
+
 func TestGameplayIDZeroValuesAreInvalid(t *testing.T) {
 	for _, tc := range gameplayIDCases() {
 		t.Run(tc.name, func(t *testing.T) {

@@ -31,3 +31,22 @@ func TestFakeClockCanAdvanceDeterministically(t *testing.T) {
 		t.Fatalf("Now() after second advance = %s, want %s", got, wantSecond)
 	}
 }
+
+func TestFakeClockRejectsNegativeAdvance(t *testing.T) {
+	clock := NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+
+	assertPanics(t, func() {
+		clock.Advance(-time.Second)
+	})
+}
+
+func assertPanics(t *testing.T, fn func()) {
+	t.Helper()
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic")
+		}
+	}()
+	fn()
+}

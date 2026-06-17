@@ -64,6 +64,22 @@ func TestResponseEnvelopeJSONShapeIsStable(t *testing.T) {
 	}
 }
 
+func TestRequestAndResponseEnvelopesCopyPayloads(t *testing.T) {
+	requestPayload := json.RawMessage(`{"listing_id":"listing-9"}`)
+	request := NewRequestEnvelope(foundation.RequestID("request-123"), "market.buy", requestPayload, 42)
+	requestPayload[15] = 'X'
+	if got := string(request.Payload); got != `{"listing_id":"listing-9"}` {
+		t.Fatalf("request payload changed after source mutation: %s", got)
+	}
+
+	responsePayload := json.RawMessage(`{"credits":1250}`)
+	response := NewResponseEnvelope(foundation.RequestID("request-456"), responsePayload, 182736123)
+	responsePayload[11] = '9'
+	if got := string(response.Payload); got != `{"credits":1250}` {
+		t.Fatalf("response payload changed after source mutation: %s", got)
+	}
+}
+
 func TestErrorEnvelopeJSONShapeIsStable(t *testing.T) {
 	domainErr := foundation.NewDomainError(
 		foundation.CodeOutOfRange,
@@ -79,6 +95,20 @@ func TestErrorEnvelopeJSONShapeIsStable(t *testing.T) {
 	want := `{"request_id":"request-789","ok":false,"error":{"code":"ERR_OUT_OF_RANGE","message":"Target is out of range.","retryable":false},"server_time":182736124,"v":1}`
 	if got := string(payload); got != want {
 		t.Fatalf("error envelope JSON = %s, want %s", got, want)
+	}
+}
+
+func TestErrorEnvelopeNilDomainErrorUsesSafeInternalFallback(t *testing.T) {
+	envelope := NewErrorEnvelope(foundation.RequestID("request-nil"), nil, true, 182736126)
+
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("json marshal nil error envelope: %v", err)
+	}
+
+	want := `{"request_id":"request-nil","ok":false,"error":{"code":"ERR_INTERNAL","message":"Request failed.","retryable":true},"server_time":182736126,"v":1}`
+	if got := string(payload); got != want {
+		t.Fatalf("nil error envelope JSON = %s, want %s", got, want)
 	}
 }
 

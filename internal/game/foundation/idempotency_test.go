@@ -102,6 +102,24 @@ func TestIdempotencyKeyIsSeparateFromRequestID(t *testing.T) {
 	}
 }
 
+func TestIdempotencyKeyRejectsMalformedKeys(t *testing.T) {
+	for _, value := range []string{
+		"request-123",
+		"unknown:part",
+		"quest_reward:",
+		"quest_reward:player-quest-9:extra",
+		"offline_settlement:planet-4",
+		"market_buy:listing-9:player-2",
+	} {
+		t.Run(value, func(t *testing.T) {
+			_, err := ParseIdempotencyKey(value)
+			if err == nil {
+				t.Fatalf("ParseIdempotencyKey(%q) error = nil, want error", value)
+			}
+		})
+	}
+}
+
 func TestIdempotencyKeyRejectsBlankValues(t *testing.T) {
 	for _, value := range []string{"", " ", "\t"} {
 		t.Run("parse "+value, func(t *testing.T) {
@@ -121,6 +139,39 @@ func TestIdempotencyKeyRejectsBlankValues(t *testing.T) {
 	}
 	if got := key.String(); got != "" {
 		t.Fatalf("zero key String() = %q, want empty string", got)
+	}
+}
+
+func TestIdempotencyKeyHelpersRejectDelimiterParts(t *testing.T) {
+	cases := []struct {
+		name  string
+		build func() (IdempotencyKey, error)
+	}{
+		{
+			name:  "craft complete delimiter",
+			build: func() (IdempotencyKey, error) { return CraftCompleteIdempotencyKey("craft:job:4") },
+		},
+		{
+			name: "offline settlement delimiter",
+			build: func() (IdempotencyKey, error) {
+				return OfflineSettlementIdempotencyKey(PlanetID("planet-4"), "window:20260617")
+			},
+		},
+		{
+			name: "market buy request delimiter",
+			build: func() (IdempotencyKey, error) {
+				return MarketBuyIdempotencyKey(ListingID("listing-9"), PlayerID("player-2"), RequestID("request:5"))
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.build()
+			if !errors.Is(err, ErrInvalidIdempotencyPart) {
+				t.Fatalf("build key error = %v, want ErrInvalidIdempotencyPart", err)
+			}
+		})
 	}
 }
 

@@ -12,6 +12,12 @@ var ErrInvalidAmount = errors.New("invalid amount")
 // ErrNonPositiveAmount reports an amount that is zero or negative.
 var ErrNonPositiveAmount = errors.New("non-positive amount")
 
+// ErrAmountTooLarge reports an amount above the gameplay primitive safety bound.
+var ErrAmountTooLarge = errors.New("amount too large")
+
+// MaxAmount is the shared upper bound for foundational whole-unit amounts.
+const MaxAmount int64 = 1_000_000_000_000
+
 // Money stores currency in whole minor units. It intentionally avoids floating point.
 type Money struct {
 	amount int64
@@ -109,6 +115,9 @@ func parsePositiveAmount(kind, value string) (int64, error) {
 func validatePositiveAmount(kind string, amount int64) error {
 	if amount <= 0 {
 		return fmt.Errorf("%s must be positive: %w", kind, ErrNonPositiveAmount)
+	}
+	if amount > MaxAmount {
+		return fmt.Errorf("%s %d exceeds max %d: %w", kind, amount, MaxAmount, ErrAmountTooLarge)
 	}
 	return nil
 }

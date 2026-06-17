@@ -12,6 +12,12 @@ var ErrEmptyIdempotencyKey = errors.New("empty idempotency key")
 // ErrEmptyIdempotencyPart reports a missing or blank part for a domain key.
 var ErrEmptyIdempotencyPart = errors.New("empty idempotency key part")
 
+// ErrInvalidIdempotencyKey reports a malformed domain idempotency key.
+var ErrInvalidIdempotencyKey = errors.New("invalid idempotency key")
+
+// ErrInvalidIdempotencyPart reports a malformed part for a domain key.
+var ErrInvalidIdempotencyPart = errors.New("invalid idempotency key part")
+
 // IdempotencyKey identifies one domain state transition for duplicate safety.
 //
 // RequestID is transport retry identity. IdempotencyKey is a service-level
@@ -110,6 +116,25 @@ func validateIdempotencyKey(value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("idempotency key: %w", ErrEmptyIdempotencyKey)
 	}
+	parts := strings.Split(value, ":")
+	if len(parts) == 0 {
+		return fmt.Errorf("idempotency key: %w", ErrInvalidIdempotencyKey)
+	}
+	if err := validateIdempotencyPart("operation", parts[0]); err != nil {
+		return err
+	}
+	expectedParts, ok := idempotencyPartCount(parts[0])
+	if !ok {
+		return fmt.Errorf("operation %q: %w", parts[0], ErrInvalidIdempotencyKey)
+	}
+	if len(parts)-1 != expectedParts {
+		return fmt.Errorf("idempotency key %q: %w", value, ErrInvalidIdempotencyKey)
+	}
+	for index, part := range parts[1:] {
+		if err := validateIdempotencyPart(fmt.Sprintf("part %d", index+1), part); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -117,5 +142,25 @@ func validateIdempotencyPart(kind, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s: %w", kind, ErrEmptyIdempotencyPart)
 	}
+	if value != strings.TrimSpace(value) || strings.Contains(value, ":") {
+		return fmt.Errorf("%s %q: %w", kind, value, ErrInvalidIdempotencyPart)
+	}
 	return nil
+}
+
+func idempotencyPartCount(operation string) (int, bool) {
+	switch operation {
+	case idempotencyQuestReward,
+		idempotencyCraftComplete,
+		idempotencyLootPickup,
+		idempotencyAuctionClose,
+		idempotencyPremiumWebhook:
+		return 1, true
+	case idempotencyOfflineSettlement:
+		return 2, true
+	case idempotencyMarketBuy:
+		return 3, true
+	default:
+		return 0, false
+	}
 }

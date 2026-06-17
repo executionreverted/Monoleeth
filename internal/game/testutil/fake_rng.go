@@ -38,10 +38,10 @@ func (rng *FakeRNG) Intn(n int) int {
 	}
 
 	value := rng.ints[0]
-	rng.ints = rng.ints[1:]
 	if value < 0 || value >= n {
 		panic(fmt.Sprintf("fake rng: configured Intn value %d outside [0,%d)", value, n))
 	}
+	rng.ints = rng.ints[1:]
 	return value
 }
 
@@ -55,9 +55,9 @@ func (rng *FakeRNG) Float64() float64 {
 	}
 
 	value := rng.floats[0]
-	rng.floats = rng.floats[1:]
 	if value < 0 || value >= 1 {
 		panic(fmt.Sprintf("fake rng: configured Float64 value %g outside [0,1)", value))
 	}
+	rng.floats = rng.floats[1:]
 	return value
 }

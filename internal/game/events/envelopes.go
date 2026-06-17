@@ -22,9 +22,16 @@ func NewEventEnvelope(eventID foundation.EventID, eventType string, payload json
 	return EventEnvelope{
 		EventID:    eventID,
 		Type:       eventType,
-		Payload:    payload,
+		Payload:    cloneRawMessage(payload),
 		ServerTime: serverTime,
 		Sequence:   sequence,
 		Version:    contracts.CurrentVersion,
 	}
+}
+
+func cloneRawMessage(payload json.RawMessage) json.RawMessage {
+	if payload == nil {
+		return nil
+	}
+	return append(json.RawMessage(nil), payload...)
 }

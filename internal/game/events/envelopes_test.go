@@ -65,3 +65,14 @@ func TestEventEnvelopeJSONShapeIsStable(t *testing.T) {
 		t.Fatalf("event envelope JSON = %s, want %s", got, want)
 	}
 }
+
+func TestEventEnvelopeCopiesPayload(t *testing.T) {
+	payload := json.RawMessage(`{"ship_id":"ship-7","hp":85}`)
+	envelope := NewEventEnvelope(foundation.EventID("event-456"), "player.snapshot", payload, 182736124, 99123)
+
+	payload[12] = 'X'
+
+	if got := string(envelope.Payload); got != `{"ship_id":"ship-7","hp":85}` {
+		t.Fatalf("event payload changed after source mutation: %s", got)
+	}
+}

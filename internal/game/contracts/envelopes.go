@@ -50,7 +50,7 @@ func NewRequestEnvelope(requestID foundation.RequestID, op string, payload json.
 	return RequestEnvelope{
 		RequestID: requestID,
 		Op:        op,
-		Payload:   payload,
+		Payload:   cloneRawMessage(payload),
 		ClientSeq: clientSeq,
 		Version:   CurrentVersion,
 	}
@@ -61,7 +61,7 @@ func NewResponseEnvelope(requestID foundation.RequestID, payload json.RawMessage
 	return ResponseEnvelope{
 		RequestID:  requestID,
 		OK:         true,
-		Payload:    payload,
+		Payload:    cloneRawMessage(payload),
 		ServerTime: serverTime,
 		Version:    CurrentVersion,
 	}
@@ -69,7 +69,10 @@ func NewResponseEnvelope(requestID foundation.RequestID, payload json.RawMessage
 
 // NewErrorEnvelope returns a failed response envelope from a domain error.
 func NewErrorEnvelope(requestID foundation.RequestID, domainErr *foundation.DomainError, retryable bool, serverTime int64) ErrorEnvelope {
-	publicErr := foundation.PublicError{}
+	publicErr := foundation.PublicError{
+		Code:    foundation.CodeInternal,
+		Message: "Request failed.",
+	}
 	if domainErr != nil {
 		publicErr = domainErr.Public()
 	}
@@ -84,4 +87,11 @@ func NewErrorEnvelope(requestID foundation.RequestID, domainErr *foundation.Doma
 		ServerTime: serverTime,
 		Version:    CurrentVersion,
 	}
+}
+
+func cloneRawMessage(payload json.RawMessage) json.RawMessage {
+	if payload == nil {
+		return nil
+	}
+	return append(json.RawMessage(nil), payload...)
 }

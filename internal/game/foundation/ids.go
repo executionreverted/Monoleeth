@@ -4,10 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // ErrEmptyID reports a missing or blank gameplay identifier.
 var ErrEmptyID = errors.New("empty gameplay id")
+
+// ErrInvalidID reports a malformed gameplay identifier.
+var ErrInvalidID = errors.New("invalid gameplay id")
 
 // AccountID identifies an authenticated account.
 type AccountID string
@@ -254,6 +258,9 @@ func (id RequestID) IsZero() bool { return id == "" }
 func validateID(kind, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s id: %w", kind, ErrEmptyID)
+	}
+	if value != strings.TrimSpace(value) || strings.Contains(value, ":") || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return fmt.Errorf("%s id %q: %w", kind, value, ErrInvalidID)
 	}
 	return nil
 }

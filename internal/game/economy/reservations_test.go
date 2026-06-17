@@ -45,7 +45,7 @@ func TestReservationKindsSupportCraftMarketAndAuction(t *testing.T) {
 
 func TestReservationRejectsBlankIDsReferenceAndEmptyAssets(t *testing.T) {
 	itemLine := validReservationItemLine(t)
-	referenceKey := validReferenceKey(t, "craft_start:job-1")
+	referenceKey := validReferenceKey(t, "craft_complete:job-1")
 
 	if _, err := NewReservation("", ReservationKindCraft, "player-1", referenceKey, []ReservationItemLine{itemLine}, nil); !errors.Is(err, ErrEmptyReservationID) {
 		t.Fatalf("blank reservation id error = %v, want ErrEmptyReservationID", err)
@@ -109,7 +109,7 @@ func TestReservationJSONAndStringBehaviorIsStable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json marshal reservation: %v", err)
 	}
-	want := `{"reservation_id":"reservation-1","reservation_kind":"craft","state":"active","player_id":"player-1","reference_id":"craft_start:job-1","item_lines":[{"item_id":"iron_ore","quantity":5,"from_location":{"location_type":"account_inventory","location_id":"player-1"},"reserved_location":{"location_type":"crafting_reserved","location_id":"craft-job-1"}}],"currency_lines":[{"currency_type":"credits","amount":50}],"created_at":"2026-06-17T15:00:00Z","expires_at":"2026-06-17T16:00:00Z"}`
+	want := `{"reservation_id":"reservation-1","reservation_kind":"craft","state":"active","player_id":"player-1","reference_id":"craft_complete:job-1","item_lines":[{"item_id":"iron_ore","quantity":5,"from_location":{"location_type":"account_inventory","location_id":"player-1"},"reserved_location":{"location_type":"crafting_reserved","location_id":"craft-job-1"}}],"currency_lines":[{"currency_type":"credits","amount":50}],"created_at":"2026-06-17T15:00:00Z","expires_at":"2026-06-17T16:00:00Z"}`
 	if got := string(payload); got != want {
 		t.Fatalf("reservation JSON = %s, want %s", got, want)
 	}
@@ -129,7 +129,7 @@ func validReservation(t *testing.T) Reservation {
 		"reservation-1",
 		ReservationKindCraft,
 		"player-1",
-		validReferenceKey(t, "craft_start:job-1"),
+		validReferenceKey(t, "craft_complete:job-1"),
 		[]ReservationItemLine{validReservationItemLine(t)},
 		[]ReservationCurrencyLine{validReservationCurrencyLine(t)},
 	)

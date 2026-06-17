@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -30,6 +31,10 @@ func (clock *FakeClock) Now() time.Time {
 
 // Advance moves the fake clock forward by duration and returns the new time.
 func (clock *FakeClock) Advance(duration time.Duration) time.Time {
+	if duration < 0 {
+		panic(fmt.Sprintf("fake clock: negative advance %s", duration))
+	}
+
 	clock.mu.Lock()
 	defer clock.mu.Unlock()
 
