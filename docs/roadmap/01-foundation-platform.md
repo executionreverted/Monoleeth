@@ -63,8 +63,8 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [x] Add `Money`, `Quantity`, and positive amount validation helpers.
 - [x] Add common domain error type with public `Code`, safe `Message`, and internal detail support.
 - [x] Add shared error codes from `15-api-events-errors.md`.
-- [ ] Add request envelope model with `request_id`, `op`, `payload`, `client_seq`, and version.
-- [ ] Add response and error envelope model.
+- [x] Add request envelope model with `request_id`, `op`, `payload`, `client_seq`, and version.
+- [x] Add response and error envelope model.
 - [ ] Add event envelope model with `event_id`, `type`, `payload`, `server_time`, and sequence.
 - [ ] Add idempotency key helper conventions for domain operations.
 - [ ] Add `catalog` package for versioned static definitions.
@@ -88,7 +88,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [x] Ensure client-facing error messages can be generic for hidden/not-found cases.
 - [x] Ensure domain error internal details are not part of public response payload by default.
 - [x] Ensure amount helpers cannot turn negative input into a positive mutation.
-- [ ] Ensure request IDs are modeled separately from domain idempotency keys.
+- [x] Ensure request IDs are modeled separately from domain idempotency keys.
 
 ## Done Criteria
 
