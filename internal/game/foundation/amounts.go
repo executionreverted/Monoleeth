@@ -50,6 +50,11 @@ func (m Money) Int64() int64 { return m.amount }
 // String returns the base-10 representation of the amount.
 func (m Money) String() string { return strconv.FormatInt(m.amount, 10) }
 
+// MarshalJSON returns the stable whole-unit numeric representation.
+func (m Money) MarshalJSON() ([]byte, error) {
+	return []byte(m.String()), nil
+}
+
 // Validate reports whether Money is strictly positive.
 func (m Money) Validate() error { return validatePositiveAmount("money", m.amount) }
 
@@ -78,6 +83,11 @@ func (q Quantity) Int64() int64 { return q.amount }
 
 // String returns the base-10 representation of the amount.
 func (q Quantity) String() string { return strconv.FormatInt(q.amount, 10) }
+
+// MarshalJSON returns the stable whole-unit numeric representation.
+func (q Quantity) MarshalJSON() ([]byte, error) {
+	return []byte(q.String()), nil
+}
 
 // Validate reports whether Quantity is strictly positive.
 func (q Quantity) Validate() error { return validatePositiveAmount("quantity", q.amount) }

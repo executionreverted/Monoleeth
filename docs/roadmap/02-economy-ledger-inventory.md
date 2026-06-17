@@ -95,10 +95,10 @@ reputation_token
 
 ## TODO
 
-- [ ] Define item definition catalog fields.
-- [ ] Define stackable item model.
-- [ ] Define instance item model.
-- [ ] Define item location model.
+- [x] Define item definition catalog fields.
+- [x] Define stackable item model.
+- [x] Define instance item model.
+- [x] Define item location model.
 - [ ] Define wallet balance model.
 - [ ] Define item ledger entry model.
 - [ ] Define currency ledger entry model.
@@ -136,8 +136,8 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 
 ## Tests
 
-- [ ] Negative quantity is rejected.
-- [ ] Zero quantity is rejected.
+- [x] Negative quantity is rejected.
+- [x] Zero quantity is rejected.
 - [ ] Duplicate reference ID does not duplicate item grants.
 - [ ] Duplicate reference ID does not duplicate currency grants.
 - [ ] Debit fails when balance is insufficient.
@@ -147,7 +147,7 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [ ] Cargo capacity blocks over-capacity add.
 - [ ] Concurrent cargo pickup simulation only allows capacity-safe result.
 - [ ] Stack merge respects max stack.
-- [ ] Instance item quantity cannot exceed 1.
+- [x] Instance item quantity cannot exceed 1.
 - [ ] Escrow item cannot be moved by generic player move.
 - [ ] Craft reserved item cannot be listed or equipped.
 - [ ] Premium earned bucket cannot be used where paid premium is required.

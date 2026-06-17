@@ -1,6 +1,7 @@
 package foundation
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -73,6 +74,25 @@ func TestPositiveAmountTypesParseValidStrings(t *testing.T) {
 			}
 			if got := amount.String(); got != "987" {
 				t.Fatalf("String() = %q, want %q", got, "987")
+			}
+		})
+	}
+}
+
+func TestPositiveAmountTypesJSONBehaviorIsStable(t *testing.T) {
+	for _, tc := range positiveAmountCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			amount, err := tc.newValue(123)
+			if err != nil {
+				t.Fatalf("new positive amount: %v", err)
+			}
+
+			payload, err := json.Marshal(amount)
+			if err != nil {
+				t.Fatalf("json marshal positive amount: %v", err)
+			}
+			if got := string(payload); got != "123" {
+				t.Fatalf("JSON = %s, want 123", got)
 			}
 		})
 	}
