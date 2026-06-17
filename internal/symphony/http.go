@@ -295,9 +295,9 @@ const dashboardHTML = `<!doctype html>
       <header class="hero-card">
         <div class="hero-grid">
           <div>
-            <p class="eyebrow">Symphony Observability</p>
-            <h1 class="hero-title">Operations Dashboard</h1>
-            <p class="hero-copy">Current state, retry pressure, token usage, and orchestration health for the active Symphony runtime.</p>
+            <p class="eyebrow">Symphony Control</p>
+            <h1 class="hero-title">Runtime Control Center</h1>
+            <p class="hero-copy">Live orchestration health, retry pressure, token burn, and active worker telemetry for the current Symphony runtime.</p>
           </div>
 
           <div class="status-stack">
@@ -585,54 +585,66 @@ const tasksHTML = `<!doctype html>
   <style>
     .error-card { display: none; }
     .section-header { margin-bottom: 1rem; }
-    button.ghost { background: transparent; color: var(--muted); border-color: var(--line-strong); box-shadow: none; padding: 0.48rem 0.72rem; }
-    button.ghost:hover { background: white; color: var(--ink); box-shadow: none; }
-    .form-grid { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr) auto; gap: 0.7rem; align-items: end; }
-    label { display: grid; gap: 0.28rem; color: var(--muted); font-size: 0.8rem; font-weight: 600; letter-spacing: 0.01em; }
-    input, textarea { width: 100%; border: 1px solid var(--line-strong); border-radius: 16px; background: white; color: var(--ink); padding: 0.78rem 0.86rem; outline: none; box-shadow: var(--shadow-sm); font: inherit; }
-    textarea { min-height: 5.2rem; resize: vertical; }
-    .board-grid { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 0.85rem; align-items: start; }
-    .board-column { min-height: 16rem; border: 1px solid var(--line); border-radius: 18px; background: rgba(247, 247, 248, 0.72); padding: 0.75rem; }
-    .column-title { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin: 0 0 0.75rem; color: var(--muted); font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-    .task-list { display: grid; gap: 0.65rem; }
-    .task-card { background: var(--card); border: 1px solid rgba(217, 217, 227, 0.82); box-shadow: var(--shadow-sm); backdrop-filter: blur(18px); border-radius: 16px; padding: 0.78rem; display: grid; gap: 0.55rem; }
-    .task-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
-    .task-id { font-weight: 600; letter-spacing: -0.01em; }
-    .task-title { margin: 0.1rem 0 0; font-weight: 600; line-height: 1.25; }
-    .task-desc { margin: 0; color: var(--muted); font-size: 0.88rem; max-height: 4.2rem; overflow: hidden; }
-    .task-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
-    .queue-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem; }
-    .stream-list { display: grid; gap: 0.55rem; max-height: 28rem; overflow: auto; }
-    .stream-entry { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--page-soft); padding: 0.65rem 0.75rem; display: grid; gap: 0.35rem; }
-    .stream-entry-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; color: var(--muted); font-size: 0.78rem; }
-    .stream-entry-title { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
-    .stream-event { color: var(--ink); font-weight: 600; }
-    .stream-summary { margin: 0; color: var(--ink); line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
-    .patch-grid { display: grid; grid-template-columns: minmax(0, 0.65fr) minmax(0, 1.35fr); gap: 0.75rem; align-items: start; }
-    .patch-list { display: grid; gap: 0.45rem; color: var(--muted); font-size: 0.88rem; }
-    .patch-panel { max-height: 32rem; white-space: pre; }
-    .agent-island { position: fixed; left: 50%; bottom: 1rem; z-index: 40; width: min(calc(100vw - 1rem), 46rem); transform: translateX(-50%); border: 1px solid var(--line-strong); border-radius: 1rem; background: rgba(255, 255, 255, 0.96); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.14); backdrop-filter: blur(18px); overflow: hidden; }
-    .agent-island-top { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; padding: 0.72rem; border-bottom: 1px solid var(--line); }
-    .agent-island-title { display: flex; align-items: center; gap: 0.5rem; min-width: 0; font-weight: 700; }
+    button.ghost { min-height: 2rem; background: rgba(5, 9, 8, 0.72); color: var(--muted-strong); border-color: var(--line-strong); box-shadow: none; padding: 0.32rem 0.56rem; font-size: 0.78rem; }
+    button.ghost:hover { background: var(--accent-soft); color: var(--accent-hot); box-shadow: none; }
+    .form-grid { display: grid; grid-template-columns: 1fr; gap: 0.75rem; align-items: end; }
+    label { display: grid; gap: 0.32rem; color: var(--muted); font-size: 0.78rem; font-weight: 900; letter-spacing: 0.04em; text-transform: uppercase; }
+    input, textarea { width: 100%; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: rgba(2, 5, 4, 0.82); color: var(--ink); padding: 0.72rem 0.8rem; outline: none; box-shadow: inset 0 0 1rem rgba(0, 0, 0, 0.22); font: inherit; caret-color: var(--accent); transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease; }
+    input::placeholder, textarea::placeholder { color: rgba(181, 212, 200, 0.48); }
+    input:focus, textarea:focus { background: rgba(5, 11, 9, 0.95); border-color: var(--accent); box-shadow: inset 0 0 1rem rgba(0, 0, 0, 0.28), var(--glow); }
+    textarea { min-height: 5.5rem; resize: vertical; }
+    .board-grid { display: grid; grid-template-columns: 1fr; gap: 0.85rem; align-items: start; }
+    .board-column { min-height: 18rem; max-height: 34rem; border: 1px solid var(--line); border-radius: var(--radius-lg); background: rgba(3, 8, 6, 0.62); padding: 0.7rem; overflow: hidden; box-shadow: inset 0 0 1.5rem rgba(0, 0, 0, 0.18); }
+    .column-title { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin: 0 0 0.7rem; padding-bottom: 0.55rem; border-bottom: 1px solid var(--line); color: var(--accent-hot); font-size: 0.72rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; background: rgba(3, 8, 6, 0.86); }
+    .column-count { min-width: 1.7rem; border: 1px solid var(--line-strong); border-radius: var(--radius-md); padding: 0.18rem 0.38rem; color: var(--ink); text-align: center; }
+    .task-list { display: grid; gap: 0.62rem; max-height: 29.5rem; overflow: auto; padding-right: 0.18rem; }
+    .task-card { position: relative; background: linear-gradient(180deg, rgba(20, 34, 29, 0.92), rgba(8, 15, 13, 0.94)); border: 1px solid var(--line); box-shadow: var(--shadow-sm); border-radius: var(--radius-lg); padding: 0.78rem; display: grid; gap: 0.58rem; animation: boot-sequence 360ms ease both; }
+    .task-card::before { position: absolute; inset: 0; pointer-events: none; content: ""; border-left: 2px solid var(--accent); opacity: 0.56; }
+    .task-card:hover, .task-card-selected { border-color: var(--accent); box-shadow: var(--glow); }
+    .task-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.55rem; min-width: 0; }
+    .task-heading { min-width: 0; }
+    .task-id { color: var(--accent-hot); font-size: 0.78rem; font-weight: 900; letter-spacing: 0; }
+    .task-title { margin: 0.12rem 0 0; color: var(--ink); font-weight: 900; line-height: 1.28; overflow-wrap: anywhere; }
+    .task-desc { margin: 0; color: var(--muted-strong); font-size: 0.84rem; max-height: 5rem; overflow: auto; padding-right: 0.15rem; }
+    .task-meta { display: flex; flex-wrap: wrap; gap: 0.35rem; color: var(--muted); font-size: 0.72rem; }
+    .task-chip { display: inline-flex; align-items: center; min-height: 1.45rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(66, 242, 178, 0.07); padding: 0.16rem 0.4rem; color: var(--muted-strong); }
+    .task-actions { display: flex; flex-wrap: wrap; gap: 0.38rem; }
+    .queue-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    .stream-list { display: grid; gap: 0.55rem; max-height: 31rem; overflow: auto; padding-right: 0.2rem; }
+    .stream-entry { border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(4, 9, 8, 0.82); padding: 0.65rem 0.72rem; display: grid; gap: 0.38rem; animation: boot-sequence 260ms ease both; }
+    .stream-entry:hover { border-color: var(--line-strong); background: rgba(13, 24, 20, 0.9); }
+    .stream-entry-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; color: var(--muted); font-size: 0.74rem; }
+    .stream-entry-title { display: flex; align-items: center; flex-wrap: wrap; gap: 0.38rem; min-width: 0; }
+    .stream-event { color: var(--accent-hot); font-weight: 900; }
+    .stream-summary { margin: 0; color: var(--muted-strong); font-size: 0.86rem; line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
+    .patch-grid { display: grid; grid-template-columns: 1fr; gap: 0.75rem; align-items: start; }
+    .patch-list { display: grid; gap: 0.55rem; color: var(--muted); font-size: 0.84rem; max-height: 28rem; overflow: auto; }
+    .patch-meta-card { border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(4, 9, 8, 0.72); padding: 0.65rem; }
+    .patch-meta-card strong { color: var(--accent-hot); }
+    .patch-panel { max-height: 36rem; white-space: pre; }
+    .agent-island { position: fixed; left: 50%; bottom: 1rem; z-index: 40; width: min(calc(100vw - 1rem), 50rem); transform: translateX(-50%); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); background: rgba(4, 9, 8, 0.96); box-shadow: var(--shadow-lg); backdrop-filter: blur(18px); overflow: hidden; }
+    .agent-island-top { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; padding: 0.68rem; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(66, 242, 178, 0.12), transparent); }
+    .agent-island-title { display: flex; align-items: center; gap: 0.5rem; min-width: 0; font-weight: 900; }
     .agent-island-dot { width: 0.55rem; height: 0.55rem; border-radius: 999px; background: var(--muted); flex: 0 0 auto; }
-    .agent-island-dot-active { background: var(--accent); box-shadow: 0 0 0 0.22rem var(--accent-soft); }
+    .agent-island-dot-active { background: var(--accent); box-shadow: 0 0 1rem var(--accent); animation: pulse-dot 1500ms ease-in-out infinite; }
     .agent-island-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .agent-island-meta { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
-    .agent-island-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
-    .agent-chip-list { display: flex; flex-wrap: wrap; gap: 0.35rem; min-width: 0; }
-    .agent-chip { min-height: 2rem; padding: 0.32rem 0.56rem; border-radius: var(--radius-md); border-color: var(--line-strong); background: var(--card); color: var(--muted); font-size: 0.8rem; }
-    .agent-chip-active { color: var(--accent-ink); border-color: #c8dcff; background: var(--accent-soft); }
-    .agent-island-button { min-height: 2rem; padding: 0.32rem 0.58rem; font-size: 0.8rem; }
-    .agent-island-body { padding: 0.7rem 0.72rem 0.8rem; display: grid; gap: 0.45rem; max-height: 14rem; overflow: auto; }
-    .agent-island-line { display: grid; gap: 0.2rem; padding: 0.45rem 0.52rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--card-muted); }
+    .agent-island-meta { color: var(--muted); font-size: 0.76rem; white-space: nowrap; }
+    .agent-island-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+    .agent-chip-list { display: flex; flex-wrap: wrap; gap: 0.32rem; min-width: 0; }
+    .agent-chip { min-height: 2rem; padding: 0.3rem 0.5rem; border-radius: var(--radius-md); border-color: var(--line-strong); background: rgba(5, 10, 8, 0.82); color: var(--muted-strong); font-size: 0.76rem; box-shadow: none; }
+    .agent-chip-active { color: var(--accent-hot); border-color: var(--accent); background: var(--accent-soft); }
+    .agent-island-button { min-height: 2rem; padding: 0.3rem 0.5rem; font-size: 0.76rem; }
+    .agent-island-body { padding: 0.7rem 0.72rem 0.8rem; display: grid; gap: 0.45rem; max-height: 15rem; overflow: auto; }
+    .agent-island-line { display: grid; gap: 0.22rem; padding: 0.48rem 0.55rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(12, 22, 19, 0.9); }
     .agent-island-line-head { display: flex; justify-content: space-between; gap: 0.6rem; color: var(--muted); font-size: 0.72rem; }
-    .agent-island-line-text { margin: 0; font-size: 0.86rem; color: var(--ink); line-height: 1.4; word-break: break-word; white-space: pre-wrap; }
+    .agent-island-line-text { margin: 0; font-size: 0.84rem; color: var(--muted-strong); line-height: 1.4; word-break: break-word; white-space: pre-wrap; }
     .agent-island[data-collapsed="true"] .agent-island-body { display: none; }
     .agent-island[data-collapsed="true"] .agent-island-top { border-bottom: 0; }
     .code-panel { overflow: auto; }
-    @media (min-width: 768px) { .agent-island-top { grid-template-columns: minmax(0, 1fr) auto; align-items: center; } .agent-island-actions { justify-content: flex-end; } }
-    @media (max-width: 980px) { .board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .form-grid, .patch-grid { grid-template-columns: 1fr; } }
-    @media (max-width: 560px) { .board-grid { grid-template-columns: 1fr; } }
+    @keyframes pulse-dot { 0%, 100% { opacity: 0.72; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1.08); } }
+    @media (min-width: 768px) { .form-grid { grid-template-columns: minmax(14rem, 0.8fr) minmax(20rem, 1.6fr) auto; } .board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .agent-island-top { grid-template-columns: minmax(0, 1fr) auto; align-items: center; } .agent-island-actions { justify-content: flex-end; } }
+    @media (min-width: 1180px) { .board-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .patch-grid { grid-template-columns: minmax(0, 0.62fr) minmax(0, 1.38fr); } }
+    @media (max-width: 560px) { .task-actions button { flex: 1 1 6.5rem; min-height: 2.75rem; } .stream-entry-head, .agent-island-line-head { flex-direction: column; } }
   </style>
 </head>
 <body>
@@ -651,9 +663,9 @@ const tasksHTML = `<!doctype html>
       <header class="hero-card">
         <div class="hero-grid">
           <div>
-            <p class="eyebrow">Symphony Tasks</p>
-            <h1 class="hero-title">Local Task Board</h1>
-            <p class="hero-copy">Create local tasks for this repository and dispatch them to the active Symphony runtime.</p>
+            <p class="eyebrow">Symphony Command</p>
+            <h1 class="hero-title">Task Control Deck</h1>
+            <p class="hero-copy">Create, dispatch, inspect, and recover local Codex work from one dense console surface.</p>
           </div>
           <div class="status-stack">
             <span class="status-badge status-badge-live" style="display: inline-flex;">
@@ -677,12 +689,12 @@ const tasksHTML = `<!doctype html>
       <section class="section-card">
         <div class="section-header">
           <div>
-            <h2 class="section-title">Create task</h2>
-            <p class="section-copy">Write the work here. Symphony stores it locally and dispatches it to Codex.</p>
+            <h2 class="section-title">New directive</h2>
+            <p class="section-copy">Write the work here. Symphony stores it locally and can dispatch it to Codex.</p>
           </div>
         </div>
         <form id="taskForm" class="form-grid">
-          <label>Title<input id="taskTitle" name="title" required placeholder="Build the first playable world slice" /></label>
+          <label>Title<input id="taskTitle" name="title" required placeholder="Tighten combat audit logging" /></label>
           <label>Description<textarea id="taskDescription" name="description" placeholder="Acceptance criteria, constraints, notes..."></textarea></label>
           <button type="submit">Create & run</button>
         </form>
@@ -692,7 +704,7 @@ const tasksHTML = `<!doctype html>
         <div class="section-header">
           <div>
             <h2 class="section-title">Task board</h2>
-            <p class="section-copy">A local board replacing the Linear dependency for solo project work.</p>
+            <p class="section-copy">Lane view for local tracker state, active runs, and follow-up review.</p>
           </div>
           <div class="queue-controls">
             <span class="state-badge" id="autoRunState">Auto-run</span>
@@ -787,14 +799,38 @@ const tasksHTML = `<!doctype html>
       return "state-badge";
     }
 
+    function compactTime(value) {
+      if (!value) return "no timestamp";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "bad timestamp";
+      return date.toLocaleString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+
+    function taskMeta(task) {
+      const labels = Array.isArray(task.labels) ? task.labels : [];
+      const chips = labels.length
+        ? labels.slice(0, 3).map(label => '<span class="task-chip">#' + escapeHTML(label) + '</span>').join("")
+        : '<span class="task-chip">no labels</span>';
+      const overflow = labels.length > 3 ? '<span class="task-chip">+' + escapeHTML(labels.length - 3) + '</span>' : "";
+      const priority = Number.isInteger(task.priority) ? '<span class="task-chip">P' + escapeHTML(task.priority) + '</span>' : "";
+      return '<div class="task-meta">' +
+        '<span class="task-chip">updated ' + escapeHTML(compactTime(task.updated_at || task.created_at)) + '</span>' +
+        priority +
+        chips +
+        overflow +
+      '</div>';
+    }
+
     function taskCard(task) {
       const desc = task.description ? '<p class="task-desc">' + escapeHTML(task.description) + '</p>' : '<p class="task-desc">No description.</p>';
-      return '<article class="task-card">' +
+      const selected = task.id === selectedTaskID || task.id === selectedPatchID ? " task-card-selected" : "";
+      return '<article class="task-card' + selected + '">' +
         '<div class="task-top">' +
-          '<div><div class="task-id">' + escapeHTML(task.identifier) + '</div><div class="task-title">' + escapeHTML(task.title) + '</div></div>' +
-          '<span class="' + badgeClass(task.state) + '">' + escapeHTML(task.state) + '</span>' +
+          '<div class="task-heading"><div class="task-id">' + escapeHTML(task.identifier) + '</div><div class="task-title">' + escapeHTML(task.title) + '</div></div>' +
+          '<span class="' + badgeClass(task.state) + '">' + escapeHTML(task.state || "Todo") + '</span>' +
         '</div>' +
         desc +
+        taskMeta(task) +
         '<div class="task-actions">' +
           '<button class="ghost" type="button" data-run="' + escapeHTML(task.id) + '">Run</button>' +
           '<button class="ghost" type="button" data-stream="' + escapeHTML(task.id) + '" data-identifier="' + escapeHTML(task.identifier) + '">Stream</button>' +
@@ -809,7 +845,7 @@ const tasksHTML = `<!doctype html>
       board.innerHTML = columns.map(column => {
         const items = tasks.filter(task => (task.state || "Todo") === column);
         return '<section class="board-column">' +
-          '<h3 class="column-title"><span>' + escapeHTML(column) + '</span><span>' + items.length + '</span></h3>' +
+          '<h3 class="column-title"><span>' + escapeHTML(column) + '</span><span class="column-count">' + items.length + '</span></h3>' +
           '<div class="task-list">' + (items.length ? items.map(taskCard).join("") : '<p class="empty-state">No tasks.</p>') + '</div>' +
         '</section>';
       }).join("");
@@ -867,11 +903,11 @@ const tasksHTML = `<!doctype html>
       }
       document.getElementById("patchSubtitle").textContent = "Workspace diff for " + selectedPatchIdentifier + ".";
       meta.innerHTML =
-        '<div><strong>State</strong><br>' + escapeHTML(packet.state || "n/a") + '</div>' +
-        '<div><strong>Workspace</strong><br><span class="mono">' + escapeHTML(packet.workspace_path || "n/a") + '</span></div>' +
-        '<div><strong>Status</strong><pre class="code-panel">' + escapeHTML(packet.git_status || "clean") + '</pre></div>' +
-        '<div><strong>Untracked</strong><br>' + escapeHTML((packet.untracked_files || []).join(", ") || "none") + '</div>' +
-        '<div><strong>Stat</strong><pre class="code-panel">' + escapeHTML(packet.diff_stat || "No tracked diff.") + '</pre></div>';
+        '<div class="patch-meta-card"><strong>State</strong><br>' + escapeHTML(packet.state || "n/a") + '</div>' +
+        '<div class="patch-meta-card"><strong>Workspace</strong><br><span class="mono">' + escapeHTML(packet.workspace_path || "n/a") + '</span></div>' +
+        '<div class="patch-meta-card"><strong>Status</strong><pre class="code-panel">' + escapeHTML(packet.git_status || "clean") + '</pre></div>' +
+        '<div class="patch-meta-card"><strong>Untracked</strong><br>' + escapeHTML((packet.untracked_files || []).join(", ") || "none") + '</div>' +
+        '<div class="patch-meta-card"><strong>Stat</strong><pre class="code-panel">' + escapeHTML(packet.diff_stat || "No tracked diff.") + '</pre></div>';
       diff.textContent = packet.patch || packet.tracked_diff || "No patch changes.";
     }
 

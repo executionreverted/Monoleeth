@@ -21,7 +21,7 @@ func TestHTTPDashboardTasksAndPresenterEndpoints(t *testing.T) {
 	defer server.Close()
 
 	root := getBody(t, server.URL+"/")
-	for _, want := range []string{"Symphony Observability", "Rate limits", "Running sessions", "Blocked sessions", "Retry queue"} {
+	for _, want := range []string{"Symphony Control", "Rate limits", "Running sessions", "Blocked sessions", "Retry queue"} {
 		if !strings.Contains(root, want) {
 			t.Fatalf("dashboard missing %q:\n%s", want, root)
 		}
