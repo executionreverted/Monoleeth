@@ -123,9 +123,9 @@ Keep MVP small:
 - [x] Implement aggregation order: base ship, flat modules, flat passives, role bonuses, percent modules, percent passives, buffs/debuffs, clamp.
 - [x] Implement stat snapshot version.
 - [x] Implement stat invalidation.
-- [ ] Implement `GetEffectiveStats`.
-- [ ] Cache active session stats behind explicit versioning.
-- [ ] Ensure broken equipped modules provide no stat.
+- [x] Implement `GetEffectiveStats`.
+- [x] Cache active session stats behind explicit versioning.
+- [x] Ensure broken equipped modules provide no stat.
 
 ## Tests
 
@@ -147,7 +147,7 @@ Keep MVP small:
 - [ ] Broken module equip fails.
 - [ ] Duplicate module equip fails.
 - [x] Stat aggregation is deterministic.
-- [ ] Broken equipped module is removed from effective stats.
+- [x] Broken equipped module is removed from effective stats.
 
 ## Abuse And Safety Checks
 
@@ -163,8 +163,8 @@ Keep MVP small:
 - [x] Player progression snapshot exists.
 - [ ] Starter ship flow exists.
 - [ ] Loadout and equip validation exists.
-- [ ] Effective stats are server-calculated.
-- [ ] Cargo capacity can be read from effective stats.
+- [x] Effective stats are server-calculated.
+- [x] Cargo capacity can be read from effective stats.
 - [ ] Combat and scanner can use stat snapshots next phase.
 - [ ] `go test ./...` passes.
 - [ ] `git diff --check` passes.
@@ -183,3 +183,4 @@ Verified slices:
 - Ship catalog, player ship state, and active ship state are implemented in `internal/game/ships`.
 - Module catalog validation and equipped module state are implemented in `internal/game/modules`.
 - Effective stat model, deterministic aggregation order, snapshot versioning, and invalidation state are implemented in `internal/game/stats`.
+- Stat service `GetEffectiveStats`, explicit active-session cache versioning, cargo capacity output, and broken-module exclusion are implemented in `internal/game/stats`.
