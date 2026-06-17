@@ -353,7 +353,14 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 
 	var xpResult *progression.GrantXPResult
 	var xpErr error
-	if service.progression != nil && drop.SourceType.eligibleForLootXP() {
+	reconciliation := newLootXPReconciliation(drop, input.PlayerID, service.clock.Now())
+	if !drop.SourceType.eligibleForLootXP() {
+		reconciliation.Status = LootXPReconciliationNotEligible
+	} else if service.progression == nil {
+		reconciliation.Status = LootXPReconciliationFailed
+		reconciliation.Error = ErrNilProgressionHook.Error()
+		xpErr = ErrNilProgressionHook
+	} else {
 		grant, err := service.progression.GrantXP(progression.GrantXPInput{
 			PlayerID:       input.PlayerID,
 			Amount:         5,
@@ -363,10 +370,20 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 		})
 		if err != nil {
 			xpErr = err
+			reconciliation.Status = LootXPReconciliationFailed
+			reconciliation.Error = err.Error()
 		} else {
 			xpResult = &grant
+			grantedAt := service.clock.Now()
+			reconciliation.GrantedAt = &grantedAt
+			if grant.Duplicate {
+				reconciliation.Status = LootXPReconciliationDuplicate
+			} else {
+				reconciliation.Status = LootXPReconciliationGranted
+			}
 		}
 	}
+	drop = service.recordXPReconciliation(input.DropID, reconciliation)
 
 	return PickupResult{
 		Drop:        cloneDrop(drop),
@@ -374,6 +391,29 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 		XPResult:    xpResult,
 		XPError:     xpErr,
 	}, nil
+}
+
+func (service *Service) recordXPReconciliation(dropID world.EntityID, reconciliation LootXPReconciliation) Drop {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	drop, ok := service.drops[dropID]
+	if !ok {
+		return Drop{ID: dropID, XPReconciliation: &reconciliation}
+	}
+	drop.XPReconciliation = &reconciliation
+	service.drops[dropID] = cloneDrop(drop)
+	return cloneDrop(drop)
+}
+
+func newLootXPReconciliation(drop Drop, playerID foundation.PlayerID, attemptedAt time.Time) LootXPReconciliation {
+	return LootXPReconciliation{
+		PlayerID:       playerID,
+		SourceType:     progression.XPSourceTypeLoot,
+		SourceID:       progression.XPSourceID(drop.ID.String()),
+		IdempotencyKey: progression.XPIdempotencyKey("loot_pickup:" + drop.ID.String()),
+		AttemptedAt:    attemptedAt,
+	}
 }
 
 func (service *Service) clearPendingClaim(dropID world.EntityID) {

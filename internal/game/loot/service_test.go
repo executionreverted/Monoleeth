@@ -118,6 +118,12 @@ func TestPickupDropOwnerLockPublicAndExpiredWindows(t *testing.T) {
 	if publicResult.XPResult == nil || publicResult.XPResult.Duplicate {
 		t.Fatalf("XPResult = %+v, want first loot XP grant", publicResult.XPResult)
 	}
+	assertLootXPReconciliation(t, publicResult.Drop, loot.LootXPReconciliationGranted, "")
+	storedPublicDrop, ok := service.Drop(publicResult.Drop.ID)
+	if !ok {
+		t.Fatalf("Drop(%q) ok = false, want true", publicResult.Drop.ID)
+	}
+	assertLootXPReconciliation(t, storedPublicDrop, loot.LootXPReconciliationGranted, "")
 	if _, err := progressionService.GrantXP(progression.GrantXPInput{
 		PlayerID:       "player_2",
 		Amount:         999,
@@ -174,6 +180,12 @@ func TestPickupDropReportsXPFailureWithoutUndoingClaimOrCargo(t *testing.T) {
 	if result.Drop.ClaimedAt == nil || result.Drop.ClaimedBy != drop.OwnerPlayerID {
 		t.Fatalf("drop claim = %+v, want claimed by owner", result.Drop)
 	}
+	assertLootXPReconciliation(t, result.Drop, loot.LootXPReconciliationFailed, "xp store unavailable")
+	storedDrop, ok := service.Drop(result.Drop.ID)
+	if !ok {
+		t.Fatalf("Drop(%q) ok = false, want true", result.Drop.ID)
+	}
+	assertLootXPReconciliation(t, storedDrop, loot.LootXPReconciliationFailed, "xp store unavailable")
 	if inventory.TotalItemQuantity(drop.OwnerPlayerID, rawOreDefinition(t).ItemID, cargoLocation) != drop.Quantity {
 		t.Fatal("cargo item was not added despite successful pickup")
 	}
@@ -238,6 +250,7 @@ func TestPlayerDeathDropPickupDoesNotGrantLootXP(t *testing.T) {
 	if pickup.XPResult != nil || pickup.XPError != nil {
 		t.Fatalf("player-death pickup XPResult = %+v XPError = %v, want no XP attempt", pickup.XPResult, pickup.XPError)
 	}
+	assertLootXPReconciliation(t, pickup.Drop, loot.LootXPReconciliationNotEligible, "")
 	if inventory.TotalItemQuantity("player_2", rawOreDefinition(t).ItemID, cargoLocation) != 2 {
 		t.Fatalf("cargo quantity from player-death drop mismatch")
 	}
@@ -470,6 +483,41 @@ func newLootService(t *testing.T, ints []int, floats []float64) (*loot.Service, 
 func createOneDrop(t *testing.T, service *loot.Service) loot.Drop {
 	t.Helper()
 	return createOneDropWithEvent(t, service, "npc_1")
+}
+
+func assertLootXPReconciliation(t *testing.T, drop loot.Drop, status loot.LootXPReconciliationStatus, wantError string) {
+	t.Helper()
+	if drop.XPReconciliation == nil {
+		t.Fatalf("drop %q XPReconciliation = nil, want %s", drop.ID, status)
+	}
+	reconciliation := drop.XPReconciliation
+	if reconciliation.Status != status {
+		t.Fatalf("drop %q XPReconciliation.Status = %q, want %q", drop.ID, reconciliation.Status, status)
+	}
+	if reconciliation.PlayerID != drop.ClaimedBy {
+		t.Fatalf("drop %q XPReconciliation.PlayerID = %q, want claimed by %q", drop.ID, reconciliation.PlayerID, drop.ClaimedBy)
+	}
+	if reconciliation.SourceType != progression.XPSourceTypeLoot {
+		t.Fatalf("drop %q XPReconciliation.SourceType = %q, want loot", drop.ID, reconciliation.SourceType)
+	}
+	if reconciliation.SourceID != progression.XPSourceID(drop.ID.String()) {
+		t.Fatalf("drop %q XPReconciliation.SourceID = %q, want drop id", drop.ID, reconciliation.SourceID)
+	}
+	if reconciliation.IdempotencyKey != progression.XPIdempotencyKey("loot_pickup:"+drop.ID.String()) {
+		t.Fatalf("drop %q XPReconciliation.IdempotencyKey = %q, want loot_pickup key", drop.ID, reconciliation.IdempotencyKey)
+	}
+	if reconciliation.AttemptedAt.IsZero() {
+		t.Fatalf("drop %q XPReconciliation.AttemptedAt is zero", drop.ID)
+	}
+	if wantError != "" && reconciliation.Error != wantError {
+		t.Fatalf("drop %q XPReconciliation.Error = %q, want %q", drop.ID, reconciliation.Error, wantError)
+	}
+	if wantError == "" && reconciliation.Error != "" {
+		t.Fatalf("drop %q XPReconciliation.Error = %q, want empty", drop.ID, reconciliation.Error)
+	}
+	if status == loot.LootXPReconciliationGranted && reconciliation.GrantedAt == nil {
+		t.Fatalf("drop %q XPReconciliation.GrantedAt = nil, want grant timestamp", drop.ID)
+	}
 }
 
 func createOneDropWithEvent(t *testing.T, service *loot.Service, npcID world.EntityID) loot.Drop {

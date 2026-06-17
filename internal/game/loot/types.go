@@ -32,6 +32,7 @@ var (
 	ErrPickupOutOfRange     = errors.New("loot pickup out of range")
 	ErrPickupNotVisible     = errors.New("loot pickup not visible")
 	ErrNilCargoService      = errors.New("nil cargo service")
+	ErrNilProgressionHook   = errors.New("nil progression hook")
 	ErrInvalidLootDurations = errors.New("invalid loot durations")
 	ErrInvalidScheduledTask = errors.New("invalid loot scheduled task")
 )
@@ -53,6 +54,15 @@ const (
 	DropStatePublic      DropState = "public"
 	DropStateExpired     DropState = "expired"
 	DropStateClaimed     DropState = "claimed"
+)
+
+type LootXPReconciliationStatus string
+
+const (
+	LootXPReconciliationNotEligible LootXPReconciliationStatus = "not_eligible"
+	LootXPReconciliationGranted     LootXPReconciliationStatus = "granted"
+	LootXPReconciliationDuplicate   LootXPReconciliationStatus = "duplicate"
+	LootXPReconciliationFailed      LootXPReconciliationStatus = "failed"
 )
 
 type ScheduledDropTaskKind string
@@ -95,8 +105,22 @@ type Drop struct {
 	SourceType DropSourceType
 	SourceID   world.EntityID
 
-	ClaimedBy foundation.PlayerID
-	ClaimedAt *time.Time
+	ClaimedBy        foundation.PlayerID
+	ClaimedAt        *time.Time
+	XPReconciliation *LootXPReconciliation
+}
+
+// LootXPReconciliation records the result of the optional loot XP grant for a
+// claimed drop so a later durable worker can audit or repair failed grants.
+type LootXPReconciliation struct {
+	Status         LootXPReconciliationStatus
+	PlayerID       foundation.PlayerID
+	SourceType     progression.XPSourceType
+	SourceID       progression.XPSourceID
+	IdempotencyKey progression.XPIdempotencyKey
+	AttemptedAt    time.Time
+	GrantedAt      *time.Time
+	Error          string
 }
 
 // DropItem is one server-calculated world drop item.
@@ -265,6 +289,14 @@ func cloneDrop(drop Drop) Drop {
 	if drop.ClaimedAt != nil {
 		claimedAt := *drop.ClaimedAt
 		clone.ClaimedAt = &claimedAt
+	}
+	if drop.XPReconciliation != nil {
+		reconciliation := *drop.XPReconciliation
+		if drop.XPReconciliation.GrantedAt != nil {
+			grantedAt := *drop.XPReconciliation.GrantedAt
+			reconciliation.GrantedAt = &grantedAt
+		}
+		clone.XPReconciliation = &reconciliation
 	}
 	return clone
 }

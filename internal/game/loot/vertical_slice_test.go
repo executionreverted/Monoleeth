@@ -205,6 +205,9 @@ func TestCombatKillLootPickupAndXPVerticalSlice(t *testing.T) {
 	if pickup.XPResult == nil {
 		t.Fatal("loot pickup XPResult = nil, want loot XP grant")
 	}
+	if pickup.Drop.XPReconciliation == nil || pickup.Drop.XPReconciliation.Status != loot.LootXPReconciliationGranted {
+		t.Fatalf("loot XP reconciliation = %+v, want granted", pickup.Drop.XPReconciliation)
+	}
 	if inventory.TotalItemQuantity("player_1", rawOreDefinition(t).ItemID, cargoLocation) != 3 {
 		t.Fatalf("cargo raw ore quantity mismatch")
 	}
