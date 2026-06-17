@@ -65,7 +65,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [x] Add shared error codes from `15-api-events-errors.md`.
 - [x] Add request envelope model with `request_id`, `op`, `payload`, `client_seq`, and version.
 - [x] Add response and error envelope model.
-- [ ] Add event envelope model with `event_id`, `type`, `payload`, `server_time`, and sequence.
+- [x] Add event envelope model with `event_id`, `type`, `payload`, `server_time`, and sequence.
 - [ ] Add idempotency key helper conventions for domain operations.
 - [ ] Add `catalog` package for versioned static definitions.
 - [ ] Add catalog version field helpers so recipes, quests, loot tables, and auction lots can remember source versions.
@@ -79,7 +79,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [x] Unit test error codes serialize without leaking internal details.
 - [x] Unit test fake clock can advance deterministically.
 - [x] Unit test fake RNG returns deterministic values.
-- [ ] Unit test event envelopes include event type, ID, sequence, and server time.
+- [x] Unit test event envelopes include event type, ID, sequence, and server time.
 - [ ] Unit test idempotency key helpers produce stable keys.
 - [x] Unit test gameplay packages do not import `internal/symphony`.
 
