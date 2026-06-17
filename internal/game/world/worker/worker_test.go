@@ -7,8 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"gameproject/internal/game/catalog"
+	"gameproject/internal/game/combat"
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
+	"gameproject/internal/game/progression"
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/spatial"
@@ -306,6 +310,34 @@ func TestDelayedTaskSchedulerDeduplicatesByTaskID(t *testing.T) {
 	}
 }
 
+func TestTickDispatchesDueScheduledTasksToRegisteredHandler(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	handler := &recordingScheduledTaskHandler{kind: "respawn"}
+	zoneWorker, err := NewWorker(Config{
+		WorldID:               "world-1",
+		ZoneID:                "zone-1",
+		TickDelta:             time.Second,
+		Clock:                 clock,
+		ScheduledTaskHandlers: []ScheduledTaskHandler{handler},
+	})
+	if err != nil {
+		t.Fatalf("NewWorker() error = %v", err)
+	}
+	if _, err := zoneWorker.ScheduleTask(ScheduledTask{ID: "respawn-1", DueAt: clock.Now().Add(time.Second), Kind: "respawn"}); err != nil {
+		t.Fatalf("ScheduleTask() error = %v", err)
+	}
+
+	clock.Advance(time.Second)
+	result := zoneWorker.Tick()
+
+	if len(result.ScheduledTaskErrors) != 0 {
+		t.Fatalf("ScheduledTaskErrors = %+v, want none", result.ScheduledTaskErrors)
+	}
+	if got, want := taskIDs(handler.tasks), []string{"respawn-1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("handled task ids = %v, want %v", got, want)
+	}
+}
+
 func TestScheduleLootDropTasksMapsDueTasksToLootContract(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	zoneWorker, err := NewWorker(Config{
@@ -367,6 +399,52 @@ func TestScheduleLootDropTasksMapsDueTasksToLootContract(t *testing.T) {
 	}
 }
 
+func TestTickDispatchesLootScheduledTasksThroughLootService(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	lootService := newWorkerLootService(t, clock)
+	recorder := testutil.NewEventRecorder()
+	lootService.SetEventEmitter(recorder)
+	created, err := lootService.CreateDropsForNPCKill(workerNPCKilledEvent(), workerLootTable(t))
+	if err != nil {
+		t.Fatalf("CreateDropsForNPCKill() error = %v", err)
+	}
+	testutil.AssertRecordedEventTypes(t, recorder, loot.EventLootCreated)
+	recorder.Reset()
+
+	handler, err := NewLootScheduledTaskHandler(lootService)
+	if err != nil {
+		t.Fatalf("NewLootScheduledTaskHandler() error = %v", err)
+	}
+	zoneWorker, err := NewWorker(Config{
+		WorldID:               "world-1",
+		ZoneID:                "zone-1",
+		TickDelta:             time.Second,
+		Clock:                 clock,
+		ScheduledTaskHandlers: []ScheduledTaskHandler{handler},
+	})
+	if err != nil {
+		t.Fatalf("NewWorker() error = %v", err)
+	}
+	if _, err := zoneWorker.ScheduleLootDropTasks(created.ScheduledTasks); err != nil {
+		t.Fatalf("ScheduleLootDropTasks() error = %v", err)
+	}
+
+	clock.Advance(loot.DefaultOwnerLockDuration)
+	result := zoneWorker.Tick()
+	if len(result.ScheduledTaskErrors) != 0 {
+		t.Fatalf("owner-lock ScheduledTaskErrors = %+v, want none", result.ScheduledTaskErrors)
+	}
+	testutil.AssertRecordedEventTypes(t, recorder, loot.EventLootOwnerLockExpired)
+	recorder.Reset()
+
+	clock.Advance(loot.DefaultTotalLifetime - loot.DefaultOwnerLockDuration)
+	result = zoneWorker.Tick()
+	if len(result.ScheduledTaskErrors) != 0 {
+		t.Fatalf("despawn ScheduledTaskErrors = %+v, want none", result.ScheduledTaskErrors)
+	}
+	testutil.AssertRecordedEventTypes(t, recorder, loot.EventLootExpired)
+}
+
 func TestScheduleLootDropTasksRejectsInvalidLootTask(t *testing.T) {
 	zoneWorker := newTestWorker(t, time.Second)
 
@@ -392,6 +470,21 @@ func TestScheduleLootDropTasksRejectsInvalidLootTask(t *testing.T) {
 	if err == nil {
 		t.Fatal("ScheduleLootDropTasks(empty drop) error = nil, want validation error")
 	}
+}
+
+type recordingScheduledTaskHandler struct {
+	kind  string
+	tasks []ScheduledTask
+	err   error
+}
+
+func (handler *recordingScheduledTaskHandler) HandlesScheduledTaskKind(kind string) bool {
+	return kind == handler.kind
+}
+
+func (handler *recordingScheduledTaskHandler) HandleScheduledTask(task ScheduledTask) error {
+	handler.tasks = append(handler.tasks, task)
+	return handler.err
 }
 
 func newTestWorker(t *testing.T, tickDelta time.Duration) *Worker {
@@ -468,6 +561,74 @@ func exportedFieldNames(structType reflect.Type) []string {
 		}
 	}
 	return fields
+}
+
+func newWorkerLootService(t *testing.T, clock *testutil.FakeClock) *loot.Service {
+	t.Helper()
+	inventory := economy.NewInventoryService(clock)
+	service, err := loot.NewService(loot.Config{
+		Clock:       clock,
+		Cargo:       economy.NewCargoService(inventory),
+		Progression: progression.NewProgressionService(clock, nil),
+		RNG:         testutil.NewFakeRNG([]int{0}, []float64{0}),
+	})
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	return service
+}
+
+func workerNPCKilledEvent() combat.NPCKilledEvent {
+	return combat.NPCKilledEvent{
+		SourceID:      "npc-1",
+		NPCEntityID:   "npc-1",
+		WorldID:       "world-1",
+		ZoneID:        "zone-1",
+		Position:      world.Vec2{X: 10, Y: 0},
+		OwnerPlayerID: "player-1",
+		KilledAt:      time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+	}
+}
+
+func workerLootTable(t *testing.T) loot.LootTable {
+	t.Helper()
+	source, err := catalog.NewLootTableSource("worker_loot_table", "v1")
+	if err != nil {
+		t.Fatalf("NewLootTableSource() error = %v", err)
+	}
+	itemSource, err := catalog.NewVersionedDefinitionFromStrings("raw_ore", "v1")
+	if err != nil {
+		t.Fatalf("NewVersionedDefinitionFromStrings() error = %v", err)
+	}
+	maxStack, err := foundation.NewQuantity(999)
+	if err != nil {
+		t.Fatalf("NewQuantity(max) error = %v", err)
+	}
+	weight, err := foundation.NewQuantity(1)
+	if err != nil {
+		t.Fatalf("NewQuantity(weight) error = %v", err)
+	}
+	item, err := economy.NewItemDefinition(
+		itemSource,
+		"raw_ore",
+		"Raw Ore",
+		economy.ItemTypeStackable,
+		economy.ItemRarityCommon,
+		maxStack,
+		weight,
+		[]economy.TradeFlag{economy.TradeFlagDroppable},
+		[]economy.BindRule{economy.BindRuleNone},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewItemDefinition() error = %v", err)
+	}
+	return loot.LootTable{
+		Source: source,
+		Rows: []loot.LootRow{
+			{ItemDefinition: item, MinQuantity: 1, MaxQuantity: 1, Chance: 1},
+		},
+	}
 }
 
 func taskIDs(tasks []ScheduledTask) []string {

@@ -44,12 +44,13 @@ var (
 
 // Config defines a single zone worker.
 type Config struct {
-	WorldID         world.WorldID
-	ZoneID          world.ZoneID
-	TickDelta       time.Duration
-	SpatialCellSize float64
-	Mailbox         Mailbox
-	Clock           foundation.Clock
+	WorldID               world.WorldID
+	ZoneID                world.ZoneID
+	TickDelta             time.Duration
+	SpatialCellSize       float64
+	Mailbox               Mailbox
+	Clock                 foundation.Clock
+	ScheduledTaskHandlers []ScheduledTaskHandler
 }
 
 // Worker is a single-owner in-process simulation harness for one zone.
@@ -71,15 +72,17 @@ type Worker struct {
 	sessionPlayers map[realtime.SessionID]foundation.PlayerID
 	playerSessions map[foundation.PlayerID]map[realtime.SessionID]struct{}
 
-	scheduler delayedScheduler
+	scheduler             delayedScheduler
+	scheduledTaskHandlers []ScheduledTaskHandler
 }
 
 // TickResult describes one deterministic worker tick.
 type TickResult struct {
-	Tick            uint64
-	DrainedCommands int
-	CommandErrors   []CommandError
-	DueTasks        []ScheduledTask
+	Tick                uint64
+	DrainedCommands     int
+	CommandErrors       []CommandError
+	DueTasks            []ScheduledTask
+	ScheduledTaskErrors []ScheduledTaskError
 }
 
 // CommandError records a command failure without stopping the rest of the drain.
@@ -94,6 +97,18 @@ type ScheduledTask struct {
 	DueAt     time.Time
 	Kind      string
 	SubjectID string
+}
+
+// ScheduledTaskError records a due task handler failure without stopping the tick.
+type ScheduledTaskError struct {
+	Task ScheduledTask
+	Err  error
+}
+
+// ScheduledTaskHandler applies domain-owned effects for due worker tasks.
+type ScheduledTaskHandler interface {
+	HandlesScheduledTaskKind(kind string) bool
+	HandleScheduledTask(task ScheduledTask) error
 }
 
 // Snapshot is a deterministic copy of worker-owned state.
@@ -142,21 +157,27 @@ func NewWorker(config Config) (*Worker, error) {
 	if clock == nil {
 		clock = foundation.RealClock{}
 	}
+	for _, handler := range config.ScheduledTaskHandlers {
+		if handler == nil {
+			return nil, fmt.Errorf("scheduled task handler: %w", ErrInvalidWorkerConfig)
+		}
+	}
 
 	return &Worker{
-		worldID:        config.WorldID,
-		zoneID:         config.ZoneID,
-		tickDelta:      tickDelta,
-		mailbox:        mailbox,
-		clock:          clock,
-		index:          index,
-		entities:       make(map[world.EntityID]world.Entity),
-		entitySpeeds:   make(map[world.EntityID]float64),
-		playerEntities: make(map[foundation.PlayerID]world.EntityID),
-		entityPlayers:  make(map[world.EntityID]foundation.PlayerID),
-		sessionPlayers: make(map[realtime.SessionID]foundation.PlayerID),
-		playerSessions: make(map[foundation.PlayerID]map[realtime.SessionID]struct{}),
-		scheduler:      newDelayedScheduler(),
+		worldID:               config.WorldID,
+		zoneID:                config.ZoneID,
+		tickDelta:             tickDelta,
+		mailbox:               mailbox,
+		clock:                 clock,
+		index:                 index,
+		entities:              make(map[world.EntityID]world.Entity),
+		entitySpeeds:          make(map[world.EntityID]float64),
+		playerEntities:        make(map[foundation.PlayerID]world.EntityID),
+		entityPlayers:         make(map[world.EntityID]foundation.PlayerID),
+		sessionPlayers:        make(map[realtime.SessionID]foundation.PlayerID),
+		playerSessions:        make(map[foundation.PlayerID]map[realtime.SessionID]struct{}),
+		scheduler:             newDelayedScheduler(),
+		scheduledTaskHandlers: append([]ScheduledTaskHandler(nil), config.ScheduledTaskHandlers...),
 	}, nil
 }
 
@@ -201,6 +222,7 @@ func (worker *Worker) Tick() TickResult {
 
 	result.CommandErrors = append(result.CommandErrors, worker.advanceMovement()...)
 	result.DueTasks = worker.scheduler.drainDue(worker.clock.Now())
+	result.ScheduledTaskErrors = worker.dispatchScheduledTasks(result.DueTasks)
 	worker.tick++
 	return result
 }
@@ -304,6 +326,33 @@ func (worker *Worker) ScheduleTask(task ScheduledTask) (ScheduledTask, error) {
 	}
 	worker.scheduler.schedule(task)
 	return task, nil
+}
+
+func (worker *Worker) dispatchScheduledTasks(tasks []ScheduledTask) []ScheduledTaskError {
+	if len(tasks) == 0 || len(worker.scheduledTaskHandlers) == 0 {
+		return nil
+	}
+
+	errs := make([]ScheduledTaskError, 0)
+	for _, task := range tasks {
+		handler, ok := worker.scheduledTaskHandler(task.Kind)
+		if !ok {
+			continue
+		}
+		if err := handler.HandleScheduledTask(task); err != nil {
+			errs = append(errs, ScheduledTaskError{Task: task, Err: err})
+		}
+	}
+	return errs
+}
+
+func (worker *Worker) scheduledTaskHandler(kind string) (ScheduledTaskHandler, bool) {
+	for _, handler := range worker.scheduledTaskHandlers {
+		if handler.HandlesScheduledTaskKind(kind) {
+			return handler, true
+		}
+	}
+	return nil, false
 }
 
 func (worker *Worker) insertEntity(entity world.Entity, serverSpeed float64) error {

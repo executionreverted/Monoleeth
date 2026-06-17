@@ -1,11 +1,50 @@
 package worker
 
 import (
+	"errors"
 	"fmt"
 
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/world"
 )
+
+var ErrNilLootService = errors.New("nil loot service")
+
+// LootScheduledTaskHandler dispatches due loot tasks to the loot service.
+type LootScheduledTaskHandler struct {
+	service *loot.Service
+}
+
+// NewLootScheduledTaskHandler returns a worker scheduled-task handler for loot.
+func NewLootScheduledTaskHandler(service *loot.Service) (LootScheduledTaskHandler, error) {
+	if service == nil {
+		return LootScheduledTaskHandler{}, ErrNilLootService
+	}
+	return LootScheduledTaskHandler{service: service}, nil
+}
+
+// HandlesScheduledTaskKind reports whether kind belongs to the loot scheduler.
+func (handler LootScheduledTaskHandler) HandlesScheduledTaskKind(kind string) bool {
+	switch loot.ScheduledDropTaskKind(kind) {
+	case loot.ScheduledDropTaskOwnerLockExpired, loot.ScheduledDropTaskDespawn:
+		return true
+	default:
+		return false
+	}
+}
+
+// HandleScheduledTask applies one due loot task through LootService.
+func (handler LootScheduledTaskHandler) HandleScheduledTask(task ScheduledTask) error {
+	if handler.service == nil {
+		return ErrNilLootService
+	}
+	lootTask, ok := LootScheduledDropTask(task)
+	if !ok {
+		return fmt.Errorf("loot scheduled task %q: %w", task.Kind, ErrInvalidWorkerConfig)
+	}
+	_, err := handler.service.HandleScheduledDropTask(lootTask)
+	return err
+}
 
 // ScheduleLootDropTasks maps loot-owned delayed work into the worker's local
 // scheduler. The worker owns timing; loot.Service owns side effects.
