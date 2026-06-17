@@ -56,7 +56,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 
 ## TODO
 
-- [ ] Create `internal/game/foundation` package.
+- [x] Create `internal/game/foundation` package.
 - [ ] Add typed identifiers for player, account, world, zone, entity, item, ship, module, quest, planet, route, listing, auction, event, and request.
 - [ ] Add a small `Clock` interface with real and fake implementations.
 - [ ] Add an RNG interface with deterministic test implementation.
@@ -71,7 +71,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [ ] Add catalog version field helpers so recipes, quests, loot tables, and auction lots can remember source versions.
 - [ ] Add in-memory event recorder for service tests.
 - [ ] Add test helpers for fake clock, fake RNG, and assertion of emitted events.
-- [ ] Document package boundaries in a short `internal/game/README.md`.
+- [x] Document package boundaries in a short `internal/game/README.md`.
 
 ## Tests
 
@@ -81,7 +81,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [ ] Unit test fake RNG returns deterministic values.
 - [ ] Unit test event envelopes include event type, ID, sequence, and server time.
 - [ ] Unit test idempotency key helpers produce stable keys.
-- [ ] Unit test gameplay packages do not import `internal/symphony`.
+- [x] Unit test gameplay packages do not import `internal/symphony`.
 
 ## Abuse And Safety Checks
 
@@ -92,10 +92,10 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 
 ## Done Criteria
 
-- [ ] Foundation packages compile.
+- [x] Foundation packages compile.
 - [ ] Tests for foundation helpers pass.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] `go test ./...` passes.
+- [x] `git diff --check` passes.
 - [ ] Later phase files can reference foundation primitives instead of defining their own.
 
 ## Resume Notes
