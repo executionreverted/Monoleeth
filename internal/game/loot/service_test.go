@@ -177,6 +177,72 @@ func TestPickupDropReportsXPFailureWithoutUndoingClaimOrCargo(t *testing.T) {
 	}
 }
 
+func TestPlayerDeathDropPickupDoesNotGrantLootXP(t *testing.T) {
+	service, _, inventory, progressionService := newLootService(t, nil, nil)
+	result, err := service.CreateDropsForPlayerDeath(loot.CreatePlayerDeathDropsInput{
+		SourceID:      "death_event_1",
+		DeadPlayerID:  "player_dead",
+		OwnerPlayerID: "player_2",
+		WorldID:       "world_1",
+		ZoneID:        "zone_1",
+		Position:      world.Vec2{X: 10, Y: 0},
+		Items: []loot.DropItem{
+			{ItemDefinition: rawOreDefinition(t), Quantity: 2},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateDropsForPlayerDeath() error = %v", err)
+	}
+	if len(result.Drops) != 1 {
+		t.Fatalf("player-death drops len = %d, want 1", len(result.Drops))
+	}
+	if result.Drops[0].SourceType != loot.DropSourcePlayerDeath {
+		t.Fatalf("SourceType = %q, want player_death", result.Drops[0].SourceType)
+	}
+	duplicate, err := service.CreateDropsForPlayerDeath(loot.CreatePlayerDeathDropsInput{
+		SourceID:      "death_event_1",
+		DeadPlayerID:  "player_dead",
+		OwnerPlayerID: "player_2",
+		WorldID:       "world_1",
+		ZoneID:        "zone_1",
+		Position:      world.Vec2{X: 10, Y: 0},
+		Items: []loot.DropItem{
+			{ItemDefinition: rawOreDefinition(t), Quantity: 99},
+		},
+	})
+	if err != nil {
+		t.Fatalf("duplicate CreateDropsForPlayerDeath() error = %v", err)
+	}
+	if !duplicate.Duplicate || len(duplicate.Drops) != 1 || duplicate.Drops[0].Quantity != 2 {
+		t.Fatalf("duplicate player-death result = %+v, want original drop without new quantity", duplicate)
+	}
+
+	cargoLocation := mustCargoLocation(t, "ship_1")
+	pickup, err := service.PickupDrop(loot.PickupInput{
+		PlayerID:           "player_2",
+		DropID:             result.Drops[0].ID,
+		Viewer:             viewerAt(result.Drops[0].Position),
+		ActiveCargo:        cargoLocation,
+		CargoCapacityUnits: 100,
+	})
+	if err != nil {
+		t.Fatalf("PickupDrop(player death) error = %v", err)
+	}
+	if pickup.XPResult != nil || pickup.XPError != nil {
+		t.Fatalf("player-death pickup XPResult = %+v XPError = %v, want no XP attempt", pickup.XPResult, pickup.XPError)
+	}
+	if inventory.TotalItemQuantity("player_2", rawOreDefinition(t).ItemID, cargoLocation) != 2 {
+		t.Fatalf("cargo quantity from player-death drop mismatch")
+	}
+	snapshot, err := progressionService.GetProgressionSnapshot("player_2")
+	if err != nil {
+		t.Fatalf("GetProgressionSnapshot() error = %v", err)
+	}
+	if snapshot.Player.MainXP != 0 {
+		t.Fatalf("player_2 main XP after player-death pickup = %d, want 0", snapshot.Player.MainXP)
+	}
+}
+
 func TestPickupDropRejectsFarHiddenAndCargoFullWithoutClaim(t *testing.T) {
 	service, _, _, _ := newLootService(t, []int{0, 0, 0}, []float64{0, 0, 0})
 	cargoLocation := mustCargoLocation(t, "ship_1")

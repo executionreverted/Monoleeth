@@ -99,6 +99,24 @@ type Drop struct {
 	ClaimedAt *time.Time
 }
 
+// DropItem is one server-calculated world drop item.
+type DropItem struct {
+	ItemDefinition economy.ItemDefinition
+	Quantity       int64
+}
+
+// CreatePlayerDeathDropsInput describes DeathService-owned cargo loss already
+// resolved into concrete item stacks. Loot only creates world drops.
+type CreatePlayerDeathDropsInput struct {
+	SourceID      world.EntityID
+	DeadPlayerID  foundation.PlayerID
+	OwnerPlayerID foundation.PlayerID
+	WorldID       world.WorldID
+	ZoneID        world.ZoneID
+	Position      world.Vec2
+	Items         []DropItem
+}
+
 // DropPayload is the client-safe drop shape after visibility filtering.
 type DropPayload struct {
 	ID        world.EntityID    `json:"drop_id"`
@@ -148,6 +166,48 @@ type PickupResult struct {
 	// XPError is non-fatal: pickup/cargo/claim succeeded, but the optional XP
 	// grant hook failed and should be reconciled by a later durable reward flow.
 	XPError error
+}
+
+func (item DropItem) validate() error {
+	if err := item.ItemDefinition.Validate(); err != nil {
+		return err
+	}
+	if item.Quantity <= 0 {
+		return fmt.Errorf("quantity %d: %w", item.Quantity, ErrInvalidLootRow)
+	}
+	return nil
+}
+
+func (input CreatePlayerDeathDropsInput) validate() error {
+	if err := input.SourceID.Validate(); err != nil {
+		return err
+	}
+	if err := input.DeadPlayerID.Validate(); err != nil {
+		return err
+	}
+	if !input.OwnerPlayerID.IsZero() {
+		if err := input.OwnerPlayerID.Validate(); err != nil {
+			return err
+		}
+	}
+	if err := input.WorldID.Validate(); err != nil {
+		return err
+	}
+	if err := input.ZoneID.Validate(); err != nil {
+		return err
+	}
+	if err := input.Position.Validate(); err != nil {
+		return err
+	}
+	if len(input.Items) == 0 {
+		return ErrInvalidLootTable
+	}
+	for _, item := range input.Items {
+		if err := item.validate(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (table LootTable) validate() error {

@@ -207,6 +207,61 @@ func (service *Service) CreateDropsForNPCKill(event combat.NPCKilledEvent, table
 	return CreateDropsResult{Drops: cloneDrops(drops), ScheduledTasks: cloneScheduledDropTasks(scheduledTasks)}, nil
 }
 
+// CreateDropsForPlayerDeath creates concrete death drops once for a
+// DeathService-owned source event. Player-death drops are not eligible for loot XP.
+func (service *Service) CreateDropsForPlayerDeath(input CreatePlayerDeathDropsInput) (CreateDropsResult, error) {
+	if err := input.validate(); err != nil {
+		return CreateDropsResult{}, err
+	}
+
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
+	service.mu.Lock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+
+	key := sourceKey{sourceType: DropSourcePlayerDeath, sourceID: input.SourceID}
+	if existingIDs, ok := service.sourceDrops[key]; ok {
+		return CreateDropsResult{Drops: service.dropsForIDsLocked(existingIDs), Duplicate: true}, nil
+	}
+
+	now := service.clock.Now()
+	service.sourceDrops[key] = make([]world.EntityID, 0, len(input.Items))
+	drops := make([]Drop, 0, len(input.Items))
+	scheduledTasks := make([]ScheduledDropTask, 0, len(input.Items)*2)
+	for _, item := range input.Items {
+		drop := Drop{
+			ID:             service.nextDropID(),
+			WorldID:        input.WorldID,
+			ZoneID:         input.ZoneID,
+			Position:       input.Position,
+			ItemDefinition: item.ItemDefinition,
+			Quantity:       item.Quantity,
+			OwnerPlayerID:  input.OwnerPlayerID,
+			OwnerLockUntil: now.Add(service.ownerLockDuration),
+			PublicUntil:    now.Add(service.ownerLockDuration + service.publicDuration),
+			ExpiresAt:      now.Add(service.totalLifetime),
+			CreatedAt:      now,
+			SourceType:     DropSourcePlayerDeath,
+			SourceID:       input.SourceID,
+		}
+		service.drops[drop.ID] = cloneDrop(drop)
+		service.sourceDrops[key] = append(service.sourceDrops[key], drop.ID)
+		drops = append(drops, drop)
+		scheduledTasks = append(scheduledTasks, scheduledDropTasks(drop)...)
+	}
+
+	emitter = service.emitter
+	if emitter != nil {
+		for _, drop := range drops {
+			emitted = append(emitted, service.newEventLocked(EventLootCreated, dropPayload(drop, now), now))
+		}
+	}
+	return CreateDropsResult{Drops: cloneDrops(drops), ScheduledTasks: cloneScheduledDropTasks(scheduledTasks)}, nil
+}
+
 // PickupDrop validates ownership, visibility, range, cargo capacity, and claims one drop.
 func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 	if err := input.PlayerID.Validate(); err != nil {
