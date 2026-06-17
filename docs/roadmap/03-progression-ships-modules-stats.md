@@ -82,9 +82,9 @@ Keep MVP small:
 - [x] Implement rank history.
 - [x] Grant one pilot skill point on rank up.
 - [x] Emit stat invalidation on rank up and role level up.
-- [ ] Implement `UnlockPilotSkill`.
-- [ ] Implement pilot skill prerequisite validation.
-- [ ] Implement pilot skill respec skeleton.
+- [x] Implement `UnlockPilotSkill`.
+- [x] Implement pilot skill prerequisite validation.
+- [x] Implement pilot skill respec skeleton.
 
 ## TODO: Ships And Hangar
 
@@ -133,9 +133,9 @@ Keep MVP small:
 - [x] Main level threshold works.
 - [x] Role level threshold works.
 - [x] Rank up double-click grants one rank and one skill point.
-- [ ] Locked skill node cannot be unlocked.
-- [ ] Skill unlock consumes points once.
-- [ ] Respec invalidates stat snapshot.
+- [x] Locked skill node cannot be unlocked.
+- [x] Skill unlock consumes points once.
+- [x] Respec invalidates stat snapshot.
 - [x] Starter ship always exists.
 - [x] Duplicate ship unlock is no-op.
 - [x] Swap in combat fails.
@@ -153,7 +153,7 @@ Keep MVP small:
 
 - [ ] Client cannot spoof XP source completion.
 - [x] Client cannot spoof rank milestone.
-- [ ] Client cannot unlock hidden or locked skill node.
+- [x] Client cannot unlock hidden or locked skill node.
 - [x] Client cannot activate locked ship.
 - [x] Client cannot bypass cargo capacity via ship swap.
 - [x] Client cannot inject module stats or tier metadata.
@@ -187,3 +187,4 @@ Verified slices:
 - Starter guarantee, idempotent ship unlock, active ship selection, safe-area/combat/disabled/cargo swap validation, and active-ship stat invalidation signal are implemented in `internal/game/ships`.
 - Loadout model, `SaveLoadout`, `ApplyLoadout`, ownership/location/slot/rank/role/durability/duplicate-instance validation, and equip invalidation signals are implemented in `internal/game/modules`.
 - Progression `GrantXP`, role XP, XP source/idempotency uniqueness, `TryRankUp`, rank history, rank-up skill point grant, and progression stat invalidation signals are implemented in `internal/game/progression`.
+- Pilot skill definitions, `UnlockPilotSkill`, prerequisite/rank/role/point validation, duplicate unlock safety, and respec stat invalidation signals are implemented in `internal/game/progression`.

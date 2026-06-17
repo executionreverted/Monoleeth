@@ -244,6 +244,128 @@ func (service *ProgressionService) TryRankUp(input TryRankUpInput) (TryRankUpRes
 	}, nil
 }
 
+// UnlockPilotSkill unlocks one server-owned passive pilot skill node.
+func (service *ProgressionService) UnlockPilotSkill(input UnlockPilotSkillInput) (UnlockPilotSkillResult, error) {
+	if err := input.validate(); err != nil {
+		return UnlockPilotSkillResult{}, err
+	}
+	definition, err := PilotSkillDefinitionFor(input.NodeID)
+	if err != nil {
+		return UnlockPilotSkillResult{}, err
+	}
+	if err := definition.Validate(); err != nil {
+		return UnlockPilotSkillResult{}, err
+	}
+
+	service.store.mu.Lock()
+	defer service.store.mu.Unlock()
+
+	now := service.clock.Now()
+	if err := service.store.ensurePlayerLocked(input.PlayerID, now); err != nil {
+		return UnlockPilotSkillResult{}, err
+	}
+
+	if _, ok := service.store.unlockedNodes[input.PlayerID][input.NodeID]; ok {
+		snapshot, err := service.store.snapshotLocked(input.PlayerID)
+		if err != nil {
+			return UnlockPilotSkillResult{}, err
+		}
+		return UnlockPilotSkillResult{
+			Snapshot:  snapshot,
+			Node:      definition,
+			Duplicate: true,
+		}, nil
+	}
+
+	snapshot, err := service.store.snapshotLocked(input.PlayerID)
+	if err != nil {
+		return UnlockPilotSkillResult{}, err
+	}
+	if err := validatePilotSkillUnlock(snapshot, definition); err != nil {
+		return UnlockPilotSkillResult{}, err
+	}
+
+	skillPoints := service.store.skillPoints[input.PlayerID]
+	skillPoints.SpentPoints += definition.CostPoints
+	skillPoints.UpdatedAt = now
+	service.store.skillPoints[input.PlayerID] = skillPoints
+	service.store.unlockedNodes[input.PlayerID][input.NodeID] = UnlockedSkillNodeState{
+		PlayerID:   input.PlayerID,
+		NodeID:     input.NodeID,
+		UnlockedAt: now,
+	}
+
+	signal := StatInvalidationSignal{
+		PlayerID:  input.PlayerID,
+		Reason:    StatInvalidationReasonPilotSkillUnlocked,
+		NodeID:    input.NodeID,
+		CreatedAt: now,
+	}
+	service.store.appendStatInvalidationSignalsLocked(input.PlayerID, []StatInvalidationSignal{signal})
+
+	snapshot, err = service.store.snapshotLocked(input.PlayerID)
+	if err != nil {
+		return UnlockPilotSkillResult{}, err
+	}
+	return UnlockPilotSkillResult{
+		Snapshot:                snapshot,
+		Node:                    definition,
+		Unlocked:                true,
+		StatInvalidationSignals: []StatInvalidationSignal{signal},
+	}, nil
+}
+
+// RespecPilotSkills clears unlocked passive nodes and refunds spent points.
+func (service *ProgressionService) RespecPilotSkills(input RespecPilotSkillsInput) (RespecPilotSkillsResult, error) {
+	if err := input.validate(); err != nil {
+		return RespecPilotSkillsResult{}, err
+	}
+
+	service.store.mu.Lock()
+	defer service.store.mu.Unlock()
+
+	now := service.clock.Now()
+	if err := service.store.ensurePlayerLocked(input.PlayerID, now); err != nil {
+		return RespecPilotSkillsResult{}, err
+	}
+
+	clearedNodeIDs := make([]SkillNodeID, 0, len(service.store.unlockedNodes[input.PlayerID]))
+	for nodeID := range service.store.unlockedNodes[input.PlayerID] {
+		clearedNodeIDs = append(clearedNodeIDs, nodeID)
+	}
+	sort.Slice(clearedNodeIDs, func(i, j int) bool {
+		return clearedNodeIDs[i] < clearedNodeIDs[j]
+	})
+
+	skillPoints := service.store.skillPoints[input.PlayerID]
+	refundedPoints := skillPoints.SpentPoints
+	skillPoints.SpentPoints = 0
+	skillPoints.UpdatedAt = now
+	service.store.skillPoints[input.PlayerID] = skillPoints
+	service.store.unlockedNodes[input.PlayerID] = make(map[SkillNodeID]UnlockedSkillNodeState)
+
+	signal := StatInvalidationSignal{
+		PlayerID:              input.PlayerID,
+		Reason:                StatInvalidationReasonPilotSkillsRespecced,
+		RefundedSkillPoints:   refundedPoints,
+		ClearedSkillNodeCount: len(clearedNodeIDs),
+		CreatedAt:             now,
+	}
+	service.store.appendStatInvalidationSignalsLocked(input.PlayerID, []StatInvalidationSignal{signal})
+
+	snapshot, err := service.store.snapshotLocked(input.PlayerID)
+	if err != nil {
+		return RespecPilotSkillsResult{}, err
+	}
+	return RespecPilotSkillsResult{
+		Snapshot:                snapshot,
+		Respecced:               true,
+		RefundedPoints:          refundedPoints,
+		ClearedNodeIDs:          append([]SkillNodeID(nil), clearedNodeIDs...),
+		StatInvalidationSignals: []StatInvalidationSignal{signal},
+	}, nil
+}
+
 // GetProgressionSnapshot returns the current player progression snapshot.
 func (service *ProgressionService) GetProgressionSnapshot(playerID foundation.PlayerID) (ProgressionSnapshot, error) {
 	if err := playerID.Validate(); err != nil {
@@ -330,12 +452,53 @@ func (input TryRankUpInput) validate() error {
 	return nil
 }
 
+func (input UnlockPilotSkillInput) validate() error {
+	if err := input.PlayerID.Validate(); err != nil {
+		return err
+	}
+	if err := input.NodeID.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (input RespecPilotSkillsInput) validate() error {
+	if err := input.PlayerID.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (grant RoleXPGrant) validate() error {
 	if err := grant.Role.Validate(); err != nil {
 		return err
 	}
 	if grant.Amount < 0 {
 		return fmt.Errorf("role %q xp amount %d: %w", grant.Role, grant.Amount, ErrInvalidXPGrantAmount)
+	}
+	return nil
+}
+
+func validatePilotSkillUnlock(snapshot ProgressionSnapshot, definition PilotSkillDefinition) error {
+	for _, prerequisite := range definition.PrerequisiteNodes {
+		if !snapshot.HasUnlockedSkillNode(prerequisite) {
+			return fmt.Errorf("node %q prerequisite %q: %w", definition.NodeID, prerequisite, ErrMissingSkillPrerequisite)
+		}
+	}
+	if snapshot.Player.Rank < definition.RankRequirement {
+		return fmt.Errorf("node %q rank %d requires %d: %w", definition.NodeID, snapshot.Player.Rank, definition.RankRequirement, ErrRankRequirementNotMet)
+	}
+	if !definition.RoleRequirement.IsZero() {
+		roleLevel := MinProgressionLevel
+		if state, ok := snapshot.RoleLevel(definition.RoleRequirement); ok {
+			roleLevel = state.Level
+		}
+		if roleLevel < definition.RoleLevelRequirement {
+			return fmt.Errorf("node %q role %q level %d requires %d: %w", definition.NodeID, definition.RoleRequirement, roleLevel, definition.RoleLevelRequirement, ErrRoleRequirementNotMet)
+		}
+	}
+	if snapshot.SkillPoints.AvailablePoints() < definition.CostPoints {
+		return fmt.Errorf("node %q available points %d requires %d: %w", definition.NodeID, snapshot.SkillPoints.AvailablePoints(), definition.CostPoints, ErrNotEnoughSkillPoints)
 	}
 	return nil
 }

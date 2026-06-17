@@ -77,6 +77,35 @@ type TryRankUpResult struct {
 	StatInvalidationSignals []StatInvalidationSignal `json:"stat_invalidation_signals,omitempty"`
 }
 
+// UnlockPilotSkillInput describes one passive skill unlock attempt.
+type UnlockPilotSkillInput struct {
+	PlayerID foundation.PlayerID `json:"player_id"`
+	NodeID   SkillNodeID         `json:"node_id"`
+}
+
+// UnlockPilotSkillResult reports the current progression state after an unlock.
+type UnlockPilotSkillResult struct {
+	Snapshot                ProgressionSnapshot      `json:"snapshot"`
+	Node                    PilotSkillDefinition     `json:"node"`
+	Unlocked                bool                     `json:"unlocked"`
+	Duplicate               bool                     `json:"duplicate"`
+	StatInvalidationSignals []StatInvalidationSignal `json:"stat_invalidation_signals,omitempty"`
+}
+
+// RespecPilotSkillsInput describes a deterministic passive skill reset.
+type RespecPilotSkillsInput struct {
+	PlayerID foundation.PlayerID `json:"player_id"`
+}
+
+// RespecPilotSkillsResult reports the current progression state after respec.
+type RespecPilotSkillsResult struct {
+	Snapshot                ProgressionSnapshot      `json:"snapshot"`
+	Respecced               bool                     `json:"respecced"`
+	RefundedPoints          int                      `json:"refunded_points"`
+	ClearedNodeIDs          []SkillNodeID            `json:"cleared_node_ids,omitempty"`
+	StatInvalidationSignals []StatInvalidationSignal `json:"stat_invalidation_signals,omitempty"`
+}
+
 // RankHistoryID identifies one rank transition audit row.
 type RankHistoryID string
 
@@ -94,23 +123,28 @@ type RankHistoryEntry struct {
 type StatInvalidationReason string
 
 const (
-	StatInvalidationReasonPlayerRoleLevelUp StatInvalidationReason = "player.role_level_up"
-	StatInvalidationReasonPlayerRankUp      StatInvalidationReason = "player.rank_up"
+	StatInvalidationReasonPlayerRoleLevelUp    StatInvalidationReason = "player.role_level_up"
+	StatInvalidationReasonPlayerRankUp         StatInvalidationReason = "player.rank_up"
+	StatInvalidationReasonPilotSkillUnlocked   StatInvalidationReason = "pilot.skill_unlocked"
+	StatInvalidationReasonPilotSkillsRespecced StatInvalidationReason = "pilot.skills_respecced"
 )
 
 // StatInvalidationSignal is recorded locally by progression without wiring to
 // the stats package.
 type StatInvalidationSignal struct {
-	PlayerID   foundation.PlayerID    `json:"player_id"`
-	Reason     StatInvalidationReason `json:"reason"`
-	Role       RoleType               `json:"role,omitempty"`
-	OldLevel   int                    `json:"old_level,omitempty"`
-	NewLevel   int                    `json:"new_level,omitempty"`
-	OldRank    int                    `json:"old_rank,omitempty"`
-	NewRank    int                    `json:"new_rank,omitempty"`
-	SourceType XPSourceType           `json:"source_type,omitempty"`
-	SourceID   XPSourceID             `json:"source_id,omitempty"`
-	CreatedAt  time.Time              `json:"created_at"`
+	PlayerID              foundation.PlayerID    `json:"player_id"`
+	Reason                StatInvalidationReason `json:"reason"`
+	Role                  RoleType               `json:"role,omitempty"`
+	OldLevel              int                    `json:"old_level,omitempty"`
+	NewLevel              int                    `json:"new_level,omitempty"`
+	OldRank               int                    `json:"old_rank,omitempty"`
+	NewRank               int                    `json:"new_rank,omitempty"`
+	NodeID                SkillNodeID            `json:"node_id,omitempty"`
+	RefundedSkillPoints   int                    `json:"refunded_skill_points,omitempty"`
+	ClearedSkillNodeCount int                    `json:"cleared_skill_node_count,omitempty"`
+	SourceType            XPSourceType           `json:"source_type,omitempty"`
+	SourceID              XPSourceID             `json:"source_id,omitempty"`
+	CreatedAt             time.Time              `json:"created_at"`
 }
 
 // XPGrantRecord records one accepted XP source for duplicate safety and audit.
