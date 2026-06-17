@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Not started
+- State: In progress
 - Owner: Realtime gameplay loop
 - Depends on: Phase 02, Phase 03, Phase 04
 - Unlocks: death, crafting, quest kill progress, first playable loop
@@ -66,99 +66,114 @@ Loot:
 
 ## TODO: Combat Core
 
-- [ ] Define combat actor state.
-- [ ] Define target state.
-- [ ] Define cooldown state.
-- [ ] Define energy state.
-- [ ] Define NPC combat state.
-- [ ] Implement `ValidateTarget`.
-- [ ] Require attacker alive.
-- [ ] Require target alive.
-- [ ] Require same world/zone.
-- [ ] Require visibility via `VisibilityService`.
-- [ ] Require range from server position and effective stats.
-- [ ] Require cooldown ready using server time.
-- [ ] Require enough energy.
-- [ ] Implement energy spend.
-- [ ] Implement energy regen on server tick.
-- [ ] Implement cooldown start.
-- [ ] Implement hit roll with server RNG.
-- [ ] Implement shield/HP damage formula v0.
-- [ ] Implement death-once state transition for NPCs.
-- [ ] Track damage contribution.
-- [ ] Emit combat events.
+- [x] Define combat actor state.
+- [x] Define target state.
+- [x] Define cooldown state.
+- [x] Define energy state.
+- [x] Define NPC combat state.
+- [x] Implement `ValidateTarget`.
+- [x] Require attacker alive.
+- [x] Require target alive.
+- [x] Require same world/zone.
+- [x] Require visibility via `VisibilityService`.
+- [x] Require range from server position and effective stats.
+- [x] Require cooldown ready using server time.
+- [x] Require enough energy.
+- [x] Implement energy spend.
+- [x] Implement energy regen on server tick.
+- [x] Implement cooldown start.
+- [x] Implement hit roll with server RNG.
+- [x] Implement shield/HP damage formula v0.
+- [x] Implement death-once state transition for NPCs.
+- [x] Track damage contribution.
+- [x] Emit combat events.
 
 ## TODO: Loot
 
-- [ ] Define world loot drop model.
-- [ ] Define loot table v0.
-- [ ] Implement server-only loot roll.
-- [ ] Create drops on `combat.npc_killed`.
-- [ ] Set owner lock and expiration timestamps.
+- [x] Define world loot drop model.
+- [x] Define loot table v0.
+- [x] Implement server-only loot roll.
+- [x] Create drops on `combat.npc_killed`.
+- [x] Set owner lock and expiration timestamps.
 - [ ] Schedule owner lock expiration.
 - [ ] Schedule drop despawn.
-- [ ] Serialize visible drops only.
-- [ ] Implement pickup command.
-- [ ] Validate pickup range.
-- [ ] Validate pickup visibility.
-- [ ] Validate owner lock.
-- [ ] Add item to cargo through `CargoService`.
-- [ ] Delete or mark drop claimed after successful pickup.
-- [ ] Emit loot picked event.
-- [ ] Grant loot XP only for server-generated eligible drops.
+- [x] Serialize visible drops only.
+- [x] Implement pickup command.
+- [x] Validate pickup range.
+- [x] Validate pickup visibility.
+- [x] Validate owner lock.
+- [x] Add item to cargo through `CargoService`.
+- [x] Delete or mark drop claimed after successful pickup.
+- [x] Emit loot picked event.
+- [x] Grant loot XP only for server-generated eligible drops.
 
 ## TODO: Vertical Slice Harness
 
-- [ ] Add a deterministic test scenario with one player and one NPC.
+- [x] Add a deterministic test scenario with one player and one NPC.
 - [ ] Spawn starter ship with laser stats.
 - [ ] Move player into range.
-- [ ] Attack until NPC dies.
-- [ ] Create loot.
-- [ ] Pick loot into cargo.
-- [ ] Grant combat XP once.
+- [x] Attack until NPC dies.
+- [x] Create loot.
+- [x] Pick loot into cargo.
+- [x] Grant combat XP once.
 - [ ] Produce a player snapshot after mutation.
 
 ## Tests
 
-- [ ] Attack hidden target fails.
-- [ ] Attack out of range fails.
-- [ ] Cooldown prevents double attack.
-- [ ] Energy shortage prevents attack.
-- [ ] Energy exactly equal to cost is allowed.
+- [x] Attack hidden target fails.
+- [x] Attack out of range fails.
+- [x] Cooldown prevents double attack.
+- [x] Energy shortage prevents attack.
+- [x] Energy exactly equal to cost is allowed.
 - [ ] Client timestamp is ignored.
-- [ ] Shield overflow applies HP damage.
+- [x] Shield overflow applies HP damage.
 - [ ] Simultaneous lethal damage processes NPC death once.
-- [ ] Highest valid contributor receives loot lock.
-- [ ] Duplicate NPC death does not duplicate drops.
-- [ ] Owner can pick up during lock.
-- [ ] Non-owner cannot pick up during lock.
-- [ ] Anyone can pick up after lock.
-- [ ] Expired drop cannot be picked up.
-- [ ] Far pickup fails.
-- [ ] Hidden pickup fails.
-- [ ] Concurrent pickup only one succeeds.
-- [ ] Cargo full blocks pickup and drop remains.
+- [x] Highest valid contributor receives loot lock.
+- [x] Duplicate NPC death does not duplicate drops.
+- [x] Owner can pick up during lock.
+- [x] Non-owner cannot pick up during lock.
+- [x] Anyone can pick up after lock.
+- [x] Expired drop cannot be picked up.
+- [x] Far pickup fails.
+- [x] Hidden pickup fails.
+- [x] Concurrent pickup only one succeeds.
+- [x] Cargo full blocks pickup and drop remains.
 - [ ] Player-death source gives no loot XP.
 
 ## Abuse And Safety Checks
 
-- [ ] Range spoofing blocked by server position.
-- [ ] Hidden target attack blocked by visibility check at attack time.
-- [ ] Cooldown skipping blocked by server cooldown map.
-- [ ] Energy desync resolves through authoritative snapshot.
-- [ ] Loot table spoof blocked because client never sends loot contents.
-- [ ] Vacuum loot blocked by range and visibility.
-- [ ] Duplicate pickup blocked by drop lock/state.
+- [x] Range spoofing blocked by server position.
+- [x] Hidden target attack blocked by visibility check at attack time.
+- [x] Cooldown skipping blocked by server cooldown map.
+- [x] Energy desync resolves through authoritative snapshot.
+- [x] Loot table spoof blocked because client never sends loot contents.
+- [x] Vacuum loot blocked by range and visibility.
+- [x] Duplicate pickup blocked by drop lock/state.
 
 ## Done Criteria
 
-- [ ] First server-only combat loop works in tests.
-- [ ] Loot pickup uses cargo and ledger primitives.
-- [ ] XP from combat and loot is idempotent.
-- [ ] Hidden or far interactions fail safely.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] First server-only combat loop works in tests.
+- [x] Loot pickup uses cargo and ledger primitives.
+- [x] XP from combat and loot is idempotent.
+- [x] Hidden or far interactions fail safely.
+- [x] `go test ./...` passes.
+- [x] `git diff --check` passes.
 
 ## Resume Notes
 
 If resuming here, run the deterministic vertical slice test first. If it fails, fix that before adding new combat features.
+
+Verified slices:
+
+- Basic laser combat is implemented in `internal/game/combat` with server-owned actor state, cooldowns, energy, visibility/range validation, hit roll, shield-first damage, NPC death-once state, damage contribution tracking, and combat events.
+- `stats.CombatStats` now includes `WeaponEnergyCost`, so energy cost comes from server-calculated stat snapshots instead of client payloads.
+- Loot drops are implemented in `internal/game/loot` with server-only roll tables, owner lock/public/expired windows, visible-only payload filtering, cargo-backed pickup, claim-once behavior, loot events, and loot XP grants for eligible server-generated drops.
+- A deterministic backend vertical slice test kills one NPC, grants combat XP idempotently, creates loot, picks it into ship cargo through `CargoService`, and grants loot XP.
+- Final verification for this wave passed with `go test ./...`, `go test -race ./internal/game/combat ./internal/game/loot`, and `git diff --check`.
+
+Remaining follow-up:
+
+- Wire owner-lock expiry and despawn into the world worker scheduler instead of only deriving state from timestamps.
+- Connect the vertical slice to real starter ship/stat provider composition rather than direct test actor setup.
+- Add player-death drop source behavior and assert it never grants loot XP.
+- Add realtime gateway commands after authenticated session/player resolution is wired.

@@ -22,3 +22,10 @@ for phase status; this file is a compact pending-work index.
   gameplay depends on them: `PlayerRankProvider`, `PilotProgressionProvider`,
   `ShipCargoCapacityProvider`, `StatInputProvider`, and the inventory ledger
   adapter for module equip/unequip.
+- [ ] Wire Phase 05 loot owner-lock expiry and despawn into the world worker
+  scheduler; current loot state is timestamp-derived and testable but not
+  scheduled by the worker yet.
+- [ ] Connect Phase 05 combat/loot vertical slice to real starter ship, stat
+  provider, and gateway composition instead of direct test actor setup.
+- [ ] Add player-death loot source behavior and verify player-death drops never
+  grant loot XP.
