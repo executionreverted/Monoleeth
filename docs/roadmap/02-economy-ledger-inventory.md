@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Not started
+- State: In progress
 - Owner: Economy foundation
 - Depends on: Phase 01
 - Unlocks: loot, craft, market, auction, death, premium, production
@@ -103,7 +103,7 @@ reputation_token
 - [x] Define item ledger entry model.
 - [x] Define currency ledger entry model.
 - [x] Define reservation model for craft, market, and auction.
-- [ ] Implement `AddItem`.
+- [x] Implement `AddItem`.
 - [ ] Implement `MoveItem`.
 - [ ] Implement `RemoveItem`.
 - [ ] Implement `ReserveItems`.
@@ -138,7 +138,7 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 
 - [x] Negative quantity is rejected.
 - [x] Zero quantity is rejected.
-- [ ] Duplicate reference ID does not duplicate item grants.
+- [x] Duplicate reference ID does not duplicate item grants.
 - [ ] Duplicate reference ID does not duplicate currency grants.
 - [ ] Debit fails when balance is insufficient.
 - [ ] Debit writes a matching ledger entry.
