@@ -31,6 +31,11 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add request-id idempotency for `CraftingService.StartCraft` before
   exposing craft start through a realtime/API gateway; the Phase 06 in-memory
   domain service currently creates a new job per accepted start call.
+- [ ] Replace `RepairService` compensating wallet refunds with a durable
+  transaction/outbox boundary when wallet and ship state move out of the
+  in-memory Phase 06 slice. Restore failure after debit is currently net-zero
+  compensated, but it is not a true atomic rollback. Source:
+  `docs/roadmap/06-death-repair-crafting.md`.
 
 ## Completed
 

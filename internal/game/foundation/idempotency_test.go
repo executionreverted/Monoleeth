@@ -51,6 +51,13 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			},
 			want: "market_buy:listing-9:player-2:request-5",
 		},
+		{
+			name: "ship repair",
+			build: func() (IdempotencyKey, error) {
+				return ShipRepairIdempotencyKey(ShipID("fighter_t1"), "repair-job-7")
+			},
+			want: "ship_repair:fighter_t1:repair-job-7",
+		},
 	}
 
 	for _, tc := range cases {
@@ -75,6 +82,29 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 				t.Fatalf("ParseIdempotencyKey() = %q, want %q", parsed, key)
 			}
 		})
+	}
+}
+
+func TestShipRepairShipIDReturnsEncodedShipID(t *testing.T) {
+	key, err := ShipRepairIdempotencyKey(ShipID("fighter_t1"), "repair-job-7")
+	if err != nil {
+		t.Fatalf("ShipRepairIdempotencyKey: %v", err)
+	}
+
+	shipID, err := ShipRepairShipID(key)
+	if err != nil {
+		t.Fatalf("ShipRepairShipID error = %v, want nil", err)
+	}
+	if shipID != ShipID("fighter_t1") {
+		t.Fatalf("ShipRepairShipID = %q, want fighter_t1", shipID)
+	}
+
+	wrongOperation, err := QuestRewardIdempotencyKey(QuestID("quest-1"))
+	if err != nil {
+		t.Fatalf("QuestRewardIdempotencyKey: %v", err)
+	}
+	if _, err := ShipRepairShipID(wrongOperation); !errors.Is(err, ErrInvalidIdempotencyKey) {
+		t.Fatalf("ShipRepairShipID(wrong operation) error = %v, want ErrInvalidIdempotencyKey", err)
 	}
 }
 
@@ -110,6 +140,8 @@ func TestIdempotencyKeyRejectsMalformedKeys(t *testing.T) {
 		"quest_reward:player-quest-9:extra",
 		"offline_settlement:planet-4",
 		"market_buy:listing-9:player-2",
+		"ship_repair:fighter_t1",
+		"ship_repair:fighter_t1:repair-1:extra",
 	} {
 		t.Run(value, func(t *testing.T) {
 			_, err := ParseIdempotencyKey(value)
@@ -161,6 +193,12 @@ func TestIdempotencyKeyHelpersRejectDelimiterParts(t *testing.T) {
 			name: "market buy request delimiter",
 			build: func() (IdempotencyKey, error) {
 				return MarketBuyIdempotencyKey(ListingID("listing-9"), PlayerID("player-2"), RequestID("request:5"))
+			},
+		},
+		{
+			name: "ship repair reference delimiter",
+			build: func() (IdempotencyKey, error) {
+				return ShipRepairIdempotencyKey(ShipID("fighter_t1"), "repair:job:7")
 			},
 		},
 	}
@@ -228,6 +266,18 @@ func TestIdempotencyKeyHelpersRejectBlankParts(t *testing.T) {
 			name: "market buy request id",
 			build: func() (IdempotencyKey, error) {
 				return MarketBuyIdempotencyKey(ListingID("listing-9"), PlayerID("player-2"), RequestID(""))
+			},
+		},
+		{
+			name: "ship repair ship id",
+			build: func() (IdempotencyKey, error) {
+				return ShipRepairIdempotencyKey(ShipID(""), "repair-job-7")
+			},
+		},
+		{
+			name: "ship repair reference",
+			build: func() (IdempotencyKey, error) {
+				return ShipRepairIdempotencyKey(ShipID("fighter_t1"), "")
 			},
 		},
 	}

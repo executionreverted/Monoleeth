@@ -84,9 +84,9 @@ Crafting:
 - [ ] Define respawn location priority.
 - [ ] Implement MVP respawn to last checkpoint or origin station.
 - [ ] Keep player alive but ship disabled after death.
-- [ ] Implement repair cost formula.
-- [ ] Implement repair command.
-- [ ] Debit wallet through wallet service.
+- [x] Implement repair cost formula. Verified 2026-06-17 by `RepairService` tests using catalog credit value and repair multiplier.
+- [x] Implement repair command. Verified 2026-06-17 by `RepairService.RepairShip` orchestration tests.
+- [x] Debit wallet through wallet service. Verified 2026-06-17 by credit repair wallet ledger tests.
 - [x] Restore disabled ship to available.
 - [x] Prevent repair of non-disabled ship.
 - [x] Ensure starter ship fallback when no usable ship exists.
@@ -123,9 +123,9 @@ Crafting:
 - [x] Active ship becomes disabled.
 - [x] Dead/disabled ship cannot fight.
 - [x] Starter fallback works when all ships disabled.
-- [ ] Repair charges correct wallet amount.
+- [x] Repair charges correct wallet amount. Verified 2026-06-17 by successful repair debit ledger test.
 - [x] Repair restores ship.
-- [ ] Repair rollback prevents partial charge/state change.
+- [x] Repair rollback prevents partial charge/state change. Verified 2026-06-17 by restore-failure compensation test.
 - [x] Missing material fails craft start.
 - [x] Missing credits fails craft start.
 - [x] Rank too low fails craft start.
@@ -141,7 +141,7 @@ Crafting:
 
 - [x] Death duplication blocked.
 - [ ] Cargo hiding during death blocked.
-- [ ] Repair cost is server-calculated.
+- [x] Repair cost is server-calculated. Verified 2026-06-17 by `RepairService` catalog quote tests.
 - [ ] Client cannot avoid module durability loss after death.
 - [x] Material duplication blocked by reservation state.
 - [x] Early craft completion blocked by server time.

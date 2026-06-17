@@ -32,6 +32,7 @@ const (
 	idempotencyPremiumWebhook    = "premium_webhook"
 	idempotencyOfflineSettlement = "offline_settlement"
 	idempotencyMarketBuy         = "market_buy"
+	idempotencyShipRepair        = "ship_repair"
 )
 
 // ParseIdempotencyKey validates value and returns an IdempotencyKey.
@@ -78,6 +79,23 @@ func OfflineSettlementIdempotencyKey(planetID PlanetID, settlementWindow string)
 // still an IdempotencyKey and must not be modeled on request envelopes.
 func MarketBuyIdempotencyKey(listingID ListingID, buyerID PlayerID, requestID RequestID) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyMarketBuy, listingID.String(), buyerID.String(), requestID.String())
+}
+
+// ShipRepairIdempotencyKey returns ship_repair:<ship_id>:<repair_reference>.
+func ShipRepairIdempotencyKey(shipID ShipID, repairReference string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyShipRepair, shipID.String(), repairReference)
+}
+
+// ShipRepairShipID returns the ship id encoded in a ship repair idempotency key.
+func ShipRepairShipID(key IdempotencyKey) (ShipID, error) {
+	if err := key.Validate(); err != nil {
+		return "", err
+	}
+	parts := strings.Split(key.String(), ":")
+	if len(parts) != 3 || parts[0] != idempotencyShipRepair {
+		return "", fmt.Errorf("idempotency key %q: %w", key, ErrInvalidIdempotencyKey)
+	}
+	return ParseShipID(parts[1])
 }
 
 // String returns the stable key representation.
@@ -160,6 +178,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 		return 2, true
 	case idempotencyMarketBuy:
 		return 3, true
+	case idempotencyShipRepair:
+		return 2, true
 	default:
 		return 0, false
 	}
