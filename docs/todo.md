@@ -25,6 +25,9 @@ for phase status; this file is a compact pending-work index.
 - [ ] Replace the Phase 05 vertical-slice test-local stat input adapter with
   concrete Phase 03 runtime providers before exposing combat/loot gateway
   commands.
+- [ ] Add a zone-worker due-task dispatcher that invokes
+  `LootService.HandleScheduledDropTask` in the runtime loop instead of requiring
+  callers to inspect `TickResult.DueTasks` manually.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup returns `XPError` as non-fatal after cargo/claim
   success because there is no cross-service transaction yet.

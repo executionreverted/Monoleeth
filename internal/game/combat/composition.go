@@ -29,6 +29,12 @@ func NewActorFromSnapshot(input ActorFromSnapshotInput) (ActorState, error) {
 	if input.Snapshot.IsInvalidated() {
 		return ActorState{}, fmt.Errorf("stat snapshot invalidated: %w", ErrInvalidActorState)
 	}
+	if input.Snapshot.Version == 0 {
+		return ActorState{}, fmt.Errorf("stat snapshot version: %w", ErrInvalidActorState)
+	}
+	if err := input.Snapshot.ShipID.Validate(); err != nil {
+		return ActorState{}, fmt.Errorf("stat snapshot ship %q: %w", input.Snapshot.ShipID, ErrInvalidActorState)
+	}
 	if input.Type == world.EntityTypePlayer && input.Snapshot.PlayerID != input.PlayerID {
 		return ActorState{}, fmt.Errorf("snapshot player %q for player %q: %w", input.Snapshot.PlayerID, input.PlayerID, ErrInvalidActorState)
 	}

@@ -284,6 +284,22 @@ func TestNewActorFromSnapshotUsesAuthoritativeStatsAndRejectsMismatch(t *testing
 	if !errors.Is(err, combat.ErrInvalidActorState) {
 		t.Fatalf("mismatched NewActorFromSnapshot() error = %v, want ErrInvalidActorState", err)
 	}
+
+	invalidSnapshot := snapshot
+	invalidSnapshot.Version = 0
+	_, err = combat.NewActorFromSnapshot(combat.ActorFromSnapshotInput{
+		EntityID:  "player_entity_1",
+		Type:      world.EntityTypePlayer,
+		PlayerID:  "player_1",
+		WorldID:   "world_1",
+		ZoneID:    "zone_1",
+		Position:  world.Vec2{},
+		Signature: visibility.EntitySignature(10),
+		Snapshot:  invalidSnapshot,
+	})
+	if !errors.Is(err, combat.ErrInvalidActorState) {
+		t.Fatalf("zero-version NewActorFromSnapshot() error = %v, want ErrInvalidActorState", err)
+	}
 }
 
 func newCombatService(t *testing.T, floats []float64) *combat.Service {

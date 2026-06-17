@@ -564,7 +564,18 @@ func newDelayedScheduler() delayedScheduler {
 }
 
 func (scheduler *delayedScheduler) schedule(task ScheduledTask) {
+	for index := range scheduler.tasks {
+		if scheduler.tasks[index].ID == task.ID {
+			scheduler.tasks[index] = task
+			scheduler.sort()
+			return
+		}
+	}
 	scheduler.tasks = append(scheduler.tasks, task)
+	scheduler.sort()
+}
+
+func (scheduler *delayedScheduler) sort() {
 	sort.SliceStable(scheduler.tasks, func(i, j int) bool {
 		if scheduler.tasks[i].DueAt.Equal(scheduler.tasks[j].DueAt) {
 			return scheduler.tasks[i].ID < scheduler.tasks[j].ID

@@ -277,6 +277,35 @@ func TestDelayedTaskSchedulerDrainsDueTasksInOrder(t *testing.T) {
 	}
 }
 
+func TestDelayedTaskSchedulerDeduplicatesByTaskID(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	zoneWorker, err := NewWorker(Config{
+		WorldID:   "world-1",
+		ZoneID:    "zone-1",
+		TickDelta: time.Second,
+		Clock:     clock,
+	})
+	if err != nil {
+		t.Fatalf("NewWorker() error = %v", err)
+	}
+
+	if _, err := zoneWorker.ScheduleTask(ScheduledTask{ID: "drop-1:despawn", DueAt: clock.Now().Add(10 * time.Second), Kind: "loot.drop_despawn"}); err != nil {
+		t.Fatalf("ScheduleTask(first) error = %v", err)
+	}
+	if _, err := zoneWorker.ScheduleTask(ScheduledTask{ID: "drop-1:despawn", DueAt: clock.Now().Add(time.Second), Kind: "loot.drop_despawn", SubjectID: "drop-1"}); err != nil {
+		t.Fatalf("ScheduleTask(duplicate) error = %v", err)
+	}
+
+	clock.Advance(time.Second)
+	result := zoneWorker.Tick()
+	if got, want := taskIDs(result.DueTasks), []string{"drop-1:despawn"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("deduped due tasks = %v, want %v", got, want)
+	}
+	if result.DueTasks[0].SubjectID != "drop-1" {
+		t.Fatalf("deduped task subject = %q, want replacement subject drop-1", result.DueTasks[0].SubjectID)
+	}
+}
+
 func TestScheduleLootDropTasksMapsDueTasksToLootContract(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	zoneWorker, err := NewWorker(Config{
@@ -335,6 +364,33 @@ func TestScheduleLootDropTasksMapsDueTasksToLootContract(t *testing.T) {
 	}
 	if lootTask.Kind != loot.ScheduledDropTaskDespawn || lootTask.DropID != "drop-1" {
 		t.Fatalf("loot scheduled task = %+v, want despawn task for drop-1", lootTask)
+	}
+}
+
+func TestScheduleLootDropTasksRejectsInvalidLootTask(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+
+	_, err := zoneWorker.ScheduleLootDropTasks([]loot.ScheduledDropTask{
+		{
+			ID:     "drop-1:unknown",
+			Kind:   "loot.unknown",
+			DropID: "drop-1",
+			DueAt:  time.Date(2026, 6, 17, 12, 0, 1, 0, time.UTC),
+		},
+	})
+	if !errors.Is(err, ErrInvalidWorkerConfig) {
+		t.Fatalf("ScheduleLootDropTasks(unknown kind) error = %v, want ErrInvalidWorkerConfig", err)
+	}
+
+	_, err = zoneWorker.ScheduleLootDropTasks([]loot.ScheduledDropTask{
+		{
+			ID:    "missing-drop",
+			Kind:  loot.ScheduledDropTaskDespawn,
+			DueAt: time.Date(2026, 6, 17, 12, 0, 1, 0, time.UTC),
+		},
+	})
+	if err == nil {
+		t.Fatal("ScheduleLootDropTasks(empty drop) error = nil, want validation error")
 	}
 }
 

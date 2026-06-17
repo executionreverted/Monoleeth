@@ -61,8 +61,10 @@ func TestCreateDropsForNPCKillRollsServerSideAndIsIdempotent(t *testing.T) {
 	if len(duplicate.Drops) != 1 || duplicate.Drops[0].ID != result.Drops[0].ID {
 		t.Fatalf("duplicate drops = %+v, want original drop id %q", duplicate.Drops, result.Drops[0].ID)
 	}
-	if len(duplicate.ScheduledTasks) != 0 {
-		t.Fatalf("duplicate scheduled tasks = %+v, want none", duplicate.ScheduledTasks)
+	if len(duplicate.ScheduledTasks) != 2 ||
+		duplicate.ScheduledTasks[0].DropID != result.Drops[0].ID ||
+		duplicate.ScheduledTasks[1].DropID != result.Drops[0].ID {
+		t.Fatalf("duplicate scheduled tasks = %+v, want retry-safe tasks for original drop %q", duplicate.ScheduledTasks, result.Drops[0].ID)
 	}
 }
 
@@ -215,6 +217,11 @@ func TestPlayerDeathDropPickupDoesNotGrantLootXP(t *testing.T) {
 	}
 	if !duplicate.Duplicate || len(duplicate.Drops) != 1 || duplicate.Drops[0].Quantity != 2 {
 		t.Fatalf("duplicate player-death result = %+v, want original drop without new quantity", duplicate)
+	}
+	if len(duplicate.ScheduledTasks) != 2 ||
+		duplicate.ScheduledTasks[0].DropID != result.Drops[0].ID ||
+		duplicate.ScheduledTasks[1].DropID != result.Drops[0].ID {
+		t.Fatalf("duplicate player-death scheduled tasks = %+v, want retry-safe tasks for original drop %q", duplicate.ScheduledTasks, result.Drops[0].ID)
 	}
 
 	cargoLocation := mustCargoLocation(t, "ship_1")

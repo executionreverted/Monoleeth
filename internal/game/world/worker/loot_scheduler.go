@@ -1,6 +1,8 @@
 package worker
 
 import (
+	"fmt"
+
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/world"
 )
@@ -10,6 +12,9 @@ import (
 func (worker *Worker) ScheduleLootDropTasks(tasks []loot.ScheduledDropTask) ([]ScheduledTask, error) {
 	scheduled := make([]ScheduledTask, 0, len(tasks))
 	for _, task := range tasks {
+		if err := validateLootScheduledDropTask(task); err != nil {
+			return nil, err
+		}
 		mapped := ScheduledTask{
 			ID:        task.ID,
 			DueAt:     task.DueAt,
@@ -42,4 +47,16 @@ func LootScheduledDropTask(task ScheduledTask) (loot.ScheduledDropTask, bool) {
 	default:
 		return loot.ScheduledDropTask{}, false
 	}
+}
+
+func validateLootScheduledDropTask(task loot.ScheduledDropTask) error {
+	switch task.Kind {
+	case loot.ScheduledDropTaskOwnerLockExpired, loot.ScheduledDropTaskDespawn:
+	default:
+		return fmt.Errorf("loot scheduled task kind %q: %w", task.Kind, ErrInvalidWorkerConfig)
+	}
+	if err := task.DropID.Validate(); err != nil {
+		return fmt.Errorf("loot scheduled task drop: %w", err)
+	}
+	return nil
 }

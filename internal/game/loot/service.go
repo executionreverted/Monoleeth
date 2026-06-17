@@ -168,7 +168,7 @@ func (service *Service) CreateDropsForNPCKill(event combat.NPCKilledEvent, table
 
 	key := sourceKey{sourceType: DropSourceNPCDeath, sourceID: event.NPCEntityID}
 	if existingIDs, ok := service.sourceDrops[key]; ok {
-		return CreateDropsResult{Drops: service.dropsForIDsLocked(existingIDs), Duplicate: true}, nil
+		return service.createDropsResultForIDsLocked(existingIDs, true), nil
 	}
 
 	now := service.clock.Now()
@@ -224,7 +224,7 @@ func (service *Service) CreateDropsForPlayerDeath(input CreatePlayerDeathDropsIn
 
 	key := sourceKey{sourceType: DropSourcePlayerDeath, sourceID: input.SourceID}
 	if existingIDs, ok := service.sourceDrops[key]; ok {
-		return CreateDropsResult{Drops: service.dropsForIDsLocked(existingIDs), Duplicate: true}, nil
+		return service.createDropsResultForIDsLocked(existingIDs, true), nil
 	}
 
 	now := service.clock.Now()
@@ -512,6 +512,23 @@ func (service *Service) markExpiredLocked(dropID world.EntityID) bool {
 	}
 	service.expiredEvents[dropID] = struct{}{}
 	return true
+}
+
+func (service *Service) createDropsResultForIDsLocked(ids []world.EntityID, duplicate bool) CreateDropsResult {
+	drops := service.dropsForIDsLocked(ids)
+	return CreateDropsResult{
+		Drops:          drops,
+		ScheduledTasks: scheduledDropTasksForDrops(drops),
+		Duplicate:      duplicate,
+	}
+}
+
+func scheduledDropTasksForDrops(drops []Drop) []ScheduledDropTask {
+	tasks := make([]ScheduledDropTask, 0, len(drops)*2)
+	for _, drop := range drops {
+		tasks = append(tasks, scheduledDropTasks(drop)...)
+	}
+	return tasks
 }
 
 func scheduledDropTasks(drop Drop) []ScheduledDropTask {
