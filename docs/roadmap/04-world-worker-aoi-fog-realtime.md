@@ -91,10 +91,10 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 
 ## TODO: Spatial Hash And AOI
 
-- [ ] Implement spatial hash cell coordinate calculation.
-- [ ] Implement entity membership updates.
-- [ ] Implement radius query with exact distance check.
-- [ ] Implement AOI candidate query.
+- [x] Implement spatial hash cell coordinate calculation.
+- [x] Implement entity membership updates.
+- [x] Implement radius query with exact distance check.
+- [x] Implement AOI candidate query.
 - [ ] Implement visible entity diff: entered, updated, left.
 - [ ] Implement snapshot payload that includes visible entities only.
 
@@ -125,8 +125,8 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 
 - [x] Movement intent updates position by server speed.
 - [x] Client-supplied impossible position is ignored.
-- [ ] Spatial hash returns nearby entities.
-- [ ] Spatial hash does not return far entities after exact distance check.
+- [x] Spatial hash returns nearby entities.
+- [x] Spatial hash does not return far entities after exact distance check.
 - [ ] Hidden entity is not serialized.
 - [ ] Entity leaving AOI emits left/despawn.
 - [ ] Fog memory does not grant live interaction permission.
@@ -162,3 +162,4 @@ Verified slices:
 
 - World, zone, entity, position, movement target, and movement intent primitives are implemented in `internal/game/world`.
 - `AdvanceMovement` moves toward a target by server-provided speed and tick delta, stops without overshoot, and exposes no client final-position input.
+- Spatial hash cell coordinates, entity insert/update/remove membership, deterministic radius queries, and exact distance filtering are implemented in `internal/game/world/spatial`.
