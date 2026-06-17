@@ -70,12 +70,12 @@ Keep MVP small:
 
 ## TODO: Progression
 
-- [ ] Define player progression state.
-- [ ] Define role level state.
-- [ ] Define skill point state.
-- [ ] Define unlocked skill node state.
-- [ ] Implement deterministic main level XP table.
-- [ ] Implement deterministic role level XP table.
+- [x] Define player progression state.
+- [x] Define role level state.
+- [x] Define skill point state.
+- [x] Define unlocked skill node state.
+- [x] Implement deterministic main level XP table.
+- [x] Implement deterministic role level XP table.
 - [ ] Implement `GrantXP` with source type, source ID, and idempotency key.
 - [ ] Implement XP source uniqueness.
 - [ ] Implement `TryRankUp` with simple requirement table.
@@ -130,8 +130,8 @@ Keep MVP small:
 ## Tests
 
 - [ ] XP grant idempotent.
-- [ ] Main level threshold works.
-- [ ] Role level threshold works.
+- [x] Main level threshold works.
+- [x] Role level threshold works.
 - [ ] Rank up double-click grants one rank and one skill point.
 - [ ] Locked skill node cannot be unlocked.
 - [ ] Skill unlock consumes points once.
@@ -160,7 +160,7 @@ Keep MVP small:
 
 ## Done Criteria
 
-- [ ] Player progression snapshot exists.
+- [x] Player progression snapshot exists.
 - [ ] Starter ship flow exists.
 - [ ] Loadout and equip validation exists.
 - [ ] Effective stats are server-calculated.
@@ -176,3 +176,7 @@ If resuming here, search for any code using client-provided stat values. Replace
 Current Symphony wave plan:
 
 - `docs/plans/2026-06-17-phase-03-progression-ships-stats-wave.md`
+
+Verified slices:
+
+- Progression state, snapshot, main XP table, and role XP table are implemented in `internal/game/progression`.
