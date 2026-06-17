@@ -4,11 +4,14 @@ import (
 	"testing"
 	"time"
 
+	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/combat"
 	"gameproject/internal/game/economy"
+	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/modules"
 	"gameproject/internal/game/progression"
+	gameruntime "gameproject/internal/game/runtime"
 	"gameproject/internal/game/ships"
 	"gameproject/internal/game/stats"
 	"gameproject/internal/game/testutil"
@@ -53,10 +56,24 @@ func TestCombatKillLootPickupAndXPVerticalSlice(t *testing.T) {
 	if !starter.HasActiveShip || starter.ActiveShip.ShipID != ships.ShipIDStarter {
 		t.Fatalf("starter active ship = %+v, want active starter", starter)
 	}
+	moduleCatalog := modules.MustMVPCatalog()
+	loadoutStore := modules.NewInMemoryLoadoutStore()
+	putVerticalSliceModuleItem(t, loadoutStore, "laser-instance-1", "laser_alpha_t1", "player_1", 100)
+	if err := loadoutStore.ReplaceEquippedModules("player_1", starter.ActiveShip.ShipID, []modules.EquippedModule{{
+		PlayerID:       "player_1",
+		ShipID:         starter.ActiveShip.ShipID,
+		SlotID:         modules.ModuleSlotOffensive1,
+		ItemInstanceID: "laser-instance-1",
+		EquippedAt:     clock.Now(),
+	}}); err != nil {
+		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
+	}
+	statInput, err := gameruntime.NewStatInputProvider(shipCatalog, moduleCatalog, loadoutStore)
+	if err != nil {
+		t.Fatalf("NewStatInputProvider() error = %v, want nil", err)
+	}
 	statSubject := stats.NewStatSubject("player_1", starter.ActiveShip.ShipID)
-	statService, err := stats.NewStatService(clock, nil, nil, stats.StaticStatInputProvider{
-		statSubject: starterCombatStatInput(t, shipCatalog),
-	})
+	statService, err := stats.NewStatService(clock, nil, nil, statInput)
 	if err != nil {
 		t.Fatalf("NewStatService() error = %v", err)
 	}
@@ -214,108 +231,37 @@ func TestCombatKillLootPickupAndXPVerticalSlice(t *testing.T) {
 	}
 }
 
-func starterCombatStatInput(t *testing.T, shipCatalog ships.Catalog) stats.StatBuildInput {
+func putVerticalSliceModuleItem(
+	t *testing.T,
+	store *modules.InMemoryLoadoutStore,
+	itemInstanceID foundation.ItemID,
+	itemID foundation.ItemID,
+	owner foundation.PlayerID,
+	durability int64,
+) {
 	t.Helper()
-	starter, err := shipCatalog.MustGet(ships.ShipIDStarter)
+	quantity, err := foundation.NewQuantity(1)
 	if err != nil {
-		t.Fatalf("MustGet(starter) error = %v", err)
+		t.Fatalf("NewQuantity(1) error = %v, want nil", err)
 	}
-	laser, ok := modules.MustMVPCatalog().Lookup("laser_alpha_t1")
-	if !ok {
-		t.Fatal("module catalog missing laser_alpha_t1")
-	}
-	return stats.StatBuildInput{
-		BaseShip: shipBaseEffectiveStats(starter.BaseStats),
-		Modules: []stats.ModuleModifier{
-			moduleDefinitionModifier(laser),
+	item := economy.InstanceItem{
+		Source: catalog.VersionedDefinition{
+			DefinitionID: catalog.DefinitionID(itemID),
+			Version:      modules.ModuleCatalogVersion,
 		},
+		ItemInstanceID:    itemInstanceID,
+		ItemID:            itemID,
+		OwnerPlayerID:     owner,
+		Location:          economy.ItemLocation{Kind: economy.LocationKindAccountInventory, ID: economy.LocationID(owner.String())},
+		Quantity:          quantity,
+		DurabilityCurrent: durability,
+		BoundState:        economy.BoundStateUnbound,
 	}
-}
-
-func shipBaseEffectiveStats(base ships.ShipBaseStats) stats.EffectiveStats {
-	return stats.EffectiveStats{
-		Core: stats.CoreStats{
-			HPMax:         float64(base.HP),
-			ShieldMax:     float64(base.Shield),
-			EnergyMax:     float64(base.Energy),
-			EnergyRegen:   float64(base.EnergyRegen),
-			Speed:         float64(base.Speed),
-			CargoCapacity: float64(base.CargoCapacity),
-		},
-		Exploration: stats.ExplorationStats{
-			RadarRange:      float64(base.Radar),
-			SignatureRadius: float64(base.Signature),
-		},
+	if err := item.Validate(); err != nil {
+		t.Fatalf("vertical slice module item Validate() error = %v, want nil", err)
 	}
-}
-
-func moduleDefinitionModifier(definition modules.ModuleDefinition) stats.ModuleModifier {
-	modifier := stats.ModuleModifier{
-		SourceID: definition.ItemID.String(),
-	}
-	for _, statModifier := range definition.StatModifiers {
-		value := moduleStatValue(statModifier)
-		switch statModifier.Kind {
-		case modules.StatModifierFlat:
-			applyFlatModuleStat(&modifier.Flat, statModifier.Stat, value)
-		case modules.StatModifierPercent:
-			applyPercentModuleStat(&modifier.Percent, statModifier.Stat, value)
-		}
-	}
-	if definition.Energy.ActivationCost > 0 {
-		modifier.Flat.Combat.WeaponEnergyCost = float64(definition.Energy.ActivationCost)
-	}
-	for _, cooldown := range definition.Cooldowns {
-		if cooldown.Key == modules.CooldownBasicAttack {
-			modifier.Flat.Combat.WeaponCooldown = float64(cooldown.DurationMS) / 1000
-		}
-	}
-	return modifier
-}
-
-func moduleStatValue(modifier modules.StatModifier) float64 {
-	value := float64(modifier.Value)
-	if modifier.Kind == modules.StatModifierPercent || modifier.Stat == modules.StatAccuracy {
-		return value / 10_000
-	}
-	return value
-}
-
-func applyFlatModuleStat(target *stats.FlatStats, stat modules.StatKey, value float64) {
-	switch stat {
-	case modules.StatWeaponDamage:
-		target.Combat.WeaponDamage = value
-	case modules.StatWeaponRange:
-		target.Combat.WeaponRange = value
-	case modules.StatAccuracy:
-		target.Combat.Accuracy = value
-	case modules.StatShieldMax:
-		target.Core.ShieldMax = value
-	case modules.StatShieldRegen:
-		target.Core.ShieldRegen = value
-	case modules.StatRadarRange:
-		target.Exploration.RadarRange = value
-	case modules.StatCargoCapacity:
-		target.Core.CargoCapacity = value
-	}
-}
-
-func applyPercentModuleStat(target *stats.PercentStats, stat modules.StatKey, value float64) {
-	switch stat {
-	case modules.StatWeaponDamage:
-		target.Combat.WeaponDamage = value
-	case modules.StatWeaponRange:
-		target.Combat.WeaponRange = value
-	case modules.StatAccuracy:
-		target.Combat.Accuracy = value
-	case modules.StatShieldMax:
-		target.Core.ShieldMax = value
-	case modules.StatShieldRegen:
-		target.Core.ShieldRegen = value
-	case modules.StatRadarRange:
-		target.Exploration.RadarRange = value
-	case modules.StatCargoCapacity:
-		target.Core.CargoCapacity = value
+	if err := store.PutModuleItem(item); err != nil {
+		t.Fatalf("PutModuleItem() error = %v, want nil", err)
 	}
 }
 
