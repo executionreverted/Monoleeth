@@ -686,15 +686,15 @@ func newReserveInstanceKey(input MoveItemInput) reserveInstanceKey {
 }
 
 func reserveItemMoveReference(referenceKey foundation.IdempotencyKey, lineIndex int, lineCount int) (foundation.IdempotencyKey, error) {
-	if lineCount == 1 {
-		return referenceKey, nil
-	}
-
 	parts := strings.Split(referenceKey.String(), ":")
 	if len(parts) == 0 {
 		return "", foundation.ErrInvalidIdempotencyKey
 	}
-	parts[len(parts)-1] = fmt.Sprintf("%s-reserve-line-%d", parts[len(parts)-1], lineIndex+1)
+	if lineCount == 1 {
+		parts[len(parts)-1] = fmt.Sprintf("%s-reserve", parts[len(parts)-1])
+	} else {
+		parts[len(parts)-1] = fmt.Sprintf("%s-reserve-line-%d", parts[len(parts)-1], lineIndex+1)
+	}
 	return foundation.ParseIdempotencyKey(strings.Join(parts, ":"))
 }
 

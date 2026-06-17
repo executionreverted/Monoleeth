@@ -117,6 +117,11 @@ func TestReserveItemsMovesStackableRequirementsToReservedLocationByKind(t *testi
 			if len(entries) != 3 {
 				t.Fatalf("ledger entries len = %d, want 3", len(entries))
 			}
+			reserveReference, err := reserveItemMoveReference(input.ReferenceKey, 0, 1)
+			if err != nil {
+				t.Fatalf("reserveItemMoveReference: %v", err)
+			}
+
 			sourceEntry := entries[1]
 			if sourceEntry.Action != LedgerActionDecrease {
 				t.Fatalf("source action = %q, want %q", sourceEntry.Action, LedgerActionDecrease)
@@ -124,8 +129,8 @@ func TestReserveItemsMovesStackableRequirementsToReservedLocationByKind(t *testi
 			if sourceEntry.Location != fromLocation {
 				t.Fatalf("source ledger location = %v, want %v", sourceEntry.Location, fromLocation)
 			}
-			if sourceEntry.ReferenceKey != input.ReferenceKey {
-				t.Fatalf("source ledger reference = %q, want %q", sourceEntry.ReferenceKey, input.ReferenceKey)
+			if sourceEntry.ReferenceKey != reserveReference {
+				t.Fatalf("source ledger reference = %q, want %q", sourceEntry.ReferenceKey, reserveReference)
 			}
 			reservedEntry := entries[2]
 			if reservedEntry.Action != LedgerActionIncrease {
@@ -134,8 +139,8 @@ func TestReserveItemsMovesStackableRequirementsToReservedLocationByKind(t *testi
 			if reservedEntry.Location != reservedLocation {
 				t.Fatalf("reserved ledger location = %v, want %v", reservedEntry.Location, reservedLocation)
 			}
-			if reservedEntry.ReferenceKey != input.ReferenceKey {
-				t.Fatalf("reserved ledger reference = %q, want %q", reservedEntry.ReferenceKey, input.ReferenceKey)
+			if reservedEntry.ReferenceKey != reserveReference {
+				t.Fatalf("reserved ledger reference = %q, want %q", reservedEntry.ReferenceKey, reserveReference)
 			}
 		})
 	}

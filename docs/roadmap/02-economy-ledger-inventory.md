@@ -115,7 +115,7 @@ reputation_token
 - [x] Implement cargo capacity validation using server-side stat input.
 - [x] Implement item trade flag validation helpers.
 - [x] Implement premium bucket eligibility helper.
-- [ ] Implement ledger reference uniqueness for idempotent operations.
+- [x] Implement ledger reference uniqueness for idempotent operations. Verified 2026-06-17 by operation-scoped inventory, wallet, cargo, and reservation idempotency tests.
 - [ ] Emit inventory, cargo, wallet, and ledger events after mutation.
 
 ## Transaction Rules
@@ -160,7 +160,7 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 ## Abuse And Safety Checks
 
 - [ ] Negative amount exploit blocked.
-- [ ] Duplicate reward exploit blocked.
+- [x] Duplicate reward exploit blocked.
 - [ ] Escrow bypass blocked.
 - [x] Generic RemoveItem cannot bypass escrow, reserved, or system source locations.
 - [x] Player trade/equip policy helper blocks equipped, escrow, reserved, and system locations.
