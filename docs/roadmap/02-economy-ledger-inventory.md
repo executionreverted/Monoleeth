@@ -105,7 +105,7 @@ reputation_token
 - [x] Define reservation model for craft, market, and auction.
 - [x] Implement `AddItem`.
 - [x] Implement `MoveItem`.
-- [ ] Implement `RemoveItem`.
+- [x] Implement `RemoveItem`.
 - [ ] Implement `ReserveItems`.
 - [ ] Implement `ReleaseReservation`.
 - [ ] Implement `CommitReservation`.
@@ -149,6 +149,10 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [x] Stack merge respects max stack.
 - [x] Instance item quantity cannot exceed 1.
 - [x] Escrow item cannot be moved by generic player move.
+- [x] Duplicate reference ID does not duplicate item removals.
+- [x] RemoveItem writes one decrease ledger entry with source balance.
+- [x] RemoveItem insufficient quantity fails without mutation.
+- [x] Escrow, reserved, and system items cannot be removed by generic player remove.
 - [ ] Craft reserved item cannot be listed or equipped.
 - [ ] Premium earned bucket cannot be used where paid premium is required.
 - [ ] Transaction rollback does not leave ledger-only changes.
@@ -158,6 +162,7 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [ ] Negative amount exploit blocked.
 - [ ] Duplicate reward exploit blocked.
 - [ ] Escrow bypass blocked.
+- [x] Generic RemoveItem cannot bypass escrow, reserved, or system source locations.
 - [ ] Cargo capacity race blocked.
 - [ ] Premium laundering blocked by bucket split.
 - [ ] Currency overflow handled or rejected.
