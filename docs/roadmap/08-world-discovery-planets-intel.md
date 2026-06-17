@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: In progress - domain MVP implemented, review hardening pending
+- State: Domain MVP complete - runtime/gateway follow-ups tracked
 - Owner: Exploration and information economy
 - Depends on: Phase 03, Phase 04, Phase 05, Phase 07
 - Unlocks: planet claiming, X Core sink, planet production, coordinate trading
@@ -160,7 +160,9 @@ Does not own:
 - Scanner, claim, share, and coordinate-scroll paths use provider interfaces for
   runtime stat/cooldown, XP, proximity, rank, inventory, quota, and item-consume
   boundaries.
-- Review hardening remains pending before marking the phase complete.
+- Symphony security, performance, and code-quality review found boundary
+  hardening work; actionable Phase 08 MVP fixes landed, and larger
+  multi-process/runtime risks are tracked in `docs/todo.md`.
 
 ## Resume Notes
 
