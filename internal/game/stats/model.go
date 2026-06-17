@@ -33,18 +33,19 @@ type CoreStats struct {
 
 // CombatStats are used by combat resolution and defensive mitigation.
 type CombatStats struct {
-	WeaponDamage    float64 `json:"weapon_damage"`
-	WeaponRange     float64 `json:"weapon_range"`
-	WeaponCooldown  float64 `json:"weapon_cooldown"`
-	Accuracy        float64 `json:"accuracy"`
-	Tracking        float64 `json:"tracking"`
-	Evasion         float64 `json:"evasion"`
-	Penetration     float64 `json:"penetration"`
-	CritChance      float64 `json:"crit_chance"`
-	CritMultiplier  float64 `json:"crit_multiplier"`
-	ResistLaser     float64 `json:"resist_laser"`
-	ResistExplosive float64 `json:"resist_explosive"`
-	ResistKinetic   float64 `json:"resist_kinetic"`
+	WeaponDamage     float64 `json:"weapon_damage"`
+	WeaponRange      float64 `json:"weapon_range"`
+	WeaponCooldown   float64 `json:"weapon_cooldown"`
+	WeaponEnergyCost float64 `json:"weapon_energy_cost"`
+	Accuracy         float64 `json:"accuracy"`
+	Tracking         float64 `json:"tracking"`
+	Evasion          float64 `json:"evasion"`
+	Penetration      float64 `json:"penetration"`
+	CritChance       float64 `json:"crit_chance"`
+	CritMultiplier   float64 `json:"crit_multiplier"`
+	ResistLaser      float64 `json:"resist_laser"`
+	ResistExplosive  float64 `json:"resist_explosive"`
+	ResistKinetic    float64 `json:"resist_kinetic"`
 }
 
 // ExplorationStats are used by radar, scanner, stealth, and jamming systems.
@@ -83,6 +84,7 @@ func (stats *EffectiveStats) Clamp() {
 	stats.Combat.WeaponDamage = clampNonNegative(stats.Combat.WeaponDamage)
 	stats.Combat.WeaponRange = clampNonNegative(stats.Combat.WeaponRange)
 	stats.Combat.WeaponCooldown = clampNonNegative(stats.Combat.WeaponCooldown)
+	stats.Combat.WeaponEnergyCost = clampNonNegative(stats.Combat.WeaponEnergyCost)
 	stats.Combat.Accuracy = clampUnit(stats.Combat.Accuracy)
 	stats.Combat.Tracking = clampNonNegative(stats.Combat.Tracking)
 	stats.Combat.Evasion = clampNonNegative(stats.Combat.Evasion)
@@ -125,6 +127,7 @@ func (stats *EffectiveStats) applyPercent(percent PercentStats) {
 	stats.Combat.WeaponDamage *= percentMultiplier(modifier.Combat.WeaponDamage)
 	stats.Combat.WeaponRange *= percentMultiplier(modifier.Combat.WeaponRange)
 	stats.Combat.WeaponCooldown *= percentMultiplier(modifier.Combat.WeaponCooldown)
+	stats.Combat.WeaponEnergyCost *= percentMultiplier(modifier.Combat.WeaponEnergyCost)
 	stats.Combat.Accuracy *= percentMultiplier(modifier.Combat.Accuracy)
 	stats.Combat.Tracking *= percentMultiplier(modifier.Combat.Tracking)
 	stats.Combat.Evasion *= percentMultiplier(modifier.Combat.Evasion)
@@ -161,6 +164,7 @@ func (stats *EffectiveStats) add(delta EffectiveStats) {
 	stats.Combat.WeaponDamage += delta.Combat.WeaponDamage
 	stats.Combat.WeaponRange += delta.Combat.WeaponRange
 	stats.Combat.WeaponCooldown += delta.Combat.WeaponCooldown
+	stats.Combat.WeaponEnergyCost += delta.Combat.WeaponEnergyCost
 	stats.Combat.Accuracy += delta.Combat.Accuracy
 	stats.Combat.Tracking += delta.Combat.Tracking
 	stats.Combat.Evasion += delta.Combat.Evasion
