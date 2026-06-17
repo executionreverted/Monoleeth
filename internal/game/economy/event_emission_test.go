@@ -166,6 +166,71 @@ func TestInventoryServiceDoesNotEmitOnValidationFailureOrDuplicate(t *testing.T)
 		t.Fatal("duplicate AddItem Duplicate = false, want true")
 	}
 	testutil.AssertRecordedEventTypes(t, recorder)
+
+	definition := validStackableDefinition(t)
+	fromLocation := validLocation(t)
+	toLocation := validStationStorageLocation(t)
+	addStackableItems(t, service, definition, 10, fromLocation, "loot_pickup:event-no-emit-move-seed")
+	recorder.Reset()
+
+	moveInput := validMoveItemInput(t)
+	moveInput.ItemRef.Definition = definition
+	moveInput.FromLocation = fromLocation
+	moveInput.ToLocation = toLocation
+	moveInput.Quantity = 4
+	moveInput.ReferenceKey = validReferenceKey(t, "loot_pickup:event-no-emit-move")
+	if _, err := service.MoveItem(moveInput); err != nil {
+		t.Fatalf("MoveItem: %v", err)
+	}
+	testutil.AssertRecordedEventTypes(t, recorder, EventInventoryItemMoved, EventLedgerEntryCreated, EventLedgerEntryCreated)
+
+	recorder.Reset()
+	duplicateMove, err := service.MoveItem(moveInput)
+	if err != nil {
+		t.Fatalf("duplicate MoveItem: %v", err)
+	}
+	if !duplicateMove.Duplicate {
+		t.Fatal("duplicate MoveItem Duplicate = false, want true")
+	}
+	testutil.AssertRecordedEventTypes(t, recorder)
+
+	recorder.Reset()
+	invalidMove := moveInput
+	invalidMove.ReferenceKey = validReferenceKey(t, "loot_pickup:event-no-emit-move-invalid")
+	invalidMove.Quantity = 100
+	if _, err := service.MoveItem(invalidMove); !errors.Is(err, ErrInsufficientItemQuantity) {
+		t.Fatalf("invalid MoveItem error = %v, want ErrInsufficientItemQuantity", err)
+	}
+	testutil.AssertRecordedEventTypes(t, recorder)
+
+	removeInput := validRemoveItemInput(t)
+	removeInput.ItemRef.Definition = definition
+	removeInput.SourceLocation = toLocation
+	removeInput.Quantity = 2
+	removeInput.ReferenceKey = validReferenceKey(t, "loot_pickup:event-no-emit-remove")
+	if _, err := service.RemoveItem(removeInput); err != nil {
+		t.Fatalf("RemoveItem: %v", err)
+	}
+	testutil.AssertRecordedEventTypes(t, recorder, EventInventoryItemRemoved, EventLedgerEntryCreated)
+
+	recorder.Reset()
+	duplicateRemove, err := service.RemoveItem(removeInput)
+	if err != nil {
+		t.Fatalf("duplicate RemoveItem: %v", err)
+	}
+	if !duplicateRemove.Duplicate {
+		t.Fatal("duplicate RemoveItem Duplicate = false, want true")
+	}
+	testutil.AssertRecordedEventTypes(t, recorder)
+
+	recorder.Reset()
+	invalidRemove := removeInput
+	invalidRemove.ReferenceKey = validReferenceKey(t, "loot_pickup:event-no-emit-remove-invalid")
+	invalidRemove.Quantity = 100
+	if _, err := service.RemoveItem(invalidRemove); !errors.Is(err, ErrInsufficientItemQuantity) {
+		t.Fatalf("invalid RemoveItem error = %v, want ErrInsufficientItemQuantity", err)
+	}
+	testutil.AssertRecordedEventTypes(t, recorder)
 }
 
 func TestCargoServiceEmitsCargoUpdatedAfterSuccessfulAdd(t *testing.T) {
@@ -275,6 +340,15 @@ func TestWalletServiceEmitsCreditDebitTransferAndLedgerEvents(t *testing.T) {
 		assertCurrencyLedgerPayload(t, decodeEventPayload[LedgerEntryCreatedPayload](t, recorded[1]), result.LedgerEntry)
 
 		recorder.Reset()
+		invalid := input
+		invalid.ReferenceKey = validReferenceKey(t, "quest_reward:event-wallet-debit-invalid")
+		invalid.Amount = 0
+		if _, err := service.DebitWallet(invalid); !errors.Is(err, foundation.ErrNonPositiveAmount) {
+			t.Fatalf("invalid DebitWallet error = %v, want foundation.ErrNonPositiveAmount", err)
+		}
+		testutil.AssertRecordedEventTypes(t, recorder)
+
+		recorder.Reset()
 		duplicate, err := service.DebitWallet(input)
 		if err != nil {
 			t.Fatalf("duplicate DebitWallet: %v", err)
@@ -305,6 +379,15 @@ func TestWalletServiceEmitsCreditDebitTransferAndLedgerEvents(t *testing.T) {
 		credited := decodeEventPayload[WalletMutationPayload](t, recorded[2])
 		assertWalletMutationPayload(t, credited, input.ToPlayerID, input.Currency, input.Amount, result.ToBalance.Balance, input.Reason, input.ReferenceKey, result.LedgerEntries[1].LedgerID)
 		assertCurrencyLedgerPayload(t, decodeEventPayload[LedgerEntryCreatedPayload](t, recorded[3]), result.LedgerEntries[1])
+
+		recorder.Reset()
+		invalid := input
+		invalid.ReferenceKey = validReferenceKey(t, "quest_reward:event-wallet-transfer-invalid")
+		invalid.ToPlayerID = invalid.FromPlayerID
+		if _, err := service.TransferCurrency(invalid); !errors.Is(err, ErrWalletSelfTransfer) {
+			t.Fatalf("invalid TransferCurrency error = %v, want ErrWalletSelfTransfer", err)
+		}
+		testutil.AssertRecordedEventTypes(t, recorder)
 
 		recorder.Reset()
 		duplicate, err := service.TransferCurrency(input)
@@ -383,6 +466,22 @@ func TestReservationServiceEmitsInventoryMoveEvents(t *testing.T) {
 			t.Fatalf("CommitReservation: %v", err)
 		}
 		testutil.AssertRecordedEventTypes(t, recorder, EventInventoryItemMoved, EventLedgerEntryCreated, EventLedgerEntryCreated)
+
+		recorder.Reset()
+		duplicateCommit, err := reservations.CommitReservation(input.ReservationID)
+		if err != nil {
+			t.Fatalf("duplicate CommitReservation: %v", err)
+		}
+		if !duplicateCommit.Duplicate {
+			t.Fatal("duplicate CommitReservation Duplicate = false, want true")
+		}
+		testutil.AssertRecordedEventTypes(t, recorder)
+
+		recorder.Reset()
+		if _, err := reservations.CommitReservation("missing-reservation"); !errors.Is(err, ErrReservationNotFound) {
+			t.Fatalf("missing CommitReservation error = %v, want ErrReservationNotFound", err)
+		}
+		testutil.AssertRecordedEventTypes(t, recorder)
 	})
 }
 

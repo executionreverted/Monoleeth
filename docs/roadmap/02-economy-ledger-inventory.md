@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: In progress
+- State: Complete, audited 2026-06-17
 - Owner: Economy foundation
 - Depends on: Phase 01
 - Unlocks: loot, craft, market, auction, death, premium, production
@@ -112,11 +112,11 @@ reputation_token
 - [x] Implement `CreditWallet`.
 - [x] Implement `DebitWallet`.
 - [x] Implement `TransferCurrency`.
-- [x] Implement cargo capacity validation using server-side stat input.
+- [x] Implement cargo capacity validation using server-side stat input. Verified 2026-06-17 by capacity-aware cargo add/move tests, direct generic cargo target blockers, registered cargo definition lookup, and re-entrant emitter regression coverage.
 - [x] Implement item trade flag validation helpers.
 - [x] Implement premium bucket eligibility helper.
 - [x] Implement ledger reference uniqueness for idempotent operations. Verified 2026-06-17 by operation-scoped inventory, wallet, cargo, and reservation idempotency tests.
-- [x] Emit inventory, cargo, wallet, and ledger events after mutation. Verified 2026-06-17 by EventRecorder coverage for inventory add/move/remove, cargo add, wallet credit/debit/transfer, reservation-backed item moves, validation failures, and idempotent duplicate no-emission.
+- [x] Emit inventory, cargo, wallet, and ledger events after mutation. Verified 2026-06-17 by EventRecorder coverage for inventory add/move/remove, cargo add, wallet credit/debit/transfer, reservation-backed item moves, and duplicate/failure no-emission paths.
 
 ## Transaction Rules
 
@@ -145,6 +145,7 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [x] Credit writes a matching ledger entry.
 - [x] Transfer writes debit and credit ledger entries.
 - [x] Cargo capacity blocks over-capacity add.
+- [x] Generic inventory add/move cannot bypass ship cargo capacity.
 - [x] Concurrent cargo pickup simulation only allows capacity-safe result.
 - [x] Stack merge respects max stack.
 - [x] Instance item quantity cannot exceed 1.
@@ -155,7 +156,7 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [x] Escrow, reserved, and system items cannot be removed by generic player remove.
 - [x] Craft reserved item cannot be listed or equipped by policy helper.
 - [x] Premium earned bucket cannot be used where paid premium is required by policy helper.
-- [x] Transaction rollback does not leave ledger-only changes. Verified 2026-06-17 by release/commit failure tests plus Phase 02 rollback snapshot audit coverage for reservation mutations, ledger rows, and move references.
+- [x] Transaction rollback does not leave ledger-only changes. Verified 2026-06-17 by reserve/release/commit rollback coverage for reservation mutations, ledger rows, and move references.
 
 ## Abuse And Safety Checks
 
@@ -165,6 +166,7 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [x] Generic RemoveItem cannot bypass escrow, reserved, or system source locations.
 - [x] Player trade/equip policy helper blocks equipped, escrow, reserved, and system locations.
 - [x] Cargo capacity race blocked.
+- [x] Cargo event emission cannot deadlock while cargo locks are held.
 - [x] Premium laundering blocked by bucket split. Verified 2026-06-17 by paid, earned, and market-acquired premium bucket model and eligibility policy tests.
 - [x] Paid-only premium policy helper rejects earned premium and handles market-acquired premium explicitly.
 - [x] Currency overflow handled or rejected. Verified 2026-06-17 by Phase 02 CreditWallet and TransferCurrency overflow rejection tests.
@@ -175,8 +177,8 @@ For in-memory MVP tests, still model the transaction boundary explicitly.
 - [x] All value movements require reason and reference ID. Verified 2026-06-17 by service input validation, ledger validation, and reservation-derived release/commit references.
 - [x] All value movements write ledger entries. Verified 2026-06-17 by add/move/remove, wallet credit/debit/transfer, cargo add, and reservation reserve/release/commit ledger tests.
 - [x] Reservation flow is available for craft and market phases. Verified 2026-06-17 by reservation kind/location tests for craft, market, and auction plus market/auction commit behavior.
-- [x] `go test ./...` passes. Verified 2026-06-17 with `GOCACHE=/private/tmp/TASK-0027-go-build go test ./...`.
-- [x] `git diff --check` passes. Verified 2026-06-17.
+- [x] `go test ./...` passes. Verified 2026-06-17 after Phase 02 hardening.
+- [x] `git diff --check` passes. Verified 2026-06-17 after Phase 02 hardening.
 
 ## Resume Notes
 
