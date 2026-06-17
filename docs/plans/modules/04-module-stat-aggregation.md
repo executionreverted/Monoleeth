@@ -118,11 +118,16 @@ utility_1
 EquipModule(player_id, ship_id, slot_id, item_instance_id)
 UnequipModule(player_id, ship_id, slot_id)
 ValidateModuleAssignments(player_id, ship_id, assignments)
-GetEffectiveStats(player_id)
+GetEffectiveStats(player_id, ship_id)
 InvalidateStats(player_id, reason)
-RecalculateStats(player_id)
+RecalculateStats(player_id, ship_id)
 ApplyDurabilityDamage(item_instance_id, amount, reason)
 ```
+
+`GetEffectiveStats` only receives a player/ship subject. Base ship, equipped
+modules, passives, role bonuses, and temporary modifiers must be built from
+server-owned records through a stat input provider. Client-provided stat payloads
+are never accepted as gameplay truth.
 
 ## Equip Validation
 
@@ -418,4 +423,5 @@ Defense:
 - Rarity affix sistemini ertele.
 - Energy budget'i combat use sırasında validate et.
 - Stat snapshot'ı memory cache + DB optional yap.
-
+- Stat snapshot recalculation inputu server-side provider'dan gelsin; API
+  consumer'ı doğrudan damage/speed/cargo payload gönderemesin.

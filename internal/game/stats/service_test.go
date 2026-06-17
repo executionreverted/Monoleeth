@@ -7,90 +7,91 @@ import (
 	"gameproject/internal/game/foundation"
 )
 
-func TestStatServiceGetEffectiveStatsAggregatesCallerProvidedInputs(t *testing.T) {
+func TestStatServiceGetEffectiveStatsAggregatesProviderInputs(t *testing.T) {
 	start := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
-	service := NewStatService(newTestClock(start), NewInMemoryStatSnapshotStore(), NewInMemoryActiveStatCache())
-
-	snapshot, err := service.GetEffectiveStats(GetEffectiveStatsInput{
-		PlayerID: foundation.PlayerID("player_1"),
-		ShipID:   foundation.ShipID("ship_1"),
-		BaseShip: EffectiveStats{
-			Core: CoreStats{
-				Speed:         100,
-				CargoCapacity: 50,
-			},
-			Combat: CombatStats{
-				WeaponDamage: 100,
-			},
-		},
-		Modules: []ModuleModifier{
-			{
-				SourceID: "laser_alpha_1",
-				Flat: FlatStats{
-					Combat: CombatStats{
-						WeaponDamage: 10,
-					},
+	subject := NewStatSubject("player_1", "ship_1")
+	service := newTestStatService(t, newTestClock(start), NewInMemoryStatSnapshotStore(), NewInMemoryActiveStatCache(), StaticStatInputProvider{
+		subject: {
+			BaseShip: EffectiveStats{
+				Core: CoreStats{
+					Speed:         100,
+					CargoCapacity: 50,
 				},
-				Percent: PercentStats{
-					Combat: CombatStats{
-						WeaponDamage: 0.10,
-					},
+				Combat: CombatStats{
+					WeaponDamage: 100,
 				},
 			},
-		},
-		FlatPassives: []FlatModifier{
-			{
-				Source:   ModifierSourcePassive,
-				SourceID: "pilot_damage_1",
-				Stats: FlatStats{
-					Combat: CombatStats{
-						WeaponDamage: 5,
+			Modules: []ModuleModifier{
+				{
+					SourceID: "laser_alpha_1",
+					Flat: FlatStats{
+						Combat: CombatStats{
+							WeaponDamage: 10,
+						},
+					},
+					Percent: PercentStats{
+						Combat: CombatStats{
+							WeaponDamage: 0.10,
+						},
 					},
 				},
 			},
-		},
-		RoleBonuses: []FlatModifier{
-			{
-				Source:   ModifierSourceRole,
-				SourceID: "scout_level_2",
-				Stats: FlatStats{
-					Core: CoreStats{
-						Speed: 20,
+			FlatPassives: []FlatModifier{
+				{
+					Source:   ModifierSourcePassive,
+					SourceID: "pilot_damage_1",
+					Stats: FlatStats{
+						Combat: CombatStats{
+							WeaponDamage: 5,
+						},
 					},
 				},
 			},
-		},
-		PercentPassives: []PercentModifier{
-			{
-				Source:   ModifierSourcePassive,
-				SourceID: "pilot_speed_percent_1",
-				Stats: PercentStats{
-					Core: CoreStats{
-						Speed: 0.25,
+			RoleBonuses: []FlatModifier{
+				{
+					Source:   ModifierSourceRole,
+					SourceID: "scout_level_2",
+					Stats: FlatStats{
+						Core: CoreStats{
+							Speed: 20,
+						},
 					},
 				},
 			},
-		},
-		TemporaryModifiers: []TemporaryModifier{
-			{
-				Source:   ModifierSourceDebuff,
-				SourceID: "damage_dampener",
-				Flat: FlatStats{
-					Core: CoreStats{
-						CargoCapacity: 10,
-					},
-					Combat: CombatStats{
-						WeaponDamage: -5,
+			PercentPassives: []PercentModifier{
+				{
+					Source:   ModifierSourcePassive,
+					SourceID: "pilot_speed_percent_1",
+					Stats: PercentStats{
+						Core: CoreStats{
+							Speed: 0.25,
+						},
 					},
 				},
-				Percent: PercentStats{
-					Combat: CombatStats{
-						WeaponDamage: -0.50,
+			},
+			TemporaryModifiers: []TemporaryModifier{
+				{
+					Source:   ModifierSourceDebuff,
+					SourceID: "damage_dampener",
+					Flat: FlatStats{
+						Core: CoreStats{
+							CargoCapacity: 10,
+						},
+						Combat: CombatStats{
+							WeaponDamage: -5,
+						},
+					},
+					Percent: PercentStats{
+						Combat: CombatStats{
+							WeaponDamage: -0.50,
+						},
 					},
 				},
 			},
 		},
 	})
+
+	snapshot, err := service.GetEffectiveStats(subject)
 	if err != nil {
 		t.Fatalf("GetEffectiveStats() error = %v", err)
 	}
@@ -109,33 +110,34 @@ func TestStatServiceGetEffectiveStatsAggregatesCallerProvidedInputs(t *testing.T
 func TestStatServiceUsesCachedSnapshotUntilInvalidated(t *testing.T) {
 	start := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	clock := newTestClock(start)
-	service := NewStatService(clock, NewInMemoryStatSnapshotStore(), NewInMemoryActiveStatCache())
 	playerID := foundation.PlayerID("player_1")
 	shipID := foundation.ShipID("ship_1")
-
-	first, err := service.GetEffectiveStats(GetEffectiveStatsInput{
-		PlayerID: playerID,
-		ShipID:   shipID,
-		BaseShip: EffectiveStats{
-			Core: CoreStats{
-				CargoCapacity: 100,
+	subject := NewStatSubject(playerID, shipID)
+	inputs := StaticStatInputProvider{
+		subject: {
+			BaseShip: EffectiveStats{
+				Core: CoreStats{
+					CargoCapacity: 100,
+				},
 			},
 		},
-	})
+	}
+	service := newTestStatService(t, clock, NewInMemoryStatSnapshotStore(), NewInMemoryActiveStatCache(), inputs)
+
+	first, err := service.GetEffectiveStats(subject)
 	if err != nil {
 		t.Fatalf("first GetEffectiveStats() error = %v", err)
 	}
 
 	clock.Advance(time.Minute)
-	cached, err := service.GetEffectiveStats(GetEffectiveStatsInput{
-		PlayerID: playerID,
-		ShipID:   shipID,
+	inputs[subject] = StatBuildInput{
 		BaseShip: EffectiveStats{
 			Core: CoreStats{
 				CargoCapacity: 200,
 			},
 		},
-	})
+	}
+	cached, err := service.GetEffectiveStats(subject)
 	if err != nil {
 		t.Fatalf("cached GetEffectiveStats() error = %v", err)
 	}
@@ -155,15 +157,7 @@ func TestStatServiceUsesCachedSnapshotUntilInvalidated(t *testing.T) {
 		t.Fatalf("InvalidateStats() error = %v", err)
 	}
 	clock.Advance(time.Minute)
-	recalculated, err := service.GetEffectiveStats(GetEffectiveStatsInput{
-		PlayerID: playerID,
-		ShipID:   shipID,
-		BaseShip: EffectiveStats{
-			Core: CoreStats{
-				CargoCapacity: 200,
-			},
-		},
-	})
+	recalculated, err := service.GetEffectiveStats(subject)
 	if err != nil {
 		t.Fatalf("recalculated GetEffectiveStats() error = %v", err)
 	}
@@ -177,35 +171,36 @@ func TestStatServiceRecalculatesWhenStoredSnapshotIsInvalidated(t *testing.T) {
 	start := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	clock := newTestClock(start)
 	store := NewInMemoryStatSnapshotStore()
-	service := NewStatService(clock, store, NewInMemoryActiveStatCache())
 	playerID := foundation.PlayerID("player_1")
 	shipID := foundation.ShipID("ship_1")
-
-	first, err := service.GetEffectiveStats(GetEffectiveStatsInput{
-		PlayerID: playerID,
-		ShipID:   shipID,
-		BaseShip: EffectiveStats{
-			Core: CoreStats{
-				Speed: 100,
+	subject := NewStatSubject(playerID, shipID)
+	inputs := StaticStatInputProvider{
+		subject: {
+			BaseShip: EffectiveStats{
+				Core: CoreStats{
+					Speed: 100,
+				},
 			},
 		},
-	})
+	}
+	service := newTestStatService(t, clock, store, NewInMemoryActiveStatCache(), inputs)
+
+	first, err := service.GetEffectiveStats(subject)
 	if err != nil {
 		t.Fatalf("first GetEffectiveStats() error = %v", err)
 	}
 	if err := store.SaveSnapshot(first.Invalidate(clock.Advance(time.Minute))); err != nil {
 		t.Fatalf("SaveSnapshot(invalidated) error = %v", err)
 	}
-
-	recalculated, err := service.GetEffectiveStats(GetEffectiveStatsInput{
-		PlayerID: playerID,
-		ShipID:   shipID,
+	inputs[subject] = StatBuildInput{
 		BaseShip: EffectiveStats{
 			Core: CoreStats{
 				Speed: 250,
 			},
 		},
-	})
+	}
+
+	recalculated, err := service.GetEffectiveStats(subject)
 	if err != nil {
 		t.Fatalf("recalculated GetEffectiveStats() error = %v", err)
 	}
@@ -217,50 +212,73 @@ func TestStatServiceRecalculatesWhenStoredSnapshotIsInvalidated(t *testing.T) {
 
 func TestStatServiceExcludesBrokenModuleModifiers(t *testing.T) {
 	start := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
-	service := NewStatService(newTestClock(start), NewInMemoryStatSnapshotStore(), NewInMemoryActiveStatCache())
-
-	snapshot, err := service.GetEffectiveStats(GetEffectiveStatsInput{
-		PlayerID: foundation.PlayerID("player_1"),
-		ShipID:   foundation.ShipID("ship_1"),
-		BaseShip: EffectiveStats{
-			Core: CoreStats{
-				Speed: 100,
-			},
-			Combat: CombatStats{
-				WeaponDamage: 10,
-			},
-		},
-		Modules: []ModuleModifier{
-			{
-				SourceID: "laser_working",
-				Flat: FlatStats{
-					Combat: CombatStats{
-						WeaponDamage: 5,
-					},
+	subject := NewStatSubject("player_1", "ship_1")
+	service := newTestStatService(t, newTestClock(start), NewInMemoryStatSnapshotStore(), NewInMemoryActiveStatCache(), StaticStatInputProvider{
+		subject: {
+			BaseShip: EffectiveStats{
+				Core: CoreStats{
+					Speed: 100,
+				},
+				Combat: CombatStats{
+					WeaponDamage: 10,
 				},
 			},
-			{
-				SourceID: "laser_broken",
-				Broken:   true,
-				Flat: FlatStats{
-					Combat: CombatStats{
-						WeaponDamage: 1000,
+			Modules: []ModuleModifier{
+				{
+					SourceID: "laser_working",
+					Flat: FlatStats{
+						Combat: CombatStats{
+							WeaponDamage: 5,
+						},
 					},
 				},
-				Percent: PercentStats{
-					Core: CoreStats{
-						Speed: 1,
+				{
+					SourceID: "laser_broken",
+					Broken:   true,
+					Flat: FlatStats{
+						Combat: CombatStats{
+							WeaponDamage: 1000,
+						},
+					},
+					Percent: PercentStats{
+						Core: CoreStats{
+							Speed: 1,
+						},
 					},
 				},
 			},
 		},
 	})
+
+	snapshot, err := service.GetEffectiveStats(subject)
 	if err != nil {
 		t.Fatalf("GetEffectiveStats() error = %v", err)
 	}
 
 	assertFloatEqual(t, snapshot.Stats.Combat.WeaponDamage, 15)
 	assertFloatEqual(t, snapshot.Stats.Core.Speed, 100)
+}
+
+func TestNewStatServiceRejectsNilInputProvider(t *testing.T) {
+	_, err := NewStatService(newTestClock(time.Now()), NewInMemoryStatSnapshotStore(), NewInMemoryActiveStatCache(), nil)
+	if err == nil {
+		t.Fatal("NewStatService nil provider error = nil, want error")
+	}
+}
+
+func TestStatServiceReturnsMissingProviderInputWithoutMutatingState(t *testing.T) {
+	start := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	store := NewInMemoryStatSnapshotStore()
+	subject := NewStatSubject("player_1", "ship_1")
+	service := newTestStatService(t, newTestClock(start), store, NewInMemoryActiveStatCache(), StaticStatInputProvider{})
+
+	_, err := service.GetEffectiveStats(subject)
+	if err == nil {
+		t.Fatal("GetEffectiveStats missing provider input error = nil, want error")
+	}
+	if _, ok := store.GetInvalidationState(subject.PlayerID, subject.ShipID); ok {
+		t.Fatal("invalidation state exists after failed provider lookup, want no mutation")
+	}
 }
 
 func TestInMemoryActiveStatCacheKeysByPlayerShipAndVersion(t *testing.T) {
@@ -294,6 +312,22 @@ func TestInMemoryActiveStatCacheKeysByPlayerShipAndVersion(t *testing.T) {
 			t.Fatalf("Get(%+v) ok = true, want false", key)
 		}
 	}
+}
+
+func newTestStatService(
+	t *testing.T,
+	clock foundation.Clock,
+	store StatSnapshotStore,
+	cache ActiveStatCache,
+	inputs StatInputProvider,
+) *StatService {
+	t.Helper()
+
+	service, err := NewStatService(clock, store, cache, inputs)
+	if err != nil {
+		t.Fatalf("NewStatService error = %v, want nil", err)
+	}
+	return service
 }
 
 type testClock struct {

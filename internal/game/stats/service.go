@@ -1,11 +1,17 @@
 package stats
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"gameproject/internal/game/foundation"
+)
+
+var (
+	ErrNilStatInputProvider = errors.New("nil stat input provider")
+	ErrUnknownStatSubject   = errors.New("unknown stat subject")
 )
 
 // ModuleModifier describes one equipped module's stat contribution plus the
@@ -17,12 +23,11 @@ type ModuleModifier struct {
 	Percent  PercentStats `json:"percent"`
 }
 
-// GetEffectiveStatsInput is the service boundary used by ship, module,
-// progression, role, and temporary-effect systems once they own those records.
-type GetEffectiveStatsInput struct {
-	PlayerID foundation.PlayerID `json:"player_id"`
-	ShipID   foundation.ShipID   `json:"ship_id"`
-
+// StatBuildInput is the service boundary used by ship, module, progression,
+// role, and temporary-effect systems once they own those records. It does not
+// carry player or ship ids; those come from the StatSubject requested by
+// gameplay systems.
+type StatBuildInput struct {
 	BaseShip EffectiveStats `json:"base_ship"`
 
 	Modules         []ModuleModifier  `json:"modules"`
@@ -35,7 +40,7 @@ type GetEffectiveStatsInput struct {
 
 // AggregationInput returns the pure aggregation payload after removing broken
 // equipped modules.
-func (input GetEffectiveStatsInput) AggregationInput() AggregationInput {
+func (input StatBuildInput) AggregationInput() AggregationInput {
 	flatModules := make([]FlatModifier, 0, len(input.Modules))
 	percentModules := make([]PercentModifier, 0, len(input.Modules))
 	for _, module := range input.Modules {
@@ -65,15 +70,35 @@ func (input GetEffectiveStatsInput) AggregationInput() AggregationInput {
 	}
 }
 
-func (input GetEffectiveStatsInput) validate() error {
-	if err := input.PlayerID.Validate(); err != nil {
+// StatSubject identifies one player ship whose effective stats are requested.
+type StatSubject struct {
+	PlayerID foundation.PlayerID `json:"player_id"`
+	ShipID   foundation.ShipID   `json:"ship_id"`
+}
+
+// NewStatSubject returns a stat subject key.
+func NewStatSubject(playerID foundation.PlayerID, shipID foundation.ShipID) StatSubject {
+	return StatSubject{PlayerID: playerID, ShipID: shipID}
+}
+
+func (subject StatSubject) validate() error {
+	if err := subject.PlayerID.Validate(); err != nil {
 		return fmt.Errorf("player_id: %w", err)
 	}
-	if err := input.ShipID.Validate(); err != nil {
+	if err := subject.ShipID.Validate(); err != nil {
 		return fmt.Errorf("ship_id: %w", err)
 	}
 	return nil
 }
+
+// StatInputProvider builds authoritative aggregation inputs for a stat subject.
+type StatInputProvider interface {
+	BuildStatsInput(subject StatSubject) (StatBuildInput, error)
+}
+
+// StaticStatInputProvider is a deterministic provider for tests and early
+// single-process slices.
+type StaticStatInputProvider map[StatSubject]StatBuildInput
 
 // InvalidateStatsInput marks the active snapshot for one player ship stale.
 type InvalidateStatsInput struct {
@@ -136,14 +161,24 @@ type ActiveStatCache interface {
 
 // StatService owns server-side effective stat snapshot lookup and recalculation.
 type StatService struct {
+	mu        sync.Mutex
 	clock     foundation.Clock
 	snapshots StatSnapshotStore
 	cache     ActiveStatCache
+	inputs    StatInputProvider
 }
 
 // NewStatService returns a stat service with explicit snapshot storage and
 // active-session cache dependencies.
-func NewStatService(clock foundation.Clock, snapshots StatSnapshotStore, cache ActiveStatCache) *StatService {
+func NewStatService(
+	clock foundation.Clock,
+	snapshots StatSnapshotStore,
+	cache ActiveStatCache,
+	inputs StatInputProvider,
+) (*StatService, error) {
+	if inputs == nil {
+		return nil, ErrNilStatInputProvider
+	}
 	if clock == nil {
 		clock = foundation.RealClock{}
 	}
@@ -157,22 +192,26 @@ func NewStatService(clock foundation.Clock, snapshots StatSnapshotStore, cache A
 		clock:     clock,
 		snapshots: snapshots,
 		cache:     cache,
-	}
+		inputs:    inputs,
+	}, nil
 }
 
 // GetEffectiveStats returns the current valid effective stat snapshot. If the
 // stored snapshot or invalidation state says the current version is stale, the
-// service recalculates from caller-provided inputs and advances the version.
-func (service *StatService) GetEffectiveStats(input GetEffectiveStatsInput) (StatSnapshot, error) {
-	if err := input.validate(); err != nil {
+// service recalculates from the authoritative input provider and advances the version.
+func (service *StatService) GetEffectiveStats(subject StatSubject) (StatSnapshot, error) {
+	if err := subject.validate(); err != nil {
 		return StatSnapshot{}, err
 	}
 
-	state, hasState := service.snapshots.GetInvalidationState(input.PlayerID, input.ShipID)
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	state, hasState := service.snapshots.GetInvalidationState(subject.PlayerID, subject.ShipID)
 	if hasState && !state.Invalidated && state.CurrentVersion > 0 {
 		key := StatSnapshotKey{
-			PlayerID: input.PlayerID,
-			ShipID:   input.ShipID,
+			PlayerID: subject.PlayerID,
+			ShipID:   subject.ShipID,
 			Version:  state.CurrentVersion,
 		}
 		if snapshot, ok := service.snapshots.GetSnapshot(key); ok && !snapshot.IsInvalidated() {
@@ -184,14 +223,18 @@ func (service *StatService) GetEffectiveStats(input GetEffectiveStatsInput) (Sta
 		}
 	}
 
+	input, err := service.inputs.BuildStatsInput(subject)
+	if err != nil {
+		return StatSnapshot{}, err
+	}
 	now := service.clock.Now()
 	version := SnapshotVersion(1)
 	if hasState && state.CurrentVersion > 0 {
 		version = state.CurrentVersion.Next()
 	}
 	snapshot := NewStatSnapshot(
-		input.PlayerID,
-		input.ShipID,
+		subject.PlayerID,
+		subject.ShipID,
 		version,
 		AggregateStats(input.AggregationInput()),
 		now,
@@ -200,7 +243,7 @@ func (service *StatService) GetEffectiveStats(input GetEffectiveStatsInput) (Sta
 		return StatSnapshot{}, err
 	}
 	state = state.MarkRecalculated(version, now)
-	if err := service.snapshots.SaveInvalidationState(input.PlayerID, input.ShipID, state); err != nil {
+	if err := service.snapshots.SaveInvalidationState(subject.PlayerID, subject.ShipID, state); err != nil {
 		return StatSnapshot{}, err
 	}
 	service.cache.Put(snapshot)
@@ -213,6 +256,9 @@ func (service *StatService) InvalidateStats(input InvalidateStatsInput) error {
 	if err := input.validate(); err != nil {
 		return err
 	}
+
+	service.mu.Lock()
+	defer service.mu.Unlock()
 
 	now := service.clock.Now()
 	state, hasState := service.snapshots.GetInvalidationState(input.PlayerID, input.ShipID)
@@ -231,6 +277,18 @@ func (service *StatService) InvalidateStats(input InvalidateStatsInput) error {
 
 	state = state.Invalidate(input.Reason, now)
 	return service.snapshots.SaveInvalidationState(input.PlayerID, input.ShipID, state)
+}
+
+// BuildStatsInput returns a cloned static stat build input for subject.
+func (provider StaticStatInputProvider) BuildStatsInput(subject StatSubject) (StatBuildInput, error) {
+	if err := subject.validate(); err != nil {
+		return StatBuildInput{}, err
+	}
+	input, ok := provider[subject]
+	if !ok {
+		return StatBuildInput{}, fmt.Errorf("%s/%s: %w", subject.PlayerID, subject.ShipID, ErrUnknownStatSubject)
+	}
+	return cloneStatBuildInput(input), nil
 }
 
 // InMemoryStatSnapshotStore is a deterministic store implementation for tests
@@ -320,6 +378,15 @@ func (cache *InMemoryActiveStatCache) Put(snapshot StatSnapshot) {
 	defer cache.mu.Unlock()
 
 	cache.snapshots[NewStatSnapshotKey(snapshot)] = cloneStatSnapshot(snapshot)
+}
+
+func cloneStatBuildInput(input StatBuildInput) StatBuildInput {
+	input.Modules = append([]ModuleModifier(nil), input.Modules...)
+	input.FlatPassives = append([]FlatModifier(nil), input.FlatPassives...)
+	input.RoleBonuses = append([]FlatModifier(nil), input.RoleBonuses...)
+	input.PercentPassives = append([]PercentModifier(nil), input.PercentPassives...)
+	input.TemporaryModifiers = append([]TemporaryModifier(nil), input.TemporaryModifiers...)
+	return input
 }
 
 func cloneStatSnapshot(snapshot StatSnapshot) StatSnapshot {
