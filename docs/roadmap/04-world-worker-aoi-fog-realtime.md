@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Not started
+- State: In progress
 - Owner: Realtime world simulation
 - Depends on: Phase 01, Phase 03
 - Unlocks: combat validation, scanner discovery, loot visibility, client prototype
@@ -165,7 +165,7 @@ Verified slices:
 - Spatial hash cell coordinates, entity insert/update/remove membership, deterministic radius queries, and exact distance filtering are implemented in `internal/game/world/spatial`.
 - Realtime JSON request/response/error/event envelopes, Phase 04 operation registry, client event constants, request ID cache skeleton, and rate-limit posture metadata are implemented in `internal/game/realtime`.
 - A single-zone in-process worker harness with FIFO command mailbox, fixed tick delta, deterministic command drain, delayed task scheduler skeleton, entity lifecycle, player session attachment, and server-speed movement is implemented in `internal/game/world/worker`.
-- Worker scheduled-task dispatch records handler errors without stopping later due tasks and can requeue handler-declared early tasks for a later retry.
+- Worker scheduled-task dispatch runs registered in-process handlers during ticks, records handler errors without stopping later due tasks, and can requeue handler-declared early tasks for a later retry.
 - Visibility filtering, generic hidden/not-visible interaction errors, server-stat radar range input, entity signature/hidden flags, fog memory summaries, and scanner bridge event shells are implemented in `internal/game/world/visibility`.
 - Client-safe AOI snapshots and deterministic entered/updated/left diffs are implemented in `internal/game/world/aoi`; snapshot payloads omit hidden/internal metadata, seeds, movement internals, world/zone ids, and future spawn data.
 - Final verification passed with `go test ./...`, `git diff --check`, and `go test -race ./internal/game/world/... ./internal/game/realtime`.
@@ -173,3 +173,4 @@ Verified slices:
 Remaining follow-up:
 
 - Player/session resolution from realtime request envelopes remains open until a gateway/session layer is implemented; the current worker has session attachment primitives but no network gateway.
+- Scheduled-task dispatch is an in-memory worker facility, not a durable outbox, distributed queue, or realtime gateway.

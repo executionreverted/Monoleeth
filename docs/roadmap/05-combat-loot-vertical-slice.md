@@ -171,14 +171,14 @@ Verified slices:
 - `stats.CombatStats` now includes `WeaponEnergyCost`, so energy cost comes from server-calculated stat snapshots instead of client payloads.
 - Loot drops are implemented in `internal/game/loot` with server-only roll tables, owner lock/public/expired windows, visible-only payload filtering, cargo-backed pickup, claim-once behavior, loot events, and loot XP grants for eligible server-generated drops.
 - Loot owner-lock expiry and despawn now produce explicit scheduled drop tasks that the world worker delayed scheduler can drain and map back into `LootService`.
-- Zone worker ticks can dispatch due scheduled loot tasks to registered handlers, so callers do not need to manually inspect `TickResult.DueTasks` to expire owner locks or despawn drops.
+- Zone worker ticks can dispatch due scheduled loot tasks to registered in-process handlers, so in-process callers do not need to manually inspect `TickResult.DueTasks` to expire owner locks or despawn drops.
 - Scheduled loot tasks that are due on the worker clock but still early on the loot service clock now request retry instead of being permanently drained; handler errors are recorded without blocking later due tasks.
 - Player-death drops can be created from server-calculated item stacks and are explicitly not eligible for loot XP.
 - Combat XP is granted through an `NPCKillXPHandler` boundary over authoritative `combat.NPCKilledEvent` payloads instead of ad hoc caller-built progression inputs.
-- Loot XP pickup results now persist `LootXPReconciliation` metadata on the claimed drop for success, duplicate, failure, and not-eligible cases. Durable retry/outbox repair is still a later infrastructure slice.
-- Phase 03 runtime provider wiring exists under `internal/game/runtime` for progression rank/role adapters, module-aware stat input composition, and effective-stat cargo capacity. The vertical slice now uses this runtime stat provider instead of a test-local stat adapter.
-- Runtime stat input composition now maps scanner scan-pulse cooldown metadata to `Exploration.ScanInterval`; radar sweep cooldown remains catalog metadata because the current effective stat model has radar range but no radar interval field.
-- A deterministic backend vertical slice test ensures a starter ship, composes Laser Alpha stats through runtime providers and `StatService`, moves the player into range through the world worker, kills one NPC, grants combat XP idempotently, creates loot, picks it into ship cargo through `CargoService`, grants loot XP, records XP reconciliation, and reads the final player progression snapshot.
+- Loot XP pickup results now record in-memory `LootXPReconciliation` metadata on the claimed drop for success, duplicate, failure, and not-eligible cases. Durable retry/outbox repair is still a later infrastructure slice.
+- Phase 03 runtime provider wiring exists under `internal/game/runtime` for progression rank/role adapters, module-aware stat input composition, scanner scan-pulse cooldown mapping, and effective-stat cargo capacity. The vertical slice now uses this runtime stat provider instead of a test-local stat adapter.
+- Runtime stat input composition currently covers base ship and equipped module stats; unlocked pilot-skill passive stat effects are still a Phase 03 follow-up.
+- A deterministic backend vertical slice test ensures a starter ship, composes Laser Alpha stats through runtime providers and `StatService`, moves the player into range through the in-process world worker, kills one NPC, grants combat XP idempotently, creates loot, picks it into ship cargo through `CargoService`, grants loot XP, records XP reconciliation, and reads the final player progression snapshot.
 - Final verification for this wave passed with `go test ./...`, `go test -race ./internal/game/combat ./internal/game/loot`, and `git diff --check`.
 
 Remaining follow-up:
@@ -186,3 +186,4 @@ Remaining follow-up:
 - Add a client-timestamp regression around combat intents once a concrete gateway command exists.
 - Add realtime gateway commands after authenticated session/player resolution is wired.
 - Add durable reward/outbox repair for failed loot XP reconciliation records once cross-service persistence exists.
+- Add persistent service composition for the runtime providers before exposing this loop outside the in-process backend harness.
