@@ -46,6 +46,7 @@ var (
 	ErrQuestOfferAlreadyAccepted     = errors.New("quest offer already accepted")
 	ErrQuestRequirementsNotMet       = errors.New("quest requirements not met")
 	ErrTooManyActiveQuests           = errors.New("too many active quests")
+	ErrInvalidQuestEvent             = errors.New("invalid quest event")
 )
 
 var (

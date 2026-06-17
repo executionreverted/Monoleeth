@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"gameproject/internal/game/foundation"
 )
@@ -17,6 +18,7 @@ type InMemoryQuestStore struct {
 	acceptedByOffer map[questOfferStoreKey]foundation.QuestID
 	quests          map[foundation.QuestID]PlayerQuest
 	questsByPlayer  map[foundation.PlayerID][]foundation.QuestID
+	progressEvents  map[foundation.EventID]struct{}
 }
 
 type questOfferStoreKey struct {
@@ -31,6 +33,7 @@ func NewInMemoryQuestStore() *InMemoryQuestStore {
 		acceptedByOffer: make(map[questOfferStoreKey]foundation.QuestID),
 		quests:          make(map[foundation.QuestID]PlayerQuest),
 		questsByPlayer:  make(map[foundation.PlayerID][]foundation.QuestID),
+		progressEvents:  make(map[foundation.EventID]struct{}),
 	}
 }
 
@@ -122,6 +125,45 @@ func (store *InMemoryQuestStore) PlayerQuests(playerID foundation.PlayerID) ([]P
 	return quests, nil
 }
 
+type objectiveProgressMatcher func(Objective) (int64, bool)
+
+// ApplyProgressEvent applies one validated server event to matching accepted
+// active quests for playerID under the store lock. Duplicate event ids are
+// accepted as no-ops.
+func (store *InMemoryQuestStore) ApplyProgressEvent(
+	eventID foundation.EventID,
+	playerID foundation.PlayerID,
+	occurredAt time.Time,
+	matcher objectiveProgressMatcher,
+) ([]PlayerQuest, error) {
+	if err := eventID.Validate(); err != nil {
+		return nil, fmt.Errorf("event_id: %w", err)
+	}
+	if err := playerID.Validate(); err != nil {
+		return nil, fmt.Errorf("player_id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		return nil, fmt.Errorf("occurred_at: %w", ErrZeroQuestTime)
+	}
+	if matcher == nil {
+		return nil, fmt.Errorf("progress matcher: %w", ErrInvalidQuestEvent)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	if _, consumed := store.progressEvents[eventID]; consumed {
+		return nil, nil
+	}
+
+	updated, err := store.applyProgressEventLocked(playerID, occurredAt.UTC(), matcher)
+	if err != nil {
+		return nil, err
+	}
+	store.progressEvents[eventID] = struct{}{}
+	return updated, nil
+}
+
 func newQuestOfferStoreKey(playerID foundation.PlayerID, offerID foundation.QuestID) questOfferStoreKey {
 	return questOfferStoreKey{playerID: playerID, offerID: offerID}
 }
@@ -167,6 +209,153 @@ func (store *InMemoryQuestStore) appendPlayerQuestLocked(playerID foundation.Pla
 		}
 	}
 	store.questsByPlayer[playerID] = append(store.questsByPlayer[playerID], questID)
+}
+
+func (store *InMemoryQuestStore) applyProgressEventLocked(
+	playerID foundation.PlayerID,
+	occurredAt time.Time,
+	matcher objectiveProgressMatcher,
+) ([]PlayerQuest, error) {
+	pending := make([]PlayerQuest, 0)
+	for _, questID := range store.questsByPlayer[playerID] {
+		quest, ok := store.quests[questID]
+		if !ok {
+			continue
+		}
+		next, changed, err := progressQuestFromEvent(quest, occurredAt, matcher)
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			pending = append(pending, next)
+		}
+	}
+
+	updated := make([]PlayerQuest, 0, len(pending))
+	for _, quest := range pending {
+		store.quests[quest.PlayerQuestID] = clonePlayerQuest(quest)
+		updated = append(updated, clonePlayerQuest(quest))
+	}
+	return updated, nil
+}
+
+func progressQuestFromEvent(
+	quest PlayerQuest,
+	occurredAt time.Time,
+	matcher objectiveProgressMatcher,
+) (PlayerQuest, bool, error) {
+	if quest.State != QuestStateAccepted {
+		return PlayerQuest{}, false, nil
+	}
+	if err := quest.Validate(); err != nil {
+		return PlayerQuest{}, false, err
+	}
+
+	objectives, err := progressObjectiveList(quest.GeneratedPayload.Objective)
+	if err != nil {
+		return PlayerQuest{}, false, err
+	}
+	progressByID := make(map[string]int, len(quest.Progress.Objectives))
+	for index, progress := range quest.Progress.Objectives {
+		progressByID[progress.ObjectiveID] = index
+	}
+
+	next := clonePlayerQuest(quest)
+	changed := false
+	for _, objective := range objectives {
+		delta, matched := matcher(objective)
+		if !matched {
+			continue
+		}
+		if delta <= 0 {
+			return PlayerQuest{}, false, fmt.Errorf("progress delta %d: %w", delta, ErrInvalidQuestProgress)
+		}
+		index, ok := progressByID[objective.ID]
+		if !ok {
+			return PlayerQuest{}, false, fmt.Errorf("objective progress %q: %w", objective.ID, ErrUnexpectedQuestProgress)
+		}
+		objectiveProgress := next.Progress.Objectives[index]
+		if objectiveProgress.Completed {
+			continue
+		}
+
+		current := objectiveProgress.Current + delta
+		if current >= objectiveProgress.Required {
+			current = objectiveProgress.Required
+			objectiveProgress.Completed = true
+		}
+		if current != objectiveProgress.Current {
+			objectiveProgress.Current = current
+			next.Progress.Objectives[index] = objectiveProgress
+			changed = true
+		}
+	}
+	if !changed {
+		return PlayerQuest{}, false, nil
+	}
+
+	if next.Progress.Complete() {
+		next.State = QuestStateCompleted
+		next.CompletedAt = cloneTimePtr(&occurredAt)
+	}
+	if err := next.Validate(); err != nil {
+		return PlayerQuest{}, false, err
+	}
+	return next, true, nil
+}
+
+func progressObjectiveList(schema ObjectiveSchema) ([]Objective, error) {
+	if len(schema.Objectives) > 0 {
+		return schema.Objectives, nil
+	}
+
+	quantity, err := foundation.NewQuantity(schemaRequiredAmount(schema))
+	if err != nil {
+		return nil, err
+	}
+
+	objective := Objective{
+		ID:   schema.Kind.String(),
+		Kind: schema.Kind,
+	}
+	switch schema.Kind {
+	case ObjectiveKindKill:
+		objective.Kill = &KillObjective{
+			TargetNPCType: schema.Kill.NPCType,
+			RequiredCount: quantity,
+		}
+	case ObjectiveKindCollect:
+		objective.Collect = &CollectObjective{
+			ItemID:   schema.Collect.ItemID,
+			Quantity: quantity,
+		}
+	case ObjectiveKindCraft:
+		objective.Craft = &CraftObjective{
+			RecipeID: schema.Craft.RecipeID,
+			ItemID:   schema.Craft.ItemID,
+			Quantity: quantity,
+		}
+	case ObjectiveKindScan:
+		objective.Scan = &ScanObjective{
+			TargetSignalType: schema.Scan.TargetKind.String(),
+			RequiredCount:    quantity,
+		}
+	case ObjectiveKindBuild:
+		objective.Build = &BuildObjective{
+			BuildingType:  schema.Build.BuildingID,
+			RequiredCount: quantity,
+		}
+	case ObjectiveKindDeliver:
+		objective.Deliver = &DeliverObjective{
+			ItemID:          schema.Deliver.ItemID,
+			Quantity:        quantity,
+			DestinationType: schema.Deliver.DestinationKind.String(),
+			DestinationID:   schema.Deliver.DestinationID,
+		}
+	default:
+		return nil, fmt.Errorf("objective kind %q: %w", schema.Kind, ErrInvalidObjectiveKind)
+	}
+	return []Objective{objective}, nil
 }
 
 func cloneGeneratedBoardOffer(offer GeneratedBoardOffer) GeneratedBoardOffer {

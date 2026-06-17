@@ -82,11 +82,11 @@ Board rules:
 - [x] Validate requirements still met. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
 - [x] Insert accepted quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
 - [x] Remove or mark offer accepted. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
-- [ ] Implement event consumers for `combat.npc_killed`, `loot.picked_up`, and `craft.job_completed`.
-- [ ] Add scanner and building event consumers as skeletons.
-- [ ] Update progress only for matching active quests.
-- [ ] Mark quest completed when objective is met.
-- [ ] Prevent progress overflow after completion.
+- [x] Implement event consumers for `combat.npc_killed`, `loot.picked_up`, and `craft.job_completed`. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
+- [x] Add scanner and building event consumers as skeletons. Verified 2026-06-17 for scan/build/deliver skeleton validation by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
+- [x] Update progress only for matching active quests. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
+- [x] Mark quest completed when objective is met. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
+- [x] Prevent progress overflow after completion. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
 - [ ] Implement `ClaimReward`.
 - [ ] Lock quest during claim.
 - [ ] Mark claimed before granting or within a transaction-safe flow.
@@ -115,10 +115,10 @@ Board rules:
 - [x] Accept rechecks requirements at accept time. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
 - [ ] Reroll charges credits.
 - [ ] Reroll does not affect accepted quests.
-- [ ] Kill event progresses only matching quest.
-- [ ] Loot event progresses only matching quest.
-- [ ] Craft event progresses only matching quest.
-- [ ] Completed quest does not progress further incorrectly.
+- [x] Kill event progresses only matching quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
+- [x] Loot event progresses only matching quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
+- [x] Craft event progresses only matching quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
+- [x] Completed quest does not progress further incorrectly. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
 - [ ] Reward claim grants exactly once.
 - [ ] Duplicate reward claim does not duplicate XP/items/currency.
 - [ ] Rare reward cap hook can block excessive rare offers.
