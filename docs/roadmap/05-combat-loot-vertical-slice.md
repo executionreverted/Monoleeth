@@ -106,6 +106,7 @@ Loot:
 - [x] Delete or mark drop claimed after successful pickup.
 - [x] Emit loot picked event.
 - [x] Grant loot XP only for server-generated eligible drops.
+- [x] Track loot XP grant reconciliation state on claimed drops.
 
 ## TODO: Vertical Slice Harness
 
@@ -139,6 +140,7 @@ Loot:
 - [x] Concurrent pickup only one succeeds.
 - [x] Cargo full blocks pickup and drop remains.
 - [x] Player-death source gives no loot XP.
+- [x] Loot XP success/failure/not-eligible reconciliation is recorded.
 
 ## Abuse And Safety Checks
 
@@ -169,12 +171,16 @@ Verified slices:
 - `stats.CombatStats` now includes `WeaponEnergyCost`, so energy cost comes from server-calculated stat snapshots instead of client payloads.
 - Loot drops are implemented in `internal/game/loot` with server-only roll tables, owner lock/public/expired windows, visible-only payload filtering, cargo-backed pickup, claim-once behavior, loot events, and loot XP grants for eligible server-generated drops.
 - Loot owner-lock expiry and despawn now produce explicit scheduled drop tasks that the world worker delayed scheduler can drain and map back into `LootService`.
+- Zone worker ticks can dispatch due scheduled loot tasks to registered handlers, so callers do not need to manually inspect `TickResult.DueTasks` to expire owner locks or despawn drops.
 - Player-death drops can be created from server-calculated item stacks and are explicitly not eligible for loot XP.
-- A deterministic backend vertical slice test ensures a starter ship, composes Laser Alpha stats through `StatService`, moves the player into range through the world worker, kills one NPC, grants combat XP idempotently, creates loot, picks it into ship cargo through `CargoService`, grants loot XP, and reads the final player progression snapshot.
+- Combat XP is granted through an `NPCKillXPHandler` boundary over authoritative `combat.NPCKilledEvent` payloads instead of ad hoc caller-built progression inputs.
+- Loot XP pickup results now persist `LootXPReconciliation` metadata on the claimed drop for success, duplicate, failure, and not-eligible cases. Durable retry/outbox repair is still a later infrastructure slice.
+- Phase 03 runtime provider wiring exists under `internal/game/runtime` for progression rank/role adapters, module-aware stat input composition, and effective-stat cargo capacity. The vertical slice now uses this runtime stat provider instead of a test-local stat adapter.
+- A deterministic backend vertical slice test ensures a starter ship, composes Laser Alpha stats through runtime providers and `StatService`, moves the player into range through the world worker, kills one NPC, grants combat XP idempotently, creates loot, picks it into ship cargo through `CargoService`, grants loot XP, records XP reconciliation, and reads the final player progression snapshot.
 - Final verification for this wave passed with `go test ./...`, `go test -race ./internal/game/combat ./internal/game/loot`, and `git diff --check`.
 
 Remaining follow-up:
 
 - Add a client-timestamp regression around combat intents once a concrete gateway command exists.
-- Replace the vertical-slice test-local stat input adapter with real Phase 03 runtime provider wiring before exposing gateway combat/loot commands.
 - Add realtime gateway commands after authenticated session/player resolution is wired.
+- Add durable reward/outbox repair for failed loot XP reconciliation records once cross-service persistence exists.

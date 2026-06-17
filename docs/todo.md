@@ -16,18 +16,21 @@ for phase status; this file is a compact pending-work index.
   remembers completed responses.
 - [ ] Wire XP grants behind concrete domain owners such as combat, quest,
   scanner, production, and crafting completion services so clients cannot spoof
-  XP source completion. Source:
+  XP source completion. Combat NPC kill XP now has a domain boundary; remaining
+  XP sources still need owners. Source:
   `docs/roadmap/03-progression-ships-modules-stats.md`.
-- [ ] Wire Phase 03 runtime providers to authoritative stores before later
-  gameplay depends on them: `PlayerRankProvider`, `PilotProgressionProvider`,
-  `ShipCargoCapacityProvider`, `StatInputProvider`, and the inventory ledger
-  adapter for module equip/unequip.
-- [ ] Replace the Phase 05 vertical-slice test-local stat input adapter with
+- [ ] Wire the remaining Phase 03 runtime inventory ledger adapter for module
+  equip/unequip. Rank, pilot progression, module-aware stat input, and
+  effective cargo-capacity providers exist under `internal/game/runtime`.
+- [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
+  grants; current pickup persists in-memory `LootXPReconciliation` metadata but
+  there is no durable repair worker or cross-service transaction yet.
+
+## Completed
+
+- [x] Replace the Phase 05 vertical-slice test-local stat input adapter with
   concrete Phase 03 runtime providers before exposing combat/loot gateway
-  commands.
-- [ ] Add a zone-worker due-task dispatcher that invokes
+  commands. Completed in `internal/game/runtime`.
+- [x] Add a zone-worker due-task dispatcher that invokes
   `LootService.HandleScheduledDropTask` in the runtime loop instead of requiring
   callers to inspect `TickResult.DueTasks` manually.
-- [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
-  grants; current pickup returns `XPError` as non-fatal after cargo/claim
-  success because there is no cross-service transaction yet.
