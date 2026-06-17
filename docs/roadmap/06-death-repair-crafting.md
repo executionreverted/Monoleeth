@@ -63,13 +63,13 @@ Crafting:
 
 ## TODO: Death
 
-- [ ] Define death record model.
-- [ ] Define lethal event idempotency key.
+- [x] Define death record model.
+- [x] Define lethal event idempotency key.
 - [ ] Implement death state lock.
 - [ ] Ensure death processes once.
-- [ ] Calculate zone-based cargo drop percent.
-- [ ] Select cargo drops from eligible cargo.
-- [ ] Preserve non-droppable and soulbound items.
+- [x] Calculate zone-based cargo drop percent.
+- [x] Select cargo drops from eligible cargo.
+- [x] Preserve non-droppable and soulbound items.
 - [ ] Remove dropped cargo through cargo service.
 - [ ] Create world drops through loot service.
 - [x] Mark active ship disabled.
@@ -117,8 +117,8 @@ Crafting:
 ## Tests
 
 - [ ] Death processed once for duplicate lethal event.
-- [ ] Cargo drop percent is inside zone range.
-- [ ] Non-droppable item stays in cargo.
+- [x] Cargo drop percent is inside zone range.
+- [x] Non-droppable item stays in cargo.
 - [ ] Dropped items become world drops.
 - [x] Active ship becomes disabled.
 - [x] Dead/disabled ship cannot fight.
