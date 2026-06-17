@@ -452,6 +452,9 @@ func (o *Orchestrator) runIssue(ctx context.Context, issue Issue, attempt int) e
 			o.recordRunEvent(issue, attempt, turn+1, "turn_error", map[string]any{"error": err.Error()}, err.Error())
 			return err
 		}
+		if workflow.Config.Tracker.Kind == "local" || workflow.Config.Tracker.Kind == "memory" {
+			return nil
+		}
 		if turn+1 >= workflow.Config.Agent.MaxTurns {
 			o.recordRunEvent(issue, attempt, turn+1, "max_turns_reached", nil, "Max turns reached")
 			return nil

@@ -57,7 +57,7 @@ type CodexSession struct {
 func (c *CodexClient) StartSession(ctx context.Context, workspace string) (*CodexSession, error) {
 	cmd := exec.CommandContext(ctx, "bash", "-lc", c.config.Codex.Command)
 	cmd.Dir = workspace
-	cmd.Env = os.Environ()
+	cmd.Env = codexCommandEnv(os.Environ())
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -100,6 +100,69 @@ func (c *CodexClient) StartSession(ctx context.Context, workspace string) (*Code
 	}
 	session.threadID = threadID
 	return session, nil
+}
+
+func codexCommandEnv(base []string) []string {
+	env := append([]string(nil), base...)
+	env = setEnvValue(env, "PATH", extendedCodexPath(envValue(env, "PATH")))
+	if envValue(env, "CODEX_BIN") == "" {
+		for _, candidate := range []string{
+			"/Applications/Codex.app/Contents/Resources/codex",
+			"/opt/homebrew/bin/codex",
+			"/usr/local/bin/codex",
+		} {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				env = setEnvValue(env, "CODEX_BIN", candidate)
+				break
+			}
+		}
+	}
+	return env
+}
+
+func extendedCodexPath(current string) string {
+	parts := strings.Split(current, ":")
+	out := make([]string, 0, len(parts)+6)
+	seen := map[string]bool{}
+	for _, part := range append(parts,
+		"/Applications/Codex.app/Contents/Resources",
+		"/opt/homebrew/bin",
+		"/usr/local/bin",
+		"/usr/bin",
+		"/bin",
+		"/usr/sbin",
+		"/sbin",
+	) {
+		part = strings.TrimSpace(part)
+		if part == "" || seen[part] {
+			continue
+		}
+		seen[part] = true
+		out = append(out, part)
+	}
+	return strings.Join(out, ":")
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
+}
+
+func setEnvValue(env []string, key string, value string) []string {
+	prefix := key + "="
+	next := prefix + value
+	for i, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[i] = next
+			return env
+		}
+	}
+	return append(env, next)
 }
 
 func (s *CodexSession) Stop() {

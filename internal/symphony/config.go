@@ -102,12 +102,8 @@ func defaultConfig() Config {
 			MaxConcurrentAgentsByState: map[string]int{},
 		},
 		Codex: CodexConfig{
-			Command: "codex app-server",
-			ApprovalPolicy: map[string]any{"reject": map[string]any{
-				"sandbox_approval": true,
-				"rules":            true,
-				"mcp_elicitations": true,
-			}},
+			Command:        "codex app-server",
+			ApprovalPolicy: "never",
 			ThreadSandbox:  "workspace-write",
 			TurnTimeoutMS:  3600000,
 			ReadTimeoutMS:  5000,
@@ -124,6 +120,7 @@ func finalizeConfig(cfg Config, workflowDir string) (Config, error) {
 	cfg.Tracker.RequiredLabels = normalizeLabels(cfg.Tracker.RequiredLabels)
 	cfg.Tracker.LocalRoot = resolvePathValue(cfg.Tracker.LocalRoot, workflowDir, filepath.Join(workflowDir, ".symphony", "tasks"))
 	cfg.Agent.MaxConcurrentAgentsByState = normalizeStateLimits(cfg.Agent.MaxConcurrentAgentsByState)
+	cfg.Codex.ApprovalPolicy = normalizeApprovalPolicy(cfg.Codex.ApprovalPolicy)
 	cfg.Workspace.Root = resolvePathValue(cfg.Workspace.Root, workflowDir, filepath.Join(os.TempDir(), "symphony_workspaces"))
 
 	if cfg.Tracker.Kind == "" {
@@ -200,6 +197,26 @@ func (c Config) TurnSandboxPolicy(workspace string) map[string]any {
 		"networkAccess":       false,
 		"excludeTmpdirEnvVar": false,
 		"excludeSlashTmp":     false,
+	}
+}
+
+func normalizeApprovalPolicy(value any) any {
+	switch policy := value.(type) {
+	case nil:
+		return "never"
+	case string:
+		policy = strings.TrimSpace(policy)
+		if policy == "" {
+			return "never"
+		}
+		return policy
+	case map[string]any:
+		if _, ok := policy["reject"]; ok {
+			return "never"
+		}
+		return policy
+	default:
+		return value
 	}
 }
 

@@ -48,3 +48,16 @@ done
 		t.Fatalf("unexpected events: %#v", events)
 	}
 }
+
+func TestCodexCommandEnvExtendsLaunchdPath(t *testing.T) {
+	env := codexCommandEnv([]string{"PATH=/usr/bin:/bin", "CODEX_BIN=/custom/codex"})
+	path := envValue(env, "PATH")
+	for _, want := range []string{"/Applications/Codex.app/Contents/Resources", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"} {
+		if !strings.Contains(path, want) {
+			t.Fatalf("PATH missing %q: %s", want, path)
+		}
+	}
+	if got := envValue(env, "CODEX_BIN"); got != "/custom/codex" {
+		t.Fatalf("CODEX_BIN override should be preserved, got %q", got)
+	}
+}

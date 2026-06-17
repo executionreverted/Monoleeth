@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -224,4 +225,67 @@ func TestRunLogRecordsCodexEventsAndBoundsEntries(t *testing.T) {
 	if len(raw) == 0 {
 		t.Fatalf("expected persisted run log")
 	}
+}
+
+func TestLocalTaskCompletesAfterSuccessfulTurn(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "fake-codex.sh")
+	script := `#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*) printf '{"id":11,"result":{}}\n' ;;
+    *'"method":"initialized"'*) ;;
+    *'"method":"thread/start"'*) printf '{"id":12,"result":{"thread":{"id":"thr_test"}}}\n' ;;
+    *'"method":"turn/start"'*) printf '{"id":13,"result":{"turn":{"id":"turn_test"}}}\n'; printf '{"method":"turn/completed","params":{"status":"ok"}}\n';;
+  esac
+done
+`
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logger := newDiscardLogger(t)
+	defer logger.Close()
+	workflow := testWorkflow(t)
+	workflow.Config.Workspace.Root = filepath.Join(dir, "workspaces")
+	workflow.Config.Tracker.LocalRoot = filepath.Join(dir, "tasks")
+	workflow.Config.Codex.Command = fake
+	workflow.Config.Codex.ReadTimeoutMS = 1000
+	workflow.Config.Codex.TurnTimeoutMS = 1000
+	workflow.Config.Agent.MaxTurns = 12
+	orchestrator := NewOrchestrator(workflow, logger)
+	task, err := orchestrator.CreateTask(context.Background(), CreateTaskInput{Title: "Finish once"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := orchestrator.RunTask(context.Background(), task.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		tasks, err := orchestrator.ListTasks(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, current := range tasks {
+			if current.ID == task.ID && current.State == "Done" {
+				if entries := orchestrator.TaskRunLog(task.ID); !runLogContains(entries, "task_completed") {
+					t.Fatalf("expected task_completed event, got %#v", entries)
+				}
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("local task did not complete after successful turn")
+}
+
+func runLogContains(entries []RunLogEntry, event string) bool {
+	for _, entry := range entries {
+		if strings.EqualFold(entry.Event, event) {
+			return true
+		}
+	}
+	return false
 }

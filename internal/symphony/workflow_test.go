@@ -46,6 +46,33 @@ Hello {{ issue.identifier }}`
 	if workflow.Config.Codex.Command != "codex app-server" {
 		t.Fatalf("codex default command = %q", workflow.Config.Codex.Command)
 	}
+	if workflow.Config.Codex.ApprovalPolicy != "never" {
+		t.Fatalf("codex approval policy = %#v", workflow.Config.Codex.ApprovalPolicy)
+	}
+}
+
+func TestLoadWorkflowNormalizesLegacyApprovalPolicy(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "WORKFLOW.md")
+	content := `---
+tracker:
+  kind: local
+codex:
+  approval_policy:
+    reject:
+      sandbox_approval: true
+---
+Hello`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workflow, err := LoadWorkflow(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workflow.Config.Codex.ApprovalPolicy != "never" {
+		t.Fatalf("legacy approval policy was not normalized: %#v", workflow.Config.Codex.ApprovalPolicy)
+	}
 }
 
 func TestBuildPromptLiquidSubset(t *testing.T) {
