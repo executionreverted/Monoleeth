@@ -119,10 +119,10 @@ Keep MVP small:
 
 ## TODO: Stat Aggregation
 
-- [ ] Define effective stat model.
-- [ ] Implement aggregation order: base ship, flat modules, flat passives, role bonuses, percent modules, percent passives, buffs/debuffs, clamp.
-- [ ] Implement stat snapshot version.
-- [ ] Implement stat invalidation.
+- [x] Define effective stat model.
+- [x] Implement aggregation order: base ship, flat modules, flat passives, role bonuses, percent modules, percent passives, buffs/debuffs, clamp.
+- [x] Implement stat snapshot version.
+- [x] Implement stat invalidation.
 - [ ] Implement `GetEffectiveStats`.
 - [ ] Cache active session stats behind explicit versioning.
 - [ ] Ensure broken equipped modules provide no stat.
@@ -146,7 +146,7 @@ Keep MVP small:
 - [ ] Rank-too-low module equip fails.
 - [ ] Broken module equip fails.
 - [ ] Duplicate module equip fails.
-- [ ] Stat aggregation is deterministic.
+- [x] Stat aggregation is deterministic.
 - [ ] Broken equipped module is removed from effective stats.
 
 ## Abuse And Safety Checks
@@ -182,3 +182,4 @@ Verified slices:
 - Progression state, snapshot, main XP table, and role XP table are implemented in `internal/game/progression`.
 - Ship catalog, player ship state, and active ship state are implemented in `internal/game/ships`.
 - Module catalog validation and equipped module state are implemented in `internal/game/modules`.
+- Effective stat model, deterministic aggregation order, snapshot versioning, and invalidation state are implemented in `internal/game/stats`.
