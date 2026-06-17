@@ -2,6 +2,7 @@ package combat_test
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -171,6 +172,18 @@ func TestRegenerateEnergyCapsAtStatMaximum(t *testing.T) {
 
 	if got.Energy != got.Stats.Stats.Core.EnergyMax {
 		t.Fatalf("energy = %v, want capped at %v", got.Energy, got.Stats.Stats.Core.EnergyMax)
+	}
+}
+
+func TestUpsertActorRejectsInvalidEffectiveCombatStats(t *testing.T) {
+	service := newCombatService(t, nil)
+	actor := playerActor("player_entity_1", "player_1", world.Vec2{})
+	actor.Stats.Stats.Combat.WeaponCooldown = math.Inf(1)
+
+	err := service.UpsertActor(actor)
+
+	if !errors.Is(err, combat.ErrInvalidActorState) {
+		t.Fatalf("UpsertActor() error = %v, want ErrInvalidActorState", err)
 	}
 }
 

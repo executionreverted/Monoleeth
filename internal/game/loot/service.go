@@ -105,7 +105,11 @@ func NewService(config Config) (*Service, error) {
 	if config.PickupRange == 0 {
 		config.PickupRange = DefaultPickupRange
 	}
-	if config.OwnerLockDuration < 0 || config.PublicDuration < 0 || config.TotalLifetime <= 0 || config.PickupRange < 0 {
+	if config.OwnerLockDuration < 0 ||
+		config.PublicDuration < 0 ||
+		config.TotalLifetime <= 0 ||
+		config.OwnerLockDuration+config.PublicDuration > config.TotalLifetime ||
+		config.PickupRange < 0 {
 		return nil, ErrInvalidLootDurations
 	}
 	return &Service{
@@ -291,6 +295,7 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 	emitEvents(emitter, emitted)
 
 	var xpResult *progression.GrantXPResult
+	var xpErr error
 	if service.progression != nil && drop.SourceType.eligibleForLootXP() {
 		grant, err := service.progression.GrantXP(progression.GrantXPInput{
 			PlayerID:       input.PlayerID,
@@ -300,15 +305,17 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 			IdempotencyKey: progression.XPIdempotencyKey("loot_pickup:" + drop.ID.String()),
 		})
 		if err != nil {
-			return PickupResult{}, err
+			xpErr = err
+		} else {
+			xpResult = &grant
 		}
-		xpResult = &grant
 	}
 
 	return PickupResult{
 		Drop:        cloneDrop(drop),
 		CargoResult: cargoResult,
 		XPResult:    xpResult,
+		XPError:     xpErr,
 	}, nil
 }
 

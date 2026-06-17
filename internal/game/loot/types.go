@@ -121,6 +121,9 @@ type PickupResult struct {
 	Drop        Drop
 	CargoResult economy.AddItemResult
 	XPResult    *progression.GrantXPResult
+	// XPError is non-fatal: pickup/cargo/claim succeeded, but the optional XP
+	// grant hook failed and should be reconciled by a later durable reward flow.
+	XPError error
 }
 
 func (table LootTable) validate() error {

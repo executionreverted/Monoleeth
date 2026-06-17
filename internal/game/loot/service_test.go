@@ -2,6 +2,7 @@ package loot_test
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -46,6 +47,20 @@ func TestCreateDropsForNPCKillRollsServerSideAndIsIdempotent(t *testing.T) {
 	}
 	if len(duplicate.Drops) != 1 || duplicate.Drops[0].ID != result.Drops[0].ID {
 		t.Fatalf("duplicate drops = %+v, want original drop id %q", duplicate.Drops, result.Drops[0].ID)
+	}
+}
+
+func TestNewServiceRejectsInconsistentDurations(t *testing.T) {
+	_, err := loot.NewService(loot.Config{
+		Clock:             testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)),
+		Cargo:             fakeCargoAdder{},
+		OwnerLockDuration: 2 * time.Minute,
+		PublicDuration:    2 * time.Minute,
+		TotalLifetime:     3 * time.Minute,
+	})
+
+	if !errors.Is(err, loot.ErrInvalidLootDurations) {
+		t.Fatalf("NewService() error = %v, want ErrInvalidLootDurations", err)
 	}
 }
 
@@ -106,6 +121,43 @@ func TestPickupDropOwnerLockPublicAndExpiredWindows(t *testing.T) {
 	})
 	if !errors.Is(err, loot.ErrDropExpired) {
 		t.Fatalf("expired PickupDrop() error = %v, want ErrDropExpired", err)
+	}
+}
+
+func TestPickupDropReportsXPFailureWithoutUndoingClaimOrCargo(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	inventory := economy.NewInventoryService(clock)
+	cargo := economy.NewCargoService(inventory)
+	service, err := loot.NewService(loot.Config{
+		Clock:       clock,
+		RNG:         testutil.NewFakeRNG([]int{0}, []float64{0}),
+		Cargo:       cargo,
+		Progression: failingXPGranter{},
+	})
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	drop := createOneDrop(t, service)
+	cargoLocation := mustCargoLocation(t, "ship_1")
+
+	result, err := service.PickupDrop(loot.PickupInput{
+		PlayerID:           drop.OwnerPlayerID,
+		DropID:             drop.ID,
+		Viewer:             viewerAt(drop.Position),
+		ActiveCargo:        cargoLocation,
+		CargoCapacityUnits: 100,
+	})
+	if err != nil {
+		t.Fatalf("PickupDrop() error = %v, want nil with XPError in result", err)
+	}
+	if result.XPError == nil {
+		t.Fatal("XPError = nil, want progression failure recorded")
+	}
+	if result.Drop.ClaimedAt == nil || result.Drop.ClaimedBy != drop.OwnerPlayerID {
+		t.Fatalf("drop claim = %+v, want claimed by owner", result.Drop)
+	}
+	if inventory.TotalItemQuantity(drop.OwnerPlayerID, rawOreDefinition(t).ItemID, cargoLocation) != drop.Quantity {
+		t.Fatal("cargo item was not added despite successful pickup")
 	}
 }
 
@@ -356,4 +408,16 @@ func viewerWithRadar(position world.Vec2, radar float64) loot.Viewer {
 		Position:   position,
 		RadarRange: visibility.RadarRangeFromStatSnapshot(snapshot),
 	}
+}
+
+type fakeCargoAdder struct{}
+
+func (fakeCargoAdder) AddItem(economy.CargoAddItemInput) (economy.AddItemResult, error) {
+	return economy.AddItemResult{}, nil
+}
+
+type failingXPGranter struct{}
+
+func (failingXPGranter) GrantXP(progression.GrantXPInput) (progression.GrantXPResult, error) {
+	return progression.GrantXPResult{}, fmt.Errorf("xp store unavailable")
 }

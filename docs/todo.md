@@ -29,3 +29,6 @@ for phase status; this file is a compact pending-work index.
   provider, and gateway composition instead of direct test actor setup.
 - [ ] Add player-death loot source behavior and verify player-death drops never
   grant loot XP.
+- [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
+  grants; current pickup returns `XPError` as non-fatal after cargo/claim
+  success because there is no cross-service transaction yet.

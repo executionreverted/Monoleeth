@@ -112,6 +112,9 @@ func (actor ActorState) validate() error {
 	if !finiteNonNegative(actor.HP) || !finiteNonNegative(actor.Shield) || !finiteNonNegative(actor.Energy) {
 		return ErrInvalidActorState
 	}
+	if err := validateEffectiveCombatStats(actor.Stats.Stats); err != nil {
+		return err
+	}
 	if actor.Dead && actor.DiedAt == nil {
 		return ErrInvalidActorState
 	}
@@ -204,4 +207,27 @@ func cloneActor(actor ActorState) ActorState {
 
 func finiteNonNegative(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
+}
+
+func validateEffectiveCombatStats(effective stats.EffectiveStats) error {
+	values := []float64{
+		effective.Core.EnergyMax,
+		effective.Core.EnergyRegen,
+		effective.Combat.WeaponDamage,
+		effective.Combat.WeaponRange,
+		effective.Combat.WeaponCooldown,
+		effective.Combat.WeaponEnergyCost,
+		effective.Combat.Accuracy,
+		effective.Combat.Tracking,
+		effective.Combat.Evasion,
+		effective.Combat.Penetration,
+		effective.Combat.ResistLaser,
+		effective.Exploration.RadarRange,
+	}
+	for _, value := range values {
+		if !finiteNonNegative(value) {
+			return ErrInvalidActorState
+		}
+	}
+	return nil
 }
