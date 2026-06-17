@@ -167,28 +167,17 @@ func TestCombatKillLootPickupAndXPVerticalSlice(t *testing.T) {
 		t.Fatalf("second attack result = %+v, want NPC killed", second)
 	}
 
-	combatXP, err := progressionService.GrantXP(progression.GrantXPInput{
-		PlayerID:       second.KillEvent.OwnerPlayerID,
-		Amount:         20,
-		SourceType:     progression.XPSourceTypeCombat,
-		SourceID:       progression.XPSourceID(second.KillEvent.NPCEntityID.String()),
-		IdempotencyKey: progression.XPIdempotencyKey("combat_kill:" + second.KillEvent.NPCEntityID.String()),
-		RoleXP: []progression.RoleXPGrant{
-			{Role: progression.RoleTypeCombat, Amount: 20},
-		},
-	})
+	combatXPHandler, err := combat.NewNPCKillXPHandler(progressionService, combat.DefaultNPCKillXPReward())
 	if err != nil {
-		t.Fatalf("GrantXP(combat) error = %v", err)
+		t.Fatalf("NewNPCKillXPHandler() error = %v, want nil", err)
 	}
-	duplicateCombatXP, err := progressionService.GrantXP(progression.GrantXPInput{
-		PlayerID:       second.KillEvent.OwnerPlayerID,
-		Amount:         999,
-		SourceType:     progression.XPSourceTypeCombat,
-		SourceID:       progression.XPSourceID(second.KillEvent.NPCEntityID.String()),
-		IdempotencyKey: progression.XPIdempotencyKey("combat_kill:" + second.KillEvent.NPCEntityID.String()),
-	})
+	combatXP, err := combatXPHandler.GrantNPCKillXP(*second.KillEvent)
 	if err != nil {
-		t.Fatalf("duplicate GrantXP(combat) error = %v", err)
+		t.Fatalf("GrantNPCKillXP() error = %v", err)
+	}
+	duplicateCombatXP, err := combatXPHandler.GrantNPCKillXP(*second.KillEvent)
+	if err != nil {
+		t.Fatalf("duplicate GrantNPCKillXP() error = %v", err)
 	}
 	if !duplicateCombatXP.Duplicate || duplicateCombatXP.Snapshot.Player.MainXP != combatXP.Snapshot.Player.MainXP {
 		t.Fatalf("duplicate combat XP = %+v, want duplicate unchanged from %+v", duplicateCombatXP, combatXP)
