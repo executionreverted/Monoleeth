@@ -13,7 +13,8 @@ func TestAggregateStatsAppliesDocumentedOrder(t *testing.T) {
 				CargoCapacity: 50,
 			},
 			Combat: CombatStats{
-				WeaponDamage: 100,
+				WeaponDamage:     100,
+				WeaponEnergyCost: 20,
 			},
 		},
 		FlatModules: []FlatModifier{
@@ -24,7 +25,8 @@ func TestAggregateStatsAppliesDocumentedOrder(t *testing.T) {
 						CargoCapacity: 10,
 					},
 					Combat: CombatStats{
-						WeaponDamage: 10,
+						WeaponDamage:     10,
+						WeaponEnergyCost: -2,
 					},
 				},
 			},
@@ -47,7 +49,8 @@ func TestAggregateStatsAppliesDocumentedOrder(t *testing.T) {
 						Speed: 5,
 					},
 					Combat: CombatStats{
-						WeaponDamage: 4,
+						WeaponDamage:     4,
+						WeaponEnergyCost: -1,
 					},
 				},
 			},
@@ -57,7 +60,8 @@ func TestAggregateStatsAppliesDocumentedOrder(t *testing.T) {
 				Source: ModifierSourceModule,
 				Stats: PercentStats{
 					Combat: CombatStats{
-						WeaponDamage: 0.10,
+						WeaponDamage:     0.10,
+						WeaponEnergyCost: -0.10,
 					},
 				},
 			},
@@ -95,6 +99,7 @@ func TestAggregateStatsAppliesDocumentedOrder(t *testing.T) {
 	got := AggregateStats(input)
 
 	assertFloatEqual(t, got.Combat.WeaponDamage, 73.4)
+	assertFloatEqual(t, got.Combat.WeaponEnergyCost, 15.3)
 	assertFloatEqual(t, got.Core.Speed, 126)
 	assertFloatEqual(t, got.Core.CargoCapacity, 60)
 }
@@ -107,12 +112,13 @@ func TestAggregateStatsClampsEffectiveStats(t *testing.T) {
 				CargoCapacity: math.Inf(1),
 			},
 			Combat: CombatStats{
-				Accuracy:        1.5,
-				CritChance:      -0.5,
-				ResistLaser:     2,
-				WeaponDamage:    10,
-				WeaponCooldown:  3,
-				ResistExplosive: -1,
+				Accuracy:         1.5,
+				CritChance:       -0.5,
+				ResistLaser:      2,
+				WeaponDamage:     10,
+				WeaponCooldown:   3,
+				WeaponEnergyCost: math.Inf(1),
+				ResistExplosive:  -1,
 			},
 			Economy: EconomyStats{
 				MarketFeeReduction: 4,
@@ -136,6 +142,7 @@ func TestAggregateStatsClampsEffectiveStats(t *testing.T) {
 	assertFloatEqual(t, got.Core.Speed, 0)
 	assertFloatEqual(t, got.Core.CargoCapacity, 0)
 	assertFloatEqual(t, got.Combat.WeaponDamage, 0)
+	assertFloatEqual(t, got.Combat.WeaponEnergyCost, 0)
 	assertFloatEqual(t, got.Combat.Accuracy, 1)
 	assertFloatEqual(t, got.Combat.CritChance, 0)
 	assertFloatEqual(t, got.Combat.ResistLaser, 1)
