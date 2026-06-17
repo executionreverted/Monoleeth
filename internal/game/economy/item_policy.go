@@ -64,7 +64,8 @@ func ValidatePlayerTradeOrEquipLocation(location ItemLocation, equipped bool) er
 // modeled as escrow, reserved, or system-owned for player trade/equip flows.
 func IsBlockedPlayerTradeOrEquipLocationKind(kind LocationKind) bool {
 	switch kind {
-	case LocationKindMarketEscrow,
+	case LocationKindShipEquipped,
+		LocationKindMarketEscrow,
 		LocationKindAuctionEscrow,
 		LocationKindCraftingReserved,
 		LocationKindSystemSink:

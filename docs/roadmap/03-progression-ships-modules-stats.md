@@ -193,6 +193,7 @@ Verified slices:
 - Review hardening batch 1 added concrete ship slot-layout validation for loadouts, player-scoped loadout ids, mandatory rank-up idempotency keys, no-op stat invalidation suppression for unchanged loadout apply and empty respec, non-zero active ship timestamp validation, ship rank requirement enforcement through a server-side rank provider, and module rank/role validation through a server-side progression provider.
 - Review hardening batch 2 changed ship swap cargo validation to use a server-side cargo capacity provider, so target capacity can come from effective stat aggregation instead of only catalog base cargo.
 - Review hardening batch 3 changed stat snapshot lookup to accept only a player/ship subject and build aggregation inputs from an injected server-side provider, with service-level locking around invalidation and recalculation.
+- Review hardening batch 4 added `ship_equipped` item locations, blocked generic inventory moves into or out of equipped locations, and made loadout apply bind/unbind module item locations atomically with equipped indexes in the in-memory loadout store.
 
 Remaining follow-up:
 
@@ -200,5 +201,5 @@ Remaining follow-up:
 - Ship rank checks now go through `PlayerRankProvider`; wire that provider to the authoritative progression snapshot/store when the runtime composition layer lands.
 - Module rank/role checks now go through `PilotProgressionProvider`; wire that provider to the authoritative progression snapshot/store when the runtime composition layer lands.
 - Ship swap target cargo capacity now goes through `ShipCargoCapacityProvider`; wire that provider to authoritative effective stat snapshots before combat, scanner, or cargo-heavy flows consume ship swapping.
-- Module equip should move/bind item locations through an inventory ledger transaction.
+- Module equip now binds item locations in the loadout store; add the runtime `InventoryService` ledger adapter before persistence is introduced so equip/unequip emits real item ledger rows.
 - Stat snapshots now use a `StatInputProvider`; wire that provider to ship/module/progression records before combat or scanner consume stat snapshots.

@@ -440,7 +440,7 @@ func validateGenericMoveSourceLocation(location ItemLocation) error {
 }
 
 func validateGenericMoveTargetLocation(location ItemLocation) error {
-	if location.Kind == LocationKindShipCargo {
+	if location.Kind == LocationKindShipCargo || location.Kind == LocationKindShipEquipped {
 		return fmt.Errorf("target location %q: %w", location.Kind, ErrBlockedGenericMoveTarget)
 	}
 	return nil
@@ -448,7 +448,8 @@ func validateGenericMoveTargetLocation(location ItemLocation) error {
 
 func isBlockedGenericMoveSourceLocation(kind LocationKind) bool {
 	switch kind {
-	case LocationKindMarketEscrow,
+	case LocationKindShipEquipped,
+		LocationKindMarketEscrow,
 		LocationKindAuctionEscrow,
 		LocationKindCraftingReserved,
 		LocationKindSystemSink:

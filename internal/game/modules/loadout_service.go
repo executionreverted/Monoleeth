@@ -312,6 +312,9 @@ func validateModuleEquipLocation(location economy.ItemLocation, equippedOnTarget
 	if err := location.Validate(); err != nil {
 		return err
 	}
+	if location.Kind == economy.LocationKindShipEquipped && equippedOnTargetShip {
+		return nil
+	}
 	if economy.IsBlockedPlayerTradeOrEquipLocationKind(location.Kind) {
 		return fmt.Errorf("location kind %q: %w", location.Kind, ErrBlockedModuleItemLocation)
 	}

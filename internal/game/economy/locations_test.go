@@ -10,6 +10,7 @@ func TestSupportedLocationKindsValidateAndStringify(t *testing.T) {
 	want := []LocationKind{
 		LocationKindAccountInventory,
 		LocationKindShipCargo,
+		LocationKindShipEquipped,
 		LocationKindPlanetStorage,
 		LocationKindStationStorage,
 		LocationKindMarketEscrow,

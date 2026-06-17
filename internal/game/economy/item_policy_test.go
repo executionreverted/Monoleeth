@@ -101,6 +101,7 @@ func TestPlayerTradeOrEquipPolicyBlocksEquippedEscrowReservedAndSystemLocations(
 	}
 
 	blockedKinds := []LocationKind{
+		LocationKindShipEquipped,
 		LocationKindMarketEscrow,
 		LocationKindAuctionEscrow,
 		LocationKindCraftingReserved,

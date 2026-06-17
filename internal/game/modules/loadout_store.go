@@ -192,6 +192,13 @@ func (store *InMemoryLoadoutStore) ReplaceEquippedModules(
 	defer store.mu.Unlock()
 	key := playerShipStoreKey(playerID, shipID)
 	for _, module := range nextBySlot {
+		item, ok := store.items[module.ItemInstanceID]
+		if !ok {
+			return fmt.Errorf("item %q: %w", module.ItemInstanceID, ErrUnknownModuleItem)
+		}
+		if item.OwnerPlayerID != playerID {
+			return fmt.Errorf("item %q owner %q player %q: %w", module.ItemInstanceID, item.OwnerPlayerID, playerID, ErrModuleItemNotOwned)
+		}
 		if existing, ok := store.equippedByItem[module.ItemInstanceID]; ok {
 			existingKey := playerShipStoreKey(existing.PlayerID, existing.ShipID)
 			if existingKey != key {
@@ -200,8 +207,14 @@ func (store *InMemoryLoadoutStore) ReplaceEquippedModules(
 		}
 	}
 	for _, old := range store.equippedByKey[key] {
+		if _, ok := store.items[old.ItemInstanceID]; !ok {
+			return fmt.Errorf("item %q: %w", old.ItemInstanceID, ErrUnknownModuleItem)
+		}
+	}
+	for _, old := range store.equippedByKey[key] {
 		delete(store.equippedByItem, old.ItemInstanceID)
 	}
+	store.moveReplacedModuleItemsLocked(playerID, shipID, store.equippedByKey[key], nextBySlot)
 	if len(nextBySlot) == 0 {
 		delete(store.equippedByKey, key)
 		return nil
@@ -211,6 +224,41 @@ func (store *InMemoryLoadoutStore) ReplaceEquippedModules(
 		store.equippedByItem[module.ItemInstanceID] = module
 	}
 	return nil
+}
+
+func (store *InMemoryLoadoutStore) moveReplacedModuleItemsLocked(
+	playerID foundation.PlayerID,
+	shipID foundation.ShipID,
+	current map[ModuleSlotID]EquippedModule,
+	next map[ModuleSlotID]EquippedModule,
+) {
+	nextItems := make(map[foundation.ItemID]struct{}, len(next))
+	for _, module := range next {
+		nextItems[module.ItemInstanceID] = struct{}{}
+	}
+
+	accountLocation := economy.ItemLocation{
+		Kind: economy.LocationKindAccountInventory,
+		ID:   economy.LocationID(playerID.String()),
+	}
+	for _, old := range current {
+		if _, kept := nextItems[old.ItemInstanceID]; kept {
+			continue
+		}
+		item := store.items[old.ItemInstanceID]
+		item.Location = accountLocation
+		store.items[old.ItemInstanceID] = cloneInstanceItem(item)
+	}
+
+	equippedLocation := economy.ItemLocation{
+		Kind: economy.LocationKindShipEquipped,
+		ID:   economy.LocationID(shipID.String()),
+	}
+	for _, module := range next {
+		item := store.items[module.ItemInstanceID]
+		item.Location = equippedLocation
+		store.items[module.ItemInstanceID] = cloneInstanceItem(item)
+	}
 }
 
 // MarkEquippedModuleBroken records a positive-to-zero durability transition for

@@ -45,6 +45,7 @@ Bu modül transfer primitive'lerini sağlar.
 ```text
 account_inventory
 ship_cargo
+ship_equipped
 planet_storage
 station_storage
 market_escrow
@@ -336,7 +337,8 @@ Defense:
 
 - Location-based ownership
 - Only items in account/cargo allowed for specific actions
-- Escrow location blocks equip/move except by owning system
+- Equipped, escrow, reserved, and system locations block generic player
+  move/equip flows except by the owning domain service.
 
 ### Cargo Capacity Race
 
@@ -386,4 +388,3 @@ Defense:
 - Ledger reference uniqueness
 
 Bu modül bitmeden market/craft/death kodlamaya geçmemek en sağlıklısı.
-

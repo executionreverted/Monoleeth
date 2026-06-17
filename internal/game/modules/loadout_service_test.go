@@ -222,6 +222,14 @@ func TestSaveLoadoutRejectsInvalidModuleAssignments(t *testing.T) {
 			wantErr:     ErrInvalidModuleItemLocation,
 		},
 		{
+			name:        "spoofed equipped location without equipped index",
+			item:        testModuleItem(t, "laser-instance-1", "laser_alpha_t1", playerID, economy.LocationKindShipEquipped, 100),
+			assignments: SlotAssignments{ModuleSlotOffensive1: "laser-instance-1"},
+			playerRank:  1,
+			roleLevels:  map[PilotRole]int{PilotRoleCombat: 1},
+			wantErr:     ErrBlockedModuleItemLocation,
+		},
+		{
 			name:        "market escrow location",
 			item:        testModuleItem(t, "laser-instance-1", "laser_alpha_t1", playerID, economy.LocationKindMarketEscrow, 100),
 			assignments: SlotAssignments{ModuleSlotOffensive1: "laser-instance-1"},
@@ -430,6 +438,9 @@ func TestApplyLoadoutReplacesEquippedModulesAndReturnsInvalidations(t *testing.T
 	if stored[1].ItemInstanceID != scanner.ItemInstanceID {
 		t.Fatalf("stored utility item = %q, want %q", stored[1].ItemInstanceID, scanner.ItemInstanceID)
 	}
+	assertModuleItemLocation(t, store, laser.ItemInstanceID, economy.LocationKindShipEquipped, shipID.String())
+	assertModuleItemLocation(t, store, scanner.ItemInstanceID, economy.LocationKindShipEquipped, shipID.String())
+	assertModuleItemLocation(t, store, shield.ItemInstanceID, economy.LocationKindAccountInventory, playerID.String())
 }
 
 func TestApplyLoadoutNoopDoesNotInvalidateStats(t *testing.T) {
@@ -473,6 +484,7 @@ func TestApplyLoadoutNoopDoesNotInvalidateStats(t *testing.T) {
 	if got := len(result.StatInvalidations); got != 0 {
 		t.Fatalf("StatInvalidations len = %d, want 0", got)
 	}
+	assertModuleItemLocation(t, store, laser.ItemInstanceID, economy.LocationKindShipEquipped, shipID.String())
 }
 
 func TestBreakEquippedModuleMarksBrokenAndReturnsOneInvalidation(t *testing.T) {
@@ -733,5 +745,23 @@ func equipModuleForTest(
 	}})
 	if err != nil {
 		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
+	}
+}
+
+func assertModuleItemLocation(
+	t *testing.T,
+	store *InMemoryLoadoutStore,
+	itemInstanceID foundation.ItemID,
+	wantKind economy.LocationKind,
+	wantID string,
+) {
+	t.Helper()
+
+	item, err := store.ModuleItem(itemInstanceID)
+	if err != nil {
+		t.Fatalf("ModuleItem(%q) error = %v, want nil", itemInstanceID, err)
+	}
+	if item.Location.Kind != wantKind || item.Location.ID.String() != wantID {
+		t.Fatalf("item %q location = %s, want %s:%s", itemInstanceID, item.Location.String(), wantKind, wantID)
 	}
 }

@@ -18,6 +18,7 @@ type LocationKind string
 const (
 	LocationKindAccountInventory LocationKind = "account_inventory"
 	LocationKindShipCargo        LocationKind = "ship_cargo"
+	LocationKindShipEquipped     LocationKind = "ship_equipped"
 	LocationKindPlanetStorage    LocationKind = "planet_storage"
 	LocationKindStationStorage   LocationKind = "station_storage"
 	LocationKindMarketEscrow     LocationKind = "market_escrow"
@@ -41,6 +42,7 @@ func SupportedLocationKinds() []LocationKind {
 	return []LocationKind{
 		LocationKindAccountInventory,
 		LocationKindShipCargo,
+		LocationKindShipEquipped,
 		LocationKindPlanetStorage,
 		LocationKindStationStorage,
 		LocationKindMarketEscrow,
@@ -73,6 +75,7 @@ func (kind LocationKind) Validate() error {
 	switch kind {
 	case LocationKindAccountInventory,
 		LocationKindShipCargo,
+		LocationKindShipEquipped,
 		LocationKindPlanetStorage,
 		LocationKindStationStorage,
 		LocationKindMarketEscrow,

@@ -363,23 +363,23 @@ func TestMoveItemRejectsGenericMoveFromEscrowReservedAndSystemLocations(t *testi
 	}
 }
 
-func TestMoveItemRejectsGenericMoveToShipCargo(t *testing.T) {
+func TestMoveItemRejectsGenericMoveFromShipEquipped(t *testing.T) {
 	service := newTestInventoryService()
 	definition := validStackableDefinition(t)
-	fromLocation := validLocation(t)
-	toLocation := validShipCargoLocation(t)
-	addStackableItems(t, service, definition, 5, fromLocation, "loot_pickup:drop-1")
+	fromLocation := validShipEquippedLocation(t)
+	toLocation := validLocation(t)
+	seedStackableItem(t, service, definition, 5, fromLocation)
 
 	input := validMoveItemInput(t)
 	input.ItemRef.Definition = definition
 	input.FromLocation = fromLocation
 	input.ToLocation = toLocation
 	input.Quantity = 1
-	input.ReferenceKey = validReferenceKey(t, "loot_pickup:move-to-cargo")
+	input.ReferenceKey = validReferenceKey(t, "loot_pickup:move-from-equipped")
 
 	_, err := service.MoveItem(input)
-	if !errors.Is(err, ErrBlockedGenericMoveTarget) {
-		t.Fatalf("MoveItem error = %v, want ErrBlockedGenericMoveTarget", err)
+	if !errors.Is(err, ErrBlockedGenericMoveSource) {
+		t.Fatalf("MoveItem error = %v, want ErrBlockedGenericMoveSource", err)
 	}
 	if got := service.TotalItemQuantity(input.PlayerID, definition.ItemID, fromLocation); got != 5 {
 		t.Fatalf("source TotalItemQuantity() = %d, want 5", got)
@@ -387,8 +387,45 @@ func TestMoveItemRejectsGenericMoveToShipCargo(t *testing.T) {
 	if got := service.TotalItemQuantity(input.PlayerID, definition.ItemID, toLocation); got != 0 {
 		t.Fatalf("destination TotalItemQuantity() = %d, want 0", got)
 	}
-	if got := len(service.ItemLedgerEntries()); got != 1 {
-		t.Fatalf("ledger entries len = %d, want 1", got)
+	if got := len(service.ItemLedgerEntries()); got != 0 {
+		t.Fatalf("ledger entries len = %d, want 0", got)
+	}
+}
+
+func TestMoveItemRejectsGenericMoveToCargoAndEquippedTargets(t *testing.T) {
+	cases := []ItemLocation{
+		validShipCargoLocation(t),
+		validShipEquippedLocation(t),
+	}
+
+	for _, toLocation := range cases {
+		t.Run(toLocation.Kind.String(), func(t *testing.T) {
+			service := newTestInventoryService()
+			definition := validStackableDefinition(t)
+			fromLocation := validLocation(t)
+			addStackableItems(t, service, definition, 5, fromLocation, "loot_pickup:drop-1")
+
+			input := validMoveItemInput(t)
+			input.ItemRef.Definition = definition
+			input.FromLocation = fromLocation
+			input.ToLocation = toLocation
+			input.Quantity = 1
+			input.ReferenceKey = validReferenceKey(t, "loot_pickup:move-to-blocked-target")
+
+			_, err := service.MoveItem(input)
+			if !errors.Is(err, ErrBlockedGenericMoveTarget) {
+				t.Fatalf("MoveItem error = %v, want ErrBlockedGenericMoveTarget", err)
+			}
+			if got := service.TotalItemQuantity(input.PlayerID, definition.ItemID, fromLocation); got != 5 {
+				t.Fatalf("source TotalItemQuantity() = %d, want 5", got)
+			}
+			if got := service.TotalItemQuantity(input.PlayerID, definition.ItemID, toLocation); got != 0 {
+				t.Fatalf("destination TotalItemQuantity() = %d, want 0", got)
+			}
+			if got := len(service.ItemLedgerEntries()); got != 1 {
+				t.Fatalf("ledger entries len = %d, want 1", got)
+			}
+		})
 	}
 }
 
@@ -458,6 +495,29 @@ func addInstanceItems(
 	return result
 }
 
+func seedStackableItem(
+	t *testing.T,
+	service *InventoryService,
+	definition ItemDefinition,
+	quantity int64,
+	location ItemLocation,
+) {
+	t.Helper()
+
+	item, err := NewStackableItem(
+		definition.Source,
+		"seed-stackable-1",
+		definition.ItemID,
+		"player-1",
+		location,
+		validQuantity(t, quantity),
+	)
+	if err != nil {
+		t.Fatalf("NewStackableItem seed: %v", err)
+	}
+	service.stackableItems = append(service.stackableItems, item)
+}
+
 func validInstanceDefinition(t *testing.T) ItemDefinition {
 	t.Helper()
 
@@ -486,6 +546,12 @@ func validShipCargoLocation(t *testing.T) ItemLocation {
 	t.Helper()
 
 	return validLocationKind(t, LocationKindShipCargo, "ship-1")
+}
+
+func validShipEquippedLocation(t *testing.T) ItemLocation {
+	t.Helper()
+
+	return validLocationKind(t, LocationKindShipEquipped, "ship-1")
 }
 
 func validLocationKind(t *testing.T, kind LocationKind, id string) ItemLocation {
