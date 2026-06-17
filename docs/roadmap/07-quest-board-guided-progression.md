@@ -66,11 +66,11 @@ Board rules:
 - [x] Define quest state machine. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
 - [x] Define objective schemas for kill, collect, craft, scan, build, and deliver. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
 - [x] Define reward payload model. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
-- [ ] Generate board from player snapshot and deterministic seed.
-- [ ] Filter quest templates by rank and requirements.
-- [ ] Weight offers by player needs.
-- [ ] Generate exactly 10 offers.
-- [ ] Generate reward payload upfront.
+- [x] Generate board from player snapshot and deterministic seed. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0071-go-build go test ./internal/game/quests -count=1`.
+- [x] Filter quest templates by rank and requirements. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0071-go-build go test ./internal/game/quests -count=1`.
+- [x] Weight offers by player needs. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0071-go-build go test ./internal/game/quests -count=1`.
+- [x] Generate exactly 10 offers. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0071-go-build go test ./internal/game/quests -count=1`.
+- [x] Generate reward payload upfront. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0071-go-build go test ./internal/game/quests -count=1`.
 - [x] Store generated payload and reward payload. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
 - [ ] Expire old offers.
 
@@ -106,8 +106,8 @@ Board rules:
 
 ## Tests
 
-- [ ] Board generates 10 offers.
-- [ ] Offer generation is deterministic for same seed.
+- [x] Board generates 10 offers. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0071-go-build go test ./internal/game/quests -count=1`.
+- [x] Offer generation is deterministic for same seed. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0071-go-build go test ./internal/game/quests -count=1`.
 - [ ] Accept fails for expired offer.
 - [ ] Accept max 3 active quests.
 - [ ] Reroll charges credits.

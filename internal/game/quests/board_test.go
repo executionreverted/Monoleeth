@@ -1,0 +1,212 @@
+package quests
+
+import (
+	"errors"
+	"reflect"
+	"testing"
+	"time"
+
+	"gameproject/internal/game/catalog"
+	"gameproject/internal/game/progression"
+)
+
+func TestMVPQuestCatalogCoversAllMVPQuestTypes(t *testing.T) {
+	questCatalog := MustMVPQuestCatalog()
+	seen := make(map[QuestType]bool)
+	for _, template := range questCatalog.Templates() {
+		seen[template.Type] = true
+	}
+
+	for _, questType := range []QuestType{
+		QuestTypeKill,
+		QuestTypeCollect,
+		QuestTypeCraft,
+		QuestTypeScan,
+		QuestTypeBuild,
+		QuestTypeDeliver,
+	} {
+		if !seen[questType] {
+			t.Fatalf("MVP catalog missing quest type %q", questType)
+		}
+	}
+}
+
+func TestGenerateBoardReturnsExactlyTenOffers(t *testing.T) {
+	input := validBoardGenerationInput(t, MustMVPQuestCatalog())
+
+	offers, err := GenerateBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateBoard() = %v, want nil", err)
+	}
+	if len(offers) != BoardOfferCount {
+		t.Fatalf("GenerateBoard() returned %d offers, want %d", len(offers), BoardOfferCount)
+	}
+
+	seenOfferIDs := make(map[string]bool, len(offers))
+	for _, offer := range offers {
+		if err := offer.Validate(); err != nil {
+			t.Fatalf("offer Validate() = %v, want nil", err)
+		}
+		if seenOfferIDs[offer.OfferID.String()] {
+			t.Fatalf("duplicate offer id %q", offer.OfferID)
+		}
+		seenOfferIDs[offer.OfferID.String()] = true
+	}
+}
+
+func TestGenerateBoardDeterministicForSameInput(t *testing.T) {
+	input := validBoardGenerationInput(t, MustMVPQuestCatalog())
+
+	first, err := GenerateBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateBoard(first) = %v, want nil", err)
+	}
+	second, err := GenerateBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateBoard(second) = %v, want nil", err)
+	}
+
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("GenerateBoard() mismatch for same input\nfirst=%#v\nsecond=%#v", first, second)
+	}
+}
+
+func TestGenerateBoardFiltersRankAndRequirementsBeforeSelection(t *testing.T) {
+	input := validBoardGenerationInput(t, MustMVPQuestCatalog())
+	input.WeightHook = func(_ PlayerQuestBoardSnapshot, template QuestTemplate) int {
+		switch template.TemplateID {
+		case "quest_craft_laser_alpha_r2", "quest_kill_void_raiders_r3":
+			return 1 << 30
+		default:
+			return 1
+		}
+	}
+
+	offers, err := GenerateBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateBoard() = %v, want nil", err)
+	}
+	for _, offer := range offers {
+		switch offer.TemplateID {
+		case "quest_craft_laser_alpha_r2", "quest_kill_void_raiders_r3":
+			t.Fatalf("generated unavailable template %q", offer.TemplateID)
+		}
+	}
+}
+
+func TestGenerateBoardStoresRewardPayloadAtOfferTime(t *testing.T) {
+	offers, err := GenerateBoard(validBoardGenerationInput(t, MustMVPQuestCatalog()))
+	if err != nil {
+		t.Fatalf("GenerateBoard() = %v, want nil", err)
+	}
+
+	for _, offer := range offers {
+		if len(offer.RewardPayload.Grants) == 0 {
+			t.Fatalf("offer %q has no generated reward grants", offer.OfferID)
+		}
+		if err := offer.RewardPayload.Validate(); err != nil {
+			t.Fatalf("offer %q reward payload Validate() = %v, want nil", offer.OfferID, err)
+		}
+	}
+}
+
+func TestGenerateBoardPayloadIncludesObjectiveAndDailyExpiry(t *testing.T) {
+	questCatalog := MustMVPQuestCatalog()
+	input := validBoardGenerationInput(t, questCatalog)
+
+	offers, err := GenerateBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateBoard() = %v, want nil", err)
+	}
+
+	for _, offer := range offers {
+		template, ok := questCatalog.Lookup(offer.TemplateID)
+		if !ok {
+			t.Fatalf("template %q not found", offer.TemplateID)
+		}
+		if offer.GeneratedPayload.Objective.IsZero() {
+			t.Fatalf("offer %q generated payload missing objective", offer.OfferID)
+		}
+		if !reflect.DeepEqual(offer.GeneratedPayload.Objective, template.ObjectiveSchema) {
+			t.Fatalf("offer %q objective = %#v, want %#v", offer.OfferID, offer.GeneratedPayload.Objective, template.ObjectiveSchema)
+		}
+		if !offer.CreatedAt.Equal(input.CreatedAt.UTC()) {
+			t.Fatalf("offer %q created_at = %s, want %s", offer.OfferID, offer.CreatedAt, input.CreatedAt.UTC())
+		}
+		if !offer.ExpiresAt.After(offer.CreatedAt) {
+			t.Fatalf("offer %q expires_at %s is not after created_at %s", offer.OfferID, offer.ExpiresAt, offer.CreatedAt)
+		}
+		if !offer.ExpiresAt.Equal(NextQuestBoardExpiry(input.CreatedAt)) {
+			t.Fatalf("offer %q expires_at = %s, want %s", offer.OfferID, offer.ExpiresAt, NextQuestBoardExpiry(input.CreatedAt))
+		}
+	}
+}
+
+func TestGenerateBoardInsufficientEligibleTemplatesReturnsClearError(t *testing.T) {
+	templates := MVPQuestTemplates()[:BoardOfferCount-1]
+	questCatalog, err := NewQuestCatalog(templates)
+	if err != nil {
+		t.Fatalf("NewQuestCatalog() = %v, want nil", err)
+	}
+
+	offers, err := GenerateBoard(validBoardGenerationInput(t, questCatalog))
+	if !errors.Is(err, ErrInsufficientEligibleTemplates) {
+		t.Fatalf("GenerateBoard() error = %v, want ErrInsufficientEligibleTemplates", err)
+	}
+	if offers != nil {
+		t.Fatalf("GenerateBoard() offers = %#v, want nil", offers)
+	}
+}
+
+func TestDefaultQuestWeightHookDeterministicallyNudgesPlayerNeeds(t *testing.T) {
+	questCatalog := MustMVPQuestCatalog()
+	scanTemplate := mustLookupQuestTemplate(t, questCatalog, "quest_scan_signals_r1")
+	killTemplate := mustLookupQuestTemplate(t, questCatalog, "quest_kill_pirates_r1")
+	snapshot := validBoardGenerationInput(t, questCatalog).Player
+	snapshot.RoleLevels[progression.RoleTypeScout] = 1
+	snapshot.RoleLevels[progression.RoleTypeCombat] = 5
+	snapshot.RecentActivity = QuestRecentActivity{Kill: 12}
+
+	firstScanWeight := DefaultQuestWeightHook(snapshot, scanTemplate)
+	secondScanWeight := DefaultQuestWeightHook(snapshot, scanTemplate)
+	killWeight := DefaultQuestWeightHook(snapshot, killTemplate)
+
+	if firstScanWeight != secondScanWeight {
+		t.Fatalf("scan weight changed between calls: %d then %d", firstScanWeight, secondScanWeight)
+	}
+	if firstScanWeight <= killWeight {
+		t.Fatalf("scan weight = %d, want greater than kill weight %d for low-scout combat-heavy snapshot", firstScanWeight, killWeight)
+	}
+}
+
+func validBoardGenerationInput(t *testing.T, questCatalog QuestCatalog) BoardGenerationInput {
+	t.Helper()
+	return BoardGenerationInput{
+		Player: PlayerQuestBoardSnapshot{
+			PlayerID:  "player_1",
+			Rank:      1,
+			MainLevel: 1,
+			RoleLevels: map[progression.RoleType]int{
+				progression.RoleTypeCombat:       1,
+				progression.RoleTypeScout:        1,
+				progression.RoleTypeCrafting:     1,
+				progression.RoleTypeConstruction: 1,
+			},
+			CurrentRegion:    "frontier",
+			KnownPlanetCount: 0,
+			OwnedPlanetCount: 0,
+		},
+		Seed:      20260617,
+		Catalog:   questCatalog,
+		CreatedAt: time.Date(2026, 6, 17, 10, 30, 0, 0, time.UTC),
+	}
+}
+
+func mustLookupQuestTemplate(t *testing.T, questCatalog QuestCatalog, templateID catalog.DefinitionID) QuestTemplate {
+	t.Helper()
+	template, ok := questCatalog.Lookup(templateID)
+	if !ok {
+		t.Fatalf("Lookup(%q) not found", templateID)
+	}
+	return template
+}
