@@ -61,8 +61,8 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 - [x] Add a small `Clock` interface with real and fake implementations.
 - [x] Add an RNG interface with deterministic test implementation.
 - [x] Add `Money`, `Quantity`, and positive amount validation helpers.
-- [ ] Add common domain error type with public `Code`, safe `Message`, and internal detail support.
-- [ ] Add shared error codes from `15-api-events-errors.md`.
+- [x] Add common domain error type with public `Code`, safe `Message`, and internal detail support.
+- [x] Add shared error codes from `15-api-events-errors.md`.
 - [ ] Add request envelope model with `request_id`, `op`, `payload`, `client_seq`, and version.
 - [ ] Add response and error envelope model.
 - [ ] Add event envelope model with `event_id`, `type`, `payload`, `server_time`, and sequence.
@@ -76,7 +76,7 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 ## Tests
 
 - [x] Unit test positive amount validation rejects zero and negative values.
-- [ ] Unit test error codes serialize without leaking internal details.
+- [x] Unit test error codes serialize without leaking internal details.
 - [x] Unit test fake clock can advance deterministically.
 - [x] Unit test fake RNG returns deterministic values.
 - [ ] Unit test event envelopes include event type, ID, sequence, and server time.
@@ -85,15 +85,15 @@ Avoid adding PostgreSQL, Redis, NATS, or WebSocket infrastructure here unless a 
 
 ## Abuse And Safety Checks
 
-- [ ] Ensure client-facing error messages can be generic for hidden/not-found cases.
-- [ ] Ensure domain error internal details are not part of public response payload by default.
+- [x] Ensure client-facing error messages can be generic for hidden/not-found cases.
+- [x] Ensure domain error internal details are not part of public response payload by default.
 - [x] Ensure amount helpers cannot turn negative input into a positive mutation.
 - [ ] Ensure request IDs are modeled separately from domain idempotency keys.
 
 ## Done Criteria
 
 - [x] Foundation packages compile.
-- [ ] Tests for foundation helpers pass.
+- [x] Tests for foundation helpers pass.
 - [x] `go test ./...` passes.
 - [x] `git diff --check` passes.
 - [ ] Later phase files can reference foundation primitives instead of defining their own.
