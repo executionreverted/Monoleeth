@@ -1,7 +1,6 @@
-// Package death contains Phase 06 death domain models and pure cargo drop
-// selection primitives.
+// Package death contains Phase 06 death domain models, cargo drop selection,
+// and death orchestration primitives.
 //
-// The package does not orchestrate inventory, loot, ship, wallet, or combat
-// services. Service slices will consume these types when the durable death
-// transaction is implemented.
+// Combat still owns lethal damage calculation. Inventory, loot, ships, and
+// module durability remain separate service boundaries called by DeathService.
 package death

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 )
@@ -28,37 +29,41 @@ type ZoneCargoDropPolicy struct {
 
 // CargoItemDefinition is the item-definition subset the death selector needs.
 type CargoItemDefinition struct {
-	ItemID            foundation.ItemID   `json:"item_id"`
-	Type              economy.ItemType    `json:"item_type"`
-	TradeFlags        []economy.TradeFlag `json:"trade_flags,omitempty"`
-	BindRules         []economy.BindRule  `json:"bind_rules,omitempty"`
-	CargoUnitsPerItem int64               `json:"cargo_units_per_item,omitempty"`
-	QuestCritical     bool                `json:"quest_critical,omitempty"`
-	SystemCritical    bool                `json:"system_critical,omitempty"`
+	Source            catalog.VersionedDefinition `json:"source,omitempty"`
+	ItemID            foundation.ItemID           `json:"item_id"`
+	Type              economy.ItemType            `json:"item_type"`
+	TradeFlags        []economy.TradeFlag         `json:"trade_flags,omitempty"`
+	BindRules         []economy.BindRule          `json:"bind_rules,omitempty"`
+	CargoUnitsPerItem int64                       `json:"cargo_units_per_item,omitempty"`
+	QuestCritical     bool                        `json:"quest_critical,omitempty"`
+	SystemCritical    bool                        `json:"system_critical,omitempty"`
 }
 
 // CargoStack is one cargo row or unique instance supplied to the pure selector.
 type CargoStack struct {
-	StackID        foundation.ItemID    `json:"stack_id,omitempty"`
-	ItemInstanceID foundation.ItemID    `json:"item_instance_id"`
-	SourceStackID  foundation.ItemID    `json:"source_stack_id,omitempty"`
-	Definition     CargoItemDefinition  `json:"definition"`
-	OwnerPlayerID  foundation.PlayerID  `json:"owner_player_id,omitempty"`
-	Location       economy.ItemLocation `json:"location"`
-	Quantity       int64                `json:"quantity"`
-	BoundState     economy.BoundState   `json:"bound_state"`
-	Reason         CargoPreserveReason  `json:"preserve_reason,omitempty"`
+	StackID           foundation.ItemID      `json:"stack_id,omitempty"`
+	ItemInstanceID    foundation.ItemID      `json:"item_instance_id"`
+	SourceStackID     foundation.ItemID      `json:"source_stack_id,omitempty"`
+	Definition        CargoItemDefinition    `json:"definition"`
+	EconomyDefinition economy.ItemDefinition `json:"item_definition,omitempty"`
+	OwnerPlayerID     foundation.PlayerID    `json:"owner_player_id,omitempty"`
+	Location          economy.ItemLocation   `json:"location"`
+	Quantity          int64                  `json:"quantity"`
+	BoundState        economy.BoundState     `json:"bound_state"`
+	Reason            CargoPreserveReason    `json:"preserve_reason,omitempty"`
 }
 
 // CargoDrop is one selected cargo loss line to be removed from cargo and later
 // handed to the loot service by a death transaction.
 type CargoDrop struct {
-	SourceStackID  foundation.ItemID    `json:"source_stack_id"`
-	ItemInstanceID foundation.ItemID    `json:"item_instance_id"`
-	ItemID         foundation.ItemID    `json:"item_id"`
-	Type           economy.ItemType     `json:"item_type"`
-	SourceLocation economy.ItemLocation `json:"source_location"`
-	Quantity       int64                `json:"quantity"`
+	SourceStackID     foundation.ItemID      `json:"source_stack_id"`
+	ItemInstanceID    foundation.ItemID      `json:"item_instance_id"`
+	ItemID            foundation.ItemID      `json:"item_id"`
+	Definition        CargoItemDefinition    `json:"definition"`
+	Type              economy.ItemType       `json:"item_type"`
+	EconomyDefinition economy.ItemDefinition `json:"item_definition,omitempty"`
+	SourceLocation    economy.ItemLocation   `json:"source_location"`
+	Quantity          int64                  `json:"quantity"`
 }
 
 // CargoPreserveReason explains why a cargo row remains after selection.
@@ -140,6 +145,14 @@ func RollCargoDropPercent(policy ZoneCargoDropPolicy, rng foundation.RNG) (float
 
 // Validate reports whether definition has the fields needed for eligibility.
 func (definition CargoItemDefinition) Validate() error {
+	if !definition.Source.IsZero() {
+		if err := definition.Source.Validate(); err != nil {
+			return err
+		}
+		if definition.Source.DefinitionID.String() != definition.ItemID.String() {
+			return fmt.Errorf("source %q item %q: %w", definition.Source.DefinitionID, definition.ItemID, economy.ErrItemSourceMismatch)
+		}
+	}
 	if err := definition.ItemID.Validate(); err != nil {
 		return err
 	}
@@ -315,12 +328,14 @@ func shuffleIndexedCargo(stacks []indexedCargoStack, rng foundation.RNG) []index
 func cargoDropFromStack(stack CargoStack, quantity int64) CargoDrop {
 	sourceID := stack.sourceStackID()
 	return CargoDrop{
-		SourceStackID:  sourceID,
-		ItemInstanceID: sourceID,
-		ItemID:         stack.Definition.ItemID,
-		Type:           stack.Definition.Type,
-		SourceLocation: stack.Location,
-		Quantity:       quantity,
+		SourceStackID:     sourceID,
+		ItemInstanceID:    sourceID,
+		ItemID:            stack.Definition.ItemID,
+		Definition:        stack.Definition,
+		Type:              stack.Definition.Type,
+		EconomyDefinition: stack.EconomyDefinition,
+		SourceLocation:    stack.Location,
+		Quantity:          quantity,
 	}
 }
 

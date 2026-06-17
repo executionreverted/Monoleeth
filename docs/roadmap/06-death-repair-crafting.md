@@ -65,18 +65,18 @@ Crafting:
 
 - [x] Define death record model.
 - [x] Define lethal event idempotency key.
-- [ ] Implement death state lock.
-- [ ] Ensure death processes once.
+- [x] Implement death state lock.
+- [x] Ensure death processes once.
 - [x] Calculate zone-based cargo drop percent.
 - [x] Select cargo drops from eligible cargo.
 - [x] Preserve non-droppable and soulbound items.
-- [ ] Remove dropped cargo through cargo service.
-- [ ] Create world drops through loot service.
+- [x] Remove dropped cargo through inventory service.
+- [x] Create world drops through loot service.
 - [x] Mark active ship disabled.
-- [ ] Record respawn location.
+- [x] Record respawn location.
 - [ ] Emit player death, ship disabled, and cargo dropped events.
 - [ ] Block cargo transfer while in lethal/dead transaction.
-- [ ] Add module durability loss hook.
+- [x] Add module durability loss hook.
 - [ ] Invalidate stats when module breaks.
 
 ## TODO: Respawn And Repair
@@ -116,10 +116,10 @@ Crafting:
 
 ## Tests
 
-- [ ] Death processed once for duplicate lethal event.
+- [x] Death processed once for duplicate lethal event.
 - [x] Cargo drop percent is inside zone range.
 - [x] Non-droppable item stays in cargo.
-- [ ] Dropped items become world drops.
+- [x] Dropped items become world drops.
 - [x] Active ship becomes disabled.
 - [x] Dead/disabled ship cannot fight.
 - [x] Starter fallback works when all ships disabled.
@@ -139,7 +139,7 @@ Crafting:
 
 ## Abuse And Safety Checks
 
-- [ ] Death duplication blocked.
+- [x] Death duplication blocked.
 - [ ] Cargo hiding during death blocked.
 - [ ] Repair cost is server-calculated.
 - [ ] Client cannot avoid module durability loss after death.
