@@ -28,14 +28,18 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.
-- [ ] Add request-id idempotency for `CraftingService.StartCraft` before
-  exposing craft start through a realtime/API gateway; the Phase 06 in-memory
-  domain service currently creates a new job per accepted start call.
+- [ ] Map gateway/API request ids to the required
+  `CraftingService.StartCraft` domain `ReferenceKey` before exposing craft
+  start externally; the Phase 06 domain service is now idempotent when callers
+  provide a stable player-scoped `craft_start:*` reference.
 - [ ] Replace `RepairService` compensating wallet refunds with a durable
   transaction/outbox boundary when wallet and ship state move out of the
   in-memory Phase 06 slice. Restore failure after debit is currently net-zero
   compensated, but it is not a true atomic rollback. Source:
   `docs/roadmap/06-death-repair-crafting.md`.
+- [ ] Add an indexed wallet ledger/reference lookup for repair refund replay
+  checks before wallet histories become large; the current in-memory repair
+  compensation path scans ledger entries under service lock.
 - [ ] Move `DeathService.ProcessDeath` from caller-supplied cargo/drop/loadout
   inputs to authoritative zone inventory, loadout, respawn, and drop-policy
   providers before exposing death processing through gateway/runtime callers.
