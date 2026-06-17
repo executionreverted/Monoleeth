@@ -94,14 +94,29 @@ type CraftingService struct {
 
 	nextJobSequence int64
 	jobs            map[CraftJobID]CraftJob
+	startResults    map[craftStartReferenceKey]StartCraftResult
+	startInFlight   map[craftStartReferenceKey]*startCraftInFlight
 	completions     map[CraftJobID]CompleteCraftResult
+}
+
+type craftStartReferenceKey struct {
+	playerID     foundation.PlayerID
+	referenceKey foundation.IdempotencyKey
+}
+
+type startCraftInFlight struct {
+	input  StartCraftInput
+	done   chan struct{}
+	result StartCraftResult
+	err    error
 }
 
 // StartCraftInput describes one server-authoritative craft start request.
 type StartCraftInput struct {
-	PlayerID foundation.PlayerID  `json:"player_id"`
-	RecipeID catalog.DefinitionID `json:"recipe_id"`
-	Location CraftLocation        `json:"location"`
+	PlayerID     foundation.PlayerID       `json:"player_id"`
+	RecipeID     catalog.DefinitionID      `json:"recipe_id"`
+	Location     CraftLocation             `json:"location"`
+	ReferenceKey foundation.IdempotencyKey `json:"reference_id"`
 }
 
 // StartCraftResult reports the running job and economy mutations.
@@ -112,6 +127,7 @@ type StartCraftResult struct {
 	WalletDebit    economy.DebitWalletResult `json:"wallet_debit"`
 	ReferenceKey   foundation.IdempotencyKey `json:"reference_id"`
 	SourceLocation economy.ItemLocation      `json:"source_location"`
+	Duplicate      bool                      `json:"duplicate"`
 }
 
 // CompleteCraftInput describes one craft completion request.
@@ -171,6 +187,8 @@ func NewCraftingService(config CraftingServiceConfig) (*CraftingService, error) 
 		progression:     config.Progression,
 		ships:           config.Ships,
 		jobs:            make(map[CraftJobID]CraftJob),
+		startResults:    make(map[craftStartReferenceKey]StartCraftResult),
+		startInFlight:   make(map[craftStartReferenceKey]*startCraftInFlight),
 		completions:     make(map[CraftJobID]CompleteCraftResult),
 	}, nil
 }
@@ -184,6 +202,15 @@ func (service *CraftingService) StartCraft(input StartCraftInput) (StartCraftRes
 	if err := input.validate(); err != nil {
 		return StartCraftResult{}, err
 	}
+	startKey, inFlight, cached, handled, err := service.beginStartCraft(input)
+	if handled || err != nil {
+		return cached, err
+	}
+	defer func() {
+		if err != nil {
+			service.finishStartCraft(startKey, inFlight, StartCraftResult{}, err)
+		}
+	}()
 
 	recipe, err := service.recipes.MustGet(input.RecipeID)
 	if err != nil {
@@ -207,18 +234,13 @@ func (service *CraftingService) StartCraft(input StartCraftInput) (StartCraftRes
 
 	service.mu.Lock()
 	jobID := service.nextCraftJobIDLocked()
+	service.mu.Unlock()
+
 	reservationID := reservationIDForJob(jobID)
-	referenceKey, err := craftReferenceKey(jobID)
-	if err != nil {
-		service.mu.Unlock()
-		return StartCraftResult{}, err
-	}
 	job, err := NewCraftJob(jobID, input.PlayerID, recipe, reservationID, input.Location, service.clock.Now())
 	if err != nil {
-		service.mu.Unlock()
 		return StartCraftResult{}, err
 	}
-	service.mu.Unlock()
 
 	reservation, err := service.reservations.ReserveItems(economy.ReserveItemsInput{
 		ReservationID:      reservationID,
@@ -227,7 +249,7 @@ func (service *CraftingService) StartCraft(input StartCraftInput) (StartCraftRes
 		Requirements:       requirements,
 		ReservedLocationID: economy.LocationID(jobID.String()),
 		Reason:             craftStartReason,
-		ReferenceKey:       referenceKey,
+		ReferenceKey:       input.ReferenceKey,
 	})
 	if err != nil {
 		return StartCraftResult{}, err
@@ -238,7 +260,7 @@ func (service *CraftingService) StartCraft(input StartCraftInput) (StartCraftRes
 		Currency:     economy.CurrencyBucketCredits,
 		Amount:       recipe.RequiredCredits.Int64(),
 		Reason:       craftFeeReason,
-		ReferenceKey: referenceKey,
+		ReferenceKey: input.ReferenceKey,
 	})
 	if err != nil {
 		if _, releaseErr := service.reservations.ReleaseReservation(reservationID); releaseErr != nil {
@@ -248,20 +270,25 @@ func (service *CraftingService) StartCraft(input StartCraftInput) (StartCraftRes
 	}
 
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	if _, exists := service.jobs[jobID]; exists {
-		return StartCraftResult{}, fmt.Errorf("craft job %q: %w", jobID, ErrCraftJobAlreadyExists)
+		service.mu.Unlock()
+		err = fmt.Errorf("craft job %q: %w", jobID, ErrCraftJobAlreadyExists)
+		return StartCraftResult{}, err
 	}
 	service.jobs[jobID] = cloneCraftJob(job)
+	service.mu.Unlock()
 
-	return cloneStartCraftResult(StartCraftResult{
+	result := StartCraftResult{
 		Job:            job,
 		Recipe:         recipe,
 		Reservation:    reservation.Reservation,
 		WalletDebit:    walletDebit,
-		ReferenceKey:   referenceKey,
+		ReferenceKey:   input.ReferenceKey,
 		SourceLocation: sourceLocation,
-	}), nil
+	}
+	service.finishStartCraft(startKey, inFlight, result, nil)
+
+	return cloneStartCraftResult(result), nil
 }
 
 // CompleteCraft rejects early completion, consumes reserved materials, creates
@@ -309,7 +336,7 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 	if err != nil {
 		return CompleteCraftResult{}, err
 	}
-	referenceKey, err := craftReferenceKey(job.JobID)
+	referenceKey, err := craftCompleteReferenceKey(job.JobID)
 	if err != nil {
 		return CompleteCraftResult{}, err
 	}
@@ -455,7 +482,10 @@ func (input StartCraftInput) validate() error {
 	if err := input.RecipeID.Validate(); err != nil {
 		return err
 	}
-	return input.Location.Validate()
+	if err := input.Location.Validate(); err != nil {
+		return err
+	}
+	return input.ReferenceKey.Validate()
 }
 
 func (input CompleteCraftInput) validate() error {
@@ -515,7 +545,7 @@ func reservationIDForJob(jobID CraftJobID) economy.ReservationID {
 	return economy.ReservationID(jobID.String() + "-reservation")
 }
 
-func craftReferenceKey(jobID CraftJobID) (foundation.IdempotencyKey, error) {
+func craftCompleteReferenceKey(jobID CraftJobID) (foundation.IdempotencyKey, error) {
 	return foundation.CraftCompleteIdempotencyKey(jobID.String())
 }
 
@@ -549,10 +579,94 @@ func roleLevelsForRequirements(snapshot progression.ProgressionSnapshot) map[pro
 	return levels
 }
 
+func (service *CraftingService) beginStartCraft(input StartCraftInput) (craftStartReferenceKey, *startCraftInFlight, StartCraftResult, bool, error) {
+	startKey := craftStartReferenceKey{
+		playerID:     input.PlayerID,
+		referenceKey: input.ReferenceKey,
+	}
+	service.mu.Lock()
+	previous, ok := service.startResults[startKey]
+	if ok {
+		service.mu.Unlock()
+		result, err := duplicateStartResultForInput(previous, input)
+		return startKey, nil, result, true, err
+	}
+	if inFlight, ok := service.startInFlight[startKey]; ok {
+		if !startCraftInputMatchesInput(inFlight.input, input) {
+			service.mu.Unlock()
+			return startKey, nil, StartCraftResult{}, true, fmt.Errorf("player %q craft start reference %q: %w", input.PlayerID, input.ReferenceKey, ErrCraftStartReferenceMismatch)
+		}
+		service.mu.Unlock()
+		<-inFlight.done
+		if inFlight.err != nil {
+			return startKey, nil, StartCraftResult{}, true, inFlight.err
+		}
+		result, err := duplicateStartResultForInput(inFlight.result, input)
+		return startKey, nil, result, true, err
+	}
+	inFlight := &startCraftInFlight{
+		input: input,
+		done:  make(chan struct{}),
+	}
+	service.startInFlight[startKey] = inFlight
+	service.mu.Unlock()
+	return startKey, inFlight, StartCraftResult{}, false, nil
+}
+
+func (service *CraftingService) finishStartCraft(startKey craftStartReferenceKey, inFlight *startCraftInFlight, result StartCraftResult, err error) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	current, ok := service.startInFlight[startKey]
+	if !ok || current != inFlight {
+		return
+	}
+	if err == nil {
+		current.result = cloneStartCraftResult(result)
+		service.startResults[startKey] = cloneStartCraftResult(result)
+	} else {
+		current.err = err
+	}
+	delete(service.startInFlight, startKey)
+	close(current.done)
+}
+
+func duplicateStartResultForInput(previous StartCraftResult, input StartCraftInput) (StartCraftResult, error) {
+	if !startCraftResultMatchesInput(previous, input) {
+		return StartCraftResult{}, fmt.Errorf("player %q craft start reference %q: %w", input.PlayerID, input.ReferenceKey, ErrCraftStartReferenceMismatch)
+	}
+	result := cloneStartCraftResult(previous)
+	result.Duplicate = true
+	return result, nil
+}
+
 func cloneStartCraftResult(result StartCraftResult) StartCraftResult {
 	result.Job = cloneCraftJob(result.Job)
 	result.Recipe = cloneRecipeDefinition(result.Recipe)
+	result.Reservation = cloneStartReservation(result.Reservation)
 	return result
+}
+
+func startCraftInputMatchesInput(previous StartCraftInput, input StartCraftInput) bool {
+	return previous.PlayerID == input.PlayerID &&
+		previous.RecipeID == input.RecipeID &&
+		previous.Location == input.Location
+}
+
+func startCraftResultMatchesInput(result StartCraftResult, input StartCraftInput) bool {
+	return result.Job.PlayerID == input.PlayerID &&
+		result.Recipe.RecipeID == input.RecipeID &&
+		result.Job.Location == input.Location
+}
+
+func cloneStartReservation(reservation economy.Reservation) economy.Reservation {
+	reservation.ItemLines = append([]economy.ReservationItemLine(nil), reservation.ItemLines...)
+	reservation.CurrencyLines = append([]economy.ReservationCurrencyLine(nil), reservation.CurrencyLines...)
+	if reservation.ExpiresAt != nil {
+		expiresAt := *reservation.ExpiresAt
+		reservation.ExpiresAt = &expiresAt
+	}
+	return reservation
 }
 
 func cloneCompleteCraftResult(result CompleteCraftResult) CompleteCraftResult {

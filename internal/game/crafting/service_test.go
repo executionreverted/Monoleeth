@@ -3,6 +3,7 @@ package crafting
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,38 @@ func TestStartCraftMissingMaterialFailsWithoutWalletDebitOrJob(t *testing.T) {
 	}
 	if got := len(fixture.service.Jobs()); got != 0 {
 		t.Fatalf("jobs len = %d, want 0", got)
+	}
+}
+
+func TestStartCraftRejectsMissingStartReference(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference foundation.IdempotencyKey
+	}{
+		{name: "missing"},
+		{name: "blank", reference: foundation.IdempotencyKey(" ")},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newCraftingServiceFixture(t)
+			input := fixture.startInput(RecipeIDRefinedAlloy)
+			input.ReferenceKey = tc.reference
+
+			_, err := fixture.service.StartCraft(input)
+			if !errors.Is(err, foundation.ErrEmptyIdempotencyKey) {
+				t.Fatalf("StartCraft error = %v, want ErrEmptyIdempotencyKey", err)
+			}
+			if got := len(fixture.service.Jobs()); got != 0 {
+				t.Fatalf("jobs len = %d, want 0", got)
+			}
+			if got := len(fixture.inventory.ItemLedgerEntries()); got != 0 {
+				t.Fatalf("item ledger entries len = %d, want 0", got)
+			}
+			if got := len(fixture.wallet.CurrencyLedgerEntries()); got != 0 {
+				t.Fatalf("currency ledger entries len = %d, want 0", got)
+			}
+		})
 	}
 }
 
@@ -94,15 +127,16 @@ func TestStartCraftRejectsRankRoleAndLocationGatesBeforeEconomyMutation(t *testi
 		},
 	}
 
-	for _, tc := range tests {
+	for index, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			fixture := newCraftingServiceFixture(t)
 			tc.prepare(t, fixture)
 
 			_, err := fixture.service.StartCraft(StartCraftInput{
-				PlayerID: fixture.playerID,
-				RecipeID: tc.recipeID,
-				Location: tc.location,
+				PlayerID:     fixture.playerID,
+				RecipeID:     tc.recipeID,
+				Location:     tc.location,
+				ReferenceKey: mustCraftStartKey(t, fmt.Sprintf("gate-%d", index)),
 			})
 			if !errors.Is(err, tc.wantError) {
 				t.Fatalf("StartCraft error = %v, want %v", err, tc.wantError)
@@ -117,20 +151,237 @@ func TestStartCraftRejectsRankRoleAndLocationGatesBeforeEconomyMutation(t *testi
 	}
 }
 
+func TestStartCraftDuplicateReferenceReturnsOriginalJobWithoutSecondMutation(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	fixture.seedCraftingRole(t, 1)
+	recipe := fixture.recipe(t, RecipeIDRefinedAlloy)
+	fixture.seedRecipeInputs(t, recipe, "duplicate-start")
+	fixture.seedCredits(t, recipe.RequiredCredits.Int64(), "duplicate-start-credits")
+	input := fixture.startInputWithReference(recipe.RecipeID, "duplicate-start")
+
+	first, err := fixture.service.StartCraft(input)
+	if err != nil {
+		t.Fatalf("first StartCraft: %v", err)
+	}
+	itemLedgerAfterFirst := len(fixture.inventory.ItemLedgerEntries())
+	walletLedgerAfterFirst := len(fixture.wallet.CurrencyLedgerEntries())
+	second, err := fixture.service.StartCraft(input)
+	if err != nil {
+		t.Fatalf("duplicate StartCraft: %v", err)
+	}
+
+	if first.Duplicate {
+		t.Fatal("first StartCraft Duplicate = true, want false")
+	}
+	if !second.Duplicate {
+		t.Fatal("duplicate StartCraft Duplicate = false, want true")
+	}
+	if second.Job.JobID != first.Job.JobID {
+		t.Fatalf("duplicate job id = %q, want %q", second.Job.JobID, first.Job.JobID)
+	}
+	if second.Reservation.ReservationID != first.Reservation.ReservationID {
+		t.Fatalf("duplicate reservation id = %q, want %q", second.Reservation.ReservationID, first.Reservation.ReservationID)
+	}
+	if second.WalletDebit.LedgerEntry.LedgerID != first.WalletDebit.LedgerEntry.LedgerID {
+		t.Fatalf("duplicate wallet ledger id = %q, want %q", second.WalletDebit.LedgerEntry.LedgerID, first.WalletDebit.LedgerEntry.LedgerID)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != itemLedgerAfterFirst {
+		t.Fatalf("item ledger entries len = %d, want %d", got, itemLedgerAfterFirst)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != walletLedgerAfterFirst {
+		t.Fatalf("currency ledger entries len = %d, want %d", got, walletLedgerAfterFirst)
+	}
+	if got := len(fixture.service.Jobs()); got != 1 {
+		t.Fatalf("jobs len = %d, want 1", got)
+	}
+	if got := fixture.wallet.Balance(fixture.playerID, economy.CurrencyBucketCredits); got != 0 {
+		t.Fatalf("wallet balance = %d, want 0", got)
+	}
+}
+
+func TestStartCraftConcurrentDuplicateReferenceWaitsForCanonicalResult(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	fixture.seedCraftingRole(t, 1)
+	recipe := fixture.recipe(t, RecipeIDRefinedAlloy)
+	fixture.seedRecipeInputs(t, recipe, "concurrent-duplicate-start")
+	fixture.seedCredits(t, recipe.RequiredCredits.Int64(), "concurrent-duplicate-start-credits")
+	input := fixture.startInputWithReference(recipe.RecipeID, "concurrent-duplicate-start")
+	blockingReservations := newBlockingStartReservationService(fixture.reservations)
+	fixture.service.reservations = blockingReservations
+
+	firstCh := make(chan startCraftCallResult, 1)
+	secondCh := make(chan startCraftCallResult, 1)
+	go func() {
+		result, err := fixture.service.StartCraft(input)
+		firstCh <- startCraftCallResult{result: result, err: err}
+	}()
+	<-blockingReservations.entered
+	go func() {
+		result, err := fixture.service.StartCraft(input)
+		secondCh <- startCraftCallResult{result: result, err: err}
+	}()
+	close(blockingReservations.release)
+
+	first := receiveStartCraftCallResult(t, firstCh)
+	second := receiveStartCraftCallResult(t, secondCh)
+	if first.err != nil {
+		t.Fatalf("first StartCraft error = %v", first.err)
+	}
+	if second.err != nil {
+		t.Fatalf("second StartCraft error = %v", second.err)
+	}
+	if first.result.Duplicate {
+		t.Fatal("first StartCraft Duplicate = true, want false")
+	}
+	if !second.result.Duplicate {
+		t.Fatal("second StartCraft Duplicate = false, want true")
+	}
+	if second.result.Job.JobID != first.result.Job.JobID {
+		t.Fatalf("second job id = %q, want %q", second.result.Job.JobID, first.result.Job.JobID)
+	}
+	if got := blockingReservations.reserveCalls.Load(); got != 1 {
+		t.Fatalf("ReserveItems calls = %d, want 1", got)
+	}
+	if got := len(fixture.service.Jobs()); got != 1 {
+		t.Fatalf("jobs len = %d, want 1", got)
+	}
+}
+
+func TestStartCraftDuplicateReferenceMismatchRejectsBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(StartCraftInput) StartCraftInput
+	}{
+		{
+			name: "recipe",
+			mutate: func(input StartCraftInput) StartCraftInput {
+				input.RecipeID = RecipeIDLaserAlphaT1
+				return input
+			},
+		},
+		{
+			name: "location",
+			mutate: func(input StartCraftInput) StartCraftInput {
+				input.Location = CraftLocation{Type: CraftLocationStation, ID: "other-station"}
+				return input
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newCraftingServiceFixture(t)
+			fixture.seedCraftingRole(t, 1)
+			recipe := fixture.recipe(t, RecipeIDRefinedAlloy)
+			fixture.seedRecipeInputs(t, recipe, "mismatch-"+tc.name)
+			fixture.seedCredits(t, recipe.RequiredCredits.Int64(), "mismatch-"+tc.name+"-credits")
+			input := fixture.startInputWithReference(recipe.RecipeID, "mismatch-"+tc.name)
+
+			if _, err := fixture.service.StartCraft(input); err != nil {
+				t.Fatalf("first StartCraft: %v", err)
+			}
+			itemLedgerBefore := len(fixture.inventory.ItemLedgerEntries())
+			walletLedgerBefore := len(fixture.wallet.CurrencyLedgerEntries())
+			walletBefore := fixture.wallet.Balance(fixture.playerID, economy.CurrencyBucketCredits)
+			jobsBefore := len(fixture.service.Jobs())
+
+			_, err := fixture.service.StartCraft(tc.mutate(input))
+			if !errors.Is(err, ErrCraftStartReferenceMismatch) {
+				t.Fatalf("mismatch StartCraft error = %v, want ErrCraftStartReferenceMismatch", err)
+			}
+			if got := len(fixture.inventory.ItemLedgerEntries()); got != itemLedgerBefore {
+				t.Fatalf("item ledger entries len = %d, want %d", got, itemLedgerBefore)
+			}
+			if got := len(fixture.wallet.CurrencyLedgerEntries()); got != walletLedgerBefore {
+				t.Fatalf("currency ledger entries len = %d, want %d", got, walletLedgerBefore)
+			}
+			if got := fixture.wallet.Balance(fixture.playerID, economy.CurrencyBucketCredits); got != walletBefore {
+				t.Fatalf("wallet balance = %d, want %d", got, walletBefore)
+			}
+			if got := len(fixture.service.Jobs()); got != jobsBefore {
+				t.Fatalf("jobs len = %d, want %d", got, jobsBefore)
+			}
+		})
+	}
+}
+
+func TestStartCraftReferenceCacheIsScopedByPlayer(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	fixture.seedCraftingRole(t, 1)
+	recipe := fixture.recipe(t, RecipeIDRefinedAlloy)
+	fixture.seedRecipeInputs(t, recipe, "player-one-shared-reference")
+	fixture.seedCredits(t, recipe.RequiredCredits.Int64(), "player-one-shared-reference-credits")
+	reference := mustCraftStartKey(t, "shared-reference")
+
+	first, err := fixture.service.StartCraft(StartCraftInput{
+		PlayerID:     fixture.playerID,
+		RecipeID:     recipe.RecipeID,
+		Location:     fixture.location,
+		ReferenceKey: reference,
+	})
+	if err != nil {
+		t.Fatalf("player one StartCraft: %v", err)
+	}
+
+	playerTwo := foundation.PlayerID("player-2")
+	playerTwoLocation, err := economy.NewItemLocation(economy.LocationKindAccountInventory, playerTwo.String())
+	if err != nil {
+		t.Fatalf("player two NewItemLocation: %v", err)
+	}
+	fixture.seedRecipeInputsFor(t, playerTwo, playerTwoLocation, recipe, "player-two-shared-reference")
+	fixture.seedCreditsFor(t, playerTwo, recipe.RequiredCredits.Int64(), "player-two-shared-reference-credits")
+
+	second, err := fixture.service.StartCraft(StartCraftInput{
+		PlayerID:     playerTwo,
+		RecipeID:     recipe.RecipeID,
+		Location:     fixture.location,
+		ReferenceKey: reference,
+	})
+	if err != nil {
+		t.Fatalf("player two StartCraft: %v", err)
+	}
+
+	if second.Duplicate {
+		t.Fatal("player two StartCraft Duplicate = true, want false")
+	}
+	if second.Job.PlayerID != playerTwo {
+		t.Fatalf("player two job player = %q, want %q", second.Job.PlayerID, playerTwo)
+	}
+	if second.Job.JobID == first.Job.JobID {
+		t.Fatalf("player two job id = player one job id %q, want distinct", second.Job.JobID)
+	}
+	if got := len(fixture.service.Jobs()); got != 2 {
+		t.Fatalf("jobs len = %d, want 2", got)
+	}
+}
+
 func TestStartCraftReservesMaterialsAndDebitsFee(t *testing.T) {
 	fixture := newCraftingServiceFixture(t)
 	fixture.seedCraftingRole(t, 1)
 	recipe := fixture.recipe(t, RecipeIDRefinedAlloy)
 	fixture.seedRecipeInputs(t, recipe, "start-success")
 	fixture.seedCredits(t, 1_000, "start-success-credits")
+	input := fixture.startInput(recipe.RecipeID)
 
-	result, err := fixture.service.StartCraft(fixture.startInput(recipe.RecipeID))
+	result, err := fixture.service.StartCraft(input)
 	if err != nil {
 		t.Fatalf("StartCraft: %v", err)
 	}
 
 	if result.Job.State != CraftJobStateRunning {
 		t.Fatalf("job state = %q, want %q", result.Job.State, CraftJobStateRunning)
+	}
+	if result.Duplicate {
+		t.Fatal("StartCraft Duplicate = true, want false")
+	}
+	if result.ReferenceKey != input.ReferenceKey {
+		t.Fatalf("result reference = %q, want %q", result.ReferenceKey, input.ReferenceKey)
+	}
+	if result.Reservation.ReferenceKey != input.ReferenceKey {
+		t.Fatalf("reservation reference = %q, want %q", result.Reservation.ReferenceKey, input.ReferenceKey)
+	}
+	if result.WalletDebit.LedgerEntry.ReferenceKey != input.ReferenceKey {
+		t.Fatalf("wallet debit reference = %q, want %q", result.WalletDebit.LedgerEntry.ReferenceKey, input.ReferenceKey)
 	}
 	if !result.Job.CompletesAt.Equal(fixture.clock.Now().Add(recipe.CraftDuration)) {
 		t.Fatalf("job completes_at = %s, want %s", result.Job.CompletesAt, fixture.clock.Now().Add(recipe.CraftDuration))
@@ -328,10 +579,15 @@ func newCraftingServiceFixture(t *testing.T) *craftingServiceFixture {
 }
 
 func (fixture *craftingServiceFixture) startInput(recipeID catalog.DefinitionID) StartCraftInput {
+	return fixture.startInputWithReference(recipeID, "start-"+recipeID.String())
+}
+
+func (fixture *craftingServiceFixture) startInputWithReference(recipeID catalog.DefinitionID, reference string) StartCraftInput {
 	return StartCraftInput{
-		PlayerID: fixture.playerID,
-		RecipeID: recipeID,
-		Location: fixture.location,
+		PlayerID:     fixture.playerID,
+		RecipeID:     recipeID,
+		Location:     fixture.location,
+		ReferenceKey: mustCraftStartKey(nil, reference),
 	}
 }
 
@@ -368,12 +624,24 @@ func (fixture *craftingServiceFixture) mustStartCraft(t *testing.T, recipeID cat
 func (fixture *craftingServiceFixture) seedRecipeInputs(t *testing.T, recipe RecipeDefinition, suffix string) {
 	t.Helper()
 
+	fixture.seedRecipeInputsFor(t, fixture.playerID, fixture.sourceLocation, recipe, suffix)
+}
+
+func (fixture *craftingServiceFixture) seedRecipeInputsFor(t *testing.T, playerID foundation.PlayerID, location economy.ItemLocation, recipe RecipeDefinition, suffix string) {
+	t.Helper()
+
 	for index, input := range recipe.Inputs {
-		fixture.seedItem(t, input.ItemID, input.Quantity.Int64(), fmt.Sprintf("%s-%d", suffix, index))
+		fixture.seedItemFor(t, playerID, location, input.ItemID, input.Quantity.Int64(), fmt.Sprintf("%s-%d", suffix, index))
 	}
 }
 
 func (fixture *craftingServiceFixture) seedItem(t *testing.T, itemID foundation.ItemID, quantity int64, suffix string) {
+	t.Helper()
+
+	fixture.seedItemFor(t, fixture.playerID, fixture.sourceLocation, itemID, quantity, suffix)
+}
+
+func (fixture *craftingServiceFixture) seedItemFor(t *testing.T, playerID foundation.PlayerID, location economy.ItemLocation, itemID foundation.ItemID, quantity int64, suffix string) {
 	t.Helper()
 
 	definition, ok := fixture.itemDefinitions.ItemDefinition(itemID)
@@ -385,10 +653,10 @@ func (fixture *craftingServiceFixture) seedItem(t *testing.T, itemID foundation.
 		t.Fatalf("LootPickupIdempotencyKey: %v", err)
 	}
 	if _, err := fixture.inventory.AddItem(economy.AddItemInput{
-		PlayerID:       fixture.playerID,
+		PlayerID:       playerID,
 		ItemDefinition: definition,
 		Quantity:       quantity,
-		Location:       fixture.sourceLocation,
+		Location:       location,
 		Reason:         economy.LedgerReason("test_seed"),
 		ReferenceKey:   reference,
 	}); err != nil {
@@ -399,18 +667,86 @@ func (fixture *craftingServiceFixture) seedItem(t *testing.T, itemID foundation.
 func (fixture *craftingServiceFixture) seedCredits(t *testing.T, amount int64, suffix string) {
 	t.Helper()
 
+	fixture.seedCreditsFor(t, fixture.playerID, amount, suffix)
+}
+
+func (fixture *craftingServiceFixture) seedCreditsFor(t *testing.T, playerID foundation.PlayerID, amount int64, suffix string) {
+	t.Helper()
+
 	reference, err := foundation.QuestRewardIdempotencyKey(foundation.QuestID("seed-" + suffix))
 	if err != nil {
 		t.Fatalf("QuestRewardIdempotencyKey: %v", err)
 	}
 	if _, err := fixture.wallet.CreditWallet(economy.CreditWalletInput{
-		PlayerID:     fixture.playerID,
+		PlayerID:     playerID,
 		Currency:     economy.CurrencyBucketCredits,
 		Amount:       amount,
 		Reason:       economy.LedgerReason("test_seed"),
 		ReferenceKey: reference,
 	}); err != nil {
 		t.Fatalf("seed CreditWallet: %v", err)
+	}
+}
+
+func mustCraftStartKey(t *testing.T, reference string) foundation.IdempotencyKey {
+	if t != nil {
+		t.Helper()
+	}
+	key, err := foundation.CraftStartIdempotencyKey(reference)
+	if err != nil {
+		if t == nil {
+			panic(err)
+		}
+		t.Fatalf("CraftStartIdempotencyKey(%q): %v", reference, err)
+	}
+	return key
+}
+
+type startCraftCallResult struct {
+	result StartCraftResult
+	err    error
+}
+
+type blockingStartReservationService struct {
+	delegate     *economy.ReservationService
+	entered      chan struct{}
+	release      chan struct{}
+	reserveCalls atomic.Int64
+}
+
+func newBlockingStartReservationService(delegate *economy.ReservationService) *blockingStartReservationService {
+	return &blockingStartReservationService{
+		delegate: delegate,
+		entered:  make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+}
+
+func (service *blockingStartReservationService) ReserveItems(input economy.ReserveItemsInput) (economy.ReserveItemsResult, error) {
+	if service.reserveCalls.Add(1) == 1 {
+		close(service.entered)
+		<-service.release
+	}
+	return service.delegate.ReserveItems(input)
+}
+
+func (service *blockingStartReservationService) ReleaseReservation(reservationID economy.ReservationID) (economy.ReleaseReservationResult, error) {
+	return service.delegate.ReleaseReservation(reservationID)
+}
+
+func (service *blockingStartReservationService) CommitReservation(reservationID economy.ReservationID) (economy.CommitReservationResult, error) {
+	return service.delegate.CommitReservation(reservationID)
+}
+
+func receiveStartCraftCallResult(t *testing.T, ch <-chan startCraftCallResult) startCraftCallResult {
+	t.Helper()
+
+	select {
+	case result := <-ch:
+		return result
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for StartCraft call")
+		return startCraftCallResult{}
 	}
 }
 

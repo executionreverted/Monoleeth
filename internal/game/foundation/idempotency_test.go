@@ -18,6 +18,11 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			want:  "quest_reward:player-quest-9",
 		},
 		{
+			name:  "craft start",
+			build: func() (IdempotencyKey, error) { return CraftStartIdempotencyKey("start-4") },
+			want:  "craft_start:start-4",
+		},
+		{
 			name:  "craft complete",
 			build: func() (IdempotencyKey, error) { return CraftCompleteIdempotencyKey("craft-job-4") },
 			want:  "craft_complete:craft-job-4",
@@ -189,6 +194,10 @@ func TestIdempotencyKeyHelpersRejectDelimiterParts(t *testing.T) {
 		build func() (IdempotencyKey, error)
 	}{
 		{
+			name:  "craft start delimiter",
+			build: func() (IdempotencyKey, error) { return CraftStartIdempotencyKey("start:4") },
+		},
+		{
 			name:  "craft complete delimiter",
 			build: func() (IdempotencyKey, error) { return CraftCompleteIdempotencyKey("craft:job:4") },
 		},
@@ -242,6 +251,10 @@ func TestIdempotencyKeyHelpersRejectBlankParts(t *testing.T) {
 		{
 			name:  "quest reward player quest id",
 			build: func() (IdempotencyKey, error) { return QuestRewardIdempotencyKey(QuestID("")) },
+		},
+		{
+			name:  "craft start reference",
+			build: func() (IdempotencyKey, error) { return CraftStartIdempotencyKey(" ") },
 		},
 		{
 			name:  "craft complete job id",

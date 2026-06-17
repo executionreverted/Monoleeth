@@ -26,6 +26,7 @@ type IdempotencyKey string
 
 const (
 	idempotencyQuestReward       = "quest_reward"
+	idempotencyCraftStart        = "craft_start"
 	idempotencyCraftComplete     = "craft_complete"
 	idempotencyDeathCargoDrop    = "death_cargo_drop"
 	idempotencyLootPickup        = "loot_pickup"
@@ -47,6 +48,11 @@ func ParseIdempotencyKey(value string) (IdempotencyKey, error) {
 // QuestRewardIdempotencyKey returns quest_reward:<player_quest_id>.
 func QuestRewardIdempotencyKey(playerQuestID QuestID) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyQuestReward, playerQuestID.String())
+}
+
+// CraftStartIdempotencyKey returns craft_start:<start_reference>.
+func CraftStartIdempotencyKey(startReference string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyCraftStart, startReference)
 }
 
 // CraftCompleteIdempotencyKey returns craft_complete:<job_id>.
@@ -175,6 +181,7 @@ func validateIdempotencyPart(kind, value string) error {
 func idempotencyPartCount(operation string) (int, bool) {
 	switch operation {
 	case idempotencyQuestReward,
+		idempotencyCraftStart,
 		idempotencyCraftComplete,
 		idempotencyLootPickup,
 		idempotencyAuctionClose,

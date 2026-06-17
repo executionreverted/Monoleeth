@@ -136,6 +136,10 @@ Crafting:
 - [x] Rank too low fails craft start.
 - [x] Wrong location fails craft start.
 - [x] Start craft reserves or consumes materials.
+- [x] Missing craft start reference is rejected. Verified 2026-06-17 by `CraftingService.StartCraft` idempotency hardening tests.
+- [x] Duplicate craft start with the same player/reference/recipe/location returns the original job without another reservation or wallet debit. Verified 2026-06-17 by `CraftingService.StartCraft` idempotency hardening tests.
+- [x] Duplicate craft start with the same player/reference but different recipe or location rejects before economy mutation. Verified 2026-06-17 by `CraftingService.StartCraft` idempotency hardening tests.
+- [x] Craft start references are scoped by player. Verified 2026-06-17 by `CraftingService.StartCraft` idempotency hardening tests.
 - [x] Complete before time fails.
 - [x] Complete after time creates output once.
 - [x] Duplicate complete does not duplicate output.
@@ -149,6 +153,7 @@ Crafting:
 - [x] Repair cost is server-calculated. Verified 2026-06-17 by `RepairService` catalog quote tests.
 - [ ] Client cannot avoid module durability loss after death.
 - [x] Material duplication blocked by reservation state.
+- [x] Craft start retry duplication blocked by player-scoped idempotency reference. Verified 2026-06-17 by `CraftingService.StartCraft` duplicate-reference tests.
 - [x] Early craft completion blocked by server time.
 - [x] Unknown recipe and wrong MVP station location type blocked by server catalog validation.
 - [ ] Planet/building craft location ownership validation blocks fake locations.
