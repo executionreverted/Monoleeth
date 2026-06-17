@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Not started
+- State: In progress
 - Owner: Player guidance and controlled rewards
 - Depends on: Phase 02, Phase 03, Phase 05, Phase 06
 - Unlocks: rank milestones, X Core fragments, controlled reward faucets, player onboarding
@@ -60,18 +60,18 @@ Board rules:
 
 ## TODO: Quest Catalog And Board
 
-- [ ] Define quest template model.
-- [ ] Define generated offer model.
-- [ ] Define player quest model.
-- [ ] Define quest state machine.
-- [ ] Define objective schemas for kill, collect, craft, scan, build, and deliver.
-- [ ] Define reward payload model.
+- [x] Define quest template model. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
+- [x] Define generated offer model. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
+- [x] Define player quest model. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
+- [x] Define quest state machine. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
+- [x] Define objective schemas for kill, collect, craft, scan, build, and deliver. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
+- [x] Define reward payload model. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
 - [ ] Generate board from player snapshot and deterministic seed.
 - [ ] Filter quest templates by rank and requirements.
 - [ ] Weight offers by player needs.
 - [ ] Generate exactly 10 offers.
 - [ ] Generate reward payload upfront.
-- [ ] Store generated payload and reward payload.
+- [x] Store generated payload and reward payload. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
 - [ ] Expire old offers.
 
 ## TODO: Accept, Progress, Claim
