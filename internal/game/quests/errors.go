@@ -39,6 +39,13 @@ var (
 	ErrInvalidQuestCompletion        = errors.New("invalid quest completion")
 	ErrInvalidQuestClaim             = errors.New("invalid quest claim")
 	ErrAcceptedQuestExpiresTooEarly  = errors.New("accepted quest expires before acceptance")
+	ErrDuplicateQuestOffer           = errors.New("duplicate quest offer")
+	ErrQuestOfferNotFound            = errors.New("quest offer not found")
+	ErrQuestOfferExpired             = errors.New("quest offer expired")
+	ErrQuestOfferOwnerMismatch       = errors.New("quest offer owner mismatch")
+	ErrQuestOfferAlreadyAccepted     = errors.New("quest offer already accepted")
+	ErrQuestRequirementsNotMet       = errors.New("quest requirements not met")
+	ErrTooManyActiveQuests           = errors.New("too many active quests")
 )
 
 var (

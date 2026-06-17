@@ -76,12 +76,12 @@ Board rules:
 
 ## TODO: Accept, Progress, Claim
 
-- [ ] Implement `AcceptQuest`.
-- [ ] Validate offer exists and is not expired.
-- [ ] Validate active quest count is below 3.
-- [ ] Validate requirements still met.
-- [ ] Insert accepted quest.
-- [ ] Remove or mark offer accepted.
+- [x] Implement `AcceptQuest`. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
+- [x] Validate offer exists and is not expired. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
+- [x] Validate active quest count is below 3. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
+- [x] Validate requirements still met. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
+- [x] Insert accepted quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
+- [x] Remove or mark offer accepted. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
 - [ ] Implement event consumers for `combat.npc_killed`, `loot.picked_up`, and `craft.job_completed`.
 - [ ] Add scanner and building event consumers as skeletons.
 - [ ] Update progress only for matching active quests.
@@ -108,8 +108,11 @@ Board rules:
 
 - [x] Board generates 10 offers. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0071-go-build go test ./internal/game/quests -count=1`.
 - [x] Offer generation is deterministic for same seed. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0071-go-build go test ./internal/game/quests -count=1`.
-- [ ] Accept fails for expired offer.
-- [ ] Accept max 3 active quests.
+- [x] Accept fails for expired offer. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
+- [x] Accept max 3 active quests. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
+- [x] Accept rejects another player's offer. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
+- [x] Duplicate accept returns the same accepted quest without creating another active quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
+- [x] Accept rechecks requirements at accept time. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
 - [ ] Reroll charges credits.
 - [ ] Reroll does not affect accepted quests.
 - [ ] Kill event progresses only matching quest.
