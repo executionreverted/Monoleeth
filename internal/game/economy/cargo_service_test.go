@@ -4,7 +4,9 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
+	"gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 )
 
@@ -53,28 +55,22 @@ func TestCargoServiceComputesUsedCargoFromInventoryState(t *testing.T) {
 	inventory := newTestInventoryService()
 	service := NewCargoService(inventory)
 	input := validCargoAddItemInput(t)
-	input.ItemDefinition = validWeightedStackableDefinition(t, 2)
-	input.Quantity = 2
+	seedDefinition := validWeightedDefinition(t, "cargo_seed", 2)
+	input.ItemDefinition = validWeightedDefinition(t, "cargo_incoming", 1)
+	input.Quantity = 1
 	input.CargoCapacityUnits = 4
 
-	if _, err := inventory.AddItem(AddItemInput{
-		PlayerID:       input.PlayerID,
-		ItemDefinition: input.ItemDefinition,
-		Quantity:       input.Quantity,
-		Location:       input.ActiveCargo,
-		Reason:         "loot_pickup",
-		ReferenceKey:   validReferenceKey(t, "loot_pickup:seed-cargo-1"),
-	}); err != nil {
-		t.Fatalf("seed AddItem: %v", err)
+	seedCargoRowForTest(t, inventory, input.PlayerID, seedDefinition, 2, input.ActiveCargo, "loot_pickup:seed-cargo-1")
+	if err := service.RegisterItemDefinition(seedDefinition); err != nil {
+		t.Fatalf("RegisterItemDefinition: %v", err)
 	}
 
-	input.Quantity = 1
 	input.ReferenceKey = validReferenceKey(t, "loot_pickup:drop-2")
 	_, err := service.AddItem(input)
 	if !errors.Is(err, ErrCargoCapacityExceeded) {
 		t.Fatalf("AddItem error = %v, want ErrCargoCapacityExceeded", err)
 	}
-	if got := inventory.TotalItemQuantity(input.PlayerID, input.ItemDefinition.ItemID, input.ActiveCargo); got != 2 {
+	if got := inventory.TotalItemQuantity(input.PlayerID, seedDefinition.ItemID, input.ActiveCargo); got != 2 {
 		t.Fatalf("TotalItemQuantity() = %d, want 2", got)
 	}
 	if got := len(inventory.ItemLedgerEntries()); got != 1 {
@@ -176,6 +172,175 @@ func TestCargoServiceConcurrentPickupOnlyAllowsCapacitySafeResult(t *testing.T) 
 	}
 }
 
+func TestCargoServiceMoveItemRespectsCapacityAndWritesLedger(t *testing.T) {
+	inventory := newTestInventoryService()
+	service := NewCargoService(inventory)
+	definition := validWeightedStackableDefinition(t, 2)
+	fromLocation := validLocation(t)
+	activeCargo := validShipCargoLocation(t)
+	addStackableItems(t, inventory, definition, 5, fromLocation, "loot_pickup:cargo-move-seed")
+
+	input := validCargoMoveItemInput(t)
+	input.ItemRef.Definition = definition
+	input.FromLocation = fromLocation
+	input.ActiveCargo = activeCargo
+	input.Quantity = 3
+	input.CargoCapacityUnits = 6
+	input.ReferenceKey = validReferenceKey(t, "loot_pickup:cargo-move")
+
+	result, err := service.MoveItem(input)
+	if err != nil {
+		t.Fatalf("MoveItem: %v", err)
+	}
+	if result.Duplicate {
+		t.Fatal("MoveItem Duplicate = true, want false")
+	}
+	if got := inventory.TotalItemQuantity(input.PlayerID, definition.ItemID, fromLocation); got != 2 {
+		t.Fatalf("source TotalItemQuantity() = %d, want 2", got)
+	}
+	if got := inventory.TotalItemQuantity(input.PlayerID, definition.ItemID, activeCargo); got != 3 {
+		t.Fatalf("cargo TotalItemQuantity() = %d, want 3", got)
+	}
+	if got := len(result.LedgerEntries); got != 2 {
+		t.Fatalf("result ledger entries len = %d, want 2", got)
+	}
+	if got := len(inventory.ItemLedgerEntries()); got != 3 {
+		t.Fatalf("ledger entries len = %d, want 3", got)
+	}
+}
+
+func TestCargoServiceMoveItemDuplicateReferenceReturnsPreviousResultWhenCargoIsFull(t *testing.T) {
+	inventory := newTestInventoryService()
+	service := NewCargoService(inventory)
+	definition := validWeightedStackableDefinition(t, 5)
+	fromLocation := validLocation(t)
+	addStackableItems(t, inventory, definition, 3, fromLocation, "loot_pickup:cargo-move-duplicate-seed")
+
+	input := validCargoMoveItemInput(t)
+	input.ItemRef.Definition = definition
+	input.FromLocation = fromLocation
+	input.Quantity = 2
+	input.CargoCapacityUnits = 10
+	input.ReferenceKey = validReferenceKey(t, "loot_pickup:cargo-move-duplicate")
+
+	first, err := service.MoveItem(input)
+	if err != nil {
+		t.Fatalf("first MoveItem: %v", err)
+	}
+	second, err := service.MoveItem(input)
+	if err != nil {
+		t.Fatalf("duplicate MoveItem: %v", err)
+	}
+	if first.Duplicate {
+		t.Fatal("first Duplicate = true, want false")
+	}
+	if !second.Duplicate {
+		t.Fatal("second Duplicate = false, want true")
+	}
+	if got := inventory.TotalItemQuantity(input.PlayerID, definition.ItemID, input.ActiveCargo); got != 2 {
+		t.Fatalf("cargo TotalItemQuantity() = %d, want 2", got)
+	}
+	if got := len(inventory.ItemLedgerEntries()); got != 3 {
+		t.Fatalf("ledger entries len = %d, want 3", got)
+	}
+	if second.LedgerEntries[0].LedgerID != first.LedgerEntries[0].LedgerID {
+		t.Fatalf("duplicate source LedgerID = %q, want %q", second.LedgerEntries[0].LedgerID, first.LedgerEntries[0].LedgerID)
+	}
+}
+
+func TestCargoServiceMoveItemBlocksOverCapacityWithoutMutationOrLedger(t *testing.T) {
+	inventory := newTestInventoryService()
+	service := NewCargoService(inventory)
+	definition := validWeightedStackableDefinition(t, 4)
+	fromLocation := validLocation(t)
+	addStackableItems(t, inventory, definition, 2, fromLocation, "loot_pickup:cargo-move-over-capacity-seed")
+
+	input := validCargoMoveItemInput(t)
+	input.ItemRef.Definition = definition
+	input.FromLocation = fromLocation
+	input.Quantity = 2
+	input.CargoCapacityUnits = 7
+	input.ReferenceKey = validReferenceKey(t, "loot_pickup:cargo-move-over-capacity")
+
+	_, err := service.MoveItem(input)
+	if !errors.Is(err, ErrCargoCapacityExceeded) {
+		t.Fatalf("MoveItem error = %v, want ErrCargoCapacityExceeded", err)
+	}
+	if got := inventory.TotalItemQuantity(input.PlayerID, definition.ItemID, fromLocation); got != 2 {
+		t.Fatalf("source TotalItemQuantity() = %d, want 2", got)
+	}
+	if got := inventory.TotalItemQuantity(input.PlayerID, definition.ItemID, input.ActiveCargo); got != 0 {
+		t.Fatalf("cargo TotalItemQuantity() = %d, want 0", got)
+	}
+	if got := len(inventory.ItemLedgerEntries()); got != 1 {
+		t.Fatalf("ledger entries len = %d, want 1", got)
+	}
+}
+
+func TestCargoServiceAddItemDoesNotDeadlockWhenInventoryEmitterReentersCargo(t *testing.T) {
+	inventory := newTestInventoryService()
+	service := NewCargoService(inventory)
+	input := validCargoAddItemInput(t)
+	inventory.SetEventEmitter(reentrantCargoEmitter{
+		t:          t,
+		service:    service,
+		definition: input.ItemDefinition,
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.AddItem(input)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("AddItem: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("AddItem deadlocked while inventory emitter re-entered CargoService")
+	}
+}
+
+func TestCargoServiceBlocksDirectInventoryCargoBypass(t *testing.T) {
+	inventory := newTestInventoryService()
+	definition := validWeightedStackableDefinition(t, 1)
+	fromLocation := validLocation(t)
+	activeCargo := validShipCargoLocation(t)
+	addStackableItems(t, inventory, definition, 2, fromLocation, "loot_pickup:direct-cargo-bypass-seed")
+
+	if _, err := inventory.AddItem(AddItemInput{
+		PlayerID:       "player-1",
+		ItemDefinition: definition,
+		Quantity:       1,
+		Location:       activeCargo,
+		Reason:         "loot_pickup",
+		ReferenceKey:   validReferenceKey(t, "loot_pickup:direct-cargo-add"),
+	}); !errors.Is(err, ErrBlockedGenericMoveTarget) {
+		t.Fatalf("direct AddItem cargo error = %v, want ErrBlockedGenericMoveTarget", err)
+	}
+
+	_, err := inventory.MoveItem(MoveItemInput{
+		PlayerID:     "player-1",
+		ItemRef:      MoveItemRef{Definition: definition},
+		FromLocation: fromLocation,
+		ToLocation:   activeCargo,
+		Quantity:     1,
+		Reason:       "inventory_move",
+		ReferenceKey: validReferenceKey(t, "loot_pickup:direct-cargo-move"),
+	})
+	if !errors.Is(err, ErrBlockedGenericMoveTarget) {
+		t.Fatalf("direct MoveItem cargo error = %v, want ErrBlockedGenericMoveTarget", err)
+	}
+	if got := inventory.TotalItemQuantity("player-1", definition.ItemID, activeCargo); got != 0 {
+		t.Fatalf("cargo TotalItemQuantity() = %d, want 0", got)
+	}
+	if got := len(inventory.ItemLedgerEntries()); got != 1 {
+		t.Fatalf("ledger entries len = %d, want 1", got)
+	}
+}
+
 func TestCargoServiceValidatesCargoInputs(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -237,10 +402,97 @@ func validCargoAddItemInput(t *testing.T) CargoAddItemInput {
 	}
 }
 
+func validCargoMoveItemInput(t *testing.T) CargoMoveItemInput {
+	t.Helper()
+
+	return CargoMoveItemInput{
+		PlayerID: "player-1",
+		ItemRef: MoveItemRef{
+			Definition: validStackableDefinition(t),
+		},
+		FromLocation:       validLocation(t),
+		ActiveCargo:        validShipCargoLocation(t),
+		Quantity:           1,
+		CargoCapacityUnits: 10,
+		Reason:             "inventory_move",
+		ReferenceKey:       validReferenceKey(t, "loot_pickup:cargo-move"),
+	}
+}
+
 func validWeightedStackableDefinition(t *testing.T, weightUnits int64) ItemDefinition {
 	t.Helper()
 
 	definition := validStackableDefinition(t)
 	definition.WeightUnits = validQuantity(t, weightUnits)
 	return definition
+}
+
+func validWeightedDefinition(t *testing.T, itemID string, weightUnits int64) ItemDefinition {
+	t.Helper()
+
+	source := validItemSource(t, itemID)
+	maxStack := validQuantity(t, 100)
+	weight := validQuantity(t, weightUnits)
+	definition, err := NewItemDefinition(
+		source,
+		foundation.ItemID(itemID),
+		itemID,
+		ItemTypeStackable,
+		ItemRarityCommon,
+		maxStack,
+		weight,
+		[]TradeFlag{TradeFlagTradeable},
+		[]BindRule{BindRuleNone},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewItemDefinition(%q): %v", itemID, err)
+	}
+	return definition
+}
+
+func seedCargoRowForTest(
+	t *testing.T,
+	inventory *InventoryService,
+	playerID foundation.PlayerID,
+	definition ItemDefinition,
+	quantity int64,
+	location ItemLocation,
+	reference string,
+) AddItemResult {
+	t.Helper()
+
+	input := AddItemInput{
+		PlayerID:       playerID,
+		ItemDefinition: definition,
+		Quantity:       quantity,
+		Location:       location,
+		Reason:         "loot_pickup",
+		ReferenceKey:   validReferenceKey(t, reference),
+	}
+	amount, err := input.validateCargoAdd()
+	if err != nil {
+		t.Fatalf("validate cargo seed: %v", err)
+	}
+	inventory.mu.Lock()
+	defer inventory.mu.Unlock()
+
+	result, err := inventory.addItemValidatedLocked(input, amount, inventory.clock.Now())
+	if err != nil {
+		t.Fatalf("seed cargo add: %v", err)
+	}
+	return result
+}
+
+type reentrantCargoEmitter struct {
+	t          *testing.T
+	service    *CargoService
+	definition ItemDefinition
+}
+
+func (emitter reentrantCargoEmitter) Record(_ events.EventEnvelope) {
+	emitter.t.Helper()
+	if err := emitter.service.RegisterItemDefinition(emitter.definition); err != nil {
+		emitter.t.Errorf("RegisterItemDefinition from emitter: %v", err)
+	}
 }

@@ -11,7 +11,7 @@ func TestInventoryReferencesAreScopedByOperation(t *testing.T) {
 	service := newTestInventoryService()
 	definition := validStackableDefinition(t)
 	account := validLocation(t)
-	cargo := validShipCargoLocation(t)
+	storage := validStationStorageLocation(t)
 	reference := validReferenceKey(t, "loot_pickup:shared-inventory-reference")
 
 	addResult, err := service.AddItem(AddItemInput{
@@ -31,7 +31,7 @@ func TestInventoryReferencesAreScopedByOperation(t *testing.T) {
 			Definition: definition,
 		},
 		FromLocation: account,
-		ToLocation:   cargo,
+		ToLocation:   storage,
 		Quantity:     4,
 		Reason:       "inventory_move",
 		ReferenceKey: reference,
@@ -59,7 +59,7 @@ func TestInventoryReferencesAreScopedByOperation(t *testing.T) {
 	if got := service.TotalItemQuantity("player-1", definition.ItemID, account); got != 4 {
 		t.Fatalf("account TotalItemQuantity() = %d, want 4", got)
 	}
-	if got := service.TotalItemQuantity("player-1", definition.ItemID, cargo); got != 4 {
+	if got := service.TotalItemQuantity("player-1", definition.ItemID, storage); got != 4 {
 		t.Fatalf("cargo TotalItemQuantity() = %d, want 4", got)
 	}
 	if got := len(service.ItemLedgerEntries()); got != 4 {
@@ -133,7 +133,7 @@ func TestInventoryFailedMutationsDoNotReserveReferenceKeys(t *testing.T) {
 		service := newTestInventoryService()
 		definition := validStackableDefinition(t)
 		fromLocation := validLocation(t)
-		toLocation := validShipCargoLocation(t)
+		toLocation := validStationStorageLocation(t)
 		addStackableItems(t, service, definition, 2, fromLocation, "loot_pickup:retry-move-seed")
 
 		input := validMoveItemInput(t)
@@ -336,7 +336,7 @@ func TestReserveItemsReferenceDoesNotCollideWithPriorMoveReference(t *testing.T)
 	reservations := NewReservationService(inventory)
 	definition := validStackableDefinition(t)
 	account := validLocation(t)
-	cargo := validShipCargoLocation(t)
+	storage := validStationStorageLocation(t)
 	sharedReference := validReferenceKey(t, "loot_pickup:shared-reservation-reference")
 	addStackableItems(t, inventory, definition, 10, account, "loot_pickup:shared-reservation-seed")
 
@@ -346,7 +346,7 @@ func TestReserveItemsReferenceDoesNotCollideWithPriorMoveReference(t *testing.T)
 			Definition: definition,
 		},
 		FromLocation: account,
-		ToLocation:   cargo,
+		ToLocation:   storage,
 		Quantity:     2,
 		Reason:       "inventory_move",
 		ReferenceKey: sharedReference,

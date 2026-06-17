@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Complete, audited 2026-06-17
+- State: In progress
 - Owner: Economy foundation
 - Depends on: Phase 01
 - Unlocks: loot, craft, market, auction, death, premium, production

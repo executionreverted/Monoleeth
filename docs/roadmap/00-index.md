@@ -33,7 +33,7 @@ Non-negotiable rules:
 ## Roadmap Phases
 
 1. [Foundation Platform](./01-foundation-platform.md) - complete, audited 2026-06-17
-2. [Economy Ledger And Inventory](./02-economy-ledger-inventory.md) - complete, audited 2026-06-17
+2. [Economy Ledger And Inventory](./02-economy-ledger-inventory.md)
 3. [Progression, Ships, Modules, And Stats](./03-progression-ships-modules-stats.md)
 4. [World Worker, AOI, Fog, And Realtime Contracts](./04-world-worker-aoi-fog-realtime.md)
 5. [Combat And Loot Vertical Slice](./05-combat-loot-vertical-slice.md)

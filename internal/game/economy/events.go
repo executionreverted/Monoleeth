@@ -303,3 +303,19 @@ func (service *CargoService) cargoUpdatedEventLocked(input CargoAddItemInput, re
 		LedgerID:     result.LedgerEntry.LedgerID,
 	}, now)
 }
+
+func (service *CargoService) cargoUpdatedMoveEventLocked(input CargoMoveItemInput, result MoveItemResult, now time.Time) events.EventEnvelope {
+	var ledgerID LedgerID
+	if len(result.LedgerEntries) > 0 {
+		ledgerID = result.LedgerEntries[len(result.LedgerEntries)-1].LedgerID
+	}
+	return service.newEventLocked(EventCargoUpdated, CargoUpdatedPayload{
+		PlayerID:     input.PlayerID,
+		ItemID:       input.ItemRef.Definition.ItemID,
+		Quantity:     input.Quantity,
+		Location:     input.ActiveCargo,
+		Reason:       input.Reason,
+		ReferenceKey: input.ReferenceKey,
+		LedgerID:     ledgerID,
+	}, now)
+}

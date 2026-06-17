@@ -63,7 +63,7 @@ func TestInventoryServiceEmitsItemMovedRemovedAndLedgerEvents(t *testing.T) {
 	service := newTestInventoryService()
 	definition := validStackableDefinition(t)
 	fromLocation := validLocation(t)
-	toLocation := validShipCargoLocation(t)
+	toLocation := validStationStorageLocation(t)
 	addStackableItems(t, service, definition, 75, fromLocation, "loot_pickup:event-seed")
 
 	recorder := testutil.NewEventRecorder()

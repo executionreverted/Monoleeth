@@ -15,6 +15,7 @@ var (
 	ErrItemNotOwned                = errors.New("item not owned by player at location")
 	ErrInsufficientItemQuantity    = errors.New("insufficient item quantity")
 	ErrBlockedGenericMoveSource    = errors.New("blocked generic move source location")
+	ErrBlockedGenericMoveTarget    = errors.New("blocked generic move target location")
 	ErrMoveItemSameSourceAndTarget = errors.New("move item source and target are the same")
 )
 
@@ -102,14 +103,18 @@ func (service *InventoryService) moveItemValidatedLocked(input MoveItemInput, qu
 }
 
 func (input MoveItemInput) validate() (foundation.Quantity, error) {
-	return input.validateWithSourcePolicy(true)
+	return input.validateWithLocationPolicies(true, true)
 }
 
 func (input MoveItemInput) validateSystemMove() (foundation.Quantity, error) {
-	return input.validateWithSourcePolicy(false)
+	return input.validateWithLocationPolicies(false, false)
 }
 
-func (input MoveItemInput) validateWithSourcePolicy(validateSourcePolicy bool) (foundation.Quantity, error) {
+func (input MoveItemInput) validateCargoMove() (foundation.Quantity, error) {
+	return input.validateWithLocationPolicies(true, false)
+}
+
+func (input MoveItemInput) validateWithLocationPolicies(validateSourcePolicy bool, validateTargetPolicy bool) (foundation.Quantity, error) {
 	if err := input.PlayerID.Validate(); err != nil {
 		return foundation.Quantity{}, err
 	}
@@ -127,6 +132,11 @@ func (input MoveItemInput) validateWithSourcePolicy(validateSourcePolicy bool) (
 	}
 	if validateSourcePolicy {
 		if err := validateGenericMoveSourceLocation(input.FromLocation); err != nil {
+			return foundation.Quantity{}, err
+		}
+	}
+	if validateTargetPolicy {
+		if err := validateGenericMoveTargetLocation(input.ToLocation); err != nil {
 			return foundation.Quantity{}, err
 		}
 	}
@@ -425,6 +435,13 @@ func matchesStackableDefinitionLocation(
 func validateGenericMoveSourceLocation(location ItemLocation) error {
 	if isBlockedGenericMoveSourceLocation(location.Kind) {
 		return fmt.Errorf("source location %q: %w", location.Kind, ErrBlockedGenericMoveSource)
+	}
+	return nil
+}
+
+func validateGenericMoveTargetLocation(location ItemLocation) error {
+	if location.Kind == LocationKindShipCargo {
+		return fmt.Errorf("target location %q: %w", location.Kind, ErrBlockedGenericMoveTarget)
 	}
 	return nil
 }

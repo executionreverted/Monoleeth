@@ -98,7 +98,7 @@ func TestMoveItemMovesStackableQuantityAndWritesLedgerEntries(t *testing.T) {
 	service := newTestInventoryService()
 	definition := validStackableDefinition(t)
 	fromLocation := validLocation(t)
-	toLocation := validShipCargoLocation(t)
+	toLocation := validStationStorageLocation(t)
 	addStackableItems(t, service, definition, 75, fromLocation, "loot_pickup:drop-1")
 
 	input := validMoveItemInput(t)
@@ -174,7 +174,7 @@ func TestMoveItemDuplicateReferenceDoesNotMoveOrLedgerTwice(t *testing.T) {
 	service := newTestInventoryService()
 	definition := validStackableDefinition(t)
 	fromLocation := validLocation(t)
-	toLocation := validShipCargoLocation(t)
+	toLocation := validStationStorageLocation(t)
 	addStackableItems(t, service, definition, 75, fromLocation, "loot_pickup:drop-1")
 
 	input := validMoveItemInput(t)
@@ -223,7 +223,7 @@ func TestMoveItemStackMergeRespectsMaxStack(t *testing.T) {
 	service := newTestInventoryService()
 	definition := validStackableDefinition(t)
 	fromLocation := validLocation(t)
-	toLocation := validShipCargoLocation(t)
+	toLocation := validStationStorageLocation(t)
 	addStackableItems(t, service, definition, 80, fromLocation, "loot_pickup:drop-1")
 	addStackableItems(t, service, definition, 90, toLocation, "loot_pickup:drop-2")
 
@@ -265,7 +265,7 @@ func TestMoveItemInstanceQuantityAboveOneRejectedAndQuantityOneMovesInstance(t *
 	service := newTestInventoryService()
 	definition := validInstanceDefinition(t)
 	fromLocation := validLocation(t)
-	toLocation := validShipCargoLocation(t)
+	toLocation := validStationStorageLocation(t)
 	addResult := addInstanceItems(t, service, definition, 1, fromLocation, "loot_pickup:drop-1")
 	instanceID := addResult.InstanceItems[0].ItemInstanceID
 
@@ -363,6 +363,35 @@ func TestMoveItemRejectsGenericMoveFromEscrowReservedAndSystemLocations(t *testi
 	}
 }
 
+func TestMoveItemRejectsGenericMoveToShipCargo(t *testing.T) {
+	service := newTestInventoryService()
+	definition := validStackableDefinition(t)
+	fromLocation := validLocation(t)
+	toLocation := validShipCargoLocation(t)
+	addStackableItems(t, service, definition, 5, fromLocation, "loot_pickup:drop-1")
+
+	input := validMoveItemInput(t)
+	input.ItemRef.Definition = definition
+	input.FromLocation = fromLocation
+	input.ToLocation = toLocation
+	input.Quantity = 1
+	input.ReferenceKey = validReferenceKey(t, "loot_pickup:move-to-cargo")
+
+	_, err := service.MoveItem(input)
+	if !errors.Is(err, ErrBlockedGenericMoveTarget) {
+		t.Fatalf("MoveItem error = %v, want ErrBlockedGenericMoveTarget", err)
+	}
+	if got := service.TotalItemQuantity(input.PlayerID, definition.ItemID, fromLocation); got != 5 {
+		t.Fatalf("source TotalItemQuantity() = %d, want 5", got)
+	}
+	if got := service.TotalItemQuantity(input.PlayerID, definition.ItemID, toLocation); got != 0 {
+		t.Fatalf("destination TotalItemQuantity() = %d, want 0", got)
+	}
+	if got := len(service.ItemLedgerEntries()); got != 1 {
+		t.Fatalf("ledger entries len = %d, want 1", got)
+	}
+}
+
 func validMoveItemInput(t *testing.T) MoveItemInput {
 	t.Helper()
 
@@ -372,11 +401,17 @@ func validMoveItemInput(t *testing.T) MoveItemInput {
 			Definition: validStackableDefinition(t),
 		},
 		FromLocation: validLocation(t),
-		ToLocation:   validShipCargoLocation(t),
+		ToLocation:   validStationStorageLocation(t),
 		Quantity:     1,
 		Reason:       "inventory_move",
 		ReferenceKey: validReferenceKey(t, "loot_pickup:move-1"),
 	}
+}
+
+func validStationStorageLocation(t *testing.T) ItemLocation {
+	t.Helper()
+
+	return validLocationKind(t, LocationKindStationStorage, "station-1")
 }
 
 func addStackableItems(

@@ -103,6 +103,23 @@ func TestAddItemValidatesRequiredInputs(t *testing.T) {
 	}
 }
 
+func TestAddItemRejectsGenericShipCargoTarget(t *testing.T) {
+	service := newTestInventoryService()
+	input := validAddItemInput(t)
+	input.Location = validShipCargoLocation(t)
+
+	_, err := service.AddItem(input)
+	if !errors.Is(err, ErrBlockedGenericMoveTarget) {
+		t.Fatalf("AddItem error = %v, want ErrBlockedGenericMoveTarget", err)
+	}
+	if got := service.TotalItemQuantity(input.PlayerID, input.ItemDefinition.ItemID, input.Location); got != 0 {
+		t.Fatalf("TotalItemQuantity() = %d, want 0", got)
+	}
+	if got := len(service.ItemLedgerEntries()); got != 0 {
+		t.Fatalf("ledger entries len = %d, want 0", got)
+	}
+}
+
 func TestAddItemDuplicateReferenceDoesNotDuplicateGrant(t *testing.T) {
 	service := newTestInventoryService()
 	input := validAddItemInput(t)

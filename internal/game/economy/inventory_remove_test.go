@@ -97,7 +97,7 @@ func TestRemoveItemDecreasesStackableQuantityAndWritesLedgerEntry(t *testing.T) 
 	service := newTestInventoryService()
 	definition := validStackableDefinition(t)
 	sourceLocation := validLocation(t)
-	otherLocation := validShipCargoLocation(t)
+	otherLocation := validStationStorageLocation(t)
 	addStackableItems(t, service, definition, 75, sourceLocation, "loot_pickup:drop-1")
 	addStackableItems(t, service, definition, 20, otherLocation, "loot_pickup:drop-2")
 

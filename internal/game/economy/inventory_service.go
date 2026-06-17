@@ -83,6 +83,18 @@ func (service *InventoryService) AddItem(input AddItemInput) (AddItemResult, err
 	}()
 	emitter = service.emitter
 
+	now := service.clock.Now()
+	result, err := service.addItemValidatedLocked(input, quantity, now)
+	if err != nil {
+		return AddItemResult{}, err
+	}
+	if emitter != nil && !result.Duplicate {
+		emitted = service.addItemEventsLocked(input, result, now)
+	}
+	return result, nil
+}
+
+func (service *InventoryService) addItemValidatedLocked(input AddItemInput, quantity foundation.Quantity, now time.Time) (AddItemResult, error) {
 	reference := inventoryReferenceKey{
 		playerID:     input.PlayerID,
 		operation:    addItemOperation,
@@ -94,7 +106,6 @@ func (service *InventoryService) AddItem(input AddItemInput) (AddItemResult, err
 		return result, nil
 	}
 
-	now := service.clock.Now()
 	stackableItems, instanceItems, err := service.buildAddedItems(input, quantity, now)
 	if err != nil {
 		return AddItemResult{}, err
@@ -128,9 +139,6 @@ func (service *InventoryService) AddItem(input AddItemInput) (AddItemResult, err
 		LedgerEntry:    ledgerEntry,
 	}
 	service.addItemReferences[reference] = cloneAddItemResult(result)
-	if emitter != nil {
-		emitted = service.addItemEventsLocked(input, result, now)
-	}
 	return cloneAddItemResult(result), nil
 }
 
@@ -167,6 +175,14 @@ func (service *InventoryService) TotalItemQuantity(playerID foundation.PlayerID,
 }
 
 func (input AddItemInput) validate() (foundation.Quantity, error) {
+	return input.validateWithCargoTargetPolicy(true)
+}
+
+func (input AddItemInput) validateCargoAdd() (foundation.Quantity, error) {
+	return input.validateWithCargoTargetPolicy(false)
+}
+
+func (input AddItemInput) validateWithCargoTargetPolicy(blockCargoTarget bool) (foundation.Quantity, error) {
 	if err := input.PlayerID.Validate(); err != nil {
 		return foundation.Quantity{}, err
 	}
@@ -179,6 +195,11 @@ func (input AddItemInput) validate() (foundation.Quantity, error) {
 	}
 	if err := input.Location.Validate(); err != nil {
 		return foundation.Quantity{}, err
+	}
+	if blockCargoTarget {
+		if err := validateGenericMoveTargetLocation(input.Location); err != nil {
+			return foundation.Quantity{}, err
+		}
 	}
 	if err := input.Reason.Validate(); err != nil {
 		return foundation.Quantity{}, err
