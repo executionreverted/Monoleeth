@@ -16,6 +16,7 @@ var (
 	ErrInsufficientItemQuantity    = errors.New("insufficient item quantity")
 	ErrBlockedGenericMoveSource    = errors.New("blocked generic move source location")
 	ErrBlockedGenericMoveTarget    = errors.New("blocked generic move target location")
+	ErrBlockedGenericOwnerTransfer = errors.New("blocked generic owner transfer")
 	ErrMoveItemSameSourceAndTarget = errors.New("move item source and target are the same")
 )
 
@@ -28,6 +29,7 @@ type MoveItemRef struct {
 // MoveItemInput describes one authoritative player item movement.
 type MoveItemInput struct {
 	PlayerID     foundation.PlayerID       `json:"player_id"`
+	ToPlayerID   foundation.PlayerID       `json:"to_player_id,omitempty"`
 	ItemRef      MoveItemRef               `json:"item_ref"`
 	FromLocation ItemLocation              `json:"from_location"`
 	ToLocation   ItemLocation              `json:"to_location"`
@@ -138,6 +140,14 @@ func (input MoveItemInput) validateWithLocationPolicies(validateSourcePolicy boo
 	if err := input.PlayerID.Validate(); err != nil {
 		return foundation.Quantity{}, err
 	}
+	if !input.ToPlayerID.IsZero() {
+		if validateSourcePolicy || validateTargetPolicy {
+			return foundation.Quantity{}, ErrBlockedGenericOwnerTransfer
+		}
+		if err := input.ToPlayerID.Validate(); err != nil {
+			return foundation.Quantity{}, err
+		}
+	}
 	if err := input.ItemRef.Validate(); err != nil {
 		return foundation.Quantity{}, err
 	}
@@ -233,6 +243,7 @@ func (service *InventoryService) moveInstanceItemLocked(input MoveItemInput, qua
 	}
 
 	item := service.instanceItems[index]
+	item.OwnerPlayerID = input.destinationPlayerID()
 	item.Location = input.ToLocation
 	item.UpdatedAt = now
 	service.instanceItems[index] = item
@@ -250,8 +261,9 @@ func (service *InventoryService) buildMoveLedgerEntriesLocked(
 	now time.Time,
 ) ([]ItemLedgerEntry, error) {
 	itemID := input.ItemRef.Definition.ItemID
+	destinationPlayerID := input.destinationPlayerID()
 	sourceBalanceAfter := service.totalItemQuantityLocked(input.PlayerID, itemID, input.FromLocation) - quantity.Int64()
-	destinationBalanceAfter := service.totalItemQuantityLocked(input.PlayerID, itemID, input.ToLocation) + quantity.Int64()
+	destinationBalanceAfter := service.totalItemQuantityLocked(destinationPlayerID, itemID, input.ToLocation) + quantity.Int64()
 
 	sourceEntry, err := NewItemLedgerEntry(
 		service.nextLedgerID(),
@@ -272,7 +284,7 @@ func (service *InventoryService) buildMoveLedgerEntriesLocked(
 
 	destinationEntry, err := NewItemLedgerEntry(
 		service.nextLedgerID(),
-		input.PlayerID,
+		destinationPlayerID,
 		itemID,
 		itemInstanceID,
 		quantity,
@@ -297,8 +309,9 @@ func (service *InventoryService) buildStackableMoveDestinationItemsLocked(
 ) ([]StackableItem, error) {
 	remaining := quantity.Int64()
 	maxStack := input.ItemRef.Definition.MaxStack.Int64()
+	destinationPlayerID := input.destinationPlayerID()
 	for _, item := range service.stackableItems {
-		if !matchesStackableDefinitionLocation(item, input.PlayerID, input.ItemRef.Definition, input.ToLocation) {
+		if !matchesStackableDefinitionLocation(item, destinationPlayerID, input.ItemRef.Definition, input.ToLocation) {
 			continue
 		}
 		available := maxStack - item.Quantity.Int64()
@@ -325,7 +338,7 @@ func (service *InventoryService) buildStackableMoveDestinationItemsLocked(
 			input.ItemRef.Definition.Source,
 			service.nextItemInstanceID(input.ItemRef.Definition.ItemID, "stack"),
 			input.ItemRef.Definition.ItemID,
-			input.PlayerID,
+			destinationPlayerID,
 			input.ToLocation,
 			stackQuantity,
 		)
@@ -372,11 +385,12 @@ func (service *InventoryService) movedStackableRowsLocked(
 
 	remainingDestination := quantity.Int64()
 	maxStack := input.ItemRef.Definition.MaxStack.Int64()
+	destinationPlayerID := input.destinationPlayerID()
 	for index := range updatedItems {
 		if remainingDestination == 0 {
 			break
 		}
-		if !matchesStackableDefinitionLocation(updatedItems[index], input.PlayerID, input.ItemRef.Definition, input.ToLocation) {
+		if !matchesStackableDefinitionLocation(updatedItems[index], destinationPlayerID, input.ItemRef.Definition, input.ToLocation) {
 			continue
 		}
 		available := maxStack - updatedItems[index].Quantity.Int64()
@@ -429,15 +443,24 @@ func (service *InventoryService) stackableQuantityForDefinitionLocked(
 
 func (service *InventoryService) stackableItemsForMoveLocked(input MoveItemInput) []StackableItem {
 	items := make([]StackableItem, 0)
+	destinationPlayerID := input.destinationPlayerID()
 	for _, item := range service.stackableItems {
-		if item.OwnerPlayerID != input.PlayerID || item.ItemID != input.ItemRef.Definition.ItemID {
+		if item.ItemID != input.ItemRef.Definition.ItemID {
 			continue
 		}
-		if item.Location == input.FromLocation || item.Location == input.ToLocation {
+		if (item.OwnerPlayerID == input.PlayerID && item.Location == input.FromLocation) ||
+			(item.OwnerPlayerID == destinationPlayerID && item.Location == input.ToLocation) {
 			items = append(items, item)
 		}
 	}
 	return items
+}
+
+func (input MoveItemInput) destinationPlayerID() foundation.PlayerID {
+	if input.ToPlayerID.IsZero() {
+		return input.PlayerID
+	}
+	return input.ToPlayerID
 }
 
 func matchesStackableDefinitionLocation(

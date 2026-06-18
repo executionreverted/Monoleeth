@@ -131,6 +131,14 @@ for phase status; this file is a compact pending-work index.
 - [ ] Replace global Phase 09 production store locking with per-planet/per-route
   coordination before high-concurrency login or inspection settlement. Current
   in-memory MVP intentionally serializes unrelated production and route work.
+- [ ] Replace Phase 10 in-memory market settlement serialization with a durable
+  wallet/item/listing transaction or outbox-backed recovery path before moving
+  market storage out of process. Current `MarketService` prevalidates and holds
+  its service lock across wallet and escrow calls, but it is not a persistent
+  rollback boundary.
+- [ ] Formalize the Phase 10 market fee sink account in durable wallet
+  provisioning and audit reports. The MVP credits the explicit service-owned
+  `market-fee-sink` player id.
 
 ## Completed
 

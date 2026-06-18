@@ -34,7 +34,11 @@ const (
 	idempotencyAuctionClose      = "auction_close"
 	idempotencyPremiumWebhook    = "premium_webhook"
 	idempotencyOfflineSettlement = "offline_settlement"
+	idempotencyMarketListing     = "market_listing"
 	idempotencyMarketBuy         = "market_buy"
+	idempotencyMarketSale        = "market_sale"
+	idempotencyMarketFee         = "market_fee"
+	idempotencyMarketCancel      = "market_cancel"
 	idempotencyShipRepair        = "ship_repair"
 )
 
@@ -91,12 +95,32 @@ func OfflineSettlementIdempotencyKey(planetID PlanetID, settlementWindow string)
 	return buildIdempotencyKey(idempotencyOfflineSettlement, planetID.String(), settlementWindow)
 }
 
+// MarketListingIdempotencyKey returns market_listing:<listing_id>.
+func MarketListingIdempotencyKey(listingID ListingID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyMarketListing, listingID.String())
+}
+
 // MarketBuyIdempotencyKey returns market_buy:<listing_id>:<buyer_id>:<request_id>.
 //
 // The request ID is only one domain reference part here. The returned value is
 // still an IdempotencyKey and must not be modeled on request envelopes.
 func MarketBuyIdempotencyKey(listingID ListingID, buyerID PlayerID, requestID RequestID) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyMarketBuy, listingID.String(), buyerID.String(), requestID.String())
+}
+
+// MarketSaleIdempotencyKey returns market_sale:<listing_id>:<buyer_id>:<request_id>.
+func MarketSaleIdempotencyKey(listingID ListingID, buyerID PlayerID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyMarketSale, listingID.String(), buyerID.String(), requestID.String())
+}
+
+// MarketFeeIdempotencyKey returns market_fee:<listing_id>:<buyer_id>:<request_id>.
+func MarketFeeIdempotencyKey(listingID ListingID, buyerID PlayerID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyMarketFee, listingID.String(), buyerID.String(), requestID.String())
+}
+
+// MarketCancelIdempotencyKey returns market_cancel:<listing_id>.
+func MarketCancelIdempotencyKey(listingID ListingID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyMarketCancel, listingID.String())
 }
 
 // ShipRepairIdempotencyKey returns ship_repair:<ship_id>:<repair_reference>.
@@ -191,13 +215,17 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyCraftComplete,
 		idempotencyLootPickup,
 		idempotencyAuctionClose,
-		idempotencyPremiumWebhook:
+		idempotencyPremiumWebhook,
+		idempotencyMarketListing,
+		idempotencyMarketCancel:
 		return 1, true
 	case idempotencyOfflineSettlement:
 		return 2, true
 	case idempotencyQuestReroll:
 		return 2, true
-	case idempotencyMarketBuy:
+	case idempotencyMarketBuy,
+		idempotencyMarketSale,
+		idempotencyMarketFee:
 		return 3, true
 	case idempotencyShipRepair,
 		idempotencyDeathCargoDrop:

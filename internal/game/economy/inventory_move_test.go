@@ -437,6 +437,33 @@ func TestMoveItemRejectsGenericMoveToBlockedTargets(t *testing.T) {
 	}
 }
 
+func TestMoveItemRejectsGenericOwnerTransfer(t *testing.T) {
+	service := newTestInventoryService()
+	definition := validStackableDefinition(t)
+	fromLocation := validLocation(t)
+	toLocation := validStationStorageLocation(t)
+	addStackableItems(t, service, definition, 5, fromLocation, "loot_pickup:generic-owner-transfer-seed")
+
+	input := validMoveItemInput(t)
+	input.ToPlayerID = "player-2"
+	input.ItemRef.Definition = definition
+	input.FromLocation = fromLocation
+	input.ToLocation = toLocation
+	input.Quantity = 1
+	input.ReferenceKey = validReferenceKey(t, "market_buy:listing-1:player-2:generic-transfer")
+
+	_, err := service.MoveItem(input)
+	if !errors.Is(err, ErrBlockedGenericOwnerTransfer) {
+		t.Fatalf("MoveItem owner transfer error = %v, want ErrBlockedGenericOwnerTransfer", err)
+	}
+	if got := service.TotalItemQuantity(input.PlayerID, definition.ItemID, fromLocation); got != 5 {
+		t.Fatalf("source TotalItemQuantity() = %d, want 5", got)
+	}
+	if got := service.TotalItemQuantity(input.ToPlayerID, definition.ItemID, toLocation); got != 0 {
+		t.Fatalf("destination owner TotalItemQuantity() = %d, want 0", got)
+	}
+}
+
 func TestSystemMoveItemMovesStackableToMarketEscrowAndBack(t *testing.T) {
 	service := newTestInventoryService()
 	definition := validStackableDefinition(t)
@@ -496,6 +523,52 @@ func TestSystemMoveItemMovesStackableToMarketEscrowAndBack(t *testing.T) {
 	}
 	if got := len(service.ItemLedgerEntries()); got != 5 {
 		t.Fatalf("ledger entries len = %d, want 5", got)
+	}
+}
+
+func TestSystemMoveItemTransfersStackableOwnershipFromEscrowToBuyer(t *testing.T) {
+	service := newTestInventoryService()
+	definition := validStackableDefinition(t)
+	sellerAccount := validLocation(t)
+	escrow := validLocationKind(t, LocationKindMarketEscrow, "listing-owner-transfer")
+	buyerAccount := validLocationKind(t, LocationKindAccountInventory, "player-2")
+	addStackableItems(t, service, definition, 5, sellerAccount, "loot_pickup:owner-transfer-seed")
+
+	toEscrow := validMoveItemInput(t)
+	toEscrow.ItemRef.Definition = definition
+	toEscrow.FromLocation = sellerAccount
+	toEscrow.ToLocation = escrow
+	toEscrow.Quantity = 5
+	toEscrow.Reason = "market_listing"
+	toEscrow.ReferenceKey = validReferenceKey(t, "market_listing:listing-owner-transfer")
+	if _, err := service.SystemMoveItem(toEscrow); err != nil {
+		t.Fatalf("SystemMoveItem to escrow: %v", err)
+	}
+
+	toBuyer := validMoveItemInput(t)
+	toBuyer.ToPlayerID = "player-2"
+	toBuyer.ItemRef.Definition = definition
+	toBuyer.FromLocation = escrow
+	toBuyer.ToLocation = buyerAccount
+	toBuyer.Quantity = 2
+	toBuyer.Reason = "market_buy"
+	toBuyer.ReferenceKey = validReferenceKey(t, "market_buy:listing-owner-transfer:player-2:buy-1")
+
+	result, err := service.SystemMoveItem(toBuyer)
+	if err != nil {
+		t.Fatalf("SystemMoveItem to buyer: %v", err)
+	}
+	if got := service.TotalItemQuantity(toBuyer.PlayerID, definition.ItemID, escrow); got != 3 {
+		t.Fatalf("seller escrow TotalItemQuantity() = %d, want 3", got)
+	}
+	if got := service.TotalItemQuantity(toBuyer.ToPlayerID, definition.ItemID, buyerAccount); got != 2 {
+		t.Fatalf("buyer account TotalItemQuantity() = %d, want 2", got)
+	}
+	if result.LedgerEntries[0].PlayerID != toBuyer.PlayerID {
+		t.Fatalf("source ledger player = %q, want %q", result.LedgerEntries[0].PlayerID, toBuyer.PlayerID)
+	}
+	if result.LedgerEntries[1].PlayerID != toBuyer.ToPlayerID {
+		t.Fatalf("destination ledger player = %q, want %q", result.LedgerEntries[1].PlayerID, toBuyer.ToPlayerID)
 	}
 }
 
