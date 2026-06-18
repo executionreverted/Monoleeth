@@ -154,6 +154,8 @@ Does not own:
 
 ## Implementation Notes
 
+- Scanner gate implementation plan:
+  `docs/plans/2026-06-18-phase08-scanner-gates.md`.
 - Phase 08 currently lands as a backend in-memory domain MVP under
   `internal/game/discovery`; no realtime, REST, DB persistence, market listing,
   production, or route integration is exposed yet.
