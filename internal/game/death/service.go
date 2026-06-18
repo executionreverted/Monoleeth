@@ -355,6 +355,7 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 	}
 
 	attempt, ok := service.attempts[lethalKey]
+	var newAttemptEquippedItemIDs []foundation.ItemID
 	if !ok {
 		activeShipID, activeShipDisabled, err := service.activeShipForDeath(input.PlayerID)
 		if err != nil {
@@ -375,6 +376,10 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 			return cloneProcessDeathResult(result), nil
 		}
 		if err := validateDeathCargoStacks(input.PlayerID, activeShipID, input.Cargo); err != nil {
+			return ProcessDeathResult{}, err
+		}
+		newAttemptEquippedItemIDs, err = service.equippedItemIDsForDeath(input.PlayerID, activeShipID)
+		if err != nil {
 			return ProcessDeathResult{}, err
 		}
 	}
@@ -409,15 +414,11 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 		if err := validateDeathCargoDrops(input.PlayerID, shipDisable.ActiveShip.ShipID, selection.Drops); err != nil {
 			return ProcessDeathResult{}, err
 		}
-		equippedItemIDs, err := service.equippedItemIDsForDeath(input.PlayerID, shipDisable.ActiveShip.ShipID)
-		if err != nil {
-			return ProcessDeathResult{}, err
-		}
 		attempt = processDeathAttempt{
 			selection:         cloneCargoDropSelection(selection),
 			shipDisabled:      shipDisable.Disabled,
 			shipDisableResult: shipDisable,
-			equippedItemIDs:   append([]foundation.ItemID(nil), equippedItemIDs...),
+			equippedItemIDs:   append([]foundation.ItemID(nil), newAttemptEquippedItemIDs...),
 		}
 		service.attempts[lethalKey] = attempt
 	}

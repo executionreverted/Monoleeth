@@ -222,6 +222,59 @@ func TestDeathServiceProcessDeathRequiresEquippedModuleProviderForDurabilityHook
 	assertDeathServiceFighterActive(t, fixture.ships)
 }
 
+func TestDeathServiceProcessDeathRetryAfterEquippedModuleProviderFailureDoesNotSkipDurability(t *testing.T) {
+	fixture := newDeathServiceFixture(t, nil, nil)
+	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
+	cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
+	added := fixture.addCargo(t, iron, 8, cargoLocation)
+	providerErr := errors.New("equipped module provider unavailable")
+	fixture.equippedModules.err = providerErr
+	hook := &recordingDeathServiceModuleHook{}
+	fixture.death.SetModuleDurabilityHook(hook)
+	input := death.ProcessDeathInput{
+		LethalEventID:   "lethal-event-module-provider-retry",
+		PlayerID:        "player-1",
+		WorldID:         "world-1",
+		ZoneID:          "zone-1",
+		Position:        world.Vec2{X: 1, Y: 2},
+		Reason:          death.DeathReasonCombat,
+		CargoDropPolicy: cargoPolicy(t, 0.50, 0.50),
+		Cargo: []death.CargoStack{
+			cargoStackFromDeathServiceStackable(t, added.StackableItems[0], iron),
+		},
+		RespawnLocationID: "origin-station",
+	}
+
+	_, err := fixture.death.ProcessDeath(input)
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("first ProcessDeath() error = %v, want provider error", err)
+	}
+	assertDeathServiceFighterActive(t, fixture.ships)
+	if got := fixture.inventory.TotalItemQuantity("player-1", iron.ItemID, cargoLocation); got != 8 {
+		t.Fatalf("cargo after provider failure = %d, want 8", got)
+	}
+	if len(hook.calls) != 0 {
+		t.Fatalf("module hook calls after provider failure = %d, want 0", len(hook.calls))
+	}
+
+	fixture.equippedModules.err = nil
+	fixture.equippedModules.SetItemIDs("module-instance-1")
+	retry, err := fixture.death.ProcessDeath(input)
+	if err != nil {
+		t.Fatalf("retry ProcessDeath() error = %v, want nil", err)
+	}
+	if retry.Duplicate {
+		t.Fatal("retry Duplicate = true, want full death processing")
+	}
+	if retry.ModuleDurabilityResult == nil || len(retry.ModuleDurabilityResult.SelectedItemIDs) != 1 {
+		t.Fatalf("retry module durability result = %+v, want selected equipped item", retry.ModuleDurabilityResult)
+	}
+	if len(hook.calls) != 1 {
+		t.Fatalf("module hook calls after retry = %d, want 1", len(hook.calls))
+	}
+	assertDeathServiceFighterDisabled(t, fixture.ships)
+}
+
 func TestDeathServiceProcessDeathDuplicateLethalEventDoesNotMutateTwice(t *testing.T) {
 	fixture := newDeathServiceFixture(t, nil, nil)
 	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
