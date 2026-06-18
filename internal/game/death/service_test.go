@@ -22,7 +22,19 @@ func TestDeathServiceProcessDeathDropsCargoCreatesLootDisablesShipRecordsRespawn
 	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
 	cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
 	added := fixture.addCargo(t, iron, 10, cargoLocation)
-	hook := &recordingDeathServiceModuleHook{}
+	hook := &recordingDeathServiceModuleHook{
+		result: death.ModuleDurabilityResult{
+			StatInvalidations: []death.ModuleStatInvalidationSignal{
+				{
+					PlayerID:  "player-1",
+					ShipID:    ships.ShipIDFighterT1,
+					Reason:    death.ModuleStatInvalidationReasonDurabilityBroken,
+					SourceID:  "module-instance-1",
+					CreatedAt: fixture.clock.Now(),
+				},
+			},
+		},
+	}
 	fixture.death.SetModuleDurabilityHook(hook)
 
 	result, err := fixture.death.ProcessDeath(death.ProcessDeathInput{
@@ -108,6 +120,17 @@ func TestDeathServiceProcessDeathDropsCargoCreatesLootDisablesShipRecordsRespawn
 		len(result.ModuleDurabilityResult.SelectedItemIDs) != 2 {
 		t.Fatalf("module hook call/result = %+v / %+v, want selected equipped ids", hook.calls[0], result.ModuleDurabilityResult)
 	}
+	if got, want := len(result.ModuleDurabilityResult.StatInvalidations), 1; got != want {
+		t.Fatalf("module stat invalidations len = %d, want %d", got, want)
+	}
+	moduleInvalidation := result.ModuleDurabilityResult.StatInvalidations[0]
+	if moduleInvalidation.PlayerID != "player-1" ||
+		moduleInvalidation.ShipID != ships.ShipIDFighterT1 ||
+		moduleInvalidation.Reason != death.ModuleStatInvalidationReasonDurabilityBroken ||
+		moduleInvalidation.SourceID != "module-instance-1" ||
+		!moduleInvalidation.CreatedAt.Equal(fixture.clock.Now()) {
+		t.Fatalf("module stat invalidation = %+v, want broken module signal for fighter", moduleInvalidation)
+	}
 
 	testutil.AssertRecordedEventTypes(t, fixture.events, death.EventPlayerDied, death.EventShipDisabled, death.EventDeathCargoDropped)
 	recorded := fixture.events.Events()
@@ -164,7 +187,19 @@ func TestDeathServiceProcessDeathDuplicateLethalEventDoesNotMutateTwice(t *testi
 	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
 	cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
 	added := fixture.addCargo(t, iron, 8, cargoLocation)
-	hook := &recordingDeathServiceModuleHook{}
+	hook := &recordingDeathServiceModuleHook{
+		result: death.ModuleDurabilityResult{
+			StatInvalidations: []death.ModuleStatInvalidationSignal{
+				{
+					PlayerID:  "player-1",
+					ShipID:    ships.ShipIDFighterT1,
+					Reason:    death.ModuleStatInvalidationReasonDurabilityBroken,
+					SourceID:  "module-instance-1",
+					CreatedAt: fixture.clock.Now(),
+				},
+			},
+		},
+	}
 	fixture.death.SetModuleDurabilityHook(hook)
 	input := death.ProcessDeathInput{
 		LethalEventID:   "lethal-event-duplicate",
@@ -188,6 +223,10 @@ func TestDeathServiceProcessDeathDuplicateLethalEventDoesNotMutateTwice(t *testi
 	if first.ShipDisableResult.PlayerShip.DisabledAt == nil {
 		t.Fatal("first disabled at = nil, want timestamp")
 	}
+	if first.ModuleDurabilityResult == nil || len(first.ModuleDurabilityResult.StatInvalidations) != 1 {
+		t.Fatalf("first module durability result = %+v, want one stat invalidation", first.ModuleDurabilityResult)
+	}
+	first.ModuleDurabilityResult.StatInvalidations[0].SourceID = "mutated-return-value"
 	firstDisabledAt := *first.ShipDisableResult.PlayerShip.DisabledAt
 	firstDropID := first.LootDrops[0].ID
 	firstLedgerCount := len(fixture.inventory.ItemLedgerEntries())
@@ -216,6 +255,15 @@ func TestDeathServiceProcessDeathDuplicateLethalEventDoesNotMutateTwice(t *testi
 	}
 	if len(hook.calls) != 1 {
 		t.Fatalf("module hook calls after duplicate = %d, want 1", len(hook.calls))
+	}
+	if second.ModuleDurabilityResult == nil || !second.ModuleDurabilityResult.Duplicate {
+		t.Fatalf("duplicate module durability result = %+v, want duplicate marker", second.ModuleDurabilityResult)
+	}
+	if got, want := len(second.ModuleDurabilityResult.StatInvalidations), 1; got != want {
+		t.Fatalf("duplicate module stat invalidations len = %d, want %d", got, want)
+	}
+	if got := second.ModuleDurabilityResult.StatInvalidations[0].SourceID; got != "module-instance-1" {
+		t.Fatalf("duplicate module stat invalidation source = %q, want cached original source", got)
 	}
 	if got := len(fixture.events.Events()); got != 0 {
 		t.Fatalf("duplicate death emitted %d events, want 0", got)
@@ -988,14 +1036,20 @@ func decodeDeathServiceEventPayload[T any](t *testing.T, payload []byte) T {
 }
 
 type recordingDeathServiceModuleHook struct {
-	calls []death.ModuleDurabilityInput
+	calls  []death.ModuleDurabilityInput
+	result death.ModuleDurabilityResult
 }
 
 func (hook *recordingDeathServiceModuleHook) ApplyDeathDurability(input death.ModuleDurabilityInput) (death.ModuleDurabilityResult, error) {
 	hook.calls = append(hook.calls, input)
-	return death.ModuleDurabilityResult{
-		SelectedItemIDs: append([]foundation.ItemID(nil), input.EquippedItemIDs...),
-	}, nil
+	result := hook.result
+	if len(result.SelectedItemIDs) == 0 {
+		result.SelectedItemIDs = append([]foundation.ItemID(nil), input.EquippedItemIDs...)
+	} else {
+		result.SelectedItemIDs = append([]foundation.ItemID(nil), result.SelectedItemIDs...)
+	}
+	result.StatInvalidations = append([]death.ModuleStatInvalidationSignal(nil), result.StatInvalidations...)
+	return result, nil
 }
 
 type failOnceDeathServiceLoot struct {

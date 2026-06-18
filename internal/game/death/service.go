@@ -153,8 +153,27 @@ type ModuleDurabilityInput struct {
 
 // ModuleDurabilityResult reports the optional module durability hook result.
 type ModuleDurabilityResult struct {
-	SelectedItemIDs []foundation.ItemID `json:"selected_item_ids"`
-	Duplicate       bool                `json:"duplicate"`
+	SelectedItemIDs   []foundation.ItemID            `json:"selected_item_ids"`
+	StatInvalidations []ModuleStatInvalidationSignal `json:"stat_invalidations,omitempty"`
+	Duplicate         bool                           `json:"duplicate"`
+}
+
+// ModuleStatInvalidationReason names a module durability change that makes
+// effective stats stale.
+type ModuleStatInvalidationReason string
+
+const (
+	ModuleStatInvalidationReasonDurabilityBroken ModuleStatInvalidationReason = "module.durability_changed_to_broken"
+)
+
+// ModuleStatInvalidationSignal is a death-domain handoff value for stat cache
+// consumers when death durability handling breaks an equipped module.
+type ModuleStatInvalidationSignal struct {
+	PlayerID  foundation.PlayerID          `json:"player_id"`
+	ShipID    foundation.ShipID            `json:"ship_id"`
+	Reason    ModuleStatInvalidationReason `json:"reason"`
+	SourceID  string                       `json:"source_id,omitempty"`
+	CreatedAt time.Time                    `json:"created_at"`
 }
 
 // PlayerDiedEvent is the death-domain event emitted after death processing.
@@ -879,6 +898,7 @@ func cloneProcessDeathResult(result ProcessDeathResult) ProcessDeathResult {
 	if result.ModuleDurabilityResult != nil {
 		moduleDurability := *result.ModuleDurabilityResult
 		moduleDurability.SelectedItemIDs = append([]foundation.ItemID(nil), result.ModuleDurabilityResult.SelectedItemIDs...)
+		moduleDurability.StatInvalidations = append([]ModuleStatInvalidationSignal(nil), result.ModuleDurabilityResult.StatInvalidations...)
 		clone.ModuleDurabilityResult = &moduleDurability
 	}
 	return clone

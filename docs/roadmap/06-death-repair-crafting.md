@@ -77,7 +77,7 @@ Crafting:
 - [x] Emit player death, ship disabled, and cargo dropped events. Verified 2026-06-18 by `DeathService.ProcessDeath` event payload and duplicate retry tests.
 - [x] Block cargo transfer while in lethal/dead transaction. Verified 2026-06-18 by `DeathService` cargo transfer guard integration tests, in-flight transfer serialization tests, and economy guard duplicate-retry tests.
 - [x] Add module durability loss hook.
-- [ ] Invalidate stats when module breaks.
+- [x] Invalidate stats when module breaks. Verified 2026-06-18 by `DeathService` carrying module-break stat invalidation signals from its durability hook through cached duplicate results, plus `LoadoutService.BreakEquippedModule` and `StatService` broken-module exclusion tests.
 
 ## TODO: Respawn And Repair
 
