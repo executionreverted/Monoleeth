@@ -6,16 +6,23 @@ const defaultRankUpReason = "rank_up"
 
 // RankRequirement defines the server-owned requirements to advance to Rank.
 type RankRequirement struct {
-	Rank             int        `json:"rank"`
-	MainLevel        int        `json:"main_level"`
-	AnyRoleTypes     []RoleType `json:"any_role_types,omitempty"`
-	AnyRoleMinLevel  int        `json:"any_role_min_level,omitempty"`
-	RequirementCodes []string   `json:"requirement_codes,omitempty"`
+	Rank                int        `json:"rank"`
+	MainLevel           int        `json:"main_level"`
+	AnyRoleTypes        []RoleType `json:"any_role_types,omitempty"`
+	AnyRoleMinLevel     int        `json:"any_role_min_level,omitempty"`
+	CompletedQuestCount int        `json:"completed_quest_count,omitempty"`
+	RequirementCodes    []string   `json:"requirement_codes,omitempty"`
+}
+
+// RankMilestoneState is the server-owned progression evidence used by rank
+// requirements that depend on completed gameplay milestones.
+type RankMilestoneState struct {
+	CompletedQuestCount int `json:"completed_quest_count,omitempty"`
 }
 
 var defaultRankRequirements = []RankRequirement{
 	{Rank: 1, MainLevel: 1},
-	{Rank: 2, MainLevel: 2, RequirementCodes: []string{"main_level:2"}},
+	{Rank: 2, MainLevel: 2, CompletedQuestCount: 1, RequirementCodes: []string{"main_level:2", "completed_quests:1"}},
 	{Rank: 3, MainLevel: 3, RequirementCodes: []string{"main_level:3"}},
 	{
 		Rank:             4,
@@ -58,7 +65,7 @@ func RankRequirementFor(rank int) (RankRequirement, error) {
 	return RankRequirement{}, fmt.Errorf("rank %d: %w", rank, ErrInvalidRank)
 }
 
-func (requirement RankRequirement) missingFor(snapshot ProgressionSnapshot) []string {
+func (requirement RankRequirement) missingFor(snapshot ProgressionSnapshot, milestones RankMilestoneState) []string {
 	var missing []string
 	if snapshot.Player.MainLevel < requirement.MainLevel {
 		missing = append(missing, fmt.Sprintf("main_level:%d", requirement.MainLevel))
@@ -70,6 +77,9 @@ func (requirement RankRequirement) missingFor(snapshot ProgressionSnapshot) []st
 		default:
 			missing = append(missing, fmt.Sprintf("any_role_level:any:%d", requirement.AnyRoleMinLevel))
 		}
+	}
+	if requirement.CompletedQuestCount > 0 && milestones.CompletedQuestCount < requirement.CompletedQuestCount {
+		missing = append(missing, fmt.Sprintf("completed_quests:%d", requirement.CompletedQuestCount))
 	}
 	return missing
 }

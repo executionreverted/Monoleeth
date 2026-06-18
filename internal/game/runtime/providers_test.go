@@ -22,10 +22,10 @@ func TestProgressionProviderExposesRankAndRoleLevels(t *testing.T) {
 	if _, err := service.GrantXP(progression.GrantXPInput{
 		PlayerID:       "player-1",
 		Amount:         100,
-		SourceType:     progression.XPSourceTypeCombat,
-		SourceID:       "npc-kill-1",
-		IdempotencyKey: "xp-npc-kill-1",
-		Authority:      progression.XPGrantAuthorityCombatService,
+		SourceType:     progression.XPSourceTypeQuest,
+		SourceID:       "player_quest_provider_1",
+		IdempotencyKey: "quest_reward:player_quest_provider_1",
+		Authority:      progression.XPGrantAuthorityQuestService,
 		RoleXP:         []progression.RoleXPGrant{{Role: progression.RoleTypeCombat, Amount: 75}},
 	}); err != nil {
 		t.Fatalf("GrantXP() error = %v, want nil", err)
@@ -404,6 +404,16 @@ func seedPilotPassivesProgression(t *testing.T, service *progression.Progression
 		RoleXP:         []progression.RoleXPGrant{{Role: progression.RoleTypeCombat, Amount: 500}},
 	}); err != nil {
 		t.Fatalf("GrantXP() error = %v, want nil", err)
+	}
+	if _, err := service.GrantXP(progression.GrantXPInput{
+		PlayerID:       playerID,
+		Amount:         1,
+		SourceType:     progression.XPSourceTypeQuest,
+		SourceID:       "passive-stat-quest-milestone",
+		IdempotencyKey: "quest_reward:passive-stat-quest-milestone",
+		Authority:      progression.XPGrantAuthorityQuestService,
+	}); err != nil {
+		t.Fatalf("quest milestone GrantXP() error = %v, want nil", err)
 	}
 	for _, input := range []progression.TryRankUpInput{
 		{PlayerID: playerID, TargetRank: 2, Reason: "passive_stat_seed", IdempotencyKey: "passive-stat-rank-2"},

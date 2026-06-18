@@ -151,6 +151,18 @@ type DropPayload struct {
 	ExpiresAt time.Time         `json:"expires_at"`
 }
 
+// PickedUpPayload is the internal post-claim pickup event payload consumed by
+// quest and audit processors.
+type PickedUpPayload struct {
+	DropID    world.EntityID      `json:"drop_id"`
+	PlayerID  foundation.PlayerID `json:"player_id"`
+	Position  world.Vec2          `json:"position"`
+	ItemID    foundation.ItemID   `json:"item_id"`
+	Quantity  int64               `json:"quantity"`
+	State     DropState           `json:"state"`
+	ClaimedAt time.Time           `json:"claimed_at"`
+}
+
 // ScheduledDropTask is the loot-owned delayed work contract consumed by a zone
 // worker scheduler. The worker owns timing; the loot service owns effects.
 type ScheduledDropTask struct {

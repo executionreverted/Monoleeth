@@ -8,7 +8,8 @@ func (service *QuestService) ConsumeCombatNPCKilled(input CombatNPCKilledInput) 
 	if err := input.Validate(); err != nil {
 		return nil, err
 	}
-	return service.consumeProgressEvent(input.EventID, input.PlayerID, func(objective Objective) (int64, bool) {
+	eventKey := questProgressEventKey(input.EventID, input.ProgressEventKey)
+	return service.consumeProgressEvent(eventKey, input.PlayerID, func(objective Objective) (int64, bool) {
 		if objective.Kind != ObjectiveKindKill || objective.Kill == nil {
 			return 0, false
 		}
@@ -25,7 +26,8 @@ func (service *QuestService) ConsumeLootPickedUp(input LootPickedUpInput) ([]Pla
 	if err := input.Validate(); err != nil {
 		return nil, err
 	}
-	return service.consumeProgressEvent(input.EventID, input.PlayerID, func(objective Objective) (int64, bool) {
+	eventKey := questProgressEventKey(input.EventID, input.ProgressEventKey)
+	return service.consumeProgressEvent(eventKey, input.PlayerID, func(objective Objective) (int64, bool) {
 		if objective.Kind != ObjectiveKindCollect || objective.Collect == nil {
 			return 0, false
 		}
@@ -42,7 +44,8 @@ func (service *QuestService) ConsumeCraftJobCompleted(input CraftJobCompletedInp
 	if err := input.Validate(); err != nil {
 		return nil, err
 	}
-	return service.consumeProgressEvent(input.EventID, input.PlayerID, func(objective Objective) (int64, bool) {
+	eventKey := questProgressEventKey(input.EventID, input.ProgressEventKey)
+	return service.consumeProgressEvent(eventKey, input.PlayerID, func(objective Objective) (int64, bool) {
 		if objective.Kind != ObjectiveKindCraft || objective.Craft == nil {
 			return 0, false
 		}
@@ -84,9 +87,9 @@ func (service *QuestService) ConsumeDeliveryCompleted(input DeliveryCompletedInp
 }
 
 func (service *QuestService) consumeProgressEvent(
-	eventID foundation.EventID,
+	eventKey QuestProgressEventKey,
 	playerID foundation.PlayerID,
 	matcher objectiveProgressMatcher,
 ) ([]PlayerQuest, error) {
-	return service.store.ApplyProgressEvent(eventID, playerID, service.clock.Now().UTC(), matcher)
+	return service.store.ApplyProgressEvent(eventKey, playerID, service.clock.Now().UTC(), matcher)
 }

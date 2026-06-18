@@ -139,6 +139,7 @@ func TestCombatKillLootPickupAndXPVerticalSlice(t *testing.T) {
 	npc, err := combat.NewActorFromSnapshot(combat.ActorFromSnapshotInput{
 		EntityID:  "npc_1",
 		Type:      world.EntityTypeNPCPlaceholder,
+		NPCType:   "pirate",
 		WorldID:   "world_1",
 		ZoneID:    "zone_1",
 		Position:  world.Vec2{X: 800, Y: 0},

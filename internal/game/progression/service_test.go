@@ -136,10 +136,10 @@ func TestTryRankUpGrantsHistorySkillPointAndInvalidationOnce(t *testing.T) {
 	_, err := service.GrantXP(GrantXPInput{
 		PlayerID:       "player-1",
 		Amount:         100,
-		SourceType:     XPSourceTypeCombat,
-		SourceID:       "npc-kill-1",
-		IdempotencyKey: "xp-npc-kill-1",
-		Authority:      XPGrantAuthorityCombatService,
+		SourceType:     XPSourceTypeQuest,
+		SourceID:       "player_quest_starter_1",
+		IdempotencyKey: "quest_reward:player_quest_starter_1",
+		Authority:      XPGrantAuthorityQuestService,
 	})
 	if err != nil {
 		t.Fatalf("GrantXP() = %v, want nil", err)
@@ -192,10 +192,10 @@ func TestTryRankUpGrantsHistorySkillPointAndInvalidationOnce(t *testing.T) {
 	duplicateGrant, err := service.GrantXP(GrantXPInput{
 		PlayerID:       "player-1",
 		Amount:         10_000,
-		SourceType:     XPSourceTypeCombat,
-		SourceID:       "npc-kill-1",
-		IdempotencyKey: "xp-npc-kill-1-different-key",
-		Authority:      XPGrantAuthorityCombatService,
+		SourceType:     XPSourceTypeQuest,
+		SourceID:       "player_quest_starter_1",
+		IdempotencyKey: "quest_reward:player_quest_starter_1_different_key",
+		Authority:      XPGrantAuthorityQuestService,
 	})
 	if err != nil {
 		t.Fatalf("duplicate source GrantXP() = %v, want nil", err)
@@ -228,8 +228,8 @@ func TestTryRankUpReportsMissingRequirementsWithoutMutation(t *testing.T) {
 	if result.RankedUp {
 		t.Fatal("RankedUp = true, want false")
 	}
-	if !reflect.DeepEqual(result.MissingRequirements, []string{"main_level:2"}) {
-		t.Fatalf("MissingRequirements = %+v, want [main_level:2]", result.MissingRequirements)
+	if !reflect.DeepEqual(result.MissingRequirements, []string{"main_level:2", "completed_quests:1"}) {
+		t.Fatalf("MissingRequirements = %+v, want [main_level:2 completed_quests:1]", result.MissingRequirements)
 	}
 	if result.Snapshot.Player.Rank != 1 {
 		t.Fatalf("rank after missing requirements = %d, want 1", result.Snapshot.Player.Rank)
@@ -242,6 +242,87 @@ func TestTryRankUpReportsMissingRequirementsWithoutMutation(t *testing.T) {
 	}
 	if got := len(store.StatInvalidationSignals("player-1")); got != 0 {
 		t.Fatalf("StatInvalidationSignals len = %d, want 0", got)
+	}
+}
+
+func TestTryRankUpRequiresQuestCompletionMilestoneFromQuestAuthority(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 16, 15, 0, 0, time.UTC))
+	store := NewInMemoryProgressionStore()
+	service := NewProgressionService(clock, store)
+
+	if _, err := service.GrantXP(GrantXPInput{
+		PlayerID:       "player-1",
+		Amount:         100,
+		SourceType:     XPSourceTypeCombat,
+		SourceID:       "npc-kill-1",
+		IdempotencyKey: "xp-npc-kill-1",
+		Authority:      XPGrantAuthorityCombatService,
+	}); err != nil {
+		t.Fatalf("combat GrantXP() = %v, want nil", err)
+	}
+	blocked, err := service.TryRankUp(TryRankUpInput{
+		PlayerID:       "player-1",
+		TargetRank:     2,
+		Reason:         "main_level_2",
+		IdempotencyKey: "rank-up-player-1-rank-2",
+	})
+	if err != nil {
+		t.Fatalf("blocked TryRankUp() = %v, want nil", err)
+	}
+	if blocked.RankedUp {
+		t.Fatal("blocked RankedUp = true, want false without quest milestone")
+	}
+	if !reflect.DeepEqual(blocked.MissingRequirements, []string{"completed_quests:1"}) {
+		t.Fatalf("blocked MissingRequirements = %+v, want [completed_quests:1]", blocked.MissingRequirements)
+	}
+
+	if _, err := service.GrantXP(GrantXPInput{
+		PlayerID:       "player-1",
+		Amount:         25,
+		SourceType:     XPSourceTypeQuest,
+		SourceID:       "player_quest_bad_reference",
+		IdempotencyKey: "xp-player-quest-bad-reference",
+		Authority:      XPGrantAuthorityQuestService,
+	}); err != nil {
+		t.Fatalf("bad-reference quest GrantXP() = %v, want nil", err)
+	}
+	stillBlocked, err := service.TryRankUp(TryRankUpInput{
+		PlayerID:       "player-1",
+		TargetRank:     2,
+		Reason:         "main_level_2",
+		IdempotencyKey: "rank-up-player-1-rank-2-bad-reference",
+	})
+	if err != nil {
+		t.Fatalf("bad-reference TryRankUp() = %v, want nil", err)
+	}
+	if stillBlocked.RankedUp {
+		t.Fatal("bad-reference RankedUp = true, want false without quest_reward reference")
+	}
+	if !reflect.DeepEqual(stillBlocked.MissingRequirements, []string{"completed_quests:1"}) {
+		t.Fatalf("bad-reference MissingRequirements = %+v, want [completed_quests:1]", stillBlocked.MissingRequirements)
+	}
+
+	if _, err := service.GrantXP(GrantXPInput{
+		PlayerID:       "player-1",
+		Amount:         25,
+		SourceType:     XPSourceTypeQuest,
+		SourceID:       "player_quest_starter_1",
+		IdempotencyKey: "quest_reward:player_quest_starter_1",
+		Authority:      XPGrantAuthorityQuestService,
+	}); err != nil {
+		t.Fatalf("quest GrantXP() = %v, want nil", err)
+	}
+	ranked, err := service.TryRankUp(TryRankUpInput{
+		PlayerID:       "player-1",
+		TargetRank:     2,
+		Reason:         "main_level_2",
+		IdempotencyKey: "rank-up-player-1-rank-2",
+	})
+	if err != nil {
+		t.Fatalf("ranked TryRankUp() = %v, want nil", err)
+	}
+	if !ranked.RankedUp || ranked.Snapshot.Player.Rank != 2 {
+		t.Fatalf("ranked result = ranked_up %t rank %d missing %+v, want rank 2", ranked.RankedUp, ranked.Snapshot.Player.Rank, ranked.MissingRequirements)
 	}
 }
 

@@ -219,6 +219,26 @@ func TestGenerateBoardPayloadIncludesObjectiveAndDailyExpiry(t *testing.T) {
 	}
 }
 
+func TestGenerateBoardOffersCarryDirectionalTargetsForPlayer(t *testing.T) {
+	input := validBoardGenerationInput(t, MustMVPQuestCatalog())
+	input.Player.CurrentRegion = "frontier-east"
+
+	offers, err := GenerateBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateBoard() = %v, want nil", err)
+	}
+
+	for _, offer := range offers {
+		if offer.GeneratedPayload.TargetRegion != input.Player.CurrentRegion {
+			t.Fatalf("offer %q target region = %q, want %q", offer.OfferID, offer.GeneratedPayload.TargetRegion, input.Player.CurrentRegion)
+		}
+		if offer.GeneratedPayload.Difficulty < input.Player.Rank {
+			t.Fatalf("offer %q difficulty = %d, want at least player rank %d", offer.OfferID, offer.GeneratedPayload.Difficulty, input.Player.Rank)
+		}
+		assertDirectionalObjective(t, offer)
+	}
+}
+
 func TestGenerateBoardInsufficientEligibleTemplatesReturnsClearError(t *testing.T) {
 	templates := MVPQuestTemplates()[:BoardOfferCount-1]
 	questCatalog, err := NewQuestCatalog(templates)
@@ -286,4 +306,46 @@ func mustLookupQuestTemplate(t *testing.T, questCatalog QuestCatalog, templateID
 		t.Fatalf("Lookup(%q) not found", templateID)
 	}
 	return template
+}
+
+func assertDirectionalObjective(t *testing.T, offer GeneratedBoardOffer) {
+	t.Helper()
+	objectives := offer.GeneratedPayload.Objective.Objectives
+	if len(objectives) == 0 {
+		t.Fatalf("offer %q has no directional objective rows", offer.OfferID)
+	}
+	for _, objective := range objectives {
+		switch objective.Kind {
+		case ObjectiveKindKill:
+			if objective.Kill == nil || objective.Kill.TargetNPCType == "" || objective.Kill.RequiredCount.Int64() <= 0 {
+				t.Fatalf("offer %q kill objective = %+v, want target and count", offer.OfferID, objective.Kill)
+			}
+		case ObjectiveKindCollect:
+			if objective.Collect == nil || objective.Collect.ItemID.IsZero() || objective.Collect.Quantity.Int64() <= 0 {
+				t.Fatalf("offer %q collect objective = %+v, want item and quantity", offer.OfferID, objective.Collect)
+			}
+		case ObjectiveKindCraft:
+			if objective.Craft == nil || (objective.Craft.RecipeID.IsZero() && objective.Craft.ItemID.IsZero()) || objective.Craft.Quantity.Int64() <= 0 {
+				t.Fatalf("offer %q craft objective = %+v, want recipe/item and quantity", offer.OfferID, objective.Craft)
+			}
+		case ObjectiveKindScan:
+			if objective.Scan == nil || objective.Scan.TargetSignalType == "" || objective.Scan.RequiredCount.Int64() <= 0 {
+				t.Fatalf("offer %q scan objective = %+v, want signal target and count", offer.OfferID, objective.Scan)
+			}
+		case ObjectiveKindBuild:
+			if objective.Build == nil || objective.Build.BuildingType == "" || objective.Build.RequiredCount.Int64() <= 0 {
+				t.Fatalf("offer %q build objective = %+v, want building and count", offer.OfferID, objective.Build)
+			}
+		case ObjectiveKindDeliver:
+			if objective.Deliver == nil ||
+				objective.Deliver.ItemID.IsZero() ||
+				objective.Deliver.Quantity.Int64() <= 0 ||
+				objective.Deliver.DestinationType == "" ||
+				objective.Deliver.DestinationID == "" {
+				t.Fatalf("offer %q deliver objective = %+v, want item, quantity, and destination", offer.OfferID, objective.Deliver)
+			}
+		default:
+			t.Fatalf("offer %q unsupported objective kind %q", offer.OfferID, objective.Kind)
+		}
+	}
 }

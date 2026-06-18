@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"gameproject/internal/game/foundation"
@@ -33,6 +34,7 @@ type ActorState struct {
 	EntityID world.EntityID
 	Type     world.EntityType
 	PlayerID foundation.PlayerID
+	NPCType  string
 
 	WorldID  world.WorldID
 	ZoneID   world.ZoneID
@@ -81,6 +83,7 @@ type BasicAttackResult struct {
 type NPCKilledEvent struct {
 	SourceID      world.EntityID
 	NPCEntityID   world.EntityID
+	NPCType       string
 	WorldID       world.WorldID
 	ZoneID        world.ZoneID
 	Position      world.Vec2
@@ -99,6 +102,9 @@ func (actor ActorState) validate() error {
 		if err := actor.PlayerID.Validate(); err != nil {
 			return err
 		}
+	}
+	if actor.Type == world.EntityTypeNPCPlaceholder && strings.TrimSpace(actor.NPCType) == "" {
+		return ErrInvalidActorState
 	}
 	if err := actor.WorldID.Validate(); err != nil {
 		return err

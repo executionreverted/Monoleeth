@@ -169,6 +169,24 @@ market.sale_completed
 movement.region_entered
 ```
 
+Phase 07 implementation routes internal `events.EventEnvelope` values through
+`QuestService.ConsumeDomainEvent` before calling objective-specific consumers.
+The combat kill payload must include the server-owned killer/player and NPC
+type, the loot pickup payload must include the claiming player, item id, and
+quantity, and the craft completion payload must include the player, recipe or
+output item id, and quantity. The client never submits these progress payloads.
+Quest progress idempotency uses stable domain keys derived from the payload
+identity, not only the envelope id:
+
+```text
+combat.npc_killed:<npc_entity_id>
+loot.picked_up:<drop_id>
+craft.job_completed:<job_id>
+```
+
+This lets at-least-once delivery retries no-op for the same domain event
+without letting service-local envelope sequence ids suppress unrelated progress.
+
 Example progress:
 
 ```go
@@ -210,6 +228,12 @@ mark claimed
 grant credits/items/xp via services
 emit quest.reward_claimed
 ```
+
+The quest XP grant uses source type `quest`, source id `<player_quest_id>`,
+authority `quest_service`, and idempotency key
+`quest_reward:<player_quest_id>`. Progression rank checks may use those
+server-authorized quest XP records as completed quest milestone evidence only
+when the idempotency key exactly matches `quest_reward:<source_id>`.
 
 Idempotency:
 

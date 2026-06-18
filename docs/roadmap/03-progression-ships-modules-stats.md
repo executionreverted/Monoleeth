@@ -165,6 +165,13 @@ written. Combat, loot, quest, scanner, and crafting grant paths pass their
 owning domain authority, and future construction, route, event, or admin grant
 paths must do the same instead of accepting client-authored source completion.
 
+Implementation note 2026-06-18:
+Rank requirements can now include completed quest count milestones. The
+progression service derives that count from quest-authorized XP grant records,
+with `quest_reward:<source_id>` idempotency references, so rank checks can
+depend on claimed quest rewards without trusting a client-authored completion
+flag or generic quest XP record.
+
 ## Done Criteria
 
 - [x] Player progression snapshot exists.

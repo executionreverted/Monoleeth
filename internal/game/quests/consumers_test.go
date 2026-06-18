@@ -1,11 +1,18 @@
 package quests
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
 	"gameproject/internal/game/catalog"
+	"gameproject/internal/game/combat"
+	"gameproject/internal/game/crafting"
+	"gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/loot"
+	"gameproject/internal/game/progression"
+	"gameproject/internal/game/world"
 )
 
 func TestConsumeCombatNPCKilledProgressesOnlyMatchingActiveQuest(t *testing.T) {
@@ -175,6 +182,173 @@ func TestConsumeCompletedQuestDoesNotOverflowOrProgressFurther(t *testing.T) {
 	assertStoredQuestProgress(t, fixture, player.PlayerID, quest.PlayerQuestID, QuestStateCompleted, 5, true)
 }
 
+func TestQuestDomainEventsCompleteAndClaimQuestAuthorizedXP(t *testing.T) {
+	tests := []struct {
+		name        string
+		template    QuestTemplate
+		offerSuffix string
+		event       func(*testing.T, PlayerQuestBoardSnapshot) events.EventEnvelope
+	}{
+		{
+			name:        "combat",
+			template:    consumerTemplate("quest_kill_event_to_xp", QuestTypeKill, killObjective("kill_pirate", "pirate", 1)),
+			offerSuffix: "event_to_xp_kill",
+			event: func(t *testing.T, player PlayerQuestBoardSnapshot) events.EventEnvelope {
+				return questDomainEvent(t, "event_kill_event_to_xp", combat.EventNPCKilled, combat.NPCKilledEvent{
+					SourceID:      "npc_event_to_xp",
+					NPCEntityID:   "npc_event_to_xp",
+					NPCType:       "pirate",
+					WorldID:       "world_1",
+					ZoneID:        "zone_1",
+					Position:      world.Vec2{X: 10, Y: 0},
+					OwnerPlayerID: player.PlayerID,
+					KilledAt:      questEventTime,
+				})
+			},
+		},
+		{
+			name:        "loot",
+			template:    consumerTemplate("quest_loot_event_to_xp", QuestTypeCollect, collectObjective("collect_iron", "iron_ore", 2)),
+			offerSuffix: "event_to_xp_loot",
+			event: func(t *testing.T, player PlayerQuestBoardSnapshot) events.EventEnvelope {
+				return questDomainEvent(t, "event_loot_event_to_xp", loot.EventLootPickedUp, loot.PickedUpPayload{
+					DropID:    "drop_event_to_xp",
+					PlayerID:  player.PlayerID,
+					Position:  world.Vec2{X: 10, Y: 0},
+					ItemID:    "iron_ore",
+					Quantity:  2,
+					State:     loot.DropStateClaimed,
+					ClaimedAt: questEventTime,
+				})
+			},
+		},
+		{
+			name:        "craft",
+			template:    consumerTemplate("quest_craft_event_to_xp", QuestTypeCraft, craftObjective("craft_energy", "energy_cell_batch", "", 1)),
+			offerSuffix: "event_to_xp_craft",
+			event: func(t *testing.T, player PlayerQuestBoardSnapshot) events.EventEnvelope {
+				return questDomainEvent(t, "event_craft_event_to_xp", crafting.EventCraftJobCompleted, crafting.JobCompletedEvent{
+					JobID:       "craft_job_event_to_xp",
+					PlayerID:    player.PlayerID,
+					RecipeID:    "energy_cell_batch",
+					OutputKind:  crafting.RecipeOutputKindItem,
+					ItemID:      "energy_cell",
+					Quantity:    1,
+					CompletedAt: questEventTime,
+				})
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newConsumerQuestFixture(t, test.template)
+			wallet := newFakeQuestRewardWallet()
+			inventory := newFakeQuestRewardInventory()
+			xp := newFakeQuestRewardProgression()
+			fixture.service.SetRewardServices(QuestRewardServices{
+				Wallet:      wallet,
+				Inventory:   inventory,
+				Progression: xp,
+			})
+			player := validBoardGenerationInput(t, fixture.catalog).Player
+			quest := acceptConsumerQuest(t, fixture, player, test.template.TemplateID, test.offerSuffix)
+
+			fixture.clock.Advance(time.Minute)
+			updated, err := fixture.service.ConsumeDomainEvent(test.event(t, player))
+			if err != nil {
+				t.Fatalf("consume %s event = %v, want nil", test.name, err)
+			}
+			if len(updated) != 1 || updated[0].PlayerQuestID != quest.PlayerQuestID || updated[0].State != QuestStateCompleted {
+				t.Fatalf("updated quests = %#v, want completed quest %q", updated, quest.PlayerQuestID)
+			}
+
+			result, err := fixture.service.ClaimReward(ClaimRewardInput{
+				PlayerID:      player.PlayerID,
+				PlayerQuestID: quest.PlayerQuestID,
+			})
+			if err != nil {
+				t.Fatalf("ClaimReward(%s) = %v, want nil", test.name, err)
+			}
+			if result.Quest.State != QuestStateClaimed {
+				t.Fatalf("claimed quest state = %q, want %q", result.Quest.State, QuestStateClaimed)
+			}
+			assertQuestAuthorizedXPGrant(t, xp, quest.PlayerQuestID)
+		})
+	}
+}
+
+func TestQuestDomainEventsUseStableDomainProgressKeys(t *testing.T) {
+	fixture := newConsumerQuestFixture(t,
+		consumerTemplate("quest_loot_event_key_collision", QuestTypeCollect, collectObjective("collect_iron", "iron_ore", 3)),
+	)
+	player := validBoardGenerationInput(t, fixture.catalog).Player
+	quest := acceptConsumerQuest(t, fixture, player, "quest_loot_event_key_collision", "event_key_collision")
+
+	firstDrop := questDomainEvent(t, "colliding_envelope_id", loot.EventLootPickedUp, loot.PickedUpPayload{
+		DropID:    "drop_event_key_1",
+		PlayerID:  player.PlayerID,
+		Position:  world.Vec2{X: 10, Y: 0},
+		ItemID:    "iron_ore",
+		Quantity:  1,
+		State:     loot.DropStateClaimed,
+		ClaimedAt: questEventTime,
+	})
+	secondDrop := questDomainEvent(t, "colliding_envelope_id", loot.EventLootPickedUp, loot.PickedUpPayload{
+		DropID:    "drop_event_key_2",
+		PlayerID:  player.PlayerID,
+		Position:  world.Vec2{X: 12, Y: 0},
+		ItemID:    "iron_ore",
+		Quantity:  1,
+		State:     loot.DropStateClaimed,
+		ClaimedAt: questEventTime,
+	})
+	duplicateSecondDrop := questDomainEvent(t, "retry_envelope_id", loot.EventLootPickedUp, loot.PickedUpPayload{
+		DropID:    "drop_event_key_2",
+		PlayerID:  player.PlayerID,
+		Position:  world.Vec2{X: 12, Y: 0},
+		ItemID:    "iron_ore",
+		Quantity:  1,
+		State:     loot.DropStateClaimed,
+		ClaimedAt: questEventTime,
+	})
+
+	fixture.clock.Advance(time.Minute)
+	if updated, err := fixture.service.ConsumeDomainEvent(firstDrop); err != nil {
+		t.Fatalf("ConsumeDomainEvent(first drop) = %v, want nil", err)
+	} else if len(updated) != 1 {
+		t.Fatalf("first drop updated len = %d, want 1", len(updated))
+	}
+	assertStoredQuestProgress(t, fixture, player.PlayerID, quest.PlayerQuestID, QuestStateAccepted, 1, false)
+
+	fixture.clock.Advance(time.Minute)
+	if updated, err := fixture.service.ConsumeDomainEvent(secondDrop); err != nil {
+		t.Fatalf("ConsumeDomainEvent(second drop) = %v, want nil", err)
+	} else if len(updated) != 1 {
+		t.Fatalf("second drop updated len = %d, want 1", len(updated))
+	}
+	assertStoredQuestProgress(t, fixture, player.PlayerID, quest.PlayerQuestID, QuestStateAccepted, 2, false)
+
+	fixture.clock.Advance(time.Minute)
+	if updated, err := fixture.service.ConsumeDomainEvent(duplicateSecondDrop); err != nil {
+		t.Fatalf("ConsumeDomainEvent(duplicate second drop) = %v, want nil", err)
+	} else if len(updated) != 0 {
+		t.Fatalf("duplicate second drop updated len = %d, want 0", len(updated))
+	}
+	assertStoredQuestProgress(t, fixture, player.PlayerID, quest.PlayerQuestID, QuestStateAccepted, 2, false)
+}
+
+var questEventTime = time.Date(2026, 6, 17, 12, 30, 0, 0, time.UTC)
+
+func questDomainEvent(t *testing.T, eventID foundation.EventID, eventType string, payload any) events.EventEnvelope {
+	t.Helper()
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal %s payload: %v", eventType, err)
+	}
+	return events.NewEventEnvelope(eventID, eventType, rawPayload, questEventTime.UnixMilli(), 1)
+}
+
 func TestSkeletonConsumersValidateAndNoopSafely(t *testing.T) {
 	fixture := newConsumerQuestFixture(t,
 		consumerTemplate("quest_scan_consumer", QuestTypeScan, scanObjective("scan_planet", ScanTargetPlanet, 1)),
@@ -277,6 +451,30 @@ func TestSkeletonConsumersValidateAndNoopSafely(t *testing.T) {
 	assertStoredQuestProgress(t, fixture, player.PlayerID, scanQuest.PlayerQuestID, QuestStateAccepted, 0, false)
 	assertStoredQuestProgress(t, fixture, player.PlayerID, buildQuest.PlayerQuestID, QuestStateAccepted, 0, false)
 	assertStoredQuestProgress(t, fixture, player.PlayerID, deliverQuest.PlayerQuestID, QuestStateAccepted, 0, false)
+}
+
+func assertQuestAuthorizedXPGrant(t *testing.T, xp *fakeQuestRewardProgression, questID foundation.QuestID) {
+	t.Helper()
+	if len(xp.calls) != 1 {
+		t.Fatalf("xp calls len = %d, want 1", len(xp.calls))
+	}
+	call := xp.calls[0]
+	wantReference := RewardReferenceForPlayerQuest(questID)
+	if call.SourceType != progression.XPSourceTypeQuest {
+		t.Fatalf("xp source type = %q, want %q", call.SourceType, progression.XPSourceTypeQuest)
+	}
+	if call.SourceID != progression.XPSourceID(questID.String()) {
+		t.Fatalf("xp source id = %q, want quest %q", call.SourceID, questID)
+	}
+	if call.IdempotencyKey.String() != wantReference {
+		t.Fatalf("xp idempotency = %q, want %q", call.IdempotencyKey, wantReference)
+	}
+	if call.Authority != progression.XPGrantAuthorityQuestService {
+		t.Fatalf("xp authority = %q, want %q", call.Authority, progression.XPGrantAuthorityQuestService)
+	}
+	if xp.mainXP != 25 || xp.roleXP[progression.RoleTypeCombat] != 30 {
+		t.Fatalf("xp totals = main %d combat %d, want main 25 combat 30", xp.mainXP, xp.roleXP[progression.RoleTypeCombat])
+	}
 }
 
 func newConsumerQuestFixture(t *testing.T, templates ...QuestTemplate) questServiceFixture {

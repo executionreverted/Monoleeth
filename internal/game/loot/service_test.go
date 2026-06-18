@@ -1,6 +1,7 @@
 package loot_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -163,7 +164,10 @@ func TestNewServiceRejectsInconsistentDurations(t *testing.T) {
 
 func TestPickupDropOwnerLockPublicAndExpiredWindows(t *testing.T) {
 	service, clock, inventory, progressionService := newLootService(t, []int{0, 0}, []float64{0, 0})
+	recorder := testutil.NewEventRecorder()
+	service.SetEventEmitter(recorder)
 	drop := createOneDrop(t, service)
+	recorder.Reset()
 	cargoLocation := mustCargoLocation(t, "ship_1")
 
 	_, err := service.PickupDrop(loot.PickupInput{
@@ -193,6 +197,17 @@ func TestPickupDropOwnerLockPublicAndExpiredWindows(t *testing.T) {
 	}
 	if inventory.TotalItemQuantity("player_2", rawOreDefinition(t).ItemID, cargoLocation) != drop.Quantity {
 		t.Fatalf("cargo quantity not added")
+	}
+	testutil.AssertRecordedEventTypes(t, recorder, loot.EventLootPickedUp)
+	var pickedUpPayload loot.PickedUpPayload
+	if err := json.Unmarshal(recorder.Events()[0].Payload, &pickedUpPayload); err != nil {
+		t.Fatalf("unmarshal loot picked payload: %v", err)
+	}
+	if pickedUpPayload.PlayerID != foundation.PlayerID("player_2") ||
+		pickedUpPayload.ItemID != drop.ItemDefinition.ItemID ||
+		pickedUpPayload.Quantity != drop.Quantity ||
+		pickedUpPayload.State != loot.DropStateClaimed {
+		t.Fatalf("picked payload = %+v, want player_2 %q x%d claimed", pickedUpPayload, drop.ItemDefinition.ItemID, drop.Quantity)
 	}
 	if publicResult.XPResult == nil || publicResult.XPResult.Duplicate {
 		t.Fatalf("XPResult = %+v, want first loot XP grant", publicResult.XPResult)

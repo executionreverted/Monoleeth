@@ -15,6 +15,7 @@ type ActorFromSnapshotInput struct {
 	EntityID  world.EntityID
 	Type      world.EntityType
 	PlayerID  foundation.PlayerID
+	NPCType   string
 	WorldID   world.WorldID
 	ZoneID    world.ZoneID
 	Position  world.Vec2
@@ -43,6 +44,7 @@ func NewActorFromSnapshot(input ActorFromSnapshotInput) (ActorState, error) {
 		EntityID:      input.EntityID,
 		Type:          input.Type,
 		PlayerID:      input.PlayerID,
+		NPCType:       input.NPCType,
 		WorldID:       input.WorldID,
 		ZoneID:        input.ZoneID,
 		Position:      input.Position,

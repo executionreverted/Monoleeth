@@ -164,6 +164,7 @@ func (service *Service) ExecuteBasicAttack(input BasicAttackInput) (BasicAttackR
 				killEvent := NPCKilledEvent{
 					SourceID:      target.EntityID,
 					NPCEntityID:   target.EntityID,
+					NPCType:       target.NPCType,
 					WorldID:       target.WorldID,
 					ZoneID:        target.ZoneID,
 					Position:      target.Position,

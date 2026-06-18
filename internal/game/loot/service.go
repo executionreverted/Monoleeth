@@ -373,7 +373,7 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 	emitter = service.emitter
 	metrics = service.metrics
 	if emitter != nil {
-		emitted = append(emitted, service.newEventLocked(EventLootPickedUp, dropPayload(drop, now), now))
+		emitted = append(emitted, service.newEventLocked(EventLootPickedUp, pickedUpPayload(drop, now), now))
 	}
 	service.mu.Unlock()
 	recordLootPickedMetric(metrics, drop)
@@ -705,6 +705,22 @@ func dropPayload(drop Drop, now time.Time) DropPayload {
 		Quantity:  drop.Quantity,
 		State:     drop.State(now),
 		ExpiresAt: drop.ExpiresAt,
+	}
+}
+
+func pickedUpPayload(drop Drop, now time.Time) PickedUpPayload {
+	claimedAt := now
+	if drop.ClaimedAt != nil {
+		claimedAt = *drop.ClaimedAt
+	}
+	return PickedUpPayload{
+		DropID:    drop.ID,
+		PlayerID:  drop.ClaimedBy,
+		Position:  drop.Position,
+		ItemID:    drop.ItemDefinition.ItemID,
+		Quantity:  drop.Quantity,
+		State:     drop.State(now),
+		ClaimedAt: claimedAt,
 	}
 }
 

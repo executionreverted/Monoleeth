@@ -193,7 +193,7 @@ func (service *ProgressionService) TryRankUp(input TryRankUpInput) (TryRankUpRes
 	if err != nil {
 		return TryRankUpResult{}, err
 	}
-	missing := requirement.missingFor(snapshot)
+	missing := requirement.missingFor(snapshot, service.store.rankMilestoneStateLocked(input.PlayerID))
 	if len(missing) > 0 {
 		return TryRankUpResult{
 			Snapshot:            snapshot,

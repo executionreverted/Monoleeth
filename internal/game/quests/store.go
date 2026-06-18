@@ -18,7 +18,7 @@ type InMemoryQuestStore struct {
 	acceptedByOffer map[questOfferStoreKey]foundation.QuestID
 	quests          map[foundation.QuestID]PlayerQuest
 	questsByPlayer  map[foundation.PlayerID][]foundation.QuestID
-	progressEvents  map[foundation.EventID]struct{}
+	progressEvents  map[QuestProgressEventKey]struct{}
 	claimResults    map[foundation.QuestID]ClaimRewardResult
 	rerollResults   map[foundation.IdempotencyKey]RerollBoardResult
 	rerollInFlight  map[foundation.IdempotencyKey]*rerollInFlight
@@ -42,7 +42,7 @@ func NewInMemoryQuestStore() *InMemoryQuestStore {
 		acceptedByOffer: make(map[questOfferStoreKey]foundation.QuestID),
 		quests:          make(map[foundation.QuestID]PlayerQuest),
 		questsByPlayer:  make(map[foundation.PlayerID][]foundation.QuestID),
-		progressEvents:  make(map[foundation.EventID]struct{}),
+		progressEvents:  make(map[QuestProgressEventKey]struct{}),
 		claimResults:    make(map[foundation.QuestID]ClaimRewardResult),
 		rerollResults:   make(map[foundation.IdempotencyKey]RerollBoardResult),
 		rerollInFlight:  make(map[foundation.IdempotencyKey]*rerollInFlight),
@@ -156,16 +156,16 @@ func (store *InMemoryQuestStore) PlayerQuests(playerID foundation.PlayerID) ([]P
 type objectiveProgressMatcher func(Objective) (int64, bool)
 
 // ApplyProgressEvent applies one validated server event to matching accepted
-// active quests for playerID under the store lock. Duplicate event ids are
-// accepted as no-ops.
+// active quests for playerID under the store lock. Duplicate progress event
+// keys are accepted as no-ops.
 func (store *InMemoryQuestStore) ApplyProgressEvent(
-	eventID foundation.EventID,
+	eventKey QuestProgressEventKey,
 	playerID foundation.PlayerID,
 	occurredAt time.Time,
 	matcher objectiveProgressMatcher,
 ) ([]PlayerQuest, error) {
-	if err := eventID.Validate(); err != nil {
-		return nil, fmt.Errorf("event_id: %w", err)
+	if err := eventKey.Validate(); err != nil {
+		return nil, err
 	}
 	if err := playerID.Validate(); err != nil {
 		return nil, fmt.Errorf("player_id: %w", err)
@@ -180,7 +180,7 @@ func (store *InMemoryQuestStore) ApplyProgressEvent(
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
-	if _, consumed := store.progressEvents[eventID]; consumed {
+	if _, consumed := store.progressEvents[eventKey]; consumed {
 		return nil, nil
 	}
 
@@ -188,7 +188,7 @@ func (store *InMemoryQuestStore) ApplyProgressEvent(
 	if err != nil {
 		return nil, err
 	}
-	store.progressEvents[eventID] = struct{}{}
+	store.progressEvents[eventKey] = struct{}{}
 	return updated, nil
 }
 

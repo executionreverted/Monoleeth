@@ -42,6 +42,10 @@ AggroService
 - Death cargo drop
 
 Combat sonuç üretir; diğer modüller ödül ve state transferini yapar.
+For quest progress, `combat.npc_killed` must include the server-owned owner
+player and NPC type; the client never supplies either value. NPC combat actors
+composed from authoritative stat snapshots must carry that server-owned NPC
+type before they can enter combat.
 
 ## Core Rule
 

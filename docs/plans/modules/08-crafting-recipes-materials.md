@@ -307,6 +307,11 @@ material.refined
 player.craft_xp_granted
 ```
 
+Phase 07 implementation emits `craft.job_completed` after a craft completion
+has committed its reservation, output, XP grant, and completed job state.
+Duplicate completion retries return the cached completion result without
+emitting another event.
+
 ## Edge Cases
 
 - Player starts craft twice with same materials.

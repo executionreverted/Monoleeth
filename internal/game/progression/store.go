@@ -200,6 +200,24 @@ func (store *InMemoryProgressionStore) appendStatInvalidationSignalsLocked(playe
 	store.statInvalidations[playerID] = append(store.statInvalidations[playerID], signals...)
 }
 
+func (store *InMemoryProgressionStore) rankMilestoneStateLocked(playerID foundation.PlayerID) RankMilestoneState {
+	completedQuestSources := make(map[XPSourceID]struct{})
+	for _, record := range store.xpGrantRecords {
+		if record.PlayerID != playerID || !isQuestRewardXPGrantRecord(record) {
+			continue
+		}
+		completedQuestSources[record.SourceID] = struct{}{}
+	}
+	return RankMilestoneState{CompletedQuestCount: len(completedQuestSources)}
+}
+
+func isQuestRewardXPGrantRecord(record XPGrantRecord) bool {
+	if record.SourceType != XPSourceTypeQuest || record.Authority != XPGrantAuthorityQuestService {
+		return false
+	}
+	return record.IdempotencyKey == XPIdempotencyKey("quest_reward:"+record.SourceID.String())
+}
+
 func (store *InMemoryProgressionStore) nextRankHistoryIDLocked() RankHistoryID {
 	store.nextRankHistorySeq++
 	return RankHistoryID(fmt.Sprintf("rank-history-%d", store.nextRankHistorySeq))

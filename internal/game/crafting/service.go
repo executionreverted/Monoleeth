@@ -1,6 +1,7 @@
 package crafting
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -8,12 +9,15 @@ import (
 
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/economy"
+	"gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/ships"
 )
 
 const (
+	EventCraftJobCompleted = "craft.job_completed"
+
 	craftStartReason    economy.LedgerReason = "craft_start"
 	craftFeeReason      economy.LedgerReason = "craft_fee"
 	craftCompleteReason economy.LedgerReason = "craft_complete"
@@ -78,6 +82,11 @@ type CraftLocationAuthorizer interface {
 	AuthorizeCraftLocation(input CraftLocationAuthorizationInput) error
 }
 
+// EventEmitter is the optional post-mutation event hook.
+type EventEmitter interface {
+	Record(events.EventEnvelope)
+}
+
 // ShipService is the ship boundary used by ship unlock recipes.
 type ShipService interface {
 	UnlockShip(input ships.UnlockShipInput) (ships.UnlockShipResult, error)
@@ -96,6 +105,7 @@ type CraftingServiceConfig struct {
 	Ships              ShipService
 	LocationAuthorizer CraftLocationAuthorizer
 	XPTracker          CraftXPTracker
+	EventEmitter       EventEmitter
 }
 
 // CraftingService owns in-memory craft job orchestration for the Phase 06 MVP.
@@ -112,13 +122,15 @@ type CraftingService struct {
 	ships           ShipService
 	locationAuth    CraftLocationAuthorizer
 	xpTracker       CraftXPTracker
+	emitter         EventEmitter
 
-	nextJobSequence int64
-	jobs            map[CraftJobID]CraftJob
-	startResults    map[craftStartReferenceKey]StartCraftResult
-	startInFlight   map[craftStartReferenceKey]*startCraftInFlight
-	completions     map[CraftJobID]CompleteCraftResult
-	completing      map[CraftJobID]*completionInFlight
+	nextJobSequence   int64
+	nextEventSequence uint64
+	jobs              map[CraftJobID]CraftJob
+	startResults      map[craftStartReferenceKey]StartCraftResult
+	startInFlight     map[craftStartReferenceKey]*startCraftInFlight
+	completions       map[CraftJobID]CompleteCraftResult
+	completing        map[CraftJobID]*completionInFlight
 }
 
 type completionInFlight struct {
@@ -216,12 +228,21 @@ func NewCraftingService(config CraftingServiceConfig) (*CraftingService, error) 
 		ships:           config.Ships,
 		locationAuth:    config.LocationAuthorizer,
 		xpTracker:       config.XPTracker,
+		emitter:         config.EventEmitter,
 		jobs:            make(map[CraftJobID]CraftJob),
 		startResults:    make(map[craftStartReferenceKey]StartCraftResult),
 		startInFlight:   make(map[craftStartReferenceKey]*startCraftInFlight),
 		completions:     make(map[CraftJobID]CompleteCraftResult),
 		completing:      make(map[CraftJobID]*completionInFlight),
 	}, nil
+}
+
+// SetEventEmitter configures the optional post-mutation event hook.
+func (service *CraftingService) SetEventEmitter(emitter EventEmitter) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	service.emitter = emitter
 }
 
 // StartCraft validates recipe gates, reserves materials, debits the craft fee,
@@ -488,6 +509,8 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 		OutputLocation:    outputLocation,
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
 	if previous, ok := service.completions[input.JobID]; ok {
 		duplicate := cloneCompleteCraftResult(previous)
@@ -499,9 +522,14 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 	service.jobs[input.JobID] = cloneCraftJob(job)
 	service.completions[input.JobID] = cloneCompleteCraftResult(result)
 	service.finishCompletionInFlightLocked(input.JobID, result, nil)
+	emitter = service.emitter
+	if emitter != nil {
+		emitted = append(emitted, service.newEventLocked(EventCraftJobCompleted, jobCompletedEvent(result), completedAt))
+	}
 	service.mu.Unlock()
 
 	service.trackCraftXP(xpObservation)
+	emitEvents(emitter, emitted)
 
 	return cloneCompleteCraftResult(result), nil
 }
@@ -696,6 +724,47 @@ func (service *CraftingService) trackCraftXP(observation *CraftXPObservation) {
 		}()
 		tracker.TrackCraftXP(cloned)
 	}()
+}
+
+func jobCompletedEvent(result CompleteCraftResult) JobCompletedEvent {
+	completedAt := result.Job.CompletedAt
+	event := JobCompletedEvent{
+		JobID:      result.Job.JobID,
+		PlayerID:   result.Job.PlayerID,
+		RecipeID:   result.Recipe.RecipeID,
+		OutputKind: result.Recipe.Output.Kind,
+		ItemID:     result.Recipe.Output.ItemID,
+		ShipID:     result.Recipe.Output.ShipID,
+		Quantity:   result.Recipe.Output.Quantity.Int64(),
+	}
+	if completedAt != nil {
+		event.CompletedAt = *completedAt
+	}
+	return event
+}
+
+func (service *CraftingService) newEventLocked(eventType string, payload any, now time.Time) events.EventEnvelope {
+	service.nextEventSequence++
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		rawPayload = json.RawMessage(`{}`)
+	}
+	return events.NewEventEnvelope(
+		foundation.EventID(fmt.Sprintf("craft-%d", service.nextEventSequence)),
+		eventType,
+		rawPayload,
+		now.UnixMilli(),
+		service.nextEventSequence,
+	)
+}
+
+func emitEvents(emitter EventEmitter, emitted []events.EventEnvelope) {
+	if emitter == nil {
+		return
+	}
+	for _, event := range emitted {
+		emitter.Record(event)
+	}
 }
 
 func (service *CraftingService) nextCraftJobIDLocked() CraftJobID {

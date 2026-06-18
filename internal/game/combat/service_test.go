@@ -1,6 +1,7 @@
 package combat_test
 
 import (
+	"encoding/json"
 	"errors"
 	"math"
 	"sync"
@@ -148,6 +149,9 @@ func TestExecuteBasicAttackAppliesShieldOverflowAndKillsNPCOnce(t *testing.T) {
 	if result.KillEvent == nil || result.KillEvent.OwnerPlayerID != foundation.PlayerID("player_1") {
 		t.Fatalf("KillEvent = %+v, want owner player_1", result.KillEvent)
 	}
+	if result.KillEvent.NPCType != "pirate" {
+		t.Fatalf("KillEvent.NPCType = %q, want pirate", result.KillEvent.NPCType)
+	}
 	if result.ShieldDamage != 10 || result.HPDamage != 20 {
 		t.Fatalf("damage split = shield %v hp %v, want 10/20", result.ShieldDamage, result.HPDamage)
 	}
@@ -210,6 +214,14 @@ func TestSimultaneousLethalDamageProcessesNPCDeathOnce(t *testing.T) {
 		t.Fatalf("kills = %d, dead target errors = %d; want 1/1", kills, deadTargetErrors)
 	}
 	testutil.AssertRecordedEventTypes(t, recorder, combat.EventBasicAttack, combat.EventNPCKilled)
+	events := recorder.Events()
+	var killPayload combat.NPCKilledEvent
+	if err := json.Unmarshal(events[1].Payload, &killPayload); err != nil {
+		t.Fatalf("unmarshal kill payload: %v", err)
+	}
+	if killPayload.NPCType != "pirate" {
+		t.Fatalf("kill payload NPCType = %q, want pirate", killPayload.NPCType)
+	}
 
 	after, ok := service.Actor("npc_1")
 	if !ok {
@@ -306,6 +318,37 @@ func TestNewActorFromSnapshotUsesAuthoritativeStatsAndRejectsMismatch(t *testing
 		t.Fatalf("actor live resources = hp %v shield %v energy %v, want snapshot maxes", actor.HP, actor.Shield, actor.Energy)
 	}
 
+	npcSnapshot := statSnapshot("", 100, 0, 12)
+	npc, err := combat.NewActorFromSnapshot(combat.ActorFromSnapshotInput{
+		EntityID:  "npc_1",
+		Type:      world.EntityTypeNPCPlaceholder,
+		NPCType:   "pirate",
+		WorldID:   "world_1",
+		ZoneID:    "zone_1",
+		Position:  world.Vec2{X: 2, Y: 3},
+		Signature: visibility.EntitySignature(10),
+		Snapshot:  npcSnapshot,
+	})
+	if err != nil {
+		t.Fatalf("NewActorFromSnapshot(npc) error = %v", err)
+	}
+	if npc.NPCType != "pirate" {
+		t.Fatalf("npc NPCType = %q, want pirate", npc.NPCType)
+	}
+
+	_, err = combat.NewActorFromSnapshot(combat.ActorFromSnapshotInput{
+		EntityID:  "npc_missing_type",
+		Type:      world.EntityTypeNPCPlaceholder,
+		WorldID:   "world_1",
+		ZoneID:    "zone_1",
+		Position:  world.Vec2{},
+		Signature: visibility.EntitySignature(10),
+		Snapshot:  npcSnapshot,
+	})
+	if !errors.Is(err, combat.ErrInvalidActorState) {
+		t.Fatalf("missing NPCType NewActorFromSnapshot() error = %v, want ErrInvalidActorState", err)
+	}
+
 	_, err = combat.NewActorFromSnapshot(combat.ActorFromSnapshotInput{
 		EntityID:  "player_entity_2",
 		Type:      world.EntityTypePlayer,
@@ -373,6 +416,7 @@ func npcActor(entityID world.EntityID, position world.Vec2) combat.ActorState {
 	return combat.ActorState{
 		EntityID:  entityID,
 		Type:      world.EntityTypeNPCPlaceholder,
+		NPCType:   "pirate",
 		WorldID:   "world_1",
 		ZoneID:    "zone_1",
 		Position:  position,

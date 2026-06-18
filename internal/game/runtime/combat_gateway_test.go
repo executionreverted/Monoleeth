@@ -329,6 +329,7 @@ func runtimeNPCCombatActor(entityID world.EntityID, position world.Vec2) combat.
 	return combat.ActorState{
 		EntityID:  entityID,
 		Type:      world.EntityTypeNPCPlaceholder,
+		NPCType:   "pirate",
 		WorldID:   "world-1",
 		ZoneID:    "zone-1",
 		Position:  position,

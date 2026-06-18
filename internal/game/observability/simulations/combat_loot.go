@@ -231,6 +231,7 @@ func upsertCombatLootActors(service *combat.Service, config normalizedCombatLoot
 	npc, err := combat.NewActorFromSnapshot(combat.ActorFromSnapshotInput{
 		EntityID:  npcEntityID,
 		Type:      world.EntityTypeNPCPlaceholder,
+		NPCType:   "pirate",
 		WorldID:   config.worldID,
 		ZoneID:    config.zoneID,
 		Position:  world.Vec2{X: baseX + 10, Y: 0},

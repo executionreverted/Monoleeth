@@ -231,6 +231,10 @@ loot.expired
 loot.pickup_failed
 ```
 
+`loot.picked_up` is emitted after the pickup claim and cargo mutation succeed.
+The internal payload carries the claiming player, item id, quantity, and drop id
+so quest progress can consume pickup results without trusting client payloads.
+
 ## Edge Cases
 
 - Two players pickup same public drop at same time.
@@ -320,4 +324,3 @@ MVP:
 - expire 180s
 - raw material loot tables
 - no party loot yet
-

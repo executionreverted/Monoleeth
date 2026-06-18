@@ -204,13 +204,26 @@ func grantXPAndRankForSkillTest(t *testing.T, service *ProgressionService, playe
 		if _, err := service.GrantXP(GrantXPInput{
 			PlayerID:       foundationPlayerIDForTest(playerID),
 			Amount:         mainXP,
-			SourceType:     XPSourceTypeQuest,
+			SourceType:     XPSourceTypeAdminAdjustment,
 			SourceID:       XPSourceID("skill-test-xp-" + playerID),
 			IdempotencyKey: XPIdempotencyKey("skill-test-xp-" + playerID),
-			Authority:      XPGrantAuthorityQuestService,
+			Authority:      XPGrantAuthorityAdminService,
 			RoleXP:         roleXP,
 		}); err != nil {
 			t.Fatalf("GrantXP(%q) = %v, want nil", playerID, err)
+		}
+	}
+	if targetRank >= 2 {
+		questID := XPSourceID("skill-test-quest-" + playerID)
+		if _, err := service.GrantXP(GrantXPInput{
+			PlayerID:       foundationPlayerIDForTest(playerID),
+			Amount:         1,
+			SourceType:     XPSourceTypeQuest,
+			SourceID:       questID,
+			IdempotencyKey: XPIdempotencyKey("quest_reward:" + questID.String()),
+			Authority:      XPGrantAuthorityQuestService,
+		}); err != nil {
+			t.Fatalf("quest milestone GrantXP(%q) = %v, want nil", playerID, err)
 		}
 	}
 	for rank := 2; rank <= targetRank; rank++ {

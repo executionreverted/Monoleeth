@@ -82,7 +82,7 @@ Board rules:
 - [x] Validate requirements still met. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
 - [x] Insert accepted quest. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
 - [x] Remove or mark offer accepted. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0072-go-build go test ./internal/game/quests -count=1`.
-- [x] Implement event consumers for `combat.npc_killed`, `loot.picked_up`, and `craft.job_completed`. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
+- [x] Implement event consumers and domain envelope routing for `combat.npc_killed`, `loot.picked_up`, and `craft.job_completed`. Verified 2026-06-18 by `go test ./internal/game/quests -run 'TestQuestDomainEvents(CompleteAndClaimQuestAuthorizedXP|UseStableDomainProgressKeys)' -count=1` and `go test ./internal/game/quests -count=1`.
 - [x] Add scanner and building event consumers as skeletons. Verified 2026-06-17 for scan/build/deliver skeleton validation by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
 - [x] Update progress only for matching active quests. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
 - [x] Mark quest completed when objective is met. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
@@ -133,12 +133,12 @@ Board rules:
 
 ## Done Criteria
 
-- [ ] Quest board gives players directional tasks.
+- [x] Quest board gives players directional tasks. Verified 2026-06-18 by directional objective/target-region board test `go test ./internal/game/quests -run TestGenerateBoardOffersCarryDirectionalTargetsForPlayer -count=1`.
 - [x] Quest rewards are idempotent. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
-- [ ] Quest events integrate combat, loot, craft, and XP.
-- [ ] MVP rank milestones can depend on quest completion.
-- [x] `go test ./...` passes. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./...`; plain `go test ./...` was blocked by sandbox cache permissions outside the workspace.
-- [x] `git diff --check` passes. Verified 2026-06-17 by `git diff --check`.
+- [x] Quest events integrate combat, loot, craft, and XP. Verified 2026-06-18 by domain-event-to-claim-to-XP and stable domain progress key tests `go test ./internal/game/quests -run 'TestQuestDomainEvents(CompleteAndClaimQuestAuthorizedXP|UseStableDomainProgressKeys)' -count=1`.
+- [x] MVP rank milestones can depend on quest completion. Verified 2026-06-18 by quest reward reference rank milestone test `go test ./internal/game/progression -run TestTryRankUpRequiresQuestCompletionMilestoneFromQuestAuthority -count=1`.
+- [x] `go test ./...` passes. Verified 2026-06-18 by `go test ./...`.
+- [x] `git diff --check` passes. Verified 2026-06-18 by `git diff --check`.
 
 ## Resume Notes
 

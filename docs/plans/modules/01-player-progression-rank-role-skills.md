@@ -268,6 +268,18 @@ emit player.rank_up
 emit pilot.skill_point_granted
 ```
 
+Phase 07 implementation:
+
+- MVP rank requirements can include completed quest count milestones.
+- The count is derived from quest-authorized XP grant records written by
+  `QuestService` reward claims, not from client-submitted quest completion
+  flags.
+- A quest grant counts as rank milestone evidence only when its source type is
+  `quest`, its authority is `quest_service`, and its idempotency key exactly
+  matches `quest_reward:<source_id>`.
+- Rank 2 requires one claimed/completed quest reward in addition to main level
+  2, so early rank-up cannot be satisfied by combat XP alone.
+
 ## Pilot Skill Tree
 
 Skill tree pasif bonus verir.

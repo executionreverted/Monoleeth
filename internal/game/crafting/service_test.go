@@ -1,6 +1,7 @@
 package crafting
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -641,6 +642,42 @@ func TestCompleteCraftAfterTimeCreatesItemOnceForDuplicateCompletion(t *testing.
 	}
 }
 
+func TestCompleteCraftEmitsJobCompletedEventOnce(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	recorder := testutil.NewEventRecorder()
+	fixture.service.SetEventEmitter(recorder)
+	recipe := fixture.startReadyRecipe(t, RecipeIDLaserAlphaT1, "complete-event")
+	started := fixture.mustStartCraft(t, recipe.RecipeID)
+	fixture.clock.Advance(recipe.CraftDuration)
+
+	first, err := fixture.service.CompleteCraft(CompleteCraftInput{PlayerID: fixture.playerID, JobID: started.Job.JobID})
+	if err != nil {
+		t.Fatalf("first CompleteCraft: %v", err)
+	}
+	testutil.AssertRecordedEventTypes(t, recorder, EventCraftJobCompleted)
+	var payload JobCompletedEvent
+	if err := json.Unmarshal(recorder.Events()[0].Payload, &payload); err != nil {
+		t.Fatalf("unmarshal craft completed payload: %v", err)
+	}
+	if payload.JobID != started.Job.JobID ||
+		payload.PlayerID != fixture.playerID ||
+		payload.RecipeID != recipe.RecipeID ||
+		payload.ItemID != recipe.Output.ItemID ||
+		payload.Quantity != recipe.Output.Quantity.Int64() ||
+		payload.OutputKind != RecipeOutputKindItem {
+		t.Fatalf("craft completed payload = %+v, want completed item craft", payload)
+	}
+	if !payload.CompletedAt.Equal(*first.Job.CompletedAt) {
+		t.Fatalf("payload completed_at = %s, want %s", payload.CompletedAt, *first.Job.CompletedAt)
+	}
+
+	recorder.Reset()
+	if _, err := fixture.service.CompleteCraft(CompleteCraftInput{PlayerID: fixture.playerID, JobID: started.Job.JobID}); err != nil {
+		t.Fatalf("duplicate CompleteCraft: %v", err)
+	}
+	testutil.AssertRecordedEventTypes(t, recorder)
+}
+
 func TestCompleteCraftTracksLowTierCraftXPOnceForBalancing(t *testing.T) {
 	fixture := newCraftingServiceFixture(t)
 	recipe := fixture.startReadyRecipe(t, RecipeIDRefinedAlloy, "track-low-tier-xp")
@@ -1201,6 +1238,17 @@ func (fixture *craftingServiceFixture) seedRank2(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("seed main xp: %v", err)
+	}
+	_, err = fixture.progression.GrantXP(progression.GrantXPInput{
+		PlayerID:       fixture.playerID,
+		Amount:         1,
+		SourceType:     progression.XPSourceTypeQuest,
+		SourceID:       progression.XPSourceID("seed-rank-2-quest"),
+		IdempotencyKey: progression.XPIdempotencyKey("quest_reward:seed-rank-2-quest"),
+		Authority:      progression.XPGrantAuthorityQuestService,
+	})
+	if err != nil {
+		t.Fatalf("seed quest milestone: %v", err)
 	}
 	_, err = fixture.progression.TryRankUp(progression.TryRankUpInput{
 		PlayerID:       fixture.playerID,

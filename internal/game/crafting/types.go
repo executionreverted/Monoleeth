@@ -107,6 +107,19 @@ type CraftJob struct {
 	CompletedAt            *time.Time                  `json:"completed_at,omitempty"`
 }
 
+// JobCompletedEvent is the internal post-commit craft completion payload
+// consumed by quest, progression audit, and balancing processors.
+type JobCompletedEvent struct {
+	JobID       CraftJobID           `json:"job_id"`
+	PlayerID    foundation.PlayerID  `json:"player_id"`
+	RecipeID    catalog.DefinitionID `json:"recipe_id"`
+	OutputKind  RecipeOutputKind     `json:"output_kind"`
+	ItemID      foundation.ItemID    `json:"item_id,omitempty"`
+	ShipID      foundation.ShipID    `json:"ship_id,omitempty"`
+	Quantity    int64                `json:"quantity"`
+	CompletedAt time.Time            `json:"completed_at"`
+}
+
 // String returns the stable category representation.
 func (category RecipeCategory) String() string { return string(category) }
 
