@@ -59,4 +59,7 @@ var (
 
 	// ErrDuplicateEconomyFlowReference reports a duplicate value-flow reference.
 	ErrDuplicateEconomyFlowReference = errors.New("duplicate economy flow reference")
+
+	// ErrInvalidRetentionGuidance reports retention guidance that would drop support or fraud evidence too early.
+	ErrInvalidRetentionGuidance = errors.New("invalid retention guidance")
 )

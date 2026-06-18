@@ -235,16 +235,23 @@ missing check names. Module-by-module release gate reports have not been run yet
 
 Operational logs:
 
-- [ ] Keep around 30 days unless policy changes.
+- [x] Keep around 30 days unless policy changes.
 
 Economy and security ledger:
 
-- [ ] Keep long-term or summarize into archive.
-- [ ] Never silently delete money/item ledger needed for support or fraud review.
+- [x] Keep long-term or summarize into archive.
+- [x] Never silently delete money/item ledger needed for support or fraud review.
 
 High-volume telemetry:
 
-- [ ] Aggregate after operational retention period.
+- [x] Aggregate after operational retention period.
+
+Implementation note 2026-06-18:
+`DefaultDataRetentionGuidance` records the Phase 12 retention posture:
+30-day operational logs, long-term or summarized economy/security ledgers, and
+post-window aggregation for high-volume telemetry. The guidance fail-closes if
+wallet, item, premium purchase, or auction sale ledgers would be silently
+dropped with short-lived operational logs.
 
 ## Done Criteria
 
