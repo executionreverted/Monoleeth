@@ -1,6 +1,7 @@
 package death_test
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -107,6 +108,33 @@ func TestDeathServiceProcessDeathDropsCargoCreatesLootDisablesShipRecordsRespawn
 		len(result.ModuleDurabilityResult.SelectedItemIDs) != 2 {
 		t.Fatalf("module hook call/result = %+v / %+v, want selected equipped ids", hook.calls[0], result.ModuleDurabilityResult)
 	}
+
+	testutil.AssertRecordedEventTypes(t, fixture.events, death.EventPlayerDied, death.EventShipDisabled, death.EventDeathCargoDropped)
+	recorded := fixture.events.Events()
+	playerDied := decodeDeathServiceEventPayload[death.PlayerDiedEvent](t, recorded[0].Payload)
+	if playerDied.DeathID != result.Record.DeathID ||
+		playerDied.PlayerID != "player-1" ||
+		playerDied.ActiveShipID != ships.ShipIDFighterT1 ||
+		playerDied.RespawnLocationID != "origin-station" ||
+		playerDied.CargoDropPercent != 0.50 {
+		t.Fatalf("player.died payload = %+v, want death record summary", playerDied)
+	}
+	shipDisabled := decodeDeathServiceEventPayload[death.ShipDisabledEvent](t, recorded[1].Payload)
+	if shipDisabled.DeathID != result.Record.DeathID ||
+		shipDisabled.ShipID != ships.ShipIDFighterT1 ||
+		shipDisabled.DisabledReason != ships.DisabledReasonDeath ||
+		shipDisabled.StatInvalidation == nil ||
+		shipDisabled.StatInvalidation.Reason != ships.StatInvalidationReasonActiveShipStateChanged {
+		t.Fatalf("ship.disabled payload = %+v, want disabled fighter with stat invalidation", shipDisabled)
+	}
+	cargoDropped := decodeDeathServiceEventPayload[death.DeathCargoDroppedEvent](t, recorded[2].Payload)
+	if cargoDropped.DeathID != result.Record.DeathID ||
+		len(cargoDropped.Items) != 1 ||
+		cargoDropped.Items[0].ItemID != iron.ItemID ||
+		cargoDropped.Items[0].Quantity != 5 ||
+		cargoDropped.Items[0].LootDropID != result.LootDrops[0].ID {
+		t.Fatalf("death.cargo_dropped payload = %+v, want dropped cargo linked to loot", cargoDropped)
+	}
 }
 
 func TestDeathServiceProcessDeathRejectsZonePolicyMismatch(t *testing.T) {
@@ -163,6 +191,8 @@ func TestDeathServiceProcessDeathDuplicateLethalEventDoesNotMutateTwice(t *testi
 	firstDisabledAt := *first.ShipDisableResult.PlayerShip.DisabledAt
 	firstDropID := first.LootDrops[0].ID
 	firstLedgerCount := len(fixture.inventory.ItemLedgerEntries())
+	testutil.AssertRecordedEventTypes(t, fixture.events, death.EventPlayerDied, death.EventShipDisabled, death.EventDeathCargoDropped)
+	fixture.events.Reset()
 
 	fixture.clock.Advance(time.Minute)
 	second, err := fixture.death.ProcessDeath(input)
@@ -186,6 +216,9 @@ func TestDeathServiceProcessDeathDuplicateLethalEventDoesNotMutateTwice(t *testi
 	}
 	if len(hook.calls) != 1 {
 		t.Fatalf("module hook calls after duplicate = %d, want 1", len(hook.calls))
+	}
+	if got := len(fixture.events.Events()); got != 0 {
+		t.Fatalf("duplicate death emitted %d events, want 0", got)
 	}
 	assertDeathServiceFighterDisabledAt(t, fixture.ships, firstDisabledAt)
 }
@@ -558,6 +591,7 @@ type deathServiceFixture struct {
 	loot      *loot.Service
 	ships     *ships.HangarService
 	death     *death.DeathService
+	events    *testutil.EventRecorder
 }
 
 func newDeathServiceFixture(t *testing.T, ints []int, floats []float64) deathServiceFixture {
@@ -588,12 +622,14 @@ func newDeathServiceFixture(t *testing.T, ints []int, floats []float64) deathSer
 		t.Fatalf("ships.NewHangarService() error = %v", err)
 	}
 	ensureDeathServiceActiveFighter(t, shipService)
+	eventRecorder := testutil.NewEventRecorder()
 	deathService, err := death.NewDeathService(death.Config{
-		Clock:     clock,
-		RNG:       testutil.NewFakeRNG(ints, floats),
-		Inventory: inventory,
-		Loot:      lootService,
-		Ships:     shipService,
+		Clock:        clock,
+		RNG:          testutil.NewFakeRNG(ints, floats),
+		Inventory:    inventory,
+		Loot:         lootService,
+		Ships:        shipService,
+		EventEmitter: eventRecorder,
 	})
 	if err != nil {
 		t.Fatalf("death.NewDeathService() error = %v", err)
@@ -605,6 +641,7 @@ func newDeathServiceFixture(t *testing.T, ints []int, floats []float64) deathSer
 		loot:      lootService,
 		ships:     shipService,
 		death:     deathService,
+		events:    eventRecorder,
 	}
 }
 
@@ -776,6 +813,15 @@ func mustDeathServiceLootPickupKey(t *testing.T, id string) foundation.Idempoten
 		t.Fatalf("LootPickupIdempotencyKey(%q) error = %v", id, err)
 	}
 	return key
+}
+
+func decodeDeathServiceEventPayload[T any](t *testing.T, payload []byte) T {
+	t.Helper()
+	var decoded T
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode death event payload %s: %v", string(payload), err)
+	}
+	return decoded
 }
 
 type recordingDeathServiceModuleHook struct {

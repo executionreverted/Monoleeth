@@ -1,12 +1,15 @@
 package death
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/economy"
+	"gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/ships"
@@ -15,6 +18,10 @@ import (
 
 const (
 	deathItemCatalogVersion = catalog.Version("death_service_v1")
+
+	EventPlayerDied        = "player.died"
+	EventShipDisabled      = "ship.disabled"
+	EventDeathCargoDropped = "death.cargo_dropped"
 
 	// LedgerReasonDeathCargoDrop records cargo removed from a dead player's ship
 	// before that cargo is materialized as player-death loot.
@@ -53,6 +60,11 @@ type ModuleDurabilityHook interface {
 	ApplyDeathDurability(ModuleDurabilityInput) (ModuleDurabilityResult, error)
 }
 
+// EventEmitter is the optional post-mutation event hook.
+type EventEmitter interface {
+	Record(events.EventEnvelope)
+}
+
 // Config describes DeathService dependencies.
 type Config struct {
 	Clock foundation.Clock
@@ -63,6 +75,7 @@ type Config struct {
 	Ships     ActiveShipDisabler
 
 	ModuleDurability ModuleDurabilityHook
+	EventEmitter     EventEmitter
 }
 
 // DeathService orchestrates the in-memory Phase 06 death transaction slice.
@@ -75,9 +88,11 @@ type DeathService struct {
 	loot             PlayerDeathDropCreator
 	ships            ActiveShipDisabler
 	moduleDurability ModuleDurabilityHook
+	emitter          EventEmitter
 
-	attempts  map[LethalEventKey]processDeathAttempt
-	processed map[LethalEventKey]ProcessDeathResult
+	attempts          map[LethalEventKey]processDeathAttempt
+	processed         map[LethalEventKey]ProcessDeathResult
+	nextEventSequence uint64
 }
 
 type processDeathAttempt struct {
@@ -136,6 +151,54 @@ type ModuleDurabilityResult struct {
 	Duplicate       bool                `json:"duplicate"`
 }
 
+// PlayerDiedEvent is the death-domain event emitted after death processing.
+type PlayerDiedEvent struct {
+	DeathID           foundation.EventID  `json:"death_id"`
+	LethalEventKey    LethalEventKey      `json:"lethal_event_key"`
+	PlayerID          foundation.PlayerID `json:"player_id"`
+	WorldID           world.WorldID       `json:"world_id"`
+	ZoneID            world.ZoneID        `json:"zone_id"`
+	Position          world.Vec2          `json:"position"`
+	KillerEntityID    world.EntityID      `json:"killer_entity_id,omitempty"`
+	Reason            DeathReason         `json:"reason"`
+	ActiveShipID      foundation.ShipID   `json:"active_ship_id"`
+	RespawnLocationID RespawnLocationID   `json:"respawn_location_id"`
+	CargoDropPercent  float64             `json:"cargo_drop_percent"`
+	CreatedAt         time.Time           `json:"created_at"`
+}
+
+// ShipDisabledEvent reports the ship state transition caused by death.
+type ShipDisabledEvent struct {
+	DeathID           foundation.EventID            `json:"death_id"`
+	LethalEventKey    LethalEventKey                `json:"lethal_event_key"`
+	PlayerID          foundation.PlayerID           `json:"player_id"`
+	ShipID            foundation.ShipID             `json:"ship_id"`
+	DisabledReason    string                        `json:"disabled_reason"`
+	DisabledAt        time.Time                     `json:"disabled_at"`
+	StatInvalidation  *ships.StatInvalidationSignal `json:"stat_invalidation,omitempty"`
+	RespawnLocationID RespawnLocationID             `json:"respawn_location_id"`
+}
+
+// DeathCargoDroppedItem is one cargo stack materialized into world loot.
+type DeathCargoDroppedItem struct {
+	ItemID        foundation.ItemID `json:"item_id"`
+	Quantity      int64             `json:"quantity"`
+	SourceStackID foundation.ItemID `json:"source_stack_id"`
+	LootDropID    world.EntityID    `json:"loot_drop_id,omitempty"`
+}
+
+// DeathCargoDroppedEvent reports cargo removed from the disabled ship.
+type DeathCargoDroppedEvent struct {
+	DeathID        foundation.EventID      `json:"death_id"`
+	LethalEventKey LethalEventKey          `json:"lethal_event_key"`
+	PlayerID       foundation.PlayerID     `json:"player_id"`
+	WorldID        world.WorldID           `json:"world_id"`
+	ZoneID         world.ZoneID            `json:"zone_id"`
+	Position       world.Vec2              `json:"position"`
+	Items          []DeathCargoDroppedItem `json:"items"`
+	CreatedAt      time.Time               `json:"created_at"`
+}
+
 // NewDeathService returns an in-memory death orchestrator.
 func NewDeathService(config Config) (*DeathService, error) {
 	if config.Clock == nil {
@@ -160,6 +223,7 @@ func NewDeathService(config Config) (*DeathService, error) {
 		loot:             config.Loot,
 		ships:            config.Ships,
 		moduleDurability: config.ModuleDurability,
+		emitter:          config.EventEmitter,
 		attempts:         make(map[LethalEventKey]processDeathAttempt),
 		processed:        make(map[LethalEventKey]ProcessDeathResult),
 	}, nil
@@ -171,6 +235,14 @@ func (service *DeathService) SetModuleDurabilityHook(hook ModuleDurabilityHook) 
 	defer service.mu.Unlock()
 
 	service.moduleDurability = hook
+}
+
+// SetEventEmitter configures the optional post-mutation event hook.
+func (service *DeathService) SetEventEmitter(emitter EventEmitter) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	service.emitter = emitter
 }
 
 // ProcessDeath processes one lethal event once.
@@ -187,8 +259,13 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 		return ProcessDeathResult{}, err
 	}
 
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
 
 	if existing, ok := service.processed[lethalKey]; ok {
 		return duplicateProcessDeathResult(existing), nil
@@ -330,6 +407,8 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 	}
 	service.processed[lethalKey] = cloneProcessDeathResult(result)
 	delete(service.attempts, lethalKey)
+	emitter = service.emitter
+	emitted = service.deathEventsLocked(result)
 	return cloneProcessDeathResult(result), nil
 }
 
@@ -377,6 +456,112 @@ func (input ProcessDeathInput) validate() error {
 		}
 	}
 	return nil
+}
+
+func (service *DeathService) deathEventsLocked(result ProcessDeathResult) []events.EventEnvelope {
+	record := result.Record
+	emitted := []events.EventEnvelope{
+		service.newEventLocked(EventPlayerDied, playerDiedEventFromResult(result), record.CreatedAt),
+		service.newEventLocked(EventShipDisabled, shipDisabledEventFromResult(result), record.CreatedAt),
+	}
+	if len(result.CargoDrops) > 0 {
+		emitted = append(emitted, service.newEventLocked(EventDeathCargoDropped, deathCargoDroppedEventFromResult(result), record.CreatedAt))
+	}
+	return emitted
+}
+
+func playerDiedEventFromResult(result ProcessDeathResult) PlayerDiedEvent {
+	record := result.Record
+	return PlayerDiedEvent{
+		DeathID:           record.DeathID,
+		LethalEventKey:    record.LethalEventKey,
+		PlayerID:          record.PlayerID,
+		WorldID:           record.WorldID,
+		ZoneID:            record.ZoneID,
+		Position:          record.Position,
+		KillerEntityID:    record.KillerEntityID,
+		Reason:            record.Reason,
+		ActiveShipID:      record.ActiveShipID,
+		RespawnLocationID: record.RespawnLocationID,
+		CargoDropPercent:  record.CargoDropPercent,
+		CreatedAt:         record.CreatedAt,
+	}
+}
+
+func shipDisabledEventFromResult(result ProcessDeathResult) ShipDisabledEvent {
+	record := result.Record
+	disabledAt := record.CreatedAt
+	if result.ShipDisableResult.PlayerShip.DisabledAt != nil {
+		disabledAt = *result.ShipDisableResult.PlayerShip.DisabledAt
+	}
+	return ShipDisabledEvent{
+		DeathID:           record.DeathID,
+		LethalEventKey:    record.LethalEventKey,
+		PlayerID:          record.PlayerID,
+		ShipID:            result.ShipDisableResult.PlayerShip.ShipID,
+		DisabledReason:    result.ShipDisableResult.PlayerShip.DisabledReason,
+		DisabledAt:        disabledAt,
+		StatInvalidation:  cloneStatInvalidationSignal(result.ShipDisableResult.StatInvalidation),
+		RespawnLocationID: record.RespawnLocationID,
+	}
+}
+
+func deathCargoDroppedEventFromResult(result ProcessDeathResult) DeathCargoDroppedEvent {
+	record := result.Record
+	items := make([]DeathCargoDroppedItem, 0, len(result.CargoDrops))
+	for index, drop := range result.CargoDrops {
+		item := DeathCargoDroppedItem{
+			ItemID:        drop.ItemID,
+			Quantity:      drop.Quantity,
+			SourceStackID: drop.SourceStackID,
+		}
+		if index < len(result.LootDrops) {
+			item.LootDropID = result.LootDrops[index].ID
+		}
+		items = append(items, item)
+	}
+	return DeathCargoDroppedEvent{
+		DeathID:        record.DeathID,
+		LethalEventKey: record.LethalEventKey,
+		PlayerID:       record.PlayerID,
+		WorldID:        record.WorldID,
+		ZoneID:         record.ZoneID,
+		Position:       record.Position,
+		Items:          items,
+		CreatedAt:      record.CreatedAt,
+	}
+}
+
+func cloneStatInvalidationSignal(signal *ships.StatInvalidationSignal) *ships.StatInvalidationSignal {
+	if signal == nil {
+		return nil
+	}
+	cloned := *signal
+	return &cloned
+}
+
+func (service *DeathService) newEventLocked(eventType string, payload any, occurredAt time.Time) events.EventEnvelope {
+	service.nextEventSequence++
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		rawPayload = json.RawMessage(`{}`)
+	}
+	return events.NewEventEnvelope(
+		foundation.EventID(fmt.Sprintf("death-event-%d", service.nextEventSequence)),
+		eventType,
+		rawPayload,
+		occurredAt.UTC().UnixMilli(),
+		service.nextEventSequence,
+	)
+}
+
+func emitEvents(emitter EventEmitter, emitted []events.EventEnvelope) {
+	if emitter == nil {
+		return
+	}
+	for _, event := range emitted {
+		emitter.Record(event)
+	}
 }
 
 func (service *DeathService) activeShipForDeath(playerID foundation.PlayerID) (foundation.ShipID, bool, error) {

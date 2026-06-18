@@ -74,7 +74,7 @@ Crafting:
 - [x] Create world drops through loot service.
 - [x] Mark active ship disabled.
 - [x] Record respawn location.
-- [ ] Emit player death, ship disabled, and cargo dropped events.
+- [x] Emit player death, ship disabled, and cargo dropped events. Verified 2026-06-18 by `DeathService.ProcessDeath` event payload and duplicate retry tests.
 - [ ] Block cargo transfer while in lethal/dead transaction.
 - [x] Add module durability loss hook.
 - [ ] Invalidate stats when module breaks.
@@ -178,3 +178,7 @@ Crafting:
 ## Resume Notes
 
 If resuming here, inspect whether craft jobs remember recipe version and whether duplicate completion is tested. Those two are common future economy bugs.
+
+Verified slices:
+
+- `DeathService.ProcessDeath` emits `player.died`, `ship.disabled`, and `death.cargo_dropped` after successful death processing. Duplicate lethal-event retries return the cached result without re-emitting death events.
