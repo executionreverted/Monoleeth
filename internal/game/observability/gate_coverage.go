@@ -108,8 +108,8 @@ var requiredCommandSecurityOperations = []string{
 
 var phase12LoadTestEvidence = GateEvidence{
 	Package:  "gameproject/internal/game/observability",
-	TestName: "TestPhase12LoadTestTargetsCoverExpectedThroughput",
-	Note:     "local load target coverage records the Phase 12 expected player, visibility, snapshot, tick, and metric envelope",
+	TestName: "TestPhase12WorldRealtimeLoadSmokeCoversExpectedThroughput",
+	Note:     "local load-smoke coverage executes the Phase 12 minimum player, visibility, snapshot, AOI, and metric envelope",
 }
 
 var phase12GoTestAllEvidence = GateEvidence{

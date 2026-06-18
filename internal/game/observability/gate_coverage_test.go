@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -44,8 +46,8 @@ func TestPhase12ReleaseGateCoverageCoversRequiredModulesAndChecks(t *testing.T) 
 
 func TestPhase12CommandSecurityCoverageCoversRegisteredRealtimeOperations(t *testing.T) {
 	operations := RequiredCommandSecurityOperations()
-	parsedOperations := realtimeOperationConstants(t)
-	assertStringSet(t, operations, parsedOperations)
+	registeredOperations := realtimeOperationRegistryKeys(t)
+	assertStringSet(t, operations, registeredOperations)
 
 	coverage := Phase12CommandSecurityCoverage()
 	checks := RequiredCommandSecurityChecks()
@@ -180,7 +182,7 @@ func allPhase12GateEvidence() []GateEvidence {
 	return evidence
 }
 
-func realtimeOperationConstants(t *testing.T) []string {
+func realtimeOperationRegistryKeys(t *testing.T) []string {
 	t.Helper()
 	repoRoot := repositoryRoot(t)
 	filename := filepath.Join(repoRoot, "internal", "game", "realtime", "envelope.go")
@@ -189,7 +191,47 @@ func realtimeOperationConstants(t *testing.T) []string {
 		t.Fatalf("parse realtime envelope: %v", err)
 	}
 
+	constants := realtimeOperationConstants(parsed)
 	operations := make([]string, 0)
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		valueSpec, ok := node.(*ast.ValueSpec)
+		if !ok {
+			return true
+		}
+		for index, name := range valueSpec.Names {
+			if name.Name != "phase04Operations" {
+				continue
+			}
+			if index >= len(valueSpec.Values) {
+				t.Fatalf("phase04Operations has no map literal value")
+			}
+			registry, ok := valueSpec.Values[index].(*ast.CompositeLit)
+			if !ok {
+				t.Fatalf("phase04Operations is %T, want map composite literal", valueSpec.Values[index])
+			}
+			for _, element := range registry.Elts {
+				keyValue, ok := element.(*ast.KeyValueExpr)
+				if !ok {
+					t.Fatalf("phase04Operations element is %T, want key/value", element)
+				}
+				operation, ok := realtimeOperationKeyString(keyValue.Key, constants)
+				if !ok {
+					t.Fatalf("unsupported phase04Operations key %T", keyValue.Key)
+				}
+				operations = append(operations, operation)
+			}
+		}
+		return true
+	})
+	if len(operations) == 0 {
+		t.Fatal("phase04Operations registry keys not found")
+	}
+	sort.Strings(operations)
+	return operations
+}
+
+func realtimeOperationConstants(parsed *ast.File) map[string]string {
+	constants := map[string]string{}
 	for _, declaration := range parsed.Decls {
 		general, ok := declaration.(*ast.GenDecl)
 		if !ok || general.Tok != token.CONST {
@@ -200,26 +242,63 @@ func realtimeOperationConstants(t *testing.T) []string {
 			if !ok || len(valueSpec.Values) == 0 {
 				continue
 			}
-			ident, ok := valueSpec.Type.(*ast.Ident)
-			if !ok || ident.Name != "Operation" {
+			if len(valueSpec.Names) == 0 {
 				continue
 			}
-			literal, ok := valueSpec.Values[0].(*ast.BasicLit)
-			if !ok {
-				continue
+			typeIdent, typedOperation := valueSpec.Type.(*ast.Ident)
+			isOperationSpec := typedOperation && typeIdent.Name == "Operation"
+			for index, name := range valueSpec.Names {
+				if index >= len(valueSpec.Values) {
+					continue
+				}
+				literal, ok := valueSpec.Values[index].(*ast.BasicLit)
+				if !ok || literal.Kind != token.STRING {
+					continue
+				}
+				if !isOperationSpec && !strings.HasPrefix(name.Name, "Operation") {
+					continue
+				}
+				value, ok := quotedStringValue(literal.Value)
+				if ok {
+					constants[name.Name] = value
+				}
 			}
-			operations = append(operations, trimQuotedString(literal.Value))
 		}
 	}
-	sort.Strings(operations)
-	return operations
+	return constants
 }
 
-func trimQuotedString(value string) string {
-	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
-		return value[1 : len(value)-1]
+func realtimeOperationKeyString(expr ast.Expr, constants map[string]string) (string, bool) {
+	switch key := expr.(type) {
+	case *ast.Ident:
+		value, ok := constants[key.Name]
+		return value, ok
+	case *ast.BasicLit:
+		if key.Kind != token.STRING {
+			return "", false
+		}
+		return quotedStringValue(key.Value)
+	case *ast.CallExpr:
+		fun, ok := key.Fun.(*ast.Ident)
+		if !ok || fun.Name != "Operation" || len(key.Args) != 1 {
+			return "", false
+		}
+		literal, ok := key.Args[0].(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING {
+			return "", false
+		}
+		return quotedStringValue(literal.Value)
+	default:
+		return "", false
 	}
-	return value
+}
+
+func quotedStringValue(value string) (string, bool) {
+	unquoted, err := strconv.Unquote(value)
+	if err != nil {
+		return "", false
+	}
+	return unquoted, true
 }
 
 func stringSet(values []string) map[string]bool {

@@ -220,8 +220,11 @@ Implementation note 2026-06-18:
 missing check names. `Phase12ReleaseGateCoverage` now records module-by-module
 gate evidence for all 16 module specs, including explicit not-applicable notes
 where a gate does not apply. `Phase12LoadTestTargets` records the local expected
-throughput envelope from the module spec; production soak/load execution remains
-a deployment-time activity beyond this local readiness primitive.
+throughput envelope from the module spec, and
+`TestPhase12WorldRealtimeLoadSmokeCoversExpectedThroughput` executes the minimum
+player/snapshot/AOI workload locally while recording the target metrics.
+Production soak/load execution remains a deployment-time activity beyond this
+local readiness primitive.
 
 ## Abuse Test Suite
 
