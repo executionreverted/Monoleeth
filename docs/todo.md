@@ -107,6 +107,19 @@ for phase status; this file is a compact pending-work index.
 - [ ] Narrow lock scope or add per-player/per-planet coordination for Phase 08
   scan, claim, share, and coordinate-scroll services before high-concurrency
   runtime deployment; current MVP services use process-local mutexes.
+- [ ] Add durable production/route event outbox emission for Phase 09
+  settlement summaries before exposing production and automation routes through
+  runtime or gateway callers. Current services return in-memory summaries only.
+- [ ] Add station/storage destination settlement adapters for Phase 09
+  automation routes. Current `SettleRoute` supports planet-to-planet storage and
+  rejects generic `storage` or `station` destinations with an explicit error.
+- [ ] Replace Phase 09 in-memory production, storage, and route repositories with
+  durable per-planet/per-route transactions or row locks before multi-process
+  runtime deployment.
+- [ ] Wire route energy upkeep to authoritative planet energy budget or upkeep
+  policy before exposing automation route controls to players. Current route
+  creation stores server-policy energy cost but settlement does not reserve or
+  consume route energy.
 
 ## Completed
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Not started
+- State: In review
 - Owner: Strategy and persistence layer
 - Depends on: Phase 02, Phase 08
 - Unlocks: long-term resource economy, production chains, logistics gameplay
@@ -57,96 +57,110 @@ Routes:
 
 ## TODO: Planet Storage And Buildings
 
-- [ ] Define planet storage model.
-- [ ] Define storage capacity rules.
-- [ ] Define building model.
-- [ ] Define building production catalog.
-- [ ] Define planet production state.
-- [ ] Initialize production state on planet claim.
-- [ ] Add basic extractor building.
-- [ ] Add basic refinery building.
-- [ ] Add energy budget fields.
-- [ ] Add building active/disabled state.
+- [x] Define planet storage model.
+- [x] Define storage capacity rules.
+- [x] Define building model.
+- [x] Define building production catalog.
+- [x] Define planet production state.
+- [x] Initialize production state on planet claim.
+- [x] Add basic extractor building.
+- [x] Add basic refinery building.
+- [x] Add energy budget fields.
+- [x] Add building active/disabled state.
 
 ## TODO: Production Settlement
 
-- [ ] Implement `SettlePlanetProduction`.
-- [ ] Lock planet production state.
-- [ ] Calculate elapsed from server timestamp.
-- [ ] Clamp elapsed to max offline duration.
-- [ ] Handle future `last_calculated_at` safely.
-- [ ] Load active buildings.
-- [ ] Lock planet storage.
-- [ ] Calculate output for elapsed time.
-- [ ] Apply storage capacity clamp.
-- [ ] Consume input materials proportionally.
-- [ ] Handle input shortage.
-- [ ] Handle insufficient energy.
-- [ ] Update `last_calculated_at`.
+- [x] Implement `SettlePlanetProduction`.
+- [x] Lock planet production state.
+- [x] Calculate elapsed from server timestamp.
+- [x] Clamp elapsed to max offline duration.
+- [x] Handle future `last_calculated_at` safely.
+- [x] Load active buildings.
+- [x] Lock planet storage.
+- [x] Calculate output for elapsed time.
+- [x] Apply storage capacity clamp.
+- [x] Consume input materials proportionally.
+- [x] Handle input shortage.
+- [x] Handle insufficient energy.
+- [x] Update `last_calculated_at`.
 - [ ] Emit production settlement events.
-- [ ] Produce login/inspection summary.
+- [x] Produce login/inspection summary.
 
 ## TODO: Routes
 
-- [ ] Define route model.
-- [ ] Define route risk model.
-- [ ] Implement `CreateRoute`.
-- [ ] Validate source planet ownership.
-- [ ] Validate destination accessibility.
-- [ ] Validate resource is routeable.
-- [ ] Validate positive amount per hour.
-- [ ] Validate rank/building requirement.
-- [ ] Calculate route distance.
-- [ ] Calculate route loss chance.
-- [ ] Implement route enable/disable.
-- [ ] Implement route update that settles old state first.
-- [ ] Implement `SettleRoute`.
-- [ ] Lock route.
-- [ ] Lock source storage.
-- [ ] Remove up to wanted amount.
-- [ ] Apply partial loss.
-- [ ] Lock destination storage.
-- [ ] Add up to capacity.
-- [ ] Update route timestamp.
+- [x] Define route model.
+- [x] Define route risk model.
+- [x] Implement `CreateRoute`.
+- [x] Validate source planet ownership.
+- [x] Validate destination accessibility.
+- [x] Validate resource is routeable.
+- [x] Validate positive amount per hour.
+- [x] Validate rank/building requirement.
+- [x] Calculate route distance.
+- [x] Calculate route loss chance.
+- [x] Implement route enable/disable.
+- [x] Implement route update that settles old state first.
+- [x] Implement `SettleRoute`.
+- [x] Lock route.
+- [x] Lock source storage.
+- [x] Remove up to wanted amount.
+- [x] Apply partial loss.
+- [x] Lock destination storage.
+- [x] Add up to capacity.
+- [x] Update route timestamp.
 - [ ] Emit route settlement events.
 
 ## Tests
 
-- [ ] One hour production output is correct.
-- [ ] Storage cap clamps output.
-- [ ] Input shortage reduces output.
-- [ ] Offline cap applies.
-- [ ] Double settlement does not duplicate output.
-- [ ] Future timestamp is handled safely.
-- [ ] Energy insufficient disables or scales production.
-- [ ] Login settlement summary is correct.
-- [ ] Create route validates source ownership.
-- [ ] Unauthorized destination fails.
-- [ ] Empty source transfers zero.
-- [ ] Full destination clamps delivery.
-- [ ] Loss chance applies in configured range.
-- [ ] Double route settlement does not duplicate transfer.
-- [ ] Disable/enable preserves timestamp correctly.
-- [ ] Route update settles old state first.
+- [x] One hour production output is correct.
+- [x] Storage cap clamps output.
+- [x] Input shortage reduces output.
+- [x] Offline cap applies.
+- [x] Double settlement does not duplicate output.
+- [x] Future timestamp is handled safely.
+- [x] Energy insufficient disables or scales production.
+- [x] Login settlement summary is correct.
+- [x] Create route validates source ownership.
+- [x] Unauthorized destination fails.
+- [x] Empty source transfers zero.
+- [x] Full destination clamps delivery.
+- [x] Loss chance applies in configured range.
+- [x] Double route settlement does not duplicate transfer.
+- [x] Disable/enable preserves timestamp correctly.
+- [x] Route update settles old state first.
 
 ## Abuse And Safety Checks
 
-- [ ] Client cannot fake offline duration.
-- [ ] Duplicate settlement blocked by lock and timestamp update.
-- [ ] Storage overflow blocked by capacity clamp.
-- [ ] Ownership race handled by locking or MVP transfer restrictions.
-- [ ] Infinite route transfer duplication blocked.
-- [ ] Destination capacity bypass blocked.
-- [ ] Route risk avoidance by toggling mitigated by timestamp handling.
+- [x] Client cannot fake offline duration.
+- [x] Duplicate settlement blocked by lock and timestamp update.
+- [x] Storage overflow blocked by capacity clamp.
+- [x] Ownership race handled by locking or MVP transfer restrictions.
+- [x] Infinite route transfer duplication blocked.
+- [x] Destination capacity bypass blocked.
+- [x] Route risk avoidance by toggling mitigated by timestamp handling.
 
 ## Done Criteria
 
-- [ ] Claimed planet can produce resources over time.
-- [ ] Offline settlement works without per-second jobs.
-- [ ] Planet storage capacity limits production.
-- [ ] Virtual routes move resources with loss and capacity checks.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] Claimed planet can produce resources over time.
+- [x] Offline settlement works without per-second jobs.
+- [x] Planet storage capacity limits production.
+- [x] Virtual routes move resources with loss and capacity checks.
+- [x] `go test ./...` passes.
+- [x] `git diff --check` passes.
+
+## Implementation Notes
+
+- Production and route settlement are in-memory MVP services under
+  `internal/game/production`.
+- Planet claim initializes production through an optional discovery-facing
+  adapter; discovery does not import concrete production services.
+- Route creation validates ownership, accessibility, resource routing, distance,
+  rank/building requirements, energy cost, and risk through server-owned policy
+  provider facts.
+- Route settlement currently supports planet-to-planet storage. Generic
+  `storage` and `station` destination settlement adapters are deferred.
+- Settlement methods return summaries, but durable event/outbox emission remains
+  deferred.
 
 ## Resume Notes
 
