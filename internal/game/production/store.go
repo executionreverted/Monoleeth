@@ -32,6 +32,7 @@ type InMemoryStore struct {
 	states    map[foundation.PlanetID]PlanetProductionState
 	storage   map[foundation.PlanetID]PlanetStorage
 	buildings map[foundation.PlanetID]map[BuildingID]PlanetBuilding
+	routes    map[foundation.RouteID]AutomationRoute
 }
 
 // NewInMemoryStore returns an empty production repository.
@@ -40,6 +41,7 @@ func NewInMemoryStore() *InMemoryStore {
 		states:    make(map[foundation.PlanetID]PlanetProductionState),
 		storage:   make(map[foundation.PlanetID]PlanetStorage),
 		buildings: make(map[foundation.PlanetID]map[BuildingID]PlanetBuilding),
+		routes:    make(map[foundation.RouteID]AutomationRoute),
 	}
 }
 
@@ -185,6 +187,29 @@ func (store *InMemoryStore) ActiveBuildings(planetID foundation.PlanetID) ([]Pla
 	}), nil
 }
 
+// AutomationRoute returns one route by id.
+func (store *InMemoryStore) AutomationRoute(routeID foundation.RouteID) (AutomationRoute, bool, error) {
+	if err := routeID.Validate(); err != nil {
+		return AutomationRoute{}, false, err
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	route, ok := store.routes[routeID]
+	if !ok {
+		return AutomationRoute{}, false, nil
+	}
+	return cloneAutomationRoute(route), true, nil
+}
+
+// AutomationRoutes returns all routes in deterministic route id order.
+func (store *InMemoryStore) AutomationRoutes() []AutomationRoute {
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	return routesFromMap(store.routes)
+}
+
 // Snapshot returns one validated aggregate snapshot by planet id.
 func (store *InMemoryStore) Snapshot(planetID foundation.PlanetID) (PlanetProductionSnapshot, bool, error) {
 	if err := planetID.Validate(); err != nil {
@@ -252,6 +277,24 @@ func (store *InMemoryStore) ensureMapsLocked() {
 	if store.buildings == nil {
 		store.buildings = make(map[foundation.PlanetID]map[BuildingID]PlanetBuilding)
 	}
+	if store.routes == nil {
+		store.routes = make(map[foundation.RouteID]AutomationRoute)
+	}
+}
+
+func (store *InMemoryStore) insertAutomationRoute(route AutomationRoute) (AutomationRoute, error) {
+	if err := route.Validate(); err != nil {
+		return AutomationRoute{}, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.ensureMapsLocked()
+
+	if _, ok := store.routes[route.RouteID]; ok {
+		return AutomationRoute{}, fmt.Errorf("route %q: %w", route.RouteID, ErrDuplicateRoute)
+	}
+	store.routes[route.RouteID] = cloneAutomationRoute(route)
+	return cloneAutomationRoute(route), nil
 }
 
 func (store *InMemoryStore) snapshotLocked(planetID foundation.PlanetID) (PlanetProductionSnapshot, bool) {
@@ -279,6 +322,20 @@ func buildingsFromMap(buildings map[BuildingID]PlanetBuilding, include func(Plan
 		}
 	}
 	sortPlanetBuildings(cloned)
+	return cloned
+}
+
+func routesFromMap(routes map[foundation.RouteID]AutomationRoute) []AutomationRoute {
+	if len(routes) == 0 {
+		return nil
+	}
+	cloned := make([]AutomationRoute, 0, len(routes))
+	for _, route := range routes {
+		cloned = append(cloned, cloneAutomationRoute(route))
+	}
+	sort.Slice(cloned, func(i, j int) bool {
+		return cloned[i].RouteID < cloned[j].RouteID
+	})
 	return cloned
 }
 
