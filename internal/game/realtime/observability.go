@@ -102,15 +102,17 @@ func (ctx CommandContext) Validate() error {
 	if err := ctx.PlayerID.Validate(); err != nil {
 		return foundation.NewDomainError(foundation.CodeUnauthenticated, "Authenticated player is invalid.", foundation.WithCause(err))
 	}
-	if !ctx.WorldID.IsZero() {
-		if err := ctx.WorldID.Validate(); err != nil {
-			return foundation.NewDomainError(foundation.CodeInvalidPayload, "World is invalid.", foundation.WithCause(err))
-		}
+	if ctx.WorldID.IsZero() {
+		return foundation.NewDomainError(foundation.CodeUnauthenticated, "Authenticated world is required.")
 	}
-	if !ctx.ZoneID.IsZero() {
-		if err := ctx.ZoneID.Validate(); err != nil {
-			return foundation.NewDomainError(foundation.CodeInvalidPayload, "Zone is invalid.", foundation.WithCause(err))
-		}
+	if err := ctx.WorldID.Validate(); err != nil {
+		return foundation.NewDomainError(foundation.CodeInvalidPayload, "World is invalid.", foundation.WithCause(err))
+	}
+	if ctx.ZoneID.IsZero() {
+		return foundation.NewDomainError(foundation.CodeUnauthenticated, "Authenticated zone is required.")
+	}
+	if err := ctx.ZoneID.Validate(); err != nil {
+		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Zone is invalid.", foundation.WithCause(err))
 	}
 	if !ctx.ReferenceID.IsZero() {
 		if err := ctx.ReferenceID.Validate(); err != nil {

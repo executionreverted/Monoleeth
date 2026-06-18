@@ -125,6 +125,49 @@ func TestObservedCommandExecutorRequiresServerResolvedIdentity(t *testing.T) {
 	}
 }
 
+func TestObservedCommandExecutorRequiresServerResolvedWorldAndZone(t *testing.T) {
+	tests := []struct {
+		name string
+		ctx  CommandContext
+	}{
+		{
+			name: "missing world",
+			ctx: CommandContext{
+				SessionID: SessionID("session-1"),
+				PlayerID:  foundation.PlayerID("player-1"),
+				ZoneID:    foundation.ZoneID("zone-1"),
+			},
+		},
+		{
+			name: "missing zone",
+			ctx: CommandContext{
+				SessionID: SessionID("session-1"),
+				PlayerID:  foundation.PlayerID("player-1"),
+				WorldID:   foundation.WorldID("world-1"),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			executor := ObservedCommandExecutor{}
+			request := NewRequestEnvelope("request-4", OperationMoveTo, json.RawMessage(`{"x":10,"y":20}`), 9)
+			var called bool
+
+			_, err := executor.Execute(tt.ctx, request, func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+				called = true
+				return nil, nil
+			})
+
+			if !foundation.IsCode(err, foundation.CodeUnauthenticated) {
+				t.Fatalf("Execute() error = %v, want %s", err, foundation.CodeUnauthenticated)
+			}
+			if called {
+				t.Fatal("handler called without server-resolved world/zone identity")
+			}
+		})
+	}
+}
+
 func validCommandContext() CommandContext {
 	return CommandContext{
 		SessionID:   SessionID("session-1"),

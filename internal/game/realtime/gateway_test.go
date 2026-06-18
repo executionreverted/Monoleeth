@@ -24,6 +24,8 @@ func TestGatewayResolvesPlayerFromSessionNotPayload(t *testing.T) {
 			handlerContext = ctx
 			var payload struct {
 				PlayerID string  `json:"player_id"`
+				WorldID  string  `json:"world_id"`
+				ZoneID   string  `json:"zone_id"`
 				X        float64 `json:"x"`
 				Y        float64 `json:"y"`
 			}
@@ -33,17 +35,21 @@ func TestGatewayResolvesPlayerFromSessionNotPayload(t *testing.T) {
 			if payload.PlayerID != "spoofed-player" {
 				t.Fatalf("payload player_id = %q, want spoofed-player", payload.PlayerID)
 			}
+			if payload.WorldID != "spoofed-world" || payload.ZoneID != "spoofed-zone" {
+				t.Fatalf("payload world/zone = %q/%q, want spoofed payload identity", payload.WorldID, payload.ZoneID)
+			}
 			return json.RawMessage(`{"accepted":true}`), nil
 		},
 	})
 
-	response := gateway.HandleRequest("session-1", []byte(`{"request_id":"request-1","op":"move_to","payload":{"player_id":"spoofed-player","x":10,"y":20},"client_seq":7,"v":1}`))
+	response := gateway.HandleRequest("session-1", []byte(`{"request_id":"request-1","op":"move_to","payload":{"player_id":"spoofed-player","world_id":"spoofed-world","zone_id":"spoofed-zone","x":10,"y":20},"client_seq":7,"v":1}`))
 
 	if response.HasError {
 		t.Fatalf("HandleRequest() error response = %+v, want success", response.Error)
 	}
-	if handlerContext.SessionID != "session-1" || handlerContext.PlayerID != "server-player" {
-		t.Fatalf("handler context = %+v, want server-resolved session/player", handlerContext)
+	if handlerContext.SessionID != "session-1" || handlerContext.PlayerID != "server-player" ||
+		handlerContext.WorldID != "world-1" || handlerContext.ZoneID != "zone-1" {
+		t.Fatalf("handler context = %+v, want server-resolved session/player/world/zone", handlerContext)
 	}
 	if got := string(response.Response.Payload); got != `{"accepted":true}` {
 		t.Fatalf("response payload = %s, want accepted true", got)
@@ -74,7 +80,7 @@ func TestGatewayRejectsUnknownSessionBeforeHandler(t *testing.T) {
 
 func TestGatewayCachesDuplicateRequestPerSession(t *testing.T) {
 	resolver := staticSessionResolver{
-		"session-1": {PlayerID: "player-1"},
+		"session-1": {PlayerID: "player-1", WorldID: "world-1", ZoneID: "zone-1"},
 	}
 	calls := 0
 	gateway := newTestGateway(t, resolver, map[Operation]CommandHandler{
@@ -96,6 +102,42 @@ func TestGatewayCachesDuplicateRequestPerSession(t *testing.T) {
 	}
 	if string(second.Response.Payload) != `{"snapshot":1}` {
 		t.Fatalf("duplicate payload = %s, want cached snapshot", second.Response.Payload)
+	}
+}
+
+func TestGatewayRejectsMissingWorldOrZoneBeforeHandler(t *testing.T) {
+	tests := []struct {
+		name    string
+		context CommandContext
+	}{
+		{
+			name:    "missing world",
+			context: CommandContext{PlayerID: "player-1", ZoneID: "zone-1"},
+		},
+		{
+			name:    "missing zone",
+			context: CommandContext{PlayerID: "player-1", WorldID: "world-1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var called bool
+			gateway := newTestGateway(t, staticSessionResolver{"session-1": tt.context}, map[Operation]CommandHandler{
+				OperationMoveTo: func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+					called = true
+					return json.RawMessage(`{"accepted":true}`), nil
+				},
+			})
+
+			response := gateway.HandleRequest("session-1", []byte(`{"request_id":"request-missing-route","op":"move_to","payload":{"x":10,"y":20},"client_seq":10,"v":1}`))
+
+			if !response.HasError || response.Error.Error.Code != foundation.CodeUnauthenticated {
+				t.Fatalf("HandleRequest() = %+v, want unauthenticated missing route identity", response)
+			}
+			if called {
+				t.Fatal("handler called without server-resolved world/zone identity")
+			}
+		})
 	}
 }
 
