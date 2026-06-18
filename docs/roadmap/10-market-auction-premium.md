@@ -2,9 +2,9 @@
 
 ## Status
 
-- State: In progress - fixed-price market and premium entitlement/weekly-stock
-  MVPs implemented 2026-06-18; auctions, expiration return command, intel stale
-  hooks, and market premium-currency listing integration pending
+- State: In progress - fixed-price market, auction, and premium entitlement/
+  weekly-stock MVPs implemented 2026-06-18; expiration return command, intel
+  stale hooks, and market premium-currency listing integration pending
 - Owner: Player economy and monetization safety
 - Depends on: Phase 02, Phase 03, Phase 06, Phase 08
 - Unlocks: player trading, controlled rare supply, premium convenience
@@ -105,22 +105,27 @@ marks listings expired and returns escrow remains pending.
 
 ## TODO: Auction
 
-- [ ] Define auction lot model.
-- [ ] Define lot payload types.
-- [ ] Implement lot creation from server catalog.
-- [ ] Implement `PlaceBid`.
-- [ ] Lock auction.
-- [ ] Validate active and not ended.
-- [ ] Validate bid amount.
-- [ ] Debit bidder.
-- [ ] Refund previous bidder in same transaction.
-- [ ] Update current bid.
-- [ ] Implement `BuyNow`.
-- [ ] Refund current bidder if any.
-- [ ] Grant payload.
-- [ ] Close auction.
-- [ ] Implement auction close worker or command.
-- [ ] Ensure close operation is idempotent.
+- [x] Define auction lot model.
+- [x] Define lot payload types.
+- [x] Implement lot creation from server catalog.
+- [x] Implement `PlaceBid`.
+- [x] Lock auction.
+- [x] Validate active and not ended.
+- [x] Validate bid amount.
+- [x] Debit bidder.
+- [x] Refund previous bidder in same transaction.
+- [x] Update current bid.
+- [x] Implement `BuyNow`.
+- [x] Refund current bidder if any.
+- [x] Grant payload.
+- [x] Close auction.
+- [x] Implement auction close worker or command.
+- [x] Ensure close operation is idempotent.
+
+Progress note, 2026-06-18: `AuctionService` is an in-memory MVP with
+server-created catalog-backed lots, mutex-serialized bids/buy-now/close, domain
+idempotency keys for bid/refund/buy-now/close ledger refs, and skeleton payload
+grants. Durable DB transactions and grant adapters remain later hardening work.
 
 ## TODO: Premium
 
@@ -152,11 +157,11 @@ unchecked until that market integration exists.
 - [x] Seller cancel racing buyer cannot duplicate item.
 - [x] Partial buy leaves correct escrow quantity.
 - [ ] Free premium cannot be listed.
-- [ ] Auction bid debits bidder.
-- [ ] Auction bid refunds previous bidder.
-- [ ] Buy-now closes auction.
-- [ ] Bid racing buy-now cannot both win.
-- [ ] Auction close grants payload once.
+- [x] Auction bid debits bidder.
+- [x] Auction bid refunds previous bidder.
+- [x] Buy-now closes auction.
+- [x] Bid racing buy-now cannot both win.
+- [x] Auction close grants payload once.
 - [x] Weekly stock concurrent purchase cannot go negative.
 - [x] Entitlement webhook replay is idempotent.
 - [x] Weekly X Core limit enforced.
@@ -165,7 +170,7 @@ unchecked until that market integration exists.
 ## Abuse And Safety Checks
 
 - [x] Market duplication blocked by escrow location.
-- [ ] Auction refund duplication blocked by transaction and ledger reference.
+- [x] Auction refund duplication blocked by transaction and ledger reference.
 - [x] Premium webhook replay blocked by provider reference uniqueness.
 - [x] Free premium laundering blocked by bucket split.
 - [ ] Price manipulation produces suspicious transaction logs.
@@ -174,7 +179,7 @@ unchecked until that market integration exists.
 ## Done Criteria
 
 - [x] Players can list and buy eligible items safely.
-- [ ] Auctions can bid, refund, buy now, and close safely.
+- [x] Auctions can bid, refund, buy now, and close safely.
 - [x] Premium buckets are enforced.
 - [x] Weekly X Core purchase limit works.
 - [ ] Intel listing stale hook exists.

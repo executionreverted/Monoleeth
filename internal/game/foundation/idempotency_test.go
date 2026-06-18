@@ -50,6 +50,34 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			want:  "auction_close:auction-3",
 		},
 		{
+			name: "auction bid",
+			build: func() (IdempotencyKey, error) {
+				return AuctionBidIdempotencyKey(AuctionID("auction-3"), PlayerID("player-2"), RequestID("request-5"))
+			},
+			want: "auction_bid:auction-3:player-2:request-5",
+		},
+		{
+			name: "auction refund",
+			build: func() (IdempotencyKey, error) {
+				return AuctionRefundIdempotencyKey(AuctionID("auction-3"), PlayerID("player-1"), RequestID("request-5"))
+			},
+			want: "auction_refund:auction-3:player-1:request-5",
+		},
+		{
+			name: "auction buy now",
+			build: func() (IdempotencyKey, error) {
+				return AuctionBuyNowIdempotencyKey(AuctionID("auction-3"), PlayerID("player-2"), RequestID("request-6"))
+			},
+			want: "auction_buy_now:auction-3:player-2:request-6",
+		},
+		{
+			name: "auction buy now refund",
+			build: func() (IdempotencyKey, error) {
+				return AuctionBuyNowRefundIdempotencyKey(AuctionID("auction-3"), PlayerID("player-1"), RequestID("request-6"))
+			},
+			want: "auction_buy_now_refund:auction-3:player-1:request-6",
+		},
+		{
 			name:  "premium webhook",
 			build: func() (IdempotencyKey, error) { return PremiumWebhookIdempotencyKey("provider-event-5") },
 			want:  "premium_webhook:provider-event-5",
@@ -160,6 +188,10 @@ func TestIdempotencyKeyRejectsMalformedKeys(t *testing.T) {
 		"death_cargo_drop:death-combat-9",
 		"death_cargo_drop:death-combat-9:iron-stack-1:extra",
 		"offline_settlement:planet-4",
+		"auction_bid:auction-3:player-2",
+		"auction_bid:auction-3:player-2:request-5:extra",
+		"auction_buy_now:auction-3:player-2",
+		"auction_buy_now_refund:auction-3:player-2:request-5:extra",
 		"market_buy:listing-9:player-2",
 		"ship_repair:fighter_t1",
 		"ship_repair:fighter_t1:repair-1:extra",

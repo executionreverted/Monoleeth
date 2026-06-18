@@ -25,21 +25,25 @@ var ErrInvalidIdempotencyPart = errors.New("invalid idempotency key part")
 type IdempotencyKey string
 
 const (
-	idempotencyQuestReward       = "quest_reward"
-	idempotencyQuestReroll       = "quest_reroll"
-	idempotencyCraftStart        = "craft_start"
-	idempotencyCraftComplete     = "craft_complete"
-	idempotencyDeathCargoDrop    = "death_cargo_drop"
-	idempotencyLootPickup        = "loot_pickup"
-	idempotencyAuctionClose      = "auction_close"
-	idempotencyPremiumWebhook    = "premium_webhook"
-	idempotencyOfflineSettlement = "offline_settlement"
-	idempotencyMarketListing     = "market_listing"
-	idempotencyMarketBuy         = "market_buy"
-	idempotencyMarketSale        = "market_sale"
-	idempotencyMarketFee         = "market_fee"
-	idempotencyMarketCancel      = "market_cancel"
-	idempotencyShipRepair        = "ship_repair"
+	idempotencyQuestReward         = "quest_reward"
+	idempotencyQuestReroll         = "quest_reroll"
+	idempotencyCraftStart          = "craft_start"
+	idempotencyCraftComplete       = "craft_complete"
+	idempotencyDeathCargoDrop      = "death_cargo_drop"
+	idempotencyLootPickup          = "loot_pickup"
+	idempotencyAuctionBid          = "auction_bid"
+	idempotencyAuctionRefund       = "auction_refund"
+	idempotencyAuctionBuyNow       = "auction_buy_now"
+	idempotencyAuctionBuyNowRefund = "auction_buy_now_refund"
+	idempotencyAuctionClose        = "auction_close"
+	idempotencyPremiumWebhook      = "premium_webhook"
+	idempotencyOfflineSettlement   = "offline_settlement"
+	idempotencyMarketListing       = "market_listing"
+	idempotencyMarketBuy           = "market_buy"
+	idempotencyMarketSale          = "market_sale"
+	idempotencyMarketFee           = "market_fee"
+	idempotencyMarketCancel        = "market_cancel"
+	idempotencyShipRepair          = "ship_repair"
 )
 
 // ParseIdempotencyKey validates value and returns an IdempotencyKey.
@@ -83,6 +87,26 @@ func LootPickupIdempotencyKey(dropID string) (IdempotencyKey, error) {
 // AuctionCloseIdempotencyKey returns auction_close:<auction_id>.
 func AuctionCloseIdempotencyKey(auctionID AuctionID) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyAuctionClose, auctionID.String())
+}
+
+// AuctionBidIdempotencyKey returns auction_bid:<auction_id>:<bidder_id>:<request_id>.
+func AuctionBidIdempotencyKey(auctionID AuctionID, bidderID PlayerID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyAuctionBid, auctionID.String(), bidderID.String(), requestID.String())
+}
+
+// AuctionRefundIdempotencyKey returns auction_refund:<auction_id>:<bidder_id>:<request_id>.
+func AuctionRefundIdempotencyKey(auctionID AuctionID, bidderID PlayerID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyAuctionRefund, auctionID.String(), bidderID.String(), requestID.String())
+}
+
+// AuctionBuyNowIdempotencyKey returns auction_buy_now:<auction_id>:<buyer_id>:<request_id>.
+func AuctionBuyNowIdempotencyKey(auctionID AuctionID, buyerID PlayerID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyAuctionBuyNow, auctionID.String(), buyerID.String(), requestID.String())
+}
+
+// AuctionBuyNowRefundIdempotencyKey returns auction_buy_now_refund:<auction_id>:<bidder_id>:<request_id>.
+func AuctionBuyNowRefundIdempotencyKey(auctionID AuctionID, bidderID PlayerID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyAuctionBuyNowRefund, auctionID.String(), bidderID.String(), requestID.String())
 }
 
 // PremiumWebhookIdempotencyKey returns premium_webhook:<provider_event_id>.
@@ -223,7 +247,11 @@ func idempotencyPartCount(operation string) (int, bool) {
 		return 2, true
 	case idempotencyQuestReroll:
 		return 2, true
-	case idempotencyMarketBuy,
+	case idempotencyAuctionBid,
+		idempotencyAuctionRefund,
+		idempotencyAuctionBuyNow,
+		idempotencyAuctionBuyNowRefund,
+		idempotencyMarketBuy,
 		idempotencyMarketSale,
 		idempotencyMarketFee:
 		return 3, true

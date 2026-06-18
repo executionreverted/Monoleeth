@@ -139,6 +139,14 @@ for phase status; this file is a compact pending-work index.
 - [ ] Formalize the Phase 10 market fee sink account in durable wallet
   provisioning and audit reports. The MVP credits the explicit service-owned
   `market-fee-sink` player id.
+- [ ] Replace Phase 10 in-memory auction bid/refund/buy-now serialization with
+  a durable wallet/lot transaction or outbox-backed recovery path before moving
+  auction storage out of process. Current `AuctionService` prevalidates and
+  holds its service lock across wallet calls, but it is not a persistent
+  rollback boundary.
+- [ ] Wire Phase 10 auction skeleton payload grants to concrete ship unlock,
+  module blueprint, X Core, material, cosmetic, intel, and building blueprint
+  adapters once those owning services expose durable grant primitives.
 - [ ] Wire Phase 10 paid-only premium bucket policy into future wallet-currency
   market listings before allowing premium currency trades. Current
   `PremiumEntitlementService` exposes `ValidatePaidPremiumUse`, but the fixed
