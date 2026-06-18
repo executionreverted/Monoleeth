@@ -26,6 +26,11 @@ type FeePolicy struct {
 	SaleFeeBasisPoints int64 `json:"sale_fee_basis_points"`
 }
 
+// SuspiciousTradePolicy controls market fraud-review log thresholds.
+type SuspiciousTradePolicy struct {
+	HighValueSaleThreshold int64 `json:"high_value_sale_threshold"`
+}
+
 // Listing records one fixed-price sell listing and its escrow location.
 type Listing struct {
 	ListingID            foundation.ListingID   `json:"listing_id"`
@@ -130,6 +135,21 @@ type ExpireListingResult struct {
 type MarkListingStaleResult struct {
 	Listing   Listing `json:"listing"`
 	Duplicate bool    `json:"duplicate"`
+}
+
+// SuspiciousTradeLog records one market sale flagged for fraud review.
+type SuspiciousTradeLog struct {
+	LogID          string                    `json:"log_id"`
+	ListingID      foundation.ListingID      `json:"listing_id"`
+	SellerPlayerID foundation.PlayerID       `json:"seller_player_id"`
+	BuyerPlayerID  foundation.PlayerID       `json:"buyer_player_id"`
+	Currency       economy.CurrencyBucket    `json:"currency_type"`
+	Quantity       int64                     `json:"quantity"`
+	UnitPrice      int64                     `json:"unit_price"`
+	TotalAmount    int64                     `json:"total_amount"`
+	Reason         string                    `json:"reason"`
+	ReferenceKey   foundation.IdempotencyKey `json:"reference_id"`
+	CreatedAt      time.Time                 `json:"created_at"`
 }
 
 // String returns the stable status representation.

@@ -56,6 +56,13 @@ type RecordSuspiciousTradeInput struct {
 	Reference      string
 }
 
+// ApplyProviderRiskLockInput describes one fraud/chargeback provider event.
+type ApplyProviderRiskLockInput struct {
+	Provider  ProviderReference
+	Reason    string
+	Reference string
+}
+
 // CreateEntitlementResult reports the stored entitlement.
 type CreateEntitlementResult struct {
 	Entitlement Entitlement
@@ -80,6 +87,13 @@ type PurchaseWeeklyXCoreResult struct {
 	Duplicate bool
 }
 
+// ApplyProviderRiskLockResult reports a provider risk lock.
+type ApplyProviderRiskLockResult struct {
+	Lock        ProviderRiskLock
+	Entitlement Entitlement
+	Duplicate   bool
+}
+
 // PremiumEntitlementService is an in-memory premium entitlement MVP.
 type PremiumEntitlementService struct {
 	mu     sync.Mutex
@@ -102,6 +116,10 @@ type PremiumEntitlementService struct {
 
 	suspiciousTradeLogs []SuspiciousTradeLog
 	nextSuspiciousLogID int64
+
+	providerRiskLocks       []ProviderRiskLock
+	providerRiskByReference map[string]ApplyProviderRiskLockResult
+	nextProviderRiskLockID  int64
 }
 
 type providerReferenceKey struct {
@@ -142,6 +160,7 @@ func NewPremiumEntitlementService(wallet *economy.WalletService, clock foundatio
 		weeklyStock:                  make(map[weeklyStockKey]WeeklyXCoreStockRecord),
 		weeklyPurchaseByReference:    make(map[string]PurchaseWeeklyXCoreResult),
 		weeklyPurchaseByPlayerPeriod: make(map[playerPeriodKey]WeeklyXCorePurchase),
+		providerRiskByReference:      make(map[string]ApplyProviderRiskLockResult),
 	}, nil
 }
 
@@ -439,6 +458,61 @@ func (service *PremiumEntitlementService) RecordSuspiciousTrade(input RecordSusp
 	return log, nil
 }
 
+// ApplyProviderRiskLock records a provider fraud/chargeback hook and revokes
+// the matching entitlement for future provider integration.
+func (service *PremiumEntitlementService) ApplyProviderRiskLock(input ApplyProviderRiskLockInput) (ApplyProviderRiskLockResult, error) {
+	if err := input.Provider.validate(); err != nil {
+		return ApplyProviderRiskLockResult{}, err
+	}
+	if err := validateProviderRiskReason(input.Reason); err != nil {
+		return ApplyProviderRiskLockResult{}, err
+	}
+	if err := validateProviderRiskReference(input.Reference); err != nil {
+		return ApplyProviderRiskLockResult{}, err
+	}
+
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	if previous, ok := service.providerRiskByReference[input.Reference]; ok {
+		if providerKey(previous.Lock.Provider) != providerKey(input.Provider) {
+			return ApplyProviderRiskLockResult{}, ErrProviderRiskReferenceConflict
+		}
+		result := previous
+		result.Duplicate = true
+		return result, nil
+	}
+
+	entitlementID, ok := service.providerReferences[providerKey(input.Provider)]
+	if !ok {
+		return ApplyProviderRiskLockResult{}, ErrEntitlementNotFound
+	}
+	entitlement := service.entitlements[entitlementID]
+	previousState := entitlement.State
+	entitlement.State = EntitlementStateRevoked
+	service.entitlements[entitlementID] = entitlement
+
+	service.nextProviderRiskLockID++
+	lock := ProviderRiskLock{
+		LockID:        fmt.Sprintf("provider-risk-lock-%d", service.nextProviderRiskLockID),
+		EntitlementID: entitlement.ID,
+		PlayerID:      entitlement.PlayerID,
+		Provider:      input.Provider,
+		Reason:        input.Reason,
+		Reference:     input.Reference,
+		PreviousState: previousState,
+		CurrentState:  entitlement.State,
+		CreatedAt:     service.clock.Now(),
+	}
+	result := ApplyProviderRiskLockResult{
+		Lock:        lock,
+		Entitlement: entitlement,
+	}
+	service.providerRiskLocks = append(service.providerRiskLocks, lock)
+	service.providerRiskByReference[input.Reference] = result
+	return result, nil
+}
+
 // Entitlements returns a stable entitlement snapshot.
 func (service *PremiumEntitlementService) Entitlements() []Entitlement {
 	service.mu.Lock()
@@ -512,6 +586,14 @@ func (service *PremiumEntitlementService) SuspiciousTradeLogs() []SuspiciousTrad
 	defer service.mu.Unlock()
 
 	return append([]SuspiciousTradeLog(nil), service.suspiciousTradeLogs...)
+}
+
+// ProviderRiskLocks returns a stable snapshot of provider risk locks.
+func (service *PremiumEntitlementService) ProviderRiskLocks() []ProviderRiskLock {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	return append([]ProviderRiskLock(nil), service.providerRiskLocks...)
 }
 
 func providerKey(provider ProviderReference) providerReferenceKey {

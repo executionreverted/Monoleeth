@@ -320,6 +320,15 @@ func TestValidatePaidPremiumUseKeepsPremiumBucketsSeparate(t *testing.T) {
 	}
 }
 
+func TestValidatePremiumCurrencyListingRejectsFreePremium(t *testing.T) {
+	if err := ValidatePremiumCurrencyListing(economy.CurrencyBucketPremiumPaid); err != nil {
+		t.Fatalf("paid premium listing eligibility error = %v, want nil", err)
+	}
+	if err := ValidatePremiumCurrencyListing(economy.CurrencyBucketPremiumEarned); !errors.Is(err, economy.ErrEarnedPremiumNotEligible) {
+		t.Fatalf("earned premium listing eligibility error = %v, want ErrEarnedPremiumNotEligible", err)
+	}
+}
+
 func TestSuspiciousTradeLogRecordsFieldsAndSnapshotsAreImmutable(t *testing.T) {
 	service, _, _ := newTestPremiumService(t)
 
@@ -353,6 +362,55 @@ func TestSuspiciousTradeLogRecordsFieldsAndSnapshotsAreImmutable(t *testing.T) {
 	nextSnapshot := service.SuspiciousTradeLogs()
 	if nextSnapshot[0].Amount != 999 || nextSnapshot[0].Reason != "price-outlier" {
 		t.Fatalf("snapshot mutation leaked into service state: %+v", nextSnapshot[0])
+	}
+}
+
+func TestApplyProviderRiskLockRevokesEntitlementAndReplaysByReference(t *testing.T) {
+	service, _, _ := newTestPremiumService(t)
+	input := validCurrencyPackCreateInput("entitlement-risk", "player-risk", "event-risk", 300)
+	if _, err := service.CreateEntitlement(input); err != nil {
+		t.Fatalf("CreateEntitlement() error = %v, want nil", err)
+	}
+	if _, err := service.ClaimEntitlement(ClaimEntitlementInput{
+		EntitlementID:    input.EntitlementID,
+		PlayerID:         input.PlayerID,
+		RequestReference: "claim-risk",
+	}); err != nil {
+		t.Fatalf("ClaimEntitlement() error = %v, want nil", err)
+	}
+
+	first, err := service.ApplyProviderRiskLock(ApplyProviderRiskLockInput{
+		Provider:  input.Provider,
+		Reason:    "chargeback",
+		Reference: "risk-event-1",
+	})
+	if err != nil {
+		t.Fatalf("ApplyProviderRiskLock() error = %v, want nil", err)
+	}
+	second, err := service.ApplyProviderRiskLock(ApplyProviderRiskLockInput{
+		Provider:  input.Provider,
+		Reason:    "chargeback",
+		Reference: "risk-event-1",
+	})
+	if err != nil {
+		t.Fatalf("duplicate ApplyProviderRiskLock() error = %v, want nil", err)
+	}
+
+	if first.Entitlement.State != EntitlementStateRevoked {
+		t.Fatalf("entitlement state = %q, want revoked", first.Entitlement.State)
+	}
+	if first.Lock.PreviousState != EntitlementStateClaimed || first.Lock.CurrentState != EntitlementStateRevoked {
+		t.Fatalf("risk lock states = %q/%q, want claimed/revoked", first.Lock.PreviousState, first.Lock.CurrentState)
+	}
+	if !second.Duplicate {
+		t.Fatal("duplicate risk lock Duplicate = false, want true")
+	}
+	if got := len(service.ProviderRiskLocks()); got != 1 {
+		t.Fatalf("risk locks len = %d, want 1", got)
+	}
+	entitlements := service.Entitlements()
+	if len(entitlements) != 1 || entitlements[0].State != EntitlementStateRevoked {
+		t.Fatalf("entitlements = %+v, want one revoked entitlement", entitlements)
 	}
 }
 

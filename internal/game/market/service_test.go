@@ -213,6 +213,39 @@ func TestBuyListingTransfersItemsCurrencyAndRecordsTotals(t *testing.T) {
 	}
 }
 
+func TestBuyListingHighValueSaleRecordsSuspiciousTradeLog(t *testing.T) {
+	fixture := newMarketFixture(t)
+	fixture.service.suspiciousPolicy = SuspiciousTradePolicy{HighValueSaleThreshold: 100}
+	fixture.seedSellerItems(t, 10, "seed-suspicious")
+	fixture.seedCredits(t, fixture.buyerID, 1_000, "buyer-suspicious")
+	create := fixture.createListing(t, "listing-suspicious", 5, 50)
+
+	result, err := fixture.service.BuyListing(BuyListingInput{
+		BuyerPlayerID: fixture.buyerID,
+		ListingID:     create.Listing.ListingID,
+		Quantity:      2,
+		RequestID:     "buy-suspicious",
+	})
+	if err != nil {
+		t.Fatalf("BuyListing suspicious: %v", err)
+	}
+
+	logs := fixture.service.SuspiciousTradeLogs()
+	if len(logs) != 1 {
+		t.Fatalf("suspicious logs len = %d, want 1", len(logs))
+	}
+	log := logs[0]
+	if log.ListingID != create.Listing.ListingID || log.SellerPlayerID != fixture.sellerID || log.BuyerPlayerID != fixture.buyerID {
+		t.Fatalf("suspicious log identity = %+v, want listing/seller/buyer", log)
+	}
+	if log.TotalAmount != result.TotalAmount || log.Quantity != 2 || log.UnitPrice != 50 {
+		t.Fatalf("suspicious log totals = %+v, want total %d quantity 2 unit 50", log, result.TotalAmount)
+	}
+	if log.Reason != "high_value_market_sale" || log.ReferenceKey != result.ReferenceKey {
+		t.Fatalf("suspicious log reason/reference = %q/%q, want high_value_market_sale/%q", log.Reason, log.ReferenceKey, result.ReferenceKey)
+	}
+}
+
 func TestBuyListingFullQuantityMarksSoldAndClearsEscrow(t *testing.T) {
 	fixture := newMarketFixture(t)
 	fixture.seedSellerItems(t, 5, "seed-full-buy")

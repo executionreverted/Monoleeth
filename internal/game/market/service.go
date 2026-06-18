@@ -42,6 +42,7 @@ type MarketServiceConfig struct {
 	Inventory         InventoryService
 	Wallet            WalletService
 	FeePolicy         FeePolicy
+	SuspiciousPolicy  SuspiciousTradePolicy
 	SystemFeePlayerID foundation.PlayerID
 }
 
@@ -53,6 +54,7 @@ type MarketService struct {
 	inventory         InventoryService
 	wallet            WalletService
 	feePolicy         FeePolicy
+	suspiciousPolicy  SuspiciousTradePolicy
 	systemFeePlayerID foundation.PlayerID
 
 	listings      map[foundation.ListingID]Listing
@@ -60,6 +62,9 @@ type MarketService struct {
 	cancelResults map[foundation.ListingID]CancelListingResult
 	expireResults map[foundation.ListingID]ExpireListingResult
 	staleResults  map[foundation.ListingID]MarkListingStaleResult
+
+	suspiciousTradeLogs []SuspiciousTradeLog
+	nextSuspiciousLogID int64
 }
 
 // NewMarketService returns an in-memory fixed-price market service.
@@ -81,6 +86,9 @@ func NewMarketService(config MarketServiceConfig) (*MarketService, error) {
 	if err := feePolicy.validate(); err != nil {
 		return nil, err
 	}
+	if err := config.SuspiciousPolicy.validate(); err != nil {
+		return nil, err
+	}
 	systemFeePlayerID := config.SystemFeePlayerID
 	if systemFeePlayerID.IsZero() {
 		systemFeePlayerID = defaultSystemFeePlayerID
@@ -94,6 +102,7 @@ func NewMarketService(config MarketServiceConfig) (*MarketService, error) {
 		inventory:         config.Inventory,
 		wallet:            config.Wallet,
 		feePolicy:         feePolicy,
+		suspiciousPolicy:  config.SuspiciousPolicy,
 		systemFeePlayerID: systemFeePlayerID,
 		listings:          make(map[foundation.ListingID]Listing),
 		buyResults:        make(map[foundation.IdempotencyKey]BuyListingResult),
@@ -296,6 +305,7 @@ func (service *MarketService) BuyListing(input BuyListingInput) (BuyListingResul
 	}
 	listing.UpdatedAt = service.clock.Now()
 	service.listings[input.ListingID] = cloneListing(listing)
+	service.recordSuspiciousTradeLocked(listing, input, total, referenceKey)
 
 	result := BuyListingResult{
 		Listing:        cloneListing(listing),
@@ -522,6 +532,14 @@ func (service *MarketService) Listings() []Listing {
 	return listings
 }
 
+// SuspiciousTradeLogs returns a stable snapshot of market fraud-review logs.
+func (service *MarketService) SuspiciousTradeLogs() []SuspiciousTradeLog {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	return append([]SuspiciousTradeLog(nil), service.suspiciousTradeLogs...)
+}
+
 func (input CreateListingInput) validate(now time.Time) error {
 	if err := input.SellerPlayerID.Validate(); err != nil {
 		return err
@@ -603,6 +621,16 @@ func (policy FeePolicy) validate() error {
 	return nil
 }
 
+func (policy SuspiciousTradePolicy) validate() error {
+	if policy.HighValueSaleThreshold < 0 {
+		return fmt.Errorf("high value sale threshold %d: %w", policy.HighValueSaleThreshold, ErrInvalidFeePolicy)
+	}
+	if policy.HighValueSaleThreshold > foundation.MaxAmount {
+		return fmt.Errorf("high value sale threshold %d: %w", policy.HighValueSaleThreshold, ErrMarketAmountOverflow)
+	}
+	return nil
+}
+
 func (service *MarketService) validateSourceQuantity(
 	playerID foundation.PlayerID,
 	definition economy.ItemDefinition,
@@ -657,6 +685,27 @@ func (service *MarketService) calculateSettlement(unitPrice int64, quantity int6
 		return 0, 0, 0, ErrMarketAmountOverflow
 	}
 	return total, fee, sellerProceeds, nil
+}
+
+func (service *MarketService) recordSuspiciousTradeLocked(listing Listing, input BuyListingInput, total int64, referenceKey foundation.IdempotencyKey) {
+	threshold := service.suspiciousPolicy.HighValueSaleThreshold
+	if threshold <= 0 || total < threshold {
+		return
+	}
+	service.nextSuspiciousLogID++
+	service.suspiciousTradeLogs = append(service.suspiciousTradeLogs, SuspiciousTradeLog{
+		LogID:          fmt.Sprintf("market-suspicious-trade-%d", service.nextSuspiciousLogID),
+		ListingID:      listing.ListingID,
+		SellerPlayerID: listing.SellerPlayerID,
+		BuyerPlayerID:  input.BuyerPlayerID,
+		Currency:       listing.Currency,
+		Quantity:       input.Quantity,
+		UnitPrice:      listing.UnitPrice,
+		TotalAmount:    total,
+		Reason:         "high_value_market_sale",
+		ReferenceKey:   referenceKey,
+		CreatedAt:      service.clock.Now(),
+	})
 }
 
 func validateListingSourceLocation(sellerID foundation.PlayerID, location economy.ItemLocation) error {

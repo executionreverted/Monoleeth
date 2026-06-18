@@ -137,11 +137,13 @@ func TestClaimPlanetSuccessConsumesXCoreSetsOwnerEmitsEventAndMarksIntelStale(t 
 	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
 	upsertClaimIntel(t, store, "player_cartographer", planet.ID, testTime(2))
 	consumer := &recordingClaimXCoreConsumer{}
+	staleMarker := &recordingClaimListedIntelStaleMarker{markedCount: 3}
 	service := newClaimTestService(t, claimTestServiceOptions{
-		store:    store,
-		rank:     planet.Level,
-		inRange:  true,
-		consumer: consumer,
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    consumer,
+		staleMarker: staleMarker,
 	})
 
 	result, err := service.ClaimPlanet(claimInput("claim_success", planet.ID))
@@ -184,6 +186,15 @@ func TestClaimPlanetSuccessConsumesXCoreSetsOwnerEmitsEventAndMarksIntelStale(t 
 	}
 	if result.StaleIntelCount != 2 {
 		t.Fatalf("stale intel count = %d, want 2", result.StaleIntelCount)
+	}
+	if result.StaleListingCount != 3 {
+		t.Fatalf("stale listing count = %d, want 3", result.StaleListingCount)
+	}
+	if got := len(staleMarker.calls); got != 1 {
+		t.Fatalf("stale marker calls = %d, want 1", got)
+	}
+	if call := staleMarker.calls[0]; call.PlayerID != claimTestPlayerID || call.PlanetID != planet.ID || call.Reason != "planet_claimed" {
+		t.Fatalf("stale marker call = %+v, want player/planet/planet_claimed", call)
 	}
 	stale, ok, err := store.PlayerPlanetIntel("player_cartographer", planet.ID)
 	if err != nil || !ok {
@@ -366,6 +377,57 @@ func TestClaimPlanetProductionInitializerErrorReturnsBeforeEventOrClaimCache(t *
 	}
 }
 
+func TestClaimPlanetListedIntelStaleMarkerFailureCanRepairOnRetry(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim")
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	consumer := &recordingClaimXCoreConsumer{}
+	markerErr := errors.New("stale marker unavailable")
+	staleMarker := &recordingClaimListedIntelStaleMarker{markedCount: 2, err: markerErr}
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    consumer,
+		staleMarker: staleMarker,
+	})
+	input := claimInput("claim_stale_marker_retry", planet.ID)
+
+	_, err := service.ClaimPlanet(input)
+	if !errors.Is(err, markerErr) {
+		t.Fatalf("ClaimPlanet stale marker error = %v, want markerErr", err)
+	}
+	stored, ok, err := store.Planet(planet.ID)
+	if err != nil || !ok {
+		t.Fatalf("Planet() ok = %v err = %v, want true nil", ok, err)
+	}
+	if stored.OwnerPlayerID != claimTestPlayerID {
+		t.Fatalf("owner after marker failure = %q, want %q", stored.OwnerPlayerID, claimTestPlayerID)
+	}
+	if got := len(consumer.calls); got != 1 {
+		t.Fatalf("x core consume calls after failure = %d, want 1", got)
+	}
+	if got := len(service.Events()); got != 0 {
+		t.Fatalf("claim events after marker failure = %d, want 0", got)
+	}
+
+	staleMarker.err = nil
+	retry, err := service.ClaimPlanet(input)
+	if err != nil {
+		t.Fatalf("retry ClaimPlanet() error = %v, want nil already-owned repair", err)
+	}
+	if !retry.Claimed || !retry.AlreadyOwned || retry.StaleListingCount != 2 {
+		t.Fatalf("retry result = %+v, want already-owned claimed with 2 stale listings", retry)
+	}
+	if got := len(consumer.calls); got != 1 {
+		t.Fatalf("x core consume calls after retry = %d, want still 1", got)
+	}
+	if got := len(staleMarker.calls); got != 2 {
+		t.Fatalf("stale marker calls after retry = %d, want 2", got)
+	}
+}
+
 func TestClaimPlanetAlreadyOwnedBySamePlayerInitializesWithoutConsumeOrEvent(t *testing.T) {
 	store := NewInMemoryStore()
 	planet := claimTestPlanet("planet-claim")
@@ -446,18 +508,20 @@ type claimTestServiceOptions struct {
 	inRange     bool
 	consumer    *recordingClaimXCoreConsumer
 	initializer ClaimProductionInitializer
+	staleMarker ClaimListedIntelStaleMarker
 }
 
 func newClaimTestService(t *testing.T, options claimTestServiceOptions) *ClaimService {
 	t.Helper()
 	service, err := NewClaimService(ClaimServiceConfig{
-		Store:                 options.store,
-		Clock:                 fixedClaimClock{now: claimTestTime()},
-		Ranks:                 fixedClaimRankProvider{rank: options.rank},
-		Proximity:             fixedClaimProximityProvider{inRange: options.inRange},
-		XCoreConsumer:         options.consumer,
-		ProductionInitializer: options.initializer,
-		XCoreItemDefinition:   claimTestXCoreDefinition(t),
+		Store:                  options.store,
+		Clock:                  fixedClaimClock{now: claimTestTime()},
+		Ranks:                  fixedClaimRankProvider{rank: options.rank},
+		Proximity:              fixedClaimProximityProvider{inRange: options.inRange},
+		XCoreConsumer:          options.consumer,
+		ProductionInitializer:  options.initializer,
+		ListedIntelStaleMarker: options.staleMarker,
+		XCoreItemDefinition:    claimTestXCoreDefinition(t),
 	})
 	if err != nil {
 		t.Fatalf("NewClaimService() error = %v, want nil", err)
@@ -596,4 +660,21 @@ func (initializer *recordingClaimProductionInitializer) InitializeClaimProductio
 		return ClaimProductionInitializeResult{}, initializer.err
 	}
 	return ClaimProductionInitializeResult{Created: true}, nil
+}
+
+type recordingClaimListedIntelStaleMarker struct {
+	calls       []ClaimListedIntelStaleInput
+	markedCount int
+	err         error
+}
+
+func (marker *recordingClaimListedIntelStaleMarker) MarkClaimedPlanetListingsStale(input ClaimListedIntelStaleInput) (ClaimListedIntelStaleResult, error) {
+	if err := input.Validate(); err != nil {
+		return ClaimListedIntelStaleResult{}, err
+	}
+	marker.calls = append(marker.calls, input)
+	if marker.err != nil {
+		return ClaimListedIntelStaleResult{}, marker.err
+	}
+	return ClaimListedIntelStaleResult{MarkedCount: marker.markedCount}, nil
 }

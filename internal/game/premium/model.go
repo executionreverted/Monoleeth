@@ -135,6 +135,19 @@ type SuspiciousTradeLog struct {
 	CreatedAt      time.Time              `json:"created_at"`
 }
 
+// ProviderRiskLock records one provider fraud/chargeback lock.
+type ProviderRiskLock struct {
+	LockID        string              `json:"lock_id"`
+	EntitlementID EntitlementID       `json:"entitlement_id"`
+	PlayerID      foundation.PlayerID `json:"player_id"`
+	Provider      ProviderReference   `json:"provider"`
+	Reason        string              `json:"reason"`
+	Reference     string              `json:"reference"`
+	PreviousState EntitlementState    `json:"previous_state"`
+	CurrentState  EntitlementState    `json:"current_state"`
+	CreatedAt     time.Time           `json:"created_at"`
+}
+
 // String returns the stable entitlement id representation.
 func (id EntitlementID) String() string {
 	return string(id)
@@ -294,6 +307,14 @@ func validateSuspiciousTradeReason(reason string) error {
 
 func validateSuspiciousTradeReference(reference string) error {
 	return validateToken("suspicious trade reference", reference, ErrEmptySuspiciousTradeReference, ErrInvalidSuspiciousTradeReference)
+}
+
+func validateProviderRiskReason(reason string) error {
+	return validateToken("provider risk reason", reason, ErrEmptyProviderRiskReason, ErrInvalidProviderRiskReason)
+}
+
+func validateProviderRiskReference(reference string) error {
+	return validateToken("provider risk reference", reference, ErrEmptyProviderRiskReference, ErrInvalidProviderRiskReference)
 }
 
 func validateToken(kind string, value string, emptyErr error, invalidErr error) error {

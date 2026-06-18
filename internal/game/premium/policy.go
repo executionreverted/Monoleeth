@@ -7,3 +7,9 @@ import "gameproject/internal/game/economy"
 func ValidatePaidPremiumUse(currency economy.CurrencyBucket) error {
 	return economy.ValidatePremiumEligibility(currency, economy.PremiumEligibilityPaidOnly)
 }
+
+// ValidatePremiumCurrencyListing reports whether a premium currency bucket may
+// be listed or traded through future wallet-currency market flows.
+func ValidatePremiumCurrencyListing(currency economy.CurrencyBucket) error {
+	return ValidatePaidPremiumUse(currency)
+}

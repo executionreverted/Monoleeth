@@ -2,9 +2,10 @@
 
 ## Status
 
-- State: In progress - fixed-price market, auction, and premium entitlement/
-  weekly-stock MVPs implemented 2026-06-18; market premium-currency listing
-  integration and planet-claim stale-listing integration pending
+- State: MVP complete - fixed-price market, auction, premium entitlement/
+  weekly-stock, policy, fraud-review, and stale-listing hooks implemented
+  2026-06-18; durable adapters and wallet-currency listing runtime wiring are
+  tracked as follow-ups
 - Owner: Player economy and monetization safety
 - Depends on: Phase 02, Phase 03, Phase 06, Phase 08
 - Unlocks: player trading, controlled rare supply, premium convenience
@@ -141,13 +142,14 @@ grants. Durable DB transactions and grant adapters remain later hardening work.
 - [x] Grant weekly X Core purchase right.
 - [x] Enforce one X Core per player per period.
 - [x] Enforce weekly world stock cannot go negative.
-- [ ] Prevent free-earned premium from being listed or traded.
+- [x] Prevent free-earned premium from being listed or traded.
 - [x] Add suspicious trade log event.
 
 Progress note, 2026-06-18: `PremiumEntitlementService` enforces paid-only
-premium use through `ValidatePaidPremiumUse`, but actual wallet-currency market
-listing is not implemented yet. Keep free-earned premium listing/trading
-unchecked until that market integration exists.
+premium use through `ValidatePaidPremiumUse` and future wallet-currency listing
+flows can call `ValidatePremiumCurrencyListing`; actual wallet-currency market
+listing runtime wiring remains a follow-up because the fixed-price market MVP
+lists items only.
 
 ## Tests
 
@@ -159,7 +161,7 @@ unchecked until that market integration exists.
 - [x] Concurrent buy only one succeeds.
 - [x] Seller cancel racing buyer cannot duplicate item.
 - [x] Partial buy leaves correct escrow quantity.
-- [ ] Free premium cannot be listed.
+- [x] Free premium cannot be listed.
 - [x] Auction bid debits bidder.
 - [x] Auction bid refunds previous bidder.
 - [x] Buy-now closes auction.
@@ -168,7 +170,7 @@ unchecked until that market integration exists.
 - [x] Weekly stock concurrent purchase cannot go negative.
 - [x] Entitlement webhook replay is idempotent.
 - [x] Weekly X Core limit enforced.
-- [ ] Planet claimed marks listed intel stale.
+- [x] Planet claimed marks listed intel stale.
 
 ## Abuse And Safety Checks
 
@@ -176,8 +178,8 @@ unchecked until that market integration exists.
 - [x] Auction refund duplication blocked by transaction and ledger reference.
 - [x] Premium webhook replay blocked by provider reference uniqueness.
 - [x] Free premium laundering blocked by bucket split.
-- [ ] Price manipulation produces suspicious transaction logs.
-- [ ] Chargeback/fraud lock hook exists for future provider integration.
+- [x] Price manipulation produces suspicious transaction logs.
+- [x] Chargeback/fraud lock hook exists for future provider integration.
 
 ## Done Criteria
 
@@ -186,8 +188,8 @@ unchecked until that market integration exists.
 - [x] Premium buckets are enforced.
 - [x] Weekly X Core purchase limit works.
 - [x] Intel listing stale hook exists.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] `go test ./...` passes.
+- [x] `git diff --check` passes.
 
 ## Resume Notes
 

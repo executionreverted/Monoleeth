@@ -40,4 +40,10 @@ var (
 	ErrInvalidSuspiciousTradeReason    = errors.New("invalid suspicious trade reason")
 	ErrEmptySuspiciousTradeReference   = errors.New("empty suspicious trade reference")
 	ErrInvalidSuspiciousTradeReference = errors.New("invalid suspicious trade reference")
+
+	ErrEmptyProviderRiskReason       = errors.New("empty provider risk reason")
+	ErrInvalidProviderRiskReason     = errors.New("invalid provider risk reason")
+	ErrEmptyProviderRiskReference    = errors.New("empty provider risk reference")
+	ErrInvalidProviderRiskReference  = errors.New("invalid provider risk reference")
+	ErrProviderRiskReferenceConflict = errors.New("provider risk reference conflict")
 )

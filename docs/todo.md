@@ -105,9 +105,11 @@ for phase status; this file is a compact pending-work index.
   can only express scan/share/claim/use intents for the authenticated player;
   never accept client-authored coordinates, planet candidates, XP, X Core
   consumption, or scroll metadata.
-- [ ] Wire planet-claim owner-change events into future intel-market stale
-  listing invalidation once coordinate/intel trading leaves the local domain
-  MVP.
+- [ ] Wire the concrete runtime adapter from discovery
+  `ClaimListedIntelStaleMarker` to market/intel listing indexes once coordinate
+  scroll listings leave the local domain MVP. Phase 10 now exposes the claim
+  hook and `MarketService.MarkListingStale`, but no durable adapter maps
+  claimed planets to active market listing IDs yet.
 - [ ] Narrow lock scope or add per-player/per-planet coordination for Phase 08
   scan, claim, share, and coordinate-scroll services before high-concurrency
   runtime deployment; current MVP services use process-local mutexes.

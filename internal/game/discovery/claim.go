@@ -51,11 +51,12 @@ type ClaimPlanetInput struct {
 
 // ClaimPlanetResult reports authoritative owner state after a claim attempt.
 type ClaimPlanetResult struct {
-	Planet          Planet `json:"planet"`
-	Claimed         bool   `json:"claimed"`
-	AlreadyOwned    bool   `json:"already_owned,omitempty"`
-	Duplicate       bool   `json:"duplicate,omitempty"`
-	StaleIntelCount int    `json:"stale_intel_count,omitempty"`
+	Planet            Planet `json:"planet"`
+	Claimed           bool   `json:"claimed"`
+	AlreadyOwned      bool   `json:"already_owned,omitempty"`
+	Duplicate         bool   `json:"duplicate,omitempty"`
+	StaleIntelCount   int    `json:"stale_intel_count,omitempty"`
+	StaleListingCount int    `json:"stale_listing_count,omitempty"`
 }
 
 // ClaimProductionInitializeInput is the narrow discovery-to-production handoff
@@ -83,6 +84,23 @@ type ClaimEventRecord struct {
 	PlanetID       foundation.PlanetID  `json:"planet_id"`
 	ClaimReference PlanetClaimReference `json:"claim_reference"`
 	CreatedAt      time.Time            `json:"created_at"`
+}
+
+// ClaimListedIntelStaleInput is the discovery-to-market/intel invalidation hook
+// fired after a planet owner change. It carries no hidden coordinates.
+type ClaimListedIntelStaleInput struct {
+	PlayerID        foundation.PlayerID  `json:"player_id"`
+	PlanetID        foundation.PlanetID  `json:"planet_id"`
+	ClaimReference  PlanetClaimReference `json:"claim_reference"`
+	Reason          string               `json:"reason"`
+	ClaimedAt       time.Time            `json:"claimed_at"`
+	SourceReference string               `json:"source_reference"`
+}
+
+// ClaimListedIntelStaleResult reports stale listed intel markers.
+type ClaimListedIntelStaleResult struct {
+	MarkedCount int  `json:"marked_count"`
+	Duplicate   bool `json:"duplicate,omitempty"`
 }
 
 // ClaimRankInput asks progression for the server-owned player rank.
@@ -155,33 +173,39 @@ type ClaimProductionInitializer interface {
 	InitializeClaimProduction(input ClaimProductionInitializeInput) (ClaimProductionInitializeResult, error)
 }
 
+type ClaimListedIntelStaleMarker interface {
+	MarkClaimedPlanetListingsStale(input ClaimListedIntelStaleInput) (ClaimListedIntelStaleResult, error)
+}
+
 // ClaimServiceConfig wires claim service boundaries without depending on
 // concrete progression, world, or inventory services.
 type ClaimServiceConfig struct {
-	Store                 *InMemoryStore
-	Clock                 foundation.Clock
-	Ranks                 ClaimRankProvider
-	Proximity             ClaimProximityProvider
-	XCoreSources          ClaimXCoreSourceProvider
-	XCoreConsumer         ClaimXCoreConsumer
-	ProductionInitializer ClaimProductionInitializer
-	XCoreItemDefinition   economy.ItemDefinition
-	ClaimReason           economy.LedgerReason
+	Store                  *InMemoryStore
+	Clock                  foundation.Clock
+	Ranks                  ClaimRankProvider
+	Proximity              ClaimProximityProvider
+	XCoreSources           ClaimXCoreSourceProvider
+	XCoreConsumer          ClaimXCoreConsumer
+	ProductionInitializer  ClaimProductionInitializer
+	ListedIntelStaleMarker ClaimListedIntelStaleMarker
+	XCoreItemDefinition    economy.ItemDefinition
+	ClaimReason            economy.LedgerReason
 }
 
 // ClaimService owns local MVP planet claim idempotency and event records.
 type ClaimService struct {
 	mu sync.Mutex
 
-	store                 *InMemoryStore
-	clock                 foundation.Clock
-	ranks                 ClaimRankProvider
-	proximity             ClaimProximityProvider
-	xCoreSources          ClaimXCoreSourceProvider
-	xCoreConsumer         ClaimXCoreConsumer
-	productionInitializer ClaimProductionInitializer
-	xCoreItemDefinition   economy.ItemDefinition
-	claimReason           economy.LedgerReason
+	store                  *InMemoryStore
+	clock                  foundation.Clock
+	ranks                  ClaimRankProvider
+	proximity              ClaimProximityProvider
+	xCoreSources           ClaimXCoreSourceProvider
+	xCoreConsumer          ClaimXCoreConsumer
+	productionInitializer  ClaimProductionInitializer
+	listedIntelStaleMarker ClaimListedIntelStaleMarker
+	xCoreItemDefinition    economy.ItemDefinition
+	claimReason            economy.LedgerReason
 
 	claims map[PlanetClaimReference]claimRecord
 	events []ClaimEventRecord
@@ -201,16 +225,17 @@ func NewClaimService(config ClaimServiceConfig) (*ClaimService, error) {
 		return nil, err
 	}
 	return &ClaimService{
-		store:                 normalized.Store,
-		clock:                 normalized.Clock,
-		ranks:                 normalized.Ranks,
-		proximity:             normalized.Proximity,
-		xCoreSources:          normalized.XCoreSources,
-		xCoreConsumer:         normalized.XCoreConsumer,
-		productionInitializer: normalized.ProductionInitializer,
-		xCoreItemDefinition:   normalized.XCoreItemDefinition,
-		claimReason:           normalized.ClaimReason,
-		claims:                make(map[PlanetClaimReference]claimRecord),
+		store:                  normalized.Store,
+		clock:                  normalized.Clock,
+		ranks:                  normalized.Ranks,
+		proximity:              normalized.Proximity,
+		xCoreSources:           normalized.XCoreSources,
+		xCoreConsumer:          normalized.XCoreConsumer,
+		productionInitializer:  normalized.ProductionInitializer,
+		listedIntelStaleMarker: normalized.ListedIntelStaleMarker,
+		xCoreItemDefinition:    normalized.XCoreItemDefinition,
+		claimReason:            normalized.ClaimReason,
+		claims:                 make(map[PlanetClaimReference]claimRecord),
 	}, nil
 }
 
@@ -253,10 +278,15 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 		if err := service.initializeProduction(input, planet, claimedAt); err != nil {
 			return ClaimPlanetResult{}, err
 		}
+		staleListings, err := service.markListedIntelStale(input, claimedAt)
+		if err != nil {
+			return ClaimPlanetResult{}, err
+		}
 		result := ClaimPlanetResult{
-			Planet:       clonePlanet(planet),
-			Claimed:      true,
-			AlreadyOwned: true,
+			Planet:            clonePlanet(planet),
+			Claimed:           true,
+			AlreadyOwned:      true,
+			StaleListingCount: staleListings.MarkedCount,
 		}
 		service.claims[input.ClaimReference] = claimRecord{input: input, result: cloneClaimPlanetResult(result)}
 		return result, nil
@@ -289,12 +319,17 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 	if err := service.initializeProduction(input, ownerChange.Planet, now); err != nil {
 		return ClaimPlanetResult{}, err
 	}
+	staleListings, err := service.markListedIntelStale(input, now)
+	if err != nil {
+		return ClaimPlanetResult{}, err
+	}
 	service.events = append(service.events, event)
 
 	result := ClaimPlanetResult{
-		Planet:          ownerChange.Planet,
-		Claimed:         ownerChange.Planet.OwnerPlayerID == input.PlayerID,
-		StaleIntelCount: len(ownerChange.StaleIntel),
+		Planet:            ownerChange.Planet,
+		Claimed:           ownerChange.Planet.OwnerPlayerID == input.PlayerID,
+		StaleIntelCount:   len(ownerChange.StaleIntel),
+		StaleListingCount: staleListings.MarkedCount,
 	}
 	service.claims[input.ClaimReference] = claimRecord{input: input, result: cloneClaimPlanetResult(result)}
 	return result, nil
@@ -348,6 +383,29 @@ func (input ClaimProductionInitializeInput) Validate() error {
 	}
 	if err := input.ClaimReference.Validate(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// Validate reports whether input can be handed to an intel listing stale marker.
+func (input ClaimListedIntelStaleInput) Validate() error {
+	if err := input.PlayerID.Validate(); err != nil {
+		return fmt.Errorf("player_id: %w", err)
+	}
+	if err := input.PlanetID.Validate(); err != nil {
+		return fmt.Errorf("planet_id: %w", err)
+	}
+	if err := input.ClaimReference.Validate(); err != nil {
+		return err
+	}
+	if !validDiscoveryToken(input.Reason) {
+		return fmt.Errorf("reason %q: %w", input.Reason, ErrInvalidPlanetClaim)
+	}
+	if input.ClaimedAt.IsZero() {
+		return fmt.Errorf("claimed_at: %w", ErrInvalidPlanetClaim)
+	}
+	if input.SourceReference == "" {
+		return fmt.Errorf("source_reference: %w", ErrInvalidPlanetClaim)
 	}
 	return nil
 }
@@ -565,6 +623,24 @@ func (service *ClaimService) initializeProduction(input ClaimPlanetInput, planet
 	}
 	_, err := service.productionInitializer.InitializeClaimProduction(initInput)
 	return err
+}
+
+func (service *ClaimService) markListedIntelStale(input ClaimPlanetInput, claimedAt time.Time) (ClaimListedIntelStaleResult, error) {
+	if service.listedIntelStaleMarker == nil {
+		return ClaimListedIntelStaleResult{}, nil
+	}
+	markerInput := ClaimListedIntelStaleInput{
+		PlayerID:        input.PlayerID,
+		PlanetID:        input.PlanetID,
+		ClaimReference:  input.ClaimReference,
+		Reason:          "planet_claimed",
+		ClaimedAt:       claimedAt,
+		SourceReference: fmt.Sprintf("%s:%s", ClaimEventPlanetClaimed, input.ClaimReference),
+	}
+	if err := markerInput.Validate(); err != nil {
+		return ClaimListedIntelStaleResult{}, err
+	}
+	return service.listedIntelStaleMarker.MarkClaimedPlanetListingsStale(markerInput)
 }
 
 func (defaultClaimXCoreSourceProvider) ClaimXCoreSourceLocation(input ClaimXCoreSourceInput) (economy.ItemLocation, error) {
