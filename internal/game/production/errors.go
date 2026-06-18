@@ -49,4 +49,13 @@ var (
 	ErrInvalidRouteCreateConfig      = errors.New("invalid route create config")
 )
 
+var (
+	ErrInvalidRouteSettlementConfig   = errors.New("invalid route settlement config")
+	ErrRouteNotFound                  = errors.New("automation route not found")
+	ErrUnsupportedRouteDestination    = errors.New("unsupported route settlement destination")
+	ErrRouteSourceStorageMissing      = errors.New("route source planet storage missing")
+	ErrRouteDestinationStorageMissing = errors.New("route destination planet storage missing")
+	ErrInvalidRouteLossRoll           = errors.New("invalid route loss roll")
+)
+
 var ErrInvalidClaimProductionInitializerConfig = errors.New("invalid claim production initializer config")

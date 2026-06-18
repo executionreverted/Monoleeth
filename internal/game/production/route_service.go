@@ -6,19 +6,21 @@ import (
 	"gameproject/internal/game/foundation"
 )
 
-// AutomationRouteServiceConfig wires route creation to explicit storage,
-// clock, and policy dependencies.
+// AutomationRouteServiceConfig wires route operations to explicit storage,
+// clock, policy, and loss-roll dependencies.
 type AutomationRouteServiceConfig struct {
-	Store  *InMemoryStore
-	Clock  foundation.Clock
-	Policy RouteCreatePolicyProvider
+	Store      *InMemoryStore
+	Clock      foundation.Clock
+	Policy     RouteCreatePolicyProvider
+	LossRoller RouteLossRoller
 }
 
-// AutomationRouteService owns the Phase 09 route creation boundary.
+// AutomationRouteService owns the Phase 09 route creation and settlement boundary.
 type AutomationRouteService struct {
-	store  *InMemoryStore
-	clock  foundation.Clock
-	policy RouteCreatePolicyProvider
+	store      *InMemoryStore
+	clock      foundation.Clock
+	policy     RouteCreatePolicyProvider
+	lossRoller RouteLossRoller
 }
 
 // NewAutomationRouteService returns a route service backed by in-memory route
@@ -33,10 +35,14 @@ func NewAutomationRouteService(config AutomationRouteServiceConfig) (*Automation
 	if config.Policy == nil {
 		return nil, fmt.Errorf("policy: %w", ErrInvalidRouteCreateConfig)
 	}
+	if config.LossRoller == nil {
+		config.LossRoller = defaultRouteLossRoller{}
+	}
 	return &AutomationRouteService{
-		store:  config.Store,
-		clock:  config.Clock,
-		policy: config.Policy,
+		store:      config.Store,
+		clock:      config.Clock,
+		policy:     config.Policy,
+		lossRoller: config.LossRoller,
 	}, nil
 }
 
@@ -75,4 +81,13 @@ func (service *AutomationRouteService) CreateRoute(input CreateRouteInput) (Crea
 		Route:   cloneAutomationRoute(stored),
 		Created: true,
 	}, nil
+}
+
+// SettleRoute settles one route using server-owned time and deterministic
+// service-configured loss rolls.
+func (service *AutomationRouteService) SettleRoute(routeID foundation.RouteID) (RouteSettlementResult, error) {
+	if service == nil || service.store == nil || service.clock == nil || service.lossRoller == nil {
+		return RouteSettlementResult{}, ErrInvalidRouteSettlementConfig
+	}
+	return service.store.SettleRoute(routeID, service.clock.Now(), service.lossRoller)
 }
