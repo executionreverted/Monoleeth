@@ -45,6 +45,38 @@ func NewInMemoryStore() *InMemoryStore {
 	}
 }
 
+// Clone returns a detached copy of all production, storage, building, and route
+// state. It is intended for read-side dry-runs and reconciliation tools.
+func (store *InMemoryStore) Clone() *InMemoryStore {
+	cloned := NewInMemoryStore()
+	if store == nil {
+		return cloned
+	}
+
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	for planetID, state := range store.states {
+		cloned.states[planetID] = cloneProductionState(state)
+	}
+	for planetID, storage := range store.storage {
+		cloned.storage[planetID] = clonePlanetStorage(storage)
+	}
+	for planetID, buildings := range store.buildings {
+		if len(buildings) == 0 {
+			continue
+		}
+		cloned.buildings[planetID] = make(map[BuildingID]PlanetBuilding, len(buildings))
+		for buildingID, building := range buildings {
+			cloned.buildings[planetID][buildingID] = clonePlanetBuilding(building)
+		}
+	}
+	for routeID, route := range store.routes {
+		cloned.routes[routeID] = cloneAutomationRoute(route)
+	}
+	return cloned
+}
+
 // InitializePlanetProduction stores default state and empty storage once.
 func (store *InMemoryStore) InitializePlanetProduction(input InitializePlanetProductionInput) (InitializePlanetProductionResult, error) {
 	if err := input.Validate(); err != nil {

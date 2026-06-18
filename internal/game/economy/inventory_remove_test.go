@@ -313,6 +313,47 @@ func TestRemoveItemRejectsGenericRemoveFromEscrowReservedAndSystemLocations(t *t
 	}
 }
 
+func TestSystemRemoveItemAllowsReservedSourceWithLedgerAndIdempotency(t *testing.T) {
+	service := newTestInventoryService()
+	definition := validStackableDefinition(t)
+	sourceLocation := validLocationKind(t, LocationKindMarketEscrow, "listing-1")
+	addStackableItems(t, service, definition, 5, sourceLocation, "loot_pickup:drop-system-remove")
+
+	input := validRemoveItemInput(t)
+	input.ItemRef.Definition = definition
+	input.SourceLocation = sourceLocation
+	input.Quantity = 3
+	input.ReferenceKey = validReferenceKey(t, "loot_pickup:system-remove")
+
+	result, err := service.SystemRemoveItem(input)
+	if err != nil {
+		t.Fatalf("SystemRemoveItem error = %v", err)
+	}
+	if result.Duplicate {
+		t.Fatal("SystemRemoveItem Duplicate = true, want false")
+	}
+	if len(result.LedgerEntries) != 1 || result.LedgerEntries[0].Action != LedgerActionDecrease {
+		t.Fatalf("ledger entries = %+v, want one decrease", result.LedgerEntries)
+	}
+	if got := service.TotalItemQuantity(input.PlayerID, definition.ItemID, sourceLocation); got != 2 {
+		t.Fatalf("source TotalItemQuantity() = %d, want 2", got)
+	}
+
+	duplicate, err := service.SystemRemoveItem(input)
+	if err != nil {
+		t.Fatalf("SystemRemoveItem duplicate error = %v", err)
+	}
+	if !duplicate.Duplicate {
+		t.Fatal("SystemRemoveItem duplicate Duplicate = false, want true")
+	}
+	if got := service.TotalItemQuantity(input.PlayerID, definition.ItemID, sourceLocation); got != 2 {
+		t.Fatalf("source TotalItemQuantity() after duplicate = %d, want 2", got)
+	}
+	if got := len(service.ItemLedgerEntries()); got != 2 {
+		t.Fatalf("ledger entries len = %d, want setup and one remove only", got)
+	}
+}
+
 func validRemoveItemInput(t *testing.T) RemoveItemInput {
 	t.Helper()
 

@@ -45,6 +45,22 @@ func (service *InventoryService) RemoveItem(input RemoveItemInput) (RemoveItemRe
 		return RemoveItemResult{}, err
 	}
 
+	return service.removeItemWithValidatedQuantity(input, quantity)
+}
+
+// SystemRemoveItem removes player-owned item quantity for trusted server-side
+// repair and economy flows. It bypasses generic player-facing source location
+// blocking while preserving validation, idempotency, ledger writes, and events.
+func (service *InventoryService) SystemRemoveItem(input RemoveItemInput) (RemoveItemResult, error) {
+	quantity, err := input.validateSystemRemove()
+	if err != nil {
+		return RemoveItemResult{}, err
+	}
+
+	return service.removeItemWithValidatedQuantity(input, quantity)
+}
+
+func (service *InventoryService) removeItemWithValidatedQuantity(input RemoveItemInput, quantity foundation.Quantity) (RemoveItemResult, error) {
 	var emitted []events.EventEnvelope
 	var emitter EventEmitter
 	service.mu.Lock()
@@ -67,6 +83,7 @@ func (service *InventoryService) RemoveItem(input RemoveItemInput) (RemoveItemRe
 
 	now := service.clock.Now()
 	var result RemoveItemResult
+	var err error
 	switch input.ItemRef.Definition.Type {
 	case ItemTypeStackable:
 		result, err = service.removeStackableItemLocked(input, quantity, now)
@@ -88,6 +105,14 @@ func (service *InventoryService) RemoveItem(input RemoveItemInput) (RemoveItemRe
 }
 
 func (input RemoveItemInput) validate() (foundation.Quantity, error) {
+	return input.validateWithSourcePolicy(true)
+}
+
+func (input RemoveItemInput) validateSystemRemove() (foundation.Quantity, error) {
+	return input.validateWithSourcePolicy(false)
+}
+
+func (input RemoveItemInput) validateWithSourcePolicy(validateSourcePolicy bool) (foundation.Quantity, error) {
 	if err := input.PlayerID.Validate(); err != nil {
 		return foundation.Quantity{}, err
 	}
@@ -97,8 +122,10 @@ func (input RemoveItemInput) validate() (foundation.Quantity, error) {
 	if err := input.SourceLocation.Validate(); err != nil {
 		return foundation.Quantity{}, err
 	}
-	if err := validateGenericRemoveSourceLocation(input.SourceLocation); err != nil {
-		return foundation.Quantity{}, err
+	if validateSourcePolicy {
+		if err := validateGenericRemoveSourceLocation(input.SourceLocation); err != nil {
+			return foundation.Quantity{}, err
+		}
 	}
 	quantity, err := foundation.NewQuantity(input.Quantity)
 	if err != nil {

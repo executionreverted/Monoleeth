@@ -158,16 +158,23 @@ references. These are specs only; no external Grafana/admin UI has been wired.
 
 ## TODO: Admin And Repair Tools
 
-- [ ] Inspect player inventory.
-- [ ] Inspect player wallet ledger.
-- [ ] Inspect item ledger.
-- [ ] Reverse bad transaction using compensating entry.
-- [ ] Disable suspicious market listing.
-- [ ] Mark intel listing stale.
-- [ ] Refund auction bid through ledger.
-- [ ] Repair stuck craft job.
-- [ ] Dry-run offline settlement.
-- [ ] Dry-run route settlement.
+- [x] Inspect player inventory.
+- [x] Inspect player wallet ledger.
+- [x] Inspect item ledger.
+- [x] Reverse bad transaction using compensating entry.
+- [x] Disable suspicious market listing.
+- [x] Mark intel listing stale.
+- [x] Refund auction bid through ledger.
+- [x] Repair stuck craft job.
+- [x] Dry-run offline settlement.
+- [x] Dry-run route settlement.
+
+Implementation note 2026-06-18:
+`internal/game/admin` now composes existing economy, market, auction, crafting,
+and production services for read-side inspection and repair. Currency/item
+repair writes admin compensation ledger entries through wallet/inventory
+services, market listing disable returns escrow through market cancellation, and
+production/route dry-runs execute against cloned production stores.
 
 ## TODO: Security Review Gates
 

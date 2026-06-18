@@ -115,6 +115,13 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			},
 			want: "ship_repair:fighter_t1:repair-job-7",
 		},
+		{
+			name: "admin compensation",
+			build: func() (IdempotencyKey, error) {
+				return AdminCompensationIdempotencyKey("currency-ledger-9", "ticket-42")
+			},
+			want: "admin_compensation:currency-ledger-9:ticket-42",
+		},
 	}
 
 	for _, tc := range cases {
@@ -210,6 +217,8 @@ func TestIdempotencyKeyRejectsMalformedKeys(t *testing.T) {
 		"market_expire:listing-9:extra",
 		"ship_repair:fighter_t1",
 		"ship_repair:fighter_t1:repair-1:extra",
+		"admin_compensation:ledger-1",
+		"admin_compensation:ledger-1:ticket-1:extra",
 	} {
 		t.Run(value, func(t *testing.T) {
 			_, err := ParseIdempotencyKey(value)

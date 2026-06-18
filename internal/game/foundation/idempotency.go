@@ -46,6 +46,7 @@ const (
 	idempotencyMarketCancel        = "market_cancel"
 	idempotencyMarketExpire        = "market_expire"
 	idempotencyShipRepair          = "ship_repair"
+	idempotencyAdminCompensation   = "admin_compensation"
 )
 
 // ParseIdempotencyKey validates value and returns an IdempotencyKey.
@@ -164,6 +165,11 @@ func ShipRepairIdempotencyKey(shipID ShipID, repairReference string) (Idempotenc
 	return buildIdempotencyKey(idempotencyShipRepair, shipID.String(), repairReference)
 }
 
+// AdminCompensationIdempotencyKey returns admin_compensation:<subject_id>:<repair_reference>.
+func AdminCompensationIdempotencyKey(subjectID string, repairReference string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyAdminCompensation, subjectID, repairReference)
+}
+
 // ShipRepairShipID returns the ship id encoded in a ship repair idempotency key.
 func ShipRepairShipID(key IdempotencyKey) (ShipID, error) {
 	if err := key.Validate(); err != nil {
@@ -271,7 +277,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyMarketFee:
 		return 3, true
 	case idempotencyShipRepair,
-		idempotencyDeathCargoDrop:
+		idempotencyDeathCargoDrop,
+		idempotencyAdminCompensation:
 		return 2, true
 	default:
 		return 0, false
