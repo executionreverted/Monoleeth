@@ -116,8 +116,8 @@ drop creation or pickup.
 - [x] Simulate many concurrent loot pickups.
 - [x] Simulate market buy/cancel races.
 - [x] Simulate auction bid/buy-now races.
-- [ ] Simulate offline planet settlements.
-- [ ] Simulate route settlements.
+- [x] Simulate offline planet settlements.
+- [x] Simulate route settlements.
 - [x] Track total item faucets.
 - [x] Track total item sinks.
 - [x] Track total currency faucets.
@@ -134,6 +134,10 @@ death drop creation once, and fans out pickup attempts against each drop.
 Market buy/cancel and auction bid/buy-now race runners now use the authoritative
 market, auction, wallet, and inventory services and fail closed if item
 conservation, escrow cleanup, refund, grant, or terminal-state checks drift.
+Offline planet and route settlement runners now use the authoritative production
+store and automation route service, record production faucets and route-loss
+sinks, and retry settlement at the same server timestamp to assert duplicate
+no-op behavior.
 
 ## TODO: Economy Dashboards
 

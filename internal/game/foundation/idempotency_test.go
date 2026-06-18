@@ -90,6 +90,13 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			want: "offline_settlement:planet-4:window-20260617-10",
 		},
 		{
+			name: "route settlement",
+			build: func() (IdempotencyKey, error) {
+				return RouteSettlementIdempotencyKey(RouteID("route-7"), "window-20260617-10")
+			},
+			want: "route_settlement:route-7:window-20260617-10",
+		},
+		{
 			name: "market buy",
 			build: func() (IdempotencyKey, error) {
 				return MarketBuyIdempotencyKey(ListingID("listing-9"), PlayerID("player-2"), RequestID("request-5"))
@@ -193,6 +200,7 @@ func TestIdempotencyKeyRejectsMalformedKeys(t *testing.T) {
 		"death_cargo_drop:death-combat-9",
 		"death_cargo_drop:death-combat-9:iron-stack-1:extra",
 		"offline_settlement:planet-4",
+		"route_settlement:route-7",
 		"auction_bid:auction-3:player-2",
 		"auction_bid:auction-3:player-2:request-5:extra",
 		"auction_buy_now:auction-3:player-2",

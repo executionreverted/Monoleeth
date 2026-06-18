@@ -38,6 +38,7 @@ const (
 	idempotencyAuctionClose        = "auction_close"
 	idempotencyPremiumWebhook      = "premium_webhook"
 	idempotencyOfflineSettlement   = "offline_settlement"
+	idempotencyRouteSettlement     = "route_settlement"
 	idempotencyMarketListing       = "market_listing"
 	idempotencyMarketBuy           = "market_buy"
 	idempotencyMarketSale          = "market_sale"
@@ -118,6 +119,11 @@ func PremiumWebhookIdempotencyKey(providerEventID string) (IdempotencyKey, error
 // OfflineSettlementIdempotencyKey returns offline_settlement:<planet_id>:<settlement_window>.
 func OfflineSettlementIdempotencyKey(planetID PlanetID, settlementWindow string) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyOfflineSettlement, planetID.String(), settlementWindow)
+}
+
+// RouteSettlementIdempotencyKey returns route_settlement:<route_id>:<settlement_window>.
+func RouteSettlementIdempotencyKey(routeID RouteID, settlementWindow string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyRouteSettlement, routeID.String(), settlementWindow)
 }
 
 // MarketListingIdempotencyKey returns market_listing:<listing_id>.
@@ -251,6 +257,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyMarketExpire:
 		return 1, true
 	case idempotencyOfflineSettlement:
+		return 2, true
+	case idempotencyRouteSettlement:
 		return 2, true
 	case idempotencyQuestReroll:
 		return 2, true
