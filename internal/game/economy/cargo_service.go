@@ -103,14 +103,16 @@ func (service *CargoService) AddItem(input CargoAddItemInput) (AddItemResult, er
 	if result, ok := service.duplicateAddItemResult(input.PlayerID, input.ReferenceKey); ok {
 		return result, nil
 	}
-	if err := service.validateCargoTransferGuard(CargoTransferGuardInput{
+	lease, err := service.beginCargoTransferGuard(CargoTransferGuardInput{
 		PlayerID:     input.PlayerID,
 		ToLocation:   input.ActiveCargo,
 		Reason:       input.Reason,
 		ReferenceKey: input.ReferenceKey,
-	}); err != nil {
+	})
+	if err != nil {
 		return AddItemResult{}, err
 	}
+	defer releaseCargoTransferLease(lease)
 
 	var inventoryEmitted []events.EventEnvelope
 	var inventoryEmitter EventEmitter
@@ -198,15 +200,17 @@ func (service *CargoService) MoveItem(input CargoMoveItemInput) (MoveItemResult,
 	if result, ok := service.duplicateMoveItemResult(input.PlayerID, input.ReferenceKey); ok {
 		return result, nil
 	}
-	if err := service.validateCargoTransferGuard(CargoTransferGuardInput{
+	lease, err := service.beginCargoTransferGuard(CargoTransferGuardInput{
 		PlayerID:     input.PlayerID,
 		FromLocation: input.FromLocation,
 		ToLocation:   input.ActiveCargo,
 		Reason:       input.Reason,
 		ReferenceKey: input.ReferenceKey,
-	}); err != nil {
+	})
+	if err != nil {
 		return MoveItemResult{}, err
 	}
+	defer releaseCargoTransferLease(lease)
 
 	var inventoryEmitted []events.EventEnvelope
 	var inventoryEmitter EventEmitter
@@ -304,20 +308,20 @@ func (service *InventoryService) duplicateMoveItemResultLocked(playerID foundati
 	return result, true
 }
 
-func (service *CargoService) validateCargoTransferGuard(input CargoTransferGuardInput) error {
+func (service *CargoService) beginCargoTransferGuard(input CargoTransferGuardInput) (CargoTransferLease, error) {
 	if service == nil {
-		return nil
+		return nil, nil
 	}
 	if !input.InvolvesShipCargo() {
-		return nil
+		return nil, nil
 	}
 	service.mu.Lock()
 	guard := service.cargoGuard
 	service.mu.Unlock()
 	if guard == nil {
-		return nil
+		return nil, nil
 	}
-	return guard.ValidateCargoTransfer(input)
+	return guard.BeginCargoTransfer(input)
 }
 
 func (service *CargoService) duplicateAddItemResult(playerID foundation.PlayerID, referenceKey foundation.IdempotencyKey) (AddItemResult, bool) {

@@ -603,9 +603,16 @@ func (emitter reentrantCargoEmitter) Record(_ events.EventEnvelope) {
 type recordingCargoTransferGuard struct {
 	err    error
 	inputs []CargoTransferGuardInput
+	active int
 }
 
-func (guard *recordingCargoTransferGuard) ValidateCargoTransfer(input CargoTransferGuardInput) error {
+func (guard *recordingCargoTransferGuard) BeginCargoTransfer(input CargoTransferGuardInput) (CargoTransferLease, error) {
 	guard.inputs = append(guard.inputs, input)
-	return guard.err
+	if guard.err != nil {
+		return nil, guard.err
+	}
+	guard.active++
+	return CargoTransferLeaseFunc(func() {
+		guard.active--
+	}), nil
 }

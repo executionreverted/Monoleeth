@@ -172,8 +172,8 @@ for phase status; this file is a compact pending-work index.
 
 - [x] Block process-local player-facing cargo transfers while a lethal/death
   transaction is in progress for the player ship. `DeathService` now implements
-  the economy cargo transfer guard for Phase 06, while durable/provider-backed
-  death processing remains tracked separately.
+  the economy cargo transfer guard with short transfer leases for Phase 06,
+  while durable/provider-backed death processing remains tracked separately.
 - [x] Replace the Phase 05 vertical-slice test-local stat input adapter with
   concrete Phase 03 runtime providers for the in-process backend vertical slice.
   Gateway exposure remains blocked on authenticated session/player resolution.

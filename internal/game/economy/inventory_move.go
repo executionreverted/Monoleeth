@@ -55,9 +55,11 @@ func (service *InventoryService) MoveItem(input MoveItemInput) (MoveItemResult, 
 	if result, ok := service.duplicateMoveItemResult(input.PlayerID, input.ReferenceKey); ok {
 		return result, nil
 	}
-	if err := service.validateCargoTransferGuard(input.cargoTransferGuardInput()); err != nil {
+	lease, err := service.beginCargoTransferGuard(input.cargoTransferGuardInput())
+	if err != nil {
 		return MoveItemResult{}, err
 	}
+	defer releaseCargoTransferLease(lease)
 
 	return service.moveItemWithValidatedQuantity(input, quantity)
 }
@@ -266,20 +268,20 @@ func (input MoveItemInput) validateGenericSourceMove() (foundation.Quantity, err
 	return input.validateWithLocationPolicies(true, false)
 }
 
-func (service *InventoryService) validateCargoTransferGuard(input CargoTransferGuardInput) error {
+func (service *InventoryService) beginCargoTransferGuard(input CargoTransferGuardInput) (CargoTransferLease, error) {
 	if service == nil {
-		return nil
+		return nil, nil
 	}
 	if !input.InvolvesShipCargo() {
-		return nil
+		return nil, nil
 	}
 	service.mu.Lock()
 	guard := service.cargoGuard
 	service.mu.Unlock()
 	if guard == nil {
-		return nil
+		return nil, nil
 	}
-	return guard.ValidateCargoTransfer(input)
+	return guard.BeginCargoTransfer(input)
 }
 
 func (service *InventoryService) duplicateMoveItemResult(playerID foundation.PlayerID, referenceKey foundation.IdempotencyKey) (MoveItemResult, bool) {
@@ -290,6 +292,12 @@ func (service *InventoryService) duplicateMoveItemResult(playerID foundation.Pla
 	defer service.mu.Unlock()
 
 	return service.duplicateMoveItemResultLocked(playerID, referenceKey)
+}
+
+func releaseCargoTransferLease(lease CargoTransferLease) {
+	if lease != nil {
+		lease.Release()
+	}
 }
 
 func (input MoveItemInput) cargoTransferGuardInput() CargoTransferGuardInput {

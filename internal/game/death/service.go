@@ -97,6 +97,8 @@ type DeathService struct {
 
 	cargoLockMu     sync.Mutex
 	activeCargoLock map[foundation.PlayerID]int
+	activeTransfers map[foundation.PlayerID]int
+	cargoLockCond   *sync.Cond
 }
 
 type processDeathAttempt struct {
@@ -220,7 +222,7 @@ func NewDeathService(config Config) (*DeathService, error) {
 	if config.Ships == nil {
 		return nil, ErrNilShipService
 	}
-	return &DeathService{
+	service := &DeathService{
 		clock:            config.Clock,
 		rng:              config.RNG,
 		inventory:        config.Inventory,
@@ -231,7 +233,10 @@ func NewDeathService(config Config) (*DeathService, error) {
 		attempts:         make(map[LethalEventKey]processDeathAttempt),
 		processed:        make(map[LethalEventKey]ProcessDeathResult),
 		activeCargoLock:  make(map[foundation.PlayerID]int),
-	}, nil
+		activeTransfers:  make(map[foundation.PlayerID]int),
+	}
+	service.cargoLockCond = sync.NewCond(&service.cargoLockMu)
+	return service, nil
 }
 
 // SetModuleDurabilityHook configures the optional durability hook.
@@ -250,23 +255,31 @@ func (service *DeathService) SetEventEmitter(emitter EventEmitter) {
 	service.emitter = emitter
 }
 
-// ValidateCargoTransfer blocks player-facing cargo moves while death processing
-// owns the player's ship cargo state.
-func (service *DeathService) ValidateCargoTransfer(input economy.CargoTransferGuardInput) error {
+// BeginCargoTransfer records one player-facing cargo mutation so death
+// processing can serialize around live ship cargo changes.
+func (service *DeathService) BeginCargoTransfer(input economy.CargoTransferGuardInput) (economy.CargoTransferLease, error) {
 	if err := input.PlayerID.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 	if !input.InvolvesShipCargo() {
-		return nil
+		return nil, nil
 	}
 
 	service.cargoLockMu.Lock()
-	active := service.activeCargoLock[input.PlayerID] > 0
-	service.cargoLockMu.Unlock()
-	if !active {
-		return nil
+	defer service.cargoLockMu.Unlock()
+
+	if service.activeCargoLock[input.PlayerID] > 0 {
+		return nil, fmt.Errorf("player %q cargo locked by death processing: %w", input.PlayerID, ErrDeathCargoTransferBlocked)
 	}
-	return fmt.Errorf("player %q cargo locked by death processing: %w", input.PlayerID, ErrDeathCargoTransferBlocked)
+	if service.activeTransfers == nil {
+		service.activeTransfers = make(map[foundation.PlayerID]int)
+	}
+	service.activeTransfers[input.PlayerID]++
+	return &deathCargoTransferLease{
+		release: func() {
+			service.endCargoTransfer(input.PlayerID)
+		},
+	}, nil
 }
 
 // ProcessDeath processes one lethal event once.
@@ -599,6 +612,9 @@ func (service *DeathService) beginCargoTransferBlock(playerID foundation.PlayerI
 		service.activeCargoLock = make(map[foundation.PlayerID]int)
 	}
 	service.activeCargoLock[playerID]++
+	for service.activeTransfers[playerID] > 0 {
+		service.cargoCondLocked().Wait()
+	}
 }
 
 func (service *DeathService) endCargoTransferBlock(playerID foundation.PlayerID) {
@@ -608,9 +624,42 @@ func (service *DeathService) endCargoTransferBlock(playerID foundation.PlayerID)
 	active := service.activeCargoLock[playerID]
 	if active <= 1 {
 		delete(service.activeCargoLock, playerID)
+		service.cargoCondLocked().Broadcast()
 		return
 	}
 	service.activeCargoLock[playerID] = active - 1
+}
+
+func (service *DeathService) endCargoTransfer(playerID foundation.PlayerID) {
+	service.cargoLockMu.Lock()
+	defer service.cargoLockMu.Unlock()
+
+	active := service.activeTransfers[playerID]
+	if active <= 1 {
+		delete(service.activeTransfers, playerID)
+		service.cargoCondLocked().Broadcast()
+		return
+	}
+	service.activeTransfers[playerID] = active - 1
+}
+
+func (service *DeathService) cargoCondLocked() *sync.Cond {
+	if service.cargoLockCond == nil {
+		service.cargoLockCond = sync.NewCond(&service.cargoLockMu)
+	}
+	return service.cargoLockCond
+}
+
+type deathCargoTransferLease struct {
+	once    sync.Once
+	release func()
+}
+
+func (lease *deathCargoTransferLease) Release() {
+	if lease == nil {
+		return
+	}
+	lease.once.Do(lease.release)
 }
 
 func (service *DeathService) activeShipForDeath(playerID foundation.PlayerID) (foundation.ShipID, bool, error) {

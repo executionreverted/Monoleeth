@@ -75,7 +75,7 @@ Crafting:
 - [x] Mark active ship disabled.
 - [x] Record respawn location.
 - [x] Emit player death, ship disabled, and cargo dropped events. Verified 2026-06-18 by `DeathService.ProcessDeath` event payload and duplicate retry tests.
-- [x] Block cargo transfer while in lethal/dead transaction. Verified 2026-06-18 by `DeathService` cargo transfer guard integration tests and economy guard duplicate-retry tests.
+- [x] Block cargo transfer while in lethal/dead transaction. Verified 2026-06-18 by `DeathService` cargo transfer guard integration tests, in-flight transfer serialization tests, and economy guard duplicate-retry tests.
 - [x] Add module durability loss hook.
 - [ ] Invalidate stats when module breaks.
 
@@ -182,4 +182,4 @@ If resuming here, inspect whether craft jobs remember recipe version and whether
 Verified slices:
 
 - `DeathService.ProcessDeath` emits `player.died`, `ship.disabled`, and `death.cargo_dropped` after successful death processing. Duplicate lethal-event retries return the cached result without re-emitting death events.
-- `DeathService` now exposes a process-local cargo transfer guard for Phase 06: player-facing ship cargo adds/moves fail while death processing is in flight, trusted system inventory moves continue for death-owned flows, and duplicate economy retries return cached results before consulting the guard.
+- `DeathService` now exposes a process-local cargo transfer guard for Phase 06: player-facing ship cargo adds/moves acquire short transfer leases, death processing waits for already-active leases before touching cargo, new player-facing cargo transfers fail while death processing is in flight, trusted system inventory moves continue for death-owned flows, and duplicate economy retries return cached results before consulting the guard.

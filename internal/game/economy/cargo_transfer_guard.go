@@ -17,8 +17,24 @@ func (input CargoTransferGuardInput) InvolvesShipCargo() bool {
 	return input.FromLocation.Kind == LocationKindShipCargo || input.ToLocation.Kind == LocationKindShipCargo
 }
 
-// CargoTransferGuard can reject player-facing cargo moves while another domain
-// is processing authoritative state for that player.
+// CargoTransferLease releases a player-facing cargo mutation once the guarded
+// economy operation has finished.
+type CargoTransferLease interface {
+	Release()
+}
+
+// CargoTransferLeaseFunc adapts a release function into a lease.
+type CargoTransferLeaseFunc func()
+
+// Release releases this lease.
+func (release CargoTransferLeaseFunc) Release() {
+	if release != nil {
+		release()
+	}
+}
+
+// CargoTransferGuard can serialize player-facing cargo moves while another
+// domain is processing authoritative state for that player.
 type CargoTransferGuard interface {
-	ValidateCargoTransfer(CargoTransferGuardInput) error
+	BeginCargoTransfer(CargoTransferGuardInput) (CargoTransferLease, error)
 }
