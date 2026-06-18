@@ -54,6 +54,17 @@ type requestCacheFlight struct {
 	panicValue any
 }
 
+type requestCacheFlightWaitPhase string
+
+const (
+	requestCacheFlightWaitBefore requestCacheFlightWaitPhase = "before"
+	requestCacheFlightWaitAfter  requestCacheFlightWaitPhase = "after"
+)
+
+// requestCacheInFlightWaitHook is nil in production; same-package tests install
+// it to make in-flight waiter synchronization deterministic.
+var requestCacheInFlightWaitHook func(requestCacheKey, requestCacheFlightWaitPhase)
+
 // NewRequestCache returns a bounded cache. Capacity less than one stores one item.
 func NewRequestCache(capacity int) *RequestCache {
 	if capacity < 1 {
@@ -97,7 +108,9 @@ func (cache *RequestCache) GetOrRemember(sessionID SessionID, requestID foundati
 	}
 	if flight, ok := cache.inFlight[key]; ok {
 		cache.mu.Unlock()
+		notifyRequestCacheInFlightWait(key, requestCacheFlightWaitBefore)
 		<-flight.done
+		notifyRequestCacheInFlightWait(key, requestCacheFlightWaitAfter)
 		if flight.panicValue != nil {
 			panic(flight.panicValue)
 		}
@@ -128,6 +141,12 @@ func (cache *RequestCache) GetOrRemember(sessionID SessionID, requestID foundati
 	delete(cache.inFlight, key)
 	close(flight.done)
 	return response.clone(), false
+}
+
+func notifyRequestCacheInFlightWait(key requestCacheKey, phase requestCacheFlightWaitPhase) {
+	if requestCacheInFlightWaitHook != nil {
+		requestCacheInFlightWaitHook(key, phase)
+	}
 }
 
 // Len returns the current number of cached responses.
