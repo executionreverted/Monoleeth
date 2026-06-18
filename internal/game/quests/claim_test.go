@@ -1,13 +1,16 @@
 package quests
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/progression"
+	"gameproject/internal/game/realtime"
 )
 
 func TestClaimRewardRejectsIncompleteQuestWithoutGrants(t *testing.T) {
@@ -28,6 +31,63 @@ func TestClaimRewardRejectsIncompleteQuestWithoutGrants(t *testing.T) {
 	if stored.State != QuestStateAccepted || stored.ClaimedAt != nil || stored.RewardClaimedAt != nil {
 		t.Fatalf("stored quest after rejected claim = state %q claimed_at %v reward_claimed_at %v, want accepted unclaimed", stored.State, stored.ClaimedAt, stored.RewardClaimedAt)
 	}
+}
+
+func TestClaimRewardErrorsDoNotLeakHiddenQuestTargets(t *testing.T) {
+	fixture, _, _, _ := newClaimRewardFixture(t)
+	quest := validPlayerQuest(t, QuestStateAccepted)
+	quest.PlayerQuestID = "hidden_planet_9_x200_y300"
+	quest.GeneratedPayload.Objective = validObjectiveSchema(t)
+	quest.RewardReferenceID = RewardReferenceForPlayerQuest(quest.PlayerQuestID)
+	if err := quest.Validate(); err != nil {
+		t.Fatalf("hidden quest Validate() = %v, want nil", err)
+	}
+	fixture.store.mu.Lock()
+	fixture.store.quests[quest.PlayerQuestID] = clonePlayerQuest(quest)
+	fixture.store.appendPlayerQuestLocked(quest.PlayerID, quest.PlayerQuestID)
+	fixture.store.mu.Unlock()
+
+	_, err := fixture.service.ClaimReward(ClaimRewardInput{
+		PlayerID:      quest.PlayerID,
+		PlayerQuestID: quest.PlayerQuestID,
+	})
+	assertClaimRewardPublicError(t, err, foundation.CodeForbidden, ErrInvalidQuestClaim, []string{
+		"hidden_planet_9_x200_y300",
+		"hidden",
+		"planet",
+		"x200",
+		"y300",
+		"accepted",
+	})
+}
+
+func TestClaimRewardInvalidStoredRewardPayloadUsesSafePublicError(t *testing.T) {
+	fixture, _, _, _ := newClaimRewardFixture(t)
+	quest := validPlayerQuest(t, QuestStateCompleted)
+	quest.PlayerQuestID = "quest_hidden_reward_payload"
+	quest.RewardReferenceID = RewardReferenceForPlayerQuest(quest.PlayerQuestID)
+	quest.RewardPayload = RewardPayload{Grants: []RewardGrant{{
+		Kind:   RewardKindItem,
+		Amount: 1,
+		ItemID: "hidden_planet_9:x200_y300",
+	}}}
+	fixture.store.mu.Lock()
+	fixture.store.quests[quest.PlayerQuestID] = clonePlayerQuest(quest)
+	fixture.store.appendPlayerQuestLocked(quest.PlayerID, quest.PlayerQuestID)
+	fixture.store.mu.Unlock()
+
+	_, err := fixture.service.ClaimReward(ClaimRewardInput{
+		PlayerID:      quest.PlayerID,
+		PlayerQuestID: quest.PlayerQuestID,
+	})
+	assertClaimRewardPublicError(t, err, foundation.CodeForbidden, ErrInvalidRewardItem, []string{
+		"quest_hidden_reward_payload",
+		"hidden_planet_9:x200_y300",
+		"hidden",
+		"planet",
+		"x200",
+		"y300",
+	})
 }
 
 func TestClaimRewardGrantsAllRewardsOnceWithQuestRewardReference(t *testing.T) {
@@ -262,6 +322,39 @@ func assertClaimGrantReferences(
 	}
 	if len(xp.calls) > 0 && xp.calls[len(xp.calls)-1].Authority != progression.XPGrantAuthorityQuestService {
 		t.Fatalf("xp authority = %q, want %q", xp.calls[len(xp.calls)-1].Authority, progression.XPGrantAuthorityQuestService)
+	}
+}
+
+func assertClaimRewardPublicError(t *testing.T, err error, wantCode foundation.Code, wantCause error, leaked []string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("ClaimReward() error = nil, want safe public error")
+	}
+	if !errors.Is(err, wantCause) {
+		t.Fatalf("ClaimReward() error = %v, want cause %v", err, wantCause)
+	}
+
+	var domainErr *foundation.DomainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("ClaimReward() error %T = %v, want *foundation.DomainError", err, err)
+	}
+	if domainErr.Code != wantCode {
+		t.Fatalf("public error code = %s, want %s", domainErr.Code, wantCode)
+	}
+
+	envelope := realtime.NewErrorEnvelope("request_claim_reward_safe", domainErr, false, 182736125)
+	payload, marshalErr := json.Marshal(envelope)
+	if marshalErr != nil {
+		t.Fatalf("marshal error envelope: %v", marshalErr)
+	}
+
+	for _, text := range []string{err.Error(), string(payload)} {
+		lower := strings.ToLower(text)
+		for _, token := range leaked {
+			if strings.Contains(lower, strings.ToLower(token)) {
+				t.Fatalf("public claim error leaked %q in %s", token, text)
+			}
+		}
 	}
 }
 

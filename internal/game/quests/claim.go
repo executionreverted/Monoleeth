@@ -1,6 +1,7 @@
 package quests
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -93,6 +94,14 @@ type rewardClaimPreparation struct {
 // happen outside that lock and rely on the quest_reward reference for duplicate
 // safety.
 func (service *QuestService) ClaimReward(input ClaimRewardInput) (ClaimRewardResult, error) {
+	result, err := service.claimReward(input)
+	if err != nil {
+		return result, PublicClaimRewardError(err)
+	}
+	return result, nil
+}
+
+func (service *QuestService) claimReward(input ClaimRewardInput) (ClaimRewardResult, error) {
 	if err := input.Validate(); err != nil {
 		return ClaimRewardResult{}, err
 	}
@@ -170,6 +179,30 @@ func (service *QuestService) ClaimReward(input ClaimRewardInput) (ClaimRewardRes
 	return service.finalizeClaimRewardLocked(input, prep.claimedQuest, result)
 }
 
+// PublicClaimRewardError returns a client-safe claim error while preserving the
+// original cause for server-side errors.Is/errors.As checks and diagnostics.
+func PublicClaimRewardError(err error) *foundation.DomainError {
+	if err == nil {
+		return nil
+	}
+
+	code := foundation.CodeInternal
+	message := "Request failed."
+	switch {
+	case errors.Is(err, foundation.ErrEmptyID), errors.Is(err, foundation.ErrInvalidID):
+		code = foundation.CodeInvalidPayload
+		message = "Invalid quest reward claim."
+	case errors.Is(err, ErrPlayerQuestNotFound), errors.Is(err, ErrPlayerQuestOwnerMismatch):
+		code = foundation.CodeNotFound
+		message = "Quest reward is not available."
+	case isQuestRewardClaimStateError(err):
+		code = foundation.CodeForbidden
+		message = "Quest reward cannot be claimed."
+	}
+
+	return foundation.NewDomainError(code, message, foundation.WithCause(err))
+}
+
 // Validate reports whether input identifies a player-owned quest.
 func (input ClaimRewardInput) Validate() error {
 	if err := input.PlayerID.Validate(); err != nil {
@@ -179,6 +212,30 @@ func (input ClaimRewardInput) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func isQuestRewardClaimStateError(err error) bool {
+	for _, target := range []error{
+		ErrInvalidQuestClaim,
+		ErrInvalidQuestState,
+		ErrInvalidQuestStateTransition,
+		ErrInvalidQuestTime,
+		ErrInvalidQuestProgress,
+		ErrInvalidQuestCompletion,
+		ErrEmptyRewardPayload,
+		ErrInvalidRewardKind,
+		ErrInvalidRewardAmount,
+		ErrInvalidRewardCurrency,
+		ErrInvalidRewardItem,
+		ErrInvalidRewardRole,
+		ErrInvalidRewardHook,
+		ErrDuplicateRewardHook,
+	} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func (service *QuestService) prepareClaimRewardLocked(input ClaimRewardInput, claimedAt time.Time) (rewardClaimPreparation, bool, error) {

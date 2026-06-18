@@ -197,6 +197,11 @@ player owns quest
 reward still valid
 ```
 
+Player-facing claim errors must use a generic public message. Quest ids,
+generated payload details, hidden targets, item ids, and internal service
+diagnostics stay in the wrapped cause/server logs, not in realtime error
+messages.
+
 Reward transaction:
 
 ```text
