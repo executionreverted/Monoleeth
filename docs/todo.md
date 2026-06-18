@@ -15,9 +15,6 @@ for phase status; this file is a compact pending-work index.
   authenticated WebSocket gateway flow, including reconnect snapshot request
   and server-authoritative player resolution. Source:
   `docs/roadmap/11-browser-client-prototype.md`.
-- [ ] Add in-flight duplicate coordination to `realtime.RequestCache` when the
-  gateway executes mutating commands concurrently; the current cache only
-  remembers completed responses.
 - [ ] Wire XP grants behind concrete domain owners such as quest, scanner,
   production, crafting, route, event, and admin services so clients cannot spoof
   XP source completion. Combat NPC kill XP and eligible loot pickup XP now have
@@ -195,3 +192,6 @@ for phase status; this file is a compact pending-work index.
 - [x] Add a zone-worker due-task dispatcher that invokes
   `LootService.HandleScheduledDropTask` from worker ticks instead of requiring
   in-process callers to inspect `TickResult.DueTasks` manually.
+- [x] Add in-flight duplicate coordination to `realtime.RequestCache` so
+  concurrent duplicate request IDs wait for the first completed response instead
+  of executing the handler twice.

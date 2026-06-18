@@ -39,12 +39,18 @@ type RequestCache struct {
 	mu       sync.Mutex
 	capacity int
 	entries  map[requestCacheKey]CachedResponse
+	inFlight map[requestCacheKey]*requestCacheFlight
 	order    []requestCacheKey
 }
 
 type requestCacheKey struct {
 	sessionID SessionID
 	requestID foundation.RequestID
+}
+
+type requestCacheFlight struct {
+	done     chan struct{}
+	response CachedResponse
 }
 
 // NewRequestCache returns a bounded cache. Capacity less than one stores one item.
@@ -55,6 +61,7 @@ func NewRequestCache(capacity int) *RequestCache {
 	return &RequestCache{
 		capacity: capacity,
 		entries:  make(map[requestCacheKey]CachedResponse, capacity),
+		inFlight: make(map[requestCacheKey]*requestCacheFlight),
 		order:    make([]requestCacheKey, 0, capacity),
 	}
 }
@@ -80,25 +87,31 @@ func (cache *RequestCache) Remember(sessionID SessionID, requestID foundation.Re
 }
 
 // GetOrRemember returns a cached duplicate response or stores the built response.
-//
-// The build function creates the completed response for the first observed
-// request. This skeleton does not coordinate in-flight duplicate execution.
 func (cache *RequestCache) GetOrRemember(sessionID SessionID, requestID foundation.RequestID, build func() CachedResponse) (CachedResponse, bool) {
-	if cached, ok := cache.Lookup(sessionID, requestID); ok {
-		return cached, true
+	key := newRequestCacheKey(sessionID, requestID)
+	cache.mu.Lock()
+	if cached, ok := cache.entries[key]; ok {
+		cache.mu.Unlock()
+		return cached.clone(), true
 	}
+	if flight, ok := cache.inFlight[key]; ok {
+		cache.mu.Unlock()
+		<-flight.done
+		return flight.response.clone(), true
+	}
+	flight := &requestCacheFlight{done: make(chan struct{})}
+	cache.inFlight[key] = flight
+	cache.mu.Unlock()
 
 	response := build()
 
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
-	key := newRequestCacheKey(sessionID, requestID)
-	if cached, ok := cache.entries[key]; ok {
-		return cached.clone(), true
-	}
-
 	cache.rememberLocked(key, response)
+	flight.response = response.clone()
+	delete(cache.inFlight, key)
+	close(flight.done)
 	return response.clone(), false
 }
 
