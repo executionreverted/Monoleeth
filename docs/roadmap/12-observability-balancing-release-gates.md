@@ -112,8 +112,8 @@ drop creation or pickup.
 
 ## TODO: Simulation Tests
 
-- [ ] Build deterministic simulation runner for NPC kills.
-- [ ] Simulate many concurrent loot pickups.
+- [x] Build deterministic simulation runner for NPC kills.
+- [x] Simulate many concurrent loot pickups.
 - [ ] Simulate market buy/cancel races.
 - [ ] Simulate auction bid/buy-now races.
 - [ ] Simulate offline planet settlements.
@@ -127,7 +127,10 @@ drop creation or pickup.
 Implementation note 2026-06-18:
 `EconomyFlowAccumulator` now tracks duplicate-safe currency/item faucets and
 sinks by stable value identity, reason, and reference. Deterministic simulation
-runners are still not implemented.
+runners for NPC kills and concurrent loot pickups now live under
+`internal/game/observability/simulations`; the combat/loot runner uses the
+authoritative combat, loot, cargo, and progression services, retries each NPC
+death drop creation once, and fans out pickup attempts against each drop.
 
 ## TODO: Economy Dashboards
 
