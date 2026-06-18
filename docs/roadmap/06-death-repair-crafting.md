@@ -129,7 +129,7 @@ Crafting:
 - [x] Active ship becomes disabled.
 - [x] Death cargo removal ledger uses `death_cargo_drop:*` references instead of `loot_pickup:*`. Verified 2026-06-17 by `DeathService.ProcessDeath` hardening tests.
 - [x] Death cargo rows from another owner, another ship cargo location, or non-ship-cargo location are rejected before inventory mutation. Verified 2026-06-17 by `DeathService.ProcessDeath` hardening tests.
-- [x] Dead/disabled ship cannot fight. Verified 2026-06-18 by `TestCombatUseSkillRejectsDisabledActiveShipBeforeMutation`.
+- [x] Dead/disabled ship cannot fight. Verified 2026-06-18 by `TestCombatUseSkillRejectsDisabledActiveShipBeforeMutation` and `TestWithActiveShipCombatLeaseSerializesDeathDisable`.
 - [x] Starter fallback works when all ships disabled.
 - [x] Repair charges correct wallet amount. Verified 2026-06-17 by successful repair debit ledger test.
 - [x] Repair restores ship.

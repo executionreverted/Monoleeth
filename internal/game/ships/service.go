@@ -20,6 +20,7 @@ var (
 	ErrCargoExceedsTargetCapacity   = errors.New("current cargo exceeds target ship capacity")
 	ErrNilPlayerRankProvider        = errors.New("nil player rank provider")
 	ErrNilCargoCapacityProvider     = errors.New("nil cargo capacity provider")
+	ErrNilActiveShipCombatAction    = errors.New("nil active ship combat action")
 	ErrShipRankRequirementNotMet    = errors.New("ship rank requirement not met")
 	ErrNoActiveShip                 = errors.New("no active ship")
 	ErrShipNotDisabled              = errors.New("ship not disabled")
@@ -399,6 +400,27 @@ func (service *HangarService) GetHangar(playerID foundation.PlayerID) (HangarSna
 	return snapshot, nil
 }
 
+// WithActiveShipCombatLease runs one combat mutation while the authoritative
+// player hangar lock confirms the active ship is still usable. Death disable,
+// repair, and ship swap operations use the same hangar owner path, so a
+// concurrent death either runs before this action and blocks it, or waits until
+// this already-authorized action finishes.
+func (service *HangarService) WithActiveShipCombatLease(playerID foundation.PlayerID, action func() error) error {
+	if err := playerID.Validate(); err != nil {
+		return err
+	}
+	if action == nil {
+		return ErrNilActiveShipCombatAction
+	}
+
+	return service.store.updatePlayerHangar(playerID, func(record *hangarRecord) error {
+		if err := validateActiveShipCanFight(record); err != nil {
+			return err
+		}
+		return action()
+	})
+}
+
 func (input UnlockShipInput) validate() error {
 	if err := input.PlayerID.Validate(); err != nil {
 		return err
@@ -537,6 +559,25 @@ func validateTargetShipForActivation(playerShip PlayerShipState) error {
 		return fmt.Errorf("ship state %q: %w", playerShip.State, ErrShipUnavailable)
 	}
 	return nil
+}
+
+func validateActiveShipCanFight(record *hangarRecord) error {
+	activeShip, hasActive := record.activeShip()
+	if !hasActive {
+		return ErrNoActiveShip
+	}
+	playerShip, ok := record.ship(activeShip.ShipID)
+	if !ok {
+		return fmt.Errorf("active ship %q: %w", activeShip.ShipID, ErrShipNotUnlocked)
+	}
+	switch playerShip.State {
+	case ShipStateActive:
+		return nil
+	case ShipStateDisabled:
+		return ErrShipDisabled
+	default:
+		return fmt.Errorf("active ship state %q: %w", playerShip.State, ErrShipUnavailable)
+	}
 }
 
 func (record hangarRecord) hasUsableShip() bool {

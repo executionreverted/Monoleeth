@@ -178,7 +178,7 @@ Server:
 
 ```text
 load active ship stats
-validate active ship is usable and not disabled
+execute mutation inside the active ship combat lease shared with death disable
 load equipped skill/module
 validate target/position
 validate cooldown

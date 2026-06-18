@@ -247,6 +247,90 @@ func TestDisableActiveShipForDeathDuplicateDoesNotMutateTwice(t *testing.T) {
 	}
 }
 
+func TestWithActiveShipCombatLeaseRunsOnlyForActiveShip(t *testing.T) {
+	service, _ := newTestHangarService(t)
+	ensureStarterAndUnlockFighter(t, service)
+	activateFighter(t, service)
+
+	ran := false
+	if err := service.WithActiveShipCombatLease("player-1", func() error {
+		ran = true
+		return nil
+	}); err != nil {
+		t.Fatalf("WithActiveShipCombatLease(active) error = %v, want nil", err)
+	}
+	if !ran {
+		t.Fatal("WithActiveShipCombatLease(active) did not run action")
+	}
+
+	if _, err := service.DisableActiveShipForDeath(DisableActiveShipForDeathInput{PlayerID: "player-1"}); err != nil {
+		t.Fatalf("DisableActiveShipForDeath error = %v, want nil", err)
+	}
+	ran = false
+	err := service.WithActiveShipCombatLease("player-1", func() error {
+		ran = true
+		return nil
+	})
+	if !errors.Is(err, ErrShipDisabled) {
+		t.Fatalf("WithActiveShipCombatLease(disabled) error = %v, want ErrShipDisabled", err)
+	}
+	if ran {
+		t.Fatal("WithActiveShipCombatLease(disabled) ran action, want blocked")
+	}
+}
+
+func TestWithActiveShipCombatLeaseSerializesDeathDisable(t *testing.T) {
+	service, _ := newTestHangarService(t)
+	ensureStarterAndUnlockFighter(t, service)
+	activateFighter(t, service)
+
+	enteredLease := make(chan struct{})
+	releaseLease := make(chan struct{})
+	leaseDone := make(chan error, 1)
+	go func() {
+		leaseDone <- service.WithActiveShipCombatLease("player-1", func() error {
+			close(enteredLease)
+			<-releaseLease
+			return nil
+		})
+	}()
+
+	<-enteredLease
+	disableDone := make(chan error, 1)
+	go func() {
+		_, err := service.DisableActiveShipForDeath(DisableActiveShipForDeathInput{PlayerID: "player-1"})
+		disableDone <- err
+	}()
+
+	select {
+	case err := <-disableDone:
+		t.Fatalf("DisableActiveShipForDeath completed while combat lease was held, err = %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releaseLease)
+	if err := <-leaseDone; err != nil {
+		t.Fatalf("WithActiveShipCombatLease error = %v, want nil", err)
+	}
+	if err := <-disableDone; err != nil {
+		t.Fatalf("DisableActiveShipForDeath after lease release error = %v, want nil", err)
+	}
+	hangar, err := service.GetHangar("player-1")
+	if err != nil {
+		t.Fatalf("GetHangar error = %v, want nil", err)
+	}
+	var activeRow PlayerShipState
+	for _, playerShip := range hangar.Ships {
+		if playerShip.ShipID == hangar.ActiveShip.ShipID {
+			activeRow = playerShip
+			break
+		}
+	}
+	if activeRow.State != ShipStateDisabled {
+		t.Fatalf("active ship state after queued death disable = %q, want disabled", activeRow.State)
+	}
+}
+
 func TestRepairShipRejectsNonDisabledShip(t *testing.T) {
 	service, _ := newTestHangarService(t)
 	if _, err := service.EnsureStarterShip("player-1"); err != nil {

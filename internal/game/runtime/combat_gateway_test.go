@@ -27,7 +27,7 @@ func TestCombatUseSkillIgnoresClientTimestampForCooldown(t *testing.T) {
 	combatHandler, err := NewCombatCommandHandler(
 		combatService,
 		staticCombatActorResolver{"player-1": "player-entity-1"},
-		staticActiveShipProvider{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateActive)},
+		staticActiveShipGuard{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateActive)},
 	)
 	if err != nil {
 		t.Fatalf("NewCombatCommandHandler() error = %v, want nil", err)
@@ -96,7 +96,7 @@ func TestCombatUseSkillHidesDifferentZoneTargets(t *testing.T) {
 	combatHandler, err := NewCombatCommandHandler(
 		combatService,
 		staticCombatActorResolver{"player-1": "player-entity-1"},
-		staticActiveShipProvider{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateActive)},
+		staticActiveShipGuard{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateActive)},
 	)
 	if err != nil {
 		t.Fatalf("NewCombatCommandHandler() error = %v, want nil", err)
@@ -137,14 +137,14 @@ func TestCombatUseSkillHidesDifferentZoneTargets(t *testing.T) {
 }
 
 func TestCombatCommandHandlerConstructorsRejectNilDependencies(t *testing.T) {
-	if _, err := NewCombatCommandHandler(nil, staticCombatActorResolver{}, staticActiveShipProvider{}); !errors.Is(err, ErrNilCombatService) {
+	if _, err := NewCombatCommandHandler(nil, staticCombatActorResolver{}, staticActiveShipGuard{}); !errors.Is(err, ErrNilCombatService) {
 		t.Fatalf("NewCombatCommandHandler(nil service) error = %v, want ErrNilCombatService", err)
 	}
-	if _, err := NewCombatCommandHandler(combat.NewService(nil, nil), nil, staticActiveShipProvider{}); !errors.Is(err, ErrNilCombatActorResolver) {
+	if _, err := NewCombatCommandHandler(combat.NewService(nil, nil), nil, staticActiveShipGuard{}); !errors.Is(err, ErrNilCombatActorResolver) {
 		t.Fatalf("NewCombatCommandHandler(nil resolver) error = %v, want ErrNilCombatActorResolver", err)
 	}
-	if _, err := NewCombatCommandHandler(combat.NewService(nil, nil), staticCombatActorResolver{}, nil); !errors.Is(err, ErrNilActiveShipProvider) {
-		t.Fatalf("NewCombatCommandHandler(nil ships) error = %v, want ErrNilActiveShipProvider", err)
+	if _, err := NewCombatCommandHandler(combat.NewService(nil, nil), staticCombatActorResolver{}, nil); !errors.Is(err, ErrNilActiveShipGuard) {
+		t.Fatalf("NewCombatCommandHandler(nil ships) error = %v, want ErrNilActiveShipGuard", err)
 	}
 }
 
@@ -152,7 +152,7 @@ func TestCombatUseSkillRejectsClientAuthoredAttackerID(t *testing.T) {
 	handler, err := NewCombatCommandHandler(
 		combat.NewService(nil, nil),
 		staticCombatActorResolver{"player-1": "player-entity-1"},
-		staticActiveShipProvider{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateActive)},
+		staticActiveShipGuard{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateActive)},
 	)
 	if err != nil {
 		t.Fatalf("NewCombatCommandHandler() error = %v, want nil", err)
@@ -181,7 +181,7 @@ func TestCombatUseSkillRejectsDisabledActiveShipBeforeMutation(t *testing.T) {
 	combatHandler, err := NewCombatCommandHandler(
 		combatService,
 		staticCombatActorResolver{"player-1": "player-entity-1"},
-		staticActiveShipProvider{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateDisabled)},
+		staticActiveShipGuard{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateDisabled)},
 	)
 	if err != nil {
 		t.Fatalf("NewCombatCommandHandler() error = %v, want nil", err)
@@ -244,14 +244,33 @@ func (resolver staticCombatActorResolver) ActiveCombatActor(ctx realtime.Command
 	return entityID, nil
 }
 
-type staticActiveShipProvider map[foundation.PlayerID]ships.HangarSnapshot
+type staticActiveShipGuard map[foundation.PlayerID]ships.HangarSnapshot
 
-func (provider staticActiveShipProvider) GetHangar(playerID foundation.PlayerID) (ships.HangarSnapshot, error) {
-	snapshot, ok := provider[playerID]
+func (guard staticActiveShipGuard) WithActiveShipCombatLease(playerID foundation.PlayerID, action func() error) error {
+	snapshot, ok := guard[playerID]
 	if !ok {
-		return ships.HangarSnapshot{}, ships.ErrNoActiveShip
+		return ships.ErrNoActiveShip
 	}
-	return snapshot, nil
+	if action == nil {
+		return ships.ErrNilActiveShipCombatAction
+	}
+	if !snapshot.HasActiveShip {
+		return ships.ErrNoActiveShip
+	}
+	for _, playerShip := range snapshot.Ships {
+		if playerShip.ShipID != snapshot.ActiveShip.ShipID {
+			continue
+		}
+		switch playerShip.State {
+		case ships.ShipStateActive:
+			return action()
+		case ships.ShipStateDisabled:
+			return ships.ErrShipDisabled
+		default:
+			return ships.ErrShipUnavailable
+		}
+	}
+	return ships.ErrShipNotUnlocked
 }
 
 func runtimeActiveShipSnapshot(playerID foundation.PlayerID, state ships.ShipState) ships.HangarSnapshot {

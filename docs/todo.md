@@ -213,7 +213,8 @@ for phase status; this file is a compact pending-work index.
   `client_timestamp` while `CombatService` enforces cooldowns with server time.
   Source: `docs/roadmap/05-combat-loot-vertical-slice.md`.
 - [x] Wire disabled active ship state into the realtime combat command path.
-  `runtime.CombatCommandHandler` now requires an authoritative active ship
-  provider and rejects `combat.use_skill` before actor resolution, energy spend,
-  or cooldown mutation when the player's active ship is disabled or unavailable.
+  `runtime.CombatCommandHandler` now requires an authoritative active ship guard
+  and executes `combat.use_skill` mutations inside the same hangar-owner lease
+  used by death disable, so disabled or concurrently disabled active ships cannot
+  spend energy, start cooldowns, or deal damage through a stale combat actor.
   Source: `docs/roadmap/06-death-repair-crafting.md`.

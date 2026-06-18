@@ -19,7 +19,7 @@ const CombatSkillBasicLaser = "basic_laser"
 var (
 	ErrNilCombatService       = errors.New("nil combat service")
 	ErrNilCombatActorResolver = errors.New("nil combat actor resolver")
-	ErrNilActiveShipProvider  = errors.New("nil active ship provider")
+	ErrNilActiveShipGuard     = errors.New("nil active ship guard")
 	ErrUnsupportedCombatSkill = errors.New("unsupported combat skill")
 )
 
@@ -29,21 +29,22 @@ type CombatActorResolver interface {
 	ActiveCombatActor(realtime.CommandContext) (world.EntityID, error)
 }
 
-// ActiveShipProvider returns the authoritative active ship state for combat
-// command eligibility checks.
-type ActiveShipProvider interface {
-	GetHangar(foundation.PlayerID) (ships.HangarSnapshot, error)
+// ActiveShipGuard fences combat mutation behind the authoritative active ship
+// owner. Implementations must run the action only while the player's active ship
+// is still usable, using the same lock or transaction path as death disable.
+type ActiveShipGuard interface {
+	WithActiveShipCombatLease(foundation.PlayerID, func() error) error
 }
 
 // CombatCommandHandler adapts realtime combat intents to the combat domain.
 type CombatCommandHandler struct {
 	combat *combat.Service
 	actors CombatActorResolver
-	ships  ActiveShipProvider
+	ships  ActiveShipGuard
 }
 
 // NewCombatCommandHandler returns realtime handlers for Phase 05 combat intents.
-func NewCombatCommandHandler(service *combat.Service, actors CombatActorResolver, ships ActiveShipProvider) (*CombatCommandHandler, error) {
+func NewCombatCommandHandler(service *combat.Service, actors CombatActorResolver, ships ActiveShipGuard) (*CombatCommandHandler, error) {
 	if service == nil {
 		return nil, ErrNilCombatService
 	}
@@ -51,7 +52,7 @@ func NewCombatCommandHandler(service *combat.Service, actors CombatActorResolver
 		return nil, ErrNilCombatActorResolver
 	}
 	if ships == nil {
-		return nil, ErrNilActiveShipProvider
+		return nil, ErrNilActiveShipGuard
 	}
 	return &CombatCommandHandler{
 		combat: service,
@@ -81,16 +82,18 @@ func (handler *CombatCommandHandler) HandleUseSkill(
 	if err != nil {
 		return nil, err
 	}
-	if err := handler.validateActiveShipCanFight(ctx); err != nil {
-		return nil, domainErrorForCombatCommand(err)
-	}
 	attackerID, err := handler.actors.ActiveCombatActor(ctx)
 	if err != nil {
 		return nil, domainErrorForCombatCommand(err)
 	}
-	result, err := handler.combat.ExecuteBasicAttack(combat.BasicAttackInput{
-		AttackerID: attackerID,
-		TargetID:   payload.TargetID,
+	var result combat.BasicAttackResult
+	err = handler.ships.WithActiveShipCombatLease(ctx.PlayerID, func() error {
+		var executeErr error
+		result, executeErr = handler.combat.ExecuteBasicAttack(combat.BasicAttackInput{
+			AttackerID: attackerID,
+			TargetID:   payload.TargetID,
+		})
+		return executeErr
 	})
 	if err != nil {
 		return nil, domainErrorForCombatCommand(err)
@@ -108,30 +111,6 @@ func (handler *CombatCommandHandler) HandleUseSkill(
 		return nil, domainErrorForCombatCommand(err)
 	}
 	return json.RawMessage(response), nil
-}
-
-func (handler *CombatCommandHandler) validateActiveShipCanFight(ctx realtime.CommandContext) error {
-	hangar, err := handler.ships.GetHangar(ctx.PlayerID)
-	if err != nil {
-		return err
-	}
-	if !hangar.HasActiveShip {
-		return ships.ErrNoActiveShip
-	}
-	for _, playerShip := range hangar.Ships {
-		if playerShip.ShipID != hangar.ActiveShip.ShipID {
-			continue
-		}
-		switch playerShip.State {
-		case ships.ShipStateActive:
-			return nil
-		case ships.ShipStateDisabled:
-			return ships.ErrShipDisabled
-		default:
-			return ships.ErrShipUnavailable
-		}
-	}
-	return ships.ErrShipNotUnlocked
 }
 
 type combatUseSkillPayload struct {
