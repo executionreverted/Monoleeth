@@ -26,6 +26,8 @@ func TestModuleInventoryLedgerAdapterMovesItemsDuringLoadoutApply(t *testing.T) 
 	laser := addRuntimeModuleItem(t, inventory, store, moduleCatalog, "laser_alpha_t1", playerID, "seed-laser")
 	shield := addRuntimeModuleItem(t, inventory, store, moduleCatalog, "shield_generator_t1", playerID, "seed-shield")
 	scanner := addRuntimeModuleItem(t, inventory, store, moduleCatalog, "scanner_t1", playerID, "seed-scanner")
+	recorder := testutil.NewEventRecorder()
+	inventory.SetEventEmitter(recorder)
 	if err := store.SetActiveShip(playerID, shipID); err != nil {
 		t.Fatalf("SetActiveShip() error = %v, want nil", err)
 	}
@@ -52,6 +54,7 @@ func TestModuleInventoryLedgerAdapterMovesItemsDuringLoadoutApply(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("seed ReplaceEquippedModules() error = %v, want nil", err)
 	}
+	testutil.AssertRecordedEventTypes(t, recorder)
 
 	if _, err := service.SaveLoadout(modules.SaveLoadoutInput{
 		LoadoutID: "scan-fit",
@@ -75,6 +78,7 @@ func TestModuleInventoryLedgerAdapterMovesItemsDuringLoadoutApply(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ApplyLoadout() error = %v, want nil", err)
 	}
+	testutil.AssertRecordedEventTypes(t, recorder)
 	if result.Noop {
 		t.Fatal("ApplyLoadout() Noop = true, want false")
 	}
@@ -134,6 +138,7 @@ func TestModuleInventoryLedgerAdapterMovesItemsDuringLoadoutApply(t *testing.T) 
 	if got, want := len(inventory.ItemLedgerEntries()), beforeLedgerCount+4; got != want {
 		t.Fatalf("ledger count after retry = %d, want %d", got, want)
 	}
+	testutil.AssertRecordedEventTypes(t, recorder)
 }
 
 func TestModuleInventoryLedgerAdapterFailureLeavesLoadoutStoreUnchanged(t *testing.T) {
@@ -231,6 +236,42 @@ func TestModuleInventoryLedgerAdapterFailureLeavesLoadoutStoreUnchanged(t *testi
 	}
 	if storedScanner.Location != runtimeAccountLocation(playerID) {
 		t.Fatalf("scanner location after failed apply = %s, want %s", storedScanner.Location.String(), runtimeAccountLocation(playerID).String())
+	}
+}
+
+func TestModuleInventoryLedgerAdapterRejectsInvalidMoveLocations(t *testing.T) {
+	playerID := foundation.PlayerID("player-1")
+	shipID := foundation.ShipID("ship-1")
+	itemInstanceID := foundation.ItemID("laser-instance-1")
+	moduleCatalog := modules.MustMVPCatalog()
+	inventory := economy.NewInventoryService(testutil.NewFakeClock(time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)))
+	adapter, err := NewModuleInventoryLedgerAdapter(inventory, moduleCatalog)
+	if err != nil {
+		t.Fatalf("NewModuleInventoryLedgerAdapter() error = %v, want nil", err)
+	}
+	reference, err := foundation.ModuleEquipIdempotencyKey(playerID, shipID, itemInstanceID, "apply-invalid-location-1")
+	if err != nil {
+		t.Fatalf("ModuleEquipIdempotencyKey() error = %v, want nil", err)
+	}
+
+	_, err = adapter.MoveModuleItemLocations([]modules.ModuleItemLocationMove{{
+		PlayerID:       playerID,
+		ShipID:         shipID,
+		SlotID:         modules.ModuleSlotOffensive1,
+		ItemID:         "laser_alpha_t1",
+		ItemInstanceID: itemInstanceID,
+		FromLocation:   economy.ItemLocation{Kind: economy.LocationKindMarketEscrow, ID: "listing-1"},
+		ToLocation:     runtimeEquippedLocation(shipID),
+		Direction:      modules.ModuleItemMoveEquip,
+		RequestID:      "apply-invalid-location-1",
+		LedgerReason:   modules.LedgerReasonModuleEquip,
+		ReferenceKey:   reference,
+	}})
+	if !errors.Is(err, modules.ErrInvalidModuleItemMove) {
+		t.Fatalf("MoveModuleItemLocations() error = %v, want ErrInvalidModuleItemMove", err)
+	}
+	if got := len(inventory.ItemLedgerEntries()); got != 0 {
+		t.Fatalf("ledger entries after invalid move = %d, want 0", got)
 	}
 }
 

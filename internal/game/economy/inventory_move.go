@@ -71,6 +71,17 @@ func (service *InventoryService) SystemMoveItem(input MoveItemInput) (MoveItemRe
 // SystemMoveItems moves several player-owned items as one in-memory
 // transaction for trusted server-side economy flows.
 func (service *InventoryService) SystemMoveItems(inputs []MoveItemInput) ([]MoveItemResult, error) {
+	return service.systemMoveItems(inputs, true)
+}
+
+// SystemMoveItemsWithoutEvents moves several player-owned items without
+// emitting inventory events. Use this when a higher-level service will publish
+// its own event only after its state commits.
+func (service *InventoryService) SystemMoveItemsWithoutEvents(inputs []MoveItemInput) ([]MoveItemResult, error) {
+	return service.systemMoveItems(inputs, false)
+}
+
+func (service *InventoryService) systemMoveItems(inputs []MoveItemInput, emit bool) ([]MoveItemResult, error) {
 	if len(inputs) == 0 {
 		return nil, nil
 	}
@@ -88,9 +99,13 @@ func (service *InventoryService) SystemMoveItems(inputs []MoveItemInput) ([]Move
 	service.mu.Lock()
 	defer func() {
 		service.mu.Unlock()
-		emitEvents(emitter, emitted)
+		if emit {
+			emitEvents(emitter, emitted)
+		}
 	}()
-	emitter = service.emitter
+	if emit {
+		emitter = service.emitter
+	}
 
 	if err := service.preflightMoveItemsLocked(inputs, quantities); err != nil {
 		return nil, err
@@ -103,7 +118,7 @@ func (service *InventoryService) SystemMoveItems(inputs []MoveItemInput) ([]Move
 		if err != nil {
 			return nil, err
 		}
-		if emitter != nil && !result.Duplicate {
+		if emit && emitter != nil && !result.Duplicate {
 			emitted = append(emitted, service.moveItemEventsLocked(input, result, now)...)
 		}
 		results = append(results, result)

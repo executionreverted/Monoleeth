@@ -195,7 +195,8 @@ for phase status; this file is a compact pending-work index.
   same. Source: `docs/roadmap/03-progression-ships-modules-stats.md`.
 - [x] Wire the Phase 03 runtime inventory ledger adapter for module
   equip/unequip. Loadout stores can now call the runtime
-  `ModuleInventoryLedgerAdapter`, which batches `InventoryService.SystemMoveItems`
-  transitions with `module_equip:*` and `module_unequip:*` references before
-  committing in-memory equipped-module indexes. Source:
+  `ModuleInventoryLedgerAdapter`, which batches quiet
+  `InventoryService.SystemMoveItemsWithoutEvents` transitions with
+  `module_equip:*` and `module_unequip:*` references before committing
+  in-memory equipped-module indexes. Source:
   `docs/roadmap/03-progression-ships-modules-stats.md`.

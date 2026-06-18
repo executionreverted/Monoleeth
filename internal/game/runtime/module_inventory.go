@@ -70,7 +70,7 @@ func (adapter *ModuleInventoryLedgerAdapter) MoveModuleItemLocations(moves []mod
 		})
 	}
 
-	results, err := adapter.inventory.SystemMoveItems(inputs)
+	results, err := adapter.inventory.SystemMoveItemsWithoutEvents(inputs)
 	if err != nil {
 		return nil, err
 	}
@@ -120,15 +120,57 @@ func validateModuleItemLocationMove(move modules.ModuleItemLocationMove) error {
 		if move.LedgerReason != modules.LedgerReasonModuleEquip {
 			return fmt.Errorf("ledger reason %q: %w", move.LedgerReason, modules.ErrInvalidModuleItemMove)
 		}
+		if err := validateModuleItemLocations(
+			move,
+			economy.ItemLocation{Kind: economy.LocationKindAccountInventory, ID: economy.LocationID(move.PlayerID.String())},
+			economy.ItemLocation{Kind: economy.LocationKindShipEquipped, ID: economy.LocationID(move.ShipID.String())},
+		); err != nil {
+			return err
+		}
+		expectedReference, err := foundation.ModuleEquipIdempotencyKey(move.PlayerID, move.ShipID, move.ItemInstanceID, move.RequestID)
+		if err != nil {
+			return err
+		}
+		if move.ReferenceKey != expectedReference {
+			return fmt.Errorf("reference %q expected %q: %w", move.ReferenceKey, expectedReference, modules.ErrInvalidModuleItemMove)
+		}
 	case modules.ModuleItemMoveUnequip:
 		if move.LedgerReason != modules.LedgerReasonModuleUnequip {
 			return fmt.Errorf("ledger reason %q: %w", move.LedgerReason, modules.ErrInvalidModuleItemMove)
+		}
+		if err := validateModuleItemLocations(
+			move,
+			economy.ItemLocation{Kind: economy.LocationKindShipEquipped, ID: economy.LocationID(move.ShipID.String())},
+			economy.ItemLocation{Kind: economy.LocationKindAccountInventory, ID: economy.LocationID(move.PlayerID.String())},
+		); err != nil {
+			return err
+		}
+		expectedReference, err := foundation.ModuleUnequipIdempotencyKey(move.PlayerID, move.ShipID, move.ItemInstanceID, move.RequestID)
+		if err != nil {
+			return err
+		}
+		if move.ReferenceKey != expectedReference {
+			return fmt.Errorf("reference %q expected %q: %w", move.ReferenceKey, expectedReference, modules.ErrInvalidModuleItemMove)
 		}
 	default:
 		return fmt.Errorf("direction %q: %w", move.Direction, ErrInvalidModuleMoveDirection)
 	}
 	if move.FromLocation == move.ToLocation {
 		return economy.ErrMoveItemSameSourceAndTarget
+	}
+	return nil
+}
+
+func validateModuleItemLocations(
+	move modules.ModuleItemLocationMove,
+	wantFrom economy.ItemLocation,
+	wantTo economy.ItemLocation,
+) error {
+	if move.FromLocation != wantFrom {
+		return fmt.Errorf("from location %s expected %s: %w", move.FromLocation.String(), wantFrom.String(), modules.ErrInvalidModuleItemMove)
+	}
+	if move.ToLocation != wantTo {
+		return fmt.Errorf("to location %s expected %s: %w", move.ToLocation.String(), wantTo.String(), modules.ErrInvalidModuleItemMove)
 	}
 	return nil
 }
