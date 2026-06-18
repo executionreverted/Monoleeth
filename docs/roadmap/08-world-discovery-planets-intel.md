@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Domain MVP complete - runtime/gateway follow-ups tracked
+- State: Complete, verified 2026-06-18 - runtime/gateway follow-ups tracked
 - Owner: Exploration and information economy
 - Depends on: Phase 03, Phase 04, Phase 05, Phase 07
 - Unlocks: planet claiming, X Core sink, planet production, coordinate trading
@@ -68,8 +68,12 @@ Does not own:
 - [x] Define scanner activation command.
 - [x] Validate scanner module equipped.
 - [x] Validate scanner cooldown.
-- [ ] Validate capacitor/energy.
-- [ ] Apply slow or stationary scan state.
+- [x] Validate capacitor/energy. Verified 2026-06-18 by
+  `TestStartScanPulseEnergyUnavailableFailsBeforeCooldownAndMutation`.
+- [x] Validate stationary scan state before cooldown and pulse creation.
+  Verified 2026-06-18 by
+  `TestStartScanPulseMovingShipFailsBeforeCooldownAndMutation`; live slow-state
+  lease application remains tracked in `docs/todo.md`.
 - [x] Schedule scan pulses server-side.
 - [x] Calculate detection chance from stat snapshot and candidate data.
 - [x] Enforce minimum radar level.
@@ -118,6 +122,8 @@ Does not own:
 - [x] Hidden planet candidate is not serialized.
 - [x] Scanner without module fails.
 - [x] Scanner cooldown blocks spam.
+- [x] Scanner energy unavailable fails before cooldown or scanner mutation.
+- [x] Moving ship cannot start scanner pulse.
 - [x] Radar too low cannot discover planet.
 - [x] Successful scan materializes one planet.
 - [x] Duplicate scan does not duplicate planet record.
@@ -162,6 +168,9 @@ Does not own:
 - Scanner, claim, share, and coordinate-scroll paths use provider interfaces for
   runtime stat/cooldown, XP, proximity, rank, inventory, quota, and item-consume
   boundaries.
+- Scanner start now requires a server-owned stationary movement state and
+  server-owned scanner energy availability before cooldown, pulse, or event
+  mutation.
 - Symphony security, performance, and code-quality review found boundary
   hardening work; actionable Phase 08 MVP fixes landed, and larger
   multi-process/runtime risks are tracked in `docs/todo.md`.

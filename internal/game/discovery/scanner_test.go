@@ -81,6 +81,66 @@ func TestStartScanPulseCooldownBlocksSpamWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestStartScanPulseEnergyUnavailableFailsBeforeCooldownAndMutation(t *testing.T) {
+	seed := scannerTestSeed(t)
+	_, candidate := findScannerTestCandidate(t, seed)
+	cooldowns := &recordingScannerCooldownProvider{accepted: true}
+	energy := &recordingScannerEnergyProvider{accepted: false}
+	service := newScannerTestService(t, scannerTestServiceOptions{
+		seed:      seed,
+		store:     NewInMemoryStore(),
+		position:  candidate.Position(),
+		snapshot:  scannerSnapshot(candidate, 10_000, scannerRadarRangeFor(candidate), 0),
+		moduleOK:  true,
+		cooldowns: cooldowns,
+		energy:    energy,
+		xp:        &recordingScanXPProvider{},
+	})
+
+	_, err := service.StartScanPulse(scannerStartInput("pulse_no_energy"))
+	if !errors.Is(err, ErrScannerEnergyUnavailable) {
+		t.Fatalf("StartScanPulse() error = %v, want ErrScannerEnergyUnavailable", err)
+	}
+	if cooldowns.calls != 0 {
+		t.Fatalf("cooldown calls after energy rejection = %d, want 0", cooldowns.calls)
+	}
+	if got := len(service.Events()); got != 0 {
+		t.Fatalf("scanner events after energy rejection = %d, want 0", got)
+	}
+}
+
+func TestStartScanPulseMovingShipFailsBeforeCooldownAndMutation(t *testing.T) {
+	seed := scannerTestSeed(t)
+	_, candidate := findScannerTestCandidate(t, seed)
+	cooldowns := &recordingScannerCooldownProvider{accepted: true}
+	position := ScannerPosition{
+		WorldID:  scannerTestWorldID,
+		ZoneID:   scannerTestZoneID,
+		Position: candidate.Position(),
+		Movement: world.MovementState{Moving: true, Target: world.Vec2{X: 1, Y: 1}},
+	}
+	service := newScannerTestService(t, scannerTestServiceOptions{
+		seed:            seed,
+		store:           NewInMemoryStore(),
+		scannerPosition: position,
+		snapshot:        scannerSnapshot(candidate, 10_000, scannerRadarRangeFor(candidate), 0),
+		moduleOK:        true,
+		cooldowns:       cooldowns,
+		xp:              &recordingScanXPProvider{},
+	})
+
+	_, err := service.StartScanPulse(scannerStartInput("pulse_moving"))
+	if !errors.Is(err, ErrScanMovementRestricted) {
+		t.Fatalf("StartScanPulse() error = %v, want ErrScanMovementRestricted", err)
+	}
+	if cooldowns.calls != 0 {
+		t.Fatalf("cooldown calls after movement rejection = %d, want 0", cooldowns.calls)
+	}
+	if got := len(service.Events()); got != 0 {
+		t.Fatalf("scanner events after movement rejection = %d, want 0", got)
+	}
+}
+
 func TestStartScanPulseDuplicateReferenceIsScopedAndDoesNotRestartCooldown(t *testing.T) {
 	seed := scannerTestSeed(t)
 	_, candidate := findScannerTestCandidate(t, seed)
@@ -330,18 +390,28 @@ func TestResolveScanPulseResultJSONOmitsHiddenTruth(t *testing.T) {
 }
 
 type scannerTestServiceOptions struct {
-	seed       WorldSeed
-	store      *InMemoryStore
-	position   world.Vec2
-	snapshot   stats.StatSnapshot
-	moduleOK   bool
-	cooldownOK bool
-	cooldowns  ScannerCooldownProvider
-	xp         *recordingScanXPProvider
+	seed            WorldSeed
+	store           *InMemoryStore
+	position        world.Vec2
+	scannerPosition ScannerPosition
+	snapshot        stats.StatSnapshot
+	moduleOK        bool
+	cooldownOK      bool
+	cooldowns       ScannerCooldownProvider
+	energy          ScannerEnergyProvider
+	xp              *recordingScanXPProvider
 }
 
 func newScannerTestService(t *testing.T, options scannerTestServiceOptions) *ScannerService {
 	t.Helper()
+	scannerPosition := ScannerPosition{
+		WorldID:  scannerTestWorldID,
+		ZoneID:   scannerTestZoneID,
+		Position: options.position,
+	}
+	if options.scannerPosition.WorldID != "" || options.scannerPosition.ZoneID != "" {
+		scannerPosition = options.scannerPosition
+	}
 	service, err := NewScannerService(ScannerServiceConfig{
 		Store:     options.store,
 		WorldSeed: options.seed,
@@ -349,13 +419,10 @@ func newScannerTestService(t *testing.T, options scannerTestServiceOptions) *Sca
 		Modules:   fixedScannerModuleProvider{equipped: options.moduleOK},
 		Stats:     fixedScannerStatsProvider{snapshot: options.snapshot},
 		Positions: fixedScannerPositionProvider{
-			position: ScannerPosition{
-				WorldID:  scannerTestWorldID,
-				ZoneID:   scannerTestZoneID,
-				Position: options.position,
-			},
+			position: scannerPosition,
 		},
 		Cooldowns: scannerCooldownProviderForTest(options),
+		Energy:    scannerEnergyProviderForTest(options),
 		XP:        options.xp,
 		CandidateOptions: CandidateGenerationOptions{
 			DiscoveryHorizon: defaultScannerDiscoveryHorizon,
@@ -373,6 +440,13 @@ func scannerCooldownProviderForTest(options scannerTestServiceOptions) ScannerCo
 		return options.cooldowns
 	}
 	return fixedScannerCooldownProvider{accepted: options.cooldownOK, readyAt: scannerTestTime()}
+}
+
+func scannerEnergyProviderForTest(options scannerTestServiceOptions) ScannerEnergyProvider {
+	if options.energy != nil {
+		return options.energy
+	}
+	return fixedScannerEnergyProvider{accepted: true}
 }
 
 func scannerStartInput(ref ScanPulseReference) StartScanPulseInput {
@@ -524,6 +598,17 @@ func (provider fixedScannerPositionProvider) PlayerScanPosition(ScannerPositionI
 	return provider.position, nil
 }
 
+type fixedScannerEnergyProvider struct {
+	accepted bool
+}
+
+func (provider fixedScannerEnergyProvider) CheckScanEnergy(input ScannerEnergyInput) (ScannerEnergyResult, error) {
+	if err := input.Validate(); err != nil {
+		return ScannerEnergyResult{}, err
+	}
+	return ScannerEnergyResult{Accepted: provider.accepted}, nil
+}
+
 type fixedScannerCooldownProvider struct {
 	accepted bool
 	readyAt  time.Time
@@ -550,6 +635,21 @@ func (provider *recordingScannerCooldownProvider) StartScanCooldown(input Scanne
 		Accepted: provider.accepted,
 		ReadyAt:  provider.readyAt,
 	}, nil
+}
+
+type recordingScannerEnergyProvider struct {
+	accepted bool
+	calls    int
+	inputs   []ScannerEnergyInput
+}
+
+func (provider *recordingScannerEnergyProvider) CheckScanEnergy(input ScannerEnergyInput) (ScannerEnergyResult, error) {
+	if err := input.Validate(); err != nil {
+		return ScannerEnergyResult{}, err
+	}
+	provider.calls++
+	provider.inputs = append(provider.inputs, input)
+	return ScannerEnergyResult{Accepted: provider.accepted}, nil
 }
 
 type recordingScanXPProvider struct {

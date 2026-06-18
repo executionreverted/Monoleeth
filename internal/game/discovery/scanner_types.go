@@ -18,14 +18,16 @@ const (
 )
 
 var (
-	ErrInvalidScannerConfig  = errors.New("invalid scanner config")
-	ErrInvalidScanPulse      = errors.New("invalid scan pulse")
-	ErrScannerUnavailable    = errors.New("scanner unavailable")
-	ErrScanCooldownActive    = errors.New("scanner cooldown active")
-	ErrScanPulseNotFound     = errors.New("scan pulse not found")
-	ErrScanPulseNotReady     = errors.New("scan pulse not ready")
-	ErrInvalidScannerStats   = errors.New("invalid scanner stats")
-	ErrInvalidScannerXPGrant = errors.New("invalid scanner xp grant")
+	ErrInvalidScannerConfig     = errors.New("invalid scanner config")
+	ErrInvalidScanPulse         = errors.New("invalid scan pulse")
+	ErrScannerUnavailable       = errors.New("scanner unavailable")
+	ErrScannerEnergyUnavailable = errors.New("scanner energy unavailable")
+	ErrScanMovementRestricted   = errors.New("scan movement restricted")
+	ErrScanCooldownActive       = errors.New("scanner cooldown active")
+	ErrScanPulseNotFound        = errors.New("scan pulse not found")
+	ErrScanPulseNotReady        = errors.New("scan pulse not ready")
+	ErrInvalidScannerStats      = errors.New("invalid scanner stats")
+	ErrInvalidScannerXPGrant    = errors.New("invalid scanner xp grant")
 )
 
 // ScanPulseReference identifies one server-scheduled scanner pulse.
@@ -103,9 +105,10 @@ type ScannerEventRecord struct {
 
 // ScannerPosition is authoritative zone-owned position state for a player.
 type ScannerPosition struct {
-	WorldID  foundation.WorldID `json:"world_id"`
-	ZoneID   foundation.ZoneID  `json:"zone_id"`
-	Position world.Vec2         `json:"position"`
+	WorldID  foundation.WorldID  `json:"world_id"`
+	ZoneID   foundation.ZoneID   `json:"zone_id"`
+	Position world.Vec2          `json:"position"`
+	Movement world.MovementState `json:"movement,omitempty"`
 }
 
 // ScannerModuleInput asks the module/loadout boundary whether a scanner is equipped.
@@ -144,6 +147,26 @@ type ScannerCooldownResult struct {
 	ReadyAt  time.Time `json:"ready_at"`
 }
 
+// ScannerEnergyInput asks the ship/energy authority whether this scan has the
+// capacitor/energy needed for one server-owned pulse.
+//
+// This is a read-only availability check. Durable spend/reserve behavior must
+// happen in a runtime transaction that also owns cooldown and pulse creation.
+type ScannerEnergyInput struct {
+	PlayerID       foundation.PlayerID  `json:"player_id"`
+	ShipID         foundation.ShipID    `json:"ship_id"`
+	WorldID        foundation.WorldID   `json:"world_id"`
+	ZoneID         foundation.ZoneID    `json:"zone_id"`
+	PulseReference ScanPulseReference   `json:"pulse_reference"`
+	CheckedAt      time.Time            `json:"checked_at"`
+	Stats          stats.EffectiveStats `json:"stats"`
+}
+
+// ScannerEnergyResult reports whether scanner energy was available.
+type ScannerEnergyResult struct {
+	Accepted bool `json:"accepted"`
+}
+
 // ScanXPGrantInput is the narrow discovery-to-progression handoff.
 type ScanXPGrantInput struct {
 	PlayerID       foundation.PlayerID          `json:"player_id"`
@@ -176,6 +199,12 @@ type ScannerCooldownProvider interface {
 	StartScanCooldown(input ScannerCooldownInput) (ScannerCooldownResult, error)
 }
 
+// ScannerEnergyProvider checks scanner energy availability without mutating
+// durable ship energy/capacitor state.
+type ScannerEnergyProvider interface {
+	CheckScanEnergy(input ScannerEnergyInput) (ScannerEnergyResult, error)
+}
+
 type ScanXPGrantProvider interface {
 	GrantScanXP(input ScanXPGrantInput) (ScanXPGrantResult, error)
 }
@@ -190,6 +219,7 @@ type ScannerServiceConfig struct {
 	Stats     ScannerStatsProvider
 	Positions ScannerPositionProvider
 	Cooldowns ScannerCooldownProvider
+	Energy    ScannerEnergyProvider
 	XP        ScanXPGrantProvider
 
 	CandidateOptions  CandidateGenerationOptions
@@ -210,6 +240,7 @@ type ScannerService struct {
 	stats     ScannerStatsProvider
 	positions ScannerPositionProvider
 	cooldowns ScannerCooldownProvider
+	energy    ScannerEnergyProvider
 	xp        ScanXPGrantProvider
 
 	candidateOptions  CandidateGenerationOptions

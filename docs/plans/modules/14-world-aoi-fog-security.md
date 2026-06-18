@@ -185,6 +185,13 @@ func ValidateInteraction(viewer PlayerID, target EntityID, action ActionType) er
 
 ## Scanner Bridge
 
+Scanner activation is an intent. Before a pulse starts, the server must resolve
+scanner module state, authoritative zone position/movement, stat snapshot,
+capacitor/energy availability, and cooldown from trusted providers. A moving
+ship fails before cooldown, pulse, event, planet, intel, or XP mutation; the
+Phase 08 MVP models this as a stationary scan gate, with live slow-state leases
+left to runtime/world-worker integration.
+
 Scanner module produces events:
 
 ```text
@@ -288,6 +295,8 @@ Defense:
 - Pickup hidden drop fails.
 - Fog memory does not imply interaction permission.
 - Scanner discovery writes intel.
+- Scanner activation rejects missing energy before pulse mutation.
+- Scanner activation rejects non-stationary server movement state.
 - Gameplay seed not present in client payloads.
 - AOI stress test with many entities.
 
@@ -300,4 +309,3 @@ MVP:
 - planet intel memory
 - hidden planet scan reveal
 - no client gameplay seeds
-

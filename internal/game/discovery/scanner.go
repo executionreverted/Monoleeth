@@ -21,6 +21,7 @@ func NewScannerService(config ScannerServiceConfig) (*ScannerService, error) {
 		stats:             normalized.Stats,
 		positions:         normalized.Positions,
 		cooldowns:         normalized.Cooldowns,
+		energy:            normalized.Energy,
 		xp:                normalized.XP,
 		candidateOptions:  normalized.CandidateOptions,
 		scanCellSize:      normalized.ScanCellSize,
@@ -87,11 +88,31 @@ func (service *ScannerService) StartScanPulse(input StartScanPulseInput) (StartS
 		return StartScanPulseResult{}, err
 	}
 
+	if err := position.ValidateStationaryForScan(); err != nil {
+		return StartScanPulseResult{}, err
+	}
+
 	now := service.clock.Now().UTC()
 	cooldownDuration := scannerCooldownDuration(effective)
 	cell, err := ScanCellCoordForPosition(position.Position, service.scanCellSize)
 	if err != nil {
 		return StartScanPulseResult{}, err
+	}
+
+	energy, err := service.energy.CheckScanEnergy(ScannerEnergyInput{
+		PlayerID:       input.PlayerID,
+		ShipID:         input.ShipID,
+		WorldID:        input.WorldID,
+		ZoneID:         input.ZoneID,
+		PulseReference: input.PulseReference,
+		CheckedAt:      now,
+		Stats:          effective,
+	})
+	if err != nil {
+		return StartScanPulseResult{}, err
+	}
+	if !energy.Accepted {
+		return StartScanPulseResult{}, ErrScannerEnergyUnavailable
 	}
 
 	service.mu.Lock()

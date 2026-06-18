@@ -67,9 +67,12 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add per-player offer/active-quest indexes plus TTL/compaction or durable
   uniqueness for quest in-memory caches (`progressEvents`, `claimResults`,
   `rerollResults`) before long-running or multi-process deployment.
-- [ ] Wire Phase 08 scanner capacitor/energy validation and slow/stationary scan
-  state before exposing scanner pulses through authenticated realtime/API
-  commands. Source: `docs/roadmap/08-world-discovery-planets-intel.md`.
+- [ ] Consume live Phase 08 scanner energy/capacitor and apply/release
+  world-worker slow-scan leases atomically with scanner cooldown/pulse creation
+  before exposing scanner pulses through authenticated realtime/API commands.
+  The domain service now validates energy availability and stationary movement
+  through provider gates. Source:
+  `docs/roadmap/08-world-discovery-planets-intel.md`.
 - [ ] Replace Phase 08 in-memory discovery stores, idempotency maps, and local
   event slices with durable repositories/outbox records before multi-process
   runtime or DB-backed deployment.
@@ -169,6 +172,11 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Wire Phase 08 scanner capacitor/energy availability validation and
+  stationary movement gating into the scanner domain service before cooldown,
+  pulse, event, planet, intel, or XP mutation. Durable live energy spending and
+  slow-scan lease application remain tracked as runtime integration work.
+  Source: `docs/roadmap/08-world-discovery-planets-intel.md`.
 - [x] Block process-local player-facing cargo transfers while a lethal/death
   transaction is in progress for the player ship. `DeathService` now implements
   the economy cargo transfer guard with short transfer leases for Phase 06,

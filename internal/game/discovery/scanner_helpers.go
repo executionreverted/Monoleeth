@@ -75,6 +75,50 @@ func (position ScannerPosition) ValidateFor(_ foundation.PlayerID, worldID found
 	return nil
 }
 
+// ValidateStationaryForScan reports whether the server-owned movement state
+// permits a scanner pulse to begin.
+func (position ScannerPosition) ValidateStationaryForScan() error {
+	if err := position.Movement.Validate(); err != nil {
+		return err
+	}
+	if position.Movement.Moving {
+		return ErrScanMovementRestricted
+	}
+	return nil
+}
+
+// Validate reports whether input is a well-formed scanner energy check.
+func (input ScannerEnergyInput) Validate() error {
+	if err := input.PlayerID.Validate(); err != nil {
+		return fmt.Errorf("player_id: %w", err)
+	}
+	if err := input.ShipID.Validate(); err != nil {
+		return fmt.Errorf("ship_id: %w", err)
+	}
+	if err := input.WorldID.Validate(); err != nil {
+		return fmt.Errorf("world_id: %w", err)
+	}
+	if err := input.ZoneID.Validate(); err != nil {
+		return fmt.Errorf("zone_id: %w", err)
+	}
+	if err := input.PulseReference.Validate(); err != nil {
+		return err
+	}
+	if input.CheckedAt.IsZero() {
+		return fmt.Errorf("checked_at: %w", ErrInvalidScanPulse)
+	}
+	values := []float64{
+		input.Stats.Core.EnergyMax,
+		input.Stats.Core.EnergyRegen,
+	}
+	for _, value := range values {
+		if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+			return ErrInvalidScannerStats
+		}
+	}
+	return nil
+}
+
 // Validate reports whether input is a progression-compatible scan XP grant.
 func (input ScanXPGrantInput) Validate() error {
 	if err := input.PlayerID.Validate(); err != nil {
@@ -124,6 +168,9 @@ func normalizeScannerConfig(config ScannerServiceConfig) (ScannerServiceConfig, 
 	}
 	if config.Cooldowns == nil {
 		return ScannerServiceConfig{}, fmt.Errorf("cooldowns: %w", ErrInvalidScannerConfig)
+	}
+	if config.Energy == nil {
+		return ScannerServiceConfig{}, fmt.Errorf("energy: %w", ErrInvalidScannerConfig)
 	}
 	if config.XP == nil {
 		return ScannerServiceConfig{}, fmt.Errorf("xp: %w", ErrInvalidScannerConfig)
@@ -191,6 +238,8 @@ func validateScannerSnapshot(snapshot stats.StatSnapshot, playerID foundation.Pl
 		snapshot.Stats.Exploration.ScanPower,
 		snapshot.Stats.Exploration.ScanRadius,
 		snapshot.Stats.Exploration.ScanInterval,
+		snapshot.Stats.Core.EnergyMax,
+		snapshot.Stats.Core.EnergyRegen,
 	}
 	for _, value := range values {
 		if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {

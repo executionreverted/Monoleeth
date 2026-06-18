@@ -495,6 +495,12 @@ Activation cost:
 - Ship becomes stationary, and
 - Capacitor/energy is consumed.
 
+Phase 08 domain MVP gates scanner starts with server-owned state before any
+cooldown or pulse record is created: the zone position provider must report a
+stationary movement state, and a scanner energy provider must accept the
+server-derived player, ship, pulse, time, and stat snapshot. Durable live energy
+spend and world-worker slow-state leases remain runtime integration work.
+
 Pulse behavior:
 
 ```text
@@ -745,13 +751,14 @@ When a player scans:
 
 ```text
 1. Client sends scanner activation intent.
-2. Server validates module, cooldown, capacitor, and ship state.
-3. Server applies slow/stationary state.
-4. Server emits scan pulses every X seconds.
-5. Each pulse checks procedural candidates and DB overlay.
-6. Server rolls detection/discovery.
-7. Successful discoveries materialize persistent records.
-8. Client receives signal/planet intel updates.
+2. Server validates module and authoritative ship state.
+3. Server validates stationary or slow-scan state and capacitor availability.
+4. Server starts cooldown and creates the pulse only after those gates pass.
+5. Server emits scan pulses every X seconds.
+6. Each pulse checks procedural candidates and DB overlay.
+7. Server rolls detection/discovery.
+8. Successful discoveries materialize persistent records.
+9. Client receives signal/planet intel updates.
 ```
 
 When a player claims:
@@ -829,4 +836,3 @@ The first world prototype should prove:
 ```
 
 This will validate the heart of the world before adding large content volume.
-
