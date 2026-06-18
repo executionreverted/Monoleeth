@@ -170,6 +170,16 @@ player alive but active ship disabled
 must repair or swap ship
 ```
 
+Phase 06 MVP implementation:
+
+- `RespawnService` owns server-side target selection.
+- Priority order is checkpoint, nearest owned planet with respawn/hangar,
+  nearest safe station, then origin station fallback.
+- The MVP path is last checkpoint when present, otherwise origin station.
+- Runtime/provider wiring must supply checkpoint, planet, and station
+  candidates from authoritative server state before exposing respawn selection
+  through a gateway or client command.
+
 ## Repair
 
 Repair options:
@@ -350,4 +360,3 @@ MVP:
 - starter fallback
 - simple checkpoint respawn
 - module durability loss optional but prepared
-

@@ -81,8 +81,8 @@ Crafting:
 
 ## TODO: Respawn And Repair
 
-- [ ] Define respawn location priority.
-- [ ] Implement MVP respawn to last checkpoint or origin station.
+- [x] Define respawn location priority. Verified 2026-06-18 by `DefaultRespawnPriority` and `SelectRespawnLocation` tests covering checkpoint, owned-planet, safe-station, and origin fallback order.
+- [x] Implement MVP respawn to last checkpoint or origin station. Verified 2026-06-18 by `RespawnService.SelectLocation` tests selecting the configured origin fallback when no checkpoint exists and checkpoint when it is present.
 - [ ] Keep player alive but ship disabled after death.
 - [x] Implement repair cost formula. Verified 2026-06-17 by `RepairService` tests using catalog credit value and repair multiplier.
 - [x] Implement repair command. Verified 2026-06-17 by `RepairService.RepairShip` orchestration tests.
