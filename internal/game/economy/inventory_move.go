@@ -51,6 +51,22 @@ func (service *InventoryService) MoveItem(input MoveItemInput) (MoveItemResult, 
 		return MoveItemResult{}, err
 	}
 
+	return service.moveItemWithValidatedQuantity(input, quantity)
+}
+
+// SystemMoveItem moves player-owned items for trusted server-side economy flows.
+// It bypasses generic player-facing source/target location blocking while
+// preserving all other validation, idempotency, ledger writes, and events.
+func (service *InventoryService) SystemMoveItem(input MoveItemInput) (MoveItemResult, error) {
+	quantity, err := input.validateSystemMove()
+	if err != nil {
+		return MoveItemResult{}, err
+	}
+
+	return service.moveItemWithValidatedQuantity(input, quantity)
+}
+
+func (service *InventoryService) moveItemWithValidatedQuantity(input MoveItemInput, quantity foundation.Quantity) (MoveItemResult, error) {
 	var emitted []events.EventEnvelope
 	var emitter EventEmitter
 	service.mu.Lock()
@@ -111,6 +127,10 @@ func (input MoveItemInput) validateSystemMove() (foundation.Quantity, error) {
 }
 
 func (input MoveItemInput) validateCargoMove() (foundation.Quantity, error) {
+	return input.validateGenericSourceMove()
+}
+
+func (input MoveItemInput) validateGenericSourceMove() (foundation.Quantity, error) {
 	return input.validateWithLocationPolicies(true, false)
 }
 
@@ -440,6 +460,13 @@ func validateGenericMoveSourceLocation(location ItemLocation) error {
 }
 
 func validateGenericMoveTargetLocation(location ItemLocation) error {
+	if location.Kind == LocationKindShipCargo || isBlockedGenericMoveSourceLocation(location.Kind) {
+		return fmt.Errorf("target location %q: %w", location.Kind, ErrBlockedGenericMoveTarget)
+	}
+	return nil
+}
+
+func validateAddItemTargetLocation(location ItemLocation) error {
 	if location.Kind == LocationKindShipCargo || location.Kind == LocationKindShipEquipped {
 		return fmt.Errorf("target location %q: %w", location.Kind, ErrBlockedGenericMoveTarget)
 	}

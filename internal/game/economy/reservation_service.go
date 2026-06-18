@@ -390,7 +390,7 @@ func (input ReserveItemsInput) validate() (validatedReserveItemsInput, error) {
 			Reason:       input.Reason,
 			ReferenceKey: referenceKey,
 		}
-		quantity, err := moveInput.validate()
+		quantity, err := moveInput.validateGenericSourceMove()
 		if err != nil {
 			return validatedReserveItemsInput{}, fmt.Errorf("requirement %d: %w", index, err)
 		}

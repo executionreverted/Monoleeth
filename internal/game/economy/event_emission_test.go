@@ -139,6 +139,49 @@ func TestInventoryServiceEmitsItemMovedRemovedAndLedgerEvents(t *testing.T) {
 	assertItemLedgerPayload(t, decodeEventPayload[LedgerEntryCreatedPayload](t, recorded[1]), removeResult.LedgerEntries[0])
 }
 
+func TestInventoryServiceEmitsItemMovedForSystemMoveItem(t *testing.T) {
+	service := newTestInventoryService()
+	definition := validStackableDefinition(t)
+	fromLocation := validLocation(t)
+	toLocation := validLocationKind(t, LocationKindMarketEscrow, "listing-1")
+	addStackableItems(t, service, definition, 20, fromLocation, "loot_pickup:event-system-seed")
+
+	recorder := testutil.NewEventRecorder()
+	service.SetEventEmitter(recorder)
+
+	input := validMoveItemInput(t)
+	input.ItemRef.Definition = definition
+	input.FromLocation = fromLocation
+	input.ToLocation = toLocation
+	input.Quantity = 6
+	input.Reason = "market_listing"
+	input.ReferenceKey = validReferenceKey(t, "market_buy:listing-1:player-1:event-system")
+
+	result, err := service.SystemMoveItem(input)
+	if err != nil {
+		t.Fatalf("SystemMoveItem: %v", err)
+	}
+
+	recorded := recorder.Events()
+	testutil.AssertEventTypes(t, recorded, EventInventoryItemMoved, EventLedgerEntryCreated, EventLedgerEntryCreated)
+	moved := decodeEventPayload[InventoryItemMovedPayload](t, recorded[0])
+	if moved.PlayerID != input.PlayerID || moved.ItemID != definition.ItemID {
+		t.Fatalf("system moved asset = (%q,%q), want (%q,%q)", moved.PlayerID, moved.ItemID, input.PlayerID, definition.ItemID)
+	}
+	if moved.Quantity != input.Quantity {
+		t.Fatalf("system moved quantity = %d, want %d", moved.Quantity, input.Quantity)
+	}
+	if moved.FromLocation != fromLocation || moved.ToLocation != toLocation {
+		t.Fatalf("system moved locations = %v -> %v, want %v -> %v", moved.FromLocation, moved.ToLocation, fromLocation, toLocation)
+	}
+	if moved.Reason != input.Reason || moved.ReferenceKey != input.ReferenceKey {
+		t.Fatalf("system moved reason/reference = %q/%q, want %q/%q", moved.Reason, moved.ReferenceKey, input.Reason, input.ReferenceKey)
+	}
+	for index, entry := range result.LedgerEntries {
+		assertItemLedgerPayload(t, decodeEventPayload[LedgerEntryCreatedPayload](t, recorded[index+1]), entry)
+	}
+}
+
 func TestInventoryServiceDoesNotEmitOnValidationFailureOrDuplicate(t *testing.T) {
 	service := newTestInventoryService()
 	recorder := testutil.NewEventRecorder()

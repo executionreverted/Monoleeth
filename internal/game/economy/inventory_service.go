@@ -197,7 +197,7 @@ func (input AddItemInput) validateWithCargoTargetPolicy(blockCargoTarget bool) (
 		return foundation.Quantity{}, err
 	}
 	if blockCargoTarget {
-		if err := validateGenericMoveTargetLocation(input.Location); err != nil {
+		if err := validateAddItemTargetLocation(input.Location); err != nil {
 			return foundation.Quantity{}, err
 		}
 	}
