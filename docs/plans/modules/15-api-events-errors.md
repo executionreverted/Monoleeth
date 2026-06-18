@@ -374,3 +374,11 @@ MVP:
 - commit-then-broadcast
 - periodic snapshot
 
+Current Phase 04 implementation note:
+
+- `internal/game/realtime.Gateway` is transport-agnostic request handling. It
+  decodes JSON envelopes, resolves authenticated session/player/world/zone
+  identity through a server-side resolver, executes handlers with that resolved
+  context, and caches responses by session/request id.
+- Client payload identity fields such as `player_id` are not trusted by the
+  gateway boundary.

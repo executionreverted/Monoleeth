@@ -114,7 +114,7 @@ Do not build full gateway scaling yet. Keep a direct in-process worker test harn
 
 - [x] Define JSON operation registry.
 - [x] Validate request envelope fields.
-- [ ] Resolve player/session server-side.
+- [x] Resolve player/session server-side.
 - [x] Add request ID cache skeleton for retry safety.
 - [x] Add per-op rate limit placeholders.
 - [x] Define common client events: `player.snapshot`, `aoi.entity_entered`, `aoi.entity_left`, `position.corrected`.
@@ -164,6 +164,7 @@ Verified slices:
 - `AdvanceMovement` moves toward a target by server-provided speed and tick delta, stops without overshoot, and exposes no client final-position input.
 - Spatial hash cell coordinates, entity insert/update/remove membership, deterministic radius queries, and exact distance filtering are implemented in `internal/game/world/spatial`.
 - Realtime JSON request/response/error/event envelopes, Phase 04 operation registry, client event constants, request ID cache skeleton, and rate-limit posture metadata are implemented in `internal/game/realtime`.
+- Transport-agnostic realtime gateway request handling is implemented in `internal/game/realtime`: `Gateway` decodes request envelopes, resolves authenticated session/player/world/zone identity through a server-side `SessionResolver`, ignores client payload identity, executes registered operation handlers with `ObservedCommandExecutor`, and caches completed responses by session/request id.
 - A single-zone in-process worker harness with FIFO command mailbox, fixed tick delta, deterministic command drain, delayed task scheduler skeleton, entity lifecycle, player session attachment, and server-speed movement is implemented in `internal/game/world/worker`.
 - Worker scheduled-task dispatch runs registered in-process handlers during ticks, records handler errors without stopping later due tasks, and can requeue handler-declared early tasks for a later retry.
 - Visibility filtering, generic hidden/not-visible interaction errors, server-stat radar range input, entity signature/hidden flags, fog memory summaries, and scanner bridge event shells are implemented in `internal/game/world/visibility`.
@@ -172,5 +173,5 @@ Verified slices:
 
 Remaining follow-up:
 
-- Player/session resolution from realtime request envelopes remains open until a gateway/session layer is implemented; the current worker has session attachment primitives but no network gateway.
+- A concrete WebSocket network adapter is still future Phase 11 work; Phase 04 now has the in-process gateway boundary that resolves sessions server-side before operation handlers run.
 - Scheduled-task dispatch is an in-memory worker facility, not a durable outbox, distributed queue, or realtime gateway.

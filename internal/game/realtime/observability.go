@@ -93,7 +93,7 @@ func (executor ObservedCommandExecutor) Execute(ctx CommandContext, request Requ
 
 // Validate reports whether context contains server-resolved command identity.
 func (ctx CommandContext) Validate() error {
-	if err := observability.SessionID(ctx.SessionID).Validate(); err != nil {
+	if err := ctx.SessionID.Validate(); err != nil {
 		return foundation.NewDomainError(foundation.CodeUnauthenticated, "Authenticated session is required.", foundation.WithCause(err))
 	}
 	if ctx.PlayerID.IsZero() {

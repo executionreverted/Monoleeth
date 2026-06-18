@@ -8,9 +8,6 @@ for phase status; this file is a compact pending-work index.
 
 ## Open
 
-- [ ] Wire realtime gateway request handling to authenticated session and
-  server-side player resolution before exposing Phase 04 worker commands over
-  WebSocket. Source: `docs/roadmap/04-world-worker-aoi-fog-realtime.md`.
 - [ ] Replace the Phase 11 browser client's offline demo harness with an
   authenticated WebSocket gateway flow, including reconnect snapshot request
   and server-authoritative player resolution. Source:
@@ -109,12 +106,13 @@ for phase status; this file is a compact pending-work index.
   mutating visible state. Unit tests cover parser/reducer rejection today, but
   the Playwright smoke currently checks only rendered body text. Source:
   Symphony review `local-0106`.
-- [ ] Finish wiring Phase 12 observability through the authenticated gateway and
-  remaining domain service command paths. `ObservedCommandExecutor` now records
-  safe realtime command logs/metrics, and combat/loot services emit optional
-  metrics, but gateway exposure still depends on authenticated session/player
-  resolution and other gameplay services are not instrumented yet. Source:
-  Phase 12 Task 1 and core observability wiring.
+- [ ] Finish wiring Phase 12 observability through concrete authenticated
+  gateway command handlers and remaining domain service command paths.
+  `ObservedCommandExecutor` now records safe realtime command logs/metrics,
+  `realtime.Gateway` resolves sessions server-side before handlers run, and
+  combat/loot services emit optional metrics, but the remaining gameplay
+  services are not instrumented yet. Source: Phase 12 Task 1 and core
+  observability wiring.
 - [ ] Wire the concrete runtime adapter from discovery
   `ClaimListedIntelStaleMarker` to market/intel listing indexes once coordinate
   scroll listings leave the local domain MVP. Phase 10 now exposes the claim
@@ -202,3 +200,10 @@ for phase status; this file is a compact pending-work index.
   and map every MVP pilot-skill effect into stat aggregation passive buckets,
   including combat, scanner/fog, cargo, craft, construction, and route-capacity
   targets. Source: `docs/roadmap/03-progression-ships-modules-stats.md`.
+- [x] Wire realtime gateway request handling to authenticated session and
+  server-side player resolution. `realtime.Gateway` now decodes request
+  envelopes, resolves `CommandContext` through a server-side session resolver,
+  ignores client payload identity such as `player_id`, executes registered
+  operation handlers through `ObservedCommandExecutor`, and caches completed
+  responses by session/request id. Source:
+  `docs/roadmap/04-world-worker-aoi-fog-realtime.md`.
