@@ -10,6 +10,7 @@ import (
 	"gameproject/internal/game/combat"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world"
 )
 
@@ -18,6 +19,7 @@ const CombatSkillBasicLaser = "basic_laser"
 var (
 	ErrNilCombatService       = errors.New("nil combat service")
 	ErrNilCombatActorResolver = errors.New("nil combat actor resolver")
+	ErrNilActiveShipProvider  = errors.New("nil active ship provider")
 	ErrUnsupportedCombatSkill = errors.New("unsupported combat skill")
 )
 
@@ -27,23 +29,34 @@ type CombatActorResolver interface {
 	ActiveCombatActor(realtime.CommandContext) (world.EntityID, error)
 }
 
+// ActiveShipProvider returns the authoritative active ship state for combat
+// command eligibility checks.
+type ActiveShipProvider interface {
+	GetHangar(foundation.PlayerID) (ships.HangarSnapshot, error)
+}
+
 // CombatCommandHandler adapts realtime combat intents to the combat domain.
 type CombatCommandHandler struct {
 	combat *combat.Service
 	actors CombatActorResolver
+	ships  ActiveShipProvider
 }
 
 // NewCombatCommandHandler returns realtime handlers for Phase 05 combat intents.
-func NewCombatCommandHandler(service *combat.Service, actors CombatActorResolver) (*CombatCommandHandler, error) {
+func NewCombatCommandHandler(service *combat.Service, actors CombatActorResolver, ships ActiveShipProvider) (*CombatCommandHandler, error) {
 	if service == nil {
 		return nil, ErrNilCombatService
 	}
 	if actors == nil {
 		return nil, ErrNilCombatActorResolver
 	}
+	if ships == nil {
+		return nil, ErrNilActiveShipProvider
+	}
 	return &CombatCommandHandler{
 		combat: service,
 		actors: actors,
+		ships:  ships,
 	}, nil
 }
 
@@ -67,6 +80,9 @@ func (handler *CombatCommandHandler) HandleUseSkill(
 	payload, err := decodeCombatUseSkillPayload(request.Payload)
 	if err != nil {
 		return nil, err
+	}
+	if err := handler.validateActiveShipCanFight(ctx); err != nil {
+		return nil, domainErrorForCombatCommand(err)
 	}
 	attackerID, err := handler.actors.ActiveCombatActor(ctx)
 	if err != nil {
@@ -92,6 +108,30 @@ func (handler *CombatCommandHandler) HandleUseSkill(
 		return nil, domainErrorForCombatCommand(err)
 	}
 	return json.RawMessage(response), nil
+}
+
+func (handler *CombatCommandHandler) validateActiveShipCanFight(ctx realtime.CommandContext) error {
+	hangar, err := handler.ships.GetHangar(ctx.PlayerID)
+	if err != nil {
+		return err
+	}
+	if !hangar.HasActiveShip {
+		return ships.ErrNoActiveShip
+	}
+	for _, playerShip := range hangar.Ships {
+		if playerShip.ShipID != hangar.ActiveShip.ShipID {
+			continue
+		}
+		switch playerShip.State {
+		case ships.ShipStateActive:
+			return nil
+		case ships.ShipStateDisabled:
+			return ships.ErrShipDisabled
+		default:
+			return ships.ErrShipUnavailable
+		}
+	}
+	return ships.ErrShipNotUnlocked
 }
 
 type combatUseSkillPayload struct {
@@ -161,7 +201,9 @@ func domainErrorForCombatCommand(err error) error {
 		return foundation.NewDomainError(foundation.CodeOutOfRange, "Target is out of range.", foundation.WithCause(err))
 	case errors.Is(err, combat.ErrTargetNotVisible), errors.Is(err, combat.ErrDifferentWorldZone):
 		return foundation.NewDomainError(foundation.CodeNotVisible, "Target is not visible.", foundation.WithCause(err))
-	case errors.Is(err, combat.ErrUnknownActor), errors.Is(err, combat.ErrTargetDead), errors.Is(err, combat.ErrAttackerDead):
+	case errors.Is(err, combat.ErrUnknownActor), errors.Is(err, combat.ErrTargetDead), errors.Is(err, combat.ErrAttackerDead),
+		errors.Is(err, ships.ErrNoActiveShip), errors.Is(err, ships.ErrShipNotUnlocked), errors.Is(err, ships.ErrShipUnavailable),
+		errors.Is(err, ships.ErrShipDisabled):
 		return foundation.NewDomainError(foundation.CodeNotFound, "Target is not available.", foundation.WithCause(err))
 	default:
 		return foundation.NewDomainError(foundation.CodeInternal, "Combat command failed.", foundation.WithCause(err))

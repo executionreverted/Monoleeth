@@ -83,7 +83,7 @@ Crafting:
 
 - [x] Define respawn location priority. Verified 2026-06-18 by `DefaultRespawnPriority` and `SelectRespawnLocation` tests covering checkpoint, owned-planet, safe-station, and origin fallback order.
 - [x] Implement MVP respawn to last checkpoint or origin station. Verified 2026-06-18 by `RespawnService.SelectLocation` tests selecting the configured origin fallback when no checkpoint exists and checkpoint when it is present.
-- [ ] Keep player alive but ship disabled after death.
+- [x] Keep player alive but ship disabled after death. Verified 2026-06-18 by `DeathService.ProcessDeath` preserving player death/respawn identity while disabling the active ship, and by `runtime.CombatCommandHandler` rejecting combat for disabled active ships without spending energy or starting cooldowns.
 - [x] Implement repair cost formula. Verified 2026-06-17 by `RepairService` tests using catalog credit value and repair multiplier.
 - [x] Implement repair command. Verified 2026-06-17 by `RepairService.RepairShip` orchestration tests.
 - [x] Debit wallet through wallet service. Verified 2026-06-17 by credit repair wallet ledger tests.
@@ -129,7 +129,7 @@ Crafting:
 - [x] Active ship becomes disabled.
 - [x] Death cargo removal ledger uses `death_cargo_drop:*` references instead of `loot_pickup:*`. Verified 2026-06-17 by `DeathService.ProcessDeath` hardening tests.
 - [x] Death cargo rows from another owner, another ship cargo location, or non-ship-cargo location are rejected before inventory mutation. Verified 2026-06-17 by `DeathService.ProcessDeath` hardening tests.
-- [ ] Dead/disabled ship cannot fight.
+- [x] Dead/disabled ship cannot fight. Verified 2026-06-18 by `TestCombatUseSkillRejectsDisabledActiveShipBeforeMutation`.
 - [x] Starter fallback works when all ships disabled.
 - [x] Repair charges correct wallet amount. Verified 2026-06-17 by successful repair debit ledger test.
 - [x] Repair restores ship.

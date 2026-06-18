@@ -10,6 +10,7 @@ import (
 	"gameproject/internal/game/combat"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/ships"
 	"gameproject/internal/game/stats"
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
@@ -26,6 +27,7 @@ func TestCombatUseSkillIgnoresClientTimestampForCooldown(t *testing.T) {
 	combatHandler, err := NewCombatCommandHandler(
 		combatService,
 		staticCombatActorResolver{"player-1": "player-entity-1"},
+		staticActiveShipProvider{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateActive)},
 	)
 	if err != nil {
 		t.Fatalf("NewCombatCommandHandler() error = %v, want nil", err)
@@ -94,6 +96,7 @@ func TestCombatUseSkillHidesDifferentZoneTargets(t *testing.T) {
 	combatHandler, err := NewCombatCommandHandler(
 		combatService,
 		staticCombatActorResolver{"player-1": "player-entity-1"},
+		staticActiveShipProvider{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateActive)},
 	)
 	if err != nil {
 		t.Fatalf("NewCombatCommandHandler() error = %v, want nil", err)
@@ -134,11 +137,14 @@ func TestCombatUseSkillHidesDifferentZoneTargets(t *testing.T) {
 }
 
 func TestCombatCommandHandlerConstructorsRejectNilDependencies(t *testing.T) {
-	if _, err := NewCombatCommandHandler(nil, staticCombatActorResolver{}); !errors.Is(err, ErrNilCombatService) {
+	if _, err := NewCombatCommandHandler(nil, staticCombatActorResolver{}, staticActiveShipProvider{}); !errors.Is(err, ErrNilCombatService) {
 		t.Fatalf("NewCombatCommandHandler(nil service) error = %v, want ErrNilCombatService", err)
 	}
-	if _, err := NewCombatCommandHandler(combat.NewService(nil, nil), nil); !errors.Is(err, ErrNilCombatActorResolver) {
+	if _, err := NewCombatCommandHandler(combat.NewService(nil, nil), nil, staticActiveShipProvider{}); !errors.Is(err, ErrNilCombatActorResolver) {
 		t.Fatalf("NewCombatCommandHandler(nil resolver) error = %v, want ErrNilCombatActorResolver", err)
+	}
+	if _, err := NewCombatCommandHandler(combat.NewService(nil, nil), staticCombatActorResolver{}, nil); !errors.Is(err, ErrNilActiveShipProvider) {
+		t.Fatalf("NewCombatCommandHandler(nil ships) error = %v, want ErrNilActiveShipProvider", err)
 	}
 }
 
@@ -146,6 +152,7 @@ func TestCombatUseSkillRejectsClientAuthoredAttackerID(t *testing.T) {
 	handler, err := NewCombatCommandHandler(
 		combat.NewService(nil, nil),
 		staticCombatActorResolver{"player-1": "player-entity-1"},
+		staticActiveShipProvider{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateActive)},
 	)
 	if err != nil {
 		t.Fatalf("NewCombatCommandHandler() error = %v, want nil", err)
@@ -161,6 +168,59 @@ func TestCombatUseSkillRejectsClientAuthoredAttackerID(t *testing.T) {
 
 	if !foundation.IsCode(err, foundation.CodeInvalidPayload) {
 		t.Fatalf("HandleUseSkill() error = %v, want %s", err, foundation.CodeInvalidPayload)
+	}
+}
+
+func TestCombatUseSkillRejectsDisabledActiveShipBeforeMutation(t *testing.T) {
+	start := time.Date(2026, 6, 18, 20, 10, 0, 0, time.UTC)
+	clock := testutil.NewFakeClock(start)
+	combatService := combat.NewService(clock, nil)
+	upsertRuntimeCombatActor(t, combatService, runtimePlayerCombatActor("player-entity-1", "player-1", world.Vec2{}))
+	upsertRuntimeCombatActor(t, combatService, runtimeNPCCombatActor("npc-1", world.Vec2{X: 20, Y: 0}))
+
+	combatHandler, err := NewCombatCommandHandler(
+		combatService,
+		staticCombatActorResolver{"player-1": "player-entity-1"},
+		staticActiveShipProvider{"player-1": runtimeActiveShipSnapshot("player-1", ships.ShipStateDisabled)},
+	)
+	if err != nil {
+		t.Fatalf("NewCombatCommandHandler() error = %v, want nil", err)
+	}
+	gateway, err := realtime.NewGateway(realtime.GatewayOptions{
+		Clock: clock,
+		Sessions: staticRuntimeSessionResolver{
+			"session-1": {
+				SessionID: "session-1",
+				PlayerID:  "player-1",
+				WorldID:   "world-1",
+				ZoneID:    "zone-1",
+			},
+		},
+		Handlers: combatHandler.Handlers(),
+	})
+	if err != nil {
+		t.Fatalf("NewGateway() error = %v, want nil", err)
+	}
+
+	result := gateway.HandleRequest("session-1", []byte(
+		`{"request_id":"request-1","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"npc-1"},"client_seq":1,"v":1}`,
+	))
+
+	if !result.HasError {
+		t.Fatalf("HandleRequest() HasError = false, want disabled ship error")
+	}
+	if result.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("error code = %s, want %s", result.Error.Error.Code, foundation.CodeNotFound)
+	}
+	attacker, ok := combatService.Actor("player-entity-1")
+	if !ok {
+		t.Fatal("Actor(player-entity-1) ok = false, want true")
+	}
+	if got, want := attacker.Energy, 100.0; got != want {
+		t.Fatalf("attacker energy after disabled ship rejection = %v, want %v", got, want)
+	}
+	if !attacker.Cooldowns[combat.BasicLaserCooldownKey].IsZero() {
+		t.Fatalf("cooldown after disabled ship rejection = %s, want zero", attacker.Cooldowns[combat.BasicLaserCooldownKey])
 	}
 }
 
@@ -182,6 +242,45 @@ func (resolver staticCombatActorResolver) ActiveCombatActor(ctx realtime.Command
 		return "", combat.ErrUnknownActor
 	}
 	return entityID, nil
+}
+
+type staticActiveShipProvider map[foundation.PlayerID]ships.HangarSnapshot
+
+func (provider staticActiveShipProvider) GetHangar(playerID foundation.PlayerID) (ships.HangarSnapshot, error) {
+	snapshot, ok := provider[playerID]
+	if !ok {
+		return ships.HangarSnapshot{}, ships.ErrNoActiveShip
+	}
+	return snapshot, nil
+}
+
+func runtimeActiveShipSnapshot(playerID foundation.PlayerID, state ships.ShipState) ships.HangarSnapshot {
+	return ships.HangarSnapshot{
+		PlayerID: playerID,
+		Ships: []ships.PlayerShipState{
+			{
+				PlayerID:       playerID,
+				ShipID:         "ship-1",
+				UnlockedAt:     time.Date(2026, 6, 18, 20, 0, 0, 0, time.UTC),
+				State:          state,
+				DisabledReason: disabledReasonForState(state),
+			},
+		},
+		ActiveShip: ships.ActiveShipState{
+			PlayerID:    playerID,
+			ShipID:      "ship-1",
+			ActivatedAt: time.Date(2026, 6, 18, 20, 0, 0, 0, time.UTC),
+			UpdatedAt:   time.Date(2026, 6, 18, 20, 0, 0, 0, time.UTC),
+		},
+		HasActiveShip: true,
+	}
+}
+
+func disabledReasonForState(state ships.ShipState) string {
+	if state == ships.ShipStateDisabled {
+		return ships.DisabledReasonDeath
+	}
+	return ""
 }
 
 func upsertRuntimeCombatActor(t *testing.T, service *combat.Service, actor combat.ActorState) {

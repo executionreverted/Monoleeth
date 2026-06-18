@@ -30,8 +30,6 @@ for phase status; this file is a compact pending-work index.
 - [ ] Move `DeathService.ProcessDeath` from caller-supplied cargo/drop/loadout
   inputs to authoritative zone inventory, loadout, respawn, and drop-policy
   providers before exposing death processing through gateway/runtime callers.
-- [ ] Wire disabled ship state into combat runtime actor ownership so a stale
-  combat actor cannot attack after `DisableActiveShipForDeath`.
 - [ ] Add durable completion/reconciliation for `CraftingService.CompleteCraft`
   after reservation commit; current in-memory retry path is idempotent, but a
   crash between reservation commit, output grant, XP grant, and job completion
@@ -214,3 +212,8 @@ for phase status; this file is a compact pending-work index.
   the attacker from authenticated server context and ignores
   `client_timestamp` while `CombatService` enforces cooldowns with server time.
   Source: `docs/roadmap/05-combat-loot-vertical-slice.md`.
+- [x] Wire disabled active ship state into the realtime combat command path.
+  `runtime.CombatCommandHandler` now requires an authoritative active ship
+  provider and rejects `combat.use_skill` before actor resolution, energy spend,
+  or cooldown mutation when the player's active ship is disabled or unavailable.
+  Source: `docs/roadmap/06-death-repair-crafting.md`.

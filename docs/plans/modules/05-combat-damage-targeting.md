@@ -178,6 +178,7 @@ Server:
 
 ```text
 load active ship stats
+validate active ship is usable and not disabled
 load equipped skill/module
 validate target/position
 validate cooldown
@@ -497,4 +498,3 @@ MVP combat:
 - Loot owner = highest damage
 
 Skillshots, projectiles with travel time, advanced line-of-sight and PvP rules can come later.
-
