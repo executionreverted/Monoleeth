@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 )
 
@@ -40,6 +41,16 @@ var (
 	ErrModuleBroken                = errors.New("module broken")
 	ErrActiveShipNotFound          = errors.New("active ship not found")
 	ErrNilLoadoutStore             = errors.New("nil loadout store")
+	ErrInvalidModuleItemMove       = errors.New("invalid module item move")
+)
+
+const (
+	// LedgerReasonModuleEquip records an item instance moving into a ship's
+	// equipped-module location.
+	LedgerReasonModuleEquip = economy.LedgerReason("module_equip")
+	// LedgerReasonModuleUnequip records an item instance leaving a ship's
+	// equipped-module location.
+	LedgerReasonModuleUnequip = economy.LedgerReason("module_unequip")
 )
 
 // LoadoutID identifies a saved module assignment set.
@@ -118,10 +129,11 @@ type SaveLoadoutInput struct {
 // PlayerRank and RoleLevels are ignored by LoadoutService; authoritative
 // progression is read from PilotProgressionProvider.
 type ApplyLoadoutInput struct {
-	PlayerID   foundation.PlayerID `json:"player_id"`
-	LoadoutID  LoadoutID           `json:"loadout_id"`
-	PlayerRank int                 `json:"player_rank,omitempty"`
-	RoleLevels map[PilotRole]int   `json:"role_levels,omitempty"`
+	PlayerID   foundation.PlayerID  `json:"player_id"`
+	LoadoutID  LoadoutID            `json:"loadout_id"`
+	RequestID  foundation.RequestID `json:"request_id,omitempty"`
+	PlayerRank int                  `json:"player_rank,omitempty"`
+	RoleLevels map[PilotRole]int    `json:"role_levels,omitempty"`
 }
 
 // BreakEquippedModuleInput records the authoritative item break transition for
@@ -130,6 +142,55 @@ type BreakEquippedModuleInput struct {
 	PlayerID       foundation.PlayerID `json:"player_id"`
 	ShipID         foundation.ShipID   `json:"ship_id"`
 	ItemInstanceID foundation.ItemID   `json:"item_instance_id"`
+}
+
+// ReplaceEquippedModulesInput records an authoritative equipped-module
+// replacement. RequestID is required only when an inventory ledger adapter is
+// attached and item locations actually move.
+type ReplaceEquippedModulesInput struct {
+	PlayerID  foundation.PlayerID  `json:"player_id"`
+	ShipID    foundation.ShipID    `json:"ship_id"`
+	Equipped  []EquippedModule     `json:"equipped"`
+	RequestID foundation.RequestID `json:"request_id,omitempty"`
+}
+
+// ModuleItemMoveDirection names the inventory direction caused by a loadout
+// application.
+type ModuleItemMoveDirection string
+
+const (
+	ModuleItemMoveEquip   ModuleItemMoveDirection = "equip"
+	ModuleItemMoveUnequip ModuleItemMoveDirection = "unequip"
+)
+
+// ModuleItemLocationMove is the loadout-store handoff to a runtime inventory
+// ledger adapter.
+type ModuleItemLocationMove struct {
+	PlayerID       foundation.PlayerID       `json:"player_id"`
+	ShipID         foundation.ShipID         `json:"ship_id"`
+	SlotID         ModuleSlotID              `json:"slot_id"`
+	ItemID         foundation.ItemID         `json:"item_id"`
+	ItemInstanceID foundation.ItemID         `json:"item_instance_id"`
+	FromLocation   economy.ItemLocation      `json:"from_location"`
+	ToLocation     economy.ItemLocation      `json:"to_location"`
+	Direction      ModuleItemMoveDirection   `json:"direction"`
+	RequestID      foundation.RequestID      `json:"request_id"`
+	LedgerReason   economy.LedgerReason      `json:"ledger_reason"`
+	ReferenceKey   foundation.IdempotencyKey `json:"reference_id"`
+}
+
+// ModuleItemLocationMoveResult reports ledger evidence for one module item
+// location transition.
+type ModuleItemLocationMoveResult struct {
+	LedgerEntries []economy.ItemLedgerEntry `json:"ledger_entries"`
+	Duplicate     bool                      `json:"duplicate"`
+}
+
+// ModuleItemLocationMover is implemented by runtime composition code that can
+// move module items through InventoryService instead of silently editing
+// locations.
+type ModuleItemLocationMover interface {
+	MoveModuleItemLocations(moves []ModuleItemLocationMove) ([]ModuleItemLocationMoveResult, error)
 }
 
 // ValidatedModuleAssignment records one assignment after catalog, item, and

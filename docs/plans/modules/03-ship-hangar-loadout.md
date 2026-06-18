@@ -236,7 +236,7 @@ Server validate eder:
 Pseudo:
 
 ```go
-func ApplyLoadout(ctx context.Context, player PlayerID, loadoutID string) error {
+func ApplyLoadout(ctx context.Context, player PlayerID, loadoutID string, requestID RequestID) error {
 	return db.Tx(ctx, func(tx Tx) error {
 		loadout := tx.Loadouts().Lock(loadoutID)
 		activeShip := tx.Ships().ActiveShip(player)
@@ -246,12 +246,20 @@ func ApplyLoadout(ctx context.Context, player PlayerID, loadoutID string) error 
 		if err := moduleSvc.ValidateAssignments(ctx, tx, player, activeShip.ShipID, loadout.Assignments); err != nil {
 			return err
 		}
+		tx.Inventory().MoveModuleItemsForLoadout(player, activeShip.ShipID, loadout.Assignments, requestID)
 		tx.Modules().EquipAssignments(player, activeShip.ShipID, loadout.Assignments)
 		tx.Events().Insert("ship.loadout_applied", player, loadoutID)
 		return nil
 	})
 }
 ```
+
+Module equip/unequip changes item locations between `account_inventory` and
+`ship_equipped`. The loadout/module boundary validates slot, ownership, rank,
+role, durability, and duplicate use; the actual item movement must go through
+`InventoryService` and item ledger primitives with domain idempotency references
+such as `module_equip:<player_id>:<ship_id>:<item_instance_id>:<request_id>` and
+`module_unequip:<player_id>:<ship_id>:<item_instance_id>:<request_id>`.
 
 ## Ship Archetype Examples
 
@@ -386,4 +394,3 @@ Defense:
 - Ship effective scaling sonraya bırakılabilir.
 - Loadout slot sayısı başlangıçta 1 olabilir.
 - Premium loadout slot sonra eklenir.
-

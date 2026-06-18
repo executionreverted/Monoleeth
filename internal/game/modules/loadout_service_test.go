@@ -253,13 +253,17 @@ func TestSaveLoadoutRejectsInvalidModuleAssignments(t *testing.T) {
 			roleLevels:  map[PilotRole]int{PilotRoleCombat: 1},
 			setup: func(t *testing.T, store *InMemoryLoadoutStore, item economy.InstanceItem) {
 				t.Helper()
-				err := store.ReplaceEquippedModules(playerID, "ship-2", []EquippedModule{{
-					PlayerID:       playerID,
-					ShipID:         "ship-2",
-					SlotID:         ModuleSlotOffensive1,
-					ItemInstanceID: item.ItemInstanceID,
-					EquippedAt:     time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC),
-				}})
+				err := store.ReplaceEquippedModules(ReplaceEquippedModulesInput{
+					PlayerID: playerID,
+					ShipID:   "ship-2",
+					Equipped: []EquippedModule{{
+						PlayerID:       playerID,
+						ShipID:         "ship-2",
+						SlotID:         ModuleSlotOffensive1,
+						ItemInstanceID: item.ItemInstanceID,
+						EquippedAt:     time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC),
+					}},
+				})
 				if err != nil {
 					t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
 				}
@@ -344,22 +348,25 @@ func TestApplyLoadoutReplacesEquippedModulesAndReturnsInvalidations(t *testing.T
 	}
 
 	originalEquippedAt := time.Date(2026, 6, 17, 8, 0, 0, 0, time.UTC)
-	err := store.ReplaceEquippedModules(playerID, shipID, []EquippedModule{
-		{
-			PlayerID:       playerID,
-			ShipID:         shipID,
-			SlotID:         ModuleSlotOffensive1,
-			ItemInstanceID: laser.ItemInstanceID,
-			EquippedAt:     originalEquippedAt,
-		},
-		{
-			PlayerID:       playerID,
-			ShipID:         shipID,
-			SlotID:         ModuleSlotDefensive1,
-			ItemInstanceID: shield.ItemInstanceID,
-			EquippedAt:     originalEquippedAt,
-		},
-	})
+	err := store.ReplaceEquippedModules(ReplaceEquippedModulesInput{
+		PlayerID: playerID,
+		ShipID:   shipID,
+		Equipped: []EquippedModule{
+			{
+				PlayerID:       playerID,
+				ShipID:         shipID,
+				SlotID:         ModuleSlotOffensive1,
+				ItemInstanceID: laser.ItemInstanceID,
+				EquippedAt:     originalEquippedAt,
+			},
+			{
+				PlayerID:       playerID,
+				ShipID:         shipID,
+				SlotID:         ModuleSlotDefensive1,
+				ItemInstanceID: shield.ItemInstanceID,
+				EquippedAt:     originalEquippedAt,
+			},
+		}})
 	if err != nil {
 		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
 	}
@@ -736,13 +743,17 @@ func equipModuleForTest(
 	itemInstanceID foundation.ItemID,
 ) {
 	t.Helper()
-	err := store.ReplaceEquippedModules(playerID, shipID, []EquippedModule{{
-		PlayerID:       playerID,
-		ShipID:         shipID,
-		SlotID:         slotID,
-		ItemInstanceID: itemInstanceID,
-		EquippedAt:     time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC),
-	}})
+	err := store.ReplaceEquippedModules(ReplaceEquippedModulesInput{
+		PlayerID: playerID,
+		ShipID:   shipID,
+		Equipped: []EquippedModule{{
+			PlayerID:       playerID,
+			ShipID:         shipID,
+			SlotID:         slotID,
+			ItemInstanceID: itemInstanceID,
+			EquippedAt:     time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC),
+		}},
+	})
 	if err != nil {
 		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
 	}

@@ -202,9 +202,9 @@ Verified slices:
 - Review hardening batch 3 changed stat snapshot lookup to accept only a player/ship subject and build aggregation inputs from an injected server-side provider, with service-level locking around invalidation and recalculation.
 - Review hardening batch 4 added `ship_equipped` item locations, blocked generic inventory moves into or out of equipped locations, and made loadout apply bind/unbind module item locations atomically with equipped indexes in the in-memory loadout store.
 - Runtime provider mapping exists under `internal/game/runtime` for progression rank/role validation, catalog-backed equipped-module stat input, scanner scan-pulse cooldown mapping to `Exploration.ScanInterval`, and effective-stat cargo capacity checks.
+- Runtime module equip/unequip ledger mapping exists under `internal/game/runtime`: `ModuleInventoryLedgerAdapter` batches `InventoryService.SystemMoveItems` transitions for loadout changes, using `module_equip:*` and `module_unequip:*` domain idempotency references before in-memory equipped-module indexes commit.
 - The runtime stat input provider currently composes base ship and equipped module stats. The aggregation model has passive and role bonus buckets, but unlocked pilot-skill passive stat effects are not yet mapped into runtime stat input.
 
 Remaining follow-up:
 
-- Module equip now binds item locations in the loadout store; add the runtime `InventoryService` ledger adapter before persistence is introduced so equip/unequip emits real item ledger rows.
 - Map unlocked pilot-skill passive effects into runtime stat input before claiming a full progression-passives integration.

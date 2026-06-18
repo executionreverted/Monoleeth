@@ -46,6 +46,8 @@ const (
 	idempotencyMarketCancel        = "market_cancel"
 	idempotencyMarketExpire        = "market_expire"
 	idempotencyShipRepair          = "ship_repair"
+	idempotencyModuleEquip         = "module_equip"
+	idempotencyModuleUnequip       = "module_unequip"
 	idempotencyAdminCompensation   = "admin_compensation"
 )
 
@@ -165,6 +167,16 @@ func ShipRepairIdempotencyKey(shipID ShipID, repairReference string) (Idempotenc
 	return buildIdempotencyKey(idempotencyShipRepair, shipID.String(), repairReference)
 }
 
+// ModuleEquipIdempotencyKey returns module_equip:<player_id>:<ship_id>:<item_instance_id>:<request_id>.
+func ModuleEquipIdempotencyKey(playerID PlayerID, shipID ShipID, itemInstanceID ItemID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyModuleEquip, playerID.String(), shipID.String(), itemInstanceID.String(), requestID.String())
+}
+
+// ModuleUnequipIdempotencyKey returns module_unequip:<player_id>:<ship_id>:<item_instance_id>:<request_id>.
+func ModuleUnequipIdempotencyKey(playerID PlayerID, shipID ShipID, itemInstanceID ItemID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyModuleUnequip, playerID.String(), shipID.String(), itemInstanceID.String(), requestID.String())
+}
+
 // AdminCompensationIdempotencyKey returns admin_compensation:<subject_id>:<repair_reference>.
 func AdminCompensationIdempotencyKey(subjectID string, repairReference string) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyAdminCompensation, subjectID, repairReference)
@@ -277,9 +289,13 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyMarketFee:
 		return 3, true
 	case idempotencyShipRepair,
-		idempotencyDeathCargoDrop,
 		idempotencyAdminCompensation:
 		return 2, true
+	case idempotencyDeathCargoDrop:
+		return 2, true
+	case idempotencyModuleEquip,
+		idempotencyModuleUnequip:
+		return 4, true
 	default:
 		return 0, false
 	}

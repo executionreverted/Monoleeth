@@ -18,6 +18,7 @@ type InMemoryLoadoutStore struct {
 	items          map[foundation.ItemID]economy.InstanceItem
 	equippedByKey  map[string]map[ModuleSlotID]EquippedModule
 	equippedByItem map[foundation.ItemID]EquippedModule
+	itemMover      ModuleItemLocationMover
 }
 
 // NewInMemoryLoadoutStore returns an empty in-memory loadout store.
@@ -29,6 +30,14 @@ func NewInMemoryLoadoutStore() *InMemoryLoadoutStore {
 		equippedByKey:  make(map[string]map[ModuleSlotID]EquippedModule),
 		equippedByItem: make(map[foundation.ItemID]EquippedModule),
 	}
+}
+
+// NewInMemoryLoadoutStoreWithItemMover returns an in-memory loadout store that
+// ledgers module item location changes through mover before committing them.
+func NewInMemoryLoadoutStoreWithItemMover(mover ModuleItemLocationMover) *InMemoryLoadoutStore {
+	store := NewInMemoryLoadoutStore()
+	store.itemMover = mover
+	return store
 }
 
 // SetActiveShip sets the explicit active ship pointer used by ApplyLoadout.
@@ -158,25 +167,21 @@ func (store *InMemoryLoadoutStore) EquippedModuleByItem(itemInstanceID foundatio
 }
 
 // ReplaceEquippedModules replaces all equipped modules for one player ship.
-func (store *InMemoryLoadoutStore) ReplaceEquippedModules(
-	playerID foundation.PlayerID,
-	shipID foundation.ShipID,
-	equipped []EquippedModule,
-) error {
-	if err := playerID.Validate(); err != nil {
+func (store *InMemoryLoadoutStore) ReplaceEquippedModules(input ReplaceEquippedModulesInput) error {
+	if err := input.PlayerID.Validate(); err != nil {
 		return err
 	}
-	if err := shipID.Validate(); err != nil {
+	if err := input.ShipID.Validate(); err != nil {
 		return err
 	}
-	nextBySlot := make(map[ModuleSlotID]EquippedModule, len(equipped))
-	nextItems := make(map[foundation.ItemID]ModuleSlotID, len(equipped))
-	for _, module := range equipped {
+	nextBySlot := make(map[ModuleSlotID]EquippedModule, len(input.Equipped))
+	nextItems := make(map[foundation.ItemID]ModuleSlotID, len(input.Equipped))
+	for _, module := range input.Equipped {
 		if err := module.Validate(); err != nil {
 			return err
 		}
-		if module.PlayerID != playerID || module.ShipID != shipID {
-			return fmt.Errorf("equipped player %q ship %q target player %q ship %q: %w", module.PlayerID, module.ShipID, playerID, shipID, ErrLoadoutShipMismatch)
+		if module.PlayerID != input.PlayerID || module.ShipID != input.ShipID {
+			return fmt.Errorf("equipped player %q ship %q target player %q ship %q: %w", module.PlayerID, module.ShipID, input.PlayerID, input.ShipID, ErrLoadoutShipMismatch)
 		}
 		if _, ok := nextBySlot[module.SlotID]; ok {
 			return fmt.Errorf("slot %q: %w", module.SlotID, ErrDuplicateModuleAssignment)
@@ -190,14 +195,14 @@ func (store *InMemoryLoadoutStore) ReplaceEquippedModules(
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	key := playerShipStoreKey(playerID, shipID)
+	key := playerShipStoreKey(input.PlayerID, input.ShipID)
 	for _, module := range nextBySlot {
 		item, ok := store.items[module.ItemInstanceID]
 		if !ok {
 			return fmt.Errorf("item %q: %w", module.ItemInstanceID, ErrUnknownModuleItem)
 		}
-		if item.OwnerPlayerID != playerID {
-			return fmt.Errorf("item %q owner %q player %q: %w", module.ItemInstanceID, item.OwnerPlayerID, playerID, ErrModuleItemNotOwned)
+		if item.OwnerPlayerID != input.PlayerID {
+			return fmt.Errorf("item %q owner %q player %q: %w", module.ItemInstanceID, item.OwnerPlayerID, input.PlayerID, ErrModuleItemNotOwned)
 		}
 		if existing, ok := store.equippedByItem[module.ItemInstanceID]; ok {
 			existingKey := playerShipStoreKey(existing.PlayerID, existing.ShipID)
@@ -211,10 +216,19 @@ func (store *InMemoryLoadoutStore) ReplaceEquippedModules(
 			return fmt.Errorf("item %q: %w", old.ItemInstanceID, ErrUnknownModuleItem)
 		}
 	}
+	if store.itemMover != nil {
+		moves, err := store.moduleItemLocationMovesLocked(input, store.equippedByKey[key], nextBySlot)
+		if err != nil {
+			return err
+		}
+		if _, err := store.itemMover.MoveModuleItemLocations(moves); err != nil {
+			return err
+		}
+	}
 	for _, old := range store.equippedByKey[key] {
 		delete(store.equippedByItem, old.ItemInstanceID)
 	}
-	store.moveReplacedModuleItemsLocked(playerID, shipID, store.equippedByKey[key], nextBySlot)
+	store.moveReplacedModuleItemsLocked(input.PlayerID, input.ShipID, store.equippedByKey[key], nextBySlot)
 	if len(nextBySlot) == 0 {
 		delete(store.equippedByKey, key)
 		return nil
@@ -224,6 +238,109 @@ func (store *InMemoryLoadoutStore) ReplaceEquippedModules(
 		store.equippedByItem[module.ItemInstanceID] = module
 	}
 	return nil
+}
+
+func (store *InMemoryLoadoutStore) moduleItemLocationMovesLocked(
+	input ReplaceEquippedModulesInput,
+	current map[ModuleSlotID]EquippedModule,
+	next map[ModuleSlotID]EquippedModule,
+) ([]ModuleItemLocationMove, error) {
+	currentItems := make(map[foundation.ItemID]EquippedModule, len(current))
+	currentEquipped := make([]EquippedModule, 0, len(current))
+	for _, module := range current {
+		currentItems[module.ItemInstanceID] = module
+		currentEquipped = append(currentEquipped, module)
+	}
+	nextItems := make(map[foundation.ItemID]EquippedModule, len(next))
+	nextEquipped := make([]EquippedModule, 0, len(next))
+	for _, module := range next {
+		nextItems[module.ItemInstanceID] = module
+		nextEquipped = append(nextEquipped, module)
+	}
+	sortEquippedModules(currentEquipped)
+	sortEquippedModules(nextEquipped)
+
+	moveCount := 0
+	for itemInstanceID := range currentItems {
+		if _, kept := nextItems[itemInstanceID]; !kept {
+			moveCount++
+		}
+	}
+	for itemInstanceID := range nextItems {
+		if _, kept := currentItems[itemInstanceID]; !kept {
+			moveCount++
+		}
+	}
+	if moveCount == 0 {
+		return nil, nil
+	}
+	if err := input.RequestID.Validate(); err != nil {
+		return nil, err
+	}
+
+	moves := make([]ModuleItemLocationMove, 0, moveCount)
+	accountLocation := economy.ItemLocation{
+		Kind: economy.LocationKindAccountInventory,
+		ID:   economy.LocationID(input.PlayerID.String()),
+	}
+	equippedLocation := economy.ItemLocation{
+		Kind: economy.LocationKindShipEquipped,
+		ID:   economy.LocationID(input.ShipID.String()),
+	}
+
+	for _, old := range currentEquipped {
+		if _, kept := nextItems[old.ItemInstanceID]; kept {
+			continue
+		}
+		item := store.items[old.ItemInstanceID]
+		if item.Location != equippedLocation {
+			return nil, fmt.Errorf("item %q location %s: %w", item.ItemInstanceID, item.Location.String(), ErrInvalidModuleItemLocation)
+		}
+		reference, err := foundation.ModuleUnequipIdempotencyKey(input.PlayerID, input.ShipID, old.ItemInstanceID, input.RequestID)
+		if err != nil {
+			return nil, err
+		}
+		moves = append(moves, ModuleItemLocationMove{
+			PlayerID:       input.PlayerID,
+			ShipID:         input.ShipID,
+			SlotID:         old.SlotID,
+			ItemID:         item.ItemID,
+			ItemInstanceID: old.ItemInstanceID,
+			FromLocation:   equippedLocation,
+			ToLocation:     accountLocation,
+			Direction:      ModuleItemMoveUnequip,
+			RequestID:      input.RequestID,
+			LedgerReason:   LedgerReasonModuleUnequip,
+			ReferenceKey:   reference,
+		})
+	}
+	for _, module := range nextEquipped {
+		if _, kept := currentItems[module.ItemInstanceID]; kept {
+			continue
+		}
+		item := store.items[module.ItemInstanceID]
+		if item.Location.Kind != economy.LocationKindAccountInventory {
+			return nil, fmt.Errorf("item %q location %s: %w", item.ItemInstanceID, item.Location.String(), ErrInvalidModuleItemLocation)
+		}
+		reference, err := foundation.ModuleEquipIdempotencyKey(input.PlayerID, input.ShipID, module.ItemInstanceID, input.RequestID)
+		if err != nil {
+			return nil, err
+		}
+		moves = append(moves, ModuleItemLocationMove{
+			PlayerID:       input.PlayerID,
+			ShipID:         input.ShipID,
+			SlotID:         module.SlotID,
+			ItemID:         item.ItemID,
+			ItemInstanceID: module.ItemInstanceID,
+			FromLocation:   item.Location,
+			ToLocation:     equippedLocation,
+			Direction:      ModuleItemMoveEquip,
+			RequestID:      input.RequestID,
+			LedgerReason:   LedgerReasonModuleEquip,
+			ReferenceKey:   reference,
+		})
+	}
+	return moves, nil
 }
 
 func (store *InMemoryLoadoutStore) moveReplacedModuleItemsLocked(

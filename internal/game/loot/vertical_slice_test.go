@@ -59,13 +59,17 @@ func TestCombatKillLootPickupAndXPVerticalSlice(t *testing.T) {
 	moduleCatalog := modules.MustMVPCatalog()
 	loadoutStore := modules.NewInMemoryLoadoutStore()
 	putVerticalSliceModuleItem(t, loadoutStore, "laser-instance-1", "laser_alpha_t1", "player_1", 100)
-	if err := loadoutStore.ReplaceEquippedModules("player_1", starter.ActiveShip.ShipID, []modules.EquippedModule{{
-		PlayerID:       "player_1",
-		ShipID:         starter.ActiveShip.ShipID,
-		SlotID:         modules.ModuleSlotOffensive1,
-		ItemInstanceID: "laser-instance-1",
-		EquippedAt:     clock.Now(),
-	}}); err != nil {
+	if err := loadoutStore.ReplaceEquippedModules(modules.ReplaceEquippedModulesInput{
+		PlayerID: "player_1",
+		ShipID:   starter.ActiveShip.ShipID,
+		Equipped: []modules.EquippedModule{{
+			PlayerID:       "player_1",
+			ShipID:         starter.ActiveShip.ShipID,
+			SlotID:         modules.ModuleSlotOffensive1,
+			ItemInstanceID: "laser-instance-1",
+			EquippedAt:     clock.Now(),
+		}},
+	}); err != nil {
 		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
 	}
 	statInput, err := gameruntime.NewStatInputProvider(shipCatalog, moduleCatalog, loadoutStore)

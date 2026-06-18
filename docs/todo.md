@@ -15,9 +15,6 @@ for phase status; this file is a compact pending-work index.
   authenticated WebSocket gateway flow, including reconnect snapshot request
   and server-authoritative player resolution. Source:
   `docs/roadmap/11-browser-client-prototype.md`.
-- [ ] Wire the remaining Phase 03 runtime inventory ledger adapter for module
-  equip/unequip. Rank/role-gate, module-aware stat input, and effective
-  cargo-capacity providers exist under `internal/game/runtime`.
 - [ ] Map unlocked pilot-skill passive stat effects into runtime stat input.
   The stat aggregation model has passive buckets, but current runtime providers
   compose base ship and equipped module stats only.
@@ -196,3 +193,9 @@ for phase status; this file is a compact pending-work index.
   combat, loot, quest, scanner, and crafting grant paths supply their owning
   authority, and future construction/route/event/admin grant paths must do the
   same. Source: `docs/roadmap/03-progression-ships-modules-stats.md`.
+- [x] Wire the Phase 03 runtime inventory ledger adapter for module
+  equip/unequip. Loadout stores can now call the runtime
+  `ModuleInventoryLedgerAdapter`, which batches `InventoryService.SystemMoveItems`
+  transitions with `module_equip:*` and `module_unequip:*` references before
+  committing in-memory equipped-module indexes. Source:
+  `docs/roadmap/03-progression-ships-modules-stats.md`.

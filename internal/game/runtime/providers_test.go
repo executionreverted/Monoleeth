@@ -72,13 +72,17 @@ func TestStatInputProviderBuildsShipAndEquippedModuleStats(t *testing.T) {
 	shipID := ships.ShipIDStarter
 
 	putRuntimeModuleItem(t, loadout, "laser-instance-1", "laser_alpha_t1", playerID, 100)
-	if err := loadout.ReplaceEquippedModules(playerID, shipID, []modules.EquippedModule{{
-		PlayerID:       playerID,
-		ShipID:         shipID,
-		SlotID:         modules.ModuleSlotOffensive1,
-		ItemInstanceID: "laser-instance-1",
-		EquippedAt:     time.Date(2026, 6, 17, 16, 0, 0, 0, time.UTC),
-	}}); err != nil {
+	if err := loadout.ReplaceEquippedModules(modules.ReplaceEquippedModulesInput{
+		PlayerID: playerID,
+		ShipID:   shipID,
+		Equipped: []modules.EquippedModule{{
+			PlayerID:       playerID,
+			ShipID:         shipID,
+			SlotID:         modules.ModuleSlotOffensive1,
+			ItemInstanceID: "laser-instance-1",
+			EquippedAt:     time.Date(2026, 6, 17, 16, 0, 0, 0, time.UTC),
+		}},
+	}); err != nil {
 		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
 	}
 
@@ -113,22 +117,25 @@ func TestStatInputProviderBuildsScannerAndRadarStats(t *testing.T) {
 	putRuntimeModuleItem(t, loadout, "scanner-instance-1", "scanner_t1", playerID, 100)
 	putRuntimeModuleItem(t, loadout, "radar-instance-1", "radar_t1", playerID, 100)
 	equippedAt := time.Date(2026, 6, 17, 16, 0, 0, 0, time.UTC)
-	if err := loadout.ReplaceEquippedModules(playerID, shipID, []modules.EquippedModule{
-		{
-			PlayerID:       playerID,
-			ShipID:         shipID,
-			SlotID:         modules.ModuleSlotUtility1,
-			ItemInstanceID: "scanner-instance-1",
-			EquippedAt:     equippedAt,
-		},
-		{
-			PlayerID:       playerID,
-			ShipID:         shipID,
-			SlotID:         modules.ModuleSlotUtility2,
-			ItemInstanceID: "radar-instance-1",
-			EquippedAt:     equippedAt,
-		},
-	}); err != nil {
+	if err := loadout.ReplaceEquippedModules(modules.ReplaceEquippedModulesInput{
+		PlayerID: playerID,
+		ShipID:   shipID,
+		Equipped: []modules.EquippedModule{
+			{
+				PlayerID:       playerID,
+				ShipID:         shipID,
+				SlotID:         modules.ModuleSlotUtility1,
+				ItemInstanceID: "scanner-instance-1",
+				EquippedAt:     equippedAt,
+			},
+			{
+				PlayerID:       playerID,
+				ShipID:         shipID,
+				SlotID:         modules.ModuleSlotUtility2,
+				ItemInstanceID: "radar-instance-1",
+				EquippedAt:     equippedAt,
+			},
+		}}); err != nil {
 		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
 	}
 
@@ -156,13 +163,17 @@ func TestStatInputProviderIgnoresBrokenEquippedModules(t *testing.T) {
 	shipID := ships.ShipIDStarter
 
 	putRuntimeModuleItem(t, loadout, "laser-instance-1", "laser_alpha_t1", playerID, 0)
-	if err := loadout.ReplaceEquippedModules(playerID, shipID, []modules.EquippedModule{{
-		PlayerID:       playerID,
-		ShipID:         shipID,
-		SlotID:         modules.ModuleSlotOffensive1,
-		ItemInstanceID: "laser-instance-1",
-		EquippedAt:     time.Date(2026, 6, 17, 16, 0, 0, 0, time.UTC),
-	}}); err != nil {
+	if err := loadout.ReplaceEquippedModules(modules.ReplaceEquippedModulesInput{
+		PlayerID: playerID,
+		ShipID:   shipID,
+		Equipped: []modules.EquippedModule{{
+			PlayerID:       playerID,
+			ShipID:         shipID,
+			SlotID:         modules.ModuleSlotOffensive1,
+			ItemInstanceID: "laser-instance-1",
+			EquippedAt:     time.Date(2026, 6, 17, 16, 0, 0, 0, time.UTC),
+		}},
+	}); err != nil {
 		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
 	}
 
@@ -188,13 +199,17 @@ func TestStatCargoCapacityProviderUsesEffectiveStats(t *testing.T) {
 	shipID := ships.ShipIDStarter
 
 	putRuntimeModuleItem(t, loadout, "cargo-expander-instance-1", "cargo_expander_t1", playerID, 100)
-	if err := loadout.ReplaceEquippedModules(playerID, shipID, []modules.EquippedModule{{
-		PlayerID:       playerID,
-		ShipID:         shipID,
-		SlotID:         modules.ModuleSlotUtility1,
-		ItemInstanceID: "cargo-expander-instance-1",
-		EquippedAt:     time.Date(2026, 6, 17, 16, 0, 0, 0, time.UTC),
-	}}); err != nil {
+	if err := loadout.ReplaceEquippedModules(modules.ReplaceEquippedModulesInput{
+		PlayerID: playerID,
+		ShipID:   shipID,
+		Equipped: []modules.EquippedModule{{
+			PlayerID:       playerID,
+			ShipID:         shipID,
+			SlotID:         modules.ModuleSlotUtility1,
+			ItemInstanceID: "cargo-expander-instance-1",
+			EquippedAt:     time.Date(2026, 6, 17, 16, 0, 0, 0, time.UTC),
+		}},
+	}); err != nil {
 		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
 	}
 	inputs, err := NewStatInputProvider(shipCatalog, modules.MustMVPCatalog(), loadout)
@@ -232,6 +247,9 @@ func TestRuntimeProviderConstructorsRejectNilDependencies(t *testing.T) {
 	}
 	if _, err := NewStatCargoCapacityProvider(nil); !errors.Is(err, ErrNilStatService) {
 		t.Fatalf("NewStatCargoCapacityProvider(nil) error = %v, want ErrNilStatService", err)
+	}
+	if _, err := NewModuleInventoryLedgerAdapter(nil, modules.Catalog{}); !errors.Is(err, ErrNilInventoryService) {
+		t.Fatalf("NewModuleInventoryLedgerAdapter(nil) error = %v, want ErrNilInventoryService", err)
 	}
 }
 

@@ -19,7 +19,7 @@ type LoadoutStore interface {
 	ModuleItem(itemInstanceID foundation.ItemID) (economy.InstanceItem, error)
 	EquippedModules(playerID foundation.PlayerID, shipID foundation.ShipID) ([]EquippedModule, error)
 	EquippedModuleByItem(itemInstanceID foundation.ItemID) (EquippedModule, bool, error)
-	ReplaceEquippedModules(playerID foundation.PlayerID, shipID foundation.ShipID, equipped []EquippedModule) error
+	ReplaceEquippedModules(input ReplaceEquippedModulesInput) error
 	MarkEquippedModuleBroken(playerID foundation.PlayerID, shipID foundation.ShipID, itemInstanceID foundation.ItemID) (EquippedModule, bool, error)
 }
 
@@ -151,7 +151,12 @@ func (service LoadoutService) ApplyLoadout(input ApplyLoadoutInput) (ApplyLoadou
 	now := service.clock.Now()
 	target := buildTargetEquipped(input.PlayerID, activeShipID, loadout.SlotAssignments, current, now)
 	equipped, unequipped := diffEquippedModules(current, target)
-	if err := service.store.ReplaceEquippedModules(input.PlayerID, activeShipID, target); err != nil {
+	if err := service.store.ReplaceEquippedModules(ReplaceEquippedModulesInput{
+		PlayerID:  input.PlayerID,
+		ShipID:    activeShipID,
+		Equipped:  target,
+		RequestID: input.RequestID,
+	}); err != nil {
 		return ApplyLoadoutResult{}, err
 	}
 

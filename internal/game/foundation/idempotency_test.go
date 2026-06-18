@@ -116,6 +116,20 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			want: "ship_repair:fighter_t1:repair-job-7",
 		},
 		{
+			name: "module equip",
+			build: func() (IdempotencyKey, error) {
+				return ModuleEquipIdempotencyKey(PlayerID("player-1"), ShipID("fighter_t1"), ItemID("laser-instance-1"), RequestID("request-8"))
+			},
+			want: "module_equip:player-1:fighter_t1:laser-instance-1:request-8",
+		},
+		{
+			name: "module unequip",
+			build: func() (IdempotencyKey, error) {
+				return ModuleUnequipIdempotencyKey(PlayerID("player-1"), ShipID("fighter_t1"), ItemID("shield-instance-1"), RequestID("request-9"))
+			},
+			want: "module_unequip:player-1:fighter_t1:shield-instance-1:request-9",
+		},
+		{
 			name: "admin compensation",
 			build: func() (IdempotencyKey, error) {
 				return AdminCompensationIdempotencyKey("currency-ledger-9", "ticket-42")
@@ -217,6 +231,10 @@ func TestIdempotencyKeyRejectsMalformedKeys(t *testing.T) {
 		"market_expire:listing-9:extra",
 		"ship_repair:fighter_t1",
 		"ship_repair:fighter_t1:repair-1:extra",
+		"module_equip:player-1:fighter_t1:laser-instance-1",
+		"module_equip:player-1:fighter_t1:laser-instance-1:request-8:extra",
+		"module_unequip:player-1:fighter_t1:shield-instance-1",
+		"module_unequip:player-1:fighter_t1:shield-instance-1:request-9:extra",
 		"admin_compensation:ledger-1",
 		"admin_compensation:ledger-1:ticket-1:extra",
 	} {
@@ -298,6 +316,12 @@ func TestIdempotencyKeyHelpersRejectDelimiterParts(t *testing.T) {
 			name: "ship repair reference delimiter",
 			build: func() (IdempotencyKey, error) {
 				return ShipRepairIdempotencyKey(ShipID("fighter_t1"), "repair:job:7")
+			},
+		},
+		{
+			name: "module equip request delimiter",
+			build: func() (IdempotencyKey, error) {
+				return ModuleEquipIdempotencyKey(PlayerID("player-1"), ShipID("fighter_t1"), ItemID("laser-instance-1"), RequestID("request:8"))
 			},
 		},
 	}
@@ -401,6 +425,18 @@ func TestIdempotencyKeyHelpersRejectBlankParts(t *testing.T) {
 			name: "ship repair reference",
 			build: func() (IdempotencyKey, error) {
 				return ShipRepairIdempotencyKey(ShipID("fighter_t1"), "")
+			},
+		},
+		{
+			name: "module equip player id",
+			build: func() (IdempotencyKey, error) {
+				return ModuleEquipIdempotencyKey(PlayerID(""), ShipID("fighter_t1"), ItemID("laser-instance-1"), RequestID("request-8"))
+			},
+		},
+		{
+			name: "module unequip request id",
+			build: func() (IdempotencyKey, error) {
+				return ModuleUnequipIdempotencyKey(PlayerID("player-1"), ShipID("fighter_t1"), ItemID("shield-instance-1"), RequestID(""))
 			},
 		},
 	}

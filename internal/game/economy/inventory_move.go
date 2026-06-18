@@ -68,6 +68,49 @@ func (service *InventoryService) SystemMoveItem(input MoveItemInput) (MoveItemRe
 	return service.moveItemWithValidatedQuantity(input, quantity)
 }
 
+// SystemMoveItems moves several player-owned items as one in-memory
+// transaction for trusted server-side economy flows.
+func (service *InventoryService) SystemMoveItems(inputs []MoveItemInput) ([]MoveItemResult, error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+	quantities := make([]foundation.Quantity, len(inputs))
+	for index, input := range inputs {
+		quantity, err := input.validateSystemMove()
+		if err != nil {
+			return nil, err
+		}
+		quantities[index] = quantity
+	}
+
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
+	service.mu.Lock()
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+	emitter = service.emitter
+
+	if err := service.preflightMoveItemsLocked(inputs, quantities); err != nil {
+		return nil, err
+	}
+
+	now := service.clock.Now()
+	results := make([]MoveItemResult, 0, len(inputs))
+	for index, input := range inputs {
+		result, err := service.moveItemValidatedLocked(input, quantities[index], now)
+		if err != nil {
+			return nil, err
+		}
+		if emitter != nil && !result.Duplicate {
+			emitted = append(emitted, service.moveItemEventsLocked(input, result, now)...)
+		}
+		results = append(results, result)
+	}
+	return cloneMoveItemResults(results), nil
+}
+
 func (service *InventoryService) moveItemWithValidatedQuantity(input MoveItemInput, quantity foundation.Quantity) (MoveItemResult, error) {
 	var emitted []events.EventEnvelope
 	var emitter EventEmitter
@@ -118,6 +161,72 @@ func (service *InventoryService) moveItemValidatedLocked(input MoveItemInput, qu
 	service.itemLedgerEntries = append(service.itemLedgerEntries, result.LedgerEntries...)
 	service.moveItemReferences[reference] = cloneMoveItemResult(result)
 	return cloneMoveItemResult(result), nil
+}
+
+type stackableMovePreflightKey struct {
+	playerID foundation.PlayerID
+	itemID   foundation.ItemID
+	source   catalogSourceKey
+	location ItemLocation
+}
+
+type catalogSourceKey struct {
+	definitionID string
+	version      string
+}
+
+func (service *InventoryService) preflightMoveItemsLocked(inputs []MoveItemInput, quantities []foundation.Quantity) error {
+	reservedStackable := make(map[stackableMovePreflightKey]int64)
+	reservedInstances := make(map[foundation.ItemID]struct{})
+	pendingReferences := make(map[inventoryReferenceKey]struct{}, len(inputs))
+
+	for index, input := range inputs {
+		reference := inventoryReferenceKey{
+			playerID:     input.PlayerID,
+			operation:    moveItemOperation,
+			referenceKey: input.ReferenceKey,
+		}
+		if _, ok := service.moveItemReferences[reference]; ok {
+			continue
+		}
+		if _, ok := pendingReferences[reference]; ok {
+			return fmt.Errorf("move reference %q: %w", input.ReferenceKey, foundation.ErrInvalidIdempotencyKey)
+		}
+		pendingReferences[reference] = struct{}{}
+
+		quantity := quantities[index]
+		switch input.ItemRef.Definition.Type {
+		case ItemTypeStackable:
+			key := stackableMovePreflightKey{
+				playerID: input.PlayerID,
+				itemID:   input.ItemRef.Definition.ItemID,
+				source: catalogSourceKey{
+					definitionID: input.ItemRef.Definition.Source.DefinitionID.String(),
+					version:      input.ItemRef.Definition.Source.Version.String(),
+				},
+				location: input.FromLocation,
+			}
+			available := service.stackableQuantityForDefinitionLocked(input.PlayerID, input.ItemRef.Definition, input.FromLocation) - reservedStackable[key]
+			if available <= 0 {
+				return ErrItemNotOwned
+			}
+			if available < quantity.Int64() {
+				return fmt.Errorf("have %d need %d: %w", available, quantity.Int64(), ErrInsufficientItemQuantity)
+			}
+			reservedStackable[key] += quantity.Int64()
+		case ItemTypeInstance:
+			if _, ok := reservedInstances[input.ItemRef.ItemInstanceID]; ok {
+				return fmt.Errorf("item %q: %w", input.ItemRef.ItemInstanceID, ErrItemNotOwned)
+			}
+			if service.instanceItemIndexLocked(input) < 0 {
+				return ErrItemNotOwned
+			}
+			reservedInstances[input.ItemRef.ItemInstanceID] = struct{}{}
+		default:
+			return input.ItemRef.Definition.Type.Validate()
+		}
+	}
+	return nil
 }
 
 func (input MoveItemInput) validate() (foundation.Quantity, error) {
@@ -514,4 +623,15 @@ func cloneMoveItemResult(result MoveItemResult) MoveItemResult {
 	result.InstanceItems = append([]InstanceItem(nil), result.InstanceItems...)
 	result.LedgerEntries = append([]ItemLedgerEntry(nil), result.LedgerEntries...)
 	return result
+}
+
+func cloneMoveItemResults(results []MoveItemResult) []MoveItemResult {
+	if len(results) == 0 {
+		return nil
+	}
+	cloned := make([]MoveItemResult, len(results))
+	for index, result := range results {
+		cloned[index] = cloneMoveItemResult(result)
+	}
+	return cloned
 }
