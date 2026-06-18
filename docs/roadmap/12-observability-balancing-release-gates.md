@@ -124,16 +124,20 @@ not implemented.
 
 ## TODO: Economy Dashboards
 
-- [ ] Define dashboard for credits faucet/sink.
-- [ ] Define dashboard for X Core supply.
-- [ ] Define dashboard for top raw material supply.
-- [ ] Define dashboard for top processed material supply.
-- [ ] Define dashboard for market average prices.
-- [ ] Define dashboard for auction clearing prices.
-- [ ] Define dashboard for repair total.
-- [ ] Define dashboard for craft fees.
-- [ ] Define dashboard for route loss.
-- [ ] Define dashboard for planet production.
+- [x] Define dashboard for credits faucet/sink.
+- [x] Define dashboard for X Core supply.
+- [x] Define dashboard for top raw material supply.
+- [x] Define dashboard for top processed material supply.
+- [x] Define dashboard for market average prices.
+- [x] Define dashboard for auction clearing prices.
+- [x] Define dashboard for repair total.
+- [x] Define dashboard for craft fees.
+- [x] Define dashboard for route loss.
+- [x] Define dashboard for planet production.
+
+Implementation note 2026-06-18:
+`RequiredDashboardSpecs` now defines stable dashboard keys and local source
+references. These are specs only; no external Grafana/admin UI has been wired.
 
 ## TODO: Admin And Repair Tools
 
@@ -163,6 +167,10 @@ For every command:
 - [ ] Error message does not leak hidden info.
 - [ ] Broadcast occurs after commit.
 
+Implementation note 2026-06-18:
+`NewCommandSecurityReviewReport` now fail-closes on missing command security
+checks. Per-command reviews have not been run across every gameplay command yet.
+
 ## TODO: Release Gates
 
 Before enabling each module beyond local development:
@@ -177,6 +185,10 @@ Before enabling each module beyond local development:
 - [ ] Load test exists for expected throughput.
 - [ ] `go test ./...` passes.
 - [ ] `git diff --check` passes.
+
+Implementation note 2026-06-18:
+`NewReleaseGateReport` now fail-closes on missing release gates and lists stable
+missing check names. Module-by-module release gate reports have not been run yet.
 
 ## Abuse Test Suite
 
@@ -230,3 +242,7 @@ definitions, release gates, and then runtime/domain instrumentation.
 2026-06-18: Phase 12 Task 2 added duplicate-safe economy flow accounting under
 `internal/game/observability`. Continue with dashboard definitions and release
 gate reports before full runtime/domain instrumentation.
+
+2026-06-18: Phase 12 Task 3 added dashboard specs plus release/security gate
+report primitives under `internal/game/observability`. Continue with roadmap
+verification and Phase 12 review/fixes.
