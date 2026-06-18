@@ -1,0 +1,186 @@
+package realtime
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
+)
+
+func TestObservedCommandExecutorRecordsSafeLogAndCommandMetric(t *testing.T) {
+	logger := observability.NewMemoryCommandLogger()
+	metrics := observability.NewMetricRecorder()
+	clock := &steppingClock{now: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC), step: 25 * time.Millisecond}
+	executor := ObservedCommandExecutor{Clock: clock, Logger: logger, Metrics: metrics}
+	request := NewRequestEnvelope("request-1", OperationMoveTo, json.RawMessage(`{"x":10,"y":20,"client_only":"ignored"}`), 7)
+	ctx := validCommandContext()
+
+	payload, err := executor.Execute(ctx, request, func(gotCtx CommandContext, gotRequest RequestEnvelope) (json.RawMessage, error) {
+		if gotCtx.PlayerID != ctx.PlayerID || gotRequest.RequestID != request.RequestID {
+			t.Fatalf("handler context/request = %+v/%+v, want %+v/%+v", gotCtx, gotRequest, ctx, request)
+		}
+		return json.RawMessage(`{"accepted":true,"internal":"not logged"}`), nil
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := string(payload); got != `{"accepted":true,"internal":"not logged"}` {
+		t.Fatalf("payload = %s", got)
+	}
+
+	entries := logger.Snapshot()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want 1", len(entries))
+	}
+	entry := entries[0]
+	if entry.RequestID != request.RequestID || entry.PlayerID != ctx.PlayerID || entry.SessionID != observability.SessionID(ctx.SessionID) {
+		t.Fatalf("log identity = %+v, want request/player/session from server context", entry)
+	}
+	if entry.Operation != observability.Operation(OperationMoveTo) || entry.Status != observability.CommandStatusOK {
+		t.Fatalf("log op/status = %q/%q, want move_to/ok", entry.Operation, entry.Status)
+	}
+	if entry.Duration != 25*time.Millisecond {
+		t.Fatalf("duration = %s, want 25ms", entry.Duration)
+	}
+	rawLog, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal log: %v", err)
+	}
+	for _, leaked := range []string{"client_only", "accepted", "internal", "not logged"} {
+		if strings.Contains(string(rawLog), leaked) {
+			t.Fatalf("command log leaked %q in %s", leaked, rawLog)
+		}
+	}
+
+	counter := requireRealtimeCounter(t, metrics.Snapshot(), observability.MetricCommandsPerSecond)
+	if counter.Value != 1 {
+		t.Fatalf("command count = %d, want 1", counter.Value)
+	}
+	assertRealtimeLabels(t, counter.Labels, []observability.Label{{Name: "op", Value: string(OperationMoveTo)}})
+}
+
+func TestObservedCommandExecutorRecordsErrorCodeMetricWithoutLeakingDetails(t *testing.T) {
+	logger := observability.NewMemoryCommandLogger()
+	metrics := observability.NewMetricRecorder()
+	executor := ObservedCommandExecutor{
+		Clock:   &steppingClock{now: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC), step: time.Millisecond},
+		Logger:  logger,
+		Metrics: metrics,
+	}
+	request := NewRequestEnvelope("request-2", OperationDebugSnapshot, json.RawMessage(`{"target_id":"hidden-planet-9"}`), 8)
+	hiddenErr := foundation.NewDomainError(
+		foundation.CodeNotVisible,
+		"No valid signal found.",
+		foundation.WithDetail("hidden planet at x=10 y=20"),
+	)
+
+	_, err := executor.Execute(validCommandContext(), request, func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+		return nil, hiddenErr
+	})
+	if !foundation.IsCode(err, foundation.CodeNotVisible) {
+		t.Fatalf("Execute() error = %v, want %s", err, foundation.CodeNotVisible)
+	}
+
+	entries := logger.Snapshot()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want 1", len(entries))
+	}
+	entry := entries[0]
+	if entry.Status != observability.CommandStatusError || entry.ErrorCode != foundation.CodeNotVisible {
+		t.Fatalf("log status/code = %q/%q, want error/%s", entry.Status, entry.ErrorCode, foundation.CodeNotVisible)
+	}
+	rawLog, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal log: %v", err)
+	}
+	for _, leaked := range []string{"hidden planet", "x=10", "y=20", "No valid signal found"} {
+		if strings.Contains(string(rawLog), leaked) {
+			t.Fatalf("command log leaked %q in %s", leaked, rawLog)
+		}
+	}
+
+	errorCounter := requireCounterWithLabel(t, metrics.Snapshot(), observability.MetricErrorsByCode, "code", foundation.CodeNotVisible.String())
+	if errorCounter.Value != 1 {
+		t.Fatalf("error counter = %d, want 1", errorCounter.Value)
+	}
+}
+
+func TestObservedCommandExecutorRequiresServerResolvedIdentity(t *testing.T) {
+	executor := ObservedCommandExecutor{}
+	request := NewRequestEnvelope("request-3", OperationMoveTo, json.RawMessage(`{"x":10,"y":20}`), 9)
+	var called bool
+
+	_, err := executor.Execute(CommandContext{SessionID: "session-1"}, request, func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+		called = true
+		return nil, nil
+	})
+	if !foundation.IsCode(err, foundation.CodeUnauthenticated) {
+		t.Fatalf("Execute() error = %v, want %s", err, foundation.CodeUnauthenticated)
+	}
+	if called {
+		t.Fatal("handler called without server-resolved player identity")
+	}
+}
+
+func validCommandContext() CommandContext {
+	return CommandContext{
+		SessionID:   SessionID("session-1"),
+		PlayerID:    foundation.PlayerID("player-1"),
+		WorldID:     foundation.WorldID("world-1"),
+		ZoneID:      foundation.ZoneID("zone-1"),
+		ReferenceID: foundation.IdempotencyKey("loot_pickup:drop-1"),
+	}
+}
+
+type steppingClock struct {
+	now  time.Time
+	step time.Duration
+}
+
+func (clock *steppingClock) Now() time.Time {
+	now := clock.now
+	clock.now = clock.now.Add(clock.step)
+	return now
+}
+
+func requireRealtimeCounter(t *testing.T, snapshot observability.MetricSnapshot, name string) observability.CounterSnapshot {
+	t.Helper()
+	for _, counter := range snapshot.Counters {
+		if counter.Name == name {
+			return counter
+		}
+	}
+	t.Fatalf("missing counter %q in %#v", name, snapshot.Counters)
+	return observability.CounterSnapshot{}
+}
+
+func requireCounterWithLabel(t *testing.T, snapshot observability.MetricSnapshot, name string, labelName string, labelValue string) observability.CounterSnapshot {
+	t.Helper()
+	for _, counter := range snapshot.Counters {
+		if counter.Name != name {
+			continue
+		}
+		for _, label := range counter.Labels {
+			if label.Name == labelName && label.Value == labelValue {
+				return counter
+			}
+		}
+	}
+	t.Fatalf("missing counter %q with %s=%s in %#v", name, labelName, labelValue, snapshot.Counters)
+	return observability.CounterSnapshot{}
+}
+
+func assertRealtimeLabels(t *testing.T, got, want []observability.Label) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("labels = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("label[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}

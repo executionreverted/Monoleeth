@@ -38,6 +38,12 @@ type EventEmitter interface {
 	Record(events.EventEnvelope)
 }
 
+// MetricRecorder is the optional write-only loot metrics boundary.
+type MetricRecorder interface {
+	RecordLootCreated(sourceType string, itemID foundation.ItemID, quantity int64) error
+	RecordLootPicked(sourceType string, itemID foundation.ItemID, quantity int64) error
+}
+
 // Viewer aliases the Phase 04 visibility viewer for pickup validation.
 type Viewer = visibility.Viewer
 
@@ -63,6 +69,7 @@ type Service struct {
 	expiredEvents    map[world.EntityID]struct{}
 
 	emitter           EventEmitter
+	metrics           MetricRecorder
 	nextEventSequence uint64
 }
 
@@ -137,6 +144,14 @@ func (service *Service) SetEventEmitter(emitter EventEmitter) {
 	service.emitter = emitter
 }
 
+// SetMetricRecorder configures the optional post-mutation metric hook.
+func (service *Service) SetMetricRecorder(metrics MetricRecorder) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	service.metrics = metrics
+}
+
 // CreateDropsForNPCKill rolls and creates drops once for a combat kill event.
 func (service *Service) CreateDropsForNPCKill(event combat.NPCKilledEvent, table LootTable) (CreateDropsResult, error) {
 	if err := table.validate(); err != nil {
@@ -160,9 +175,12 @@ func (service *Service) CreateDropsForNPCKill(event combat.NPCKilledEvent, table
 
 	var emitted []events.EventEnvelope
 	var emitter EventEmitter
+	var metrics MetricRecorder
+	var metricDrops []Drop
 	service.mu.Lock()
 	defer func() {
 		service.mu.Unlock()
+		recordLootCreatedMetrics(metrics, metricDrops)
 		emitEvents(emitter, emitted)
 	}()
 
@@ -199,6 +217,8 @@ func (service *Service) CreateDropsForNPCKill(event combat.NPCKilledEvent, table
 	}
 
 	emitter = service.emitter
+	metrics = service.metrics
+	metricDrops = cloneDrops(drops)
 	if emitter != nil {
 		for _, drop := range drops {
 			emitted = append(emitted, service.newEventLocked(EventLootCreated, dropPayload(drop, now), now))
@@ -216,9 +236,12 @@ func (service *Service) CreateDropsForPlayerDeath(input CreatePlayerDeathDropsIn
 
 	var emitted []events.EventEnvelope
 	var emitter EventEmitter
+	var metrics MetricRecorder
+	var metricDrops []Drop
 	service.mu.Lock()
 	defer func() {
 		service.mu.Unlock()
+		recordLootCreatedMetrics(metrics, metricDrops)
 		emitEvents(emitter, emitted)
 	}()
 
@@ -254,6 +277,8 @@ func (service *Service) CreateDropsForPlayerDeath(input CreatePlayerDeathDropsIn
 	}
 
 	emitter = service.emitter
+	metrics = service.metrics
+	metricDrops = cloneDrops(drops)
 	if emitter != nil {
 		for _, drop := range drops {
 			emitted = append(emitted, service.newEventLocked(EventLootCreated, dropPayload(drop, now), now))
@@ -325,6 +350,7 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 
 	var emitted []events.EventEnvelope
 	var emitter EventEmitter
+	var metrics MetricRecorder
 	service.mu.Lock()
 	now = service.clock.Now()
 	current, ok := service.drops[input.DropID]
@@ -345,10 +371,12 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 	service.drops[input.DropID] = cloneDrop(drop)
 	delete(service.pendingClaims, input.DropID)
 	emitter = service.emitter
+	metrics = service.metrics
 	if emitter != nil {
 		emitted = append(emitted, service.newEventLocked(EventLootPickedUp, dropPayload(drop, now), now))
 	}
 	service.mu.Unlock()
+	recordLootPickedMetric(metrics, drop)
 	emitEvents(emitter, emitted)
 
 	var xpResult *progression.GrantXPResult
@@ -404,6 +432,22 @@ func (service *Service) recordXPReconciliation(dropID world.EntityID, reconcilia
 	drop.XPReconciliation = &reconciliation
 	service.drops[dropID] = cloneDrop(drop)
 	return cloneDrop(drop)
+}
+
+func recordLootCreatedMetrics(recorder MetricRecorder, drops []Drop) {
+	if recorder == nil {
+		return
+	}
+	for _, drop := range drops {
+		_ = recorder.RecordLootCreated(drop.SourceType.String(), drop.ItemDefinition.ItemID, drop.Quantity)
+	}
+}
+
+func recordLootPickedMetric(recorder MetricRecorder, drop Drop) {
+	if recorder == nil {
+		return
+	}
+	_ = recorder.RecordLootPicked(drop.SourceType.String(), drop.ItemDefinition.ItemID, drop.Quantity)
 }
 
 func newLootXPReconciliation(drop Drop, playerID foundation.PlayerID, attemptedAt time.Time) LootXPReconciliation {

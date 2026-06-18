@@ -9,6 +9,7 @@ import (
 
 	"gameproject/internal/game/combat"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 	"gameproject/internal/game/stats"
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
@@ -90,6 +91,40 @@ func TestExecuteBasicAttackRejectsEnergyShortageBeforeMutation(t *testing.T) {
 	after, _ := service.Actor("player_entity_1")
 	if after.Energy != attacker.Energy {
 		t.Fatalf("energy mutated on failure: got %v, want %v", after.Energy, attacker.Energy)
+	}
+}
+
+func TestExecuteBasicAttackRecordsCombatActionMetric(t *testing.T) {
+	service := newCombatService(t, []float64{0})
+	addDefaultActors(t, service)
+	recorder := observability.NewMetricRecorder()
+	service.SetMetricRecorder(recorder)
+
+	result, err := service.ExecuteBasicAttack(combat.BasicAttackInput{AttackerID: "player_entity_1", TargetID: "npc_1"})
+	if err != nil {
+		t.Fatalf("ExecuteBasicAttack() error = %v", err)
+	}
+	if !result.Hit || result.Killed {
+		t.Fatalf("result = %+v, want non-lethal hit", result)
+	}
+
+	counter := requireMetricCounter(t, recorder.Snapshot(), observability.MetricCombatActionsPerSecond)
+	if counter.Value != 1 {
+		t.Fatalf("combat action metric value = %d, want 1", counter.Value)
+	}
+	assertMetricLabels(t, counter.Labels, []observability.Label{
+		{Name: "action", Value: "basic_attack"},
+		{Name: "result", Value: "hit"},
+	})
+}
+
+func TestCombatMetricFailureDoesNotBlockAttack(t *testing.T) {
+	service := newCombatService(t, []float64{0})
+	addDefaultActors(t, service)
+	service.SetMetricRecorder(failingCombatMetrics{})
+
+	if _, err := service.ExecuteBasicAttack(combat.BasicAttackInput{AttackerID: "player_entity_1", TargetID: "npc_1"}); err != nil {
+		t.Fatalf("ExecuteBasicAttack() error = %v, want success despite metric failure", err)
 	}
 }
 
@@ -374,4 +409,33 @@ func statSnapshot(playerID foundation.PlayerID, rangeUnits float64, energyCost f
 		},
 		time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
 	)
+}
+
+type failingCombatMetrics struct{}
+
+func (failingCombatMetrics) RecordCombatAction(string, string) error {
+	return errors.New("metric sink unavailable")
+}
+
+func requireMetricCounter(t *testing.T, snapshot observability.MetricSnapshot, name string) observability.CounterSnapshot {
+	t.Helper()
+	for _, counter := range snapshot.Counters {
+		if counter.Name == name {
+			return counter
+		}
+	}
+	t.Fatalf("missing counter %q in %#v", name, snapshot.Counters)
+	return observability.CounterSnapshot{}
+}
+
+func assertMetricLabels(t *testing.T, got, want []observability.Label) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("labels = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("label[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
 }

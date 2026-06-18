@@ -22,6 +22,11 @@ type EventEmitter interface {
 	Record(events.EventEnvelope)
 }
 
+// MetricRecorder is the optional write-only combat metrics boundary.
+type MetricRecorder interface {
+	RecordCombatAction(action string, result string) error
+}
+
 // Service owns in-memory Phase 05 combat state.
 type Service struct {
 	mu    sync.Mutex
@@ -31,6 +36,7 @@ type Service struct {
 	actors map[world.EntityID]ActorState
 
 	emitter           EventEmitter
+	metrics           MetricRecorder
 	nextEventSequence uint64
 }
 
@@ -52,6 +58,14 @@ func (service *Service) SetEventEmitter(emitter EventEmitter) {
 	defer service.mu.Unlock()
 
 	service.emitter = emitter
+}
+
+// SetMetricRecorder configures the optional post-mutation metric hook.
+func (service *Service) SetMetricRecorder(metrics MetricRecorder) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	service.metrics = metrics
 }
 
 // UpsertActor inserts or replaces one server-owned combat actor.
@@ -108,9 +122,13 @@ func (service *Service) ExecuteBasicAttack(input BasicAttackInput) (BasicAttackR
 
 	var emitted []events.EventEnvelope
 	var emitter EventEmitter
+	var metrics MetricRecorder
+	var metricAction string
+	var metricResult string
 	service.mu.Lock()
 	defer func() {
 		service.mu.Unlock()
+		recordCombatActionMetric(metrics, metricAction, metricResult)
 		emitEvents(emitter, emitted)
 	}()
 
@@ -163,6 +181,9 @@ func (service *Service) ExecuteBasicAttack(input BasicAttackInput) (BasicAttackR
 	result.Attacker = cloneActor(attacker)
 	result.Target = cloneActor(target)
 	emitter = service.emitter
+	metrics = service.metrics
+	metricAction = "basic_attack"
+	metricResult = combatMetricResult(result)
 	if emitter != nil {
 		emitted = append(emitted, service.newEventLocked(EventBasicAttack, basicAttackPayload(input, result), now))
 		if result.KillEvent != nil {
@@ -170,6 +191,23 @@ func (service *Service) ExecuteBasicAttack(input BasicAttackInput) (BasicAttackR
 		}
 	}
 	return result, nil
+}
+
+func recordCombatActionMetric(recorder MetricRecorder, action string, result string) {
+	if recorder == nil || action == "" || result == "" {
+		return
+	}
+	_ = recorder.RecordCombatAction(action, result)
+}
+
+func combatMetricResult(result BasicAttackResult) string {
+	if result.Killed {
+		return "killed"
+	}
+	if result.Hit {
+		return "hit"
+	}
+	return "miss"
 }
 
 func (service *Service) validatedAttackActorsLocked(input BasicAttackInput, now time.Time) (ActorState, ActorState, error) {

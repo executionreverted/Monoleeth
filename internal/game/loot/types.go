@@ -272,6 +272,10 @@ func (sourceType DropSourceType) eligibleForLootXP() bool {
 	}
 }
 
+func (sourceType DropSourceType) String() string {
+	return string(sourceType)
+}
+
 func (drop Drop) State(now time.Time) DropState {
 	if drop.ClaimedAt != nil {
 		return DropStateClaimed

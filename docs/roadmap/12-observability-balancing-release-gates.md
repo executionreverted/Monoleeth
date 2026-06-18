@@ -65,7 +65,7 @@ Infrastructure:
 
 ## TODO: Structured Logs
 
-- [ ] Add structured JSON logging for gameplay commands.
+- [x] Add structured JSON logging for gameplay commands.
 - [x] Include `request_id`.
 - [x] Include `player_id`.
 - [x] Include `session_id`.
@@ -77,9 +77,10 @@ Infrastructure:
 
 Implementation note 2026-06-18:
 `internal/game/observability` now has safe `CommandLogEntry` and
-`MemoryCommandLogger` primitives with clone-safe deterministic snapshots. The
-gameplay command loop is not wired to emit these logs yet, so the top-level
-gameplay-command logging item remains unchecked.
+`MemoryCommandLogger` primitives with clone-safe deterministic snapshots.
+`internal/game/realtime.ObservedCommandExecutor` records safe command logs,
+command counts, and error-code metrics from server-resolved session/player
+context while keeping payload details out of logs.
 
 ## TODO: Metrics
 
@@ -87,8 +88,8 @@ gameplay-command logging item remains unchecked.
 - [x] Add command error count by op and code.
 - [x] Add zone tick duration metric.
 - [x] Add visible entity count metric.
-- [ ] Add combat action metric.
-- [ ] Add loot created/picked metric.
+- [x] Add combat action metric.
+- [x] Add loot created/picked metric.
 - [x] Add wallet delta by reason metric.
 - [x] Add item delta by reason metric.
 - [x] Add craft job metric.
@@ -102,8 +103,10 @@ Implementation note 2026-06-18:
 `MetricRecorder` now supports deterministic counters, gauges, and duration
 summaries with p50/p95/p99, stable sorted label sets, and label-value safety.
 Market sale and auction clearing helpers include item identity and quantity so
-price dashboards can compute averages from local sources. Existing gameplay
-services do not emit these metrics yet.
+price dashboards can compute averages from local sources. `CombatService`
+optionally emits combat action metrics after successful authoritative attacks,
+and `LootService` optionally emits created/picked loot metrics after committed
+drop creation or pickup.
 
 ## TODO: Simulation Tests
 
@@ -248,3 +251,7 @@ gate reports before full runtime/domain instrumentation.
 2026-06-18: Phase 12 Task 3 added dashboard specs plus release/security gate
 report primitives under `internal/game/observability`. Continue with roadmap
 verification and Phase 12 review/fixes.
+
+2026-06-18: Phase 12 core observability wiring added a realtime observed-command
+executor plus optional combat and loot metric hooks. Continue with deterministic
+simulation runners, admin/repair tools, and module-by-module gate coverage.

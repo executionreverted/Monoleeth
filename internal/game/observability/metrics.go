@@ -15,6 +15,9 @@ const (
 	MetricErrorsByCode            = "errors_by_code"
 	MetricZoneTickMS              = "zone_tick_ms"
 	MetricVisibleEntityCount      = "visible_entity_count"
+	MetricCombatActionsPerSecond  = "combat_actions_per_sec"
+	MetricLootCreatedPerSecond    = "loot_created_per_sec"
+	MetricLootPickedPerSecond     = "loot_picked_per_sec"
 	MetricWalletDeltaByReason     = "wallet_delta_by_reason"
 	MetricItemDeltaByReason       = "item_delta_by_reason"
 	MetricCraftJobsStarted        = "craft_jobs_started"
@@ -297,6 +300,36 @@ func (recorder *MetricRecorder) RecordVisibleEntityCount(worldID foundation.Worl
 		"world_id": worldID.String(),
 		"zone_id":  zoneID.String(),
 	}, count)
+}
+
+// RecordCombatAction increments the combat action counter by action and result.
+func (recorder *MetricRecorder) RecordCombatAction(action string, result string) error {
+	return recorder.AddCounter(MetricCombatActionsPerSecond, Labels{
+		"action": action,
+		"result": result,
+	}, 1)
+}
+
+// RecordLootCreated records created loot item quantity by source and item.
+func (recorder *MetricRecorder) RecordLootCreated(sourceType string, itemID foundation.ItemID, quantity int64) error {
+	if err := itemID.Validate(); err != nil {
+		return err
+	}
+	return recorder.AddCounter(MetricLootCreatedPerSecond, Labels{
+		"item_id":     itemID.String(),
+		"source_type": sourceType,
+	}, quantity)
+}
+
+// RecordLootPicked records picked-up loot item quantity by source and item.
+func (recorder *MetricRecorder) RecordLootPicked(sourceType string, itemID foundation.ItemID, quantity int64) error {
+	if err := itemID.Validate(); err != nil {
+		return err
+	}
+	return recorder.AddCounter(MetricLootPickedPerSecond, Labels{
+		"item_id":     itemID.String(),
+		"source_type": sourceType,
+	}, quantity)
 }
 
 // RecordWalletDelta records a non-negative wallet movement by stable reason.

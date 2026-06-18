@@ -265,6 +265,13 @@ func TestMetricHelpersRecordPhase12Series(t *testing.T) {
 		func() error {
 			return recorder.RecordVisibleEntityCount(foundation.WorldID("world-1"), foundation.ZoneID("zone-1"), 7)
 		},
+		func() error { return recorder.RecordCombatAction("basic_attack", "hit") },
+		func() error {
+			return recorder.RecordLootCreated("npc_kill", foundation.ItemID("item-ore"), 3)
+		},
+		func() error {
+			return recorder.RecordLootPicked("npc_kill", foundation.ItemID("item-ore"), 3)
+		},
 		func() error { return recorder.RecordWalletDelta("market_sale", "credits", "increase", 50) },
 		func() error {
 			return recorder.RecordItemDelta("loot_pickup", foundation.ItemID("item-1"), "increase", 3)
@@ -301,6 +308,9 @@ func TestMetricHelpersRecordPhase12Series(t *testing.T) {
 		MetricErrorsByCode,
 		MetricZoneTickMS,
 		MetricVisibleEntityCount,
+		MetricCombatActionsPerSecond,
+		MetricLootCreatedPerSecond,
+		MetricLootPickedPerSecond,
 		MetricWalletDeltaByReason,
 		MetricItemDeltaByReason,
 		MetricCraftJobsStarted,

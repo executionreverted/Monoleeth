@@ -12,6 +12,7 @@ import (
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
+	"gameproject/internal/game/observability"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/stats"
 	"gameproject/internal/game/testutil"
@@ -65,6 +66,84 @@ func TestCreateDropsForNPCKillRollsServerSideAndIsIdempotent(t *testing.T) {
 		duplicate.ScheduledTasks[0].DropID != result.Drops[0].ID ||
 		duplicate.ScheduledTasks[1].DropID != result.Drops[0].ID {
 		t.Fatalf("duplicate scheduled tasks = %+v, want retry-safe tasks for original drop %q", duplicate.ScheduledTasks, result.Drops[0].ID)
+	}
+}
+
+func TestLootMetricsRecordCreatedAndPickedQuantities(t *testing.T) {
+	service, clock, _, _ := newLootService(t, []int{0}, []float64{0})
+	recorder := observability.NewMetricRecorder()
+	service.SetMetricRecorder(recorder)
+	drop := createOneDrop(t, service)
+
+	created := requireLootMetricCounter(t, recorder.Snapshot(), observability.MetricLootCreatedPerSecond)
+	if created.Value != drop.Quantity {
+		t.Fatalf("loot created metric = %d, want %d", created.Value, drop.Quantity)
+	}
+	assertLootMetricLabels(t, created.Labels, []observability.Label{
+		{Name: "item_id", Value: rawOreDefinition(t).ItemID.String()},
+		{Name: "source_type", Value: loot.DropSourceNPCDeath.String()},
+	})
+
+	clock.Advance(loot.DefaultOwnerLockDuration)
+	if _, err := service.PickupDrop(loot.PickupInput{
+		PlayerID:           "player_2",
+		DropID:             drop.ID,
+		Viewer:             viewerAt(drop.Position),
+		ActiveCargo:        mustCargoLocation(t, "ship_1"),
+		CargoCapacityUnits: 100,
+	}); err != nil {
+		t.Fatalf("PickupDrop() error = %v", err)
+	}
+
+	picked := requireLootMetricCounter(t, recorder.Snapshot(), observability.MetricLootPickedPerSecond)
+	if picked.Value != drop.Quantity {
+		t.Fatalf("loot picked metric = %d, want %d", picked.Value, drop.Quantity)
+	}
+	assertLootMetricLabels(t, picked.Labels, []observability.Label{
+		{Name: "item_id", Value: rawOreDefinition(t).ItemID.String()},
+		{Name: "source_type", Value: loot.DropSourceNPCDeath.String()},
+	})
+}
+
+func TestLootCreatedMetricDoesNotDoubleCountDuplicateSource(t *testing.T) {
+	service, _, _, _ := newLootService(t, []int{0}, []float64{0})
+	recorder := observability.NewMetricRecorder()
+	service.SetMetricRecorder(recorder)
+	event := npcKilledEvent()
+	table := lootTable(t, 3, 3, 1)
+
+	first, err := service.CreateDropsForNPCKill(event, table)
+	if err != nil {
+		t.Fatalf("first CreateDropsForNPCKill() error = %v", err)
+	}
+	duplicate, err := service.CreateDropsForNPCKill(event, table)
+	if err != nil {
+		t.Fatalf("duplicate CreateDropsForNPCKill() error = %v", err)
+	}
+	if !duplicate.Duplicate {
+		t.Fatal("duplicate result Duplicate = false, want true")
+	}
+
+	created := requireLootMetricCounter(t, recorder.Snapshot(), observability.MetricLootCreatedPerSecond)
+	if created.Value != first.Drops[0].Quantity {
+		t.Fatalf("loot created metric = %d, want only first quantity %d", created.Value, first.Drops[0].Quantity)
+	}
+}
+
+func TestLootMetricFailureDoesNotBlockCreateOrPickup(t *testing.T) {
+	service, clock, _, _ := newLootService(t, []int{0}, []float64{0})
+	service.SetMetricRecorder(failingLootMetrics{})
+
+	drop := createOneDrop(t, service)
+	clock.Advance(loot.DefaultOwnerLockDuration)
+	if _, err := service.PickupDrop(loot.PickupInput{
+		PlayerID:           "player_2",
+		DropID:             drop.ID,
+		Viewer:             viewerAt(drop.Position),
+		ActiveCargo:        mustCargoLocation(t, "ship_1"),
+		CargoCapacityUnits: 100,
+	}); err != nil {
+		t.Fatalf("PickupDrop() error = %v, want success despite metric failure", err)
 	}
 }
 
@@ -701,4 +780,37 @@ type duplicateXPGranter struct{}
 
 func (duplicateXPGranter) GrantXP(progression.GrantXPInput) (progression.GrantXPResult, error) {
 	return progression.GrantXPResult{Duplicate: true}, nil
+}
+
+type failingLootMetrics struct{}
+
+func (failingLootMetrics) RecordLootCreated(string, foundation.ItemID, int64) error {
+	return errors.New("metric sink unavailable")
+}
+
+func (failingLootMetrics) RecordLootPicked(string, foundation.ItemID, int64) error {
+	return errors.New("metric sink unavailable")
+}
+
+func requireLootMetricCounter(t *testing.T, snapshot observability.MetricSnapshot, name string) observability.CounterSnapshot {
+	t.Helper()
+	for _, counter := range snapshot.Counters {
+		if counter.Name == name {
+			return counter
+		}
+	}
+	t.Fatalf("missing counter %q in %#v", name, snapshot.Counters)
+	return observability.CounterSnapshot{}
+}
+
+func assertLootMetricLabels(t *testing.T, got, want []observability.Label) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("labels = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("label[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
 }
