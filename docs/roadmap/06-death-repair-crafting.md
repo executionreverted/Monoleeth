@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: In progress
+- State: Complete, verified 2026-06-18
 - Owner: Risk loop and item production
 - Depends on: Phase 02, Phase 03, Phase 05
 - Unlocks: module economy, ship unlock recipes, quest craft objectives, market supply
@@ -164,16 +164,16 @@ Crafting:
 - [x] Unknown recipe and wrong MVP station location type blocked by server catalog validation.
 - [x] Craft completion retry races are serialized per job in the in-memory Phase 06 service. Verified 2026-06-17 by concurrent completion tests.
 - [x] Planet/building craft location ownership validation blocks fake locations. Verified 2026-06-18 by `CraftingService.StartCraft` fail-closed nil-authorizer tests and `production.CraftLocationAuthorizer` tests for unknown, unowned, other-owned, missing-production, missing-building, inactive-building, and active-building cases.
-- [ ] Low-tier craft XP spam has at least a tracking hook for later balancing.
+- [x] Low-tier craft XP spam has at least a tracking hook for later balancing. Verified 2026-06-18 by `TestCompleteCraftTracksLowTierCraftXPOnceForBalancing`.
 
 ## Done Criteria
 
-- [ ] Death and repair loop works in tests.
+- [x] Death and repair loop works in tests. Verified 2026-06-18 by `go test ./internal/game/death -count=1`.
 - [x] Crafting produces first module and ship unlock.
-- [ ] Crafting consumes materials and credits safely.
+- [x] Crafting consumes materials and credits safely. Verified 2026-06-18 by `go test ./internal/game/crafting -count=1`, including material reservation, wallet debit, duplicate start, duplicate completion, and XP tracking tests.
 - [x] Disabled ship and starter fallback rules are enforced.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] `go test ./...` passes. Verified 2026-06-18 after the craft XP tracking slice.
+- [x] `git diff --check` passes. Verified 2026-06-18 after the craft XP tracking slice.
 
 ## Resume Notes
 
@@ -188,3 +188,7 @@ Verified slices:
   location authorizer. The production-backed authorizer validates discovery
   planet ownership, production storage initialization, and active building state
   before any crafting economy mutation.
+- Craft completion now emits optional `CraftXPObservation` telemetry after a
+  successful non-duplicate XP grant. The current low-tier bucket is rank 1 or
+  below with craft duration at or below 30 minutes; actual XP reduction remains
+  tracked as a later balancing follow-up.

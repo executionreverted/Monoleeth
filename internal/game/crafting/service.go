@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/economy"
@@ -94,6 +95,7 @@ type CraftingServiceConfig struct {
 	Progression        ProgressionService
 	Ships              ShipService
 	LocationAuthorizer CraftLocationAuthorizer
+	XPTracker          CraftXPTracker
 }
 
 // CraftingService owns in-memory craft job orchestration for the Phase 06 MVP.
@@ -109,6 +111,7 @@ type CraftingService struct {
 	progression     ProgressionService
 	ships           ShipService
 	locationAuth    CraftLocationAuthorizer
+	xpTracker       CraftXPTracker
 
 	nextJobSequence int64
 	jobs            map[CraftJobID]CraftJob
@@ -212,6 +215,7 @@ func NewCraftingService(config CraftingServiceConfig) (*CraftingService, error) 
 		progression:     config.Progression,
 		ships:           config.Ships,
 		locationAuth:    config.LocationAuthorizer,
+		xpTracker:       config.XPTracker,
 		jobs:            make(map[CraftJobID]CraftJob),
 		startResults:    make(map[craftStartReferenceKey]StartCraftResult),
 		startInFlight:   make(map[craftStartReferenceKey]*startCraftInFlight),
@@ -445,6 +449,9 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 	}
 	outputTime := service.clock.Now()
 
+	roleXP := []progression.RoleXPGrant{
+		{Role: progression.RoleTypeCrafting, Amount: craftXPRoleAmount},
+	}
 	xpGrant, err := service.progression.GrantXP(progression.GrantXPInput{
 		PlayerID:       job.PlayerID,
 		Amount:         craftXPMainAmount,
@@ -452,14 +459,13 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 		SourceID:       progression.XPSourceID(job.JobID.String()),
 		IdempotencyKey: progression.XPIdempotencyKey(referenceKey.String()),
 		Authority:      progression.XPGrantAuthorityCraftingService,
-		RoleXP: []progression.RoleXPGrant{
-			{Role: progression.RoleTypeCrafting, Amount: craftXPRoleAmount},
-		},
+		RoleXP:         roleXP,
 	})
 	if err != nil {
 		return failCompletion(err)
 	}
 	xpTime := service.clock.Now()
+	service.trackCraftXP(job, recipe, referenceKey, roleXP, xpGrant, xpTime)
 
 	completedAt := service.clock.Now()
 	job.State = CraftJobStateCompleted
@@ -636,6 +642,42 @@ func (service *CraftingService) recipeForJob(job CraftJob) (RecipeDefinition, er
 		return RecipeDefinition{}, fmt.Errorf("recipe %q job version %q catalog version %q: %w", job.RecipeSource.DefinitionID, job.RecipeSource.Version, recipe.Source.Version, ErrRecipeVersionMismatch)
 	}
 	return recipe, nil
+}
+
+func (service *CraftingService) trackCraftXP(
+	job CraftJob,
+	recipe RecipeDefinition,
+	referenceKey foundation.IdempotencyKey,
+	roleXP []progression.RoleXPGrant,
+	xpGrant progression.GrantXPResult,
+	grantedAt time.Time,
+) {
+	if service.xpTracker == nil || xpGrant.Duplicate {
+		return
+	}
+	service.xpTracker.TrackCraftXP(CraftXPObservation{
+		PlayerID:           job.PlayerID,
+		JobID:              job.JobID,
+		RecipeID:           recipe.RecipeID,
+		RecipeSource:       recipe.Source,
+		Category:           recipe.Category,
+		OutputKind:         recipe.Output.Kind,
+		OutputItemID:       recipe.Output.ItemID,
+		OutputShipID:       recipe.Output.ShipID,
+		OutputQuantity:     recipe.Output.Quantity.Int64(),
+		LocationType:       job.Location.Type,
+		RequiredRank:       recipe.RequiredRank,
+		RequiredCredits:    recipe.RequiredCredits.Int64(),
+		CraftDuration:      recipe.CraftDuration,
+		InputCount:         len(recipe.Inputs),
+		InputQuantityTotal: recipeInputQuantityTotal(recipe),
+		MainXP:             craftXPMainAmount,
+		RoleXP:             roleXP,
+		LowTier:            isLowTierCraftXPRecipe(recipe),
+		XPSourceID:         progression.XPSourceID(job.JobID.String()),
+		ReferenceKey:       referenceKey,
+		GrantedAt:          grantedAt,
+	})
 }
 
 func (service *CraftingService) nextCraftJobIDLocked() CraftJobID {

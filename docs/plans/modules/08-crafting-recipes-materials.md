@@ -248,6 +248,17 @@ Abuse:
 - low-tier spam diminishing return
 - recipe cooldown for XP optional
 
+Phase 06 implementation:
+
+- `CraftingService` can accept a `CraftXPTracker` hook.
+- Successful, non-duplicate craft XP grants emit `CraftXPObservation` metadata
+  for later balancing: player/job, recipe source/version, category, output,
+  location type, required rank, credit cost, duration, input counts, XP amounts,
+  idempotency reference, and granted time.
+- The MVP low-tier bucket is tracked as recipes with `required_rank <= 1` and
+  `craft_duration <= 30m`. This is telemetry only; diminishing returns and
+  daily soft caps remain a later balancing policy.
+
 ## X Core Craft
 
 Fragment model:

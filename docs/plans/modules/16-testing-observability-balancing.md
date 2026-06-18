@@ -129,6 +129,8 @@ market_volume
 auction_volume
 craft_jobs_started
 craft_jobs_completed
+craft_xp_observations_by_recipe
+low_tier_craft_xp_observations
 planet_settlements
 route_settlements
 wallet_delta_by_reason
@@ -402,4 +404,3 @@ Minimum observability from day one:
 - economy faucet/sink metrics
 
 This makes balancing and debugging possible before the game gets messy.
-

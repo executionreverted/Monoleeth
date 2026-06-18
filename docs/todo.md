@@ -35,6 +35,10 @@ for phase status; this file is a compact pending-work index.
   after reservation commit; current in-memory retry path is idempotent, but a
   crash between reservation commit, output grant, XP grant, and job completion
   still needs recovery.
+- [ ] Use the Phase 06 `CraftXPObservation` stream to implement or tune
+  low-tier craft XP diminishing returns and daily soft caps before public
+  economy balancing. The domain hook now records non-duplicate craft XP grants,
+  but it does not reduce XP by itself.
 - [ ] Wire `production.CraftLocationAuthorizer` into the concrete runtime craft
   service factory before exposing owned-planet or planet-building recipes, and
   add station/special-event station providers for public craft start APIs.
@@ -223,3 +227,7 @@ for phase status; this file is a compact pending-work index.
   validates discovery ownership, production storage initialization, and active
   building state before reservation, wallet debit, or job creation. Source:
   `docs/roadmap/06-death-repair-crafting.md`.
+- [x] Add a low-tier craft XP tracking hook for later balancing. Phase 06
+  crafting now emits `CraftXPObservation` telemetry for successful,
+  non-duplicate craft XP grants and tags rank-1, <=30m recipes as low tier.
+  Source: `docs/roadmap/06-death-repair-crafting.md`.

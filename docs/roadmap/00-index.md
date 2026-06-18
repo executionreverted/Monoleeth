@@ -37,7 +37,7 @@ Non-negotiable rules:
 3. [Progression, Ships, Modules, And Stats](./03-progression-ships-modules-stats.md)
 4. [World Worker, AOI, Fog, And Realtime Contracts](./04-world-worker-aoi-fog-realtime.md)
 5. [Combat And Loot Vertical Slice](./05-combat-loot-vertical-slice.md)
-6. [Death, Repair, And Crafting](./06-death-repair-crafting.md)
+6. [Death, Repair, And Crafting](./06-death-repair-crafting.md) - complete, verified 2026-06-18
 7. [Quest Board And Guided Progression](./07-quest-board-guided-progression.md)
 8. [World Discovery, Planets, And Intel](./08-world-discovery-planets-intel.md)
 9. [Planet Production And Automation Routes](./09-planet-production-routes.md)

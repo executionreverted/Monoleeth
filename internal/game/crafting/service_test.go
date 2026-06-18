@@ -641,6 +641,81 @@ func TestCompleteCraftAfterTimeCreatesItemOnceForDuplicateCompletion(t *testing.
 	}
 }
 
+func TestCompleteCraftTracksLowTierCraftXPOnceForBalancing(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	recipe := fixture.startReadyRecipe(t, RecipeIDRefinedAlloy, "track-low-tier-xp")
+	started := fixture.mustStartCraft(t, recipe.RecipeID)
+	fixture.clock.Advance(recipe.CraftDuration)
+
+	first, err := fixture.service.CompleteCraft(CompleteCraftInput{PlayerID: fixture.playerID, JobID: started.Job.JobID})
+	if err != nil {
+		t.Fatalf("first CompleteCraft: %v", err)
+	}
+	if _, err := fixture.service.CompleteCraft(CompleteCraftInput{PlayerID: fixture.playerID, JobID: started.Job.JobID}); err != nil {
+		t.Fatalf("duplicate CompleteCraft: %v", err)
+	}
+
+	observations := fixture.xpTracker.Observations()
+	if got := len(observations); got != 1 {
+		t.Fatalf("craft XP observations len = %d, want 1", got)
+	}
+	observation := observations[0]
+	if observation.PlayerID != fixture.playerID {
+		t.Fatalf("observation player = %q, want %q", observation.PlayerID, fixture.playerID)
+	}
+	if observation.JobID != started.Job.JobID {
+		t.Fatalf("observation job = %q, want %q", observation.JobID, started.Job.JobID)
+	}
+	if observation.RecipeID != recipe.RecipeID {
+		t.Fatalf("observation recipe = %q, want %q", observation.RecipeID, recipe.RecipeID)
+	}
+	if observation.RecipeSource != recipe.Source {
+		t.Fatalf("observation recipe source = %#v, want %#v", observation.RecipeSource, recipe.Source)
+	}
+	if observation.Category != recipe.Category {
+		t.Fatalf("observation category = %q, want %q", observation.Category, recipe.Category)
+	}
+	if observation.OutputKind != recipe.Output.Kind || observation.OutputItemID != recipe.Output.ItemID {
+		t.Fatalf("observation output = %q/%q, want %q/%q", observation.OutputKind, observation.OutputItemID, recipe.Output.Kind, recipe.Output.ItemID)
+	}
+	if observation.RequiredRank != recipe.RequiredRank {
+		t.Fatalf("observation required rank = %d, want %d", observation.RequiredRank, recipe.RequiredRank)
+	}
+	if observation.RequiredCredits != recipe.RequiredCredits.Int64() {
+		t.Fatalf("observation required credits = %d, want %d", observation.RequiredCredits, recipe.RequiredCredits.Int64())
+	}
+	if observation.CraftDuration != recipe.CraftDuration {
+		t.Fatalf("observation duration = %s, want %s", observation.CraftDuration, recipe.CraftDuration)
+	}
+	if observation.InputCount != len(recipe.Inputs) {
+		t.Fatalf("observation input count = %d, want %d", observation.InputCount, len(recipe.Inputs))
+	}
+	if observation.InputQuantityTotal != 25 {
+		t.Fatalf("observation input quantity total = %d, want 25", observation.InputQuantityTotal)
+	}
+	if observation.MainXP != craftXPMainAmount {
+		t.Fatalf("observation main xp = %d, want %d", observation.MainXP, craftXPMainAmount)
+	}
+	if len(observation.RoleXP) != 1 || observation.RoleXP[0].Role != progression.RoleTypeCrafting || observation.RoleXP[0].Amount != craftXPRoleAmount {
+		t.Fatalf("observation role xp = %#v, want crafting %d", observation.RoleXP, craftXPRoleAmount)
+	}
+	if !observation.LowTier {
+		t.Fatal("observation LowTier = false, want true")
+	}
+	if observation.XPSourceID != progression.XPSourceID(started.Job.JobID.String()) {
+		t.Fatalf("observation xp source id = %q, want %q", observation.XPSourceID, started.Job.JobID)
+	}
+	if observation.ReferenceKey != first.ReferenceKey {
+		t.Fatalf("observation reference = %q, want %q", observation.ReferenceKey, first.ReferenceKey)
+	}
+	if first.Job.XPGrantedAt == nil {
+		t.Fatal("first job XPGrantedAt is nil, want timestamp")
+	}
+	if !observation.GrantedAt.Equal(*first.Job.XPGrantedAt) {
+		t.Fatalf("observation granted at = %s, want %s", observation.GrantedAt, *first.Job.XPGrantedAt)
+	}
+}
+
 func TestConcurrentCompleteCraftItemOutputUsesOneCanonicalResult(t *testing.T) {
 	fixture := newCraftingServiceFixture(t)
 	recipe := fixture.startReadyRecipe(t, RecipeIDLaserAlphaT1, "concurrent-item")
@@ -766,6 +841,7 @@ type craftingServiceFixture struct {
 	progression      *progression.ProgressionService
 	progressionStore *progression.InMemoryProgressionStore
 	ships            *ships.ShipService
+	xpTracker        *InMemoryCraftXPTracker
 	service          *CraftingService
 }
 
@@ -784,6 +860,7 @@ func newCraftingServiceFixture(t *testing.T) *craftingServiceFixture {
 	wallet := economy.NewWalletService(clock)
 	progressionStore := progression.NewInMemoryProgressionStore()
 	progressionService := progression.NewProgressionService(clock, progressionStore)
+	xpTracker := NewInMemoryCraftXPTracker()
 	shipCatalog, err := ships.MVPShipCatalog()
 	if err != nil {
 		t.Fatalf("MVPShipCatalog: %v", err)
@@ -808,6 +885,7 @@ func newCraftingServiceFixture(t *testing.T) *craftingServiceFixture {
 		Wallet:          wallet,
 		Progression:     progressionService,
 		Ships:           shipService,
+		XPTracker:       xpTracker,
 	})
 	if err != nil {
 		t.Fatalf("NewCraftingService: %v", err)
@@ -825,6 +903,7 @@ func newCraftingServiceFixture(t *testing.T) *craftingServiceFixture {
 		progression:      progressionService,
 		progressionStore: progressionStore,
 		ships:            shipService,
+		xpTracker:        xpTracker,
 		service:          service,
 	}
 }
