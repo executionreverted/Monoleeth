@@ -3,6 +3,7 @@ package quests
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,44 @@ func TestMVPQuestCatalogCoversAllMVPQuestTypes(t *testing.T) {
 	} {
 		if !seen[questType] {
 			t.Fatalf("MVP catalog missing quest type %q", questType)
+		}
+	}
+}
+
+func TestMVPQuestCatalogExcludesMarketQuestTypes(t *testing.T) {
+	deniedMarketQuestTypes := []string{
+		"market_sell",
+		"market_buy",
+		"market_trade",
+		"auction_sell",
+		"auction_buy",
+		"auction_bid",
+	}
+
+	for _, questType := range deniedMarketQuestTypes {
+		if err := QuestType(questType).Validate(); !errors.Is(err, ErrInvalidQuestType) {
+			t.Fatalf("QuestType(%q).Validate() error = %v, want ErrInvalidQuestType", questType, err)
+		}
+	}
+
+	for _, objectiveKind := range deniedMarketQuestTypes {
+		if err := ObjectiveKind(objectiveKind).Validate(); !errors.Is(err, ErrInvalidObjectiveKind) {
+			t.Fatalf("ObjectiveKind(%q).Validate() error = %v, want ErrInvalidObjectiveKind", objectiveKind, err)
+		}
+	}
+
+	questCatalog := MustMVPQuestCatalog()
+	for _, template := range questCatalog.Templates() {
+		for _, value := range []string{
+			template.TemplateID.String(),
+			string(template.Type),
+			template.TitleKey,
+			template.DescriptionKey,
+		} {
+			lower := strings.ToLower(value)
+			if strings.Contains(lower, "market") || strings.Contains(lower, "auction") {
+				t.Fatalf("MVP catalog template %q contains market/auction reference %q", template.TemplateID, value)
+			}
 		}
 	}
 }
