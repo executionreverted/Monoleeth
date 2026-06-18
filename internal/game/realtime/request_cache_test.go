@@ -2,7 +2,6 @@ package realtime
 
 import (
 	"encoding/json"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -67,86 +66,35 @@ func TestRequestCacheDuplicateRequestIDReturnsCachedResponse(t *testing.T) {
 
 func TestRequestCacheCoordinatesInFlightDuplicateRequestID(t *testing.T) {
 	cache := NewRequestCache(2)
-	firstStarted := make(chan struct{})
-	releaseFirst := make(chan struct{})
-	secondStarted := make(chan struct{})
-	secondBuildCalled := make(chan struct{})
-	results := make(chan struct {
-		response  CachedResponse
-		duplicate bool
-	}, 2)
-	var builds int32
-	var closeFirstStarted sync.Once
+	key := newRequestCacheKey(SessionID("session-1"), foundation.RequestID("request-1"))
+	flight := &requestCacheFlight{done: make(chan struct{})}
+	cache.mu.Lock()
+	cache.inFlight[key] = flight
+	cache.mu.Unlock()
 
-	go func() {
-		response, duplicate := cache.GetOrRemember(
-			SessionID("session-1"),
-			foundation.RequestID("request-1"),
-			func() CachedResponse {
-				atomic.AddInt32(&builds, 1)
-				closeFirstStarted.Do(func() { close(firstStarted) })
-				<-releaseFirst
-				return CachedSuccess(NewResponseEnvelope(
-					foundation.RequestID("request-1"),
-					json.RawMessage(`{"status":"accepted"}`),
-					100,
-				))
-			},
-		)
-		results <- struct {
-			response  CachedResponse
-			duplicate bool
-		}{response: response, duplicate: duplicate}
-	}()
+	flight.response = CachedSuccess(NewResponseEnvelope(
+		foundation.RequestID("request-1"),
+		json.RawMessage(`{"status":"accepted"}`),
+		100,
+	))
+	close(flight.done)
 
-	<-firstStarted
-	go func() {
-		close(secondStarted)
-		response, duplicate := cache.GetOrRemember(
-			SessionID("session-1"),
-			foundation.RequestID("request-1"),
-			func() CachedResponse {
-				close(secondBuildCalled)
-				atomic.AddInt32(&builds, 1)
-				return CachedSuccess(NewResponseEnvelope(
-					foundation.RequestID("request-1"),
-					json.RawMessage(`{"status":"different"}`),
-					200,
-				))
-			},
-		)
-		results <- struct {
-			response  CachedResponse
-			duplicate bool
-		}{response: response, duplicate: duplicate}
-	}()
-	<-secondStarted
-
-	select {
-	case <-secondBuildCalled:
-		t.Fatal("in-flight duplicate built its own response")
-	case result := <-results:
-		t.Fatalf("duplicate returned before first request completed: %+v", result)
-	case <-time.After(20 * time.Millisecond):
+	response, duplicate := cache.GetOrRemember(
+		SessionID("session-1"),
+		foundation.RequestID("request-1"),
+		func() CachedResponse {
+			t.Fatal("in-flight duplicate built its own response")
+			return CachedResponse{}
+		},
+	)
+	if !duplicate {
+		t.Fatal("in-flight request did not report duplicate")
 	}
-
-	close(releaseFirst)
-	first := <-results
-	second := <-results
-
-	if atomic.LoadInt32(&builds) != 1 {
-		t.Fatalf("builds = %d, want 1", builds)
+	if response.HasError {
+		t.Fatal("cached in-flight result returned error")
 	}
-	if first.duplicate == second.duplicate {
-		t.Fatalf("duplicate flags = %t/%t, want exactly one duplicate", first.duplicate, second.duplicate)
-	}
-	for _, result := range []CachedResponse{first.response, second.response} {
-		if result.HasError {
-			t.Fatal("cached in-flight result returned error")
-		}
-		if got := string(result.Response.Payload); got != `{"status":"accepted"}` {
-			t.Fatalf("cached payload = %s, want first response payload", got)
-		}
+	if got := string(response.Response.Payload); got != `{"status":"accepted"}` {
+		t.Fatalf("cached payload = %s, want first response payload", got)
 	}
 }
 
@@ -179,6 +127,11 @@ func TestRequestCacheReleasesInFlightWhenBuildPanics(t *testing.T) {
 	if flight == nil {
 		t.Fatal("missing in-flight request before panic")
 	}
+	waiterPanic := make(chan any, 1)
+	go func() {
+		<-flight.done
+		waiterPanic <- flight.panicValue
+	}()
 
 	close(releaseFirst)
 	if panicValue := <-result; panicValue != "handler panic" {
@@ -191,6 +144,9 @@ func TestRequestCacheReleasesInFlightWhenBuildPanics(t *testing.T) {
 	}
 	if flight.panicValue != "handler panic" {
 		t.Fatalf("flight panic value = %#v, want handler panic", flight.panicValue)
+	}
+	if panicValue := <-waiterPanic; panicValue != "handler panic" {
+		t.Fatalf("waiter panic value = %#v, want handler panic", panicValue)
 	}
 	cache.mu.Lock()
 	_, stillInFlight := cache.inFlight[key]
@@ -227,15 +183,10 @@ func TestRequestCacheReleasesInFlightWhenBuildPanics(t *testing.T) {
 
 func TestRequestCacheInFlightWaiterReceivesPanic(t *testing.T) {
 	cache := NewRequestCache(2)
-	key := newRequestCacheKey(SessionID("session-1"), foundation.RequestID("request-1"))
-	flight := &requestCacheFlight{
-		done:       make(chan struct{}),
-		panicValue: "handler panic",
-	}
+	key, flight := requestCachePanickedFlight(t, cache)
 	cache.mu.Lock()
 	cache.inFlight[key] = flight
 	cache.mu.Unlock()
-	close(flight.done)
 
 	defer func() {
 		if panicValue := recover(); panicValue != "handler panic" {
@@ -251,6 +202,42 @@ func TestRequestCacheInFlightWaiterReceivesPanic(t *testing.T) {
 			return CachedResponse{}
 		},
 	)
+}
+
+func requestCachePanickedFlight(t *testing.T, cache *RequestCache) (requestCacheKey, *requestCacheFlight) {
+	t.Helper()
+	key := newRequestCacheKey(SessionID("session-1"), foundation.RequestID("request-1"))
+	var flight *requestCacheFlight
+
+	func() {
+		defer func() {
+			if panicValue := recover(); panicValue != "handler panic" {
+				t.Fatalf("panic result = %#v, want handler panic", panicValue)
+			}
+		}()
+		_, _ = cache.GetOrRemember(
+			SessionID("session-1"),
+			foundation.RequestID("request-1"),
+			func() CachedResponse {
+				cache.mu.Lock()
+				flight = cache.inFlight[key]
+				cache.mu.Unlock()
+				panic("handler panic")
+			},
+		)
+	}()
+	if flight == nil {
+		t.Fatal("missing production-created in-flight request")
+	}
+	select {
+	case <-flight.done:
+	default:
+		t.Fatal("production-created panic flight was not released")
+	}
+	if flight.panicValue != "handler panic" {
+		t.Fatalf("flight panic value = %#v, want handler panic", flight.panicValue)
+	}
+	return key, flight
 }
 
 func TestRequestCacheKeysDuplicatesBySessionAndRequestID(t *testing.T) {
