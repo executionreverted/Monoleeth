@@ -151,6 +151,7 @@ type ScanXPGrantInput struct {
 	SourceType     progression.XPSourceType     `json:"source_type"`
 	SourceID       progression.XPSourceID       `json:"source_id"`
 	IdempotencyKey progression.XPIdempotencyKey `json:"idempotency_key"`
+	Authority      progression.XPGrantAuthority `json:"-"`
 	RoleXP         []progression.RoleXPGrant    `json:"role_xp,omitempty"`
 }
 

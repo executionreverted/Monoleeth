@@ -89,6 +89,9 @@ func (input ScanXPGrantInput) Validate() error {
 	if err := input.SourceType.Validate(); err != nil {
 		return err
 	}
+	if err := input.Authority.ValidateForSource(input.SourceType); err != nil {
+		return err
+	}
 	if err := input.SourceID.Validate(); err != nil {
 		return err
 	}

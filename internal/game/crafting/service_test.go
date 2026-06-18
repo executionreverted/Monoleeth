@@ -909,6 +909,7 @@ func (fixture *craftingServiceFixture) seedCraftingRole(t *testing.T, level int)
 		SourceType:     progression.XPSourceTypeAdminAdjustment,
 		SourceID:       progression.XPSourceID(fmt.Sprintf("seed-crafting-role-%d", level)),
 		IdempotencyKey: progression.XPIdempotencyKey(fmt.Sprintf("seed-crafting-role-%d", level)),
+		Authority:      progression.XPGrantAuthorityAdminService,
 		RoleXP: []progression.RoleXPGrant{
 			{Role: progression.RoleTypeCrafting, Amount: xp},
 		},
@@ -927,6 +928,7 @@ func (fixture *craftingServiceFixture) seedRank2(t *testing.T) {
 		SourceType:     progression.XPSourceTypeAdminAdjustment,
 		SourceID:       progression.XPSourceID("seed-main-rank-2"),
 		IdempotencyKey: progression.XPIdempotencyKey("seed-main-rank-2"),
+		Authority:      progression.XPGrantAuthorityAdminService,
 	})
 	if err != nil {
 		t.Fatalf("seed main xp: %v", err)
@@ -1013,7 +1015,7 @@ func testItemDefinition(
 func countCraftXPRecords(store *progression.InMemoryProgressionStore, playerID foundation.PlayerID) int {
 	count := 0
 	for _, record := range store.XPGrantRecords(playerID) {
-		if record.SourceType == progression.XPSourceTypeCraft {
+		if record.SourceType == progression.XPSourceTypeCraft && record.Authority == progression.XPGrantAuthorityCraftingService {
 			count++
 		}
 	}

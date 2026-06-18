@@ -20,6 +20,7 @@ func TestGrantXPAppliesMainAndRoleXPOncePerSource(t *testing.T) {
 		SourceType:     XPSourceTypeQuest,
 		SourceID:       "quest-reward-1",
 		IdempotencyKey: "xp-quest-reward-1",
+		Authority:      XPGrantAuthorityQuestService,
 		RoleXP: []RoleXPGrant{
 			{Role: RoleTypeCombat, Amount: 75},
 		},
@@ -106,6 +107,7 @@ func TestGrantRoleXPUsesExplicitRoleInputAndInvalidatesStats(t *testing.T) {
 		SourceType:     XPSourceTypeScan,
 		SourceID:       "scan-pulse-1",
 		IdempotencyKey: "xp-scan-pulse-1",
+		Authority:      XPGrantAuthorityScannerService,
 	})
 	if err != nil {
 		t.Fatalf("GrantRoleXP() = %v, want nil", err)
@@ -137,6 +139,7 @@ func TestTryRankUpGrantsHistorySkillPointAndInvalidationOnce(t *testing.T) {
 		SourceType:     XPSourceTypeCombat,
 		SourceID:       "npc-kill-1",
 		IdempotencyKey: "xp-npc-kill-1",
+		Authority:      XPGrantAuthorityCombatService,
 	})
 	if err != nil {
 		t.Fatalf("GrantXP() = %v, want nil", err)
@@ -192,6 +195,7 @@ func TestTryRankUpGrantsHistorySkillPointAndInvalidationOnce(t *testing.T) {
 		SourceType:     XPSourceTypeCombat,
 		SourceID:       "npc-kill-1",
 		IdempotencyKey: "xp-npc-kill-1-different-key",
+		Authority:      XPGrantAuthorityCombatService,
 	})
 	if err != nil {
 		t.Fatalf("duplicate source GrantXP() = %v, want nil", err)
@@ -275,6 +279,7 @@ func TestGrantXPValidationRejectsBadSourceAndAmounts(t *testing.T) {
 		SourceType:     XPSourceTypeQuest,
 		SourceID:       "quest-1",
 		IdempotencyKey: "xp-quest-1",
+		Authority:      XPGrantAuthorityQuestService,
 	}); !errors.Is(err, ErrInvalidXPGrantAmount) {
 		t.Fatalf("negative GrantXP error = %v, want ErrInvalidXPGrantAmount", err)
 	}
@@ -284,6 +289,7 @@ func TestGrantXPValidationRejectsBadSourceAndAmounts(t *testing.T) {
 		SourceType:     "trading",
 		SourceID:       "trade-1",
 		IdempotencyKey: "xp-trade-1",
+		Authority:      XPGrantAuthorityQuestService,
 	}); !errors.Is(err, ErrInvalidXPSourceType) {
 		t.Fatalf("invalid source GrantXP error = %v, want ErrInvalidXPSourceType", err)
 	}
@@ -292,8 +298,86 @@ func TestGrantXPValidationRejectsBadSourceAndAmounts(t *testing.T) {
 		SourceType:     XPSourceTypeQuest,
 		SourceID:       "quest-1",
 		IdempotencyKey: "xp-quest-empty",
+		Authority:      XPGrantAuthorityQuestService,
 	}); !errors.Is(err, ErrEmptyXPGrant) {
 		t.Fatalf("empty GrantXP error = %v, want ErrEmptyXPGrant", err)
+	}
+}
+
+func TestGrantXPRequiresMatchingServerAuthority(t *testing.T) {
+	service := NewProgressionService(testutil.NewFakeClock(time.Date(2026, 6, 17, 19, 0, 0, 0, time.UTC)), nil)
+
+	if _, err := service.GrantXP(GrantXPInput{
+		PlayerID:       "player-1",
+		Amount:         100,
+		SourceType:     XPSourceTypeQuest,
+		SourceID:       "quest-1",
+		IdempotencyKey: "quest_reward:quest-1",
+	}); !errors.Is(err, ErrInvalidXPGrantAuthority) {
+		t.Fatalf("missing authority GrantXP error = %v, want ErrInvalidXPGrantAuthority", err)
+	}
+	if records := service.store.XPGrantRecords("player-1"); len(records) != 0 {
+		t.Fatalf("records after missing authority = %+v, want none", records)
+	}
+
+	if _, err := service.GrantXP(GrantXPInput{
+		PlayerID:       "player-1",
+		Amount:         100,
+		SourceType:     XPSourceTypeQuest,
+		SourceID:       "quest-1",
+		IdempotencyKey: "quest_reward:quest-1",
+		Authority:      XPGrantAuthorityLootService,
+	}); !errors.Is(err, ErrUnauthorizedXPSource) {
+		t.Fatalf("wrong authority GrantXP error = %v, want ErrUnauthorizedXPSource", err)
+	}
+	if records := service.store.XPGrantRecords("player-1"); len(records) != 0 {
+		t.Fatalf("records after wrong authority = %+v, want none", records)
+	}
+
+	result, err := service.GrantXP(GrantXPInput{
+		PlayerID:       "player-1",
+		Amount:         100,
+		SourceType:     XPSourceTypeQuest,
+		SourceID:       "quest-1",
+		IdempotencyKey: "quest_reward:quest-1",
+		Authority:      XPGrantAuthorityQuestService,
+	})
+	if err != nil {
+		t.Fatalf("authorized GrantXP error = %v, want nil", err)
+	}
+	if result.Snapshot.Player.MainXP != 100 {
+		t.Fatalf("authorized GrantXP main XP = %d, want 100", result.Snapshot.Player.MainXP)
+	}
+	records := service.store.XPGrantRecords("player-1")
+	if len(records) != 1 || records[0].Authority != XPGrantAuthorityQuestService {
+		t.Fatalf("records after authorized GrantXP = %+v, want one quest-authorized record", records)
+	}
+}
+
+func TestSupportedXPSourceTypesHaveRequiredAuthorities(t *testing.T) {
+	want := map[XPSourceType]XPGrantAuthority{
+		XPSourceTypeCombat:          XPGrantAuthorityCombatService,
+		XPSourceTypeQuest:           XPGrantAuthorityQuestService,
+		XPSourceTypeLoot:            XPGrantAuthorityLootService,
+		XPSourceTypeScan:            XPGrantAuthorityScannerService,
+		XPSourceTypeCraft:           XPGrantAuthorityCraftingService,
+		XPSourceTypeConstruction:    XPGrantAuthorityProductionService,
+		XPSourceTypeRoute:           XPGrantAuthorityRouteService,
+		XPSourceTypeEvent:           XPGrantAuthorityEventService,
+		XPSourceTypeAdminAdjustment: XPGrantAuthorityAdminService,
+	}
+
+	for _, sourceType := range SupportedXPSourceTypes() {
+		required, err := RequiredXPGrantAuthorityForSource(sourceType)
+		if err != nil {
+			t.Fatalf("RequiredXPGrantAuthorityForSource(%q) error = %v", sourceType, err)
+		}
+		if required != want[sourceType] {
+			t.Fatalf("RequiredXPGrantAuthorityForSource(%q) = %q, want %q", sourceType, required, want[sourceType])
+		}
+		if err := required.ValidateForSource(sourceType); err != nil {
+			t.Fatalf("ValidateForSource(%q, %q) error = %v", required, sourceType, err)
+		}
 	}
 }
 

@@ -94,6 +94,7 @@ func (service *ProgressionService) GrantXP(input GrantXPInput) (GrantXPResult, e
 		SourceType:     input.SourceType,
 		SourceID:       input.SourceID,
 		IdempotencyKey: input.IdempotencyKey,
+		Authority:      input.Authority,
 		RoleXP:         cloneRoleXPGrants(roleGrants),
 		GrantedAt:      now,
 	})
@@ -124,6 +125,7 @@ func (service *ProgressionService) GrantRoleXP(input GrantRoleXPInput) (GrantXPR
 		SourceType:     input.SourceType,
 		SourceID:       input.SourceID,
 		IdempotencyKey: input.IdempotencyKey,
+		Authority:      input.Authority,
 		RoleXP: []RoleXPGrant{
 			{Role: input.Role, Amount: input.Amount},
 		},
@@ -401,6 +403,9 @@ func (input GrantXPInput) validate() ([]RoleXPGrant, error) {
 	if err := input.SourceType.Validate(); err != nil {
 		return nil, err
 	}
+	if err := input.Authority.ValidateForSource(input.SourceType); err != nil {
+		return nil, err
+	}
 	if err := input.SourceID.Validate(); err != nil {
 		return nil, err
 	}
@@ -433,6 +438,9 @@ func (input GrantRoleXPInput) validate() error {
 		return fmt.Errorf("role xp amount %d: %w", input.Amount, ErrInvalidXPGrantAmount)
 	}
 	if err := input.SourceType.Validate(); err != nil {
+		return err
+	}
+	if err := input.Authority.ValidateForSource(input.SourceType); err != nil {
 		return err
 	}
 	if err := input.SourceID.Validate(); err != nil {

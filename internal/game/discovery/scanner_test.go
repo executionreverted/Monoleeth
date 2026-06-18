@@ -234,6 +234,9 @@ func TestResolveScanPulseDiscoversPlanetWritesIntelEventAndXPOnce(t *testing.T) 
 	if grant.SourceType != progression.XPSourceTypeScan {
 		t.Fatalf("xp source type = %q, want %q", grant.SourceType, progression.XPSourceTypeScan)
 	}
+	if grant.Authority != progression.XPGrantAuthorityScannerService {
+		t.Fatalf("xp authority = %q, want %q", grant.Authority, progression.XPGrantAuthorityScannerService)
+	}
 	if !strings.Contains(grant.SourceID.String(), result.PlanetID.String()) {
 		t.Fatalf("xp source id = %q, want planet id %q", grant.SourceID, result.PlanetID)
 	}

@@ -151,12 +151,19 @@ Keep MVP small:
 
 ## Abuse And Safety Checks
 
-- [ ] Client cannot spoof XP source completion.
+- [x] Client cannot spoof XP source completion.
 - [x] Client cannot spoof rank milestone.
 - [x] Client cannot unlock hidden or locked skill node.
 - [x] Client cannot activate locked ship.
 - [x] Client cannot bypass cargo capacity via ship swap.
 - [x] Client cannot inject module stats or tier metadata.
+
+Implementation note 2026-06-18:
+`GrantXP` and `GrantRoleXP` now require a server-only `XPGrantAuthority` that
+must match the XP source family before any mutation or XP grant audit record is
+written. Combat, loot, quest, scanner, and crafting grant paths pass their
+owning domain authority, and future construction, route, event, or admin grant
+paths must do the same instead of accepting client-authored source completion.
 
 ## Done Criteria
 
@@ -199,6 +206,5 @@ Verified slices:
 
 Remaining follow-up:
 
-- Combat NPC kill XP and eligible loot pickup XP now have domain-owned boundaries. XP source completion spoofing remains open for quest, scanner, production, crafting, route, event, and admin XP sources until they have concrete owners.
 - Module equip now binds item locations in the loadout store; add the runtime `InventoryService` ledger adapter before persistence is introduced so equip/unequip emits real item ledger rows.
 - Map unlocked pilot-skill passive effects into runtime stat input before claiming a full progression-passives integration.

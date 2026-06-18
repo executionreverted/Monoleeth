@@ -19,6 +19,7 @@ type GrantXPInput struct {
 	SourceType     XPSourceType        `json:"source_type"`
 	SourceID       XPSourceID          `json:"source_id"`
 	IdempotencyKey XPIdempotencyKey    `json:"idempotency_key"`
+	Authority      XPGrantAuthority    `json:"-"`
 	RoleXP         []RoleXPGrant       `json:"role_xp,omitempty"`
 }
 
@@ -31,6 +32,7 @@ type GrantRoleXPInput struct {
 	SourceType     XPSourceType        `json:"source_type"`
 	SourceID       XPSourceID          `json:"source_id"`
 	IdempotencyKey XPIdempotencyKey    `json:"idempotency_key"`
+	Authority      XPGrantAuthority    `json:"-"`
 }
 
 // MainLevelChange reports a deterministic main level increase caused by XP.
@@ -154,6 +156,7 @@ type XPGrantRecord struct {
 	SourceType     XPSourceType        `json:"source_type"`
 	SourceID       XPSourceID          `json:"source_id"`
 	IdempotencyKey XPIdempotencyKey    `json:"idempotency_key"`
+	Authority      XPGrantAuthority    `json:"authority"`
 	RoleXP         []RoleXPGrant       `json:"role_xp,omitempty"`
 	GrantedAt      time.Time           `json:"granted_at"`
 }

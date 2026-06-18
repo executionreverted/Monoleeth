@@ -122,8 +122,28 @@ XPGrant{
   RoleXP[]
   Reason
   IdempotencyKey
+  ServerAuthority
 }
 ```
+
+`ServerAuthority` is not a client payload. It is supplied by the owning server
+domain boundary that verified source completion. The progression service rejects
+XP grants unless the authority matches the source family:
+
+```text
+combat -> CombatService
+quest -> QuestService
+loot -> LootService
+scan -> ScannerService
+craft -> CraftingService
+construction -> PlanetProductionService
+route -> AutomationRouteService
+event -> EventService
+admin_adjustment -> AdminService
+```
+
+This prevents a generic client request from inventing `source_type`,
+`source_id`, or XP amounts and routing them straight into progression.
 
 ## Commands
 
@@ -438,4 +458,3 @@ MVP'de skill tree küçük tutulmalı:
 no active skills
 passive-only
 ```
-

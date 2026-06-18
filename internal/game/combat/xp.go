@@ -67,6 +67,7 @@ func (handler *NPCKillXPHandler) GrantNPCKillXP(event NPCKilledEvent) (progressi
 		SourceType:     progression.XPSourceTypeCombat,
 		SourceID:       progression.XPSourceID(event.NPCEntityID.String()),
 		IdempotencyKey: progression.XPIdempotencyKey("combat_kill:" + event.NPCEntityID.String()),
+		Authority:      progression.XPGrantAuthorityCombatService,
 		RoleXP: []progression.RoleXPGrant{{
 			Role:   handler.reward.Role,
 			Amount: handler.reward.RoleXP,

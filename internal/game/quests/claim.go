@@ -155,6 +155,7 @@ func (service *QuestService) ClaimReward(input ClaimRewardInput) (ClaimRewardRes
 			SourceType:     progression.XPSourceTypeQuest,
 			SourceID:       progression.XPSourceID(prep.quest.PlayerQuestID.String()),
 			IdempotencyKey: progression.XPIdempotencyKey(prep.referenceKey.String()),
+			Authority:      progression.XPGrantAuthorityQuestService,
 			RoleXP:         cloneRoleXPGrants(prep.claimPlan.roleXP),
 		})
 		if err != nil {

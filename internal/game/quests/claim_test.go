@@ -260,6 +260,9 @@ func assertClaimGrantReferences(
 	if len(xp.calls) > 0 && xp.calls[len(xp.calls)-1].SourceID != progression.XPSourceID("player_quest_1") {
 		t.Fatalf("xp source id = %q, want player_quest_1", xp.calls[len(xp.calls)-1].SourceID)
 	}
+	if len(xp.calls) > 0 && xp.calls[len(xp.calls)-1].Authority != progression.XPGrantAuthorityQuestService {
+		t.Fatalf("xp authority = %q, want %q", xp.calls[len(xp.calls)-1].Authority, progression.XPGrantAuthorityQuestService)
+	}
 }
 
 type fakeQuestRewardWallet struct {

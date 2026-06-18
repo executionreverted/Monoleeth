@@ -207,6 +207,7 @@ func grantXPAndRankForSkillTest(t *testing.T, service *ProgressionService, playe
 			SourceType:     XPSourceTypeQuest,
 			SourceID:       XPSourceID("skill-test-xp-" + playerID),
 			IdempotencyKey: XPIdempotencyKey("skill-test-xp-" + playerID),
+			Authority:      XPGrantAuthorityQuestService,
 			RoleXP:         roleXP,
 		}); err != nil {
 			t.Fatalf("GrantXP(%q) = %v, want nil", playerID, err)

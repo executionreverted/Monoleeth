@@ -15,11 +15,6 @@ for phase status; this file is a compact pending-work index.
   authenticated WebSocket gateway flow, including reconnect snapshot request
   and server-authoritative player resolution. Source:
   `docs/roadmap/11-browser-client-prototype.md`.
-- [ ] Wire XP grants behind concrete domain owners such as quest, scanner,
-  production, crafting, route, event, and admin services so clients cannot spoof
-  XP source completion. Combat NPC kill XP and eligible loot pickup XP now have
-  Phase 05 domain boundaries; remaining XP sources still need owners. Source:
-  `docs/roadmap/03-progression-ships-modules-stats.md`.
 - [ ] Wire the remaining Phase 03 runtime inventory ledger adapter for module
   equip/unequip. Rank/role-gate, module-aware stat input, and effective
   cargo-capacity providers exist under `internal/game/runtime`.
@@ -195,3 +190,9 @@ for phase status; this file is a compact pending-work index.
 - [x] Add in-flight duplicate coordination to `realtime.RequestCache` so
   concurrent duplicate request IDs wait for the first completed response instead
   of executing the handler twice.
+- [x] Wire XP grants behind server-owned domain authorities so clients cannot
+  spoof XP source completion. `GrantXP` and `GrantRoleXP` now require a
+  server-only `XPGrantAuthority` matching the source family before mutation;
+  combat, loot, quest, scanner, and crafting grant paths supply their owning
+  authority, and future construction/route/event/admin grant paths must do the
+  same. Source: `docs/roadmap/03-progression-ships-modules-stats.md`.

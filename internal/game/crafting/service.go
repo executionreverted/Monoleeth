@@ -457,6 +457,7 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 		SourceType:     progression.XPSourceTypeCraft,
 		SourceID:       progression.XPSourceID(job.JobID.String()),
 		IdempotencyKey: progression.XPIdempotencyKey(referenceKey.String()),
+		Authority:      progression.XPGrantAuthorityCraftingService,
 		RoleXP: []progression.RoleXPGrant{
 			{Role: progression.RoleTypeCrafting, Amount: craftXPRoleAmount},
 		},

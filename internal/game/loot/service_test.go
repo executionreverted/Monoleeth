@@ -209,6 +209,7 @@ func TestPickupDropOwnerLockPublicAndExpiredWindows(t *testing.T) {
 		SourceType:     progression.XPSourceTypeLoot,
 		SourceID:       progression.XPSourceID(drop.ID.String()),
 		IdempotencyKey: progression.XPIdempotencyKey("loot_pickup:" + drop.ID.String()),
+		Authority:      progression.XPGrantAuthorityLootService,
 	}); err != nil {
 		t.Fatalf("manual duplicate GrantXP() error = %v", err)
 	}

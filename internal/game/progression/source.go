@@ -28,6 +28,24 @@ type XPSourceID string
 // XPIdempotencyKey identifies one XP grant for retry safety.
 type XPIdempotencyKey string
 
+// XPGrantAuthority identifies the server-owned domain boundary that verified
+// source completion before asking progression to mutate XP. This is not a
+// client payload field; it is a guard against accidentally wiring generic
+// client-submitted XP source data directly into GrantXP.
+type XPGrantAuthority string
+
+const (
+	XPGrantAuthorityCombatService     XPGrantAuthority = "combat_service"
+	XPGrantAuthorityQuestService      XPGrantAuthority = "quest_service"
+	XPGrantAuthorityLootService       XPGrantAuthority = "loot_service"
+	XPGrantAuthorityScannerService    XPGrantAuthority = "scanner_service"
+	XPGrantAuthorityCraftingService   XPGrantAuthority = "crafting_service"
+	XPGrantAuthorityProductionService XPGrantAuthority = "production_service"
+	XPGrantAuthorityRouteService      XPGrantAuthority = "route_service"
+	XPGrantAuthorityEventService      XPGrantAuthority = "event_service"
+	XPGrantAuthorityAdminService      XPGrantAuthority = "admin_service"
+)
+
 // SupportedXPSourceTypes returns MVP XP source types in stable order.
 func SupportedXPSourceTypes() []XPSourceType {
 	return []XPSourceType{
@@ -40,6 +58,21 @@ func SupportedXPSourceTypes() []XPSourceType {
 		XPSourceTypeRoute,
 		XPSourceTypeEvent,
 		XPSourceTypeAdminAdjustment,
+	}
+}
+
+// SupportedXPGrantAuthorities returns XP grant authorities in stable order.
+func SupportedXPGrantAuthorities() []XPGrantAuthority {
+	return []XPGrantAuthority{
+		XPGrantAuthorityCombatService,
+		XPGrantAuthorityQuestService,
+		XPGrantAuthorityLootService,
+		XPGrantAuthorityScannerService,
+		XPGrantAuthorityCraftingService,
+		XPGrantAuthorityProductionService,
+		XPGrantAuthorityRouteService,
+		XPGrantAuthorityEventService,
+		XPGrantAuthorityAdminService,
 	}
 }
 
@@ -64,6 +97,74 @@ func (sourceType XPSourceType) Validate() error {
 	default:
 		return fmt.Errorf("xp source type %q: %w", sourceType, ErrInvalidXPSourceType)
 	}
+}
+
+// String returns the stable authority representation.
+func (authority XPGrantAuthority) String() string {
+	return string(authority)
+}
+
+// Validate reports whether authority is a known server-owned XP grant boundary.
+func (authority XPGrantAuthority) Validate() error {
+	switch authority {
+	case XPGrantAuthorityCombatService,
+		XPGrantAuthorityQuestService,
+		XPGrantAuthorityLootService,
+		XPGrantAuthorityScannerService,
+		XPGrantAuthorityCraftingService,
+		XPGrantAuthorityProductionService,
+		XPGrantAuthorityRouteService,
+		XPGrantAuthorityEventService,
+		XPGrantAuthorityAdminService:
+		return nil
+	default:
+		return fmt.Errorf("xp grant authority %q: %w", authority, ErrInvalidXPGrantAuthority)
+	}
+}
+
+// RequiredXPGrantAuthorityForSource returns the server domain that owns one XP
+// source family.
+func RequiredXPGrantAuthorityForSource(sourceType XPSourceType) (XPGrantAuthority, error) {
+	if err := sourceType.Validate(); err != nil {
+		return "", err
+	}
+	switch sourceType {
+	case XPSourceTypeCombat:
+		return XPGrantAuthorityCombatService, nil
+	case XPSourceTypeQuest:
+		return XPGrantAuthorityQuestService, nil
+	case XPSourceTypeLoot:
+		return XPGrantAuthorityLootService, nil
+	case XPSourceTypeScan:
+		return XPGrantAuthorityScannerService, nil
+	case XPSourceTypeCraft:
+		return XPGrantAuthorityCraftingService, nil
+	case XPSourceTypeConstruction:
+		return XPGrantAuthorityProductionService, nil
+	case XPSourceTypeRoute:
+		return XPGrantAuthorityRouteService, nil
+	case XPSourceTypeEvent:
+		return XPGrantAuthorityEventService, nil
+	case XPSourceTypeAdminAdjustment:
+		return XPGrantAuthorityAdminService, nil
+	default:
+		return "", fmt.Errorf("xp source type %q: %w", sourceType, ErrInvalidXPSourceType)
+	}
+}
+
+// ValidateForSource reports whether authority may grant XP for sourceType.
+func (authority XPGrantAuthority) ValidateForSource(sourceType XPSourceType) error {
+	if err := authority.Validate(); err != nil {
+		return err
+	}
+	required, err := RequiredXPGrantAuthorityForSource(sourceType)
+	if err != nil {
+		return err
+	}
+	if authority != required {
+		return fmt.Errorf("authority %q for source %q requires %q: %w", authority, sourceType, required, ErrUnauthorizedXPSource)
+	}
+	return nil
 }
 
 // String returns the stable source id representation.

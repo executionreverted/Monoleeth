@@ -25,6 +25,7 @@ func TestProgressionProviderExposesRankAndRoleLevels(t *testing.T) {
 		SourceType:     progression.XPSourceTypeCombat,
 		SourceID:       "npc-kill-1",
 		IdempotencyKey: "xp-npc-kill-1",
+		Authority:      progression.XPGrantAuthorityCombatService,
 		RoleXP:         []progression.RoleXPGrant{{Role: progression.RoleTypeCombat, Amount: 75}},
 	}); err != nil {
 		t.Fatalf("GrantXP() error = %v, want nil", err)

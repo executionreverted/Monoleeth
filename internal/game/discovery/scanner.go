@@ -308,6 +308,7 @@ func (service *ScannerService) grantDiscoveryXP(playerID foundation.PlayerID, pl
 		SourceType:     progression.XPSourceTypeScan,
 		SourceID:       progression.XPSourceID("planet_discovery:" + planetID.String()),
 		IdempotencyKey: progression.XPIdempotencyKey("scan_xp:" + playerID.String() + ":" + planetID.String()),
+		Authority:      progression.XPGrantAuthorityScannerService,
 		RoleXP: []progression.RoleXPGrant{
 			{Role: progression.RoleTypeScout, Amount: service.discoveryXPAmount},
 		},

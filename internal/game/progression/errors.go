@@ -26,6 +26,8 @@ var (
 	ErrRoleRequirementNotMet       = errors.New("role requirement not met")
 	ErrNotEnoughSkillPoints        = errors.New("not enough skill points")
 	ErrInvalidXPSourceType         = errors.New("invalid xp source type")
+	ErrInvalidXPGrantAuthority     = errors.New("invalid xp grant authority")
+	ErrUnauthorizedXPSource        = errors.New("unauthorized xp source")
 	ErrEmptyXPSourceID             = errors.New("empty xp source id")
 	ErrEmptyXPIdempotencyKey       = errors.New("empty xp idempotency key")
 	ErrInvalidXPGrantAmount        = errors.New("invalid xp grant amount")

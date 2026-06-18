@@ -395,6 +395,7 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 			SourceType:     progression.XPSourceTypeLoot,
 			SourceID:       progression.XPSourceID(drop.ID.String()),
 			IdempotencyKey: progression.XPIdempotencyKey("loot_pickup:" + drop.ID.String()),
+			Authority:      progression.XPGrantAuthorityLootService,
 		})
 		if err != nil {
 			xpErr = err
