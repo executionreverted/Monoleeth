@@ -655,7 +655,7 @@ func TestCompleteCraftTracksLowTierCraftXPOnceForBalancing(t *testing.T) {
 		t.Fatalf("duplicate CompleteCraft: %v", err)
 	}
 
-	observations := fixture.xpTracker.Observations()
+	observations := waitForCraftXPObservations(t, fixture.xpTracker, 1)
 	if got := len(observations); got != 1 {
 		t.Fatalf("craft XP observations len = %d, want 1", got)
 	}
@@ -713,6 +713,68 @@ func TestCompleteCraftTracksLowTierCraftXPOnceForBalancing(t *testing.T) {
 	}
 	if !observation.GrantedAt.Equal(*first.Job.XPGrantedAt) {
 		t.Fatalf("observation granted at = %s, want %s", observation.GrantedAt, *first.Job.XPGrantedAt)
+	}
+}
+
+func TestCompleteCraftXPTrackerCannotBlockCompletionOrDuplicateRetry(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	tracker := newBlockingCraftXPTracker()
+	defer tracker.Release()
+	fixture.service.xpTracker = tracker
+	recipe := fixture.startReadyRecipe(t, RecipeIDRefinedAlloy, "blocking-xp-tracker")
+	started := fixture.mustStartCraft(t, recipe.RecipeID)
+	fixture.clock.Advance(recipe.CraftDuration)
+
+	first, err := fixture.service.CompleteCraft(CompleteCraftInput{PlayerID: fixture.playerID, JobID: started.Job.JobID})
+	if err != nil {
+		t.Fatalf("first CompleteCraft: %v", err)
+	}
+	if first.Duplicate {
+		t.Fatal("first CompleteCraft Duplicate = true, want false")
+	}
+	waitForSignal(t, tracker.entered, "blocking craft XP tracker")
+
+	duplicate, err := fixture.service.CompleteCraft(CompleteCraftInput{PlayerID: fixture.playerID, JobID: started.Job.JobID})
+	if err != nil {
+		t.Fatalf("duplicate CompleteCraft while tracker blocked: %v", err)
+	}
+	if !duplicate.Duplicate {
+		t.Fatal("duplicate CompleteCraft Duplicate = false, want true")
+	}
+	if got := countCraftXPRecords(fixture.progressionStore, fixture.playerID); got != 1 {
+		t.Fatalf("craft XP records = %d, want 1", got)
+	}
+
+	tracker.Release()
+	waitForSignal(t, tracker.done, "blocking craft XP tracker release")
+}
+
+func TestCompleteCraftXPTrackerPanicDoesNotBreakCompletionCache(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	tracker := newPanickingCraftXPTracker()
+	fixture.service.xpTracker = tracker
+	recipe := fixture.startReadyRecipe(t, RecipeIDRefinedAlloy, "panicking-xp-tracker")
+	started := fixture.mustStartCraft(t, recipe.RecipeID)
+	fixture.clock.Advance(recipe.CraftDuration)
+
+	first, err := fixture.service.CompleteCraft(CompleteCraftInput{PlayerID: fixture.playerID, JobID: started.Job.JobID})
+	if err != nil {
+		t.Fatalf("first CompleteCraft: %v", err)
+	}
+	waitForSignal(t, tracker.called, "panicking craft XP tracker")
+	second, err := fixture.service.CompleteCraft(CompleteCraftInput{PlayerID: fixture.playerID, JobID: started.Job.JobID})
+	if err != nil {
+		t.Fatalf("duplicate CompleteCraft after tracker panic: %v", err)
+	}
+
+	if first.Duplicate {
+		t.Fatal("first CompleteCraft Duplicate = true, want false")
+	}
+	if !second.Duplicate {
+		t.Fatal("duplicate CompleteCraft Duplicate = false, want true")
+	}
+	if got := countCraftXPRecords(fixture.progressionStore, fixture.playerID); got != 1 {
+		t.Fatalf("craft XP records = %d, want 1", got)
 	}
 }
 
@@ -1323,6 +1385,25 @@ func waitForSignal(t *testing.T, ch <-chan struct{}, label string) {
 	}
 }
 
+func waitForCraftXPObservations(t *testing.T, tracker *InMemoryCraftXPTracker, want int) []CraftXPObservation {
+	t.Helper()
+
+	deadline := time.After(2 * time.Second)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		observations := tracker.Observations()
+		if len(observations) >= want {
+			return observations
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d craft XP observations; got %d", want, len(observations))
+		case <-ticker.C:
+		}
+	}
+}
+
 func assertOneCanonicalCompleteResult(t *testing.T, results []CompleteCraftResult) {
 	t.Helper()
 
@@ -1385,6 +1466,47 @@ func (authorizer *recordingCraftLocationAuthorizer) AuthorizeCraftLocation(input
 	authorizer.called = true
 	authorizer.input = input
 	return authorizer.err
+}
+
+type blockingCraftXPTracker struct {
+	entered     chan struct{}
+	release     chan struct{}
+	done        chan struct{}
+	enterOnce   sync.Once
+	releaseOnce sync.Once
+	doneOnce    sync.Once
+}
+
+func newBlockingCraftXPTracker() *blockingCraftXPTracker {
+	return &blockingCraftXPTracker{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+		done:    make(chan struct{}),
+	}
+}
+
+func (tracker *blockingCraftXPTracker) TrackCraftXP(CraftXPObservation) {
+	tracker.enterOnce.Do(func() { close(tracker.entered) })
+	<-tracker.release
+	tracker.doneOnce.Do(func() { close(tracker.done) })
+}
+
+func (tracker *blockingCraftXPTracker) Release() {
+	tracker.releaseOnce.Do(func() { close(tracker.release) })
+}
+
+type panickingCraftXPTracker struct {
+	called chan struct{}
+	once   sync.Once
+}
+
+func newPanickingCraftXPTracker() *panickingCraftXPTracker {
+	return &panickingCraftXPTracker{called: make(chan struct{})}
+}
+
+func (tracker *panickingCraftXPTracker) TrackCraftXP(CraftXPObservation) {
+	tracker.once.Do(func() { close(tracker.called) })
+	panic("test craft XP tracker panic")
 }
 
 type blockingInventoryService struct {

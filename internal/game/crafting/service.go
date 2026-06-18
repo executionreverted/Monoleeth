@@ -465,7 +465,7 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 		return failCompletion(err)
 	}
 	xpTime := service.clock.Now()
-	service.trackCraftXP(job, recipe, referenceKey, roleXP, xpGrant, xpTime)
+	xpObservation := service.craftXPObservation(job, recipe, referenceKey, roleXP, xpGrant, xpTime)
 
 	completedAt := service.clock.Now()
 	job.State = CraftJobStateCompleted
@@ -489,16 +489,19 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 	}
 
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	if previous, ok := service.completions[input.JobID]; ok {
 		duplicate := cloneCompleteCraftResult(previous)
 		duplicate.Duplicate = true
 		service.finishCompletionInFlightLocked(input.JobID, previous, nil)
+		service.mu.Unlock()
 		return duplicate, nil
 	}
 	service.jobs[input.JobID] = cloneCraftJob(job)
 	service.completions[input.JobID] = cloneCompleteCraftResult(result)
 	service.finishCompletionInFlightLocked(input.JobID, result, nil)
+	service.mu.Unlock()
+
+	service.trackCraftXP(xpObservation)
 
 	return cloneCompleteCraftResult(result), nil
 }
@@ -644,18 +647,18 @@ func (service *CraftingService) recipeForJob(job CraftJob) (RecipeDefinition, er
 	return recipe, nil
 }
 
-func (service *CraftingService) trackCraftXP(
+func (service *CraftingService) craftXPObservation(
 	job CraftJob,
 	recipe RecipeDefinition,
 	referenceKey foundation.IdempotencyKey,
 	roleXP []progression.RoleXPGrant,
 	xpGrant progression.GrantXPResult,
 	grantedAt time.Time,
-) {
+) *CraftXPObservation {
 	if service.xpTracker == nil || xpGrant.Duplicate {
-		return
+		return nil
 	}
-	service.xpTracker.TrackCraftXP(CraftXPObservation{
+	observation := CraftXPObservation{
 		PlayerID:           job.PlayerID,
 		JobID:              job.JobID,
 		RecipeID:           recipe.RecipeID,
@@ -677,7 +680,22 @@ func (service *CraftingService) trackCraftXP(
 		XPSourceID:         progression.XPSourceID(job.JobID.String()),
 		ReferenceKey:       referenceKey,
 		GrantedAt:          grantedAt,
-	})
+	}
+	return &observation
+}
+
+func (service *CraftingService) trackCraftXP(observation *CraftXPObservation) {
+	if observation == nil || service.xpTracker == nil {
+		return
+	}
+	tracker := service.xpTracker
+	cloned := cloneCraftXPObservation(*observation)
+	go func() {
+		defer func() {
+			_ = recover()
+		}()
+		tracker.TrackCraftXP(cloned)
+	}()
 }
 
 func (service *CraftingService) nextCraftJobIDLocked() CraftJobID {
