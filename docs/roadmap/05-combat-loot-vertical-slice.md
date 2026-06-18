@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: In progress
+- State: Complete, verified 2026-06-18 - gateway follow-ups tracked
 - Owner: Realtime gameplay loop
 - Depends on: Phase 02, Phase 03, Phase 04
 - Unlocks: death, crafting, quest kill progress, first playable loop
@@ -177,7 +177,7 @@ Verified slices:
 - Combat XP is granted through an `NPCKillXPHandler` boundary over authoritative `combat.NPCKilledEvent` payloads instead of ad hoc caller-built progression inputs.
 - Loot XP pickup results now record in-memory `LootXPReconciliation` metadata on the claimed drop for success, duplicate, failure, and not-eligible cases. Durable retry/outbox repair is still a later infrastructure slice.
 - Phase 03 runtime provider wiring exists under `internal/game/runtime` for progression rank/role adapters, module-aware stat input composition, scanner scan-pulse cooldown mapping, and effective-stat cargo capacity. The vertical slice now uses this runtime stat provider instead of a test-local stat adapter.
-- Runtime stat input composition currently covers base ship and equipped module stats; unlocked pilot-skill passive stat effects are still a Phase 03 follow-up.
+- Runtime stat input composition now covers base ship stats, equipped module stats, and unlocked pilot-skill passive stat effects from an authoritative progression snapshot reader.
 - A deterministic backend vertical slice test ensures a starter ship, composes Laser Alpha stats through runtime providers and `StatService`, moves the player into range through the in-process world worker, kills one NPC, grants combat XP idempotently, creates loot, picks it into ship cargo through `CargoService`, grants loot XP, records XP reconciliation, and reads the final player progression snapshot.
 - Realtime `combat.use_skill` is registered and wired through `runtime.CombatCommandHandler` for the MVP basic laser. The handler resolves the attacker from authenticated `CommandContext`, accepts `client_timestamp` only as ignored client metadata, and relies on `CombatService` server time for cooldown enforcement.
 - Cross-world or cross-zone `combat.use_skill` targets now return the same safe client-facing visibility error as hidden targets instead of leaking internal combat validation details.

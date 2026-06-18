@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: MVP complete - fixed-price market, auction, premium entitlement/
+- State: Complete, verified 2026-06-18 - fixed-price market, auction, premium entitlement/
   weekly-stock, policy, fraud-review, and stale-listing domain hooks implemented
   2026-06-18; durable adapters, wallet-currency listing runtime wiring, and the
   concrete planet-claim-to-market listing adapter are tracked as follow-ups

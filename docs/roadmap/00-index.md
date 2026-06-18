@@ -34,14 +34,14 @@ Non-negotiable rules:
 
 1. [Foundation Platform](./01-foundation-platform.md) - complete, audited 2026-06-17
 2. [Economy Ledger And Inventory](./02-economy-ledger-inventory.md) - complete, audited 2026-06-17
-3. [Progression, Ships, Modules, And Stats](./03-progression-ships-modules-stats.md)
-4. [World Worker, AOI, Fog, And Realtime Contracts](./04-world-worker-aoi-fog-realtime.md)
-5. [Combat And Loot Vertical Slice](./05-combat-loot-vertical-slice.md)
+3. [Progression, Ships, Modules, And Stats](./03-progression-ships-modules-stats.md) - complete, verified 2026-06-18
+4. [World Worker, AOI, Fog, And Realtime Contracts](./04-world-worker-aoi-fog-realtime.md) - complete, verified 2026-06-18
+5. [Combat And Loot Vertical Slice](./05-combat-loot-vertical-slice.md) - complete, verified 2026-06-18
 6. [Death, Repair, And Crafting](./06-death-repair-crafting.md) - complete, verified 2026-06-18
 7. [Quest Board And Guided Progression](./07-quest-board-guided-progression.md) - complete, verified 2026-06-18
 8. [World Discovery, Planets, And Intel](./08-world-discovery-planets-intel.md) - complete, verified 2026-06-18
 9. [Planet Production And Automation Routes](./09-planet-production-routes.md) - complete, verified 2026-06-18
-10. [Market, Auction, And Premium](./10-market-auction-premium.md)
+10. [Market, Auction, And Premium](./10-market-auction-premium.md) - complete, verified 2026-06-18
 11. [Browser Client Prototype](./11-browser-client-prototype.md) - prototype slice implemented 2026-06-18; gateway-playable loop open
 12. [Observability, Balancing, And Release Gates](./12-observability-balancing-release-gates.md) - complete, local readiness primitives verified 2026-06-18
 

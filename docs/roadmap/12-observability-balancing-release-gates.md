@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: In progress
+- State: Complete, local readiness primitives verified 2026-06-18
 - Owner: Production readiness and live operations
 - Depends on: all prior phases incrementally
 - Unlocks: safer playtests, balancing, fraud/debug workflows
@@ -284,18 +284,15 @@ dropped with short-lived operational logs.
 
 If resuming here, start by asking: "Which production bug would be impossible to diagnose today?" Add the smallest metric, log, or admin inspection tool that would answer it.
 
-2026-06-18: Phase 12 Task 1 added command log and metric primitives under
-`internal/game/observability`. Continue with economy flow accounting, dashboard
-definitions, release gates, and then runtime/domain instrumentation.
+Verified slices:
 
-2026-06-18: Phase 12 Task 2 added duplicate-safe economy flow accounting under
-`internal/game/observability`. Continue with dashboard definitions and release
-gate reports before full runtime/domain instrumentation.
+- Command log, metric recorder, and observed realtime command gateway primitives live under `internal/game/observability`, `internal/game/realtime`, and `internal/game/runtime`.
+- Duplicate-safe economy flow accounting and deterministic simulation runners cover NPC kill/loot pickup, market buy/cancel, auction bid/buy-now, offline planet settlement, and route settlement cases.
+- Dashboard specs, command security review coverage, release gate coverage, abuse test coverage, and data retention guidance fail closed when required evidence is missing.
+- Admin inspection and repair tools compose existing economy, market, auction, crafting, and production services and use compensating ledger entries instead of silent edits.
 
-2026-06-18: Phase 12 Task 3 added dashboard specs plus release/security gate
-report primitives under `internal/game/observability`. Continue with roadmap
-verification and Phase 12 review/fixes.
+Remaining follow-up:
 
-2026-06-18: Phase 12 core observability wiring added a realtime observed-command
-executor plus optional combat and loot metric hooks. Continue with deterministic
-simulation runners, admin/repair tools, and module-by-module gate coverage.
+- Wire the local dashboard specs to a concrete external dashboard/admin UI when a deployment stack exists.
+- Wire the observed realtime gateway through the future concrete WebSocket transport.
+- Run production soak/load jobs against deployed infrastructure; Phase 12 currently verifies local readiness primitives and smoke targets.

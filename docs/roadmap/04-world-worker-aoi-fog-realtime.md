@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: In progress
+- State: Complete, verified 2026-06-18 - WebSocket adapter follow-up tracked
 - Owner: Realtime world simulation
 - Depends on: Phase 01, Phase 03
 - Unlocks: combat validation, scanner discovery, loot visibility, client prototype
