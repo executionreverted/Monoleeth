@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Not started
+- State: In progress
 - Owner: Production readiness and live operations
 - Depends on: all prior phases incrementally
 - Unlocks: safer playtests, balancing, fraud/debug workflows
