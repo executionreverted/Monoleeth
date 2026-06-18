@@ -150,17 +150,15 @@ func TestRequestCacheCoordinatesInFlightDuplicateRequestID(t *testing.T) {
 	}
 }
 
-func TestRequestCacheReleasesInFlightDuplicateWhenBuildPanics(t *testing.T) {
+func TestRequestCacheReleasesInFlightWhenBuildPanics(t *testing.T) {
 	cache := NewRequestCache(2)
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
-	secondStarted := make(chan struct{})
-	secondBuildCalled := make(chan struct{})
-	results := make(chan any, 2)
+	result := make(chan any, 1)
 	var builds int32
 
 	go func() {
-		defer func() { results <- recover() }()
+		defer func() { result <- recover() }()
 		_, _ = cache.GetOrRemember(
 			SessionID("session-1"),
 			foundation.RequestID("request-1"),
@@ -174,38 +172,28 @@ func TestRequestCacheReleasesInFlightDuplicateWhenBuildPanics(t *testing.T) {
 	}()
 
 	<-firstStarted
-	go func() {
-		defer func() { results <- recover() }()
-		close(secondStarted)
-		_, _ = cache.GetOrRemember(
-			SessionID("session-1"),
-			foundation.RequestID("request-1"),
-			func() CachedResponse {
-				close(secondBuildCalled)
-				atomic.AddInt32(&builds, 1)
-				return CachedSuccess(NewResponseEnvelope(
-					foundation.RequestID("request-1"),
-					json.RawMessage(`{"status":"different"}`),
-					200,
-				))
-			},
-		)
-	}()
-	<-secondStarted
-
-	select {
-	case <-secondBuildCalled:
-		t.Fatal("in-flight duplicate built its own response after first panic")
-	case result := <-results:
-		t.Fatalf("duplicate returned before first panic completed: %+v", result)
-	case <-time.After(20 * time.Millisecond):
+	key := newRequestCacheKey(SessionID("session-1"), foundation.RequestID("request-1"))
+	cache.mu.Lock()
+	flight := cache.inFlight[key]
+	cache.mu.Unlock()
+	if flight == nil {
+		t.Fatal("missing in-flight request before panic")
 	}
 
 	close(releaseFirst)
-	firstPanic := <-results
-	secondPanic := <-results
-	if firstPanic != "handler panic" || secondPanic != "handler panic" {
-		t.Fatalf("panic results = %#v/%#v, want propagated handler panic", firstPanic, secondPanic)
+	if panicValue := <-result; panicValue != "handler panic" {
+		t.Fatalf("panic result = %#v, want handler panic", panicValue)
+	}
+	select {
+	case <-flight.done:
+	case <-time.After(time.Second):
+		t.Fatal("flight was not released after panic")
+	}
+	cache.mu.Lock()
+	_, stillInFlight := cache.inFlight[key]
+	cache.mu.Unlock()
+	if stillInFlight {
+		t.Fatal("in-flight entry was not deleted after panic")
 	}
 	if atomic.LoadInt32(&builds) != 1 {
 		t.Fatalf("builds after panic = %d, want 1", builds)
@@ -232,6 +220,34 @@ func TestRequestCacheReleasesInFlightDuplicateWhenBuildPanics(t *testing.T) {
 	if got := string(retry.Response.Payload); got != `{"status":"retry"}` {
 		t.Fatalf("retry payload = %s, want retry response", got)
 	}
+}
+
+func TestRequestCacheInFlightWaiterReceivesPanic(t *testing.T) {
+	cache := NewRequestCache(2)
+	key := newRequestCacheKey(SessionID("session-1"), foundation.RequestID("request-1"))
+	flight := &requestCacheFlight{
+		done:       make(chan struct{}),
+		panicValue: "handler panic",
+	}
+	cache.mu.Lock()
+	cache.inFlight[key] = flight
+	cache.mu.Unlock()
+	close(flight.done)
+
+	defer func() {
+		if panicValue := recover(); panicValue != "handler panic" {
+			t.Fatalf("panic result = %#v, want handler panic", panicValue)
+		}
+	}()
+
+	_, _ = cache.GetOrRemember(
+		SessionID("session-1"),
+		foundation.RequestID("request-1"),
+		func() CachedResponse {
+			t.Fatal("waiter built a response instead of observing the in-flight panic")
+			return CachedResponse{}
+		},
+	)
 }
 
 func TestRequestCacheKeysDuplicatesBySessionAndRequestID(t *testing.T) {
