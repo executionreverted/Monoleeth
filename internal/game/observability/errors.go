@@ -32,4 +32,28 @@ var (
 
 	// ErrMissingCommandLogTimestamp reports a missing command log timestamp.
 	ErrMissingCommandLogTimestamp = errors.New("missing command log timestamp")
+
+	// ErrInvalidValueFlowDirection reports an unsupported economy flow direction.
+	ErrInvalidValueFlowDirection = errors.New("invalid value flow direction")
+
+	// ErrInvalidEconomyFlowValueKind reports an unsupported economy flow value kind.
+	ErrInvalidEconomyFlowValueKind = errors.New("invalid economy flow value kind")
+
+	// ErrMissingEconomyFlowValueIdentity reports a currency/item flow with no value identity.
+	ErrMissingEconomyFlowValueIdentity = errors.New("missing economy flow value identity")
+
+	// ErrAmbiguousEconomyFlowValueIdentity reports a flow that mixes currency and item identity.
+	ErrAmbiguousEconomyFlowValueIdentity = errors.New("ambiguous economy flow value identity")
+
+	// ErrMissingEconomyFlowReason reports a missing stable ledger reason.
+	ErrMissingEconomyFlowReason = errors.New("missing economy flow reason")
+
+	// ErrMissingEconomyFlowReference reports a missing domain idempotency reference.
+	ErrMissingEconomyFlowReference = errors.New("missing economy flow reference")
+
+	// ErrMissingEconomyFlowTimestamp reports a missing economy flow timestamp.
+	ErrMissingEconomyFlowTimestamp = errors.New("missing economy flow timestamp")
+
+	// ErrDuplicateEconomyFlowReference reports a duplicate value-flow reference.
+	ErrDuplicateEconomyFlowReference = errors.New("duplicate economy flow reference")
 )

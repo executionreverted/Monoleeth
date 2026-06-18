@@ -111,11 +111,16 @@ gameplay services do not emit these metrics yet.
 - [ ] Simulate auction bid/buy-now races.
 - [ ] Simulate offline planet settlements.
 - [ ] Simulate route settlements.
-- [ ] Track total item faucets.
-- [ ] Track total item sinks.
-- [ ] Track total currency faucets.
-- [ ] Track total currency sinks.
-- [ ] Assert no duplicate value creation.
+- [x] Track total item faucets.
+- [x] Track total item sinks.
+- [x] Track total currency faucets.
+- [x] Track total currency sinks.
+- [x] Assert no duplicate value creation.
+
+Implementation note 2026-06-18:
+`EconomyFlowAccumulator` now tracks duplicate-safe currency/item faucets and
+sinks by stable reason/reference. Deterministic simulation runners are still
+not implemented.
 
 ## TODO: Economy Dashboards
 
@@ -221,3 +226,7 @@ If resuming here, start by asking: "Which production bug would be impossible to 
 2026-06-18: Phase 12 Task 1 added command log and metric primitives under
 `internal/game/observability`. Continue with economy flow accounting, dashboard
 definitions, release gates, and then runtime/domain instrumentation.
+
+2026-06-18: Phase 12 Task 2 added duplicate-safe economy flow accounting under
+`internal/game/observability`. Continue with dashboard definitions and release
+gate reports before full runtime/domain instrumentation.
