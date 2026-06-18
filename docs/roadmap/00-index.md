@@ -43,7 +43,7 @@ Non-negotiable rules:
 9. [Planet Production And Automation Routes](./09-planet-production-routes.md)
 10. [Market, Auction, And Premium](./10-market-auction-premium.md)
 11. [Browser Client Prototype](./11-browser-client-prototype.md) - prototype slice implemented 2026-06-18; gateway-playable loop open
-12. [Observability, Balancing, And Release Gates](./12-observability-balancing-release-gates.md)
+12. [Observability, Balancing, And Release Gates](./12-observability-balancing-release-gates.md) - primitives started 2026-06-18
 
 ## Suggested Execution Rule
 

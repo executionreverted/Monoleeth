@@ -123,6 +123,11 @@ for phase status; this file is a compact pending-work index.
   mutating visible state. Unit tests cover parser/reducer rejection today, but
   the Playwright smoke currently checks only rendered body text. Source:
   Symphony review `local-0106`.
+- [ ] Wire Phase 12 observability primitives into realtime gateway/runtime and
+  domain service command paths. Current `internal/game/observability` provides
+  safe command-log entries, deterministic in-memory metric snapshots, and
+  leak-resistant labels, but no existing gameplay service emits them yet.
+  Source: Phase 12 Task 1.
 - [ ] Wire the concrete runtime adapter from discovery
   `ClaimListedIntelStaleMarker` to market/intel listing indexes once coordinate
   scroll listings leave the local domain MVP. Phase 10 now exposes the claim

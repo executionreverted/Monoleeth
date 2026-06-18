@@ -66,31 +66,42 @@ Infrastructure:
 ## TODO: Structured Logs
 
 - [ ] Add structured JSON logging for gameplay commands.
-- [ ] Include `request_id`.
-- [ ] Include `player_id`.
-- [ ] Include `session_id`.
-- [ ] Include `world_id` and `zone_id` where relevant.
-- [ ] Include operation name.
-- [ ] Include error code.
-- [ ] Include reference ID for value mutations.
-- [ ] Ensure logs do not leak hidden gameplay data unnecessarily.
+- [x] Include `request_id`.
+- [x] Include `player_id`.
+- [x] Include `session_id`.
+- [x] Include `world_id` and `zone_id` where relevant.
+- [x] Include operation name.
+- [x] Include error code.
+- [x] Include reference ID for value mutations.
+- [x] Ensure logs do not leak hidden gameplay data unnecessarily.
+
+Implementation note 2026-06-18:
+`internal/game/observability` now has safe `CommandLogEntry` and
+`MemoryCommandLogger` primitives with clone-safe deterministic snapshots. The
+gameplay command loop is not wired to emit these logs yet, so the top-level
+gameplay-command logging item remains unchecked.
 
 ## TODO: Metrics
 
-- [ ] Add command count by op.
-- [ ] Add command error count by op and code.
-- [ ] Add zone tick duration metric.
-- [ ] Add visible entity count metric.
+- [x] Add command count by op.
+- [x] Add command error count by op and code.
+- [x] Add zone tick duration metric.
+- [x] Add visible entity count metric.
 - [ ] Add combat action metric.
 - [ ] Add loot created/picked metric.
-- [ ] Add wallet delta by reason metric.
-- [ ] Add item delta by reason metric.
-- [ ] Add craft job metric.
-- [ ] Add quest reward metric.
-- [ ] Add planet settlement metric.
-- [ ] Add route settlement metric.
-- [ ] Add market sale metric.
-- [ ] Add auction bid metric.
+- [x] Add wallet delta by reason metric.
+- [x] Add item delta by reason metric.
+- [x] Add craft job metric.
+- [x] Add quest reward metric.
+- [x] Add planet settlement metric.
+- [x] Add route settlement metric.
+- [x] Add market sale metric.
+- [x] Add auction bid metric.
+
+Implementation note 2026-06-18:
+`MetricRecorder` now supports deterministic counters, gauges, and duration
+summaries with stable sorted label sets and label-value safety. Existing
+gameplay services do not emit these metrics yet.
 
 ## TODO: Simulation Tests
 
@@ -206,3 +217,7 @@ High-volume telemetry:
 ## Resume Notes
 
 If resuming here, start by asking: "Which production bug would be impossible to diagnose today?" Add the smallest metric, log, or admin inspection tool that would answer it.
+
+2026-06-18: Phase 12 Task 1 added command log and metric primitives under
+`internal/game/observability`. Continue with economy flow accounting, dashboard
+definitions, release gates, and then runtime/domain instrumentation.
