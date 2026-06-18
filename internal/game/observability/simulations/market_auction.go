@@ -1,6 +1,7 @@
 package simulations
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
@@ -14,7 +15,11 @@ import (
 )
 
 const (
-	simulationSeedReason economy.LedgerReason = "simulation_seed"
+	simulationSeedReason      economy.LedgerReason = "simulation_seed"
+	simulationMarketUnitPrice int64                = 100
+	simulationAuctionBid      int64                = 120
+	simulationAuctionBuyNow   int64                = 300
+	simulationMarketFeeSink   foundation.PlayerID  = "simulation_market_fee_sink"
 )
 
 // MarketBuyCancelRaceConfig tunes fixed-price market buy/cancel race simulations.
@@ -72,9 +77,11 @@ func RunMarketBuyCancelRaceSimulation(config MarketBuyCancelRaceConfig) (MarketB
 	inventory := economy.NewInventoryService(clock)
 	wallet := economy.NewWalletService(clock)
 	service, err := market.NewMarketService(market.MarketServiceConfig{
-		Clock:     clock,
-		Inventory: inventory,
-		Wallet:    wallet,
+		Clock:             clock,
+		Inventory:         inventory,
+		Wallet:            wallet,
+		FeePolicy:         market.DefaultFeePolicy(),
+		SystemFeePlayerID: simulationMarketFeeSink,
 	})
 	if err != nil {
 		return MarketBuyCancelRaceSummary{}, err
@@ -112,7 +119,7 @@ func RunMarketBuyCancelRaceSimulation(config MarketBuyCancelRaceConfig) (MarketB
 			ItemRef:        economy.MoveItemRef{Definition: itemDefinition},
 			SourceLocation: sourceLocation,
 			Quantity:       1,
-			UnitPrice:      100,
+			UnitPrice:      simulationMarketUnitPrice,
 			Currency:       economy.CurrencyBucketCredits,
 		})
 		if err != nil {
@@ -150,11 +157,17 @@ func RunMarketBuyCancelRaceSimulation(config MarketBuyCancelRaceConfig) (MarketB
 	}
 	summary.BuyerBalance = wallet.Balance(buyerID, economy.CurrencyBucketCredits)
 	summary.SellerBalance = wallet.Balance(sellerID, economy.CurrencyBucketCredits)
-	summary.SystemFeeBalance = wallet.Balance(foundation.PlayerID("market-fee-sink"), economy.CurrencyBucketCredits)
+	summary.SystemFeeBalance = wallet.Balance(simulationMarketFeeSink, economy.CurrencyBucketCredits)
+	expectedBuyerBalance := initialBuyerCredits - int64(summary.BuySuccesses)*simulationMarketUnitPrice
+	expectedFeeBalance := int64(summary.BuySuccesses) * ((simulationMarketUnitPrice * market.DefaultFeePolicy().SaleFeeBasisPoints) / 10_000)
+	expectedSellerBalance := int64(summary.BuySuccesses)*simulationMarketUnitPrice - expectedFeeBalance
 	if summary.BuySuccesses+summary.CancelSuccesses != normalized.races ||
 		summary.ListingNotActiveFailures != normalized.races ||
 		summary.SellerSourceQuantity+summary.BuyerQuantity != int64(normalized.races) ||
-		summary.EscrowQuantity != 0 {
+		summary.EscrowQuantity != 0 ||
+		summary.BuyerBalance != expectedBuyerBalance ||
+		summary.SellerBalance != expectedSellerBalance ||
+		summary.SystemFeeBalance != expectedFeeBalance {
 		return MarketBuyCancelRaceSummary{}, fmt.Errorf("market race summary %+v: %w", summary, ErrInvalidSimulationConfig)
 	}
 	return summary, nil
@@ -190,13 +203,15 @@ func RunAuctionBidBuyNowRaceSimulation(config AuctionBidBuyNowRaceConfig) (Aucti
 	}
 
 	summary := AuctionBidBuyNowRaceSummary{Races: normalized.races}
+	expectedGrants := make(map[foundation.AuctionID]auction.LotPayload, normalized.races)
 	for index := 0; index < normalized.races; index++ {
 		auctionID := foundation.AuctionID(fmt.Sprintf("simulation_auction_%d", index+1))
-		buyNowPrice := int64(300)
+		buyNowPrice := simulationAuctionBuyNow
 		payload, err := simulationAuctionPayload()
 		if err != nil {
 			return AuctionBidBuyNowRaceSummary{}, err
 		}
+		expectedGrants[auctionID] = payload
 		if _, err := service.CreateLot(auction.CreateLotInput{
 			AuctionID:   auctionID,
 			WorldID:     "world_1",
@@ -251,10 +266,25 @@ func RunAuctionBidBuyNowRaceSimulation(config AuctionBidBuyNowRaceConfig) (Aucti
 		}
 	}
 
+	seenGrants := make(map[foundation.AuctionID]struct{}, normalized.races)
 	for _, grant := range service.Grants() {
-		if grant.PlayerID == buyerID {
-			summary.BuyerGrants++
+		expectedPayload, ok := expectedGrants[grant.AuctionID]
+		if !ok {
+			return AuctionBidBuyNowRaceSummary{}, fmt.Errorf("auction unexpected grant %q: %w", grant.AuctionID, ErrInvalidSimulationConfig)
 		}
+		if _, exists := seenGrants[grant.AuctionID]; exists {
+			return AuctionBidBuyNowRaceSummary{}, fmt.Errorf("auction duplicate grant %q: %w", grant.AuctionID, ErrInvalidSimulationConfig)
+		}
+		if grant.PlayerID != buyerID ||
+			grant.Reason != auction.CloseReasonBuyNow ||
+			!auctionPayloadsEqual(grant.Payload, expectedPayload) {
+			return AuctionBidBuyNowRaceSummary{}, fmt.Errorf("auction grant %q = %+v: %w", grant.AuctionID, grant, ErrInvalidSimulationConfig)
+		}
+		seenGrants[grant.AuctionID] = struct{}{}
+		summary.BuyerGrants++
+	}
+	if len(seenGrants) != len(expectedGrants) {
+		return AuctionBidBuyNowRaceSummary{}, fmt.Errorf("auction grants seen %d want %d: %w", len(seenGrants), len(expectedGrants), ErrInvalidSimulationConfig)
 	}
 	summary.BidderBalance = wallet.Balance(bidderID, economy.CurrencyBucketCredits)
 	summary.BuyerBalance = wallet.Balance(buyerID, economy.CurrencyBucketCredits)
@@ -263,7 +293,7 @@ func RunAuctionBidBuyNowRaceSimulation(config AuctionBidBuyNowRaceConfig) (Aucti
 		summary.ClosedLots != normalized.races ||
 		summary.BuyerGrants != normalized.races ||
 		summary.BidderBalance != initialBidderCredits ||
-		summary.BuyerBalance != initialBuyerCredits-int64(normalized.races)*300 {
+		summary.BuyerBalance != initialBuyerCredits-int64(normalized.races)*simulationAuctionBuyNow {
 		return AuctionBidBuyNowRaceSummary{}, fmt.Errorf("auction race summary %+v: %w", summary, ErrInvalidSimulationConfig)
 	}
 	return summary, nil
@@ -331,7 +361,7 @@ func runAuctionBidBuyNowRace(
 			_, err := service.PlaceBid(auction.PlaceBidInput{
 				AuctionID:      auctionID,
 				BidderPlayerID: bidderID,
-				Amount:         120,
+				Amount:         simulationAuctionBid,
 				RequestID:      bidRequestID,
 			})
 			return raceOutcome{operation: "bid", err: err}
@@ -445,4 +475,11 @@ func simulationAuctionPayload() (auction.LotPayload, error) {
 		Source:   source,
 		Quantity: 1,
 	}, nil
+}
+
+func auctionPayloadsEqual(left auction.LotPayload, right auction.LotPayload) bool {
+	return left.Type == right.Type &&
+		left.Source == right.Source &&
+		left.Quantity == right.Quantity &&
+		bytes.Equal(left.Metadata, right.Metadata)
 }
