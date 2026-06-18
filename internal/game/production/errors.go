@@ -40,6 +40,7 @@ var (
 	ErrInvalidRouteRate              = errors.New("invalid route amount per hour")
 	ErrInvalidRouteEnergyCost        = errors.New("invalid route energy cost per hour")
 	ErrDuplicateRoute                = errors.New("duplicate automation route")
+	ErrRouteOwnerMismatch            = errors.New("route owner mismatch")
 	ErrRouteSourceNotOwned           = errors.New("route source planet not owned")
 	ErrRouteDestinationNotAccessible = errors.New("route destination not accessible")
 	ErrRouteResourceNotRouteable     = errors.New("route resource not routeable")

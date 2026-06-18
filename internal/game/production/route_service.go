@@ -91,3 +91,57 @@ func (service *AutomationRouteService) SettleRoute(routeID foundation.RouteID) (
 	}
 	return service.store.SettleRoute(routeID, service.clock.Now(), service.lossRoller)
 }
+
+// DisableRoute settles the currently enabled route period, then disables the
+// route using server-owned time and loss rolls.
+func (service *AutomationRouteService) DisableRoute(routeID foundation.RouteID) (RouteControlResult, error) {
+	if service == nil || service.store == nil || service.clock == nil || service.lossRoller == nil {
+		return RouteControlResult{}, ErrInvalidRouteSettlementConfig
+	}
+	return service.store.DisableRoute(routeID, service.clock.Now(), service.lossRoller)
+}
+
+// EnableRoute re-enables a disabled route and starts a fresh settlement period
+// at the server timestamp.
+func (service *AutomationRouteService) EnableRoute(routeID foundation.RouteID) (RouteControlResult, error) {
+	if service == nil || service.store == nil || service.clock == nil {
+		return RouteControlResult{}, ErrInvalidRouteSettlementConfig
+	}
+	return service.store.EnableRoute(routeID, service.clock.Now())
+}
+
+// UpdateRoute settles old route terms first, then replaces mutable terms using
+// server-owned policy facts for distance, energy cost, and risk.
+func (service *AutomationRouteService) UpdateRoute(input UpdateRouteInput) (UpdateRouteResult, error) {
+	if service == nil || service.store == nil || service.clock == nil || service.policy == nil || service.lossRoller == nil {
+		return UpdateRouteResult{}, ErrInvalidRouteCreateConfig
+	}
+	if err := input.Validate(); err != nil {
+		return UpdateRouteResult{}, err
+	}
+
+	route, ok, err := service.store.AutomationRoute(input.RouteID)
+	if err != nil {
+		return UpdateRouteResult{}, err
+	}
+	if !ok {
+		return UpdateRouteResult{}, fmt.Errorf("route %q: %w", input.RouteID, ErrRouteNotFound)
+	}
+	if route.OwnerPlayerID != input.OwnerPlayerID {
+		return UpdateRouteResult{}, fmt.Errorf("route %q owner %q: %w", input.RouteID, input.OwnerPlayerID, ErrRouteOwnerMismatch)
+	}
+
+	policyInput := input.policyInput(route.SourcePlanetID)
+	if err := policyInput.Validate(); err != nil {
+		return UpdateRouteResult{}, err
+	}
+	policy, err := service.policy.RouteCreatePolicy(policyInput)
+	if err != nil {
+		return UpdateRouteResult{}, err
+	}
+	if _, err := policy.CalculateRisk(); err != nil {
+		return UpdateRouteResult{}, err
+	}
+
+	return service.store.UpdateRoute(input, policy, service.clock.Now(), service.lossRoller)
+}

@@ -70,10 +70,34 @@ type CreateRouteInput struct {
 	AmountPerHour  int64               `json:"amount_per_hour"`
 }
 
+// UpdateRouteInput carries new route terms for an existing automation route.
+// The source planet and owner identity are loaded from the durable route row.
+type UpdateRouteInput struct {
+	RouteID        foundation.RouteID  `json:"route_id"`
+	OwnerPlayerID  foundation.PlayerID `json:"owner_player_id"`
+	Destination    RouteDestination    `json:"destination"`
+	ResourceItemID foundation.ItemID   `json:"resource_item_id"`
+	AmountPerHour  int64               `json:"amount_per_hour"`
+}
+
 // CreateRouteResult returns the detached route row created by the server.
 type CreateRouteResult struct {
 	Route   AutomationRoute `json:"route"`
 	Created bool            `json:"created"`
+}
+
+// RouteControlResult reports the route row after an enable/disable command.
+type RouteControlResult struct {
+	Route      AutomationRoute       `json:"route"`
+	Settlement RouteSettlementResult `json:"settlement"`
+	Changed    bool                  `json:"changed"`
+}
+
+// UpdateRouteResult reports the route row after replacing route terms.
+type UpdateRouteResult struct {
+	Route      AutomationRoute       `json:"route"`
+	Settlement RouteSettlementResult `json:"settlement"`
+	Updated    bool                  `json:"updated"`
 }
 
 // RouteCreatePolicyInput asks the policy boundary for server-owned route facts.
@@ -236,6 +260,36 @@ func (input CreateRouteInput) Validate() error {
 		return err
 	}
 	return nil
+}
+
+// Validate reports whether route update input is structurally valid intent.
+func (input UpdateRouteInput) Validate() error {
+	if err := input.RouteID.Validate(); err != nil {
+		return err
+	}
+	if err := input.OwnerPlayerID.Validate(); err != nil {
+		return err
+	}
+	if err := input.Destination.Validate(); err != nil {
+		return err
+	}
+	if err := input.ResourceItemID.Validate(); err != nil {
+		return err
+	}
+	if err := validatePositiveBoundedAmount("route amount per hour", input.AmountPerHour, ErrInvalidRouteRate); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (input UpdateRouteInput) policyInput(sourcePlanetID foundation.PlanetID) RouteCreatePolicyInput {
+	return RouteCreatePolicyInput{
+		OwnerPlayerID:  input.OwnerPlayerID,
+		SourcePlanetID: sourcePlanetID,
+		Destination:    input.Destination,
+		ResourceItemID: input.ResourceItemID,
+		AmountPerHour:  input.AmountPerHour,
+	}
 }
 
 // Validate reports whether policy input can be sent to a provider.

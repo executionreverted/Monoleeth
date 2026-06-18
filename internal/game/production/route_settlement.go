@@ -73,6 +73,14 @@ func (store *InMemoryStore) SettleRoute(
 	defer store.mu.Unlock()
 	store.ensureMapsLocked()
 
+	return store.settleRouteLocked(routeID, now, lossRoller)
+}
+
+func (store *InMemoryStore) settleRouteLocked(
+	routeID foundation.RouteID,
+	now time.Time,
+	lossRoller RouteLossRoller,
+) (RouteSettlementResult, error) {
 	route, ok := store.routes[routeID]
 	if !ok {
 		return RouteSettlementResult{}, fmt.Errorf("route %q: %w", routeID, ErrRouteNotFound)

@@ -454,6 +454,270 @@ func TestSettleRouteSubUnitWantedAdvancesRouteTimestampWithoutTransfer(t *testin
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
 }
 
+func TestDisableRouteSettlesOldRouteBeforeDisabling(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	service := newTestRouteSettlementService(t, store, now, nil)
+
+	result, err := service.DisableRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("DisableRoute() error = %v, want nil", err)
+	}
+	if !result.Changed {
+		t.Fatal("Changed = false, want true")
+	}
+	if result.Route.Enabled {
+		t.Fatal("route Enabled = true, want false")
+	}
+	if result.Settlement.AddedAmount != 40 || result.Settlement.TakenAmount != 40 {
+		t.Fatalf("settlement taken/added = %d/%d, want 40/40", result.Settlement.TakenAmount, result.Settlement.AddedAmount)
+	}
+	assertRouteSettlementRouteTime(t, store, route.RouteID, now)
+	assertRouteEnabled(t, store, route.RouteID, false)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, now)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, now)
+}
+
+func TestEnableRouteResetsLastCalculatedAtSoDisabledElapsedDoesNotTransfer(t *testing.T) {
+	last := testRouteNow()
+	enableAt := last.Add(10 * time.Hour)
+	settleAt := enableAt.Add(time.Hour)
+	route := validSettlementRoute(last)
+	route.Enabled = false
+	store := newRouteSettlementStore(
+		t,
+		route,
+		1_000,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 1_000}},
+		1_000,
+		nil,
+	)
+	enableService := newTestRouteSettlementService(t, store, enableAt, nil)
+
+	enableResult, err := enableService.EnableRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("EnableRoute() error = %v, want nil", err)
+	}
+	if !enableResult.Changed || !enableResult.Route.Enabled {
+		t.Fatalf("enable Changed/Enabled = %v/%v, want true/true", enableResult.Changed, enableResult.Route.Enabled)
+	}
+	assertRouteSettlementRouteTime(t, store, route.RouteID, enableAt)
+
+	settleService := newTestRouteSettlementService(t, store, settleAt, nil)
+	settleResult, err := settleService.SettleRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("SettleRoute() error = %v, want nil", err)
+	}
+	if settleResult.AddedAmount != 40 || settleResult.ElapsedApplied != time.Hour {
+		t.Fatalf("settlement added/applied = %d/%s, want 40/1h", settleResult.AddedAmount, settleResult.ElapsedApplied)
+	}
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 960, settleAt)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, settleAt)
+}
+
+func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
+	last := testRouteNow()
+	updateAt := last.Add(time.Hour)
+	settleAt := updateAt.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		1_000,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 1_000}},
+		1_000,
+		nil,
+	)
+	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
+	service := newTestRouteService(t, store, provider, updateAt)
+	input := validUpdateRouteInput()
+	input.AmountPerHour = 80
+
+	result, err := service.UpdateRoute(input)
+	if err != nil {
+		t.Fatalf("UpdateRoute() error = %v, want nil", err)
+	}
+	if !result.Updated {
+		t.Fatal("Updated = false, want true")
+	}
+	if result.Settlement.AddedAmount != 40 || result.Settlement.WantedAmount != 40 {
+		t.Fatalf("settlement wanted/added = %d/%d, want 40/40", result.Settlement.WantedAmount, result.Settlement.AddedAmount)
+	}
+	if result.Route.AmountPerHour != 80 || result.Route.EnergyCostPerHour != provider.policy.EnergyCostPerHour {
+		t.Fatalf("updated amount/energy = %d/%d, want 80/%d", result.Route.AmountPerHour, result.Route.EnergyCostPerHour, provider.policy.EnergyCostPerHour)
+	}
+	if result.Route.SourcePlanetID != route.SourcePlanetID || result.Route.OwnerPlayerID != route.OwnerPlayerID || !result.Route.CreatedAt.Equal(route.CreatedAt) {
+		t.Fatalf("source/owner/created changed: %+v, want source %q owner %q created %s", result.Route, route.SourcePlanetID, route.OwnerPlayerID, route.CreatedAt)
+	}
+	if provider.calls != 1 || provider.lastInput.SourcePlanetID != route.SourcePlanetID || provider.lastInput.AmountPerHour != 80 {
+		t.Fatalf("policy calls/input = %d/%+v, want one call with source %q amount 80", provider.calls, provider.lastInput, route.SourcePlanetID)
+	}
+	assertRouteSettlementRouteTime(t, store, route.RouteID, updateAt)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 960, updateAt)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, updateAt)
+
+	settleService := newTestRouteSettlementService(t, store, settleAt, nil)
+	settleResult, err := settleService.SettleRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("SettleRoute() error = %v, want nil", err)
+	}
+	if settleResult.AddedAmount != 80 || settleResult.WantedAmount != 80 {
+		t.Fatalf("post-update wanted/added = %d/%d, want 80/80", settleResult.WantedAmount, settleResult.AddedAmount)
+	}
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 880, settleAt)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 120, settleAt)
+}
+
+func TestUpdateRouteRejectsOwnerMismatchWithoutMutation(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
+	service := newTestRouteService(t, store, provider, now)
+	input := validUpdateRouteInput()
+	input.OwnerPlayerID = "player-2"
+	input.AmountPerHour = 80
+
+	_, err := service.UpdateRoute(input)
+	if !errors.Is(err, ErrRouteOwnerMismatch) {
+		t.Fatalf("UpdateRoute() error = %v, want ErrRouteOwnerMismatch", err)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("policy calls = %d, want 0", provider.calls)
+	}
+	assertRouteAmountAndTime(t, store, route.RouteID, 40, last)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
+}
+
+func TestUpdateRouteRejectsInvalidPolicyWithoutMutation(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	policy := noLossRoutePolicy()
+	policy.ResourceRouteable = false
+	provider := &fakeRoutePolicyProvider{policy: policy}
+	service := newTestRouteService(t, store, provider, now)
+	input := validUpdateRouteInput()
+	input.AmountPerHour = 80
+
+	_, err := service.UpdateRoute(input)
+	if !errors.Is(err, ErrRouteResourceNotRouteable) {
+		t.Fatalf("UpdateRoute() error = %v, want ErrRouteResourceNotRouteable", err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("policy calls = %d, want 1", provider.calls)
+	}
+	assertRouteAmountAndTime(t, store, route.RouteID, 40, last)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
+}
+
+func TestDisableRouteDuplicateIsIdempotent(t *testing.T) {
+	last := testRouteNow()
+	firstDisableAt := last.Add(time.Hour)
+	secondDisableAt := firstDisableAt.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+
+	firstService := newTestRouteSettlementService(t, store, firstDisableAt, nil)
+	first, err := firstService.DisableRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("DisableRoute(first) error = %v, want nil", err)
+	}
+	if !first.Changed || first.Settlement.AddedAmount != 40 {
+		t.Fatalf("first Changed/added = %v/%d, want true/40", first.Changed, first.Settlement.AddedAmount)
+	}
+
+	secondService := newTestRouteSettlementService(t, store, secondDisableAt, nil)
+	second, err := secondService.DisableRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("DisableRoute(second) error = %v, want nil", err)
+	}
+	if second.Changed {
+		t.Fatal("second Changed = true, want false")
+	}
+	assertRouteSettlementRouteTime(t, store, route.RouteID, firstDisableAt)
+	assertRouteEnabled(t, store, route.RouteID, false)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, firstDisableAt)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, firstDisableAt)
+}
+
+func TestUpdateRouteFutureTimestampSafe(t *testing.T) {
+	now := testRouteNow()
+	futureLast := now.Add(time.Hour)
+	route := validSettlementRoute(now)
+	route.LastCalculatedAt = futureLast
+	route.UpdatedAt = futureLast
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
+	service := newTestRouteService(t, store, provider, now)
+	input := validUpdateRouteInput()
+	input.AmountPerHour = 80
+
+	result, err := service.UpdateRoute(input)
+	if err != nil {
+		t.Fatalf("UpdateRoute() error = %v, want nil", err)
+	}
+	if !result.Settlement.NoOp || result.Settlement.ElapsedApplied != 0 {
+		t.Fatalf("settlement NoOp/applied = %v/%s, want true/0", result.Settlement.NoOp, result.Settlement.ElapsedApplied)
+	}
+	if result.Route.AmountPerHour != 80 {
+		t.Fatalf("AmountPerHour = %d, want 80", result.Route.AmountPerHour)
+	}
+	stored, ok, err := store.AutomationRoute(route.RouteID)
+	if err != nil || !ok {
+		t.Fatalf("AutomationRoute(%q) ok = %v err = %v, want true nil", route.RouteID, ok, err)
+	}
+	if !stored.LastCalculatedAt.Equal(futureLast) {
+		t.Fatalf("LastCalculatedAt = %s, want unchanged future %s", stored.LastCalculatedAt, futureLast)
+	}
+	if !stored.UpdatedAt.Equal(now) {
+		t.Fatalf("UpdatedAt = %s, want update time %s", stored.UpdatedAt, now)
+	}
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, futureLast)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, futureLast)
+}
+
 type fakeRoutePolicyProvider struct {
 	policy    RouteCreatePolicy
 	err       error
@@ -529,6 +793,19 @@ func validCreateRouteInput() CreateRouteInput {
 	}
 }
 
+func validUpdateRouteInput() UpdateRouteInput {
+	return UpdateRouteInput{
+		RouteID:       "route-1",
+		OwnerPlayerID: "player-1",
+		Destination: RouteDestination{
+			Type: RouteDestinationTypePlanet,
+			ID:   "planet-2",
+		},
+		ResourceItemID: "refined_alloy",
+		AmountPerHour:  40,
+	}
+}
+
 func validRoutePolicy() RouteCreatePolicy {
 	return RouteCreatePolicy{
 		SourcePlanetOwned:         true,
@@ -548,6 +825,21 @@ func validRoutePolicy() RouteCreatePolicy {
 		MaxLossPercent:            0.75,
 		EnergyCostPerHour:         12,
 	}
+}
+
+func noLossRoutePolicy() RouteCreatePolicy {
+	policy := validRoutePolicy()
+	policy.BaseLossChance = 0
+	policy.DistanceLossChancePerUnit = 0
+	policy.SourceRegionRisk = 0
+	policy.DestinationRegionRisk = 0
+	policy.DeepSpaceRisk = 0
+	policy.PlayerLossReduction = 0
+	policy.RouteSecurityReduction = 0
+	policy.MinLossPercent = 0
+	policy.MaxLossPercent = 0
+	policy.EnergyCostPerHour = 24
+	return policy
 }
 
 func validSettlementRoute(lastCalculatedAt time.Time) AutomationRoute {
@@ -571,6 +863,42 @@ func validSettlementRoute(lastCalculatedAt time.Time) AutomationRoute {
 		LastCalculatedAt: lastCalculatedAt,
 		CreatedAt:        lastCalculatedAt,
 		UpdatedAt:        lastCalculatedAt,
+	}
+}
+
+func assertRouteEnabled(
+	t *testing.T,
+	store *InMemoryStore,
+	routeID foundation.RouteID,
+	enabled bool,
+) {
+	t.Helper()
+	route, ok, err := store.AutomationRoute(routeID)
+	if err != nil || !ok {
+		t.Fatalf("AutomationRoute(%q) ok = %v err = %v, want true nil", routeID, ok, err)
+	}
+	if route.Enabled != enabled {
+		t.Fatalf("route Enabled = %v, want %v", route.Enabled, enabled)
+	}
+}
+
+func assertRouteAmountAndTime(
+	t *testing.T,
+	store *InMemoryStore,
+	routeID foundation.RouteID,
+	amountPerHour int64,
+	lastCalculatedAt time.Time,
+) {
+	t.Helper()
+	route, ok, err := store.AutomationRoute(routeID)
+	if err != nil || !ok {
+		t.Fatalf("AutomationRoute(%q) ok = %v err = %v, want true nil", routeID, ok, err)
+	}
+	if route.AmountPerHour != amountPerHour {
+		t.Fatalf("route AmountPerHour = %d, want %d", route.AmountPerHour, amountPerHour)
+	}
+	if !route.LastCalculatedAt.Equal(lastCalculatedAt) || !route.UpdatedAt.Equal(lastCalculatedAt) {
+		t.Fatalf("route timestamps = %s/%s, want %s", route.LastCalculatedAt, route.UpdatedAt, lastCalculatedAt)
 	}
 }
 
