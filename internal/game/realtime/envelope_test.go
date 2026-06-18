@@ -103,10 +103,18 @@ func TestDecodeRequestEnvelopeAcceptsCombatUseSkillOperation(t *testing.T) {
 }
 
 func TestOperationRegistryRejectsClientAuthoredQuestProgressOperations(t *testing.T) {
+	allowedQuestClientOperations := map[Operation]struct{}{
+		Operation("quest.accept"):       {},
+		Operation("quest.reroll"):       {},
+		Operation("quest.claim_reward"): {},
+	}
 	for operation := range OperationRegistry() {
 		op := string(operation)
-		if strings.HasPrefix(op, "quest.") && strings.Contains(op, "progress") {
-			t.Fatalf("registered client operation %q can directly mutate quest progress", op)
+		if !isQuestOperationName(op) {
+			continue
+		}
+		if _, ok := allowedQuestClientOperations[operation]; !ok {
+			t.Fatalf("registered quest client operation %q is not explicitly allowed; quest progress must come from server events", op)
 		}
 	}
 
@@ -114,6 +122,8 @@ func TestOperationRegistryRejectsClientAuthoredQuestProgressOperations(t *testin
 		Operation("quest.progress"),
 		Operation("quest.progress_objective"),
 		Operation("quest.set_progress"),
+		Operation("quest.complete_objective"),
+		Operation("quest_progress"),
 	}
 	for index, operation := range disallowed {
 		if _, ok := LookupOperation(operation); ok {
@@ -127,6 +137,10 @@ func TestOperationRegistryRejectsClientAuthoredQuestProgressOperations(t *testin
 		_, err := DecodeRequestEnvelope([]byte(body))
 		requireInvalidPayload(t, err)
 	}
+}
+
+func isQuestOperationName(op string) bool {
+	return op == "quest" || strings.HasPrefix(op, "quest.") || strings.HasPrefix(op, "quest_")
 }
 
 func TestEventEnvelopeMarshalsWithoutHiddenInternalFields(t *testing.T) {

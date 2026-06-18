@@ -125,7 +125,7 @@ Board rules:
 
 ## Abuse And Safety Checks
 
-- [x] Client cannot send quest progress directly. Verified 2026-06-18 by realtime operation registry rejection test `go test ./internal/game/realtime -run TestOperationRegistryRejectsClientAuthoredQuestProgressOperations -count=1`.
+- [x] Client cannot send quest progress directly. Verified 2026-06-18 by realtime quest-operation allowlist and progress-op rejection test `go test ./internal/game/realtime -run TestOperationRegistryRejectsClientAuthoredQuestProgressOperations -count=1`.
 - [x] Reward duplicate blocked by quest state and ledger reference. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
 - [x] Reroll rare farming has cost and cap hooks. Verified placeholder hooks 2026-06-17 by `GOCACHE=/private/tmp/task-0075-go-build go test ./internal/game/quests -count=1`.
 - [ ] Market quest wash-trade remains out of MVP.
