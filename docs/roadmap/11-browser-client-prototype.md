@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Not started
+- State: Prototype slice implemented; gateway-playable loop remains open
 - Owner: Browser-first client
 - Depends on: Phase 04 for debug client, Phase 05 for first playable client loop
 - Unlocks: user-facing playtesting and UI iteration
@@ -60,82 +60,82 @@ Do not start with a marketing landing page. The first screen should be the usabl
 
 ## TODO: Project Setup
 
-- [ ] Decide client workspace location.
-- [ ] Fetch current docs for selected frontend libraries with Context7.
-- [ ] Create minimal TypeScript app.
-- [ ] Add PixiJS canvas.
-- [ ] Add DOM panel layer.
-- [ ] Add WebSocket client.
-- [ ] Add protocol envelope types matching server.
-- [ ] Add local development scripts.
+- [x] Decide client workspace location.
+- [x] Fetch current docs for selected frontend libraries with Context7.
+- [x] Create minimal TypeScript app.
+- [x] Add PixiJS canvas.
+- [x] Add DOM panel layer.
+- [x] Add WebSocket client.
+- [x] Add protocol envelope types matching server.
+- [x] Add local development scripts.
 - [ ] Add lint/typecheck/test scripts.
 
 ## TODO: Rendering
 
-- [ ] Render decorative starfield.
-- [ ] Render local player ship.
-- [ ] Render visible NPCs.
-- [ ] Render visible loot.
-- [ ] Render visible planet signals or known intel markers.
-- [ ] Render AOI enter/leave changes.
-- [ ] Render server position corrections.
+- [x] Render decorative starfield.
+- [x] Render local player ship.
+- [x] Render visible NPCs.
+- [x] Render visible loot.
+- [x] Render visible planet signals or known intel markers.
+- [x] Render AOI enter/leave changes.
+- [x] Render server position corrections.
 - [ ] Interpolate remote entity movement.
-- [ ] Show local prediction only as visual smoothing.
+- [x] Show local prediction only as visual smoothing.
 
 ## TODO: Input And Commands
 
-- [ ] Send `move_to` intent on click.
-- [ ] Send `stop` intent.
+- [x] Send `move_to` intent on click.
+- [x] Send `stop` intent.
 - [ ] Send `combat.set_target` or attack intent.
 - [ ] Send `combat.use_skill` for basic skill.
 - [ ] Send `loot.pickup`.
 - [ ] Send scanner activation when available.
-- [ ] Include request ID for every command.
-- [ ] Do not include player ID as trusted payload.
-- [ ] Do not include client-calculated damage, XP, cooldown, or loot.
+- [x] Include request ID for every command.
+- [x] Do not include player ID as trusted payload.
+- [x] Do not include client-calculated damage, XP, cooldown, or loot.
 
 ## TODO: UI Panels
 
-- [ ] Player status panel.
-- [ ] HP/shield/energy display from server snapshot.
-- [ ] Cargo panel.
-- [ ] Target panel.
-- [ ] Combat log.
-- [ ] Quest board panel skeleton.
-- [ ] Inventory/loadout panel skeleton.
-- [ ] Planet intel/map memory panel skeleton.
-- [ ] Error toast using safe server error codes.
+- [x] Player status panel.
+- [x] HP/shield/energy display from server snapshot.
+- [x] Cargo panel.
+- [x] Target panel.
+- [x] Combat log.
+- [x] Quest board panel skeleton.
+- [x] Inventory/loadout panel skeleton.
+- [x] Planet intel/map memory panel skeleton.
+- [x] Error toast using safe server error codes.
 
 ## TODO: Reconciliation
 
-- [ ] Handle request response.
-- [ ] Handle server rejection and correction.
-- [ ] Handle periodic player snapshot.
-- [ ] Handle entity entered/updated/left.
+- [x] Handle request response.
+- [x] Handle server rejection and correction.
+- [x] Handle periodic player snapshot.
+- [x] Handle entity entered/updated/left.
 - [ ] Handle wallet/cargo/stat snapshot updates.
 - [ ] Handle reconnect snapshot request.
-- [ ] Treat server state as final.
+- [x] Treat server state as final.
 
 ## Tests And Verification
 
-- [ ] Typecheck passes.
-- [ ] Unit tests for protocol envelope parsing.
-- [ ] Unit tests for request ID generation.
-- [ ] Unit tests for state reducer handling entity enter/update/leave.
+- [x] Typecheck passes.
+- [x] Unit tests for protocol envelope parsing.
+- [x] Unit tests for request ID generation.
+- [x] Unit tests for state reducer handling entity enter/update/leave.
 - [ ] Browser smoke test connects to local server.
-- [ ] Browser screenshot verifies canvas is nonblank.
-- [ ] Browser test verifies no hidden debug data appears in client state.
-- [ ] Mobile viewport does not overlap HUD text.
-- [ ] Desktop viewport keeps canvas and panels readable.
+- [x] Browser screenshot verifies canvas is nonblank.
+- [x] Browser test verifies no hidden debug data appears in client state.
+- [x] Mobile viewport does not overlap HUD text.
+- [x] Desktop viewport keeps canvas and panels readable.
 
 ## Design Checks
 
-- [ ] The first screen is the actual playable view.
-- [ ] Controls are icon/tool appropriate, not explanatory text blocks.
-- [ ] Text does not overlap or overflow buttons/panels.
-- [ ] UI is compact and operational, not a landing-page hero.
-- [ ] Visual assets are used for the game world.
-- [ ] Debug labels can be toggled off.
+- [x] The first screen is the actual playable view.
+- [x] Controls are icon/tool appropriate, not explanatory text blocks.
+- [x] Text does not overlap or overflow buttons/panels.
+- [x] UI is compact and operational, not a landing-page hero.
+- [x] Visual assets are used for the game world.
+- [x] Debug labels can be toggled off.
 
 ## Asset Prep Notes
 
@@ -145,14 +145,26 @@ Do not start with a marketing landing page. The first screen should be the usabl
 - 2026-06-17: Mockup-aligned HUD SVG assets generated under
   `output/assets/hud-svg/` for later browser client integration.
 
+## Implementation Notes
+
+- 2026-06-18: Added `client/` as a Vite + TypeScript + PixiJS browser
+  prototype. The first screen is the actual client surface: PixiJS world canvas,
+  visible AOI entities, move-intent clicks, server-correction rendering, compact
+  HUD panels, safe WebSocket envelope parsing, and disabled controls for
+  commands not yet exposed by the backend gateway.
+- 2026-06-18: Current browser smoke runs against the local Vite dev server and
+  offline demo harness, not an authenticated game gateway. Real server-backed
+  movement, reconnect snapshot flow, combat, loot, scanner, wallet, and stat
+  snapshots remain follow-up work.
+
 ## Done Criteria
 
 - [ ] Client can connect to local server.
 - [ ] Player can move through server intent.
 - [ ] Player can fight and loot through server intent.
-- [ ] Client reconciles server snapshots.
-- [ ] Client never receives hidden gameplay data.
-- [ ] Tests and browser smoke check pass.
+- [x] Client reconciles server snapshots.
+- [x] Client never receives hidden gameplay data.
+- [x] Tests and browser smoke check pass.
 - [ ] `go test ./...` still passes for backend.
 - [ ] `git diff --check` passes.
 

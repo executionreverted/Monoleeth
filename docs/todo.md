@@ -11,6 +11,10 @@ for phase status; this file is a compact pending-work index.
 - [ ] Wire realtime gateway request handling to authenticated session and
   server-side player resolution before exposing Phase 04 worker commands over
   WebSocket. Source: `docs/roadmap/04-world-worker-aoi-fog-realtime.md`.
+- [ ] Replace the Phase 11 browser client's offline demo harness with an
+  authenticated WebSocket gateway flow, including reconnect snapshot request
+  and server-authoritative player resolution. Source:
+  `docs/roadmap/11-browser-client-prototype.md`.
 - [ ] Add in-flight duplicate coordination to `realtime.RequestCache` when the
   gateway executes mutating commands concurrently; the current cache only
   remembers completed responses.
@@ -105,6 +109,15 @@ for phase status; this file is a compact pending-work index.
   can only express scan/share/claim/use intents for the authenticated player;
   never accept client-authored coordinates, planet candidates, XP, X Core
   consumption, or scroll metadata.
+- [ ] Enable Phase 11 browser controls for combat, loot, scanner, wallet/cargo,
+  and stat snapshots only after authenticated gateway operations expose
+  server-authoritative commands and safe snapshot events. Current UI controls
+  remain disabled for `combat.set_target`, `combat.use_skill`, `loot.pickup`,
+  and `scan.pulse`. Source: `docs/roadmap/11-browser-client-prototype.md`.
+- [ ] Add a dedicated browser-client lint configuration after the Phase 11
+  prototype settles. Current client verification has TypeScript typecheck,
+  Vitest unit tests, Vite production build, and Playwright smoke coverage, but
+  no ESLint pass. Source: `docs/roadmap/11-browser-client-prototype.md`.
 - [ ] Wire the concrete runtime adapter from discovery
   `ClaimListedIntelStaleMarker` to market/intel listing indexes once coordinate
   scroll listings leave the local domain MVP. Phase 10 now exposes the claim

@@ -1,0 +1,61 @@
+import { CLIENT_EVENTS, EventEnvelope, JsonObject } from '../protocol/envelope';
+
+export function demoEvents(): EventEnvelope[] {
+  return [
+    event(CLIENT_EVENTS.entityEntered, {
+      entity_id: 'player-local',
+      entity_type: 'player',
+      position: { x: 0, y: 0 },
+      status_flags: ['local'],
+    }),
+    event(CLIENT_EVENTS.entityEntered, {
+      entity_id: 'npc-rake-01',
+      entity_type: 'npc_placeholder',
+      position: { x: 180, y: -72 },
+      status_flags: ['visible', 'hostile'],
+    }),
+    event(CLIENT_EVENTS.entityEntered, {
+      entity_id: 'loot-scrap-01',
+      entity_type: 'loot_placeholder',
+      position: { x: -110, y: 86 },
+      status_flags: ['visible'],
+    }),
+    event(CLIENT_EVENTS.entityEntered, {
+      entity_id: 'signal-eris-04',
+      entity_type: 'planet_signal_placeholder',
+      position: { x: 260, y: 150 },
+      status_flags: ['known_intel'],
+    }),
+    event(CLIENT_EVENTS.playerSnapshot, {
+      callsign: 'Frontier-01',
+      hp: 84,
+      shield: 61,
+      energy: 72,
+      max_hp: 100,
+      max_shield: 100,
+      max_energy: 100,
+      rank: 1,
+    }),
+  ];
+}
+
+export function correctionEvent(entityID: string, position: { x: number; y: number }): EventEnvelope {
+  return event(CLIENT_EVENTS.positionCorrected, {
+    entity_id: entityID,
+    position,
+  });
+}
+
+function event(type: string, payload: JsonObject): EventEnvelope {
+  demoSequence += 1;
+  return {
+    event_id: `demo-event-${demoSequence}`,
+    type,
+    payload,
+    server_time: Date.now(),
+    seq: demoSequence,
+    v: 1,
+  };
+}
+
+let demoSequence = 0;
