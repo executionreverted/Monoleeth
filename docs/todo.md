@@ -59,9 +59,6 @@ for phase status; this file is a compact pending-work index.
 - [ ] Enforce rare reward caps before enabling rare quest rewards such as X Core
   or premium rewards; Phase 07 currently stores rare-cap hooks as policy markers
   and leaves the actual cap check unchecked in the roadmap.
-- [ ] Make quest board queries expiry-aware before exposing them through
-  gateway/client APIs; `AcceptQuest` rejects expired offers, but `BoardOffers`
-  currently returns stored unaccepted offers without a clock-aware expiry filter.
 - [ ] Collapse or document the preferred quest objective schema shape before the
   quest API becomes public; `ObjectiveSchema` currently supports both
   `Objectives []Objective` and legacy single-objective fields.

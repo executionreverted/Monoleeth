@@ -71,7 +71,9 @@ func (store *InMemoryQuestStore) StoreGeneratedBoardOffers(offers []GeneratedBoa
 	return nil
 }
 
-// BoardOffers returns unaccepted board offers currently available for playerID.
+// BoardOffers returns raw unaccepted board offers currently stored for playerID.
+// Player-visible callers should use QuestService.BoardOffers or BoardOffersAt
+// so expired unaccepted offers are pruned using a server-owned clock.
 func (store *InMemoryQuestStore) BoardOffers(playerID foundation.PlayerID) ([]GeneratedBoardOffer, error) {
 	if err := playerID.Validate(); err != nil {
 		return nil, err
@@ -80,6 +82,27 @@ func (store *InMemoryQuestStore) BoardOffers(playerID foundation.PlayerID) ([]Ge
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
+	return store.boardOffersLocked(playerID), nil
+}
+
+// BoardOffersAt returns player-visible unaccepted board offers for playerID
+// after pruning offers whose expiry is not after now.
+func (store *InMemoryQuestStore) BoardOffersAt(playerID foundation.PlayerID, now time.Time) ([]GeneratedBoardOffer, error) {
+	if err := playerID.Validate(); err != nil {
+		return nil, err
+	}
+	if now.IsZero() {
+		return nil, fmt.Errorf("now: %w", ErrZeroQuestTime)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	store.expireOffersForPlayerLocked(playerID, now.UTC())
+	return store.boardOffersLocked(playerID), nil
+}
+
+func (store *InMemoryQuestStore) boardOffersLocked(playerID foundation.PlayerID) []GeneratedBoardOffer {
 	offers := make([]GeneratedBoardOffer, 0)
 	for key, offer := range store.offers {
 		if key.playerID != playerID || offer.AcceptedAt != nil {
@@ -93,7 +116,7 @@ func (store *InMemoryQuestStore) BoardOffers(playerID foundation.PlayerID) ([]Ge
 		}
 		return offers[i].OfferID < offers[j].OfferID
 	})
-	return offers, nil
+	return offers
 }
 
 // PlayerQuests returns accepted and later-state quests for playerID.
@@ -247,6 +270,20 @@ func (store *InMemoryQuestStore) expireUnacceptedOffersForPlayerLocked(playerID 
 			continue
 		}
 		delete(store.offers, key)
+	}
+}
+
+func (store *InMemoryQuestStore) expireOffersForPlayerLocked(playerID foundation.PlayerID, now time.Time) {
+	for key, offer := range store.offers {
+		if key.playerID != playerID || offer.AcceptedAt != nil {
+			continue
+		}
+		if _, accepted := store.acceptedByOffer[key]; accepted {
+			continue
+		}
+		if !offer.ExpiresAt.After(now) {
+			delete(store.offers, key)
+		}
 	}
 }
 

@@ -60,7 +60,7 @@ func TestAcceptQuestSucceedsFromGeneratedOffer(t *testing.T) {
 	if len(playerQuests) != 1 {
 		t.Fatalf("stored player quests len = %d, want 1", len(playerQuests))
 	}
-	availableOffers, err := fixture.store.BoardOffers(input.Player.PlayerID)
+	availableOffers, err := fixture.service.BoardOffers(input.Player.PlayerID)
 	if err != nil {
 		t.Fatalf("BoardOffers() = %v, want nil", err)
 	}
@@ -86,6 +86,91 @@ func TestAcceptQuestRejectsExpiredOffer(t *testing.T) {
 	})
 	if !errors.Is(err, ErrQuestOfferExpired) {
 		t.Fatalf("AcceptQuest() error = %v, want ErrQuestOfferExpired", err)
+	}
+	stored, err := fixture.store.BoardOffers(input.Player.PlayerID)
+	if err != nil {
+		t.Fatalf("BoardOffers() = %v, want nil", err)
+	}
+	if len(stored) != len(offers)-1 {
+		t.Fatalf("stored offers after expired accept = %d, want %d", len(stored), len(offers)-1)
+	}
+}
+
+func TestBoardOffersExpiresOldUnacceptedOffers(t *testing.T) {
+	fixture := newQuestServiceFixture(t, MustMVPQuestCatalog(), time.Date(2026, 6, 17, 23, 50, 0, 0, time.UTC))
+	input := validBoardGenerationInput(t, fixture.catalog)
+	offers, err := fixture.service.GenerateAndStoreBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateAndStoreBoard() = %v, want nil", err)
+	}
+
+	before, err := fixture.service.BoardOffers(input.Player.PlayerID)
+	if err != nil {
+		t.Fatalf("BoardOffers(before) = %v, want nil", err)
+	}
+	if len(before) != len(offers) {
+		t.Fatalf("board offers before expiry = %d, want %d", len(before), len(offers))
+	}
+
+	fixture.clock.Advance(NextQuestBoardExpiry(input.CreatedAt).Sub(fixture.clock.Now()))
+	after, err := fixture.service.BoardOffers(input.Player.PlayerID)
+	if err != nil {
+		t.Fatalf("BoardOffers(after) = %v, want nil", err)
+	}
+	if len(after) != 0 {
+		t.Fatalf("board offers after expiry = %d, want 0", len(after))
+	}
+
+	stored, err := fixture.store.BoardOffers(input.Player.PlayerID)
+	if err != nil {
+		t.Fatalf("raw BoardOffers() = %v, want nil", err)
+	}
+	if len(stored) != 0 {
+		t.Fatalf("stored unaccepted offers after expiry prune = %d, want 0", len(stored))
+	}
+}
+
+func TestBoardOfferExpiryPreservesAcceptedQuest(t *testing.T) {
+	fixture := newQuestServiceFixture(t, MustMVPQuestCatalog(), time.Date(2026, 6, 17, 23, 50, 0, 0, time.UTC))
+	input := validBoardGenerationInput(t, fixture.catalog)
+	offers, err := fixture.service.GenerateAndStoreBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateAndStoreBoard() = %v, want nil", err)
+	}
+	accepted, err := fixture.service.AcceptQuest(AcceptQuestInput{
+		Player:  input.Player,
+		OfferID: offers[0].OfferID,
+	})
+	if err != nil {
+		t.Fatalf("AcceptQuest() = %v, want nil", err)
+	}
+
+	fixture.clock.Advance(NextQuestBoardExpiry(input.CreatedAt).Sub(fixture.clock.Now()))
+	available, err := fixture.service.BoardOffers(input.Player.PlayerID)
+	if err != nil {
+		t.Fatalf("BoardOffers() = %v, want nil", err)
+	}
+	if len(available) != 0 {
+		t.Fatalf("available offers after expiry = %d, want 0", len(available))
+	}
+
+	playerQuests, err := fixture.store.PlayerQuests(input.Player.PlayerID)
+	if err != nil {
+		t.Fatalf("PlayerQuests() = %v, want nil", err)
+	}
+	if len(playerQuests) != 1 || playerQuests[0].PlayerQuestID != accepted.PlayerQuestID {
+		t.Fatalf("player quests after offer expiry = %#v, want accepted quest %q", playerQuests, accepted.PlayerQuestID)
+	}
+
+	duplicate, err := fixture.service.AcceptQuest(AcceptQuestInput{
+		Player:  input.Player,
+		OfferID: offers[0].OfferID,
+	})
+	if err != nil {
+		t.Fatalf("duplicate AcceptQuest() after expiry = %v, want nil", err)
+	}
+	if duplicate.PlayerQuestID != accepted.PlayerQuestID {
+		t.Fatalf("duplicate quest id = %q, want %q", duplicate.PlayerQuestID, accepted.PlayerQuestID)
 	}
 }
 

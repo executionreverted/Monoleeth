@@ -72,7 +72,7 @@ Board rules:
 - [x] Generate exactly 10 offers. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0071-go-build go test ./internal/game/quests -count=1`.
 - [x] Generate reward payload upfront. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0071-go-build go test ./internal/game/quests -count=1`.
 - [x] Store generated payload and reward payload. Verified 2026-06-17 by `go test ./internal/game/quests -count=1`.
-- [ ] Expire old offers.
+- [x] Expire old offers. Verified 2026-06-18 by clock-aware `QuestService.BoardOffers` pruning and expired accept cleanup tests with `go test ./internal/game/quests -count=1`.
 
 ## TODO: Accept, Progress, Claim
 

@@ -81,7 +81,7 @@ func TestRerollBoardInsufficientCreditsLeavesOffersUnchanged(t *testing.T) {
 	if _, err := fixture.service.GenerateAndStoreBoard(input); err != nil {
 		t.Fatalf("GenerateAndStoreBoard() = %v, want nil", err)
 	}
-	before, err := fixture.store.BoardOffers(input.Player.PlayerID)
+	before, err := fixture.service.BoardOffers(input.Player.PlayerID)
 	if err != nil {
 		t.Fatalf("BoardOffers(before) = %v, want nil", err)
 	}
@@ -90,7 +90,7 @@ func TestRerollBoardInsufficientCreditsLeavesOffersUnchanged(t *testing.T) {
 	if !errors.Is(err, economy.ErrInsufficientWalletFunds) {
 		t.Fatalf("RerollBoard() error = %v, want ErrInsufficientWalletFunds", err)
 	}
-	after, err := fixture.store.BoardOffers(input.Player.PlayerID)
+	after, err := fixture.service.BoardOffers(input.Player.PlayerID)
 	if err != nil {
 		t.Fatalf("BoardOffers(after) = %v, want nil", err)
 	}
@@ -116,7 +116,7 @@ func TestRerollBoardExpiresOldUnacceptedOffersAndStoresExactlyTen(t *testing.T) 
 	if err != nil {
 		t.Fatalf("RerollBoard() = %v, want nil", err)
 	}
-	current, err := fixture.store.BoardOffers(input.Player.PlayerID)
+	current, err := fixture.service.BoardOffers(input.Player.PlayerID)
 	if err != nil {
 		t.Fatalf("BoardOffers() = %v, want nil", err)
 	}
@@ -154,7 +154,7 @@ func TestRerollBoardPreservesAcceptedQuestAndGeneratedRewards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlayerQuests() = %v, want nil", err)
 	}
-	current, err := fixture.store.BoardOffers(input.Player.PlayerID)
+	current, err := fixture.service.BoardOffers(input.Player.PlayerID)
 	if err != nil {
 		t.Fatalf("BoardOffers() = %v, want nil", err)
 	}

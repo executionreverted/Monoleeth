@@ -112,6 +112,16 @@ func (service *QuestService) StoreGeneratedBoardOffers(offers []GeneratedBoardOf
 	return service.store.StoreGeneratedBoardOffers(offers)
 }
 
+// BoardOffers returns player-visible unaccepted offers and expires old
+// unaccepted rows using the service-owned clock.
+func (service *QuestService) BoardOffers(playerID foundation.PlayerID) ([]GeneratedBoardOffer, error) {
+	now := service.clock.Now().UTC()
+	if now.IsZero() {
+		return nil, fmt.Errorf("now: %w", ErrZeroQuestTime)
+	}
+	return service.store.BoardOffersAt(playerID, now)
+}
+
 // AcceptQuest accepts a stored offer into durable server-owned player quest
 // state. Repeated accepts of the same stored offer return the existing quest.
 func (service *QuestService) AcceptQuest(input AcceptQuestInput) (PlayerQuest, error) {
@@ -158,6 +168,7 @@ func (service *QuestService) acceptQuestLocked(input AcceptQuestInput, acceptedA
 		return quest, nil
 	}
 	if !offer.ExpiresAt.After(acceptedAt) {
+		delete(service.store.offers, key)
 		return PlayerQuest{}, fmt.Errorf("offer %q expired at %s: %w", offer.OfferID, offer.ExpiresAt, ErrQuestOfferExpired)
 	}
 
