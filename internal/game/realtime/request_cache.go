@@ -49,8 +49,9 @@ type requestCacheKey struct {
 }
 
 type requestCacheFlight struct {
-	done     chan struct{}
-	response CachedResponse
+	done       chan struct{}
+	response   CachedResponse
+	panicValue any
 }
 
 // NewRequestCache returns a bounded cache. Capacity less than one stores one item.
@@ -97,11 +98,25 @@ func (cache *RequestCache) GetOrRemember(sessionID SessionID, requestID foundati
 	if flight, ok := cache.inFlight[key]; ok {
 		cache.mu.Unlock()
 		<-flight.done
+		if flight.panicValue != nil {
+			panic(flight.panicValue)
+		}
 		return flight.response.clone(), true
 	}
 	flight := &requestCacheFlight{done: make(chan struct{})}
 	cache.inFlight[key] = flight
 	cache.mu.Unlock()
+
+	defer func() {
+		if panicValue := recover(); panicValue != nil {
+			cache.mu.Lock()
+			flight.panicValue = panicValue
+			delete(cache.inFlight, key)
+			close(flight.done)
+			cache.mu.Unlock()
+			panic(panicValue)
+		}
+	}()
 
 	response := build()
 

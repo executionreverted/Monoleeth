@@ -150,6 +150,90 @@ func TestRequestCacheCoordinatesInFlightDuplicateRequestID(t *testing.T) {
 	}
 }
 
+func TestRequestCacheReleasesInFlightDuplicateWhenBuildPanics(t *testing.T) {
+	cache := NewRequestCache(2)
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondStarted := make(chan struct{})
+	secondBuildCalled := make(chan struct{})
+	results := make(chan any, 2)
+	var builds int32
+
+	go func() {
+		defer func() { results <- recover() }()
+		_, _ = cache.GetOrRemember(
+			SessionID("session-1"),
+			foundation.RequestID("request-1"),
+			func() CachedResponse {
+				atomic.AddInt32(&builds, 1)
+				close(firstStarted)
+				<-releaseFirst
+				panic("handler panic")
+			},
+		)
+	}()
+
+	<-firstStarted
+	go func() {
+		defer func() { results <- recover() }()
+		close(secondStarted)
+		_, _ = cache.GetOrRemember(
+			SessionID("session-1"),
+			foundation.RequestID("request-1"),
+			func() CachedResponse {
+				close(secondBuildCalled)
+				atomic.AddInt32(&builds, 1)
+				return CachedSuccess(NewResponseEnvelope(
+					foundation.RequestID("request-1"),
+					json.RawMessage(`{"status":"different"}`),
+					200,
+				))
+			},
+		)
+	}()
+	<-secondStarted
+
+	select {
+	case <-secondBuildCalled:
+		t.Fatal("in-flight duplicate built its own response after first panic")
+	case result := <-results:
+		t.Fatalf("duplicate returned before first panic completed: %+v", result)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(releaseFirst)
+	firstPanic := <-results
+	secondPanic := <-results
+	if firstPanic != "handler panic" || secondPanic != "handler panic" {
+		t.Fatalf("panic results = %#v/%#v, want propagated handler panic", firstPanic, secondPanic)
+	}
+	if atomic.LoadInt32(&builds) != 1 {
+		t.Fatalf("builds after panic = %d, want 1", builds)
+	}
+
+	retry, duplicate := cache.GetOrRemember(
+		SessionID("session-1"),
+		foundation.RequestID("request-1"),
+		func() CachedResponse {
+			atomic.AddInt32(&builds, 1)
+			return CachedSuccess(NewResponseEnvelope(
+				foundation.RequestID("request-1"),
+				json.RawMessage(`{"status":"retry"}`),
+				300,
+			))
+		},
+	)
+	if duplicate {
+		t.Fatal("retry after panic reported duplicate")
+	}
+	if atomic.LoadInt32(&builds) != 2 {
+		t.Fatalf("builds after retry = %d, want 2", builds)
+	}
+	if got := string(retry.Response.Payload); got != `{"status":"retry"}` {
+		t.Fatalf("retry payload = %s, want retry response", got)
+	}
+}
+
 func TestRequestCacheKeysDuplicatesBySessionAndRequestID(t *testing.T) {
 	cache := NewRequestCache(2)
 	cache.Remember(
