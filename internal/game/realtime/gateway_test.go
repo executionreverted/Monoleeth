@@ -143,7 +143,7 @@ func TestGatewayRejectsMissingWorldOrZoneBeforeHandler(t *testing.T) {
 
 func TestGatewayRejectsResolverSessionMismatch(t *testing.T) {
 	gateway := newTestGateway(t, staticSessionResolver{
-		"session-1": {SessionID: "other-session", PlayerID: "player-1"},
+		"session-1": {SessionID: "other-session", PlayerID: "player-1", WorldID: "world-1", ZoneID: "zone-1"},
 	}, map[Operation]CommandHandler{
 		OperationDebugSnapshot: func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
 			return json.RawMessage(`{"snapshot":1}`), nil
