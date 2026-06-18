@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -98,6 +99,33 @@ func TestDecodeRequestEnvelopeAcceptsCombatUseSkillOperation(t *testing.T) {
 	}
 	if envelope.Op != OperationCombatUseSkill {
 		t.Fatalf("op = %q, want %q", envelope.Op, OperationCombatUseSkill)
+	}
+}
+
+func TestOperationRegistryRejectsClientAuthoredQuestProgressOperations(t *testing.T) {
+	for operation := range OperationRegistry() {
+		op := string(operation)
+		if strings.HasPrefix(op, "quest.") && strings.Contains(op, "progress") {
+			t.Fatalf("registered client operation %q can directly mutate quest progress", op)
+		}
+	}
+
+	disallowed := []Operation{
+		Operation("quest.progress"),
+		Operation("quest.progress_objective"),
+		Operation("quest.set_progress"),
+	}
+	for index, operation := range disallowed {
+		if _, ok := LookupOperation(operation); ok {
+			t.Fatalf("operation %q is registered, want rejected", operation)
+		}
+		body := fmt.Sprintf(
+			`{"request_id":"request-quest-progress-%d","op":%q,"payload":{"player_id":"player-1","quest_id":"quest-1","progress":{"current":999,"completed":true}},"client_seq":7,"v":1}`,
+			index,
+			operation,
+		)
+		_, err := DecodeRequestEnvelope([]byte(body))
+		requireInvalidPayload(t, err)
 	}
 }
 
