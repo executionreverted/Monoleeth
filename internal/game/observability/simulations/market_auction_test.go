@@ -23,6 +23,9 @@ func TestMarketBuyCancelRaceSimulationConservesItems(t *testing.T) {
 	if summary.BuySuccesses+summary.CancelSuccesses != 20 {
 		t.Fatalf("buy+cancel successes = %d+%d, want 20", summary.BuySuccesses, summary.CancelSuccesses)
 	}
+	if summary.BuySuccesses == 0 || summary.CancelSuccesses == 0 {
+		t.Fatalf("buy/cancel successes = %d/%d, want both paths exercised", summary.BuySuccesses, summary.CancelSuccesses)
+	}
 	if summary.ListingNotActiveFailures != 20 {
 		t.Fatalf("ListingNotActiveFailures = %d, want one loser per race", summary.ListingNotActiveFailures)
 	}

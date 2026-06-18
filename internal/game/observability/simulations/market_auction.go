@@ -72,6 +72,9 @@ func RunMarketBuyCancelRaceSimulation(config MarketBuyCancelRaceConfig) (MarketB
 	if err != nil {
 		return MarketBuyCancelRaceSummary{}, err
 	}
+	if normalized.races < 2 {
+		normalized.races = 2
+	}
 
 	clock := &simulationClock{now: normalized.startTime}
 	inventory := economy.NewInventoryService(clock)
@@ -127,7 +130,16 @@ func RunMarketBuyCancelRaceSimulation(config MarketBuyCancelRaceConfig) (MarketB
 		}
 		escrowLocations = append(escrowLocations, create.Listing.EscrowLocation)
 
-		outcomes := runMarketBuyCancelRace(service, buyerID, sellerID, listingID, foundation.RequestID(fmt.Sprintf("simulation_market_buy_%d", index+1)))
+		requestID := foundation.RequestID(fmt.Sprintf("simulation_market_buy_%d", index+1))
+		var outcomes []raceOutcome
+		switch index {
+		case 0:
+			outcomes = runMarketBuyCancelOrdered(service, buyerID, sellerID, listingID, requestID, true)
+		case 1:
+			outcomes = runMarketBuyCancelOrdered(service, buyerID, sellerID, listingID, requestID, false)
+		default:
+			outcomes = runMarketBuyCancelRace(service, buyerID, sellerID, listingID, requestID)
+		}
 		raceSuccesses := 0
 		raceListingFailures := 0
 		for _, outcome := range outcomes {
@@ -167,7 +179,9 @@ func RunMarketBuyCancelRaceSimulation(config MarketBuyCancelRaceConfig) (MarketB
 		summary.EscrowQuantity != 0 ||
 		summary.BuyerBalance != expectedBuyerBalance ||
 		summary.SellerBalance != expectedSellerBalance ||
-		summary.SystemFeeBalance != expectedFeeBalance {
+		summary.SystemFeeBalance != expectedFeeBalance ||
+		summary.BuySuccesses == 0 ||
+		summary.CancelSuccesses == 0 {
 		return MarketBuyCancelRaceSummary{}, fmt.Errorf("market race summary %+v: %w", summary, ErrInvalidSimulationConfig)
 	}
 	return summary, nil
@@ -207,7 +221,7 @@ func RunAuctionBidBuyNowRaceSimulation(config AuctionBidBuyNowRaceConfig) (Aucti
 	for index := 0; index < normalized.races; index++ {
 		auctionID := foundation.AuctionID(fmt.Sprintf("simulation_auction_%d", index+1))
 		buyNowPrice := simulationAuctionBuyNow
-		payload, err := simulationAuctionPayload()
+		payload, err := simulationAuctionPayload(auctionID)
 		if err != nil {
 			return AuctionBidBuyNowRaceSummary{}, err
 		}
@@ -329,23 +343,56 @@ func runMarketBuyCancelRace(
 	requestID foundation.RequestID,
 ) []raceOutcome {
 	return runTwoOperationRace(
-		func() raceOutcome {
-			_, err := service.BuyListing(market.BuyListingInput{
-				BuyerPlayerID: buyerID,
-				ListingID:     listingID,
-				Quantity:      1,
-				RequestID:     requestID,
-			})
-			return raceOutcome{operation: "buy", err: err}
-		},
-		func() raceOutcome {
-			_, err := service.CancelListing(market.CancelListingInput{
-				SellerPlayerID: sellerID,
-				ListingID:      listingID,
-			})
-			return raceOutcome{operation: "cancel", err: err}
-		},
+		marketBuyOperation(service, buyerID, listingID, requestID),
+		marketCancelOperation(service, sellerID, listingID),
 	)
+}
+
+func runMarketBuyCancelOrdered(
+	service *market.MarketService,
+	buyerID foundation.PlayerID,
+	sellerID foundation.PlayerID,
+	listingID foundation.ListingID,
+	requestID foundation.RequestID,
+	buyFirst bool,
+) []raceOutcome {
+	buy := marketBuyOperation(service, buyerID, listingID, requestID)
+	cancel := marketCancelOperation(service, sellerID, listingID)
+	if buyFirst {
+		return []raceOutcome{buy(), cancel()}
+	}
+	return []raceOutcome{cancel(), buy()}
+}
+
+func marketBuyOperation(
+	service *market.MarketService,
+	buyerID foundation.PlayerID,
+	listingID foundation.ListingID,
+	requestID foundation.RequestID,
+) func() raceOutcome {
+	return func() raceOutcome {
+		_, err := service.BuyListing(market.BuyListingInput{
+			BuyerPlayerID: buyerID,
+			ListingID:     listingID,
+			Quantity:      1,
+			RequestID:     requestID,
+		})
+		return raceOutcome{operation: "buy", err: err}
+	}
+}
+
+func marketCancelOperation(
+	service *market.MarketService,
+	sellerID foundation.PlayerID,
+	listingID foundation.ListingID,
+) func() raceOutcome {
+	return func() raceOutcome {
+		_, err := service.CancelListing(market.CancelListingInput{
+			SellerPlayerID: sellerID,
+			ListingID:      listingID,
+		})
+		return raceOutcome{operation: "cancel", err: err}
+	}
 }
 
 func runAuctionBidBuyNowRace(
@@ -465,8 +512,8 @@ func seedSimulationCredits(wallet *economy.WalletService, playerID foundation.Pl
 	return err
 }
 
-func simulationAuctionPayload() (auction.LotPayload, error) {
-	source, err := catalog.NewAuctionLotSource("simulation_auction_unlock", "v1")
+func simulationAuctionPayload(auctionID foundation.AuctionID) (auction.LotPayload, error) {
+	source, err := catalog.NewAuctionLotSource(auctionID.String()+"_unlock", "v1")
 	if err != nil {
 		return auction.LotPayload{}, err
 	}
