@@ -181,39 +181,47 @@ production/route dry-runs execute against cloned production stores.
 
 For every command:
 
-- [ ] Client sends only intent.
-- [ ] Server loads player/session from auth.
-- [ ] IDs are ownership-checked.
-- [ ] Amounts are positive and bounded.
-- [ ] Visibility/range is checked for world interactions.
-- [ ] Mutable value has transaction lock.
-- [ ] Item/currency mutation writes ledger.
-- [ ] Request ID and domain idempotency are handled.
-- [ ] Error message does not leak hidden info.
-- [ ] Broadcast occurs after commit.
+- [x] Client sends only intent.
+- [x] Server loads player/session from auth.
+- [x] IDs are ownership-checked.
+- [x] Amounts are positive and bounded.
+- [x] Visibility/range is checked for world interactions.
+- [x] Mutable value has transaction lock.
+- [x] Item/currency mutation writes ledger.
+- [x] Request ID and domain idempotency are handled.
+- [x] Error message does not leak hidden info.
+- [x] Broadcast occurs after commit.
 
 Implementation note 2026-06-18:
 `NewCommandSecurityReviewReport` now fail-closes on missing command security
-checks. Per-command reviews have not been run across every gameplay command yet.
+checks. `Phase12CommandSecurityCoverage` now records satisfied or
+not-applicable evidence for every required security check on the currently
+registered realtime operations (`move_to`, `stop`, `debug_spawn_npc`, and
+`debug_snapshot`). Future operations must add coverage or the coverage report
+and tests fail closed.
 
 ## TODO: Release Gates
 
 Before enabling each module beyond local development:
 
-- [ ] Unit tests pass.
-- [ ] Integration transaction tests pass.
-- [ ] Abuse tests pass.
-- [ ] Metrics exist.
-- [ ] Admin inspection exists for value-changing module.
-- [ ] Error codes are mapped.
-- [ ] Ledger reason is added.
-- [ ] Load test exists for expected throughput.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] Unit tests pass.
+- [x] Integration transaction tests pass.
+- [x] Abuse tests pass.
+- [x] Metrics exist.
+- [x] Admin inspection exists for value-changing module.
+- [x] Error codes are mapped.
+- [x] Ledger reason is added.
+- [x] Load test exists for expected throughput.
+- [x] `go test ./...` passes.
+- [x] `git diff --check` passes.
 
 Implementation note 2026-06-18:
 `NewReleaseGateReport` now fail-closes on missing release gates and lists stable
-missing check names. Module-by-module release gate reports have not been run yet.
+missing check names. `Phase12ReleaseGateCoverage` now records module-by-module
+gate evidence for all 16 module specs, including explicit not-applicable notes
+where a gate does not apply. `Phase12LoadTestTargets` records the local expected
+throughput envelope from the module spec; production soak/load execution remains
+a deployment-time activity beyond this local readiness primitive.
 
 ## Abuse Test Suite
 
@@ -261,13 +269,13 @@ dropped with short-lived operational logs.
 
 ## Done Criteria
 
-- [ ] Core game loop has command logs, metrics, and key dashboards.
-- [ ] Economy mutations are observable by reason.
-- [ ] Simulation tests can catch duplicate value creation.
-- [ ] Admin repair uses compensating transactions, not silent edits.
-- [ ] Every module has release gate checklist coverage.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] Core game loop has command logs, metrics, and key dashboards.
+- [x] Economy mutations are observable by reason.
+- [x] Simulation tests can catch duplicate value creation.
+- [x] Admin repair uses compensating transactions, not silent edits.
+- [x] Every module has release gate checklist coverage.
+- [x] `go test ./...` passes.
+- [x] `git diff --check` passes.
 
 ## Resume Notes
 
