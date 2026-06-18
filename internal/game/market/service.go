@@ -20,7 +20,8 @@ const (
 	marketCancelReason  economy.LedgerReason = "market_cancel"
 	marketExpireReason  economy.LedgerReason = "market_expire"
 
-	defaultSystemFeePlayerID foundation.PlayerID = "market-fee-sink"
+	defaultSystemFeePlayerID             foundation.PlayerID = "market-fee-sink"
+	defaultHighValueSaleThresholdCredits int64               = 100
 )
 
 // InventoryService is the economy inventory boundary used by market escrow.
@@ -86,7 +87,11 @@ func NewMarketService(config MarketServiceConfig) (*MarketService, error) {
 	if err := feePolicy.validate(); err != nil {
 		return nil, err
 	}
-	if err := config.SuspiciousPolicy.validate(); err != nil {
+	suspiciousPolicy := config.SuspiciousPolicy
+	if suspiciousPolicy.HighValueSaleThreshold == 0 {
+		suspiciousPolicy = DefaultSuspiciousTradePolicy()
+	}
+	if err := suspiciousPolicy.validate(); err != nil {
 		return nil, err
 	}
 	systemFeePlayerID := config.SystemFeePlayerID
@@ -102,7 +107,7 @@ func NewMarketService(config MarketServiceConfig) (*MarketService, error) {
 		inventory:         config.Inventory,
 		wallet:            config.Wallet,
 		feePolicy:         feePolicy,
-		suspiciousPolicy:  config.SuspiciousPolicy,
+		suspiciousPolicy:  suspiciousPolicy,
 		systemFeePlayerID: systemFeePlayerID,
 		listings:          make(map[foundation.ListingID]Listing),
 		buyResults:        make(map[foundation.IdempotencyKey]BuyListingResult),

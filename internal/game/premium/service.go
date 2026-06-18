@@ -201,7 +201,8 @@ func (service *PremiumEntitlementService) CreateEntitlement(input CreateEntitlem
 }
 
 // ClaimEntitlement grants a pending entitlement once. Retries with the same
-// entitlement/player/request reference return the original claim result.
+// entitlement/player/request reference return the original claim result with the
+// current entitlement state.
 func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlementInput) (ClaimEntitlementResult, error) {
 	if err := input.EntitlementID.Validate(); err != nil {
 		return ClaimEntitlementResult{}, err
@@ -221,18 +222,18 @@ func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlemen
 		playerID:      input.PlayerID,
 		reference:     input.RequestReference,
 	}
-	if previous, ok := service.claimResults[claimKey]; ok {
-		result := cloneClaimEntitlementResult(previous)
-		result.Duplicate = true
-		return result, nil
-	}
-
 	entitlement, ok := service.entitlements[input.EntitlementID]
 	if !ok {
 		return ClaimEntitlementResult{}, ErrEntitlementNotFound
 	}
 	if entitlement.PlayerID != input.PlayerID {
 		return ClaimEntitlementResult{}, ErrEntitlementWrongPlayer
+	}
+	if previous, ok := service.claimResults[claimKey]; ok {
+		result := cloneClaimEntitlementResult(previous)
+		result.Entitlement = entitlement
+		result.Duplicate = true
+		return result, nil
 	}
 	if entitlement.State == EntitlementStateClaimed {
 		return ClaimEntitlementResult{}, ErrEntitlementAlreadyClaimed

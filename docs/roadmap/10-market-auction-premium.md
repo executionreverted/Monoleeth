@@ -3,9 +3,9 @@
 ## Status
 
 - State: MVP complete - fixed-price market, auction, premium entitlement/
-  weekly-stock, policy, fraud-review, and stale-listing hooks implemented
-  2026-06-18; durable adapters and wallet-currency listing runtime wiring are
-  tracked as follow-ups
+  weekly-stock, policy, fraud-review, and stale-listing domain hooks implemented
+  2026-06-18; durable adapters, wallet-currency listing runtime wiring, and the
+  concrete planet-claim-to-market listing adapter are tracked as follow-ups
 - Owner: Player economy and monetization safety
 - Depends on: Phase 02, Phase 03, Phase 06, Phase 08
 - Unlocks: player trading, controlled rare supply, premium convenience
@@ -170,7 +170,7 @@ lists items only.
 - [x] Weekly stock concurrent purchase cannot go negative.
 - [x] Entitlement webhook replay is idempotent.
 - [x] Weekly X Core limit enforced.
-- [x] Planet claimed marks listed intel stale.
+- [x] Planet claim invokes configured listed-intel stale marker.
 
 ## Abuse And Safety Checks
 

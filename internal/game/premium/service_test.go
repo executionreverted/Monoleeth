@@ -412,6 +412,20 @@ func TestApplyProviderRiskLockRevokesEntitlementAndReplaysByReference(t *testing
 	if len(entitlements) != 1 || entitlements[0].State != EntitlementStateRevoked {
 		t.Fatalf("entitlements = %+v, want one revoked entitlement", entitlements)
 	}
+	replayedClaim, err := service.ClaimEntitlement(ClaimEntitlementInput{
+		EntitlementID:    input.EntitlementID,
+		PlayerID:         input.PlayerID,
+		RequestReference: "claim-risk",
+	})
+	if err != nil {
+		t.Fatalf("replayed ClaimEntitlement() error = %v, want nil", err)
+	}
+	if !replayedClaim.Duplicate {
+		t.Fatal("replayed claim Duplicate = false, want true")
+	}
+	if replayedClaim.Entitlement.State != EntitlementStateRevoked {
+		t.Fatalf("replayed claim state = %q, want revoked", replayedClaim.Entitlement.State)
+	}
 }
 
 func newTestPremiumService(t *testing.T) (*PremiumEntitlementService, *economy.WalletService, *testutil.FakeClock) {

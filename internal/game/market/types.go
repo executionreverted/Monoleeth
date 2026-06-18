@@ -209,6 +209,11 @@ func DefaultFeePolicy() FeePolicy {
 	return FeePolicy{SaleFeeBasisPoints: 500}
 }
 
+// DefaultSuspiciousTradePolicy returns the MVP market fraud-review policy.
+func DefaultSuspiciousTradePolicy() SuspiciousTradePolicy {
+	return SuspiciousTradePolicy{HighValueSaleThreshold: defaultHighValueSaleThresholdCredits}
+}
+
 func cloneListing(listing Listing) Listing {
 	listing.ItemDefinition = cloneItemDefinition(listing.ItemDefinition)
 	if listing.ExpiresAt != nil {

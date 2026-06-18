@@ -215,7 +215,6 @@ func TestBuyListingTransfersItemsCurrencyAndRecordsTotals(t *testing.T) {
 
 func TestBuyListingHighValueSaleRecordsSuspiciousTradeLog(t *testing.T) {
 	fixture := newMarketFixture(t)
-	fixture.service.suspiciousPolicy = SuspiciousTradePolicy{HighValueSaleThreshold: 100}
 	fixture.seedSellerItems(t, 10, "seed-suspicious")
 	fixture.seedCredits(t, fixture.buyerID, 1_000, "buyer-suspicious")
 	create := fixture.createListing(t, "listing-suspicious", 5, 50)
