@@ -18,6 +18,9 @@ import (
 const (
 	ReasonAdminCompensation  economy.LedgerReason = "admin_compensation"
 	ReasonAdminAuctionRefund economy.LedgerReason = "admin_auction_refund"
+
+	auctionBidLedgerReason    economy.LedgerReason = "auction_bid"
+	auctionRefundLedgerReason economy.LedgerReason = "auction_refund"
 )
 
 var (
@@ -31,6 +34,7 @@ var (
 	ErrUnsupportedLedgerAction       = errors.New("unsupported admin ledger action")
 	ErrItemDefinitionMismatch        = errors.New("admin item definition mismatch")
 	ErrAuctionBidLedgerMismatch      = errors.New("auction bid ledger mismatch")
+	ErrAuctionBidAlreadyRefunded     = errors.New("auction bid already refunded")
 	ErrUnsafeActiveAuctionBidRefund  = errors.New("unsafe active auction bid refund")
 	ErrUnsafeWinningAuctionBidRefund = errors.New("unsafe winning auction bid refund")
 	ErrMarketListingTerminal         = errors.New("market listing terminal")
@@ -448,7 +452,10 @@ func (service *Service) RefundAuctionBid(input RefundAuctionBidInput) (RefundAuc
 	if err := validateAuctionBidLedger(input.AuctionID, input.BidLedgerEntry); err != nil {
 		return RefundAuctionBidResult{}, err
 	}
-	referenceKey, err := adminCompensationReference("auction-"+input.BidLedgerEntry.LedgerID.String(), input.RepairReference)
+	if err := validateRepairReason(input.RepairReference); err != nil {
+		return RefundAuctionBidResult{}, err
+	}
+	referenceKey, err := auctionAdminRefundReference(input.BidLedgerEntry.LedgerID)
 	if err != nil {
 		return RefundAuctionBidResult{}, err
 	}
@@ -465,6 +472,9 @@ func (service *Service) RefundAuctionBid(input RefundAuctionBidInput) (RefundAuc
 	}
 	if loaded.Status == auction.LotStatusClosed && loaded.WinningPlayerID == input.BidLedgerEntry.PlayerID {
 		return RefundAuctionBidResult{}, ErrUnsafeWinningAuctionBidRefund
+	}
+	if auctionBidAlreadyRefunded(service.wallet.CurrencyLedgerEntries(), input.AuctionID, input.BidLedgerEntry, referenceKey) {
+		return RefundAuctionBidResult{}, ErrAuctionBidAlreadyRefunded
 	}
 
 	credit, err := service.wallet.CreditWallet(economy.CreditWalletInput{
@@ -548,6 +558,13 @@ func adminCompensationReference(subjectID string, repairReference string) (found
 	return foundation.AdminCompensationIdempotencyKey(subjectID, strings.TrimSpace(repairReference))
 }
 
+func auctionAdminRefundReference(ledgerID economy.LedgerID) (foundation.IdempotencyKey, error) {
+	if err := ledgerID.Validate(); err != nil {
+		return "", err
+	}
+	return foundation.AdminCompensationIdempotencyKey("auction-"+ledgerID.String(), "refund")
+}
+
 func validateRepairReason(value string) error {
 	if strings.TrimSpace(value) == "" {
 		return ErrMissingRepairReference
@@ -556,7 +573,7 @@ func validateRepairReason(value string) error {
 }
 
 func validateAuctionBidLedger(auctionID foundation.AuctionID, entry economy.CurrencyLedgerEntry) error {
-	if entry.Action != economy.LedgerActionDecrease || entry.Reason != "auction_bid" {
+	if entry.Action != economy.LedgerActionDecrease || entry.Reason != auctionBidLedgerReason {
 		return fmt.Errorf("ledger %q action %q reason %q: %w", entry.LedgerID, entry.Action, entry.Reason, ErrAuctionBidLedgerMismatch)
 	}
 	expectedPrefix := "auction_bid:" + auctionID.String() + ":" + entry.PlayerID.String() + ":"
@@ -564,6 +581,49 @@ func validateAuctionBidLedger(auctionID foundation.AuctionID, entry economy.Curr
 		return fmt.Errorf("ledger %q reference %q: %w", entry.LedgerID, entry.ReferenceKey, ErrAuctionBidLedgerMismatch)
 	}
 	return nil
+}
+
+func auctionBidAlreadyRefunded(
+	entries []economy.CurrencyLedgerEntry,
+	auctionID foundation.AuctionID,
+	bidEntry economy.CurrencyLedgerEntry,
+	adminReferenceKey foundation.IdempotencyKey,
+) bool {
+	for _, entry := range entries {
+		if entry.PlayerID != bidEntry.PlayerID ||
+			entry.Currency != bidEntry.Currency ||
+			entry.Action != economy.LedgerActionIncrease ||
+			entry.Amount.Int64() != bidEntry.Amount.Int64() {
+			continue
+		}
+		if entry.Reason == auctionRefundLedgerReason && hasAuctionRefundReference(entry.ReferenceKey, auctionID, bidEntry.PlayerID) {
+			return true
+		}
+		if entry.Reason == ReasonAdminAuctionRefund &&
+			entry.ReferenceKey != adminReferenceKey &&
+			hasAdminAuctionRefundReference(entry.ReferenceKey, bidEntry.LedgerID) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAuctionRefundReference(key foundation.IdempotencyKey, auctionID foundation.AuctionID, playerID foundation.PlayerID) bool {
+	prefixes := []string{
+		"auction_refund:" + auctionID.String() + ":" + playerID.String() + ":",
+		"auction_buy_now_refund:" + auctionID.String() + ":" + playerID.String() + ":",
+	}
+	value := key.String()
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAdminAuctionRefundReference(key foundation.IdempotencyKey, ledgerID economy.LedgerID) bool {
+	return strings.HasPrefix(key.String(), "admin_compensation:auction-"+ledgerID.String()+":")
 }
 
 func sortStackableItems(items []economy.StackableItem) {

@@ -233,13 +233,38 @@ func TestAdminRefundsAuctionBidThroughLedgerAndBlocksActiveCurrentBid(t *testing
 		t.Fatalf("RefundAuctionBid(missing auction) error = %v, want ErrMissingAuctionService", err)
 	}
 
-	creditWallet(t, wallet, "bidder-2", economy.CurrencyBucketCredits, 500, "stale-bidder-seed")
-	staleBidKey, err := foundation.AuctionBidIdempotencyKey(lot.AuctionID, "bidder-2", "request-stale")
+	creditWallet(t, wallet, "bidder-2", economy.CurrencyBucketCredits, 500, "outbidder-seed")
+	_, err = auctionService.PlaceBid(auction.PlaceBidInput{
+		AuctionID:      lot.AuctionID,
+		BidderPlayerID: "bidder-2",
+		Amount:         150,
+		RequestID:      "request-2",
+	})
+	if err != nil {
+		t.Fatalf("PlaceBid(outbidder) error = %v", err)
+	}
+	if got := wallet.Balance("bidder-1", economy.CurrencyBucketCredits); got != 500 {
+		t.Fatalf("outbid bidder balance = %d, want normal refund to restore 500", got)
+	}
+	_, err = service.RefundAuctionBid(admin.RefundAuctionBidInput{
+		AuctionID:       lot.AuctionID,
+		BidLedgerEntry:  bid.BidderDebit.LedgerEntry,
+		RepairReference: "ticket-already-refunded",
+	})
+	if !errors.Is(err, admin.ErrAuctionBidAlreadyRefunded) {
+		t.Fatalf("RefundAuctionBid(already refunded) error = %v, want ErrAuctionBidAlreadyRefunded", err)
+	}
+	if got := wallet.Balance("bidder-1", economy.CurrencyBucketCredits); got != 500 {
+		t.Fatalf("already-refunded bidder balance = %d, want 500", got)
+	}
+
+	creditWallet(t, wallet, "bidder-3", economy.CurrencyBucketCredits, 500, "stale-bidder-seed")
+	staleBidKey, err := foundation.AuctionBidIdempotencyKey(lot.AuctionID, "bidder-3", "request-stale")
 	if err != nil {
 		t.Fatalf("AuctionBidIdempotencyKey() error = %v", err)
 	}
 	staleBid, err := wallet.DebitWallet(economy.DebitWalletInput{
-		PlayerID:     "bidder-2",
+		PlayerID:     "bidder-3",
 		Currency:     economy.CurrencyBucketCredits,
 		Amount:       80,
 		Reason:       "auction_bid",
@@ -260,8 +285,22 @@ func TestAdminRefundsAuctionBidThroughLedgerAndBlocksActiveCurrentBid(t *testing
 	if refund.Credit.LedgerEntry.Reason != admin.ReasonAdminAuctionRefund {
 		t.Fatalf("refund reason = %q, want admin auction refund", refund.Credit.LedgerEntry.Reason)
 	}
-	if got := wallet.Balance("bidder-2", economy.CurrencyBucketCredits); got != 500 {
+	if got := wallet.Balance("bidder-3", economy.CurrencyBucketCredits); got != 500 {
 		t.Fatalf("bidder balance = %d, want restored 500", got)
+	}
+	duplicateRefund, err := service.RefundAuctionBid(admin.RefundAuctionBidInput{
+		AuctionID:       lot.AuctionID,
+		BidLedgerEntry:  staleBid.LedgerEntry,
+		RepairReference: "ticket-refund-second-operator",
+	})
+	if err != nil {
+		t.Fatalf("RefundAuctionBid(duplicate admin refund) error = %v", err)
+	}
+	if !duplicateRefund.Credit.Duplicate {
+		t.Fatalf("duplicate refund = %+v, want duplicate credit", duplicateRefund.Credit)
+	}
+	if got := wallet.Balance("bidder-3", economy.CurrencyBucketCredits); got != 500 {
+		t.Fatalf("bidder balance after duplicate = %d, want 500", got)
 	}
 }
 
