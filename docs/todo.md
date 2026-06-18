@@ -135,7 +135,8 @@ for phase status; this file is a compact pending-work index.
   wallet/item/listing transaction or outbox-backed recovery path before moving
   market storage out of process. Current `MarketService` prevalidates and holds
   its service lock across wallet and escrow calls, but it is not a persistent
-  rollback boundary.
+  rollback boundary; Symphony review `local-0103` flagged injected downstream
+  wallet or inventory failure after debit as the concrete risk to cover.
 - [ ] Formalize the Phase 10 market fee sink account in durable wallet
   provisioning and audit reports. The MVP credits the explicit service-owned
   `market-fee-sink` player id.
@@ -143,7 +144,8 @@ for phase status; this file is a compact pending-work index.
   a durable wallet/lot transaction or outbox-backed recovery path before moving
   auction storage out of process. Current `AuctionService` prevalidates and
   holds its service lock across wallet calls, but it is not a persistent
-  rollback boundary.
+  rollback boundary; Symphony review `local-0103` flagged injected downstream
+  wallet failure after debit as the concrete risk to cover.
 - [ ] Wire Phase 10 auction skeleton payload grants to concrete ship unlock,
   module blueprint, X Core, material, cosmetic, intel, and building blueprint
   adapters once those owning services expose durable grant primitives.

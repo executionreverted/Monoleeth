@@ -421,6 +421,36 @@ func TestCloseAuctionGrantsPayloadOnce(t *testing.T) {
 	}
 }
 
+func TestCloseAuctionAfterEndedReadStillGrantsWinner(t *testing.T) {
+	fixture := newAuctionFixture(t)
+	fixture.seedCredits(t, fixture.bidderID, 500, "seed-close-after-read")
+	lot := fixture.createLot(t, "auction-close-after-read", 100, nil)
+	fixture.placeBid(t, lot.Lot.AuctionID, fixture.bidderID, 125, "bid-close-after-read")
+	fixture.clock.Advance(time.Hour + time.Second)
+
+	readLot, ok := fixture.service.Lot(lot.Lot.AuctionID)
+	if !ok {
+		t.Fatal("read lot missing")
+	}
+	if readLot.Status != LotStatusActive {
+		t.Fatalf("read-ended lot status = %q, want active until close command settles", readLot.Status)
+	}
+	if got := fixture.service.Lots(); len(got) != 1 || got[0].Status != LotStatusActive {
+		t.Fatalf("Lots after end = %+v, want one active-unsettled lot", got)
+	}
+
+	result, err := fixture.service.CloseAuction(CloseAuctionInput{AuctionID: lot.Lot.AuctionID})
+	if err != nil {
+		t.Fatalf("CloseAuction after read: %v", err)
+	}
+	if result.Lot.Status != LotStatusClosed || result.Grant == nil || result.Grant.PlayerID != fixture.bidderID {
+		t.Fatalf("close result = %+v, want closed with bidder grant", result)
+	}
+	if got := len(fixture.service.Grants()); got != 1 {
+		t.Fatalf("grants len = %d, want 1", got)
+	}
+}
+
 func TestCloseAuctionWithoutBidsExpiresWithoutGrant(t *testing.T) {
 	fixture := newAuctionFixture(t)
 	lot := fixture.createLot(t, "auction-no-bids", 100, nil)

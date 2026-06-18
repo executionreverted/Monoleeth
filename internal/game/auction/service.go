@@ -473,14 +473,11 @@ func (service *Service) refreshLotStatusLocked(lot *Lot) {
 		return
 	}
 	now := service.clock.Now()
-	next := statusForTime(lot.StartsAt, lot.EndsAt, now)
-	if lot.Status == next {
+	if lot.Status != LotStatusUpcoming || now.Before(lot.StartsAt) || !now.Before(lot.EndsAt) {
 		return
 	}
-	if lot.Status.CanTransitionTo(next) {
-		lot.Status = next
-		lot.UpdatedAt = now
-	}
+	lot.Status = LotStatusActive
+	lot.UpdatedAt = now
 }
 
 func (service *Service) validateDebitCapacity(playerID foundation.PlayerID, currency economy.CurrencyBucket, amount int64) error {
