@@ -2,8 +2,9 @@
 
 ## Status
 
-- State: In progress - fixed-price market MVP implemented 2026-06-18; auctions,
-  premium entitlements, expiration return command, and intel stale hooks pending
+- State: In progress - fixed-price market and premium entitlement/weekly-stock
+  MVPs implemented 2026-06-18; auctions, expiration return command, intel stale
+  hooks, and market premium-currency listing integration pending
 - Owner: Player economy and monetization safety
 - Depends on: Phase 02, Phase 03, Phase 06, Phase 08
 - Unlocks: player trading, controlled rare supply, premium convenience
@@ -123,17 +124,22 @@ marks listings expired and returns escrow remains pending.
 
 ## TODO: Premium
 
-- [ ] Define entitlement model.
-- [ ] Define provider reference uniqueness.
-- [ ] Implement entitlement create.
-- [ ] Implement entitlement claim.
-- [ ] Grant premium currency pack.
-- [ ] Grant loadout slot skeleton.
-- [ ] Grant weekly X Core purchase right.
-- [ ] Enforce one X Core per player per period.
-- [ ] Enforce weekly world stock cannot go negative.
+- [x] Define entitlement model.
+- [x] Define provider reference uniqueness.
+- [x] Implement entitlement create.
+- [x] Implement entitlement claim.
+- [x] Grant premium currency pack.
+- [x] Grant loadout slot skeleton.
+- [x] Grant weekly X Core purchase right.
+- [x] Enforce one X Core per player per period.
+- [x] Enforce weekly world stock cannot go negative.
 - [ ] Prevent free-earned premium from being listed or traded.
-- [ ] Add suspicious trade log event.
+- [x] Add suspicious trade log event.
+
+Progress note, 2026-06-18: `PremiumEntitlementService` enforces paid-only
+premium use through `ValidatePaidPremiumUse`, but actual wallet-currency market
+listing is not implemented yet. Keep free-earned premium listing/trading
+unchecked until that market integration exists.
 
 ## Tests
 
@@ -151,17 +157,17 @@ marks listings expired and returns escrow remains pending.
 - [ ] Buy-now closes auction.
 - [ ] Bid racing buy-now cannot both win.
 - [ ] Auction close grants payload once.
-- [ ] Weekly stock concurrent purchase cannot go negative.
-- [ ] Entitlement webhook replay is idempotent.
-- [ ] Weekly X Core limit enforced.
+- [x] Weekly stock concurrent purchase cannot go negative.
+- [x] Entitlement webhook replay is idempotent.
+- [x] Weekly X Core limit enforced.
 - [ ] Planet claimed marks listed intel stale.
 
 ## Abuse And Safety Checks
 
 - [x] Market duplication blocked by escrow location.
 - [ ] Auction refund duplication blocked by transaction and ledger reference.
-- [ ] Premium webhook replay blocked by provider reference uniqueness.
-- [ ] Free premium laundering blocked by bucket split.
+- [x] Premium webhook replay blocked by provider reference uniqueness.
+- [x] Free premium laundering blocked by bucket split.
 - [ ] Price manipulation produces suspicious transaction logs.
 - [ ] Chargeback/fraud lock hook exists for future provider integration.
 
@@ -169,8 +175,8 @@ marks listings expired and returns escrow remains pending.
 
 - [x] Players can list and buy eligible items safely.
 - [ ] Auctions can bid, refund, buy now, and close safely.
-- [ ] Premium buckets are enforced.
-- [ ] Weekly X Core purchase limit works.
+- [x] Premium buckets are enforced.
+- [x] Weekly X Core purchase limit works.
 - [ ] Intel listing stale hook exists.
 - [ ] `go test ./...` passes.
 - [ ] `git diff --check` passes.

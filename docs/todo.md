@@ -139,6 +139,16 @@ for phase status; this file is a compact pending-work index.
 - [ ] Formalize the Phase 10 market fee sink account in durable wallet
   provisioning and audit reports. The MVP credits the explicit service-owned
   `market-fee-sink` player id.
+- [ ] Wire Phase 10 paid-only premium bucket policy into future wallet-currency
+  market listings before allowing premium currency trades. Current
+  `PremiumEntitlementService` exposes `ValidatePaidPremiumUse`, but the fixed
+  price market MVP lists items only.
+- [ ] Replace Phase 10 premium entitlement skeleton grants with concrete
+  loadout-slot, X Core item/claim, cosmetic, and badge adapters once those
+  owning services expose durable grant primitives.
+- [ ] Add durable premium provider fraud, chargeback, and entitlement revoke
+  handling before real payment provider webhooks are enabled. Current provider
+  reference uniqueness blocks replay but does not model post-claim clawback.
 
 ## Completed
 
