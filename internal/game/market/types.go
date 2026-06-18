@@ -43,6 +43,8 @@ type Listing struct {
 	CreatedAt            time.Time              `json:"created_at"`
 	UpdatedAt            time.Time              `json:"updated_at"`
 	ExpiresAt            *time.Time             `json:"expires_at,omitempty"`
+	StaleAt              *time.Time             `json:"stale_at,omitempty"`
+	StaleReason          string                 `json:"stale_reason,omitempty"`
 }
 
 // CreateListingInput describes one server-authoritative fixed-price listing creation.
@@ -95,6 +97,17 @@ type CancelListingInput struct {
 	ListingID      foundation.ListingID `json:"listing_id"`
 }
 
+// ExpireListingInput describes a server expiration command for one listing.
+type ExpireListingInput struct {
+	ListingID foundation.ListingID `json:"listing_id"`
+}
+
+// MarkListingStaleInput describes an intel/coordinate invalidation marker.
+type MarkListingStaleInput struct {
+	ListingID foundation.ListingID `json:"listing_id"`
+	Reason    string               `json:"reason"`
+}
+
 // CancelListingResult reports returned escrow quantity.
 type CancelListingResult struct {
 	Listing          Listing                   `json:"listing"`
@@ -102,6 +115,21 @@ type CancelListingResult struct {
 	ReturnMove       economy.MoveItemResult    `json:"return_move"`
 	ReferenceKey     foundation.IdempotencyKey `json:"reference_id"`
 	Duplicate        bool                      `json:"duplicate"`
+}
+
+// ExpireListingResult reports escrow returned by the expiration command.
+type ExpireListingResult struct {
+	Listing          Listing                   `json:"listing"`
+	ReturnedQuantity int64                     `json:"returned_quantity"`
+	ReturnMove       economy.MoveItemResult    `json:"return_move"`
+	ReferenceKey     foundation.IdempotencyKey `json:"reference_id"`
+	Duplicate        bool                      `json:"duplicate"`
+}
+
+// MarkListingStaleResult reports the stale listing snapshot.
+type MarkListingStaleResult struct {
+	Listing   Listing `json:"listing"`
+	Duplicate bool    `json:"duplicate"`
 }
 
 // String returns the stable status representation.
@@ -166,6 +194,10 @@ func cloneListing(listing Listing) Listing {
 	if listing.ExpiresAt != nil {
 		expiresAt := *listing.ExpiresAt
 		listing.ExpiresAt = &expiresAt
+	}
+	if listing.StaleAt != nil {
+		staleAt := *listing.StaleAt
+		listing.StaleAt = &staleAt
 	}
 	return listing
 }

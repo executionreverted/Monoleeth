@@ -43,6 +43,7 @@ const (
 	idempotencyMarketSale          = "market_sale"
 	idempotencyMarketFee           = "market_fee"
 	idempotencyMarketCancel        = "market_cancel"
+	idempotencyMarketExpire        = "market_expire"
 	idempotencyShipRepair          = "ship_repair"
 )
 
@@ -147,6 +148,11 @@ func MarketCancelIdempotencyKey(listingID ListingID) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyMarketCancel, listingID.String())
 }
 
+// MarketExpireIdempotencyKey returns market_expire:<listing_id>.
+func MarketExpireIdempotencyKey(listingID ListingID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyMarketExpire, listingID.String())
+}
+
 // ShipRepairIdempotencyKey returns ship_repair:<ship_id>:<repair_reference>.
 func ShipRepairIdempotencyKey(shipID ShipID, repairReference string) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyShipRepair, shipID.String(), repairReference)
@@ -241,7 +247,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyAuctionClose,
 		idempotencyPremiumWebhook,
 		idempotencyMarketListing,
-		idempotencyMarketCancel:
+		idempotencyMarketCancel,
+		idempotencyMarketExpire:
 		return 1, true
 	case idempotencyOfflineSettlement:
 		return 2, true

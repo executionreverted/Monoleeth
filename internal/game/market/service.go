@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ const (
 	marketSaleReason    economy.LedgerReason = "market_sale"
 	marketFeeReason     economy.LedgerReason = "market_fee"
 	marketCancelReason  economy.LedgerReason = "market_cancel"
+	marketExpireReason  economy.LedgerReason = "market_expire"
 
 	defaultSystemFeePlayerID foundation.PlayerID = "market-fee-sink"
 )
@@ -56,6 +58,8 @@ type MarketService struct {
 	listings      map[foundation.ListingID]Listing
 	buyResults    map[foundation.IdempotencyKey]BuyListingResult
 	cancelResults map[foundation.ListingID]CancelListingResult
+	expireResults map[foundation.ListingID]ExpireListingResult
+	staleResults  map[foundation.ListingID]MarkListingStaleResult
 }
 
 // NewMarketService returns an in-memory fixed-price market service.
@@ -94,6 +98,8 @@ func NewMarketService(config MarketServiceConfig) (*MarketService, error) {
 		listings:          make(map[foundation.ListingID]Listing),
 		buyResults:        make(map[foundation.IdempotencyKey]BuyListingResult),
 		cancelResults:     make(map[foundation.ListingID]CancelListingResult),
+		expireResults:     make(map[foundation.ListingID]ExpireListingResult),
+		staleResults:      make(map[foundation.ListingID]MarkListingStaleResult),
 	}, nil
 }
 
@@ -338,7 +344,7 @@ func (service *MarketService) CancelListing(input CancelListingInput) (CancelLis
 	if listing.SellerPlayerID != input.SellerPlayerID {
 		return CancelListingResult{}, ErrListingOwnership
 	}
-	if listing.Status != ListingStatusActive {
+	if listing.Status != ListingStatusActive && listing.Status != ListingStatusStale {
 		return CancelListingResult{}, fmt.Errorf("listing %q status %q: %w", input.ListingID, listing.Status, ErrListingNotActive)
 	}
 	if listing.RemainingQuantity <= 0 {
@@ -375,6 +381,117 @@ func (service *MarketService) CancelListing(input CancelListingInput) (CancelLis
 		ReferenceKey:     referenceKey,
 	}
 	service.cancelResults[input.ListingID] = cloneCancelListingResult(result)
+	return result, nil
+}
+
+// ExpireListing returns remaining escrow for a listing whose expiration time has passed.
+func (service *MarketService) ExpireListing(input ExpireListingInput) (ExpireListingResult, error) {
+	if err := input.validate(); err != nil {
+		return ExpireListingResult{}, err
+	}
+	referenceKey, err := foundation.MarketExpireIdempotencyKey(input.ListingID)
+	if err != nil {
+		return ExpireListingResult{}, err
+	}
+
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	if previous, ok := service.expireResults[input.ListingID]; ok {
+		result := cloneExpireListingResult(previous)
+		result.Duplicate = true
+		return result, nil
+	}
+
+	listing, ok := service.listings[input.ListingID]
+	if !ok {
+		return ExpireListingResult{}, fmt.Errorf("listing %q: %w", input.ListingID, ErrListingNotFound)
+	}
+	if listing.Status != ListingStatusActive && listing.Status != ListingStatusStale {
+		return ExpireListingResult{}, fmt.Errorf("listing %q status %q: %w", input.ListingID, listing.Status, ErrListingNotActive)
+	}
+	if !listing.isExpired(service.clock.Now()) {
+		return ExpireListingResult{}, fmt.Errorf("listing %q: %w", input.ListingID, ErrListingNotExpired)
+	}
+	if listing.RemainingQuantity <= 0 {
+		return ExpireListingResult{}, fmt.Errorf("listing remaining %d: %w", listing.RemainingQuantity, ErrListingNotActive)
+	}
+	if err := service.validateEscrowQuantity(listing, listing.RemainingQuantity); err != nil {
+		return ExpireListingResult{}, err
+	}
+
+	returnMove, err := service.inventory.SystemMoveItem(economy.MoveItemInput{
+		PlayerID:     listing.SellerPlayerID,
+		ItemRef:      economy.MoveItemRef{Definition: listing.ItemDefinition, ItemInstanceID: listing.ItemInstanceID},
+		FromLocation: listing.EscrowLocation,
+		ToLocation:   listing.SourceReturnLocation,
+		Quantity:     listing.RemainingQuantity,
+		Reason:       marketExpireReason,
+		ReferenceKey: referenceKey,
+	})
+	if err != nil {
+		return ExpireListingResult{}, err
+	}
+
+	returnedQuantity := listing.RemainingQuantity
+	if err := listing.transitionTo(ListingStatusExpired); err != nil {
+		return ExpireListingResult{}, err
+	}
+	listing.UpdatedAt = service.clock.Now()
+	service.listings[input.ListingID] = cloneListing(listing)
+
+	result := ExpireListingResult{
+		Listing:          cloneListing(listing),
+		ReturnedQuantity: returnedQuantity,
+		ReturnMove:       returnMove,
+		ReferenceKey:     referenceKey,
+	}
+	service.expireResults[input.ListingID] = cloneExpireListingResult(result)
+	return result, nil
+}
+
+// MarkListingStale marks an active listing as stale after an owning intel fact changes.
+func (service *MarketService) MarkListingStale(input MarkListingStaleInput) (MarkListingStaleResult, error) {
+	if err := input.validate(); err != nil {
+		return MarkListingStaleResult{}, err
+	}
+
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	if previous, ok := service.staleResults[input.ListingID]; ok {
+		result := cloneMarkListingStaleResult(previous)
+		result.Duplicate = true
+		return result, nil
+	}
+
+	listing, ok := service.listings[input.ListingID]
+	if !ok {
+		return MarkListingStaleResult{}, fmt.Errorf("listing %q: %w", input.ListingID, ErrListingNotFound)
+	}
+	if listing.Status == ListingStatusStale {
+		result := MarkListingStaleResult{Listing: cloneListing(listing), Duplicate: true}
+		service.staleResults[input.ListingID] = cloneMarkListingStaleResult(result)
+		return result, nil
+	}
+	if listing.Status != ListingStatusActive {
+		return MarkListingStaleResult{}, fmt.Errorf("listing %q status %q: %w", input.ListingID, listing.Status, ErrListingNotActive)
+	}
+	if listing.isExpired(service.clock.Now()) {
+		return MarkListingStaleResult{}, fmt.Errorf("listing %q: %w", input.ListingID, ErrListingExpired)
+	}
+
+	now := service.clock.Now()
+	if err := listing.transitionTo(ListingStatusStale); err != nil {
+		return MarkListingStaleResult{}, err
+	}
+	listing.StaleAt = &now
+	listing.StaleReason = strings.TrimSpace(input.Reason)
+	listing.UpdatedAt = now
+	service.listings[input.ListingID] = cloneListing(listing)
+
+	result := MarkListingStaleResult{Listing: cloneListing(listing)}
+	service.staleResults[input.ListingID] = cloneMarkListingStaleResult(result)
 	return result, nil
 }
 
@@ -461,6 +578,20 @@ func (input CancelListingInput) validate() error {
 	}
 	if err := input.ListingID.Validate(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (input ExpireListingInput) validate() error {
+	return input.ListingID.Validate()
+}
+
+func (input MarkListingStaleInput) validate() error {
+	if err := input.ListingID.Validate(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(input.Reason) == "" {
+		return ErrInvalidStaleReason
 	}
 	return nil
 }
@@ -591,6 +722,17 @@ func cloneBuyListingResult(result BuyListingResult) BuyListingResult {
 func cloneCancelListingResult(result CancelListingResult) CancelListingResult {
 	result.Listing = cloneListing(result.Listing)
 	result.ReturnMove = cloneMoveItemResult(result.ReturnMove)
+	return result
+}
+
+func cloneExpireListingResult(result ExpireListingResult) ExpireListingResult {
+	result.Listing = cloneListing(result.Listing)
+	result.ReturnMove = cloneMoveItemResult(result.ReturnMove)
+	return result
+}
+
+func cloneMarkListingStaleResult(result MarkListingStaleResult) MarkListingStaleResult {
+	result.Listing = cloneListing(result.Listing)
 	return result
 }
 

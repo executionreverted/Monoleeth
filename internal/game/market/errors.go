@@ -12,6 +12,8 @@ var (
 	ErrListingNotFound             = errors.New("market listing not found")
 	ErrListingNotActive            = errors.New("market listing is not active")
 	ErrListingExpired              = errors.New("market listing expired")
+	ErrListingNotExpired           = errors.New("market listing is not expired")
+	ErrInvalidStaleReason          = errors.New("invalid market stale reason")
 	ErrListingSourceLocation       = errors.New("market listing source location is not allowed")
 	ErrSellerCannotBuyOwnListing   = errors.New("seller cannot buy own listing")
 	ErrListingOwnership            = errors.New("market listing seller mismatch")

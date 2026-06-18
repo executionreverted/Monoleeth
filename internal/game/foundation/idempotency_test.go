@@ -97,6 +97,11 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			want: "market_buy:listing-9:player-2:request-5",
 		},
 		{
+			name:  "market expire",
+			build: func() (IdempotencyKey, error) { return MarketExpireIdempotencyKey(ListingID("listing-9")) },
+			want:  "market_expire:listing-9",
+		},
+		{
 			name: "ship repair",
 			build: func() (IdempotencyKey, error) {
 				return ShipRepairIdempotencyKey(ShipID("fighter_t1"), "repair-job-7")
@@ -193,6 +198,8 @@ func TestIdempotencyKeyRejectsMalformedKeys(t *testing.T) {
 		"auction_buy_now:auction-3:player-2",
 		"auction_buy_now_refund:auction-3:player-2:request-5:extra",
 		"market_buy:listing-9:player-2",
+		"market_expire",
+		"market_expire:listing-9:extra",
 		"ship_repair:fighter_t1",
 		"ship_repair:fighter_t1:repair-1:extra",
 	} {

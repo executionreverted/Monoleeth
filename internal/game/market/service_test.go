@@ -419,6 +419,152 @@ func TestBuyListingRejectsExpiredListingWithoutMutatingEscrow(t *testing.T) {
 	}
 }
 
+func TestExpireListingReturnsEscrowAndDuplicateDoesNotReturnTwice(t *testing.T) {
+	fixture := newMarketFixture(t)
+	fixture.seedSellerItems(t, 5, "seed-expire-command")
+	expiresAt := fixture.clock.Now().Add(time.Minute)
+	input := fixture.createListingInput("listing-expire-command", 5, 10)
+	input.ExpiresAt = &expiresAt
+	create, err := fixture.service.CreateListing(input)
+	if err != nil {
+		t.Fatalf("CreateListing expiring: %v", err)
+	}
+	fixture.clock.Advance(2 * time.Minute)
+
+	first, err := fixture.service.ExpireListing(ExpireListingInput{ListingID: create.Listing.ListingID})
+	if err != nil {
+		t.Fatalf("ExpireListing: %v", err)
+	}
+	itemLedgerAfterFirst := len(fixture.inventory.ItemLedgerEntries())
+	second, err := fixture.service.ExpireListing(ExpireListingInput{ListingID: create.Listing.ListingID})
+	if err != nil {
+		t.Fatalf("duplicate ExpireListing: %v", err)
+	}
+
+	if first.Listing.Status != ListingStatusExpired {
+		t.Fatalf("expired listing status = %q, want expired", first.Listing.Status)
+	}
+	if first.ReturnedQuantity != 5 {
+		t.Fatalf("returned quantity = %d, want 5", first.ReturnedQuantity)
+	}
+	if !second.Duplicate {
+		t.Fatal("duplicate expire Duplicate = false, want true")
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, fixture.sourceLocation); got != 5 {
+		t.Fatalf("seller source quantity = %d, want 5", got)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, create.Listing.EscrowLocation); got != 0 {
+		t.Fatalf("escrow quantity = %d, want 0", got)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != itemLedgerAfterFirst {
+		t.Fatalf("item ledger entries len = %d, want %d", got, itemLedgerAfterFirst)
+	}
+}
+
+func TestExpireListingRejectsNotExpiredWithoutMutation(t *testing.T) {
+	fixture := newMarketFixture(t)
+	fixture.seedSellerItems(t, 5, "seed-not-expired")
+	expiresAt := fixture.clock.Now().Add(time.Minute)
+	input := fixture.createListingInput("listing-not-expired", 5, 10)
+	input.ExpiresAt = &expiresAt
+	create, err := fixture.service.CreateListing(input)
+	if err != nil {
+		t.Fatalf("CreateListing expiring: %v", err)
+	}
+
+	_, err = fixture.service.ExpireListing(ExpireListingInput{ListingID: create.Listing.ListingID})
+	if !errors.Is(err, ErrListingNotExpired) {
+		t.Fatalf("ExpireListing not expired error = %v, want ErrListingNotExpired", err)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, fixture.sourceLocation); got != 0 {
+		t.Fatalf("seller source quantity = %d, want 0", got)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, create.Listing.EscrowLocation); got != 5 {
+		t.Fatalf("escrow quantity = %d, want 5", got)
+	}
+}
+
+func TestMarkListingStaleBlocksBuyAndAllowsCancel(t *testing.T) {
+	fixture := newMarketFixture(t)
+	fixture.seedSellerItems(t, 5, "seed-stale")
+	fixture.seedCredits(t, fixture.buyerID, 1_000, "buyer-stale")
+	create := fixture.createListing(t, "listing-stale", 5, 10)
+
+	first, err := fixture.service.MarkListingStale(MarkListingStaleInput{
+		ListingID: create.Listing.ListingID,
+		Reason:    "planet_claimed",
+	})
+	if err != nil {
+		t.Fatalf("MarkListingStale: %v", err)
+	}
+	second, err := fixture.service.MarkListingStale(MarkListingStaleInput{
+		ListingID: create.Listing.ListingID,
+		Reason:    "planet_claimed",
+	})
+	if err != nil {
+		t.Fatalf("duplicate MarkListingStale: %v", err)
+	}
+	if first.Listing.Status != ListingStatusStale {
+		t.Fatalf("listing status = %q, want stale", first.Listing.Status)
+	}
+	if first.Listing.StaleAt == nil || first.Listing.StaleReason != "planet_claimed" {
+		t.Fatalf("stale fields = at %v reason %q, want set/planet_claimed", first.Listing.StaleAt, first.Listing.StaleReason)
+	}
+	if !second.Duplicate {
+		t.Fatal("duplicate stale Duplicate = false, want true")
+	}
+
+	_, err = fixture.service.BuyListing(BuyListingInput{
+		BuyerPlayerID: fixture.buyerID,
+		ListingID:     create.Listing.ListingID,
+		Quantity:      1,
+		RequestID:     "buy-stale",
+	})
+	if !errors.Is(err, ErrListingNotActive) {
+		t.Fatalf("BuyListing stale error = %v, want ErrListingNotActive", err)
+	}
+
+	cancel, err := fixture.service.CancelListing(CancelListingInput{
+		SellerPlayerID: fixture.sellerID,
+		ListingID:      create.Listing.ListingID,
+	})
+	if err != nil {
+		t.Fatalf("CancelListing stale: %v", err)
+	}
+	if cancel.Listing.Status != ListingStatusCancelled {
+		t.Fatalf("cancelled stale listing status = %q, want cancelled", cancel.Listing.Status)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, fixture.sourceLocation); got != 5 {
+		t.Fatalf("seller source quantity = %d, want 5", got)
+	}
+	if got := fixture.wallet.Balance(fixture.buyerID, economy.CurrencyBucketCredits); got != 1_000 {
+		t.Fatalf("buyer balance = %d, want unchanged 1000", got)
+	}
+}
+
+func TestListedItemCannotBeEquippedFromEscrow(t *testing.T) {
+	fixture := newMarketFixture(t)
+	fixture.seedSellerItems(t, 5, "seed-listed-equip")
+	create := fixture.createListing(t, "listing-equip-block", 5, 10)
+	equippedLocation := mustLocation(t, economy.LocationKindShipEquipped, "ship-1")
+
+	_, err := fixture.inventory.MoveItem(economy.MoveItemInput{
+		PlayerID:     fixture.sellerID,
+		ItemRef:      economy.MoveItemRef{Definition: fixture.definition},
+		FromLocation: create.Listing.EscrowLocation,
+		ToLocation:   equippedLocation,
+		Quantity:     1,
+		Reason:       "test_equip",
+		ReferenceKey: mustLootPickupKey(t, "equip-listed"),
+	})
+	if !errors.Is(err, economy.ErrBlockedGenericMoveSource) {
+		t.Fatalf("MoveItem listed escrow error = %v, want ErrBlockedGenericMoveSource", err)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, create.Listing.EscrowLocation); got != 5 {
+		t.Fatalf("escrow quantity = %d, want 5", got)
+	}
+}
+
 func TestConcurrentFinalBuysCannotOversell(t *testing.T) {
 	fixture := newMarketFixture(t)
 	fixture.seedSellerItems(t, 1, "seed-concurrent-buy")

@@ -3,8 +3,8 @@
 ## Status
 
 - State: In progress - fixed-price market, auction, and premium entitlement/
-  weekly-stock MVPs implemented 2026-06-18; expiration return command, intel
-  stale hooks, and market premium-currency listing integration pending
+  weekly-stock MVPs implemented 2026-06-18; market premium-currency listing
+  integration and planet-claim stale-listing integration pending
 - Owner: Player economy and monetization safety
 - Depends on: Phase 02, Phase 03, Phase 06, Phase 08
 - Unlocks: player trading, controlled rare supply, premium convenience
@@ -96,12 +96,15 @@ Premium:
 - [x] Credit system sink fee.
 - [x] Move escrow item to buyer.
 - [x] Mark listing sold or reduce quantity.
-- [ ] Implement listing expiration.
-- [ ] Implement stale listing marker for coordinate scrolls.
+- [x] Implement listing expiration.
+- [x] Implement stale listing marker for coordinate scrolls.
 
 Progress note, 2026-06-18: `BuyListing` rejects expired active listings without
-mutating escrow or buyer inventory. A durable expiration command/worker that
-marks listings expired and returns escrow remains pending.
+mutating escrow or buyer inventory. `ExpireListing` now marks expired active or
+stale listings and returns remaining escrow idempotently with a distinct
+`market_expire:<listing_id>` ledger reference. `MarkListingStale` marks active
+intel/coordinate listings stale so they cannot be bought while seller cancel or
+expiration can still release escrow.
 
 ## TODO: Auction
 
@@ -150,7 +153,7 @@ unchecked until that market integration exists.
 
 - [x] Create listing moves item to escrow.
 - [x] Cancel listing returns item.
-- [ ] Listed item cannot be equipped.
+- [x] Listed item cannot be equipped.
 - [x] Reserved item cannot be listed.
 - [x] Buy listing transfers item and currency exactly once.
 - [x] Concurrent buy only one succeeds.
@@ -182,7 +185,7 @@ unchecked until that market integration exists.
 - [x] Auctions can bid, refund, buy now, and close safely.
 - [x] Premium buckets are enforced.
 - [x] Weekly X Core purchase limit works.
-- [ ] Intel listing stale hook exists.
+- [x] Intel listing stale hook exists.
 - [ ] `go test ./...` passes.
 - [ ] `git diff --check` passes.
 
