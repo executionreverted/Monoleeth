@@ -341,6 +341,109 @@ func TestCargoServiceBlocksDirectInventoryCargoBypass(t *testing.T) {
 	}
 }
 
+func TestCargoServiceGuardBlocksAddAndMoveWithoutMutation(t *testing.T) {
+	inventory := newTestInventoryService()
+	service := NewCargoService(inventory)
+	guardErr := errors.New("cargo locked")
+	guard := &recordingCargoTransferGuard{err: guardErr}
+	service.SetCargoTransferGuard(guard)
+
+	addInput := validCargoAddItemInput(t)
+	if _, err := service.AddItem(addInput); !errors.Is(err, guardErr) {
+		t.Fatalf("AddItem error = %v, want guard error", err)
+	}
+	if got := inventory.TotalItemQuantity(addInput.PlayerID, addInput.ItemDefinition.ItemID, addInput.ActiveCargo); got != 0 {
+		t.Fatalf("cargo TotalItemQuantity after guarded add = %d, want 0", got)
+	}
+	if got := len(inventory.ItemLedgerEntries()); got != 0 {
+		t.Fatalf("ledger entries after guarded add = %d, want 0", got)
+	}
+
+	definition := validWeightedStackableDefinition(t, 1)
+	fromLocation := validLocation(t)
+	addStackableItems(t, inventory, definition, 3, fromLocation, "loot_pickup:guarded-cargo-move-seed")
+	moveInput := validCargoMoveItemInput(t)
+	moveInput.ItemRef.Definition = definition
+	moveInput.FromLocation = fromLocation
+	moveInput.Quantity = 2
+	moveInput.ReferenceKey = validReferenceKey(t, "loot_pickup:guarded-cargo-move")
+
+	if _, err := service.MoveItem(moveInput); !errors.Is(err, guardErr) {
+		t.Fatalf("MoveItem error = %v, want guard error", err)
+	}
+	if got := inventory.TotalItemQuantity(moveInput.PlayerID, definition.ItemID, fromLocation); got != 3 {
+		t.Fatalf("source TotalItemQuantity after guarded move = %d, want 3", got)
+	}
+	if got := inventory.TotalItemQuantity(moveInput.PlayerID, definition.ItemID, moveInput.ActiveCargo); got != 0 {
+		t.Fatalf("cargo TotalItemQuantity after guarded move = %d, want 0", got)
+	}
+	if got := len(inventory.ItemLedgerEntries()); got != 1 {
+		t.Fatalf("ledger entries after guarded move = %d, want seed ledger only", got)
+	}
+	if got, want := len(guard.inputs), 2; got != want {
+		t.Fatalf("guard calls = %d, want %d", got, want)
+	}
+	if !guard.inputs[0].InvolvesShipCargo() || !guard.inputs[1].InvolvesShipCargo() {
+		t.Fatalf("guard inputs = %+v, want ship cargo involvement", guard.inputs)
+	}
+}
+
+func TestCargoServiceGuardAllowsDuplicateRetries(t *testing.T) {
+	inventory := newTestInventoryService()
+	service := NewCargoService(inventory)
+
+	addInput := validCargoAddItemInput(t)
+	firstAdd, err := service.AddItem(addInput)
+	if err != nil {
+		t.Fatalf("first AddItem error = %v", err)
+	}
+	addGuard := &recordingCargoTransferGuard{err: errors.New("cargo locked")}
+	service.SetCargoTransferGuard(addGuard)
+	secondAdd, err := service.AddItem(addInput)
+	if err != nil {
+		t.Fatalf("duplicate AddItem error = %v, want nil", err)
+	}
+	if !secondAdd.Duplicate {
+		t.Fatal("duplicate AddItem Duplicate = false, want true")
+	}
+	if secondAdd.LedgerEntry.LedgerID != firstAdd.LedgerEntry.LedgerID {
+		t.Fatalf("duplicate add LedgerID = %q, want %q", secondAdd.LedgerEntry.LedgerID, firstAdd.LedgerEntry.LedgerID)
+	}
+	if got := len(addGuard.inputs); got != 0 {
+		t.Fatalf("add guard calls for duplicate = %d, want 0", got)
+	}
+
+	moveGuard := &recordingCargoTransferGuard{err: errors.New("cargo locked")}
+	service.SetCargoTransferGuard(nil)
+	definition := validWeightedStackableDefinition(t, 1)
+	fromLocation := validLocation(t)
+	addStackableItems(t, inventory, definition, 3, fromLocation, "loot_pickup:guarded-duplicate-cargo-move-seed")
+	moveInput := validCargoMoveItemInput(t)
+	moveInput.ItemRef.Definition = definition
+	moveInput.FromLocation = fromLocation
+	moveInput.Quantity = 2
+	moveInput.ReferenceKey = validReferenceKey(t, "loot_pickup:guarded-duplicate-cargo-move")
+
+	firstMove, err := service.MoveItem(moveInput)
+	if err != nil {
+		t.Fatalf("first MoveItem error = %v", err)
+	}
+	service.SetCargoTransferGuard(moveGuard)
+	secondMove, err := service.MoveItem(moveInput)
+	if err != nil {
+		t.Fatalf("duplicate MoveItem error = %v, want nil", err)
+	}
+	if !secondMove.Duplicate {
+		t.Fatal("duplicate MoveItem Duplicate = false, want true")
+	}
+	if secondMove.LedgerEntries[0].LedgerID != firstMove.LedgerEntries[0].LedgerID {
+		t.Fatalf("duplicate move LedgerID = %q, want %q", secondMove.LedgerEntries[0].LedgerID, firstMove.LedgerEntries[0].LedgerID)
+	}
+	if got := len(moveGuard.inputs); got != 0 {
+		t.Fatalf("move guard calls for duplicate = %d, want 0", got)
+	}
+}
+
 func TestCargoServiceValidatesCargoInputs(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -495,4 +598,14 @@ func (emitter reentrantCargoEmitter) Record(_ events.EventEnvelope) {
 	if err := emitter.service.RegisterItemDefinition(emitter.definition); err != nil {
 		emitter.t.Errorf("RegisterItemDefinition from emitter: %v", err)
 	}
+}
+
+type recordingCargoTransferGuard struct {
+	err    error
+	inputs []CargoTransferGuardInput
+}
+
+func (guard *recordingCargoTransferGuard) ValidateCargoTransfer(input CargoTransferGuardInput) error {
+	guard.inputs = append(guard.inputs, input)
+	return guard.err
 }

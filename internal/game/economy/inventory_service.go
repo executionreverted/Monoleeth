@@ -45,6 +45,7 @@ type InventoryService struct {
 	removeItemReferences map[inventoryReferenceKey]RemoveItemResult
 
 	emitter           EventEmitter
+	cargoGuard        CargoTransferGuard
 	nextEventSequence uint64
 }
 
@@ -65,6 +66,14 @@ func NewInventoryService(clock foundation.Clock) *InventoryService {
 		moveItemReferences:   make(map[inventoryReferenceKey]MoveItemResult),
 		removeItemReferences: make(map[inventoryReferenceKey]RemoveItemResult),
 	}
+}
+
+// SetCargoTransferGuard configures an optional guard for player-facing cargo moves.
+func (service *InventoryService) SetCargoTransferGuard(guard CargoTransferGuard) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	service.cargoGuard = guard
 }
 
 // AddItem grants item quantity once for a player/reference pair and writes an item ledger row.

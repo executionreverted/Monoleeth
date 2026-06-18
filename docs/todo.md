@@ -30,9 +30,6 @@ for phase status; this file is a compact pending-work index.
 - [ ] Move `DeathService.ProcessDeath` from caller-supplied cargo/drop/loadout
   inputs to authoritative zone inventory, loadout, respawn, and drop-policy
   providers before exposing death processing through gateway/runtime callers.
-- [ ] Block or serialize cargo transfers while a lethal/death transaction is in
-  progress for the player ship; current death processing is retry-safe but does
-  not lock live cargo movement.
 - [ ] Wire disabled ship state into combat runtime actor ownership so a stale
   combat actor cannot attack after `DisableActiveShipForDeath`.
 - [ ] Add durable completion/reconciliation for `CraftingService.CompleteCraft`
@@ -173,6 +170,10 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Block process-local player-facing cargo transfers while a lethal/death
+  transaction is in progress for the player ship. `DeathService` now implements
+  the economy cargo transfer guard for Phase 06, while durable/provider-backed
+  death processing remains tracked separately.
 - [x] Replace the Phase 05 vertical-slice test-local stat input adapter with
   concrete Phase 03 runtime providers for the in-process backend vertical slice.
   Gateway exposure remains blocked on authenticated session/player resolution.

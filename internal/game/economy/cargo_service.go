@@ -50,6 +50,7 @@ type CargoService struct {
 	definitions map[cargoDefinitionKey]ItemDefinition
 
 	emitter           EventEmitter
+	cargoGuard        CargoTransferGuard
 	nextEventSequence uint64
 }
 
@@ -64,6 +65,14 @@ func NewCargoService(inventory *InventoryService) *CargoService {
 		inventory:   inventory,
 		definitions: make(map[cargoDefinitionKey]ItemDefinition),
 	}
+}
+
+// SetCargoTransferGuard configures an optional guard for player-facing cargo mutations.
+func (service *CargoService) SetCargoTransferGuard(guard CargoTransferGuard) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	service.cargoGuard = guard
 }
 
 // RegisterItemDefinition makes an existing cargo row's weight available for capacity checks.
@@ -90,6 +99,17 @@ func (service *CargoService) AddItem(input CargoAddItemInput) (AddItemResult, er
 	}
 	if service == nil || service.inventory == nil {
 		return AddItemResult{}, ErrNilInventoryService
+	}
+	if result, ok := service.duplicateAddItemResult(input.PlayerID, input.ReferenceKey); ok {
+		return result, nil
+	}
+	if err := service.validateCargoTransferGuard(CargoTransferGuardInput{
+		PlayerID:     input.PlayerID,
+		ToLocation:   input.ActiveCargo,
+		Reason:       input.Reason,
+		ReferenceKey: input.ReferenceKey,
+	}); err != nil {
+		return AddItemResult{}, err
 	}
 
 	var inventoryEmitted []events.EventEnvelope
@@ -174,6 +194,18 @@ func (service *CargoService) MoveItem(input CargoMoveItemInput) (MoveItemResult,
 	}
 	if service == nil || service.inventory == nil {
 		return MoveItemResult{}, ErrNilInventoryService
+	}
+	if result, ok := service.duplicateMoveItemResult(input.PlayerID, input.ReferenceKey); ok {
+		return result, nil
+	}
+	if err := service.validateCargoTransferGuard(CargoTransferGuardInput{
+		PlayerID:     input.PlayerID,
+		FromLocation: input.FromLocation,
+		ToLocation:   input.ActiveCargo,
+		Reason:       input.Reason,
+		ReferenceKey: input.ReferenceKey,
+	}); err != nil {
+		return MoveItemResult{}, err
 	}
 
 	var inventoryEmitted []events.EventEnvelope
@@ -270,6 +302,42 @@ func (service *InventoryService) duplicateMoveItemResultLocked(playerID foundati
 	result := cloneMoveItemResult(previous)
 	result.Duplicate = true
 	return result, true
+}
+
+func (service *CargoService) validateCargoTransferGuard(input CargoTransferGuardInput) error {
+	if service == nil {
+		return nil
+	}
+	if !input.InvolvesShipCargo() {
+		return nil
+	}
+	service.mu.Lock()
+	guard := service.cargoGuard
+	service.mu.Unlock()
+	if guard == nil {
+		return nil
+	}
+	return guard.ValidateCargoTransfer(input)
+}
+
+func (service *CargoService) duplicateAddItemResult(playerID foundation.PlayerID, referenceKey foundation.IdempotencyKey) (AddItemResult, bool) {
+	if service == nil || service.inventory == nil {
+		return AddItemResult{}, false
+	}
+	service.inventory.mu.Lock()
+	defer service.inventory.mu.Unlock()
+
+	return service.inventory.duplicateAddItemResultLocked(playerID, referenceKey)
+}
+
+func (service *CargoService) duplicateMoveItemResult(playerID foundation.PlayerID, referenceKey foundation.IdempotencyKey) (MoveItemResult, bool) {
+	if service == nil || service.inventory == nil {
+		return MoveItemResult{}, false
+	}
+	service.inventory.mu.Lock()
+	defer service.inventory.mu.Unlock()
+
+	return service.inventory.duplicateMoveItemResultLocked(playerID, referenceKey)
 }
 
 func (input CargoAddItemInput) validate() (foundation.Quantity, error) {

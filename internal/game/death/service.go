@@ -35,6 +35,7 @@ var (
 	ErrCargoDropPolicyZoneMismatch = errors.New("cargo drop policy zone mismatch")
 	ErrDeathCargoOwnerMismatch     = errors.New("death cargo owner mismatch")
 	ErrDeathCargoLocationMismatch  = errors.New("death cargo location mismatch")
+	ErrDeathCargoTransferBlocked   = errors.New("death cargo transfer blocked")
 )
 
 // InventoryRemover is the inventory boundary DeathService needs for cargo loss.
@@ -93,6 +94,9 @@ type DeathService struct {
 	attempts          map[LethalEventKey]processDeathAttempt
 	processed         map[LethalEventKey]ProcessDeathResult
 	nextEventSequence uint64
+
+	cargoLockMu     sync.Mutex
+	activeCargoLock map[foundation.PlayerID]int
 }
 
 type processDeathAttempt struct {
@@ -226,6 +230,7 @@ func NewDeathService(config Config) (*DeathService, error) {
 		emitter:          config.EventEmitter,
 		attempts:         make(map[LethalEventKey]processDeathAttempt),
 		processed:        make(map[LethalEventKey]ProcessDeathResult),
+		activeCargoLock:  make(map[foundation.PlayerID]int),
 	}, nil
 }
 
@@ -245,6 +250,25 @@ func (service *DeathService) SetEventEmitter(emitter EventEmitter) {
 	service.emitter = emitter
 }
 
+// ValidateCargoTransfer blocks player-facing cargo moves while death processing
+// owns the player's ship cargo state.
+func (service *DeathService) ValidateCargoTransfer(input economy.CargoTransferGuardInput) error {
+	if err := input.PlayerID.Validate(); err != nil {
+		return err
+	}
+	if !input.InvolvesShipCargo() {
+		return nil
+	}
+
+	service.cargoLockMu.Lock()
+	active := service.activeCargoLock[input.PlayerID] > 0
+	service.cargoLockMu.Unlock()
+	if !active {
+		return nil
+	}
+	return fmt.Errorf("player %q cargo locked by death processing: %w", input.PlayerID, ErrDeathCargoTransferBlocked)
+}
+
 // ProcessDeath processes one lethal event once.
 func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeathResult, error) {
 	if err := input.validate(); err != nil {
@@ -258,6 +282,9 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 	if err != nil {
 		return ProcessDeathResult{}, err
 	}
+
+	service.beginCargoTransferBlock(input.PlayerID)
+	defer service.endCargoTransferBlock(input.PlayerID)
 
 	var emitted []events.EventEnvelope
 	var emitter EventEmitter
@@ -562,6 +589,28 @@ func emitEvents(emitter EventEmitter, emitted []events.EventEnvelope) {
 	for _, event := range emitted {
 		emitter.Record(event)
 	}
+}
+
+func (service *DeathService) beginCargoTransferBlock(playerID foundation.PlayerID) {
+	service.cargoLockMu.Lock()
+	defer service.cargoLockMu.Unlock()
+
+	if service.activeCargoLock == nil {
+		service.activeCargoLock = make(map[foundation.PlayerID]int)
+	}
+	service.activeCargoLock[playerID]++
+}
+
+func (service *DeathService) endCargoTransferBlock(playerID foundation.PlayerID) {
+	service.cargoLockMu.Lock()
+	defer service.cargoLockMu.Unlock()
+
+	active := service.activeCargoLock[playerID]
+	if active <= 1 {
+		delete(service.activeCargoLock, playerID)
+		return
+	}
+	service.activeCargoLock[playerID] = active - 1
 }
 
 func (service *DeathService) activeShipForDeath(playerID foundation.PlayerID) (foundation.ShipID, bool, error) {

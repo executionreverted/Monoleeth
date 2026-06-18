@@ -223,6 +223,88 @@ func TestDeathServiceProcessDeathDuplicateLethalEventDoesNotMutateTwice(t *testi
 	assertDeathServiceFighterDisabledAt(t, fixture.ships, firstDisabledAt)
 }
 
+func TestDeathServiceBlocksCargoMoveWhileDeathProcessing(t *testing.T) {
+	fixture := newDeathServiceFixture(t, nil, nil)
+	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
+	cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
+	added := fixture.addCargo(t, iron, 10, cargoLocation)
+	blockingLoot := newBlockingDeathServiceLoot(fixture.loot)
+	deathService, err := death.NewDeathService(death.Config{
+		Clock:     fixture.clock,
+		RNG:       testutil.NewFakeRNG(nil, nil),
+		Inventory: fixture.inventory,
+		Loot:      blockingLoot,
+		Ships:     fixture.ships,
+	})
+	if err != nil {
+		t.Fatalf("death.NewDeathService() error = %v", err)
+	}
+	fixture.inventory.SetCargoTransferGuard(deathService)
+	fixture.cargo.SetCargoTransferGuard(deathService)
+
+	input := death.ProcessDeathInput{
+		LethalEventID:   "lethal-event-cargo-lock",
+		PlayerID:        "player-1",
+		WorldID:         "world-1",
+		ZoneID:          "zone-1",
+		Position:        world.Vec2{X: 1, Y: 2},
+		Reason:          death.DeathReasonCombat,
+		CargoDropPolicy: cargoPolicy(t, 0.50, 0.50),
+		Cargo: []death.CargoStack{
+			cargoStackFromDeathServiceStackable(t, added.StackableItems[0], iron),
+		},
+		RespawnLocationID: "origin-station",
+	}
+
+	type deathResult struct {
+		result death.ProcessDeathResult
+		err    error
+	}
+	done := make(chan deathResult, 1)
+	go func() {
+		result, err := deathService.ProcessDeath(input)
+		done <- deathResult{result: result, err: err}
+	}()
+
+	select {
+	case <-blockingLoot.entered:
+	case <-time.After(time.Second):
+		t.Fatal("ProcessDeath did not reach blocked loot creation")
+	}
+
+	ledgerCount := len(fixture.inventory.ItemLedgerEntries())
+	_, moveErr := fixture.inventory.MoveItem(economy.MoveItemInput{
+		PlayerID: "player-1",
+		ItemRef: economy.MoveItemRef{
+			Definition: iron,
+		},
+		FromLocation: cargoLocation,
+		ToLocation:   mustDeathServiceLocation(t, economy.LocationKindAccountInventory, "player-1"),
+		Quantity:     1,
+		Reason:       economy.LedgerReason("inventory_move"),
+		ReferenceKey: mustDeathServiceLootPickupKey(t, "cargo-lock-move"),
+	})
+	if !errors.Is(moveErr, death.ErrDeathCargoTransferBlocked) {
+		t.Fatalf("MoveItem during death error = %v, want ErrDeathCargoTransferBlocked", moveErr)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != ledgerCount {
+		t.Fatalf("ledger entries after blocked cargo move = %d, want %d", got, ledgerCount)
+	}
+
+	close(blockingLoot.release)
+	select {
+	case completed := <-done:
+		if completed.err != nil {
+			t.Fatalf("ProcessDeath completion error = %v", completed.err)
+		}
+		if completed.result.Duplicate {
+			t.Fatalf("ProcessDeath Duplicate = true, want false")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ProcessDeath did not complete after releasing loot block")
+	}
+}
+
 func TestDeathServiceProcessDeathAlreadyDisabledActiveShipNewLethalEventDoesNotDropAgain(t *testing.T) {
 	fixture := newDeathServiceFixture(t, nil, nil)
 	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
@@ -846,6 +928,29 @@ func (service *failOnceDeathServiceLoot) CreateDropsForPlayerDeath(input loot.Cr
 	if service.calls == 1 {
 		return loot.CreateDropsResult{}, service.err
 	}
+	return service.delegate.CreateDropsForPlayerDeath(input)
+}
+
+type blockingDeathServiceLoot struct {
+	delegate death.PlayerDeathDropCreator
+	entered  chan struct{}
+	release  chan struct{}
+}
+
+func newBlockingDeathServiceLoot(delegate death.PlayerDeathDropCreator) *blockingDeathServiceLoot {
+	return &blockingDeathServiceLoot{
+		delegate: delegate,
+		entered:  make(chan struct{}, 1),
+		release:  make(chan struct{}),
+	}
+}
+
+func (service *blockingDeathServiceLoot) CreateDropsForPlayerDeath(input loot.CreatePlayerDeathDropsInput) (loot.CreateDropsResult, error) {
+	select {
+	case service.entered <- struct{}{}:
+	default:
+	}
+	<-service.release
 	return service.delegate.CreateDropsForPlayerDeath(input)
 }
 
