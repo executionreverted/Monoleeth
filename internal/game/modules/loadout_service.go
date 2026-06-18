@@ -174,6 +174,30 @@ func (service LoadoutService) ApplyLoadout(input ApplyLoadoutInput) (ApplyLoadou
 	return result, nil
 }
 
+// EquippedItemIDs returns the server-owned equipped module item instances for a
+// player ship. Death processing uses this method to avoid trusting client-owned
+// loadout payloads.
+func (service LoadoutService) EquippedItemIDs(playerID foundation.PlayerID, shipID foundation.ShipID) ([]foundation.ItemID, error) {
+	if err := playerID.Validate(); err != nil {
+		return nil, err
+	}
+	if err := shipID.Validate(); err != nil {
+		return nil, err
+	}
+	equipped, err := service.store.EquippedModules(playerID, shipID)
+	if err != nil {
+		return nil, err
+	}
+	itemIDs := make([]foundation.ItemID, 0, len(equipped))
+	for _, module := range equipped {
+		if err := module.Validate(); err != nil {
+			return nil, err
+		}
+		itemIDs = append(itemIDs, module.ItemInstanceID)
+	}
+	return itemIDs, nil
+}
+
 // BreakEquippedModule records an equipped module crossing to broken durability
 // and returns the stat invalidation caused by that state change.
 func (service LoadoutService) BreakEquippedModule(input BreakEquippedModuleInput) (BreakEquippedModuleResult, error) {

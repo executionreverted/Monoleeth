@@ -494,6 +494,53 @@ func TestApplyLoadoutNoopDoesNotInvalidateStats(t *testing.T) {
 	assertModuleItemLocation(t, store, laser.ItemInstanceID, economy.LocationKindShipEquipped, shipID.String())
 }
 
+func TestEquippedItemIDsReturnsServerStoredEquippedModules(t *testing.T) {
+	service, store := newLoadoutTestService(t)
+	playerID := foundation.PlayerID("player-1")
+	shipID := foundation.ShipID("ship-1")
+	laser := testModuleItem(t, "laser-instance-1", "laser_alpha_t1", playerID, economy.LocationKindAccountInventory, 100)
+	shield := testModuleItem(t, "shield-instance-1", "shield_generator_t1", playerID, economy.LocationKindAccountInventory, 100)
+	putModuleItem(t, store, laser)
+	putModuleItem(t, store, shield)
+	err := store.ReplaceEquippedModules(ReplaceEquippedModulesInput{
+		PlayerID: playerID,
+		ShipID:   shipID,
+		Equipped: []EquippedModule{
+			{
+				PlayerID:       playerID,
+				ShipID:         shipID,
+				SlotID:         ModuleSlotDefensive1,
+				ItemInstanceID: shield.ItemInstanceID,
+				EquippedAt:     time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC),
+			},
+			{
+				PlayerID:       playerID,
+				ShipID:         shipID,
+				SlotID:         ModuleSlotOffensive1,
+				ItemInstanceID: laser.ItemInstanceID,
+				EquippedAt:     time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
+	}
+
+	itemIDs, err := service.EquippedItemIDs(playerID, shipID)
+	if err != nil {
+		t.Fatalf("EquippedItemIDs() error = %v, want nil", err)
+	}
+	want := []foundation.ItemID{shield.ItemInstanceID, laser.ItemInstanceID}
+	if len(itemIDs) != len(want) {
+		t.Fatalf("EquippedItemIDs len = %d, want %d", len(itemIDs), len(want))
+	}
+	for index := range want {
+		if itemIDs[index] != want[index] {
+			t.Fatalf("EquippedItemIDs[%d] = %q, want %q", index, itemIDs[index], want[index])
+		}
+	}
+}
+
 func TestBreakEquippedModuleMarksBrokenAndReturnsOneInvalidation(t *testing.T) {
 	service, store := newLoadoutTestService(t)
 	playerID := foundation.PlayerID("player-1")

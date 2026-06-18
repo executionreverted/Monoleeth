@@ -157,7 +157,7 @@ Crafting:
 - [x] Death duplication blocked.
 - [x] Cargo hiding during death blocked. Verified 2026-06-18 by player-facing ship cargo move/add guard tests while death processing owns cargo state.
 - [x] Repair cost is server-calculated. Verified 2026-06-17 by `RepairService` catalog quote tests.
-- [ ] Client cannot avoid module durability loss after death.
+- [x] Client cannot avoid module durability loss after death. Verified 2026-06-18 by `DeathService` reading equipped module item ids from a server-owned provider and caching them per lethal attempt before calling the durability hook.
 - [x] Material duplication blocked by reservation state.
 - [x] Craft start retry duplication blocked by player-scoped idempotency reference. Verified 2026-06-17 by `CraftingService.StartCraft` duplicate-reference tests.
 - [x] Early craft completion blocked by server time.
@@ -183,3 +183,4 @@ Verified slices:
 
 - `DeathService.ProcessDeath` emits `player.died`, `ship.disabled`, and `death.cargo_dropped` after successful death processing. Duplicate lethal-event retries return the cached result without re-emitting death events.
 - `DeathService` now exposes a process-local cargo transfer guard for Phase 06: player-facing ship cargo adds/moves acquire short transfer leases, death processing waits for already-active leases before touching cargo, new player-facing cargo transfers fail while death processing is in flight, trusted system inventory moves continue for death-owned flows, and duplicate economy retries return cached results before consulting the guard.
+- Module durability handling now gets equipped module item ids from server-owned loadout state through `EquippedModuleProvider`, not from death command input. The selected ids are cached in the lethal-event attempt so retries do not re-read a later loadout.

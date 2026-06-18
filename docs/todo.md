@@ -27,9 +27,10 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add an indexed wallet ledger/reference lookup for repair refund replay
   checks before wallet histories become large; the current in-memory repair
   compensation path scans ledger entries under service lock.
-- [ ] Move `DeathService.ProcessDeath` from caller-supplied cargo/drop/loadout
-  inputs to authoritative zone inventory, loadout, respawn, and drop-policy
-  providers before exposing death processing through gateway/runtime callers.
+- [ ] Move `DeathService.ProcessDeath` from caller-supplied cargo/drop,
+  respawn, and drop-policy inputs to authoritative zone inventory, respawn, and
+  drop-policy providers before exposing death processing through gateway/runtime
+  callers. Equipped module ids are now read from server-owned loadout state.
 - [ ] Add durable completion/reconciliation for `CraftingService.CompleteCraft`
   after reservation commit; current in-memory retry path is idempotent, but a
   crash between reservation commit, output grant, XP grant, and job completion

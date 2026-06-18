@@ -22,6 +22,7 @@ func TestDeathServiceProcessDeathDropsCargoCreatesLootDisablesShipRecordsRespawn
 	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
 	cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
 	added := fixture.addCargo(t, iron, 10, cargoLocation)
+	fixture.equippedModules.SetItemIDs("module-instance-1", "module-instance-2")
 	hook := &recordingDeathServiceModuleHook{
 		result: death.ModuleDurabilityResult{
 			StatInvalidations: []death.ModuleStatInvalidationSignal{
@@ -51,7 +52,6 @@ func TestDeathServiceProcessDeathDropsCargoCreatesLootDisablesShipRecordsRespawn
 		},
 		DropOwnerPlayerID: "player-2",
 		RespawnLocationID: "origin-station",
-		EquippedItemIDs:   []foundation.ItemID{"module-instance-1", "module-instance-2"},
 	})
 	if err != nil {
 		t.Fatalf("ProcessDeath() error = %v", err)
@@ -112,6 +112,12 @@ func TestDeathServiceProcessDeathDropsCargoCreatesLootDisablesShipRecordsRespawn
 	assertDeathServiceFighterDisabled(t, fixture.ships)
 	if len(hook.calls) != 1 {
 		t.Fatalf("module hook calls = %d, want 1", len(hook.calls))
+	}
+	if got, want := len(fixture.equippedModules.calls), 1; got != want {
+		t.Fatalf("equipped module provider calls = %d, want %d", got, want)
+	}
+	if fixture.equippedModules.calls[0].playerID != "player-1" || fixture.equippedModules.calls[0].shipID != ships.ShipIDFighterT1 {
+		t.Fatalf("equipped module provider call = %+v, want player-1 fighter", fixture.equippedModules.calls[0])
 	}
 	if hook.calls[0].ShipID != ships.ShipIDFighterT1 ||
 		len(hook.calls[0].EquippedItemIDs) != 2 ||
@@ -182,11 +188,46 @@ func TestDeathServiceProcessDeathRejectsZonePolicyMismatch(t *testing.T) {
 	}
 }
 
+func TestDeathServiceProcessDeathRequiresEquippedModuleProviderForDurabilityHook(t *testing.T) {
+	fixture := newDeathServiceFixture(t, nil, nil)
+	hook := &recordingDeathServiceModuleHook{}
+	deathService, err := death.NewDeathService(death.Config{
+		Clock:     fixture.clock,
+		RNG:       testutil.NewFakeRNG(nil, nil),
+		Inventory: fixture.inventory,
+		Loot:      fixture.loot,
+		Ships:     fixture.ships,
+	})
+	if err != nil {
+		t.Fatalf("death.NewDeathService() error = %v", err)
+	}
+	deathService.SetModuleDurabilityHook(hook)
+
+	_, err = deathService.ProcessDeath(death.ProcessDeathInput{
+		LethalEventID:     "lethal-event-missing-module-provider",
+		PlayerID:          "player-1",
+		WorldID:           "world-1",
+		ZoneID:            "zone-1",
+		Position:          world.Vec2{X: 12, Y: 34},
+		Reason:            death.DeathReasonCombat,
+		CargoDropPolicy:   cargoPolicy(t, 0.50, 0.50),
+		RespawnLocationID: "origin-station",
+	})
+	if !errors.Is(err, death.ErrNilEquippedModuleProvider) {
+		t.Fatalf("ProcessDeath() error = %v, want ErrNilEquippedModuleProvider", err)
+	}
+	if len(hook.calls) != 0 {
+		t.Fatalf("module hook calls = %d, want 0", len(hook.calls))
+	}
+	assertDeathServiceFighterActive(t, fixture.ships)
+}
+
 func TestDeathServiceProcessDeathDuplicateLethalEventDoesNotMutateTwice(t *testing.T) {
 	fixture := newDeathServiceFixture(t, nil, nil)
 	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
 	cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
 	added := fixture.addCargo(t, iron, 8, cargoLocation)
+	fixture.equippedModules.SetItemIDs("module-instance-1")
 	hook := &recordingDeathServiceModuleHook{
 		result: death.ModuleDurabilityResult{
 			StatInvalidations: []death.ModuleStatInvalidationSignal{
@@ -213,7 +254,6 @@ func TestDeathServiceProcessDeathDuplicateLethalEventDoesNotMutateTwice(t *testi
 			cargoStackFromDeathServiceStackable(t, added.StackableItems[0], iron),
 		},
 		RespawnLocationID: "origin-station",
-		EquippedItemIDs:   []foundation.ItemID{"module-instance-1"},
 	}
 
 	first, err := fixture.death.ProcessDeath(input)
@@ -255,6 +295,9 @@ func TestDeathServiceProcessDeathDuplicateLethalEventDoesNotMutateTwice(t *testi
 	}
 	if len(hook.calls) != 1 {
 		t.Fatalf("module hook calls after duplicate = %d, want 1", len(hook.calls))
+	}
+	if got, want := len(fixture.equippedModules.calls), 1; got != want {
+		t.Fatalf("equipped module provider calls after duplicate = %d, want %d", got, want)
 	}
 	if second.ModuleDurabilityResult == nil || !second.ModuleDurabilityResult.Duplicate {
 		t.Fatalf("duplicate module durability result = %+v, want duplicate marker", second.ModuleDurabilityResult)
@@ -796,13 +839,14 @@ func TestDeathServiceProcessDeathPreservesProtectedCargo(t *testing.T) {
 }
 
 type deathServiceFixture struct {
-	clock     *testutil.FakeClock
-	inventory *economy.InventoryService
-	cargo     *economy.CargoService
-	loot      *loot.Service
-	ships     *ships.HangarService
-	death     *death.DeathService
-	events    *testutil.EventRecorder
+	clock           *testutil.FakeClock
+	inventory       *economy.InventoryService
+	cargo           *economy.CargoService
+	loot            *loot.Service
+	ships           *ships.HangarService
+	equippedModules *recordingDeathServiceEquippedModules
+	death           *death.DeathService
+	events          *testutil.EventRecorder
 }
 
 func newDeathServiceFixture(t *testing.T, ints []int, floats []float64) deathServiceFixture {
@@ -834,25 +878,28 @@ func newDeathServiceFixture(t *testing.T, ints []int, floats []float64) deathSer
 	}
 	ensureDeathServiceActiveFighter(t, shipService)
 	eventRecorder := testutil.NewEventRecorder()
+	equippedModules := &recordingDeathServiceEquippedModules{}
 	deathService, err := death.NewDeathService(death.Config{
-		Clock:        clock,
-		RNG:          testutil.NewFakeRNG(ints, floats),
-		Inventory:    inventory,
-		Loot:         lootService,
-		Ships:        shipService,
-		EventEmitter: eventRecorder,
+		Clock:           clock,
+		RNG:             testutil.NewFakeRNG(ints, floats),
+		Inventory:       inventory,
+		Loot:            lootService,
+		Ships:           shipService,
+		EquippedModules: equippedModules,
+		EventEmitter:    eventRecorder,
 	})
 	if err != nil {
 		t.Fatalf("death.NewDeathService() error = %v", err)
 	}
 	return deathServiceFixture{
-		clock:     clock,
-		inventory: inventory,
-		cargo:     cargo,
-		loot:      lootService,
-		ships:     shipService,
-		death:     deathService,
-		events:    eventRecorder,
+		clock:           clock,
+		inventory:       inventory,
+		cargo:           cargo,
+		loot:            lootService,
+		ships:           shipService,
+		equippedModules: equippedModules,
+		death:           deathService,
+		events:          eventRecorder,
 	}
 }
 
@@ -1033,6 +1080,35 @@ func decodeDeathServiceEventPayload[T any](t *testing.T, payload []byte) T {
 		t.Fatalf("decode death event payload %s: %v", string(payload), err)
 	}
 	return decoded
+}
+
+type deathServiceEquippedModuleCall struct {
+	playerID foundation.PlayerID
+	shipID   foundation.ShipID
+}
+
+type recordingDeathServiceEquippedModules struct {
+	calls   []deathServiceEquippedModuleCall
+	itemIDs []foundation.ItemID
+	err     error
+}
+
+func (provider *recordingDeathServiceEquippedModules) SetItemIDs(itemIDs ...foundation.ItemID) {
+	provider.itemIDs = append([]foundation.ItemID(nil), itemIDs...)
+}
+
+func (provider *recordingDeathServiceEquippedModules) EquippedItemIDs(
+	playerID foundation.PlayerID,
+	shipID foundation.ShipID,
+) ([]foundation.ItemID, error) {
+	provider.calls = append(provider.calls, deathServiceEquippedModuleCall{
+		playerID: playerID,
+		shipID:   shipID,
+	})
+	if provider.err != nil {
+		return nil, provider.err
+	}
+	return append([]foundation.ItemID(nil), provider.itemIDs...), nil
 }
 
 type recordingDeathServiceModuleHook struct {

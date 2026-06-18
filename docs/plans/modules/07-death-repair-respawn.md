@@ -133,6 +133,7 @@ BEGIN
   remove dropped items from cargo
   create world drops via LootService
   mark ship disabled
+  read equipped modules from server-owned loadout state
   roll module durability damage
   insert death record
 COMMIT
@@ -331,11 +332,14 @@ Defense:
 Risk:
 
 - Client unequips modules after death packet.
+- Client omits equipped module ids from a death request.
 
 Defense:
 
 - death transaction locks equipped modules as of lethal event
 - no equip/unequip while dead/combat locked
+- DeathService reads equipped item ids from server-owned loadout/module state;
+  client death input does not include an equipped-module list.
 
 ## Testing Checklist
 

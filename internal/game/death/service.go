@@ -36,6 +36,7 @@ var (
 	ErrDeathCargoOwnerMismatch     = errors.New("death cargo owner mismatch")
 	ErrDeathCargoLocationMismatch  = errors.New("death cargo location mismatch")
 	ErrDeathCargoTransferBlocked   = errors.New("death cargo transfer blocked")
+	ErrNilEquippedModuleProvider   = errors.New("nil equipped module provider")
 )
 
 // InventoryRemover is the inventory boundary DeathService needs for cargo loss.
@@ -61,6 +62,13 @@ type ModuleDurabilityHook interface {
 	ApplyDeathDurability(ModuleDurabilityInput) (ModuleDurabilityResult, error)
 }
 
+// EquippedModuleProvider returns the server-owned equipped module item
+// instances on a player ship. Death processing uses this instead of accepting a
+// client-provided loadout list.
+type EquippedModuleProvider interface {
+	EquippedItemIDs(foundation.PlayerID, foundation.ShipID) ([]foundation.ItemID, error)
+}
+
 // EventEmitter is the optional post-mutation event hook.
 type EventEmitter interface {
 	Record(events.EventEnvelope)
@@ -76,6 +84,7 @@ type Config struct {
 	Ships     ActiveShipDisabler
 
 	ModuleDurability ModuleDurabilityHook
+	EquippedModules  EquippedModuleProvider
 	EventEmitter     EventEmitter
 }
 
@@ -89,6 +98,7 @@ type DeathService struct {
 	loot             PlayerDeathDropCreator
 	ships            ActiveShipDisabler
 	moduleDurability ModuleDurabilityHook
+	equippedModules  EquippedModuleProvider
 	emitter          EventEmitter
 
 	attempts          map[LethalEventKey]processDeathAttempt
@@ -105,6 +115,7 @@ type processDeathAttempt struct {
 	selection         CargoDropSelection
 	shipDisabled      bool
 	shipDisableResult ships.DisableActiveShipForDeathResult
+	equippedItemIDs   []foundation.ItemID
 }
 
 // ProcessDeathInput is one authoritative lethal event to process once.
@@ -123,10 +134,6 @@ type ProcessDeathInput struct {
 	// DropOwnerPlayerID is optional. PvP rules can set it to the killer; PvE can
 	// leave it empty so the drop becomes public after the loot service windows.
 	DropOwnerPlayerID foundation.PlayerID `json:"drop_owner_player_id,omitempty"`
-
-	// EquippedItemIDs are the module item instances selected by the caller for
-	// death durability handling. DeathService does not roll random damage here.
-	EquippedItemIDs []foundation.ItemID `json:"equipped_item_ids,omitempty"`
 }
 
 // ProcessDeathResult reports all service-owned side effects from ProcessDeath.
@@ -142,7 +149,8 @@ type ProcessDeathResult struct {
 	Duplicate              bool                                  `json:"duplicate"`
 }
 
-// ModuleDurabilityInput is the death-domain handoff to module durability.
+// ModuleDurabilityInput is the death-domain handoff to module durability. The
+// equipped item ids are selected from server-owned loadout state.
 type ModuleDurabilityInput struct {
 	DeathID         foundation.EventID  `json:"death_id"`
 	LethalEventKey  LethalEventKey      `json:"lethal_event_key"`
@@ -241,6 +249,9 @@ func NewDeathService(config Config) (*DeathService, error) {
 	if config.Ships == nil {
 		return nil, ErrNilShipService
 	}
+	if config.ModuleDurability != nil && config.EquippedModules == nil {
+		return nil, ErrNilEquippedModuleProvider
+	}
 	service := &DeathService{
 		clock:            config.Clock,
 		rng:              config.RNG,
@@ -248,6 +259,7 @@ func NewDeathService(config Config) (*DeathService, error) {
 		loot:             config.Loot,
 		ships:            config.Ships,
 		moduleDurability: config.ModuleDurability,
+		equippedModules:  config.EquippedModules,
 		emitter:          config.EventEmitter,
 		attempts:         make(map[LethalEventKey]processDeathAttempt),
 		processed:        make(map[LethalEventKey]ProcessDeathResult),
@@ -264,6 +276,15 @@ func (service *DeathService) SetModuleDurabilityHook(hook ModuleDurabilityHook) 
 	defer service.mu.Unlock()
 
 	service.moduleDurability = hook
+}
+
+// SetEquippedModuleProvider configures the server-owned equipped module reader
+// used by the optional durability hook.
+func (service *DeathService) SetEquippedModuleProvider(provider EquippedModuleProvider) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	service.equippedModules = provider
 }
 
 // SetEventEmitter configures the optional post-mutation event hook.
@@ -329,6 +350,9 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 	if existing, ok := service.processed[lethalKey]; ok {
 		return duplicateProcessDeathResult(existing), nil
 	}
+	if service.moduleDurability != nil && service.equippedModules == nil {
+		return ProcessDeathResult{}, ErrNilEquippedModuleProvider
+	}
 
 	attempt, ok := service.attempts[lethalKey]
 	if !ok {
@@ -385,14 +409,20 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 		if err := validateDeathCargoDrops(input.PlayerID, shipDisable.ActiveShip.ShipID, selection.Drops); err != nil {
 			return ProcessDeathResult{}, err
 		}
+		equippedItemIDs, err := service.equippedItemIDsForDeath(input.PlayerID, shipDisable.ActiveShip.ShipID)
+		if err != nil {
+			return ProcessDeathResult{}, err
+		}
 		attempt = processDeathAttempt{
 			selection:         cloneCargoDropSelection(selection),
 			shipDisabled:      shipDisable.Disabled,
 			shipDisableResult: shipDisable,
+			equippedItemIDs:   append([]foundation.ItemID(nil), equippedItemIDs...),
 		}
 		service.attempts[lethalKey] = attempt
 	}
 	selection := cloneCargoDropSelection(attempt.selection)
+	equippedItemIDs := append([]foundation.ItemID(nil), attempt.equippedItemIDs...)
 	if err := validateDeathCargoDrops(input.PlayerID, shipDisable.ActiveShip.ShipID, selection.Drops); err != nil {
 		return ProcessDeathResult{}, err
 	}
@@ -422,13 +452,13 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 	}
 
 	var durabilityResult *ModuleDurabilityResult
-	if service.moduleDurability != nil && len(input.EquippedItemIDs) > 0 {
+	if service.moduleDurability != nil && len(equippedItemIDs) > 0 {
 		hookResult, err := service.moduleDurability.ApplyDeathDurability(ModuleDurabilityInput{
 			DeathID:         deathID,
 			LethalEventKey:  lethalKey,
 			PlayerID:        input.PlayerID,
 			ShipID:          shipDisable.ActiveShip.ShipID,
-			EquippedItemIDs: append([]foundation.ItemID(nil), input.EquippedItemIDs...),
+			EquippedItemIDs: equippedItemIDs,
 		})
 		if err != nil {
 			return ProcessDeathResult{}, err
@@ -506,11 +536,6 @@ func (input ProcessDeathInput) validate() error {
 	}
 	if !input.DropOwnerPlayerID.IsZero() {
 		if err := input.DropOwnerPlayerID.Validate(); err != nil {
-			return err
-		}
-	}
-	for _, itemID := range input.EquippedItemIDs {
-		if err := itemID.Validate(); err != nil {
 			return err
 		}
 	}
@@ -696,6 +721,26 @@ func (service *DeathService) activeShipForDeath(playerID foundation.PlayerID) (f
 		}
 	}
 	return "", false, fmt.Errorf("active ship %q: %w", activeShipID, ships.ErrShipNotUnlocked)
+}
+
+func (service *DeathService) equippedItemIDsForDeath(playerID foundation.PlayerID, shipID foundation.ShipID) ([]foundation.ItemID, error) {
+	if service.moduleDurability == nil {
+		return nil, nil
+	}
+	if service.equippedModules == nil {
+		return nil, ErrNilEquippedModuleProvider
+	}
+	itemIDs, err := service.equippedModules.EquippedItemIDs(playerID, shipID)
+	if err != nil {
+		return nil, err
+	}
+	cloned := append([]foundation.ItemID(nil), itemIDs...)
+	for index, itemID := range cloned {
+		if err := itemID.Validate(); err != nil {
+			return nil, fmt.Errorf("equipped_item_ids[%d]: %w", index, err)
+		}
+	}
+	return cloned, nil
 }
 
 func validateDeathCargoStacks(playerID foundation.PlayerID, activeShipID foundation.ShipID, cargo []CargoStack) error {
