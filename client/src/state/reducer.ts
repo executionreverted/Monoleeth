@@ -7,7 +7,7 @@ import {
   rejectForbiddenPayloadKeys,
   Vec2,
 } from '../protocol/envelope';
-import { ClientAction, ClientState, LogLine } from './types';
+import { CargoSummary, ClientAction, ClientState, LogLine, StatSummary, WalletSummary } from './types';
 
 export function createInitialState(): ClientState {
   return {
@@ -42,6 +42,17 @@ export function createInitialState(): ClientState {
         { item_id: 'raw_ore', quantity: 11 },
         { item_id: 'salvage_thread', quantity: 6 },
       ],
+    },
+    wallet: {
+      credits: 1250,
+      premium_paid: 0,
+      premium_earned: 25,
+    },
+    stats: {
+      speed: 180,
+      radar_range: 420,
+      weapon_range: 260,
+      cargo_capacity: 60,
     },
     questBoard: { available: 3, active: 1 },
     inventory: { equipped: 4, storage: 12 },
@@ -92,25 +103,24 @@ export function reduceClientState(state: ClientState, action: ClientAction): Cli
       }
 
       const snapshotEntities = parseSnapshotEntities(action.envelope.payload);
+      const stateWithSnapshots = applySnapshotPayload(
+        {
+          ...state,
+          pendingCommands,
+          lastServerTime: action.envelope.server_time,
+          commandLog: appendLog(state.commandLog, 'info', `Accepted ${action.envelope.request_id}.`),
+        },
+        action.envelope.payload,
+      );
       if (snapshotEntities) {
         return replaceVisibleEntities(
-          {
-            ...state,
-            pendingCommands,
-            lastServerTime: action.envelope.server_time,
-            commandLog: appendLog(state.commandLog, 'info', `Accepted ${action.envelope.request_id}.`),
-          },
+          stateWithSnapshots,
           snapshotEntities,
           action.envelope.server_time,
         );
       }
 
-      return {
-        ...state,
-        pendingCommands,
-        lastServerTime: action.envelope.server_time,
-        commandLog: appendLog(state.commandLog, 'info', `Accepted ${action.envelope.request_id}.`),
-      };
+      return stateWithSnapshots;
     }
 
     case 'replaceVisibleEntities':
@@ -174,6 +184,30 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       return {
         ...state,
         playerSnapshot: { ...state.playerSnapshot, ...envelope.payload },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.cargoSnapshot:
+      return {
+        ...state,
+        cargo: parseCargoSummary(envelope.payload, state.cargo),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.walletSnapshot:
+      return {
+        ...state,
+        wallet: parseWalletSummary(envelope.payload, state.wallet),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.statsSnapshot:
+      return {
+        ...state,
+        stats: parseStatSummary(envelope.payload, state.stats),
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
@@ -272,6 +306,45 @@ function parseSnapshotEntities(payload: JsonObject): EntityPayload[] | null {
   });
 }
 
+function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientState {
+  rejectForbiddenPayloadKeys(payload);
+
+  let next = state;
+  const player = objectField(payload, 'player') ?? objectField(payload, 'player_snapshot');
+  if (player) {
+    next = {
+      ...next,
+      playerSnapshot: { ...next.playerSnapshot, ...player },
+    };
+  }
+
+  const cargo = objectField(payload, 'cargo') ?? objectField(payload, 'cargo_snapshot');
+  if (cargo) {
+    next = {
+      ...next,
+      cargo: parseCargoSummary(cargo, next.cargo),
+    };
+  }
+
+  const wallet = objectField(payload, 'wallet') ?? objectField(payload, 'wallet_snapshot');
+  if (wallet) {
+    next = {
+      ...next,
+      wallet: parseWalletSummary(wallet, next.wallet),
+    };
+  }
+
+  const stats = objectField(payload, 'stats') ?? objectField(payload, 'stat_snapshot');
+  if (stats) {
+    next = {
+      ...next,
+      stats: parseStatSummary(stats, next.stats),
+    };
+  }
+
+  return next;
+}
+
 function parseEntityPayload(payload: JsonObject): EntityPayload {
   const source = isJsonObject(payload.entity) ? payload.entity : payload;
   const entityID = typeof source.entity_id === 'string' ? source.entity_id : '';
@@ -309,6 +382,42 @@ function requirePosition(payload: JsonObject): Vec2 {
   throw new Error('Missing correction position.');
 }
 
+function parseCargoSummary(payload: JsonObject, fallback: CargoSummary): CargoSummary {
+  const used = numberField(payload, 'used') ?? fallback.used;
+  const capacity = numberField(payload, 'capacity') ?? numberField(payload, 'cargo_capacity') ?? fallback.capacity;
+  const rawItems = Array.isArray(payload.items) ? payload.items : fallback.items;
+  const items = rawItems
+    .filter(isJsonObject)
+    .map((item) => ({
+      item_id: stringField(item, 'item_id') ?? '',
+      quantity: numberField(item, 'quantity') ?? 0,
+    }))
+    .filter((item) => item.item_id !== '' && item.quantity > 0);
+
+  return {
+    used: Math.max(0, Math.round(used)),
+    capacity: Math.max(1, Math.round(capacity)),
+    items,
+  };
+}
+
+function parseWalletSummary(payload: JsonObject, fallback: WalletSummary): WalletSummary {
+  return {
+    credits: Math.max(0, Math.round(numberField(payload, 'credits') ?? fallback.credits)),
+    premium_paid: Math.max(0, Math.round(numberField(payload, 'premium_paid') ?? fallback.premium_paid)),
+    premium_earned: Math.max(0, Math.round(numberField(payload, 'premium_earned') ?? fallback.premium_earned)),
+  };
+}
+
+function parseStatSummary(payload: JsonObject, fallback: StatSummary): StatSummary {
+  return {
+    speed: Math.max(0, numberField(payload, 'speed') ?? fallback.speed),
+    radar_range: Math.max(0, numberField(payload, 'radar_range') ?? fallback.radar_range),
+    weapon_range: Math.max(0, numberField(payload, 'weapon_range') ?? fallback.weapon_range),
+    cargo_capacity: Math.max(0, numberField(payload, 'cargo_capacity') ?? fallback.cargo_capacity),
+  };
+}
+
 function isVec2(value: JsonValue | unknown): value is Vec2 {
   return (
     typeof value === 'object' &&
@@ -323,6 +432,21 @@ function isVec2(value: JsonValue | unknown): value is Vec2 {
 
 function isJsonObject(value: JsonValue | unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function objectField(payload: JsonObject, key: string): JsonObject | null {
+  const value = payload[key];
+  return isJsonObject(value) ? value : null;
+}
+
+function stringField(payload: JsonObject, key: string): string | null {
+  const value = payload[key];
+  return typeof value === 'string' ? value : null;
+}
+
+function numberField(payload: JsonObject, key: string): number | null {
+  const value = payload[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function isKnownEntityType(entityType: string): entityType is EntityPayload['entity_type'] {

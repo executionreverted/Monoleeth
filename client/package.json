@@ -6,10 +6,13 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "lint": "node tests/client-lint.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke": "node tests/browser-smoke.mjs"
+    "smoke": "node tests/browser-smoke.mjs",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run smoke"
   },
   "dependencies": {
     "pixi.js": "^8.19.0"

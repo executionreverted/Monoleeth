@@ -18,6 +18,23 @@ export class CommandBuilder {
     return this.build(OPERATIONS.debugSnapshot, {});
   }
 
+  combatUseSkill(targetID: string, skillID = 'basic_laser'): RequestEnvelope<{ target_id: string; skill_id: string }> {
+    return this.build(OPERATIONS.combatUseSkill, {
+      target_id: targetID,
+      skill_id: skillID,
+    });
+  }
+
+  lootPickup(dropID: string): RequestEnvelope<{ drop_id: string }> {
+    return this.build(OPERATIONS.lootPickup, {
+      drop_id: dropID,
+    });
+  }
+
+  scanPulse(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.scanPulse, {});
+  }
+
   debugSpawnNPC(entityID: string, position: Vec2): RequestEnvelope<{ entity_id: string; position: Vec2 }> {
     return this.build(OPERATIONS.debugSpawnNPC, {
       entity_id: entityID,

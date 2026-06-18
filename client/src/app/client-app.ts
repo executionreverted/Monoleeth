@@ -15,7 +15,7 @@ export class ClientApp {
     onSelectTarget: (entityID) => this.dispatch({ type: 'selectTarget', entityID }),
   });
   private readonly realtime = new RealtimeClient({
-    onStatus: (status) => this.dispatch({ type: 'connectionChanged', status }),
+    onStatus: (status) => this.handleRealtimeStatus(status),
     onMessage: (message) => this.applyServerMessage(message),
     onError: (message) => this.dispatch({ type: 'appendLog', level: 'error', text: message }),
   });
@@ -45,6 +45,9 @@ export class ClientApp {
       onDisconnect: () => this.disconnect(),
       onStop: () => this.sendCommand(this.commandBuilder.stop()),
       onDebugSnapshot: () => this.sendCommand(this.commandBuilder.debugSnapshot()),
+      onFire: () => this.sendBasicSkill(),
+      onLoot: () => this.sendLootPickup(),
+      onScan: () => this.sendCommand(this.commandBuilder.scanPulse()),
     });
 
     this.seedDemoState();
@@ -82,6 +85,24 @@ export class ClientApp {
     }
   }
 
+  private sendBasicSkill(): void {
+    const target = this.selectedTarget();
+    if (!target || target.entity_type !== 'npc_placeholder') {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'No hostile target selected.' });
+      return;
+    }
+    this.sendCommand(this.commandBuilder.combatUseSkill(target.entity_id));
+  }
+
+  private sendLootPickup(): void {
+    const target = this.selectedTarget();
+    if (!target || target.entity_type !== 'loot_placeholder') {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'No visible drop selected.' });
+      return;
+    }
+    this.sendCommand(this.commandBuilder.lootPickup(target.entity_id));
+  }
+
   private sendCommand(envelope: RequestEnvelope): void {
     this.dispatch({ type: 'requestQueued', envelope });
     if (!this.realtime.send(envelope)) {
@@ -110,6 +131,13 @@ export class ClientApp {
     this.dispatch({ type: 'responseReceived', envelope: message });
   }
 
+  private handleRealtimeStatus(status: ClientState['connectionStatus']): void {
+    this.dispatch({ type: 'connectionChanged', status });
+    if (status === 'connected') {
+      this.sendCommand(this.commandBuilder.debugSnapshot());
+    }
+  }
+
   private dispatch(action: ClientAction): void {
     try {
       this.state = reduceClientState(this.state, action);
@@ -131,9 +159,40 @@ export class ClientApp {
       lastCorrection: this.state.lastCorrection,
     });
     this.hud?.render(this.state);
+    this.publishSmokeState();
   }
 
   private findLocalPlayerID(): string {
     return Object.values(this.state.visibleEntities).find((entity) => entity.entity_type === 'player')?.entity_id ?? 'player-local';
+  }
+
+  private selectedTarget() {
+    return this.state.selectedTargetID ? this.state.visibleEntities[this.state.selectedTargetID] ?? null : null;
+  }
+
+  private publishSmokeState(): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('smoke')) {
+      return;
+    }
+    const smokeWindow = window as Window & { __SPACE_MORPG_SMOKE_STATE__?: unknown };
+    smokeWindow.__SPACE_MORPG_SMOKE_STATE__ = JSON.parse(
+      JSON.stringify({
+        connectionStatus: this.state.connectionStatus,
+        lastServerTime: this.state.lastServerTime,
+        lastSequence: this.state.lastSequence,
+        playerSnapshot: this.state.playerSnapshot,
+        visibleEntities: this.state.visibleEntities,
+        selectedTargetID: this.state.selectedTargetID,
+        cargo: this.state.cargo,
+        wallet: this.state.wallet,
+        stats: this.state.stats,
+        commandLog: this.state.commandLog,
+        combatLog: this.state.combatLog,
+      }),
+    );
   }
 }

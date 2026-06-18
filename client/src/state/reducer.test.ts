@@ -70,7 +70,7 @@ describe('reduceClientState', () => {
           internal_metadata: { seed: 'nope' },
         }),
       }),
-    ).toThrow(/Forbidden server payload key/);
+    ).toThrow(/Forbidden server payload rejected/);
   });
 
   test('request and response flow tracks pending commands', () => {
@@ -176,7 +176,58 @@ describe('reduceClientState', () => {
           v: 1,
         },
       }),
-    ).toThrow(/Forbidden server payload key/);
+    ).toThrow(/Forbidden server payload rejected/);
+  });
+
+  test('snapshot response reconciles player, cargo, wallet, and stat panels', () => {
+    const reconciled = reduceClientState(createInitialState(), {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'snapshot-panels',
+        ok: true,
+        payload: {
+          player: { callsign: 'Server-Pilot', hp: 77, shield: 44, energy: 33, rank: 2 },
+          cargo: {
+            used: 4,
+            capacity: 80,
+            items: [{ item_id: 'raw_ore', quantity: 4 }],
+          },
+          wallet: { credits: 980, premium_paid: 3, premium_earned: 9 },
+          stats: { speed: 220, radar_range: 510, weapon_range: 280, cargo_capacity: 80 },
+        },
+        server_time: 1400,
+        v: 1,
+      },
+    });
+
+    expect(reconciled.playerSnapshot.callsign).toBe('Server-Pilot');
+    expect(reconciled.cargo).toMatchObject({ used: 4, capacity: 80 });
+    expect(reconciled.cargo.items).toEqual([{ item_id: 'raw_ore', quantity: 4 }]);
+    expect(reconciled.wallet).toEqual({ credits: 980, premium_paid: 3, premium_earned: 9 });
+    expect(reconciled.stats).toMatchObject({ speed: 220, radar_range: 510, weapon_range: 280, cargo_capacity: 80 });
+  });
+
+  test('snapshot events reconcile cargo, wallet, and stats independently', () => {
+    const withCargo = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.cargoSnapshot, {
+        used: 12,
+        capacity: 70,
+        items: [{ item_id: 'salvage_thread', quantity: 12 }],
+      }),
+    });
+    const withWallet = reduceClientState(withCargo, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.walletSnapshot, { credits: 444, premium_paid: 1, premium_earned: 2 }, 2),
+    });
+    const withStats = reduceClientState(withWallet, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.statsSnapshot, { speed: 210, radar_range: 500, weapon_range: 275, cargo_capacity: 70 }, 3),
+    });
+
+    expect(withStats.cargo.items).toEqual([{ item_id: 'salvage_thread', quantity: 12 }]);
+    expect(withStats.wallet.credits).toBe(444);
+    expect(withStats.stats.weapon_range).toBe(275);
   });
 });
 

@@ -8,9 +8,11 @@ for phase status; this file is a compact pending-work index.
 
 ## Open
 
-- [ ] Replace the Phase 11 browser client's offline demo harness with an
-  authenticated WebSocket gateway flow, including reconnect snapshot request
-  and server-authoritative player resolution. Source:
+- [ ] Replace the Phase 11 browser client's offline demo/local smoke harness
+  with an authenticated Go WebSocket gateway flow and server-authoritative
+  player/session resolution. The browser now requests a fresh snapshot whenever
+  a realtime link opens, but the concrete production transport is still future
+  work. Source:
   `docs/roadmap/11-browser-client-prototype.md`.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
@@ -91,20 +93,18 @@ for phase status; this file is a compact pending-work index.
   can only express scan/share/claim/use intents for the authenticated player;
   never accept client-authored coordinates, planet candidates, XP, X Core
   consumption, or scroll metadata.
-- [ ] Enable Phase 11 browser controls for combat, loot, scanner, wallet/cargo,
-  and stat snapshots only after authenticated gateway operations expose
-  server-authoritative commands and safe snapshot events. Current UI controls
-  remain disabled for `combat.set_target`, `combat.use_skill`, `loot.pickup`,
-  and `scan.pulse`. Source: `docs/roadmap/11-browser-client-prototype.md`.
-- [ ] Add a dedicated browser-client lint configuration after the Phase 11
-  prototype settles. Current client verification has TypeScript typecheck,
-  Vitest unit tests, Vite production build, and Playwright smoke coverage, but
-  no ESLint pass. Source: `docs/roadmap/11-browser-client-prototype.md`.
-- [ ] Add a Phase 11 WebSocket browser smoke fixture that sends forbidden
-  server payload keys and asserts the browser client rejects them without
-  mutating visible state. Unit tests cover parser/reducer rejection today, but
-  the Playwright smoke currently checks only rendered body text. Source:
-  Symphony review `local-0106`.
+- [ ] Wire Phase 11 browser combat, loot, scanner, wallet/cargo, and stat
+  controls to authenticated Go gateway/runtime handlers once those operations
+  expose server-authoritative commands and safe snapshot events. The browser now
+  emits safe `combat.use_skill`, `loot.pickup`, and `scan.pulse` intents and
+  verifies them against the local smoke WebSocket fixture, but production
+  transport/runtime adapters remain open. Source:
+  `docs/roadmap/11-browser-client-prototype.md`.
+- [ ] Add a dedicated browser-client ESLint/style configuration after the Phase
+  11 prototype settles. Current client verification has a trust-boundary lint
+  script, TypeScript typecheck, Vitest unit tests, Vite production build, and
+  Playwright smoke coverage, but no ESLint pass. Source:
+  `docs/roadmap/11-browser-client-prototype.md`.
 - [ ] Finish wiring Phase 12 observability through concrete authenticated
   gateway command handlers and remaining domain service command paths.
   `ObservedCommandExecutor` now records safe realtime command logs/metrics,
@@ -173,6 +173,13 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Add a Phase 11 WebSocket browser smoke fixture that sends forbidden server
+  payload keys and asserts the browser client rejects them without mutating
+  smoke-visible client state. The smoke now connects desktop and mobile browser
+  viewports to a local WebSocket fixture, requests a reconnect snapshot, sends
+  combat, loot, scan, and move intents, checks canvas pixels/layout, and scans
+  rendered text plus smoke state for hidden debug data. Source:
+  `docs/roadmap/11-browser-client-prototype.md`.
 - [x] Add Phase 09 process-local production and route settlement event envelopes
   for production, building output, storage-full, energy-insufficient,
   route-settled, route-loss, source-empty, destination-full, and

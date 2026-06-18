@@ -8,6 +8,7 @@ Use a temporary npm cache if the default home cache is not writable:
 
 ```bash
 npm --cache /tmp/gameproject-npm-cache install
+npm --cache /tmp/gameproject-npm-cache run lint
 npm --cache /tmp/gameproject-npm-cache test
 npm --cache /tmp/gameproject-npm-cache run build
 ```
@@ -24,6 +25,8 @@ Run the smoke check against an already-running dev server:
 npm --cache /tmp/gameproject-npm-cache run smoke -- --url http://127.0.0.1:5173
 ```
 
-The current prototype uses an explicit offline demo harness when no WebSocket
-gateway is connected. Real server commands are limited to the Phase 04 realtime
-contract: `move_to`, `stop`, `debug_snapshot`, and `debug_spawn_npc`.
+The smoke check starts its own local WebSocket fixture and verifies connect,
+snapshot, move, combat, loot, scan, canvas, responsive layout, and hidden-data
+rejection paths. The current prototype still uses an offline demo harness when
+no WebSocket gateway is connected. Production Go WebSocket transport and
+authenticated runtime adapters remain future work.

@@ -322,6 +322,7 @@ button:disabled {
 
 @media (max-width: 767px) {
   .hud {
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
     gap: 0.375rem;
     padding: 0.5rem;
   }
@@ -357,12 +358,23 @@ button:disabled {
     scroll-snap-type: x proximity;
   }
 
-  .hud__rail--left .panel {
+  .hud__rail--right {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(15rem, 1fr));
+    align-self: end;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding-bottom: 0.125rem;
+    scroll-snap-type: x proximity;
+  }
+
+  .hud__rail--left .panel,
+  .hud__rail--right .panel {
     scroll-snap-align: start;
   }
 
   .hud__log {
-    max-height: 7.25rem;
+    max-height: 6.25rem;
     overflow: hidden;
   }
 

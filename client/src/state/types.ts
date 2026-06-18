@@ -26,6 +26,19 @@ export interface CargoSummary {
   items: Array<{ item_id: string; quantity: number }>;
 }
 
+export interface WalletSummary {
+  credits: number;
+  premium_paid: number;
+  premium_earned: number;
+}
+
+export interface StatSummary {
+  speed: number;
+  radar_range: number;
+  weapon_range: number;
+  cargo_capacity: number;
+}
+
 export interface PendingCommand {
   requestID: string;
   op: string;
@@ -46,6 +59,8 @@ export interface ClientState {
   commandLog: LogLine[];
   combatLog: LogLine[];
   cargo: CargoSummary;
+  wallet: WalletSummary;
+  stats: StatSummary;
   questBoard: { available: number; active: number };
   inventory: { equipped: number; storage: number };
   planetIntel: { knownSignals: number; staleIntel: number };

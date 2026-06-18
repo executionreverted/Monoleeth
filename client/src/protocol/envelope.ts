@@ -5,12 +5,18 @@ export const OPERATIONS = {
   stop: 'stop',
   debugSpawnNPC: 'debug_spawn_npc',
   debugSnapshot: 'debug_snapshot',
+  combatUseSkill: 'combat.use_skill',
+  lootPickup: 'loot.pickup',
+  scanPulse: 'scan.pulse',
 } as const;
 
 export type Operation = (typeof OPERATIONS)[keyof typeof OPERATIONS];
 
 export const CLIENT_EVENTS = {
   playerSnapshot: 'player.snapshot',
+  cargoSnapshot: 'cargo.snapshot',
+  walletSnapshot: 'wallet.snapshot',
+  statsSnapshot: 'stats.updated',
   entityEntered: 'aoi.entity_entered',
   entityLeft: 'aoi.entity_left',
   positionCorrected: 'position.corrected',
@@ -145,7 +151,7 @@ export function parseServerMessage(raw: string): ServerMessage {
 export function rejectForbiddenPayloadKeys(value: JsonValue): void {
   const found = findForbiddenPayloadKey(value);
   if (found) {
-    throw new Error(`Forbidden server payload key: ${found}`);
+    throw new Error('Forbidden server payload rejected.');
   }
 }
 

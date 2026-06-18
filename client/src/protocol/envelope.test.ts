@@ -65,7 +65,7 @@ describe('parseServerMessage', () => {
           v: 1,
         }),
       ),
-    ).toThrow(/Forbidden server payload key/);
+    ).toThrow(/Forbidden server payload rejected/);
   });
 
   test('rejects unsupported protocol versions', () => {
@@ -86,7 +86,7 @@ describe('parseServerMessage', () => {
 describe('rejectForbiddenPayloadKeys', () => {
   test('checks nested payloads', () => {
     expect(() => rejectForbiddenPayloadKeys({ entities: [{ future_spawn_data: ['x'] }] })).toThrow(
-      /future_spawn_data/,
+      /Forbidden server payload rejected/,
     );
   });
 });

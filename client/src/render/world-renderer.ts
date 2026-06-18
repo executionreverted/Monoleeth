@@ -15,6 +15,8 @@ export class WorldRenderer {
   private readonly worldLayer = new Container();
   private readonly markerLayer = new Container();
   private readonly entityViews = new Map<string, Graphics>();
+  private readonly entityTargets = new Map<string, EntityPayload>();
+  private readonly entityWorldPositions = new Map<string, Vec2>();
   private readonly stars: Graphics[] = [];
   private state: WorldViewState | null = null;
   private center: Vec2 = { x: 0, y: 0 };
@@ -46,6 +48,7 @@ export class WorldRenderer {
       for (const star of this.stars) {
         star.alpha = 0.42 + pulse * 0.24;
       }
+      this.updateInterpolatedEntities();
       this.markerLayer.rotation += 0.0007 * ticker.deltaTime;
     });
   }
@@ -65,20 +68,26 @@ export class WorldRenderer {
       if (!activeIDs.has(entityID)) {
         view.destroy();
         this.entityViews.delete(entityID);
+        this.entityTargets.delete(entityID);
+        this.entityWorldPositions.delete(entityID);
       }
     }
 
     for (const entity of state.entities) {
+      this.entityTargets.set(entity.entity_id, entity);
       let view = this.entityViews.get(entity.entity_id);
       if (!view) {
         view = this.createEntityView(entity);
         this.entityViews.set(entity.entity_id, view);
+        this.entityWorldPositions.set(entity.entity_id, { ...entity.position });
         this.worldLayer.addChild(view);
       }
 
       this.drawEntity(view, entity, state.selectedTargetID === entity.entity_id);
-      const screen = this.worldToScreen(entity.position);
-      view.position.set(screen.x, screen.y);
+      if (entity.entity_type === 'player') {
+        this.entityWorldPositions.set(entity.entity_id, { ...entity.position });
+      }
+      this.positionEntityView(entity.entity_id, view);
     }
 
     this.drawMarkers(state);
@@ -190,6 +199,35 @@ export class WorldRenderer {
     }
   }
 
+  private updateInterpolatedEntities(): void {
+    for (const [entityID, entity] of this.entityTargets) {
+      const view = this.entityViews.get(entityID);
+      if (!view) {
+        continue;
+      }
+
+      const current = this.entityWorldPositions.get(entityID) ?? entity.position;
+      const next =
+        entity.entity_type === 'player'
+          ? entity.position
+          : {
+              x: lerp(current.x, entity.position.x, 0.16),
+              y: lerp(current.y, entity.position.y, 0.16),
+            };
+      this.entityWorldPositions.set(entityID, snapClose(next, entity.position));
+      this.positionEntityView(entityID, view);
+    }
+  }
+
+  private positionEntityView(entityID: string, view: Graphics): void {
+    const world = this.entityWorldPositions.get(entityID) ?? this.entityTargets.get(entityID)?.position;
+    if (!world) {
+      return;
+    }
+    const screen = this.worldToScreen(world);
+    view.position.set(screen.x, screen.y);
+  }
+
   private findEntityAtScreen(screen: Vec2): EntityPayload | null {
     if (!this.state) {
       return null;
@@ -226,4 +264,17 @@ export class WorldRenderer {
       y: Math.round(this.center.y + (screen.y - this.app.screen.height / 2) / this.scale),
     };
   }
+}
+
+function lerp(from: number, to: number, amount: number): number {
+  return from + (to - from) * amount;
+}
+
+function snapClose(current: Vec2, target: Vec2): Vec2 {
+  const dx = current.x - target.x;
+  const dy = current.y - target.y;
+  if (dx * dx + dy * dy < 0.25) {
+    return { ...target };
+  }
+  return current;
 }

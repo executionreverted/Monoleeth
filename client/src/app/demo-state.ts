@@ -36,6 +36,25 @@ export function demoEvents(): EventEnvelope[] {
       max_energy: 100,
       rank: 1,
     }),
+    event(CLIENT_EVENTS.cargoSnapshot, {
+      used: 17,
+      capacity: 60,
+      items: [
+        { item_id: 'raw_ore', quantity: 11 },
+        { item_id: 'salvage_thread', quantity: 6 },
+      ],
+    }),
+    event(CLIENT_EVENTS.walletSnapshot, {
+      credits: 1250,
+      premium_paid: 0,
+      premium_earned: 25,
+    }),
+    event(CLIENT_EVENTS.statsSnapshot, {
+      speed: 180,
+      radar_range: 420,
+      weapon_range: 260,
+      cargo_capacity: 60,
+    }),
   ];
 }
 

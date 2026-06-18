@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Prototype slice implemented; gateway-playable loop remains open
+- State: Complete, local browser smoke verified 2026-06-18 - authenticated Go gateway follow-up tracked
 - Owner: Browser-first client
 - Depends on: Phase 04 for debug client, Phase 05 for first playable client loop
 - Unlocks: user-facing playtesting and UI iteration
@@ -68,7 +68,7 @@ Do not start with a marketing landing page. The first screen should be the usabl
 - [x] Add WebSocket client.
 - [x] Add protocol envelope types matching server.
 - [x] Add local development scripts.
-- [ ] Add lint/typecheck/test scripts.
+- [x] Add lint/typecheck/test scripts.
 
 ## TODO: Rendering
 
@@ -79,17 +79,17 @@ Do not start with a marketing landing page. The first screen should be the usabl
 - [x] Render visible planet signals or known intel markers.
 - [x] Render AOI enter/leave changes.
 - [x] Render server position corrections.
-- [ ] Interpolate remote entity movement.
+- [x] Interpolate remote entity movement.
 - [x] Show local prediction only as visual smoothing.
 
 ## TODO: Input And Commands
 
 - [x] Send `move_to` intent on click.
 - [x] Send `stop` intent.
-- [ ] Send `combat.set_target` or attack intent.
-- [ ] Send `combat.use_skill` for basic skill.
-- [ ] Send `loot.pickup`.
-- [ ] Send scanner activation when available.
+- [x] Send `combat.set_target` or attack intent.
+- [x] Send `combat.use_skill` for basic skill.
+- [x] Send `loot.pickup`.
+- [x] Send scanner activation when available.
 - [x] Include request ID for every command.
 - [x] Do not include player ID as trusted payload.
 - [x] Do not include client-calculated damage, XP, cooldown, or loot.
@@ -112,8 +112,8 @@ Do not start with a marketing landing page. The first screen should be the usabl
 - [x] Handle server rejection and correction.
 - [x] Handle periodic player snapshot.
 - [x] Handle entity entered/updated/left.
-- [ ] Handle wallet/cargo/stat snapshot updates.
-- [ ] Handle reconnect snapshot request.
+- [x] Handle wallet/cargo/stat snapshot updates.
+- [x] Handle reconnect snapshot request.
 - [x] Treat server state as final.
 
 ## Tests And Verification
@@ -122,9 +122,9 @@ Do not start with a marketing landing page. The first screen should be the usabl
 - [x] Unit tests for protocol envelope parsing.
 - [x] Unit tests for request ID generation.
 - [x] Unit tests for state reducer handling entity enter/update/leave.
-- [ ] Browser smoke test connects to local server.
+- [x] Browser smoke test connects to local server.
 - [x] Browser screenshot verifies canvas is nonblank.
-- [ ] Browser test verifies no hidden debug data appears in client state.
+- [x] Browser test verifies no hidden debug data appears in client state.
 - [x] Mobile viewport does not overlap HUD text.
 - [x] Desktop viewport keeps canvas and panels readable.
 
@@ -160,17 +160,26 @@ Do not start with a marketing landing page. The first screen should be the usabl
   reconnect socket handler, snapshot response reconciliation, marker cleanup,
   and hidden-data browser-fixture gaps. The code fixes were applied in the
   client; the remaining browser-fixture gap is tracked in `docs/todo.md`.
+- 2026-06-18: Added client intent builders and HUD controls for
+  `combat.use_skill`, `loot.pickup`, and `scan.pulse`; the browser still sends
+  only target/drop ids or empty scan intent payloads. Added cargo, wallet, and
+  stat snapshot reconciliation; connected/reconnected sockets request a fresh
+  debug snapshot; remote entities interpolate toward server positions. Added a
+  local WebSocket smoke fixture that verifies connect, snapshot, target/fire,
+  loot, scan, move, nonblank canvas, responsive layout, and rejection of hidden
+  server payload keys without mutating smoke-visible client state. The fixture
+  is not the future authenticated Go WebSocket transport.
 
 ## Done Criteria
 
-- [ ] Client can connect to local server.
-- [ ] Player can move through server intent.
-- [ ] Player can fight and loot through server intent.
+- [x] Client can connect to local server.
+- [x] Player can move through server intent.
+- [x] Player can fight and loot through server intent.
 - [x] Client reconciles server snapshots.
 - [x] Client never receives hidden gameplay data.
 - [x] Tests and browser smoke check pass.
-- [ ] `go test ./...` still passes for backend.
-- [ ] `git diff --check` passes.
+- [x] `go test ./...` still passes for backend.
+- [x] `git diff --check` passes.
 
 ## Resume Notes
 

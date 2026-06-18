@@ -6,6 +6,9 @@ export interface HUDHandlers {
   onDisconnect(): void;
   onStop(): void;
   onDebugSnapshot(): void;
+  onFire(): void;
+  onLoot(): void;
+  onScan(): void;
 }
 
 export class HUD {
@@ -97,6 +100,15 @@ export class HUD {
         case 'snapshot':
           this.handlers.onDebugSnapshot();
           break;
+        case 'fire':
+          this.handlers.onFire();
+          break;
+        case 'loot':
+          this.handlers.onLoot();
+          break;
+        case 'scan':
+          this.handlers.onScan();
+          break;
       }
     });
   }
@@ -120,6 +132,8 @@ function statusPanel(state: ClientState): string {
       ${meter('ENG', snapshot.energy, snapshot.max_energy)}
     </div>
     <div class="meta-row"><span>Rank</span><strong>${escapeHTML(String(snapshot.rank ?? 1))}</strong></div>
+    <div class="meta-row"><span>Speed</span><strong>${Math.round(state.stats.speed)}</strong></div>
+    <div class="meta-row"><span>Radar</span><strong>${Math.round(state.stats.radar_range)}</strong></div>
     <div class="meta-row"><span>Link</span><strong>${escapeHTML(state.connectionStatus)}</strong></div>
   `;
 }
@@ -130,6 +144,7 @@ function cargoPanel(state: ClientState): string {
     <h2>Cargo</h2>
     <div class="meter"><span style="width:${percent}%"></span></div>
     <div class="meta-row"><span>Hold</span><strong>${state.cargo.used}/${state.cargo.capacity}</strong></div>
+    <div class="meta-row"><span>Credits</span><strong>${state.wallet.credits}</strong></div>
     <ul class="compact-list">
       ${state.cargo.items.map((item) => `<li><span>${escapeHTML(item.item_id)}</span><strong>${item.quantity}</strong></li>`).join('')}
     </ul>
@@ -147,6 +162,8 @@ function questPanel(state: ClientState): string {
 
 function targetPanel(state: ClientState): string {
   const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
+  const canFire = target?.entity_type === 'npc_placeholder';
+  const canLoot = target?.entity_type === 'loot_placeholder';
   return `
     <h2>Target</h2>
     ${
@@ -157,9 +174,9 @@ function targetPanel(state: ClientState): string {
         : '<div class="empty-line">No lock</div>'
     }
     <div class="segmented">
-      <button type="button" disabled title="combat.set_target is not exposed yet">Aim</button>
-      <button type="button" disabled title="combat.use_skill is not exposed yet">Fire</button>
-      <button type="button" disabled title="loot.pickup is not exposed yet">Loot</button>
+      <button type="button" disabled title="Click a visible entity on the map to target it">Aim</button>
+      <button type="button" data-action="fire" ${canFire ? '' : 'disabled'} title="Use the basic server-side skill">Fire</button>
+      <button type="button" data-action="loot" ${canLoot ? '' : 'disabled'} title="Request visible drop pickup">Loot</button>
     </div>
   `;
 }
@@ -178,7 +195,7 @@ function intelPanel(state: ClientState): string {
     <h2>Intel</h2>
     <div class="meta-row"><span>Signals</span><strong>${state.planetIntel.knownSignals}</strong></div>
     <div class="meta-row"><span>Stale</span><strong>${state.planetIntel.staleIntel}</strong></div>
-    <button class="ghost-action" type="button" disabled title="scan.pulse is not exposed yet">Pulse</button>
+    <button class="ghost-action" type="button" data-action="scan" title="Request a server-side scanner pulse">Pulse</button>
   `;
 }
 
