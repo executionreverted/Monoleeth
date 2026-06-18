@@ -1,6 +1,3 @@
-Tabii kral. Yeni mesajda direkt şunu gönder:
-
-```text
 Bu mesajı aktif goal olarak oluştur ve tüm işler bitene kadar özerk devam et.
 
 Objective:
@@ -61,4 +58,3 @@ Done criteria:
   kısa ve net raporla.
 
 Sadece gerçek blocker varsa bana sor. Status mesajı atıp durma; tüm tasklar bitene kadar devam et. Karar vermeni gerektiren konularda oyun dökümanlarını oku - hala sıkıntı varsa darkorbit ve dark forest eth gibi oyunların mekaniklerinden örnek al, böyle kendi insiyatifinle doldurduğun alanlarla alakalı bir md dosyası oluştur ki neyi kendin uydurduğunu bilelim.
-```
