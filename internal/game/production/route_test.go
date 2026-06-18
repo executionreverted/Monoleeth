@@ -45,6 +45,22 @@ func TestCreateRouteNonRouteableResourceFails(t *testing.T) {
 	}
 }
 
+func TestCreateRouteUnsupportedDestinationFailsBeforePolicyLookup(t *testing.T) {
+	store := NewInMemoryStore()
+	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
+	service := newTestRouteService(t, store, provider, testRouteNow())
+	input := validCreateRouteInput()
+	input.Destination = RouteDestination{Type: RouteDestinationTypeStation, ID: "station-1"}
+
+	_, err := service.CreateRoute(input)
+	if !errors.Is(err, ErrUnsupportedRouteDestination) {
+		t.Fatalf("CreateRoute() error = %v, want ErrUnsupportedRouteDestination", err)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("policy calls = %d, want 0", provider.calls)
+	}
+}
+
 func TestCreateRouteNonPositiveRateFailsBeforePolicyLookup(t *testing.T) {
 	store := NewInMemoryStore()
 	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
@@ -291,6 +307,38 @@ func TestSettleRouteLossChanceAppliesInConfiguredRange(t *testing.T) {
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 20, now)
 }
 
+func TestSettleRouteLossAppliedToSingleUnitCannotRoundToZero(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	route.AmountPerHour = 1
+	route.Risk = RouteRisk{
+		LossChance:     MaxRouteLossChance,
+		MinLossPercent: 0.01,
+		MaxLossPercent: 0.01,
+	}
+	store := newRouteSettlementStore(
+		t,
+		route,
+		10,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 1}},
+		10,
+		nil,
+	)
+	service := newTestRouteSettlementService(t, store, now, testutil.NewFakeRNG(nil, []float64{0.01}))
+
+	result, err := service.SettleRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("SettleRoute() error = %v, want nil", err)
+	}
+	if !result.LossApplied || result.LostAmount != 1 || result.DeliveredAmount != 0 || result.AddedAmount != 0 {
+		t.Fatalf("loss applied/lost/delivered/added = %v/%d/%d/%d, want true/1/0/0",
+			result.LossApplied, result.LostAmount, result.DeliveredAmount, result.AddedAmount)
+	}
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 0, now)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, now)
+}
+
 func TestSettleRouteDoubleSettlementDoesNotDuplicateTransfer(t *testing.T) {
 	last := testRouteNow()
 	now := last.Add(time.Hour)
@@ -524,6 +572,42 @@ func TestEnableRouteResetsLastCalculatedAtSoDisabledElapsedDoesNotTransfer(t *te
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, settleAt)
 }
 
+func TestEnableRouteDoesNotMoveFutureTimestampBackward(t *testing.T) {
+	now := testRouteNow()
+	futureLast := now.Add(time.Hour)
+	route := validSettlementRoute(now)
+	route.Enabled = false
+	route.LastCalculatedAt = futureLast
+	route.UpdatedAt = futureLast
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	service := newTestRouteSettlementService(t, store, now, nil)
+
+	result, err := service.EnableRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("EnableRoute() error = %v, want nil", err)
+	}
+	if !result.Changed || !result.Route.Enabled {
+		t.Fatalf("enable Changed/Enabled = %v/%v, want true/true", result.Changed, result.Route.Enabled)
+	}
+	stored, ok, err := store.AutomationRoute(route.RouteID)
+	if err != nil || !ok {
+		t.Fatalf("AutomationRoute(%q) ok = %v err = %v, want true nil", route.RouteID, ok, err)
+	}
+	if !stored.LastCalculatedAt.Equal(futureLast) {
+		t.Fatalf("LastCalculatedAt = %s, want unchanged future %s", stored.LastCalculatedAt, futureLast)
+	}
+	if !stored.UpdatedAt.Equal(now) {
+		t.Fatalf("UpdatedAt = %s, want enable time %s", stored.UpdatedAt, now)
+	}
+}
+
 func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 	last := testRouteNow()
 	updateAt := last.Add(time.Hour)
@@ -598,6 +682,35 @@ func TestUpdateRouteRejectsOwnerMismatchWithoutMutation(t *testing.T) {
 	_, err := service.UpdateRoute(input)
 	if !errors.Is(err, ErrRouteOwnerMismatch) {
 		t.Fatalf("UpdateRoute() error = %v, want ErrRouteOwnerMismatch", err)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("policy calls = %d, want 0", provider.calls)
+	}
+	assertRouteAmountAndTime(t, store, route.RouteID, 40, last)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
+}
+
+func TestUpdateRouteUnsupportedDestinationFailsBeforePolicyLookup(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
+	service := newTestRouteService(t, store, provider, now)
+	input := validUpdateRouteInput()
+	input.Destination = RouteDestination{Type: RouteDestinationTypeStorage, ID: "storage-1"}
+
+	_, err := service.UpdateRoute(input)
+	if !errors.Is(err, ErrUnsupportedRouteDestination) {
+		t.Fatalf("UpdateRoute() error = %v, want ErrUnsupportedRouteDestination", err)
 	}
 	if provider.calls != 0 {
 		t.Fatalf("policy calls = %d, want 0", provider.calls)

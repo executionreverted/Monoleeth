@@ -291,6 +291,9 @@ func rollRouteLoss(amount int64, risk RouteRisk, lossRoller RouteLossRoller) (ro
 	if lost < 0 {
 		lost = 0
 	}
+	if lost == 0 && lossPercent > 0 {
+		lost = 1
+	}
 	if lost > amount {
 		lost = amount
 	}

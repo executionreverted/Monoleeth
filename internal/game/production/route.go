@@ -253,6 +253,9 @@ func (input CreateRouteInput) Validate() error {
 	if err := input.Destination.Validate(); err != nil {
 		return err
 	}
+	if err := validateSupportedRouteSettlementDestination(input.Destination); err != nil {
+		return err
+	}
 	if err := input.ResourceItemID.Validate(); err != nil {
 		return err
 	}
@@ -273,6 +276,9 @@ func (input UpdateRouteInput) Validate() error {
 	if err := input.Destination.Validate(); err != nil {
 		return err
 	}
+	if err := validateSupportedRouteSettlementDestination(input.Destination); err != nil {
+		return err
+	}
 	if err := input.ResourceItemID.Validate(); err != nil {
 		return err
 	}
@@ -290,6 +296,13 @@ func (input UpdateRouteInput) policyInput(sourcePlanetID foundation.PlanetID) Ro
 		ResourceItemID: input.ResourceItemID,
 		AmountPerHour:  input.AmountPerHour,
 	}
+}
+
+func validateSupportedRouteSettlementDestination(destination RouteDestination) error {
+	if destination.Type != RouteDestinationTypePlanet {
+		return fmt.Errorf("route destination %q: %w", destination.Type, ErrUnsupportedRouteDestination)
+	}
+	return nil
 }
 
 // Validate reports whether policy input can be sent to a provider.

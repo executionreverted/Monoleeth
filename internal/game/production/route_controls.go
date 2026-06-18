@@ -34,7 +34,7 @@ func (store *InMemoryStore) EnableRoute(routeID foundation.RouteID, now time.Tim
 	}
 
 	route.Enabled = true
-	route.LastCalculatedAt = now
+	route.LastCalculatedAt = maxRouteTimestamp(route.LastCalculatedAt, now)
 	route.UpdatedAt = now
 	if err := route.Validate(); err != nil {
 		return RouteControlResult{}, err

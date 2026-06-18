@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: In review
+- State: MVP complete, reviewed 2026-06-18
 - Owner: Strategy and persistence layer
 - Depends on: Phase 02, Phase 08
 - Unlocks: long-term resource economy, production chains, logistics gameplay
@@ -157,8 +157,8 @@ Routes:
 - Route creation validates ownership, accessibility, resource routing, distance,
   rank/building requirements, energy cost, and risk through server-owned policy
   provider facts.
-- Route settlement currently supports planet-to-planet storage. Generic
-  `storage` and `station` destination settlement adapters are deferred.
+- Route create/update/settlement currently supports planet-to-planet storage.
+  Generic `storage` and `station` destination settlement adapters are deferred.
 - Settlement methods return summaries, but durable event/outbox emission remains
   deferred.
 

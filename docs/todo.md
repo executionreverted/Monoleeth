@@ -94,6 +94,10 @@ for phase status; this file is a compact pending-work index.
   ties unowned-owner transition, X Core reservation/consume, idempotency, and
   event emission together; current MVP blocks owner overwrite in-memory but
   does not provide cross-process atomicity.
+- [ ] Add claim-production initialization recovery to the durable Phase 08/09
+  planet claim transaction. Current in-memory flow can repair production state
+  on retry, but initializer failure after owner mutation does not recover the
+  missing claim event/cache atomically.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage.
@@ -120,6 +124,13 @@ for phase status; this file is a compact pending-work index.
   policy before exposing automation route controls to players. Current route
   creation stores server-policy energy cost but settlement does not reserve or
   consume route energy.
+- [ ] Add authenticated owner/access wrappers before exposing Phase 09
+  `SettlePlanetProduction`, `SettleRoute`, `EnableRoute`, `DisableRoute`, or
+  `UpdateRoute` through gateway/API callers. Current domain methods are
+  server-internal and accept planet/route ids directly.
+- [ ] Replace global Phase 09 production store locking with per-planet/per-route
+  coordination before high-concurrency login or inspection settlement. Current
+  in-memory MVP intentionally serializes unrelated production and route work.
 
 ## Completed
 
