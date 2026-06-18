@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: In progress
+- State: Complete, verified 2026-06-18
 - Owner: Player guidance and controlled rewards
 - Depends on: Phase 02, Phase 03, Phase 05, Phase 06
 - Unlocks: rank milestones, X Core fragments, controlled reward faucets, player onboarding
