@@ -90,6 +90,21 @@ export function reduceClientState(state: ClientState, action: ClientAction): Cli
           commandLog: appendLog(state.commandLog, 'error', action.envelope.error.message),
         };
       }
+
+      const snapshotEntities = parseSnapshotEntities(action.envelope.payload);
+      if (snapshotEntities) {
+        return replaceVisibleEntities(
+          {
+            ...state,
+            pendingCommands,
+            lastServerTime: action.envelope.server_time,
+            commandLog: appendLog(state.commandLog, 'info', `Accepted ${action.envelope.request_id}.`),
+          },
+          snapshotEntities,
+          action.envelope.server_time,
+        );
+      }
+
       return {
         ...state,
         pendingCommands,
@@ -97,6 +112,14 @@ export function reduceClientState(state: ClientState, action: ClientAction): Cli
         commandLog: appendLog(state.commandLog, 'info', `Accepted ${action.envelope.request_id}.`),
       };
     }
+
+    case 'replaceVisibleEntities':
+      return replaceVisibleEntities(
+        state,
+        action.entities,
+        'serverTime' in action ? action.serverTime ?? null : state.lastServerTime,
+        action.sequence,
+      );
 
     case 'eventReceived':
       return applyEvent(state, action.envelope);
@@ -116,6 +139,31 @@ export function reduceClientState(state: ClientState, action: ClientAction): Cli
         commandLog: appendLog(state.commandLog, action.level, action.text),
       };
   }
+}
+
+function replaceVisibleEntities(
+  state: ClientState,
+  entities: EntityPayload[],
+  serverTime: number | null,
+  sequence?: number,
+): ClientState {
+  const visibleEntities: Record<string, EntityPayload> = {};
+  for (const entity of entities) {
+    rejectForbiddenPayloadKeys(entity);
+    visibleEntities[entity.entity_id] = entity;
+  }
+
+  return {
+    ...state,
+    visibleEntities,
+    selectedTargetID:
+      state.selectedTargetID && visibleEntities[state.selectedTargetID] ? state.selectedTargetID : null,
+    movementTarget: null,
+    lastCorrection: null,
+    planetIntel: { ...state.planetIntel, knownSignals: countPlanetSignals(visibleEntities) },
+    lastServerTime: serverTime,
+    lastSequence: sequence ? Math.max(state.lastSequence, sequence) : state.lastSequence,
+  };
 }
 
 function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
@@ -203,6 +251,25 @@ function applyCorrection(
     lastServerTime: serverTime,
     lastSequence: sequence ? Math.max(state.lastSequence, sequence) : state.lastSequence,
   };
+}
+
+function parseSnapshotEntities(payload: JsonObject): EntityPayload[] | null {
+  if (!('entities' in payload)) {
+    return null;
+  }
+
+  rejectForbiddenPayloadKeys(payload);
+
+  if (!Array.isArray(payload.entities)) {
+    throw new Error('Snapshot entities must be an array.');
+  }
+
+  return payload.entities.map((entity) => {
+    if (!isJsonObject(entity)) {
+      throw new Error('Snapshot entity must be an object.');
+    }
+    return parseEntityPayload(entity);
+  });
 }
 
 function parseEntityPayload(payload: JsonObject): EntityPayload {

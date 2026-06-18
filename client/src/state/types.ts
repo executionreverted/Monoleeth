@@ -55,7 +55,11 @@ export interface ClientState {
 export type ClientAction =
   | { type: 'connectionChanged'; status: ConnectionStatus; socketURL?: string }
   | { type: 'requestQueued'; envelope: RequestEnvelope }
-  | { type: 'responseReceived'; envelope: ResponseEnvelope | { ok: false; error: ErrorPayload; request_id: string; server_time: number } }
+  | {
+      type: 'responseReceived';
+      envelope: ResponseEnvelope | { ok: false; error: ErrorPayload; request_id: string; server_time: number; v?: number };
+    }
+  | { type: 'replaceVisibleEntities'; entities: EntityPayload[]; serverTime?: number | null; sequence?: number }
   | { type: 'eventReceived'; envelope: EventEnvelope }
   | { type: 'serverCorrection'; entityID: string; position: Vec2; serverTime?: number }
   | { type: 'selectTarget'; entityID: string | null }

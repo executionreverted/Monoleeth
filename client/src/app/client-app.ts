@@ -20,6 +20,7 @@ export class ClientApp {
     onError: (message) => this.dispatch({ type: 'appendLog', level: 'error', text: message }),
   });
   private hud: HUD | null = null;
+  private demoMode = true;
 
   constructor(private readonly root: HTMLElement) {}
 
@@ -40,23 +41,40 @@ export class ClientApp {
 
     await this.renderer.mount(worldHost);
     this.hud = new HUD(hudHost, {
-      onConnect: (url) => this.realtime.connect(url),
-      onDisconnect: () => this.realtime.disconnect(),
+      onConnect: (url) => this.connect(url),
+      onDisconnect: () => this.disconnect(),
       onStop: () => this.sendCommand(this.commandBuilder.stop()),
       onDebugSnapshot: () => this.sendCommand(this.commandBuilder.debugSnapshot()),
     });
 
+    this.seedDemoState();
+    this.render();
+  }
+
+  private connect(url: string): void {
+    this.demoMode = false;
+    this.dispatch({ type: 'replaceVisibleEntities', entities: [], serverTime: null });
+    this.realtime.connect(url);
+  }
+
+  private disconnect(): void {
+    this.realtime.disconnect();
+    this.demoMode = true;
+    this.seedDemoState();
+  }
+
+  private seedDemoState(): void {
+    this.dispatch({ type: 'replaceVisibleEntities', entities: [], serverTime: null });
     for (const envelope of demoEvents()) {
       this.dispatch({ type: 'eventReceived', envelope });
     }
-    this.render();
   }
 
   private sendMove(target: Vec2): void {
     const command = this.commandBuilder.moveTo(target);
     this.sendCommand(command);
 
-    if (!this.realtime.isConnected()) {
+    if (this.demoMode && !this.realtime.isConnected()) {
       const localID = this.findLocalPlayerID();
       window.setTimeout(() => {
         this.dispatch({ type: 'eventReceived', envelope: correctionEvent(localID, target) });
@@ -67,11 +85,19 @@ export class ClientApp {
   private sendCommand(envelope: RequestEnvelope): void {
     this.dispatch({ type: 'requestQueued', envelope });
     if (!this.realtime.send(envelope)) {
-      this.dispatch({
-        type: 'appendLog',
-        level: 'warn',
-        text: 'Offline demo accepted local intent.',
-      });
+      this.dispatch(
+        this.demoMode
+          ? {
+              type: 'appendLog',
+              level: 'warn',
+              text: 'Offline demo accepted local intent.',
+            }
+          : {
+              type: 'appendLog',
+              level: 'warn',
+              text: 'Intent queued while realtime link is unavailable.',
+            },
+      );
     }
   }
 

@@ -9,6 +9,7 @@ export interface RealtimeClientOptions {
 
 export class RealtimeClient {
   private socket: WebSocket | null = null;
+  private generation = 0;
 
   constructor(private readonly options: RealtimeClientOptions) {}
 
@@ -16,29 +17,48 @@ export class RealtimeClient {
     this.disconnect();
     this.options.onStatus('connecting');
 
+    let generation: number;
+    let socket: WebSocket;
     try {
-      this.socket = new WebSocket(url);
+      this.generation += 1;
+      generation = this.generation;
+      socket = new WebSocket(url);
+      this.socket = socket;
     } catch (error) {
       this.options.onStatus('error');
       this.options.onError(error instanceof Error ? error.message : String(error));
       return;
     }
 
-    this.socket.addEventListener('open', () => {
+    const isCurrentSocket = (): boolean => this.socket === socket && this.generation === generation;
+
+    socket.addEventListener('open', () => {
+      if (!isCurrentSocket()) {
+        return;
+      }
       this.options.onStatus('connected');
     });
 
-    this.socket.addEventListener('close', () => {
+    socket.addEventListener('close', () => {
+      if (!isCurrentSocket()) {
+        return;
+      }
       this.socket = null;
       this.options.onStatus('offline');
     });
 
-    this.socket.addEventListener('error', () => {
+    socket.addEventListener('error', () => {
+      if (!isCurrentSocket()) {
+        return;
+      }
       this.options.onStatus('error');
       this.options.onError('WebSocket connection failed.');
     });
 
-    this.socket.addEventListener('message', (event) => {
+    socket.addEventListener('message', (event) => {
+      if (!isCurrentSocket()) {
+        return;
+      }
       if (typeof event.data !== 'string') {
         this.options.onError('Ignored non-JSON realtime message.');
         return;
@@ -59,6 +79,7 @@ export class RealtimeClient {
 
     const socket = this.socket;
     this.socket = null;
+    this.generation += 1;
     socket.close();
     this.options.onStatus('offline');
   }

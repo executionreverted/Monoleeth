@@ -103,6 +103,81 @@ describe('reduceClientState', () => {
     expect(accepted.pendingCommands['request-1']).toBeUndefined();
     expect(accepted.lastServerTime).toBe(99);
   });
+
+  test('snapshot response replaces visible entities atomically', () => {
+    const state = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.entityEntered, {
+        entity_id: 'stale-npc',
+        entity_type: 'npc_placeholder',
+        position: { x: 10, y: 20 },
+      }),
+    });
+
+    const replaced = reduceClientState(
+      {
+        ...state,
+        selectedTargetID: 'stale-npc',
+        movementTarget: { x: 100, y: 100 },
+        lastCorrection: { entityID: 'stale-npc', position: { x: 10, y: 20 } },
+      },
+      {
+        type: 'responseReceived',
+        envelope: {
+          request_id: 'snapshot-1',
+          ok: true,
+          payload: {
+            entities: [
+              {
+                entity_id: 'signal-1',
+                entity_type: 'planet_signal_placeholder',
+                position: { x: 50, y: 60 },
+                status_flags: ['known_intel'],
+              },
+            ],
+          },
+          server_time: 1200,
+          v: 1,
+        },
+      },
+    );
+
+    expect(replaced.visibleEntities['stale-npc']).toBeUndefined();
+    expect(replaced.visibleEntities['signal-1']).toMatchObject({
+      entity_type: 'planet_signal_placeholder',
+      position: { x: 50, y: 60 },
+    });
+    expect(replaced.selectedTargetID).toBeNull();
+    expect(replaced.movementTarget).toBeNull();
+    expect(replaced.lastCorrection).toBeNull();
+    expect(replaced.planetIntel.knownSignals).toBe(1);
+  });
+
+  test('snapshot response rejects hidden debug payloads before state mutation', () => {
+    const state = createInitialState();
+
+    expect(() =>
+      reduceClientState(state, {
+        type: 'responseReceived',
+        envelope: {
+          request_id: 'snapshot-hidden',
+          ok: true,
+          payload: {
+            entities: [
+              {
+                entity_id: 'planet-1',
+                entity_type: 'planet_signal_placeholder',
+                position: { x: 4, y: 8 },
+                internal_metadata: { seed: 'nope' },
+              },
+            ],
+          },
+          server_time: 1200,
+          v: 1,
+        },
+      }),
+    ).toThrow(/Forbidden server payload key/);
+  });
 });
 
 function event(type: string, payload: JsonObject, seq = 1): EventEnvelope {

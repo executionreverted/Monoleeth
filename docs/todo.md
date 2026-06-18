@@ -118,6 +118,11 @@ for phase status; this file is a compact pending-work index.
   prototype settles. Current client verification has TypeScript typecheck,
   Vitest unit tests, Vite production build, and Playwright smoke coverage, but
   no ESLint pass. Source: `docs/roadmap/11-browser-client-prototype.md`.
+- [ ] Add a Phase 11 WebSocket browser smoke fixture that sends forbidden
+  server payload keys and asserts the browser client rejects them without
+  mutating visible state. Unit tests cover parser/reducer rejection today, but
+  the Playwright smoke currently checks only rendered body text. Source:
+  Symphony review `local-0106`.
 - [ ] Wire the concrete runtime adapter from discovery
   `ClaimListedIntelStaleMarker` to market/intel listing indexes once coordinate
   scroll listings leave the local domain MVP. Phase 10 now exposes the claim

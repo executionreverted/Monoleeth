@@ -124,7 +124,7 @@ Do not start with a marketing landing page. The first screen should be the usabl
 - [x] Unit tests for state reducer handling entity enter/update/leave.
 - [ ] Browser smoke test connects to local server.
 - [x] Browser screenshot verifies canvas is nonblank.
-- [x] Browser test verifies no hidden debug data appears in client state.
+- [ ] Browser test verifies no hidden debug data appears in client state.
 - [x] Mobile viewport does not overlap HUD text.
 - [x] Desktop viewport keeps canvas and panels readable.
 
@@ -156,6 +156,10 @@ Do not start with a marketing landing page. The first screen should be the usabl
   offline demo harness, not an authenticated game gateway. Real server-backed
   movement, reconnect snapshot flow, combat, loot, scanner, wallet, and stat
   snapshots remain follow-up work.
+- 2026-06-18: Symphony review `local-0106` found live/demo state separation,
+  reconnect socket handler, snapshot response reconciliation, marker cleanup,
+  and hidden-data browser-fixture gaps. The code fixes were applied in the
+  client; the remaining browser-fixture gap is tracked in `docs/todo.md`.
 
 ## Done Criteria
 

@@ -166,7 +166,10 @@ export class WorldRenderer {
   }
 
   private drawMarkers(state: WorldViewState): void {
-    this.markerLayer.removeChildren();
+    const staleMarkers = this.markerLayer.removeChildren();
+    for (const marker of staleMarkers) {
+      marker.destroy();
+    }
 
     if (state.movementTarget) {
       const target = this.worldToScreen(state.movementTarget);
