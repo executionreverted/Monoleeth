@@ -319,6 +319,14 @@ Defense:
 - rare reward daily/weekly caps
 - offer generation quota
 
+Phase 07 implementation:
+
+- Board generation and reroll generation can receive a server-side rare reward
+  cap hook.
+- Candidates rejected by the hook are skipped before offers are stored.
+- Reroll generation runs the cap hook before wallet debit, so a blocked board
+  does not charge credits or replace the current board.
+
 ### Fake Progress
 
 Risk:
@@ -363,4 +371,3 @@ MVP:
 - reroll for credits
 - rewards generated upfront
 - progress from server events only
-

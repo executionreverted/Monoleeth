@@ -25,6 +25,24 @@ const BoardOfferCount = 10
 // generator clamps non-positive weights to 1 before deterministic selection.
 type QuestWeightHook func(PlayerQuestBoardSnapshot, QuestTemplate) int
 
+// QuestRareRewardCapHook decides whether a generated reward payload may be
+// offered when it carries rare-cap policy hooks. A false decision blocks that
+// candidate before the offer is stored or a reroll wallet debit is attempted.
+type QuestRareRewardCapHook func(RareRewardCapCheck) (bool, error)
+
+// RareRewardCapCheck is the deterministic context supplied to a rare reward
+// cap policy. It contains server-generated reward metadata, never client
+// authored quest progress.
+type RareRewardCapCheck struct {
+	Player        PlayerQuestBoardSnapshot `json:"player"`
+	Template      QuestTemplate            `json:"template"`
+	RewardPayload RewardPayload            `json:"reward_payload"`
+	Hooks         []RewardHook             `json:"hooks"`
+	CreatedAt     time.Time                `json:"created_at"`
+	OfferSeed     int64                    `json:"offer_seed"`
+	Slot          int                      `json:"slot"`
+}
+
 // QuestRecentActivity stores coarse server-owned activity counts used to nudge
 // deterministic board weighting away from repetitive play.
 type QuestRecentActivity struct {
@@ -56,7 +74,8 @@ type BoardGenerationInput struct {
 	Catalog   QuestCatalog             `json:"-"`
 	CreatedAt time.Time                `json:"created_at"`
 
-	WeightHook QuestWeightHook `json:"-"`
+	WeightHook        QuestWeightHook        `json:"-"`
+	RareRewardCapHook QuestRareRewardCapHook `json:"-"`
 }
 
 type weightedTemplate struct {
@@ -92,10 +111,12 @@ func GenerateBoard(input BoardGenerationInput) ([]GeneratedBoardOffer, error) {
 	createdAt := input.CreatedAt.UTC()
 	expiresAt := NextQuestBoardExpiry(createdAt)
 	catalogFingerprint := input.Catalog.fingerprint()
-	selected := selectBoardTemplates(input, eligible, catalogFingerprint)
+	candidates := selectBoardTemplates(input, eligible, catalogFingerprint)
 
 	offers := make([]GeneratedBoardOffer, 0, BoardOfferCount)
-	for slot, candidate := range selected {
+	blockedByRareCap := 0
+	for _, candidate := range candidates {
+		slot := len(offers)
 		offerSeed := stableInt64(
 			"quest-board-offer-seed",
 			input.Player.canonicalKey(),
@@ -110,6 +131,14 @@ func GenerateBoard(input BoardGenerationInput) ([]GeneratedBoardOffer, error) {
 			return nil, err
 		}
 		rewardPayload := generateRewardPayload(input.Player, candidate.template, offerSeed)
+		allowed, err := input.rareRewardCapAllows(candidate.template, rewardPayload, offerSeed, slot)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			blockedByRareCap++
+			continue
+		}
 		offer, err := NewGeneratedBoardOffer(
 			stableOfferID(input, candidate.template, slot, catalogFingerprint),
 			input.Player.PlayerID,
@@ -123,6 +152,12 @@ func GenerateBoard(input BoardGenerationInput) ([]GeneratedBoardOffer, error) {
 			return nil, err
 		}
 		offers = append(offers, offer)
+		if len(offers) == BoardOfferCount {
+			break
+		}
+	}
+	if len(offers) != BoardOfferCount {
+		return nil, fmt.Errorf("eligible templates %d rare-cap-blocked %d generated %d need %d: %w", len(eligible), blockedByRareCap, len(offers), BoardOfferCount, ErrInsufficientEligibleTemplates)
 	}
 	return offers, nil
 }
@@ -328,7 +363,30 @@ func selectBoardTemplates(input BoardGenerationInput, eligible []QuestTemplate, 
 		}
 		return candidates[i].template.TemplateID < candidates[j].template.TemplateID
 	})
-	return candidates[:BoardOfferCount]
+	return candidates
+}
+
+func (input BoardGenerationInput) rareRewardCapAllows(template QuestTemplate, rewardPayload RewardPayload, offerSeed int64, slot int) (bool, error) {
+	if input.RareRewardCapHook == nil {
+		return true, nil
+	}
+	hooks := rareCapHooksForRewardPayload(rewardPayload)
+	if len(hooks) == 0 {
+		return true, nil
+	}
+	allowed, err := input.RareRewardCapHook(RareRewardCapCheck{
+		Player:        input.Player,
+		Template:      cloneQuestTemplate(template),
+		RewardPayload: cloneRewardPayload(rewardPayload),
+		Hooks:         append([]RewardHook(nil), hooks...),
+		CreatedAt:     input.CreatedAt.UTC(),
+		OfferSeed:     offerSeed,
+		Slot:          slot,
+	})
+	if err != nil {
+		return false, err
+	}
+	return allowed, nil
 }
 
 func generatePayload(snapshot PlayerQuestBoardSnapshot, template QuestTemplate, offerSeed int64, weight int, slot int) (GeneratedPayload, error) {

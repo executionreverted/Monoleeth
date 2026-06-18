@@ -121,7 +121,7 @@ Board rules:
 - [x] Completed quest does not progress further incorrectly. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0073-go-build go test ./internal/game/quests -count=1`.
 - [x] Reward claim grants exactly once. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
 - [x] Duplicate reward claim does not duplicate XP/items/currency. Verified 2026-06-17 by `GOCACHE=/private/tmp/task-0074-go-build go test ./internal/game/quests -count=1`.
-- [ ] Rare reward cap hook can block excessive rare offers.
+- [x] Rare reward cap hook can block excessive rare offers. Verified 2026-06-18 by generation and reroll cap-block tests with `go test ./internal/game/quests -count=1`.
 
 ## Abuse And Safety Checks
 

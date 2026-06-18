@@ -65,6 +65,8 @@ type RerollBoardInput struct {
 
 	WeightHook QuestWeightHook     `json:"-"`
 	CostHook   QuestRerollCostHook `json:"-"`
+
+	RareRewardCapHook QuestRareRewardCapHook `json:"-"`
 }
 
 // RerollBoardResult reports the debited cost and newly stored board.
@@ -101,12 +103,6 @@ func (service *QuestService) RerollBoard(input RerollBoardInput) (RerollBoardRes
 		return RerollBoardResult{}, err
 	}
 
-	offers, err := service.generateRerollOffers(input, referenceKey)
-	if err != nil {
-		return RerollBoardResult{}, err
-	}
-	rareCapHooks := rareCapHooksFromOffers(offers)
-
 	service.store.mu.Lock()
 	if previous, ok := service.store.rerollResults[referenceKey]; ok {
 		service.store.mu.Unlock()
@@ -115,6 +111,15 @@ func (service *QuestService) RerollBoard(input RerollBoardInput) (RerollBoardRes
 		result.WalletDebit.Duplicate = true
 		return result, nil
 	}
+	service.store.mu.Unlock()
+
+	offers, err := service.generateRerollOffers(input, referenceKey)
+	if err != nil {
+		return RerollBoardResult{}, err
+	}
+	rareCapHooks := rareCapHooksFromOffers(offers)
+
+	service.store.mu.Lock()
 	if err := service.store.ensureRerollOffersCanStoreLocked(input.Player.PlayerID, offers); err != nil {
 		service.store.mu.Unlock()
 		return RerollBoardResult{}, err
@@ -268,11 +273,12 @@ func (kind RerollCostHookKind) String() string { return string(kind) }
 
 func (service *QuestService) generateRerollOffers(input RerollBoardInput, referenceKey foundation.IdempotencyKey) ([]GeneratedBoardOffer, error) {
 	boardInput := BoardGenerationInput{
-		Player:     input.Player,
-		Seed:       rerollGenerationSeed(input, referenceKey),
-		Catalog:    service.catalog,
-		CreatedAt:  input.CreatedAt,
-		WeightHook: input.WeightHook,
+		Player:            input.Player,
+		Seed:              rerollGenerationSeed(input, referenceKey),
+		Catalog:           service.catalog,
+		CreatedAt:         input.CreatedAt,
+		WeightHook:        input.WeightHook,
+		RareRewardCapHook: input.RareRewardCapHook,
 	}
 	offers, err := GenerateBoard(boardInput)
 	if err != nil {
@@ -304,13 +310,8 @@ func rareCapHooksForGeneratedRewards(snapshot PlayerQuestBoardSnapshot) []Reward
 func rareCapHooksFromOffers(offers []GeneratedBoardOffer) []RewardHook {
 	seen := make(map[RewardHook]struct{})
 	for _, offer := range offers {
-		for _, hook := range offer.RewardPayload.RareCapHooks {
+		for _, hook := range rareCapHooksForRewardPayload(offer.RewardPayload) {
 			seen[hook] = struct{}{}
-		}
-		for _, hook := range offer.RewardPayload.Hooks {
-			if hook.Kind == RewardHookRareCap {
-				seen[hook] = struct{}{}
-			}
 		}
 	}
 	hooks := make([]RewardHook, 0, len(seen))
@@ -326,6 +327,17 @@ func rareCapHooksFromOffers(offers []GeneratedBoardOffer) []RewardHook {
 		}
 		return hooks[i].Limit < hooks[j].Limit
 	})
+	return hooks
+}
+
+func rareCapHooksForRewardPayload(payload RewardPayload) []RewardHook {
+	hooks := make([]RewardHook, 0, len(payload.RareCapHooks)+len(payload.Hooks))
+	hooks = append(hooks, payload.RareCapHooks...)
+	for _, hook := range payload.Hooks {
+		if hook.Kind == RewardHookRareCap {
+			hooks = append(hooks, hook)
+		}
+	}
 	return hooks
 }
 

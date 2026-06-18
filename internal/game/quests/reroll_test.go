@@ -75,6 +75,51 @@ func TestRerollBoardDuplicateReferenceDoesNotDoubleCharge(t *testing.T) {
 	}
 }
 
+func TestRerollBoardDuplicateReferenceDoesNotRecheckRareRewardCap(t *testing.T) {
+	fixture, wallet := newRerollFixture(t, 1_000)
+	input := validBoardGenerationInput(t, fixture.catalog)
+	if _, err := fixture.service.GenerateAndStoreBoard(input); err != nil {
+		t.Fatalf("GenerateAndStoreBoard() = %v, want nil", err)
+	}
+	rerollInput := validRerollBoardInput(input.Player, 20260618, fixture.clock.Now())
+	capChecks := 0
+	rerollInput.RareRewardCapHook = func(RareRewardCapCheck) (bool, error) {
+		capChecks++
+		return true, nil
+	}
+
+	first, err := fixture.service.RerollBoard(rerollInput)
+	if err != nil {
+		t.Fatalf("RerollBoard(first) = %v, want nil", err)
+	}
+	if capChecks == 0 {
+		t.Fatal("first reroll did not call rare reward cap hook")
+	}
+	checksAfterFirst := capChecks
+	fixture.clock.Advance(time.Hour)
+	rerollInput.RareRewardCapHook = func(RareRewardCapCheck) (bool, error) {
+		t.Fatal("duplicate reroll rechecked rare reward cap hook")
+		return false, nil
+	}
+
+	second, err := fixture.service.RerollBoard(rerollInput)
+	if err != nil {
+		t.Fatalf("RerollBoard(second) = %v, want nil", err)
+	}
+	if !second.Duplicate {
+		t.Fatal("duplicate reroll Duplicate = false, want true")
+	}
+	if len(wallet.calls) != 1 {
+		t.Fatalf("wallet calls after duplicate = %d, want 1", len(wallet.calls))
+	}
+	if capChecks != checksAfterFirst {
+		t.Fatalf("cap checks after duplicate = %d, want %d", capChecks, checksAfterFirst)
+	}
+	if !reflect.DeepEqual(first.Offers, second.Offers) {
+		t.Fatalf("duplicate offers changed\nfirst=%#v\nsecond=%#v", first.Offers, second.Offers)
+	}
+}
+
 func TestRerollBoardInsufficientCreditsLeavesOffersUnchanged(t *testing.T) {
 	fixture, wallet := newRerollFixture(t, 0)
 	input := validBoardGenerationInput(t, fixture.catalog)
@@ -207,6 +252,37 @@ func TestRerollBoardUsesStableReferenceAndExposesCostAndCapHooks(t *testing.T) {
 		if len(offer.RewardPayload.RareCapHooks) == 0 {
 			t.Fatalf("offer %q rare cap hooks empty, want placeholder hook", offer.OfferID)
 		}
+	}
+}
+
+func TestRerollBoardRareRewardCapBlocksBeforeDebit(t *testing.T) {
+	fixture, wallet := newRerollFixture(t, 1_000)
+	input := validBoardGenerationInput(t, fixture.catalog)
+	if _, err := fixture.service.GenerateAndStoreBoard(input); err != nil {
+		t.Fatalf("GenerateAndStoreBoard() = %v, want nil", err)
+	}
+	before, err := fixture.service.BoardOffers(input.Player.PlayerID)
+	if err != nil {
+		t.Fatalf("BoardOffers(before) = %v, want nil", err)
+	}
+
+	rerollInput := validRerollBoardInput(input.Player, 20260618, fixture.clock.Now())
+	rerollInput.RareRewardCapHook = func(RareRewardCapCheck) (bool, error) {
+		return false, nil
+	}
+	_, err = fixture.service.RerollBoard(rerollInput)
+	if !errors.Is(err, ErrInsufficientEligibleTemplates) {
+		t.Fatalf("RerollBoard() error = %v, want ErrInsufficientEligibleTemplates", err)
+	}
+	if len(wallet.calls) != 0 {
+		t.Fatalf("wallet calls = %d, want 0 when rare cap blocks generation", len(wallet.calls))
+	}
+	after, err := fixture.service.BoardOffers(input.Player.PlayerID)
+	if err != nil {
+		t.Fatalf("BoardOffers(after) = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("offers changed after rare cap blocked reroll\nbefore=%#v\nafter=%#v", before, after)
 	}
 }
 

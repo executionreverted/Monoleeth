@@ -56,9 +56,11 @@ for phase status; this file is a compact pending-work index.
   `QuestRewardInventoryService` to `economy.InventoryService.AddItem` once the
   quest reward item-definition catalog/provider is wired; current claim tests
   prove the quest boundary and idempotency reference but use fakes.
-- [ ] Enforce rare reward caps before enabling rare quest rewards such as X Core
-  or premium rewards; Phase 07 currently stores rare-cap hooks as policy markers
-  and leaves the actual cap check unchecked in the roadmap.
+- [ ] Wire a durable Phase 07 rare reward cap policy into
+  `BoardGenerationInput`/`RerollBoardInput` before enabling X Core or premium
+  quest rewards in a multi-process runtime. The hook can now block generated
+  offers before storage or reroll debit, but no durable usage counter is wired
+  by default.
 - [ ] Collapse or document the preferred quest objective schema shape before the
   quest API becomes public; `ObjectiveSchema` currently supports both
   `Objectives []Objective` and legacy single-objective fields.

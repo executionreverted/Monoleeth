@@ -110,6 +110,44 @@ func TestGenerateBoardStoresRewardPayloadAtOfferTime(t *testing.T) {
 	}
 }
 
+func TestGenerateBoardRareRewardCapHookCanBlockExcessiveRareOffers(t *testing.T) {
+	blockedTemplateID := catalog.DefinitionID("quest_kill_pirates_r1")
+	input := validBoardGenerationInput(t, MustMVPQuestCatalog())
+	input.WeightHook = func(_ PlayerQuestBoardSnapshot, template QuestTemplate) int {
+		if template.TemplateID == blockedTemplateID {
+			return 1 << 30
+		}
+		return 1
+	}
+	blockedChecks := 0
+	input.RareRewardCapHook = func(check RareRewardCapCheck) (bool, error) {
+		if len(check.Hooks) == 0 {
+			t.Fatalf("cap check for %q had no hooks", check.Template.TemplateID)
+		}
+		if check.Template.TemplateID == blockedTemplateID {
+			blockedChecks++
+			return false, nil
+		}
+		return true, nil
+	}
+
+	offers, err := GenerateBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateBoard() = %v, want nil", err)
+	}
+	if blockedChecks == 0 {
+		t.Fatal("rare cap hook was not called for the blocked template")
+	}
+	if len(offers) != BoardOfferCount {
+		t.Fatalf("offers = %d, want %d", len(offers), BoardOfferCount)
+	}
+	for _, offer := range offers {
+		if offer.TemplateID == blockedTemplateID {
+			t.Fatalf("blocked rare reward template %q was still offered", blockedTemplateID)
+		}
+	}
+}
+
 func TestGenerateBoardPayloadIncludesObjectiveAndDailyExpiry(t *testing.T) {
 	questCatalog := MustMVPQuestCatalog()
 	input := validBoardGenerationInput(t, questCatalog)
