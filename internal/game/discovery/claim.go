@@ -19,6 +19,7 @@ const (
 var (
 	ErrInvalidClaimConfig           = errors.New("invalid planet claim config")
 	ErrInvalidPlanetClaim           = errors.New("invalid planet claim")
+	ErrInvalidClaimProductionInit   = errors.New("invalid claim production initialization")
 	ErrPlanetClaimReferenceConflict = errors.New("planet claim reference conflict")
 	ErrPlanetClaimRequiresIntel     = errors.New("planet claim requires player intel")
 	ErrPlanetClaimIntelInvalidated  = errors.New("planet claim intel invalidated")
@@ -55,6 +56,23 @@ type ClaimPlanetResult struct {
 	AlreadyOwned    bool   `json:"already_owned,omitempty"`
 	Duplicate       bool   `json:"duplicate,omitempty"`
 	StaleIntelCount int    `json:"stale_intel_count,omitempty"`
+}
+
+// ClaimProductionInitializeInput is the narrow discovery-to-production handoff
+// after a planet claim has become authoritative.
+type ClaimProductionInitializeInput struct {
+	PlayerID       foundation.PlayerID  `json:"player_id"`
+	PlanetID       foundation.PlanetID  `json:"planet_id"`
+	PlanetLevel    int                  `json:"planet_level"`
+	ClaimedAt      time.Time            `json:"claimed_at"`
+	ClaimReference PlanetClaimReference `json:"claim_reference"`
+}
+
+// ClaimProductionInitializeResult reports whether production rows were created
+// or already existed for this claimed planet.
+type ClaimProductionInitializeResult struct {
+	Created            bool `json:"created"`
+	AlreadyInitialized bool `json:"already_initialized,omitempty"`
 }
 
 // ClaimEventRecord is a local event/outbox-shaped record for planet claims.
@@ -133,31 +151,37 @@ type ClaimXCoreConsumer interface {
 	ConsumeClaimXCore(input ClaimXCoreConsumeInput) (ClaimXCoreConsumeResult, error)
 }
 
+type ClaimProductionInitializer interface {
+	InitializeClaimProduction(input ClaimProductionInitializeInput) (ClaimProductionInitializeResult, error)
+}
+
 // ClaimServiceConfig wires claim service boundaries without depending on
 // concrete progression, world, or inventory services.
 type ClaimServiceConfig struct {
-	Store               *InMemoryStore
-	Clock               foundation.Clock
-	Ranks               ClaimRankProvider
-	Proximity           ClaimProximityProvider
-	XCoreSources        ClaimXCoreSourceProvider
-	XCoreConsumer       ClaimXCoreConsumer
-	XCoreItemDefinition economy.ItemDefinition
-	ClaimReason         economy.LedgerReason
+	Store                 *InMemoryStore
+	Clock                 foundation.Clock
+	Ranks                 ClaimRankProvider
+	Proximity             ClaimProximityProvider
+	XCoreSources          ClaimXCoreSourceProvider
+	XCoreConsumer         ClaimXCoreConsumer
+	ProductionInitializer ClaimProductionInitializer
+	XCoreItemDefinition   economy.ItemDefinition
+	ClaimReason           economy.LedgerReason
 }
 
 // ClaimService owns local MVP planet claim idempotency and event records.
 type ClaimService struct {
 	mu sync.Mutex
 
-	store               *InMemoryStore
-	clock               foundation.Clock
-	ranks               ClaimRankProvider
-	proximity           ClaimProximityProvider
-	xCoreSources        ClaimXCoreSourceProvider
-	xCoreConsumer       ClaimXCoreConsumer
-	xCoreItemDefinition economy.ItemDefinition
-	claimReason         economy.LedgerReason
+	store                 *InMemoryStore
+	clock                 foundation.Clock
+	ranks                 ClaimRankProvider
+	proximity             ClaimProximityProvider
+	xCoreSources          ClaimXCoreSourceProvider
+	xCoreConsumer         ClaimXCoreConsumer
+	productionInitializer ClaimProductionInitializer
+	xCoreItemDefinition   economy.ItemDefinition
+	claimReason           economy.LedgerReason
 
 	claims map[PlanetClaimReference]claimRecord
 	events []ClaimEventRecord
@@ -177,15 +201,16 @@ func NewClaimService(config ClaimServiceConfig) (*ClaimService, error) {
 		return nil, err
 	}
 	return &ClaimService{
-		store:               normalized.Store,
-		clock:               normalized.Clock,
-		ranks:               normalized.Ranks,
-		proximity:           normalized.Proximity,
-		xCoreSources:        normalized.XCoreSources,
-		xCoreConsumer:       normalized.XCoreConsumer,
-		xCoreItemDefinition: normalized.XCoreItemDefinition,
-		claimReason:         normalized.ClaimReason,
-		claims:              make(map[PlanetClaimReference]claimRecord),
+		store:                 normalized.Store,
+		clock:                 normalized.Clock,
+		ranks:                 normalized.Ranks,
+		proximity:             normalized.Proximity,
+		xCoreSources:          normalized.XCoreSources,
+		xCoreConsumer:         normalized.XCoreConsumer,
+		productionInitializer: normalized.ProductionInitializer,
+		xCoreItemDefinition:   normalized.XCoreItemDefinition,
+		claimReason:           normalized.ClaimReason,
+		claims:                make(map[PlanetClaimReference]claimRecord),
 	}, nil
 }
 
@@ -221,6 +246,13 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 	}
 
 	if planet.OwnerPlayerID == input.PlayerID {
+		claimedAt := service.clock.Now().UTC()
+		if planet.OwnerChangedAt != nil {
+			claimedAt = planet.OwnerChangedAt.UTC()
+		}
+		if err := service.initializeProduction(input, planet, claimedAt); err != nil {
+			return ClaimPlanetResult{}, err
+		}
 		result := ClaimPlanetResult{
 			Planet:       clonePlanet(planet),
 			Claimed:      true,
@@ -252,6 +284,9 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 		SourceReference:  claimOwnerChangeSourceReference(event),
 	})
 	if err != nil {
+		return ClaimPlanetResult{}, err
+	}
+	if err := service.initializeProduction(input, ownerChange.Planet, now); err != nil {
 		return ClaimPlanetResult{}, err
 	}
 	service.events = append(service.events, event)
@@ -290,6 +325,26 @@ func (input ClaimPlanetInput) Validate() error {
 	}
 	if err := input.PlanetID.Validate(); err != nil {
 		return fmt.Errorf("planet_id: %w", err)
+	}
+	if err := input.ClaimReference.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Validate reports whether input can initialize production for a completed claim.
+func (input ClaimProductionInitializeInput) Validate() error {
+	if err := input.PlayerID.Validate(); err != nil {
+		return fmt.Errorf("player_id: %w", err)
+	}
+	if err := input.PlanetID.Validate(); err != nil {
+		return fmt.Errorf("planet_id: %w", err)
+	}
+	if input.PlanetLevel <= 0 {
+		return fmt.Errorf("planet_level %d: %w", input.PlanetLevel, ErrInvalidClaimProductionInit)
+	}
+	if input.ClaimedAt.IsZero() {
+		return fmt.Errorf("claimed_at: %w", ErrInvalidClaimProductionInit)
 	}
 	if err := input.ClaimReference.Validate(); err != nil {
 		return err
@@ -491,6 +546,24 @@ func (service *ClaimService) consumeXCore(input ClaimPlanetInput, planet Planet)
 		return err
 	}
 	_, err = service.xCoreConsumer.ConsumeClaimXCore(consumeInput)
+	return err
+}
+
+func (service *ClaimService) initializeProduction(input ClaimPlanetInput, planet Planet, claimedAt time.Time) error {
+	if service.productionInitializer == nil {
+		return nil
+	}
+	initInput := ClaimProductionInitializeInput{
+		PlayerID:       input.PlayerID,
+		PlanetID:       planet.ID,
+		PlanetLevel:    planet.Level,
+		ClaimedAt:      claimedAt,
+		ClaimReference: input.ClaimReference,
+	}
+	if err := initInput.Validate(); err != nil {
+		return err
+	}
+	_, err := service.productionInitializer.InitializeClaimProduction(initInput)
 	return err
 }
 

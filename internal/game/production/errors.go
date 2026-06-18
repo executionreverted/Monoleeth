@@ -35,3 +35,5 @@ var (
 	ErrProductionSnapshotIncomplete  = errors.New("incomplete planet production snapshot")
 	ErrInvalidProductionEvent        = errors.New("invalid planet production event")
 )
+
+var ErrInvalidClaimProductionInitializerConfig = errors.New("invalid claim production initializer config")

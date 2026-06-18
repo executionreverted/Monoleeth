@@ -78,6 +78,29 @@ func TestClaimPlanetProximityFailureRejectedWithoutXCoreConsume(t *testing.T) {
 	}
 }
 
+func TestClaimPlanetRejectedDoesNotInitializeProduction(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim")
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	initializer := &recordingClaimProductionInitializer{}
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level - 1,
+		inRange:     true,
+		consumer:    &recordingClaimXCoreConsumer{},
+		initializer: initializer,
+	})
+
+	_, err := service.ClaimPlanet(claimInput("claim_rejected_no_init", planet.ID))
+	if !errors.Is(err, ErrPlanetClaimRankTooLow) {
+		t.Fatalf("ClaimPlanet() error = %v, want ErrPlanetClaimRankTooLow", err)
+	}
+	if got := len(initializer.calls); got != 0 {
+		t.Fatalf("production initializer calls = %d, want 0", got)
+	}
+}
+
 func TestClaimPlanetXCoreFailureLeavesPlanetUnownedAndEmitsNoEvent(t *testing.T) {
 	store := NewInMemoryStore()
 	planet := claimTestPlanet("planet-claim")
@@ -174,7 +197,7 @@ func TestClaimPlanetSuccessConsumesXCoreSetsOwnerEmitsEventAndMarksIntelStale(t 
 	}
 }
 
-func TestClaimPlanetDuplicateReferenceDoesNotConsumeOrEmitAgain(t *testing.T) {
+func TestClaimPlanetNilProductionInitializerKeepsSuccessBehavior(t *testing.T) {
 	store := NewInMemoryStore()
 	planet := claimTestPlanet("planet-claim")
 	materializeClaimTestPlanet(t, store, planet)
@@ -185,6 +208,91 @@ func TestClaimPlanetDuplicateReferenceDoesNotConsumeOrEmitAgain(t *testing.T) {
 		rank:     planet.Level,
 		inRange:  true,
 		consumer: consumer,
+	})
+
+	result, err := service.ClaimPlanet(claimInput("claim_nil_initializer", planet.ID))
+	if err != nil {
+		t.Fatalf("ClaimPlanet() error = %v, want nil", err)
+	}
+	if !result.Claimed || result.Planet.OwnerPlayerID != claimTestPlayerID {
+		t.Fatalf("claim result = %+v, want claimed by %q", result, claimTestPlayerID)
+	}
+	if got := len(consumer.calls); got != 1 {
+		t.Fatalf("x core consume calls = %d, want 1", got)
+	}
+	if got := len(service.Events()); got != 1 {
+		t.Fatalf("claim events = %d, want 1", got)
+	}
+}
+
+func TestClaimPlanetSuccessInitializesProductionWithClaimContext(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim")
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	initializer := &recordingClaimProductionInitializer{}
+	initializer.onCall = func(input ClaimProductionInitializeInput) {
+		stored, ok, err := store.Planet(input.PlanetID)
+		if err != nil || !ok {
+			t.Fatalf("Planet(%q) during initialization ok = %v err = %v, want true nil", input.PlanetID, ok, err)
+		}
+		if stored.OwnerPlayerID != claimTestPlayerID {
+			t.Fatalf("owner during initialization = %q, want %q", stored.OwnerPlayerID, claimTestPlayerID)
+		}
+		if stored.OwnerChangedAt == nil || !stored.OwnerChangedAt.Equal(claimTestTime()) {
+			t.Fatalf("owner changed at during initialization = %v, want %s", stored.OwnerChangedAt, claimTestTime())
+		}
+	}
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    &recordingClaimXCoreConsumer{},
+		initializer: initializer,
+	})
+
+	result, err := service.ClaimPlanet(claimInput("claim_init_success", planet.ID))
+	if err != nil {
+		t.Fatalf("ClaimPlanet() error = %v, want nil", err)
+	}
+	if !result.Claimed {
+		t.Fatalf("ClaimPlanet() claimed = false, want true")
+	}
+	if got := len(initializer.calls); got != 1 {
+		t.Fatalf("production initializer calls = %d, want 1", got)
+	}
+	call := initializer.calls[0]
+	if call.PlayerID != claimTestPlayerID || call.PlanetID != planet.ID {
+		t.Fatalf("initializer identity = %+v, want player %q planet %q", call, claimTestPlayerID, planet.ID)
+	}
+	if call.PlanetLevel != planet.Level {
+		t.Fatalf("initializer planet level = %d, want %d", call.PlanetLevel, planet.Level)
+	}
+	if !call.ClaimedAt.Equal(claimTestTime()) {
+		t.Fatalf("initializer claimed_at = %s, want %s", call.ClaimedAt, claimTestTime())
+	}
+	if call.ClaimReference != "claim_init_success" {
+		t.Fatalf("initializer claim reference = %q, want claim_init_success", call.ClaimReference)
+	}
+	events := service.Events()
+	if len(events) != 1 || !events[0].CreatedAt.Equal(call.ClaimedAt) {
+		t.Fatalf("claim events = %+v, want one event at initializer claimed_at", events)
+	}
+}
+
+func TestClaimPlanetDuplicateReferenceDoesNotConsumeEmitOrInitializeAgain(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim")
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	consumer := &recordingClaimXCoreConsumer{}
+	initializer := &recordingClaimProductionInitializer{}
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    consumer,
+		initializer: initializer,
 	})
 	input := claimInput("claim_duplicate", planet.ID)
 
@@ -203,6 +311,101 @@ func TestClaimPlanetDuplicateReferenceDoesNotConsumeOrEmitAgain(t *testing.T) {
 	}
 	if got := len(service.Events()); got != 1 {
 		t.Fatalf("claim events after duplicate = %d, want 1", got)
+	}
+	if got := len(initializer.calls); got != 1 {
+		t.Fatalf("production initializer calls after duplicate = %d, want 1", got)
+	}
+}
+
+func TestClaimPlanetProductionInitializerErrorReturnsBeforeEventOrClaimCache(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim")
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	initErr := errors.New("production init failed")
+	initializer := &recordingClaimProductionInitializer{err: initErr}
+	consumer := &recordingClaimXCoreConsumer{}
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    consumer,
+		initializer: initializer,
+	})
+	input := claimInput("claim_init_fail", planet.ID)
+
+	_, err := service.ClaimPlanet(input)
+	if !errors.Is(err, initErr) {
+		t.Fatalf("ClaimPlanet() error = %v, want initErr", err)
+	}
+	if got := len(initializer.calls); got != 1 {
+		t.Fatalf("production initializer calls = %d, want 1", got)
+	}
+	if got := len(service.Events()); got != 0 {
+		t.Fatalf("claim events after initializer failure = %d, want 0", got)
+	}
+	if got := len(consumer.calls); got != 1 {
+		t.Fatalf("x core consume calls after initializer failure = %d, want 1", got)
+	}
+	initializer.err = nil
+	retry, err := service.ClaimPlanet(input)
+	if err != nil {
+		t.Fatalf("retry ClaimPlanet() error = %v, want nil already-owned repair", err)
+	}
+	if retry.Duplicate {
+		t.Fatalf("retry duplicate = true, want false because initializer failure was not cached")
+	}
+	if !retry.AlreadyOwned || !retry.Claimed {
+		t.Fatalf("retry result = %+v, want already-owned claimed result", retry)
+	}
+	if got := len(initializer.calls); got != 2 {
+		t.Fatalf("production initializer calls after retry = %d, want 2", got)
+	}
+	if got := len(consumer.calls); got != 1 {
+		t.Fatalf("x core consume calls after retry = %d, want 1", got)
+	}
+}
+
+func TestClaimPlanetAlreadyOwnedBySamePlayerInitializesWithoutConsumeOrEvent(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim")
+	changedAt := testTime(5)
+	planet.OwnerPlayerID = claimTestPlayerID
+	planet.OwnerChangedAt = &changedAt
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	consumer := &recordingClaimXCoreConsumer{}
+	initializer := &recordingClaimProductionInitializer{}
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    consumer,
+		initializer: initializer,
+	})
+
+	result, err := service.ClaimPlanet(claimInput("claim_owned_same", planet.ID))
+	if err != nil {
+		t.Fatalf("ClaimPlanet() error = %v, want nil", err)
+	}
+	if !result.Claimed || !result.AlreadyOwned {
+		t.Fatalf("ClaimPlanet() result = %+v, want claimed already-owned", result)
+	}
+	if got := len(consumer.calls); got != 0 {
+		t.Fatalf("x core consume calls = %d, want 0", got)
+	}
+	if got := len(service.Events()); got != 0 {
+		t.Fatalf("claim events = %d, want 0", got)
+	}
+	if got := len(initializer.calls); got != 1 {
+		t.Fatalf("production initializer calls = %d, want 1", got)
+	}
+	call := initializer.calls[0]
+	if call.PlayerID != claimTestPlayerID || call.PlanetID != planet.ID {
+		t.Fatalf("initializer identity = %+v, want player %q planet %q", call, claimTestPlayerID, planet.ID)
+	}
+	if !call.ClaimedAt.Equal(changedAt) {
+		t.Fatalf("initializer claimed_at = %s, want owner changed at %s", call.ClaimedAt, changedAt)
 	}
 }
 
@@ -238,21 +441,23 @@ func TestClaimPlanetAlreadyOwnedByAnotherPlayerRejected(t *testing.T) {
 }
 
 type claimTestServiceOptions struct {
-	store    *InMemoryStore
-	rank     int
-	inRange  bool
-	consumer *recordingClaimXCoreConsumer
+	store       *InMemoryStore
+	rank        int
+	inRange     bool
+	consumer    *recordingClaimXCoreConsumer
+	initializer ClaimProductionInitializer
 }
 
 func newClaimTestService(t *testing.T, options claimTestServiceOptions) *ClaimService {
 	t.Helper()
 	service, err := NewClaimService(ClaimServiceConfig{
-		Store:               options.store,
-		Clock:               fixedClaimClock{now: claimTestTime()},
-		Ranks:               fixedClaimRankProvider{rank: options.rank},
-		Proximity:           fixedClaimProximityProvider{inRange: options.inRange},
-		XCoreConsumer:       options.consumer,
-		XCoreItemDefinition: claimTestXCoreDefinition(t),
+		Store:                 options.store,
+		Clock:                 fixedClaimClock{now: claimTestTime()},
+		Ranks:                 fixedClaimRankProvider{rank: options.rank},
+		Proximity:             fixedClaimProximityProvider{inRange: options.inRange},
+		XCoreConsumer:         options.consumer,
+		ProductionInitializer: options.initializer,
+		XCoreItemDefinition:   claimTestXCoreDefinition(t),
 	})
 	if err != nil {
 		t.Fatalf("NewClaimService() error = %v, want nil", err)
@@ -371,4 +576,24 @@ func (consumer *recordingClaimXCoreConsumer) ConsumeClaimXCore(input ClaimXCoreC
 	}
 	consumer.calls = append(consumer.calls, input)
 	return ClaimXCoreConsumeResult{}, nil
+}
+
+type recordingClaimProductionInitializer struct {
+	calls  []ClaimProductionInitializeInput
+	err    error
+	onCall func(ClaimProductionInitializeInput)
+}
+
+func (initializer *recordingClaimProductionInitializer) InitializeClaimProduction(input ClaimProductionInitializeInput) (ClaimProductionInitializeResult, error) {
+	if err := input.Validate(); err != nil {
+		return ClaimProductionInitializeResult{}, err
+	}
+	initializer.calls = append(initializer.calls, input)
+	if initializer.onCall != nil {
+		initializer.onCall(input)
+	}
+	if initializer.err != nil {
+		return ClaimProductionInitializeResult{}, initializer.err
+	}
+	return ClaimProductionInitializeResult{Created: true}, nil
 }
