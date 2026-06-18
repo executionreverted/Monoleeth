@@ -217,19 +217,25 @@ missing check names. Module-by-module release gate reports have not been run yet
 
 ## Abuse Test Suite
 
-- [ ] Negative amounts.
-- [ ] Enormous amounts.
-- [ ] Duplicate request ID.
-- [ ] Same command with different request IDs.
-- [ ] Hidden entity interaction.
-- [ ] Out-of-range pickup.
-- [ ] Market buy/cancel race.
-- [ ] Auction bid/buy-now race.
-- [ ] Premium webhook replay.
-- [ ] Offline settlement repeated.
-- [ ] Route toggle around settlement.
-- [ ] Locked skill unlock.
-- [ ] Broken module still active.
+- [x] Negative amounts.
+- [x] Enormous amounts.
+- [x] Duplicate request ID.
+- [x] Same command with different request IDs.
+- [x] Hidden entity interaction.
+- [x] Out-of-range pickup.
+- [x] Market buy/cancel race.
+- [x] Auction bid/buy-now race.
+- [x] Premium webhook replay.
+- [x] Offline settlement repeated.
+- [x] Route toggle around settlement.
+- [x] Locked skill unlock.
+- [x] Broken module still active.
+
+Implementation note 2026-06-18:
+`Phase12AbuseTestCoverage` records executable Go-test evidence for each abuse
+case, and `NewAbuseTestCoverageReport` fail-closes if required coverage is
+missing. The coverage test parses referenced packages so stale test-function
+references fail during `go test`.
 
 ## Data Retention Guidance
 
