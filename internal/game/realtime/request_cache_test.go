@@ -189,6 +189,9 @@ func TestRequestCacheReleasesInFlightWhenBuildPanics(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("flight was not released after panic")
 	}
+	if flight.panicValue != "handler panic" {
+		t.Fatalf("flight panic value = %#v, want handler panic", flight.panicValue)
+	}
 	cache.mu.Lock()
 	_, stillInFlight := cache.inFlight[key]
 	cache.mu.Unlock()
