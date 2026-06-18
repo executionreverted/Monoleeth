@@ -38,9 +38,10 @@ const (
 
 // CraftLocation is the validated location metadata stored on a craft job.
 type CraftLocation struct {
-	Type       CraftLocationType `json:"location_type"`
-	ID         string            `json:"location_id"`
-	PlanetType string            `json:"planet_type,omitempty"`
+	Type       CraftLocationType   `json:"location_type"`
+	ID         string              `json:"location_id"`
+	PlanetID   foundation.PlanetID `json:"planet_id,omitempty"`
+	PlanetType string              `json:"planet_type,omitempty"`
 }
 
 // RecipeInput records one item stack consumed or reserved by a recipe.

@@ -389,6 +389,101 @@ func TestStartCraftLocationAuthorizerRejectsBeforeEconomyMutation(t *testing.T) 
 	}
 }
 
+func TestStartCraftRequiresAuthorizerForPlanetLocationsBeforeEconomyMutation(t *testing.T) {
+	tests := []struct {
+		name         string
+		locationType CraftLocationType
+		location     CraftLocation
+	}{
+		{
+			name:         "owned planet",
+			locationType: CraftLocationOwnedPlanet,
+			location:     CraftLocation{Type: CraftLocationOwnedPlanet, ID: "planet-1"},
+		},
+		{
+			name:         "planet building",
+			locationType: CraftLocationPlanetBuilding,
+			location:     CraftLocation{Type: CraftLocationPlanetBuilding, ID: "forge-1", PlanetID: "planet-1"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newCraftingServiceFixture(t)
+			fixture.seedCraftingRole(t, 1)
+			recipe := fixture.replaceRecipeLocationRequirement(t, tc.locationType)
+			fixture.seedRecipeInputs(t, recipe, "missing-location-authorizer-"+tc.name)
+			fixture.seedCredits(t, recipe.RequiredCredits.Int64(), "missing-location-authorizer-"+tc.name+"-credits")
+			countingReservations := newCountingReservationService(fixture.reservations)
+			fixture.service.reservations = countingReservations
+
+			walletLedgerCount := len(fixture.wallet.CurrencyLedgerEntries())
+			itemLedgerCount := len(fixture.inventory.ItemLedgerEntries())
+
+			_, err := fixture.service.StartCraft(StartCraftInput{
+				PlayerID:     fixture.playerID,
+				RecipeID:     recipe.RecipeID,
+				Location:     tc.location,
+				ReferenceKey: mustCraftStartKey(t, "missing-location-authorizer-"+tc.name),
+			})
+			if !errors.Is(err, ErrMissingLocationAuthorizer) {
+				t.Fatalf("StartCraft error = %v, want ErrMissingLocationAuthorizer", err)
+			}
+
+			assertNoStartCraftEconomyMutation(t, fixture, recipe, "craft-job-1", walletLedgerCount, itemLedgerCount)
+			if got := countingReservations.reserveCalls.Load(); got != 0 {
+				t.Fatalf("ReserveItems calls = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestStartCraftPlanetBuildingWithAuthorizerUsesPlanetStorage(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	fixture.seedCraftingRole(t, 1)
+	recipe := fixture.replaceRecipeLocationRequirement(t, CraftLocationPlanetBuilding)
+	location := CraftLocation{Type: CraftLocationPlanetBuilding, ID: "forge-1", PlanetID: "planet-1"}
+	planetStorage, err := economy.NewItemLocation(economy.LocationKindPlanetStorage, location.PlanetID.String())
+	if err != nil {
+		t.Fatalf("planet storage NewItemLocation: %v", err)
+	}
+	buildingStorage, err := economy.NewItemLocation(economy.LocationKindPlanetStorage, location.ID)
+	if err != nil {
+		t.Fatalf("building storage NewItemLocation: %v", err)
+	}
+	fixture.seedRecipeInputsFor(t, fixture.playerID, planetStorage, recipe, "planet-building-authorized")
+	fixture.seedCredits(t, recipe.RequiredCredits.Int64(), "planet-building-authorized-credits")
+	authorizer := &recordingCraftLocationAuthorizer{}
+	fixture.service.locationAuth = authorizer
+
+	result, err := fixture.service.StartCraft(StartCraftInput{
+		PlayerID:     fixture.playerID,
+		RecipeID:     recipe.RecipeID,
+		Location:     location,
+		ReferenceKey: mustCraftStartKey(t, "planet-building-authorized"),
+	})
+	if err != nil {
+		t.Fatalf("StartCraft error = %v, want nil", err)
+	}
+	if !authorizer.called {
+		t.Fatal("location authorizer was not called")
+	}
+	if result.SourceLocation != planetStorage {
+		t.Fatalf("source location = %+v, want planet storage %+v", result.SourceLocation, planetStorage)
+	}
+	for _, input := range recipe.Inputs {
+		if got := fixture.inventory.TotalItemQuantity(fixture.playerID, input.ItemID, planetStorage); got != 0 {
+			t.Fatalf("planet storage source quantity for %q = %d, want 0", input.ItemID, got)
+		}
+		if got := fixture.inventory.TotalItemQuantity(fixture.playerID, input.ItemID, buildingStorage); got != 0 {
+			t.Fatalf("building-id storage quantity for %q = %d, want 0", input.ItemID, got)
+		}
+		if got := fixture.inventory.TotalItemQuantity(fixture.playerID, input.ItemID, fixture.reservedLocation(result.Job.JobID)); got != input.Quantity.Int64() {
+			t.Fatalf("reserved quantity for %q = %d, want %d", input.ItemID, got, input.Quantity.Int64())
+		}
+	}
+}
+
 func TestStartCraftRejectsAlreadyOwnedNonRepeatableShipBeforeEconomyMutation(t *testing.T) {
 	fixture := newCraftingServiceFixture(t)
 	fixture.seedRank2(t)
@@ -743,6 +838,28 @@ func (fixture *craftingServiceFixture) recipe(t *testing.T, recipeID catalog.Def
 	if err != nil {
 		t.Fatalf("MustGet(%q): %v", recipeID, err)
 	}
+	return recipe
+}
+
+func (fixture *craftingServiceFixture) replaceRecipeLocationRequirement(
+	t *testing.T,
+	locationType CraftLocationType,
+) RecipeDefinition {
+	t.Helper()
+
+	recipe := fixture.recipe(t, RecipeIDRefinedAlloy)
+	recipe.RecipeID = catalog.DefinitionID("test_" + locationType.String() + "_recipe")
+	source, err := catalog.NewRecipeSource(recipe.RecipeID.String(), RecipeCatalogVersion.String())
+	if err != nil {
+		t.Fatalf("NewRecipeSource: %v", err)
+	}
+	recipe.Source = source
+	recipe.RequiredLocationType = locationType
+	recipes, err := NewRecipeCatalog([]RecipeDefinition{recipe})
+	if err != nil {
+		t.Fatalf("NewRecipeCatalog: %v", err)
+	}
+	fixture.service.recipes = recipes
 	return recipe
 }
 

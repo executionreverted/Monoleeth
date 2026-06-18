@@ -114,6 +114,15 @@ planet_building
 special_event_station
 ```
 
+Location shape:
+
+```text
+station: location_id = station id
+owned_planet: location_id = planet id
+planet_building: location_id = building id, planet_id = planet id
+special_event_station: location_id = event station id
+```
+
 Planet-local rule:
 
 ```text
@@ -124,6 +133,18 @@ MVP:
 
 - station craft uses account inventory
 - planet craft uses planet storage
+- planet-building craft also uses planet storage, but the building id must
+  resolve to an active server-owned building on a planet owned by the player
+
+Phase 06 implementation:
+
+- `CraftingService.StartCraft` requires a `CraftLocationAuthorizer` for
+  `owned_planet` and `planet_building` recipes before material reservation,
+  wallet debit, or job creation.
+- `production.CraftLocationAuthorizer` reads discovery planet ownership and
+  production storage/building state. Unknown, unowned, or other-owned planets
+  are rejected as not owned, and planet-building craft requires an active
+  building on the owned planet.
 
 ## Commands
 
@@ -357,4 +378,3 @@ MVP:
 - module recipes
 - basic ship unlock recipe
 - X Core fragment recipe optional
-

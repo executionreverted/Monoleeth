@@ -60,3 +60,11 @@ var (
 )
 
 var ErrInvalidClaimProductionInitializerConfig = errors.New("invalid claim production initializer config")
+
+var (
+	ErrInvalidCraftLocationAuthorizerConfig = errors.New("invalid craft location authorizer config")
+	ErrCraftPlanetNotOwned                  = errors.New("craft planet not owned")
+	ErrCraftPlanetProductionMissing         = errors.New("craft planet production missing")
+	ErrCraftBuildingNotFound                = errors.New("craft building not found")
+	ErrCraftBuildingInactive                = errors.New("craft building inactive")
+)

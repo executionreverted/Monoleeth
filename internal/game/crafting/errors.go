@@ -31,6 +31,7 @@ var (
 	ErrMissingWalletService        = errors.New("missing wallet service")
 	ErrMissingProgressionService   = errors.New("missing progression service")
 	ErrMissingShipService          = errors.New("missing ship service")
+	ErrMissingLocationAuthorizer   = errors.New("missing craft location authorizer")
 	ErrUnknownCraftItem            = errors.New("unknown craft item definition")
 	ErrCraftJobAlreadyExists       = errors.New("craft job already exists")
 	ErrCraftStartReferenceMismatch = errors.New("craft start reference mismatch")

@@ -250,14 +250,8 @@ func (service *CraftingService) StartCraft(input StartCraftInput) (StartCraftRes
 	if err := recipe.ValidateRequirements(snapshot.Player.Rank, roleLevelsForRequirements(snapshot), input.Location); err != nil {
 		return StartCraftResult{}, err
 	}
-	if service.locationAuth != nil {
-		if err := service.locationAuth.AuthorizeCraftLocation(CraftLocationAuthorizationInput{
-			PlayerID: input.PlayerID,
-			Recipe:   recipe,
-			Location: input.Location,
-		}); err != nil {
-			return StartCraftResult{}, err
-		}
+	if err := service.authorizeCraftLocation(input.PlayerID, recipe, input.Location); err != nil {
+		return StartCraftResult{}, err
 	}
 	if err := service.rejectOwnedNonRepeatableShipOutput(input.PlayerID, recipe); err != nil {
 		return StartCraftResult{}, err
@@ -591,6 +585,24 @@ func (service *CraftingService) rejectOwnedNonRepeatableShipOutput(playerID foun
 	return nil
 }
 
+func (service *CraftingService) authorizeCraftLocation(
+	playerID foundation.PlayerID,
+	recipe RecipeDefinition,
+	location CraftLocation,
+) error {
+	if service.locationAuth == nil {
+		if requiresAuthoritativeCraftLocation(recipe.RequiredLocationType) {
+			return fmt.Errorf("location type %q: %w", recipe.RequiredLocationType, ErrMissingLocationAuthorizer)
+		}
+		return nil
+	}
+	return service.locationAuth.AuthorizeCraftLocation(CraftLocationAuthorizationInput{
+		PlayerID: playerID,
+		Recipe:   recipe,
+		Location: location,
+	})
+}
+
 func (service *CraftingService) finishCompletionInFlightLocked(jobID CraftJobID, result CompleteCraftResult, err error) {
 	inFlight, ok := service.completing[jobID]
 	if !ok {
@@ -649,10 +661,21 @@ func craftItemLocation(playerID foundation.PlayerID, location CraftLocation) (ec
 	switch location.Type {
 	case CraftLocationStation, CraftLocationSpecialEventStation:
 		return economy.NewItemLocation(economy.LocationKindAccountInventory, playerID.String())
-	case CraftLocationOwnedPlanet, CraftLocationPlanetBuilding:
+	case CraftLocationOwnedPlanet:
 		return economy.NewItemLocation(economy.LocationKindPlanetStorage, location.ID)
+	case CraftLocationPlanetBuilding:
+		return economy.NewItemLocation(economy.LocationKindPlanetStorage, location.PlanetID.String())
 	default:
 		return economy.ItemLocation{}, location.Type.Validate()
+	}
+}
+
+func requiresAuthoritativeCraftLocation(locationType CraftLocationType) bool {
+	switch locationType {
+	case CraftLocationOwnedPlanet, CraftLocationPlanetBuilding:
+		return true
+	default:
+		return false
 	}
 }
 

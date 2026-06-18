@@ -163,7 +163,7 @@ Crafting:
 - [x] Early craft completion blocked by server time.
 - [x] Unknown recipe and wrong MVP station location type blocked by server catalog validation.
 - [x] Craft completion retry races are serialized per job in the in-memory Phase 06 service. Verified 2026-06-17 by concurrent completion tests.
-- [ ] Planet/building craft location ownership validation blocks fake locations.
+- [x] Planet/building craft location ownership validation blocks fake locations. Verified 2026-06-18 by `CraftingService.StartCraft` fail-closed nil-authorizer tests and `production.CraftLocationAuthorizer` tests for unknown, unowned, other-owned, missing-production, missing-building, inactive-building, and active-building cases.
 - [ ] Low-tier craft XP spam has at least a tracking hook for later balancing.
 
 ## Done Criteria
@@ -184,3 +184,7 @@ Verified slices:
 - `DeathService.ProcessDeath` emits `player.died`, `ship.disabled`, and `death.cargo_dropped` after successful death processing. Duplicate lethal-event retries return the cached result without re-emitting death events.
 - `DeathService` now exposes a process-local cargo transfer guard for Phase 06: player-facing ship cargo adds/moves acquire short transfer leases, death processing waits for already-active leases before touching cargo, new player-facing cargo transfers fail while death processing is in flight, trusted system inventory moves continue for death-owned flows, and duplicate economy retries return cached results before consulting the guard.
 - Module durability handling now gets equipped module item ids from server-owned loadout state through `EquippedModuleProvider`, not from death command input. The selected ids are cached in the lethal-event attempt so retries do not re-read a later loadout.
+- Planet and planet-building craft recipes now fail closed without a craft
+  location authorizer. The production-backed authorizer validates discovery
+  planet ownership, production storage initialization, and active building state
+  before any crafting economy mutation.

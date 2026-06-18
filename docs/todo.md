@@ -35,12 +35,9 @@ for phase status; this file is a compact pending-work index.
   after reservation commit; current in-memory retry path is idempotent, but a
   crash between reservation commit, output grant, XP grant, and job completion
   still needs recovery.
-- [ ] Add craft location ownership/building validation before enabling
-  owned-planet or planet-building recipes beyond the current station MVP.
-- [ ] Wire `CraftLocationAuthorizer` to authoritative runtime station, planet,
-  and building ownership providers before exposing non-station craft recipes;
-  the Phase 06 service now has a pre-mutation hook, but no runtime provider is
-  connected yet.
+- [ ] Wire `production.CraftLocationAuthorizer` into the concrete runtime craft
+  service factory before exposing owned-planet or planet-building recipes, and
+  add station/special-event station providers for public craft start APIs.
 - [ ] Add gateway/security tests for craft start authorization using the
   authenticated server-side player id, including hidden or unowned planet and
   building ids with leak-safe errors.
@@ -219,3 +216,10 @@ for phase status; this file is a compact pending-work index.
   used by death disable, so disabled or concurrently disabled active ships cannot
   spend energy, start cooldowns, or deal damage through a stale combat actor.
   Source: `docs/roadmap/06-death-repair-crafting.md`.
+- [x] Add craft location ownership/building validation before enabling
+  owned-planet or planet-building recipes beyond the current station MVP.
+  `CraftingService.StartCraft` now fails closed for planet/building recipes
+  without a location authorizer, and `production.CraftLocationAuthorizer`
+  validates discovery ownership, production storage initialization, and active
+  building state before reservation, wallet debit, or job creation. Source:
+  `docs/roadmap/06-death-repair-crafting.md`.

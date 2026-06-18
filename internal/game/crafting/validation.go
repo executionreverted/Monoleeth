@@ -49,6 +49,11 @@ func (location CraftLocation) Validate() error {
 	if strings.TrimSpace(location.ID) == "" {
 		return ErrEmptyCraftLocationID
 	}
+	if location.Type == CraftLocationPlanetBuilding {
+		if err := location.PlanetID.Validate(); err != nil {
+			return fmt.Errorf("planet_id: %w", err)
+		}
+	}
 	return nil
 }
 
