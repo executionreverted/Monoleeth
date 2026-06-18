@@ -84,6 +84,29 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add per-player offer/active-quest indexes plus TTL/compaction or durable
   uniqueness for quest in-memory caches (`progressEvents`, `claimResults`,
   `rerollResults`) before long-running or multi-process deployment.
+- [ ] Wire Phase 08 scanner capacitor/energy validation and slow/stationary scan
+  state before exposing scanner pulses through authenticated realtime/API
+  commands. Source: `docs/roadmap/08-world-discovery-planets-intel.md`.
+- [ ] Replace Phase 08 in-memory discovery stores, idempotency maps, and local
+  event slices with durable repositories/outbox records before multi-process
+  runtime or DB-backed deployment.
+- [ ] Move Phase 08 planet claim into a durable transaction/CAS boundary that
+  ties unowned-owner transition, X Core reservation/consume, idempotency, and
+  event emission together; current MVP blocks owner overwrite in-memory but
+  does not provide cross-process atomicity.
+- [ ] Add pending/complete or compensation handling around Phase 08 coordinate
+  scroll item mint/consume plus metadata/intel writes before using real durable
+  economy storage.
+- [ ] Add gateway/session authorization for discovery commands so client input
+  can only express scan/share/claim/use intents for the authenticated player;
+  never accept client-authored coordinates, planet candidates, XP, X Core
+  consumption, or scroll metadata.
+- [ ] Wire planet-claim owner-change events into future intel-market stale
+  listing invalidation once coordinate/intel trading leaves the local domain
+  MVP.
+- [ ] Narrow lock scope or add per-player/per-planet coordination for Phase 08
+  scan, claim, share, and coordinate-scroll services before high-concurrency
+  runtime deployment; current MVP services use process-local mutexes.
 
 ## Completed
 

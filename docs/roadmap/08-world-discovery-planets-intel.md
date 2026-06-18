@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Not started
+- State: Domain MVP complete - runtime/gateway follow-ups tracked
 - Owner: Exploration and information economy
 - Depends on: Phase 03, Phase 04, Phase 05, Phase 07
 - Unlocks: planet claiming, X Core sink, planet production, coordinate trading
@@ -52,105 +52,117 @@ Does not own:
 
 ## TODO: Procedural World Skeleton
 
-- [ ] Define world seed storage that never serializes to client.
-- [ ] Define chunk coordinate model.
-- [ ] Define scan cell coordinate model.
-- [ ] Implement deterministic cell hash helper.
-- [ ] Implement biome classification skeleton.
-- [ ] Implement planet candidate generation.
-- [ ] Filter candidates by discovery horizon.
-- [ ] Filter candidates by biome and spawn budget.
-- [ ] Ensure generated hidden candidates are not persisted until discovery.
-- [ ] Ensure hidden candidates are never sent to client.
+- [x] Define world seed storage that never serializes to client.
+- [x] Define chunk coordinate model.
+- [x] Define scan cell coordinate model.
+- [x] Implement deterministic cell hash helper.
+- [x] Implement biome classification skeleton.
+- [x] Implement planet candidate generation.
+- [x] Filter candidates by discovery horizon.
+- [x] Filter candidates by biome and spawn budget.
+- [x] Ensure generated hidden candidates are not persisted until discovery.
+- [x] Ensure hidden candidates are never sent to client.
 
 ## TODO: Scanner Discovery
 
-- [ ] Define scanner activation command.
-- [ ] Validate scanner module equipped.
-- [ ] Validate scanner cooldown.
+- [x] Define scanner activation command.
+- [x] Validate scanner module equipped.
+- [x] Validate scanner cooldown.
 - [ ] Validate capacitor/energy.
 - [ ] Apply slow or stationary scan state.
-- [ ] Schedule scan pulses server-side.
-- [ ] Calculate detection chance from stat snapshot and candidate data.
-- [ ] Enforce minimum radar level.
-- [ ] Resolve detection roll server-side.
-- [ ] Emit generic no-signal response without leaking hidden truth.
-- [ ] Reveal signal on successful detection.
-- [ ] Confirm planet after successful scan.
+- [x] Schedule scan pulses server-side.
+- [x] Calculate detection chance from stat snapshot and candidate data.
+- [x] Enforce minimum radar level.
+- [x] Resolve detection roll server-side.
+- [x] Emit generic no-signal response without leaking hidden truth.
+- [x] Reveal signal on successful detection.
+- [x] Confirm planet after successful scan.
 
 ## TODO: Planet Materialization And Claim
 
-- [ ] Define planet persistent model.
-- [ ] Define planet intel model.
-- [ ] Materialize planet into DB/repository on discovery.
-- [ ] Create discoverer intel record.
-- [ ] Emit `scan.planet_discovered`.
-- [ ] Grant scout XP.
-- [ ] Implement claim command.
-- [ ] Validate player knows planet.
-- [ ] Validate proximity.
-- [ ] Validate `player_rank >= planet_level_required`.
-- [ ] Validate X Core item exists.
-- [ ] Consume X Core through inventory service.
-- [ ] Set global planet owner.
-- [ ] Emit `planet.claimed`.
-- [ ] Mark stale listed intel skeleton event for future market phase.
+- [x] Define planet persistent model.
+- [x] Define planet intel model.
+- [x] Materialize planet into DB/repository on discovery.
+- [x] Create discoverer intel record.
+- [x] Emit `scan.planet_discovered`.
+- [x] Grant scout XP.
+- [x] Implement claim command.
+- [x] Validate player knows planet.
+- [x] Validate proximity.
+- [x] Validate `player_rank >= planet_level_required`.
+- [x] Validate X Core item exists.
+- [x] Consume X Core through inventory service.
+- [x] Set global planet owner.
+- [x] Emit `planet.claimed`.
+- [x] Mark older personal intel stale on planet ownership change.
 
 ## TODO: Intel Sharing And Items
 
-- [ ] Implement player planet intel upsert.
-- [ ] Implement freshness/confidence fields.
-- [ ] Implement share quota model.
-- [ ] Implement `SharePlanetIntel`.
-- [ ] Prevent sharing unknown planet.
-- [ ] Preserve fresher receiver intel.
-- [ ] Create system mail/notification skeleton.
-- [ ] Implement coordinate scroll item creation from known intel.
-- [ ] Store scroll metadata server-side.
-- [ ] Implement coordinate scroll use.
-- [ ] Consume scroll on use in MVP.
-- [ ] Add stale marking hook when planet ownership changes.
+- [x] Implement player planet intel upsert.
+- [x] Implement freshness/confidence fields.
+- [x] Implement share quota model.
+- [x] Implement `SharePlanetIntel`.
+- [x] Prevent sharing unknown planet.
+- [x] Preserve fresher receiver intel.
+- [x] Create system mail/notification skeleton.
+- [x] Implement coordinate scroll item creation from known intel.
+- [x] Store scroll metadata server-side.
+- [x] Implement coordinate scroll use.
+- [x] Consume scroll on use in MVP.
+- [x] Add personal-intel stale marking hook when planet ownership changes.
 
 ## Tests
 
-- [ ] Same cell and seed generate same candidate.
-- [ ] Gameplay seed never appears in client payload.
-- [ ] Hidden planet candidate is not serialized.
-- [ ] Scanner without module fails.
-- [ ] Scanner cooldown blocks spam.
-- [ ] Radar too low cannot discover planet.
-- [ ] Successful scan materializes one planet.
-- [ ] Duplicate scan does not duplicate planet record.
-- [ ] Discovery writes player intel.
-- [ ] Claim requires source intel.
-- [ ] Claim requires proximity.
-- [ ] Claim requires rank.
-- [ ] Claim consumes X Core exactly once.
-- [ ] Duplicate claim does not consume duplicate X Core.
-- [ ] Share requires source intel.
-- [ ] Share quota enforced.
-- [ ] Receiver gets fog memory.
-- [ ] Coordinate scroll creation uses server data.
-- [ ] Client cannot create arbitrary intel payload.
-- [ ] Existing fresher intel is not overwritten by stale intel.
+- [x] Same cell and seed generate same candidate.
+- [x] Gameplay seed never appears in client payload.
+- [x] Hidden planet candidate is not serialized.
+- [x] Scanner without module fails.
+- [x] Scanner cooldown blocks spam.
+- [x] Radar too low cannot discover planet.
+- [x] Successful scan materializes one planet.
+- [x] Duplicate scan does not duplicate planet record.
+- [x] Discovery writes player intel.
+- [x] Claim requires source intel.
+- [x] Claim requires proximity.
+- [x] Claim requires rank.
+- [x] Claim consumes X Core exactly once.
+- [x] Duplicate claim does not consume duplicate X Core.
+- [x] Share requires source intel.
+- [x] Share quota enforced.
+- [x] Receiver gets fog memory.
+- [x] Coordinate scroll creation uses server data.
+- [x] Client cannot create arbitrary intel payload.
+- [x] Existing fresher intel is not overwritten by stale intel.
 
 ## Abuse And Safety Checks
 
-- [ ] Procedural seed leak blocked.
-- [ ] Hidden planet probing returns generic errors.
-- [ ] Scanner pulse is server-timed, not client-spammable.
-- [ ] Coordinate forgery blocked by server-side item metadata.
-- [ ] Share spam blocked by quota.
-- [ ] Fog reveal abuse limited to specific intel points.
+- [x] Procedural seed leak blocked.
+- [x] Hidden planet probing returns generic errors.
+- [x] Scanner pulse is server-timed, not client-spammable.
+- [x] Coordinate forgery blocked by server-side item metadata.
+- [x] Share spam blocked by quota.
+- [x] Fog reveal abuse limited to specific intel points.
 
 ## Done Criteria
 
-- [ ] Players can discover planets through server-side scanner flow.
-- [ ] Planets become persistent only after discovery.
-- [ ] Player intel is personal and shareable.
-- [ ] Planet claiming consumes X Core and validates rank/proximity.
-- [ ] `go test ./...` passes.
-- [ ] `git diff --check` passes.
+- [x] Players can discover planets through server-side scanner flow.
+- [x] Planets become persistent only after discovery.
+- [x] Player intel is personal and shareable.
+- [x] Planet claiming consumes X Core and validates rank/proximity.
+- [x] `go test ./...` passes.
+- [x] `git diff --check` passes.
+
+## Implementation Notes
+
+- Phase 08 currently lands as a backend in-memory domain MVP under
+  `internal/game/discovery`; no realtime, REST, DB persistence, market listing,
+  production, or route integration is exposed yet.
+- Scanner, claim, share, and coordinate-scroll paths use provider interfaces for
+  runtime stat/cooldown, XP, proximity, rank, inventory, quota, and item-consume
+  boundaries.
+- Symphony security, performance, and code-quality review found boundary
+  hardening work; actionable Phase 08 MVP fixes landed, and larger
+  multi-process/runtime risks are tracked in `docs/todo.md`.
 
 ## Resume Notes
 
