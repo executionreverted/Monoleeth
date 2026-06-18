@@ -120,9 +120,16 @@ func TestAggregateStatsClampsEffectiveStats(t *testing.T) {
 				WeaponEnergyCost: math.Inf(1),
 				ResistExplosive:  -1,
 			},
+			Exploration: ExplorationStats{
+				ScanSuccessBonus: 2,
+				FogRevealRadius:  -1,
+			},
 			Economy: EconomyStats{
-				MarketFeeReduction: 4,
-				RouteLossReduction: -2,
+				ConstructionSpeed:        -1,
+				MarketFeeReduction:       4,
+				RouteLossReduction:       -2,
+				RouteCargoCapacityBonus:  -3,
+				CraftMaterialRefundBonus: 2,
 			},
 		},
 		PercentModules: []PercentModifier{
@@ -147,8 +154,13 @@ func TestAggregateStatsClampsEffectiveStats(t *testing.T) {
 	assertFloatEqual(t, got.Combat.CritChance, 0)
 	assertFloatEqual(t, got.Combat.ResistLaser, 1)
 	assertFloatEqual(t, got.Combat.ResistExplosive, 0)
+	assertFloatEqual(t, got.Exploration.ScanSuccessBonus, 1)
+	assertFloatEqual(t, got.Exploration.FogRevealRadius, 0)
+	assertFloatEqual(t, got.Economy.ConstructionSpeed, 0)
 	assertFloatEqual(t, got.Economy.MarketFeeReduction, 1)
 	assertFloatEqual(t, got.Economy.RouteLossReduction, 0)
+	assertFloatEqual(t, got.Economy.RouteCargoCapacityBonus, 0)
+	assertFloatEqual(t, got.Economy.CraftMaterialRefundBonus, 1)
 }
 
 func TestAggregateStatsDoesNotMutateInput(t *testing.T) {

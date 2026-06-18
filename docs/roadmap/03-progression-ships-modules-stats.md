@@ -203,8 +203,9 @@ Verified slices:
 - Review hardening batch 4 added `ship_equipped` item locations, blocked generic inventory moves into or out of equipped locations, and made loadout apply bind/unbind module item locations atomically with equipped indexes in the in-memory loadout store.
 - Runtime provider mapping exists under `internal/game/runtime` for progression rank/role validation, catalog-backed equipped-module stat input, scanner scan-pulse cooldown mapping to `Exploration.ScanInterval`, and effective-stat cargo capacity checks.
 - Runtime module equip/unequip ledger mapping exists under `internal/game/runtime`: `ModuleInventoryLedgerAdapter` batches quiet `InventoryService.SystemMoveItemsWithoutEvents` transitions for loadout changes, using `module_equip:*` and `module_unequip:*` domain idempotency references before in-memory equipped-module indexes commit.
-- The runtime stat input provider currently composes base ship and equipped module stats. The aggregation model has passive and role bonus buckets, but unlocked pilot-skill passive stat effects are not yet mapped into runtime stat input.
+- The runtime stat input provider composes base ship, equipped module stats, and unlocked pilot-skill passive stat effects when constructed with an authoritative progression snapshot reader.
+- Pilot skill passive mapping now covers every MVP skill-tree effect in `progression.PilotSkillDefinitions`, including combat, scanner/fog, cargo, craft, construction, and route-capacity stat targets.
 
 Remaining follow-up:
 
-- Map unlocked pilot-skill passive effects into runtime stat input before claiming a full progression-passives integration.
+- No Phase 03 progression-passive stat mapping follow-up remains; continue with the earliest open cross-phase runtime/gateway follow-up in `docs/todo.md`.

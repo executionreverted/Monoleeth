@@ -15,9 +15,6 @@ for phase status; this file is a compact pending-work index.
   authenticated WebSocket gateway flow, including reconnect snapshot request
   and server-authoritative player resolution. Source:
   `docs/roadmap/11-browser-client-prototype.md`.
-- [ ] Map unlocked pilot-skill passive stat effects into runtime stat input.
-  The stat aggregation model has passive buckets, but current runtime providers
-  compose base ship and equipped module stats only.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.
@@ -200,3 +197,8 @@ for phase status; this file is a compact pending-work index.
   `module_equip:*` and `module_unequip:*` references before committing
   in-memory equipped-module indexes. Source:
   `docs/roadmap/03-progression-ships-modules-stats.md`.
+- [x] Map unlocked pilot-skill passive stat effects into runtime stat input.
+  `runtime.StatInputProvider` can now read authoritative progression snapshots
+  and map every MVP pilot-skill effect into stat aggregation passive buckets,
+  including combat, scanner/fog, cargo, craft, construction, and route-capacity
+  targets. Source: `docs/roadmap/03-progression-ships-modules-stats.md`.

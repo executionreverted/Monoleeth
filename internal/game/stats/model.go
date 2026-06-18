@@ -50,21 +50,26 @@ type CombatStats struct {
 
 // ExplorationStats are used by radar, scanner, stealth, and jamming systems.
 type ExplorationStats struct {
-	RadarRange      float64 `json:"radar_range"`
-	ScanPower       float64 `json:"scan_power"`
-	ScanRadius      float64 `json:"scan_radius"`
-	ScanInterval    float64 `json:"scan_interval"`
-	SignatureRadius float64 `json:"signature_radius"`
-	StealthStrength float64 `json:"stealth_strength"`
-	JammerStrength  float64 `json:"jammer_strength"`
+	RadarRange       float64 `json:"radar_range"`
+	ScanPower        float64 `json:"scan_power"`
+	ScanRadius       float64 `json:"scan_radius"`
+	ScanInterval     float64 `json:"scan_interval"`
+	ScanSuccessBonus float64 `json:"scan_success_bonus"`
+	FogRevealRadius  float64 `json:"fog_reveal_radius"`
+	SignatureRadius  float64 `json:"signature_radius"`
+	StealthStrength  float64 `json:"stealth_strength"`
+	JammerStrength   float64 `json:"jammer_strength"`
 }
 
 // EconomyStats are read by production, routing, crafting, and market rules.
 type EconomyStats struct {
-	CraftSpeed         float64 `json:"craft_speed"`
-	RouteLossReduction float64 `json:"route_loss_reduction"`
-	ProductionBonus    float64 `json:"production_bonus"`
-	MarketFeeReduction float64 `json:"market_fee_reduction"`
+	CraftSpeed               float64 `json:"craft_speed"`
+	ConstructionSpeed        float64 `json:"construction_speed"`
+	RouteLossReduction       float64 `json:"route_loss_reduction"`
+	RouteCargoCapacityBonus  float64 `json:"route_cargo_capacity_bonus"`
+	ProductionBonus          float64 `json:"production_bonus"`
+	CraftMaterialRefundBonus float64 `json:"craft_material_refund_bonus"`
+	MarketFeeReduction       float64 `json:"market_fee_reduction"`
 }
 
 // Clamp normalizes effective stats after all modifiers have been applied.
@@ -99,13 +104,18 @@ func (stats *EffectiveStats) Clamp() {
 	stats.Exploration.ScanPower = clampNonNegative(stats.Exploration.ScanPower)
 	stats.Exploration.ScanRadius = clampNonNegative(stats.Exploration.ScanRadius)
 	stats.Exploration.ScanInterval = clampNonNegative(stats.Exploration.ScanInterval)
+	stats.Exploration.ScanSuccessBonus = clampUnit(stats.Exploration.ScanSuccessBonus)
+	stats.Exploration.FogRevealRadius = clampNonNegative(stats.Exploration.FogRevealRadius)
 	stats.Exploration.SignatureRadius = clampNonNegative(stats.Exploration.SignatureRadius)
 	stats.Exploration.StealthStrength = clampNonNegative(stats.Exploration.StealthStrength)
 	stats.Exploration.JammerStrength = clampNonNegative(stats.Exploration.JammerStrength)
 
 	stats.Economy.CraftSpeed = clampNonNegative(stats.Economy.CraftSpeed)
+	stats.Economy.ConstructionSpeed = clampNonNegative(stats.Economy.ConstructionSpeed)
 	stats.Economy.RouteLossReduction = clampUnit(stats.Economy.RouteLossReduction)
+	stats.Economy.RouteCargoCapacityBonus = clampNonNegative(stats.Economy.RouteCargoCapacityBonus)
 	stats.Economy.ProductionBonus = clampNonNegative(stats.Economy.ProductionBonus)
+	stats.Economy.CraftMaterialRefundBonus = clampUnit(stats.Economy.CraftMaterialRefundBonus)
 	stats.Economy.MarketFeeReduction = clampUnit(stats.Economy.MarketFeeReduction)
 }
 
@@ -142,13 +152,18 @@ func (stats *EffectiveStats) applyPercent(percent PercentStats) {
 	stats.Exploration.ScanPower *= percentMultiplier(modifier.Exploration.ScanPower)
 	stats.Exploration.ScanRadius *= percentMultiplier(modifier.Exploration.ScanRadius)
 	stats.Exploration.ScanInterval *= percentMultiplier(modifier.Exploration.ScanInterval)
+	stats.Exploration.ScanSuccessBonus *= percentMultiplier(modifier.Exploration.ScanSuccessBonus)
+	stats.Exploration.FogRevealRadius *= percentMultiplier(modifier.Exploration.FogRevealRadius)
 	stats.Exploration.SignatureRadius *= percentMultiplier(modifier.Exploration.SignatureRadius)
 	stats.Exploration.StealthStrength *= percentMultiplier(modifier.Exploration.StealthStrength)
 	stats.Exploration.JammerStrength *= percentMultiplier(modifier.Exploration.JammerStrength)
 
 	stats.Economy.CraftSpeed *= percentMultiplier(modifier.Economy.CraftSpeed)
+	stats.Economy.ConstructionSpeed *= percentMultiplier(modifier.Economy.ConstructionSpeed)
 	stats.Economy.RouteLossReduction *= percentMultiplier(modifier.Economy.RouteLossReduction)
+	stats.Economy.RouteCargoCapacityBonus *= percentMultiplier(modifier.Economy.RouteCargoCapacityBonus)
 	stats.Economy.ProductionBonus *= percentMultiplier(modifier.Economy.ProductionBonus)
+	stats.Economy.CraftMaterialRefundBonus *= percentMultiplier(modifier.Economy.CraftMaterialRefundBonus)
 	stats.Economy.MarketFeeReduction *= percentMultiplier(modifier.Economy.MarketFeeReduction)
 }
 
@@ -179,13 +194,18 @@ func (stats *EffectiveStats) add(delta EffectiveStats) {
 	stats.Exploration.ScanPower += delta.Exploration.ScanPower
 	stats.Exploration.ScanRadius += delta.Exploration.ScanRadius
 	stats.Exploration.ScanInterval += delta.Exploration.ScanInterval
+	stats.Exploration.ScanSuccessBonus += delta.Exploration.ScanSuccessBonus
+	stats.Exploration.FogRevealRadius += delta.Exploration.FogRevealRadius
 	stats.Exploration.SignatureRadius += delta.Exploration.SignatureRadius
 	stats.Exploration.StealthStrength += delta.Exploration.StealthStrength
 	stats.Exploration.JammerStrength += delta.Exploration.JammerStrength
 
 	stats.Economy.CraftSpeed += delta.Economy.CraftSpeed
+	stats.Economy.ConstructionSpeed += delta.Economy.ConstructionSpeed
 	stats.Economy.RouteLossReduction += delta.Economy.RouteLossReduction
+	stats.Economy.RouteCargoCapacityBonus += delta.Economy.RouteCargoCapacityBonus
 	stats.Economy.ProductionBonus += delta.Economy.ProductionBonus
+	stats.Economy.CraftMaterialRefundBonus += delta.Economy.CraftMaterialRefundBonus
 	stats.Economy.MarketFeeReduction += delta.Economy.MarketFeeReduction
 }
 

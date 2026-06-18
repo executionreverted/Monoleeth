@@ -1204,6 +1204,8 @@ radar_range
 scan_power
 scan_radius
 scan_interval
+scan_success_bonus
+fog_reveal_radius
 signal_detection_bonus
 signal_classification_bonus
 signature_radius
@@ -1215,10 +1217,13 @@ Economy:
 
 ```text
 craft_speed
+construction_speed
 craft_fee_reduction
 route_loss_reduction
+route_cargo_capacity_bonus
 storage_bonus
 production_bonus
+craft_material_refund_bonus
 market_fee_reduction
 ```
 

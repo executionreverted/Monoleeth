@@ -156,6 +156,133 @@ func TestStatInputProviderBuildsScannerAndRadarStats(t *testing.T) {
 	assertFloat(t, got.Combat.WeaponCooldown, 0)
 }
 
+func TestStatInputProviderBuildsUnlockedPilotSkillPassiveStats(t *testing.T) {
+	shipCatalog := mustShipCatalog(t)
+	moduleCatalog := modules.MustMVPCatalog()
+	loadout := modules.NewInMemoryLoadoutStore()
+	playerID := foundation.PlayerID("player-1")
+	shipID := ships.ShipIDStarter
+	progress := progression.NewProgressionService(testutil.NewFakeClock(time.Date(2026, 6, 17, 15, 0, 0, 0, time.UTC)), nil)
+
+	seedPilotPassivesProgression(t, progress, playerID)
+	for _, nodeID := range []progression.SkillNodeID{
+		"combat_weapon_calibration",
+		"combat_heat_control",
+		"scout_signal_tuning",
+		"industry_cargo_protocols",
+	} {
+		if _, err := progress.UnlockPilotSkill(progression.UnlockPilotSkillInput{PlayerID: playerID, NodeID: nodeID}); err != nil {
+			t.Fatalf("UnlockPilotSkill(%q) error = %v, want nil", nodeID, err)
+		}
+	}
+
+	putRuntimeModuleItem(t, loadout, "laser-instance-1", "laser_alpha_t1", playerID, 100)
+	if err := loadout.ReplaceEquippedModules(modules.ReplaceEquippedModulesInput{
+		PlayerID: playerID,
+		ShipID:   shipID,
+		Equipped: []modules.EquippedModule{{
+			PlayerID:       playerID,
+			ShipID:         shipID,
+			SlotID:         modules.ModuleSlotOffensive1,
+			ItemInstanceID: "laser-instance-1",
+			EquippedAt:     time.Date(2026, 6, 17, 16, 0, 0, 0, time.UTC),
+		}},
+	}); err != nil {
+		t.Fatalf("ReplaceEquippedModules() error = %v, want nil", err)
+	}
+
+	provider, err := NewStatInputProviderWithProgression(shipCatalog, moduleCatalog, loadout, progress)
+	if err != nil {
+		t.Fatalf("NewStatInputProviderWithProgression() error = %v, want nil", err)
+	}
+	input, err := provider.BuildStatsInput(stats.NewStatSubject(playerID, shipID))
+	if err != nil {
+		t.Fatalf("BuildStatsInput() error = %v, want nil", err)
+	}
+	got := stats.AggregateStats(input.AggregationInput())
+
+	assertFloat(t, got.Combat.WeaponDamage, 14)
+	assertFloat(t, got.Combat.WeaponEnergyCost, 7.84)
+	assertFloat(t, got.Exploration.ScanPower, 1)
+	assertFloat(t, got.Core.CargoCapacity, 60)
+	if len(input.FlatPassives) != 3 {
+		t.Fatalf("FlatPassives len = %d, want 3", len(input.FlatPassives))
+	}
+	if len(input.PercentPassives) != 1 || input.PercentPassives[0].SourceID != "combat_heat_control" {
+		t.Fatalf("PercentPassives = %+v, want combat_heat_control", input.PercentPassives)
+	}
+}
+
+func TestPilotSkillPassiveModifiersMapEveryMVPDefinition(t *testing.T) {
+	playerID := foundation.PlayerID("player-1")
+	now := time.Date(2026, 6, 17, 15, 30, 0, 0, time.UTC)
+	definitions := progression.PilotSkillDefinitions()
+	unlockedNodes := make([]progression.UnlockedSkillNodeState, 0, len(definitions))
+	for _, definition := range definitions {
+		unlockedNodes = append(unlockedNodes, progression.UnlockedSkillNodeState{
+			PlayerID:   playerID,
+			NodeID:     definition.NodeID,
+			UnlockedAt: now,
+		})
+	}
+	player, err := progression.NewPlayerProgressionState(playerID, 1500, progression.MaxMVPRank)
+	if err != nil {
+		t.Fatalf("NewPlayerProgressionState() error = %v, want nil", err)
+	}
+	snapshot, err := progression.NewProgressionSnapshot(
+		player,
+		nil,
+		progression.SkillPointState{
+			PlayerID:    playerID,
+			TotalPoints: len(definitions),
+			SpentPoints: len(definitions),
+			UpdatedAt:   now,
+		},
+		unlockedNodes,
+	)
+	if err != nil {
+		t.Fatalf("NewProgressionSnapshot() error = %v, want nil", err)
+	}
+
+	flatPassives, percentPassives, err := pilotSkillPassiveModifiers(snapshot)
+	if err != nil {
+		t.Fatalf("pilotSkillPassiveModifiers() error = %v, want nil", err)
+	}
+	input := stats.StatBuildInput{
+		BaseShip: stats.EffectiveStats{
+			Core: stats.CoreStats{
+				Speed:         100,
+				CargoCapacity: 50,
+			},
+			Combat: stats.CombatStats{
+				WeaponDamage:     100,
+				WeaponEnergyCost: 10,
+			},
+		},
+		FlatPassives:    flatPassives,
+		PercentPassives: percentPassives,
+	}
+	got := stats.AggregateStats(input.AggregationInput())
+
+	if len(flatPassives)+len(percentPassives) != len(definitions) {
+		t.Fatalf("passive modifier count = flat %d percent %d want total %d", len(flatPassives), len(percentPassives), len(definitions))
+	}
+	assertFloat(t, got.Combat.WeaponDamage, 104.04)
+	assertFloat(t, got.Combat.WeaponEnergyCost, 9.8)
+	assertFloat(t, got.Core.ShieldRegen, 1)
+	assertFloat(t, got.Combat.Accuracy, 0.02)
+	assertFloat(t, got.Exploration.ScanPower, 1)
+	assertFloat(t, got.Exploration.RadarRange, 25)
+	assertFloat(t, got.Exploration.FogRevealRadius, 12)
+	assertFloat(t, got.Exploration.ScanSuccessBonus, 0.02)
+	assertFloat(t, got.Core.Speed, 102)
+	assertFloat(t, got.Core.CargoCapacity, 60)
+	assertFloat(t, got.Economy.CraftSpeed, 0.02)
+	assertFloat(t, got.Economy.ConstructionSpeed, 0.02)
+	assertFloat(t, got.Economy.CraftMaterialRefundBonus, 0.01)
+	assertFloat(t, got.Economy.RouteCargoCapacityBonus, 0.02)
+}
+
 func TestStatInputProviderIgnoresBrokenEquippedModules(t *testing.T) {
 	shipCatalog := mustShipCatalog(t)
 	loadout := modules.NewInMemoryLoadoutStore()
@@ -245,6 +372,9 @@ func TestRuntimeProviderConstructorsRejectNilDependencies(t *testing.T) {
 	if _, err := NewStatInputProvider(ships.Catalog{}, modules.Catalog{}, nil); !errors.Is(err, ErrNilModuleLoadoutStore) {
 		t.Fatalf("NewStatInputProvider(nil loadout) error = %v, want ErrNilModuleLoadoutStore", err)
 	}
+	if _, err := NewStatInputProviderWithProgression(ships.Catalog{}, modules.Catalog{}, modules.NewInMemoryLoadoutStore(), nil); !errors.Is(err, ErrNilProgressionReader) {
+		t.Fatalf("NewStatInputProviderWithProgression(nil progression) error = %v, want ErrNilProgressionReader", err)
+	}
 	if _, err := NewStatCargoCapacityProvider(nil); !errors.Is(err, ErrNilStatService) {
 		t.Fatalf("NewStatCargoCapacityProvider(nil) error = %v, want ErrNilStatService", err)
 	}
@@ -260,6 +390,35 @@ func mustShipCatalog(t *testing.T) ships.Catalog {
 		t.Fatalf("MVPShipCatalog() error = %v, want nil", err)
 	}
 	return shipCatalog
+}
+
+func seedPilotPassivesProgression(t *testing.T, service *progression.ProgressionService, playerID foundation.PlayerID) {
+	t.Helper()
+	if _, err := service.GrantXP(progression.GrantXPInput{
+		PlayerID:       playerID,
+		Amount:         1500,
+		SourceType:     progression.XPSourceTypeAdminAdjustment,
+		SourceID:       "passive-stat-seed",
+		IdempotencyKey: "passive-stat-seed",
+		Authority:      progression.XPGrantAuthorityAdminService,
+		RoleXP:         []progression.RoleXPGrant{{Role: progression.RoleTypeCombat, Amount: 500}},
+	}); err != nil {
+		t.Fatalf("GrantXP() error = %v, want nil", err)
+	}
+	for _, input := range []progression.TryRankUpInput{
+		{PlayerID: playerID, TargetRank: 2, Reason: "passive_stat_seed", IdempotencyKey: "passive-stat-rank-2"},
+		{PlayerID: playerID, TargetRank: 3, Reason: "passive_stat_seed", IdempotencyKey: "passive-stat-rank-3"},
+		{PlayerID: playerID, TargetRank: 4, Reason: "passive_stat_seed", IdempotencyKey: "passive-stat-rank-4"},
+		{PlayerID: playerID, TargetRank: 5, Reason: "passive_stat_seed", IdempotencyKey: "passive-stat-rank-5"},
+	} {
+		result, err := service.TryRankUp(input)
+		if err != nil {
+			t.Fatalf("TryRankUp(rank %d) error = %v, want nil", input.TargetRank, err)
+		}
+		if !result.RankedUp {
+			t.Fatalf("TryRankUp(rank %d) ranked_up = false, missing = %+v", input.TargetRank, result.MissingRequirements)
+		}
+	}
 }
 
 func putRuntimeModuleItem(

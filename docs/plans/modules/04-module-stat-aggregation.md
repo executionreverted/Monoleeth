@@ -291,6 +291,8 @@ radar_range
 scan_power
 scan_radius
 scan_interval
+scan_success_bonus
+fog_reveal_radius
 signature_radius
 stealth_strength
 jammer_strength
@@ -300,8 +302,11 @@ Economy:
 
 ```text
 craft_speed
+construction_speed
 route_loss_reduction
+route_cargo_capacity_bonus
 production_bonus
+craft_material_refund_bonus
 market_fee_reduction
 ```
 
