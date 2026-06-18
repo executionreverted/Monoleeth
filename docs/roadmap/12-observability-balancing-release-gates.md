@@ -114,8 +114,8 @@ drop creation or pickup.
 
 - [x] Build deterministic simulation runner for NPC kills.
 - [x] Simulate many concurrent loot pickups.
-- [ ] Simulate market buy/cancel races.
-- [ ] Simulate auction bid/buy-now races.
+- [x] Simulate market buy/cancel races.
+- [x] Simulate auction bid/buy-now races.
 - [ ] Simulate offline planet settlements.
 - [ ] Simulate route settlements.
 - [x] Track total item faucets.
@@ -131,6 +131,9 @@ runners for NPC kills and concurrent loot pickups now live under
 `internal/game/observability/simulations`; the combat/loot runner uses the
 authoritative combat, loot, cargo, and progression services, retries each NPC
 death drop creation once, and fans out pickup attempts against each drop.
+Market buy/cancel and auction bid/buy-now race runners now use the authoritative
+market, auction, wallet, and inventory services and fail closed if item
+conservation, escrow cleanup, refund, grant, or terminal-state checks drift.
 
 ## TODO: Economy Dashboards
 
