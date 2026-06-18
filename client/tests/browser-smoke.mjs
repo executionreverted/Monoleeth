@@ -5,21 +5,26 @@ import path from 'node:path';
 import process from 'node:process';
 
 import { chromium } from 'playwright';
+import { createServer as createViteServer } from 'vite';
 
-const url = readArg('--url') ?? 'http://127.0.0.1:5173';
+const explicitURL = readArg('--url');
 const outputDir = path.resolve('tmp', 'smoke');
 
 const forbiddenText = ['gameplay_seed', 'future_spawn', 'internal_metadata', 'loot_table'];
 let eventSequence = 100;
 
-const browser = await chromium.launch({ headless: true });
+const appServer = explicitURL ? null : await startViteAppServer();
+const url = explicitURL ?? appServer.url;
+let browser;
 
 try {
+  browser = await chromium.launch({ headless: true });
   await mkdir(outputDir, { recursive: true });
   await verifyViewport({ width: 1440, height: 900 }, 'desktop');
   await verifyViewport({ width: 390, height: 844 }, 'mobile');
 } finally {
-  await browser.close();
+  await browser?.close();
+  await appServer?.close();
 }
 
 async function verifyViewport(viewport, label) {
@@ -218,6 +223,46 @@ async function startMockRealtimeServer() {
       await new Promise((resolve) => server.close(resolve));
     },
   };
+}
+
+async function startViteAppServer() {
+  const port = await findFreePort();
+  const server = await createViteServer({
+    logLevel: 'error',
+    server: {
+      host: '127.0.0.1',
+      port,
+      strictPort: true,
+    },
+  });
+  await server.listen();
+
+  return {
+    url: `http://127.0.0.1:${port}`,
+    close: () => server.close(),
+  };
+}
+
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        if (!address || typeof address === 'string') {
+          reject(new Error('Could not reserve a local smoke app port.'));
+          return;
+        }
+        resolve(address.port);
+      });
+    });
+  });
 }
 
 function webSocketHandshakeResponse(request) {

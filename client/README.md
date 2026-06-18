@@ -19,7 +19,13 @@ Run the local client:
 npm --cache /tmp/gameproject-npm-cache run dev -- --port 5173
 ```
 
-Run the smoke check against an already-running dev server:
+Run the smoke check with its self-started Vite app server:
+
+```bash
+npm --cache /tmp/gameproject-npm-cache run smoke
+```
+
+Or point it at an already-running dev server:
 
 ```bash
 npm --cache /tmp/gameproject-npm-cache run smoke -- --url http://127.0.0.1:5173
