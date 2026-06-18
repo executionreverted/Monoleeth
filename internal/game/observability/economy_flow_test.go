@@ -9,7 +9,7 @@ import (
 	"gameproject/internal/game/foundation"
 )
 
-func TestEconomyFlowAccumulatorRejectsDuplicateReferenceWithoutDoubleCounting(t *testing.T) {
+func TestEconomyFlowAccumulatorRejectsDuplicateValueLineWithoutDoubleCounting(t *testing.T) {
 	accumulator := NewEconomyFlowAccumulator()
 	entry := mustCurrencyFlowEntry(t, economy.CurrencyBucketCredits, 100, "quest_reward", "quest_reward:quest-1", ValueFlowDirectionFaucet)
 
@@ -18,17 +18,6 @@ func TestEconomyFlowAccumulatorRejectsDuplicateReferenceWithoutDoubleCounting(t 
 	}
 	if err := accumulator.Record(entry); !errors.Is(err, ErrDuplicateEconomyFlowReference) {
 		t.Fatalf("duplicate error = %v, want %v", err, ErrDuplicateEconomyFlowReference)
-	}
-	crossBucketDuplicate := mustCurrencyFlowEntryWithReference(
-		t,
-		economy.CurrencyBucketPremiumEarned,
-		500,
-		"quest_reward",
-		entry.ReferenceID,
-		ValueFlowDirectionFaucet,
-	)
-	if err := accumulator.Record(crossBucketDuplicate); !errors.Is(err, ErrDuplicateEconomyFlowReference) {
-		t.Fatalf("cross-bucket duplicate error = %v, want %v", err, ErrDuplicateEconomyFlowReference)
 	}
 
 	snapshot := accumulator.Snapshot()
@@ -40,15 +29,17 @@ func TestEconomyFlowAccumulatorRejectsDuplicateReferenceWithoutDoubleCounting(t 
 	}
 }
 
-func TestEconomyFlowAccumulatorAllowsSameReferenceForDifferentKindDirectionOrReason(t *testing.T) {
+func TestEconomyFlowAccumulatorAllowsSameReferenceForDifferentValueLines(t *testing.T) {
 	accumulator := NewEconomyFlowAccumulator()
 	referenceID := foundation.IdempotencyKey("quest_reward:quest-2")
 
 	entries := []EconomyFlowEntry{
 		mustCurrencyFlowEntryWithReference(t, economy.CurrencyBucketCredits, 10, "quest_reward", referenceID, ValueFlowDirectionFaucet),
+		mustCurrencyFlowEntryWithReference(t, economy.CurrencyBucketPremiumEarned, 15, "quest_reward", referenceID, ValueFlowDirectionFaucet),
 		mustCurrencyFlowEntryWithReference(t, economy.CurrencyBucketCredits, 20, "quest_reward", referenceID, ValueFlowDirectionSink),
 		mustCurrencyFlowEntryWithReference(t, economy.CurrencyBucketCredits, 30, "daily_bonus", referenceID, ValueFlowDirectionFaucet),
 		mustItemFlowEntryWithReference(t, foundation.ItemID("item-ore"), 40, "quest_reward", referenceID, ValueFlowDirectionFaucet),
+		mustItemFlowEntryWithReference(t, foundation.ItemID("item-crystal"), 50, "quest_reward", referenceID, ValueFlowDirectionFaucet),
 	}
 	for i, entry := range entries {
 		if err := accumulator.Record(entry); err != nil {
@@ -57,14 +48,14 @@ func TestEconomyFlowAccumulatorAllowsSameReferenceForDifferentKindDirectionOrRea
 	}
 
 	snapshot := accumulator.Snapshot()
-	if len(snapshot.CurrencyFaucets) != 2 {
-		t.Fatalf("currency faucets = %d, want 2: %#v", len(snapshot.CurrencyFaucets), snapshot.CurrencyFaucets)
+	if len(snapshot.CurrencyFaucets) != 3 {
+		t.Fatalf("currency faucets = %d, want 3: %#v", len(snapshot.CurrencyFaucets), snapshot.CurrencyFaucets)
 	}
 	if len(snapshot.CurrencySinks) != 1 {
 		t.Fatalf("currency sinks = %d, want 1: %#v", len(snapshot.CurrencySinks), snapshot.CurrencySinks)
 	}
-	if len(snapshot.ItemFaucets) != 1 {
-		t.Fatalf("item faucets = %d, want 1: %#v", len(snapshot.ItemFaucets), snapshot.ItemFaucets)
+	if len(snapshot.ItemFaucets) != 2 {
+		t.Fatalf("item faucets = %d, want 2: %#v", len(snapshot.ItemFaucets), snapshot.ItemFaucets)
 	}
 }
 

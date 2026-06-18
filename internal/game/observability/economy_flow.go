@@ -63,6 +63,8 @@ type EconomyFlowSnapshot struct {
 type economyFlowReferenceKey struct {
 	kind      EconomyFlowValueKind
 	direction ValueFlowDirection
+	currency  economy.CurrencyBucket
+	itemID    foundation.ItemID
 	reason    economy.LedgerReason
 	reference foundation.IdempotencyKey
 }
@@ -312,6 +314,8 @@ func (entry EconomyFlowEntry) referenceKey() economyFlowReferenceKey {
 	return economyFlowReferenceKey{
 		kind:      entry.ValueKind,
 		direction: entry.Direction,
+		currency:  entry.Currency,
+		itemID:    entry.ItemID,
 		reason:    entry.Reason,
 		reference: entry.ReferenceID,
 	}

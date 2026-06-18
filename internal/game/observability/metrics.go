@@ -11,19 +11,24 @@ import (
 )
 
 const (
-	MetricCommandsPerSecond   = "commands_per_sec"
-	MetricErrorsByCode        = "errors_by_code"
-	MetricZoneTickMS          = "zone_tick_ms"
-	MetricVisibleEntityCount  = "visible_entity_count"
-	MetricWalletDeltaByReason = "wallet_delta_by_reason"
-	MetricItemDeltaByReason   = "item_delta_by_reason"
-	MetricCraftJobsStarted    = "craft_jobs_started"
-	MetricCraftJobsCompleted  = "craft_jobs_completed"
-	MetricQuestRewardsClaimed = "quest_rewards_claimed"
-	MetricPlanetSettlements   = "planet_settlements"
-	MetricRouteSettlements    = "route_settlements"
-	MetricMarketVolume        = "market_volume"
-	MetricAuctionVolume       = "auction_volume"
+	MetricCommandsPerSecond       = "commands_per_sec"
+	MetricErrorsByCode            = "errors_by_code"
+	MetricZoneTickMS              = "zone_tick_ms"
+	MetricVisibleEntityCount      = "visible_entity_count"
+	MetricWalletDeltaByReason     = "wallet_delta_by_reason"
+	MetricItemDeltaByReason       = "item_delta_by_reason"
+	MetricCraftJobsStarted        = "craft_jobs_started"
+	MetricCraftJobsCompleted      = "craft_jobs_completed"
+	MetricQuestRewardsClaimed     = "quest_rewards_claimed"
+	MetricPlanetSettlements       = "planet_settlements"
+	MetricRouteSettlements        = "route_settlements"
+	MetricMarketVolume            = "market_volume"
+	MetricMarketQuantity          = "market_quantity"
+	MetricMarketSales             = "market_sales"
+	MetricAuctionVolume           = "auction_volume"
+	MetricAuctionClearingVolume   = "auction_clearing_volume"
+	MetricAuctionClearingQuantity = "auction_clearing_quantity"
+	MetricAuctionClears           = "auction_clears"
 )
 
 // Labels is a caller-supplied metric label set.
@@ -57,6 +62,9 @@ type DurationSummarySnapshot struct {
 	Total   time.Duration `json:"total"`
 	Minimum time.Duration `json:"minimum"`
 	Maximum time.Duration `json:"maximum"`
+	P50     time.Duration `json:"p50"`
+	P95     time.Duration `json:"p95"`
+	P99     time.Duration `json:"p99"`
 }
 
 // MetricSnapshot is a deterministic clone of all recorded metric series.
@@ -84,12 +92,13 @@ type gaugeSeries struct {
 }
 
 type durationSeries struct {
-	name    string
-	labels  []Label
-	count   int64
-	total   time.Duration
-	minimum time.Duration
-	maximum time.Duration
+	name         string
+	labels       []Label
+	count        int64
+	total        time.Duration
+	minimum      time.Duration
+	maximum      time.Duration
+	observations []time.Duration
 }
 
 // MetricRecorder stores in-memory gameplay metrics for tests and local runtime slices.
@@ -178,6 +187,7 @@ func (recorder *MetricRecorder) ObserveDuration(name string, labels Labels, dura
 	}
 	series.count++
 	series.total += duration
+	series.observations = append(series.observations, duration)
 	if duration < series.minimum {
 		series.minimum = duration
 	}
@@ -214,6 +224,8 @@ func (recorder *MetricRecorder) Snapshot() MetricSnapshot {
 		})
 	}
 	for _, series := range recorder.durations {
+		observations := cloneDurations(series.observations)
+		sort.Slice(observations, func(i, j int) bool { return observations[i] < observations[j] })
 		snapshot.Durations = append(snapshot.Durations, DurationSummarySnapshot{
 			Name:    series.name,
 			Labels:  cloneLabels(series.labels),
@@ -221,6 +233,9 @@ func (recorder *MetricRecorder) Snapshot() MetricSnapshot {
 			Total:   series.total,
 			Minimum: series.minimum,
 			Maximum: series.maximum,
+			P50:     percentileDuration(observations, 50),
+			P95:     percentileDuration(observations, 95),
+			P99:     percentileDuration(observations, 99),
 		})
 	}
 
@@ -330,14 +345,65 @@ func (recorder *MetricRecorder) RecordRouteSettlement(status string) error {
 	return recorder.AddCounter(MetricRouteSettlements, Labels{"status": status}, 1)
 }
 
-// RecordMarketSale adds sale amount to market volume by currency type.
-func (recorder *MetricRecorder) RecordMarketSale(currencyType string, amount int64) error {
-	return recorder.AddCounter(MetricMarketVolume, Labels{"currency_type": currencyType}, amount)
+// RecordMarketSale records market sale volume, quantity, and count by item.
+func (recorder *MetricRecorder) RecordMarketSale(currencyType string, itemID foundation.ItemID, quantity int64, totalPrice int64) error {
+	if err := validateLabelValue(currencyType); err != nil {
+		return err
+	}
+	if err := itemID.Validate(); err != nil {
+		return err
+	}
+	if err := foundation.ValidatePositiveAmount(quantity); err != nil {
+		return err
+	}
+	if err := foundation.ValidatePositiveAmount(totalPrice); err != nil {
+		return err
+	}
+
+	labels := Labels{
+		"currency_type": currencyType,
+		"item_id":       itemID.String(),
+	}
+	if err := recorder.AddCounter(MetricMarketVolume, labels, totalPrice); err != nil {
+		return err
+	}
+	if err := recorder.AddCounter(MetricMarketQuantity, labels, quantity); err != nil {
+		return err
+	}
+	return recorder.AddCounter(MetricMarketSales, labels, 1)
 }
 
 // RecordAuctionBid adds bid amount to auction volume by currency type.
 func (recorder *MetricRecorder) RecordAuctionBid(currencyType string, amount int64) error {
 	return recorder.AddCounter(MetricAuctionVolume, Labels{"currency_type": currencyType}, amount)
+}
+
+// RecordAuctionClearing records completed auction sale volume, quantity, and count by item.
+func (recorder *MetricRecorder) RecordAuctionClearing(currencyType string, itemID foundation.ItemID, quantity int64, totalPrice int64) error {
+	if err := validateLabelValue(currencyType); err != nil {
+		return err
+	}
+	if err := itemID.Validate(); err != nil {
+		return err
+	}
+	if err := foundation.ValidatePositiveAmount(quantity); err != nil {
+		return err
+	}
+	if err := foundation.ValidatePositiveAmount(totalPrice); err != nil {
+		return err
+	}
+
+	labels := Labels{
+		"currency_type": currencyType,
+		"item_id":       itemID.String(),
+	}
+	if err := recorder.AddCounter(MetricAuctionClearingVolume, labels, totalPrice); err != nil {
+		return err
+	}
+	if err := recorder.AddCounter(MetricAuctionClearingQuantity, labels, quantity); err != nil {
+		return err
+	}
+	return recorder.AddCounter(MetricAuctionClears, labels, 1)
 }
 
 func (recorder *MetricRecorder) ensureMaps() {
@@ -436,6 +502,29 @@ func cloneLabels(labels []Label) []Label {
 	cloned := make([]Label, len(labels))
 	copy(cloned, labels)
 	return cloned
+}
+
+func cloneDurations(durations []time.Duration) []time.Duration {
+	if len(durations) == 0 {
+		return nil
+	}
+	cloned := make([]time.Duration, len(durations))
+	copy(cloned, durations)
+	return cloned
+}
+
+func percentileDuration(sortedObservations []time.Duration, percentile int) time.Duration {
+	if len(sortedObservations) == 0 {
+		return 0
+	}
+	index := ((len(sortedObservations) * percentile) + 99) / 100
+	if index < 1 {
+		index = 1
+	}
+	if index > len(sortedObservations) {
+		index = len(sortedObservations)
+	}
+	return sortedObservations[index-1]
 }
 
 func sortLabels(labels []Label) {

@@ -17,14 +17,19 @@ const (
 )
 
 const (
-	DashboardSourceCurrencyFaucets   = "economy_flow.currency_faucets"
-	DashboardSourceCurrencySinks     = "economy_flow.currency_sinks"
-	DashboardSourceItemFaucets       = "economy_flow.item_faucets"
-	DashboardSourceItemSinks         = "economy_flow.item_sinks"
-	DashboardSourceMarketVolume      = MetricMarketVolume
-	DashboardSourceAuctionVolume     = MetricAuctionVolume
-	DashboardSourcePlanetSettlements = MetricPlanetSettlements
-	DashboardSourceRouteSettlements  = MetricRouteSettlements
+	DashboardSourceCurrencyFaucets         = "economy_flow.currency_faucets"
+	DashboardSourceCurrencySinks           = "economy_flow.currency_sinks"
+	DashboardSourceItemFaucets             = "economy_flow.item_faucets"
+	DashboardSourceItemSinks               = "economy_flow.item_sinks"
+	DashboardSourceMarketVolume            = MetricMarketVolume
+	DashboardSourceMarketQuantity          = MetricMarketQuantity
+	DashboardSourceMarketSales             = MetricMarketSales
+	DashboardSourceAuctionVolume           = MetricAuctionVolume
+	DashboardSourceAuctionClearingVolume   = MetricAuctionClearingVolume
+	DashboardSourceAuctionClearingQuantity = MetricAuctionClearingQuantity
+	DashboardSourceAuctionClears           = MetricAuctionClears
+	DashboardSourcePlanetSettlements       = MetricPlanetSettlements
+	DashboardSourceRouteSettlements        = MetricRouteSettlements
 )
 
 // DashboardSpec names one stable dashboard and the local observability sources it needs.
@@ -72,13 +77,17 @@ var requiredDashboardSpecs = []DashboardSpec{
 		Name: "Market Average Prices",
 		Sources: []string{
 			DashboardSourceMarketVolume,
+			DashboardSourceMarketQuantity,
+			DashboardSourceMarketSales,
 		},
 	},
 	{
 		Key:  DashboardAuctionClearingPrices,
 		Name: "Auction Clearing Prices",
 		Sources: []string{
-			DashboardSourceAuctionVolume,
+			DashboardSourceAuctionClearingVolume,
+			DashboardSourceAuctionClearingQuantity,
+			DashboardSourceAuctionClears,
 		},
 	},
 	{

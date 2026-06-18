@@ -100,8 +100,10 @@ gameplay-command logging item remains unchecked.
 
 Implementation note 2026-06-18:
 `MetricRecorder` now supports deterministic counters, gauges, and duration
-summaries with stable sorted label sets and label-value safety. Existing
-gameplay services do not emit these metrics yet.
+summaries with p50/p95/p99, stable sorted label sets, and label-value safety.
+Market sale and auction clearing helpers include item identity and quantity so
+price dashboards can compute averages from local sources. Existing gameplay
+services do not emit these metrics yet.
 
 ## TODO: Simulation Tests
 
@@ -119,8 +121,8 @@ gameplay services do not emit these metrics yet.
 
 Implementation note 2026-06-18:
 `EconomyFlowAccumulator` now tracks duplicate-safe currency/item faucets and
-sinks by stable reason/reference. Deterministic simulation runners are still
-not implemented.
+sinks by stable value identity, reason, and reference. Deterministic simulation
+runners are still not implemented.
 
 ## TODO: Economy Dashboards
 

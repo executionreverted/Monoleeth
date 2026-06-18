@@ -67,6 +67,9 @@ func TestMetricRecorderAggregatesBySortedLabelSets(t *testing.T) {
 	if duration.Minimum != 10*time.Millisecond || duration.Maximum != 20*time.Millisecond {
 		t.Fatalf("duration min/max = %s/%s, want 10ms/20ms", duration.Minimum, duration.Maximum)
 	}
+	if duration.P50 != 10*time.Millisecond || duration.P95 != 20*time.Millisecond || duration.P99 != 20*time.Millisecond {
+		t.Fatalf("duration p50/p95/p99 = %s/%s/%s, want 10ms/20ms/20ms", duration.P50, duration.P95, duration.P99)
+	}
 	assertLabels(t, duration.Labels, []Label{
 		{Name: "world_id", Value: "world-1"},
 		{Name: "zone_id", Value: "zone-1"},
@@ -76,6 +79,30 @@ func TestMetricRecorderAggregatesBySortedLabelSets(t *testing.T) {
 	next := recorder.Snapshot()
 	if next.Counters[0].Labels[0].Value != "combat.use_skill" {
 		t.Fatalf("snapshot mutation changed stored labels: got %q", next.Counters[0].Labels[0].Value)
+	}
+}
+
+func TestMetricDurationSummariesIncludeTailPercentiles(t *testing.T) {
+	recorder := NewMetricRecorder()
+	for i := 1; i <= 100; i++ {
+		if err := recorder.ObserveDuration("zone_tick_ms", nil, time.Duration(i)*time.Millisecond); err != nil {
+			t.Fatalf("observe duration %d: %v", i, err)
+		}
+	}
+
+	snapshot := recorder.Snapshot()
+	if len(snapshot.Durations) != 1 {
+		t.Fatalf("duration series = %d, want 1", len(snapshot.Durations))
+	}
+	duration := snapshot.Durations[0]
+	if duration.P50 != 50*time.Millisecond {
+		t.Fatalf("p50 = %s, want 50ms", duration.P50)
+	}
+	if duration.P95 != 95*time.Millisecond {
+		t.Fatalf("p95 = %s, want 95ms", duration.P95)
+	}
+	if duration.P99 != 99*time.Millisecond {
+		t.Fatalf("p99 = %s, want 99ms", duration.P99)
 	}
 }
 
@@ -247,8 +274,9 @@ func TestMetricHelpersRecordPhase12Series(t *testing.T) {
 		func() error { return recorder.RecordQuestReward("credits") },
 		func() error { return recorder.RecordPlanetSettlement("settled") },
 		func() error { return recorder.RecordRouteSettlement("settled") },
-		func() error { return recorder.RecordMarketSale("credits", 25) },
+		func() error { return recorder.RecordMarketSale("credits", foundation.ItemID("item-ore"), 5, 25) },
 		func() error { return recorder.RecordAuctionBid("credits", 40) },
+		func() error { return recorder.RecordAuctionClearing("credits", foundation.ItemID("item-ore"), 2, 60) },
 	}
 	for i, helper := range helpers {
 		if err := helper(); err != nil {
@@ -281,7 +309,12 @@ func TestMetricHelpersRecordPhase12Series(t *testing.T) {
 		MetricPlanetSettlements,
 		MetricRouteSettlements,
 		MetricMarketVolume,
+		MetricMarketQuantity,
+		MetricMarketSales,
 		MetricAuctionVolume,
+		MetricAuctionClearingVolume,
+		MetricAuctionClearingQuantity,
+		MetricAuctionClears,
 	} {
 		if !metricNames[want] {
 			t.Fatalf("missing helper metric %q in snapshot %#v", want, snapshot)

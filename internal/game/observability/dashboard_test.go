@@ -51,3 +51,44 @@ func TestRequiredDashboardSpecsAreCloneSafe(t *testing.T) {
 		t.Fatal("dashboard source mutated through returned slice")
 	}
 }
+
+func TestPriceDashboardSpecsUseQuantityAndCountSources(t *testing.T) {
+	specs := RequiredDashboardSpecs()
+
+	market := findDashboardSpec(t, specs, DashboardMarketAveragePrices)
+	assertSources(t, market.Sources, []string{
+		DashboardSourceMarketVolume,
+		DashboardSourceMarketQuantity,
+		DashboardSourceMarketSales,
+	})
+
+	auction := findDashboardSpec(t, specs, DashboardAuctionClearingPrices)
+	assertSources(t, auction.Sources, []string{
+		DashboardSourceAuctionClearingVolume,
+		DashboardSourceAuctionClearingQuantity,
+		DashboardSourceAuctionClears,
+	})
+}
+
+func findDashboardSpec(t *testing.T, specs []DashboardSpec, key DashboardKey) DashboardSpec {
+	t.Helper()
+	for _, spec := range specs {
+		if spec.Key == key {
+			return spec
+		}
+	}
+	t.Fatalf("missing dashboard spec %q", key)
+	return DashboardSpec{}
+}
+
+func assertSources(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("sources = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("source[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
