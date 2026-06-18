@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -117,6 +118,112 @@ func TestRerollBoardDuplicateReferenceDoesNotRecheckRareRewardCap(t *testing.T) 
 	}
 	if !reflect.DeepEqual(first.Offers, second.Offers) {
 		t.Fatalf("duplicate offers changed\nfirst=%#v\nsecond=%#v", first.Offers, second.Offers)
+	}
+}
+
+func TestRerollBoardConcurrentDuplicateReferenceDoesNotRecheckRareRewardCap(t *testing.T) {
+	fixture, wallet := newRerollFixture(t, 1_000)
+	input := validBoardGenerationInput(t, fixture.catalog)
+	if _, err := fixture.service.GenerateAndStoreBoard(input); err != nil {
+		t.Fatalf("GenerateAndStoreBoard() = %v, want nil", err)
+	}
+
+	rerollInput := validRerollBoardInput(input.Player, 20260618, fixture.clock.Now())
+	capEntered := make(chan struct{})
+	releaseCap := make(chan struct{})
+	unexpectedConcurrentCap := make(chan struct{}, 1)
+	var capChecks atomic.Int64
+	rerollInput.RareRewardCapHook = func(RareRewardCapCheck) (bool, error) {
+		call := capChecks.Add(1)
+		if call == 1 {
+			close(capEntered)
+			<-releaseCap
+			return true, nil
+		}
+		select {
+		case <-releaseCap:
+		default:
+			select {
+			case unexpectedConcurrentCap <- struct{}{}:
+			default:
+			}
+			<-releaseCap
+		}
+		return true, nil
+	}
+	defer func() {
+		select {
+		case <-releaseCap:
+		default:
+			close(releaseCap)
+		}
+	}()
+
+	type rerollCallResult struct {
+		result RerollBoardResult
+		err    error
+	}
+	firstDone := make(chan rerollCallResult, 1)
+	go func() {
+		result, err := fixture.service.RerollBoard(rerollInput)
+		firstDone <- rerollCallResult{result: result, err: err}
+	}()
+
+	select {
+	case <-capEntered:
+	case <-time.After(time.Second):
+		t.Fatal("first reroll did not reach rare reward cap hook")
+	}
+
+	secondDone := make(chan rerollCallResult, 1)
+	go func() {
+		result, err := fixture.service.RerollBoard(rerollInput)
+		secondDone <- rerollCallResult{result: result, err: err}
+	}()
+
+	select {
+	case <-unexpectedConcurrentCap:
+		t.Fatal("concurrent duplicate reroll rechecked rare reward cap hook")
+	case second := <-secondDone:
+		t.Fatalf("concurrent duplicate returned before owner completed: reference=%q err=%v", second.result.ReferenceKey, second.err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(releaseCap)
+
+	var first rerollCallResult
+	select {
+	case first = <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("first reroll did not complete after rare cap hook released")
+	}
+	var second rerollCallResult
+	select {
+	case second = <-secondDone:
+	case <-time.After(time.Second):
+		t.Fatal("concurrent duplicate did not complete after owner reroll completed")
+	}
+
+	if first.err != nil {
+		t.Fatalf("RerollBoard(first) = %v, want nil", first.err)
+	}
+	if second.err != nil {
+		t.Fatalf("RerollBoard(second) = %v, want nil", second.err)
+	}
+	if !second.result.Duplicate {
+		t.Fatal("concurrent duplicate Duplicate = false, want true")
+	}
+	if !second.result.WalletDebit.Duplicate {
+		t.Fatal("concurrent duplicate wallet result Duplicate = false, want true")
+	}
+	if len(wallet.calls) != 1 {
+		t.Fatalf("wallet calls after concurrent duplicate = %d, want 1", len(wallet.calls))
+	}
+	if capChecks.Load() != int64(BoardOfferCount) {
+		t.Fatalf("rare cap checks after concurrent duplicate = %d, want %d", capChecks.Load(), BoardOfferCount)
+	}
+	if !reflect.DeepEqual(first.result.Offers, second.result.Offers) {
+		t.Fatalf("concurrent duplicate offers changed\nfirst=%#v\nsecond=%#v", first.result.Offers, second.result.Offers)
 	}
 }
 

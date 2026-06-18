@@ -84,7 +84,7 @@ type RerollBoardResult struct {
 
 // RerollBoard debits the server-calculated credit cost once, expires old
 // unaccepted offers, and stores a fresh deterministic board of ten offers.
-func (service *QuestService) RerollBoard(input RerollBoardInput) (RerollBoardResult, error) {
+func (service *QuestService) RerollBoard(input RerollBoardInput) (result RerollBoardResult, err error) {
 	if input.CreatedAt.IsZero() {
 		input.CreatedAt = service.clock.Now().UTC()
 	} else {
@@ -98,20 +98,23 @@ func (service *QuestService) RerollBoard(input RerollBoardInput) (RerollBoardRes
 	if err != nil {
 		return RerollBoardResult{}, err
 	}
+
+	inFlight, cached, handled, err := service.beginRerollInFlight(referenceKey)
+	if handled || err != nil {
+		return cached, err
+	}
+	defer func() {
+		if panicValue := recover(); panicValue != nil {
+			service.finishRerollInFlight(referenceKey, inFlight, RerollBoardResult{}, fmt.Errorf("reroll panic: %v", panicValue))
+			panic(panicValue)
+		}
+		service.finishRerollInFlight(referenceKey, inFlight, result, err)
+	}()
+
 	cost, err := input.ResolveCost()
 	if err != nil {
 		return RerollBoardResult{}, err
 	}
-
-	service.store.mu.Lock()
-	if previous, ok := service.store.rerollResults[referenceKey]; ok {
-		service.store.mu.Unlock()
-		result := cloneRerollBoardResult(previous)
-		result.Duplicate = true
-		result.WalletDebit.Duplicate = true
-		return result, nil
-	}
-	service.store.mu.Unlock()
 
 	offers, err := service.generateRerollOffers(input, referenceKey)
 	if err != nil {
@@ -143,19 +146,13 @@ func (service *QuestService) RerollBoard(input RerollBoardInput) (RerollBoardRes
 	}
 
 	service.store.mu.Lock()
-	defer service.store.mu.Unlock()
-
-	if previous, ok := service.store.rerollResults[referenceKey]; ok {
-		result := cloneRerollBoardResult(previous)
-		result.Duplicate = true
-		result.WalletDebit.Duplicate = true
-		return result, nil
-	}
 	if err := service.store.storeRerolledBoardOffersLocked(input.Player.PlayerID, offers); err != nil {
+		service.store.mu.Unlock()
 		return RerollBoardResult{}, err
 	}
+	service.store.mu.Unlock()
 
-	result := RerollBoardResult{
+	result = RerollBoardResult{
 		PlayerID:     input.Player.PlayerID,
 		Seed:         input.Seed,
 		Offers:       cloneGeneratedBoardOffers(offers),
@@ -165,8 +162,48 @@ func (service *QuestService) RerollBoard(input RerollBoardInput) (RerollBoardRes
 		RerolledAt:   input.CreatedAt,
 		RareCapHooks: append([]RewardHook(nil), rareCapHooks...),
 	}
-	service.store.rerollResults[referenceKey] = cloneRerollBoardResult(result)
 	return cloneRerollBoardResult(result), nil
+}
+
+func (service *QuestService) beginRerollInFlight(referenceKey foundation.IdempotencyKey) (*rerollInFlight, RerollBoardResult, bool, error) {
+	service.store.mu.Lock()
+	if previous, ok := service.store.rerollResults[referenceKey]; ok {
+		service.store.mu.Unlock()
+		result := duplicateRerollBoardResult(previous)
+		return nil, result, true, nil
+	}
+	if inFlight, ok := service.store.rerollInFlight[referenceKey]; ok {
+		service.store.mu.Unlock()
+		<-inFlight.done
+		if inFlight.err != nil {
+			return nil, RerollBoardResult{}, true, inFlight.err
+		}
+		result := duplicateRerollBoardResult(inFlight.result)
+		return nil, result, true, nil
+	}
+
+	inFlight := &rerollInFlight{done: make(chan struct{})}
+	service.store.rerollInFlight[referenceKey] = inFlight
+	service.store.mu.Unlock()
+	return inFlight, RerollBoardResult{}, false, nil
+}
+
+func (service *QuestService) finishRerollInFlight(referenceKey foundation.IdempotencyKey, inFlight *rerollInFlight, result RerollBoardResult, err error) {
+	service.store.mu.Lock()
+	defer service.store.mu.Unlock()
+
+	current, ok := service.store.rerollInFlight[referenceKey]
+	if !ok || current != inFlight {
+		return
+	}
+	if err == nil {
+		current.result = cloneRerollBoardResult(result)
+		service.store.rerollResults[referenceKey] = cloneRerollBoardResult(result)
+	} else {
+		current.err = err
+	}
+	delete(service.store.rerollInFlight, referenceKey)
+	close(current.done)
 }
 
 // Validate reports whether the reroll request has server-owned player state,
@@ -339,6 +376,13 @@ func rareCapHooksForRewardPayload(payload RewardPayload) []RewardHook {
 		}
 	}
 	return hooks
+}
+
+func duplicateRerollBoardResult(previous RerollBoardResult) RerollBoardResult {
+	result := cloneRerollBoardResult(previous)
+	result.Duplicate = true
+	result.WalletDebit.Duplicate = true
+	return result
 }
 
 func cloneRerollBoardResult(result RerollBoardResult) RerollBoardResult {

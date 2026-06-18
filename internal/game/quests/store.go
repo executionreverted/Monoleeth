@@ -21,11 +21,18 @@ type InMemoryQuestStore struct {
 	progressEvents  map[foundation.EventID]struct{}
 	claimResults    map[foundation.QuestID]ClaimRewardResult
 	rerollResults   map[foundation.IdempotencyKey]RerollBoardResult
+	rerollInFlight  map[foundation.IdempotencyKey]*rerollInFlight
 }
 
 type questOfferStoreKey struct {
 	playerID foundation.PlayerID
 	offerID  foundation.QuestID
+}
+
+type rerollInFlight struct {
+	done   chan struct{}
+	result RerollBoardResult
+	err    error
 }
 
 // NewInMemoryQuestStore returns an empty in-memory quest store.
@@ -38,6 +45,7 @@ func NewInMemoryQuestStore() *InMemoryQuestStore {
 		progressEvents:  make(map[foundation.EventID]struct{}),
 		claimResults:    make(map[foundation.QuestID]ClaimRewardResult),
 		rerollResults:   make(map[foundation.IdempotencyKey]RerollBoardResult),
+		rerollInFlight:  make(map[foundation.IdempotencyKey]*rerollInFlight),
 	}
 }
 
