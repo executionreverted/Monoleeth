@@ -33,6 +33,9 @@ var (
 	// ErrMissingCommandLogTimestamp reports a missing command log timestamp.
 	ErrMissingCommandLogTimestamp = errors.New("missing command log timestamp")
 
+	// ErrMissingCommandLogWriter reports a nil structured command log sink.
+	ErrMissingCommandLogWriter = errors.New("missing command log writer")
+
 	// ErrInvalidValueFlowDirection reports an unsupported economy flow direction.
 	ErrInvalidValueFlowDirection = errors.New("invalid value flow direction")
 

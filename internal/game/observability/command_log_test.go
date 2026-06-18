@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -161,6 +162,52 @@ func TestMemoryCommandLoggerSnapshotSortedAndCloneSafe(t *testing.T) {
 	next := logger.Snapshot()
 	if next[0].Operation != Operation("combat.use_skill") {
 		t.Fatalf("stored entry mutated through snapshot: got %q", next[0].Operation)
+	}
+}
+
+func TestJSONCommandLoggerWritesSafeStructuredLine(t *testing.T) {
+	var output bytes.Buffer
+	logger, err := NewJSONCommandLogger(&output)
+	if err != nil {
+		t.Fatalf("NewJSONCommandLogger() error = %v", err)
+	}
+	entry := validCommandLogEntry()
+	entry.ErrorCode = foundation.CodeNotVisible
+	entry.ReferenceID = foundation.IdempotencyKey("loot_pickup:drop-1")
+
+	if err := logger.Record(entry); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+
+	got := output.String()
+	if !strings.HasSuffix(got, "\n") {
+		t.Fatalf("JSON log = %q, want trailing newline", got)
+	}
+	if strings.Count(got, "\n") != 1 {
+		t.Fatalf("JSON log = %q, want one line", got)
+	}
+	for _, want := range []string{
+		`"request_id":"request-1"`,
+		`"player_id":"player-1"`,
+		`"session_id":"session-1"`,
+		`"operation":"combat.use_skill"`,
+		`"error_code":"ERR_NOT_VISIBLE"`,
+		`"reference_id":"loot_pickup:drop-1"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("JSON log %s missing %s", got, want)
+		}
+	}
+	for _, leaked := range []string{"payload", "message", "detail", "hidden planet", "Target is out of range"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("JSON log leaked %q in %s", leaked, got)
+		}
+	}
+}
+
+func TestJSONCommandLoggerRejectsNilWriter(t *testing.T) {
+	if _, err := NewJSONCommandLogger(nil); !errors.Is(err, ErrMissingCommandLogWriter) {
+		t.Fatalf("NewJSONCommandLogger(nil) error = %v, want ErrMissingCommandLogWriter", err)
 	}
 }
 

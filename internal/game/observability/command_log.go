@@ -3,6 +3,7 @@ package observability
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"sync"
@@ -181,9 +182,23 @@ type MemoryCommandLogger struct {
 	entries []CommandLogEntry
 }
 
+// JSONCommandLogger writes one safe structured command log entry per line.
+type JSONCommandLogger struct {
+	mu     sync.Mutex
+	writer io.Writer
+}
+
 // NewMemoryCommandLogger returns an empty in-memory command logger.
 func NewMemoryCommandLogger() *MemoryCommandLogger {
 	return &MemoryCommandLogger{}
+}
+
+// NewJSONCommandLogger returns a structured JSON-line command logger.
+func NewJSONCommandLogger(writer io.Writer) (*JSONCommandLogger, error) {
+	if writer == nil {
+		return nil, ErrMissingCommandLogWriter
+	}
+	return &JSONCommandLogger{writer: writer}, nil
 }
 
 // Record validates and stores a cloned entry.
@@ -197,6 +212,29 @@ func (logger *MemoryCommandLogger) Record(entry CommandLogEntry) error {
 
 	logger.entries = append(logger.entries, cloneCommandLogEntry(entry))
 	return nil
+}
+
+// Record validates and writes one JSON line.
+func (logger *JSONCommandLogger) Record(entry CommandLogEntry) error {
+	if logger == nil || logger.writer == nil {
+		return ErrMissingCommandLogWriter
+	}
+	if err := entry.Validate(); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+
+	if _, err := logger.writer.Write(payload); err != nil {
+		return err
+	}
+	_, err = logger.writer.Write([]byte("\n"))
+	return err
 }
 
 // Snapshot returns a deterministic clone of stored entries.

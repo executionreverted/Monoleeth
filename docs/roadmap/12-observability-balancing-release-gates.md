@@ -65,7 +65,7 @@ Infrastructure:
 
 ## TODO: Structured Logs
 
-- [ ] Add structured JSON logging for gameplay commands.
+- [x] Add structured JSON logging for gameplay commands.
 - [x] Include `request_id` in the command log primitive/wrapper.
 - [x] Include `player_id` in the command log primitive/wrapper.
 - [x] Include `session_id` in the command log primitive/wrapper.
@@ -76,13 +76,14 @@ Infrastructure:
 - [x] Ensure command log primitives do not leak hidden gameplay data unnecessarily.
 
 Implementation note 2026-06-18:
-`internal/game/observability` now has safe `CommandLogEntry` and
-`MemoryCommandLogger` primitives with clone-safe deterministic snapshots.
+`internal/game/observability` now has safe `CommandLogEntry`,
+`MemoryCommandLogger`, and JSON-line `JSONCommandLogger` primitives with
+clone-safe deterministic snapshots where applicable.
 `internal/game/realtime.ObservedCommandExecutor` records safe command logs,
 command counts, and error-code metrics from server-resolved session/player
-context while keeping payload details out of logs. Authenticated gateway/runtime
-command paths do not invoke this wrapper yet, so runtime gameplay command
-logging remains open.
+context while keeping payload details out of logs. `internal/game/runtime`
+now exposes an observed realtime command gateway for single-process runtime
+dispatch; a concrete external WebSocket server transport remains future work.
 
 ## TODO: Metrics
 
