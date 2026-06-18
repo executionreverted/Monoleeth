@@ -1,6 +1,6 @@
-// Package production defines planet production catalog primitives.
+// Package production contains Phase 09 planet production primitives.
 //
-// The package intentionally contains static definitions and validation only.
-// Settlement, storage mutation, ledger writes, and automation routes belong to
-// later Phase 09 slices.
+// The package owns local state, catalogs, validation, event payloads, and
+// in-memory storage. Settlement algorithms and automation routes are later
+// Phase 09 slices.
 package production
