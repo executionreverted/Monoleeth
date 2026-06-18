@@ -420,14 +420,25 @@ func TestStartCraftRequiresAuthorizerForPlanetLocationsBeforeEconomyMutation(t *
 			walletLedgerCount := len(fixture.wallet.CurrencyLedgerEntries())
 			itemLedgerCount := len(fixture.inventory.ItemLedgerEntries())
 
-			_, err := fixture.service.StartCraft(StartCraftInput{
+			input := StartCraftInput{
 				PlayerID:     fixture.playerID,
 				RecipeID:     recipe.RecipeID,
 				Location:     tc.location,
 				ReferenceKey: mustCraftStartKey(t, "missing-location-authorizer-"+tc.name),
-			})
+			}
+			_, err := fixture.service.StartCraft(input)
 			if !errors.Is(err, ErrMissingLocationAuthorizer) {
 				t.Fatalf("StartCraft error = %v, want ErrMissingLocationAuthorizer", err)
+			}
+
+			retryCh := make(chan startCraftCallResult, 1)
+			go func() {
+				result, err := fixture.service.StartCraft(input)
+				retryCh <- startCraftCallResult{result: result, err: err}
+			}()
+			retry := receiveStartCraftCallResult(t, retryCh)
+			if !errors.Is(retry.err, ErrMissingLocationAuthorizer) {
+				t.Fatalf("retry StartCraft error = %v, want ErrMissingLocationAuthorizer", retry.err)
 			}
 
 			assertNoStartCraftEconomyMutation(t, fixture, recipe, "craft-job-1", walletLedgerCount, itemLedgerCount)

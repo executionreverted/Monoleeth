@@ -222,7 +222,7 @@ func NewCraftingService(config CraftingServiceConfig) (*CraftingService, error) 
 
 // StartCraft validates recipe gates, reserves materials, debits the craft fee,
 // and stores a running server-timed craft job.
-func (service *CraftingService) StartCraft(input StartCraftInput) (StartCraftResult, error) {
+func (service *CraftingService) StartCraft(input StartCraftInput) (result StartCraftResult, err error) {
 	if service == nil {
 		return StartCraftResult{}, ErrMissingRecipeCatalog
 	}
@@ -311,7 +311,7 @@ func (service *CraftingService) StartCraft(input StartCraftInput) (StartCraftRes
 	service.jobs[jobID] = cloneCraftJob(job)
 	service.mu.Unlock()
 
-	result := StartCraftResult{
+	result = StartCraftResult{
 		Job:            job,
 		Recipe:         recipe,
 		Reservation:    reservation.Reservation,
