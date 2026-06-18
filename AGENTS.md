@@ -4,13 +4,38 @@
 
 This repo is a browser-first 2D space MORPG project.
 
+Current active run:
+- Build the real authenticated browser game client.
+- Replace mock/demo UI truth with server-owned state.
+- Expose all implemented backend gameplay features through real commands,
+  queries, snapshots, and events.
+- Use `output/mockups/final-mockup.png` as the visual target for the playable
+  game surface.
+
 Core direction:
 - Go-first backend/server tooling.
 - Server-authoritative game architecture.
-- Browser-first client later.
-- Avoid building gameplay logic that trusts the client.
-- Keep Symphony/orchestration tooling in Go.
+- Browser-first client.
+- Mail/password account system with server-owned sessions.
 - Keep OpenAI/agent orchestration code separate from gameplay domain logic.
+
+
+## Active Planning Docs
+
+The active implementation plan lives under:
+
+```text
+docs/plans/ui-implementation/
+```
+
+Start with:
+
+```text
+docs/plans/ui-implementation/00-index.md
+```
+
+The old `docs/roadmap/` files are historical backend implementation records.
+Do not use them as the active execution roadmap for this run.
 
 ## Current Commands
 
@@ -21,17 +46,42 @@ go test ./...
 git diff --check
 ```
 
-Use narrower commands first while developing, then run the full commands before final handoff.
+For client work, also run:
+
+```bash
+cd client
+npm --cache /tmp/gameproject-npm-cache run check
+```
+
+Use narrower commands first while developing, then run the full commands before
+final handoff.
 
 ## Required Reading
 
-Before implementing gameplay or economy code, read the relevant module spec under:
+Before starting a UI implementation phase, read:
+
+```text
+GOAL.md
+docs/plans/ui-implementation/00-index.md
+the matching docs/plans/ui-implementation phase file
+docs/todo.md
+```
+
+For visual/UI work, also inspect:
+
+```text
+output/mockups/final-mockup.png
+client/
+```
+
+For server contracts, gameplay, economy, world, or persistence integration,
+read the relevant backend module spec under:
 
 ```text
 docs/plans/modules/
 ```
 
-Start with:
+Start module lookup with:
 
 ```text
 docs/plans/modules/00-index.md
@@ -43,7 +93,8 @@ For world, fog, procedural map, discovery, and planet logic, also read:
 docs/2026-06-17-world-system-design.md
 ```
 
-For progression, economy, ships, modules, loot, craft, market, auction, premium, death, quests, and production, also read:
+For progression, economy, ships, modules, loot, craft, market, auction,
+premium, death, quests, and production, also read:
 
 ```text
 docs/2026-06-17-progression-economy-systems-design.md
@@ -55,56 +106,80 @@ For stack and architecture context, read:
 docs/2026-06-16-space-morpg-architecture-notes.md
 ```
 
-## Roadmap And Phase Tracking
-
-The implementation roadmap lives under:
-
-```text
-docs/roadmap/
-```
-
-Start with:
-
-```text
-docs/roadmap/00-index.md
-```
-
-Before implementing gameplay, economy, world, client, infrastructure, or observability work:
-- read `docs/roadmap/00-index.md`
-- identify the exact roadmap phase or phases touched
-- read each matching phase file under `docs/roadmap/`
-- read the module specs referenced by those phase files
-- respect phase dependencies unless the user explicitly asks to do work out of order
-
-Use roadmap phase files as working checklists:
-- follow the phase TODO order where it applies
-- use the phase's test list when choosing validation
-- use the phase's abuse/safety checklist during review
-- use the phase's done criteria before claiming the phase or slice is complete
-- use the phase's resume notes when continuing interrupted work
-
-When work completes:
-- update the relevant roadmap phase file for tasks actually completed
-- check off only TODOs that were implemented and verified
-- leave unfinished TODOs unchecked
-- add short notes or links if a new implementation plan, commit, PR, or follow-up exists
-- update `docs/roadmap/00-index.md` if phases are added, renamed, reordered, or completed
-
-If a request crosses multiple phases, update every affected phase file. If the task intentionally skips phase order, record the remaining risk in the final handoff.
-
 ## Workflow
 
-1. Read the issue/request and identify the exact module and roadmap phase being touched.
-2. Read `docs/roadmap/00-index.md` and the matching phase file under `docs/roadmap/`.
-3. Read the matching file in `docs/plans/modules/`.
-4. Keep the change scoped to that module and phase unless the request explicitly crosses boundaries.
-5. Write down a short plan before large code changes.
+1. Read the user request and identify the exact UI implementation phase touched.
+2. Read `docs/plans/ui-implementation/00-index.md` and the matching phase file. Read agents.md and refresh your whole context if you need to be sure.
+3. Read relevant backend module specs and source files.
+4. Keep changes scoped to the active phase unless the request explicitly crosses
+   boundaries.
+5. Write a short implementation plan before large code changes.
 6. Prefer small vertical slices over broad rewrites.
-7. Add or update tests for server rules, transactions, and edge cases.
+7. Add or update tests for server rules, transactions, client reducers,
+   protocol parsing, UI state, and edge cases.
 8. Run the narrowest useful test during development.
-9. Update the relevant roadmap checklist for work actually completed.
-10. Run `go test ./...` and `git diff --check` before final handoff.
-11. Report what changed, what roadmap phase was touched, what was tested, and any remaining risk.
+9. For UI changes, verify in a browser with real server state, screenshots, and
+   responsive viewports.
+10. Update the relevant UI implementation phase checklist only for work actually
+    completed and verified.
+11. Run full verification before final handoff:
+    - `go test ./...`
+    - `npm --cache /tmp/gameproject-npm-cache run check` in `client/`
+    - `git diff --check`
+12. Report what changed, what phase was touched, what was tested, and any
+    remaining risk.
+13. Arayüzde çalışırken amacımız `/Users/canersevince/gameproject/output/mockups/final-mockup.png` tasarımındaki HUD'u birebir kopyalamak. Oyun için objeler ve diğer assetler (iconlar - map arkaplanı vs.) subagent spawnlatıp asset ürettirebilirsin. Tek kriter mockup dosyasında ilgili alanla birebir / çok benzer olması assetin. Olabildiğince ona yakın tutacağız. Ayrıca @output/assets/hud-svg klasöründe icon-marker vs gibi şeyler var. İşine yararsa kullanırsın.
+
+## Real UI Rules
+
+The browser client must not present fake gameplay as real gameplay.
+
+Default client behavior:
+- no fake HP/shield/energy
+- no fake cargo
+- no fake wallet
+- no fake quest counts
+- no fake inventory/loadout counts
+- no fake planets
+- no fake NPCs
+- no fake loot
+- no fake market/auction/premium data
+
++ EVERYTHING MUST BE REAL - SERVER AUTHORITATIVE - REAL GAME STATE !
+
+If the client is offline or unauthenticated, show login, disconnected, empty,
+locked, or loading states. Demo fixtures may exist only behind explicit dev/test
+switches such as `?demo=1` or a test-only harness.
+
+Every visible gameplay value must come from:
+- authenticated server snapshot
+- server event
+- server query response
+- client-local pending UI state that is clearly pending and reconciled by server
+  truth
+
+## Auth And Session Rules
+
+Mail/password auth is required for the real client run.
+
+Server must own:
+- account id
+- player id
+- session id
+- session expiry
+- admin role
+- password hash
+- WebSocket session resolution
+
+Never store plaintext passwords. Never log passwords, password hashes, session
+tokens, cookies, or reset secrets.
+
+Admin account seeding must be explicit and reproducible. Prefer environment or
+seed command inputs over hard-coded credentials. If a local dev default is added,
+it must be documented as unsafe for production and easy to override.
+
+The WebSocket handshake must resolve authenticated session state server-side.
+The client must not send trusted player identity in command payloads.
 
 ## Architecture Guardrails
 
@@ -129,6 +204,7 @@ Never trust the client for:
 - visibility/fog state
 
 The server must validate:
+- authentication
 - ownership
 - range
 - visibility / fog
@@ -170,9 +246,11 @@ Protect against:
 
 ## Rate Limits And Spam
 
-Cooldowns are gameplay rules. Rate limits are abuse and infrastructure protection. Use both where needed.
+Cooldowns are gameplay rules. Rate limits are abuse and infrastructure
+protection. Use both where needed.
 
 Every client operation should have an explicit rate-limit posture, especially:
+- `auth.login`
 - `combat.use_skill`
 - `loot.pickup`
 - `scan.pulse`
@@ -182,21 +260,19 @@ Every client operation should have an explicit rate-limit posture, especially:
 - `quest.reroll`
 - `inventory.move`
 
-Server-timed systems must not be driven by client spam. Scanner pulses, production settlement, route settlement, cooldown recovery, and regeneration should be scheduled or validated by the server.
+Server-timed systems must not be driven by client spam. Scanner pulses,
+production settlement, route settlement, cooldown recovery, regeneration, and
+session expiry should be scheduled or validated by the server.
 
-Prefer progressive handling:
-- reject invalid/noisy requests cheaply
-- throttle repeated spam
-- temporarily mute non-critical channels when appropriate
-- disconnect abusive sessions when needed
-
-Do not let rate-limit code change gameplay truth. A rejected request must not partially mutate state.
+Do not let rate-limit code change gameplay truth. A rejected request must not
+partially mutate state.
 
 ## Duplicate Safety And Idempotency
 
 Assume requests, events, webhooks, and workers can run more than once.
 
-Use `request_id` for network retry safety, but use domain idempotency keys for state-changing operations:
+Use `request_id` for network retry safety, but use domain idempotency keys for
+state-changing operations:
 
 ```text
 quest_reward:<player_quest_id>
@@ -214,7 +290,8 @@ Do not rely on "this should only happen once." Enforce it with:
 - ledger reference uniqueness
 - idempotent event consumers
 
-Internal event delivery should be treated as at-least-once. Every consumer that mutates state must tolerate duplicate events.
+Internal event delivery should be treated as at-least-once. Every consumer that
+mutates state must tolerate duplicate events.
 
 ## Replication And Consistency
 
@@ -228,7 +305,8 @@ Examples:
 
 Redis and other caches are acceleration layers, not truth.
 
-Read replicas may be used for non-critical queries, but critical state changes must use authoritative storage or the owning worker:
+Read replicas may be used for non-critical queries, but critical state changes
+must use authoritative storage or the owning worker:
 - combat
 - loot pickup
 - wallet
@@ -240,9 +318,11 @@ Read replicas may be used for non-critical queries, but critical state changes m
 - repair
 - planet claim
 
-Broadcast after commit. If broadcast fails, clients must reconcile from snapshots or queries.
+Broadcast after commit. If broadcast fails, clients must reconcile from
+snapshots or queries.
 
-Cross-zone or cross-worker handoff must be an explicit state machine. Do not duplicate live entity ownership across workers without a handoff protocol.
+Cross-zone or cross-worker handoff must be an explicit state machine. Do not
+duplicate live entity ownership across workers without a handoff protocol.
 
 ## Visibility And Fog Rules
 
@@ -268,17 +348,19 @@ This includes:
 - intel sharing
 - coordinate item usage
 
-## Gameplay Module Boundaries
+## UI Implementation Boundaries
 
-Use the module specs as ownership boundaries.
+Use the UI implementation phase files as ownership boundaries.
 
 Examples:
-- `CombatService` calculates combat results, but does not mutate inventory directly.
-- `LootService` creates drops, but inventory transfer goes through `InventoryService`.
-- `DeathService` decides cargo drop and ship disable, but uses loot/inventory services for item movement.
-- `CraftingService` validates recipes, but wallet/item movement goes through wallet/inventory services.
-- `MarketService` uses escrow and ledger; it should not bypass inventory/wallet primitives.
-- `StatAggregationService` is the source of effective server-side stats.
+- Auth phase may add account/session infrastructure, but should not also build
+  market UI.
+- Gateway phase may wire transport and session resolution, but should not fake
+  gameplay state to make panels look full.
+- Combat/loot phase may expose attack and pickup controls, but inventory
+  browsing belongs to the inventory/loadout phase.
+- Market/auction/premium phase must use escrow and ledger-backed services; it
+  must not create client-side price totals as truth.
 
 ## Symphony And Tooling
 
@@ -289,25 +371,22 @@ agents, or manage the Symphony queue.
 
 Keep Symphony/orchestration code in Go.
 
-Symphony code should stay separate from game server domain code. Do not mix issue orchestration, OpenAI client logic, or workflow runner concerns into gameplay modules.
-
-When changing Symphony:
-- keep prompts/templates explicit and testable
-- avoid hidden global state
-- keep config parsing covered by tests
-- avoid committing secrets or local workspace output
+Symphony code should stay separate from game server domain code. Do not mix
+issue orchestration, OpenAI client logic, or workflow runner concerns into
+gameplay modules.
 
 ## Code Shape
 
 Prefer small, readable files with clear ownership.
 
-Avoid large files. As a soft rule, when production code grows beyond 300-500 lines, consider splitting by responsibility.
+Avoid large files. As a soft rule, when production code grows beyond 300-500
+lines, consider splitting by responsibility.
 
 Use domain-specific names instead of vague names:
-- prefer `wallet_ledger.go` over `utils.go`
-- prefer `loot_pickup.go` over `helpers.go`
-- prefer `route_settlement.go` over `manager.go`
-- prefer `quest_reward.go` over `common.go`
+- prefer `auth_session.go` over `utils.go`
+- prefer `wallet_ledger.go` over `helpers.go`
+- prefer `loot_pickup_handler.go` over `manager.go`
+- prefer `route_settlement.go` over `common.go`
 
 Avoid duplicate business rules. Good candidates for shared helpers:
 - positive amount validation
@@ -317,8 +396,11 @@ Avoid duplicate business rules. Good candidates for shared helpers:
 - transaction/outbox patterns
 - rate-limit middleware
 - visibility/range validation primitives
+- client-safe snapshot filtering
 
-Do not abstract too early. Small local duplication is acceptable while a rule is still changing, but once it becomes a gameplay or economy invariant, centralize it.
+Do not abstract too early. Small local duplication is acceptable while a rule is
+still changing, but once it becomes a gameplay or economy invariant, centralize
+it.
 
 Keep functions focused:
 - validation should be easy to find
@@ -328,24 +410,26 @@ Keep functions focused:
 
 ## Documentation Rules
 
-When adding a new gameplay system:
-- add or update the matching module spec first
+When exposing a backend system through the UI:
+- update the matching UI implementation phase file first or in the same change
 - document server ownership
-- document data model
-- document commands/events
-- document edge cases
+- document command/query/event contracts
+- document empty/loading/error states
 - document abuse vectors
 - document testing checklist
 
-When a design decision changes, update the docs in the same change as the code.
+When a design decision changes, update docs in the same change as the code.
 
-When implementation progress changes, update the matching roadmap phase in `docs/roadmap/` in the same change as the code.
+When implementation progress changes, update the matching phase file in
+`docs/plans/ui-implementation/` in the same change as the code.
 
 ## Library And Cloud Documentation
 
-Use Context7 MCP to fetch current documentation whenever the task asks about a library, framework, SDK, API, CLI tool, or cloud service.
+Use Context7 MCP to fetch current documentation whenever the task asks about a
+library, framework, SDK, API, CLI tool, or cloud service.
 
-This includes well-known tools such as React, Next.js, PixiJS, Tauri, Prisma, Redis, NATS, Docker, Kubernetes, OpenAI APIs, and Go libraries.
+This includes well-known tools such as React, Next.js, PixiJS, Tauri, Prisma,
+Redis, NATS, Docker, Kubernetes, OpenAI APIs, and Go libraries.
 
 Do not rely on memory for current API syntax or setup instructions.
 
@@ -364,7 +448,8 @@ Good commits have one reason to exist:
 - one doc update
 - one test update
 
-Avoid mixed commits such as feature + refactor + formatting + docs unless the pieces are inseparable.
+Avoid mixed commits such as feature + refactor + formatting + docs unless the
+pieces are inseparable.
 
 Before committing:
 - inspect `git status --short`
@@ -375,8 +460,9 @@ Before committing:
 Prefer commit prefixes that describe intent:
 - `docs:`
 - `test:`
-- `symphony:`
+- `client:`
 - `game:`
+- `auth:`
 - `infra:`
 - `refactor:`
 
