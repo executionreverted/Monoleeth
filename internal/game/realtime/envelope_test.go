@@ -91,6 +91,16 @@ func TestDecodeRequestEnvelopeAcceptsRegisteredPhase04Operation(t *testing.T) {
 	}
 }
 
+func TestDecodeRequestEnvelopeAcceptsCombatUseSkillOperation(t *testing.T) {
+	envelope, err := DecodeRequestEnvelope([]byte(`{"request_id":"request-1","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"npc-1","client_timestamp":9999999999999},"client_seq":7,"v":1}`))
+	if err != nil {
+		t.Fatalf("decode combat request envelope: %v", err)
+	}
+	if envelope.Op != OperationCombatUseSkill {
+		t.Fatalf("op = %q, want %q", envelope.Op, OperationCombatUseSkill)
+	}
+}
+
 func TestEventEnvelopeMarshalsWithoutHiddenInternalFields(t *testing.T) {
 	envelope := NewEventEnvelope(
 		foundation.EventID("event-1"),

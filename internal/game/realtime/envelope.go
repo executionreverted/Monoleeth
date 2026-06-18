@@ -17,10 +17,11 @@ const CurrentVersion = contracts.CurrentVersion
 type Operation string
 
 const (
-	OperationMoveTo        Operation = "move_to"
-	OperationStop          Operation = "stop"
-	OperationDebugSpawnNPC Operation = "debug_spawn_npc"
-	OperationDebugSnapshot Operation = "debug_snapshot"
+	OperationMoveTo         Operation = "move_to"
+	OperationStop           Operation = "stop"
+	OperationDebugSpawnNPC  Operation = "debug_spawn_npc"
+	OperationDebugSnapshot  Operation = "debug_snapshot"
+	OperationCombatUseSkill Operation = "combat.use_skill"
 )
 
 // ClientEventType is an event name that may be sent to a client after filtering.
@@ -51,7 +52,7 @@ type OperationSpec struct {
 	RateLimitPosture RateLimitPosture
 }
 
-var phase04Operations = map[Operation]OperationSpec{
+var registeredOperations = map[Operation]OperationSpec{
 	OperationMoveTo: {
 		Operation:        OperationMoveTo,
 		RateLimitPosture: RateLimitPostureIntentBurst,
@@ -68,18 +69,22 @@ var phase04Operations = map[Operation]OperationSpec{
 		Operation:        OperationDebugSnapshot,
 		RateLimitPosture: RateLimitPostureDebugOnly,
 	},
+	OperationCombatUseSkill: {
+		Operation:        OperationCombatUseSkill,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
 }
 
-// LookupOperation returns the phase-04 operation spec for op.
+// LookupOperation returns the registered realtime operation spec for op.
 func LookupOperation(op Operation) (OperationSpec, bool) {
-	spec, ok := phase04Operations[op]
+	spec, ok := registeredOperations[op]
 	return spec, ok
 }
 
-// OperationRegistry returns a copy of the phase-04 operation registry.
+// OperationRegistry returns a copy of the realtime operation registry.
 func OperationRegistry() map[Operation]OperationSpec {
-	registry := make(map[Operation]OperationSpec, len(phase04Operations))
-	for op, spec := range phase04Operations {
+	registry := make(map[Operation]OperationSpec, len(registeredOperations))
+	for op, spec := range registeredOperations {
 		registry[op] = spec
 	}
 	return registry

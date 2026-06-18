@@ -104,6 +104,7 @@ var requiredCommandSecurityOperations = []string{
 	"stop",
 	"debug_spawn_npc",
 	"debug_snapshot",
+	"combat.use_skill",
 }
 
 var phase12LoadTestEvidence = GateEvidence{
@@ -286,6 +287,37 @@ var phase12CommandSecurityProfiles = []commandSecurityProfile{
 		notApplicable("debug_snapshot has no item/currency mutation ledger"),
 		notApplicable("debug_snapshot is a read/debug operation without commit/broadcast semantics"),
 	),
+	commandSecurityProfile{
+		Command: "combat.use_skill",
+		Checks: map[CommandSecurityCheck]gateCoverageSource{
+			CommandSecurityIntentOnlyPayload: satisfied(
+				evidence("gameproject/internal/game/runtime", "TestCombatUseSkillIgnoresClientTimestampForCooldown", "combat.use_skill ignores client_timestamp and uses server cooldown time"),
+			),
+			CommandSecurityServerPlayerSession: satisfied(
+				evidence("gameproject/internal/game/realtime", "TestObservedCommandExecutorRequiresServerResolvedIdentity", "observed command executor requires server-resolved session and player identity"),
+				evidence("gameproject/internal/game/realtime", "TestObservedCommandExecutorRequiresServerResolvedWorldAndZone", "observed command executor requires server-resolved world and zone identity"),
+			),
+			CommandSecurityOwnershipChecked: satisfied(
+				evidence("gameproject/internal/game/runtime", "TestCombatUseSkillRejectsClientAuthoredAttackerID", "combat.use_skill rejects client-authored attacker ids and resolves the attacker from authenticated context"),
+			),
+			CommandSecurityPositiveBoundedAmounts: notApplicable("combat.use_skill carries no item/currency amount"),
+			CommandSecurityVisibilityRangeChecked: satisfied(
+				evidence("gameproject/internal/game/combat", "TestExecuteBasicAttackRejectsHiddenTarget", "combat service rejects hidden targets before mutation"),
+				evidence("gameproject/internal/game/combat", "TestExecuteBasicAttackRejectsOutOfRangeTarget", "combat service rejects out-of-range targets before mutation"),
+			),
+			CommandSecurityTransactionLock: satisfied(
+				evidence("gameproject/internal/game/combat", "TestSimultaneousLethalDamageProcessesNPCDeathOnce", "combat service serializes concurrent lethal damage so NPC death is processed once"),
+			),
+			CommandSecurityLedgerWrite: notApplicable("combat.use_skill mutates live combat resources and cooldowns, not item/currency value"),
+			CommandSecurityIdempotency: satisfied(
+				evidence("gameproject/internal/game/realtime", "TestRequestCacheCoordinatesInFlightDuplicateRequestID", "request cache coordinates in-flight duplicate request IDs"),
+			),
+			CommandSecurityLeakSafeError: satisfied(
+				evidence("gameproject/internal/game/runtime", "TestCombatUseSkillIgnoresClientTimestampForCooldown", "combat.use_skill returns a stable cooldown code for rejected timestamp spoof attempts"),
+			),
+			CommandSecurityBroadcastAfterCommit: notApplicable("combat.use_skill currently mutates in-memory combat state; durable commit/outbox broadcast is not part of this Phase 05 gateway slice"),
+		},
+	},
 }
 
 // RequiredReleaseGateModules returns the Phase 12 module checklist in stable order.

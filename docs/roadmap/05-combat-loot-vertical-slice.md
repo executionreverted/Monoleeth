@@ -126,7 +126,7 @@ Loot:
 - [x] Cooldown prevents double attack.
 - [x] Energy shortage prevents attack.
 - [x] Energy exactly equal to cost is allowed.
-- [ ] Client timestamp is ignored.
+- [x] Client timestamp is ignored.
 - [x] Shield overflow applies HP damage.
 - [x] Simultaneous lethal damage processes NPC death once.
 - [x] Highest valid contributor receives loot lock.
@@ -179,11 +179,11 @@ Verified slices:
 - Phase 03 runtime provider wiring exists under `internal/game/runtime` for progression rank/role adapters, module-aware stat input composition, scanner scan-pulse cooldown mapping, and effective-stat cargo capacity. The vertical slice now uses this runtime stat provider instead of a test-local stat adapter.
 - Runtime stat input composition currently covers base ship and equipped module stats; unlocked pilot-skill passive stat effects are still a Phase 03 follow-up.
 - A deterministic backend vertical slice test ensures a starter ship, composes Laser Alpha stats through runtime providers and `StatService`, moves the player into range through the in-process world worker, kills one NPC, grants combat XP idempotently, creates loot, picks it into ship cargo through `CargoService`, grants loot XP, records XP reconciliation, and reads the final player progression snapshot.
-- Final verification for this wave passed with `go test ./...`, `go test -race ./internal/game/combat ./internal/game/loot`, and `git diff --check`.
+- Realtime `combat.use_skill` is registered and wired through `runtime.CombatCommandHandler` for the MVP basic laser. The handler resolves the attacker from authenticated `CommandContext`, accepts `client_timestamp` only as ignored client metadata, and relies on `CombatService` server time for cooldown enforcement.
+- Prior full vertical-slice verification passed with `go test ./...`, `go test -race ./internal/game/combat ./internal/game/loot`, and `git diff --check`; the current timestamp gateway slice passed focused realtime/runtime/combat tests plus the required full `go test ./...` and `git diff --check`.
 
 Remaining follow-up:
 
-- Add a client-timestamp regression around combat intents once a concrete gateway command exists.
-- Add realtime gateway commands after authenticated session/player resolution is wired.
+- Add remaining realtime gateway commands after authenticated session/player resolution is wired; basic `combat.use_skill` now exists, but set-target, loot pickup, snapshots, and concrete WebSocket routing remain future slices.
 - Add durable reward/outbox repair for failed loot XP reconciliation records once cross-service persistence exists.
 - Add persistent service composition for the runtime providers before exposing this loop outside the in-process backend harness.

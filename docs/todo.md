@@ -207,3 +207,9 @@ for phase status; this file is a compact pending-work index.
   operation handlers through `ObservedCommandExecutor`, and caches completed
   responses by session/request id. Source:
   `docs/roadmap/04-world-worker-aoi-fog-realtime.md`.
+- [x] Add the Phase 05 client timestamp regression around combat intents.
+  `combat.use_skill` is now registered and handled by
+  `runtime.CombatCommandHandler` for the MVP basic laser; the handler resolves
+  the attacker from authenticated server context and ignores
+  `client_timestamp` while `CombatService` enforces cooldowns with server time.
+  Source: `docs/roadmap/05-combat-loot-vertical-slice.md`.

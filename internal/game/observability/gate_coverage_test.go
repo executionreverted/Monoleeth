@@ -199,24 +199,24 @@ func realtimeOperationRegistryKeys(t *testing.T) []string {
 			return true
 		}
 		for index, name := range valueSpec.Names {
-			if name.Name != "phase04Operations" {
+			if name.Name != "registeredOperations" {
 				continue
 			}
 			if index >= len(valueSpec.Values) {
-				t.Fatalf("phase04Operations has no map literal value")
+				t.Fatalf("registeredOperations has no map literal value")
 			}
 			registry, ok := valueSpec.Values[index].(*ast.CompositeLit)
 			if !ok {
-				t.Fatalf("phase04Operations is %T, want map composite literal", valueSpec.Values[index])
+				t.Fatalf("registeredOperations is %T, want map composite literal", valueSpec.Values[index])
 			}
 			for _, element := range registry.Elts {
 				keyValue, ok := element.(*ast.KeyValueExpr)
 				if !ok {
-					t.Fatalf("phase04Operations element is %T, want key/value", element)
+					t.Fatalf("registeredOperations element is %T, want key/value", element)
 				}
 				operation, ok := realtimeOperationKeyString(keyValue.Key, constants)
 				if !ok {
-					t.Fatalf("unsupported phase04Operations key %T", keyValue.Key)
+					t.Fatalf("unsupported registeredOperations key %T", keyValue.Key)
 				}
 				operations = append(operations, operation)
 			}
@@ -224,7 +224,7 @@ func realtimeOperationRegistryKeys(t *testing.T) []string {
 		return true
 	})
 	if len(operations) == 0 {
-		t.Fatal("phase04Operations registry keys not found")
+		t.Fatal("registeredOperations registry keys not found")
 	}
 	sort.Strings(operations)
 	return operations
