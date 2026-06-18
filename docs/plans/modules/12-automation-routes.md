@@ -306,5 +306,7 @@ MVP:
 - partial loss
 - source/destination storage lock
 - star map route summary API
+- local settlement event envelopes for route settled, route loss, source empty,
+  and destination full conditions
+- durable outbox/publisher remains a later persistence boundary
 - no physical convoy yet
-

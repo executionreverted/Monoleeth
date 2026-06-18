@@ -28,6 +28,57 @@ func TestSettlePlanetProductionOneHourOutput(t *testing.T) {
 	}
 }
 
+func TestSettlePlanetProductionEmitsSettlementEventsOnce(t *testing.T) {
+	store := newSettlementStore(t, "planet-1", testTime(0), 100, 10)
+	addSettlementBuilding(t, store, "planet-1", "building-1", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+	now := testTime(0).Add(time.Hour)
+
+	result, err := store.SettlePlanetProduction("planet-1", now)
+	if err != nil {
+		t.Fatalf("SettlePlanetProduction(first) error = %v, want nil", err)
+	}
+	assertSettlementDelta(t, result.ProducedItems, "iron_ore", 30)
+	assertProductionEventTypes(t, store.Events(),
+		EventPlanetBuildingProduced,
+		EventPlanetProductionSettled,
+		EventOfflineSettlementCompleted,
+	)
+	firstEventCount := len(store.Events())
+
+	duplicate, err := store.SettlePlanetProduction("planet-1", now)
+	if err != nil {
+		t.Fatalf("SettlePlanetProduction(second) error = %v, want nil", err)
+	}
+	if !duplicate.NoOp {
+		t.Fatal("duplicate NoOp = false, want true")
+	}
+	if got := len(store.Events()); got != firstEventCount {
+		t.Fatalf("event count after duplicate settlement = %d, want unchanged %d", got, firstEventCount)
+	}
+}
+
+func TestSettlePlanetProductionEmitsStorageAndEnergyEvents(t *testing.T) {
+	store := newSettlementStore(t, "planet-1", testTime(0), 10, 4)
+	replaceSettlementStorage(t, store, "planet-1", 10, []StoredItem{{ItemID: "void_salt", Quantity: 5}}, testTime(0))
+	addSettlementBuilding(t, store, "planet-1", "building-a", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+	addSettlementBuilding(t, store, "planet-1", "building-b", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+
+	result, err := store.SettlePlanetProduction("planet-1", testTime(0).Add(time.Hour))
+	if err != nil {
+		t.Fatalf("SettlePlanetProduction() error = %v, want nil", err)
+	}
+	if !result.StorageFull || !result.EnergyInsufficient {
+		t.Fatalf("StorageFull/EnergyInsufficient = %v/%v, want true/true", result.StorageFull, result.EnergyInsufficient)
+	}
+	assertProductionEventTypes(t, store.Events(),
+		EventPlanetBuildingProduced,
+		EventPlanetStorageFull,
+		EventPlanetEnergyInsufficient,
+		EventPlanetProductionSettled,
+		EventOfflineSettlementCompleted,
+	)
+}
+
 func TestSettlePlanetProductionStorageCapClampsOutput(t *testing.T) {
 	store := newSettlementStore(t, "planet-1", testTime(0), 10, 10)
 	replaceSettlementStorage(t, store, "planet-1", 10, []StoredItem{{ItemID: "void_salt", Quantity: 5}}, testTime(0))

@@ -342,4 +342,6 @@ MVP:
 - storage cap
 - no second-by-second jobs for offline players
 - settlement on login/inspection
-
+- local settlement event envelopes for production, building output, storage full,
+  energy insufficient, and offline completion
+- durable outbox/publisher remains a later persistence boundary

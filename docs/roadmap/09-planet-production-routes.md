@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: MVP complete, reviewed 2026-06-18
+- State: Complete, verified 2026-06-18
 - Owner: Strategy and persistence layer
 - Depends on: Phase 02, Phase 08
 - Unlocks: long-term resource economy, production chains, logistics gameplay
@@ -83,7 +83,7 @@ Routes:
 - [x] Handle input shortage.
 - [x] Handle insufficient energy.
 - [x] Update `last_calculated_at`.
-- [ ] Emit production settlement events.
+- [x] Emit production settlement events.
 - [x] Produce login/inspection summary.
 
 ## TODO: Routes
@@ -108,7 +108,7 @@ Routes:
 - [x] Lock destination storage.
 - [x] Add up to capacity.
 - [x] Update route timestamp.
-- [ ] Emit route settlement events.
+- [x] Emit route settlement events.
 
 ## Tests
 
@@ -120,12 +120,14 @@ Routes:
 - [x] Future timestamp is handled safely.
 - [x] Energy insufficient disables or scales production.
 - [x] Login settlement summary is correct.
+- [x] Production settlement emits non-duplicated local event envelopes.
 - [x] Create route validates source ownership.
 - [x] Unauthorized destination fails.
 - [x] Empty source transfers zero.
 - [x] Full destination clamps delivery.
 - [x] Loss chance applies in configured range.
 - [x] Double route settlement does not duplicate transfer.
+- [x] Route settlement emits non-duplicated local event envelopes.
 - [x] Disable/enable preserves timestamp correctly.
 - [x] Route update settles old state first.
 
@@ -159,8 +161,10 @@ Routes:
   provider facts.
 - Route create/update/settlement currently supports planet-to-planet storage.
   Generic `storage` and `station` destination settlement adapters are deferred.
-- Settlement methods return summaries, but durable event/outbox emission remains
-  deferred.
+- Settlement methods return summaries and append in-memory local event envelopes
+  for production, building output, storage-full, energy-insufficient, route
+  settled, route loss, source-empty, destination-full, and offline-complete
+  conditions. Durable event/outbox persistence remains deferred.
 
 ## Resume Notes
 

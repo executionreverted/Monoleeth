@@ -114,6 +114,9 @@ func (store *InMemoryStore) SettlePlanetProduction(planetID foundation.PlanetID,
 		state.UpdatedAt = now
 		store.states[planetID] = cloneProductionState(state)
 		result.After, _ = store.snapshotLocked(planetID)
+		if err := store.appendProductionSettlementEventsLocked(result); err != nil {
+			return PlanetProductionSettlementResult{}, err
+		}
 		return result, nil
 	}
 
@@ -159,7 +162,47 @@ func (store *InMemoryStore) SettlePlanetProduction(planetID foundation.PlanetID,
 	result.After, _ = store.snapshotLocked(planetID)
 	sortSettlementItemDeltas(result.ProducedItems)
 	sortSettlementItemDeltas(result.ConsumedInputs)
+	if err := store.appendProductionSettlementEventsLocked(result); err != nil {
+		return PlanetProductionSettlementResult{}, err
+	}
 	return result, nil
+}
+
+func (store *InMemoryStore) appendProductionSettlementEventsLocked(result PlanetProductionSettlementResult) error {
+	if result.NoOp {
+		return nil
+	}
+	for _, buildingResult := range result.BuildingResults {
+		if len(buildingResult.ProducedItems) == 0 && len(buildingResult.ConsumedInputs) == 0 {
+			continue
+		}
+		payload, err := NewBuildingProducedPayload(result.PlanetID, result.SettledAt, buildingResult)
+		if err != nil {
+			return err
+		}
+		if err := store.appendProductionEventLocked(EventType(EventPlanetBuildingProduced), payload, result.SettledAt); err != nil {
+			return err
+		}
+	}
+
+	payload, err := NewProductionSettlementPayload(result)
+	if err != nil {
+		return err
+	}
+	if result.StorageFull {
+		if err := store.appendProductionEventLocked(EventType(EventPlanetStorageFull), payload, result.SettledAt); err != nil {
+			return err
+		}
+	}
+	if result.EnergyInsufficient {
+		if err := store.appendProductionEventLocked(EventType(EventPlanetEnergyInsufficient), payload, result.SettledAt); err != nil {
+			return err
+		}
+	}
+	if err := store.appendProductionEventLocked(EventType(EventPlanetProductionSettled), payload, result.SettledAt); err != nil {
+		return err
+	}
+	return store.appendProductionEventLocked(EventType(EventOfflineSettlementCompleted), payload, result.SettledAt)
 }
 
 func newSettlementResult(planetID foundation.PlanetID, now time.Time, before PlanetProductionSnapshot) PlanetProductionSettlementResult {

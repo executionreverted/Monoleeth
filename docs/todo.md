@@ -121,9 +121,10 @@ for phase status; this file is a compact pending-work index.
 - [ ] Narrow lock scope or add per-player/per-planet coordination for Phase 08
   scan, claim, share, and coordinate-scroll services before high-concurrency
   runtime deployment; current MVP services use process-local mutexes.
-- [ ] Add durable production/route event outbox emission for Phase 09
-  settlement summaries before exposing production and automation routes through
-  runtime or gateway callers. Current services return in-memory summaries only.
+- [ ] Replace Phase 09 in-memory production/route settlement event envelopes
+  with a durable outbox before exposing production and automation routes through
+  runtime or gateway callers. Current services append process-local settlement
+  events but do not persist or publish them across processes.
 - [ ] Add station/storage destination settlement adapters for Phase 09
   automation routes. Current `SettleRoute` supports planet-to-planet storage and
   rejects generic `storage` or `station` destinations with an explicit error.
@@ -172,6 +173,11 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Add Phase 09 process-local production and route settlement event envelopes
+  for production, building output, storage-full, energy-insufficient,
+  route-settled, route-loss, source-empty, destination-full, and
+  offline-complete conditions. Durable outbox persistence remains tracked
+  separately. Source: `docs/roadmap/09-planet-production-routes.md`.
 - [x] Wire Phase 08 scanner capacitor/energy availability validation and
   stationary movement gating into the scanner domain service before cooldown,
   pulse, event, planet, intel, or XP mutation. Durable live energy spending and

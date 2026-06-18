@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	gameevents "gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 )
 
@@ -29,10 +30,12 @@ type InitializePlanetProductionResult struct {
 type InMemoryStore struct {
 	mu sync.RWMutex
 
-	states    map[foundation.PlanetID]PlanetProductionState
-	storage   map[foundation.PlanetID]PlanetStorage
-	buildings map[foundation.PlanetID]map[BuildingID]PlanetBuilding
-	routes    map[foundation.RouteID]AutomationRoute
+	states            map[foundation.PlanetID]PlanetProductionState
+	storage           map[foundation.PlanetID]PlanetStorage
+	buildings         map[foundation.PlanetID]map[BuildingID]PlanetBuilding
+	routes            map[foundation.RouteID]AutomationRoute
+	events            []gameevents.EventEnvelope
+	nextEventSequence uint64
 }
 
 // NewInMemoryStore returns an empty production repository.
@@ -74,6 +77,8 @@ func (store *InMemoryStore) Clone() *InMemoryStore {
 	for routeID, route := range store.routes {
 		cloned.routes[routeID] = cloneAutomationRoute(route)
 	}
+	cloned.events = cloneProductionEventEnvelopes(store.events)
+	cloned.nextEventSequence = store.nextEventSequence
 	return cloned
 }
 
@@ -242,6 +247,14 @@ func (store *InMemoryStore) AutomationRoutes() []AutomationRoute {
 	return routesFromMap(store.routes)
 }
 
+// Events returns production event envelopes in append order.
+func (store *InMemoryStore) Events() []gameevents.EventEnvelope {
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	return cloneProductionEventEnvelopes(store.events)
+}
+
 // Snapshot returns one validated aggregate snapshot by planet id.
 func (store *InMemoryStore) Snapshot(planetID foundation.PlanetID) (PlanetProductionSnapshot, bool, error) {
 	if err := planetID.Validate(); err != nil {
@@ -329,6 +342,19 @@ func (store *InMemoryStore) insertAutomationRoute(route AutomationRoute) (Automa
 	return cloneAutomationRoute(route), nil
 }
 
+func (store *InMemoryStore) appendProductionEventLocked(eventType EventType, payload any, occurredAt time.Time) error {
+	store.nextEventSequence++
+	sequence := store.nextEventSequence
+	eventID := foundation.EventID(fmt.Sprintf("production-event-%d", sequence))
+	event, err := NewProductionEvent(eventID, eventType, payload, occurredAt, sequence)
+	if err != nil {
+		store.nextEventSequence--
+		return err
+	}
+	store.events = append(store.events, event)
+	return nil
+}
+
 func (store *InMemoryStore) snapshotLocked(planetID foundation.PlanetID) (PlanetProductionSnapshot, bool) {
 	state, hasState := store.states[planetID]
 	storage, hasStorage := store.storage[planetID]
@@ -368,6 +394,18 @@ func routesFromMap(routes map[foundation.RouteID]AutomationRoute) []AutomationRo
 	sort.Slice(cloned, func(i, j int) bool {
 		return cloned[i].RouteID < cloned[j].RouteID
 	})
+	return cloned
+}
+
+func cloneProductionEventEnvelopes(envelopes []gameevents.EventEnvelope) []gameevents.EventEnvelope {
+	if len(envelopes) == 0 {
+		return nil
+	}
+	cloned := make([]gameevents.EventEnvelope, len(envelopes))
+	for index, envelope := range envelopes {
+		cloned[index] = envelope
+		cloned[index].Payload = append([]byte(nil), envelope.Payload...)
+	}
 	return cloned
 }
 

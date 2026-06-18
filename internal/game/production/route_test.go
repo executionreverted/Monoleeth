@@ -241,6 +241,79 @@ func TestSettleRouteEmptySourceTransfersZeroAndUpdatesTimestamps(t *testing.T) {
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, now)
 }
 
+func TestSettleRouteEmitsSettlementAndConditionEvents(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		10,
+		[]StoredItem{{ItemID: "void_salt", Quantity: 10}},
+	)
+	service := newTestRouteSettlementService(t, store, now, nil)
+
+	result, err := service.SettleRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("SettleRoute(first) error = %v, want nil", err)
+	}
+	if !result.DestinationFull || result.AddedAmount != 0 {
+		t.Fatalf("DestinationFull/AddedAmount = %v/%d, want true/0", result.DestinationFull, result.AddedAmount)
+	}
+	assertProductionEventTypes(t, store.Events(),
+		EventRouteDestinationFull,
+		EventRouteTransferSettled,
+	)
+	firstEventCount := len(store.Events())
+
+	duplicate, err := service.SettleRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("SettleRoute(second) error = %v, want nil", err)
+	}
+	if !duplicate.NoOp {
+		t.Fatal("duplicate NoOp = false, want true")
+	}
+	if got := len(store.Events()); got != firstEventCount {
+		t.Fatalf("event count after duplicate route settlement = %d, want unchanged %d", got, firstEventCount)
+	}
+}
+
+func TestSettleRouteEmitsLossAndSourceEmptyEvents(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	route.Risk = RouteRisk{
+		LossChance:     MaxRouteLossChance,
+		MinLossPercent: 0.50,
+		MaxLossPercent: 0.50,
+	}
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 40}},
+		100,
+		nil,
+	)
+	service := newTestRouteSettlementService(t, store, now, testutil.NewFakeRNG(nil, []float64{0.10}))
+
+	result, err := service.SettleRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("SettleRoute() error = %v, want nil", err)
+	}
+	if !result.LossApplied || !result.SourceEmpty || result.LostAmount != 20 || result.AddedAmount != 20 {
+		t.Fatalf("loss/source/amounts = %v/%v/%d/%d, want true/true/20/20",
+			result.LossApplied, result.SourceEmpty, result.LostAmount, result.AddedAmount)
+	}
+	assertProductionEventTypes(t, store.Events(),
+		EventRouteTransferLost,
+		EventRouteSourceEmpty,
+		EventRouteTransferSettled,
+	)
+}
+
 func TestSettleRouteFullDestinationClampsDelivery(t *testing.T) {
 	last := testRouteNow()
 	now := last.Add(time.Hour)
