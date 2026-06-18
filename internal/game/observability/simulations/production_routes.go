@@ -245,8 +245,10 @@ func RunRouteSettlementSimulation(config RouteSettlementSimulationConfig) (Route
 		if err != nil || !ok {
 			return RouteSettlementSimulationSummary{}, fmt.Errorf("destination storage %q ok=%v err=%v: %w", result.BeforeRoute.Destination.ID, ok, err, ErrInvalidSimulationConfig)
 		}
-		summary.SourceRemaining += source.QuantityOf("refined_alloy")
-		summary.DestinationQuantity += destination.QuantityOf("refined_alloy")
+		sourceQuantity := source.QuantityOf("refined_alloy")
+		destinationQuantity := destination.QuantityOf("refined_alloy")
+		summary.SourceRemaining += sourceQuantity
+		summary.DestinationQuantity += destinationQuantity
 
 		duplicate, err := service.SettleRoute(routeID)
 		if err != nil {
@@ -258,6 +260,18 @@ func RunRouteSettlementSimulation(config RouteSettlementSimulationConfig) (Route
 			duplicate.LostAmount != 0 ||
 			duplicate.AddedAmount != 0 {
 			return RouteSettlementSimulationSummary{}, fmt.Errorf("route duplicate settlement %q result %+v: %w", routeID, duplicate, ErrInvalidSimulationConfig)
+		}
+		sourceAfterDuplicate, ok, err := store.PlanetStorage(result.BeforeRoute.SourcePlanetID)
+		if err != nil || !ok {
+			return RouteSettlementSimulationSummary{}, fmt.Errorf("source duplicate storage %q ok=%v err=%v: %w", result.BeforeRoute.SourcePlanetID, ok, err, ErrInvalidSimulationConfig)
+		}
+		destinationAfterDuplicate, ok, err := store.PlanetStorage(foundation.PlanetID(result.BeforeRoute.Destination.ID))
+		if err != nil || !ok {
+			return RouteSettlementSimulationSummary{}, fmt.Errorf("destination duplicate storage %q ok=%v err=%v: %w", result.BeforeRoute.Destination.ID, ok, err, ErrInvalidSimulationConfig)
+		}
+		if sourceAfterDuplicate.QuantityOf("refined_alloy") != sourceQuantity ||
+			destinationAfterDuplicate.QuantityOf("refined_alloy") != destinationQuantity {
+			return RouteSettlementSimulationSummary{}, fmt.Errorf("route duplicate settlement %q mutated storage: %w", routeID, ErrInvalidSimulationConfig)
 		}
 		if err := metrics.RecordRouteSettlement("noop"); err != nil {
 			return RouteSettlementSimulationSummary{}, err
