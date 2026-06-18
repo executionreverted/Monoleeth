@@ -82,6 +82,57 @@ func TestCombatUseSkillIgnoresClientTimestampForCooldown(t *testing.T) {
 	}
 }
 
+func TestCombatUseSkillHidesDifferentZoneTargets(t *testing.T) {
+	start := time.Date(2026, 6, 18, 20, 5, 0, 0, time.UTC)
+	clock := testutil.NewFakeClock(start)
+	combatService := combat.NewService(clock, nil)
+	upsertRuntimeCombatActor(t, combatService, runtimePlayerCombatActor("player-entity-1", "player-1", world.Vec2{}))
+	target := runtimeNPCCombatActor("npc-1", world.Vec2{X: 20, Y: 0})
+	target.ZoneID = "zone-2"
+	upsertRuntimeCombatActor(t, combatService, target)
+
+	combatHandler, err := NewCombatCommandHandler(
+		combatService,
+		staticCombatActorResolver{"player-1": "player-entity-1"},
+	)
+	if err != nil {
+		t.Fatalf("NewCombatCommandHandler() error = %v, want nil", err)
+	}
+	gateway, err := realtime.NewGateway(realtime.GatewayOptions{
+		Clock: clock,
+		Sessions: staticRuntimeSessionResolver{
+			"session-1": {
+				SessionID: "session-1",
+				PlayerID:  "player-1",
+				WorldID:   "world-1",
+				ZoneID:    "zone-1",
+			},
+		},
+		Handlers: combatHandler.Handlers(),
+	})
+	if err != nil {
+		t.Fatalf("NewGateway() error = %v, want nil", err)
+	}
+
+	result := gateway.HandleRequest("session-1", []byte(
+		`{"request_id":"request-1","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"npc-1","client_timestamp":1},"client_seq":1,"v":1}`,
+	))
+
+	if !result.HasError {
+		t.Fatalf("HandleRequest() HasError = false, want safe visibility error")
+	}
+	if result.Error.Error.Code != foundation.CodeNotVisible {
+		t.Fatalf("error code = %s, want %s", result.Error.Error.Code, foundation.CodeNotVisible)
+	}
+	attacker, ok := combatService.Actor("player-entity-1")
+	if !ok {
+		t.Fatal("Actor(player-entity-1) ok = false, want true")
+	}
+	if got, want := attacker.Energy, 100.0; got != want {
+		t.Fatalf("attacker energy after rejected cross-zone target = %v, want %v", got, want)
+	}
+}
+
 func TestCombatCommandHandlerConstructorsRejectNilDependencies(t *testing.T) {
 	if _, err := NewCombatCommandHandler(nil, staticCombatActorResolver{}); !errors.Is(err, ErrNilCombatService) {
 		t.Fatalf("NewCombatCommandHandler(nil service) error = %v, want ErrNilCombatService", err)

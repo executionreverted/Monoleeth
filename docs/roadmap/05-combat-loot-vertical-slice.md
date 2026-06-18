@@ -180,6 +180,7 @@ Verified slices:
 - Runtime stat input composition currently covers base ship and equipped module stats; unlocked pilot-skill passive stat effects are still a Phase 03 follow-up.
 - A deterministic backend vertical slice test ensures a starter ship, composes Laser Alpha stats through runtime providers and `StatService`, moves the player into range through the in-process world worker, kills one NPC, grants combat XP idempotently, creates loot, picks it into ship cargo through `CargoService`, grants loot XP, records XP reconciliation, and reads the final player progression snapshot.
 - Realtime `combat.use_skill` is registered and wired through `runtime.CombatCommandHandler` for the MVP basic laser. The handler resolves the attacker from authenticated `CommandContext`, accepts `client_timestamp` only as ignored client metadata, and relies on `CombatService` server time for cooldown enforcement.
+- Cross-world or cross-zone `combat.use_skill` targets now return the same safe client-facing visibility error as hidden targets instead of leaking internal combat validation details.
 - Prior full vertical-slice verification passed with `go test ./...`, `go test -race ./internal/game/combat ./internal/game/loot`, and `git diff --check`; the current timestamp gateway slice passed focused realtime/runtime/combat tests plus the required full `go test ./...` and `git diff --check`.
 
 Remaining follow-up:

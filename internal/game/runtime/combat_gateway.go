@@ -159,7 +159,7 @@ func domainErrorForCombatCommand(err error) error {
 		return foundation.NewDomainError(foundation.CodeNotEnoughEnergy, "Not enough energy.", foundation.WithCause(err))
 	case errors.Is(err, combat.ErrOutOfRange):
 		return foundation.NewDomainError(foundation.CodeOutOfRange, "Target is out of range.", foundation.WithCause(err))
-	case errors.Is(err, combat.ErrTargetNotVisible):
+	case errors.Is(err, combat.ErrTargetNotVisible), errors.Is(err, combat.ErrDifferentWorldZone):
 		return foundation.NewDomainError(foundation.CodeNotVisible, "Target is not visible.", foundation.WithCause(err))
 	case errors.Is(err, combat.ErrUnknownActor), errors.Is(err, combat.ErrTargetDead), errors.Is(err, combat.ErrAttackerDead):
 		return foundation.NewDomainError(foundation.CodeNotFound, "Target is not available.", foundation.WithCause(err))
