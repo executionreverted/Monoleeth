@@ -26,6 +26,7 @@ export const CLIENT_EVENTS = {
   entityUpdated: 'aoi.entity_updated',
   entityLeft: 'aoi.entity_left',
   positionCorrected: 'position.corrected',
+  movementStopped: 'movement.stopped',
   serverNotice: 'server.notice',
 } as const;
 
@@ -36,13 +37,19 @@ export interface Vec2 {
   y: number;
 }
 
-export type EntityType = 'player' | 'npc_placeholder' | 'loot_placeholder' | 'planet_signal_placeholder';
+export type EntityType = 'player' | 'npc' | 'loot' | 'planet_signal';
+
+export interface EntityDisplay {
+  label?: string;
+  disposition?: string;
+}
 
 export interface EntityPayload {
   entity_id: string;
   entity_type: EntityType;
   position: Vec2;
   status_flags?: string[];
+  display?: EntityDisplay;
 }
 
 export interface RequestEnvelope<TPayload extends JsonObject = JsonObject> {

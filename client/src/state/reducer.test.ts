@@ -9,6 +9,8 @@ describe('reduceClientState', () => {
 
     expect(state.connectionStatus).toBe('restoring');
     expect(state.playerSnapshot).toBeNull();
+    expect(state.sector).toBeNull();
+    expect(state.minimap).toBeNull();
     expect(state.cargo).toBeNull();
     expect(state.wallet).toBeNull();
     expect(state.stats).toBeNull();
@@ -55,8 +57,9 @@ describe('reduceClientState', () => {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.entityEntered, {
         entity_id: 'npc-1',
-        entity_type: 'npc_placeholder',
+        entity_type: 'npc',
         position: { x: 10, y: 20 },
+        display: { label: 'Training Drone', disposition: 'hostile' },
       }),
     });
 
@@ -110,7 +113,7 @@ describe('reduceClientState', () => {
         type: 'eventReceived',
         envelope: event(CLIENT_EVENTS.entityEntered, {
           entity_id: 'planet-1',
-          entity_type: 'planet_signal_placeholder',
+          entity_type: 'planet_signal',
           position: { x: 4, y: 8 },
           internal_metadata: { seed: 'nope' },
         }),
@@ -154,7 +157,7 @@ describe('reduceClientState', () => {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.entityEntered, {
         entity_id: 'stale-npc',
-        entity_type: 'npc_placeholder',
+        entity_type: 'npc',
         position: { x: 10, y: 20 },
       }),
     });
@@ -175,11 +178,26 @@ describe('reduceClientState', () => {
             entities: [
               {
                 entity_id: 'signal-1',
-                entity_type: 'planet_signal_placeholder',
+                entity_type: 'planet_signal',
                 position: { x: 50, y: 60 },
                 status_flags: ['known_intel'],
+                display: { label: 'Unknown Signal', disposition: 'unknown' },
               },
             ],
+            sector: { name: 'Origin Fringe', region: 'Origin Belt', danger: 'low', contested: false },
+            minimap: {
+              radar_range: 420,
+              live_contacts: [
+                {
+                  entity_id: 'signal-1',
+                  entity_type: 'planet_signal',
+                  position: { x: 50, y: 60 },
+                  disposition: 'unknown',
+                  status_flags: ['known_intel'],
+                },
+              ],
+              remembered: [],
+            },
           },
           server_time: 1200,
           v: 1,
@@ -189,9 +207,11 @@ describe('reduceClientState', () => {
 
     expect(replaced.visibleEntities['stale-npc']).toBeUndefined();
     expect(replaced.visibleEntities['signal-1']).toMatchObject({
-      entity_type: 'planet_signal_placeholder',
+      entity_type: 'planet_signal',
       position: { x: 50, y: 60 },
     });
+    expect(replaced.sector).toMatchObject({ name: 'Origin Fringe', danger: 'low' });
+    expect(replaced.minimap?.live_contacts).toHaveLength(1);
     expect(replaced.selectedTargetID).toBeNull();
     expect(replaced.movementTarget).toBeNull();
     expect(replaced.lastCorrection).toBeNull();
@@ -211,7 +231,7 @@ describe('reduceClientState', () => {
             entities: [
               {
                 entity_id: 'planet-1',
-                entity_type: 'planet_signal_placeholder',
+                entity_type: 'planet_signal',
                 position: { x: 4, y: 8 },
                 internal_metadata: { seed: 'nope' },
               },
@@ -250,6 +270,53 @@ describe('reduceClientState', () => {
     expect(reconciled.cargo?.items).toEqual([{ item_id: 'raw_ore', quantity: 4 }]);
     expect(reconciled.wallet).toEqual({ credits: 980, premium_paid: 3, premium_earned: 9 });
     expect(reconciled.stats).toMatchObject({ speed: 220, radar_range: 510, weapon_range: 280, cargo_capacity: 80 });
+  });
+
+  test('world snapshot event stores sector and minimap projection', () => {
+    const state = reduceClientState(
+      {
+        ...createInitialState(),
+        auth: {
+          mode: 'real',
+          session: { authenticated: true, server_time: 1 },
+          submitting: false,
+          error: null,
+        },
+      },
+      {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.worldSnapshot, {
+          sector: { name: 'Origin Fringe', region: 'Origin Belt', danger: 'low', contested: false },
+          entities: [
+            {
+              entity_id: 'player-local',
+              entity_type: 'player',
+              position: { x: 0, y: 0 },
+              status_flags: ['self'],
+              display: { label: 'Smoke', disposition: 'self' },
+            },
+          ],
+          minimap: {
+            radar_range: 420,
+            live_contacts: [
+              {
+                entity_id: 'player-local',
+                entity_type: 'player',
+                position: { x: 0, y: 0 },
+                disposition: 'self',
+                status_flags: ['self'],
+              },
+            ],
+            remembered: [],
+          },
+        }),
+      },
+    );
+
+    expect(state.connectionStatus).toBe('connected');
+    expect(state.sector).toEqual({ name: 'Origin Fringe', region: 'Origin Belt', danger: 'low', contested: false });
+    expect(state.minimap?.radar_range).toBe(420);
+    expect(state.visibleEntities['player-local'].status_flags).toContain('self');
   });
 
   test('snapshot events reconcile cargo, wallet, and stats independently', () => {

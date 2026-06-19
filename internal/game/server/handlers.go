@@ -83,6 +83,7 @@ func (runtime *Runtime) handleWorldSnapshot(ctx realtime.CommandContext, request
 	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
+	runtime.lastAOI[authSessionID(ctx.SessionID)] = aoi.Snapshot{Entities: cloneAOIEntities(payload.Entities)}
 	return marshalPayload(payload)
 }
 
@@ -96,6 +97,9 @@ func (runtime *Runtime) handleMoveTo(ctx realtime.CommandContext, request realti
 	}
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
+	if err := runtime.validateMoveIntentLocked(ctx.PlayerID, intent); err != nil {
+		return nil, err
+	}
 	if err := runtime.Worker.Submit(worker.MoveToCommand{PlayerID: ctx.PlayerID, Intent: intent}); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
@@ -118,6 +122,9 @@ func (runtime *Runtime) handleStop(ctx realtime.CommandContext, request realtime
 	}
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
+	if err := runtime.validateShipCanMoveLocked(ctx.PlayerID); err != nil {
+		return nil, err
+	}
 	if err := runtime.Worker.Submit(worker.StopCommand{PlayerID: ctx.PlayerID}); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
@@ -132,6 +139,36 @@ func (runtime *Runtime) handleStop(ctx realtime.CommandContext, request realtime
 		Accepted bool                `json:"accepted"`
 		Entities []aoi.EntityPayload `json:"entities"`
 	}{Accepted: true, Entities: snapshot.Entities})
+}
+
+func (runtime *Runtime) validateMoveIntentLocked(playerID foundation.PlayerID, intent world.MovementIntent) error {
+	if err := runtime.validateShipCanMoveLocked(playerID); err != nil {
+		return err
+	}
+	entity, ok := runtime.Worker.PlayerEntity(playerID)
+	if !ok {
+		return domainErrorForRuntime(worker.ErrUnknownPlayer)
+	}
+	if entity.Position.Distance(intent.Target) > defaultMaxMoveDistance {
+		return foundation.NewDomainError(foundation.CodeOutOfRange, "Move target is out of range.")
+	}
+	now := runtime.clock.Now()
+	if lastMove := runtime.lastMove[playerID]; !lastMove.IsZero() && now.Sub(lastMove) < minMoveCommandInterval {
+		return foundation.NewDomainError(foundation.CodeRateLimited, "Movement intent rate limit exceeded.")
+	}
+	runtime.lastMove[playerID] = now
+	return nil
+}
+
+func (runtime *Runtime) validateShipCanMoveLocked(playerID foundation.PlayerID) error {
+	state, ok := runtime.players[playerID]
+	if !ok {
+		return domainErrorForRuntime(worker.ErrUnknownPlayer)
+	}
+	if state.Ship.Disabled || state.Ship.RepairState == "disabled" {
+		return foundation.NewDomainError(foundation.CodeShipDisabled, "Ship is disabled.")
+	}
+	return nil
 }
 
 func (runtime *Runtime) handleDebugSnapshot(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {

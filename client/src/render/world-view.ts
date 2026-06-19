@@ -1,7 +1,10 @@
 import { EntityPayload, Vec2 } from '../protocol/envelope';
+import { MinimapSummary, SectorSummary } from '../state/types';
 
 export interface WorldViewState {
   entities: EntityPayload[];
+  sector: SectorSummary | null;
+  minimap: MinimapSummary | null;
   selectedTargetID: string | null;
   movementTarget: Vec2 | null;
   lastCorrection: { entityID: string; position: Vec2 } | null;

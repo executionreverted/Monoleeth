@@ -75,6 +75,34 @@ export interface StatSummary {
   cargo_capacity: number;
 }
 
+export interface SectorSummary {
+  name: string;
+  region: string;
+  danger: string;
+  contested: boolean;
+}
+
+export interface MinimapContact {
+  entity_id: string;
+  entity_type: EntityPayload['entity_type'];
+  position: Vec2;
+  disposition?: string;
+  status_flags?: string[];
+}
+
+export interface MinimapMemory {
+  kind: string;
+  label: string;
+  position: Vec2;
+  freshness: string;
+}
+
+export interface MinimapSummary {
+  radar_range: number;
+  live_contacts: MinimapContact[];
+  remembered: MinimapMemory[];
+}
+
 export interface PendingCommand {
   requestID: string;
   op: string;
@@ -88,6 +116,8 @@ export interface ClientState {
   lastServerTime: number | null;
   lastSequence: number;
   playerSnapshot: PlayerSnapshot | null;
+  sector: SectorSummary | null;
+  minimap: MinimapSummary | null;
   visibleEntities: Record<string, EntityPayload>;
   selectedTargetID: string | null;
   movementTarget: Vec2 | null;

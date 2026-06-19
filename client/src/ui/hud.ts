@@ -28,8 +28,8 @@ export class HUD {
           <strong>Frontier Console</strong>
         </div>
         <div class="top-status" aria-label="Server-owned status">
-          <div><span>Sector</span><strong>${lockedValue()}</strong></div>
-          <div><span>Danger</span><strong>${lockedValue()}</strong></div>
+          <div><span>Sector</span><strong data-top-sector>${lockedValue()}</strong></div>
+          <div><span>Danger</span><strong data-top-danger>${lockedValue()}</strong></div>
           <div><span>Cargo</span><strong data-top-cargo>${lockedValue()}</strong></div>
           <div><span>Credits</span><strong data-top-credits>${lockedValue()}</strong></div>
         </div>
@@ -79,8 +79,16 @@ export class HUD {
     this.socketInput.value = state.socketURL;
     this.root.dataset.connection = state.connectionStatus;
     this.root.dataset.mode = state.auth.mode;
+    const sector = this.root.querySelector<HTMLElement>('[data-top-sector]');
+    const danger = this.root.querySelector<HTMLElement>('[data-top-danger]');
     const cargo = this.root.querySelector<HTMLElement>('[data-top-cargo]');
     const credits = this.root.querySelector<HTMLElement>('[data-top-credits]');
+    if (sector) {
+      sector.textContent = state.sector?.name || '--';
+    }
+    if (danger) {
+      danger.textContent = state.sector ? (state.sector.contested ? 'contested' : state.sector.danger) : '--';
+    }
     if (cargo) {
       cargo.textContent = state.cargo ? `${state.cargo.used}/${state.cargo.capacity}` : '--';
     }
@@ -196,14 +204,16 @@ function questPanel(state: ClientState): string {
 
 function targetPanel(state: ClientState): string {
   const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
-  const canFire = target?.entity_type === 'npc_placeholder';
-  const canLoot = target?.entity_type === 'loot_placeholder';
+  const canFire = target?.entity_type === 'npc';
+  const canLoot = target?.entity_type === 'loot';
+  const targetLabel = target?.display?.label ?? target?.entity_id ?? '';
   return `
     <h2>Target</h2>
     ${
       target
-        ? `<div class="target-name">${escapeHTML(target.entity_id)}</div>
-           <div class="meta-row"><span>Type</span><strong>${escapeHTML(target.entity_type)}</strong></div>
+        ? `<div class="target-name">${escapeHTML(targetLabel)}</div>
+           <div class="meta-row"><span>Type</span><strong>${escapeHTML(publicEntityType(target.entity_type))}</strong></div>
+           <div class="meta-row"><span>State</span><strong>${escapeHTML(target.display?.disposition ?? '--')}</strong></div>
            <div class="meta-row"><span>X/Y</span><strong>${Math.round(target.position.x)} / ${Math.round(target.position.y)}</strong></div>`
         : '<div class="empty-line">No lock</div>'
     }
@@ -233,10 +243,45 @@ function loadoutPanel(state: ClientState): string {
 
 function intelPanel(state: ClientState): string {
   return `
-    <h2>Intel</h2>
+    <h2>Sector Map</h2>
+    ${minimapPanel(state)}
     <div class="meta-row"><span>Signals</span><strong>${state.planetIntel ? state.planetIntel.knownSignals : lockedValue()}</strong></div>
     <div class="meta-row"><span>Stale</span><strong>${state.planetIntel?.staleIntel ?? lockedValue()}</strong></div>
     <button class="ghost-action" type="button" data-action="scan" disabled title="Scanner command is wired in a later phase">Pulse</button>
+  `;
+}
+
+function minimapPanel(state: ClientState): string {
+  if (!state.minimap || state.minimap.live_contacts.length === 0) {
+    return '<div class="minimap minimap--empty"><div class="empty-line">Awaiting server map projection.</div></div>';
+  }
+
+  const contacts = state.minimap.live_contacts;
+  const self = contacts.find((contact) => contact.status_flags?.includes('self')) ?? contacts.find((contact) => contact.entity_type === 'player');
+  const center = self?.position ?? { x: 0, y: 0 };
+  const radius = Math.max(state.minimap.radar_range, 1);
+  const points = contacts
+    .map((contact) => {
+      const left = clamp(50 + ((contact.position.x - center.x) / (radius * 2)) * 100, 4, 96);
+      const top = clamp(50 + ((contact.position.y - center.y) / (radius * 2)) * 100, 4, 96);
+      const disposition = contact.status_flags?.includes('self') ? 'self' : contact.disposition || dispositionForType(contact.entity_type);
+      return `<span class="minimap__point" data-kind="${escapeHTML(disposition)}" style="left:${left}%;top:${top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></span>`;
+    })
+    .join('');
+
+  return `
+    <div class="minimap" aria-label="Server-filtered sector map">
+      <span class="minimap__ring minimap__ring--outer"></span>
+      <span class="minimap__ring minimap__ring--middle"></span>
+      <span class="minimap__axis minimap__axis--x"></span>
+      <span class="minimap__axis minimap__axis--y"></span>
+      ${points}
+    </div>
+    <div class="minimap-legend">
+      <span data-kind="self">You</span>
+      <span data-kind="hostile">Hostile</span>
+      <span data-kind="unknown">Unknown</span>
+    </div>
   `;
 }
 
@@ -266,6 +311,36 @@ function meter(label: string, current?: number, max?: number): string {
 
 function lockedValue(): string {
   return '--';
+}
+
+function publicEntityType(entityType: string): string {
+  switch (entityType) {
+    case 'npc':
+      return 'hostile';
+    case 'loot':
+      return 'drop';
+    case 'planet_signal':
+      return 'signal';
+    default:
+      return entityType;
+  }
+}
+
+function dispositionForType(entityType: string): string {
+  switch (entityType) {
+    case 'npc':
+      return 'hostile';
+    case 'planet_signal':
+      return 'unknown';
+    case 'loot':
+      return 'neutral';
+    default:
+      return 'friendly';
+  }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function escapeHTML(value: string): string {

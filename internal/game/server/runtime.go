@@ -24,6 +24,8 @@ const (
 	starterShipDisplayName                   = "Sparrow"
 	defaultPlayerSpeed                       = 180
 	defaultRadarRange                        = 420
+	defaultMaxMoveDistance                   = 1200
+	minMoveCommandInterval                   = 75 * time.Millisecond
 )
 
 // RuntimeConfig wires the single-process game runtime.
@@ -54,6 +56,9 @@ type Runtime struct {
 	players  map[foundation.PlayerID]playerRuntimeState
 	hidden   map[world.EntityID]bool
 	eventSeq map[auth.SessionID]uint64
+	sessions map[auth.SessionID]foundation.PlayerID
+	lastAOI  map[auth.SessionID]aoi.Snapshot
+	lastMove map[foundation.PlayerID]time.Time
 
 	nextPlayerEntity int
 }
@@ -129,12 +134,36 @@ type cargoItemStack struct {
 type worldSnapshotPayload struct {
 	Sector         sectorPayload       `json:"sector"`
 	Entities       []aoi.EntityPayload `json:"entities"`
+	Minimap        minimapPayload      `json:"minimap"`
 	SnapshotCursor uint64              `json:"snapshot_cursor"`
 }
 
 type sectorPayload struct {
-	Name   string `json:"name"`
-	Danger string `json:"danger"`
+	Name      string `json:"name"`
+	Region    string `json:"region"`
+	Danger    string `json:"danger"`
+	Contested bool   `json:"contested"`
+}
+
+type minimapPayload struct {
+	RadarRange   float64                 `json:"radar_range"`
+	LiveContacts []minimapContactPayload `json:"live_contacts"`
+	Remembered   []minimapMemoryPayload  `json:"remembered"`
+}
+
+type minimapContactPayload struct {
+	EntityID    string            `json:"entity_id"`
+	EntityType  world.EntityType  `json:"entity_type"`
+	Position    world.Vec2        `json:"position"`
+	Disposition string            `json:"disposition,omitempty"`
+	StatusFlags []aoi.StatusFlag  `json:"status_flags,omitempty"`
+}
+
+type minimapMemoryPayload struct {
+	Kind      string     `json:"kind"`
+	Label     string     `json:"label"`
+	Position  world.Vec2 `json:"position"`
+	Freshness string     `json:"freshness"`
 }
 
 // NewRuntime creates the single-process runtime.
@@ -179,6 +208,9 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 			"entity_hidden_planet_signal": true,
 		},
 		eventSeq: make(map[auth.SessionID]uint64),
+		sessions: make(map[auth.SessionID]foundation.PlayerID),
+		lastAOI:  make(map[auth.SessionID]aoi.Snapshot),
+		lastMove: make(map[foundation.PlayerID]time.Time),
 	}
 	if err := runtime.seedWorld(); err != nil {
 		return nil, err
@@ -202,6 +234,12 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 
 // Start runs the worker tick lifecycle until ctx is canceled.
 func (runtime *Runtime) Start(ctx context.Context) {
+	runtime.StartWithEventSink(ctx, nil)
+}
+
+// StartWithEventSink runs the worker lifecycle and publishes per-session
+// filtered AOI diffs after authoritative ticks.
+func (runtime *Runtime) StartWithEventSink(ctx context.Context, sink func(auth.SessionID, []realtime.EventEnvelope)) {
 	if runtime == nil || runtime.Worker == nil {
 		return
 	}
@@ -213,9 +251,15 @@ func (runtime *Runtime) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				runtime.mu.Lock()
-				runtime.Worker.Tick()
-				runtime.mu.Unlock()
+				eventsBySession := runtime.tickAndCollectAOIEvents()
+				if sink == nil {
+					continue
+				}
+				for sessionID, events := range eventsBySession {
+					if len(events) > 0 {
+						sink(sessionID, events)
+					}
+				}
 			}
 		}
 	}()
@@ -250,8 +294,9 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 		state.Callsign = resolved.Callsign
 		runtime.players[resolved.PlayerID] = state
 	}
+	var err error
 	if _, ok := runtime.Worker.PlayerEntity(resolved.PlayerID); !ok {
-		if err := runtime.Worker.Submit(worker.SpawnPlayerCommand{
+		if err = runtime.Worker.Submit(worker.SpawnPlayerCommand{
 			PlayerID:  resolved.PlayerID,
 			EntityID:  state.EntityID,
 			Position:  world.Vec2{},
@@ -260,15 +305,21 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 		}); err != nil {
 			return err
 		}
-		return commandErrors(runtime.Worker.Tick())
+		err = commandErrors(runtime.Worker.Tick())
+	} else {
+		if err = runtime.Worker.Submit(worker.AttachSessionCommand{
+			SessionID: realtime.SessionID(resolved.SessionID.String()),
+			PlayerID:  resolved.PlayerID,
+		}); err != nil {
+			return err
+		}
+		err = commandErrors(runtime.Worker.Tick())
 	}
-	if err := runtime.Worker.Submit(worker.AttachSessionCommand{
-		SessionID: realtime.SessionID(resolved.SessionID.String()),
-		PlayerID:  resolved.PlayerID,
-	}); err != nil {
+	if err != nil {
 		return err
 	}
-	return commandErrors(runtime.Worker.Tick())
+	runtime.sessions[resolved.SessionID] = resolved.PlayerID
+	return nil
 }
 
 func (runtime *Runtime) detachSession(sessionID auth.SessionID) {
@@ -276,6 +327,8 @@ func (runtime *Runtime) detachSession(sessionID auth.SessionID) {
 	defer runtime.mu.Unlock()
 	_ = runtime.Worker.Submit(worker.DetachSessionCommand{SessionID: realtime.SessionID(sessionID.String())})
 	runtime.Worker.Tick()
+	delete(runtime.sessions, sessionID)
+	delete(runtime.lastAOI, sessionID)
 }
 
 func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realtime.EventEnvelope, error) {
@@ -287,6 +340,7 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realti
 	if err != nil {
 		return nil, err
 	}
+	runtime.lastAOI[resolved.SessionID] = aoi.Snapshot{Entities: cloneAOIEntities(worldSnapshot.Entities)}
 	events := make([]realtime.EventEnvelope, 0, 7)
 	sessionPayload := sessionReadyPayload{
 		Authenticated: true,
@@ -325,7 +379,12 @@ func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.
 			"entity_id": entity.ID.String(),
 			"position":  entity.Position,
 		}
-		return []realtime.EventEnvelope{runtime.eventLocked(sessionID, realtime.EventPositionCorrected, payload)}, nil
+		events := []realtime.EventEnvelope{runtime.eventLocked(sessionID, realtime.EventPositionCorrected, payload)}
+		if op == realtime.OperationStop {
+			events = append(events, runtime.eventLocked(sessionID, realtime.EventMovementStopped, payload))
+		}
+		events = append(events, runtime.aoiDiffEventsLocked(sessionID, playerID)...)
+		return events, nil
 	default:
 		return nil, nil
 	}
@@ -347,35 +406,171 @@ func (runtime *Runtime) eventLocked(sessionID auth.SessionID, eventType realtime
 }
 
 func (runtime *Runtime) worldSnapshotLocked(playerID foundation.PlayerID) (worldSnapshotPayload, error) {
+	snapshot, radarRange, tick, err := runtime.aoiSnapshotForPlayerLocked(playerID)
+	if err != nil {
+		return worldSnapshotPayload{}, err
+	}
+	return worldSnapshotPayload{
+		Sector:         runtime.sectorPayloadLocked(),
+		Entities:       cloneAOIEntities(snapshot.Entities),
+		Minimap:        minimapFromAOI(snapshot, radarRange),
+		SnapshotCursor: tick,
+	}, nil
+}
+
+func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID) (aoi.Snapshot, float64, uint64, error) {
 	state := runtime.players[playerID]
 	playerEntity, ok := runtime.Worker.PlayerEntity(playerID)
 	if !ok {
-		return worldSnapshotPayload{}, worker.ErrUnknownPlayer
+		return aoi.Snapshot{}, 0, 0, worker.ErrUnknownPlayer
 	}
 	statSnapshot := stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
 		Exploration: stats.ExplorationStats{RadarRange: state.Stats.RadarRange},
 	}, runtime.clock.Now())
+	radarRange := visibility.RadarRangeFromStatSnapshot(statSnapshot)
 	viewer := visibility.Viewer{
 		WorldID:    runtime.worldID,
 		ZoneID:     runtime.zoneID,
 		Position:   playerEntity.Position,
-		RadarRange: visibility.RadarRangeFromStatSnapshot(statSnapshot),
+		RadarRange: radarRange,
 	}
 	workerSnapshot := runtime.Worker.Snapshot()
 	states := make([]aoi.EntityState, 0, len(workerSnapshot.Entities))
 	for _, entity := range workerSnapshot.Entities {
+		flags, display := runtime.publicEntityMetadataLocked(playerID, entity)
 		states = append(states, aoi.EntityState{
-			Entity:    entity,
-			Signature: visibility.EntitySignature(1),
-			Hidden:    runtime.hidden[entity.ID],
+			Entity:            entity,
+			Signature:         visibility.EntitySignature(1),
+			Hidden:            runtime.hidden[entity.ID],
+			PublicStatusFlags: flags,
+			PublicDisplay:     display,
 		})
 	}
 	snapshot := aoi.BuildVisibleSnapshot(viewer, states)
-	return worldSnapshotPayload{
-		Sector:         sectorPayload{Name: "Origin Fringe", Danger: "low"},
-		Entities:       snapshot.Entities,
-		SnapshotCursor: workerSnapshot.Tick,
-	}, nil
+	return snapshot, radarRange.Units(), workerSnapshot.Tick, nil
+}
+
+func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.EventEnvelope {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	runtime.Worker.Tick()
+	eventsBySession := make(map[auth.SessionID][]realtime.EventEnvelope)
+	for sessionID, playerID := range runtime.sessions {
+		events := runtime.aoiDiffEventsLocked(sessionID, playerID)
+		if len(events) > 0 {
+			eventsBySession[sessionID] = events
+		}
+	}
+	return eventsBySession
+}
+
+func (runtime *Runtime) aoiDiffEventsLocked(sessionID auth.SessionID, playerID foundation.PlayerID) []realtime.EventEnvelope {
+	current, _, _, err := runtime.aoiSnapshotForPlayerLocked(playerID)
+	if err != nil {
+		return nil
+	}
+	previous := runtime.lastAOI[sessionID]
+	diff := aoi.DiffSnapshots(previous, current)
+	runtime.lastAOI[sessionID] = aoi.Snapshot{Entities: cloneAOIEntities(current.Entities)}
+
+	events := make([]realtime.EventEnvelope, 0, len(diff.Entered)+len(diff.Updated)+len(diff.Left))
+	for _, entity := range diff.Entered {
+		events = append(events, runtime.eventLocked(sessionID, realtime.EventAOIEntityEntered, entity))
+	}
+	for _, entity := range diff.Updated {
+		events = append(events, runtime.eventLocked(sessionID, realtime.EventAOIEntityUpdated, entity))
+	}
+	for _, entityID := range diff.Left {
+		events = append(events, runtime.eventLocked(sessionID, realtime.EventAOIEntityLeft, map[string]string{"entity_id": entityID.String()}))
+	}
+	return events
+}
+
+func (runtime *Runtime) publicEntityMetadataLocked(viewerID foundation.PlayerID, entity world.Entity) ([]aoi.StatusFlag, *aoi.EntityDisplay) {
+	switch entity.Type {
+	case world.EntityTypePlayer:
+		if playerID, playerState, ok := runtime.playerByEntityLocked(entity.ID); ok {
+			if playerID == viewerID {
+				return []aoi.StatusFlag{"friendly", "self"}, &aoi.EntityDisplay{Label: playerState.Callsign, Disposition: "self"}
+			}
+			return []aoi.StatusFlag{"friendly"}, &aoi.EntityDisplay{Label: playerState.Callsign, Disposition: "friendly"}
+		}
+		return []aoi.StatusFlag{"friendly"}, &aoi.EntityDisplay{Label: "Pilot", Disposition: "friendly"}
+	case world.EntityTypeNPC:
+		return []aoi.StatusFlag{"hostile"}, &aoi.EntityDisplay{Label: displayLabelForEntity(entity.ID, "Training Drone"), Disposition: "hostile"}
+	case world.EntityTypeLoot:
+		return []aoi.StatusFlag{"loot"}, &aoi.EntityDisplay{Label: "Loot Cache", Disposition: "neutral"}
+	case world.EntityTypePlanetSignal:
+		return []aoi.StatusFlag{"unknown_signal"}, &aoi.EntityDisplay{Label: "Unknown Signal", Disposition: "unknown"}
+	default:
+		return nil, nil
+	}
+}
+
+func (runtime *Runtime) playerByEntityLocked(entityID world.EntityID) (foundation.PlayerID, playerRuntimeState, bool) {
+	for playerID, state := range runtime.players {
+		if state.EntityID == entityID {
+			return playerID, state, true
+		}
+	}
+	return "", playerRuntimeState{}, false
+}
+
+func (runtime *Runtime) sectorPayloadLocked() sectorPayload {
+	return sectorPayload{
+		Name:      "Origin Fringe",
+		Region:    "Origin Belt",
+		Danger:    "low",
+		Contested: false,
+	}
+}
+
+func minimapFromAOI(snapshot aoi.Snapshot, radarRange float64) minimapPayload {
+	contacts := make([]minimapContactPayload, 0, len(snapshot.Entities))
+	for _, entity := range snapshot.Entities {
+		disposition := ""
+		if entity.Display != nil {
+			disposition = entity.Display.Disposition
+		}
+		contacts = append(contacts, minimapContactPayload{
+			EntityID:    entity.ID.String(),
+			EntityType:  entity.Type,
+			Position:    entity.Position,
+			Disposition: disposition,
+			StatusFlags: append([]aoi.StatusFlag(nil), entity.StatusFlags...),
+		})
+	}
+	return minimapPayload{
+		RadarRange:   radarRange,
+		LiveContacts: contacts,
+		Remembered:   []minimapMemoryPayload{},
+	}
+}
+
+func cloneAOIEntities(entities []aoi.EntityPayload) []aoi.EntityPayload {
+	if len(entities) == 0 {
+		return nil
+	}
+	cloned := make([]aoi.EntityPayload, 0, len(entities))
+	for _, entity := range entities {
+		entity.StatusFlags = append([]aoi.StatusFlag(nil), entity.StatusFlags...)
+		if entity.Display != nil {
+			display := *entity.Display
+			entity.Display = &display
+		}
+		cloned = append(cloned, entity)
+	}
+	return cloned
+}
+
+func displayLabelForEntity(entityID world.EntityID, fallback string) string {
+	switch entityID {
+	case "entity_training_npc":
+		return "Training Drone"
+	default:
+		return fallback
+	}
 }
 
 func newPlayerRuntimeState(callsign string, entityID world.EntityID) playerRuntimeState {

@@ -14,11 +14,19 @@ import (
 
 // Server owns HTTP routing and the concrete WebSocket transport.
 type Server struct {
-	config  Config
-	runtime *Runtime
-	handler http.Handler
-	server  *http.Server
-	conns   sync.Map
+	config            Config
+	runtime           *Runtime
+	handler           http.Handler
+	server            *http.Server
+	conns             sync.Map
+	connMu            sync.Mutex
+	sessionConnCounts map[auth.SessionID]int
+}
+
+type clientConnection struct {
+	conn      *websocket.Conn
+	sessionID auth.SessionID
+	mu        sync.Mutex
 }
 
 // New returns a concrete game server.
@@ -45,8 +53,9 @@ func New(config Config) (*Server, error) {
 		return nil, err
 	}
 	gameServer := &Server{
-		config:  config,
-		runtime: runtime,
+		config:            config,
+		runtime:           runtime,
+		sessionConnCounts: make(map[auth.SessionID]int),
 	}
 	mux := http.NewServeMux()
 	authHandler.RegisterRoutes(mux)
@@ -76,7 +85,7 @@ func (server *Server) Run(ctx context.Context) error {
 	if server == nil || server.server == nil {
 		return errors.New("nil game server")
 	}
-	server.runtime.Start(ctx)
+	server.runtime.StartWithEventSink(ctx, server.writeEventsToSession)
 	errc := make(chan error, 1)
 	go func() {
 		err := server.server.ListenAndServe()
@@ -105,8 +114,8 @@ func (server *Server) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	server.conns.Range(func(key, _ any) bool {
-		if conn, ok := key.(*websocket.Conn); ok {
-			_ = conn.Close(websocket.StatusGoingAway, "server shutdown")
+		if client, ok := key.(*clientConnection); ok {
+			_ = client.conn.Close(websocket.StatusGoingAway, "server shutdown")
 		}
 		return true
 	})

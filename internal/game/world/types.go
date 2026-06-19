@@ -29,10 +29,16 @@ var (
 type EntityType string
 
 const (
-	EntityTypePlayer                  EntityType = "player"
-	EntityTypeNPCPlaceholder          EntityType = "npc_placeholder"
-	EntityTypeLootPlaceholder         EntityType = "loot_placeholder"
-	EntityTypePlanetSignalPlaceholder EntityType = "planet_signal_placeholder"
+	EntityTypePlayer       EntityType = "player"
+	EntityTypeNPC          EntityType = "npc"
+	EntityTypeLoot         EntityType = "loot"
+	EntityTypePlanetSignal EntityType = "planet_signal"
+
+	// Deprecated aliases keep older domain code compiling while the Phase 04
+	// public client contract uses the non-placeholder entity type names above.
+	EntityTypeNPCPlaceholder          EntityType = EntityTypeNPC
+	EntityTypeLootPlaceholder         EntityType = EntityTypeLoot
+	EntityTypePlanetSignalPlaceholder EntityType = EntityTypePlanetSignal
 )
 
 // String returns the stable entity type representation.
@@ -44,9 +50,9 @@ func (entityType EntityType) String() string {
 func (entityType EntityType) Validate() error {
 	switch entityType {
 	case EntityTypePlayer,
-		EntityTypeNPCPlaceholder,
-		EntityTypeLootPlaceholder,
-		EntityTypePlanetSignalPlaceholder:
+		EntityTypeNPC,
+		EntityTypeLoot,
+		EntityTypePlanetSignal:
 		return nil
 	default:
 		return fmt.Errorf("entity type %q: %w", entityType, ErrInvalidEntityType)

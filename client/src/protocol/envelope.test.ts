@@ -30,8 +30,9 @@ describe('parseServerMessage', () => {
         type: CLIENT_EVENTS.entityEntered,
         payload: {
           entity_id: 'npc-1',
-          entity_type: 'npc_placeholder',
+          entity_type: 'npc',
           position: { x: 10, y: 20 },
+          display: { label: 'Training Drone', disposition: 'hostile' },
         },
         server_time: 182736124,
         seq: 9,
@@ -56,7 +57,7 @@ describe('parseServerMessage', () => {
           type: CLIENT_EVENTS.entityEntered,
           payload: {
             entity_id: 'hidden-planet',
-            entity_type: 'planet_signal_placeholder',
+            entity_type: 'planet_signal',
             position: { x: 1, y: 2 },
             gameplay_seed: 'server-only',
           },

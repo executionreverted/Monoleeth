@@ -15,8 +15,19 @@ const useFixture = process.argv.includes('--fixture');
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const clientRoot = path.resolve(thisDir, '..');
 const repoRoot = path.resolve(clientRoot, '..');
-const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '03');
-const forbiddenText = ['gameplay_seed', 'future_spawn', 'internal_metadata', 'loot_table', 'account_id', 'player_id', 'session_id'];
+const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '04');
+const forbiddenText = [
+  'gameplay_seed',
+  'future_spawn',
+  'internal_metadata',
+  'loot_table',
+  'account_id',
+  'player_id',
+  'session_id',
+  'npc_placeholder',
+  'loot_placeholder',
+  'planet_signal_placeholder',
+];
 let eventSequence = 100;
 
 const appPort = explicitURL ? null : await findFreePort();
@@ -94,14 +105,20 @@ async function verifyRealViewport(viewport, label) {
         const state = window.__SPACE_MORPG_SMOKE_STATE__;
         const entities = state?.visibleEntities ?? {};
         const hasPlayer = Object.values(entities).some((entity) => entity.entity_type === 'player');
-        const hasVisibleNPC = Object.values(entities).some((entity) => entity.entity_id === 'entity_training_npc');
+        const hasVisibleNPC = Object.values(entities).some(
+          (entity) => entity.entity_id === 'entity_training_npc' && entity.entity_type === 'npc',
+        );
+        const self = Object.values(entities).find((entity) => entity.status_flags?.includes('self'));
         return (
           state?.auth?.session?.authenticated === true &&
           state?.playerSnapshot?.callsign === expectedCallsign &&
+          state?.sector?.name === 'Origin Fringe' &&
+          state?.minimap?.live_contacts?.some((contact) => contact.entity_id === 'entity_training_npc') &&
           state?.cargo?.capacity === 60 &&
           state?.wallet?.credits === 0 &&
           state?.stats?.radar_range === 420 &&
           hasPlayer &&
+          self?.entity_type === 'player' &&
           hasVisibleNPC &&
           !entities.entity_hidden_planet_signal
         );
@@ -118,7 +135,7 @@ async function verifyRealViewport(viewport, label) {
       await clickWorldPosition(page, { x: 0, y: -220 });
       await page.waitForFunction(() => {
         const player = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find(
-          (entity) => entity.entity_type === 'player',
+          (entity) => entity.status_flags?.includes('self'),
         );
         return Math.abs(player?.position?.x ?? 0) > 0 || Math.abs(player?.position?.y ?? 0) > 0;
       });
@@ -252,7 +269,9 @@ async function clickWorldPosition(page, world) {
       return null;
     }
     const rect = canvas.getBoundingClientRect();
-    const player = Object.values(state.visibleEntities ?? {}).find((entity) => entity.entity_type === 'player');
+    const player =
+      Object.values(state.visibleEntities ?? {}).find((entity) => entity.status_flags?.includes('self')) ??
+      Object.values(state.visibleEntities ?? {}).find((entity) => entity.entity_type === 'player');
     const center = player?.position ?? { x: 0, y: 0 };
     const scale = rect.width < 700 ? 0.78 : 1;
     return {
@@ -517,7 +536,7 @@ function handleClientMessage(socket, raw, received, waiters) {
         socket,
         event('hidden-rejected', 'aoi.entity_entered', {
           entity_id: 'hidden-planet',
-          entity_type: 'planet_signal_placeholder',
+          entity_type: 'planet_signal',
           position: { x: 9000, y: 9000 },
           gameplay_seed: 'server-only',
         }),
@@ -596,27 +615,71 @@ function snapshotPayload() {
         entity_id: 'player-local',
         entity_type: 'player',
         position: { x: 0, y: 0 },
-        status_flags: ['local'],
+        status_flags: ['local', 'self'],
+        display: { label: 'Server-Pilot', disposition: 'self' },
       },
       {
         entity_id: 'npc-rake-01',
-        entity_type: 'npc_placeholder',
+        entity_type: 'npc',
+        display: { label: 'Drone Rake', disposition: 'hostile' },
         position: { x: 150, y: -250 },
         status_flags: ['visible', 'hostile'],
       },
       {
         entity_id: 'loot-scrap-01',
-        entity_type: 'loot_placeholder',
+        entity_type: 'loot',
+        display: { label: 'Scrap Cache', disposition: 'neutral' },
         position: { x: -110, y: -220 },
         status_flags: ['visible'],
       },
       {
         entity_id: 'signal-eris-04',
-        entity_type: 'planet_signal_placeholder',
+        entity_type: 'planet_signal',
+        display: { label: 'Unknown Signal', disposition: 'unknown' },
         position: { x: 260, y: 150 },
         status_flags: ['known_intel'],
       },
     ],
+    sector: {
+      name: 'Fixture Fringe',
+      region: 'Fixture Belt',
+      danger: 'locked',
+      contested: false,
+    },
+    minimap: {
+      radar_range: 420,
+      live_contacts: [
+        {
+          entity_id: 'player-local',
+          entity_type: 'player',
+          position: { x: 0, y: 0 },
+          disposition: 'self',
+          status_flags: ['self'],
+        },
+        {
+          entity_id: 'npc-rake-01',
+          entity_type: 'npc',
+          position: { x: 150, y: -250 },
+          disposition: 'hostile',
+          status_flags: ['hostile'],
+        },
+        {
+          entity_id: 'loot-scrap-01',
+          entity_type: 'loot',
+          position: { x: -110, y: -220 },
+          disposition: 'neutral',
+          status_flags: ['loot'],
+        },
+        {
+          entity_id: 'signal-eris-04',
+          entity_type: 'planet_signal',
+          position: { x: 260, y: 150 },
+          disposition: 'unknown',
+          status_flags: ['unknown_signal'],
+        },
+      ],
+      remembered: [],
+    },
     player: {
       callsign: 'Server-Pilot',
       hp: 84,

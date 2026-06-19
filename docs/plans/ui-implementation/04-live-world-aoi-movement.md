@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Planned
+- State: Completed
 - Owner: World canvas and movement loop
 - Depends on: Phase 02, Phase 03
 - Unlocks: playable world navigation and map truth
@@ -136,46 +136,81 @@ Mockup areas covered:
 
 ## TODO
 
-- [ ] Add non-placeholder entity type contract for visible client entities.
-- [ ] Add server world snapshot handler.
-- [ ] Add per-session AOI update event broadcasting after visibility checks.
-- [ ] Wire `move_to` and `stop` through concrete WebSocket.
-- [ ] Add server-side idempotent player spawn/attach bootstrap.
-- [ ] Add sector status summary payload.
-- [ ] Add minimap-safe live AOI and remembered fog/intel projection payloads.
-- [ ] Update client reducer for `aoi.entity_updated`.
-- [ ] Update renderer to use real entity types, not placeholder names.
-- [ ] Add interpolation using server snapshots/corrections.
-- [ ] Add empty/loading/offline states for world canvas.
-- [ ] Add responsive minimap panel matching mockup direction.
+- [x] Add non-placeholder entity type contract for visible client entities.
+- [x] Add server world snapshot handler.
+- [x] Add per-session AOI update event broadcasting after visibility checks.
+- [x] Wire `move_to` and `stop` through concrete WebSocket.
+- [x] Add server-side idempotent player spawn/attach bootstrap.
+- [x] Add sector status summary payload.
+- [x] Add minimap-safe live AOI and remembered fog/intel projection payloads.
+- [x] Update client reducer for `aoi.entity_updated`.
+- [x] Update renderer to use real entity types, not placeholder names.
+- [x] Add interpolation using server snapshots/corrections.
+- [x] Add empty/loading/offline states for world canvas.
+- [x] Add responsive minimap panel matching mockup direction.
+
+## Implemented Contracts
+
+- `world.snapshot` now returns `sector`, `entities`, `minimap`, and
+  `snapshot_cursor`. `sector` is a client-safe projection with name, region,
+  danger, and contested state. `minimap.live_contacts` is built only from the
+  same AOI-filtered visible entity set; `minimap.remembered` is currently an
+  empty safe fog-memory channel until discovery/intel data is exposed.
+- Visible entity payloads use public entity types: `player`, `npc`, `loot`, and
+  `planet_signal`. Normal client state no longer receives placeholder type
+  names. Server-side deprecated aliases remain only to avoid unrelated domain
+  churn.
+- Visible entities include server-authored `status_flags` and optional
+  `display` metadata. The viewer ship is marked with `self`; the browser uses
+  that flag for the `YOU` marker, camera center, smoke click mapping, and minimap
+  center.
+- Worker ticks compute AOI diffs per authenticated session and emit
+  `aoi.entity_entered`, `aoi.entity_updated`, and `aoi.entity_left` only after
+  visibility filtering. `move_to` and `stop` also reconcile with
+  `position.corrected`; `stop` emits `movement.stopped`.
+- Movement commands resolve the player and ship from the authenticated session.
+  The client may submit only a finite target intent. The runtime rejects
+  disabled ships, excessive movement targets, forbidden server-owned fields, and
+  movement bursts before mutating worker state.
 
 ## Abuse And Safety Checklist
 
-- [ ] Client cannot set final position.
-- [ ] Client cannot set speed.
-- [ ] Client cannot force AOI inclusion.
-- [ ] Hidden entities are not serialized.
-- [ ] Minimap does not reveal hidden or future entities.
-- [ ] World/zone/internal ids are server-only or dev-only.
-- [ ] AOI events are recipient-filtered per session.
-- [ ] Movement commands are rate-limited separately from movement cooldown rules.
-- [ ] Reconnect snapshot reconciles stale local positions.
-- [ ] Disabled/dead ships cannot move.
+- [x] Client cannot set final position.
+- [x] Client cannot set speed.
+- [x] Client cannot force AOI inclusion.
+- [x] Hidden entities are not serialized.
+- [x] Minimap does not reveal hidden or future entities.
+- [x] World/zone/internal ids are server-only or dev-only.
+- [x] AOI events are recipient-filtered per session.
+- [x] Movement commands are rate-limited separately from movement cooldown rules.
+- [x] Reconnect snapshot reconciles stale local positions.
+- [x] Disabled/dead ships cannot move.
 
 ## Tests
 
-- [ ] WebSocket `move_to` changes position only by server tick/speed.
-- [ ] `move_to` rejects non-finite coordinates and excessive paths safely.
-- [ ] `move_to` rejects disabled/dead ship state.
-- [ ] `stop` clears movement target server-side.
-- [ ] Hidden entity in worker is absent from snapshot and minimap.
-- [ ] Two players with different fog/AOI receive different filtered radar data.
-- [ ] Entity entering AOI appears in client reducer.
-- [ ] Entity leaving AOI disappears.
-- [ ] Reconnect/multi-tab attach does not duplicate player entities.
-- [ ] Position correction wins over local interpolation.
-- [ ] Browser smoke clicks world and observes server correction.
-- [ ] Mobile and desktop world/map panels do not overlap.
+- [x] WebSocket `move_to` changes position only by server tick/speed.
+- [x] `move_to` rejects non-finite coordinates and excessive paths safely.
+- [x] `move_to` rejects disabled/dead ship state.
+- [x] `stop` clears movement target server-side.
+- [x] Hidden entity in worker is absent from snapshot and minimap.
+- [x] Two players with different fog/AOI receive different filtered radar data.
+- [x] Entity entering AOI appears in client reducer.
+- [x] Entity leaving AOI disappears.
+- [x] Reconnect/multi-tab attach does not duplicate player entities.
+- [x] Position correction wins over local interpolation.
+- [x] Browser smoke clicks world and observes server correction.
+- [x] Mobile and desktop world/map panels do not overlap.
+
+## Verification
+
+- `go test ./internal/game/server`
+- `go test ./...`
+- `npm --cache /tmp/gameproject-npm-cache run typecheck`
+- `npm --cache /tmp/gameproject-npm-cache run test`
+- `npm --cache /tmp/gameproject-npm-cache run smoke`
+- `npm --cache /tmp/gameproject-npm-cache run check`
+- Real browser screenshots saved under
+  `output/screenshots/ui-implementation/04/`.
 
 ## Done Criteria
 

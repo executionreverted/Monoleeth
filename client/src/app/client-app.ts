@@ -110,7 +110,7 @@ export class ClientApp {
 
   private sendBasicSkill(): void {
     const target = this.selectedTarget();
-    if (!target || target.entity_type !== 'npc_placeholder') {
+    if (!target || target.entity_type !== 'npc') {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'No hostile target selected.' });
       return;
     }
@@ -119,7 +119,7 @@ export class ClientApp {
 
   private sendLootPickup(): void {
     const target = this.selectedTarget();
-    if (!target || target.entity_type !== 'loot_placeholder') {
+    if (!target || target.entity_type !== 'loot') {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'No visible drop selected.' });
       return;
     }
@@ -296,6 +296,8 @@ export class ClientApp {
     this.root.dataset.connection = this.state.connectionStatus;
     this.renderer.render({
       entities: Object.values(this.state.visibleEntities),
+      sector: this.state.sector,
+      minimap: this.state.minimap,
       selectedTargetID: this.state.selectedTargetID,
       movementTarget: this.state.movementTarget,
       lastCorrection: this.state.lastCorrection,
@@ -306,7 +308,11 @@ export class ClientApp {
   }
 
   private findLocalPlayerID(): string {
-    return Object.values(this.state.visibleEntities).find((entity) => entity.entity_type === 'player')?.entity_id ?? 'player-local';
+    return (
+      Object.values(this.state.visibleEntities).find((entity) => entity.status_flags?.includes('self'))?.entity_id ??
+      Object.values(this.state.visibleEntities).find((entity) => entity.entity_type === 'player')?.entity_id ??
+      'player-local'
+    );
   }
 
   private selectedTarget() {
@@ -328,6 +334,8 @@ export class ClientApp {
         lastServerTime: this.state.lastServerTime,
         lastSequence: this.state.lastSequence,
         playerSnapshot: this.state.playerSnapshot,
+        sector: this.state.sector,
+        minimap: this.state.minimap,
         visibleEntities: this.state.visibleEntities,
         selectedTargetID: this.state.selectedTargetID,
         cargo: this.state.cargo,

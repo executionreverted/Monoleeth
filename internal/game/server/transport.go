@@ -32,10 +32,10 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	server.conns.Store(conn, struct{}{})
+	client := &clientConnection{conn: conn, sessionID: resolved.SessionID}
+	server.registerConnection(client)
 	defer func() {
-		server.conns.Delete(conn)
-		server.runtime.detachSession(resolved.SessionID)
+		server.unregisterConnection(client)
 		_ = conn.CloseNow()
 	}()
 	conn.SetReadLimit(server.config.SocketReadLimit)
@@ -45,7 +45,7 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusInternalError, "bootstrap failed")
 		return
 	}
-	if !server.writeEvents(conn, events) {
+	if !server.writeEvents(client, events) {
 		return
 	}
 
@@ -60,7 +60,7 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		request, requestErr := realtime.DecodeRequestEnvelope(data)
 		response := server.runtime.Gateway.HandleRequest(realtime.SessionID(resolved.SessionID.String()), data)
-		if !server.writeResponse(conn, response) {
+		if !server.writeResponse(client, response) {
 			return
 		}
 		if response.HasError && isTerminalAuthError(response.Error.Error.Code) {
@@ -75,7 +75,7 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 			_ = conn.Close(websocket.StatusInternalError, "event publish failed")
 			return
 		}
-		if !server.writeEvents(conn, events) {
+		if !server.writeEvents(client, events) {
 			return
 		}
 	}
@@ -87,7 +87,7 @@ func (server *Server) readMessage(conn *websocket.Conn) (websocket.MessageType, 
 	return conn.Read(ctx)
 }
 
-func (server *Server) writeResponse(conn *websocket.Conn, response realtime.CachedResponse) bool {
+func (server *Server) writeResponse(client *clientConnection, response realtime.CachedResponse) bool {
 	var payload []byte
 	var err error
 	if response.HasError {
@@ -96,33 +96,72 @@ func (server *Server) writeResponse(conn *websocket.Conn, response realtime.Cach
 		payload, err = json.Marshal(response.Response)
 	}
 	if err != nil {
-		_ = conn.Close(websocket.StatusInternalError, "response encode failed")
+		_ = client.conn.Close(websocket.StatusInternalError, "response encode failed")
 		return false
 	}
-	return server.writeText(conn, payload)
+	return server.writeText(client, payload)
 }
 
-func (server *Server) writeEvents(conn *websocket.Conn, events []realtime.EventEnvelope) bool {
+func (server *Server) writeEvents(client *clientConnection, events []realtime.EventEnvelope) bool {
 	for _, event := range events {
 		payload, err := json.Marshal(event)
 		if err != nil {
-			_ = conn.Close(websocket.StatusInternalError, "event encode failed")
+			_ = client.conn.Close(websocket.StatusInternalError, "event encode failed")
 			return false
 		}
-		if !server.writeText(conn, payload) {
+		if !server.writeText(client, payload) {
 			return false
 		}
 	}
 	return true
 }
 
-func (server *Server) writeText(conn *websocket.Conn, payload []byte) bool {
+func (server *Server) writeText(client *clientConnection, payload []byte) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), server.config.SocketWriteTimeout)
 	defer cancel()
-	if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	if err := client.conn.Write(ctx, websocket.MessageText, payload); err != nil {
 		return false
 	}
 	return true
+}
+
+func (server *Server) registerConnection(client *clientConnection) {
+	server.connMu.Lock()
+	server.sessionConnCounts[client.sessionID]++
+	server.connMu.Unlock()
+	server.conns.Store(client, struct{}{})
+}
+
+func (server *Server) unregisterConnection(client *clientConnection) {
+	server.conns.Delete(client)
+	server.connMu.Lock()
+	count := server.sessionConnCounts[client.sessionID]
+	if count <= 1 {
+		delete(server.sessionConnCounts, client.sessionID)
+		server.connMu.Unlock()
+		server.runtime.detachSession(client.sessionID)
+		return
+	}
+	server.sessionConnCounts[client.sessionID] = count - 1
+	server.connMu.Unlock()
+}
+
+func (server *Server) writeEventsToSession(sessionID auth.SessionID, events []realtime.EventEnvelope) {
+	if len(events) == 0 {
+		return
+	}
+	server.conns.Range(func(key, _ any) bool {
+		client, ok := key.(*clientConnection)
+		if !ok || client.sessionID != sessionID {
+			return true
+		}
+		if !server.writeEvents(client, events) {
+			_ = client.conn.Close(websocket.StatusInternalError, "event publish failed")
+		}
+		return true
+	})
 }
 
 func writeHTTPError(w http.ResponseWriter, err error) {

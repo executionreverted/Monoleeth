@@ -38,8 +38,10 @@ const (
 	EventCargoSnapshot     ClientEventType = "cargo.snapshot"
 	EventWorldSnapshot     ClientEventType = "world.snapshot"
 	EventAOIEntityEntered  ClientEventType = "aoi.entity_entered"
+	EventAOIEntityUpdated  ClientEventType = "aoi.entity_updated"
 	EventAOIEntityLeft     ClientEventType = "aoi.entity_left"
 	EventPositionCorrected ClientEventType = "position.corrected"
+	EventMovementStopped   ClientEventType = "movement.stopped"
 	EventServerNotice      ClientEventType = "server.notice"
 )
 

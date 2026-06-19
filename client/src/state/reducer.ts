@@ -7,7 +7,19 @@ import {
   rejectForbiddenPayloadKeys,
   Vec2,
 } from '../protocol/envelope';
-import { CargoSummary, ClientAction, ClientState, LogLine, PublicSession, StatSummary, WalletSummary } from './types';
+import {
+  CargoSummary,
+  ClientAction,
+  ClientState,
+  LogLine,
+  MinimapContact,
+  MinimapMemory,
+  MinimapSummary,
+  PublicSession,
+  SectorSummary,
+  StatSummary,
+  WalletSummary,
+} from './types';
 
 export function createInitialState(): ClientState {
   return {
@@ -22,6 +34,8 @@ export function createInitialState(): ClientState {
     lastServerTime: null,
     lastSequence: 0,
     playerSnapshot: null,
+    sector: null,
+    minimap: null,
     visibleEntities: {},
     selectedTargetID: null,
     movementTarget: null,
@@ -237,7 +251,10 @@ function replaceVisibleEntities(
       state.selectedTargetID && visibleEntities[state.selectedTargetID] ? state.selectedTargetID : null,
     movementTarget: null,
     lastCorrection: null,
-    planetIntel: { knownSignals: countPlanetSignals(visibleEntities), staleIntel: state.planetIntel?.staleIntel ?? null },
+    planetIntel: {
+      knownSignals: countPlanetSignals(visibleEntities),
+      staleIntel: state.planetIntel?.staleIntel ?? null,
+    },
     lastServerTime: serverTime,
     lastSequence: sequence ? Math.max(state.lastSequence, sequence) : state.lastSequence,
   };
@@ -310,8 +327,9 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
 
     case CLIENT_EVENTS.worldSnapshot: {
       const entities = parseSnapshotEntities(envelope.payload) ?? [];
+      const withSnapshotPayload = applySnapshotPayload(state, envelope.payload);
       return {
-        ...replaceVisibleEntities(state, entities, envelope.server_time, envelope.seq),
+        ...replaceVisibleEntities(withSnapshotPayload, entities, envelope.server_time, envelope.seq),
         connectionStatus: state.auth.mode === 'real' && state.auth.session ? 'connected' : state.connectionStatus,
       };
     }
@@ -327,7 +345,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         ...state,
         visibleEntities,
         planetIntel:
-          entity.entity_type === 'planet_signal_placeholder'
+          entity.entity_type === 'planet_signal'
             ? { knownSignals: countPlanetSignals(visibleEntities), staleIntel: state.planetIntel?.staleIntel ?? null }
             : state.planetIntel,
         lastServerTime: envelope.server_time,
@@ -354,6 +372,14 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       const position = requirePosition(envelope.payload);
       return applyCorrection(state, entityID, position, envelope.server_time, envelope.seq);
     }
+
+    case CLIENT_EVENTS.movementStopped:
+      return {
+        ...state,
+        movementTarget: null,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
 
     case CLIENT_EVENTS.serverNotice:
       return {
@@ -468,6 +494,22 @@ function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientSt
     };
   }
 
+  const sector = objectField(payload, 'sector');
+  if (sector) {
+    next = {
+      ...next,
+      sector: parseSectorSummary(sector, next.sector),
+    };
+  }
+
+  const minimap = objectField(payload, 'minimap');
+  if (minimap) {
+    next = {
+      ...next,
+      minimap: parseMinimapSummary(minimap, next.minimap),
+    };
+  }
+
   return next;
 }
 
@@ -488,6 +530,7 @@ function parseEntityPayload(payload: JsonObject): EntityPayload {
     status_flags: Array.isArray(source.status_flags)
       ? source.status_flags.filter((flag): flag is string => typeof flag === 'string')
       : undefined,
+    display: parseEntityDisplay(source),
   };
 }
 
@@ -563,6 +606,70 @@ function parseStatSummary(payload: JsonObject, fallback: StatSummary | null): St
   };
 }
 
+function parseSectorSummary(payload: JsonObject, fallback: SectorSummary | null): SectorSummary {
+  return {
+    name: stringField(payload, 'name') ?? fallback?.name ?? '',
+    region: stringField(payload, 'region') ?? fallback?.region ?? '',
+    danger: stringField(payload, 'danger') ?? fallback?.danger ?? '',
+    contested: booleanField(payload, 'contested') ?? fallback?.contested ?? false,
+  };
+}
+
+function parseMinimapSummary(payload: JsonObject, fallback: MinimapSummary | null): MinimapSummary {
+  const liveContacts = Array.isArray(payload.live_contacts)
+    ? payload.live_contacts
+        .filter(isJsonObject)
+        .map(parseMinimapContact)
+        .filter((contact): contact is MinimapContact => contact !== null)
+    : fallback?.live_contacts ?? [];
+  const remembered = Array.isArray(payload.remembered)
+    ? payload.remembered.filter(isJsonObject).map(parseMinimapMemory)
+    : fallback?.remembered ?? [];
+
+  return {
+    radar_range: Math.max(0, numberField(payload, 'radar_range') ?? fallback?.radar_range ?? 0),
+    live_contacts: liveContacts,
+    remembered,
+  };
+}
+
+function parseMinimapContact(payload: JsonObject): MinimapContact | null {
+  const entityType = stringField(payload, 'entity_type') ?? '';
+  const entityID = stringField(payload, 'entity_id') ?? '';
+  const position = isVec2(payload.position) ? payload.position : null;
+  if (!entityID || !isKnownEntityType(entityType) || !position) {
+    return null;
+  }
+  return {
+    entity_id: entityID,
+    entity_type: entityType,
+    position,
+    disposition: stringField(payload, 'disposition') ?? undefined,
+    status_flags: Array.isArray(payload.status_flags)
+      ? payload.status_flags.filter((flag): flag is string => typeof flag === 'string')
+      : undefined,
+  };
+}
+
+function parseMinimapMemory(payload: JsonObject): MinimapMemory {
+  return {
+    kind: stringField(payload, 'kind') ?? '',
+    label: stringField(payload, 'label') ?? '',
+    position: isVec2(payload.position) ? payload.position : { x: 0, y: 0 },
+    freshness: stringField(payload, 'freshness') ?? '',
+  };
+}
+
+function parseEntityDisplay(payload: JsonObject): EntityPayload['display'] {
+  const display = objectField(payload, 'display');
+  if (!display) {
+    return undefined;
+  }
+  const label = stringField(display, 'label') ?? undefined;
+  const disposition = stringField(display, 'disposition') ?? undefined;
+  return label || disposition ? { label, disposition } : undefined;
+}
+
 function isVec2(value: JsonValue | unknown): value is Vec2 {
   return (
     typeof value === 'object' &&
@@ -602,14 +709,14 @@ function booleanField(payload: JsonObject, key: string): boolean | null {
 function isKnownEntityType(entityType: string): entityType is EntityPayload['entity_type'] {
   return (
     entityType === 'player' ||
-    entityType === 'npc_placeholder' ||
-    entityType === 'loot_placeholder' ||
-    entityType === 'planet_signal_placeholder'
+    entityType === 'npc' ||
+    entityType === 'loot' ||
+    entityType === 'planet_signal'
   );
 }
 
 function countPlanetSignals(entities: Record<string, EntityPayload>): number {
-  return Object.values(entities).filter((entity) => entity.entity_type === 'planet_signal_placeholder').length;
+  return Object.values(entities).filter((entity) => entity.entity_type === 'planet_signal').length;
 }
 
 function appendLog(lines: LogLine[], level: LogLine['level'], text: string): LogLine[] {
@@ -622,6 +729,8 @@ function clearGameplay(state: ClientState): ClientState {
     lastServerTime: null,
     lastSequence: 0,
     playerSnapshot: null,
+    sector: null,
+    minimap: null,
     visibleEntities: {},
     selectedTargetID: null,
     movementTarget: null,

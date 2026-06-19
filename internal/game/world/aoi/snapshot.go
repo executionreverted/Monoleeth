@@ -11,6 +11,12 @@ import (
 // StatusFlag is a client-safe public state label for a visible entity.
 type StatusFlag string
 
+// EntityDisplay is a client-safe public label for a visible entity.
+type EntityDisplay struct {
+	Label       string `json:"label,omitempty"`
+	Disposition string `json:"disposition,omitempty"`
+}
+
 // EntityState is the server-owned AOI input for one live entity.
 //
 // Internal metadata fields are included to make the boundary explicit: callers
@@ -21,6 +27,7 @@ type EntityState struct {
 	Signature         visibility.EntitySignature
 	Hidden            bool
 	PublicStatusFlags []StatusFlag
+	PublicDisplay     *EntityDisplay
 
 	InternalMetadata map[string]string
 	GameplaySeed     string
@@ -33,6 +40,7 @@ type EntityPayload struct {
 	Type        world.EntityType `json:"entity_type"`
 	Position    world.Vec2       `json:"position"`
 	StatusFlags []StatusFlag     `json:"status_flags,omitempty"`
+	Display     *EntityDisplay   `json:"display,omitempty"`
 }
 
 // Snapshot is a deterministic client-safe AOI snapshot.
@@ -70,6 +78,7 @@ func BuildVisibleSnapshot(viewer visibility.Viewer, entities []EntityState) Snap
 			Type:        state.Entity.Type,
 			Position:    state.Entity.Position,
 			StatusFlags: cloneStatusFlags(state.PublicStatusFlags),
+			Display:     cloneEntityDisplay(state.PublicDisplay),
 		})
 	}
 	sortEntityPayloads(payloads)
@@ -115,6 +124,7 @@ func normalizedEntities(entities []EntityPayload) []EntityPayload {
 	normalized := make([]EntityPayload, 0, len(entities))
 	for _, entity := range entities {
 		entity.StatusFlags = cloneStatusFlags(entity.StatusFlags)
+		entity.Display = cloneEntityDisplay(entity.Display)
 		normalized = append(normalized, entity)
 	}
 	sortEntityPayloads(normalized)
@@ -147,4 +157,15 @@ func cloneStatusFlags(flags []StatusFlag) []StatusFlag {
 		return cloned[i] < cloned[j]
 	})
 	return cloned
+}
+
+func cloneEntityDisplay(display *EntityDisplay) *EntityDisplay {
+	if display == nil {
+		return nil
+	}
+	cloned := *display
+	if cloned.Label == "" && cloned.Disposition == "" {
+		return nil
+	}
+	return &cloned
 }
