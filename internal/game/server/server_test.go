@@ -644,10 +644,96 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 		})
 	}
 
-	writeText(t, conn, `{"request_id":"request-scan-spoof","op":"scan.pulse","payload":{"candidate_key":"forced","procedural_seed":"leak","scan_result":"planet"},"client_seq":7,"v":1}`)
+	writeText(t, conn, `{"request_id":"request-scan-spoof","op":"scan.pulse","payload":{"player_id":"spoofed-player","candidate_key":"forced","procedural_seed":"leak","scan_result":"planet"},"client_seq":7,"v":1}`)
 	spoof := readError(t, conn)
 	if spoof.Error.Code != foundation.CodeInvalidPayload {
 		t.Fatalf("spoofed scan error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
+	}
+}
+
+func TestScanPulseSpendsStarterShipCapacitorOnce(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+
+	writeText(t, conn, `{"request_id":"request-scan-spend","op":"scan.pulse","payload":{},"client_seq":1,"v":1}`)
+	response := readResponse(t, conn)
+	if !response.OK {
+		t.Fatalf("scan response = %+v, want success", response)
+	}
+	if capacitor := testShipCapacitor(gameServer, resolved.PlayerID); capacitor != 100-starterScannerEnergyCost {
+		t.Fatalf("scan capacitor = %d, want one spend to %d", capacitor, 100-starterScannerEnergyCost)
+	}
+}
+
+func TestScanPulseRejectsInsufficientCapacitorBeforeDiscoveryMutation(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	setTestShipCapacitor(gameServer, resolved.PlayerID, starterScannerEnergyCost-1)
+
+	writeText(t, conn, `{"request_id":"request-scan-low-cap","op":"scan.pulse","payload":{"energy":999,"capacitor":999},"client_seq":1,"v":1}`)
+	got := readError(t, conn)
+	if got.Error.Code != foundation.CodeNotEnoughEnergy {
+		t.Fatalf("low-capacitor scan error = %+v, want %s", got.Error, foundation.CodeNotEnoughEnergy)
+	}
+	if capacitor := testShipCapacitor(gameServer, resolved.PlayerID); capacitor != starterScannerEnergyCost-1 {
+		t.Fatalf("low-capacitor scan capacitor = %d, want unchanged", capacitor)
+	}
+	if planets := gameServer.runtime.Discovery.Planets(); len(planets) != 0 {
+		t.Fatalf("low-capacitor scan planets = %d, want no discovery mutation", len(planets))
+	}
+	intel, err := gameServer.runtime.Discovery.PlayerPlanetIntelRecords(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("PlayerPlanetIntelRecords() error = %v, want nil", err)
+	}
+	if len(intel) != 0 {
+		t.Fatalf("low-capacitor scan intel records = %d, want none", len(intel))
+	}
+	if events := gameServer.runtime.Scanner.Events(); len(events) != 0 {
+		t.Fatalf("low-capacitor scan events = %d, want none", len(events))
+	}
+}
+
+func TestScanPulseDuplicateRequestIDDoesNotDoubleSpend(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	request := `{"request_id":"request-scan-duplicate","op":"scan.pulse","payload":{},"client_seq":1,"v":1}`
+
+	writeText(t, conn, request)
+	first := readResponse(t, conn)
+	if !first.OK {
+		t.Fatalf("first scan response = %+v, want success", first)
+	}
+	drainEventTypes(t, conn, realtime.EventScanPulseStarted, realtime.EventScanPulseResolved, realtime.EventScanPlanetDiscovered, realtime.EventKnownPlanets)
+	afterFirst := testShipCapacitor(gameServer, resolved.PlayerID)
+	if afterFirst != 100-starterScannerEnergyCost {
+		t.Fatalf("first scan capacitor = %d, want one spend to %d", afterFirst, 100-starterScannerEnergyCost)
+	}
+
+	writeText(t, conn, request)
+	second := readResponse(t, conn)
+	if !second.OK {
+		t.Fatalf("duplicate scan response = %+v, want success", second)
+	}
+	if afterSecond := testShipCapacitor(gameServer, resolved.PlayerID); afterSecond != afterFirst {
+		t.Fatalf("duplicate scan capacitor = %d, want unchanged from %d", afterSecond, afterFirst)
+	}
+	if planets := gameServer.runtime.Discovery.Planets(); len(planets) != 1 {
+		t.Fatalf("duplicate scan planets = %d, want one materialized planet", len(planets))
 	}
 }
 
@@ -1610,6 +1696,14 @@ func testShipCapacitor(gameServer *Server, playerID foundation.PlayerID) int {
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
 	return gameServer.runtime.players[playerID].Ship.Capacitor
+}
+
+func setTestShipCapacitor(gameServer *Server, playerID foundation.PlayerID, capacitor int) {
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	state := gameServer.runtime.players[playerID]
+	state.Ship.Capacitor = capacitor
+	gameServer.runtime.players[playerID] = state
 }
 
 func testCargoUsed(gameServer *Server, playerID foundation.PlayerID) int64 {

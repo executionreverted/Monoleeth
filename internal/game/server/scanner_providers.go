@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"gameproject/internal/game/discovery"
+	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/stats"
 	"gameproject/internal/game/world/worker"
@@ -77,6 +78,14 @@ type runtimeScannerCooldownProvider struct {
 	runtime *Runtime
 }
 
+type scanCapacitorSpendRecord struct {
+	PlayerID foundation.PlayerID
+	ShipID   foundation.ShipID
+	WorldID  foundation.WorldID
+	ZoneID   foundation.ZoneID
+	Amount   int
+}
+
 func (provider runtimeScannerCooldownProvider) StartScanCooldown(input discovery.ScannerCooldownInput) (discovery.ScannerCooldownResult, error) {
 	provider.runtime.mu.Lock()
 	defer provider.runtime.mu.Unlock()
@@ -94,12 +103,54 @@ func (provider runtimeScannerCooldownProvider) StartScanCooldown(input discovery
 	if readyAt := provider.runtime.scanCooldowns[key]; !readyAt.IsZero() && now.Before(readyAt) {
 		return discovery.ScannerCooldownResult{Accepted: false, ReadyAt: readyAt.UTC()}, nil
 	}
+	if err := provider.runtime.spendScannerCapacitorLocked(input); err != nil {
+		return discovery.ScannerCooldownResult{}, err
+	}
 	nextReadyAt := now.Add(input.Duration)
 	if input.Duration <= 0 {
 		nextReadyAt = now.Add(time.Second)
 	}
 	provider.runtime.scanCooldowns[key] = nextReadyAt.UTC()
 	return discovery.ScannerCooldownResult{Accepted: true, ReadyAt: now}, nil
+}
+
+func (runtime *Runtime) spendScannerCapacitorLocked(input discovery.ScannerCooldownInput) error {
+	if spent, ok := runtime.scanCapacitorSpends[input.PulseReference]; ok {
+		if !spent.matches(input) {
+			return discovery.ErrScanPulseNotFound
+		}
+		return nil
+	}
+
+	state, ok := runtime.players[input.PlayerID]
+	if !ok {
+		return worker.ErrUnknownPlayer
+	}
+	if input.ShipID != starterShipID || state.Ship.ActiveShipID != starterShipID.String() {
+		return worker.ErrUnknownPlayer
+	}
+	if state.Ship.Disabled || state.Ship.Capacitor < starterScannerEnergyCost {
+		return discovery.ErrScannerEnergyUnavailable
+	}
+
+	state.Ship.Capacitor -= starterScannerEnergyCost
+	runtime.players[input.PlayerID] = state
+	runtime.scanCapacitorSpends[input.PulseReference] = scanCapacitorSpendRecord{
+		PlayerID: input.PlayerID,
+		ShipID:   input.ShipID,
+		WorldID:  input.WorldID,
+		ZoneID:   input.ZoneID,
+		Amount:   starterScannerEnergyCost,
+	}
+	return nil
+}
+
+func (record scanCapacitorSpendRecord) matches(input discovery.ScannerCooldownInput) bool {
+	return record.PlayerID == input.PlayerID &&
+		record.ShipID == input.ShipID &&
+		record.WorldID == input.WorldID &&
+		record.ZoneID == input.ZoneID &&
+		record.Amount == starterScannerEnergyCost
 }
 
 type runtimeScannerEnergyProvider struct {

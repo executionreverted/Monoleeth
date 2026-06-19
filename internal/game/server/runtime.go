@@ -103,11 +103,12 @@ type Runtime struct {
 	CommandLog   *observability.MemoryCommandLogger
 	Metrics      *observability.MetricRecorder
 
-	combatXP       *combat.NPCKillXPHandler
-	lootTable      loot.LootTable
-	itemCatalog    map[foundation.ItemID]economy.ItemDefinition
-	repairAttempts map[foundation.IdempotencyKey]repairAttemptRecord
-	scanCooldowns  map[scanCooldownKey]time.Time
+	combatXP            *combat.NPCKillXPHandler
+	lootTable           loot.LootTable
+	itemCatalog         map[foundation.ItemID]economy.ItemDefinition
+	repairAttempts      map[foundation.IdempotencyKey]repairAttemptRecord
+	scanCooldowns       map[scanCooldownKey]time.Time
+	scanCapacitorSpends map[discovery.ScanPulseReference]scanCapacitorSpendRecord
 }
 
 type scanCooldownKey struct {
@@ -336,32 +337,33 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		hidden: map[world.EntityID]bool{
 			"entity_hidden_planet_signal": true,
 		},
-		eventSeq:       make(map[auth.SessionID]uint64),
-		sessions:       make(map[auth.SessionID]foundation.PlayerID),
-		lastAOI:        make(map[auth.SessionID]aoi.Snapshot),
-		lastMove:       make(map[foundation.PlayerID]time.Time),
-		queuedEvents:   make(map[auth.SessionID][]realtime.EventEnvelope),
-		Combat:         combatService,
-		Loot:           lootService,
-		Inventory:      inventory,
-		CargoService:   cargoService,
-		Wallet:         walletService,
-		Market:         marketService,
-		Auction:        auctionService,
-		Premium:        premiumService,
-		Quest:          questService,
-		Admin:          adminService,
-		Progression:    progressionService,
-		Recipes:        recipeCatalog,
-		Discovery:      discoveryStore,
-		Production:     productionStore,
-		CommandLog:     commandLogger,
-		Metrics:        metricRecorder,
-		combatXP:       combatXP,
-		lootTable:      lootTable,
-		itemCatalog:    itemCatalog,
-		repairAttempts: make(map[foundation.IdempotencyKey]repairAttemptRecord),
-		scanCooldowns:  make(map[scanCooldownKey]time.Time),
+		eventSeq:            make(map[auth.SessionID]uint64),
+		sessions:            make(map[auth.SessionID]foundation.PlayerID),
+		lastAOI:             make(map[auth.SessionID]aoi.Snapshot),
+		lastMove:            make(map[foundation.PlayerID]time.Time),
+		queuedEvents:        make(map[auth.SessionID][]realtime.EventEnvelope),
+		Combat:              combatService,
+		Loot:                lootService,
+		Inventory:           inventory,
+		CargoService:        cargoService,
+		Wallet:              walletService,
+		Market:              marketService,
+		Auction:             auctionService,
+		Premium:             premiumService,
+		Quest:               questService,
+		Admin:               adminService,
+		Progression:         progressionService,
+		Recipes:             recipeCatalog,
+		Discovery:           discoveryStore,
+		Production:          productionStore,
+		CommandLog:          commandLogger,
+		Metrics:             metricRecorder,
+		combatXP:            combatXP,
+		lootTable:           lootTable,
+		itemCatalog:         itemCatalog,
+		repairAttempts:      make(map[foundation.IdempotencyKey]repairAttemptRecord),
+		scanCooldowns:       make(map[scanCooldownKey]time.Time),
+		scanCapacitorSpends: make(map[discovery.ScanPulseReference]scanCapacitorSpendRecord),
 	}
 	scannerSeed, err := discovery.NewWorldSeed(discovery.WorldSeedInput{
 		StaticSeed: []byte("phase07-static-seed"),
