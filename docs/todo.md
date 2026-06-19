@@ -19,9 +19,6 @@ for phase status; this file is a compact pending-work index.
   in-memory Phase 06 slice. Restore failure after debit is currently net-zero
   compensated, but it is not a true atomic rollback. Source:
   `docs/roadmap/06-death-repair-crafting.md`.
-- [ ] Add an indexed wallet ledger/reference lookup for repair refund replay
-  checks before wallet histories become large; the current in-memory repair
-  compensation path scans ledger entries under service lock.
 - [ ] Move `DeathService.ProcessDeath` from caller-supplied cargo/drop,
   respawn, and drop-policy inputs to authoritative zone inventory, respawn, and
   drop-policy providers before exposing death processing through gateway/runtime
@@ -44,22 +41,24 @@ for phase status; this file is a compact pending-work index.
   with durable per-job state transitions or row locks plus metrics for
   completion wait time and duplicate retry rate before multi-process runtime
   deployment.
-- [ ] Narrow DeathService and RepairService lock scope from global service mutex
-  to per-player/per-reference coordination before these services move to a
-  higher-concurrency runtime path.
+- [ ] Narrow `DeathService` lock scope from the global service mutex to
+  per-player/per-reference coordination before death processing moves to a
+  higher-concurrency runtime path. `RepairService` now uses scoped in-flight
+  coordination for repair attempts and duplicate references.
 - [ ] Wire a durable Phase 07 rare reward cap policy into
   `BoardGenerationInput`/`RerollBoardInput` before enabling X Core or premium
   quest rewards in a multi-process runtime. The hook can now block generated
   offers before storage or reroll debit, but no durable usage counter is wired
   by default.
-- [ ] Add per-player offer/active-quest indexes plus TTL/compaction or durable
-  uniqueness for quest in-memory caches (`progressEvents`, `claimResults`,
-  `rerollResults`) before long-running or multi-process deployment.
-- [ ] Consume live Phase 08 scanner energy/capacitor and apply/release
-  world-worker slow-scan leases atomically with scanner cooldown/pulse creation
-  before exposing scanner pulses through authenticated realtime/API commands.
-  The domain service now validates energy availability and stationary movement
-  through provider gates. Source:
+- [ ] Add active-quest indexes plus TTL/compaction or durable uniqueness for
+  quest in-memory caches (`progressEvents`, `claimResults`, `rerollResults`)
+  before long-running or multi-process deployment. Board offers now have a
+  per-player index and stale unaccepted-offer compaction.
+- [ ] Apply/release world-worker slow-scan leases atomically with scanner
+  cooldown/pulse creation before moving scanner pulses beyond the in-process
+  authenticated runtime. The runtime now debits live ship capacitor once per
+  accepted pulse reference, and the domain service validates energy availability
+  and stationary movement through provider gates. Source:
   `docs/roadmap/08-world-discovery-planets-intel.md`.
 - [ ] Replace Phase 08 in-memory discovery stores, idempotency maps, and local
   event slices with durable repositories/outbox records before multi-process
@@ -113,22 +112,22 @@ for phase status; this file is a compact pending-work index.
   ship without client-authored damage or death state; the browser can then use
   `death.repair_quote` and `death.repair_ship` and reconcile wallet/ship
   snapshots. Source: Phase 10 audit.
-- [ ] Add server-backed mail/social/menu contracts or keep those mockup topbar
-  affordances hidden/locked. The default browser must not show fake unread mail,
-  friend, party, or menu notification counts; future contracts should define
-  query names, empty states, and role/visibility rules before UI indicators are
-  enabled. Source: Phase 10 audit.
+- [ ] Add server-backed mail/social/menu contracts before enabling those topbar
+  affordances. The default browser smoke now guards against fake unread mail,
+  friend, party, menu, or social notification counts; future contracts should
+  define query names, empty states, and role/visibility rules before UI
+  indicators are enabled. Source: Phase 10 audit.
 - [ ] Add a dedicated browser-client ESLint/style configuration after the Phase
   11 prototype settles. Current client verification has a trust-boundary lint
   script, TypeScript typecheck, Vitest unit tests, Vite production build, and
   Playwright smoke coverage, but no ESLint pass. Source:
   `docs/roadmap/11-browser-client-prototype.md`.
-- [ ] Finish wiring Phase 12 observability through concrete authenticated
-  gateway command handlers and remaining domain service command paths.
-  `ObservedCommandExecutor` now records safe realtime command logs/metrics,
-  `realtime.Gateway` resolves sessions server-side before handlers run, and
-  combat/loot services emit optional metrics, but the remaining gameplay
-  services are not instrumented yet. Source: Phase 12 Task 1 and core
+- [ ] Finish wiring Phase 12 observability through remaining concrete
+  authenticated gateway command handlers and domain service command paths.
+  `ObservedCommandExecutor` records safe realtime command logs/metrics, the
+  gateway resolves sessions server-side before handlers run, combat/loot emit
+  optional metrics, and market, auction, premium, and quest reward runtime paths
+  now record stable metric series. Source: Phase 12 Task 1 and core
   observability wiring.
 - [ ] Wire the concrete runtime adapter from discovery
   `ClaimListedIntelStaleMarker` to market/intel listing indexes once coordinate
@@ -153,10 +152,10 @@ for phase status; this file is a compact pending-work index.
   policy before exposing automation route controls to players. Current route
   creation stores server-policy energy cost but settlement does not reserve or
   consume route energy.
-- [ ] Add authenticated owner/access wrappers before exposing Phase 09
-  `SettlePlanetProduction`, `SettleRoute`, `EnableRoute`, `DisableRoute`, or
-  `UpdateRoute` through gateway/API callers. Current domain methods are
-  server-internal and accept planet/route ids directly.
+- [ ] Add an authenticated owner/access wrapper before exposing Phase 09
+  `SettlePlanetProduction` through gateway/API callers. Route settle, enable,
+  disable, and update wrappers now check the server-resolved owner before
+  mutation.
 - [ ] Replace global Phase 09 production store locking with per-planet/per-route
   coordination before high-concurrency login or inspection settlement. Current
   in-memory MVP intentionally serializes unrelated production and route work.
@@ -191,6 +190,50 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Add an indexed wallet ledger/reference lookup for repair refund replay
+  checks. `WalletService` now exposes clone-safe reference lookup coverage, and
+  `RepairService` uses it for refund replay checks instead of scanning wallet
+  histories. Source: `internal/game/economy/wallet_service.go`,
+  `internal/game/death/repair.go`.
+- [x] Narrow `RepairService` lock scope from the global service mutex to
+  per-player/per-reference in-flight coordination, with concurrent repair and
+  duplicate-reference tests covering scoped waiting and cache behavior. Source:
+  `internal/game/death/repair.go`,
+  `internal/game/death/repair_service_test.go`.
+- [x] Add owner-checked Phase 09 route operation wrappers for route settlement,
+  enable, disable, and update flows. Wrong-owner calls now reject without
+  mutating route state. Source: `internal/game/production/route_controls.go`,
+  `internal/game/production/route_service.go`,
+  `internal/game/production/route_test.go`.
+- [x] Spend live runtime scanner capacitor exactly once per accepted scan pulse
+  reference. Duplicate scan retries reuse the original spend/result without
+  double-debiting ship capacitor, while insufficient capacitor rejects before
+  pulse mutation. Source: `internal/game/server/scanner_providers.go`,
+  `internal/game/server/server_test.go`.
+- [x] Add regression coverage for retried Phase 08 planet claims repairing
+  missing production initialization when ownership was already recorded for the
+  claimant. Durable transaction/CAS recovery remains tracked separately.
+  Source: `internal/game/discovery/claim_test.go`.
+- [x] Add per-player board-offer indexes and stale unaccepted-offer compaction
+  for the Phase 07 in-memory quest store. Duplicate/reroll/claim/progress
+  caches are preserved during compaction. Source:
+  `internal/game/quests/store.go`, `internal/game/quests/service_test.go`.
+- [x] Guard the default browser against fake mail/social/menu notification
+  counts. The real-server smoke now scans unauthenticated, invalid-login,
+  authenticated, reconnect, admin, and logout states for enabled fake topbar
+  count affordances. Source: `client/tests/browser-smoke.mjs`.
+- [x] Wire concrete runtime observability metrics for authenticated market sale,
+  auction bid/clearing, premium wallet delta, and quest reward claim paths.
+  Metric tests assert stable Phase 12 series and duplicate-safe recording.
+  Source: `internal/game/server/economy_handlers.go`,
+  `internal/game/server/runtime.go`, `internal/game/server/server_test.go`.
+- [x] Add guard tests proving unimplemented browser mutation contracts are not
+  registered or visible by default. Realtime, client protocol, and browser smoke
+  checks cover loadout, crafting, planet claim/building, and route mutation ops
+  until real server-owned contracts exist. Source:
+  `internal/game/realtime/envelope_test.go`,
+  `client/src/protocol/envelope.test.ts`,
+  `client/tests/browser-smoke.mjs`.
 - [x] Add a concrete Phase 07 quest item reward adapter from
   `QuestRewardInventoryService` to `economy.InventoryService.AddItem`. The
   runtime now wires `questRewardInventoryAdapter` to the concrete
