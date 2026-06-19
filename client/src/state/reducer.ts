@@ -15,8 +15,11 @@ import {
   MinimapContact,
   MinimapMemory,
   MinimapSummary,
+  ProgressionSummary,
   PublicSession,
+  RepairQuote,
   SectorSummary,
+  ShipSummary,
   StatSummary,
   WalletSummary,
 } from './types';
@@ -45,7 +48,11 @@ export function createInitialState(): ClientState {
     combatLog: [],
     cargo: null,
     wallet: null,
+    ship: null,
     stats: null,
+    progression: null,
+    repairQuote: null,
+    skillCooldowns: {},
     questBoard: null,
     inventory: null,
     planetIntel: null,
@@ -288,6 +295,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
     case CLIENT_EVENTS.shipSnapshot:
       return {
         ...state,
+        ship: parseShipSummary(envelope.payload, state.ship),
         playerSnapshot: {
           ...(state.playerSnapshot ?? {}),
           hp: numberField(envelope.payload, 'hull') ?? state.playerSnapshot?.hp,
@@ -299,6 +307,115 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         },
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.targetUpdated:
+      return applyTargetUpdated(state, envelope);
+
+    case CLIENT_EVENTS.combatDamage:
+      return {
+        ...state,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        combatLog: appendLog(
+          state.combatLog,
+          'info',
+          `Hit ${stringField(envelope.payload, 'target_id') ?? 'target'} for ${Math.round(numberField(envelope.payload, 'amount') ?? 0)}.`,
+        ),
+      };
+
+    case CLIENT_EVENTS.combatMiss:
+      return {
+        ...state,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        combatLog: appendLog(state.combatLog, 'warn', `Missed ${stringField(envelope.payload, 'target_id') ?? 'target'}.`),
+      };
+
+    case CLIENT_EVENTS.combatCooldownStarted: {
+      const skillID = stringField(envelope.payload, 'skill_id') ?? 'basic_laser';
+      const readyAt = numberField(envelope.payload, 'cooldown_ready_at_ms') ?? envelope.server_time;
+      return {
+        ...state,
+        skillCooldowns: { ...state.skillCooldowns, [skillID]: readyAt },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.combatNPCKilled:
+      return {
+        ...state,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        combatLog: appendLog(state.combatLog, 'info', `${stringField(envelope.payload, 'npc_type') ?? 'Hostile'} destroyed.`),
+      };
+
+    case CLIENT_EVENTS.lootCreated:
+    case CLIENT_EVENTS.lootUpdated:
+      return {
+        ...state,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        combatLog: appendLog(
+          state.combatLog,
+          'info',
+          `Drop ${stringField(envelope.payload, 'item_id') ?? 'item'} x${Math.round(numberField(envelope.payload, 'quantity') ?? 0)}.`,
+        ),
+      };
+
+    case CLIENT_EVENTS.lootRemoved: {
+      const entityID = requireEntityID(envelope.payload);
+      const visibleEntities = { ...state.visibleEntities };
+      delete visibleEntities[entityID];
+      return {
+        ...state,
+        visibleEntities,
+        selectedTargetID: state.selectedTargetID === entityID ? null : state.selectedTargetID,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.lootPickedUp:
+      return {
+        ...state,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        combatLog: appendLog(
+          state.combatLog,
+          'info',
+          `Recovered ${stringField(envelope.payload, 'item_id') ?? 'item'} x${Math.round(numberField(envelope.payload, 'quantity') ?? 0)}.`,
+        ),
+      };
+
+    case CLIENT_EVENTS.progressionSnapshot:
+      return {
+        ...state,
+        progression: parseProgressionSummary(envelope.payload, state.progression),
+        playerSnapshot: {
+          ...(state.playerSnapshot ?? {}),
+          rank: numberField(envelope.payload, 'rank') ?? state.playerSnapshot?.rank,
+        },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.deathShipDisabled:
+      return {
+        ...state,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        combatLog: appendLog(state.combatLog, 'error', 'Ship disabled.'),
+      };
+
+    case CLIENT_EVENTS.deathRepaired:
+      return {
+        ...state,
+        repairQuote: null,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        combatLog: appendLog(state.combatLog, 'info', 'Ship repaired.'),
       };
 
     case CLIENT_EVENTS.cargoSnapshot:
@@ -427,6 +544,29 @@ function applyCorrection(
   };
 }
 
+function applyTargetUpdated(state: ClientState, envelope: EventEnvelope): ClientState {
+  const entityID = requireEntityID(envelope.payload);
+  const combat = parseEntityCombat(envelope.payload);
+  const entity = state.visibleEntities[entityID];
+  const visibleEntities =
+    entity && combat
+      ? {
+          ...state.visibleEntities,
+          [entityID]: {
+            ...entity,
+            combat,
+          },
+        }
+      : state.visibleEntities;
+
+  return {
+    ...state,
+    visibleEntities,
+    lastServerTime: envelope.server_time,
+    lastSequence: Math.max(state.lastSequence, envelope.seq),
+  };
+}
+
 function parseSnapshotEntities(payload: JsonObject): EntityPayload[] | null {
   if (!('entities' in payload)) {
     return null;
@@ -494,6 +634,40 @@ function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientSt
     };
   }
 
+  const ship = objectField(payload, 'ship') ?? objectField(payload, 'ship_snapshot');
+  if (ship) {
+    const parsedShip = parseShipSummary(ship, next.ship);
+    next = {
+      ...next,
+      ship: parsedShip,
+      playerSnapshot: {
+        ...(next.playerSnapshot ?? {}),
+        hp: parsedShip.hull,
+        max_hp: parsedShip.max_hull,
+        shield: parsedShip.shield,
+        max_shield: parsedShip.max_shield,
+        energy: parsedShip.capacitor,
+        max_energy: parsedShip.max_capacitor,
+      },
+    };
+  }
+
+  const progression = objectField(payload, 'progression') ?? objectField(payload, 'progression_snapshot');
+  if (progression) {
+    next = {
+      ...next,
+      progression: parseProgressionSummary(progression, next.progression),
+    };
+  }
+
+  const quote = objectField(payload, 'repair_quote') ?? (typeof payload.cost === 'number' && typeof payload.ship_id === 'string' ? payload : null);
+  if (quote) {
+    next = {
+      ...next,
+      repairQuote: parseRepairQuote(quote, next.repairQuote),
+    };
+  }
+
   const sector = objectField(payload, 'sector');
   if (sector) {
     next = {
@@ -531,6 +705,7 @@ function parseEntityPayload(payload: JsonObject): EntityPayload {
       ? source.status_flags.filter((flag): flag is string => typeof flag === 'string')
       : undefined,
     display: parseEntityDisplay(source),
+    combat: parseEntityCombat(source),
   };
 }
 
@@ -597,12 +772,46 @@ function parseWalletSummary(payload: JsonObject, fallback: WalletSummary | null)
   };
 }
 
+function parseShipSummary(payload: JsonObject, fallback: ShipSummary | null): ShipSummary {
+  return {
+    active_ship_id: stringField(payload, 'active_ship_id') ?? fallback?.active_ship_id ?? '',
+    display_name: stringField(payload, 'display_name') ?? fallback?.display_name ?? '',
+    hull: Math.max(0, Math.round(numberField(payload, 'hull') ?? fallback?.hull ?? 0)),
+    max_hull: Math.max(0, Math.round(numberField(payload, 'max_hull') ?? fallback?.max_hull ?? 0)),
+    shield: Math.max(0, Math.round(numberField(payload, 'shield') ?? fallback?.shield ?? 0)),
+    max_shield: Math.max(0, Math.round(numberField(payload, 'max_shield') ?? fallback?.max_shield ?? 0)),
+    capacitor: Math.max(0, Math.round(numberField(payload, 'capacitor') ?? fallback?.capacitor ?? 0)),
+    max_capacitor: Math.max(0, Math.round(numberField(payload, 'max_capacitor') ?? fallback?.max_capacitor ?? 0)),
+    disabled: booleanField(payload, 'disabled') ?? fallback?.disabled ?? false,
+    repair_state: stringField(payload, 'repair_state') ?? fallback?.repair_state ?? '',
+  };
+}
+
 function parseStatSummary(payload: JsonObject, fallback: StatSummary | null): StatSummary {
   return {
     speed: Math.max(0, numberField(payload, 'speed') ?? fallback?.speed ?? 0),
     radar_range: Math.max(0, numberField(payload, 'radar_range') ?? fallback?.radar_range ?? 0),
     weapon_range: Math.max(0, numberField(payload, 'weapon_range') ?? fallback?.weapon_range ?? 0),
     cargo_capacity: Math.max(0, numberField(payload, 'cargo_capacity') ?? fallback?.cargo_capacity ?? 0),
+  };
+}
+
+function parseProgressionSummary(payload: JsonObject, fallback: ProgressionSummary | null): ProgressionSummary {
+  return {
+    main_level: Math.max(0, Math.round(numberField(payload, 'main_level') ?? fallback?.main_level ?? 0)),
+    main_xp: Math.max(0, Math.round(numberField(payload, 'main_xp') ?? fallback?.main_xp ?? 0)),
+    rank: Math.max(0, Math.round(numberField(payload, 'rank') ?? fallback?.rank ?? 0)),
+    combat_level: optionalRoundedNumber(payload, 'combat_level', fallback?.combat_level),
+    combat_xp: optionalRoundedNumber(payload, 'combat_xp', fallback?.combat_xp),
+  };
+}
+
+function parseRepairQuote(payload: JsonObject, fallback: RepairQuote | null): RepairQuote {
+  return {
+    ship_id: stringField(payload, 'ship_id') ?? fallback?.ship_id ?? '',
+    currency: stringField(payload, 'currency') ?? fallback?.currency ?? 'credits',
+    cost: Math.max(0, Math.round(numberField(payload, 'cost') ?? fallback?.cost ?? 0)),
+    disabled: booleanField(payload, 'disabled') ?? fallback?.disabled ?? false,
   };
 }
 
@@ -670,6 +879,24 @@ function parseEntityDisplay(payload: JsonObject): EntityPayload['display'] {
   return label || disposition ? { label, disposition } : undefined;
 }
 
+function parseEntityCombat(payload: JsonObject): EntityPayload['combat'] {
+  const combat = objectField(payload, 'combat') ?? payload;
+  const hp = numberField(combat, 'hp');
+  const maxHP = numberField(combat, 'max_hp');
+  const shield = numberField(combat, 'shield');
+  const maxShield = numberField(combat, 'max_shield');
+  if (hp === null && maxHP === null && shield === null && maxShield === null) {
+    return undefined;
+  }
+  return {
+    hp: Math.max(0, Math.round(hp ?? 0)),
+    max_hp: Math.max(0, Math.round(maxHP ?? 0)),
+    shield: Math.max(0, Math.round(shield ?? 0)),
+    max_shield: Math.max(0, Math.round(maxShield ?? 0)),
+    status: stringField(combat, 'status') ?? undefined,
+  };
+}
+
 function isVec2(value: JsonValue | unknown): value is Vec2 {
   return (
     typeof value === 'object' &&
@@ -706,6 +933,14 @@ function booleanField(payload: JsonObject, key: string): boolean | null {
   return typeof value === 'boolean' ? value : null;
 }
 
+function optionalRoundedNumber(payload: JsonObject, key: string, fallback: number | undefined): number | undefined {
+  const value = numberField(payload, key);
+  if (value === null) {
+    return fallback;
+  }
+  return Math.max(0, Math.round(value));
+}
+
 function isKnownEntityType(entityType: string): entityType is EntityPayload['entity_type'] {
   return (
     entityType === 'player' ||
@@ -740,7 +975,11 @@ function clearGameplay(state: ClientState): ClientState {
     combatLog: [],
     cargo: null,
     wallet: null,
+    ship: null,
     stats: null,
+    progression: null,
+    repairQuote: null,
+    skillCooldowns: {},
     questBoard: null,
     inventory: null,
     planetIntel: null,

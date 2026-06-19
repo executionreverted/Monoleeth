@@ -17,6 +17,15 @@ type EntityDisplay struct {
 	Disposition string `json:"disposition,omitempty"`
 }
 
+// EntityCombatStatus is client-safe combat state for a visible entity.
+type EntityCombatStatus struct {
+	HP        int    `json:"hp"`
+	MaxHP     int    `json:"max_hp"`
+	Shield    int    `json:"shield"`
+	MaxShield int    `json:"max_shield"`
+	Status    string `json:"status,omitempty"`
+}
+
 // EntityState is the server-owned AOI input for one live entity.
 //
 // Internal metadata fields are included to make the boundary explicit: callers
@@ -28,6 +37,7 @@ type EntityState struct {
 	Hidden            bool
 	PublicStatusFlags []StatusFlag
 	PublicDisplay     *EntityDisplay
+	PublicCombat      *EntityCombatStatus
 
 	InternalMetadata map[string]string
 	GameplaySeed     string
@@ -36,11 +46,12 @@ type EntityState struct {
 
 // EntityPayload is the complete public payload for a visible entity.
 type EntityPayload struct {
-	ID          world.EntityID   `json:"entity_id"`
-	Type        world.EntityType `json:"entity_type"`
-	Position    world.Vec2       `json:"position"`
-	StatusFlags []StatusFlag     `json:"status_flags,omitempty"`
-	Display     *EntityDisplay   `json:"display,omitempty"`
+	ID          world.EntityID      `json:"entity_id"`
+	Type        world.EntityType    `json:"entity_type"`
+	Position    world.Vec2          `json:"position"`
+	StatusFlags []StatusFlag        `json:"status_flags,omitempty"`
+	Display     *EntityDisplay      `json:"display,omitempty"`
+	Combat      *EntityCombatStatus `json:"combat,omitempty"`
 }
 
 // Snapshot is a deterministic client-safe AOI snapshot.
@@ -79,6 +90,7 @@ func BuildVisibleSnapshot(viewer visibility.Viewer, entities []EntityState) Snap
 			Position:    state.Entity.Position,
 			StatusFlags: cloneStatusFlags(state.PublicStatusFlags),
 			Display:     cloneEntityDisplay(state.PublicDisplay),
+			Combat:      cloneEntityCombatStatus(state.PublicCombat),
 		})
 	}
 	sortEntityPayloads(payloads)
@@ -125,6 +137,7 @@ func normalizedEntities(entities []EntityPayload) []EntityPayload {
 	for _, entity := range entities {
 		entity.StatusFlags = cloneStatusFlags(entity.StatusFlags)
 		entity.Display = cloneEntityDisplay(entity.Display)
+		entity.Combat = cloneEntityCombatStatus(entity.Combat)
 		normalized = append(normalized, entity)
 	}
 	sortEntityPayloads(normalized)
@@ -167,5 +180,13 @@ func cloneEntityDisplay(display *EntityDisplay) *EntityDisplay {
 	if cloned.Label == "" && cloned.Disposition == "" {
 		return nil
 	}
+	return &cloned
+}
+
+func cloneEntityCombatStatus(combat *EntityCombatStatus) *EntityCombatStatus {
+	if combat == nil {
+		return nil
+	}
+	cloned := *combat
 	return &cloned
 }

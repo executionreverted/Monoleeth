@@ -60,6 +60,8 @@ export class ClientApp {
       onSync: () => this.syncSnapshot(),
       onFire: () => this.sendBasicSkill(),
       onLoot: () => this.sendLootPickup(),
+      onRepairQuote: () => this.sendCommand(this.commandBuilder.deathRepairQuote()),
+      onRepair: () => this.sendCommand(this.commandBuilder.deathRepairShip()),
       onScan: () => this.sendCommand(this.commandBuilder.scanPulse()),
     });
 
@@ -340,7 +342,11 @@ export class ClientApp {
         selectedTargetID: this.state.selectedTargetID,
         cargo: this.state.cargo,
         wallet: this.state.wallet,
+        ship: this.state.ship,
         stats: this.state.stats,
+        progression: this.state.progression,
+        repairQuote: this.state.repairQuote,
+        skillCooldowns: this.state.skillCooldowns,
         commandLog: this.state.commandLog,
         combatLog: this.state.combatLog,
         auth: this.state.auth,

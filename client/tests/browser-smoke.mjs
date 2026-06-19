@@ -15,7 +15,7 @@ const useFixture = process.argv.includes('--fixture');
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const clientRoot = path.resolve(thisDir, '..');
 const repoRoot = path.resolve(clientRoot, '..');
-const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '04');
+const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '05');
 const forbiddenText = [
   'gameplay_seed',
   'future_spawn',
@@ -45,9 +45,9 @@ try {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
   } else {
-    await verifyRealViewport({ width: 1440, height: 900 }, 'desktop');
-    await verifyRealViewport({ width: 1024, height: 768 }, 'tablet');
     await verifyRealViewport({ width: 390, height: 844 }, 'mobile');
+    await verifyRealViewport({ width: 1024, height: 768 }, 'tablet');
+    await verifyRealViewport({ width: 1440, height: 900 }, 'desktop');
   }
 } finally {
   await browser?.close();
@@ -116,6 +116,9 @@ async function verifyRealViewport(viewport, label) {
           state?.minimap?.live_contacts?.some((contact) => contact.entity_id === 'entity_training_npc') &&
           state?.cargo?.capacity === 60 &&
           state?.wallet?.credits === 0 &&
+          state?.ship?.active_ship_id === 'starter_ship' &&
+          state?.ship?.disabled === false &&
+          state?.progression?.rank >= 1 &&
           state?.stats?.radar_range === 420 &&
           hasPlayer &&
           self?.entity_type === 'player' &&
@@ -132,7 +135,9 @@ async function verifyRealViewport(viewport, label) {
     await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
 
     if (label === 'desktop') {
-      await clickWorldPosition(page, { x: 0, y: -220 });
+      await verifyRealCombatLoot(page);
+
+      await clickWorldPosition(page, { x: 40, y: 40 });
       await page.waitForFunction(() => {
         const player = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find(
           (entity) => entity.status_flags?.includes('self'),
@@ -185,13 +190,13 @@ async function verifyFixtureViewport(viewport, label) {
     if (label === 'fixture-desktop') {
       await clickWorldPosition(page, { x: 150, y: -250 });
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'npc-rake-01');
-      await page.locator('[data-action="fire"]').click();
+      await page.locator('.hud__actionbar [data-action="fire"]').click();
       await realtime.waitForOp('combat.use_skill');
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.playerSnapshot?.energy === 58);
 
       await clickWorldPosition(page, { x: -110, y: -220 });
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'loot-scrap-01');
-      await page.locator('[data-action="loot"]').click();
+      await page.locator('.hud__actionbar [data-action="loot"]').click();
       await realtime.waitForOp('loot.pickup');
       await page.waitForFunction(() => {
         const state = window.__SPACE_MORPG_SMOKE_STATE__;
@@ -213,6 +218,51 @@ async function verifyFixtureViewport(viewport, label) {
     await page.close();
     await realtime.close();
   }
+}
+
+async function verifyRealCombatLoot(page) {
+  await clickWorldPosition(page, { x: 80, y: 0 });
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'entity_training_npc', null, {
+    timeout: 10000,
+  });
+  await page.locator('.hud__actionbar [data-action="fire"]').click();
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const entities = state?.visibleEntities ?? {};
+    const lootDrop = Object.values(entities).find((entity) => entity.entity_type === 'loot');
+    return (
+      !entities.entity_training_npc &&
+      Boolean(lootDrop) &&
+      state?.combatLog?.some((line) => /destroyed/i.test(line.text))
+    );
+  }, null, { timeout: 10000 });
+
+  const dropPosition = await page.evaluate(() => {
+    const drop = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find(
+      (entity) => entity.entity_type === 'loot',
+    );
+    return drop?.position ?? null;
+  });
+  if (!dropPosition) {
+    throw new Error('No server-created loot drop was visible after combat.');
+  }
+
+  await clickWorldPosition(page, dropPosition);
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const target = state?.selectedTargetID ? state.visibleEntities?.[state.selectedTargetID] : null;
+    return target?.entity_type === 'loot';
+  }, null, { timeout: 10000 });
+  await page.locator('.hud__actionbar [data-action="loot"]').click();
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const entities = state?.visibleEntities ?? {};
+    return (
+      state?.cargo?.used === 6 &&
+      state?.cargo?.items?.some((item) => item.item_id === 'raw_ore' && item.quantity === 3) &&
+      !Object.values(entities).some((entity) => entity.entity_type === 'loot')
+    );
+  }, null, { timeout: 10000 });
 }
 
 async function assertCanvasAndLayout(page, viewport, label) {

@@ -2,7 +2,8 @@
 
 ## Status
 
-- State: Planned
+- State: Completed for authenticated runtime MVP; durable repair/death
+  hardening remains tracked separately
 - Owner: Real-time combat loop UI
 - Depends on: Phase 04 plus minimal wallet/cargo/active-loadout snapshots from
   Phase 06 or an equivalent prerequisite slice implemented in this phase
@@ -118,53 +119,84 @@ from server loadout data instead of firing fake effects.
 
 ## TODO
 
-- [ ] Register real `loot.pickup` operation in Go realtime registry.
-- [ ] Add runtime loot pickup command handler.
-- [ ] Add per-command payload/error contracts for combat, loot, quote, and
+- [x] Register real `loot.pickup` operation in Go realtime registry.
+- [x] Add runtime loot pickup command handler.
+- [x] Add per-command payload/error contracts for combat, loot, quote, and
       repair operations.
-- [ ] Add combat result event mapper to client-safe payloads.
-- [ ] Add loot event mapper and AOI-visible drop updates.
+- [x] Add combat result event mapper to client-safe payloads.
+- [x] Add loot event mapper and AOI-visible drop updates.
 - [ ] Add death/disabled ship event mapper.
-- [ ] Add repair quote and repair command handlers.
-- [ ] Add wallet/cargo/progression snapshot broadcasts after committed
+- [x] Add repair quote and repair command handlers.
+- [x] Add wallet/cargo/progression snapshot broadcasts after committed
       loot/repair mutations.
-- [ ] Update client command builders and reducer for combat/loot/death events.
-- [ ] Add action bar controls with cooldown/energy disabled states.
-- [ ] Add selected target panel with real target health/status when visible.
-- [ ] Add loot pickup UI flow from selected drop.
-- [ ] Add repair UI when ship disabled.
-- [ ] Add combat log lines from server events only.
+- [x] Update client command builders and reducer for combat/loot/death events.
+- [x] Add action bar controls with cooldown/energy disabled states.
+- [x] Add selected target panel with real target health/status when visible.
+- [x] Add loot pickup UI flow from selected drop.
+- [x] Add repair UI when ship disabled.
+- [x] Add combat log lines from server events only.
+
+## Implemented Contracts
+
+- `combat.use_skill` is registered on the authenticated realtime gateway and
+  resolves attacker, ship, stats, range, cooldown, energy, and target
+  visibility from server-owned runtime state. The browser sends only
+  `target_id` and `skill_id` intent.
+- Combat results emit `ship.snapshot`, `player.snapshot`,
+  `combat.cooldown_started`, `target.updated`, `combat.damage` or
+  `combat.miss`, `combat.npc_killed`, `progression.snapshot`, and AOI
+  reconciliation events. Payloads use client-safe public ids and visible
+  amounts; trusted fields such as `player_id`, `damage`, `xp`, hidden flags,
+  seeds, and loot tables are rejected or omitted.
+- NPC death creates server-owned loot through the loot service, inserts the drop
+  into the world worker, emits `loot.created`, and reconciles the map through
+  AOI events. Pickup uses `loot.pickup`, validates visibility/range/ownership
+  and cargo capacity, then emits `loot.picked_up`, `loot.removed`,
+  `cargo.snapshot`, `progression.snapshot`, and AOI removal after mutation.
+- Runtime repair exposes `death.repair_quote` and `death.repair_ship` for the
+  active server-owned starter ship. The browser cannot provide a trusted ship,
+  price, wallet, or player identity. This runtime bridge currently supports the
+  free starter repair path; durable non-zero wallet-ledger repair remains a
+  hardening item tracked in `docs/todo.md`.
+- The client reducer stores ship, progression, repair quote, target combat
+  status, cooldowns, cargo, wallet, and combat log entries only from snapshots,
+  responses, and events. Default unauthenticated state remains empty.
+- The HUD now shows real target health/status, ship hull/shield/capacitor,
+  disabled repair controls, and a bottom action bar. Laser and Loot send server
+  commands only when the current selected target and ship state allow them;
+  Rocket and Shield render disabled until server-backed skill/loadout data is
+  exposed.
 
 ## Abuse And Safety Checklist
 
-- [ ] Hidden target attack returns safe not-visible/not-found error.
-- [ ] Out-of-range attack does not spend energy.
-- [ ] Cooldown is server-time only.
-- [ ] Client cannot submit damage, hit, crit, XP, loot table, or cooldown.
-- [ ] Hidden/far loot cannot be picked up.
-- [ ] Duplicate pickup does not duplicate cargo or XP.
-- [ ] Disabled ship cannot attack.
-- [ ] Repair checks wallet and ship ownership server-side.
+- [x] Hidden target attack returns safe not-visible/not-found error.
+- [x] Out-of-range attack does not spend energy.
+- [x] Cooldown is server-time only.
+- [x] Client cannot submit damage, hit, crit, XP, loot table, or cooldown.
+- [x] Hidden/far loot cannot be picked up.
+- [x] Duplicate pickup does not duplicate cargo or XP.
+- [x] Disabled ship cannot attack.
+- [x] Repair checks wallet and ship ownership server-side.
 - [ ] Repair debit uses wallet ledger and server-calculated price.
-- [ ] Non-server-backed action slots cannot execute fake effects.
+- [x] Non-server-backed action slots cannot execute fake effects.
 
 ## Tests
 
-- [ ] WebSocket `combat.use_skill` rejects client-authored attacker id.
-- [ ] Hidden target attack returns safe not-visible/not-found error.
-- [ ] Out-of-range attack rejects without spending energy.
-- [ ] Browser can select visible hostile and fire.
-- [ ] Energy/cooldown UI updates from server event.
-- [ ] NPC death creates visible loot event.
-- [ ] Browser can pick visible owned/public loot.
-- [ ] Hidden/far loot pickup is rejected without cargo mutation.
-- [ ] Cargo snapshot updates after pickup.
-- [ ] Duplicate pickup request returns cached/safe result.
+- [x] WebSocket `combat.use_skill` rejects client-authored attacker id.
+- [x] Hidden target attack returns safe not-visible/not-found error.
+- [x] Out-of-range attack rejects without spending energy.
+- [x] Browser can select visible hostile and fire.
+- [x] Energy/cooldown UI updates from server event.
+- [x] NPC death creates visible loot event.
+- [x] Browser can pick visible owned/public loot.
+- [x] Hidden/far loot pickup is rejected without cargo mutation.
+- [x] Cargo snapshot updates after pickup.
+- [x] Duplicate pickup request returns cached/safe result.
 - [ ] Death state disables combat buttons.
 - [ ] Repair quote rejects stale/tampered prices.
 - [ ] Repair rejects insufficient wallet without changing ship state.
 - [ ] Repair command debits wallet and re-enables ship.
-- [ ] Browser smoke covers fight -> loot -> cargo update.
+- [x] Browser smoke covers fight -> loot -> cargo update.
 
 ## Done Criteria
 

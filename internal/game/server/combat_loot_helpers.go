@@ -1,0 +1,373 @@
+package server
+
+import (
+	"encoding/json"
+	"errors"
+	"math"
+	"time"
+
+	"gameproject/internal/game/auth"
+	"gameproject/internal/game/combat"
+	"gameproject/internal/game/economy"
+	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/loot"
+	"gameproject/internal/game/progression"
+	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/stats"
+	"gameproject/internal/game/world"
+	"gameproject/internal/game/world/aoi"
+	"gameproject/internal/game/world/visibility"
+	"gameproject/internal/game/world/worker"
+)
+
+func decodeCombatUseSkillIntent(raw json.RawMessage) (combatUseSkillIntent, error) {
+	var intent combatUseSkillIntent
+	if err := decodeStrict(raw, &intent); err != nil {
+		return combatUseSkillIntent{}, err
+	}
+	if intent.SkillID == "" {
+		return combatUseSkillIntent{}, invalidPayload("skill_id is required.", nil)
+	}
+	if err := intent.TargetID.Validate(); err != nil {
+		return combatUseSkillIntent{}, invalidPayload("target_id is required.", err)
+	}
+	return intent, nil
+}
+
+func decodeLootPickupIntent(raw json.RawMessage) (lootPickupIntent, error) {
+	var intent lootPickupIntent
+	if err := decodeStrict(raw, &intent); err != nil {
+		return lootPickupIntent{}, err
+	}
+	if err := intent.DropID.Validate(); err != nil {
+		return lootPickupIntent{}, invalidPayload("drop_id is required.", err)
+	}
+	return intent, nil
+}
+
+func (runtime *Runtime) validateShipCanActLocked(playerID foundation.PlayerID) error {
+	return runtime.validateShipCanMoveLocked(playerID)
+}
+
+func (runtime *Runtime) syncPlayerCombatActorLocked(playerID foundation.PlayerID) (combat.ActorState, error) {
+	state, ok := runtime.players[playerID]
+	if !ok {
+		return combat.ActorState{}, worker.ErrUnknownPlayer
+	}
+	entity, ok := runtime.Worker.PlayerEntity(playerID)
+	if !ok {
+		return combat.ActorState{}, worker.ErrUnknownPlayer
+	}
+	actor := combat.ActorState{
+		EntityID:      entity.ID,
+		Type:          world.EntityTypePlayer,
+		PlayerID:      playerID,
+		WorldID:       entity.WorldID,
+		ZoneID:        entity.ZoneID,
+		Position:      entity.Position,
+		Signature:     visibility.EntitySignature(1),
+		Stats:         runtime.playerCombatStatsLocked(playerID, state),
+		HP:            float64(state.Ship.Hull),
+		Shield:        float64(state.Ship.Shield),
+		Energy:        float64(state.Ship.Capacitor),
+		Cooldowns:     combat.CooldownState{},
+		Contributions: make(map[foundation.PlayerID]float64),
+	}
+	if existing, ok := runtime.Combat.Actor(entity.ID); ok {
+		actor.Cooldowns = existing.Cooldowns
+		actor.Contributions = existing.Contributions
+	}
+	if state.Ship.Disabled {
+		actor.Dead = true
+		actor.HP = 0
+		now := runtime.clock.Now()
+		actor.DiedAt = &now
+	}
+	if err := runtime.Combat.UpsertActor(actor); err != nil {
+		return combat.ActorState{}, err
+	}
+	return actor, nil
+}
+
+func (runtime *Runtime) syncWorldCombatActorLocked(entityID world.EntityID) error {
+	entity, ok := runtime.Worker.Entity(entityID)
+	if !ok {
+		return worker.ErrUnknownEntity
+	}
+	if entity.Type != world.EntityTypeNPC {
+		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Target is not a hostile entity.")
+	}
+	if actor, ok := runtime.Combat.Actor(entityID); ok {
+		actor.Position = entity.Position
+		actor.WorldID = entity.WorldID
+		actor.ZoneID = entity.ZoneID
+		return runtime.Combat.UpsertActor(actor)
+	}
+	return runtime.Combat.UpsertActor(runtime.trainingNPCActor(entity))
+}
+
+func (runtime *Runtime) trainingNPCActor(entity world.Entity) combat.ActorState {
+	return combat.ActorState{
+		EntityID:  entity.ID,
+		Type:      world.EntityTypeNPC,
+		NPCType:   trainingNPCType,
+		WorldID:   entity.WorldID,
+		ZoneID:    entity.ZoneID,
+		Position:  entity.Position,
+		Signature: visibility.EntitySignature(1),
+		Stats: stats.NewStatSnapshot("", "training_drone", 1, stats.EffectiveStats{
+			Core: stats.CoreStats{
+				HPMax:       30,
+				ShieldMax:   0,
+				EnergyMax:   1,
+				EnergyRegen: 0,
+			},
+			Combat: stats.CombatStats{
+				WeaponRange: 1,
+				Accuracy:    1,
+			},
+			Exploration: stats.ExplorationStats{
+				RadarRange: 1,
+			},
+		}, runtime.clock.Now()),
+		HP:            30,
+		Shield:        0,
+		Energy:        1,
+		Cooldowns:     combat.CooldownState{},
+		Contributions: make(map[foundation.PlayerID]float64),
+	}
+}
+
+func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, state playerRuntimeState) stats.StatSnapshot {
+	return stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
+		Core: stats.CoreStats{
+			HPMax:         float64(state.Ship.MaxHull),
+			ShieldMax:     float64(state.Ship.MaxShield),
+			EnergyMax:     float64(state.Ship.MaxCapacitor),
+			EnergyRegen:   4,
+			Speed:         state.Stats.Speed,
+			CargoCapacity: float64(state.Stats.CargoCapacity),
+		},
+		Combat: stats.CombatStats{
+			WeaponDamage:     35,
+			WeaponRange:      state.Stats.WeaponRange,
+			WeaponCooldown:   0.35,
+			WeaponEnergyCost: 10,
+			Accuracy:         1,
+		},
+		Exploration: stats.ExplorationStats{
+			RadarRange: state.Stats.RadarRange,
+		},
+	}, runtime.clock.Now())
+}
+
+func (runtime *Runtime) viewerForPlayerLocked(playerID foundation.PlayerID) (visibility.Viewer, error) {
+	state := runtime.players[playerID]
+	entity, ok := runtime.Worker.PlayerEntity(playerID)
+	if !ok {
+		return visibility.Viewer{}, worker.ErrUnknownPlayer
+	}
+	statSnapshot := stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
+		Exploration: stats.ExplorationStats{RadarRange: state.Stats.RadarRange},
+	}, runtime.clock.Now())
+	return visibility.Viewer{
+		WorldID:    runtime.worldID,
+		ZoneID:     runtime.zoneID,
+		Position:   entity.Position,
+		RadarRange: visibility.RadarRangeFromStatSnapshot(statSnapshot),
+	}, nil
+}
+
+func (runtime *Runtime) entityVisibleToPlayerLocked(playerID foundation.PlayerID, entityID world.EntityID) bool {
+	snapshot, _, _, err := runtime.aoiSnapshotForPlayerLocked(playerID)
+	if err != nil {
+		return false
+	}
+	for _, entity := range snapshot.Entities {
+		if entity.ID == entityID {
+			return true
+		}
+	}
+	return false
+}
+
+func (runtime *Runtime) queueTargetUpdatedLocked(sessionID auth.SessionID, actor combat.ActorState) {
+	status := combatStatusFromActor(actor)
+	if status == nil {
+		return
+	}
+	runtime.queueEventLocked(sessionID, realtime.EventTargetUpdated, map[string]any{
+		"entity_id": actor.EntityID.String(),
+		"combat":    status,
+	})
+}
+
+func (runtime *Runtime) entityCombatStatusLocked(entityID world.EntityID) *aoi.EntityCombatStatus {
+	actor, ok := runtime.Combat.Actor(entityID)
+	if !ok {
+		return nil
+	}
+	return combatStatusFromActor(actor)
+}
+
+func combatStatusFromActor(actor combat.ActorState) *aoi.EntityCombatStatus {
+	if actor.EntityID.IsZero() {
+		return nil
+	}
+	status := "active"
+	if actor.Dead || actor.HP <= 0 {
+		status = "destroyed"
+	}
+	return &aoi.EntityCombatStatus{
+		HP:        roundCombatValue(actor.HP),
+		MaxHP:     roundCombatValue(actor.Stats.Stats.Core.HPMax),
+		Shield:    roundCombatValue(actor.Shield),
+		MaxShield: roundCombatValue(actor.Stats.Stats.Core.ShieldMax),
+		Status:    status,
+	}
+}
+
+func (runtime *Runtime) insertLootDropEntityLocked(drop loot.Drop) error {
+	entity, err := world.NewEntity(drop.WorldID, drop.ZoneID, drop.ID, world.EntityTypeLoot, drop.Position)
+	if err != nil {
+		return err
+	}
+	return runtime.Worker.InsertEntity(entity, 0)
+}
+
+func (runtime *Runtime) activeCargoLocationLocked(playerID foundation.PlayerID) economy.ItemLocation {
+	state := runtime.players[playerID]
+	locationID := state.Ship.ActiveShipID
+	if locationID == "" {
+		locationID = starterShipID.String()
+	}
+	return economy.ItemLocation{
+		Kind: economy.LocationKindShipCargo,
+		ID:   economy.LocationID(locationID),
+	}
+}
+
+func (runtime *Runtime) cargoSnapshotFromInventoryLocked(playerID foundation.PlayerID) cargoSnapshotPayload {
+	state := runtime.players[playerID]
+	location := runtime.activeCargoLocationLocked(playerID)
+	itemsByID := make(map[string]int64)
+	var used int64
+	for _, item := range runtime.Inventory.StackableItems() {
+		if item.OwnerPlayerID != playerID || item.Location != location {
+			continue
+		}
+		quantity := item.Quantity.Int64()
+		itemsByID[item.ItemID.String()] += quantity
+		if definition, ok := runtime.itemCatalog[item.ItemID]; ok {
+			used += definition.WeightUnits.Int64() * quantity
+		}
+	}
+	items := make([]cargoItemStack, 0, len(itemsByID))
+	for itemID, quantity := range itemsByID {
+		items = append(items, cargoItemStack{ItemID: itemID, Quantity: quantity})
+	}
+	return cargoSnapshotPayload{
+		Used:     used,
+		Capacity: state.Cargo.Capacity,
+		Items:    items,
+	}
+}
+
+func (runtime *Runtime) repairQuoteLocked(state playerRuntimeState) repairQuotePayload {
+	cost := int64(0)
+	if state.Ship.ActiveShipID != starterShipID.String() {
+		cost = 25
+	}
+	return repairQuotePayload{
+		ShipID:   state.Ship.ActiveShipID,
+		Currency: repairCurrency,
+		Cost:     cost,
+		Disabled: state.Ship.Disabled,
+	}
+}
+
+func (runtime *Runtime) queueEventLocked(sessionID auth.SessionID, eventType realtime.ClientEventType, payload any) {
+	runtime.queuedEvents[sessionID] = append(runtime.queuedEvents[sessionID], runtime.eventLocked(sessionID, eventType, payload))
+}
+
+func (runtime *Runtime) drainQueuedEventsLocked(sessionID auth.SessionID) []realtime.EventEnvelope {
+	events := runtime.queuedEvents[sessionID]
+	delete(runtime.queuedEvents, sessionID)
+	return append([]realtime.EventEnvelope(nil), events...)
+}
+
+func lootDropPayload(drop loot.Drop, now time.Time) map[string]any {
+	return map[string]any{
+		"drop_id":    drop.ID.String(),
+		"entity_id":  drop.ID.String(),
+		"position":   drop.Position,
+		"item_id":    drop.ItemDefinition.ItemID.String(),
+		"quantity":   drop.Quantity,
+		"state":      string(drop.State(now)),
+		"expires_at": drop.ExpiresAt.UTC().UnixMilli(),
+	}
+}
+
+func lootDropPayloads(drops []loot.Drop, now time.Time) []map[string]any {
+	payloads := make([]map[string]any, 0, len(drops))
+	for _, drop := range drops {
+		payloads = append(payloads, lootDropPayload(drop, now))
+	}
+	return payloads
+}
+
+func progressionPayload(snapshot progression.ProgressionSnapshot) progressionSnapshotPayload {
+	payload := progressionSnapshotPayload{
+		MainLevel: snapshot.Player.MainLevel,
+		MainXP:    snapshot.Player.MainXP,
+		Rank:      snapshot.Player.Rank,
+	}
+	if combatRole, ok := snapshot.RoleLevel(progression.RoleTypeCombat); ok {
+		payload.CombatLevel = combatRole.Level
+		payload.CombatXP = combatRole.XP
+	}
+	return payload
+}
+
+func roundCombatValue(value float64) int {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0
+	}
+	return int(math.Round(value))
+}
+
+func domainErrorForCombat(err error) error {
+	var domainErr *foundation.DomainError
+	if errors.As(err, &domainErr) {
+		return domainErr
+	}
+	switch {
+	case errors.Is(err, combat.ErrCooldownNotReady):
+		return foundation.NewDomainError(foundation.CodeCooldown, "Skill is on cooldown.", foundation.WithCause(err))
+	case errors.Is(err, combat.ErrNotEnoughEnergy):
+		return foundation.NewDomainError(foundation.CodeNotEnoughEnergy, "Not enough energy.", foundation.WithCause(err))
+	case errors.Is(err, combat.ErrOutOfRange):
+		return foundation.NewDomainError(foundation.CodeOutOfRange, "Target is out of range.", foundation.WithCause(err))
+	case errors.Is(err, combat.ErrTargetNotVisible), errors.Is(err, combat.ErrDifferentWorldZone):
+		return foundation.NewDomainError(foundation.CodeNotVisible, "Target is not visible.", foundation.WithCause(err))
+	case errors.Is(err, combat.ErrUnknownActor), errors.Is(err, combat.ErrTargetDead), errors.Is(err, combat.ErrAttackerDead):
+		return foundation.NewDomainError(foundation.CodeNotFound, "Target is not available.", foundation.WithCause(err))
+	default:
+		return foundation.NewDomainError(foundation.CodeInternal, "Combat command failed.", foundation.WithCause(err))
+	}
+}
+
+func domainErrorForLoot(err error) error {
+	switch {
+	case errors.Is(err, loot.ErrUnknownDrop), errors.Is(err, loot.ErrDropClaimed), errors.Is(err, loot.ErrDropExpired):
+		return foundation.NewDomainError(foundation.CodeNotFound, "Drop is not available.", foundation.WithCause(err))
+	case errors.Is(err, loot.ErrDropOwnerLocked), errors.Is(err, loot.ErrPickupNotVisible):
+		return foundation.NewDomainError(foundation.CodeNotVisible, "Drop is not visible.", foundation.WithCause(err))
+	case errors.Is(err, loot.ErrPickupOutOfRange):
+		return foundation.NewDomainError(foundation.CodeOutOfRange, "Drop is out of range.", foundation.WithCause(err))
+	case errors.Is(err, economy.ErrCargoCapacityExceeded):
+		return foundation.NewDomainError(foundation.CodeNotEnoughCargo, "Cargo capacity is full.", foundation.WithCause(err))
+	default:
+		return foundation.NewDomainError(foundation.CodeInternal, "Loot command failed.", foundation.WithCause(err))
+	}
+}

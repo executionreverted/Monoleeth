@@ -68,11 +68,39 @@ export interface WalletSummary {
   premium_earned: number;
 }
 
+export interface ShipSummary {
+  active_ship_id: string;
+  display_name: string;
+  hull: number;
+  max_hull: number;
+  shield: number;
+  max_shield: number;
+  capacitor: number;
+  max_capacitor: number;
+  disabled: boolean;
+  repair_state: string;
+}
+
 export interface StatSummary {
   speed: number;
   radar_range: number;
   weapon_range: number;
   cargo_capacity: number;
+}
+
+export interface ProgressionSummary {
+  main_level: number;
+  main_xp: number;
+  rank: number;
+  combat_level?: number;
+  combat_xp?: number;
+}
+
+export interface RepairQuote {
+  ship_id: string;
+  currency: string;
+  cost: number;
+  disabled: boolean;
 }
 
 export interface SectorSummary {
@@ -127,7 +155,11 @@ export interface ClientState {
   combatLog: LogLine[];
   cargo: CargoSummary | null;
   wallet: WalletSummary | null;
+  ship: ShipSummary | null;
   stats: StatSummary | null;
+  progression: ProgressionSummary | null;
+  repairQuote: RepairQuote | null;
+  skillCooldowns: Record<string, number>;
   questBoard: { available: number; active: number } | null;
   inventory: { equipped: number; storage: number } | null;
   planetIntel: { knownSignals: number; staleIntel: number | null } | null;

@@ -69,6 +69,30 @@ describe('parseServerMessage', () => {
     ).toThrow(/Forbidden server payload rejected/);
   });
 
+  test('accepts phase 05 combat payloads that do not expose server-only truth fields', () => {
+    const message = parseServerMessage(
+      JSON.stringify({
+        event_id: 'combat-1',
+        type: CLIENT_EVENTS.combatDamage,
+        payload: {
+          target_id: 'npc-1',
+          amount: 32,
+          shield_amount: 10,
+          hull_amount: 22,
+        },
+        server_time: 182736125,
+        seq: 10,
+        v: 1,
+      }),
+    );
+
+    expect(message).toMatchObject({
+      event_id: 'combat-1',
+      type: CLIENT_EVENTS.combatDamage,
+      payload: { amount: 32 },
+    });
+  });
+
   test('rejects unsupported protocol versions', () => {
     expect(() =>
       parseServerMessage(

@@ -9,8 +9,12 @@ export interface HUDHandlers {
   onSync(): void;
   onFire(): void;
   onLoot(): void;
+  onRepairQuote(): void;
+  onRepair(): void;
   onScan(): void;
 }
+
+type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['combat']>;
 
 export class HUD {
   private readonly root: HTMLElement;
@@ -52,9 +56,10 @@ export class HUD {
       </aside>
       <aside class="hud__rail hud__rail--right">
         <div class="panel" data-panel="target"></div>
-        <div class="panel" data-panel="loadout"></div>
+        <div class="panel" data-panel="ship"></div>
         <div class="panel" data-panel="intel"></div>
       </aside>
+      <footer class="hud__actionbar panel" data-panel="actions"></footer>
       <footer class="hud__log panel" data-panel="log"></footer>
       <div class="toast" role="status" aria-live="polite"></div>
     `;
@@ -67,8 +72,9 @@ export class HUD {
       cargo: this.panel('cargo'),
       quest: this.panel('quest'),
       target: this.panel('target'),
-      loadout: this.panel('loadout'),
+      ship: this.panel('ship'),
       intel: this.panel('intel'),
+      actions: this.panel('actions'),
       log: this.panel('log'),
     };
 
@@ -99,8 +105,9 @@ export class HUD {
     this.panels.cargo.innerHTML = cargoPanel(state);
     this.panels.quest.innerHTML = questPanel(state);
     this.panels.target.innerHTML = targetPanel(state);
-    this.panels.loadout.innerHTML = loadoutPanel(state);
+    this.panels.ship.innerHTML = shipPanel(state);
     this.panels.intel.innerHTML = intelPanel(state);
+    this.panels.actions.innerHTML = actionBar(state);
     this.panels.log.innerHTML = logPanel(state);
     renderToast(this.toast, state.lastError?.message ?? null);
   }
@@ -134,6 +141,12 @@ export class HUD {
         case 'loot':
           this.handlers.onLoot();
           break;
+        case 'repair-quote':
+          this.handlers.onRepairQuote();
+          break;
+        case 'repair':
+          this.handlers.onRepair();
+          break;
         case 'scan':
           this.handlers.onScan();
           break;
@@ -153,6 +166,7 @@ export class HUD {
 function statusPanel(state: ClientState): string {
   const snapshot = state.playerSnapshot;
   const stats = state.stats;
+  const progression = state.progression;
   return `
     <h2>${escapeHTML(String(snapshot?.callsign ?? state.auth.session?.player?.callsign ?? 'Awaiting Pilot'))}</h2>
     <div class="status-grid">
@@ -161,6 +175,7 @@ function statusPanel(state: ClientState): string {
       ${meter('ENG', snapshot?.energy, snapshot?.max_energy)}
     </div>
     <div class="meta-row"><span>Rank</span><strong>${snapshot?.rank ?? lockedValue()}</strong></div>
+    <div class="meta-row"><span>Level</span><strong>${progression?.main_level ?? lockedValue()}</strong></div>
     <div class="meta-row"><span>Speed</span><strong>${stats ? Math.round(stats.speed) : lockedValue()}</strong></div>
     <div class="meta-row"><span>Radar</span><strong>${stats ? Math.round(stats.radar_range) : lockedValue()}</strong></div>
     <div class="meta-row"><span>Link</span><strong>${escapeHTML(state.connectionStatus)}</strong></div>
@@ -204,8 +219,10 @@ function questPanel(state: ClientState): string {
 
 function targetPanel(state: ClientState): string {
   const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
-  const canFire = target?.entity_type === 'npc';
-  const canLoot = target?.entity_type === 'loot';
+  const shipDisabled = state.ship?.disabled === true;
+  const laserReadyAt = state.skillCooldowns.basic_laser ?? 0;
+  const canFire = target?.entity_type === 'npc' && !shipDisabled && laserReadyAt <= Date.now();
+  const canLoot = target?.entity_type === 'loot' && !shipDisabled;
   const targetLabel = target?.display?.label ?? target?.entity_id ?? '';
   return `
     <h2>Target</h2>
@@ -214,7 +231,8 @@ function targetPanel(state: ClientState): string {
         ? `<div class="target-name">${escapeHTML(targetLabel)}</div>
            <div class="meta-row"><span>Type</span><strong>${escapeHTML(publicEntityType(target.entity_type))}</strong></div>
            <div class="meta-row"><span>State</span><strong>${escapeHTML(target.display?.disposition ?? '--')}</strong></div>
-           <div class="meta-row"><span>X/Y</span><strong>${Math.round(target.position.x)} / ${Math.round(target.position.y)}</strong></div>`
+           <div class="meta-row"><span>X/Y</span><strong>${Math.round(target.position.x)} / ${Math.round(target.position.y)}</strong></div>
+           ${target.combat ? combatStatusBlock(target.combat) : ''}`
         : '<div class="empty-line">No lock</div>'
     }
     <div class="segmented">
@@ -225,19 +243,72 @@ function targetPanel(state: ClientState): string {
   `;
 }
 
-function loadoutPanel(state: ClientState): string {
-  if (!state.inventory) {
+function shipPanel(state: ClientState): string {
+  if (!state.ship) {
     return `
-      <h2>Loadout</h2>
-      <div class="empty-line">Locked until inventory and loadout snapshots are exposed.</div>
-      <button class="ghost-action" type="button" disabled>Open</button>
+      <h2>Ship</h2>
+      <div class="empty-line">Awaiting server ship snapshot.</div>
     `;
   }
+
+  const ship = state.ship;
+  const quote = state.repairQuote && state.repairQuote.ship_id === ship.active_ship_id ? state.repairQuote : null;
+  const repairDisabled = !ship.disabled || !quote;
   return `
-    <h2>Loadout</h2>
-    <div class="meta-row"><span>Equipped</span><strong>${state.inventory.equipped}</strong></div>
-    <div class="meta-row"><span>Stored</span><strong>${state.inventory.storage}</strong></div>
-    <button class="ghost-action" type="button" disabled title="Inventory gateway is not exposed yet">Open</button>
+    <h2>Ship</h2>
+    <div class="target-name">${escapeHTML(ship.display_name || ship.active_ship_id)}</div>
+    ${meter('Hull', ship.hull, ship.max_hull)}
+    ${meter('SHD', ship.shield, ship.max_shield)}
+    ${meter('Cap', ship.capacitor, ship.max_capacitor)}
+    <div class="meta-row"><span>State</span><strong>${escapeHTML(ship.repair_state || (ship.disabled ? 'disabled' : 'active'))}</strong></div>
+    ${
+      ship.disabled
+        ? `<div class="repair-box">
+             <div class="meta-row"><span>Quote</span><strong>${quote ? `${quote.cost} ${escapeHTML(quote.currency)}` : lockedValue()}</strong></div>
+             <div class="segmented">
+               <button type="button" data-action="repair-quote">Quote</button>
+               <button type="button" data-action="repair" ${repairDisabled ? 'disabled' : ''}>Repair</button>
+             </div>
+           </div>`
+        : ''
+    }
+  `;
+}
+
+function actionBar(state: ClientState): string {
+  const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
+  const shipDisabled = state.ship?.disabled === true;
+  const laserReadyAt = state.skillCooldowns.basic_laser ?? 0;
+  const laserCooling = laserReadyAt > Date.now();
+  const canLaser = target?.entity_type === 'npc' && !shipDisabled && !laserCooling;
+  const canLoot = target?.entity_type === 'loot' && !shipDisabled;
+  const laserLabel = laserCooling ? 'Cooling' : 'Laser';
+
+  return `
+    <div class="action-slot">
+      <button class="action-button" type="button" data-action="fire" ${canLaser ? '' : 'disabled'} title="Basic laser">
+        <span>${escapeHTML(laserLabel)}</span>
+        <small>${target?.entity_type === 'npc' ? 'Ready' : 'No target'}</small>
+      </button>
+    </div>
+    <div class="action-slot">
+      <button class="action-button" type="button" disabled title="Missile skills are not exposed yet">
+        <span>Rocket</span>
+        <small>Locked</small>
+      </button>
+    </div>
+    <div class="action-slot">
+      <button class="action-button" type="button" disabled title="Shield skills are not exposed yet">
+        <span>Shield</span>
+        <small>Locked</small>
+      </button>
+    </div>
+    <div class="action-slot">
+      <button class="action-button" type="button" data-action="loot" ${canLoot ? '' : 'disabled'} title="Pickup selected visible drop">
+        <span>Loot</span>
+        <small>${target?.entity_type === 'loot' ? 'Visible' : 'No drop'}</small>
+      </button>
+    </div>
   `;
 }
 
@@ -305,6 +376,16 @@ function meter(label: string, current?: number, max?: number): string {
       <div class="stat-meter__label">${label}</div>
       <div class="meter"><span style="width:${percent}%"></span></div>
       <strong>${hasValue ? safeCurrent : lockedValue()}</strong>
+    </div>
+  `;
+}
+
+function combatStatusBlock(combat: EntityCombatStatus): string {
+  return `
+    <div class="combat-status">
+      ${meter('Hull', combat.hp, combat.max_hp)}
+      ${meter('SHD', combat.shield, combat.max_shield)}
+      <div class="meta-row"><span>Combat</span><strong>${escapeHTML(combat.status ?? 'active')}</strong></div>
     </div>
   `;
 }

@@ -39,6 +39,14 @@ export class CommandBuilder {
     });
   }
 
+  deathRepairQuote(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.deathRepairQuote, {});
+  }
+
+  deathRepairShip(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.deathRepairShip, {});
+  }
+
   scanPulse(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.scanPulse, {});
   }

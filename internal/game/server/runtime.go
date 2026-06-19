@@ -9,8 +9,12 @@ import (
 	"time"
 
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/combat"
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/loot"
 	"gameproject/internal/game/observability"
+	"gameproject/internal/game/progression"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/stats"
 	"gameproject/internal/game/world"
@@ -53,14 +57,26 @@ type Runtime struct {
 	worldID foundation.WorldID
 	zoneID  foundation.ZoneID
 
-	players  map[foundation.PlayerID]playerRuntimeState
-	hidden   map[world.EntityID]bool
-	eventSeq map[auth.SessionID]uint64
-	sessions map[auth.SessionID]foundation.PlayerID
-	lastAOI  map[auth.SessionID]aoi.Snapshot
-	lastMove map[foundation.PlayerID]time.Time
+	players      map[foundation.PlayerID]playerRuntimeState
+	hidden       map[world.EntityID]bool
+	eventSeq     map[auth.SessionID]uint64
+	sessions     map[auth.SessionID]foundation.PlayerID
+	lastAOI      map[auth.SessionID]aoi.Snapshot
+	lastMove     map[foundation.PlayerID]time.Time
+	queuedEvents map[auth.SessionID][]realtime.EventEnvelope
 
 	nextPlayerEntity int
+
+	Combat       *combat.Service
+	Loot         *loot.Service
+	Inventory    *economy.InventoryService
+	CargoService *economy.CargoService
+	Progression  *progression.ProgressionService
+
+	combatXP       *combat.NPCKillXPHandler
+	lootTable      loot.LootTable
+	itemCatalog    map[foundation.ItemID]economy.ItemDefinition
+	repairAttempts map[foundation.IdempotencyKey]repairAttemptRecord
 }
 
 type playerRuntimeState struct {
@@ -131,6 +147,14 @@ type cargoItemStack struct {
 	Quantity int64  `json:"quantity"`
 }
 
+type progressionSnapshotPayload struct {
+	MainLevel   int   `json:"main_level"`
+	MainXP      int64 `json:"main_xp"`
+	Rank        int   `json:"rank"`
+	CombatLevel int   `json:"combat_level,omitempty"`
+	CombatXP    int64 `json:"combat_xp,omitempty"`
+}
+
 type worldSnapshotPayload struct {
 	Sector         sectorPayload       `json:"sector"`
 	Entities       []aoi.EntityPayload `json:"entities"`
@@ -152,11 +176,11 @@ type minimapPayload struct {
 }
 
 type minimapContactPayload struct {
-	EntityID    string            `json:"entity_id"`
-	EntityType  world.EntityType  `json:"entity_type"`
-	Position    world.Vec2        `json:"position"`
-	Disposition string            `json:"disposition,omitempty"`
-	StatusFlags []aoi.StatusFlag  `json:"status_flags,omitempty"`
+	EntityID    string           `json:"entity_id"`
+	EntityType  world.EntityType `json:"entity_type"`
+	Position    world.Vec2       `json:"position"`
+	Disposition string           `json:"disposition,omitempty"`
+	StatusFlags []aoi.StatusFlag `json:"status_flags,omitempty"`
 }
 
 type minimapMemoryPayload struct {
@@ -196,6 +220,27 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	inventory := economy.NewInventoryService(clock)
+	cargoService := economy.NewCargoService(inventory)
+	progressionService := progression.NewProgressionService(clock, nil)
+	lootService, err := loot.NewService(loot.Config{
+		Clock:       clock,
+		Cargo:       cargoService,
+		Progression: progressionService,
+		PickupRange: 120,
+	})
+	if err != nil {
+		return nil, err
+	}
+	combatService := combat.NewService(clock, nil)
+	combatXP, err := combat.NewNPCKillXPHandler(progressionService, combat.DefaultNPCKillXPReward())
+	if err != nil {
+		return nil, err
+	}
+	lootTable, itemCatalog, err := runtimeLootCatalog()
+	if err != nil {
+		return nil, err
+	}
 	runtime := &Runtime{
 		clock:   clock,
 		devMode: config.DevMode,
@@ -207,10 +252,20 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		hidden: map[world.EntityID]bool{
 			"entity_hidden_planet_signal": true,
 		},
-		eventSeq: make(map[auth.SessionID]uint64),
-		sessions: make(map[auth.SessionID]foundation.PlayerID),
-		lastAOI:  make(map[auth.SessionID]aoi.Snapshot),
-		lastMove: make(map[foundation.PlayerID]time.Time),
+		eventSeq:       make(map[auth.SessionID]uint64),
+		sessions:       make(map[auth.SessionID]foundation.PlayerID),
+		lastAOI:        make(map[auth.SessionID]aoi.Snapshot),
+		lastMove:       make(map[foundation.PlayerID]time.Time),
+		queuedEvents:   make(map[auth.SessionID][]realtime.EventEnvelope),
+		Combat:         combatService,
+		Loot:           lootService,
+		Inventory:      inventory,
+		CargoService:   cargoService,
+		Progression:    progressionService,
+		combatXP:       combatXP,
+		lootTable:      lootTable,
+		itemCatalog:    itemCatalog,
+		repairAttempts: make(map[foundation.IdempotencyKey]repairAttemptRecord),
 	}
 	if err := runtime.seedWorld(); err != nil {
 		return nil, err
@@ -273,6 +328,9 @@ func (runtime *Runtime) seedWorld() error {
 	if err := runtime.Worker.InsertEntity(visible, 0); err != nil {
 		return err
 	}
+	if err := runtime.Combat.UpsertActor(runtime.trainingNPCActor(visible)); err != nil {
+		return err
+	}
 	hidden, err := world.NewEntity(runtime.worldID, runtime.zoneID, "entity_hidden_planet_signal", world.EntityTypePlanetSignalPlaceholder, world.Vec2{X: 120, Y: 0})
 	if err != nil {
 		return err
@@ -318,6 +376,9 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 	if err != nil {
 		return err
 	}
+	if _, err := runtime.syncPlayerCombatActorLocked(resolved.PlayerID); err != nil {
+		return err
+	}
 	runtime.sessions[resolved.SessionID] = resolved.PlayerID
 	return nil
 }
@@ -340,8 +401,12 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realti
 	if err != nil {
 		return nil, err
 	}
+	progressionSnapshot, err := runtime.Progression.GetProgressionSnapshot(resolved.PlayerID)
+	if err != nil {
+		return nil, err
+	}
 	runtime.lastAOI[resolved.SessionID] = aoi.Snapshot{Entities: cloneAOIEntities(worldSnapshot.Entities)}
-	events := make([]realtime.EventEnvelope, 0, 7)
+	events := make([]realtime.EventEnvelope, 0, 8)
 	sessionPayload := sessionReadyPayload{
 		Authenticated: true,
 		Account: &auth.PublicAccount{
@@ -362,6 +427,7 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realti
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventStatsUpdated, state.Stats))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventWalletSnapshot, state.Wallet))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventCargoSnapshot, state.Cargo))
+	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventProgressionSnapshot, progressionPayload(progressionSnapshot)))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventWorldSnapshot, worldSnapshot))
 	return events, nil
 }
@@ -383,6 +449,12 @@ func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.
 		if op == realtime.OperationStop {
 			events = append(events, runtime.eventLocked(sessionID, realtime.EventMovementStopped, payload))
 		}
+		events = append(events, runtime.aoiDiffEventsLocked(sessionID, playerID)...)
+		return events, nil
+	case realtime.OperationCombatUseSkill, realtime.OperationLootPickup, realtime.OperationDeathRepairQuote, realtime.OperationDeathRepairShip:
+		runtime.mu.Lock()
+		defer runtime.mu.Unlock()
+		events := runtime.drainQueuedEventsLocked(sessionID)
 		events = append(events, runtime.aoiDiffEventsLocked(sessionID, playerID)...)
 		return events, nil
 	default:
@@ -437,13 +509,14 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 	workerSnapshot := runtime.Worker.Snapshot()
 	states := make([]aoi.EntityState, 0, len(workerSnapshot.Entities))
 	for _, entity := range workerSnapshot.Entities {
-		flags, display := runtime.publicEntityMetadataLocked(playerID, entity)
+		flags, display, combatStatus := runtime.publicEntityMetadataLocked(playerID, entity)
 		states = append(states, aoi.EntityState{
 			Entity:            entity,
 			Signature:         visibility.EntitySignature(1),
 			Hidden:            runtime.hidden[entity.ID],
 			PublicStatusFlags: flags,
 			PublicDisplay:     display,
+			PublicCombat:      combatStatus,
 		})
 	}
 	snapshot := aoi.BuildVisibleSnapshot(viewer, states)
@@ -487,24 +560,29 @@ func (runtime *Runtime) aoiDiffEventsLocked(sessionID auth.SessionID, playerID f
 	return events
 }
 
-func (runtime *Runtime) publicEntityMetadataLocked(viewerID foundation.PlayerID, entity world.Entity) ([]aoi.StatusFlag, *aoi.EntityDisplay) {
+func (runtime *Runtime) publicEntityMetadataLocked(viewerID foundation.PlayerID, entity world.Entity) ([]aoi.StatusFlag, *aoi.EntityDisplay, *aoi.EntityCombatStatus) {
 	switch entity.Type {
 	case world.EntityTypePlayer:
 		if playerID, playerState, ok := runtime.playerByEntityLocked(entity.ID); ok {
 			if playerID == viewerID {
-				return []aoi.StatusFlag{"friendly", "self"}, &aoi.EntityDisplay{Label: playerState.Callsign, Disposition: "self"}
+				return []aoi.StatusFlag{"friendly", "self"}, &aoi.EntityDisplay{Label: playerState.Callsign, Disposition: "self"}, nil
 			}
-			return []aoi.StatusFlag{"friendly"}, &aoi.EntityDisplay{Label: playerState.Callsign, Disposition: "friendly"}
+			return []aoi.StatusFlag{"friendly"}, &aoi.EntityDisplay{Label: playerState.Callsign, Disposition: "friendly"}, nil
 		}
-		return []aoi.StatusFlag{"friendly"}, &aoi.EntityDisplay{Label: "Pilot", Disposition: "friendly"}
+		return []aoi.StatusFlag{"friendly"}, &aoi.EntityDisplay{Label: "Pilot", Disposition: "friendly"}, nil
 	case world.EntityTypeNPC:
-		return []aoi.StatusFlag{"hostile"}, &aoi.EntityDisplay{Label: displayLabelForEntity(entity.ID, "Training Drone"), Disposition: "hostile"}
+		flags := []aoi.StatusFlag{"hostile"}
+		combatStatus := runtime.entityCombatStatusLocked(entity.ID)
+		if combatStatus != nil && combatStatus.HP < combatStatus.MaxHP {
+			flags = append(flags, "damaged")
+		}
+		return flags, &aoi.EntityDisplay{Label: displayLabelForEntity(entity.ID, "Training Drone"), Disposition: "hostile"}, combatStatus
 	case world.EntityTypeLoot:
-		return []aoi.StatusFlag{"loot"}, &aoi.EntityDisplay{Label: "Loot Cache", Disposition: "neutral"}
+		return []aoi.StatusFlag{"loot"}, &aoi.EntityDisplay{Label: "Loot Cache", Disposition: "neutral"}, nil
 	case world.EntityTypePlanetSignal:
-		return []aoi.StatusFlag{"unknown_signal"}, &aoi.EntityDisplay{Label: "Unknown Signal", Disposition: "unknown"}
+		return []aoi.StatusFlag{"unknown_signal"}, &aoi.EntityDisplay{Label: "Unknown Signal", Disposition: "unknown"}, nil
 	default:
-		return nil, nil
+		return nil, nil, nil
 	}
 }
 
@@ -558,6 +636,10 @@ func cloneAOIEntities(entities []aoi.EntityPayload) []aoi.EntityPayload {
 		if entity.Display != nil {
 			display := *entity.Display
 			entity.Display = &display
+		}
+		if entity.Combat != nil {
+			combatStatus := *entity.Combat
+			entity.Combat = &combatStatus
 		}
 		cloned = append(cloned, entity)
 	}

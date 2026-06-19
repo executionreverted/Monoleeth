@@ -182,8 +182,9 @@ button {
     "topbar"
     "left"
     "right"
+    "actions"
     "log";
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
   grid-template-columns: 1fr;
   gap: 0.5rem;
   padding: 0.625rem;
@@ -432,6 +433,15 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.combat-status,
+.repair-box {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.625rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid rgba(215, 247, 255, 0.12);
+}
+
 .minimap {
   position: relative;
   width: 100%;
@@ -560,6 +570,57 @@ button:disabled {
   margin-top: 0.5rem;
 }
 
+.hud__actionbar {
+  grid-area: actions;
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  align-self: end;
+}
+
+.action-slot {
+  min-width: 0;
+}
+
+.action-button {
+  width: 100%;
+  min-height: 3.25rem;
+  display: grid;
+  gap: 0.125rem;
+  align-content: center;
+  border: 1px solid rgba(138, 245, 255, 0.26);
+  border-radius: 0;
+  color: #d7f7ff;
+  background: rgba(9, 16, 19, 0.82);
+  cursor: pointer;
+}
+
+.action-button:hover:not(:disabled) {
+  border-color: rgba(124, 255, 155, 0.7);
+  background: rgba(124, 255, 155, 0.14);
+}
+
+.action-button span,
+.action-button small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-button span {
+  color: #f4c95d;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.action-button small {
+  color: rgba(215, 247, 255, 0.6);
+  font-size: 0.75rem;
+}
+
 .hud__log {
   grid-area: log;
   position: relative;
@@ -615,8 +676,10 @@ button:disabled {
       "topbar"
       "left"
       "right"
+      "."
+      "actions"
       "log";
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
     gap: 0.375rem;
     padding: 0.5rem;
   }
@@ -662,6 +725,7 @@ button:disabled {
 
   .hud__rail--left {
     grid-template-columns: repeat(3, minmax(15rem, 1fr));
+    align-items: start;
     align-self: start;
     overflow-x: auto;
     overflow-y: hidden;
@@ -673,6 +737,7 @@ button:disabled {
   .hud__rail--right {
     display: grid;
     grid-template-columns: repeat(3, minmax(15rem, 1fr));
+    align-items: start;
     align-self: start;
     overflow-x: auto;
     overflow-y: hidden;
@@ -683,12 +748,19 @@ button:disabled {
 
   .hud__rail--left .panel,
   .hud__rail--right .panel {
+    align-self: start;
     scroll-snap-align: start;
   }
 
   .hud__log {
     max-height: 6.25rem;
     overflow: hidden;
+  }
+
+  .hud__actionbar {
+    grid-template-columns: repeat(4, minmax(4.25rem, 1fr));
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
   }
 
   .panel h2 {
@@ -709,9 +781,10 @@ button:disabled {
     grid-template-areas:
       "topbar topbar topbar"
       "left center right"
+      "actions actions actions"
       "log log log";
     grid-template-columns: minmax(14rem, 18rem) 1fr minmax(14rem, 18rem);
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto 1fr auto auto;
     padding: 0.875rem;
   }
 
@@ -743,6 +816,12 @@ button:disabled {
 
   .hud__log {
     grid-area: log;
+  }
+
+  .hud__actionbar {
+    grid-area: actions;
+    justify-self: center;
+    width: min(100%, 34rem);
   }
 }
 

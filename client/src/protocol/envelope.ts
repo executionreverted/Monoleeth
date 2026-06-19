@@ -9,6 +9,8 @@ export const OPERATIONS = {
   debugSnapshot: 'debug_snapshot',
   combatUseSkill: 'combat.use_skill',
   lootPickup: 'loot.pickup',
+  deathRepairQuote: 'death.repair_quote',
+  deathRepairShip: 'death.repair_ship',
   scanPulse: 'scan.pulse',
 } as const;
 
@@ -28,6 +30,18 @@ export const CLIENT_EVENTS = {
   positionCorrected: 'position.corrected',
   movementStopped: 'movement.stopped',
   serverNotice: 'server.notice',
+  targetUpdated: 'target.updated',
+  combatDamage: 'combat.damage',
+  combatMiss: 'combat.miss',
+  combatCooldownStarted: 'combat.cooldown_started',
+  combatNPCKilled: 'combat.npc_killed',
+  lootCreated: 'loot.created',
+  lootUpdated: 'loot.updated',
+  lootRemoved: 'loot.removed',
+  lootPickedUp: 'loot.picked_up',
+  progressionSnapshot: 'progression.snapshot',
+  deathShipDisabled: 'death.ship_disabled',
+  deathRepaired: 'death.repaired',
 } as const;
 
 export type ClientEventType = (typeof CLIENT_EVENTS)[keyof typeof CLIENT_EVENTS] | string;
@@ -50,6 +64,13 @@ export interface EntityPayload {
   position: Vec2;
   status_flags?: string[];
   display?: EntityDisplay;
+  combat?: {
+    hp: number;
+    max_hp: number;
+    shield: number;
+    max_shield: number;
+    status?: string;
+  };
 }
 
 export interface RequestEnvelope<TPayload extends JsonObject = JsonObject> {

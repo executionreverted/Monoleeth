@@ -39,12 +39,16 @@ var trustedClientPayloadKeys = map[string]struct{}{
 
 func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.CommandHandler {
 	return map[realtime.Operation]realtime.CommandHandler{
-		realtime.OperationSessionSnapshot: runtime.handleSessionSnapshot,
-		realtime.OperationWorldSnapshot:   runtime.handleWorldSnapshot,
-		realtime.OperationMoveTo:          runtime.handleMoveTo,
-		realtime.OperationStop:            runtime.handleStop,
-		realtime.OperationDebugSnapshot:   runtime.handleDebugSnapshot,
-		realtime.OperationDebugSpawnNPC:   runtime.handleDebugSpawnNPC,
+		realtime.OperationSessionSnapshot:  runtime.handleSessionSnapshot,
+		realtime.OperationWorldSnapshot:    runtime.handleWorldSnapshot,
+		realtime.OperationMoveTo:           runtime.handleMoveTo,
+		realtime.OperationStop:             runtime.handleStop,
+		realtime.OperationCombatUseSkill:   runtime.handleCombatUseSkill,
+		realtime.OperationLootPickup:       runtime.handleLootPickup,
+		realtime.OperationDeathRepairQuote: runtime.handleDeathRepairQuote,
+		realtime.OperationDeathRepairShip:  runtime.handleDeathRepairShip,
+		realtime.OperationDebugSnapshot:    runtime.handleDebugSnapshot,
+		realtime.OperationDebugSpawnNPC:    runtime.handleDebugSpawnNPC,
 	}
 }
 

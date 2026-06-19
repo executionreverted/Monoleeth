@@ -13,7 +13,11 @@ describe('reduceClientState', () => {
     expect(state.minimap).toBeNull();
     expect(state.cargo).toBeNull();
     expect(state.wallet).toBeNull();
+    expect(state.ship).toBeNull();
     expect(state.stats).toBeNull();
+    expect(state.progression).toBeNull();
+    expect(state.repairQuote).toBeNull();
+    expect(state.skillCooldowns).toEqual({});
     expect(state.questBoard).toBeNull();
     expect(state.inventory).toBeNull();
     expect(state.planetIntel).toBeNull();
@@ -21,24 +25,39 @@ describe('reduceClientState', () => {
   });
 
   test('logout and auth expiry clear gameplay state', () => {
-    const withGameplay = reduceClientState(createInitialState(), {
-      type: 'eventReceived',
-      envelope: event(CLIENT_EVENTS.playerSnapshot, {
-        callsign: 'Server-Pilot',
-        hp: 80,
-        shield: 70,
-        energy: 60,
+    const withGameplay = reduceClientState(
+      reduceClientState(createInitialState(), {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.playerSnapshot, {
+          callsign: 'Server-Pilot',
+          hp: 80,
+          shield: 70,
+          energy: 60,
+        }),
       }),
-    });
+      {
+        type: 'responseReceived',
+        envelope: {
+          request_id: 'repair-quote',
+          ok: true,
+          payload: { ship_id: 'starter_ship', cost: 0, currency: 'credits', disabled: true },
+          server_time: 1002,
+          v: 1,
+        },
+      },
+    );
 
     const loggedOut = reduceClientState(withGameplay, { type: 'authLoggedOut' });
     expect(loggedOut.connectionStatus).toBe('logged_out');
     expect(loggedOut.playerSnapshot).toBeNull();
+    expect(loggedOut.repairQuote).toBeNull();
+    expect(loggedOut.skillCooldowns).toEqual({});
     expect(loggedOut.visibleEntities).toEqual({});
 
     const expired = reduceClientState(withGameplay, { type: 'authExpired', message: 'Session expired.' });
     expect(expired.connectionStatus).toBe('auth_expired');
     expect(expired.playerSnapshot).toBeNull();
+    expect(expired.repairQuote).toBeNull();
     expect(expired.auth.error).toBe('Session expired.');
   });
 
@@ -244,7 +263,7 @@ describe('reduceClientState', () => {
     ).toThrow(/Forbidden server payload rejected/);
   });
 
-  test('snapshot response reconciles player, cargo, wallet, and stat panels', () => {
+  test('snapshot response reconciles player, cargo, wallet, ship, progression, and stat panels', () => {
     const reconciled = reduceClientState(createInitialState(), {
       type: 'responseReceived',
       envelope: {
@@ -258,6 +277,19 @@ describe('reduceClientState', () => {
             items: [{ item_id: 'raw_ore', quantity: 4 }],
           },
           wallet: { credits: 980, premium_paid: 3, premium_earned: 9 },
+          ship: {
+            active_ship_id: 'starter_ship',
+            display_name: 'Starter Hull',
+            hull: 88,
+            max_hull: 120,
+            shield: 42,
+            max_shield: 60,
+            capacitor: 31,
+            max_capacitor: 50,
+            disabled: false,
+            repair_state: 'active',
+          },
+          progression: { main_level: 2, main_xp: 175, rank: 2, combat_level: 1, combat_xp: 25 },
           stats: { speed: 220, radar_range: 510, weapon_range: 280, cargo_capacity: 80 },
         },
         server_time: 1400,
@@ -269,6 +301,9 @@ describe('reduceClientState', () => {
     expect(reconciled.cargo).toMatchObject({ used: 4, capacity: 80 });
     expect(reconciled.cargo?.items).toEqual([{ item_id: 'raw_ore', quantity: 4 }]);
     expect(reconciled.wallet).toEqual({ credits: 980, premium_paid: 3, premium_earned: 9 });
+    expect(reconciled.ship).toMatchObject({ active_ship_id: 'starter_ship', hull: 88, capacitor: 31, disabled: false });
+    expect(reconciled.playerSnapshot).toMatchObject({ hp: 88, max_hp: 120, shield: 42, energy: 31 });
+    expect(reconciled.progression).toMatchObject({ main_level: 2, main_xp: 175, rank: 2, combat_xp: 25 });
     expect(reconciled.stats).toMatchObject({ speed: 220, radar_range: 510, weapon_range: 280, cargo_capacity: 80 });
   });
 
@@ -340,6 +375,99 @@ describe('reduceClientState', () => {
     expect(withStats.cargo?.items).toEqual([{ item_id: 'salvage_thread', quantity: 12 }]);
     expect(withStats.wallet?.credits).toBe(444);
     expect(withStats.stats?.weapon_range).toBe(275);
+  });
+
+  test('phase 05 combat, loot, progression, and repair events reconcile server-owned state', () => {
+    const withNPC = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.entityEntered, {
+        entity_id: 'npc-1',
+        entity_type: 'npc',
+        position: { x: 80, y: 0 },
+        display: { label: 'Training Drone', disposition: 'hostile' },
+        combat: { hp: 40, max_hp: 40, shield: 10, max_shield: 10, status: 'active' },
+      }),
+    });
+    const targeted = reduceClientState({ ...withNPC, selectedTargetID: 'npc-1' }, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.targetUpdated, {
+        entity_id: 'npc-1',
+        combat: { hp: 0, max_hp: 40, shield: 0, max_shield: 10, status: 'destroyed' },
+      }, 2),
+    });
+    const withCooldown = reduceClientState(targeted, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.combatCooldownStarted, {
+        skill_id: 'basic_laser',
+        cooldown_ready_at_ms: 9000,
+      }, 3),
+    });
+    const withDamage = reduceClientState(withCooldown, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.combatDamage, {
+        target_id: 'npc-1',
+        amount: 45,
+      }, 4),
+    });
+    const withLootEntity = reduceClientState(withDamage, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.entityEntered, {
+        entity_id: 'drop-1',
+        entity_type: 'loot',
+        position: { x: 80, y: 0 },
+        display: { label: 'Raw Ore', disposition: 'neutral' },
+      }, 5),
+    });
+    const afterPickup = reduceClientState(
+      {
+        ...withLootEntity,
+        selectedTargetID: 'drop-1',
+      },
+      {
+        type: 'responseReceived',
+        envelope: {
+          request_id: 'pickup-1',
+          ok: true,
+          payload: {
+            cargo: { used: 6, capacity: 60, items: [{ item_id: 'raw_ore', quantity: 3 }] },
+          },
+          server_time: 1006,
+          v: 1,
+        },
+      },
+    );
+    const withoutLootEntity = reduceClientState(afterPickup, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.lootRemoved, { entity_id: 'drop-1' }, 7),
+    });
+    const progressed = reduceClientState(withoutLootEntity, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.progressionSnapshot, { main_level: 2, main_xp: 100, rank: 2, combat_xp: 40 }, 8),
+    });
+    const quoted = reduceClientState(progressed, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'quote-1',
+        ok: true,
+        payload: { ship_id: 'starter_ship', cost: 0, currency: 'credits', disabled: true },
+        server_time: 1009,
+        v: 1,
+      },
+    });
+    const repaired = reduceClientState(quoted, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.deathRepaired, { ship_id: 'starter_ship' }, 10),
+    });
+
+    expect(targeted.visibleEntities['npc-1'].combat).toMatchObject({ hp: 0, shield: 0, status: 'destroyed' });
+    expect(withCooldown.skillCooldowns.basic_laser).toBe(9000);
+    expect(withDamage.combatLog.at(-1)?.text).toContain('Hit npc-1 for 45.');
+    expect(afterPickup.cargo?.items).toEqual([{ item_id: 'raw_ore', quantity: 3 }]);
+    expect(withoutLootEntity.visibleEntities['drop-1']).toBeUndefined();
+    expect(withoutLootEntity.selectedTargetID).toBeNull();
+    expect(progressed.progression).toMatchObject({ main_level: 2, rank: 2, combat_xp: 40 });
+    expect(quoted.repairQuote).toEqual({ ship_id: 'starter_ship', cost: 0, currency: 'credits', disabled: true });
+    expect(repaired.repairQuote).toBeNull();
   });
 });
 

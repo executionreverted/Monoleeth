@@ -107,6 +107,9 @@ var requiredCommandSecurityOperations = []string{
 	"debug_spawn_npc",
 	"debug_snapshot",
 	"combat.use_skill",
+	"loot.pickup",
+	"death.repair_quote",
+	"death.repair_ship",
 }
 
 var phase12LoadTestEvidence = GateEvidence{
@@ -336,6 +339,30 @@ var phase12CommandSecurityProfiles = []commandSecurityProfile{
 			CommandSecurityBroadcastAfterCommit: notApplicable("combat.use_skill currently mutates in-memory combat state; durable commit/outbox broadcast is not part of this Phase 05 gateway slice"),
 		},
 	},
+	realtimeCommandSecurityProfile("loot.pickup",
+		satisfied(evidence("gameproject/internal/game/server", "TestCombatKillCreatesLootAndPickupUpdatesCargo", "loot.pickup accepts only a drop id and derives player, cargo, and item contents server-side")),
+		notApplicable("loot.pickup uses the server-resolved session subject instead of a client-owned player id"),
+		notApplicable("loot.pickup does not accept client-authored quantity or item amount"),
+		satisfied(evidence("gameproject/internal/game/loot", "TestPickupDropRejectsFarHiddenAndCargoFullWithoutClaim", "loot service rejects hidden, far, and cargo-full pickup attempts before claim")),
+		satisfied(evidence("gameproject/internal/game/economy", "TestAddItemWritesItemLedgerEntryWithReasonAndReference", "loot pickup cargo add writes item ledger entries with reason and reference")),
+		notApplicable("loot.pickup broadcasts in-memory realtime events after the service mutation; durable outbox is not part of this browser runtime slice"),
+	),
+	realtimeCommandSecurityProfile("death.repair_quote",
+		satisfied(evidence("gameproject/internal/game/server", "TestRepairQuoteAndRepairUseServerOwnedActiveShip", "repair quote ignores client ship/cost data and derives the active ship server-side")),
+		notApplicable("death.repair_quote uses the server-resolved session subject instead of a client-owned player id"),
+		notApplicable("death.repair_quote is read-only and does not accept a client-authored amount"),
+		notApplicable("death.repair_quote has no hidden target interaction"),
+		notApplicable("death.repair_quote has no item/currency mutation ledger"),
+		notApplicable("death.repair_quote is read-only without commit/broadcast semantics"),
+	),
+	realtimeCommandSecurityProfile("death.repair_ship",
+		satisfied(evidence("gameproject/internal/game/server", "TestRepairQuoteAndRepairUseServerOwnedActiveShip", "repair command derives active ship, cost, and wallet mutation from server state")),
+		notApplicable("death.repair_ship uses the server-resolved session subject instead of a client-owned player id"),
+		notApplicable("death.repair_ship does not accept a client-authored repair cost"),
+		notApplicable("death.repair_ship has no hidden target interaction"),
+		satisfied(evidence("gameproject/internal/game/death", "TestRepairServiceDebitsServerCalculatedCostAndRestoresShipAvailable", "death repair service debits the server-calculated credit cost through wallet ledger entries")),
+		notApplicable("death.repair_ship broadcasts in-memory realtime events after the service mutation; durable outbox is not part of this browser runtime slice"),
+	),
 }
 
 // RequiredReleaseGateModules returns the Phase 12 module checklist in stable order.
