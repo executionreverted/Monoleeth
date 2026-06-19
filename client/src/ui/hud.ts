@@ -12,6 +12,20 @@ export interface HUDHandlers {
   onRepairQuote(): void;
   onRepair(): void;
   onScan(): void;
+  onMarketCreateListing(input: {
+    itemID: string;
+    quantity: number;
+    unitPrice: number;
+    sourceLocation?: string;
+    itemInstanceID?: string;
+  }): void;
+  onMarketBuy(listingID: string): void;
+  onMarketCancel(listingID: string): void;
+  onAuctionBid(auctionID: string, amount: number): void;
+  onAuctionBuyNow(auctionID: string): void;
+  onAuctionClaimGrant(): void;
+  onPremiumClaim(entitlementID: string): void;
+  onPremiumWeeklyXCore(): void;
 }
 
 type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['combat']>;
@@ -52,6 +66,7 @@ export class HUD {
       <aside class="hud__rail hud__rail--left">
         <div class="panel panel--status" data-panel="status"></div>
         <div class="panel panel--cargo" data-panel="cargo"></div>
+        <div class="panel panel--economy" data-panel="economy"></div>
         <div class="panel panel--systems" data-panel="systems"></div>
       </aside>
       <aside class="hud__rail hud__rail--right">
@@ -70,6 +85,7 @@ export class HUD {
     this.panels = {
       status: this.panel('status'),
       cargo: this.panel('cargo'),
+      economy: this.panel('economy'),
       systems: this.panel('systems'),
       target: this.panel('target'),
       ship: this.panel('ship'),
@@ -103,6 +119,7 @@ export class HUD {
     }
     this.panels.status.innerHTML = statusPanel(state);
     this.panels.cargo.innerHTML = cargoPanel(state);
+    this.panels.economy.innerHTML = economyPanel(state);
     this.panels.systems.innerHTML = systemsPanel(state);
     this.panels.target.innerHTML = targetPanel(state);
     this.panels.ship.innerHTML = shipPanel(state);
@@ -149,6 +166,48 @@ export class HUD {
           break;
         case 'scan':
           this.handlers.onScan();
+          break;
+        case 'market-buy':
+          if (button.dataset.listingId) {
+            this.handlers.onMarketBuy(button.dataset.listingId);
+          }
+          break;
+        case 'market-create':
+          if (button.dataset.itemId) {
+            this.handlers.onMarketCreateListing({
+              itemID: button.dataset.itemId,
+              quantity: Number(button.dataset.quantity ?? '1'),
+              unitPrice: Number(button.dataset.unitPrice ?? '0'),
+              sourceLocation: button.dataset.sourceLocation,
+              itemInstanceID: button.dataset.itemInstanceId,
+            });
+          }
+          break;
+        case 'market-cancel':
+          if (button.dataset.listingId) {
+            this.handlers.onMarketCancel(button.dataset.listingId);
+          }
+          break;
+        case 'auction-bid':
+          if (button.dataset.auctionId) {
+            this.handlers.onAuctionBid(button.dataset.auctionId, Number(button.dataset.amount ?? '0'));
+          }
+          break;
+        case 'auction-buy-now':
+          if (button.dataset.auctionId) {
+            this.handlers.onAuctionBuyNow(button.dataset.auctionId);
+          }
+          break;
+        case 'auction-claim':
+          this.handlers.onAuctionClaimGrant();
+          break;
+        case 'premium-claim':
+          if (button.dataset.entitlementId) {
+            this.handlers.onPremiumClaim(button.dataset.entitlementId);
+          }
+          break;
+        case 'premium-weekly-xcore':
+          this.handlers.onPremiumWeeklyXCore();
           break;
       }
     });
@@ -198,6 +257,90 @@ function cargoPanel(state: ClientState): string {
     <ul class="compact-list">
       ${state.cargo.items.map((item) => `<li><span>${escapeHTML(item.item_id)}</span><strong>${item.quantity}</strong></li>`).join('')}
     </ul>
+  `;
+}
+
+function economyPanel(state: ClientState): string {
+  const wallet = state.wallet;
+  const market = state.market;
+  const auction = state.auction;
+  const premium = state.premium;
+  if (!wallet || !market || !auction || !premium) {
+    return `
+      <h2>Shop</h2>
+      <div class="empty-line">Awaiting server economy snapshots.</div>
+    `;
+  }
+
+  const listing = market.listings.find((item) => item.status === 'active' && !item.owned_by_you) ?? market.listings[0] ?? null;
+  const lot = auction.lots.find((item) => item.status === 'active') ?? auction.lots[0] ?? null;
+  const pendingEntitlement = premium.entitlements.find((item) => item.state === 'pending') ?? null;
+  const stock = premium.stock[0] ?? null;
+  const ownListing = market.listings.find((item) => item.status === 'active' && item.owned_by_you) ?? null;
+  const sellableStack = ownListing ? null : sellableInventoryStack(state);
+  const sellUnitPrice = sellableStack ? defaultListingPrice(sellableStack.item_id, market) : 0;
+  const alreadyPurchased = stock ? premium.purchases.some((purchase) => purchase.period_key === stock.period_key) : false;
+  const canBuyListing = Boolean(listing && listing.status === 'active' && !listing.owned_by_you && wallet.credits >= listing.unit_price);
+  const bidAmount = lot ? Math.max(lot.start_price, lot.current_bid + 50) : 0;
+  const canBid = Boolean(lot && lot.status === 'active' && wallet.credits >= bidAmount && !lot.leading);
+  const canBuyNow = Boolean(lot && lot.status === 'active' && lot.buy_now_price !== undefined && wallet.credits >= lot.buy_now_price);
+  const canBuyWeekly = Boolean(stock && stock.stock_remaining > 0 && !alreadyPurchased && wallet.premium_paid >= stock.price_amount);
+
+  return `
+    <h2>Shop</h2>
+    <div class="economy-metrics">
+      <span>CR<strong>${wallet.credits}</strong></span>
+      <span>Paid<strong>${wallet.premium_paid}</strong></span>
+      <span>Earned<strong>${wallet.premium_earned}</strong></span>
+    </div>
+    ${
+      listing
+        ? `<div class="shop-row">
+             <div><span>Market</span><strong>${escapeHTML(listing.display_name || listing.item_id)}</strong></div>
+             <button type="button" data-action="${listing.owned_by_you ? 'market-cancel' : 'market-buy'}" data-listing-id="${escapeHTML(listing.listing_id)}" ${listing.owned_by_you || canBuyListing ? '' : 'disabled'} title="Server recalculates price and escrow">
+               ${listing.owned_by_you ? 'Cancel' : `${listing.unit_price} ${escapeHTML(listing.currency_type)}`}
+             </button>
+           </div>`
+        : '<div class="empty-line">No market listings.</div>'
+    }
+    ${
+      ownListing
+        ? `<div class="shop-row">
+             <div><span>Mine</span><strong>${escapeHTML(ownListing.display_name || ownListing.item_id)} x${ownListing.remaining_quantity}</strong><small>Escrow</small></div>
+             <button type="button" data-action="market-cancel" data-listing-id="${escapeHTML(ownListing.listing_id)}" title="Return remaining escrow through the server">Cancel</button>
+           </div>`
+        : sellableStack
+          ? `<div class="shop-row">
+               <div><span>Sell</span><strong>${escapeHTML(sellableStack.display_name || sellableStack.item_id)} x1</strong><small>Ask ${sellUnitPrice} CR pending</small></div>
+               <button type="button"
+                 data-action="market-create"
+                 data-item-id="${escapeHTML(sellableStack.item_id)}"
+                 data-source-location="${escapeHTML(sellableStack.location)}"
+                 data-quantity="1"
+                 data-unit-price="${sellUnitPrice}"
+                 title="Create listing from a server-owned inventory row">List</button>
+             </div>`
+          : ''
+    }
+    ${
+      lot
+        ? `<div class="shop-row">
+             <div><span>Auction</span><strong>${escapeHTML(publicAuctionName(lot.payload_type, lot.definition_id))}</strong></div>
+             <button type="button" data-action="auction-bid" data-auction-id="${escapeHTML(lot.auction_id)}" data-amount="${bidAmount}" ${canBid ? '' : 'disabled'} title="Bid amount is checked server-side">${bidAmount}</button>
+             <button type="button" data-action="auction-buy-now" data-auction-id="${escapeHTML(lot.auction_id)}" ${canBuyNow ? '' : 'disabled'} title="Buy-now closes under server lock">${lot.buy_now_price ?? '--'}</button>
+           </div>`
+        : '<div class="empty-line">No auction lots.</div>'
+    }
+    <div class="shop-row">
+      <div><span>Premium</span><strong>${stock ? `X Core ${stock.stock_remaining}/${stock.stock_total}` : 'Locked'}</strong></div>
+      <button type="button" data-action="premium-weekly-xcore" ${canBuyWeekly ? '' : 'disabled'} title="Weekly stock and limit are server-owned">${stock ? `${stock.price_amount}` : '--'}</button>
+      <button type="button" data-action="premium-claim" data-entitlement-id="${escapeHTML(pendingEntitlement?.entitlement_id ?? '')}" ${pendingEntitlement ? '' : 'disabled'} title="Claim pending entitlement">Claim</button>
+    </div>
+    ${
+      auction.grants.length > 0
+        ? `<button class="ghost-action ghost-action--compact" type="button" data-action="auction-claim" title="Refresh auction grant snapshots">Grants ${auction.grants.length}</button>`
+        : ''
+    }
   `;
 }
 
@@ -492,6 +635,26 @@ function publicPlanetName(planet: NonNullable<ClientState['planetIntel']>['plane
   const type = planet.planet_type ? planet.planet_type.replace(/_/g, ' ') : 'planet';
   const biome = planet.biome ? planet.biome.replace(/_/g, ' ') : 'unknown';
   return `${type} / ${biome}`;
+}
+
+function publicAuctionName(payloadType: string, definitionID: string): string {
+  const label = payloadType ? payloadType.replace(/_/g, ' ') : 'lot';
+  return definitionID ? `${label} ${definitionID.replace(/_/g, ' ')}` : label;
+}
+
+function sellableInventoryStack(state: ClientState): NonNullable<ClientState['inventory']>['stackable'][number] | null {
+  const stack =
+    state.inventory?.stackable.find(
+      (item) => item.quantity > 0 && (item.location === 'account_inventory' || item.location === 'ship_cargo'),
+    ) ?? null;
+  return stack;
+}
+
+function defaultListingPrice(itemID: string, market: NonNullable<ClientState['market']>): number {
+  const matchingListing = market.listings.find(
+    (listing) => listing.item_id === itemID && listing.status === 'active' && !listing.owned_by_you,
+  );
+  return Math.max(1, Math.round(matchingListing?.unit_price ?? 25));
 }
 
 function escapeHTML(value: string): string {

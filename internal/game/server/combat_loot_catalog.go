@@ -51,7 +51,7 @@ func runtimeRawOreDefinition() (economy.ItemDefinition, error) {
 		economy.ItemRarityCommon,
 		maxStack,
 		weight,
-		[]economy.TradeFlag{economy.TradeFlagDroppable},
+		[]economy.TradeFlag{economy.TradeFlagDroppable, economy.TradeFlagMarketTradeable},
 		[]economy.BindRule{economy.BindRuleNone},
 		nil,
 	)

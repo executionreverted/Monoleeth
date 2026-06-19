@@ -40,6 +40,19 @@ const (
 	OperationPlanetStorage       Operation = "planet.storage_summary"
 	OperationRouteList           Operation = "route.list"
 	OperationRouteSnapshot       Operation = "route.snapshot"
+	OperationWalletSnapshot      Operation = "wallet.snapshot"
+	OperationMarketSearch        Operation = "market.search"
+	OperationMarketCreateListing Operation = "market.create_listing"
+	OperationMarketBuy           Operation = "market.buy"
+	OperationMarketCancel        Operation = "market.cancel"
+	OperationAuctionSearch       Operation = "auction.search"
+	OperationAuctionBid          Operation = "auction.bid"
+	OperationAuctionBuyNow       Operation = "auction.buy_now"
+	OperationAuctionClaimGrant   Operation = "auction.claim_grant"
+	OperationPremiumEntitlements Operation = "premium.entitlements"
+	OperationPremiumClaim        Operation = "premium.claim"
+	OperationPremiumWeeklyXCore  Operation = "premium.purchase_weekly_xcore"
+	OperationAdminEconomyDash    Operation = "admin.economy_dashboard"
 )
 
 // ClientEventType is an event name that may be sent to a client after filtering.
@@ -82,6 +95,17 @@ const (
 	EventPlanetStorage         ClientEventType = "planet.storage_summary"
 	EventRouteList             ClientEventType = "route.list"
 	EventRouteSnapshot         ClientEventType = "route.snapshot"
+	EventMarketListingCreated  ClientEventType = "market.listing_created"
+	EventMarketListingUpdated  ClientEventType = "market.listing_updated"
+	EventMarketSaleCompleted   ClientEventType = "market.sale_completed"
+	EventMarketListingCanceled ClientEventType = "market.listing_cancelled"
+	EventAuctionLotUpdated     ClientEventType = "auction.lot_updated"
+	EventAuctionBidPlaced      ClientEventType = "auction.bid_placed"
+	EventAuctionClosed         ClientEventType = "auction.closed"
+	EventPremiumEntitlement    ClientEventType = "premium.entitlement_created"
+	EventPremiumClaimed        ClientEventType = "premium.entitlement_claimed"
+	EventPremiumStockConsumed  ClientEventType = "premium.stock_consumed"
+	EventEconomyFlowUpdated    ClientEventType = "economy.flow_updated"
 	EventDeathShipDisabled     ClientEventType = "death.ship_disabled"
 	EventDeathRepaired         ClientEventType = "death.repaired"
 )
@@ -195,6 +219,58 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationRouteSnapshot: {
 		Operation:        OperationRouteSnapshot,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationWalletSnapshot: {
+		Operation:        OperationWalletSnapshot,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationMarketSearch: {
+		Operation:        OperationMarketSearch,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationMarketCreateListing: {
+		Operation:        OperationMarketCreateListing,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationMarketBuy: {
+		Operation:        OperationMarketBuy,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationMarketCancel: {
+		Operation:        OperationMarketCancel,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAuctionSearch: {
+		Operation:        OperationAuctionSearch,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAuctionBid: {
+		Operation:        OperationAuctionBid,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAuctionBuyNow: {
+		Operation:        OperationAuctionBuyNow,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAuctionClaimGrant: {
+		Operation:        OperationAuctionClaimGrant,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationPremiumEntitlements: {
+		Operation:        OperationPremiumEntitlements,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationPremiumClaim: {
+		Operation:        OperationPremiumClaim,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationPremiumWeeklyXCore: {
+		Operation:        OperationPremiumWeeklyXCore,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAdminEconomyDash: {
+		Operation:        OperationAdminEconomyDash,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 }

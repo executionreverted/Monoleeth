@@ -10,7 +10,10 @@ import (
 	"gameproject/internal/game/foundation"
 )
 
-const LedgerReasonPremiumEntitlementClaim economy.LedgerReason = "premium_entitlement_claim"
+const (
+	LedgerReasonPremiumEntitlementClaim economy.LedgerReason = "premium_entitlement_claim"
+	LedgerReasonPremiumWeeklyXCore      economy.LedgerReason = "premium_weekly_xcore_purchase"
+)
 
 // CreateEntitlementInput describes one provider-confirmed entitlement.
 type CreateEntitlementInput struct {
@@ -44,6 +47,7 @@ type PurchaseWeeklyXCoreInput struct {
 	PeriodKey         string
 	PurchaseReference string
 	PaymentCurrency   economy.CurrencyBucket
+	PriceAmount       int64
 }
 
 // RecordSuspiciousTradeInput describes one deterministic fraud-review log.
@@ -82,9 +86,10 @@ type ClaimEntitlementResult struct {
 
 // PurchaseWeeklyXCoreResult reports the skeleton grant and stock snapshot.
 type PurchaseWeeklyXCoreResult struct {
-	Purchase  WeeklyXCorePurchase
-	Stock     WeeklyXCoreStockRecord
-	Duplicate bool
+	Purchase    WeeklyXCorePurchase
+	Stock       WeeklyXCoreStockRecord
+	WalletDebit *economy.DebitWalletResult
+	Duplicate   bool
 }
 
 // ApplyProviderRiskLockResult reports a provider risk lock.
@@ -374,12 +379,17 @@ func (service *PremiumEntitlementService) PurchaseWeeklyXCore(input PurchaseWeek
 	if err := ValidatePaidPremiumUse(input.PaymentCurrency); err != nil {
 		return PurchaseWeeklyXCoreResult{}, err
 	}
+	if input.PriceAmount > 0 {
+		if _, err := foundation.NewMoney(input.PriceAmount); err != nil {
+			return PurchaseWeeklyXCoreResult{}, err
+		}
+	}
 
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
 	if previous, ok := service.weeklyPurchaseByReference[input.PurchaseReference]; ok {
-		result := previous
+		result := clonePurchaseWeeklyXCoreResult(previous)
 		result.Duplicate = true
 		return result, nil
 	}
@@ -397,6 +407,28 @@ func (service *PremiumEntitlementService) PurchaseWeeklyXCore(input PurchaseWeek
 	if stock.StockRemaining <= 0 {
 		return PurchaseWeeklyXCoreResult{}, ErrWeeklyStockSoldOut
 	}
+	if input.PriceAmount > 0 && service.wallet.Balance(input.PlayerID, input.PaymentCurrency) < input.PriceAmount {
+		return PurchaseWeeklyXCoreResult{}, economy.ErrInsufficientWalletFunds
+	}
+
+	var walletDebit *economy.DebitWalletResult
+	if input.PriceAmount > 0 {
+		debitReference, err := foundation.PremiumWeeklyXCorePurchaseIdempotencyKey(input.PlayerID, input.PeriodKey, input.PurchaseReference)
+		if err != nil {
+			return PurchaseWeeklyXCoreResult{}, err
+		}
+		debit, err := service.wallet.DebitWallet(economy.DebitWalletInput{
+			PlayerID:     input.PlayerID,
+			Currency:     input.PaymentCurrency,
+			Amount:       input.PriceAmount,
+			Reason:       LedgerReasonPremiumWeeklyXCore,
+			ReferenceKey: debitReference,
+		})
+		if err != nil {
+			return PurchaseWeeklyXCoreResult{}, err
+		}
+		walletDebit = &debit
+	}
 
 	stock.StockRemaining--
 	stock.UpdatedAt = service.clock.Now()
@@ -409,15 +441,16 @@ func (service *PremiumEntitlementService) PurchaseWeeklyXCore(input PurchaseWeek
 		GrantedAt:         stock.UpdatedAt,
 	}
 	result := PurchaseWeeklyXCoreResult{
-		Purchase: purchase,
-		Stock:    stock,
+		Purchase:    purchase,
+		Stock:       stock,
+		WalletDebit: walletDebit,
 	}
 
 	service.weeklyStock[stockKey] = stock
 	service.weeklyPurchases = append(service.weeklyPurchases, purchase)
-	service.weeklyPurchaseByReference[input.PurchaseReference] = result
+	service.weeklyPurchaseByReference[input.PurchaseReference] = clonePurchaseWeeklyXCoreResult(result)
 	service.weeklyPurchaseByPlayerPeriod[playerPeriod] = purchase
-	return result, nil
+	return clonePurchaseWeeklyXCoreResult(result), nil
 }
 
 // RecordSuspiciousTrade appends one immutable-by-snapshot review event.
@@ -625,6 +658,14 @@ func cloneClaimEntitlementResult(result ClaimEntitlementResult) ClaimEntitlement
 	if result.BadgeGrant != nil {
 		grant := *result.BadgeGrant
 		result.BadgeGrant = &grant
+	}
+	return result
+}
+
+func clonePurchaseWeeklyXCoreResult(result PurchaseWeeklyXCoreResult) PurchaseWeeklyXCoreResult {
+	if result.WalletDebit != nil {
+		debit := *result.WalletDebit
+		result.WalletDebit = &debit
 	}
 	return result
 }

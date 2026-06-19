@@ -16,6 +16,7 @@ import (
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/premium"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
@@ -644,6 +645,194 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	spoof := readError(t, conn)
 	if spoof.Error.Code != foundation.CodeInvalidPayload {
 		t.Fatalf("spoofed scan error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
+	}
+}
+
+func TestPhase08MarketAuctionPremiumUseServerEconomyState(t *testing.T) {
+	_, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	writeText(t, conn, `{"request_id":"request-wallet-snapshot","op":"wallet.snapshot","payload":{},"client_seq":1,"v":1}`)
+	walletResponse := readResponse(t, conn)
+	if !walletResponse.OK {
+		t.Fatalf("wallet response = %+v, want success", walletResponse)
+	}
+	var walletPayload struct {
+		Wallet walletSnapshotPayload `json:"wallet"`
+	}
+	if err := json.Unmarshal(walletResponse.Payload, &walletPayload); err != nil {
+		t.Fatalf("decode wallet: %v", err)
+	}
+	if walletPayload.Wallet.Credits != starterWalletCredits || walletPayload.Wallet.PremiumPaid != starterWalletPremiumPaid {
+		t.Fatalf("wallet = %+v, want deterministic starter balances", walletPayload.Wallet)
+	}
+
+	writeText(t, conn, `{"request_id":"request-market-search","op":"market.search","payload":{},"client_seq":2,"v":1}`)
+	marketResponse := readResponse(t, conn)
+	if !marketResponse.OK {
+		t.Fatalf("market response = %+v, want success", marketResponse)
+	}
+	assertNoEconomyLeak(t, "market search", marketResponse.Payload)
+	var marketPayload struct {
+		Market marketSearchPayload `json:"market"`
+	}
+	if err := json.Unmarshal(marketResponse.Payload, &marketPayload); err != nil {
+		t.Fatalf("decode market: %v", err)
+	}
+	if len(marketPayload.Market.Listings) != 1 || marketPayload.Market.Listings[0].ListingID != seedMarketListingID.String() {
+		t.Fatalf("market listings = %+v, want seeded listing", marketPayload.Market.Listings)
+	}
+	if !marketPayload.Market.Listings[0].ServerRecalculates {
+		t.Fatalf("market listing = %+v, want server recalculation marker", marketPayload.Market.Listings[0])
+	}
+
+	writeText(t, conn, `{"request_id":"request-market-spoof","op":"market.buy","payload":{"listing_id":"`+seedMarketListingID.String()+`","quantity":1,"total_amount":1},"client_seq":3,"v":1}`)
+	spoof := readError(t, conn)
+	if spoof.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("spoofed market buy error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
+	}
+
+	writeText(t, conn, `{"request_id":"request-market-buy","op":"market.buy","payload":{"listing_id":"`+seedMarketListingID.String()+`","quantity":2},"client_seq":4,"v":1}`)
+	buyResponse := readResponse(t, conn)
+	if !buyResponse.OK {
+		t.Fatalf("market buy response = %+v, want success", buyResponse)
+	}
+	assertNoEconomyLeak(t, "market buy", buyResponse.Payload)
+	var buyPayload marketMutationPayload
+	if err := json.Unmarshal(buyResponse.Payload, &buyPayload); err != nil {
+		t.Fatalf("decode market buy: %v", err)
+	}
+	if buyPayload.ServerTotal != 50 || buyPayload.Wallet.Credits != starterWalletCredits-50 {
+		t.Fatalf("market buy = %+v, want server-calculated total and debited wallet", buyPayload)
+	}
+	if len(buyPayload.Inventory.Stackable) != 1 ||
+		buyPayload.Inventory.Stackable[0].ItemID != "raw_ore" ||
+		buyPayload.Inventory.Stackable[0].Quantity != 2 ||
+		buyPayload.Inventory.Stackable[0].Location != economy.LocationKindAccountInventory.String() {
+		t.Fatalf("market buy inventory = %+v, want purchased raw ore in account inventory", buyPayload.Inventory)
+	}
+	drainEventTypes(t, conn, realtime.EventMarketSaleCompleted, realtime.EventWalletSnapshot, realtime.EventInventorySnapshot)
+
+	writeText(t, conn, `{"request_id":"request-auction-search","op":"auction.search","payload":{},"client_seq":5,"v":1}`)
+	auctionResponse := readResponse(t, conn)
+	if !auctionResponse.OK {
+		t.Fatalf("auction search response = %+v, want success", auctionResponse)
+	}
+	assertNoEconomyLeak(t, "auction search", auctionResponse.Payload)
+	var auctionPayload struct {
+		Auction auctionSearchPayload `json:"auction"`
+	}
+	if err := json.Unmarshal(auctionResponse.Payload, &auctionPayload); err != nil {
+		t.Fatalf("decode auction search: %v", err)
+	}
+	if len(auctionPayload.Auction.Lots) != 1 || auctionPayload.Auction.Lots[0].AuctionID != seedAuctionID.String() {
+		t.Fatalf("auction lots = %+v, want seeded lot", auctionPayload.Auction.Lots)
+	}
+
+	writeText(t, conn, `{"request_id":"request-auction-bid","op":"auction.bid","payload":{"auction_id":"`+seedAuctionID.String()+`","amount":300},"client_seq":6,"v":1}`)
+	bidResponse := readResponse(t, conn)
+	if !bidResponse.OK {
+		t.Fatalf("auction bid response = %+v, want success", bidResponse)
+	}
+	var bidPayload auctionMutationPayload
+	if err := json.Unmarshal(bidResponse.Payload, &bidPayload); err != nil {
+		t.Fatalf("decode auction bid: %v", err)
+	}
+	if bidPayload.Amount != 300 || bidPayload.Wallet.Credits != starterWalletCredits-50-300 || !bidPayload.Lot.Leading {
+		t.Fatalf("auction bid = %+v, want debited leading bid", bidPayload)
+	}
+	drainEventTypes(t, conn, realtime.EventAuctionBidPlaced, realtime.EventAuctionLotUpdated, realtime.EventWalletSnapshot)
+
+	writeText(t, conn, `{"request_id":"request-auction-buy-now","op":"auction.buy_now","payload":{"auction_id":"`+seedAuctionID.String()+`"},"client_seq":7,"v":1}`)
+	buyNowResponse := readResponse(t, conn)
+	if !buyNowResponse.OK {
+		t.Fatalf("auction buy-now response = %+v, want success", buyNowResponse)
+	}
+	var buyNowPayload auctionMutationPayload
+	if err := json.Unmarshal(buyNowResponse.Payload, &buyNowPayload); err != nil {
+		t.Fatalf("decode auction buy-now: %v", err)
+	}
+	if buyNowPayload.Price != 650 || buyNowPayload.Grant == nil || buyNowPayload.Wallet.Credits != 500 {
+		t.Fatalf("auction buy-now = %+v, want server price, grant, and refunded current bid", buyNowPayload)
+	}
+	drainEventTypes(t, conn, realtime.EventAuctionClosed, realtime.EventAuctionLotUpdated, realtime.EventWalletSnapshot)
+
+	writeText(t, conn, `{"request_id":"request-auction-grants","op":"auction.claim_grant","payload":{},"client_seq":8,"v":1}`)
+	grantsResponse := readResponse(t, conn)
+	if !grantsResponse.OK {
+		t.Fatalf("auction grant response = %+v, want success", grantsResponse)
+	}
+	var grantsPayload struct {
+		Auction auctionSearchPayload `json:"auction"`
+	}
+	if err := json.Unmarshal(grantsResponse.Payload, &grantsPayload); err != nil {
+		t.Fatalf("decode auction grants: %v", err)
+	}
+	if len(grantsPayload.Auction.Grants) != 1 || grantsPayload.Auction.Grants[0].AuctionID != seedAuctionID.String() {
+		t.Fatalf("auction grants = %+v, want player grant snapshot", grantsPayload.Auction.Grants)
+	}
+
+	writeText(t, conn, `{"request_id":"request-premium-entitlements","op":"premium.entitlements","payload":{},"client_seq":9,"v":1}`)
+	premiumResponse := readResponse(t, conn)
+	if !premiumResponse.OK {
+		t.Fatalf("premium response = %+v, want success", premiumResponse)
+	}
+	assertNoEconomyLeak(t, "premium entitlements", premiumResponse.Payload)
+	var premiumPayload struct {
+		Premium premiumSummaryPayload `json:"premium"`
+	}
+	if err := json.Unmarshal(premiumResponse.Payload, &premiumPayload); err != nil {
+		t.Fatalf("decode premium: %v", err)
+	}
+	if len(premiumPayload.Premium.Entitlements) != 1 || premiumPayload.Premium.Entitlements[0].State != premium.EntitlementStatePending.String() {
+		t.Fatalf("premium entitlements = %+v, want one pending entitlement", premiumPayload.Premium.Entitlements)
+	}
+	entitlementID := premiumPayload.Premium.Entitlements[0].EntitlementID
+
+	writeText(t, conn, `{"request_id":"request-premium-claim","op":"premium.claim","payload":{"entitlement_id":"`+entitlementID+`"},"client_seq":10,"v":1}`)
+	claimResponse := readResponse(t, conn)
+	if !claimResponse.OK {
+		t.Fatalf("premium claim response = %+v, want success", claimResponse)
+	}
+	var claimPayload premiumMutationPayload
+	if err := json.Unmarshal(claimResponse.Payload, &claimPayload); err != nil {
+		t.Fatalf("decode premium claim: %v", err)
+	}
+	if claimPayload.Wallet.PremiumEarned != 50 || claimPayload.Premium.Entitlements[0].State != premium.EntitlementStateClaimed.String() {
+		t.Fatalf("premium claim = %+v, want earned premium credit and claimed state", claimPayload)
+	}
+	drainEventTypes(t, conn, realtime.EventPremiumClaimed, realtime.EventWalletSnapshot)
+
+	writeText(t, conn, `{"request_id":"request-weekly-xcore","op":"premium.purchase_weekly_xcore","payload":{},"client_seq":11,"v":1}`)
+	xcoreResponse := readResponse(t, conn)
+	if !xcoreResponse.OK {
+		t.Fatalf("weekly xcore response = %+v, want success", xcoreResponse)
+	}
+	var xcorePayload premiumMutationPayload
+	if err := json.Unmarshal(xcoreResponse.Payload, &xcorePayload); err != nil {
+		t.Fatalf("decode weekly xcore: %v", err)
+	}
+	if xcorePayload.Wallet.PremiumPaid != starterWalletPremiumPaid-weeklyXCorePremiumPrice || len(xcorePayload.Premium.Purchases) != 1 {
+		t.Fatalf("weekly xcore = %+v, want paid premium debit and purchase row", xcorePayload)
+	}
+	if len(xcorePayload.Premium.Stock) != 1 || xcorePayload.Premium.Stock[0].StockRemaining != weeklyXCoreStockTotal-1 {
+		t.Fatalf("weekly xcore stock = %+v, want stock decrement", xcorePayload.Premium.Stock)
+	}
+	drainEventTypes(t, conn, realtime.EventPremiumStockConsumed, realtime.EventWalletSnapshot)
+
+	writeText(t, conn, `{"request_id":"request-weekly-xcore-again","op":"premium.purchase_weekly_xcore","payload":{},"client_seq":12,"v":1}`)
+	limit := readError(t, conn)
+	if limit.Error.Code != foundation.CodeForbidden {
+		t.Fatalf("second weekly xcore error = %+v, want %s", limit.Error, foundation.CodeForbidden)
+	}
+
+	writeText(t, conn, `{"request_id":"request-admin-economy","op":"admin.economy_dashboard","payload":{},"client_seq":13,"v":1}`)
+	admin := readError(t, conn)
+	if admin.Error.Code != foundation.CodeForbidden {
+		t.Fatalf("non-admin dashboard error = %+v, want %s", admin.Error, foundation.CodeForbidden)
 	}
 }
 
@@ -1282,6 +1471,44 @@ func readEvent(t *testing.T, conn *websocket.Conn) realtime.EventEnvelope {
 		t.Fatalf("message %s is not an event", data)
 	}
 	return event
+}
+
+func drainEventTypes(t *testing.T, conn *websocket.Conn, wants ...realtime.ClientEventType) {
+	t.Helper()
+	seen := make(map[realtime.ClientEventType]bool, len(wants))
+	for range wants {
+		event := readEvent(t, conn)
+		seen[event.Type] = true
+	}
+	for _, want := range wants {
+		if !seen[want] {
+			t.Fatalf("events seen = %#v, missing %s", seen, want)
+		}
+	}
+}
+
+func assertNoEconomyLeak(t *testing.T, label string, payload json.RawMessage) {
+	t.Helper()
+	raw := string(payload)
+	for _, forbidden := range []string{
+		"seller_player_id",
+		"buyer_player_id",
+		"bidder_player_id",
+		"current_bidder_id",
+		"winning_player_id",
+		"provider_reference",
+		"provider",
+		"escrow_location",
+		"source_return_location",
+		"world_id",
+		"zone_id",
+		"account_id",
+		"session_id",
+	} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("%s leaked %q in %s", label, forbidden, raw)
+		}
+	}
 }
 
 func readResponse(t *testing.T, conn *websocket.Conn) realtime.ResponseEnvelope {

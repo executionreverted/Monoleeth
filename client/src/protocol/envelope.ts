@@ -24,6 +24,19 @@ export const OPERATIONS = {
   planetStorageSummary: 'planet.storage_summary',
   routeList: 'route.list',
   routeSnapshot: 'route.snapshot',
+  walletSnapshot: 'wallet.snapshot',
+  marketSearch: 'market.search',
+  marketCreateListing: 'market.create_listing',
+  marketBuy: 'market.buy',
+  marketCancel: 'market.cancel',
+  auctionSearch: 'auction.search',
+  auctionBid: 'auction.bid',
+  auctionBuyNow: 'auction.buy_now',
+  auctionClaimGrant: 'auction.claim_grant',
+  premiumEntitlements: 'premium.entitlements',
+  premiumClaim: 'premium.claim',
+  premiumPurchaseWeeklyXCore: 'premium.purchase_weekly_xcore',
+  adminEconomyDashboard: 'admin.economy_dashboard',
 } as const;
 
 export type Operation = (typeof OPERATIONS)[keyof typeof OPERATIONS];
@@ -65,6 +78,17 @@ export const CLIENT_EVENTS = {
   planetStorageSummary: 'planet.storage_summary',
   routeList: 'route.list',
   routeSnapshot: 'route.snapshot',
+  marketListingCreated: 'market.listing_created',
+  marketListingUpdated: 'market.listing_updated',
+  marketSaleCompleted: 'market.sale_completed',
+  marketListingCancelled: 'market.listing_cancelled',
+  auctionLotUpdated: 'auction.lot_updated',
+  auctionBidPlaced: 'auction.bid_placed',
+  auctionClosed: 'auction.closed',
+  premiumEntitlementCreated: 'premium.entitlement_created',
+  premiumEntitlementClaimed: 'premium.entitlement_claimed',
+  premiumStockConsumed: 'premium.stock_consumed',
+  economyFlowUpdated: 'economy.flow_updated',
   deathShipDisabled: 'death.ship_disabled',
   deathRepaired: 'death.repaired',
 } as const;
@@ -171,6 +195,15 @@ const forbiddenPayloadKeys = new Set([
   'scan_result',
   'loot_roll',
   'loot_table',
+  'seller_player_id',
+  'buyer_player_id',
+  'bidder_player_id',
+  'current_bidder_id',
+  'winning_player_id',
+  'provider',
+  'provider_reference',
+  'escrow_location',
+  'source_return_location',
 ]);
 
 export function parseServerMessage(raw: string): ServerMessage {

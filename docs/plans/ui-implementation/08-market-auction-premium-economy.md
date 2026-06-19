@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Planned
+- State: Completed
 - Owner: Player economy UI
 - Depends on: Phase 06, Phase 07
 - Unlocks: trade, premium, and economy visibility
@@ -109,51 +109,51 @@ Mockup areas covered:
 
 ## TODO
 
-- [ ] Add authenticated market query and command handlers.
-- [ ] Add escrow-backed listing create/buy/cancel UI paths.
-- [ ] Add auction search/bid/buy-now handlers.
-- [ ] Add auction grant claim/display handlers.
-- [ ] Add premium entitlement query/claim handlers.
-- [ ] Add weekly X Core purchase handler with per-player limit, stock lock,
+- [x] Add authenticated market query and command handlers.
+- [x] Add escrow-backed listing create/buy/cancel UI paths.
+- [x] Add auction search/bid/buy-now handlers.
+- [x] Add auction grant claim/display handlers.
+- [x] Add premium entitlement query/claim handlers.
+- [x] Add weekly X Core purchase handler with per-player limit, stock lock,
       wallet/premium ledger debit, and idempotency.
-- [ ] Add wallet snapshot updates after every economy mutation.
-- [ ] Add inventory snapshot updates after escrow/item mutations.
-- [ ] Add market/auction/premium client panels.
-- [ ] Add price/fee preview that is explicitly server quoted or pending.
-- [ ] Add admin-only economy dashboard query if admin role exists.
-- [ ] Add safe empty/loading/error states.
+- [x] Add wallet snapshot updates after every economy mutation.
+- [x] Add inventory snapshot updates after escrow/item mutations.
+- [x] Add market/auction/premium client panels.
+- [x] Add price/fee preview that is explicitly server quoted or pending.
+- [x] Add admin-only economy dashboard query if admin role exists.
+- [x] Add safe empty/loading/error states.
 
 ## Abuse And Safety Checklist
 
-- [ ] Client cannot author price totals as truth.
-- [ ] Quantity, unit price, bid amount, currency id, and multiplication totals
+- [x] Client cannot author price totals as truth.
+- [x] Quantity, unit price, bid amount, currency id, and multiplication totals
       are positive, bounded, and overflow-safe.
-- [ ] Client cannot list unowned/untradeable/escrowed items.
-- [ ] Market buy/cancel race cannot duplicate items or credits.
-- [ ] Auction bid/buy-now race cannot duplicate grants.
-- [ ] Premium webhook/provider event replay is idempotent.
-- [ ] Premium paid-only policy is enforced server-side.
-- [ ] Weekly X Core limit and stock depletion are enforced under concurrency.
-- [ ] Admin economy dashboards require admin session.
+- [x] Client cannot list unowned/untradeable/escrowed items.
+- [x] Market buy/cancel race cannot duplicate items or credits.
+- [x] Auction bid/buy-now race cannot duplicate grants.
+- [x] Premium webhook/provider event replay is idempotent.
+- [x] Premium paid-only policy is enforced server-side.
+- [x] Weekly X Core limit and stock depletion are enforced under concurrency.
+- [x] Admin economy dashboards require admin session.
 
 ## Tests
 
-- [ ] Market search respects query/rate posture.
-- [ ] Create listing moves item to escrow once.
-- [ ] Buy listing transfers item/credits once.
-- [ ] Cancel listing returns escrow once.
-- [ ] Auction bid refunds/replaces safely.
-- [ ] Auction buy-now closes once.
-- [ ] Premium claim is idempotent.
-- [ ] Weekly X Core purchase enforces limit, stock, ledger debit, and duplicate
+- [x] Market search respects query/rate posture.
+- [x] Create listing moves item to escrow once.
+- [x] Buy listing transfers item/credits once.
+- [x] Cancel listing returns escrow once.
+- [x] Auction bid refunds/replaces safely.
+- [x] Auction buy-now closes once.
+- [x] Premium claim is idempotent.
+- [x] Weekly X Core purchase enforces limit, stock, ledger debit, and duplicate
       request safety.
-- [ ] Stale/tampered price quote or listing version is rejected, or mutation
+- [x] Stale/tampered price quote or listing version is rejected, or mutation
       recalculates totals server-side.
-- [ ] Negative, zero, overflow, or excessive quantity/price/bid inputs reject
+- [x] Negative, zero, overflow, or excessive quantity/price/bid inputs reject
       before mutation.
-- [ ] Browser market buy updates wallet and inventory from server snapshots.
-- [ ] Browser cannot submit forged totals.
-- [ ] Admin economy dashboard rejects non-admin.
+- [x] Browser market buy updates wallet and inventory from server snapshots.
+- [x] Browser cannot submit forged totals.
+- [x] Admin economy dashboard rejects non-admin.
 
 ## Done Criteria
 

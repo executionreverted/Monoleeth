@@ -37,6 +37,7 @@ const (
 	idempotencyAuctionBuyNowRefund = "auction_buy_now_refund"
 	idempotencyAuctionClose        = "auction_close"
 	idempotencyPremiumWebhook      = "premium_webhook"
+	idempotencyPremiumWeeklyXCore  = "premium_weekly_xcore"
 	idempotencyOfflineSettlement   = "offline_settlement"
 	idempotencyRouteSettlement     = "route_settlement"
 	idempotencyMarketListing       = "market_listing"
@@ -117,6 +118,11 @@ func AuctionBuyNowRefundIdempotencyKey(auctionID AuctionID, bidderID PlayerID, r
 // PremiumWebhookIdempotencyKey returns premium_webhook:<provider_event_id>.
 func PremiumWebhookIdempotencyKey(providerEventID string) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyPremiumWebhook, providerEventID)
+}
+
+// PremiumWeeklyXCorePurchaseIdempotencyKey returns premium_weekly_xcore:<player_id>:<period_key>:<purchase_reference>.
+func PremiumWeeklyXCorePurchaseIdempotencyKey(playerID PlayerID, periodKey string, purchaseReference string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyPremiumWeeklyXCore, playerID.String(), periodKey, purchaseReference)
 }
 
 // OfflineSettlementIdempotencyKey returns offline_settlement:<planet_id>:<settlement_window>.
@@ -284,6 +290,7 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyAuctionRefund,
 		idempotencyAuctionBuyNow,
 		idempotencyAuctionBuyNowRefund,
+		idempotencyPremiumWeeklyXCore,
 		idempotencyMarketBuy,
 		idempotencyMarketSale,
 		idempotencyMarketFee:

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"gameproject/internal/game/auction"
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/combat"
 	"gameproject/internal/game/crafting"
@@ -15,7 +16,9 @@ import (
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
+	"gameproject/internal/game/market"
 	"gameproject/internal/game/observability"
+	"gameproject/internal/game/premium"
 	"gameproject/internal/game/production"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/realtime"
@@ -39,6 +42,10 @@ const (
 	starterScannerScanRadius                     = 2000
 	starterScannerScanInterval                   = time.Second
 	starterScannerEnergyCost                     = 8
+	starterWalletCredits                         = 1200
+	starterWalletPremiumPaid                     = 300
+	weeklyXCorePremiumPrice                      = 100
+	weeklyXCoreStockTotal                        = 5
 )
 
 // RuntimeConfig wires the single-process game runtime.
@@ -80,6 +87,10 @@ type Runtime struct {
 	Loot         *loot.Service
 	Inventory    *economy.InventoryService
 	CargoService *economy.CargoService
+	Wallet       *economy.WalletService
+	Market       *market.MarketService
+	Auction      *auction.Service
+	Premium      *premium.PremiumEntitlementService
 	Progression  *progression.ProgressionService
 	Recipes      crafting.RecipeCatalog
 	Discovery    *discovery.InMemoryStore
@@ -243,6 +254,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	}
 	inventory := economy.NewInventoryService(clock)
 	cargoService := economy.NewCargoService(inventory)
+	walletService := economy.NewWalletService(clock)
 	progressionService := progression.NewProgressionService(clock, nil)
 	lootService, err := loot.NewService(loot.Config{
 		Clock:       clock,
@@ -263,6 +275,25 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, err
 	}
 	recipeCatalog, err := crafting.MVPRecipeCatalog()
+	if err != nil {
+		return nil, err
+	}
+	marketService, err := market.NewMarketService(market.MarketServiceConfig{
+		Clock:     clock,
+		Inventory: inventory,
+		Wallet:    walletService,
+	})
+	if err != nil {
+		return nil, err
+	}
+	auctionService, err := auction.NewService(auction.ServiceConfig{
+		Clock:  clock,
+		Wallet: walletService,
+	})
+	if err != nil {
+		return nil, err
+	}
+	premiumService, err := premium.NewPremiumEntitlementService(walletService, clock)
 	if err != nil {
 		return nil, err
 	}
@@ -288,6 +319,10 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Loot:           lootService,
 		Inventory:      inventory,
 		CargoService:   cargoService,
+		Wallet:         walletService,
+		Market:         marketService,
+		Auction:        auctionService,
+		Premium:        premiumService,
 		Progression:    progressionService,
 		Recipes:        recipeCatalog,
 		Discovery:      discoveryStore,
@@ -327,6 +362,9 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	}
 	runtime.Scanner = scanner
 	if err := runtime.seedWorld(); err != nil {
+		return nil, err
+	}
+	if err := runtime.seedSharedEconomy(); err != nil {
 		return nil, err
 	}
 	gateway, err := realtime.NewGateway(realtime.GatewayOptions{
@@ -435,6 +473,9 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 	if err != nil {
 		return err
 	}
+	if err := runtime.ensurePlayerEconomyLocked(resolved.PlayerID); err != nil {
+		return err
+	}
 	if _, err := runtime.syncPlayerCombatActorLocked(resolved.PlayerID); err != nil {
 		return err
 	}
@@ -484,7 +525,7 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realti
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventPlayerSnapshot, state.playerSnapshot()))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventShipSnapshot, state.Ship))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventStatsUpdated, state.Stats))
-	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventWalletSnapshot, state.Wallet))
+	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventWalletSnapshot, runtime.walletSnapshotLocked(resolved.PlayerID)))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventCargoSnapshot, state.Cargo))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventProgressionSnapshot, progressionPayload(progressionSnapshot)))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventWorldSnapshot, worldSnapshot))
@@ -510,7 +551,19 @@ func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.
 		}
 		events = append(events, runtime.aoiDiffEventsLocked(sessionID, playerID)...)
 		return events, nil
-	case realtime.OperationCombatUseSkill, realtime.OperationLootPickup, realtime.OperationDeathRepairQuote, realtime.OperationDeathRepairShip, realtime.OperationScanPulse:
+	case realtime.OperationCombatUseSkill,
+		realtime.OperationLootPickup,
+		realtime.OperationDeathRepairQuote,
+		realtime.OperationDeathRepairShip,
+		realtime.OperationScanPulse,
+		realtime.OperationMarketCreateListing,
+		realtime.OperationMarketBuy,
+		realtime.OperationMarketCancel,
+		realtime.OperationAuctionBid,
+		realtime.OperationAuctionBuyNow,
+		realtime.OperationAuctionClaimGrant,
+		realtime.OperationPremiumClaim,
+		realtime.OperationPremiumWeeklyXCore:
 		runtime.mu.Lock()
 		defer runtime.mu.Unlock()
 		events := runtime.drainQueuedEventsLocked(sessionID)

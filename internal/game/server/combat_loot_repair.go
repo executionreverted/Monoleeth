@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"gameproject/internal/game/combat"
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/realtime"
@@ -266,10 +267,22 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 	}
 
 	quote := runtime.repairQuoteLocked(state)
-	if state.Wallet.Credits < quote.Cost {
+	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
+	if wallet.Credits < quote.Cost {
 		return nil, foundation.NewDomainError(foundation.CodeNotEnoughFunds, "Not enough credits.")
 	}
-	state.Wallet.Credits -= quote.Cost
+	if quote.Cost > 0 {
+		if _, err := runtime.Wallet.DebitWallet(economy.DebitWalletInput{
+			PlayerID:     ctx.PlayerID,
+			Currency:     economy.CurrencyBucketCredits,
+			Amount:       quote.Cost,
+			Reason:       "ship_repair",
+			ReferenceKey: referenceKey,
+		}); err != nil {
+			return nil, domainErrorForEconomy(err)
+		}
+	}
+	state.Wallet = runtime.walletSnapshotLocked(ctx.PlayerID)
 	state.Ship.Disabled = false
 	state.Ship.RepairState = "ready"
 	state.Ship.Hull = state.Ship.MaxHull
@@ -297,13 +310,13 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 	})
 	runtime.queueEventLocked(sessionID, realtime.EventShipSnapshot, state.Ship)
 	runtime.queueEventLocked(sessionID, realtime.EventPlayerSnapshot, state.playerSnapshot())
-	runtime.queueEventLocked(sessionID, realtime.EventWalletSnapshot, state.Wallet)
+	runtime.queueEventLocked(sessionID, realtime.EventWalletSnapshot, runtime.walletSnapshotLocked(ctx.PlayerID))
 
 	return marshalPayload(map[string]any{
 		"accepted":    true,
 		"repaired":    true,
 		"repair_cost": quote.Cost,
 		"ship":        state.Ship,
-		"wallet":      state.Wallet,
+		"wallet":      runtime.walletSnapshotLocked(ctx.PlayerID),
 	})
 }

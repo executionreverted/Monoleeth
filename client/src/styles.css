@@ -428,6 +428,82 @@ button:disabled {
   margin-top: 0.5rem;
 }
 
+.economy-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.375rem;
+  margin-bottom: 0.5rem;
+}
+
+.economy-metrics span {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+  color: rgba(215, 247, 255, 0.62);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+}
+
+.economy-metrics strong {
+  min-width: 0;
+  color: #f4c95d;
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shop-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.375rem;
+  align-items: center;
+  min-height: 2rem;
+  border-top: 1px solid rgba(215, 247, 255, 0.1);
+  padding-top: 0.375rem;
+  margin-top: 0.375rem;
+}
+
+.shop-row div {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.shop-row span {
+  color: rgba(215, 247, 255, 0.62);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+}
+
+.shop-row strong {
+  min-width: 0;
+  color: #d7f7ff;
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shop-row small {
+  min-width: 0;
+  color: rgba(244, 201, 93, 0.72);
+  font-size: 0.6875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shop-row button {
+  min-width: 3.125rem;
+  min-height: 1.75rem;
+  padding: 0 0.5rem;
+}
+
+.ghost-action--compact {
+  min-height: 1.875rem;
+}
+
 .planet-list {
   margin-top: 0.5rem;
 }
@@ -786,7 +862,7 @@ button:disabled {
   }
 
   .hud__rail--left {
-    grid-template-columns: repeat(3, minmax(11rem, 1fr));
+    grid-template-columns: repeat(4, minmax(11rem, 1fr));
     align-items: start;
     align-self: start;
     overflow-x: auto;
@@ -845,12 +921,16 @@ button:disabled {
     margin-top: 0.375rem;
   }
 
-  .panel--systems {
+  .panel--economy {
     order: 1;
   }
 
-  .panel--cargo {
+  .panel--systems {
     order: 2;
+  }
+
+  .panel--cargo {
+    order: 3;
   }
 
   .hud__rail--left .panel,

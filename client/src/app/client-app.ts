@@ -64,6 +64,14 @@ export class ClientApp {
       onRepairQuote: () => this.sendCommand(this.commandBuilder.deathRepairQuote()),
       onRepair: () => this.sendCommand(this.commandBuilder.deathRepairShip()),
       onScan: () => this.sendCommand(this.commandBuilder.scanPulse()),
+      onMarketCreateListing: (input) => this.sendCommand(this.commandBuilder.marketCreateListing(input)),
+      onMarketBuy: (listingID) => this.sendCommand(this.commandBuilder.marketBuy(listingID, 1)),
+      onMarketCancel: (listingID) => this.sendCommand(this.commandBuilder.marketCancel(listingID)),
+      onAuctionBid: (auctionID, amount) => this.sendCommand(this.commandBuilder.auctionBid(auctionID, amount)),
+      onAuctionBuyNow: (auctionID) => this.sendCommand(this.commandBuilder.auctionBuyNow(auctionID)),
+      onAuctionClaimGrant: () => this.sendCommand(this.commandBuilder.auctionClaimGrant()),
+      onPremiumClaim: (entitlementID) => this.sendCommand(this.commandBuilder.premiumClaim(entitlementID)),
+      onPremiumWeeklyXCore: () => this.sendCommand(this.commandBuilder.premiumPurchaseWeeklyXCore()),
     });
 
     if (this.demoMode) {
@@ -278,6 +286,7 @@ export class ClientApp {
     this.systemsSnapshotRequested = true;
     this.sendCommand(this.commandBuilder.progressionSnapshot());
     this.sendCommand(this.commandBuilder.inventorySnapshot());
+    this.sendCommand(this.commandBuilder.walletSnapshot());
     this.sendCommand(this.commandBuilder.hangarSnapshot());
     this.sendCommand(this.commandBuilder.loadoutSnapshot());
     this.sendCommand(this.commandBuilder.statsSnapshot());
@@ -286,6 +295,12 @@ export class ClientApp {
     this.sendCommand(this.commandBuilder.productionSummary());
     this.sendCommand(this.commandBuilder.planetStorageSummary());
     this.sendCommand(this.commandBuilder.routeList());
+    this.sendCommand(this.commandBuilder.marketSearch());
+    this.sendCommand(this.commandBuilder.auctionSearch());
+    this.sendCommand(this.commandBuilder.premiumEntitlements());
+    if (this.state.auth.session?.account?.admin) {
+      this.sendCommand(this.commandBuilder.adminEconomyDashboard());
+    }
   }
 
   private handleAuthExpired(message: string): void {
@@ -391,6 +406,10 @@ export class ClientApp {
         planetIntel: this.state.planetIntel,
         production: this.state.production,
         routes: this.state.routes,
+        market: this.state.market,
+        auction: this.state.auction,
+        premium: this.state.premium,
+        economyDashboard: this.state.economyDashboard,
         repairQuote: this.state.repairQuote,
         skillCooldowns: this.state.skillCooldowns,
         commandLog: this.state.commandLog,

@@ -15,7 +15,7 @@ const useFixture = process.argv.includes('--fixture');
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const clientRoot = path.resolve(thisDir, '..');
 const repoRoot = path.resolve(clientRoot, '..');
-const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '07');
+const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '08');
 const forbiddenText = [
   'gameplay_seed',
   'future_spawn',
@@ -104,42 +104,56 @@ async function verifyRealViewport(viewport, label) {
     await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.connectionStatus === 'connected', null, {
       timeout: 10000,
     });
-    await page.waitForFunction(
-      (expectedCallsign) => {
-        const state = window.__SPACE_MORPG_SMOKE_STATE__;
-        const entities = state?.visibleEntities ?? {};
-        const hasPlayer = Object.values(entities).some((entity) => entity.entity_type === 'player');
-        const hasVisibleNPC = Object.values(entities).some(
-          (entity) => entity.entity_id === 'entity_training_npc' && entity.entity_type === 'npc',
-        );
-        const self = Object.values(entities).find((entity) => entity.status_flags?.includes('self'));
-        return (
-          state?.auth?.session?.authenticated === true &&
-          state?.playerSnapshot?.callsign === expectedCallsign &&
-          state?.sector?.name === 'Origin Fringe' &&
-          state?.minimap?.live_contacts?.some((contact) => contact.entity_id === 'entity_training_npc') &&
-          state?.cargo?.capacity === 60 &&
-          state?.wallet?.credits === 0 &&
-          state?.ship?.active_ship_id === 'starter_ship' &&
-          state?.ship?.disabled === false &&
-          state?.progression?.rank >= 1 &&
-          state?.stats?.radar_range === 420 &&
-          state?.inventory?.counts?.cargo_stacks === 0 &&
-          state?.hangar?.active_ship_id === 'starter_ship' &&
-          state?.loadout?.slots?.length === 3 &&
-          state?.crafting?.recipes?.length >= 3 &&
-          state?.planetIntel?.knownSignals === 0 &&
-          state?.production?.planets?.length === 0 &&
-          state?.routes?.routes?.length === 0 &&
-          hasPlayer &&
-          self?.entity_type === 'player' &&
-          hasVisibleNPC &&
-          !entities.entity_hidden_planet_signal
-        );
-      },
-      callsign,
-      { timeout: 10000 },
-    );
+    try {
+      await page.waitForFunction(
+        (expectedCallsign) => {
+          const state = window.__SPACE_MORPG_SMOKE_STATE__;
+          const entities = state?.visibleEntities ?? {};
+          const hasPlayer = Object.values(entities).some((entity) => entity.entity_type === 'player');
+          const hasVisibleNPC = Object.values(entities).some(
+            (entity) => entity.entity_id === 'entity_training_npc' && entity.entity_type === 'npc',
+          );
+          const self = Object.values(entities).find((entity) => entity.status_flags?.includes('self'));
+          return (
+            state?.auth?.session?.authenticated === true &&
+            state?.playerSnapshot?.callsign === expectedCallsign &&
+            state?.sector?.name === 'Origin Fringe' &&
+            state?.minimap?.live_contacts?.some((contact) => contact.entity_id === 'entity_training_npc') &&
+            state?.cargo?.capacity === 60 &&
+            state?.wallet?.credits === 1200 &&
+            state?.wallet?.premium_paid === 300 &&
+            state?.ship?.active_ship_id === 'starter_ship' &&
+            state?.ship?.disabled === false &&
+            state?.progression?.rank >= 1 &&
+            state?.stats?.radar_range === 420 &&
+            state?.inventory?.counts?.cargo_stacks === 0 &&
+            state?.hangar?.active_ship_id === 'starter_ship' &&
+            state?.loadout?.slots?.length === 3 &&
+            state?.crafting?.recipes?.length >= 3 &&
+            state?.planetIntel?.knownSignals === 0 &&
+            state?.production?.planets?.length === 0 &&
+            state?.routes?.routes?.length === 0 &&
+            state?.market?.listings?.some(
+              (listing) => listing.status === 'active' && !listing.owned_by_you && listing.server_recalculates === true,
+            ) &&
+            state?.auction?.lots?.some((lot) => lot.status === 'active' && lot.server_recalculates === true) &&
+            state?.premium?.entitlements?.length === 1 &&
+            state?.premium?.stock?.length === 1 &&
+            hasPlayer &&
+            self?.entity_type === 'player' &&
+            hasVisibleNPC &&
+            !entities.entity_hidden_planet_signal
+          );
+        },
+        callsign,
+        { timeout: 10000 },
+      );
+    } catch (error) {
+      console.error(`${label} bootstrap state`, JSON.stringify(await bootstrapDiagnostics(page, callsign), null, 2));
+      throw error;
+    }
+
+    await verifyRealEconomy(page);
 
     await page.waitForFunction(() => {
       const button = document.querySelector('[data-panel="intel"] [data-action="scan"]');
@@ -295,6 +309,113 @@ async function verifyRealCombatLoot(page) {
       !Object.values(entities).some((entity) => entity.entity_type === 'loot')
     );
   }, null, { timeout: 10000 });
+}
+
+async function verifyRealEconomy(page) {
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const button = document.querySelector('[data-panel="economy"] [data-action="market-buy"]');
+    const activeListing = state?.market?.listings?.find((listing) => listing.status === 'active' && !listing.owned_by_you);
+    return activeListing?.remaining_quantity > 0 && button instanceof HTMLButtonElement && !button.disabled;
+  }, null, { timeout: 10000 });
+  await page.locator('[data-panel="economy"] [data-action="market-buy"]').dispatchEvent('click');
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return (
+      state?.wallet?.credits === 1175 &&
+      state?.inventory?.stackable?.some((item) => item.item_id === 'raw_ore' && item.quantity === 1 && item.location === 'account_inventory')
+    );
+  }, null, { timeout: 10000 });
+
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-panel="economy"] [data-action="market-create"]');
+    return button instanceof HTMLButtonElement && !button.disabled;
+  }, null, { timeout: 10000 });
+  await page.locator('[data-panel="economy"] [data-action="market-create"]').dispatchEvent('click');
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return (
+      state?.market?.listings?.some((listing) => listing.owned_by_you && listing.status === 'active') &&
+      !state?.inventory?.stackable?.some((item) => item.item_id === 'raw_ore' && item.location === 'account_inventory')
+    );
+  }, null, { timeout: 10000 });
+
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-panel="economy"] [data-action="market-cancel"]');
+    return button instanceof HTMLButtonElement && !button.disabled;
+  }, null, { timeout: 10000 });
+  await page.locator('[data-panel="economy"] [data-action="market-cancel"]').dispatchEvent('click');
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return (
+      !state?.market?.listings?.some((listing) => listing.owned_by_you && listing.status === 'active') &&
+      state?.inventory?.stackable?.some((item) => item.item_id === 'raw_ore' && item.quantity === 1 && item.location === 'account_inventory')
+    );
+  }, null, { timeout: 10000 });
+
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-panel="economy"] [data-action="auction-bid"]');
+    return button instanceof HTMLButtonElement && !button.disabled;
+  }, null, { timeout: 10000 });
+  await page.locator('[data-panel="economy"] [data-action="auction-bid"]').dispatchEvent('click');
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return state?.auction?.lots?.[0]?.leading === true && state?.wallet?.credits < 1175;
+  }, null, { timeout: 10000 });
+
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-panel="economy"] [data-action="premium-claim"]');
+    return button instanceof HTMLButtonElement && !button.disabled;
+  }, null, { timeout: 10000 });
+  await page.locator('[data-panel="economy"] [data-action="premium-claim"]').dispatchEvent('click');
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return state?.wallet?.premium_earned === 50 && state?.premium?.entitlements?.[0]?.state === 'claimed';
+  }, null, { timeout: 10000 });
+
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-panel="economy"] [data-action="premium-weekly-xcore"]');
+    return button instanceof HTMLButtonElement && !button.disabled;
+  }, null, { timeout: 10000 });
+  await page.locator('[data-panel="economy"] [data-action="premium-weekly-xcore"]').dispatchEvent('click');
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return state?.wallet?.premium_paid === 200 && state?.premium?.purchases?.length === 1;
+  }, null, { timeout: 10000 });
+}
+
+async function bootstrapDiagnostics(page, expectedCallsign) {
+  return page.evaluate((callsign) => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const entities = state?.visibleEntities ?? {};
+    const self = Object.values(entities).find((entity) => entity.status_flags?.includes('self'));
+    return {
+      expectedCallsign: callsign,
+      connectionStatus: state?.connectionStatus,
+      auth: state?.auth,
+      playerSnapshot: state?.playerSnapshot,
+      sector: state?.sector,
+      minimapContacts: state?.minimap?.live_contacts?.map((contact) => contact.entity_id),
+      entityIDs: Object.keys(entities),
+      self,
+      cargo: state?.cargo,
+      wallet: state?.wallet,
+      ship: state?.ship,
+      progression: state?.progression,
+      stats: state?.stats,
+      inventoryCounts: state?.inventory?.counts,
+      hangar: state?.hangar,
+      loadoutSlots: state?.loadout?.slots?.length,
+      craftingRecipes: state?.crafting?.recipes?.length,
+      planetIntel: state?.planetIntel,
+      productionPlanets: state?.production?.planets?.length,
+      routes: state?.routes,
+      market: state?.market,
+      auction: state?.auction,
+      premium: state?.premium,
+      commandLog: state?.commandLog,
+    };
+  }, expectedCallsign);
 }
 
 async function assertCanvasAndLayout(page, viewport, label) {

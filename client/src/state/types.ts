@@ -68,6 +68,126 @@ export interface WalletSummary {
   premium_earned: number;
 }
 
+export interface MarketListingSummary {
+  listing_id: string;
+  item_id: string;
+  display_name: string;
+  rarity: string;
+  remaining_quantity: number;
+  unit_price: number;
+  currency_type: string;
+  status: string;
+  expires_at?: number;
+  owned_by_you: boolean;
+  server_recalculates: boolean;
+  estimated_unit_purchase: {
+    quantity: number;
+    subtotal: number;
+    currency_type: string;
+    pending: boolean;
+  };
+}
+
+export interface MarketSummary {
+  listings: MarketListingSummary[];
+  counts: {
+    active: number;
+    mine: number;
+  };
+}
+
+export interface AuctionLotSummary {
+  auction_id: string;
+  payload_type: string;
+  definition_id: string;
+  quantity: number;
+  currency_type: string;
+  start_price: number;
+  current_bid: number;
+  has_bid: boolean;
+  leading: boolean;
+  buy_now_price?: number;
+  status: string;
+  starts_at: number;
+  ends_at: number;
+  server_recalculates: boolean;
+}
+
+export interface AuctionGrantSummary {
+  auction_id: string;
+  payload_type: string;
+  definition_id: string;
+  quantity: number;
+  reason: string;
+  granted_at: number;
+}
+
+export interface AuctionSummary {
+  lots: AuctionLotSummary[];
+  grants: AuctionGrantSummary[];
+}
+
+export interface PremiumEntitlementSummary {
+  entitlement_id: string;
+  type: string;
+  state: string;
+  payload: {
+    currency_bucket?: string;
+    amount?: number;
+    loadout_slot_scope?: string;
+    loadout_slot_count?: number;
+    period_key?: string;
+    cosmetic_id?: string;
+    badge_id?: string;
+  };
+  created_at: number;
+  claimed_at?: number;
+}
+
+export interface PremiumStockSummary {
+  period_key: string;
+  stock_total: number;
+  stock_remaining: number;
+  price_amount: number;
+  payment_currency: string;
+}
+
+export interface PremiumPurchaseSummary {
+  period_key: string;
+  payment_currency: string;
+  granted_at: number;
+}
+
+export interface PremiumSummary {
+  entitlements: PremiumEntitlementSummary[];
+  stock: PremiumStockSummary[];
+  purchases: PremiumPurchaseSummary[];
+}
+
+export interface EconomyDashboardSummary {
+  wallets: {
+    credits: number;
+    premium_paid: number;
+    premium_earned: number;
+  };
+  market: {
+    active_listings: number;
+    sold_listings: number;
+    volume_credits: number;
+  };
+  auction: {
+    active_lots: number;
+    closed_lots: number;
+    grants: number;
+  };
+  premium: {
+    pending_entitlements: number;
+    claimed_entitlements: number;
+    weekly_stock_remaining: number;
+  };
+  generated_at: number;
+}
+
 export interface ShipSummary {
   active_ship_id: string;
   display_name: string;
@@ -343,6 +463,10 @@ export interface ClientState {
   planetIntel: PlanetIntelSummary | null;
   production: ProductionCollectionSummary | null;
   routes: RouteListSummary | null;
+  market: MarketSummary | null;
+  auction: AuctionSummary | null;
+  premium: PremiumSummary | null;
+  economyDashboard: EconomyDashboardSummary | null;
   lastError: ErrorPayload | null;
 }
 

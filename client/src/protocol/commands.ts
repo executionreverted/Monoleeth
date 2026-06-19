@@ -99,6 +99,88 @@ export class CommandBuilder {
     return this.build(OPERATIONS.routeSnapshot, { route_id: routeID });
   }
 
+  walletSnapshot(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.walletSnapshot, {});
+  }
+
+  marketSearch(itemID?: string): RequestEnvelope<{ item_id?: string }> {
+    return this.build(OPERATIONS.marketSearch, itemID ? { item_id: itemID } : {});
+  }
+
+  marketCreateListing(input: {
+    itemID: string;
+    quantity: number;
+    unitPrice: number;
+    sourceLocation?: string;
+    itemInstanceID?: string;
+  }): RequestEnvelope<{
+    item_id: string;
+    quantity: number;
+    unit_price: number;
+    source_location?: string;
+    item_instance_id?: string;
+  }> {
+    return this.build(OPERATIONS.marketCreateListing, {
+      item_id: input.itemID,
+      quantity: input.quantity,
+      unit_price: input.unitPrice,
+      ...(input.sourceLocation ? { source_location: input.sourceLocation } : {}),
+      ...(input.itemInstanceID ? { item_instance_id: input.itemInstanceID } : {}),
+    });
+  }
+
+  marketBuy(listingID: string, quantity = 1): RequestEnvelope<{ listing_id: string; quantity: number }> {
+    return this.build(OPERATIONS.marketBuy, {
+      listing_id: listingID,
+      quantity,
+    });
+  }
+
+  marketCancel(listingID: string): RequestEnvelope<{ listing_id: string }> {
+    return this.build(OPERATIONS.marketCancel, {
+      listing_id: listingID,
+    });
+  }
+
+  auctionSearch(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.auctionSearch, {});
+  }
+
+  auctionBid(auctionID: string, amount: number): RequestEnvelope<{ auction_id: string; amount: number }> {
+    return this.build(OPERATIONS.auctionBid, {
+      auction_id: auctionID,
+      amount,
+    });
+  }
+
+  auctionBuyNow(auctionID: string): RequestEnvelope<{ auction_id: string }> {
+    return this.build(OPERATIONS.auctionBuyNow, {
+      auction_id: auctionID,
+    });
+  }
+
+  auctionClaimGrant(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.auctionClaimGrant, {});
+  }
+
+  premiumEntitlements(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.premiumEntitlements, {});
+  }
+
+  premiumClaim(entitlementID: string): RequestEnvelope<{ entitlement_id: string }> {
+    return this.build(OPERATIONS.premiumClaim, {
+      entitlement_id: entitlementID,
+    });
+  }
+
+  premiumPurchaseWeeklyXCore(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.premiumPurchaseWeeklyXCore, {});
+  }
+
+  adminEconomyDashboard(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.adminEconomyDashboard, {});
+  }
+
   debugSpawnNPC(entityID: string, position: Vec2): RequestEnvelope<{ entity_id: string; position: Vec2 }> {
     return this.build(OPERATIONS.debugSpawnNPC, {
       entity_id: entityID,
@@ -159,6 +241,27 @@ function findTrustedClientField(value: unknown): string | null {
       normalized === 'loot' ||
       normalized === 'cooldown' ||
       normalized === 'wallet_amount' ||
+      normalized === 'balance' ||
+      normalized === 'balance_after' ||
+      normalized === 'total' ||
+      normalized === 'total_amount' ||
+      normalized === 'price_total' ||
+      normalized === 'fee' ||
+      normalized === 'fee_amount' ||
+      normalized === 'seller_proceeds' ||
+      normalized === 'escrow' ||
+      normalized === 'escrow_location' ||
+      normalized === 'seller_player_id' ||
+      normalized === 'buyer_player_id' ||
+      normalized === 'bidder_player_id' ||
+      normalized === 'current_bid' ||
+      normalized === 'current_bidder_id' ||
+      normalized === 'winning_player_id' ||
+      normalized === 'stock_total' ||
+      normalized === 'stock_remaining' ||
+      normalized === 'provider' ||
+      normalized === 'provider_reference' ||
+      normalized === 'entitlement_state' ||
       normalized === 'hit' ||
       normalized === 'crit' ||
       normalized === 'procedural_seed' ||
