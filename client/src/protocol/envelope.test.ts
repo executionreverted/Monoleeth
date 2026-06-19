@@ -1,6 +1,23 @@
 import { describe, expect, test } from 'vitest';
 
-import { CLIENT_EVENTS, parseServerMessage, rejectForbiddenPayloadKeys } from './envelope';
+import { CommandBuilder } from './commands';
+import { CLIENT_EVENTS, OPERATIONS, parseServerMessage, rejectForbiddenPayloadKeys } from './envelope';
+
+const UNIMPLEMENTED_MUTATION_OPS = [
+  'loadout.equip_module',
+  'loadout.unequip_module',
+  'crafting.start',
+  'crafting.complete',
+  'crafting.cancel',
+  'discovery.claim_planet',
+  'planet.building_build',
+  'planet.building_upgrade',
+  'route.create',
+  'route.update',
+  'route.enable',
+  'route.disable',
+  'route.settle',
+] as const;
 
 describe('parseServerMessage', () => {
   test('parses a successful response envelope', () => {
@@ -159,5 +176,38 @@ describe('rejectForbiddenPayloadKeys', () => {
     expect(() => rejectForbiddenPayloadKeys({ entities: [{ future_spawn_data: ['x'] }] })).toThrow(
       /Forbidden server payload rejected/,
     );
+  });
+});
+
+describe('default outbound operations', () => {
+  test('exclude unimplemented browser mutation contracts', () => {
+    const allowedOperations = new Set<string>(Object.values(OPERATIONS));
+
+    for (const operation of UNIMPLEMENTED_MUTATION_OPS) {
+      expect(allowedOperations.has(operation)).toBe(false);
+    }
+  });
+
+  test('do not expose command-builder helpers for unimplemented browser mutations', () => {
+    const builderMethods = new Set(Object.getOwnPropertyNames(CommandBuilder.prototype));
+    const forbiddenMethodNames = [
+      'loadoutEquipModule',
+      'loadoutUnequipModule',
+      'craftingStart',
+      'craftingComplete',
+      'craftingCancel',
+      'discoveryClaimPlanet',
+      'planetBuildingBuild',
+      'planetBuildingUpgrade',
+      'routeCreate',
+      'routeUpdate',
+      'routeEnable',
+      'routeDisable',
+      'routeSettle',
+    ];
+
+    for (const method of forbiddenMethodNames) {
+      expect(builderMethods.has(method)).toBe(false);
+    }
   });
 });

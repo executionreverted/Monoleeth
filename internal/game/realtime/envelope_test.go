@@ -102,6 +102,41 @@ func TestDecodeRequestEnvelopeAcceptsCombatUseSkillOperation(t *testing.T) {
 	}
 }
 
+func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testing.T) {
+	disallowed := []Operation{
+		Operation("loadout.equip_module"),
+		Operation("loadout.unequip_module"),
+		Operation("crafting.start"),
+		Operation("crafting.complete"),
+		Operation("crafting.cancel"),
+		Operation("discovery.claim_planet"),
+		Operation("planet.building_build"),
+		Operation("planet.building_upgrade"),
+		Operation("route.create"),
+		Operation("route.update"),
+		Operation("route.enable"),
+		Operation("route.disable"),
+		Operation("route.settle"),
+	}
+
+	registry := OperationRegistry()
+	for index, operation := range disallowed {
+		if _, ok := registry[operation]; ok {
+			t.Fatalf("operation %q is registered in realtime registry, want absent until its server-owned contract exists", operation)
+		}
+		if _, ok := LookupOperation(operation); ok {
+			t.Fatalf("operation %q is accepted by LookupOperation, want rejected until its server-owned contract exists", operation)
+		}
+		body := fmt.Sprintf(
+			`{"request_id":"request-unimplemented-%d","op":%q,"payload":{},"client_seq":7,"v":1}`,
+			index,
+			operation,
+		)
+		_, err := DecodeRequestEnvelope([]byte(body))
+		requireInvalidPayload(t, err)
+	}
+}
+
 func TestOperationRegistryRejectsClientAuthoredQuestProgressOperations(t *testing.T) {
 	allowedQuestClientOperations := map[Operation]struct{}{
 		Operation("quest.board"):        {},

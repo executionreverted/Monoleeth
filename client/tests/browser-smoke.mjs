@@ -47,6 +47,43 @@ const fakeSocialCountPatterns = [
   { label: 'social notification count', pattern: /\bsocial\b[^\n]{0,24}\b(?:notification|badge|count)?s?\s*\d+\b/i },
   { label: 'notification count', pattern: /\bnotifications?\b[^\n]{0,24}\b\d+\b/i },
 ];
+const unimplementedMutationOps = [
+  'loadout.equip_module',
+  'loadout.unequip_module',
+  'crafting.start',
+  'crafting.complete',
+  'crafting.cancel',
+  'discovery.claim_planet',
+  'planet.building_build',
+  'planet.building_upgrade',
+  'route.create',
+  'route.update',
+  'route.enable',
+  'route.disable',
+  'route.settle',
+];
+const unimplementedMutationControlPatterns = [
+  {
+    label: 'loadout module mutation',
+    pattern: /\b(?:loadout|module)\b[^\n]{0,32}\b(?:equip|unequip)\b|\b(?:equip|unequip)\b[^\n]{0,32}\b(?:loadout|module)\b/i,
+  },
+  {
+    label: 'crafting mutation',
+    pattern: /\b(?:craft|crafting|recipe)\b[^\n]{0,32}\b(?:start|complete|cancel)\b|\b(?:start|complete|cancel)\b[^\n]{0,32}\b(?:craft|crafting|recipe)\b/i,
+  },
+  {
+    label: 'planet claim mutation',
+    pattern: /\b(?:discovery|planet)\b[^\n]{0,32}\bclaim\b|\bclaim\b[^\n]{0,32}\bplanet\b/i,
+  },
+  {
+    label: 'planet building mutation',
+    pattern: /\b(?:planet|building)\b[^\n]{0,32}\b(?:build|upgrade)\b|\b(?:build|upgrade)\b[^\n]{0,32}\b(?:planet|building)\b/i,
+  },
+  {
+    label: 'route mutation',
+    pattern: /\broute\b[^\n]{0,32}\b(?:create|update|enable|disable|settle)\b|\b(?:create|update|enable|disable|settle)\b[^\n]{0,32}\broute\b/i,
+  },
+];
 let eventSequence = 100;
 
 const appPort = explicitURL ? null : await findFreePort();
@@ -101,6 +138,7 @@ async function verifyRealViewport(viewport, label) {
       );
     });
     await assertNoFakeTopbarCounts(page, `${label} unauthenticated`);
+    await assertNoUnimplementedMutationControls(page, `${label} unauthenticated`);
     await page.screenshot({ path: path.join(outputDir, `unauth-${label}.png`), fullPage: true });
 
     await page.locator('input[name="email"]').fill(email);
@@ -116,6 +154,7 @@ async function verifyRealViewport(viewport, label) {
       );
     });
     await assertNoFakeTopbarCounts(page, `${label} invalid-login`);
+    await assertNoUnimplementedMutationControls(page, `${label} invalid-login`);
 
     await page.locator('[data-toggle]').click();
     await page.locator('input[name="email"]').fill(email);
@@ -174,6 +213,7 @@ async function verifyRealViewport(viewport, label) {
       console.error(`${label} bootstrap state`, JSON.stringify(await bootstrapDiagnostics(page, callsign), null, 2));
       throw error;
     }
+    await assertNoUnimplementedMutationControls(page, `${label} authenticated bootstrap`);
 
     await verifyRealEconomy(page);
 
@@ -196,6 +236,7 @@ async function verifyRealViewport(viewport, label) {
     await assertCanvasAndLayout(page, viewport, label);
     await assertNoForbiddenLeaks(page, label);
     await assertNoFakeTopbarCounts(page, `${label} authenticated`);
+    await assertNoUnimplementedMutationControls(page, `${label} authenticated`);
     await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
 
     if (label === 'desktop') {
@@ -227,6 +268,7 @@ async function verifyRealViewport(viewport, label) {
       );
     });
     await assertNoFakeTopbarCounts(page, `${label} logout`);
+    await assertNoUnimplementedMutationControls(page, `${label} logout`);
   } finally {
     await page.close();
   }
@@ -269,6 +311,7 @@ async function verifyReconnectReconciliation(page, expectedCallsign) {
   );
   await assertNoForbiddenLeaks(page, 'desktop-reconnect');
   await assertNoFakeTopbarCounts(page, 'desktop-reconnect');
+  await assertNoUnimplementedMutationControls(page, 'desktop-reconnect');
 }
 
 async function verifyAdminViewport(viewport, label) {
@@ -308,10 +351,12 @@ async function verifyAdminViewport(viewport, label) {
     await assertCanvasAndLayout(page, viewport, label);
     await assertNoForbiddenLeaks(page, label);
     await assertNoFakeTopbarCounts(page, label);
+    await assertNoUnimplementedMutationControls(page, label);
     await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
     await page.locator('[data-action="logout"]').click();
     await page.waitForSelector('.auth-card', { timeout: 10000 });
     await assertNoFakeTopbarCounts(page, `${label} logout`);
+    await assertNoUnimplementedMutationControls(page, `${label} logout`);
   } finally {
     await page.close();
   }
@@ -636,6 +681,92 @@ async function assertNoFakeTopbarCounts(page, label) {
   }
 }
 
+async function assertNoUnimplementedMutationControls(page, label) {
+  const violations = await page.evaluate(
+    ({ operations, patterns }) => {
+      const compiled = patterns.map((entry) => ({ label: entry.label, pattern: new RegExp(entry.source, entry.flags) }));
+      const aliases = operations.flatMap((operation) => [
+        operation,
+        operation.replace(/\./g, '-'),
+        operation.replace(/\./g, '_'),
+        operation.replace(/[._]/g, '-'),
+        operation.replace(/[._]/g, '_'),
+      ]);
+      const uniqueAliases = Array.from(new Set(aliases.map((alias) => alias.toLowerCase())));
+      const isVisible = (element) => {
+        const style = window.getComputedStyle(element);
+        return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0;
+      };
+      const isEnabledAction = (element) => {
+        if (!(element instanceof HTMLElement) || !isVisible(element)) {
+          return false;
+        }
+        if (element.matches(':disabled') || element.hasAttribute('disabled') || element.getAttribute('aria-disabled') === 'true') {
+          return false;
+        }
+        return window.getComputedStyle(element).pointerEvents !== 'none';
+      };
+      const elementText = (element) =>
+        [element.innerText, element.textContent, element instanceof HTMLInputElement ? element.value : '']
+          .filter(Boolean)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      const elementMetadata = (element) =>
+        Array.from(element.attributes)
+          .filter(
+            (attribute) =>
+              attribute.name === 'aria-label' ||
+              attribute.name === 'title' ||
+              attribute.name === 'name' ||
+              attribute.name === 'value' ||
+              attribute.name === 'data-action' ||
+              attribute.name === 'data-op' ||
+              attribute.name === 'data-command',
+          )
+          .map((attribute) => `${attribute.name}=${attribute.value}`)
+          .join(' ');
+      const candidates = Array.from(
+        document.querySelectorAll('button, a[href], input[type="button"], input[type="submit"], [role="button"], [data-action]'),
+      ).filter(isEnabledAction);
+      const matches = [];
+
+      for (const element of candidates) {
+        const haystack = `${elementText(element)} ${elementMetadata(element)}`.replace(/\s+/g, ' ').trim();
+        const normalized = haystack.toLowerCase();
+        const alias = uniqueAliases.find((entry) => normalized.includes(entry));
+        if (alias) {
+          matches.push({ kind: alias, text: haystack });
+          continue;
+        }
+        for (const entry of compiled) {
+          if (entry.pattern.test(haystack)) {
+            matches.push({ kind: entry.label, text: haystack });
+          }
+        }
+      }
+
+      return matches;
+    },
+    {
+      operations: unimplementedMutationOps,
+      patterns: unimplementedMutationControlPatterns.map((entry) => ({
+        label: entry.label,
+        source: entry.pattern.source,
+        flags: entry.pattern.flags,
+      })),
+    },
+  );
+
+  if (violations.length > 0) {
+    throw new Error(
+      `${label}: unimplemented mutation control is visible and enabled: ${violations
+        .map((violation) => `${violation.kind} in "${violation.text}"`)
+        .join('; ')}`,
+    );
+  }
+}
+
 async function clickWorldPosition(page, world) {
   const point = await page.evaluate((target) => {
     const canvas = document.querySelector('canvas.world-canvas');
@@ -684,6 +815,7 @@ async function startGameServer(port, allowedOrigin) {
     cwd: repoRoot,
     env: {
       ...process.env,
+      GOCACHE: process.env.GOCACHE ?? '/tmp/gameproject-go-cache',
       GAME_SERVER_ADDR: `127.0.0.1:${port}`,
       GAME_ALLOWED_ORIGINS: allowedOrigin,
       GAME_ADMIN_EMAIL: adminEmail,
