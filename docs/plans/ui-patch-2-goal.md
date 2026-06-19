@@ -119,11 +119,11 @@ docs/2026-06-17-world-system-design.md
 - [x] Locked action slots remain visibly locked and disabled.
 - [x] Keyboard shortcuts, if added, are ignored while typing in inputs or while
       a modal owns focus.
-- [ ] Scan button toggles scan mode instead of firing a one-off pulse only.
-- [ ] Scan mode automatically sends `scan.pulse` when server timing allows.
-- [ ] Scan mode shows a ship-centered scanning wave and an animated action
+- [x] Scan button toggles scan mode instead of firing a one-off pulse only.
+- [x] Scan mode automatically sends `scan.pulse` when server timing allows.
+- [x] Scan mode shows a ship-centered scanning wave and an animated action
       button state.
-- [ ] Server cooldown/rate-limit/energy/movement rejection stops or backs off
+- [x] Server cooldown/rate-limit/energy/movement rejection stops or backs off
       the client loop without mutating gameplay truth.
 
 ### Movement Debug UX

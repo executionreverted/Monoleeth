@@ -1,7 +1,7 @@
 import { AuthClient, AuthClientError } from '../auth/auth-client';
 import { RealtimeClient } from '../net/realtime-client';
 import { CommandBuilder } from '../protocol/commands';
-import { CLIENT_EVENTS, EntityPayload, ErrorEnvelope, RequestEnvelope, ServerMessage, Vec2 } from '../protocol/envelope';
+import { CLIENT_EVENTS, EntityPayload, ErrorEnvelope, OPERATIONS, RequestEnvelope, ServerMessage, Vec2 } from '../protocol/envelope';
 import { WorldRenderer } from '../render/world-renderer';
 import { AuthPanel } from '../ui/auth-panel';
 import { HUD } from '../ui/hud';
@@ -10,6 +10,11 @@ import { ClientAction, ClientState, PublicSession, WorldMapMemoryMarker } from '
 import { worldMapMemoryMarkers } from '../state/world-memory';
 
 type DemoStateModule = typeof import('./demo-state');
+
+const SCAN_PENDING_RECHECK_MS = 500;
+const SCAN_STARTED_RECHECK_MS = 350;
+const SCAN_PAUSED_RECHECK_MS = 750;
+const SCAN_ERROR_BACKOFF_MS = 3_200;
 
 export class ClientApp {
   private state: ClientState = createInitialState();
@@ -31,6 +36,8 @@ export class ClientApp {
   private smokeStateTimer: number | null = null;
   private cooldownRenderTimer: number | null = null;
   private cooldownRenderAt = 0;
+  private scanTimer: number | null = null;
+  private scanTimerAt = 0;
   private pendingLootPickupID: string | null = null;
   private pendingLootApproachID: string | null = null;
   private intentionalDisconnect = false;
@@ -73,7 +80,7 @@ export class ClientApp {
       onLoot: () => this.sendLootPickup(),
       onRepairQuote: () => this.sendCommand(this.commandBuilder.deathRepairQuote()),
       onRepair: () => this.sendCommand(this.commandBuilder.deathRepairShip()),
-      onScan: () => this.sendCommand(this.commandBuilder.scanPulse()),
+      onScan: () => this.toggleScanMode(),
       onPlanetDetail: (planetID) => this.requestPlanetDetail(planetID),
       onMarketCreateListing: (input) => this.sendCommand(this.commandBuilder.marketCreateListing(input)),
       onMarketBuy: (listingID) => this.sendCommand(this.commandBuilder.marketBuy(listingID, 1)),
@@ -175,6 +182,10 @@ export class ClientApp {
     this.sendCommand(this.commandBuilder.planetDetail(planetID));
   }
 
+  private toggleScanMode(): void {
+    this.dispatch({ type: 'scanModeToggled' });
+  }
+
   private sendCommand(envelope: RequestEnvelope): void {
     if (this.state.auth.mode === 'real' && this.state.connectionStatus !== 'connected') {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'Waiting for authenticated realtime link.' });
@@ -208,7 +219,21 @@ export class ClientApp {
       return;
     }
 
+    const pending = this.state.pendingCommands[message.request_id] ?? null;
     this.dispatch({ type: 'responseReceived', envelope: message });
+    if (pending?.op === OPERATIONS.scanPulse) {
+      if (message.ok === false) {
+        const now = Date.now();
+        this.dispatch({
+          type: 'scanPulseRejected',
+          message: message.error.message,
+          rejectedAt: now,
+          backoffUntil: now + SCAN_ERROR_BACKOFF_MS,
+        });
+      } else {
+        this.dispatch({ type: 'scanPulseAccepted' });
+      }
+    }
     if (message.ok === false && isAuthError(message)) {
       this.handleAuthExpired(message.error.message);
     }
@@ -403,6 +428,7 @@ export class ClientApp {
     }
     this.render();
     this.tryPendingLootPickup();
+    this.scheduleScanLoop();
   }
 
   private render(): void {
@@ -417,6 +443,7 @@ export class ClientApp {
       lastCorrection: this.state.lastCorrection,
       memoryMarkers: worldMapMemoryMarkers(this.state),
       worldEffects: this.state.worldEffects,
+      scanMode: this.state.scanMode,
       lastServerTime: this.state.lastServerTime,
     });
     this.authPanel?.render(this.state);
@@ -586,6 +613,96 @@ export class ClientApp {
     this.cooldownRenderAt = 0;
   }
 
+  private scheduleScanLoop(): void {
+    const wakeAt = this.nextScanWakeAt();
+    if (wakeAt === null) {
+      this.clearScanTimer();
+      return;
+    }
+    if (this.scanTimer !== null && Math.abs(this.scanTimerAt - wakeAt) < 20) {
+      return;
+    }
+
+    this.clearScanTimer();
+    this.scanTimerAt = wakeAt;
+    this.scanTimer = window.setTimeout(() => {
+      this.scanTimer = null;
+      this.scanTimerAt = 0;
+      this.runScanPulseIfDue();
+    }, Math.min(Math.max(0, wakeAt - Date.now()), 2_147_483_647));
+  }
+
+  private clearScanTimer(): void {
+    if (this.scanTimer === null) {
+      return;
+    }
+    window.clearTimeout(this.scanTimer);
+    this.scanTimer = null;
+    this.scanTimerAt = 0;
+  }
+
+  private nextScanWakeAt(): number | null {
+    if (!this.state.scanMode.enabled) {
+      return null;
+    }
+    const now = Date.now();
+    if (!this.scanRuntimeReady() || this.state.ship?.disabled === true) {
+      return now + SCAN_PAUSED_RECHECK_MS;
+    }
+    if (this.hasPendingOperation(OPERATIONS.scanPulse)) {
+      return now + SCAN_PENDING_RECHECK_MS;
+    }
+    if (this.scanPulseInProgress()) {
+      return Math.max(now + SCAN_STARTED_RECHECK_MS, this.state.scanMode.nextPulseAt ?? 0);
+    }
+    return this.state.scanMode.nextPulseAt ?? now;
+  }
+
+  private runScanPulseIfDue(): void {
+    if (!this.state.scanMode.enabled) {
+      return;
+    }
+
+    const now = Date.now();
+    if (!this.scanRuntimeReady()) {
+      this.dispatch({ type: 'scanPulseScheduled', nextPulseAt: now + SCAN_PAUSED_RECHECK_MS, lastError: 'Realtime paused.' });
+      return;
+    }
+    if (this.state.ship?.disabled === true) {
+      this.dispatch({ type: 'scanPulseScheduled', nextPulseAt: now + SCAN_PAUSED_RECHECK_MS, lastError: 'Ship disabled.' });
+      return;
+    }
+    if (this.hasPendingOperation(OPERATIONS.scanPulse)) {
+      this.dispatch({ type: 'scanPulseScheduled', nextPulseAt: now + SCAN_PENDING_RECHECK_MS });
+      return;
+    }
+    if (this.scanPulseInProgress()) {
+      this.dispatch({ type: 'scanPulseScheduled', nextPulseAt: now + SCAN_STARTED_RECHECK_MS });
+      return;
+    }
+
+    const dueAt = this.state.scanMode.nextPulseAt ?? now;
+    if (dueAt > now + 20) {
+      this.scheduleScanLoop();
+      return;
+    }
+
+    this.dispatch({ type: 'scanPulseScheduled', nextPulseAt: now + SCAN_PENDING_RECHECK_MS, lastError: null });
+    this.sendCommand(this.commandBuilder.scanPulse());
+  }
+
+  private scanRuntimeReady(): boolean {
+    return this.state.auth.mode === 'demo' || this.state.connectionStatus === 'connected';
+  }
+
+  private hasPendingOperation(op: string): boolean {
+    return Object.values(this.state.pendingCommands).some((command) => command.op === op);
+  }
+
+  private scanPulseInProgress(): boolean {
+    return this.state.planetIntel?.lastScan?.status === 'started';
+  }
+
   private async loadDemoState(): Promise<DemoStateModule> {
     if (import.meta.env.DEV) {
       this.demoState ??= await import('./demo-state');
@@ -625,6 +742,7 @@ export class ClientApp {
         loadout: this.state.loadout,
         crafting: this.state.crafting,
         planetIntel: this.state.planetIntel,
+        scanMode: this.state.scanMode,
         production: this.state.production,
         routes: this.state.routes,
         market: this.state.market,

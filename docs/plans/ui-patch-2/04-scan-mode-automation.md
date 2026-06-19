@@ -4,6 +4,8 @@
 
 **Goal:** Turn scan into a toggled mode that periodically sends real `scan.pulse` intents and visibly shows scanning around the ship.
 
+**Status:** Completed in Phase 04.
+
 **Architecture:** Scan mode is client-local control state. The server still
 owns whether each pulse starts, resolves, consumes energy, discovers a planet,
 grants XP, or rejects due to cooldown/rate-limit/movement/energy. The client
@@ -69,11 +71,25 @@ CSS action button animation, browser smoke.
 
 ## Acceptance
 
-- Scan button toggles mode.
-- Client automatically sends real `scan.pulse` when allowed by timing.
-- Server rejection never mutates fake scan results.
-- Active scan has ship-centered visual waves and animated action button.
-- Mode clears on logout/auth expiry and pauses while disconnected.
+- [x] Scan button toggles mode.
+- [x] Client automatically sends real `scan.pulse` when allowed by timing.
+- [x] Server rejection never mutates fake scan results.
+- [x] Active scan has ship-centered visual waves and animated action button.
+- [x] Mode clears on logout/auth expiry and pauses while disconnected.
+
+## Implementation Notes
+
+- `scanMode` is client-local control state only; scan results, planet discovery,
+  XP, cooldown, energy, and rejection truth still come from server responses and
+  events.
+- `ClientApp` pauses the loop while disconnected/disabled, waits on pending
+  `scan.pulse`, waits while `lastScan.status === "started"`, and backs off on
+  server-safe errors.
+- Pixi scan rings render around the interpolated self ship position and expose
+  `worldView.scanWaves` only for smoke/debug verification.
+- Browser smoke captures active scan screenshots under
+  `output/screenshots/ui-patch-2/04/` and verifies fixture auto-loop command
+  count plus real-server ring/button state.
 
 ## Commit
 

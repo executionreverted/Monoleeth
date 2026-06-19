@@ -181,6 +181,80 @@ describe('reduceClientState', () => {
     expect(accepted.lastServerTime).toBe(99);
   });
 
+  test('scan mode is local control state and does not invent gameplay values', () => {
+    const enabled = reduceClientState(createInitialState(), { type: 'scanModeToggled', enabled: true, now: 1234 });
+
+    expect(enabled.scanMode).toEqual({
+      enabled: true,
+      nextPulseAt: 1234,
+      lastRejectedAt: null,
+      lastError: null,
+    });
+    expect(enabled.planetIntel).toBeNull();
+    expect(enabled.progression).toBeNull();
+    expect(enabled.visibleEntities).toEqual({});
+
+    const rejected = reduceClientState(enabled, {
+      type: 'scanPulseRejected',
+      message: 'Scanner cooldown active.',
+      rejectedAt: 2000,
+      backoffUntil: 5200,
+    });
+
+    expect(rejected.scanMode).toEqual({
+      enabled: true,
+      nextPulseAt: 5200,
+      lastRejectedAt: 2000,
+      lastError: 'Scanner cooldown active.',
+    });
+    expect(rejected.planetIntel).toBeNull();
+
+    const disabled = reduceClientState(rejected, { type: 'scanModeToggled', enabled: false });
+    expect(disabled.scanMode).toEqual({
+      enabled: false,
+      nextPulseAt: null,
+      lastRejectedAt: null,
+      lastError: null,
+    });
+  });
+
+  test('scan events update scan mode timing from server-safe summaries only', () => {
+    const enabled = reduceClientState(createInitialState(), { type: 'scanModeToggled', enabled: true, now: 1000 });
+    const resolveAfter = Date.now() + 9000;
+    const started = reduceClientState(enabled, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.scanPulseStarted, {
+        pulse_reference: 'pulse-1',
+        status: 'started',
+        resolve_after: resolveAfter,
+      }),
+    });
+
+    expect(started.planetIntel?.lastScan).toMatchObject({
+      pulse_reference: 'pulse-1',
+      status: 'started',
+      resolve_after: resolveAfter,
+    });
+    expect(started.scanMode.enabled).toBe(true);
+    expect(started.scanMode.nextPulseAt).toBe(resolveAfter);
+    expect(started.scanMode.lastError).toBeNull();
+    expect(started.progression).toBeNull();
+
+    const beforeResolve = Date.now();
+    const resolved = reduceClientState(started, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.scanPulseResolved, {
+        pulse_reference: 'pulse-1',
+        status: 'no_signal',
+        message: 'Scanner pulse resolved with no signal.',
+      }),
+    });
+
+    expect(resolved.planetIntel?.lastScan?.status).toBe('no_signal');
+    expect(resolved.scanMode.enabled).toBe(true);
+    expect(resolved.scanMode.nextPulseAt ?? 0).toBeGreaterThanOrEqual(beforeResolve + 2500);
+  });
+
   test('snapshot response replaces visible entities atomically', () => {
     const state = reduceClientState(createInitialState(), {
       type: 'eventReceived',
@@ -885,6 +959,12 @@ function expectServerOwnedGameplayCleared(state: ClientState): void {
   expect(state.skillCooldowns).toEqual({});
   expect(state.questBoard).toBeNull();
   expect(state.planetIntel).toBeNull();
+  expect(state.scanMode).toEqual({
+    enabled: false,
+    nextPulseAt: null,
+    lastRejectedAt: null,
+    lastError: null,
+  });
   expect(state.production).toBeNull();
   expect(state.routes).toBeNull();
   expect(state.market).toBeNull();
@@ -950,6 +1030,12 @@ function stateWithServerOwnedGameplay(): ClientState {
     skillCooldowns: { basic_laser: 2000 },
     questBoard: serverOwnedStub<ClientState['questBoard']>(),
     planetIntel: serverOwnedStub<ClientState['planetIntel']>(),
+    scanMode: {
+      enabled: true,
+      nextPulseAt: 1234,
+      lastRejectedAt: 1200,
+      lastError: 'Cooldown.',
+    },
     production: serverOwnedStub<ClientState['production']>(),
     routes: serverOwnedStub<ClientState['routes']>(),
     market: serverOwnedStub<ClientState['market']>(),

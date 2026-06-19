@@ -1257,6 +1257,18 @@ button:disabled {
   border-color: rgba(244, 201, 93, 0.5);
 }
 
+.action-button[data-state="scanning"],
+.ghost-action--scan[data-state="scanning"] {
+  border-color: rgba(43, 223, 255, 0.72);
+  background:
+    radial-gradient(circle at 50% 36%, rgba(43, 223, 255, 0.22), transparent 1.55rem),
+    linear-gradient(180deg, rgba(43, 223, 255, 0.16), rgba(9, 16, 19, 0.86));
+  box-shadow:
+    inset 0 0 0 1px rgba(138, 245, 255, 0.14),
+    0 0 1rem rgba(43, 223, 255, 0.22);
+  animation: scan-action-border 1.45s ease-in-out infinite;
+}
+
 .action-button[data-state="locked"] {
   border-color: rgba(215, 247, 255, 0.16);
   background:
@@ -1276,6 +1288,12 @@ button:disabled {
 .action-button[data-state="ready"] .action-button__icon {
   filter: brightness(0) saturate(100%) invert(85%) sepia(72%) saturate(445%) hue-rotate(145deg) brightness(105%) contrast(102%);
   opacity: 0.95;
+}
+
+.action-button[data-state="scanning"] .action-button__icon {
+  filter: brightness(0) saturate(100%) invert(85%) sepia(72%) saturate(445%) hue-rotate(145deg) brightness(105%) contrast(102%);
+  opacity: 1;
+  animation: scan-action-icon 0.95s ease-in-out infinite;
 }
 
 .action-button[data-state="locked"] .action-button__icon {
@@ -1301,6 +1319,32 @@ button:disabled {
 .action-button small {
   color: rgba(215, 247, 255, 0.6);
   font-size: 0.6875rem;
+}
+
+@keyframes scan-action-border {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1px rgba(138, 245, 255, 0.14),
+      0 0 0.65rem rgba(43, 223, 255, 0.16);
+  }
+
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgba(138, 245, 255, 0.32),
+      0 0 1.35rem rgba(43, 223, 255, 0.34);
+  }
+}
+
+@keyframes scan-action-icon {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.12);
+  }
 }
 
 .hud__log {

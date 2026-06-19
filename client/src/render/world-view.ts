@@ -1,5 +1,5 @@
 import { EntityPayload, Vec2 } from '../protocol/envelope';
-import { MinimapSummary, SectorSummary, WorldFeedbackEffect, WorldMapMemoryMarker } from '../state/types';
+import { MinimapSummary, ScanModeState, SectorSummary, WorldFeedbackEffect, WorldMapMemoryMarker } from '../state/types';
 
 export interface WorldViewState {
   entities: EntityPayload[];
@@ -10,6 +10,7 @@ export interface WorldViewState {
   lastCorrection: { entityID: string; position: Vec2 } | null;
   memoryMarkers: WorldMapMemoryMarker[];
   worldEffects: WorldFeedbackEffect[];
+  scanMode: ScanModeState;
   lastServerTime: number | null;
 }
 

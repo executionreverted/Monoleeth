@@ -63,7 +63,7 @@ interface QuickActionState extends ActionState {
   iconURL: string;
   commandOp: string | null;
   locked: boolean;
-  state: 'ready' | 'pending' | 'cooldown' | 'blocked' | 'locked';
+  state: 'ready' | 'pending' | 'cooldown' | 'blocked' | 'locked' | 'scanning';
 }
 
 interface HUDPanelDefinition {
@@ -1200,7 +1200,7 @@ function intelPanel(state: ClientState): string {
   const knownPlanets = intel?.planets.slice(0, 2) ?? [];
   const routes = state.routes?.routes.length ?? null;
   const production = state.production?.planets.length ?? null;
-  const scanDisabled = state.connectionStatus !== 'connected' || state.ship?.disabled === true;
+  const scanAction = scanActionState(state);
   return `
     <h2>Sector Map</h2>
     ${minimapPanel(state)}
@@ -1211,7 +1211,9 @@ function intelPanel(state: ClientState): string {
       <span>Routes<strong>${routes ?? lockedValue()}</strong></span>
       <span>Prod<strong>${production ?? lockedValue()}</strong></span>
     </div>
-    <button class="ghost-action" type="button" data-action="scan" ${scanDisabled ? 'disabled' : ''} title="Run server scanner pulse">Pulse</button>
+    <button class="ghost-action ghost-action--scan" type="button" data-action="scan" data-state="${escapeHTML(
+      actionStateKind(scanAction),
+    )}" ${scanAction.enabled ? '' : 'disabled'} title="${escapeHTML(scanAction.title)}">${escapeHTML(scanAction.label)}</button>
     ${
       lastScan
         ? `<div class="scan-readout">
@@ -1411,6 +1413,9 @@ function actionSlotHTML(action: QuickActionState): string {
 }
 
 function actionStateKind(action: ActionState): QuickActionState['state'] {
+  if (/scanning|paused/i.test(action.label)) {
+    return 'scanning';
+  }
   if (action.enabled) {
     return 'ready';
   }
@@ -1474,6 +1479,41 @@ function laserActionState(state: ClientState, target: VisibleEntity | null): Act
 }
 
 function scanActionState(state: ClientState): ActionState {
+  const mode = state.scanMode;
+  if (mode.enabled) {
+    if (!realtimeReady(state)) {
+      return { enabled: true, label: 'Paused', detail: 'Offline', title: 'Scanner automation is waiting for realtime. Click to stop.' };
+    }
+    if (state.ship?.disabled === true) {
+      return { enabled: true, label: 'Paused', detail: 'Disabled', title: 'Ship is disabled. Click to stop scanner automation.' };
+    }
+    if (hasPendingOp(state, 'scan.pulse')) {
+      return { enabled: true, label: 'Scanning', detail: 'Pending', title: 'Scanner pulse is awaiting server response. Click to stop.' };
+    }
+    if (state.planetIntel?.lastScan?.status === 'started') {
+      return {
+        enabled: true,
+        label: 'Scanning',
+        detail: scanModeTimeDetail(mode.nextPulseAt, 'Resolving'),
+        title: 'Scanner pulse is resolving server-side. Click to stop.',
+      };
+    }
+    if (mode.lastError) {
+      return {
+        enabled: true,
+        label: 'Scanning',
+        detail: scanModeTimeDetail(mode.nextPulseAt, 'Backoff'),
+        title: `${mode.lastError} Click to stop scanner automation.`,
+      };
+    }
+    return {
+      enabled: true,
+      label: 'Scanning',
+      detail: scanModeTimeDetail(mode.nextPulseAt, 'Ready'),
+      title: 'Automatic scanner pulses are enabled. Click to stop.',
+    };
+  }
+
   if (!realtimeReady(state)) {
     return { enabled: false, label: 'Scan', detail: 'Offline', title: 'Realtime link is not authenticated.' };
   }
@@ -1486,8 +1526,8 @@ function scanActionState(state: ClientState): ActionState {
   return {
     enabled: true,
     label: 'Scan',
-    detail: state.planetIntel?.lastScan?.status ? actionScanLabel(state.planetIntel.lastScan.status) : 'Pulse',
-    title: 'Run one server scanner pulse.',
+    detail: state.planetIntel?.lastScan?.status ? actionScanLabel(state.planetIntel.lastScan.status) : 'Ready',
+    title: 'Start automatic server scanner pulses.',
   };
 }
 
@@ -1577,6 +1617,17 @@ function formatCooldown(milliseconds: number): string {
     return '<1s';
   }
   return `${Math.ceil(milliseconds / 1000)}s`;
+}
+
+function scanModeTimeDetail(nextPulseAt: number | null, fallback: string): string {
+  if (!nextPulseAt) {
+    return fallback;
+  }
+  const remaining = nextPulseAt - Date.now();
+  if (remaining <= 0) {
+    return fallback;
+  }
+  return formatCooldown(remaining);
 }
 
 

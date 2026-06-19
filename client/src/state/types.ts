@@ -468,6 +468,13 @@ export interface ScanPulseSummary {
   duplicate?: boolean;
 }
 
+export interface ScanModeState {
+  enabled: boolean;
+  nextPulseAt: number | null;
+  lastRejectedAt: number | null;
+  lastError: string | null;
+}
+
 export interface KnownPlanetSummary {
   planet_id: string;
   biome: string;
@@ -658,6 +665,7 @@ export interface ClientState {
   skillCooldowns: Record<string, number>;
   questBoard: QuestBoardSummary | null;
   planetIntel: PlanetIntelSummary | null;
+  scanMode: ScanModeState;
   production: ProductionCollectionSummary | null;
   routes: RouteListSummary | null;
   market: MarketSummary | null;
@@ -683,6 +691,10 @@ export type ClientAction =
   | { type: 'authFailed'; message: string }
   | { type: 'connectionChanged'; status: ConnectionStatus; socketURL?: string }
   | { type: 'requestQueued'; envelope: RequestEnvelope }
+  | { type: 'scanModeToggled'; enabled?: boolean; now?: number }
+  | { type: 'scanPulseScheduled'; nextPulseAt: number | null; lastError?: string | null }
+  | { type: 'scanPulseAccepted'; nextPulseAt?: number | null }
+  | { type: 'scanPulseRejected'; message: string; backoffUntil: number; rejectedAt?: number }
   | {
       type: 'responseReceived';
       envelope: ResponseEnvelope | { ok: false; error: ErrorPayload; request_id: string; server_time: number; v?: number };

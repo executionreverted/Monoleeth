@@ -34,6 +34,7 @@ const npcSwarmOffsets = [
 export class WorldRenderer {
   private app: Application | null = null;
   private readonly backgroundLayer = new Container();
+  private readonly scanLayer = new Graphics();
   private readonly worldLayer = new Container();
   private readonly memoryMarkerLayer = new Container();
   private readonly markerLayer = new Container();
@@ -53,6 +54,11 @@ export class WorldRenderer {
   private scale = 1;
   private serverClockOffset = 0;
   private ignoreWorldInputUntil = 0;
+  private scanDebug: {
+    active: boolean;
+    screen: Vec2 | null;
+    rings: Array<{ radius: number; alpha: number }>;
+  } = { active: false, screen: null, rings: [] };
 
   constructor(private readonly handlers: WorldInputHandlers) {}
 
@@ -72,6 +78,7 @@ export class WorldRenderer {
     app.stage.addChild(this.backgroundLayer);
     this.backgroundLayer.addChild(this.nebulaLayer);
     this.backgroundLayer.addChild(this.gridLayer);
+    app.stage.addChild(this.scanLayer);
     app.stage.addChild(this.worldLayer);
     app.stage.addChild(this.memoryMarkerLayer);
     app.stage.addChild(this.markerLayer);
@@ -100,6 +107,7 @@ export class WorldRenderer {
       this.updateMemoryMarkerPositions();
       this.updateBackground();
       if (this.state) {
+        this.drawScanWaves(this.state);
         this.drawMarkers(this.state);
       }
     });
@@ -161,6 +169,7 @@ export class WorldRenderer {
     }
 
     this.drawMarkers(state);
+    this.drawScanWaves(state);
     this.renderMemoryMarkers(state);
   }
 
@@ -173,6 +182,7 @@ export class WorldRenderer {
     center: Vec2;
     displayPositions: Record<string, Vec2>;
     memoryMarkers: Array<{ id: string; detailID: string; label: string; position: Vec2; screen: Vec2; state: string }>;
+    scanWaves: { active: boolean; screen: Vec2 | null; rings: Array<{ radius: number; alpha: number }> };
   } {
     const displayPositions: Record<string, Vec2> = {};
     for (const [entityID, position] of this.entityWorldPositions) {
@@ -189,6 +199,11 @@ export class WorldRenderer {
         screen: this.worldToScreen(marker.position),
         state: marker.state,
       })),
+      scanWaves: {
+        active: this.scanDebug.active,
+        screen: this.scanDebug.screen ? { ...this.scanDebug.screen } : null,
+        rings: this.scanDebug.rings.map((ring) => ({ ...ring })),
+      },
     };
   }
 
@@ -522,6 +537,41 @@ export class WorldRenderer {
     }
 
     this.drawFeedbackEffects(state);
+  }
+
+  private drawScanWaves(state: WorldViewState): void {
+    this.scanLayer.clear();
+    this.scanDebug = { active: false, screen: null, rings: [] };
+    if (!state.scanMode.enabled) {
+      return;
+    }
+
+    const local = state.entities.find(isSelfEntity) ?? state.entities.find((entity) => entity.entity_type === 'player');
+    if (!local) {
+      return;
+    }
+
+    const world = this.entityWorldPositions.get(local.entity_id) ?? this.authoritativeDisplayPosition(local);
+    const screen = this.worldToScreen(world);
+    const phase = (performance.now() % 2400) / 2400;
+    const color = state.scanMode.lastError ? hudColors.amber : hudColors.cyan;
+    const rings: Array<{ radius: number; alpha: number }> = [];
+
+    this.scanLayer.circle(screen.x, screen.y, 43).stroke({ color, width: 1, alpha: 0.2 });
+    for (let index = 0; index < 3; index += 1) {
+      const progress = (phase + index / 3) % 1;
+      const radius = 54 + progress * 138 * this.scale;
+      const alpha = (1 - progress) * 0.32;
+      rings.push({ radius, alpha });
+      this.scanLayer.circle(screen.x, screen.y, radius).stroke({ color, width: 2, alpha });
+      this.scanLayer.circle(screen.x, screen.y, radius + 7).stroke({ color: hudColors.cyanSoft, width: 1, alpha: alpha * 0.32 });
+    }
+    const sweep = phase * Math.PI * 2;
+    this.scanLayer
+      .moveTo(screen.x, screen.y)
+      .lineTo(screen.x + Math.cos(sweep) * 104 * this.scale, screen.y + Math.sin(sweep) * 104 * this.scale)
+      .stroke({ color: hudColors.cyanSoft, width: 2, alpha: 0.34 });
+    this.scanDebug = { active: true, screen, rings };
   }
 
   private updateBackground(): void {

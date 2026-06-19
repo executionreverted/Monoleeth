@@ -19,6 +19,7 @@ const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementa
 const phaseOutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '01');
 const phase02OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '02');
 const phase03OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '03');
+const phase04OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '04');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -103,6 +104,7 @@ try {
   await mkdir(phaseOutputDir, { recursive: true });
   await mkdir(phase02OutputDir, { recursive: true });
   await mkdir(phase03OutputDir, { recursive: true });
+  await mkdir(phase04OutputDir, { recursive: true });
   if (useFixture) {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
@@ -226,21 +228,7 @@ async function verifyRealViewport(viewport, label) {
 
     await verifyRealEconomy(page);
 
-    await page.waitForFunction(() => {
-      const button = document.querySelector('[data-panel="intel"] [data-action="scan"]');
-      return button instanceof HTMLButtonElement && !button.disabled;
-    }, null, { timeout: 10000 });
-    await page.locator('[data-panel="intel"] [data-action="scan"]').dispatchEvent('click');
-    await page.waitForFunction(() => {
-      const state = window.__SPACE_MORPG_SMOKE_STATE__;
-      return (
-        state?.planetIntel?.lastScan?.status === 'planet_discovered' &&
-        state?.planetIntel?.lastScan?.signal?.signal_band &&
-        state?.planetIntel?.knownSignals === 1 &&
-        state?.planetIntel?.planets?.length === 1 &&
-        state?.progression?.main_xp >= 25
-      );
-    }, null, { timeout: 10000 });
+    await verifyScanModeAutomation(page, viewport, label);
     await verifyPlanetMemoryMarker(page, label);
 
     await verifyPanelModalChrome(page, viewport, label);
@@ -592,6 +580,10 @@ async function verifyFixtureViewport(viewport, label) {
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'npc-rake-01');
     }
 
+    if (label === 'fixture-desktop') {
+      await verifyFixtureScanLoop(page, realtime, label);
+    }
+
     await assertCanvasAndLayout(page, viewport, label);
     await assertNoForbiddenLeaks(page, label);
     await assertNoFakeTopbarCounts(page, label);
@@ -600,6 +592,76 @@ async function verifyFixtureViewport(viewport, label) {
     await page.close();
     await realtime.close();
   }
+}
+
+async function verifyScanModeAutomation(page, viewport, label) {
+  await page.waitForFunction(() => {
+    const button = document.querySelector('.hud__actionbar [data-quick-action="scan"]');
+    return button instanceof HTMLButtonElement && !button.disabled;
+  }, null, { timeout: 10000 });
+
+  const sentBefore = await commandLogCount(page, 'Sent scan.pulse.');
+  await page.locator('.hud__actionbar [data-quick-action="scan"]').dispatchEvent('click');
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const button = document.querySelector('.hud__actionbar [data-quick-action="scan"]');
+    return (
+      state?.scanMode?.enabled === true &&
+      button instanceof HTMLButtonElement &&
+      button.dataset.state === 'scanning' &&
+      /scanning/i.test(button.textContent ?? '')
+    );
+  }, null, { timeout: 10000 });
+  await page.waitForFunction(() => {
+    const waves = window.__SPACE_MORPG_SMOKE_STATE__?.worldView?.scanWaves;
+    return (
+      waves?.active === true &&
+      Number.isFinite(waves.screen?.x) &&
+      Number.isFinite(waves.screen?.y) &&
+      Array.isArray(waves.rings) &&
+      waves.rings.length >= 3 &&
+      waves.rings.every((ring) => ring.radius > 40 && ring.alpha > 0)
+    );
+  }, null, { timeout: 5000 });
+  await page.screenshot({ path: path.join(phase04OutputDir, `scan-mode-${label}.png`), fullPage: true });
+
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return (
+      state?.planetIntel?.lastScan?.status === 'planet_discovered' &&
+      state?.planetIntel?.lastScan?.signal?.signal_band &&
+      state?.planetIntel?.knownSignals === 1 &&
+      state?.planetIntel?.planets?.length === 1 &&
+      state?.progression?.main_xp >= 25
+    );
+  }, null, { timeout: 10000 });
+  const sentAfter = await commandLogCount(page, 'Sent scan.pulse.');
+  if (sentAfter <= sentBefore) {
+    throw new Error(`${label}: scan mode did not send a real scan.pulse command`);
+  }
+
+  await page.locator('.hud__actionbar [data-quick-action="scan"]').dispatchEvent('click');
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.scanMode?.enabled === false, null, {
+    timeout: 10000,
+  });
+  if (viewport.width < 768) {
+    const hasHorizontalScroll = await page.evaluate(() => document.scrollingElement.scrollWidth > window.innerWidth + 1);
+    if (hasHorizontalScroll) {
+      throw new Error(`${label}: scan mode action state created horizontal body scroll`);
+    }
+  }
+}
+
+async function verifyFixtureScanLoop(page, realtime, label) {
+  await page.waitForFunction(() => {
+    const button = document.querySelector('.hud__actionbar [data-quick-action="scan"]');
+    return button instanceof HTMLButtonElement && !button.disabled;
+  }, null, { timeout: 10000 });
+  await page.locator('.hud__actionbar [data-quick-action="scan"]').dispatchEvent('click');
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.scanMode?.enabled === true, null, { timeout: 10000 });
+  await realtime.waitForOpCount('scan.pulse', 2);
+  await page.locator('.hud__actionbar [data-quick-action="scan"]').dispatchEvent('click');
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.scanMode?.enabled === false, null, { timeout: 10000 });
 }
 
 async function verifyRealCombatLoot(page) {
@@ -1478,6 +1540,7 @@ async function startMockRealtimeServer() {
   return {
     url: `ws://127.0.0.1:${address.port}/ws`,
     waitForOp: (op) => waitForOp(received, waiters, op),
+    waitForOpCount: (op, count) => waitForOpCount(received, op, count),
     close: async () => {
       for (const socket of sockets) {
         socket.destroy();
@@ -1646,9 +1709,52 @@ function handleClientMessage(socket, raw, received, waiters) {
         }),
       );
       break;
+    case 'scan.pulse': {
+      const scan = {
+        pulse_reference: `fixture-${request.request_id}`,
+        status: 'started',
+        resolve_after: Date.now() + 90,
+      };
+      sendMessage(socket, response(request.request_id, { scan }));
+      sendMessage(socket, event(`scan-start-${request.request_id}`, 'scan.pulse_started', scan));
+      setTimeout(() => {
+        sendMessage(
+          socket,
+          event(`scan-resolve-${request.request_id}`, 'scan.pulse_resolved', {
+            pulse_reference: scan.pulse_reference,
+            status: 'no_signal',
+            message: 'Fixture scan resolved with no signal.',
+          }),
+        );
+      }, 90);
+      break;
+    }
     default:
       sendMessage(socket, errorResponse(request.request_id, 'ERR_INVALID_PAYLOAD', 'Unsupported operation.'));
   }
+}
+
+function waitForOpCount(received, op, count) {
+  const matching = () => received.filter((message) => message.op === op);
+  const found = matching();
+  if (found.length >= count) {
+    return Promise.resolve(found);
+  }
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      const current = matching();
+      if (current.length >= count) {
+        clearInterval(timer);
+        resolve(current);
+        return;
+      }
+      if (Date.now() - startedAt > 9000) {
+        clearInterval(timer);
+        reject(new Error(`Timed out waiting for ${count} ${op} ops; received ops: ${received.map((message) => message.op).join(', ')}`));
+      }
+    }, 50);
+  });
 }
 
 function waitForOp(received, waiters, op) {

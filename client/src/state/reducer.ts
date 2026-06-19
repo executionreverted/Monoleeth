@@ -39,6 +39,7 @@ import {
   RouteListSummary,
   RouteSummary,
   ScanPulseSummary,
+  ScanModeState,
   SectorSummary,
   ShipSummary,
   StatSummary,
@@ -59,6 +60,9 @@ import {
   WalletSummary,
   WorldFeedbackEffect,
 } from './types';
+
+const SCAN_REPEAT_DELAY_MS = 2_800;
+const SCAN_STARTED_RECHECK_MS = 350;
 
 export function createInitialState(): ClientState {
   return {
@@ -97,6 +101,7 @@ export function createInitialState(): ClientState {
     skillCooldowns: {},
     questBoard: null,
     planetIntel: null,
+    scanMode: initialScanMode(),
     production: null,
     routes: null,
     market: null,
@@ -228,6 +233,63 @@ export function reduceClientState(state: ClientState, action: ClientAction): Cli
           },
         },
         commandLog: appendLog(state.commandLog, 'info', `Sent ${action.envelope.op}.`),
+      };
+
+    case 'scanModeToggled': {
+      const enabled = action.enabled ?? !state.scanMode.enabled;
+      return {
+        ...state,
+        scanMode: enabled
+          ? {
+              enabled: true,
+              nextPulseAt: action.now ?? Date.now(),
+              lastRejectedAt: null,
+              lastError: null,
+            }
+          : initialScanMode(),
+        commandLog: appendLog(state.commandLog, 'info', enabled ? 'Scanner automation enabled.' : 'Scanner automation disabled.'),
+      };
+    }
+
+    case 'scanPulseScheduled':
+      if (!state.scanMode.enabled) {
+        return state;
+      }
+      return {
+        ...state,
+        scanMode: {
+          ...state.scanMode,
+          nextPulseAt: action.nextPulseAt,
+          lastError: action.lastError === undefined ? state.scanMode.lastError : action.lastError,
+        },
+      };
+
+    case 'scanPulseAccepted':
+      if (!state.scanMode.enabled) {
+        return state;
+      }
+      return {
+        ...state,
+        scanMode: {
+          ...state.scanMode,
+          nextPulseAt: action.nextPulseAt === undefined ? state.scanMode.nextPulseAt : action.nextPulseAt,
+          lastError: null,
+        },
+      };
+
+    case 'scanPulseRejected':
+      if (!state.scanMode.enabled) {
+        return state;
+      }
+      return {
+        ...state,
+        scanMode: {
+          ...state.scanMode,
+          nextPulseAt: action.backoffUntil,
+          lastRejectedAt: action.rejectedAt ?? Date.now(),
+          lastError: action.message,
+        },
+        commandLog: appendLog(state.commandLog, 'warn', `Scanner paused: ${action.message}`),
       };
 
     case 'responseReceived': {
@@ -507,12 +569,16 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       };
 
     case CLIENT_EVENTS.scanPulseStarted:
+    {
+      const scan = parseScanPulse(envelope.payload, state.planetIntel?.lastScan ?? null);
       return {
         ...state,
-        planetIntel: applyScanPulse(state.planetIntel, parseScanPulse(envelope.payload, state.planetIntel?.lastScan ?? null)),
+        planetIntel: applyScanPulse(state.planetIntel, scan),
+        scanMode: scanModeAfterPulseStarted(state.scanMode, scan),
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
+    }
 
     case CLIENT_EVENTS.scanPulseResolved:
     case CLIENT_EVENTS.scanPlanetDiscovered: {
@@ -520,6 +586,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       return {
         ...state,
         planetIntel: applyScanPulse(state.planetIntel, scan),
+        scanMode: scanModeAfterPulseResolved(state.scanMode),
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
         commandLog: appendLog(state.commandLog, scan.status === 'planet_discovered' ? 'info' : 'warn', scanLogLine(scan)),
@@ -1059,9 +1126,11 @@ function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientSt
 
   const scan = objectField(payload, 'scan') ?? objectField(payload, 'scan_pulse');
   if (scan) {
+    const parsedScan = parseScanPulse(scan, next.planetIntel?.lastScan ?? null);
     next = {
       ...next,
-      planetIntel: applyScanPulse(next.planetIntel, parseScanPulse(scan, next.planetIntel?.lastScan ?? null)),
+      planetIntel: applyScanPulse(next.planetIntel, parsedScan),
+      scanMode: scanModeAfterPulseSummary(next.scanMode, parsedScan),
     };
   }
 
@@ -2474,6 +2543,55 @@ function applyScanPulse(fallback: PlanetIntelSummary | null, scan: ScanPulseSumm
   };
 }
 
+function initialScanMode(): ScanModeState {
+  return {
+    enabled: false,
+    nextPulseAt: null,
+    lastRejectedAt: null,
+    lastError: null,
+  };
+}
+
+function scanModeAfterPulseSummary(mode: ScanModeState, scan: ScanPulseSummary): ScanModeState {
+  if (scan.status === 'started') {
+    return scanModeAfterPulseStarted(mode, scan);
+  }
+  if (scan.status === 'resolved' || scan.status === 'planet_discovered' || scan.status === 'no_signal') {
+    return scanModeAfterPulseResolved(mode);
+  }
+  return mode;
+}
+
+function scanModeAfterPulseStarted(mode: ScanModeState, scan: ScanPulseSummary): ScanModeState {
+  if (!mode.enabled) {
+    return mode;
+  }
+  return {
+    ...mode,
+    nextPulseAt: scanResolveWakeAt(scan.resolve_after),
+    lastError: null,
+  };
+}
+
+function scanModeAfterPulseResolved(mode: ScanModeState): ScanModeState {
+  if (!mode.enabled) {
+    return mode;
+  }
+  return {
+    ...mode,
+    nextPulseAt: Date.now() + SCAN_REPEAT_DELAY_MS,
+    lastError: null,
+  };
+}
+
+function scanResolveWakeAt(resolveAfter: number | undefined): number {
+  const now = Date.now();
+  if (Number.isFinite(resolveAfter) && typeof resolveAfter === 'number' && resolveAfter > now) {
+    return Math.round(resolveAfter);
+  }
+  return now + SCAN_STARTED_RECHECK_MS;
+}
+
 function applyPlanetDetail(fallback: PlanetIntelSummary | null, detail: PlanetDetailSummary): PlanetIntelSummary {
   const next = fallback ?? emptyPlanetIntel();
   const planets = next.planets.some((planet) => planet.planet_id === detail.planet_id)
@@ -2597,6 +2715,7 @@ function clearGameplay(state: ClientState): ClientState {
     skillCooldowns: {},
     questBoard: null,
     planetIntel: null,
+    scanMode: initialScanMode(),
     production: null,
     routes: null,
     market: null,
