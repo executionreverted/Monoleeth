@@ -285,6 +285,7 @@ func (runtime *Runtime) handleQuestClaimReward(ctx realtime.CommandContext, requ
 	if err != nil {
 		return nil, domainErrorForQuest(err)
 	}
+	runtime.recordQuestRewardMetrics(result)
 	questPayload := runtime.questPayloadFromQuest(result.Quest)
 	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
 	state := runtime.players[ctx.PlayerID]

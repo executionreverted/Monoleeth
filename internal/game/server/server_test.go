@@ -18,6 +18,7 @@ import (
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 	"gameproject/internal/game/premium"
 	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
@@ -738,7 +739,7 @@ func TestScanPulseDuplicateRequestIDDoesNotDoubleSpend(t *testing.T) {
 }
 
 func TestPhase08MarketAuctionPremiumUseServerEconomyState(t *testing.T) {
-	_, httpServer := newTestServer(t, false)
+	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
 	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
 	defer conn.CloseNow()
@@ -923,6 +924,45 @@ func TestPhase08MarketAuctionPremiumUseServerEconomyState(t *testing.T) {
 	if admin.Error.Code != foundation.CodeForbidden {
 		t.Fatalf("non-admin dashboard error = %+v, want %s", admin.Error, foundation.CodeForbidden)
 	}
+
+	snapshot := gameServer.runtime.Metrics.Snapshot()
+	requireMetricCounter(t, snapshot, observability.MetricMarketVolume, 50, []observability.Label{
+		{Name: "currency_type", Value: economy.CurrencyBucketCredits.String()},
+		{Name: "item_id", Value: "raw_ore"},
+	})
+	requireMetricCounter(t, snapshot, observability.MetricMarketQuantity, 2, []observability.Label{
+		{Name: "currency_type", Value: economy.CurrencyBucketCredits.String()},
+		{Name: "item_id", Value: "raw_ore"},
+	})
+	requireMetricCounter(t, snapshot, observability.MetricMarketSales, 1, []observability.Label{
+		{Name: "currency_type", Value: economy.CurrencyBucketCredits.String()},
+		{Name: "item_id", Value: "raw_ore"},
+	})
+	requireMetricCounter(t, snapshot, observability.MetricAuctionVolume, 300, []observability.Label{
+		{Name: "currency_type", Value: economy.CurrencyBucketCredits.String()},
+	})
+	requireMetricCounter(t, snapshot, observability.MetricAuctionClearingVolume, 650, []observability.Label{
+		{Name: "currency_type", Value: economy.CurrencyBucketCredits.String()},
+		{Name: "item_id", Value: "x_core_fragment_bundle"},
+	})
+	requireMetricCounter(t, snapshot, observability.MetricAuctionClearingQuantity, 2, []observability.Label{
+		{Name: "currency_type", Value: economy.CurrencyBucketCredits.String()},
+		{Name: "item_id", Value: "x_core_fragment_bundle"},
+	})
+	requireMetricCounter(t, snapshot, observability.MetricAuctionClears, 1, []observability.Label{
+		{Name: "currency_type", Value: economy.CurrencyBucketCredits.String()},
+		{Name: "item_id", Value: "x_core_fragment_bundle"},
+	})
+	requireMetricCounter(t, snapshot, observability.MetricWalletDeltaByReason, 50, []observability.Label{
+		{Name: "action", Value: economy.LedgerActionIncrease.String()},
+		{Name: "currency_type", Value: economy.CurrencyBucketPremiumEarned.String()},
+		{Name: "reason", Value: premium.LedgerReasonPremiumEntitlementClaim.String()},
+	})
+	requireMetricCounter(t, snapshot, observability.MetricWalletDeltaByReason, weeklyXCorePremiumPrice, []observability.Label{
+		{Name: "action", Value: economy.LedgerActionDecrease.String()},
+		{Name: "currency_type", Value: economy.CurrencyBucketPremiumPaid.String()},
+		{Name: "reason", Value: premium.LedgerReasonPremiumWeeklyXCore.String()},
+	})
 }
 
 func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
@@ -1184,6 +1224,22 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 			}
 		})
 	}
+
+	snapshot := gameServer.runtime.Metrics.Snapshot()
+	requireMetricCounter(t, snapshot, observability.MetricQuestRewardsClaimed, 1, []observability.Label{
+		{Name: "reward_type", Value: quests.RewardKindCredits.String()},
+	})
+	requireMetricCounter(t, snapshot, observability.MetricQuestRewardsClaimed, 1, []observability.Label{
+		{Name: "reward_type", Value: quests.RewardKindMainXP.String()},
+	})
+	requireMetricCounter(t, snapshot, observability.MetricQuestRewardsClaimed, 1, []observability.Label{
+		{Name: "reward_type", Value: quests.RewardKindItem.String()},
+	})
+	requireMetricCounter(t, snapshot, observability.MetricWalletDeltaByReason, claim.Wallet.Credits-starterWalletCredits, []observability.Label{
+		{Name: "action", Value: economy.LedgerActionIncrease.String()},
+		{Name: "currency_type", Value: economy.CurrencyBucketCredits.String()},
+		{Name: "reason", Value: runtimeQuestRewardLedgerReason.String()},
+	})
 }
 
 func TestCombatRejectsClientAuthoredGameplayTruth(t *testing.T) {
@@ -1710,6 +1766,32 @@ func testCargoUsed(gameServer *Server, playerID foundation.PlayerID) int64 {
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
 	return gameServer.runtime.players[playerID].Cargo.Used
+}
+
+func requireMetricCounter(t *testing.T, snapshot observability.MetricSnapshot, name string, value int64, labels []observability.Label) {
+	t.Helper()
+	for _, counter := range snapshot.Counters {
+		if counter.Name != name || !sameMetricLabels(counter.Labels, labels) {
+			continue
+		}
+		if counter.Value != value {
+			t.Fatalf("metric %s labels %+v value = %d, want %d", name, labels, counter.Value, value)
+		}
+		return
+	}
+	t.Fatalf("missing metric %s labels %+v in snapshot %+v", name, labels, snapshot)
+}
+
+func sameMetricLabels(got, want []observability.Label) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for index := range got {
+		if got[index] != want[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func progressableQuestOffer(t *testing.T, offers []questOfferPayload) questOfferPayload {

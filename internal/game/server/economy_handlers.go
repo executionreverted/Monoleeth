@@ -289,6 +289,15 @@ func (runtime *Runtime) handleMarketBuy(ctx realtime.CommandContext, request rea
 	if err != nil {
 		return nil, domainErrorForEconomy(err)
 	}
+	if !result.Duplicate && runtime.Metrics != nil {
+		_ = runtime.Metrics.RecordMarketSale(result.Listing.Currency.String(), result.Listing.ItemID, result.Quantity, result.TotalAmount)
+		runtime.recordCurrencyLedgerMetric(result.BuyerDebit.LedgerEntry)
+		runtime.recordCurrencyLedgerMetric(result.SellerCredit.LedgerEntry)
+		if result.FeeCredit != nil {
+			runtime.recordCurrencyLedgerMetric(result.FeeCredit.LedgerEntry)
+		}
+		runtime.recordItemLedgerMetrics(result.ItemMove.LedgerEntries)
+	}
 	sessionID := authSessionID(ctx.SessionID)
 	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
 	state := runtime.players[ctx.PlayerID]
@@ -371,6 +380,13 @@ func (runtime *Runtime) handleAuctionBid(ctx realtime.CommandContext, request re
 	if err != nil {
 		return nil, domainErrorForEconomy(err)
 	}
+	if !result.Duplicate && runtime.Metrics != nil {
+		_ = runtime.Metrics.RecordAuctionBid(result.Lot.Currency.String(), result.Amount)
+		runtime.recordCurrencyLedgerMetric(result.BidderDebit.LedgerEntry)
+		if result.PreviousRefund != nil {
+			runtime.recordCurrencyLedgerMetric(result.PreviousRefund.LedgerEntry)
+		}
+	}
 	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
 	runtime.queueEventLocked(authSessionID(ctx.SessionID), realtime.EventAuctionBidPlaced, auctionLotPayloadFromLot(result.Lot, ctx.PlayerID))
 	runtime.queueEventLocked(authSessionID(ctx.SessionID), realtime.EventAuctionLotUpdated, auctionLotPayloadFromLot(result.Lot, ctx.PlayerID))
@@ -402,6 +418,13 @@ func (runtime *Runtime) handleAuctionBuyNow(ctx realtime.CommandContext, request
 	})
 	if err != nil {
 		return nil, domainErrorForEconomy(err)
+	}
+	if !result.Duplicate && runtime.Metrics != nil {
+		_ = runtime.Metrics.RecordAuctionClearing(result.Lot.Currency.String(), foundation.ItemID(result.Grant.Payload.Source.DefinitionID), result.Grant.Payload.Quantity, result.Price)
+		runtime.recordCurrencyLedgerMetric(result.BuyerDebit.LedgerEntry)
+		if result.CurrentRefund != nil {
+			runtime.recordCurrencyLedgerMetric(result.CurrentRefund.LedgerEntry)
+		}
 	}
 	grant := auctionGrantPayloadFromGrant(result.Grant)
 	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
@@ -455,6 +478,9 @@ func (runtime *Runtime) handlePremiumClaim(ctx realtime.CommandContext, request 
 	if err != nil {
 		return nil, domainErrorForEconomy(err)
 	}
+	if !result.Duplicate && result.WalletCredit != nil {
+		runtime.recordCurrencyLedgerMetric(result.WalletCredit.LedgerEntry)
+	}
 	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
 	state := runtime.players[ctx.PlayerID]
 	state.Wallet = wallet
@@ -486,6 +512,9 @@ func (runtime *Runtime) handlePremiumWeeklyXCore(ctx realtime.CommandContext, re
 	})
 	if err != nil {
 		return nil, domainErrorForEconomy(err)
+	}
+	if !result.Duplicate && result.WalletDebit != nil {
+		runtime.recordCurrencyLedgerMetric(result.WalletDebit.LedgerEntry)
 	}
 	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
 	state := runtime.players[ctx.PlayerID]
