@@ -377,6 +377,94 @@ func TestClaimPlanetProductionInitializerErrorReturnsBeforeEventOrClaimCache(t *
 	}
 }
 
+func TestClaimPlanetProductionInitializerErrorRetryCachesRepairWithoutDuplicateSideEffects(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim")
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	initErr := errors.New("production init failed")
+	initializer := &recordingClaimProductionInitializer{err: initErr}
+	consumer := &recordingClaimXCoreConsumer{}
+	staleMarker := &recordingClaimListedIntelStaleMarker{markedCount: 4}
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    consumer,
+		initializer: initializer,
+		staleMarker: staleMarker,
+	})
+	input := claimInput("claim_init_retry_repair", planet.ID)
+
+	_, err := service.ClaimPlanet(input)
+	if !errors.Is(err, initErr) {
+		t.Fatalf("ClaimPlanet() error = %v, want initErr", err)
+	}
+	stored, ok, err := store.Planet(planet.ID)
+	if err != nil || !ok {
+		t.Fatalf("Planet() ok = %v err = %v, want true nil", ok, err)
+	}
+	if stored.OwnerPlayerID != claimTestPlayerID {
+		t.Fatalf("owner after initializer failure = %q, want %q", stored.OwnerPlayerID, claimTestPlayerID)
+	}
+	if got := len(service.Events()); got != 0 {
+		t.Fatalf("claim events after initializer failure = %d, want 0", got)
+	}
+	if got := len(staleMarker.calls); got != 0 {
+		t.Fatalf("stale marker calls after initializer failure = %d, want 0", got)
+	}
+
+	initializer.err = nil
+	repaired, err := service.ClaimPlanet(input)
+	if err != nil {
+		t.Fatalf("retry ClaimPlanet() error = %v, want nil repair", err)
+	}
+	if repaired.Duplicate {
+		t.Fatalf("repair duplicate = true, want false because failed attempt was not cached")
+	}
+	if !repaired.Claimed || !repaired.AlreadyOwned {
+		t.Fatalf("repair result = %+v, want already-owned claimed repair", repaired)
+	}
+	if repaired.StaleListingCount != 4 {
+		t.Fatalf("repair stale listing count = %d, want 4", repaired.StaleListingCount)
+	}
+	if got := len(initializer.calls); got != 2 {
+		t.Fatalf("production initializer calls after repair = %d, want 2", got)
+	}
+	if got := len(staleMarker.calls); got != 1 {
+		t.Fatalf("stale marker calls after repair = %d, want 1", got)
+	}
+	if got := len(service.Events()); got != 0 {
+		t.Fatalf("claim events after repair = %d, want 0", got)
+	}
+	if got := len(consumer.calls); got != 1 {
+		t.Fatalf("x core consume calls after repair = %d, want 1", got)
+	}
+
+	duplicate, err := service.ClaimPlanet(input)
+	if err != nil {
+		t.Fatalf("duplicate ClaimPlanet() error = %v, want nil cached result", err)
+	}
+	if !duplicate.Duplicate || !duplicate.Claimed || !duplicate.AlreadyOwned {
+		t.Fatalf("duplicate result = %+v, want cached duplicate already-owned claim", duplicate)
+	}
+	if duplicate.StaleListingCount != repaired.StaleListingCount {
+		t.Fatalf("duplicate stale listing count = %d, want %d", duplicate.StaleListingCount, repaired.StaleListingCount)
+	}
+	if got := len(initializer.calls); got != 2 {
+		t.Fatalf("production initializer calls after duplicate = %d, want 2", got)
+	}
+	if got := len(staleMarker.calls); got != 1 {
+		t.Fatalf("stale marker calls after duplicate = %d, want 1", got)
+	}
+	if got := len(service.Events()); got != 0 {
+		t.Fatalf("claim events after duplicate = %d, want 0", got)
+	}
+	if got := len(consumer.calls); got != 1 {
+		t.Fatalf("x core consume calls after duplicate = %d, want 1", got)
+	}
+}
+
 func TestClaimPlanetListedIntelStaleMarkerFailureCanRepairOnRetry(t *testing.T) {
 	store := NewInMemoryStore()
 	planet := claimTestPlanet("planet-claim")
