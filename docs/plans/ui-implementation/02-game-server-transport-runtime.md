@@ -84,8 +84,41 @@ Behavior:
 - send response envelope
 - send async client-safe events after mutations
 - send session/world bootstrap snapshot on connect
+- keep checking session expiry/revocation during the socket lifetime
 - close or throttle abusive clients
 - never trust player id from payload
+
+## Bootstrap Bundle
+
+The first authenticated socket messages must be enough for the default HUD to
+render without fake data:
+- `session.ready`: account public shape, player public shape, roles, server time,
+  protocol version, and reconnect/snapshot cursors
+- `player.snapshot`: callsign, rank/role/progression public fields
+- `ship.snapshot`: active ship id/display, hull, shield, capacitor, disabled
+  state, and repair state
+- `stats.updated`: effective movement, radar, combat, cargo, and capacitor stats
+- `wallet.snapshot`: visible balances only
+- `cargo.snapshot`: used capacity, max capacity, and visible stacks
+- `world.snapshot`: client-safe sector status and AOI baseline
+
+No bootstrap payload may include password hashes, raw session tokens, hidden
+entities, procedural seeds, internal world/zone ids, or future spawn candidates.
+
+## Broadcast And Reconciliation Contract
+
+Async events must be published only after the domain mutation commits. The MVP
+can implement this with an in-process committed-event queue, but the contract
+must be outbox-compatible:
+- every event has `event_id`, `type`, `seq`, `server_time`, `v`, and
+  client-safe payload
+- `seq` is monotonic per connected session or per replay stream
+- per-session queues apply visibility filtering before enqueue
+- slow clients are backpressured, dropped, or asked to resync without blocking
+  world ticks or other sessions
+- reconnect sends snapshots with enough version/cursor data to repair missed or
+  stale events
+- duplicate or stale events do not re-apply client-side mutations
 
 ## Base Commands
 
@@ -101,6 +134,16 @@ debug_snapshot (dev-only)
 
 If the existing `debug_snapshot` remains, it must be clearly dev-only and not be
 the normal UI bootstrap path.
+
+## Base Operation Contracts
+
+| Operation | Client Payload | Server Authority | Response/Event |
+| --- | --- | --- | --- |
+| `session.snapshot` | empty | session cookie/resolver | safe account, player, roles, expiry, server time |
+| `world.snapshot` | optional client viewport hint | server player/ship position, AOI, fog | client-safe sector, AOI baseline, snapshot cursor |
+| `move_to` | finite target `{x,y}` | server player, active ship, stats, movement rules | response plus `position.corrected`/AOI events |
+| `stop` | optional request reason | server player active movement state | response plus `movement.stopped` or `position.corrected` |
+| `debug_snapshot` | dev-only, empty or explicit fixture id | dev-mode server config and admin/dev guard | never used by default UI bootstrap |
 
 ## Base Events
 
@@ -129,7 +172,10 @@ server.notice
 - [ ] Create authenticated session resolver for `realtime.Gateway`.
 - [ ] Add request read/write loop with response envelopes.
 - [ ] Add server event broadcaster per connected session.
-- [ ] Add initial session/world snapshot on connect.
+- [ ] Add after-commit event queue with per-session `seq` and backpressure.
+- [ ] Add initial session/player/ship/stats/wallet/cargo/world bootstrap on
+      connect.
+- [ ] Add socket handling for session expiry/revocation after connect.
 - [ ] Add world worker tick lifecycle.
 - [ ] Add graceful shutdown.
 - [ ] Add Vite dev proxy notes/config for `/api` and `/ws`.
@@ -144,16 +190,22 @@ server.notice
 - [ ] Bad JSON returns safe error and does not crash socket loop.
 - [ ] Slow or spammy socket cannot block world tick.
 - [ ] Hidden/internal worker state is filtered before broadcast.
+- [ ] Events are enqueued only after committed mutations.
+- [ ] Logout or session expiry closes the socket or rejects later commands.
 
 ## Tests
 
 - [ ] HTTP auth route integration test with session cookie.
 - [ ] WebSocket unauthenticated connection rejected.
 - [ ] Authenticated WebSocket receives `session.ready`.
+- [ ] Authenticated bootstrap includes player, ship, stats, wallet, cargo, and
+      world snapshots.
 - [ ] `move_to` through socket reaches world worker and returns response.
 - [ ] Duplicate request id returns cached response.
 - [ ] Bad payload returns `ERR_INVALID_PAYLOAD`.
 - [ ] Hidden entity in worker does not serialize to socket client.
+- [ ] Event `seq` is monotonic and reconnect snapshot reconciles missed events.
+- [ ] Existing socket cannot keep mutating state after logout/session expiry.
 - [ ] Graceful shutdown closes sockets.
 
 ## Done Criteria

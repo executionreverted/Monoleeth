@@ -63,6 +63,20 @@ Recommended first slice:
 Production-hardening can come later, but the MVP must still hash passwords and
 avoid logging secrets.
 
+## Cookie, CSRF, And Origin Posture
+
+Cookie-authenticated routes must have an explicit browser security posture:
+- restrict CORS to configured first-party origins; do not use wildcard CORS
+  with credentials
+- require same-origin or configured allowed-origin checks on every state-changing
+  auth POST, including `logout`
+- use a CSRF token or same-origin-only deployment posture documented in server
+  config; local dev exceptions must be explicit
+- validate `Origin` on WebSocket upgrades to prevent cross-site WebSocket
+  hijacking
+- reject WebSocket upgrades before sending any gameplay state when the cookie is
+  missing, expired, revoked, or from a disallowed origin
+
 ## Suggested Packages
 
 ```text
@@ -126,6 +140,39 @@ Session response:
 Do not expose password hash, account internal metadata, session token, or hidden
 player state.
 
+## Session Lifecycle Contract
+
+Session tokens must be:
+- cryptographically random opaque values
+- stored as hashes server-side, not raw reusable tokens
+- looked up on every authenticated HTTP request and WebSocket upgrade
+- revocable by server-side session id
+- rotated on login and on any explicit renewal flow
+- bounded by `expires_at` and optional idle timeout policy
+
+Logout invalidates the server session before clearing the cookie. Existing
+WebSocket connections using that session must either close or reject further
+commands once revocation or expiry is observed by the gateway.
+
+## WebSocket Resolver Contract
+
+The WebSocket session resolver returns only server-owned context:
+
+```json
+{
+  "account_id": "acc_123",
+  "player_id": "player_123",
+  "session_id": "sess_123",
+  "expires_at": 182736123,
+  "roles": ["admin"]
+}
+```
+
+`roles` may be empty. Admin status comes from roles, never from the browser
+payload. Denials must use safe stable errors such as `ERR_AUTH_REQUIRED`,
+`ERR_SESSION_EXPIRED`, `ERR_SESSION_REVOKED`, or `ERR_ORIGIN_DENIED` without
+leaking whether an email/account exists.
+
 ## Admin Seed
 
 Add a reproducible admin seed path:
@@ -146,12 +193,16 @@ credentials.
 - [ ] Add email normalization and validation.
 - [ ] Add password hashing and verification.
 - [ ] Add session creation, expiry, renewal posture, and logout invalidation.
+- [ ] Store hashed session tokens and support server-side revocation lookup.
+- [ ] Rotate session tokens on login and any explicit renewal flow.
 - [ ] Add auth store/repository interfaces.
 - [ ] Add in-memory or durable MVP store implementation.
 - [ ] Add admin seed command/startup option.
 - [ ] Add HTTP handlers for register/login/logout/session.
+- [ ] Add CORS/CSRF/same-origin posture for cookie-authenticated POSTs.
 - [ ] Add safe public response models.
 - [ ] Add WebSocket session resolver adapter.
+- [ ] Add WebSocket allowed-origin validation.
 - [ ] Add client-safe auth error codes.
 - [ ] Add auth rate-limit posture for login/register.
 - [ ] Document local admin seed flow.
@@ -165,6 +216,9 @@ credentials.
 - [ ] Login failures can be rate-limited.
 - [ ] Logout invalidates the server session.
 - [ ] Expired session cannot open WebSocket.
+- [ ] Revoked session cannot continue sending WebSocket commands.
+- [ ] Cross-site WebSocket upgrades are denied by origin policy.
+- [ ] Cookie-authenticated POSTs have explicit CSRF/same-origin protection.
 - [ ] Admin seed cannot create a weak default silently.
 - [ ] Client cannot choose admin role.
 
@@ -176,8 +230,15 @@ credentials.
 - [ ] Duplicate email is rejected safely.
 - [ ] Login creates a valid session.
 - [ ] Logout invalidates session.
+- [ ] Session tokens are stored hashed at rest.
 - [ ] `GET /api/session` returns authenticated public shape.
 - [ ] Expired session is rejected.
+- [ ] Revoked session is rejected by HTTP and WebSocket resolvers.
+- [ ] Missing session is rejected by WebSocket resolver.
+- [ ] Valid resolver output includes account id, player id, session id,
+      expiry, and roles from server state.
+- [ ] Disallowed WebSocket origin is rejected.
+- [ ] Cookie-authenticated logout cannot be triggered cross-site.
 - [ ] Admin seed creates/updates admin role without logging secrets.
 - [ ] WebSocket session resolver maps session id to server-owned player id.
 

@@ -92,6 +92,41 @@ Expected calls:
 - `logout()`
 - `loadSession()`
 
+HTTP auth calls must use same-origin or the configured Vite proxy and send
+cookies with `credentials: "include"` when cross-origin dev proxying requires it.
+The client must not store session tokens, account ids, player ids, or admin
+flags in `localStorage` as trusted authority. Local storage may only keep
+presentation preferences.
+
+## WebSocket Lifecycle
+
+The client must model connection state explicitly:
+- `restoring`: loading `GET /api/session`
+- `authenticated_pending_socket`: session exists, socket not ready
+- `connected`: bootstrap snapshots received
+- `reconnecting`: retrying after transient close, with stale gameplay marked
+  pending
+- `auth_expired`: server rejected/closed because session expired or revoked
+- `logged_out`: user logout or no session; gameplay state cleared
+
+On logout or auth failure, close the socket, stop reconnect attempts, clear
+gameplay reducers, and return to the auth shell. Failed WebSocket connection
+must never fall back to demo data.
+
+## Bootstrap Binding
+
+Default real mode bootstraps from Phase 02 server messages:
+- `session.ready`
+- `player.snapshot`
+- `ship.snapshot`
+- `stats.updated`
+- `wallet.snapshot`
+- `cargo.snapshot`
+- `world.snapshot` and AOI events
+
+`debug_snapshot` is allowed only in explicit dev/demo tooling and cannot be the
+normal UI bootstrap path.
+
 ## TODO
 
 - [ ] Remove automatic `seedDemoState()` from default startup.
@@ -101,8 +136,12 @@ Expected calls:
 - [ ] Add auth state reducer/store.
 - [ ] Add login/register/logout UI.
 - [ ] Add session restore on page load.
+- [ ] Add cookie-aware auth HTTP handling with no trusted session token in
+      `localStorage`.
 - [ ] Connect WebSocket only after authenticated session exists.
-- [ ] Request/bootstrap game state after WebSocket connect.
+- [ ] Bootstrap game state from Phase 02 real snapshot/events.
+- [ ] Add WebSocket lifecycle states for restore, connected, reconnecting,
+      auth-expired, and logged-out.
 - [ ] Show disconnected/reconnecting states without fake values.
 - [ ] Update HUD panels to support empty/loading/locked states.
 - [ ] Add real-server smoke path.
@@ -114,8 +153,12 @@ Expected calls:
 - [ ] Auth errors do not reveal whether email exists.
 - [ ] Client cannot manually enter player id.
 - [ ] Logout clears client gameplay state.
+- [ ] Auth-expired WebSocket close clears gameplay state and stops reconnect
+      until login.
 - [ ] Failed WebSocket connect does not restore demo state.
 - [ ] Demo mode is visibly and technically separated from real mode.
+- [ ] Client does not trust player id, account id, role, or session token from
+      browser storage.
 
 ## Tests
 
@@ -123,6 +166,10 @@ Expected calls:
 - [ ] Login success opens WebSocket.
 - [ ] Logout closes WebSocket and clears game state.
 - [ ] Session restore loads authenticated shell.
+- [ ] Expired session restore returns auth shell with no stale gameplay.
+- [ ] WebSocket auth rejection/close clears stale gameplay state.
+- [ ] Reconnect after transient close does not use demo fallback.
+- [ ] `?demo=1` state is isolated from default real mode.
 - [ ] Unauthenticated page shows auth panel, not game HUD data.
 - [ ] Failed login shows safe error.
 - [ ] Browser smoke confirms no demo text/state in default mode.

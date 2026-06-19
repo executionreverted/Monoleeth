@@ -62,6 +62,22 @@ logout/reconnect and reconcile snapshot
 If any item is not implemented by the time this phase starts, record it in
 `docs/todo.md` with the exact missing server/client contract.
 
+## Feature Audit Table
+
+Before visual sign-off, create or update an audit table covering Phases 01-09.
+Each row must include:
+- phase
+- backend feature
+- command/query/event names
+- UI entry point
+- real-server positive test
+- abuse/negative test
+- screenshot or browser-smoke artifact
+- blocker link in `docs/todo.md` if absent
+
+No exposed backend feature is considered complete because it appears in a mockup
+or fixture. It needs a browser path that talks to the real Go server.
+
 ## UI Hardening
 
 - remove default demo data
@@ -94,12 +110,31 @@ Client:
 E2E:
 - login/logout/reconnect
 - movement
-- combat/loot
-- cargo/wallet updates
-- inventory/loadout/crafting
-- scan/planet/production/routes
-- market/auction/premium
-- quest/admin role gates
+- combat skills: visible target positive, hidden/out-of-range/no-energy negative
+- loot pickup: visible owned/public positive, hidden/far/duplicate negative
+- death/repair: disabled positive, insufficient wallet/stale quote negative
+- cargo/wallet updates: committed snapshot positive, forged totals negative
+- inventory moves: owned positive, unowned/negative/excess negative
+- hangar activation: owned positive, unowned/unusable negative
+- loadout/crafting: equip/craft positive, duplicate/unowned/stale job negative
+- intel/coordinate items: visible/share positive, hidden/unowned negative
+- scan/planet/building/storage: visible positive, hidden/capacity/rank negative
+- routes/production settlement: eligible positive, duplicate/window/capacity negative
+- market/auction: buy/bid/claim positive, race/stale/tampered total negative
+- premium purchase/claim: eligible positive, replay/limit/stock negative
+- quests: accept/reroll/reward positive, duplicate/forged progress negative
+- admin/release gates: admin positive, non-admin forbidden negative
+
+## Real-Server E2E Runner Requirements
+
+The final browser runner must:
+- boot `cmd/game-server` with deterministic dev seed/config
+- create/login through mail/password auth
+- use cookie session and `/ws` handshake
+- drive commands through the real protocol
+- assert snapshots/events from the Go runtime
+- avoid JavaScript mock fixtures, default demo state, or client-authored
+  gameplay truth
 
 ## TODO
 
@@ -108,9 +143,16 @@ E2E:
 - [ ] Replace debug/dev controls from production default UI.
 - [ ] Add final real-server browser smoke script.
 - [ ] Add E2E scenario runner for the MVP loop.
+- [ ] Add feature audit table for every Phase 01-09 command/query/event and UI
+      entry point.
 - [ ] Add desktop screenshot verification.
 - [ ] Add mobile screenshot verification.
-- [ ] Add hidden/debug data leak scan across DOM and client state.
+- [ ] Add tablet screenshot verification.
+- [ ] Add region checklist for topbar, left rail, center map, bottom action/log
+      bar, right rail, minimap, and overlays.
+- [ ] Add hidden/debug data leak scan across DOM, app state, browser storage,
+      screenshots, WebSocket frames, production bundle text, and demo fixture
+      labels.
 - [ ] Add reconnect reconciliation test.
 - [ ] Add docs for running the game locally.
 - [ ] Add release gate checklist summary.
@@ -120,6 +162,8 @@ E2E:
 
 - [ ] No hidden seeds/debug metadata appear in DOM, client state, screenshots, or
       WebSocket payloads.
+- [ ] No fake HP/cargo/wallet/entity/quest/planet labels appear in default DOM,
+      storage, screenshots, WebSocket frames, or production bundle.
 - [ ] No command trusts client-authored identity or value totals.
 - [ ] No panel displays stale local optimistic state as committed truth.
 - [ ] All admin/premium/economy operations are role/policy gated.
@@ -131,6 +175,7 @@ E2E:
 - UI visibly follows the final mockup direction.
 - Full MVP loop is playable from browser with real server state.
 - Default app has no mock gameplay.
-- All exposed backend features have browser paths.
+- All exposed backend features from Phases 01-09 have audited browser paths,
+  real-server positive tests, and abuse/negative tests.
 - Remaining non-blocking gaps are documented in `docs/todo.md`.
 - Full backend, client, browser, and E2E verification pass.

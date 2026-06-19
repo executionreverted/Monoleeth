@@ -56,8 +56,27 @@ auction.claim_grant
 premium.entitlements
 premium.claim
 premium.purchase_weekly_xcore
-economy.dashboard
+admin.economy_dashboard
 ```
+
+## Price, Quote, And Premium Contracts
+
+Market/auction price previews must use one of two explicit patterns:
+- server quote query returns quote id, listing id/version, fees, total, expiry,
+  and tamper-proof server-side validation on mutation
+- mutation ignores client totals and recalculates listing price, fees, wallet
+  balance, and escrow state under lock
+
+If quote ids are used, tests must cover stale quote, listing version mismatch,
+tampered quote/listing ids, and expired quote. If no quote ids are used, UI must
+label previews as pending estimates and accept the server response as truth.
+
+`premium.purchase_weekly_xcore` must enforce:
+- weekly per-player purchase limit
+- global or configured stock depletion under lock
+- wallet or premium bucket debit through ledger
+- idempotency for duplicate purchase requests
+- safe `premium.stock_consumed` or equivalent event/snapshot after commit
 
 ## Events
 
@@ -74,6 +93,7 @@ auction.closed
 premium.entitlement_created
 premium.entitlement_claimed
 economy.flow_updated
+premium.stock_consumed
 ```
 
 ## UI Surfaces
@@ -94,6 +114,8 @@ Mockup areas covered:
 - [ ] Add auction search/bid/buy-now handlers.
 - [ ] Add auction grant claim/display handlers.
 - [ ] Add premium entitlement query/claim handlers.
+- [ ] Add weekly X Core purchase handler with per-player limit, stock lock,
+      wallet/premium ledger debit, and idempotency.
 - [ ] Add wallet snapshot updates after every economy mutation.
 - [ ] Add inventory snapshot updates after escrow/item mutations.
 - [ ] Add market/auction/premium client panels.
@@ -104,11 +126,14 @@ Mockup areas covered:
 ## Abuse And Safety Checklist
 
 - [ ] Client cannot author price totals as truth.
+- [ ] Quantity, unit price, bid amount, currency id, and multiplication totals
+      are positive, bounded, and overflow-safe.
 - [ ] Client cannot list unowned/untradeable/escrowed items.
 - [ ] Market buy/cancel race cannot duplicate items or credits.
 - [ ] Auction bid/buy-now race cannot duplicate grants.
 - [ ] Premium webhook/provider event replay is idempotent.
 - [ ] Premium paid-only policy is enforced server-side.
+- [ ] Weekly X Core limit and stock depletion are enforced under concurrency.
 - [ ] Admin economy dashboards require admin session.
 
 ## Tests
@@ -120,6 +145,12 @@ Mockup areas covered:
 - [ ] Auction bid refunds/replaces safely.
 - [ ] Auction buy-now closes once.
 - [ ] Premium claim is idempotent.
+- [ ] Weekly X Core purchase enforces limit, stock, ledger debit, and duplicate
+      request safety.
+- [ ] Stale/tampered price quote or listing version is rejected, or mutation
+      recalculates totals server-side.
+- [ ] Negative, zero, overflow, or excessive quantity/price/bid inputs reject
+      before mutation.
 - [ ] Browser market buy updates wallet and inventory from server snapshots.
 - [ ] Browser cannot submit forged totals.
 - [ ] Admin economy dashboard rejects non-admin.

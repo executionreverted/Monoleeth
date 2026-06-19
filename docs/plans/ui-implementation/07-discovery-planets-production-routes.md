@@ -45,6 +45,7 @@ Read before implementation:
 
 ```text
 scan.pulse
+discovery.known_planets
 discovery.planet_detail
 discovery.claim_planet
 intel.share
@@ -55,11 +56,37 @@ planet.building_build
 planet.building_upgrade
 planet.storage_summary
 route.create
+route.list
+route.snapshot
 route.update
 route.enable
 route.disable
 route.settle
 ```
+
+## Operation Contracts
+
+| Operation | Client Intent | Server Authority / Mutation |
+| --- | --- | --- |
+| `scan.pulse` | request scan | server position, stationary state, energy, cooldown, fog; emits safe signal/discovery results |
+| `discovery.known_planets` | list/filter | player visibility/intel/ownership; returns only known safe summaries |
+| `discovery.planet_detail` | planet id | recheck visibility/ownership; omit hidden/procedural fields |
+| `discovery.claim_planet` | planet id | validate visibility, range/policy, required item/currency; lock/mutate/ledger/event/commit |
+| `intel.share` | recipient, intel/planet/coordinate reference | sender visibility, recipient eligibility, client-safe filtering; never share hidden coordinates |
+| `intel.coordinate_item.create` | known coordinate reference | owned/visible coordinate; consume/move item through inventory ledger once |
+| `intel.coordinate_item.use` | owned coordinate item id | ownership, visibility rules, item consumption idempotency; reveal only safe result |
+| `planet.production_summary` | planet id | ownership/access; settle/reconcile server-owned windows as needed |
+| `planet.building_build` | planet id, building type/slot | ownership, requirements, storage/wallet/materials; lock/mutate/ledger/event/commit |
+| `planet.building_upgrade` | building id | ownership, level requirements, storage/wallet/materials; lock/mutate/ledger/event/commit |
+| `planet.storage_summary` | planet id | ownership/access; client-safe capacity and visible stacks |
+| `route.create/update/enable/disable` | endpoint/config intent | endpoint visibility/access, ownership, capacity, policy; mutate route state server-side |
+| `route.list/snapshot` | filter or empty | owner/access; reconnect-safe route state and cursors |
+| `route.settle` | route id or empty reconcile intent | server computes eligible windows under lock; idempotency key `route_settle:<route_id>:<window>` |
+
+Offline production and route settlement are never client-timed truth. UI requests
+may ask the server to reconcile, but the server calculates eligible windows,
+locks ownership/storage, applies idempotency, writes ledger/events, commits, and
+then broadcasts snapshots.
 
 ## Events
 
@@ -98,10 +125,14 @@ Mockup areas covered:
 - [ ] Add planet list/summary query for known/owned planets.
 - [ ] Add selected planet detail query with visibility checks.
 - [ ] Add planet claim command handler.
-- [ ] Add intel share and coordinate item handlers.
+- [ ] Add intel share and coordinate item handlers with visibility-safe
+      recipient filtering.
 - [ ] Add production summary/build/upgrade handlers.
-- [ ] Add offline settlement query/trigger path for UI.
+- [ ] Add ledger-backed transaction flows for claim/build/upgrade/storage
+      mutations.
+- [ ] Add offline settlement reconcile path that uses server-owned windows.
 - [ ] Add route create/update/enable/disable/settle handlers.
+- [ ] Add route list/snapshot handlers for reconnect.
 - [ ] Add client reducer state for signals, planets, production, routes.
 - [ ] Add right rail planet list and selected planet panel.
 - [ ] Add route UI and production/building UI.
@@ -113,9 +144,13 @@ Mockup areas covered:
 - [ ] Client cannot send scan result or procedural seed.
 - [ ] Client cannot claim hidden/unowned-invalid planet.
 - [ ] Client cannot fake X Core consumption.
+- [ ] Intel sharing cannot reveal a coordinate the sender cannot safely expose.
+- [ ] Coordinate item use consumes an owned item once.
 - [ ] Planet panel open rechecks visibility/ownership.
 - [ ] Route creation rechecks both endpoints and ownership/access.
 - [ ] Offline settlement duration is server-calculated.
+- [ ] Route settlement windows are server-calculated and idempotent.
+- [ ] Building and route mutations use inventory/wallet/storage ledgers.
 - [ ] Storage capacity cannot be exceeded.
 
 ## Tests
@@ -124,8 +159,12 @@ Mockup areas covered:
 - [ ] Scan result does not leak seed or future candidates.
 - [ ] Hidden planet detail returns safe error.
 - [ ] Claim consumes required item once and sets owner once.
+- [ ] Intel share rejects hidden/not-owned coordinate references.
+- [ ] Coordinate item create/use consumes owned items once and filters results.
+- [ ] Building build/upgrade debits materials/currency once.
 - [ ] Production settlement is idempotent.
 - [ ] Route settlement is idempotent and respects storage capacity.
+- [ ] Route list/snapshot restores route UI after reconnect.
 - [ ] Browser scan creates safe unknown/discovered marker.
 - [ ] Browser selected planet panel uses server detail.
 - [ ] Browser route create/update reflects server state.
