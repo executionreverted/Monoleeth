@@ -1,5 +1,8 @@
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 import path from 'node:path';
 import process from 'node:process';
@@ -8,30 +11,140 @@ import { chromium } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 
 const explicitURL = readArg('--url');
-const outputDir = path.resolve('tmp', 'smoke');
-
-const forbiddenText = ['gameplay_seed', 'future_spawn', 'internal_metadata', 'loot_table'];
+const useFixture = process.argv.includes('--fixture');
+const thisDir = dirname(fileURLToPath(import.meta.url));
+const clientRoot = path.resolve(thisDir, '..');
+const repoRoot = path.resolve(clientRoot, '..');
+const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '03');
+const forbiddenText = ['gameplay_seed', 'future_spawn', 'internal_metadata', 'loot_table', 'account_id', 'player_id', 'session_id'];
 let eventSequence = 100;
 
-const appServer = explicitURL ? null : await startViteAppServer();
+const appPort = explicitURL ? null : await findFreePort();
+const gamePort = explicitURL || useFixture ? null : await findFreePort();
+const origin = appPort ? `http://127.0.0.1:${appPort}` : null;
+const gameServer = gamePort && origin ? await startGameServer(gamePort, origin) : null;
+const appServer = explicitURL ? null : await startViteAppServer({ port: appPort, gamePort });
 const url = explicitURL ?? appServer.url;
 let browser;
 
 try {
   browser = await chromium.launch({ headless: true });
   await mkdir(outputDir, { recursive: true });
-  await verifyViewport({ width: 1440, height: 900 }, 'desktop');
-  await verifyViewport({ width: 390, height: 844 }, 'mobile');
+  if (useFixture) {
+    await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
+    await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
+  } else {
+    await verifyRealViewport({ width: 1440, height: 900 }, 'desktop');
+    await verifyRealViewport({ width: 1024, height: 768 }, 'tablet');
+    await verifyRealViewport({ width: 390, height: 844 }, 'mobile');
+  }
 } finally {
   await browser?.close();
   await appServer?.close();
+  await gameServer?.close();
 }
 
-async function verifyViewport(viewport, label) {
+async function verifyRealViewport(viewport, label) {
+  const page = await browser.newPage({ viewport });
+  const suffix = `${Date.now()}-${label}`.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+  const email = `smoke-${suffix}@example.com`;
+  const password = 'correct-password';
+  const callsign = `Smoke-${label}`;
+  try {
+    await page.goto(withSmokeParam(url), { waitUntil: 'networkidle' });
+    await page.waitForSelector('.auth-card', { timeout: 10000 });
+    await page.waitForFunction(() => Boolean(window.__SPACE_MORPG_SMOKE_STATE__), null, { timeout: 10000 });
+    await page.waitForFunction(() => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      return (
+        state?.connectionStatus === 'logged_out' &&
+        state?.playerSnapshot === null &&
+        state?.cargo === null &&
+        state?.wallet === null &&
+        state?.stats === null &&
+        Object.keys(state?.visibleEntities ?? {}).length === 0
+      );
+    });
+    await page.screenshot({ path: path.join(outputDir, `unauth-${label}.png`), fullPage: true });
+
+    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="password"]').fill(password);
+    await page.locator('[data-submit]').click();
+    await page.waitForFunction(() => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      return (
+        state?.connectionStatus === 'logged_out' &&
+        state?.auth?.error === 'Email or password is invalid.' &&
+        state?.playerSnapshot === null &&
+        Object.keys(state?.visibleEntities ?? {}).length === 0
+      );
+    });
+
+    await page.locator('[data-toggle]').click();
+    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="password"]').fill(password);
+    await page.locator('input[name="callsign"]').fill(callsign);
+    await page.locator('[data-submit]').click();
+
+    await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.connectionStatus === 'connected', null, {
+      timeout: 10000,
+    });
+    await page.waitForFunction(
+      (expectedCallsign) => {
+        const state = window.__SPACE_MORPG_SMOKE_STATE__;
+        const entities = state?.visibleEntities ?? {};
+        const hasPlayer = Object.values(entities).some((entity) => entity.entity_type === 'player');
+        const hasVisibleNPC = Object.values(entities).some((entity) => entity.entity_id === 'entity_training_npc');
+        return (
+          state?.auth?.session?.authenticated === true &&
+          state?.playerSnapshot?.callsign === expectedCallsign &&
+          state?.cargo?.capacity === 60 &&
+          state?.wallet?.credits === 0 &&
+          state?.stats?.radar_range === 420 &&
+          hasPlayer &&
+          hasVisibleNPC &&
+          !entities.entity_hidden_planet_signal
+        );
+      },
+      callsign,
+      { timeout: 10000 },
+    );
+
+    await assertCanvasAndLayout(page, viewport, label);
+    await assertNoForbiddenLeaks(page, label);
+    await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
+
+    if (label === 'desktop') {
+      await clickWorldPosition(page, { x: 0, y: -220 });
+      await page.waitForFunction(() => {
+        const player = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find(
+          (entity) => entity.entity_type === 'player',
+        );
+        return Math.abs(player?.position?.x ?? 0) > 0 || Math.abs(player?.position?.y ?? 0) > 0;
+      });
+    }
+
+    await page.locator('[data-action="logout"]').click();
+    await page.waitForSelector('.auth-card', { timeout: 10000 });
+    await page.waitForFunction(() => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      return (
+        state?.connectionStatus === 'logged_out' &&
+        state?.playerSnapshot === null &&
+        state?.cargo === null &&
+        Object.keys(state?.visibleEntities ?? {}).length === 0
+      );
+    });
+  } finally {
+    await page.close();
+  }
+}
+
+async function verifyFixtureViewport(viewport, label) {
   const realtime = await startMockRealtimeServer();
   const page = await browser.newPage({ viewport });
   try {
-    await page.goto(withSmokeParam(url), { waitUntil: 'networkidle' });
+    await page.goto(withSmokeParam(url, { demo: '1' }), { waitUntil: 'networkidle' });
     await page.waitForSelector('canvas.world-canvas', { timeout: 10000 });
     await page.waitForFunction(() => Boolean(window.__SPACE_MORPG_SMOKE_STATE__), null, { timeout: 10000 });
     await page.waitForTimeout(350);
@@ -52,79 +165,83 @@ async function verifyViewport(viewport, label) {
       );
     });
 
-    await clickWorldPosition(page, { x: 150, y: -250 });
-    await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'npc-rake-01');
-    await page.locator('[data-action="fire"]').click();
-    await realtime.waitForOp('combat.use_skill');
-    await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.playerSnapshot?.energy === 58);
+    if (label === 'fixture-desktop') {
+      await clickWorldPosition(page, { x: 150, y: -250 });
+      await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'npc-rake-01');
+      await page.locator('[data-action="fire"]').click();
+      await realtime.waitForOp('combat.use_skill');
+      await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.playerSnapshot?.energy === 58);
 
-    await clickWorldPosition(page, { x: -110, y: -220 });
-    await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'loot-scrap-01');
-    await page.locator('[data-action="loot"]').click();
-    await realtime.waitForOp('loot.pickup');
-    await page.waitForFunction(() => {
-      const state = window.__SPACE_MORPG_SMOKE_STATE__;
-      return state?.cargo?.used === 21 && state?.cargo?.items?.some((item) => item.item_id === 'raw_ore' && item.quantity === 15);
-    });
+      await clickWorldPosition(page, { x: -110, y: -220 });
+      await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'loot-scrap-01');
+      await page.locator('[data-action="loot"]').click();
+      await realtime.waitForOp('loot.pickup');
+      await page.waitForFunction(() => {
+        const state = window.__SPACE_MORPG_SMOKE_STATE__;
+        return state?.cargo?.used === 21 && state?.cargo?.items?.some((item) => item.item_id === 'raw_ore' && item.quantity === 15);
+      });
 
-    await page.locator('[data-action="scan"]').click();
-    await realtime.waitForOp('scan.pulse');
-
-    await clickWorldPosition(page, { x: 40, y: -320 });
-    await realtime.waitForOp('move_to');
-    await page.waitForFunction(() => {
-      const player = window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities?.['player-local'];
-      return Math.abs((player?.position?.x ?? 9999) - 40) <= 1 && Math.abs((player?.position?.y ?? 9999) + 320) <= 1;
-    });
-    await page.waitForTimeout(150);
-
-    const stats = await page.evaluate(() => {
-      const canvas = document.querySelector('canvas.world-canvas');
-      if (!(canvas instanceof HTMLCanvasElement)) {
-        return { samples: 0, nonBlank: 0, width: 0, height: 0, scrollWidth: document.body.scrollWidth };
-      }
-
-      const context = canvas.getContext('2d');
-      if (!context) {
-        return { samples: 0, nonBlank: 1, width: canvas.width, height: canvas.height, scrollWidth: document.body.scrollWidth };
-      }
-
-      const width = canvas.width;
-      const height = canvas.height;
-      let samples = 0;
-      let nonBlank = 0;
-      for (let y = 0; y < height; y += Math.max(1, Math.floor(height / 12))) {
-        for (let x = 0; x < width; x += Math.max(1, Math.floor(width / 12))) {
-          const [r, g, b, a] = context.getImageData(x, y, 1, 1).data;
-          samples += 1;
-          if (a > 0 && (r > 8 || g > 8 || b > 8)) {
-            nonBlank += 1;
-          }
-        }
-      }
-      return { samples, nonBlank, width, height, scrollWidth: document.body.scrollWidth };
-    });
-
-    if (stats.width === 0 || stats.height === 0) {
-      throw new Error(`${label}: canvas has no size`);
-    }
-    if (stats.nonBlank === 0) {
-      throw new Error(`${label}: canvas appears blank`);
-    }
-    if (stats.scrollWidth > viewport.width + 1) {
-      throw new Error(`${label}: layout has horizontal overflow (${stats.scrollWidth} > ${viewport.width})`);
+      await clickWorldPosition(page, { x: 40, y: -220 });
+      await realtime.waitForOp('move_to');
+      await page.waitForFunction(() => {
+        const player = window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities?.['player-local'];
+        return Math.abs((player?.position?.x ?? 9999) - 40) <= 1 && Math.abs((player?.position?.y ?? 9999) + 220) <= 1;
+      });
     }
 
-    const text = await page.locator('body').innerText();
-    assertNoForbiddenText(text, `${label} body`);
-    const smokeState = await page.evaluate(() => JSON.stringify(window.__SPACE_MORPG_SMOKE_STATE__));
-    assertNoForbiddenText(smokeState, `${label} smoke state`);
-
+    await assertCanvasAndLayout(page, viewport, label);
+    await assertNoForbiddenLeaks(page, label);
     await page.screenshot({ path: path.join(outputDir, `${label}.png`), fullPage: true });
   } finally {
     await page.close();
     await realtime.close();
   }
+}
+
+async function assertCanvasAndLayout(page, viewport, label) {
+  const stats = await page.evaluate(() => {
+    const canvas = document.querySelector('canvas.world-canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return { samples: 0, nonBlank: 0, width: 0, height: 0, scrollWidth: document.body.scrollWidth };
+    }
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+      return { samples: 0, nonBlank: 1, width: canvas.width, height: canvas.height, scrollWidth: document.body.scrollWidth };
+    }
+
+    const width = canvas.width;
+    const height = canvas.height;
+    let samples = 0;
+    let nonBlank = 0;
+    for (let y = 0; y < height; y += Math.max(1, Math.floor(height / 12))) {
+      for (let x = 0; x < width; x += Math.max(1, Math.floor(width / 12))) {
+        const [r, g, b, a] = context.getImageData(x, y, 1, 1).data;
+        samples += 1;
+        if (a > 0 && (r > 8 || g > 8 || b > 8)) {
+          nonBlank += 1;
+        }
+      }
+    }
+    return { samples, nonBlank, width, height, scrollWidth: document.body.scrollWidth };
+  });
+
+  if (stats.width === 0 || stats.height === 0) {
+    throw new Error(`${label}: canvas has no size`);
+  }
+  if (stats.nonBlank === 0) {
+    throw new Error(`${label}: canvas appears blank`);
+  }
+  if (stats.scrollWidth > viewport.width + 1) {
+    throw new Error(`${label}: layout has horizontal overflow (${stats.scrollWidth} > ${viewport.width})`);
+  }
+}
+
+async function assertNoForbiddenLeaks(page, label) {
+  const text = await page.locator('body').innerText();
+  assertNoForbiddenText(text, `${label} body`);
+  const smokeState = await page.evaluate(() => JSON.stringify(window.__SPACE_MORPG_SMOKE_STATE__));
+  assertNoForbiddenText(smokeState, `${label} smoke state`);
 }
 
 async function clickWorldPosition(page, world) {
@@ -163,6 +280,51 @@ function assertNoForbiddenText(text, label) {
       throw new Error(`${label}: forbidden debug text leaked: ${forbidden}`);
     }
   }
+}
+
+async function startGameServer(port, allowedOrigin) {
+  const child = spawn('go', ['run', './cmd/game-server'], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      GAME_SERVER_ADDR: `127.0.0.1:${port}`,
+      GAME_ALLOWED_ORIGINS: allowedOrigin,
+    },
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const logs = [];
+  child.stdout.on('data', (chunk) => logs.push(chunk.toString('utf8')));
+  child.stderr.on('data', (chunk) => logs.push(chunk.toString('utf8')));
+  await waitForHealth(`http://127.0.0.1:${port}/healthz`, child, logs);
+  return {
+    close: async () => {
+      if (child.exitCode !== null) {
+        return;
+      }
+      killProcessGroup(child, 'SIGTERM');
+      await waitForExit(child, 3000).catch(() => killProcessGroup(child, 'SIGKILL'));
+    },
+  };
+}
+
+async function waitForHealth(healthURL, child, logs) {
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`game server exited early with ${child.exitCode}:\n${logs.join('')}`);
+    }
+    try {
+      const response = await fetch(healthURL);
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // Server is still booting.
+    }
+    await delay(100);
+  }
+  throw new Error(`timed out waiting for game server:\n${logs.join('')}`);
 }
 
 async function startMockRealtimeServer() {
@@ -225,14 +387,26 @@ async function startMockRealtimeServer() {
   };
 }
 
-async function startViteAppServer() {
-  const port = await findFreePort();
+async function startViteAppServer({ port, gamePort }) {
   const server = await createViteServer({
+    root: clientRoot,
     logLevel: 'error',
     server: {
       host: '127.0.0.1',
       port,
       strictPort: true,
+      proxy: gamePort
+        ? {
+            '/api': {
+              target: `http://127.0.0.1:${gamePort}`,
+              changeOrigin: true,
+            },
+            '/ws': {
+              target: `ws://127.0.0.1:${gamePort}`,
+              ws: true,
+            },
+          }
+        : undefined,
     },
   });
   await server.listen();
@@ -372,9 +546,6 @@ function handleClientMessage(socket, raw, received, waiters) {
         }),
       );
       break;
-    case 'scan.pulse':
-      sendMessage(socket, response(request.request_id, { accepted: true, resolve_after_ms: 1000 }));
-      break;
     default:
       sendMessage(socket, errorResponse(request.request_id, 'ERR_INVALID_PAYLOAD', 'Unsupported operation.'));
   }
@@ -499,19 +670,23 @@ function errorResponse(requestID, code, message) {
 }
 
 function event(eventID, type, payload) {
+  eventSequence += 1;
   return {
     event_id: eventID,
     type,
     payload,
     server_time: Date.now(),
-    seq: eventSequence += 1,
+    seq: eventSequence,
     v: 1,
   };
 }
 
-function withSmokeParam(rawURL) {
+function withSmokeParam(rawURL, extra = {}) {
   const parsed = new URL(rawURL);
   parsed.searchParams.set('smoke', '1');
+  for (const [key, value] of Object.entries(extra)) {
+    parsed.searchParams.set(key, value);
+  }
   return parsed.toString();
 }
 
@@ -521,4 +696,32 @@ function readArg(name) {
     return null;
   }
   return process.argv[index + 1] ?? null;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForExit(child, timeoutMs) {
+  if (child.exitCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('process exit timed out')), timeoutMs);
+    child.once('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
+function killProcessGroup(child, signal) {
+  if (!child.pid) {
+    return;
+  }
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    child.kill(signal);
+  }
 }

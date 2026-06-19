@@ -2,7 +2,7 @@ import { parseServerMessage, RequestEnvelope, ServerMessage } from '../protocol/
 import { ConnectionStatus } from '../state/types';
 
 export interface RealtimeClientOptions {
-  onStatus(status: ConnectionStatus): void;
+  onStatus(status: ConnectionStatus, detail?: { code?: number; reason?: string }): void;
   onMessage(message: ServerMessage): void;
   onError(message: string): void;
 }
@@ -39,12 +39,15 @@ export class RealtimeClient {
       this.options.onStatus('connected');
     });
 
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', (event) => {
       if (!isCurrentSocket()) {
         return;
       }
       this.socket = null;
-      this.options.onStatus('offline');
+      this.options.onStatus(event.code === 1008 ? 'auth_expired' : 'offline', {
+        code: event.code,
+        reason: event.reason,
+      });
     });
 
     socket.addEventListener('error', () => {

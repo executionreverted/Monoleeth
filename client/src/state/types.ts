@@ -1,6 +1,42 @@
 import { EntityPayload, ErrorPayload, EventEnvelope, JsonObject, RequestEnvelope, ResponseEnvelope, Vec2 } from '../protocol/envelope';
 
-export type ConnectionStatus = 'offline' | 'connecting' | 'connected' | 'reconnecting' | 'error';
+export type ConnectionStatus =
+  | 'restoring'
+  | 'logged_out'
+  | 'authenticated_pending_socket'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'auth_expired'
+  | 'offline'
+  | 'error';
+
+export type ClientMode = 'real' | 'demo';
+
+export interface PublicAccount {
+  email: string;
+  admin: boolean;
+}
+
+export interface PublicPlayer {
+  callsign: string;
+}
+
+export interface PublicSession extends JsonObject {
+  authenticated: boolean;
+  account?: PublicAccount;
+  player?: PublicPlayer;
+  roles?: string[];
+  expires_at?: number;
+  server_time: number;
+}
+
+export interface ClientAuthState {
+  mode: ClientMode;
+  session: PublicSession | null;
+  submitting: boolean;
+  error: string | null;
+}
 
 export interface PlayerSnapshot extends JsonObject {
   hp?: number;
@@ -46,11 +82,12 @@ export interface PendingCommand {
 }
 
 export interface ClientState {
+  auth: ClientAuthState;
   connectionStatus: ConnectionStatus;
   socketURL: string;
   lastServerTime: number | null;
   lastSequence: number;
-  playerSnapshot: PlayerSnapshot;
+  playerSnapshot: PlayerSnapshot | null;
   visibleEntities: Record<string, EntityPayload>;
   selectedTargetID: string | null;
   movementTarget: Vec2 | null;
@@ -58,16 +95,23 @@ export interface ClientState {
   pendingCommands: Record<string, PendingCommand>;
   commandLog: LogLine[];
   combatLog: LogLine[];
-  cargo: CargoSummary;
-  wallet: WalletSummary;
-  stats: StatSummary;
-  questBoard: { available: number; active: number };
-  inventory: { equipped: number; storage: number };
-  planetIntel: { knownSignals: number; staleIntel: number };
+  cargo: CargoSummary | null;
+  wallet: WalletSummary | null;
+  stats: StatSummary | null;
+  questBoard: { available: number; active: number } | null;
+  inventory: { equipped: number; storage: number } | null;
+  planetIntel: { knownSignals: number; staleIntel: number | null } | null;
   lastError: ErrorPayload | null;
 }
 
 export type ClientAction =
+  | { type: 'demoModeStarted' }
+  | { type: 'authRestoreStarted' }
+  | { type: 'authSubmitStarted' }
+  | { type: 'authSessionLoaded'; session: PublicSession }
+  | { type: 'authLoggedOut' }
+  | { type: 'authExpired'; message?: string }
+  | { type: 'authFailed'; message: string }
   | { type: 'connectionChanged'; status: ConnectionStatus; socketURL?: string }
   | { type: 'requestQueued'; envelope: RequestEnvelope }
   | {

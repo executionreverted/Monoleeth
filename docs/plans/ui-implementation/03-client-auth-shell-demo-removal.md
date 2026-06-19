@@ -2,10 +2,33 @@
 
 ## Status
 
-- State: Planned
+- State: Implemented
 - Owner: Browser client auth and truth boundary
 - Depends on: Phase 01, Phase 02
 - Unlocks: real client state, no more default mock gameplay
+
+## Implemented Notes
+
+- Default startup now restores `/api/session`; unauthenticated users see the
+  auth shell with no gameplay HUD data.
+- Login/register/logout use cookie-aware auth HTTP calls and never store session
+  tokens, account ids, player ids, roles, or admin flags in browser storage.
+- The WebSocket opens only after an authenticated session exists. Normal real
+  bootstrap comes from Phase 02 `session.ready`, `player.snapshot`,
+  `ship.snapshot`, `stats.updated`, `wallet.snapshot`, `cargo.snapshot`, and
+  `world.snapshot` events.
+- `debug_snapshot` remains reachable only through explicit `?demo=1` demo
+  tooling; it is no longer the real client bootstrap path.
+- Reducer initial state is empty/loading: no fake player, cargo, wallet, stats,
+  quest, inventory, planet, or entity values.
+- Logout and auth expiry clear gameplay state, close the socket, stop reconnect
+  attempts, and return to the auth shell.
+- Browser smoke now boots `cmd/game-server`, starts Vite with `/api` and `/ws`
+  proxying to the real server, registers/logs in through the browser, verifies
+  real bootstrap state, moves through the real socket, logs out, and saves
+  screenshots under `output/screenshots/ui-implementation/03/`.
+- The old JavaScript WebSocket fixture is still available through
+  `npm run smoke -- --fixture` for explicit protocol/demo fallback checks.
 
 ## Goal
 
@@ -129,50 +152,50 @@ normal UI bootstrap path.
 
 ## TODO
 
-- [ ] Remove automatic `seedDemoState()` from default startup.
-- [ ] Add explicit demo mode guard if demo remains.
-- [ ] Replace initial reducer gameplay values with empty/loading state.
-- [ ] Add auth HTTP client.
-- [ ] Add auth state reducer/store.
-- [ ] Add login/register/logout UI.
-- [ ] Add session restore on page load.
-- [ ] Add cookie-aware auth HTTP handling with no trusted session token in
+- [x] Remove automatic `seedDemoState()` from default startup.
+- [x] Add explicit demo mode guard if demo remains.
+- [x] Replace initial reducer gameplay values with empty/loading state.
+- [x] Add auth HTTP client.
+- [x] Add auth state reducer/store.
+- [x] Add login/register/logout UI.
+- [x] Add session restore on page load.
+- [x] Add cookie-aware auth HTTP handling with no trusted session token in
       `localStorage`.
-- [ ] Connect WebSocket only after authenticated session exists.
-- [ ] Bootstrap game state from Phase 02 real snapshot/events.
-- [ ] Add WebSocket lifecycle states for restore, connected, reconnecting,
+- [x] Connect WebSocket only after authenticated session exists.
+- [x] Bootstrap game state from Phase 02 real snapshot/events.
+- [x] Add WebSocket lifecycle states for restore, connected, reconnecting,
       auth-expired, and logged-out.
-- [ ] Show disconnected/reconnecting states without fake values.
-- [ ] Update HUD panels to support empty/loading/locked states.
-- [ ] Add real-server smoke path.
-- [ ] Keep old JS WebSocket fixture only as protocol unit/smoke fallback.
+- [x] Show disconnected/reconnecting states without fake values.
+- [x] Update HUD panels to support empty/loading/locked states.
+- [x] Add real-server smoke path.
+- [x] Keep old JS WebSocket fixture only as protocol unit/smoke fallback.
 
 ## Abuse And Safety Checklist
 
-- [ ] Password input is never logged to command log.
-- [ ] Auth errors do not reveal whether email exists.
-- [ ] Client cannot manually enter player id.
-- [ ] Logout clears client gameplay state.
-- [ ] Auth-expired WebSocket close clears gameplay state and stops reconnect
+- [x] Password input is never logged to command log.
+- [x] Auth errors do not reveal whether email exists.
+- [x] Client cannot manually enter player id.
+- [x] Logout clears client gameplay state.
+- [x] Auth-expired WebSocket close clears gameplay state and stops reconnect
       until login.
-- [ ] Failed WebSocket connect does not restore demo state.
-- [ ] Demo mode is visibly and technically separated from real mode.
-- [ ] Client does not trust player id, account id, role, or session token from
+- [x] Failed WebSocket connect does not restore demo state.
+- [x] Demo mode is visibly and technically separated from real mode.
+- [x] Client does not trust player id, account id, role, or session token from
       browser storage.
 
 ## Tests
 
-- [ ] Reducer initial state has no fake gameplay values.
-- [ ] Login success opens WebSocket.
-- [ ] Logout closes WebSocket and clears game state.
-- [ ] Session restore loads authenticated shell.
-- [ ] Expired session restore returns auth shell with no stale gameplay.
-- [ ] WebSocket auth rejection/close clears stale gameplay state.
-- [ ] Reconnect after transient close does not use demo fallback.
-- [ ] `?demo=1` state is isolated from default real mode.
-- [ ] Unauthenticated page shows auth panel, not game HUD data.
-- [ ] Failed login shows safe error.
-- [ ] Browser smoke confirms no demo text/state in default mode.
+- [x] Reducer initial state has no fake gameplay values.
+- [x] Login success opens WebSocket.
+- [x] Logout closes WebSocket and clears game state.
+- [x] Session restore loads authenticated shell.
+- [x] Expired session restore returns auth shell with no stale gameplay.
+- [x] WebSocket auth rejection/close clears stale gameplay state.
+- [x] Reconnect after transient close does not use demo fallback.
+- [x] `?demo=1` state is isolated from default real mode.
+- [x] Unauthenticated page shows auth panel, not game HUD data.
+- [x] Failed login shows safe error.
+- [x] Browser smoke confirms no demo text/state in default mode.
 
 ## Done Criteria
 

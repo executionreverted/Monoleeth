@@ -6,6 +6,14 @@ type CommandPayload = JsonObject;
 export class CommandBuilder {
   private clientSeq = 0;
 
+  sessionSnapshot(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.sessionSnapshot, {});
+  }
+
+  worldSnapshot(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.worldSnapshot, {});
+  }
+
   moveTo(target: Vec2): RequestEnvelope<{ target: Vec2 }> {
     return this.build(OPERATIONS.moveTo, { target });
   }
@@ -81,6 +89,10 @@ function findTrustedClientField(value: unknown): string | null {
     const normalized = key.toLowerCase();
     if (
       normalized === 'player_id' ||
+      normalized === 'account_id' ||
+      normalized === 'session_id' ||
+      normalized === 'world_id' ||
+      normalized === 'zone_id' ||
       normalized === 'damage' ||
       normalized === 'xp' ||
       normalized === 'loot' ||

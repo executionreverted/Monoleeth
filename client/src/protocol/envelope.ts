@@ -1,6 +1,8 @@
 export const PROTOCOL_VERSION = 1 as const;
 
 export const OPERATIONS = {
+  sessionSnapshot: 'session.snapshot',
+  worldSnapshot: 'world.snapshot',
   moveTo: 'move_to',
   stop: 'stop',
   debugSpawnNPC: 'debug_spawn_npc',
@@ -13,13 +15,18 @@ export const OPERATIONS = {
 export type Operation = (typeof OPERATIONS)[keyof typeof OPERATIONS];
 
 export const CLIENT_EVENTS = {
+  sessionReady: 'session.ready',
   playerSnapshot: 'player.snapshot',
+  shipSnapshot: 'ship.snapshot',
   cargoSnapshot: 'cargo.snapshot',
   walletSnapshot: 'wallet.snapshot',
   statsSnapshot: 'stats.updated',
+  worldSnapshot: 'world.snapshot',
   entityEntered: 'aoi.entity_entered',
+  entityUpdated: 'aoi.entity_updated',
   entityLeft: 'aoi.entity_left',
   positionCorrected: 'position.corrected',
+  serverNotice: 'server.notice',
 } as const;
 
 export type ClientEventType = (typeof CLIENT_EVENTS)[keyof typeof CLIENT_EVENTS] | string;
@@ -83,6 +90,10 @@ export type JsonValue = unknown;
 export type JsonObject = Record<string, unknown>;
 
 const forbiddenPayloadKeys = new Set([
+  'account_id',
+  'session_id',
+  'world_id',
+  'zone_id',
   'client_player_id',
   'player_id',
   'damage',

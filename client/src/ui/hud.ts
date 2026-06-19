@@ -4,8 +4,9 @@ import { renderToast } from './toast';
 export interface HUDHandlers {
   onConnect(url: string): void;
   onDisconnect(): void;
+  onLogout(): void;
   onStop(): void;
-  onDebugSnapshot(): void;
+  onSync(): void;
   onFire(): void;
   onLoot(): void;
   onScan(): void;
@@ -26,15 +27,22 @@ export class HUD {
           <span class="brand-lockup__mark"></span>
           <strong>Frontier Console</strong>
         </div>
-        <label class="socket-field">
+        <div class="top-status" aria-label="Server-owned status">
+          <div><span>Sector</span><strong>${lockedValue()}</strong></div>
+          <div><span>Danger</span><strong>${lockedValue()}</strong></div>
+          <div><span>Cargo</span><strong data-top-cargo>${lockedValue()}</strong></div>
+          <div><span>Credits</span><strong data-top-credits>${lockedValue()}</strong></div>
+        </div>
+        <label class="socket-field demo-only">
           <span>WS</span>
           <input class="socket-field__input" type="url" value="" aria-label="WebSocket URL" />
         </label>
         <div class="toolbar" aria-label="Connection and intent controls">
-          <button class="tool-button" data-action="connect" type="button" title="Connect">Link</button>
-          <button class="tool-button" data-action="disconnect" type="button" title="Disconnect">Cut</button>
+          <button class="tool-button demo-only" data-action="connect" type="button" title="Connect fixture">Link</button>
+          <button class="tool-button demo-only" data-action="disconnect" type="button" title="Disconnect fixture">Cut</button>
           <button class="tool-button" data-action="stop" type="button" title="Stop">Stop</button>
-          <button class="tool-button" data-action="snapshot" type="button" title="Request snapshot">Sync</button>
+          <button class="tool-button" data-action="sync" type="button" title="Request snapshot">Sync</button>
+          <button class="tool-button" data-action="logout" type="button" title="Logout">Logout</button>
         </div>
       </header>
       <aside class="hud__rail hud__rail--left">
@@ -70,6 +78,15 @@ export class HUD {
   render(state: ClientState): void {
     this.socketInput.value = state.socketURL;
     this.root.dataset.connection = state.connectionStatus;
+    this.root.dataset.mode = state.auth.mode;
+    const cargo = this.root.querySelector<HTMLElement>('[data-top-cargo]');
+    const credits = this.root.querySelector<HTMLElement>('[data-top-credits]');
+    if (cargo) {
+      cargo.textContent = state.cargo ? `${state.cargo.used}/${state.cargo.capacity}` : '--';
+    }
+    if (credits) {
+      credits.textContent = state.wallet ? String(state.wallet.credits) : '--';
+    }
     this.panels.status.innerHTML = statusPanel(state);
     this.panels.cargo.innerHTML = cargoPanel(state);
     this.panels.quest.innerHTML = questPanel(state);
@@ -97,8 +114,11 @@ export class HUD {
         case 'stop':
           this.handlers.onStop();
           break;
-        case 'snapshot':
-          this.handlers.onDebugSnapshot();
+        case 'sync':
+          this.handlers.onSync();
+          break;
+        case 'logout':
+          this.handlers.onLogout();
           break;
         case 'fire':
           this.handlers.onFire();
@@ -124,22 +144,29 @@ export class HUD {
 
 function statusPanel(state: ClientState): string {
   const snapshot = state.playerSnapshot;
+  const stats = state.stats;
   return `
-    <h2>${escapeHTML(String(snapshot.callsign ?? 'Pilot'))}</h2>
+    <h2>${escapeHTML(String(snapshot?.callsign ?? state.auth.session?.player?.callsign ?? 'Awaiting Pilot'))}</h2>
     <div class="status-grid">
-      ${meter('HP', snapshot.hp, snapshot.max_hp)}
-      ${meter('SHD', snapshot.shield, snapshot.max_shield)}
-      ${meter('ENG', snapshot.energy, snapshot.max_energy)}
+      ${meter('HP', snapshot?.hp, snapshot?.max_hp)}
+      ${meter('SHD', snapshot?.shield, snapshot?.max_shield)}
+      ${meter('ENG', snapshot?.energy, snapshot?.max_energy)}
     </div>
-    <div class="meta-row"><span>Rank</span><strong>${escapeHTML(String(snapshot.rank ?? 1))}</strong></div>
-    <div class="meta-row"><span>Speed</span><strong>${Math.round(state.stats.speed)}</strong></div>
-    <div class="meta-row"><span>Radar</span><strong>${Math.round(state.stats.radar_range)}</strong></div>
+    <div class="meta-row"><span>Rank</span><strong>${snapshot?.rank ?? lockedValue()}</strong></div>
+    <div class="meta-row"><span>Speed</span><strong>${stats ? Math.round(stats.speed) : lockedValue()}</strong></div>
+    <div class="meta-row"><span>Radar</span><strong>${stats ? Math.round(stats.radar_range) : lockedValue()}</strong></div>
     <div class="meta-row"><span>Link</span><strong>${escapeHTML(state.connectionStatus)}</strong></div>
   `;
 }
 
 function cargoPanel(state: ClientState): string {
-  const percent = Math.min(100, Math.round((state.cargo.used / Math.max(state.cargo.capacity, 1)) * 100));
+  if (!state.cargo || !state.wallet) {
+    return `
+      <h2>Cargo</h2>
+      <div class="empty-line">Awaiting server cargo and wallet snapshots.</div>
+    `;
+  }
+  const percent = state.cargo.capacity > 0 ? Math.min(100, Math.round((state.cargo.used / state.cargo.capacity) * 100)) : 0;
   return `
     <h2>Cargo</h2>
     <div class="meter"><span style="width:${percent}%"></span></div>
@@ -152,6 +179,13 @@ function cargoPanel(state: ClientState): string {
 }
 
 function questPanel(state: ClientState): string {
+  if (!state.questBoard) {
+    return `
+      <h2>Quest Board</h2>
+      <div class="empty-line">Locked until quest snapshots are exposed.</div>
+      <button class="ghost-action" type="button" disabled>Board</button>
+    `;
+  }
   return `
     <h2>Quest Board</h2>
     <div class="meta-row"><span>Available</span><strong>${state.questBoard.available}</strong></div>
@@ -182,6 +216,13 @@ function targetPanel(state: ClientState): string {
 }
 
 function loadoutPanel(state: ClientState): string {
+  if (!state.inventory) {
+    return `
+      <h2>Loadout</h2>
+      <div class="empty-line">Locked until inventory and loadout snapshots are exposed.</div>
+      <button class="ghost-action" type="button" disabled>Open</button>
+    `;
+  }
   return `
     <h2>Loadout</h2>
     <div class="meta-row"><span>Equipped</span><strong>${state.inventory.equipped}</strong></div>
@@ -193,9 +234,9 @@ function loadoutPanel(state: ClientState): string {
 function intelPanel(state: ClientState): string {
   return `
     <h2>Intel</h2>
-    <div class="meta-row"><span>Signals</span><strong>${state.planetIntel.knownSignals}</strong></div>
-    <div class="meta-row"><span>Stale</span><strong>${state.planetIntel.staleIntel}</strong></div>
-    <button class="ghost-action" type="button" data-action="scan" title="Request a server-side scanner pulse">Pulse</button>
+    <div class="meta-row"><span>Signals</span><strong>${state.planetIntel ? state.planetIntel.knownSignals : lockedValue()}</strong></div>
+    <div class="meta-row"><span>Stale</span><strong>${state.planetIntel?.staleIntel ?? lockedValue()}</strong></div>
+    <button class="ghost-action" type="button" data-action="scan" disabled title="Scanner command is wired in a later phase">Pulse</button>
   `;
 }
 
@@ -210,16 +251,21 @@ function logPanel(state: ClientState): string {
 }
 
 function meter(label: string, current?: number, max?: number): string {
-  const safeMax = Math.max(max ?? 100, 1);
-  const safeCurrent = Math.max(0, Math.min(current ?? 0, safeMax));
-  const percent = Math.round((safeCurrent / safeMax) * 100);
+  const hasValue = current !== undefined && max !== undefined;
+  const safeMax = Math.max(max ?? 0, 1);
+  const safeCurrent = hasValue ? Math.max(0, Math.min(current, safeMax)) : 0;
+  const percent = hasValue ? Math.round((safeCurrent / safeMax) * 100) : 0;
   return `
     <div class="stat-meter">
       <div class="stat-meter__label">${label}</div>
       <div class="meter"><span style="width:${percent}%"></span></div>
-      <strong>${safeCurrent}</strong>
+      <strong>${hasValue ? safeCurrent : lockedValue()}</strong>
     </div>
   `;
+}
+
+function lockedValue(): string {
+  return '--';
 }
 
 function escapeHTML(value: string): string {

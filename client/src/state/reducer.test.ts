@@ -4,6 +4,51 @@ import { CLIENT_EVENTS, EventEnvelope, JsonObject } from '../protocol/envelope';
 import { createInitialState, reduceClientState } from './reducer';
 
 describe('reduceClientState', () => {
+  test('initial state has no fake gameplay values', () => {
+    const state = createInitialState();
+
+    expect(state.connectionStatus).toBe('restoring');
+    expect(state.playerSnapshot).toBeNull();
+    expect(state.cargo).toBeNull();
+    expect(state.wallet).toBeNull();
+    expect(state.stats).toBeNull();
+    expect(state.questBoard).toBeNull();
+    expect(state.inventory).toBeNull();
+    expect(state.planetIntel).toBeNull();
+    expect(state.visibleEntities).toEqual({});
+  });
+
+  test('logout and auth expiry clear gameplay state', () => {
+    const withGameplay = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.playerSnapshot, {
+        callsign: 'Server-Pilot',
+        hp: 80,
+        shield: 70,
+        energy: 60,
+      }),
+    });
+
+    const loggedOut = reduceClientState(withGameplay, { type: 'authLoggedOut' });
+    expect(loggedOut.connectionStatus).toBe('logged_out');
+    expect(loggedOut.playerSnapshot).toBeNull();
+    expect(loggedOut.visibleEntities).toEqual({});
+
+    const expired = reduceClientState(withGameplay, { type: 'authExpired', message: 'Session expired.' });
+    expect(expired.connectionStatus).toBe('auth_expired');
+    expect(expired.playerSnapshot).toBeNull();
+    expect(expired.auth.error).toBe('Session expired.');
+  });
+
+  test('demo mode is explicit and isolated from real auth session state', () => {
+    const demo = reduceClientState(createInitialState(), { type: 'demoModeStarted' });
+
+    expect(demo.auth.mode).toBe('demo');
+    expect(demo.auth.session).toBeNull();
+    expect(demo.playerSnapshot).toBeNull();
+    expect(demo.commandLog.some((line) => line.text.includes('Demo mode'))).toBe(true);
+  });
+
   test('handles AOI enter and leave events', () => {
     const state = createInitialState();
     const entered = reduceClientState(state, {
@@ -150,7 +195,7 @@ describe('reduceClientState', () => {
     expect(replaced.selectedTargetID).toBeNull();
     expect(replaced.movementTarget).toBeNull();
     expect(replaced.lastCorrection).toBeNull();
-    expect(replaced.planetIntel.knownSignals).toBe(1);
+    expect(replaced.planetIntel?.knownSignals).toBe(1);
   });
 
   test('snapshot response rejects hidden debug payloads before state mutation', () => {
@@ -200,9 +245,9 @@ describe('reduceClientState', () => {
       },
     });
 
-    expect(reconciled.playerSnapshot.callsign).toBe('Server-Pilot');
+    expect(reconciled.playerSnapshot?.callsign).toBe('Server-Pilot');
     expect(reconciled.cargo).toMatchObject({ used: 4, capacity: 80 });
-    expect(reconciled.cargo.items).toEqual([{ item_id: 'raw_ore', quantity: 4 }]);
+    expect(reconciled.cargo?.items).toEqual([{ item_id: 'raw_ore', quantity: 4 }]);
     expect(reconciled.wallet).toEqual({ credits: 980, premium_paid: 3, premium_earned: 9 });
     expect(reconciled.stats).toMatchObject({ speed: 220, radar_range: 510, weapon_range: 280, cargo_capacity: 80 });
   });
@@ -225,9 +270,9 @@ describe('reduceClientState', () => {
       envelope: event(CLIENT_EVENTS.statsSnapshot, { speed: 210, radar_range: 500, weapon_range: 275, cargo_capacity: 70 }, 3),
     });
 
-    expect(withStats.cargo.items).toEqual([{ item_id: 'salvage_thread', quantity: 12 }]);
-    expect(withStats.wallet.credits).toBe(444);
-    expect(withStats.stats.weapon_range).toBe(275);
+    expect(withStats.cargo?.items).toEqual([{ item_id: 'salvage_thread', quantity: 12 }]);
+    expect(withStats.wallet?.credits).toBe(444);
+    expect(withStats.stats?.weapon_range).toBe(275);
   });
 });
 

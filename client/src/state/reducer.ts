@@ -7,62 +7,129 @@ import {
   rejectForbiddenPayloadKeys,
   Vec2,
 } from '../protocol/envelope';
-import { CargoSummary, ClientAction, ClientState, LogLine, StatSummary, WalletSummary } from './types';
+import { CargoSummary, ClientAction, ClientState, LogLine, PublicSession, StatSummary, WalletSummary } from './types';
 
 export function createInitialState(): ClientState {
   return {
-    connectionStatus: 'offline',
+    auth: {
+      mode: 'real',
+      session: null,
+      submitting: false,
+      error: null,
+    },
+    connectionStatus: 'restoring',
     socketURL: defaultSocketURL(),
     lastServerTime: null,
     lastSequence: 0,
-    playerSnapshot: {
-      hp: 84,
-      shield: 61,
-      energy: 72,
-      max_hp: 100,
-      max_shield: 100,
-      max_energy: 100,
-      rank: 1,
-      callsign: 'Frontier-01',
-    },
+    playerSnapshot: null,
     visibleEntities: {},
     selectedTargetID: null,
     movementTarget: null,
     lastCorrection: null,
     pendingCommands: {},
     commandLog: [],
-    combatLog: [
-      newLog('info', 'Systems nominal.'),
-      newLog('info', 'AOI filter armed.'),
-    ],
-    cargo: {
-      used: 17,
-      capacity: 60,
-      items: [
-        { item_id: 'raw_ore', quantity: 11 },
-        { item_id: 'salvage_thread', quantity: 6 },
-      ],
-    },
-    wallet: {
-      credits: 1250,
-      premium_paid: 0,
-      premium_earned: 25,
-    },
-    stats: {
-      speed: 180,
-      radar_range: 420,
-      weapon_range: 260,
-      cargo_capacity: 60,
-    },
-    questBoard: { available: 3, active: 1 },
-    inventory: { equipped: 4, storage: 12 },
-    planetIntel: { knownSignals: 1, staleIntel: 0 },
+    combatLog: [],
+    cargo: null,
+    wallet: null,
+    stats: null,
+    questBoard: null,
+    inventory: null,
+    planetIntel: null,
     lastError: null,
   };
 }
 
 export function reduceClientState(state: ClientState, action: ClientAction): ClientState {
   switch (action.type) {
+    case 'demoModeStarted':
+      return {
+        ...clearGameplay(state),
+        auth: {
+          mode: 'demo',
+          session: null,
+          submitting: false,
+          error: null,
+        },
+        connectionStatus: 'offline',
+        commandLog: [newLog('warn', 'Demo mode is using local fixture data.')],
+      };
+
+    case 'authRestoreStarted':
+      return {
+        ...clearGameplay(state),
+        auth: {
+          mode: 'real',
+          session: null,
+          submitting: false,
+          error: null,
+        },
+        connectionStatus: 'restoring',
+      };
+
+    case 'authSubmitStarted':
+      return {
+        ...state,
+        auth: {
+          ...state.auth,
+          submitting: true,
+          error: null,
+        },
+        lastError: null,
+      };
+
+    case 'authSessionLoaded':
+      return {
+        ...clearGameplay(state),
+        auth: {
+          mode: 'real',
+          session: action.session,
+          submitting: false,
+          error: null,
+        },
+        connectionStatus: 'authenticated_pending_socket',
+        lastServerTime: action.session.server_time,
+        commandLog: [newLog('info', 'Authenticated session restored.')],
+      };
+
+    case 'authLoggedOut':
+      return {
+        ...clearGameplay(state),
+        auth: {
+          mode: 'real',
+          session: null,
+          submitting: false,
+          error: null,
+        },
+        connectionStatus: 'logged_out',
+        commandLog: [newLog('info', 'Logged out.')],
+      };
+
+    case 'authExpired':
+      return {
+        ...clearGameplay(state),
+        auth: {
+          mode: 'real',
+          session: null,
+          submitting: false,
+          error: action.message ?? 'Session expired. Please log in again.',
+        },
+        connectionStatus: 'auth_expired',
+        commandLog: [newLog('warn', action.message ?? 'Session expired.')],
+      };
+
+    case 'authFailed':
+      return {
+        ...clearGameplay(state),
+        auth: {
+          mode: 'real',
+          session: null,
+          submitting: false,
+          error: action.message,
+        },
+        connectionStatus: 'logged_out',
+        commandLog: appendLog(state.commandLog, 'warn', action.message),
+      };
+
     case 'connectionChanged':
       return {
         ...state,
@@ -170,7 +237,7 @@ function replaceVisibleEntities(
       state.selectedTargetID && visibleEntities[state.selectedTargetID] ? state.selectedTargetID : null,
     movementTarget: null,
     lastCorrection: null,
-    planetIntel: { ...state.planetIntel, knownSignals: countPlanetSignals(visibleEntities) },
+    planetIntel: { knownSignals: countPlanetSignals(visibleEntities), staleIntel: state.planetIntel?.staleIntel ?? null },
     lastServerTime: serverTime,
     lastSequence: sequence ? Math.max(state.lastSequence, sequence) : state.lastSequence,
   };
@@ -180,10 +247,39 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
   rejectForbiddenPayloadKeys(envelope.payload);
 
   switch (envelope.type) {
+    case CLIENT_EVENTS.sessionReady:
+      return {
+        ...state,
+        auth: {
+          mode: state.auth.mode,
+          session: parseSessionReady(envelope.payload, envelope.server_time),
+          submitting: false,
+          error: null,
+        },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
     case CLIENT_EVENTS.playerSnapshot:
       return {
         ...state,
-        playerSnapshot: { ...state.playerSnapshot, ...envelope.payload },
+        playerSnapshot: { ...(state.playerSnapshot ?? {}), ...envelope.payload },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.shipSnapshot:
+      return {
+        ...state,
+        playerSnapshot: {
+          ...(state.playerSnapshot ?? {}),
+          hp: numberField(envelope.payload, 'hull') ?? state.playerSnapshot?.hp,
+          max_hp: numberField(envelope.payload, 'max_hull') ?? state.playerSnapshot?.max_hp,
+          shield: numberField(envelope.payload, 'shield') ?? state.playerSnapshot?.shield,
+          max_shield: numberField(envelope.payload, 'max_shield') ?? state.playerSnapshot?.max_shield,
+          energy: numberField(envelope.payload, 'capacitor') ?? state.playerSnapshot?.energy,
+          max_energy: numberField(envelope.payload, 'max_capacitor') ?? state.playerSnapshot?.max_energy,
+        },
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
@@ -212,17 +308,27 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
 
-    case CLIENT_EVENTS.entityEntered: {
+    case CLIENT_EVENTS.worldSnapshot: {
+      const entities = parseSnapshotEntities(envelope.payload) ?? [];
+      return {
+        ...replaceVisibleEntities(state, entities, envelope.server_time, envelope.seq),
+        connectionStatus: state.auth.mode === 'real' && state.auth.session ? 'connected' : state.connectionStatus,
+      };
+    }
+
+    case CLIENT_EVENTS.entityEntered:
+    case CLIENT_EVENTS.entityUpdated: {
       const entity = parseEntityPayload(envelope.payload);
+      const visibleEntities = {
+        ...state.visibleEntities,
+        [entity.entity_id]: entity,
+      };
       return {
         ...state,
-        visibleEntities: {
-          ...state.visibleEntities,
-          [entity.entity_id]: entity,
-        },
+        visibleEntities,
         planetIntel:
           entity.entity_type === 'planet_signal_placeholder'
-            ? { ...state.planetIntel, knownSignals: countPlanetSignals({ ...state.visibleEntities, [entity.entity_id]: entity }) }
+            ? { knownSignals: countPlanetSignals(visibleEntities), staleIntel: state.planetIntel?.staleIntel ?? null }
             : state.planetIntel,
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
@@ -237,7 +343,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         ...state,
         visibleEntities,
         selectedTargetID: state.selectedTargetID === entityID ? null : state.selectedTargetID,
-        planetIntel: { ...state.planetIntel, knownSignals: countPlanetSignals(visibleEntities) },
+        planetIntel: { knownSignals: countPlanetSignals(visibleEntities), staleIntel: state.planetIntel?.staleIntel ?? null },
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
@@ -248,6 +354,14 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       const position = requirePosition(envelope.payload);
       return applyCorrection(state, entityID, position, envelope.server_time, envelope.seq);
     }
+
+    case CLIENT_EVENTS.serverNotice:
+      return {
+        ...state,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        commandLog: appendLog(state.commandLog, 'info', stringField(envelope.payload, 'message') ?? 'Server notice.'),
+      };
 
     default:
       return {
@@ -310,11 +424,23 @@ function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientSt
   rejectForbiddenPayloadKeys(payload);
 
   let next = state;
+  if (typeof payload.authenticated === 'boolean') {
+    next = {
+      ...next,
+      auth: {
+        ...next.auth,
+        session: parseSessionReady(payload, state.lastServerTime ?? Date.now()),
+        submitting: false,
+        error: null,
+      },
+    };
+  }
+
   const player = objectField(payload, 'player') ?? objectField(payload, 'player_snapshot');
   if (player) {
     next = {
       ...next,
-      playerSnapshot: { ...next.playerSnapshot, ...player },
+      playerSnapshot: { ...(next.playerSnapshot ?? {}), ...player },
     };
   }
 
@@ -382,10 +508,29 @@ function requirePosition(payload: JsonObject): Vec2 {
   throw new Error('Missing correction position.');
 }
 
-function parseCargoSummary(payload: JsonObject, fallback: CargoSummary): CargoSummary {
-  const used = numberField(payload, 'used') ?? fallback.used;
-  const capacity = numberField(payload, 'capacity') ?? numberField(payload, 'cargo_capacity') ?? fallback.capacity;
-  const rawItems = Array.isArray(payload.items) ? payload.items : fallback.items;
+function parseSessionReady(payload: JsonObject, serverTime: number): PublicSession {
+  const account = objectField(payload, 'account');
+  const player = objectField(payload, 'player');
+  const roles = Array.isArray(payload.roles) ? payload.roles.filter((role): role is string => typeof role === 'string') : undefined;
+  return {
+    authenticated: payload.authenticated === true,
+    account: account
+      ? {
+          email: stringField(account, 'email') ?? '',
+          admin: booleanField(account, 'admin') ?? false,
+        }
+      : undefined,
+    player: player ? { callsign: stringField(player, 'callsign') ?? '' } : undefined,
+    roles,
+    expires_at: numberField(payload, 'expires_at') ?? undefined,
+    server_time: serverTime,
+  };
+}
+
+function parseCargoSummary(payload: JsonObject, fallback: CargoSummary | null): CargoSummary {
+  const used = numberField(payload, 'used') ?? fallback?.used ?? 0;
+  const capacity = numberField(payload, 'capacity') ?? numberField(payload, 'cargo_capacity') ?? fallback?.capacity ?? 0;
+  const rawItems = Array.isArray(payload.items) ? payload.items : fallback?.items ?? [];
   const items = rawItems
     .filter(isJsonObject)
     .map((item) => ({
@@ -396,25 +541,25 @@ function parseCargoSummary(payload: JsonObject, fallback: CargoSummary): CargoSu
 
   return {
     used: Math.max(0, Math.round(used)),
-    capacity: Math.max(1, Math.round(capacity)),
+    capacity: Math.max(0, Math.round(capacity)),
     items,
   };
 }
 
-function parseWalletSummary(payload: JsonObject, fallback: WalletSummary): WalletSummary {
+function parseWalletSummary(payload: JsonObject, fallback: WalletSummary | null): WalletSummary {
   return {
-    credits: Math.max(0, Math.round(numberField(payload, 'credits') ?? fallback.credits)),
-    premium_paid: Math.max(0, Math.round(numberField(payload, 'premium_paid') ?? fallback.premium_paid)),
-    premium_earned: Math.max(0, Math.round(numberField(payload, 'premium_earned') ?? fallback.premium_earned)),
+    credits: Math.max(0, Math.round(numberField(payload, 'credits') ?? fallback?.credits ?? 0)),
+    premium_paid: Math.max(0, Math.round(numberField(payload, 'premium_paid') ?? fallback?.premium_paid ?? 0)),
+    premium_earned: Math.max(0, Math.round(numberField(payload, 'premium_earned') ?? fallback?.premium_earned ?? 0)),
   };
 }
 
-function parseStatSummary(payload: JsonObject, fallback: StatSummary): StatSummary {
+function parseStatSummary(payload: JsonObject, fallback: StatSummary | null): StatSummary {
   return {
-    speed: Math.max(0, numberField(payload, 'speed') ?? fallback.speed),
-    radar_range: Math.max(0, numberField(payload, 'radar_range') ?? fallback.radar_range),
-    weapon_range: Math.max(0, numberField(payload, 'weapon_range') ?? fallback.weapon_range),
-    cargo_capacity: Math.max(0, numberField(payload, 'cargo_capacity') ?? fallback.cargo_capacity),
+    speed: Math.max(0, numberField(payload, 'speed') ?? fallback?.speed ?? 0),
+    radar_range: Math.max(0, numberField(payload, 'radar_range') ?? fallback?.radar_range ?? 0),
+    weapon_range: Math.max(0, numberField(payload, 'weapon_range') ?? fallback?.weapon_range ?? 0),
+    cargo_capacity: Math.max(0, numberField(payload, 'cargo_capacity') ?? fallback?.cargo_capacity ?? 0),
   };
 }
 
@@ -449,6 +594,11 @@ function numberField(payload: JsonObject, key: string): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function booleanField(payload: JsonObject, key: string): boolean | null {
+  const value = payload[key];
+  return typeof value === 'boolean' ? value : null;
+}
+
 function isKnownEntityType(entityType: string): entityType is EntityPayload['entity_type'] {
   return (
     entityType === 'player' ||
@@ -464,6 +614,29 @@ function countPlanetSignals(entities: Record<string, EntityPayload>): number {
 
 function appendLog(lines: LogLine[], level: LogLine['level'], text: string): LogLine[] {
   return [...lines.slice(-39), newLog(level, text)];
+}
+
+function clearGameplay(state: ClientState): ClientState {
+  return {
+    ...state,
+    lastServerTime: null,
+    lastSequence: 0,
+    playerSnapshot: null,
+    visibleEntities: {},
+    selectedTargetID: null,
+    movementTarget: null,
+    lastCorrection: null,
+    pendingCommands: {},
+    commandLog: [],
+    combatLog: [],
+    cargo: null,
+    wallet: null,
+    stats: null,
+    questBoard: null,
+    inventory: null,
+    planetIntel: null,
+    lastError: null,
+  };
 }
 
 function newLog(level: LogLine['level'], text: string): LogLine {

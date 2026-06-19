@@ -1,14 +1,17 @@
+import { AuthClient, AuthClientError } from '../auth/auth-client';
 import { RealtimeClient } from '../net/realtime-client';
 import { CommandBuilder } from '../protocol/commands';
-import { RequestEnvelope, ServerMessage, Vec2 } from '../protocol/envelope';
+import { ErrorEnvelope, RequestEnvelope, ServerMessage, Vec2 } from '../protocol/envelope';
 import { WorldRenderer } from '../render/world-renderer';
+import { AuthPanel } from '../ui/auth-panel';
 import { HUD } from '../ui/hud';
 import { correctionEvent, demoEvents } from './demo-state';
 import { createInitialState, reduceClientState } from '../state/reducer';
-import { ClientAction, ClientState } from '../state/types';
+import { ClientAction, ClientState, PublicSession } from '../state/types';
 
 export class ClientApp {
   private state: ClientState = createInitialState();
+  private readonly authClient = new AuthClient();
   private readonly commandBuilder = new CommandBuilder();
   private readonly renderer = new WorldRenderer({
     onMoveIntent: (target) => this.sendMove(target),
@@ -19,14 +22,18 @@ export class ClientApp {
     onMessage: (message) => this.applyServerMessage(message),
     onError: (message) => this.dispatch({ type: 'appendLog', level: 'error', text: message }),
   });
+  private authPanel: AuthPanel | null = null;
   private hud: HUD | null = null;
-  private demoMode = true;
+  private reconnectTimer: number | null = null;
+  private intentionalDisconnect = false;
+  private readonly demoMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1';
 
   constructor(private readonly root: HTMLElement) {}
 
   async start(): Promise<void> {
     this.root.className = 'client-shell';
     this.root.innerHTML = `
+      <div class="auth-host"></div>
       <main class="game-surface">
         <div class="world-host" aria-label="World view"></div>
         <div class="hud-host"></div>
@@ -35,35 +42,51 @@ export class ClientApp {
 
     const worldHost = this.root.querySelector<HTMLElement>('.world-host');
     const hudHost = this.root.querySelector<HTMLElement>('.hud-host');
-    if (!worldHost || !hudHost) {
+    const authHost = this.root.querySelector<HTMLElement>('.auth-host');
+    if (!worldHost || !hudHost || !authHost) {
       throw new Error('Client shell failed to mount.');
     }
 
     await this.renderer.mount(worldHost);
+    this.authPanel = new AuthPanel(authHost, {
+      onLogin: (email, password) => void this.login(email, password),
+      onRegister: (email, password, callsign) => void this.register(email, password, callsign),
+    });
     this.hud = new HUD(hudHost, {
       onConnect: (url) => this.connect(url),
       onDisconnect: () => this.disconnect(),
+      onLogout: () => void this.logout(),
       onStop: () => this.sendCommand(this.commandBuilder.stop()),
-      onDebugSnapshot: () => this.sendCommand(this.commandBuilder.debugSnapshot()),
+      onSync: () => this.syncSnapshot(),
       onFire: () => this.sendBasicSkill(),
       onLoot: () => this.sendLootPickup(),
       onScan: () => this.sendCommand(this.commandBuilder.scanPulse()),
     });
 
-    this.seedDemoState();
+    if (this.demoMode) {
+      this.dispatch({ type: 'demoModeStarted' });
+      this.seedDemoState();
+      this.render();
+      return;
+    }
+
     this.render();
+    await this.restoreSession();
   }
 
   private connect(url: string): void {
-    this.demoMode = false;
+    this.intentionalDisconnect = false;
     this.dispatch({ type: 'replaceVisibleEntities', entities: [], serverTime: null });
     this.realtime.connect(url);
   }
 
   private disconnect(): void {
+    this.intentionalDisconnect = true;
+    this.clearReconnectTimer();
     this.realtime.disconnect();
-    this.demoMode = true;
-    this.seedDemoState();
+    if (this.state.auth.mode === 'demo') {
+      this.seedDemoState();
+    }
   }
 
   private seedDemoState(): void {
@@ -77,7 +100,7 @@ export class ClientApp {
     const command = this.commandBuilder.moveTo(target);
     this.sendCommand(command);
 
-    if (this.demoMode && !this.realtime.isConnected()) {
+    if (this.state.auth.mode === 'demo' && !this.realtime.isConnected()) {
       const localID = this.findLocalPlayerID();
       window.setTimeout(() => {
         this.dispatch({ type: 'eventReceived', envelope: correctionEvent(localID, target) });
@@ -104,10 +127,15 @@ export class ClientApp {
   }
 
   private sendCommand(envelope: RequestEnvelope): void {
+    if (this.state.auth.mode === 'real' && this.state.connectionStatus !== 'connected') {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Waiting for authenticated realtime link.' });
+      return;
+    }
+
     this.dispatch({ type: 'requestQueued', envelope });
     if (!this.realtime.send(envelope)) {
       this.dispatch(
-        this.demoMode
+        this.state.auth.mode === 'demo'
           ? {
               type: 'appendLog',
               level: 'warn',
@@ -129,13 +157,125 @@ export class ClientApp {
     }
 
     this.dispatch({ type: 'responseReceived', envelope: message });
+    if (message.ok === false && isAuthError(message)) {
+      this.handleAuthExpired(message.error.message);
+    }
   }
 
   private handleRealtimeStatus(status: ClientState['connectionStatus']): void {
-    this.dispatch({ type: 'connectionChanged', status });
     if (status === 'connected') {
+      this.dispatch({
+        type: 'connectionChanged',
+        status: this.state.auth.mode === 'real' ? 'authenticated_pending_socket' : 'connected',
+      });
+    } else if (status === 'auth_expired') {
+      this.handleAuthExpired('Session expired. Please log in again.');
+      return;
+    } else if (status === 'offline' && this.shouldReconnect()) {
+      this.dispatch({ type: 'connectionChanged', status: 'reconnecting' });
+      this.scheduleReconnect();
+      return;
+    } else if (status === 'error' && this.shouldReconnect()) {
+      this.dispatch({ type: 'connectionChanged', status: 'reconnecting' });
+      this.scheduleReconnect();
+      return;
+    } else {
+      this.dispatch({ type: 'connectionChanged', status });
+    }
+
+    if (this.state.auth.mode === 'demo' && status === 'connected') {
       this.sendCommand(this.commandBuilder.debugSnapshot());
     }
+  }
+
+  private async restoreSession(): Promise<void> {
+    this.dispatch({ type: 'authRestoreStarted' });
+    try {
+      const session = await this.authClient.loadSession();
+      if (!session.authenticated) {
+        this.dispatch({ type: 'authLoggedOut' });
+        return;
+      }
+      this.startAuthenticatedSession(session);
+    } catch (error) {
+      this.dispatch({ type: 'authFailed', message: safeAuthMessage(error) });
+    }
+  }
+
+  private async login(email: string, password: string): Promise<void> {
+    this.dispatch({ type: 'authSubmitStarted' });
+    try {
+      this.startAuthenticatedSession(await this.authClient.login({ email, password }));
+    } catch (error) {
+      this.dispatch({ type: 'authFailed', message: safeAuthMessage(error) });
+    }
+  }
+
+  private async register(email: string, password: string, callsign: string): Promise<void> {
+    this.dispatch({ type: 'authSubmitStarted' });
+    try {
+      this.startAuthenticatedSession(await this.authClient.register({ email, password, callsign }));
+    } catch (error) {
+      this.dispatch({ type: 'authFailed', message: safeAuthMessage(error) });
+    }
+  }
+
+  private async logout(): Promise<void> {
+    this.intentionalDisconnect = true;
+    this.clearReconnectTimer();
+    this.realtime.disconnect();
+    try {
+      await this.authClient.logout();
+    } catch (error) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: safeAuthMessage(error) });
+    }
+    this.dispatch({ type: 'authLoggedOut' });
+  }
+
+  private startAuthenticatedSession(session: PublicSession): void {
+    if (!session.authenticated) {
+      this.dispatch({ type: 'authLoggedOut' });
+      return;
+    }
+    this.intentionalDisconnect = false;
+    this.clearReconnectTimer();
+    this.dispatch({ type: 'authSessionLoaded', session });
+    this.realtime.connect(this.state.socketURL);
+  }
+
+  private syncSnapshot(): void {
+    this.sendCommand(this.state.auth.mode === 'demo' ? this.commandBuilder.debugSnapshot() : this.commandBuilder.worldSnapshot());
+  }
+
+  private handleAuthExpired(message: string): void {
+    this.intentionalDisconnect = true;
+    this.clearReconnectTimer();
+    this.realtime.disconnect();
+    this.dispatch({ type: 'authExpired', message });
+  }
+
+  private shouldReconnect(): boolean {
+    return this.state.auth.mode === 'real' && Boolean(this.state.auth.session) && !this.intentionalDisconnect;
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer !== null) {
+      return;
+    }
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.shouldReconnect()) {
+        this.realtime.connect(this.state.socketURL);
+      }
+    }, 750);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer === null) {
+      return;
+    }
+    window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
   }
 
   private dispatch(action: ClientAction): void {
@@ -152,12 +292,15 @@ export class ClientApp {
   }
 
   private render(): void {
+    this.root.dataset.mode = this.state.auth.mode;
+    this.root.dataset.connection = this.state.connectionStatus;
     this.renderer.render({
       entities: Object.values(this.state.visibleEntities),
       selectedTargetID: this.state.selectedTargetID,
       movementTarget: this.state.movementTarget,
       lastCorrection: this.state.lastCorrection,
     });
+    this.authPanel?.render(this.state);
     this.hud?.render(this.state);
     this.publishSmokeState();
   }
@@ -192,7 +335,24 @@ export class ClientApp {
         stats: this.state.stats,
         commandLog: this.state.commandLog,
         combatLog: this.state.combatLog,
+        auth: this.state.auth,
       }),
     );
   }
+}
+
+function safeAuthMessage(error: unknown): string {
+  if (error instanceof AuthClientError) {
+    return error.message;
+  }
+  return 'Authentication failed.';
+}
+
+function isAuthError(message: ErrorEnvelope): boolean {
+  return (
+    message.error.code === 'ERR_AUTH_REQUIRED' ||
+    message.error.code === 'ERR_SESSION_EXPIRED' ||
+    message.error.code === 'ERR_SESSION_REVOKED' ||
+    message.error.code === 'ERR_UNAUTHENTICATED'
+  );
 }

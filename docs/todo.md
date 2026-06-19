@@ -7,13 +7,6 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
-
-- [ ] Replace the Phase 11 browser client's offline demo/local smoke harness
-  with an authenticated Go WebSocket gateway flow and server-authoritative
-  player/session resolution. The browser now requests a fresh snapshot whenever
-  a realtime link opens, but the concrete production transport is still future
-  work. Source:
-  `docs/roadmap/11-browser-client-prototype.md`.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.
@@ -173,6 +166,13 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Replace the Phase 11 browser client's offline demo/local smoke harness
+  default with an authenticated Go WebSocket gateway flow and server-owned
+  player/session resolution. Default startup now restores `/api/session`, shows
+  the auth shell when unauthenticated, connects `/ws` only after login, and the
+  default browser smoke boots `cmd/game-server`; the old JavaScript fixture is
+  explicit `--fixture` / `?demo=1` fallback only. Source:
+  `docs/plans/ui-implementation/03-client-auth-shell-demo-removal.md`.
 - [x] Add a Phase 11 WebSocket browser smoke fixture that sends forbidden server
   payload keys and asserts the browser client rejects them without mutating
   smoke-visible client state. The smoke now connects desktop and mobile browser
