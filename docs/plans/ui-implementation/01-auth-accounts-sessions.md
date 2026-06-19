@@ -2,7 +2,8 @@
 
 ## Status
 
-- State: Planned
+- State: Implemented for Phase 01 package/API boundary; pending Phase 02
+  `cmd/game-server` wiring
 - Owner: Auth/session boundary
 - Depends on: existing foundation ids/errors/contracts
 - Unlocks: authenticated WebSocket, real player ownership, admin tools
@@ -92,6 +93,15 @@ cmd/game-server/
 Use in-memory stores only if the phase explicitly documents the loss of data
 after restart. Prefer a small repository interface so durable storage can be
 added without rewriting handlers.
+
+Implemented MVP note:
+- `internal/game/auth` now provides the volatile in-memory auth repository,
+  PBKDF2-SHA256 password hashing, hashed-at-rest opaque session tokens,
+  auth HTTP handlers, same-origin/allowed-origin checks, admin env seeding, and
+  resolver helpers for the future WebSocket upgrade.
+- The in-memory repository is intentionally process-local and loses accounts and
+  sessions on restart. Phase 02 can wire it into `cmd/game-server`; later
+  storage can replace the `auth.Store` interface without changing handlers.
 
 ## HTTP Endpoints
 
@@ -187,60 +197,76 @@ Add a reproducible admin seed path:
 Document local usage in `README` or a phase note. Do not commit real admin
 credentials.
 
+Local env seed flow for the Phase 02 server entrypoint:
+
+```bash
+GAME_ADMIN_EMAIL=admin@example.com \
+GAME_ADMIN_PASSWORD='replace-with-local-secret' \
+GAME_ADMIN_CALLSIGN=Admin \
+go run ./cmd/game-server
+```
+
+`GAME_ADMIN_EMAIL` and `GAME_ADMIN_PASSWORD` must be supplied together when the
+seed is requested. The password is hashed and never logged or serialized.
+`GAME_ADMIN_CALLSIGN` is optional and defaults to `Admin`. `cmd/game-server`
+wiring is owned by Phase 02; Phase 01 provides `auth.Service.SeedAdminFromEnv`
+and `.env.example` placeholders so the server can call the seed hook without
+hard-coded credentials.
+
 ## TODO
 
-- [ ] Define account, player profile, session, and role models.
-- [ ] Add email normalization and validation.
-- [ ] Add password hashing and verification.
-- [ ] Add session creation, expiry, renewal posture, and logout invalidation.
-- [ ] Store hashed session tokens and support server-side revocation lookup.
-- [ ] Rotate session tokens on login and any explicit renewal flow.
-- [ ] Add auth store/repository interfaces.
-- [ ] Add in-memory or durable MVP store implementation.
-- [ ] Add admin seed command/startup option.
-- [ ] Add HTTP handlers for register/login/logout/session.
-- [ ] Add CORS/CSRF/same-origin posture for cookie-authenticated POSTs.
-- [ ] Add safe public response models.
-- [ ] Add WebSocket session resolver adapter.
-- [ ] Add WebSocket allowed-origin validation.
-- [ ] Add client-safe auth error codes.
-- [ ] Add auth rate-limit posture for login/register.
-- [ ] Document local admin seed flow.
+- [x] Define account, player profile, session, and role models.
+- [x] Add email normalization and validation.
+- [x] Add password hashing and verification.
+- [x] Add session creation, expiry, renewal posture, and logout invalidation.
+- [x] Store hashed session tokens and support server-side revocation lookup.
+- [x] Rotate session tokens on login and any explicit renewal flow.
+- [x] Add auth store/repository interfaces.
+- [x] Add in-memory or durable MVP store implementation.
+- [x] Add admin seed command/startup option.
+- [x] Add HTTP handlers for register/login/logout/session.
+- [x] Add CORS/CSRF/same-origin posture for cookie-authenticated POSTs.
+- [x] Add safe public response models.
+- [x] Add WebSocket session resolver adapter.
+- [x] Add WebSocket allowed-origin validation.
+- [x] Add client-safe auth error codes.
+- [x] Add auth rate-limit posture for login/register.
+- [x] Document local admin seed flow.
 
 ## Abuse And Safety Checklist
 
-- [ ] Login never logs password.
-- [ ] Password hashes are not serialized.
-- [ ] Session token/cookie is not returned in JSON unless explicitly designed.
-- [ ] Wrong email and wrong password use the same public error shape.
-- [ ] Login failures can be rate-limited.
-- [ ] Logout invalidates the server session.
-- [ ] Expired session cannot open WebSocket.
-- [ ] Revoked session cannot continue sending WebSocket commands.
-- [ ] Cross-site WebSocket upgrades are denied by origin policy.
-- [ ] Cookie-authenticated POSTs have explicit CSRF/same-origin protection.
-- [ ] Admin seed cannot create a weak default silently.
-- [ ] Client cannot choose admin role.
+- [x] Login never logs password.
+- [x] Password hashes are not serialized.
+- [x] Session token/cookie is not returned in JSON unless explicitly designed.
+- [x] Wrong email and wrong password use the same public error shape.
+- [x] Login failures can be rate-limited.
+- [x] Logout invalidates the server session.
+- [x] Expired session cannot open WebSocket.
+- [x] Revoked session cannot continue sending WebSocket commands.
+- [x] Cross-site WebSocket upgrades are denied by origin policy.
+- [x] Cookie-authenticated POSTs have explicit CSRF/same-origin protection.
+- [x] Admin seed cannot create a weak default silently.
+- [x] Client cannot choose admin role.
 
 ## Tests
 
-- [ ] Password hash verifies correct password.
-- [ ] Password hash rejects wrong password.
-- [ ] Register creates account and player profile once.
-- [ ] Duplicate email is rejected safely.
-- [ ] Login creates a valid session.
-- [ ] Logout invalidates session.
-- [ ] Session tokens are stored hashed at rest.
-- [ ] `GET /api/session` returns authenticated public shape.
-- [ ] Expired session is rejected.
-- [ ] Revoked session is rejected by HTTP and WebSocket resolvers.
-- [ ] Missing session is rejected by WebSocket resolver.
-- [ ] Valid resolver output includes account id, player id, session id,
+- [x] Password hash verifies correct password.
+- [x] Password hash rejects wrong password.
+- [x] Register creates account and player profile once.
+- [x] Duplicate email is rejected safely.
+- [x] Login creates a valid session.
+- [x] Logout invalidates session.
+- [x] Session tokens are stored hashed at rest.
+- [x] `GET /api/session` returns authenticated public shape.
+- [x] Expired session is rejected.
+- [x] Revoked session is rejected by HTTP and WebSocket resolvers.
+- [x] Missing session is rejected by WebSocket resolver.
+- [x] Valid resolver output includes account id, player id, session id,
       expiry, and roles from server state.
-- [ ] Disallowed WebSocket origin is rejected.
-- [ ] Cookie-authenticated logout cannot be triggered cross-site.
-- [ ] Admin seed creates/updates admin role without logging secrets.
-- [ ] WebSocket session resolver maps session id to server-owned player id.
+- [x] Disallowed WebSocket origin is rejected.
+- [x] Cookie-authenticated logout cannot be triggered cross-site.
+- [x] Admin seed creates/updates admin role without logging secrets.
+- [x] WebSocket session resolver maps session id to server-owned player id.
 
 ## Done Criteria
 

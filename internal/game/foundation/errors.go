@@ -15,6 +15,10 @@ const (
 	CodeInvalidPayload  Code = "ERR_INVALID_PAYLOAD"
 	CodeRateLimited     Code = "ERR_RATE_LIMITED"
 	CodeInternal        Code = "ERR_INTERNAL"
+	CodeAuthRequired    Code = "ERR_AUTH_REQUIRED"
+	CodeSessionExpired  Code = "ERR_SESSION_EXPIRED"
+	CodeSessionRevoked  Code = "ERR_SESSION_REVOKED"
+	CodeOriginDenied    Code = "ERR_ORIGIN_DENIED"
 
 	CodeOutOfRange       Code = "ERR_OUT_OF_RANGE"
 	CodeNotVisible       Code = "ERR_NOT_VISIBLE"
