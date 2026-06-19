@@ -58,8 +58,78 @@ test('phase 09 command builders send selectors without trusted quest or admin tr
   expect(metrics.payload).toEqual({});
 });
 
+test('economy, premium, and quest command builders omit trusted result fields', () => {
+  const builder = new CommandBuilder();
+  const commands = [
+    builder.marketSearch('raw_ore'),
+    builder.marketCreateListing({
+      itemID: 'raw_ore',
+      quantity: 2,
+      unitPrice: 15,
+      sourceLocation: 'ship_cargo',
+      itemInstanceID: 'instance-1',
+    }),
+    builder.marketBuy('listing-1', 2),
+    builder.marketCancel('listing-1'),
+    builder.auctionSearch(),
+    builder.auctionBid('auction-1', 50),
+    builder.auctionBuyNow('auction-1'),
+    builder.auctionClaimGrant(),
+    builder.premiumEntitlements(),
+    builder.premiumClaim('entitlement-1'),
+    builder.premiumPurchaseWeeklyXCore(),
+    builder.questBoard(),
+    builder.questAccept('offer-1'),
+    builder.questProgress(),
+    builder.questClaimReward('quest-1'),
+    builder.questReroll(),
+  ];
+  const serializedPayloads = JSON.stringify(commands.map((command) => command.payload));
+
+  expect(commands[1].payload).toEqual({
+    item_id: 'raw_ore',
+    quantity: 2,
+    unit_price: 15,
+    source_location: 'ship_cargo',
+    item_instance_id: 'instance-1',
+  });
+  expect(commands[5].payload).toEqual({ auction_id: 'auction-1', amount: 50 });
+  expect(commands[14].payload).toEqual({ quest_id: 'quest-1' });
+
+  for (const forbidden of [
+    'player_id',
+    'account_id',
+    'damage',
+    'xp',
+    'wallet',
+    'credits',
+    'balance',
+    'price_total',
+    'seller_proceeds',
+    'quest_progress',
+    'objective_progress',
+    'reward_payload',
+    'hidden',
+    'gameplay_seed',
+    'loot_table',
+  ]) {
+    expect(serializedPayloads).not.toContain(forbidden);
+  }
+});
+
 test('phase 09 command payloads reject client-authored quest truth', () => {
   expect(() => assertClientSafePayload({ progress: { current: 99 } })).toThrow(/trusted field: progress/);
   expect(() => assertClientSafePayload({ reward_payload: { credits: 1000 } })).toThrow(/trusted field: reward_payload/);
   expect(() => assertClientSafePayload({ generated_seed: 12345 })).toThrow(/trusted field: generated_seed/);
+});
+
+test('command payloads reject client-authored economy, combat, and hidden world truth', () => {
+  expect(() => assertClientSafePayload({ player_id: 'player-1' })).toThrow(/trusted field: player_id/);
+  expect(() => assertClientSafePayload({ damage: 20 })).toThrow(/trusted field: damage/);
+  expect(() => assertClientSafePayload({ wallet_amount: 1000 })).toThrow(/trusted field: wallet_amount/);
+  expect(() => assertClientSafePayload({ balance_after: 900 })).toThrow(/trusted field: balance_after/);
+  expect(() => assertClientSafePayload({ quest_progress: { kill: 1 } })).toThrow(/trusted field: quest_progress/);
+  expect(() => assertClientSafePayload({ hidden: true })).toThrow(/trusted field: hidden/);
+  expect(() => assertClientSafePayload({ scan_result: { detected: true } })).toThrow(/trusted field: scan_result/);
+  expect(() => assertClientSafePayload({ loot_table: 'rare' })).toThrow(/trusted field: loot_table/);
 });

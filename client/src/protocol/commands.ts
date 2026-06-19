@@ -285,6 +285,9 @@ function findTrustedClientField(value: unknown): string | null {
       normalized === 'loot' ||
       normalized === 'cooldown' ||
       normalized === 'wallet_amount' ||
+      normalized === 'hidden' ||
+      normalized === 'internal' ||
+      normalized === 'internal_metadata' ||
       normalized === 'balance' ||
       normalized === 'balance_after' ||
       normalized === 'total' ||
@@ -326,14 +329,20 @@ function findTrustedClientField(value: unknown): string | null {
       normalized === 'auth_header' ||
       normalized === 'hit' ||
       normalized === 'crit' ||
+      normalized === 'gameplay_seed' ||
       normalized === 'procedural_seed' ||
       normalized === 'world_seed' ||
+      normalized === 'future_spawn' ||
+      normalized === 'future_spawn_data' ||
+      normalized === 'spawn_candidates' ||
       normalized === 'candidate' ||
       normalized === 'candidate_key' ||
       normalized === 'planet_candidate' ||
       normalized === 'detection_roll' ||
       normalized === 'scan_cell' ||
-      normalized === 'scan_result'
+      normalized === 'scan_result' ||
+      normalized === 'loot_roll' ||
+      normalized === 'loot_table'
     ) {
       return key;
     }

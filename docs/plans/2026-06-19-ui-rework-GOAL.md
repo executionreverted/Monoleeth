@@ -168,12 +168,12 @@ The UI rework is not done until all of these are true.
 
 ### Real State Rules
 
-- [ ] No fake HP/shield/energy/cargo/wallet/quest/inventory/planet/NPC/loot
+- [x] No fake HP/shield/energy/cargo/wallet/quest/inventory/planet/NPC/loot
   values are shown as real state.
-- [ ] Offline/unauthenticated states show login, locked, empty, loading, or
+- [x] Offline/unauthenticated states show login, locked, empty, loading, or
   disconnected state.
-- [ ] Demo fixtures remain behind explicit dev/test mode only.
-- [ ] Client never sends trusted player id, position, damage, XP, loot, wallet,
+- [x] Demo fixtures remain behind explicit dev/test mode only.
+- [x] Client never sends trusted player id, position, damage, XP, loot, wallet,
   quest progress, or hidden world truth.
 
 ### Verification Artifacts

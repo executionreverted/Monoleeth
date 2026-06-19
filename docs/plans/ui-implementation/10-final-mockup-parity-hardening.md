@@ -239,6 +239,24 @@ death/respawn contracts are recorded in `docs/todo.md` rather than faked.
 - Screenshots: generated after DOM/state/storage checks and visually inspected
   for the Phase 10 region checklist.
 
+## Real State Rules Audit
+
+- [x] Fake gameplay values: `createInitialState` starts every server-owned
+      gameplay surface as null/empty, `clearGameplay` resets every gameplay
+      panel/read model on auth restore, logout, auth failure, expiry, and demo
+      entry, and reducer tests assert the full field list.
+- [x] Offline/unauthenticated states: CSS hides `.hud-host` for `logged_out`,
+      `restoring`, and `auth_expired`; Playwright smoke verifies login/error
+      states have no player snapshot, cargo, wallet, inventory, loadout,
+      crafting, or visible entities.
+- [x] Demo fixtures: `?demo=1` is the only demo entry point, demo state is
+      lazy-imported only under `import.meta.env.DEV`, and `npm run bundle-scan`
+      fails if fixture labels/IDs appear in the production bundle.
+- [x] Client intents only: command builder tests cover movement/combat/loot,
+      market/auction/premium, and quest/admin commands as selector/intent
+      payloads; unsafe client-authored identity, damage, wallet, quest progress,
+      reward, scan, hidden, seed, and loot-table fields are rejected before send.
+
 ## Local Run And Release Gate Summary
 
 - Local run instructions live in `docs/running-local-game.md`.
