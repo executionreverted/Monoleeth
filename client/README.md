@@ -19,6 +19,17 @@ Run the local client:
 npm --cache /tmp/gameproject-npm-cache run dev -- --port 5173
 ```
 
+Run it against the Phase 02 Go server:
+
+```bash
+GAME_ALLOWED_ORIGINS=http://127.0.0.1:5173 go run ./cmd/game-server
+npm --cache /tmp/gameproject-npm-cache run dev -- --port 5173
+```
+
+Vite proxies `/api` and `/ws` to `http://127.0.0.1:8080` / `ws://127.0.0.1:8080`.
+The Go server still validates the browser `Origin`; do not use wildcard origins
+with credentials.
+
 Run the smoke check with its self-started Vite app server:
 
 ```bash
@@ -31,8 +42,6 @@ Or point it at an already-running dev server:
 npm --cache /tmp/gameproject-npm-cache run smoke -- --url http://127.0.0.1:5173
 ```
 
-The smoke check starts its own local WebSocket fixture and verifies connect,
-snapshot, move, combat, loot, scan, canvas, responsive layout, and hidden-data
-rejection paths. The current prototype still uses an offline demo harness when
-no WebSocket gateway is connected. Production Go WebSocket transport and
-authenticated runtime adapters remain future work.
+The smoke check still starts its own local WebSocket fixture while the browser
+client is being moved onto the authenticated Go transport. Use the Phase 02 Go
+server commands above for the real `/api` and `/ws` runtime path.

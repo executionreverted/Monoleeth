@@ -17,21 +17,30 @@ const CurrentVersion = contracts.CurrentVersion
 type Operation string
 
 const (
-	OperationMoveTo         Operation = "move_to"
-	OperationStop           Operation = "stop"
-	OperationDebugSpawnNPC  Operation = "debug_spawn_npc"
-	OperationDebugSnapshot  Operation = "debug_snapshot"
-	OperationCombatUseSkill Operation = "combat.use_skill"
+	OperationSessionSnapshot Operation = "session.snapshot"
+	OperationWorldSnapshot   Operation = "world.snapshot"
+	OperationMoveTo          Operation = "move_to"
+	OperationStop            Operation = "stop"
+	OperationDebugSpawnNPC   Operation = "debug_spawn_npc"
+	OperationDebugSnapshot   Operation = "debug_snapshot"
+	OperationCombatUseSkill  Operation = "combat.use_skill"
 )
 
 // ClientEventType is an event name that may be sent to a client after filtering.
 type ClientEventType string
 
 const (
+	EventSessionReady      ClientEventType = "session.ready"
 	EventPlayerSnapshot    ClientEventType = "player.snapshot"
+	EventShipSnapshot      ClientEventType = "ship.snapshot"
+	EventStatsUpdated      ClientEventType = "stats.updated"
+	EventWalletSnapshot    ClientEventType = "wallet.snapshot"
+	EventCargoSnapshot     ClientEventType = "cargo.snapshot"
+	EventWorldSnapshot     ClientEventType = "world.snapshot"
 	EventAOIEntityEntered  ClientEventType = "aoi.entity_entered"
 	EventAOIEntityLeft     ClientEventType = "aoi.entity_left"
 	EventPositionCorrected ClientEventType = "position.corrected"
+	EventServerNotice      ClientEventType = "server.notice"
 )
 
 // RateLimitPosture names the future per-operation abuse posture.
@@ -53,6 +62,14 @@ type OperationSpec struct {
 }
 
 var registeredOperations = map[Operation]OperationSpec{
+	OperationSessionSnapshot: {
+		Operation:        OperationSessionSnapshot,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationWorldSnapshot: {
+		Operation:        OperationWorldSnapshot,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
 	OperationMoveTo: {
 		Operation:        OperationMoveTo,
 		RateLimitPosture: RateLimitPostureIntentBurst,

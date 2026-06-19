@@ -100,6 +100,8 @@ var requiredReleaseGateModules = []string{
 }
 
 var requiredCommandSecurityOperations = []string{
+	"session.snapshot",
+	"world.snapshot",
 	"move_to",
 	"stop",
 	"debug_spawn_npc",
@@ -255,6 +257,22 @@ var phase12ReleaseModuleProfiles = []releaseModuleProfile{
 }
 
 var phase12CommandSecurityProfiles = []commandSecurityProfile{
+	realtimeCommandSecurityProfile("session.snapshot",
+		satisfied(evidence("gameproject/internal/game/server", "TestServerAuthRoutesAndWebSocketBootstrap", "session snapshot data is bootstrapped from an authenticated server session")),
+		notApplicable("session.snapshot uses the server-resolved session subject instead of a client-owned entity id"),
+		notApplicable("session.snapshot has no item/currency amount"),
+		notApplicable("session.snapshot has no hidden target interaction"),
+		notApplicable("session.snapshot has no item/currency mutation ledger"),
+		notApplicable("session.snapshot is a read operation without mutation commit semantics"),
+	),
+	realtimeCommandSecurityProfile("world.snapshot",
+		satisfied(evidence("gameproject/internal/game/server", "TestBadPayloadReturnsSafeErrorAndLogoutRejectsFurtherCommands", "world snapshot rejects trusted client-owned identity and server-owned payload fields through the socket path")),
+		notApplicable("world.snapshot uses the server-resolved session subject instead of a client-owned entity id"),
+		notApplicable("world.snapshot has no item/currency amount"),
+		satisfied(evidence("gameproject/internal/game/server", "TestServerAuthRoutesAndWebSocketBootstrap", "world snapshot bootstrap filters hidden worker entities before serialization")),
+		notApplicable("world.snapshot has no item/currency mutation ledger"),
+		notApplicable("world.snapshot is a read operation without mutation commit semantics"),
+	),
 	realtimeCommandSecurityProfile("move_to",
 		satisfied(evidence("gameproject/internal/game/world/worker", "TestMoveToCommandDoesNotExposeClientFinalPosition", "move command accepts intent and server computes final position")),
 		notApplicable("move_to uses the server-resolved session subject instead of a client-owned entity id"),

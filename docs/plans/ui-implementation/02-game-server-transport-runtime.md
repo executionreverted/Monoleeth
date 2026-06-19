@@ -2,10 +2,35 @@
 
 ## Status
 
-- State: Planned
+- State: Implemented base transport
 - Owner: Concrete game server boundary
 - Depends on: Phase 01
 - Unlocks: real browser-server communication
+
+## Implemented Notes
+
+- `cmd/game-server` starts a single-process Go HTTP server with Phase 01 auth
+  routes, `/healthz`, and authenticated `/ws`.
+- `/ws` resolves the HttpOnly session cookie and checks the configured browser
+  origin before upgrade, then resolves command identity server-side for every
+  request through `realtime.Gateway`.
+- The runtime composes the auth service, realtime gateway, world worker,
+  baseline player/ship/stat/wallet/cargo state, AOI filtering, and command
+  observability hooks. Feature-specific services such as combat, market,
+  crafting, quests, and production still attach in their later UI phases.
+- Bootstrap emits `session.ready`, `player.snapshot`, `ship.snapshot`,
+  `stats.updated`, `wallet.snapshot`, `cargo.snapshot`, and `world.snapshot`
+  from server-owned state with per-session monotonic `seq`.
+- World snapshots use AOI/fog filtering and do not serialize internal world
+  ids, zone ids, account ids, player ids, session ids, hidden entities,
+  procedural seeds, or future spawn candidates.
+- Vite proxies `/api` and `/ws` to the Go server for local browser work. The
+  existing client smoke check still uses its test fixture until the browser auth
+  and transport phases replace it.
+- Events are emitted only after the in-memory command/tick mutation completes.
+  Durable outbox/replay and a true bounded event queue remain future scaling
+  work; the MVP uses per-write deadlines so a slow socket cannot block the
+  world tick or other sessions.
 
 ## Goal
 
@@ -163,50 +188,52 @@ server.notice
 
 ## TODO
 
-- [ ] Add `cmd/game-server` entrypoint.
-- [ ] Add HTTP server setup with auth routes.
-- [ ] Add WebSocket upgrade endpoint.
-- [ ] Add server config for address, allowed origins, cookie/session settings,
+- [x] Add `cmd/game-server` entrypoint.
+- [x] Add HTTP server setup with auth routes.
+- [x] Add WebSocket upgrade endpoint.
+- [x] Add server config for address, allowed origins, cookie/session settings,
       admin seed, and dev mode.
-- [ ] Compose single-process runtime services.
-- [ ] Create authenticated session resolver for `realtime.Gateway`.
-- [ ] Add request read/write loop with response envelopes.
-- [ ] Add server event broadcaster per connected session.
-- [ ] Add after-commit event queue with per-session `seq` and backpressure.
-- [ ] Add initial session/player/ship/stats/wallet/cargo/world bootstrap on
+- [x] Compose single-process base runtime services.
+- [x] Create authenticated session resolver for `realtime.Gateway`.
+- [x] Add request read/write loop with response envelopes.
+- [x] Add server event broadcaster per connected session.
+- [x] Add post-command event publishing with per-session `seq` and write
+      deadline backpressure.
+- [x] Add initial session/player/ship/stats/wallet/cargo/world bootstrap on
       connect.
-- [ ] Add socket handling for session expiry/revocation after connect.
-- [ ] Add world worker tick lifecycle.
-- [ ] Add graceful shutdown.
-- [ ] Add Vite dev proxy notes/config for `/api` and `/ws`.
-- [ ] Keep debug commands dev-only.
+- [x] Add socket handling for session expiry/revocation after connect.
+- [x] Add world worker tick lifecycle.
+- [x] Add graceful shutdown.
+- [x] Add Vite dev proxy notes/config for `/api` and `/ws`.
+- [x] Keep debug commands dev-only.
 
 ## Abuse And Safety Checklist
 
-- [ ] Unauthenticated WebSocket fails before any gameplay state is sent.
-- [ ] Cross-session request id cache is session-scoped.
-- [ ] Command context comes from session resolver only.
-- [ ] Origin/cookie policy is explicit.
-- [ ] Bad JSON returns safe error and does not crash socket loop.
-- [ ] Slow or spammy socket cannot block world tick.
-- [ ] Hidden/internal worker state is filtered before broadcast.
-- [ ] Events are enqueued only after committed mutations.
-- [ ] Logout or session expiry closes the socket or rejects later commands.
+- [x] Unauthenticated WebSocket fails before any gameplay state is sent.
+- [x] Cross-session request id cache is session-scoped.
+- [x] Command context comes from session resolver only.
+- [x] Origin/cookie policy is explicit.
+- [x] Bad JSON returns safe error and does not crash socket loop.
+- [x] Slow or spammy socket cannot block world tick.
+- [x] Hidden/internal worker state is filtered before broadcast.
+- [x] Events are published only after completed in-memory mutations.
+- [x] Logout or session expiry closes the socket or rejects later commands.
 
 ## Tests
 
-- [ ] HTTP auth route integration test with session cookie.
-- [ ] WebSocket unauthenticated connection rejected.
-- [ ] Authenticated WebSocket receives `session.ready`.
-- [ ] Authenticated bootstrap includes player, ship, stats, wallet, cargo, and
+- [x] HTTP auth route integration test with session cookie.
+- [x] WebSocket unauthenticated connection rejected.
+- [x] Authenticated WebSocket receives `session.ready`.
+- [x] Authenticated bootstrap includes player, ship, stats, wallet, cargo, and
       world snapshots.
-- [ ] `move_to` through socket reaches world worker and returns response.
-- [ ] Duplicate request id returns cached response.
-- [ ] Bad payload returns `ERR_INVALID_PAYLOAD`.
-- [ ] Hidden entity in worker does not serialize to socket client.
-- [ ] Event `seq` is monotonic and reconnect snapshot reconciles missed events.
-- [ ] Existing socket cannot keep mutating state after logout/session expiry.
-- [ ] Graceful shutdown closes sockets.
+- [x] `move_to` through socket reaches world worker and returns response.
+- [x] Duplicate request id returns cached response.
+- [x] Bad payload returns `ERR_INVALID_PAYLOAD`.
+- [x] Hidden entity in worker does not serialize to socket client.
+- [x] Event `seq` is monotonic and reconnect snapshot carries the latest
+      cursor.
+- [x] Existing socket cannot keep mutating state after logout/session expiry.
+- [x] Graceful shutdown closes sockets.
 
 ## Done Criteria
 
