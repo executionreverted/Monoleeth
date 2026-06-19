@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Implemented base transport
+- State: Completed
 - Owner: Concrete game server boundary
 - Depends on: Phase 01
 - Unlocks: real browser-server communication

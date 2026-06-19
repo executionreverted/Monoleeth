@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Implemented
+- State: Completed
 - Owner: Browser client auth and truth boundary
 - Depends on: Phase 01, Phase 02
 - Unlocks: real client state, no more default mock gameplay

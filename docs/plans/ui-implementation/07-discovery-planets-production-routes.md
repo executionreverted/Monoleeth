@@ -2,7 +2,8 @@
 
 ## Status
 
-- State: In progress
+- State: Completed for scanner/read-model MVP; planet/building/route mutation
+  contracts remain tracked in `docs/todo.md`
 - Owner: Exploration and persistent planet network UI
 - Depends on: Phase 06
 - Unlocks: long-term strategy loop
@@ -12,6 +13,19 @@
 Expose scanner discovery, fog/intel, coordinate items, planet claiming,
 production buildings/storage, offline settlement, and automation routes through
 real server-backed panels and map interactions.
+
+Current slice completed:
+- Authenticated `scan.pulse` is exposed through the Go realtime gateway and the
+  browser Scan action.
+- Known planet, selected planet detail, production summary, storage summary,
+  and route list/snapshot read models reconcile from server-owned state.
+- The browser renders scanner results, known planets, minimap markers,
+  production counts, and route counts without hidden procedural seeds or fake
+  planet data.
+- Phase 10 records the exact missing contracts for planet claim, intel share,
+  coordinate item use, building mutation, offline settlement, and route
+  mutation flows. Those controls remain absent, locked, or read-only until their
+  server-authoritative transaction paths are implemented.
 
 ## Source Specs
 
@@ -174,7 +188,9 @@ Mockup areas covered:
 
 ## Done Criteria
 
-- Exploration and planet network loop works through browser.
-- Scanner/planet/route UI uses real server authority.
+- Scanner discovery and planet/route read models work through the browser.
+- Scanner/planet/route UI uses real server authority for exposed operations;
+  unexposed mutation controls remain locked/read-only and tracked in
+  `docs/todo.md`.
 - Hidden/procedural data is not leaked.
 - Tests and browser smoke pass.

@@ -2,8 +2,7 @@
 
 ## Status
 
-- State: Implemented for Phase 01 package/API boundary; pending Phase 02
-  `cmd/game-server` wiring
+- State: Completed and wired through `cmd/game-server`
 - Owner: Auth/session boundary
 - Depends on: existing foundation ids/errors/contracts
 - Unlocks: authenticated WebSocket, real player ownership, admin tools

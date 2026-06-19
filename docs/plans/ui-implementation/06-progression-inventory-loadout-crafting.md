@@ -2,7 +2,8 @@
 
 ## Status
 
-- State: In progress
+- State: Completed for authenticated read-model MVP; mutation contracts remain
+  tracked in `docs/todo.md`
 - Owner: Player growth and item management UI
 - Depends on: Phase 05
 - Unlocks: persistent character loop and equipment/craft loop
@@ -15,6 +16,10 @@ Current slice completed:
 - Loot pickup now reconciles a real inventory snapshot alongside cargo.
 - Mutation commands remain future work and must still use ledger/service-backed
   flows before any UI action is enabled.
+- Phase 10 records the exact missing browser/server contracts for skill unlock,
+  inventory move, hangar activation, loadout equip/unequip, and crafting
+  start/complete/cancel. These controls must stay absent, locked, or read-only
+  until those contracts are implemented and verified.
 
 ## Goal
 
@@ -187,6 +192,7 @@ Mockup areas covered:
 
 - Player can inspect progression, inventory, hangar, loadout, stats, and craft
   through real UI.
-- Item/currency mutations go through services and ledgers.
+- Exposed item/currency mutations go through services and ledgers; unexposed
+  mutation contracts remain locked/read-only and are tracked in `docs/todo.md`.
 - No fake counts remain in these panels.
 - Tests and browser smoke pass.
