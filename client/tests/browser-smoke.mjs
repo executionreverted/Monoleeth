@@ -16,6 +16,7 @@ const thisDir = dirname(fileURLToPath(import.meta.url));
 const clientRoot = path.resolve(thisDir, '..');
 const repoRoot = path.resolve(clientRoot, '..');
 const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '10');
+const phaseOutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '01');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -97,6 +98,7 @@ let browser;
 try {
   browser = await chromium.launch({ headless: true });
   await mkdir(outputDir, { recursive: true });
+  await mkdir(phaseOutputDir, { recursive: true });
   if (useFixture) {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
@@ -234,6 +236,7 @@ async function verifyRealViewport(viewport, label) {
         state?.progression?.main_xp >= 25
       );
     }, null, { timeout: 10000 });
+    await verifyPlanetMemoryMarker(page, label);
 
     await verifyPanelModalChrome(page, viewport, label);
     await assertCanvasAndLayout(page, viewport, label);
@@ -267,6 +270,71 @@ async function verifyRealViewport(viewport, label) {
     await assertNoUnimplementedMutationControls(page, `${label} logout`);
   } finally {
     await page.close();
+  }
+}
+
+async function verifyPlanetMemoryMarker(page, label) {
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-panel="planets"] [data-action="planet-detail"]');
+    return button instanceof HTMLButtonElement && !button.disabled;
+  }, null, { timeout: 10000 });
+
+  const moveCountBeforeDetail = await commandLogCount(page, 'Sent move_to.');
+  await page.locator('[data-panel="planets"] [data-action="planet-detail"]').first().dispatchEvent('click');
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const detail = state?.planetIntel?.selectedPlanet;
+    const marker = state?.worldView?.memoryMarkers?.[0];
+    const detailPanel = document.querySelector('[data-panel="planets"] [data-planet-detail]');
+    return (
+      detail?.planet_id &&
+      Number.isFinite(detail.coordinates?.x) &&
+      Number.isFinite(detail.coordinates?.y) &&
+      marker?.detailID === detail.planet_id &&
+      marker?.position?.x === detail.coordinates.x &&
+      marker?.position?.y === detail.coordinates.y &&
+      detailPanel instanceof HTMLElement
+    );
+  }, null, { timeout: 10000 });
+
+  const moveCountAfterDetail = await commandLogCount(page, 'Sent move_to.');
+  if (moveCountAfterDetail !== moveCountBeforeDetail) {
+    throw new Error(`${label}: requesting planet detail emitted move_to`);
+  }
+
+  await page.screenshot({ path: path.join(phaseOutputDir, `planet-memory-${label}.png`), fullPage: true });
+
+  if (label !== 'desktop') {
+    return;
+  }
+
+  await clickWorldPosition(page, { x: 80, y: 0 });
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'entity_training_npc', null, {
+    timeout: 10000,
+  });
+
+  const markerWorld = await page.evaluate(() => {
+    const marker = window.__SPACE_MORPG_SMOKE_STATE__?.worldView?.memoryMarkers?.[0];
+    return marker?.position ?? null;
+  });
+  if (!markerWorld) {
+    throw new Error(`${label}: planet memory marker was missing before marker click`);
+  }
+
+  await ensureWorldPositionClickable(page, markerWorld);
+  const moveCountBeforeMarker = await commandLogCount(page, 'Sent move_to.');
+  await clickWorldPosition(page, markerWorld);
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return (
+      state?.selectedTargetID === null &&
+      state?.commandLog?.some((line) => /Selected known planet/i.test(line.text)) &&
+      state?.commandLog?.some((line) => line.text === 'Sent discovery.planet_detail.')
+    );
+  }, null, { timeout: 10000 });
+  const moveCountAfterMarker = await commandLogCount(page, 'Sent move_to.');
+  if (moveCountAfterMarker !== moveCountBeforeMarker) {
+    throw new Error(`${label}: planet memory marker click emitted move_to`);
   }
 }
 
@@ -505,22 +573,31 @@ async function verifyRealCombatLoot(page) {
 
 async function verifyRealMovementInterpolation(page) {
   const initial = await selfMovementSample(page);
-  const firstTarget = { x: initial.entity.position.x + 180, y: initial.entity.position.y };
+  const firstTarget = await movementTargetAwayFromMemory(page, initial.entity.position, [
+    { x: 320, y: -220 },
+    { x: -320, y: -220 },
+    { x: 260, y: 260 },
+    { x: -260, y: 260 },
+  ]);
   await clickWorldPosition(page, firstTarget);
-  await page.waitForFunction(
-    (target) => {
-      const self = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find((entity) =>
-        entity.status_flags?.includes('self'),
-      );
-      return (
-        self?.movement?.moving === true &&
-        Math.abs(self.movement.target.x - target.x) < 0.5 &&
-        Math.abs(self.movement.target.y - target.y) < 0.5
-      );
-    },
-    firstTarget,
-    { timeout: 10000 },
-  );
+  try {
+    await page.waitForFunction(
+      (target) => {
+        const self = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find((entity) =>
+          entity.status_flags?.includes('self'),
+        );
+        return (
+          self?.movement?.moving === true &&
+          Math.hypot(self.movement.target.x - target.x, self.movement.target.y - target.y) < 16
+        );
+      },
+      firstTarget,
+      { timeout: 10000 },
+    );
+  } catch (error) {
+    console.error('desktop first movement state', JSON.stringify(await movementDiagnostics(page, firstTarget), null, 2));
+    throw error;
+  }
 
   await page.waitForTimeout(80);
   const first = await selfMovementSample(page);
@@ -534,11 +611,16 @@ async function verifyRealMovementInterpolation(page) {
 
   await page.waitForTimeout(90);
   const beforeSecond = await selfMovementSample(page);
-  const secondTarget = { x: beforeSecond.entity.position.x, y: beforeSecond.entity.position.y + 180 };
+  const secondTarget = await movementTargetAwayFromMemory(page, beforeSecond.entity.position, [
+    { x: -320, y: 220 },
+    { x: 320, y: 220 },
+    { x: -260, y: -260 },
+    { x: 260, y: -260 },
+  ]);
   await clickWorldPosition(page, secondTarget);
   try {
     await page.waitForFunction(
-      ({ firstTarget: previousTarget, expectedY }) => {
+      ({ firstTarget: previousTarget, target: expectedTarget }) => {
         const self = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find((entity) =>
           entity.status_flags?.includes('self'),
         );
@@ -546,11 +628,11 @@ async function verifyRealMovementInterpolation(page) {
         return (
           self?.movement?.moving === true &&
           target &&
-          Math.abs(target.y - expectedY) < 1.5 &&
+          Math.hypot(target.x - expectedTarget.x, target.y - expectedTarget.y) < 16 &&
           Math.hypot(target.x - previousTarget.x, target.y - previousTarget.y) > 20
         );
       },
-      { firstTarget, expectedY: secondTarget.y },
+      { firstTarget, target: secondTarget },
       { timeout: 10000 },
     );
   } catch (error) {
@@ -565,8 +647,8 @@ async function verifyRealMovementInterpolation(page) {
       )}`,
     );
   }
-  if (Math.abs(second.entity.movement.target.y - secondTarget.y) > 1.5) {
-    throw new Error(`desktop reclick movement target y = ${second.entity.movement.target.y}, want near ${secondTarget.y}`);
+  if (distance(second.entity.movement.target, secondTarget) > 16) {
+    throw new Error(`desktop reclick movement target = ${JSON.stringify(second.entity.movement.target)}, want near ${JSON.stringify(secondTarget)}`);
   }
   if (distance(second.entity.movement.origin, beforeSecond.entity.position) > 25) {
     throw new Error(
@@ -575,6 +657,21 @@ async function verifyRealMovementInterpolation(page) {
       )}`,
     );
   }
+}
+
+async function movementTargetAwayFromMemory(page, origin, offsets) {
+  return page.evaluate(
+    ({ start, candidates }) => {
+      const markers = window.__SPACE_MORPG_SMOKE_STATE__?.worldView?.memoryMarkers ?? [];
+      const targets = candidates.map((offset) => ({ x: Math.round(start.x + offset.x), y: Math.round(start.y + offset.y) }));
+      return (
+        targets.find((target) =>
+          markers.every((marker) => Math.hypot((marker.position?.x ?? 0) - target.x, (marker.position?.y ?? 0) - target.y) > 90),
+        ) ?? targets[0]
+      );
+    },
+    { start: origin, candidates: offsets },
+  );
 }
 
 async function movementDiagnostics(page, expectedTarget) {
@@ -751,6 +848,13 @@ function distance(a, b) {
   const dx = (a?.x ?? 0) - (b?.x ?? 0);
   const dy = (a?.y ?? 0) - (b?.y ?? 0);
   return Math.hypot(dx, dy);
+}
+
+async function commandLogCount(page, text) {
+  return page.evaluate((needle) => {
+    const lines = window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? [];
+    return lines.filter((line) => line.text === needle).length;
+  }, text);
 }
 
 async function bootstrapDiagnostics(page, expectedCallsign) {
@@ -981,7 +1085,49 @@ async function assertNoUnimplementedMutationControls(page, label) {
 }
 
 async function clickWorldPosition(page, world) {
-  const point = await page.evaluate((target) => {
+  const point = await worldClickPoint(page, world);
+
+  if (!point) {
+    throw new Error('Could not map world position to canvas point.');
+  }
+  if (point.element !== 'world-canvas') {
+    throw new Error(`World click at ${Math.round(point.x)},${Math.round(point.y)} hit ${String(point.element)} (${JSON.stringify(point)})`);
+  }
+  await page.mouse.click(point.x, point.y);
+}
+
+async function ensureWorldPositionClickable(page, world) {
+  const point = await worldClickPoint(page, world);
+  if (!point) {
+    throw new Error('Could not map world position to canvas point.');
+  }
+  if (point.element === 'world-canvas') {
+    return;
+  }
+
+  const targetCenter = { x: world.x, y: world.y - 180 };
+  await clickWorldPosition(page, targetCenter);
+  await page.waitForFunction(
+    (target) => {
+      const canvas = document.querySelector('canvas.world-canvas');
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      if (!(canvas instanceof HTMLCanvasElement) || !state) {
+        return false;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const center = state.worldView?.center ?? { x: 0, y: 0 };
+      const scale = rect.width < 700 ? 0.78 : 1;
+      const x = rect.left + rect.width / 2 + (target.x - center.x) * scale;
+      const y = rect.top + rect.height / 2 + (target.y - center.y) * scale;
+      return document.elementFromPoint(x, y)?.className === 'world-canvas';
+    },
+    world,
+    { timeout: 10000 },
+  );
+}
+
+async function worldClickPoint(page, world) {
+  return page.evaluate((target) => {
     const canvas = document.querySelector('canvas.world-canvas');
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     if (!(canvas instanceof HTMLCanvasElement) || !state) {
@@ -1005,14 +1151,6 @@ async function clickWorldPosition(page, world) {
       )?.className,
     };
   }, world);
-
-  if (!point) {
-    throw new Error('Could not map world position to canvas point.');
-  }
-  if (point.element !== 'world-canvas') {
-    throw new Error(`World click at ${Math.round(point.x)},${Math.round(point.y)} hit ${String(point.element)} (${JSON.stringify(point)})`);
-  }
-  await page.mouse.click(point.x, point.y);
 }
 
 function assertNoForbiddenText(text, label) {

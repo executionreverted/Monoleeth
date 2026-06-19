@@ -6,7 +6,8 @@ import { WorldRenderer } from '../render/world-renderer';
 import { AuthPanel } from '../ui/auth-panel';
 import { HUD } from '../ui/hud';
 import { createInitialState, reduceClientState } from '../state/reducer';
-import { ClientAction, ClientState, PublicSession } from '../state/types';
+import { ClientAction, ClientState, PublicSession, WorldMapMemoryMarker } from '../state/types';
+import { worldMapMemoryMarkers } from '../state/world-memory';
 
 type DemoStateModule = typeof import('./demo-state');
 
@@ -17,6 +18,7 @@ export class ClientApp {
   private readonly renderer = new WorldRenderer({
     onMoveIntent: (target) => this.sendMove(target),
     onSelectTarget: (entityID) => this.selectEntity(entityID),
+    onSelectMemoryMarker: (marker) => this.selectMemoryMarker(marker),
   });
   private readonly realtime = new RealtimeClient({
     onStatus: (status) => this.handleRealtimeStatus(status),
@@ -72,6 +74,7 @@ export class ClientApp {
       onRepairQuote: () => this.sendCommand(this.commandBuilder.deathRepairQuote()),
       onRepair: () => this.sendCommand(this.commandBuilder.deathRepairShip()),
       onScan: () => this.sendCommand(this.commandBuilder.scanPulse()),
+      onPlanetDetail: (planetID) => this.requestPlanetDetail(planetID),
       onMarketCreateListing: (input) => this.sendCommand(this.commandBuilder.marketCreateListing(input)),
       onMarketBuy: (listingID) => this.sendCommand(this.commandBuilder.marketBuy(listingID, 1)),
       onMarketCancel: (listingID) => this.sendCommand(this.commandBuilder.marketCancel(listingID)),
@@ -163,6 +166,13 @@ export class ClientApp {
       return;
     }
     this.activateLootTarget(target, 'action');
+  }
+
+  private requestPlanetDetail(planetID: string): void {
+    if (!planetID) {
+      return;
+    }
+    this.sendCommand(this.commandBuilder.planetDetail(planetID));
   }
 
   private sendCommand(envelope: RequestEnvelope): void {
@@ -405,6 +415,7 @@ export class ClientApp {
       selectedTargetID: this.state.selectedTargetID,
       movementTarget: this.state.movementTarget,
       lastCorrection: this.state.lastCorrection,
+      memoryMarkers: worldMapMemoryMarkers(this.state),
       worldEffects: this.state.worldEffects,
       lastServerTime: this.state.lastServerTime,
     });
@@ -442,6 +453,14 @@ export class ClientApp {
       return;
     }
     this.pendingLootPickupID = null;
+  }
+
+  private selectMemoryMarker(marker: WorldMapMemoryMarker): void {
+    this.pendingLootPickupID = null;
+    this.pendingLootApproachID = null;
+    this.dispatch({ type: 'selectTarget', entityID: null });
+    this.dispatch({ type: 'appendLog', level: 'info', text: `Selected known planet ${marker.label}.` });
+    this.requestPlanetDetail(marker.detailID);
   }
 
   private activateLootTarget(target: EntityPayload, source: 'click' | 'action'): void {

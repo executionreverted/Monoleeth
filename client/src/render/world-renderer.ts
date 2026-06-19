@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, Text } from 'pixi.js';
 
 import { EntityPayload, Vec2 } from '../protocol/envelope';
-import { WorldFeedbackEffect } from '../state/types';
+import { WorldFeedbackEffect, WorldMapMemoryMarker } from '../state/types';
 import { WorldInputHandlers, WorldViewState } from './world-view';
 
 const entityColors: Record<EntityPayload['entity_type'], number> = {
@@ -35,6 +35,7 @@ export class WorldRenderer {
   private app: Application | null = null;
   private readonly backgroundLayer = new Container();
   private readonly worldLayer = new Container();
+  private readonly memoryMarkerLayer = new Container();
   private readonly markerLayer = new Container();
   private readonly nebulaLayer = new Graphics();
   private readonly gridLayer = new Graphics();
@@ -42,6 +43,9 @@ export class WorldRenderer {
   private readonly entityLabels = new Map<string, Text>();
   private readonly entityTargets = new Map<string, EntityPayload>();
   private readonly entityWorldPositions = new Map<string, Vec2>();
+  private readonly memoryMarkerViews = new Map<string, Graphics>();
+  private readonly memoryMarkerLabels = new Map<string, Text>();
+  private readonly memoryMarkerTargets = new Map<string, WorldMapMemoryMarker>();
   private readonly stars: Array<{ view: Graphics; base: Vec2; depth: number }> = [];
   private emptyLabel: Text | null = null;
   private state: WorldViewState | null = null;
@@ -68,6 +72,7 @@ export class WorldRenderer {
     this.backgroundLayer.addChild(this.nebulaLayer);
     this.backgroundLayer.addChild(this.gridLayer);
     app.stage.addChild(this.worldLayer);
+    app.stage.addChild(this.memoryMarkerLayer);
     app.stage.addChild(this.markerLayer);
 
     this.createStarfield();
@@ -91,6 +96,7 @@ export class WorldRenderer {
         star.view.alpha = 0.32 + star.depth * 0.28 + pulse * 0.16;
       }
       this.updateInterpolatedEntities();
+      this.updateMemoryMarkerPositions();
       this.updateBackground();
       if (this.state) {
         this.drawMarkers(this.state);
@@ -154,6 +160,7 @@ export class WorldRenderer {
     }
 
     this.drawMarkers(state);
+    this.renderMemoryMarkers(state);
   }
 
   destroy(): void {
@@ -161,7 +168,11 @@ export class WorldRenderer {
     this.app = null;
   }
 
-  debugSnapshot(): { center: Vec2; displayPositions: Record<string, Vec2> } {
+  debugSnapshot(): {
+    center: Vec2;
+    displayPositions: Record<string, Vec2>;
+    memoryMarkers: Array<{ id: string; detailID: string; label: string; position: Vec2; screen: Vec2; state: string }>;
+  } {
     const displayPositions: Record<string, Vec2> = {};
     for (const [entityID, position] of this.entityWorldPositions) {
       displayPositions[entityID] = { ...position };
@@ -169,6 +180,14 @@ export class WorldRenderer {
     return {
       center: { ...this.center },
       displayPositions,
+      memoryMarkers: [...this.memoryMarkerTargets.values()].map((marker) => ({
+        id: marker.id,
+        detailID: marker.detailID,
+        label: marker.label,
+        position: { ...marker.position },
+        screen: this.worldToScreen(marker.position),
+        state: marker.state,
+      })),
     };
   }
 
@@ -218,6 +237,11 @@ export class WorldRenderer {
       const clickedEntity = this.findEntityAtScreen(screen);
       if (clickedEntity) {
         this.handlers.onSelectTarget(clickedEntity.entity_id);
+        return;
+      }
+      const clickedMemoryMarker = this.findMemoryMarkerAtScreen(screen);
+      if (clickedMemoryMarker) {
+        this.handlers.onSelectMemoryMarker(clickedMemoryMarker);
         return;
       }
       this.handlers.onMoveIntent(this.screenToWorld(screen));
@@ -373,6 +397,79 @@ export class WorldRenderer {
     drawDiamond(view, 31, hudColors.cyan, 0, 0.58);
   }
 
+  private renderMemoryMarkers(state: WorldViewState): void {
+    const activeIDs = new Set(state.memoryMarkers.map((marker) => marker.id));
+    for (const [markerID, view] of this.memoryMarkerViews) {
+      if (!activeIDs.has(markerID)) {
+        view.destroy();
+        this.memoryMarkerViews.delete(markerID);
+        this.memoryMarkerLabels.get(markerID)?.destroy();
+        this.memoryMarkerLabels.delete(markerID);
+        this.memoryMarkerTargets.delete(markerID);
+      }
+    }
+
+    for (const marker of state.memoryMarkers) {
+      this.memoryMarkerTargets.set(marker.id, marker);
+      let view = this.memoryMarkerViews.get(marker.id);
+      if (!view) {
+        view = new Graphics();
+        view.label = marker.id;
+        this.memoryMarkerViews.set(marker.id, view);
+        this.memoryMarkerLayer.addChild(view);
+      }
+      let label = this.memoryMarkerLabels.get(marker.id);
+      if (!label) {
+        label = this.createMemoryMarkerLabel(marker);
+        this.memoryMarkerLabels.set(marker.id, label);
+        this.memoryMarkerLayer.addChild(label);
+      }
+
+      label.text = memoryMarkerLabel(marker);
+      this.drawMemoryPlanetMarker(view, marker);
+      this.positionMemoryMarker(marker.id);
+    }
+  }
+
+  private createMemoryMarkerLabel(marker: WorldMapMemoryMarker): Text {
+    return new Text({
+      text: memoryMarkerLabel(marker),
+      style: {
+        fontFamily: 'IBM Plex Mono, Aptos Mono, monospace',
+        fontSize: 11,
+        fontWeight: '700',
+        fill: hudColors.green,
+        stroke: { color: '#050709', width: 3 },
+        lineHeight: 14,
+      },
+      anchor: { x: 0, y: 0.5 },
+    });
+  }
+
+  private drawMemoryPlanetMarker(view: Graphics, marker: WorldMapMemoryMarker): void {
+    view.clear();
+    view.circle(0, 0, 33).stroke({ color: hudColors.green, width: 1, alpha: 0.24 });
+    view.circle(0, 0, 47).stroke({ color: hudColors.cyan, width: 1, alpha: 0.12 });
+    view.circle(0, 0, 21).fill({ color: 0x101b19, alpha: 0.92 });
+    view.circle(-7, -8, 9).fill({ color: hudColors.green, alpha: 0.2 });
+    view.circle(7, 7, 11).fill({ color: hudColors.cyanSoft, alpha: 0.12 });
+    view.moveTo(-28, 5).lineTo(28, -7).stroke({ color: hudColors.line, width: 2, alpha: 0.42 });
+    drawDiamond(view, 34, hudColors.green, 0, 0.68);
+    view
+      .moveTo(-43, 0)
+      .lineTo(-30, 0)
+      .moveTo(30, 0)
+      .lineTo(43, 0)
+      .moveTo(0, -43)
+      .lineTo(0, -30)
+      .moveTo(0, 30)
+      .lineTo(0, 43)
+      .stroke({ color: hudColors.green, width: 1, alpha: 0.5 });
+    if (marker.state === 'owned') {
+      view.circle(0, 0, 5).fill({ color: hudColors.green, alpha: 0.9 });
+    }
+  }
+
   private drawMarkers(state: WorldViewState): void {
     const staleMarkers = this.markerLayer.removeChildren();
     for (const marker of staleMarkers) {
@@ -445,6 +542,12 @@ export class WorldRenderer {
     const local = this.state?.entities.find(isSelfEntity) ?? this.state?.entities.find((entity) => entity.entity_type === 'player');
     if (local) {
       this.center = this.entityWorldPositions.get(local.entity_id) ?? this.authoritativeDisplayPosition(local);
+    }
+  }
+
+  private updateMemoryMarkerPositions(): void {
+    for (const markerID of this.memoryMarkerTargets.keys()) {
+      this.positionMemoryMarker(markerID);
     }
   }
 
@@ -604,6 +707,20 @@ export class WorldRenderer {
     label.position.set(screen.x + offset.x, screen.y + offset.y);
   }
 
+  private positionMemoryMarker(markerID: string): void {
+    const marker = this.memoryMarkerTargets.get(markerID);
+    const view = this.memoryMarkerViews.get(markerID);
+    if (!marker || !view) {
+      return;
+    }
+    const screen = this.worldToScreen(marker.position);
+    view.position.set(screen.x, screen.y);
+    const label = this.memoryMarkerLabels.get(markerID);
+    if (label) {
+      label.position.set(screen.x + 38, screen.y + 16);
+    }
+  }
+
   private findEntityAtScreen(screen: Vec2): EntityPayload | null {
     if (!this.state) {
       return null;
@@ -617,6 +734,21 @@ export class WorldRenderer {
         const dy = entityScreen.y - screen.y;
         const radius = markerHitRadius(entity);
         return dx * dx + dy * dy <= radius * radius;
+      }) ?? null
+    );
+  }
+
+  private findMemoryMarkerAtScreen(screen: Vec2): WorldMapMemoryMarker | null {
+    if (!this.state) {
+      return null;
+    }
+
+    return (
+      this.state.memoryMarkers.find((marker) => {
+        const markerScreen = this.worldToScreen(marker.position);
+        const dx = markerScreen.x - screen.x;
+        const dy = markerScreen.y - screen.y;
+        return dx * dx + dy * dy <= 42 * 42;
       }) ?? null
     );
   }
@@ -707,6 +839,11 @@ function labelForEntity(entity: EntityPayload): string {
   }
   const detail = labelDetailForEntity(entity);
   return detail ? `${label.toUpperCase()}\n${detail}` : label.toUpperCase();
+}
+
+function memoryMarkerLabel(marker: WorldMapMemoryMarker): string {
+  const detail = marker.state ? marker.state.toUpperCase() : 'KNOWN';
+  return `${marker.label.toUpperCase()}\n${detail} MEMORY`;
 }
 
 function labelDetailForEntity(entity: EntityPayload): string {

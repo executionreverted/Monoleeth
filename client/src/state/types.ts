@@ -543,6 +543,15 @@ export interface PlanetIntelSummary {
   lastScan: ScanPulseSummary | null;
 }
 
+export interface WorldMapMemoryMarker {
+  id: string;
+  kind: 'known_planet';
+  label: string;
+  position: Vec2;
+  detailID: string;
+  state: string;
+}
+
 export interface ProductionCollectionSummary {
   planets: PlanetProductionSummary[];
 }

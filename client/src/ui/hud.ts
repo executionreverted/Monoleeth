@@ -12,6 +12,7 @@ export interface HUDHandlers {
   onRepairQuote(): void;
   onRepair(): void;
   onScan(): void;
+  onPlanetDetail(planetID: string): void;
   onMarketCreateListing(input: {
     itemID: string;
     quantity: number;
@@ -289,6 +290,11 @@ export class HUD {
         case 'scan':
           this.handlers.onScan();
           break;
+        case 'planet-detail':
+          if (button.dataset.planetId) {
+            this.handlers.onPlanetDetail(button.dataset.planetId);
+          }
+          break;
         case 'market-buy':
           if (button.dataset.listingId) {
             this.handlers.onMarketBuy(button.dataset.listingId);
@@ -539,6 +545,7 @@ function statusPanel(state: ClientState): string {
 function planetsPanel(state: ClientState): string {
   const intel = state.planetIntel;
   const planets = intel?.planets.slice(0, 4) ?? [];
+  const selected = intel?.selectedPlanet ?? null;
   return `
     <h2>Planets</h2>
     ${
@@ -547,18 +554,25 @@ function planetsPanel(state: ClientState): string {
           ? `<ul class="planet-stack">
                ${planets
                  .map(
-                   (planet) =>
+                   (planet) => {
+                     const selectedPlanet = selected?.planet_id === planet.planet_id;
+                     return (
                      `<li>
-                        <span class="planet-orb" aria-hidden="true"></span>
-                        <div><strong>${escapeHTML(publicPlanetName(planet))}</strong><small>${escapeHTML(planet.rarity || planet.intel_state || 'known')}</small></div>
-                        <em>${escapeHTML(planet.owner_status || 'intel')}</em>
-                      </li>`,
+                        <button class="planet-row" type="button" data-action="planet-detail" data-planet-id="${escapeHTML(planet.planet_id)}" data-selected="${selectedPlanet ? 'true' : 'false'}" title="Request server planet detail">
+                          <span class="planet-orb" aria-hidden="true"></span>
+                          <span><strong>${escapeHTML(publicPlanetName(planet))}</strong><small>${escapeHTML(planet.rarity || planet.intel_state || 'known')}</small></span>
+                          <em>${escapeHTML(selectedPlanet ? 'selected' : planet.owner_status || 'intel')}</em>
+                        </button>
+                      </li>`
+                     );
+                   },
                  )
                  .join('')}
              </ul>`
           : '<div class="empty-line">No server-known planets yet.</div>'
         : '<div class="empty-line">Awaiting server planet intel.</div>'
     }
+    ${selected ? planetDetailBlock(selected) : '<div class="empty-line">Select a known planet for server coordinates.</div>'}
   `;
 }
 
@@ -947,12 +961,31 @@ function intelPanel(state: ClientState): string {
              ${knownPlanets
                .map(
                  (planet) =>
-                   `<li><span>${escapeHTML(publicPlanetName(planet))}</span><strong>${escapeHTML(planet.owner_status || 'intel')}</strong></li>`,
+                   `<li>
+                     <button class="inline-row-action" type="button" data-action="planet-detail" data-planet-id="${escapeHTML(planet.planet_id)}" title="Request server planet detail">
+                       <span>${escapeHTML(publicPlanetName(planet))}</span><strong>${escapeHTML(planet.owner_status || 'intel')}</strong>
+                     </button>
+                   </li>`,
                )
                .join('')}
            </ul>`
         : ''
     }
+  `;
+}
+
+function planetDetailBlock(planet: NonNullable<ClientState['planetIntel']>['selectedPlanet']): string {
+  if (!planet) {
+    return '';
+  }
+  return `
+    <div class="planet-detail" data-planet-detail="${escapeHTML(planet.planet_id)}">
+      <div class="meta-row"><span>Selected</span><strong>${escapeHTML(publicPlanetName(planet))}</strong></div>
+      <div class="meta-row"><span>Coord</span><strong>${Math.round(planet.coordinates.x)}, ${Math.round(planet.coordinates.y)}</strong></div>
+      <div class="meta-row"><span>Level</span><strong>${planet.level}</strong></div>
+      <div class="meta-row"><span>Owner</span><strong>${escapeHTML(planet.owner_status || 'intel')}</strong></div>
+      <div class="meta-row"><span>Production</span><strong>${planet.production_locked ? 'locked' : 'ready'}</strong></div>
+    </div>
   `;
 }
 

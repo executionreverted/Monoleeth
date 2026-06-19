@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { CLIENT_EVENTS, EventEnvelope, JsonObject } from '../protocol/envelope';
 import { createInitialState, reduceClientState } from './reducer';
 import type { ClientState } from './types';
+import { worldMapMemoryMarkers } from './world-memory';
 
 describe('reduceClientState', () => {
   test('initial state has no fake gameplay values', () => {
@@ -646,6 +647,65 @@ describe('reduceClientState', () => {
     expect(progressed.progression).toMatchObject({ main_level: 2, rank: 2, combat_xp: 40 });
     expect(quoted.repairQuote).toEqual({ ship_id: 'starter_ship', cost: 0, currency: 'credits', disabled: true });
     expect(repaired.repairQuote).toBeNull();
+  });
+
+  test('planet detail coordinates create a selectable world memory marker', () => {
+    const withKnownPlanets = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.knownPlanets, {
+        planets: [
+          {
+            planet_id: 'planet-eris',
+            biome: 'ice',
+            planet_type: 'dwarf_planet',
+            rarity: 'uncommon',
+            level: 2,
+            intel_state: 'fresh',
+            confidence: 88,
+            last_seen_at: 1000,
+            owner_status: 'unclaimed',
+            discovered_at: 900,
+          },
+        ],
+        counts: { known: 1, stale: 0, owned: 0 },
+      }),
+    });
+    const withDetail = reduceClientState(withKnownPlanets, {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.planetDetail,
+        {
+          planet_id: 'planet-eris',
+          biome: 'ice',
+          planet_type: 'dwarf_planet',
+          rarity: 'uncommon',
+          level: 2,
+          intel_state: 'fresh',
+          confidence: 88,
+          last_seen_at: 1000,
+          owner_status: 'unclaimed',
+          discovered_at: 900,
+          coordinates: { x: 320, y: -140 },
+          production_locked: true,
+          routes: [],
+          available_commands: [],
+        },
+        2,
+      ),
+    });
+
+    expect(withDetail.planetIntel?.selectedPlanet?.coordinates).toEqual({ x: 320, y: -140 });
+    expect(worldMapMemoryMarkers(withKnownPlanets)).toEqual([]);
+    expect(worldMapMemoryMarkers(withDetail)).toEqual([
+      {
+        id: 'known_planet:planet-eris',
+        kind: 'known_planet',
+        label: 'dwarf planet / ice',
+        position: { x: 320, y: -140 },
+        detailID: 'planet-eris',
+        state: 'unclaimed',
+      },
+    ]);
   });
 
   test('phase 09 quest, admin, and observability payloads reconcile server-owned state', () => {

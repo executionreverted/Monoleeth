@@ -91,14 +91,14 @@ docs/2026-06-17-world-system-design.md
 
 ### Planet And Map Stability
 
-- [ ] Discovered planet list entries can request/open safe planet detail.
-- [ ] Planet detail coordinates render as map memory markers when available.
-- [ ] Memory planet markers remain at fixed world coordinates while the player
+- [x] Discovered planet list entries can request/open safe planet detail.
+- [x] Planet detail coordinates render as map memory markers when available.
+- [x] Memory planet markers remain at fixed world coordinates while the player
       moves.
-- [ ] Clicking a planet marker selects/opens the planet panel instead of
+- [x] Clicking a planet marker selects/opens the planet panel instead of
       sending a move intent.
-- [ ] Clicking empty world space still sends only a `move_to` intent.
-- [ ] Known planet data does not reveal hidden planets or future spawn data.
+- [x] Clicking empty world space still sends only a `move_to` intent.
+- [x] Known planet data does not reveal hidden planets or future spawn data.
 
 ### Windows, Modals, And Input Isolation
 

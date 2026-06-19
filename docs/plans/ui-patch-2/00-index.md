@@ -56,7 +56,7 @@ output/assets/hud-svg/
 
 ## Phase List
 
-1. [Planet Map Selection And Stable Memory Markers](./01-planet-map-selection.md)
+1. [x] [Planet Map Selection And Stable Memory Markers](./01-planet-map-selection.md)
 2. [Draggable Modal Windows And Input Isolation](./02-window-modal-input-isolation.md)
 3. [Quick Action Input Contracts](./03-quick-actions-input-contracts.md)
 4. [Scan Mode Automation And Visual Indicator](./04-scan-mode-automation.md)

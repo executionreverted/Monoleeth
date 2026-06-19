@@ -1,5 +1,5 @@
 import { EntityPayload, Vec2 } from '../protocol/envelope';
-import { MinimapSummary, SectorSummary, WorldFeedbackEffect } from '../state/types';
+import { MinimapSummary, SectorSummary, WorldFeedbackEffect, WorldMapMemoryMarker } from '../state/types';
 
 export interface WorldViewState {
   entities: EntityPayload[];
@@ -8,6 +8,7 @@ export interface WorldViewState {
   selectedTargetID: string | null;
   movementTarget: Vec2 | null;
   lastCorrection: { entityID: string; position: Vec2 } | null;
+  memoryMarkers: WorldMapMemoryMarker[];
   worldEffects: WorldFeedbackEffect[];
   lastServerTime: number | null;
 }
@@ -15,4 +16,5 @@ export interface WorldViewState {
 export interface WorldInputHandlers {
   onMoveIntent(target: Vec2): void;
   onSelectTarget(entityID: string | null): void;
+  onSelectMemoryMarker(marker: WorldMapMemoryMarker): void;
 }
