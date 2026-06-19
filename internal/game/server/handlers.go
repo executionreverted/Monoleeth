@@ -38,8 +38,16 @@ var trustedClientPayloadKeys = map[string]struct{}{
 	"hidden":           {},
 	"internal":         {},
 	"gameplay_seed":    {},
+	"procedural_seed":  {},
+	"world_seed":       {},
 	"future_spawn":     {},
 	"spawn_candidates": {},
+	"candidate":        {},
+	"candidate_key":    {},
+	"planet_candidate": {},
+	"detection_roll":   {},
+	"scan_cell":        {},
+	"scan_result":      {},
 }
 
 func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.CommandHandler {
@@ -58,6 +66,13 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationLoadoutSnapshot:     runtime.handleLoadoutSnapshot,
 		realtime.OperationStatsSnapshot:       runtime.handleStatsSnapshot,
 		realtime.OperationCraftingRecipes:     runtime.handleCraftingRecipes,
+		realtime.OperationScanPulse:           runtime.handleScanPulse,
+		realtime.OperationKnownPlanets:        runtime.handleKnownPlanets,
+		realtime.OperationPlanetDetail:        runtime.handlePlanetDetail,
+		realtime.OperationProductionSummary:   runtime.handleProductionSummary,
+		realtime.OperationPlanetStorage:       runtime.handlePlanetStorage,
+		realtime.OperationRouteList:           runtime.handleRouteList,
+		realtime.OperationRouteSnapshot:       runtime.handleRouteSnapshot,
 		realtime.OperationDebugSnapshot:       runtime.handleDebugSnapshot,
 		realtime.OperationDebugSpawnNPC:       runtime.handleDebugSpawnNPC,
 	}

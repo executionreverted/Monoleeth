@@ -75,6 +75,30 @@ export class CommandBuilder {
     return this.build(OPERATIONS.scanPulse, {});
   }
 
+  knownPlanets(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.knownPlanets, {});
+  }
+
+  planetDetail(planetID: string): RequestEnvelope<{ planet_id: string }> {
+    return this.build(OPERATIONS.planetDetail, { planet_id: planetID });
+  }
+
+  productionSummary(planetID?: string): RequestEnvelope<{ planet_id?: string }> {
+    return this.build(OPERATIONS.productionSummary, planetID ? { planet_id: planetID } : {});
+  }
+
+  planetStorageSummary(planetID?: string): RequestEnvelope<{ planet_id?: string }> {
+    return this.build(OPERATIONS.planetStorageSummary, planetID ? { planet_id: planetID } : {});
+  }
+
+  routeList(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.routeList, {});
+  }
+
+  routeSnapshot(routeID: string): RequestEnvelope<{ route_id: string }> {
+    return this.build(OPERATIONS.routeSnapshot, { route_id: routeID });
+  }
+
   debugSpawnNPC(entityID: string, position: Vec2): RequestEnvelope<{ entity_id: string; position: Vec2 }> {
     return this.build(OPERATIONS.debugSpawnNPC, {
       entity_id: entityID,
@@ -136,7 +160,15 @@ function findTrustedClientField(value: unknown): string | null {
       normalized === 'cooldown' ||
       normalized === 'wallet_amount' ||
       normalized === 'hit' ||
-      normalized === 'crit'
+      normalized === 'crit' ||
+      normalized === 'procedural_seed' ||
+      normalized === 'world_seed' ||
+      normalized === 'candidate' ||
+      normalized === 'candidate_key' ||
+      normalized === 'planet_candidate' ||
+      normalized === 'detection_roll' ||
+      normalized === 'scan_cell' ||
+      normalized === 'scan_result'
     ) {
       return key;
     }

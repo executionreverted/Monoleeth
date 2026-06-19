@@ -428,6 +428,32 @@ button:disabled {
   margin-top: 0.5rem;
 }
 
+.planet-list {
+  margin-top: 0.5rem;
+}
+
+.scan-readout {
+  display: grid;
+  gap: 0.125rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(215, 247, 255, 0.12);
+}
+
+.scan-readout span {
+  color: rgba(215, 247, 255, 0.62);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+}
+
+.scan-readout strong {
+  color: #8af5ff;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .panel--systems .meta-row strong {
   min-width: 0;
   overflow: hidden;
@@ -460,8 +486,8 @@ button:disabled {
 .minimap {
   position: relative;
   width: 100%;
-  aspect-ratio: 1;
-  min-height: 10rem;
+  aspect-ratio: 1.35;
+  min-height: 7rem;
   margin-bottom: 0.625rem;
   border: 1px solid rgba(138, 245, 255, 0.18);
   overflow: hidden;
@@ -578,6 +604,27 @@ button:disabled {
 
 .minimap-legend span[data-kind="unknown"] {
   color: #f4c95d;
+}
+
+.intel-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.375rem 0.625rem;
+  margin-top: 0.5rem;
+}
+
+.intel-metrics span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem;
+  color: rgba(215, 247, 255, 0.62);
+  font-size: 0.75rem;
+}
+
+.intel-metrics strong {
+  color: #f4c95d;
+  white-space: nowrap;
 }
 
 .ghost-action {
@@ -759,6 +806,43 @@ button:disabled {
     overscroll-behavior-x: contain;
     padding-bottom: 0.125rem;
     scroll-snap-type: x proximity;
+  }
+
+  .hud__rail--right [data-panel="intel"] {
+    order: -1;
+  }
+
+  .hud__rail--right [data-panel="intel"] .minimap {
+    aspect-ratio: 2;
+    min-height: 5rem;
+    margin-bottom: 0.375rem;
+  }
+
+  .hud__rail--right [data-panel="intel"] .minimap-legend {
+    gap: 0.125rem;
+    margin-bottom: 0.25rem;
+    font-size: 0.625rem;
+  }
+
+  .hud__rail--right [data-panel="intel"] .intel-metrics {
+    gap: 0.25rem 0.375rem;
+    margin-top: 0.375rem;
+  }
+
+  .hud__rail--right [data-panel="intel"] .intel-metrics span {
+    font-size: 0.6875rem;
+  }
+
+  .hud__rail--right [data-panel="intel"] .scan-readout {
+    display: none;
+  }
+
+  .hud__rail--right [data-panel="intel"] .planet-list {
+    display: none;
+  }
+
+  .hud__rail--right [data-panel="intel"] .ghost-action {
+    margin-top: 0.375rem;
   }
 
   .panel--systems {

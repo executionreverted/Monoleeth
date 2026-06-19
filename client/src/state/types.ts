@@ -173,6 +173,104 @@ export interface CraftingSummary {
   }>;
 }
 
+export interface ScanPulseSummary {
+  pulse_reference: string;
+  status: string;
+  resolve_after?: number;
+  message?: string;
+  signal?: {
+    biome: string;
+    signal_band: string;
+    approx_distance: string;
+  };
+  planet_id?: string;
+  xp_granted?: boolean;
+  duplicate?: boolean;
+}
+
+export interface KnownPlanetSummary {
+  planet_id: string;
+  biome: string;
+  planet_type: string;
+  rarity: string;
+  level: number;
+  intel_state: string;
+  confidence: number;
+  last_seen_at: number;
+  owner_status: string;
+  discovered_at: number;
+}
+
+export interface PlanetStorageSummary {
+  planet_id: string;
+  used_units: number;
+  free_units: number;
+  capacity_units: number;
+  updated_at: number;
+  items: Array<{ item_id: string; quantity: number }>;
+}
+
+export interface PlanetBuildingSummary {
+  building_id: string;
+  building_type: string;
+  category: string;
+  level: number;
+  state: string;
+  updated_at: number;
+}
+
+export interface PlanetProductionSummary {
+  planet_id: string;
+  production_enabled: boolean;
+  last_calculated_at: number;
+  energy_capacity_per_hour: number;
+  energy_reserved_per_hour: number;
+  storage: PlanetStorageSummary;
+  buildings: PlanetBuildingSummary[];
+}
+
+export interface RouteSummary {
+  route_id: string;
+  source_planet_id: string;
+  destination: { type: string; id: string };
+  resource_item_id: string;
+  amount_per_hour: number;
+  energy_cost_per_hour: number;
+  enabled: boolean;
+  risk: {
+    loss_chance: number;
+    min_loss_percent: number;
+    max_loss_percent: number;
+  };
+  last_calculated_at: number;
+  updated_at: number;
+}
+
+export interface PlanetDetailSummary extends KnownPlanetSummary {
+  coordinates: Vec2;
+  production?: PlanetProductionSummary;
+  routes: RouteSummary[];
+  production_locked: boolean;
+  available_commands: string[];
+}
+
+export interface PlanetIntelSummary {
+  knownSignals: number;
+  staleIntel: number | null;
+  ownedPlanets: number;
+  planets: KnownPlanetSummary[];
+  selectedPlanet: PlanetDetailSummary | null;
+  lastScan: ScanPulseSummary | null;
+}
+
+export interface ProductionCollectionSummary {
+  planets: PlanetProductionSummary[];
+}
+
+export interface RouteListSummary {
+  routes: RouteSummary[];
+}
+
 export interface RepairQuote {
   ship_id: string;
   currency: string;
@@ -242,7 +340,9 @@ export interface ClientState {
   repairQuote: RepairQuote | null;
   skillCooldowns: Record<string, number>;
   questBoard: { available: number; active: number } | null;
-  planetIntel: { knownSignals: number; staleIntel: number | null } | null;
+  planetIntel: PlanetIntelSummary | null;
+  production: ProductionCollectionSummary | null;
+  routes: RouteListSummary | null;
   lastError: ErrorPayload | null;
 }
 

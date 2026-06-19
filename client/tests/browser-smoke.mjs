@@ -15,7 +15,7 @@ const useFixture = process.argv.includes('--fixture');
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const clientRoot = path.resolve(thisDir, '..');
 const repoRoot = path.resolve(clientRoot, '..');
-const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '06');
+const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '07');
 const forbiddenText = [
   'gameplay_seed',
   'future_spawn',
@@ -128,6 +128,9 @@ async function verifyRealViewport(viewport, label) {
           state?.hangar?.active_ship_id === 'starter_ship' &&
           state?.loadout?.slots?.length === 3 &&
           state?.crafting?.recipes?.length >= 3 &&
+          state?.planetIntel?.knownSignals === 0 &&
+          state?.production?.planets?.length === 0 &&
+          state?.routes?.routes?.length === 0 &&
           hasPlayer &&
           self?.entity_type === 'player' &&
           hasVisibleNPC &&
@@ -137,6 +140,22 @@ async function verifyRealViewport(viewport, label) {
       callsign,
       { timeout: 10000 },
     );
+
+    await page.waitForFunction(() => {
+      const button = document.querySelector('[data-panel="intel"] [data-action="scan"]');
+      return button instanceof HTMLButtonElement && !button.disabled;
+    }, null, { timeout: 10000 });
+    await page.locator('[data-panel="intel"] [data-action="scan"]').dispatchEvent('click');
+    await page.waitForFunction(() => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      return (
+        state?.planetIntel?.lastScan?.status === 'planet_discovered' &&
+        state?.planetIntel?.lastScan?.signal?.signal_band &&
+        state?.planetIntel?.knownSignals === 1 &&
+        state?.planetIntel?.planets?.length === 1 &&
+        state?.progression?.main_xp >= 25
+      );
+    }, null, { timeout: 10000 });
 
     await assertCanvasAndLayout(page, viewport, label);
     await assertNoForbiddenLeaks(page, label);

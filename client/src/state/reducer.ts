@@ -19,9 +19,18 @@ import {
   MinimapContact,
   MinimapMemory,
   MinimapSummary,
+  KnownPlanetSummary,
+  PlanetDetailSummary,
+  PlanetIntelSummary,
+  PlanetProductionSummary,
+  PlanetStorageSummary,
   ProgressionSummary,
+  ProductionCollectionSummary,
   PublicSession,
   RepairQuote,
+  RouteListSummary,
+  RouteSummary,
+  ScanPulseSummary,
   SectorSummary,
   ShipSummary,
   StatSummary,
@@ -63,6 +72,8 @@ export function createInitialState(): ClientState {
     skillCooldowns: {},
     questBoard: null,
     planetIntel: null,
+    production: null,
+    routes: null,
     lastError: null,
   };
 }
@@ -265,10 +276,7 @@ function replaceVisibleEntities(
       state.selectedTargetID && visibleEntities[state.selectedTargetID] ? state.selectedTargetID : null,
     movementTarget: null,
     lastCorrection: null,
-    planetIntel: {
-      knownSignals: countPlanetSignals(visibleEntities),
-      staleIntel: state.planetIntel?.staleIntel ?? null,
-    },
+    planetIntel: updateVisibleSignalCount(state.planetIntel, countPlanetSignals(visibleEntities)),
     lastServerTime: serverTime,
     lastSequence: sequence ? Math.max(state.lastSequence, sequence) : state.lastSequence,
   };
@@ -440,6 +448,58 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
 
+    case CLIENT_EVENTS.scanPulseStarted:
+      return {
+        ...state,
+        planetIntel: applyScanPulse(state.planetIntel, parseScanPulse(envelope.payload, state.planetIntel?.lastScan ?? null)),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.scanPulseResolved:
+    case CLIENT_EVENTS.scanPlanetDiscovered: {
+      const scan = parseScanPulse(envelope.payload, state.planetIntel?.lastScan ?? null);
+      return {
+        ...state,
+        planetIntel: applyScanPulse(state.planetIntel, scan),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        commandLog: appendLog(state.commandLog, scan.status === 'planet_discovered' ? 'info' : 'warn', scanLogLine(scan)),
+      };
+    }
+
+    case CLIENT_EVENTS.knownPlanets:
+      return {
+        ...state,
+        planetIntel: parseKnownPlanets(envelope.payload, state.planetIntel),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.planetDetail:
+      return {
+        ...state,
+        planetIntel: applyPlanetDetail(state.planetIntel, parsePlanetDetail(envelope.payload, state.planetIntel?.selectedPlanet ?? null)),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.productionSummary:
+      return {
+        ...state,
+        production: parseProductionCollection(envelope.payload, state.production),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.routeList:
+      return {
+        ...state,
+        routes: parseRouteList(envelope.payload, state.routes),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
     case CLIENT_EVENTS.deathShipDisabled:
       return {
         ...state,
@@ -502,7 +562,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         visibleEntities,
         planetIntel:
           entity.entity_type === 'planet_signal'
-            ? { knownSignals: countPlanetSignals(visibleEntities), staleIntel: state.planetIntel?.staleIntel ?? null }
+            ? updateVisibleSignalCount(state.planetIntel, countPlanetSignals(visibleEntities))
             : state.planetIntel,
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
@@ -517,7 +577,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         ...state,
         visibleEntities,
         selectedTargetID: state.selectedTargetID === entityID ? null : state.selectedTargetID,
-        planetIntel: { knownSignals: countPlanetSignals(visibleEntities), staleIntel: state.planetIntel?.staleIntel ?? null },
+        planetIntel: updateVisibleSignalCount(state.planetIntel, countPlanetSignals(visibleEntities)),
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
@@ -728,6 +788,46 @@ function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientSt
     next = {
       ...next,
       crafting: parseCraftingSummary(crafting, next.crafting),
+    };
+  }
+
+  const scan = objectField(payload, 'scan') ?? objectField(payload, 'scan_pulse');
+  if (scan) {
+    next = {
+      ...next,
+      planetIntel: applyScanPulse(next.planetIntel, parseScanPulse(scan, next.planetIntel?.lastScan ?? null)),
+    };
+  }
+
+  const knownPlanets = objectField(payload, 'known_planets') ?? objectField(payload, 'planet_intel');
+  if (knownPlanets) {
+    next = {
+      ...next,
+      planetIntel: parseKnownPlanets(knownPlanets, next.planetIntel),
+    };
+  }
+
+  const planetDetail = objectField(payload, 'planet_detail');
+  if (planetDetail) {
+    next = {
+      ...next,
+      planetIntel: applyPlanetDetail(next.planetIntel, parsePlanetDetail(planetDetail, next.planetIntel?.selectedPlanet ?? null)),
+    };
+  }
+
+  const production = objectField(payload, 'production') ?? objectField(payload, 'production_summary');
+  if (production) {
+    next = {
+      ...next,
+      production: parseProductionCollection(production, next.production),
+    };
+  }
+
+  const routes = objectField(payload, 'routes') ?? objectField(payload, 'route_list');
+  if (routes) {
+    next = {
+      ...next,
+      routes: parseRouteList(routes, next.routes),
     };
   }
 
@@ -1072,6 +1172,211 @@ function parseCraftingJob(payload: JsonObject): CraftingSummary['active_jobs'][n
   };
 }
 
+function parseScanPulse(payload: JsonObject, fallback: ScanPulseSummary | null): ScanPulseSummary {
+  const signal = objectField(payload, 'signal');
+  return {
+    pulse_reference: stringField(payload, 'pulse_reference') ?? fallback?.pulse_reference ?? '',
+    status: stringField(payload, 'status') ?? fallback?.status ?? 'unknown',
+    resolve_after: optionalRoundedNumber(payload, 'resolve_after', fallback?.resolve_after),
+    message: stringField(payload, 'message') ?? fallback?.message,
+    signal: signal
+      ? {
+          biome: stringField(signal, 'biome') ?? '',
+          signal_band: stringField(signal, 'signal_band') ?? '',
+          approx_distance: stringField(signal, 'approx_distance') ?? '',
+        }
+      : fallback?.signal,
+    planet_id: stringField(payload, 'planet_id') ?? fallback?.planet_id,
+    xp_granted: booleanField(payload, 'xp_granted') ?? fallback?.xp_granted,
+    duplicate: booleanField(payload, 'duplicate') ?? fallback?.duplicate,
+  };
+}
+
+function parseKnownPlanets(payload: JsonObject, fallback: PlanetIntelSummary | null): PlanetIntelSummary {
+  const planets = Array.isArray(payload.planets)
+    ? payload.planets
+        .filter(isJsonObject)
+        .map(parseKnownPlanet)
+        .filter((planet): planet is KnownPlanetSummary => planet !== null)
+    : fallback?.planets ?? [];
+  const counts = objectField(payload, 'counts');
+  const stale = Math.max(0, Math.round(numberField(counts ?? {}, 'stale') ?? fallback?.staleIntel ?? 0));
+  const owned = Math.max(0, Math.round(numberField(counts ?? {}, 'owned') ?? fallback?.ownedPlanets ?? 0));
+  const known = Math.max(
+    planets.length,
+    Math.round(numberField(counts ?? {}, 'known') ?? fallback?.knownSignals ?? planets.length),
+  );
+  const selectedPlanet =
+    fallback?.selectedPlanet && planets.some((planet) => planet.planet_id === fallback.selectedPlanet?.planet_id)
+      ? fallback.selectedPlanet
+      : null;
+
+  return {
+    knownSignals: known,
+    staleIntel: stale,
+    ownedPlanets: owned,
+    planets,
+    selectedPlanet,
+    lastScan: fallback?.lastScan ?? null,
+  };
+}
+
+function parseKnownPlanet(payload: JsonObject): KnownPlanetSummary | null {
+  const planetID = stringField(payload, 'planet_id') ?? '';
+  if (!planetID) {
+    return null;
+  }
+  return {
+    planet_id: planetID,
+    biome: stringField(payload, 'biome') ?? '',
+    planet_type: stringField(payload, 'planet_type') ?? '',
+    rarity: stringField(payload, 'rarity') ?? '',
+    level: Math.max(0, Math.round(numberField(payload, 'level') ?? 0)),
+    intel_state: stringField(payload, 'intel_state') ?? '',
+    confidence: Math.max(0, Math.round(numberField(payload, 'confidence') ?? 0)),
+    last_seen_at: Math.max(0, Math.round(numberField(payload, 'last_seen_at') ?? 0)),
+    owner_status: stringField(payload, 'owner_status') ?? '',
+    discovered_at: Math.max(0, Math.round(numberField(payload, 'discovered_at') ?? 0)),
+  };
+}
+
+function parsePlanetDetail(payload: JsonObject, fallback: PlanetDetailSummary | null): PlanetDetailSummary {
+  const base = parseKnownPlanet(payload) ?? fallback;
+  const coordinates = isVec2(payload.coordinates) ? payload.coordinates : fallback?.coordinates ?? { x: 0, y: 0 };
+  const production = objectField(payload, 'production');
+  const routes = Array.isArray(payload.routes)
+    ? payload.routes
+        .filter(isJsonObject)
+        .map(parseRoute)
+        .filter((route): route is RouteSummary => route !== null)
+    : fallback?.routes ?? [];
+  return {
+    ...(base ?? {
+      planet_id: '',
+      biome: '',
+      planet_type: '',
+      rarity: '',
+      level: 0,
+      intel_state: '',
+      confidence: 0,
+      last_seen_at: 0,
+      owner_status: '',
+      discovered_at: 0,
+    }),
+    coordinates,
+    production: production ? parseProductionPlanet(production) ?? undefined : fallback?.production,
+    routes,
+    production_locked: booleanField(payload, 'production_locked') ?? fallback?.production_locked ?? true,
+    available_commands: Array.isArray(payload.available_commands)
+      ? payload.available_commands.filter((command): command is string => typeof command === 'string')
+      : fallback?.available_commands ?? [],
+  };
+}
+
+function parseProductionCollection(payload: JsonObject, fallback: ProductionCollectionSummary | null): ProductionCollectionSummary {
+  const planets = Array.isArray(payload.planets)
+    ? payload.planets
+        .filter(isJsonObject)
+        .map(parseProductionPlanet)
+        .filter((planet): planet is PlanetProductionSummary => planet !== null)
+    : fallback?.planets ?? [];
+  return { planets };
+}
+
+function parseProductionPlanet(payload: JsonObject): PlanetProductionSummary | null {
+  const planetID = stringField(payload, 'planet_id') ?? '';
+  const storage = objectField(payload, 'storage');
+  if (!planetID || !storage) {
+    return null;
+  }
+  return {
+    planet_id: planetID,
+    production_enabled: booleanField(payload, 'production_enabled') ?? false,
+    last_calculated_at: Math.max(0, Math.round(numberField(payload, 'last_calculated_at') ?? 0)),
+    energy_capacity_per_hour: Math.max(0, Math.round(numberField(payload, 'energy_capacity_per_hour') ?? 0)),
+    energy_reserved_per_hour: Math.max(0, Math.round(numberField(payload, 'energy_reserved_per_hour') ?? 0)),
+    storage: parsePlanetStorage(storage),
+    buildings: Array.isArray(payload.buildings)
+      ? payload.buildings
+          .filter(isJsonObject)
+          .map(parsePlanetBuilding)
+          .filter((building): building is PlanetProductionSummary['buildings'][number] => building !== null)
+      : [],
+  };
+}
+
+function parsePlanetStorage(payload: JsonObject): PlanetStorageSummary {
+  return {
+    planet_id: stringField(payload, 'planet_id') ?? '',
+    used_units: Math.max(0, Math.round(numberField(payload, 'used_units') ?? 0)),
+    free_units: Math.max(0, Math.round(numberField(payload, 'free_units') ?? 0)),
+    capacity_units: Math.max(0, Math.round(numberField(payload, 'capacity_units') ?? 0)),
+    updated_at: Math.max(0, Math.round(numberField(payload, 'updated_at') ?? 0)),
+    items: Array.isArray(payload.items)
+      ? payload.items
+          .filter(isJsonObject)
+          .map((item) => ({
+            item_id: stringField(item, 'item_id') ?? '',
+            quantity: Math.max(0, Math.round(numberField(item, 'quantity') ?? 0)),
+          }))
+          .filter((item) => item.item_id !== '' && item.quantity > 0)
+      : [],
+  };
+}
+
+function parsePlanetBuilding(payload: JsonObject): PlanetProductionSummary['buildings'][number] | null {
+  const buildingID = stringField(payload, 'building_id') ?? '';
+  if (!buildingID) {
+    return null;
+  }
+  return {
+    building_id: buildingID,
+    building_type: stringField(payload, 'building_type') ?? '',
+    category: stringField(payload, 'category') ?? '',
+    level: Math.max(0, Math.round(numberField(payload, 'level') ?? 0)),
+    state: stringField(payload, 'state') ?? '',
+    updated_at: Math.max(0, Math.round(numberField(payload, 'updated_at') ?? 0)),
+  };
+}
+
+function parseRouteList(payload: JsonObject, fallback: RouteListSummary | null): RouteListSummary {
+  const routes = Array.isArray(payload.routes)
+    ? payload.routes
+        .filter(isJsonObject)
+        .map(parseRoute)
+        .filter((route): route is RouteSummary => route !== null)
+    : fallback?.routes ?? [];
+  return { routes };
+}
+
+function parseRoute(payload: JsonObject): RouteSummary | null {
+  const routeID = stringField(payload, 'route_id') ?? '';
+  const destination = objectField(payload, 'destination');
+  if (!routeID || !destination) {
+    return null;
+  }
+  const risk = objectField(payload, 'risk') ?? {};
+  return {
+    route_id: routeID,
+    source_planet_id: stringField(payload, 'source_planet_id') ?? '',
+    destination: {
+      type: stringField(destination, 'type') ?? '',
+      id: stringField(destination, 'id') ?? '',
+    },
+    resource_item_id: stringField(payload, 'resource_item_id') ?? '',
+    amount_per_hour: Math.max(0, Math.round(numberField(payload, 'amount_per_hour') ?? 0)),
+    energy_cost_per_hour: Math.max(0, Math.round(numberField(payload, 'energy_cost_per_hour') ?? 0)),
+    enabled: booleanField(payload, 'enabled') ?? false,
+    risk: {
+      loss_chance: Math.max(0, numberField(risk, 'loss_chance') ?? 0),
+      min_loss_percent: Math.max(0, numberField(risk, 'min_loss_percent') ?? 0),
+      max_loss_percent: Math.max(0, numberField(risk, 'max_loss_percent') ?? 0),
+    },
+    last_calculated_at: Math.max(0, Math.round(numberField(payload, 'last_calculated_at') ?? 0)),
+    updated_at: Math.max(0, Math.round(numberField(payload, 'updated_at') ?? 0)),
+  };
+}
+
 function parseRepairQuote(payload: JsonObject, fallback: RepairQuote | null): RepairQuote {
   return {
     ship_id: stringField(payload, 'ship_id') ?? fallback?.ship_id ?? '',
@@ -1220,6 +1525,59 @@ function countPlanetSignals(entities: Record<string, EntityPayload>): number {
   return Object.values(entities).filter((entity) => entity.entity_type === 'planet_signal').length;
 }
 
+function emptyPlanetIntel(): PlanetIntelSummary {
+  return {
+    knownSignals: 0,
+    staleIntel: null,
+    ownedPlanets: 0,
+    planets: [],
+    selectedPlanet: null,
+    lastScan: null,
+  };
+}
+
+function updateVisibleSignalCount(fallback: PlanetIntelSummary | null, visibleSignals: number): PlanetIntelSummary {
+  const next = fallback ?? emptyPlanetIntel();
+  return {
+    ...next,
+    knownSignals: Math.max(visibleSignals, next.planets.length, next.knownSignals),
+  };
+}
+
+function applyScanPulse(fallback: PlanetIntelSummary | null, scan: ScanPulseSummary): PlanetIntelSummary {
+  const next = fallback ?? emptyPlanetIntel();
+  return {
+    ...next,
+    knownSignals: scan.planet_id ? Math.max(next.knownSignals, next.planets.length, 1) : next.knownSignals,
+    lastScan: scan,
+  };
+}
+
+function applyPlanetDetail(fallback: PlanetIntelSummary | null, detail: PlanetDetailSummary): PlanetIntelSummary {
+  const next = fallback ?? emptyPlanetIntel();
+  const planets = next.planets.some((planet) => planet.planet_id === detail.planet_id)
+    ? next.planets.map((planet) => (planet.planet_id === detail.planet_id ? { ...planet, ...detail } : planet))
+    : detail.planet_id
+      ? [...next.planets, detail]
+      : next.planets;
+  return {
+    ...next,
+    planets,
+    knownSignals: Math.max(next.knownSignals, planets.length),
+    selectedPlanet: detail.planet_id ? detail : next.selectedPlanet,
+  };
+}
+
+function scanLogLine(scan: ScanPulseSummary): string {
+  if (scan.status === 'planet_discovered') {
+    return `Scanner resolved ${scan.signal?.signal_band ?? 'unknown'} ${scan.signal?.biome ?? 'signal'}.`;
+  }
+  if (scan.status === 'started') {
+    return 'Scanner pulse started.';
+  }
+  return scan.message || 'Scanner pulse resolved with no signal.';
+}
+
 function appendLog(lines: LogLine[], level: LogLine['level'], text: string): LogLine[] {
   return [...lines.slice(-39), newLog(level, text)];
 }
@@ -1252,6 +1610,8 @@ function clearGameplay(state: ClientState): ClientState {
     skillCooldowns: {},
     questBoard: null,
     planetIntel: null,
+    production: null,
+    routes: null,
     lastError: null,
   };
 }

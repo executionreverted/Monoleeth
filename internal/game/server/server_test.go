@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
@@ -516,6 +517,133 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 		pickupPayload.Inventory.Stackable[0].Quantity != 3 ||
 		pickupPayload.Inventory.Stackable[0].Location != economy.LocationKindShipCargo.String() {
 		t.Fatalf("pickup inventory = %+v, want real raw ore in ship cargo", pickupPayload.Inventory)
+	}
+}
+
+func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
+	_, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	writeText(t, conn, `{"request_id":"request-scan-pulse","op":"scan.pulse","payload":{},"client_seq":1,"v":1}`)
+	scanResponse := readResponse(t, conn)
+	if !scanResponse.OK {
+		t.Fatalf("scan response = %+v, want success", scanResponse)
+	}
+	rawScan := string(scanResponse.Payload)
+	for _, forbidden := range []string{
+		"candidate_key",
+		"planet_candidate",
+		"procedural_seed",
+		"world_seed",
+		"detection_roll",
+		"scan_cell",
+		`"coordinates"`,
+		`"x"`,
+		`"y"`,
+	} {
+		if strings.Contains(rawScan, forbidden) {
+			t.Fatalf("scan response leaked %q in %s", forbidden, rawScan)
+		}
+	}
+	var scanPayload struct {
+		Scan         scanPulsePayload           `json:"scan"`
+		KnownPlanets knownPlanetsPayload        `json:"known_planets"`
+		Progression  progressionSnapshotPayload `json:"progression"`
+	}
+	if err := json.Unmarshal(scanResponse.Payload, &scanPayload); err != nil {
+		t.Fatalf("decode scan payload: %v", err)
+	}
+	if scanPayload.Scan.Status != string(discovery.ScanPulseStatusPlanetDiscovered) || scanPayload.Scan.PlanetID == "" || scanPayload.Scan.Signal == nil {
+		t.Fatalf("scan payload = %+v, want discovered planet with safe signal", scanPayload.Scan)
+	}
+	if !scanPayload.Scan.XPGranted || scanPayload.Progression.MainXP < 25 {
+		t.Fatalf("scan progression = %+v scan=%+v, want scanner XP grant", scanPayload.Progression, scanPayload.Scan)
+	}
+	if len(scanPayload.KnownPlanets.Planets) != 1 || scanPayload.KnownPlanets.Counts.Known != 1 {
+		t.Fatalf("known planets = %+v, want one server-authored intel row", scanPayload.KnownPlanets)
+	}
+	planetID := scanPayload.Scan.PlanetID
+
+	seen := map[realtime.ClientEventType]bool{}
+	for attempts := 0; attempts < 6 && (!seen[realtime.EventScanPulseStarted] || !seen[realtime.EventScanPulseResolved] || !seen[realtime.EventScanPlanetDiscovered] || !seen[realtime.EventKnownPlanets]); attempts++ {
+		event := readEvent(t, conn)
+		seen[event.Type] = true
+		if raw := string(mustJSON(t, event)); strings.Contains(raw, "candidate_key") || strings.Contains(raw, "procedural_seed") || strings.Contains(raw, "detection_roll") {
+			t.Fatalf("scan event leaked hidden scanner truth: %s", raw)
+		}
+	}
+	for _, want := range []realtime.ClientEventType{realtime.EventScanPulseStarted, realtime.EventScanPulseResolved, realtime.EventScanPlanetDiscovered, realtime.EventKnownPlanets} {
+		if !seen[want] {
+			t.Fatalf("scan events seen = %#v, missing %s", seen, want)
+		}
+	}
+
+	writeText(t, conn, `{"request_id":"request-known-planets","op":"discovery.known_planets","payload":{},"client_seq":2,"v":1}`)
+	knownResponse := readResponse(t, conn)
+	if !knownResponse.OK {
+		t.Fatalf("known planets response = %+v, want success", knownResponse)
+	}
+	var knownPayload struct {
+		KnownPlanets knownPlanetsPayload `json:"known_planets"`
+	}
+	if err := json.Unmarshal(knownResponse.Payload, &knownPayload); err != nil {
+		t.Fatalf("decode known planets: %v", err)
+	}
+	if len(knownPayload.KnownPlanets.Planets) != 1 || knownPayload.KnownPlanets.Planets[0].PlanetID != planetID {
+		t.Fatalf("known planets response = %+v, want discovered planet %s", knownPayload.KnownPlanets, planetID)
+	}
+
+	writeText(t, conn, `{"request_id":"request-planet-detail","op":"discovery.planet_detail","payload":{"planet_id":"`+planetID+`"},"client_seq":3,"v":1}`)
+	detailResponse := readResponse(t, conn)
+	if !detailResponse.OK {
+		t.Fatalf("planet detail response = %+v, want success", detailResponse)
+	}
+	if raw := string(detailResponse.Payload); strings.Contains(raw, "owner_player_id") || strings.Contains(raw, "player_id") || strings.Contains(raw, "candidate_key") {
+		t.Fatalf("planet detail leaked hidden/server-owned fields: %s", raw)
+	}
+	var detailPayload struct {
+		PlanetDetail planetDetailPayload `json:"planet_detail"`
+	}
+	if err := json.Unmarshal(detailResponse.Payload, &detailPayload); err != nil {
+		t.Fatalf("decode planet detail: %v", err)
+	}
+	if detailPayload.PlanetDetail.PlanetID != planetID || !detailPayload.PlanetDetail.ProductionLocked {
+		t.Fatalf("planet detail = %+v, want discovered unclaimed planet with locked production", detailPayload.PlanetDetail)
+	}
+	if detailPayload.PlanetDetail.Coordinates.X == 0 && detailPayload.PlanetDetail.Coordinates.Y == 0 {
+		t.Fatalf("planet detail coordinates = %+v, want discovered intel coordinates", detailPayload.PlanetDetail.Coordinates)
+	}
+
+	for _, request := range []struct {
+		name string
+		body string
+	}{
+		{name: "production", body: `{"request_id":"request-production-summary","op":"planet.production_summary","payload":{},"client_seq":4,"v":1}`},
+		{name: "storage", body: `{"request_id":"request-storage-summary","op":"planet.storage_summary","payload":{},"client_seq":5,"v":1}`},
+		{name: "routes", body: `{"request_id":"request-route-list","op":"route.list","payload":{},"client_seq":6,"v":1}`},
+	} {
+		t.Run(request.name, func(t *testing.T) {
+			writeText(t, conn, request.body)
+			response := readResponse(t, conn)
+			if !response.OK {
+				t.Fatalf("%s response = %+v, want success", request.name, response)
+			}
+			raw := string(response.Payload)
+			for _, forbidden := range []string{"owner_player_id", "player_id", "world_id", "zone_id", "procedural_seed", "candidate_key"} {
+				if strings.Contains(raw, forbidden) {
+					t.Fatalf("%s response leaked %q in %s", request.name, forbidden, raw)
+				}
+			}
+		})
+	}
+
+	writeText(t, conn, `{"request_id":"request-scan-spoof","op":"scan.pulse","payload":{"candidate_key":"forced","procedural_seed":"leak","scan_result":"planet"},"client_seq":7,"v":1}`)
+	spoof := readError(t, conn)
+	if spoof.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("spoofed scan error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
 	}
 }
 

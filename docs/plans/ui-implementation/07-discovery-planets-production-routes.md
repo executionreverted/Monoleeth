@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Planned
+- State: In progress
 - Owner: Exploration and persistent planet network UI
 - Depends on: Phase 06
 - Unlocks: long-term strategy loop
@@ -93,8 +93,9 @@ then broadcasts snapshots.
 ```text
 scan.pulse_started
 scan.pulse_resolved
-scanner.signal_detected
-planet.discovered
+scan.planet_discovered
+discovery.known_planets
+discovery.planet_detail
 planet.claimed
 intel.updated
 coordinate_item.created
@@ -119,34 +120,36 @@ Mockup areas covered:
 
 ## TODO
 
-- [ ] Register real `scan.pulse` operation in Go realtime registry.
-- [ ] Add authenticated scanner command handler.
-- [ ] Add scanner event mapper to safe UI payloads.
-- [ ] Add planet list/summary query for known/owned planets.
-- [ ] Add selected planet detail query with visibility checks.
+- [x] Register real `scan.pulse` operation in Go realtime registry.
+- [x] Add authenticated scanner command handler.
+- [x] Add scanner event mapper to safe UI payloads.
+- [x] Add planet list/summary query for known/owned planets.
+- [x] Add selected planet detail query with visibility checks.
 - [ ] Add planet claim command handler.
 - [ ] Add intel share and coordinate item handlers with visibility-safe
       recipient filtering.
-- [ ] Add production summary/build/upgrade handlers.
+- [x] Add read-only production summary handler for owned planets.
+- [ ] Add production build/upgrade handlers.
 - [ ] Add ledger-backed transaction flows for claim/build/upgrade/storage
       mutations.
 - [ ] Add offline settlement reconcile path that uses server-owned windows.
 - [ ] Add route create/update/enable/disable/settle handlers.
-- [ ] Add route list/snapshot handlers for reconnect.
-- [ ] Add client reducer state for signals, planets, production, routes.
-- [ ] Add right rail planet list and selected planet panel.
+- [x] Add route list/snapshot handlers for reconnect.
+- [x] Add client reducer state for signals, planets, production, routes.
+- [x] Add right rail known planet list.
+- [ ] Add selected planet action panel.
 - [ ] Add route UI and production/building UI.
-- [ ] Add scanner action bar state and log events.
+- [x] Add scanner action state and log events.
 
 ## Abuse And Safety Checklist
 
-- [ ] Client cannot send planet candidate data as truth.
-- [ ] Client cannot send scan result or procedural seed.
+- [x] Client cannot send planet candidate data as truth.
+- [x] Client cannot send scan result or procedural seed.
 - [ ] Client cannot claim hidden/unowned-invalid planet.
 - [ ] Client cannot fake X Core consumption.
 - [ ] Intel sharing cannot reveal a coordinate the sender cannot safely expose.
 - [ ] Coordinate item use consumes an owned item once.
-- [ ] Planet panel open rechecks visibility/ownership.
+- [x] Planet panel open rechecks visibility/ownership.
 - [ ] Route creation rechecks both endpoints and ownership/access.
 - [ ] Offline settlement duration is server-calculated.
 - [ ] Route settlement windows are server-calculated and idempotent.
@@ -156,7 +159,7 @@ Mockup areas covered:
 ## Tests
 
 - [ ] Scan rejects moving/energy-insufficient player before mutation.
-- [ ] Scan result does not leak seed or future candidates.
+- [x] Scan result does not leak seed or future candidates.
 - [ ] Hidden planet detail returns safe error.
 - [ ] Claim consumes required item once and sets owner once.
 - [ ] Intel share rejects hidden/not-owned coordinate references.
@@ -164,8 +167,8 @@ Mockup areas covered:
 - [ ] Building build/upgrade debits materials/currency once.
 - [ ] Production settlement is idempotent.
 - [ ] Route settlement is idempotent and respects storage capacity.
-- [ ] Route list/snapshot restores route UI after reconnect.
-- [ ] Browser scan creates safe unknown/discovered marker.
+- [x] Route list/snapshot restores route read model after reconnect.
+- [x] Browser scan creates safe discovered intel.
 - [ ] Browser selected planet panel uses server detail.
 - [ ] Browser route create/update reflects server state.
 

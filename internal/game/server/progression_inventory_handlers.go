@@ -291,7 +291,15 @@ func (runtime *Runtime) loadoutSnapshotLocked(playerID foundation.PlayerID) load
 		Slots: []loadoutSlotPayload{
 			{SlotID: "offensive_1", SlotType: "offensive"},
 			{SlotID: "defensive_1", SlotType: "defensive"},
-			{SlotID: "utility_1", SlotType: "utility"},
+			{
+				SlotID:        "utility_1",
+				SlotType:      "utility",
+				ModuleItemID:  starterScannerItemID,
+				ModuleID:      starterScannerModuleID,
+				ModuleState:   "online",
+				Durability:    100,
+				DurabilityMax: 100,
+			},
 		},
 	}
 }

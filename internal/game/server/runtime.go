@@ -11,10 +11,12 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/combat"
 	"gameproject/internal/game/crafting"
+	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/observability"
+	"gameproject/internal/game/production"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/stats"
@@ -25,12 +27,18 @@ import (
 )
 
 const (
-	starterShipID          foundation.ShipID = "starter_ship"
-	starterShipDisplayName                   = "Sparrow"
-	defaultPlayerSpeed                       = 180
-	defaultRadarRange                        = 420
-	defaultMaxMoveDistance                   = 1200
-	minMoveCommandInterval                   = 75 * time.Millisecond
+	starterShipID              foundation.ShipID = "starter_ship"
+	starterShipDisplayName                       = "Sparrow"
+	defaultPlayerSpeed                           = 180
+	defaultRadarRange                            = 420
+	defaultMaxMoveDistance                       = 1200
+	minMoveCommandInterval                       = 75 * time.Millisecond
+	starterScannerItemID                         = "starter_scanner_array"
+	starterScannerModuleID                       = "starter_scanner"
+	starterScannerScanPower                      = 500
+	starterScannerScanRadius                     = 2000
+	starterScannerScanInterval                   = time.Second
+	starterScannerEnergyCost                     = 8
 )
 
 // RuntimeConfig wires the single-process game runtime.
@@ -74,11 +82,22 @@ type Runtime struct {
 	CargoService *economy.CargoService
 	Progression  *progression.ProgressionService
 	Recipes      crafting.RecipeCatalog
+	Discovery    *discovery.InMemoryStore
+	Scanner      *discovery.ScannerService
+	Production   *production.InMemoryStore
 
 	combatXP       *combat.NPCKillXPHandler
 	lootTable      loot.LootTable
 	itemCatalog    map[foundation.ItemID]economy.ItemDefinition
 	repairAttempts map[foundation.IdempotencyKey]repairAttemptRecord
+	scanCooldowns  map[scanCooldownKey]time.Time
+}
+
+type scanCooldownKey struct {
+	PlayerID foundation.PlayerID
+	ShipID   foundation.ShipID
+	WorldID  foundation.WorldID
+	ZoneID   foundation.ZoneID
 }
 
 type playerRuntimeState struct {
@@ -247,6 +266,8 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	discoveryStore := discovery.NewInMemoryStore()
+	productionStore := production.NewInMemoryStore()
 	runtime := &Runtime{
 		clock:   clock,
 		devMode: config.DevMode,
@@ -269,11 +290,42 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		CargoService:   cargoService,
 		Progression:    progressionService,
 		Recipes:        recipeCatalog,
+		Discovery:      discoveryStore,
+		Production:     productionStore,
 		combatXP:       combatXP,
 		lootTable:      lootTable,
 		itemCatalog:    itemCatalog,
 		repairAttempts: make(map[foundation.IdempotencyKey]repairAttemptRecord),
+		scanCooldowns:  make(map[scanCooldownKey]time.Time),
 	}
+	scannerSeed, err := discovery.NewWorldSeed(discovery.WorldSeedInput{
+		StaticSeed: []byte("phase07-static-seed"),
+	})
+	if err != nil {
+		return nil, err
+	}
+	scanner, err := discovery.NewScannerService(discovery.ScannerServiceConfig{
+		Store:     discoveryStore,
+		WorldSeed: scannerSeed,
+		Clock:     clock,
+		Modules:   runtimeScannerModuleProvider{runtime: runtime},
+		Stats:     runtimeScannerStatsProvider{runtime: runtime},
+		Positions: runtimeScannerPositionProvider{runtime: runtime},
+		Cooldowns: runtimeScannerCooldownProvider{runtime: runtime},
+		Energy:    runtimeScannerEnergyProvider{runtime: runtime},
+		XP:        runtimeScanXPProvider{progression: progressionService},
+		CandidateOptions: discovery.CandidateGenerationOptions{
+			DiscoveryHorizon: 200_000,
+			SpawnBudget:      8,
+			ScanCellSize:     discovery.DefaultScanCellSize,
+		},
+		RadarLevelUnit:    defaultRadarRange,
+		DiscoveryXPAmount: 25,
+	})
+	if err != nil {
+		return nil, err
+	}
+	runtime.Scanner = scanner
 	if err := runtime.seedWorld(); err != nil {
 		return nil, err
 	}
@@ -458,7 +510,7 @@ func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.
 		}
 		events = append(events, runtime.aoiDiffEventsLocked(sessionID, playerID)...)
 		return events, nil
-	case realtime.OperationCombatUseSkill, realtime.OperationLootPickup, realtime.OperationDeathRepairQuote, realtime.OperationDeathRepairShip:
+	case realtime.OperationCombatUseSkill, realtime.OperationLootPickup, realtime.OperationDeathRepairQuote, realtime.OperationDeathRepairShip, realtime.OperationScanPulse:
 		runtime.mu.Lock()
 		defer runtime.mu.Unlock()
 		events := runtime.drainQueuedEventsLocked(sessionID)

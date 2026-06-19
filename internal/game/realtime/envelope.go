@@ -33,6 +33,13 @@ const (
 	OperationLoadoutSnapshot     Operation = "loadout.snapshot"
 	OperationStatsSnapshot       Operation = "stats.snapshot"
 	OperationCraftingRecipes     Operation = "crafting.recipes"
+	OperationScanPulse           Operation = "scan.pulse"
+	OperationKnownPlanets        Operation = "discovery.known_planets"
+	OperationPlanetDetail        Operation = "discovery.planet_detail"
+	OperationProductionSummary   Operation = "planet.production_summary"
+	OperationPlanetStorage       Operation = "planet.storage_summary"
+	OperationRouteList           Operation = "route.list"
+	OperationRouteSnapshot       Operation = "route.snapshot"
 )
 
 // ClientEventType is an event name that may be sent to a client after filtering.
@@ -66,6 +73,15 @@ const (
 	EventHangarSnapshot        ClientEventType = "hangar.snapshot"
 	EventLoadoutSnapshot       ClientEventType = "loadout.snapshot"
 	EventCraftingRecipes       ClientEventType = "crafting.recipes"
+	EventScanPulseStarted      ClientEventType = "scan.pulse_started"
+	EventScanPulseResolved     ClientEventType = "scan.pulse_resolved"
+	EventScanPlanetDiscovered  ClientEventType = "scan.planet_discovered"
+	EventKnownPlanets          ClientEventType = "discovery.known_planets"
+	EventPlanetDetail          ClientEventType = "discovery.planet_detail"
+	EventProductionSummary     ClientEventType = "planet.production_summary"
+	EventPlanetStorage         ClientEventType = "planet.storage_summary"
+	EventRouteList             ClientEventType = "route.list"
+	EventRouteSnapshot         ClientEventType = "route.snapshot"
 	EventDeathShipDisabled     ClientEventType = "death.ship_disabled"
 	EventDeathRepaired         ClientEventType = "death.repaired"
 )
@@ -151,6 +167,34 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationCraftingRecipes: {
 		Operation:        OperationCraftingRecipes,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationScanPulse: {
+		Operation:        OperationScanPulse,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationKnownPlanets: {
+		Operation:        OperationKnownPlanets,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationPlanetDetail: {
+		Operation:        OperationPlanetDetail,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationProductionSummary: {
+		Operation:        OperationProductionSummary,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationPlanetStorage: {
+		Operation:        OperationPlanetStorage,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationRouteList: {
+		Operation:        OperationRouteList,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationRouteSnapshot: {
+		Operation:        OperationRouteSnapshot,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 }

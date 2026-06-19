@@ -333,12 +333,43 @@ function actionBar(state: ClientState): string {
 }
 
 function intelPanel(state: ClientState): string {
+  const intel = state.planetIntel;
+  const lastScan = intel?.lastScan ?? null;
+  const knownPlanets = intel?.planets.slice(0, 2) ?? [];
+  const routes = state.routes?.routes.length ?? null;
+  const production = state.production?.planets.length ?? null;
+  const scanDisabled = state.connectionStatus !== 'connected' || state.ship?.disabled === true;
   return `
     <h2>Sector Map</h2>
     ${minimapPanel(state)}
-    <div class="meta-row"><span>Signals</span><strong>${state.planetIntel ? state.planetIntel.knownSignals : lockedValue()}</strong></div>
-    <div class="meta-row"><span>Stale</span><strong>${state.planetIntel?.staleIntel ?? lockedValue()}</strong></div>
-    <button class="ghost-action" type="button" data-action="scan" disabled title="Scanner command is wired in a later phase">Pulse</button>
+    <div class="intel-metrics">
+      <span>Known<strong>${intel ? intel.knownSignals : lockedValue()}</strong></span>
+      <span>Stale<strong>${intel?.staleIntel ?? lockedValue()}</strong></span>
+      <span>Owned<strong>${intel?.ownedPlanets ?? lockedValue()}</strong></span>
+      <span>Routes<strong>${routes ?? lockedValue()}</strong></span>
+      <span>Prod<strong>${production ?? lockedValue()}</strong></span>
+    </div>
+    <button class="ghost-action" type="button" data-action="scan" ${scanDisabled ? 'disabled' : ''} title="Run server scanner pulse">Pulse</button>
+    ${
+      lastScan
+        ? `<div class="scan-readout">
+             <span>${escapeHTML(scanStatusLabel(lastScan.status))}</span>
+             <strong>${escapeHTML(lastScan.signal?.signal_band ?? lastScan.message ?? '--')}</strong>
+           </div>`
+        : '<div class="empty-line">No scanner pulse recorded.</div>'
+    }
+    ${
+      knownPlanets.length > 0
+        ? `<ul class="compact-list planet-list">
+             ${knownPlanets
+               .map(
+                 (planet) =>
+                   `<li><span>${escapeHTML(publicPlanetName(planet))}</span><strong>${escapeHTML(planet.owner_status || 'intel')}</strong></li>`,
+               )
+               .join('')}
+           </ul>`
+        : ''
+    }
   `;
 }
 
@@ -442,6 +473,25 @@ function dispositionForType(entityType: string): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function scanStatusLabel(status: string): string {
+  switch (status) {
+    case 'planet_discovered':
+      return 'Discovered';
+    case 'no_signal':
+      return 'No signal';
+    case 'started':
+      return 'Scanning';
+    default:
+      return status || 'Scanner';
+  }
+}
+
+function publicPlanetName(planet: NonNullable<ClientState['planetIntel']>['planets'][number]): string {
+  const type = planet.planet_type ? planet.planet_type.replace(/_/g, ' ') : 'planet';
+  const biome = planet.biome ? planet.biome.replace(/_/g, ' ') : 'unknown';
+  return `${type} / ${biome}`;
 }
 
 function escapeHTML(value: string): string {

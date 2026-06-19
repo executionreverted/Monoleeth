@@ -282,6 +282,10 @@ export class ClientApp {
     this.sendCommand(this.commandBuilder.loadoutSnapshot());
     this.sendCommand(this.commandBuilder.statsSnapshot());
     this.sendCommand(this.commandBuilder.craftingRecipes());
+    this.sendCommand(this.commandBuilder.knownPlanets());
+    this.sendCommand(this.commandBuilder.productionSummary());
+    this.sendCommand(this.commandBuilder.planetStorageSummary());
+    this.sendCommand(this.commandBuilder.routeList());
   }
 
   private handleAuthExpired(message: string): void {
@@ -384,6 +388,9 @@ export class ClientApp {
         hangar: this.state.hangar,
         loadout: this.state.loadout,
         crafting: this.state.crafting,
+        planetIntel: this.state.planetIntel,
+        production: this.state.production,
+        routes: this.state.routes,
         repairQuote: this.state.repairQuote,
         skillCooldowns: this.state.skillCooldowns,
         commandLog: this.state.commandLog,
