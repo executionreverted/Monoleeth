@@ -147,13 +147,13 @@ docs/2026-06-17-world-system-design.md
 
 ### Starfield And Mockup Parity
 
-- [ ] The world uses `starfield_2048x1152.png` as the primary background.
-- [ ] Background is endless through mirrored tiling.
-- [ ] Background parallax has at least far/mid/near motion depth.
-- [ ] Grid/radar overlay remains readable over the starfield.
+- [x] The world uses `starfield_2048x1152.png` as the primary background.
+- [x] Background is endless through mirrored tiling.
+- [x] Background parallax has at least far/mid/near motion depth.
+- [x] Grid/radar overlay remains readable over the starfield.
 - [ ] HUD borders, spacing, icon scale, action slots, topbar density, and panel
       placement are rechecked against `final-mockup.png`.
-- [ ] Desktop/tablet/mobile screenshots are captured under
+- [x] Desktop/tablet/mobile screenshots are captured under
       `output/screenshots/ui-patch-2/`.
 
 ## Required Final Verification

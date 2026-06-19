@@ -22,6 +22,7 @@ const phase03OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-pat
 const phase04OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '04');
 const phase05OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '05');
 const phase06OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '06');
+const phase07OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '07');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -109,6 +110,7 @@ try {
   await mkdir(phase04OutputDir, { recursive: true });
   await mkdir(phase05OutputDir, { recursive: true });
   await mkdir(phase06OutputDir, { recursive: true });
+  await mkdir(phase07OutputDir, { recursive: true });
   if (useFixture) {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
@@ -237,10 +239,12 @@ async function verifyRealViewport(viewport, label) {
 
     await verifyPanelModalChrome(page, viewport, label);
     await assertCanvasAndLayout(page, viewport, label);
+    await verifyStarfieldBackground(page, label);
     await assertNoForbiddenLeaks(page, label);
     await assertNoFakeTopbarCounts(page, `${label} authenticated`);
     await assertNoUnimplementedMutationControls(page, `${label} authenticated`);
     await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
+    await page.screenshot({ path: path.join(phase07OutputDir, `live-${label}.png`), fullPage: true });
 
     if (label === 'desktop') {
       await verifyReconnectReconciliation(page, callsign);
@@ -791,7 +795,39 @@ async function projectileDiagnostics(page) {
   });
 }
 
+async function verifyStarfieldBackground(page, label) {
+  await page.waitForFunction(
+    () => {
+      const background = window.__SPACE_MORPG_SMOKE_STATE__?.worldView?.background;
+      return background?.assetLoaded === true && background.tileCount >= 90 && background.mirroredTiles > 0;
+    },
+    null,
+    { timeout: 10000 },
+  );
+  const background = await backgroundDebug(page);
+  if (!background.assetLoaded) {
+    throw new Error(`${label} starfield asset was not loaded`);
+  }
+  if (background.tileCount < 90) {
+    throw new Error(`${label} expected mirrored starfield tile grid, got ${background.tileCount}`);
+  }
+  if (background.mirroredTiles <= 0) {
+    throw new Error(`${label} starfield did not report mirrored tiles`);
+  }
+  if (!isFiniteVec(background.farOffset) || !isFiniteVec(background.midOffset)) {
+    throw new Error(`${label} starfield offsets were invalid: ${JSON.stringify(background)}`);
+  }
+  if ((background.sampleTiles ?? []).length < 2) {
+    throw new Error(`${label} starfield sample tiles missing both parallax layers: ${JSON.stringify(background)}`);
+  }
+}
+
+async function backgroundDebug(page) {
+  return page.evaluate(() => window.__SPACE_MORPG_SMOKE_STATE__?.worldView?.background ?? null);
+}
+
 async function verifyRealMovementInterpolation(page) {
+  const initialBackground = await backgroundDebug(page);
   const initial = await selfMovementSample(page);
   const firstTarget = await movementTargetAwayFromMemory(page, initial.entity.position, [
     { x: 320, y: -220 },
@@ -827,6 +863,17 @@ async function verifyRealMovementInterpolation(page) {
     null,
     { timeout: 3000 },
   );
+  const afterFirstBackground = await backgroundDebug(page);
+  const parallaxDelta = backgroundOffsetDelta(initialBackground, afterFirstBackground);
+  if (parallaxDelta <= 0.15) {
+    throw new Error(
+      `desktop starfield parallax offset did not change during movement: ${JSON.stringify({
+        before: initialBackground,
+        after: afterFirstBackground,
+        delta: parallaxDelta,
+      })}`,
+    );
+  }
   const etaBefore = await movementEtaSample(page);
   await page.waitForTimeout(180);
   const etaAfter = await movementEtaSample(page);
@@ -937,6 +984,16 @@ async function verifyRealMovementInterpolation(page) {
     () => window.__SPACE_MORPG_SMOKE_STATE__?.movementEta?.active === false && !document.querySelector('[data-movement-eta-active="true"]'),
     null,
     { timeout: 10000 },
+  );
+}
+
+function backgroundOffsetDelta(before, after) {
+  if (!before || !after) {
+    return 0;
+  }
+  return (
+    distance(before.farOffset ?? { x: 0, y: 0 }, after.farOffset ?? { x: 0, y: 0 }) +
+    distance(before.midOffset ?? { x: 0, y: 0 }, after.midOffset ?? { x: 0, y: 0 })
   );
 }
 
@@ -1230,6 +1287,10 @@ function distance(a, b) {
   const dx = (a?.x ?? 0) - (b?.x ?? 0);
   const dy = (a?.y ?? 0) - (b?.y ?? 0);
   return Math.hypot(dx, dy);
+}
+
+function isFiniteVec(value) {
+  return Number.isFinite(value?.x) && Number.isFinite(value?.y);
 }
 
 async function commandLogCount(page, text) {

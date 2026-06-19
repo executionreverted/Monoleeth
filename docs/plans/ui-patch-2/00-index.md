@@ -62,7 +62,7 @@ output/assets/hud-svg/
 4. [x] [Scan Mode Automation And Visual Indicator](./04-scan-mode-automation.md)
 5. [x] [Movement Debug Logs And ETA Pill](./05-movement-debug-eta.md)
 6. [x] [Projectile Combat Feedback](./06-projectile-combat-feedback.md)
-7. [Starfield Parallax Background](./07-starfield-parallax-background.md)
+7. [x] [Starfield Parallax Background](./07-starfield-parallax-background.md)
 8. [Mockup Parity And Verification Gate](./08-mockup-parity-verification.md)
 
 ## Suggested Worker Split

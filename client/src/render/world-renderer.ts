@@ -1,9 +1,10 @@
-import { Application, Container, Graphics, Text } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 
 import { EntityPayload, Vec2 } from '../protocol/envelope';
 import { currentEntityPosition, estimateServerTime, isSelfEntity, serverClockOffset } from '../state/movement';
 import { WorldFeedbackEffect, WorldMapMemoryMarker } from '../state/types';
 import { WorldInputHandlers, WorldViewState } from './world-view';
+import starfieldURL from '../assets/starfield_2048x1152.png?url';
 
 const entityColors: Record<EntityPayload['entity_type'], number> = {
   player: 0x2bdfff,
@@ -32,10 +33,35 @@ const npcSwarmOffsets = [
   { x: 3, y: -2, r: 8 },
 ];
 const PROJECTILE_TRAVEL_MS = 260;
+const STARFIELD_TILE = { width: 2048, height: 1152 };
+const STARFIELD_GRID_RADIUS = 3;
+const starfieldLayerConfigs = [
+  { id: 'far', depth: 0.018, scale: 1.02, alpha: 0.88 },
+  { id: 'mid', depth: 0.052, scale: 0.68, alpha: 0.22 },
+] as const;
+
+type StarfieldLayerID = (typeof starfieldLayerConfigs)[number]['id'];
+
+interface StarfieldTile {
+  sprite: Sprite;
+  layerID: StarfieldLayerID;
+  column: number;
+  row: number;
+}
+
+interface StarfieldDebugState {
+  assetLoaded: boolean;
+  tileCount: number;
+  mirroredTiles: number;
+  farOffset: Vec2;
+  midOffset: Vec2;
+  sampleTiles: Array<{ layer: StarfieldLayerID; mirrorX: boolean; mirrorY: boolean; screen: Vec2 }>;
+}
 
 export class WorldRenderer {
   private app: Application | null = null;
   private readonly backgroundLayer = new Container();
+  private readonly starfieldLayer = new Container();
   private readonly scanLayer = new Graphics();
   private readonly worldLayer = new Container();
   private readonly memoryMarkerLayer = new Container();
@@ -49,7 +75,17 @@ export class WorldRenderer {
   private readonly memoryMarkerViews = new Map<string, Graphics>();
   private readonly memoryMarkerLabels = new Map<string, Text>();
   private readonly memoryMarkerTargets = new Map<string, WorldMapMemoryMarker>();
+  private readonly starfieldTiles: StarfieldTile[] = [];
   private readonly stars: Array<{ view: Graphics; base: Vec2; depth: number }> = [];
+  private starfieldTexture: Texture | null = null;
+  private starfieldDebug: StarfieldDebugState = {
+    assetLoaded: false,
+    tileCount: 0,
+    mirroredTiles: 0,
+    farOffset: { x: 0, y: 0 },
+    midOffset: { x: 0, y: 0 },
+    sampleTiles: [],
+  };
   private emptyLabel: Text | null = null;
   private state: WorldViewState | null = null;
   private center: Vec2 = { x: 0, y: 0 };
@@ -79,6 +115,7 @@ export class WorldRenderer {
     app.canvas.className = 'world-canvas';
     container.appendChild(app.canvas);
     app.stage.addChild(this.backgroundLayer);
+    this.backgroundLayer.addChild(this.starfieldLayer);
     this.backgroundLayer.addChild(this.nebulaLayer);
     this.backgroundLayer.addChild(this.gridLayer);
     app.stage.addChild(this.scanLayer);
@@ -86,6 +123,7 @@ export class WorldRenderer {
     app.stage.addChild(this.memoryMarkerLayer);
     app.stage.addChild(this.markerLayer);
 
+    this.starfieldTexture = await Assets.load<Texture>(starfieldURL);
     this.createStarfield();
     this.emptyLabel = new Text({
       text: 'AWAITING SERVER SNAPSHOT',
@@ -188,6 +226,7 @@ export class WorldRenderer {
     memoryMarkers: Array<{ id: string; detailID: string; label: string; position: Vec2; screen: Vec2; state: string }>;
     scanWaves: { active: boolean; screen: Vec2 | null; rings: Array<{ radius: number; alpha: number }> };
     projectiles: Array<{ id: string; source: Vec2; target: Vec2; head: Vec2; progress: number; active: boolean; alpha: number }>;
+    background: StarfieldDebugState;
   } {
     const displayPositions: Record<string, Vec2> = {};
     for (const [entityID, position] of this.entityWorldPositions) {
@@ -211,32 +250,51 @@ export class WorldRenderer {
         rings: this.scanDebug.rings.map((ring) => ({ ...ring })),
       },
       projectiles: (this.state?.worldEffects ?? []).flatMap((effect) => this.projectileDebugSnapshot(effect, now)),
+      background: {
+        assetLoaded: this.starfieldDebug.assetLoaded,
+        tileCount: this.starfieldDebug.tileCount,
+        mirroredTiles: this.starfieldDebug.mirroredTiles,
+        farOffset: { ...this.starfieldDebug.farOffset },
+        midOffset: { ...this.starfieldDebug.midOffset },
+        sampleTiles: this.starfieldDebug.sampleTiles.map((tile) => ({ ...tile, screen: { ...tile.screen } })),
+      },
     };
   }
 
   private createStarfield(): void {
-    if (!this.app) {
+    if (!this.app || !this.starfieldTexture) {
       return;
     }
 
     const width = Math.max(this.app.screen.width, 1600);
     const height = Math.max(this.app.screen.height, 1000);
-    this.nebulaLayer
-      .circle(width * 0.28, height * 0.22, 220)
-      .fill({ color: 0x6f3d8f, alpha: 0.1 })
-      .circle(width * 0.74, height * 0.72, 260)
-      .fill({ color: 0x2bdfff, alpha: 0.065 })
-      .circle(width * 0.52, height * 0.45, 180)
-      .fill({ color: 0xff5c7a, alpha: 0.045 });
-    for (let index = 0; index < 220; index += 1) {
+    for (const tile of this.starfieldTiles) {
+      tile.sprite.destroy();
+    }
+    this.starfieldTiles.length = 0;
+    this.starfieldLayer.removeChildren();
+    for (const layer of starfieldLayerConfigs) {
+      for (let row = -STARFIELD_GRID_RADIUS; row <= STARFIELD_GRID_RADIUS; row += 1) {
+        for (let column = -STARFIELD_GRID_RADIUS; column <= STARFIELD_GRID_RADIUS; column += 1) {
+          const sprite = new Sprite(this.starfieldTexture);
+          sprite.alpha = layer.alpha;
+          sprite.label = `starfield-${layer.id}-${column}-${row}`;
+          this.starfieldTiles.push({ sprite, layerID: layer.id, column, row });
+          this.starfieldLayer.addChild(sprite);
+        }
+      }
+    }
+
+    this.nebulaLayer.clear();
+    for (let index = 0; index < 160; index += 1) {
       const star = new Graphics();
-      const radius = index % 17 === 0 ? 1.8 : index % 5 === 0 ? 1.15 : 0.75;
+      const radius = index % 19 === 0 ? 1.55 : index % 5 === 0 ? 1 : 0.55;
       const color = index % 7 === 0 ? 0xf4c95d : index % 5 === 0 ? 0x7cff9b : 0xd7f7ff;
       star.circle(0, 0, radius).fill(color);
       const base = { x: (index * 97) % width, y: (index * 53) % height };
-      const depth = index % 11 === 0 ? 0.72 : index % 3 === 0 ? 0.44 : 0.22;
+      const depth = index % 11 === 0 ? 0.88 : index % 3 === 0 ? 0.58 : 0.32;
       star.position.set(base.x, base.y);
-      star.alpha = 0.3 + depth * 0.28;
+      star.alpha = 0.12 + depth * 0.16;
       this.stars.push({ view: star, base, depth });
       this.backgroundLayer.addChild(star);
     }
@@ -592,20 +650,80 @@ export class WorldRenderer {
     const offsetX = wrap(-this.center.x * 0.18 * this.scale, gridSize);
     const offsetY = wrap(-this.center.y * 0.18 * this.scale, gridSize);
 
+    this.updateStarfieldTiles(width, height);
     this.gridLayer.clear();
     for (let x = offsetX - gridSize; x <= width + gridSize; x += gridSize) {
-      this.gridLayer.moveTo(x, 0).lineTo(x, height).stroke({ color: 0x2bdfff, width: 1, alpha: 0.08 });
+      this.gridLayer.moveTo(x, 0).lineTo(x, height).stroke({ color: 0x2bdfff, width: 1, alpha: 0.1 });
     }
     for (let y = offsetY - gridSize; y <= height + gridSize; y += gridSize) {
-      this.gridLayer.moveTo(0, y).lineTo(width, y).stroke({ color: 0x2bdfff, width: 1, alpha: 0.08 });
+      this.gridLayer.moveTo(0, y).lineTo(width, y).stroke({ color: 0x2bdfff, width: 1, alpha: 0.1 });
     }
 
-    this.nebulaLayer.position.set(wrap(-this.center.x * 0.025, 120) - 60, wrap(-this.center.y * 0.025, 120) - 60);
+    this.nebulaLayer.position.set(0, 0);
     for (const star of this.stars) {
       const parallaxX = star.base.x - this.center.x * star.depth * 0.055;
       const parallaxY = star.base.y - this.center.y * star.depth * 0.055;
       star.view.position.set(wrap(parallaxX, width + 80) - 40, wrap(parallaxY, height + 80) - 40);
     }
+  }
+
+  private updateStarfieldTiles(width: number, height: number): void {
+    if (!this.starfieldTexture) {
+      this.starfieldDebug = {
+        assetLoaded: false,
+        tileCount: 0,
+        mirroredTiles: 0,
+        farOffset: { x: 0, y: 0 },
+        midOffset: { x: 0, y: 0 },
+        sampleTiles: [],
+      };
+      return;
+    }
+
+    const sampleTiles: StarfieldDebugState['sampleTiles'] = [];
+    let mirroredTiles = 0;
+    const offsets: Record<StarfieldLayerID, Vec2> = {
+      far: { x: 0, y: 0 },
+      mid: { x: 0, y: 0 },
+    };
+    for (const layer of starfieldLayerConfigs) {
+      const tileWidth = STARFIELD_TILE.width * layer.scale;
+      const tileHeight = STARFIELD_TILE.height * layer.scale;
+      const parallaxX = this.center.x * layer.depth * this.scale;
+      const parallaxY = this.center.y * layer.depth * this.scale;
+      const originTileX = Math.floor((parallaxX - width / 2) / tileWidth) - STARFIELD_GRID_RADIUS;
+      const originTileY = Math.floor((parallaxY - height / 2) / tileHeight) - STARFIELD_GRID_RADIUS;
+      offsets[layer.id] = { x: parallaxX, y: parallaxY };
+
+      for (const tile of this.starfieldTiles.filter((entry) => entry.layerID === layer.id)) {
+        const tileX = originTileX + tile.column + STARFIELD_GRID_RADIUS;
+        const tileY = originTileY + tile.row + STARFIELD_GRID_RADIUS;
+        const mirrorX = isOddTile(tileX);
+        const mirrorY = isOddTile(tileY);
+        if (mirrorX || mirrorY) {
+          mirroredTiles += 1;
+        }
+        const x = width / 2 + tileX * tileWidth - parallaxX;
+        const y = height / 2 + tileY * tileHeight - parallaxY;
+
+        tile.sprite.alpha = layer.alpha;
+        tile.sprite.scale.set((mirrorX ? -1 : 1) * layer.scale, (mirrorY ? -1 : 1) * layer.scale);
+        tile.sprite.position.set(x + (mirrorX ? tileWidth : 0), y + (mirrorY ? tileHeight : 0));
+
+        if (tile.column === 0 && tile.row === 0) {
+          sampleTiles.push({ layer: layer.id, mirrorX, mirrorY, screen: { x, y } });
+        }
+      }
+    }
+
+    this.starfieldDebug = {
+      assetLoaded: true,
+      tileCount: this.starfieldTiles.length,
+      mirroredTiles,
+      farOffset: offsets.far,
+      midOffset: offsets.mid,
+      sampleTiles,
+    };
   }
 
   private updateInterpolatedEntities(): void {
@@ -1121,6 +1239,10 @@ function snapClose(current: Vec2, target: Vec2): Vec2 {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function isOddTile(value: number): boolean {
+  return Math.abs(value % 2) === 1;
 }
 
 function wrap(value: number, size: number): number {
