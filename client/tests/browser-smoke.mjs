@@ -15,7 +15,7 @@ const useFixture = process.argv.includes('--fixture');
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const clientRoot = path.resolve(thisDir, '..');
 const repoRoot = path.resolve(clientRoot, '..');
-const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '09');
+const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '10');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -27,6 +27,14 @@ const forbiddenText = [
   'account_id',
   'player_id',
   'session_id',
+  'generated_payload',
+  'generated_seed',
+  'rare_cap',
+  'password_hash',
+  'session_token',
+  'reset_secret',
+  'auth_header',
+  'world_seed',
   'npc_placeholder',
   'loot_placeholder',
   'planet_signal_placeholder',
@@ -180,6 +188,7 @@ async function verifyRealViewport(viewport, label) {
     await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
 
     if (label === 'desktop') {
+      await verifyReconnectReconciliation(page, callsign);
       await verifyRealCombatLoot(page);
 
       await clickWorldPosition(page, { x: 40, y: 40 });
@@ -209,6 +218,44 @@ async function verifyRealViewport(viewport, label) {
   } finally {
     await page.close();
   }
+}
+
+async function verifyReconnectReconciliation(page, expectedCallsign) {
+  const before = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return {
+      walletCredits: state?.wallet?.credits,
+      premiumPaid: state?.wallet?.premium_paid,
+      questOffers: state?.questBoard?.offers?.length,
+      marketListings: state?.market?.listings?.length,
+      auctionLots: state?.auction?.lots?.length,
+      premiumEntitlements: state?.premium?.entitlements?.length,
+    };
+  });
+
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.connectionStatus === 'connected', null, {
+    timeout: 10000,
+  });
+  await page.waitForFunction(
+    ({ callsign, snapshot }) => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      return (
+        state?.auth?.session?.authenticated === true &&
+        state?.playerSnapshot?.callsign === callsign &&
+        state?.sector?.name === 'Origin Fringe' &&
+        state?.wallet?.credits === snapshot.walletCredits &&
+        state?.wallet?.premium_paid === snapshot.premiumPaid &&
+        state?.questBoard?.offers?.length === snapshot.questOffers &&
+        state?.market?.listings?.length === snapshot.marketListings &&
+        state?.auction?.lots?.length === snapshot.auctionLots &&
+        state?.premium?.entitlements?.length === snapshot.premiumEntitlements
+      );
+    },
+    { callsign: expectedCallsign, snapshot: before },
+    { timeout: 10000 },
+  );
+  await assertNoForbiddenLeaks(page, 'desktop-reconnect');
 }
 
 async function verifyAdminViewport(viewport, label) {
@@ -510,6 +557,24 @@ async function assertNoForbiddenLeaks(page, label) {
   assertNoForbiddenText(text, `${label} body`);
   const smokeState = await page.evaluate(() => JSON.stringify(window.__SPACE_MORPG_SMOKE_STATE__));
   assertNoForbiddenText(smokeState, `${label} smoke state`);
+  const browserStorage = await page.evaluate(() => {
+    const local = {};
+    const session = {};
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key) {
+        local[key] = window.localStorage.getItem(key);
+      }
+    }
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (key) {
+        session[key] = window.sessionStorage.getItem(key);
+      }
+    }
+    return JSON.stringify({ cookie: document.cookie, local, session });
+  });
+  assertNoForbiddenText(browserStorage, `${label} browser storage`);
 }
 
 async function clickWorldPosition(page, world) {

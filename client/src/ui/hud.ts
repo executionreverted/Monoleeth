@@ -53,8 +53,10 @@ export class HUD {
         <div class="top-status" aria-label="Server-owned status">
           <div><span>Sector</span><strong data-top-sector>${lockedValue()}</strong></div>
           <div><span>Danger</span><strong data-top-danger>${lockedValue()}</strong></div>
+          <div><span>Energy</span><strong data-top-energy>${lockedValue()}</strong></div>
           <div><span>Cargo</span><strong data-top-cargo>${lockedValue()}</strong></div>
           <div><span>Credits</span><strong data-top-credits>${lockedValue()}</strong></div>
+          <div><span>Cap</span><strong data-top-cap>${lockedValue()}</strong></div>
         </div>
         <label class="socket-field demo-only">
           <span>WS</span>
@@ -108,8 +110,10 @@ export class HUD {
     this.root.dataset.mode = state.auth.mode;
     const sector = this.root.querySelector<HTMLElement>('[data-top-sector]');
     const danger = this.root.querySelector<HTMLElement>('[data-top-danger]');
+    const energy = this.root.querySelector<HTMLElement>('[data-top-energy]');
     const cargo = this.root.querySelector<HTMLElement>('[data-top-cargo]');
     const credits = this.root.querySelector<HTMLElement>('[data-top-credits]');
+    const cap = this.root.querySelector<HTMLElement>('[data-top-cap]');
     if (sector) {
       sector.textContent = state.sector?.name || '--';
     }
@@ -121,6 +125,12 @@ export class HUD {
     }
     if (credits) {
       credits.textContent = state.wallet ? String(state.wallet.credits) : '--';
+    }
+    if (energy) {
+      energy.textContent = formatPair(state.playerSnapshot?.energy, state.playerSnapshot?.max_energy);
+    }
+    if (cap) {
+      cap.textContent = formatPair(state.ship?.capacitor, state.ship?.max_capacitor);
     }
     this.panels.status.innerHTML = statusPanel(state);
     this.panels.cargo.innerHTML = cargoPanel(state);
@@ -555,19 +565,26 @@ function actionBar(state: ClientState): string {
   const laserCooling = laserReadyAt > Date.now();
   const canLaser = target?.entity_type === 'npc' && !shipDisabled && !laserCooling;
   const canLoot = target?.entity_type === 'loot' && !shipDisabled;
+  const canScan = state.connectionStatus === 'connected' && !shipDisabled;
   const laserLabel = laserCooling ? 'Cooling' : 'Laser';
 
   return `
     <div class="action-slot">
       <button class="action-button" type="button" data-action="fire" ${canLaser ? '' : 'disabled'} title="Basic laser">
         <span>${escapeHTML(laserLabel)}</span>
-        <small>${target?.entity_type === 'npc' ? 'Ready' : 'No target'}</small>
+        <small>${target?.entity_type === 'npc' ? 'Ready' : 'No lock'}</small>
       </button>
     </div>
     <div class="action-slot">
       <button class="action-button" type="button" disabled title="Missile skills are not exposed yet">
         <span>Rocket</span>
         <small>Locked</small>
+      </button>
+    </div>
+    <div class="action-slot">
+      <button class="action-button" type="button" data-action="scan" ${canScan ? '' : 'disabled'} title="Run scanner pulse">
+        <span>Scan</span>
+        <small>${state.planetIntel?.lastScan?.status ? actionScanLabel(state.planetIntel.lastScan.status) : 'Pulse'}</small>
       </button>
     </div>
     <div class="action-slot">
@@ -698,6 +715,10 @@ function lockedValue(): string {
   return '--';
 }
 
+function formatPair(current?: number, max?: number): string {
+  return current !== undefined && max !== undefined ? `${Math.round(current)}/${Math.round(max)}` : lockedValue();
+}
+
 function publicEntityType(entityType: string): string {
   switch (entityType) {
     case 'npc':
@@ -739,6 +760,10 @@ function scanStatusLabel(status: string): string {
     default:
       return status || 'Scanner';
   }
+}
+
+function actionScanLabel(status: string): string {
+  return status === 'planet_discovered' ? 'Found' : scanStatusLabel(status);
 }
 
 function publicPlanetName(planet: NonNullable<ClientState['planetIntel']>['planets'][number]): string {

@@ -5,9 +5,10 @@ import { CLIENT_EVENTS, ErrorEnvelope, RequestEnvelope, ServerMessage, Vec2 } fr
 import { WorldRenderer } from '../render/world-renderer';
 import { AuthPanel } from '../ui/auth-panel';
 import { HUD } from '../ui/hud';
-import { correctionEvent, demoEvents } from './demo-state';
 import { createInitialState, reduceClientState } from '../state/reducer';
 import { ClientAction, ClientState, PublicSession } from '../state/types';
+
+type DemoStateModule = typeof import('./demo-state');
 
 export class ClientApp {
   private state: ClientState = createInitialState();
@@ -27,6 +28,7 @@ export class ClientApp {
   private reconnectTimer: number | null = null;
   private intentionalDisconnect = false;
   private systemsSnapshotRequested = false;
+  private demoState: DemoStateModule | null = null;
   private readonly demoMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1';
 
   constructor(private readonly root: HTMLElement) {}
@@ -81,7 +83,7 @@ export class ClientApp {
 
     if (this.demoMode) {
       this.dispatch({ type: 'demoModeStarted' });
-      this.seedDemoState();
+      await this.seedDemoState();
       this.render();
       return;
     }
@@ -102,11 +104,12 @@ export class ClientApp {
     this.clearReconnectTimer();
     this.realtime.disconnect();
     if (this.state.auth.mode === 'demo') {
-      this.seedDemoState();
+      void this.seedDemoState();
     }
   }
 
-  private seedDemoState(): void {
+  private async seedDemoState(): Promise<void> {
+    const { demoEvents } = await this.loadDemoState();
     this.dispatch({ type: 'replaceVisibleEntities', entities: [], serverTime: null });
     for (const envelope of demoEvents()) {
       this.dispatch({ type: 'eventReceived', envelope });
@@ -119,8 +122,13 @@ export class ClientApp {
 
     if (this.state.auth.mode === 'demo' && !this.realtime.isConnected()) {
       const localID = this.findLocalPlayerID();
+      if (!localID) {
+        return;
+      }
       window.setTimeout(() => {
-        this.dispatch({ type: 'eventReceived', envelope: correctionEvent(localID, target) });
+        void this.loadDemoState().then(({ correctionEvent }) => {
+          this.dispatch({ type: 'eventReceived', envelope: correctionEvent(localID, target) });
+        });
       }, 120);
     }
   }
@@ -382,16 +390,24 @@ export class ClientApp {
     this.publishSmokeState();
   }
 
-  private findLocalPlayerID(): string {
+  private findLocalPlayerID(): string | null {
     return (
       Object.values(this.state.visibleEntities).find((entity) => entity.status_flags?.includes('self'))?.entity_id ??
       Object.values(this.state.visibleEntities).find((entity) => entity.entity_type === 'player')?.entity_id ??
-      'player-local'
+      null
     );
   }
 
   private selectedTarget() {
     return this.state.selectedTargetID ? this.state.visibleEntities[this.state.selectedTargetID] ?? null : null;
+  }
+
+  private async loadDemoState(): Promise<DemoStateModule> {
+    if (import.meta.env.DEV) {
+      this.demoState ??= await import('./demo-state');
+      return this.demoState;
+    }
+    throw new Error('Demo fixture mode is available only in development builds.');
   }
 
   private publishSmokeState(): void {

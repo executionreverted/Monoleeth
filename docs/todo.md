@@ -86,13 +86,45 @@ for phase status; this file is a compact pending-work index.
   can only express scan/share/claim/use intents for the authenticated player;
   never accept client-authored coordinates, planet candidates, XP, X Core
   consumption, or scroll metadata.
-- [ ] Wire Phase 11 browser combat, loot, scanner, wallet/cargo, and stat
-  controls to authenticated Go gateway/runtime handlers once those operations
-  expose server-authoritative commands and safe snapshot events. The browser now
-  emits safe `combat.use_skill`, `loot.pickup`, and `scan.pulse` intents and
-  verifies them against the local smoke WebSocket fixture, but production
-  transport/runtime adapters remain open. Source:
-  `docs/roadmap/11-browser-client-prototype.md`.
+- [ ] Add authenticated browser loadout mutation contracts for
+  `loadout.equip_module` and `loadout.unequip_module`. Server handlers must
+  resolve player, active ship, slot, owned module instance, rank, compatibility,
+  cargo/inventory destination capacity, and idempotency references such as
+  `module_equip:<player_id>:<item_instance_id>:<slot_id>` from server context;
+  the client needs systems-panel actions that reconcile only from
+  `loadout.snapshot`, `inventory.snapshot`, and `stats.snapshot`. Source:
+  Phase 10 audit.
+- [ ] Add authenticated browser crafting mutation contracts for
+  `crafting.start`, `crafting.complete`, and `crafting.cancel`. Server handlers
+  must map request ids to stable domain references such as
+  `craft_start:<player_id>:<recipe_id>:<location_id>`,
+  `craft_complete:<job_id>`, and `craft_cancel:<job_id>`, validate materials,
+  wallet, rank, location authorization, queue limits, and output capacity, then
+  emit crafting/inventory/wallet/progression snapshots after commit. Source:
+  Phase 10 audit.
+- [ ] Add authenticated planet ownership/building mutation contracts for
+  `discovery.claim_planet`, `planet.building_build`, and
+  `planet.building_upgrade`. Server handlers must re-check visibility/fog,
+  range or claim policy, ownership, required X Core/materials/wallet balance,
+  storage capacity, rank/building requirements, and idempotency keys before
+  publishing `planet.claimed`, `planet.storage_updated`, and
+  `planet.building_updated` events. Source: Phase 10 audit.
+- [ ] Add authenticated automation route mutation contracts for `route.create`,
+  `route.update`, `route.enable`, `route.disable`, and `route.settle`. Server
+  handlers must validate endpoint visibility/access, ownership, route capacity,
+  energy/upkeep policy, duplicate settlement windows, and storage capacity, then
+  reconcile the browser through `route.list`, `route.snapshot`, and
+  `route.updated`/`route.settled` events. Source: Phase 10 audit.
+- [ ] Add a real browser death/respawn E2E scenario. Combat or zone-worker
+  authority should produce `death.ship_disabled` for the authenticated active
+  ship without client-authored damage or death state; the browser can then use
+  `death.repair_quote` and `death.repair_ship` and reconcile wallet/ship
+  snapshots. Source: Phase 10 audit.
+- [ ] Add server-backed mail/social/menu contracts or keep those mockup topbar
+  affordances hidden/locked. The default browser must not show fake unread mail,
+  friend, party, or menu notification counts; future contracts should define
+  query names, empty states, and role/visibility rules before UI indicators are
+  enabled. Source: Phase 10 audit.
 - [ ] Add a dedicated browser-client ESLint/style configuration after the Phase
   11 prototype settles. Current client verification has a trust-boundary lint
   script, TypeScript typecheck, Vitest unit tests, Vite production build, and
@@ -166,6 +198,12 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Wire Phase 11 browser combat, loot, scanner, wallet/cargo, and stat
+  controls to authenticated Go gateway/runtime handlers. The real browser now
+  emits `combat.use_skill`, `loot.pickup`, and `scan.pulse` intents over the
+  authenticated Go WebSocket gateway, receives server-owned wallet/cargo/stat
+  snapshots, and verifies the flow in the Phase 10 real-server smoke. Source:
+  `docs/plans/ui-implementation/10-final-mockup-parity-hardening.md`.
 - [x] Replace the Phase 11 browser client's offline demo/local smoke harness
   default with an authenticated Go WebSocket gateway flow and server-owned
   player/session resolution. Default startup now restores `/api/session`, shows
