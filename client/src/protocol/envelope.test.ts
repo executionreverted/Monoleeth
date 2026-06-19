@@ -93,6 +93,52 @@ describe('parseServerMessage', () => {
     });
   });
 
+  test('accepts phase 09 public quest payloads without raw generation data', () => {
+    const message = parseServerMessage(
+      JSON.stringify({
+        event_id: 'quest-1',
+        type: CLIENT_EVENTS.questProgressed,
+        payload: {
+          quest_id: 'quest-1',
+          quest_type: 'kill',
+          title: 'Training Sweep',
+          state: 'completed',
+          objectives: [{ id: 'kill', kind: 'kill', target: 'pirate', current: 3, required: 3, completed: true }],
+          rewards: [{ kind: 'currency', currency_type: 'credits', amount: 100 }],
+          accepted_at: 1000,
+          completed_at: 2000,
+          can_claim: true,
+        },
+        server_time: 182736126,
+        seq: 11,
+        v: 1,
+      }),
+    );
+
+    expect(message).toMatchObject({
+      event_id: 'quest-1',
+      type: CLIENT_EVENTS.questProgressed,
+      payload: { can_claim: true },
+    });
+  });
+
+  test('rejects phase 09 raw quest internals', () => {
+    expect(() =>
+      parseServerMessage(
+        JSON.stringify({
+          event_id: 'quest-hidden',
+          type: CLIENT_EVENTS.questBoardGenerated,
+          payload: {
+            offers: [{ offer_id: 'offer-1', generated_payload: { rare_cap: 99 } }],
+          },
+          server_time: 1,
+          seq: 1,
+          v: 1,
+        }),
+      ),
+    ).toThrow(/Forbidden server payload rejected/);
+  });
+
   test('rejects unsupported protocol versions', () => {
     expect(() =>
       parseServerMessage(

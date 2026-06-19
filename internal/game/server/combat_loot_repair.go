@@ -7,6 +7,7 @@ import (
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
+	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/worker"
@@ -114,6 +115,16 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 			"entity_id": result.KillEvent.NPCEntityID.String(),
 			"npc_type":  result.KillEvent.NPCType,
 		})
+		if updated, err := runtime.Quest.ConsumeCombatNPCKilled(quests.CombatNPCKilledInput{
+			EventID:          foundation.EventID("quest-combat-" + request.RequestID.String()),
+			ProgressEventKey: quests.QuestProgressEventKey("combat.npc_killed:" + result.KillEvent.NPCEntityID.String()),
+			PlayerID:         ctx.PlayerID,
+			NPCType:          result.KillEvent.NPCType,
+		}); err != nil {
+			return nil, domainErrorForQuest(err)
+		} else {
+			runtime.queueQuestProgressEventsLocked(sessionID, updated)
+		}
 		if xpResult, err := runtime.combatXP.GrantNPCKillXP(*result.KillEvent); err == nil {
 			payload := progressionPayload(xpResult.Snapshot)
 			progressionSnapshot = &payload
@@ -205,6 +216,21 @@ func (runtime *Runtime) handleLootPickup(ctx realtime.CommandContext, request re
 		"item_id":  result.Drop.ItemDefinition.ItemID.String(),
 		"quantity": result.Drop.Quantity,
 	})
+	quantity, err := foundation.NewQuantity(result.Drop.Quantity)
+	if err != nil {
+		return nil, domainErrorForQuest(err)
+	}
+	if updated, err := runtime.Quest.ConsumeLootPickedUp(quests.LootPickedUpInput{
+		EventID:          foundation.EventID("quest-loot-" + request.RequestID.String()),
+		ProgressEventKey: quests.QuestProgressEventKey("loot.picked_up:" + result.Drop.ID.String()),
+		PlayerID:         ctx.PlayerID,
+		ItemID:           result.Drop.ItemDefinition.ItemID,
+		Quantity:         quantity,
+	}); err != nil {
+		return nil, domainErrorForQuest(err)
+	} else {
+		runtime.queueQuestProgressEventsLocked(sessionID, updated)
+	}
 	runtime.queueEventLocked(sessionID, realtime.EventLootRemoved, map[string]any{
 		"entity_id": result.Drop.ID.String(),
 	})

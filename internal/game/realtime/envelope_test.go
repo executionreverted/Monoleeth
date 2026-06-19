@@ -104,7 +104,9 @@ func TestDecodeRequestEnvelopeAcceptsCombatUseSkillOperation(t *testing.T) {
 
 func TestOperationRegistryRejectsClientAuthoredQuestProgressOperations(t *testing.T) {
 	allowedQuestClientOperations := map[Operation]struct{}{
+		Operation("quest.board"):        {},
 		Operation("quest.accept"):       {},
+		Operation("quest.progress"):     {},
 		Operation("quest.reroll"):       {},
 		Operation("quest.claim_reward"): {},
 	}
@@ -119,7 +121,6 @@ func TestOperationRegistryRejectsClientAuthoredQuestProgressOperations(t *testin
 	}
 
 	disallowed := []Operation{
-		Operation("quest.progress"),
 		Operation("quest.progress_objective"),
 		Operation("quest.set_progress"),
 		Operation("quest.complete_objective"),

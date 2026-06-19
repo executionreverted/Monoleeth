@@ -122,6 +122,11 @@ func (service *QuestService) BoardOffers(playerID foundation.PlayerID) ([]Genera
 	return service.store.BoardOffersAt(playerID, now)
 }
 
+// PlayerQuests returns the player's accepted, completed, and claimed quests.
+func (service *QuestService) PlayerQuests(playerID foundation.PlayerID) ([]PlayerQuest, error) {
+	return service.store.PlayerQuests(playerID)
+}
+
 // AcceptQuest accepts a stored offer into durable server-owned player quest
 // state. Repeated accepts of the same stored offer return the existing quest.
 func (service *QuestService) AcceptQuest(input AcceptQuestInput) (PlayerQuest, error) {

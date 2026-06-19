@@ -177,8 +177,52 @@ export class CommandBuilder {
     return this.build(OPERATIONS.premiumPurchaseWeeklyXCore, {});
   }
 
+  questBoard(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.questBoard, {});
+  }
+
+  questAccept(offerID: string): RequestEnvelope<{ offer_id: string }> {
+    return this.build(OPERATIONS.questAccept, { offer_id: offerID });
+  }
+
+  questProgress(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.questProgress, {});
+  }
+
+  questClaimReward(questID: string): RequestEnvelope<{ quest_id: string }> {
+    return this.build(OPERATIONS.questClaimReward, { quest_id: questID });
+  }
+
+  questReroll(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.questReroll, {});
+  }
+
+  adminInspectPlayer(targetPlayerID?: string): RequestEnvelope<{ target_player_id?: string }> {
+    return this.build(OPERATIONS.adminInspectPlayer, targetPlayerID ? { target_player_id: targetPlayerID } : {});
+  }
+
+  adminRepairCraftJob(jobID: string): RequestEnvelope<{ job_id: string }> {
+    return this.build(OPERATIONS.adminRepairCraftJob, { job_id: jobID });
+  }
+
   adminEconomyDashboard(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.adminEconomyDashboard, {});
+  }
+
+  observabilityCommandLog(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.observabilityCommandLog, {});
+  }
+
+  observabilityMetrics(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.observabilityMetrics, {});
+  }
+
+  observabilityReleaseGate(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.observabilityReleaseGate, {});
+  }
+
+  observabilityAbuseCoverage(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.observabilityAbuseCoverage, {});
   }
 
   debugSpawnNPC(entityID: string, position: Vec2): RequestEnvelope<{ entity_id: string; position: Vec2 }> {
@@ -262,6 +306,24 @@ function findTrustedClientField(value: unknown): string | null {
       normalized === 'provider' ||
       normalized === 'provider_reference' ||
       normalized === 'entitlement_state' ||
+      normalized === 'quest_progress' ||
+      normalized === 'progress' ||
+      normalized === 'progress_json' ||
+      normalized === 'objective_progress' ||
+      normalized === 'completed' ||
+      normalized === 'completed_at' ||
+      normalized === 'claimed_at' ||
+      normalized === 'reward' ||
+      normalized === 'reward_payload' ||
+      normalized === 'reward_claimed_at' ||
+      normalized === 'generated_payload' ||
+      normalized === 'generated_seed' ||
+      normalized === 'rare_cap' ||
+      normalized === 'reference_id' ||
+      normalized === 'token' ||
+      normalized === 'session_token' ||
+      normalized === 'reset_secret' ||
+      normalized === 'auth_header' ||
       normalized === 'hit' ||
       normalized === 'crit' ||
       normalized === 'procedural_seed' ||

@@ -26,6 +26,11 @@ export interface HUDHandlers {
   onAuctionClaimGrant(): void;
   onPremiumClaim(entitlementID: string): void;
   onPremiumWeeklyXCore(): void;
+  onQuestAccept(offerID: string): void;
+  onQuestClaim(questID: string): void;
+  onQuestReroll(): void;
+  onAdminRefresh(): void;
+  onAdminRepairCraftJob(jobID: string): void;
 }
 
 type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['combat']>;
@@ -209,6 +214,27 @@ export class HUD {
         case 'premium-weekly-xcore':
           this.handlers.onPremiumWeeklyXCore();
           break;
+        case 'quest-accept':
+          if (button.dataset.offerId) {
+            this.handlers.onQuestAccept(button.dataset.offerId);
+          }
+          break;
+        case 'quest-claim':
+          if (button.dataset.questId) {
+            this.handlers.onQuestClaim(button.dataset.questId);
+          }
+          break;
+        case 'quest-reroll':
+          this.handlers.onQuestReroll();
+          break;
+        case 'admin-refresh':
+          this.handlers.onAdminRefresh();
+          break;
+        case 'admin-repair-craft-job':
+          if (button.dataset.jobId) {
+            this.handlers.onAdminRepairCraftJob(button.dataset.jobId);
+          }
+          break;
       }
     });
   }
@@ -356,9 +382,12 @@ function systemsPanel(state: ClientState): string {
   const equipped = loadout?.slots.filter((slot) => slot.module_item_id).length ?? 0;
   const recipe = crafting?.recipes[0] ?? null;
   const recipeLabel = recipe ? recipe.output.item_id ?? recipe.output.ship_id ?? recipe.recipe_id : null;
+  const quest = questBlock(state);
+  const adminOps = adminOpsBlock(state);
 
   return `
     <h2>Systems</h2>
+    ${adminOps ? `${adminOps}${quest}` : quest}
     ${
       loaded
         ? `<div class="systems-block">
@@ -376,6 +405,87 @@ function systemsPanel(state: ClientState): string {
            }
            <div class="meta-row"><span>Next</span><strong>${recipeLabel ? escapeHTML(recipeLabel) : lockedValue()}</strong></div>`
         : '<div class="empty-line">Awaiting server systems snapshots.</div>'
+    }
+  `;
+}
+
+function questBlock(state: ClientState): string {
+  const board = state.questBoard;
+  if (!board) {
+    return `
+      <div class="systems-subhead">Quests</div>
+      <div class="empty-line">Awaiting server quest board.</div>
+    `;
+  }
+
+  const claimable = board.active.find((quest) => quest.can_claim) ?? null;
+  const active = board.active.find((quest) => quest.state === 'accepted') ?? board.active[0] ?? null;
+  const offer = board.offers[0] ?? null;
+  const focusQuest = claimable ?? active;
+  const focusObjective = focusQuest?.objectives[0] ?? offer?.objectives[0] ?? null;
+  const balance = state.wallet ? walletBalanceForCurrency(state.wallet, board.reroll_cost.currency_type) : null;
+  const canReroll = balance !== null && balance >= board.reroll_cost.amount;
+
+  return `
+    <div class="systems-subhead">Quests</div>
+    <div class="systems-block">
+      <div class="meta-row"><span>Offers</span><strong>${board.counts.offers}</strong></div>
+      <div class="meta-row"><span>Active</span><strong>${board.counts.active}</strong></div>
+      <div class="meta-row"><span>Claim</span><strong>${board.counts.claimable}</strong></div>
+    </div>
+    ${
+      focusQuest
+        ? `<div class="shop-row">
+             <div><span>${escapeHTML(focusQuest.state || 'quest')}</span><strong>${escapeHTML(focusQuest.title)}</strong><small>${focusObjective ? escapeHTML(questObjectiveLabel(focusObjective)) : escapeHTML(questRewardLabel(focusQuest.rewards[0]))}</small></div>
+             <button type="button" data-action="quest-claim" data-quest-id="${escapeHTML(focusQuest.quest_id)}" ${focusQuest.can_claim ? '' : 'disabled'}>Claim</button>
+           </div>`
+        : offer
+          ? `<div class="shop-row">
+               <div><span>${escapeHTML(offer.quest_type || 'offer')}</span><strong>${escapeHTML(offer.title)}</strong><small>${focusObjective ? escapeHTML(questObjectiveLabel(focusObjective)) : escapeHTML(questRewardLabel(offer.rewards[0]))}</small></div>
+               <button type="button" data-action="quest-accept" data-offer-id="${escapeHTML(offer.offer_id)}">Accept</button>
+             </div>`
+          : '<div class="empty-line">No server quest offers.</div>'
+    }
+    <div class="shop-row">
+      <div><span>Reroll</span><strong>${board.reroll_cost.amount} ${escapeHTML(board.reroll_cost.currency_type)}</strong></div>
+      <button type="button" data-action="quest-reroll" ${canReroll ? '' : 'disabled'}>Roll</button>
+    </div>
+  `;
+}
+
+function adminOpsBlock(state: ClientState): string {
+  if (!state.auth.session?.account?.admin) {
+    return '';
+  }
+
+  const dashboard = state.economyDashboard;
+  const inspection = state.adminInspection;
+  const commandLog = state.commandLogSummary;
+  const metrics = state.metrics;
+  const releaseGate = state.releaseGate;
+  const abuse = state.abuseCoverage;
+  const repairJob = state.crafting?.active_jobs.find((job) => job.state !== 'completed' && job.state !== 'complete') ?? null;
+  const metricSeries =
+    metrics ? metrics.snapshot.counters.length + metrics.snapshot.gauges.length + metrics.snapshot.durations.length : null;
+
+  return `
+    <div class="systems-subhead">Ops</div>
+    <div class="systems-block">
+      <div class="meta-row"><span>Credits</span><strong>${dashboard ? dashboard.wallets.credits : lockedValue()}</strong></div>
+      <div class="meta-row"><span>Logs</span><strong>${commandLog ? commandLog.total : lockedValue()}</strong></div>
+      <div class="meta-row"><span>Series</span><strong>${metricSeries ?? lockedValue()}</strong></div>
+      <div class="meta-row"><span>Gate</span><strong>${releaseGate ? (releaseGate.report.passed ? 'pass' : `${releaseGate.report.missing.length} gap`) : lockedValue()}</strong></div>
+      <div class="meta-row"><span>Abuse</span><strong>${abuse ? (abuse.report.passed ? 'pass' : `${abuse.report.missing.length} gap`) : lockedValue()}</strong></div>
+      <div class="meta-row"><span>Inspect</span><strong>${inspection ? `${inspection.inventory.stackable_items}/${inspection.wallet.balances.length}` : lockedValue()}</strong></div>
+    </div>
+    <div class="segmented segmented--ops">
+      <button type="button" data-action="admin-refresh">Ops</button>
+      <button type="button" data-action="admin-repair-craft-job" data-job-id="${escapeHTML(repairJob?.job_id ?? '')}" ${repairJob ? '' : 'disabled'}>Repair</button>
+    </div>
+    ${
+      state.adminRepair
+        ? `<div class="empty-line">${escapeHTML(state.adminRepair.status || state.adminRepair.message || 'Admin action recorded.')}</div>`
+        : ''
     }
   `;
 }
@@ -640,6 +750,40 @@ function publicPlanetName(planet: NonNullable<ClientState['planetIntel']>['plane
 function publicAuctionName(payloadType: string, definitionID: string): string {
   const label = payloadType ? payloadType.replace(/_/g, ' ') : 'lot';
   return definitionID ? `${label} ${definitionID.replace(/_/g, ' ')}` : label;
+}
+
+function questObjectiveLabel(objective: NonNullable<ClientState['questBoard']>['active'][number]['objectives'][number]): string {
+  const target = objective.target ? ` ${objective.target.replace(/_/g, ' ')}` : '';
+  return `${objective.current}/${objective.required} ${objective.kind.replace(/_/g, ' ')}${target}`;
+}
+
+function questRewardLabel(reward: NonNullable<ClientState['questBoard']>['offers'][number]['rewards'][number] | undefined): string {
+  if (!reward) {
+    return 'reward pending';
+  }
+  if (reward.currency_type) {
+    return `${reward.amount} ${reward.currency_type.replace(/_/g, ' ')}`;
+  }
+  if (reward.item_id) {
+    return `${reward.amount} ${reward.item_id.replace(/_/g, ' ')}`;
+  }
+  if (reward.role) {
+    return `${reward.amount} ${reward.role.replace(/_/g, ' ')}`;
+  }
+  return `${reward.amount} ${reward.kind.replace(/_/g, ' ')}`;
+}
+
+function walletBalanceForCurrency(wallet: NonNullable<ClientState['wallet']>, currency: string): number | null {
+  switch (currency) {
+    case 'credits':
+      return wallet.credits;
+    case 'premium_paid':
+      return wallet.premium_paid;
+    case 'premium_earned':
+      return wallet.premium_earned;
+    default:
+      return null;
+  }
 }
 
 function sellableInventoryStack(state: ClientState): NonNullable<ClientState['inventory']>['stackable'][number] | null {

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"gameproject/internal/game/admin"
 	"gameproject/internal/game/auction"
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/combat"
@@ -21,6 +22,7 @@ import (
 	"gameproject/internal/game/premium"
 	"gameproject/internal/game/production"
 	"gameproject/internal/game/progression"
+	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/stats"
 	"gameproject/internal/game/world"
@@ -91,11 +93,15 @@ type Runtime struct {
 	Market       *market.MarketService
 	Auction      *auction.Service
 	Premium      *premium.PremiumEntitlementService
+	Quest        *quests.QuestService
+	Admin        *admin.Service
 	Progression  *progression.ProgressionService
 	Recipes      crafting.RecipeCatalog
 	Discovery    *discovery.InMemoryStore
 	Scanner      *discovery.ScannerService
 	Production   *production.InMemoryStore
+	CommandLog   *observability.MemoryCommandLogger
+	Metrics      *observability.MetricRecorder
 
 	combatXP       *combat.NPCKillXPHandler
 	lootTable      loot.LootTable
@@ -297,8 +303,28 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	questService, err := quests.NewQuestService(clock, quests.MustMVPQuestCatalog(), quests.NewInMemoryQuestStore())
+	if err != nil {
+		return nil, err
+	}
+	questService.SetRewardServices(quests.QuestRewardServices{
+		Wallet:      walletService,
+		Inventory:   questRewardInventoryAdapter{inventory: inventory, itemCatalog: itemCatalog},
+		Progression: progressionService,
+	})
+	questService.SetRerollServices(quests.QuestRerollServices{Wallet: walletService})
 	discoveryStore := discovery.NewInMemoryStore()
 	productionStore := production.NewInMemoryStore()
+	adminService := admin.NewService(admin.ServiceConfig{
+		Inventory:  inventory,
+		Wallet:     walletService,
+		Market:     marketService,
+		Auction:    auctionService,
+		Production: productionStore,
+		Clock:      clock,
+	})
+	commandLogger := observability.NewMemoryCommandLogger()
+	metricRecorder := observability.NewMetricRecorder()
 	runtime := &Runtime{
 		clock:   clock,
 		devMode: config.DevMode,
@@ -323,10 +349,14 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Market:         marketService,
 		Auction:        auctionService,
 		Premium:        premiumService,
+		Quest:          questService,
+		Admin:          adminService,
 		Progression:    progressionService,
 		Recipes:        recipeCatalog,
 		Discovery:      discoveryStore,
 		Production:     productionStore,
+		CommandLog:     commandLogger,
+		Metrics:        metricRecorder,
 		combatXP:       combatXP,
 		lootTable:      lootTable,
 		itemCatalog:    itemCatalog,
@@ -372,8 +402,8 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Sessions: runtimeSessionResolver{runtime: runtime},
 		Executor: realtime.ObservedCommandExecutor{
 			Clock:   clock,
-			Logger:  observability.NewMemoryCommandLogger(),
-			Metrics: observability.NewMetricRecorder(),
+			Logger:  commandLogger,
+			Metrics: metricRecorder,
 		},
 		Handlers: runtime.commandHandlers(),
 	})
@@ -563,7 +593,14 @@ func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.
 		realtime.OperationAuctionBuyNow,
 		realtime.OperationAuctionClaimGrant,
 		realtime.OperationPremiumClaim,
-		realtime.OperationPremiumWeeklyXCore:
+		realtime.OperationPremiumWeeklyXCore,
+		realtime.OperationQuestBoard,
+		realtime.OperationQuestAccept,
+		realtime.OperationQuestClaimReward,
+		realtime.OperationQuestReroll,
+		realtime.OperationAdminRepairCraftJob,
+		realtime.OperationObservabilityMetric,
+		realtime.OperationObservabilityGate:
 		runtime.mu.Lock()
 		defer runtime.mu.Unlock()
 		events := runtime.drainQueuedEventsLocked(sessionID)

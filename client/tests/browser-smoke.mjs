@@ -15,7 +15,10 @@ const useFixture = process.argv.includes('--fixture');
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const clientRoot = path.resolve(thisDir, '..');
 const repoRoot = path.resolve(clientRoot, '..');
-const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '08');
+const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '09');
+const adminEmail = 'smoke-admin@example.com';
+const adminPassword = 'correct-admin-password';
+const adminCallsign = 'Smoke-Admin';
 const forbiddenText = [
   'gameplay_seed',
   'future_spawn',
@@ -48,6 +51,7 @@ try {
     await verifyRealViewport({ width: 390, height: 844 }, 'mobile');
     await verifyRealViewport({ width: 1024, height: 768 }, 'tablet');
     await verifyRealViewport({ width: 1440, height: 900 }, 'desktop');
+    await verifyAdminViewport({ width: 1440, height: 900 }, 'admin-desktop');
   }
 } finally {
   await browser?.close();
@@ -202,6 +206,50 @@ async function verifyRealViewport(viewport, label) {
         Object.keys(state?.visibleEntities ?? {}).length === 0
       );
     });
+  } finally {
+    await page.close();
+  }
+}
+
+async function verifyAdminViewport(viewport, label) {
+  const page = await browser.newPage({ viewport });
+  try {
+    await page.goto(withSmokeParam(url), { waitUntil: 'networkidle' });
+    await page.waitForSelector('.auth-card', { timeout: 10000 });
+    await page.locator('input[name="email"]').fill(adminEmail);
+    await page.locator('input[name="password"]').fill(adminPassword);
+    await page.locator('[data-submit]').click();
+
+    await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.connectionStatus === 'connected', null, {
+      timeout: 10000,
+    });
+    await page.waitForFunction(
+      (expectedCallsign) => {
+        const state = window.__SPACE_MORPG_SMOKE_STATE__;
+        const opsText = document.querySelector('[data-panel="systems"]')?.textContent ?? '';
+        return (
+          state?.auth?.session?.account?.admin === true &&
+          state?.playerSnapshot?.callsign === expectedCallsign &&
+          state?.questBoard?.offers?.length === 10 &&
+          state?.economyDashboard?.wallets &&
+          state?.adminInspection?.wallet?.balances?.length >= 1 &&
+          state?.commandLogSummary?.total >= 1 &&
+          state?.metrics?.snapshot &&
+          state?.releaseGate?.report?.passed === true &&
+          state?.abuseCoverage?.report?.passed === true &&
+          opsText.includes('Ops') &&
+          opsText.includes('Gate')
+        );
+      },
+      adminCallsign,
+      { timeout: 10000 },
+    );
+
+    await assertCanvasAndLayout(page, viewport, label);
+    await assertNoForbiddenLeaks(page, label);
+    await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
+    await page.locator('[data-action="logout"]').click();
+    await page.waitForSelector('.auth-card', { timeout: 10000 });
   } finally {
     await page.close();
   }
@@ -480,6 +528,9 @@ async function clickWorldPosition(page, world) {
     return {
       x: rect.left + rect.width / 2 + (target.x - center.x) * scale,
       y: rect.top + rect.height / 2 + (target.y - center.y) * scale,
+      target,
+      center,
+      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
       element: document.elementFromPoint(
         rect.left + rect.width / 2 + (target.x - center.x) * scale,
         rect.top + rect.height / 2 + (target.y - center.y) * scale,
@@ -491,7 +542,7 @@ async function clickWorldPosition(page, world) {
     throw new Error('Could not map world position to canvas point.');
   }
   if (point.element !== 'world-canvas') {
-    throw new Error(`World click at ${Math.round(point.x)},${Math.round(point.y)} hit ${String(point.element)}`);
+    throw new Error(`World click at ${Math.round(point.x)},${Math.round(point.y)} hit ${String(point.element)} (${JSON.stringify(point)})`);
   }
   await page.mouse.click(point.x, point.y);
 }
@@ -511,6 +562,9 @@ async function startGameServer(port, allowedOrigin) {
       ...process.env,
       GAME_SERVER_ADDR: `127.0.0.1:${port}`,
       GAME_ALLOWED_ORIGINS: allowedOrigin,
+      GAME_ADMIN_EMAIL: adminEmail,
+      GAME_ADMIN_PASSWORD: adminPassword,
+      GAME_ADMIN_CALLSIGN: adminCallsign,
     },
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],

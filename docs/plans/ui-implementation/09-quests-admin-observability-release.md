@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: Planned
+- State: Completed
 - Owner: Guidance, operations, and readiness UI
 - Depends on: Phase 08
 - Unlocks: full MVP playtest readiness
@@ -58,16 +58,16 @@ observability.abuse_coverage
 
 | Operation | Client Payload | Server Contract |
 | --- | --- | --- |
-| `quest.board` | empty or board filter | player snapshot, eligibility, server-generated offers |
-| `quest.accept` | quest offer id | idempotent accept for eligible offer |
-| `quest.progress` | empty or quest id | server-owned progress snapshot; client cannot advance |
-| `quest.claim_reward` | player quest id | `quest_reward:<player_quest_id>` idempotency, wallet/inventory/progression ledger flow |
-| `quest.reroll` | board id or empty | server-calculated cost, wallet debit, board replacement |
-| `admin.repair_craft_job` | job id/action | admin session, audit log, safe repair mutation |
-| `admin.inspect_player` | player/account lookup | admin session, allowlisted public/operational fields |
-| `admin.economy_dashboard` | filters | admin session, aggregate data only |
-| `observability.command_log` | filters/page | admin session, redacted command records |
-| `observability.metrics` | filters | admin session, safe metrics snapshot |
+| `quest.board` | empty | player snapshot, eligibility, server-generated offers |
+| `quest.accept` | `offer_id` | idempotent accept for eligible offer |
+| `quest.progress` | empty | server-owned progress snapshot; client cannot advance |
+| `quest.claim_reward` | `quest_id` | `quest_reward:<player_quest_id>` idempotency, wallet/inventory/progression ledger flow |
+| `quest.reroll` | empty | server-calculated cost, wallet debit, board replacement |
+| `admin.repair_craft_job` | `job_id` | admin session, action event, safe repair mutation or unavailable status |
+| `admin.inspect_player` | optional `target_player_id` | admin session, allowlisted public/operational fields |
+| `admin.economy_dashboard` | empty | admin session, aggregate data only |
+| `observability.command_log` | empty | admin session, redacted command records |
+| `observability.metrics` | empty | admin session, safe metrics snapshot |
 | `observability.release_gate` | empty | admin session, release gate report schema |
 | `observability.abuse_coverage` | empty | admin session, command coverage report |
 
@@ -125,52 +125,63 @@ Mockup areas covered:
 - topbar mail/notification indicator can surface quest/admin notices
 - admin-only panels are hidden for non-admin sessions
 
+## Implementation Notes
+
+- Browser smoke artifacts live under
+  `output/screenshots/ui-implementation/09/`, including a seeded admin desktop
+  run that renders the Ops release/abuse gate values.
+- Admin craft repair returns `unavailable` in the current runtime when the
+  crafting repair service is not wired, while still preserving the admin guard
+  and action event path.
+- Release gate freshness is represented by `generated_at`; release evidence is
+  summarized by per-module evidence counts for client-safe UI payload size.
+
 ## TODO
 
-- [ ] Add quest board/progress/reward/reroll handlers.
-- [ ] Add per-operation payload/error contracts for quest, admin, and
+- [x] Add quest board/progress/reward/reroll handlers.
+- [x] Add per-operation payload/error contracts for quest, admin, and
       observability operations.
-- [ ] Wire quest progress event consumers to browser snapshots/events.
-- [ ] Add quest board UI and active quest tracker.
-- [ ] Add quest reward claim flow with wallet/inventory/progression snapshots.
-- [ ] Add safe quest reroll cost preview/confirmation.
-- [ ] Add admin role guard middleware/helpers.
-- [ ] Add admin repair/inspection UI for implemented admin services.
-- [ ] Add observability query handlers for command logs/metrics/release gates.
-- [ ] Add admin guard to every observability and release query.
-- [ ] Add allowlisted redaction models and snapshot tests for admin responses.
-- [ ] Add release gate schema with passed/missing/evidence/freshness fields.
-- [ ] Add admin-only dashboards and release report views.
-- [ ] Add notification/log integration for quest/admin/observability events.
+- [x] Wire quest progress event consumers to browser snapshots/events.
+- [x] Add quest board UI and active quest tracker.
+- [x] Add quest reward claim flow with wallet/inventory/progression snapshots.
+- [x] Add safe quest reroll cost preview/confirmation.
+- [x] Add admin role guard middleware/helpers.
+- [x] Add admin repair/inspection UI for implemented admin services.
+- [x] Add observability query handlers for command logs/metrics/release gates.
+- [x] Add admin guard to every observability and release query.
+- [x] Add allowlisted redaction models and snapshot tests for admin responses.
+- [x] Add release gate schema with passed/missing/evidence/freshness fields.
+- [x] Add admin-only dashboards and release report views.
+- [x] Add notification/log integration for quest/admin/observability events.
 
 ## Abuse And Safety Checklist
 
-- [ ] Client cannot set quest progress.
-- [ ] Quest reward claim is idempotent.
-- [ ] Quest reroll cost is server-calculated.
-- [ ] Rare reward cap remains server-side.
-- [ ] Admin commands require admin session.
-- [ ] Observability and release gate queries require admin session.
-- [ ] Admin responses do not leak secrets.
-- [ ] Observability dashboards redact sensitive auth/session data.
-- [ ] Quest event names match canonical spec or have tested alias mappings.
+- [x] Client cannot set quest progress.
+- [x] Quest reward claim is idempotent.
+- [x] Quest reroll cost is server-calculated.
+- [x] Rare reward cap remains server-side.
+- [x] Admin commands require admin session.
+- [x] Observability and release gate queries require admin session.
+- [x] Admin responses do not leak secrets.
+- [x] Observability dashboards redact sensitive auth/session data.
+- [x] Quest event names match canonical spec or have tested alias mappings.
 
 ## Tests
 
-- [ ] Quest board returns offers valid for player snapshot.
-- [ ] Accept quest is idempotent/safe.
-- [ ] Server event progresses quest once.
-- [ ] Claim reward grants values once.
-- [ ] Reroll debits wallet and replaces board safely.
-- [ ] Non-admin cannot call admin endpoints.
-- [ ] Non-admin cannot call observability or release gate endpoints.
-- [ ] Admin repair action logs audit event.
-- [ ] Admin/observability snapshots omit passwords, hashes, tokens, cookies,
+- [x] Quest board returns offers valid for player snapshot.
+- [x] Accept quest is idempotent/safe.
+- [x] Server event progresses quest once.
+- [x] Claim reward grants values once.
+- [x] Reroll debits wallet and replaces board safely.
+- [x] Non-admin cannot call admin endpoints.
+- [x] Non-admin cannot call observability or release gate endpoints.
+- [x] Admin repair action logs audit event.
+- [x] Admin/observability snapshots omit passwords, hashes, tokens, cookies,
       reset secrets, raw auth headers, and sensitive provider data.
-- [ ] Release gate report renders passed/missing/evidence/freshness for required
+- [x] Release gate report renders passed/missing/evidence/freshness for required
       gates.
-- [ ] Browser quest panel updates from server state.
-- [ ] Browser release gate panel renders current report.
+- [x] Browser quest panel updates from server state.
+- [x] Browser release gate panel renders current report.
 
 ## Done Criteria
 

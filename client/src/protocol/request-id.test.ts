@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 
-import { CommandBuilder } from './commands';
+import { assertClientSafePayload, CommandBuilder } from './commands';
 import { createRequestId } from './request-id';
 
 test('createRequestId returns non-empty unique ids', () => {
@@ -34,4 +34,32 @@ test('command builders include request ids and omit trusted fields', () => {
   expect(serializedPayloads).not.toContain('xp');
   expect(serializedPayloads).not.toContain('loot');
   expect(serializedPayloads).not.toContain('cooldown');
+});
+
+test('phase 09 command builders send selectors without trusted quest or admin truth', () => {
+  const builder = new CommandBuilder();
+  const board = builder.questBoard();
+  const accept = builder.questAccept('offer-1');
+  const progress = builder.questProgress();
+  const claim = builder.questClaimReward('quest-1');
+  const reroll = builder.questReroll();
+  const inspect = builder.adminInspectPlayer();
+  const repair = builder.adminRepairCraftJob('craft-job-1');
+  const metrics = builder.observabilityMetrics();
+
+  expect(board.op).toBe('quest.board');
+  expect(board.payload).toEqual({});
+  expect(accept.payload).toEqual({ offer_id: 'offer-1' });
+  expect(progress.payload).toEqual({});
+  expect(claim.payload).toEqual({ quest_id: 'quest-1' });
+  expect(reroll.payload).toEqual({});
+  expect(inspect.payload).toEqual({});
+  expect(repair.payload).toEqual({ job_id: 'craft-job-1' });
+  expect(metrics.payload).toEqual({});
+});
+
+test('phase 09 command payloads reject client-authored quest truth', () => {
+  expect(() => assertClientSafePayload({ progress: { current: 99 } })).toThrow(/trusted field: progress/);
+  expect(() => assertClientSafePayload({ reward_payload: { credits: 1000 } })).toThrow(/trusted field: reward_payload/);
+  expect(() => assertClientSafePayload({ generated_seed: 12345 })).toThrow(/trusted field: generated_seed/);
 });

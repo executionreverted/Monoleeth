@@ -25,13 +25,32 @@ func runtimeLootCatalog() (loot.LootTable, map[foundation.ItemID]economy.ItemDef
 			Chance:         1,
 		}},
 	}
-	return table, map[foundation.ItemID]economy.ItemDefinition{
+	itemCatalog := map[foundation.ItemID]economy.ItemDefinition{
 		rawOre.ItemID: rawOre,
-	}, nil
+	}
+	for _, itemID := range []foundation.ItemID{
+		"iron_ore",
+		"carbon_shards",
+		"energy_cell",
+		"scanner_circuit",
+		"refined_alloy",
+		"helium_dust",
+	} {
+		definition, err := runtimeStackableDefinition(itemID, itemID.String())
+		if err != nil {
+			return loot.LootTable{}, nil, err
+		}
+		itemCatalog[definition.ItemID] = definition
+	}
+	return table, itemCatalog, nil
 }
 
 func runtimeRawOreDefinition() (economy.ItemDefinition, error) {
-	source, err := catalog.NewVersionedDefinitionFromStrings("raw_ore", "v1")
+	return runtimeStackableDefinition("raw_ore", "Raw Ore")
+}
+
+func runtimeStackableDefinition(itemID foundation.ItemID, name string) (economy.ItemDefinition, error) {
+	source, err := catalog.NewVersionedDefinitionFromStrings(itemID.String(), "v1")
 	if err != nil {
 		return economy.ItemDefinition{}, err
 	}
@@ -45,8 +64,8 @@ func runtimeRawOreDefinition() (economy.ItemDefinition, error) {
 	}
 	return economy.NewItemDefinition(
 		source,
-		"raw_ore",
-		"Raw Ore",
+		itemID,
+		name,
 		economy.ItemTypeStackable,
 		economy.ItemRarityCommon,
 		maxStack,

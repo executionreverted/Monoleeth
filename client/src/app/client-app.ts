@@ -72,6 +72,11 @@ export class ClientApp {
       onAuctionClaimGrant: () => this.sendCommand(this.commandBuilder.auctionClaimGrant()),
       onPremiumClaim: (entitlementID) => this.sendCommand(this.commandBuilder.premiumClaim(entitlementID)),
       onPremiumWeeklyXCore: () => this.sendCommand(this.commandBuilder.premiumPurchaseWeeklyXCore()),
+      onQuestAccept: (offerID) => this.sendCommand(this.commandBuilder.questAccept(offerID)),
+      onQuestClaim: (questID) => this.sendCommand(this.commandBuilder.questClaimReward(questID)),
+      onQuestReroll: () => this.sendCommand(this.commandBuilder.questReroll()),
+      onAdminRefresh: () => this.refreshAdminOps(),
+      onAdminRepairCraftJob: (jobID) => this.sendCommand(this.commandBuilder.adminRepairCraftJob(jobID)),
     });
 
     if (this.demoMode) {
@@ -298,9 +303,23 @@ export class ClientApp {
     this.sendCommand(this.commandBuilder.marketSearch());
     this.sendCommand(this.commandBuilder.auctionSearch());
     this.sendCommand(this.commandBuilder.premiumEntitlements());
+    this.sendCommand(this.commandBuilder.questBoard());
+    this.sendCommand(this.commandBuilder.questProgress());
     if (this.state.auth.session?.account?.admin) {
-      this.sendCommand(this.commandBuilder.adminEconomyDashboard());
+      this.refreshAdminOps();
     }
+  }
+
+  private refreshAdminOps(): void {
+    if (!this.state.auth.session?.account?.admin) {
+      return;
+    }
+    this.sendCommand(this.commandBuilder.adminEconomyDashboard());
+    this.sendCommand(this.commandBuilder.adminInspectPlayer());
+    this.sendCommand(this.commandBuilder.observabilityCommandLog());
+    this.sendCommand(this.commandBuilder.observabilityMetrics());
+    this.sendCommand(this.commandBuilder.observabilityReleaseGate());
+    this.sendCommand(this.commandBuilder.observabilityAbuseCoverage());
   }
 
   private handleAuthExpired(message: string): void {
@@ -409,7 +428,14 @@ export class ClientApp {
         market: this.state.market,
         auction: this.state.auction,
         premium: this.state.premium,
+        questBoard: this.state.questBoard,
         economyDashboard: this.state.economyDashboard,
+        adminInspection: this.state.adminInspection,
+        adminRepair: this.state.adminRepair,
+        commandLogSummary: this.state.commandLogSummary,
+        metrics: this.state.metrics,
+        releaseGate: this.state.releaseGate,
+        abuseCoverage: this.state.abuseCoverage,
         repairQuote: this.state.repairQuote,
         skillCooldowns: this.state.skillCooldowns,
         commandLog: this.state.commandLog,

@@ -334,6 +334,7 @@ button:disabled {
   z-index: 2;
   display: grid;
   gap: 0.5rem;
+  min-height: 0;
   align-self: end;
   pointer-events: none;
 }
@@ -351,6 +352,18 @@ button:disabled {
   min-width: 0;
   padding: 0.625rem;
   pointer-events: auto;
+}
+
+.panel--systems {
+  order: 1;
+}
+
+.panel--cargo {
+  order: 2;
+}
+
+.panel--economy {
+  order: 3;
 }
 
 .panel h2 {
@@ -425,6 +438,20 @@ button:disabled {
 }
 
 .systems-list {
+  margin-top: 0.5rem;
+}
+
+.systems-subhead {
+  margin-top: 0.625rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(215, 247, 255, 0.12);
+  color: rgba(138, 245, 255, 0.82);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.segmented--ops {
   margin-top: 0.5rem;
 }
 
@@ -990,6 +1017,10 @@ button:disabled {
   .hud__rail {
     align-self: stretch;
     align-content: start;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    padding-right: 0.125rem;
+    scrollbar-width: thin;
   }
 
   .hud__rail--left {

@@ -164,6 +164,64 @@ export interface PremiumSummary {
   purchases: PremiumPurchaseSummary[];
 }
 
+export interface QuestObjectiveSummary {
+  id: string;
+  kind: string;
+  target?: string;
+  current: number;
+  required: number;
+  completed: boolean;
+}
+
+export interface QuestRewardSummary {
+  kind: string;
+  currency_type?: string;
+  item_id?: string;
+  role?: string;
+  amount: number;
+}
+
+export interface QuestOfferSummary {
+  offer_id: string;
+  quest_type: string;
+  title: string;
+  description: string;
+  objectives: QuestObjectiveSummary[];
+  rewards: QuestRewardSummary[];
+  expires_at: number;
+}
+
+export interface QuestSummary {
+  quest_id: string;
+  quest_type: string;
+  title: string;
+  description: string;
+  state: string;
+  objectives: QuestObjectiveSummary[];
+  rewards: QuestRewardSummary[];
+  accepted_at: number;
+  completed_at?: number;
+  claimed_at?: number;
+  can_claim: boolean;
+}
+
+export interface QuestBoardSummary {
+  offers: QuestOfferSummary[];
+  active: QuestSummary[];
+  counts: {
+    offers: number;
+    active: number;
+    completed: number;
+    claimable: number;
+    claimed: number;
+  };
+  reroll_cost: {
+    currency_type: string;
+    amount: number;
+  };
+  generated_at: number;
+}
+
 export interface EconomyDashboardSummary {
   wallets: {
     credits: number;
@@ -185,6 +243,105 @@ export interface EconomyDashboardSummary {
     claimed_entitlements: number;
     weekly_stock_remaining: number;
   };
+  generated_at: number;
+}
+
+export interface AdminInspectionSummary {
+  target: string;
+  inventory: {
+    stackable_items: number;
+    instance_items: number;
+    item_ledger: Array<{
+      ledger_id: string;
+      item_id: string;
+      quantity: number;
+      action: string;
+      balance_after: number;
+      location: string;
+      reason: string;
+      created_at: number;
+    }>;
+  };
+  wallet: {
+    balances: Array<{ currency_type: string; balance: number }>;
+    ledger: Array<{
+      ledger_id: string;
+      currency_type: string;
+      amount: number;
+      action: string;
+      balance_after: number;
+      reason: string;
+      created_at: number;
+    }>;
+  };
+  generated_at: number;
+}
+
+export interface AdminRepairCraftJobSummary {
+  accepted: boolean;
+  job_id?: string;
+  status: string;
+  already_complete?: boolean;
+  message?: string;
+}
+
+export interface CommandLogSummary {
+  entries: Array<{
+    request_id: string;
+    operation: string;
+    status: string;
+    error_code?: string;
+    duration_ms: number;
+    timestamp: number;
+  }>;
+  total: number;
+  generated_at: number;
+}
+
+export interface MetricsSummary {
+  snapshot: {
+    counters: Array<{ name: string; value: number; labels: Array<{ name: string; value: string }> }>;
+    gauges: Array<{ name: string; value: number; labels: Array<{ name: string; value: string }> }>;
+    durations: Array<{
+      name: string;
+      labels: Array<{ name: string; value: string }>;
+      count: number;
+      total: number;
+      minimum: number;
+      maximum: number;
+      p50: number;
+      p95: number;
+      p99: number;
+    }>;
+  };
+  generated_at: number;
+}
+
+export interface ReleaseGateSummary {
+  report: {
+    covered: boolean;
+    passed: boolean;
+    missing: Array<{ module: string; check: string }>;
+  };
+  coverage: Array<{
+    module: string;
+    passed: boolean;
+    missing: string[];
+    evidence: number;
+  }>;
+  evidence: number;
+  generated_at: number;
+}
+
+export interface AbuseCoverageSummary {
+  report: {
+    passed: boolean;
+    missing: string[];
+  };
+  coverage: Array<{
+    case: string;
+    evidence: Array<{ package: string; test_name: string; note: string }>;
+  }>;
   generated_at: number;
 }
 
@@ -459,7 +616,7 @@ export interface ClientState {
   crafting: CraftingSummary | null;
   repairQuote: RepairQuote | null;
   skillCooldowns: Record<string, number>;
-  questBoard: { available: number; active: number } | null;
+  questBoard: QuestBoardSummary | null;
   planetIntel: PlanetIntelSummary | null;
   production: ProductionCollectionSummary | null;
   routes: RouteListSummary | null;
@@ -467,6 +624,12 @@ export interface ClientState {
   auction: AuctionSummary | null;
   premium: PremiumSummary | null;
   economyDashboard: EconomyDashboardSummary | null;
+  adminInspection: AdminInspectionSummary | null;
+  adminRepair: AdminRepairCraftJobSummary | null;
+  commandLogSummary: CommandLogSummary | null;
+  metrics: MetricsSummary | null;
+  releaseGate: ReleaseGateSummary | null;
+  abuseCoverage: AbuseCoverageSummary | null;
   lastError: ErrorPayload | null;
 }
 

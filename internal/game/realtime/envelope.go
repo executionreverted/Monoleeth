@@ -52,7 +52,18 @@ const (
 	OperationPremiumEntitlements Operation = "premium.entitlements"
 	OperationPremiumClaim        Operation = "premium.claim"
 	OperationPremiumWeeklyXCore  Operation = "premium.purchase_weekly_xcore"
+	OperationQuestBoard          Operation = "quest.board"
+	OperationQuestAccept         Operation = "quest.accept"
+	OperationQuestProgress       Operation = "quest.progress"
+	OperationQuestClaimReward    Operation = "quest.claim_reward"
+	OperationQuestReroll         Operation = "quest.reroll"
+	OperationAdminInspectPlayer  Operation = "admin.inspect_player"
+	OperationAdminRepairCraftJob Operation = "admin.repair_craft_job"
 	OperationAdminEconomyDash    Operation = "admin.economy_dashboard"
+	OperationObservabilityLog    Operation = "observability.command_log"
+	OperationObservabilityMetric Operation = "observability.metrics"
+	OperationObservabilityGate   Operation = "observability.release_gate"
+	OperationObservabilityAbuse  Operation = "observability.abuse_coverage"
 )
 
 // ClientEventType is an event name that may be sent to a client after filtering.
@@ -105,6 +116,16 @@ const (
 	EventPremiumEntitlement    ClientEventType = "premium.entitlement_created"
 	EventPremiumClaimed        ClientEventType = "premium.entitlement_claimed"
 	EventPremiumStockConsumed  ClientEventType = "premium.stock_consumed"
+	EventQuestBoardGenerated   ClientEventType = "quest.board_generated"
+	EventQuestAccepted         ClientEventType = "quest.accepted"
+	EventQuestProgressed       ClientEventType = "quest.progressed"
+	EventQuestCompleted        ClientEventType = "quest.completed"
+	EventQuestRewardClaimed    ClientEventType = "quest.reward_claimed"
+	EventQuestBoardRerolled    ClientEventType = "quest.board_rerolled"
+	EventQuestAbandoned        ClientEventType = "quest.abandoned"
+	EventAdminActionCompleted  ClientEventType = "admin.action_completed"
+	EventObservabilityMetric   ClientEventType = "observability.metric_updated"
+	EventReleaseGateUpdated    ClientEventType = "release_gate.updated"
 	EventEconomyFlowUpdated    ClientEventType = "economy.flow_updated"
 	EventDeathShipDisabled     ClientEventType = "death.ship_disabled"
 	EventDeathRepaired         ClientEventType = "death.repaired"
@@ -269,8 +290,52 @@ var registeredOperations = map[Operation]OperationSpec{
 		Operation:        OperationPremiumWeeklyXCore,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
+	OperationQuestBoard: {
+		Operation:        OperationQuestBoard,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationQuestAccept: {
+		Operation:        OperationQuestAccept,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationQuestProgress: {
+		Operation:        OperationQuestProgress,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationQuestClaimReward: {
+		Operation:        OperationQuestClaimReward,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationQuestReroll: {
+		Operation:        OperationQuestReroll,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAdminInspectPlayer: {
+		Operation:        OperationAdminInspectPlayer,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAdminRepairCraftJob: {
+		Operation:        OperationAdminRepairCraftJob,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
 	OperationAdminEconomyDash: {
 		Operation:        OperationAdminEconomyDash,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationObservabilityLog: {
+		Operation:        OperationObservabilityLog,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationObservabilityMetric: {
+		Operation:        OperationObservabilityMetric,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationObservabilityGate: {
+		Operation:        OperationObservabilityGate,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationObservabilityAbuse: {
+		Operation:        OperationObservabilityAbuse,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 }
