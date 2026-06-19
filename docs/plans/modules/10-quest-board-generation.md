@@ -61,6 +61,36 @@ MVP:
 - build
 - deliver
 
+## Objective Schema Contract
+
+Public/MVP quest payloads use `ObjectiveSchema.Objectives []Objective`.
+Catalog templates, generated offer payloads, accepted quest payloads, and client
+snapshots should emit objective definitions through the `objectives` array even
+when the quest has only one objective.
+
+Preferred public shape:
+
+```json
+{
+  "objectives": [
+    {
+      "id": "kill_1",
+      "kind": "kill",
+      "kill": {
+        "target_npc_type": "pirate",
+        "required_count": 3
+      }
+    }
+  ]
+}
+```
+
+The legacy single-objective fields on `ObjectiveSchema` (`kind`, `kill`,
+`collect`, `craft`, `scan`, `build`, `deliver`) are internal/backcompat only.
+They remain accepted for old stored payloads and internal compatibility paths,
+but new public/MVP payloads must not emit them as the primary schema. When
+`objectives` is present, it is the authoritative objective definition.
+
 ## Quest Template
 
 ```text

@@ -52,9 +52,6 @@ for phase status; this file is a compact pending-work index.
   quest rewards in a multi-process runtime. The hook can now block generated
   offers before storage or reroll debit, but no durable usage counter is wired
   by default.
-- [ ] Collapse or document the preferred quest objective schema shape before the
-  quest API becomes public; `ObjectiveSchema` currently supports both
-  `Objectives []Objective` and legacy single-objective fields.
 - [ ] Add per-player offer/active-quest indexes plus TTL/compaction or durable
   uniqueness for quest in-memory caches (`progressEvents`, `claimResults`,
   `rerollResults`) before long-running or multi-process deployment.
@@ -202,6 +199,13 @@ for phase status; this file is a compact pending-work index.
   reference and duplicate claims do not create another item ledger entry.
   Source: `internal/game/server/quest_admin_observability_handlers.go`,
   `internal/game/server/server_test.go`.
+- [x] Document the preferred quest objective schema shape before the quest API
+  becomes public. Public/MVP payloads now specify
+  `ObjectiveSchema.Objectives []Objective` as authoritative while legacy
+  single-objective fields remain internal/backcompat only, with tests covering
+  both the public shape and legacy compatibility. Source:
+  `docs/plans/modules/10-quest-board-generation.md`,
+  `internal/game/quests/model_test.go`.
 - [x] Wire Phase 11 browser combat, loot, scanner, wallet/cargo, and stat
   controls to authenticated Go gateway/runtime handlers. The real browser now
   emits `combat.use_skill`, `loot.pickup`, and `scan.pulse` intents over the

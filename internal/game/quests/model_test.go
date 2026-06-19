@@ -79,6 +79,14 @@ func TestInvalidObjectiveSchemasRejected(t *testing.T) {
 			want: ErrEmptyObjectiveSchema,
 		},
 		{
+			name: "legacy single objective mismatched detail",
+			schema: ObjectiveSchema{
+				Kind:    ObjectiveKindKill,
+				Collect: &CollectObjectiveDetails{ItemID: "iron_ore", RequiredQuantity: 5},
+			},
+			want: ErrInvalidObjectiveSchema,
+		},
+		{
 			name: "kill missing target",
 			schema: ObjectiveSchema{Objectives: []Objective{{
 				ID:   "kill_1",
@@ -144,39 +152,172 @@ func TestInvalidObjectiveSchemasRejected(t *testing.T) {
 }
 
 func TestMVPObjectiveSchemasValidate(t *testing.T) {
-	schemas := []ObjectiveSchema{
-		validObjectiveSchema(t),
-		{Objectives: []Objective{{
-			ID:      "collect_1",
-			Kind:    ObjectiveKindCollect,
-			Collect: &CollectObjective{ItemID: "iron_ore", Quantity: qty(t, 25)},
-		}}},
-		{Objectives: []Objective{{
-			ID:    "craft_1",
-			Kind:  ObjectiveKindCraft,
-			Craft: &CraftObjective{RecipeID: "laser_beta_t2", Quantity: qty(t, 1)},
-		}}},
-		{Objectives: []Objective{{
-			ID:   "scan_1",
-			Kind: ObjectiveKindScan,
-			Scan: &ScanObjective{TargetSignalType: "planet_signal", RequiredCount: qty(t, 2)},
-		}}},
-		{Objectives: []Objective{{
-			ID:    "build_1",
-			Kind:  ObjectiveKindBuild,
-			Build: &BuildObjective{BuildingType: "extractor_t1", RequiredCount: qty(t, 1)},
-		}}},
-		{Objectives: []Objective{{
-			ID:      "deliver_1",
-			Kind:    ObjectiveKindDeliver,
-			Deliver: &DeliverObjective{ItemID: "iron_ore", Quantity: qty(t, 40), DestinationType: "station"},
-		}}},
+	tests := []struct {
+		name   string
+		kind   ObjectiveKind
+		schema ObjectiveSchema
+	}{
+		{
+			name: "kill",
+			kind: ObjectiveKindKill,
+			schema: ObjectiveSchema{Objectives: []Objective{{
+				ID:   "kill_1",
+				Kind: ObjectiveKindKill,
+				Kill: &KillObjective{TargetNPCType: "pirate", RequiredCount: qty(t, 3)},
+			}}},
+		},
+		{
+			name: "collect",
+			kind: ObjectiveKindCollect,
+			schema: ObjectiveSchema{Objectives: []Objective{{
+				ID:      "collect_1",
+				Kind:    ObjectiveKindCollect,
+				Collect: &CollectObjective{ItemID: "iron_ore", Quantity: qty(t, 25)},
+			}}},
+		},
+		{
+			name: "craft",
+			kind: ObjectiveKindCraft,
+			schema: ObjectiveSchema{Objectives: []Objective{{
+				ID:    "craft_1",
+				Kind:  ObjectiveKindCraft,
+				Craft: &CraftObjective{RecipeID: "laser_beta_t2", Quantity: qty(t, 1)},
+			}}},
+		},
+		{
+			name: "scan",
+			kind: ObjectiveKindScan,
+			schema: ObjectiveSchema{Objectives: []Objective{{
+				ID:   "scan_1",
+				Kind: ObjectiveKindScan,
+				Scan: &ScanObjective{TargetSignalType: "planet_signal", RequiredCount: qty(t, 2)},
+			}}},
+		},
+		{
+			name: "build",
+			kind: ObjectiveKindBuild,
+			schema: ObjectiveSchema{Objectives: []Objective{{
+				ID:    "build_1",
+				Kind:  ObjectiveKindBuild,
+				Build: &BuildObjective{BuildingType: "extractor_t1", RequiredCount: qty(t, 1)},
+			}}},
+		},
+		{
+			name: "deliver",
+			kind: ObjectiveKindDeliver,
+			schema: ObjectiveSchema{Objectives: []Objective{{
+				ID:      "deliver_1",
+				Kind:    ObjectiveKindDeliver,
+				Deliver: &DeliverObjective{ItemID: "iron_ore", Quantity: qty(t, 40), DestinationType: "station"},
+			}}},
+		},
 	}
 
-	for _, schema := range schemas {
-		if err := schema.Validate(); err != nil {
-			t.Fatalf("schema Validate() = %v, want nil", err)
-		}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if len(test.schema.Objectives) != 1 {
+				t.Fatalf("schema objectives count = %d, want 1", len(test.schema.Objectives))
+			}
+			if schemaUsesLegacySingleObjectiveFields(test.schema) {
+				t.Fatalf("MVP schema uses legacy single-objective fields: %#v", test.schema)
+			}
+			if got := test.schema.Objectives[0].Kind; got != test.kind {
+				t.Fatalf("objective kind = %q, want %q", got, test.kind)
+			}
+			if err := test.schema.Validate(); err != nil {
+				t.Fatalf("schema Validate() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestLegacySingleObjectiveSchemaShapeRemainsBackcompatOnly(t *testing.T) {
+	tests := []struct {
+		name         string
+		schema       ObjectiveSchema
+		wantProgress ObjectiveProgress
+	}{
+		{
+			name: "kill",
+			schema: ObjectiveSchema{
+				Kind: ObjectiveKindKill,
+				Kill: &KillObjectiveDetails{NPCType: "pirate", RequiredCount: 3},
+			},
+			wantProgress: ObjectiveProgress{ObjectiveID: "kill", Required: 3},
+		},
+		{
+			name: "collect",
+			schema: ObjectiveSchema{
+				Kind:    ObjectiveKindCollect,
+				Collect: &CollectObjectiveDetails{ItemID: "iron_ore", RequiredQuantity: 25},
+			},
+			wantProgress: ObjectiveProgress{ObjectiveID: "collect", Required: 25},
+		},
+		{
+			name: "craft",
+			schema: ObjectiveSchema{
+				Kind:  ObjectiveKindCraft,
+				Craft: &CraftObjectiveDetails{RecipeID: "laser_beta_t2", RequiredCount: 1},
+			},
+			wantProgress: ObjectiveProgress{ObjectiveID: "craft", Required: 1},
+		},
+		{
+			name: "scan",
+			schema: ObjectiveSchema{
+				Kind: ObjectiveKindScan,
+				Scan: &ScanObjectiveDetails{TargetKind: ScanTargetSignal, RequiredCount: 2},
+			},
+			wantProgress: ObjectiveProgress{ObjectiveID: "scan", Required: 2},
+		},
+		{
+			name: "build",
+			schema: ObjectiveSchema{
+				Kind:  ObjectiveKindBuild,
+				Build: &BuildObjectiveDetails{BuildingID: "extractor_t1", RequiredCount: 1},
+			},
+			wantProgress: ObjectiveProgress{ObjectiveID: "build", Required: 1},
+		},
+		{
+			name: "deliver",
+			schema: ObjectiveSchema{
+				Kind: ObjectiveKindDeliver,
+				Deliver: &DeliverObjectiveDetails{
+					ItemID:           "iron_ore",
+					RequiredQuantity: 40,
+					DestinationKind:  DeliveryTargetStation,
+				},
+			},
+			wantProgress: ObjectiveProgress{ObjectiveID: "deliver", Required: 40},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if len(test.schema.Objectives) != 0 {
+				t.Fatalf("legacy schema objectives count = %d, want 0", len(test.schema.Objectives))
+			}
+			if !schemaUsesLegacySingleObjectiveFields(test.schema) {
+				t.Fatalf("schema does not use legacy single-objective fields: %#v", test.schema)
+			}
+			if err := test.schema.Validate(); err != nil {
+				t.Fatalf("legacy schema Validate() = %v, want nil", err)
+			}
+			progress, err := NewQuestProgressFromSchema(test.schema)
+			if err != nil {
+				t.Fatalf("NewQuestProgressFromSchema() = %v, want nil", err)
+			}
+			if len(progress.Objectives) != 1 {
+				t.Fatalf("progress objectives count = %d, want 1", len(progress.Objectives))
+			}
+			got := progress.Objectives[0]
+			if got.ObjectiveID != test.wantProgress.ObjectiveID ||
+				got.Required != test.wantProgress.Required ||
+				got.Current != 0 ||
+				got.Completed {
+				t.Fatalf("progress objective = %#v, want id %q required %d current 0 incomplete",
+					got, test.wantProgress.ObjectiveID, test.wantProgress.Required)
+			}
+		})
 	}
 }
 
@@ -478,6 +619,16 @@ func validObjectiveSchema(t *testing.T) ObjectiveSchema {
 			RequiredCount: qty(t, 3),
 		},
 	}}}
+}
+
+func schemaUsesLegacySingleObjectiveFields(schema ObjectiveSchema) bool {
+	return schema.Kind != "" ||
+		schema.Kill != nil ||
+		schema.Collect != nil ||
+		schema.Craft != nil ||
+		schema.Scan != nil ||
+		schema.Build != nil ||
+		schema.Deliver != nil
 }
 
 func validGeneratedPayload() GeneratedPayload {

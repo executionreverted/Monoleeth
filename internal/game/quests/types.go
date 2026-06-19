@@ -158,7 +158,9 @@ type PlayerQuest struct {
 }
 
 // ObjectiveSchema stores the server-owned objective definitions for a template
-// or accepted/generated quest.
+// or accepted/generated quest. Public/MVP quest payloads use Objectives. Kind
+// and the per-kind detail fields are retained only as the legacy single-objective
+// internal/backcompat shape.
 type ObjectiveSchema struct {
 	Objectives []Objective              `json:"objectives,omitempty"`
 	Kind       ObjectiveKind            `json:"kind,omitempty"`
@@ -222,38 +224,38 @@ type DeliverObjective struct {
 	DestinationID   string              `json:"destination_id,omitempty"`
 }
 
-// KillObjectiveDetails is the single-objective kill schema shape.
+// KillObjectiveDetails is the legacy single-objective kill schema shape.
 type KillObjectiveDetails struct {
 	NPCType       string `json:"npc_type"`
 	RequiredCount int64  `json:"required_count"`
 }
 
-// CollectObjectiveDetails is the single-objective collect schema shape.
+// CollectObjectiveDetails is the legacy single-objective collect schema shape.
 type CollectObjectiveDetails struct {
 	ItemID           foundation.ItemID `json:"item_id"`
 	RequiredQuantity int64             `json:"required_quantity"`
 }
 
-// CraftObjectiveDetails is the single-objective craft schema shape.
+// CraftObjectiveDetails is the legacy single-objective craft schema shape.
 type CraftObjectiveDetails struct {
 	RecipeID      catalog.DefinitionID `json:"recipe_id,omitempty"`
 	ItemID        foundation.ItemID    `json:"item_id,omitempty"`
 	RequiredCount int64                `json:"required_count"`
 }
 
-// ScanObjectiveDetails is the single-objective scan skeleton shape.
+// ScanObjectiveDetails is the legacy single-objective scan skeleton shape.
 type ScanObjectiveDetails struct {
 	TargetKind    ScanTargetKind `json:"target_kind"`
 	RequiredCount int64          `json:"required_count"`
 }
 
-// BuildObjectiveDetails is the single-objective build skeleton shape.
+// BuildObjectiveDetails is the legacy single-objective build skeleton shape.
 type BuildObjectiveDetails struct {
 	BuildingID    string `json:"building_id"`
 	RequiredCount int64  `json:"required_count"`
 }
 
-// DeliverObjectiveDetails is the single-objective delivery skeleton shape.
+// DeliverObjectiveDetails is the legacy single-objective delivery skeleton shape.
 type DeliverObjectiveDetails struct {
 	ItemID           foundation.ItemID  `json:"item_id"`
 	RequiredQuantity int64              `json:"required_quantity"`
