@@ -394,7 +394,15 @@ describe('reduceClientState', () => {
             ],
             active_jobs: [],
           },
-          stats: { speed: 220, radar_range: 510, weapon_range: 280, cargo_capacity: 80 },
+          stats: {
+            speed: 220,
+            radar_range: 510,
+            weapon_range: 280,
+            cargo_capacity: 80,
+            loot_pickup_range: 120,
+            basic_laser_energy_cost: 10,
+            basic_laser_cooldown_ms: 350,
+          },
         },
         server_time: 1400,
         v: 1,
@@ -414,7 +422,15 @@ describe('reduceClientState', () => {
     expect(reconciled.hangar?.active_ship_id).toBe('starter_ship');
     expect(reconciled.loadout?.slots).toHaveLength(2);
     expect(reconciled.crafting?.recipes[0]).toMatchObject({ recipe_id: 'refined_alloy_batch', craft_duration_ms: 300000 });
-    expect(reconciled.stats).toMatchObject({ speed: 220, radar_range: 510, weapon_range: 280, cargo_capacity: 80 });
+    expect(reconciled.stats).toMatchObject({
+      speed: 220,
+      radar_range: 510,
+      weapon_range: 280,
+      cargo_capacity: 80,
+      loot_pickup_range: 120,
+      basic_laser_energy_cost: 10,
+      basic_laser_cooldown_ms: 350,
+    });
   });
 
   test('world snapshot event stores sector and minimap projection', () => {

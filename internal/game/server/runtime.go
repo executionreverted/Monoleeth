@@ -37,6 +37,9 @@ const (
 	defaultPlayerSpeed                               = 180
 	defaultRadarRange                                = 420
 	defaultMaxMoveDistance                           = 1200
+	runtimeLootPickupRange                           = 120.0
+	runtimeBasicLaserEnergyCost                      = 10
+	runtimeBasicLaserCooldownMS                      = 350
 	minMoveCommandInterval                           = 75 * time.Millisecond
 	starterScannerItemID                             = "starter_scanner_array"
 	starterScannerModuleID                           = "starter_scanner"
@@ -164,10 +167,13 @@ type shipSnapshotPayload struct {
 }
 
 type statSnapshotPayload struct {
-	Speed         float64 `json:"speed"`
-	RadarRange    float64 `json:"radar_range"`
-	WeaponRange   float64 `json:"weapon_range"`
-	CargoCapacity int64   `json:"cargo_capacity"`
+	Speed                float64 `json:"speed"`
+	RadarRange           float64 `json:"radar_range"`
+	WeaponRange          float64 `json:"weapon_range"`
+	CargoCapacity        int64   `json:"cargo_capacity"`
+	LootPickupRange      float64 `json:"loot_pickup_range"`
+	BasicLaserEnergyCost int     `json:"basic_laser_energy_cost"`
+	BasicLaserCooldownMS int     `json:"basic_laser_cooldown_ms"`
 }
 
 type walletSnapshotPayload struct {
@@ -268,7 +274,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Clock:       clock,
 		Cargo:       cargoService,
 		Progression: progressionService,
-		PickupRange: 120,
+		PickupRange: runtimeLootPickupRange,
 	})
 	if err != nil {
 		return nil, err
@@ -909,10 +915,13 @@ func newPlayerRuntimeState(callsign string, entityID world.EntityID) playerRunti
 			RepairState:  "ready",
 		},
 		Stats: statSnapshotPayload{
-			Speed:         defaultPlayerSpeed,
-			RadarRange:    defaultRadarRange,
-			WeaponRange:   260,
-			CargoCapacity: 60,
+			Speed:                defaultPlayerSpeed,
+			RadarRange:           defaultRadarRange,
+			WeaponRange:          260,
+			CargoCapacity:        60,
+			LootPickupRange:      runtimeLootPickupRange,
+			BasicLaserEnergyCost: runtimeBasicLaserEnergyCost,
+			BasicLaserCooldownMS: runtimeBasicLaserCooldownMS,
 		},
 		Wallet: walletSnapshotPayload{},
 		Cargo: cargoSnapshotPayload{

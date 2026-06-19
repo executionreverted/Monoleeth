@@ -148,7 +148,7 @@ The UI rework is not done until all of these are true.
 ### Combat Feedback
 
 - [x] Selecting an enemy shows HP/shield/status in the target panel.
-- [ ] Combat action buttons show cooldown/energy availability.
+- [x] Combat action buttons show cooldown/energy availability.
 - [x] Firing produces visible feedback:
   - weapon line/projectile/flash
   - target hit/miss/damage indicator
@@ -160,7 +160,7 @@ The UI rework is not done until all of these are true.
 ### Loot Feedback
 
 - [x] Loot/resource objects are visibly identifiable.
-- [ ] Clicking loot either moves toward it, picks it up if in range, or explains
+- [x] Clicking loot either moves toward it, picks it up if in range, or explains
   why pickup cannot happen.
 - [x] Successful pickup shows what was gained.
 - [x] Cargo/inventory updates only from server snapshots/events.

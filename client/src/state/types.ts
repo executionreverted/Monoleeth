@@ -363,6 +363,9 @@ export interface StatSummary {
   radar_range: number;
   weapon_range: number;
   cargo_capacity: number;
+  loot_pickup_range: number;
+  basic_laser_energy_cost: number;
+  basic_laser_cooldown_ms: number;
 }
 
 export interface ProgressionSummary {

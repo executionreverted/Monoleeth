@@ -58,6 +58,13 @@ Must avoid:
   server-computed current position, immediate move spam is rate-limited without
   changing the authoritative route, and the renderer interpolates the player
   plus parallax camera background from server snapshots/events.
+- 2026-06-19 UI rework slice 5 exposed server-owned pickup range and basic
+  laser energy/cooldown metadata through `stats.snapshot`, then used those
+  values only as UI hints. Clicking visible loot now selects it, moves toward it
+  when out of range, picks it up when in range, or logs a compact reason while
+  waiting for server range/position state. The action rail and target panel now
+  show cooldown, capacitor, range, and approach/gather availability without
+  client-authored combat or loot truth.
 - The default browser path remains real/authenticated only. Demo fixtures are
   still available for explicit dev/test fixture mode, but they are dev-only lazy
   imports and the production bundle scan fails on fixture labels.

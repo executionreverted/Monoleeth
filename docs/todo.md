@@ -7,16 +7,12 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
-- [ ] Finish entity selection, combat feedback, and loot pickup presentation in
-  the mockup HUD. Visible objects should select with reticles, target panels
-  should show server-safe HP/shield/status, firing should produce visible
-  reactions, and loot pickup should move/pickup/explain and show gained rewards
-  from server events only. Source:
-  `docs/plans/2026-06-19-ui-rework-GOAL.md`. 2026-06-19 update: visible
-  reticles, server-safe target HP/shield/status, laser/damage/miss reactions,
-  loot-spawn feedback, and pickup reward summaries are implemented and covered
-  by reducer and browser smoke tests. Remaining: click-to-approach / direct
-  pickup ergonomics and fuller entity asset parity with the mockup.
+- [ ] Finish mockup-level entity asset parity for planets/signals/loot/NPCs.
+  Visible objects are selectable and interactive, but the sprites/markers still
+  need a dedicated pass against `output/mockups/final-mockup.png` and
+  `output/assets/hud-svg/` so each object reads like the intended HUD art
+  rather than generic canvas geometry. Source:
+  `docs/plans/2026-06-19-ui-rework-GOAL.md`.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.
@@ -200,6 +196,14 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Finish entity selection, combat feedback, and loot pickup presentation in
+  the mockup HUD. Visible objects select with reticles, target panels show
+  server-safe HP/shield/status, firing produces laser/damage/miss reactions,
+  combat buttons show server-owned cooldown/energy availability, loot clicks
+  approach or pick up based on server-owned pickup range, and pickup rewards
+  reconcile from server events/snapshots only. Covered by reducer, server, and
+  browser smoke tests. Source:
+  `docs/plans/2026-06-19-ui-rework-GOAL.md`.
 - [x] Add server-authoritative continuous movement timing for browser movement.
   The client receives server-owned origin, destination, speed, start, and
   arrival timing; re-clicks while in transit start from the server-computed

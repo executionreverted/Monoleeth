@@ -151,8 +151,8 @@ func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, st
 		Combat: stats.CombatStats{
 			WeaponDamage:     35,
 			WeaponRange:      state.Stats.WeaponRange,
-			WeaponCooldown:   0.35,
-			WeaponEnergyCost: 10,
+			WeaponCooldown:   float64(runtimeBasicLaserCooldownMS) / 1000,
+			WeaponEnergyCost: float64(runtimeBasicLaserEnergyCost),
 			Accuracy:         1,
 		},
 		Exploration: stats.ExplorationStats{

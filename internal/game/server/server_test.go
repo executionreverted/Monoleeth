@@ -588,7 +588,11 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 				if err := json.Unmarshal(response.Payload, &payload); err != nil {
 					t.Fatalf("decode stats snapshot: %v", err)
 				}
-				if payload.Stats.RadarRange != defaultRadarRange || payload.Stats.CargoCapacity != 60 {
+				if payload.Stats.RadarRange != defaultRadarRange ||
+					payload.Stats.CargoCapacity != 60 ||
+					payload.Stats.LootPickupRange != runtimeLootPickupRange ||
+					payload.Stats.BasicLaserEnergyCost != runtimeBasicLaserEnergyCost ||
+					payload.Stats.BasicLaserCooldownMS != runtimeBasicLaserCooldownMS {
 					t.Fatalf("stats payload = %+v, want starter effective stats", payload.Stats)
 				}
 			case "crafting":

@@ -35,8 +35,16 @@ export interface HUDHandlers {
 
 type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['combat']>;
 type KnownLootDropStatus = ClientState['knownLoot'][string];
+type VisibleEntity = ClientState['visibleEntities'][string];
 type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' | 'ops';
 type HUDModalID = HUDWindowID | 'target' | 'planets' | 'ship';
+
+interface ActionState {
+  enabled: boolean;
+  label: string;
+  detail: string;
+  title: string;
+}
 
 interface HUDPanelDefinition {
   id: HUDWindowID;
@@ -796,10 +804,8 @@ function adminOpsBlock(state: ClientState): string {
 
 function targetPanel(state: ClientState): string {
   const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
-  const shipDisabled = state.ship?.disabled === true;
-  const laserReadyAt = state.skillCooldowns.basic_laser ?? 0;
-  const canFire = target?.entity_type === 'npc' && !shipDisabled && laserReadyAt <= Date.now();
-  const canLoot = target?.entity_type === 'loot' && !shipDisabled;
+  const laser = laserActionState(state, target);
+  const loot = lootActionState(state, target);
   const targetLabel = target?.display?.label ?? target?.entity_id ?? '';
   const distance = target ? distanceToTarget(state, target.entity_id) : null;
   const knownLoot = target ? state.knownLoot[target.entity_id] : null;
@@ -824,8 +830,8 @@ function targetPanel(state: ClientState): string {
     }
     <div class="segmented">
       <button type="button" disabled title="Click a visible entity on the map to target it">Aim</button>
-      <button type="button" data-action="fire" ${canFire ? '' : 'disabled'} title="Use the basic server-side skill">Fire</button>
-      <button type="button" data-action="loot" ${canLoot ? '' : 'disabled'} title="Request visible drop pickup">Loot</button>
+      <button type="button" data-action="fire" ${laser.enabled ? '' : 'disabled'} title="${escapeHTML(laser.title)}">Fire</button>
+      <button type="button" data-action="loot" ${loot.enabled ? '' : 'disabled'} title="${escapeHTML(loot.title)}">${escapeHTML(loot.label)}</button>
     </div>
   `;
 }
@@ -865,18 +871,15 @@ function shipPanel(state: ClientState): string {
 function actionBar(state: ClientState): string {
   const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
   const shipDisabled = state.ship?.disabled === true;
-  const laserReadyAt = state.skillCooldowns.basic_laser ?? 0;
-  const laserCooling = laserReadyAt > Date.now();
-  const canLaser = target?.entity_type === 'npc' && !shipDisabled && !laserCooling;
-  const canLoot = target?.entity_type === 'loot' && !shipDisabled;
+  const laser = laserActionState(state, target);
+  const loot = lootActionState(state, target);
   const canScan = state.connectionStatus === 'connected' && !shipDisabled;
-  const laserLabel = laserCooling ? 'Cooling' : 'Laser';
 
   return `
     <div class="action-slot" data-slot="1">
-      <button class="action-button" type="button" data-action="fire" ${canLaser ? '' : 'disabled'} title="Basic laser">
-        <span>${escapeHTML(laserLabel)}</span>
-        <small>${target?.entity_type === 'npc' ? 'Ready' : 'No lock'}</small>
+      <button class="action-button" type="button" data-action="fire" ${laser.enabled ? '' : 'disabled'} title="${escapeHTML(laser.title)}">
+        <span>${escapeHTML(laser.label)}</span>
+        <small>${escapeHTML(laser.detail)}</small>
       </button>
     </div>
     <div class="action-slot" data-slot="2">
@@ -904,9 +907,9 @@ function actionBar(state: ClientState): string {
       </button>
     </div>
     <div class="action-slot" data-slot="6">
-      <button class="action-button" type="button" data-action="loot" ${canLoot ? '' : 'disabled'} title="Pickup selected visible drop">
-        <span>Gather</span>
-        <small>${target?.entity_type === 'loot' ? 'Visible' : 'No drop'}</small>
+      <button class="action-button" type="button" data-action="loot" ${loot.enabled ? '' : 'disabled'} title="${escapeHTML(loot.title)}">
+        <span>${escapeHTML(loot.label)}</span>
+        <small>${escapeHTML(loot.detail)}</small>
       </button>
     </div>
   `;
@@ -1031,14 +1034,122 @@ function lootStatusBlock(drop: KnownLootDropStatus): string {
   `;
 }
 
+function laserActionState(state: ClientState, target: VisibleEntity | null): ActionState {
+  if (!realtimeReady(state)) {
+    return { enabled: false, label: 'Laser', detail: 'Offline', title: 'Realtime link is not authenticated.' };
+  }
+  if (state.ship?.disabled === true) {
+    return { enabled: false, label: 'Laser', detail: 'Disabled', title: 'Repair the ship before firing.' };
+  }
+  if (!target || target.entity_type !== 'npc') {
+    return { enabled: false, label: 'Laser', detail: 'No lock', title: 'Select a hostile target.' };
+  }
+
+  const cooldownRemaining = (state.skillCooldowns.basic_laser ?? 0) - Date.now();
+  if (cooldownRemaining > 0) {
+    return {
+      enabled: false,
+      label: 'Cooling',
+      detail: formatCooldown(cooldownRemaining),
+      title: `Basic laser ready in ${formatCooldown(cooldownRemaining)}.`,
+    };
+  }
+
+  const energyCost = state.stats?.basic_laser_energy_cost ?? null;
+  const capacitor = state.ship?.capacitor ?? null;
+  if (energyCost === null || energyCost <= 0 || capacitor === null) {
+    return { enabled: false, label: 'Laser', detail: 'Stats', title: 'Awaiting server combat stats.' };
+  }
+  if (capacitor < energyCost) {
+    return {
+      enabled: false,
+      label: 'Laser',
+      detail: `Need ${Math.ceil(energyCost - capacitor)}`,
+      title: `Basic laser needs ${Math.round(energyCost)} capacitor.`,
+    };
+  }
+
+  return {
+    enabled: true,
+    label: 'Laser',
+    detail: `${Math.round(energyCost)} cap`,
+    title: `Fire basic laser for ${Math.round(energyCost)} capacitor.`,
+  };
+}
+
+function lootActionState(state: ClientState, target: VisibleEntity | null): ActionState {
+  if (!realtimeReady(state)) {
+    return { enabled: false, label: 'Gather', detail: 'Offline', title: 'Realtime link is not authenticated.' };
+  }
+  if (state.ship?.disabled === true) {
+    return { enabled: false, label: 'Gather', detail: 'Disabled', title: 'Repair the ship before gathering drops.' };
+  }
+  if (!target || target.entity_type !== 'loot') {
+    return { enabled: false, label: 'Gather', detail: 'No drop', title: 'Select a visible drop.' };
+  }
+
+  const pickupRange = state.stats?.loot_pickup_range ?? 0;
+  const distance = distanceToTarget(state, target.entity_id);
+  if (pickupRange <= 0) {
+    return { enabled: false, label: 'Gather', detail: 'No range', title: 'Awaiting server pickup range.' };
+  }
+  if (distance === null) {
+    return { enabled: false, label: 'Gather', detail: 'No fix', title: 'Awaiting server self position.' };
+  }
+  if (distance <= pickupRange) {
+    return {
+      enabled: true,
+      label: 'Gather',
+      detail: `${Math.round(distance)}u`,
+      title: `Pickup visible drop within ${Math.round(pickupRange)}u.`,
+    };
+  }
+  return {
+    enabled: true,
+    label: 'Approach',
+    detail: `${Math.round(distance)}u`,
+    title: `Move toward drop, then request pickup within ${Math.round(pickupRange)}u.`,
+  };
+}
+
 function distanceToTarget(state: ClientState, targetID: string): number | null {
   const target = state.visibleEntities[targetID];
   const local = Object.values(state.visibleEntities).find((entity) => entity.status_flags?.includes('self'));
   if (!target || !local) {
     return null;
   }
-  return Math.hypot(target.position.x - local.position.x, target.position.y - local.position.y);
+  const targetPosition = currentEntityPosition(target);
+  const localPosition = currentEntityPosition(local);
+  return Math.hypot(targetPosition.x - localPosition.x, targetPosition.y - localPosition.y);
 }
+
+function currentEntityPosition(entity: VisibleEntity): { x: number; y: number } {
+  const movement = entity.movement;
+  if (!movement?.moving || movement.arrive_at_ms <= movement.started_at_ms) {
+    return entity.position;
+  }
+
+  const progress = Math.max(
+    0,
+    Math.min(1, (Date.now() - movement.started_at_ms) / (movement.arrive_at_ms - movement.started_at_ms)),
+  );
+  return {
+    x: movement.origin.x + (movement.target.x - movement.origin.x) * progress,
+    y: movement.origin.y + (movement.target.y - movement.origin.y) * progress,
+  };
+}
+
+function realtimeReady(state: ClientState): boolean {
+  return state.auth.mode === 'demo' || state.connectionStatus === 'connected';
+}
+
+function formatCooldown(milliseconds: number): string {
+  if (milliseconds < 1000) {
+    return '<1s';
+  }
+  return `${Math.ceil(milliseconds / 1000)}s`;
+}
+
 
 function lockedValue(): string {
   return '--';

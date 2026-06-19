@@ -1,7 +1,7 @@
 import { AuthClient, AuthClientError } from '../auth/auth-client';
 import { RealtimeClient } from '../net/realtime-client';
 import { CommandBuilder } from '../protocol/commands';
-import { CLIENT_EVENTS, ErrorEnvelope, RequestEnvelope, ServerMessage, Vec2 } from '../protocol/envelope';
+import { CLIENT_EVENTS, EntityPayload, ErrorEnvelope, RequestEnvelope, ServerMessage, Vec2 } from '../protocol/envelope';
 import { WorldRenderer } from '../render/world-renderer';
 import { AuthPanel } from '../ui/auth-panel';
 import { HUD } from '../ui/hud';
@@ -16,7 +16,7 @@ export class ClientApp {
   private readonly commandBuilder = new CommandBuilder();
   private readonly renderer = new WorldRenderer({
     onMoveIntent: (target) => this.sendMove(target),
-    onSelectTarget: (entityID) => this.dispatch({ type: 'selectTarget', entityID }),
+    onSelectTarget: (entityID) => this.selectEntity(entityID),
   });
   private readonly realtime = new RealtimeClient({
     onStatus: (status) => this.handleRealtimeStatus(status),
@@ -27,6 +27,10 @@ export class ClientApp {
   private hud: HUD | null = null;
   private reconnectTimer: number | null = null;
   private smokeStateTimer: number | null = null;
+  private cooldownRenderTimer: number | null = null;
+  private cooldownRenderAt = 0;
+  private pendingLootPickupID: string | null = null;
+  private pendingLootApproachID: string | null = null;
   private intentionalDisconnect = false;
   private systemsSnapshotRequested = false;
   private demoState: DemoStateModule | null = null;
@@ -96,6 +100,8 @@ export class ClientApp {
 
   private connect(url: string): void {
     this.intentionalDisconnect = false;
+    this.pendingLootPickupID = null;
+    this.pendingLootApproachID = null;
     this.dispatch({ type: 'replaceVisibleEntities', entities: [], serverTime: null });
     this.realtime.connect(url);
   }
@@ -103,6 +109,8 @@ export class ClientApp {
   private disconnect(): void {
     this.intentionalDisconnect = true;
     this.systemsSnapshotRequested = false;
+    this.pendingLootPickupID = null;
+    this.pendingLootApproachID = null;
     this.clearReconnectTimer();
     this.realtime.disconnect();
     if (this.state.auth.mode === 'demo') {
@@ -118,7 +126,11 @@ export class ClientApp {
     }
   }
 
-  private sendMove(target: Vec2): void {
+  private sendMove(target: Vec2, preservePendingLoot = false): void {
+    if (!preservePendingLoot) {
+      this.pendingLootPickupID = null;
+      this.pendingLootApproachID = null;
+    }
     const command = this.commandBuilder.moveTo(target);
     this.sendCommand(command);
 
@@ -150,7 +162,7 @@ export class ClientApp {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'No visible drop selected.' });
       return;
     }
-    this.sendCommand(this.commandBuilder.lootPickup(target.entity_id));
+    this.activateLootTarget(target, 'action');
   }
 
   private sendCommand(envelope: RequestEnvelope): void {
@@ -253,6 +265,8 @@ export class ClientApp {
   private async logout(): Promise<void> {
     this.intentionalDisconnect = true;
     this.systemsSnapshotRequested = false;
+    this.pendingLootPickupID = null;
+    this.pendingLootApproachID = null;
     this.clearReconnectTimer();
     this.realtime.disconnect();
     try {
@@ -270,6 +284,8 @@ export class ClientApp {
     }
     this.intentionalDisconnect = false;
     this.systemsSnapshotRequested = false;
+    this.pendingLootPickupID = null;
+    this.pendingLootApproachID = null;
     this.clearReconnectTimer();
     this.dispatch({ type: 'authSessionLoaded', session });
     this.realtime.connect(this.state.socketURL);
@@ -334,6 +350,8 @@ export class ClientApp {
 
   private handleAuthExpired(message: string): void {
     this.intentionalDisconnect = true;
+    this.pendingLootPickupID = null;
+    this.pendingLootApproachID = null;
     this.clearReconnectTimer();
     this.realtime.disconnect();
     this.dispatch({ type: 'authExpired', message });
@@ -374,6 +392,7 @@ export class ClientApp {
       });
     }
     this.render();
+    this.tryPendingLootPickup();
   }
 
   private render(): void {
@@ -392,6 +411,7 @@ export class ClientApp {
     this.authPanel?.render(this.state);
     this.hud?.render(this.state);
     this.publishSmokeState();
+    this.scheduleCooldownRender();
   }
 
   private findLocalPlayerID(): string | null {
@@ -402,8 +422,149 @@ export class ClientApp {
     );
   }
 
-  private selectedTarget() {
+  private selectedTarget(): EntityPayload | null {
     return this.state.selectedTargetID ? this.state.visibleEntities[this.state.selectedTargetID] ?? null : null;
+  }
+
+  private selectEntity(entityID: string | null): void {
+    if (!entityID || entityID !== this.pendingLootPickupID) {
+      this.pendingLootPickupID = null;
+      this.pendingLootApproachID = null;
+    }
+    this.dispatch({ type: 'selectTarget', entityID });
+    if (!entityID) {
+      return;
+    }
+
+    const target = this.state.visibleEntities[entityID];
+    if (target?.entity_type === 'loot') {
+      this.activateLootTarget(target, 'click');
+      return;
+    }
+    this.pendingLootPickupID = null;
+  }
+
+  private activateLootTarget(target: EntityPayload, source: 'click' | 'action'): void {
+    if (this.state.ship?.disabled === true) {
+      this.pendingLootPickupID = null;
+      this.pendingLootApproachID = null;
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Ship disabled. Repair before gathering drops.' });
+      return;
+    }
+
+    const pickupRange = this.state.stats?.loot_pickup_range ?? 0;
+    const distance = this.distanceToSelf(target);
+    if (pickupRange > 0 && distance !== null && distance <= pickupRange) {
+      this.pendingLootPickupID = null;
+      this.pendingLootApproachID = null;
+      this.sendCommand(this.commandBuilder.lootPickup(target.entity_id));
+      return;
+    }
+
+    if (this.pendingLootPickupID === target.entity_id) {
+      if (source === 'action') {
+        this.dispatch({ type: 'appendLog', level: 'info', text: `Approach already queued for ${entityLabel(target)}.` });
+      }
+      return;
+    }
+
+    this.pendingLootPickupID = target.entity_id;
+    if (pickupRange <= 0 || distance === null) {
+      this.pendingLootApproachID = null;
+      this.dispatch({ type: 'appendLog', level: 'warn', text: `Drop selected. Waiting for server pickup range.` });
+      return;
+    }
+
+    this.pendingLootApproachID = target.entity_id;
+    this.dispatch({
+      type: 'appendLog',
+      level: 'info',
+      text: `Approaching ${entityLabel(target)} (${Math.round(distance)}u).`,
+    });
+    this.sendMove({ ...target.position }, true);
+  }
+
+  private tryPendingLootPickup(): void {
+    const dropID = this.pendingLootPickupID;
+    if (!dropID || (this.state.auth.mode === 'real' && this.state.connectionStatus !== 'connected')) {
+      return;
+    }
+
+    const target = this.state.visibleEntities[dropID];
+    if (!target || target.entity_type !== 'loot' || this.state.ship?.disabled === true) {
+      this.pendingLootPickupID = null;
+      this.pendingLootApproachID = null;
+      return;
+    }
+
+    const pickupRange = this.state.stats?.loot_pickup_range ?? 0;
+    const distance = this.distanceToSelf(target);
+    if (pickupRange <= 0 || distance === null) {
+      return;
+    }
+    if (distance > pickupRange) {
+      if (this.pendingLootApproachID !== dropID) {
+        this.pendingLootApproachID = dropID;
+        this.dispatch({
+          type: 'appendLog',
+          level: 'info',
+          text: `Approaching ${entityLabel(target)} (${Math.round(distance)}u).`,
+        });
+        this.sendMove({ ...target.position }, true);
+      }
+      return;
+    }
+
+    this.pendingLootPickupID = null;
+    this.pendingLootApproachID = null;
+    this.sendCommand(this.commandBuilder.lootPickup(target.entity_id));
+  }
+
+  private distanceToSelf(target: EntityPayload): number | null {
+    const self = this.selfEntity();
+    if (!self) {
+      return null;
+    }
+    const selfPosition = currentEntityPosition(self);
+    const targetPosition = currentEntityPosition(target);
+    return Math.hypot(targetPosition.x - selfPosition.x, targetPosition.y - selfPosition.y);
+  }
+
+  private selfEntity(): EntityPayload | null {
+    return (
+      Object.values(this.state.visibleEntities).find((entity) => entity.status_flags?.includes('self')) ??
+      Object.values(this.state.visibleEntities).find((entity) => entity.entity_type === 'player') ??
+      null
+    );
+  }
+
+  private scheduleCooldownRender(): void {
+    const readyAt = this.state.skillCooldowns.basic_laser ?? 0;
+    const delay = readyAt - Date.now();
+    if (delay <= 0) {
+      this.clearCooldownRenderTimer();
+      return;
+    }
+    if (this.cooldownRenderTimer !== null && this.cooldownRenderAt === readyAt) {
+      return;
+    }
+
+    this.clearCooldownRenderTimer();
+    this.cooldownRenderAt = readyAt;
+    this.cooldownRenderTimer = window.setTimeout(() => {
+      this.cooldownRenderTimer = null;
+      this.cooldownRenderAt = 0;
+      this.render();
+    }, Math.min(delay + 25, 2_147_483_647));
+  }
+
+  private clearCooldownRenderTimer(): void {
+    if (this.cooldownRenderTimer === null) {
+      return;
+    }
+    window.clearTimeout(this.cooldownRenderTimer);
+    this.cooldownRenderTimer = null;
+    this.cooldownRenderAt = 0;
   }
 
   private async loadDemoState(): Promise<DemoStateModule> {
@@ -494,4 +655,24 @@ function isAuthError(message: ErrorEnvelope): boolean {
     message.error.code === 'ERR_SESSION_REVOKED' ||
     message.error.code === 'ERR_UNAUTHENTICATED'
   );
+}
+
+function currentEntityPosition(entity: EntityPayload): Vec2 {
+  const movement = entity.movement;
+  if (!movement?.moving || movement.arrive_at_ms <= movement.started_at_ms) {
+    return entity.position;
+  }
+
+  const progress = Math.max(
+    0,
+    Math.min(1, (Date.now() - movement.started_at_ms) / (movement.arrive_at_ms - movement.started_at_ms)),
+  );
+  return {
+    x: movement.origin.x + (movement.target.x - movement.origin.x) * progress,
+    y: movement.origin.y + (movement.target.y - movement.origin.y) * progress,
+  };
+}
+
+function entityLabel(entity: EntityPayload): string {
+  return entity.display?.label || entity.entity_id;
 }

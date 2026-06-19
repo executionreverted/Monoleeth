@@ -1334,6 +1334,9 @@ function parseStatSummary(payload: JsonObject, fallback: StatSummary | null): St
     radar_range: Math.max(0, numberField(payload, 'radar_range') ?? fallback?.radar_range ?? 0),
     weapon_range: Math.max(0, numberField(payload, 'weapon_range') ?? fallback?.weapon_range ?? 0),
     cargo_capacity: Math.max(0, numberField(payload, 'cargo_capacity') ?? fallback?.cargo_capacity ?? 0),
+    loot_pickup_range: Math.max(0, numberField(payload, 'loot_pickup_range') ?? fallback?.loot_pickup_range ?? 0),
+    basic_laser_energy_cost: Math.max(0, numberField(payload, 'basic_laser_energy_cost') ?? fallback?.basic_laser_energy_cost ?? 0),
+    basic_laser_cooldown_ms: Math.max(0, numberField(payload, 'basic_laser_cooldown_ms') ?? fallback?.basic_laser_cooldown_ms ?? 0),
   };
 }
 

@@ -187,6 +187,8 @@ async function verifyRealViewport(viewport, label) {
             state?.ship?.disabled === false &&
             state?.progression?.rank >= 1 &&
             state?.stats?.radar_range === 420 &&
+            state?.stats?.loot_pickup_range === 120 &&
+            state?.stats?.basic_laser_energy_cost === 10 &&
             state?.inventory?.counts?.cargo_stacks === 0 &&
             state?.hangar?.active_ship_id === 'starter_ship' &&
             state?.loadout?.slots?.length === 3 &&
@@ -376,6 +378,8 @@ async function verifyFixtureViewport(viewport, label) {
         state?.cargo?.capacity === 80 &&
         state?.wallet?.credits === 1250 &&
         state?.stats?.radar_range === 420 &&
+        state?.stats?.loot_pickup_range === 120 &&
+        state?.stats?.basic_laser_energy_cost === 10 &&
         state?.commandLog?.some((line) => line.text === 'Forbidden server payload rejected.') &&
         !state?.visibleEntities?.['hidden-planet']
       );
@@ -390,7 +394,7 @@ async function verifyFixtureViewport(viewport, label) {
 
       await clickWorldPosition(page, { x: -110, y: -220 });
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'loot-scrap-01');
-      await page.locator('.hud__actionbar [data-action="loot"]').click();
+      await realtime.waitForOp('move_to');
       await realtime.waitForOp('loot.pickup');
       await page.waitForFunction(() => {
         const state = window.__SPACE_MORPG_SMOKE_STATE__;
@@ -464,13 +468,6 @@ async function verifyRealCombatLoot(page) {
   }
 
   await clickWorldPosition(page, dropPosition);
-  await page.waitForFunction(() => {
-    const state = window.__SPACE_MORPG_SMOKE_STATE__;
-    const target = state?.selectedTargetID ? state.visibleEntities?.[state.selectedTargetID] : null;
-    const panelText = document.querySelector('[data-panel="target"]')?.textContent ?? '';
-    return target?.entity_type === 'loot' && /raw_ore/i.test(panelText) && /Qty/i.test(panelText);
-  }, null, { timeout: 10000 });
-  await page.locator('.hud__actionbar [data-action="loot"]').click();
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     const entities = state?.visibleEntities ?? {};
@@ -1416,6 +1413,9 @@ function snapshotPayload() {
       radar_range: 420,
       weapon_range: 260,
       cargo_capacity: 80,
+      loot_pickup_range: 120,
+      basic_laser_energy_cost: 10,
+      basic_laser_cooldown_ms: 350,
     },
   };
 }
