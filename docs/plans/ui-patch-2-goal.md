@@ -139,10 +139,10 @@ docs/2026-06-17-world-system-design.md
 
 ### Combat Projectile Feedback
 
-- [ ] Firing at a visible hostile creates a projectile from self to target.
-- [ ] Projectile timing is presentation-only and derived from server events.
-- [ ] Hit/miss/damage/death feedback remains server-owned.
-- [ ] Projectile, target flash, and damage text are visible in screenshots and
+- [x] Firing at a visible hostile creates a projectile from self to target.
+- [x] Projectile timing is presentation-only and derived from server events.
+- [x] Hit/miss/damage/death feedback remains server-owned.
+- [x] Projectile, target flash, and damage text are visible in screenshots and
       smoke checks.
 
 ### Starfield And Mockup Parity

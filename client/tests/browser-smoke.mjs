@@ -21,6 +21,7 @@ const phase02OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-pat
 const phase03OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '03');
 const phase04OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '04');
 const phase05OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '05');
+const phase06OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '06');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -107,6 +108,7 @@ try {
   await mkdir(phase03OutputDir, { recursive: true });
   await mkdir(phase04OutputDir, { recursive: true });
   await mkdir(phase05OutputDir, { recursive: true });
+  await mkdir(phase06OutputDir, { recursive: true });
   if (useFixture) {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
@@ -684,10 +686,26 @@ async function verifyRealCombatLoot(page) {
     );
   }, null, { timeout: 10000 });
   await page.locator('.hud__actionbar [data-action="fire"]').click();
-  await page.waitForFunction(() => {
-    const effects = window.__SPACE_MORPG_SMOKE_STATE__?.worldEffects ?? [];
-    return effects.some((effect) => effect.kind === 'laser' && effect.targetID === 'entity_training_npc');
-  }, null, { timeout: 3000 });
+  try {
+    await page.waitForFunction(() => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      const effects = state?.worldEffects ?? [];
+      const projectile = state?.worldView?.projectiles?.find((entry) => entry.active === true && entry.progress > 0 && entry.progress < 1);
+      return (
+        effects.some((effect) => effect.kind === 'laser' && effect.targetID === 'entity_training_npc' && effect.sourceID) &&
+        projectile &&
+        Number.isFinite(projectile.source?.x) &&
+        Number.isFinite(projectile.target?.x) &&
+        Number.isFinite(projectile.head?.x) &&
+        Math.hypot(projectile.head.x - projectile.source.x, projectile.head.y - projectile.source.y) > 4 &&
+        Math.hypot(projectile.target.x - projectile.head.x, projectile.target.y - projectile.head.y) > 4
+      );
+    }, null, { timeout: 3000 });
+  } catch (error) {
+    console.error('desktop projectile state', JSON.stringify(await projectileDiagnostics(page), null, 2));
+    throw error;
+  }
+  await page.screenshot({ path: path.join(phase06OutputDir, 'projectile-desktop.png'), fullPage: true });
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     const entities = state?.visibleEntities ?? {};
@@ -756,6 +774,21 @@ async function lootDiagnostics(page, expectedDropPosition) {
       ),
     };
   }, expectedDropPosition);
+}
+
+async function projectileDiagnostics(page) {
+  return page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return {
+      selectedTargetID: state?.selectedTargetID,
+      target: state?.selectedTargetID ? state?.visibleEntities?.[state.selectedTargetID] : null,
+      effects: state?.worldEffects,
+      projectiles: state?.worldView?.projectiles,
+      displayPositions: state?.worldView?.displayPositions,
+      recentCommandLog: state?.commandLog?.slice(-10),
+      recentCombatLog: state?.combatLog?.slice(-10),
+    };
+  });
 }
 
 async function verifyRealMovementInterpolation(page) {

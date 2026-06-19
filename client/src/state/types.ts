@@ -625,6 +625,7 @@ export interface WorldFeedbackEffect {
   targetID?: string;
   sourceID?: string;
   position?: Vec2;
+  sourcePosition?: Vec2;
   amount?: number;
   shieldAmount?: number;
   hullAmount?: number;

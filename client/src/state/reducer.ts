@@ -900,6 +900,9 @@ function appendWorldEffect(state: ClientState, effect: WorldFeedbackEffect | nul
     return state;
   }
   const now = Date.now();
+  if (state.worldEffects.some((entry) => entry.id === effect.id)) {
+    return state;
+  }
   return {
     ...state,
     worldEffects: [...state.worldEffects.filter((entry) => entry.expiresAt > now).slice(-17), effect],
@@ -927,12 +930,14 @@ function feedbackEffect(
   }
 
   const createdAt = Date.now();
+  const sourcePosition = sourceID ? state.visibleEntities[sourceID]?.position : null;
   return {
     id: `${envelope.event_id}:${kind}`,
     kind,
     targetID,
     sourceID: kind === 'laser' ? sourceID ?? undefined : undefined,
     position: position ? { ...position } : undefined,
+    sourcePosition: kind === 'laser' && sourcePosition ? { ...sourcePosition } : undefined,
     amount: roundedOptional(envelope.payload, 'amount'),
     shieldAmount: roundedOptional(envelope.payload, 'shield_amount'),
     hullAmount: roundedOptional(envelope.payload, 'hull_amount'),

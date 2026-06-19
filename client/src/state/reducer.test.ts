@@ -605,7 +605,16 @@ describe('reduceClientState', () => {
   });
 
   test('phase 05 combat, loot, progression, and repair events reconcile server-owned state', () => {
-    const withNPC = reduceClientState(createInitialState(), {
+    const withPlayer = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.entityEntered, {
+        entity_id: 'player-1',
+        entity_type: 'player',
+        position: { x: 0, y: 0 },
+        status_flags: ['self'],
+      }),
+    });
+    const withNPC = reduceClientState(withPlayer, {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.entityEntered, {
         entity_id: 'npc-1',
@@ -623,6 +632,14 @@ describe('reduceClientState', () => {
       }, 2),
     });
     const withCooldown = reduceClientState(targeted, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.combatCooldownStarted, {
+        skill_id: 'basic_laser',
+        target_id: 'npc-1',
+        cooldown_ready_at_ms: 9000,
+      }, 3),
+    });
+    const withDuplicateCooldown = reduceClientState(withCooldown, {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.combatCooldownStarted, {
         skill_id: 'basic_laser',
@@ -707,7 +724,17 @@ describe('reduceClientState', () => {
 
     expect(targeted.visibleEntities['npc-1'].combat).toMatchObject({ hp: 0, shield: 0, status: 'destroyed' });
     expect(withCooldown.skillCooldowns.basic_laser).toBe(9000);
-    expect(withCooldown.worldEffects.some((effect) => effect.kind === 'laser' && effect.targetID === 'npc-1')).toBe(true);
+    expect(withCooldown.worldEffects).toContainEqual(
+      expect.objectContaining({
+        id: 'event-3:laser',
+        kind: 'laser',
+        sourceID: 'player-1',
+        sourcePosition: { x: 0, y: 0 },
+        targetID: 'npc-1',
+        position: { x: 80, y: 0 },
+      }),
+    );
+    expect(withDuplicateCooldown.worldEffects.filter((effect) => effect.id === 'event-3:laser')).toHaveLength(1);
     expect(withDamage.combatLog.at(-1)?.text).toContain('Hit Training Drone for 45.');
     expect(withDamage.worldEffects.some((effect) => effect.kind === 'damage' && effect.amount === 45)).toBe(true);
     expect(withDropNotice.knownLoot['drop-1']).toMatchObject({ item_id: 'raw_ore', quantity: 3 });

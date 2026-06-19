@@ -12,6 +12,8 @@ server-owned.
 **Tech Stack:** PixiJS renderer, existing `WorldFeedbackEffect`, reducer tests,
 Playwright smoke.
 
+**Status:** Complete on 2026-06-19.
+
 ---
 
 ## Files
@@ -25,35 +27,50 @@ Playwright smoke.
 
 ## Steps
 
-1. Extend `WorldFeedbackEffect` if needed:
+1. [x] Extend `WorldFeedbackEffect` if needed:
    - keep `laser` kind or add `projectile`
    - include `sourceID`, `targetID`, `createdAt`, `expiresAt`
    - no damage/hit fields unless provided by server events
-2. In reducer, create projectile effect only from safe server events:
+2. [x] In reducer, create projectile effect only from safe server events:
    - `combat.cooldown_started`
    - or accepted combat event that includes source/target
-3. Renderer:
+3. [x] Renderer:
    - compute source and target screen positions each frame
    - draw a small bright bolt/head traveling along the line over 180-280ms
    - draw faint tail, target flash, and then let existing hit/miss/damage text
      handle results
    - if source/target disappeared, fall back to last known effect position
-4. Prevent duplicated visual spam:
+4. [x] Prevent duplicated visual spam:
    - dedupe by event id/effect id
    - expire effects deterministically
-5. Tests:
+5. [x] Tests:
    - reducer test creates projectile effect from cooldown/combat event
    - smoke fires at visible NPC and waits for a projectile effect in smoke
      state plus nonblank projectile pixels if practical
-6. Screenshot:
+6. [x] Screenshot:
    - save a fire frame under `output/screenshots/ui-patch-2/06/`
 
 ## Acceptance
 
-- Fire shows a moving projectile from self to target.
-- Projectile is visibly separate from floating damage text.
-- No client damage/hit result is invented.
-- If the target dies, death/loot feedback still appears from server events.
+- [x] Fire shows a moving projectile from self to target.
+- [x] Projectile is visibly separate from floating damage text.
+- [x] No client damage/hit result is invented.
+- [x] If the target dies, death/loot feedback still appears from server events.
+
+## Verification
+
+```bash
+cd client
+npm --cache /tmp/gameproject-npm-cache run typecheck
+npm --cache /tmp/gameproject-npm-cache test -- --run src/state/reducer.test.ts
+npm --cache /tmp/gameproject-npm-cache run smoke
+```
+
+Screenshot captured:
+
+```text
+output/screenshots/ui-patch-2/06/projectile-desktop.png
+```
 
 ## Commit
 

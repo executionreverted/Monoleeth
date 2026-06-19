@@ -31,6 +31,7 @@ const npcSwarmOffsets = [
   { x: 21, y: 9, r: 5 },
   { x: 3, y: -2, r: 8 },
 ];
+const PROJECTILE_TRAVEL_MS = 260;
 
 export class WorldRenderer {
   private app: Application | null = null;
@@ -186,11 +187,13 @@ export class WorldRenderer {
     displayPositions: Record<string, Vec2>;
     memoryMarkers: Array<{ id: string; detailID: string; label: string; position: Vec2; screen: Vec2; state: string }>;
     scanWaves: { active: boolean; screen: Vec2 | null; rings: Array<{ radius: number; alpha: number }> };
+    projectiles: Array<{ id: string; source: Vec2; target: Vec2; head: Vec2; progress: number; active: boolean; alpha: number }>;
   } {
     const displayPositions: Record<string, Vec2> = {};
     for (const [entityID, position] of this.entityWorldPositions) {
       displayPositions[entityID] = { ...position };
     }
+    const now = Date.now();
     return {
       center: { ...this.center },
       displayPositions,
@@ -207,6 +210,7 @@ export class WorldRenderer {
         screen: this.scanDebug.screen ? { ...this.scanDebug.screen } : null,
         rings: this.scanDebug.rings.map((ring) => ({ ...ring })),
       },
+      projectiles: (this.state?.worldEffects ?? []).flatMap((effect) => this.projectileDebugSnapshot(effect, now)),
     };
   }
 
@@ -681,25 +685,47 @@ export class WorldRenderer {
     if (!target) {
       return;
     }
-    const sourceWorld = effect.sourceID ? this.entityWorldPositions.get(effect.sourceID) : null;
-    const source = sourceWorld ? this.worldToScreen(sourceWorld) : null;
+    const source = this.effectSourceScreenPosition(effect);
     const alpha = this.effectAlpha(effect, now);
+    const progress = this.projectileProgress(effect, now);
     const marker = new Graphics();
     if (source) {
+      const head = lerpVec(source, target, progress);
+      const tail = lerpVec(source, target, Math.max(0, progress - 0.2));
       marker
         .moveTo(source.x, source.y)
         .lineTo(target.x, target.y)
-        .stroke({ color: 0x2bdfff, width: 3, alpha: 0.34 * alpha })
-        .moveTo(source.x, source.y)
-        .lineTo(target.x, target.y)
-        .stroke({ color: 0xf4c95d, width: 1, alpha: 0.92 * alpha });
+        .stroke({ color: 0x2bdfff, width: 1, alpha: 0.12 * alpha })
+        .circle(source.x, source.y, 6 + (1 - progress) * 5)
+        .stroke({ color: 0x8af5ff, width: 1, alpha: 0.42 * alpha })
+        .moveTo(tail.x, tail.y)
+        .lineTo(head.x, head.y)
+        .stroke({ color: 0x2bdfff, width: 7, alpha: 0.22 * alpha })
+        .moveTo(tail.x, tail.y)
+        .lineTo(head.x, head.y)
+        .stroke({ color: 0xf4c95d, width: 2, alpha: 0.92 * alpha })
+        .circle(head.x, head.y, 5)
+        .fill({ color: 0xfff0a8, alpha: 0.95 * alpha })
+        .circle(head.x, head.y, 11)
+        .stroke({ color: 0x2bdfff, width: 2, alpha: 0.55 * alpha });
     }
-    marker.circle(target.x, target.y, 19 + (1 - alpha) * 10).stroke({ color: 0xf4c95d, width: 2, alpha: 0.78 * alpha });
-    marker.moveTo(target.x - 8, target.y).lineTo(target.x + 8, target.y).moveTo(target.x, target.y - 8).lineTo(target.x, target.y + 8).stroke({
-      color: 0xfff0a8,
-      width: 2,
-      alpha: 0.86 * alpha,
-    });
+    const flashAlpha = alpha * (source ? clamp((progress - 0.72) / 0.28, 0, 1) : 1);
+    if (flashAlpha > 0) {
+      if (source) {
+        marker.moveTo(source.x, source.y).lineTo(target.x, target.y).stroke({ color: 0xf4c95d, width: 1, alpha: 0.16 * flashAlpha });
+      }
+      marker.circle(target.x, target.y, 18 + (1 - flashAlpha) * 10).stroke({ color: 0xf4c95d, width: 2, alpha: 0.78 * flashAlpha });
+      marker
+        .moveTo(target.x - 8, target.y)
+        .lineTo(target.x + 8, target.y)
+        .moveTo(target.x, target.y - 8)
+        .lineTo(target.x, target.y + 8)
+        .stroke({
+          color: 0xfff0a8,
+          width: 2,
+          alpha: 0.86 * flashAlpha,
+        });
+    }
     this.markerLayer.addChild(marker);
   }
 
@@ -758,8 +784,48 @@ export class WorldRenderer {
     return effect.position ? this.worldToScreen(effect.position) : null;
   }
 
+  private effectSourceScreenPosition(effect: WorldFeedbackEffect): Vec2 | null {
+    if (effect.sourceID) {
+      const world = this.entityWorldPositions.get(effect.sourceID) ?? this.entityTargets.get(effect.sourceID)?.position;
+      if (world) {
+        return this.worldToScreen(world);
+      }
+    }
+    return effect.sourcePosition ? this.worldToScreen(effect.sourcePosition) : null;
+  }
+
+  private projectileDebugSnapshot(
+    effect: WorldFeedbackEffect,
+    now: number,
+  ): Array<{ id: string; source: Vec2; target: Vec2; head: Vec2; progress: number; active: boolean; alpha: number }> {
+    if (effect.kind !== 'laser' || effect.expiresAt <= now) {
+      return [];
+    }
+    const source = this.effectSourceScreenPosition(effect);
+    const target = this.effectScreenPosition(effect);
+    if (!source || !target) {
+      return [];
+    }
+    const progress = this.projectileProgress(effect, now);
+    return [
+      {
+        id: effect.id,
+        source,
+        target,
+        head: lerpVec(source, target, progress),
+        progress,
+        active: progress < 1,
+        alpha: this.effectAlpha(effect, now),
+      },
+    ];
+  }
+
   private effectProgress(effect: WorldFeedbackEffect, now: number): number {
     return clamp((now - effect.createdAt) / Math.max(1, effect.expiresAt - effect.createdAt), 0, 1);
+  }
+
+  private projectileProgress(effect: WorldFeedbackEffect, now: number): number {
+    return clamp((now - effect.createdAt) / PROJECTILE_TRAVEL_MS, 0, 1);
   }
 
   private effectAlpha(effect: WorldFeedbackEffect, now: number): number {
@@ -1035,6 +1101,13 @@ function drawIsometricCrate(view: Graphics, color: number): void {
 
 function lerp(from: number, to: number, amount: number): number {
   return from + (to - from) * amount;
+}
+
+function lerpVec(from: Vec2, to: Vec2, amount: number): Vec2 {
+  return {
+    x: lerp(from.x, to.x, amount),
+    y: lerp(from.y, to.y, amount),
+  };
 }
 
 function snapClose(current: Vec2, target: Vec2): Vec2 {
