@@ -96,6 +96,83 @@ export interface ProgressionSummary {
   combat_xp?: number;
 }
 
+export interface InventorySummary {
+  stackable: Array<{
+    item_id: string;
+    display_name?: string;
+    quantity: number;
+    location: string;
+  }>;
+  instances: Array<{
+    item_instance_id: string;
+    item_id: string;
+    display_name?: string;
+    location: string;
+    durability_current?: number;
+    bound_state?: string;
+  }>;
+  counts: {
+    cargo_stacks: number;
+    storage_stacks: number;
+    equipped_instances: number;
+  };
+}
+
+export interface HangarSummary {
+  active_ship_id: string;
+  ships: Array<{
+    ship_id: string;
+    display_name: string;
+    state: string;
+    hull: number;
+    max_hull: number;
+    shield: number;
+    max_shield: number;
+    disabled: boolean;
+  }>;
+}
+
+export interface LoadoutSummary {
+  active_ship_id: string;
+  slots: Array<{
+    slot_id: string;
+    slot_type: string;
+    module_item_id?: string;
+    module_id?: string;
+    module_state?: string;
+    durability?: number;
+    durability_max?: number;
+  }>;
+}
+
+export interface CraftingSummary {
+  recipes: Array<{
+    recipe_id: string;
+    category: string;
+    output: {
+      kind: string;
+      item_id?: string;
+      ship_id?: string;
+      quantity: number;
+      tradeable: boolean;
+    };
+    inputs: Array<{ item_id: string; quantity: number }>;
+    required_credits: number;
+    required_rank: number;
+    required_role_levels: Array<{ role: string; level: number }>;
+    required_location_type: string;
+    craft_duration_ms: number;
+    repeatable: boolean;
+  }>;
+  active_jobs: Array<{
+    job_id: string;
+    recipe_id: string;
+    state: string;
+    started_at: number;
+    completes_at: number;
+  }>;
+}
+
 export interface RepairQuote {
   ship_id: string;
   currency: string;
@@ -158,10 +235,13 @@ export interface ClientState {
   ship: ShipSummary | null;
   stats: StatSummary | null;
   progression: ProgressionSummary | null;
+  inventory: InventorySummary | null;
+  hangar: HangarSummary | null;
+  loadout: LoadoutSummary | null;
+  crafting: CraftingSummary | null;
   repairQuote: RepairQuote | null;
   skillCooldowns: Record<string, number>;
   questBoard: { available: number; active: number } | null;
-  inventory: { equipped: number; storage: number } | null;
   planetIntel: { knownSignals: number; staleIntel: number | null } | null;
   lastError: ErrorPayload | null;
 }

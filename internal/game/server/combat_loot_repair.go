@@ -208,15 +208,17 @@ func (runtime *Runtime) handleLootPickup(ctx realtime.CommandContext, request re
 		"entity_id": result.Drop.ID.String(),
 	})
 	runtime.queueEventLocked(sessionID, realtime.EventCargoSnapshot, state.Cargo)
+	runtime.queueEventLocked(sessionID, realtime.EventInventorySnapshot, runtime.inventorySnapshotLocked(ctx.PlayerID))
 	if result.XPResult != nil {
 		payload := progressionPayload(result.XPResult.Snapshot)
 		runtime.queueEventLocked(sessionID, realtime.EventProgressionSnapshot, payload)
 	}
 
 	return marshalPayload(map[string]any{
-		"accepted": true,
-		"drop_id":  result.Drop.ID.String(),
-		"cargo":    state.Cargo,
+		"accepted":  true,
+		"drop_id":   result.Drop.ID.String(),
+		"cargo":     state.Cargo,
+		"inventory": runtime.inventorySnapshotLocked(ctx.PlayerID),
 	})
 }
 

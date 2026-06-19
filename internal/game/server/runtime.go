@@ -10,6 +10,7 @@ import (
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/combat"
+	"gameproject/internal/game/crafting"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
@@ -72,6 +73,7 @@ type Runtime struct {
 	Inventory    *economy.InventoryService
 	CargoService *economy.CargoService
 	Progression  *progression.ProgressionService
+	Recipes      crafting.RecipeCatalog
 
 	combatXP       *combat.NPCKillXPHandler
 	lootTable      loot.LootTable
@@ -241,6 +243,10 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	recipeCatalog, err := crafting.MVPRecipeCatalog()
+	if err != nil {
+		return nil, err
+	}
 	runtime := &Runtime{
 		clock:   clock,
 		devMode: config.DevMode,
@@ -262,6 +268,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Inventory:      inventory,
 		CargoService:   cargoService,
 		Progression:    progressionService,
+		Recipes:        recipeCatalog,
 		combatXP:       combatXP,
 		lootTable:      lootTable,
 		itemCatalog:    itemCatalog,

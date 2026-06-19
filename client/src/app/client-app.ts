@@ -1,7 +1,7 @@
 import { AuthClient, AuthClientError } from '../auth/auth-client';
 import { RealtimeClient } from '../net/realtime-client';
 import { CommandBuilder } from '../protocol/commands';
-import { ErrorEnvelope, RequestEnvelope, ServerMessage, Vec2 } from '../protocol/envelope';
+import { CLIENT_EVENTS, ErrorEnvelope, RequestEnvelope, ServerMessage, Vec2 } from '../protocol/envelope';
 import { WorldRenderer } from '../render/world-renderer';
 import { AuthPanel } from '../ui/auth-panel';
 import { HUD } from '../ui/hud';
@@ -26,6 +26,7 @@ export class ClientApp {
   private hud: HUD | null = null;
   private reconnectTimer: number | null = null;
   private intentionalDisconnect = false;
+  private systemsSnapshotRequested = false;
   private readonly demoMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1';
 
   constructor(private readonly root: HTMLElement) {}
@@ -84,6 +85,7 @@ export class ClientApp {
 
   private disconnect(): void {
     this.intentionalDisconnect = true;
+    this.systemsSnapshotRequested = false;
     this.clearReconnectTimer();
     this.realtime.disconnect();
     if (this.state.auth.mode === 'demo') {
@@ -155,6 +157,9 @@ export class ClientApp {
   private applyServerMessage(message: ServerMessage): void {
     if ('event_id' in message) {
       this.dispatch({ type: 'eventReceived', envelope: message });
+      if (message.type === CLIENT_EVENTS.worldSnapshot) {
+        this.requestSystemsSnapshotOnce();
+      }
       return;
     }
 
@@ -224,6 +229,7 @@ export class ClientApp {
 
   private async logout(): Promise<void> {
     this.intentionalDisconnect = true;
+    this.systemsSnapshotRequested = false;
     this.clearReconnectTimer();
     this.realtime.disconnect();
     try {
@@ -240,13 +246,42 @@ export class ClientApp {
       return;
     }
     this.intentionalDisconnect = false;
+    this.systemsSnapshotRequested = false;
     this.clearReconnectTimer();
     this.dispatch({ type: 'authSessionLoaded', session });
     this.realtime.connect(this.state.socketURL);
   }
 
   private syncSnapshot(): void {
-    this.sendCommand(this.state.auth.mode === 'demo' ? this.commandBuilder.debugSnapshot() : this.commandBuilder.worldSnapshot());
+    if (this.state.auth.mode === 'demo') {
+      this.sendCommand(this.commandBuilder.debugSnapshot());
+      return;
+    }
+    this.sendCommand(this.commandBuilder.worldSnapshot());
+    this.requestSystemsSnapshot(true);
+  }
+
+  private requestSystemsSnapshotOnce(): void {
+    if (this.systemsSnapshotRequested) {
+      return;
+    }
+    this.requestSystemsSnapshot(false);
+  }
+
+  private requestSystemsSnapshot(force: boolean): void {
+    if (this.state.auth.mode !== 'real' || this.state.connectionStatus !== 'connected') {
+      return;
+    }
+    if (this.systemsSnapshotRequested && !force) {
+      return;
+    }
+    this.systemsSnapshotRequested = true;
+    this.sendCommand(this.commandBuilder.progressionSnapshot());
+    this.sendCommand(this.commandBuilder.inventorySnapshot());
+    this.sendCommand(this.commandBuilder.hangarSnapshot());
+    this.sendCommand(this.commandBuilder.loadoutSnapshot());
+    this.sendCommand(this.commandBuilder.statsSnapshot());
+    this.sendCommand(this.commandBuilder.craftingRecipes());
   }
 
   private handleAuthExpired(message: string): void {
@@ -345,6 +380,10 @@ export class ClientApp {
         ship: this.state.ship,
         stats: this.state.stats,
         progression: this.state.progression,
+        inventory: this.state.inventory,
+        hangar: this.state.hangar,
+        loadout: this.state.loadout,
+        crafting: this.state.crafting,
         repairQuote: this.state.repairQuote,
         skillCooldowns: this.state.skillCooldowns,
         commandLog: this.state.commandLog,

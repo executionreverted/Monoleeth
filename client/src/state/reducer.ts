@@ -9,6 +9,10 @@ import {
 } from '../protocol/envelope';
 import {
   CargoSummary,
+  CraftingSummary,
+  HangarSummary,
+  InventorySummary,
+  LoadoutSummary,
   ClientAction,
   ClientState,
   LogLine,
@@ -51,10 +55,13 @@ export function createInitialState(): ClientState {
     ship: null,
     stats: null,
     progression: null,
+    inventory: null,
+    hangar: null,
+    loadout: null,
+    crafting: null,
     repairQuote: null,
     skillCooldowns: {},
     questBoard: null,
-    inventory: null,
     planetIntel: null,
     lastError: null,
   };
@@ -401,6 +408,38 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
 
+    case CLIENT_EVENTS.inventorySnapshot:
+      return {
+        ...state,
+        inventory: parseInventorySummary(envelope.payload, state.inventory),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.hangarSnapshot:
+      return {
+        ...state,
+        hangar: parseHangarSummary(envelope.payload, state.hangar),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.loadoutSnapshot:
+      return {
+        ...state,
+        loadout: parseLoadoutSummary(envelope.payload, state.loadout),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.craftingRecipes:
+      return {
+        ...state,
+        crafting: parseCraftingSummary(envelope.payload, state.crafting),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
     case CLIENT_EVENTS.deathShipDisabled:
       return {
         ...state,
@@ -660,6 +699,38 @@ function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientSt
     };
   }
 
+  const inventory = objectField(payload, 'inventory') ?? objectField(payload, 'inventory_snapshot');
+  if (inventory) {
+    next = {
+      ...next,
+      inventory: parseInventorySummary(inventory, next.inventory),
+    };
+  }
+
+  const hangar = objectField(payload, 'hangar') ?? objectField(payload, 'hangar_snapshot');
+  if (hangar) {
+    next = {
+      ...next,
+      hangar: parseHangarSummary(hangar, next.hangar),
+    };
+  }
+
+  const loadout = objectField(payload, 'loadout') ?? objectField(payload, 'loadout_snapshot');
+  if (loadout) {
+    next = {
+      ...next,
+      loadout: parseLoadoutSummary(loadout, next.loadout),
+    };
+  }
+
+  const crafting = objectField(payload, 'crafting') ?? objectField(payload, 'crafting_recipes');
+  if (crafting) {
+    next = {
+      ...next,
+      crafting: parseCraftingSummary(crafting, next.crafting),
+    };
+  }
+
   const quote = objectField(payload, 'repair_quote') ?? (typeof payload.cost === 'number' && typeof payload.ship_id === 'string' ? payload : null);
   if (quote) {
     next = {
@@ -803,6 +874,201 @@ function parseProgressionSummary(payload: JsonObject, fallback: ProgressionSumma
     rank: Math.max(0, Math.round(numberField(payload, 'rank') ?? fallback?.rank ?? 0)),
     combat_level: optionalRoundedNumber(payload, 'combat_level', fallback?.combat_level),
     combat_xp: optionalRoundedNumber(payload, 'combat_xp', fallback?.combat_xp),
+  };
+}
+
+function parseInventorySummary(payload: JsonObject, fallback: InventorySummary | null): InventorySummary {
+  const stackable = Array.isArray(payload.stackable)
+    ? payload.stackable
+        .filter(isJsonObject)
+        .map(parseInventoryStack)
+        .filter((item): item is InventorySummary['stackable'][number] => item !== null)
+    : fallback?.stackable ?? [];
+  const instances = Array.isArray(payload.instances)
+    ? payload.instances
+        .filter(isJsonObject)
+        .map(parseInventoryInstance)
+        .filter((item): item is InventorySummary['instances'][number] => item !== null)
+    : fallback?.instances ?? [];
+  const counts = objectField(payload, 'counts');
+
+  return {
+    stackable,
+    instances,
+    counts: {
+      cargo_stacks: Math.max(0, Math.round(numberField(counts ?? {}, 'cargo_stacks') ?? fallback?.counts.cargo_stacks ?? 0)),
+      storage_stacks: Math.max(0, Math.round(numberField(counts ?? {}, 'storage_stacks') ?? fallback?.counts.storage_stacks ?? 0)),
+      equipped_instances: Math.max(
+        0,
+        Math.round(numberField(counts ?? {}, 'equipped_instances') ?? fallback?.counts.equipped_instances ?? 0),
+      ),
+    },
+  };
+}
+
+function parseInventoryStack(payload: JsonObject): InventorySummary['stackable'][number] | null {
+  const itemID = stringField(payload, 'item_id') ?? '';
+  const quantity = numberField(payload, 'quantity') ?? 0;
+  if (!itemID || quantity <= 0) {
+    return null;
+  }
+  return {
+    item_id: itemID,
+    display_name: stringField(payload, 'display_name') ?? undefined,
+    quantity: Math.max(0, Math.round(quantity)),
+    location: stringField(payload, 'location') ?? '',
+  };
+}
+
+function parseInventoryInstance(payload: JsonObject): InventorySummary['instances'][number] | null {
+  const itemInstanceID = stringField(payload, 'item_instance_id') ?? '';
+  const itemID = stringField(payload, 'item_id') ?? '';
+  if (!itemInstanceID || !itemID) {
+    return null;
+  }
+  return {
+    item_instance_id: itemInstanceID,
+    item_id: itemID,
+    display_name: stringField(payload, 'display_name') ?? undefined,
+    location: stringField(payload, 'location') ?? '',
+    durability_current: optionalRoundedNumber(payload, 'durability_current', undefined),
+    bound_state: stringField(payload, 'bound_state') ?? undefined,
+  };
+}
+
+function parseHangarSummary(payload: JsonObject, fallback: HangarSummary | null): HangarSummary {
+  const ships = Array.isArray(payload.ships)
+    ? payload.ships
+        .filter(isJsonObject)
+        .map(parseHangarShip)
+        .filter((ship): ship is HangarSummary['ships'][number] => ship !== null)
+    : fallback?.ships ?? [];
+  return {
+    active_ship_id: stringField(payload, 'active_ship_id') ?? fallback?.active_ship_id ?? '',
+    ships,
+  };
+}
+
+function parseHangarShip(payload: JsonObject): HangarSummary['ships'][number] | null {
+  const shipID = stringField(payload, 'ship_id') ?? '';
+  if (!shipID) {
+    return null;
+  }
+  return {
+    ship_id: shipID,
+    display_name: stringField(payload, 'display_name') ?? shipID,
+    state: stringField(payload, 'state') ?? '',
+    hull: Math.max(0, Math.round(numberField(payload, 'hull') ?? 0)),
+    max_hull: Math.max(0, Math.round(numberField(payload, 'max_hull') ?? 0)),
+    shield: Math.max(0, Math.round(numberField(payload, 'shield') ?? 0)),
+    max_shield: Math.max(0, Math.round(numberField(payload, 'max_shield') ?? 0)),
+    disabled: booleanField(payload, 'disabled') ?? false,
+  };
+}
+
+function parseLoadoutSummary(payload: JsonObject, fallback: LoadoutSummary | null): LoadoutSummary {
+  const slots = Array.isArray(payload.slots)
+    ? payload.slots
+        .filter(isJsonObject)
+        .map(parseLoadoutSlot)
+        .filter((slot): slot is LoadoutSummary['slots'][number] => slot !== null)
+    : fallback?.slots ?? [];
+  return {
+    active_ship_id: stringField(payload, 'active_ship_id') ?? fallback?.active_ship_id ?? '',
+    slots,
+  };
+}
+
+function parseLoadoutSlot(payload: JsonObject): LoadoutSummary['slots'][number] | null {
+  const slotID = stringField(payload, 'slot_id') ?? '';
+  const slotType = stringField(payload, 'slot_type') ?? '';
+  if (!slotID || !slotType) {
+    return null;
+  }
+  return {
+    slot_id: slotID,
+    slot_type: slotType,
+    module_item_id: stringField(payload, 'module_item_id') ?? undefined,
+    module_id: stringField(payload, 'module_id') ?? undefined,
+    module_state: stringField(payload, 'module_state') ?? undefined,
+    durability: optionalRoundedNumber(payload, 'durability', undefined),
+    durability_max: optionalRoundedNumber(payload, 'durability_max', undefined),
+  };
+}
+
+function parseCraftingSummary(payload: JsonObject, fallback: CraftingSummary | null): CraftingSummary {
+  const recipes = Array.isArray(payload.recipes)
+    ? payload.recipes
+        .filter(isJsonObject)
+        .map(parseCraftingRecipe)
+        .filter((recipe): recipe is CraftingSummary['recipes'][number] => recipe !== null)
+    : fallback?.recipes ?? [];
+  const activeJobs = Array.isArray(payload.active_jobs)
+    ? payload.active_jobs
+        .filter(isJsonObject)
+        .map(parseCraftingJob)
+        .filter((job): job is CraftingSummary['active_jobs'][number] => job !== null)
+    : fallback?.active_jobs ?? [];
+  return {
+    recipes,
+    active_jobs: activeJobs,
+  };
+}
+
+function parseCraftingRecipe(payload: JsonObject): CraftingSummary['recipes'][number] | null {
+  const recipeID = stringField(payload, 'recipe_id') ?? '';
+  const output = objectField(payload, 'output');
+  if (!recipeID || !output) {
+    return null;
+  }
+  return {
+    recipe_id: recipeID,
+    category: stringField(payload, 'category') ?? '',
+    output: {
+      kind: stringField(output, 'kind') ?? '',
+      item_id: stringField(output, 'item_id') ?? undefined,
+      ship_id: stringField(output, 'ship_id') ?? undefined,
+      quantity: Math.max(0, Math.round(numberField(output, 'quantity') ?? 0)),
+      tradeable: booleanField(output, 'tradeable') ?? false,
+    },
+    inputs: Array.isArray(payload.inputs)
+      ? payload.inputs
+          .filter(isJsonObject)
+          .map((input) => ({
+            item_id: stringField(input, 'item_id') ?? '',
+            quantity: Math.max(0, Math.round(numberField(input, 'quantity') ?? 0)),
+          }))
+          .filter((input) => input.item_id !== '' && input.quantity > 0)
+      : [],
+    required_credits: Math.max(0, Math.round(numberField(payload, 'required_credits') ?? 0)),
+    required_rank: Math.max(0, Math.round(numberField(payload, 'required_rank') ?? 0)),
+    required_role_levels: Array.isArray(payload.required_role_levels)
+      ? payload.required_role_levels
+          .filter(isJsonObject)
+          .map((requirement) => ({
+            role: stringField(requirement, 'role') ?? '',
+            level: Math.max(0, Math.round(numberField(requirement, 'level') ?? 0)),
+          }))
+          .filter((requirement) => requirement.role !== '' && requirement.level > 0)
+      : [],
+    required_location_type: stringField(payload, 'required_location_type') ?? '',
+    craft_duration_ms: Math.max(0, Math.round(numberField(payload, 'craft_duration_ms') ?? 0)),
+    repeatable: booleanField(payload, 'repeatable') ?? false,
+  };
+}
+
+function parseCraftingJob(payload: JsonObject): CraftingSummary['active_jobs'][number] | null {
+  const jobID = stringField(payload, 'job_id') ?? '';
+  const recipeID = stringField(payload, 'recipe_id') ?? '';
+  if (!jobID || !recipeID) {
+    return null;
+  }
+  return {
+    job_id: jobID,
+    recipe_id: recipeID,
+    state: stringField(payload, 'state') ?? '',
+    started_at: Math.max(0, Math.round(numberField(payload, 'started_at') ?? 0)),
+    completes_at: Math.max(0, Math.round(numberField(payload, 'completes_at') ?? 0)),
   };
 }
 
@@ -978,10 +1244,13 @@ function clearGameplay(state: ClientState): ClientState {
     ship: null,
     stats: null,
     progression: null,
+    inventory: null,
+    hangar: null,
+    loadout: null,
+    crafting: null,
     repairQuote: null,
     skillCooldowns: {},
     questBoard: null,
-    inventory: null,
     planetIntel: null,
     lastError: null,
   };

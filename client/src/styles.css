@@ -419,6 +419,21 @@ button:disabled {
   list-style: none;
 }
 
+.systems-block {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.systems-list {
+  margin-top: 0.5rem;
+}
+
+.panel--systems .meta-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .compact-list span,
 .log-lines li {
   min-width: 0;
@@ -724,7 +739,7 @@ button:disabled {
   }
 
   .hud__rail--left {
-    grid-template-columns: repeat(3, minmax(15rem, 1fr));
+    grid-template-columns: repeat(3, minmax(11rem, 1fr));
     align-items: start;
     align-self: start;
     overflow-x: auto;
@@ -736,7 +751,7 @@ button:disabled {
 
   .hud__rail--right {
     display: grid;
-    grid-template-columns: repeat(3, minmax(15rem, 1fr));
+    grid-template-columns: repeat(3, minmax(11rem, 1fr));
     align-items: start;
     align-self: start;
     overflow-x: auto;
@@ -744,6 +759,14 @@ button:disabled {
     overscroll-behavior-x: contain;
     padding-bottom: 0.125rem;
     scroll-snap-type: x proximity;
+  }
+
+  .panel--systems {
+    order: 1;
+  }
+
+  .panel--cargo {
+    order: 2;
   }
 
   .hud__rail--left .panel,

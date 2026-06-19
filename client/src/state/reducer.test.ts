@@ -16,6 +16,10 @@ describe('reduceClientState', () => {
     expect(state.ship).toBeNull();
     expect(state.stats).toBeNull();
     expect(state.progression).toBeNull();
+    expect(state.inventory).toBeNull();
+    expect(state.hangar).toBeNull();
+    expect(state.loadout).toBeNull();
+    expect(state.crafting).toBeNull();
     expect(state.repairQuote).toBeNull();
     expect(state.skillCooldowns).toEqual({});
     expect(state.questBoard).toBeNull();
@@ -50,6 +54,10 @@ describe('reduceClientState', () => {
     const loggedOut = reduceClientState(withGameplay, { type: 'authLoggedOut' });
     expect(loggedOut.connectionStatus).toBe('logged_out');
     expect(loggedOut.playerSnapshot).toBeNull();
+    expect(loggedOut.inventory).toBeNull();
+    expect(loggedOut.hangar).toBeNull();
+    expect(loggedOut.loadout).toBeNull();
+    expect(loggedOut.crafting).toBeNull();
     expect(loggedOut.repairQuote).toBeNull();
     expect(loggedOut.skillCooldowns).toEqual({});
     expect(loggedOut.visibleEntities).toEqual({});
@@ -57,6 +65,10 @@ describe('reduceClientState', () => {
     const expired = reduceClientState(withGameplay, { type: 'authExpired', message: 'Session expired.' });
     expect(expired.connectionStatus).toBe('auth_expired');
     expect(expired.playerSnapshot).toBeNull();
+    expect(expired.inventory).toBeNull();
+    expect(expired.hangar).toBeNull();
+    expect(expired.loadout).toBeNull();
+    expect(expired.crafting).toBeNull();
     expect(expired.repairQuote).toBeNull();
     expect(expired.auth.error).toBe('Session expired.');
   });
@@ -263,7 +275,7 @@ describe('reduceClientState', () => {
     ).toThrow(/Forbidden server payload rejected/);
   });
 
-  test('snapshot response reconciles player, cargo, wallet, ship, progression, and stat panels', () => {
+  test('snapshot response reconciles player, cargo, wallet, ship, progression, inventory, hangar, loadout, crafting, and stat panels', () => {
     const reconciled = reduceClientState(createInitialState(), {
       type: 'responseReceived',
       envelope: {
@@ -290,6 +302,50 @@ describe('reduceClientState', () => {
             repair_state: 'active',
           },
           progression: { main_level: 2, main_xp: 175, rank: 2, combat_level: 1, combat_xp: 25 },
+          inventory: {
+            stackable: [{ item_id: 'raw_ore', display_name: 'Raw Ore', quantity: 3, location: 'ship_cargo' }],
+            instances: [],
+            counts: { cargo_stacks: 1, storage_stacks: 0, equipped_instances: 0 },
+          },
+          hangar: {
+            active_ship_id: 'starter_ship',
+            ships: [
+              {
+                ship_id: 'starter_ship',
+                display_name: 'Sparrow',
+                state: 'ready',
+                hull: 88,
+                max_hull: 120,
+                shield: 42,
+                max_shield: 60,
+                disabled: false,
+              },
+            ],
+          },
+          loadout: {
+            active_ship_id: 'starter_ship',
+            slots: [
+              { slot_id: 'offensive_1', slot_type: 'offensive' },
+              { slot_id: 'defensive_1', slot_type: 'defensive' },
+            ],
+          },
+          crafting: {
+            recipes: [
+              {
+                recipe_id: 'refined_alloy_batch',
+                category: 'processed_material',
+                output: { kind: 'item', item_id: 'refined_alloy', quantity: 5, tradeable: true },
+                inputs: [{ item_id: 'raw_ore', quantity: 20 }],
+                required_credits: 100,
+                required_rank: 1,
+                required_role_levels: [{ role: 'crafting', level: 1 }],
+                required_location_type: 'station',
+                craft_duration_ms: 300000,
+                repeatable: true,
+              },
+            ],
+            active_jobs: [],
+          },
           stats: { speed: 220, radar_range: 510, weapon_range: 280, cargo_capacity: 80 },
         },
         server_time: 1400,
@@ -304,6 +360,12 @@ describe('reduceClientState', () => {
     expect(reconciled.ship).toMatchObject({ active_ship_id: 'starter_ship', hull: 88, capacitor: 31, disabled: false });
     expect(reconciled.playerSnapshot).toMatchObject({ hp: 88, max_hp: 120, shield: 42, energy: 31 });
     expect(reconciled.progression).toMatchObject({ main_level: 2, main_xp: 175, rank: 2, combat_xp: 25 });
+    expect(reconciled.inventory?.stackable).toEqual([
+      { item_id: 'raw_ore', display_name: 'Raw Ore', quantity: 3, location: 'ship_cargo' },
+    ]);
+    expect(reconciled.hangar?.active_ship_id).toBe('starter_ship');
+    expect(reconciled.loadout?.slots).toHaveLength(2);
+    expect(reconciled.crafting?.recipes[0]).toMatchObject({ recipe_id: 'refined_alloy_batch', craft_duration_ms: 300000 });
     expect(reconciled.stats).toMatchObject({ speed: 220, radar_range: 510, weapon_range: 280, cargo_capacity: 80 });
   });
 
@@ -354,7 +416,7 @@ describe('reduceClientState', () => {
     expect(state.visibleEntities['player-local'].status_flags).toContain('self');
   });
 
-  test('snapshot events reconcile cargo, wallet, and stats independently', () => {
+  test('snapshot events reconcile cargo, wallet, stats, inventory, hangar, loadout, and crafting independently', () => {
     const withCargo = reduceClientState(createInitialState(), {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.cargoSnapshot, {
@@ -371,10 +433,56 @@ describe('reduceClientState', () => {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.statsSnapshot, { speed: 210, radar_range: 500, weapon_range: 275, cargo_capacity: 70 }, 3),
     });
+    const withInventory = reduceClientState(withStats, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.inventorySnapshot, {
+        stackable: [{ item_id: 'raw_ore', quantity: 3, location: 'ship_cargo' }],
+        instances: [],
+        counts: { cargo_stacks: 1, storage_stacks: 0, equipped_instances: 0 },
+      }, 4),
+    });
+    const withHangar = reduceClientState(withInventory, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.hangarSnapshot, {
+        active_ship_id: 'starter_ship',
+        ships: [{ ship_id: 'starter_ship', display_name: 'Sparrow', state: 'ready', hull: 100, max_hull: 100, shield: 100, max_shield: 100, disabled: false }],
+      }, 5),
+    });
+    const withLoadout = reduceClientState(withHangar, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.loadoutSnapshot, {
+        active_ship_id: 'starter_ship',
+        slots: [{ slot_id: 'offensive_1', slot_type: 'offensive' }],
+      }, 6),
+    });
+    const withCrafting = reduceClientState(withLoadout, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.craftingRecipes, {
+        recipes: [
+          {
+            recipe_id: 'refined_alloy_batch',
+            category: 'processed_material',
+            output: { kind: 'item', item_id: 'refined_alloy', quantity: 5, tradeable: true },
+            inputs: [{ item_id: 'raw_ore', quantity: 20 }],
+            required_credits: 100,
+            required_rank: 1,
+            required_role_levels: [{ role: 'crafting', level: 1 }],
+            required_location_type: 'station',
+            craft_duration_ms: 300000,
+            repeatable: true,
+          },
+        ],
+        active_jobs: [],
+      }, 7),
+    });
 
-    expect(withStats.cargo?.items).toEqual([{ item_id: 'salvage_thread', quantity: 12 }]);
-    expect(withStats.wallet?.credits).toBe(444);
-    expect(withStats.stats?.weapon_range).toBe(275);
+    expect(withCrafting.cargo?.items).toEqual([{ item_id: 'salvage_thread', quantity: 12 }]);
+    expect(withCrafting.wallet?.credits).toBe(444);
+    expect(withCrafting.stats?.weapon_range).toBe(275);
+    expect(withCrafting.inventory?.counts.cargo_stacks).toBe(1);
+    expect(withCrafting.hangar?.ships[0].display_name).toBe('Sparrow');
+    expect(withCrafting.loadout?.slots[0].slot_type).toBe('offensive');
+    expect(withCrafting.crafting?.recipes[0].recipe_id).toBe('refined_alloy_batch');
   });
 
   test('phase 05 combat, loot, progression, and repair events reconcile server-owned state', () => {

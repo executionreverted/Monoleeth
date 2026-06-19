@@ -51,8 +51,8 @@ export class HUD {
       </header>
       <aside class="hud__rail hud__rail--left">
         <div class="panel panel--status" data-panel="status"></div>
-        <div class="panel" data-panel="cargo"></div>
-        <div class="panel" data-panel="quest"></div>
+        <div class="panel panel--cargo" data-panel="cargo"></div>
+        <div class="panel panel--systems" data-panel="systems"></div>
       </aside>
       <aside class="hud__rail hud__rail--right">
         <div class="panel" data-panel="target"></div>
@@ -70,7 +70,7 @@ export class HUD {
     this.panels = {
       status: this.panel('status'),
       cargo: this.panel('cargo'),
-      quest: this.panel('quest'),
+      systems: this.panel('systems'),
       target: this.panel('target'),
       ship: this.panel('ship'),
       intel: this.panel('intel'),
@@ -103,7 +103,7 @@ export class HUD {
     }
     this.panels.status.innerHTML = statusPanel(state);
     this.panels.cargo.innerHTML = cargoPanel(state);
-    this.panels.quest.innerHTML = questPanel(state);
+    this.panels.systems.innerHTML = systemsPanel(state);
     this.panels.target.innerHTML = targetPanel(state);
     this.panels.ship.innerHTML = shipPanel(state);
     this.panels.intel.innerHTML = intelPanel(state);
@@ -201,19 +201,39 @@ function cargoPanel(state: ClientState): string {
   `;
 }
 
-function questPanel(state: ClientState): string {
-  if (!state.questBoard) {
-    return `
-      <h2>Quest Board</h2>
-      <div class="empty-line">Locked until quest snapshots are exposed.</div>
-      <button class="ghost-action" type="button" disabled>Board</button>
-    `;
-  }
+function systemsPanel(state: ClientState): string {
+  const inventory = state.inventory;
+  const hangar = state.hangar;
+  const loadout = state.loadout;
+  const crafting = state.crafting;
+  const loaded = Boolean(inventory && hangar && loadout && crafting);
+  const topItems = inventory?.stackable.slice(0, 3) ?? [];
+  const activeShip =
+    hangar?.ships.find((ship) => ship.ship_id === hangar.active_ship_id) ?? hangar?.ships[0] ?? null;
+  const equipped = loadout?.slots.filter((slot) => slot.module_item_id).length ?? 0;
+  const recipe = crafting?.recipes[0] ?? null;
+  const recipeLabel = recipe ? recipe.output.item_id ?? recipe.output.ship_id ?? recipe.recipe_id : null;
+
   return `
-    <h2>Quest Board</h2>
-    <div class="meta-row"><span>Available</span><strong>${state.questBoard.available}</strong></div>
-    <div class="meta-row"><span>Active</span><strong>${state.questBoard.active}</strong></div>
-    <button class="ghost-action" type="button" disabled title="Quest operations wait for gateway wiring">Board</button>
+    <h2>Systems</h2>
+    ${
+      loaded
+        ? `<div class="systems-block">
+             <div class="meta-row"><span>Hangar</span><strong>${escapeHTML(activeShip?.display_name ?? hangar?.active_ship_id ?? lockedValue())}</strong></div>
+             <div class="meta-row"><span>Loadout</span><strong>${equipped}/${loadout?.slots.length ?? 0}</strong></div>
+             <div class="meta-row"><span>Storage</span><strong>${inventory?.counts.storage_stacks ?? 0}</strong></div>
+             <div class="meta-row"><span>Recipes</span><strong>${crafting?.recipes.length ?? 0}</strong></div>
+           </div>
+           ${
+             topItems.length > 0
+               ? `<ul class="compact-list systems-list">
+                    ${topItems.map((item) => `<li><span>${escapeHTML(item.display_name || item.item_id)}</span><strong>${item.quantity}</strong></li>`).join('')}
+                  </ul>`
+               : '<div class="empty-line">Inventory empty.</div>'
+           }
+           <div class="meta-row"><span>Next</span><strong>${recipeLabel ? escapeHTML(recipeLabel) : lockedValue()}</strong></div>`
+        : '<div class="empty-line">Awaiting server systems snapshots.</div>'
+    }
   `;
 }
 

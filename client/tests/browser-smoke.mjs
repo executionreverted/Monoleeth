@@ -15,7 +15,7 @@ const useFixture = process.argv.includes('--fixture');
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const clientRoot = path.resolve(thisDir, '..');
 const repoRoot = path.resolve(clientRoot, '..');
-const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '05');
+const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '06');
 const forbiddenText = [
   'gameplay_seed',
   'future_spawn',
@@ -73,6 +73,10 @@ async function verifyRealViewport(viewport, label) {
         state?.cargo === null &&
         state?.wallet === null &&
         state?.stats === null &&
+        state?.inventory === null &&
+        state?.hangar === null &&
+        state?.loadout === null &&
+        state?.crafting === null &&
         Object.keys(state?.visibleEntities ?? {}).length === 0
       );
     });
@@ -120,6 +124,10 @@ async function verifyRealViewport(viewport, label) {
           state?.ship?.disabled === false &&
           state?.progression?.rank >= 1 &&
           state?.stats?.radar_range === 420 &&
+          state?.inventory?.counts?.cargo_stacks === 0 &&
+          state?.hangar?.active_ship_id === 'starter_ship' &&
+          state?.loadout?.slots?.length === 3 &&
+          state?.crafting?.recipes?.length >= 3 &&
           hasPlayer &&
           self?.entity_type === 'player' &&
           hasVisibleNPC &&
@@ -154,6 +162,10 @@ async function verifyRealViewport(viewport, label) {
         state?.connectionStatus === 'logged_out' &&
         state?.playerSnapshot === null &&
         state?.cargo === null &&
+        state?.inventory === null &&
+        state?.hangar === null &&
+        state?.loadout === null &&
+        state?.crafting === null &&
         Object.keys(state?.visibleEntities ?? {}).length === 0
       );
     });
@@ -260,6 +272,7 @@ async function verifyRealCombatLoot(page) {
     return (
       state?.cargo?.used === 6 &&
       state?.cargo?.items?.some((item) => item.item_id === 'raw_ore' && item.quantity === 3) &&
+      state?.inventory?.stackable?.some((item) => item.item_id === 'raw_ore' && item.quantity === 3 && item.location === 'ship_cargo') &&
       !Object.values(entities).some((entity) => entity.entity_type === 'loot')
     );
   }, null, { timeout: 10000 });

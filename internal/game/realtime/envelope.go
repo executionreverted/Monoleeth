@@ -17,16 +17,22 @@ const CurrentVersion = contracts.CurrentVersion
 type Operation string
 
 const (
-	OperationSessionSnapshot  Operation = "session.snapshot"
-	OperationWorldSnapshot    Operation = "world.snapshot"
-	OperationMoveTo           Operation = "move_to"
-	OperationStop             Operation = "stop"
-	OperationDebugSpawnNPC    Operation = "debug_spawn_npc"
-	OperationDebugSnapshot    Operation = "debug_snapshot"
-	OperationCombatUseSkill   Operation = "combat.use_skill"
-	OperationLootPickup       Operation = "loot.pickup"
-	OperationDeathRepairQuote Operation = "death.repair_quote"
-	OperationDeathRepairShip  Operation = "death.repair_ship"
+	OperationSessionSnapshot     Operation = "session.snapshot"
+	OperationWorldSnapshot       Operation = "world.snapshot"
+	OperationMoveTo              Operation = "move_to"
+	OperationStop                Operation = "stop"
+	OperationDebugSpawnNPC       Operation = "debug_spawn_npc"
+	OperationDebugSnapshot       Operation = "debug_snapshot"
+	OperationCombatUseSkill      Operation = "combat.use_skill"
+	OperationLootPickup          Operation = "loot.pickup"
+	OperationDeathRepairQuote    Operation = "death.repair_quote"
+	OperationDeathRepairShip     Operation = "death.repair_ship"
+	OperationProgressionSnapshot Operation = "progression.snapshot"
+	OperationInventorySnapshot   Operation = "inventory.snapshot"
+	OperationHangarSnapshot      Operation = "hangar.snapshot"
+	OperationLoadoutSnapshot     Operation = "loadout.snapshot"
+	OperationStatsSnapshot       Operation = "stats.snapshot"
+	OperationCraftingRecipes     Operation = "crafting.recipes"
 )
 
 // ClientEventType is an event name that may be sent to a client after filtering.
@@ -56,6 +62,10 @@ const (
 	EventLootRemoved           ClientEventType = "loot.removed"
 	EventLootPickedUp          ClientEventType = "loot.picked_up"
 	EventProgressionSnapshot   ClientEventType = "progression.snapshot"
+	EventInventorySnapshot     ClientEventType = "inventory.snapshot"
+	EventHangarSnapshot        ClientEventType = "hangar.snapshot"
+	EventLoadoutSnapshot       ClientEventType = "loadout.snapshot"
+	EventCraftingRecipes       ClientEventType = "crafting.recipes"
 	EventDeathShipDisabled     ClientEventType = "death.ship_disabled"
 	EventDeathRepaired         ClientEventType = "death.repaired"
 )
@@ -117,6 +127,30 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationDeathRepairShip: {
 		Operation:        OperationDeathRepairShip,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationProgressionSnapshot: {
+		Operation:        OperationProgressionSnapshot,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationInventorySnapshot: {
+		Operation:        OperationInventorySnapshot,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationHangarSnapshot: {
+		Operation:        OperationHangarSnapshot,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationLoadoutSnapshot: {
+		Operation:        OperationLoadoutSnapshot,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationStatsSnapshot: {
+		Operation:        OperationStatsSnapshot,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationCraftingRecipes: {
+		Operation:        OperationCraftingRecipes,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 }

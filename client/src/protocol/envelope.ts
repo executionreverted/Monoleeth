@@ -11,6 +11,12 @@ export const OPERATIONS = {
   lootPickup: 'loot.pickup',
   deathRepairQuote: 'death.repair_quote',
   deathRepairShip: 'death.repair_ship',
+  progressionSnapshot: 'progression.snapshot',
+  inventorySnapshot: 'inventory.snapshot',
+  hangarSnapshot: 'hangar.snapshot',
+  loadoutSnapshot: 'loadout.snapshot',
+  statsSnapshot: 'stats.snapshot',
+  craftingRecipes: 'crafting.recipes',
   scanPulse: 'scan.pulse',
 } as const;
 
@@ -40,6 +46,10 @@ export const CLIENT_EVENTS = {
   lootRemoved: 'loot.removed',
   lootPickedUp: 'loot.picked_up',
   progressionSnapshot: 'progression.snapshot',
+  inventorySnapshot: 'inventory.snapshot',
+  hangarSnapshot: 'hangar.snapshot',
+  loadoutSnapshot: 'loadout.snapshot',
+  craftingRecipes: 'crafting.recipes',
   deathShipDisabled: 'death.ship_disabled',
   deathRepaired: 'death.repaired',
 } as const;

@@ -47,6 +47,30 @@ export class CommandBuilder {
     return this.build(OPERATIONS.deathRepairShip, {});
   }
 
+  progressionSnapshot(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.progressionSnapshot, {});
+  }
+
+  inventorySnapshot(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.inventorySnapshot, {});
+  }
+
+  hangarSnapshot(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.hangarSnapshot, {});
+  }
+
+  loadoutSnapshot(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.loadoutSnapshot, {});
+  }
+
+  statsSnapshot(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.statsSnapshot, {});
+  }
+
+  craftingRecipes(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.craftingRecipes, {});
+  }
+
   scanPulse(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.scanPulse, {});
   }
@@ -103,6 +127,11 @@ function findTrustedClientField(value: unknown): string | null {
       normalized === 'zone_id' ||
       normalized === 'damage' ||
       normalized === 'xp' ||
+      normalized === 'main_xp' ||
+      normalized === 'combat_xp' ||
+      normalized === 'role_xp' ||
+      normalized === 'rank' ||
+      normalized === 'skill_points' ||
       normalized === 'loot' ||
       normalized === 'cooldown' ||
       normalized === 'wallet_amount' ||

@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
@@ -372,6 +373,149 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 	duplicatePickup := readResponse(t, conn)
 	if !bytes.Equal(duplicatePickup.Payload, pickup.Payload) {
 		t.Fatalf("duplicate pickup payload changed:\nfirst=%s\nsecond=%s", pickup.Payload, duplicatePickup.Payload)
+	}
+}
+
+func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
+	_, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	requests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "progression",
+			body: `{"request_id":"request-progression-snapshot","op":"progression.snapshot","payload":{},"client_seq":1,"v":1}`,
+		},
+		{
+			name: "inventory",
+			body: `{"request_id":"request-inventory-snapshot","op":"inventory.snapshot","payload":{},"client_seq":2,"v":1}`,
+		},
+		{
+			name: "hangar",
+			body: `{"request_id":"request-hangar-snapshot","op":"hangar.snapshot","payload":{},"client_seq":3,"v":1}`,
+		},
+		{
+			name: "loadout",
+			body: `{"request_id":"request-loadout-snapshot","op":"loadout.snapshot","payload":{},"client_seq":4,"v":1}`,
+		},
+		{
+			name: "stats",
+			body: `{"request_id":"request-stats-snapshot","op":"stats.snapshot","payload":{},"client_seq":5,"v":1}`,
+		},
+		{
+			name: "crafting",
+			body: `{"request_id":"request-crafting-recipes","op":"crafting.recipes","payload":{},"client_seq":6,"v":1}`,
+		},
+	}
+
+	for _, request := range requests {
+		t.Run(request.name, func(t *testing.T) {
+			writeText(t, conn, request.body)
+			response := readResponse(t, conn)
+			if !response.OK {
+				t.Fatalf("%s response = %+v, want success", request.name, response)
+			}
+			raw := string(response.Payload)
+			for _, forbidden := range []string{"account_id", "player_id", "session_id", "world_id", "zone_id", "gameplay_seed", "loot_table"} {
+				if strings.Contains(raw, forbidden) {
+					t.Fatalf("%s response leaked %q in %s", request.name, forbidden, raw)
+				}
+			}
+
+			switch request.name {
+			case "progression":
+				var payload struct {
+					Progression progressionSnapshotPayload `json:"progression"`
+				}
+				if err := json.Unmarshal(response.Payload, &payload); err != nil {
+					t.Fatalf("decode progression snapshot: %v", err)
+				}
+				if payload.Progression.Rank != 1 || payload.Progression.MainLevel < 1 {
+					t.Fatalf("progression payload = %+v, want starter server snapshot", payload.Progression)
+				}
+			case "inventory":
+				var payload struct {
+					Inventory inventorySnapshotPayload `json:"inventory"`
+					Cargo     cargoSnapshotPayload     `json:"cargo"`
+				}
+				if err := json.Unmarshal(response.Payload, &payload); err != nil {
+					t.Fatalf("decode inventory snapshot: %v", err)
+				}
+				if len(payload.Inventory.Stackable) != 0 || payload.Cargo.Capacity != 60 {
+					t.Fatalf("inventory payload = %+v cargo=%+v, want empty starter inventory and cargo capacity", payload.Inventory, payload.Cargo)
+				}
+			case "hangar":
+				var payload struct {
+					Hangar hangarSnapshotPayload `json:"hangar"`
+				}
+				if err := json.Unmarshal(response.Payload, &payload); err != nil {
+					t.Fatalf("decode hangar snapshot: %v", err)
+				}
+				if payload.Hangar.ActiveShipID != "starter_ship" || len(payload.Hangar.Ships) != 1 {
+					t.Fatalf("hangar payload = %+v, want active starter ship", payload.Hangar)
+				}
+			case "loadout":
+				var payload struct {
+					Loadout loadoutSnapshotPayload `json:"loadout"`
+				}
+				if err := json.Unmarshal(response.Payload, &payload); err != nil {
+					t.Fatalf("decode loadout snapshot: %v", err)
+				}
+				if payload.Loadout.ActiveShipID != "starter_ship" || len(payload.Loadout.Slots) != 3 {
+					t.Fatalf("loadout payload = %+v, want starter slot snapshot", payload.Loadout)
+				}
+			case "stats":
+				var payload struct {
+					Stats statSnapshotPayload `json:"stats"`
+				}
+				if err := json.Unmarshal(response.Payload, &payload); err != nil {
+					t.Fatalf("decode stats snapshot: %v", err)
+				}
+				if payload.Stats.RadarRange != defaultRadarRange || payload.Stats.CargoCapacity != 60 {
+					t.Fatalf("stats payload = %+v, want starter effective stats", payload.Stats)
+				}
+			case "crafting":
+				var payload struct {
+					Crafting craftingSnapshotPayload `json:"crafting"`
+				}
+				if err := json.Unmarshal(response.Payload, &payload); err != nil {
+					t.Fatalf("decode crafting recipes: %v", err)
+				}
+				if len(payload.Crafting.Recipes) < 3 || payload.Crafting.Recipes[0].CraftDurationMS <= 0 {
+					t.Fatalf("crafting payload = %+v, want MVP recipes with millisecond durations", payload.Crafting)
+				}
+			}
+		})
+	}
+
+	writeText(t, conn, `{"request_id":"request-progression-spoof","op":"progression.snapshot","payload":{"xp":999,"rank":99},"client_seq":7,"v":1}`)
+	spoof := readError(t, conn)
+	if spoof.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("spoofed progression error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
+	}
+
+	dropID := killTrainingNPCForDrop(t, conn)
+	writeText(t, conn, `{"request_id":"request-phase06-loot","op":"loot.pickup","payload":{"drop_id":"`+dropID+`"},"client_seq":8,"v":1}`)
+	pickup := readResponse(t, conn)
+	if !pickup.OK {
+		t.Fatalf("phase06 pickup response = %+v, want success", pickup)
+	}
+	var pickupPayload struct {
+		Inventory inventorySnapshotPayload `json:"inventory"`
+	}
+	if err := json.Unmarshal(pickup.Payload, &pickupPayload); err != nil {
+		t.Fatalf("decode pickup inventory: %v", err)
+	}
+	if len(pickupPayload.Inventory.Stackable) != 1 ||
+		pickupPayload.Inventory.Stackable[0].ItemID != "raw_ore" ||
+		pickupPayload.Inventory.Stackable[0].Quantity != 3 ||
+		pickupPayload.Inventory.Stackable[0].Location != economy.LocationKindShipCargo.String() {
+		t.Fatalf("pickup inventory = %+v, want real raw ore in ship cargo", pickupPayload.Inventory)
 	}
 }
 

@@ -2,10 +2,19 @@
 
 ## Status
 
-- State: Planned
+- State: In progress
 - Owner: Player growth and item management UI
 - Depends on: Phase 05
 - Unlocks: persistent character loop and equipment/craft loop
+
+Current slice completed:
+- Authenticated read-only snapshots are exposed for progression, inventory,
+  cargo, hangar, loadout, stats, and crafting recipes.
+- The browser client requests these snapshots after the authenticated world
+  bootstrap and renders them in the real HUD without demo values.
+- Loot pickup now reconciles a real inventory snapshot alongside cargo.
+- Mutation commands remain future work and must still use ledger/service-backed
+  flows before any UI action is enabled.
 
 ## Goal
 
@@ -115,36 +124,41 @@ Mockup areas covered:
 
 ## TODO
 
-- [ ] Add query/command handlers for progression snapshots and skill unlocks.
-- [ ] Add inventory/cargo snapshot handlers.
+- [x] Add query handler for progression snapshots.
+- [ ] Add `progression.unlock_skill` authenticated command.
+- [x] Add inventory/cargo snapshot handlers.
 - [ ] Add `inventory.move` authenticated command.
-- [ ] Add hangar/loadout query handlers.
+- [x] Add hangar/loadout query handlers.
 - [ ] Add `hangar.activate_ship` handler with ownership/state validation.
 - [ ] Add equip/unequip runtime handlers using ledger-backed module movement.
 - [ ] Add stat snapshot events after loadout, progression, and active ship
       changes.
-- [ ] Add crafting query/start/complete handlers.
+- [x] Add stat snapshot query handler.
+- [x] Add crafting recipe query handler.
+- [ ] Add crafting start/complete handlers.
 - [ ] Add crafting cancel handler, refund/release behavior, and
       `crafting.job_cancelled` event.
 - [ ] Map request ids to crafting domain idempotency references.
-- [ ] Add client panels for inventory, hangar, loadout, skills, crafting.
+- [x] Add read-only client systems panel for inventory, hangar, loadout, and
+      crafting recipe snapshots.
+- [ ] Add skill tree/progression panel and skill unlock action.
 - [ ] Add drag/click item movement with pending server state.
 - [ ] Add craft job timers from server timestamps.
-- [ ] Update topbar and ship panel from real snapshots.
+- [x] Update topbar and ship panel from real snapshots.
 
 ## Abuse And Safety Checklist
 
-- [ ] Client cannot grant XP.
-- [ ] Client cannot set rank/skill points.
-- [ ] Client cannot create inventory items.
+- [x] Client cannot grant XP through exposed snapshot operations.
+- [x] Client cannot set rank/skill points through exposed snapshot operations.
+- [x] Client cannot create inventory items through exposed snapshot operations.
 - [ ] Client cannot bypass cargo/storage capacity.
 - [ ] Client cannot equip unowned or invalid modules.
 - [ ] Client cannot activate unowned or disabled ships.
-- [ ] Client cannot fake stat totals.
+- [x] Client cannot fake stat totals through exposed snapshot operations.
 - [ ] Craft start checks recipe, wallet, materials, location, rank, and idempotency.
 - [ ] Craft completion is server-time/idempotency controlled.
 - [ ] Craft cancel releases only eligible reserved materials/wallet amounts once.
-- [ ] Wallet/credits display is snapshot-driven, not locally calculated.
+- [x] Wallet/credits display is snapshot-driven, not locally calculated.
 
 ## Tests
 
@@ -160,8 +174,12 @@ Mockup areas covered:
 - [ ] Craft start reserves materials and debits wallet once.
 - [ ] Craft complete grants output once.
 - [ ] Craft cancel releases reservation/refund once and emits cancellation event.
-- [ ] Browser inventory panel uses server snapshot.
-- [ ] Browser topbar credits uses server wallet snapshot.
+- [x] Server snapshot queries use authenticated session state and reject
+      client-authored progression truth.
+- [x] Client reducer reconciles inventory, hangar, loadout, crafting, stats,
+      wallet, cargo, and progression snapshots.
+- [x] Browser inventory panel uses server snapshot.
+- [x] Browser topbar credits uses server wallet snapshot.
 - [ ] Browser equip action updates loadout/stats from server event.
 - [ ] Browser crafting timer survives reconnect snapshot.
 
