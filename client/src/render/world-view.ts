@@ -8,6 +8,7 @@ export interface WorldViewState {
   selectedTargetID: string | null;
   movementTarget: Vec2 | null;
   lastCorrection: { entityID: string; position: Vec2 } | null;
+  lastServerTime: number | null;
 }
 
 export interface WorldInputHandlers {

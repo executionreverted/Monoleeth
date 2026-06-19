@@ -118,8 +118,35 @@ func TestSnapshotPayloadOmitsHiddenInternalFields(t *testing.T) {
 	}
 
 	payloadType := reflect.TypeOf(aoi.EntityPayload{})
-	if got, want := exportedFieldNames(payloadType), []string{"ID", "Type", "Position", "StatusFlags", "Display", "Combat"}; !reflect.DeepEqual(got, want) {
+	if got, want := exportedFieldNames(payloadType), []string{"ID", "Type", "Position", "StatusFlags", "Display", "Combat", "Movement"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("EntityPayload fields = %v, want %v", got, want)
+	}
+}
+
+func TestSnapshotPayloadIncludesExplicitPublicMovementTiming(t *testing.T) {
+	state := testState("entity-player-1", world.EntityTypePlayer, world.Vec2{X: 12, Y: 0}, false)
+	state.PublicMovement = &aoi.EntityMovementStatus{
+		Moving:      true,
+		Origin:      world.Vec2{X: 10, Y: 0},
+		Target:      world.Vec2{X: 100, Y: 0},
+		Speed:       180,
+		StartedAtMS: 1000,
+		ArriveAtMS:  1500,
+	}
+
+	snapshot := aoi.BuildVisibleSnapshot(testViewer(100), []aoi.EntityState{state})
+	if len(snapshot.Entities) != 1 {
+		t.Fatalf("snapshot entities = %d, want 1", len(snapshot.Entities))
+	}
+	movement := snapshot.Entities[0].Movement
+	if movement == nil {
+		t.Fatal("movement payload = nil, want public movement timing")
+	}
+	if movement.Origin != (world.Vec2{X: 10, Y: 0}) || movement.Target != (world.Vec2{X: 100, Y: 0}) {
+		t.Fatalf("movement route = %+v, want origin 10,0 target 100,0", movement)
+	}
+	if movement.Speed != 180 || movement.StartedAtMS != 1000 || movement.ArriveAtMS != 1500 {
+		t.Fatalf("movement timing = %+v, want speed/start/arrival", movement)
 	}
 }
 

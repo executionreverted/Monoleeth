@@ -254,6 +254,12 @@ func (worker *Worker) Entity(entityID world.EntityID) (world.Entity, bool) {
 	return entity, ok
 }
 
+// EntitySpeed returns the server-owned movement speed for entityID.
+func (worker *Worker) EntitySpeed(entityID world.EntityID) (float64, bool) {
+	speed, ok := worker.entitySpeeds[entityID]
+	return speed, ok
+}
+
 // InsertEntity inserts server-owned entity state directly into the worker.
 //
 // Client-originated gameplay changes should enter through mailbox intent
@@ -513,7 +519,7 @@ func (worker *Worker) movePlayerTo(playerID foundation.PlayerID, intent world.Mo
 		return err
 	}
 
-	movement, err := world.NewMovementState(intent.Target)
+	movement, err := world.NewTimedMovementState(entity.Position, intent.Target, worker.entitySpeeds[entity.ID], worker.clock.Now())
 	if err != nil {
 		return err
 	}

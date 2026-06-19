@@ -163,6 +163,7 @@ func TestMoveToThroughWebSocketUsesGatewayAndServerPosition(t *testing.T) {
 				X float64 `json:"x"`
 				Y float64 `json:"y"`
 			} `json:"position"`
+			Movement *movementPayloadForTest `json:"movement"`
 		} `json:"entities"`
 	}
 	if err := json.Unmarshal(response.Payload, &payload); err != nil {
@@ -172,22 +173,117 @@ func TestMoveToThroughWebSocketUsesGatewayAndServerPosition(t *testing.T) {
 		t.Fatal("move accepted = false, want true")
 	}
 	var playerX float64
+	var playerMovement *movementPayloadForTest
 	for _, entity := range payload.Entities {
 		if entity.Type == "player" {
 			playerX = entity.Position.X
+			playerMovement = entity.Movement
 		}
 	}
 	if playerX <= 0 || playerX >= 100 {
 		t.Fatalf("player x after one server tick = %v, want server-derived movement between 0 and target", playerX)
+	}
+	if playerMovement == nil {
+		t.Fatal("player movement = nil, want server-timed movement route")
+	}
+	if playerMovement.Origin.X != 0 || playerMovement.Target.X != 100 || playerMovement.Speed != defaultPlayerSpeed {
+		t.Fatalf("player movement = %+v, want origin 0 target 100 speed %d", playerMovement, defaultPlayerSpeed)
+	}
+	if playerMovement.ArriveAtMS <= playerMovement.StartedAtMS {
+		t.Fatalf("player movement timing = %+v, want arrival after start", playerMovement)
 	}
 
 	event := readEvent(t, conn)
 	if event.Type != realtime.EventPositionCorrected || event.Sequence == 0 {
 		t.Fatalf("post-move event = %+v, want position.corrected with seq", event)
 	}
+	var correction struct {
+		EntityID string                  `json:"entity_id"`
+		Position world.Vec2              `json:"position"`
+		Movement *movementPayloadForTest `json:"movement"`
+	}
+	if err := json.Unmarshal(event.Payload, &correction); err != nil {
+		t.Fatalf("decode correction payload: %v", err)
+	}
+	if correction.Movement == nil || correction.Movement.Target.X != 100 {
+		t.Fatalf("correction movement = %+v, want target 100", correction.Movement)
+	}
 	update := readEvent(t, conn)
 	if update.Type != realtime.EventAOIEntityUpdated {
 		t.Fatalf("post-move AOI event = %+v, want entity updated", update)
+	}
+	var aoiUpdate struct {
+		EntityID string                  `json:"entity_id"`
+		Type     string                  `json:"entity_type"`
+		Movement *movementPayloadForTest `json:"movement"`
+	}
+	if err := json.Unmarshal(update.Payload, &aoiUpdate); err != nil {
+		t.Fatalf("decode AOI update payload: %v", err)
+	}
+	if aoiUpdate.Type == "player" && aoiUpdate.Movement == nil {
+		t.Fatalf("AOI update movement = nil, want movement timing")
+	}
+
+	time.Sleep(minMoveCommandInterval)
+	writeText(t, conn, `{"request_id":"request-move-2","op":"move_to","payload":{"target":{"x":0,"y":100}},"client_seq":2,"v":1}`)
+	response = readResponse(t, conn)
+	if !response.OK {
+		t.Fatalf("second move response = %+v, want success", response)
+	}
+	if err := json.Unmarshal(response.Payload, &payload); err != nil {
+		t.Fatalf("decode second move payload: %v", err)
+	}
+	var secondMovement *movementPayloadForTest
+	for _, entity := range payload.Entities {
+		if entity.Type == "player" {
+			secondMovement = entity.Movement
+		}
+	}
+	if secondMovement == nil {
+		t.Fatal("second movement = nil, want server-timed movement route")
+	}
+	if secondMovement.Origin.X != playerX {
+		t.Fatalf("second movement origin x = %v, want first server position %v", secondMovement.Origin.X, playerX)
+	}
+	if secondMovement.Target.X != 0 || secondMovement.Target.Y != 100 {
+		t.Fatalf("second movement target = %+v, want 0,100", secondMovement.Target)
+	}
+}
+
+func TestMoveToRateLimitsSpamWithoutChangingAuthoritativeRoute(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+
+	writeText(t, conn, `{"request_id":"request-move-rate-1","op":"move_to","payload":{"target":{"x":100,"y":0}},"client_seq":1,"v":1}`)
+	response := readResponse(t, conn)
+	if !response.OK {
+		t.Fatalf("first move response = %+v, want success", response)
+	}
+	drainEventTypes(t, conn, realtime.EventPositionCorrected, realtime.EventAOIEntityUpdated)
+
+	gameServer.runtime.mu.Lock()
+	before, ok := gameServer.runtime.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+	if !ok || !before.Movement.Moving || before.Movement.Target != (world.Vec2{X: 100, Y: 0}) {
+		t.Fatalf("authoritative movement before spam = %+v, ok=%v; want target 100,0", before.Movement, ok)
+	}
+
+	writeText(t, conn, `{"request_id":"request-move-rate-2","op":"move_to","payload":{"target":{"x":0,"y":100}},"client_seq":2,"v":1}`)
+	got := readError(t, conn)
+	if got.Error.Code != foundation.CodeRateLimited {
+		t.Fatalf("spam move error = %+v, want %s", got.Error, foundation.CodeRateLimited)
+	}
+
+	gameServer.runtime.mu.Lock()
+	after, ok := gameServer.runtime.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+	if !ok || !after.Movement.Moving || after.Movement.Target != before.Movement.Target {
+		t.Fatalf("authoritative movement after spam = %+v, ok=%v; want unchanged target %+v", after.Movement, ok, before.Movement.Target)
 	}
 }
 
@@ -2029,6 +2125,15 @@ func decodeWorldSnapshotForTest(t *testing.T, events []realtime.EventEnvelope) w
 type aoiEntityPayloadForTest struct {
 	EntityID   string `json:"entity_id"`
 	EntityType string `json:"entity_type"`
+}
+
+type movementPayloadForTest struct {
+	Moving      bool       `json:"moving"`
+	Origin      world.Vec2 `json:"origin"`
+	Target      world.Vec2 `json:"target"`
+	Speed       float64    `json:"speed"`
+	StartedAtMS int64      `json:"started_at_ms"`
+	ArriveAtMS  int64      `json:"arrive_at_ms"`
 }
 
 func logoutPilot(t *testing.T, httpServer *httptest.Server, cookie *http.Cookie) {

@@ -26,6 +26,7 @@ export class WorldRenderer {
   private state: WorldViewState | null = null;
   private center: Vec2 = { x: 0, y: 0 };
   private scale = 1;
+  private serverClockOffset = 0;
 
   constructor(private readonly handlers: WorldInputHandlers) {}
 
@@ -68,8 +69,8 @@ export class WorldRenderer {
       for (const star of this.stars) {
         star.view.alpha = 0.32 + star.depth * 0.28 + pulse * 0.16;
       }
-      this.updateBackground();
       this.updateInterpolatedEntities();
+      this.updateBackground();
       this.markerLayer.rotation += 0.0007 * ticker.deltaTime;
     });
   }
@@ -80,12 +81,15 @@ export class WorldRenderer {
     }
 
     this.state = state;
+    if (state.lastServerTime !== null) {
+      this.serverClockOffset = performance.now() - state.lastServerTime;
+    }
     if (this.emptyLabel) {
       this.emptyLabel.visible = state.entities.length === 0;
       this.emptyLabel.position.set(this.app.screen.width / 2, this.app.screen.height / 2);
     }
     const local = state.entities.find(isSelfEntity) ?? state.entities.find((entity) => entity.entity_type === 'player');
-    this.center = local?.position ?? this.center;
+    this.center = local ? this.authoritativeDisplayPosition(local) : this.center;
     this.scale = this.app.screen.width < 700 ? 0.78 : 1;
     this.updateBackground();
 
@@ -121,9 +125,7 @@ export class WorldRenderer {
       label.style.fill = entityColors[entity.entity_type];
       label.visible = label.text !== '';
       this.drawEntity(view, entity, state.selectedTargetID === entity.entity_id, isSelfEntity(entity));
-      if (isSelfEntity(entity)) {
-        this.entityWorldPositions.set(entity.entity_id, { ...entity.position });
-      }
+      this.entityWorldPositions.set(entity.entity_id, this.nextDisplayPosition(entity));
       this.positionEntityView(entity.entity_id, view);
       this.positionEntityLabel(entity.entity_id, label);
     }
@@ -134,6 +136,17 @@ export class WorldRenderer {
   destroy(): void {
     this.app?.destroy(true);
     this.app = null;
+  }
+
+  debugSnapshot(): { center: Vec2; displayPositions: Record<string, Vec2> } {
+    const displayPositions: Record<string, Vec2> = {};
+    for (const [entityID, position] of this.entityWorldPositions) {
+      displayPositions[entityID] = { ...position };
+    }
+    return {
+      center: { ...this.center },
+      displayPositions,
+    };
   }
 
   private createStarfield(): void {
@@ -301,19 +314,16 @@ export class WorldRenderer {
       }
       const label = this.entityLabels.get(entityID);
 
-      const current = this.entityWorldPositions.get(entityID) ?? entity.position;
-      const next =
-        isSelfEntity(entity)
-          ? entity.position
-          : {
-              x: lerp(current.x, entity.position.x, 0.16),
-              y: lerp(current.y, entity.position.y, 0.16),
-            };
-      this.entityWorldPositions.set(entityID, snapClose(next, entity.position));
+      this.entityWorldPositions.set(entityID, this.nextDisplayPosition(entity));
       this.positionEntityView(entityID, view);
       if (label) {
         this.positionEntityLabel(entityID, label);
       }
+    }
+
+    const local = this.state?.entities.find(isSelfEntity) ?? this.state?.entities.find((entity) => entity.entity_type === 'player');
+    if (local) {
+      this.center = this.entityWorldPositions.get(local.entity_id) ?? this.authoritativeDisplayPosition(local);
     }
   }
 
@@ -342,7 +352,8 @@ export class WorldRenderer {
 
     return (
       this.state.entities.find((entity) => {
-        const entityScreen = this.worldToScreen(entity.position);
+        const entityWorld = this.entityWorldPositions.get(entity.entity_id) ?? this.authoritativeDisplayPosition(entity);
+        const entityScreen = this.worldToScreen(entityWorld);
         const dx = entityScreen.x - screen.x;
         const dy = entityScreen.y - screen.y;
         return dx * dx + dy * dy <= 26 * 26;
@@ -371,6 +382,40 @@ export class WorldRenderer {
       y: Math.round(this.center.y + (screen.y - this.app.screen.height / 2) / this.scale),
     };
   }
+
+  private nextDisplayPosition(entity: EntityPayload): Vec2 {
+    const authoritative = this.authoritativeDisplayPosition(entity);
+    if (entity.movement?.moving || isSelfEntity(entity)) {
+      return authoritative;
+    }
+
+    const current = this.entityWorldPositions.get(entity.entity_id) ?? authoritative;
+    return snapClose(
+      {
+        x: lerp(current.x, authoritative.x, 0.16),
+        y: lerp(current.y, authoritative.y, 0.16),
+      },
+      authoritative,
+    );
+  }
+
+  private authoritativeDisplayPosition(entity: EntityPayload): Vec2 {
+    const movement = entity.movement;
+    if (!movement?.moving) {
+      return entity.position;
+    }
+
+    const duration = Math.max(1, movement.arrive_at_ms - movement.started_at_ms);
+    const progress = clamp((this.estimatedServerTime() - movement.started_at_ms) / duration, 0, 1);
+    return {
+      x: lerp(movement.origin.x, movement.target.x, progress),
+      y: lerp(movement.origin.y, movement.target.y, progress),
+    };
+  }
+
+  private estimatedServerTime(): number {
+    return performance.now() - this.serverClockOffset;
+  }
 }
 
 function isSelfEntity(entity: EntityPayload): boolean {
@@ -395,6 +440,10 @@ function snapClose(current: Vec2, target: Vec2): Vec2 {
     return { ...target };
   }
   return current;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 function wrap(value: number, size: number): number {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"gameproject/internal/game/foundation"
 )
@@ -143,17 +144,35 @@ func (entity Entity) Validate() error {
 	return nil
 }
 
-// MovementState records the server-owned target for an entity's current movement.
+// MovementState records the server-owned route for an entity's current movement.
 type MovementState struct {
-	Moving bool `json:"moving"`
-	Target Vec2 `json:"target"`
+	Moving      bool    `json:"moving"`
+	Origin      Vec2    `json:"origin"`
+	Target      Vec2    `json:"target"`
+	Speed       float64 `json:"speed"`
+	StartedAtMS int64   `json:"started_at_ms"`
+	ArriveAtMS  int64   `json:"arrive_at_ms"`
 }
 
 // NewMovementState validates and returns an active movement state.
 func NewMovementState(target Vec2) (MovementState, error) {
+	return NewTimedMovementState(Vec2{}, target, 1, time.UnixMilli(0))
+}
+
+// NewTimedMovementState validates and returns an active server-timed movement state.
+func NewTimedMovementState(origin Vec2, target Vec2, speed float64, startedAt time.Time) (MovementState, error) {
+	durationMS := int64(0)
+	if speed > 0 && isFinite(speed) {
+		distance := origin.Distance(target)
+		durationMS = int64(math.Ceil((distance / speed) * 1000))
+	}
 	state := MovementState{
-		Moving: true,
-		Target: target,
+		Moving:      true,
+		Origin:      origin,
+		Target:      target,
+		Speed:       speed,
+		StartedAtMS: startedAt.UTC().UnixMilli(),
+		ArriveAtMS:  startedAt.UTC().UnixMilli() + durationMS,
 	}
 	if err := state.Validate(); err != nil {
 		return MovementState{}, err
@@ -163,7 +182,22 @@ func NewMovementState(target Vec2) (MovementState, error) {
 
 // Validate reports whether state contains a valid server-owned movement target.
 func (state MovementState) Validate() error {
-	return state.Target.Validate()
+	if err := state.Origin.Validate(); err != nil {
+		return err
+	}
+	if err := state.Target.Validate(); err != nil {
+		return err
+	}
+	if !state.Moving {
+		return nil
+	}
+	if state.Speed <= 0 || !isFinite(state.Speed) {
+		return fmt.Errorf("movement speed %v: %w", state.Speed, ErrInvalidPosition)
+	}
+	if state.ArriveAtMS < state.StartedAtMS {
+		return fmt.Errorf("movement arrival before start: %w", ErrInvalidPosition)
+	}
+	return nil
 }
 
 // MovementIntent is the client request shape for movement.

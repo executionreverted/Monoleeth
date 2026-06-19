@@ -243,14 +243,7 @@ async function verifyRealViewport(viewport, label) {
     if (label === 'desktop') {
       await verifyReconnectReconciliation(page, callsign);
       await verifyRealCombatLoot(page);
-
-      await clickWorldPosition(page, { x: 40, y: 40 });
-      await page.waitForFunction(() => {
-        const player = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find(
-          (entity) => entity.status_flags?.includes('self'),
-        );
-        return Math.abs(player?.position?.x ?? 0) > 0 || Math.abs(player?.position?.y ?? 0) > 0;
-      });
+      await verifyRealMovementInterpolation(page);
     }
 
     await page.locator('[data-action="logout"]').click();
@@ -468,6 +461,94 @@ async function verifyRealCombatLoot(page) {
   }, null, { timeout: 10000 });
 }
 
+async function verifyRealMovementInterpolation(page) {
+  const initial = await selfMovementSample(page);
+  const firstTarget = { x: initial.entity.position.x + 180, y: initial.entity.position.y };
+  await clickWorldPosition(page, firstTarget);
+  await page.waitForFunction(
+    (target) => {
+      const self = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find((entity) =>
+        entity.status_flags?.includes('self'),
+      );
+      return (
+        self?.movement?.moving === true &&
+        Math.abs(self.movement.target.x - target.x) < 0.5 &&
+        Math.abs(self.movement.target.y - target.y) < 0.5
+      );
+    },
+    firstTarget,
+    { timeout: 10000 },
+  );
+
+  await page.waitForTimeout(80);
+  const first = await selfMovementSample(page);
+  const firstDisplayDistance = distance(first.display, firstTarget);
+  if (firstDisplayDistance < 20) {
+    throw new Error(`desktop movement display jumped to first target (${firstDisplayDistance})`);
+  }
+  if (distance(first.display, first.entity.movement.origin) <= 0.5) {
+    throw new Error('desktop movement display did not advance from server route origin');
+  }
+
+  await page.waitForTimeout(90);
+  const beforeSecond = await selfMovementSample(page);
+  const secondTarget = { x: beforeSecond.entity.position.x, y: beforeSecond.entity.position.y + 180 };
+  await clickWorldPosition(page, secondTarget);
+  try {
+    await page.waitForFunction(
+      ({ firstTarget: previousTarget, expectedY }) => {
+        const self = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find((entity) =>
+          entity.status_flags?.includes('self'),
+        );
+        const target = self?.movement?.target;
+        return (
+          self?.movement?.moving === true &&
+          target &&
+          Math.abs(target.y - expectedY) < 1.5 &&
+          Math.hypot(target.x - previousTarget.x, target.y - previousTarget.y) > 20
+        );
+      },
+      { firstTarget, expectedY: secondTarget.y },
+      { timeout: 10000 },
+    );
+  } catch (error) {
+    console.error('desktop movement reclick state', JSON.stringify(await movementDiagnostics(page, secondTarget), null, 2));
+    throw error;
+  }
+  const second = await selfMovementSample(page);
+  if (distance(second.entity.movement.origin, first.entity.movement.origin) <= 1) {
+    throw new Error(
+      `desktop reclick movement reused old origin ${JSON.stringify(second.entity.movement.origin)} from ${JSON.stringify(
+        first.entity.movement.origin,
+      )}`,
+    );
+  }
+  if (Math.abs(second.entity.movement.target.y - secondTarget.y) > 1.5) {
+    throw new Error(`desktop reclick movement target y = ${second.entity.movement.target.y}, want near ${secondTarget.y}`);
+  }
+  if (distance(second.entity.movement.origin, beforeSecond.entity.position) > 25) {
+    throw new Error(
+      `desktop reclick origin ${JSON.stringify(second.entity.movement.origin)} not near server in-flight position ${JSON.stringify(
+        beforeSecond.entity.position,
+      )}`,
+    );
+  }
+}
+
+async function movementDiagnostics(page, expectedTarget) {
+  return page.evaluate((target) => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const self = Object.values(state?.visibleEntities ?? {}).find((entity) => entity.status_flags?.includes('self'));
+    return {
+      expectedTarget: target,
+      self,
+      movementTarget: state?.movementTarget,
+      worldView: state?.worldView,
+      recentCommandLog: state?.commandLog?.slice(-8),
+    };
+  }, expectedTarget);
+}
+
 async function verifyRealEconomy(page) {
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
@@ -610,6 +691,24 @@ async function verifyPanelModalChrome(page, viewport, label) {
     null,
     { timeout: 10000 },
   );
+}
+
+async function selfMovementSample(page) {
+  return page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const entity = Object.values(state?.visibleEntities ?? {}).find((candidate) => candidate.status_flags?.includes('self'));
+    if (!entity) {
+      throw new Error('Missing self entity.');
+    }
+    const display = state?.worldView?.displayPositions?.[entity.entity_id] ?? entity.position;
+    return { entity, display };
+  });
+}
+
+function distance(a, b) {
+  const dx = (a?.x ?? 0) - (b?.x ?? 0);
+  const dy = (a?.y ?? 0) - (b?.y ?? 0);
+  return Math.hypot(dx, dy);
 }
 
 async function bootstrapDiagnostics(page, expectedCallsign) {
@@ -850,7 +949,7 @@ async function clickWorldPosition(page, world) {
     const player =
       Object.values(state.visibleEntities ?? {}).find((entity) => entity.status_flags?.includes('self')) ??
       Object.values(state.visibleEntities ?? {}).find((entity) => entity.entity_type === 'player');
-    const center = player?.position ?? { x: 0, y: 0 };
+    const center = state.worldView?.center ?? player?.position ?? { x: 0, y: 0 };
     const scale = rect.width < 700 ? 0.78 : 1;
     return {
       x: rect.left + rect.width / 2 + (target.x - center.x) * scale,

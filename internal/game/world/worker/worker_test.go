@@ -75,6 +75,46 @@ func TestMoveToCommandUpdatesPositionByServerSpeed(t *testing.T) {
 	if !entity.Movement.Moving {
 		t.Fatal("entity movement = stopped, want moving")
 	}
+	if entity.Movement.Origin != (world.Vec2{}) {
+		t.Fatalf("movement origin = %+v, want spawn position", entity.Movement.Origin)
+	}
+	if entity.Movement.Target != (world.Vec2{X: 100, Y: 0}) {
+		t.Fatalf("movement target = %+v, want 100,0", entity.Movement.Target)
+	}
+	if entity.Movement.Speed != 10 {
+		t.Fatalf("movement speed = %v, want server speed 10", entity.Movement.Speed)
+	}
+	if entity.Movement.StartedAtMS == 0 || entity.Movement.ArriveAtMS <= entity.Movement.StartedAtMS {
+		t.Fatalf("movement timing = %+v, want start and arrival", entity.Movement)
+	}
+}
+
+func TestMoveToWhileMovingStartsFromServerCurrentPosition(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{}, 10)
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, world.Vec2{X: 100, Y: 0}),
+	}))
+	inFlight, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() ok = false, want true")
+	}
+	assertVecNear(t, inFlight.Position, world.Vec2{X: 10, Y: 0})
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, world.Vec2{X: 0, Y: 100}),
+	}))
+	retargeted, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() ok = false, want true")
+	}
+	assertVecNear(t, retargeted.Movement.Origin, inFlight.Position)
+	if retargeted.Movement.Target != (world.Vec2{X: 0, Y: 100}) {
+		t.Fatalf("retargeted movement target = %+v, want 0,100", retargeted.Movement.Target)
+	}
 }
 
 func TestStopCommandClearsMovementTarget(t *testing.T) {
@@ -99,8 +139,8 @@ func TestStopCommandClearsMovementTarget(t *testing.T) {
 	if entity.Movement.Moving {
 		t.Fatal("entity movement = moving, want stopped")
 	}
-	if entity.Movement.Target != (world.Vec2{}) {
-		t.Fatalf("movement target = %+v, want zero value", entity.Movement.Target)
+	if entity.Movement != (world.MovementState{}) {
+		t.Fatalf("movement state = %+v, want zero value", entity.Movement)
 	}
 	assertVecNear(t, entity.Position, world.Vec2{X: 10, Y: 0})
 }

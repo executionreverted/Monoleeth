@@ -113,11 +113,20 @@ func TestStartScanPulseMovingShipFailsBeforeCooldownAndMutation(t *testing.T) {
 	seed := scannerTestSeed(t)
 	_, candidate := findScannerTestCandidate(t, seed)
 	cooldowns := &recordingScannerCooldownProvider{accepted: true}
+	movement, err := world.NewTimedMovementState(
+		candidate.Position(),
+		world.Vec2{X: candidate.Position().X + 1, Y: candidate.Position().Y + 1},
+		10,
+		scannerTestTime(),
+	)
+	if err != nil {
+		t.Fatalf("NewTimedMovementState() error = %v, want nil", err)
+	}
 	position := ScannerPosition{
 		WorldID:  scannerTestWorldID,
 		ZoneID:   scannerTestZoneID,
 		Position: candidate.Position(),
-		Movement: world.MovementState{Moving: true, Target: world.Vec2{X: 1, Y: 1}},
+		Movement: movement,
 	}
 	service := newScannerTestService(t, scannerTestServiceOptions{
 		seed:            seed,
@@ -129,7 +138,7 @@ func TestStartScanPulseMovingShipFailsBeforeCooldownAndMutation(t *testing.T) {
 		xp:              &recordingScanXPProvider{},
 	})
 
-	_, err := service.StartScanPulse(scannerStartInput("pulse_moving"))
+	_, err = service.StartScanPulse(scannerStartInput("pulse_moving"))
 	if !errors.Is(err, ErrScanMovementRestricted) {
 		t.Fatalf("StartScanPulse() error = %v, want ErrScanMovementRestricted", err)
 	}

@@ -141,6 +141,47 @@ describe('reduceClientState', () => {
     expect(corrected.lastCorrection).toEqual({ entityID: 'player-1', position: { x: 12, y: 16 } });
   });
 
+  test('server correction preserves authoritative movement route target', () => {
+    const state = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.entityEntered, {
+        entity_id: 'player-1',
+        entity_type: 'player',
+        position: { x: 0, y: 0 },
+        status_flags: ['self'],
+      }),
+    });
+
+    const corrected = reduceClientState(
+      {
+        ...state,
+        movementTarget: { x: 100, y: 100 },
+      },
+      {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.positionCorrected, {
+          entity_id: 'player-1',
+          position: { x: 12, y: 16 },
+          movement: {
+            moving: true,
+            origin: { x: 9, y: 12 },
+            target: { x: 80, y: 120 },
+            speed: 180,
+            started_at_ms: 1000,
+            arrive_at_ms: 1600,
+          },
+        }),
+      },
+    );
+
+    expect(corrected.visibleEntities['player-1'].movement).toMatchObject({
+      origin: { x: 9, y: 12 },
+      target: { x: 80, y: 120 },
+      speed: 180,
+    });
+    expect(corrected.movementTarget).toEqual({ x: 80, y: 120 });
+  });
+
   test('rejects hidden debug payloads before state mutation', () => {
     const state = createInitialState();
 
@@ -396,6 +437,14 @@ describe('reduceClientState', () => {
               position: { x: 0, y: 0 },
               status_flags: ['self'],
               display: { label: 'Smoke', disposition: 'self' },
+              movement: {
+                moving: true,
+                origin: { x: 0, y: 0 },
+                target: { x: 100, y: 0 },
+                speed: 180,
+                started_at_ms: 1000,
+                arrive_at_ms: 1556,
+              },
             },
           ],
           minimap: {
@@ -419,6 +468,29 @@ describe('reduceClientState', () => {
     expect(state.sector).toEqual({ name: 'Origin Fringe', region: 'Origin Belt', danger: 'low', contested: false });
     expect(state.minimap?.radar_range).toBe(420);
     expect(state.visibleEntities['player-local'].status_flags).toContain('self');
+    expect(state.visibleEntities['player-local'].movement?.target).toEqual({ x: 100, y: 0 });
+    expect(state.movementTarget).toEqual({ x: 100, y: 0 });
+  });
+
+  test('rejects invalid entity movement timing', () => {
+    expect(() =>
+      reduceClientState(createInitialState(), {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.entityEntered, {
+          entity_id: 'player-1',
+          entity_type: 'player',
+          position: { x: 0, y: 0 },
+          movement: {
+            moving: true,
+            origin: { x: 0, y: 0 },
+            target: { x: 100, y: 0 },
+            speed: 0,
+            started_at_ms: 2000,
+            arrive_at_ms: 1000,
+          },
+        }),
+      }),
+    ).toThrow(/Invalid entity movement/);
   });
 
   test('snapshot events reconcile cargo, wallet, stats, inventory, hangar, loadout, and crafting independently', () => {

@@ -115,7 +115,7 @@ The UI rework is not done until all of these are true.
 ### World Background And Parallax
 
 - [x] Background has layered starfield/parallax depth.
-- [ ] There is visible motion/depth during player/camera movement.
+- [x] There is visible motion/depth during player/camera movement.
 - [x] The world surface includes sector grid/radar treatment similar to the
   mockup.
 - [ ] Planets/signals/loot/NPCs are visually distinct and readable.
@@ -124,16 +124,16 @@ The UI rework is not done until all of these are true.
 
 ### Server-Authoritative Movement
 
-- [ ] Client clicks remain movement intents only.
-- [ ] Server movement state exposes enough timing data for continuous rendering:
+- [x] Client clicks remain movement intents only.
+- [x] Server movement state exposes enough timing data for continuous rendering:
   origin, destination, speed, start time, and arrival/target time or equivalent.
-- [ ] Server computes current position from elapsed server time, not from
+- [x] Server computes current position from elapsed server time, not from
   client-authored position.
-- [ ] Re-clicking while in transit starts from the server-computed current
+- [x] Re-clicking while in transit starts from the server-computed current
   position.
-- [ ] Client interpolates movement visually from server snapshots/events.
-- [ ] Movement no longer appears as instant teleporting.
-- [ ] Move spam is rate-limited, coalesced, or rejected clearly without
+- [x] Client interpolates movement visually from server snapshots/events.
+- [x] Movement no longer appears as instant teleporting.
+- [x] Move spam is rate-limited, coalesced, or rejected clearly without
   corrupting authoritative movement state.
 
 ### Selection And Targeting

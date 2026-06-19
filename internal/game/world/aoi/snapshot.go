@@ -26,6 +26,16 @@ type EntityCombatStatus struct {
 	Status    string `json:"status,omitempty"`
 }
 
+// EntityMovementStatus is client-safe movement timing for a visible entity.
+type EntityMovementStatus struct {
+	Moving      bool       `json:"moving"`
+	Origin      world.Vec2 `json:"origin"`
+	Target      world.Vec2 `json:"target"`
+	Speed       float64    `json:"speed"`
+	StartedAtMS int64      `json:"started_at_ms"`
+	ArriveAtMS  int64      `json:"arrive_at_ms"`
+}
+
 // EntityState is the server-owned AOI input for one live entity.
 //
 // Internal metadata fields are included to make the boundary explicit: callers
@@ -38,6 +48,7 @@ type EntityState struct {
 	PublicStatusFlags []StatusFlag
 	PublicDisplay     *EntityDisplay
 	PublicCombat      *EntityCombatStatus
+	PublicMovement    *EntityMovementStatus
 
 	InternalMetadata map[string]string
 	GameplaySeed     string
@@ -46,12 +57,13 @@ type EntityState struct {
 
 // EntityPayload is the complete public payload for a visible entity.
 type EntityPayload struct {
-	ID          world.EntityID      `json:"entity_id"`
-	Type        world.EntityType    `json:"entity_type"`
-	Position    world.Vec2          `json:"position"`
-	StatusFlags []StatusFlag        `json:"status_flags,omitempty"`
-	Display     *EntityDisplay      `json:"display,omitempty"`
-	Combat      *EntityCombatStatus `json:"combat,omitempty"`
+	ID          world.EntityID        `json:"entity_id"`
+	Type        world.EntityType      `json:"entity_type"`
+	Position    world.Vec2            `json:"position"`
+	StatusFlags []StatusFlag          `json:"status_flags,omitempty"`
+	Display     *EntityDisplay        `json:"display,omitempty"`
+	Combat      *EntityCombatStatus   `json:"combat,omitempty"`
+	Movement    *EntityMovementStatus `json:"movement,omitempty"`
 }
 
 // Snapshot is a deterministic client-safe AOI snapshot.
@@ -91,6 +103,7 @@ func BuildVisibleSnapshot(viewer visibility.Viewer, entities []EntityState) Snap
 			StatusFlags: cloneStatusFlags(state.PublicStatusFlags),
 			Display:     cloneEntityDisplay(state.PublicDisplay),
 			Combat:      cloneEntityCombatStatus(state.PublicCombat),
+			Movement:    cloneEntityMovementStatus(state.PublicMovement),
 		})
 	}
 	sortEntityPayloads(payloads)
@@ -138,6 +151,7 @@ func normalizedEntities(entities []EntityPayload) []EntityPayload {
 		entity.StatusFlags = cloneStatusFlags(entity.StatusFlags)
 		entity.Display = cloneEntityDisplay(entity.Display)
 		entity.Combat = cloneEntityCombatStatus(entity.Combat)
+		entity.Movement = cloneEntityMovementStatus(entity.Movement)
 		normalized = append(normalized, entity)
 	}
 	sortEntityPayloads(normalized)
@@ -188,5 +202,13 @@ func cloneEntityCombatStatus(combat *EntityCombatStatus) *EntityCombatStatus {
 		return nil
 	}
 	cloned := *combat
+	return &cloned
+}
+
+func cloneEntityMovementStatus(movement *EntityMovementStatus) *EntityMovementStatus {
+	if movement == nil {
+		return nil
+	}
+	cloned := *movement
 	return &cloned
 }

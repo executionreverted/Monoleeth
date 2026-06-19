@@ -272,7 +272,7 @@ export function reduceClientState(state: ClientState, action: ClientAction): Cli
       return applyEvent(state, action.envelope);
 
     case 'serverCorrection':
-      return applyCorrection(state, action.entityID, action.position, action.serverTime ?? state.lastServerTime);
+      return applyCorrection(state, action.entityID, action.position, undefined, action.serverTime ?? state.lastServerTime);
 
     case 'selectTarget':
       return {
@@ -305,7 +305,7 @@ function replaceVisibleEntities(
     visibleEntities,
     selectedTargetID:
       state.selectedTargetID && visibleEntities[state.selectedTargetID] ? state.selectedTargetID : null,
-    movementTarget: null,
+    movementTarget: movementTargetFromAuthoritativeSelf(visibleEntities, null),
     lastCorrection: null,
     planetIntel: updateVisibleSignalCount(state.planetIntel, countPlanetSignals(visibleEntities)),
     lastServerTime: serverTime,
@@ -683,6 +683,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       return {
         ...state,
         visibleEntities,
+        movementTarget: movementTargetFromAuthoritativeSelf(visibleEntities, state.movementTarget),
         planetIntel:
           entity.entity_type === 'planet_signal'
             ? updateVisibleSignalCount(state.planetIntel, countPlanetSignals(visibleEntities))
@@ -709,7 +710,8 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
     case CLIENT_EVENTS.positionCorrected: {
       const entityID = requireEntityID(envelope.payload);
       const position = requirePosition(envelope.payload);
-      return applyCorrection(state, entityID, position, envelope.server_time, envelope.seq);
+      const movement = parseEntityMovement(envelope.payload);
+      return applyCorrection(state, entityID, position, movement, envelope.server_time, envelope.seq);
     }
 
     case CLIENT_EVENTS.movementStopped:
@@ -742,24 +744,31 @@ function applyCorrection(
   state: ClientState,
   entityID: string,
   position: Vec2,
+  movement: EntityPayload['movement'],
   serverTime: number | null,
   sequence?: number,
 ): ClientState {
   const entity = state.visibleEntities[entityID];
-  const visibleEntities = entity
-    ? {
-        ...state.visibleEntities,
-        [entityID]: {
-          ...entity,
-          position,
-        },
-      }
-    : state.visibleEntities;
+  let visibleEntities = state.visibleEntities;
+  if (entity) {
+    const correctedEntity: EntityPayload = {
+      ...entity,
+      position,
+      movement,
+    };
+    if (!movement) {
+      delete correctedEntity.movement;
+    }
+    visibleEntities = {
+      ...state.visibleEntities,
+      [entityID]: correctedEntity,
+    };
+  }
 
   return {
     ...state,
     visibleEntities,
-    movementTarget: null,
+    movementTarget: movement?.moving ? movement.target : null,
     lastCorrection: { entityID, position },
     lastServerTime: serverTime,
     lastSequence: sequence ? Math.max(state.lastSequence, sequence) : state.lastSequence,
@@ -1088,7 +1097,23 @@ function parseEntityPayload(payload: JsonObject): EntityPayload {
       : undefined,
     display: parseEntityDisplay(source),
     combat: parseEntityCombat(source),
+    movement: parseEntityMovement(source),
   };
+}
+
+function movementTargetFromAuthoritativeSelf(
+  visibleEntities: Record<string, EntityPayload>,
+  fallback: Vec2 | null,
+): Vec2 | null {
+  const self = Object.values(visibleEntities).find(isSelfEntity);
+  if (!self) {
+    return fallback;
+  }
+  return self.movement?.moving ? self.movement.target : null;
+}
+
+function isSelfEntity(entity: EntityPayload): boolean {
+  return entity.status_flags?.includes('self') || entity.status_flags?.includes('local') || false;
 }
 
 function requireEntityID(payload: JsonObject): string {
@@ -2190,6 +2215,35 @@ function parseEntityCombat(payload: JsonObject): EntityPayload['combat'] {
     shield: Math.max(0, Math.round(shield ?? 0)),
     max_shield: Math.max(0, Math.round(maxShield ?? 0)),
     status: stringField(combat, 'status') ?? undefined,
+  };
+}
+
+function parseEntityMovement(payload: JsonObject): EntityPayload['movement'] {
+  const movement = objectField(payload, 'movement');
+  if (!movement) {
+    return undefined;
+  }
+
+  const moving = booleanField(movement, 'moving');
+  const origin = isVec2(movement.origin) ? movement.origin : null;
+  const target = isVec2(movement.target) ? movement.target : null;
+  const speed = numberField(movement, 'speed');
+  const startedAt = numberField(movement, 'started_at_ms');
+  const arriveAt = numberField(movement, 'arrive_at_ms');
+  if (moving !== true || !origin || !target || speed === null || startedAt === null || arriveAt === null) {
+    throw new Error('Invalid entity movement payload.');
+  }
+  if (speed <= 0 || arriveAt < startedAt) {
+    throw new Error('Invalid entity movement timing.');
+  }
+
+  return {
+    moving,
+    origin,
+    target,
+    speed,
+    started_at_ms: startedAt,
+    arrive_at_ms: arriveAt,
   };
 }
 

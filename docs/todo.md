@@ -7,11 +7,6 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
-- [ ] Add server-authoritative continuous movement timing for browser movement.
-  The client still needs server-owned origin, destination, speed, start, and
-  arrival timing so reclicks while in transit start from the server-computed
-  current position and movement no longer appears as teleport/spam. Source:
-  `docs/plans/2026-06-19-ui-rework-GOAL.md`.
 - [ ] Finish entity selection, combat feedback, and loot pickup presentation in
   the mockup HUD. Visible objects should select with reticles, target panels
   should show server-safe HP/shield/status, firing should produce visible
@@ -201,6 +196,13 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Add server-authoritative continuous movement timing for browser movement.
+  The client receives server-owned origin, destination, speed, start, and
+  arrival timing; re-clicks while in transit start from the server-computed
+  current position; the renderer interpolates movement/parallax instead of
+  snapping; immediate move spam is rate-limited without corrupting the
+  authoritative route. Source:
+  `docs/plans/2026-06-19-ui-rework-GOAL.md`.
 - [x] Complete the browser UI rework panel/window registry and reusable modal
   primitive. Cargo, economy, quests, intel/scanner, systems, and admin-only ops
   now open as focused HUD windows from the mockup-style left nav; reusable modal

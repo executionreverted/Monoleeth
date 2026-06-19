@@ -574,13 +574,17 @@ func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.
 		if !ok {
 			return nil, worker.ErrUnknownPlayer
 		}
+		now := runtime.clock.Now()
 		payload := map[string]any{
 			"entity_id": entity.ID.String(),
 			"position":  entity.Position,
 		}
-		events := []realtime.EventEnvelope{runtime.eventLocked(sessionID, realtime.EventPositionCorrected, payload)}
+		if movement := runtime.publicMovementPayloadLocked(entity, now); movement != nil {
+			payload["movement"] = movement
+		}
+		events := []realtime.EventEnvelope{runtime.eventAtLocked(sessionID, realtime.EventPositionCorrected, payload, now)}
 		if op == realtime.OperationStop {
-			events = append(events, runtime.eventLocked(sessionID, realtime.EventMovementStopped, payload))
+			events = append(events, runtime.eventAtLocked(sessionID, realtime.EventMovementStopped, payload, now))
 		}
 		events = append(events, runtime.aoiDiffEventsLocked(sessionID, playerID)...)
 		return events, nil
@@ -615,6 +619,10 @@ func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.
 }
 
 func (runtime *Runtime) eventLocked(sessionID auth.SessionID, eventType realtime.ClientEventType, payload any) realtime.EventEnvelope {
+	return runtime.eventAtLocked(sessionID, eventType, payload, runtime.clock.Now())
+}
+
+func (runtime *Runtime) eventAtLocked(sessionID auth.SessionID, eventType realtime.ClientEventType, payload any, at time.Time) realtime.EventEnvelope {
 	runtime.eventSeq[sessionID]++
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -624,7 +632,7 @@ func (runtime *Runtime) eventLocked(sessionID auth.SessionID, eventType realtime
 		foundation.EventID(fmt.Sprintf("event_%d", runtime.eventSeq[sessionID])),
 		eventType,
 		data,
-		runtime.clock.Now().UTC().UnixMilli(),
+		at.UTC().UnixMilli(),
 		runtime.eventSeq[sessionID],
 	)
 }
@@ -648,9 +656,10 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 	if !ok {
 		return aoi.Snapshot{}, 0, 0, worker.ErrUnknownPlayer
 	}
+	now := runtime.clock.Now()
 	statSnapshot := stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
 		Exploration: stats.ExplorationStats{RadarRange: state.Stats.RadarRange},
-	}, runtime.clock.Now())
+	}, now)
 	radarRange := visibility.RadarRangeFromStatSnapshot(statSnapshot)
 	viewer := visibility.Viewer{
 		WorldID:    runtime.worldID,
@@ -669,6 +678,7 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 			PublicStatusFlags: flags,
 			PublicDisplay:     display,
 			PublicCombat:      combatStatus,
+			PublicMovement:    runtime.publicMovementPayloadLocked(entity, now),
 		})
 	}
 	snapshot := aoi.BuildVisibleSnapshot(viewer, states)
@@ -841,9 +851,30 @@ func cloneAOIEntities(entities []aoi.EntityPayload) []aoi.EntityPayload {
 			combatStatus := *entity.Combat
 			entity.Combat = &combatStatus
 		}
+		if entity.Movement != nil {
+			movementStatus := *entity.Movement
+			entity.Movement = &movementStatus
+		}
 		cloned = append(cloned, entity)
 	}
 	return cloned
+}
+
+func (runtime *Runtime) publicMovementPayloadLocked(entity world.Entity, _ time.Time) *aoi.EntityMovementStatus {
+	if !entity.Movement.Moving {
+		return nil
+	}
+	if entity.Movement.Speed <= 0 || entity.Movement.ArriveAtMS < entity.Movement.StartedAtMS {
+		return nil
+	}
+	return &aoi.EntityMovementStatus{
+		Moving:      true,
+		Origin:      entity.Movement.Origin,
+		Target:      entity.Movement.Target,
+		Speed:       entity.Movement.Speed,
+		StartedAtMS: entity.Movement.StartedAtMS,
+		ArriveAtMS:  entity.Movement.ArriveAtMS,
+	}
 }
 
 func displayLabelForEntity(entityID world.EntityID, fallback string) string {

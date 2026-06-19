@@ -52,6 +52,12 @@ Must avoid:
   mobile bottom-sheet layout. The hidden server-backed panel anchors remain for
   existing command selectors and smoke coverage, but the visible default no
   longer dumps secondary systems into the central world.
+- 2026-06-19 UI rework slice 3 made browser movement server-timed and visually
+  continuous. AOI/player payloads now expose safe public movement timing
+  (origin, target, speed, start, arrival), mid-route clicks begin from the
+  server-computed current position, immediate move spam is rate-limited without
+  changing the authoritative route, and the renderer interpolates the player
+  plus parallax camera background from server snapshots/events.
 - The default browser path remains real/authenticated only. Demo fixtures are
   still available for explicit dev/test fixture mode, but they are dev-only lazy
   imports and the production bundle scan fails on fixture labels.
@@ -116,7 +122,7 @@ or fixture. It needs a browser path that talks to the real Go server.
 | 01 | Mail/password accounts, sessions, admin seed | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/session` | Auth panel | Browser smoke registers, logs in, restores, logs out | Smoke invalid login; Go auth/session/origin tests | `10/unauth-*.png`, `10/live-*.png` | None |
 | 02 | Go server transport and authenticated realtime | `/ws`, `session.snapshot`, `world.snapshot`, `session.ready` | HUD shell and live canvas | Browser smoke boots `cmd/game-server` and opens `/ws` with cookie session | Gateway tests resolve identity server-side and reject missing sessions/origins | `10/live-desktop.png` | None |
 | 03 | Real client shell and explicit demo isolation | Session restore, real mode, explicit `?demo=1` fixture | Auth shell, HUD hidden while unauthenticated | Smoke proves unauthenticated state has no gameplay snapshots | Client lint, bundle scan, and smoke leak scan block default fake/demo labels | `10/unauth-mobile.png` | None |
-| 04 | World, AOI, movement, minimap | `world.snapshot`, `move_to`, `stop`, `entity.entered`, `entity.left`, `position.corrected` | Center map, minimap, Stop/Sync controls | Smoke moves the real player and checks canvas pixels | Hidden planet signal absent from smoke state; protocol rejects forbidden hidden keys | `10/live-tablet.png` | None |
+| 04 | World, AOI, movement, minimap | `world.snapshot`, `move_to`, `stop`, `entity.entered`, `entity.left`, `position.corrected` | Center map, minimap, Stop/Sync controls | Smoke moves the real player, verifies server-timed interpolation/re-click origin, and checks canvas pixels | Hidden planet signal absent from smoke state; protocol rejects forbidden hidden keys; immediate move spam returns `ERR_RATE_LIMITED` without changing the route | `10/live-tablet.png` | None |
 | 05 | Combat, loot, death repair | `combat.use_skill`, `loot.pickup`, `death.repair_quote`, `death.repair_ship`, `combat.*`, `loot.*`, `death.*` | Target panel, ship panel, action rail, log | Smoke kills visible NPC and picks up visible drop | Go combat/loot/repair tests cover hidden/out-of-range/duplicate/disabled paths | `10/live-desktop.png` | Death/respawn E2E in `docs/todo.md` |
 | 06 | Progression, inventory, hangar, loadout, crafting read models | `progression.snapshot`, `inventory.snapshot`, `hangar.snapshot`, `loadout.snapshot`, `stats.snapshot`, `crafting.recipes` | Status, cargo, economy, systems panels | Smoke asserts real snapshots and recipes after login/reconnect | Client trust-boundary lint and reducer/protocol tests reject forged identity/value payloads | `10/live-desktop.png` | Equip/craft mutations in `docs/todo.md` |
 | 07 | Discovery, scanner, planet/production/route read models | `scan.pulse`, `discovery.known_planets`, `discovery.planet_detail`, `planet.production_summary`, `planet.storage_summary`, `route.list`, `route.snapshot`, `scan.*` | Intel panel, sector map, Scan action | Smoke runs `scan.pulse`, discovers a server planet, and reconciles XP/intel | Smoke verifies hidden signal is not serialized; Go discovery tests cover hidden/fog rules | `10/live-mobile.png` | Claim/build/route mutations in `docs/todo.md` |

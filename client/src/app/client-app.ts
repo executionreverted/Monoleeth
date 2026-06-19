@@ -26,6 +26,7 @@ export class ClientApp {
   private authPanel: AuthPanel | null = null;
   private hud: HUD | null = null;
   private reconnectTimer: number | null = null;
+  private smokeStateTimer: number | null = null;
   private intentionalDisconnect = false;
   private systemsSnapshotRequested = false;
   private demoState: DemoStateModule | null = null;
@@ -51,6 +52,7 @@ export class ClientApp {
     }
 
     await this.renderer.mount(worldHost);
+    this.startSmokeStatePublisher();
     this.authPanel = new AuthPanel(authHost, {
       onLogin: (email, password) => void this.login(email, password),
       onRegister: (email, password, callsign) => void this.register(email, password, callsign),
@@ -384,6 +386,7 @@ export class ClientApp {
       selectedTargetID: this.state.selectedTargetID,
       movementTarget: this.state.movementTarget,
       lastCorrection: this.state.lastCorrection,
+      lastServerTime: this.state.lastServerTime,
     });
     this.authPanel?.render(this.state);
     this.hud?.render(this.state);
@@ -457,8 +460,20 @@ export class ClientApp {
         commandLog: this.state.commandLog,
         combatLog: this.state.combatLog,
         auth: this.state.auth,
+        worldView: this.renderer.debugSnapshot(),
       }),
     );
+  }
+
+  private startSmokeStatePublisher(): void {
+    if (typeof window === 'undefined' || this.smokeStateTimer !== null) {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('smoke')) {
+      return;
+    }
+    this.smokeStateTimer = window.setInterval(() => this.publishSmokeState(), 50);
   }
 }
 

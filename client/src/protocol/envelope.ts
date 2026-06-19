@@ -128,6 +128,15 @@ export interface EntityDisplay {
   disposition?: string;
 }
 
+export interface EntityMovementPayload {
+  moving: boolean;
+  origin: Vec2;
+  target: Vec2;
+  speed: number;
+  started_at_ms: number;
+  arrive_at_ms: number;
+}
+
 export interface EntityPayload {
   entity_id: string;
   entity_type: EntityType;
@@ -141,6 +150,7 @@ export interface EntityPayload {
     max_shield: number;
     status?: string;
   };
+  movement?: EntityMovementPayload;
 }
 
 export interface RequestEnvelope<TPayload extends JsonObject = JsonObject> {
