@@ -7,12 +7,6 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
-- [ ] Finish mockup-level entity asset parity for planets/signals/loot/NPCs.
-  Visible objects are selectable and interactive, but the sprites/markers still
-  need a dedicated pass against `output/mockups/final-mockup.png` and
-  `output/assets/hud-svg/` so each object reads like the intended HUD art
-  rather than generic canvas geometry. Source:
-  `docs/plans/2026-06-19-ui-rework-GOAL.md`.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.
@@ -196,6 +190,13 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Finish mockup-level entity asset parity for planets/signals/loot/NPCs.
+  Visible objects are selectable and interactive, and the renderer now uses
+  mockup-aligned HUD marker language: player radar/ship glow, hostile
+  NPC diamond/swarm markers, amber loot cache/crate markers, unknown signal
+  question/ring markers, per-kind labels, and minimap entity-type styling.
+  Covered by fixture browser smoke and updated screenshots. Source:
+  `docs/plans/2026-06-19-ui-rework-GOAL.md`.
 - [x] Finish entity selection, combat feedback, and loot pickup presentation in
   the mockup HUD. Visible objects select with reticles, target panels show
   server-safe HP/shield/status, firing produces laser/damage/miss reactions,

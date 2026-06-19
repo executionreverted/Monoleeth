@@ -118,7 +118,7 @@ The UI rework is not done until all of these are true.
 - [x] There is visible motion/depth during player/camera movement.
 - [x] The world surface includes sector grid/radar treatment similar to the
   mockup.
-- [ ] Planets/signals/loot/NPCs are visually distinct and readable.
+- [x] Planets/signals/loot/NPCs are visually distinct and readable.
 - [x] Canvas rendering remains nonblank and correctly framed on desktop and
   mobile.
 

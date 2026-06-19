@@ -970,7 +970,7 @@ function minimapPanel(state: ClientState): string {
       const left = clamp(50 + ((contact.position.x - center.x) / (radius * 2)) * 100, 4, 96);
       const top = clamp(50 + ((contact.position.y - center.y) / (radius * 2)) * 100, 4, 96);
       const disposition = contact.status_flags?.includes('self') ? 'self' : contact.disposition || dispositionForType(contact.entity_type);
-      return `<span class="minimap__point" data-kind="${escapeHTML(disposition)}" style="left:${left}%;top:${top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></span>`;
+      return `<span class="minimap__point" data-kind="${escapeHTML(disposition)}" data-entity-type="${escapeHTML(contact.entity_type)}" style="left:${left}%;top:${top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></span>`;
     })
     .join('');
 
@@ -985,6 +985,7 @@ function minimapPanel(state: ClientState): string {
     <div class="minimap-legend">
       <span data-kind="self">You</span>
       <span data-kind="hostile">Hostile</span>
+      <span data-kind="loot">Loot</span>
       <span data-kind="unknown">Unknown</span>
     </div>
   `;

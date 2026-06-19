@@ -373,6 +373,10 @@ async function verifyFixtureViewport(viewport, label) {
     await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.connectionStatus === 'connected');
     await page.waitForFunction(() => {
       const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      const entityTypes = new Set(Object.values(state?.visibleEntities ?? {}).map((entity) => entity.entity_type));
+      const minimapTypes = new Set(
+        Array.from(document.querySelectorAll('.minimap__point')).map((point) => point.getAttribute('data-entity-type')),
+      );
       return (
         state?.playerSnapshot?.callsign === 'Server-Pilot' &&
         state?.cargo?.capacity === 80 &&
@@ -380,6 +384,14 @@ async function verifyFixtureViewport(viewport, label) {
         state?.stats?.radar_range === 420 &&
         state?.stats?.loot_pickup_range === 120 &&
         state?.stats?.basic_laser_energy_cost === 10 &&
+        entityTypes.has('player') &&
+        entityTypes.has('npc') &&
+        entityTypes.has('loot') &&
+        entityTypes.has('planet_signal') &&
+        minimapTypes.has('player') &&
+        minimapTypes.has('npc') &&
+        minimapTypes.has('loot') &&
+        minimapTypes.has('planet_signal') &&
         state?.commandLog?.some((line) => line.text === 'Forbidden server payload rejected.') &&
         !state?.visibleEntities?.['hidden-planet']
       );
@@ -388,12 +400,14 @@ async function verifyFixtureViewport(viewport, label) {
     if (label === 'fixture-desktop') {
       await clickWorldPosition(page, { x: 150, y: -250 });
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'npc-rake-01');
+      await page.waitForSelector('[data-panel="target"] .target-lock[data-target-kind="npc"]', { timeout: 10000 });
       await page.locator('.hud__actionbar [data-action="fire"]').click();
       await realtime.waitForOp('combat.use_skill');
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.playerSnapshot?.energy === 58);
 
       await clickWorldPosition(page, { x: -110, y: -220 });
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'loot-scrap-01');
+      await page.waitForSelector('[data-panel="target"] .target-lock[data-target-kind="loot"]', { timeout: 10000 });
       await realtime.waitForOp('move_to');
       await realtime.waitForOp('loot.pickup');
       await page.waitForFunction(() => {
@@ -401,12 +415,19 @@ async function verifyFixtureViewport(viewport, label) {
         return state?.cargo?.used === 21 && state?.cargo?.items?.some((item) => item.item_id === 'raw_ore' && item.quantity === 15);
       });
 
+      await clickWorldPosition(page, { x: 260, y: 150 });
+      await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'signal-eris-04');
+      await page.waitForSelector('[data-panel="target"] .target-lock[data-target-kind="planet_signal"]', { timeout: 10000 });
+
       await clickWorldPosition(page, { x: 40, y: -220 });
       await realtime.waitForOp('move_to');
       await page.waitForFunction(() => {
         const player = window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities?.['player-local'];
         return Math.abs((player?.position?.x ?? 9999) - 40) <= 1 && Math.abs((player?.position?.y ?? 9999) + 220) <= 1;
       });
+
+      await clickWorldPosition(page, { x: 150, y: -250 });
+      await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'npc-rake-01');
     }
 
     await assertCanvasAndLayout(page, viewport, label);
@@ -1394,6 +1415,18 @@ function snapshotPayload() {
       max_shield: 100,
       max_energy: 100,
       rank: 2,
+    },
+    ship: {
+      active_ship_id: 'starter_ship',
+      display_name: 'Sparrow',
+      hull: 84,
+      max_hull: 100,
+      shield: 61,
+      max_shield: 100,
+      capacitor: 72,
+      max_capacitor: 100,
+      disabled: false,
+      repair_state: 'ready',
     },
     cargo: {
       used: 17,

@@ -65,6 +65,13 @@ Must avoid:
   waiting for server range/position state. The action rail and target panel now
   show cooldown, capacitor, range, and approach/gather availability without
   client-authored combat or loot truth.
+- 2026-06-19 UI rework slice 6 made AOI-visible entities read closer to the
+  mockup without adding fake map objects: player ships have radar rings and
+  engine glow, NPCs use hostile diamond/swarm language, loot uses an amber
+  cache/crate marker, unknown signals use the HUD question/ring treatment, and
+  minimap points carry both disposition and entity-type styling. Fixture smoke
+  verifies player/NPC/loot/signal presence, target-kind selection, and updated
+  screenshots.
 - The default browser path remains real/authenticated only. Demo fixtures are
   still available for explicit dev/test fixture mode, but they are dev-only lazy
   imports and the production bundle scan fails on fixture labels.
@@ -77,7 +84,8 @@ Must avoid:
 - Final screenshots live under `output/screenshots/ui-implementation/10/`:
   `unauth-mobile.png`, `unauth-tablet.png`, `unauth-desktop.png`,
   `live-mobile.png`, `live-tablet.png`, `live-desktop.png`, and
-  `live-admin-desktop.png`.
+  `live-admin-desktop.png`. The explicit fixture-only marker parity artifacts
+  are `fixture-mobile.png` and `fixture-desktop.png`.
 
 ## End-To-End MVP Loop
 
@@ -208,8 +216,8 @@ death/respawn contracts are recorded in `docs/todo.md` rather than faked.
 - [x] Left rail: real ship/player/status, plus cargo, economy, quest,
       intel/scanner, systems, and admin-only ops window toggles with
       loading/empty states.
-- [x] Center map: full-bleed canvas with nonblank pixel check and AOI-visible
-      entities only.
+- [x] Center map: full-bleed canvas with nonblank pixel check, AOI-visible
+      entities only, and distinct player/NPC/loot/signal markers.
 - [x] Bottom action/log bar: real laser, scan, loot controls; locked future
       slots; server event log.
 - [x] Right rail: selected target, ship repair controls, sector map, intel, and

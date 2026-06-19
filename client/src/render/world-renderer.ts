@@ -5,11 +5,31 @@ import { WorldFeedbackEffect } from '../state/types';
 import { WorldInputHandlers, WorldViewState } from './world-view';
 
 const entityColors: Record<EntityPayload['entity_type'], number> = {
-  player: 0x8af5ff,
-  npc: 0xff5c7a,
+  player: 0x2bdfff,
+  npc: 0xff4236,
   loot: 0xf4c95d,
   planet_signal: 0xf4c95d,
 };
+
+const hudColors = {
+  cyan: 0x2bdfff,
+  cyanSoft: 0x8af5ff,
+  green: 0x44e878,
+  amber: 0xf4c95d,
+  red: 0xff4236,
+  redSoft: 0xff5c7a,
+  line: 0xd8ddde,
+  muted: 0x7c8a90,
+  panel: 0x03080a,
+};
+
+const npcSwarmOffsets = [
+  { x: -20, y: -10, r: 7 },
+  { x: -10, y: 13, r: 5 },
+  { x: 16, y: -16, r: 6 },
+  { x: 21, y: 9, r: 5 },
+  { x: 3, y: -2, r: 8 },
+];
 
 export class WorldRenderer {
   private app: Application | null = null;
@@ -125,7 +145,7 @@ export class WorldRenderer {
       }
 
       label.text = labelForEntity(entity);
-      label.style.fill = entityColors[entity.entity_type];
+      label.style.fill = labelColorForEntity(entity);
       label.visible = label.text !== '';
       this.drawEntity(view, entity, state.selectedTargetID === entity.entity_id, isSelfEntity(entity));
       this.entityWorldPositions.set(entity.entity_id, this.nextDisplayPosition(entity));
@@ -215,9 +235,12 @@ export class WorldRenderer {
       text: labelForEntity(entity),
       style: {
         fontFamily: 'IBM Plex Mono, Aptos Mono, monospace',
-        fontSize: 12,
-        fill: entityColors[entity.entity_type],
+        fontSize: 11,
+        fontWeight: '700',
+        fill: labelColorForEntity(entity),
         stroke: { color: '#050709', width: 3 },
+        align: 'left',
+        lineHeight: 14,
       },
       anchor: 0.5,
     });
@@ -225,57 +248,129 @@ export class WorldRenderer {
   }
 
   private drawEntity(view: Graphics, entity: EntityPayload, selected: boolean, self: boolean): void {
-    const color = entityColors[entity.entity_type];
     view.clear();
 
     if (selected) {
-      const lockColor = entity.entity_type === 'npc' ? 0xff5c7a : entity.entity_type === 'loot' ? 0xf4c95d : 0x8af5ff;
-      view.circle(0, 0, 28).stroke({ color: lockColor, width: 1, alpha: 0.5 });
-      view.moveTo(0, -36).lineTo(0, -24).moveTo(0, 24).lineTo(0, 36).stroke({ color: lockColor, width: 2, alpha: 0.9 });
-      view.moveTo(-36, 0).lineTo(-24, 0).moveTo(24, 0).lineTo(36, 0).stroke({ color: lockColor, width: 2, alpha: 0.9 });
-      view
-        .moveTo(-27, -17)
-        .lineTo(-27, -27)
-        .lineTo(-17, -27)
-        .moveTo(17, -27)
-        .lineTo(27, -27)
-        .lineTo(27, -17)
-        .moveTo(27, 17)
-        .lineTo(27, 27)
-        .lineTo(17, 27)
-        .moveTo(-17, 27)
-        .lineTo(-27, 27)
-        .lineTo(-27, 17)
-        .stroke({ color: lockColor, width: 2, alpha: 0.82 });
-    }
-    if (self) {
-      view.circle(0, 0, 48).stroke({ color: 0x2bdfff, width: 1, alpha: 0.28 });
-      view.circle(0, 0, 72).stroke({ color: 0x2bdfff, width: 1, alpha: 0.16 });
+      this.drawSelectedReticle(view, entity);
     }
 
     switch (entity.entity_type) {
       case 'player':
-        view.moveTo(0, -18).lineTo(14, 14).lineTo(0, 7).lineTo(-14, 14).closePath().fill(color);
-        view.moveTo(0, -25).lineTo(0, -38).stroke({ color: self ? 0x2bdfff : 0x7cff9b, width: 2, alpha: 0.85 });
+        this.drawPlayerShip(view, self);
         break;
       case 'npc':
-        view.circle(0, 0, 19).stroke({ color, width: 1, alpha: 0.32 });
-        view.moveTo(0, -16).lineTo(15, 0).lineTo(0, 16).lineTo(-15, 0).closePath().fill({ color, alpha: 0.78 });
-        view.moveTo(-19, 0).lineTo(-8, 0).moveTo(8, 0).lineTo(19, 0).stroke({ color: 0xffd9df, width: 2, alpha: 0.7 });
-        view.moveTo(0, -19).lineTo(0, -8).moveTo(0, 8).lineTo(0, 19).stroke({ color: 0xffd9df, width: 2, alpha: 0.7 });
+        this.drawNpcSwarm(view, entity);
         this.drawCombatBars(view, entity);
         break;
       case 'loot':
-        view.moveTo(0, -15).lineTo(15, 0).lineTo(0, 15).lineTo(-15, 0).closePath().fill({ color, alpha: 0.88 });
-        view.rect(-10, -10, 20, 20).stroke({ color: 0xffffff, width: 1, alpha: 0.22 });
-        view.circle(0, 0, 23).stroke({ color, width: 1, alpha: 0.2 });
+        this.drawLootCache(view);
         break;
       case 'planet_signal':
-        view.circle(0, 0, 15).stroke({ color, width: 3, alpha: 0.78 });
-        view.moveTo(-7, -7).lineTo(7, 7).moveTo(7, -7).lineTo(-7, 7).stroke({ color, width: 2, alpha: 0.72 });
-        view.circle(0, 0, 4).fill(color);
+        this.drawPlanetSignal(view, entity);
         break;
     }
+  }
+
+  private drawSelectedReticle(view: Graphics, entity: EntityPayload): void {
+    const lockColor = entity.entity_type === 'npc' ? hudColors.redSoft : entity.entity_type === 'loot' ? hudColors.amber : hudColors.cyanSoft;
+    view.circle(0, 0, 31).stroke({ color: lockColor, width: 1, alpha: 0.46 });
+    view.circle(0, 0, 42).stroke({ color: lockColor, width: 1, alpha: 0.16 });
+    view.moveTo(0, -42).lineTo(0, -28).moveTo(0, 28).lineTo(0, 42).stroke({ color: lockColor, width: 2, alpha: 0.88 });
+    view.moveTo(-42, 0).lineTo(-28, 0).moveTo(28, 0).lineTo(42, 0).stroke({ color: lockColor, width: 2, alpha: 0.88 });
+    view
+      .moveTo(-30, -18)
+      .lineTo(-30, -30)
+      .lineTo(-18, -30)
+      .moveTo(18, -30)
+      .lineTo(30, -30)
+      .lineTo(30, -18)
+      .moveTo(30, 18)
+      .lineTo(30, 30)
+      .lineTo(18, 30)
+      .moveTo(-18, 30)
+      .lineTo(-30, 30)
+      .lineTo(-30, 18)
+      .stroke({ color: lockColor, width: 2, alpha: 0.82 });
+  }
+
+  private drawPlayerShip(view: Graphics, self: boolean): void {
+    if (self) {
+      view.circle(0, 0, 52).stroke({ color: hudColors.cyan, width: 1, alpha: 0.28 });
+      view.circle(0, 0, 76).stroke({ color: hudColors.cyan, width: 1, alpha: 0.14 });
+      view.moveTo(-92, 0).lineTo(-58, 0).moveTo(58, 0).lineTo(92, 0).stroke({ color: hudColors.cyan, width: 1, alpha: 0.12 });
+      view.moveTo(0, -92).lineTo(0, -58).moveTo(0, 58).lineTo(0, 92).stroke({ color: hudColors.cyan, width: 1, alpha: 0.12 });
+    }
+
+    view.circle(0, 22, 9).fill({ color: hudColors.cyan, alpha: 0.12 });
+    view.circle(-5, 24, 3).fill({ color: hudColors.cyan, alpha: 0.82 });
+    view.circle(5, 24, 3).fill({ color: hudColors.cyan, alpha: 0.82 });
+    view.moveTo(0, -25).lineTo(16, 18).lineTo(4, 10).lineTo(0, 26).lineTo(-4, 10).lineTo(-16, 18).closePath().fill(hudColors.line);
+    view.moveTo(0, -25).lineTo(16, 18).lineTo(4, 10).lineTo(0, 26).lineTo(-4, 10).lineTo(-16, 18).closePath().stroke({
+      color: self ? hudColors.cyanSoft : hudColors.green,
+      width: 1,
+      alpha: 0.82,
+    });
+    view.moveTo(0, -14).lineTo(6, 12).lineTo(0, 7).lineTo(-6, 12).closePath().fill({ color: hudColors.panel, alpha: 0.62 });
+    view.moveTo(0, -35).lineTo(0, -48).stroke({ color: self ? hudColors.cyan : hudColors.green, width: 2, alpha: 0.85 });
+  }
+
+  private drawNpcSwarm(view: Graphics, entity: EntityPayload): void {
+    view.circle(0, 0, 28).stroke({ color: hudColors.red, width: 1, alpha: 0.18 });
+    for (const [index, rock] of npcSwarmOffsets.entries()) {
+      const alpha = index === npcSwarmOffsets.length - 1 ? 0.82 : 0.54;
+      drawAsteroidShard(view, rock.x, rock.y, rock.r, hudColors.red, alpha);
+    }
+
+    drawDiamond(view, 17, hudColors.red, 0.16, 0.92);
+    view.moveTo(-25, 0).lineTo(-10, 0).moveTo(10, 0).lineTo(25, 0).stroke({ color: 0xffd9df, width: 2, alpha: 0.76 });
+    view.moveTo(0, -25).lineTo(0, -10).moveTo(0, 10).lineTo(0, 25).stroke({ color: 0xffd9df, width: 2, alpha: 0.76 });
+    if (entity.status_flags?.includes('damaged')) {
+      view.circle(0, 0, 34).stroke({ color: hudColors.amber, width: 1, alpha: 0.22 });
+    }
+  }
+
+  private drawLootCache(view: Graphics): void {
+    view.circle(0, 0, 29).stroke({ color: hudColors.amber, width: 1, alpha: 0.18 });
+    drawDiamond(view, 24, hudColors.amber, 0.08, 0.48);
+    drawIsometricCrate(view, hudColors.amber);
+    view.moveTo(-16, 22).lineTo(16, 22).stroke({ color: hudColors.amber, width: 1, alpha: 0.22 });
+    view.circle(0, 33, 3).fill({ color: hudColors.amber, alpha: 0.78 });
+  }
+
+  private drawPlanetSignal(view: Graphics, entity: EntityPayload): void {
+    if (isUnknownSignal(entity)) {
+      view.circle(0, 0, 27).stroke({ color: hudColors.amber, width: 1, alpha: 0.18 });
+      view
+        .moveTo(-20, -4)
+        .lineTo(-18, -14)
+        .moveTo(-14, -20)
+        .lineTo(-4, -22)
+        .moveTo(4, -22)
+        .lineTo(14, -18)
+        .moveTo(20, -10)
+        .lineTo(22, 0)
+        .moveTo(18, 14)
+        .lineTo(10, 21)
+        .moveTo(-10, 21)
+        .lineTo(-18, 14)
+        .stroke({ color: hudColors.amber, width: 2, alpha: 0.72 });
+      view
+        .moveTo(-7, -8)
+        .lineTo(-1, -14)
+        .lineTo(8, -10)
+        .lineTo(9, -2)
+        .lineTo(1, 5)
+        .lineTo(1, 10)
+        .stroke({ color: hudColors.amber, width: 3, alpha: 0.86 });
+      view.circle(1, 17, 2.5).fill({ color: hudColors.amber, alpha: 0.92 });
+      return;
+    }
+
+    view.circle(0, 0, 23).fill({ color: 0x17252a, alpha: 0.92 });
+    view.circle(-7, -7, 9).fill({ color: hudColors.line, alpha: 0.16 });
+    view.circle(4, 4, 18).stroke({ color: hudColors.cyan, width: 1, alpha: 0.52 });
+    view.moveTo(-27, 4).lineTo(27, -8).stroke({ color: hudColors.muted, width: 2, alpha: 0.46 });
+    drawDiamond(view, 31, hudColors.cyan, 0, 0.58);
   }
 
   private drawMarkers(state: WorldViewState): void {
@@ -499,11 +594,14 @@ export class WorldRenderer {
 
   private positionEntityLabel(entityID: string, label: Text): void {
     const world = this.entityWorldPositions.get(entityID) ?? this.entityTargets.get(entityID)?.position;
+    const entity = this.entityTargets.get(entityID);
     if (!world) {
       return;
     }
     const screen = this.worldToScreen(world);
-    label.position.set(screen.x, screen.y - 34);
+    const offset = entity ? labelOffsetForEntity(entity) : { x: 0, y: -34, anchorX: 0.5, anchorY: 0.5 };
+    label.anchor.set(offset.anchorX, offset.anchorY);
+    label.position.set(screen.x + offset.x, screen.y + offset.y);
   }
 
   private findEntityAtScreen(screen: Vec2): EntityPayload | null {
@@ -517,7 +615,8 @@ export class WorldRenderer {
         const entityScreen = this.worldToScreen(entityWorld);
         const dx = entityScreen.x - screen.x;
         const dy = entityScreen.y - screen.y;
-        return dx * dx + dy * dy <= 26 * 26;
+        const radius = markerHitRadius(entity);
+        return dx * dx + dy * dy <= radius * radius;
       }) ?? null
     );
   }
@@ -602,7 +701,125 @@ function labelForEntity(entity: EntityPayload): string {
   if (isSelfEntity(entity)) {
     return 'YOU';
   }
-  return entity.display?.label ?? '';
+  const label = entity.display?.label?.trim();
+  if (!label) {
+    return '';
+  }
+  const detail = labelDetailForEntity(entity);
+  return detail ? `${label.toUpperCase()}\n${detail}` : label.toUpperCase();
+}
+
+function labelDetailForEntity(entity: EntityPayload): string {
+  if (entity.entity_type === 'npc') {
+    return 'HOSTILE';
+  }
+  if (entity.entity_type === 'loot') {
+    return 'DROP';
+  }
+  if (entity.entity_type === 'planet_signal') {
+    return isUnknownSignal(entity) ? 'UNKNOWN SIGNAL' : (entity.display?.disposition ?? 'SIGNAL').toUpperCase();
+  }
+  return entity.display?.disposition?.toUpperCase() ?? '';
+}
+
+function labelColorForEntity(entity: EntityPayload): number {
+  if (isSelfEntity(entity)) {
+    return hudColors.cyan;
+  }
+  if (entity.entity_type === 'npc') {
+    return hudColors.redSoft;
+  }
+  if (entity.entity_type === 'loot' || isUnknownSignal(entity)) {
+    return hudColors.amber;
+  }
+  if (entity.display?.disposition === 'friendly') {
+    return hudColors.green;
+  }
+  return entityColors[entity.entity_type];
+}
+
+function labelOffsetForEntity(entity: EntityPayload): { x: number; y: number; anchorX: number; anchorY: number } {
+  if (isSelfEntity(entity)) {
+    return { x: 0, y: -44, anchorX: 0.5, anchorY: 0.5 };
+  }
+  switch (entity.entity_type) {
+    case 'player':
+      return { x: -40, y: -12, anchorX: 1, anchorY: 0.5 };
+    case 'npc':
+      return { x: 34, y: -12, anchorX: 0, anchorY: 0.5 };
+    case 'loot':
+      return { x: 32, y: 18, anchorX: 0, anchorY: 0.5 };
+    case 'planet_signal':
+      return { x: 34, y: 18, anchorX: 0, anchorY: 0.5 };
+    default:
+      return { x: 0, y: -36, anchorX: 0.5, anchorY: 0.5 };
+  }
+}
+
+function markerHitRadius(entity: EntityPayload): number {
+  switch (entity.entity_type) {
+    case 'npc':
+    case 'loot':
+    case 'planet_signal':
+      return 34;
+    default:
+      return 28;
+  }
+}
+
+function isUnknownSignal(entity: EntityPayload): boolean {
+  return (
+    entity.entity_type === 'planet_signal' &&
+    (entity.status_flags?.includes('unknown_signal') || entity.display?.disposition === 'unknown' || /unknown/i.test(entity.display?.label ?? ''))
+  );
+}
+
+function drawDiamond(view: Graphics, radius: number, color: number, fillAlpha: number, strokeAlpha: number): void {
+  if (fillAlpha > 0) {
+    view.moveTo(0, -radius).lineTo(radius, 0).lineTo(0, radius).lineTo(-radius, 0).closePath().fill({ color, alpha: fillAlpha });
+  }
+  view.moveTo(0, -radius).lineTo(radius, 0).lineTo(0, radius).lineTo(-radius, 0).closePath().stroke({
+    color,
+    width: 2,
+    alpha: strokeAlpha,
+  });
+}
+
+function drawAsteroidShard(view: Graphics, x: number, y: number, radius: number, accent: number, alpha: number): void {
+  view
+    .moveTo(x - radius, y - 2)
+    .lineTo(x - radius * 0.38, y - radius)
+    .lineTo(x + radius * 0.72, y - radius * 0.42)
+    .lineTo(x + radius, y + radius * 0.35)
+    .lineTo(x + radius * 0.08, y + radius)
+    .lineTo(x - radius * 0.78, y + radius * 0.45)
+    .closePath()
+    .fill({ color: 0x9c8f80, alpha: 0.22 * alpha })
+    .stroke({ color: hudColors.line, width: 1, alpha: 0.32 * alpha });
+  view.circle(x, y, Math.max(1.3, radius * 0.22)).fill({ color: accent, alpha: 0.62 * alpha });
+}
+
+function drawIsometricCrate(view: Graphics, color: number): void {
+  view
+    .moveTo(0, -19)
+    .lineTo(18, -9)
+    .lineTo(18, 12)
+    .lineTo(0, 22)
+    .lineTo(-18, 12)
+    .lineTo(-18, -9)
+    .closePath()
+    .fill({ color: hudColors.panel, alpha: 0.72 })
+    .stroke({ color, width: 2, alpha: 0.82 });
+  view
+    .moveTo(0, -19)
+    .lineTo(0, 1)
+    .lineTo(18, -9)
+    .moveTo(0, 1)
+    .lineTo(-18, -9)
+    .moveTo(0, 1)
+    .lineTo(0, 22)
+    .stroke({ color: hudColors.line, width: 1, alpha: 0.42 });
+  view.rect(-7, -6, 14, 8).stroke({ color, width: 1, alpha: 0.5 });
 }
 
 function lerp(from: number, to: number, amount: number): number {
