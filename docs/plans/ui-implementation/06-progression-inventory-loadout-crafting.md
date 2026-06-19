@@ -134,8 +134,8 @@ Mockup areas covered:
 - [x] Add inventory/cargo snapshot handlers.
 - [ ] Add `inventory.move` authenticated command.
 - [x] Add hangar/loadout query handlers.
-- [ ] Add `hangar.activate_ship` handler with ownership/state validation.
-- [ ] Add equip/unequip runtime handlers using ledger-backed module movement.
+- [x] Add `hangar.activate_ship` handler with ownership/state validation.
+- [x] Add equip/unequip runtime handlers using ledger-backed module movement.
 - [ ] Add stat snapshot events after loadout, progression, and active ship
       changes.
 - [x] Add stat snapshot query handler.
@@ -157,8 +157,8 @@ Mockup areas covered:
 - [x] Client cannot set rank/skill points through exposed snapshot operations.
 - [x] Client cannot create inventory items through exposed snapshot operations.
 - [ ] Client cannot bypass cargo/storage capacity.
-- [ ] Client cannot equip unowned or invalid modules.
-- [ ] Client cannot activate unowned or disabled ships.
+- [x] Client cannot equip unowned or invalid modules.
+- [x] Client cannot activate unowned or disabled ships.
 - [x] Client cannot fake stat totals through exposed snapshot operations.
 - [ ] Craft start checks recipe, wallet, materials, location, rank, and idempotency.
 - [ ] Craft completion is server-time/idempotency controlled.
@@ -171,8 +171,8 @@ Mockup areas covered:
 - [ ] Duplicate skill unlock does not double-spend points.
 - [ ] Inventory move rejects unowned/negative/excess amounts.
 - [ ] Duplicate inventory move cannot duplicate stacks.
-- [ ] Hangar activate rejects unowned/unusable ship.
-- [ ] Hangar activate emits `stats.updated`.
+- [x] Hangar activate rejects unowned/unusable ship.
+- [x] Hangar activate emits `stats.updated`.
 - [ ] Loadout equip rejects unowned item.
 - [ ] Duplicate equip/unequip does not duplicate modules.
 - [ ] Loadout equip updates stat snapshot.
@@ -185,7 +185,7 @@ Mockup areas covered:
       wallet, cargo, and progression snapshots.
 - [x] Browser inventory panel uses server snapshot.
 - [x] Browser topbar credits uses server wallet snapshot.
-- [ ] Browser equip action updates loadout/stats from server event.
+- [x] Browser equip action updates loadout/stats from server event.
 - [ ] Browser crafting timer survives reconnect snapshot.
 
 ## Done Criteria

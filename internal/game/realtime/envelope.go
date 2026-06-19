@@ -17,53 +17,56 @@ const CurrentVersion = contracts.CurrentVersion
 type Operation string
 
 const (
-	OperationSessionSnapshot     Operation = "session.snapshot"
-	OperationWorldSnapshot       Operation = "world.snapshot"
-	OperationMoveTo              Operation = "move_to"
-	OperationStop                Operation = "stop"
-	OperationDebugSpawnNPC       Operation = "debug_spawn_npc"
-	OperationDebugSnapshot       Operation = "debug_snapshot"
-	OperationCombatUseSkill      Operation = "combat.use_skill"
-	OperationLootPickup          Operation = "loot.pickup"
-	OperationDeathRepairQuote    Operation = "death.repair_quote"
-	OperationDeathRepairShip     Operation = "death.repair_ship"
-	OperationProgressionSnapshot Operation = "progression.snapshot"
-	OperationInventorySnapshot   Operation = "inventory.snapshot"
-	OperationHangarSnapshot      Operation = "hangar.snapshot"
-	OperationLoadoutSnapshot     Operation = "loadout.snapshot"
-	OperationStatsSnapshot       Operation = "stats.snapshot"
-	OperationCraftingRecipes     Operation = "crafting.recipes"
-	OperationScanPulse           Operation = "scan.pulse"
-	OperationKnownPlanets        Operation = "discovery.known_planets"
-	OperationPlanetDetail        Operation = "discovery.planet_detail"
-	OperationProductionSummary   Operation = "planet.production_summary"
-	OperationPlanetStorage       Operation = "planet.storage_summary"
-	OperationRouteList           Operation = "route.list"
-	OperationRouteSnapshot       Operation = "route.snapshot"
-	OperationWalletSnapshot      Operation = "wallet.snapshot"
-	OperationMarketSearch        Operation = "market.search"
-	OperationMarketCreateListing Operation = "market.create_listing"
-	OperationMarketBuy           Operation = "market.buy"
-	OperationMarketCancel        Operation = "market.cancel"
-	OperationAuctionSearch       Operation = "auction.search"
-	OperationAuctionBid          Operation = "auction.bid"
-	OperationAuctionBuyNow       Operation = "auction.buy_now"
-	OperationAuctionClaimGrant   Operation = "auction.claim_grant"
-	OperationPremiumEntitlements Operation = "premium.entitlements"
-	OperationPremiumClaim        Operation = "premium.claim"
-	OperationPremiumWeeklyXCore  Operation = "premium.purchase_weekly_xcore"
-	OperationQuestBoard          Operation = "quest.board"
-	OperationQuestAccept         Operation = "quest.accept"
-	OperationQuestProgress       Operation = "quest.progress"
-	OperationQuestClaimReward    Operation = "quest.claim_reward"
-	OperationQuestReroll         Operation = "quest.reroll"
-	OperationAdminInspectPlayer  Operation = "admin.inspect_player"
-	OperationAdminRepairCraftJob Operation = "admin.repair_craft_job"
-	OperationAdminEconomyDash    Operation = "admin.economy_dashboard"
-	OperationObservabilityLog    Operation = "observability.command_log"
-	OperationObservabilityMetric Operation = "observability.metrics"
-	OperationObservabilityGate   Operation = "observability.release_gate"
-	OperationObservabilityAbuse  Operation = "observability.abuse_coverage"
+	OperationSessionSnapshot      Operation = "session.snapshot"
+	OperationWorldSnapshot        Operation = "world.snapshot"
+	OperationMoveTo               Operation = "move_to"
+	OperationStop                 Operation = "stop"
+	OperationDebugSpawnNPC        Operation = "debug_spawn_npc"
+	OperationDebugSnapshot        Operation = "debug_snapshot"
+	OperationCombatUseSkill       Operation = "combat.use_skill"
+	OperationLootPickup           Operation = "loot.pickup"
+	OperationDeathRepairQuote     Operation = "death.repair_quote"
+	OperationDeathRepairShip      Operation = "death.repair_ship"
+	OperationProgressionSnapshot  Operation = "progression.snapshot"
+	OperationInventorySnapshot    Operation = "inventory.snapshot"
+	OperationHangarSnapshot       Operation = "hangar.snapshot"
+	OperationHangarActivateShip   Operation = "hangar.activate_ship"
+	OperationLoadoutSnapshot      Operation = "loadout.snapshot"
+	OperationLoadoutEquipModule   Operation = "loadout.equip_module"
+	OperationLoadoutUnequipModule Operation = "loadout.unequip_module"
+	OperationStatsSnapshot        Operation = "stats.snapshot"
+	OperationCraftingRecipes      Operation = "crafting.recipes"
+	OperationScanPulse            Operation = "scan.pulse"
+	OperationKnownPlanets         Operation = "discovery.known_planets"
+	OperationPlanetDetail         Operation = "discovery.planet_detail"
+	OperationProductionSummary    Operation = "planet.production_summary"
+	OperationPlanetStorage        Operation = "planet.storage_summary"
+	OperationRouteList            Operation = "route.list"
+	OperationRouteSnapshot        Operation = "route.snapshot"
+	OperationWalletSnapshot       Operation = "wallet.snapshot"
+	OperationMarketSearch         Operation = "market.search"
+	OperationMarketCreateListing  Operation = "market.create_listing"
+	OperationMarketBuy            Operation = "market.buy"
+	OperationMarketCancel         Operation = "market.cancel"
+	OperationAuctionSearch        Operation = "auction.search"
+	OperationAuctionBid           Operation = "auction.bid"
+	OperationAuctionBuyNow        Operation = "auction.buy_now"
+	OperationAuctionClaimGrant    Operation = "auction.claim_grant"
+	OperationPremiumEntitlements  Operation = "premium.entitlements"
+	OperationPremiumClaim         Operation = "premium.claim"
+	OperationPremiumWeeklyXCore   Operation = "premium.purchase_weekly_xcore"
+	OperationQuestBoard           Operation = "quest.board"
+	OperationQuestAccept          Operation = "quest.accept"
+	OperationQuestProgress        Operation = "quest.progress"
+	OperationQuestClaimReward     Operation = "quest.claim_reward"
+	OperationQuestReroll          Operation = "quest.reroll"
+	OperationAdminInspectPlayer   Operation = "admin.inspect_player"
+	OperationAdminRepairCraftJob  Operation = "admin.repair_craft_job"
+	OperationAdminEconomyDash     Operation = "admin.economy_dashboard"
+	OperationObservabilityLog     Operation = "observability.command_log"
+	OperationObservabilityMetric  Operation = "observability.metrics"
+	OperationObservabilityGate    Operation = "observability.release_gate"
+	OperationObservabilityAbuse   Operation = "observability.abuse_coverage"
 )
 
 // ClientEventType is an event name that may be sent to a client after filtering.
@@ -202,8 +205,20 @@ var registeredOperations = map[Operation]OperationSpec{
 		Operation:        OperationHangarSnapshot,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
+	OperationHangarActivateShip: {
+		Operation:        OperationHangarActivateShip,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
 	OperationLoadoutSnapshot: {
 		Operation:        OperationLoadoutSnapshot,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationLoadoutEquipModule: {
+		Operation:        OperationLoadoutEquipModule,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationLoadoutUnequipModule: {
+		Operation:        OperationLoadoutUnequipModule,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationStatsSnapshot: {

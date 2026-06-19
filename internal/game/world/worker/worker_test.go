@@ -145,6 +145,40 @@ func TestStopCommandClearsMovementTarget(t *testing.T) {
 	assertVecNear(t, entity.Position, world.Vec2{X: 10, Y: 0})
 }
 
+func TestSettleAndDetachSessionStopsMovementAtServerTimedPosition(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+	clock := zoneWorker.clock.(*testutil.FakeClock)
+	if err := zoneWorker.Submit(SpawnPlayerCommand{
+		PlayerID:  "player-1",
+		EntityID:  "entity-player-1",
+		Position:  world.Vec2{},
+		Speed:     10,
+		SessionID: "session-1",
+	}); err != nil {
+		t.Fatalf("Submit(spawn) error = %v", err)
+	}
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, world.Vec2{X: 100, Y: 0}),
+	}))
+
+	clock.Advance(4 * time.Second)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, SettleAndDetachSessionCommand{SessionID: "session-1"}))
+
+	entity, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() ok = false, want true")
+	}
+	assertVecNear(t, entity.Position, world.Vec2{X: 40, Y: 0})
+	if entity.Movement.Moving {
+		t.Fatalf("settled movement = %+v, want stopped", entity.Movement)
+	}
+	if _, ok := zoneWorker.AttachedPlayer("session-1"); ok {
+		t.Fatal("AttachedPlayer(session-1) ok = true, want detached")
+	}
+}
+
 func TestMoveToCommandDoesNotExposeClientFinalPosition(t *testing.T) {
 	commandType := reflect.TypeOf(MoveToCommand{})
 	if commandType.NumField() != 2 {

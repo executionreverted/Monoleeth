@@ -151,8 +151,8 @@ Mockup areas covered:
 - [x] Add route list/snapshot handlers for reconnect.
 - [x] Add client reducer state for signals, planets, production, routes.
 - [x] Add right rail known planet list.
-- [ ] Add selected planet action panel.
-- [ ] Add route UI and production/building UI.
+- [x] Add selected planet action panel.
+- [x] Add route UI and production/building UI.
 - [x] Add scanner action state and log events.
 
 ## Abuse And Safety Checklist
@@ -183,7 +183,7 @@ Mockup areas covered:
 - [ ] Route settlement is idempotent and respects storage capacity.
 - [x] Route list/snapshot restores route read model after reconnect.
 - [x] Browser scan creates safe discovered intel.
-- [ ] Browser selected planet panel uses server detail.
+- [x] Browser selected planet panel uses server detail.
 - [ ] Browser route create/update reflects server state.
 
 ## Done Criteria

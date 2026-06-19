@@ -362,7 +362,7 @@ describe('reduceClientState', () => {
           },
           wallet: { credits: 980, premium_paid: 3, premium_earned: 9 },
           ship: {
-            active_ship_id: 'starter_ship',
+            active_ship_id: 'starter',
             display_name: 'Starter Hull',
             hull: 88,
             max_hull: 120,
@@ -380,10 +380,10 @@ describe('reduceClientState', () => {
             counts: { cargo_stacks: 1, storage_stacks: 0, equipped_instances: 0 },
           },
           hangar: {
-            active_ship_id: 'starter_ship',
+            active_ship_id: 'starter',
             ships: [
               {
-                ship_id: 'starter_ship',
+                ship_id: 'starter',
                 display_name: 'Sparrow',
                 state: 'ready',
                 hull: 88,
@@ -395,7 +395,7 @@ describe('reduceClientState', () => {
             ],
           },
           loadout: {
-            active_ship_id: 'starter_ship',
+            active_ship_id: 'starter',
             slots: [
               { slot_id: 'offensive_1', slot_type: 'offensive' },
               { slot_id: 'defensive_1', slot_type: 'defensive' },
@@ -437,13 +437,13 @@ describe('reduceClientState', () => {
     expect(reconciled.cargo).toMatchObject({ used: 4, capacity: 80 });
     expect(reconciled.cargo?.items).toEqual([{ item_id: 'raw_ore', quantity: 4 }]);
     expect(reconciled.wallet).toEqual({ credits: 980, premium_paid: 3, premium_earned: 9 });
-    expect(reconciled.ship).toMatchObject({ active_ship_id: 'starter_ship', hull: 88, capacitor: 31, disabled: false });
+    expect(reconciled.ship).toMatchObject({ active_ship_id: 'starter', hull: 88, capacitor: 31, disabled: false });
     expect(reconciled.playerSnapshot).toMatchObject({ hp: 88, max_hp: 120, shield: 42, energy: 31 });
     expect(reconciled.progression).toMatchObject({ main_level: 2, main_xp: 175, rank: 2, combat_xp: 25 });
     expect(reconciled.inventory?.stackable).toEqual([
       { item_id: 'raw_ore', display_name: 'Raw Ore', quantity: 3, location: 'ship_cargo' },
     ]);
-    expect(reconciled.hangar?.active_ship_id).toBe('starter_ship');
+    expect(reconciled.hangar?.active_ship_id).toBe('starter');
     expect(reconciled.loadout?.slots).toHaveLength(2);
     expect(reconciled.crafting?.recipes[0]).toMatchObject({ recipe_id: 'refined_alloy_batch', craft_duration_ms: 300000 });
     expect(reconciled.stats).toMatchObject({
@@ -563,14 +563,14 @@ describe('reduceClientState', () => {
     const withHangar = reduceClientState(withInventory, {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.hangarSnapshot, {
-        active_ship_id: 'starter_ship',
-        ships: [{ ship_id: 'starter_ship', display_name: 'Sparrow', state: 'ready', hull: 100, max_hull: 100, shield: 100, max_shield: 100, disabled: false }],
+        active_ship_id: 'starter',
+        ships: [{ ship_id: 'starter', display_name: 'Sparrow', state: 'ready', hull: 100, max_hull: 100, shield: 100, max_shield: 100, disabled: false }],
       }, 5),
     });
     const withLoadout = reduceClientState(withHangar, {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.loadoutSnapshot, {
-        active_ship_id: 'starter_ship',
+        active_ship_id: 'starter',
         slots: [{ slot_id: 'offensive_1', slot_type: 'offensive' }],
       }, 6),
     });
@@ -712,14 +712,14 @@ describe('reduceClientState', () => {
       envelope: {
         request_id: 'quote-1',
         ok: true,
-        payload: { ship_id: 'starter_ship', cost: 0, currency: 'credits', disabled: true },
+        payload: { ship_id: 'starter', cost: 0, currency: 'credits', disabled: true },
         server_time: 1009,
         v: 1,
       },
     });
     const repaired = reduceClientState(quoted, {
       type: 'eventReceived',
-      envelope: event(CLIENT_EVENTS.deathRepaired, { ship_id: 'starter_ship' }, 10),
+      envelope: event(CLIENT_EVENTS.deathRepaired, { ship_id: 'starter' }, 10),
     });
 
     expect(targeted.visibleEntities['npc-1'].combat).toMatchObject({ hp: 0, shield: 0, status: 'destroyed' });
@@ -746,7 +746,7 @@ describe('reduceClientState', () => {
     expect(withoutLootEntity.knownLoot['drop-1']).toBeUndefined();
     expect(withoutLootEntity.selectedTargetID).toBeNull();
     expect(progressed.progression).toMatchObject({ main_level: 2, rank: 2, combat_xp: 40 });
-    expect(quoted.repairQuote).toEqual({ ship_id: 'starter_ship', cost: 0, currency: 'credits', disabled: true });
+    expect(quoted.repairQuote).toEqual({ ship_id: 'starter', cost: 0, currency: 'credits', disabled: true });
     expect(repaired.repairQuote).toBeNull();
   });
 

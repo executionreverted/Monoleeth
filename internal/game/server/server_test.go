@@ -22,6 +22,7 @@ import (
 	"gameproject/internal/game/premium"
 	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
 )
@@ -558,8 +559,11 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 				if err := json.Unmarshal(response.Payload, &payload); err != nil {
 					t.Fatalf("decode inventory snapshot: %v", err)
 				}
-				if len(payload.Inventory.Stackable) != 0 || payload.Cargo.Capacity != 60 {
-					t.Fatalf("inventory payload = %+v cargo=%+v, want empty starter inventory and cargo capacity", payload.Inventory, payload.Cargo)
+				if len(payload.Inventory.Stackable) != 0 ||
+					len(payload.Inventory.Instances) != 3 ||
+					payload.Inventory.Counts.EquippedInstances != 1 ||
+					payload.Cargo.Capacity != 60 {
+					t.Fatalf("inventory payload = %+v cargo=%+v, want starter modules and cargo capacity", payload.Inventory, payload.Cargo)
 				}
 			case "hangar":
 				var payload struct {
@@ -568,7 +572,7 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 				if err := json.Unmarshal(response.Payload, &payload); err != nil {
 					t.Fatalf("decode hangar snapshot: %v", err)
 				}
-				if payload.Hangar.ActiveShipID != "starter_ship" || len(payload.Hangar.Ships) != 1 {
+				if payload.Hangar.ActiveShipID != starterShipID.String() || len(payload.Hangar.Ships) != 1 {
 					t.Fatalf("hangar payload = %+v, want active starter ship", payload.Hangar)
 				}
 			case "loadout":
@@ -578,7 +582,7 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 				if err := json.Unmarshal(response.Payload, &payload); err != nil {
 					t.Fatalf("decode loadout snapshot: %v", err)
 				}
-				if payload.Loadout.ActiveShipID != "starter_ship" || len(payload.Loadout.Slots) != 3 {
+				if payload.Loadout.ActiveShipID != starterShipID.String() || len(payload.Loadout.Slots) != 3 {
 					t.Fatalf("loadout payload = %+v, want starter slot snapshot", payload.Loadout)
 				}
 			case "stats":
@@ -632,6 +636,139 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 		pickupPayload.Inventory.Stackable[0].Quantity != 3 ||
 		pickupPayload.Inventory.Stackable[0].Location != economy.LocationKindShipCargo.String() {
 		t.Fatalf("pickup inventory = %+v, want real raw ore in ship cargo", pickupPayload.Inventory)
+	}
+}
+
+func TestLoadoutEquipAndUnequipMutateServerOwnedInventory(t *testing.T) {
+	_, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	writeText(t, conn, `{"request_id":"request-loadout-inventory","op":"inventory.snapshot","payload":{},"client_seq":1,"v":1}`)
+	inventoryResponse := readResponse(t, conn)
+	if !inventoryResponse.OK {
+		t.Fatalf("inventory response = %+v, want success", inventoryResponse)
+	}
+	var inventoryPayload struct {
+		Inventory inventorySnapshotPayload `json:"inventory"`
+	}
+	if err := json.Unmarshal(inventoryResponse.Payload, &inventoryPayload); err != nil {
+		t.Fatalf("decode inventory snapshot: %v", err)
+	}
+	laserID := requireInventoryInstance(t, inventoryPayload.Inventory, "laser_alpha_t1", economy.LocationKindAccountInventory.String())
+	shieldID := requireInventoryInstance(t, inventoryPayload.Inventory, "shield_generator_t1", economy.LocationKindAccountInventory.String())
+
+	writeText(t, conn, `{"request_id":"request-loadout-equip-laser","op":"loadout.equip_module","payload":{"slot_id":"offensive_1","item_instance_id":"`+laserID+`"},"client_seq":2,"v":1}`)
+	equipResponse := readResponse(t, conn)
+	if !equipResponse.OK {
+		t.Fatalf("equip response = %+v, want success", equipResponse)
+	}
+	var equipPayload struct {
+		Inventory inventorySnapshotPayload `json:"inventory"`
+		Loadout   loadoutSnapshotPayload   `json:"loadout"`
+	}
+	if err := json.Unmarshal(equipResponse.Payload, &equipPayload); err != nil {
+		t.Fatalf("decode equip payload: %v", err)
+	}
+	offensive := requireLoadoutSlot(t, equipPayload.Loadout, "offensive_1")
+	if offensive.ItemInstanceID != laserID || offensive.ModuleItemID != "laser_alpha_t1" || offensive.Durability != 100 {
+		t.Fatalf("offensive slot = %+v, want equipped laser %s", offensive, laserID)
+	}
+	requireInventoryInstanceLocation(t, equipPayload.Inventory, laserID, economy.LocationKindShipEquipped.String())
+	drainEventTypes(t, conn, realtime.EventInventorySnapshot, realtime.EventLoadoutSnapshot, realtime.EventStatsUpdated)
+
+	writeText(t, conn, `{"request_id":"request-loadout-spoof","op":"loadout.equip_module","payload":{"slot_id":"offensive_1","item_instance_id":"`+laserID+`","player_id":"spoof"},"client_seq":3,"v":1}`)
+	spoof := readError(t, conn)
+	if spoof.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("spoofed loadout error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
+	}
+
+	writeText(t, conn, `{"request_id":"request-loadout-wrong-slot","op":"loadout.equip_module","payload":{"slot_id":"offensive_1","item_instance_id":"`+shieldID+`"},"client_seq":4,"v":1}`)
+	wrongSlot := readError(t, conn)
+	if wrongSlot.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("wrong slot error = %+v, want %s", wrongSlot.Error, foundation.CodeInvalidPayload)
+	}
+
+	writeText(t, conn, `{"request_id":"request-loadout-unequip-laser","op":"loadout.unequip_module","payload":{"slot_id":"offensive_1"},"client_seq":5,"v":1}`)
+	unequipResponse := readResponse(t, conn)
+	if !unequipResponse.OK {
+		t.Fatalf("unequip response = %+v, want success", unequipResponse)
+	}
+	var unequipPayload struct {
+		Inventory inventorySnapshotPayload `json:"inventory"`
+		Loadout   loadoutSnapshotPayload   `json:"loadout"`
+	}
+	if err := json.Unmarshal(unequipResponse.Payload, &unequipPayload); err != nil {
+		t.Fatalf("decode unequip payload: %v", err)
+	}
+	offensive = requireLoadoutSlot(t, unequipPayload.Loadout, "offensive_1")
+	if offensive.ItemInstanceID != "" || offensive.ModuleItemID != "" {
+		t.Fatalf("offensive slot after unequip = %+v, want empty", offensive)
+	}
+	requireInventoryInstanceLocation(t, unequipPayload.Inventory, laserID, economy.LocationKindAccountInventory.String())
+	drainEventTypes(t, conn, realtime.EventInventorySnapshot, realtime.EventLoadoutSnapshot, realtime.EventStatsUpdated)
+}
+
+func TestHangarActivateShipUsesServerOwnedHangarState(t *testing.T) {
+	_, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	writeText(t, conn, `{"request_id":"request-hangar-snapshot","op":"hangar.snapshot","payload":{},"client_seq":1,"v":1}`)
+	snapshotResponse := readResponse(t, conn)
+	if !snapshotResponse.OK {
+		t.Fatalf("hangar snapshot response = %+v, want success", snapshotResponse)
+	}
+	var snapshotPayload struct {
+		Hangar hangarSnapshotPayload `json:"hangar"`
+	}
+	if err := json.Unmarshal(snapshotResponse.Payload, &snapshotPayload); err != nil {
+		t.Fatalf("decode hangar snapshot: %v", err)
+	}
+	if snapshotPayload.Hangar.ActiveShipID != starterShipID.String() || len(snapshotPayload.Hangar.Ships) != 1 {
+		t.Fatalf("hangar snapshot = %+v, want active starter row", snapshotPayload.Hangar)
+	}
+	starter := snapshotPayload.Hangar.Ships[0]
+	if starter.ShipID != starterShipID.String() || !starter.Active || starter.CargoCapacity <= 0 || starter.SlotUtility != 1 {
+		t.Fatalf("starter hangar row = %+v, want server catalog stats and active flag", starter)
+	}
+
+	writeText(t, conn, `{"request_id":"request-hangar-activate-starter","op":"hangar.activate_ship","payload":{"ship_id":"`+starterShipID.String()+`"},"client_seq":2,"v":1}`)
+	activateResponse := readResponse(t, conn)
+	if !activateResponse.OK {
+		t.Fatalf("hangar activate response = %+v, want success", activateResponse)
+	}
+	var activatePayload struct {
+		Hangar  hangarSnapshotPayload  `json:"hangar"`
+		Ship    shipSnapshotPayload    `json:"ship"`
+		Stats   statSnapshotPayload    `json:"stats"`
+		Cargo   cargoSnapshotPayload   `json:"cargo"`
+		Loadout loadoutSnapshotPayload `json:"loadout"`
+	}
+	if err := json.Unmarshal(activateResponse.Payload, &activatePayload); err != nil {
+		t.Fatalf("decode hangar activate payload: %v", err)
+	}
+	if activatePayload.Hangar.ActiveShipID != starterShipID.String() ||
+		activatePayload.Ship.ActiveShipID != starterShipID.String() ||
+		activatePayload.Loadout.ActiveShipID != starterShipID.String() {
+		t.Fatalf("activate payload = %+v, want starter snapshots", activatePayload)
+	}
+	drainEventTypes(t, conn, realtime.EventHangarSnapshot, realtime.EventShipSnapshot, realtime.EventStatsUpdated, realtime.EventCargoSnapshot, realtime.EventLoadoutSnapshot)
+
+	writeText(t, conn, `{"request_id":"request-hangar-spoof","op":"hangar.activate_ship","payload":{"ship_id":"`+starterShipID.String()+`","player_id":"spoof"},"client_seq":3,"v":1}`)
+	spoof := readError(t, conn)
+	if spoof.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("spoofed hangar error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
+	}
+
+	writeText(t, conn, `{"request_id":"request-hangar-unknown","op":"hangar.activate_ship","payload":{"ship_id":"missing_ship"},"client_seq":4,"v":1}`)
+	unknown := readError(t, conn)
+	if unknown.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("unknown hangar error = %+v, want %s", unknown.Error, foundation.CodeNotFound)
 	}
 }
 
@@ -732,13 +869,38 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 		t.Fatalf("planet detail coordinates = %+v, want discovered intel coordinates", detailPayload.PlanetDetail.Coordinates)
 	}
 
+	writeText(t, conn, `{"request_id":"request-world-snapshot-fog","op":"world.snapshot","payload":{},"client_seq":4,"v":1}`)
+	worldResponse := readResponse(t, conn)
+	if !worldResponse.OK {
+		t.Fatalf("world snapshot response = %+v, want success", worldResponse)
+	}
+	var worldPayload worldSnapshotPayload
+	if err := json.Unmarshal(worldResponse.Payload, &worldPayload); err != nil {
+		t.Fatalf("decode world snapshot: %v", err)
+	}
+	if len(worldPayload.Minimap.Remembered) != 1 {
+		t.Fatalf("remembered minimap = %+v, want one known planet memory", worldPayload.Minimap.Remembered)
+	}
+	memory := worldPayload.Minimap.Remembered[0]
+	if memory.Kind != "known_planet" || memory.Label == "" || memory.Freshness == "" {
+		t.Fatalf("remembered minimap memory = %+v, want client-safe known planet summary", memory)
+	}
+	if memory.Position.X != detailPayload.PlanetDetail.Coordinates.X || memory.Position.Y != detailPayload.PlanetDetail.Coordinates.Y {
+		t.Fatalf("remembered minimap position = %+v, want detail coordinates %+v", memory.Position, detailPayload.PlanetDetail.Coordinates)
+	}
+	for _, contact := range worldPayload.Minimap.LiveContacts {
+		if contact.EntityID == "entity_hidden_planet_signal" {
+			t.Fatalf("hidden entity leaked into minimap contact %+v", contact)
+		}
+	}
+
 	for _, request := range []struct {
 		name string
 		body string
 	}{
-		{name: "production", body: `{"request_id":"request-production-summary","op":"planet.production_summary","payload":{},"client_seq":4,"v":1}`},
-		{name: "storage", body: `{"request_id":"request-storage-summary","op":"planet.storage_summary","payload":{},"client_seq":5,"v":1}`},
-		{name: "routes", body: `{"request_id":"request-route-list","op":"route.list","payload":{},"client_seq":6,"v":1}`},
+		{name: "production", body: `{"request_id":"request-production-summary","op":"planet.production_summary","payload":{},"client_seq":5,"v":1}`},
+		{name: "storage", body: `{"request_id":"request-storage-summary","op":"planet.storage_summary","payload":{},"client_seq":6,"v":1}`},
+		{name: "routes", body: `{"request_id":"request-route-list","op":"route.list","payload":{},"client_seq":7,"v":1}`},
 	} {
 		t.Run(request.name, func(t *testing.T) {
 			writeText(t, conn, request.body)
@@ -755,7 +917,7 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 		})
 	}
 
-	writeText(t, conn, `{"request_id":"request-scan-spoof","op":"scan.pulse","payload":{"player_id":"spoofed-player","candidate_key":"forced","procedural_seed":"leak","scan_result":"planet"},"client_seq":7,"v":1}`)
+	writeText(t, conn, `{"request_id":"request-scan-spoof","op":"scan.pulse","payload":{"player_id":"spoofed-player","candidate_key":"forced","procedural_seed":"leak","scan_result":"planet"},"client_seq":8,"v":1}`)
 	spoof := readError(t, conn)
 	if spoof.Error.Code != foundation.CodeInvalidPayload {
 		t.Fatalf("spoofed scan error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
@@ -1721,6 +1883,60 @@ func TestReconnectBootstrapCarriesSnapshotCursor(t *testing.T) {
 	}
 }
 
+func TestRuntimeDetachSettlesMovementBeforeReconnectSnapshot(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	gameServer, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		SessionTTL:     time.Hour,
+		TickDelta:      50 * time.Millisecond,
+		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		Clock:          clock,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+	resolved := createResolvedRuntimeSession(t, gameServer, "settle-reconnect@example.com", "Settle")
+	if _, err := gameServer.runtime.bootstrapEvents(resolved); err != nil {
+		t.Fatalf("bootstrap events: %v", err)
+	}
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-detach-move","op":"move_to","payload":{"target":{"x":100,"y":0}},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("move response error = %+v, want success", response.Error)
+	}
+
+	clock.Advance(250 * time.Millisecond)
+	gameServer.runtime.detachSession(resolved.SessionID)
+	if err := gameServer.runtime.ensurePlayerSession(resolved); err != nil {
+		t.Fatalf("re-ensure session: %v", err)
+	}
+	reconnectEvents, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("reconnect bootstrap events: %v", err)
+	}
+	snapshot := decodeWorldSnapshotForTest(t, reconnectEvents)
+
+	var self *aoi.EntityPayload
+	for index := range snapshot.Entities {
+		if hasStatusFlag(snapshot.Entities[index].StatusFlags, "self") {
+			self = &snapshot.Entities[index]
+			break
+		}
+	}
+	if self == nil {
+		t.Fatalf("reconnect snapshot entities = %+v, missing self", snapshot.Entities)
+	}
+	if self.Movement != nil {
+		t.Fatalf("reconnect self movement = %+v, want settled/stopped", self.Movement)
+	}
+	if self.Position.X <= defaultPlayerSpeed*0.05 || self.Position.X >= 100 {
+		t.Fatalf("reconnect self x = %v, want settled intermediate position after disconnect", self.Position.X)
+	}
+}
+
 func TestShutdownClosesActiveWebSocket(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
@@ -1990,6 +2206,44 @@ func assertQuestRewardInventorySnapshot(t *testing.T, inventory inventorySnapsho
 		}
 	}
 	t.Fatalf("quest reward inventory = %+v, missing %s x%d in account inventory", inventory, reward.ItemID, reward.Amount)
+}
+
+func requireInventoryInstance(t *testing.T, inventory inventorySnapshotPayload, itemID string, location string) string {
+	t.Helper()
+	for _, item := range inventory.Instances {
+		if item.ItemID == itemID && item.Location == location {
+			if item.DurabilityCurrent <= 0 {
+				t.Fatalf("inventory instance = %+v, want positive durability", item)
+			}
+			return item.ItemInstanceID
+		}
+	}
+	t.Fatalf("inventory = %+v, missing instance %s at %s", inventory, itemID, location)
+	return ""
+}
+
+func requireInventoryInstanceLocation(t *testing.T, inventory inventorySnapshotPayload, itemInstanceID string, location string) {
+	t.Helper()
+	for _, item := range inventory.Instances {
+		if item.ItemInstanceID == itemInstanceID {
+			if item.Location != location {
+				t.Fatalf("inventory instance = %+v, want location %s", item, location)
+			}
+			return
+		}
+	}
+	t.Fatalf("inventory = %+v, missing instance %s", inventory, itemInstanceID)
+}
+
+func requireLoadoutSlot(t *testing.T, loadout loadoutSnapshotPayload, slotID string) loadoutSlotPayload {
+	t.Helper()
+	for _, slot := range loadout.Slots {
+		if slot.SlotID == slotID {
+			return slot
+		}
+	}
+	t.Fatalf("loadout = %+v, missing slot %s", loadout, slotID)
+	return loadoutSlotPayload{}
 }
 
 func questRewardItemLedgerEntries(gameServer *Server, playerID foundation.PlayerID, referenceKey foundation.IdempotencyKey) []economy.ItemLedgerEntry {

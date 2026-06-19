@@ -58,10 +58,19 @@ interface StarfieldDebugState {
   sampleTiles: Array<{ layer: StarfieldLayerID; mirrorX: boolean; mirrorY: boolean; screen: Vec2 }>;
 }
 
+interface FogDebugState {
+  active: boolean;
+  revealCenter: Vec2 | null;
+  revealRadius: number;
+  rememberedPockets: number;
+  overlayAlpha: number;
+}
+
 export class WorldRenderer {
   private app: Application | null = null;
   private readonly backgroundLayer = new Container();
   private readonly starfieldLayer = new Container();
+  private readonly fogLayer = new Graphics();
   private readonly scanLayer = new Graphics();
   private readonly worldLayer = new Container();
   private readonly memoryMarkerLayer = new Container();
@@ -98,6 +107,7 @@ export class WorldRenderer {
     screen: Vec2 | null;
     rings: Array<{ radius: number; alpha: number }>;
   } = { active: false, screen: null, rings: [] };
+  private fogDebug: FogDebugState = { active: false, revealCenter: null, revealRadius: 0, rememberedPockets: 0, overlayAlpha: 0 };
 
   constructor(private readonly handlers: WorldInputHandlers) {}
 
@@ -118,6 +128,7 @@ export class WorldRenderer {
     this.backgroundLayer.addChild(this.starfieldLayer);
     this.backgroundLayer.addChild(this.nebulaLayer);
     this.backgroundLayer.addChild(this.gridLayer);
+    app.stage.addChild(this.fogLayer);
     app.stage.addChild(this.scanLayer);
     app.stage.addChild(this.worldLayer);
     app.stage.addChild(this.memoryMarkerLayer);
@@ -148,6 +159,7 @@ export class WorldRenderer {
       this.updateMemoryMarkerPositions();
       this.updateBackground();
       if (this.state) {
+        this.drawFog(this.state);
         this.drawScanWaves(this.state);
         this.drawMarkers(this.state);
       }
@@ -172,6 +184,7 @@ export class WorldRenderer {
     this.center = local ? this.authoritativeDisplayPosition(local) : this.center;
     this.scale = this.app.screen.width < 700 ? 0.78 : 1;
     this.updateBackground();
+    this.drawFog(state);
 
     const activeIDs = new Set(state.entities.map((entity) => entity.entity_id));
     for (const [entityID, view] of this.entityViews) {
@@ -227,6 +240,7 @@ export class WorldRenderer {
     scanWaves: { active: boolean; screen: Vec2 | null; rings: Array<{ radius: number; alpha: number }> };
     projectiles: Array<{ id: string; source: Vec2; target: Vec2; head: Vec2; progress: number; active: boolean; alpha: number }>;
     background: StarfieldDebugState;
+    fog: FogDebugState;
   } {
     const displayPositions: Record<string, Vec2> = {};
     for (const [entityID, position] of this.entityWorldPositions) {
@@ -257,6 +271,13 @@ export class WorldRenderer {
         farOffset: { ...this.starfieldDebug.farOffset },
         midOffset: { ...this.starfieldDebug.midOffset },
         sampleTiles: this.starfieldDebug.sampleTiles.map((tile) => ({ ...tile, screen: { ...tile.screen } })),
+      },
+      fog: {
+        active: this.fogDebug.active,
+        revealCenter: this.fogDebug.revealCenter ? { ...this.fogDebug.revealCenter } : null,
+        revealRadius: this.fogDebug.revealRadius,
+        rememberedPockets: this.fogDebug.rememberedPockets,
+        overlayAlpha: this.fogDebug.overlayAlpha,
       },
     };
   }
@@ -310,6 +331,10 @@ export class WorldRenderer {
       'pointerdown',
       (event) => {
         if (event.target === this.app?.canvas) {
+          if (this.shouldIgnoreWorldClick()) {
+            this.ignoreWorldInputUntil = Math.max(this.ignoreWorldInputUntil, performance.now() + 80);
+            return;
+          }
           this.ignoreWorldInputUntil = 0;
           (window as Window & { __SPACE_MORPG_HUD_INPUT_UNTIL__?: number }).__SPACE_MORPG_HUD_INPUT_UNTIL__ = 0;
           return;
@@ -502,6 +527,90 @@ export class WorldRenderer {
     view.circle(4, 4, 18).stroke({ color: hudColors.cyan, width: 1, alpha: 0.52 });
     view.moveTo(-27, 4).lineTo(27, -8).stroke({ color: hudColors.muted, width: 2, alpha: 0.46 });
     drawDiamond(view, 31, hudColors.cyan, 0, 0.58);
+  }
+
+  private drawFog(state: WorldViewState): void {
+    if (!this.app || !state.minimap) {
+      this.fogLayer.clear();
+      this.fogDebug = { active: false, revealCenter: null, revealRadius: 0, rememberedPockets: 0, overlayAlpha: 0 };
+      return;
+    }
+
+    const local = state.entities.find(isSelfEntity) ?? state.entities.find((entity) => entity.entity_type === 'player');
+    if (!local) {
+      this.fogLayer.clear();
+      this.fogDebug = { active: false, revealCenter: null, revealRadius: 0, rememberedPockets: 0, overlayAlpha: 0 };
+      return;
+    }
+
+    const revealWorld = this.entityWorldPositions.get(local.entity_id) ?? this.authoritativeDisplayPosition(local);
+    const revealCenter = this.worldToScreen(revealWorld);
+    const revealRadius = clamp(state.minimap.radar_range * this.scale, 128, Math.max(this.app.screen.width, this.app.screen.height) * 0.72);
+    const overlayAlpha = 0.58;
+    const padding = revealRadius + 260;
+    const pockets = this.fogMemoryPockets(state);
+
+    this.fogLayer.clear();
+    this.fogLayer.rect(-padding, -padding, this.app.screen.width + padding * 2, this.app.screen.height + padding * 2).fill({
+      color: 0x010406,
+      alpha: overlayAlpha,
+    });
+    this.fogLayer.circle(revealCenter.x, revealCenter.y, revealRadius).cut();
+    for (const pocket of pockets) {
+      this.fogLayer.circle(pocket.screen.x, pocket.screen.y, pocket.radius).cut();
+    }
+
+    this.fogLayer.circle(revealCenter.x, revealCenter.y, revealRadius + 18).stroke({ color: hudColors.cyan, width: 2, alpha: 0.15 });
+    this.fogLayer.circle(revealCenter.x, revealCenter.y, revealRadius + 62).stroke({ color: 0x071219, width: 46, alpha: 0.22 });
+    for (const pocket of pockets) {
+      const color = pocket.freshness === 'stale' ? hudColors.amber : hudColors.green;
+      this.fogLayer.circle(pocket.screen.x, pocket.screen.y, pocket.radius + 10).stroke({ color, width: 1, alpha: 0.2 });
+      this.fogLayer.circle(pocket.screen.x, pocket.screen.y, pocket.radius + 32).stroke({ color, width: 18, alpha: 0.06 });
+    }
+
+    this.fogDebug = {
+      active: true,
+      revealCenter,
+      revealRadius,
+      rememberedPockets: pockets.length,
+      overlayAlpha,
+    };
+  }
+
+  private fogMemoryPockets(state: WorldViewState): Array<{ screen: Vec2; radius: number; freshness: string }> {
+    if (!this.app) {
+      return [];
+    }
+    const seen = new Set<string>();
+    const pockets: Array<{ screen: Vec2; radius: number; freshness: string }> = [];
+    const add = (position: Vec2, freshness: string): void => {
+      if (!isFiniteVec(position)) {
+        return;
+      }
+      const key = `${Math.round(position.x)}:${Math.round(position.y)}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      const screen = this.worldToScreen(position);
+      const margin = 190;
+      if (screen.x < -margin || screen.y < -margin || screen.x > this.app!.screen.width + margin || screen.y > this.app!.screen.height + margin) {
+        return;
+      }
+      pockets.push({
+        screen,
+        radius: clamp((state.minimap?.radar_range ?? 360) * this.scale * 0.18, 58, 126),
+        freshness,
+      });
+    };
+
+    for (const memory of state.minimap?.remembered ?? []) {
+      add(memory.position, memory.freshness);
+    }
+    for (const marker of state.memoryMarkers) {
+      add(marker.position, marker.state);
+    }
+    return pockets.slice(0, 12);
   }
 
   private renderMemoryMarkers(state: WorldViewState): void {
@@ -1239,6 +1348,10 @@ function snapClose(current: Vec2, target: Vec2): Vec2 {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function isFiniteVec(value: Vec2): boolean {
+  return Number.isFinite(value.x) && Number.isFinite(value.y);
 }
 
 function isOddTile(value: number): boolean {

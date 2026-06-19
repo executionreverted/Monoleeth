@@ -388,7 +388,12 @@ export interface InventorySummary {
     item_id: string;
     display_name?: string;
     location: string;
+    rarity?: string;
+    item_type?: string;
+    module_slot_type?: string;
+    module_category?: string;
     durability_current?: number;
+    durability_max?: number;
     bound_state?: string;
   }>;
   counts: {
@@ -404,11 +409,24 @@ export interface HangarSummary {
     ship_id: string;
     display_name: string;
     state: string;
+    role?: string;
+    tier?: number;
+    rank_requirement?: number;
     hull: number;
     max_hull: number;
     shield: number;
     max_shield: number;
+    capacitor?: number;
+    max_capacitor?: number;
+    speed?: number;
+    radar?: number;
+    cargo_capacity?: number;
+    slot_offensive?: number;
+    slot_defensive?: number;
+    slot_utility?: number;
     disabled: boolean;
+    active?: boolean;
+    locked_reason?: string;
   }>;
 }
 
@@ -418,7 +436,9 @@ export interface LoadoutSummary {
     slot_id: string;
     slot_type: string;
     module_item_id?: string;
+    item_instance_id?: string;
     module_id?: string;
+    display_name?: string;
     module_state?: string;
     durability?: number;
     durability_max?: number;

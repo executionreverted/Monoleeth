@@ -78,14 +78,15 @@ for phase status; this file is a compact pending-work index.
   can only express scan/share/claim/use intents for the authenticated player;
   never accept client-authored coordinates, planet candidates, XP, X Core
   consumption, or scroll metadata.
-- [ ] Add authenticated browser loadout mutation contracts for
+- [x] Add authenticated browser loadout mutation contracts for
   `loadout.equip_module` and `loadout.unequip_module`. Server handlers must
   resolve player, active ship, slot, owned module instance, rank, compatibility,
   cargo/inventory destination capacity, and idempotency references such as
   `module_equip:<player_id>:<item_instance_id>:<slot_id>` from server context;
   the client needs systems-panel actions that reconcile only from
   `loadout.snapshot`, `inventory.snapshot`, and `stats.snapshot`. Source:
-  Phase 10 audit.
+  Phase 10 audit. Implemented in UI Patch 3 Phase 04 with inventory/loadout
+  window drag/drop and button fallback.
 - [ ] Add authenticated browser crafting mutation contracts for
   `crafting.start`, `crafting.complete`, and `crafting.cancel`. Server handlers
   must map request ids to stable domain references such as

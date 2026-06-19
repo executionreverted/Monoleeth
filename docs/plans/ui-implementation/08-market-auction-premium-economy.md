@@ -123,6 +123,18 @@ Mockup areas covered:
 - [x] Add admin-only economy dashboard query if admin role exists.
 - [x] Add safe empty/loading/error states.
 
+## UI Patch 3 Notes
+
+- The Shop surface now uses a real category/list/detail layout instead of a
+  single mixed row stack. Categories are derived from server snapshots for
+  Market, Sell, Auction, and Premium.
+- Quantity controls are local UI intent only; market/listing mutations still
+  send quantity and rely on server recalculation, escrow movement, wallet
+  ledger writes, and authoritative response snapshots.
+- Browser smoke opens the real Shop window, switches categories, selects detail
+  rows, and exercises buy/list/cancel/bid/premium actions through the same
+  server contracts.
+
 ## Abuse And Safety Checklist
 
 - [x] Client cannot author price totals as truth.

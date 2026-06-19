@@ -510,6 +510,19 @@ func (worker *Worker) detachSession(sessionID realtime.SessionID) error {
 	return nil
 }
 
+func (worker *Worker) settleAndDetachSession(sessionID realtime.SessionID) error {
+	if err := validateSessionID(sessionID); err != nil {
+		return err
+	}
+	playerID, ok := worker.sessionPlayers[sessionID]
+	if ok {
+		if err := worker.settlePlayerMovement(playerID); err != nil {
+			return err
+		}
+	}
+	return worker.detachSession(sessionID)
+}
+
 func (worker *Worker) movePlayerTo(playerID foundation.PlayerID, intent world.MovementIntent) error {
 	entity, err := worker.playerEntityForMutation(playerID)
 	if err != nil {
@@ -524,6 +537,28 @@ func (worker *Worker) movePlayerTo(playerID foundation.PlayerID, intent world.Mo
 		return err
 	}
 	entity.Movement = movement
+	worker.entities[entity.ID] = entity
+	return nil
+}
+
+func (worker *Worker) settlePlayerMovement(playerID foundation.PlayerID) error {
+	entity, err := worker.playerEntityForMutation(playerID)
+	if err != nil {
+		return err
+	}
+	if !entity.Movement.Moving {
+		return nil
+	}
+
+	settled, _ := world.MovementPositionAt(entity.Movement, worker.clock.Now())
+	if entity.Position.DistanceSquared(entity.Movement.Target) <= settled.DistanceSquared(entity.Movement.Target) {
+		settled = entity.Position
+	}
+	entity.Position = settled
+	entity.Movement = world.MovementState{}
+	if err := worker.index.Update(spatial.EntityID(entity.ID.String()), spatialPosition(entity.Position)); err != nil {
+		return err
+	}
 	worker.entities[entity.ID] = entity
 	return nil
 }

@@ -130,6 +130,11 @@ Mockup areas covered:
 - Browser smoke artifacts live under
   `output/screenshots/ui-implementation/09/`, including a seeded admin desktop
   run that renders the Ops release/abuse gate values.
+- UI Patch 3 replaces the old single-focus quest card with a real Quest Board
+  window: category sections for offers/active/claimable/completed quests,
+  local selection, server objective/reward detail, and real
+  `quest.accept`/`quest.claim_reward`/`quest.reroll` controls. Smoke captures
+  the surface under `output/screenshots/ui-patch-3/quests-{viewport}.png`.
 - Admin craft repair returns `unavailable` in the current runtime when the
   crafting repair service is not wired, while still preserving the admin guard
   and action event path.

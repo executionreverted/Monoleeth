@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -18,12 +19,14 @@ import (
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/market"
+	"gameproject/internal/game/modules"
 	"gameproject/internal/game/observability"
 	"gameproject/internal/game/premium"
 	"gameproject/internal/game/production"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/ships"
 	"gameproject/internal/game/stats"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
@@ -32,7 +35,7 @@ import (
 )
 
 const (
-	starterShipID                  foundation.ShipID = "starter_ship"
+	starterShipID                  foundation.ShipID = ships.ShipIDStarter
 	starterShipDisplayName                           = "Sparrow"
 	defaultPlayerSpeed                               = 180
 	defaultRadarRange                                = 420
@@ -41,8 +44,9 @@ const (
 	runtimeBasicLaserEnergyCost                      = 10
 	runtimeBasicLaserCooldownMS                      = 350
 	minMoveCommandInterval                           = 75 * time.Millisecond
-	starterScannerItemID                             = "starter_scanner_array"
-	starterScannerModuleID                           = "starter_scanner"
+	runtimeHangarSafeRadius                          = 250.0
+	starterScannerItemID                             = "scanner_t1"
+	starterScannerModuleID                           = "scanner_t1"
 	starterScannerScanPower                          = 500
 	starterScannerScanRadius                         = 2000
 	starterScannerScanInterval                       = time.Second
@@ -89,23 +93,29 @@ type Runtime struct {
 
 	nextPlayerEntity int
 
-	Combat       *combat.Service
-	Loot         *loot.Service
-	Inventory    *economy.InventoryService
-	CargoService *economy.CargoService
-	Wallet       *economy.WalletService
-	Market       *market.MarketService
-	Auction      *auction.Service
-	Premium      *premium.PremiumEntitlementService
-	Quest        *quests.QuestService
-	Admin        *admin.Service
-	Progression  *progression.ProgressionService
-	Recipes      crafting.RecipeCatalog
-	Discovery    *discovery.InMemoryStore
-	Scanner      *discovery.ScannerService
-	Production   *production.InMemoryStore
-	CommandLog   *observability.MemoryCommandLogger
-	Metrics      *observability.MetricRecorder
+	Combat        *combat.Service
+	Loot          *loot.Service
+	Inventory     *economy.InventoryService
+	CargoService  *economy.CargoService
+	Wallet        *economy.WalletService
+	Market        *market.MarketService
+	Auction       *auction.Service
+	Premium       *premium.PremiumEntitlementService
+	Quest         *quests.QuestService
+	Admin         *admin.Service
+	Progression   *progression.ProgressionService
+	ShipCatalog   ships.Catalog
+	HangarStore   *ships.InMemoryHangarStore
+	Hangar        *ships.HangarService
+	ModuleCatalog modules.Catalog
+	LoadoutStore  *modules.InMemoryLoadoutStore
+	Loadout       modules.LoadoutService
+	Recipes       crafting.RecipeCatalog
+	Discovery     *discovery.InMemoryStore
+	Scanner       *discovery.ScannerService
+	Production    *production.InMemoryStore
+	CommandLog    *observability.MemoryCommandLogger
+	Metrics       *observability.MetricRecorder
 
 	combatXP            *combat.NPCKillXPHandler
 	lootTable           loot.LootTable
@@ -270,6 +280,21 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	cargoService := economy.NewCargoService(inventory)
 	walletService := economy.NewWalletService(clock)
 	progressionService := progression.NewProgressionService(clock, nil)
+	shipCatalog, err := ships.MVPShipCatalog()
+	if err != nil {
+		return nil, err
+	}
+	hangarStore := ships.NewInMemoryHangarStore()
+	hangarService, err := ships.NewHangarService(
+		shipCatalog,
+		hangarStore,
+		runtimeShipRankProvider{progression: progressionService},
+		ships.BaseShipCargoCapacityProvider{},
+		clock,
+	)
+	if err != nil {
+		return nil, err
+	}
 	lootService, err := loot.NewService(loot.Config{
 		Clock:       clock,
 		Cargo:       cargoService,
@@ -284,11 +309,29 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	moduleCatalog := modules.MustMVPCatalog()
 	lootTable, itemCatalog, err := runtimeLootCatalog()
 	if err != nil {
 		return nil, err
 	}
+	if err := appendRuntimeModuleItems(itemCatalog, moduleCatalog); err != nil {
+		return nil, err
+	}
 	recipeCatalog, err := crafting.MVPRecipeCatalog()
+	if err != nil {
+		return nil, err
+	}
+	loadoutStore := modules.NewInMemoryLoadoutStoreWithItemMover(runtimeModuleItemMover{
+		inventory:   inventory,
+		itemCatalog: itemCatalog,
+	})
+	loadoutService, err := modules.NewLoadoutService(
+		moduleCatalog,
+		loadoutStore,
+		runtimeShipSlotLayoutProvider{},
+		runtimeLoadoutProgressionProvider{progression: progressionService},
+		clock,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -360,6 +403,12 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Quest:               questService,
 		Admin:               adminService,
 		Progression:         progressionService,
+		ShipCatalog:         shipCatalog,
+		HangarStore:         hangarStore,
+		Hangar:              hangarService,
+		ModuleCatalog:       moduleCatalog,
+		LoadoutStore:        loadoutStore,
+		Loadout:             loadoutService,
 		Recipes:             recipeCatalog,
 		Discovery:           discoveryStore,
 		Production:          productionStore,
@@ -512,6 +561,9 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 	if err != nil {
 		return err
 	}
+	if err := runtime.ensurePlayerHangarLocked(resolved.PlayerID); err != nil {
+		return err
+	}
 	if err := runtime.ensurePlayerEconomyLocked(resolved.PlayerID); err != nil {
 		return err
 	}
@@ -522,10 +574,85 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 	return nil
 }
 
+func (runtime *Runtime) ensurePlayerHangarLocked(playerID foundation.PlayerID) error {
+	result, err := runtime.Hangar.EnsureStarterShip(playerID)
+	if err != nil {
+		return err
+	}
+	if result.HasActiveShip {
+		return runtime.applyActiveShipLocked(playerID, result.ActiveShip.ShipID)
+	}
+	return nil
+}
+
+func (runtime *Runtime) applyActiveShipLocked(playerID foundation.PlayerID, shipID foundation.ShipID) error {
+	definition, err := runtime.ShipCatalog.MustGet(shipID)
+	if err != nil {
+		return err
+	}
+	state, ok := runtime.players[playerID]
+	if !ok {
+		return worker.ErrUnknownPlayer
+	}
+
+	previousShipID := state.Ship.ActiveShipID
+	state.Ship.ActiveShipID = shipID.String()
+	if shipID == starterShipID {
+		state.Ship.DisplayName = starterShipDisplayName
+	} else {
+		state.Ship.DisplayName = definition.Name
+	}
+	if previousShipID != "" && previousShipID != shipID.String() {
+		state.Ship.Hull = int(definition.BaseStats.HP)
+		state.Ship.MaxHull = int(definition.BaseStats.HP)
+		state.Ship.Shield = int(definition.BaseStats.Shield)
+		state.Ship.MaxShield = int(definition.BaseStats.Shield)
+		state.Ship.Capacitor = int(definition.BaseStats.Energy)
+		state.Ship.MaxCapacitor = int(definition.BaseStats.Energy)
+		state.Stats.Speed = float64(definition.BaseStats.Speed)
+		state.Stats.RadarRange = float64(definition.BaseStats.Radar)
+		state.Stats.CargoCapacity = definition.BaseStats.CargoCapacity
+		state.Cargo.Capacity = definition.BaseStats.CargoCapacity
+	}
+	if state.Ship.RepairState == "" {
+		state.Ship.RepairState = "ready"
+	}
+	runtime.players[playerID] = state
+	return runtime.LoadoutStore.SetActiveShip(playerID, shipID)
+}
+
+func (runtime *Runtime) shipSwapContextLocked(playerID foundation.PlayerID) ships.ShipSwapContext {
+	state := runtime.players[playerID]
+	return ships.ShipSwapContext{
+		InSafeHangarArea:  runtime.playerInSafeHangarAreaLocked(playerID),
+		InCombat:          runtime.playerInCombatLocked(playerID),
+		CurrentCargoUnits: state.Cargo.Used,
+	}
+}
+
+func (runtime *Runtime) playerInSafeHangarAreaLocked(playerID foundation.PlayerID) bool {
+	entity, ok := runtime.Worker.PlayerEntity(playerID)
+	if !ok {
+		return false
+	}
+	if entity.Movement.Moving {
+		return false
+	}
+	return math.Hypot(entity.Position.X, entity.Position.Y) <= runtimeHangarSafeRadius
+}
+
+func (runtime *Runtime) playerInCombatLocked(playerID foundation.PlayerID) bool {
+	state, ok := runtime.players[playerID]
+	if !ok {
+		return false
+	}
+	return state.Ship.Disabled || state.Ship.RepairState == "disabled"
+}
+
 func (runtime *Runtime) detachSession(sessionID auth.SessionID) {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	_ = runtime.Worker.Submit(worker.DetachSessionCommand{SessionID: realtime.SessionID(sessionID.String())})
+	_ = runtime.Worker.Submit(worker.SettleAndDetachSessionCommand{SessionID: realtime.SessionID(sessionID.String())})
 	runtime.Worker.Tick()
 	delete(runtime.sessions, sessionID)
 	delete(runtime.lastAOI, sessionID)
@@ -598,6 +725,9 @@ func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.
 		realtime.OperationLootPickup,
 		realtime.OperationDeathRepairQuote,
 		realtime.OperationDeathRepairShip,
+		realtime.OperationHangarActivateShip,
+		realtime.OperationLoadoutEquipModule,
+		realtime.OperationLoadoutUnequipModule,
 		realtime.OperationScanPulse,
 		realtime.OperationMarketCreateListing,
 		realtime.OperationMarketBuy,
@@ -648,10 +778,14 @@ func (runtime *Runtime) worldSnapshotLocked(playerID foundation.PlayerID) (world
 	if err != nil {
 		return worldSnapshotPayload{}, err
 	}
+	minimap, err := runtime.minimapForPlayerLocked(playerID, snapshot, radarRange)
+	if err != nil {
+		return worldSnapshotPayload{}, err
+	}
 	return worldSnapshotPayload{
 		Sector:         runtime.sectorPayloadLocked(),
 		Entities:       cloneAOIEntities(snapshot.Entities),
-		Minimap:        minimapFromAOI(snapshot, radarRange),
+		Minimap:        minimap,
 		SnapshotCursor: tick,
 	}, nil
 }
@@ -843,6 +977,50 @@ func minimapFromAOI(snapshot aoi.Snapshot, radarRange float64) minimapPayload {
 		LiveContacts: contacts,
 		Remembered:   []minimapMemoryPayload{},
 	}
+}
+
+func (runtime *Runtime) minimapForPlayerLocked(playerID foundation.PlayerID, snapshot aoi.Snapshot, radarRange float64) (minimapPayload, error) {
+	payload := minimapFromAOI(snapshot, radarRange)
+	remembered, err := runtime.rememberedMinimapPayloadLocked(playerID)
+	if err != nil {
+		return minimapPayload{}, err
+	}
+	payload.Remembered = remembered
+	return payload, nil
+}
+
+func (runtime *Runtime) rememberedMinimapPayloadLocked(playerID foundation.PlayerID) ([]minimapMemoryPayload, error) {
+	intelRows, err := runtime.Discovery.PlayerPlanetIntelRecords(playerID)
+	if err != nil {
+		return nil, err
+	}
+	remembered := make([]minimapMemoryPayload, 0, len(intelRows))
+	for _, intel := range intelRows {
+		planet, ok, err := runtime.Discovery.Planet(intel.PlanetID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		remembered = append(remembered, minimapMemoryPayload{
+			Kind:      "known_planet",
+			Label:     planetMemoryLabel(planet),
+			Position:  intel.Coordinates,
+			Freshness: string(intel.State),
+		})
+	}
+	return remembered, nil
+}
+
+func planetMemoryLabel(planet discovery.Planet) string {
+	if planet.Type != "" && planet.Biome != "" {
+		return string(planet.Type) + " " + string(planet.Biome)
+	}
+	if planet.Type != "" {
+		return string(planet.Type)
+	}
+	return planet.ID.String()
 }
 
 func cloneAOIEntities(entities []aoi.EntityPayload) []aoi.EntityPayload {

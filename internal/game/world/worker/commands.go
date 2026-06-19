@@ -112,6 +112,16 @@ func (command DetachSessionCommand) apply(worker *Worker) error {
 	return worker.detachSession(command.SessionID)
 }
 
+// SettleAndDetachSessionCommand settles in-flight player movement to the
+// worker-owned clock before detaching the realtime session.
+type SettleAndDetachSessionCommand struct {
+	SessionID realtime.SessionID
+}
+
+func (command SettleAndDetachSessionCommand) apply(worker *Worker) error {
+	return worker.settleAndDetachSession(command.SessionID)
+}
+
 // InsertEntityCommand inserts a non-player or server-owned entity.
 type InsertEntityCommand struct {
 	Entity world.Entity

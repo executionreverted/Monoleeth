@@ -32,6 +32,10 @@ export interface HUDHandlers {
   onRepair(): void;
   onScan(): void;
   onPlanetDetail(planetID: string): void;
+  onPlanetNavigate(planetID: string): void;
+  onHangarActivateShip(shipID: string): void;
+  onLoadoutEquipModule(slotID: string, itemInstanceID: string): void;
+  onLoadoutUnequipModule(slotID: string): void;
   onMarketCreateListing(input: {
     itemID: string;
     quantity: number;
@@ -39,7 +43,7 @@ export interface HUDHandlers {
     sourceLocation?: string;
     itemInstanceID?: string;
   }): void;
-  onMarketBuy(listingID: string): void;
+  onMarketBuy(listingID: string, quantity: number): void;
   onMarketCancel(listingID: string): void;
   onAuctionBid(auctionID: string, amount: number): void;
   onAuctionBuyNow(auctionID: string): void;
@@ -57,9 +61,31 @@ type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['co
 type KnownLootDropStatus = ClientState['knownLoot'][string];
 type VisibleEntity = ClientState['visibleEntities'][string];
 type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' | 'ops';
-type HUDModalID = HUDWindowID | 'target' | 'planets' | 'ship';
+type HUDModalID = HUDWindowID | 'target' | 'planets' | 'ship' | 'planet-detail';
 type QuickActionID = 'laser' | 'rocket' | 'scan' | 'shield' | 'warp' | 'gather';
 type QuickActionCommand = 'fire' | 'rocket' | 'scan' | 'shield' | 'warp' | 'loot';
+type QuestBoardSummary = NonNullable<ClientState['questBoard']>;
+type QuestOfferSummary = QuestBoardSummary['offers'][number];
+type QuestSummary = QuestBoardSummary['active'][number];
+type QuestEntry =
+  | { key: string; kind: 'offer'; item: QuestOfferSummary }
+  | { key: string; kind: 'quest'; item: QuestSummary };
+type ShopCategoryID = 'market' | 'sell' | 'auction' | 'premium';
+type InventoryStackItem = NonNullable<ClientState['inventory']>['stackable'][number];
+type ModuleInventoryItem = NonNullable<ClientState['inventory']>['instances'][number];
+type MarketListingItem = NonNullable<ClientState['market']>['listings'][number];
+type AuctionLotItem = NonNullable<ClientState['auction']>['lots'][number];
+type AuctionGrantItem = NonNullable<ClientState['auction']>['grants'][number];
+type PremiumEntitlementItem = NonNullable<ClientState['premium']>['entitlements'][number];
+type PremiumStockItem = NonNullable<ClientState['premium']>['stock'][number];
+type ShopEntry =
+  | { key: string; category: 'market'; kind: 'market_listing'; item: MarketListingItem }
+  | { key: string; category: 'sell'; kind: 'sell_stack'; item: InventoryStackItem; unitPrice: number }
+  | { key: string; category: 'sell'; kind: 'owned_listing'; item: MarketListingItem }
+  | { key: string; category: 'auction'; kind: 'auction_lot'; item: AuctionLotItem }
+  | { key: string; category: 'premium'; kind: 'premium_entitlement'; item: PremiumEntitlementItem }
+  | { key: string; category: 'premium'; kind: 'premium_stock'; item: PremiumStockItem; purchased: boolean }
+  | { key: string; category: 'premium'; kind: 'auction_grant'; item: AuctionGrantItem };
 
 interface ActionState {
   enabled: boolean;
@@ -88,10 +114,18 @@ interface HUDPanelDefinition {
   hidden?(state: ClientState): boolean;
 }
 
+let selectedQuestKey: string | null = null;
+let selectedShopCategory: ShopCategoryID = 'market';
+let selectedShopKey: string | null = null;
+let selectedShopQuantity = 1;
+let selectedModuleInstanceID: string | null = null;
+let selectedHangarShipID: string | null = null;
+
 interface HUDModalState {
   id: HUDModalID;
   title: string;
   body: string;
+  detailID?: string;
 }
 
 interface HUDWindowState {
@@ -103,7 +137,15 @@ interface HUDWindowState {
 }
 
 interface HUDDragState {
+  target: 'window';
   id: HUDWindowID;
+  pointerID: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+interface HUDModalDragState {
+  target: 'modal';
   pointerID: number;
   offsetX: number;
   offsetY: number;
@@ -119,9 +161,12 @@ export class HUD {
   private readonly panels: Record<string, HTMLElement>;
   private readonly toast: HTMLElement;
   private readonly windowStates = new Map<HUDWindowID, HUDWindowState>();
-  private dragState: HUDDragState | null = null;
+  private dragState: HUDDragState | HUDModalDragState | null = null;
   private focusedWindow: HUDWindowID | null = null;
   private modal: HUDModalState | null = null;
+  private modalPosition: { x: number; y: number } | null = null;
+  private windowRenderSignature: string | null = null;
+  private modalRenderSignature: string | null = null;
   private currentState: ClientState | null = null;
   private currentServerNow: number | null = null;
   private nextWindowZ = 20;
@@ -255,6 +300,7 @@ export class HUD {
     this.movementEta.hidden = this.movementEta.innerHTML === '';
     this.renderNav(state);
     this.renderWindows(state);
+    this.refreshModal(state);
     this.renderModal();
     renderToast(this.toast, state.lastError?.message ?? null);
   }
@@ -269,6 +315,12 @@ export class HUD {
         }
         const targetElement = target instanceof HTMLElement ? target : null;
         if (!targetElement) {
+          return;
+        }
+
+        const modalDrag = targetElement.closest<HTMLElement>('[data-modal-drag]');
+        if (modalDrag && event.button === 0 && !isControlElement(target)) {
+          this.startModalDrag(event);
           return;
         }
 
@@ -374,6 +426,11 @@ export class HUD {
       this.closeModal();
       this.render(this.currentState);
     });
+
+    this.root.addEventListener('dragstart', (event) => this.handleLoadoutDragStart(event));
+    this.root.addEventListener('dragend', () => this.handleLoadoutDragEnd());
+    this.root.addEventListener('dragover', (event) => this.handleLoadoutDragOver(event));
+    this.root.addEventListener('drop', (event) => this.handleLoadoutDrop(event));
   }
 
   private dispatchAction(action: string | undefined): boolean {
@@ -432,12 +489,106 @@ export class HUD {
     switch (button.dataset.action) {
         case 'planet-detail':
           if (button.dataset.planetId) {
+            if (this.currentState) {
+              this.openModal('planet-detail', this.currentState, button.dataset.planetId);
+              this.render(this.currentState);
+            }
             this.handlers.onPlanetDetail(button.dataset.planetId);
           }
           break;
+        case 'planet-select':
+          if (button.dataset.planetId) {
+            this.handlers.onPlanetDetail(button.dataset.planetId);
+          }
+          break;
+        case 'planet-navigate':
+          if (button.dataset.planetId) {
+            this.handlers.onPlanetNavigate(button.dataset.planetId);
+          }
+          break;
+        case 'hangar-activate':
+          if (button.dataset.shipId) {
+            this.handlers.onHangarActivateShip(button.dataset.shipId);
+          }
+          break;
+        case 'hangar-select':
+          if (button.dataset.shipId) {
+            selectedHangarShipID = button.dataset.shipId;
+            if (this.currentState) {
+              this.render(this.currentState);
+            }
+          }
+          break;
+        case 'open-window': {
+          const panel = normalizePanelID(button.dataset.panelId);
+          if (panel) {
+            this.openWindow(panel);
+            if (this.currentState) {
+              this.render(this.currentState);
+            }
+          }
+          break;
+        }
+        case 'loadout-equip':
+          if (button.dataset.slotId && button.dataset.itemInstanceId) {
+            this.handlers.onLoadoutEquipModule(button.dataset.slotId, button.dataset.itemInstanceId);
+          }
+          break;
+        case 'loadout-unequip':
+          if (button.dataset.slotId) {
+            this.handlers.onLoadoutUnequipModule(button.dataset.slotId);
+          }
+          break;
+        case 'module-select':
+          if (button.dataset.moduleInstanceId) {
+            selectedModuleInstanceID = button.dataset.moduleInstanceId;
+            if (this.currentState) {
+              this.render(this.currentState);
+            }
+          }
+          break;
+        case 'quest-select':
+          if (button.dataset.questKey) {
+            selectedQuestKey = button.dataset.questKey;
+            if (this.currentState) {
+              this.render(this.currentState);
+            }
+          }
+          break;
+        case 'shop-category':
+          if (isShopCategoryID(button.dataset.shopCategory)) {
+            selectedShopCategory = button.dataset.shopCategory;
+            selectedShopKey = null;
+            selectedShopQuantity = 1;
+            if (this.currentState) {
+              this.render(this.currentState);
+            }
+          }
+          break;
+        case 'shop-select':
+          if (button.dataset.shopKey) {
+            selectedShopKey = button.dataset.shopKey;
+            selectedShopQuantity = 1;
+            if (this.currentState) {
+              this.render(this.currentState);
+            }
+          }
+          break;
+        case 'shop-qty': {
+          const maxQuantity = Math.max(1, Number(button.dataset.maxQuantity ?? '1'));
+          const nextQuantity =
+            button.dataset.quantity !== undefined
+              ? Number(button.dataset.quantity)
+              : selectedShopQuantity + Number(button.dataset.quantityDelta ?? '0');
+          selectedShopQuantity = Math.round(clamp(Number.isFinite(nextQuantity) ? nextQuantity : 1, 1, maxQuantity));
+          if (this.currentState) {
+            this.render(this.currentState);
+          }
+          break;
+        }
         case 'market-buy':
           if (button.dataset.listingId) {
-            this.handlers.onMarketBuy(button.dataset.listingId);
+            this.handlers.onMarketBuy(button.dataset.listingId, Math.max(1, Number(button.dataset.quantity ?? '1')));
           }
           break;
         case 'market-create':
@@ -489,6 +640,71 @@ export class HUD {
       }
   }
 
+  private handleLoadoutDragStart(event: DragEvent): void {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const moduleCard = target?.closest<HTMLElement>('[data-module-instance-id]');
+    if (!moduleCard || !event.dataTransfer) {
+      return;
+    }
+    const payload = {
+      itemInstanceID: moduleCard.dataset.moduleInstanceId ?? '',
+      slotID: moduleCard.dataset.equippedSlotId ?? '',
+    };
+    if (!payload.itemInstanceID) {
+      return;
+    }
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-space-mORPG-module', JSON.stringify(payload));
+    event.dataTransfer.setData('text/plain', payload.itemInstanceID);
+    moduleCard.dataset.dragging = 'true';
+    markHUDInputSuppressed();
+  }
+
+  private handleLoadoutDragEnd(): void {
+    for (const element of this.root.querySelectorAll<HTMLElement>('[data-module-instance-id][data-dragging="true"]')) {
+      delete element.dataset.dragging;
+    }
+    markHUDInputSuppressed();
+  }
+
+  private handleLoadoutDragOver(event: DragEvent): void {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target?.closest('[data-loadout-slot-id], [data-loadout-inventory-drop]')) {
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+    markHUDInputSuppressed();
+  }
+
+  private handleLoadoutDrop(event: DragEvent): void {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target || !event.dataTransfer) {
+      return;
+    }
+    const payload = parseLoadoutDragPayload(event.dataTransfer.getData('application/x-space-mORPG-module'));
+    if (!payload?.itemInstanceID) {
+      return;
+    }
+    const slotTarget = target.closest<HTMLElement>('[data-loadout-slot-id]');
+    const inventoryTarget = target.closest<HTMLElement>('[data-loadout-inventory-drop]');
+    if (slotTarget?.dataset.loadoutSlotId) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.handlers.onLoadoutEquipModule(slotTarget.dataset.loadoutSlotId, payload.itemInstanceID);
+      markHUDInputSuppressed();
+      return;
+    }
+    if (inventoryTarget && payload.slotID) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.handlers.onLoadoutUnequipModule(payload.slotID);
+      markHUDInputSuppressed();
+    }
+  }
+
   private handleShortcutKeyDown(event: KeyboardEvent): void {
     if (!this.currentState || !isQuickActionKey(event.key) || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
       return;
@@ -525,6 +741,9 @@ export class HUD {
   }
 
   private renderWindows(state: ClientState): void {
+    if (this.dragState?.target === 'window') {
+      return;
+    }
     const definitions = windowDefinitions(state);
     const allowed = new Set(definitions.map((definition) => definition.id));
     for (const windowState of this.windowStates.values()) {
@@ -537,7 +756,7 @@ export class HUD {
       this.focusedWindow = openStates.at(-1)?.id ?? null;
     }
 
-    this.windowLayer.innerHTML = openStates
+    const html = openStates
       .map((windowState) => {
         const definition = definitions.find((entry) => entry.id === windowState.id);
         if (!definition) {
@@ -559,26 +778,64 @@ export class HUD {
         `;
       })
       .join('');
+    if (html === this.windowRenderSignature) {
+      return;
+    }
+    this.windowRenderSignature = html;
+    this.windowLayer.innerHTML = html;
+  }
+
+  private refreshModal(state: ClientState): void {
+    if (!this.modal) {
+      return;
+    }
+    const refreshed = modalDefinition(this.modal.id, state, this.modal.detailID);
+    if (!refreshed) {
+      this.closeModal();
+      return;
+    }
+    this.modal = refreshed;
   }
 
   private renderModal(): void {
     if (!this.modal) {
-      this.modalLayer.innerHTML = '';
+      if (this.modalRenderSignature !== null || this.modalLayer.innerHTML !== '') {
+        this.modalLayer.innerHTML = '';
+      }
       this.modalLayer.dataset.open = 'false';
+      this.modalRenderSignature = null;
       return;
     }
 
-    this.modalLayer.dataset.open = 'true';
-    this.modalLayer.innerHTML = `
+    if (this.dragState?.target === 'modal') {
+      this.modalLayer.dataset.open = 'true';
+      const modal = this.modalLayer.querySelector<HTMLElement>('.hud-modal');
+      if (modal) {
+        modal.dataset.dragging = 'true';
+      }
+      return;
+    }
+
+    const positioned = this.modalPosition !== null && window.innerWidth >= 768;
+    const modalStyle = positioned
+      ? ` style="--modal-x:${this.modalPosition?.x ?? 0}px;--modal-y:${this.modalPosition?.y ?? 0}px;--modal-transform:none"`
+      : '';
+    const html = `
       <div class="hud-modal-backdrop" data-modal-close="backdrop"></div>
-      <section class="hud-modal" data-modal="${this.modal.id}" role="dialog" aria-modal="true" aria-label="${escapeHTML(this.modal.title)}" tabindex="-1">
-        <header class="hud-modal__header">
+      <section class="hud-modal" data-modal="${this.modal.id}" data-positioned="${positioned ? 'true' : 'false'}" data-dragging="false" role="dialog" aria-modal="true" aria-label="${escapeHTML(this.modal.title)}" tabindex="-1"${modalStyle}>
+        <header class="hud-modal__header" data-modal-drag="true">
           <strong>${escapeHTML(this.modal.title)}</strong>
           <button type="button" data-modal-close="button" title="Close modal">Close</button>
         </header>
         <div class="hud-modal__body">${this.modal.body}</div>
       </section>
     `;
+    this.modalLayer.dataset.open = 'true';
+    if (html === this.modalRenderSignature) {
+      return;
+    }
+    this.modalRenderSignature = html;
+    this.modalLayer.innerHTML = html;
     this.modalLayer.querySelector<HTMLElement>('.hud-modal')?.focus();
   }
 
@@ -628,16 +885,19 @@ export class HUD {
     this.applyWindowFocus();
   }
 
-  private openModal(id: HUDModalID, state: ClientState): void {
-    const modal = modalDefinition(id, state);
+  private openModal(id: HUDModalID, state: ClientState, detailID?: string): void {
+    const modal = modalDefinition(id, state, detailID);
     if (!modal) {
       return;
     }
     this.modal = modal;
+    this.modalPosition = this.defaultModalPosition();
   }
 
   private closeModal(): void {
     this.modal = null;
+    this.modalPosition = null;
+    this.modalRenderSignature = null;
   }
 
   private isWindowOpen(panel: HUDWindowID): boolean {
@@ -684,6 +944,7 @@ export class HUD {
     const rect = windowPanel.getBoundingClientRect();
     this.raiseWindow(panel);
     this.dragState = {
+      target: 'window',
       id: panel,
       pointerID: event.pointerId,
       offsetX: event.clientX - rect.left,
@@ -693,9 +954,37 @@ export class HUD {
     event.preventDefault();
   }
 
+  private startModalDrag(event: PointerEvent): void {
+    if (window.innerWidth < 768) {
+      return;
+    }
+    const modal = (event.target as HTMLElement).closest<HTMLElement>('.hud-modal');
+    if (!modal || !this.modal) {
+      return;
+    }
+    const rect = modal.getBoundingClientRect();
+    this.modalPosition = this.clampModalPosition(rect.left, rect.top);
+    this.dragState = {
+      target: 'modal',
+      pointerID: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+    };
+    modal.dataset.dragging = 'true';
+    markHUDInputSuppressed();
+    event.preventDefault();
+  }
+
   private handleDragMove(event: PointerEvent): void {
     const drag = this.dragState;
     if (!drag || drag.pointerID !== event.pointerId) {
+      return;
+    }
+    if (drag.target === 'modal') {
+      this.modalPosition = this.clampModalPosition(event.clientX - drag.offsetX, event.clientY - drag.offsetY);
+      this.applyModalPosition();
+      markHUDInputSuppressed();
+      event.preventDefault();
       return;
     }
     const state = this.windowStates.get(drag.id);
@@ -711,15 +1000,55 @@ export class HUD {
   }
 
   private handleDragEnd(event: PointerEvent): void {
-    if (!this.dragState || this.dragState.pointerID !== event.pointerId) {
+    const drag = this.dragState;
+    if (!drag || drag.pointerID !== event.pointerId) {
       return;
     }
-    const windowPanel = this.windowLayer.querySelector<HTMLElement>(`[data-window-panel="${this.dragState.id}"]`);
+    if (drag.target === 'modal') {
+      const modal = this.modalLayer.querySelector<HTMLElement>('.hud-modal');
+      if (modal) {
+        delete modal.dataset.dragging;
+      }
+      this.dragState = null;
+      markHUDInputSuppressed();
+      return;
+    }
+    const windowPanel = this.windowLayer.querySelector<HTMLElement>(`[data-window-panel="${drag.id}"]`);
     if (windowPanel) {
       delete windowPanel.dataset.dragging;
     }
     this.dragState = null;
     markHUDInputSuppressed();
+  }
+
+  private defaultModalPosition(): { x: number; y: number } | null {
+    if (window.innerWidth < 768) {
+      return null;
+    }
+    const width = Math.min(544, Math.max(320, window.innerWidth - 16));
+    const height = Math.min(544, Math.max(320, window.innerHeight - 24));
+    return this.clampModalPosition((window.innerWidth - width) / 2, (window.innerHeight - height) / 2);
+  }
+
+  private clampModalPosition(x: number, y: number): { x: number; y: number } {
+    const width = Math.min(544, Math.max(320, window.innerWidth - 16));
+    const height = Math.min(544, Math.max(320, window.innerHeight - 24));
+    const margin = 8;
+    return {
+      x: clamp(x, margin, Math.max(margin, window.innerWidth - width - margin)),
+      y: clamp(y, margin, Math.max(margin, window.innerHeight - height - margin)),
+    };
+  }
+
+  private applyModalPosition(): void {
+    const modal = this.modalLayer.querySelector<HTMLElement>('.hud-modal');
+    if (!modal || !this.modalPosition) {
+      return;
+    }
+    modal.style.setProperty('--modal-x', `${this.modalPosition.x}px`);
+    modal.style.setProperty('--modal-y', `${this.modalPosition.y}px`);
+    modal.style.setProperty('--modal-transform', 'none');
+    modal.dataset.positioned = 'true';
   }
 
   private applyWindowPosition(state: HUDWindowState): void {
@@ -758,28 +1087,28 @@ export class HUD {
 
 const baseWindowDefinitions: HUDPanelDefinition[] = [
   { id: 'cargo', label: 'Inv', title: 'Inventory / Cargo', iconURL: inventoryIconURL, render: cargoPanel },
-  { id: 'economy', label: 'Shop', title: 'Market / Auction / Premium', iconURL: shopIconURL, render: economyPanel },
-  { id: 'quests', label: 'Galaxy', title: 'Quest Board', iconURL: galaxyIconURL, render: questsPanel },
-  { id: 'intel', label: 'Planets', title: 'Intel / Scanner', iconURL: planetsIconURL, render: intelPanel },
-  { id: 'systems', label: 'Hangar', title: 'Systems / Loadout / Crafting', iconURL: hangarIconURL, render: systemsPanel },
+  { id: 'economy', label: 'Shop', title: 'Shop', iconURL: shopIconURL, render: economyPanel },
+  { id: 'quests', label: 'Quests', title: 'Quest Board', iconURL: galaxyIconURL, render: questsPanel },
+  { id: 'intel', label: 'Planets', title: 'Planets', iconURL: planetsIconURL, render: planetCatalogPanel },
+  { id: 'systems', label: 'Hangar', title: 'Hangar', iconURL: hangarIconURL, render: hangarPanel },
   { id: 'ops', label: 'Ops', title: 'Admin Ops', iconURL: menuIconURL, render: opsPanel, hidden: (state) => !state.auth.session?.account?.admin },
 ];
 
 function windowSize(id: HUDWindowID): { width: number; height: number } {
   switch (id) {
     case 'economy':
-      return { width: 440, height: 500 };
+      return { width: 640, height: 560 };
     case 'quests':
-      return { width: 410, height: 460 };
+      return { width: 620, height: 560 };
     case 'intel':
-      return { width: 420, height: 500 };
+      return { width: 620, height: 620 };
     case 'systems':
-      return { width: 400, height: 480 };
+      return { width: 540, height: 520 };
     case 'ops':
       return { width: 450, height: 520 };
     case 'cargo':
     default:
-      return { width: 380, height: 440 };
+      return { width: 560, height: 560 };
   }
 }
 
@@ -804,7 +1133,7 @@ function quickActionShortcutSafe(
   activeElement: Element | null,
   modal: HUDModalState | null,
   focusedWindow: HUDWindowID | null,
-  dragState: HUDDragState | null,
+  dragState: HUDDragState | HUDModalDragState | null,
 ): boolean {
   if (modal || focusedWindow || dragState) {
     return false;
@@ -820,11 +1149,29 @@ function isTextEntryElement(element: Element | null): boolean {
   return Boolean(element.closest('input, textarea, select, [contenteditable="true"], .auth-panel, .hud-modal, .hud-window'));
 }
 
+function parseLoadoutDragPayload(raw: string): { itemInstanceID: string; slotID?: string } | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as { itemInstanceID?: unknown; slotID?: unknown };
+    if (typeof parsed.itemInstanceID !== 'string' || parsed.itemInstanceID === '') {
+      return null;
+    }
+    return {
+      itemInstanceID: parsed.itemInstanceID,
+      slotID: typeof parsed.slotID === 'string' && parsed.slotID !== '' ? parsed.slotID : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function windowDefinitions(state: ClientState): HUDPanelDefinition[] {
   return baseWindowDefinitions.filter((definition) => !definition.hidden?.(state));
 }
 
-function modalDefinition(id: HUDModalID, state: ClientState): HUDModalState | null {
+function modalDefinition(id: HUDModalID, state: ClientState, detailID?: string): HUDModalState | null {
   const windowDefinition = windowDefinitions(state).find((definition) => definition.id === id);
   if (windowDefinition) {
     return {
@@ -837,6 +1184,10 @@ function modalDefinition(id: HUDModalID, state: ClientState): HUDModalState | nu
   switch (id) {
     case 'target':
       return { id, title: 'Target Detail', body: targetPanel(state) };
+    case 'planet-detail': {
+      const title = planetModalTitle(state, detailID);
+      return { id, detailID, title, body: planetDetailModal(state, detailID) };
+    }
     case 'planets':
       return { id, title: 'Planet Intel', body: planetsPanel(state) };
     case 'ship':
@@ -900,26 +1251,168 @@ function planetsPanel(state: ClientState): string {
           : '<div class="empty-line">No server-known planets yet.</div>'
         : '<div class="empty-line">Awaiting server planet intel.</div>'
     }
-    ${selected ? planetDetailBlock(selected) : '<div class="empty-line">Select a known planet for server coordinates.</div>'}
+    ${
+      selected
+        ? `<div class="empty-line">Selected ${escapeHTML(publicPlanetName(selected))}. Opened in planet detail.</div>`
+        : '<div class="empty-line">Select a known planet to open detail.</div>'
+    }
   `;
 }
 
 function cargoPanel(state: ClientState): string {
-  if (!state.cargo || !state.wallet) {
+  const inventory = state.inventory;
+  const hangar = state.hangar;
+  const loadout = state.loadout;
+  const cargo = state.cargo;
+  const wallet = state.wallet;
+  if (!inventory || !hangar || !loadout || !cargo || !wallet) {
     return `
-      <h2>Cargo</h2>
-      <div class="empty-line">Awaiting server cargo and wallet snapshots.</div>
+      <h2>Inventory</h2>
+      <div class="empty-line">Awaiting server inventory, hangar, and loadout snapshots.</div>
     `;
   }
-  const percent = state.cargo.capacity > 0 ? Math.min(100, Math.round((state.cargo.used / state.cargo.capacity) * 100)) : 0;
+  const activeShip =
+    hangar.ships.find((ship) => ship.ship_id === hangar.active_ship_id) ?? hangar.ships[0] ?? null;
+  const moduleItems = inventory.instances.filter((item) => item.module_slot_type && item.location !== 'ship_equipped');
+  const selectedModule = selectedModuleItem(moduleItems);
+  const equippedCount = loadout.slots.filter((slot) => slot.item_instance_id).length;
+  const cargoPercent = cargo.capacity > 0 ? Math.min(100, Math.round((cargo.used / cargo.capacity) * 100)) : 0;
   return `
-    <h2>Cargo</h2>
-    <div class="meter"><span style="width:${percent}%"></span></div>
-    <div class="meta-row"><span>Hold</span><strong>${state.cargo.used}/${state.cargo.capacity}</strong></div>
-    <div class="meta-row"><span>Credits</span><strong>${state.wallet.credits}</strong></div>
-    <ul class="compact-list">
-      ${state.cargo.items.map((item) => `<li><span>${escapeHTML(item.item_id)}</span><strong>${item.quantity}</strong></li>`).join('')}
-    </ul>
+    <h2>Inventory</h2>
+    <section class="loadout-console" data-loadout-inventory-drop="true">
+      <div class="loadout-ship">
+        <div class="loadout-ship__core" aria-hidden="true"></div>
+        <div class="loadout-ship__meta">
+          <strong>${escapeHTML(activeShip?.display_name ?? (hangar.active_ship_id || 'Ship'))}</strong>
+          <span>${equippedCount}/${loadout.slots.length} online</span>
+        </div>
+      </div>
+      <div class="loadout-slots">
+        ${loadout.slots.map((slot) => loadoutSlotCard(slot)).join('')}
+      </div>
+      <div class="module-bay" data-loadout-inventory-drop="true">
+        <div class="module-bay__head">
+          <strong>Modules</strong>
+          <span>${moduleItems.length} stored</span>
+        </div>
+        ${
+          moduleItems.length > 0
+            ? `<div class="module-grid">${moduleItems.map((item) => moduleInventoryCard(item, loadout.slots, selectedModule?.item_instance_id ?? '')).join('')}</div>
+               ${selectedModule ? moduleDetailPanel(selectedModule, loadout.slots) : ''}`
+            : '<div class="empty-line">No unequipped modules in server inventory.</div>'
+        }
+      </div>
+      <div class="cargo-strip">
+        <div>
+          <span>Cargo</span>
+          <strong>${cargo.used}/${cargo.capacity}</strong>
+        </div>
+        <div class="meter"><span style="width:${cargoPercent}%"></span></div>
+        <div>
+          <span>Credits</span>
+          <strong>${wallet.credits}</strong>
+        </div>
+      </div>
+      ${
+        cargo.items.length > 0
+          ? `<ul class="compact-list cargo-strip__list">
+              ${cargo.items.map((item) => `<li><span>${escapeHTML(item.item_id)}</span><strong>${item.quantity}</strong></li>`).join('')}
+            </ul>`
+          : ''
+      }
+    </section>
+  `;
+}
+
+function selectedModuleItem(items: ModuleInventoryItem[]): ModuleInventoryItem | null {
+  if (items.length === 0) {
+    selectedModuleInstanceID = null;
+    return null;
+  }
+  const selected = items.find((item) => item.item_instance_id === selectedModuleInstanceID) ?? items[0];
+  selectedModuleInstanceID = selected.item_instance_id;
+  return selected;
+}
+
+function loadoutSlotCard(slot: NonNullable<ClientState['loadout']>['slots'][number]): string {
+  const occupied = Boolean(slot.item_instance_id);
+  return `
+    <div class="loadout-slot" data-loadout-slot-id="${escapeHTML(slot.slot_id)}" data-slot-type="${escapeHTML(slot.slot_type)}" data-occupied="${occupied ? 'true' : 'false'}">
+      <div class="loadout-slot__label">
+        <span>${escapeHTML(slot.slot_type)}</span>
+        <strong>${escapeHTML(slot.slot_id.replace('_', ' '))}</strong>
+      </div>
+      ${
+        occupied
+          ? `<div class="module-card module-card--equipped"
+                draggable="true"
+                data-module-instance-id="${escapeHTML(slot.item_instance_id ?? '')}"
+                data-equipped-slot-id="${escapeHTML(slot.slot_id)}">
+               <strong>${escapeHTML(slot.display_name || slot.module_item_id || slot.item_instance_id || 'Module')}</strong>
+               <span>${escapeHTML(slot.module_state || 'online')} · ${formatDurability(slot.durability, slot.durability_max)}</span>
+               <button type="button" data-action="loadout-unequip" data-slot-id="${escapeHTML(slot.slot_id)}">Unequip</button>
+             </div>`
+          : '<div class="loadout-slot__empty">Empty</div>'
+      }
+    </div>
+  `;
+}
+
+function moduleInventoryCard(
+  item: ModuleInventoryItem,
+  slots: NonNullable<ClientState['loadout']>['slots'],
+  selectedID: string,
+): string {
+  const compatibleSlot =
+    slots.find((slot) => slot.slot_type === item.module_slot_type && !slot.item_instance_id) ??
+    slots.find((slot) => slot.slot_type === item.module_slot_type) ??
+    null;
+  const compatible = Boolean(compatibleSlot);
+  return `
+    <div class="module-card"
+      draggable="true"
+      data-module-instance-id="${escapeHTML(item.item_instance_id)}"
+      data-module-slot-type="${escapeHTML(item.module_slot_type ?? '')}"
+      data-compatible="${compatible ? 'true' : 'false'}"
+      data-selected="${item.item_instance_id === selectedID ? 'true' : 'false'}">
+      <strong>${escapeHTML(item.display_name || item.item_id)}</strong>
+      <span>${escapeHTML(item.module_slot_type ?? 'module')} · ${formatDurability(item.durability_current, item.durability_max)}</span>
+      <em>${escapeHTML(item.rarity || item.bound_state || 'owned')}</em>
+      <button type="button"
+        data-action="module-select"
+        data-module-instance-id="${escapeHTML(item.item_instance_id)}">Details</button>
+      <button type="button"
+        data-action="loadout-equip"
+        data-slot-id="${escapeHTML(compatibleSlot?.slot_id ?? '')}"
+        data-item-instance-id="${escapeHTML(item.item_instance_id)}"
+        ${compatibleSlot ? '' : 'disabled'}>Equip</button>
+    </div>
+  `;
+}
+
+function moduleDetailPanel(item: ModuleInventoryItem, slots: NonNullable<ClientState['loadout']>['slots']): string {
+  const compatibleSlot =
+    slots.find((slot) => slot.slot_type === item.module_slot_type && !slot.item_instance_id) ??
+    slots.find((slot) => slot.slot_type === item.module_slot_type) ??
+    null;
+  return `
+    <div class="module-detail" data-module-detail="${escapeHTML(item.item_instance_id)}">
+      <div>
+        <span>Selected Module</span>
+        <strong>${escapeHTML(item.display_name || item.item_id)}</strong>
+      </div>
+      <div class="module-detail__grid">
+        <span>Slot <strong>${escapeHTML(item.module_slot_type ?? 'module')}</strong></span>
+        <span>Dur <strong>${formatDurability(item.durability_current, item.durability_max)}</strong></span>
+        <span>State <strong>${escapeHTML(item.bound_state || item.location)}</strong></span>
+        <span>Fit <strong>${escapeHTML(compatibleSlot?.slot_id ?? 'locked')}</strong></span>
+      </div>
+      <button type="button"
+        data-action="loadout-equip"
+        data-slot-id="${escapeHTML(compatibleSlot?.slot_id ?? '')}"
+        data-item-instance-id="${escapeHTML(item.item_instance_id)}"
+        ${compatibleSlot ? '' : 'disabled'}>Equip Selected</button>
+    </div>
   `;
 }
 
@@ -935,19 +1428,9 @@ function economyPanel(state: ClientState): string {
     `;
   }
 
-  const listing = market.listings.find((item) => item.status === 'active' && !item.owned_by_you) ?? market.listings[0] ?? null;
-  const lot = auction.lots.find((item) => item.status === 'active') ?? auction.lots[0] ?? null;
-  const pendingEntitlement = premium.entitlements.find((item) => item.state === 'pending') ?? null;
-  const stock = premium.stock[0] ?? null;
-  const ownListing = market.listings.find((item) => item.status === 'active' && item.owned_by_you) ?? null;
-  const sellableStack = ownListing ? null : sellableInventoryStack(state);
-  const sellUnitPrice = sellableStack ? defaultListingPrice(sellableStack.item_id, market) : 0;
-  const alreadyPurchased = stock ? premium.purchases.some((purchase) => purchase.period_key === stock.period_key) : false;
-  const canBuyListing = Boolean(listing && listing.status === 'active' && !listing.owned_by_you && wallet.credits >= listing.unit_price);
-  const bidAmount = lot ? Math.max(lot.start_price, lot.current_bid + 50) : 0;
-  const canBid = Boolean(lot && lot.status === 'active' && wallet.credits >= bidAmount && !lot.leading);
-  const canBuyNow = Boolean(lot && lot.status === 'active' && lot.buy_now_price !== undefined && wallet.credits >= lot.buy_now_price);
-  const canBuyWeekly = Boolean(stock && stock.stock_remaining > 0 && !alreadyPurchased && wallet.premium_paid >= stock.price_amount);
+  const sections = shopSections(state);
+  const entries = sections[selectedShopCategory];
+  const selected = selectedShopEntry(entries);
 
   return `
     <h2>Shop</h2>
@@ -956,55 +1439,356 @@ function economyPanel(state: ClientState): string {
       <span>Paid<strong>${wallet.premium_paid}</strong></span>
       <span>Earned<strong>${wallet.premium_earned}</strong></span>
     </div>
-    ${
-      listing
-        ? `<div class="shop-row">
-             <div><span>Market</span><strong>${escapeHTML(listing.display_name || listing.item_id)}</strong></div>
-             <button type="button" data-action="${listing.owned_by_you ? 'market-cancel' : 'market-buy'}" data-listing-id="${escapeHTML(listing.listing_id)}" ${listing.owned_by_you || canBuyListing ? '' : 'disabled'} title="Server recalculates price and escrow">
-               ${listing.owned_by_you ? 'Cancel' : `${listing.unit_price} ${escapeHTML(listing.currency_type)}`}
-             </button>
-           </div>`
-        : '<div class="empty-line">No market listings.</div>'
-    }
-    ${
-      ownListing
-        ? `<div class="shop-row">
-             <div><span>Mine</span><strong>${escapeHTML(ownListing.display_name || ownListing.item_id)} x${ownListing.remaining_quantity}</strong><small>Escrow</small></div>
-             <button type="button" data-action="market-cancel" data-listing-id="${escapeHTML(ownListing.listing_id)}" title="Return remaining escrow through the server">Cancel</button>
-           </div>`
-        : sellableStack
-          ? `<div class="shop-row">
-               <div><span>Sell</span><strong>${escapeHTML(sellableStack.display_name || sellableStack.item_id)} x1</strong><small>Ask ${sellUnitPrice} CR pending</small></div>
-               <button type="button"
-                 data-action="market-create"
-                 data-item-id="${escapeHTML(sellableStack.item_id)}"
-                 data-source-location="${escapeHTML(sellableStack.location)}"
-                 data-quantity="1"
-                 data-unit-price="${sellUnitPrice}"
-                 title="Create listing from a server-owned inventory row">List</button>
-             </div>`
-          : ''
-    }
-    ${
-      lot
-        ? `<div class="shop-row">
-             <div><span>Auction</span><strong>${escapeHTML(publicAuctionName(lot.payload_type, lot.definition_id))}</strong></div>
-             <button type="button" data-action="auction-bid" data-auction-id="${escapeHTML(lot.auction_id)}" data-amount="${bidAmount}" ${canBid ? '' : 'disabled'} title="Bid amount is checked server-side">${bidAmount}</button>
-             <button type="button" data-action="auction-buy-now" data-auction-id="${escapeHTML(lot.auction_id)}" ${canBuyNow ? '' : 'disabled'} title="Buy-now closes under server lock">${lot.buy_now_price ?? '--'}</button>
-           </div>`
-        : '<div class="empty-line">No auction lots.</div>'
-    }
-    <div class="shop-row">
-      <div><span>Premium</span><strong>${stock ? `X Core ${stock.stock_remaining}/${stock.stock_total}` : 'Locked'}</strong></div>
-      <button type="button" data-action="premium-weekly-xcore" ${canBuyWeekly ? '' : 'disabled'} title="Weekly stock and limit are server-owned">${stock ? `${stock.price_amount}` : '--'}</button>
-      <button type="button" data-action="premium-claim" data-entitlement-id="${escapeHTML(pendingEntitlement?.entitlement_id ?? '')}" ${pendingEntitlement ? '' : 'disabled'} title="Claim pending entitlement">Claim</button>
-    </div>
-    ${
-      auction.grants.length > 0
-        ? `<button class="ghost-action ghost-action--compact" type="button" data-action="auction-claim" title="Refresh auction grant snapshots">Grants ${auction.grants.length}</button>`
-        : ''
-    }
+    <section class="shop-console" data-shop-console="true">
+      <div class="shop-categories" role="list" aria-label="Shop categories">
+        ${shopCategoryButton('market', 'Market', sections.market.length, selectedShopCategory)}
+        ${shopCategoryButton('sell', 'Sell', sections.sell.length, selectedShopCategory)}
+        ${shopCategoryButton('auction', 'Auction', sections.auction.length, selectedShopCategory)}
+        ${shopCategoryButton('premium', 'Premium', sections.premium.length, selectedShopCategory)}
+      </div>
+      <div class="shop-catalog" data-shop-category-active="${selectedShopCategory}">
+        ${
+          entries.length > 0
+            ? entries.map((entry) => shopEntryRow(entry, selected?.key)).join('')
+            : `<div class="empty-line">No server ${escapeHTML(selectedShopCategory)} entries.</div>`
+        }
+      </div>
+      <div class="shop-detail" data-shop-detail="${escapeHTML(selected?.key ?? '')}">
+        ${selected ? shopDetail(selected, state) : '<div class="empty-line">Select a server economy row.</div>'}
+      </div>
+    </section>
   `;
+}
+
+function shopSections(state: ClientState): Record<ShopCategoryID, ShopEntry[]> {
+  const market = state.market;
+  const auction = state.auction;
+  const premium = state.premium;
+  if (!market || !auction || !premium) {
+    return { market: [], sell: [], auction: [], premium: [] };
+  }
+
+  const marketEntries = market.listings
+    .filter((listing) => listing.status === 'active' && !listing.owned_by_you)
+    .map((listing): ShopEntry => ({ key: `market:${listing.listing_id}`, category: 'market', kind: 'market_listing', item: listing }));
+  const ownedListings = market.listings
+    .filter((listing) => listing.status === 'active' && listing.owned_by_you)
+    .map((listing): ShopEntry => ({ key: `mine:${listing.listing_id}`, category: 'sell', kind: 'owned_listing', item: listing }));
+  const sellableStacks = sellableInventoryStacks(state).map(
+    (item): ShopEntry => ({
+      key: `sell:${item.location}:${item.item_id}`,
+      category: 'sell',
+      kind: 'sell_stack',
+      item,
+      unitPrice: defaultListingPrice(item.item_id, market),
+    }),
+  );
+  const auctionEntries = auction.lots.map(
+    (lot): ShopEntry => ({ key: `auction:${lot.auction_id}`, category: 'auction', kind: 'auction_lot', item: lot }),
+  );
+  const stockEntries = premium.stock.map(
+    (stock): ShopEntry => ({
+      key: `premium-stock:${stock.period_key}`,
+      category: 'premium',
+      kind: 'premium_stock',
+      item: stock,
+      purchased: premium.purchases.some((purchase) => purchase.period_key === stock.period_key),
+    }),
+  );
+  const entitlementEntries = premium.entitlements.map(
+    (entitlement): ShopEntry => ({
+      key: `premium-entitlement:${entitlement.entitlement_id}`,
+      category: 'premium',
+      kind: 'premium_entitlement',
+      item: entitlement,
+    }),
+  );
+  const grantEntries = auction.grants.map(
+    (grant): ShopEntry => ({ key: `auction-grant:${grant.auction_id}`, category: 'premium', kind: 'auction_grant', item: grant }),
+  );
+
+  return {
+    market: marketEntries,
+    sell: [...ownedListings, ...sellableStacks],
+    auction: auctionEntries,
+    premium: [...stockEntries, ...entitlementEntries, ...grantEntries],
+  };
+}
+
+function selectedShopEntry(entries: ShopEntry[]): ShopEntry | null {
+  if (entries.length === 0) {
+    selectedShopKey = null;
+    selectedShopQuantity = 1;
+    return null;
+  }
+  const selected = entries.find((entry) => entry.key === selectedShopKey) ?? entries[0];
+  selectedShopKey = selected.key;
+  return selected;
+}
+
+function shopCategoryButton(id: ShopCategoryID, label: string, count: number, active: ShopCategoryID): string {
+  return `
+    <button class="shop-category" type="button" data-action="shop-category" data-shop-category="${id}" data-active="${active === id ? 'true' : 'false'}">
+      <span>${escapeHTML(label)}</span>
+      <strong>${count}</strong>
+    </button>
+  `;
+}
+
+function shopEntryRow(entry: ShopEntry, selectedKey: string | undefined): string {
+  return `
+    <button class="shop-entry" type="button" data-action="shop-select" data-shop-key="${escapeHTML(entry.key)}" data-selected="${entry.key === selectedKey ? 'true' : 'false'}" data-shop-kind="${escapeHTML(entry.kind)}">
+      <span class="shop-entry__mark"></span>
+      <span>
+        <strong>${escapeHTML(shopEntryTitle(entry))}</strong>
+        <em>${escapeHTML(shopEntryMeta(entry))}</em>
+      </span>
+      <small>${escapeHTML(shopEntryState(entry))}</small>
+    </button>
+  `;
+}
+
+function shopEntryTitle(entry: ShopEntry): string {
+  switch (entry.kind) {
+    case 'market_listing':
+    case 'owned_listing':
+      return entry.item.display_name || entry.item.item_id;
+    case 'sell_stack':
+      return entry.item.display_name || entry.item.item_id;
+    case 'auction_lot':
+      return publicAuctionName(entry.item.payload_type, entry.item.definition_id);
+    case 'premium_entitlement':
+      return entry.item.type.replace(/_/g, ' ');
+    case 'premium_stock':
+      return `Weekly ${entry.item.period_key.replace(/_/g, ' ')}`;
+    case 'auction_grant':
+      return publicAuctionName(entry.item.payload_type, entry.item.definition_id);
+  }
+}
+
+function shopEntryMeta(entry: ShopEntry): string {
+  switch (entry.kind) {
+    case 'market_listing':
+      return `${entry.item.remaining_quantity} left / ${entry.item.unit_price} ${entry.item.currency_type}`;
+    case 'owned_listing':
+      return `${entry.item.remaining_quantity} escrowed / ${entry.item.unit_price} ${entry.item.currency_type}`;
+    case 'sell_stack':
+      return `${entry.item.quantity} stored / ask ${entry.unitPrice} credits`;
+    case 'auction_lot':
+      return `${entry.item.quantity} lot / bid ${entry.item.current_bid}`;
+    case 'premium_entitlement':
+      return entry.item.state;
+    case 'premium_stock':
+      return `${entry.item.stock_remaining}/${entry.item.stock_total} stock`;
+    case 'auction_grant':
+      return `${entry.item.quantity} grant / ${entry.item.reason}`;
+  }
+}
+
+function shopEntryState(entry: ShopEntry): string {
+  switch (entry.kind) {
+    case 'market_listing':
+      return entry.item.rarity || entry.item.status || 'market';
+    case 'owned_listing':
+      return 'mine';
+    case 'sell_stack':
+      return entry.item.location.replace(/_/g, ' ');
+    case 'auction_lot':
+      return entry.item.leading ? 'leading' : entry.item.status || 'auction';
+    case 'premium_entitlement':
+      return entry.item.state;
+    case 'premium_stock':
+      return entry.purchased ? 'bought' : entry.item.payment_currency;
+    case 'auction_grant':
+      return 'grant';
+  }
+}
+
+function shopDetail(entry: ShopEntry, state: ClientState): string {
+  switch (entry.kind) {
+    case 'market_listing':
+      return shopMarketDetail(entry.item, state.wallet);
+    case 'owned_listing':
+      return shopOwnedListingDetail(entry.item);
+    case 'sell_stack':
+      return shopSellDetail(entry.item, entry.unitPrice);
+    case 'auction_lot':
+      return shopAuctionDetail(entry.item, state.wallet);
+    case 'premium_entitlement':
+      return shopPremiumEntitlementDetail(entry.item);
+    case 'premium_stock':
+      return shopPremiumStockDetail(entry.item, entry.purchased, state.wallet);
+    case 'auction_grant':
+      return shopAuctionGrantDetail(entry.item);
+  }
+}
+
+function shopMarketDetail(listing: MarketListingItem, wallet: ClientState['wallet']): string {
+  const balance = wallet ? walletBalanceForCurrency(wallet, listing.currency_type) : null;
+  const affordable = balance !== null && listing.unit_price > 0 ? Math.floor(balance / listing.unit_price) : listing.remaining_quantity;
+  const maxQuantity = Math.max(1, Math.min(listing.remaining_quantity, Math.max(0, affordable)));
+  const quantity = normalizeShopQuantity(maxQuantity);
+  const estimatedSubtotal = listing.unit_price * quantity;
+  const canBuy = listing.status === 'active' && !listing.owned_by_you && listing.remaining_quantity >= quantity && balance !== null && balance >= estimatedSubtotal;
+  return `
+    <article class="shop-detail-card" data-shop-detail-kind="market">
+      ${shopDetailHeader('Market Listing', listing.display_name || listing.item_id, listing.rarity || listing.status)}
+      <div class="shop-detail-grid">
+        ${shopFact('Stock', `${listing.remaining_quantity}`)}
+        ${shopFact('Unit', `${listing.unit_price} ${listing.currency_type}`)}
+        ${shopFact('Estimate', `${estimatedSubtotal} ${listing.currency_type}`)}
+        ${shopFact('Server', listing.server_recalculates ? 'recalculates' : 'quoted')}
+      </div>
+      ${shopQuantityControls(maxQuantity, quantity)}
+      <button class="shop-primary-action" type="button" data-action="market-buy" data-listing-id="${escapeHTML(listing.listing_id)}" data-quantity="${quantity}" ${canBuy ? '' : 'disabled'} title="Server recalculates total, wallet debit, and escrow transfer">Buy</button>
+    </article>
+  `;
+}
+
+function shopOwnedListingDetail(listing: MarketListingItem): string {
+  return `
+    <article class="shop-detail-card" data-shop-detail-kind="owned-listing">
+      ${shopDetailHeader('Your Listing', listing.display_name || listing.item_id, listing.status)}
+      <div class="shop-detail-grid">
+        ${shopFact('Escrow', `${listing.remaining_quantity}`)}
+        ${shopFact('Unit', `${listing.unit_price} ${listing.currency_type}`)}
+        ${shopFact('Server', listing.server_recalculates ? 'reconciles' : 'quoted')}
+        ${shopFact('Listing', listing.listing_id)}
+      </div>
+      <button class="shop-primary-action" type="button" data-action="market-cancel" data-listing-id="${escapeHTML(listing.listing_id)}" title="Return remaining escrow through the server">Cancel</button>
+    </article>
+  `;
+}
+
+function shopSellDetail(item: InventoryStackItem, unitPrice: number): string {
+  const maxQuantity = Math.max(1, item.quantity);
+  const quantity = normalizeShopQuantity(maxQuantity);
+  return `
+    <article class="shop-detail-card" data-shop-detail-kind="sell">
+      ${shopDetailHeader('Sell Item', item.display_name || item.item_id, item.location.replace(/_/g, ' '))}
+      <div class="shop-detail-grid">
+        ${shopFact('Owned', `${item.quantity}`)}
+        ${shopFact('Ask', `${unitPrice} credits`)}
+        ${shopFact('Estimate', `${unitPrice * quantity} credits pending`)}
+        ${shopFact('Escrow', 'server move')}
+      </div>
+      ${shopQuantityControls(maxQuantity, quantity)}
+      <button class="shop-primary-action" type="button"
+        data-action="market-create"
+        data-item-id="${escapeHTML(item.item_id)}"
+        data-source-location="${escapeHTML(item.location)}"
+        data-quantity="${quantity}"
+        data-unit-price="${unitPrice}"
+        title="Create listing from a server-owned inventory row">List</button>
+    </article>
+  `;
+}
+
+function shopAuctionDetail(lot: AuctionLotItem, wallet: ClientState['wallet']): string {
+  const bidAmount = Math.max(lot.start_price, lot.current_bid + 50);
+  const credits = wallet?.credits ?? 0;
+  const canBid = lot.status === 'active' && credits >= bidAmount && !lot.leading;
+  const canBuyNow = lot.status === 'active' && lot.buy_now_price !== undefined && credits >= lot.buy_now_price;
+  return `
+    <article class="shop-detail-card" data-shop-detail-kind="auction">
+      ${shopDetailHeader('Auction Lot', publicAuctionName(lot.payload_type, lot.definition_id), lot.status)}
+      <div class="shop-detail-grid">
+        ${shopFact('Qty', `${lot.quantity}`)}
+        ${shopFact('Bid', `${lot.current_bid} ${lot.currency_type}`)}
+        ${shopFact('Next', `${bidAmount} ${lot.currency_type}`)}
+        ${shopFact('Buy Now', lot.buy_now_price !== undefined ? `${lot.buy_now_price} ${lot.currency_type}` : lockedValue())}
+      </div>
+      <div class="shop-action-row">
+        <button type="button" data-action="auction-bid" data-auction-id="${escapeHTML(lot.auction_id)}" data-amount="${bidAmount}" ${canBid ? '' : 'disabled'} title="Bid amount is checked server-side">Bid</button>
+        <button type="button" data-action="auction-buy-now" data-auction-id="${escapeHTML(lot.auction_id)}" ${canBuyNow ? '' : 'disabled'} title="Buy-now closes under server lock">Buy Now</button>
+      </div>
+    </article>
+  `;
+}
+
+function shopPremiumEntitlementDetail(entitlement: PremiumEntitlementItem): string {
+  const amount = entitlement.payload.amount ?? entitlement.payload.loadout_slot_count ?? 0;
+  return `
+    <article class="shop-detail-card" data-shop-detail-kind="premium-entitlement">
+      ${shopDetailHeader('Entitlement', entitlement.type.replace(/_/g, ' '), entitlement.state)}
+      <div class="shop-detail-grid">
+        ${shopFact('State', entitlement.state)}
+        ${shopFact('Amount', amount > 0 ? `${amount}` : lockedValue())}
+        ${shopFact('Bucket', entitlement.payload.currency_bucket ?? lockedValue())}
+        ${shopFact('Created', entitlement.created_at ? `${entitlement.created_at}` : lockedValue())}
+      </div>
+      <button class="shop-primary-action" type="button" data-action="premium-claim" data-entitlement-id="${escapeHTML(entitlement.entitlement_id)}" ${entitlement.state === 'pending' ? '' : 'disabled'} title="Claim pending entitlement">Claim</button>
+    </article>
+  `;
+}
+
+function shopPremiumStockDetail(stock: PremiumStockItem, purchased: boolean, wallet: ClientState['wallet']): string {
+  const balance = walletBalanceForCurrency(wallet ?? { credits: 0, premium_paid: 0, premium_earned: 0 }, stock.payment_currency);
+  const canBuy = stock.stock_remaining > 0 && !purchased && balance !== null && balance >= stock.price_amount;
+  return `
+    <article class="shop-detail-card" data-shop-detail-kind="premium-stock">
+      ${shopDetailHeader('Premium Stock', `Weekly ${stock.period_key.replace(/_/g, ' ')}`, purchased ? 'bought' : stock.payment_currency)}
+      <div class="shop-detail-grid">
+        ${shopFact('Stock', `${stock.stock_remaining}/${stock.stock_total}`)}
+        ${shopFact('Price', `${stock.price_amount} ${stock.payment_currency}`)}
+        ${shopFact('Limit', purchased ? 'claimed' : 'available')}
+        ${shopFact('Server', 'stock lock')}
+      </div>
+      <button class="shop-primary-action" type="button" data-action="premium-weekly-xcore" ${canBuy ? '' : 'disabled'} title="Weekly stock and limit are server-owned">Purchase</button>
+    </article>
+  `;
+}
+
+function shopAuctionGrantDetail(grant: AuctionGrantItem): string {
+  return `
+    <article class="shop-detail-card" data-shop-detail-kind="auction-grant">
+      ${shopDetailHeader('Auction Grant', publicAuctionName(grant.payload_type, grant.definition_id), grant.reason)}
+      <div class="shop-detail-grid">
+        ${shopFact('Qty', `${grant.quantity}`)}
+        ${shopFact('Reason', grant.reason)}
+        ${shopFact('Granted', `${grant.granted_at}`)}
+        ${shopFact('Auction', grant.auction_id)}
+      </div>
+      <button class="shop-primary-action" type="button" data-action="auction-claim" title="Refresh auction grant snapshots">Refresh</button>
+    </article>
+  `;
+}
+
+function shopDetailHeader(kind: string, title: string, state: string): string {
+  return `
+    <div class="shop-detail-card__head">
+      <span>${escapeHTML(kind)}</span>
+      <strong>${escapeHTML(title)}</strong>
+      <em>${escapeHTML(state || 'server owned')}</em>
+    </div>
+  `;
+}
+
+function shopFact(label: string, value: string): string {
+  return `<div class="shop-fact"><span>${escapeHTML(label)}</span><strong>${escapeHTML(value)}</strong></div>`;
+}
+
+function shopQuantityControls(maxQuantity: number, quantity: number): string {
+  const safeMax = Math.max(1, Math.round(maxQuantity));
+  const options = uniqueNumbers([1, Math.min(5, safeMax), safeMax]);
+  return `
+    <div class="shop-quantity" data-shop-quantity="true">
+      <span>Qty</span>
+      <button type="button" data-action="shop-qty" data-quantity-delta="-1" data-max-quantity="${safeMax}" ${quantity <= 1 ? 'disabled' : ''}>-</button>
+      ${options
+        .map(
+          (option) =>
+            `<button type="button" data-action="shop-qty" data-quantity="${option}" data-max-quantity="${safeMax}" data-active="${option === quantity ? 'true' : 'false'}">${option}</button>`,
+        )
+        .join('')}
+      <button type="button" data-action="shop-qty" data-quantity-delta="1" data-max-quantity="${safeMax}" ${quantity >= safeMax ? 'disabled' : ''}>+</button>
+    </div>
+  `;
+}
+
+function normalizeShopQuantity(maxQuantity: number): number {
+  selectedShopQuantity = Math.round(clamp(selectedShopQuantity, 1, Math.max(1, maxQuantity)));
+  return selectedShopQuantity;
 }
 
 function systemsPanel(state: ClientState): string {
@@ -1043,10 +1827,114 @@ function systemsPanel(state: ClientState): string {
   `;
 }
 
+function hangarPanel(state: ClientState): string {
+  const hangar = state.hangar;
+  const ship = state.ship;
+  const stats = state.stats;
+  const cargo = state.cargo;
+  const loadout = state.loadout;
+  if (!hangar || !ship || !stats || !cargo || !loadout) {
+    return `
+      <h2>Hangar</h2>
+      <div class="empty-line">Awaiting server hangar, ship, cargo, stats, and loadout snapshots.</div>
+    `;
+  }
+  const activeShip =
+    hangar.ships.find((item) => item.ship_id === hangar.active_ship_id) ??
+    hangar.ships.find((item) => item.active) ??
+    hangar.ships[0] ??
+    null;
+  const selectedShip = hangar.ships.find((item) => item.ship_id === selectedHangarShipID) ?? activeShip;
+  selectedHangarShipID = selectedShip?.ship_id ?? null;
+  const selectedSlots = `${selectedShip?.slot_offensive ?? 0}/${selectedShip?.slot_defensive ?? 0}/${selectedShip?.slot_utility ?? 0}`;
+  const selectedActive = Boolean(selectedShip && (selectedShip.active || selectedShip.ship_id === hangar.active_ship_id));
+  const canActivate = Boolean(selectedShip && !selectedActive && !selectedShip.disabled && !selectedShip.locked_reason);
+  return `
+    <h2>Hangar</h2>
+    <section class="hangar-console">
+      <div class="hangar-list" aria-label="Owned ships">
+        <div class="hangar-list__head">
+          <strong>Owned Ships</strong>
+          <span>${hangar.ships.length}</span>
+        </div>
+        ${
+          hangar.ships.length > 0
+            ? hangar.ships.map((item) => hangarShipRow(item, hangar.active_ship_id, selectedShip?.ship_id ?? '')).join('')
+            : '<div class="empty-line">No server-owned ships.</div>'
+        }
+      </div>
+      <div class="hangar-detail">
+        ${
+          selectedShip
+            ? `<div class="hangar-preview">
+                 <div class="hangar-preview__ship" aria-hidden="true"></div>
+                 <div>
+                   <span>${escapeHTML(selectedShip.role ?? 'ship')}</span>
+                   <strong>${escapeHTML(selectedShip.display_name || selectedShip.ship_id)}</strong>
+                   <em>${escapeHTML(selectedActive ? 'active' : selectedShip.state || 'available')}</em>
+                 </div>
+               </div>
+               <div class="hangar-stat-grid">
+                 ${hangarStat('Hull', selectedShip.hull, selectedShip.max_hull)}
+                 ${hangarStat('Shield', selectedShip.shield, selectedShip.max_shield)}
+                 ${hangarStat('Cap', selectedShip.capacitor ?? ship.capacitor, selectedShip.max_capacitor ?? ship.max_capacitor)}
+                 ${hangarScalar('Speed', selectedShip.speed ?? stats.speed)}
+                 ${hangarScalar('Radar', selectedShip.radar ?? stats.radar_range)}
+                 ${hangarScalar('Cargo', selectedShip.cargo_capacity ?? cargo.capacity)}
+               </div>
+               <div class="hangar-slots">
+                 <span>OFF <strong>${selectedShip.slot_offensive ?? 0}</strong></span>
+                 <span>DEF <strong>${selectedShip.slot_defensive ?? 0}</strong></span>
+                 <span>UTL <strong>${selectedShip.slot_utility ?? 0}</strong></span>
+               </div>
+               <div class="hangar-actions">
+                 <button type="button"
+                   data-action="hangar-activate"
+                   data-ship-id="${escapeHTML(selectedShip.ship_id)}"
+                   ${canActivate ? '' : 'disabled'}
+                   title="${escapeHTML(selectedShip.locked_reason || (selectedActive ? 'Already active' : 'Server validates activation'))}">Activate</button>
+                 <button type="button" data-action="open-window" data-panel-id="cargo">Loadout</button>
+               </div>
+               <div class="hangar-foot">
+                 <span>Slots ${escapeHTML(selectedSlots)}</span>
+                 <span>Cargo ${cargo.used}/${cargo.capacity}</span>
+               </div>`
+            : '<div class="empty-line">No selected ship in server hangar.</div>'
+        }
+      </div>
+    </section>
+  `;
+}
+
+function hangarShipRow(ship: NonNullable<ClientState['hangar']>['ships'][number], activeShipID: string, selectedShipID: string): string {
+  const active = ship.active || ship.ship_id === activeShipID;
+  const selected = ship.ship_id === selectedShipID;
+  return `
+    <button class="hangar-row" type="button" data-action="hangar-select" data-ship-id="${escapeHTML(ship.ship_id)}" data-active="${active ? 'true' : 'false'}" data-selected="${selected ? 'true' : 'false'}">
+      <span class="hangar-row__mark"></span>
+      <span>
+        <strong>${escapeHTML(ship.display_name || ship.ship_id)}</strong>
+        <em>${escapeHTML(active ? 'active' : ship.locked_reason || ship.state || 'available')}</em>
+      </span>
+      <small>${escapeHTML(ship.role ?? 'ship')}</small>
+    </button>
+  `;
+}
+
+function hangarStat(label: string, value: number | undefined, max: number | undefined): string {
+  const safeValue = Math.max(0, Math.round(value ?? 0));
+  const safeMax = Math.max(0, Math.round(max ?? 0));
+  return `<div class="hangar-stat"><span>${escapeHTML(label)}</span><strong>${safeValue}/${safeMax}</strong></div>`;
+}
+
+function hangarScalar(label: string, value: number | undefined): string {
+  return `<div class="hangar-stat"><span>${escapeHTML(label)}</span><strong>${Math.max(0, Math.round(value ?? 0))}</strong></div>`;
+}
+
 function questsPanel(state: ClientState): string {
   return `
     <h2>Quests</h2>
-    ${questBlock(state)}
+    ${questBoardPanel(state)}
   `;
 }
 
@@ -1063,48 +1951,191 @@ function opsPanel(state: ClientState): string {
   `;
 }
 
-function questBlock(state: ClientState): string {
+function questBoardPanel(state: ClientState): string {
   const board = state.questBoard;
   if (!board) {
     return `
-      <div class="systems-subhead">Quests</div>
+      <div class="systems-subhead">Quest Board</div>
       <div class="empty-line">Awaiting server quest board.</div>
     `;
   }
 
-  const claimable = board.active.find((quest) => quest.can_claim) ?? null;
-  const active = board.active.find((quest) => quest.state === 'accepted') ?? board.active[0] ?? null;
-  const offer = board.offers[0] ?? null;
-  const focusQuest = claimable ?? active;
-  const focusObjective = focusQuest?.objectives[0] ?? offer?.objectives[0] ?? null;
+  const sections = questBoardSections(board);
+  const entries = [...sections.claimable, ...sections.active, ...sections.offers, ...sections.completed];
+  const selected = selectedQuestEntry(entries);
   const balance = state.wallet ? walletBalanceForCurrency(state.wallet, board.reroll_cost.currency_type) : null;
   const canReroll = balance !== null && balance >= board.reroll_cost.amount;
 
   return `
-    <div class="systems-subhead">Quests</div>
-    <div class="systems-block">
-      <div class="meta-row"><span>Offers</span><strong>${board.counts.offers}</strong></div>
-      <div class="meta-row"><span>Active</span><strong>${board.counts.active}</strong></div>
-      <div class="meta-row"><span>Claim</span><strong>${board.counts.claimable}</strong></div>
-    </div>
-    ${
-      focusQuest
-        ? `<div class="shop-row">
-             <div><span>${escapeHTML(focusQuest.state || 'quest')}</span><strong>${escapeHTML(focusQuest.title)}</strong><small>${focusObjective ? escapeHTML(questObjectiveLabel(focusObjective)) : escapeHTML(questRewardLabel(focusQuest.rewards[0]))}</small></div>
-             <button type="button" data-action="quest-claim" data-quest-id="${escapeHTML(focusQuest.quest_id)}" ${focusQuest.can_claim ? '' : 'disabled'}>Claim</button>
-           </div>`
-        : offer
-          ? `<div class="shop-row">
-               <div><span>${escapeHTML(offer.quest_type || 'offer')}</span><strong>${escapeHTML(offer.title)}</strong><small>${focusObjective ? escapeHTML(questObjectiveLabel(focusObjective)) : escapeHTML(questRewardLabel(offer.rewards[0]))}</small></div>
-               <button type="button" data-action="quest-accept" data-offer-id="${escapeHTML(offer.offer_id)}">Accept</button>
-             </div>`
-          : '<div class="empty-line">No server quest offers.</div>'
-    }
-    <div class="shop-row">
-      <div><span>Reroll</span><strong>${board.reroll_cost.amount} ${escapeHTML(board.reroll_cost.currency_type)}</strong></div>
-      <button type="button" data-action="quest-reroll" ${canReroll ? '' : 'disabled'}>Roll</button>
+    <section class="quest-board" data-quest-board="true">
+      <div class="quest-tabs" role="list" aria-label="Quest categories">
+        ${questTab('Offers', board.counts.offers)}
+        ${questTab('Active', board.counts.active)}
+        ${questTab('Claimable', board.counts.claimable)}
+        ${questTab('Completed', board.counts.completed + board.counts.claimed)}
+      </div>
+      <div class="quest-board__list">
+        ${questSection('Claimable', sections.claimable, selected?.key)}
+        ${questSection('Active', sections.active, selected?.key)}
+        ${questSection('Offers', sections.offers, selected?.key)}
+        ${questSection('Completed', sections.completed, selected?.key)}
+      </div>
+      <div class="quest-board__detail" data-quest-detail="${escapeHTML(selected?.key ?? '')}">
+        ${selected ? questDetail(selected) : '<div class="empty-line">No server quest entries.</div>'}
+        <div class="quest-reroll">
+          <div>
+            <span>Reroll Cost</span>
+            <strong>${board.reroll_cost.amount} ${escapeHTML(board.reroll_cost.currency_type.replace(/_/g, ' '))}</strong>
+          </div>
+          <button type="button" data-action="quest-reroll" ${canReroll ? '' : 'disabled'} title="${canReroll ? 'Request a server quest reroll' : 'Insufficient server wallet balance'}">Reroll</button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function questBoardSections(board: QuestBoardSummary): {
+  offers: QuestEntry[];
+  active: QuestEntry[];
+  claimable: QuestEntry[];
+  completed: QuestEntry[];
+} {
+  const offers = board.offers.map((offer) => questEntryForOffer(offer));
+  const claimable = board.active.filter((quest) => quest.can_claim).map((quest) => questEntryForQuest(quest));
+  const active = board.active
+    .filter((quest) => !quest.can_claim && (quest.state === 'accepted' || (!quest.completed_at && !quest.claimed_at)))
+    .map((quest) => questEntryForQuest(quest));
+  const completed = board.active
+    .filter((quest) => !quest.can_claim && (quest.state === 'completed' || quest.state === 'claimed' || quest.completed_at || quest.claimed_at))
+    .map((quest) => questEntryForQuest(quest));
+  return { offers, active, claimable, completed };
+}
+
+function questEntryForOffer(offer: QuestOfferSummary): QuestEntry {
+  return { key: `offer:${offer.offer_id}`, kind: 'offer', item: offer };
+}
+
+function questEntryForQuest(quest: QuestSummary): QuestEntry {
+  return { key: `quest:${quest.quest_id}`, kind: 'quest', item: quest };
+}
+
+function selectedQuestEntry(entries: QuestEntry[]): QuestEntry | null {
+  if (entries.length === 0) {
+    selectedQuestKey = null;
+    return null;
+  }
+  const selected = entries.find((entry) => entry.key === selectedQuestKey) ?? entries[0];
+  selectedQuestKey = selected.key;
+  return selected;
+}
+
+function questTab(label: string, count: number): string {
+  return `
+    <span class="quest-tab" role="listitem">
+      <em>${escapeHTML(label)}</em>
+      <strong>${count}</strong>
+    </span>
+  `;
+}
+
+function questSection(label: string, entries: QuestEntry[], selectedKey: string | undefined): string {
+  return `
+    <section class="quest-section" data-quest-section="${escapeHTML(label.toLowerCase())}">
+      <header><strong>${escapeHTML(label)}</strong><span>${entries.length}</span></header>
+      ${
+        entries.length > 0
+          ? entries.map((entry) => questRow(entry, selectedKey)).join('')
+          : `<div class="quest-section__empty">No ${escapeHTML(label.toLowerCase())} quests.</div>`
+      }
+    </section>
+  `;
+}
+
+function questRow(entry: QuestEntry, selectedKey: string | undefined): string {
+  const item = entry.item;
+  const objective = item.objectives[0];
+  const selected = entry.key === selectedKey;
+  const state = entry.kind === 'offer' ? 'offer' : entry.item.can_claim ? 'claim' : entry.item.state || 'active';
+  return `
+    <button class="quest-row" type="button" data-action="quest-select" data-quest-key="${escapeHTML(entry.key)}" data-selected="${selected ? 'true' : 'false'}" data-quest-state="${escapeHTML(state)}">
+      <span class="quest-row__pip"></span>
+      <span>
+        <strong>${escapeHTML(item.title)}</strong>
+        <em>${escapeHTML(objective ? questObjectiveLabel(objective) : questRewardLabel(item.rewards[0]))}</em>
+      </span>
+      <small>${escapeHTML(entry.kind === 'offer' ? item.quest_type : questStatusLabel(entry.item))}</small>
+    </button>
+  `;
+}
+
+function questDetail(entry: QuestEntry): string {
+  const item = entry.item;
+  const objectives = item.objectives.length > 0 ? item.objectives : [];
+  const rewards = item.rewards.length > 0 ? item.rewards : [];
+  return `
+    <article class="quest-detail-card">
+      <div class="quest-detail-card__head">
+        <span>${escapeHTML(entry.kind === 'offer' ? item.quest_type : questStatusLabel(entry.item))}</span>
+        <strong>${escapeHTML(item.title)}</strong>
+        <p>${escapeHTML(item.description || 'No server description.')}</p>
+      </div>
+      <div class="quest-detail-card__grid">
+        <section>
+          <h3>Objectives</h3>
+          ${
+            objectives.length > 0
+              ? objectives.map((objective) => questObjectiveRow(objective)).join('')
+              : '<div class="empty-line">No server objectives.</div>'
+          }
+        </section>
+        <section>
+          <h3>Rewards</h3>
+          ${
+            rewards.length > 0
+              ? rewards.map((reward) => `<div class="quest-reward-row"><span>${escapeHTML(reward.kind.replace(/_/g, ' '))}</span><strong>${escapeHTML(questRewardLabel(reward))}</strong></div>`).join('')
+              : '<div class="empty-line">No server rewards.</div>'
+          }
+        </section>
+      </div>
+      <div class="quest-actions">
+        ${questActionButton(entry)}
+      </div>
+    </article>
+  `;
+}
+
+function questObjectiveRow(objective: QuestOfferSummary['objectives'][number]): string {
+  const progress = objective.required > 0 ? clamp(objective.current / objective.required, 0, 1) : 0;
+  return `
+    <div class="quest-objective-row" data-complete="${objective.completed ? 'true' : 'false'}">
+      <div>
+        <span>${escapeHTML(objective.kind.replace(/_/g, ' '))}</span>
+        <strong>${escapeHTML(questObjectiveLabel(objective))}</strong>
+      </div>
+      <div class="quest-progress" aria-hidden="true"><span style="width:${Math.round(progress * 100)}%"></span></div>
     </div>
   `;
+}
+
+function questActionButton(entry: QuestEntry): string {
+  if (entry.kind === 'offer') {
+    return `<button type="button" data-action="quest-accept" data-offer-id="${escapeHTML(entry.item.offer_id)}">Accept</button>`;
+  }
+  const claimable = entry.item.can_claim;
+  return `<button type="button" data-action="quest-claim" data-quest-id="${escapeHTML(entry.item.quest_id)}" ${claimable ? '' : 'disabled'}>${claimable ? 'Claim' : 'Claim Locked'}</button>`;
+}
+
+function questStatusLabel(quest: QuestSummary): string {
+  if (quest.can_claim) {
+    return 'claimable';
+  }
+  if (quest.claimed_at || quest.state === 'claimed') {
+    return 'claimed';
+  }
+  if (quest.completed_at || quest.state === 'completed') {
+    return 'completed';
+  }
+  return quest.state || 'active';
 }
 
 function adminOpsBlock(state: ClientState): string {
@@ -1290,27 +2321,237 @@ function intelPanel(state: ClientState): string {
   `;
 }
 
-function planetDetailBlock(planet: NonNullable<ClientState['planetIntel']>['selectedPlanet']): string {
-  if (!planet) {
-    return '';
+function planetCatalogPanel(state: ClientState): string {
+  const intel = state.planetIntel;
+  if (!intel) {
+    return `
+      <h2>Planets</h2>
+      <div class="empty-line">Awaiting server planet catalog.</div>
+    `;
   }
+  const selectedSummary = intel.selectedPlanet ?? intel.planets[0] ?? null;
+  const selectedDetail =
+    intel.selectedPlanet && selectedSummary?.planet_id === intel.selectedPlanet.planet_id ? intel.selectedPlanet : null;
+  const production = selectedSummary ? planetProductionFor(state, selectedSummary.planet_id, selectedDetail?.production) : null;
+  const storage = production?.storage ?? null;
+  const routes = selectedSummary ? planetRoutesFor(state, selectedSummary.planet_id, selectedDetail?.routes) : [];
+  const coordinates = selectedDetail?.coordinates ?? null;
+  const canNavigate = Boolean(coordinates && Number.isFinite(coordinates.x) && Number.isFinite(coordinates.y));
   return `
-    <div class="planet-detail" data-planet-detail="${escapeHTML(planet.planet_id)}">
-      <div class="meta-row"><span>Selected</span><strong>${escapeHTML(publicPlanetName(planet))}</strong></div>
-      <div class="meta-row"><span>Coord</span><strong>${Math.round(planet.coordinates.x)}, ${Math.round(planet.coordinates.y)}</strong></div>
-      <div class="meta-row"><span>Level</span><strong>${planet.level}</strong></div>
-      <div class="meta-row"><span>Owner</span><strong>${escapeHTML(planet.owner_status || 'intel')}</strong></div>
-      <div class="meta-row"><span>Production</span><strong>${planet.production_locked ? 'locked' : 'ready'}</strong></div>
+    <h2>Planets</h2>
+    <section class="planet-catalog">
+      <div class="planet-catalog__list">
+        <div class="planet-catalog__head">
+          <strong>Catalog</strong>
+          <span>${intel.knownSignals} known</span>
+        </div>
+        ${
+          intel.planets.length > 0
+            ? intel.planets.map((planet) => planetCatalogRow(planet, selectedSummary?.planet_id ?? '')).join('')
+            : '<div class="empty-line">No server-known planets yet.</div>'
+        }
+      </div>
+      <div class="planet-catalog__detail">
+        ${
+          selectedSummary
+            ? `<div class="planet-catalog__hero" data-intel-state="${escapeHTML(selectedSummary.intel_state || 'unknown')}">
+                 <span class="planet-orb planet-orb--large" aria-hidden="true"></span>
+                 <div>
+                   <span>${escapeHTML(selectedSummary.planet_type || 'planet')}</span>
+                   <strong>${escapeHTML(publicPlanetName(selectedSummary))}</strong>
+                   <em>${escapeHTML(selectedSummary.owner_status || selectedSummary.intel_state || 'intel')}</em>
+                 </div>
+               </div>
+               <div class="planet-catalog__actions">
+                 <button type="button" data-action="planet-navigate" data-planet-id="${escapeHTML(selectedSummary.planet_id)}" ${canNavigate ? '' : 'disabled'} title="${canNavigate ? 'Send a server move intent to this known coordinate' : 'Select a server planet detail with coordinates first'}">Navigate</button>
+                 <button type="button" disabled title="Planet claim contract is not enabled in this slice">Claim</button>
+                 <button type="button" disabled title="Planet building contracts are not enabled in this slice">Build</button>
+                 <button type="button" disabled title="Planet building upgrade contract is not enabled in this slice">Upgrade</button>
+                 <button type="button" disabled title="Route mutation contracts are not enabled in this slice">Route</button>
+                 <button type="button" disabled title="Automation mutation contracts are not enabled in this slice">Auto</button>
+               </div>
+               <div class="planet-tabs" aria-label="Planet detail sections">
+                 <span>Overview</span>
+                 <span>Production</span>
+                 <span>Storage</span>
+                 <span>Routes</span>
+                 <span>Intel</span>
+               </div>
+               <div class="planet-section-grid">
+                 <section>
+                   <h3>Overview</h3>
+                   <div class="meta-row"><span>Coord</span><strong>${coordinates ? escapeHTML(formatVec(coordinates)) : lockedValue()}</strong></div>
+                   <div class="meta-row"><span>Level</span><strong>${selectedSummary.level}</strong></div>
+                   <div class="meta-row"><span>Rarity</span><strong>${escapeHTML(selectedSummary.rarity || 'known')}</strong></div>
+                   <div class="meta-row"><span>Biome</span><strong>${escapeHTML(selectedSummary.biome || '--')}</strong></div>
+                 </section>
+                 <section>
+                   <h3>Production</h3>
+                   ${
+                     production
+                       ? `<div class="meta-row"><span>State</span><strong>${production.production_enabled ? 'online' : 'offline'}</strong></div>
+                          <div class="meta-row"><span>Energy</span><strong>${production.energy_reserved_per_hour}/${production.energy_capacity_per_hour}/h</strong></div>
+                          <div class="meta-row"><span>Buildings</span><strong>${production.buildings.length}</strong></div>`
+                       : `<div class="empty-line">${selectedDetail?.production_locked ? 'Locked by server policy.' : 'No production summary.'}</div>`
+                   }
+                 </section>
+                 <section>
+                   <h3>Storage</h3>
+                   ${
+                     storage
+                       ? `<div class="meta-row"><span>Used</span><strong>${storage.used_units}/${storage.capacity_units}</strong></div>
+                          <div class="meta-row"><span>Free</span><strong>${storage.free_units}</strong></div>
+                          ${
+                            storage.items.length > 0
+                              ? `<ul class="compact-list">${storage.items
+                                  .slice(0, 3)
+                                  .map((item) => `<li><span>${escapeHTML(item.item_id)}</span><strong>${item.quantity}</strong></li>`)
+                                  .join('')}</ul>`
+                              : '<div class="empty-line">Storage empty.</div>'
+                          }`
+                       : '<div class="empty-line">No storage summary.</div>'
+                   }
+                 </section>
+                 <section>
+                   <h3>Routes</h3>
+                   ${
+                     routes.length > 0
+                       ? `<ul class="compact-list">${routes
+                           .slice(0, 4)
+                           .map((route) => `<li><span>${escapeHTML(route.resource_item_id)}</span><strong>${route.enabled ? 'on' : 'off'}</strong></li>`)
+                           .join('')}</ul>`
+                       : '<div class="empty-line">No server-owned routes.</div>'
+                   }
+                 </section>
+                 <section>
+                   <h3>Intel</h3>
+                   <div class="meta-row"><span>State</span><strong>${escapeHTML(selectedSummary.intel_state || 'known')}</strong></div>
+                   <div class="meta-row"><span>Confidence</span><strong>${selectedSummary.confidence}%</strong></div>
+                   <div class="meta-row"><span>Owner</span><strong>${escapeHTML(selectedSummary.owner_status || 'intel')}</strong></div>
+                 </section>
+               </div>`
+            : '<div class="empty-line">Select a discovered planet.</div>'
+        }
+      </div>
+    </section>
+  `;
+}
+
+function planetCatalogRow(planet: NonNullable<ClientState['planetIntel']>['planets'][number], selectedPlanetID: string): string {
+  const selected = planet.planet_id === selectedPlanetID;
+  return `
+    <button class="planet-catalog-row" type="button" data-action="planet-select" data-planet-id="${escapeHTML(planet.planet_id)}" data-selected="${selected ? 'true' : 'false'}" data-intel-state="${escapeHTML(planet.intel_state || 'known')}">
+      <span class="planet-orb" aria-hidden="true"></span>
+      <span>
+        <strong>${escapeHTML(publicPlanetName(planet))}</strong>
+        <em>${escapeHTML(planet.planet_type || planet.biome || 'planet')}</em>
+      </span>
+      <small>${escapeHTML(planet.owner_status || planet.intel_state || 'intel')}</small>
+    </button>
+  `;
+}
+
+function planetProductionFor(
+  state: ClientState,
+  planetID: string,
+  detailProduction?: NonNullable<ClientState['production']>['planets'][number],
+): NonNullable<ClientState['production']>['planets'][number] | null {
+  return detailProduction ?? state.production?.planets.find((planet) => planet.planet_id === planetID) ?? null;
+}
+
+function planetRoutesFor(
+  state: ClientState,
+  planetID: string,
+  detailRoutes?: NonNullable<ClientState['routes']>['routes'],
+): NonNullable<ClientState['routes']>['routes'] {
+  if (detailRoutes && detailRoutes.length > 0) {
+    return detailRoutes;
+  }
+  return state.routes?.routes.filter((route) => route.source_planet_id === planetID) ?? [];
+}
+
+function planetDetailModal(state: ClientState, planetID?: string): string {
+  const intel = state.planetIntel;
+  const selected = intel?.selectedPlanet ?? null;
+  const detail = selected && (!planetID || selected.planet_id === planetID) ? selected : null;
+  const summary = detail ?? intel?.planets.find((planet) => planet.planet_id === planetID) ?? null;
+  if (!summary) {
+    return `
+      <h2>Planet</h2>
+      <div class="empty-line">Awaiting server planet intel.</div>
+    `;
+  }
+  const coordinates = detail?.coordinates ?? null;
+  const canNavigate = Boolean(coordinates && Number.isFinite(coordinates.x) && Number.isFinite(coordinates.y));
+  const production = detail?.production;
+  const storage = production?.storage;
+  const routes = detail?.routes ?? [];
+  return `
+    <h2>Planet</h2>
+    <div class="planet-detail planet-detail--modal" data-planet-detail="${escapeHTML(summary.planet_id)}">
+      <div class="planet-detail__hero">
+        <span class="planet-orb planet-orb--large" aria-hidden="true"></span>
+        <div>
+          <div class="target-name">${escapeHTML(publicPlanetName(summary))}</div>
+          <div class="target-kind">${escapeHTML(summary.rarity || summary.intel_state || 'known intel')}</div>
+        </div>
+      </div>
+      <div class="systems-block">
+        <div class="meta-row"><span>Coord</span><strong>${coordinates ? escapeHTML(formatVec(coordinates)) : lockedValue()}</strong></div>
+        <div class="meta-row"><span>Level</span><strong>${summary.level}</strong></div>
+        <div class="meta-row"><span>Owner</span><strong>${escapeHTML(summary.owner_status || 'intel')}</strong></div>
+        <div class="meta-row"><span>Intel</span><strong>${escapeHTML(summary.intel_state || 'known')}</strong></div>
+        <div class="meta-row"><span>Confidence</span><strong>${summary.confidence}%</strong></div>
+      </div>
+      <div class="segmented planet-actions">
+        <button type="button" data-action="planet-navigate" data-planet-id="${escapeHTML(summary.planet_id)}" ${canNavigate ? '' : 'disabled'} title="${canNavigate ? 'Send a server move intent to this known coordinate' : 'Request server coordinates before navigating'}">Navigate</button>
+        <button type="button" disabled title="Planet claim contract is not enabled in this slice">Claim</button>
+        <button type="button" disabled title="Planet building contracts are not enabled in this slice">Build</button>
+        <button type="button" disabled title="Route mutation contracts are not enabled in this slice">Route</button>
+      </div>
+      <div class="systems-subhead">Production</div>
+      ${
+        production
+          ? `<div class="systems-block">
+               <div class="meta-row"><span>State</span><strong>${production.production_enabled ? 'online' : 'offline'}</strong></div>
+               <div class="meta-row"><span>Energy</span><strong>${production.energy_reserved_per_hour}/${production.energy_capacity_per_hour}/h</strong></div>
+               <div class="meta-row"><span>Storage</span><strong>${storage ? `${storage.used_units}/${storage.capacity_units}` : lockedValue()}</strong></div>
+               <div class="meta-row"><span>Buildings</span><strong>${production.buildings.length}</strong></div>
+             </div>`
+          : `<div class="empty-line">${detail?.production_locked ? 'Production is locked by server policy.' : 'No production snapshot for this planet yet.'}</div>`
+      }
+      <div class="systems-subhead">Routes</div>
+      ${
+        routes.length > 0
+          ? `<ul class="compact-list">
+               ${routes
+                 .slice(0, 4)
+                 .map((route) => `<li><span>${escapeHTML(route.resource_item_id)}</span><strong>${route.enabled ? 'on' : 'off'}</strong></li>`)
+                 .join('')}
+             </ul>`
+          : '<div class="empty-line">No server-owned routes for this planet.</div>'
+      }
     </div>
   `;
 }
 
+function planetModalTitle(state: ClientState, planetID?: string): string {
+  const intel = state.planetIntel;
+  const selected = intel?.selectedPlanet ?? null;
+  const summary =
+    (selected && (!planetID || selected.planet_id === planetID) ? selected : null) ??
+    intel?.planets.find((planet) => planet.planet_id === planetID) ??
+    null;
+  return summary ? `Planet: ${publicPlanetName(summary)}` : 'Planet Detail';
+}
+
 function minimapPanel(state: ClientState): string {
-  if (!state.minimap || state.minimap.live_contacts.length === 0) {
+  if (!state.minimap || (state.minimap.live_contacts.length === 0 && state.minimap.remembered.length === 0)) {
     return '<div class="minimap minimap--empty"><div class="empty-line">Awaiting server map projection.</div></div>';
   }
 
   const contacts = state.minimap.live_contacts;
+  const memories = state.minimap.remembered;
   const self = contacts.find((contact) => contact.status_flags?.includes('self')) ?? contacts.find((contact) => contact.entity_type === 'player');
   const center = self?.position ?? { x: 0, y: 0 };
   const radius = Math.max(state.minimap.radar_range, 1);
@@ -1322,6 +2563,13 @@ function minimapPanel(state: ClientState): string {
       return `<span class="minimap__point" data-kind="${escapeHTML(disposition)}" data-entity-type="${escapeHTML(contact.entity_type)}" style="left:${left}%;top:${top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></span>`;
     })
     .join('');
+  const memoryPoints = memories
+    .map((memory) => {
+      const left = clamp(50 + ((memory.position.x - center.x) / (radius * 2)) * 100, 4, 96);
+      const top = clamp(50 + ((memory.position.y - center.y) / (radius * 2)) * 100, 4, 96);
+      return `<span class="minimap__memory" data-kind="${escapeHTML(memory.kind)}" data-freshness="${escapeHTML(memory.freshness)}" style="left:${left}%;top:${top}%" title="${escapeHTML(memory.label || memory.kind)}"></span>`;
+    })
+    .join('');
 
   return `
     <div class="minimap" aria-label="Server-filtered sector map">
@@ -1329,13 +2577,14 @@ function minimapPanel(state: ClientState): string {
       <span class="minimap__ring minimap__ring--middle"></span>
       <span class="minimap__axis minimap__axis--x"></span>
       <span class="minimap__axis minimap__axis--y"></span>
+      ${memoryPoints}
       ${points}
     </div>
     <div class="minimap-legend">
       <span data-kind="self">You</span>
       <span data-kind="hostile">Hostile</span>
       <span data-kind="loot">Loot</span>
-      <span data-kind="unknown">Unknown</span>
+      <span data-kind="memory">Memory</span>
     </div>
   `;
 }
@@ -1681,6 +2930,13 @@ function formatPair(current?: number, max?: number): string {
   return current !== undefined && max !== undefined ? `${Math.round(current)}/${Math.round(max)}` : lockedValue();
 }
 
+function formatDurability(current?: number, max?: number): string {
+  if (current === undefined || max === undefined || max <= 0) {
+    return lockedValue();
+  }
+  return `${Math.max(0, Math.round(current))}/${Math.round(max)}`;
+}
+
 function formatPercent(current?: number, max?: number): string {
   if (current === undefined || max === undefined || max <= 0) {
     return lockedValue();
@@ -1710,8 +2966,12 @@ function normalizePanelID(value: string | undefined): HUDWindowID | null {
     : null;
 }
 
+function isShopCategoryID(value: string | undefined): value is ShopCategoryID {
+  return value === 'market' || value === 'sell' || value === 'auction' || value === 'premium';
+}
+
 function normalizeModalID(value: string | undefined): HUDModalID | null {
-  if (value === 'target' || value === 'planets' || value === 'ship') {
+  if (value === 'target' || value === 'planets' || value === 'ship' || value === 'planet-detail') {
     return value;
   }
   return normalizePanelID(value);
@@ -1745,6 +3005,10 @@ function dispositionForType(entityType: string): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function uniqueNumbers(values: number[]): number[] {
+  return [...new Set(values.map((value) => Math.max(1, Math.round(value))))].sort((left, right) => left - right);
 }
 
 function scanStatusLabel(status: string): string {
@@ -1810,11 +3074,15 @@ function walletBalanceForCurrency(wallet: NonNullable<ClientState['wallet']>, cu
 }
 
 function sellableInventoryStack(state: ClientState): NonNullable<ClientState['inventory']>['stackable'][number] | null {
-  const stack =
-    state.inventory?.stackable.find(
+  return sellableInventoryStacks(state)[0] ?? null;
+}
+
+function sellableInventoryStacks(state: ClientState): NonNullable<ClientState['inventory']>['stackable'] {
+  return (
+    state.inventory?.stackable.filter(
       (item) => item.quantity > 0 && (item.location === 'account_inventory' || item.location === 'ship_cargo'),
-    ) ?? null;
-  return stack;
+    ) ?? []
+  );
 }
 
 function defaultListingPrice(itemID: string, market: NonNullable<ClientState['market']>): number {

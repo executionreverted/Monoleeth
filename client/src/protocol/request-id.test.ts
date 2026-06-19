@@ -18,7 +18,10 @@ test('command builders include request ids and omit trusted fields', () => {
   const fire = builder.combatUseSkill('npc-1');
   const pickup = builder.lootPickup('drop-1');
   const scan = builder.scanPulse();
-  const serializedPayloads = JSON.stringify([move.payload, fire.payload, pickup.payload, scan.payload]);
+  const activate = builder.hangarActivateShip('starter');
+  const equip = builder.loadoutEquipModule('offensive_1', 'laser_alpha_t1-instance-2');
+  const unequip = builder.loadoutUnequipModule('offensive_1');
+  const serializedPayloads = JSON.stringify([move.payload, fire.payload, pickup.payload, scan.payload, activate.payload, equip.payload, unequip.payload]);
 
   expect(move.request_id).toBeTruthy();
   expect(move.client_seq).toBe(1);
@@ -29,6 +32,12 @@ test('command builders include request ids and omit trusted fields', () => {
   expect(pickup.payload).toEqual({ drop_id: 'drop-1' });
   expect(scan.op).toBe('scan.pulse');
   expect(scan.payload).toEqual({});
+  expect(activate.op).toBe('hangar.activate_ship');
+  expect(activate.payload).toEqual({ ship_id: 'starter' });
+  expect(equip.op).toBe('loadout.equip_module');
+  expect(equip.payload).toEqual({ slot_id: 'offensive_1', item_instance_id: 'laser_alpha_t1-instance-2' });
+  expect(unequip.op).toBe('loadout.unequip_module');
+  expect(unequip.payload).toEqual({ slot_id: 'offensive_1' });
   expect(serializedPayloads).not.toContain('player_id');
   expect(serializedPayloads).not.toContain('damage');
   expect(serializedPayloads).not.toContain('xp');

@@ -39,3 +39,35 @@ func AdvanceMovement(current Vec2, target Vec2, speed float64, delta time.Durati
 		Y: current.Y + (target.Y-current.Y)*scale,
 	}, false
 }
+
+// MovementPositionAt returns the server-timed position for movement at the
+// supplied authoritative time.
+func MovementPositionAt(movement MovementState, at time.Time) (Vec2, bool) {
+	if !movement.Moving || movement.Validate() != nil {
+		return movement.Origin, false
+	}
+	if movement.ArriveAtMS <= movement.StartedAtMS {
+		return movement.Target, true
+	}
+
+	nowMS := at.UTC().UnixMilli()
+	if nowMS <= movement.StartedAtMS {
+		return movement.Origin, false
+	}
+	if nowMS >= movement.ArriveAtMS {
+		return movement.Target, true
+	}
+
+	progress := float64(nowMS-movement.StartedAtMS) / float64(movement.ArriveAtMS-movement.StartedAtMS)
+	if progress <= 0 {
+		return movement.Origin, false
+	}
+	if progress >= 1 {
+		return movement.Target, true
+	}
+
+	return Vec2{
+		X: movement.Origin.X + (movement.Target.X-movement.Origin.X)*progress,
+		Y: movement.Origin.Y + (movement.Target.Y-movement.Origin.Y)*progress,
+	}, false
+}

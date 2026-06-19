@@ -59,8 +59,30 @@ export class CommandBuilder {
     return this.build(OPERATIONS.hangarSnapshot, {});
   }
 
+  hangarActivateShip(shipID: string): RequestEnvelope<{ ship_id: string }> {
+    return this.build(OPERATIONS.hangarActivateShip, {
+      ship_id: shipID,
+    });
+  }
+
   loadoutSnapshot(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.loadoutSnapshot, {});
+  }
+
+  loadoutEquipModule(
+    slotID: string,
+    itemInstanceID: string,
+  ): RequestEnvelope<{ slot_id: string; item_instance_id: string }> {
+    return this.build(OPERATIONS.loadoutEquipModule, {
+      slot_id: slotID,
+      item_instance_id: itemInstanceID,
+    });
+  }
+
+  loadoutUnequipModule(slotID: string): RequestEnvelope<{ slot_id: string }> {
+    return this.build(OPERATIONS.loadoutUnequipModule, {
+      slot_id: slotID,
+    });
   }
 
   statsSnapshot(): RequestEnvelope<Record<string, never>> {

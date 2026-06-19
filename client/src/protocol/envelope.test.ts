@@ -4,8 +4,6 @@ import { CommandBuilder } from './commands';
 import { CLIENT_EVENTS, OPERATIONS, parseServerMessage, rejectForbiddenPayloadKeys } from './envelope';
 
 const UNIMPLEMENTED_MUTATION_OPS = [
-  'loadout.equip_module',
-  'loadout.unequip_module',
   'crafting.start',
   'crafting.complete',
   'crafting.cancel',
@@ -180,6 +178,20 @@ describe('rejectForbiddenPayloadKeys', () => {
 });
 
 describe('default outbound operations', () => {
+  test('include server-owned hangar and loadout mutation contracts', () => {
+    expect(OPERATIONS.hangarActivateShip).toBe('hangar.activate_ship');
+    expect(OPERATIONS.loadoutEquipModule).toBe('loadout.equip_module');
+    expect(OPERATIONS.loadoutUnequipModule).toBe('loadout.unequip_module');
+
+    const builder = new CommandBuilder();
+    expect(builder.hangarActivateShip('starter').payload).toEqual({ ship_id: 'starter' });
+    expect(builder.loadoutEquipModule('offensive_1', 'laser_alpha_t1-instance-2').payload).toEqual({
+      slot_id: 'offensive_1',
+      item_instance_id: 'laser_alpha_t1-instance-2',
+    });
+    expect(builder.loadoutUnequipModule('offensive_1').payload).toEqual({ slot_id: 'offensive_1' });
+  });
+
   test('exclude unimplemented browser mutation contracts', () => {
     const allowedOperations = new Set<string>(Object.values(OPERATIONS));
 
@@ -191,8 +203,6 @@ describe('default outbound operations', () => {
   test('do not expose command-builder helpers for unimplemented browser mutations', () => {
     const builderMethods = new Set(Object.getOwnPropertyNames(CommandBuilder.prototype));
     const forbiddenMethodNames = [
-      'loadoutEquipModule',
-      'loadoutUnequipModule',
       'craftingStart',
       'craftingComplete',
       'craftingCancel',

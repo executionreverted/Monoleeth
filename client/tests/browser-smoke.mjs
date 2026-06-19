@@ -24,6 +24,7 @@ const phase05OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-pat
 const phase06OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '06');
 const phase07OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '07');
 const phase08OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '08');
+const phasePatch3OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-3');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -56,8 +57,6 @@ const fakeSocialCountPatterns = [
   { label: 'notification count', pattern: /\bnotifications?\b[^\n]{0,24}\b\d+\b/i },
 ];
 const unimplementedMutationOps = [
-  'loadout.equip_module',
-  'loadout.unequip_module',
   'crafting.start',
   'crafting.complete',
   'crafting.cancel',
@@ -71,10 +70,6 @@ const unimplementedMutationOps = [
   'route.settle',
 ];
 const unimplementedMutationControlPatterns = [
-  {
-    label: 'loadout module mutation',
-    pattern: /\b(?:loadout|module)\b[^\n]{0,32}\b(?:equip|unequip)\b|\b(?:equip|unequip)\b[^\n]{0,32}\b(?:loadout|module)\b/i,
-  },
   {
     label: 'crafting mutation',
     pattern: /\b(?:craft|crafting|recipe)\b[^\n]{0,32}\b(?:start|complete|cancel)\b|\b(?:start|complete|cancel)\b[^\n]{0,32}\b(?:craft|crafting|recipe)\b/i,
@@ -113,6 +108,7 @@ try {
   await mkdir(phase06OutputDir, { recursive: true });
   await mkdir(phase07OutputDir, { recursive: true });
   await mkdir(phase08OutputDir, { recursive: true });
+  await mkdir(phasePatch3OutputDir, { recursive: true });
   if (useFixture) {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
@@ -202,15 +198,19 @@ async function verifyRealViewport(viewport, label) {
             state?.cargo?.capacity === 60 &&
             state?.wallet?.credits === 1200 &&
             state?.wallet?.premium_paid === 300 &&
-            state?.ship?.active_ship_id === 'starter_ship' &&
+            state?.ship?.active_ship_id === 'starter' &&
             state?.ship?.disabled === false &&
             state?.progression?.rank >= 1 &&
             state?.stats?.radar_range === 420 &&
             state?.stats?.loot_pickup_range === 120 &&
             state?.stats?.basic_laser_energy_cost === 10 &&
             state?.inventory?.counts?.cargo_stacks === 0 &&
-            state?.hangar?.active_ship_id === 'starter_ship' &&
+            state?.inventory?.counts?.equipped_instances === 1 &&
+            state?.inventory?.instances?.some((item) => item.item_id === 'scanner_t1' && item.location === 'ship_equipped') &&
+            state?.inventory?.instances?.some((item) => item.item_id === 'laser_alpha_t1' && item.location === 'account_inventory') &&
+            state?.hangar?.active_ship_id === 'starter' &&
             state?.loadout?.slots?.length === 3 &&
+            state?.loadout?.slots?.some((slot) => slot.slot_id === 'utility_1' && slot.module_item_id === 'scanner_t1') &&
             state?.crafting?.recipes?.length >= 3 &&
             state?.planetIntel?.knownSignals === 0 &&
             state?.production?.planets?.length === 0 &&
@@ -236,15 +236,20 @@ async function verifyRealViewport(viewport, label) {
     }
     await assertNoUnimplementedMutationControls(page, `${label} authenticated bootstrap`);
     await verifyQuickActionContracts(page, viewport, label);
+    await verifyInventoryLoadout(page, viewport, label);
+    await verifyHangarSurface(page, viewport, label);
 
-    await verifyRealEconomy(page);
+    await verifyRealEconomy(page, viewport, label);
 
     await verifyScanModeAutomation(page, viewport, label);
     await verifyPlanetMemoryMarker(page, label);
+    await verifyPlanetCatalogSurface(page, viewport, label);
+    await verifyQuestBoardSurface(page, viewport, label);
 
     await verifyPanelModalChrome(page, viewport, label);
     await assertCanvasAndLayout(page, viewport, label);
     await verifyStarfieldBackground(page, label);
+    await verifyFogOfWar(page, label);
     await assertMockupParityShell(page, viewport, label);
     await assertNoForbiddenLeaks(page, label);
     await assertNoFakeTopbarCounts(page, `${label} authenticated`);
@@ -257,6 +262,7 @@ async function verifyRealViewport(viewport, label) {
       await verifyReconnectReconciliation(page, callsign);
       await verifyRealCombatLoot(page);
       await verifyRealMovementInterpolation(page);
+      await verifyPlanetNavigateAction(page, label);
     }
 
     await page.locator('[data-action="logout"]').click();
@@ -293,7 +299,8 @@ async function verifyPlanetMemoryMarker(page, label) {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     const detail = state?.planetIntel?.selectedPlanet;
     const marker = state?.worldView?.memoryMarkers?.[0];
-    const detailPanel = document.querySelector('[data-panel="planets"] [data-planet-detail]');
+    const detailPanel = document.querySelector('[data-modal="planet-detail"] [data-planet-detail]');
+    const inlineDetail = document.querySelector('[data-panel="planets"] [data-planet-detail]');
     return (
       detail?.planet_id &&
       Number.isFinite(detail.coordinates?.x) &&
@@ -301,7 +308,8 @@ async function verifyPlanetMemoryMarker(page, label) {
       marker?.detailID === detail.planet_id &&
       marker?.position?.x === detail.coordinates.x &&
       marker?.position?.y === detail.coordinates.y &&
-      detailPanel instanceof HTMLElement
+      detailPanel instanceof HTMLElement &&
+      inlineDetail === null
     );
   }, null, { timeout: 10000 });
 
@@ -313,8 +321,15 @@ async function verifyPlanetMemoryMarker(page, label) {
   await page.screenshot({ path: path.join(phaseOutputDir, `planet-memory-${label}.png`), fullPage: true });
 
   if (label !== 'desktop') {
+    await page.locator('[data-modal-close="button"]').click();
+    await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+    await syncRememberedMinimap(page, label);
     return;
   }
+
+  await page.locator('[data-modal-close="button"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+  await syncRememberedMinimap(page, label);
 
   await page.waitForTimeout(250);
   await clickWorldPosition(page, { x: 80, y: 0 });
@@ -346,6 +361,203 @@ async function verifyPlanetMemoryMarker(page, label) {
     throw new Error(`${label}: planet memory marker click emitted move_to`);
   }
   await page.screenshot({ path: path.join(phase08OutputDir, 'selected-planet-desktop.png'), fullPage: true });
+}
+
+async function verifyPlanetNavigateAction(page, label) {
+  await page.locator('[data-panel="planets"] [data-action="planet-detail"]').first().dispatchEvent('click');
+  await page.waitForSelector('[data-modal="planet-detail"] [data-action="planet-navigate"]:not([disabled])', { timeout: 10000 });
+  const moveCountBeforeNavigate = await commandLogCount(page, 'Sent move_to.');
+  await page.locator('[data-modal="planet-detail"] [data-action="planet-navigate"]').click();
+  await page.waitForFunction(
+    (before) => {
+      const lines = window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? [];
+      return lines.filter((line) => line.text === 'Sent move_to.').length > before;
+    },
+    moveCountBeforeNavigate,
+    { timeout: 10000 },
+  );
+  await page.locator('[data-modal-close="button"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+}
+
+async function verifyPlanetCatalogSurface(page, viewport, label) {
+  await page.locator('[data-panel-toggle="intel"]').click();
+  await page.waitForSelector('[data-window-panel="intel"][data-focused="true"] .planet-catalog', { timeout: 10000 });
+  await page.waitForSelector('[data-window-panel="intel"] .planet-catalog-row', { timeout: 10000 });
+
+  const moveCountBeforeSelect = await commandLogCount(page, 'Sent move_to.');
+  await page.locator('[data-window-panel="intel"] .planet-catalog-row').first().dispatchEvent('click');
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const detail = state?.planetIntel?.selectedPlanet;
+    const selectedRow = document.querySelector('[data-window-panel="intel"] .planet-catalog-row[data-selected="true"]');
+    const sections = [...document.querySelectorAll('[data-window-panel="intel"] .planet-section-grid h3')].map((node) => node.textContent?.trim());
+    return (
+      detail?.planet_id &&
+      Number.isFinite(detail.coordinates?.x) &&
+      Number.isFinite(detail.coordinates?.y) &&
+      selectedRow instanceof HTMLElement &&
+      ['Overview', 'Production', 'Storage', 'Routes', 'Intel'].every((section) => sections.includes(section))
+    );
+  }, null, { timeout: 10000 });
+  const moveCountAfterSelect = await commandLogCount(page, 'Sent move_to.');
+  if (moveCountAfterSelect !== moveCountBeforeSelect) {
+    throw new Error(`${label}: selecting a planet catalog row emitted move_to`);
+  }
+
+  const summary = await page.evaluate(() => {
+    const actions = [...document.querySelectorAll('[data-window-panel="intel"] .planet-catalog__actions button')];
+    return {
+      selectedPlanetID: window.__SPACE_MORPG_SMOKE_STATE__?.planetIntel?.selectedPlanet?.planet_id ?? '',
+      rowCount: document.querySelectorAll('[data-window-panel="intel"] .planet-catalog-row').length,
+      navigateEnabled: actions[0] instanceof HTMLButtonElement ? !actions[0].disabled : false,
+      lockedDisabled: actions.slice(1).every((button) => button instanceof HTMLButtonElement && button.disabled),
+      hasProductionSection: Boolean(
+        [...document.querySelectorAll('[data-window-panel="intel"] .planet-section-grid h3')].find(
+          (node) => node.textContent?.trim() === 'Production',
+        ),
+      ),
+    };
+  });
+  if (!summary.selectedPlanetID || summary.rowCount < 1 || !summary.navigateEnabled || !summary.lockedDisabled || !summary.hasProductionSection) {
+    throw new Error(`${label}: planet catalog surface mismatch ${JSON.stringify(summary)}`);
+  }
+
+  await page.screenshot({ path: path.join(phasePatch3OutputDir, `planets-catalog-${label}.png`), fullPage: true });
+  if (viewport.width < 768) {
+    const hasHorizontalScroll = await page.evaluate(() => document.scrollingElement.scrollWidth > window.innerWidth + 1);
+    if (hasHorizontalScroll) {
+      throw new Error(`${label}: planets catalog created horizontal body scroll`);
+    }
+  }
+  await page.locator('[data-window-panel="intel"] [data-panel-close="intel"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-window-panel="intel"]'), null, { timeout: 10000 });
+}
+
+async function verifyQuestBoardSurface(page, viewport, label) {
+  await page.locator('[data-panel-toggle="quests"]').click();
+  await page.waitForSelector('[data-window-panel="quests"][data-focused="true"] .quest-board', { timeout: 10000 });
+  await page.waitForSelector('[data-window-panel="quests"] .quest-row', { timeout: 10000 });
+
+  const initial = await page.evaluate(() => {
+    const navText = document.querySelector('[data-panel-toggle="quests"]')?.textContent ?? '';
+    const detail = document.querySelector('[data-window-panel="quests"] [data-quest-detail]');
+    return {
+      navText,
+      detailKey: detail instanceof HTMLElement ? detail.dataset.questDetail ?? '' : '',
+      rowCount: document.querySelectorAll('[data-window-panel="quests"] .quest-row').length,
+      sectionLabels: [...document.querySelectorAll('[data-window-panel="quests"] .quest-section header strong')].map((node) =>
+        node.textContent?.trim(),
+      ),
+      hasObjective: Boolean(document.querySelector('[data-window-panel="quests"] .quest-objective-row')),
+      hasReward: Boolean(document.querySelector('[data-window-panel="quests"] .quest-reward-row')),
+      offers: window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.offers?.length ?? 0,
+      active: window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.active?.length ?? 0,
+    };
+  });
+  if (!/quests/i.test(initial.navText) || /galaxy/i.test(initial.navText)) {
+    throw new Error(`${label}: quest nav label mismatch ${JSON.stringify(initial)}`);
+  }
+  if (
+    initial.rowCount < 2 ||
+    !['Offers', 'Active', 'Claimable', 'Completed'].every((section) => initial.sectionLabels.includes(section)) ||
+    !initial.hasObjective ||
+    !initial.hasReward
+  ) {
+    throw new Error(`${label}: quest board surface incomplete ${JSON.stringify(initial)}`);
+  }
+
+  const rowCount = await page.locator('[data-window-panel="quests"] .quest-row').count();
+  if (rowCount > 1) {
+    await page.locator('[data-window-panel="quests"] .quest-row').nth(1).click();
+    await page.waitForFunction(
+      (previousKey) => {
+        const detail = document.querySelector('[data-window-panel="quests"] [data-quest-detail]');
+        return detail instanceof HTMLElement && detail.dataset.questDetail && detail.dataset.questDetail !== previousKey;
+      },
+      initial.detailKey,
+      { timeout: 10000 },
+    );
+  }
+
+  const acceptBefore = await commandLogCount(page, 'Sent quest.accept.');
+  await page.waitForSelector('[data-window-panel="quests"] [data-action="quest-accept"]:not([disabled])', { timeout: 10000 });
+  await page.locator('[data-window-panel="quests"] [data-action="quest-accept"]').first().click();
+  await page.waitForFunction(
+    ({ before, activeBefore, offersBefore }) => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      const accepted = (state?.commandLog ?? []).filter((line) => line.text === 'Sent quest.accept.').length > before;
+      return (
+        accepted &&
+        ((state?.questBoard?.active?.length ?? 0) > activeBefore || (state?.questBoard?.offers?.length ?? 0) < offersBefore)
+      );
+    },
+    { before: acceptBefore, activeBefore: initial.active, offersBefore: initial.offers },
+    { timeout: 10000 },
+  );
+  await page.waitForSelector('[data-window-panel="quests"] .quest-section[data-quest-section="active"] .quest-row', { timeout: 10000 });
+
+  const actionState = await page.evaluate(() => {
+    const reroll = document.querySelector('[data-window-panel="quests"] [data-action="quest-reroll"]');
+    const claim = document.querySelector('[data-window-panel="quests"] [data-action="quest-claim"]');
+    return {
+      acceptedCommands: (window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? []).filter((line) => line.text === 'Sent quest.accept.').length,
+      hasRerollContract: reroll instanceof HTMLButtonElement,
+      hasClaimContract: claim instanceof HTMLButtonElement,
+      activeRows: document.querySelectorAll('[data-window-panel="quests"] .quest-section[data-quest-section="active"] .quest-row').length,
+      detailKey: document.querySelector('[data-window-panel="quests"] [data-quest-detail]')?.getAttribute('data-quest-detail') ?? '',
+    };
+  });
+  if (actionState.acceptedCommands <= acceptBefore || !actionState.hasRerollContract || !actionState.hasClaimContract || actionState.activeRows < 1) {
+    throw new Error(`${label}: quest action wiring incomplete ${JSON.stringify(actionState)}`);
+  }
+
+  await page.screenshot({ path: path.join(phasePatch3OutputDir, `quests-${label}.png`), fullPage: true });
+  if (viewport.width < 768) {
+    const hasHorizontalScroll = await page.evaluate(() => document.scrollingElement.scrollWidth > window.innerWidth + 1);
+    if (hasHorizontalScroll) {
+      throw new Error(`${label}: quest board created horizontal body scroll`);
+    }
+  }
+  await page.locator('[data-window-panel="quests"] [data-panel-close="quests"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-window-panel="quests"]'), null, { timeout: 10000 });
+}
+
+async function syncRememberedMinimap(page, label) {
+  await page.locator('[data-action="sync"]').click();
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return (state?.minimap?.remembered ?? []).length >= 1 && document.querySelectorAll('.minimap__memory').length >= 1;
+  }, null, { timeout: 10000 });
+  const leaked = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return {
+      remembered: state?.minimap?.remembered ?? [],
+      hiddenVisible: Boolean(state?.visibleEntities?.entity_hidden_planet_signal),
+      hiddenContact: state?.minimap?.live_contacts?.some((contact) => contact.entity_id === 'entity_hidden_planet_signal') ?? false,
+    };
+  });
+  if (leaked.hiddenVisible || leaked.hiddenContact) {
+    throw new Error(`${label}: hidden planet signal leaked while syncing remembered minimap ${JSON.stringify(leaked)}`);
+  }
+}
+
+async function verifyFogOfWar(page, label) {
+  await page.waitForFunction(() => {
+    const fog = window.__SPACE_MORPG_SMOKE_STATE__?.worldView?.fog;
+    return (
+      fog?.active === true &&
+      Number.isFinite(fog.revealCenter?.x) &&
+      Number.isFinite(fog.revealCenter?.y) &&
+      fog.revealRadius > 100 &&
+      fog.overlayAlpha >= 0.45 &&
+      fog.rememberedPockets >= 1
+    );
+  }, null, { timeout: 10000 });
+  const memoryCount = await page.locator('.minimap__memory').count();
+  if (memoryCount < 1) {
+    throw new Error(`${label}: minimap did not render remembered fog memory`);
+  }
 }
 
 async function verifyQuickActionContracts(page, viewport, label) {
@@ -434,6 +646,159 @@ async function verifyQuickActionContracts(page, viewport, label) {
       throw new Error(`${label}: quick action bar created horizontal body scroll`);
     }
   }
+}
+
+async function verifyInventoryLoadout(page, viewport, label) {
+  await page.locator('[data-panel-toggle="cargo"]').click();
+  await page.waitForSelector('[data-window-panel="cargo"][data-focused="true"] .loadout-console', { timeout: 10000 });
+  await page.waitForSelector('[data-loadout-slot-id="offensive_1"]', { timeout: 10000 });
+  await page.waitForSelector('[data-module-slot-type="offensive"]', { timeout: 10000 });
+
+  const initial = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const laser = state?.inventory?.instances?.find((item) => item.item_id === 'laser_alpha_t1');
+    return {
+      laserID: laser?.item_instance_id ?? '',
+      laserLocation: laser?.location ?? '',
+      equipped: state?.loadout?.slots?.find((slot) => slot.slot_id === 'offensive_1')?.item_instance_id ?? '',
+      slotCount: document.querySelectorAll('[data-loadout-slot-id]').length,
+      moduleCards: document.querySelectorAll('[data-module-instance-id]').length,
+      moduleDetail: document.querySelector('[data-window-panel="cargo"] [data-module-detail]')?.getAttribute('data-module-detail') ?? '',
+      moduleSelectButtons: document.querySelectorAll('[data-window-panel="cargo"] [data-action="module-select"]').length,
+    };
+  });
+  if (
+    !initial.laserID ||
+    initial.laserLocation !== 'account_inventory' ||
+    initial.equipped ||
+    initial.slotCount < 3 ||
+    initial.moduleCards < 3 ||
+    !initial.moduleDetail ||
+    initial.moduleSelectButtons < 1
+  ) {
+    throw new Error(`${label}: inventory loadout initial state mismatch ${JSON.stringify(initial)}`);
+  }
+  await page.locator(`[data-window-panel="cargo"] [data-action="module-select"][data-module-instance-id="${initial.laserID}"]`).click();
+  await page.waitForFunction(
+    (laserID) => document.querySelector('[data-window-panel="cargo"] [data-module-detail]')?.getAttribute('data-module-detail') === laserID,
+    initial.laserID,
+    { timeout: 10000 },
+  );
+
+  await dispatchLoadoutDrop(page, `[data-module-instance-id="${initial.laserID}"]`, '[data-loadout-slot-id="offensive_1"]');
+  await page.waitForFunction(
+    (laserID) => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      return (
+        state?.loadout?.slots?.some((slot) => slot.slot_id === 'offensive_1' && slot.item_instance_id === laserID) &&
+        state?.inventory?.instances?.some((item) => item.item_instance_id === laserID && item.location === 'ship_equipped') &&
+        (state?.commandLog ?? []).some((line) => line.text === 'Sent loadout.equip_module.')
+      );
+    },
+    initial.laserID,
+    { timeout: 10000 },
+  );
+
+  await dispatchLoadoutDrop(
+    page,
+    `[data-equipped-slot-id="offensive_1"][data-module-instance-id="${initial.laserID}"]`,
+    '.module-bay[data-loadout-inventory-drop="true"]',
+  );
+  await page.waitForFunction(
+    (laserID) => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      return (
+        state?.loadout?.slots?.some((slot) => slot.slot_id === 'offensive_1' && !slot.item_instance_id) &&
+        state?.inventory?.instances?.some((item) => item.item_instance_id === laserID && item.location === 'account_inventory') &&
+        (state?.commandLog ?? []).some((line) => line.text === 'Sent loadout.unequip_module.')
+      );
+    },
+    initial.laserID,
+    { timeout: 10000 },
+  );
+
+  await page.screenshot({ path: path.join(outputDir, `inventory-loadout-${label}.png`), fullPage: true });
+  if (viewport.width < 768) {
+    const hasHorizontalScroll = await page.evaluate(() => document.scrollingElement.scrollWidth > window.innerWidth + 1);
+    if (hasHorizontalScroll) {
+      throw new Error(`${label}: inventory loadout created horizontal body scroll`);
+    }
+  }
+  await page.locator('[data-window-panel="cargo"] [data-panel-close="cargo"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-window-panel="cargo"]'), null, { timeout: 10000 });
+}
+
+async function verifyHangarSurface(page, viewport, label) {
+  await page.locator('[data-panel-toggle="systems"]').click();
+  await page.waitForSelector('[data-window-panel="systems"][data-focused="true"] .hangar-console', { timeout: 10000 });
+  await page.waitForSelector('.hangar-row[data-active="true"]', { timeout: 10000 });
+  await page.waitForSelector('.hangar-detail .hangar-preview', { timeout: 10000 });
+
+  const summary = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const active = state?.hangar?.ships?.find((ship) => ship.ship_id === state?.hangar?.active_ship_id);
+    const activateButton = document.querySelector('[data-window-panel="systems"] [data-action="hangar-activate"]');
+    return {
+      activeShipID: state?.hangar?.active_ship_id ?? '',
+      rowCount: state?.hangar?.ships?.length ?? 0,
+      activeRow: active
+        ? {
+            shipID: active.ship_id,
+            active: active.active,
+            cargo: active.cargo_capacity,
+            speed: active.speed,
+            radar: active.radar,
+            utility: active.slot_utility,
+          }
+        : null,
+      activateDisabled: activateButton instanceof HTMLButtonElement ? activateButton.disabled : null,
+      commandSent: (state?.commandLog ?? []).some((line) => line.text === 'Sent hangar.activate_ship.'),
+      selectedRow: document.querySelector('.hangar-row[data-selected="true"]')?.getAttribute('data-ship-id') ?? '',
+      detailTitle: document.querySelector('.hangar-detail .hangar-preview strong')?.textContent?.trim() ?? '',
+    };
+  });
+  if (
+    summary.activeShipID !== 'starter' ||
+    summary.rowCount < 1 ||
+    summary.activeRow?.shipID !== 'starter' ||
+    summary.activeRow.active !== true ||
+    summary.activeRow.cargo <= 0 ||
+    summary.activeRow.utility !== 1 ||
+    summary.activateDisabled !== true ||
+    summary.commandSent ||
+    summary.selectedRow !== 'starter' ||
+    !summary.detailTitle
+  ) {
+    throw new Error(`${label}: hangar surface mismatch ${JSON.stringify(summary)}`);
+  }
+
+  await page.screenshot({ path: path.join(phasePatch3OutputDir, `hangar-${label}.png`), fullPage: true });
+  if (viewport.width < 768) {
+    const hasHorizontalScroll = await page.evaluate(() => document.scrollingElement.scrollWidth > window.innerWidth + 1);
+    if (hasHorizontalScroll) {
+      throw new Error(`${label}: hangar surface created horizontal body scroll`);
+    }
+  }
+  await page.locator('[data-window-panel="systems"] [data-panel-close="systems"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-window-panel="systems"]'), null, { timeout: 10000 });
+}
+
+async function dispatchLoadoutDrop(page, sourceSelector, targetSelector) {
+  await page.evaluate(
+    ({ sourceSelector, targetSelector }) => {
+      const source = document.querySelector(sourceSelector);
+      const target = document.querySelector(targetSelector);
+      if (!source || !target) {
+        throw new Error(`Missing drag source or target: ${sourceSelector} -> ${targetSelector}`);
+      }
+      const dataTransfer = new DataTransfer();
+      source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }));
+      target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+      target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+      source.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer }));
+    },
+    { sourceSelector, targetSelector },
+  );
 }
 
 async function verifyReconnectReconciliation(page, expectedCallsign) {
@@ -890,18 +1255,26 @@ async function verifyRealMovementInterpolation(page) {
   if (!etaBefore.active || !etaAfter.active || etaAfter.remainingMs >= etaBefore.remainingMs) {
     throw new Error(`desktop movement ETA did not count down: ${JSON.stringify({ before: etaBefore, after: etaAfter })}`);
   }
-  await page.screenshot({ path: path.join(phase05OutputDir, 'movement-eta-desktop.png'), fullPage: true });
-  await page.screenshot({ path: path.join(phase08OutputDir, 'movement-eta-desktop.png'), fullPage: true });
-
   await page.waitForTimeout(80);
   const first = await selfMovementSample(page);
   const firstDisplayDistance = distance(first.display, firstTarget);
   if (firstDisplayDistance < 20) {
-    throw new Error(`desktop movement display jumped to first target (${firstDisplayDistance})`);
+    throw new Error(
+      `desktop movement display jumped to first target ${JSON.stringify({
+        firstDisplayDistance,
+        firstTarget,
+        sample: first,
+        etaBefore,
+        etaAfter,
+        diagnostics: await movementDiagnostics(page, firstTarget),
+      })}`,
+    );
   }
   if (distance(first.display, first.entity.movement.origin) <= 0.5) {
     throw new Error('desktop movement display did not advance from server route origin');
   }
+  await page.screenshot({ path: path.join(phase05OutputDir, 'movement-eta-desktop.png'), fullPage: true });
+  await page.screenshot({ path: path.join(phase08OutputDir, 'movement-eta-desktop.png'), fullPage: true });
 
   await page.waitForTimeout(90);
   const beforeSecond = await selfMovementSample(page);
@@ -996,6 +1369,86 @@ async function verifyRealMovementInterpolation(page) {
     null,
     { timeout: 10000 },
   );
+  await verifyHudInputIsolationDuringMovement(page);
+}
+
+async function verifyHudInputIsolationDuringMovement(page) {
+  await page.waitForTimeout(1200);
+  const initial = await selfMovementSample(page);
+  const target = await movementTargetAwayFromMemory(page, initial.entity.position, [
+    { x: 340, y: -210 },
+    { x: -340, y: -210 },
+    { x: 300, y: 240 },
+    { x: -300, y: 240 },
+  ]);
+  await clickWorldPosition(page, target);
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.movementEta?.active === true, null, { timeout: 3000 });
+  const moveBefore = await commandLogCount(page, 'Sent move_to.');
+  const skillBefore = await commandLogCount(page, 'Sent combat.use_skill.');
+
+  for (const panel of ['cargo', 'systems', 'quests', 'intel', 'economy']) {
+    await page.locator(`[data-panel-toggle="${panel}"]`).click();
+    await page.waitForSelector(`[data-window-panel="${panel}"][data-focused="true"]`, { timeout: 10000 });
+  }
+
+  await page.locator('[data-window-panel="economy"]').focus();
+  await page.locator('[data-window-panel="economy"] .hud-window__body').click({ position: { x: 20, y: 20 } });
+  await page.keyboard.press('1');
+  await page.waitForTimeout(80);
+  const skillAfterWindowKey = await commandLogCount(page, 'Sent combat.use_skill.');
+  if (skillAfterWindowKey !== skillBefore) {
+    throw new Error('desktop movement HUD window focus allowed a quick action command');
+  }
+
+  const beforeDrag = await windowRect(page, 'economy');
+  const header = await page.locator('[data-window-panel="economy"] .hud-window__header').boundingBox();
+  if (!beforeDrag || !header) {
+    throw new Error('desktop movement economy window was not draggable');
+  }
+  await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(header.x + header.width / 2 + 72, header.y + header.height / 2 + 36, { steps: 5 });
+  await page.mouse.up();
+  const afterDrag = await windowRect(page, 'economy');
+  if (!afterDrag || Math.hypot(afterDrag.left - beforeDrag.left, afterDrag.top - beforeDrag.top) < 25) {
+    throw new Error('desktop movement economy window did not drag while moving');
+  }
+
+  await page.locator('[data-window-panel="economy"] [data-modal-open="economy"]').click();
+  await page.waitForSelector('[data-modal="economy"][role="dialog"]', { timeout: 10000 });
+  await page.locator('[data-modal="economy"] .hud-modal__body').click({ position: { x: 24, y: 24 } });
+  await page.keyboard.press('1');
+  await page.waitForTimeout(80);
+  const skillAfterModalKey = await commandLogCount(page, 'Sent combat.use_skill.');
+  if (skillAfterModalKey !== skillBefore) {
+    throw new Error('desktop movement modal focus allowed a quick action command');
+  }
+
+  const modalBefore = await page.locator('[data-modal="economy"]').boundingBox();
+  const modalHeader = await page.locator('[data-modal="economy"] .hud-modal__header').boundingBox();
+  if (!modalBefore || !modalHeader) {
+    throw new Error('desktop movement economy modal was not draggable');
+  }
+  await page.mouse.move(modalHeader.x + modalHeader.width / 2, modalHeader.y + modalHeader.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(modalHeader.x + modalHeader.width / 2 - 64, modalHeader.y + modalHeader.height / 2 + 42, { steps: 5 });
+  await page.mouse.up();
+  const modalAfter = await page.locator('[data-modal="economy"]').boundingBox();
+  if (!modalAfter || Math.hypot(modalAfter.x - modalBefore.x, modalAfter.y - modalBefore.y) < 25) {
+    throw new Error('desktop movement economy modal did not drag while moving');
+  }
+
+  await page.locator('[data-modal-close="button"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+  for (const panel of ['economy', 'intel', 'quests', 'systems', 'cargo']) {
+    await page.locator(`[data-window-panel="${panel}"] [data-panel-close="${panel}"]`).click();
+  }
+  await page.waitForFunction(() => !document.querySelector('[data-window-panel]'), null, { timeout: 10000 });
+
+  const moveAfter = await commandLogCount(page, 'Sent move_to.');
+  if (moveAfter !== moveBefore) {
+    throw new Error('desktop movement HUD/modal click leaked into move_to');
+  }
 }
 
 function backgroundOffsetDelta(before, after) {
@@ -1038,14 +1491,36 @@ async function movementDiagnostics(page, expectedTarget) {
   }, expectedTarget);
 }
 
-async function verifyRealEconomy(page) {
+async function verifyRealEconomy(page, viewport, label) {
+  await page.locator('[data-panel-toggle="economy"]').click();
+  await page.waitForSelector('[data-window-panel="economy"][data-focused="true"] .shop-console', { timeout: 10000 });
+  await page.waitForFunction(() => {
+    const labels = [...document.querySelectorAll('[data-window-panel="economy"] .shop-category span')].map((node) =>
+      node.textContent?.trim(),
+    );
+    const detail = document.querySelector('[data-window-panel="economy"] [data-shop-detail]');
+    return (
+      ['Market', 'Sell', 'Auction', 'Premium'].every((label) => labels.includes(label)) &&
+      detail instanceof HTMLElement &&
+      document.querySelector('[data-window-panel="economy"] [data-shop-quantity]') &&
+      document.querySelector('[data-window-panel="economy"] [data-action="market-buy"]')
+    );
+  }, null, { timeout: 10000 });
+  await page.screenshot({ path: path.join(phasePatch3OutputDir, `shop-${label}.png`), fullPage: true });
+  if (viewport.width < 768) {
+    const hasHorizontalScroll = await page.evaluate(() => document.scrollingElement.scrollWidth > window.innerWidth + 1);
+    if (hasHorizontalScroll) {
+      throw new Error(`${label}: shop catalog created horizontal body scroll`);
+    }
+  }
+
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
-    const button = document.querySelector('[data-panel="economy"] [data-action="market-buy"]');
+    const button = document.querySelector('[data-window-panel="economy"] [data-action="market-buy"]');
     const activeListing = state?.market?.listings?.find((listing) => listing.status === 'active' && !listing.owned_by_you);
     return activeListing?.remaining_quantity > 0 && button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 10000 });
-  await page.locator('[data-panel="economy"] [data-action="market-buy"]').dispatchEvent('click');
+  await page.locator('[data-window-panel="economy"] [data-action="market-buy"]').dispatchEvent('click');
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return (
@@ -1054,11 +1529,12 @@ async function verifyRealEconomy(page) {
     );
   }, null, { timeout: 10000 });
 
+  await page.locator('[data-window-panel="economy"] [data-shop-category="sell"]').click();
   await page.waitForFunction(() => {
-    const button = document.querySelector('[data-panel="economy"] [data-action="market-create"]');
+    const button = document.querySelector('[data-window-panel="economy"] [data-action="market-create"]');
     return button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 10000 });
-  await page.locator('[data-panel="economy"] [data-action="market-create"]').dispatchEvent('click');
+  await page.locator('[data-window-panel="economy"] [data-action="market-create"]').dispatchEvent('click');
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return (
@@ -1068,10 +1544,10 @@ async function verifyRealEconomy(page) {
   }, null, { timeout: 10000 });
 
   await page.waitForFunction(() => {
-    const button = document.querySelector('[data-panel="economy"] [data-action="market-cancel"]');
+    const button = document.querySelector('[data-window-panel="economy"] [data-action="market-cancel"]');
     return button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 10000 });
-  await page.locator('[data-panel="economy"] [data-action="market-cancel"]').dispatchEvent('click');
+  await page.locator('[data-window-panel="economy"] [data-action="market-cancel"]').dispatchEvent('click');
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return (
@@ -1080,35 +1556,42 @@ async function verifyRealEconomy(page) {
     );
   }, null, { timeout: 10000 });
 
+  await page.locator('[data-window-panel="economy"] [data-shop-category="auction"]').click();
   await page.waitForFunction(() => {
-    const button = document.querySelector('[data-panel="economy"] [data-action="auction-bid"]');
+    const button = document.querySelector('[data-window-panel="economy"] [data-action="auction-bid"]');
     return button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 10000 });
-  await page.locator('[data-panel="economy"] [data-action="auction-bid"]').dispatchEvent('click');
+  await page.locator('[data-window-panel="economy"] [data-action="auction-bid"]').dispatchEvent('click');
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return state?.auction?.lots?.[0]?.leading === true && state?.wallet?.credits < 1175;
   }, null, { timeout: 10000 });
 
+  await page.locator('[data-window-panel="economy"] [data-shop-category="premium"]').click();
+  await page.locator('[data-window-panel="economy"] [data-shop-kind="premium_entitlement"]').first().click();
   await page.waitForFunction(() => {
-    const button = document.querySelector('[data-panel="economy"] [data-action="premium-claim"]');
+    const button = document.querySelector('[data-window-panel="economy"] [data-action="premium-claim"]');
     return button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 10000 });
-  await page.locator('[data-panel="economy"] [data-action="premium-claim"]').dispatchEvent('click');
+  await page.locator('[data-window-panel="economy"] [data-action="premium-claim"]').dispatchEvent('click');
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return state?.wallet?.premium_earned === 50 && state?.premium?.entitlements?.[0]?.state === 'claimed';
   }, null, { timeout: 10000 });
 
+  await page.locator('[data-window-panel="economy"] [data-shop-kind="premium_stock"]').first().click();
   await page.waitForFunction(() => {
-    const button = document.querySelector('[data-panel="economy"] [data-action="premium-weekly-xcore"]');
+    const button = document.querySelector('[data-window-panel="economy"] [data-action="premium-weekly-xcore"]');
     return button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 10000 });
-  await page.locator('[data-panel="economy"] [data-action="premium-weekly-xcore"]').dispatchEvent('click');
+  await page.locator('[data-window-panel="economy"] [data-action="premium-weekly-xcore"]').dispatchEvent('click');
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return state?.wallet?.premium_paid === 200 && state?.premium?.purchases?.length === 1;
   }, null, { timeout: 10000 });
+  await page.locator('[data-window-panel="economy"] [data-shop-category="market"]').click();
+  await page.locator('[data-window-panel="economy"] [data-panel-close="economy"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-window-panel="economy"]'), null, { timeout: 10000 });
 }
 
 async function verifyPanelModalChrome(page, viewport, label) {
@@ -2166,7 +2649,7 @@ function snapshotPayload() {
       rank: 2,
     },
     ship: {
-      active_ship_id: 'starter_ship',
+      active_ship_id: 'starter',
       display_name: 'Sparrow',
       hull: 84,
       max_hull: 100,

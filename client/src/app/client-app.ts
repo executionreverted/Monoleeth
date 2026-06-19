@@ -97,8 +97,13 @@ export class ClientApp {
       onRepair: () => this.sendCommand(this.commandBuilder.deathRepairShip()),
       onScan: () => this.toggleScanMode(),
       onPlanetDetail: (planetID) => this.requestPlanetDetail(planetID),
+      onPlanetNavigate: (planetID) => this.navigateToPlanet(planetID),
+      onHangarActivateShip: (shipID) => this.sendCommand(this.commandBuilder.hangarActivateShip(shipID)),
+      onLoadoutEquipModule: (slotID, itemInstanceID) =>
+        this.sendCommand(this.commandBuilder.loadoutEquipModule(slotID, itemInstanceID)),
+      onLoadoutUnequipModule: (slotID) => this.sendCommand(this.commandBuilder.loadoutUnequipModule(slotID)),
       onMarketCreateListing: (input) => this.sendCommand(this.commandBuilder.marketCreateListing(input)),
-      onMarketBuy: (listingID) => this.sendCommand(this.commandBuilder.marketBuy(listingID, 1)),
+      onMarketBuy: (listingID, quantity) => this.sendCommand(this.commandBuilder.marketBuy(listingID, quantity)),
       onMarketCancel: (listingID) => this.sendCommand(this.commandBuilder.marketCancel(listingID)),
       onAuctionBid: (auctionID, amount) => this.sendCommand(this.commandBuilder.auctionBid(auctionID, amount)),
       onAuctionBuyNow: (auctionID) => this.sendCommand(this.commandBuilder.auctionBuyNow(auctionID)),
@@ -221,6 +226,28 @@ export class ClientApp {
       return;
     }
     this.sendCommand(this.commandBuilder.planetDetail(planetID));
+  }
+
+  private navigateToPlanet(planetID: string): void {
+    if (!planetID) {
+      return;
+    }
+
+    const detail = this.state.planetIntel?.selectedPlanet ?? null;
+    if (!detail || detail.planet_id !== planetID) {
+      this.dispatch({ type: 'appendLog', level: 'info', text: 'Planet navigation waiting for server detail.' });
+      this.requestPlanetDetail(planetID);
+      return;
+    }
+
+    const target = detail.coordinates;
+    if (!Number.isFinite(target.x) || !Number.isFinite(target.y)) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Planet navigation rejected: awaiting server coordinates.' });
+      this.requestPlanetDetail(planetID);
+      return;
+    }
+
+    this.sendMove({ ...target });
   }
 
   private toggleScanMode(): void {

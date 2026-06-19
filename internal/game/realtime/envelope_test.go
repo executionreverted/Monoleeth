@@ -102,10 +102,44 @@ func TestDecodeRequestEnvelopeAcceptsCombatUseSkillOperation(t *testing.T) {
 	}
 }
 
+func TestDecodeRequestEnvelopeAcceptsHangarAndLoadoutMutationOperations(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want Operation
+	}{
+		{
+			name: "activate ship",
+			body: `{"request_id":"request-hangar-activate","op":"hangar.activate_ship","payload":{"ship_id":"starter"},"client_seq":6,"v":1}`,
+			want: OperationHangarActivateShip,
+		},
+		{
+			name: "equip module",
+			body: `{"request_id":"request-loadout-equip","op":"loadout.equip_module","payload":{"slot_id":"offensive_1","item_instance_id":"laser_alpha_t1-instance-2"},"client_seq":7,"v":1}`,
+			want: OperationLoadoutEquipModule,
+		},
+		{
+			name: "unequip module",
+			body: `{"request_id":"request-loadout-unequip","op":"loadout.unequip_module","payload":{"slot_id":"offensive_1"},"client_seq":8,"v":1}`,
+			want: OperationLoadoutUnequipModule,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			envelope, err := DecodeRequestEnvelope([]byte(tc.body))
+			if err != nil {
+				t.Fatalf("decode loadout request envelope: %v", err)
+			}
+			if envelope.Op != tc.want {
+				t.Fatalf("op = %q, want %q", envelope.Op, tc.want)
+			}
+		})
+	}
+}
+
 func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testing.T) {
 	disallowed := []Operation{
-		Operation("loadout.equip_module"),
-		Operation("loadout.unequip_module"),
 		Operation("crafting.start"),
 		Operation("crafting.complete"),
 		Operation("crafting.cancel"),

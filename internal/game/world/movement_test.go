@@ -61,6 +61,26 @@ func TestAdvanceMovementTreatsNonPositiveSpeedAndDeltaAsNoMovement(t *testing.T)
 	}
 }
 
+func TestMovementPositionAtUsesServerTiming(t *testing.T) {
+	startedAt := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	movement, err := NewTimedMovementState(Vec2{}, Vec2{X: 100, Y: 0}, 10, startedAt)
+	if err != nil {
+		t.Fatalf("NewTimedMovementState() error = %v", err)
+	}
+
+	current, done := MovementPositionAt(movement, startedAt.Add(4*time.Second))
+	if done {
+		t.Fatal("MovementPositionAt() done = true, want false")
+	}
+	assertVecNear(t, current, Vec2{X: 40, Y: 0})
+
+	arrived, done := MovementPositionAt(movement, startedAt.Add(10*time.Second))
+	if !done {
+		t.Fatal("MovementPositionAt() done = false, want true")
+	}
+	assertVecNear(t, arrived, movement.Target)
+}
+
 func TestMovementAPIDoesNotAcceptClientFinalPosition(t *testing.T) {
 	intentType := reflect.TypeOf(MovementIntent{})
 	if intentType.NumField() != 1 || intentType.Field(0).Name != "Target" {
