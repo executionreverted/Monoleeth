@@ -39,6 +39,14 @@ const forbiddenText = [
   'loot_placeholder',
   'planet_signal_placeholder',
 ];
+const fakeSocialCountPatterns = [
+  { label: 'unread mail count', pattern: /\b(?:mail|inbox|unread)\b[^\n]{0,24}\b\d+\b/i },
+  { label: 'friend count', pattern: /\bfriends?\b[^\n]{0,24}\b\d+\b/i },
+  { label: 'party count', pattern: /\bparty\b[^\n]{0,24}\b\d+\b/i },
+  { label: 'menu notification count', pattern: /\bmenu\b[^\n]{0,24}\b(?:notification|badge|count)?s?\s*\d+\b/i },
+  { label: 'social notification count', pattern: /\bsocial\b[^\n]{0,24}\b(?:notification|badge|count)?s?\s*\d+\b/i },
+  { label: 'notification count', pattern: /\bnotifications?\b[^\n]{0,24}\b\d+\b/i },
+];
 let eventSequence = 100;
 
 const appPort = explicitURL ? null : await findFreePort();
@@ -92,6 +100,7 @@ async function verifyRealViewport(viewport, label) {
         Object.keys(state?.visibleEntities ?? {}).length === 0
       );
     });
+    await assertNoFakeTopbarCounts(page, `${label} unauthenticated`);
     await page.screenshot({ path: path.join(outputDir, `unauth-${label}.png`), fullPage: true });
 
     await page.locator('input[name="email"]').fill(email);
@@ -106,6 +115,7 @@ async function verifyRealViewport(viewport, label) {
         Object.keys(state?.visibleEntities ?? {}).length === 0
       );
     });
+    await assertNoFakeTopbarCounts(page, `${label} invalid-login`);
 
     await page.locator('[data-toggle]').click();
     await page.locator('input[name="email"]').fill(email);
@@ -185,6 +195,7 @@ async function verifyRealViewport(viewport, label) {
 
     await assertCanvasAndLayout(page, viewport, label);
     await assertNoForbiddenLeaks(page, label);
+    await assertNoFakeTopbarCounts(page, `${label} authenticated`);
     await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
 
     if (label === 'desktop') {
@@ -215,6 +226,7 @@ async function verifyRealViewport(viewport, label) {
         Object.keys(state?.visibleEntities ?? {}).length === 0
       );
     });
+    await assertNoFakeTopbarCounts(page, `${label} logout`);
   } finally {
     await page.close();
   }
@@ -256,6 +268,7 @@ async function verifyReconnectReconciliation(page, expectedCallsign) {
     { timeout: 10000 },
   );
   await assertNoForbiddenLeaks(page, 'desktop-reconnect');
+  await assertNoFakeTopbarCounts(page, 'desktop-reconnect');
 }
 
 async function verifyAdminViewport(viewport, label) {
@@ -294,9 +307,11 @@ async function verifyAdminViewport(viewport, label) {
 
     await assertCanvasAndLayout(page, viewport, label);
     await assertNoForbiddenLeaks(page, label);
+    await assertNoFakeTopbarCounts(page, label);
     await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
     await page.locator('[data-action="logout"]').click();
     await page.waitForSelector('.auth-card', { timeout: 10000 });
+    await assertNoFakeTopbarCounts(page, `${label} logout`);
   } finally {
     await page.close();
   }
@@ -353,6 +368,7 @@ async function verifyFixtureViewport(viewport, label) {
 
     await assertCanvasAndLayout(page, viewport, label);
     await assertNoForbiddenLeaks(page, label);
+    await assertNoFakeTopbarCounts(page, label);
     await page.screenshot({ path: path.join(outputDir, `${label}.png`), fullPage: true });
   } finally {
     await page.close();
@@ -575,6 +591,49 @@ async function assertNoForbiddenLeaks(page, label) {
     return JSON.stringify({ cookie: document.cookie, local, session });
   });
   assertNoForbiddenText(browserStorage, `${label} browser storage`);
+}
+
+async function assertNoFakeTopbarCounts(page, label) {
+  const violations = await page.evaluate((patterns) => {
+    const compiled = patterns.map((entry) => ({ label: entry.label, pattern: new RegExp(entry.source, entry.flags) }));
+    const isVisible = (element) => {
+      const style = window.getComputedStyle(element);
+      return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0;
+    };
+    const elementText = (element) => (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+    const elementMetadata = (element) =>
+      Array.from(element.attributes)
+        .filter((attribute) => attribute.name === 'aria-label' || attribute.name === 'title' || attribute.name.startsWith('data-'))
+        .map((attribute) => `${attribute.name}=${attribute.value}`)
+        .join(' ');
+    const socialTermPattern = /\b(mail|inbox|unread|friends?|social|party|menu|notifications?)\b/i;
+    const candidates = Array.from(document.querySelectorAll('.hud__topbar, .hud__topbar *, .toolbar, .toolbar *, [aria-label], [title]')).filter(
+      (element) => element instanceof HTMLElement && isVisible(element),
+    );
+    const matches = [];
+
+    for (const element of candidates) {
+      const haystack = `${elementText(element)} ${elementMetadata(element)}`.trim();
+      if (!socialTermPattern.test(haystack)) {
+        continue;
+      }
+      for (const entry of compiled) {
+        if (entry.pattern.test(haystack)) {
+          matches.push({ kind: entry.label, text: haystack });
+        }
+      }
+    }
+
+    return matches;
+  }, fakeSocialCountPatterns.map((entry) => ({ label: entry.label, source: entry.pattern.source, flags: entry.pattern.flags })));
+
+  if (violations.length > 0) {
+    throw new Error(
+      `${label}: fake mail/social/menu notification count visible: ${violations
+        .map((violation) => `${violation.kind} in "${violation.text}"`)
+        .join('; ')}`,
+    );
+  }
 }
 
 async function clickWorldPosition(page, world) {
