@@ -77,6 +77,7 @@ type RepairService struct {
 	locationModifierBps int64
 
 	attempts map[repairAttemptKey]repairAttemptRecord
+	inFlight map[repairAttemptKey]*repairInFlight
 }
 
 type repairAttemptKey struct {
@@ -88,6 +89,11 @@ type repairAttemptRecord struct {
 	input  RepairShipInput
 	result RepairShipResult
 	err    error
+}
+
+type repairInFlight struct {
+	input RepairShipInput
+	done  chan struct{}
 }
 
 // RepairShipInput is one server-authoritative credit repair command.
@@ -141,6 +147,7 @@ func NewRepairService(config RepairConfig) (*RepairService, error) {
 		repairRateBps:       repairRateBps,
 		locationModifierBps: locationModifierBps,
 		attempts:            make(map[repairAttemptKey]repairAttemptRecord),
+		inFlight:            make(map[repairAttemptKey]*repairInFlight),
 	}, nil
 }
 
@@ -153,31 +160,57 @@ func (service *RepairService) RepairShip(input RepairShipInput) (RepairShipResul
 
 	attemptKey := repairAttemptKey{playerID: input.PlayerID, referenceKey: input.ReferenceKey}
 
-	service.mu.Lock()
-	defer service.mu.Unlock()
+	for {
+		service.mu.Lock()
+		if previous, ok := service.attempts[attemptKey]; ok {
+			if !sameRepairInput(previous.input, input) {
+				service.mu.Unlock()
+				return RepairShipResult{}, ErrRepairReferenceInputMismatch
+			}
+			result := cloneRepairShipResult(previous.result)
+			result.Duplicate = true
+			service.mu.Unlock()
+			if previous.err != nil {
+				return result, previous.err
+			}
+			return result, nil
+		}
 
-	if previous, ok := service.attempts[attemptKey]; ok {
-		if !sameRepairInput(previous.input, input) {
-			return RepairShipResult{}, ErrRepairReferenceInputMismatch
+		if current, ok := service.inFlight[attemptKey]; ok {
+			if !sameRepairInput(current.input, input) {
+				service.mu.Unlock()
+				return RepairShipResult{}, ErrRepairReferenceInputMismatch
+			}
+			done := current.done
+			service.mu.Unlock()
+			<-done
+			continue
 		}
-		result := cloneRepairShipResult(previous.result)
-		result.Duplicate = true
-		if previous.err != nil {
-			return result, previous.err
+
+		service.inFlight[attemptKey] = &repairInFlight{
+			input: input,
+			done:  make(chan struct{}),
 		}
-		return result, nil
+		service.mu.Unlock()
+		break
 	}
 
+	result, err, cache := service.repairShip(input)
+	service.finishRepairAttempt(attemptKey, input, result, err, cache)
+	return result, err
+}
+
+func (service *RepairService) repairShip(input RepairShipInput) (RepairShipResult, error, bool) {
 	definition, err := service.catalog.MustGet(input.ShipID)
 	if err != nil {
-		return RepairShipResult{}, err
+		return RepairShipResult{}, err, false
 	}
 	cost, err := repairCost(definition, service.repairRateBps, service.locationModifierBps)
 	if err != nil {
-		return RepairShipResult{}, err
+		return RepairShipResult{}, err, false
 	}
 	if err := service.requireDisabledShip(input.PlayerID, input.ShipID); err != nil {
-		return RepairShipResult{}, err
+		return RepairShipResult{}, err, false
 	}
 	if service.previouslyRefundedRepair(input) {
 		return RepairShipResult{
@@ -187,7 +220,7 @@ func (service *RepairService) RepairShip(input RepairShipInput) (RepairShipResul
 			Currency:     economy.CurrencyBucketCredits,
 			RepairCost:   cost,
 			Compensated:  true,
-		}, ErrRepairPreviouslyCompensated
+		}, ErrRepairPreviouslyCompensated, false
 	}
 
 	var debit economy.DebitWalletResult
@@ -200,7 +233,7 @@ func (service *RepairService) RepairShip(input RepairShipInput) (RepairShipResul
 			ReferenceKey: input.ReferenceKey,
 		})
 		if err != nil {
-			return RepairShipResult{}, err
+			return RepairShipResult{}, err, false
 		}
 	}
 
@@ -211,15 +244,10 @@ func (service *RepairService) RepairShip(input RepairShipInput) (RepairShipResul
 	if err != nil {
 		result, compensationErr := service.compensateFailedRestore(input, cost, debit)
 		if compensationErr != nil {
-			return result, fmt.Errorf("%w; repair refund failed: %v", err, compensationErr)
+			return result, fmt.Errorf("%w; repair refund failed: %v", err, compensationErr), false
 		}
 		resultErr := fmt.Errorf("%w: %w", ErrRepairPreviouslyCompensated, err)
-		service.attempts[attemptKey] = repairAttemptRecord{
-			input:  input,
-			result: cloneRepairShipResult(result),
-			err:    resultErr,
-		}
-		return result, resultErr
+		return result, resultErr, true
 	}
 
 	result := RepairShipResult{
@@ -232,11 +260,30 @@ func (service *RepairService) RepairShip(input RepairShipInput) (RepairShipResul
 		ShipRepair:   shipRepair,
 		Repaired:     true,
 	}
-	service.attempts[attemptKey] = repairAttemptRecord{
-		input:  input,
-		result: cloneRepairShipResult(result),
+	return result, nil, true
+}
+
+func (service *RepairService) finishRepairAttempt(
+	attemptKey repairAttemptKey,
+	input RepairShipInput,
+	result RepairShipResult,
+	err error,
+	cache bool,
+) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	if cache {
+		service.attempts[attemptKey] = repairAttemptRecord{
+			input:  input,
+			result: cloneRepairShipResult(result),
+			err:    err,
+		}
 	}
-	return result, nil
+	if current, ok := service.inFlight[attemptKey]; ok && sameRepairInput(current.input, input) {
+		delete(service.inFlight, attemptKey)
+		close(current.done)
+	}
 }
 
 func (service *RepairService) requireDisabledShip(playerID foundation.PlayerID, shipID foundation.ShipID) error {

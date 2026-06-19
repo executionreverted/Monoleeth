@@ -2,6 +2,7 @@ package death_test
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -243,6 +244,201 @@ func TestRepairServiceUsesWalletLedgerReferenceLookupForRefundReplay(t *testing.
 	}
 }
 
+func TestRepairServiceConcurrentDifferentPlayersDoNotBlockEachOther(t *testing.T) {
+	fixture := newRepairServiceFixture(t)
+	ensureRepairServiceActiveFighterForPlayer(t, fixture.ships, "player-2")
+	disableRepairServiceFighterAndSwapToStarterForPlayer(t, fixture.ships, "player-1")
+	disableRepairServiceFighterAndSwapToStarterForPlayer(t, fixture.ships, "player-2")
+	seedRepairCreditsForPlayer(t, fixture.wallet, "player-1", fighterRepairCost, "repair-concurrent-player-1-seed")
+	seedRepairCreditsForPlayer(t, fixture.wallet, "player-2", fighterRepairCost, "repair-concurrent-player-2-seed")
+
+	blockingShips := newBlockingRepairServiceShips(fixture.ships, "player-1")
+	repairService, err := death.NewRepairService(death.RepairConfig{
+		ShipCatalog: fixture.catalog,
+		Wallet:      fixture.wallet,
+		Ships:       blockingShips,
+	})
+	if err != nil {
+		t.Fatalf("death.NewRepairService(blocking) error = %v", err)
+	}
+	input1 := repairShipInputForPlayer(t, "player-1", ships.ShipIDFighterT1, "same-reference-across-players")
+	input2 := repairShipInputForPlayer(t, "player-2", ships.ShipIDFighterT1, "same-reference-across-players")
+
+	firstDone := make(chan repairCallResult, 1)
+	go func() {
+		result, err := repairService.RepairShip(input1)
+		firstDone <- repairCallResult{result: result, err: err}
+	}()
+	blockingShips.waitEntered(t)
+
+	secondDone := make(chan repairCallResult, 1)
+	go func() {
+		result, err := repairService.RepairShip(input2)
+		secondDone <- repairCallResult{result: result, err: err}
+	}()
+
+	var second repairCallResult
+	select {
+	case second = <-secondDone:
+	case <-time.After(2 * time.Second):
+		blockingShips.release()
+		<-firstDone
+		t.Fatal("player-2 repair did not finish while player-1 repair was in flight")
+	}
+	if second.err != nil {
+		blockingShips.release()
+		<-firstDone
+		t.Fatalf("player-2 RepairShip() error = %v", second.err)
+	}
+	if !second.result.Repaired || second.result.Duplicate || second.result.PlayerID != "player-2" {
+		blockingShips.release()
+		<-firstDone
+		t.Fatalf("player-2 result = %+v, want independent non-duplicate repair", second.result)
+	}
+
+	blockingShips.release()
+	first := <-firstDone
+	if first.err != nil {
+		t.Fatalf("player-1 RepairShip() error = %v", first.err)
+	}
+	if !first.result.Repaired || first.result.Duplicate || first.result.PlayerID != "player-1" {
+		t.Fatalf("player-1 result = %+v, want non-duplicate repair", first.result)
+	}
+	if got := fixture.wallet.Balance("player-1", economy.CurrencyBucketCredits); got != 0 {
+		t.Fatalf("player-1 wallet balance = %d, want 0", got)
+	}
+	if got := fixture.wallet.Balance("player-2", economy.CurrencyBucketCredits); got != 0 {
+		t.Fatalf("player-2 wallet balance = %d, want 0", got)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != 4 {
+		t.Fatalf("wallet ledger entries = %d, want two seeds + two repair debits", got)
+	}
+	assertRepairServiceShipStateForPlayer(t, fixture.ships, "player-1", ships.ShipIDFighterT1, ships.ShipStateAvailable)
+	assertRepairServiceShipStateForPlayer(t, fixture.ships, "player-2", ships.ShipIDFighterT1, ships.ShipStateAvailable)
+}
+
+func TestRepairServiceConcurrentDuplicateReferenceReturnsCachedResult(t *testing.T) {
+	fixture := newRepairServiceFixture(t)
+	disableRepairServiceFighterAndSwapToStarter(t, fixture.ships)
+	seedRepairCredits(t, fixture.wallet, 500, "repair-concurrent-duplicate-seed")
+
+	blockingShips := newBlockingRepairServiceShips(fixture.ships, "player-1")
+	repairService, err := death.NewRepairService(death.RepairConfig{
+		ShipCatalog: fixture.catalog,
+		Wallet:      fixture.wallet,
+		Ships:       blockingShips,
+	})
+	if err != nil {
+		t.Fatalf("death.NewRepairService(blocking) error = %v", err)
+	}
+	input := repairShipInput(t, ships.ShipIDFighterT1, "concurrent-duplicate")
+
+	firstDone := make(chan repairCallResult, 1)
+	go func() {
+		result, err := repairService.RepairShip(input)
+		firstDone <- repairCallResult{result: result, err: err}
+	}()
+	blockingShips.waitEntered(t)
+
+	secondDone := make(chan repairCallResult, 1)
+	go func() {
+		result, err := repairService.RepairShip(input)
+		secondDone <- repairCallResult{result: result, err: err}
+	}()
+
+	blockingShips.release()
+	first := <-firstDone
+	second := <-secondDone
+	if first.err != nil {
+		t.Fatalf("first RepairShip() error = %v", first.err)
+	}
+	if second.err != nil {
+		t.Fatalf("duplicate RepairShip() error = %v", second.err)
+	}
+	if !first.result.Repaired || first.result.Duplicate {
+		t.Fatalf("first result = %+v, want repaired non-duplicate", first.result)
+	}
+	if !second.result.Repaired || !second.result.Duplicate {
+		t.Fatalf("duplicate result = %+v, want cached repaired duplicate", second.result)
+	}
+	if second.result.WalletDebit.LedgerEntry.LedgerID != first.result.WalletDebit.LedgerEntry.LedgerID {
+		t.Fatalf("duplicate debit ledger = %q, want cached ledger %q", second.result.WalletDebit.LedgerEntry.LedgerID, first.result.WalletDebit.LedgerEntry.LedgerID)
+	}
+	if got := blockingShips.callsForPlayer("player-1"); got != 1 {
+		t.Fatalf("ship repair calls = %d, want 1", got)
+	}
+	if got := fixture.wallet.Balance("player-1", economy.CurrencyBucketCredits); got != 250 {
+		t.Fatalf("wallet balance = %d, want 250", got)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != 2 {
+		t.Fatalf("wallet ledger entries = %d, want seed + one repair debit", got)
+	}
+	assertRepairServiceShipState(t, fixture.ships, ships.ShipIDFighterT1, ships.ShipStateAvailable)
+}
+
+func TestRepairServiceConcurrentDuplicateReferenceReturnsCachedCompensation(t *testing.T) {
+	fixture := newRepairServiceFixture(t)
+	disableRepairServiceFighterAndSwapToStarter(t, fixture.ships)
+	seedRepairCredits(t, fixture.wallet, 500, "repair-concurrent-compensation-seed")
+	restoreErr := errors.New("temporary ship store outage")
+	flakyShips := &failOnceRepairServiceShips{
+		delegate: fixture.ships,
+		err:      restoreErr,
+	}
+	blockingShips := newBlockingRepairServiceShips(flakyShips, "player-1")
+	repairService, err := death.NewRepairService(death.RepairConfig{
+		ShipCatalog: fixture.catalog,
+		Wallet:      fixture.wallet,
+		Ships:       blockingShips,
+	})
+	if err != nil {
+		t.Fatalf("death.NewRepairService(blocking flaky) error = %v", err)
+	}
+	input := repairShipInput(t, ships.ShipIDFighterT1, "concurrent-compensation")
+
+	firstDone := make(chan repairCallResult, 1)
+	go func() {
+		result, err := repairService.RepairShip(input)
+		firstDone <- repairCallResult{result: result, err: err}
+	}()
+	blockingShips.waitEntered(t)
+
+	secondDone := make(chan repairCallResult, 1)
+	go func() {
+		result, err := repairService.RepairShip(input)
+		secondDone <- repairCallResult{result: result, err: err}
+	}()
+
+	blockingShips.release()
+	first := <-firstDone
+	second := <-secondDone
+	if !errors.Is(first.err, death.ErrRepairPreviouslyCompensated) || !errors.Is(first.err, restoreErr) {
+		t.Fatalf("first RepairShip() error = %v, want compensated restore error", first.err)
+	}
+	if !errors.Is(second.err, death.ErrRepairPreviouslyCompensated) || !errors.Is(second.err, restoreErr) {
+		t.Fatalf("duplicate RepairShip() error = %v, want cached compensated restore error", second.err)
+	}
+	if !first.result.Compensated || first.result.Duplicate || first.result.WalletRefund == nil {
+		t.Fatalf("first result = %+v, want compensated non-duplicate refund", first.result)
+	}
+	if !second.result.Compensated || !second.result.Duplicate || second.result.WalletRefund == nil {
+		t.Fatalf("duplicate result = %+v, want cached compensated duplicate refund", second.result)
+	}
+	if second.result.WalletRefund.LedgerEntry.LedgerID != first.result.WalletRefund.LedgerEntry.LedgerID {
+		t.Fatalf("duplicate refund ledger = %q, want cached ledger %q", second.result.WalletRefund.LedgerEntry.LedgerID, first.result.WalletRefund.LedgerEntry.LedgerID)
+	}
+	if got := blockingShips.callsForPlayer("player-1"); got != 1 {
+		t.Fatalf("ship repair calls = %d, want 1", got)
+	}
+	if got := fixture.wallet.Balance("player-1", economy.CurrencyBucketCredits); got != 500 {
+		t.Fatalf("wallet balance after compensation = %d, want 500", got)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != 3 {
+		t.Fatalf("wallet ledger entries = %d, want seed + repair debit + refund", got)
+	}
+	assertRepairServiceShipState(t, fixture.ships, ships.ShipIDFighterT1, ships.ShipStateDisabled)
+}
+
 type repairServiceFixture struct {
 	clock   *testutil.FakeClock
 	catalog ships.Catalog
@@ -262,14 +458,14 @@ func newRepairServiceFixture(t *testing.T) repairServiceFixture {
 	shipService, err := ships.NewHangarService(
 		shipCatalog,
 		ships.NewInMemoryHangarStore(),
-		ships.StaticPlayerRankProvider{"player-1": 2},
+		ships.StaticPlayerRankProvider{"player-1": 2, "player-2": 2},
 		ships.BaseShipCargoCapacityProvider{},
 		clock,
 	)
 	if err != nil {
 		t.Fatalf("ships.NewHangarService() error = %v", err)
 	}
-	ensureDeathServiceActiveFighter(t, shipService)
+	ensureRepairServiceActiveFighterForPlayer(t, shipService, "player-1")
 
 	wallet := economy.NewWalletService(clock)
 	repairService, err := death.NewRepairService(death.RepairConfig{
@@ -289,14 +485,39 @@ func newRepairServiceFixture(t *testing.T) repairServiceFixture {
 	}
 }
 
+func ensureRepairServiceActiveFighterForPlayer(t *testing.T, service *ships.HangarService, playerID foundation.PlayerID) {
+	t.Helper()
+	if _, err := service.EnsureStarterShip(playerID); err != nil {
+		t.Fatalf("EnsureStarterShip(%q) error = %v", playerID, err)
+	}
+	if _, err := service.UnlockShip(ships.UnlockShipInput{PlayerID: playerID, ShipID: ships.ShipIDFighterT1}); err != nil {
+		t.Fatalf("UnlockShip(%q) error = %v", playerID, err)
+	}
+	if _, err := service.SetActiveShip(ships.SetActiveShipInput{
+		PlayerID: playerID,
+		ShipID:   ships.ShipIDFighterT1,
+		Context: ships.ShipSwapContext{
+			InSafeHangarArea: true,
+		},
+	}); err != nil {
+		t.Fatalf("SetActiveShip(%q) error = %v", playerID, err)
+	}
+}
+
 func disableRepairServiceFighterAndSwapToStarter(t *testing.T, service *ships.HangarService) {
 	t.Helper()
 
-	if _, err := service.DisableActiveShipForDeath(ships.DisableActiveShipForDeathInput{PlayerID: "player-1"}); err != nil {
+	disableRepairServiceFighterAndSwapToStarterForPlayer(t, service, "player-1")
+}
+
+func disableRepairServiceFighterAndSwapToStarterForPlayer(t *testing.T, service *ships.HangarService, playerID foundation.PlayerID) {
+	t.Helper()
+
+	if _, err := service.DisableActiveShipForDeath(ships.DisableActiveShipForDeathInput{PlayerID: playerID}); err != nil {
 		t.Fatalf("DisableActiveShipForDeath() error = %v", err)
 	}
 	if _, err := service.SetActiveShip(ships.SetActiveShipInput{
-		PlayerID: "player-1",
+		PlayerID: playerID,
 		ShipID:   ships.ShipIDStarter,
 		Context: ships.ShipSwapContext{
 			InSafeHangarArea: true,
@@ -309,12 +530,18 @@ func disableRepairServiceFighterAndSwapToStarter(t *testing.T, service *ships.Ha
 func seedRepairCredits(t *testing.T, wallet *economy.WalletService, amount int64, reference string) {
 	t.Helper()
 
+	seedRepairCreditsForPlayer(t, wallet, "player-1", amount, reference)
+}
+
+func seedRepairCreditsForPlayer(t *testing.T, wallet *economy.WalletService, playerID foundation.PlayerID, amount int64, reference string) {
+	t.Helper()
+
 	referenceKey, err := foundation.QuestRewardIdempotencyKey(foundation.QuestID(reference))
 	if err != nil {
 		t.Fatalf("QuestRewardIdempotencyKey(%q) error = %v", reference, err)
 	}
 	_, err = wallet.CreditWallet(economy.CreditWalletInput{
-		PlayerID:     "player-1",
+		PlayerID:     playerID,
 		Currency:     economy.CurrencyBucketCredits,
 		Amount:       amount,
 		Reason:       economy.LedgerReason("test_seed"),
@@ -328,12 +555,18 @@ func seedRepairCredits(t *testing.T, wallet *economy.WalletService, amount int64
 func repairShipInput(t *testing.T, shipID foundation.ShipID, reference string) death.RepairShipInput {
 	t.Helper()
 
+	return repairShipInputForPlayer(t, "player-1", shipID, reference)
+}
+
+func repairShipInputForPlayer(t *testing.T, playerID foundation.PlayerID, shipID foundation.ShipID, reference string) death.RepairShipInput {
+	t.Helper()
+
 	referenceKey, err := foundation.ShipRepairIdempotencyKey(shipID, reference)
 	if err != nil {
 		t.Fatalf("ShipRepairIdempotencyKey(%q, %q) error = %v", shipID, reference, err)
 	}
 	return death.RepairShipInput{
-		PlayerID:     "player-1",
+		PlayerID:     playerID,
 		ShipID:       shipID,
 		ReferenceKey: referenceKey,
 	}
@@ -342,7 +575,13 @@ func repairShipInput(t *testing.T, shipID foundation.ShipID, reference string) d
 func assertRepairServiceShipState(t *testing.T, service *ships.HangarService, shipID foundation.ShipID, want ships.ShipState) {
 	t.Helper()
 
-	hangar, err := service.GetHangar("player-1")
+	assertRepairServiceShipStateForPlayer(t, service, "player-1", shipID, want)
+}
+
+func assertRepairServiceShipStateForPlayer(t *testing.T, service *ships.HangarService, playerID foundation.PlayerID, shipID foundation.ShipID, want ships.ShipState) {
+	t.Helper()
+
+	hangar, err := service.GetHangar(playerID)
 	if err != nil {
 		t.Fatalf("GetHangar() error = %v", err)
 	}
@@ -357,9 +596,15 @@ func assertRepairServiceShipState(t *testing.T, service *ships.HangarService, sh
 	t.Fatalf("ship %q missing from hangar %+v", shipID, hangar)
 }
 
+type repairCallResult struct {
+	result death.RepairShipResult
+	err    error
+}
+
 type failOnceRepairServiceShips struct {
 	delegate death.ShipRepairer
 	err      error
+	mu       sync.Mutex
 	calls    int
 }
 
@@ -368,11 +613,82 @@ func (service *failOnceRepairServiceShips) GetHangar(playerID foundation.PlayerI
 }
 
 func (service *failOnceRepairServiceShips) RepairShip(input ships.RepairShipInput) (ships.RepairShipResult, error) {
+	service.mu.Lock()
 	service.calls++
-	if service.calls == 1 {
+	calls := service.calls
+	service.mu.Unlock()
+	if calls == 1 {
 		return ships.RepairShipResult{}, service.err
 	}
 	return service.delegate.RepairShip(input)
+}
+
+type blockingRepairServiceShips struct {
+	delegate    death.ShipRepairer
+	blockPlayer foundation.PlayerID
+	entered     chan struct{}
+	releaseCh   chan struct{}
+
+	mu          sync.Mutex
+	calls       map[foundation.PlayerID]int
+	enteredOnce sync.Once
+	releaseOnce sync.Once
+}
+
+func newBlockingRepairServiceShips(delegate death.ShipRepairer, blockPlayer foundation.PlayerID) *blockingRepairServiceShips {
+	return &blockingRepairServiceShips{
+		delegate:    delegate,
+		blockPlayer: blockPlayer,
+		entered:     make(chan struct{}),
+		releaseCh:   make(chan struct{}),
+		calls:       make(map[foundation.PlayerID]int),
+	}
+}
+
+func (service *blockingRepairServiceShips) GetHangar(playerID foundation.PlayerID) (ships.HangarSnapshot, error) {
+	return service.delegate.GetHangar(playerID)
+}
+
+func (service *blockingRepairServiceShips) RepairShip(input ships.RepairShipInput) (ships.RepairShipResult, error) {
+	callNumber := service.recordCall(input.PlayerID)
+	if input.PlayerID == service.blockPlayer && callNumber == 1 {
+		service.enteredOnce.Do(func() {
+			close(service.entered)
+		})
+		<-service.releaseCh
+	}
+	return service.delegate.RepairShip(input)
+}
+
+func (service *blockingRepairServiceShips) recordCall(playerID foundation.PlayerID) int {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	service.calls[playerID]++
+	return service.calls[playerID]
+}
+
+func (service *blockingRepairServiceShips) callsForPlayer(playerID foundation.PlayerID) int {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	return service.calls[playerID]
+}
+
+func (service *blockingRepairServiceShips) waitEntered(t *testing.T) {
+	t.Helper()
+
+	select {
+	case <-service.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("blocked ship repair was not entered")
+	}
+}
+
+func (service *blockingRepairServiceShips) release() {
+	service.releaseOnce.Do(func() {
+		close(service.releaseCh)
+	})
 }
 
 type lookupTrackingRepairWallet struct {
