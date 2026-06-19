@@ -95,11 +95,11 @@ The UI rework is not done until all of these are true.
 
 ### Panel And Modal System
 
-- [ ] Existing always-visible form/section content is moved into a panel/window
+- [x] Existing always-visible form/section content is moved into a panel/window
   model.
-- [ ] Panels open, close, focus, and preserve state predictably.
-- [ ] Secondary systems do not dump into the central game surface.
-- [ ] At least these panels exist as real UI concepts:
+- [x] Panels open, close, focus, and preserve state predictably.
+- [x] Secondary systems do not dump into the central game surface.
+- [x] At least these panels exist as real UI concepts:
   - target
   - inventory/cargo
   - quests
@@ -107,10 +107,10 @@ The UI rework is not done until all of these are true.
   - market/auction/premium
   - systems/loadout/crafting read models
   - admin/ops only for admin users
-- [ ] A reusable modal primitive exists.
-- [ ] Modal behavior supports close button, escape, and backdrop behavior.
-- [ ] Modal content is compact and does not create nested-card clutter.
-- [ ] Mobile uses drawer/tabs/sheets instead of a broken stacked desktop.
+- [x] A reusable modal primitive exists.
+- [x] Modal behavior supports close button, escape, and backdrop behavior.
+- [x] Modal content is compact and does not create nested-card clutter.
+- [x] Mobile uses drawer/tabs/sheets instead of a broken stacked desktop.
 
 ### World Background And Parallax
 
@@ -178,13 +178,13 @@ The UI rework is not done until all of these are true.
 
 ### Verification Artifacts
 
-- [ ] Each implementation slice captures or updates evidence for the specific
+- [x] Each implementation slice captures or updates evidence for the specific
   mockup region it touched.
-- [ ] Desktop screenshot is compared against `final-mockup.png` after each
+- [x] Desktop screenshot is compared against `final-mockup.png` after each
   visible shell/panel/world slice.
-- [ ] Mobile screenshot verifies no incoherent overlap or page-scroll collapse.
-- [ ] Browser smoke covers real login and server-owned gameplay state.
-- [ ] Any generated screenshots committed are intentional; incidental smoke
+- [x] Mobile screenshot verifies no incoherent overlap or page-scroll collapse.
+- [x] Browser smoke covers real login and server-owned gameplay state.
+- [x] Any generated screenshots committed are intentional; incidental smoke
   artifacts are restored before commit.
 
 ## Required Final Verification

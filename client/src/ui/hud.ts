@@ -34,14 +34,34 @@ export interface HUDHandlers {
 }
 
 type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['combat']>;
-type HUDDrawerPanel = 'none' | 'cargo' | 'economy' | 'systems';
+type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' | 'ops';
+type HUDModalID = HUDWindowID | 'target' | 'planets' | 'ship';
+
+interface HUDPanelDefinition {
+  id: HUDWindowID;
+  label: string;
+  title: string;
+  render(state: ClientState): string;
+  hidden?(state: ClientState): boolean;
+}
+
+interface HUDModalState {
+  id: HUDModalID;
+  title: string;
+  body: string;
+}
 
 export class HUD {
   private readonly root: HTMLElement;
+  private readonly nav: HTMLElement;
+  private readonly windowLayer: HTMLElement;
+  private readonly modalLayer: HTMLElement;
   private readonly socketInput: HTMLInputElement;
   private readonly panels: Record<string, HTMLElement>;
   private readonly toast: HTMLElement;
-  private activePanel: HUDDrawerPanel = 'none';
+  private openWindows: HUDWindowID[] = [];
+  private focusedWindow: HUDWindowID | null = null;
+  private modal: HUDModalState | null = null;
   private currentState: ClientState | null = null;
 
   constructor(container: HTMLElement, private readonly handlers: HUDHandlers) {
@@ -73,20 +93,16 @@ export class HUD {
       </header>
       <aside class="hud__rail hud__rail--left">
         <div class="panel panel--status" data-panel="status"></div>
-        <nav class="panel hud__nav" aria-label="HUD panels">
-          <button class="hud-nav-button" type="button" data-panel-toggle="cargo" aria-pressed="false"><span>Inv</span></button>
-          <button class="hud-nav-button" type="button" data-panel-toggle="economy" aria-pressed="false"><span>Shop</span></button>
-          <button class="hud-nav-button" type="button" data-panel-toggle="systems" aria-pressed="false"><span>Galaxy</span></button>
-          <button class="hud-nav-button" type="button" data-panel-toggle="systems" aria-pressed="false"><span>Wormholes</span></button>
-          <button class="hud-nav-button" type="button" data-panel-toggle="systems" aria-pressed="false"><span>Planets</span></button>
-          <button class="hud-nav-button" type="button" data-panel-toggle="systems" aria-pressed="false"><span>Hangar</span></button>
-        </nav>
-        <div class="panel panel--drawer" data-panel="drawer" data-open="false"></div>
+        <nav class="panel hud__nav" data-hud-nav aria-label="HUD panels"></nav>
       </aside>
+      <div class="hud__window-layer" data-window-layer></div>
       <div class="hud__aux-panels" aria-hidden="true">
         <div class="panel panel--cargo" data-panel="cargo"></div>
         <div class="panel panel--economy" data-panel="economy"></div>
         <div class="panel panel--systems" data-panel="systems"></div>
+        <div class="panel panel--quests" data-panel="quests"></div>
+        <div class="panel panel--ops" data-panel="ops"></div>
+        <div class="panel panel--drawer" data-panel="drawer" data-open="false"></div>
       </div>
       <aside class="hud__rail hud__rail--right">
         <div class="panel panel--planets" data-panel="planets"></div>
@@ -96,10 +112,14 @@ export class HUD {
       </aside>
       <footer class="hud__actionbar panel" data-panel="actions"></footer>
       <footer class="hud__log panel" data-panel="log"></footer>
+      <div class="hud__modal-layer" data-modal-layer></div>
       <div class="toast" role="status" aria-live="polite"></div>
     `;
 
     container.appendChild(this.root);
+    this.nav = this.root.querySelector<HTMLElement>('[data-hud-nav]')!;
+    this.windowLayer = this.root.querySelector<HTMLElement>('[data-window-layer]')!;
+    this.modalLayer = this.root.querySelector<HTMLElement>('[data-modal-layer]')!;
     this.socketInput = this.root.querySelector<HTMLInputElement>('.socket-field__input')!;
     this.toast = this.root.querySelector<HTMLElement>('.toast')!;
     this.panels = {
@@ -107,6 +127,8 @@ export class HUD {
       cargo: this.panel('cargo'),
       economy: this.panel('economy'),
       systems: this.panel('systems'),
+      quests: this.panel('quests'),
+      ops: this.panel('ops'),
       drawer: this.panel('drawer'),
       planets: this.panel('planets'),
       target: this.panel('target'),
@@ -124,7 +146,7 @@ export class HUD {
     this.socketInput.value = state.socketURL;
     this.root.dataset.connection = state.connectionStatus;
     this.root.dataset.mode = state.auth.mode;
-    this.root.dataset.activePanel = this.activePanel;
+    this.root.dataset.activePanel = this.focusedWindow ?? 'none';
     const sector = this.root.querySelector<HTMLElement>('[data-top-sector]');
     const danger = this.root.querySelector<HTMLElement>('[data-top-danger]');
     const energy = this.root.querySelector<HTMLElement>('[data-top-energy]');
@@ -153,15 +175,17 @@ export class HUD {
     this.panels.cargo.innerHTML = cargoPanel(state);
     this.panels.economy.innerHTML = economyPanel(state);
     this.panels.systems.innerHTML = systemsPanel(state);
-    this.panels.drawer.innerHTML = drawerPanel(state, this.activePanel);
-    this.panels.drawer.dataset.open = this.activePanel === 'none' ? 'false' : 'true';
+    this.panels.quests.innerHTML = questsPanel(state);
+    this.panels.ops.innerHTML = opsPanel(state);
     this.panels.planets.innerHTML = planetsPanel(state);
     this.panels.target.innerHTML = targetPanel(state);
     this.panels.ship.innerHTML = shipPanel(state);
     this.panels.intel.innerHTML = intelPanel(state);
     this.panels.actions.innerHTML = actionBar(state);
     this.panels.log.innerHTML = logPanel(state);
-    this.syncNavState();
+    this.renderNav(state);
+    this.renderWindows(state);
+    this.renderModal();
     renderToast(this.toast, state.lastError?.message ?? null);
   }
 
@@ -169,8 +193,51 @@ export class HUD {
     this.root.addEventListener('click', (event) => {
       const panelToggle = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-panel-toggle]');
       if (panelToggle) {
-        const nextPanel = normalizePanelToggle(panelToggle.dataset.panelToggle);
-        this.activePanel = nextPanel === this.activePanel ? 'none' : nextPanel;
+        const nextPanel = normalizePanelID(panelToggle.dataset.panelToggle);
+        if (nextPanel) {
+          this.toggleWindow(nextPanel);
+        } else if (panelToggle.dataset.panelToggle === 'none') {
+          this.closeFocusedWindow();
+        }
+        if (this.currentState) {
+          this.render(this.currentState);
+        }
+        return;
+      }
+
+      const panelFocus = (event.target as HTMLElement).closest<HTMLElement>('[data-window-panel]');
+      if (panelFocus) {
+        const panel = normalizePanelID(panelFocus.dataset.windowPanel);
+        if (panel) {
+          this.focusWindow(panel);
+        }
+      }
+
+      const panelClose = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-panel-close]');
+      if (panelClose) {
+        const panel = normalizePanelID(panelClose.dataset.panelClose);
+        if (panel) {
+          this.closeWindow(panel);
+          if (this.currentState) {
+            this.render(this.currentState);
+          }
+        }
+        return;
+      }
+
+      const modalOpen = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-modal-open]');
+      if (modalOpen) {
+        const panel = normalizeModalID(modalOpen.dataset.modalOpen);
+        if (panel && this.currentState) {
+          this.openModal(panel, this.currentState);
+          this.render(this.currentState);
+        }
+        return;
+      }
+
+      const modalClose = (event.target as HTMLElement).closest<HTMLElement>('[data-modal-close]');
+      if (modalClose) {
+        this.closeModal();
         if (this.currentState) {
           this.render(this.currentState);
         }
@@ -278,6 +345,14 @@ export class HUD {
           break;
       }
     });
+
+    this.root.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || !this.modal || !this.currentState) {
+        return;
+      }
+      this.closeModal();
+      this.render(this.currentState);
+    });
   }
 
   private panel(name: string): HTMLElement {
@@ -288,14 +363,143 @@ export class HUD {
     return panel;
   }
 
-  private syncNavState(): void {
-    const toggles = this.root.querySelectorAll<HTMLButtonElement>('[data-panel-toggle]');
-    for (const toggle of toggles) {
-      const panel = normalizePanelToggle(toggle.dataset.panelToggle);
-      const active = panel !== 'none' && panel === this.activePanel;
-      toggle.setAttribute('aria-pressed', String(active));
-      toggle.dataset.active = active ? 'true' : 'false';
+  private renderNav(state: ClientState): void {
+    this.nav.innerHTML = windowDefinitions(state)
+      .map((definition) => {
+        const active = this.openWindows.includes(definition.id);
+        const focused = this.focusedWindow === definition.id;
+        return `<button class="hud-nav-button" type="button" data-panel-toggle="${definition.id}" data-active="${active ? 'true' : 'false'}" data-focused="${focused ? 'true' : 'false'}" aria-pressed="${active ? 'true' : 'false'}"><span>${escapeHTML(definition.label)}</span></button>`;
+      })
+      .join('');
+  }
+
+  private renderWindows(state: ClientState): void {
+    const definitions = windowDefinitions(state);
+    this.openWindows = this.openWindows.filter((id) => definitions.some((definition) => definition.id === id));
+    if (this.focusedWindow && !this.openWindows.includes(this.focusedWindow)) {
+      this.focusedWindow = this.openWindows.at(-1) ?? null;
     }
+
+    this.windowLayer.innerHTML = this.openWindows
+      .map((id, index) => {
+        const definition = definitions.find((entry) => entry.id === id);
+        if (!definition) {
+          return '';
+        }
+        const focused = id === this.focusedWindow;
+        return `
+          <section class="hud-window" data-window-panel="${definition.id}" data-focused="${focused ? 'true' : 'false'}" data-open="true" style="--window-index:${index}" tabindex="-1" aria-label="${escapeHTML(definition.title)}">
+            <header class="hud-window__header">
+              <strong>${escapeHTML(definition.title)}</strong>
+              <div>
+                <button type="button" data-modal-open="${definition.id}" title="Open detail">Inspect</button>
+                <button type="button" data-panel-close="${definition.id}" title="Close panel">Close</button>
+              </div>
+            </header>
+            <div class="hud-window__body">${definition.render(state)}</div>
+          </section>
+        `;
+      })
+      .join('');
+  }
+
+  private renderModal(): void {
+    if (!this.modal) {
+      this.modalLayer.innerHTML = '';
+      this.modalLayer.dataset.open = 'false';
+      return;
+    }
+
+    this.modalLayer.dataset.open = 'true';
+    this.modalLayer.innerHTML = `
+      <div class="hud-modal-backdrop" data-modal-close="backdrop"></div>
+      <section class="hud-modal" data-modal="${this.modal.id}" role="dialog" aria-modal="true" aria-label="${escapeHTML(this.modal.title)}" tabindex="-1">
+        <header class="hud-modal__header">
+          <strong>${escapeHTML(this.modal.title)}</strong>
+          <button type="button" data-modal-close="button" title="Close modal">Close</button>
+        </header>
+        <div class="hud-modal__body">${this.modal.body}</div>
+      </section>
+    `;
+    this.modalLayer.querySelector<HTMLElement>('.hud-modal')?.focus();
+  }
+
+  private toggleWindow(panel: HUDWindowID): void {
+    if (this.openWindows.includes(panel)) {
+      this.closeWindow(panel);
+      return;
+    }
+    this.openWindows = [...this.openWindows, panel].slice(-3);
+    this.focusWindow(panel);
+  }
+
+  private closeWindow(panel: HUDWindowID): void {
+    this.openWindows = this.openWindows.filter((id) => id !== panel);
+    if (this.focusedWindow === panel) {
+      this.focusedWindow = this.openWindows.at(-1) ?? null;
+    }
+  }
+
+  private closeFocusedWindow(): void {
+    if (!this.focusedWindow) {
+      return;
+    }
+    this.closeWindow(this.focusedWindow);
+  }
+
+  private focusWindow(panel: HUDWindowID): void {
+    if (!this.openWindows.includes(panel)) {
+      return;
+    }
+    this.focusedWindow = panel;
+    this.openWindows = [...this.openWindows.filter((id) => id !== panel), panel];
+  }
+
+  private openModal(id: HUDModalID, state: ClientState): void {
+    const modal = modalDefinition(id, state);
+    if (!modal) {
+      return;
+    }
+    this.modal = modal;
+  }
+
+  private closeModal(): void {
+    this.modal = null;
+  }
+}
+
+const baseWindowDefinitions: HUDPanelDefinition[] = [
+  { id: 'cargo', label: 'Inv', title: 'Inventory / Cargo', render: cargoPanel },
+  { id: 'economy', label: 'Shop', title: 'Market / Auction / Premium', render: economyPanel },
+  { id: 'quests', label: 'Galaxy', title: 'Quest Board', render: questsPanel },
+  { id: 'intel', label: 'Planets', title: 'Intel / Scanner', render: intelPanel },
+  { id: 'systems', label: 'Hangar', title: 'Systems / Loadout / Crafting', render: systemsPanel },
+  { id: 'ops', label: 'Ops', title: 'Admin Ops', render: opsPanel, hidden: (state) => !state.auth.session?.account?.admin },
+];
+
+function windowDefinitions(state: ClientState): HUDPanelDefinition[] {
+  return baseWindowDefinitions.filter((definition) => !definition.hidden?.(state));
+}
+
+function modalDefinition(id: HUDModalID, state: ClientState): HUDModalState | null {
+  const windowDefinition = windowDefinitions(state).find((definition) => definition.id === id);
+  if (windowDefinition) {
+    return {
+      id,
+      title: windowDefinition.title,
+      body: windowDefinition.render(state),
+    };
+  }
+
+  switch (id) {
+    case 'target':
+      return { id, title: 'Target Detail', body: targetPanel(state) };
+    case 'planets':
+      return { id, title: 'Planet Intel', body: planetsPanel(state) };
+    case 'ship':
+      return { id, title: 'Ship Detail', body: shipPanel(state) };
+    default:
+      return null;
   }
 }
 
@@ -321,19 +525,6 @@ function statusPanel(state: ClientState): string {
     <div class="meta-row"><span>Radar</span><strong>${stats ? Math.round(stats.radar_range) : lockedValue()}</strong></div>
     <div class="meta-row"><span>Link</span><strong>${escapeHTML(state.connectionStatus)}</strong></div>
   `;
-}
-
-function drawerPanel(state: ClientState, activePanel: HUDDrawerPanel): string {
-  switch (activePanel) {
-    case 'cargo':
-      return `<button class="drawer-close" type="button" data-panel-toggle="none" title="Close panel">Close</button>${cargoPanel(state)}`;
-    case 'economy':
-      return `<button class="drawer-close" type="button" data-panel-toggle="none" title="Close panel">Close</button>${economyPanel(state)}`;
-    case 'systems':
-      return `<button class="drawer-close" type="button" data-panel-toggle="none" title="Close panel">Close</button>${systemsPanel(state)}`;
-    default:
-      return '';
-  }
 }
 
 function planetsPanel(state: ClientState): string {
@@ -477,12 +668,9 @@ function systemsPanel(state: ClientState): string {
   const equipped = loadout?.slots.filter((slot) => slot.module_item_id).length ?? 0;
   const recipe = crafting?.recipes[0] ?? null;
   const recipeLabel = recipe ? recipe.output.item_id ?? recipe.output.ship_id ?? recipe.recipe_id : null;
-  const quest = questBlock(state);
-  const adminOps = adminOpsBlock(state);
 
   return `
     <h2>Systems</h2>
-    ${adminOps ? `${adminOps}${quest}` : quest}
     ${
       loaded
         ? `<div class="systems-block">
@@ -501,6 +689,26 @@ function systemsPanel(state: ClientState): string {
            <div class="meta-row"><span>Next</span><strong>${recipeLabel ? escapeHTML(recipeLabel) : lockedValue()}</strong></div>`
         : '<div class="empty-line">Awaiting server systems snapshots.</div>'
     }
+  `;
+}
+
+function questsPanel(state: ClientState): string {
+  return `
+    <h2>Quests</h2>
+    ${questBlock(state)}
+  `;
+}
+
+function opsPanel(state: ClientState): string {
+  if (!state.auth.session?.account?.admin) {
+    return `
+      <h2>Ops</h2>
+      <div class="empty-line">Admin session required.</div>
+    `;
+  }
+  return `
+    <h2>Ops</h2>
+    ${adminOpsBlock(state)}
   `;
 }
 
@@ -828,8 +1036,22 @@ function formatCompactNumber(value: number): string {
   return String(value);
 }
 
-function normalizePanelToggle(value: string | undefined): HUDDrawerPanel {
-  return value === 'cargo' || value === 'economy' || value === 'systems' ? value : 'none';
+function normalizePanelID(value: string | undefined): HUDWindowID | null {
+  return value === 'cargo' ||
+    value === 'economy' ||
+    value === 'quests' ||
+    value === 'intel' ||
+    value === 'systems' ||
+    value === 'ops'
+    ? value
+    : null;
+}
+
+function normalizeModalID(value: string | undefined): HUDModalID | null {
+  if (value === 'target' || value === 'planets' || value === 'ship') {
+    return value;
+  }
+  return normalizePanelID(value);
 }
 
 function publicEntityType(entityType: string): string {

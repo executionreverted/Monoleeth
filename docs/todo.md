@@ -7,11 +7,6 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
-- [ ] Complete the browser UI rework panel/window registry and reusable modal
-  primitive. The 2026-06-19 shell slice moved the default view away from the
-  stacked page, but secondary systems still need first-class open/close/focus
-  windows, escape/backdrop modal behavior, and mobile sheets before the goal can
-  close. Source: `docs/plans/2026-06-19-ui-rework-GOAL.md`.
 - [ ] Add server-authoritative continuous movement timing for browser movement.
   The client still needs server-owned origin, destination, speed, start, and
   arrival timing so reclicks while in transit start from the server-computed
@@ -206,6 +201,13 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Complete the browser UI rework panel/window registry and reusable modal
+  primitive. Cargo, economy, quests, intel/scanner, systems, and admin-only ops
+  now open as focused HUD windows from the mockup-style left nav; reusable modal
+  details support close button, Escape, and backdrop dismissal; mobile uses a
+  bottom-sheet window layout; browser smoke verifies the behavior against real
+  authenticated server state. Source:
+  `docs/plans/2026-06-19-ui-rework-GOAL.md`.
 - [x] Add an indexed wallet ledger/reference lookup for repair refund replay
   checks. `WalletService` now exposes clone-safe reference lookup coverage, and
   `RepairService` uses it for refund replay checks instead of scanning wallet

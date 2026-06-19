@@ -233,6 +233,7 @@ async function verifyRealViewport(viewport, label) {
       );
     }, null, { timeout: 10000 });
 
+    await verifyPanelModalChrome(page, viewport, label);
     await assertCanvasAndLayout(page, viewport, label);
     await assertNoForbiddenLeaks(page, label);
     await assertNoFakeTopbarCounts(page, `${label} authenticated`);
@@ -329,7 +330,7 @@ async function verifyAdminViewport(viewport, label) {
     await page.waitForFunction(
       (expectedCallsign) => {
         const state = window.__SPACE_MORPG_SMOKE_STATE__;
-        const opsText = document.querySelector('[data-panel="systems"]')?.textContent ?? '';
+        const opsText = document.querySelector('[data-panel="ops"]')?.textContent ?? '';
         return (
           state?.auth?.session?.account?.admin === true &&
           state?.playerSnapshot?.callsign === expectedCallsign &&
@@ -538,6 +539,77 @@ async function verifyRealEconomy(page) {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return state?.wallet?.premium_paid === 200 && state?.premium?.purchases?.length === 1;
   }, null, { timeout: 10000 });
+}
+
+async function verifyPanelModalChrome(page, viewport, label) {
+  await page.locator('[data-panel-toggle="economy"]').click();
+  await page.waitForSelector('[data-window-panel="economy"][data-open="true"][data-focused="true"]', { timeout: 10000 });
+
+  const opened = await page.evaluate(() => {
+    const hud = document.querySelector('.hud');
+    const toggle = document.querySelector('[data-panel-toggle="economy"]');
+    const windowPanel = document.querySelector('[data-window-panel="economy"]');
+    const action = windowPanel?.querySelector('[data-action="market-buy"], [data-action="market-cancel"], [data-action="premium-claim"]');
+    const rect = windowPanel instanceof HTMLElement ? windowPanel.getBoundingClientRect() : null;
+    return {
+      activePanel: hud instanceof HTMLElement ? hud.dataset.activePanel : null,
+      toggleActive: toggle instanceof HTMLElement ? toggle.dataset.active : null,
+      togglePressed: toggle instanceof HTMLElement ? toggle.getAttribute('aria-pressed') : null,
+      focused: windowPanel instanceof HTMLElement ? windowPanel.dataset.focused : null,
+      hasServerAction: Boolean(action),
+      rect: rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } : null,
+      scrollWidth: document.body.scrollWidth,
+    };
+  });
+
+  if (opened.activePanel !== 'economy' || opened.toggleActive !== 'true' || opened.togglePressed !== 'true') {
+    throw new Error(`${label}: economy window did not become the active HUD panel`);
+  }
+  if (opened.focused !== 'true' || !opened.hasServerAction) {
+    throw new Error(`${label}: economy window is missing focus state or server-backed controls`);
+  }
+  if (opened.scrollWidth > viewport.width + 1) {
+    throw new Error(`${label}: panel window caused horizontal overflow (${opened.scrollWidth} > ${viewport.width})`);
+  }
+  if (viewport.width < 768 && opened.rect) {
+    const withinViewport =
+      opened.rect.left >= -1 &&
+      opened.rect.right <= viewport.width + 1 &&
+      opened.rect.top >= -1 &&
+      opened.rect.bottom <= viewport.height + 1;
+    if (!withinViewport) {
+      throw new Error(`${label}: mobile panel window is outside viewport ${JSON.stringify(opened.rect)}`);
+    }
+  }
+
+  await page.locator('[data-window-panel="economy"] [data-modal-open="economy"]').click();
+  await page.waitForSelector('[data-modal="economy"][role="dialog"][aria-modal="true"]', { timeout: 10000 });
+  await page.evaluate(() => {
+    document.querySelector('[data-modal="economy"] .hud-modal__body')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  if ((await page.locator('[data-modal="economy"]').count()) !== 1) {
+    throw new Error(`${label}: modal closed when clicking inside modal body`);
+  }
+
+  await page.locator('[data-modal-close="button"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+
+  await page.locator('[data-window-panel="economy"] [data-modal-open="economy"]').click();
+  await page.waitForSelector('[data-modal="economy"]', { timeout: 10000 });
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+
+  await page.locator('[data-window-panel="economy"] [data-modal-open="economy"]').click();
+  await page.waitForSelector('[data-modal="economy"]', { timeout: 10000 });
+  await page.locator('[data-modal-close="backdrop"]').click({ position: { x: 4, y: 4 } });
+  await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+
+  await page.locator('[data-panel-close="economy"]').click();
+  await page.waitForFunction(
+    () => !document.querySelector('[data-window-panel="economy"]') && document.querySelector('.hud')?.dataset.activePanel === 'none',
+    null,
+    { timeout: 10000 },
+  );
 }
 
 async function bootstrapDiagnostics(page, expectedCallsign) {

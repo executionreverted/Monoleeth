@@ -45,6 +45,13 @@ Must avoid:
   background. Gameplay values still come from authenticated server snapshots,
   hidden/dev panels remain non-default, and mail/social affordances stay locked
   without fake counts.
+- 2026-06-19 UI rework slice 2 added a first-class HUD window registry and
+  reusable modal layer. Cargo, economy, quests, intel/scanner, systems, and
+  admin-only ops now open as focused cockpit windows from the left nav, with
+  compact modal detail support, close-button/Escape/backdrop dismissal, and a
+  mobile bottom-sheet layout. The hidden server-backed panel anchors remain for
+  existing command selectors and smoke coverage, but the visible default no
+  longer dumps secondary systems into the central world.
 - The default browser path remains real/authenticated only. Demo fixtures are
   still available for explicit dev/test fixture mode, but they are dev-only lazy
   imports and the production bundle scan fails on fixture labels.
@@ -114,7 +121,7 @@ or fixture. It needs a browser path that talks to the real Go server.
 | 06 | Progression, inventory, hangar, loadout, crafting read models | `progression.snapshot`, `inventory.snapshot`, `hangar.snapshot`, `loadout.snapshot`, `stats.snapshot`, `crafting.recipes` | Status, cargo, economy, systems panels | Smoke asserts real snapshots and recipes after login/reconnect | Client trust-boundary lint and reducer/protocol tests reject forged identity/value payloads | `10/live-desktop.png` | Equip/craft mutations in `docs/todo.md` |
 | 07 | Discovery, scanner, planet/production/route read models | `scan.pulse`, `discovery.known_planets`, `discovery.planet_detail`, `planet.production_summary`, `planet.storage_summary`, `route.list`, `route.snapshot`, `scan.*` | Intel panel, sector map, Scan action | Smoke runs `scan.pulse`, discovers a server planet, and reconciles XP/intel | Smoke verifies hidden signal is not serialized; Go discovery tests cover hidden/fog rules | `10/live-mobile.png` | Claim/build/route mutations in `docs/todo.md` |
 | 08 | Market, auction, premium economy | `market.search`, `market.create_listing`, `market.buy`, `market.cancel`, `auction.search`, `auction.bid`, `auction.buy_now`, `auction.claim_grant`, `premium.entitlements`, `premium.claim`, `premium.purchase_weekly_xcore`, economy events | Shop/economy panel | Smoke buys/cancels listings, bids/buy-now, purchases/claims premium | Go market/auction/premium tests cover server-calculated totals, replay, race, and escrow safety | `10/live-desktop.png` | None |
-| 09 | Quests, admin, observability, release gates | `quest.board`, `quest.accept`, `quest.progress`, `quest.claim_reward`, `quest.reroll`, `admin.*`, `observability.*`, quest/admin/observability events | Systems quest view, admin Ops view | Smoke accepts/rerolls quests and seeded admin loads Ops/Gate/Abuse reports | Go tests cover non-admin rejection, redaction, idempotent rewards, release schema | `10/live-admin-desktop.png` | None |
+| 09 | Quests, admin, observability, release gates | `quest.board`, `quest.accept`, `quest.progress`, `quest.claim_reward`, `quest.reroll`, `admin.*`, `observability.*`, quest/admin/observability events | Quest window, admin-only Ops window | Smoke accepts/rerolls quests and seeded admin loads Ops/Gate/Abuse reports | Go tests cover non-admin rejection, redaction, idempotent rewards, release schema | `10/live-admin-desktop.png` | None |
 
 ## UI Hardening
 
@@ -185,8 +192,9 @@ death/respawn contracts are recorded in `docs/todo.md` rather than faked.
 
 - [x] Topbar: real sector, danger, energy, cargo, credits, and capacitor; no
       fake mail/social counts.
-- [x] Left rail: real ship/player/status, quest, cargo, economy, systems
-      snapshots with loading/empty states.
+- [x] Left rail: real ship/player/status, plus cargo, economy, quest,
+      intel/scanner, systems, and admin-only ops window toggles with
+      loading/empty states.
 - [x] Center map: full-bleed canvas with nonblank pixel check and AOI-visible
       entities only.
 - [x] Bottom action/log bar: real laser, scan, loot controls; locked future
@@ -195,7 +203,8 @@ death/respawn contracts are recorded in `docs/todo.md` rather than faked.
       admin-only ops when role-gated.
 - [x] Minimap: server minimap projection with hidden signal exclusion.
 - [x] Overlays/panels: unauthenticated and disconnected paths hide gameplay
-      truth instead of showing fixtures.
+      truth instead of showing fixtures; authenticated panels open as focused
+      HUD windows and modal details with tested close/Escape/backdrop behavior.
 
 ## Leak Scan Matrix
 
