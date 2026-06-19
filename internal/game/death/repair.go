@@ -40,6 +40,10 @@ type RepairWallet interface {
 	CreditWallet(economy.CreditWalletInput) (economy.CreditWalletResult, error)
 }
 
+type repairWalletLedgerLookup interface {
+	FindCurrencyLedgerEntry(economy.CurrencyLedgerReferenceLookup) (economy.CurrencyLedgerEntry, bool)
+}
+
 type repairWalletLedgerReader interface {
 	CurrencyLedgerEntries() []economy.CurrencyLedgerEntry
 }
@@ -253,16 +257,28 @@ func (service *RepairService) requireDisabledShip(playerID foundation.PlayerID, 
 }
 
 func (service *RepairService) previouslyRefundedRepair(input RepairShipInput) bool {
+	lookup := economy.CurrencyLedgerReferenceLookup{
+		PlayerID:     input.PlayerID,
+		Currency:     economy.CurrencyBucketCredits,
+		Action:       economy.LedgerActionIncrease,
+		Reason:       LedgerReasonShipRepairRefund,
+		ReferenceKey: input.ReferenceKey,
+	}
+	if ledgerLookup, ok := service.wallet.(repairWalletLedgerLookup); ok {
+		_, found := ledgerLookup.FindCurrencyLedgerEntry(lookup)
+		return found
+	}
+
 	reader, ok := service.wallet.(repairWalletLedgerReader)
 	if !ok {
 		return false
 	}
 	for _, entry := range reader.CurrencyLedgerEntries() {
-		if entry.PlayerID == input.PlayerID &&
-			entry.Currency == economy.CurrencyBucketCredits &&
-			entry.Action == economy.LedgerActionIncrease &&
-			entry.Reason == LedgerReasonShipRepairRefund &&
-			entry.ReferenceKey == input.ReferenceKey {
+		if entry.PlayerID == lookup.PlayerID &&
+			entry.Currency == lookup.Currency &&
+			entry.Action == lookup.Action &&
+			entry.Reason == lookup.Reason &&
+			entry.ReferenceKey == lookup.ReferenceKey {
 			return true
 		}
 	}

@@ -481,6 +481,66 @@ func TestTransferCurrencyRejectsInsufficientFundsWithoutMutationOrLedgerEntry(t 
 	}
 }
 
+func TestWalletServiceFindsCurrencyLedgerEntryByLedgerReference(t *testing.T) {
+	service := newTestWalletService()
+	input := validCreditWalletInput(t, "quest_reward:wallet-ledger-reference")
+
+	first, err := service.CreditWallet(input)
+	if err != nil {
+		t.Fatalf("CreditWallet: %v", err)
+	}
+	duplicate, err := service.CreditWallet(input)
+	if err != nil {
+		t.Fatalf("duplicate CreditWallet: %v", err)
+	}
+	if !duplicate.Duplicate {
+		t.Fatal("duplicate CreditWallet Duplicate = false, want true")
+	}
+
+	entry, ok := service.FindCurrencyLedgerEntry(CurrencyLedgerReferenceLookup{
+		PlayerID:     input.PlayerID,
+		Currency:     input.Currency,
+		Action:       LedgerActionIncrease,
+		Reason:       input.Reason,
+		ReferenceKey: input.ReferenceKey,
+	})
+	if !ok {
+		t.Fatal("FindCurrencyLedgerEntry ok = false, want true")
+	}
+	if entry != first.LedgerEntry {
+		t.Fatalf("FindCurrencyLedgerEntry entry = %#v, want %#v", entry, first.LedgerEntry)
+	}
+	if entry.LedgerID != duplicate.LedgerEntry.LedgerID {
+		t.Fatalf("lookup LedgerID = %q, duplicate LedgerID = %q", entry.LedgerID, duplicate.LedgerEntry.LedgerID)
+	}
+
+	entry.BalanceAfter = 999
+	again, ok := service.FindCurrencyLedgerEntry(CurrencyLedgerReferenceLookup{
+		PlayerID:     input.PlayerID,
+		Currency:     input.Currency,
+		Action:       LedgerActionIncrease,
+		Reason:       input.Reason,
+		ReferenceKey: input.ReferenceKey,
+	})
+	if !ok {
+		t.Fatal("second FindCurrencyLedgerEntry ok = false, want true")
+	}
+	if again.BalanceAfter == 999 {
+		t.Fatal("FindCurrencyLedgerEntry returned mutable internal ledger entry")
+	}
+
+	_, ok = service.FindCurrencyLedgerEntry(CurrencyLedgerReferenceLookup{
+		PlayerID:     "player-2",
+		Currency:     input.Currency,
+		Action:       LedgerActionIncrease,
+		Reason:       input.Reason,
+		ReferenceKey: input.ReferenceKey,
+	})
+	if ok {
+		t.Fatal("FindCurrencyLedgerEntry with different player ok = true, want false")
+	}
+}
+
 func TestWalletSnapshotHelpersReturnCopies(t *testing.T) {
 	service := newTestWalletService()
 	creditWalletForTest(t, service, "player-2", CurrencyBucketCredits, 50, "quest_reward:wallet-snapshot-2")

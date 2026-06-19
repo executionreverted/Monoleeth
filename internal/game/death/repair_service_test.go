@@ -189,6 +189,60 @@ func TestRepairServiceRestoreFailureAfterDebitRefundsAndCachesFailure(t *testing
 	}
 }
 
+func TestRepairServiceUsesWalletLedgerReferenceLookupForRefundReplay(t *testing.T) {
+	fixture := newRepairServiceFixture(t)
+	disableRepairServiceFighterAndSwapToStarter(t, fixture.ships)
+	seedRepairCredits(t, fixture.wallet, 500, "repair-reference-lookup-seed")
+	restoreErr := errors.New("temporary ship store outage")
+	flakyShips := &failOnceRepairServiceShips{
+		delegate: fixture.ships,
+		err:      restoreErr,
+	}
+	repairService, err := death.NewRepairService(death.RepairConfig{
+		ShipCatalog: fixture.catalog,
+		Wallet:      fixture.wallet,
+		Ships:       flakyShips,
+	})
+	if err != nil {
+		t.Fatalf("death.NewRepairService(flaky) error = %v", err)
+	}
+	input := repairShipInput(t, ships.ShipIDFighterT1, "reference-lookup")
+
+	_, err = repairService.RepairShip(input)
+	if !errors.Is(err, death.ErrRepairPreviouslyCompensated) || !errors.Is(err, restoreErr) {
+		t.Fatalf("RepairShip(restore failure) error = %v, want compensated restore error", err)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != 3 {
+		t.Fatalf("wallet ledger entries after compensation = %d, want seed + debit + refund", got)
+	}
+
+	wallet := &lookupTrackingRepairWallet{delegate: fixture.wallet}
+	freshRepairService, err := death.NewRepairService(death.RepairConfig{
+		ShipCatalog: fixture.catalog,
+		Wallet:      wallet,
+		Ships:       fixture.ships,
+	})
+	if err != nil {
+		t.Fatalf("death.NewRepairService(fresh) error = %v", err)
+	}
+	result, err := freshRepairService.RepairShip(input)
+	if !errors.Is(err, death.ErrRepairPreviouslyCompensated) {
+		t.Fatalf("fresh RepairShip(compensated) error = %v, want ErrRepairPreviouslyCompensated", err)
+	}
+	if !result.Compensated || result.Repaired {
+		t.Fatalf("fresh compensated result = %+v, want compensated non-repair", result)
+	}
+	if wallet.lookupCalls != 1 {
+		t.Fatalf("wallet lookup calls = %d, want 1", wallet.lookupCalls)
+	}
+	if wallet.scanCalls != 0 {
+		t.Fatalf("wallet scan calls = %d, want 0", wallet.scanCalls)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != 3 {
+		t.Fatalf("wallet ledger entries after lookup replay = %d, want 3", got)
+	}
+}
+
 type repairServiceFixture struct {
 	clock   *testutil.FakeClock
 	catalog ships.Catalog
@@ -319,4 +373,28 @@ func (service *failOnceRepairServiceShips) RepairShip(input ships.RepairShipInpu
 		return ships.RepairShipResult{}, service.err
 	}
 	return service.delegate.RepairShip(input)
+}
+
+type lookupTrackingRepairWallet struct {
+	delegate    *economy.WalletService
+	lookupCalls int
+	scanCalls   int
+}
+
+func (wallet *lookupTrackingRepairWallet) DebitWallet(input economy.DebitWalletInput) (economy.DebitWalletResult, error) {
+	return wallet.delegate.DebitWallet(input)
+}
+
+func (wallet *lookupTrackingRepairWallet) CreditWallet(input economy.CreditWalletInput) (economy.CreditWalletResult, error) {
+	return wallet.delegate.CreditWallet(input)
+}
+
+func (wallet *lookupTrackingRepairWallet) FindCurrencyLedgerEntry(lookup economy.CurrencyLedgerReferenceLookup) (economy.CurrencyLedgerEntry, bool) {
+	wallet.lookupCalls++
+	return wallet.delegate.FindCurrencyLedgerEntry(lookup)
+}
+
+func (wallet *lookupTrackingRepairWallet) CurrencyLedgerEntries() []economy.CurrencyLedgerEntry {
+	wallet.scanCalls++
+	return wallet.delegate.CurrencyLedgerEntries()
 }

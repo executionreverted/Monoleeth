@@ -73,6 +73,16 @@ type TransferCurrencyResult struct {
 	Duplicate     bool                  `json:"duplicate"`
 }
 
+// CurrencyLedgerReferenceLookup identifies one currency ledger row by its
+// replay-safe business reference fields.
+type CurrencyLedgerReferenceLookup struct {
+	PlayerID     foundation.PlayerID
+	Currency     CurrencyBucket
+	Action       LedgerAction
+	Reason       LedgerReason
+	ReferenceKey foundation.IdempotencyKey
+}
+
 // WalletService is an in-memory Phase 02 currency mutation service.
 type WalletService struct {
 	mu    sync.Mutex
@@ -80,11 +90,12 @@ type WalletService struct {
 
 	nextLedgerSequence int64
 
-	balances              map[walletBalanceKey]WalletBalance
-	currencyLedgerEntries []CurrencyLedgerEntry
-	creditReferences      map[walletReferenceKey]CreditWalletResult
-	debitReferences       map[walletReferenceKey]DebitWalletResult
-	transferReferences    map[walletReferenceKey]TransferCurrencyResult
+	balances                  map[walletBalanceKey]WalletBalance
+	currencyLedgerEntries     []CurrencyLedgerEntry
+	currencyLedgerByReference map[CurrencyLedgerReferenceLookup]CurrencyLedgerEntry
+	creditReferences          map[walletReferenceKey]CreditWalletResult
+	debitReferences           map[walletReferenceKey]DebitWalletResult
+	transferReferences        map[walletReferenceKey]TransferCurrencyResult
 
 	emitter           EventEmitter
 	nextEventSequence uint64
@@ -107,11 +118,12 @@ func NewWalletService(clock foundation.Clock) *WalletService {
 		clock = foundation.RealClock{}
 	}
 	return &WalletService{
-		clock:              clock,
-		balances:           make(map[walletBalanceKey]WalletBalance),
-		creditReferences:   make(map[walletReferenceKey]CreditWalletResult),
-		debitReferences:    make(map[walletReferenceKey]DebitWalletResult),
-		transferReferences: make(map[walletReferenceKey]TransferCurrencyResult),
+		clock:                     clock,
+		balances:                  make(map[walletBalanceKey]WalletBalance),
+		currencyLedgerByReference: make(map[CurrencyLedgerReferenceLookup]CurrencyLedgerEntry),
+		creditReferences:          make(map[walletReferenceKey]CreditWalletResult),
+		debitReferences:           make(map[walletReferenceKey]DebitWalletResult),
+		transferReferences:        make(map[walletReferenceKey]TransferCurrencyResult),
 	}
 }
 
@@ -166,6 +178,7 @@ func (service *WalletService) CreditWallet(input CreditWalletInput) (CreditWalle
 
 	service.balances[walletBalanceKey{playerID: input.PlayerID, currency: input.Currency}] = balance
 	service.currencyLedgerEntries = append(service.currencyLedgerEntries, ledgerEntry)
+	service.indexCurrencyLedgerEntryLocked(ledgerEntry)
 
 	result := CreditWalletResult{
 		Balance:     balance,
@@ -240,6 +253,7 @@ func (service *WalletService) DebitWallet(input DebitWalletInput) (DebitWalletRe
 
 	service.balances[walletBalanceKey{playerID: input.PlayerID, currency: input.Currency}] = balance
 	service.currencyLedgerEntries = append(service.currencyLedgerEntries, ledgerEntry)
+	service.indexCurrencyLedgerEntryLocked(ledgerEntry)
 
 	result := DebitWalletResult{
 		Balance:     balance,
@@ -339,6 +353,8 @@ func (service *WalletService) TransferCurrency(input TransferCurrencyInput) (Tra
 	service.balances[walletBalanceKey{playerID: input.FromPlayerID, currency: input.Currency}] = fromBalance
 	service.balances[walletBalanceKey{playerID: input.ToPlayerID, currency: input.Currency}] = toBalance
 	service.currencyLedgerEntries = append(service.currencyLedgerEntries, debitEntry, creditEntry)
+	service.indexCurrencyLedgerEntryLocked(debitEntry)
+	service.indexCurrencyLedgerEntryLocked(creditEntry)
 
 	result := TransferCurrencyResult{
 		FromBalance:   fromBalance,
@@ -397,6 +413,15 @@ func (service *WalletService) CurrencyLedgerEntries() []CurrencyLedgerEntry {
 	defer service.mu.Unlock()
 
 	return append([]CurrencyLedgerEntry(nil), service.currencyLedgerEntries...)
+}
+
+// FindCurrencyLedgerEntry returns a copy of a ledger row matching lookup.
+func (service *WalletService) FindCurrencyLedgerEntry(lookup CurrencyLedgerReferenceLookup) (CurrencyLedgerEntry, bool) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	entry, ok := service.currencyLedgerByReference[lookup]
+	return entry, ok
 }
 
 // Balance returns the current balance for a player/currency tuple.
@@ -475,6 +500,19 @@ func (input TransferCurrencyInput) validate() (foundation.Money, error) {
 
 func (service *WalletService) balanceAmountLocked(playerID foundation.PlayerID, currency CurrencyBucket) int64 {
 	return service.balances[walletBalanceKey{playerID: playerID, currency: currency}].Balance
+}
+
+func (service *WalletService) indexCurrencyLedgerEntryLocked(entry CurrencyLedgerEntry) {
+	lookup := CurrencyLedgerReferenceLookup{
+		PlayerID:     entry.PlayerID,
+		Currency:     entry.Currency,
+		Action:       entry.Action,
+		Reason:       entry.Reason,
+		ReferenceKey: entry.ReferenceKey,
+	}
+	if _, exists := service.currencyLedgerByReference[lookup]; !exists {
+		service.currencyLedgerByReference[lookup] = entry
+	}
 }
 
 func (service *WalletService) newCurrencyLedgerEntryLocked(
