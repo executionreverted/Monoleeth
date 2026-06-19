@@ -17,6 +17,7 @@ const clientRoot = path.resolve(thisDir, '..');
 const repoRoot = path.resolve(clientRoot, '..');
 const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '10');
 const phaseOutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '01');
+const phase02OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '02');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -99,6 +100,7 @@ try {
   browser = await chromium.launch({ headless: true });
   await mkdir(outputDir, { recursive: true });
   await mkdir(phaseOutputDir, { recursive: true });
+  await mkdir(phase02OutputDir, { recursive: true });
   if (useFixture) {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
@@ -308,6 +310,7 @@ async function verifyPlanetMemoryMarker(page, label) {
     return;
   }
 
+  await page.waitForTimeout(250);
   await clickWorldPosition(page, { x: 80, y: 0 });
   await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'entity_training_npc', null, {
     timeout: 10000,
@@ -557,18 +560,47 @@ async function verifyRealCombatLoot(page) {
   }
 
   await clickWorldPosition(page, dropPosition);
-  await page.waitForFunction(() => {
+  try {
+    await page.waitForFunction(() => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      const entities = state?.visibleEntities ?? {};
+      const effects = state?.worldEffects ?? [];
+      return (
+        state?.cargo?.used === 6 &&
+        state?.cargo?.items?.some((item) => item.item_id === 'raw_ore' && item.quantity === 3) &&
+        state?.inventory?.stackable?.some((item) => item.item_id === 'raw_ore' && item.quantity === 3 && item.location === 'ship_cargo') &&
+        effects.some((effect) => effect.kind === 'loot_pickup' && effect.itemID === 'raw_ore' && effect.quantity === 3) &&
+        !Object.values(entities).some((entity) => entity.entity_type === 'loot')
+      );
+    }, null, { timeout: 10000 });
+  } catch (error) {
+    console.error('desktop loot pickup state', JSON.stringify(await lootDiagnostics(page, dropPosition), null, 2));
+    throw error;
+  }
+}
+
+async function lootDiagnostics(page, expectedDropPosition) {
+  return page.evaluate((dropPosition) => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     const entities = state?.visibleEntities ?? {};
-    const effects = state?.worldEffects ?? [];
-    return (
-      state?.cargo?.used === 6 &&
-      state?.cargo?.items?.some((item) => item.item_id === 'raw_ore' && item.quantity === 3) &&
-      state?.inventory?.stackable?.some((item) => item.item_id === 'raw_ore' && item.quantity === 3 && item.location === 'ship_cargo') &&
-      effects.some((effect) => effect.kind === 'loot_pickup' && effect.itemID === 'raw_ore' && effect.quantity === 3) &&
-      !Object.values(entities).some((entity) => entity.entity_type === 'loot')
-    );
-  }, null, { timeout: 10000 });
+    const self = Object.values(entities).find((entity) => entity.status_flags?.includes('self'));
+    const loot = Object.values(entities).find((entity) => entity.entity_type === 'loot');
+    return {
+      expectedDropPosition: dropPosition,
+      selectedTargetID: state?.selectedTargetID,
+      self,
+      loot,
+      cargo: state?.cargo,
+      inventory: state?.inventory,
+      effects: state?.worldEffects,
+      recentCommandLog: state?.commandLog?.slice(-10),
+      worldView: state?.worldView,
+      activeElement: document.activeElement?.outerHTML?.slice(0, 220),
+      windows: Array.from(document.querySelectorAll('[data-window-panel]')).map((element) =>
+        element instanceof HTMLElement ? { id: element.dataset.windowPanel, focused: element.dataset.focused, display: getComputedStyle(element).display } : null,
+      ),
+    };
+  }, expectedDropPosition);
 }
 
 async function verifyRealMovementInterpolation(page) {
@@ -762,7 +794,11 @@ async function verifyRealEconomy(page) {
 }
 
 async function verifyPanelModalChrome(page, viewport, label) {
-  await page.locator('[data-panel-toggle="economy"]').click();
+  const featurePanels = ['cargo', 'systems', 'quests', 'intel', 'economy'];
+  for (const panel of featurePanels) {
+    await page.locator(`[data-panel-toggle="${panel}"]`).click();
+    await page.waitForSelector(`[data-window-panel="${panel}"][data-open="true"][data-focused="true"]`, { timeout: 10000 });
+  }
   await page.waitForSelector('[data-window-panel="economy"][data-open="true"][data-focused="true"]', { timeout: 10000 });
 
   const opened = await page.evaluate(() => {
@@ -771,6 +807,17 @@ async function verifyPanelModalChrome(page, viewport, label) {
     const windowPanel = document.querySelector('[data-window-panel="economy"]');
     const action = windowPanel?.querySelector('[data-action="market-buy"], [data-action="market-cancel"], [data-action="premium-claim"]');
     const rect = windowPanel instanceof HTMLElement ? windowPanel.getBoundingClientRect() : null;
+    const windows = Array.from(document.querySelectorAll('[data-window-panel]')).map((panel) => {
+      const element = panel instanceof HTMLElement ? panel : null;
+      const bounds = element?.getBoundingClientRect();
+      return {
+        id: element?.dataset.windowPanel,
+        focused: element?.dataset.focused,
+        z: Number(element?.style.getPropertyValue('--window-z') ?? '0'),
+        rect: bounds ? { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, width: bounds.width, height: bounds.height } : null,
+        visible: Boolean(bounds && bounds.width > 0 && bounds.height > 0 && getComputedStyle(element).display !== 'none'),
+      };
+    });
     return {
       activePanel: hud instanceof HTMLElement ? hud.dataset.activePanel : null,
       toggleActive: toggle instanceof HTMLElement ? toggle.dataset.active : null,
@@ -778,6 +825,7 @@ async function verifyPanelModalChrome(page, viewport, label) {
       focused: windowPanel instanceof HTMLElement ? windowPanel.dataset.focused : null,
       hasServerAction: Boolean(action),
       rect: rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } : null,
+      windows,
       scrollWidth: document.body.scrollWidth,
     };
   });
@@ -788,10 +836,27 @@ async function verifyPanelModalChrome(page, viewport, label) {
   if (opened.focused !== 'true' || !opened.hasServerAction) {
     throw new Error(`${label}: economy window is missing focus state or server-backed controls`);
   }
+  const openedIDs = new Set(opened.windows.map((windowPanel) => windowPanel.id));
+  for (const panel of featurePanels) {
+    if (!openedIDs.has(panel)) {
+      throw new Error(`${label}: ${panel} feature window did not open`);
+    }
+  }
   if (opened.scrollWidth > viewport.width + 1) {
     throw new Error(`${label}: panel window caused horizontal overflow (${opened.scrollWidth} > ${viewport.width})`);
   }
-  if (viewport.width < 768 && opened.rect) {
+  if (viewport.width >= 768) {
+    for (const windowPanel of opened.windows) {
+      if (!windowPanel.visible || !windowPanel.rect) {
+        throw new Error(`${label}: ${windowPanel.id} feature window is not visible on desktop/tablet`);
+      }
+      const centerX = windowPanel.rect.left + windowPanel.rect.width / 2;
+      const centerY = windowPanel.rect.top + windowPanel.rect.height / 2;
+      if (Math.abs(centerX - viewport.width / 2) > 90 || Math.abs(centerY - viewport.height / 2) > 110) {
+        throw new Error(`${label}: ${windowPanel.id} did not open centered (${JSON.stringify(windowPanel.rect)})`);
+      }
+    }
+  } else if (opened.rect) {
     const withinViewport =
       opened.rect.left >= -1 &&
       opened.rect.right <= viewport.width + 1 &&
@@ -802,6 +867,47 @@ async function verifyPanelModalChrome(page, viewport, label) {
     }
   }
 
+  if (viewport.width >= 768) {
+    const beforeDrag = await windowRect(page, 'economy');
+    const header = await page.locator('[data-window-panel="economy"] .hud-window__header').boundingBox();
+    if (!header || !beforeDrag) {
+      throw new Error(`${label}: economy drag handle was not measurable`);
+    }
+    await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(header.x + header.width / 2 + 130, header.y + header.height / 2 + 74, { steps: 6 });
+    await page.mouse.up();
+    const afterDrag = await windowRect(page, 'economy');
+    if (!afterDrag) {
+      throw new Error(`${label}: economy window disappeared after drag`);
+    }
+    if (Math.hypot(afterDrag.left - beforeDrag.left, afterDrag.top - beforeDrag.top) < 40) {
+      throw new Error(`${label}: economy window did not move after drag`);
+    }
+    if (afterDrag.left < -1 || afterDrag.right > viewport.width + 1 || afterDrag.top < -1 || afterDrag.top > viewport.height - 36) {
+      throw new Error(`${label}: dragged economy window was not clamped (${JSON.stringify(afterDrag)})`);
+    }
+
+    await page.locator('[data-panel-toggle="cargo"]').click();
+    await page.waitForSelector('[data-window-panel="cargo"][data-focused="true"]', { timeout: 10000 });
+    const cargoWindows = await page.locator('[data-window-panel="cargo"]').count();
+    if (cargoWindows !== 1) {
+      throw new Error(`${label}: nav focus duplicated cargo windows (${cargoWindows})`);
+    }
+
+    const moveCountBeforeWindowClick = await commandLogCount(page, 'Sent move_to.');
+    await page.locator('[data-window-panel="cargo"] .hud-window__body').click({ position: { x: 18, y: 18 } });
+    await page.locator('[data-panel-toggle="systems"]').click();
+    const moveCountAfterWindowClick = await commandLogCount(page, 'Sent move_to.');
+    if (moveCountAfterWindowClick !== moveCountBeforeWindowClick) {
+      throw new Error(`${label}: HUD window/nav click leaked into canvas move_to`);
+    }
+  }
+
+  await page.screenshot({ path: path.join(phase02OutputDir, `windows-${label}.png`), fullPage: true });
+
+  await page.locator('[data-panel-toggle="economy"]').click();
+  await page.waitForSelector('[data-window-panel="economy"][data-focused="true"]', { timeout: 10000 });
   await page.locator('[data-window-panel="economy"] [data-modal-open="economy"]').click();
   await page.waitForSelector('[data-modal="economy"][role="dialog"][aria-modal="true"]', { timeout: 10000 });
   await page.evaluate(() => {
@@ -824,12 +930,25 @@ async function verifyPanelModalChrome(page, viewport, label) {
   await page.locator('[data-modal-close="backdrop"]').click({ position: { x: 4, y: 4 } });
   await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
 
-  await page.locator('[data-panel-close="economy"]').click();
-  await page.waitForFunction(
-    () => !document.querySelector('[data-window-panel="economy"]') && document.querySelector('.hud')?.dataset.activePanel === 'none',
-    null,
-    { timeout: 10000 },
-  );
+  for (const panel of featurePanels.toReversed()) {
+    await page.locator(`[data-panel-toggle="${panel}"]`).click();
+    await page.waitForSelector(`[data-window-panel="${panel}"][data-focused="true"]`, { timeout: 10000 });
+    await page.locator(`[data-window-panel="${panel}"] [data-panel-close="${panel}"]`).click();
+  }
+  await page.waitForFunction(() => !document.querySelector('[data-window-panel]') && document.querySelector('.hud')?.dataset.activePanel === 'none', null, {
+    timeout: 10000,
+  });
+}
+
+async function windowRect(page, panel) {
+  return page.evaluate((panelID) => {
+    const element = document.querySelector(`[data-window-panel="${panelID}"]`);
+    if (!(element instanceof HTMLElement)) {
+      return null;
+    }
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+  }, panel);
 }
 
 async function selfMovementSample(page) {

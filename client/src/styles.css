@@ -183,7 +183,7 @@ button {
   overflow: hidden;
 }
 
-.hud :is(button, input, .panel) {
+.hud :is(button, input, .panel, .hud-window, .hud-modal, .hud-modal-backdrop) {
   pointer-events: auto;
 }
 
@@ -472,18 +472,19 @@ button:disabled {
 
 .hud__window-layer {
   position: absolute;
-  left: min(9.5rem, 26vw);
-  top: 16.5rem;
+  inset: 0;
   z-index: 5;
   pointer-events: none;
 }
 
 .hud-window {
   position: absolute;
-  top: calc(var(--window-index, 0) * 1.35rem);
-  left: calc(var(--window-index, 0) * 1rem);
-  width: min(23rem, calc(100vw - 2rem));
-  max-height: min(31rem, calc(100vh - 12rem));
+  top: var(--window-y, 8rem);
+  left: var(--window-x, 12rem);
+  z-index: var(--window-z, 20);
+  width: min(var(--window-width, 24rem), calc(100vw - 2rem));
+  height: min(var(--window-height, 31rem), calc(100vh - 5rem));
+  max-height: min(var(--window-height, 31rem), calc(100vh - 5rem));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid rgba(215, 247, 255, 0.32);
@@ -493,6 +494,10 @@ button:disabled {
   box-shadow: 0 1.25rem 3rem rgba(0, 0, 0, 0.56);
   pointer-events: auto;
   backdrop-filter: blur(16px);
+}
+
+.hud-window[data-dragging="true"] {
+  user-select: none;
 }
 
 .hud-window[data-focused="true"] {
@@ -511,6 +516,15 @@ button:disabled {
   min-width: 0;
   border-bottom: 1px solid rgba(215, 247, 255, 0.14);
   padding: 0.55rem 0.65rem;
+}
+
+.hud-window__header {
+  cursor: grab;
+  touch-action: none;
+}
+
+.hud-window[data-dragging="true"] .hud-window__header {
+  cursor: grabbing;
 }
 
 .hud-window__header strong,
@@ -1381,6 +1395,8 @@ button:disabled {
     right: 0.5rem;
     top: auto;
     bottom: 5.65rem;
+    inset-inline: 0.5rem;
+    height: min(16rem, calc(100vh - 13.5rem));
   }
 
   .hud-window {
@@ -1388,6 +1404,7 @@ button:disabled {
     top: auto !important;
     bottom: 0;
     width: 100%;
+    height: auto;
     max-height: min(16rem, calc(100vh - 13.5rem));
   }
 
@@ -1403,6 +1420,7 @@ button:disabled {
   .hud-modal__header,
   .hud-window__header {
     padding: 0.5rem;
+    cursor: default;
   }
 
   .hud-modal__header button,
@@ -1521,10 +1539,6 @@ button:disabled {
     overflow: hidden;
   }
 
-  .hud__window-layer {
-    left: min(9.5rem, 26vw);
-    top: 16.5rem;
-  }
 }
 
 @media (min-width: 1024px) {

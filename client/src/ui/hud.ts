@@ -61,6 +61,21 @@ interface HUDModalState {
   body: string;
 }
 
+interface HUDWindowState {
+  id: HUDWindowID;
+  x: number;
+  y: number;
+  z: number;
+  open: boolean;
+}
+
+interface HUDDragState {
+  id: HUDWindowID;
+  pointerID: number;
+  offsetX: number;
+  offsetY: number;
+}
+
 export class HUD {
   private readonly root: HTMLElement;
   private readonly nav: HTMLElement;
@@ -69,10 +84,14 @@ export class HUD {
   private readonly socketInput: HTMLInputElement;
   private readonly panels: Record<string, HTMLElement>;
   private readonly toast: HTMLElement;
-  private openWindows: HUDWindowID[] = [];
+  private readonly windowStates = new Map<HUDWindowID, HUDWindowState>();
+  private dragState: HUDDragState | null = null;
   private focusedWindow: HUDWindowID | null = null;
   private modal: HUDModalState | null = null;
   private currentState: ClientState | null = null;
+  private nextWindowZ = 20;
+  private readonly dragMove = (event: PointerEvent) => this.handleDragMove(event);
+  private readonly dragEnd = (event: PointerEvent) => this.handleDragEnd(event);
 
   constructor(container: HTMLElement, private readonly handlers: HUDHandlers) {
     this.root = document.createElement('section');
@@ -200,7 +219,48 @@ export class HUD {
   }
 
   private bindEvents(): void {
+    this.root.addEventListener(
+      'pointerdown',
+      (event) => {
+        const target = event.target;
+        if (blocksWorldInput(target)) {
+          markHUDInputSuppressed();
+        }
+        const targetElement = target instanceof HTMLElement ? target : null;
+        if (!targetElement) {
+          return;
+        }
+
+        const windowPanel = targetElement.closest<HTMLElement>('[data-window-panel]');
+        if (windowPanel) {
+          const panel = normalizePanelID(windowPanel.dataset.windowPanel);
+          if (panel && this.isWindowOpen(panel)) {
+            this.raiseWindow(panel);
+          }
+        }
+
+        const dragHandle = targetElement.closest<HTMLElement>('[data-window-drag]');
+        if (!dragHandle || event.button !== 0 || isControlElement(target)) {
+          return;
+        }
+        const panel = normalizePanelID(dragHandle.dataset.windowDrag);
+        if (!panel) {
+          return;
+        }
+        this.startDrag(panel, event);
+      },
+      { capture: true },
+    );
+
+    window.addEventListener('pointermove', this.dragMove);
+    window.addEventListener('pointerup', this.dragEnd);
+    window.addEventListener('pointercancel', this.dragEnd);
+
     this.root.addEventListener('click', (event) => {
+      if (blocksWorldInput(event.target)) {
+        markHUDInputSuppressed();
+        event.stopPropagation();
+      }
       const panelToggle = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-panel-toggle]');
       if (panelToggle) {
         const nextPanel = normalizePanelID(panelToggle.dataset.panelToggle);
@@ -219,7 +279,7 @@ export class HUD {
       if (panelFocus) {
         const panel = normalizePanelID(panelFocus.dataset.windowPanel);
         if (panel) {
-          this.focusWindow(panel);
+          this.raiseWindow(panel);
         }
       }
 
@@ -381,7 +441,7 @@ export class HUD {
   private renderNav(state: ClientState): void {
     this.nav.innerHTML = windowDefinitions(state)
       .map((definition) => {
-        const active = this.openWindows.includes(definition.id);
+        const active = this.isWindowOpen(definition.id);
         const focused = this.focusedWindow === definition.id;
         return `<button class="hud-nav-button" type="button" data-panel-toggle="${definition.id}" data-active="${active ? 'true' : 'false'}" data-focused="${focused ? 'true' : 'false'}" aria-pressed="${active ? 'true' : 'false'}"><span>${escapeHTML(definition.label)}</span></button>`;
       })
@@ -390,21 +450,28 @@ export class HUD {
 
   private renderWindows(state: ClientState): void {
     const definitions = windowDefinitions(state);
-    this.openWindows = this.openWindows.filter((id) => definitions.some((definition) => definition.id === id));
-    if (this.focusedWindow && !this.openWindows.includes(this.focusedWindow)) {
-      this.focusedWindow = this.openWindows.at(-1) ?? null;
+    const allowed = new Set(definitions.map((definition) => definition.id));
+    for (const windowState of this.windowStates.values()) {
+      if (!allowed.has(windowState.id)) {
+        windowState.open = false;
+      }
+    }
+    const openStates = this.openWindowStates(definitions);
+    if (this.focusedWindow && !openStates.some((windowState) => windowState.id === this.focusedWindow)) {
+      this.focusedWindow = openStates.at(-1)?.id ?? null;
     }
 
-    this.windowLayer.innerHTML = this.openWindows
-      .map((id, index) => {
-        const definition = definitions.find((entry) => entry.id === id);
+    this.windowLayer.innerHTML = openStates
+      .map((windowState) => {
+        const definition = definitions.find((entry) => entry.id === windowState.id);
         if (!definition) {
           return '';
         }
-        const focused = id === this.focusedWindow;
+        const focused = windowState.id === this.focusedWindow;
+        const size = windowSize(definition.id);
         return `
-          <section class="hud-window" data-window-panel="${definition.id}" data-focused="${focused ? 'true' : 'false'}" data-open="true" style="--window-index:${index}" tabindex="-1" aria-label="${escapeHTML(definition.title)}">
-            <header class="hud-window__header">
+          <section class="hud-window" data-window-panel="${definition.id}" data-focused="${focused ? 'true' : 'false'}" data-open="true" data-x="${Math.round(windowState.x)}" data-y="${Math.round(windowState.y)}" style="--window-x:${windowState.x}px;--window-y:${windowState.y}px;--window-z:${windowState.z};--window-width:${size.width}px;--window-height:${size.height}px" tabindex="-1" aria-label="${escapeHTML(definition.title)}">
+            <header class="hud-window__header" data-window-drag="${definition.id}">
               <strong>${escapeHTML(definition.title)}</strong>
               <div>
                 <button type="button" data-modal-open="${definition.id}" title="Open detail">Inspect</button>
@@ -440,18 +507,20 @@ export class HUD {
   }
 
   private toggleWindow(panel: HUDWindowID): void {
-    if (this.openWindows.includes(panel)) {
-      this.closeWindow(panel);
+    if (this.isWindowOpen(panel)) {
+      this.raiseWindow(panel);
       return;
     }
-    this.openWindows = [...this.openWindows, panel].slice(-3);
-    this.focusWindow(panel);
+    this.openWindow(panel);
   }
 
   private closeWindow(panel: HUDWindowID): void {
-    this.openWindows = this.openWindows.filter((id) => id !== panel);
+    const state = this.windowStates.get(panel);
+    if (state) {
+      state.open = false;
+    }
     if (this.focusedWindow === panel) {
-      this.focusedWindow = this.openWindows.at(-1) ?? null;
+      this.focusedWindow = this.openWindowStates().at(-1)?.id ?? null;
     }
   }
 
@@ -462,12 +531,25 @@ export class HUD {
     this.closeWindow(this.focusedWindow);
   }
 
-  private focusWindow(panel: HUDWindowID): void {
-    if (!this.openWindows.includes(panel)) {
+  private openWindow(panel: HUDWindowID): void {
+    let state = this.windowStates.get(panel);
+    if (!state) {
+      state = { id: panel, ...this.defaultWindowPosition(panel), z: ++this.nextWindowZ, open: true };
+      this.windowStates.set(panel, state);
+    }
+    state.open = true;
+    this.raiseWindow(panel);
+  }
+
+  private raiseWindow(panel: HUDWindowID): void {
+    const state = this.windowStates.get(panel);
+    if (!state?.open) {
       return;
     }
+    state.z = ++this.nextWindowZ;
     this.focusedWindow = panel;
-    this.openWindows = [...this.openWindows.filter((id) => id !== panel), panel];
+    this.root.dataset.activePanel = panel;
+    this.applyWindowFocus();
   }
 
   private openModal(id: HUDModalID, state: ClientState): void {
@@ -481,6 +563,121 @@ export class HUD {
   private closeModal(): void {
     this.modal = null;
   }
+
+  private isWindowOpen(panel: HUDWindowID): boolean {
+    return this.windowStates.get(panel)?.open === true;
+  }
+
+  private openWindowStates(definitions?: HUDPanelDefinition[]): HUDWindowState[] {
+    const allowed = new Set((definitions ?? baseWindowDefinitions).map((definition) => definition.id));
+    return [...this.windowStates.values()]
+      .filter((windowState) => windowState.open && allowed.has(windowState.id))
+      .sort((left, right) => left.z - right.z);
+  }
+
+  private defaultWindowPosition(panel: HUDWindowID): { x: number; y: number } {
+    const size = windowSize(panel);
+    const x = (window.innerWidth - Math.min(size.width, window.innerWidth - 16)) / 2;
+    const y = (window.innerHeight - Math.min(size.height, window.innerHeight - 72)) / 2;
+    return this.clampWindowPosition(panel, x, y);
+  }
+
+  private clampWindowPosition(panel: HUDWindowID, x: number, y: number): { x: number; y: number } {
+    const size = windowSize(panel);
+    const width = Math.min(size.width, Math.max(320, window.innerWidth - 16));
+    const margin = 8;
+    const topMargin = window.innerWidth < 768 ? margin : 56;
+    const maxX = Math.max(margin, window.innerWidth - width - margin);
+    const maxY = Math.max(topMargin, window.innerHeight - 52);
+    return {
+      x: clamp(x, margin, maxX),
+      y: clamp(y, topMargin, maxY),
+    };
+  }
+
+  private startDrag(panel: HUDWindowID, event: PointerEvent): void {
+    if (window.innerWidth < 768) {
+      this.raiseWindow(panel);
+      return;
+    }
+    const windowPanel = (event.target as HTMLElement).closest<HTMLElement>('[data-window-panel]');
+    const state = this.windowStates.get(panel);
+    if (!windowPanel || !state?.open) {
+      return;
+    }
+    const rect = windowPanel.getBoundingClientRect();
+    this.raiseWindow(panel);
+    this.dragState = {
+      id: panel,
+      pointerID: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+    };
+    windowPanel.dataset.dragging = 'true';
+    event.preventDefault();
+  }
+
+  private handleDragMove(event: PointerEvent): void {
+    const drag = this.dragState;
+    if (!drag || drag.pointerID !== event.pointerId) {
+      return;
+    }
+    const state = this.windowStates.get(drag.id);
+    if (!state) {
+      return;
+    }
+    const next = this.clampWindowPosition(drag.id, event.clientX - drag.offsetX, event.clientY - drag.offsetY);
+    state.x = next.x;
+    state.y = next.y;
+    this.applyWindowPosition(state);
+    markHUDInputSuppressed();
+    event.preventDefault();
+  }
+
+  private handleDragEnd(event: PointerEvent): void {
+    if (!this.dragState || this.dragState.pointerID !== event.pointerId) {
+      return;
+    }
+    const windowPanel = this.windowLayer.querySelector<HTMLElement>(`[data-window-panel="${this.dragState.id}"]`);
+    if (windowPanel) {
+      delete windowPanel.dataset.dragging;
+    }
+    this.dragState = null;
+    markHUDInputSuppressed();
+  }
+
+  private applyWindowPosition(state: HUDWindowState): void {
+    const element = this.windowLayer.querySelector<HTMLElement>(`[data-window-panel="${state.id}"]`);
+    if (!element) {
+      return;
+    }
+    element.style.setProperty('--window-x', `${state.x}px`);
+    element.style.setProperty('--window-y', `${state.y}px`);
+    element.style.setProperty('--window-z', String(state.z));
+    element.dataset.x = String(Math.round(state.x));
+    element.dataset.y = String(Math.round(state.y));
+  }
+
+  private applyWindowFocus(): void {
+    for (const element of this.windowLayer.querySelectorAll<HTMLElement>('[data-window-panel]')) {
+      const panel = normalizePanelID(element.dataset.windowPanel);
+      const state = panel ? this.windowStates.get(panel) : null;
+      element.dataset.focused = panel === this.focusedWindow ? 'true' : 'false';
+      if (state) {
+        element.style.setProperty('--window-z', String(state.z));
+      }
+    }
+    for (const button of this.nav.querySelectorAll<HTMLButtonElement>('[data-panel-toggle]')) {
+      const panel = normalizePanelID(button.dataset.panelToggle);
+      if (!panel) {
+        continue;
+      }
+      const active = this.isWindowOpen(panel);
+      button.dataset.active = active ? 'true' : 'false';
+      button.dataset.focused = panel === this.focusedWindow ? 'true' : 'false';
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+  }
 }
 
 const baseWindowDefinitions: HUDPanelDefinition[] = [
@@ -491,6 +688,36 @@ const baseWindowDefinitions: HUDPanelDefinition[] = [
   { id: 'systems', label: 'Hangar', title: 'Systems / Loadout / Crafting', render: systemsPanel },
   { id: 'ops', label: 'Ops', title: 'Admin Ops', render: opsPanel, hidden: (state) => !state.auth.session?.account?.admin },
 ];
+
+function windowSize(id: HUDWindowID): { width: number; height: number } {
+  switch (id) {
+    case 'economy':
+      return { width: 440, height: 500 };
+    case 'quests':
+      return { width: 410, height: 460 };
+    case 'intel':
+      return { width: 420, height: 500 };
+    case 'systems':
+      return { width: 400, height: 480 };
+    case 'ops':
+      return { width: 450, height: 520 };
+    case 'cargo':
+    default:
+      return { width: 380, height: 440 };
+  }
+}
+
+function markHUDInputSuppressed(): void {
+  (window as Window & { __SPACE_MORPG_HUD_INPUT_UNTIL__?: number }).__SPACE_MORPG_HUD_INPUT_UNTIL__ = performance.now() + 220;
+}
+
+function blocksWorldInput(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(target.closest('.hud, .auth-panel, .hud-modal, .hud-window, button, input, select, textarea'));
+}
+
+function isControlElement(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(target.closest('button, input, select, textarea, a[href], [data-action]'));
+}
 
 function windowDefinitions(state: ClientState): HUDPanelDefinition[] {
   return baseWindowDefinitions.filter((definition) => !definition.hidden?.(state));

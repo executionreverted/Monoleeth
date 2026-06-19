@@ -52,6 +52,7 @@ export class WorldRenderer {
   private center: Vec2 = { x: 0, y: 0 };
   private scale = 1;
   private serverClockOffset = 0;
+  private ignoreWorldInputUntil = 0;
 
   constructor(private readonly handlers: WorldInputHandlers) {}
 
@@ -225,7 +226,25 @@ export class WorldRenderer {
       return;
     }
 
+    window.addEventListener(
+      'pointerdown',
+      (event) => {
+        if (event.target === this.app?.canvas) {
+          this.ignoreWorldInputUntil = 0;
+          (window as Window & { __SPACE_MORPG_HUD_INPUT_UNTIL__?: number }).__SPACE_MORPG_HUD_INPUT_UNTIL__ = 0;
+          return;
+        }
+        if (blocksWorldCanvasInput(event.target)) {
+          this.ignoreWorldInputUntil = performance.now() + 220;
+        }
+      },
+      true,
+    );
+
     this.app.canvas.addEventListener('click', (event) => {
+      if (event.target !== this.app?.canvas || this.shouldIgnoreWorldClick()) {
+        return;
+      }
       const rect = this.app?.canvas.getBoundingClientRect();
       if (!rect) {
         return;
@@ -246,6 +265,14 @@ export class WorldRenderer {
       }
       this.handlers.onMoveIntent(this.screenToWorld(screen));
     });
+  }
+
+  private shouldIgnoreWorldClick(): boolean {
+    const hudBlockUntil = (window as Window & { __SPACE_MORPG_HUD_INPUT_UNTIL__?: number }).__SPACE_MORPG_HUD_INPUT_UNTIL__ ?? 0;
+    if (performance.now() < Math.max(this.ignoreWorldInputUntil, hudBlockUntil)) {
+      return true;
+    }
+    return document.activeElement instanceof HTMLElement && Boolean(document.activeElement.closest('input, textarea, select, [role="dialog"]'));
   }
 
   private createEntityView(entity: EntityPayload): Graphics {
@@ -908,6 +935,14 @@ function isUnknownSignal(entity: EntityPayload): boolean {
   return (
     entity.entity_type === 'planet_signal' &&
     (entity.status_flags?.includes('unknown_signal') || entity.display?.disposition === 'unknown' || /unknown/i.test(entity.display?.label ?? ''))
+  );
+}
+
+function blocksWorldCanvasInput(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    !target.classList.contains('world-canvas') &&
+    Boolean(target.closest('.hud, .auth-panel, .hud-modal, .hud-window, button, input, select, textarea, [role="dialog"]'))
   );
 }
 

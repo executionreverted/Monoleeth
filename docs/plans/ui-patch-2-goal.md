@@ -102,15 +102,15 @@ docs/2026-06-17-world-system-design.md
 
 ### Windows, Modals, And Input Isolation
 
-- [ ] Inventory/cargo, hangar/systems, quests, intel/scanner, economy, and ops
+- [x] Inventory/cargo, hangar/systems, quests, intel/scanner, economy, and ops
       open centered by default.
-- [ ] HUD windows are draggable by their headers and clamped to the viewport.
-- [ ] Window focus/z-order is predictable.
-- [ ] Escape, close buttons, and backdrop/modal behavior remain predictable.
-- [ ] Main feature screens are not dumped into the central game surface.
-- [ ] Clicking or focusing HUD, modal, button, input, or form elements cannot
+- [x] HUD windows are draggable by their headers and clamped to the viewport.
+- [x] Window focus/z-order is predictable.
+- [x] Escape, close buttons, and backdrop/modal behavior remain predictable.
+- [x] Main feature screens are not dumped into the central game surface.
+- [x] Clicking or focusing HUD, modal, button, input, or form elements cannot
       trigger world movement or world selection.
-- [ ] Mobile remains usable as sheets/drawers with no horizontal body scroll.
+- [x] Mobile remains usable as sheets/drawers with no horizontal body scroll.
 
 ### Quick Actions And Scan Mode
 
