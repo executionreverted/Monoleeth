@@ -76,6 +76,41 @@ func TestRerollBoardDuplicateReferenceDoesNotDoubleCharge(t *testing.T) {
 	}
 }
 
+func TestRerollBoardDuplicateReferenceSurvivesOfferCompaction(t *testing.T) {
+	fixture, wallet := newRerollFixture(t, 1_000)
+	input := validBoardGenerationInput(t, fixture.catalog)
+	if _, err := fixture.service.GenerateAndStoreBoard(input); err != nil {
+		t.Fatalf("GenerateAndStoreBoard() = %v, want nil", err)
+	}
+	rerollInput := validRerollBoardInput(input.Player, 20260618, fixture.clock.Now())
+
+	first, err := fixture.service.RerollBoard(rerollInput)
+	if err != nil {
+		t.Fatalf("RerollBoard(first) = %v, want nil", err)
+	}
+	fixture.clock.Advance(48 * time.Hour)
+	if _, err := fixture.service.CompactUnacceptedOffers(fixture.clock.Now()); err != nil {
+		t.Fatalf("CompactUnacceptedOffers() = %v, want nil", err)
+	}
+
+	second, err := fixture.service.RerollBoard(rerollInput)
+	if err != nil {
+		t.Fatalf("RerollBoard(second) = %v, want nil", err)
+	}
+	if !second.Duplicate {
+		t.Fatal("duplicate reroll Duplicate = false, want true after compaction")
+	}
+	if len(wallet.calls) != 1 {
+		t.Fatalf("wallet calls after duplicate = %d, want 1", len(wallet.calls))
+	}
+	if first.ReferenceKey != second.ReferenceKey {
+		t.Fatalf("duplicate reference = %q, want %q", second.ReferenceKey, first.ReferenceKey)
+	}
+	if !reflect.DeepEqual(first.Offers, second.Offers) {
+		t.Fatalf("duplicate offers changed after compaction\nfirst=%#v\nsecond=%#v", first.Offers, second.Offers)
+	}
+}
+
 func TestRerollBoardDuplicateReferenceDoesNotRecheckRareRewardCap(t *testing.T) {
 	fixture, wallet := newRerollFixture(t, 1_000)
 	input := validBoardGenerationInput(t, fixture.catalog)

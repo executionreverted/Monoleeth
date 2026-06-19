@@ -15,6 +15,7 @@ type InMemoryQuestStore struct {
 	mu sync.Mutex
 
 	offers          map[questOfferStoreKey]GeneratedBoardOffer
+	offersByPlayer  map[foundation.PlayerID]map[foundation.QuestID]struct{}
 	acceptedByOffer map[questOfferStoreKey]foundation.QuestID
 	quests          map[foundation.QuestID]PlayerQuest
 	questsByPlayer  map[foundation.PlayerID][]foundation.QuestID
@@ -39,6 +40,7 @@ type rerollInFlight struct {
 func NewInMemoryQuestStore() *InMemoryQuestStore {
 	return &InMemoryQuestStore{
 		offers:          make(map[questOfferStoreKey]GeneratedBoardOffer),
+		offersByPlayer:  make(map[foundation.PlayerID]map[foundation.QuestID]struct{}),
 		acceptedByOffer: make(map[questOfferStoreKey]foundation.QuestID),
 		quests:          make(map[foundation.QuestID]PlayerQuest),
 		questsByPlayer:  make(map[foundation.PlayerID][]foundation.QuestID),
@@ -110,10 +112,33 @@ func (store *InMemoryQuestStore) BoardOffersAt(playerID foundation.PlayerID, now
 	return store.boardOffersLocked(playerID), nil
 }
 
+// CompactUnacceptedOffers removes expired, unaccepted board offers from this
+// in-memory store. It intentionally does not delete accepted quests or
+// idempotency result caches; durable uniqueness still belongs to a persistent
+// store/ledger boundary.
+func (store *InMemoryQuestStore) CompactUnacceptedOffers(now time.Time) (int, error) {
+	if now.IsZero() {
+		return 0, fmt.Errorf("now: %w", ErrZeroQuestTime)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.compactUnacceptedOffersLocked(now.UTC()), nil
+}
+
 func (store *InMemoryQuestStore) boardOffersLocked(playerID foundation.PlayerID) []GeneratedBoardOffer {
 	offers := make([]GeneratedBoardOffer, 0)
-	for key, offer := range store.offers {
-		if key.playerID != playerID || offer.AcceptedAt != nil {
+	for offerID := range store.offersByPlayer[playerID] {
+		key := newQuestOfferStoreKey(playerID, offerID)
+		offer, ok := store.offers[key]
+		if !ok {
+			continue
+		}
+		if offer.AcceptedAt != nil {
+			continue
+		}
+		if _, accepted := store.acceptedByOffer[key]; accepted {
 			continue
 		}
 		offers = append(offers, cloneGeneratedBoardOffer(offer))
@@ -247,7 +272,40 @@ func (store *InMemoryQuestStore) storeGeneratedBoardOfferLocked(offer GeneratedB
 	if existing, ok := store.offers[key]; ok && existing.AcceptedAt != nil {
 		return
 	}
+	store.setOfferLocked(key, offer)
+}
+
+func (store *InMemoryQuestStore) setOfferLocked(key questOfferStoreKey, offer GeneratedBoardOffer) {
 	store.offers[key] = cloneGeneratedBoardOffer(offer)
+	store.indexOfferLocked(key)
+}
+
+func (store *InMemoryQuestStore) indexOfferLocked(key questOfferStoreKey) {
+	if store.offersByPlayer[key.playerID] == nil {
+		store.offersByPlayer[key.playerID] = make(map[foundation.QuestID]struct{})
+	}
+	store.offersByPlayer[key.playerID][key.offerID] = struct{}{}
+}
+
+func (store *InMemoryQuestStore) removeOfferLocked(key questOfferStoreKey) bool {
+	if _, ok := store.offers[key]; !ok {
+		store.removeOfferIndexLocked(key)
+		return false
+	}
+	delete(store.offers, key)
+	store.removeOfferIndexLocked(key)
+	return true
+}
+
+func (store *InMemoryQuestStore) removeOfferIndexLocked(key questOfferStoreKey) {
+	playerOffers := store.offersByPlayer[key.playerID]
+	if playerOffers == nil {
+		return
+	}
+	delete(playerOffers, key.offerID)
+	if len(playerOffers) == 0 {
+		delete(store.offersByPlayer, key.playerID)
+	}
 }
 
 func (store *InMemoryQuestStore) ensureRerollOffersCanStoreLocked(playerID foundation.PlayerID, offers []GeneratedBoardOffer) error {
@@ -269,30 +327,62 @@ func (store *InMemoryQuestStore) ensureRerollOffersCanStoreLocked(playerID found
 	return nil
 }
 
-func (store *InMemoryQuestStore) expireUnacceptedOffersForPlayerLocked(playerID foundation.PlayerID) {
-	for key, offer := range store.offers {
-		if key.playerID != playerID || offer.AcceptedAt != nil {
+func (store *InMemoryQuestStore) expireUnacceptedOffersForPlayerLocked(playerID foundation.PlayerID) int {
+	removed := 0
+	for offerID := range store.offersByPlayer[playerID] {
+		key := newQuestOfferStoreKey(playerID, offerID)
+		offer, ok := store.offers[key]
+		if !ok {
+			store.removeOfferIndexLocked(key)
+			continue
+		}
+		if offer.AcceptedAt != nil {
 			continue
 		}
 		if _, accepted := store.acceptedByOffer[key]; accepted {
 			continue
 		}
-		delete(store.offers, key)
+		if store.removeOfferLocked(key) {
+			removed++
+		}
 	}
+	return removed
 }
 
-func (store *InMemoryQuestStore) expireOffersForPlayerLocked(playerID foundation.PlayerID, now time.Time) {
-	for key, offer := range store.offers {
-		if key.playerID != playerID || offer.AcceptedAt != nil {
+func (store *InMemoryQuestStore) expireOffersForPlayerLocked(playerID foundation.PlayerID, now time.Time) int {
+	return store.compactUnacceptedOffersForPlayerLocked(playerID, now)
+}
+
+func (store *InMemoryQuestStore) compactUnacceptedOffersLocked(now time.Time) int {
+	removed := 0
+	for playerID := range store.offersByPlayer {
+		removed += store.compactUnacceptedOffersForPlayerLocked(playerID, now)
+	}
+	return removed
+}
+
+func (store *InMemoryQuestStore) compactUnacceptedOffersForPlayerLocked(playerID foundation.PlayerID, now time.Time) int {
+	removed := 0
+	for offerID := range store.offersByPlayer[playerID] {
+		key := newQuestOfferStoreKey(playerID, offerID)
+		offer, ok := store.offers[key]
+		if !ok {
+			store.removeOfferIndexLocked(key)
+			continue
+		}
+		if offer.AcceptedAt != nil {
 			continue
 		}
 		if _, accepted := store.acceptedByOffer[key]; accepted {
 			continue
 		}
 		if !offer.ExpiresAt.After(now) {
-			delete(store.offers, key)
+			if store.removeOfferLocked(key) {
+				removed++
+			}
 		}
 	}
+	return removed
 }
 
 func (store *InMemoryQuestStore) storeRerolledBoardOffersLocked(playerID foundation.PlayerID, offers []GeneratedBoardOffer) error {
@@ -301,7 +391,7 @@ func (store *InMemoryQuestStore) storeRerolledBoardOffersLocked(playerID foundat
 	}
 	store.expireUnacceptedOffersForPlayerLocked(playerID)
 	for _, offer := range offers {
-		store.offers[newQuestOfferStoreKey(playerID, offer.OfferID)] = cloneGeneratedBoardOffer(offer)
+		store.setOfferLocked(newQuestOfferStoreKey(playerID, offer.OfferID), offer)
 	}
 	return nil
 }

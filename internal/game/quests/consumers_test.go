@@ -133,6 +133,9 @@ func TestConsumeDuplicateServerEventDoesNotProgressTwice(t *testing.T) {
 	if _, err := fixture.service.ConsumeCombatNPCKilled(input); err != nil {
 		t.Fatalf("ConsumeCombatNPCKilled(first) = %v, want nil", err)
 	}
+	if _, err := fixture.service.CompactUnacceptedOffers(fixture.clock.Now().Add(48 * time.Hour)); err != nil {
+		t.Fatalf("CompactUnacceptedOffers() = %v, want nil", err)
+	}
 	fixture.clock.Advance(time.Minute)
 	updated, err := fixture.service.ConsumeCombatNPCKilled(input)
 	if err != nil {

@@ -130,6 +130,126 @@ func TestBoardOffersExpiresOldUnacceptedOffers(t *testing.T) {
 	}
 }
 
+func TestBoardOffersUsesPlayerOfferIndexAndCompactsExpiredUnacceptedOffers(t *testing.T) {
+	fixture := newQuestServiceFixture(t, MustMVPQuestCatalog(), time.Date(2026, 6, 17, 23, 50, 0, 0, time.UTC))
+	input := validBoardGenerationInput(t, fixture.catalog)
+	input.CreatedAt = fixture.clock.Now()
+	offers, err := fixture.service.GenerateAndStoreBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateAndStoreBoard(player) = %v, want nil", err)
+	}
+	accepted, err := fixture.service.AcceptQuest(AcceptQuestInput{
+		Player:  input.Player,
+		OfferID: offers[0].OfferID,
+	})
+	if err != nil {
+		t.Fatalf("AcceptQuest() = %v, want nil", err)
+	}
+
+	otherInput := input
+	otherInput.Player.PlayerID = "player_2"
+	otherInput.Seed = 20260618
+	otherInput.CreatedAt = time.Date(2026, 6, 18, 0, 10, 0, 0, time.UTC)
+	otherOffers, err := fixture.service.GenerateAndStoreBoard(otherInput)
+	if err != nil {
+		t.Fatalf("GenerateAndStoreBoard(other) = %v, want nil", err)
+	}
+
+	orphan := offers[1]
+	orphan.OfferID = "quest_offer_unindexed"
+	orphan.CreatedAt = input.CreatedAt
+	orphan.ExpiresAt = input.CreatedAt.Add(24 * time.Hour)
+	fixture.store.mu.Lock()
+	fixture.store.offers[newQuestOfferStoreKey(input.Player.PlayerID, orphan.OfferID)] = cloneGeneratedBoardOffer(orphan)
+	if indexed := len(fixture.store.offersByPlayer[input.Player.PlayerID]); indexed != len(offers) {
+		fixture.store.mu.Unlock()
+		t.Fatalf("player offer index len = %d, want %d", indexed, len(offers))
+	}
+	if indexed := len(fixture.store.offersByPlayer[otherInput.Player.PlayerID]); indexed != len(otherOffers) {
+		fixture.store.mu.Unlock()
+		t.Fatalf("other player offer index len = %d, want %d", indexed, len(otherOffers))
+	}
+	fixture.store.mu.Unlock()
+
+	visible, err := fixture.store.BoardOffers(input.Player.PlayerID)
+	if err != nil {
+		t.Fatalf("BoardOffers() = %v, want nil", err)
+	}
+	for _, offer := range visible {
+		if offer.OfferID == orphan.OfferID {
+			t.Fatalf("BoardOffers() returned unindexed offer %q; lookup should use per-player index", orphan.OfferID)
+		}
+	}
+
+	fixture.clock.Advance(NextQuestBoardExpiry(input.CreatedAt).Sub(fixture.clock.Now()))
+	removed, err := fixture.service.CompactUnacceptedOffers(fixture.clock.Now())
+	if err != nil {
+		t.Fatalf("CompactUnacceptedOffers() = %v, want nil", err)
+	}
+	if removed != len(offers)-1 {
+		t.Fatalf("compacted offers = %d, want %d expired unaccepted player offers", removed, len(offers)-1)
+	}
+
+	fixture.store.mu.Lock()
+	if indexed := len(fixture.store.offersByPlayer[input.Player.PlayerID]); indexed != 1 {
+		fixture.store.mu.Unlock()
+		t.Fatalf("player offer index after compaction = %d, want accepted offer retained", indexed)
+	}
+	if indexed := len(fixture.store.offersByPlayer[otherInput.Player.PlayerID]); indexed != len(otherOffers) {
+		fixture.store.mu.Unlock()
+		t.Fatalf("other player offer index after compaction = %d, want %d", indexed, len(otherOffers))
+	}
+	fixture.store.mu.Unlock()
+
+	duplicate, err := fixture.service.AcceptQuest(AcceptQuestInput{
+		Player:  input.Player,
+		OfferID: offers[0].OfferID,
+	})
+	if err != nil {
+		t.Fatalf("duplicate AcceptQuest() after compaction = %v, want nil", err)
+	}
+	if duplicate.PlayerQuestID != accepted.PlayerQuestID {
+		t.Fatalf("duplicate quest id = %q, want %q", duplicate.PlayerQuestID, accepted.PlayerQuestID)
+	}
+}
+
+func TestCompactUnacceptedOffersRetainsDuplicateClaimResults(t *testing.T) {
+	fixture, wallet, inventory, xp := newClaimRewardFixture(t)
+	quest := seedClaimQuest(t, fixture, QuestStateCompleted)
+
+	first, err := fixture.service.ClaimReward(ClaimRewardInput{
+		PlayerID:      quest.PlayerID,
+		PlayerQuestID: quest.PlayerQuestID,
+	})
+	if err != nil {
+		t.Fatalf("ClaimReward(first) = %v, want nil", err)
+	}
+	removed, err := fixture.service.CompactUnacceptedOffers(fixture.clock.Now().Add(48 * time.Hour))
+	if err != nil {
+		t.Fatalf("CompactUnacceptedOffers() = %v, want nil", err)
+	}
+	if removed != 0 {
+		t.Fatalf("compacted offers = %d, want 0 for claim-only fixture", removed)
+	}
+
+	second, err := fixture.service.ClaimReward(ClaimRewardInput{
+		PlayerID:      quest.PlayerID,
+		PlayerQuestID: quest.PlayerQuestID,
+	})
+	if err != nil {
+		t.Fatalf("ClaimReward(second) = %v, want nil", err)
+	}
+	if !second.Duplicate {
+		t.Fatal("duplicate ClaimReward() duplicate = false, want true after compaction")
+	}
+	if second.ReferenceKey != first.ReferenceKey {
+		t.Fatalf("duplicate claim reference = %q, want %q", second.ReferenceKey, first.ReferenceKey)
+	}
+	if len(wallet.calls) != 1 || len(inventory.calls) != 1 || len(xp.calls) != 1 {
+		t.Fatalf("grant calls after duplicate = wallet %d inventory %d xp %d, want one each", len(wallet.calls), len(inventory.calls), len(xp.calls))
+	}
+}
+
 func TestBoardOfferExpiryPreservesAcceptedQuest(t *testing.T) {
 	fixture := newQuestServiceFixture(t, MustMVPQuestCatalog(), time.Date(2026, 6, 17, 23, 50, 0, 0, time.UTC))
 	input := validBoardGenerationInput(t, fixture.catalog)

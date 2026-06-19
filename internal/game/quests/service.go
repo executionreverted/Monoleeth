@@ -122,6 +122,16 @@ func (service *QuestService) BoardOffers(playerID foundation.PlayerID) ([]Genera
 	return service.store.BoardOffersAt(playerID, now)
 }
 
+// CompactUnacceptedOffers explicitly prunes expired, unaccepted in-memory board
+// offers. It preserves accepted quest state plus progress, claim, and reroll
+// idempotency caches; this is not a durable uniqueness boundary.
+func (service *QuestService) CompactUnacceptedOffers(now time.Time) (int, error) {
+	if now.IsZero() {
+		return 0, fmt.Errorf("now: %w", ErrZeroQuestTime)
+	}
+	return service.store.CompactUnacceptedOffers(now.UTC())
+}
+
 // PlayerQuests returns the player's accepted, completed, and claimed quests.
 func (service *QuestService) PlayerQuests(playerID foundation.PlayerID) ([]PlayerQuest, error) {
 	return service.store.PlayerQuests(playerID)
@@ -173,7 +183,7 @@ func (service *QuestService) acceptQuestLocked(input AcceptQuestInput, acceptedA
 		return quest, nil
 	}
 	if !offer.ExpiresAt.After(acceptedAt) {
-		delete(service.store.offers, key)
+		service.store.removeOfferLocked(key)
 		return PlayerQuest{}, fmt.Errorf("offer %q expired at %s: %w", offer.OfferID, offer.ExpiresAt, ErrQuestOfferExpired)
 	}
 
@@ -198,7 +208,7 @@ func (service *QuestService) acceptQuestLocked(input AcceptQuestInput, acceptedA
 	}
 
 	offer.AcceptedAt = cloneTimePtr(&acceptedAt)
-	service.store.offers[key] = cloneGeneratedBoardOffer(offer)
+	service.store.setOfferLocked(key, offer)
 	service.store.acceptedByOffer[key] = quest.PlayerQuestID
 	service.store.quests[quest.PlayerQuestID] = clonePlayerQuest(quest)
 	service.store.appendPlayerQuestLocked(quest.PlayerID, quest.PlayerQuestID)
@@ -219,7 +229,7 @@ func (service *QuestService) existingQuestForOfferLocked(key questOfferStoreKey)
 	offer := service.store.offers[key]
 	if offer.AcceptedAt == nil {
 		offer.AcceptedAt = cloneTimePtr(&quest.AcceptedAt)
-		service.store.offers[key] = cloneGeneratedBoardOffer(offer)
+		service.store.setOfferLocked(key, offer)
 	}
 	return clonePlayerQuest(quest), true
 }
