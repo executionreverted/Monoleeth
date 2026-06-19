@@ -12,13 +12,16 @@ const entityColors: Record<EntityPayload['entity_type'], number> = {
 
 export class WorldRenderer {
   private app: Application | null = null;
+  private readonly backgroundLayer = new Container();
   private readonly worldLayer = new Container();
   private readonly markerLayer = new Container();
+  private readonly nebulaLayer = new Graphics();
+  private readonly gridLayer = new Graphics();
   private readonly entityViews = new Map<string, Graphics>();
   private readonly entityLabels = new Map<string, Text>();
   private readonly entityTargets = new Map<string, EntityPayload>();
   private readonly entityWorldPositions = new Map<string, Vec2>();
-  private readonly stars: Graphics[] = [];
+  private readonly stars: Array<{ view: Graphics; base: Vec2; depth: number }> = [];
   private emptyLabel: Text | null = null;
   private state: WorldViewState | null = null;
   private center: Vec2 = { x: 0, y: 0 };
@@ -39,6 +42,9 @@ export class WorldRenderer {
     this.app = app;
     app.canvas.className = 'world-canvas';
     container.appendChild(app.canvas);
+    app.stage.addChild(this.backgroundLayer);
+    this.backgroundLayer.addChild(this.nebulaLayer);
+    this.backgroundLayer.addChild(this.gridLayer);
     app.stage.addChild(this.worldLayer);
     app.stage.addChild(this.markerLayer);
 
@@ -60,8 +66,9 @@ export class WorldRenderer {
     app.ticker.add((ticker) => {
       const pulse = 0.92 + Math.sin(performance.now() / 650) * 0.08;
       for (const star of this.stars) {
-        star.alpha = 0.42 + pulse * 0.24;
+        star.view.alpha = 0.32 + star.depth * 0.28 + pulse * 0.16;
       }
+      this.updateBackground();
       this.updateInterpolatedEntities();
       this.markerLayer.rotation += 0.0007 * ticker.deltaTime;
     });
@@ -80,6 +87,7 @@ export class WorldRenderer {
     const local = state.entities.find(isSelfEntity) ?? state.entities.find((entity) => entity.entity_type === 'player');
     this.center = local?.position ?? this.center;
     this.scale = this.app.screen.width < 700 ? 0.78 : 1;
+    this.updateBackground();
 
     const activeIDs = new Set(state.entities.map((entity) => entity.entity_id));
     for (const [entityID, view] of this.entityViews) {
@@ -133,18 +141,28 @@ export class WorldRenderer {
       return;
     }
 
-    const width = Math.max(this.app.screen.width, 1280);
-    const height = Math.max(this.app.screen.height, 900);
-    for (let index = 0; index < 140; index += 1) {
+    const width = Math.max(this.app.screen.width, 1600);
+    const height = Math.max(this.app.screen.height, 1000);
+    this.nebulaLayer
+      .circle(width * 0.28, height * 0.22, 220)
+      .fill({ color: 0x6f3d8f, alpha: 0.1 })
+      .circle(width * 0.74, height * 0.72, 260)
+      .fill({ color: 0x2bdfff, alpha: 0.065 })
+      .circle(width * 0.52, height * 0.45, 180)
+      .fill({ color: 0xff5c7a, alpha: 0.045 });
+    for (let index = 0; index < 220; index += 1) {
       const star = new Graphics();
-      const radius = index % 13 === 0 ? 1.8 : 0.9;
+      const radius = index % 17 === 0 ? 1.8 : index % 5 === 0 ? 1.15 : 0.75;
       const color = index % 7 === 0 ? 0xf4c95d : index % 5 === 0 ? 0x7cff9b : 0xd7f7ff;
       star.circle(0, 0, radius).fill(color);
-      star.position.set((index * 97) % width, (index * 53) % height);
-      star.alpha = 0.35 + (index % 5) * 0.08;
-      this.stars.push(star);
-      this.app.stage.addChild(star);
+      const base = { x: (index * 97) % width, y: (index * 53) % height };
+      const depth = index % 11 === 0 ? 0.72 : index % 3 === 0 ? 0.44 : 0.22;
+      star.position.set(base.x, base.y);
+      star.alpha = 0.3 + depth * 0.28;
+      this.stars.push({ view: star, base, depth });
+      this.backgroundLayer.addChild(star);
     }
+    this.updateBackground();
   }
 
   private bindInput(): void {
@@ -245,6 +263,33 @@ export class WorldRenderer {
       marker.circle(0, 0, 24).stroke({ color: 0x8af5ff, width: 1, alpha: 0.58 });
       marker.position.set(corrected.x, corrected.y);
       this.markerLayer.addChild(marker);
+    }
+  }
+
+  private updateBackground(): void {
+    if (!this.app) {
+      return;
+    }
+
+    const width = this.app.screen.width;
+    const height = this.app.screen.height;
+    const gridSize = width < 700 ? 52 : 96;
+    const offsetX = wrap(-this.center.x * 0.18 * this.scale, gridSize);
+    const offsetY = wrap(-this.center.y * 0.18 * this.scale, gridSize);
+
+    this.gridLayer.clear();
+    for (let x = offsetX - gridSize; x <= width + gridSize; x += gridSize) {
+      this.gridLayer.moveTo(x, 0).lineTo(x, height).stroke({ color: 0x2bdfff, width: 1, alpha: 0.08 });
+    }
+    for (let y = offsetY - gridSize; y <= height + gridSize; y += gridSize) {
+      this.gridLayer.moveTo(0, y).lineTo(width, y).stroke({ color: 0x2bdfff, width: 1, alpha: 0.08 });
+    }
+
+    this.nebulaLayer.position.set(wrap(-this.center.x * 0.025, 120) - 60, wrap(-this.center.y * 0.025, 120) - 60);
+    for (const star of this.stars) {
+      const parallaxX = star.base.x - this.center.x * star.depth * 0.055;
+      const parallaxY = star.base.y - this.center.y * star.depth * 0.055;
+      star.view.position.set(wrap(parallaxX, width + 80) - 40, wrap(parallaxY, height + 80) - 40);
     }
   }
 
@@ -350,4 +395,8 @@ function snapClose(current: Vec2, target: Vec2): Vec2 {
     return { ...target };
   }
   return current;
+}
+
+function wrap(value: number, size: number): number {
+  return ((value % size) + size) % size;
 }

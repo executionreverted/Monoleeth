@@ -34,29 +34,28 @@ export interface HUDHandlers {
 }
 
 type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['combat']>;
+type HUDDrawerPanel = 'none' | 'cargo' | 'economy' | 'systems';
 
 export class HUD {
   private readonly root: HTMLElement;
   private readonly socketInput: HTMLInputElement;
   private readonly panels: Record<string, HTMLElement>;
   private readonly toast: HTMLElement;
+  private activePanel: HUDDrawerPanel = 'none';
+  private currentState: ClientState | null = null;
 
   constructor(container: HTMLElement, private readonly handlers: HUDHandlers) {
     this.root = document.createElement('section');
     this.root.className = 'hud';
     this.root.innerHTML = `
       <header class="hud__topbar">
-        <div class="brand-lockup" aria-label="Space MORPG">
-          <span class="brand-lockup__mark"></span>
-          <strong>Frontier Console</strong>
-        </div>
         <div class="top-status" aria-label="Server-owned status">
-          <div><span>Sector</span><strong data-top-sector>${lockedValue()}</strong></div>
-          <div><span>Danger</span><strong data-top-danger>${lockedValue()}</strong></div>
-          <div><span>Energy</span><strong data-top-energy>${lockedValue()}</strong></div>
-          <div><span>Cargo</span><strong data-top-cargo>${lockedValue()}</strong></div>
-          <div><span>Credits</span><strong data-top-credits>${lockedValue()}</strong></div>
-          <div><span>Cap</span><strong data-top-cap>${lockedValue()}</strong></div>
+          <div class="top-status__cell" data-icon="sector"><span>Sector</span><strong data-top-sector>${lockedValue()}</strong></div>
+          <div class="top-status__cell top-status__cell--danger" data-icon="danger"><span>Danger</span><strong data-top-danger>${lockedValue()}</strong></div>
+          <div class="top-status__cell" data-icon="energy"><span>Energy</span><strong data-top-energy>${lockedValue()}</strong></div>
+          <div class="top-status__cell" data-icon="cargo"><span>Cargo</span><strong data-top-cargo>${lockedValue()}</strong></div>
+          <div class="top-status__cell" data-icon="credits"><span>Credits</span><strong data-top-credits>${lockedValue()}</strong></div>
+          <div class="top-status__cell" data-icon="cap"><span>Cap</span><strong data-top-cap>${lockedValue()}</strong></div>
         </div>
         <label class="socket-field demo-only">
           <span>WS</span>
@@ -67,16 +66,30 @@ export class HUD {
           <button class="tool-button demo-only" data-action="disconnect" type="button" title="Disconnect fixture">Cut</button>
           <button class="tool-button" data-action="stop" type="button" title="Stop">Stop</button>
           <button class="tool-button" data-action="sync" type="button" title="Request snapshot">Sync</button>
+          <button class="tool-button tool-button--locked" type="button" disabled title="Mail contracts are not exposed yet">Mail</button>
+          <button class="tool-button tool-button--locked" type="button" disabled title="Social contracts are not exposed yet">Social</button>
           <button class="tool-button" data-action="logout" type="button" title="Logout">Logout</button>
         </div>
       </header>
       <aside class="hud__rail hud__rail--left">
         <div class="panel panel--status" data-panel="status"></div>
+        <nav class="panel hud__nav" aria-label="HUD panels">
+          <button class="hud-nav-button" type="button" data-panel-toggle="cargo" aria-pressed="false"><span>Inv</span></button>
+          <button class="hud-nav-button" type="button" data-panel-toggle="economy" aria-pressed="false"><span>Shop</span></button>
+          <button class="hud-nav-button" type="button" data-panel-toggle="systems" aria-pressed="false"><span>Galaxy</span></button>
+          <button class="hud-nav-button" type="button" data-panel-toggle="systems" aria-pressed="false"><span>Wormholes</span></button>
+          <button class="hud-nav-button" type="button" data-panel-toggle="systems" aria-pressed="false"><span>Planets</span></button>
+          <button class="hud-nav-button" type="button" data-panel-toggle="systems" aria-pressed="false"><span>Hangar</span></button>
+        </nav>
+        <div class="panel panel--drawer" data-panel="drawer" data-open="false"></div>
+      </aside>
+      <div class="hud__aux-panels" aria-hidden="true">
         <div class="panel panel--cargo" data-panel="cargo"></div>
         <div class="panel panel--economy" data-panel="economy"></div>
         <div class="panel panel--systems" data-panel="systems"></div>
-      </aside>
+      </div>
       <aside class="hud__rail hud__rail--right">
+        <div class="panel panel--planets" data-panel="planets"></div>
         <div class="panel" data-panel="target"></div>
         <div class="panel" data-panel="ship"></div>
         <div class="panel" data-panel="intel"></div>
@@ -94,6 +107,8 @@ export class HUD {
       cargo: this.panel('cargo'),
       economy: this.panel('economy'),
       systems: this.panel('systems'),
+      drawer: this.panel('drawer'),
+      planets: this.panel('planets'),
       target: this.panel('target'),
       ship: this.panel('ship'),
       intel: this.panel('intel'),
@@ -105,9 +120,11 @@ export class HUD {
   }
 
   render(state: ClientState): void {
+    this.currentState = state;
     this.socketInput.value = state.socketURL;
     this.root.dataset.connection = state.connectionStatus;
     this.root.dataset.mode = state.auth.mode;
+    this.root.dataset.activePanel = this.activePanel;
     const sector = this.root.querySelector<HTMLElement>('[data-top-sector]');
     const danger = this.root.querySelector<HTMLElement>('[data-top-danger]');
     const energy = this.root.querySelector<HTMLElement>('[data-top-energy]');
@@ -124,28 +141,42 @@ export class HUD {
       cargo.textContent = state.cargo ? `${state.cargo.used}/${state.cargo.capacity}` : '--';
     }
     if (credits) {
-      credits.textContent = state.wallet ? String(state.wallet.credits) : '--';
+      credits.textContent = state.wallet ? formatCompactNumber(state.wallet.credits) : '--';
     }
     if (energy) {
       energy.textContent = formatPair(state.playerSnapshot?.energy, state.playerSnapshot?.max_energy);
     }
     if (cap) {
-      cap.textContent = formatPair(state.ship?.capacitor, state.ship?.max_capacitor);
+      cap.textContent = formatPercent(state.ship?.capacitor, state.ship?.max_capacitor);
     }
     this.panels.status.innerHTML = statusPanel(state);
     this.panels.cargo.innerHTML = cargoPanel(state);
     this.panels.economy.innerHTML = economyPanel(state);
     this.panels.systems.innerHTML = systemsPanel(state);
+    this.panels.drawer.innerHTML = drawerPanel(state, this.activePanel);
+    this.panels.drawer.dataset.open = this.activePanel === 'none' ? 'false' : 'true';
+    this.panels.planets.innerHTML = planetsPanel(state);
     this.panels.target.innerHTML = targetPanel(state);
     this.panels.ship.innerHTML = shipPanel(state);
     this.panels.intel.innerHTML = intelPanel(state);
     this.panels.actions.innerHTML = actionBar(state);
     this.panels.log.innerHTML = logPanel(state);
+    this.syncNavState();
     renderToast(this.toast, state.lastError?.message ?? null);
   }
 
   private bindEvents(): void {
     this.root.addEventListener('click', (event) => {
+      const panelToggle = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-panel-toggle]');
+      if (panelToggle) {
+        const nextPanel = normalizePanelToggle(panelToggle.dataset.panelToggle);
+        this.activePanel = nextPanel === this.activePanel ? 'none' : nextPanel;
+        if (this.currentState) {
+          this.render(this.currentState);
+        }
+        return;
+      }
+
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-action]');
       if (!button) {
         return;
@@ -256,24 +287,78 @@ export class HUD {
     }
     return panel;
   }
+
+  private syncNavState(): void {
+    const toggles = this.root.querySelectorAll<HTMLButtonElement>('[data-panel-toggle]');
+    for (const toggle of toggles) {
+      const panel = normalizePanelToggle(toggle.dataset.panelToggle);
+      const active = panel !== 'none' && panel === this.activePanel;
+      toggle.setAttribute('aria-pressed', String(active));
+      toggle.dataset.active = active ? 'true' : 'false';
+    }
+  }
 }
 
 function statusPanel(state: ClientState): string {
   const snapshot = state.playerSnapshot;
+  const ship = state.ship;
   const stats = state.stats;
   const progression = state.progression;
+  const shipLabel = ship?.display_name || snapshot?.callsign || state.auth.session?.player?.callsign || 'Awaiting Ship';
   return `
-    <h2>${escapeHTML(String(snapshot?.callsign ?? state.auth.session?.player?.callsign ?? 'Awaiting Pilot'))}</h2>
-    <div class="status-grid">
-      ${meter('HP', snapshot?.hp, snapshot?.max_hp)}
-      ${meter('SHD', snapshot?.shield, snapshot?.max_shield)}
-      ${meter('ENG', snapshot?.energy, snapshot?.max_energy)}
+    <h2><span>Ship</span> ${escapeHTML(String(shipLabel))}</h2>
+    <div class="ship-status-card">
+      <div class="ship-silhouette" aria-hidden="true"></div>
+      <div class="status-grid">
+        ${meter('Hull', ship?.hull ?? snapshot?.hp, ship?.max_hull ?? snapshot?.max_hp)}
+        ${meter('Shield', ship?.shield ?? snapshot?.shield, ship?.max_shield ?? snapshot?.max_shield)}
+        ${meter('Cap', ship?.capacitor ?? snapshot?.energy, ship?.max_capacitor ?? snapshot?.max_energy)}
+      </div>
     </div>
     <div class="meta-row"><span>Rank</span><strong>${snapshot?.rank ?? lockedValue()}</strong></div>
     <div class="meta-row"><span>Level</span><strong>${progression?.main_level ?? lockedValue()}</strong></div>
     <div class="meta-row"><span>Speed</span><strong>${stats ? Math.round(stats.speed) : lockedValue()}</strong></div>
     <div class="meta-row"><span>Radar</span><strong>${stats ? Math.round(stats.radar_range) : lockedValue()}</strong></div>
     <div class="meta-row"><span>Link</span><strong>${escapeHTML(state.connectionStatus)}</strong></div>
+  `;
+}
+
+function drawerPanel(state: ClientState, activePanel: HUDDrawerPanel): string {
+  switch (activePanel) {
+    case 'cargo':
+      return `<button class="drawer-close" type="button" data-panel-toggle="none" title="Close panel">Close</button>${cargoPanel(state)}`;
+    case 'economy':
+      return `<button class="drawer-close" type="button" data-panel-toggle="none" title="Close panel">Close</button>${economyPanel(state)}`;
+    case 'systems':
+      return `<button class="drawer-close" type="button" data-panel-toggle="none" title="Close panel">Close</button>${systemsPanel(state)}`;
+    default:
+      return '';
+  }
+}
+
+function planetsPanel(state: ClientState): string {
+  const intel = state.planetIntel;
+  const planets = intel?.planets.slice(0, 4) ?? [];
+  return `
+    <h2>Planets</h2>
+    ${
+      intel
+        ? planets.length > 0
+          ? `<ul class="planet-stack">
+               ${planets
+                 .map(
+                   (planet) =>
+                     `<li>
+                        <span class="planet-orb" aria-hidden="true"></span>
+                        <div><strong>${escapeHTML(publicPlanetName(planet))}</strong><small>${escapeHTML(planet.rarity || planet.intel_state || 'known')}</small></div>
+                        <em>${escapeHTML(planet.owner_status || 'intel')}</em>
+                      </li>`,
+                 )
+                 .join('')}
+             </ul>`
+          : '<div class="empty-line">No server-known planets yet.</div>'
+        : '<div class="empty-line">Awaiting server planet intel.</div>'
+    }
   `;
 }
 
@@ -569,33 +654,39 @@ function actionBar(state: ClientState): string {
   const laserLabel = laserCooling ? 'Cooling' : 'Laser';
 
   return `
-    <div class="action-slot">
+    <div class="action-slot" data-slot="1">
       <button class="action-button" type="button" data-action="fire" ${canLaser ? '' : 'disabled'} title="Basic laser">
         <span>${escapeHTML(laserLabel)}</span>
         <small>${target?.entity_type === 'npc' ? 'Ready' : 'No lock'}</small>
       </button>
     </div>
-    <div class="action-slot">
+    <div class="action-slot" data-slot="2">
       <button class="action-button" type="button" disabled title="Missile skills are not exposed yet">
         <span>Rocket</span>
         <small>Locked</small>
       </button>
     </div>
-    <div class="action-slot">
+    <div class="action-slot" data-slot="3">
       <button class="action-button" type="button" data-action="scan" ${canScan ? '' : 'disabled'} title="Run scanner pulse">
         <span>Scan</span>
         <small>${state.planetIntel?.lastScan?.status ? actionScanLabel(state.planetIntel.lastScan.status) : 'Pulse'}</small>
       </button>
     </div>
-    <div class="action-slot">
+    <div class="action-slot" data-slot="4">
       <button class="action-button" type="button" disabled title="Shield skills are not exposed yet">
         <span>Shield</span>
         <small>Locked</small>
       </button>
     </div>
-    <div class="action-slot">
+    <div class="action-slot" data-slot="5">
+      <button class="action-button" type="button" disabled title="Warp route commands are not exposed yet">
+        <span>Warp</span>
+        <small>Locked</small>
+      </button>
+    </div>
+    <div class="action-slot" data-slot="6">
       <button class="action-button" type="button" data-action="loot" ${canLoot ? '' : 'disabled'} title="Pickup selected visible drop">
-        <span>Loot</span>
+        <span>Gather</span>
         <small>${target?.entity_type === 'loot' ? 'Visible' : 'No drop'}</small>
       </button>
     </div>
@@ -717,6 +808,28 @@ function lockedValue(): string {
 
 function formatPair(current?: number, max?: number): string {
   return current !== undefined && max !== undefined ? `${Math.round(current)}/${Math.round(max)}` : lockedValue();
+}
+
+function formatPercent(current?: number, max?: number): string {
+  if (current === undefined || max === undefined || max <= 0) {
+    return lockedValue();
+  }
+  return `${Math.round((Math.max(0, Math.min(current, max)) / max) * 100)}%`;
+}
+
+function formatCompactNumber(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  }
+  if (abs >= 10_000) {
+    return `${Math.round(value / 1_000)}K`;
+  }
+  return String(value);
+}
+
+function normalizePanelToggle(value: string | undefined): HUDDrawerPanel {
+  return value === 'cargo' || value === 'economy' || value === 'systems' ? value : 'none';
 }
 
 function publicEntityType(entityType: string): string {

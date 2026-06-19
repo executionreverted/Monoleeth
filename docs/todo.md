@@ -7,6 +7,22 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [ ] Complete the browser UI rework panel/window registry and reusable modal
+  primitive. The 2026-06-19 shell slice moved the default view away from the
+  stacked page, but secondary systems still need first-class open/close/focus
+  windows, escape/backdrop modal behavior, and mobile sheets before the goal can
+  close. Source: `docs/plans/2026-06-19-ui-rework-GOAL.md`.
+- [ ] Add server-authoritative continuous movement timing for browser movement.
+  The client still needs server-owned origin, destination, speed, start, and
+  arrival timing so reclicks while in transit start from the server-computed
+  current position and movement no longer appears as teleport/spam. Source:
+  `docs/plans/2026-06-19-ui-rework-GOAL.md`.
+- [ ] Finish entity selection, combat feedback, and loot pickup presentation in
+  the mockup HUD. Visible objects should select with reticles, target panels
+  should show server-safe HP/shield/status, firing should produce visible
+  reactions, and loot pickup should move/pickup/explain and show gained rewards
+  from server events only. Source:
+  `docs/plans/2026-06-19-ui-rework-GOAL.md`.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.

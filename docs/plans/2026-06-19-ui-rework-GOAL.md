@@ -68,11 +68,11 @@ The UI rework is not done until all of these are true.
 
 ### Visual Shell
 
-- [ ] Login lands in a fixed full-viewport game HUD, not a page stack.
-- [ ] Desktop gameplay has no default body/page scroll.
-- [ ] The first desktop viewport visibly resembles `final-mockup.png`.
-- [ ] Central world/canvas is the dominant surface.
-- [ ] Top status bar resembles the mockup structure:
+- [x] Login lands in a fixed full-viewport game HUD, not a page stack.
+- [x] Desktop gameplay has no default body/page scroll.
+- [x] The first desktop viewport visibly resembles `final-mockup.png`.
+- [x] Central world/canvas is the dominant surface.
+- [x] Top status bar resembles the mockup structure:
   - sector/status
   - danger/contested indicator
   - energy
@@ -80,17 +80,17 @@ The UI rework is not done until all of these are true.
   - credits
   - capacitor
   - mail/social/menu affordances only when backed or locked safely
-- [ ] Left side resembles the mockup structure:
+- [x] Left side resembles the mockup structure:
   - ship status card
   - icon menu stack
-- [ ] Right side resembles the mockup structure:
+- [x] Right side resembles the mockup structure:
   - planets/list panel
   - selected detail panel
   - sector map/minimap panel
-- [ ] Bottom resembles the mockup structure:
+- [x] Bottom resembles the mockup structure:
   - log panel
   - centered action rail
-- [ ] Typography, borders, spacing, icon scale, panel density, and color accents
+- [x] Typography, borders, spacing, icon scale, panel density, and color accents
   are intentionally copied from the mockup.
 
 ### Panel And Modal System
@@ -114,12 +114,12 @@ The UI rework is not done until all of these are true.
 
 ### World Background And Parallax
 
-- [ ] Background has layered starfield/parallax depth.
+- [x] Background has layered starfield/parallax depth.
 - [ ] There is visible motion/depth during player/camera movement.
-- [ ] The world surface includes sector grid/radar treatment similar to the
+- [x] The world surface includes sector grid/radar treatment similar to the
   mockup.
 - [ ] Planets/signals/loot/NPCs are visually distinct and readable.
-- [ ] Canvas rendering remains nonblank and correctly framed on desktop and
+- [x] Canvas rendering remains nonblank and correctly framed on desktop and
   mobile.
 
 ### Server-Authoritative Movement
@@ -239,4 +239,3 @@ For visual slices, also verify in a browser with:
 - Screenshots or exact browser verification notes.
 - Tests run and outcomes.
 - Any server-contract blockers left open in `docs/todo.md`.
-

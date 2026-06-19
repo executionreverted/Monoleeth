@@ -38,6 +38,13 @@ Must avoid:
 
 ## Implementation Notes
 
+- 2026-06-19 UI rework slice 1 replaced the visible stacked HUD shell with a
+  fixed cockpit overlay copied from `output/mockups/final-mockup.png`: full
+  top status strip, left ship card/nav, right planets/target/sector map stack,
+  bottom-left log, bottom-center action rail, and layered grid/star/nebula
+  background. Gameplay values still come from authenticated server snapshots,
+  hidden/dev panels remain non-default, and mail/social affordances stay locked
+  without fake counts.
 - The default browser path remains real/authenticated only. Demo fixtures are
   still available for explicit dev/test fixture mode, but they are dev-only lazy
   imports and the production bundle scan fails on fixture labels.
