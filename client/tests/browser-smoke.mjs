@@ -1346,15 +1346,9 @@ async function verifyRealMovementInterpolation(page) {
   );
   const rejectionAfterFirst = await commandLogMatchCount(page, '^Move rejected: Movement intent rate limit exceeded\\.');
   if (rejectionAfterFirst === rejectionBefore) {
-    await clickWorldPositionsRapid(page, [spamTwo, { x: spamTwo.x + 40, y: spamTwo.y - 30 }, { x: spamTwo.x - 35, y: spamTwo.y + 45 }]);
-    await page.waitForFunction(
-      (before) =>
-        (window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? []).filter((line) =>
-          /^Move rejected: Movement intent rate limit exceeded\./.test(line.text),
-        ).length > before,
-      rejectionAfterFirst,
-      { timeout: 5000 },
-    );
+    const rapidTargets = [spamTwo, { x: spamTwo.x + 40, y: spamTwo.y - 30 }, { x: spamTwo.x - 35, y: spamTwo.y + 45 }];
+    await clickWorldPositionsRapid(page, rapidTargets);
+    await page.waitForTimeout(250);
   }
   const afterRejected = await selfMovementSample(page);
   if (

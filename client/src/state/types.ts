@@ -554,7 +554,7 @@ export interface RouteSummary {
 }
 
 export interface PlanetDetailSummary extends KnownPlanetSummary {
-  coordinates: Vec2;
+  coordinates: Vec2 | null;
   production?: PlanetProductionSummary;
   routes: RouteSummary[];
   production_locked: boolean;

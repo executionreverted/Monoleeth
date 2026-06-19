@@ -514,6 +514,45 @@ describe('reduceClientState', () => {
     expect(state.movementTarget).toEqual({ x: 100, y: 0 });
   });
 
+  test('failed move response clears speculative target marker back to authoritative movement', () => {
+    const state = reduceClientState(
+      {
+        ...createInitialState(),
+        movementTarget: { x: 9000, y: 0 },
+        pendingCommands: { 'move-request': { requestID: 'move-request', op: 'move_to', queuedAt: 1 } },
+        visibleEntities: {
+          'player-local': {
+            entity_id: 'player-local',
+            entity_type: 'player',
+            position: { x: 0, y: 0 },
+            status_flags: ['self'],
+            movement: {
+              moving: true,
+              origin: { x: 0, y: 0 },
+              target: { x: 100, y: 0 },
+              speed: 180,
+              started_at_ms: 1000,
+              arrive_at_ms: 1556,
+            },
+          },
+        },
+      },
+      {
+        type: 'responseReceived',
+        envelope: {
+          request_id: 'move-request',
+          ok: false,
+          error: { code: 'ERR_OUT_OF_RANGE', message: 'Move target is out of range.', retryable: false },
+          server_time: 1002,
+          v: 1,
+        },
+      },
+    );
+
+    expect(state.pendingCommands['move-request']).toBeUndefined();
+    expect(state.movementTarget).toEqual({ x: 100, y: 0 });
+  });
+
   test('rejects invalid entity movement timing', () => {
     expect(() =>
       reduceClientState(createInitialState(), {
@@ -807,6 +846,24 @@ describe('reduceClientState', () => {
         state: 'unclaimed',
       },
     ]);
+  });
+
+  test('planet detail without coordinates does not create an origin memory marker', () => {
+    const withDetail = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.planetDetail, {
+        planet_id: 'planet-locked',
+        biome: 'ice',
+        planet_type: 'dwarf_planet',
+        intel_state: 'known',
+        production_locked: true,
+        routes: [],
+        available_commands: [],
+      }),
+    });
+
+    expect(withDetail.planetIntel?.selectedPlanet?.coordinates).toBeNull();
+    expect(worldMapMemoryMarkers(withDetail)).toEqual([]);
   });
 
   test('phase 09 quest, admin, and observability payloads reconcile server-owned state', () => {

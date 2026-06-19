@@ -172,6 +172,13 @@ Mockup areas covered:
   The client may submit only a finite target intent. The runtime rejects
   disabled ships, excessive movement targets, forbidden server-owned fields, and
   movement bursts before mutating worker state.
+- 2026-06-19 follow-up: long-range browser navigation keeps the server
+  `move_to` range limit intact. The client stores only the requested navigation
+  destination locally, sends bounded intermediate `move_to` intents, and
+  continues after server-authored movement/correction timing until the final
+  coordinate is reached or the route is stopped/replaced. Rejected movement
+  responses clear speculative target markers back to authoritative self
+  movement instead of leaving stale planet-range markers on screen.
 
 ## Abuse And Safety Checklist
 

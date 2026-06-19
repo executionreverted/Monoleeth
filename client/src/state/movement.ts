@@ -1,5 +1,7 @@
 import { EntityMovementPayload, EntityPayload, Vec2 } from '../protocol/envelope';
 
+export const LONG_RANGE_MOVE_STEP_UNITS = 900;
+
 export interface MovementTiming {
   origin: Vec2;
   target: Vec2;
@@ -67,6 +69,19 @@ export function isSelfEntity(entity: EntityPayload): boolean {
 
 export function distanceBetween(a: Vec2, b: Vec2): number {
   return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+export function boundedMovementTarget(origin: Vec2, target: Vec2, maxDistance = LONG_RANGE_MOVE_STEP_UNITS): Vec2 {
+  const distance = distanceBetween(origin, target);
+  if (!Number.isFinite(distance) || !Number.isFinite(maxDistance) || maxDistance <= 0 || distance <= maxDistance) {
+    return { ...target };
+  }
+
+  const ratio = maxDistance / distance;
+  return {
+    x: origin.x + (target.x - origin.x) * ratio,
+    y: origin.y + (target.y - origin.y) * ratio,
+  };
 }
 
 function lerp(a: number, b: number, t: number): number {

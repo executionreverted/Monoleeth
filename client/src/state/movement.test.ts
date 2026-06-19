@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'vitest';
 
-import { activeEntityMovement, currentEntityPosition, estimateServerTime, movementTiming, selfEntity, serverClockOffset } from './movement';
+import {
+  activeEntityMovement,
+  boundedMovementTarget,
+  currentEntityPosition,
+  estimateServerTime,
+  movementTiming,
+  selfEntity,
+  serverClockOffset,
+} from './movement';
 import type { EntityPayload } from '../protocol/envelope';
 
 describe('movement helpers', () => {
@@ -67,5 +75,15 @@ describe('movement helpers', () => {
     };
 
     expect(selfEntity([fallback, self])?.entity_id).toBe('local-player');
+  });
+
+  test('bounds long-range move intents without changing nearby targets', () => {
+    expect(boundedMovementTarget({ x: 0, y: 0 }, { x: 300, y: 400 }, 900)).toEqual({ x: 300, y: 400 });
+
+    const bounded = boundedMovementTarget({ x: 0, y: 0 }, { x: 3000, y: 4000 }, 900);
+
+    expect(bounded.x).toBeCloseTo(540);
+    expect(bounded.y).toBeCloseTo(720);
+    expect(Math.hypot(bounded.x, bounded.y)).toBeCloseTo(900);
   });
 });

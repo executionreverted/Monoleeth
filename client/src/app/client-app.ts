@@ -7,9 +7,11 @@ import { AuthPanel } from '../ui/auth-panel';
 import { HUD } from '../ui/hud';
 import {
   activeEntityMovement,
+  boundedMovementTarget,
   currentEntityPosition,
   distanceBetween,
   estimateServerTime,
+  LONG_RANGE_MOVE_STEP_UNITS,
   movementTiming,
   selfEntity as selectSelfEntity,
   serverClockOffset,
@@ -25,13 +27,15 @@ const SCAN_STARTED_RECHECK_MS = 350;
 const SCAN_PAUSED_RECHECK_MS = 750;
 const SCAN_ERROR_BACKOFF_MS = 3_200;
 const MOVEMENT_ETA_RENDER_MS = 100;
+const NAVIGATION_RECHECK_MS = 140;
+const NAVIGATION_TARGET_TOLERANCE_UNITS = 24;
 
 export class ClientApp {
   private state: ClientState = createInitialState();
   private readonly authClient = new AuthClient();
   private readonly commandBuilder = new CommandBuilder();
   private readonly renderer = new WorldRenderer({
-    onMoveIntent: (target) => this.sendMove(target),
+    onMoveIntent: (target) => this.handleWorldMoveIntent(target),
     onSelectTarget: (entityID) => this.selectEntity(entityID),
     onSelectMemoryMarker: (marker) => this.selectMemoryMarker(marker),
   });
@@ -48,6 +52,9 @@ export class ClientApp {
   private cooldownRenderAt = 0;
   private movementRenderTimer: number | null = null;
   private movementRenderAt = 0;
+  private navigationTimer: number | null = null;
+  private navigationTimerAt = 0;
+  private navigationTarget: Vec2 | null = null;
   private serverClockOffsetValue: number | null = null;
   private serverClockTime: number | null = null;
   private acceptedMovementSignature: string | null = null;
@@ -89,7 +96,7 @@ export class ClientApp {
       onConnect: (url) => this.connect(url),
       onDisconnect: () => this.disconnect(),
       onLogout: () => void this.logout(),
-      onStop: () => this.sendCommand(this.commandBuilder.stop()),
+      onStop: () => this.stopMovement(),
       onSync: () => this.syncSnapshot(),
       onFire: () => this.sendBasicSkill(),
       onLoot: () => this.sendLootPickup(),
@@ -130,6 +137,7 @@ export class ClientApp {
 
   private connect(url: string): void {
     this.intentionalDisconnect = false;
+    this.cancelNavigation();
     this.pendingLootPickupID = null;
     this.pendingLootApproachID = null;
     this.dispatch({ type: 'replaceVisibleEntities', entities: [], serverTime: null });
@@ -138,6 +146,7 @@ export class ClientApp {
 
   private disconnect(): void {
     this.intentionalDisconnect = true;
+    this.cancelNavigation();
     this.systemsSnapshotRequested = false;
     this.pendingLootPickupID = null;
     this.pendingLootApproachID = null;
@@ -156,38 +165,70 @@ export class ClientApp {
     }
   }
 
+  private handleWorldMoveIntent(target: Vec2): void {
+    this.sendMove(target);
+  }
+
   private sendMove(target: Vec2, preservePendingLoot = false): void {
     if (!preservePendingLoot) {
       this.pendingLootPickupID = null;
       this.pendingLootApproachID = null;
     }
 
+    this.navigationTarget = { ...target };
+    this.sendNavigationStep();
+  }
+
+  private sendNavigationStep(): void {
+    const target = this.navigationTarget;
+    if (!target) {
+      return;
+    }
+
     if (this.state.auth.mode === 'real' && this.state.connectionStatus !== 'connected') {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'Move rejected: waiting for authenticated realtime link.' });
+      this.cancelNavigation();
       return;
     }
     if (this.state.ship?.disabled === true) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'Move rejected: ship disabled.' });
+      this.cancelNavigation();
+      return;
+    }
+    if (this.hasPendingOperation(OPERATIONS.moveTo)) {
+      this.scheduleNavigationLoop();
       return;
     }
 
     const self = this.selfEntity();
     if (!self) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'Move rejected: awaiting server position.' });
+      this.cancelNavigation();
       return;
     }
 
     const serverNow = this.estimatedServerTime() ?? Date.now();
     const origin = currentEntityPosition(self, serverNow);
-    const distance = distanceBetween(origin, target);
-    const etaMs = movementEtaFromStats(distance, this.state.stats?.speed ?? self.movement?.speed ?? null);
+    const remainingDistance = distanceBetween(origin, target);
+    if (remainingDistance <= NAVIGATION_TARGET_TOLERANCE_UNITS) {
+      this.cancelNavigation();
+      return;
+    }
+
+    const moveTarget = boundedMovementTarget(origin, target, LONG_RANGE_MOVE_STEP_UNITS);
+    const stepDistance = distanceBetween(origin, moveTarget);
+    const etaMs = movementEtaFromStats(stepDistance, this.state.stats?.speed ?? self.movement?.speed ?? null);
+    const finalSuffix =
+      remainingDistance - stepDistance > NAVIGATION_TARGET_TOLERANCE_UNITS
+        ? `, final ${formatVec(target)} (${Math.round(remainingDistance)}u)`
+        : '';
     this.dispatch({
       type: 'appendLog',
       level: 'info',
-      text: `Move ${formatVec(origin)} -> ${formatVec(target)}, ${Math.round(distance)}u, eta ${formatDuration(etaMs)}.`,
+      text: `Move ${formatVec(origin)} -> ${formatVec(moveTarget)}, ${Math.round(stepDistance)}u, eta ${formatDuration(etaMs)}${finalSuffix}.`,
     });
 
-    const command = this.commandBuilder.moveTo(target);
+    const command = this.commandBuilder.moveTo(moveTarget);
     this.sendCommand(command);
 
     if (this.state.auth.mode === 'demo' && !this.realtime.isConnected()) {
@@ -197,10 +238,15 @@ export class ClientApp {
       }
       window.setTimeout(() => {
         void this.loadDemoState().then(({ correctionEvent }) => {
-          this.dispatch({ type: 'eventReceived', envelope: correctionEvent(localID, target) });
+          this.dispatch({ type: 'eventReceived', envelope: correctionEvent(localID, moveTarget) });
         });
       }, 120);
     }
+  }
+
+  private stopMovement(): void {
+    this.cancelNavigation();
+    this.sendCommand(this.commandBuilder.stop());
   }
 
   private sendBasicSkill(): void {
@@ -241,7 +287,7 @@ export class ClientApp {
     }
 
     const target = detail.coordinates;
-    if (!Number.isFinite(target.x) || !Number.isFinite(target.y)) {
+    if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y)) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'Planet navigation rejected: awaiting server coordinates.' });
       this.requestPlanetDetail(planetID);
       return;
@@ -371,6 +417,7 @@ export class ClientApp {
 
   private async logout(): Promise<void> {
     this.intentionalDisconnect = true;
+    this.cancelNavigation();
     this.systemsSnapshotRequested = false;
     this.pendingLootPickupID = null;
     this.pendingLootApproachID = null;
@@ -390,6 +437,7 @@ export class ClientApp {
       return;
     }
     this.intentionalDisconnect = false;
+    this.cancelNavigation();
     this.systemsSnapshotRequested = false;
     this.pendingLootPickupID = null;
     this.pendingLootApproachID = null;
@@ -457,6 +505,7 @@ export class ClientApp {
 
   private handleAuthExpired(message: string): void {
     this.intentionalDisconnect = true;
+    this.cancelNavigation();
     this.pendingLootPickupID = null;
     this.pendingLootApproachID = null;
     this.clearReconnectTimer();
@@ -502,6 +551,7 @@ export class ClientApp {
     this.render();
     this.tryPendingLootPickup();
     this.scheduleScanLoop();
+    this.scheduleNavigationLoop();
   }
 
   private render(): void {
@@ -756,6 +806,66 @@ export class ClientApp {
     window.clearTimeout(this.movementRenderTimer);
     this.movementRenderTimer = null;
     this.movementRenderAt = 0;
+  }
+
+  private scheduleNavigationLoop(serverNow: number | null = this.estimatedServerTime()): void {
+    if (!this.navigationTarget) {
+      this.clearNavigationTimer();
+      return;
+    }
+    if (this.state.auth.mode === 'real' && this.state.connectionStatus !== 'connected') {
+      this.clearNavigationTimer();
+      return;
+    }
+    if (this.hasPendingOperation(OPERATIONS.moveTo)) {
+      this.scheduleNavigationWake(NAVIGATION_RECHECK_MS);
+      return;
+    }
+
+    const self = this.selfEntity();
+    if (!self || serverNow === null) {
+      this.scheduleNavigationWake(NAVIGATION_RECHECK_MS);
+      return;
+    }
+
+    const remainingDistance = distanceBetween(currentEntityPosition(self, serverNow), this.navigationTarget);
+    if (remainingDistance <= NAVIGATION_TARGET_TOLERANCE_UNITS) {
+      this.cancelNavigation();
+      return;
+    }
+
+    const timing = activeEntityMovement(self, serverNow);
+    this.scheduleNavigationWake(timing ? Math.max(NAVIGATION_RECHECK_MS, timing.remainingMs + NAVIGATION_RECHECK_MS) : NAVIGATION_RECHECK_MS);
+  }
+
+  private scheduleNavigationWake(delay: number): void {
+    const wakeDelay = Math.min(Math.max(16, delay), 2_147_483_647);
+    const wakeAt = Math.round(Date.now() + wakeDelay);
+    if (this.navigationTimer !== null && Math.abs(this.navigationTimerAt - wakeAt) < 24) {
+      return;
+    }
+
+    this.clearNavigationTimer();
+    this.navigationTimerAt = wakeAt;
+    this.navigationTimer = window.setTimeout(() => {
+      this.navigationTimer = null;
+      this.navigationTimerAt = 0;
+      this.sendNavigationStep();
+    }, wakeDelay);
+  }
+
+  private cancelNavigation(): void {
+    this.navigationTarget = null;
+    this.clearNavigationTimer();
+  }
+
+  private clearNavigationTimer(): void {
+    if (this.navigationTimer === null) {
+      return;
+    }
+    window.clearTimeout(this.navigationTimer);
+    this.navigationTimer = null;
+    this.navigationTimerAt = 0;
   }
 
   private scheduleScanLoop(): void {

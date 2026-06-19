@@ -293,12 +293,16 @@ export function reduceClientState(state: ClientState, action: ClientAction): Cli
       };
 
     case 'responseReceived': {
+      const pending = state.pendingCommands[action.envelope.request_id] ?? null;
       const pendingCommands = { ...state.pendingCommands };
       delete pendingCommands[action.envelope.request_id];
       if (action.envelope.ok === false) {
+        const movementTarget =
+          pending?.op === 'move_to' ? movementTargetFromAuthoritativeSelf(state.visibleEntities, null) : state.movementTarget;
         return {
           ...state,
           pendingCommands,
+          movementTarget,
           lastError: action.envelope.error,
           lastServerTime: action.envelope.server_time,
           commandLog: appendLog(state.commandLog, 'error', action.envelope.error.message),
@@ -1709,7 +1713,7 @@ function parseKnownPlanet(payload: JsonObject): KnownPlanetSummary | null {
 
 function parsePlanetDetail(payload: JsonObject, fallback: PlanetDetailSummary | null): PlanetDetailSummary {
   const base = parseKnownPlanet(payload) ?? fallback;
-  const coordinates = isVec2(payload.coordinates) ? payload.coordinates : fallback?.coordinates ?? { x: 0, y: 0 };
+  const coordinates = isVec2(payload.coordinates) ? payload.coordinates : fallback?.coordinates ?? null;
   const production = objectField(payload, 'production');
   const routes = Array.isArray(payload.routes)
     ? payload.routes
@@ -2384,7 +2388,10 @@ function parseMinimapSummary(payload: JsonObject, fallback: MinimapSummary | nul
         .filter((contact): contact is MinimapContact => contact !== null)
     : fallback?.live_contacts ?? [];
   const remembered = Array.isArray(payload.remembered)
-    ? payload.remembered.filter(isJsonObject).map(parseMinimapMemory)
+    ? payload.remembered
+        .filter(isJsonObject)
+        .map(parseMinimapMemory)
+        .filter((memory): memory is MinimapMemory => memory !== null)
     : fallback?.remembered ?? [];
 
   return {
@@ -2412,11 +2419,14 @@ function parseMinimapContact(payload: JsonObject): MinimapContact | null {
   };
 }
 
-function parseMinimapMemory(payload: JsonObject): MinimapMemory {
+function parseMinimapMemory(payload: JsonObject): MinimapMemory | null {
+  if (!isVec2(payload.position)) {
+    return null;
+  }
   return {
     kind: stringField(payload, 'kind') ?? '',
     label: stringField(payload, 'label') ?? '',
-    position: isVec2(payload.position) ? payload.position : { x: 0, y: 0 },
+    position: payload.position,
     freshness: stringField(payload, 'freshness') ?? '',
   };
 }
