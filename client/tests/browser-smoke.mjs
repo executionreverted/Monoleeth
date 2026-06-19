@@ -20,6 +20,7 @@ const phaseOutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch
 const phase02OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '02');
 const phase03OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '03');
 const phase04OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '04');
+const phase05OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '05');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -105,6 +106,7 @@ try {
   await mkdir(phase02OutputDir, { recursive: true });
   await mkdir(phase03OutputDir, { recursive: true });
   await mkdir(phase04OutputDir, { recursive: true });
+  await mkdir(phase05OutputDir, { recursive: true });
   if (useFixture) {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
@@ -783,6 +785,22 @@ async function verifyRealMovementInterpolation(page) {
     console.error('desktop first movement state', JSON.stringify(await movementDiagnostics(page, firstTarget), null, 2));
     throw error;
   }
+  await page.waitForFunction(() => document.querySelector('[data-movement-eta-active="true"]'), null, { timeout: 3000 });
+  await page.waitForFunction(
+    () =>
+      window.__SPACE_MORPG_SMOKE_STATE__?.movementEta?.active === true &&
+      window.__SPACE_MORPG_SMOKE_STATE__?.commandLog?.some((line) => /^Move -?\d+,-?\d+ -> -?\d+,-?\d+, \d+u, eta/.test(line.text)) &&
+      window.__SPACE_MORPG_SMOKE_STATE__?.commandLog?.some((line) => /^Route -?\d+,-?\d+ -> -?\d+,-?\d+, \d+u, eta/.test(line.text)),
+    null,
+    { timeout: 3000 },
+  );
+  const etaBefore = await movementEtaSample(page);
+  await page.waitForTimeout(180);
+  const etaAfter = await movementEtaSample(page);
+  if (!etaBefore.active || !etaAfter.active || etaAfter.remainingMs >= etaBefore.remainingMs) {
+    throw new Error(`desktop movement ETA did not count down: ${JSON.stringify({ before: etaBefore, after: etaAfter })}`);
+  }
+  await page.screenshot({ path: path.join(phase05OutputDir, 'movement-eta-desktop.png'), fullPage: true });
 
   await page.waitForTimeout(80);
   const first = await selfMovementSample(page);
@@ -842,6 +860,51 @@ async function verifyRealMovementInterpolation(page) {
       )}`,
     );
   }
+  const moveIntentCount = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
+  if (moveIntentCount < 2) {
+    throw new Error(`desktop movement expected two debug move logs, got ${moveIntentCount}`);
+  }
+
+  const spamOne = await movementTargetAwayFromMemory(page, second.entity.position, [{ x: 120, y: -120 }]);
+  const spamTwo = await movementTargetAwayFromMemory(page, second.entity.position, [{ x: -140, y: 110 }]);
+  const rejectionBefore = await commandLogMatchCount(page, '^Move rejected: Movement intent rate limit exceeded\\.');
+  await clickWorldPosition(page, spamOne);
+  await page.waitForFunction(
+    ({ before, target }) => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      const self = Object.values(state?.visibleEntities ?? {}).find((entity) => entity.status_flags?.includes('self'));
+      const rejections = (state?.commandLog ?? []).filter((line) => /^Move rejected: Movement intent rate limit exceeded\./.test(line.text)).length;
+      const accepted = self?.movement?.target && Math.hypot(self.movement.target.x - target.x, self.movement.target.y - target.y) < 16;
+      return rejections > before || accepted;
+    },
+    { before: rejectionBefore, target: spamOne },
+    { timeout: 5000 },
+  );
+  const rejectionAfterFirst = await commandLogMatchCount(page, '^Move rejected: Movement intent rate limit exceeded\\.');
+  if (rejectionAfterFirst === rejectionBefore) {
+    await clickWorldPositionsRapid(page, [spamTwo, { x: spamTwo.x + 40, y: spamTwo.y - 30 }, { x: spamTwo.x - 35, y: spamTwo.y + 45 }]);
+    await page.waitForFunction(
+      (before) =>
+        (window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? []).filter((line) =>
+          /^Move rejected: Movement intent rate limit exceeded\./.test(line.text),
+        ).length > before,
+      rejectionAfterFirst,
+      { timeout: 5000 },
+    );
+  }
+  const afterRejected = await selfMovementSample(page);
+  if (
+    afterRejected.entity.movement?.moving !== true ||
+    !Number.isFinite(afterRejected.entity.movement.target?.x) ||
+    !Number.isFinite(afterRejected.entity.movement.target?.y)
+  ) {
+    throw new Error(`desktop movement spam corrupted route state: ${JSON.stringify(afterRejected.entity.movement)}`);
+  }
+  await page.waitForFunction(
+    () => window.__SPACE_MORPG_SMOKE_STATE__?.movementEta?.active === false && !document.querySelector('[data-movement-eta-active="true"]'),
+    null,
+    { timeout: 10000 },
+  );
 }
 
 async function movementTargetAwayFromMemory(page, origin, offsets) {
@@ -867,6 +930,7 @@ async function movementDiagnostics(page, expectedTarget) {
       expectedTarget: target,
       self,
       movementTarget: state?.movementTarget,
+      movementEta: state?.movementEta,
       worldView: state?.worldView,
       recentCommandLog: state?.commandLog?.slice(-8),
     };
@@ -1116,6 +1180,19 @@ async function selfMovementSample(page) {
   });
 }
 
+async function movementEtaSample(page) {
+  return page.evaluate(() => {
+    const eta = window.__SPACE_MORPG_SMOKE_STATE__?.movementEta;
+    const element = document.querySelector('[data-movement-eta-active="true"]');
+    return {
+      active: eta?.active === true,
+      remainingMs: eta?.remainingMs ?? null,
+      progress: eta?.progress ?? null,
+      text: element?.textContent ?? '',
+    };
+  });
+}
+
 function distance(a, b) {
   const dx = (a?.x ?? 0) - (b?.x ?? 0);
   const dy = (a?.y ?? 0) - (b?.y ?? 0);
@@ -1127,6 +1204,14 @@ async function commandLogCount(page, text) {
     const lines = window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? [];
     return lines.filter((line) => line.text === needle).length;
   }, text);
+}
+
+async function commandLogMatchCount(page, pattern) {
+  return page.evaluate((source) => {
+    const regex = new RegExp(source);
+    const lines = window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? [];
+    return lines.filter((line) => regex.test(line.text)).length;
+  }, pattern);
 }
 
 async function commandLogSentCount(page) {
@@ -1373,6 +1458,23 @@ async function clickWorldPosition(page, world) {
     throw new Error(`World click at ${Math.round(point.x)},${Math.round(point.y)} hit ${String(point.element)} (${JSON.stringify(point)})`);
   }
   await page.mouse.click(point.x, point.y);
+}
+
+async function clickWorldPositionsRapid(page, worlds) {
+  const points = [];
+  for (const world of worlds) {
+    const point = await worldClickPoint(page, world);
+    if (!point) {
+      throw new Error('Could not map world position to canvas point.');
+    }
+    if (point.element !== 'world-canvas') {
+      throw new Error(`World click at ${Math.round(point.x)},${Math.round(point.y)} hit ${String(point.element)} (${JSON.stringify(point)})`);
+    }
+    points.push(point);
+  }
+  for (const point of points) {
+    await page.mouse.click(point.x, point.y);
+  }
 }
 
 async function ensureWorldPositionClickable(page, world) {

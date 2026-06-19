@@ -1,6 +1,7 @@
 import { Application, Container, Graphics, Text } from 'pixi.js';
 
 import { EntityPayload, Vec2 } from '../protocol/envelope';
+import { currentEntityPosition, estimateServerTime, isSelfEntity, serverClockOffset } from '../state/movement';
 import { WorldFeedbackEffect, WorldMapMemoryMarker } from '../state/types';
 import { WorldInputHandlers, WorldViewState } from './world-view';
 
@@ -52,7 +53,8 @@ export class WorldRenderer {
   private state: WorldViewState | null = null;
   private center: Vec2 = { x: 0, y: 0 };
   private scale = 1;
-  private serverClockOffset = 0;
+  private serverClockOffset: number | null = null;
+  private serverClockTime: number | null = null;
   private ignoreWorldInputUntil = 0;
   private scanDebug: {
     active: boolean;
@@ -119,8 +121,9 @@ export class WorldRenderer {
     }
 
     this.state = state;
-    if (state.lastServerTime !== null) {
-      this.serverClockOffset = performance.now() - state.lastServerTime;
+    if (state.lastServerTime !== null && state.lastServerTime !== this.serverClockTime) {
+      this.serverClockOffset = serverClockOffset(performance.now(), state.lastServerTime);
+      this.serverClockTime = state.lastServerTime;
     }
     if (this.emptyLabel) {
       this.emptyLabel.visible = state.entities.length === 0;
@@ -869,26 +872,12 @@ export class WorldRenderer {
   }
 
   private authoritativeDisplayPosition(entity: EntityPayload): Vec2 {
-    const movement = entity.movement;
-    if (!movement?.moving) {
-      return entity.position;
-    }
-
-    const duration = Math.max(1, movement.arrive_at_ms - movement.started_at_ms);
-    const progress = clamp((this.estimatedServerTime() - movement.started_at_ms) / duration, 0, 1);
-    return {
-      x: lerp(movement.origin.x, movement.target.x, progress),
-      y: lerp(movement.origin.y, movement.target.y, progress),
-    };
+    return currentEntityPosition(entity, this.estimatedServerTime());
   }
 
   private estimatedServerTime(): number {
-    return performance.now() - this.serverClockOffset;
+    return this.serverClockOffset === null ? Date.now() : estimateServerTime(performance.now(), this.serverClockOffset);
   }
-}
-
-function isSelfEntity(entity: EntityPayload): boolean {
-  return entity.status_flags?.includes('self') || entity.status_flags?.includes('local') || false;
 }
 
 function damageLabel(effect: WorldFeedbackEffect): string {

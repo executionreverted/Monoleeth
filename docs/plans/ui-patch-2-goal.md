@@ -128,13 +128,13 @@ docs/2026-06-17-world-system-design.md
 
 ### Movement Debug UX
 
-- [ ] Move logs show from coordinate, to coordinate, distance, and estimated
+- [x] Move logs show from coordinate, to coordinate, distance, and estimated
       travel time.
-- [ ] Move rejection logs remain compact and visible.
-- [ ] A top-center ETA pill shows destination and remaining time while the
+- [x] Move rejection logs remain compact and visible.
+- [x] A top-center ETA pill shows destination and remaining time while the
       server-owned route is active.
-- [ ] ETA uses the same server-time interpolation model as the renderer.
-- [ ] Arrival pill disappears cleanly when movement stops or reconnect
+- [x] ETA uses the same server-time interpolation model as the renderer.
+- [x] Arrival pill disappears cleanly when movement stops or reconnect
       reconciles state.
 
 ### Combat Projectile Feedback

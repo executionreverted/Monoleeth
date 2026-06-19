@@ -1,4 +1,5 @@
 import { ClientState } from '../state/types';
+import { activeEntityMovement, currentEntityPosition, distanceBetween, selfEntity } from '../state/movement';
 import { renderToast } from './toast';
 import gatherIconURL from '../../../output/assets/hud-svg/icons/gather.svg?url';
 import laserIconURL from '../../../output/assets/hud-svg/icons/laser.svg?url';
@@ -100,6 +101,7 @@ export class HUD {
   private readonly nav: HTMLElement;
   private readonly windowLayer: HTMLElement;
   private readonly modalLayer: HTMLElement;
+  private readonly movementEta: HTMLElement;
   private readonly socketInput: HTMLInputElement;
   private readonly panels: Record<string, HTMLElement>;
   private readonly toast: HTMLElement;
@@ -108,6 +110,7 @@ export class HUD {
   private focusedWindow: HUDWindowID | null = null;
   private modal: HUDModalState | null = null;
   private currentState: ClientState | null = null;
+  private currentServerNow: number | null = null;
   private nextWindowZ = 20;
   private readonly dragMove = (event: PointerEvent) => this.handleDragMove(event);
   private readonly dragEnd = (event: PointerEvent) => this.handleDragEnd(event);
@@ -140,6 +143,7 @@ export class HUD {
           <button class="tool-button" data-action="logout" type="button" title="Logout">Logout</button>
         </div>
       </header>
+      <div class="hud__movement-eta" data-movement-eta></div>
       <aside class="hud__rail hud__rail--left">
         <div class="panel panel--status" data-panel="status"></div>
         <nav class="panel hud__nav" data-hud-nav aria-label="HUD panels"></nav>
@@ -169,6 +173,7 @@ export class HUD {
     this.nav = this.root.querySelector<HTMLElement>('[data-hud-nav]')!;
     this.windowLayer = this.root.querySelector<HTMLElement>('[data-window-layer]')!;
     this.modalLayer = this.root.querySelector<HTMLElement>('[data-modal-layer]')!;
+    this.movementEta = this.root.querySelector<HTMLElement>('[data-movement-eta]')!;
     this.socketInput = this.root.querySelector<HTMLInputElement>('.socket-field__input')!;
     this.toast = this.root.querySelector<HTMLElement>('.toast')!;
     this.panels = {
@@ -190,8 +195,9 @@ export class HUD {
     this.bindEvents();
   }
 
-  render(state: ClientState): void {
+  render(state: ClientState, serverNow: number | null = Date.now()): void {
     this.currentState = state;
+    this.currentServerNow = serverNow;
     this.socketInput.value = state.socketURL;
     this.root.dataset.connection = state.connectionStatus;
     this.root.dataset.mode = state.auth.mode;
@@ -227,11 +233,13 @@ export class HUD {
     this.panels.quests.innerHTML = questsPanel(state);
     this.panels.ops.innerHTML = opsPanel(state);
     this.panels.planets.innerHTML = planetsPanel(state);
-    this.panels.target.innerHTML = targetPanel(state);
+    this.panels.target.innerHTML = targetPanel(state, serverNow);
     this.panels.ship.innerHTML = shipPanel(state);
     this.panels.intel.innerHTML = intelPanel(state);
-    this.panels.actions.innerHTML = actionBar(state);
+    this.panels.actions.innerHTML = actionBar(state, serverNow);
     this.panels.log.innerHTML = logPanel(state);
+    this.movementEta.innerHTML = movementEtaPanel(state, serverNow);
+    this.movementEta.hidden = this.movementEta.innerHTML === '';
     this.renderNav(state);
     this.renderWindows(state);
     this.renderModal();
@@ -475,7 +483,7 @@ export class HUD {
     if (!quickActionShortcutSafe(event.target, document.activeElement, this.modal, this.focusedWindow, this.dragState)) {
       return;
     }
-    const action = quickActionStates(this.currentState).find((entry) => entry.key === event.key);
+    const action = quickActionStates(this.currentState, this.currentServerNow).find((entry) => entry.key === event.key);
     if (!action?.enabled) {
       return;
     }
@@ -1123,13 +1131,13 @@ function adminOpsBlock(state: ClientState): string {
   `;
 }
 
-function targetPanel(state: ClientState): string {
+function targetPanel(state: ClientState, serverNow: number | null = Date.now()): string {
   const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
-  const actions = quickActionMap(state);
+  const actions = quickActionMap(state, serverNow);
   const laser = actions.laser;
   const loot = actions.gather;
   const targetLabel = target?.display?.label ?? target?.entity_id ?? '';
-  const distance = target ? distanceToTarget(state, target.entity_id) : null;
+  const distance = target ? distanceToTarget(state, target.entity_id, serverNow) : null;
   const knownLoot = target ? state.knownLoot[target.entity_id] : null;
   return `
     <h2>Target</h2>
@@ -1190,8 +1198,36 @@ function shipPanel(state: ClientState): string {
   `;
 }
 
-function actionBar(state: ClientState): string {
-  return quickActionStates(state).map(actionSlotHTML).join('');
+function actionBar(state: ClientState, serverNow: number | null): string {
+  return quickActionStates(state, serverNow).map(actionSlotHTML).join('');
+}
+
+function movementEtaPanel(state: ClientState, serverNow: number | null): string {
+  if (serverNow === null) {
+    return '';
+  }
+  const self = selfEntity(state.visibleEntities);
+  if (!self) {
+    return '';
+  }
+  const timing = activeEntityMovement(self, serverNow);
+  if (!timing) {
+    return '';
+  }
+  const progress = Math.round(timing.progress * 1000) / 1000;
+  return `
+    <div class="movement-eta" data-movement-eta-active="true" style="--movement-progress: ${progress}">
+      <div class="movement-eta__header">
+        <span>Arrival</span>
+        <strong>${formatDuration(timing.remainingMs)}</strong>
+      </div>
+      <div class="movement-eta__route">
+        <span>${formatVec(timing.origin)}</span>
+        <span>${formatVec(timing.target)}</span>
+      </div>
+      <div class="movement-eta__bar" aria-hidden="true"><span></span></div>
+    </div>
+  `;
 }
 
 function intelPanel(state: ClientState): string {
@@ -1335,13 +1371,13 @@ function lootStatusBlock(drop: KnownLootDropStatus): string {
   `;
 }
 
-function quickActionMap(state: ClientState): Record<QuickActionID, QuickActionState> {
-  return Object.fromEntries(quickActionStates(state).map((action) => [action.id, action])) as Record<QuickActionID, QuickActionState>;
+function quickActionMap(state: ClientState, serverNow: number | null): Record<QuickActionID, QuickActionState> {
+  return Object.fromEntries(quickActionStates(state, serverNow).map((action) => [action.id, action])) as Record<QuickActionID, QuickActionState>;
 }
 
-function quickActionStates(state: ClientState): QuickActionState[] {
+function quickActionStates(state: ClientState, serverNow: number | null): QuickActionState[] {
   const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
-  const loot = lootActionState(state, target);
+  const loot = lootActionState(state, target, serverNow);
   return [
     liveQuickAction('laser', 'fire', 1, '1', laserIconURL, 'combat.use_skill', laserActionState(state, target)),
     lockedQuickAction('rocket', 'rocket', 2, '2', rocketIconURL, 'Rocket', 'Missile skills are not exposed by a server contract yet.'),
@@ -1531,7 +1567,7 @@ function scanActionState(state: ClientState): ActionState {
   };
 }
 
-function lootActionState(state: ClientState, target: VisibleEntity | null): ActionState {
+function lootActionState(state: ClientState, target: VisibleEntity | null, serverNow: number | null): ActionState {
   if (!realtimeReady(state)) {
     return { enabled: false, label: 'Gather', detail: 'Offline', title: 'Realtime link is not authenticated.' };
   }
@@ -1546,7 +1582,7 @@ function lootActionState(state: ClientState, target: VisibleEntity | null): Acti
   }
 
   const pickupRange = state.stats?.loot_pickup_range ?? 0;
-  const distance = distanceToTarget(state, target.entity_id);
+  const distance = distanceToTarget(state, target.entity_id, serverNow);
   if (pickupRange <= 0) {
     return { enabled: false, label: 'Gather', detail: 'No range', title: 'Awaiting server pickup range.' };
   }
@@ -1581,31 +1617,14 @@ function hasPendingOp(state: ClientState, op: string): boolean {
   return Object.values(state.pendingCommands).some((command) => command.op === op);
 }
 
-function distanceToTarget(state: ClientState, targetID: string): number | null {
+function distanceToTarget(state: ClientState, targetID: string, serverNow: number | null): number | null {
   const target = state.visibleEntities[targetID];
-  const local = Object.values(state.visibleEntities).find((entity) => entity.status_flags?.includes('self'));
+  const local = selfEntity(state.visibleEntities);
   if (!target || !local) {
     return null;
   }
-  const targetPosition = currentEntityPosition(target);
-  const localPosition = currentEntityPosition(local);
-  return Math.hypot(targetPosition.x - localPosition.x, targetPosition.y - localPosition.y);
-}
-
-function currentEntityPosition(entity: VisibleEntity): { x: number; y: number } {
-  const movement = entity.movement;
-  if (!movement?.moving || movement.arrive_at_ms <= movement.started_at_ms) {
-    return entity.position;
-  }
-
-  const progress = Math.max(
-    0,
-    Math.min(1, (Date.now() - movement.started_at_ms) / (movement.arrive_at_ms - movement.started_at_ms)),
-  );
-  return {
-    x: movement.origin.x + (movement.target.x - movement.origin.x) * progress,
-    y: movement.origin.y + (movement.target.y - movement.origin.y) * progress,
-  };
+  const now = serverNow ?? Date.now();
+  return distanceBetween(currentEntityPosition(local, now), currentEntityPosition(target, now));
 }
 
 function realtimeReady(state: ClientState): boolean {
@@ -1617,6 +1636,17 @@ function formatCooldown(milliseconds: number): string {
     return '<1s';
   }
   return `${Math.ceil(milliseconds / 1000)}s`;
+}
+
+function formatDuration(milliseconds: number): string {
+  if (milliseconds < 1000) {
+    return '<1s';
+  }
+  return `${(milliseconds / 1000).toFixed(milliseconds < 10_000 ? 1 : 0)}s`;
+}
+
+function formatVec(position: { x: number; y: number }): string {
+  return `${Math.round(position.x)},${Math.round(position.y)}`;
 }
 
 function scanModeTimeDetail(nextPulseAt: number | null, fallback: string): string {

@@ -5,6 +5,15 @@ import { CLIENT_EVENTS, EntityPayload, ErrorEnvelope, OPERATIONS, RequestEnvelop
 import { WorldRenderer } from '../render/world-renderer';
 import { AuthPanel } from '../ui/auth-panel';
 import { HUD } from '../ui/hud';
+import {
+  activeEntityMovement,
+  currentEntityPosition,
+  distanceBetween,
+  estimateServerTime,
+  movementTiming,
+  selfEntity as selectSelfEntity,
+  serverClockOffset,
+} from '../state/movement';
 import { createInitialState, reduceClientState } from '../state/reducer';
 import { ClientAction, ClientState, PublicSession, WorldMapMemoryMarker } from '../state/types';
 import { worldMapMemoryMarkers } from '../state/world-memory';
@@ -15,6 +24,7 @@ const SCAN_PENDING_RECHECK_MS = 500;
 const SCAN_STARTED_RECHECK_MS = 350;
 const SCAN_PAUSED_RECHECK_MS = 750;
 const SCAN_ERROR_BACKOFF_MS = 3_200;
+const MOVEMENT_ETA_RENDER_MS = 100;
 
 export class ClientApp {
   private state: ClientState = createInitialState();
@@ -36,6 +46,11 @@ export class ClientApp {
   private smokeStateTimer: number | null = null;
   private cooldownRenderTimer: number | null = null;
   private cooldownRenderAt = 0;
+  private movementRenderTimer: number | null = null;
+  private movementRenderAt = 0;
+  private serverClockOffsetValue: number | null = null;
+  private serverClockTime: number | null = null;
+  private acceptedMovementSignature: string | null = null;
   private scanTimer: number | null = null;
   private scanTimerAt = 0;
   private pendingLootPickupID: string | null = null;
@@ -141,6 +156,32 @@ export class ClientApp {
       this.pendingLootPickupID = null;
       this.pendingLootApproachID = null;
     }
+
+    if (this.state.auth.mode === 'real' && this.state.connectionStatus !== 'connected') {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Move rejected: waiting for authenticated realtime link.' });
+      return;
+    }
+    if (this.state.ship?.disabled === true) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Move rejected: ship disabled.' });
+      return;
+    }
+
+    const self = this.selfEntity();
+    if (!self) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Move rejected: awaiting server position.' });
+      return;
+    }
+
+    const serverNow = this.estimatedServerTime() ?? Date.now();
+    const origin = currentEntityPosition(self, serverNow);
+    const distance = distanceBetween(origin, target);
+    const etaMs = movementEtaFromStats(distance, this.state.stats?.speed ?? self.movement?.speed ?? null);
+    this.dispatch({
+      type: 'appendLog',
+      level: 'info',
+      text: `Move ${formatVec(origin)} -> ${formatVec(target)}, ${Math.round(distance)}u, eta ${formatDuration(etaMs)}.`,
+    });
+
     const command = this.commandBuilder.moveTo(target);
     this.sendCommand(command);
 
@@ -213,6 +254,7 @@ export class ClientApp {
   private applyServerMessage(message: ServerMessage): void {
     if ('event_id' in message) {
       this.dispatch({ type: 'eventReceived', envelope: message });
+      this.logAcceptedSelfMovement();
       if (message.type === CLIENT_EVENTS.worldSnapshot) {
         this.requestSystemsSnapshotOnce();
       }
@@ -221,6 +263,9 @@ export class ClientApp {
 
     const pending = this.state.pendingCommands[message.request_id] ?? null;
     this.dispatch({ type: 'responseReceived', envelope: message });
+    if (pending?.op === OPERATIONS.moveTo && message.ok === false) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: `Move rejected: ${message.error.message}` });
+    }
     if (pending?.op === OPERATIONS.scanPulse) {
       if (message.ok === false) {
         const now = Date.now();
@@ -426,12 +471,14 @@ export class ClientApp {
         text: error instanceof Error ? error.message : String(error),
       });
     }
+    this.syncServerClock();
     this.render();
     this.tryPendingLootPickup();
     this.scheduleScanLoop();
   }
 
   private render(): void {
+    const serverNow = this.estimatedServerTime();
     this.root.dataset.mode = this.state.auth.mode;
     this.root.dataset.connection = this.state.connectionStatus;
     this.renderer.render({
@@ -447,9 +494,10 @@ export class ClientApp {
       lastServerTime: this.state.lastServerTime,
     });
     this.authPanel?.render(this.state);
-    this.hud?.render(this.state);
-    this.publishSmokeState();
+    this.hud?.render(this.state, serverNow);
+    this.publishSmokeState(serverNow);
     this.scheduleCooldownRender();
+    this.scheduleMovementRender(serverNow);
   }
 
   private findLocalPlayerID(): string | null {
@@ -571,17 +619,55 @@ export class ClientApp {
     if (!self) {
       return null;
     }
-    const selfPosition = currentEntityPosition(self);
-    const targetPosition = currentEntityPosition(target);
-    return Math.hypot(targetPosition.x - selfPosition.x, targetPosition.y - selfPosition.y);
+    const serverNow = this.estimatedServerTime() ?? Date.now();
+    const selfPosition = currentEntityPosition(self, serverNow);
+    const targetPosition = currentEntityPosition(target, serverNow);
+    return distanceBetween(selfPosition, targetPosition);
   }
 
   private selfEntity(): EntityPayload | null {
-    return (
-      Object.values(this.state.visibleEntities).find((entity) => entity.status_flags?.includes('self')) ??
-      Object.values(this.state.visibleEntities).find((entity) => entity.entity_type === 'player') ??
-      null
-    );
+    return selectSelfEntity(this.state.visibleEntities);
+  }
+
+  private syncServerClock(): void {
+    if (this.state.lastServerTime === null || this.state.lastServerTime === this.serverClockTime) {
+      return;
+    }
+    this.serverClockOffsetValue = serverClockOffset(performance.now(), this.state.lastServerTime);
+    this.serverClockTime = this.state.lastServerTime;
+  }
+
+  private estimatedServerTime(): number | null {
+    if (this.serverClockOffsetValue === null) {
+      return this.state.lastServerTime;
+    }
+    return estimateServerTime(performance.now(), this.serverClockOffsetValue);
+  }
+
+  private logAcceptedSelfMovement(): void {
+    const self = this.selfEntity();
+    const movement = self?.movement;
+    if (!movement?.moving) {
+      this.acceptedMovementSignature = null;
+      return;
+    }
+
+    const signature = `${Math.round(movement.origin.x)},${Math.round(movement.origin.y)}:${Math.round(
+      movement.target.x,
+    )},${Math.round(movement.target.y)}:${movement.started_at_ms}:${movement.arrive_at_ms}`;
+    if (signature === this.acceptedMovementSignature) {
+      return;
+    }
+
+    this.acceptedMovementSignature = signature;
+    const timing = movementTiming(movement, this.estimatedServerTime() ?? Date.now());
+    this.dispatch({
+      type: 'appendLog',
+      level: 'info',
+      text: `Route ${formatVec(movement.origin)} -> ${formatVec(movement.target)}, ${Math.round(timing.distance)}u, eta ${formatDuration(
+        timing.remainingMs,
+      )}.`,
+    });
   }
 
   private scheduleCooldownRender(): void {
@@ -611,6 +697,38 @@ export class ClientApp {
     window.clearTimeout(this.cooldownRenderTimer);
     this.cooldownRenderTimer = null;
     this.cooldownRenderAt = 0;
+  }
+
+  private scheduleMovementRender(serverNow: number | null): void {
+    const self = this.selfEntity();
+    const timing = self && serverNow !== null ? activeEntityMovement(self, serverNow) : null;
+    if (!timing) {
+      this.clearMovementRenderTimer();
+      return;
+    }
+
+    const wakeDelay = Math.min(MOVEMENT_ETA_RENDER_MS, Math.max(16, timing.remainingMs + 16));
+    const wakeAt = Math.round(Date.now() + wakeDelay);
+    if (this.movementRenderTimer !== null && Math.abs(this.movementRenderAt - wakeAt) < 24) {
+      return;
+    }
+
+    this.clearMovementRenderTimer();
+    this.movementRenderAt = wakeAt;
+    this.movementRenderTimer = window.setTimeout(() => {
+      this.movementRenderTimer = null;
+      this.movementRenderAt = 0;
+      this.render();
+    }, wakeDelay);
+  }
+
+  private clearMovementRenderTimer(): void {
+    if (this.movementRenderTimer === null) {
+      return;
+    }
+    window.clearTimeout(this.movementRenderTimer);
+    this.movementRenderTimer = null;
+    this.movementRenderAt = 0;
   }
 
   private scheduleScanLoop(): void {
@@ -711,7 +829,7 @@ export class ClientApp {
     throw new Error('Demo fixture mode is available only in development builds.');
   }
 
-  private publishSmokeState(): void {
+  private publishSmokeState(serverNow: number | null = this.estimatedServerTime()): void {
     if (typeof window === 'undefined') {
       return;
     }
@@ -761,6 +879,8 @@ export class ClientApp {
         commandLog: this.state.commandLog,
         combatLog: this.state.combatLog,
         auth: this.state.auth,
+        serverNow,
+        movementEta: movementEtaSmokeState(this.selfEntity(), serverNow),
         worldView: this.renderer.debugSnapshot(),
       }),
     );
@@ -794,22 +914,43 @@ function isAuthError(message: ErrorEnvelope): boolean {
   );
 }
 
-function currentEntityPosition(entity: EntityPayload): Vec2 {
-  const movement = entity.movement;
-  if (!movement?.moving || movement.arrive_at_ms <= movement.started_at_ms) {
-    return entity.position;
-  }
+function entityLabel(entity: EntityPayload): string {
+  return entity.display?.label || entity.entity_id;
+}
 
-  const progress = Math.max(
-    0,
-    Math.min(1, (Date.now() - movement.started_at_ms) / (movement.arrive_at_ms - movement.started_at_ms)),
-  );
+function movementEtaFromStats(distance: number, speed: number | null): number | null {
+  return speed && speed > 0 ? (distance / speed) * 1000 : null;
+}
+
+function movementEtaSmokeState(entity: EntityPayload | null, serverNow: number | null): unknown {
+  if (!entity || serverNow === null) {
+    return { active: false };
+  }
+  const timing = activeEntityMovement(entity, serverNow);
+  if (!timing) {
+    return { active: false };
+  }
   return {
-    x: movement.origin.x + (movement.target.x - movement.origin.x) * progress,
-    y: movement.origin.y + (movement.target.y - movement.origin.y) * progress,
+    active: true,
+    origin: timing.origin,
+    target: timing.target,
+    current: timing.current,
+    distance: timing.distance,
+    remainingMs: timing.remainingMs,
+    progress: timing.progress,
   };
 }
 
-function entityLabel(entity: EntityPayload): string {
-  return entity.display?.label || entity.entity_id;
+function formatDuration(milliseconds: number | null): string {
+  if (milliseconds === null) {
+    return '--';
+  }
+  if (milliseconds < 1000) {
+    return '<1s';
+  }
+  return `${(milliseconds / 1000).toFixed(milliseconds < 10_000 ? 1 : 0)}s`;
+}
+
+function formatVec(position: Vec2): string {
+  return `${Math.round(position.x)},${Math.round(position.y)}`;
 }

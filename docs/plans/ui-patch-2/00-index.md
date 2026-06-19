@@ -60,7 +60,7 @@ output/assets/hud-svg/
 2. [x] [Draggable Modal Windows And Input Isolation](./02-window-modal-input-isolation.md)
 3. [x] [Quick Action Input Contracts](./03-quick-actions-input-contracts.md)
 4. [x] [Scan Mode Automation And Visual Indicator](./04-scan-mode-automation.md)
-5. [Movement Debug Logs And ETA Pill](./05-movement-debug-eta.md)
+5. [x] [Movement Debug Logs And ETA Pill](./05-movement-debug-eta.md)
 6. [Projectile Combat Feedback](./06-projectile-combat-feedback.md)
 7. [Starfield Parallax Background](./07-starfield-parallax-background.md)
 8. [Mockup Parity And Verification Gate](./08-mockup-parity-verification.md)
