@@ -1007,7 +1007,8 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 		t.Fatalf("quest progress spoof error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
 	}
 
-	offer := progressableQuestOffer(t, boardPayload.QuestBoard.Offers)
+	offer := progressableQuestOfferWithItemReward(t, boardPayload.QuestBoard.Offers)
+	itemReward := questItemReward(t, offer.Rewards)
 	writeText(t, conn, `{"request_id":"request-quest-accept","op":"quest.accept","payload":{"offer_id":"`+offer.OfferID+`"},"client_seq":3,"v":1}`)
 	acceptResponse := readResponse(t, conn)
 	if !acceptResponse.OK {
@@ -1053,9 +1054,36 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 	if claim.Inventory == nil || len(claim.Inventory.Stackable) == 0 {
 		t.Fatalf("quest claim inventory = %+v, want reward item grant", claim.Inventory)
 	}
+	assertQuestRewardInventorySnapshot(t, *claim.Inventory, itemReward)
+	questRewardReference, err := foundation.QuestRewardIdempotencyKey(foundation.QuestID(accepted.Quest.QuestID))
+	if err != nil {
+		t.Fatalf("quest reward reference: %v", err)
+	}
+	questRewardLedger := questRewardItemLedgerEntries(gameServer, resolved.PlayerID, questRewardReference)
+	if len(questRewardLedger) != 1 {
+		t.Fatalf("quest reward item ledger entries = %+v, want one AddItem ledger entry for %s", questRewardLedger, questRewardReference)
+	}
+	assertQuestRewardLedgerEntry(t, questRewardLedger[0], itemReward, questRewardReference)
 	drainEventTypes(t, conn, realtime.EventQuestRewardClaimed, realtime.EventWalletSnapshot, realtime.EventInventorySnapshot, realtime.EventProgressionSnapshot)
 
-	writeText(t, conn, `{"request_id":"request-quest-reroll","op":"quest.reroll","payload":{},"client_seq":6,"v":1}`)
+	writeText(t, conn, `{"request_id":"request-quest-claim-duplicate","op":"quest.claim_reward","payload":{"quest_id":"`+accepted.Quest.QuestID+`"},"client_seq":6,"v":1}`)
+	duplicateClaimResponse := readResponse(t, conn)
+	if !duplicateClaimResponse.OK {
+		t.Fatalf("duplicate quest claim response = %+v, want success", duplicateClaimResponse)
+	}
+	var duplicateClaim questMutationPayload
+	if err := json.Unmarshal(duplicateClaimResponse.Payload, &duplicateClaim); err != nil {
+		t.Fatalf("decode duplicate quest claim: %v", err)
+	}
+	if !duplicateClaim.Duplicate || duplicateClaim.Quest == nil || duplicateClaim.Quest.State != quests.QuestStateClaimed.String() {
+		t.Fatalf("duplicate quest claim = %+v, want duplicate claimed result", duplicateClaim)
+	}
+	if got := questRewardItemLedgerEntries(gameServer, resolved.PlayerID, questRewardReference); len(got) != len(questRewardLedger) {
+		t.Fatalf("duplicate quest claim ledger entries = %+v, want unchanged from %+v", got, questRewardLedger)
+	}
+	drainEventTypes(t, conn, realtime.EventQuestRewardClaimed, realtime.EventWalletSnapshot, realtime.EventInventorySnapshot, realtime.EventProgressionSnapshot)
+
+	writeText(t, conn, `{"request_id":"request-quest-reroll","op":"quest.reroll","payload":{},"client_seq":7,"v":1}`)
 	rerollResponse := readResponse(t, conn)
 	if !rerollResponse.OK {
 		t.Fatalf("quest reroll response = %+v, want success", rerollResponse)
@@ -1073,12 +1101,12 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 		name string
 		body string
 	}{
-		{"admin inspect", `{"request_id":"request-non-admin-inspect","op":"admin.inspect_player","payload":{},"client_seq":7,"v":1}`},
-		{"admin repair", `{"request_id":"request-non-admin-repair","op":"admin.repair_craft_job","payload":{"job_id":"job-missing"},"client_seq":8,"v":1}`},
-		{"command log", `{"request_id":"request-non-admin-log","op":"observability.command_log","payload":{},"client_seq":9,"v":1}`},
-		{"metrics", `{"request_id":"request-non-admin-metrics","op":"observability.metrics","payload":{},"client_seq":10,"v":1}`},
-		{"release gate", `{"request_id":"request-non-admin-gate","op":"observability.release_gate","payload":{},"client_seq":11,"v":1}`},
-		{"abuse coverage", `{"request_id":"request-non-admin-abuse","op":"observability.abuse_coverage","payload":{},"client_seq":12,"v":1}`},
+		{"admin inspect", `{"request_id":"request-non-admin-inspect","op":"admin.inspect_player","payload":{},"client_seq":8,"v":1}`},
+		{"admin repair", `{"request_id":"request-non-admin-repair","op":"admin.repair_craft_job","payload":{"job_id":"job-missing"},"client_seq":9,"v":1}`},
+		{"command log", `{"request_id":"request-non-admin-log","op":"observability.command_log","payload":{},"client_seq":10,"v":1}`},
+		{"metrics", `{"request_id":"request-non-admin-metrics","op":"observability.metrics","payload":{},"client_seq":11,"v":1}`},
+		{"release gate", `{"request_id":"request-non-admin-gate","op":"observability.release_gate","payload":{},"client_seq":12,"v":1}`},
+		{"abuse coverage", `{"request_id":"request-non-admin-abuse","op":"observability.abuse_coverage","payload":{},"client_seq":13,"v":1}`},
 	} {
 		t.Run("non-admin "+request.name, func(t *testing.T) {
 			writeText(t, conn, request.body)
@@ -1794,9 +1822,12 @@ func sameMetricLabels(got, want []observability.Label) bool {
 	return true
 }
 
-func progressableQuestOffer(t *testing.T, offers []questOfferPayload) questOfferPayload {
+func progressableQuestOfferWithItemReward(t *testing.T, offers []questOfferPayload) questOfferPayload {
 	t.Helper()
 	for _, offer := range offers {
+		if questItemRewardCount(offer.Rewards) != 1 {
+			continue
+		}
 		for _, objective := range offer.Objectives {
 			switch objective.Kind {
 			case quests.ObjectiveKindKill.String(), quests.ObjectiveKindCollect.String(), quests.ObjectiveKindCraft.String():
@@ -1806,8 +1837,75 @@ func progressableQuestOffer(t *testing.T, offers []questOfferPayload) questOffer
 			}
 		}
 	}
-	t.Fatalf("no progressable kill/collect/craft offer in %+v", offers)
+	t.Fatalf("no progressable kill/collect/craft offer with one item reward in %+v", offers)
 	return questOfferPayload{}
+}
+
+func questItemRewardCount(rewards []questRewardPayload) int {
+	count := 0
+	for _, reward := range rewards {
+		if reward.Kind == quests.RewardKindItem.String() {
+			count++
+		}
+	}
+	return count
+}
+
+func questItemReward(t *testing.T, rewards []questRewardPayload) questRewardPayload {
+	t.Helper()
+	var itemReward questRewardPayload
+	for _, reward := range rewards {
+		if reward.Kind != quests.RewardKindItem.String() {
+			continue
+		}
+		if itemReward.Kind != "" {
+			t.Fatalf("quest rewards = %+v, want exactly one item reward", rewards)
+		}
+		itemReward = reward
+	}
+	if itemReward.Kind == "" || itemReward.ItemID == "" || itemReward.Amount <= 0 {
+		t.Fatalf("quest rewards = %+v, want positive item reward", rewards)
+	}
+	return itemReward
+}
+
+func assertQuestRewardInventorySnapshot(t *testing.T, inventory inventorySnapshotPayload, reward questRewardPayload) {
+	t.Helper()
+	for _, stack := range inventory.Stackable {
+		if stack.ItemID == reward.ItemID && stack.Location == economy.LocationKindAccountInventory.String() {
+			if stack.Quantity != reward.Amount {
+				t.Fatalf("quest reward inventory stack = %+v, want quantity %d", stack, reward.Amount)
+			}
+			return
+		}
+	}
+	t.Fatalf("quest reward inventory = %+v, missing %s x%d in account inventory", inventory, reward.ItemID, reward.Amount)
+}
+
+func questRewardItemLedgerEntries(gameServer *Server, playerID foundation.PlayerID, referenceKey foundation.IdempotencyKey) []economy.ItemLedgerEntry {
+	entries := gameServer.runtime.Inventory.ItemLedgerEntries()
+	matched := make([]economy.ItemLedgerEntry, 0, 1)
+	for _, entry := range entries {
+		if entry.PlayerID == playerID &&
+			entry.Action == economy.LedgerActionIncrease &&
+			entry.Reason == runtimeQuestRewardLedgerReason &&
+			entry.ReferenceKey == referenceKey {
+			matched = append(matched, entry)
+		}
+	}
+	return matched
+}
+
+func assertQuestRewardLedgerEntry(t *testing.T, entry economy.ItemLedgerEntry, reward questRewardPayload, referenceKey foundation.IdempotencyKey) {
+	t.Helper()
+	if entry.ItemID != foundation.ItemID(reward.ItemID) ||
+		entry.Quantity.Int64() != reward.Amount ||
+		entry.Location.Kind != economy.LocationKindAccountInventory ||
+		entry.Action != economy.LedgerActionIncrease ||
+		entry.Reason != runtimeQuestRewardLedgerReason ||
+		entry.ReferenceKey != referenceKey {
+		t.Fatalf("quest reward item ledger = %+v, want %s x%d in account inventory with reference %s", entry, reward.ItemID, reward.Amount, referenceKey)
+	}
 }
 
 func completeQuestWithServerEvents(t *testing.T, gameServer *Server, playerID foundation.PlayerID, quest questPayload) {

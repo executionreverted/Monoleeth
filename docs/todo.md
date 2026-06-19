@@ -47,10 +47,6 @@ for phase status; this file is a compact pending-work index.
 - [ ] Narrow DeathService and RepairService lock scope from global service mutex
   to per-player/per-reference coordination before these services move to a
   higher-concurrency runtime path.
-- [ ] Add a concrete Phase 07 quest item reward adapter from
-  `QuestRewardInventoryService` to `economy.InventoryService.AddItem` once the
-  quest reward item-definition catalog/provider is wired; current claim tests
-  prove the quest boundary and idempotency reference but use fakes.
 - [ ] Wire a durable Phase 07 rare reward cap policy into
   `BoardGenerationInput`/`RerollBoardInput` before enabling X Core or premium
   quest rewards in a multi-process runtime. The hook can now block generated
@@ -198,6 +194,14 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Add a concrete Phase 07 quest item reward adapter from
+  `QuestRewardInventoryService` to `economy.InventoryService.AddItem`. The
+  runtime now wires `questRewardInventoryAdapter` to the concrete
+  `InventoryService`, and `TestPhase09QuestAdminObservabilityUseServerState`
+  verifies the AddItem ledger row uses the `quest_reward:<player_quest_id>`
+  reference and duplicate claims do not create another item ledger entry.
+  Source: `internal/game/server/quest_admin_observability_handlers.go`,
+  `internal/game/server/server_test.go`.
 - [x] Wire Phase 11 browser combat, loot, scanner, wallet/cargo, and stat
   controls to authenticated Go gateway/runtime handlers. The real browser now
   emits `combat.use_skill`, `loot.pickup`, and `scan.pulse` intents over the
