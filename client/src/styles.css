@@ -1221,17 +1221,19 @@ button:disabled {
 
 .action-button {
   width: 100%;
-  min-height: 4rem;
+  min-height: 4.35rem;
   display: grid;
-  gap: 0.125rem;
-  align-content: end;
+  grid-template-rows: 1fr auto auto;
+  gap: 0.1rem;
+  align-content: center;
+  justify-items: center;
   border: 1px solid rgba(138, 245, 255, 0.26);
   border-radius: 0;
   color: #d7f7ff;
   background:
-    radial-gradient(circle at 50% 32%, rgba(215, 247, 255, 0.18), transparent 1.1rem),
+    radial-gradient(circle at 50% 35%, rgba(215, 247, 255, 0.14), transparent 1.4rem),
     rgba(9, 16, 19, 0.82);
-  padding: 1.35rem 0.35rem 0.45rem;
+  padding: 0.4rem 0.35rem 0.45rem;
   cursor: pointer;
 }
 
@@ -1240,15 +1242,56 @@ button:disabled {
   background: rgba(124, 255, 155, 0.14);
 }
 
-.action-button span,
+.action-button:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.72);
+  opacity: 0.74;
+}
+
+.action-button[data-state="ready"] {
+  border-color: rgba(138, 245, 255, 0.46);
+}
+
+.action-button[data-state="pending"],
+.action-button[data-state="cooldown"] {
+  border-color: rgba(244, 201, 93, 0.5);
+}
+
+.action-button[data-state="locked"] {
+  border-color: rgba(215, 247, 255, 0.16);
+  background:
+    repeating-linear-gradient(135deg, rgba(215, 247, 255, 0.035) 0 0.25rem, transparent 0.25rem 0.5rem),
+    rgba(9, 16, 19, 0.72);
+}
+
+.action-button__icon {
+  width: 1.7rem;
+  height: 1.7rem;
+  align-self: end;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(91%) sepia(12%) saturate(496%) hue-rotate(153deg) brightness(106%) contrast(106%);
+  opacity: 0.9;
+}
+
+.action-button[data-state="ready"] .action-button__icon {
+  filter: brightness(0) saturate(100%) invert(85%) sepia(72%) saturate(445%) hue-rotate(145deg) brightness(105%) contrast(102%);
+  opacity: 0.95;
+}
+
+.action-button[data-state="locked"] .action-button__icon {
+  opacity: 0.42;
+}
+
+.action-button__label,
 .action-button small {
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.action-button span {
+.action-button__label {
   color: #f4c95d;
   font-size: 0.875rem;
   font-weight: 700;
@@ -1473,10 +1516,15 @@ button:disabled {
 
   .action-button {
     min-height: 3.45rem;
-    padding: 1.15rem 0.25rem 0.35rem;
+    padding: 0.3rem 0.25rem 0.35rem;
   }
 
-  .action-button span {
+  .action-button__icon {
+    width: 1.3rem;
+    height: 1.3rem;
+  }
+
+  .action-button__label {
     font-size: 0.68rem;
   }
 

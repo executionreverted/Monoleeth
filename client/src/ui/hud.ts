@@ -1,5 +1,11 @@
 import { ClientState } from '../state/types';
 import { renderToast } from './toast';
+import gatherIconURL from '../../../output/assets/hud-svg/icons/gather.svg?url';
+import laserIconURL from '../../../output/assets/hud-svg/icons/laser.svg?url';
+import rocketIconURL from '../../../output/assets/hud-svg/icons/rocket.svg?url';
+import scanIconURL from '../../../output/assets/hud-svg/icons/scan.svg?url';
+import shieldIconURL from '../../../output/assets/hud-svg/icons/shield.svg?url';
+import warpIconURL from '../../../output/assets/hud-svg/icons/warp.svg?url';
 
 export interface HUDHandlers {
   onConnect(url: string): void;
@@ -39,12 +45,25 @@ type KnownLootDropStatus = ClientState['knownLoot'][string];
 type VisibleEntity = ClientState['visibleEntities'][string];
 type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' | 'ops';
 type HUDModalID = HUDWindowID | 'target' | 'planets' | 'ship';
+type QuickActionID = 'laser' | 'rocket' | 'scan' | 'shield' | 'warp' | 'gather';
+type QuickActionCommand = 'fire' | 'rocket' | 'scan' | 'shield' | 'warp' | 'loot';
 
 interface ActionState {
   enabled: boolean;
   label: string;
   detail: string;
   title: string;
+}
+
+interface QuickActionState extends ActionState {
+  id: QuickActionID;
+  action: QuickActionCommand;
+  slot: 1 | 2 | 3 | 4 | 5 | 6;
+  key: string;
+  iconURL: string;
+  commandOp: string | null;
+  locked: boolean;
+  state: 'ready' | 'pending' | 'cooldown' | 'blocked' | 'locked';
 }
 
 interface HUDPanelDefinition {
@@ -92,6 +111,7 @@ export class HUD {
   private nextWindowZ = 20;
   private readonly dragMove = (event: PointerEvent) => this.handleDragMove(event);
   private readonly dragEnd = (event: PointerEvent) => this.handleDragEnd(event);
+  private readonly shortcutKeyDown = (event: KeyboardEvent) => this.handleShortcutKeyDown(event);
 
   constructor(container: HTMLElement, private readonly handlers: HUDHandlers) {
     this.root = document.createElement('section');
@@ -255,6 +275,7 @@ export class HUD {
     window.addEventListener('pointermove', this.dragMove);
     window.addEventListener('pointerup', this.dragEnd);
     window.addEventListener('pointercancel', this.dragEnd);
+    window.addEventListener('keydown', this.shortcutKeyDown);
 
     this.root.addEventListener('click', (event) => {
       if (blocksWorldInput(event.target)) {
@@ -318,38 +339,76 @@ export class HUD {
       if (!button) {
         return;
       }
+      if (button.disabled) {
+        return;
+      }
 
-      switch (button.dataset.action) {
-        case 'connect':
-          this.handlers.onConnect(this.socketInput.value);
-          break;
-        case 'disconnect':
-          this.handlers.onDisconnect();
-          break;
-        case 'stop':
-          this.handlers.onStop();
-          break;
-        case 'sync':
-          this.handlers.onSync();
-          break;
-        case 'logout':
-          this.handlers.onLogout();
-          break;
-        case 'fire':
-          this.handlers.onFire();
-          break;
-        case 'loot':
-          this.handlers.onLoot();
-          break;
-        case 'repair-quote':
-          this.handlers.onRepairQuote();
-          break;
-        case 'repair':
-          this.handlers.onRepair();
-          break;
-        case 'scan':
-          this.handlers.onScan();
-          break;
+      this.dispatchButtonAction(button);
+    });
+
+    this.root.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || !this.modal || !this.currentState) {
+        return;
+      }
+      this.closeModal();
+      this.render(this.currentState);
+    });
+  }
+
+  private dispatchAction(action: string | undefined): boolean {
+    switch (action) {
+      case 'connect':
+        this.handlers.onConnect(this.socketInput.value);
+        return true;
+      case 'disconnect':
+        this.handlers.onDisconnect();
+        return true;
+      case 'stop':
+        this.handlers.onStop();
+        return true;
+      case 'sync':
+        this.handlers.onSync();
+        return true;
+      case 'logout':
+        this.handlers.onLogout();
+        return true;
+      case 'fire':
+        this.handlers.onFire();
+        return true;
+      case 'loot':
+        this.handlers.onLoot();
+        return true;
+      case 'repair-quote':
+        this.handlers.onRepairQuote();
+        return true;
+      case 'repair':
+        this.handlers.onRepair();
+        return true;
+      case 'scan':
+        this.handlers.onScan();
+        return true;
+      case 'auction-claim':
+        this.handlers.onAuctionClaimGrant();
+        return true;
+      case 'premium-weekly-xcore':
+        this.handlers.onPremiumWeeklyXCore();
+        return true;
+      case 'quest-reroll':
+        this.handlers.onQuestReroll();
+        return true;
+      case 'admin-refresh':
+        this.handlers.onAdminRefresh();
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private dispatchButtonAction(button: HTMLButtonElement): void {
+    if (this.dispatchAction(button.dataset.action)) {
+      return;
+    }
+    switch (button.dataset.action) {
         case 'planet-detail':
           if (button.dataset.planetId) {
             this.handlers.onPlanetDetail(button.dataset.planetId);
@@ -386,16 +445,10 @@ export class HUD {
             this.handlers.onAuctionBuyNow(button.dataset.auctionId);
           }
           break;
-        case 'auction-claim':
-          this.handlers.onAuctionClaimGrant();
-          break;
         case 'premium-claim':
           if (button.dataset.entitlementId) {
             this.handlers.onPremiumClaim(button.dataset.entitlementId);
           }
-          break;
-        case 'premium-weekly-xcore':
-          this.handlers.onPremiumWeeklyXCore();
           break;
         case 'quest-accept':
           if (button.dataset.offerId) {
@@ -407,27 +460,29 @@ export class HUD {
             this.handlers.onQuestClaim(button.dataset.questId);
           }
           break;
-        case 'quest-reroll':
-          this.handlers.onQuestReroll();
-          break;
-        case 'admin-refresh':
-          this.handlers.onAdminRefresh();
-          break;
         case 'admin-repair-craft-job':
           if (button.dataset.jobId) {
             this.handlers.onAdminRepairCraftJob(button.dataset.jobId);
           }
           break;
       }
-    });
+  }
 
-    this.root.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape' || !this.modal || !this.currentState) {
-        return;
-      }
-      this.closeModal();
-      this.render(this.currentState);
-    });
+  private handleShortcutKeyDown(event: KeyboardEvent): void {
+    if (!this.currentState || !isQuickActionKey(event.key) || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+      return;
+    }
+    if (!quickActionShortcutSafe(event.target, document.activeElement, this.modal, this.focusedWindow, this.dragState)) {
+      return;
+    }
+    const action = quickActionStates(this.currentState).find((entry) => entry.key === event.key);
+    if (!action?.enabled) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    markHUDInputSuppressed();
+    this.dispatchAction(action.action);
   }
 
   private panel(name: string): HTMLElement {
@@ -717,6 +772,31 @@ function blocksWorldInput(target: EventTarget | null): boolean {
 
 function isControlElement(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(target.closest('button, input, select, textarea, a[href], [data-action]'));
+}
+
+function isQuickActionKey(key: string): boolean {
+  return key === '1' || key === '2' || key === '3' || key === '4' || key === '5' || key === '6';
+}
+
+function quickActionShortcutSafe(
+  eventTarget: EventTarget | null,
+  activeElement: Element | null,
+  modal: HUDModalState | null,
+  focusedWindow: HUDWindowID | null,
+  dragState: HUDDragState | null,
+): boolean {
+  if (modal || focusedWindow || dragState) {
+    return false;
+  }
+  const target = eventTarget instanceof HTMLElement ? eventTarget : null;
+  return !isTextEntryElement(target) && !isTextEntryElement(activeElement);
+}
+
+function isTextEntryElement(element: Element | null): boolean {
+  if (!(element instanceof HTMLElement)) {
+    return false;
+  }
+  return Boolean(element.closest('input, textarea, select, [contenteditable="true"], .auth-panel, .hud-modal, .hud-window'));
 }
 
 function windowDefinitions(state: ClientState): HUDPanelDefinition[] {
@@ -1045,8 +1125,9 @@ function adminOpsBlock(state: ClientState): string {
 
 function targetPanel(state: ClientState): string {
   const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
-  const laser = laserActionState(state, target);
-  const loot = lootActionState(state, target);
+  const actions = quickActionMap(state);
+  const laser = actions.laser;
+  const loot = actions.gather;
   const targetLabel = target?.display?.label ?? target?.entity_id ?? '';
   const distance = target ? distanceToTarget(state, target.entity_id) : null;
   const knownLoot = target ? state.knownLoot[target.entity_id] : null;
@@ -1110,50 +1191,7 @@ function shipPanel(state: ClientState): string {
 }
 
 function actionBar(state: ClientState): string {
-  const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
-  const shipDisabled = state.ship?.disabled === true;
-  const laser = laserActionState(state, target);
-  const loot = lootActionState(state, target);
-  const canScan = state.connectionStatus === 'connected' && !shipDisabled;
-
-  return `
-    <div class="action-slot" data-slot="1">
-      <button class="action-button" type="button" data-action="fire" ${laser.enabled ? '' : 'disabled'} title="${escapeHTML(laser.title)}">
-        <span>${escapeHTML(laser.label)}</span>
-        <small>${escapeHTML(laser.detail)}</small>
-      </button>
-    </div>
-    <div class="action-slot" data-slot="2">
-      <button class="action-button" type="button" disabled title="Missile skills are not exposed yet">
-        <span>Rocket</span>
-        <small>Locked</small>
-      </button>
-    </div>
-    <div class="action-slot" data-slot="3">
-      <button class="action-button" type="button" data-action="scan" ${canScan ? '' : 'disabled'} title="Run scanner pulse">
-        <span>Scan</span>
-        <small>${state.planetIntel?.lastScan?.status ? actionScanLabel(state.planetIntel.lastScan.status) : 'Pulse'}</small>
-      </button>
-    </div>
-    <div class="action-slot" data-slot="4">
-      <button class="action-button" type="button" disabled title="Shield skills are not exposed yet">
-        <span>Shield</span>
-        <small>Locked</small>
-      </button>
-    </div>
-    <div class="action-slot" data-slot="5">
-      <button class="action-button" type="button" disabled title="Warp route commands are not exposed yet">
-        <span>Warp</span>
-        <small>Locked</small>
-      </button>
-    </div>
-    <div class="action-slot" data-slot="6">
-      <button class="action-button" type="button" data-action="loot" ${loot.enabled ? '' : 'disabled'} title="${escapeHTML(loot.title)}">
-        <span>${escapeHTML(loot.label)}</span>
-        <small>${escapeHTML(loot.detail)}</small>
-      </button>
-    </div>
-  `;
+  return quickActionStates(state).map(actionSlotHTML).join('');
 }
 
 function intelPanel(state: ClientState): string {
@@ -1295,6 +1333,100 @@ function lootStatusBlock(drop: KnownLootDropStatus): string {
   `;
 }
 
+function quickActionMap(state: ClientState): Record<QuickActionID, QuickActionState> {
+  return Object.fromEntries(quickActionStates(state).map((action) => [action.id, action])) as Record<QuickActionID, QuickActionState>;
+}
+
+function quickActionStates(state: ClientState): QuickActionState[] {
+  const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
+  const loot = lootActionState(state, target);
+  return [
+    liveQuickAction('laser', 'fire', 1, '1', laserIconURL, 'combat.use_skill', laserActionState(state, target)),
+    lockedQuickAction('rocket', 'rocket', 2, '2', rocketIconURL, 'Rocket', 'Missile skills are not exposed by a server contract yet.'),
+    liveQuickAction('scan', 'scan', 3, '3', scanIconURL, 'scan.pulse', scanActionState(state)),
+    lockedQuickAction('shield', 'shield', 4, '4', shieldIconURL, 'Shield', 'Defensive skill contracts are not exposed yet.'),
+    lockedQuickAction('warp', 'warp', 5, '5', warpIconURL, 'Warp', 'Warp route commands are not exposed by a server contract yet.'),
+    liveQuickAction('gather', 'loot', 6, '6', gatherIconURL, lootCommandOp(loot), loot),
+  ];
+}
+
+function liveQuickAction(
+  id: QuickActionID,
+  action: QuickActionCommand,
+  slot: QuickActionState['slot'],
+  key: string,
+  iconURL: string,
+  commandOp: string | null,
+  state: ActionState,
+): QuickActionState {
+  return {
+    ...state,
+    id,
+    action,
+    slot,
+    key,
+    iconURL,
+    commandOp,
+    locked: false,
+    state: actionStateKind(state),
+  };
+}
+
+function lockedQuickAction(
+  id: QuickActionID,
+  action: QuickActionCommand,
+  slot: QuickActionState['slot'],
+  key: string,
+  iconURL: string,
+  label: string,
+  title: string,
+): QuickActionState {
+  return {
+    id,
+    action,
+    slot,
+    key,
+    iconURL,
+    commandOp: null,
+    enabled: false,
+    locked: true,
+    label,
+    detail: 'Locked',
+    title,
+    state: 'locked',
+  };
+}
+
+function actionSlotHTML(action: QuickActionState): string {
+  const commandAttr = action.commandOp ? ` data-command-op="${escapeHTML(action.commandOp)}"` : '';
+  return `
+    <div class="action-slot" data-slot="${action.slot}" data-quick-action-slot="${action.id}" data-state="${action.state}"${commandAttr}>
+      <button class="action-button" type="button" data-action="${action.action}" data-quick-action="${action.id}" data-state="${action.state}" aria-label="${escapeHTML(action.label)} action" aria-keyshortcuts="${action.key}" ${action.enabled ? '' : 'disabled'} title="${escapeHTML(action.title)}">
+        <img class="action-button__icon" src="${escapeHTML(action.iconURL)}" alt="" aria-hidden="true" draggable="false" />
+        <span class="action-button__label">${escapeHTML(action.label)}</span>
+        <small>${escapeHTML(action.detail)}</small>
+      </button>
+    </div>
+  `;
+}
+
+function actionStateKind(action: ActionState): QuickActionState['state'] {
+  if (action.enabled) {
+    return 'ready';
+  }
+  if (/pending/i.test(action.detail)) {
+    return 'pending';
+  }
+  if (/cool|ready in|<1s|\d+s/i.test(action.label) || /cool|ready in|<1s|\d+s/i.test(action.detail)) {
+    return 'cooldown';
+  }
+  return 'blocked';
+}
+
+function lootCommandOp(action: ActionState): string {
+  return action.label === 'Approach' ? 'move_to' : 'loot.pickup';
+}
+
 function laserActionState(state: ClientState, target: VisibleEntity | null): ActionState {
   if (!realtimeReady(state)) {
     return { enabled: false, label: 'Laser', detail: 'Offline', title: 'Realtime link is not authenticated.' };
@@ -1304,6 +1436,9 @@ function laserActionState(state: ClientState, target: VisibleEntity | null): Act
   }
   if (!target || target.entity_type !== 'npc') {
     return { enabled: false, label: 'Laser', detail: 'No lock', title: 'Select a hostile target.' };
+  }
+  if (hasPendingOp(state, 'combat.use_skill')) {
+    return { enabled: false, label: 'Laser', detail: 'Pending', title: 'Basic laser intent is awaiting server response.' };
   }
 
   const cooldownRemaining = (state.skillCooldowns.basic_laser ?? 0) - Date.now();
@@ -1338,6 +1473,24 @@ function laserActionState(state: ClientState, target: VisibleEntity | null): Act
   };
 }
 
+function scanActionState(state: ClientState): ActionState {
+  if (!realtimeReady(state)) {
+    return { enabled: false, label: 'Scan', detail: 'Offline', title: 'Realtime link is not authenticated.' };
+  }
+  if (state.ship?.disabled === true) {
+    return { enabled: false, label: 'Scan', detail: 'Disabled', title: 'Repair the ship before scanning.' };
+  }
+  if (hasPendingOp(state, 'scan.pulse')) {
+    return { enabled: false, label: 'Scan', detail: 'Pending', title: 'Scanner pulse is awaiting server response.' };
+  }
+  return {
+    enabled: true,
+    label: 'Scan',
+    detail: state.planetIntel?.lastScan?.status ? actionScanLabel(state.planetIntel.lastScan.status) : 'Pulse',
+    title: 'Run one server scanner pulse.',
+  };
+}
+
 function lootActionState(state: ClientState, target: VisibleEntity | null): ActionState {
   if (!realtimeReady(state)) {
     return { enabled: false, label: 'Gather', detail: 'Offline', title: 'Realtime link is not authenticated.' };
@@ -1347,6 +1500,9 @@ function lootActionState(state: ClientState, target: VisibleEntity | null): Acti
   }
   if (!target || target.entity_type !== 'loot') {
     return { enabled: false, label: 'Gather', detail: 'No drop', title: 'Select a visible drop.' };
+  }
+  if (hasPendingOp(state, 'loot.pickup')) {
+    return { enabled: false, label: 'Gather', detail: 'Pending', title: 'Loot pickup intent is awaiting server response.' };
   }
 
   const pickupRange = state.stats?.loot_pickup_range ?? 0;
@@ -1365,12 +1521,24 @@ function lootActionState(state: ClientState, target: VisibleEntity | null): Acti
       title: `Pickup visible drop within ${Math.round(pickupRange)}u.`,
     };
   }
+  if (hasPendingOp(state, 'move_to')) {
+    return {
+      enabled: false,
+      label: 'Approach',
+      detail: 'Pending',
+      title: `Approach movement is awaiting server response for a drop ${Math.round(distance)}u away.`,
+    };
+  }
   return {
     enabled: true,
     label: 'Approach',
     detail: `${Math.round(distance)}u`,
     title: `Move toward drop, then request pickup within ${Math.round(pickupRange)}u.`,
   };
+}
+
+function hasPendingOp(state: ClientState, op: string): boolean {
+  return Object.values(state.pendingCommands).some((command) => command.op === op);
 }
 
 function distanceToTarget(state: ClientState, targetID: string): number | null {

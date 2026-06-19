@@ -18,6 +18,7 @@ const repoRoot = path.resolve(clientRoot, '..');
 const outputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-implementation', '10');
 const phaseOutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '01');
 const phase02OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '02');
+const phase03OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '03');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -101,6 +102,7 @@ try {
   await mkdir(outputDir, { recursive: true });
   await mkdir(phaseOutputDir, { recursive: true });
   await mkdir(phase02OutputDir, { recursive: true });
+  await mkdir(phase03OutputDir, { recursive: true });
   if (useFixture) {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
@@ -220,6 +222,7 @@ async function verifyRealViewport(viewport, label) {
       throw error;
     }
     await assertNoUnimplementedMutationControls(page, `${label} authenticated bootstrap`);
+    await verifyQuickActionContracts(page, viewport, label);
 
     await verifyRealEconomy(page);
 
@@ -338,6 +341,94 @@ async function verifyPlanetMemoryMarker(page, label) {
   const moveCountAfterMarker = await commandLogCount(page, 'Sent move_to.');
   if (moveCountAfterMarker !== moveCountBeforeMarker) {
     throw new Error(`${label}: planet memory marker click emitted move_to`);
+  }
+}
+
+async function verifyQuickActionContracts(page, viewport, label) {
+  await page.waitForFunction(() => document.querySelectorAll('.hud__actionbar [data-quick-action]').length === 6, null, {
+    timeout: 10000,
+  });
+  const summary = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.hud__actionbar [data-quick-action]')).map((button) => {
+      const element = button instanceof HTMLButtonElement ? button : null;
+      const slot = element?.closest('[data-quick-action-slot]');
+      const icon = element?.querySelector('.action-button__icon');
+      return {
+        id: element?.dataset.quickAction ?? '',
+        action: element?.dataset.action ?? '',
+        state: element?.dataset.state ?? '',
+        disabled: element?.disabled ?? false,
+        slot: slot?.getAttribute('data-slot') ?? '',
+        commandOp: slot?.getAttribute('data-command-op') ?? '',
+        label: element?.querySelector('.action-button__label')?.textContent?.trim() ?? '',
+        detail: element?.querySelector('small')?.textContent?.trim() ?? '',
+        iconSource: icon instanceof HTMLImageElement ? icon.getAttribute('src') ?? '' : '',
+      };
+    }),
+  );
+  const expected = [
+    { id: 'laser', action: 'fire', slot: '1', commandOp: 'combat.use_skill', locked: false },
+    { id: 'rocket', action: 'rocket', slot: '2', commandOp: '', locked: true },
+    { id: 'scan', action: 'scan', slot: '3', commandOp: 'scan.pulse', locked: false },
+    { id: 'shield', action: 'shield', slot: '4', commandOp: '', locked: true },
+    { id: 'warp', action: 'warp', slot: '5', commandOp: '', locked: true },
+    { id: 'gather', action: 'loot', slot: '6', commandOp: 'loot.pickup', locked: false },
+  ];
+  for (const [index, want] of expected.entries()) {
+    const got = summary[index];
+    if (
+      !got ||
+      got.id !== want.id ||
+      got.action !== want.action ||
+      got.slot !== want.slot ||
+      got.commandOp !== want.commandOp ||
+      !/(?:\.svg(?:\?|$)|data:image\/svg\+xml)/.test(got.iconSource) ||
+      (want.locked && (!got.disabled || got.state !== 'locked' || got.detail !== 'Locked')) ||
+      (!want.locked && got.label.length === 0)
+    ) {
+      throw new Error(`${label}: quick action slot ${index + 1} contract mismatch ${JSON.stringify({ got, want, summary })}`);
+    }
+  }
+
+  const sentBeforeLocked = await commandLogSentCount(page);
+  await page.evaluate(() => {
+    for (const id of ['rocket', 'shield', 'warp']) {
+      document.querySelector(`.hud__actionbar [data-quick-action="${id}"]`)?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }),
+      );
+    }
+  });
+  await page.keyboard.press('2');
+  await page.keyboard.press('4');
+  await page.keyboard.press('5');
+  await page.waitForTimeout(80);
+  const sentAfterLocked = await commandLogSentCount(page);
+  if (sentAfterLocked !== sentBeforeLocked) {
+    throw new Error(`${label}: locked quick actions emitted command log entries`);
+  }
+
+  if (label === 'desktop') {
+    await page.locator('[data-panel-toggle="cargo"]').click();
+    await page.waitForSelector('[data-window-panel="cargo"][data-focused="true"]', { timeout: 10000 });
+    await page.locator('[data-window-panel="cargo"]').focus();
+    const sentBeforeFocus = await commandLogSentCount(page);
+    await page.keyboard.press('3');
+    await page.keyboard.press('1');
+    await page.waitForTimeout(120);
+    const sentAfterFocus = await commandLogSentCount(page);
+    if (sentAfterFocus !== sentBeforeFocus) {
+      throw new Error(`${label}: quick action shortcut fired while a HUD window owned focus`);
+    }
+    await page.locator('[data-window-panel="cargo"] [data-panel-close="cargo"]').click();
+    await page.waitForFunction(() => !document.querySelector('[data-window-panel="cargo"]'), null, { timeout: 10000 });
+  }
+
+  await page.screenshot({ path: path.join(phase03OutputDir, `quick-actions-${label}.png`), fullPage: true });
+  if (viewport.width < 768) {
+    const hasHorizontalScroll = await page.evaluate(() => document.scrollingElement.scrollWidth > window.innerWidth + 1);
+    if (hasHorizontalScroll) {
+      throw new Error(`${label}: quick action bar created horizontal body scroll`);
+    }
   }
 }
 
@@ -974,6 +1065,13 @@ async function commandLogCount(page, text) {
     const lines = window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? [];
     return lines.filter((line) => line.text === needle).length;
   }, text);
+}
+
+async function commandLogSentCount(page) {
+  return page.evaluate(() => {
+    const lines = window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? [];
+    return lines.filter((line) => /^Sent /.test(line.text)).length;
+  });
 }
 
 async function bootstrapDiagnostics(page, expectedCallsign) {

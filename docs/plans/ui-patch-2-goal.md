@@ -114,10 +114,10 @@ docs/2026-06-17-world-system-design.md
 
 ### Quick Actions And Scan Mode
 
-- [ ] Laser, scan, and gather quick actions call real command paths or explicit
+- [x] Laser, scan, and gather quick actions call real command paths or explicit
       client-local modes.
-- [ ] Locked action slots remain visibly locked and disabled.
-- [ ] Keyboard shortcuts, if added, are ignored while typing in inputs or while
+- [x] Locked action slots remain visibly locked and disabled.
+- [x] Keyboard shortcuts, if added, are ignored while typing in inputs or while
       a modal owns focus.
 - [ ] Scan button toggles scan mode instead of firing a one-off pulse only.
 - [ ] Scan mode automatically sends `scan.pulse` when server timing allows.
