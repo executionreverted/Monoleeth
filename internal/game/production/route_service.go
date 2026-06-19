@@ -92,6 +92,18 @@ func (service *AutomationRouteService) SettleRoute(routeID foundation.RouteID) (
 	return service.store.SettleRoute(routeID, service.clock.Now(), service.lossRoller)
 }
 
+// SettleRouteForOwner settles a route only after matching the server-resolved
+// player id against the durable route owner.
+func (service *AutomationRouteService) SettleRouteForOwner(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+) (RouteSettlementResult, error) {
+	if service == nil || service.store == nil || service.clock == nil || service.lossRoller == nil {
+		return RouteSettlementResult{}, ErrInvalidRouteSettlementConfig
+	}
+	return service.store.SettleRouteForOwner(ownerPlayerID, routeID, service.clock.Now(), service.lossRoller)
+}
+
 // DisableRoute settles the currently enabled route period, then disables the
 // route using server-owned time and loss rolls.
 func (service *AutomationRouteService) DisableRoute(routeID foundation.RouteID) (RouteControlResult, error) {
@@ -101,6 +113,18 @@ func (service *AutomationRouteService) DisableRoute(routeID foundation.RouteID) 
 	return service.store.DisableRoute(routeID, service.clock.Now(), service.lossRoller)
 }
 
+// DisableRouteForOwner disables a route only after matching the server-resolved
+// player id against the durable route owner.
+func (service *AutomationRouteService) DisableRouteForOwner(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+) (RouteControlResult, error) {
+	if service == nil || service.store == nil || service.clock == nil || service.lossRoller == nil {
+		return RouteControlResult{}, ErrInvalidRouteSettlementConfig
+	}
+	return service.store.DisableRouteForOwner(ownerPlayerID, routeID, service.clock.Now(), service.lossRoller)
+}
+
 // EnableRoute re-enables a disabled route and starts a fresh settlement period
 // at the server timestamp.
 func (service *AutomationRouteService) EnableRoute(routeID foundation.RouteID) (RouteControlResult, error) {
@@ -108,6 +132,18 @@ func (service *AutomationRouteService) EnableRoute(routeID foundation.RouteID) (
 		return RouteControlResult{}, ErrInvalidRouteSettlementConfig
 	}
 	return service.store.EnableRoute(routeID, service.clock.Now())
+}
+
+// EnableRouteForOwner enables a route only after matching the server-resolved
+// player id against the durable route owner.
+func (service *AutomationRouteService) EnableRouteForOwner(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+) (RouteControlResult, error) {
+	if service == nil || service.store == nil || service.clock == nil {
+		return RouteControlResult{}, ErrInvalidRouteSettlementConfig
+	}
+	return service.store.EnableRouteForOwner(ownerPlayerID, routeID, service.clock.Now())
 }
 
 // UpdateRoute settles old route terms first, then replaces mutable terms using
@@ -144,4 +180,14 @@ func (service *AutomationRouteService) UpdateRoute(input UpdateRouteInput) (Upda
 	}
 
 	return service.store.UpdateRoute(input, policy, service.clock.Now(), service.lossRoller)
+}
+
+// UpdateRouteForOwner updates a route using only the server-resolved player id
+// for ownership. Any client-supplied owner field on input is ignored.
+func (service *AutomationRouteService) UpdateRouteForOwner(
+	ownerPlayerID foundation.PlayerID,
+	input UpdateRouteInput,
+) (UpdateRouteResult, error) {
+	input.OwnerPlayerID = ownerPlayerID
+	return service.UpdateRoute(input)
 }

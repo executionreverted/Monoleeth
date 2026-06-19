@@ -22,6 +22,38 @@ func (store *InMemoryStore) EnableRoute(routeID foundation.RouteID, now time.Tim
 	defer store.mu.Unlock()
 	store.ensureMapsLocked()
 
+	return store.enableRouteLocked(routeID, now)
+}
+
+// EnableRouteForOwner enables a disabled route only after matching the
+// server-resolved player id against the durable route owner.
+func (store *InMemoryStore) EnableRouteForOwner(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+	now time.Time,
+) (RouteControlResult, error) {
+	if err := ownerPlayerID.Validate(); err != nil {
+		return RouteControlResult{}, err
+	}
+	if err := routeID.Validate(); err != nil {
+		return RouteControlResult{}, err
+	}
+	if now.IsZero() {
+		return RouteControlResult{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
+	}
+	now = now.UTC()
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.ensureMapsLocked()
+
+	if err := store.requireRouteOwnerLocked(ownerPlayerID, routeID); err != nil {
+		return RouteControlResult{}, err
+	}
+	return store.enableRouteLocked(routeID, now)
+}
+
+func (store *InMemoryStore) enableRouteLocked(routeID foundation.RouteID, now time.Time) (RouteControlResult, error) {
 	route, ok := store.routes[routeID]
 	if !ok {
 		return RouteControlResult{}, fmt.Errorf("route %q: %w", routeID, ErrRouteNotFound)
@@ -65,6 +97,46 @@ func (store *InMemoryStore) DisableRoute(
 	defer store.mu.Unlock()
 	store.ensureMapsLocked()
 
+	return store.disableRouteLocked(routeID, now, lossRoller)
+}
+
+// DisableRouteForOwner settles and disables an enabled route only after
+// matching the server-resolved player id against the durable route owner.
+func (store *InMemoryStore) DisableRouteForOwner(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+	now time.Time,
+	lossRoller RouteLossRoller,
+) (RouteControlResult, error) {
+	if err := ownerPlayerID.Validate(); err != nil {
+		return RouteControlResult{}, err
+	}
+	if err := routeID.Validate(); err != nil {
+		return RouteControlResult{}, err
+	}
+	if now.IsZero() {
+		return RouteControlResult{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
+	}
+	if lossRoller == nil {
+		lossRoller = defaultRouteLossRoller{}
+	}
+	now = now.UTC()
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.ensureMapsLocked()
+
+	if err := store.requireRouteOwnerLocked(ownerPlayerID, routeID); err != nil {
+		return RouteControlResult{}, err
+	}
+	return store.disableRouteLocked(routeID, now, lossRoller)
+}
+
+func (store *InMemoryStore) disableRouteLocked(
+	routeID foundation.RouteID,
+	now time.Time,
+	lossRoller RouteLossRoller,
+) (RouteControlResult, error) {
 	route, ok := store.routes[routeID]
 	if !ok {
 		return RouteControlResult{}, fmt.Errorf("route %q: %w", routeID, ErrRouteNotFound)
@@ -174,6 +246,55 @@ func (store *InMemoryStore) UpdateRoute(
 		Settlement: settlement,
 		Updated:    true,
 	}, nil
+}
+
+// SettleRouteForOwner settles one route only after matching the server-resolved
+// player id against the durable route owner.
+func (store *InMemoryStore) SettleRouteForOwner(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+	now time.Time,
+	lossRoller RouteLossRoller,
+) (RouteSettlementResult, error) {
+	if err := ownerPlayerID.Validate(); err != nil {
+		return RouteSettlementResult{}, err
+	}
+	if err := routeID.Validate(); err != nil {
+		return RouteSettlementResult{}, err
+	}
+	if now.IsZero() {
+		return RouteSettlementResult{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
+	}
+	if lossRoller == nil {
+		lossRoller = defaultRouteLossRoller{}
+	}
+	now = now.UTC()
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.ensureMapsLocked()
+
+	if err := store.requireRouteOwnerLocked(ownerPlayerID, routeID); err != nil {
+		return RouteSettlementResult{}, err
+	}
+	return store.settleRouteLocked(routeID, now, lossRoller)
+}
+
+func (store *InMemoryStore) requireRouteOwnerLocked(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+) error {
+	route, ok := store.routes[routeID]
+	if !ok {
+		return fmt.Errorf("route %q: %w", routeID, ErrRouteNotFound)
+	}
+	if err := route.Validate(); err != nil {
+		return err
+	}
+	if route.OwnerPlayerID != ownerPlayerID {
+		return fmt.Errorf("route %q owner %q: %w", routeID, ownerPlayerID, ErrRouteOwnerMismatch)
+	}
+	return nil
 }
 
 func maxRouteTimestamp(left, right time.Time) time.Time {

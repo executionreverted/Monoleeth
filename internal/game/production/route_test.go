@@ -212,6 +212,31 @@ func TestSettleRouteMissingRouteReturnsClearError(t *testing.T) {
 	}
 }
 
+func TestSettleRouteForOwnerRejectsWrongOwnerWithoutMutation(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	service := newTestRouteSettlementService(t, store, now, nil)
+
+	_, err := service.SettleRouteForOwner("player-2", route.RouteID)
+	if !errors.Is(err, ErrRouteOwnerMismatch) {
+		t.Fatalf("SettleRouteForOwner() error = %v, want ErrRouteOwnerMismatch", err)
+	}
+	assertRouteSettlementRouteTime(t, store, route.RouteID, last)
+	assertRouteEnabled(t, store, route.RouteID, true)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
+	assertNoRouteEvents(t, store)
+}
+
 func TestSettleRouteEmptySourceTransfersZeroAndUpdatesTimestamps(t *testing.T) {
 	last := testRouteNow()
 	now := last.Add(time.Hour)
@@ -608,6 +633,31 @@ func TestDisableRouteSettlesOldRouteBeforeDisabling(t *testing.T) {
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, now)
 }
 
+func TestDisableRouteForOwnerRejectsWrongOwnerWithoutMutation(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	service := newTestRouteSettlementService(t, store, now, nil)
+
+	_, err := service.DisableRouteForOwner("player-2", route.RouteID)
+	if !errors.Is(err, ErrRouteOwnerMismatch) {
+		t.Fatalf("DisableRouteForOwner() error = %v, want ErrRouteOwnerMismatch", err)
+	}
+	assertRouteSettlementRouteTime(t, store, route.RouteID, last)
+	assertRouteEnabled(t, store, route.RouteID, true)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
+	assertNoRouteEvents(t, store)
+}
+
 func TestEnableRouteResetsLastCalculatedAtSoDisabledElapsedDoesNotTransfer(t *testing.T) {
 	last := testRouteNow()
 	enableAt := last.Add(10 * time.Hour)
@@ -643,6 +693,32 @@ func TestEnableRouteResetsLastCalculatedAtSoDisabledElapsedDoesNotTransfer(t *te
 	}
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 960, settleAt)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, settleAt)
+}
+
+func TestEnableRouteForOwnerRejectsWrongOwnerWithoutMutation(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	route.Enabled = false
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	service := newTestRouteSettlementService(t, store, now, nil)
+
+	_, err := service.EnableRouteForOwner("player-2", route.RouteID)
+	if !errors.Is(err, ErrRouteOwnerMismatch) {
+		t.Fatalf("EnableRouteForOwner() error = %v, want ErrRouteOwnerMismatch", err)
+	}
+	assertRouteSettlementRouteTime(t, store, route.RouteID, last)
+	assertRouteEnabled(t, store, route.RouteID, false)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
+	assertNoRouteEvents(t, store)
 }
 
 func TestEnableRouteDoesNotMoveFutureTimestampBackward(t *testing.T) {
@@ -762,6 +838,37 @@ func TestUpdateRouteRejectsOwnerMismatchWithoutMutation(t *testing.T) {
 	assertRouteAmountAndTime(t, store, route.RouteID, 40, last)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
+}
+
+func TestUpdateRouteForOwnerRejectsWrongOwnerWithoutMutation(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
+	service := newTestRouteService(t, store, provider, now)
+	input := validUpdateRouteInput()
+	input.OwnerPlayerID = "player-1"
+	input.AmountPerHour = 80
+
+	_, err := service.UpdateRouteForOwner("player-2", input)
+	if !errors.Is(err, ErrRouteOwnerMismatch) {
+		t.Fatalf("UpdateRouteForOwner() error = %v, want ErrRouteOwnerMismatch", err)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("policy calls = %d, want 0", provider.calls)
+	}
+	assertRouteAmountAndTime(t, store, route.RouteID, 40, last)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
+	assertNoRouteEvents(t, store)
 }
 
 func TestUpdateRouteUnsupportedDestinationFailsBeforePolicyLookup(t *testing.T) {
@@ -1165,6 +1272,13 @@ func assertRouteSettlementStorage(
 	}
 	if !storage.UpdatedAt.Equal(updatedAt) {
 		t.Fatalf("storage %q UpdatedAt = %s, want %s", planetID, storage.UpdatedAt, updatedAt)
+	}
+}
+
+func assertNoRouteEvents(t *testing.T, store *InMemoryStore) {
+	t.Helper()
+	if got := len(store.Events()); got != 0 {
+		t.Fatalf("route event count = %d, want 0", got)
 	}
 }
 
