@@ -26,6 +26,9 @@ Current slice completed:
   server-owned data. If a detail response omits coordinates, the browser shows
   the coordinate as locked/empty, suppresses the world memory marker, and keeps
   Navigate disabled instead of inventing an origin `{0,0}` planet marker.
+- 2026-06-19 follow-up: clicking a known planet memory marker on the world map
+  opens the planet detail modal immediately and still requests fresh server
+  detail for reconciliation.
 - Phase 10 records the exact missing contracts for planet claim, intel share,
   coordinate item use, building mutation, offline settlement, and route
   mutation flows. Those controls remain absent, locked, or read-only until their

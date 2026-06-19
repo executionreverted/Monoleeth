@@ -305,6 +305,14 @@ export class HUD {
     renderToast(this.toast, state.lastError?.message ?? null);
   }
 
+  openPlanetDetailModal(planetID: string): void {
+    if (!planetID || !this.currentState) {
+      return;
+    }
+    this.openModal('planet-detail', this.currentState, planetID);
+    this.render(this.currentState, this.currentServerNow);
+  }
+
   private bindEvents(): void {
     this.root.addEventListener(
       'pointerdown',

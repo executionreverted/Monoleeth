@@ -179,6 +179,10 @@ Mockup areas covered:
   coordinate is reached or the route is stopped/replaced. Rejected movement
   responses clear speculative target markers back to authoritative self
   movement instead of leaving stale planet-range markers on screen.
+- 2026-06-19 follow-up: `position.corrected` remains reducer/debug state, but
+  the renderer no longer draws a cyan correction ring on top of the player ship.
+  Player clicks now show only intentional movement/selection markers, not a
+  planet-like correction circle at screen center.
 
 ## Abuse And Safety Checklist
 

@@ -702,14 +702,6 @@ export class WorldRenderer {
       this.markerLayer.addChild(marker);
     }
 
-    if (state.lastCorrection) {
-      const corrected = this.worldToScreen(state.lastCorrection.position);
-      const marker = new Graphics();
-      marker.circle(0, 0, 24).stroke({ color: 0x8af5ff, width: 1, alpha: 0.58 });
-      marker.position.set(corrected.x, corrected.y);
-      this.markerLayer.addChild(marker);
-    }
-
     this.drawFeedbackEffects(state);
   }
 

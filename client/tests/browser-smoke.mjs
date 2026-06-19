@@ -353,7 +353,8 @@ async function verifyPlanetMemoryMarker(page, label) {
     return (
       state?.selectedTargetID === null &&
       state?.commandLog?.some((line) => /Selected known planet/i.test(line.text)) &&
-      state?.commandLog?.some((line) => line.text === 'Sent discovery.planet_detail.')
+      state?.commandLog?.some((line) => line.text === 'Sent discovery.planet_detail.') &&
+      document.querySelector('[data-modal="planet-detail"] [data-planet-detail]') instanceof HTMLElement
     );
   }, null, { timeout: 10000 });
   const moveCountAfterMarker = await commandLogCount(page, 'Sent move_to.');
@@ -361,6 +362,8 @@ async function verifyPlanetMemoryMarker(page, label) {
     throw new Error(`${label}: planet memory marker click emitted move_to`);
   }
   await page.screenshot({ path: path.join(phase08OutputDir, 'selected-planet-desktop.png'), fullPage: true });
+  await page.locator('[data-modal-close="button"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
 }
 
 async function verifyPlanetNavigateAction(page, label) {

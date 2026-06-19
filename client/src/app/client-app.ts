@@ -612,6 +612,7 @@ export class ClientApp {
     this.pendingLootApproachID = null;
     this.dispatch({ type: 'selectTarget', entityID: null });
     this.dispatch({ type: 'appendLog', level: 'info', text: `Selected known planet ${marker.label}.` });
+    this.hud?.openPlanetDetailModal(marker.detailID);
     this.requestPlanetDetail(marker.detailID);
   }
 
