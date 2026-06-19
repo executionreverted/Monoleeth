@@ -1,6 +1,7 @@
 import { Application, Container, Graphics, Text } from 'pixi.js';
 
 import { EntityPayload, Vec2 } from '../protocol/envelope';
+import { WorldFeedbackEffect } from '../state/types';
 import { WorldInputHandlers, WorldViewState } from './world-view';
 
 const entityColors: Record<EntityPayload['entity_type'], number> = {
@@ -71,7 +72,9 @@ export class WorldRenderer {
       }
       this.updateInterpolatedEntities();
       this.updateBackground();
-      this.markerLayer.rotation += 0.0007 * ticker.deltaTime;
+      if (this.state) {
+        this.drawMarkers(this.state);
+      }
     });
   }
 
@@ -226,7 +229,24 @@ export class WorldRenderer {
     view.clear();
 
     if (selected) {
-      view.circle(0, 0, 22).stroke({ color: 0xf4c95d, width: 2, alpha: 0.86 });
+      const lockColor = entity.entity_type === 'npc' ? 0xff5c7a : entity.entity_type === 'loot' ? 0xf4c95d : 0x8af5ff;
+      view.circle(0, 0, 28).stroke({ color: lockColor, width: 1, alpha: 0.5 });
+      view.moveTo(0, -36).lineTo(0, -24).moveTo(0, 24).lineTo(0, 36).stroke({ color: lockColor, width: 2, alpha: 0.9 });
+      view.moveTo(-36, 0).lineTo(-24, 0).moveTo(24, 0).lineTo(36, 0).stroke({ color: lockColor, width: 2, alpha: 0.9 });
+      view
+        .moveTo(-27, -17)
+        .lineTo(-27, -27)
+        .lineTo(-17, -27)
+        .moveTo(17, -27)
+        .lineTo(27, -27)
+        .lineTo(27, -17)
+        .moveTo(27, 17)
+        .lineTo(27, 27)
+        .lineTo(17, 27)
+        .moveTo(-17, 27)
+        .lineTo(-27, 27)
+        .lineTo(-27, 17)
+        .stroke({ color: lockColor, width: 2, alpha: 0.82 });
     }
     if (self) {
       view.circle(0, 0, 48).stroke({ color: 0x2bdfff, width: 1, alpha: 0.28 });
@@ -239,12 +259,16 @@ export class WorldRenderer {
         view.moveTo(0, -25).lineTo(0, -38).stroke({ color: self ? 0x2bdfff : 0x7cff9b, width: 2, alpha: 0.85 });
         break;
       case 'npc':
-        view.circle(0, 0, 13).fill({ color, alpha: 0.82 });
-        view.circle(0, 0, 18).stroke({ color, width: 1, alpha: 0.35 });
+        view.circle(0, 0, 19).stroke({ color, width: 1, alpha: 0.32 });
+        view.moveTo(0, -16).lineTo(15, 0).lineTo(0, 16).lineTo(-15, 0).closePath().fill({ color, alpha: 0.78 });
+        view.moveTo(-19, 0).lineTo(-8, 0).moveTo(8, 0).lineTo(19, 0).stroke({ color: 0xffd9df, width: 2, alpha: 0.7 });
+        view.moveTo(0, -19).lineTo(0, -8).moveTo(0, 8).lineTo(0, 19).stroke({ color: 0xffd9df, width: 2, alpha: 0.7 });
+        this.drawCombatBars(view, entity);
         break;
       case 'loot':
-        view.rect(-9, -9, 18, 18).fill({ color, alpha: 0.9 });
-        view.rect(-13, -13, 26, 26).stroke({ color: 0xffffff, width: 1, alpha: 0.28 });
+        view.moveTo(0, -15).lineTo(15, 0).lineTo(0, 15).lineTo(-15, 0).closePath().fill({ color, alpha: 0.88 });
+        view.rect(-10, -10, 20, 20).stroke({ color: 0xffffff, width: 1, alpha: 0.22 });
+        view.circle(0, 0, 23).stroke({ color, width: 1, alpha: 0.2 });
         break;
       case 'planet_signal':
         view.circle(0, 0, 15).stroke({ color, width: 3, alpha: 0.78 });
@@ -277,6 +301,8 @@ export class WorldRenderer {
       marker.position.set(corrected.x, corrected.y);
       this.markerLayer.addChild(marker);
     }
+
+    this.drawFeedbackEffects(state);
   }
 
   private updateBackground(): void {
@@ -325,6 +351,141 @@ export class WorldRenderer {
     if (local) {
       this.center = this.entityWorldPositions.get(local.entity_id) ?? this.authoritativeDisplayPosition(local);
     }
+  }
+
+  private drawCombatBars(view: Graphics, entity: EntityPayload): void {
+    if (!entity.combat || entity.combat.max_hp <= 0) {
+      return;
+    }
+    const width = 36;
+    const hpRatio = clamp(entity.combat.hp / entity.combat.max_hp, 0, 1);
+    view.rect(-width / 2, 25, width, 4).fill({ color: 0x21050a, alpha: 0.86 });
+    view.rect(-width / 2, 25, width * hpRatio, 4).fill({ color: 0xff5c7a, alpha: 0.92 });
+    if (entity.combat.max_shield > 0) {
+      const shieldRatio = clamp(entity.combat.shield / entity.combat.max_shield, 0, 1);
+      view.rect(-width / 2, 20, width, 3).fill({ color: 0x061821, alpha: 0.78 });
+      view.rect(-width / 2, 20, width * shieldRatio, 3).fill({ color: 0x2bdfff, alpha: 0.9 });
+    }
+  }
+
+  private drawFeedbackEffects(state: WorldViewState): void {
+    const now = Date.now();
+    for (const effect of state.worldEffects) {
+      if (effect.expiresAt <= now) {
+        continue;
+      }
+      switch (effect.kind) {
+        case 'laser':
+          this.drawLaserEffect(effect, now);
+          break;
+        case 'damage':
+          this.drawFloatingText(effect, now, damageLabel(effect), 0xff8c9c);
+          break;
+        case 'miss':
+          this.drawFloatingText(effect, now, 'MISS', 0xf4c95d);
+          break;
+        case 'destroyed':
+          this.drawBurstEffect(effect, now, 0xff5c7a);
+          break;
+        case 'loot_spawn':
+          this.drawBurstEffect(effect, now, 0xf4c95d);
+          this.drawFloatingText(effect, now, 'DROP', 0xf4c95d);
+          break;
+        case 'loot_pickup':
+          this.drawFloatingText(effect, now, pickupLabel(effect), 0x7cff9b);
+          break;
+      }
+    }
+  }
+
+  private drawLaserEffect(effect: WorldFeedbackEffect, now: number): void {
+    const target = this.effectScreenPosition(effect);
+    if (!target) {
+      return;
+    }
+    const sourceWorld = effect.sourceID ? this.entityWorldPositions.get(effect.sourceID) : null;
+    const source = sourceWorld ? this.worldToScreen(sourceWorld) : null;
+    const alpha = this.effectAlpha(effect, now);
+    const marker = new Graphics();
+    if (source) {
+      marker
+        .moveTo(source.x, source.y)
+        .lineTo(target.x, target.y)
+        .stroke({ color: 0x2bdfff, width: 3, alpha: 0.34 * alpha })
+        .moveTo(source.x, source.y)
+        .lineTo(target.x, target.y)
+        .stroke({ color: 0xf4c95d, width: 1, alpha: 0.92 * alpha });
+    }
+    marker.circle(target.x, target.y, 19 + (1 - alpha) * 10).stroke({ color: 0xf4c95d, width: 2, alpha: 0.78 * alpha });
+    marker.moveTo(target.x - 8, target.y).lineTo(target.x + 8, target.y).moveTo(target.x, target.y - 8).lineTo(target.x, target.y + 8).stroke({
+      color: 0xfff0a8,
+      width: 2,
+      alpha: 0.86 * alpha,
+    });
+    this.markerLayer.addChild(marker);
+  }
+
+  private drawBurstEffect(effect: WorldFeedbackEffect, now: number, color: number): void {
+    const target = this.effectScreenPosition(effect);
+    if (!target) {
+      return;
+    }
+    const progress = this.effectProgress(effect, now);
+    const alpha = this.effectAlpha(effect, now);
+    const radius = 18 + progress * 30;
+    const marker = new Graphics();
+    marker.circle(target.x, target.y, radius).stroke({ color, width: 2, alpha: 0.64 * alpha });
+    marker
+      .moveTo(target.x - radius, target.y)
+      .lineTo(target.x - radius * 0.45, target.y)
+      .moveTo(target.x + radius * 0.45, target.y)
+      .lineTo(target.x + radius, target.y)
+      .moveTo(target.x, target.y - radius)
+      .lineTo(target.x, target.y - radius * 0.45)
+      .moveTo(target.x, target.y + radius * 0.45)
+      .lineTo(target.x, target.y + radius)
+      .stroke({ color, width: 2, alpha: 0.48 * alpha });
+    this.markerLayer.addChild(marker);
+  }
+
+  private drawFloatingText(effect: WorldFeedbackEffect, now: number, text: string, color: number): void {
+    const target = this.effectScreenPosition(effect);
+    if (!target) {
+      return;
+    }
+    const progress = this.effectProgress(effect, now);
+    const label = new Text({
+      text,
+      style: {
+        fontFamily: 'IBM Plex Mono, Aptos Mono, monospace',
+        fontSize: 14,
+        fontWeight: '700',
+        fill: color,
+        stroke: { color: '#050709', width: 4 },
+      },
+      anchor: 0.5,
+    });
+    label.alpha = this.effectAlpha(effect, now);
+    label.position.set(target.x, target.y - 34 - progress * 26);
+    this.markerLayer.addChild(label);
+  }
+
+  private effectScreenPosition(effect: WorldFeedbackEffect): Vec2 | null {
+    if (effect.targetID) {
+      const world = this.entityWorldPositions.get(effect.targetID) ?? this.entityTargets.get(effect.targetID)?.position;
+      if (world) {
+        return this.worldToScreen(world);
+      }
+    }
+    return effect.position ? this.worldToScreen(effect.position) : null;
+  }
+
+  private effectProgress(effect: WorldFeedbackEffect, now: number): number {
+    return clamp((now - effect.createdAt) / Math.max(1, effect.expiresAt - effect.createdAt), 0, 1);
+  }
+
+  private effectAlpha(effect: WorldFeedbackEffect, now: number): number {
+    return clamp(1 - this.effectProgress(effect, now), 0, 1);
   }
 
   private positionEntityView(entityID: string, view: Graphics): void {
@@ -420,6 +581,21 @@ export class WorldRenderer {
 
 function isSelfEntity(entity: EntityPayload): boolean {
   return entity.status_flags?.includes('self') || entity.status_flags?.includes('local') || false;
+}
+
+function damageLabel(effect: WorldFeedbackEffect): string {
+  if (typeof effect.amount === 'number') {
+    return `-${effect.amount}`;
+  }
+  if (typeof effect.hullAmount === 'number' || typeof effect.shieldAmount === 'number') {
+    return `-${(effect.hullAmount ?? 0) + (effect.shieldAmount ?? 0)}`;
+  }
+  return 'HIT';
+}
+
+function pickupLabel(effect: WorldFeedbackEffect): string {
+  const itemID = effect.itemID ?? 'item';
+  return `+${effect.quantity ?? 0} ${itemID}`;
 }
 
 function labelForEntity(entity: EntityPayload): string {

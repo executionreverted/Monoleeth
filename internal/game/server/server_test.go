@@ -101,6 +101,7 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 		t.Fatalf("minimap contacts = %d, entities = %d", len(snapshot.Minimap.LiveContacts), len(snapshot.Entities))
 	}
 	selfCount := 0
+	npcCombatCount := 0
 	for _, entity := range snapshot.Entities {
 		if strings.Contains(entity.Type.String(), "placeholder") {
 			t.Fatalf("entity type %q still uses placeholder contract", entity.Type)
@@ -114,9 +115,18 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 				t.Fatalf("self entity = %+v, want player/self", entity)
 			}
 		}
+		if entity.Type == "npc" {
+			npcCombatCount++
+			if entity.Combat == nil || entity.Combat.HP <= 0 || entity.Combat.MaxHP <= 0 || entity.Combat.Status == "" {
+				t.Fatalf("npc entity = %+v, want public combat status in initial snapshot", entity)
+			}
+		}
 	}
 	if selfCount != 1 {
 		t.Fatalf("self entity count = %d, want 1", selfCount)
+	}
+	if npcCombatCount == 0 {
+		t.Fatalf("world snapshot missing visible npc for combat contract test")
 	}
 	for _, contact := range snapshot.Minimap.LiveContacts {
 		if contact.EntityID == "entity_hidden_planet_signal" {

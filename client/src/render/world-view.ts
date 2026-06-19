@@ -1,5 +1,5 @@
 import { EntityPayload, Vec2 } from '../protocol/envelope';
-import { MinimapSummary, SectorSummary } from '../state/types';
+import { MinimapSummary, SectorSummary, WorldFeedbackEffect } from '../state/types';
 
 export interface WorldViewState {
   entities: EntityPayload[];
@@ -8,6 +8,7 @@ export interface WorldViewState {
   selectedTargetID: string | null;
   movementTarget: Vec2 | null;
   lastCorrection: { entityID: string; position: Vec2 } | null;
+  worldEffects: WorldFeedbackEffect[];
   lastServerTime: number | null;
 }
 

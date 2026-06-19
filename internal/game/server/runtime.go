@@ -783,6 +783,9 @@ func (runtime *Runtime) publicEntityMetadataLocked(viewerID foundation.PlayerID,
 	case world.EntityTypeNPC:
 		flags := []aoi.StatusFlag{"hostile"}
 		combatStatus := runtime.entityCombatStatusLocked(entity.ID)
+		if combatStatus == nil {
+			combatStatus = combatStatusFromActor(runtime.trainingNPCActor(entity))
+		}
 		if combatStatus != nil && combatStatus.HP < combatStatus.MaxHP {
 			flags = append(flags, "damaged")
 		}

@@ -589,6 +589,32 @@ export interface PendingCommand {
   queuedAt: number;
 }
 
+export interface KnownLootDrop {
+  drop_id: string;
+  item_id: string;
+  quantity: number;
+  state?: string;
+  expires_at?: number;
+  position?: Vec2;
+}
+
+export type WorldFeedbackKind = 'laser' | 'damage' | 'miss' | 'destroyed' | 'loot_spawn' | 'loot_pickup';
+
+export interface WorldFeedbackEffect {
+  id: string;
+  kind: WorldFeedbackKind;
+  targetID?: string;
+  sourceID?: string;
+  position?: Vec2;
+  amount?: number;
+  shieldAmount?: number;
+  hullAmount?: number;
+  itemID?: string;
+  quantity?: number;
+  createdAt: number;
+  expiresAt: number;
+}
+
 export interface ClientState {
   auth: ClientAuthState;
   connectionStatus: ConnectionStatus;
@@ -602,6 +628,8 @@ export interface ClientState {
   selectedTargetID: string | null;
   movementTarget: Vec2 | null;
   lastCorrection: { entityID: string; position: Vec2 } | null;
+  knownLoot: Record<string, KnownLootDrop>;
+  worldEffects: WorldFeedbackEffect[];
   pendingCommands: Record<string, PendingCommand>;
   commandLog: LogLine[];
   combatLog: LogLine[];

@@ -49,6 +49,7 @@ import {
   PremiumStockSummary,
   PremiumSummary,
   MetricsSummary,
+  KnownLootDrop,
   QuestBoardSummary,
   QuestObjectiveSummary,
   QuestOfferSummary,
@@ -56,6 +57,7 @@ import {
   QuestSummary,
   ReleaseGateSummary,
   WalletSummary,
+  WorldFeedbackEffect,
 } from './types';
 
 export function createInitialState(): ClientState {
@@ -77,6 +79,8 @@ export function createInitialState(): ClientState {
     selectedTargetID: null,
     movementTarget: null,
     lastCorrection: null,
+    knownLoot: {},
+    worldEffects: [],
     pendingCommands: {},
     commandLog: [],
     combatLog: [],
@@ -307,6 +311,7 @@ function replaceVisibleEntities(
       state.selectedTargetID && visibleEntities[state.selectedTargetID] ? state.selectedTargetID : null,
     movementTarget: movementTargetFromAuthoritativeSelf(visibleEntities, null),
     lastCorrection: null,
+    knownLoot: retainVisibleLootDrops(state.knownLoot, visibleEntities),
     planetIntel: updateVisibleSignalCount(state.planetIntel, countPlanetSignals(visibleEntities)),
     lastServerTime: serverTime,
     lastSequence: sequence ? Math.max(state.lastSequence, sequence) : state.lastSequence,
@@ -359,48 +364,62 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       return applyTargetUpdated(state, envelope);
 
     case CLIENT_EVENTS.combatDamage:
-      return {
-        ...state,
-        lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
-        combatLog: appendLog(
-          state.combatLog,
-          'info',
-          `Hit ${stringField(envelope.payload, 'target_id') ?? 'target'} for ${Math.round(numberField(envelope.payload, 'amount') ?? 0)}.`,
-        ),
-      };
+      return appendWorldEffect(
+        {
+          ...state,
+          lastServerTime: envelope.server_time,
+          lastSequence: Math.max(state.lastSequence, envelope.seq),
+          combatLog: appendLog(
+            state.combatLog,
+            'info',
+            `Hit ${displayNameForEntity(state, stringField(envelope.payload, 'target_id'))} for ${Math.round(numberField(envelope.payload, 'amount') ?? 0)}.`,
+          ),
+        },
+        feedbackEffect(state, envelope, 'damage'),
+      );
 
     case CLIENT_EVENTS.combatMiss:
-      return {
-        ...state,
-        lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
-        combatLog: appendLog(state.combatLog, 'warn', `Missed ${stringField(envelope.payload, 'target_id') ?? 'target'}.`),
-      };
+      return appendWorldEffect(
+        {
+          ...state,
+          lastServerTime: envelope.server_time,
+          lastSequence: Math.max(state.lastSequence, envelope.seq),
+          combatLog: appendLog(state.combatLog, 'warn', `Missed ${displayNameForEntity(state, stringField(envelope.payload, 'target_id'))}.`),
+        },
+        feedbackEffect(state, envelope, 'miss'),
+      );
 
     case CLIENT_EVENTS.combatCooldownStarted: {
       const skillID = stringField(envelope.payload, 'skill_id') ?? 'basic_laser';
       const readyAt = numberField(envelope.payload, 'cooldown_ready_at_ms') ?? envelope.server_time;
-      return {
-        ...state,
-        skillCooldowns: { ...state.skillCooldowns, [skillID]: readyAt },
-        lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
-      };
+      return appendWorldEffect(
+        {
+          ...state,
+          skillCooldowns: { ...state.skillCooldowns, [skillID]: readyAt },
+          lastServerTime: envelope.server_time,
+          lastSequence: Math.max(state.lastSequence, envelope.seq),
+        },
+        feedbackEffect(state, envelope, 'laser'),
+      );
     }
 
     case CLIENT_EVENTS.combatNPCKilled:
-      return {
-        ...state,
-        lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
-        combatLog: appendLog(state.combatLog, 'info', `${stringField(envelope.payload, 'npc_type') ?? 'Hostile'} destroyed.`),
-      };
+      return appendWorldEffect(
+        {
+          ...state,
+          lastServerTime: envelope.server_time,
+          lastSequence: Math.max(state.lastSequence, envelope.seq),
+          combatLog: appendLog(state.combatLog, 'info', `${stringField(envelope.payload, 'npc_type') ?? 'Hostile'} destroyed.`),
+        },
+        feedbackEffect(state, envelope, 'destroyed'),
+      );
 
     case CLIENT_EVENTS.lootCreated:
-    case CLIENT_EVENTS.lootUpdated:
-      return {
+    case CLIENT_EVENTS.lootUpdated: {
+      const knownLoot = parseKnownLootDrop(envelope.payload);
+      const nextState = {
         ...state,
+        knownLoot: knownLoot ? { ...state.knownLoot, [knownLoot.drop_id]: knownLoot } : state.knownLoot,
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
         combatLog: appendLog(
@@ -409,14 +428,19 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
           `Drop ${stringField(envelope.payload, 'item_id') ?? 'item'} x${Math.round(numberField(envelope.payload, 'quantity') ?? 0)}.`,
         ),
       };
+      return appendWorldEffect(nextState, feedbackEffect(nextState, envelope, 'loot_spawn'));
+    }
 
     case CLIENT_EVENTS.lootRemoved: {
       const entityID = requireEntityID(envelope.payload);
       const visibleEntities = { ...state.visibleEntities };
+      const knownLoot = { ...state.knownLoot };
       delete visibleEntities[entityID];
+      delete knownLoot[entityID];
       return {
         ...state,
         visibleEntities,
+        knownLoot,
         selectedTargetID: state.selectedTargetID === entityID ? null : state.selectedTargetID,
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
@@ -424,16 +448,19 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
     }
 
     case CLIENT_EVENTS.lootPickedUp:
-      return {
-        ...state,
-        lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
-        combatLog: appendLog(
-          state.combatLog,
-          'info',
-          `Recovered ${stringField(envelope.payload, 'item_id') ?? 'item'} x${Math.round(numberField(envelope.payload, 'quantity') ?? 0)}.`,
-        ),
-      };
+      return appendWorldEffect(
+        {
+          ...state,
+          lastServerTime: envelope.server_time,
+          lastSequence: Math.max(state.lastSequence, envelope.seq),
+          combatLog: appendLog(
+            state.combatLog,
+            'info',
+            `Recovered ${stringField(envelope.payload, 'item_id') ?? 'item'} x${Math.round(numberField(envelope.payload, 'quantity') ?? 0)}.`,
+          ),
+        },
+        feedbackEffect(state, envelope, 'loot_pickup'),
+      );
 
     case CLIENT_EVENTS.progressionSnapshot:
       return {
@@ -696,10 +723,13 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
     case CLIENT_EVENTS.entityLeft: {
       const entityID = requireEntityID(envelope.payload);
       const visibleEntities = { ...state.visibleEntities };
+      const knownLoot = { ...state.knownLoot };
       delete visibleEntities[entityID];
+      delete knownLoot[entityID];
       return {
         ...state,
         visibleEntities,
+        knownLoot,
         selectedTargetID: state.selectedTargetID === entityID ? null : state.selectedTargetID,
         planetIntel: updateVisibleSignalCount(state.planetIntel, countPlanetSignals(visibleEntities)),
         lastServerTime: envelope.server_time,
@@ -796,6 +826,110 @@ function applyTargetUpdated(state: ClientState, envelope: EventEnvelope): Client
     lastServerTime: envelope.server_time,
     lastSequence: Math.max(state.lastSequence, envelope.seq),
   };
+}
+
+function appendWorldEffect(state: ClientState, effect: WorldFeedbackEffect | null): ClientState {
+  if (!effect) {
+    return state;
+  }
+  const now = Date.now();
+  return {
+    ...state,
+    worldEffects: [...state.worldEffects.filter((entry) => entry.expiresAt > now).slice(-17), effect],
+  };
+}
+
+function feedbackEffect(
+  state: ClientState,
+  envelope: EventEnvelope,
+  kind: WorldFeedbackEffect['kind'],
+): WorldFeedbackEffect | null {
+  const targetID =
+    stringField(envelope.payload, 'target_id') ??
+    stringField(envelope.payload, 'entity_id') ??
+    stringField(envelope.payload, 'drop_id') ??
+    undefined;
+  const sourceID = selfEntityID(state);
+  const position =
+    (isVec2(envelope.payload.position) ? envelope.payload.position : null) ??
+    (targetID ? state.visibleEntities[targetID]?.position : undefined) ??
+    (targetID ? state.knownLoot[targetID]?.position : undefined);
+
+  if (!targetID && !position) {
+    return null;
+  }
+
+  const createdAt = Date.now();
+  return {
+    id: `${envelope.event_id}:${kind}`,
+    kind,
+    targetID,
+    sourceID: kind === 'laser' ? sourceID ?? undefined : undefined,
+    position: position ? { ...position } : undefined,
+    amount: roundedOptional(envelope.payload, 'amount'),
+    shieldAmount: roundedOptional(envelope.payload, 'shield_amount'),
+    hullAmount: roundedOptional(envelope.payload, 'hull_amount'),
+    itemID: stringField(envelope.payload, 'item_id') ?? (targetID ? state.knownLoot[targetID]?.item_id : undefined),
+    quantity: roundedOptional(envelope.payload, 'quantity') ?? (targetID ? state.knownLoot[targetID]?.quantity : undefined),
+    createdAt,
+    expiresAt: createdAt + feedbackDuration(kind),
+  };
+}
+
+function feedbackDuration(kind: WorldFeedbackEffect['kind']): number {
+  switch (kind) {
+    case 'laser':
+      return 700;
+    case 'damage':
+    case 'miss':
+      return 2200;
+    case 'destroyed':
+    case 'loot_spawn':
+    case 'loot_pickup':
+      return 3200;
+  }
+}
+
+function parseKnownLootDrop(payload: JsonObject): KnownLootDrop | null {
+  const dropID = stringField(payload, 'drop_id') ?? stringField(payload, 'entity_id');
+  const itemID = stringField(payload, 'item_id');
+  const quantity = numberField(payload, 'quantity');
+  if (!dropID || !itemID || quantity === null || quantity <= 0) {
+    return null;
+  }
+
+  return {
+    drop_id: dropID,
+    item_id: itemID,
+    quantity: Math.round(quantity),
+    state: stringField(payload, 'state') ?? undefined,
+    expires_at: numberField(payload, 'expires_at') ?? undefined,
+    position: isVec2(payload.position) ? { ...payload.position } : undefined,
+  };
+}
+
+function retainVisibleLootDrops(
+  knownLoot: Record<string, KnownLootDrop>,
+  visibleEntities: Record<string, EntityPayload>,
+): Record<string, KnownLootDrop> {
+  const retained: Record<string, KnownLootDrop> = {};
+  for (const [dropID, drop] of Object.entries(knownLoot)) {
+    if (visibleEntities[dropID]?.entity_type === 'loot') {
+      retained[dropID] = drop;
+    }
+  }
+  return retained;
+}
+
+function selfEntityID(state: ClientState): string | null {
+  return Object.values(state.visibleEntities).find(isSelfEntity)?.entity_id ?? null;
+}
+
+function displayNameForEntity(state: ClientState, entityID: string | null): string {
+  if (!entityID) {
+    return 'target';
+  }
+  return state.visibleEntities[entityID]?.display?.label ?? entityID;
 }
 
 function parseSnapshotEntities(payload: JsonObject): EntityPayload[] | null {
@@ -2278,6 +2412,11 @@ function numberField(payload: JsonObject, key: string): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function roundedOptional(payload: JsonObject, key: string): number | undefined {
+  const value = numberField(payload, key);
+  return value === null ? undefined : Math.max(0, Math.round(value));
+}
+
 function booleanField(payload: JsonObject, key: string): boolean | null {
   const value = payload[key];
   return typeof value === 'boolean' ? value : null;
@@ -2437,6 +2576,8 @@ function clearGameplay(state: ClientState): ClientState {
     selectedTargetID: null,
     movementTarget: null,
     lastCorrection: null,
+    knownLoot: {},
+    worldEffects: [],
     pendingCommands: {},
     commandLog: [],
     combatLog: [],

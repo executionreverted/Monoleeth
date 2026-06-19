@@ -386,6 +386,7 @@ export class ClientApp {
       selectedTargetID: this.state.selectedTargetID,
       movementTarget: this.state.movementTarget,
       lastCorrection: this.state.lastCorrection,
+      worldEffects: this.state.worldEffects,
       lastServerTime: this.state.lastServerTime,
     });
     this.authPanel?.render(this.state);
@@ -432,6 +433,8 @@ export class ClientApp {
         minimap: this.state.minimap,
         visibleEntities: this.state.visibleEntities,
         selectedTargetID: this.state.selectedTargetID,
+        knownLoot: this.state.knownLoot,
+        worldEffects: this.state.worldEffects,
         cargo: this.state.cargo,
         wallet: this.state.wallet,
         ship: this.state.ship,

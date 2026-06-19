@@ -420,14 +420,35 @@ async function verifyRealCombatLoot(page) {
   await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'entity_training_npc', null, {
     timeout: 10000,
   });
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const target = state?.visibleEntities?.[state.selectedTargetID];
+    const targetPanelText = document.querySelector('[data-panel="target"]')?.textContent ?? '';
+    return (
+      target?.entity_type === 'npc' &&
+      target?.combat?.hp > 0 &&
+      target?.combat?.max_hp >= target.combat.hp &&
+      /Hull/i.test(targetPanelText) &&
+      /Range/i.test(targetPanelText)
+    );
+  }, null, { timeout: 10000 });
   await page.locator('.hud__actionbar [data-action="fire"]').click();
+  await page.waitForFunction(() => {
+    const effects = window.__SPACE_MORPG_SMOKE_STATE__?.worldEffects ?? [];
+    return effects.some((effect) => effect.kind === 'laser' && effect.targetID === 'entity_training_npc');
+  }, null, { timeout: 3000 });
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     const entities = state?.visibleEntities ?? {};
     const lootDrop = Object.values(entities).find((entity) => entity.entity_type === 'loot');
+    const effects = state?.worldEffects ?? [];
+    const knownDrops = Object.values(state?.knownLoot ?? {});
     return (
       !entities.entity_training_npc &&
       Boolean(lootDrop) &&
+      effects.some((effect) => effect.kind === 'damage' && effect.targetID === 'entity_training_npc') &&
+      effects.some((effect) => effect.kind === 'loot_spawn') &&
+      knownDrops.some((drop) => drop.item_id === 'raw_ore' && drop.quantity === 3) &&
       state?.combatLog?.some((line) => /destroyed/i.test(line.text))
     );
   }, null, { timeout: 10000 });
@@ -446,16 +467,19 @@ async function verifyRealCombatLoot(page) {
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     const target = state?.selectedTargetID ? state.visibleEntities?.[state.selectedTargetID] : null;
-    return target?.entity_type === 'loot';
+    const panelText = document.querySelector('[data-panel="target"]')?.textContent ?? '';
+    return target?.entity_type === 'loot' && /raw_ore/i.test(panelText) && /Qty/i.test(panelText);
   }, null, { timeout: 10000 });
   await page.locator('.hud__actionbar [data-action="loot"]').click();
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     const entities = state?.visibleEntities ?? {};
+    const effects = state?.worldEffects ?? [];
     return (
       state?.cargo?.used === 6 &&
       state?.cargo?.items?.some((item) => item.item_id === 'raw_ore' && item.quantity === 3) &&
       state?.inventory?.stackable?.some((item) => item.item_id === 'raw_ore' && item.quantity === 3 && item.location === 'ship_cargo') &&
+      effects.some((effect) => effect.kind === 'loot_pickup' && effect.itemID === 'raw_ore' && effect.quantity === 3) &&
       !Object.values(entities).some((entity) => entity.entity_type === 'loot')
     );
   }, null, { timeout: 10000 });

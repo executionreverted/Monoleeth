@@ -31,6 +31,8 @@ describe('reduceClientState', () => {
     expect(state.releaseGate).toBeNull();
     expect(state.abuseCoverage).toBeNull();
     expect(state.visibleEntities).toEqual({});
+    expect(state.knownLoot).toEqual({});
+    expect(state.worldEffects).toEqual([]);
   });
 
   test('logout and auth expiry clear gameplay state', () => {
@@ -584,6 +586,7 @@ describe('reduceClientState', () => {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.combatCooldownStarted, {
         skill_id: 'basic_laser',
+        target_id: 'npc-1',
         cooldown_ready_at_ms: 9000,
       }, 3),
     });
@@ -594,14 +597,28 @@ describe('reduceClientState', () => {
         amount: 45,
       }, 4),
     });
-    const withLootEntity = reduceClientState(withDamage, {
+    const withDropNotice = reduceClientState(withDamage, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.lootCreated, {
+        drop_id: 'drop-1',
+        item_id: 'raw_ore',
+        quantity: 3,
+        state: 'active',
+        position: { x: 80, y: 0 },
+      }, 5),
+    });
+    const withLootEntity = reduceClientState(withDropNotice, {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.entityEntered, {
         entity_id: 'drop-1',
         entity_type: 'loot',
         position: { x: 80, y: 0 },
         display: { label: 'Raw Ore', disposition: 'neutral' },
-      }, 5),
+      }, 6),
+    });
+    const leftClearsKnownLoot = reduceClientState(withLootEntity, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.entityLeft, { entity_id: 'drop-1' }, 7),
     });
     const afterPickup = reduceClientState(
       {
@@ -621,9 +638,13 @@ describe('reduceClientState', () => {
         },
       },
     );
-    const withoutLootEntity = reduceClientState(afterPickup, {
+    const withPickupNotice = reduceClientState(afterPickup, {
       type: 'eventReceived',
-      envelope: event(CLIENT_EVENTS.lootRemoved, { entity_id: 'drop-1' }, 7),
+      envelope: event(CLIENT_EVENTS.lootPickedUp, { drop_id: 'drop-1', item_id: 'raw_ore', quantity: 3 }, 7),
+    });
+    const withoutLootEntity = reduceClientState(withPickupNotice, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.lootRemoved, { entity_id: 'drop-1' }, 8),
     });
     const progressed = reduceClientState(withoutLootEntity, {
       type: 'eventReceived',
@@ -646,9 +667,16 @@ describe('reduceClientState', () => {
 
     expect(targeted.visibleEntities['npc-1'].combat).toMatchObject({ hp: 0, shield: 0, status: 'destroyed' });
     expect(withCooldown.skillCooldowns.basic_laser).toBe(9000);
-    expect(withDamage.combatLog.at(-1)?.text).toContain('Hit npc-1 for 45.');
+    expect(withCooldown.worldEffects.some((effect) => effect.kind === 'laser' && effect.targetID === 'npc-1')).toBe(true);
+    expect(withDamage.combatLog.at(-1)?.text).toContain('Hit Training Drone for 45.');
+    expect(withDamage.worldEffects.some((effect) => effect.kind === 'damage' && effect.amount === 45)).toBe(true);
+    expect(withDropNotice.knownLoot['drop-1']).toMatchObject({ item_id: 'raw_ore', quantity: 3 });
+    expect(withDropNotice.worldEffects.some((effect) => effect.kind === 'loot_spawn' && effect.targetID === 'drop-1')).toBe(true);
+    expect(leftClearsKnownLoot.knownLoot['drop-1']).toBeUndefined();
     expect(afterPickup.cargo?.items).toEqual([{ item_id: 'raw_ore', quantity: 3 }]);
+    expect(withPickupNotice.worldEffects.some((effect) => effect.kind === 'loot_pickup' && effect.itemID === 'raw_ore')).toBe(true);
     expect(withoutLootEntity.visibleEntities['drop-1']).toBeUndefined();
+    expect(withoutLootEntity.knownLoot['drop-1']).toBeUndefined();
     expect(withoutLootEntity.selectedTargetID).toBeNull();
     expect(progressed.progression).toMatchObject({ main_level: 2, rank: 2, combat_xp: 40 });
     expect(quoted.repairQuote).toEqual({ ship_id: 'starter_ship', cost: 0, currency: 'credits', disabled: true });

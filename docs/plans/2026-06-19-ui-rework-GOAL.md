@@ -138,33 +138,33 @@ The UI rework is not done until all of these are true.
 
 ### Selection And Targeting
 
-- [ ] Clicking visible NPCs, players, loot, planets/signals, or known objects
+- [x] Clicking visible NPCs, players, loot, planets/signals, or known objects
   selects them.
-- [ ] Selected object gets a visible bracket/reticle/highlight.
-- [ ] Target panel updates from server-safe visible data.
-- [ ] Selection does not reveal hidden/fogged data.
-- [ ] Distance/status/type/name are visible when allowed by server truth.
+- [x] Selected object gets a visible bracket/reticle/highlight.
+- [x] Target panel updates from server-safe visible data.
+- [x] Selection does not reveal hidden/fogged data.
+- [x] Distance/status/type/name are visible when allowed by server truth.
 
 ### Combat Feedback
 
-- [ ] Selecting an enemy shows HP/shield/status in the target panel.
+- [x] Selecting an enemy shows HP/shield/status in the target panel.
 - [ ] Combat action buttons show cooldown/energy availability.
-- [ ] Firing produces visible feedback:
+- [x] Firing produces visible feedback:
   - weapon line/projectile/flash
   - target hit/miss/damage indicator
   - log entry
-- [ ] HP/shield changes are visible after server events/snapshots.
-- [ ] Death/disabled/loot-spawn feedback is visible when it happens.
-- [ ] No client-authored damage or hit result is trusted.
+- [x] HP/shield changes are visible after server events/snapshots.
+- [x] Death/disabled/loot-spawn feedback is visible when it happens.
+- [x] No client-authored damage or hit result is trusted.
 
 ### Loot Feedback
 
-- [ ] Loot/resource objects are visibly identifiable.
+- [x] Loot/resource objects are visibly identifiable.
 - [ ] Clicking loot either moves toward it, picks it up if in range, or explains
   why pickup cannot happen.
-- [ ] Successful pickup shows what was gained.
-- [ ] Cargo/inventory updates only from server snapshots/events.
-- [ ] Pickup errors are compact and visible.
+- [x] Successful pickup shows what was gained.
+- [x] Cargo/inventory updates only from server snapshots/events.
+- [x] Pickup errors are compact and visible.
 
 ### Real State Rules
 

@@ -12,7 +12,11 @@ for phase status; this file is a compact pending-work index.
   should show server-safe HP/shield/status, firing should produce visible
   reactions, and loot pickup should move/pickup/explain and show gained rewards
   from server events only. Source:
-  `docs/plans/2026-06-19-ui-rework-GOAL.md`.
+  `docs/plans/2026-06-19-ui-rework-GOAL.md`. 2026-06-19 update: visible
+  reticles, server-safe target HP/shield/status, laser/damage/miss reactions,
+  loot-spawn feedback, and pickup reward summaries are implemented and covered
+  by reducer and browser smoke tests. Remaining: click-to-approach / direct
+  pickup ergonomics and fuller entity asset parity with the mockup.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.

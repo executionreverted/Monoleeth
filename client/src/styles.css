@@ -909,7 +909,39 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.target-lock {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+  margin-bottom: 0.45rem;
+}
+
+.target-lock__mark {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 2px solid #f4c95d;
+  transform: rotate(45deg);
+  box-shadow: 0 0 1rem rgba(244, 201, 93, 0.24);
+}
+
+.target-lock[data-target-kind="npc"] .target-lock__mark {
+  border-color: #ff5c7a;
+  box-shadow: 0 0 1rem rgba(255, 92, 122, 0.26);
+}
+
+.target-lock[data-target-kind="loot"] .target-lock__mark {
+  background: rgba(244, 201, 93, 0.18);
+}
+
+.target-kind {
+  color: rgba(215, 247, 255, 0.58);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
 .combat-status,
+.loot-status,
 .repair-box {
   display: grid;
   gap: 0.5rem;

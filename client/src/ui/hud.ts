@@ -34,6 +34,7 @@ export interface HUDHandlers {
 }
 
 type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['combat']>;
+type KnownLootDropStatus = ClientState['knownLoot'][string];
 type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' | 'ops';
 type HUDModalID = HUDWindowID | 'target' | 'planets' | 'ship';
 
@@ -800,15 +801,25 @@ function targetPanel(state: ClientState): string {
   const canFire = target?.entity_type === 'npc' && !shipDisabled && laserReadyAt <= Date.now();
   const canLoot = target?.entity_type === 'loot' && !shipDisabled;
   const targetLabel = target?.display?.label ?? target?.entity_id ?? '';
+  const distance = target ? distanceToTarget(state, target.entity_id) : null;
+  const knownLoot = target ? state.knownLoot[target.entity_id] : null;
   return `
     <h2>Target</h2>
     ${
       target
-        ? `<div class="target-name">${escapeHTML(targetLabel)}</div>
+        ? `<div class="target-lock" data-target-kind="${escapeHTML(target.entity_type)}">
+             <span class="target-lock__mark"></span>
+             <div>
+               <div class="target-name">${escapeHTML(targetLabel)}</div>
+               <div class="target-kind">${escapeHTML(publicEntityType(target.entity_type))}</div>
+             </div>
+           </div>
            <div class="meta-row"><span>Type</span><strong>${escapeHTML(publicEntityType(target.entity_type))}</strong></div>
            <div class="meta-row"><span>State</span><strong>${escapeHTML(target.display?.disposition ?? '--')}</strong></div>
+           <div class="meta-row"><span>Range</span><strong>${distance === null ? lockedValue() : `${Math.round(distance)}u`}</strong></div>
            <div class="meta-row"><span>X/Y</span><strong>${Math.round(target.position.x)} / ${Math.round(target.position.y)}</strong></div>
-           ${target.combat ? combatStatusBlock(target.combat) : ''}`
+           ${target.combat ? combatStatusBlock(target.combat) : ''}
+           ${knownLoot ? lootStatusBlock(knownLoot) : ''}`
         : '<div class="empty-line">No lock</div>'
     }
     <div class="segmented">
@@ -1008,6 +1019,25 @@ function combatStatusBlock(combat: EntityCombatStatus): string {
       <div class="meta-row"><span>Combat</span><strong>${escapeHTML(combat.status ?? 'active')}</strong></div>
     </div>
   `;
+}
+
+function lootStatusBlock(drop: KnownLootDropStatus): string {
+  return `
+    <div class="loot-status">
+      <div class="meta-row"><span>Item</span><strong>${escapeHTML(drop.item_id)}</strong></div>
+      <div class="meta-row"><span>Qty</span><strong>${drop.quantity}</strong></div>
+      <div class="meta-row"><span>Drop</span><strong>${escapeHTML(drop.state ?? 'visible')}</strong></div>
+    </div>
+  `;
+}
+
+function distanceToTarget(state: ClientState, targetID: string): number | null {
+  const target = state.visibleEntities[targetID];
+  const local = Object.values(state.visibleEntities).find((entity) => entity.status_flags?.includes('self'));
+  if (!target || !local) {
+    return null;
+  }
+  return Math.hypot(target.position.x - local.position.x, target.position.y - local.position.y);
 }
 
 function lockedValue(): string {

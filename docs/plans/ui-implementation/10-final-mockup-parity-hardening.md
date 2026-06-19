@@ -238,6 +238,9 @@ death/respawn contracts are recorded in `docs/todo.md` rather than faked.
 
 - [x] Compare current UI screenshots against `output/mockups/final-mockup.png`.
 - [x] Implement remaining visual layout gaps without faking data.
+- [x] Add server-event driven target reticles, enemy HP/shield readouts, combat
+      laser/damage/miss feedback, loot-spawn feedback, and pickup reward
+      summaries without trusting client-authored damage or rewards.
 - [x] Replace debug/dev controls from production default UI.
 - [x] Add final real-server browser smoke script.
 - [x] Add E2E scenario runner for the implemented MVP loop and document missing
