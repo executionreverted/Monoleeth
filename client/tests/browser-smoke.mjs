@@ -23,6 +23,7 @@ const phase04OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-pat
 const phase05OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '05');
 const phase06OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '06');
 const phase07OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '07');
+const phase08OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '08');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -111,6 +112,7 @@ try {
   await mkdir(phase05OutputDir, { recursive: true });
   await mkdir(phase06OutputDir, { recursive: true });
   await mkdir(phase07OutputDir, { recursive: true });
+  await mkdir(phase08OutputDir, { recursive: true });
   if (useFixture) {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
@@ -154,6 +156,9 @@ async function verifyRealViewport(viewport, label) {
     await assertNoFakeTopbarCounts(page, `${label} unauthenticated`);
     await assertNoUnimplementedMutationControls(page, `${label} unauthenticated`);
     await page.screenshot({ path: path.join(outputDir, `unauth-${label}.png`), fullPage: true });
+    if (label === 'mobile' || label === 'desktop') {
+      await page.screenshot({ path: path.join(phase08OutputDir, `unauth-${label}.png`), fullPage: true });
+    }
 
     await page.locator('input[name="email"]').fill(email);
     await page.locator('input[name="password"]').fill(password);
@@ -240,11 +245,13 @@ async function verifyRealViewport(viewport, label) {
     await verifyPanelModalChrome(page, viewport, label);
     await assertCanvasAndLayout(page, viewport, label);
     await verifyStarfieldBackground(page, label);
+    await assertMockupParityShell(page, viewport, label);
     await assertNoForbiddenLeaks(page, label);
     await assertNoFakeTopbarCounts(page, `${label} authenticated`);
     await assertNoUnimplementedMutationControls(page, `${label} authenticated`);
     await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
     await page.screenshot({ path: path.join(phase07OutputDir, `live-${label}.png`), fullPage: true });
+    await page.screenshot({ path: path.join(phase08OutputDir, `live-${label}.png`), fullPage: true });
 
     if (label === 'desktop') {
       await verifyReconnectReconciliation(page, callsign);
@@ -338,6 +345,7 @@ async function verifyPlanetMemoryMarker(page, label) {
   if (moveCountAfterMarker !== moveCountBeforeMarker) {
     throw new Error(`${label}: planet memory marker click emitted move_to`);
   }
+  await page.screenshot({ path: path.join(phase08OutputDir, 'selected-planet-desktop.png'), fullPage: true });
 }
 
 async function verifyQuickActionContracts(page, viewport, label) {
@@ -632,6 +640,7 @@ async function verifyScanModeAutomation(page, viewport, label) {
     );
   }, null, { timeout: 5000 });
   await page.screenshot({ path: path.join(phase04OutputDir, `scan-mode-${label}.png`), fullPage: true });
+  await page.screenshot({ path: path.join(phase08OutputDir, `scan-mode-${label}.png`), fullPage: true });
 
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
@@ -710,6 +719,7 @@ async function verifyRealCombatLoot(page) {
     throw error;
   }
   await page.screenshot({ path: path.join(phase06OutputDir, 'projectile-desktop.png'), fullPage: true });
+  await page.screenshot({ path: path.join(phase08OutputDir, 'projectile-desktop.png'), fullPage: true });
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     const entities = state?.visibleEntities ?? {};
@@ -881,6 +891,7 @@ async function verifyRealMovementInterpolation(page) {
     throw new Error(`desktop movement ETA did not count down: ${JSON.stringify({ before: etaBefore, after: etaAfter })}`);
   }
   await page.screenshot({ path: path.join(phase05OutputDir, 'movement-eta-desktop.png'), fullPage: true });
+  await page.screenshot({ path: path.join(phase08OutputDir, 'movement-eta-desktop.png'), fullPage: true });
 
   await page.waitForTimeout(80);
   const first = await selfMovementSample(page);
@@ -1212,6 +1223,7 @@ async function verifyPanelModalChrome(page, viewport, label) {
   }
 
   await page.screenshot({ path: path.join(phase02OutputDir, `windows-${label}.png`), fullPage: true });
+  await page.screenshot({ path: path.join(phase08OutputDir, `window-${label}.png`), fullPage: true });
 
   await page.locator('[data-panel-toggle="economy"]').click();
   await page.waitForSelector('[data-window-panel="economy"][data-focused="true"]', { timeout: 10000 });
@@ -1385,6 +1397,86 @@ async function assertCanvasAndLayout(page, viewport, label) {
   }
   if (stats.scrollWidth > viewport.width + 1) {
     throw new Error(`${label}: layout has horizontal overflow (${stats.scrollWidth} > ${viewport.width})`);
+  }
+}
+
+async function assertMockupParityShell(page, viewport, label) {
+  const shell = await page.evaluate(() => {
+    const rectFor = (selector) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) {
+        return null;
+      }
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        visible: style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0,
+      };
+    };
+    const visibleCount = (selector) =>
+      Array.from(document.querySelectorAll(selector)).filter((element) => {
+        if (!(element instanceof HTMLElement)) {
+          return false;
+        }
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      }).length;
+    const iconWidths = Array.from(document.querySelectorAll('.action-button__icon'))
+      .map((element) => (element instanceof HTMLElement ? element.getBoundingClientRect().width : 0))
+      .filter((width) => width > 0);
+
+    return {
+      scrollWidth: document.scrollingElement?.scrollWidth ?? document.body.scrollWidth,
+      topbar: rectFor('.hud__topbar'),
+      topCells: visibleCount('.top-status__cell'),
+      topIcons: visibleCount('.top-status__icon'),
+      nav: rectFor('.hud__nav'),
+      navButtons: visibleCount('.hud-nav-button'),
+      navIcons: visibleCount('.hud-nav-button__icon'),
+      rightRail: rectFor('.hud__rail--right'),
+      rightPanels: visibleCount('.hud__rail--right .panel'),
+      actionbar: rectFor('.hud__actionbar'),
+      actionSlots: visibleCount('.hud__actionbar [data-quick-action-slot]'),
+      actionIconMinWidth: iconWidths.length > 0 ? Math.min(...iconWidths) : 0,
+      log: rectFor('.hud__log'),
+      minimap: rectFor('.minimap'),
+    };
+  });
+
+  if (shell.scrollWidth > viewport.width + 1) {
+    throw new Error(`${label}: mockup shell has horizontal overflow (${shell.scrollWidth} > ${viewport.width})`);
+  }
+  if (!shell.topbar?.visible || shell.topCells !== 6 || shell.topIcons !== 6) {
+    throw new Error(`${label}: top status bar lost mockup icon/value structure ${JSON.stringify(shell)}`);
+  }
+  if (!shell.nav?.visible || shell.navButtons < 5 || shell.navIcons < 5) {
+    throw new Error(`${label}: left nav rail lost icon button structure ${JSON.stringify(shell)}`);
+  }
+  if (!shell.actionbar?.visible || shell.actionSlots !== 6) {
+    throw new Error(`${label}: action rail lost six-slot structure ${JSON.stringify(shell)}`);
+  }
+  const minActionIcon = viewport.width < 768 ? 18 : viewport.width < 1100 ? 22 : 28;
+  if (shell.actionIconMinWidth < minActionIcon) {
+    throw new Error(`${label}: action slot icons are too small for mockup parity ${JSON.stringify(shell)}`);
+  }
+  if (!shell.rightRail?.visible || shell.rightPanels < 3 || !shell.minimap?.visible) {
+    throw new Error(`${label}: right rail/minimap structure is missing ${JSON.stringify(shell)}`);
+  }
+  if (viewport.width >= 1100 && !shell.log?.visible) {
+    throw new Error(`${label}: desktop log panel is missing from the mockup shell ${JSON.stringify(shell)}`);
+  }
+  if (viewport.width >= 768 && (shell.topbar.height > 62 || shell.actionbar.bottom > viewport.height + 1)) {
+    throw new Error(`${label}: desktop/tablet HUD chrome is not framed like the mockup ${JSON.stringify(shell)}`);
+  }
+  if (viewport.width >= 768 && viewport.width < 1100 && shell.actionbar.right > shell.rightRail.left + 1) {
+    throw new Error(`${label}: tablet action rail overlaps the right rail ${JSON.stringify(shell)}`);
   }
 }
 

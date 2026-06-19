@@ -1,11 +1,23 @@
 import { ClientState } from '../state/types';
 import { activeEntityMovement, currentEntityPosition, distanceBetween, selfEntity } from '../state/movement';
 import { renderToast } from './toast';
+import capacityIconURL from '../../../output/assets/hud-svg/icons/capacity.svg?url';
+import cargoIconURL from '../../../output/assets/hud-svg/icons/cargo.svg?url';
+import creditsIconURL from '../../../output/assets/hud-svg/icons/credits.svg?url';
+import dangerIconURL from '../../../output/assets/hud-svg/icons/danger.svg?url';
+import energyIconURL from '../../../output/assets/hud-svg/icons/energy.svg?url';
 import gatherIconURL from '../../../output/assets/hud-svg/icons/gather.svg?url';
+import galaxyIconURL from '../../../output/assets/hud-svg/icons/galaxy.svg?url';
+import hangarIconURL from '../../../output/assets/hud-svg/icons/hangar.svg?url';
+import inventoryIconURL from '../../../output/assets/hud-svg/icons/inventory.svg?url';
 import laserIconURL from '../../../output/assets/hud-svg/icons/laser.svg?url';
+import menuIconURL from '../../../output/assets/hud-svg/icons/menu.svg?url';
+import planetsIconURL from '../../../output/assets/hud-svg/icons/planets.svg?url';
 import rocketIconURL from '../../../output/assets/hud-svg/icons/rocket.svg?url';
 import scanIconURL from '../../../output/assets/hud-svg/icons/scan.svg?url';
+import sectorIconURL from '../../../output/assets/hud-svg/icons/sector.svg?url';
 import shieldIconURL from '../../../output/assets/hud-svg/icons/shield.svg?url';
+import shopIconURL from '../../../output/assets/hud-svg/icons/shop.svg?url';
 import warpIconURL from '../../../output/assets/hud-svg/icons/warp.svg?url';
 
 export interface HUDHandlers {
@@ -71,6 +83,7 @@ interface HUDPanelDefinition {
   id: HUDWindowID;
   label: string;
   title: string;
+  iconURL: string;
   render(state: ClientState): string;
   hidden?(state: ClientState): boolean;
 }
@@ -122,12 +135,12 @@ export class HUD {
     this.root.innerHTML = `
       <header class="hud__topbar">
         <div class="top-status" aria-label="Server-owned status">
-          <div class="top-status__cell" data-icon="sector"><span>Sector</span><strong data-top-sector>${lockedValue()}</strong></div>
-          <div class="top-status__cell top-status__cell--danger" data-icon="danger"><span>Danger</span><strong data-top-danger>${lockedValue()}</strong></div>
-          <div class="top-status__cell" data-icon="energy"><span>Energy</span><strong data-top-energy>${lockedValue()}</strong></div>
-          <div class="top-status__cell" data-icon="cargo"><span>Cargo</span><strong data-top-cargo>${lockedValue()}</strong></div>
-          <div class="top-status__cell" data-icon="credits"><span>Credits</span><strong data-top-credits>${lockedValue()}</strong></div>
-          <div class="top-status__cell" data-icon="cap"><span>Cap</span><strong data-top-cap>${lockedValue()}</strong></div>
+          <div class="top-status__cell" data-icon="sector"><img class="top-status__icon" src="${escapeHTML(sectorIconURL)}" alt="" aria-hidden="true" draggable="false" /><span>Sector</span><strong data-top-sector>${lockedValue()}</strong></div>
+          <div class="top-status__cell top-status__cell--danger" data-icon="danger"><img class="top-status__icon" src="${escapeHTML(dangerIconURL)}" alt="" aria-hidden="true" draggable="false" /><span>Danger</span><strong data-top-danger>${lockedValue()}</strong></div>
+          <div class="top-status__cell" data-icon="energy"><img class="top-status__icon" src="${escapeHTML(energyIconURL)}" alt="" aria-hidden="true" draggable="false" /><span>Energy</span><strong data-top-energy>${lockedValue()}</strong></div>
+          <div class="top-status__cell" data-icon="cargo"><img class="top-status__icon" src="${escapeHTML(cargoIconURL)}" alt="" aria-hidden="true" draggable="false" /><span>Cargo</span><strong data-top-cargo>${lockedValue()}</strong></div>
+          <div class="top-status__cell" data-icon="credits"><img class="top-status__icon" src="${escapeHTML(creditsIconURL)}" alt="" aria-hidden="true" draggable="false" /><span>Credits</span><strong data-top-credits>${lockedValue()}</strong></div>
+          <div class="top-status__cell" data-icon="cap"><img class="top-status__icon" src="${escapeHTML(capacityIconURL)}" alt="" aria-hidden="true" draggable="false" /><span>Cap</span><strong data-top-cap>${lockedValue()}</strong></div>
         </div>
         <label class="socket-field demo-only">
           <span>WS</span>
@@ -506,7 +519,7 @@ export class HUD {
       .map((definition) => {
         const active = this.isWindowOpen(definition.id);
         const focused = this.focusedWindow === definition.id;
-        return `<button class="hud-nav-button" type="button" data-panel-toggle="${definition.id}" data-active="${active ? 'true' : 'false'}" data-focused="${focused ? 'true' : 'false'}" aria-pressed="${active ? 'true' : 'false'}"><span>${escapeHTML(definition.label)}</span></button>`;
+        return `<button class="hud-nav-button" type="button" data-panel-toggle="${definition.id}" data-active="${active ? 'true' : 'false'}" data-focused="${focused ? 'true' : 'false'}" aria-pressed="${active ? 'true' : 'false'}"><img class="hud-nav-button__icon" src="${escapeHTML(definition.iconURL)}" alt="" aria-hidden="true" draggable="false" /><span>${escapeHTML(definition.label)}</span></button>`;
       })
       .join('');
   }
@@ -744,12 +757,12 @@ export class HUD {
 }
 
 const baseWindowDefinitions: HUDPanelDefinition[] = [
-  { id: 'cargo', label: 'Inv', title: 'Inventory / Cargo', render: cargoPanel },
-  { id: 'economy', label: 'Shop', title: 'Market / Auction / Premium', render: economyPanel },
-  { id: 'quests', label: 'Galaxy', title: 'Quest Board', render: questsPanel },
-  { id: 'intel', label: 'Planets', title: 'Intel / Scanner', render: intelPanel },
-  { id: 'systems', label: 'Hangar', title: 'Systems / Loadout / Crafting', render: systemsPanel },
-  { id: 'ops', label: 'Ops', title: 'Admin Ops', render: opsPanel, hidden: (state) => !state.auth.session?.account?.admin },
+  { id: 'cargo', label: 'Inv', title: 'Inventory / Cargo', iconURL: inventoryIconURL, render: cargoPanel },
+  { id: 'economy', label: 'Shop', title: 'Market / Auction / Premium', iconURL: shopIconURL, render: economyPanel },
+  { id: 'quests', label: 'Galaxy', title: 'Quest Board', iconURL: galaxyIconURL, render: questsPanel },
+  { id: 'intel', label: 'Planets', title: 'Intel / Scanner', iconURL: planetsIconURL, render: intelPanel },
+  { id: 'systems', label: 'Hangar', title: 'Systems / Loadout / Crafting', iconURL: hangarIconURL, render: systemsPanel },
+  { id: 'ops', label: 'Ops', title: 'Admin Ops', iconURL: menuIconURL, render: opsPanel, hidden: (state) => !state.auth.session?.account?.admin },
 ];
 
 function windowSize(id: HUDWindowID): { width: number; height: number } {
@@ -1659,7 +1672,6 @@ function scanModeTimeDetail(nextPulseAt: number | null, fallback: string): strin
   }
   return formatCooldown(remaining);
 }
-
 
 function lockedValue(): string {
   return '--';

@@ -374,36 +374,29 @@ button {
   min-width: 0;
   min-height: 2.1rem;
   display: grid;
+  grid-template-areas:
+    "icon label"
+    "icon value";
+  grid-template-columns: 1.05rem minmax(0, 1fr);
+  column-gap: 0.5rem;
   align-content: center;
   border-left: 1px solid rgba(215, 247, 255, 0.22);
-  padding: 0.125rem 0.625rem 0.125rem 2rem;
+  padding: 0.125rem 0.625rem;
 }
 
-.top-status__cell::before {
-  content: "+";
-  position: absolute;
-  left: 0.625rem;
-  top: 50%;
-  width: 0.85rem;
-  height: 0.85rem;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(215, 247, 255, 0.66);
-  color: rgba(215, 247, 255, 0.86);
-  font-size: 0.7rem;
-  line-height: 1;
-  transform: translateY(-50%) rotate(45deg);
+.top-status__icon,
+.hud-nav-button__icon {
+  display: block;
+  object-fit: contain;
 }
 
-.top-status__cell::after {
-  content: attr(data-icon);
-  position: absolute;
-  left: 2rem;
-  top: 0.3rem;
-  color: rgba(215, 247, 255, 0.54);
-  font-size: 0.52rem;
-  text-transform: uppercase;
-  opacity: 0;
+.top-status__icon {
+  grid-area: icon;
+  width: 1rem;
+  height: 1rem;
+  align-self: center;
+  opacity: 0.88;
+  filter: drop-shadow(0 0 0.45rem rgba(138, 245, 255, 0.26));
 }
 
 .top-status__cell--danger strong {
@@ -417,7 +410,13 @@ button {
   text-transform: uppercase;
 }
 
+.top-status__cell > span:not(.top-status__icon) {
+  grid-area: label;
+  min-width: 0;
+}
+
 .top-status strong {
+  grid-area: value;
   min-width: 0;
   color: #f4c95d;
   font-size: 0.85rem;
@@ -496,7 +495,7 @@ button:disabled {
   top: 4rem;
   right: 0.5rem;
   bottom: 0.5rem;
-  width: min(19rem, calc(100vw - 1rem));
+  width: min(19.25rem, calc(100vw - 1rem));
   display: grid;
   align-content: start;
 }
@@ -536,15 +535,18 @@ button:disabled {
 }
 
 .hud__nav {
-  width: min(8.5rem, 100%);
+  width: min(8.75rem, 100%);
   display: grid;
   gap: 0;
-  padding: 0.55rem 0.75rem;
+  padding: 0.45rem 0.65rem;
 }
 
 .hud-nav-button {
-  min-height: 2.7rem;
-  justify-content: start;
+  min-height: 2.55rem;
+  display: grid;
+  grid-template-columns: 1.1rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
   border: 0;
   border-bottom: 1px solid rgba(215, 247, 255, 0.14);
   color: rgba(245, 247, 248, 0.82);
@@ -552,6 +554,12 @@ button:disabled {
   cursor: pointer;
   text-align: left;
   text-transform: uppercase;
+}
+
+.hud-nav-button__icon {
+  width: 1rem;
+  height: 1rem;
+  opacity: 0.82;
 }
 
 .hud-nav-button:hover,
@@ -1288,11 +1296,11 @@ button:disabled {
   bottom: 1rem;
   z-index: 3;
   display: grid;
-  grid-template-columns: repeat(6, minmax(4.3rem, 1fr));
-  gap: 0.55rem;
-  width: min(33rem, calc(100vw - 2rem));
+  grid-template-columns: repeat(6, minmax(4.8rem, 1fr));
+  gap: 0.6rem;
+  width: min(35.75rem, calc(100vw - 2rem));
   transform: translateX(-50%);
-  padding: 0.45rem;
+  padding: 0.48rem;
 }
 
 .action-slot {
@@ -1312,7 +1320,7 @@ button:disabled {
 
 .action-button {
   width: 100%;
-  min-height: 4.35rem;
+  min-height: 4.55rem;
   display: grid;
   grid-template-rows: 1fr auto auto;
   gap: 0.1rem;
@@ -1368,8 +1376,8 @@ button:disabled {
 }
 
 .action-button__icon {
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 2rem;
+  height: 2rem;
   align-self: end;
   object-fit: contain;
   filter: brightness(0) saturate(100%) invert(91%) sepia(12%) saturate(496%) hue-rotate(153deg) brightness(106%) contrast(106%);
@@ -1443,8 +1451,8 @@ button:disabled {
   left: 0.5rem;
   bottom: 0.5rem;
   z-index: 3;
-  width: min(21.5rem, calc(100vw - 1rem));
-  height: 9.35rem;
+  width: min(22.5rem, calc(100vw - 1rem));
+  height: 9.85rem;
   overflow: hidden;
 }
 
@@ -1516,13 +1524,14 @@ button:disabled {
 
   .top-status__cell {
     min-height: 1.9rem;
-    padding-left: 1.55rem;
+    grid-template-columns: 0.9rem minmax(0, 1fr);
+    column-gap: 0.35rem;
+    padding: 0.12rem 0.35rem;
   }
 
-  .top-status__cell::before {
-    left: 0.35rem;
-    width: 0.7rem;
-    height: 0.7rem;
+  .top-status__icon {
+    width: 0.82rem;
+    height: 0.82rem;
   }
 
   .top-status span {
@@ -1576,11 +1585,19 @@ button:disabled {
   .hud-nav-button {
     min-width: 4.5rem;
     min-height: 2.4rem;
-    justify-content: center;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1rem auto;
+    gap: 0.2rem;
+    justify-items: center;
     border-bottom: 0;
     border-right: 1px solid rgba(215, 247, 255, 0.14);
     text-align: center;
     font-size: 0.68rem;
+  }
+
+  .hud-nav-button__icon {
+    width: 0.95rem;
+    height: 0.95rem;
   }
 
   .hud__window-layer {
@@ -1739,6 +1756,37 @@ button:disabled {
 
 }
 
+@media (min-width: 768px) and (max-width: 1099px) {
+  .hud__log {
+    display: none;
+  }
+
+  .hud__actionbar {
+    grid-template-columns: repeat(6, minmax(3.35rem, 1fr));
+    gap: 0.35rem;
+    width: min(24rem, calc(100vw - 40rem));
+    padding: 0.42rem;
+  }
+
+  .action-button {
+    min-height: 4.2rem;
+    padding: 0.35rem 0.25rem 0.38rem;
+  }
+
+  .action-button__icon {
+    width: 1.55rem;
+    height: 1.55rem;
+  }
+
+  .action-button__label {
+    font-size: 0.72rem;
+  }
+
+  .action-button small {
+    font-size: 0.6rem;
+  }
+}
+
 @media (min-width: 1024px) {
   .top-status {
     grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1749,7 +1797,7 @@ button:disabled {
   }
 
   .hud__rail--right {
-    width: 18.75rem;
+    width: 19.25rem;
   }
 
   .panel--status {
@@ -1761,12 +1809,12 @@ button:disabled {
   }
 
   .hud__actionbar {
-    width: min(32.5rem, calc(100vw - 40rem));
+    width: min(35.75rem, calc(100vw - 40rem));
   }
 }
 
 @media (min-width: 1100px) {
   .hud__actionbar {
-    width: min(34rem, calc(100vw - 44rem));
+    width: min(35.75rem, calc(100vw - 44rem));
   }
 }

@@ -151,7 +151,7 @@ docs/2026-06-17-world-system-design.md
 - [x] Background is endless through mirrored tiling.
 - [x] Background parallax has at least far/mid/near motion depth.
 - [x] Grid/radar overlay remains readable over the starfield.
-- [ ] HUD borders, spacing, icon scale, action slots, topbar density, and panel
+- [x] HUD borders, spacing, icon scale, action slots, topbar density, and panel
       placement are rechecked against `final-mockup.png`.
 - [x] Desktop/tablet/mobile screenshots are captured under
       `output/screenshots/ui-patch-2/`.
