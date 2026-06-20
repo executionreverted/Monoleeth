@@ -129,6 +129,10 @@ export class CommandBuilder {
     return this.build(OPERATIONS.walletSnapshot, {});
   }
 
+  shopCatalog(categoryID?: string): RequestEnvelope<{ category_id?: string }> {
+    return this.build(OPERATIONS.shopCatalog, categoryID ? { category_id: categoryID } : {});
+  }
+
   marketSearch(itemID?: string): RequestEnvelope<{ item_id?: string }> {
     return this.build(OPERATIONS.marketSearch, itemID ? { item_id: itemID } : {});
   }

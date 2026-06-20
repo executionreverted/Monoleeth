@@ -239,21 +239,21 @@ docs/plans/task-001/05-seeded-game-content-catalog.md
       item/module/ship/NPC/loot/shop/auction/craft/production/route/quest
       references.
 - [ ] Shop and inventory can display category coverage without fake client data.
-- [ ] `Raw Ore` is removed from primary shop playtest presentation or renamed
+- [x] `Raw Ore` is removed from primary shop playtest presentation or renamed
       into an intentional resource with game context.
 - [ ] Raw ids/snake_case are not used as player display names.
 - [ ] Seeded products/listings reference valid server definitions.
-- [ ] Server-owned shop product definitions exist for system shop categories,
+- [x] Server-owned shop product definitions exist for system shop categories,
       separate from player market listing fixtures.
 - [ ] Loot and NPC names are visible from server-owned data.
 - [ ] Crafting recipes reference real item/module/ship definitions.
 - [ ] Planet, production, route, and quest fixtures exist for downstream UI
       phases.
 - [ ] Server payloads include display metadata needed to avoid raw id rendering.
-- [ ] Tests protect catalog reference integrity.
+- [x] Tests protect catalog reference integrity.
 - [ ] Runtime seeded NPC archetypes match quest/combat target types.
 - [ ] Crafting recipe inputs/outputs all resolve to runtime item definitions.
-- [ ] Real-mode system shop seed no longer depends on `listing-raw-ore-1` as
+- [x] Real-mode system shop seed no longer depends on `listing-raw-ore-1` as
       primary product truth.
 - [ ] Startup catalog validation resolves quest recipe ids, quest NPC targets,
       recipe inputs/outputs, ship acquisition refs, shop/auction/premium grants,

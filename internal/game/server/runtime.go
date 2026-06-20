@@ -12,6 +12,7 @@ import (
 	"gameproject/internal/game/admin"
 	"gameproject/internal/game/auction"
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/combat"
 	"gameproject/internal/game/crafting"
 	"gameproject/internal/game/discovery"
@@ -119,6 +120,7 @@ type Runtime struct {
 	HangarStore   *ships.InMemoryHangarStore
 	Hangar        *ships.HangarService
 	ModuleCatalog modules.Catalog
+	Content       catalog.ContentRegistry
 	LoadoutStore  *modules.InMemoryLoadoutStore
 	Loadout       modules.LoadoutService
 	Recipes       crafting.RecipeCatalog
@@ -349,6 +351,10 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err := appendRuntimeModuleItems(itemCatalog, moduleCatalog); err != nil {
 		return nil, err
 	}
+	contentRegistry, err := buildRuntimeContentRegistry(itemCatalog, moduleCatalog, shipCatalog)
+	if err != nil {
+		return nil, err
+	}
 	recipeCatalog, err := crafting.MVPRecipeCatalog()
 	if err != nil {
 		return nil, err
@@ -442,6 +448,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		HangarStore:           hangarStore,
 		Hangar:                hangarService,
 		ModuleCatalog:         moduleCatalog,
+		Content:               contentRegistry,
 		LoadoutStore:          loadoutStore,
 		Loadout:               loadoutService,
 		Recipes:               recipeCatalog,

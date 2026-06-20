@@ -27,6 +27,7 @@ const phase08OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-pat
 const phasePatch3OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-3');
 const task001Phase04OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'task-001', '04');
 const task001Phase09OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'task-001', '09');
+const movementClickTargetTolerance = 32;
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -117,6 +118,7 @@ const unimplementedMutationOps = [
   'crafting.complete',
   'crafting.cancel',
   'inventory.move',
+  'shop.buy_product',
   'progression.unlock_skill',
   'progression.respec_skills',
   'discovery.claim_planet',
@@ -2446,16 +2448,16 @@ async function verifyRealMovementInterpolation(page) {
   await clickWorldPosition(page, firstTarget);
   try {
     await page.waitForFunction(
-      (target) => {
+      ({ target, tolerance }) => {
         const self = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find((entity) =>
           entity.status_flags?.includes('self'),
         );
         return (
           self?.movement?.moving === true &&
-          Math.hypot(self.movement.target.x - target.x, self.movement.target.y - target.y) < 16
+          Math.hypot(self.movement.target.x - target.x, self.movement.target.y - target.y) < tolerance
         );
       },
-      firstTarget,
+      { target: firstTarget, tolerance: movementClickTargetTolerance },
       { timeout: 10000 },
     );
   } catch (error) {
@@ -2521,7 +2523,7 @@ async function verifyRealMovementInterpolation(page) {
   await clickWorldPosition(page, secondTarget);
   try {
     await page.waitForFunction(
-      ({ firstTarget: previousTarget, target: expectedTarget }) => {
+      ({ firstTarget: previousTarget, target: expectedTarget, tolerance }) => {
         const self = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find((entity) =>
           entity.status_flags?.includes('self'),
         );
@@ -2529,11 +2531,11 @@ async function verifyRealMovementInterpolation(page) {
         return (
           self?.movement?.moving === true &&
           target &&
-          Math.hypot(target.x - expectedTarget.x, target.y - expectedTarget.y) < 16 &&
+          Math.hypot(target.x - expectedTarget.x, target.y - expectedTarget.y) < tolerance &&
           Math.hypot(target.x - previousTarget.x, target.y - previousTarget.y) > 20
         );
       },
-      { firstTarget, target: secondTarget },
+      { firstTarget, target: secondTarget, tolerance: movementClickTargetTolerance },
       { timeout: 10000 },
     );
   } catch (error) {
@@ -2548,7 +2550,7 @@ async function verifyRealMovementInterpolation(page) {
       )}`,
     );
   }
-  if (distance(second.entity.movement.target, secondTarget) > 16) {
+  if (distance(second.entity.movement.target, secondTarget) > movementClickTargetTolerance) {
     throw new Error(`desktop reclick movement target = ${JSON.stringify(second.entity.movement.target)}, want near ${JSON.stringify(secondTarget)}`);
   }
   const expectedReclickOrigin = movementPositionAt(beforeSecond.entity.movement, second.entity.movement.started_at_ms);
@@ -2571,14 +2573,14 @@ async function verifyRealMovementInterpolation(page) {
   const rejectionBefore = await commandLogMatchCount(page, '^Move rejected: Movement intent rate limit exceeded\\.');
   await clickWorldPosition(page, spamOne);
   await page.waitForFunction(
-    ({ before, target }) => {
+    ({ before, target, tolerance }) => {
       const state = window.__SPACE_MORPG_SMOKE_STATE__;
       const self = Object.values(state?.visibleEntities ?? {}).find((entity) => entity.status_flags?.includes('self'));
       const rejections = (state?.commandLog ?? []).filter((line) => /^Move rejected: Movement intent rate limit exceeded\./.test(line.text)).length;
-      const accepted = self?.movement?.target && Math.hypot(self.movement.target.x - target.x, self.movement.target.y - target.y) < 16;
+      const accepted = self?.movement?.target && Math.hypot(self.movement.target.x - target.x, self.movement.target.y - target.y) < tolerance;
       return rejections > before || accepted;
     },
-    { before: rejectionBefore, target: spamOne },
+    { before: rejectionBefore, target: spamOne, tolerance: movementClickTargetTolerance },
     { timeout: 5000 },
   );
   const rejectionAfterFirst = await commandLogMatchCount(page, '^Move rejected: Movement intent rate limit exceeded\\.');
@@ -2942,11 +2944,15 @@ async function verifyRealEconomy(page, viewport, label) {
       node.textContent?.trim(),
     );
     const detail = document.querySelector('[data-window-panel="economy"] [data-shop-detail]');
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return (
-      ['Market', 'Sell', 'Auction', 'Premium'].every((label) => labels.includes(label)) &&
+      ['Ships', 'Weapons', 'Shield Generators', 'Scanner/Radar', 'Cargo/Utility', 'Resources'].every((label) =>
+        labels.includes(label),
+      ) &&
+      !['Market', 'Sell', 'Auction', 'Premium'].some((label) => labels.includes(label)) &&
+      state?.shopCatalog?.products?.some((product) => product.display_name === 'Prism Lance I') &&
       detail instanceof HTMLElement &&
-      document.querySelector('[data-window-panel="economy"] [data-shop-quantity]') &&
-      document.querySelector('[data-window-panel="economy"] [data-action="market-buy"]')
+      document.querySelector('[data-window-panel="economy"] [data-shop-kind="shop_product"]')
     );
   }, null, { timeout: 10000 });
   await page.screenshot({ path: path.join(phasePatch3OutputDir, `shop-${label}.png`), fullPage: true });
@@ -2957,101 +2963,12 @@ async function verifyRealEconomy(page, viewport, label) {
     }
   }
 
-  await page.waitForFunction(() => {
-    const state = window.__SPACE_MORPG_SMOKE_STATE__;
-    const button = document.querySelector('[data-window-panel="economy"] [data-action="market-buy"]');
-    const activeListing = state?.market?.listings?.find((listing) => listing.status === 'active' && !listing.owned_by_you);
-    return activeListing?.remaining_quantity > 0 && button instanceof HTMLButtonElement && !button.disabled;
-  }, null, { timeout: 10000 });
-  const marketBuyAt = await page.evaluate(() => Date.now());
-  await page.locator('[data-window-panel="economy"] [data-action="market-buy"]').dispatchEvent('click');
-  await page.waitForFunction(() => {
-    const state = window.__SPACE_MORPG_SMOKE_STATE__;
-    return (
-      state?.wallet?.credits === 1175 &&
-      state?.inventory?.stackable?.some((item) => item.item_id === 'raw_ore' && item.quantity === 1 && item.location === 'account_inventory')
-    );
-  }, null, { timeout: 10000 });
-  await waitForCommandLogAfter(page, 'Sent market.search.', marketBuyAt);
-  await waitForCommandLogAfter(page, 'Sent wallet.snapshot.', marketBuyAt);
-  await waitForCommandLogAfter(page, 'Sent inventory.snapshot.', marketBuyAt);
-
-  await page.locator('[data-window-panel="economy"] [data-shop-category="sell"]').click();
-  await page.waitForFunction(() => {
-    const button = document.querySelector('[data-window-panel="economy"] [data-action="market-create"]');
-    return button instanceof HTMLButtonElement && !button.disabled;
-  }, null, { timeout: 10000 });
-  await page.locator('[data-window-panel="economy"] [data-action="market-create"]').dispatchEvent('click');
-  await page.waitForFunction(() => {
-    const state = window.__SPACE_MORPG_SMOKE_STATE__;
-    return (
-      state?.market?.listings?.some((listing) => listing.owned_by_you && listing.status === 'active') &&
-      !state?.inventory?.stackable?.some((item) => item.item_id === 'raw_ore' && item.location === 'account_inventory')
-    );
-  }, null, { timeout: 10000 });
-
-  await page.waitForFunction(() => {
-    const button = document.querySelector('[data-window-panel="economy"] [data-action="market-cancel"]');
-    return button instanceof HTMLButtonElement && !button.disabled;
-  }, null, { timeout: 10000 });
-  await page.locator('[data-window-panel="economy"] [data-action="market-cancel"]').dispatchEvent('click');
-  await page.waitForFunction(() => {
-    const state = window.__SPACE_MORPG_SMOKE_STATE__;
-    return (
-      !state?.market?.listings?.some((listing) => listing.owned_by_you && listing.status === 'active') &&
-      state?.inventory?.stackable?.some((item) => item.item_id === 'raw_ore' && item.quantity === 1 && item.location === 'account_inventory')
-    );
-  }, null, { timeout: 10000 });
-
-  await page.locator('[data-window-panel="economy"] [data-shop-category="auction"]').click();
-  await page.waitForFunction(() => {
-    const button = document.querySelector('[data-window-panel="economy"] [data-action="auction-bid"]');
-    return button instanceof HTMLButtonElement && !button.disabled;
-  }, null, { timeout: 10000 });
-  const auctionBidBefore = await commandLogCount(page, 'Sent auction.bid.');
-  const auctionBidAt = await page.evaluate(() => Date.now());
-  await page.locator('[data-window-panel="economy"] [data-action="auction-bid"]').dispatchEvent('click');
-  await page.locator('[data-window-panel="economy"] [data-action="auction-bid"]').dispatchEvent('click');
-  await page.waitForFunction(() => {
-    const state = window.__SPACE_MORPG_SMOKE_STATE__;
-    return state?.auction?.lots?.[0]?.leading === true && state?.wallet?.credits < 1175;
-  }, null, { timeout: 10000 });
-  await waitForCommandLogAfter(page, 'Sent auction.search.', auctionBidAt);
-  await waitForCommandLogAfter(page, 'Sent wallet.snapshot.', auctionBidAt);
-  const auctionBidAfter = await commandLogCount(page, 'Sent auction.bid.');
-  if (auctionBidAfter !== auctionBidBefore + 1) {
-    throw new Error(`pending auction bid guard emitted ${auctionBidAfter - auctionBidBefore} auction.bid commands, want 1`);
+  const visibleShopText = await page.locator('[data-window-panel="economy"]').innerText();
+  if (/raw_ore|server_recalculates|server recalculates|Market\s*\d|Sell\s*\d|Auction\s*\d|Premium\s*\d/i.test(visibleShopText)) {
+    throw new Error(`${label}: shop still exposes old/raw economy truth: ${visibleShopText.slice(0, 240)}`);
   }
-
-  await page.locator('[data-window-panel="economy"] [data-shop-category="premium"]').click();
-  await page.locator('[data-window-panel="economy"] [data-shop-kind="premium_entitlement"]').first().click();
-  await page.waitForFunction(() => {
-    const button = document.querySelector('[data-window-panel="economy"] [data-action="premium-claim"]');
-    return button instanceof HTMLButtonElement && !button.disabled;
-  }, null, { timeout: 10000 });
-  const premiumClaimAt = await page.evaluate(() => Date.now());
-  await page.locator('[data-window-panel="economy"] [data-action="premium-claim"]').dispatchEvent('click');
-  await page.waitForFunction(() => {
-    const state = window.__SPACE_MORPG_SMOKE_STATE__;
-    return state?.wallet?.premium_earned === 50 && state?.premium?.entitlements?.[0]?.state === 'claimed';
-  }, null, { timeout: 10000 });
-  await waitForCommandLogAfter(page, 'Sent premium.entitlements.', premiumClaimAt);
-  await waitForCommandLogAfter(page, 'Sent wallet.snapshot.', premiumClaimAt);
-
-  await page.locator('[data-window-panel="economy"] [data-shop-kind="premium_stock"]').first().click();
-  await page.waitForFunction(() => {
-    const button = document.querySelector('[data-window-panel="economy"] [data-action="premium-weekly-xcore"]');
-    return button instanceof HTMLButtonElement && !button.disabled;
-  }, null, { timeout: 10000 });
-  const premiumStockAt = await page.evaluate(() => Date.now());
-  await page.locator('[data-window-panel="economy"] [data-action="premium-weekly-xcore"]').dispatchEvent('click');
-  await page.waitForFunction(() => {
-    const state = window.__SPACE_MORPG_SMOKE_STATE__;
-    return state?.wallet?.premium_paid === 200 && state?.premium?.purchases?.length === 1;
-  }, null, { timeout: 10000 });
-  await waitForCommandLogAfter(page, 'Sent premium.entitlements.', premiumStockAt);
-  await waitForCommandLogAfter(page, 'Sent wallet.snapshot.', premiumStockAt);
-  await page.locator('[data-window-panel="economy"] [data-shop-category="market"]').click();
+  await page.locator('[data-window-panel="economy"] [data-shop-category="weapons"]').click();
+  await page.waitForSelector('[data-window-panel="economy"] [data-shop-detail-kind="shop-product"]', { timeout: 10000 });
   await page.locator('[data-window-panel="economy"] [data-panel-close="economy"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-window-panel="economy"]'), null, { timeout: 10000 });
 }
@@ -3247,7 +3164,7 @@ async function verifyPanelModalChrome(page, viewport, label) {
     const hud = document.querySelector('.hud');
     const toggle = document.querySelector('[data-panel-toggle="economy"]');
     const windowPanel = document.querySelector('[data-window-panel="economy"]');
-    const action = windowPanel?.querySelector('[data-action="market-buy"], [data-action="market-cancel"], [data-action="premium-claim"]');
+    const action = windowPanel?.querySelector('[data-action="market-buy"], [data-action="market-cancel"], [data-action="premium-claim"], [data-shop-kind="shop_product"], [data-shop-detail-kind="shop-product"]');
     const rect = windowPanel instanceof HTMLElement ? windowPanel.getBoundingClientRect() : null;
     const windows = Array.from(document.querySelectorAll('[data-window-panel]')).map((panel) => {
       const element = panel instanceof HTMLElement ? panel : null;

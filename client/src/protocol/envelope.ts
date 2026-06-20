@@ -29,6 +29,7 @@ export const OPERATIONS = {
   routeList: 'route.list',
   routeSnapshot: 'route.snapshot',
   walletSnapshot: 'wallet.snapshot',
+  shopCatalog: 'shop.catalog',
   marketSearch: 'market.search',
   marketCreateListing: 'market.create_listing',
   marketBuy: 'market.buy',

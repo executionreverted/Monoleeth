@@ -2036,6 +2036,11 @@ button:disabled {
   background: rgba(244, 201, 93, 0.28);
 }
 
+.shop-entry[data-shop-kind="shop_product"] .shop-entry__mark {
+  border-color: rgba(245, 247, 248, 0.9);
+  background: rgba(245, 247, 248, 0.24);
+}
+
 .shop-entry strong,
 .shop-entry em,
 .shop-entry small {
@@ -2110,6 +2115,54 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.4rem;
+}
+
+.shop-showcase {
+  display: grid;
+  grid-template-columns: 4.25rem minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: center;
+  min-height: 5.4rem;
+  border: 1px solid rgba(138, 245, 255, 0.18);
+  background:
+    linear-gradient(135deg, rgba(138, 245, 255, 0.08), transparent 54%),
+    rgba(255, 255, 255, 0.025);
+  padding: 0.55rem;
+}
+
+.shop-showcase__glyph {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid rgba(244, 201, 93, 0.5);
+  color: #f4c95d;
+  background: rgba(244, 201, 93, 0.08);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.shop-showcase strong,
+.shop-showcase span {
+  display: block;
+  min-width: 0;
+}
+
+.shop-showcase strong {
+  color: rgba(245, 247, 248, 0.95);
+  font-size: 0.88rem;
+}
+
+.shop-showcase span,
+.shop-action-note {
+  color: rgba(215, 247, 255, 0.68);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.shop-action-note {
+  border: 1px solid rgba(215, 247, 255, 0.1);
+  background: rgba(255, 255, 255, 0.025);
+  padding: 0.55rem;
 }
 
 .shop-fact {

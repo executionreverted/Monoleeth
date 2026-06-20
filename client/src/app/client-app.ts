@@ -582,6 +582,7 @@ export class ClientApp {
     this.sendCommand(this.commandBuilder.productionSummary());
     this.sendCommand(this.commandBuilder.planetStorageSummary());
     this.sendCommand(this.commandBuilder.routeList());
+    this.sendCommand(this.commandBuilder.shopCatalog());
     this.sendCommand(this.commandBuilder.marketSearch());
     this.sendCommand(this.commandBuilder.auctionSearch());
     this.sendCommand(this.commandBuilder.premiumEntitlements());
@@ -628,7 +629,7 @@ export class ClientApp {
         return;
       case CLIENT_EVENTS.premiumEntitlementClaimed:
       case CLIENT_EVENTS.premiumStockConsumed:
-        this.scheduleEconomyRefresh(OPERATIONS.premiumEntitlements, OPERATIONS.walletSnapshot);
+        this.scheduleEconomyRefresh(OPERATIONS.premiumEntitlements, OPERATIONS.walletSnapshot, OPERATIONS.shopCatalog);
         return;
       case CLIENT_EVENTS.economyFlowUpdated:
         this.scheduleEconomyRefresh(OPERATIONS.adminEconomyDashboard);
@@ -665,6 +666,9 @@ export class ClientApp {
     switch (op) {
       case OPERATIONS.marketSearch:
         this.sendCommand(this.commandBuilder.marketSearch());
+        return;
+      case OPERATIONS.shopCatalog:
+        this.sendCommand(this.commandBuilder.shopCatalog());
         return;
       case OPERATIONS.auctionSearch:
         this.sendCommand(this.commandBuilder.auctionSearch());
@@ -1231,6 +1235,7 @@ export class ClientApp {
         scanMode: this.state.scanMode,
         production: this.state.production,
         routes: this.state.routes,
+        shopCatalog: this.state.shopCatalog,
         market: this.state.market,
         auction: this.state.auction,
         premium: this.state.premium,

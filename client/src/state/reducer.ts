@@ -43,6 +43,9 @@ import {
   ScanPulseSummary,
   ScanModeState,
   SectorSummary,
+  ShopCatalogSummary,
+  ShopCategorySummary,
+  ShopProductSummary,
   ShipSummary,
   StatSummary,
   MarketListingSummary,
@@ -107,6 +110,7 @@ export function createInitialState(): ClientState {
     scanMode: initialScanMode(),
     production: null,
     routes: null,
+    shopCatalog: null,
     market: null,
     auction: null,
     premium: null,
@@ -1381,6 +1385,14 @@ function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientSt
     };
   }
 
+  const shop = objectField(payload, 'shop') ?? objectField(payload, 'shop_catalog');
+  if (shop) {
+    next = {
+      ...next,
+      shopCatalog: parseShopCatalogSummary(shop, next.shopCatalog),
+    };
+  }
+
   const auction = objectField(payload, 'auction');
   if (auction) {
     next = {
@@ -2199,6 +2211,85 @@ function upsertRoute(routes: RouteSummary[], route: RouteSummary): RouteSummary[
     return [...routes, route];
   }
   return routes.map((existingRoute, routeIndex) => (routeIndex === index ? route : existingRoute));
+}
+
+function parseShopCatalogSummary(payload: JsonObject, fallback: ShopCatalogSummary | null): ShopCatalogSummary {
+  const categories = Array.isArray(payload.categories)
+    ? payload.categories
+        .filter(isJsonObject)
+        .map(parseShopCategory)
+        .filter((category): category is ShopCategorySummary => category !== null)
+    : fallback?.categories ?? [];
+  const products = Array.isArray(payload.products)
+    ? payload.products
+        .filter(isJsonObject)
+        .map(parseShopProduct)
+        .filter((product): product is ShopProductSummary => product !== null)
+    : fallback?.products ?? [];
+  return {
+    catalog_version: stringField(payload, 'catalog_version') ?? fallback?.catalog_version ?? '',
+    categories,
+    products,
+  };
+}
+
+function parseShopCategory(payload: JsonObject): ShopCategorySummary | null {
+  const categoryID = stringField(payload, 'category_id') ?? '';
+  const displayName = stringField(payload, 'display_name') ?? '';
+  if (!categoryID || !displayName) {
+    return null;
+  }
+  return {
+    category_id: categoryID,
+    display_name: displayName,
+    sort_order: Math.max(0, Math.round(numberField(payload, 'sort_order') ?? 0)),
+  };
+}
+
+function parseShopProduct(payload: JsonObject): ShopProductSummary | null {
+  const productID = stringField(payload, 'product_id') ?? '';
+  const displayName = stringField(payload, 'display_name') ?? '';
+  const categoryID = stringField(payload, 'category_id') ?? '';
+  const artKey = stringField(payload, 'art_key') ?? '';
+  if (!productID || !displayName || !categoryID || !artKey) {
+    return null;
+  }
+  const grantTarget = objectField(payload, 'grant_target') ?? {};
+  const price = objectField(payload, 'price') ?? {};
+  const stock = objectField(payload, 'stock') ?? {};
+  const availability = objectField(payload, 'availability') ?? {};
+  return {
+    product_id: productID,
+    product_type: stringField(payload, 'product_type') ?? '',
+    display_name: displayName,
+    description: stringField(payload, 'description') ?? '',
+    category_id: categoryID,
+    subcategory: stringField(payload, 'subcategory') ?? undefined,
+    art_key: artKey,
+    rarity: stringField(payload, 'rarity') ?? undefined,
+    tier: optionalRoundedNumber(payload, 'tier', undefined),
+    sort_order: Math.max(0, Math.round(numberField(payload, 'sort_order') ?? 0)),
+    grant_target: {
+      kind: stringField(grantTarget, 'kind') ?? '',
+      ref_id: stringField(grantTarget, 'ref_id') ?? '',
+      quantity: optionalRoundedNumber(grantTarget, 'quantity', undefined),
+    },
+    price: {
+      currency_type: stringField(price, 'currency_type') ?? 'credits',
+      amount: Math.max(0, Math.round(numberField(price, 'amount') ?? 0)),
+      fixed: booleanField(price, 'fixed') ?? true,
+    },
+    stock: {
+      kind: stringField(stock, 'kind') ?? 'unavailable',
+      stock_remaining: optionalRoundedNumber(stock, 'stock_remaining', undefined),
+      stock_total: optionalRoundedNumber(stock, 'stock_total', undefined),
+    },
+    availability: {
+      available: booleanField(availability, 'available') ?? false,
+      locked_reason: stringField(availability, 'locked_reason') ?? undefined,
+      required_rank: optionalRoundedNumber(availability, 'required_rank', undefined),
+    },
+  };
 }
 
 function parseMarketSummary(payload: JsonObject, fallback: MarketSummary | null): MarketSummary {
@@ -3162,6 +3253,7 @@ function clearGameplay(state: ClientState): ClientState {
     scanMode: initialScanMode(),
     production: null,
     routes: null,
+    shopCatalog: null,
     market: null,
     auction: null,
     premium: null,

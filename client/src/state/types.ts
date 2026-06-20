@@ -82,6 +82,51 @@ export interface WalletSummary {
   premium_earned: number;
 }
 
+export interface ShopCategorySummary {
+  category_id: string;
+  display_name: string;
+  sort_order: number;
+}
+
+export interface ShopProductSummary {
+  product_id: string;
+  product_type: string;
+  display_name: string;
+  description: string;
+  category_id: string;
+  subcategory?: string;
+  art_key: string;
+  rarity?: string;
+  tier?: number;
+  sort_order: number;
+  grant_target: {
+    kind: string;
+    ref_id: string;
+    quantity?: number;
+  };
+  price: {
+    currency_type: string;
+    amount: number;
+    fixed: boolean;
+  };
+  stock: {
+    kind: string;
+    stock_remaining?: number;
+    stock_total?: number;
+  };
+  availability: {
+    available: boolean;
+    locked_reason?: string;
+    required_rank?: number;
+  };
+}
+
+export interface ShopCatalogSummary {
+  catalog_version: string;
+  categories: ShopCategorySummary[];
+  products: ShopProductSummary[];
+}
+
 export interface MarketListingSummary {
   listing_id: string;
   item_id: string;
@@ -726,6 +771,7 @@ export interface ClientState {
   scanMode: ScanModeState;
   production: ProductionCollectionSummary | null;
   routes: RouteListSummary | null;
+  shopCatalog: ShopCatalogSummary | null;
   market: MarketSummary | null;
   auction: AuctionSummary | null;
   premium: PremiumSummary | null;

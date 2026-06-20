@@ -1357,6 +1357,75 @@ func TestPhase08MarketAuctionPremiumUseServerEconomyState(t *testing.T) {
 	})
 }
 
+func TestShopCatalogUsesServerOwnedGameCatalog(t *testing.T) {
+	_, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	writeText(t, conn, `{"request_id":"request-shop-catalog","op":"shop.catalog","payload":{},"client_seq":1,"v":1}`)
+	response := readResponse(t, conn)
+	if !response.OK {
+		t.Fatalf("shop catalog response = %+v, want success", response)
+	}
+	assertNoEconomyLeak(t, "shop catalog", response.Payload)
+	rawPayload := string(response.Payload)
+	for _, forbidden := range []string{"listing-raw-ore-1", "server_recalculates", "server recalculates", "server-owned"} {
+		if strings.Contains(rawPayload, forbidden) {
+			t.Fatalf("shop catalog leaked %q in %s", forbidden, rawPayload)
+		}
+	}
+
+	var payload shopCatalogResponsePayload
+	if err := json.Unmarshal(response.Payload, &payload); err != nil {
+		t.Fatalf("decode shop catalog: %v", err)
+	}
+	if payload.Shop.CatalogVersion != catalog.ContentRegistryVersion.String() {
+		t.Fatalf("catalog version = %q, want %q", payload.Shop.CatalogVersion, catalog.ContentRegistryVersion)
+	}
+	categoryNames := make(map[string]string, len(payload.Shop.Categories))
+	for _, category := range payload.Shop.Categories {
+		categoryNames[category.CategoryID] = category.DisplayName
+	}
+	for id, displayName := range map[string]string{
+		shopCategoryShips:            "Ships",
+		shopCategoryWeapons:          "Weapons",
+		shopCategoryShieldGenerators: "Shield Generators",
+		shopCategoryScannerRadar:     "Scanner/Radar",
+		shopCategoryCargoUtility:     "Cargo/Utility",
+		shopCategoryResources:        "Resources",
+	} {
+		if categoryNames[id] != displayName {
+			t.Fatalf("category %q = %q, want %q in %+v", id, categoryNames[id], displayName, payload.Shop.Categories)
+		}
+	}
+	if len(payload.Shop.Products) < 6 {
+		t.Fatalf("shop products = %+v, want broad seed coverage", payload.Shop.Products)
+	}
+	seenPrism := false
+	for _, product := range payload.Shop.Products {
+		if product.DisplayName == "" || product.DisplayName == product.ProductID || strings.Contains(product.DisplayName, "_") {
+			t.Fatalf("shop product has raw display name: %+v", product)
+		}
+		if product.CategoryID == "" || product.ArtKey == "" || product.Price.Currency == "" {
+			t.Fatalf("shop product missing display/category/price metadata: %+v", product)
+		}
+		if product.DisplayName == "Prism Lance I" {
+			seenPrism = true
+		}
+	}
+	if !seenPrism {
+		t.Fatalf("shop products = %+v, missing Prism Lance I weapon product", payload.Shop.Products)
+	}
+
+	writeText(t, conn, `{"request_id":"request-shop-catalog-spoof","op":"shop.catalog","payload":{"stock_remaining":99},"client_seq":2,"v":1}`)
+	spoof := readError(t, conn)
+	if spoof.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("spoofed shop catalog error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
+	}
+}
+
 func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()

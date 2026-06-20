@@ -82,12 +82,13 @@ type QuestSummary = QuestBoardSummary['active'][number];
 type QuestEntry =
   | { key: string; kind: 'offer'; item: QuestOfferSummary }
   | { key: string; kind: 'quest'; item: QuestSummary };
-type ShopCategoryID = 'market' | 'sell' | 'auction' | 'premium';
+type ShopCategoryID = string;
 type InventoryTabID = 'equipment' | 'inventory' | 'cargo' | 'crafting';
 type ModuleFilterID = 'all' | 'offensive' | 'defensive' | 'utility';
 type InventoryStackItem = NonNullable<ClientState['inventory']>['stackable'][number];
 type ModuleInventoryItem = NonNullable<ClientState['inventory']>['instances'][number];
 type MarketListingItem = NonNullable<ClientState['market']>['listings'][number];
+type ShopProductItem = NonNullable<ClientState['shopCatalog']>['products'][number];
 type AuctionLotItem = NonNullable<ClientState['auction']>['lots'][number];
 type AuctionGrantItem = NonNullable<ClientState['auction']>['grants'][number];
 type PremiumEntitlementItem = NonNullable<ClientState['premium']>['entitlements'][number];
@@ -130,7 +131,7 @@ interface HUDPanelDefinition {
 }
 
 let selectedQuestKey: string | null = null;
-let selectedShopCategory: ShopCategoryID = 'market';
+let selectedShopCategory: ShopCategoryID = 'ships';
 let selectedShopKey: string | null = null;
 let selectedShopQuantity = 1;
 let selectedInventoryTab: InventoryTabID = 'equipment';
@@ -1855,19 +1856,26 @@ function moduleDetailPanel(item: ModuleInventoryItem, slots: NonNullable<ClientS
 
 function economyPanel(state: ClientState): string {
   const wallet = state.wallet;
-  const market = state.market;
-  const auction = state.auction;
-  const premium = state.premium;
-  if (!wallet || !market || !auction || !premium) {
+  const catalog = state.shopCatalog;
+  if (!wallet || !catalog) {
     return `
       <h2>Shop</h2>
-      <div class="empty-line">Awaiting economy data.</div>
+      <div class="empty-line">Awaiting shop catalog.</div>
     `;
   }
 
-  const sections = shopSections(state);
-  const entries = sections[selectedShopCategory];
-  const selected = selectedShopEntry(entries);
+  const categories = [...catalog.categories].sort((left, right) => left.sort_order - right.sort_order);
+  if (!categories.some((category) => category.category_id === selectedShopCategory)) {
+    selectedShopCategory = categories[0]?.category_id ?? 'ships';
+    selectedShopKey = null;
+  }
+  const products = [...catalog.products].sort((left, right) => left.sort_order - right.sort_order);
+  const counts = new Map<string, number>();
+  for (const product of products) {
+    counts.set(product.category_id, (counts.get(product.category_id) ?? 0) + 1);
+  }
+  const entries = products.filter((product) => product.category_id === selectedShopCategory);
+  const selected = selectedShopProduct(entries);
 
   return `
     <h2>Shop</h2>
@@ -1878,23 +1886,31 @@ function economyPanel(state: ClientState): string {
     </div>
     <section class="shop-console" data-shop-console="true">
       <div class="shop-categories" role="list" aria-label="Shop categories">
-        ${shopCategoryButton('market', 'Market', sections.market.length, selectedShopCategory)}
-        ${shopCategoryButton('sell', 'Sell', sections.sell.length, selectedShopCategory)}
-        ${shopCategoryButton('auction', 'Auction', sections.auction.length, selectedShopCategory)}
-        ${shopCategoryButton('premium', 'Premium', sections.premium.length, selectedShopCategory)}
+        ${categories.map((category) => shopCategoryButton(category.category_id, category.display_name, counts.get(category.category_id) ?? 0, selectedShopCategory)).join('')}
       </div>
-      <div class="shop-catalog" data-shop-category-active="${selectedShopCategory}">
+      <div class="shop-catalog" data-shop-category-active="${escapeHTML(selectedShopCategory)}">
         ${
           entries.length > 0
-            ? entries.map((entry) => shopEntryRow(entry, selected?.key)).join('')
+            ? entries.map((entry) => shopProductRow(entry, selected?.product_id)).join('')
             : `<div class="empty-line">No ${escapeHTML(selectedShopCategory)} entries.</div>`
         }
       </div>
-      <div class="shop-detail" data-shop-detail="${escapeHTML(selected?.key ?? '')}">
-        ${selected ? shopDetail(selected, state) : '<div class="empty-line">Select an economy row.</div>'}
+      <div class="shop-detail" data-shop-detail="${escapeHTML(selected?.product_id ?? '')}">
+        ${selected ? shopProductDetail(selected, wallet, catalog.catalog_version) : '<div class="empty-line">Select a product.</div>'}
       </div>
     </section>
   `;
+}
+
+function selectedShopProduct(entries: ShopProductItem[]): ShopProductItem | null {
+  if (entries.length === 0) {
+    selectedShopKey = null;
+    selectedShopQuantity = 1;
+    return null;
+  }
+  const selected = entries.find((entry) => entry.product_id === selectedShopKey) ?? entries[0];
+  selectedShopKey = selected.product_id;
+  return selected;
 }
 
 function shopSections(state: ClientState): Record<ShopCategoryID, ShopEntry[]> {
@@ -1965,9 +1981,24 @@ function selectedShopEntry(entries: ShopEntry[]): ShopEntry | null {
 
 function shopCategoryButton(id: ShopCategoryID, label: string, count: number, active: ShopCategoryID): string {
   return `
-    <button class="shop-category" type="button" data-action="shop-category" data-shop-category="${id}" data-active="${active === id ? 'true' : 'false'}">
+    <button class="shop-category" type="button" data-action="shop-category" data-shop-category="${escapeHTML(id)}" data-active="${active === id ? 'true' : 'false'}">
       <span>${escapeHTML(label)}</span>
       <strong>${count}</strong>
+    </button>
+  `;
+}
+
+function shopProductRow(product: ShopProductItem, selectedProductID: string | undefined): string {
+  const meta = [product.subcategory, product.rarity, product.tier ? `T${product.tier}` : ''].filter(Boolean).join(' / ');
+  const price = `${product.price.amount} ${product.price.currency_type}`;
+  return `
+    <button class="shop-entry shop-product" type="button" data-action="shop-select" data-shop-key="${escapeHTML(product.product_id)}" data-selected="${product.product_id === selectedProductID ? 'true' : 'false'}" data-shop-kind="shop_product">
+      <span class="shop-entry__mark"></span>
+      <span>
+        <strong>${escapeHTML(product.display_name)}</strong>
+        <em>${escapeHTML(meta || product.product_type)}</em>
+      </span>
+      <small>${escapeHTML(product.availability.available ? price : product.availability.locked_reason ?? 'Unavailable')}</small>
     </button>
   `;
 }
@@ -1983,6 +2014,64 @@ function shopEntryRow(entry: ShopEntry, selectedKey: string | undefined): string
       <small>${escapeHTML(shopEntryState(entry))}</small>
     </button>
   `;
+}
+
+function shopProductDetail(product: ShopProductItem, wallet: NonNullable<ClientState['wallet']>, catalogVersion: string): string {
+  const balance = walletBalanceForCurrency(wallet, product.price.currency_type);
+  const canAfford = balance !== null && balance >= product.price.amount;
+  const stock = shopProductStockLabel(product);
+  const status = product.availability.available ? (canAfford ? 'Available' : 'Insufficient balance') : product.availability.locked_reason ?? 'Unavailable';
+  return `
+    <article class="shop-detail-card shop-product-detail" data-shop-detail-kind="shop-product">
+      ${shopDetailHeader(product.subcategory || product.product_type, product.display_name, product.rarity || `T${product.tier ?? 1}`)}
+      <div class="shop-showcase" data-art-key="${escapeHTML(product.art_key)}">
+        <div class="shop-showcase__glyph">${escapeHTML(shopProductGlyph(product.product_type))}</div>
+        <div>
+          <strong>${escapeHTML(product.display_name)}</strong>
+          <span>${escapeHTML(product.description)}</span>
+        </div>
+      </div>
+      <div class="shop-detail-grid">
+        ${shopFact('Price', `${product.price.amount} ${product.price.currency_type}`)}
+        ${shopFact('Stock', stock)}
+        ${shopFact('Status', status)}
+        ${shopFact('Catalog', catalogVersion || 'current')}
+        ${product.availability.required_rank ? shopFact('Rank', `${product.availability.required_rank}`) : ''}
+      </div>
+      ${
+        product.availability.available
+          ? `<button class="shop-primary-action" type="button" disabled title="System product purchase is not enabled yet">Purchase</button>`
+          : `<div class="shop-action-note">${escapeHTML(product.availability.locked_reason ?? 'Purchase unavailable.')}</div>`
+      }
+    </article>
+  `;
+}
+
+function shopProductStockLabel(product: ShopProductItem): string {
+  if (product.stock.kind === 'unlimited') {
+    return 'Open';
+  }
+  if (product.stock.kind === 'limited') {
+    const remaining = product.stock.stock_remaining ?? 0;
+    const total = product.stock.stock_total ?? remaining;
+    return `${remaining}/${total}`;
+  }
+  return 'Unavailable';
+}
+
+function shopProductGlyph(productType: string): string {
+  switch (productType) {
+    case 'ship':
+      return 'SHIP';
+    case 'module':
+      return 'MOD';
+    case 'item':
+      return 'MAT';
+    case 'premium':
+      return 'X';
+    default:
+      return 'ITEM';
+  }
 }
 
 function shopEntryTitle(entry: ShopEntry): string {
@@ -3502,7 +3591,7 @@ function normalizePanelID(value: string | undefined): HUDWindowID | null {
 }
 
 function isShopCategoryID(value: string | undefined): value is ShopCategoryID {
-  return value === 'market' || value === 'sell' || value === 'auction' || value === 'premium';
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 function isInventoryTabID(value: string | undefined): value is InventoryTabID {

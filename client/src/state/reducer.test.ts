@@ -1405,6 +1405,55 @@ describe('reduceClientState', () => {
     expect(withCrafting.crafting?.recipes[0].recipe_id).toBe('refined_alloy_batch');
   });
 
+  test('shop catalog response stores server-owned categories and products', () => {
+    const state = reduceClientState(createInitialState(), {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'request-shop-catalog',
+        ok: true,
+        payload: {
+          shop: {
+            catalog_version: 'content_registry_task001_v1',
+            categories: [
+              { category_id: 'ships', display_name: 'Ships', sort_order: 10 },
+              { category_id: 'weapons', display_name: 'Weapons', sort_order: 20 },
+            ],
+            products: [
+              {
+                product_id: 'product_module_laser_alpha_t1',
+                product_type: 'module',
+                display_name: 'Prism Lance I',
+                description: 'Entry laser array.',
+                category_id: 'weapons',
+                subcategory: 'Laser',
+                art_key: 'module.prism_lance_1',
+                rarity: 'common',
+                tier: 1,
+                sort_order: 20,
+                grant_target: { kind: 'module', ref_id: 'laser_alpha_t1', quantity: 1 },
+                price: { currency_type: 'credits', amount: 450, fixed: true },
+                stock: { kind: 'unlimited' },
+                availability: { available: false, locked_reason: 'Module purchase unavailable in this playtest.' },
+              },
+            ],
+          },
+        },
+        server_time: 99,
+        v: 1,
+      },
+    });
+
+    expect(state.shopCatalog?.catalog_version).toBe('content_registry_task001_v1');
+    expect(state.shopCatalog?.categories.map((category) => category.display_name)).toEqual(['Ships', 'Weapons']);
+    expect(state.shopCatalog?.products[0]).toMatchObject({
+      product_id: 'product_module_laser_alpha_t1',
+      display_name: 'Prism Lance I',
+      category_id: 'weapons',
+      price: { amount: 450, currency_type: 'credits' },
+      availability: { available: false },
+    });
+  });
+
   test('phase 05 combat, loot, progression, and repair events reconcile server-owned state', () => {
     const withPlayer = reduceClientState(createInitialState(), {
       type: 'eventReceived',
@@ -2245,6 +2294,7 @@ function expectServerOwnedGameplayCleared(state: ClientState): void {
   });
   expect(state.production).toBeNull();
   expect(state.routes).toBeNull();
+  expect(state.shopCatalog).toBeNull();
   expect(state.market).toBeNull();
   expect(state.auction).toBeNull();
   expect(state.premium).toBeNull();
@@ -2316,6 +2366,7 @@ function stateWithServerOwnedGameplay(): ClientState {
     },
     production: serverOwnedStub<ClientState['production']>(),
     routes: serverOwnedStub<ClientState['routes']>(),
+    shopCatalog: serverOwnedStub<ClientState['shopCatalog']>(),
     market: serverOwnedStub<ClientState['market']>(),
     auction: serverOwnedStub<ClientState['auction']>(),
     premium: serverOwnedStub<ClientState['premium']>(),

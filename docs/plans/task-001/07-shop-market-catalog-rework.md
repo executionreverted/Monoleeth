@@ -257,18 +257,18 @@ docs/plans/task-001/07-shop-market-catalog-rework.md
 ## Acceptance Criteria
 
 - [ ] Shop follows category/list/detail/buy-panel layout.
-- [ ] Server-owned shop catalog/system-product contract exists or the expanded
+- [x] Server-owned shop catalog/system-product contract exists or the expanded
       market payload explicitly provides equivalent metadata.
 - [ ] `shop.catalog` query and `shop.buy_product` command exist in server
       realtime ops, handler map, client builders, reducer state, and smoke, or
       an equivalent system-product bridge is documented and tested.
-- [ ] System shop products are separated from player market listings.
-- [ ] Real-mode system shop no longer depends on the `listing-raw-ore-1` seed.
-- [ ] Categories map to real server catalog/listing data.
+- [x] System shop products are separated from player market listings.
+- [x] Real-mode system shop no longer depends on the `listing-raw-ore-1` seed.
+- [x] Categories map to real server catalog/listing data.
 - [x] No player-facing `server recalculates` copy remains.
 - [x] `server_recalculates` is absent from normal player UI and client smoke
       expectations.
-- [ ] Raw temporary names are removed or replaced by server display names.
+- [x] Raw temporary names are removed or replaced by server display names.
 - [ ] Quantity and purchase/list/bid actions reconcile with server responses.
 - [ ] Market totals/fees/escrow are not trusted from the client.
 - [ ] Auction and premium event paths reconcile or refresh passive clients.
@@ -290,7 +290,7 @@ docs/plans/task-001/07-shop-market-catalog-rework.md
 - [ ] New purchase/grant paths have ledger/reference tests or a named durable
       transaction blocker.
 - [ ] Browser smoke covers shop category/detail/buy behavior.
-- [ ] Browser smoke fails on primary `Market/Sell/Auction/Premium` category
+- [x] Browser smoke fails on primary `Market/Sell/Auction/Premium` category
       truth, `raw_ore` shop purchase truth, and normal-player
       `server_recalculates` expectations.
 

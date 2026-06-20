@@ -102,6 +102,16 @@ func TestDecodeRequestEnvelopeAcceptsCombatUseSkillOperation(t *testing.T) {
 	}
 }
 
+func TestDecodeRequestEnvelopeAcceptsShopCatalogOperation(t *testing.T) {
+	envelope, err := DecodeRequestEnvelope([]byte(`{"request_id":"request-shop-catalog","op":"shop.catalog","payload":{},"client_seq":11,"v":1}`))
+	if err != nil {
+		t.Fatalf("decode shop catalog request envelope: %v", err)
+	}
+	if envelope.Op != OperationShopCatalog {
+		t.Fatalf("op = %q, want %q", envelope.Op, OperationShopCatalog)
+	}
+}
+
 func TestDecodeRequestEnvelopeAcceptsHangarAndLoadoutMutationOperations(t *testing.T) {
 	cases := []struct {
 		name string
@@ -154,6 +164,7 @@ func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testin
 		Operation("crafting.complete"),
 		Operation("crafting.cancel"),
 		Operation("inventory.move"),
+		Operation("shop.buy_product"),
 		Operation("progression.unlock_skill"),
 		Operation("progression.respec_skills"),
 		Operation("discovery.claim_planet"),

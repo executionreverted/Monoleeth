@@ -8,6 +8,7 @@ const UNIMPLEMENTED_MUTATION_OPS = [
   'crafting.complete',
   'crafting.cancel',
   'inventory.move',
+  'shop.buy_product',
   'progression.unlock_skill',
   'progression.respec_skills',
   'discovery.claim_planet',
@@ -260,6 +261,7 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.loadoutEquipModule).toBe('loadout.equip_module');
     expect(OPERATIONS.loadoutUnequipModule).toBe('loadout.unequip_module');
     expect(OPERATIONS.stealthToggle).toBe('stealth.toggle');
+    expect(OPERATIONS.shopCatalog).toBe('shop.catalog');
 
     const builder = new CommandBuilder();
     expect(builder.hangarActivateShip('starter').payload).toEqual({ ship_id: 'starter' });
@@ -269,6 +271,8 @@ describe('default outbound operations', () => {
     });
     expect(builder.loadoutUnequipModule('offensive_1').payload).toEqual({ slot_id: 'offensive_1' });
     expect(builder.stealthToggle(true).payload).toEqual({ enabled: true });
+    expect(builder.shopCatalog().payload).toEqual({});
+    expect(builder.shopCatalog('weapons').payload).toEqual({ category_id: 'weapons' });
   });
 
   test('exclude unimplemented browser mutation contracts', () => {
