@@ -2585,6 +2585,7 @@ function targetPanel(state: ClientState, serverNow: number | null = Date.now()):
   const targetLabel = target?.display?.label ?? target?.entity_id ?? '';
   const distance = target ? distanceToTarget(state, target.entity_id, serverNow) : null;
   const knownLoot = target ? state.knownLoot[target.entity_id] : null;
+  const targetActions = targetActionButtons(target, laser, loot);
   return `
     <h2>Target</h2>
     ${
@@ -2602,14 +2603,28 @@ function targetPanel(state: ClientState, serverNow: number | null = Date.now()):
            <div class="meta-row"><span>X/Y</span><strong>${Math.round(target.position.x)} / ${Math.round(target.position.y)}</strong></div>
            ${target.combat ? combatStatusBlock(target.combat) : ''}
            ${knownLoot ? lootStatusBlock(knownLoot) : ''}`
-        : '<div class="empty-line">No lock</div>'
+        : '<div class="empty-line target-empty" data-target-empty="true">Select a contact.</div>'
     }
-    <div class="segmented">
-      <button type="button" disabled title="Click a visible entity on the map to target it">Aim</button>
-      <button type="button" data-action="fire" ${laser.enabled ? '' : 'disabled'} title="${escapeHTML(laser.title)}">Fire</button>
-      <button type="button" data-action="loot" ${loot.enabled ? '' : 'disabled'} title="${escapeHTML(loot.title)}">${escapeHTML(loot.label)}</button>
-    </div>
+    ${targetActions}
   `;
+}
+
+function targetActionButtons(target: VisibleEntity | null, laser: QuickActionState, loot: QuickActionState): string {
+  const buttons: string[] = [];
+  if (target?.entity_type === 'npc') {
+    buttons.push(
+      `<button type="button" data-action="fire" ${laser.enabled ? '' : 'disabled'} title="${escapeHTML(laser.title)}">Fire</button>`,
+    );
+  }
+  if (target?.entity_type === 'loot') {
+    buttons.push(
+      `<button type="button" data-action="loot" ${loot.enabled ? '' : 'disabled'} title="${escapeHTML(loot.title)}">${escapeHTML(loot.label)}</button>`,
+    );
+  }
+  if (buttons.length === 0) {
+    return '';
+  }
+  return `<div class="segmented target-actions">${buttons.join('')}</div>`;
 }
 
 function shipPanel(state: ClientState): string {
@@ -2766,11 +2781,6 @@ function planetCatalogPanel(state: ClientState): string {
                </div>
                <div class="planet-catalog__actions">
                  <button type="button" data-action="planet-navigate" data-planet-id="${escapeHTML(selectedSummary.planet_id)}" ${canNavigate ? '' : 'disabled'} title="${canNavigate ? 'Navigate to this known coordinate' : 'Select planet coordinates first'}">Navigate</button>
-                 <button type="button" disabled title="Claim controls unlock in a later planet phase">Claim</button>
-                 <button type="button" disabled title="Building controls unlock in a later planet phase">Build</button>
-                 <button type="button" disabled title="Upgrade controls unlock in a later planet phase">Upgrade</button>
-                 <button type="button" disabled title="Route controls unlock in a later planet phase">Route</button>
-                 <button type="button" disabled title="Automation controls unlock in a later planet phase">Auto</button>
                </div>
                <div class="planet-tabs" aria-label="Planet detail sections">
                  <span>Overview</span>
@@ -2907,9 +2917,6 @@ function planetDetailModal(state: ClientState, planetID?: string): string {
       </div>
       <div class="segmented planet-actions">
         <button type="button" data-action="planet-navigate" data-planet-id="${escapeHTML(summary.planet_id)}" ${canNavigate ? '' : 'disabled'} title="${canNavigate ? 'Navigate to this known coordinate' : 'Request coordinates before navigating'}">Navigate</button>
-        <button type="button" disabled title="Claim controls unlock in a later planet phase">Claim</button>
-        <button type="button" disabled title="Building controls unlock in a later planet phase">Build</button>
-        <button type="button" disabled title="Route controls unlock in a later planet phase">Route</button>
       </div>
       <div class="systems-subhead">Production</div>
       ${
@@ -3156,7 +3163,7 @@ function laserActionState(state: ClientState, target: VisibleEntity | null): Act
     return { enabled: false, label: 'Laser', detail: 'Disabled', title: 'Repair the ship before firing.' };
   }
   if (!target || target.entity_type !== 'npc') {
-    return { enabled: false, label: 'Laser', detail: 'No lock', title: 'Select a hostile target.' };
+    return { enabled: false, label: 'Laser', detail: 'Standby', title: 'Select a hostile target.' };
   }
   if (hasPendingOp(state, 'combat.use_skill')) {
     return { enabled: false, label: 'Laser', detail: 'Pending', title: 'Basic laser is pending.' };
@@ -3274,7 +3281,7 @@ function lootActionState(state: ClientState, target: VisibleEntity | null, serve
     return { enabled: false, label: 'Gather', detail: 'Disabled', title: 'Repair the ship before gathering drops.' };
   }
   if (!target || target.entity_type !== 'loot') {
-    return { enabled: false, label: 'Gather', detail: 'No drop', title: 'Select a visible drop.' };
+    return { enabled: false, label: 'Gather', detail: 'Standby', title: 'Select a visible drop.' };
   }
   if (hasPendingOp(state, 'loot.pickup')) {
     return { enabled: false, label: 'Gather', detail: 'Pending', title: 'Loot pickup is pending.' };

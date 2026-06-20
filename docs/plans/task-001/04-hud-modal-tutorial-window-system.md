@@ -125,6 +125,16 @@ client/tests/browser-smoke.mjs
   exposes generic `Inspect`.
 - Forbidden-copy smoke now checks visible `title`, `aria-label`, `alt`, and
   `placeholder` attributes in addition to body text.
+- Target panel dead-control clutter was removed. Empty target state now renders
+  a quiet select-contact state, the fake disabled `Aim` control is gone, NPC
+  targets only expose `Fire`, loot targets only expose `Gather`/`Approach`, and
+  quick action standby copy no longer says `No lock` or `No drop`.
+- Planet catalog/detail disabled future-action clutter was removed for
+  `Claim`, `Build`, `Upgrade`, `Route`, and `Auto`; only the real navigate
+  action remains visible until the planet gameplay contracts are implemented.
+- Browser smoke now fails on visible `No lock`/`No drop`, target-panel disabled
+  `Aim`/wrong-target `Fire`/`Gather` clutter, and extra planet future-action
+  buttons in catalog/detail surfaces.
 
 ## Implementation Plan
 
@@ -190,12 +200,12 @@ docs/plans/task-001/04-hud-modal-tutorial-window-system.md
 - [x] Contextual `?` opens a tutorial/help modal with selected topic.
 - [ ] Windows are content-sized and only body-scroll after max height.
 - [ ] Shared window shell no longer forces large empty fixed panels when sparse.
-- [ ] Target panel does not show `No lock` plus dead action clutter.
+- [x] Target panel does not show `No lock` plus dead action clutter.
 - [ ] Internal/debug phrases are absent from all normal player UI, with
       role-gated admin diagnostics exempted.
-- [ ] Smoke asserts no generic `Inspect`, no forbidden debug copy, and no dead
+- [x] Smoke asserts no generic `Inspect`, no forbidden debug copy, and no dead
       target/planet primary controls.
-- [ ] Smoke fails on visible normal-player `Inspect`, `No lock`, disabled
+- [x] Smoke fails on visible normal-player `Inspect`, `No lock`, disabled
       `Aim`/`Fire`/`Gather`, and disabled future planet primary buttons.
 - [ ] Modal focus trap, focus return, Escape close, backdrop close, and delayed
       modal/window canvas-click leak checks are covered by browser smoke.

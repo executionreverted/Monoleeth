@@ -56,6 +56,8 @@ const forbiddenText = [
   'server lock',
   'server move',
   'server contract',
+  'no lock',
+  'no drop',
 ];
 const allowedEnabledActions = [
   'admin-refresh',
@@ -322,6 +324,7 @@ async function verifyRealViewport(viewport, label) {
       throw error;
     }
     await assertNoUnimplementedMutationControls(page, `${label} authenticated bootstrap`);
+    await assertNoDeadTargetClutter(page, `${label} authenticated bootstrap`);
     await verifyQuickActionContracts(page, viewport, label);
     await verifyRadarContactInteractions(page, label);
     await verifyInventoryLoadout(page, viewport, label);
@@ -528,6 +531,7 @@ async function verifyPlanetMemoryMarker(page, label) {
   if (moveCountAfterMarker !== moveCountBeforeMarker) {
     throw new Error(`${label}: planet memory marker click emitted move_to`);
   }
+  await assertPlanetDetailModalOnlyNavigate(page, `${label} memory marker planet modal`);
   await page.screenshot({ path: path.join(phase08OutputDir, 'selected-planet-desktop.png'), fullPage: true });
   await page.locator('[data-modal-close="button"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
@@ -536,6 +540,7 @@ async function verifyPlanetMemoryMarker(page, label) {
 async function verifyPlanetNavigateAction(page, label) {
   await page.locator('[data-panel="planets"] [data-action="planet-detail"]').first().dispatchEvent('click');
   await page.waitForSelector('[data-modal="planet-detail"] [data-action="planet-navigate"]:not([disabled])', { timeout: 10000 });
+  await assertPlanetDetailModalOnlyNavigate(page, `${label} planet modal`);
   const navigateButtonDataset = await page.locator('[data-modal="planet-detail"] [data-action="planet-navigate"]').evaluate((button) => ({
     x: button.dataset.x,
     y: button.dataset.y,
@@ -573,6 +578,20 @@ async function verifyPlanetNavigateAction(page, label) {
   );
   await page.locator('[data-modal-close="button"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+}
+
+async function assertPlanetDetailModalOnlyNavigate(page, label) {
+  const actions = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-modal="planet-detail"] .planet-actions button')).map((button) => ({
+      text: (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      disabled: button instanceof HTMLButtonElement ? button.disabled : button.hasAttribute('disabled'),
+      action: button.getAttribute('data-action') ?? '',
+    })),
+  );
+  const futureActions = actions.slice(1).map((button) => button.text).filter(Boolean);
+  if (actions.length !== 1 || actions[0]?.action !== 'planet-navigate' || actions[0]?.disabled || futureActions.length > 0) {
+    throw new Error(`${label}: planet modal action clutter ${JSON.stringify(actions)}`);
+  }
 }
 
 async function verifyRadarContactInteractions(page, label) {
@@ -620,8 +639,12 @@ async function verifyPlanetCatalogSurface(page, viewport, label) {
     return {
       selectedPlanetID: window.__SPACE_MORPG_SMOKE_STATE__?.planetIntel?.selectedPlanet?.planet_id ?? '',
       rowCount: document.querySelectorAll('[data-window-panel="intel"] .planet-catalog-row').length,
+      actionCount: actions.length,
       navigateEnabled: actions[0] instanceof HTMLButtonElement ? !actions[0].disabled : false,
-      lockedDisabled: actions.slice(1).every((button) => button instanceof HTMLButtonElement && button.disabled),
+      futureActions: actions
+        .slice(1)
+        .map((button) => (button.textContent ?? '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean),
       hasProductionSection: Boolean(
         [...document.querySelectorAll('[data-window-panel="intel"] .planet-section-grid h3')].find(
           (node) => node.textContent?.trim() === 'Production',
@@ -629,7 +652,14 @@ async function verifyPlanetCatalogSurface(page, viewport, label) {
       ),
     };
   });
-  if (!summary.selectedPlanetID || summary.rowCount < 1 || !summary.navigateEnabled || !summary.lockedDisabled || !summary.hasProductionSection) {
+  if (
+    !summary.selectedPlanetID ||
+    summary.rowCount < 1 ||
+    summary.actionCount !== 1 ||
+    !summary.navigateEnabled ||
+    summary.futureActions.length > 0 ||
+    !summary.hasProductionSection
+  ) {
     throw new Error(`${label}: planet catalog surface mismatch ${JSON.stringify(summary)}`);
   }
 
@@ -1742,6 +1772,7 @@ async function verifyFixtureViewport(viewport, label) {
         !state?.visibleEntities?.['hidden-planet']
       );
     });
+    await assertNoDeadTargetClutter(page, `${label} connected empty target`);
     if (label === 'fixture-desktop') {
       await clickWorldPosition(page, { x: 150, y: -250 });
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'npc-rake-01');
@@ -1795,6 +1826,7 @@ async function verifyFixtureViewport(viewport, label) {
           document.querySelector('.minimap__memory[data-planet-id="planet-memory-01"]') instanceof HTMLElement
         );
       }, null, { timeout: 10000 });
+      await assertNoDeadTargetClutter(page, `${label} post-sync empty target`);
       await verifySquareProjectionCornerRadarContact(page, label);
     }
 
@@ -3017,6 +3049,61 @@ async function assertNoGenericInspectWindows(page, label) {
   });
   if (inspectState.inspectButtons.length > 0 || inspectState.helpButtons.length < 1) {
     throw new Error(`${label}: generic Inspect titlebar still present or help missing ${JSON.stringify(inspectState)}`);
+  }
+}
+
+async function assertNoDeadTargetClutter(page, label) {
+  const clutter = await page.evaluate(() => {
+    const visible = (element) => {
+      if (!(element instanceof HTMLElement)) {
+        return false;
+      }
+      const style = window.getComputedStyle(element);
+      return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0;
+    };
+    const visibleAttributes = Array.from(document.querySelectorAll('body *'))
+      .filter(visible)
+      .flatMap((element) =>
+        ['title', 'aria-label', 'alt', 'placeholder']
+          .map((name) => element.getAttribute(name))
+          .filter((value) => typeof value === 'string' && value.length > 0),
+      )
+      .join('\n');
+    const panel = document.querySelector('[data-panel="target"]');
+    const targetKind = panel?.querySelector('.target-lock')?.getAttribute('data-target-kind') ?? null;
+    const bodyAndAttrs = `${document.body.innerText ?? ''}\n${visibleAttributes}`;
+    const buttons = Array.from(panel?.querySelectorAll('button') ?? [])
+      .filter((button) => button instanceof HTMLButtonElement && visible(button))
+      .map((button) => ({
+        text: (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
+        disabled: button.disabled,
+        action: button.getAttribute('data-action') ?? '',
+      }));
+    const deadButtons = buttons.filter((button) => {
+      if (/^Aim$/i.test(button.text)) {
+        return true;
+      }
+      if (!button.disabled) {
+        return false;
+      }
+      if (/^Fire$/i.test(button.text)) {
+        return targetKind !== 'npc';
+      }
+      if (/^Gather$/i.test(button.text)) {
+        return targetKind !== 'loot';
+      }
+      return false;
+    });
+    return {
+      deadCopy: /\bNo lock\b|\bNo drop\b/i.test(bodyAndAttrs),
+      targetKind,
+      buttons,
+      deadButtons,
+      panelText: panel?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+    };
+  });
+  if (clutter.deadCopy || clutter.deadButtons.length > 0) {
+    throw new Error(`${label}: dead target clutter visible ${JSON.stringify(clutter)}`);
   }
 }
 

@@ -443,6 +443,10 @@ button {
   gap: 0.375rem;
 }
 
+.target-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .tool-button,
 .segmented button,
 .ghost-action {
