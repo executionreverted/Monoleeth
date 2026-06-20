@@ -796,6 +796,42 @@ async function verifyFogOfWar(page, label) {
   }
 }
 
+async function verifySquareProjectionCornerRadarContact(page, label) {
+  await page.waitForFunction(
+    () => document.querySelector('.minimap__point[data-entity-id="npc-corner-01"][data-entity-type="npc"]') instanceof HTMLElement,
+    null,
+    { timeout: 10000 },
+  );
+  const corner = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const point = document.querySelector('.minimap__point[data-entity-id="npc-corner-01"][data-entity-type="npc"]');
+    const contact = state?.minimap?.live_contacts?.find((entry) => entry.entity_id === 'npc-corner-01');
+    const self = state?.minimap?.live_contacts?.find((entry) => entry.status_flags?.includes('self'));
+    return {
+      rendered: point instanceof HTMLElement,
+      left: point instanceof HTMLElement ? point.style.left : '',
+      top: point instanceof HTMLElement ? point.style.top : '',
+      projectionWindow: state?.minimap?.projection_window_size ?? null,
+      radarRange: state?.minimap?.radar_range ?? null,
+      contact,
+      circleDistance: Math.hypot(
+        (contact?.position?.x ?? 0) - (self?.position?.x ?? 0),
+        (contact?.position?.y ?? 0) - (self?.position?.y ?? 0),
+      ),
+    };
+  });
+  if (
+    !corner.rendered ||
+    corner.left !== '96%' ||
+    corner.top !== '96%' ||
+    corner.projectionWindow !== 2000 ||
+    corner.radarRange !== 1000 ||
+    corner.circleDistance <= 1000
+  ) {
+    throw new Error(`${label}: square projection corner radar contact failed ${JSON.stringify(corner)}`);
+  }
+}
+
 async function verifyQuickActionContracts(page, viewport, label) {
   await page.waitForFunction(() => document.querySelectorAll('.hud__actionbar [data-quick-action]').length === 6, null, {
     timeout: 10000,
@@ -1685,16 +1721,18 @@ async function verifyFixtureViewport(viewport, label) {
           state?.selectedTargetID === null &&
           !state?.visibleEntities?.['npc-rake-01'] &&
           !state?.visibleEntities?.['loot-scrap-01'] &&
-          ids.join(',') === 'player-local,signal-eris-04' &&
+          ids.join(',') === 'npc-corner-01,player-local,signal-eris-04' &&
           self?.position?.x === 40 &&
           self?.position?.y === -220 &&
           state?.minimap?.radar_range === 1000 &&
           state?.minimap?.projection_window_size === 2000 &&
           state?.minimap?.remembered?.some((memory) => memory.planet_id === 'planet-memory-01' && memory.detail_id === 'planet-memory-01') &&
           !document.querySelector('.minimap__point[data-entity-id="npc-rake-01"]') &&
+          document.querySelector('.minimap__point[data-entity-id="npc-corner-01"]') instanceof HTMLElement &&
           document.querySelector('.minimap__memory[data-planet-id="planet-memory-01"]') instanceof HTMLElement
         );
       }, null, { timeout: 10000 });
+      await verifySquareProjectionCornerRadarContact(page, label);
     }
 
     if (label === 'fixture-desktop') {
@@ -3697,6 +3735,13 @@ function replacementSnapshotWithoutMinimapPayload() {
         display: { label: 'Unknown Signal', disposition: 'unknown' },
         position: { x: 260, y: 150 },
         status_flags: ['known_intel'],
+      },
+      {
+        entity_id: 'npc-corner-01',
+        entity_type: 'npc',
+        display: { label: 'Corner Drone', disposition: 'hostile' },
+        position: { x: 1040, y: 780 },
+        status_flags: ['visible', 'hostile'],
       },
     ],
   };

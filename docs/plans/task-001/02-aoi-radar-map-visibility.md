@@ -259,6 +259,11 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
   `minimap.remembered` with unclipped coordinates and no matching
   `live_contacts` entry; the client filters remembered minimap points to the
   current projection window while preserving world-map memory markers.
+- Client projection helper coverage proves a contact at `+1000,+1000` is inside
+  the square `2000x2000` projection even though it is outside a strict
+  1000-unit circular radius. Fixture browser smoke renders that corner contact
+  as a deterministic radar point and continues to keep far remembered intel off
+  radar.
 
 ## Acceptance Criteria
 
@@ -289,7 +294,7 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
 - [x] Far remembered planets do not clamp into fake nearby radar contacts.
 - [ ] Stale, invalidated, and wrong-zone remembered intel have explicit render
       and click behavior.
-- [ ] Square projection and circular radar semantics are documented and tested,
+- [x] Square projection and circular radar semantics are documented and tested,
       including corner contacts.
 
 ## Verification

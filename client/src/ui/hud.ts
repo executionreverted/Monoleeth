@@ -1,6 +1,6 @@
 import { ClientState } from '../state/types';
 import { activeEntityMovement, currentEntityPosition, distanceBetween, selfEntity } from '../state/movement';
-import { isWithinMinimapProjectionWindow } from '../state/world-memory';
+import { isWithinMinimapProjectionWindow, minimapPointPercent } from '../state/world-memory';
 import { markHUDInputSuppressed, pointerTargetOwnsUI, worldKeyboardShortcutAllowed } from '../input/world-input-authority';
 import { renderToast } from './toast';
 import capacityIconURL from '../../../output/assets/hud-svg/icons/capacity.svg?url';
@@ -2872,23 +2872,27 @@ function minimapPanel(state: ClientState): string {
   const projectionHalfExtent = Math.max((state.minimap.projection_window_size ?? radius * 2) / 2, 1);
   const points = contacts
     .map((contact) => {
-      const left = clamp(50 + ((contact.position.x - center.x) / (radius * 2)) * 100, 4, 96);
-      const top = clamp(50 + ((contact.position.y - center.y) / (radius * 2)) * 100, 4, 96);
+      const point = minimapPointPercent(center, contact.position, radius);
+      if (!point) {
+        return '';
+      }
       const disposition = contact.status_flags?.includes('self') ? 'self' : contact.disposition || dispositionForType(contact.entity_type);
       const action = contact.entity_type === 'loot' ? 'loot-select' : 'target-select';
-      return `<button class="minimap__point" type="button" data-action="${action}" data-target-source="radar" data-kind="${escapeHTML(disposition)}" data-entity-id="${escapeHTML(contact.entity_id)}" data-entity-type="${escapeHTML(contact.entity_type)}" style="left:${left}%;top:${top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></button>`;
+      return `<button class="minimap__point" type="button" data-action="${action}" data-target-source="radar" data-kind="${escapeHTML(disposition)}" data-entity-id="${escapeHTML(contact.entity_id)}" data-entity-type="${escapeHTML(contact.entity_type)}" style="left:${point.left}%;top:${point.top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></button>`;
     })
     .join('');
   const memoryPoints = memories
     .filter((memory) => isWithinMinimapProjectionWindow(center, memory.position, projectionHalfExtent))
     .map((memory) => {
-      const left = clamp(50 + ((memory.position.x - center.x) / (radius * 2)) * 100, 4, 96);
-      const top = clamp(50 + ((memory.position.y - center.y) / (radius * 2)) * 100, 4, 96);
+      const point = minimapPointPercent(center, memory.position, radius);
+      if (!point) {
+        return '';
+      }
       const planetID = memory.detail_id || memory.planet_id || '';
       const action = planetID ? ' data-action="planet-detail"' : '';
       const planet = planetID ? ` data-planet-id="${escapeHTML(planetID)}"` : '';
       const disabled = planetID ? '' : ' disabled';
-      return `<button class="minimap__memory" type="button"${action}${planet}${disabled} data-kind="${escapeHTML(memory.kind)}" data-freshness="${escapeHTML(memory.freshness)}" style="left:${left}%;top:${top}%" title="${escapeHTML(memory.label || memory.kind)}"></button>`;
+      return `<button class="minimap__memory" type="button"${action}${planet}${disabled} data-kind="${escapeHTML(memory.kind)}" data-freshness="${escapeHTML(memory.freshness)}" style="left:${point.left}%;top:${point.top}%" title="${escapeHTML(memory.label || memory.kind)}"></button>`;
     })
     .join('');
 

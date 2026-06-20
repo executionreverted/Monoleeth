@@ -1,5 +1,11 @@
 import type { ClientState, PlanetDetailSummary, WorldMapMemoryMarker } from './types';
 
+export interface MinimapPointPercent {
+  left: number;
+  top: number;
+  clamped: boolean;
+}
+
 export function worldMapMemoryMarkers(state: ClientState): WorldMapMemoryMarker[] {
   const markers = new Map<string, WorldMapMemoryMarker>();
   const planet = state.planetIntel?.selectedPlanet;
@@ -35,6 +41,25 @@ export function isWithinMinimapProjectionWindow(
   return Math.abs(position.x - center.x) <= halfExtent && Math.abs(position.y - center.y) <= halfExtent;
 }
 
+export function minimapPointPercent(
+  center: { x: number; y: number },
+  position: { x: number; y: number },
+  radarRange: number,
+): MinimapPointPercent | null {
+  if (!isFiniteVec(center) || !isFiniteVec(position) || !Number.isFinite(radarRange) || radarRange <= 0) {
+    return null;
+  }
+  const rawLeft = 50 + ((position.x - center.x) / (radarRange * 2)) * 100;
+  const rawTop = 50 + ((position.y - center.y) / (radarRange * 2)) * 100;
+  const left = clampPercent(rawLeft);
+  const top = clampPercent(rawTop);
+  return {
+    left,
+    top,
+    clamped: left !== rawLeft || top !== rawTop,
+  };
+}
+
 function planetMemoryMarker(planet: PlanetDetailSummary, coordinates: { x: number; y: number }): WorldMapMemoryMarker {
   return {
     id: `known_planet:${planet.planet_id}`,
@@ -63,4 +88,8 @@ function publicPlanetName(planet: Pick<PlanetDetailSummary, 'planet_type' | 'bio
   const type = planet.planet_type ? planet.planet_type.replace(/_/g, ' ') : 'planet';
   const biome = planet.biome ? planet.biome.replace(/_/g, ' ') : 'unknown';
   return `${type} / ${biome}`;
+}
+
+function clampPercent(value: number): number {
+  return Math.min(Math.max(value, 4), 96);
 }
