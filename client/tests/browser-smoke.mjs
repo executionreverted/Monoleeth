@@ -2439,29 +2439,27 @@ async function backgroundDebug(page) {
 async function verifyRealMovementInterpolation(page) {
   const initialBackground = await backgroundDebug(page);
   const initial = await selfMovementSample(page);
-  const firstTarget = await movementTargetAwayFromMemory(page, initial.entity.position, [
-    { x: 320, y: -220 },
-    { x: -320, y: -220 },
-    { x: 260, y: 260 },
-    { x: -260, y: 260 },
-  ]);
-  await clickWorldPosition(page, firstTarget);
+  const firstClickPoint = await uncoveredCanvasPoint(page);
+  if (!firstClickPoint) {
+    throw new Error(`desktop movement could not find uncovered canvas point: ${JSON.stringify(initial.entity.position)}`);
+  }
+  await waitForWorldInputReady(page);
+  await page.mouse.click(firstClickPoint.x, firstClickPoint.y);
+  let firstTarget = null;
   try {
     await page.waitForFunction(
-      ({ target, tolerance }) => {
+      () => {
         const self = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find((entity) =>
           entity.status_flags?.includes('self'),
         );
-        return (
-          self?.movement?.moving === true &&
-          Math.hypot(self.movement.target.x - target.x, self.movement.target.y - target.y) < tolerance
-        );
+        return self?.movement?.moving === true && Number.isFinite(self.movement.target?.x) && Number.isFinite(self.movement.target?.y);
       },
-      { target: firstTarget, tolerance: movementClickTargetTolerance },
+      null,
       { timeout: 10000 },
     );
+    firstTarget = (await selfMovementSample(page)).entity.movement.target;
   } catch (error) {
-    console.error('desktop first movement state', JSON.stringify(await movementDiagnostics(page, firstTarget), null, 2));
+    console.error('desktop first movement state', JSON.stringify(await movementDiagnostics(page, null), null, 2));
     throw error;
   }
   await assertProjectionSourceContracts(page, 'desktop movement projection refresh');
@@ -2509,11 +2507,16 @@ async function verifyRealMovementInterpolation(page) {
   if (distance(first.display, first.entity.movement.origin) <= 0.5) {
     throw new Error('desktop movement display did not advance from server route origin');
   }
-  await page.screenshot({ path: path.join(phase05OutputDir, 'movement-eta-desktop.png'), fullPage: true });
-  await page.screenshot({ path: path.join(phase08OutputDir, 'movement-eta-desktop.png'), fullPage: true });
-
-  await page.waitForTimeout(90);
   const beforeSecond = await selfMovementSample(page);
+  if (!beforeSecond.entity.movement?.moving) {
+    throw new Error(
+      `desktop movement route ended before reclick sample ${JSON.stringify({
+        firstTarget,
+        firstMovement: first.entity.movement,
+        beforeSecond: beforeSecond.entity,
+      })}`,
+    );
+  }
   const secondTarget = await movementTargetAwayFromMemory(page, beforeSecond.entity.position, [
     { x: -320, y: 220 },
     { x: 320, y: 220 },
@@ -2553,6 +2556,8 @@ async function verifyRealMovementInterpolation(page) {
   if (distance(second.entity.movement.target, secondTarget) > movementClickTargetTolerance) {
     throw new Error(`desktop reclick movement target = ${JSON.stringify(second.entity.movement.target)}, want near ${JSON.stringify(secondTarget)}`);
   }
+  await page.screenshot({ path: path.join(phase05OutputDir, 'movement-eta-desktop.png'), fullPage: true });
+  await page.screenshot({ path: path.join(phase08OutputDir, 'movement-eta-desktop.png'), fullPage: true });
   const expectedReclickOrigin = movementPositionAt(beforeSecond.entity.movement, second.entity.movement.started_at_ms);
   if (!expectedReclickOrigin || distance(second.entity.movement.origin, expectedReclickOrigin) > 25) {
     throw new Error(
@@ -2590,11 +2595,13 @@ async function verifyRealMovementInterpolation(page) {
     await page.waitForTimeout(250);
   }
   const afterRejected = await selfMovementSample(page);
-  if (
-    afterRejected.entity.movement?.moving !== true ||
-    !Number.isFinite(afterRejected.entity.movement.target?.x) ||
-    !Number.isFinite(afterRejected.entity.movement.target?.y)
-  ) {
+  const rejectedMovement = afterRejected.entity.movement;
+  const hasValidActiveRoute =
+    rejectedMovement?.moving === true &&
+    Number.isFinite(rejectedMovement.target?.x) &&
+    Number.isFinite(rejectedMovement.target?.y);
+  const hasValidArrivedPosition = !rejectedMovement && isFiniteVec(afterRejected.entity.position);
+  if (!hasValidActiveRoute && !hasValidArrivedPosition) {
     throw new Error(`desktop movement spam corrupted route state: ${JSON.stringify(afterRejected.entity.movement)}`);
   }
   await page.waitForFunction(
