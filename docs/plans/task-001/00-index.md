@@ -20,6 +20,8 @@ server-ownership, UI layout, and verification gates.
 
 ```text
 docs/plans/task-001-goal.md
+docs/plans/task-001/task-001-status-report-2026-06-21.md
+docs/plans/task-001/browser-e2e-rebuild-plan.md
 output/mockups/final-mockup.png
 output/mockups/darkorbit-magaza-ornek-mockup.png
 output/mockups/darkorbit-envanter-ornek-layout.png
@@ -108,6 +110,22 @@ coverage must be rebuilt as small per-flow files under a dedicated test harness;
 in phase notes are historical or future acceptance targets until that harness is
 rebuilt.
 
+See [`browser-e2e-rebuild-plan.md`](./browser-e2e-rebuild-plan.md).
+
+## Current Task State - 2026-06-21
+
+Current checklist state is
+[`task-001-status-report-2026-06-21.md`](./task-001-status-report-2026-06-21.md).
+
+Summary:
+
+- Task 001 is not complete.
+- Phase checklist progress is `137 / 227 = 60.4%`.
+- Browser/e2e release proof is absent until the per-flow harness is rebuilt.
+- Primary execution spine is Phase 05 -> Phase 07 -> Phase 08 -> Phase 11.
+- Phase 06, Phase 03, and Phase 04 side gates must close before Phase 11 can
+  honestly pass.
+
 ## Subagent Review Pass - 2026-06-20
 
 Fresh read-only subagents reviewed Task 001 by phase group and cross-checked
@@ -138,9 +156,10 @@ Key additions from the review:
 - Phase 06, Phase 08, and Phase 09 need stronger backend/UI contracts for
   display metadata, idempotency, planet storage/routes, quest passive events,
   and smoke coverage for real buttons instead of disabled placeholder clutter.
-- Phase 11 must move smoke artifacts to `output/screenshots/task-001/`, remove
-  old `radar_range === 420` and active-fog expectations, and assert forbidden
-  debug copy in visible text, `title`, and `aria-label`.
+- Phase 11 must move future browser/e2e artifacts to
+  `output/screenshots/task-001/`, remove old `radar_range === 420` and
+  active-fog expectations, and assert forbidden debug copy in visible text,
+  `title`, and `aria-label`.
 
 ## Second Subagent Review Pass - 2026-06-20
 
@@ -258,10 +277,11 @@ Fourth-pass findings to preserve:
   payload parity, inbound and outbound route display metadata, planet actions
   driven by server `available_commands` or `can_*` state, and quest expiry/reset
   contracts with stale-board smoke.
-- Phase 11 needs a current-run manifest, `check:task-001` artifact gate, hard
-  phase-closure table, real-server provenance for screenshots, negative debug
-  WebSocket smoke, three-session witness interaction smoke, and visual parity
-  contact sheets instead of file-existence-only proof.
+- Phase 11 needs a future per-flow browser/e2e harness, current-run manifest,
+  task-specific artifact gate, hard phase-closure table, real-server
+  provenance for screenshots, negative debug WebSocket coverage, three-session
+  witness interaction coverage, and visual parity contact sheets instead of
+  file-existence-only proof.
 
 ## User Issue Coverage
 
@@ -322,7 +342,9 @@ must not manage Symphony, and must not commit.
 - Unsupported actions are absent, quiet, or locked with player-facing game copy.
 - Do not show internal implementation copy to players.
 - Newly enabled mutations must include server validation, protocol command,
-  handler, reducer reconciliation, tests, and browser smoke in the same slice.
+  handler, reducer reconciliation, and targeted tests in the same slice.
+  Browser/e2e coverage must be added through the future small per-flow harness,
+  not a new monolith.
 - Every phase inherits the goal requirement to read `docs/todo.md` before
   implementation, even when its local reading list is shorter.
 - UI state may hold presentation state only: tabs, selection, windows, drag
@@ -331,18 +353,20 @@ must not manage Symphony, and must not commit.
 
 ## Verification Commands
 
-Use narrow commands while implementing. Before final handoff:
+Use narrow commands while implementing. Current interim verification before
+handoff:
 
 ```bash
 GOCACHE=/tmp/gameproject-go-cache go test ./...
 cd client
 npm --cache /tmp/gameproject-npm-cache run check
-npm --cache /tmp/gameproject-npm-cache run check:task-001
 cd ..
 git diff --check
-find output/screenshots/task-001 -maxdepth 1 -type f | sort
-node client/tests/verify-task-001-artifacts.mjs
 ```
+
+The Phase 11 final release gate must restore task-specific browser/e2e and
+artifact verification after
+[`browser-e2e-rebuild-plan.md`](./browser-e2e-rebuild-plan.md) is implemented.
 
 UI screenshots for this task should live under:
 
@@ -357,5 +381,6 @@ output/screenshots/task-001/
 - Full verification passes.
 - Desktop/tablet/mobile screenshots show visible progress toward the mockups.
 - No client fake data or debug/internal player copy remains in normal player UI.
-- Final smoke artifact policy is enforced by script, not manual `find`: exact
-  `output/screenshots/task-001/*` set, non-empty files, and current-run mtime.
+- Final browser/e2e artifact policy is enforced by script, not manual `find`:
+  exact `output/screenshots/task-001/*` set, non-empty files, and current-run
+  mtime.

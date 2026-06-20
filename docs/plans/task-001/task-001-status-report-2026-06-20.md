@@ -1,5 +1,10 @@
 # Task 001 Status Report - 2026-06-20
 
+Superseded by
+[`task-001-status-report-2026-06-21.md`](./task-001-status-report-2026-06-21.md).
+This file is historical and still records the state seen on 2026-06-20, but it
+must not be used as the current Task 001 execution state.
+
 ## Summary
 
 Task001 is not done.

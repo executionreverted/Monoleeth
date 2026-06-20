@@ -200,6 +200,11 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+Note: completed items below that cite `client/tests/browser-smoke.mjs` are
+historical evidence only. That monolithic file was deleted in `27fb02c`; current
+Task 001 release proof must be rebuilt through
+`docs/plans/task-001/browser-e2e-rebuild-plan.md`.
+
 - [x] Add a browser-level revoked-session/auth-expiry smoke scenario for Task
   001 Phase 01. Browser smoke now externally revokes a live authenticated
   session, sends `world.snapshot` over the still-open WebSocket, observes the
