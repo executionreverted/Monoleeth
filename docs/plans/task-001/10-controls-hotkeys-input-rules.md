@@ -213,6 +213,16 @@ internal/game/server/handlers.go
 - Browser smoke covers a server-spawned loot contact after combat: minimap
   click selects the drop while emitting zero `move_to` and zero `loot.pickup`,
   then a normal world/canvas loot click still gathers the same drop.
+- Focused standalone HUD controls, such as nav/quick/topbar buttons, now share
+  the same world-input authority as windows and modals after the short
+  suppression timer expires. The renderer swallows the first canvas click,
+  releases transient HUD control focus, and requires a later explicit world
+  click before movement can resume.
+- Browser smoke now runs moving HUD window/modal isolation on desktop, tablet,
+  and mobile. Tablet uses touch-pointer drag under the desktop window policy;
+  mobile asserts bottom-sheet/non-draggable header policy. Delayed canvas clicks
+  after window/modal focus, drag/touch, and standalone HUD focus must emit zero
+  `move_to` and zero new movement debug logs.
 
 ## Likely Files
 
@@ -247,8 +257,8 @@ docs/plans/task-001/10-controls-hotkeys-input-rules.md
 - [ ] WASD decision documents tap/hold semantics, diagonal behavior, throttle,
       keyup behavior, and `move_to` vs `movement.set_input`.
 - [ ] `stop` and any new movement input op have rate-limit posture.
-- [ ] Modals/windows can open, drag, close, and click while ship is moving.
-- [ ] Modal/window/HUD clicks do not send `move_to`.
+- [x] Modals/windows can open, drag, close, and click while ship is moving.
+- [x] Modal/window/HUD clicks do not send `move_to`.
 - [x] World reclick movement starts from the server-timed in-flight position
       instead of a stale snapshot/tick origin.
 - [x] Radar contact click selects/opens detail for hostile NPC contacts,
@@ -264,7 +274,7 @@ docs/plans/task-001/10-controls-hotkeys-input-rules.md
       loot, remembered planet, and empty radar. Current coverage includes
       hostile NPC, remembered planet, and server-spawned loot; hostile player
       and empty radar no-op remain open.
-- [ ] Browser smoke covers moving plus modal/window click/drag/touch isolation
+- [x] Browser smoke covers moving plus modal/window click/drag/touch isolation
       on desktop, tablet, and mobile.
 
 ## Verification

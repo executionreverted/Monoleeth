@@ -150,6 +150,11 @@ client/tests/browser-smoke.mjs
   modal body/backdrop, and asserts neither `Sent move_to.` nor movement debug
   logs change. Tutorial modal close button, Escape, and backdrop close now
   return focus to the Shop `?` opener after HUD re-render.
+- Moving-state browser smoke now covers HUD window/modal isolation across
+  desktop, tablet, and mobile. Tablet verifies touch-pointer drag against the
+  desktop window policy; mobile verifies bottom-sheet/non-draggable headers.
+  Delayed canvas clicks after window/modal drag/touch and standalone HUD focus
+  must not leak movement commands or movement debug logs.
 
 ## Implementation Plan
 
@@ -224,9 +229,9 @@ docs/plans/task-001/04-hud-modal-tutorial-window-system.md
       `Aim`/`Fire`/`Gather`, and disabled future planet primary buttons.
 - [ ] Modal focus trap, focus return, Escape close, backdrop close, and delayed
       modal/window canvas-click leak checks are covered by browser smoke.
-- [ ] Mobile/tablet window behavior is explicit: either touch-draggable with
+- [x] Mobile/tablet window behavior is explicit: either touch-draggable with
       bounds or bottom-sheet non-draggable with no fake drag affordance.
-- [ ] Moving plus modal/window click/drag/touch isolation is smoke-tested on
+- [x] Moving plus modal/window click/drag/touch isolation is smoke-tested on
       desktop, tablet, and mobile.
 - [ ] Palette is closer to black/white monochrome with restrained accents.
 - [x] Browser smoke checks no horizontal overflow on desktop/tablet/mobile.

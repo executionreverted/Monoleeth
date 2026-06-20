@@ -212,7 +212,11 @@ try {
 }
 
 async function verifyRealViewport(viewport, label) {
-  const page = await browser.newPage({ viewport });
+  const page = await browser.newPage({
+    viewport,
+    hasTouch: label === 'mobile' || label === 'tablet',
+    isMobile: label === 'mobile',
+  });
   const suffix = `${Date.now()}-${label}`.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
   const email = `smoke-${suffix}@example.com`;
   const password = 'correct-password';
@@ -351,6 +355,10 @@ async function verifyRealViewport(viewport, label) {
     await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
     await page.screenshot({ path: path.join(phase07OutputDir, `live-${label}.png`), fullPage: true });
     await page.screenshot({ path: path.join(phase08OutputDir, `live-${label}.png`), fullPage: true });
+
+    if (label !== 'desktop') {
+      await verifyHudInputIsolationDuringMovement(page, viewport, label);
+    }
 
     if (label === 'desktop') {
       await verifyReconnectReconciliation(page, callsign);
@@ -1054,33 +1062,31 @@ async function verifyQuickActionContracts(page, viewport, label) {
     { timeout: 10000 },
   );
 
-  if (label === 'desktop') {
-    await page.locator('[data-panel-toggle="cargo"]').click();
-    await page.waitForSelector('[data-window-panel="cargo"][data-focused="true"]', { timeout: 10000 });
-    await page.locator('[data-window-panel="cargo"]').focus();
-    const sentBeforeFocus = await commandLogSentCount(page);
-    const targetBeforeFocusTab = await selectedTargetID(page);
-    const windowTabPrevented = await page.evaluate(() => {
-      return !window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
-    });
-    if (windowTabPrevented) {
-      throw new Error(`${label}: Tab was consumed while a HUD window owned focus`);
-    }
-    await page.waitForTimeout(120);
-    const targetAfterFocusTab = await selectedTargetID(page);
-    if (targetAfterFocusTab !== targetBeforeFocusTab) {
-      throw new Error(`${label}: Tab changed target while a HUD window owned focus`);
-    }
-    await page.keyboard.press('3');
-    await page.keyboard.press('1');
-    await page.waitForTimeout(120);
-    const sentAfterFocus = await commandLogSentCount(page);
-    if (sentAfterFocus !== sentBeforeFocus) {
-      throw new Error(`${label}: quick action shortcut fired while a HUD window owned focus`);
-    }
-    await page.locator('[data-window-panel="cargo"] [data-panel-close="cargo"]').click();
-    await page.waitForFunction(() => !document.querySelector('[data-window-panel="cargo"]'), null, { timeout: 10000 });
+  await page.locator('[data-panel-toggle="cargo"]').click();
+  await page.waitForSelector('[data-window-panel="cargo"][data-focused="true"]', { timeout: 10000 });
+  await page.locator('[data-window-panel="cargo"]').focus();
+  const sentBeforeFocus = await commandLogSentCount(page);
+  const targetBeforeFocusTab = await selectedTargetID(page);
+  const windowTabPrevented = await page.evaluate(() => {
+    return !window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+  });
+  if (windowTabPrevented) {
+    throw new Error(`${label}: Tab was consumed while a HUD window owned focus`);
   }
+  await page.waitForTimeout(120);
+  const targetAfterFocusTab = await selectedTargetID(page);
+  if (targetAfterFocusTab !== targetBeforeFocusTab) {
+    throw new Error(`${label}: Tab changed target while a HUD window owned focus`);
+  }
+  await page.keyboard.press('3');
+  await page.keyboard.press('1');
+  await page.waitForTimeout(120);
+  const sentAfterFocus = await commandLogSentCount(page);
+  if (sentAfterFocus !== sentBeforeFocus) {
+    throw new Error(`${label}: quick action shortcut fired while a HUD window owned focus`);
+  }
+  await page.locator('[data-window-panel="cargo"] [data-panel-close="cargo"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-window-panel="cargo"]'), null, { timeout: 10000 });
 
   await page.screenshot({ path: path.join(phase03OutputDir, `quick-actions-${label}.png`), fullPage: true });
   if (viewport.width < 768) {
@@ -2289,21 +2295,24 @@ async function verifyRealMovementInterpolation(page) {
     null,
     { timeout: 10000 },
   );
-  await verifyHudInputIsolationDuringMovement(page);
+  await verifyHudInputIsolationDuringMovement(page, { width: 1440, height: 900 }, 'desktop');
 }
 
-async function verifyHudInputIsolationDuringMovement(page) {
+async function verifyHudInputIsolationDuringMovement(page, viewport, label) {
   await page.waitForTimeout(1200);
   const initial = await selfMovementSample(page);
-  const target = await movementTargetAwayFromMemory(page, initial.entity.position, [
+  const target = await clickableMovementTargetAwayFromMemory(page, initial.entity.position, [
     { x: 340, y: -210 },
     { x: -340, y: -210 },
     { x: 300, y: 240 },
     { x: -300, y: 240 },
+    { x: 190, y: -120 },
+    { x: -190, y: -120 },
+    { x: 180, y: 150 },
+    { x: -180, y: 150 },
   ]);
   await clickWorldPosition(page, target);
   await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.movementEta?.active === true, null, { timeout: 3000 });
-  const moveBefore = await commandLogCount(page, 'Sent move_to.');
   const skillBefore = await commandLogCount(page, 'Sent combat.use_skill.');
 
   for (const panel of ['cargo', 'systems', 'quests', 'intel', 'economy']) {
@@ -2317,38 +2326,66 @@ async function verifyHudInputIsolationDuringMovement(page) {
   await page.waitForTimeout(80);
   const skillAfterWindowKey = await commandLogCount(page, 'Sent combat.use_skill.');
   if (skillAfterWindowKey !== skillBefore) {
-    throw new Error('desktop movement HUD window focus allowed a quick action command');
+    throw new Error(`${label} movement HUD window focus allowed a quick action command`);
   }
-  const moveDebugBeforeWindowCanvas = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
-  await page.waitForTimeout(350);
+  const targetBeforeWindowTab = await selectedTargetID(page);
+  const windowTabPrevented = await page.evaluate(() => {
+    return !window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+  });
+  if (windowTabPrevented) {
+    throw new Error(`${label} movement HUD window focus consumed native Tab`);
+  }
+  await page.waitForTimeout(80);
+  const targetAfterWindowTab = await selectedTargetID(page);
+  if (targetAfterWindowTab !== targetBeforeWindowTab) {
+    throw new Error(`${label} movement HUD window focus changed target on Tab`);
+  }
+  await waitForWorldInputReady(page);
   const windowBlockedCanvasPoint = await uncoveredCanvasPoint(page);
   if (!windowBlockedCanvasPoint) {
-    throw new Error('desktop movement could not find uncovered canvas point while HUD windows were open');
+    throw new Error(`${label} movement could not find uncovered canvas point while HUD windows were open`);
   }
-  await page.mouse.click(windowBlockedCanvasPoint.x, windowBlockedCanvasPoint.y);
-  await page.waitForTimeout(120);
-  const moveAfterWindowCanvas = await commandLogCount(page, 'Sent move_to.');
-  if (moveAfterWindowCanvas !== moveBefore) {
-    throw new Error('desktop movement focused HUD window canvas click leaked into move_to after suppression timeout');
-  }
-  const moveDebugAfterWindowCanvas = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
-  if (moveDebugAfterWindowCanvas !== moveDebugBeforeWindowCanvas) {
-    throw new Error('desktop movement focused HUD window canvas click changed move debug log after suppression timeout');
-  }
+  await assertNoMoveDuring(page, label, 'movement focused HUD window canvas click after suppression timeout', async () => {
+    await page.mouse.click(windowBlockedCanvasPoint.x, windowBlockedCanvasPoint.y);
+  });
 
   const beforeDrag = await windowRect(page, 'economy');
   const header = await page.locator('[data-window-panel="economy"] .hud-window__header').boundingBox();
   if (!beforeDrag || !header) {
-    throw new Error('desktop movement economy window was not draggable');
+    throw new Error(`${label} movement economy window header was not measurable`);
   }
-  await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(header.x + header.width / 2 + 72, header.y + header.height / 2 + 36, { steps: 5 });
-  await page.mouse.up();
+  if (viewport.width >= 768) {
+    if (label === 'tablet') {
+      await dispatchElementPointerDrag(page, '[data-window-panel="economy"] .hud-window__header', 72, 36, 'touch');
+    } else {
+      await page.mouse.move(header.x + header.width / 2, header.y + header.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(header.x + header.width / 2 + 72, header.y + header.height / 2 + 36, { steps: 5 });
+      await page.mouse.up();
+    }
+  } else {
+    await assertMobileBottomSheetHeader(page, '[data-window-panel="economy"] .hud-window__header', `${label} movement economy window`);
+    await dispatchElementPointerDrag(page, '[data-window-panel="economy"] .hud-window__header', 72, 36, 'touch');
+  }
   const afterDrag = await windowRect(page, 'economy');
-  if (!afterDrag || Math.hypot(afterDrag.left - beforeDrag.left, afterDrag.top - beforeDrag.top) < 25) {
-    throw new Error('desktop movement economy window did not drag while moving');
+  if (!afterDrag) {
+    throw new Error(`${label} movement economy window disappeared after drag check`);
   }
+  const windowDragDistance = Math.hypot(afterDrag.left - beforeDrag.left, afterDrag.top - beforeDrag.top);
+  if (viewport.width >= 768 && windowDragDistance < 25) {
+    throw new Error(`${label} movement economy window did not drag while moving`);
+  }
+  if (viewport.width < 768 && windowDragDistance > 2) {
+    throw new Error(`${label} movement mobile bottom-sheet window moved despite non-draggable policy`);
+  }
+  await waitForWorldInputReady(page);
+  const postWindowDragCanvasPoint = await uncoveredCanvasPoint(page);
+  if (!postWindowDragCanvasPoint) {
+    throw new Error(`${label} movement could not find uncovered canvas point after HUD window drag/touch`);
+  }
+  await assertNoMoveDuring(page, label, 'movement HUD window drag/touch delayed canvas click', async () => {
+    await page.mouse.click(postWindowDragCanvasPoint.x, postWindowDragCanvasPoint.y);
+  });
 
   await page.locator('[data-window-panel="economy"] [data-modal-open="tutorial"][data-help-topic="shop"]').click();
   await page.waitForSelector('[data-modal="tutorial"][role="dialog"] [data-help-topic="shop"]', { timeout: 10000 });
@@ -2357,66 +2394,183 @@ async function verifyHudInputIsolationDuringMovement(page) {
   await page.waitForTimeout(80);
   const skillAfterModalKey = await commandLogCount(page, 'Sent combat.use_skill.');
   if (skillAfterModalKey !== skillBefore) {
-    throw new Error('desktop movement modal focus allowed a quick action command');
+    throw new Error(`${label} movement modal focus allowed a quick action command`);
   }
   const targetBeforeModalTab = await selectedTargetID(page);
   const modalTabPrevented = await page.evaluate(() => {
     return !window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
   });
   if (modalTabPrevented) {
-    throw new Error('desktop movement modal focus consumed native Tab');
+    throw new Error(`${label} movement modal focus consumed native Tab`);
   }
   await page.waitForTimeout(80);
   const targetAfterModalTab = await selectedTargetID(page);
   if (targetAfterModalTab !== targetBeforeModalTab) {
-    throw new Error('desktop movement modal focus changed target on Tab');
+    throw new Error(`${label} movement modal focus changed target on Tab`);
   }
-  const moveDebugBeforeModalCanvas = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
-  await page.waitForTimeout(350);
+  await waitForWorldInputReady(page);
   const modalBlockedCanvasPoint = await canvasProbePoint(page);
   if (!modalBlockedCanvasPoint) {
-    throw new Error('desktop movement could not resolve canvas point while modal was open');
+    throw new Error(`${label} movement could not resolve canvas point while modal was open`);
   }
-  await dispatchCanvasClickAtPoint(page, modalBlockedCanvasPoint);
-  await page.waitForTimeout(120);
-  const moveAfterModalCanvas = await commandLogCount(page, 'Sent move_to.');
-  if (moveAfterModalCanvas !== moveBefore) {
-    throw new Error('desktop movement focused modal canvas click leaked into move_to after suppression timeout');
-  }
-  const moveDebugAfterModalCanvas = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
-  if (moveDebugAfterModalCanvas !== moveDebugBeforeModalCanvas) {
-    throw new Error('desktop movement focused modal canvas click changed move debug log after suppression timeout');
-  }
+  await assertNoMoveDuring(page, label, 'movement focused modal canvas click after suppression timeout', async () => {
+    await dispatchCanvasClickAtPoint(page, modalBlockedCanvasPoint);
+  });
 
   const modalBefore = await page.locator('[data-modal="tutorial"]').boundingBox();
   const modalHeader = await page.locator('[data-modal="tutorial"] .hud-modal__header').boundingBox();
   if (!modalBefore || !modalHeader) {
-    throw new Error('desktop movement tutorial modal was not draggable');
+    throw new Error(`${label} movement tutorial modal header was not measurable`);
   }
-  await page.mouse.move(modalHeader.x + modalHeader.width / 2, modalHeader.y + modalHeader.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(modalHeader.x + modalHeader.width / 2 - 64, modalHeader.y + modalHeader.height / 2 + 42, { steps: 5 });
-  await page.mouse.up();
+  if (viewport.width >= 768) {
+    if (label === 'tablet') {
+      await dispatchElementPointerDrag(page, '[data-modal="tutorial"] .hud-modal__header', -64, 42, 'touch');
+    } else {
+      await page.mouse.move(modalHeader.x + modalHeader.width / 2, modalHeader.y + modalHeader.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(modalHeader.x + modalHeader.width / 2 - 64, modalHeader.y + modalHeader.height / 2 + 42, { steps: 5 });
+      await page.mouse.up();
+    }
+  } else {
+    await assertMobileNonDraggableHeader(page, '[data-modal="tutorial"] .hud-modal__header', `${label} movement tutorial modal`, {
+      requireBottomSheet: false,
+    });
+    await dispatchElementPointerDrag(page, '[data-modal="tutorial"] .hud-modal__header', -64, 42, 'touch');
+  }
   const modalAfter = await page.locator('[data-modal="tutorial"]').boundingBox();
-  if (!modalAfter || Math.hypot(modalAfter.x - modalBefore.x, modalAfter.y - modalBefore.y) < 25) {
-    throw new Error('desktop movement tutorial modal did not drag while moving');
+  if (!modalAfter) {
+    throw new Error(`${label} movement tutorial modal disappeared after drag check`);
   }
+  const modalDragDistance = Math.hypot(modalAfter.x - modalBefore.x, modalAfter.y - modalBefore.y);
+  if (viewport.width >= 768 && modalDragDistance < 25) {
+    throw new Error(`${label} movement tutorial modal did not drag while moving`);
+  }
+  if (viewport.width < 768 && modalDragDistance > 2) {
+    throw new Error(`${label} movement mobile modal moved despite non-draggable policy`);
+  }
+  await waitForWorldInputReady(page);
+  const postModalDragCanvasPoint = await canvasProbePoint(page);
+  if (!postModalDragCanvasPoint) {
+    throw new Error(`${label} movement could not resolve canvas point after modal drag/touch`);
+  }
+  await assertNoMoveDuring(page, label, 'movement modal drag/touch delayed canvas click', async () => {
+    await dispatchCanvasClickAtPoint(page, postModalDragCanvasPoint);
+  });
 
   await page.locator('[data-modal-close="button"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
   for (const panel of ['economy', 'intel', 'quests', 'systems', 'cargo']) {
+    await page.locator(`[data-panel-toggle="${panel}"]`).click();
+    await page.waitForSelector(`[data-window-panel="${panel}"][data-focused="true"]`, { timeout: 10000 });
     await page.locator(`[data-window-panel="${panel}"] [data-panel-close="${panel}"]`).click();
   }
   await page.waitForFunction(() => !document.querySelector('[data-window-panel]'), null, { timeout: 10000 });
 
   const moveBeforeRelease = await commandLogCount(page, 'Sent move_to.');
   const releaseSample = await selfMovementSample(page);
-  const releaseTarget = await movementTargetAwayFromMemory(page, releaseSample.entity.position, [{ x: 160, y: -160 }, { x: -180, y: 140 }]);
+  const releaseTarget = await clickableMovementTargetAwayFromMemory(page, releaseSample.entity.position, [
+    { x: 160, y: -160 },
+    { x: -180, y: 140 },
+    { x: 120, y: -90 },
+    { x: -120, y: 90 },
+  ]);
   await clickWorldPosition(page, releaseTarget);
   await page.waitForFunction(
     (before) => (window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? []).filter((line) => line.text === 'Sent move_to.').length > before,
     moveBeforeRelease,
     { timeout: 3000 },
+  );
+}
+
+async function assertMobileBottomSheetHeader(page, selector, label) {
+  await assertMobileNonDraggableHeader(page, selector, label, { requireBottomSheet: true });
+}
+
+async function assertMobileNonDraggableHeader(page, selector, label, { requireBottomSheet }) {
+  const headerState = await page.evaluate((headerSelector) => {
+    const header = document.querySelector(headerSelector);
+    if (!(header instanceof HTMLElement)) {
+      return null;
+    }
+    const style = window.getComputedStyle(header);
+    const panel = header.closest('.hud-window, .hud-modal');
+    const panelStyle = panel instanceof HTMLElement ? window.getComputedStyle(panel) : null;
+    const rect = panel instanceof HTMLElement ? panel.getBoundingClientRect() : null;
+    const layer = panel?.closest('.hud__window-layer');
+    const layerRect = layer instanceof HTMLElement ? layer.getBoundingClientRect() : null;
+    return {
+      cursor: style.cursor,
+      touchAction: style.touchAction,
+      panelPosition: panelStyle?.position ?? '',
+      panelBottom: panelStyle?.bottom ?? '',
+      bottom: rect?.bottom ?? null,
+      ownerBottom: layerRect?.bottom ?? window.innerHeight,
+    };
+  }, selector);
+  if (
+    !headerState ||
+    headerState.cursor !== 'default' ||
+    headerState.touchAction !== 'pan-y' ||
+    headerState.panelPosition !== 'absolute' ||
+    (requireBottomSheet &&
+      (headerState.panelBottom !== '0px' ||
+        !Number.isFinite(headerState.bottom) ||
+        !Number.isFinite(headerState.ownerBottom) ||
+        Math.abs(headerState.bottom - headerState.ownerBottom) > 2))
+  ) {
+    throw new Error(`${label} mobile non-draggable header policy mismatch ${JSON.stringify(headerState)}`);
+  }
+}
+
+async function dispatchElementPointerDrag(page, selector, deltaX, deltaY, pointerType) {
+  await page.evaluate(
+    ({ targetSelector, dx, dy, type }) => {
+      const element = document.querySelector(targetSelector);
+      if (!(element instanceof HTMLElement)) {
+        throw new Error(`Missing drag target ${targetSelector}`);
+      }
+      const rect = element.getBoundingClientRect();
+      const startX = rect.left + rect.width / 2;
+      const startY = rect.top + rect.height / 2;
+      const pointerID = 17;
+      element.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          cancelable: true,
+          pointerId: pointerID,
+          pointerType: type,
+          button: 0,
+          buttons: 1,
+          clientX: startX,
+          clientY: startY,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent('pointermove', {
+          bubbles: true,
+          cancelable: true,
+          pointerId: pointerID,
+          pointerType: type,
+          button: 0,
+          buttons: 1,
+          clientX: startX + dx,
+          clientY: startY + dy,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          cancelable: true,
+          pointerId: pointerID,
+          pointerType: type,
+          button: 0,
+          buttons: 0,
+          clientX: startX + dx,
+          clientY: startY + dy,
+        }),
+      );
+    },
+    { targetSelector: selector, dx: deltaX, dy: deltaY, type: pointerType },
   );
 }
 
@@ -2431,18 +2585,33 @@ function backgroundOffsetDelta(before, after) {
 }
 
 async function movementTargetAwayFromMemory(page, origin, offsets) {
+  const targets = await movementTargetsAwayFromMemory(page, origin, offsets);
+  return targets[0];
+}
+
+async function movementTargetsAwayFromMemory(page, origin, offsets) {
   return page.evaluate(
     ({ start, candidates }) => {
       const markers = window.__SPACE_MORPG_SMOKE_STATE__?.worldView?.memoryMarkers ?? [];
       const targets = candidates.map((offset) => ({ x: Math.round(start.x + offset.x), y: Math.round(start.y + offset.y) }));
-      return (
-        targets.find((target) =>
-          markers.every((marker) => Math.hypot((marker.position?.x ?? 0) - target.x, (marker.position?.y ?? 0) - target.y) > 90),
-        ) ?? targets[0]
+      const awayFromMemory = targets.filter((target) =>
+        markers.every((marker) => Math.hypot((marker.position?.x ?? 0) - target.x, (marker.position?.y ?? 0) - target.y) > 90),
       );
+      return [...awayFromMemory, ...targets.filter((target) => !awayFromMemory.includes(target))];
     },
     { start: origin, candidates: offsets },
   );
+}
+
+async function clickableMovementTargetAwayFromMemory(page, origin, offsets) {
+  const targets = await movementTargetsAwayFromMemory(page, origin, offsets);
+  for (const target of targets) {
+    const point = await worldClickPoint(page, target);
+    if (point?.element === 'world-canvas') {
+      return target;
+    }
+  }
+  throw new Error(`No clickable movement target for ${JSON.stringify({ origin, targets })}`);
 }
 
 async function movementDiagnostics(page, expectedTarget) {
@@ -2690,6 +2859,28 @@ async function assertDelayedModalCanvasIsolation(page, label) {
   }
 }
 
+async function assertFocusedHUDControlCanvasIsolation(page, label) {
+  await page.locator('[data-panel-toggle="cargo"]').focus();
+  await page.waitForTimeout(260);
+  await waitForWorldInputReady(page);
+  const uncovered = await uncoveredCanvasPoint(page);
+  const point = uncovered ?? (await canvasProbePoint(page));
+  if (!point) {
+    throw new Error(`${label}: no canvas point for focused HUD control leak check`);
+  }
+  await assertNoMoveDuring(page, label, 'focused HUD control canvas click', async () => {
+    if (uncovered) {
+      await page.mouse.click(uncovered.x, uncovered.y);
+    } else {
+      await dispatchCanvasClickAtPoint(page, point);
+    }
+  });
+  const stillFocused = await page.evaluate(() => document.activeElement?.matches('[data-panel-toggle="cargo"]') === true);
+  if (stillFocused) {
+    throw new Error(`${label}: transient HUD control focus was not released after blocked canvas click`);
+  }
+}
+
 async function assertNoMoveDuring(page, label, context, action) {
   const moveBefore = await commandLogCount(page, 'Sent move_to.');
   const debugBefore = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
@@ -2909,6 +3100,7 @@ async function verifyPanelModalChrome(page, viewport, label) {
   await page.waitForFunction(() => !document.querySelector('[data-window-panel]') && document.querySelector('.hud')?.dataset.activePanel === 'none', null, {
     timeout: 10000,
   });
+  await assertFocusedHUDControlCanvasIsolation(page, label);
 }
 
 async function windowRect(page, panel) {

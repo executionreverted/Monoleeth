@@ -1,7 +1,12 @@
 import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 
 import { EntityPayload, Vec2 } from '../protocol/envelope';
-import { clearHUDInputSuppression, pointerTargetOwnsUI, worldCanvasInputBlocked } from '../input/world-input-authority';
+import {
+  clearHUDInputSuppression,
+  pointerTargetOwnsUI,
+  releaseTransientHUDControlFocus,
+  worldCanvasInputBlocked,
+} from '../input/world-input-authority';
 import { currentEntityPosition, estimateServerTime, isSelfEntity, serverClockOffset } from '../state/movement';
 import { WorldFeedbackEffect, WorldMapMemoryMarker } from '../state/types';
 import { WorldInputHandlers, WorldViewState } from './world-view';
@@ -334,6 +339,7 @@ export class WorldRenderer {
         if (event.target === this.app?.canvas) {
           if (this.shouldIgnoreWorldClick()) {
             this.ignoreWorldInputUntil = Math.max(this.ignoreWorldInputUntil, performance.now() + 80);
+            releaseTransientHUDControlFocus(document.activeElement);
             return;
           }
           this.ignoreWorldInputUntil = 0;

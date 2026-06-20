@@ -26,6 +26,17 @@ export function worldCanvasInputBlocked(activeElement: Element | null = activeDo
   return hudInputSuppressed() || uiOwnsWorldFocus(activeElement);
 }
 
+export function releaseTransientHUDControlFocus(activeElement: Element | null = activeDocumentElement()): boolean {
+  if (!(activeElement instanceof HTMLElement) || !isFocusedHUDControl(activeElement)) {
+    return false;
+  }
+  if (persistentUIOwnsWorldFocus(activeElement)) {
+    return false;
+  }
+  activeElement.blur();
+  return true;
+}
+
 export function worldKeyboardShortcutAllowed(input: {
   eventTarget: EventTarget | null;
   activeElement: Element | null;
@@ -46,6 +57,10 @@ function hudInputSuppressed(): boolean {
 }
 
 function uiOwnsWorldFocus(activeElement: Element | null): boolean {
+  return persistentUIOwnsWorldFocus(activeElement) || isFocusedHUDControl(activeElement);
+}
+
+function persistentUIOwnsWorldFocus(activeElement: Element | null): boolean {
   if (isFocusBlockedElement(activeElement)) {
     return true;
   }
@@ -61,6 +76,14 @@ function isFocusBlockedElement(element: Element | null): boolean {
 
 function isKeyboardBlockedElement(element: Element | null): boolean {
   return element instanceof HTMLElement && Boolean(element.closest(`${focusBlockingSelector()}, button, a[href], [data-action]`));
+}
+
+function isFocusedHUDControl(element: Element | null): boolean {
+  return (
+    element instanceof HTMLElement &&
+    Boolean(element.closest('.hud')) &&
+    Boolean(element.closest('button, a[href], input, select, textarea, [data-action], [data-panel-toggle], [tabindex]'))
+  );
 }
 
 function activeDocumentElement(): Element | null {
