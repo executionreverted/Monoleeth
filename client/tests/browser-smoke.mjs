@@ -97,6 +97,7 @@ const allowedEnabledActions = [
   'repair',
   'repair-quote',
   'scan',
+  'shop-buy-product',
   'shop-category',
   'shop-qty',
   'shop-select',
@@ -118,7 +119,6 @@ const unimplementedMutationOps = [
   'crafting.complete',
   'crafting.cancel',
   'inventory.move',
-  'shop.buy_product',
   'progression.unlock_skill',
   'progression.respec_skills',
   'discovery.claim_planet',
@@ -2937,6 +2937,7 @@ async function movementDiagnostics(page, expectedTarget) {
 }
 
 async function verifyRealEconomy(page, viewport, label) {
+  const laserProductID = 'product_module_laser_alpha_t1';
   await page.locator('[data-panel-toggle="economy"]').click();
   await page.waitForSelector('[data-window-panel="economy"][data-focused="true"] .shop-console', { timeout: 10000 });
   await page.waitForFunction(() => {
@@ -2969,6 +2970,94 @@ async function verifyRealEconomy(page, viewport, label) {
   }
   await page.locator('[data-window-panel="economy"] [data-shop-category="weapons"]').click();
   await page.waitForSelector('[data-window-panel="economy"] [data-shop-detail-kind="shop-product"]', { timeout: 10000 });
+  await page.locator(`[data-window-panel="economy"] [data-action="shop-select"][data-shop-key="${laserProductID}"]`).click();
+  await page.waitForSelector(
+    `[data-window-panel="economy"] [data-action="shop-buy-product"][data-product-id="${laserProductID}"]:not([disabled])`,
+    { timeout: 10000 },
+  );
+  const beforeBuy = await page.evaluate((productID) => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const sends = (window.__SPACE_MORPG_WS_EVENTS__ ?? [])
+      .filter((event) => event.kind === 'send' && typeof event.data === 'string')
+      .map((event) => {
+        try {
+          return JSON.parse(event.data);
+        } catch {
+          return null;
+        }
+      })
+      .filter((message) => message?.op === 'shop.buy_product');
+    return {
+      credits: state?.wallet?.credits ?? null,
+      laserCount: (state?.inventory?.instances ?? []).filter((item) => item.item_id === 'laser_alpha_t1').length,
+      pendingCount: Object.values(state?.pendingCommands ?? {}).filter((command) => command.op === 'shop.buy_product').length,
+      sendCount: sends.length,
+      productAvailable: state?.shopCatalog?.products?.some(
+        (product) => product.product_id === productID && product.availability?.available === true,
+      ),
+    };
+  }, laserProductID);
+  if (beforeBuy.credits === null || beforeBuy.pendingCount !== 0 || beforeBuy.productAvailable !== true) {
+    throw new Error(`${label}: shop buy precondition mismatch ${JSON.stringify(beforeBuy)}`);
+  }
+  const commandCountBeforeBuy = await commandLogCount(page, 'Sent shop.buy_product.');
+  await page.locator(`[data-window-panel="economy"] [data-action="shop-buy-product"][data-product-id="${laserProductID}"]`).click();
+  await page.waitForFunction(
+    ({ beforeCredits, beforeLaserCount, productID }) => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      const laserCount = (state?.inventory?.instances ?? []).filter((item) => item.item_id === 'laser_alpha_t1').length;
+      const pendingCount = Object.values(state?.pendingCommands ?? {}).filter((command) => command.op === 'shop.buy_product').length;
+      return (
+        state?.wallet?.credits === beforeCredits - 450 &&
+        laserCount === beforeLaserCount + 1 &&
+        pendingCount === 0 &&
+        state?.shopCatalog?.products?.some((product) => product.product_id === productID && product.availability?.available === true)
+      );
+    },
+    { beforeCredits: beforeBuy.credits, beforeLaserCount: beforeBuy.laserCount, productID: laserProductID },
+    { timeout: 10000 },
+  );
+  const afterBuy = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const sends = (window.__SPACE_MORPG_WS_EVENTS__ ?? [])
+      .filter((event) => event.kind === 'send' && typeof event.data === 'string')
+      .map((event) => {
+        try {
+          return JSON.parse(event.data);
+        } catch {
+          return null;
+        }
+      })
+      .filter((message) => message?.op === 'shop.buy_product');
+    return {
+      credits: state?.wallet?.credits ?? null,
+      laserCount: (state?.inventory?.instances ?? []).filter((item) => item.item_id === 'laser_alpha_t1').length,
+      pendingCount: Object.values(state?.pendingCommands ?? {}).filter((command) => command.op === 'shop.buy_product').length,
+      sends,
+    };
+  });
+  const commandCountAfterBuy = await commandLogCount(page, 'Sent shop.buy_product.');
+  const newShopBuySends = afterBuy.sends.slice(beforeBuy.sendCount);
+  const outboundPayload = newShopBuySends[0]?.payload ?? {};
+  const payloadKeys = Object.keys(outboundPayload).sort();
+  if (
+    commandCountAfterBuy !== commandCountBeforeBuy + 1 ||
+    newShopBuySends.length !== 1 ||
+    outboundPayload.product_id !== laserProductID ||
+    outboundPayload.quantity !== 1 ||
+    JSON.stringify(payloadKeys) !== JSON.stringify(['product_id', 'quantity'])
+  ) {
+    throw new Error(
+      `${label}: shop buy mutation mismatch ${JSON.stringify({
+        beforeBuy,
+        afterBuy,
+        commandCountBeforeBuy,
+        commandCountAfterBuy,
+        newShopBuySends,
+        payloadKeys,
+      })}`,
+    );
+  }
   await page.locator('[data-window-panel="economy"] [data-panel-close="economy"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-window-panel="economy"]'), null, { timeout: 10000 });
 }

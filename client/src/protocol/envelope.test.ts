@@ -8,7 +8,6 @@ const UNIMPLEMENTED_MUTATION_OPS = [
   'crafting.complete',
   'crafting.cancel',
   'inventory.move',
-  'shop.buy_product',
   'progression.unlock_skill',
   'progression.respec_skills',
   'discovery.claim_planet',
@@ -262,6 +261,7 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.loadoutUnequipModule).toBe('loadout.unequip_module');
     expect(OPERATIONS.stealthToggle).toBe('stealth.toggle');
     expect(OPERATIONS.shopCatalog).toBe('shop.catalog');
+    expect(OPERATIONS.shopBuyProduct).toBe('shop.buy_product');
 
     const builder = new CommandBuilder();
     expect(builder.hangarActivateShip('starter').payload).toEqual({ ship_id: 'starter' });
@@ -273,6 +273,10 @@ describe('default outbound operations', () => {
     expect(builder.stealthToggle(true).payload).toEqual({ enabled: true });
     expect(builder.shopCatalog().payload).toEqual({});
     expect(builder.shopCatalog('weapons').payload).toEqual({ category_id: 'weapons' });
+    expect(builder.shopBuyProduct('product_module_laser_alpha_t1', 1).payload).toEqual({
+      product_id: 'product_module_laser_alpha_t1',
+      quantity: 1,
+    });
   });
 
   test('exclude unimplemented browser mutation contracts', () => {

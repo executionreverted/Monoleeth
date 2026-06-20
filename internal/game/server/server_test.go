@@ -393,7 +393,7 @@ func TestStopClearsMovementTargetServerSide(t *testing.T) {
 	readEvent(t, conn)
 	readEvent(t, conn)
 	writeText(t, conn, `{"request_id":"request-stop-1","op":"stop","payload":{},"client_seq":2,"v":1}`)
-	response := readResponse(t, conn)
+	response := readResponseSkippingEvents(t, conn)
 	if !response.OK {
 		t.Fatalf("stop response = %+v, want success", response)
 	}
@@ -1423,6 +1423,78 @@ func TestShopCatalogUsesServerOwnedGameCatalog(t *testing.T) {
 	spoof := readError(t, conn)
 	if spoof.Error.Code != foundation.CodeInvalidPayload {
 		t.Fatalf("spoofed shop catalog error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
+	}
+}
+
+func TestShopBuyProductDebitsWalletAndGrantsServerCatalogProduct(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	beforeCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "laser_alpha_t1")
+	writeText(t, conn, `{"request_id":"request-shop-buy-laser","op":"shop.buy_product","payload":{"product_id":"product_module_laser_alpha_t1","quantity":1},"client_seq":1,"v":1}`)
+	response := readResponse(t, conn)
+	if !response.OK {
+		t.Fatalf("shop buy response = %+v, want success", response)
+	}
+	assertNoEconomyLeak(t, "shop buy", response.Payload)
+	var payload shopBuyProductResponsePayload
+	if err := json.Unmarshal(response.Payload, &payload); err != nil {
+		t.Fatalf("decode shop buy: %v", err)
+	}
+	if !payload.Accepted || payload.Product.ProductID != "product_module_laser_alpha_t1" || payload.Quantity != 1 || payload.ServerTotal != 450 {
+		t.Fatalf("shop buy payload = %+v, want accepted laser at server price", payload)
+	}
+	if payload.Wallet.Credits != starterWalletCredits-450 {
+		t.Fatalf("wallet credits = %d, want %d", payload.Wallet.Credits, starterWalletCredits-450)
+	}
+	if payload.Inventory == nil {
+		t.Fatalf("shop buy inventory snapshot missing")
+	}
+	afterCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "laser_alpha_t1")
+	if afterCount != beforeCount+1 {
+		t.Fatalf("laser instances = %d, want %d after shop buy", afterCount, beforeCount+1)
+	}
+	if !inventorySnapshotHasInstance(*payload.Inventory, "laser_alpha_t1") {
+		t.Fatalf("inventory snapshot missing laser_alpha_t1 instance: %+v", payload.Inventory.Instances)
+	}
+
+	writeText(t, conn, `{"request_id":"request-shop-buy-spoof","op":"shop.buy_product","payload":{"product_id":"product_module_laser_alpha_t1","quantity":1,"price":{"amount":1},"stock_remaining":99},"client_seq":2,"v":1}`)
+	spoof := readErrorSkippingEvents(t, conn)
+	if spoof.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("spoofed shop buy error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
+	}
+}
+
+func TestShopBuyProductRejectsInsufficientFundsBeforeGrant(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	for index := 1; index <= 2; index++ {
+		writeText(t, conn, fmt.Sprintf(`{"request_id":"request-shop-buy-laser-%d","op":"shop.buy_product","payload":{"product_id":"product_module_laser_alpha_t1","quantity":1},"client_seq":%d,"v":1}`, index, index))
+		response := readResponseSkippingEvents(t, conn)
+		if !response.OK {
+			t.Fatalf("shop buy %d response = %+v, want success", index, response)
+		}
+	}
+	beforeCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "laser_alpha_t1")
+	writeText(t, conn, `{"request_id":"request-shop-buy-laser-no-funds","op":"shop.buy_product","payload":{"product_id":"product_module_laser_alpha_t1","quantity":1},"client_seq":3,"v":1}`)
+	rejected := readErrorSkippingEvents(t, conn)
+	if rejected.Error.Code != foundation.CodeNotEnoughFunds {
+		t.Fatalf("insufficient funds error = %+v, want %s", rejected.Error, foundation.CodeNotEnoughFunds)
+	}
+	afterCount := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), "laser_alpha_t1")
+	if afterCount != beforeCount {
+		t.Fatalf("laser instances after failed buy = %d, want unchanged %d", afterCount, beforeCount)
+	}
+	if credits := runtimeWalletCredits(t, gameServer.runtime); credits != 300 {
+		t.Fatalf("wallet credits after failed buy = %d, want 300", credits)
 	}
 }
 
@@ -3620,6 +3692,36 @@ func assertNoEconomyLeak(t *testing.T, label string, payload json.RawMessage) {
 	}
 }
 
+func countInventoryInstances(items []economy.InstanceItem, itemID string) int {
+	count := 0
+	for _, item := range items {
+		if item.ItemID.String() == itemID {
+			count++
+		}
+	}
+	return count
+}
+
+func inventorySnapshotHasInstance(snapshot inventorySnapshotPayload, itemID string) bool {
+	for _, item := range snapshot.Instances {
+		if item.ItemID == itemID {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeWalletCredits(t *testing.T, runtime *Runtime) int64 {
+	t.Helper()
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	for _, playerID := range runtime.sessions {
+		return runtime.walletSnapshotLocked(playerID).Credits
+	}
+	t.Fatal("runtime has no authenticated player session")
+	return 0
+}
+
 func assertNoPhase09Leak(t *testing.T, label string, payload json.RawMessage) {
 	t.Helper()
 	raw := string(payload)
@@ -3649,6 +3751,46 @@ func assertNoPhase09Leak(t *testing.T, label string, payload json.RawMessage) {
 func readResponse(t *testing.T, conn *websocket.Conn) realtime.ResponseEnvelope {
 	t.Helper()
 	return decodeRawResponse(t, readRawText(t, conn))
+}
+
+func readResponseSkippingEvents(t *testing.T, conn *websocket.Conn) realtime.ResponseEnvelope {
+	t.Helper()
+	for range 8 {
+		data := readRawText(t, conn)
+		if !rawRealtimeMessageIsResponse(data) {
+			continue
+		}
+		return decodeRawResponse(t, data)
+	}
+	t.Fatal("no response received before event skip limit")
+	return realtime.ResponseEnvelope{}
+}
+
+func readErrorSkippingEvents(t *testing.T, conn *websocket.Conn) realtime.ErrorEnvelope {
+	t.Helper()
+	for range 8 {
+		data := readRawText(t, conn)
+		if !rawRealtimeMessageIsResponse(data) {
+			continue
+		}
+		var response realtime.ErrorEnvelope
+		if err := json.Unmarshal(data, &response); err != nil {
+			t.Fatalf("decode error %s: %v", data, err)
+		}
+		if response.OK {
+			t.Fatalf("error response %s had ok=true", data)
+		}
+		return response
+	}
+	t.Fatal("no error response received before event skip limit")
+	return realtime.ErrorEnvelope{}
+}
+
+func rawRealtimeMessageIsResponse(data []byte) bool {
+	var probe struct {
+		OK *bool `json:"ok"`
+	}
+	return json.Unmarshal(data, &probe) == nil && probe.OK != nil
 }
 
 func decodeRawResponse(t *testing.T, data []byte) realtime.ResponseEnvelope {

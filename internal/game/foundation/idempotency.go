@@ -44,6 +44,7 @@ const (
 	idempotencyMarketBuy           = "market_buy"
 	idempotencyMarketSale          = "market_sale"
 	idempotencyMarketFee           = "market_fee"
+	idempotencyShopPurchase        = "shop_purchase"
 	idempotencyMarketCancel        = "market_cancel"
 	idempotencyMarketExpire        = "market_expire"
 	idempotencyShipRepair          = "ship_repair"
@@ -188,6 +189,11 @@ func AdminCompensationIdempotencyKey(subjectID string, repairReference string) (
 	return buildIdempotencyKey(idempotencyAdminCompensation, subjectID, repairReference)
 }
 
+// ShopPurchaseIdempotencyKey returns shop_purchase:<player_id>:<request_id>.
+func ShopPurchaseIdempotencyKey(playerID PlayerID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyShopPurchase, playerID.String(), requestID.String())
+}
+
 // ShipRepairShipID returns the ship id encoded in a ship repair idempotency key.
 func ShipRepairShipID(key IdempotencyKey) (ShipID, error) {
 	if err := key.Validate(); err != nil {
@@ -296,7 +302,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyMarketFee:
 		return 3, true
 	case idempotencyShipRepair,
-		idempotencyAdminCompensation:
+		idempotencyAdminCompensation,
+		idempotencyShopPurchase:
 		return 2, true
 	case idempotencyDeathCargoDrop:
 		return 2, true

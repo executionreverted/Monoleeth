@@ -136,6 +136,7 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationRouteSnapshot:        runtime.handleRouteSnapshot,
 		realtime.OperationWalletSnapshot:       runtime.handleWalletSnapshot,
 		realtime.OperationShopCatalog:          runtime.handleShopCatalog,
+		realtime.OperationShopBuyProduct:       runtime.handleShopBuyProduct,
 		realtime.OperationMarketSearch:         runtime.handleMarketSearch,
 		realtime.OperationMarketCreateListing:  runtime.handleMarketCreateListing,
 		realtime.OperationMarketBuy:            runtime.handleMarketBuy,

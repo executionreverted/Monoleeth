@@ -184,6 +184,15 @@ func (registry ContentRegistry) SortedShopProducts() []ShopProductDefinition {
 	return products
 }
 
+func (registry ContentRegistry) ShopProduct(productID ShopProductID) (ShopProductDefinition, bool) {
+	for _, product := range registry.ShopProducts {
+		if product.ProductID == productID {
+			return product, true
+		}
+	}
+	return ShopProductDefinition{}, false
+}
+
 func (category ContentCategory) Validate() error {
 	if strings.TrimSpace(category.ID) == "" || strings.Contains(category.ID, " ") {
 		return fmt.Errorf("category id %q: %w", category.ID, ErrInvalidContentCategory)

@@ -259,7 +259,7 @@ docs/plans/task-001/07-shop-market-catalog-rework.md
 - [ ] Shop follows category/list/detail/buy-panel layout.
 - [x] Server-owned shop catalog/system-product contract exists or the expanded
       market payload explicitly provides equivalent metadata.
-- [ ] `shop.catalog` query and `shop.buy_product` command exist in server
+- [x] `shop.catalog` query and `shop.buy_product` command exist in server
       realtime ops, handler map, client builders, reducer state, and smoke, or
       an equivalent system-product bridge is documented and tested.
 - [x] System shop products are separated from player market listings.
@@ -287,9 +287,9 @@ docs/plans/task-001/07-shop-market-catalog-rework.md
 - [x] Premium stock purchase identity is product-specific and server-owned.
 - [ ] All economy mutations have duplicate-send pending guards and smoke, not
       only `auction.bid`.
-- [ ] New purchase/grant paths have ledger/reference tests or a named durable
+- [x] New purchase/grant paths have ledger/reference tests or a named durable
       transaction blocker.
-- [ ] Browser smoke covers shop category/detail/buy behavior.
+- [x] Browser smoke covers shop category/detail/buy behavior.
 - [x] Browser smoke fails on primary `Market/Sell/Auction/Premium` category
       truth, `raw_ore` shop purchase truth, and normal-player
       `server_recalculates` expectations.

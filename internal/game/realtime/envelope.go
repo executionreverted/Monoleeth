@@ -46,6 +46,7 @@ const (
 	OperationRouteSnapshot        Operation = "route.snapshot"
 	OperationWalletSnapshot       Operation = "wallet.snapshot"
 	OperationShopCatalog          Operation = "shop.catalog"
+	OperationShopBuyProduct       Operation = "shop.buy_product"
 	OperationMarketSearch         Operation = "market.search"
 	OperationMarketCreateListing  Operation = "market.create_listing"
 	OperationMarketBuy            Operation = "market.buy"
@@ -269,6 +270,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationShopCatalog: {
 		Operation:        OperationShopCatalog,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationShopBuyProduct: {
+		Operation:        OperationShopBuyProduct,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationMarketSearch: {

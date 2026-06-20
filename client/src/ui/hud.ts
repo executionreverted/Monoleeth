@@ -54,6 +54,7 @@ export interface HUDHandlers {
     sourceLocation?: string;
     itemInstanceID?: string;
   }): void;
+  onShopBuyProduct(productID: string, quantity: number): void;
   onMarketBuy(listingID: string, quantity: number): void;
   onMarketCancel(listingID: string): void;
   onAuctionBid(auctionID: string, amount: number): void;
@@ -644,6 +645,11 @@ export class HUD {
           }
           break;
         }
+        case 'shop-buy-product':
+          if (button.dataset.productId) {
+            this.handlers.onShopBuyProduct(button.dataset.productId, Math.max(1, Number(button.dataset.quantity ?? '1')));
+          }
+          break;
         case 'market-buy':
           if (button.dataset.listingId) {
             this.handlers.onMarketBuy(button.dataset.listingId, Math.max(1, Number(button.dataset.quantity ?? '1')));
@@ -1896,7 +1902,7 @@ function economyPanel(state: ClientState): string {
         }
       </div>
       <div class="shop-detail" data-shop-detail="${escapeHTML(selected?.product_id ?? '')}">
-        ${selected ? shopProductDetail(selected, wallet, catalog.catalog_version) : '<div class="empty-line">Select a product.</div>'}
+        ${selected ? shopProductDetail(selected, wallet, catalog.catalog_version, state) : '<div class="empty-line">Select a product.</div>'}
       </div>
     </section>
   `;
@@ -2016,11 +2022,22 @@ function shopEntryRow(entry: ShopEntry, selectedKey: string | undefined): string
   `;
 }
 
-function shopProductDetail(product: ShopProductItem, wallet: NonNullable<ClientState['wallet']>, catalogVersion: string): string {
+function shopProductDetail(product: ShopProductItem, wallet: NonNullable<ClientState['wallet']>, catalogVersion: string, state: ClientState): string {
   const balance = walletBalanceForCurrency(wallet, product.price.currency_type);
-  const canAfford = balance !== null && balance >= product.price.amount;
+  const maxQuantity = shopProductMaxQuantity(product);
+  selectedShopQuantity = Math.round(clamp(selectedShopQuantity, 1, maxQuantity));
+  const total = product.price.amount * selectedShopQuantity;
+  const canAfford = balance !== null && balance >= total;
+  const pending = Object.values(state.pendingCommands).some((command) => command.op === 'shop.buy_product');
   const stock = shopProductStockLabel(product);
-  const status = product.availability.available ? (canAfford ? 'Available' : 'Insufficient balance') : product.availability.locked_reason ?? 'Unavailable';
+  const status = product.availability.available
+    ? pending
+      ? 'Pending'
+      : canAfford
+        ? 'Available'
+        : 'Insufficient balance'
+    : product.availability.locked_reason ?? 'Unavailable';
+  const canBuy = product.availability.available && canAfford && !pending;
   return `
     <article class="shop-detail-card shop-product-detail" data-shop-detail-kind="shop-product">
       ${shopDetailHeader(product.subcategory || product.product_type, product.display_name, product.rarity || `T${product.tier ?? 1}`)}
@@ -2033,6 +2050,7 @@ function shopProductDetail(product: ShopProductItem, wallet: NonNullable<ClientS
       </div>
       <div class="shop-detail-grid">
         ${shopFact('Price', `${product.price.amount} ${product.price.currency_type}`)}
+        ${shopFact('Total', `${total} ${product.price.currency_type}`)}
         ${shopFact('Stock', stock)}
         ${shopFact('Status', status)}
         ${shopFact('Catalog', catalogVersion || 'current')}
@@ -2040,11 +2058,22 @@ function shopProductDetail(product: ShopProductItem, wallet: NonNullable<ClientS
       </div>
       ${
         product.availability.available
-          ? `<button class="shop-primary-action" type="button" disabled title="System product purchase is not enabled yet">Purchase</button>`
+          ? `${maxQuantity > 1 ? shopQuantityControls(maxQuantity, selectedShopQuantity) : ''}
+             <button class="shop-primary-action" type="button" data-action="shop-buy-product" data-product-id="${escapeHTML(product.product_id)}" data-quantity="${selectedShopQuantity}" ${canBuy ? '' : 'disabled'} title="${escapeHTML(canBuy ? 'Purchase selected product' : status)}">Buy</button>`
           : `<div class="shop-action-note">${escapeHTML(product.availability.locked_reason ?? 'Purchase unavailable.')}</div>`
       }
     </article>
   `;
+}
+
+function shopProductMaxQuantity(product: ShopProductItem): number {
+  if (product.product_type !== 'item') {
+    return 1;
+  }
+  if (product.stock.kind === 'limited') {
+    return Math.max(1, Math.min(9, Math.round(product.stock.stock_remaining ?? 1)));
+  }
+  return 9;
 }
 
 function shopProductStockLabel(product: ShopProductItem): string {

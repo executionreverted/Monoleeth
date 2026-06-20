@@ -1454,6 +1454,93 @@ describe('reduceClientState', () => {
     });
   });
 
+  test('shop buy response clears pending command and applies server snapshots', () => {
+    const queued = reduceClientState(createInitialState(), {
+      type: 'requestQueued',
+      envelope: {
+        request_id: 'request-shop-buy',
+        op: OPERATIONS.shopBuyProduct,
+        payload: { product_id: 'product_module_laser_alpha_t1', quantity: 1 },
+        client_seq: 1,
+        v: 1,
+      },
+    });
+
+    expect(queued.pendingCommands['request-shop-buy']?.op).toBe(OPERATIONS.shopBuyProduct);
+
+    const state = reduceClientState(queued, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'request-shop-buy',
+        ok: true,
+        payload: {
+          accepted: true,
+          product: {
+            product_id: 'product_module_laser_alpha_t1',
+            display_name: 'Prism Lance I',
+          },
+          quantity: 1,
+          server_total: 450,
+          wallet: { credits: 750, premium_paid: 300, premium_earned: 0 },
+          inventory: {
+            stackable: [],
+            instances: [
+              {
+                item_instance_id: 'module-shop-1',
+                item_id: 'laser_alpha_t1',
+                display_name: 'Prism Lance I',
+                location: 'account_inventory',
+                item_type: 'module',
+                module_slot_type: 'offensive',
+                durability_current: 100,
+                durability_max: 100,
+              },
+            ],
+            counts: { cargo_stacks: 0, storage_stacks: 0, equipped_instances: 1 },
+          },
+          shop: {
+            catalog_version: 'content_registry_task001_v1',
+            categories: [{ category_id: 'weapons', display_name: 'Weapons', sort_order: 20 }],
+            products: [
+              {
+                product_id: 'product_module_laser_alpha_t1',
+                product_type: 'module',
+                display_name: 'Prism Lance I',
+                description: 'Entry laser array.',
+                category_id: 'weapons',
+                subcategory: 'Laser',
+                art_key: 'module.prism_lance_1',
+                rarity: 'common',
+                tier: 1,
+                sort_order: 20,
+                grant_target: { kind: 'module', ref_id: 'laser_alpha_t1', quantity: 1 },
+                price: { currency_type: 'credits', amount: 450, fixed: true },
+                stock: { kind: 'unlimited' },
+                availability: { available: true },
+              },
+            ],
+          },
+        },
+        server_time: 101,
+        v: 1,
+      },
+    });
+
+    expect(state.pendingCommands['request-shop-buy']).toBeUndefined();
+    expect(state.wallet?.credits).toBe(750);
+    expect(state.inventory?.instances).toContainEqual(
+      expect.objectContaining({
+        item_instance_id: 'module-shop-1',
+        item_id: 'laser_alpha_t1',
+        location: 'account_inventory',
+      }),
+    );
+    expect(state.shopCatalog?.products[0]).toMatchObject({
+      product_id: 'product_module_laser_alpha_t1',
+      availability: { available: true },
+    });
+  });
+
   test('phase 05 combat, loot, progression, and repair events reconcile server-owned state', () => {
     const withPlayer = reduceClientState(createInitialState(), {
       type: 'eventReceived',

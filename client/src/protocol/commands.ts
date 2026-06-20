@@ -133,6 +133,13 @@ export class CommandBuilder {
     return this.build(OPERATIONS.shopCatalog, categoryID ? { category_id: categoryID } : {});
   }
 
+  shopBuyProduct(productID: string, quantity = 1): RequestEnvelope<{ product_id: string; quantity: number }> {
+    return this.build(OPERATIONS.shopBuyProduct, {
+      product_id: productID,
+      quantity,
+    });
+  }
+
   marketSearch(itemID?: string): RequestEnvelope<{ item_id?: string }> {
     return this.build(OPERATIONS.marketSearch, itemID ? { item_id: itemID } : {});
   }

@@ -137,6 +137,7 @@ export class ClientApp {
       onLoadoutEquipModule: (slotID, itemInstanceID) => this.sendLoadoutEquipModule(slotID, itemInstanceID),
       onLoadoutUnequipModule: (slotID) => this.sendLoadoutUnequipModule(slotID),
       onMarketCreateListing: (input) => this.sendCommand(this.commandBuilder.marketCreateListing(input)),
+      onShopBuyProduct: (productID, quantity) => this.sendShopBuyProduct(productID, quantity),
       onMarketBuy: (listingID, quantity) => this.sendCommand(this.commandBuilder.marketBuy(listingID, quantity)),
       onMarketCancel: (listingID) => this.sendCommand(this.commandBuilder.marketCancel(listingID)),
       onAuctionBid: (auctionID, amount) => this.sendAuctionBid(auctionID, amount),
@@ -338,6 +339,17 @@ export class ClientApp {
       `unequip:${slotID}`,
       () => this.commandBuilder.loadoutUnequipModule(slotID),
       'Module unequip already pending.',
+    );
+  }
+
+  private sendShopBuyProduct(productID: string, quantity: number): void {
+    if (!productID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `shop-buy:${productID}`,
+      () => this.commandBuilder.shopBuyProduct(productID, quantity),
+      'Shop purchase already pending.',
     );
   }
 

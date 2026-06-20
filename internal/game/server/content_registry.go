@@ -60,10 +60,9 @@ func buildRuntimeContentRegistry(
 			},
 			GrantTarget: catalog.GrantTarget{Kind: catalog.GrantTargetKindItem, RefID: "raw_ore", Quantity: 10},
 			Price:       catalog.PricePolicy{Currency: catalog.PriceCurrencyCredits, Amount: 40, Fixed: true},
-			Stock:       catalog.StockPolicy{Kind: catalog.StockPolicyLimited, Remaining: 250, Total: 250},
+			Stock:       catalog.StockPolicy{Kind: catalog.StockPolicyUnlimited},
 			Availability: catalog.AvailabilityRule{
-				Available:    false,
-				LockedReason: "Purchase window unavailable in this playtest.",
+				Available: true,
 			},
 		})
 	}
@@ -182,8 +181,7 @@ func runtimeModuleShopProduct(definition modules.ModuleDefinition) (catalog.Shop
 		Price:       catalog.PricePolicy{Currency: catalog.PriceCurrencyCredits, Amount: price, Fixed: true},
 		Stock:       catalog.StockPolicy{Kind: catalog.StockPolicyUnlimited},
 		Availability: catalog.AvailabilityRule{
-			Available:    false,
-			LockedReason: "Module purchase unavailable in this playtest.",
+			Available:    true,
 			RequiredRank: definition.RequiredRank,
 		},
 	}, nil
