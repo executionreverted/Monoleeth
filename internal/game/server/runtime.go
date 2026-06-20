@@ -884,7 +884,9 @@ func opEmitsPostCommandAOIDiff(op realtime.Operation) bool {
 		realtime.OperationMarketBuy,
 		realtime.OperationMarketCancel,
 		realtime.OperationAuctionBid,
-		realtime.OperationAuctionBuyNow:
+		realtime.OperationAuctionBuyNow,
+		realtime.OperationPremiumClaim,
+		realtime.OperationPremiumWeeklyXCore:
 		return false
 	default:
 		return true

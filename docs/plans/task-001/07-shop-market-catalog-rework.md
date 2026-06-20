@@ -201,10 +201,23 @@ stock, and clear buy/list/bid actions backed by the owning server contract.
   refreshes; buy-now buyer receives the private grant only on `auction.closed`;
   passive/refunded sessions receive no grant, ledger, debit, refund, or provider
   payloads.
+- Premium claim fanout now targets only the entitlement owner's online sessions:
+  each owner session receives `premium.entitlement_claimed` plus a wallet
+  snapshot when the claim mutates wallet state, while unrelated online players
+  receive no claim event and no wallet refresh.
+- Premium weekly X Core purchase fanout now sends the purchaser's online
+  sessions `premium.stock_consumed` plus `wallet.snapshot`; passive online
+  viewers receive only the public `premium.stock_consumed` stock shape with no
+  wallet, entitlement, purchaser, purchase reference, provider, or ledger fields.
+- Duplicate market, auction, premium claim, and weekly X Core request replays do
+  not re-emit fanout events.
+- `premium.entitlement_created` still has no runtime creator path beyond
+  `seedPremiumEntitlement`, so passive creator fanout is out of scope until a
+  real runtime/provider entitlement creation path exists.
 - Multi-client server coverage now proves seller, buyer, passive viewer,
-  previous bidder, buy-now buyer, auction grant privacy, wallet refreshes, and
-  event sequence continuity for market and auction fanout. Premium passive
-  fanout remains open Phase 07 work.
+  previous bidder, buy-now buyer, auction grant privacy, premium entitlement
+  owner sessions, premium stock passive viewer privacy, wallet refreshes, and
+  duplicate no-refanout behavior for market, auction, and premium fanout.
 
 ## Implementation Plan
 
@@ -290,8 +303,8 @@ docs/plans/task-001/07-shop-market-catalog-rework.md
 - [x] Raw temporary names are removed or replaced by server display names.
 - [ ] Quantity and purchase/list/bid actions reconcile with server responses.
 - [x] Market totals/fees/escrow are not trusted from the client.
-- [ ] Auction and premium event paths reconcile or refresh passive clients.
-- [ ] Multi-client economy tests cover buyer/seller/passive viewer, previous
+- [x] Auction and premium event paths reconcile or refresh passive clients.
+- [x] Multi-client economy tests cover buyer/seller/passive viewer, previous
       bidder/winner, and premium owner/stock viewer or record exact backend
       fanout blockers.
 - [ ] Auction/premium grants are real for their payload type or hidden/locked

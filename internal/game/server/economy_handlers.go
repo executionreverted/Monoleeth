@@ -523,12 +523,13 @@ func (runtime *Runtime) handlePremiumClaim(ctx realtime.CommandContext, request 
 		runtime.recordCurrencyLedgerMetric(result.WalletCredit.LedgerEntry)
 	}
 	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
-	state := runtime.players[ctx.PlayerID]
-	state.Wallet = wallet
-	runtime.players[ctx.PlayerID] = state
-	sessionID := authSessionID(ctx.SessionID)
-	runtime.queueEventLocked(sessionID, realtime.EventPremiumClaimed, premiumEntitlementPayloadFromEntitlement(result.Entitlement))
-	runtime.queueEventLocked(sessionID, realtime.EventWalletSnapshot, wallet)
+	runtime.updatePlayerWalletCacheLocked(ctx.PlayerID, wallet)
+	if !result.Duplicate {
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventPremiumClaimed, premiumEntitlementPayloadFromEntitlement(result.Entitlement))
+		if result.WalletCredit != nil {
+			runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventWalletSnapshot, wallet)
+		}
+	}
 	return marshalPayload(premiumMutationPayload{
 		Accepted:  true,
 		Duplicate: result.Duplicate,
@@ -571,12 +572,13 @@ func (runtime *Runtime) handlePremiumWeeklyXCore(ctx realtime.CommandContext, re
 		runtime.recordCurrencyLedgerMetric(result.WalletDebit.LedgerEntry)
 	}
 	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
-	state := runtime.players[ctx.PlayerID]
-	state.Wallet = wallet
-	runtime.players[ctx.PlayerID] = state
-	sessionID := authSessionID(ctx.SessionID)
-	runtime.queueEventLocked(sessionID, realtime.EventPremiumStockConsumed, premiumStockPayloadFromRecord(result.Stock))
-	runtime.queueEventLocked(sessionID, realtime.EventWalletSnapshot, wallet)
+	runtime.updatePlayerWalletCacheLocked(ctx.PlayerID, wallet)
+	if !result.Duplicate {
+		stockPayload := premiumStockPayloadFromRecord(result.Stock)
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventPremiumStockConsumed, stockPayload)
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventWalletSnapshot, wallet)
+		runtime.queuePassivePremiumStockConsumedLocked(ctx.PlayerID, stockPayload)
+	}
 	return marshalPayload(premiumMutationPayload{
 		Accepted:  true,
 		Duplicate: result.Duplicate,
@@ -657,6 +659,15 @@ func (runtime *Runtime) queuePassiveAuctionLotUpdatedLocked(lot auction.Lot, exc
 			continue
 		}
 		runtime.queueEventLocked(sessionID, realtime.EventAuctionLotUpdated, auctionLotPayloadFromLot(lot, playerID))
+	}
+}
+
+func (runtime *Runtime) queuePassivePremiumStockConsumedLocked(excludedPlayer foundation.PlayerID, payload premiumStockPayload) {
+	for sessionID, playerID := range runtime.sessions {
+		if playerID == excludedPlayer {
+			continue
+		}
+		runtime.queueEventLocked(sessionID, realtime.EventPremiumStockConsumed, payload)
 	}
 }
 
