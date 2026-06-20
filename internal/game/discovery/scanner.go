@@ -242,6 +242,14 @@ func (service *ScannerService) resolvePulseLocked(pulse scanPulse, now time.Time
 				Message:        "Scanner revealed a radar contact.",
 			}, nil
 		}
+		if reveal.NoSignal {
+			service.appendEventLocked(newScannerEvent(ScannerEventPulseResolved, pulse, "", now))
+			return ResolveScanPulseResult{
+				PulseReference: pulse.reference,
+				Status:         ScanPulseStatusNoSignal,
+				Message:        "No valid signal found.",
+			}, nil
+		}
 	}
 
 	candidates, err := GeneratePlanetCandidates(service.seed, pulse.cell, service.candidateOptions)

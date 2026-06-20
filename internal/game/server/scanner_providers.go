@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math"
 	"time"
 
 	"gameproject/internal/game/discovery"
@@ -199,6 +200,7 @@ func (provider runtimeScannerPlayerRevealProvider) RevealHiddenPlayer(input disc
 	maxDistanceSq := input.Stats.Exploration.ScanRadius * input.Stats.Exploration.ScanRadius
 	var bestTarget foundation.PlayerID
 	var bestDistanceSq float64
+	projectionMiss := false
 	for targetID, hidden := range provider.runtime.hiddenPlayers {
 		if !hidden || targetID == input.PlayerID {
 			continue
@@ -211,6 +213,10 @@ func (provider runtimeScannerPlayerRevealProvider) RevealHiddenPlayer(input disc
 		if distanceSq > maxDistanceSq {
 			continue
 		}
+		if !withinRuntimeLiveProjectionWindow(input.Position, entity.Position) {
+			projectionMiss = true
+			continue
+		}
 		if bestTarget.IsZero() ||
 			distanceSq < bestDistanceSq ||
 			(distanceSq == bestDistanceSq && targetID.String() < bestTarget.String()) {
@@ -219,6 +225,9 @@ func (provider runtimeScannerPlayerRevealProvider) RevealHiddenPlayer(input disc
 		}
 	}
 	if bestTarget.IsZero() {
+		if projectionMiss {
+			return discovery.ScannerPlayerRevealResult{NoSignal: true}, nil
+		}
 		return discovery.ScannerPlayerRevealResult{}, nil
 	}
 
@@ -227,6 +236,11 @@ func (provider runtimeScannerPlayerRevealProvider) RevealHiddenPlayer(input disc
 		TargetPlayerID: bestTarget,
 	}] = input.RevealedAt.UTC().Add(runtimeHiddenPlayerWitnessDuration)
 	return discovery.ScannerPlayerRevealResult{Revealed: true}, nil
+}
+
+func withinRuntimeLiveProjectionWindow(center world.Vec2, position world.Vec2) bool {
+	return math.Abs(position.X-center.X) <= runtimeLiveProjectionHalfExtent &&
+		math.Abs(position.Y-center.Y) <= runtimeLiveProjectionHalfExtent
 }
 
 func (provider runtimeScanXPProvider) GrantScanXP(input discovery.ScanXPGrantInput) (discovery.ScanXPGrantResult, error) {

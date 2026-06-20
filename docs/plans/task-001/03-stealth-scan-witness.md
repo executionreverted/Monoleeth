@@ -264,6 +264,10 @@ client/src/ui/hud.ts
   absent before scan, scan response is `player_revealed` without
   `known_planets`/`progression`, AOI enters with `scan_revealed`, unrelated
   viewers still cannot see the target, and expiry removes visibility.
+- Scanner hidden-player reveal now also respects the current live projection
+  window. A hidden target inside scanner radius but outside the
+  `2000x2000` projection does not create a witness, does not return
+  `player_revealed`, and does not enter AOI.
 - Client protocol/reducer tests reject hidden-player witness leak fields and
   sanitize public `status_flags` so `scan_revealed` can enter UI state while
   unsafe values such as `hidden` are dropped.
@@ -327,7 +331,7 @@ docs/plans/task-001/03-stealth-scan-witness.md
       non-self `stealthed` or witness expiry leaks.
 - [ ] Server-side interaction validation for combat/target cycle/radar actions
       uses the same witness-aware visibility rule as AOI.
-- [ ] Hidden-player scan success is limited to targets that can be serialized
+- [x] Hidden-player scan success is limited to targets that can be serialized
       through the current safe AOI projection; outside-projection targets return
       safe no-signal/miss state.
 - [ ] Stealth speed remains consistent when base stats change while cloaked,

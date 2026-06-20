@@ -183,10 +183,11 @@ type ScannerPlayerRevealInput struct {
 	RevealedAt     time.Time            `json:"revealed_at"`
 }
 
-// ScannerPlayerRevealResult is intentionally boolean-only. Hidden target ids,
+// ScannerPlayerRevealResult is intentionally targetless. Hidden target ids,
 // expiry, scan rolls, and coordinates stay inside the runtime visibility bridge.
 type ScannerPlayerRevealResult struct {
 	Revealed bool `json:"revealed"`
+	NoSignal bool `json:"no_signal,omitempty"`
 }
 
 // ScanXPGrantInput is the narrow discovery-to-progression handoff.

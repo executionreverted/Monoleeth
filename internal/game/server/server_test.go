@@ -2088,6 +2088,85 @@ func TestScanPulseRevealsHiddenPlayerWithoutPlanetIntelOrXP(t *testing.T) {
 	}
 }
 
+func TestScanPulseDoesNotRevealHiddenPlayerOutsideProjectionWindow(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	gameServer, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		SessionTTL:     time.Hour,
+		TickDelta:      50 * time.Millisecond,
+		Clock:          clock,
+		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+
+	target := createResolvedRuntimeSession(t, gameServer, "hidden-scan-far-target@example.com", "Hidden Far")
+	viewer := createResolvedRuntimeSession(t, gameServer, "hidden-scan-far-viewer@example.com", "Scanner Far")
+	targetEntityID := testPlayerEntityID(t, gameServer, target.PlayerID)
+	moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: runtimeLiveProjectionHalfExtent + 250, Y: 0})
+	setTestHiddenPlayer(gameServer, target.PlayerID, true)
+
+	viewerEvents, err := gameServer.runtime.bootstrapEvents(viewer)
+	if err != nil {
+		t.Fatalf("viewer bootstrap events: %v", err)
+	}
+	viewerSnapshot := decodeWorldSnapshotForTest(t, viewerEvents)
+	if hasEntityID(viewerSnapshot.Entities, targetEntityID.String()) {
+		t.Fatalf("viewer saw out-of-projection hidden target before scan: %+v", viewerSnapshot.Entities)
+	}
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(viewer.SessionID.String()),
+		[]byte(`{"request_id":"request-scan-player-projection-miss","op":"scan.pulse","payload":{},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("scan projection miss response error = %+v, want success", response.Error)
+	}
+	rawResponse := string(response.Response.Payload)
+	for _, forbidden := range []string{targetEntityID.String(), target.PlayerID.String(), "target_player_id", "witness_expires_at", "hidden"} {
+		if strings.Contains(rawResponse, forbidden) {
+			t.Fatalf("scan projection miss response leaked %q in %s", forbidden, rawResponse)
+		}
+	}
+	var payload struct {
+		Scan scanPulsePayload `json:"scan"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode scan projection miss payload: %v", err)
+	}
+	if payload.Scan.Status != string(discovery.ScanPulseStatusNoSignal) {
+		t.Fatalf("scan status = %q, want %q for hidden-player reveal outside projection", payload.Scan.Status, discovery.ScanPulseStatusNoSignal)
+	}
+
+	gameServer.runtime.mu.Lock()
+	witnessed := gameServer.runtime.hiddenPlayerWitnessActiveLocked(viewer.PlayerID, target.PlayerID, clock.Now())
+	gameServer.runtime.mu.Unlock()
+	if witnessed {
+		t.Fatal("hidden player witness active outside projection, want none")
+	}
+
+	events, err := gameServer.runtime.postCommandEvents(viewer.SessionID, realtime.OperationScanPulse, viewer.PlayerID)
+	if err != nil {
+		t.Fatalf("post scan projection miss events: %v", err)
+	}
+	for _, event := range events {
+		rawEvent := string(mustJSON(t, event))
+		if strings.Contains(rawEvent, targetEntityID.String()) || strings.Contains(rawEvent, target.PlayerID.String()) {
+			t.Fatalf("scan projection miss event leaked target in %s", rawEvent)
+		}
+	}
+
+	afterEvents, err := gameServer.runtime.bootstrapEvents(viewer)
+	if err != nil {
+		t.Fatalf("viewer after projection miss bootstrap events: %v", err)
+	}
+	afterSnapshot := decodeWorldSnapshotForTest(t, afterEvents)
+	if hasEntityID(afterSnapshot.Entities, targetEntityID.String()) {
+		t.Fatalf("viewer saw out-of-projection hidden target after scan: %+v", afterSnapshot.Entities)
+	}
+}
+
 func TestRuntimePlayerStealthAppliesSpeedPenaltyWithoutStackingAndRecalculatesRoute(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
