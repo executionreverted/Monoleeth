@@ -2971,10 +2971,8 @@ async function verifyRealEconomy(page, viewport, label) {
   await page.locator('[data-window-panel="economy"] [data-shop-category="weapons"]').click();
   await page.waitForSelector('[data-window-panel="economy"] [data-shop-detail-kind="shop-product"]', { timeout: 10000 });
   await page.locator(`[data-window-panel="economy"] [data-action="shop-select"][data-shop-key="${laserProductID}"]`).click();
-  await page.waitForSelector(
-    `[data-window-panel="economy"] [data-action="shop-buy-product"][data-product-id="${laserProductID}"]:not([disabled])`,
-    { timeout: 10000 },
-  );
+  const shopBuySelector = `[data-window-panel="economy"] [data-action="shop-buy-product"][data-product-id="${laserProductID}"]`;
+  await page.waitForSelector(`${shopBuySelector}:not([disabled])`, { timeout: 10000 });
   const beforeBuy = await page.evaluate((productID) => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     const sends = (window.__SPACE_MORPG_WS_EVENTS__ ?? [])
@@ -3001,7 +2999,17 @@ async function verifyRealEconomy(page, viewport, label) {
     throw new Error(`${label}: shop buy precondition mismatch ${JSON.stringify(beforeBuy)}`);
   }
   const commandCountBeforeBuy = await commandLogCount(page, 'Sent shop.buy_product.');
-  await page.locator(`[data-window-panel="economy"] [data-action="shop-buy-product"][data-product-id="${laserProductID}"]`).click();
+  await page.evaluate((selector) => {
+    const clickCurrentButton = () => {
+      const button = document.querySelector(selector);
+      if (!(button instanceof HTMLButtonElement)) {
+        throw new Error(`Missing shop buy button for ${selector}`);
+      }
+      button.click();
+    };
+    clickCurrentButton();
+    clickCurrentButton();
+  }, shopBuySelector);
   await page.waitForFunction(
     ({ beforeCredits, beforeLaserCount, productID }) => {
       const state = window.__SPACE_MORPG_SMOKE_STATE__;

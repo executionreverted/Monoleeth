@@ -2130,7 +2130,7 @@ function shopEntryMeta(entry: ShopEntry): string {
     case 'sell_stack':
       return `${entry.item.quantity} stored / ask ${entry.unitPrice} credits`;
     case 'auction_lot':
-      return `${entry.item.quantity} lot / bid ${entry.item.current_bid}`;
+      return `${entry.item.quantity} lot / bid ${entry.item.current_bid} ${entry.item.currency_type}`;
     case 'premium_entitlement':
       return entry.item.state;
     case 'premium_stock':
@@ -2162,29 +2162,36 @@ function shopEntryState(entry: ShopEntry): string {
 function shopDetail(entry: ShopEntry, state: ClientState): string {
   switch (entry.kind) {
     case 'market_listing':
-      return shopMarketDetail(entry.item, state.wallet);
+      return shopMarketDetail(entry.item, state.wallet, state);
     case 'owned_listing':
-      return shopOwnedListingDetail(entry.item);
+      return shopOwnedListingDetail(entry.item, state);
     case 'sell_stack':
-      return shopSellDetail(entry.item, entry.unitPrice);
+      return shopSellDetail(entry.item, entry.unitPrice, state);
     case 'auction_lot':
-      return shopAuctionDetail(entry.item, state.wallet);
+      return shopAuctionDetail(entry.item, state.wallet, state);
     case 'premium_entitlement':
-      return shopPremiumEntitlementDetail(entry.item);
+      return shopPremiumEntitlementDetail(entry.item, state);
     case 'premium_stock':
-      return shopPremiumStockDetail(entry.item, entry.purchased, state.wallet);
+      return shopPremiumStockDetail(entry.item, entry.purchased, state.wallet, state);
     case 'auction_grant':
       return shopAuctionGrantDetail(entry.item);
   }
 }
 
-function shopMarketDetail(listing: MarketListingItem, wallet: ClientState['wallet']): string {
+function shopMarketDetail(listing: MarketListingItem, wallet: ClientState['wallet'], state: ClientState): string {
   const balance = wallet ? walletBalanceForCurrency(wallet, listing.currency_type) : null;
   const affordable = balance !== null && listing.unit_price > 0 ? Math.floor(balance / listing.unit_price) : listing.remaining_quantity;
   const maxQuantity = Math.max(1, Math.min(listing.remaining_quantity, Math.max(0, affordable)));
   const quantity = normalizeShopQuantity(maxQuantity);
   const estimatedSubtotal = listing.unit_price * quantity;
-  const canBuy = listing.status === 'active' && !listing.owned_by_you && listing.remaining_quantity >= quantity && balance !== null && balance >= estimatedSubtotal;
+  const pending = hasPendingOp(state, 'market.buy');
+  const canBuy =
+    listing.status === 'active' &&
+    !listing.owned_by_you &&
+    listing.remaining_quantity >= quantity &&
+    balance !== null &&
+    balance >= estimatedSubtotal &&
+    !pending;
   return `
     <article class="shop-detail-card" data-shop-detail-kind="market">
       ${shopDetailHeader('Market Listing', listing.display_name || listing.item_id, listing.rarity || listing.status)}
@@ -2192,39 +2199,41 @@ function shopMarketDetail(listing: MarketListingItem, wallet: ClientState['walle
         ${shopFact('Stock', `${listing.remaining_quantity}`)}
         ${shopFact('Unit', `${listing.unit_price} ${listing.currency_type}`)}
         ${shopFact('Estimate', `${estimatedSubtotal} ${listing.currency_type}`)}
-        ${shopFact('Quote', listing.final_price_pending ? 'finalized on buy' : 'ready')}
+        ${shopFact('Quote', pending ? 'pending' : listing.final_price_pending ? 'finalized on buy' : 'ready')}
       </div>
       ${shopQuantityControls(maxQuantity, quantity)}
-      <button class="shop-primary-action" type="button" data-action="market-buy" data-listing-id="${escapeHTML(listing.listing_id)}" data-quantity="${quantity}" ${canBuy ? '' : 'disabled'} title="Buy the selected quantity">Buy</button>
+      <button class="shop-primary-action" type="button" data-action="market-buy" data-listing-id="${escapeHTML(listing.listing_id)}" data-quantity="${quantity}" ${canBuy ? '' : 'disabled'} title="${escapeHTML(pending ? 'Market buy pending.' : 'Buy the selected quantity')}">Buy</button>
     </article>
   `;
 }
 
-function shopOwnedListingDetail(listing: MarketListingItem): string {
+function shopOwnedListingDetail(listing: MarketListingItem, state: ClientState): string {
+  const pending = hasPendingOp(state, 'market.cancel');
   return `
     <article class="shop-detail-card" data-shop-detail-kind="owned-listing">
       ${shopDetailHeader('Your Listing', listing.display_name || listing.item_id, listing.status)}
       <div class="shop-detail-grid">
         ${shopFact('Escrow', `${listing.remaining_quantity}`)}
         ${shopFact('Unit', `${listing.unit_price} ${listing.currency_type}`)}
-        ${shopFact('State', listing.final_price_pending ? 'escrow held' : 'quoted')}
+        ${shopFact('State', pending ? 'pending' : listing.final_price_pending ? 'escrow held' : 'quoted')}
         ${shopFact('Listing', listing.listing_id)}
       </div>
-      <button class="shop-primary-action" type="button" data-action="market-cancel" data-listing-id="${escapeHTML(listing.listing_id)}" title="Cancel this listing">Cancel</button>
+      <button class="shop-primary-action" type="button" data-action="market-cancel" data-listing-id="${escapeHTML(listing.listing_id)}" ${pending ? 'disabled' : ''} title="${escapeHTML(pending ? 'Market cancel pending.' : 'Cancel this listing')}">Cancel</button>
     </article>
   `;
 }
 
-function shopSellDetail(item: InventoryStackItem, unitPrice: number): string {
+function shopSellDetail(item: InventoryStackItem, unitPrice: number, state: ClientState): string {
   const maxQuantity = Math.max(1, item.quantity);
   const quantity = normalizeShopQuantity(maxQuantity);
+  const pending = hasPendingOp(state, 'market.create_listing');
   return `
     <article class="shop-detail-card" data-shop-detail-kind="sell">
       ${shopDetailHeader('Sell Item', item.display_name || item.item_id, item.location.replace(/_/g, ' '))}
       <div class="shop-detail-grid">
         ${shopFact('Owned', `${item.quantity}`)}
         ${shopFact('Ask', `${unitPrice} credits`)}
-        ${shopFact('Estimate', `${unitPrice * quantity} credits pending`)}
+        ${shopFact('Estimate', `${unitPrice * quantity} credits${pending ? ' pending' : ''}`)}
         ${shopFact('Escrow', 'held on listing')}
       </div>
       ${shopQuantityControls(maxQuantity, quantity)}
@@ -2234,16 +2243,24 @@ function shopSellDetail(item: InventoryStackItem, unitPrice: number): string {
         data-source-location="${escapeHTML(item.location)}"
         data-quantity="${quantity}"
         data-unit-price="${unitPrice}"
-        title="Create a listing from this inventory row">List</button>
+        ${pending ? 'disabled' : ''}
+        title="${escapeHTML(pending ? 'Market listing pending.' : 'Create a listing from this inventory row')}">List</button>
     </article>
   `;
 }
 
-function shopAuctionDetail(lot: AuctionLotItem, wallet: ClientState['wallet']): string {
+function shopAuctionDetail(lot: AuctionLotItem, wallet: ClientState['wallet'], state: ClientState): string {
   const bidAmount = Math.max(lot.start_price, lot.current_bid + 50);
-  const credits = wallet?.credits ?? 0;
-  const canBid = lot.status === 'active' && credits >= bidAmount && !lot.leading;
-  const canBuyNow = lot.status === 'active' && lot.buy_now_price !== undefined && credits >= lot.buy_now_price;
+  const balance = wallet ? walletBalanceForCurrency(wallet, lot.currency_type) : null;
+  const bidPending = hasPendingOp(state, 'auction.bid');
+  const buyNowPending = hasPendingOp(state, 'auction.buy_now');
+  const canBid = lot.status === 'active' && balance !== null && balance >= bidAmount && !lot.leading && !bidPending;
+  const canBuyNow =
+    lot.status === 'active' &&
+    lot.buy_now_price !== undefined &&
+    balance !== null &&
+    balance >= lot.buy_now_price &&
+    !buyNowPending;
   return `
     <article class="shop-detail-card" data-shop-detail-kind="auction">
       ${shopDetailHeader('Auction Lot', publicAuctionName(lot.payload_type, lot.definition_id), lot.status)}
@@ -2252,41 +2269,45 @@ function shopAuctionDetail(lot: AuctionLotItem, wallet: ClientState['wallet']): 
         ${shopFact('Bid', `${lot.current_bid} ${lot.currency_type}`)}
         ${shopFact('Next', `${bidAmount} ${lot.currency_type}`)}
         ${shopFact('Buy Now', lot.buy_now_price !== undefined ? `${lot.buy_now_price} ${lot.currency_type}` : lockedValue())}
+        ${shopFact('Balance', balance !== null ? `${balance} ${lot.currency_type}` : lockedValue())}
       </div>
       <div class="shop-action-row">
-        <button type="button" data-action="auction-bid" data-auction-id="${escapeHTML(lot.auction_id)}" data-amount="${bidAmount}" ${canBid ? '' : 'disabled'} title="Place the next bid">Bid</button>
-        <button type="button" data-action="auction-buy-now" data-auction-id="${escapeHTML(lot.auction_id)}" ${canBuyNow ? '' : 'disabled'} title="Buy this lot now">Buy Now</button>
+        <button type="button" data-action="auction-bid" data-auction-id="${escapeHTML(lot.auction_id)}" data-amount="${bidAmount}" ${canBid ? '' : 'disabled'} title="${escapeHTML(bidPending ? 'Auction bid pending.' : 'Place the next bid')}">Bid</button>
+        <button type="button" data-action="auction-buy-now" data-auction-id="${escapeHTML(lot.auction_id)}" ${canBuyNow ? '' : 'disabled'} title="${escapeHTML(buyNowPending ? 'Auction buy-now pending.' : 'Buy this lot now')}">Buy Now</button>
       </div>
     </article>
   `;
 }
 
-function shopPremiumEntitlementDetail(entitlement: PremiumEntitlementItem): string {
+function shopPremiumEntitlementDetail(entitlement: PremiumEntitlementItem, state: ClientState): string {
   const amount = entitlement.payload.amount ?? entitlement.payload.loadout_slot_count ?? 0;
+  const pending = hasPendingOp(state, 'premium.claim');
+  const canClaim = entitlement.state === 'pending' && !pending;
   return `
     <article class="shop-detail-card" data-shop-detail-kind="premium-entitlement">
       ${shopDetailHeader('Entitlement', entitlement.type.replace(/_/g, ' '), entitlement.state)}
       <div class="shop-detail-grid">
-        ${shopFact('State', entitlement.state)}
+        ${shopFact('State', pending ? 'pending' : entitlement.state)}
         ${shopFact('Amount', amount > 0 ? `${amount}` : lockedValue())}
         ${shopFact('Bucket', entitlement.payload.currency_bucket ?? lockedValue())}
         ${shopFact('Created', entitlement.created_at ? `${entitlement.created_at}` : lockedValue())}
       </div>
-      <button class="shop-primary-action" type="button" data-action="premium-claim" data-entitlement-id="${escapeHTML(entitlement.entitlement_id)}" ${entitlement.state === 'pending' ? '' : 'disabled'} title="Claim pending entitlement">Claim</button>
+      <button class="shop-primary-action" type="button" data-action="premium-claim" data-entitlement-id="${escapeHTML(entitlement.entitlement_id)}" ${canClaim ? '' : 'disabled'} title="${escapeHTML(pending ? 'Premium claim pending.' : 'Claim pending entitlement')}">Claim</button>
     </article>
   `;
 }
 
-function shopPremiumStockDetail(stock: PremiumStockItem, purchased: boolean, wallet: ClientState['wallet']): string {
+function shopPremiumStockDetail(stock: PremiumStockItem, purchased: boolean, wallet: ClientState['wallet'], state: ClientState): string {
   const balance = walletBalanceForCurrency(wallet ?? { credits: 0, premium_paid: 0, premium_earned: 0 }, stock.payment_currency);
-  const canBuy = stock.stock_remaining > 0 && !purchased && balance !== null && balance >= stock.price_amount;
+  const pending = hasPendingOp(state, 'premium.purchase_weekly_xcore');
+  const canBuy = stock.stock_remaining > 0 && !purchased && balance !== null && balance >= stock.price_amount && !pending;
   return `
     <article class="shop-detail-card" data-shop-detail-kind="premium-stock">
       ${shopDetailHeader('Premium Stock', `Weekly ${stock.period_key.replace(/_/g, ' ')}`, purchased ? 'bought' : stock.payment_currency)}
       <div class="shop-detail-grid">
         ${shopFact('Stock', `${stock.stock_remaining}/${stock.stock_total}`)}
         ${shopFact('Price', `${stock.price_amount} ${stock.payment_currency}`)}
-        ${shopFact('Status', purchased ? 'claimed' : 'available')}
+        ${shopFact('Status', pending ? 'pending' : purchased ? 'claimed' : 'available')}
         ${shopFact('Window', purchased ? 'claimed' : 'weekly')}
       </div>
       <button class="shop-primary-action" type="button"
@@ -2294,7 +2315,7 @@ function shopPremiumStockDetail(stock: PremiumStockItem, purchased: boolean, wal
         data-product-id="weekly_xcore"
         data-period-key="${escapeHTML(stock.period_key)}"
         ${canBuy ? '' : 'disabled'}
-        title="Purchase this weekly stock">Purchase</button>
+        title="${escapeHTML(pending ? 'Premium purchase pending.' : 'Purchase this weekly stock')}">Purchase</button>
     </article>
   `;
 }

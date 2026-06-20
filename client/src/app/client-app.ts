@@ -136,16 +136,15 @@ export class ClientApp {
       onHangarActivateShip: (shipID) => this.sendHangarActivateShip(shipID),
       onLoadoutEquipModule: (slotID, itemInstanceID) => this.sendLoadoutEquipModule(slotID, itemInstanceID),
       onLoadoutUnequipModule: (slotID) => this.sendLoadoutUnequipModule(slotID),
-      onMarketCreateListing: (input) => this.sendCommand(this.commandBuilder.marketCreateListing(input)),
+      onMarketCreateListing: (input) => this.sendMarketCreateListing(input),
       onShopBuyProduct: (productID, quantity) => this.sendShopBuyProduct(productID, quantity),
-      onMarketBuy: (listingID, quantity) => this.sendCommand(this.commandBuilder.marketBuy(listingID, quantity)),
-      onMarketCancel: (listingID) => this.sendCommand(this.commandBuilder.marketCancel(listingID)),
+      onMarketBuy: (listingID, quantity) => this.sendMarketBuy(listingID, quantity),
+      onMarketCancel: (listingID) => this.sendMarketCancel(listingID),
       onAuctionBid: (auctionID, amount) => this.sendAuctionBid(auctionID, amount),
-      onAuctionBuyNow: (auctionID) => this.sendCommand(this.commandBuilder.auctionBuyNow(auctionID)),
+      onAuctionBuyNow: (auctionID) => this.sendAuctionBuyNow(auctionID),
       onAuctionGrants: () => this.sendCommand(this.commandBuilder.auctionGrants()),
-      onPremiumClaim: (entitlementID) => this.sendCommand(this.commandBuilder.premiumClaim(entitlementID)),
-      onPremiumWeeklyXCore: (productID, periodKey) =>
-        this.sendCommand(this.commandBuilder.premiumPurchaseWeeklyXCore(productID, periodKey)),
+      onPremiumClaim: (entitlementID) => this.sendPremiumClaim(entitlementID),
+      onPremiumWeeklyXCore: (productID, periodKey) => this.sendPremiumWeeklyXCore(productID, periodKey),
       onQuestAccept: (offerID) => this.sendCommand(this.commandBuilder.questAccept(offerID)),
       onQuestClaim: (questID) => this.sendCommand(this.commandBuilder.questClaimReward(questID)),
       onQuestReroll: () => this.sendCommand(this.commandBuilder.questReroll()),
@@ -301,12 +300,14 @@ export class ClientApp {
   }
 
   private sendAuctionBid(auctionID: string, amount: number): void {
-    if (this.hasPendingOperation(OPERATIONS.auctionBid)) {
-      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Auction bid already pending.' });
+    if (!auctionID || amount <= 0) {
       return;
     }
-
-    this.sendCommand(this.commandBuilder.auctionBid(auctionID, amount));
+    this.sendGuardedGameplayCommand(
+      `auction-bid:${auctionID}`,
+      () => this.commandBuilder.auctionBid(auctionID, amount),
+      'Auction bid already pending.',
+    );
   }
 
   private sendHangarActivateShip(shipID: string): void {
@@ -350,6 +351,82 @@ export class ClientApp {
       `shop-buy:${productID}`,
       () => this.commandBuilder.shopBuyProduct(productID, quantity),
       'Shop purchase already pending.',
+    );
+  }
+
+  private sendMarketCreateListing(input: {
+    itemID: string;
+    quantity: number;
+    unitPrice: number;
+    sourceLocation?: string;
+    itemInstanceID?: string;
+  }): void {
+    if (!input.itemID) {
+      return;
+    }
+    const quantity = Number.isFinite(input.quantity) ? Math.max(1, Math.round(input.quantity)) : 1;
+    const unitPrice = Number.isFinite(input.unitPrice) ? Math.max(1, Math.round(input.unitPrice)) : 1;
+    const source = input.itemInstanceID || input.sourceLocation || 'inventory';
+    this.sendGuardedGameplayCommand(
+      `market-create:${source}:${input.itemID}:${quantity}:${unitPrice}`,
+      () => this.commandBuilder.marketCreateListing({ ...input, quantity, unitPrice }),
+      'Market listing already pending.',
+    );
+  }
+
+  private sendMarketBuy(listingID: string, quantity: number): void {
+    if (!listingID) {
+      return;
+    }
+    const requestedQuantity = Number.isFinite(quantity) ? Math.max(1, Math.round(quantity)) : 1;
+    this.sendGuardedGameplayCommand(
+      `market-buy:${listingID}`,
+      () => this.commandBuilder.marketBuy(listingID, requestedQuantity),
+      'Market buy already pending.',
+    );
+  }
+
+  private sendMarketCancel(listingID: string): void {
+    if (!listingID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `market-cancel:${listingID}`,
+      () => this.commandBuilder.marketCancel(listingID),
+      'Market cancel already pending.',
+    );
+  }
+
+  private sendAuctionBuyNow(auctionID: string): void {
+    if (!auctionID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `auction-buy-now:${auctionID}`,
+      () => this.commandBuilder.auctionBuyNow(auctionID),
+      'Auction buy-now already pending.',
+    );
+  }
+
+  private sendPremiumClaim(entitlementID: string): void {
+    if (!entitlementID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `premium-claim:${entitlementID}`,
+      () => this.commandBuilder.premiumClaim(entitlementID),
+      'Premium claim already pending.',
+    );
+  }
+
+  private sendPremiumWeeklyXCore(productID: string, periodKey: string): void {
+    if (!productID || !periodKey) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `premium-weekly-xcore:${productID}:${periodKey}`,
+      () => this.commandBuilder.premiumPurchaseWeeklyXCore(productID, periodKey),
+      'Premium purchase already pending.',
     );
   }
 
@@ -434,6 +511,7 @@ export class ClientApp {
   private applyServerMessage(message: ServerMessage): void {
     if ('event_id' in message) {
       this.dispatch({ type: 'eventReceived', envelope: message });
+      this.clearPendingGameplayActionKeysForEvent(message.type);
       this.logAcceptedSelfMovement();
       this.handleEconomyRefreshForEvent(message.type);
       if (message.type === CLIENT_EVENTS.worldSnapshot) {
@@ -755,6 +833,49 @@ export class ClientApp {
     }
     this.pendingGameplayActionKeysByRequest.delete(requestID);
     this.pendingGameplayActionKeys.delete(actionKey);
+  }
+
+  private clearPendingGameplayActionKeysForEvent(eventType: string): void {
+    switch (eventType) {
+      case CLIENT_EVENTS.marketListingCreated:
+        this.clearPendingGameplayActionKeysByPrefix('market-create:');
+        return;
+      case CLIENT_EVENTS.marketSaleCompleted:
+        this.clearPendingGameplayActionKeysByPrefix('market-buy:');
+        return;
+      case CLIENT_EVENTS.marketListingCancelled:
+        this.clearPendingGameplayActionKeysByPrefix('market-cancel:');
+        return;
+      case CLIENT_EVENTS.auctionBidPlaced:
+        this.clearPendingGameplayActionKeysByPrefix('auction-bid:');
+        return;
+      case CLIENT_EVENTS.auctionClosed:
+        this.clearPendingGameplayActionKeysByPrefix('auction-bid:');
+        this.clearPendingGameplayActionKeysByPrefix('auction-buy-now:');
+        return;
+      case CLIENT_EVENTS.premiumEntitlementClaimed:
+        this.clearPendingGameplayActionKeysByPrefix('premium-claim:');
+        return;
+      case CLIENT_EVENTS.premiumStockConsumed:
+        this.clearPendingGameplayActionKeysByPrefix('premium-weekly-xcore:');
+        return;
+      default:
+        return;
+    }
+  }
+
+  private clearPendingGameplayActionKeysByPrefix(prefix: string): void {
+    for (const actionKey of [...this.pendingGameplayActionKeys]) {
+      if (!actionKey.startsWith(prefix)) {
+        continue;
+      }
+      this.pendingGameplayActionKeys.delete(actionKey);
+      for (const [requestID, pendingActionKey] of [...this.pendingGameplayActionKeysByRequest.entries()]) {
+        if (pendingActionKey === actionKey) {
+          this.pendingGameplayActionKeysByRequest.delete(requestID);
+        }
+      }
+    }
   }
 
   private clearPendingGameplayActionKeys(): void {

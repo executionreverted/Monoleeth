@@ -800,10 +800,17 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       };
     }
 
-    case CLIENT_EVENTS.marketListingCreated:
+    case CLIENT_EVENTS.marketListingCreated: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.marketCreateListing]);
+      return {
+        ...nextState,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        commandLog: appendLog(nextState.commandLog, 'info', economyEventLog(envelope.type)),
+      };
+    }
+
     case CLIENT_EVENTS.marketListingUpdated:
-    case CLIENT_EVENTS.marketSaleCompleted:
-    case CLIENT_EVENTS.marketListingCancelled:
       return {
         ...state,
         lastServerTime: envelope.server_time,
@@ -811,14 +818,43 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         commandLog: appendLog(state.commandLog, 'info', economyEventLog(envelope.type)),
       };
 
+    case CLIENT_EVENTS.marketSaleCompleted: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.marketBuy]);
+      return {
+        ...nextState,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        commandLog: appendLog(nextState.commandLog, 'info', economyEventLog(envelope.type)),
+      };
+    }
+
+    case CLIENT_EVENTS.marketListingCancelled: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.marketCancel]);
+      return {
+        ...nextState,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        commandLog: appendLog(nextState.commandLog, 'info', economyEventLog(envelope.type)),
+      };
+    }
+
     case CLIENT_EVENTS.auctionLotUpdated:
-    case CLIENT_EVENTS.auctionClosed:
       return {
         ...state,
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
         commandLog: appendLog(state.commandLog, 'info', economyEventLog(envelope.type)),
       };
+
+    case CLIENT_EVENTS.auctionClosed: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.auctionBid, OPERATIONS.auctionBuyNow]);
+      return {
+        ...nextState,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        commandLog: appendLog(nextState.commandLog, 'info', economyEventLog(envelope.type)),
+      };
+    }
 
     case CLIENT_EVENTS.auctionBidPlaced: {
       const nextState = withoutPendingOperations(state, [OPERATIONS.auctionBid]);
@@ -831,8 +867,6 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
     }
 
     case CLIENT_EVENTS.premiumEntitlementCreated:
-    case CLIENT_EVENTS.premiumEntitlementClaimed:
-    case CLIENT_EVENTS.premiumStockConsumed:
     case CLIENT_EVENTS.economyFlowUpdated:
       return {
         ...state,
@@ -840,6 +874,26 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         lastSequence: Math.max(state.lastSequence, envelope.seq),
         commandLog: appendLog(state.commandLog, 'info', economyEventLog(envelope.type)),
       };
+
+    case CLIENT_EVENTS.premiumEntitlementClaimed: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.premiumClaim]);
+      return {
+        ...nextState,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        commandLog: appendLog(nextState.commandLog, 'info', economyEventLog(envelope.type)),
+      };
+    }
+
+    case CLIENT_EVENTS.premiumStockConsumed: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.premiumPurchaseWeeklyXCore]);
+      return {
+        ...nextState,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        commandLog: appendLog(nextState.commandLog, 'info', economyEventLog(envelope.type)),
+      };
+    }
 
     case CLIENT_EVENTS.questBoardGenerated:
       return {

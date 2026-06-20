@@ -496,6 +496,87 @@ describe('reduceClientState', () => {
     expect(auctionBidPlaced.pendingCommands['combat-1']).toBeUndefined();
     expect(auctionBidPlaced.pendingCommands['auction-1']).toBeUndefined();
     expect(auctionBidPlaced.pendingCommands['quote-1']).toBeDefined();
+
+    const queuedEconomyActions = {
+      ...auctionBidPlaced,
+      pendingCommands: {
+        ...auctionBidPlaced.pendingCommands,
+        'market-create-1': { requestID: 'market-create-1', op: OPERATIONS.marketCreateListing, queuedAt: 1 },
+        'market-buy-1': { requestID: 'market-buy-1', op: OPERATIONS.marketBuy, queuedAt: 1 },
+        'market-cancel-1': { requestID: 'market-cancel-1', op: OPERATIONS.marketCancel, queuedAt: 1 },
+        'auction-buy-now-1': { requestID: 'auction-buy-now-1', op: OPERATIONS.auctionBuyNow, queuedAt: 1 },
+        'premium-claim-1': { requestID: 'premium-claim-1', op: OPERATIONS.premiumClaim, queuedAt: 1 },
+        'premium-weekly-1': { requestID: 'premium-weekly-1', op: OPERATIONS.premiumPurchaseWeeklyXCore, queuedAt: 1 },
+      },
+    };
+    const marketUpdated = reduceClientState(
+      {
+        ...auctionBidPlaced,
+        pendingCommands: {
+          ...auctionBidPlaced.pendingCommands,
+          'market-update-buy-1': { requestID: 'market-update-buy-1', op: OPERATIONS.marketBuy, queuedAt: 1 },
+          'market-update-create-1': { requestID: 'market-update-create-1', op: OPERATIONS.marketCreateListing, queuedAt: 1 },
+          'market-update-cancel-1': { requestID: 'market-update-cancel-1', op: OPERATIONS.marketCancel, queuedAt: 1 },
+        },
+      },
+      {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.marketListingUpdated, { listing_id: 'listing-1' }, 7),
+      },
+    );
+    expect(marketUpdated.pendingCommands['market-update-buy-1']).toBeDefined();
+    expect(marketUpdated.pendingCommands['market-update-create-1']).toBeDefined();
+    expect(marketUpdated.pendingCommands['market-update-cancel-1']).toBeDefined();
+
+    const auctionLotUpdated = reduceClientState(
+      {
+        ...auctionBidPlaced,
+        pendingCommands: {
+          ...auctionBidPlaced.pendingCommands,
+          'auction-update-bid-1': { requestID: 'auction-update-bid-1', op: OPERATIONS.auctionBid, queuedAt: 1 },
+          'auction-update-buy-now-1': { requestID: 'auction-update-buy-now-1', op: OPERATIONS.auctionBuyNow, queuedAt: 1 },
+        },
+      },
+      {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.auctionLotUpdated, { auction_id: 'auction-1' }, 8),
+      },
+    );
+    expect(auctionLotUpdated.pendingCommands['auction-update-bid-1']).toBeDefined();
+    expect(auctionLotUpdated.pendingCommands['auction-update-buy-now-1']).toBeDefined();
+
+    const marketCreated = reduceClientState(queuedEconomyActions, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.marketListingCreated, { listing_id: 'listing-1' }, 9),
+    });
+    const marketSold = reduceClientState(marketCreated, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.marketSaleCompleted, { listing_id: 'listing-1' }, 10),
+    });
+    const marketCancelled = reduceClientState(marketSold, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.marketListingCancelled, { listing_id: 'listing-1' }, 11),
+    });
+    const auctionClosed = reduceClientState(marketCancelled, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.auctionClosed, { auction_id: 'auction-1' }, 12),
+    });
+    const premiumClaimed = reduceClientState(auctionClosed, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.premiumEntitlementClaimed, { entitlement_id: 'entitlement-1' }, 13),
+    });
+    const premiumStockConsumed = reduceClientState(premiumClaimed, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.premiumStockConsumed, { product_id: 'weekly_xcore', period_key: '2026-W25' }, 14),
+    });
+
+    expect(premiumStockConsumed.pendingCommands['market-create-1']).toBeUndefined();
+    expect(premiumStockConsumed.pendingCommands['market-buy-1']).toBeUndefined();
+    expect(premiumStockConsumed.pendingCommands['market-cancel-1']).toBeUndefined();
+    expect(premiumStockConsumed.pendingCommands['auction-buy-now-1']).toBeUndefined();
+    expect(premiumStockConsumed.pendingCommands['premium-claim-1']).toBeUndefined();
+    expect(premiumStockConsumed.pendingCommands['premium-weekly-1']).toBeUndefined();
+    expect(premiumStockConsumed.pendingCommands['quote-1']).toBeDefined();
   });
 
   test('scan mode is local control state and does not invent gameplay values', () => {
