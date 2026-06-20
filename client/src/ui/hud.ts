@@ -182,6 +182,7 @@ export class HUD {
   private dragState: HUDDragState | HUDModalDragState | null = null;
   private focusedWindow: HUDWindowID | null = null;
   private modal: HUDModalState | null = null;
+  private modalReturnFocus: { element: HTMLElement | null; selector: string | null } | null = null;
   private modalPosition: { x: number; y: number } | null = null;
   private windowRenderSignature: string | null = null;
   private modalRenderSignature: string | null = null;
@@ -419,7 +420,7 @@ export class HUD {
       if (modalOpen) {
         const panel = normalizeModalID(modalOpen.dataset.modalOpen);
         if (panel && this.currentState) {
-          this.openModal(panel, this.currentState, modalOpen.dataset.helpTopic);
+          this.openModal(panel, this.currentState, modalOpen.dataset.helpTopic, modalOpen);
           this.render(this.currentState);
         }
         return;
@@ -431,6 +432,7 @@ export class HUD {
         if (this.currentState) {
           this.render(this.currentState);
         }
+        this.restoreModalFocus();
         return;
       }
 
@@ -451,6 +453,7 @@ export class HUD {
       }
       this.closeModal();
       this.render(this.currentState);
+      this.restoreModalFocus();
     });
 
     this.root.addEventListener('dragstart', (event) => this.handleLoadoutDragStart(event));
@@ -513,15 +516,15 @@ export class HUD {
       return;
     }
     switch (button.dataset.action) {
-        case 'planet-detail':
-          if (button.dataset.planetId) {
-            if (this.currentState) {
-              this.openModal('planet-detail', this.currentState, button.dataset.planetId);
-              this.render(this.currentState);
-            }
-            this.handlers.onPlanetDetail(button.dataset.planetId);
+      case 'planet-detail':
+        if (button.dataset.planetId) {
+          if (this.currentState) {
+            this.openModal('planet-detail', this.currentState, button.dataset.planetId, button);
+            this.render(this.currentState);
           }
-          break;
+          this.handlers.onPlanetDetail(button.dataset.planetId);
+        }
+        break;
         case 'target-select':
           if (button.dataset.entityId) {
             const source = button.dataset.targetSource === 'radar' ? 'radar' : 'hud';
@@ -963,12 +966,13 @@ export class HUD {
     this.applyWindowFocus();
   }
 
-  private openModal(id: HUDModalID, state: ClientState, detailID?: string): void {
+  private openModal(id: HUDModalID, state: ClientState, detailID?: string, returnFocus?: HTMLElement | null): void {
     const modal = modalDefinition(id, state, detailID);
     if (!modal) {
       return;
     }
     this.modal = modal;
+    this.modalReturnFocus = this.captureModalReturnFocus(returnFocus);
     this.modalPosition = this.defaultModalPosition();
   }
 
@@ -976,6 +980,57 @@ export class HUD {
     this.modal = null;
     this.modalPosition = null;
     this.modalRenderSignature = null;
+  }
+
+  private restoreModalFocus(): void {
+    const returnFocus = this.modalReturnFocus;
+    this.modalReturnFocus = null;
+    if (!returnFocus) {
+      return;
+    }
+    const target =
+      returnFocus.element?.isConnected === true
+        ? returnFocus.element
+        : returnFocus.selector
+          ? this.root.querySelector(returnFocus.selector)
+          : null;
+    if (target instanceof HTMLElement) {
+      target.focus();
+    }
+  }
+
+  private captureModalReturnFocus(returnFocus?: HTMLElement | null): { element: HTMLElement | null; selector: string | null } | null {
+    if (!returnFocus) {
+      return null;
+    }
+    return {
+      element: returnFocus.isConnected ? returnFocus : null,
+      selector: this.modalReturnFocusSelector(returnFocus),
+    };
+  }
+
+  private modalReturnFocusSelector(element: HTMLElement): string | null {
+    const windowPanel = element.closest<HTMLElement>('[data-window-panel]')?.dataset.windowPanel;
+    const panelPrefix = windowPanel ? `[data-window-panel="${HUD.cssAttributeValue(windowPanel)}"] ` : '';
+    if (element.dataset.modalOpen) {
+      let selector = `${panelPrefix}[data-modal-open="${HUD.cssAttributeValue(element.dataset.modalOpen)}"]`;
+      if (element.dataset.helpTopic) {
+        selector += `[data-help-topic="${HUD.cssAttributeValue(element.dataset.helpTopic)}"]`;
+      }
+      return selector;
+    }
+    if (element.dataset.action) {
+      let selector = `${panelPrefix}[data-action="${HUD.cssAttributeValue(element.dataset.action)}"]`;
+      if (element.dataset.planetId) {
+        selector += `[data-planet-id="${HUD.cssAttributeValue(element.dataset.planetId)}"]`;
+      }
+      return selector;
+    }
+    return null;
+  }
+
+  private static cssAttributeValue(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   }
 
   private isWindowOpen(panel: HUDWindowID): boolean {

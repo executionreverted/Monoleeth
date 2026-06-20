@@ -144,6 +144,12 @@ client/tests/browser-smoke.mjs
   large empty fixed-height slack, and keep desktop/tablet/mobile horizontal
   overflow closed. Verified screenshots:
   `output/screenshots/task-001/04/windows-content-sized-{desktop,tablet,mobile}.png`.
+- Browser smoke now adds delayed input-ownership checks in the panel/modal
+  chrome path: after HUD suppression expires it clicks the focused Shop window
+  body, probes the canvas with a focused window/modal open, clicks the tutorial
+  modal body/backdrop, and asserts neither `Sent move_to.` nor movement debug
+  logs change. Tutorial modal close button, Escape, and backdrop close now
+  return focus to the Shop `?` opener after HUD re-render.
 
 ## Implementation Plan
 

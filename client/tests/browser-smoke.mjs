@@ -2652,6 +2652,93 @@ async function assertContentSizedHUDWindows(page, viewport, label) {
   }
 }
 
+async function assertDelayedWindowCanvasIsolation(page, label) {
+  await page.waitForTimeout(260);
+  await waitForWorldInputReady(page);
+  await assertNoMoveDuring(page, label, 'delayed focused-window body click', async () => {
+    await page.evaluate(() => {
+      document.querySelector('[data-window-panel="economy"] .hud-window__body')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+  });
+  const uncovered = await uncoveredCanvasPoint(page);
+  const point = uncovered ?? (await canvasProbePoint(page));
+  if (!point) {
+    throw new Error(`${label}: no canvas point for delayed focused-window leak check`);
+  }
+  await assertNoMoveDuring(page, label, 'delayed focused-window canvas click', async () => {
+    if (uncovered) {
+      await page.mouse.click(uncovered.x, uncovered.y);
+    } else {
+      await dispatchCanvasClickAtPoint(page, point);
+    }
+  });
+}
+
+async function assertDelayedModalCanvasIsolation(page, label) {
+  await page.waitForTimeout(260);
+  await waitForWorldInputReady(page);
+  const point = await canvasProbePoint(page);
+  if (!point) {
+    throw new Error(`${label}: no canvas point for delayed modal leak check`);
+  }
+  await assertNoMoveDuring(page, label, 'delayed modal canvas dispatch', async () => {
+    await dispatchCanvasClickAtPoint(page, point);
+  });
+  const modalCount = await page.locator('[data-modal="tutorial"]').count();
+  if (modalCount !== 1) {
+    throw new Error(`${label}: delayed modal canvas dispatch changed modal count (${modalCount})`);
+  }
+}
+
+async function assertNoMoveDuring(page, label, context, action) {
+  const moveBefore = await commandLogCount(page, 'Sent move_to.');
+  const debugBefore = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
+  await action();
+  await page.waitForTimeout(120);
+  const moveAfter = await commandLogCount(page, 'Sent move_to.');
+  const debugAfter = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
+  if (moveAfter !== moveBefore || debugAfter !== debugBefore) {
+    throw new Error(
+      `${label}: ${context} leaked movement ${JSON.stringify({
+        sentBefore: moveBefore,
+        sentAfter: moveAfter,
+        debugBefore,
+        debugAfter,
+      })}`,
+    );
+  }
+}
+
+async function assertShopHelpOpenerFocused(page, label) {
+  const focused = await page
+    .waitForFunction(
+      () => {
+        const active = document.activeElement;
+        return (
+          active instanceof HTMLElement &&
+          active.matches('[data-window-panel="economy"] [data-modal-open="tutorial"][data-help-topic="shop"]')
+        );
+      },
+      null,
+      { timeout: 1000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  if (focused) {
+    return;
+  }
+  const focusState = await page.evaluate(() => ({
+    active: document.activeElement instanceof HTMLElement ? document.activeElement.outerHTML.slice(0, 240) : '',
+    openers: Array.from(
+      document.querySelectorAll('[data-window-panel="economy"] [data-modal-open="tutorial"][data-help-topic="shop"]'),
+    ).map((node) => ({
+      html: node instanceof HTMLElement ? node.outerHTML.slice(0, 240) : '',
+      focused: node === document.activeElement,
+    })),
+  }));
+  throw new Error(`${label}: shop help opener did not regain focus ${JSON.stringify(focusState)}`);
+}
+
 async function verifyPanelModalChrome(page, viewport, label) {
   const featurePanels = ['cargo', 'systems', 'quests', 'intel', 'economy'];
   for (const panel of featurePanels) {
@@ -2705,6 +2792,7 @@ async function verifyPanelModalChrome(page, viewport, label) {
     throw new Error(`${label}: panel window caused horizontal overflow (${opened.scrollWidth} > ${viewport.width})`);
   }
   await assertContentSizedHUDWindows(page, viewport, label);
+  await assertDelayedWindowCanvasIsolation(page, label);
   if (viewport.width >= 768) {
     for (const windowPanel of opened.windows) {
       if (!windowPanel.visible || !windowPanel.rect) {
@@ -2773,8 +2861,11 @@ async function verifyPanelModalChrome(page, viewport, label) {
   await assertNoGenericInspectWindows(page, label);
   await page.locator('[data-window-panel="economy"] [data-modal-open="tutorial"][data-help-topic="shop"]').click();
   await page.waitForSelector('[data-modal="tutorial"][role="dialog"][aria-modal="true"] [data-help-topic="shop"]', { timeout: 10000 });
-  await page.evaluate(() => {
-    document.querySelector('[data-modal="tutorial"] .hud-modal__body')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await assertDelayedModalCanvasIsolation(page, label);
+  await assertNoMoveDuring(page, label, 'tutorial modal body click', async () => {
+    await page.evaluate(() => {
+      document.querySelector('[data-modal="tutorial"] .hud-modal__body')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
   });
   if ((await page.locator('[data-modal="tutorial"]').count()) !== 1) {
     throw new Error(`${label}: modal closed when clicking inside modal body`);
@@ -2794,16 +2885,21 @@ async function verifyPanelModalChrome(page, viewport, label) {
 
   await page.locator('[data-modal-close="button"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+  await assertShopHelpOpenerFocused(page, `${label} close button`);
 
   await page.locator('[data-window-panel="economy"] [data-modal-open="tutorial"][data-help-topic="shop"]').click();
   await page.waitForSelector('[data-modal="tutorial"]', { timeout: 10000 });
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+  await assertShopHelpOpenerFocused(page, `${label} Escape`);
 
   await page.locator('[data-window-panel="economy"] [data-modal-open="tutorial"][data-help-topic="shop"]').click();
   await page.waitForSelector('[data-modal="tutorial"]', { timeout: 10000 });
-  await page.locator('[data-modal-close="backdrop"]').click({ position: { x: 4, y: 4 } });
-  await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+  await assertNoMoveDuring(page, label, 'modal backdrop close', async () => {
+    await page.locator('[data-modal-close="backdrop"]').click({ position: { x: 4, y: 4 } });
+    await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+  });
+  await assertShopHelpOpenerFocused(page, `${label} backdrop`);
 
   for (const panel of featurePanels.toReversed()) {
     await page.locator(`[data-panel-toggle="${panel}"]`).click();
