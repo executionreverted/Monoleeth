@@ -586,10 +586,10 @@ button:disabled {
   left: var(--window-x, 12rem);
   z-index: var(--window-z, 20);
   width: min(var(--window-width, 24rem), calc(100vw - 2rem));
-  height: min(var(--window-height, 31rem), calc(100vh - 5rem));
-  max-height: min(var(--window-height, 31rem), calc(100vh - 5rem));
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  max-height: calc(100dvh - 5rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid rgba(215, 247, 255, 0.32);
   background:
     linear-gradient(180deg, rgba(16, 24, 28, 0.94), rgba(3, 7, 9, 0.96)),
@@ -622,6 +622,7 @@ button:disabled {
 }
 
 .hud-window__header {
+  flex: 0 0 auto;
   cursor: grab;
   touch-action: none;
 }
@@ -684,6 +685,10 @@ button:disabled {
   overflow: auto;
   padding: 0.65rem;
   scrollbar-width: thin;
+}
+
+.hud-window__body {
+  flex: 0 1 auto;
 }
 
 .hud-window__body > h2:first-child,
@@ -3318,6 +3323,7 @@ button:disabled {
   .hud-window__header {
     padding: 0.5rem;
     cursor: default;
+    touch-action: pan-y;
   }
 
   .hud-modal__header button,

@@ -135,6 +135,15 @@ client/tests/browser-smoke.mjs
 - Browser smoke now fails on visible `No lock`/`No drop`, target-panel disabled
   `Aim`/wrong-target `Fire`/`Gather` clutter, and extra planet future-action
   buttons in catalog/detail surfaces.
+- HUD windows no longer emit or consume `--window-height`. Window metadata now
+  carries size classes plus width only, while CSS uses `height: auto`,
+  viewport-capped `max-height`, a fixed header, and `.hud-window__body` as the
+  scroll owner.
+- Browser smoke now asserts visible windows have no fixed height var, do not
+  scroll at the window shell, scroll only through the body when capped, avoid
+  large empty fixed-height slack, and keep desktop/tablet/mobile horizontal
+  overflow closed. Verified screenshots:
+  `output/screenshots/task-001/04/windows-content-sized-{desktop,tablet,mobile}.png`.
 
 ## Implementation Plan
 
@@ -198,8 +207,8 @@ docs/plans/task-001/04-hud-modal-tutorial-window-system.md
 
 - [x] No generic `Inspect` text appears in normal HUD windows.
 - [x] Contextual `?` opens a tutorial/help modal with selected topic.
-- [ ] Windows are content-sized and only body-scroll after max height.
-- [ ] Shared window shell no longer forces large empty fixed panels when sparse.
+- [x] Windows are content-sized and only body-scroll after max height.
+- [x] Shared window shell no longer forces large empty fixed panels when sparse.
 - [x] Target panel does not show `No lock` plus dead action clutter.
 - [ ] Internal/debug phrases are absent from all normal player UI, with
       role-gated admin diagnostics exempted.
@@ -214,7 +223,7 @@ docs/plans/task-001/04-hud-modal-tutorial-window-system.md
 - [ ] Moving plus modal/window click/drag/touch isolation is smoke-tested on
       desktop, tablet, and mobile.
 - [ ] Palette is closer to black/white monochrome with restrained accents.
-- [ ] Browser smoke checks no horizontal overflow on desktop/tablet/mobile.
+- [x] Browser smoke checks no horizontal overflow on desktop/tablet/mobile.
 
 ## Verification
 

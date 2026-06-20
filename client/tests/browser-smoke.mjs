@@ -25,6 +25,7 @@ const phase06OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-pat
 const phase07OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '07');
 const phase08OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '08');
 const phasePatch3OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-3');
+const task001Phase04OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'task-001', '04');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -194,6 +195,7 @@ try {
   await mkdir(phase07OutputDir, { recursive: true });
   await mkdir(phase08OutputDir, { recursive: true });
   await mkdir(phasePatch3OutputDir, { recursive: true });
+  await mkdir(task001Phase04OutputDir, { recursive: true });
   if (useFixture) {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
@@ -2580,6 +2582,76 @@ async function verifyRealEconomy(page, viewport, label) {
   await page.waitForFunction(() => !document.querySelector('[data-window-panel="economy"]'), null, { timeout: 10000 });
 }
 
+async function assertContentSizedHUDWindows(page, viewport, label) {
+  const metrics = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-window-panel]'))
+      .filter((node) => {
+        if (!(node instanceof HTMLElement)) {
+          return false;
+        }
+        const style = window.getComputedStyle(node);
+        return style.display !== 'none' && style.visibility !== 'hidden' && node.getClientRects().length > 0;
+      })
+      .map((node) => {
+        const windowPanel = node instanceof HTMLElement ? node : null;
+        const body = windowPanel?.querySelector('.hud-window__body');
+        const header = windowPanel?.querySelector('.hud-window__header');
+        const rect = windowPanel?.getBoundingClientRect();
+        const bodyRect = body instanceof HTMLElement ? body.getBoundingClientRect() : null;
+        const headerRect = header instanceof HTMLElement ? header.getBoundingClientRect() : null;
+        const style = windowPanel ? window.getComputedStyle(windowPanel) : null;
+        const bodyStyle = body instanceof HTMLElement ? window.getComputedStyle(body) : null;
+        const maxHeight = style?.maxHeight ? Number.parseFloat(style.maxHeight) : Number.NaN;
+        const bodyClientHeight = body instanceof HTMLElement ? body.clientHeight : 0;
+        const bodyScrollHeight = body instanceof HTMLElement ? body.scrollHeight : 0;
+        const rectHeight = rect?.height ?? 0;
+        const bodySlack = Math.max(0, bodyClientHeight - bodyScrollHeight);
+        const atMaxHeight = Number.isFinite(maxHeight) && maxHeight > 0 && rectHeight >= maxHeight - 2;
+        return {
+          id: windowPanel?.dataset.windowPanel ?? '',
+          size: windowPanel?.dataset.windowSize ?? '',
+          inlineHeightVar: windowPanel?.style.getPropertyValue('--window-height') ?? '',
+          inlineHeight: windowPanel?.style.height ?? '',
+          overflowY: style?.overflowY ?? '',
+          bodyOverflowY: bodyStyle?.overflowY ?? '',
+          rect: rect ? { width: rect.width, height: rect.height, top: rect.top, bottom: rect.bottom } : null,
+          headerHeight: headerRect?.height ?? 0,
+          bodyHeight: bodyRect?.height ?? 0,
+          bodyClientHeight,
+          bodyScrollHeight,
+          bodySlack,
+          maxHeight,
+          atMaxHeight,
+        };
+      }),
+  );
+
+  const invalid = metrics.filter((entry) => {
+    if (!entry.rect || entry.rect.width <= 0 || entry.rect.height <= 0) {
+      return true;
+    }
+    if (entry.inlineHeightVar || entry.inlineHeight || !entry.size) {
+      return true;
+    }
+    if (entry.overflowY === 'auto' || entry.overflowY === 'scroll') {
+      return true;
+    }
+    if (entry.bodyOverflowY !== 'auto') {
+      return true;
+    }
+    if (entry.atMaxHeight && entry.bodyScrollHeight <= entry.bodyClientHeight + 1) {
+      return true;
+    }
+    if (!entry.atMaxHeight && entry.bodySlack > 24) {
+      return true;
+    }
+    return entry.rect.bottom > viewport.height + 1 || entry.rect.width > viewport.width + 1;
+  });
+  if (invalid.length > 0) {
+    throw new Error(`${label}: HUD windows are not content-sized/body-scrolled ${JSON.stringify({ invalid, metrics })}`);
+  }
+}
+
 async function verifyPanelModalChrome(page, viewport, label) {
   const featurePanels = ['cargo', 'systems', 'quests', 'intel', 'economy'];
   for (const panel of featurePanels) {
@@ -2632,6 +2704,7 @@ async function verifyPanelModalChrome(page, viewport, label) {
   if (opened.scrollWidth > viewport.width + 1) {
     throw new Error(`${label}: panel window caused horizontal overflow (${opened.scrollWidth} > ${viewport.width})`);
   }
+  await assertContentSizedHUDWindows(page, viewport, label);
   if (viewport.width >= 768) {
     for (const windowPanel of opened.windows) {
       if (!windowPanel.visible || !windowPanel.rect) {
@@ -2693,6 +2766,7 @@ async function verifyPanelModalChrome(page, viewport, label) {
 
   await page.screenshot({ path: path.join(phase02OutputDir, `windows-${label}.png`), fullPage: true });
   await page.screenshot({ path: path.join(phase08OutputDir, `window-${label}.png`), fullPage: true });
+  await page.screenshot({ path: path.join(task001Phase04OutputDir, `windows-content-sized-${label}.png`), fullPage: true });
 
   await page.locator('[data-panel-toggle="economy"]').click();
   await page.waitForSelector('[data-window-panel="economy"][data-focused="true"]', { timeout: 10000 });

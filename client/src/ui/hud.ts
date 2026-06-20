@@ -838,12 +838,12 @@ export class HUD {
           return '';
         }
         const focused = windowState.id === this.focusedWindow;
-        const size = windowSize(definition.id);
+        const layout = windowLayout(definition.id);
         const helpButton = definition.helpTopic
           ? `<button class="hud-window__help-button" type="button" data-modal-open="tutorial" data-help-topic="${escapeHTML(definition.helpTopic)}" title="${escapeHTML(definition.title)} help" aria-label="${escapeHTML(definition.title)} help">?</button>`
           : '';
         return `
-          <section class="hud-window" data-window-panel="${definition.id}" data-focused="${focused ? 'true' : 'false'}" data-open="true" data-x="${Math.round(windowState.x)}" data-y="${Math.round(windowState.y)}" style="--window-x:${windowState.x}px;--window-y:${windowState.y}px;--window-z:${windowState.z};--window-width:${size.width}px;--window-height:${size.height}px" tabindex="-1" aria-label="${escapeHTML(definition.title)}">
+          <section class="hud-window" data-window-panel="${definition.id}" data-window-size="${layout.size}" data-focused="${focused ? 'true' : 'false'}" data-open="true" data-x="${Math.round(windowState.x)}" data-y="${Math.round(windowState.y)}" style="--window-x:${windowState.x}px;--window-y:${windowState.y}px;--window-z:${windowState.z};--window-width:${layout.width}px" tabindex="-1" aria-label="${escapeHTML(definition.title)}">
             <header class="hud-window__header" data-window-drag="${definition.id}">
               <strong>${escapeHTML(definition.title)}</strong>
               <div>
@@ -990,15 +990,15 @@ export class HUD {
   }
 
   private defaultWindowPosition(panel: HUDWindowID): { x: number; y: number } {
-    const size = windowSize(panel);
-    const x = (window.innerWidth - Math.min(size.width, window.innerWidth - 16)) / 2;
-    const y = (window.innerHeight - Math.min(size.height, window.innerHeight - 72)) / 2;
+    const layout = windowLayout(panel);
+    const x = (window.innerWidth - Math.min(layout.width, window.innerWidth - 16)) / 2;
+    const y = (window.innerHeight - Math.min(layout.preferredHeight, window.innerHeight - 72)) / 2;
     return this.clampWindowPosition(panel, x, y);
   }
 
   private clampWindowPosition(panel: HUDWindowID, x: number, y: number): { x: number; y: number } {
-    const size = windowSize(panel);
-    const width = Math.min(size.width, Math.max(320, window.innerWidth - 16));
+    const layout = windowLayout(panel);
+    const width = Math.min(layout.width, Math.max(320, window.innerWidth - 16));
     const margin = 8;
     const topMargin = window.innerWidth < 768 ? margin : 56;
     const maxX = Math.max(margin, window.innerWidth - width - margin);
@@ -1172,21 +1172,21 @@ const baseWindowDefinitions: HUDPanelDefinition[] = [
   { id: 'ops', label: 'Ops', title: 'Admin Ops', iconURL: menuIconURL, helpTopic: 'ops', render: opsPanel, hidden: (state) => !state.auth.session?.account?.admin },
 ];
 
-function windowSize(id: HUDWindowID): { width: number; height: number } {
+function windowLayout(id: HUDWindowID): { width: number; preferredHeight: number; size: 'compact' | 'dual-pane' | 'triple-pane' | 'system' } {
   switch (id) {
     case 'economy':
-      return { width: 640, height: 560 };
+      return { width: 640, preferredHeight: 540, size: 'triple-pane' };
     case 'quests':
-      return { width: 620, height: 560 };
+      return { width: 620, preferredHeight: 760, size: 'dual-pane' };
     case 'intel':
-      return { width: 620, height: 620 };
+      return { width: 620, preferredHeight: 710, size: 'dual-pane' };
     case 'systems':
-      return { width: 540, height: 520 };
+      return { width: 540, preferredHeight: 470, size: 'system' };
     case 'ops':
-      return { width: 450, height: 520 };
+      return { width: 450, preferredHeight: 520, size: 'compact' };
     case 'cargo':
     default:
-      return { width: 560, height: 560 };
+      return { width: 560, preferredHeight: 630, size: 'system' };
   }
 }
 
