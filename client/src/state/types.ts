@@ -182,6 +182,9 @@ export interface QuestObjectiveSummary {
   id: string;
   kind: string;
   target?: string;
+  display_name: string;
+  catalog_ref?: string;
+  art_key?: string;
   current: number;
   required: number;
   completed: boolean;
@@ -192,6 +195,9 @@ export interface QuestRewardSummary {
   currency_type?: string;
   item_id?: string;
   role?: string;
+  display_name: string;
+  catalog_ref?: string;
+  art_key?: string;
   amount: number;
 }
 
@@ -240,6 +246,7 @@ export interface QuestBoardSummary {
   locked_reason?: string;
   reset_at?: number;
   generated_at: number;
+  revision: number;
 }
 
 export interface EconomyDashboardSummary {

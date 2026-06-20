@@ -694,6 +694,13 @@ async function verifyQuestBoardSurface(page, viewport, label) {
   const initial = await page.evaluate(() => {
     const navText = document.querySelector('[data-panel-toggle="quests"]')?.textContent ?? '';
     const detail = document.querySelector('[data-window-panel="quests"] [data-quest-detail]');
+    const panelText = document.querySelector('[data-window-panel="quests"]')?.textContent ?? '';
+    const questBoard = window.__SPACE_MORPG_SMOKE_STATE__?.questBoard;
+    const questEntries = [...(questBoard?.offers ?? []), ...(questBoard?.active ?? [])];
+    const rawQuestIDs = questEntries.flatMap((entry) => [
+      ...(entry.objectives ?? []).map((objective) => objective.target).filter(Boolean),
+      ...(entry.rewards ?? []).map((reward) => reward.item_id).filter(Boolean),
+    ]);
     return {
       navText,
       detailKey: detail instanceof HTMLElement ? detail.dataset.questDetail ?? '' : '',
@@ -707,7 +714,17 @@ async function verifyQuestBoardSurface(page, viewport, label) {
       active: window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.active?.length ?? 0,
       hasServerActionState:
         window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.offers?.every((offer) => typeof offer.can_accept === 'boolean') === true &&
-        typeof window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.can_reroll === 'boolean',
+        typeof window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.can_reroll === 'boolean' &&
+        typeof window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.revision === 'number',
+      hasServerDisplayMetadata: questEntries.every(
+        (entry) =>
+          (entry.objectives ?? []).every((objective) => typeof objective.display_name === 'string' && objective.display_name.length > 0) &&
+          (entry.rewards ?? []).every((reward) => typeof reward.display_name === 'string' && reward.display_name.length > 0),
+      ),
+      expiredEnabledOffers: (questBoard?.offers ?? [])
+        .filter((offer) => (offer.expires_at ?? 0) > 0 && (questBoard?.generated_at ?? 0) >= offer.expires_at && offer.can_accept)
+        .map((offer) => offer.offer_id),
+      rawQuestIDLeaks: rawQuestIDs.filter((value) => panelText.includes(value)),
     };
   });
   if (!/quests/i.test(initial.navText) || /galaxy/i.test(initial.navText)) {
@@ -718,7 +735,10 @@ async function verifyQuestBoardSurface(page, viewport, label) {
     !['Offers', 'Active', 'Claimable', 'Completed'].every((section) => initial.sectionLabels.includes(section)) ||
     !initial.hasObjective ||
     !initial.hasReward ||
-    !initial.hasServerActionState
+    !initial.hasServerActionState ||
+    !initial.hasServerDisplayMetadata ||
+    initial.expiredEnabledOffers.length > 0 ||
+    initial.rawQuestIDLeaks.length > 0
   ) {
     throw new Error(`${label}: quest board surface incomplete ${JSON.stringify(initial)}`);
   }
@@ -779,6 +799,26 @@ async function verifyQuestBoardSurface(page, viewport, label) {
   ) {
     throw new Error(`${label}: quest action wiring incomplete ${JSON.stringify(actionState)}`);
   }
+
+  const rerollBefore = await commandLogCount(page, 'Sent quest.reroll.');
+  const rerollStateBefore = await page.evaluate(() => ({
+    generatedAt: window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.generated_at ?? 0,
+    offerCount: window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.offers?.length ?? 0,
+  }));
+  await page.waitForSelector('[data-window-panel="quests"] [data-action="quest-reroll"]:not([disabled])', { timeout: 10000 });
+  await page.locator('[data-window-panel="quests"] [data-action="quest-reroll"]').click();
+  await page.waitForFunction(
+    ({ before, generatedAtBefore, offerCountBefore }) => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      const rerolled = (state?.commandLog ?? []).filter((line) => line.text === 'Sent quest.reroll.').length > before;
+      const boardAdvanced =
+        (state?.questBoard?.generated_at ?? 0) >= generatedAtBefore &&
+        (state?.questBoard?.offers?.length ?? 0) >= offerCountBefore;
+      return rerolled && boardAdvanced;
+    },
+    { before: rerollBefore, generatedAtBefore: rerollStateBefore.generatedAt, offerCountBefore: rerollStateBefore.offerCount },
+    { timeout: 10000 },
+  );
 
   await page.screenshot({ path: path.join(phasePatch3OutputDir, `quests-${label}.png`), fullPage: true });
   await page.screenshot({ path: path.join(task001Phase09OutputDir, `quests-${label}.png`), fullPage: true });

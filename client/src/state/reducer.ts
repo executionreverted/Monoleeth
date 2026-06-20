@@ -836,7 +836,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
     case CLIENT_EVENTS.questBoardGenerated:
       return {
         ...state,
-        questBoard: parseQuestBoardSummary(envelope.payload, state.questBoard),
+        questBoard: parseQuestBoardSummary(envelope.payload, state.questBoard, envelope.server_time),
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
         commandLog: appendLog(state.commandLog, 'info', 'Quest board refreshed.'),
@@ -846,7 +846,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       const board = objectField(envelope.payload, 'quest_board');
       return {
         ...state,
-        questBoard: board ? parseQuestBoardSummary(board, state.questBoard) : state.questBoard,
+        questBoard: board ? parseQuestBoardSummary(board, state.questBoard, envelope.server_time) : state.questBoard,
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
         commandLog: appendLog(state.commandLog, 'info', 'Quest board rerolled.'),
@@ -1397,7 +1397,7 @@ function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientSt
   if (questBoard) {
     next = {
       ...next,
-      questBoard: parseQuestBoardSummary(questBoard, next.questBoard),
+      questBoard: parseQuestBoardSummary(questBoard, next.questBoard, next.lastServerTime ?? undefined),
     };
   }
 
@@ -2369,11 +2369,20 @@ function parsePremiumPurchase(payload: JsonObject): PremiumPurchaseSummary | nul
   };
 }
 
-function parseQuestBoardSummary(payload: JsonObject, fallback: QuestBoardSummary | null): QuestBoardSummary {
+function parseQuestBoardSummary(payload: JsonObject, fallback: QuestBoardSummary | null, serverTime?: number): QuestBoardSummary {
+  const incomingGeneratedAt = roundedOptional(payload, 'generated_at');
+  const incomingRevision = roundedOptional(payload, 'revision') ?? incomingGeneratedAt;
+  const fallbackRevision = fallback?.revision ?? fallback?.generated_at ?? 0;
+  if (fallback && incomingRevision !== undefined && incomingRevision < fallbackRevision) {
+    return fallback;
+  }
+  const generatedAt = Math.max(0, Math.round(incomingGeneratedAt ?? fallback?.generated_at ?? 0));
+  const revision = Math.max(0, Math.round(incomingRevision ?? fallback?.revision ?? generatedAt));
+  const expirationReferenceTime = Math.max(0, Math.round(serverTime ?? generatedAt));
   const offers = Array.isArray(payload.offers)
     ? payload.offers
         .filter(isJsonObject)
-        .map(parseQuestOffer)
+        .map((offer) => parseQuestOffer(offer, expirationReferenceTime))
         .filter((offer): offer is QuestOfferSummary => offer !== null)
     : fallback?.offers ?? [];
   const active = Array.isArray(payload.active)
@@ -2401,15 +2410,18 @@ function parseQuestBoardSummary(payload: JsonObject, fallback: QuestBoardSummary
     can_reroll: booleanField(payload, 'can_reroll') ?? fallback?.can_reroll ?? false,
     locked_reason: stringField(payload, 'locked_reason') ?? fallback?.locked_reason ?? undefined,
     reset_at: optionalRoundedNumber(payload, 'reset_at', fallback?.reset_at),
-    generated_at: Math.max(0, Math.round(numberField(payload, 'generated_at') ?? fallback?.generated_at ?? 0)),
+    generated_at: generatedAt,
+    revision,
   };
 }
 
-function parseQuestOffer(payload: JsonObject): QuestOfferSummary | null {
+function parseQuestOffer(payload: JsonObject, expirationReferenceTime: number): QuestOfferSummary | null {
   const offerID = stringField(payload, 'offer_id') ?? '';
   if (!offerID) {
     return null;
   }
+  const expiresAt = Math.max(0, Math.round(numberField(payload, 'expires_at') ?? 0));
+  const expired = expiresAt > 0 && expirationReferenceTime > 0 && expiresAt <= expirationReferenceTime;
   return {
     offer_id: offerID,
     quest_type: stringField(payload, 'quest_type') ?? '',
@@ -2417,9 +2429,9 @@ function parseQuestOffer(payload: JsonObject): QuestOfferSummary | null {
     description: stringField(payload, 'description') ?? '',
     objectives: parseQuestObjectives(payload),
     rewards: parseQuestRewards(payload),
-    expires_at: Math.max(0, Math.round(numberField(payload, 'expires_at') ?? 0)),
-    can_accept: booleanField(payload, 'can_accept') ?? true,
-    locked_reason: stringField(payload, 'locked_reason') ?? undefined,
+    expires_at: expiresAt,
+    can_accept: !expired && (booleanField(payload, 'can_accept') ?? true),
+    locked_reason: expired ? stringField(payload, 'locked_reason') ?? 'Offer expired.' : stringField(payload, 'locked_reason') ?? undefined,
   };
 }
 
@@ -2462,6 +2474,9 @@ function parseQuestObjective(payload: JsonObject): QuestObjectiveSummary | null 
     id,
     kind: stringField(payload, 'kind') ?? '',
     target: stringField(payload, 'target') ?? undefined,
+    display_name: stringField(payload, 'display_name') ?? 'Objective',
+    catalog_ref: stringField(payload, 'catalog_ref') ?? undefined,
+    art_key: stringField(payload, 'art_key') ?? undefined,
     current: Math.max(0, Math.round(numberField(payload, 'current') ?? 0)),
     required: Math.max(0, Math.round(numberField(payload, 'required') ?? 0)),
     completed: booleanField(payload, 'completed') ?? false,
@@ -2488,6 +2503,9 @@ function parseQuestReward(payload: JsonObject): QuestRewardSummary | null {
     currency_type: stringField(payload, 'currency_type') ?? undefined,
     item_id: stringField(payload, 'item_id') ?? undefined,
     role: stringField(payload, 'role') ?? undefined,
+    display_name: stringField(payload, 'display_name') ?? 'Reward',
+    catalog_ref: stringField(payload, 'catalog_ref') ?? undefined,
+    art_key: stringField(payload, 'art_key') ?? undefined,
     amount: Math.max(0, Math.round(amount)),
   };
 }
@@ -3034,6 +3052,7 @@ function applyQuestUpdate(board: QuestBoardSummary | null, quest: QuestSummary):
     ...board,
     offers,
     active,
+    revision: Math.max(board.revision, quest.accepted_at, quest.completed_at ?? 0, quest.claimed_at ?? 0),
     counts: {
       offers: offers.length,
       active: countQuests(active, 'accepted'),

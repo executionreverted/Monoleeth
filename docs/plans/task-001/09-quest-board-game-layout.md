@@ -143,6 +143,19 @@ limits, objective progress, hidden target ids, or reward grant truth.
 - Server coverage verifies quest board action state, accept offer removal,
   client-authored progress rejection, reward claim idempotency, and reroll
   wallet debit/board refresh.
+- Quest objective/reward payloads now include server-owned `display_name`,
+  `catalog_ref`, and `art_key` metadata. The HUD renders those display names
+  instead of prettifying raw target/item ids, and browser smoke fails if quest
+  UI text leaks exact raw objective targets or reward item ids.
+- Quest board payloads now include an explicit `revision`. The reducer rejects
+  older board revisions, advances revision from event-only quest updates, and
+  fails closed when an offer is expired relative to server time.
+- Browser smoke clicks a real `quest.reroll` happy path after a real accept and
+  asserts the board refresh command/state. Browser claim remains documented as
+  fixture-blocked: the current authenticated smoke kills `training_drone` and
+  loots `raw_ore`, while MVP claimable board quests require deterministic
+  `pirate`/`raider` kills or larger `iron_ore`/craft/deliver fixtures. Server
+  tests still cover real claim and duplicate-claim idempotency.
 
 ## Implementation Plan
 
@@ -208,15 +221,15 @@ docs/plans/task-001/09-quest-board-game-layout.md
       and reroll availability.
 - [x] `quest.accepted` event-only reducer path removes the accepted offer or
       refreshes the board.
-- [ ] Objective/reward UI renders server display metadata and does not print raw
+- [x] Objective/reward UI renders server display metadata and does not print raw
       target/item ids.
 - [x] Non-claimable quests do not render disabled primary `Claim Locked`
       controls in normal player UI.
 - [x] Quest board payload includes expiry/reset state or a named blocker for
       offers that can expire.
-- [ ] Expired offers cannot remain enabled through stale local selection state.
-- [ ] Reducer and smoke cover stale board revision or expired offer refresh.
-- [ ] Browser smoke exercises real claim and reroll happy paths or names the
+- [x] Expired offers cannot remain enabled through stale local selection state.
+- [x] Reducer and smoke cover stale board revision or expired offer refresh.
+- [x] Browser smoke exercises real claim and reroll happy paths or names the
       missing fixture blocker.
 - [x] Browser smoke captures quest board screenshots under
       `output/screenshots/task-001/09/` or the final Task 001 screenshot set.

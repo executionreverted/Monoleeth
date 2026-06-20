@@ -30,6 +30,7 @@ type questBoardSummaryPayload struct {
 	LockedReason string              `json:"locked_reason,omitempty"`
 	ResetAt      int64               `json:"reset_at,omitempty"`
 	GeneratedAt  int64               `json:"generated_at"`
+	Revision     int64               `json:"revision"`
 }
 
 type questCountsPayload struct {
@@ -68,20 +69,26 @@ type questPayload struct {
 }
 
 type questObjectivePayload struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Target    string `json:"target,omitempty"`
-	Current   int64  `json:"current"`
-	Required  int64  `json:"required"`
-	Completed bool   `json:"completed"`
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Target      string `json:"target,omitempty"`
+	DisplayName string `json:"display_name"`
+	CatalogRef  string `json:"catalog_ref,omitempty"`
+	ArtKey      string `json:"art_key,omitempty"`
+	Current     int64  `json:"current"`
+	Required    int64  `json:"required"`
+	Completed   bool   `json:"completed"`
 }
 
 type questRewardPayload struct {
-	Kind     string `json:"kind"`
-	Currency string `json:"currency_type,omitempty"`
-	ItemID   string `json:"item_id,omitempty"`
-	Role     string `json:"role,omitempty"`
-	Amount   int64  `json:"amount"`
+	Kind        string `json:"kind"`
+	Currency    string `json:"currency_type,omitempty"`
+	ItemID      string `json:"item_id,omitempty"`
+	Role        string `json:"role,omitempty"`
+	DisplayName string `json:"display_name"`
+	CatalogRef  string `json:"catalog_ref,omitempty"`
+	ArtKey      string `json:"art_key,omitempty"`
+	Amount      int64  `json:"amount"`
 }
 
 type questRerollCost struct {
@@ -654,7 +661,28 @@ func (runtime *Runtime) questBoardSummaryPayload(playerID foundation.PlayerID, o
 		LockedReason: lockedReason,
 		ResetAt:      resetAt,
 		GeneratedAt:  now.UnixMilli(),
+		Revision:     questBoardRevisionMillis(now, offers, playerQuests),
 	}, nil
+}
+
+func questBoardRevisionMillis(generatedAt time.Time, offers []quests.GeneratedBoardOffer, playerQuests []quests.PlayerQuest) int64 {
+	revision := generatedAt.UnixMilli()
+	for _, offer := range offers {
+		revision = max(revision, offer.CreatedAt.UTC().UnixMilli())
+	}
+	for _, quest := range playerQuests {
+		revision = max(revision, quest.AcceptedAt.UTC().UnixMilli())
+		if quest.CompletedAt != nil {
+			revision = max(revision, quest.CompletedAt.UTC().UnixMilli())
+		}
+		if quest.ClaimedAt != nil {
+			revision = max(revision, quest.ClaimedAt.UTC().UnixMilli())
+		}
+		if quest.RewardClaimedAt != nil {
+			revision = max(revision, quest.RewardClaimedAt.UTC().UnixMilli())
+		}
+	}
+	return revision
 }
 
 func (runtime *Runtime) questOfferPayloadFromOffer(offer quests.GeneratedBoardOffer, activeLimitCount int, now time.Time) questOfferPayload {
@@ -670,8 +698,8 @@ func (runtime *Runtime) questOfferPayloadFromOffer(offer quests.GeneratedBoardOf
 		Type:         offer.Type.String(),
 		Title:        questTitle(offer.TemplateID.String()),
 		Description:  questDescription(offer.Type),
-		Objectives:   questObjectivesFromSchema(offer.GeneratedPayload.Objective, nil),
-		Rewards:      questRewardsFromPayload(offer.RewardPayload),
+		Objectives:   runtime.questObjectivesFromSchema(offer.GeneratedPayload.Objective, nil),
+		Rewards:      runtime.questRewardsFromPayload(offer.RewardPayload),
 		ExpiresAt:    offer.ExpiresAt.UTC().UnixMilli(),
 		CanAccept:    canAccept,
 		LockedReason: lockedReason,
@@ -696,8 +724,8 @@ func (runtime *Runtime) questPayloadFromQuest(quest quests.PlayerQuest) questPay
 		Title:       questTitle(quest.TemplateID.String()),
 		Description: questDescription(quest.Type),
 		State:       quest.State.String(),
-		Objectives:  questObjectivesFromSchema(quest.GeneratedPayload.Objective, quest.Progress.Objectives),
-		Rewards:     questRewardsFromPayload(quest.RewardPayload),
+		Objectives:  runtime.questObjectivesFromSchema(quest.GeneratedPayload.Objective, quest.Progress.Objectives),
+		Rewards:     runtime.questRewardsFromPayload(quest.RewardPayload),
 		AcceptedAt:  quest.AcceptedAt.UTC().UnixMilli(),
 		CanClaim:    quest.State == quests.QuestStateCompleted && quest.ClaimedAt == nil && quest.RewardClaimedAt == nil,
 	}
@@ -712,7 +740,7 @@ func (runtime *Runtime) questPayloadFromQuest(quest quests.PlayerQuest) questPay
 	return payload
 }
 
-func questObjectivesFromSchema(schema quests.ObjectiveSchema, progress []quests.ObjectiveProgress) []questObjectivePayload {
+func (runtime *Runtime) questObjectivesFromSchema(schema quests.ObjectiveSchema, progress []quests.ObjectiveProgress) []questObjectivePayload {
 	progressByID := make(map[string]quests.ObjectiveProgress, len(progress))
 	for _, item := range progress {
 		progressByID[item.ObjectiveID] = item
@@ -721,31 +749,48 @@ func questObjectivesFromSchema(schema quests.ObjectiveSchema, progress []quests.
 	payload := make([]questObjectivePayload, 0, len(objectives))
 	for _, objective := range objectives {
 		item := questObjectivePayload{
-			ID:   objective.ID,
-			Kind: objective.Kind.String(),
+			ID:          objective.ID,
+			Kind:        objective.Kind.String(),
+			DisplayName: questObjectiveKindLabel(objective.Kind),
 		}
 		switch objective.Kind {
 		case quests.ObjectiveKindKill:
 			item.Target = objective.Kill.TargetNPCType
 			item.Required = objective.Kill.RequiredCount.Int64()
+			item.DisplayName = "Destroy " + questPublicTargetName(item.Target)
+			item.ArtKey = "quest.objective.kill"
 		case quests.ObjectiveKindCollect:
 			item.Target = objective.Collect.ItemID.String()
 			item.Required = objective.Collect.Quantity.Int64()
+			item.DisplayName = runtime.questItemDisplayName(objective.Collect.ItemID)
+			item.CatalogRef = "item:" + item.Target
+			item.ArtKey = "item." + item.Target
 		case quests.ObjectiveKindCraft:
 			item.Target = objective.Craft.RecipeID.String()
 			if item.Target == "" {
 				item.Target = objective.Craft.ItemID.String()
 			}
 			item.Required = objective.Craft.Quantity.Int64()
+			item.DisplayName = "Fabricate " + questPublicTargetName(item.Target)
+			item.CatalogRef = "recipe:" + item.Target
+			item.ArtKey = "quest.objective.craft"
 		case quests.ObjectiveKindScan:
 			item.Target = objective.Scan.TargetSignalType
 			item.Required = objective.Scan.RequiredCount.Int64()
+			item.DisplayName = "Scan " + questPublicTargetName(item.Target)
+			item.ArtKey = "quest.objective.scan"
 		case quests.ObjectiveKindBuild:
 			item.Target = objective.Build.BuildingType
 			item.Required = objective.Build.RequiredCount.Int64()
+			item.DisplayName = "Build " + questPublicTargetName(item.Target)
+			item.CatalogRef = "building:" + item.Target
+			item.ArtKey = "quest.objective.build"
 		case quests.ObjectiveKindDeliver:
 			item.Target = objective.Deliver.ItemID.String()
 			item.Required = objective.Deliver.Quantity.Int64()
+			item.DisplayName = "Deliver " + runtime.questItemDisplayName(objective.Deliver.ItemID)
+			item.CatalogRef = "item:" + item.Target
+			item.ArtKey = "item." + item.Target
 		}
 		if current, ok := progressByID[objective.ID]; ok {
 			item.Current = current.Current
@@ -757,18 +802,113 @@ func questObjectivesFromSchema(schema quests.ObjectiveSchema, progress []quests.
 	return payload
 }
 
-func questRewardsFromPayload(payload quests.RewardPayload) []questRewardPayload {
+func (runtime *Runtime) questRewardsFromPayload(payload quests.RewardPayload) []questRewardPayload {
 	rewards := make([]questRewardPayload, 0, len(payload.Grants))
 	for _, grant := range payload.Grants {
-		rewards = append(rewards, questRewardPayload{
+		reward := questRewardPayload{
 			Kind:     grant.Kind.String(),
 			Currency: grant.Currency.String(),
 			ItemID:   grant.ItemID.String(),
 			Role:     grant.Role.String(),
 			Amount:   grant.Amount,
+		}
+		reward.DisplayName, reward.CatalogRef, reward.ArtKey = runtime.questRewardDisplayMetadata(reward)
+		rewards = append(rewards, questRewardPayload{
+			Kind:        reward.Kind,
+			Currency:    reward.Currency,
+			ItemID:      reward.ItemID,
+			Role:        reward.Role,
+			DisplayName: reward.DisplayName,
+			CatalogRef:  reward.CatalogRef,
+			ArtKey:      reward.ArtKey,
+			Amount:      reward.Amount,
 		})
 	}
 	return rewards
+}
+
+func (runtime *Runtime) questRewardDisplayMetadata(reward questRewardPayload) (string, string, string) {
+	if reward.Currency != "" {
+		return questCurrencyDisplayName(reward.Currency), "currency:" + reward.Currency, "currency." + reward.Currency
+	}
+	if reward.ItemID != "" {
+		return runtime.questItemDisplayName(foundation.ItemID(reward.ItemID)), "item:" + reward.ItemID, "item." + reward.ItemID
+	}
+	if reward.Role != "" {
+		return questRoleDisplayName(reward.Role) + " XP", "role:" + reward.Role, "role." + reward.Role
+	}
+	return questPublicTargetName(reward.Kind), "", "quest.reward"
+}
+
+func (runtime *Runtime) questItemDisplayName(itemID foundation.ItemID) string {
+	if name := runtime.itemDisplayName(itemID); name != "" && name != itemID.String() {
+		return name
+	}
+	return questPublicTargetName(itemID.String())
+}
+
+func questObjectiveKindLabel(kind quests.ObjectiveKind) string {
+	switch kind {
+	case quests.ObjectiveKindKill:
+		return "Destroy target"
+	case quests.ObjectiveKindCollect:
+		return "Recover cargo"
+	case quests.ObjectiveKindCraft:
+		return "Fabricate item"
+	case quests.ObjectiveKindScan:
+		return "Scan signal"
+	case quests.ObjectiveKindBuild:
+		return "Build structure"
+	case quests.ObjectiveKindDeliver:
+		return "Deliver cargo"
+	default:
+		return "Complete objective"
+	}
+}
+
+func questCurrencyDisplayName(currency string) string {
+	switch currency {
+	case "credits":
+		return "Credits"
+	case "premium_paid":
+		return "Premium Credits"
+	case "premium_earned":
+		return "Bonus Premium"
+	default:
+		return questPublicTargetName(currency)
+	}
+}
+
+func questRoleDisplayName(role string) string {
+	switch role {
+	case progression.RoleTypeCombat.String():
+		return "Combat"
+	case progression.RoleTypeScout.String():
+		return "Scout"
+	case progression.RoleTypeCrafting.String():
+		return "Crafting"
+	case progression.RoleTypeConstruction.String():
+		return "Construction"
+	default:
+		return questPublicTargetName(role)
+	}
+}
+
+func questPublicTargetName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "Target"
+	}
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return r == '_' || r == '-' || r == '.'
+	})
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + part[1:]
+	}
+	return strings.Join(parts, " ")
 }
 
 func (runtime *Runtime) queueQuestProgressEventsLocked(sessionID auth.SessionID, updated []quests.PlayerQuest) {

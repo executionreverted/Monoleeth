@@ -2549,7 +2549,7 @@ function questDetail(entry: QuestEntry): string {
           <h3>Rewards</h3>
           ${
             rewards.length > 0
-              ? rewards.map((reward) => `<div class="quest-reward-row"><span>${escapeHTML(reward.kind.replace(/_/g, ' '))}</span><strong>${escapeHTML(questRewardLabel(reward))}</strong></div>`).join('')
+              ? rewards.map((reward) => `<div class="quest-reward-row"><span>${escapeHTML(questRewardKindLabel(reward))}</span><strong>${escapeHTML(questRewardLabel(reward))}</strong></div>`).join('')
               : '<div class="empty-line">No rewards.</div>'
           }
         </section>
@@ -3556,24 +3556,49 @@ function publicAuctionName(payloadType: string, definitionID: string): string {
 }
 
 function questObjectiveLabel(objective: NonNullable<ClientState['questBoard']>['active'][number]['objectives'][number]): string {
-  const target = objective.target ? ` ${objective.target.replace(/_/g, ' ')}` : '';
-  return `${objective.current}/${objective.required} ${objective.kind.replace(/_/g, ' ')}${target}`;
+  const label = objective.display_name || questObjectiveKindLabel(objective.kind);
+  return `${objective.current}/${objective.required} ${label}`;
 }
 
 function questRewardLabel(reward: NonNullable<ClientState['questBoard']>['offers'][number]['rewards'][number] | undefined): string {
   if (!reward) {
     return 'reward pending';
   }
-  if (reward.currency_type) {
-    return `${reward.amount} ${reward.currency_type.replace(/_/g, ' ')}`;
+  return `${reward.amount} ${reward.display_name || questRewardKindLabel(reward)}`;
+}
+
+function questObjectiveKindLabel(kind: string): string {
+  switch (kind) {
+    case 'kill':
+      return 'Destroy target';
+    case 'collect':
+      return 'Recover cargo';
+    case 'craft':
+      return 'Fabricate item';
+    case 'scan':
+      return 'Scan signal';
+    case 'build':
+      return 'Build structure';
+    case 'deliver':
+      return 'Deliver cargo';
+    default:
+      return 'Objective';
   }
-  if (reward.item_id) {
-    return `${reward.amount} ${reward.item_id.replace(/_/g, ' ')}`;
+}
+
+function questRewardKindLabel(reward: NonNullable<ClientState['questBoard']>['offers'][number]['rewards'][number]): string {
+  switch (reward.kind) {
+    case 'currency':
+      return 'Currency';
+    case 'item':
+      return 'Item';
+    case 'main_xp':
+      return 'Pilot XP';
+    case 'role_xp':
+      return 'Role XP';
+    default:
+      return 'Reward';
   }
-  if (reward.role) {
-    return `${reward.amount} ${reward.role.replace(/_/g, ' ')}`;
-  }
-  return `${reward.amount} ${reward.kind.replace(/_/g, ' ')}`;
 }
 
 function walletBalanceForCurrency(wallet: NonNullable<ClientState['wallet']>, currency: string): number | null {

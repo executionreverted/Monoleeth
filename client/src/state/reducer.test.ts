@@ -1966,6 +1966,7 @@ describe('reduceClientState', () => {
       can_reroll: true,
       reset_at: 5000,
       generated_at: 1000,
+      revision: 1000,
     };
     const withBoard = reduceClientState(createInitialState(), {
       type: 'responseReceived',
@@ -2027,6 +2028,8 @@ describe('reduceClientState', () => {
               },
             ],
             counts: { offers: 1, active: 0, completed: 0, claimable: 0, claimed: 1 },
+            generated_at: 1200,
+            revision: 1200,
           },
           wallet: { credits: 600, premium_paid: 0, premium_earned: 0 },
           inventory: {
@@ -2088,6 +2091,105 @@ describe('reduceClientState', () => {
     expect(withAdmin.metrics?.snapshot.counters[0].name).toBe('commands_per_sec');
     expect(withAdmin.releaseGate?.report.passed).toBe(true);
     expect(withAdmin.abuseCoverage?.report.passed).toBe(true);
+  });
+
+  test('phase 09 quest board rejects stale revisions and fails closed on expired offers', () => {
+    const freshBoard = {
+      offers: [
+        {
+          offer_id: 'offer-fresh',
+          quest_type: 'collect',
+          title: 'Cargo Recovery',
+          description: 'Recover cargo marked by the server.',
+          objectives: [
+            {
+              id: 'collect',
+              kind: 'collect',
+              target: 'iron_ore',
+              display_name: 'Iron Ore',
+              catalog_ref: 'item:iron_ore',
+              art_key: 'item.iron_ore',
+              current: 0,
+              required: 2,
+              completed: false,
+            },
+          ],
+          rewards: [
+            {
+              kind: 'item',
+              item_id: 'scanner_circuit',
+              display_name: 'Scanner Circuit',
+              catalog_ref: 'item:scanner_circuit',
+              art_key: 'item.scanner_circuit',
+              amount: 1,
+            },
+          ],
+          expires_at: 3000,
+          can_accept: true,
+        },
+      ],
+      active: [],
+      counts: { offers: 1, active: 0, completed: 0, claimable: 0, claimed: 0 },
+      reroll_cost: { currency_type: 'credits', amount: 25 },
+      can_reroll: true,
+      reset_at: 3000,
+      generated_at: 2000,
+      revision: 2000,
+    };
+    const withFresh = reduceClientState(createInitialState(), {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'quest-board-fresh',
+        ok: true,
+        payload: { quest_board: freshBoard },
+        server_time: 2001,
+        v: 1,
+      },
+    });
+    const stale = reduceClientState(withFresh, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'quest-board-stale',
+        ok: true,
+        payload: {
+          quest_board: {
+            ...freshBoard,
+            offers: [],
+            counts: { offers: 0, active: 0, completed: 0, claimable: 0, claimed: 0 },
+            generated_at: 1000,
+            revision: 1000,
+          },
+        },
+        server_time: 2002,
+        v: 1,
+      },
+    });
+    const expired = reduceClientState(withFresh, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'quest-board-expired',
+        ok: true,
+        payload: {
+          quest_board: {
+            ...freshBoard,
+            offers: [{ ...freshBoard.offers[0], offer_id: 'offer-expired', expires_at: 2500, can_accept: true }],
+            reset_at: 2500,
+            generated_at: 2000,
+            revision: 3000,
+          },
+        },
+        server_time: 3001,
+        v: 1,
+      },
+    });
+
+    expect(withFresh.questBoard?.offers[0].objectives[0].display_name).toBe('Iron Ore');
+    expect(withFresh.questBoard?.offers[0].rewards[0].display_name).toBe('Scanner Circuit');
+    expect(stale.questBoard?.offers).toHaveLength(1);
+    expect(stale.questBoard?.generated_at).toBe(2000);
+    expect(stale.questBoard?.revision).toBe(2000);
+    expect(expired.questBoard?.offers[0].can_accept).toBe(false);
+    expect(expired.questBoard?.offers[0].locked_reason).toBe('Offer expired.');
   });
 });
 

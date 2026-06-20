@@ -1385,8 +1385,20 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 	if len(boardPayload.QuestBoard.Offers) != quests.BoardOfferCount || boardPayload.QuestBoard.RerollCost.Amount <= 0 {
 		t.Fatalf("quest board = %+v, want ten server offers and reroll cost", boardPayload.QuestBoard)
 	}
-	if !boardPayload.QuestBoard.CanReroll || boardPayload.QuestBoard.ResetAt <= boardPayload.QuestBoard.GeneratedAt || !boardPayload.QuestBoard.Offers[0].CanAccept {
+	if !boardPayload.QuestBoard.CanReroll || boardPayload.QuestBoard.ResetAt <= boardPayload.QuestBoard.GeneratedAt || boardPayload.QuestBoard.Revision <= 0 || !boardPayload.QuestBoard.Offers[0].CanAccept {
 		t.Fatalf("quest board action state = %+v first offer %+v, want server-owned reroll/accept/reset state", boardPayload.QuestBoard, boardPayload.QuestBoard.Offers[0])
+	}
+	for _, offer := range boardPayload.QuestBoard.Offers {
+		for _, objective := range offer.Objectives {
+			if objective.DisplayName == "" || objective.DisplayName == objective.Target {
+				t.Fatalf("quest objective display metadata = %+v, want safe display name separate from raw target", objective)
+			}
+		}
+		for _, reward := range offer.Rewards {
+			if reward.DisplayName == "" || reward.DisplayName == reward.ItemID || reward.DisplayName == reward.Currency || reward.DisplayName == reward.Role {
+				t.Fatalf("quest reward display metadata = %+v, want safe display name separate from raw ids", reward)
+			}
+		}
 	}
 	drainEventTypes(t, conn, realtime.EventQuestBoardGenerated)
 
