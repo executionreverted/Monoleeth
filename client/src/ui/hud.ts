@@ -1,5 +1,6 @@
 import { ClientState } from '../state/types';
 import { activeEntityMovement, currentEntityPosition, distanceBetween, selfEntity } from '../state/movement';
+import { isWithinMinimapProjectionWindow } from '../state/world-memory';
 import { markHUDInputSuppressed, pointerTargetOwnsUI, worldKeyboardShortcutAllowed } from '../input/world-input-authority';
 import { renderToast } from './toast';
 import capacityIconURL from '../../../output/assets/hud-svg/icons/capacity.svg?url';
@@ -2868,6 +2869,7 @@ function minimapPanel(state: ClientState): string {
   const self = contacts.find((contact) => contact.status_flags?.includes('self')) ?? contacts.find((contact) => contact.entity_type === 'player');
   const center = self?.position ?? { x: 0, y: 0 };
   const radius = Math.max(state.minimap.radar_range, 1);
+  const projectionHalfExtent = Math.max((state.minimap.projection_window_size ?? radius * 2) / 2, 1);
   const points = contacts
     .map((contact) => {
       const left = clamp(50 + ((contact.position.x - center.x) / (radius * 2)) * 100, 4, 96);
@@ -2878,6 +2880,7 @@ function minimapPanel(state: ClientState): string {
     })
     .join('');
   const memoryPoints = memories
+    .filter((memory) => isWithinMinimapProjectionWindow(center, memory.position, projectionHalfExtent))
     .map((memory) => {
       const left = clamp(50 + ((memory.position.x - center.x) / (radius * 2)) * 100, 4, 96);
       const top = clamp(50 + ((memory.position.y - center.y) / (radius * 2)) * 100, 4, 96);

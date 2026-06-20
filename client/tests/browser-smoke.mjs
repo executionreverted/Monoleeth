@@ -783,6 +783,17 @@ async function verifyFogOfWar(page, label) {
   if (memoryCount < 1) {
     throw new Error(`${label}: minimap did not render remembered fog memory`);
   }
+  const farMemory = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return {
+      remembered: (state?.minimap?.remembered ?? []).some((memory) => memory.planet_id === 'planet-zfar-memory'),
+      worldMarker: (state?.worldView?.memoryMarkers ?? []).some((marker) => marker.detailID === 'planet-zfar-memory'),
+      radarPoint: Boolean(document.querySelector('.minimap__memory[data-planet-id="planet-zfar-memory"]')),
+    };
+  });
+  if (farMemory.remembered && (!farMemory.worldMarker || farMemory.radarPoint)) {
+    throw new Error(`${label}: far remembered planet clamped into radar contact ${JSON.stringify(farMemory)}`);
+  }
 }
 
 async function verifyQuickActionContracts(page, viewport, label) {
@@ -3610,6 +3621,14 @@ function snapshotPayload() {
           detail_id: 'planet-memory-01',
           label: 'Memory Planet',
           position: { x: 720, y: -360 },
+          freshness: 'fresh',
+        },
+        {
+          kind: 'known_planet',
+          planet_id: 'planet-zfar-memory',
+          detail_id: 'planet-zfar-memory',
+          label: 'Far Memory Planet',
+          position: { x: 5200, y: -3800 },
           freshness: 'fresh',
         },
       ],

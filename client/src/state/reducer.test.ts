@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { CLIENT_EVENTS, EventEnvelope, JsonObject, OPERATIONS } from '../protocol/envelope';
 import { createInitialState, reduceClientState } from './reducer';
 import type { ClientState } from './types';
-import { worldMapMemoryMarkers } from './world-memory';
+import { isWithinMinimapProjectionWindow, worldMapMemoryMarkers } from './world-memory';
 
 describe('reduceClientState', () => {
   test('initial state has no fake gameplay values', () => {
@@ -689,6 +689,64 @@ describe('reduceClientState', () => {
         label: 'terran ice',
         position: { x: 520, y: -240 },
         detailID: 'planet-eris',
+        state: 'fresh',
+      },
+    ]);
+  });
+
+  test('far remembered planets stay map memory without becoming nearby radar contacts', () => {
+    const state = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.knownPlanets, {
+        planets: [
+          {
+            planet_id: 'planet-far',
+            biome: 'ice',
+            planet_type: 'dwarf_planet',
+            rarity: 'uncommon',
+            level: 2,
+            intel_state: 'fresh',
+            confidence: 92,
+            last_seen_at: 1500,
+            owner_status: 'unclaimed',
+            discovered_at: 1400,
+          },
+        ],
+        counts: { known: 1, stale: 0, owned: 0 },
+        minimap: {
+          radar_range: 1000,
+          projection_window_size: 2000,
+          live_contacts: [
+            {
+              entity_id: 'player-local',
+              entity_type: 'player',
+              position: { x: 0, y: 0 },
+              disposition: 'self',
+              status_flags: ['self'],
+            },
+          ],
+          remembered: [
+            {
+              kind: 'known_planet',
+              planet_id: 'planet-far',
+              detail_id: 'planet-far',
+              label: 'far planet',
+              position: { x: 5200, y: -3800 },
+              freshness: 'fresh',
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(isWithinMinimapProjectionWindow({ x: 0, y: 0 }, { x: 5200, y: -3800 }, 1000)).toBe(false);
+    expect(worldMapMemoryMarkers(state)).toEqual([
+      {
+        id: 'known_planet:planet-far',
+        kind: 'known_planet',
+        label: 'far planet',
+        position: { x: 5200, y: -3800 },
+        detailID: 'planet-far',
         state: 'fresh',
       },
     ]);

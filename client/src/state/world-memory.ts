@@ -24,6 +24,17 @@ export function worldMapMemoryMarkers(state: ClientState): WorldMapMemoryMarker[
   return [...markers.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
+export function isWithinMinimapProjectionWindow(
+  center: { x: number; y: number },
+  position: { x: number; y: number },
+  halfExtent: number,
+): boolean {
+  if (!isFiniteVec(center) || !isFiniteVec(position) || !Number.isFinite(halfExtent) || halfExtent <= 0) {
+    return false;
+  }
+  return Math.abs(position.x - center.x) <= halfExtent && Math.abs(position.y - center.y) <= halfExtent;
+}
+
 function planetMemoryMarker(planet: PlanetDetailSummary, coordinates: { x: number; y: number }): WorldMapMemoryMarker {
   return {
     id: `known_planet:${planet.planet_id}`,

@@ -2329,6 +2329,69 @@ func TestWorldSnapshotProjectionPolicyIsServerOwnedAndSeparateFromRadarStat(t *t
 	}
 }
 
+func TestWorldSnapshotFarRememberedPlanetStaysMemoryNotLiveContact(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "projection-memory@example.com", "Projection Memory")
+	now := gameServer.runtime.clock.Now().UTC()
+	planetID := foundation.PlanetID("planet-far-memory")
+	coordinates := world.Vec2{X: 5200, Y: -3800}
+
+	if _, err := gameServer.runtime.Discovery.MaterializePlanet(discovery.MaterializePlanetInput{
+		CandidateKey: "candidate-far-memory",
+		Planet: discovery.Planet{
+			ID:           planetID,
+			WorldID:      gameServer.runtime.worldID,
+			ZoneID:       gameServer.runtime.zoneID,
+			Coordinates:  coordinates,
+			Biome:        discovery.PlanetBiomeOuterDrift,
+			Type:         discovery.PlanetTypeIce,
+			Rarity:       discovery.PlanetRarityUncommon,
+			Level:        2,
+			DiscoveredAt: now,
+			DiscoveredBy: resolved.PlayerID,
+		},
+	}); err != nil {
+		t.Fatalf("MaterializePlanet() error = %v, want nil", err)
+	}
+	if _, _, err := gameServer.runtime.Discovery.UpsertPlayerPlanetIntel(discovery.PlayerPlanetIntel{
+		PlayerID:        resolved.PlayerID,
+		PlanetID:        planetID,
+		Coordinates:     coordinates,
+		State:           discovery.IntelStateFresh,
+		Confidence:      100,
+		LastSeenAt:      now,
+		SourceType:      discovery.IntelSourceAdmin,
+		SourceReference: "far-memory-fixture",
+	}); err != nil {
+		t.Fatalf("UpsertPlayerPlanetIntel() error = %v, want nil", err)
+	}
+
+	events, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("bootstrap events: %v", err)
+	}
+	snapshot := decodeWorldSnapshotForTest(t, events)
+
+	for _, contact := range snapshot.Minimap.LiveContacts {
+		if contact.EntityID == planetID.String() {
+			t.Fatalf("far remembered planet became live radar contact: %+v", snapshot.Minimap.LiveContacts)
+		}
+	}
+	if len(snapshot.Minimap.Remembered) != 1 {
+		t.Fatalf("remembered minimap = %+v, want one far planet memory", snapshot.Minimap.Remembered)
+	}
+	memory := snapshot.Minimap.Remembered[0]
+	if memory.PlanetID != planetID.String() || memory.DetailID != planetID.String() {
+		t.Fatalf("far memory ids = %+v, want planet/detail %s", memory, planetID)
+	}
+	if memory.Position != coordinates {
+		t.Fatalf("far memory position = %+v, want unclipped coordinates %+v", memory.Position, coordinates)
+	}
+	if memory.Freshness != string(discovery.IntelStateFresh) {
+		t.Fatalf("far memory freshness = %q, want fresh", memory.Freshness)
+	}
+}
+
 func TestMultiTabAttachDoesNotDuplicatePlayerEntity(t *testing.T) {
 	_, httpServer := newTestServer(t, false)
 	defer httpServer.Close()

@@ -251,6 +251,14 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
   browser smoke so they cannot accidentally issue movement or pickup commands.
 - Visual fog overlay is disabled in the renderer while server-side visibility
   and hidden-data filtering remain active.
+- Square projection semantics are covered server-side: the worker/runtime query
+  admits visible contacts at the `1000,1000` square corner while excluding
+  `1001,0`, and it keeps the player `stats.radar_range` unchanged.
+- Far remembered planets remain server-owned map memory, not fake live radar
+  contacts. Backend regression covers a far materialized planet/intel row as
+  `minimap.remembered` with unclipped coordinates and no matching
+  `live_contacts` entry; the client filters remembered minimap points to the
+  current projection window while preserving world-map memory markers.
 
 ## Acceptance Criteria
 
@@ -276,9 +284,9 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
       tested.
 - [ ] Projection smoke proves the widened view is not only direct worker
       fixture insertion and reconciles source changes after movement.
-- [ ] Scan/known-planet updates refresh remembered minimap and world-map markers
+- [x] Scan/known-planet updates refresh remembered minimap and world-map markers
       without requiring manual Sync.
-- [ ] Far remembered planets do not clamp into fake nearby radar contacts.
+- [x] Far remembered planets do not clamp into fake nearby radar contacts.
 - [ ] Stale, invalidated, and wrong-zone remembered intel have explicit render
       and click behavior.
 - [ ] Square projection and circular radar semantics are documented and tested,

@@ -122,7 +122,7 @@ Adapted patterns:
 
 ## Working Style
 
-- Main session acts as conductor.
+- Main session acts as conductor. Read `AGENTS.md` for info.
 - Use subagents/Symphony for independent research or implementation slices when
   useful.
 - Worker prompts must tell workers to follow `docs/symphony-worker-rules.md`.
