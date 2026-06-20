@@ -880,7 +880,11 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 
 func opEmitsPostCommandAOIDiff(op realtime.Operation) bool {
 	switch op {
-	case realtime.OperationMarketCreateListing, realtime.OperationMarketBuy, realtime.OperationMarketCancel:
+	case realtime.OperationMarketCreateListing,
+		realtime.OperationMarketBuy,
+		realtime.OperationMarketCancel,
+		realtime.OperationAuctionBid,
+		realtime.OperationAuctionBuyNow:
 		return false
 	default:
 		return true

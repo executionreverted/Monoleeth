@@ -399,10 +399,24 @@ func (runtime *Runtime) handleAuctionBid(ctx realtime.CommandContext, request re
 			runtime.recordCurrencyLedgerMetric(result.PreviousRefund.LedgerEntry)
 		}
 	}
-	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
-	runtime.queueEventLocked(authSessionID(ctx.SessionID), realtime.EventAuctionBidPlaced, auctionLotPayloadFromLot(result.Lot, ctx.PlayerID))
-	runtime.queueEventLocked(authSessionID(ctx.SessionID), realtime.EventAuctionLotUpdated, auctionLotPayloadFromLot(result.Lot, ctx.PlayerID))
-	runtime.queueEventLocked(authSessionID(ctx.SessionID), realtime.EventWalletSnapshot, wallet)
+	if !result.Duplicate {
+		bidderWallet := runtime.walletSnapshotLocked(ctx.PlayerID)
+		runtime.updatePlayerWalletCacheLocked(ctx.PlayerID, bidderWallet)
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventAuctionBidPlaced, auctionLotPayloadFromLot(result.Lot, ctx.PlayerID))
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventAuctionLotUpdated, auctionLotPayloadFromLot(result.Lot, ctx.PlayerID))
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventWalletSnapshot, bidderWallet)
+
+		excludedPlayers := []foundation.PlayerID{ctx.PlayerID}
+		if result.PreviousRefund != nil {
+			previousBidderID := result.PreviousRefund.Balance.PlayerID
+			previousWallet := runtime.walletSnapshotLocked(previousBidderID)
+			runtime.updatePlayerWalletCacheLocked(previousBidderID, previousWallet)
+			runtime.queueEventToPlayerSessionsLocked(previousBidderID, realtime.EventAuctionLotUpdated, auctionLotPayloadFromLot(result.Lot, previousBidderID))
+			runtime.queueEventToPlayerSessionsLocked(previousBidderID, realtime.EventWalletSnapshot, previousWallet)
+			excludedPlayers = append(excludedPlayers, previousBidderID)
+		}
+		runtime.queuePassiveAuctionLotUpdatedLocked(result.Lot, excludedPlayers...)
+	}
 	return marshalPayload(runtime.auctionMutationResponseLocked(ctx.PlayerID, result.Lot, result.Amount, 0, nil, result.Duplicate))
 }
 
@@ -439,11 +453,26 @@ func (runtime *Runtime) handleAuctionBuyNow(ctx realtime.CommandContext, request
 		}
 	}
 	grant := auctionGrantPayloadFromGrant(result.Grant)
-	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
-	sessionID := authSessionID(ctx.SessionID)
-	runtime.queueEventLocked(sessionID, realtime.EventAuctionClosed, map[string]any{"lot": auctionLotPayloadFromLot(result.Lot, ctx.PlayerID), "grant": grant})
-	runtime.queueEventLocked(sessionID, realtime.EventAuctionLotUpdated, auctionLotPayloadFromLot(result.Lot, ctx.PlayerID))
-	runtime.queueEventLocked(sessionID, realtime.EventWalletSnapshot, wallet)
+	if !result.Duplicate {
+		buyerWallet := runtime.walletSnapshotLocked(ctx.PlayerID)
+		runtime.updatePlayerWalletCacheLocked(ctx.PlayerID, buyerWallet)
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventAuctionClosed, map[string]any{"lot": auctionLotPayloadFromLot(result.Lot, ctx.PlayerID), "grant": grant})
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventAuctionLotUpdated, auctionLotPayloadFromLot(result.Lot, ctx.PlayerID))
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventWalletSnapshot, buyerWallet)
+
+		excludedPlayers := []foundation.PlayerID{ctx.PlayerID}
+		if result.CurrentRefund != nil {
+			refundedBidderID := result.CurrentRefund.Balance.PlayerID
+			if refundedBidderID != ctx.PlayerID {
+				refundedWallet := runtime.walletSnapshotLocked(refundedBidderID)
+				runtime.updatePlayerWalletCacheLocked(refundedBidderID, refundedWallet)
+				runtime.queueEventToPlayerSessionsLocked(refundedBidderID, realtime.EventAuctionLotUpdated, auctionLotPayloadFromLot(result.Lot, refundedBidderID))
+				runtime.queueEventToPlayerSessionsLocked(refundedBidderID, realtime.EventWalletSnapshot, refundedWallet)
+				excludedPlayers = append(excludedPlayers, refundedBidderID)
+			}
+		}
+		runtime.queuePassiveAuctionLotUpdatedLocked(result.Lot, excludedPlayers...)
+	}
 	return marshalPayload(runtime.auctionMutationResponseLocked(ctx.PlayerID, result.Lot, 0, result.Price, &grant, result.Duplicate))
 }
 
@@ -596,6 +625,15 @@ func (runtime *Runtime) queueEventToPlayerSessionsLocked(playerID foundation.Pla
 	}
 }
 
+func (runtime *Runtime) updatePlayerWalletCacheLocked(playerID foundation.PlayerID, wallet walletSnapshotPayload) {
+	state, ok := runtime.players[playerID]
+	if !ok {
+		return
+	}
+	state.Wallet = wallet
+	runtime.players[playerID] = state
+}
+
 func (runtime *Runtime) queuePassiveMarketListingEventLocked(eventType realtime.ClientEventType, listing market.Listing, excludedPlayers ...foundation.PlayerID) {
 	excluded := make(map[foundation.PlayerID]struct{}, len(excludedPlayers))
 	for _, playerID := range excludedPlayers {
@@ -606,6 +644,19 @@ func (runtime *Runtime) queuePassiveMarketListingEventLocked(eventType realtime.
 			continue
 		}
 		runtime.queueEventLocked(sessionID, eventType, marketListingPayloadFromListing(listing, playerID))
+	}
+}
+
+func (runtime *Runtime) queuePassiveAuctionLotUpdatedLocked(lot auction.Lot, excludedPlayers ...foundation.PlayerID) {
+	excluded := make(map[foundation.PlayerID]struct{}, len(excludedPlayers))
+	for _, playerID := range excludedPlayers {
+		excluded[playerID] = struct{}{}
+	}
+	for sessionID, playerID := range runtime.sessions {
+		if _, skip := excluded[playerID]; skip {
+			continue
+		}
+		runtime.queueEventLocked(sessionID, realtime.EventAuctionLotUpdated, auctionLotPayloadFromLot(lot, playerID))
 	}
 }
 
@@ -697,7 +748,7 @@ func auctionLotPayloadFromLot(lot auction.Lot, viewerID foundation.PlayerID) auc
 		StartPrice:        lot.StartPrice,
 		CurrentBid:        lot.CurrentBid,
 		HasBid:            !lot.CurrentBidderID.IsZero(),
-		Leading:           lot.CurrentBidderID == viewerID,
+		Leading:           lot.Status == auction.LotStatusActive && lot.CurrentBidderID == viewerID,
 		BuyNowPrice:       cloneInt64(lot.BuyNowPrice),
 		Status:            lot.Status.String(),
 		StartsAt:          lot.StartsAt.UTC().UnixMilli(),

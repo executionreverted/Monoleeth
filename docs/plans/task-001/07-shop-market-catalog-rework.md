@@ -194,9 +194,17 @@ stock, and clear buy/list/bid actions backed by the owning server contract.
 - Market owner sessions receive their private listing event plus wallet and/or
   inventory refreshes where relevant; passive sessions receive public listing
   create/update/cancel payloads only.
-- Multi-client server coverage now proves seller, buyer, and passive viewer
-  market fanout, including event sequence continuity and private payload leak
-  checks. Auction and premium passive fanout remain open Phase 07 work.
+- Auction bid and buy-now now fan out owner-aware realtime events to online
+  bidder, previous/refunded bidder, buyer, and passive viewer sessions.
+  Bid/buy-now duplicate requests do not re-emit fanout events.
+- Auction owner/refunded sessions receive viewer-relative lot updates and wallet
+  refreshes; buy-now buyer receives the private grant only on `auction.closed`;
+  passive/refunded sessions receive no grant, ledger, debit, refund, or provider
+  payloads.
+- Multi-client server coverage now proves seller, buyer, passive viewer,
+  previous bidder, buy-now buyer, auction grant privacy, wallet refreshes, and
+  event sequence continuity for market and auction fanout. Premium passive
+  fanout remains open Phase 07 work.
 
 ## Implementation Plan
 
