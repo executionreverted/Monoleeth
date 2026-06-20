@@ -1934,6 +1934,7 @@ async function verifyFixtureViewport(viewport, label) {
       );
     });
     await assertNoDeadTargetClutter(page, `${label} connected empty target`);
+    await assertFixtureOldInventorySellGuard(page, label);
     if (label === 'fixture-desktop') {
       await verifyFixtureHostilePlayerRadarContact(page, realtime, label);
 
@@ -2975,6 +2976,7 @@ async function verifyRealEconomy(page, viewport, label) {
   if (/raw_ore|server_recalculates|server recalculates|Market\s*\d|Sell\s*\d|Auction\s*\d|Premium\s*\d/i.test(visibleShopText)) {
     throw new Error(`${label}: shop still exposes old/raw economy truth: ${visibleShopText.slice(0, 240)}`);
   }
+  await assertNoIneligibleMarketCreateActions(page, label);
   await page.locator('[data-window-panel="economy"] [data-shop-category="weapons"]').click();
   await page.waitForSelector('[data-window-panel="economy"] [data-shop-detail-kind="shop-product"]', { timeout: 10000 });
   await page.locator(`[data-window-panel="economy"] [data-action="shop-select"][data-shop-key="${laserProductID}"]`).click();
@@ -3075,6 +3077,42 @@ async function verifyRealEconomy(page, viewport, label) {
   }
   await page.locator('[data-window-panel="economy"] [data-panel-close="economy"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-window-panel="economy"]'), null, { timeout: 10000 });
+}
+
+async function assertFixtureOldInventorySellGuard(page, label) {
+  await page.locator('[data-panel-toggle="economy"]').click();
+  await page.waitForSelector('[data-window-panel="economy"][data-focused="true"]', { timeout: 10000 });
+  await assertNoIneligibleMarketCreateActions(page, `${label} old inventory`, { requireIneligible: true });
+  await page.locator('[data-window-panel="economy"] [data-panel-close="economy"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-window-panel="economy"]'), null, { timeout: 10000 });
+}
+
+async function assertNoIneligibleMarketCreateActions(page, label, { requireIneligible = false } = {}) {
+  const sellEligibilityGuard = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const ineligibleKeys = new Set(
+      (state?.inventory?.stackable ?? [])
+        .filter((item) => item?.list_eligible !== true)
+        .map((item) => `${item.location}:${item.item_id}`),
+    );
+    const enabledCreateButtons = [...document.querySelectorAll('[data-action="market-create"]:not([disabled])')]
+      .filter((button) => button instanceof HTMLElement)
+      .map((button) => ({
+        itemID: button.dataset.itemId ?? '',
+        sourceLocation: button.dataset.sourceLocation ?? '',
+      }))
+      .filter((button) => !button.itemID || !button.sourceLocation || ineligibleKeys.has(`${button.sourceLocation}:${button.itemID}`));
+    return {
+      ineligibleStackCount: ineligibleKeys.size,
+      enabledCreateButtons,
+    };
+  });
+  if (requireIneligible && sellEligibilityGuard.ineligibleStackCount < 1) {
+    throw new Error(`${label}: smoke fixture did not include old/ineligible inventory ${JSON.stringify(sellEligibilityGuard)}`);
+  }
+  if (sellEligibilityGuard.enabledCreateButtons.length > 0) {
+    throw new Error(`${label}: ineligible inventory rendered enabled market-create ${JSON.stringify(sellEligibilityGuard)}`);
+  }
 }
 
 async function assertContentSizedHUDWindows(page, viewport, label) {

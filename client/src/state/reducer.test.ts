@@ -1486,6 +1486,64 @@ describe('reduceClientState', () => {
     expect(withCrafting.crafting?.recipes[0].recipe_id).toBe('refined_alloy_batch');
   });
 
+  test('inventory stack snapshots preserve server sell eligibility and fail closed when missing', () => {
+    const state = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.inventorySnapshot, {
+        stackable: [
+          {
+            item_id: 'iron_ore',
+            display_name: 'Iron Ore',
+            quantity: 4,
+            location: 'account_inventory',
+            list_eligible: true,
+          },
+          {
+            item_id: 'bound_relic',
+            display_name: 'Bound Relic',
+            quantity: 1,
+            location: 'account_inventory',
+            list_eligible: false,
+            locked_reason: 'Bound cargo.',
+          },
+          {
+            item_id: 'legacy_payload',
+            display_name: 'Legacy Payload',
+            quantity: 2,
+            location: 'ship_cargo',
+          },
+        ],
+        instances: [],
+        counts: { cargo_stacks: 1, storage_stacks: 0, equipped_instances: 0 },
+      }),
+    });
+
+    expect(state.inventory?.stackable).toEqual([
+      {
+        item_id: 'iron_ore',
+        display_name: 'Iron Ore',
+        quantity: 4,
+        location: 'account_inventory',
+        list_eligible: true,
+      },
+      {
+        item_id: 'bound_relic',
+        display_name: 'Bound Relic',
+        quantity: 1,
+        location: 'account_inventory',
+        list_eligible: false,
+        locked_reason: 'Bound cargo.',
+      },
+      {
+        item_id: 'legacy_payload',
+        display_name: 'Legacy Payload',
+        quantity: 2,
+        location: 'ship_cargo',
+      },
+    ]);
+    expect(state.inventory?.stackable.map((item) => item.list_eligible)).toEqual([true, false, undefined]);
+  });
+
   test('shop catalog response stores server-owned categories and products', () => {
     const state = reduceClientState(createInitialState(), {
       type: 'responseReceived',

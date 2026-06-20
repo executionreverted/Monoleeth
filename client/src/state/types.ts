@@ -454,6 +454,8 @@ export interface InventorySummary {
     display_name?: string;
     quantity: number;
     location: string;
+    list_eligible?: boolean;
+    locked_reason?: string;
   }>;
   instances: Array<{
     item_instance_id: string;

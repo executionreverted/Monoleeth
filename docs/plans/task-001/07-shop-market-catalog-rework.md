@@ -279,7 +279,7 @@ docs/plans/task-001/07-shop-market-catalog-rework.md
       with a named blocker.
 - [ ] Purchase/bid buttons debounce pending actions and smoke asserts one click
       emits exactly one mutation command.
-- [ ] Sell/listing eligibility comes from server inventory metadata or a
+- [x] Sell/listing eligibility comes from server inventory metadata or a
       `market.sell_options` query; locked stacks do not appear as enabled sell
       actions.
 - [x] `market.create_listing` is retry/idempotency safe for duplicate requests.

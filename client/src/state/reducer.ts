@@ -1789,12 +1789,21 @@ function parseInventoryStack(payload: JsonObject): InventorySummary['stackable']
   if (!itemID || quantity <= 0) {
     return null;
   }
-  return {
+  const parsed: InventorySummary['stackable'][number] = {
     item_id: itemID,
     display_name: stringField(payload, 'display_name') ?? undefined,
     quantity: Math.max(0, Math.round(quantity)),
     location: stringField(payload, 'location') ?? '',
   };
+  const listEligible = booleanField(payload, 'list_eligible');
+  if (listEligible !== null) {
+    parsed.list_eligible = listEligible;
+  }
+  const lockedReason = stringField(payload, 'locked_reason');
+  if (lockedReason) {
+    parsed.locked_reason = lockedReason;
+  }
+  return parsed;
 }
 
 function parseInventoryInstance(payload: JsonObject): InventorySummary['instances'][number] | null {

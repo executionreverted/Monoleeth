@@ -657,6 +657,16 @@ export class HUD {
           break;
         case 'market-create':
           if (button.dataset.itemId) {
+            const matchingStack = this.currentState?.inventory?.stackable.find(
+              (item) =>
+                item.item_id === button.dataset.itemId &&
+                item.location === (button.dataset.sourceLocation ?? '') &&
+                item.list_eligible === true &&
+                item.quantity > 0,
+            );
+            if (!matchingStack) {
+              break;
+            }
             this.handlers.onMarketCreateListing({
               itemID: button.dataset.itemId,
               quantity: Number(button.dataset.quantity ?? '1'),
@@ -2227,8 +2237,22 @@ function shopSellDetail(item: InventoryStackItem, unitPrice: number, state: Clie
   const maxQuantity = Math.max(1, item.quantity);
   const quantity = normalizeShopQuantity(maxQuantity);
   const pending = hasPendingOp(state, 'market.create_listing');
+  const eligible = item.list_eligible === true;
+  if (!eligible) {
+    const listState = inventoryStackListState(item);
+    return `
+      <article class="shop-detail-card" data-shop-detail-kind="sell" data-list-eligible="false">
+        ${shopDetailHeader('Sell Item', item.display_name || item.item_id, item.location.replace(/_/g, ' '))}
+        <div class="shop-detail-grid">
+          ${shopFact('Owned', `${item.quantity}`)}
+          ${shopFact('Status', listState)}
+        </div>
+        <div class="shop-action-note">${escapeHTML(listState)}</div>
+      </article>
+    `;
+  }
   return `
-    <article class="shop-detail-card" data-shop-detail-kind="sell">
+    <article class="shop-detail-card" data-shop-detail-kind="sell" data-list-eligible="true">
       ${shopDetailHeader('Sell Item', item.display_name || item.item_id, item.location.replace(/_/g, ' '))}
       <div class="shop-detail-grid">
         ${shopFact('Owned', `${item.quantity}`)}
@@ -3791,9 +3815,16 @@ function sellableInventoryStack(state: ClientState): NonNullable<ClientState['in
 function sellableInventoryStacks(state: ClientState): NonNullable<ClientState['inventory']>['stackable'] {
   return (
     state.inventory?.stackable.filter(
-      (item) => item.quantity > 0 && (item.location === 'account_inventory' || item.location === 'ship_cargo'),
+      (item) =>
+        item.list_eligible === true &&
+        item.quantity > 0 &&
+        (item.location === 'account_inventory' || item.location === 'ship_cargo'),
     ) ?? []
   );
+}
+
+function inventoryStackListState(item: InventoryStackItem): string {
+  return item.list_eligible === true ? 'List ready' : 'Market locked';
 }
 
 function defaultListingPrice(itemID: string, market: NonNullable<ClientState['market']>): number {
