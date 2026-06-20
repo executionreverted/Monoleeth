@@ -1,4 +1,4 @@
-import type { ClientState, PlanetDetailSummary, WorldMapMemoryMarker } from './types';
+import type { ClientState, MinimapMemory, PlanetDetailSummary, WorldMapMemoryMarker } from './types';
 
 export interface MinimapPointPercent {
   left: number;
@@ -9,25 +9,107 @@ export interface MinimapPointPercent {
 export function worldMapMemoryMarkers(state: ClientState): WorldMapMemoryMarker[] {
   const markers = new Map<string, WorldMapMemoryMarker>();
   const planet = state.planetIntel?.selectedPlanet;
-  if (planet?.planet_id && isFiniteVec(planet.coordinates)) {
+  if (
+    planet?.planet_id &&
+    isFiniteVec(planet.coordinates) &&
+    rememberedIntelMatchesCurrentSector(state, planet) &&
+    rememberedIntelState(planet) !== 'invalidated'
+  ) {
     const marker = planetMemoryMarker(planet, planet.coordinates);
     markers.set(marker.id, marker);
   }
   for (const memory of state.minimap?.remembered ?? []) {
-    const detailID = memory.detail_id || memory.planet_id || '';
-    if (memory.kind !== 'known_planet' || !detailID || !isFiniteVec(memory.position)) {
+    const detailID = rememberedMinimapDetailID(state, memory);
+    if (!detailID) {
       continue;
     }
-    markers.set(`known_planet:${detailID}`, {
+    const marker: WorldMapMemoryMarker = {
       id: `known_planet:${detailID}`,
       kind: 'known_planet',
       label: memory.label || 'known planet',
       position: { ...memory.position },
       detailID,
-      state: memory.freshness || 'known',
-    });
+      state: rememberedIntelState(memory),
+    };
+    if (memory.projection_source) {
+      marker.projectionSource = memory.projection_source;
+    }
+    markers.set(marker.id, marker);
   }
   return [...markers.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export type RememberedIntelState = 'known' | 'fresh' | 'verified' | 'stale' | 'invalidated' | 'colonized_by_other';
+
+export function rememberedIntelState(value: { freshness?: string; intel_state?: string; invalidated?: boolean }): RememberedIntelState {
+  if (value.invalidated) {
+    return 'invalidated';
+  }
+  const state = normalizeState(value.freshness ?? value.intel_state ?? '');
+  if (
+    state === 'invalid' ||
+    state === 'invalidated' ||
+    state === 'revoked' ||
+    state === 'expired' ||
+    state === 'wrong_zone' ||
+    state === 'cross_zone' ||
+    state === 'out_of_zone'
+  ) {
+    return 'invalidated';
+  }
+  if (state === 'stale' || state === 'old' || state === 'outdated') {
+    return 'stale';
+  }
+  if (state === 'fresh' || state === 'verified' || state === 'colonized_by_other') {
+    return state;
+  }
+  return 'known';
+}
+
+export function rememberedIntelMatchesCurrentSector(
+  state: Pick<ClientState, 'sector'>,
+  value: { sector_key?: string },
+): boolean {
+  if (!value.sector_key) {
+    return true;
+  }
+  return Boolean(state.sector?.sector_key && state.sector.sector_key === value.sector_key);
+}
+
+export function rememberedMinimapDetailID(
+  state: Pick<ClientState, 'sector'>,
+  memory: MinimapMemory,
+): string | null {
+  const detailID = memory.detail_id || memory.planet_id || '';
+  if (!isRenderableMinimapMemory(memory) || !rememberedIntelMatchesCurrentSector(state, memory)) {
+    return null;
+  }
+  return detailID;
+}
+
+export function shouldRenderRememberedMinimapMemory(
+  state: Pick<ClientState, 'sector'>,
+  memory: MinimapMemory,
+  center: { x: number; y: number },
+  halfExtent: number,
+): boolean {
+  return Boolean(
+    rememberedMinimapDetailID(state, memory) &&
+      isWithinMinimapProjectionWindow(center, memory.position, halfExtent),
+  );
+}
+
+export function isRenderableMinimapMemory(
+  memory: Pick<MinimapMemory, 'kind' | 'planet_id' | 'detail_id' | 'position' | 'freshness' | 'invalidated'>,
+): boolean {
+  if (memory.kind !== 'known_planet' || !(memory.detail_id || memory.planet_id) || !isFiniteVec(memory.position)) {
+    return false;
+  }
+  return rememberedIntelState(memory) !== 'invalidated';
+}
+
+export function isClickableMinimapMemory(memory: MinimapMemory): boolean {
+  return isRenderableMinimapMemory(memory) && Boolean(memory.detail_id || memory.planet_id);
 }
 
 export function isWithinMinimapProjectionWindow(
@@ -92,4 +174,8 @@ function publicPlanetName(planet: Pick<PlanetDetailSummary, 'planet_type' | 'bio
 
 function clampPercent(value: number): number {
   return Math.min(Math.max(value, 4), 96);
+}
+
+function normalizeState(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
 }

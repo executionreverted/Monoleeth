@@ -511,6 +511,7 @@ export interface ScanModeState {
 
 export interface KnownPlanetSummary {
   planet_id: string;
+  sector_key?: string;
   biome: string;
   planet_type: string;
   rarity: string;
@@ -591,6 +592,7 @@ export interface WorldMapMemoryMarker {
   position: Vec2;
   detailID: string;
   state: string;
+  projectionSource?: string;
 }
 
 export interface ProductionCollectionSummary {
@@ -609,6 +611,7 @@ export interface RepairQuote {
 }
 
 export interface SectorSummary {
+  sector_key?: string;
   name: string;
   region: string;
   danger: string;
@@ -621,15 +624,19 @@ export interface MinimapContact {
   position: Vec2;
   disposition?: string;
   status_flags?: string[];
+  projection_source?: string;
 }
 
 export interface MinimapMemory {
   kind: string;
+  sector_key?: string;
   planet_id?: string;
   detail_id?: string;
   label: string;
   position: Vec2;
   freshness: string;
+  invalidated?: boolean;
+  projection_source?: string;
 }
 
 export interface MinimapSummary {

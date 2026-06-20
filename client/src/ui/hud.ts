@@ -1,6 +1,12 @@
 import { ClientState } from '../state/types';
 import { activeEntityMovement, currentEntityPosition, distanceBetween, selfEntity } from '../state/movement';
-import { isWithinMinimapProjectionWindow, minimapPointPercent } from '../state/world-memory';
+import {
+  isClickableMinimapMemory,
+  minimapPointPercent,
+  rememberedIntelState,
+  rememberedMinimapDetailID,
+  shouldRenderRememberedMinimapMemory,
+} from '../state/world-memory';
 import { markHUDInputSuppressed, pointerTargetOwnsUI, worldKeyboardShortcutAllowed } from '../input/world-input-authority';
 import { renderToast } from './toast';
 import capacityIconURL from '../../../output/assets/hud-svg/icons/capacity.svg?url';
@@ -2878,21 +2884,26 @@ function minimapPanel(state: ClientState): string {
       }
       const disposition = contact.status_flags?.includes('self') ? 'self' : contact.disposition || dispositionForType(contact.entity_type);
       const action = contact.entity_type === 'loot' ? 'loot-select' : 'target-select';
-      return `<button class="minimap__point" type="button" data-action="${action}" data-target-source="radar" data-kind="${escapeHTML(disposition)}" data-entity-id="${escapeHTML(contact.entity_id)}" data-entity-type="${escapeHTML(contact.entity_type)}" style="left:${point.left}%;top:${point.top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></button>`;
+      const source = contact.projection_source ? ` data-projection-source="${escapeHTML(contact.projection_source)}"` : '';
+      return `<button class="minimap__point" type="button" data-action="${action}" data-target-source="radar" data-kind="${escapeHTML(disposition)}" data-entity-id="${escapeHTML(contact.entity_id)}" data-entity-type="${escapeHTML(contact.entity_type)}"${source} style="left:${point.left}%;top:${point.top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></button>`;
     })
     .join('');
   const memoryPoints = memories
-    .filter((memory) => isWithinMinimapProjectionWindow(center, memory.position, projectionHalfExtent))
+    .filter((memory) => shouldRenderRememberedMinimapMemory(state, memory, center, projectionHalfExtent))
     .map((memory) => {
       const point = minimapPointPercent(center, memory.position, radius);
       if (!point) {
         return '';
       }
-      const planetID = memory.detail_id || memory.planet_id || '';
-      const action = planetID ? ' data-action="planet-detail"' : '';
+      const planetID = rememberedMinimapDetailID(state, memory) ?? '';
+      const clickable = isClickableMinimapMemory(memory);
+      const action = clickable ? ' data-action="planet-detail"' : '';
       const planet = planetID ? ` data-planet-id="${escapeHTML(planetID)}"` : '';
-      const disabled = planetID ? '' : ' disabled';
-      return `<button class="minimap__memory" type="button"${action}${planet}${disabled} data-kind="${escapeHTML(memory.kind)}" data-freshness="${escapeHTML(memory.freshness)}" style="left:${point.left}%;top:${point.top}%" title="${escapeHTML(memory.label || memory.kind)}"></button>`;
+      const disabled = clickable ? '' : ' disabled';
+      const intelState = rememberedIntelState(memory);
+      const sector = memory.sector_key ? ` data-sector-key="${escapeHTML(memory.sector_key)}"` : '';
+      const source = memory.projection_source ? ` data-projection-source="${escapeHTML(memory.projection_source)}"` : '';
+      return `<button class="minimap__memory" type="button"${action}${planet}${disabled} data-kind="${escapeHTML(memory.kind)}" data-freshness="${escapeHTML(intelState)}"${sector}${source} style="left:${point.left}%;top:${point.top}%" title="${escapeHTML(memory.label || memory.kind)}"></button>`;
     })
     .join('');
 

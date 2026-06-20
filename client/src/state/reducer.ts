@@ -62,6 +62,7 @@ import {
   WalletSummary,
   WorldFeedbackEffect,
 } from './types';
+import { isRenderableMinimapMemory } from './world-memory';
 
 const SCAN_REPEAT_DELAY_MS = 2_800;
 const SCAN_STARTED_RECHECK_MS = 350;
@@ -391,14 +392,18 @@ function replaceVisibleEntities(
   };
 }
 
-function contactFromEntity(entity: EntityPayload): MinimapContact {
-  return {
+function contactFromEntity(entity: EntityPayload, fallback?: MinimapContact): MinimapContact {
+  const contact: MinimapContact = {
     entity_id: entity.entity_id,
     entity_type: entity.entity_type,
     position: entity.position,
     disposition: entity.display?.disposition,
     status_flags: entity.status_flags ? [...entity.status_flags] : undefined,
   };
+  if (fallback?.projection_source) {
+    contact.projection_source = fallback.projection_source;
+  }
+  return contact;
 }
 
 const safeStatusFlags = new Set([
@@ -437,7 +442,8 @@ function upsertMinimapContact(minimap: MinimapSummary | null, entity: EntityPayl
   if (!minimap) {
     return minimap;
   }
-  const contact = contactFromEntity(entity);
+  const previous = minimap.live_contacts.find((entry) => entry.entity_id === entity.entity_id);
+  const contact = contactFromEntity(entity, previous);
   const nextContacts = minimap.live_contacts.filter((entry) => entry.entity_id !== entity.entity_id);
   nextContacts.push(contact);
   nextContacts.sort((a, b) => a.entity_id.localeCompare(b.entity_id));
@@ -454,8 +460,9 @@ function rebuildMinimapLiveContacts(
   if (!minimap) {
     return minimap;
   }
+  const previousByID = new Map(minimap.live_contacts.map((contact) => [contact.entity_id, contact]));
   const liveContacts = Object.values(visibleEntities)
-    .map(contactFromEntity)
+    .map((entity) => contactFromEntity(entity, previousByID.get(entity.entity_id)))
     .sort((a, b) => a.entity_id.localeCompare(b.entity_id));
   return {
     ...minimap,
@@ -1949,7 +1956,7 @@ function parseKnownPlanet(payload: JsonObject): KnownPlanetSummary | null {
   if (!planetID) {
     return null;
   }
-  return {
+  const planet: KnownPlanetSummary = {
     planet_id: planetID,
     biome: stringField(payload, 'biome') ?? '',
     planet_type: stringField(payload, 'planet_type') ?? '',
@@ -1961,6 +1968,11 @@ function parseKnownPlanet(payload: JsonObject): KnownPlanetSummary | null {
     owner_status: stringField(payload, 'owner_status') ?? '',
     discovered_at: Math.max(0, Math.round(numberField(payload, 'discovered_at') ?? 0)),
   };
+  const sectorKey = stringField(payload, 'sector_key');
+  if (sectorKey) {
+    planet.sector_key = sectorKey;
+  }
+  return planet;
 }
 
 function parsePlanetDetail(payload: JsonObject, fallback: PlanetDetailSummary | null): PlanetDetailSummary {
@@ -2710,12 +2722,17 @@ function parseRepairQuote(payload: JsonObject, fallback: RepairQuote | null): Re
 }
 
 function parseSectorSummary(payload: JsonObject, fallback: SectorSummary | null): SectorSummary {
-  return {
+  const sector: SectorSummary = {
     name: stringField(payload, 'name') ?? fallback?.name ?? '',
     region: stringField(payload, 'region') ?? fallback?.region ?? '',
     danger: stringField(payload, 'danger') ?? fallback?.danger ?? '',
     contested: booleanField(payload, 'contested') ?? fallback?.contested ?? false,
   };
+  const sectorKey = stringField(payload, 'sector_key') ?? fallback?.sector_key;
+  if (sectorKey) {
+    sector.sector_key = sectorKey;
+  }
+  return sector;
 }
 
 function parseMinimapSummary(payload: JsonObject, fallback: MinimapSummary | null): MinimapSummary {
@@ -2747,27 +2764,45 @@ function parseMinimapContact(payload: JsonObject): MinimapContact | null {
   if (!entityID || !isKnownEntityType(entityType) || !position) {
     return null;
   }
-  return {
+  const contact: MinimapContact = {
     entity_id: entityID,
     entity_type: entityType,
     position,
     disposition: stringField(payload, 'disposition') ?? undefined,
     status_flags: parsePublicStatusFlags(payload.status_flags),
   };
+  const projectionSource = stringField(payload, 'projection_source');
+  if (projectionSource) {
+    contact.projection_source = projectionSource;
+  }
+  return contact;
 }
 
 function parseMinimapMemory(payload: JsonObject): MinimapMemory | null {
   if (!isVec2(payload.position)) {
     return null;
   }
-  return {
+  const memory: MinimapMemory = {
     kind: stringField(payload, 'kind') ?? '',
     planet_id: stringField(payload, 'planet_id') ?? undefined,
     detail_id: stringField(payload, 'detail_id') ?? undefined,
     label: stringField(payload, 'label') ?? '',
     position: payload.position,
-    freshness: stringField(payload, 'freshness') ?? '',
+    freshness: stringField(payload, 'freshness') ?? 'known',
   };
+  const sectorKey = stringField(payload, 'sector_key');
+  const invalidated = booleanField(payload, 'invalidated');
+  const projectionSource = stringField(payload, 'projection_source');
+  if (sectorKey) {
+    memory.sector_key = sectorKey;
+  }
+  if (invalidated !== null) {
+    memory.invalidated = invalidated;
+  }
+  if (projectionSource) {
+    memory.projection_source = projectionSource;
+  }
+  return isRenderableMinimapMemory(memory) ? memory : null;
 }
 
 function parseEntityDisplay(payload: JsonObject): EntityPayload['display'] {

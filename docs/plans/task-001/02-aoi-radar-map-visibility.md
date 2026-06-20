@@ -264,6 +264,18 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
   1000-unit circular radius. Fixture browser smoke renders that corner contact
   as a deterministic radar point and continues to keep far remembered intel off
   radar.
+- Remembered intel policy is explicit client-side: stale known-planet memories
+  remain renderable/clickable as detail links with stale styling and preserved
+  `projection_source` evidence, while `invalidated`, wrong-zone, expired, or
+  revoked memories fail closed before minimap/world-map rendering. Wrong-sector
+  remembered memory is also filtered from HUD/world-map surfaces even when its
+  freshness is otherwise `fresh`. Reducer and fixture smoke cover this behavior
+  so stale memory clicks cannot emit movement and bad memory cannot appear as
+  fake radar/map contacts.
+- Remaining server blocker: runtime minimap memory payloads still need a fully
+  documented and tested `sector_key`/`projection_source` contract for every
+  projection input path: worker, DB overlay, procedural/live materialization,
+  known intel, NPCs, loot, and players.
 
 ## Acceptance Criteria
 
@@ -292,7 +304,7 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
 - [x] Scan/known-planet updates refresh remembered minimap and world-map markers
       without requiring manual Sync.
 - [x] Far remembered planets do not clamp into fake nearby radar contacts.
-- [ ] Stale, invalidated, and wrong-zone remembered intel have explicit render
+- [x] Stale, invalidated, and wrong-zone remembered intel have explicit render
       and click behavior.
 - [x] Square projection and circular radar semantics are documented and tested,
       including corner contacts.

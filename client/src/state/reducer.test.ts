@@ -752,6 +752,126 @@ describe('reduceClientState', () => {
     ]);
   });
 
+  test('remembered intel keeps stale source evidence but drops invalidated and blocks wrong-sector render', () => {
+    const state = reduceClientState(
+      {
+        ...createInitialState(),
+        sector: { sector_key: 'origin', name: 'Origin', region: 'Belt', danger: 'low', contested: false },
+      },
+      {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.knownPlanets, {
+          planets: [
+            {
+              planet_id: 'planet-stale',
+              sector_key: 'origin',
+              biome: 'ice',
+              planet_type: 'dwarf_planet',
+              rarity: 'uncommon',
+              level: 2,
+              intel_state: 'stale',
+              confidence: 40,
+              last_seen_at: 1500,
+              owner_status: 'unclaimed',
+              discovered_at: 1400,
+            },
+          ],
+          counts: { known: 3, stale: 1, owned: 0 },
+          minimap: {
+            radar_range: 1000,
+            projection_window_size: 2000,
+            live_contacts: [
+              {
+                entity_id: 'player-local',
+                entity_type: 'player',
+                position: { x: 0, y: 0 },
+                disposition: 'self',
+                status_flags: ['self'],
+                projection_source: 'worker_projection',
+              },
+            ],
+            remembered: [
+              {
+                kind: 'known_planet',
+                sector_key: 'origin',
+                planet_id: 'planet-stale',
+                detail_id: 'planet-stale',
+                label: 'stale planet',
+                position: { x: 420, y: -180 },
+                freshness: 'stale',
+                projection_source: 'player_intel',
+              },
+              {
+                kind: 'known_planet',
+                sector_key: 'origin',
+                planet_id: 'planet-invalidated',
+                detail_id: 'planet-invalidated',
+                label: 'invalidated planet',
+                position: { x: 460, y: -220 },
+                freshness: 'fresh',
+                invalidated: true,
+              },
+              {
+                kind: 'known_planet',
+                sector_key: 'origin',
+                planet_id: 'planet-wrong-zone',
+                detail_id: 'planet-wrong-zone',
+                label: 'wrong zone planet',
+                position: { x: 500, y: -260 },
+                freshness: 'wrong_zone',
+              },
+              {
+                kind: 'known_planet',
+                sector_key: 'other-sector',
+                planet_id: 'planet-wrong-sector',
+                detail_id: 'planet-wrong-sector',
+                label: 'wrong sector planet',
+                position: { x: 540, y: -280 },
+                freshness: 'fresh',
+                projection_source: 'player_intel',
+              },
+            ],
+          },
+        }),
+      },
+    );
+
+    expect(state.minimap?.remembered).toEqual([
+      {
+        kind: 'known_planet',
+        sector_key: 'origin',
+        planet_id: 'planet-stale',
+        detail_id: 'planet-stale',
+        label: 'stale planet',
+        position: { x: 420, y: -180 },
+        freshness: 'stale',
+        projection_source: 'player_intel',
+      },
+      {
+        kind: 'known_planet',
+        sector_key: 'other-sector',
+        planet_id: 'planet-wrong-sector',
+        detail_id: 'planet-wrong-sector',
+        label: 'wrong sector planet',
+        position: { x: 540, y: -280 },
+        freshness: 'fresh',
+        projection_source: 'player_intel',
+      },
+    ]);
+    expect(state.minimap?.live_contacts[0]?.projection_source).toBe('worker_projection');
+    expect(worldMapMemoryMarkers(state)).toEqual([
+      {
+        id: 'known_planet:planet-stale',
+        kind: 'known_planet',
+        label: 'stale planet',
+        position: { x: 420, y: -180 },
+        detailID: 'planet-stale',
+        state: 'stale',
+        projectionSource: 'player_intel',
+      },
+    ]);
+  });
+
   test('snapshot response replaces visible entities atomically', () => {
     const state = reduceClientState(createInitialState(), {
       type: 'eventReceived',

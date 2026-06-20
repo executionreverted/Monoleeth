@@ -796,6 +796,70 @@ async function verifyFogOfWar(page, label) {
   }
 }
 
+async function verifyFixtureRememberedIntelPolicy(page, label) {
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return (
+      document.querySelector('.minimap__memory[data-planet-id="planet-stale-memory"][data-freshness="stale"][data-action="planet-detail"]') instanceof HTMLElement &&
+      !state?.minimap?.remembered?.some((memory) => memory.planet_id === 'planet-invalidated-memory' || memory.planet_id === 'planet-wrong-zone-memory') &&
+      !document.querySelector('.minimap__memory[data-planet-id="planet-invalidated-memory"]') &&
+      !document.querySelector('.minimap__memory[data-planet-id="planet-wrong-zone-memory"]') &&
+      !document.querySelector('.minimap__memory[data-planet-id="planet-wrong-sector-memory"]')
+    );
+  }, null, { timeout: 10000 });
+  const policy = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const markers = state?.worldView?.memoryMarkers ?? [];
+    return {
+      staleState: state?.minimap?.remembered?.find((memory) => memory.planet_id === 'planet-stale-memory') ?? null,
+      staleRadar: Boolean(
+        document.querySelector('.minimap__memory[data-planet-id="planet-stale-memory"][data-freshness="stale"][data-action="planet-detail"]'),
+      ),
+      staleMarker: markers.some((marker) => marker.detailID === 'planet-stale-memory' && marker.state === 'stale'),
+      invalidatedState: state?.minimap?.remembered?.some((memory) => memory.planet_id === 'planet-invalidated-memory') ?? false,
+      invalidatedRadar: Boolean(document.querySelector('.minimap__memory[data-planet-id="planet-invalidated-memory"]')),
+      invalidatedMarker: markers.some((marker) => marker.detailID === 'planet-invalidated-memory'),
+      wrongZoneState: state?.minimap?.remembered?.some((memory) => memory.planet_id === 'planet-wrong-zone-memory') ?? false,
+      wrongZoneRadar: Boolean(document.querySelector('.minimap__memory[data-planet-id="planet-wrong-zone-memory"]')),
+      wrongZoneMarker: markers.some((marker) => marker.detailID === 'planet-wrong-zone-memory'),
+      wrongSectorState: state?.minimap?.remembered?.some((memory) => memory.planet_id === 'planet-wrong-sector-memory') ?? false,
+      wrongSectorRadar: Boolean(document.querySelector('.minimap__memory[data-planet-id="planet-wrong-sector-memory"]')),
+      wrongSectorMarker: markers.some((marker) => marker.detailID === 'planet-wrong-sector-memory'),
+    };
+  });
+  if (
+    !policy.staleState ||
+    !policy.staleRadar ||
+    !policy.staleMarker ||
+    policy.invalidatedState ||
+    policy.invalidatedRadar ||
+    policy.invalidatedMarker ||
+    policy.wrongZoneState ||
+    policy.wrongZoneRadar ||
+    policy.wrongZoneMarker ||
+    !policy.wrongSectorState ||
+    policy.wrongSectorRadar ||
+    policy.wrongSectorMarker
+  ) {
+    throw new Error(`${label}: remembered intel render policy failed ${JSON.stringify(policy)}`);
+  }
+  const moveCountBefore = await commandLogCount(page, 'Sent move_to.');
+  await page.locator('.minimap__memory[data-planet-id="planet-stale-memory"]').click();
+  await page.waitForFunction(
+    () =>
+      window.__SPACE_MORPG_SMOKE_STATE__?.commandLog?.some((line) => line.text === 'Sent discovery.planet_detail.') &&
+      document.querySelector('[data-modal="planet-detail"]') instanceof HTMLElement,
+    null,
+    { timeout: 10000 },
+  );
+  const moveCountAfter = await commandLogCount(page, 'Sent move_to.');
+  if (moveCountAfter !== moveCountBefore) {
+    throw new Error(`${label}: stale remembered intel click emitted move_to`);
+  }
+  await page.locator('[data-modal-close="button"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+}
+
 async function verifySquareProjectionCornerRadarContact(page, label) {
   await page.waitForFunction(
     () => document.querySelector('.minimap__point[data-entity-id="npc-corner-01"][data-entity-type="npc"]') instanceof HTMLElement,
@@ -1678,7 +1742,6 @@ async function verifyFixtureViewport(viewport, label) {
         !state?.visibleEntities?.['hidden-planet']
       );
     });
-
     if (label === 'fixture-desktop') {
       await clickWorldPosition(page, { x: 150, y: -250 });
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'npc-rake-01');
@@ -1738,6 +1801,8 @@ async function verifyFixtureViewport(viewport, label) {
     if (label === 'fixture-desktop') {
       await verifyFixtureScanLoop(page, realtime, label);
     }
+
+    await verifyFixtureRememberedIntelPolicy(page, label);
 
     await assertCanvasAndLayout(page, viewport, label);
     await assertNoForbiddenLeaks(page, label);
@@ -3065,6 +3130,7 @@ async function assertNoRealModeDebugOperations(page, label) {
 }
 
 async function clickWorldPosition(page, world) {
+  await waitForWorldInputReady(page);
   const point = await worldClickPoint(page, world);
 
   if (!point) {
@@ -3074,6 +3140,14 @@ async function clickWorldPosition(page, world) {
     throw new Error(`World click at ${Math.round(point.x)},${Math.round(point.y)} hit ${String(point.element)} (${JSON.stringify(point)})`);
   }
   await page.mouse.click(point.x, point.y);
+}
+
+async function waitForWorldInputReady(page) {
+  await page.waitForFunction(
+    () => performance.now() >= (window.__SPACE_MORPG_HUD_INPUT_UNTIL__ ?? 0),
+    null,
+    { timeout: 1000 },
+  );
 }
 
 async function uncoveredCanvasPoint(page) {
@@ -3485,6 +3559,14 @@ function handleClientMessage(socket, raw, received, waiters, fixtureState) {
         }),
       );
       break;
+    case 'discovery.planet_detail':
+      sendMessage(
+        socket,
+        response(request.request_id, {
+          planet_detail: fixturePlanetDetail(request.payload?.planet_id),
+        }),
+      );
+      break;
     case 'scan.pulse': {
       const scan = {
         pulse_reference: `fixture-${request.request_id}`,
@@ -3541,6 +3623,30 @@ function waitForOpCount(received, op, count) {
       }
     }, 50);
   });
+}
+
+function fixturePlanetDetail(planetID) {
+  const coordinatesByID = {
+    'planet-memory-01': { x: 720, y: -360 },
+    'planet-stale-memory': { x: 560, y: -120 },
+  };
+  const id = typeof planetID === 'string' && planetID ? planetID : 'planet-memory-01';
+  return {
+    planet_id: id,
+    biome: 'ice',
+    planet_type: 'dwarf_planet',
+    rarity: 'uncommon',
+    level: 2,
+    intel_state: id === 'planet-stale-memory' ? 'stale' : 'fresh',
+    confidence: id === 'planet-stale-memory' ? 40 : 92,
+    last_seen_at: 1500,
+    owner_status: 'unclaimed',
+    discovered_at: 1400,
+    coordinates: coordinatesByID[id] ?? { x: 720, y: -360 },
+    production_locked: true,
+    routes: [],
+    available_commands: [],
+  };
 }
 
 function waitForOp(received, waiters, op) {
@@ -3614,6 +3720,7 @@ function snapshotPayload() {
       },
     ],
     sector: {
+      sector_key: 'fixture-fringe',
       name: 'Fixture Fringe',
       region: 'Fixture Belt',
       danger: 'locked',
@@ -3668,6 +3775,46 @@ function snapshotPayload() {
           label: 'Far Memory Planet',
           position: { x: 5200, y: -3800 },
           freshness: 'fresh',
+        },
+        {
+          kind: 'known_planet',
+          sector_key: 'fixture-fringe',
+          planet_id: 'planet-stale-memory',
+          detail_id: 'planet-stale-memory',
+          label: 'Stale Memory Planet',
+          position: { x: 560, y: -120 },
+          freshness: 'stale',
+          projection_source: 'known_intel',
+        },
+        {
+          kind: 'known_planet',
+          sector_key: 'fixture-fringe',
+          planet_id: 'planet-invalidated-memory',
+          detail_id: 'planet-invalidated-memory',
+          label: 'Invalidated Memory Planet',
+          position: { x: 620, y: -140 },
+          freshness: 'invalidated',
+          projection_source: 'known_intel',
+        },
+        {
+          kind: 'known_planet',
+          sector_key: 'fixture-fringe',
+          planet_id: 'planet-wrong-zone-memory',
+          detail_id: 'planet-wrong-zone-memory',
+          label: 'Wrong Zone Memory Planet',
+          position: { x: 680, y: -160 },
+          freshness: 'wrong_zone',
+          projection_source: 'known_intel',
+        },
+        {
+          kind: 'known_planet',
+          sector_key: 'other-sector',
+          planet_id: 'planet-wrong-sector-memory',
+          detail_id: 'planet-wrong-sector-memory',
+          label: 'Wrong Sector Memory Planet',
+          position: { x: 740, y: -180 },
+          freshness: 'fresh',
+          projection_source: 'known_intel',
         },
       ],
     },
