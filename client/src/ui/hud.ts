@@ -72,7 +72,8 @@ type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['co
 type KnownLootDropStatus = ClientState['knownLoot'][string];
 type VisibleEntity = ClientState['visibleEntities'][string];
 type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' | 'ops';
-type HUDModalID = HUDWindowID | 'target' | 'planets' | 'ship' | 'planet-detail';
+type HUDModalID = 'target' | 'planets' | 'ship' | 'planet-detail' | 'tutorial';
+type HUDHelpTopicID = 'inventory' | 'shop' | 'quests' | 'planets' | 'hangar' | 'ops';
 type QuickActionID = 'laser' | 'rocket' | 'scan' | 'stealth' | 'warp' | 'gather';
 type QuickActionCommand = 'fire' | 'rocket' | 'scan' | 'stealth' | 'warp' | 'loot';
 type QuestBoardSummary = NonNullable<ClientState['questBoard']>;
@@ -123,6 +124,7 @@ interface HUDPanelDefinition {
   label: string;
   title: string;
   iconURL: string;
+  helpTopic?: HUDHelpTopicID;
   render(state: ClientState): string;
   hidden?(state: ClientState): boolean;
 }
@@ -141,6 +143,7 @@ interface HUDModalState {
   title: string;
   body: string;
   detailID?: string;
+  helpTopic?: HUDHelpTopicID;
 }
 
 interface HUDWindowState {
@@ -416,7 +419,7 @@ export class HUD {
       if (modalOpen) {
         const panel = normalizeModalID(modalOpen.dataset.modalOpen);
         if (panel && this.currentState) {
-          this.openModal(panel, this.currentState);
+          this.openModal(panel, this.currentState, modalOpen.dataset.helpTopic);
           this.render(this.currentState);
         }
         return;
@@ -836,12 +839,15 @@ export class HUD {
         }
         const focused = windowState.id === this.focusedWindow;
         const size = windowSize(definition.id);
+        const helpButton = definition.helpTopic
+          ? `<button class="hud-window__help-button" type="button" data-modal-open="tutorial" data-help-topic="${escapeHTML(definition.helpTopic)}" title="${escapeHTML(definition.title)} help" aria-label="${escapeHTML(definition.title)} help">?</button>`
+          : '';
         return `
           <section class="hud-window" data-window-panel="${definition.id}" data-focused="${focused ? 'true' : 'false'}" data-open="true" data-x="${Math.round(windowState.x)}" data-y="${Math.round(windowState.y)}" style="--window-x:${windowState.x}px;--window-y:${windowState.y}px;--window-z:${windowState.z};--window-width:${size.width}px;--window-height:${size.height}px" tabindex="-1" aria-label="${escapeHTML(definition.title)}">
             <header class="hud-window__header" data-window-drag="${definition.id}">
               <strong>${escapeHTML(definition.title)}</strong>
               <div>
-                <button type="button" data-modal-open="${definition.id}" title="Open detail">Inspect</button>
+                ${helpButton}
                 <button type="button" data-panel-close="${definition.id}" title="Close panel">Close</button>
               </div>
             </header>
@@ -1158,12 +1164,12 @@ export class HUD {
 }
 
 const baseWindowDefinitions: HUDPanelDefinition[] = [
-  { id: 'cargo', label: 'Inv', title: 'Inventory', iconURL: inventoryIconURL, render: cargoPanel },
-  { id: 'economy', label: 'Shop', title: 'Shop', iconURL: shopIconURL, render: economyPanel },
-  { id: 'quests', label: 'Quests', title: 'Quest Board', iconURL: galaxyIconURL, render: questsPanel },
-  { id: 'intel', label: 'Planets', title: 'Planets', iconURL: planetsIconURL, render: planetCatalogPanel },
-  { id: 'systems', label: 'Hangar', title: 'Hangar', iconURL: hangarIconURL, render: hangarPanel },
-  { id: 'ops', label: 'Ops', title: 'Admin Ops', iconURL: menuIconURL, render: opsPanel, hidden: (state) => !state.auth.session?.account?.admin },
+  { id: 'cargo', label: 'Inv', title: 'Inventory', iconURL: inventoryIconURL, helpTopic: 'inventory', render: cargoPanel },
+  { id: 'economy', label: 'Shop', title: 'Shop', iconURL: shopIconURL, helpTopic: 'shop', render: economyPanel },
+  { id: 'quests', label: 'Quests', title: 'Quest Board', iconURL: galaxyIconURL, helpTopic: 'quests', render: questsPanel },
+  { id: 'intel', label: 'Planets', title: 'Planets', iconURL: planetsIconURL, helpTopic: 'planets', render: planetCatalogPanel },
+  { id: 'systems', label: 'Hangar', title: 'Hangar', iconURL: hangarIconURL, helpTopic: 'hangar', render: hangarPanel },
+  { id: 'ops', label: 'Ops', title: 'Admin Ops', iconURL: menuIconURL, helpTopic: 'ops', render: opsPanel, hidden: (state) => !state.auth.session?.account?.admin },
 ];
 
 function windowSize(id: HUDWindowID): { width: number; height: number } {
@@ -1215,16 +1221,9 @@ function windowDefinitions(state: ClientState): HUDPanelDefinition[] {
 }
 
 function modalDefinition(id: HUDModalID, state: ClientState, detailID?: string): HUDModalState | null {
-  const windowDefinition = windowDefinitions(state).find((definition) => definition.id === id);
-  if (windowDefinition) {
-    return {
-      id,
-      title: windowDefinition.title,
-      body: windowDefinition.render(state),
-    };
-  }
-
   switch (id) {
+    case 'tutorial':
+      return tutorialModalDefinition(detailID);
     case 'target':
       return { id, title: 'Target Detail', body: targetPanel(state) };
     case 'planet-detail': {
@@ -1238,6 +1237,89 @@ function modalDefinition(id: HUDModalID, state: ClientState, detailID?: string):
     default:
       return null;
   }
+}
+
+function tutorialModalDefinition(topicID: string | undefined): HUDModalState | null {
+  if (!isHelpTopicID(topicID)) {
+    return null;
+  }
+  const topic = helpTopicCatalog[topicID];
+  return {
+    id: 'tutorial',
+    detailID: topicID,
+    helpTopic: topicID,
+    title: topic.title,
+    body: tutorialHelpBody(topicID, topic),
+  };
+}
+
+const helpTopicCatalog: Record<HUDHelpTopicID, { title: string; lead: string; points: string[] }> = {
+  inventory: {
+    title: 'Inventory Help',
+    lead: 'Equipment, inventory, cargo, and crafting stay separated so ship fitting does not mix with carried resources.',
+    points: [
+      'Equipment shows the active ship layout and usable module slots.',
+      'Inventory lists account-stored modules and stackable supplies.',
+      'Cargo is the current ship hold. Transfer actions appear only when available.',
+      'Crafting stays locked until a recipe action is available for the current location.',
+    ],
+  },
+  shop: {
+    title: 'Shop Help',
+    lead: 'Shop, sell orders, auctions, and premium grants share one economy window but keep separate lanes.',
+    points: [
+      'Category buttons switch between listings, cargo sale, auction lots, and grants.',
+      'Product detail updates from the selected row.',
+      'Buy, sell, bid, and claim buttons appear only for actions that can be sent now.',
+    ],
+  },
+  quests: {
+    title: 'Quest Board Help',
+    lead: 'Quest Board groups offers, active jobs, claimable rewards, and completed records.',
+    points: [
+      'Select a row to inspect objectives and rewards.',
+      'Accept, reroll, and claim actions use the board state shown in the row.',
+      'Expired or unavailable jobs stay quiet until the board refreshes.',
+    ],
+  },
+  planets: {
+    title: 'Planet Intel Help',
+    lead: 'Planet Intel is a catalog of discovered worlds and remembered signals.',
+    points: [
+      'Known planets open a detail modal with the last visible coordinates.',
+      'Navigate uses the coordinates returned with planet detail.',
+      'Claim, production, storage, and route actions appear only when that planet exposes them.',
+    ],
+  },
+  hangar: {
+    title: 'Hangar Help',
+    lead: 'Hangar manages owned hulls and the active ship loadout.',
+    points: [
+      'Owned ships show selection and activation state.',
+      'Module slots are grouped by the active ship layout.',
+      'Equip and unequip actions reconcile from inventory and loadout snapshots.',
+    ],
+  },
+  ops: {
+    title: 'Ops Help',
+    lead: 'Admin Ops is a role-gated diagnostic surface for local playtest control.',
+    points: [
+      'Refresh pulls the latest admin summary.',
+      'Repair controls are visible only for admin sessions.',
+      'Normal player sessions do not show this window.',
+    ],
+  },
+};
+
+function tutorialHelpBody(topicID: HUDHelpTopicID, topic: { lead: string; points: string[] }): string {
+  return `
+    <section class="tutorial-help" data-help-body="true" data-help-topic="${escapeHTML(topicID)}">
+      <p>${escapeHTML(topic.lead)}</p>
+      <ul>
+        ${topic.points.map((point) => `<li>${escapeHTML(point)}</li>`).join('')}
+      </ul>
+    </section>
+  `;
 }
 
 function statusPanel(state: ClientState): string {
@@ -3334,10 +3416,14 @@ function isModuleFilterID(value: string | undefined): value is ModuleFilterID {
 }
 
 function normalizeModalID(value: string | undefined): HUDModalID | null {
-  if (value === 'target' || value === 'planets' || value === 'ship' || value === 'planet-detail') {
+  if (value === 'target' || value === 'planets' || value === 'ship' || value === 'planet-detail' || value === 'tutorial') {
     return value;
   }
-  return normalizePanelID(value);
+  return null;
+}
+
+function isHelpTopicID(value: string | undefined): value is HUDHelpTopicID {
+  return value === 'inventory' || value === 'shop' || value === 'quests' || value === 'planets' || value === 'hangar' || value === 'ops';
 }
 
 function publicEntityType(entityType: string): string {

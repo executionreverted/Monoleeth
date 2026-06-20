@@ -658,6 +658,22 @@ button:disabled {
   cursor: pointer;
 }
 
+.hud-window__header .hud-window__help-button {
+  width: 1.85rem;
+  min-width: 1.85rem;
+  padding: 0;
+  border-color: rgba(244, 201, 93, 0.36);
+  color: rgba(244, 201, 93, 0.92);
+  background: rgba(244, 201, 93, 0.08);
+  font-weight: 800;
+}
+
+.hud-window__header .hud-window__help-button:hover,
+.hud-window__header .hud-window__help-button:focus-visible {
+  border-color: rgba(244, 201, 93, 0.72);
+  background: rgba(244, 201, 93, 0.16);
+}
+
 .hud-window__body,
 .hud-modal__body {
   min-height: 0;
@@ -669,6 +685,29 @@ button:disabled {
 .hud-window__body > h2:first-child,
 .hud-modal__body > h2:first-child {
   display: none;
+}
+
+.tutorial-help {
+  display: grid;
+  gap: 0.7rem;
+  color: rgba(245, 247, 248, 0.82);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.tutorial-help p,
+.tutorial-help ul {
+  margin: 0;
+}
+
+.tutorial-help ul {
+  display: grid;
+  gap: 0.45rem;
+  padding-left: 1rem;
+}
+
+.tutorial-help li::marker {
+  color: rgba(244, 201, 93, 0.88);
 }
 
 .hud__modal-layer {

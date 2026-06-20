@@ -111,6 +111,21 @@ client/tests/browser-smoke.mjs
 - Modal/window focus tests must include delayed canvas clicks after any old
   timer-based HUD suppression would have expired.
 
+## Implementation Evidence - 2026-06-20
+
+- Generic titlebar `Inspect` was removed from HUD windows. Window definitions
+  now carry optional `helpTopic` metadata and render a compact `?` help button
+  only when a real topic exists.
+- Tutorial/help modals use a dedicated topic catalog for Inventory, Shop,
+  Quests, Planets, Hangar, and role-gated Ops. `modalDefinition()` no longer
+  clones `definition.render(state)` as a fake feature detail modal.
+- Browser smoke was updated to open the Shop help topic, assert the tutorial
+  modal does not contain feature window bodies, verify Escape/backdrop/body
+  modal behavior on that help modal, and fail if any window titlebar still
+  exposes generic `Inspect`.
+- Forbidden-copy smoke now checks visible `title`, `aria-label`, `alt`, and
+  `placeholder` attributes in addition to body text.
+
 ## Implementation Plan
 
 1. Replace window sizing.
@@ -171,8 +186,8 @@ docs/plans/task-001/04-hud-modal-tutorial-window-system.md
 
 ## Acceptance Criteria
 
-- [ ] No generic `Inspect` text appears in normal HUD windows.
-- [ ] Contextual `?` opens a tutorial/help modal with selected topic.
+- [x] No generic `Inspect` text appears in normal HUD windows.
+- [x] Contextual `?` opens a tutorial/help modal with selected topic.
 - [ ] Windows are content-sized and only body-scroll after max height.
 - [ ] Shared window shell no longer forces large empty fixed panels when sparse.
 - [ ] Target panel does not show `No lock` plus dead action clutter.

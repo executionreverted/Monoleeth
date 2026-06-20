@@ -2316,9 +2316,9 @@ async function verifyHudInputIsolationDuringMovement(page) {
     throw new Error('desktop movement economy window did not drag while moving');
   }
 
-  await page.locator('[data-window-panel="economy"] [data-modal-open="economy"]').click();
-  await page.waitForSelector('[data-modal="economy"][role="dialog"]', { timeout: 10000 });
-  await page.locator('[data-modal="economy"] .hud-modal__body').click({ position: { x: 24, y: 24 } });
+  await page.locator('[data-window-panel="economy"] [data-modal-open="tutorial"][data-help-topic="shop"]').click();
+  await page.waitForSelector('[data-modal="tutorial"][role="dialog"] [data-help-topic="shop"]', { timeout: 10000 });
+  await page.locator('[data-modal="tutorial"] .hud-modal__body').click({ position: { x: 24, y: 24 } });
   await page.keyboard.press('1');
   await page.waitForTimeout(80);
   const skillAfterModalKey = await commandLogCount(page, 'Sent combat.use_skill.');
@@ -2354,18 +2354,18 @@ async function verifyHudInputIsolationDuringMovement(page) {
     throw new Error('desktop movement focused modal canvas click changed move debug log after suppression timeout');
   }
 
-  const modalBefore = await page.locator('[data-modal="economy"]').boundingBox();
-  const modalHeader = await page.locator('[data-modal="economy"] .hud-modal__header').boundingBox();
+  const modalBefore = await page.locator('[data-modal="tutorial"]').boundingBox();
+  const modalHeader = await page.locator('[data-modal="tutorial"] .hud-modal__header').boundingBox();
   if (!modalBefore || !modalHeader) {
-    throw new Error('desktop movement economy modal was not draggable');
+    throw new Error('desktop movement tutorial modal was not draggable');
   }
   await page.mouse.move(modalHeader.x + modalHeader.width / 2, modalHeader.y + modalHeader.height / 2);
   await page.mouse.down();
   await page.mouse.move(modalHeader.x + modalHeader.width / 2 - 64, modalHeader.y + modalHeader.height / 2 + 42, { steps: 5 });
   await page.mouse.up();
-  const modalAfter = await page.locator('[data-modal="economy"]').boundingBox();
+  const modalAfter = await page.locator('[data-modal="tutorial"]').boundingBox();
   if (!modalAfter || Math.hypot(modalAfter.x - modalBefore.x, modalAfter.y - modalBefore.y) < 25) {
-    throw new Error('desktop movement economy modal did not drag while moving');
+    throw new Error('desktop movement tutorial modal did not drag while moving');
   }
 
   await page.locator('[data-modal-close="button"]').click();
@@ -2664,25 +2664,38 @@ async function verifyPanelModalChrome(page, viewport, label) {
 
   await page.locator('[data-panel-toggle="economy"]').click();
   await page.waitForSelector('[data-window-panel="economy"][data-focused="true"]', { timeout: 10000 });
-  await page.locator('[data-window-panel="economy"] [data-modal-open="economy"]').click();
-  await page.waitForSelector('[data-modal="economy"][role="dialog"][aria-modal="true"]', { timeout: 10000 });
+  await assertNoGenericInspectWindows(page, label);
+  await page.locator('[data-window-panel="economy"] [data-modal-open="tutorial"][data-help-topic="shop"]').click();
+  await page.waitForSelector('[data-modal="tutorial"][role="dialog"][aria-modal="true"] [data-help-topic="shop"]', { timeout: 10000 });
   await page.evaluate(() => {
-    document.querySelector('[data-modal="economy"] .hud-modal__body')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    document.querySelector('[data-modal="tutorial"] .hud-modal__body')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
-  if ((await page.locator('[data-modal="economy"]').count()) !== 1) {
+  if ((await page.locator('[data-modal="tutorial"]').count()) !== 1) {
     throw new Error(`${label}: modal closed when clicking inside modal body`);
+  }
+  const helpShape = await page.evaluate(() => {
+    const modal = document.querySelector('[data-modal="tutorial"]');
+    return {
+      topic: modal?.querySelector('[data-help-topic]')?.getAttribute('data-help-topic') ?? '',
+      hasHelpBody: Boolean(modal?.querySelector('[data-help-body="true"]')),
+      hasFeatureBody: Boolean(modal?.querySelector('.shop-console, [data-inventory-system], [data-quest-board], .planet-catalog, .hangar-console')),
+      text: modal?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+    };
+  });
+  if (helpShape.topic !== 'shop' || !helpShape.hasHelpBody || helpShape.hasFeatureBody || !helpShape.text.includes('Shop Help')) {
+    throw new Error(`${label}: tutorial help modal reused feature body ${JSON.stringify(helpShape)}`);
   }
 
   await page.locator('[data-modal-close="button"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
 
-  await page.locator('[data-window-panel="economy"] [data-modal-open="economy"]').click();
-  await page.waitForSelector('[data-modal="economy"]', { timeout: 10000 });
+  await page.locator('[data-window-panel="economy"] [data-modal-open="tutorial"][data-help-topic="shop"]').click();
+  await page.waitForSelector('[data-modal="tutorial"]', { timeout: 10000 });
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
 
-  await page.locator('[data-window-panel="economy"] [data-modal-open="economy"]').click();
-  await page.waitForSelector('[data-modal="economy"]', { timeout: 10000 });
+  await page.locator('[data-window-panel="economy"] [data-modal-open="tutorial"][data-help-topic="shop"]').click();
+  await page.waitForSelector('[data-modal="tutorial"]', { timeout: 10000 });
   await page.locator('[data-modal-close="backdrop"]').click({ position: { x: 4, y: 4 } });
   await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
 
@@ -2953,6 +2966,17 @@ async function assertMockupParityShell(page, viewport, label) {
 async function assertNoForbiddenLeaks(page, label) {
   const text = await page.locator('body').innerText();
   assertNoForbiddenText(text, `${label} body`);
+  const attributes = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('body *'))
+      .filter((element) => element instanceof HTMLElement && element.getClientRects().length > 0)
+      .flatMap((element) =>
+        ['title', 'aria-label', 'alt', 'placeholder']
+          .map((name) => element.getAttribute(name))
+          .filter((value) => typeof value === 'string' && value.length > 0),
+      )
+      .join('\n'),
+  );
+  assertNoForbiddenText(attributes, `${label} visible attributes`);
   const smokeState = await page.evaluate(() => JSON.stringify(window.__SPACE_MORPG_SMOKE_STATE__));
   assertNoForbiddenText(smokeState, `${label} smoke state`);
   const browserStorage = await page.evaluate(() => {
@@ -2973,6 +2997,27 @@ async function assertNoForbiddenLeaks(page, label) {
     return JSON.stringify({ cookie: document.cookie, local, session });
   });
   assertNoForbiddenText(browserStorage, `${label} browser storage`);
+}
+
+async function assertNoGenericInspectWindows(page, label) {
+  const inspectState = await page.evaluate(() => {
+    const headers = Array.from(document.querySelectorAll('[data-window-panel] .hud-window__header'));
+    return {
+      inspectButtons: headers
+        .flatMap((header) => Array.from(header.querySelectorAll('button')))
+        .filter((button) => /inspect/i.test(button.textContent ?? '') || /inspect/i.test(button.getAttribute('title') ?? ''))
+        .map((button) => button.outerHTML),
+      helpButtons: headers
+        .flatMap((header) => Array.from(header.querySelectorAll('[data-modal-open="tutorial"][data-help-topic]')))
+        .map((button) => ({
+          topic: button.getAttribute('data-help-topic') ?? '',
+          text: button.textContent?.trim() ?? '',
+        })),
+    };
+  });
+  if (inspectState.inspectButtons.length > 0 || inspectState.helpButtons.length < 1) {
+    throw new Error(`${label}: generic Inspect titlebar still present or help missing ${JSON.stringify(inspectState)}`);
+  }
 }
 
 async function assertNoFakeTopbarCounts(page, label) {
