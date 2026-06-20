@@ -282,7 +282,6 @@ client/src/state/types.ts
 client/src/state/reducer.ts
 client/src/protocol/envelope.ts
 client/src/protocol/commands.ts
-client/tests/browser-smoke.mjs
 docs/plans/task-001/07-shop-market-catalog-rework.md
 ```
 
@@ -333,7 +332,6 @@ go test ./internal/game/server -run 'Test.*(Market|Auction|Premium|Economy|Catal
 go test ./internal/game/economy/... -count=1
 cd client
 npm --cache /tmp/gameproject-npm-cache run test -- --run src/state
-npm --cache /tmp/gameproject-npm-cache run smoke
 ```
 
 Capture screenshots under:

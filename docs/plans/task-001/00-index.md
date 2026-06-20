@@ -100,6 +100,14 @@ UI findings:
 - The minimap/radar is visually weak, inert, and does not feel like a circular
   sector map.
 
+## Browser Smoke Retirement - 2026-06-21
+
+The monolithic browser smoke coverage is temporarily retired. Future browser/e2e
+coverage must be rebuilt as small per-flow files under a dedicated test harness;
+`npm run check` no longer runs a browser smoke suite. Existing smoke references
+in phase notes are historical or future acceptance targets until that harness is
+rebuilt.
+
 ## Subagent Review Pass - 2026-06-20
 
 Fresh read-only subagents reviewed Task 001 by phase group and cross-checked

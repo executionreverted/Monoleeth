@@ -269,6 +269,4 @@ docs/plans/task-001/05-seeded-game-content-catalog.md
 ```bash
 go test ./internal/game/modules ./internal/game/ships -count=1
 go test ./internal/game/server -run 'Test.*(Catalog|Seed|Market|Loot|NPC|Inventory|Hangar)' -count=1
-cd client
-npm --cache /tmp/gameproject-npm-cache run smoke
 ```

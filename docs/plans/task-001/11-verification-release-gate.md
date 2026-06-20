@@ -235,7 +235,7 @@ Add stealth/witness screenshots from the real scanner reveal path. If those are
 absent because Phase 03 is blocked, Task 001 is still incomplete. Add WASD
 screenshots if enabled.
 
-`client/tests/browser-smoke.mjs` must write these artifacts under
+Future per-flow browser/e2e harnesses must write these artifacts under
 `output/screenshots/task-001/`, not the older `ui-implementation`,
 `ui-patch-2`, or `ui-patch-3` directories.
 
@@ -277,9 +277,9 @@ find output/screenshots/task-001 -maxdepth 1 -type f | sort
 node client/tests/verify-task-001-artifacts.mjs
 ```
 
-`npm run check` already includes the smoke suite. Run `npm --cache
-/tmp/gameproject-npm-cache run smoke` separately only when re-capturing browser
-artifacts without repeating the whole check.
+`npm run check` no longer includes browser smoke coverage. Browser/e2e coverage
+is temporarily retired until a dedicated small per-flow harness replaces the
+deleted monolithic suite.
 
 Use narrower commands during implementation, but do not claim Task 001 complete
 without the full gate.

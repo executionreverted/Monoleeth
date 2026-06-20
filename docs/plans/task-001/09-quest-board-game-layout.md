@@ -203,7 +203,6 @@ client/src/state/types.ts
 client/src/state/reducer.ts
 client/src/ui/hud.ts
 client/src/styles.css
-client/tests/browser-smoke.mjs
 docs/plans/task-001/09-quest-board-game-layout.md
 ```
 
@@ -241,5 +240,4 @@ go test ./internal/game/server -run 'Test.*(Quest|Progression|Reward|Reroll)' -c
 go test ./internal/game/realtime -run 'TestOperationRegistry' -count=1
 cd client
 npm --cache /tmp/gameproject-npm-cache run test -- --run src/protocol src/state
-npm --cache /tmp/gameproject-npm-cache run smoke
 ```

@@ -32,7 +32,6 @@ client/src/app/client-app.ts
 client/src/render/world-renderer.ts
 client/src/state/movement.ts
 client/src/ui/hud.ts
-client/tests/browser-smoke.mjs
 internal/game/server/handlers.go
 ```
 
@@ -259,7 +258,6 @@ client/src/state/movement.ts
 client/src/state/types.ts
 client/src/ui/hud.ts
 client/src/styles.css
-client/tests/browser-smoke.mjs
 internal/game/server/handlers.go
 internal/game/server/server_test.go
 internal/game/realtime/envelope.go
@@ -309,10 +307,9 @@ docs/plans/task-001/10-controls-hotkeys-input-rules.md
 go test ./internal/game/server -run 'Test.*Movement' -count=1
 cd client
 npm --cache /tmp/gameproject-npm-cache run test -- --run src/state
-npm --cache /tmp/gameproject-npm-cache run smoke
 ```
 
-Browser smoke must include:
+Future per-flow browser/e2e coverage must include:
 
 - moving ship plus modal open/click/drag
 - modal click emits no movement

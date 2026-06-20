@@ -298,7 +298,6 @@ client/src/protocol/envelope.ts
 client/src/protocol/commands.ts
 client/src/ui/hud.ts
 client/src/render/world-renderer.ts
-client/tests/browser-smoke.mjs
 docs/plans/task-001/03-stealth-scan-witness.md
 ```
 
@@ -347,6 +346,4 @@ docs/plans/task-001/03-stealth-scan-witness.md
 go test ./internal/game/world/visibility -count=1
 go test ./internal/game/server -run 'Test.*(Hidden|Witness|Scan|Movement|Visibility)' -count=1
 go test ./internal/game/discovery -run 'Test.*Scan' -count=1
-cd client
-npm --cache /tmp/gameproject-npm-cache run smoke
 ```

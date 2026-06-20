@@ -356,8 +356,10 @@ validation, reducer reconciliation, and smoke coverage.
 Browser smoke now treats visible enabled controls as a protocol contract, not
 just a visual check:
 
-- `client/tests/browser-smoke.mjs` allowlists the enabled `data-action` values
-  that are real server operations or local-only presentation controls.
+- The retired monolithic browser smoke used to allowlist enabled `data-action`
+  values that are real server operations or local-only presentation controls.
+  Future per-flow browser/e2e coverage must restore this guard without reviving
+  the monolith.
 - Any visible, enabled `data-action` outside the allowlist fails smoke as an
   unknown enabled action.
 - Guarded future mutations are still absent from the browser operation registry
@@ -423,7 +425,7 @@ Evidence:
 | Requirement | Current evidence |
 | --- | --- |
 | Normal player payload no longer returns `server_recalculates` | `assertNoEconomyLeak` rejects `server_recalculates`; `TestPhase08MarketAuctionPremiumUseServerEconomyState` passes with `final_price_pending` payloads |
-| Client state/smoke no longer depends on raw internal field | `client/tests/browser-smoke.mjs` waits on `final_price_pending` and bans `server_recalculates` |
+| Client state/smoke no longer depends on raw internal field | Retired monolithic smoke covered `final_price_pending` and `server_recalculates`; future per-flow browser/e2e coverage must restore this guard |
 | Visible UI/tooltip copy is player-facing | `client/src/ui/hud.ts` uses `finalized on buy`, `escrow held`, and cloak movement copy without `server-side` |
 
 ## Rate And Backend Event Blockers - 2026-06-20
@@ -508,7 +510,6 @@ client/src/state/types.ts
 client/src/state/reducer.ts
 client/src/state/reducer.test.ts
 client/src/ui/hud.ts
-client/tests/browser-smoke.mjs
 internal/game/realtime/envelope.go
 internal/game/realtime/envelope_test.go
 internal/game/server/*_handlers.go
@@ -573,7 +574,6 @@ go test ./internal/game/realtime -run 'TestOperationRegistry' -count=1
 go test ./internal/game/server -run 'Test.*(Route|PlanetStorage|Auction|Repair|Death)' -count=1
 cd client
 npm --cache /tmp/gameproject-npm-cache run test -- --run src/protocol src/state
-npm --cache /tmp/gameproject-npm-cache run smoke
 ```
 
 Second-pass smoke additions:

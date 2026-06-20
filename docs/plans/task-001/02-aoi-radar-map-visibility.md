@@ -201,7 +201,6 @@ client/src/state/reducer.ts
 client/src/state/world-memory.ts
 client/src/ui/hud.ts
 client/src/styles.css
-client/tests/browser-smoke.mjs
 docs/plans/task-001/02-aoi-radar-map-visibility.md
 ```
 
@@ -334,5 +333,4 @@ go test ./internal/game/server -run 'Test.*(AOI|Minimap|Fog|Visibility|Hidden)' 
 go test ./internal/game/world/... -count=1
 cd client
 npm --cache /tmp/gameproject-npm-cache run test -- --run src/state
-npm --cache /tmp/gameproject-npm-cache run smoke
 ```

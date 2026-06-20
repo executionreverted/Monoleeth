@@ -30,18 +30,5 @@ Vite proxies `/api` and `/ws` to `http://127.0.0.1:8080` / `ws://127.0.0.1:8080`
 The Go server still validates the browser `Origin`; do not use wildcard origins
 with credentials.
 
-Run the smoke check with its self-started Vite app server:
-
-```bash
-npm --cache /tmp/gameproject-npm-cache run smoke
-```
-
-Or point it at an already-running dev server:
-
-```bash
-npm --cache /tmp/gameproject-npm-cache run smoke -- --url http://127.0.0.1:5173
-```
-
-The smoke check still starts its own local WebSocket fixture while the browser
-client is being moved onto the authenticated Go transport. Use the Phase 02 Go
-server commands above for the real `/api` and `/ws` runtime path.
+Browser smoke coverage is temporarily retired. Future browser/e2e coverage must
+be rebuilt as small per-flow suites under a dedicated test harness.

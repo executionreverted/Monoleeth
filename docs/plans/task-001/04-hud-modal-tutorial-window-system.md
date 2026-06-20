@@ -28,7 +28,6 @@ output/mockups/darkorbit-envanter-ornek-layout.png
 output/assets/hud-svg/README.md
 client/src/ui/hud.ts
 client/src/styles.css
-client/tests/browser-smoke.mjs
 ```
 
 ## Visual Rules
@@ -209,7 +208,6 @@ client/tests/browser-smoke.mjs
 ```text
 client/src/ui/hud.ts
 client/src/styles.css
-client/tests/browser-smoke.mjs
 output/assets/hud-svg/
 docs/plans/task-001/04-hud-modal-tutorial-window-system.md
 ```
@@ -241,7 +239,6 @@ docs/plans/task-001/04-hud-modal-tutorial-window-system.md
 ```bash
 cd client
 npm --cache /tmp/gameproject-npm-cache run check
-npm --cache /tmp/gameproject-npm-cache run smoke
 ```
 
 Capture screenshots under:

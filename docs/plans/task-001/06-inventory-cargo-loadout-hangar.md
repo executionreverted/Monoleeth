@@ -196,7 +196,6 @@ client/src/state/types.ts
 client/src/state/reducer.ts
 client/src/protocol/envelope.ts
 client/src/protocol/commands.ts
-client/tests/browser-smoke.mjs
 internal/game/server/progression_inventory_handlers.go
 internal/game/runtime/providers.go
 internal/game/server/server_test.go
@@ -280,7 +279,6 @@ docs/plans/task-001/06-inventory-cargo-loadout-hangar.md
   `go test ./internal/game/server -run 'TestCombatKillCreatesLootAndPickupUpdatesCargo|TestPhase06SnapshotQueriesUseServerResolvedState' -count=1`,
   `GOCACHE=/tmp/gameproject-go-cache go test ./internal/game/server -run 'TestLoadoutEquipAndUnequipMutateServerOwnedInventory|TestHangarActivateShipUsesServerOwnedHangarState' -count=1`,
   `npm --cache /tmp/gameproject-npm-cache run typecheck`,
-  `npm --cache /tmp/gameproject-npm-cache run smoke`,
   `npm --cache /tmp/gameproject-npm-cache run test -- --run src/state/reducer.test.ts`,
   `GOCACHE=/tmp/gameproject-go-cache go test ./...`,
   `npm --cache /tmp/gameproject-npm-cache run check`, and `git diff --check`.
@@ -332,7 +330,6 @@ go test ./internal/game/server -run 'Test.*(Inventory|Cargo|Loadout|Hangar|Ship)
 go test ./internal/game/modules ./internal/game/ships -count=1
 cd client
 npm --cache /tmp/gameproject-npm-cache run test -- --run src/state
-npm --cache /tmp/gameproject-npm-cache run smoke
 ```
 
 Capture screenshots under:

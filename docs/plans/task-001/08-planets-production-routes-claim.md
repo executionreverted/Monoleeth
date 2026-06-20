@@ -191,7 +191,6 @@ client/src/state/reducer.ts
 client/src/state/types.ts
 client/src/ui/hud.ts
 client/src/styles.css
-client/tests/browser-smoke.mjs
 docs/plans/task-001/08-planets-production-routes-claim.md
 ```
 
@@ -238,7 +237,6 @@ go test ./internal/game/server -run 'Test.*(Planet|Claim|Production|Storage|Rout
 go test ./internal/game/realtime -run 'TestOperationRegistry' -count=1
 cd client
 npm --cache /tmp/gameproject-npm-cache run test -- --run src/protocol src/state
-npm --cache /tmp/gameproject-npm-cache run smoke
 ```
 
 Capture screenshots under:
