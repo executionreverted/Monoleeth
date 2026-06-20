@@ -1357,6 +1357,144 @@ func TestPhase08MarketAuctionPremiumUseServerEconomyState(t *testing.T) {
 	})
 }
 
+func TestPhase07EconomyTrustedPayloadsRejectedBeforeMarketMutation(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	entitlementID := ""
+	for _, entitlement := range gameServer.runtime.Premium.Entitlements() {
+		if entitlement.PlayerID == resolved.PlayerID {
+			entitlementID = entitlement.ID.String()
+			break
+		}
+	}
+	if entitlementID == "" {
+		t.Fatal("seed premium entitlement missing")
+	}
+
+	beforeListing, ok := gameServer.runtime.Market.Listing(seedMarketListingID)
+	if !ok {
+		t.Fatalf("seed listing %s missing", seedMarketListingID)
+	}
+	beforeListingCount := len(gameServer.runtime.Market.Listings())
+	beforeWalletCredits := gameServer.runtime.Wallet.Balance(resolved.PlayerID, economy.CurrencyBucketCredits)
+	beforeWalletLedger := len(gameServer.runtime.Wallet.CurrencyLedgerEntries())
+	beforeItemLedger := len(gameServer.runtime.Inventory.ItemLedgerEntries())
+	premiumPeriod := gameServer.runtime.currentPremiumPeriodKey()
+
+	tests := []struct {
+		name    string
+		op      realtime.Operation
+		payload string
+	}{
+		{
+			name:    "shop catalog stock/provider spoof",
+			op:      realtime.OperationShopCatalog,
+			payload: `{"category_id":"weapons","stock_remaining":99,"provider_reference":"client-stock"}`,
+		},
+		{
+			name:    "shop buy product total stock balance spoof",
+			op:      realtime.OperationShopBuyProduct,
+			payload: `{"product_id":"product_module_laser_alpha_t1","quantity":1,"server_total":1,"stock_remaining":99,"balance":999999}`,
+		},
+		{
+			name: "market buy total fee escrow identity spoof",
+			op:   realtime.OperationMarketBuy,
+			payload: fmt.Sprintf(
+				`{"listing_id":%q,"quantity":1,"total_amount":1,"server_total":1,"fee_amount":0,"server_fee":0,"escrow_location":"market_escrow/spoof","buyer_player_id":"player-buyer-spoof","seller_player_id":"player-seller-spoof"}`,
+				seedMarketListingID.String(),
+			),
+		},
+		{
+			name:    "market create listing seller escrow spoof",
+			op:      realtime.OperationMarketCreateListing,
+			payload: `{"item_id":"raw_ore","quantity":1,"unit_price":10,"seller_player_id":"player-seller-spoof","escrow_location":"market_escrow/spoof","source_return_location":"account_inventory/spoof"}`,
+		},
+		{
+			name: "market cancel seller escrow spoof",
+			op:   realtime.OperationMarketCancel,
+			payload: fmt.Sprintf(
+				`{"listing_id":%q,"seller_player_id":"player-seller-spoof","escrow_location":"market_escrow/spoof","source_return_location":"account_inventory/spoof"}`,
+				seedMarketListingID.String(),
+			),
+		},
+		{
+			name: "auction bid bidder current bid balance spoof",
+			op:   realtime.OperationAuctionBid,
+			payload: fmt.Sprintf(
+				`{"auction_id":%q,"amount":300,"bidder_player_id":"player-bidder-spoof","current_bid":999,"balance":999999}`,
+				seedAuctionID.String(),
+			),
+		},
+		{
+			name: "auction buy now buyer winner total spoof",
+			op:   realtime.OperationAuctionBuyNow,
+			payload: fmt.Sprintf(
+				`{"auction_id":%q,"buyer_player_id":"player-buyer-spoof","winning_player_id":"player-winner-spoof","server_total":1}`,
+				seedAuctionID.String(),
+			),
+		},
+		{
+			name: "premium claim provider state balance spoof",
+			op:   realtime.OperationPremiumClaim,
+			payload: fmt.Sprintf(
+				`{"entitlement_id":%q,"provider_reference":"provider-spoof","entitlement_state":"claimed","balance":999999}`,
+				entitlementID,
+			),
+		},
+		{
+			name: "premium weekly stock provider balance spoof",
+			op:   realtime.OperationPremiumWeeklyXCore,
+			payload: fmt.Sprintf(
+				`{"product_id":"weekly_xcore","period_key":%q,"stock_remaining":99,"provider_reference":"provider-spoof","balance":999999}`,
+				premiumPeriod,
+			),
+		},
+	}
+
+	for index, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			request := fmt.Sprintf(
+				`{"request_id":"request-economy-trusted-%d","op":%q,"payload":%s,"client_seq":%d,"v":1}`,
+				index,
+				tc.op,
+				tc.payload,
+				index+1,
+			)
+			writeText(t, conn, request)
+			got := readError(t, conn)
+			if got.Error.Code != foundation.CodeInvalidPayload {
+				t.Fatalf("%s error = %+v, want %s", tc.name, got.Error, foundation.CodeInvalidPayload)
+			}
+		})
+	}
+
+	afterListing, ok := gameServer.runtime.Market.Listing(seedMarketListingID)
+	if !ok {
+		t.Fatalf("seed listing %s missing after rejected payloads", seedMarketListingID)
+	}
+	if afterListing.RemainingQuantity != beforeListing.RemainingQuantity || afterListing.Status != beforeListing.Status {
+		t.Fatalf("market listing mutated after rejected payloads: before=%+v after=%+v", beforeListing, afterListing)
+	}
+	if got := len(gameServer.runtime.Market.Listings()); got != beforeListingCount {
+		t.Fatalf("market listing count after rejected payloads = %d, want %d", got, beforeListingCount)
+	}
+	if got := gameServer.runtime.Wallet.Balance(resolved.PlayerID, economy.CurrencyBucketCredits); got != beforeWalletCredits {
+		t.Fatalf("wallet credits after rejected payloads = %d, want %d", got, beforeWalletCredits)
+	}
+	if got := len(gameServer.runtime.Wallet.CurrencyLedgerEntries()); got != beforeWalletLedger {
+		t.Fatalf("wallet ledger entries after rejected payloads = %d, want %d", got, beforeWalletLedger)
+	}
+	if got := len(gameServer.runtime.Inventory.ItemLedgerEntries()); got != beforeItemLedger {
+		t.Fatalf("item ledger entries after rejected payloads = %d, want %d", got, beforeItemLedger)
+	}
+}
+
 func TestInventorySnapshotCarriesServerOwnedMarketListEligibility(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
@@ -2996,6 +3134,8 @@ func TestRejectTrustedPayloadSharedSensitiveFieldsAndAdminException(t *testing.T
 		"buyer_player_id",
 		"bidder_player_id",
 		"winning_player_id",
+		"server_total",
+		"server_fee",
 		"generated_payload",
 		"generated_seed",
 		"loot_roll",

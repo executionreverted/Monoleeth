@@ -270,7 +270,7 @@ docs/plans/task-001/07-shop-market-catalog-rework.md
       expectations.
 - [x] Raw temporary names are removed or replaced by server display names.
 - [ ] Quantity and purchase/list/bid actions reconcile with server responses.
-- [ ] Market totals/fees/escrow are not trusted from the client.
+- [x] Market totals/fees/escrow are not trusted from the client.
 - [ ] Auction and premium event paths reconcile or refresh passive clients.
 - [ ] Multi-client economy tests cover buyer/seller/passive viewer, previous
       bidder/winner, and premium owner/stock viewer or record exact backend
