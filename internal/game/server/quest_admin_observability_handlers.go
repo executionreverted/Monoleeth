@@ -362,7 +362,7 @@ func (runtime *Runtime) handleQuestReroll(ctx realtime.CommandContext, request r
 }
 
 func (runtime *Runtime) handleAdminInspectPlayer(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
-	if err := rejectTrustedPayload(request.Payload); err != nil {
+	if err := rejectTrustedPayloadAllowing(request.Payload, "target_player_id"); err != nil {
 		return nil, err
 	}
 	resolved, err := runtime.requireAdmin(ctx, "Admin player inspection is restricted.")
@@ -911,11 +911,11 @@ func questTitle(templateID string) string {
 func questDescription(questType quests.QuestType) string {
 	switch questType {
 	case quests.QuestTypeKill:
-		return "Destroy hostile targets confirmed by the server."
+		return "Destroy confirmed hostile targets."
 	case quests.QuestTypeCollect:
-		return "Recover loot through server-authoritative pickup events."
+		return "Recover field loot and return it to your hold."
 	case quests.QuestTypeCraft:
-		return "Complete a server-owned crafting job."
+		return "Complete a workshop fabrication job."
 	case quests.QuestTypeScan:
 		return "Resolve scanner intel from the discovery service."
 	case quests.QuestTypeBuild:
@@ -923,7 +923,7 @@ func questDescription(questType quests.QuestType) string {
 	case quests.QuestTypeDeliver:
 		return "Settle a delivery through route or station ownership."
 	default:
-		return "Complete the server-owned objective."
+		return "Complete the assigned objective."
 	}
 }
 

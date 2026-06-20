@@ -25,6 +25,63 @@ func TestBuildVisibleSnapshotOmitsHiddenEntity(t *testing.T) {
 	}
 }
 
+func TestBuildVisibleSnapshotAllowsHiddenSelfPlayerWithoutLeakingHiddenTruth(t *testing.T) {
+	viewer := testViewer(100)
+	viewer.PlayerID = "player-1"
+	state := testState("entity-self", world.EntityTypePlayer, world.Vec2{X: 10}, true)
+	state.PlayerID = "player-1"
+	state.PublicStatusFlags = []aoi.StatusFlag{"self"}
+
+	snapshot := aoi.BuildVisibleSnapshot(viewer, []aoi.EntityState{state})
+
+	if got, want := payloadIDs(snapshot.Entities), []world.EntityID{"entity-self"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("snapshot ids = %v, want %v", got, want)
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("Marshal(snapshot) error = %v", err)
+	}
+	payload := string(data)
+	for _, leaked := range []string{"player_id", "hidden", "witness", "expires"} {
+		if strings.Contains(payload, leaked) {
+			t.Fatalf("hidden self payload %s leaked %q", payload, leaked)
+		}
+	}
+}
+
+func TestBuildVisibleSnapshotAllowsWitnessedHiddenPlayerWithSafeFlag(t *testing.T) {
+	now := time.Unix(100, 0)
+	viewer := testViewer(100)
+	viewer.PlayerID = "viewer-player"
+	viewer.ObservedAt = now
+	viewer.Witnesses = []visibility.Witness{{
+		TargetPlayerID: "target-player",
+		ExpiresAt:      now.Add(15 * time.Minute),
+	}}
+	state := testState("entity-target", world.EntityTypePlayer, world.Vec2{X: 10}, true)
+	state.PlayerID = "target-player"
+	state.PublicStatusFlags = []aoi.StatusFlag{"scan_revealed"}
+
+	snapshot := aoi.BuildVisibleSnapshot(viewer, []aoi.EntityState{state})
+
+	if got, want := payloadIDs(snapshot.Entities), []world.EntityID{"entity-target"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("snapshot ids = %v, want %v", got, want)
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("Marshal(snapshot) error = %v", err)
+	}
+	payload := string(data)
+	if !strings.Contains(payload, "scan_revealed") {
+		t.Fatalf("snapshot payload %s missing safe reveal flag", payload)
+	}
+	for _, leaked := range []string{"target-player", "viewer-player", "player_id", "hidden", "witness", "expires"} {
+		if strings.Contains(payload, leaked) {
+			t.Fatalf("witnessed payload %s leaked %q", payload, leaked)
+		}
+	}
+}
+
 func TestDiffSnapshotsReportsEnteredEntity(t *testing.T) {
 	current := aoi.BuildVisibleSnapshot(testViewer(100), []aoi.EntityState{
 		testState("entity-npc-1", world.EntityTypeNPCPlaceholder, world.Vec2{X: 10}, false),

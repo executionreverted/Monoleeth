@@ -1326,12 +1326,25 @@ button:disabled {
   gap: 0.45rem;
 }
 
-.hangar-actions button {
+.hangar-actions button,
+.hangar-status-badge {
   min-height: 2.5rem;
   border: 1px solid rgba(215, 247, 255, 0.28);
   background: rgba(255, 255, 255, 0.035);
   color: rgba(245, 247, 248, 0.9);
   text-transform: uppercase;
+}
+
+.hangar-status-badge {
+  display: grid;
+  place-items: center;
+  border-color: rgba(244, 201, 93, 0.42);
+  color: rgba(244, 201, 93, 0.88);
+  background:
+    linear-gradient(180deg, rgba(244, 201, 93, 0.12), rgba(0, 0, 0, 0.16)),
+    rgba(255, 255, 255, 0.025);
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .hangar-actions button:hover:not(:disabled) {
@@ -1351,9 +1364,87 @@ button:disabled {
   padding: 0.45rem;
 }
 
-.loadout-console {
+.inventory-system {
+  min-width: 0;
   display: grid;
   gap: 0.625rem;
+}
+
+.inventory-tabs {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.25rem;
+  border: 1px solid rgba(215, 247, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(215, 247, 255, 0.07), rgba(0, 0, 0, 0.18)),
+    rgba(255, 255, 255, 0.025);
+  padding: 0.25rem;
+}
+
+.inventory-tabs button {
+  min-width: 0;
+  min-height: 2.75rem;
+  display: grid;
+  align-content: center;
+  gap: 0.1rem;
+  border: 1px solid rgba(215, 247, 255, 0.12);
+  color: rgba(245, 247, 248, 0.8);
+  background: rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+.inventory-tabs button[data-active='true'] {
+  border-color: rgba(138, 245, 255, 0.66);
+  color: #f5f7f8;
+  background:
+    linear-gradient(90deg, rgba(138, 245, 255, 0.18), rgba(255, 255, 255, 0.04)),
+    rgba(0, 0, 0, 0.32);
+  box-shadow: inset 0 -2px 0 rgba(138, 245, 255, 0.7);
+}
+
+.inventory-tabs span,
+.inventory-tabs strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+
+.inventory-tabs span {
+  font-size: 0.68rem;
+  letter-spacing: 0;
+}
+
+.inventory-tabs strong {
+  color: rgba(244, 201, 93, 0.82);
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.inventory-tab-panel {
+  min-width: 0;
+  display: grid;
+  gap: 0.625rem;
+}
+
+.loadout-console {
+  min-width: 0;
+  display: grid;
+  gap: 0.625rem;
+}
+
+.loadout-console--equipment,
+.inventory-storage-console,
+.cargo-hold-console,
+.crafting-locked-panel {
+  min-width: 0;
+  border: 1px solid rgba(215, 247, 255, 0.13);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.08)),
+    rgba(0, 0, 0, 0.18);
+  padding: 0.55rem;
 }
 
 .loadout-ship {
@@ -1412,6 +1503,59 @@ button:disabled {
   gap: 0.45rem;
 }
 
+.loadout-slot-groups {
+  min-width: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.loadout-slot-group {
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid rgba(215, 247, 255, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.08)),
+    rgba(255, 255, 255, 0.018);
+  padding: 0.4rem;
+}
+
+.loadout-slot-group__head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid rgba(215, 247, 255, 0.1);
+  padding-bottom: 0.3rem;
+}
+
+.loadout-slot-group__head strong,
+.loadout-slot-group__head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+
+.loadout-slot-group__head strong {
+  color: rgba(245, 247, 248, 0.9);
+  font-size: 0.7rem;
+}
+
+.loadout-slot-group__head span {
+  color: rgba(244, 201, 93, 0.82);
+  font-size: 0.65rem;
+}
+
+.loadout-slot-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(4.75rem, 1fr));
+  gap: 0.4rem;
+}
+
 .loadout-slot {
   min-height: 5.4rem;
   display: grid;
@@ -1461,16 +1605,80 @@ button:disabled {
 }
 
 .module-bay {
+  min-width: 0;
   display: grid;
   gap: 0.45rem;
   border-top: 1px solid rgba(215, 247, 255, 0.12);
   padding-top: 0.55rem;
 }
 
+.inventory-storage-console {
+  display: grid;
+  gap: 0.625rem;
+}
+
+.inventory-stack-panel {
+  min-width: 0;
+  display: grid;
+  gap: 0.45rem;
+  border-top: 1px solid rgba(215, 247, 255, 0.12);
+  padding-top: 0.55rem;
+}
+
+.inventory-stack-list {
+  max-height: 10rem;
+  overflow: auto;
+}
+
 .module-bay__head {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
+}
+
+.module-filter-bar {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.module-filter-bar button {
+  min-width: 0;
+  min-height: 2.35rem;
+  display: grid;
+  align-content: center;
+  gap: 0.05rem;
+  border: 1px solid rgba(215, 247, 255, 0.12);
+  color: rgba(215, 247, 255, 0.74);
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
+.module-filter-bar button[data-active='true'] {
+  border-color: rgba(244, 201, 93, 0.62);
+  color: rgba(245, 247, 248, 0.94);
+  background:
+    linear-gradient(180deg, rgba(244, 201, 93, 0.16), rgba(0, 0, 0, 0.18)),
+    rgba(0, 0, 0, 0.34);
+}
+
+.module-filter-bar span,
+.module-filter-bar strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+
+.module-filter-bar span {
+  font-size: 0.62rem;
+}
+
+.module-filter-bar strong {
+  color: rgba(244, 201, 93, 0.82);
+  font-size: 0.62rem;
 }
 
 .module-grid {
@@ -1621,6 +1829,17 @@ button:disabled {
 
 .cargo-strip__list {
   margin-top: -0.25rem;
+}
+
+.cargo-hold-console {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.crafting-locked-panel {
+  min-height: 8rem;
+  display: grid;
+  place-items: center;
 }
 
 .systems-subhead {
@@ -2408,7 +2627,7 @@ button:disabled {
 .minimap {
   position: relative;
   width: 100%;
-  aspect-ratio: 1.35;
+  aspect-ratio: 1;
   min-height: 7rem;
   margin-bottom: 0.625rem;
   border: 1px solid rgba(138, 245, 255, 0.18);
@@ -2428,11 +2647,18 @@ button:disabled {
 }
 
 .minimap__ring,
-.minimap__axis,
+.minimap__axis {
+  position: absolute;
+  pointer-events: none;
+}
+
 .minimap__point,
 .minimap__memory {
   position: absolute;
-  pointer-events: none;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  cursor: pointer;
 }
 
 .minimap__ring {
@@ -2464,7 +2690,9 @@ button:disabled {
   width: 0.625rem;
   height: 0.625rem;
   border: 1px solid currentColor;
+  background: rgba(138, 245, 255, 0.08);
   transform: translate(-50%, -50%) rotate(45deg);
+  z-index: 2;
 }
 
 .minimap__point[data-kind="self"] {
@@ -2474,6 +2702,8 @@ button:disabled {
   background: #ffffff;
   clip-path: polygon(50% 0, 100% 100%, 50% 76%, 0 100%);
   transform: translate(-50%, -50%);
+  z-index: 4;
+  pointer-events: none;
 }
 
 .minimap__point[data-kind="hostile"] {
@@ -2485,6 +2715,7 @@ button:disabled {
   height: 0.7rem;
   color: #f4c95d;
   background: rgba(244, 201, 93, 0.16);
+  z-index: 3;
 }
 
 .minimap__point[data-entity-type="planet_signal"] {
@@ -2506,21 +2737,25 @@ button:disabled {
 .minimap__point[data-kind="friendly"],
 .minimap__point[data-kind="neutral"] {
   color: #7cff9b;
+  z-index: 2;
 }
 
 .minimap__point[data-entity-type="loot"][data-kind="neutral"] {
   color: #f4c95d;
+  z-index: 3;
 }
 
 .minimap__memory {
   width: 1rem;
   height: 1rem;
+  background: rgba(3, 8, 10, 0.68);
   border: 1px solid rgba(124, 255, 155, 0.68);
   border-radius: 50%;
   box-shadow:
     0 0 0.65rem rgba(124, 255, 155, 0.22),
     inset 0 0 0.35rem rgba(124, 255, 155, 0.16);
   transform: translate(-50%, -50%);
+  z-index: 3;
 }
 
 .minimap__memory[data-freshness="stale"] {
@@ -2891,6 +3126,10 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .inventory-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .planet-catalog {
     grid-template-columns: 1fr;
     min-height: 0;
@@ -3215,6 +3454,23 @@ button:disabled {
 
   .panel--planets {
     min-height: 13rem;
+  }
+
+  .loadout-console--equipment {
+    grid-template-columns: minmax(7rem, 0.8fr) minmax(10rem, 1fr) minmax(13rem, 1.35fr);
+    align-items: start;
+  }
+
+  .loadout-console--equipment .loadout-ship {
+    min-height: 13.25rem;
+    align-content: center;
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .loadout-slot-groups,
+  .module-bay {
+    align-self: stretch;
   }
 
   .hud__actionbar {

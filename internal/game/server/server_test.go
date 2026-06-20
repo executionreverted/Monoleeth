@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
+	"gameproject/internal/game/world/worker"
 )
 
 const testOrigin = "http://example.com"
@@ -95,15 +97,17 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 	if snapshot.Sector.Name != "Origin Fringe" || snapshot.Sector.Region != "Origin Belt" || snapshot.Sector.Danger == "" {
 		t.Fatalf("sector payload = %+v, want client-safe sector summary", snapshot.Sector)
 	}
-	if snapshot.Minimap.RadarRange != defaultRadarRange {
-		t.Fatalf("minimap radar = %v, want %v", snapshot.Minimap.RadarRange, defaultRadarRange)
+	if snapshot.Minimap.RadarRange != runtimeLiveProjectionHalfExtent || snapshot.Minimap.ProjectionWindowSize != runtimeLiveProjectionDiameter {
+		t.Fatalf("minimap projection = range %v window %v, want %v/%v", snapshot.Minimap.RadarRange, snapshot.Minimap.ProjectionWindowSize, runtimeLiveProjectionHalfExtent, runtimeLiveProjectionDiameter)
 	}
 	if len(snapshot.Minimap.LiveContacts) != len(snapshot.Entities) {
 		t.Fatalf("minimap contacts = %d, entities = %d", len(snapshot.Minimap.LiveContacts), len(snapshot.Entities))
 	}
+	entitiesByID := make(map[string]aoi.EntityPayload, len(snapshot.Entities))
 	selfCount := 0
 	npcCombatCount := 0
 	for _, entity := range snapshot.Entities {
+		entitiesByID[entity.ID.String()] = entity
 		if strings.Contains(entity.Type.String(), "placeholder") {
 			t.Fatalf("entity type %q still uses placeholder contract", entity.Type)
 		}
@@ -130,8 +134,18 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 		t.Fatalf("world snapshot missing visible npc for combat contract test")
 	}
 	for _, contact := range snapshot.Minimap.LiveContacts {
+		if contact.EntityID == "" || contact.EntityType == "" {
+			t.Fatalf("minimap contact missing stable identity: %+v", contact)
+		}
 		if contact.EntityID == "entity_hidden_planet_signal" {
 			t.Fatalf("hidden entity leaked into minimap contact %+v", contact)
+		}
+		entity, ok := entitiesByID[contact.EntityID]
+		if !ok {
+			t.Fatalf("minimap contact %+v missing matching snapshot entity", contact)
+		}
+		if contact.EntityType != entity.Type || contact.Position != entity.Position {
+			t.Fatalf("minimap contact %+v does not mirror snapshot entity %+v", contact, entity)
 		}
 	}
 }
@@ -166,16 +180,9 @@ func TestMoveToThroughWebSocketUsesGatewayAndServerPosition(t *testing.T) {
 		t.Fatalf("move response = %+v, want success", response)
 	}
 	var payload struct {
-		Accepted bool `json:"accepted"`
-		Entities []struct {
-			EntityID string `json:"entity_id"`
-			Type     string `json:"entity_type"`
-			Position struct {
-				X float64 `json:"x"`
-				Y float64 `json:"y"`
-			} `json:"position"`
-			Movement *movementPayloadForTest `json:"movement"`
-		} `json:"entities"`
+		Accepted bool                `json:"accepted"`
+		Entities []aoi.EntityPayload `json:"entities"`
+		Minimap  minimapPayload      `json:"minimap"`
 	}
 	if err := json.Unmarshal(response.Payload, &payload); err != nil {
 		t.Fatalf("decode move payload: %v", err)
@@ -183,10 +190,11 @@ func TestMoveToThroughWebSocketUsesGatewayAndServerPosition(t *testing.T) {
 	if !payload.Accepted {
 		t.Fatal("move accepted = false, want true")
 	}
+	assertMinimapMirrorsEntities(t, "move response", payload.Entities, payload.Minimap)
 	var playerX float64
-	var playerMovement *movementPayloadForTest
+	var playerMovement *aoi.EntityMovementStatus
 	for _, entity := range payload.Entities {
-		if entity.Type == "player" {
+		if entity.Type == world.EntityTypePlayer {
 			playerX = entity.Position.X
 			playerMovement = entity.Movement
 		}
@@ -244,17 +252,18 @@ func TestMoveToThroughWebSocketUsesGatewayAndServerPosition(t *testing.T) {
 	if err := json.Unmarshal(response.Payload, &payload); err != nil {
 		t.Fatalf("decode second move payload: %v", err)
 	}
-	var secondMovement *movementPayloadForTest
+	assertMinimapMirrorsEntities(t, "second move response", payload.Entities, payload.Minimap)
+	var secondMovement *aoi.EntityMovementStatus
 	for _, entity := range payload.Entities {
-		if entity.Type == "player" {
+		if entity.Type == world.EntityTypePlayer {
 			secondMovement = entity.Movement
 		}
 	}
 	if secondMovement == nil {
 		t.Fatal("second movement = nil, want server-timed movement route")
 	}
-	if secondMovement.Origin.X != playerX {
-		t.Fatalf("second movement origin x = %v, want first server position %v", secondMovement.Origin.X, playerX)
+	if secondMovement.Origin.X < playerX || secondMovement.Origin.X >= 100 {
+		t.Fatalf("second movement origin x = %v, want between first server position %v and first target 100", secondMovement.Origin.X, playerX)
 	}
 	if secondMovement.Target.X != 0 || secondMovement.Target.Y != 100 {
 		t.Fatalf("second movement target = %+v, want 0,100", secondMovement.Target)
@@ -342,6 +351,23 @@ func TestMoveToRejectsExcessivePathAndDisabledShip(t *testing.T) {
 		if got.Error.Code != foundation.CodeShipDisabled {
 			t.Fatalf("disabled move error = %+v, want %s", got.Error, foundation.CodeShipDisabled)
 		}
+		disabled := readEvent(t, conn)
+		if disabled.Type != realtime.EventDeathShipDisabled {
+			t.Fatalf("disabled move event = %s, want %s", disabled.Type, realtime.EventDeathShipDisabled)
+		}
+		var payload struct {
+			ShipID         string              `json:"ship_id"`
+			DisabledReason string              `json:"disabled_reason"`
+			Ship           shipSnapshotPayload `json:"ship"`
+			RepairQuote    repairQuotePayload  `json:"repair_quote"`
+		}
+		if err := json.Unmarshal(disabled.Payload, &payload); err != nil {
+			t.Fatalf("decode disabled event: %v", err)
+		}
+		if payload.ShipID != starterShipID.String() || payload.DisabledReason != "death" || !payload.Ship.Disabled || !payload.RepairQuote.Disabled {
+			t.Fatalf("disabled payload = %+v, want disabled starter ship with repair quote", payload)
+		}
+		drainEventTypes(t, conn, realtime.EventShipSnapshot, realtime.EventPlayerSnapshot)
 	})
 }
 
@@ -361,9 +387,22 @@ func TestStopClearsMovementTargetServerSide(t *testing.T) {
 	readEvent(t, conn)
 	readEvent(t, conn)
 	writeText(t, conn, `{"request_id":"request-stop-1","op":"stop","payload":{},"client_seq":2,"v":1}`)
-	if response := readResponse(t, conn); !response.OK {
+	response := readResponse(t, conn)
+	if !response.OK {
 		t.Fatalf("stop response = %+v, want success", response)
 	}
+	var stopPayload struct {
+		Accepted bool                `json:"accepted"`
+		Entities []aoi.EntityPayload `json:"entities"`
+		Minimap  minimapPayload      `json:"minimap"`
+	}
+	if err := json.Unmarshal(response.Payload, &stopPayload); err != nil {
+		t.Fatalf("decode stop payload: %v", err)
+	}
+	if !stopPayload.Accepted {
+		t.Fatalf("stop accepted = false, want true")
+	}
+	assertMinimapMirrorsEntities(t, "stop response", stopPayload.Entities, stopPayload.Minimap)
 	correction := readEvent(t, conn)
 	stopped := readEvent(t, conn)
 	if correction.Type != realtime.EventPositionCorrected || stopped.Type != realtime.EventMovementStopped {
@@ -460,8 +499,16 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 			Used     int64 `json:"used"`
 			Capacity int64 `json:"capacity"`
 			Items    []struct {
-				ItemID   string `json:"item_id"`
-				Quantity int64  `json:"quantity"`
+				ItemID       string `json:"item_id"`
+				DisplayName  string `json:"display_name"`
+				Category     string `json:"category"`
+				ArtKey       string `json:"art_key"`
+				Quantity     int64  `json:"quantity"`
+				UnitWeight   int64  `json:"unit_weight"`
+				UsedUnits    int64  `json:"used_units"`
+				Location     string `json:"location"`
+				MoveEligible bool   `json:"move_eligible"`
+				LockedReason string `json:"locked_reason"`
 			} `json:"items"`
 		} `json:"cargo"`
 	}
@@ -470,6 +517,18 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 	}
 	if !pickupPayload.Accepted || pickupPayload.Cargo.Used != 6 || len(pickupPayload.Cargo.Items) != 1 || pickupPayload.Cargo.Items[0].Quantity != 3 {
 		t.Fatalf("pickup payload = %+v, want cargo with three raw ore", pickupPayload)
+	}
+	rawOreCargo := pickupPayload.Cargo.Items[0]
+	if rawOreCargo.ItemID != "raw_ore" ||
+		rawOreCargo.DisplayName != "Raw Ore" ||
+		rawOreCargo.Category != "resource" ||
+		rawOreCargo.ArtKey != "item.raw_ore" ||
+		rawOreCargo.UnitWeight != 2 ||
+		rawOreCargo.UsedUnits != 6 ||
+		rawOreCargo.Location != economy.LocationKindShipCargo.String() ||
+		rawOreCargo.MoveEligible ||
+		rawOreCargo.LockedReason != "cargo_transfer_unavailable" {
+		t.Fatalf("cargo metadata = %+v, want server-owned raw ore metadata and move locked", rawOreCargo)
 	}
 
 	seen = map[realtime.ClientEventType]bool{}
@@ -660,8 +719,10 @@ func TestLoadoutEquipAndUnequipMutateServerOwnedInventory(t *testing.T) {
 	laserID := requireInventoryInstance(t, inventoryPayload.Inventory, "laser_alpha_t1", economy.LocationKindAccountInventory.String())
 	shieldID := requireInventoryInstance(t, inventoryPayload.Inventory, "shield_generator_t1", economy.LocationKindAccountInventory.String())
 
-	writeText(t, conn, `{"request_id":"request-loadout-equip-laser","op":"loadout.equip_module","payload":{"slot_id":"offensive_1","item_instance_id":"`+laserID+`"},"client_seq":2,"v":1}`)
-	equipResponse := readResponse(t, conn)
+	equipRequest := `{"request_id":"request-loadout-equip-laser","op":"loadout.equip_module","payload":{"slot_id":"offensive_1","item_instance_id":"` + laserID + `"},"client_seq":2,"v":1}`
+	writeText(t, conn, equipRequest)
+	equipRaw := readRawText(t, conn)
+	equipResponse := decodeRawResponse(t, equipRaw)
 	if !equipResponse.OK {
 		t.Fatalf("equip response = %+v, want success", equipResponse)
 	}
@@ -678,6 +739,11 @@ func TestLoadoutEquipAndUnequipMutateServerOwnedInventory(t *testing.T) {
 	}
 	requireInventoryInstanceLocation(t, equipPayload.Inventory, laserID, economy.LocationKindShipEquipped.String())
 	drainEventTypes(t, conn, realtime.EventInventorySnapshot, realtime.EventLoadoutSnapshot, realtime.EventStatsUpdated)
+	writeText(t, conn, equipRequest)
+	duplicateEquipRaw := readRawText(t, conn)
+	if !bytes.Equal(equipRaw, duplicateEquipRaw) {
+		t.Fatalf("duplicate equip response changed:\nfirst=%s\nsecond=%s", equipRaw, duplicateEquipRaw)
+	}
 
 	writeText(t, conn, `{"request_id":"request-loadout-spoof","op":"loadout.equip_module","payload":{"slot_id":"offensive_1","item_instance_id":"`+laserID+`","player_id":"spoof"},"client_seq":3,"v":1}`)
 	spoof := readError(t, conn)
@@ -691,8 +757,10 @@ func TestLoadoutEquipAndUnequipMutateServerOwnedInventory(t *testing.T) {
 		t.Fatalf("wrong slot error = %+v, want %s", wrongSlot.Error, foundation.CodeInvalidPayload)
 	}
 
-	writeText(t, conn, `{"request_id":"request-loadout-unequip-laser","op":"loadout.unequip_module","payload":{"slot_id":"offensive_1"},"client_seq":5,"v":1}`)
-	unequipResponse := readResponse(t, conn)
+	unequipRequest := `{"request_id":"request-loadout-unequip-laser","op":"loadout.unequip_module","payload":{"slot_id":"offensive_1"},"client_seq":5,"v":1}`
+	writeText(t, conn, unequipRequest)
+	unequipRaw := readRawText(t, conn)
+	unequipResponse := decodeRawResponse(t, unequipRaw)
 	if !unequipResponse.OK {
 		t.Fatalf("unequip response = %+v, want success", unequipResponse)
 	}
@@ -709,6 +777,11 @@ func TestLoadoutEquipAndUnequipMutateServerOwnedInventory(t *testing.T) {
 	}
 	requireInventoryInstanceLocation(t, unequipPayload.Inventory, laserID, economy.LocationKindAccountInventory.String())
 	drainEventTypes(t, conn, realtime.EventInventorySnapshot, realtime.EventLoadoutSnapshot, realtime.EventStatsUpdated)
+	writeText(t, conn, unequipRequest)
+	duplicateUnequipRaw := readRawText(t, conn)
+	if !bytes.Equal(unequipRaw, duplicateUnequipRaw) {
+		t.Fatalf("duplicate unequip response changed:\nfirst=%s\nsecond=%s", unequipRaw, duplicateUnequipRaw)
+	}
 }
 
 func TestHangarActivateShipUsesServerOwnedHangarState(t *testing.T) {
@@ -737,8 +810,10 @@ func TestHangarActivateShipUsesServerOwnedHangarState(t *testing.T) {
 		t.Fatalf("starter hangar row = %+v, want server catalog stats and active flag", starter)
 	}
 
-	writeText(t, conn, `{"request_id":"request-hangar-activate-starter","op":"hangar.activate_ship","payload":{"ship_id":"`+starterShipID.String()+`"},"client_seq":2,"v":1}`)
-	activateResponse := readResponse(t, conn)
+	activateRequest := `{"request_id":"request-hangar-activate-starter","op":"hangar.activate_ship","payload":{"ship_id":"` + starterShipID.String() + `"},"client_seq":2,"v":1}`
+	writeText(t, conn, activateRequest)
+	activateRaw := readRawText(t, conn)
+	activateResponse := decodeRawResponse(t, activateRaw)
 	if !activateResponse.OK {
 		t.Fatalf("hangar activate response = %+v, want success", activateResponse)
 	}
@@ -758,6 +833,11 @@ func TestHangarActivateShipUsesServerOwnedHangarState(t *testing.T) {
 		t.Fatalf("activate payload = %+v, want starter snapshots", activatePayload)
 	}
 	drainEventTypes(t, conn, realtime.EventHangarSnapshot, realtime.EventShipSnapshot, realtime.EventStatsUpdated, realtime.EventCargoSnapshot, realtime.EventLoadoutSnapshot)
+	writeText(t, conn, activateRequest)
+	duplicateActivateRaw := readRawText(t, conn)
+	if !bytes.Equal(activateRaw, duplicateActivateRaw) {
+		t.Fatalf("duplicate hangar activate response changed:\nfirst=%s\nsecond=%s", activateRaw, duplicateActivateRaw)
+	}
 
 	writeText(t, conn, `{"request_id":"request-hangar-spoof","op":"hangar.activate_ship","payload":{"ship_id":"`+starterShipID.String()+`","player_id":"spoof"},"client_seq":3,"v":1}`)
 	spoof := readError(t, conn)
@@ -820,17 +900,37 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	planetID := scanPayload.Scan.PlanetID
 
 	seen := map[realtime.ClientEventType]bool{}
+	var knownEventPayload struct {
+		Planets []knownPlanetPayload `json:"planets"`
+		Counts  planetIntelCounts    `json:"counts"`
+		Minimap minimapPayload       `json:"minimap"`
+	}
 	for attempts := 0; attempts < 6 && (!seen[realtime.EventScanPulseStarted] || !seen[realtime.EventScanPulseResolved] || !seen[realtime.EventScanPlanetDiscovered] || !seen[realtime.EventKnownPlanets]); attempts++ {
 		event := readEvent(t, conn)
 		seen[event.Type] = true
 		if raw := string(mustJSON(t, event)); strings.Contains(raw, "candidate_key") || strings.Contains(raw, "procedural_seed") || strings.Contains(raw, "detection_roll") {
 			t.Fatalf("scan event leaked hidden scanner truth: %s", raw)
 		}
+		if event.Type == realtime.EventKnownPlanets {
+			if err := json.Unmarshal(event.Payload, &knownEventPayload); err != nil {
+				t.Fatalf("decode known planets event: %v", err)
+			}
+		}
 	}
 	for _, want := range []realtime.ClientEventType{realtime.EventScanPulseStarted, realtime.EventScanPulseResolved, realtime.EventScanPlanetDiscovered, realtime.EventKnownPlanets} {
 		if !seen[want] {
 			t.Fatalf("scan events seen = %#v, missing %s", seen, want)
 		}
+	}
+	if len(knownEventPayload.Minimap.Remembered) != 1 {
+		t.Fatalf("known planets event remembered minimap = %+v, want discovered planet memory without manual world.snapshot", knownEventPayload.Minimap.Remembered)
+	}
+	eventMemory := knownEventPayload.Minimap.Remembered[0]
+	if eventMemory.Kind != "known_planet" || eventMemory.PlanetID != planetID || eventMemory.DetailID != planetID {
+		t.Fatalf("known planets event memory = %+v, want known planet %s", eventMemory, planetID)
+	}
+	if eventMemory.Position.X == 0 && eventMemory.Position.Y == 0 {
+		t.Fatalf("known planets event memory position = %+v, want client-safe discovered coordinates", eventMemory.Position)
 	}
 
 	writeText(t, conn, `{"request_id":"request-known-planets","op":"discovery.known_planets","payload":{},"client_seq":2,"v":1}`)
@@ -840,12 +940,16 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	}
 	var knownPayload struct {
 		KnownPlanets knownPlanetsPayload `json:"known_planets"`
+		Minimap      minimapPayload      `json:"minimap"`
 	}
 	if err := json.Unmarshal(knownResponse.Payload, &knownPayload); err != nil {
 		t.Fatalf("decode known planets: %v", err)
 	}
 	if len(knownPayload.KnownPlanets.Planets) != 1 || knownPayload.KnownPlanets.Planets[0].PlanetID != planetID {
 		t.Fatalf("known planets response = %+v, want discovered planet %s", knownPayload.KnownPlanets, planetID)
+	}
+	if len(knownPayload.Minimap.Remembered) != 1 || knownPayload.Minimap.Remembered[0].PlanetID != planetID {
+		t.Fatalf("known planets remembered minimap = %+v, want discovered planet %s", knownPayload.Minimap.Remembered, planetID)
 	}
 
 	writeText(t, conn, `{"request_id":"request-planet-detail","op":"discovery.planet_detail","payload":{"planet_id":"`+planetID+`"},"client_seq":3,"v":1}`)
@@ -884,6 +988,9 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	memory := worldPayload.Minimap.Remembered[0]
 	if memory.Kind != "known_planet" || memory.Label == "" || memory.Freshness == "" {
 		t.Fatalf("remembered minimap memory = %+v, want client-safe known planet summary", memory)
+	}
+	if memory.PlanetID != planetID || memory.DetailID != planetID {
+		t.Fatalf("remembered minimap memory ids = %+v, want planet/detail %s", memory, planetID)
 	}
 	if memory.Position.X != detailPayload.PlanetDetail.Coordinates.X || memory.Position.Y != detailPayload.PlanetDetail.Coordinates.Y {
 		t.Fatalf("remembered minimap position = %+v, want detail coordinates %+v", memory.Position, detailPayload.PlanetDetail.Coordinates)
@@ -1047,8 +1154,8 @@ func TestPhase08MarketAuctionPremiumUseServerEconomyState(t *testing.T) {
 	if len(marketPayload.Market.Listings) != 1 || marketPayload.Market.Listings[0].ListingID != seedMarketListingID.String() {
 		t.Fatalf("market listings = %+v, want seeded listing", marketPayload.Market.Listings)
 	}
-	if !marketPayload.Market.Listings[0].ServerRecalculates {
-		t.Fatalf("market listing = %+v, want server recalculation marker", marketPayload.Market.Listings[0])
+	if !marketPayload.Market.Listings[0].FinalPricePending {
+		t.Fatalf("market listing = %+v, want final price pending marker", marketPayload.Market.Listings[0])
 	}
 
 	writeText(t, conn, `{"request_id":"request-market-spoof","op":"market.buy","payload":{"listing_id":"`+seedMarketListingID.String()+`","quantity":1,"total_amount":1},"client_seq":3,"v":1}`)
@@ -1122,7 +1229,7 @@ func TestPhase08MarketAuctionPremiumUseServerEconomyState(t *testing.T) {
 	}
 	drainEventTypes(t, conn, realtime.EventAuctionClosed, realtime.EventAuctionLotUpdated, realtime.EventWalletSnapshot)
 
-	writeText(t, conn, `{"request_id":"request-auction-grants","op":"auction.claim_grant","payload":{},"client_seq":8,"v":1}`)
+	writeText(t, conn, `{"request_id":"request-auction-grants","op":"auction.grants","payload":{},"client_seq":8,"v":1}`)
 	grantsResponse := readResponse(t, conn)
 	if !grantsResponse.OK {
 		t.Fatalf("auction grant response = %+v, want success", grantsResponse)
@@ -1168,7 +1275,14 @@ func TestPhase08MarketAuctionPremiumUseServerEconomyState(t *testing.T) {
 	}
 	drainEventTypes(t, conn, realtime.EventPremiumClaimed, realtime.EventWalletSnapshot)
 
-	writeText(t, conn, `{"request_id":"request-weekly-xcore","op":"premium.purchase_weekly_xcore","payload":{},"client_seq":11,"v":1}`)
+	writeText(t, conn, `{"request_id":"request-weekly-xcore-empty","op":"premium.purchase_weekly_xcore","payload":{},"client_seq":11,"v":1}`)
+	emptyStockIntent := readError(t, conn)
+	if emptyStockIntent.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("empty weekly xcore intent error = %+v, want %s", emptyStockIntent.Error, foundation.CodeInvalidPayload)
+	}
+
+	premiumPeriod := gameServer.runtime.currentPremiumPeriodKey()
+	writeText(t, conn, `{"request_id":"request-weekly-xcore","op":"premium.purchase_weekly_xcore","payload":{"product_id":"weekly_xcore","period_key":"`+premiumPeriod+`"},"client_seq":12,"v":1}`)
 	xcoreResponse := readResponse(t, conn)
 	if !xcoreResponse.OK {
 		t.Fatalf("weekly xcore response = %+v, want success", xcoreResponse)
@@ -1185,13 +1299,13 @@ func TestPhase08MarketAuctionPremiumUseServerEconomyState(t *testing.T) {
 	}
 	drainEventTypes(t, conn, realtime.EventPremiumStockConsumed, realtime.EventWalletSnapshot)
 
-	writeText(t, conn, `{"request_id":"request-weekly-xcore-again","op":"premium.purchase_weekly_xcore","payload":{},"client_seq":12,"v":1}`)
+	writeText(t, conn, `{"request_id":"request-weekly-xcore-again","op":"premium.purchase_weekly_xcore","payload":{"product_id":"weekly_xcore","period_key":"`+premiumPeriod+`"},"client_seq":13,"v":1}`)
 	limit := readError(t, conn)
 	if limit.Error.Code != foundation.CodeForbidden {
 		t.Fatalf("second weekly xcore error = %+v, want %s", limit.Error, foundation.CodeForbidden)
 	}
 
-	writeText(t, conn, `{"request_id":"request-admin-economy","op":"admin.economy_dashboard","payload":{},"client_seq":13,"v":1}`)
+	writeText(t, conn, `{"request_id":"request-admin-economy","op":"admin.economy_dashboard","payload":{},"client_seq":14,"v":1}`)
 	admin := readError(t, conn)
 	if admin.Error.Code != foundation.CodeForbidden {
 		t.Fatalf("non-admin dashboard error = %+v, want %s", admin.Error, foundation.CodeForbidden)
@@ -1374,11 +1488,12 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 		body string
 	}{
 		{"admin inspect", `{"request_id":"request-non-admin-inspect","op":"admin.inspect_player","payload":{},"client_seq":8,"v":1}`},
-		{"admin repair", `{"request_id":"request-non-admin-repair","op":"admin.repair_craft_job","payload":{"job_id":"job-missing"},"client_seq":9,"v":1}`},
-		{"command log", `{"request_id":"request-non-admin-log","op":"observability.command_log","payload":{},"client_seq":10,"v":1}`},
-		{"metrics", `{"request_id":"request-non-admin-metrics","op":"observability.metrics","payload":{},"client_seq":11,"v":1}`},
-		{"release gate", `{"request_id":"request-non-admin-gate","op":"observability.release_gate","payload":{},"client_seq":12,"v":1}`},
-		{"abuse coverage", `{"request_id":"request-non-admin-abuse","op":"observability.abuse_coverage","payload":{},"client_seq":13,"v":1}`},
+		{"admin inspect target", fmt.Sprintf(`{"request_id":"request-non-admin-inspect-target","op":"admin.inspect_player","payload":{"target_player_id":"%s"},"client_seq":9,"v":1}`, resolved.PlayerID.String())},
+		{"admin repair", `{"request_id":"request-non-admin-repair","op":"admin.repair_craft_job","payload":{"job_id":"job-missing"},"client_seq":10,"v":1}`},
+		{"command log", `{"request_id":"request-non-admin-log","op":"observability.command_log","payload":{},"client_seq":11,"v":1}`},
+		{"metrics", `{"request_id":"request-non-admin-metrics","op":"observability.metrics","payload":{},"client_seq":12,"v":1}`},
+		{"release gate", `{"request_id":"request-non-admin-gate","op":"observability.release_gate","payload":{},"client_seq":13,"v":1}`},
+		{"abuse coverage", `{"request_id":"request-non-admin-abuse","op":"observability.abuse_coverage","payload":{},"client_seq":14,"v":1}`},
 	} {
 		t.Run("non-admin "+request.name, func(t *testing.T) {
 			writeText(t, conn, request.body)
@@ -1416,8 +1531,23 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 			},
 		},
 		{
+			name: "inspect target",
+			body: fmt.Sprintf(`{"request_id":"request-admin-inspect-target","op":"admin.inspect_player","payload":{"target_player_id":"%s"},"client_seq":2,"v":1}`, resolved.PlayerID.String()),
+			decode: func(t *testing.T, raw json.RawMessage) {
+				var payload struct {
+					Admin adminPlayerInspectionPayload `json:"admin"`
+				}
+				if err := json.Unmarshal(raw, &payload); err != nil {
+					t.Fatalf("decode admin inspect target: %v", err)
+				}
+				if payload.Admin.Target != "requested" || len(payload.Admin.Wallet.Balances) == 0 {
+					t.Fatalf("admin inspect target = %+v, want requested wallet balances", payload.Admin)
+				}
+			},
+		},
+		{
 			name: "economy",
-			body: `{"request_id":"request-admin-economy-ok","op":"admin.economy_dashboard","payload":{},"client_seq":2,"v":1}`,
+			body: `{"request_id":"request-admin-economy-ok","op":"admin.economy_dashboard","payload":{},"client_seq":3,"v":1}`,
 			decode: func(t *testing.T, raw json.RawMessage) {
 				var payload struct {
 					Economy economyDashboardPayload `json:"economy"`
@@ -1432,7 +1562,7 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 		},
 		{
 			name: "repair",
-			body: `{"request_id":"request-admin-repair","op":"admin.repair_craft_job","payload":{"job_id":"job-missing"},"client_seq":3,"v":1}`,
+			body: `{"request_id":"request-admin-repair","op":"admin.repair_craft_job","payload":{"job_id":"job-missing"},"client_seq":4,"v":1}`,
 			decode: func(t *testing.T, raw json.RawMessage) {
 				var payload struct {
 					Repair adminRepairCraftJobPayload `json:"admin_repair"`
@@ -1448,7 +1578,7 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 		},
 		{
 			name: "command log",
-			body: `{"request_id":"request-admin-command-log","op":"observability.command_log","payload":{},"client_seq":4,"v":1}`,
+			body: `{"request_id":"request-admin-command-log","op":"observability.command_log","payload":{},"client_seq":5,"v":1}`,
 			decode: func(t *testing.T, raw json.RawMessage) {
 				var payload struct {
 					CommandLog commandLogSummaryPayload `json:"command_log"`
@@ -1463,7 +1593,7 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 		},
 		{
 			name: "metrics",
-			body: `{"request_id":"request-admin-metrics","op":"observability.metrics","payload":{},"client_seq":5,"v":1}`,
+			body: `{"request_id":"request-admin-metrics","op":"observability.metrics","payload":{},"client_seq":6,"v":1}`,
 			decode: func(t *testing.T, raw json.RawMessage) {
 				var payload struct {
 					Metrics metricsSummaryPayload `json:"metrics"`
@@ -1479,7 +1609,7 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 		},
 		{
 			name: "release gate",
-			body: `{"request_id":"request-admin-release-gate","op":"observability.release_gate","payload":{},"client_seq":6,"v":1}`,
+			body: `{"request_id":"request-admin-release-gate","op":"observability.release_gate","payload":{},"client_seq":7,"v":1}`,
 			decode: func(t *testing.T, raw json.RawMessage) {
 				var payload struct {
 					ReleaseGate releaseGatePayload `json:"release_gate"`
@@ -1495,7 +1625,7 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 		},
 		{
 			name: "abuse",
-			body: `{"request_id":"request-admin-abuse","op":"observability.abuse_coverage","payload":{},"client_seq":7,"v":1}`,
+			body: `{"request_id":"request-admin-abuse","op":"observability.abuse_coverage","payload":{},"client_seq":8,"v":1}`,
 			decode: func(t *testing.T, raw json.RawMessage) {
 				var payload struct {
 					Abuse abuseCoveragePayload `json:"abuse_coverage"`
@@ -1701,6 +1831,469 @@ func TestAOIDiffEventsAreFilteredPerSession(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "aoi-filter@example.com", "AOI-Filter")
 
+	events, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("bootstrap events: %v", err)
+	}
+	_ = decodeWorldSnapshotForTest(t, events)
+	insertTestWorldEntity(t, gameServer, "entity_projection_hidden", world.EntityTypeNPC, world.Vec2{X: 880, Y: 0}, true)
+	insertTestWorldEntity(t, gameServer, "entity_projection_visible", world.EntityTypeNPC, world.Vec2{X: 900, Y: 0}, false)
+
+	eventsBySession := gameServer.runtime.tickAndCollectAOIEvents()
+	sessionEvents := eventsBySession[resolved.SessionID]
+	if len(sessionEvents) == 0 || sessionEvents[0].Type != realtime.EventAOIEntityEntered {
+		t.Fatalf("AOI events after visible entity insert = %+v, want entity entered", sessionEvents)
+	}
+	var entered aoiEntityPayloadForTest
+	if err := json.Unmarshal(sessionEvents[0].Payload, &entered); err != nil {
+		t.Fatalf("decode entered event: %v", err)
+	}
+	if entered.EntityID != "entity_projection_visible" || entered.EntityType != "npc" {
+		t.Fatalf("entered entity = %+v, want visible projection npc", entered)
+	}
+	for _, event := range sessionEvents {
+		if strings.Contains(string(event.Payload), "entity_projection_hidden") {
+			t.Fatalf("hidden entity leaked into AOI event %+v", event)
+		}
+	}
+}
+
+func TestHiddenPlayerWitnessVisibilityIsViewerSpecificAndExpires(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	gameServer, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		SessionTTL:     time.Hour,
+		TickDelta:      50 * time.Millisecond,
+		Clock:          clock,
+		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+
+	target := createResolvedRuntimeSession(t, gameServer, "hidden-target@example.com", "Hidden")
+	viewer := createResolvedRuntimeSession(t, gameServer, "scanner-viewer@example.com", "Scanner")
+	other := createResolvedRuntimeSession(t, gameServer, "other-viewer@example.com", "Other")
+	targetEntityID := testPlayerEntityID(t, gameServer, target.PlayerID)
+	setTestHiddenPlayer(gameServer, target.PlayerID, true)
+
+	targetEvents, err := gameServer.runtime.bootstrapEvents(target)
+	if err != nil {
+		t.Fatalf("target bootstrap events: %v", err)
+	}
+	targetSnapshot := decodeWorldSnapshotForTest(t, targetEvents)
+	if !hasEntityID(targetSnapshot.Entities, targetEntityID.String()) {
+		t.Fatalf("hidden target self snapshot missing self entity %s: %+v", targetEntityID, targetSnapshot.Entities)
+	}
+
+	viewerEvents, err := gameServer.runtime.bootstrapEvents(viewer)
+	if err != nil {
+		t.Fatalf("viewer bootstrap events: %v", err)
+	}
+	viewerSnapshot := decodeWorldSnapshotForTest(t, viewerEvents)
+	if hasEntityID(viewerSnapshot.Entities, targetEntityID.String()) {
+		t.Fatalf("viewer saw hidden target without witness: %+v", viewerSnapshot.Entities)
+	}
+
+	otherEvents, err := gameServer.runtime.bootstrapEvents(other)
+	if err != nil {
+		t.Fatalf("other bootstrap events: %v", err)
+	}
+	otherSnapshot := decodeWorldSnapshotForTest(t, otherEvents)
+	if hasEntityID(otherSnapshot.Entities, targetEntityID.String()) {
+		t.Fatalf("other viewer saw hidden target without witness: %+v", otherSnapshot.Entities)
+	}
+
+	setTestHiddenPlayerWitness(gameServer, viewer.PlayerID, target.PlayerID, clock.Now().Add(runtimeHiddenPlayerWitnessDuration))
+	witnessedEvents, err := gameServer.runtime.bootstrapEvents(viewer)
+	if err != nil {
+		t.Fatalf("witnessed bootstrap events: %v", err)
+	}
+	witnessedSnapshot := decodeWorldSnapshotForTest(t, witnessedEvents)
+	witnessedTarget, ok := entityPayloadByID(witnessedSnapshot.Entities, targetEntityID.String())
+	if !ok {
+		t.Fatalf("witnessed viewer snapshot missing hidden target %s: %+v", targetEntityID, witnessedSnapshot.Entities)
+	}
+	if !hasStatusFlag(witnessedTarget.StatusFlags, "scan_revealed") {
+		t.Fatalf("witnessed target flags = %+v, want scan_revealed", witnessedTarget.StatusFlags)
+	}
+	rawWitnessed := string(mustJSON(t, witnessedSnapshot))
+	for _, forbidden := range []string{"hidden", "target_player_id", "witness_expires_at", "player_id", target.PlayerID.String(), viewer.PlayerID.String()} {
+		if strings.Contains(rawWitnessed, forbidden) {
+			t.Fatalf("witnessed snapshot leaked %q in %s", forbidden, rawWitnessed)
+		}
+	}
+
+	otherAfterWitnessEvents, err := gameServer.runtime.bootstrapEvents(other)
+	if err != nil {
+		t.Fatalf("other after witness bootstrap events: %v", err)
+	}
+	otherAfterWitness := decodeWorldSnapshotForTest(t, otherAfterWitnessEvents)
+	if hasEntityID(otherAfterWitness.Entities, targetEntityID.String()) {
+		t.Fatalf("unrelated viewer saw witnessed hidden target: %+v", otherAfterWitness.Entities)
+	}
+
+	clock.Advance(runtimeHiddenPlayerWitnessDuration)
+	expiredEvents, err := gameServer.runtime.bootstrapEvents(viewer)
+	if err != nil {
+		t.Fatalf("expired witness bootstrap events: %v", err)
+	}
+	expiredSnapshot := decodeWorldSnapshotForTest(t, expiredEvents)
+	if hasEntityID(expiredSnapshot.Entities, targetEntityID.String()) {
+		t.Fatalf("viewer saw hidden target after witness expiry: %+v", expiredSnapshot.Entities)
+	}
+}
+
+func TestScanPulseRevealsHiddenPlayerWithoutPlanetIntelOrXP(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	gameServer, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		SessionTTL:     time.Hour,
+		TickDelta:      50 * time.Millisecond,
+		Clock:          clock,
+		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+
+	target := createResolvedRuntimeSession(t, gameServer, "hidden-scan-target@example.com", "Hidden Scan")
+	viewer := createResolvedRuntimeSession(t, gameServer, "hidden-scan-viewer@example.com", "Scanner Scan")
+	other := createResolvedRuntimeSession(t, gameServer, "hidden-scan-other@example.com", "Other Scan")
+	targetEntityID := testPlayerEntityID(t, gameServer, target.PlayerID)
+	setTestHiddenPlayer(gameServer, target.PlayerID, true)
+
+	viewerEvents, err := gameServer.runtime.bootstrapEvents(viewer)
+	if err != nil {
+		t.Fatalf("viewer bootstrap events: %v", err)
+	}
+	viewerSnapshot := decodeWorldSnapshotForTest(t, viewerEvents)
+	if hasEntityID(viewerSnapshot.Entities, targetEntityID.String()) {
+		t.Fatalf("viewer saw hidden target before scan: %+v", viewerSnapshot.Entities)
+	}
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(viewer.SessionID.String()),
+		[]byte(`{"request_id":"request-scan-player-reveal","op":"scan.pulse","payload":{},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("scan hidden player response error = %+v, want success", response.Error)
+	}
+	rawResponse := string(response.Response.Payload)
+	for _, forbidden := range []string{
+		"known_planets",
+		"progression",
+		"planet_id",
+		"target_player_id",
+		"witness_expires_at",
+		"witness_expiry",
+		"hidden",
+		"detection_roll",
+		"scan_candidate",
+		"candidate_key",
+		"procedural_seed",
+		target.PlayerID.String(),
+		viewer.PlayerID.String(),
+	} {
+		if strings.Contains(rawResponse, forbidden) {
+			t.Fatalf("scan hidden player response leaked %q in %s", forbidden, rawResponse)
+		}
+	}
+	var payload struct {
+		Scan         scanPulsePayload            `json:"scan"`
+		KnownPlanets *knownPlanetsPayload        `json:"known_planets,omitempty"`
+		Progression  *progressionSnapshotPayload `json:"progression,omitempty"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode scan hidden player payload: %v", err)
+	}
+	if payload.Scan.Status != string(discovery.ScanPulseStatusPlayerRevealed) {
+		t.Fatalf("scan status = %q, want %q", payload.Scan.Status, discovery.ScanPulseStatusPlayerRevealed)
+	}
+	if payload.Scan.PlanetID != "" || payload.Scan.Signal != nil || payload.Scan.XPGranted || payload.KnownPlanets != nil || payload.Progression != nil {
+		t.Fatalf("scan hidden player payload = %+v, want no planet/intel/progression", payload)
+	}
+
+	events, err := gameServer.runtime.postCommandEvents(viewer.SessionID, realtime.OperationScanPulse, viewer.PlayerID)
+	if err != nil {
+		t.Fatalf("post scan events: %v", err)
+	}
+	seenResolved := false
+	seenEntered := false
+	for _, event := range events {
+		rawEvent := string(mustJSON(t, event))
+		for _, forbidden := range []string{"target_player_id", "witness_expires_at", "hidden", "detection_roll", "candidate_key", "procedural_seed", target.PlayerID.String()} {
+			if strings.Contains(rawEvent, forbidden) {
+				t.Fatalf("scan hidden player event leaked %q in %s", forbidden, rawEvent)
+			}
+		}
+		if event.Type == realtime.EventScanPulseResolved {
+			seenResolved = true
+			if !strings.Contains(rawEvent, string(discovery.ScanPulseStatusPlayerRevealed)) {
+				t.Fatalf("scan resolved event = %s, want player_revealed", rawEvent)
+			}
+		}
+		if event.Type == realtime.EventAOIEntityEntered && strings.Contains(rawEvent, targetEntityID.String()) {
+			seenEntered = true
+			if !strings.Contains(rawEvent, "scan_revealed") {
+				t.Fatalf("aoi entered event = %s, want scan_revealed", rawEvent)
+			}
+		}
+	}
+	if !seenResolved || !seenEntered {
+		t.Fatalf("post scan events = %+v, want scan resolved and AOI entered hidden target", events)
+	}
+
+	otherEvents, err := gameServer.runtime.bootstrapEvents(other)
+	if err != nil {
+		t.Fatalf("other bootstrap events: %v", err)
+	}
+	otherSnapshot := decodeWorldSnapshotForTest(t, otherEvents)
+	if hasEntityID(otherSnapshot.Entities, targetEntityID.String()) {
+		t.Fatalf("unrelated viewer saw scan-revealed hidden target: %+v", otherSnapshot.Entities)
+	}
+
+	clock.Advance(runtimeHiddenPlayerWitnessDuration)
+	expiredEvents, err := gameServer.runtime.bootstrapEvents(viewer)
+	if err != nil {
+		t.Fatalf("expired bootstrap events: %v", err)
+	}
+	expiredSnapshot := decodeWorldSnapshotForTest(t, expiredEvents)
+	if hasEntityID(expiredSnapshot.Entities, targetEntityID.String()) {
+		t.Fatalf("viewer saw scan-revealed target after expiry: %+v", expiredSnapshot.Entities)
+	}
+}
+
+func TestRuntimePlayerStealthAppliesSpeedPenaltyWithoutStackingAndRecalculatesRoute(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	gameServer, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		SessionTTL:     time.Hour,
+		TickDelta:      50 * time.Millisecond,
+		Clock:          clock,
+		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+	resolved := createResolvedRuntimeSession(t, gameServer, "stealth-speed@example.com", "Stealth")
+
+	gameServer.runtime.mu.Lock()
+	if err := gameServer.runtime.Worker.Submit(worker.MoveToCommand{
+		PlayerID: resolved.PlayerID,
+		Intent:   mustMovementIntentForServerTest(t, world.Vec2{X: 1_000, Y: 0}),
+	}); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("Submit(move) error = %v, want nil", err)
+	}
+	moveResult := gameServer.runtime.Worker.Tick()
+	gameServer.runtime.mu.Unlock()
+	if len(moveResult.CommandErrors) > 0 {
+		t.Fatalf("move command errors = %+v, want none", moveResult.CommandErrors)
+	}
+
+	clock.Advance(500 * time.Millisecond)
+	if err := gameServer.runtime.setPlayerStealth(resolved.PlayerID, true); err != nil {
+		t.Fatalf("set stealth true error = %v, want nil", err)
+	}
+
+	gameServer.runtime.mu.Lock()
+	state := gameServer.runtime.players[resolved.PlayerID]
+	entity, ok := gameServer.runtime.Worker.PlayerEntity(resolved.PlayerID)
+	hidden := gameServer.runtime.hiddenPlayers[resolved.PlayerID]
+	speed, speedOK := gameServer.runtime.Worker.EntitySpeed(state.EntityID)
+	gameServer.runtime.mu.Unlock()
+	if !ok || !speedOK || !hidden {
+		t.Fatalf("runtime stealth state entity=%v speed=%v hidden=%v, want all true", ok, speedOK, hidden)
+	}
+	assertServerFloatNear(t, state.Stats.Speed, defaultPlayerSpeed*runtimeStealthSpeedMultiplier)
+	assertServerFloatNear(t, speed, state.Stats.Speed)
+	assertServerVecNear(t, entity.Movement.Origin, world.Vec2{X: 90, Y: 0})
+	if entity.Movement.Target != (world.Vec2{X: 1_000, Y: 0}) {
+		t.Fatalf("stealth movement target = %+v, want original target", entity.Movement.Target)
+	}
+	assertServerFloatNear(t, entity.Movement.Speed, defaultPlayerSpeed*runtimeStealthSpeedMultiplier)
+
+	if err := gameServer.runtime.setPlayerStealth(resolved.PlayerID, true); err != nil {
+		t.Fatalf("set stealth true duplicate error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Lock()
+	duplicateState := gameServer.runtime.players[resolved.PlayerID]
+	duplicateSpeed, _ := gameServer.runtime.Worker.EntitySpeed(duplicateState.EntityID)
+	gameServer.runtime.mu.Unlock()
+	assertServerFloatNear(t, duplicateState.Stats.Speed, defaultPlayerSpeed*runtimeStealthSpeedMultiplier)
+	assertServerFloatNear(t, duplicateSpeed, duplicateState.Stats.Speed)
+
+	if err := gameServer.runtime.setPlayerStealth(resolved.PlayerID, false); err != nil {
+		t.Fatalf("set stealth false error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Lock()
+	restoredState := gameServer.runtime.players[resolved.PlayerID]
+	restoredHidden := gameServer.runtime.hiddenPlayers[resolved.PlayerID]
+	restoredSpeed, _ := gameServer.runtime.Worker.EntitySpeed(restoredState.EntityID)
+	gameServer.runtime.mu.Unlock()
+	if restoredHidden {
+		t.Fatal("hiddenPlayers[player] = true after disable, want false")
+	}
+	if restoredState.Stats.Speed != defaultPlayerSpeed || restoredSpeed != defaultPlayerSpeed {
+		t.Fatalf("restored speed state=%v worker=%v, want %v", restoredState.Stats.Speed, restoredSpeed, defaultPlayerSpeed)
+	}
+}
+
+func TestRuntimePlayerStealthRestoresServerEffectiveSpeed(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "stealth-effective-speed@example.com", "Stealth Effective")
+	const baseSpeed = 260.0
+
+	gameServer.runtime.mu.Lock()
+	state := gameServer.runtime.players[resolved.PlayerID]
+	state.Stats.Speed = baseSpeed
+	gameServer.runtime.players[resolved.PlayerID] = state
+	if err := gameServer.runtime.Worker.Submit(worker.SetPlayerSpeedCommand{PlayerID: resolved.PlayerID, Speed: baseSpeed}); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("Submit(base speed) error = %v, want nil", err)
+	}
+	result := gameServer.runtime.Worker.Tick()
+	gameServer.runtime.mu.Unlock()
+	if len(result.CommandErrors) > 0 {
+		t.Fatalf("base speed command errors = %+v, want none", result.CommandErrors)
+	}
+
+	if err := gameServer.runtime.setPlayerStealth(resolved.PlayerID, true); err != nil {
+		t.Fatalf("set stealth true error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Lock()
+	hiddenState := gameServer.runtime.players[resolved.PlayerID]
+	hiddenSpeed, _ := gameServer.runtime.Worker.EntitySpeed(hiddenState.EntityID)
+	gameServer.runtime.mu.Unlock()
+	assertServerFloatNear(t, hiddenState.Stats.Speed, baseSpeed*runtimeStealthSpeedMultiplier)
+	assertServerFloatNear(t, hiddenSpeed, hiddenState.Stats.Speed)
+
+	if err := gameServer.runtime.setPlayerStealth(resolved.PlayerID, false); err != nil {
+		t.Fatalf("set stealth false error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Lock()
+	restoredState := gameServer.runtime.players[resolved.PlayerID]
+	restoredSpeed, _ := gameServer.runtime.Worker.EntitySpeed(restoredState.EntityID)
+	gameServer.runtime.mu.Unlock()
+	if restoredState.Stats.Speed != baseSpeed || restoredSpeed != baseSpeed {
+		t.Fatalf("restored speed state=%v worker=%v, want %v", restoredState.Stats.Speed, restoredSpeed, baseSpeed)
+	}
+}
+
+func TestStealthToggleCommandUsesServerOwnedStateAndSafePayload(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	gameServer, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		SessionTTL:     time.Hour,
+		TickDelta:      50 * time.Millisecond,
+		Clock:          clock,
+		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+	resolved := createResolvedRuntimeSession(t, gameServer, "stealth-command@example.com", "Stealth Command")
+
+	bootstrapEvents, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("bootstrap events: %v", err)
+	}
+	initialSnapshot := decodeWorldSnapshotForTest(t, bootstrapEvents)
+	selfEntityID := testPlayerEntityID(t, gameServer, resolved.PlayerID).String()
+	if entity, ok := entityPayloadByID(initialSnapshot.Entities, selfEntityID); !ok || hasStatusFlag(entity.StatusFlags, "stealthed") {
+		t.Fatalf("initial self entity = %+v ok=%v, want visible without stealthed", entity, ok)
+	}
+
+	forged := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-stealth-forged","op":"stealth.toggle","payload":{"enabled":true,"hidden":true},"client_seq":1,"v":1}`),
+	)
+	if !forged.HasError || forged.Error.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("forged stealth response = %+v, want invalid payload", forged)
+	}
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-stealth-enable","op":"stealth.toggle","payload":{"enabled":true},"client_seq":2,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("stealth enable response error = %+v, want success", response.Error)
+	}
+	rawResponse := string(response.Response.Payload)
+	for _, forbidden := range []string{"hidden", "player_id", resolved.PlayerID.String()} {
+		if strings.Contains(rawResponse, forbidden) {
+			t.Fatalf("stealth response leaked %q in %s", forbidden, rawResponse)
+		}
+	}
+	var payload struct {
+		Accepted bool `json:"accepted"`
+		Stealth  struct {
+			Enabled bool `json:"enabled"`
+		} `json:"stealth"`
+		Stats statSnapshotPayload `json:"stats"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode stealth response: %v", err)
+	}
+	if !payload.Accepted || !payload.Stealth.Enabled {
+		t.Fatalf("stealth payload = %+v, want accepted enabled", payload)
+	}
+	assertServerFloatNear(t, payload.Stats.Speed, defaultPlayerSpeed*runtimeStealthSpeedMultiplier)
+
+	events, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationStealthToggle, resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("post stealth events: %v", err)
+	}
+	seenStats := false
+	seenSelfUpdate := false
+	for _, event := range events {
+		rawEvent := string(mustJSON(t, event))
+		for _, forbidden := range []string{"hidden", "player_id", resolved.PlayerID.String()} {
+			if strings.Contains(rawEvent, forbidden) {
+				t.Fatalf("stealth event leaked %q in %s", forbidden, rawEvent)
+			}
+		}
+		switch event.Type {
+		case realtime.EventStatsUpdated:
+			seenStats = true
+		case realtime.EventAOIEntityUpdated, realtime.EventAOIEntityEntered:
+			var entity aoi.EntityPayload
+			if err := json.Unmarshal(event.Payload, &entity); err != nil {
+				t.Fatalf("decode stealth AOI entity: %v", err)
+			}
+			if entity.ID.String() == selfEntityID && hasStatusFlag(entity.StatusFlags, "stealthed") {
+				seenSelfUpdate = true
+			}
+		}
+	}
+	if !seenStats || !seenSelfUpdate {
+		t.Fatalf("stealth post events = %+v, want stats update and self AOI stealthed update", events)
+	}
+
+	disable := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-stealth-disable","op":"stealth.toggle","payload":{"enabled":false},"client_seq":3,"v":1}`),
+	)
+	if disable.HasError {
+		t.Fatalf("stealth disable response error = %+v, want success", disable.Error)
+	}
+	gameServer.runtime.mu.Lock()
+	state := gameServer.runtime.players[resolved.PlayerID]
+	hidden := gameServer.runtime.hiddenPlayers[resolved.PlayerID]
+	gameServer.runtime.mu.Unlock()
+	if hidden || state.Stats.Speed != defaultPlayerSpeed {
+		t.Fatalf("disable hidden=%v speed=%v, want false/%v", hidden, state.Stats.Speed, defaultPlayerSpeed)
+	}
+}
+
+func TestWorldSnapshotProjectionPolicyIsServerOwnedAndSeparateFromRadarStat(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "projection@example.com", "Projection")
+	insertTestWorldEntity(t, gameServer, "entity_projection_corner", world.EntityTypeNPC, world.Vec2{X: runtimeLiveProjectionHalfExtent, Y: runtimeLiveProjectionHalfExtent}, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_outside", world.EntityTypeNPC, world.Vec2{X: runtimeLiveProjectionHalfExtent + 1, Y: 0}, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_hidden_inside", world.EntityTypeNPC, world.Vec2{X: 100, Y: 100}, true)
+
 	gameServer.runtime.mu.Lock()
 	state := gameServer.runtime.players[resolved.PlayerID]
 	state.Stats.RadarRange = 10
@@ -1711,61 +2304,28 @@ func TestAOIDiffEventsAreFilteredPerSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bootstrap events: %v", err)
 	}
-	var initial worldSnapshotPayload
-	if err := json.Unmarshal(events[len(events)-1].Payload, &initial); err != nil {
-		t.Fatalf("decode initial world snapshot: %v", err)
-	}
-	if len(initial.Entities) != 1 || !hasStatusFlag(initial.Entities[0].StatusFlags, "self") {
-		t.Fatalf("initial filtered entities = %+v, want only self", initial.Entities)
-	}
+	snapshot := decodeWorldSnapshotForTest(t, events)
 
+	if snapshot.Minimap.RadarRange != runtimeLiveProjectionHalfExtent || snapshot.Minimap.ProjectionWindowSize != runtimeLiveProjectionDiameter {
+		t.Fatalf("projection payload = %+v, want half extent/window", snapshot.Minimap)
+	}
+	if !hasEntityID(snapshot.Entities, "entity_projection_corner") {
+		t.Fatalf("projection snapshot missing square corner entity: %+v", snapshot.Entities)
+	}
+	for _, forbidden := range []string{"entity_projection_outside", "entity_projection_hidden_inside"} {
+		if hasEntityID(snapshot.Entities, forbidden) {
+			t.Fatalf("projection snapshot included %s: %+v", forbidden, snapshot.Entities)
+		}
+		for _, contact := range snapshot.Minimap.LiveContacts {
+			if contact.EntityID == forbidden {
+				t.Fatalf("projection minimap leaked %s: %+v", forbidden, snapshot.Minimap.LiveContacts)
+			}
+		}
+	}
 	gameServer.runtime.mu.Lock()
-	state = gameServer.runtime.players[resolved.PlayerID]
-	state.Stats.RadarRange = defaultRadarRange
-	gameServer.runtime.players[resolved.PlayerID] = state
-	gameServer.runtime.mu.Unlock()
-
-	eventsBySession := gameServer.runtime.tickAndCollectAOIEvents()
-	sessionEvents := eventsBySession[resolved.SessionID]
-	if len(sessionEvents) == 0 || sessionEvents[0].Type != realtime.EventAOIEntityEntered {
-		t.Fatalf("AOI events after radar increase = %+v, want entity entered", sessionEvents)
-	}
-	var entered aoiEntityPayloadForTest
-	if err := json.Unmarshal(sessionEvents[0].Payload, &entered); err != nil {
-		t.Fatalf("decode entered event: %v", err)
-	}
-	if entered.EntityID != "entity_training_npc" || entered.EntityType != "npc" {
-		t.Fatalf("entered entity = %+v, want training npc", entered)
-	}
-}
-
-func TestTwoPlayersWithDifferentRadarReceiveDifferentFilteredSnapshots(t *testing.T) {
-	gameServer, _ := newTestServer(t, false)
-	limited := createResolvedRuntimeSession(t, gameServer, "limited-radar@example.com", "Limited")
-	defaultRadar := createResolvedRuntimeSession(t, gameServer, "default-radar@example.com", "Default")
-
-	gameServer.runtime.mu.Lock()
-	state := gameServer.runtime.players[limited.PlayerID]
-	state.Stats.RadarRange = 10
-	gameServer.runtime.players[limited.PlayerID] = state
-	gameServer.runtime.mu.Unlock()
-
-	limitedEvents, err := gameServer.runtime.bootstrapEvents(limited)
-	if err != nil {
-		t.Fatalf("limited bootstrap events: %v", err)
-	}
-	defaultEvents, err := gameServer.runtime.bootstrapEvents(defaultRadar)
-	if err != nil {
-		t.Fatalf("default bootstrap events: %v", err)
-	}
-	limitedSnapshot := decodeWorldSnapshotForTest(t, limitedEvents)
-	defaultSnapshot := decodeWorldSnapshotForTest(t, defaultEvents)
-
-	if hasEntityID(limitedSnapshot.Entities, "entity_training_npc") {
-		t.Fatalf("limited radar snapshot included training npc: %+v", limitedSnapshot.Entities)
-	}
-	if !hasEntityID(defaultSnapshot.Entities, "entity_training_npc") {
-		t.Fatalf("default radar snapshot missing training npc: %+v", defaultSnapshot.Entities)
+	defer gameServer.runtime.mu.Unlock()
+	if got := gameServer.runtime.players[resolved.PlayerID].Stats.RadarRange; got != 10 {
+		t.Fatalf("player stat radar range = %v, want unchanged 10", got)
 	}
 }
 
@@ -1835,6 +2395,126 @@ func TestBadPayloadReturnsSafeErrorAndLogoutRejectsFurtherCommands(t *testing.T)
 	revoked := readError(t, conn)
 	if revoked.Error.Code != foundation.CodeSessionRevoked {
 		t.Fatalf("after logout error = %+v, want %s", revoked.Error, foundation.CodeSessionRevoked)
+	}
+}
+
+func TestProductionWebSocketForbidsDebugOperationsAndKeepsSessionSnapshotPublic(t *testing.T) {
+	_, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	writeText(t, conn, `{"request_id":"request-session-snapshot","op":"session.snapshot","payload":{},"client_seq":1,"v":1}`)
+	session := readResponse(t, conn)
+	if !session.OK {
+		t.Fatalf("session snapshot response = %+v, want success", session)
+	}
+	if session.RequestID != foundation.RequestID("request-session-snapshot") || session.Version != realtime.CurrentVersion {
+		t.Fatalf("session envelope = %+v, want request id/version", session)
+	}
+	var sessionPayload sessionReadyPayload
+	if err := json.Unmarshal(session.Payload, &sessionPayload); err != nil {
+		t.Fatalf("decode session snapshot: %v", err)
+	}
+	if !sessionPayload.Authenticated || sessionPayload.Account == nil || sessionPayload.Account.Email != "pilot@example.com" || sessionPayload.Account.Admin {
+		t.Fatalf("session account payload = %+v, want public authenticated pilot account", sessionPayload)
+	}
+	if sessionPayload.Player == nil || sessionPayload.Player.Callsign != "Frontier-01" || sessionPayload.ProtocolVersion != realtime.CurrentVersion {
+		t.Fatalf("session player/protocol payload = %+v, want public player and protocol version", sessionPayload)
+	}
+	rawSession := string(session.Payload)
+	for _, forbidden := range []string{"session_id", "account_id", "player_id", "password"} {
+		if strings.Contains(rawSession, forbidden) {
+			t.Fatalf("session snapshot leaked %q in %s", forbidden, rawSession)
+		}
+	}
+
+	for index, body := range []string{
+		`{"request_id":"request-debug-snapshot","op":"debug_snapshot","payload":{},"client_seq":2,"v":1}`,
+		`{"request_id":"request-debug-spawn","op":"debug_spawn_npc","payload":{"entity_id":"debug_npc","position":{"x":1,"y":2}},"client_seq":3,"v":1}`,
+		`{"request_id":"request-debug-spawn-spoof","op":"debug_spawn_npc","payload":{"entity_id":"debug_npc","position":{"x":1,"y":2},"player_id":"spoof"},"client_seq":4,"v":1}`,
+	} {
+		writeText(t, conn, body)
+		response := readError(t, conn)
+		if response.Error.Code != foundation.CodeForbidden {
+			t.Fatalf("debug response %d = %+v, want %s", index, response.Error, foundation.CodeForbidden)
+		}
+		if response.Error.Retryable {
+			t.Fatalf("debug response %d retryable = true, want false", index)
+		}
+		message := strings.ToLower(response.Error.Message)
+		if strings.Contains(message, "dev") || strings.Contains(message, "internal") {
+			t.Fatalf("debug response leaked internal mode copy: %+v", response.Error)
+		}
+	}
+
+	writeText(t, conn, `{"request_id":"request-world-after-debug","op":"world.snapshot","payload":{},"client_seq":5,"v":1}`)
+	world := readResponse(t, conn)
+	if !world.OK {
+		t.Fatalf("world snapshot after debug forbids = %+v, want live socket", world)
+	}
+}
+
+func TestRejectTrustedPayloadSharedSensitiveFieldsAndAdminException(t *testing.T) {
+	for _, field := range []string{
+		"account_id",
+		"client_player_id",
+		"player_id",
+		"session_id",
+		"world_id",
+		"zone_id",
+		"speed",
+		"hidden",
+		"internal_metadata",
+		"gameplay_seed",
+		"procedural_seed",
+		"world_seed",
+		"future_spawn_data",
+		"candidate_key",
+		"detection_roll",
+		"scan_roll",
+		"scan_cell",
+		"scan_result",
+		"scan_candidates",
+		"target_player_id",
+		"witness_expires_at",
+		"hidden_target_metadata",
+		"provider",
+		"provider_reference",
+		"source_return_location",
+		"seller_player_id",
+		"buyer_player_id",
+		"bidder_player_id",
+		"winning_player_id",
+		"generated_payload",
+		"generated_seed",
+		"loot_roll",
+		"password",
+		"password_hash",
+		"token",
+		"session_token",
+		"reset_secret",
+		"auth_header",
+		"cookie",
+	} {
+		payload := json.RawMessage(fmt.Sprintf(`{"outer":[{%q:"spoof"}]}`, field))
+		err := rejectTrustedPayload(payload)
+		if !foundation.IsCode(err, foundation.CodeInvalidPayload) || !strings.Contains(err.Error(), field) {
+			t.Fatalf("rejectTrustedPayload(%s) error = %v, want invalid payload naming field", field, err)
+		}
+	}
+
+	if err := rejectTrustedPayloadAllowing(json.RawMessage(`{"target_player_id":"player-admin-target"}`), "target_player_id"); err != nil {
+		t.Fatalf("admin target exception rejected: %v", err)
+	}
+	err := rejectTrustedPayloadAllowing(json.RawMessage(`{"nested":{"target_player_id":"player-admin-target"}}`), "target_player_id")
+	if !foundation.IsCode(err, foundation.CodeInvalidPayload) || !strings.Contains(err.Error(), "target_player_id") {
+		t.Fatalf("admin target exception nested target_player_id error = %v, want invalid payload", err)
+	}
+	err = rejectTrustedPayloadAllowing(json.RawMessage(`{"target_player_id":"player-admin-target","nested":{"player_id":"spoof"}}`), "target_player_id")
+	if !foundation.IsCode(err, foundation.CodeInvalidPayload) || !strings.Contains(err.Error(), "player_id") {
+		t.Fatalf("admin target exception nested player_id error = %v, want invalid payload", err)
 	}
 }
 
@@ -2071,6 +2751,46 @@ func setTestShipDisabled(gameServer *Server, playerID foundation.PlayerID, disab
 func setTestHidden(gameServer *Server, entityID world.EntityID, hidden bool) {
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
+	gameServer.runtime.hidden[entityID] = hidden
+}
+
+func setTestHiddenPlayer(gameServer *Server, playerID foundation.PlayerID, hidden bool) {
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	gameServer.runtime.hiddenPlayers[playerID] = hidden
+}
+
+func setTestHiddenPlayerWitness(gameServer *Server, viewerID foundation.PlayerID, targetID foundation.PlayerID, expiresAt time.Time) {
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	gameServer.runtime.hiddenPlayerWitnesses[hiddenPlayerWitnessKey{
+		ViewerPlayerID: viewerID,
+		TargetPlayerID: targetID,
+	}] = expiresAt
+}
+
+func testPlayerEntityID(t *testing.T, gameServer *Server, playerID foundation.PlayerID) world.EntityID {
+	t.Helper()
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	state, ok := gameServer.runtime.players[playerID]
+	if !ok {
+		t.Fatalf("player %q missing runtime state", playerID)
+	}
+	return state.EntityID
+}
+
+func insertTestWorldEntity(t *testing.T, gameServer *Server, entityID world.EntityID, entityType world.EntityType, position world.Vec2, hidden bool) {
+	t.Helper()
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	entity, err := world.NewEntity(gameServer.runtime.worldID, gameServer.runtime.zoneID, entityID, entityType, position)
+	if err != nil {
+		t.Fatalf("NewEntity(%q) = %v, want nil", entityID, err)
+	}
+	if err := gameServer.runtime.Worker.InsertEntity(entity, 0); err != nil {
+		t.Fatalf("InsertEntity(%q) = %v, want nil", entityID, err)
+	}
 	gameServer.runtime.hidden[entityID] = hidden
 }
 
@@ -2381,6 +3101,64 @@ func hasEntityID(entities []aoi.EntityPayload, want string) bool {
 	return false
 }
 
+func assertMinimapMirrorsEntities(t *testing.T, label string, entities []aoi.EntityPayload, minimap minimapPayload) {
+	t.Helper()
+	if minimap.RadarRange != runtimeLiveProjectionHalfExtent || minimap.ProjectionWindowSize != runtimeLiveProjectionDiameter {
+		t.Fatalf("%s minimap projection = range %v window %v, want %v/%v", label, minimap.RadarRange, minimap.ProjectionWindowSize, runtimeLiveProjectionHalfExtent, runtimeLiveProjectionDiameter)
+	}
+	if len(minimap.LiveContacts) != len(entities) {
+		t.Fatalf("%s minimap contacts = %d, entities = %d", label, len(minimap.LiveContacts), len(entities))
+	}
+	entitiesByID := make(map[string]aoi.EntityPayload, len(entities))
+	for _, entity := range entities {
+		entitiesByID[entity.ID.String()] = entity
+	}
+	for _, contact := range minimap.LiveContacts {
+		if contact.EntityID == "" || contact.EntityType == "" {
+			t.Fatalf("%s minimap contact missing stable identity: %+v", label, contact)
+		}
+		entity, ok := entitiesByID[contact.EntityID]
+		if !ok {
+			t.Fatalf("%s minimap contact %+v missing matching entity", label, contact)
+		}
+		if contact.EntityType != entity.Type || contact.Position != entity.Position {
+			t.Fatalf("%s minimap contact %+v does not mirror entity %+v", label, contact, entity)
+		}
+	}
+}
+
+func entityPayloadByID(entities []aoi.EntityPayload, want string) (aoi.EntityPayload, bool) {
+	for _, entity := range entities {
+		if entity.ID.String() == want {
+			return entity, true
+		}
+	}
+	return aoi.EntityPayload{}, false
+}
+
+func mustMovementIntentForServerTest(t *testing.T, target world.Vec2) world.MovementIntent {
+	t.Helper()
+	intent, err := world.NewMovementIntent(target)
+	if err != nil {
+		t.Fatalf("NewMovementIntent(%+v) error = %v, want nil", target, err)
+	}
+	return intent
+}
+
+func assertServerVecNear(t *testing.T, got world.Vec2, want world.Vec2) {
+	t.Helper()
+	if math.Abs(got.X-want.X) > 0.05 || math.Abs(got.Y-want.Y) > 0.05 {
+		t.Fatalf("vector = %+v, want near %+v", got, want)
+	}
+}
+
+func assertServerFloatNear(t *testing.T, got float64, want float64) {
+	t.Helper()
+	if math.Abs(got-want) > 0.0001 {
+		t.Fatalf("float = %v, want near %v", got, want)
+	}
+}
+
 func decodeWorldSnapshotForTest(t *testing.T, events []realtime.EventEnvelope) worldSnapshotPayload {
 	t.Helper()
 	var snapshot worldSnapshotPayload
@@ -2518,6 +3296,7 @@ func assertNoEconomyLeak(t *testing.T, label string, payload json.RawMessage) {
 		"zone_id",
 		"account_id",
 		"session_id",
+		"server_recalculates",
 	} {
 		if strings.Contains(raw, forbidden) {
 			t.Fatalf("%s leaked %q in %s", label, forbidden, raw)
@@ -2553,7 +3332,11 @@ func assertNoPhase09Leak(t *testing.T, label string, payload json.RawMessage) {
 
 func readResponse(t *testing.T, conn *websocket.Conn) realtime.ResponseEnvelope {
 	t.Helper()
-	data := readRawText(t, conn)
+	return decodeRawResponse(t, readRawText(t, conn))
+}
+
+func decodeRawResponse(t *testing.T, data []byte) realtime.ResponseEnvelope {
+	t.Helper()
 	var response realtime.ResponseEnvelope
 	if err := json.Unmarshal(data, &response); err != nil {
 		t.Fatalf("decode response %s: %v", data, err)

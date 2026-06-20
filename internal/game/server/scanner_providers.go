@@ -7,6 +7,7 @@ import (
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/stats"
+	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/worker"
 )
 
@@ -177,6 +178,57 @@ type runtimeScanXPProvider struct {
 	progression *progression.ProgressionService
 }
 
+type runtimeScannerPlayerRevealProvider struct {
+	runtime *Runtime
+}
+
+func (provider runtimeScannerPlayerRevealProvider) RevealHiddenPlayer(input discovery.ScannerPlayerRevealInput) (discovery.ScannerPlayerRevealResult, error) {
+	if err := input.Validate(); err != nil {
+		return discovery.ScannerPlayerRevealResult{}, err
+	}
+	provider.runtime.mu.Lock()
+	defer provider.runtime.mu.Unlock()
+
+	if _, ok := provider.runtime.players[input.PlayerID]; !ok {
+		return discovery.ScannerPlayerRevealResult{}, worker.ErrUnknownPlayer
+	}
+	if input.Stats.Exploration.ScanPower <= 0 || input.Stats.Exploration.ScanRadius <= 0 {
+		return discovery.ScannerPlayerRevealResult{}, nil
+	}
+
+	maxDistanceSq := input.Stats.Exploration.ScanRadius * input.Stats.Exploration.ScanRadius
+	var bestTarget foundation.PlayerID
+	var bestDistanceSq float64
+	for targetID, hidden := range provider.runtime.hiddenPlayers {
+		if !hidden || targetID == input.PlayerID {
+			continue
+		}
+		entity, ok := provider.runtime.Worker.PlayerEntity(targetID)
+		if !ok || entity.WorldID != input.WorldID || entity.ZoneID != input.ZoneID {
+			continue
+		}
+		distanceSq := world.DistanceSquared(input.Position, entity.Position)
+		if distanceSq > maxDistanceSq {
+			continue
+		}
+		if bestTarget.IsZero() ||
+			distanceSq < bestDistanceSq ||
+			(distanceSq == bestDistanceSq && targetID.String() < bestTarget.String()) {
+			bestTarget = targetID
+			bestDistanceSq = distanceSq
+		}
+	}
+	if bestTarget.IsZero() {
+		return discovery.ScannerPlayerRevealResult{}, nil
+	}
+
+	provider.runtime.hiddenPlayerWitnesses[hiddenPlayerWitnessKey{
+		ViewerPlayerID: input.PlayerID,
+		TargetPlayerID: bestTarget,
+	}] = input.RevealedAt.UTC().Add(runtimeHiddenPlayerWitnessDuration)
+	return discovery.ScannerPlayerRevealResult{Revealed: true}, nil
+}
+
 func (provider runtimeScanXPProvider) GrantScanXP(input discovery.ScanXPGrantInput) (discovery.ScanXPGrantResult, error) {
 	result, err := provider.progression.GrantXP(progression.GrantXPInput{
 		PlayerID:       input.PlayerID,
@@ -198,4 +250,5 @@ var _ discovery.ScannerStatsProvider = runtimeScannerStatsProvider{}
 var _ discovery.ScannerPositionProvider = runtimeScannerPositionProvider{}
 var _ discovery.ScannerCooldownProvider = runtimeScannerCooldownProvider{}
 var _ discovery.ScannerEnergyProvider = runtimeScannerEnergyProvider{}
+var _ discovery.ScannerPlayerRevealProvider = runtimeScannerPlayerRevealProvider{}
 var _ discovery.ScanXPGrantProvider = runtimeScanXPProvider{}

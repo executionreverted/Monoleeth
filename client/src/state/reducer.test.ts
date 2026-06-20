@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { CLIENT_EVENTS, EventEnvelope, JsonObject } from '../protocol/envelope';
+import { CLIENT_EVENTS, EventEnvelope, JsonObject, OPERATIONS } from '../protocol/envelope';
 import { createInitialState, reduceClientState } from './reducer';
 import type { ClientState } from './types';
 import { worldMapMemoryMarkers } from './world-memory';
@@ -29,6 +29,36 @@ describe('reduceClientState', () => {
     expect(expired.auth.error).toBe('Session expired.');
   });
 
+  test('loaded real session clears stale gameplay and waits for session.ready before connected', () => {
+    const loaded = reduceClientState(stateWithServerOwnedGameplay(), {
+      type: 'authSessionLoaded',
+      session: {
+        authenticated: true,
+        account: { email: 'pilot@example.com', admin: false },
+        player: { callsign: 'Pilot' },
+        server_time: 2000,
+      },
+    });
+
+    expect(loaded.connectionStatus).toBe('authenticated_pending_socket');
+    expect(loaded.pendingCommands).toEqual({});
+    expect(loaded.playerSnapshot).toBeNull();
+    expect(loaded.visibleEntities).toEqual({});
+    expect(loaded.wallet).toBeNull();
+    expect(loaded.inventory).toBeNull();
+    expect(loaded.market).toBeNull();
+    expect(loaded.auth.session?.authenticated).toBe(true);
+    expect(loaded.lastServerTime).toBe(2000);
+
+    const ready = reduceClientState(loaded, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.sessionReady, { authenticated: true }, 1),
+    });
+
+    expect(ready.connectionStatus).toBe('connected');
+    expect(ready.auth.session?.authenticated).toBe(true);
+  });
+
   test('demo mode is explicit and isolated from real auth session state', () => {
     const demo = reduceClientState(stateWithServerOwnedGameplay(), { type: 'demoModeStarted' });
 
@@ -39,8 +69,11 @@ describe('reduceClientState', () => {
     expect(demo.commandLog.some((line) => line.text.includes('Demo mode'))).toBe(true);
   });
 
-  test('handles AOI enter and leave events', () => {
-    const state = createInitialState();
+  test('AOI diff events reconcile minimap live contacts', () => {
+    const state = {
+      ...createInitialState(),
+      minimap: { radar_range: 1000, projection_window_size: 2000, live_contacts: [], remembered: [] },
+    };
     const entered = reduceClientState(state, {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.entityEntered, {
@@ -48,6 +81,7 @@ describe('reduceClientState', () => {
         entity_type: 'npc',
         position: { x: 10, y: 20 },
         display: { label: 'Training Drone', disposition: 'hostile' },
+        status_flags: ['hostile', 'hidden', 'scan_revealed', 'stealthed'],
       }),
     });
 
@@ -55,17 +89,57 @@ describe('reduceClientState', () => {
       entity_id: 'npc-1',
       position: { x: 10, y: 20 },
     });
+    expect(entered.minimap?.live_contacts).toEqual([
+      {
+        entity_id: 'npc-1',
+        entity_type: 'npc',
+        position: { x: 10, y: 20 },
+        disposition: 'hostile',
+        status_flags: ['hostile', 'scan_revealed'],
+      },
+    ]);
+    expect(entered.visibleEntities['npc-1'].status_flags).toEqual(['hostile', 'scan_revealed']);
 
-    const left = reduceClientState(entered, {
+    const selfState = reduceClientState(state, {
       type: 'eventReceived',
-      envelope: event(CLIENT_EVENTS.entityLeft, { entity_id: 'npc-1' }, 2),
+      envelope: event(CLIENT_EVENTS.entityEntered, {
+        entity_id: 'player-local',
+        entity_type: 'player',
+        position: { x: 0, y: 0 },
+        display: { label: 'Pilot', disposition: 'self' },
+        status_flags: ['self', 'hidden', 'stealthed'],
+      }),
+    });
+    expect(selfState.visibleEntities['player-local'].status_flags).toEqual(['self', 'stealthed']);
+
+    const updated = reduceClientState(entered, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.entityUpdated, {
+        entity_id: 'npc-1',
+        entity_type: 'npc',
+        position: { x: 15, y: 25 },
+        display: { label: 'Training Drone', disposition: 'hostile' },
+      }, 2),
+    });
+    expect(updated.minimap?.live_contacts[0]).toMatchObject({
+      entity_id: 'npc-1',
+      position: { x: 15, y: 25 },
+    });
+
+    const left = reduceClientState(updated, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.entityLeft, { entity_id: 'npc-1' }, 3),
     });
 
     expect(left.visibleEntities['npc-1']).toBeUndefined();
+    expect(left.minimap?.live_contacts).toEqual([]);
   });
 
   test('server correction updates authoritative entity position and clears local target', () => {
-    const state = reduceClientState(createInitialState(), {
+    const state = reduceClientState({
+      ...createInitialState(),
+      minimap: { radar_range: 1000, projection_window_size: 2000, live_contacts: [], remembered: [] },
+    }, {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.entityEntered, {
         entity_id: 'player-1',
@@ -84,11 +158,12 @@ describe('reduceClientState', () => {
         envelope: event(CLIENT_EVENTS.positionCorrected, {
           entity_id: 'player-1',
           position: { x: 12, y: 16 },
-        }),
+        }, 2),
       },
     );
 
     expect(corrected.visibleEntities['player-1'].position).toEqual({ x: 12, y: 16 });
+    expect(corrected.minimap?.live_contacts[0].position).toEqual({ x: 12, y: 16 });
     expect(corrected.movementTarget).toBeNull();
     expect(corrected.lastCorrection).toEqual({ entityID: 'player-1', position: { x: 12, y: 16 } });
   });
@@ -122,7 +197,7 @@ describe('reduceClientState', () => {
             started_at_ms: 1000,
             arrive_at_ms: 1600,
           },
-        }),
+        }, 2),
       },
     );
 
@@ -148,6 +223,165 @@ describe('reduceClientState', () => {
         }),
       }),
     ).toThrow(/Forbidden server payload rejected/);
+  });
+
+  test('ignores duplicate or stale realtime events by sequence', () => {
+    const entered = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.entityEntered,
+        {
+          entity_id: 'npc-1',
+          entity_type: 'npc',
+          position: { x: 10, y: 20 },
+          display: { label: 'Training Drone', disposition: 'hostile' },
+        },
+        5,
+      ),
+    });
+
+    const staleUpdate = reduceClientState(entered, {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.entityUpdated,
+        {
+          entity_id: 'npc-1',
+          entity_type: 'npc',
+          position: { x: 999, y: 999 },
+          display: { label: 'Stale Drone', disposition: 'hostile' },
+        },
+        4,
+      ),
+    });
+    const duplicateLeave = reduceClientState(staleUpdate, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.entityLeft, { entity_id: 'npc-1' }, 5),
+    });
+    const freshUpdate = reduceClientState(duplicateLeave, {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.entityUpdated,
+        {
+          entity_id: 'npc-1',
+          entity_type: 'npc',
+          position: { x: 30, y: 40 },
+          display: { label: 'Fresh Drone', disposition: 'hostile' },
+        },
+        6,
+      ),
+    });
+
+    expect(entered.lastSequence).toBe(5);
+    expect(staleUpdate.visibleEntities['npc-1'].position).toEqual({ x: 10, y: 20 });
+    expect(duplicateLeave.visibleEntities['npc-1']).toBeDefined();
+    expect(freshUpdate.visibleEntities['npc-1'].position).toEqual({ x: 30, y: 40 });
+    expect(freshUpdate.lastSequence).toBe(6);
+  });
+
+  test('logs unknown realtime events without mutating gameplay state', () => {
+    const base = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.entityEntered,
+        {
+          entity_id: 'npc-1',
+          entity_type: 'npc',
+          position: { x: 10, y: 20 },
+          display: { label: 'Training Drone', disposition: 'hostile' },
+        },
+        2,
+      ),
+    });
+
+    const unknown = reduceClientState(base, {
+      type: 'eventReceived',
+      envelope: event('server.experimental_future', { message: 'future event' }, 3),
+    });
+
+    expect(unknown.visibleEntities).toEqual(base.visibleEntities);
+    expect(unknown.selectedTargetID).toBe(base.selectedTargetID);
+    expect(unknown.lastSequence).toBe(3);
+    expect(unknown.commandLog.some((line) => line.text === 'Unhandled event server.experimental_future.')).toBe(true);
+  });
+
+  test('new realtime stream statuses reset event sequence cursor', () => {
+    const staleState = {
+      ...createInitialState(),
+      connectionStatus: 'connected' as const,
+      lastSequence: 42,
+    };
+    const reconnecting = reduceClientState(staleState, {
+      type: 'connectionChanged',
+      status: 'reconnecting',
+    });
+    const ready = reduceClientState(reconnecting, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.sessionReady, { authenticated: true }, 1),
+    });
+
+    expect(reconnecting.lastSequence).toBe(0);
+    expect(ready.lastSequence).toBe(1);
+    expect(ready.connectionStatus).toBe('connected');
+    expect(ready.auth.session?.authenticated).toBe(true);
+  });
+
+  test('reconnect bootstrap accepts fresh world snapshot and replaces stale visible state', () => {
+    const staleState = {
+      ...createInitialState(),
+      auth: {
+        mode: 'real' as const,
+        session: {
+          authenticated: true,
+          account: { email: 'pilot@example.com', admin: false },
+          player: { callsign: 'Pilot' },
+          server_time: 1000,
+        },
+        submitting: false,
+        error: null,
+      },
+      connectionStatus: 'connected' as const,
+      lastSequence: 42,
+      visibleEntities: {
+        'stale-npc': {
+          entity_id: 'stale-npc',
+          entity_type: 'npc' as const,
+          position: { x: 999, y: 999 },
+        },
+      },
+      selectedTargetID: 'stale-npc',
+      movementTarget: { x: 900, y: 900 },
+    };
+    const reconnecting = reduceClientState(staleState, {
+      type: 'connectionChanged',
+      status: 'reconnecting',
+    });
+    const bootstrapped = reduceClientState(reconnecting, {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.worldSnapshot,
+        {
+          sector: { name: 'Origin Fringe', region: 'Origin Belt', danger: 'low', contested: false },
+          entities: [
+            {
+              entity_id: 'player-local',
+              entity_type: 'player',
+              position: { x: 10, y: 20 },
+              status_flags: ['self'],
+            },
+          ],
+          minimap: { radar_range: 420, live_contacts: [], remembered: [] },
+        },
+        1,
+      ),
+    });
+
+    expect(reconnecting.lastSequence).toBe(0);
+    expect(bootstrapped.connectionStatus).toBe('connected');
+    expect(bootstrapped.lastSequence).toBe(1);
+    expect(bootstrapped.visibleEntities['stale-npc']).toBeUndefined();
+    expect(bootstrapped.visibleEntities['player-local'].position).toEqual({ x: 10, y: 20 });
+    expect(bootstrapped.selectedTargetID).toBeNull();
+    expect(bootstrapped.movementTarget).toBeNull();
   });
 
   test('request and response flow tracks pending commands', () => {
@@ -179,6 +413,87 @@ describe('reduceClientState', () => {
 
     expect(accepted.pendingCommands['request-1']).toBeUndefined();
     expect(accepted.lastServerTime).toBe(99);
+  });
+
+  test('authoritative realtime events clear matching pending commands when responses are lost', () => {
+    const withSelf = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.entityEntered,
+        {
+          entity_id: 'player-local',
+          entity_type: 'player',
+          position: { x: 0, y: 0 },
+          status_flags: ['self'],
+        },
+        1,
+      ),
+    });
+    const queuedMove = reduceClientState(withSelf, {
+      type: 'requestQueued',
+      envelope: {
+        request_id: 'move-1',
+        op: OPERATIONS.moveTo,
+        payload: { target: { x: 100, y: 0 } },
+        client_seq: 1,
+        v: 1,
+      },
+    });
+    const corrected = reduceClientState(queuedMove, {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.positionCorrected,
+        {
+          entity_id: 'player-local',
+          position: { x: 12, y: 0 },
+          movement: {
+            moving: true,
+            origin: { x: 12, y: 0 },
+            target: { x: 100, y: 0 },
+            speed: 180,
+            started_at_ms: 1000,
+            arrive_at_ms: 1489,
+          },
+        },
+        2,
+      ),
+    });
+
+    expect(corrected.pendingCommands['move-1']).toBeUndefined();
+    expect(corrected.movementTarget).toEqual({ x: 100, y: 0 });
+
+    const queuedActions = {
+      ...corrected,
+      pendingCommands: {
+        'scan-1': { requestID: 'scan-1', op: OPERATIONS.scanPulse, queuedAt: 1 },
+        'loot-1': { requestID: 'loot-1', op: OPERATIONS.lootPickup, queuedAt: 1 },
+        'combat-1': { requestID: 'combat-1', op: OPERATIONS.combatUseSkill, queuedAt: 1 },
+        'auction-1': { requestID: 'auction-1', op: OPERATIONS.auctionBid, queuedAt: 1 },
+        'quote-1': { requestID: 'quote-1', op: OPERATIONS.deathRepairQuote, queuedAt: 1 },
+      },
+    };
+    const scanStarted = reduceClientState(queuedActions, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.scanPulseStarted, { pulse_reference: 'pulse-1', status: 'started' }, 3),
+    });
+    const lootPickedUp = reduceClientState(scanStarted, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.lootPickedUp, { drop_id: 'drop-1', item_id: 'raw_ore', quantity: 2 }, 4),
+    });
+    const combatCooldown = reduceClientState(lootPickedUp, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.combatCooldownStarted, { skill_id: 'basic_laser', target_id: 'npc-1' }, 5),
+    });
+    const auctionBidPlaced = reduceClientState(combatCooldown, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.auctionBidPlaced, { auction_id: 'auction-1' }, 6),
+    });
+
+    expect(auctionBidPlaced.pendingCommands['scan-1']).toBeUndefined();
+    expect(auctionBidPlaced.pendingCommands['loot-1']).toBeUndefined();
+    expect(auctionBidPlaced.pendingCommands['combat-1']).toBeUndefined();
+    expect(auctionBidPlaced.pendingCommands['auction-1']).toBeUndefined();
+    expect(auctionBidPlaced.pendingCommands['quote-1']).toBeDefined();
   });
 
   test('scan mode is local control state and does not invent gameplay values', () => {
@@ -247,12 +562,136 @@ describe('reduceClientState', () => {
         pulse_reference: 'pulse-1',
         status: 'no_signal',
         message: 'Scanner pulse resolved with no signal.',
-      }),
+      }, 2),
     });
 
     expect(resolved.planetIntel?.lastScan?.status).toBe('no_signal');
     expect(resolved.scanMode.enabled).toBe(true);
     expect(resolved.scanMode.nextPulseAt ?? 0).toBeGreaterThanOrEqual(beforeResolve + 2500);
+  });
+
+  test('player reveal scan status does not carry planet intel or progression truth', () => {
+    const discovered = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.scanPulseResolved, {
+        pulse_reference: 'pulse-planet',
+        status: 'planet_discovered',
+        planet_id: 'planet-1',
+        xp_granted: true,
+        signal: {
+          biome: 'origin_belt',
+          signal_band: 'low',
+          approx_distance: 'near',
+        },
+      }),
+    });
+
+    const revealed = reduceClientState(discovered, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.scanPulseResolved, {
+        pulse_reference: 'pulse-player',
+        status: 'player_revealed',
+        message: 'Scanner revealed a radar contact.',
+      }, 2),
+    });
+
+    expect(revealed.planetIntel?.knownSignals).toBe(discovered.planetIntel?.knownSignals);
+    expect(revealed.planetIntel?.lastScan).toMatchObject({
+      pulse_reference: 'pulse-player',
+      status: 'player_revealed',
+      message: 'Scanner revealed a radar contact.',
+      xp_granted: false,
+    });
+    expect(revealed.planetIntel?.lastScan?.signal).toBeUndefined();
+    expect(revealed.planetIntel?.lastScan?.planet_id).toBeUndefined();
+    expect(revealed.progression).toBeNull();
+  });
+
+  test('known planets event refreshes remembered minimap contacts without sync', () => {
+    const state = reduceClientState(
+      {
+        ...createInitialState(),
+        minimap: {
+          radar_range: 1000,
+          projection_window_size: 2000,
+          live_contacts: [
+            {
+              entity_id: 'player-local',
+              entity_type: 'player',
+              position: { x: 0, y: 0 },
+              disposition: 'self',
+              status_flags: ['self'],
+            },
+          ],
+          remembered: [],
+        },
+      },
+      {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.knownPlanets, {
+          planets: [
+            {
+              planet_id: 'planet-eris',
+              biome: 'ice',
+              planet_type: 'terran',
+              rarity: 'common',
+              level: 2,
+              intel_state: 'fresh',
+              confidence: 100,
+              last_seen_at: 1500,
+              owner_status: 'unclaimed',
+              discovered_at: 1400,
+            },
+          ],
+          counts: { known: 1, stale: 0, owned: 0 },
+          minimap: {
+            radar_range: 1000,
+            projection_window_size: 2000,
+            live_contacts: [
+              {
+                entity_id: 'player-local',
+                entity_type: 'player',
+                position: { x: 0, y: 0 },
+                disposition: 'self',
+                status_flags: ['self'],
+              },
+            ],
+            remembered: [
+              {
+                kind: 'known_planet',
+                planet_id: 'planet-eris',
+                detail_id: 'planet-eris',
+                label: 'terran ice',
+                position: { x: 520, y: -240 },
+                freshness: 'fresh',
+              },
+            ],
+          },
+        }),
+      },
+    );
+
+    expect(state.planetIntel?.planets[0]?.planet_id).toBe('planet-eris');
+    expect(state.minimap?.remembered).toEqual([
+      {
+        kind: 'known_planet',
+        planet_id: 'planet-eris',
+        detail_id: 'planet-eris',
+        label: 'terran ice',
+        position: { x: 520, y: -240 },
+        freshness: 'fresh',
+      },
+    ]);
+    expect(worldMapMemoryMarkers(state)).toEqual([
+      {
+        id: 'known_planet:planet-eris',
+        kind: 'known_planet',
+        label: 'terran ice',
+        position: { x: 520, y: -240 },
+        detailID: 'planet-eris',
+        state: 'fresh',
+      },
+    ]);
   });
 
   test('snapshot response replaces visible entities atomically', () => {
@@ -321,6 +760,87 @@ describe('reduceClientState', () => {
     expect(replaced.planetIntel?.knownSignals).toBe(1);
   });
 
+  test('snapshot response without minimap rebuilds live contacts from replacement entities', () => {
+    const state = {
+      ...createInitialState(),
+      selectedTargetID: 'stale-npc',
+      minimap: {
+        radar_range: 1000,
+        projection_window_size: 2000,
+        live_contacts: [
+          {
+            entity_id: 'stale-npc',
+            entity_type: 'npc' as const,
+            position: { x: 10, y: 20 },
+            disposition: 'hostile',
+            status_flags: ['hostile'],
+          },
+        ],
+        remembered: [
+          {
+            kind: 'known_planet',
+            planet_id: 'planet-eris',
+            detail_id: 'planet-eris',
+            label: 'Eris',
+            position: { x: 500, y: -250 },
+            freshness: 'fresh',
+          },
+        ],
+      },
+    };
+
+    const replaced = reduceClientState(state, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'move-accepted',
+        ok: true,
+        payload: {
+          accepted: true,
+          entities: [
+            {
+              entity_id: 'player-local',
+              entity_type: 'player',
+              position: { x: 2, y: 4 },
+              status_flags: ['self', 'hidden', 'stealthed'],
+              display: { label: 'Pilot', disposition: 'self' },
+            },
+            {
+              entity_id: 'loot-1',
+              entity_type: 'loot',
+              position: { x: 30, y: 40 },
+              status_flags: ['loot', 'hidden'],
+              display: { label: 'Cache', disposition: 'neutral' },
+            },
+          ],
+        },
+        server_time: 1500,
+        v: 1,
+      },
+    });
+
+    expect(replaced.visibleEntities['stale-npc']).toBeUndefined();
+    expect(replaced.selectedTargetID).toBeNull();
+    expect(replaced.minimap?.radar_range).toBe(1000);
+    expect(replaced.minimap?.projection_window_size).toBe(2000);
+    expect(replaced.minimap?.remembered).toEqual(state.minimap.remembered);
+    expect(replaced.minimap?.live_contacts).toEqual([
+      {
+        entity_id: 'loot-1',
+        entity_type: 'loot',
+        position: { x: 30, y: 40 },
+        disposition: 'neutral',
+        status_flags: ['loot'],
+      },
+      {
+        entity_id: 'player-local',
+        entity_type: 'player',
+        position: { x: 2, y: 4 },
+        disposition: 'self',
+        status_flags: ['self', 'stealthed'],
+      },
+    ]);
+  });
+
   test('snapshot response rejects hidden debug payloads before state mutation', () => {
     const state = createInitialState();
 
@@ -358,7 +878,19 @@ describe('reduceClientState', () => {
           cargo: {
             used: 4,
             capacity: 80,
-            items: [{ item_id: 'raw_ore', quantity: 4 }],
+            items: [{
+              item_id: 'raw_ore',
+              display_name: 'Raw Ore',
+              category: 'resource',
+              art_key: 'item.raw_ore',
+              rarity: 'common',
+              quantity: 4,
+              unit_weight: 2,
+              used_units: 8,
+              location: 'ship_cargo',
+              move_eligible: false,
+              locked_reason: 'cargo_transfer_unavailable',
+            }],
           },
           wallet: { credits: 980, premium_paid: 3, premium_earned: 9 },
           ship: {
@@ -435,7 +967,19 @@ describe('reduceClientState', () => {
 
     expect(reconciled.playerSnapshot?.callsign).toBe('Server-Pilot');
     expect(reconciled.cargo).toMatchObject({ used: 4, capacity: 80 });
-    expect(reconciled.cargo?.items).toEqual([{ item_id: 'raw_ore', quantity: 4 }]);
+    expect(reconciled.cargo?.items).toEqual([{
+      item_id: 'raw_ore',
+      display_name: 'Raw Ore',
+      category: 'resource',
+      art_key: 'item.raw_ore',
+      rarity: 'common',
+      quantity: 4,
+      unit_weight: 2,
+      used_units: 8,
+      location: 'ship_cargo',
+      move_eligible: false,
+      locked_reason: 'cargo_transfer_unavailable',
+    }]);
     expect(reconciled.wallet).toEqual({ credits: 980, premium_paid: 3, premium_earned: 9 });
     expect(reconciled.ship).toMatchObject({ active_ship_id: 'starter', hull: 88, capacitor: 31, disabled: false });
     expect(reconciled.playerSnapshot).toMatchObject({ hp: 88, max_hp: 120, shield: 42, energy: 31 });
@@ -490,7 +1034,8 @@ describe('reduceClientState', () => {
             },
           ],
           minimap: {
-            radar_range: 420,
+            radar_range: 1000,
+            projection_window_size: 2000,
             live_contacts: [
               {
                 entity_id: 'player-local',
@@ -500,7 +1045,16 @@ describe('reduceClientState', () => {
                 status_flags: ['self'],
               },
             ],
-            remembered: [],
+            remembered: [
+              {
+                kind: 'known_planet',
+                planet_id: 'planet-eris',
+                detail_id: 'planet-eris',
+                label: 'terran / ice',
+                position: { x: 500, y: -250 },
+                freshness: 'fresh',
+              },
+            ],
           },
         }),
       },
@@ -508,7 +1062,9 @@ describe('reduceClientState', () => {
 
     expect(state.connectionStatus).toBe('connected');
     expect(state.sector).toEqual({ name: 'Origin Fringe', region: 'Origin Belt', danger: 'low', contested: false });
-    expect(state.minimap?.radar_range).toBe(420);
+    expect(state.minimap?.radar_range).toBe(1000);
+    expect(state.minimap?.projection_window_size).toBe(2000);
+    expect(state.minimap?.remembered[0]).toMatchObject({ planet_id: 'planet-eris', detail_id: 'planet-eris' });
     expect(state.visibleEntities['player-local'].status_flags).toContain('self');
     expect(state.visibleEntities['player-local'].movement?.target).toEqual({ x: 100, y: 0 });
     expect(state.movementTarget).toEqual({ x: 100, y: 0 });
@@ -580,7 +1136,18 @@ describe('reduceClientState', () => {
       envelope: event(CLIENT_EVENTS.cargoSnapshot, {
         used: 12,
         capacity: 70,
-        items: [{ item_id: 'salvage_thread', quantity: 12 }],
+        items: [{
+          item_id: 'salvage_thread',
+          display_name: 'Salvage Thread',
+          category: 'resource',
+          art_key: 'item.salvage_thread',
+          quantity: 12,
+          unit_weight: 1,
+          used_units: 12,
+          location: 'ship_cargo',
+          move_eligible: false,
+          locked_reason: 'cargo_transfer_unavailable',
+        }],
       }),
     });
     const withWallet = reduceClientState(withCargo, {
@@ -634,7 +1201,18 @@ describe('reduceClientState', () => {
       }, 7),
     });
 
-    expect(withCrafting.cargo?.items).toEqual([{ item_id: 'salvage_thread', quantity: 12 }]);
+    expect(withCrafting.cargo?.items).toEqual([{
+      item_id: 'salvage_thread',
+      display_name: 'Salvage Thread',
+      category: 'resource',
+      art_key: 'item.salvage_thread',
+      quantity: 12,
+      unit_weight: 1,
+      used_units: 12,
+      location: 'ship_cargo',
+      move_eligible: false,
+      locked_reason: 'cargo_transfer_unavailable',
+    }]);
     expect(withCrafting.wallet?.credits).toBe(444);
     expect(withCrafting.stats?.weapon_range).toBe(275);
     expect(withCrafting.inventory?.counts.cargo_stacks).toBe(1);
@@ -661,14 +1239,14 @@ describe('reduceClientState', () => {
         position: { x: 80, y: 0 },
         display: { label: 'Training Drone', disposition: 'hostile' },
         combat: { hp: 40, max_hp: 40, shield: 10, max_shield: 10, status: 'active' },
-      }),
+      }, 2),
     });
     const targeted = reduceClientState({ ...withNPC, selectedTargetID: 'npc-1' }, {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.targetUpdated, {
         entity_id: 'npc-1',
         combat: { hp: 0, max_hp: 40, shield: 0, max_shield: 10, status: 'destroyed' },
-      }, 2),
+      }, 3),
     });
     const withCooldown = reduceClientState(targeted, {
       type: 'eventReceived',
@@ -676,7 +1254,7 @@ describe('reduceClientState', () => {
         skill_id: 'basic_laser',
         target_id: 'npc-1',
         cooldown_ready_at_ms: 9000,
-      }, 3),
+      }, 4),
     });
     const withDuplicateCooldown = reduceClientState(withCooldown, {
       type: 'eventReceived',
@@ -684,14 +1262,14 @@ describe('reduceClientState', () => {
         skill_id: 'basic_laser',
         target_id: 'npc-1',
         cooldown_ready_at_ms: 9000,
-      }, 3),
+      }, 4),
     });
     const withDamage = reduceClientState(withCooldown, {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.combatDamage, {
         target_id: 'npc-1',
         amount: 45,
-      }, 4),
+      }, 5),
     });
     const withDropNotice = reduceClientState(withDamage, {
       type: 'eventReceived',
@@ -701,7 +1279,7 @@ describe('reduceClientState', () => {
         quantity: 3,
         state: 'active',
         position: { x: 80, y: 0 },
-      }, 5),
+      }, 6),
     });
     const withLootEntity = reduceClientState(withDropNotice, {
       type: 'eventReceived',
@@ -710,11 +1288,11 @@ describe('reduceClientState', () => {
         entity_type: 'loot',
         position: { x: 80, y: 0 },
         display: { label: 'Raw Ore', disposition: 'neutral' },
-      }, 6),
+      }, 7),
     });
     const leftClearsKnownLoot = reduceClientState(withLootEntity, {
       type: 'eventReceived',
-      envelope: event(CLIENT_EVENTS.entityLeft, { entity_id: 'drop-1' }, 7),
+      envelope: event(CLIENT_EVENTS.entityLeft, { entity_id: 'drop-1' }, 8),
     });
     const afterPickup = reduceClientState(
       {
@@ -736,15 +1314,15 @@ describe('reduceClientState', () => {
     );
     const withPickupNotice = reduceClientState(afterPickup, {
       type: 'eventReceived',
-      envelope: event(CLIENT_EVENTS.lootPickedUp, { drop_id: 'drop-1', item_id: 'raw_ore', quantity: 3 }, 7),
+      envelope: event(CLIENT_EVENTS.lootPickedUp, { drop_id: 'drop-1', item_id: 'raw_ore', quantity: 3 }, 8),
     });
     const withoutLootEntity = reduceClientState(withPickupNotice, {
       type: 'eventReceived',
-      envelope: event(CLIENT_EVENTS.lootRemoved, { entity_id: 'drop-1' }, 8),
+      envelope: event(CLIENT_EVENTS.lootRemoved, { entity_id: 'drop-1' }, 9),
     });
     const progressed = reduceClientState(withoutLootEntity, {
       type: 'eventReceived',
-      envelope: event(CLIENT_EVENTS.progressionSnapshot, { main_level: 2, main_xp: 100, rank: 2, combat_xp: 40 }, 8),
+      envelope: event(CLIENT_EVENTS.progressionSnapshot, { main_level: 2, main_xp: 100, rank: 2, combat_xp: 40 }, 10),
     });
     const quoted = reduceClientState(progressed, {
       type: 'responseReceived',
@@ -758,14 +1336,14 @@ describe('reduceClientState', () => {
     });
     const repaired = reduceClientState(quoted, {
       type: 'eventReceived',
-      envelope: event(CLIENT_EVENTS.deathRepaired, { ship_id: 'starter' }, 10),
+      envelope: event(CLIENT_EVENTS.deathRepaired, { ship_id: 'starter' }, 11),
     });
 
     expect(targeted.visibleEntities['npc-1'].combat).toMatchObject({ hp: 0, shield: 0, status: 'destroyed' });
     expect(withCooldown.skillCooldowns.basic_laser).toBe(9000);
     expect(withCooldown.worldEffects).toContainEqual(
       expect.objectContaining({
-        id: 'event-3:laser',
+        id: 'event-4:laser',
         kind: 'laser',
         sourceID: 'player-1',
         sourcePosition: { x: 0, y: 0 },
@@ -773,7 +1351,7 @@ describe('reduceClientState', () => {
         position: { x: 80, y: 0 },
       }),
     );
-    expect(withDuplicateCooldown.worldEffects.filter((effect) => effect.id === 'event-3:laser')).toHaveLength(1);
+    expect(withDuplicateCooldown.worldEffects.filter((effect) => effect.id === 'event-4:laser')).toHaveLength(1);
     expect(withDamage.combatLog.at(-1)?.text).toContain('Hit Training Drone for 45.');
     expect(withDamage.worldEffects.some((effect) => effect.kind === 'damage' && effect.amount === 45)).toBe(true);
     expect(withDropNotice.knownLoot['drop-1']).toMatchObject({ item_id: 'raw_ore', quantity: 3 });
@@ -864,6 +1442,330 @@ describe('reduceClientState', () => {
 
     expect(withDetail.planetIntel?.selectedPlanet?.coordinates).toBeNull();
     expect(worldMapMemoryMarkers(withDetail)).toEqual([]);
+  });
+
+  test('planet detail does not reuse stale coordinates from another selected planet', () => {
+    const withFirstDetail = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.planetDetail, {
+        planet_id: 'planet-a',
+        biome: 'ice',
+        planet_type: 'dwarf_planet',
+        level: 2,
+        intel_state: 'fresh',
+        confidence: 90,
+        coordinates: { x: 720, y: -320 },
+        production_locked: true,
+        routes: [],
+        available_commands: [],
+      }),
+    });
+
+    const withSecondDetail = reduceClientState(withFirstDetail, {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.planetDetail,
+        {
+          planet_id: 'planet-b',
+          biome: 'rock',
+          planet_type: 'moon',
+          level: 1,
+          intel_state: 'stale',
+          confidence: 42,
+          production_locked: true,
+          routes: [],
+          available_commands: [],
+        },
+        2,
+      ),
+    });
+
+    expect(withSecondDetail.planetIntel?.selectedPlanet?.planet_id).toBe('planet-b');
+    expect(withSecondDetail.planetIntel?.selectedPlanet?.coordinates).toBeNull();
+    expect(worldMapMemoryMarkers(withSecondDetail)).toEqual([]);
+  });
+
+  test('planet storage summary updates selected planet and production state', () => {
+    const seeded = reduceClientState(createInitialState(), {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'planet-bootstrap',
+        ok: true,
+        payload: {
+          planet_detail: {
+            planet_id: 'planet-eris',
+            biome: 'ice',
+            planet_type: 'dwarf_planet',
+            rarity: 'uncommon',
+            level: 2,
+            intel_state: 'fresh',
+            confidence: 88,
+            last_seen_at: 1000,
+            owner_status: 'owned',
+            discovered_at: 900,
+            production_locked: false,
+            available_commands: ['planet.storage_summary'],
+            routes: [],
+            production: {
+              planet_id: 'planet-eris',
+              production_enabled: true,
+              last_calculated_at: 1000,
+              energy_capacity_per_hour: 20,
+              energy_reserved_per_hour: 5,
+              storage: {
+                planet_id: 'planet-eris',
+                used_units: 2,
+                free_units: 98,
+                capacity_units: 100,
+                updated_at: 1000,
+                items: [{ item_id: 'ferrite_ore', quantity: 2 }],
+              },
+              buildings: [],
+            },
+          },
+          production: {
+            planets: [
+              {
+                planet_id: 'planet-eris',
+                production_enabled: true,
+                last_calculated_at: 1000,
+                energy_capacity_per_hour: 20,
+                energy_reserved_per_hour: 5,
+                storage: {
+                  planet_id: 'planet-eris',
+                  used_units: 2,
+                  free_units: 98,
+                  capacity_units: 100,
+                  updated_at: 1000,
+                  items: [{ item_id: 'ferrite_ore', quantity: 2 }],
+                },
+                buildings: [],
+              },
+            ],
+          },
+        },
+        server_time: 1000,
+        v: 1,
+      },
+    });
+
+    const withStorage = reduceClientState(seeded, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'planet-storage',
+        ok: true,
+        payload: {
+          planet_storage: {
+            planet_id: 'planet-eris',
+            used_units: 12,
+            free_units: 88,
+            capacity_units: 100,
+            updated_at: 1200,
+            items: [
+              { item_id: 'ferrite_ore', quantity: 8 },
+              { item_id: 'ion_residue', quantity: 4 },
+            ],
+          },
+        },
+        server_time: 1200,
+        v: 1,
+      },
+    });
+
+    expect(withStorage.planetIntel?.selectedPlanet?.production?.storage).toMatchObject({
+      used_units: 12,
+      free_units: 88,
+      updated_at: 1200,
+      items: [
+        { item_id: 'ferrite_ore', quantity: 8 },
+        { item_id: 'ion_residue', quantity: 4 },
+      ],
+    });
+    expect(withStorage.production?.planets[0].storage).toEqual(withStorage.planetIntel?.selectedPlanet?.production?.storage);
+
+    const withEventStorage = reduceClientState(withStorage, {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.planetStorageSummary,
+        {
+          planet_id: 'planet-eris',
+          used_units: 16,
+          free_units: 84,
+          capacity_units: 100,
+          updated_at: 1300,
+          items: [{ item_id: 'ion_residue', quantity: 16 }],
+        },
+        3,
+      ),
+    });
+
+    expect(withEventStorage.planetIntel?.selectedPlanet?.production?.storage).toMatchObject({
+      used_units: 16,
+      free_units: 84,
+      updated_at: 1300,
+      items: [{ item_id: 'ion_residue', quantity: 16 }],
+    });
+    expect(withEventStorage.production?.planets[0].storage).toEqual(
+      withEventStorage.planetIntel?.selectedPlanet?.production?.storage,
+    );
+  });
+
+  test('route snapshot upserts global and selected planet routes', () => {
+    const initialRoute = {
+      route_id: 'route-1',
+      source_planet_id: 'planet-eris',
+      destination: { type: 'planet', id: 'planet-nova' },
+      resource_item_id: 'ferrite_ore',
+      amount_per_hour: 10,
+      energy_cost_per_hour: 2,
+      enabled: false,
+      risk: { loss_chance: 0.1, min_loss_percent: 1, max_loss_percent: 3 },
+      last_calculated_at: 1000,
+      updated_at: 1000,
+    };
+    const seeded = reduceClientState(createInitialState(), {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'route-bootstrap',
+        ok: true,
+        payload: {
+          planet_detail: {
+            planet_id: 'planet-eris',
+            biome: 'ice',
+            planet_type: 'dwarf_planet',
+            rarity: 'uncommon',
+            level: 2,
+            intel_state: 'fresh',
+            confidence: 88,
+            last_seen_at: 1000,
+            owner_status: 'owned',
+            discovered_at: 900,
+            production_locked: false,
+            available_commands: ['route.snapshot'],
+            routes: [initialRoute],
+          },
+          routes: { routes: [initialRoute] },
+        },
+        server_time: 1000,
+        v: 1,
+      },
+    });
+
+    const updatedRoute = {
+      ...initialRoute,
+      amount_per_hour: 25,
+      enabled: true,
+      last_calculated_at: 1250,
+      updated_at: 1250,
+    };
+    const withRoute = reduceClientState(seeded, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'route-snapshot',
+        ok: true,
+        payload: { route: updatedRoute },
+        server_time: 1250,
+        v: 1,
+      },
+    });
+
+    expect(withRoute.routes?.routes).toHaveLength(1);
+    expect(withRoute.routes?.routes[0]).toMatchObject({ route_id: 'route-1', amount_per_hour: 25, enabled: true });
+    expect(withRoute.planetIntel?.selectedPlanet?.routes).toHaveLength(1);
+    expect(withRoute.planetIntel?.selectedPlanet?.routes[0]).toEqual(withRoute.routes?.routes[0]);
+
+    const withEventRoute = reduceClientState(withRoute, {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.routeSnapshot,
+        {
+          route: {
+            ...updatedRoute,
+            amount_per_hour: 30,
+            updated_at: 1300,
+          },
+        },
+        3,
+      ),
+    });
+
+    expect(withEventRoute.routes?.routes).toHaveLength(1);
+    expect(withEventRoute.routes?.routes[0]).toMatchObject({ route_id: 'route-1', amount_per_hour: 30, enabled: true });
+    expect(withEventRoute.planetIntel?.selectedPlanet?.routes[0]).toEqual(withEventRoute.routes?.routes[0]);
+  });
+
+  test('death disabled event marks active ship disabled without inventing a repair quote', () => {
+    const withShip = reduceClientState(createInitialState(), {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'ship-snapshot',
+        ok: true,
+        payload: {
+          ship: {
+            active_ship_id: 'starter',
+            display_name: 'Sparrow',
+            hull: 44,
+            max_hull: 100,
+            shield: 12,
+            max_shield: 60,
+            capacitor: 20,
+            max_capacitor: 40,
+            disabled: false,
+            repair_state: 'ready',
+          },
+        },
+        server_time: 1000,
+        v: 1,
+      },
+    });
+
+    const disabled = reduceClientState(withShip, {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.deathShipDisabled,
+        {
+          ship_id: 'starter',
+          disabled_reason: 'combat',
+          ship: {
+            active_ship_id: 'starter',
+            display_name: 'Sparrow',
+            hull: 0,
+            max_hull: 100,
+            shield: 0,
+            max_shield: 60,
+            capacitor: 0,
+            max_capacitor: 40,
+            disabled: true,
+            repair_state: 'disabled',
+          },
+          repair_quote: { ship_id: 'starter', cost: 15, currency: 'credits', disabled: true },
+          respawn_location_id: 'origin-station',
+        },
+        2,
+      ),
+    });
+
+    expect(disabled.ship).toMatchObject({
+      active_ship_id: 'starter',
+      disabled: true,
+      repair_state: 'combat',
+      hull: 0,
+    });
+    expect(disabled.repairQuote).toEqual({ ship_id: 'starter', cost: 15, currency: 'credits', disabled: true });
+    expect(disabled.combatLog.at(-1)?.text).toBe('Ship disabled.');
+
+    const quoted = reduceClientState(disabled, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'repair-quote',
+        ok: true,
+        payload: { ship_id: 'starter', cost: 15, currency: 'credits', disabled: true },
+        server_time: 1003,
+        v: 1,
+      },
+    });
+
+    expect(quoted.repairQuote).toEqual({ ship_id: 'starter', cost: 15, currency: 'credits', disabled: true });
   });
 
   test('phase 09 quest, admin, and observability payloads reconcile server-owned state', () => {

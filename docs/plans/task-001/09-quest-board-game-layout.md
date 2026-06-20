@@ -48,6 +48,83 @@ internal/game/quest/
 - Progression unlocks and skill/rank effects remain server-owned. The UI can
   show requirements and rewards but cannot submit completion truth.
 
+## API And Action-State Contract
+
+Quest board payloads must include enough server-owned action state for the UI
+to hide or enable actions without guessing:
+
+- offer/quest id, display name, category/status, requirements, objectives,
+  rewards, and safe art/catalog refs
+- `can_accept`, `can_claim`, `can_reroll`, cooldown/available-at, and
+  player-facing locked reason where relevant
+- board version or revision for stale-event handling
+- explicit semantics for `quest.progress`: either rename it to a board snapshot
+  query or document it as payloadless snapshot refresh only
+- event reconciliation fields such as `accepted_offer_id`, updated
+  `quest_board`, changed active quest, and reward snapshots
+
+The UI must not infer quest completion, reroll affordability, active quest
+limits, objective progress, hidden target ids, or reward grant truth.
+
+## Subagent Review Additions - 2026-06-20
+
+- Add passive event reconciliation for quest board state. A `quest.accepted`
+  event that carries only the quest must also remove or mark the stale offer,
+  update board counts, or trigger an explicit board refresh.
+- Decide the action-state rule for non-claimable quests. Disabled primary
+  `Claim Locked` buttons should become quiet status copy unless the action is
+  immediately meaningful.
+- Browser smoke must exercise accept, claim, and reroll UI paths where real
+  contracts exist. Server tests already cover duplicate claims; client smoke
+  must prove the buttons are wired and do not fake progress.
+- Reward grant reconciliation must refresh or merge wallet, XP/rank, inventory,
+  cargo, and quest board state from server-owned payloads/events.
+
+## Second Subagent Review Additions - 2026-06-20
+
+- Add server-owned action-state payloads. Accept/reroll/claim availability must
+  come from the server, not wallet-only or local selected-row heuristics.
+- `quest.accepted` must remove or mark the stale board offer. Either include
+  `accepted_offer_id` plus board revision or return a refreshed `quest_board`.
+- Objective and reward rows need safe display labels, art keys, and catalog refs
+  from the server. UI must not transform raw target ids or item ids into player
+  copy, especially where future hidden targets may exist.
+- Browser smoke must click real claim and reroll happy paths where contracts
+  exist, not only accept. If fixtures do not provide claimable/rerollable state,
+  record that as a test fixture blocker.
+- Clarify `quest.progress`: current usage is closer to a snapshot refresh than
+  a progress mutation. The protocol table and UI copy should make that explicit.
+
+## Third Subagent Review Additions - 2026-06-20
+
+- Quest UI still shows disabled primary `Claim Locked` for non-claimable
+  quests. Replace it with quiet status copy unless a real claim is available.
+- Extend quest board payloads with server-owned action state:
+  `can_accept`, `can_claim`, `can_reroll`, cooldown/available-at, locked
+  reason, and board revision. UI must not infer reroll/claim availability from
+  wallet-only or selected-row heuristics.
+- Change `quest.accepted` passive event to include `accepted_offer_id` plus
+  board revision, or return a refreshed `quest_board`, so reducer paths remove
+  stale offers even when the response path is absent.
+- Objective targets and reward items need server display labels/art/catalog refs
+  instead of UI prettifying raw target ids or item ids. This is also a hidden
+  target leak guard for future quest types.
+- Browser smoke must click real accept, claim, and reroll happy paths when
+  fixtures expose them, or list the exact missing fixture blocker.
+
+## Fourth Subagent Review Additions - 2026-06-20
+
+- Add an offer expiry and board reset contract. Quest board payloads should
+  include `expires_at`, board revision, and `reset_at` or equivalent refresh
+  hints where offers can expire.
+- Expired offers must either disappear, render as quiet unavailable state, or
+  trigger a board refresh. The UI must not keep an enabled Accept button based
+  on stale selected-row state.
+- Reducer tests should cover stale board revisions and expired offers received
+  through response and event-only paths.
+- Browser smoke must include an expired offer or stale board refresh path, in
+  addition to accept/claim/reroll happy paths where fixtures expose them.
+
 ## Implementation Plan
 
 1. Build the board model.
@@ -108,6 +185,20 @@ docs/plans/task-001/09-quest-board-game-layout.md
 - [ ] Reward claim is idempotent and cannot duplicate XP/currency/items.
 - [ ] Client cannot author quest completion/progress.
 - [ ] Passive quest events reconcile or trigger explicit refresh.
+- [ ] Quest board payload includes server-owned action state for accept, claim,
+      and reroll availability.
+- [ ] `quest.accepted` event-only reducer path removes the accepted offer or
+      refreshes the board.
+- [ ] Objective/reward UI renders server display metadata and does not print raw
+      target/item ids.
+- [ ] Non-claimable quests do not render disabled primary `Claim Locked`
+      controls in normal player UI.
+- [ ] Quest board payload includes expiry/reset state or a named blocker for
+      offers that can expire.
+- [ ] Expired offers cannot remain enabled through stale local selection state.
+- [ ] Reducer and smoke cover stale board revision or expired offer refresh.
+- [ ] Browser smoke exercises real claim and reroll happy paths or names the
+      missing fixture blocker.
 - [ ] Browser smoke captures quest board screenshots under
       `output/screenshots/task-001/09/` or the final Task 001 screenshot set.
 
@@ -120,4 +211,3 @@ cd client
 npm --cache /tmp/gameproject-npm-cache run test -- --run src/protocol src/state
 npm --cache /tmp/gameproject-npm-cache run smoke
 ```
-

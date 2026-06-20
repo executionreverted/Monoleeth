@@ -40,6 +40,7 @@ const (
 	ScanPulseStatusStarted          ScanPulseStatus = "started"
 	ScanPulseStatusNoSignal         ScanPulseStatus = "no_signal"
 	ScanPulseStatusPlanetDiscovered ScanPulseStatus = "planet_discovered"
+	ScanPulseStatusPlayerRevealed   ScanPulseStatus = "player_revealed"
 )
 
 // ScannerEventType names local scanner event records.
@@ -49,6 +50,7 @@ const (
 	ScannerEventPulseStarted     ScannerEventType = "scan.pulse_started"
 	ScannerEventPulseResolved    ScannerEventType = "scan.pulse_resolved"
 	ScannerEventPlanetDiscovered ScannerEventType = "scan.planet_discovered"
+	ScannerEventPlayerRevealed   ScannerEventType = "scan.player_revealed"
 )
 
 // StartScanPulseInput is the service-level command for scheduling a local MVP
@@ -167,6 +169,26 @@ type ScannerEnergyResult struct {
 	Accepted bool `json:"accepted"`
 }
 
+// ScannerPlayerRevealInput asks a runtime-owned scanner bridge to reveal one
+// hidden live player, if server rules allow it. The result must not expose the
+// target identity to the scanner service or client payload.
+type ScannerPlayerRevealInput struct {
+	PlayerID       foundation.PlayerID  `json:"player_id"`
+	ShipID         foundation.ShipID    `json:"ship_id"`
+	WorldID        foundation.WorldID   `json:"world_id"`
+	ZoneID         foundation.ZoneID    `json:"zone_id"`
+	PulseReference ScanPulseReference   `json:"pulse_reference"`
+	Position       world.Vec2           `json:"position"`
+	Stats          stats.EffectiveStats `json:"stats"`
+	RevealedAt     time.Time            `json:"revealed_at"`
+}
+
+// ScannerPlayerRevealResult is intentionally boolean-only. Hidden target ids,
+// expiry, scan rolls, and coordinates stay inside the runtime visibility bridge.
+type ScannerPlayerRevealResult struct {
+	Revealed bool `json:"revealed"`
+}
+
 // ScanXPGrantInput is the narrow discovery-to-progression handoff.
 type ScanXPGrantInput struct {
 	PlayerID       foundation.PlayerID          `json:"player_id"`
@@ -205,6 +227,10 @@ type ScannerEnergyProvider interface {
 	CheckScanEnergy(input ScannerEnergyInput) (ScannerEnergyResult, error)
 }
 
+type ScannerPlayerRevealProvider interface {
+	RevealHiddenPlayer(input ScannerPlayerRevealInput) (ScannerPlayerRevealResult, error)
+}
+
 type ScanXPGrantProvider interface {
 	GrantScanXP(input ScanXPGrantInput) (ScanXPGrantResult, error)
 }
@@ -220,6 +246,7 @@ type ScannerServiceConfig struct {
 	Positions ScannerPositionProvider
 	Cooldowns ScannerCooldownProvider
 	Energy    ScannerEnergyProvider
+	Reveals   ScannerPlayerRevealProvider
 	XP        ScanXPGrantProvider
 
 	CandidateOptions  CandidateGenerationOptions
@@ -241,6 +268,7 @@ type ScannerService struct {
 	positions ScannerPositionProvider
 	cooldowns ScannerCooldownProvider
 	energy    ScannerEnergyProvider
+	reveals   ScannerPlayerRevealProvider
 	xp        ScanXPGrantProvider
 
 	candidateOptions  CandidateGenerationOptions

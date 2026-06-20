@@ -45,6 +45,72 @@ client/tests/browser-smoke.mjs
 - Normal player UI copy ban applies globally, not only to surfaces changed in
   this phase. Admin-only diagnostics are exempt only when role-gated.
 
+## Subagent Review Additions - 2026-06-20
+
+- Replace generic `Inspect` with real help topics. Add `helpTopic` metadata to
+  window definitions, a small tutorial/help topic catalog, and render `?` only
+  when a topic exists.
+- `modalDefinition()` must not duplicate `definition.render(state)` as a fake
+  detail view. Contextual help modals render help content; feature detail
+  modals render their own system-specific body.
+- Make sizing changes touch the full window pipeline: `renderWindows`,
+  `defaultWindowPosition`, `clampWindowPosition`, window size metadata, and
+  `.hud-window` / `.hud-window__body` CSS.
+- Tighten dead-control cleanup around `targetPanel` and planet detail. Empty
+  target state should be quiet; disabled `Aim`, `Fire`, `Gather`, and disabled
+  primary planet actions should not appear as clutter.
+- Expand forbidden-copy smoke to body text, `title`, and `aria-label` for
+  `server-owned`, `server policy`, `server recalculates`, `server-side`,
+  `server contract`, and similar internal phrases.
+- Share the world-focus/input ownership rule with Phase 10 instead of relying
+  only on a short HUD suppression timer.
+
+## Second Subagent Review Additions - 2026-06-20
+
+- Current code evidence still shows `Inspect` in the titlebar and generic modal
+  duplication through `definition.render(state)`. This phase must delete the
+  generic path, not only rename the button.
+- Current window sizing still uses generated `--window-height` and fixed CSS
+  `height`. The sizing plan must cover size metadata, default positions,
+  clamping, header/footer behavior, and body-only scroll.
+- Empty target UI and planet detail still show disabled primary clutter in code
+  and smoke. The cleanup gate must fail on normal-player `No lock`, disabled
+  `Aim`/`Fire`/`Gather`, and disabled future planet primary buttons.
+- The `?` help system needs topic metadata, a real topic catalog, and smoke that
+  proves no feature body is duplicated as fake help content.
+- Forbidden-copy smoke must scan normal-player visible text and attributes,
+  including `title`, `aria-label`, `alt`, and `placeholder`, with admin-only
+  diagnostics excluded.
+
+## Third Subagent Review Additions - 2026-06-20
+
+- Generic `Inspect` remains live in the window titlebar, and modal rendering can
+  still duplicate `definition.render(state)`. This must be removed, not renamed:
+  window help uses `?` only when a real `helpTopic` exists.
+- Window geometry is still fixed-height through per-window dimensions and CSS
+  height variables. Convert the shell to size classes plus content height,
+  measured clamping, fixed header/footer, and body-only scroll.
+- World input suppression is still timer-based. Phase 04 must coordinate with
+  Phase 10 on a shared input authority and add delayed canvas-click leak checks
+  after modal/window focus.
+- Empty target UI still shows `No lock` plus disabled action clutter. Normal
+  player UI must hide disabled `Aim`, `Fire`, and `Gather` when no valid target
+  or resource exists.
+
+## Fourth Subagent Review Additions - 2026-06-20
+
+- Define mobile/tablet window behavior explicitly. If small viewports convert
+  windows into bottom sheets, mark them as non-draggable by design and remove
+  drag affordance/copy; otherwise implement touch dragging with stable bounds.
+- Browser smoke must cover moving plus modal/window interaction on desktop,
+  tablet, and mobile. Touch/pointer paths should prove clicks, drags, and
+  bottom-sheet interactions do not leak `move_to`.
+- Coordinate with Phase 10 so `Tab` inside modals/windows follows focus-trap or
+  native form behavior, while world target cycling happens only when world focus
+  owns the keyboard.
+- Modal/window focus tests must include delayed canvas clicks after any old
+  timer-based HUD suppression would have expired.
+
 ## Implementation Plan
 
 1. Replace window sizing.
@@ -114,6 +180,14 @@ docs/plans/task-001/04-hud-modal-tutorial-window-system.md
       role-gated admin diagnostics exempted.
 - [ ] Smoke asserts no generic `Inspect`, no forbidden debug copy, and no dead
       target/planet primary controls.
+- [ ] Smoke fails on visible normal-player `Inspect`, `No lock`, disabled
+      `Aim`/`Fire`/`Gather`, and disabled future planet primary buttons.
+- [ ] Modal focus trap, focus return, Escape close, backdrop close, and delayed
+      modal/window canvas-click leak checks are covered by browser smoke.
+- [ ] Mobile/tablet window behavior is explicit: either touch-draggable with
+      bounds or bottom-sheet non-draggable with no fake drag affordance.
+- [ ] Moving plus modal/window click/drag/touch isolation is smoke-tested on
+      desktop, tablet, and mobile.
 - [ ] Palette is closer to black/white monochrome with restrained accents.
 - [ ] Browser smoke checks no horizontal overflow on desktop/tablet/mobile.
 

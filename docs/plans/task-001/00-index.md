@@ -100,6 +100,161 @@ UI findings:
 - The minimap/radar is visually weak, inert, and does not feel like a circular
   sector map.
 
+## Subagent Review Pass - 2026-06-20
+
+Fresh read-only subagents reviewed Task 001 by phase group and cross-checked
+the phase plans against the backend module specs under `docs/plans/modules/`.
+All agents were closed after reporting. Their findings are folded into the
+phase files as planning additions, not completed checklist items.
+
+Key additions from the review:
+
+- Phase 01 needs explicit reducer contracts for singular `route.snapshot`,
+  standalone `planet_storage`, passive economy event reconciliation or refresh,
+  `death.ship_disabled` runtime bridging, and broader unimplemented-operation
+  guard lists.
+- Phase 02 needs an exact worker/spatial-index projection task, minimap
+  reconciliation from AOI diffs, stable minimap DOM/server identities, and smoke
+  rewrites for fog removal.
+- Phase 03 needs viewer/target identity in visibility, a separate player
+  stealth state instead of reusing generic hidden markers, worker speed mutation
+  for stealth toggles, a live-player scan reveal branch, and witness leak tests.
+- Phase 04 and Phase 10 need a single world-focus/input ownership rule, real
+  `?` tutorial topics instead of `Inspect`, content-sized windows, dead-control
+  cleanup, `Tab` target cycling, radar contact click contracts, and WASD
+  decision/testing.
+- Phase 05 and Phase 07 need an explicit server-owned content/catalog model,
+  `shop.catalog` or equivalent system-product query, system shop vs player
+  market separation, DarkOrbit-style category mapping, passive economy
+  reconciliation, and anti-debug-copy tests.
+- Phase 06, Phase 08, and Phase 09 need stronger backend/UI contracts for
+  display metadata, idempotency, planet storage/routes, quest passive events,
+  and smoke coverage for real buttons instead of disabled placeholder clutter.
+- Phase 11 must move smoke artifacts to `output/screenshots/task-001/`, remove
+  old `radar_range === 420` and active-fog expectations, and assert forbidden
+  debug copy in visible text, `title`, and `aria-label`.
+
+## Second Subagent Review Pass - 2026-06-20
+
+Fresh read-only caveman-mode subagents reviewed the current Task 001 plan and
+dirty worktree again after the first implementation slices. They did not edit
+files or run tests. Their new backend/UI gaps are folded into the owning phase
+files as planning additions.
+
+Second-pass findings to preserve:
+
+- Phase 01 still needs explicit tracking for progression rank/skill contracts,
+  system shop catalog/buy contracts, auction grant semantics, product-specific
+  premium stock intent, strict trusted-payload denylist parity, and the open
+  browser revoked-session/auth-expiry smoke.
+- Phase 02 needs a projection source contract for DB overlays, procedural/live
+  materialization, and worker-owned entities so the widened radar is not only a
+  larger view of current in-memory fixtures.
+- Phase 03 is not yet playable end to end: server witness foundations exist,
+  but public stealth activation, scanner-created witnesses, client leak guards,
+  and `scan_revealed` UI treatment remain open.
+- Phase 04 and Phase 10 still have live code evidence for generic `Inspect`,
+  fixed-height windows, timer-only input suppression, missing `Tab`, undecided
+  WASD, and incomplete radar click semantics.
+- Phase 05 and Phase 07 need exact content/shop contracts: `ContentRegistry`,
+  `ShopProductDefinition`, `shop.catalog`, `shop.buy_product` vs `market.buy`,
+  server-owned category/detail metadata, and replacement of old `raw_ore` /
+  `server_recalculates` smoke expectations.
+- Phase 06 needs a real public contract matrix for inventory/cargo/loadout/
+  hangar, richer cargo display metadata, duplicate command guards, and a named
+  runtime blocker for module-aware cargo capacity during ship activation.
+- Phase 08 and Phase 09 need smoke and plan alignment: disabled planet
+  placeholders must fail, detail open must refresh production/storage/routes,
+  production settlement needs an owner wrapper, quests need server-owned action
+  state, and quest events must remove stale offers.
+- Phase 11 must not pass release with old screenshots, old shop smoke, missing
+  auth-expiry smoke, missing scanner witness, weak forbidden-copy scans,
+  incomplete Phase 10 input coverage, or missing multi-client economy fanout
+  evidence.
+
+## Third Subagent Review Pass - 2026-06-20
+
+Fresh read-only subagents were closed and respawned by task area to review the
+current dirty worktree against the Task 001 phase plans and the backend module
+specs under `docs/plans/modules/`. They did not edit files or run tests. Their
+new findings are folded into the owning phase files as open planning gates.
+
+Third-pass findings to preserve:
+
+- Phase 01 still has protocol denylist drift between Go request rejection,
+  TypeScript command rejection, and TypeScript server-message parsing. Admin
+  exceptions such as `target_player_id` must be explicit and tested.
+- Phase 02's widened projection is still worker-memory only. Task 001 needs a
+  source contract and tests for worker entities, DB/procedural/live
+  materialization, known intel, NPCs, loot, and players.
+- Phase 03 still lacks browser-level two/three-session scanner witness smoke,
+  visible `scan_revealed` treatment, and final stealth module/energy/cooldown/
+  anti-spam rules.
+- Phase 04 and Phase 10 still have live code evidence for generic `Inspect`,
+  fixed-height windows, timer-only world input suppression, missing `Tab`,
+  undecided WASD, dead target clutter, and generic minimap click behavior.
+- Phase 05 is a root blocker: there is no canonical content registry,
+  system shop catalog, broad NPC/loot archetypes, or complete recipe/content
+  reference validation. Downstream UI phases must not fake around that gap.
+- Phase 06 still has raw/thin cargo payloads, no `inventory.move` contract,
+  no top-level Equipment/Inventory/Cargo/Crafting tabs, no per-action pending
+  guards, and runtime hangar activation is not module-aware.
+- Phase 07 still has no real `shop.catalog` or `shop.buy_product`, still uses
+  raw ore market fixtures as system shop truth, and still lacks passive economy
+  fanout/refresh proof for market, auction, premium, and shop catalog viewers.
+- Phase 08 and Phase 09 still expose disabled primary placeholders where the
+  backend registry is read-only, and their payloads lack action-state,
+  revision, settlement, and display metadata needed for real UI.
+- Phase 11 can false-pass today: smoke writes old screenshot directories, shop
+  smoke proves old wrong categories/raw ore/server-recalculates truth, planet
+  smoke accepts disabled placeholders, and artifact freshness is manual.
+
+## Fourth Subagent Review Pass - 2026-06-20
+
+Fresh read-only caveman-mode subagents reviewed every Task 001 phase against
+the current worktree and the relevant backend module specs. They did not edit
+files or run tests. Their findings are folded into the owning phase files as
+open planning gates.
+
+Fourth-pass findings to preserve:
+
+- Phase 01 needs explicit classification and production-negative tests for
+  `session.snapshot`, `debug_snapshot`, and `debug_spawn_npc`; per-operation
+  rate-limit posture for scan, market search, quest reroll, combat, and loot;
+  and public bridge/refresh decisions for loot expiry, production settlement,
+  offline settlement, and route transfer events.
+- Phase 02 needs scan/known-planet updates to refresh minimap and world memory
+  without requiring a manual Sync, a far-memory policy that does not clamp old
+  intel into a fake near contact, and tests for square projection versus
+  circular radar rendering.
+- Phase 03 needs scanner reveal success to guarantee the revealed hidden player
+  is serializable in the current server AOI projection, stealth speed to resync
+  when base stats change while cloaked, and browser smoke mocks that emit the
+  self AOI `stealthed` flag instead of assuming local truth.
+- Phase 04 and Phase 10 need repeat-key spam guards, a clear `Tab` split
+  between world target cycling and modal/input native focus behavior,
+  op-specific quick-action rate-limit gates, and mobile/tablet pointer leak
+  smoke for moving plus modal/window interaction.
+- Phase 05 needs a concrete `energy_cell_batch` quest/crafting mismatch fixed
+  or blocked by registry validation, crafting/loot display metadata contracts,
+  and a non-starter ship acquisition invariant.
+- Phase 06 needs a crafting-tab policy now that `crafting.recipes` exists, a
+  fail-closed unknown-catalog cargo policy, active-ship hangar buttons hidden in
+  favor of status badges, and broader raw-id smoke across visible/title/aria
+  text.
+- Phase 07 needs sell/listing eligibility metadata, retry-safe
+  `market.create_listing`, auction wallet selection by `lot.currency_type`,
+  product-specific premium stock identity, and duplicate-send guards for every
+  economy mutation, not only `auction.bid`.
+- Phase 08 and Phase 09 need `planet.storage_summary` collection/singular
+  payload parity, inbound and outbound route display metadata, planet actions
+  driven by server `available_commands` or `can_*` state, and quest expiry/reset
+  contracts with stale-board smoke.
+- Phase 11 needs a current-run manifest, `check:task-001` artifact gate, hard
+  phase-closure table, real-server provenance for screenshots, negative debug
+  WebSocket smoke, three-session witness interaction smoke, and visual parity
+  contact sheets instead of file-existence-only proof.
+
 ## User Issue Coverage
 
 | User issue | Covered by |
@@ -174,9 +329,11 @@ Use narrow commands while implementing. Before final handoff:
 GOCACHE=/tmp/gameproject-go-cache go test ./...
 cd client
 npm --cache /tmp/gameproject-npm-cache run check
+npm --cache /tmp/gameproject-npm-cache run check:task-001
 cd ..
 git diff --check
 find output/screenshots/task-001 -maxdepth 1 -type f | sort
+node client/tests/verify-task-001-artifacts.mjs
 ```
 
 UI screenshots for this task should live under:
@@ -192,3 +349,5 @@ output/screenshots/task-001/
 - Full verification passes.
 - Desktop/tablet/mobile screenshots show visible progress toward the mockups.
 - No client fake data or debug/internal player copy remains in normal player UI.
+- Final smoke artifact policy is enforced by script, not manual `find`: exact
+  `output/screenshots/task-001/*` set, non-empty files, and current-run mtime.

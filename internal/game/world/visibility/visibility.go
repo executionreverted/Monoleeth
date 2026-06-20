@@ -3,7 +3,9 @@ package visibility
 import (
 	"errors"
 	"math"
+	"time"
 
+	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/stats"
 	"gameproject/internal/game/world"
 )
@@ -53,10 +55,13 @@ func (signature EntitySignature) valid() bool {
 
 // Viewer is the server-owned visibility state for a player.
 type Viewer struct {
+	PlayerID   foundation.PlayerID
 	WorldID    world.WorldID
 	ZoneID     world.ZoneID
 	Position   world.Vec2
 	RadarRange ServerRadarRange
+	Witnesses  []Witness
+	ObservedAt time.Time
 }
 
 func (viewer Viewer) valid() bool {
@@ -76,6 +81,7 @@ func (viewer Viewer) valid() bool {
 //
 // This is an internal decision input, not a client payload shape.
 type Entity struct {
+	PlayerID  foundation.PlayerID
 	WorldID   world.WorldID
 	ZoneID    world.ZoneID
 	ID        world.EntityID
@@ -100,16 +106,21 @@ func (entity Entity) valid() bool {
 	return entity.Signature.valid()
 }
 
+// Witness is a viewer-specific temporary scanner reveal for one hidden player.
+// It is an internal visibility input only and must not be serialized.
+type Witness struct {
+	TargetPlayerID foundation.PlayerID
+	ExpiresAt      time.Time
+}
+
 // CanSendEntityToClient reports whether entity may be serialized to viewer.
 //
-// Hidden entities are always rejected. Normal entities must be in the same
-// world and zone, have valid server-owned visibility inputs, and be within the
-// viewer radar range.
+// Hidden entities are rejected unless they are the viewer's own player entity
+// or a hidden player covered by an active viewer-specific witness. Normal
+// entities must be in the same world and zone, have valid server-owned
+// visibility inputs, and be within the viewer radar range.
 func CanSendEntityToClient(viewer Viewer, entity Entity) bool {
 	if !viewer.valid() || !entity.valid() {
-		return false
-	}
-	if entity.Hidden {
 		return false
 	}
 	if viewer.WorldID != entity.WorldID || viewer.ZoneID != entity.ZoneID {
@@ -117,7 +128,13 @@ func CanSendEntityToClient(viewer Viewer, entity Entity) bool {
 	}
 
 	radarRange := viewer.RadarRange.Units()
-	return viewer.Position.DistanceSquared(entity.Position) <= radarRange*radarRange
+	if viewer.Position.DistanceSquared(entity.Position) > radarRange*radarRange {
+		return false
+	}
+	if entity.Hidden && !hiddenEntityAllowed(viewer, entity) {
+		return false
+	}
+	return true
 }
 
 // CanInteract reports whether viewer may issue a live interaction against
@@ -132,4 +149,26 @@ func CanInteract(viewer Viewer, entity Entity) error {
 
 func finiteNonNegative(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
+}
+
+func hiddenEntityAllowed(viewer Viewer, entity Entity) bool {
+	if entity.PlayerID.IsZero() {
+		return false
+	}
+	if viewer.PlayerID == entity.PlayerID {
+		return true
+	}
+	for _, witness := range viewer.Witnesses {
+		if witness.TargetPlayerID != entity.PlayerID {
+			continue
+		}
+		if witness.ExpiresAt.IsZero() {
+			continue
+		}
+		if !viewer.ObservedAt.IsZero() && !witness.ExpiresAt.After(viewer.ObservedAt) {
+			continue
+		}
+		return true
+	}
+	return false
 }

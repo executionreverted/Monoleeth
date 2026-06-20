@@ -8,7 +8,7 @@ Task 001 turns the authenticated browser client from a mostly connected HUD into
 a real playtestable game surface. It must find and close the missing UI to
 server gameplay links, widen the server-owned world/radar visibility experience,
 remove the current debug-looking UI copy, and rebuild the main game menus around
-the DarkOrbit-style system layouts referenced by the local mockups.
+the DarkOrbit-style system layouts referenced by the local mockups. Use caveman skill for your subagents.
 
 This goal is complete only when:
 

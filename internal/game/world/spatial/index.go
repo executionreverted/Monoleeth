@@ -139,6 +139,35 @@ func (idx *Index) QueryRadius(center Position, radius float64) ([]QueryResult, e
 	return results, nil
 }
 
+// QueryWindow returns entities inside a square window centered on center.
+// halfExtent is measured from center to each side. Results are sorted by entity
+// ID for deterministic AOI diffs.
+func (idx *Index) QueryWindow(center Position, halfExtent float64) ([]QueryResult, error) {
+	cells, err := cellsForWindow(center, halfExtent, idx.cellSize)
+	if err != nil {
+		return nil, err
+	}
+
+	minX := center.X - halfExtent
+	maxX := center.X + halfExtent
+	minY := center.Y - halfExtent
+	maxY := center.Y + halfExtent
+	results := make([]QueryResult, 0)
+	for _, cell := range cells {
+		for id := range idx.cells[cell] {
+			entity := idx.entities[id]
+			if entity.position.X >= minX && entity.position.X <= maxX && entity.position.Y >= minY && entity.position.Y <= maxY {
+				results = append(results, QueryResult{ID: id, Position: entity.position})
+			}
+		}
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].ID < results[j].ID
+	})
+	return results, nil
+}
+
 func (idx *Index) addToCell(id EntityID, cell Cell) {
 	if idx.cells[cell] == nil {
 		idx.cells[cell] = make(map[EntityID]struct{})

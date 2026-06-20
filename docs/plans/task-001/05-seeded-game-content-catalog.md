@@ -52,6 +52,97 @@ internal/game/ships/catalog.go
   shop products, auctions, crafting recipes, production outputs, routes, and
   quests.
 
+## Catalog Registry Contract
+
+Phase 05 must introduce an explicit server-owned content model, not only a loose
+seed validator.
+
+Required concepts:
+
+- `ContentRegistry` and `CatalogVersion` for deterministic playtest content.
+- Stable internal ids plus player-facing `DisplayName`, `Description`,
+  `Category`, `Subcategory`, `ArtKey`, rarity/tier, and sort order.
+- `ShopProductDefinition` records for system shop products, separate from
+  player market listings.
+- `AvailabilityRule`, `PricePolicy`, `StockPolicy`, `GrantTarget`, and backing
+  refs for item, module, ship, premium, quest, planet, or unlock grants.
+- Cross-catalog validation for products, NPC drops, loot boxes, crafting
+  recipes, production outputs, route resources, quest rewards, auction
+  fixtures, starter inventory, and starter loadout.
+- Server payload helpers so UI surfaces can render display metadata without
+  printing raw ids or inventing client-only labels.
+
+## Subagent Review Additions - 2026-06-20
+
+- Make the canonical registry an explicit model, not only a vague validator.
+  Preferred shape is a new `internal/game/catalog` or `internal/game/content`
+  package with `ContentRegistry`, `CatalogVersion`, `Category`, `ArtKey`,
+  `DisplayName`, `Description`, and reference records for item/module/ship/
+  recipe/production/quest definitions.
+- Add `ShopProductDefinition` or equivalent server-owned product records in
+  this phase so Phase 07 does not have to infer shop categories from player
+  market listings.
+- Validate all cross-catalog references at seed time: shop products, NPC drops,
+  loot boxes, crafting recipes, production outputs, route resources, quest
+  rewards, auction fixtures, and starter inventory/loadout.
+- Tests should assert catalog invariants rather than old exact MVP counts. Raw
+  ids and snake_case names are allowed as internal ids only, not as primary
+  display names.
+
+## Second Subagent Review Additions - 2026-06-20
+
+- Existing code has only partial catalog/version pieces and old `raw_ore`
+  economy seed paths. Treat replacement of raw market fixtures with registry
+  products as part of this phase, not a Phase 07-only UI cleanup.
+- Add a seed-time invariant that every player-visible display name differs from
+  raw snake_case ids unless explicitly whitelisted as a deliberate lore name.
+- Add product grant-target validation before UI work consumes the catalog:
+  ship unlocks, module/items, premium weekly stock, auction grants, crafting
+  outputs, planet/building requirements, and quest rewards must all resolve to
+  owning services or named blockers.
+
+## Third Subagent Review Additions - 2026-06-20
+
+- Treat Phase 05 as a root blocker for downstream UI. The current code has a
+  generic definition/version shape, but not a canonical `ContentRegistry` with
+  typed refs, display metadata, art keys, categories, and cross-catalog
+  validation.
+- Replace raw market fixture truth. `raw_ore` and a single system seller
+  listing must not be the real shop/catalog seed; system shop products should
+  be registry-backed and separated from player market listings.
+- Add an NPC archetype catalog and seed visible playtest NPCs matching quest and
+  combat types, not only the training drone. Quest kill targets must align with
+  spawned hostile archetypes.
+- Replace hard-coded one-row loot with NPC/lootable-box tables covering common,
+  uncommon, rare, X-Core/intel, and resource drops with display metadata.
+- Fix crafting/runtime item reference mismatches. Every recipe input/output
+  such as lens/coil/batch items must resolve to a runtime item definition or be
+  renamed to an existing id.
+- Extend the seed validator so no recipe, quest, production route, auction,
+  premium grant, starter inventory, starter loadout, or shop product references
+  missing content.
+
+## Fourth Subagent Review Additions - 2026-06-20
+
+- Add a concrete startup validation gate such as
+  `ContentRegistry.ValidateReferences()` that resolves quest recipe ids, quest
+  NPC target archetypes, recipe inputs/outputs, ship acquisition refs,
+  shop/auction/premium grant targets, production resources, and route cargo
+  against the same registry.
+- Fix or explicitly block the current quest/crafting mismatch where the quest
+  template references `energy_cell_batch` but the crafting catalog does not
+  define a matching output.
+- Crafting recipe payloads must include display metadata or catalog refs for
+  inputs and outputs. UI surfaces such as `Next` must not print raw recipe,
+  item, or module ids.
+- Loot drop payloads need server-owned `display_name`, `category`, and
+  `art_key` fields or catalog refs so target panels and pickup logs do not
+  prettify raw ids client-side.
+- Every non-starter ship should have at least one testable acquisition path
+  through shop, craft, auction, quest, premium, or an explicit named blocker.
+- Browser smoke should ban raw ids in crafting, loot target, production, route,
+  shop, and inventory visible text and relevant attributes, not only cargo rows.
+
 ## Seed Categories
 
 Initial original playtest catalog:
@@ -152,12 +243,26 @@ docs/plans/task-001/05-seeded-game-content-catalog.md
       into an intentional resource with game context.
 - [ ] Raw ids/snake_case are not used as player display names.
 - [ ] Seeded products/listings reference valid server definitions.
+- [ ] Server-owned shop product definitions exist for system shop categories,
+      separate from player market listing fixtures.
 - [ ] Loot and NPC names are visible from server-owned data.
 - [ ] Crafting recipes reference real item/module/ship definitions.
 - [ ] Planet, production, route, and quest fixtures exist for downstream UI
       phases.
 - [ ] Server payloads include display metadata needed to avoid raw id rendering.
 - [ ] Tests protect catalog reference integrity.
+- [ ] Runtime seeded NPC archetypes match quest/combat target types.
+- [ ] Crafting recipe inputs/outputs all resolve to runtime item definitions.
+- [ ] Real-mode system shop seed no longer depends on `listing-raw-ore-1` as
+      primary product truth.
+- [ ] Startup catalog validation resolves quest recipe ids, quest NPC targets,
+      recipe inputs/outputs, ship acquisition refs, shop/auction/premium grants,
+      production resources, and route cargo.
+- [ ] The `energy_cell_batch` quest/crafting mismatch is fixed or blocked by
+      registry validation.
+- [ ] Crafting recipe and loot drop payloads expose display metadata or catalog
+      refs, and normal UI does not render their raw ids.
+- [ ] Every non-starter ship has an acquisition path or named blocker.
 
 ## Verification
 

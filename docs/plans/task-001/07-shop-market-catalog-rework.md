@@ -55,6 +55,138 @@ client/src/styles.css
 - Auction and premium grant surfaces must be hidden/locked unless concrete
   grant adapters exist for their payload types.
 
+## Shop Catalog Protocol Contract
+
+Preferred contract:
+
+- Query/op: `shop.catalog`.
+- Optional mutation: `shop.buy_product` for system products.
+- Player market mutations remain `market.buy`, `market.create_listing`, and
+  `market.cancel`; they do not replace the system product catalog.
+- Request payload: catalog version/cursor and optional category/filter only.
+  Client never sends authoritative price, fee, stock, grant, category, or
+  availability truth.
+- Response payload: catalog version, categories, products, availability,
+  player-facing locked reason, display metadata, art key, grant target summary,
+  price policy, stock policy, owned/eligible state, and safe refresh hints.
+- Reducer state: `shop.catalog`, selected category/product, pending product
+  intent, and last refresh/error. Selection is UI-only; product truth is
+  server-owned.
+- Events/refresh: product stock or availability changes either carry safe
+  catalog deltas or trigger `shop.catalog` refresh. Private purchase/grant
+  data remains owner-only.
+- Rate limits: catalog refresh is query-rate-limited; buy product uses command
+  rate-limit plus wallet/inventory/ship/ledger validation.
+- Hidden fields: no provider refs, hidden grant internals, server cost formulas,
+  private stock reservations, escrow refs, or raw ids as display names.
+
+## UI Category And Detail Requirements
+
+The primary shop layout must use game categories, not only
+`market | sell | auction | premium` tabs.
+
+Required category rail:
+
+- Ships
+- Weapons
+- Ammo
+- Launchers
+- Shield Generators
+- Speed Generators
+- Extras/Modules
+- Scanner/Radar
+- Stealth
+- Cargo/Utility
+- Boosters
+- Resources
+
+Selected product detail needs art, display name, description, rarity/tier,
+slot/category, stat chips, requirements, availability, owned state, price,
+stock, and clear buy/list/bid actions backed by the owning server contract.
+
+## Subagent Review Additions - 2026-06-20
+
+- Add a real `shop.catalog` or equivalent server-owned product query. Touch
+  points must include realtime operation constants, handler registration,
+  `handleShopCatalog`, safe product payloads, TypeScript operation/command
+  builders, reducer state, and browser smoke.
+- Split system shop products from player market listings. Decide whether buys
+  use `shop.buy_product` or a system-backed `market.buy`; either way category,
+  stock, price, availability, display name, art key, and backing refs come from
+  server-owned catalog/listings.
+- Replace `market | sell | auction | premium` as the primary shop layout with
+  game categories: Ships, Weapons, Ammo, Launchers, Shield Generators, Speed
+  Generators, Extras/Modules, Scanner/Radar, Stealth, Cargo/Utility, Boosters,
+  and Resources.
+- Remove visible `server_recalculates`/`Server: recalculates` copy and update
+  tests that currently assert it. Internal quote metadata may exist only if it
+  never renders in normal player UI.
+- Passive market, auction, and premium events must update reducer state or
+  trigger explicit refresh queries. Add multi-client tests around buy, bid,
+  listing/cancel, premium purchase, and grant/claim paths.
+- Auction/premium grant UI must be hidden/locked with a named blocker unless
+  concrete grant adapters mutate wallet/inventory/unlocks through real services
+  and ledger/reference tests.
+
+## Second Subagent Review Additions - 2026-06-20
+
+- Pin the system shop/player market decision now: use `shop.catalog` and
+  `shop.buy_product` for system products, keep `market.buy` for player listings,
+  unless implementation deliberately documents a system-listing bridge with the
+  same metadata and ledger guarantees.
+- Remove old smoke truth that expects `Market`, `Sell`, `Auction`, `Premium` as
+  the primary shop categories, `raw_ore` as the shop buy item, or
+  `server_recalculates` as a rendered/state expectation.
+- Add a passive economy privacy matrix for buyer, seller, previous bidder,
+  winner, passive shop viewer, premium entitlement owner, and stock viewer.
+  Each row must define event, refresh query, private fields blocked, and
+  viewer-relative fields such as auction `leading`.
+- Hide or lock auction grants, weekly X Core, loadout/cosmetic/badge grants, or
+  premium grants unless the payload type has a concrete adapter into its owning
+  service plus ledger/reference tests.
+
+## Third Subagent Review Additions - 2026-06-20
+
+- `shop.catalog` and `shop.buy_product` do not exist yet in the realtime ops,
+  server handler map, TypeScript operation constants/builders, reducer state,
+  or smoke. Phase 07 cannot pass as a real game shop without this contract or a
+  deliberately equivalent system-product bridge.
+- System shop products must not be represented as player market listings.
+  Remove the real-mode `listing-raw-ore-1` path or move it behind an explicit
+  dev/demo fixture.
+- Existing shop UI/smoke still proves the old `Market`, `Sell`, `Auction`,
+  `Premium` economy tabs and `raw_ore` purchase truth. Replace those as primary
+  shop assertions with game categories and selected product detail.
+- Passive economy event handling is still not enough for buyer, seller,
+  previous bidder, winner, premium owner, stock viewer, and passive shop viewer.
+  Implement reducer deltas or explicit refresh-needed state for market,
+  auction, premium, and shop catalog.
+- Auction/premium grants remain skeleton unless concrete adapters mutate the
+  owning wallet/inventory/unlock services with ledger/reference evidence. Hide
+  those actions or keep them locked with a named blocker.
+- Market settlement still has durable transaction/outbox risk. Either add
+  rollback-safe transaction coverage or name that backend blocker before
+  expanding shop purchase paths.
+
+## Fourth Subagent Review Additions - 2026-06-20
+
+- Add a sell/listing eligibility contract before rendering a real Sell surface.
+  Inventory stack snapshots need `list_eligible` plus player-facing
+  `locked_reason`, or the client must query `market.sell_options` from the
+  server.
+- Make `market.create_listing` retry-safe. Repeating the same domain
+  idempotency key should return the existing successful result rather than a
+  duplicate-listing error or second escrow mutation.
+- Auction controls must use `lot.currency_type` for bid/buy-now wallet checks,
+  balance labels, and insufficient-funds copy. Do not assume credits-only lots
+  if the payload supports other currencies.
+- Replace empty/singleton premium stock purchase intent with product-specific
+  identity: `stock_id`, `product_id`, `world_id`, `period_key`, price, and
+  currency are server-owned and validated.
+- Add duplicate-send pending guards and smoke for `market.buy`,
+  `market.create_listing`, `market.cancel`, `auction.buy_now`, `premium.claim`,
+  and premium stock purchase, not only `auction.bid`.
+
 ## Implementation Plan
 
 1. Replace shop layout.
@@ -127,21 +259,40 @@ docs/plans/task-001/07-shop-market-catalog-rework.md
 - [ ] Shop follows category/list/detail/buy-panel layout.
 - [ ] Server-owned shop catalog/system-product contract exists or the expanded
       market payload explicitly provides equivalent metadata.
+- [ ] `shop.catalog` query and `shop.buy_product` command exist in server
+      realtime ops, handler map, client builders, reducer state, and smoke, or
+      an equivalent system-product bridge is documented and tested.
+- [ ] System shop products are separated from player market listings.
+- [ ] Real-mode system shop no longer depends on the `listing-raw-ore-1` seed.
 - [ ] Categories map to real server catalog/listing data.
-- [ ] No player-facing `server recalculates` copy remains.
-- [ ] `server_recalculates` is absent from normal player UI and client smoke
+- [x] No player-facing `server recalculates` copy remains.
+- [x] `server_recalculates` is absent from normal player UI and client smoke
       expectations.
 - [ ] Raw temporary names are removed or replaced by server display names.
 - [ ] Quantity and purchase/list/bid actions reconcile with server responses.
 - [ ] Market totals/fees/escrow are not trusted from the client.
 - [ ] Auction and premium event paths reconcile or refresh passive clients.
+- [ ] Multi-client economy tests cover buyer/seller/passive viewer, previous
+      bidder/winner, and premium owner/stock viewer or record exact backend
+      fanout blockers.
 - [ ] Auction/premium grants are real for their payload type or hidden/locked
       with a named blocker.
 - [ ] Purchase/bid buttons debounce pending actions and smoke asserts one click
       emits exactly one mutation command.
+- [ ] Sell/listing eligibility comes from server inventory metadata or a
+      `market.sell_options` query; locked stacks do not appear as enabled sell
+      actions.
+- [ ] `market.create_listing` is retry/idempotency safe for duplicate requests.
+- [ ] Auction bid/buy-now UI uses `lot.currency_type` wallet data.
+- [x] Premium stock purchase identity is product-specific and server-owned.
+- [ ] All economy mutations have duplicate-send pending guards and smoke, not
+      only `auction.bid`.
 - [ ] New purchase/grant paths have ledger/reference tests or a named durable
       transaction blocker.
 - [ ] Browser smoke covers shop category/detail/buy behavior.
+- [ ] Browser smoke fails on primary `Market/Sell/Auction/Premium` category
+      truth, `raw_ore` shop purchase truth, and normal-player
+      `server_recalculates` expectations.
 
 ## Verification
 

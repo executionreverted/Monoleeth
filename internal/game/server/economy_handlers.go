@@ -14,6 +14,8 @@ import (
 	"gameproject/internal/game/realtime"
 )
 
+const premiumWeeklyXCoreProductID = "weekly_xcore"
+
 type marketSearchPayload struct {
 	Listings []marketListingPayload `json:"listings"`
 	Counts   marketCountsPayload    `json:"counts"`
@@ -35,7 +37,7 @@ type marketListingPayload struct {
 	Status                string                `json:"status"`
 	ExpiresAt             int64                 `json:"expires_at,omitempty"`
 	OwnedByYou            bool                  `json:"owned_by_you"`
-	ServerRecalculates    bool                  `json:"server_recalculates"`
+	FinalPricePending     bool                  `json:"final_price_pending"`
 	EstimatedUnitPurchase marketEstimatePayload `json:"estimated_unit_purchase"`
 }
 
@@ -47,16 +49,16 @@ type marketEstimatePayload struct {
 }
 
 type marketMutationPayload struct {
-	Accepted           bool                     `json:"accepted"`
-	Duplicate          bool                     `json:"duplicate,omitempty"`
-	Listing            marketListingPayload     `json:"listing"`
-	Quantity           int64                    `json:"quantity,omitempty"`
-	ServerTotal        int64                    `json:"server_total,omitempty"`
-	ServerFee          int64                    `json:"server_fee,omitempty"`
-	ServerRecalculates bool                     `json:"server_recalculates"`
-	Market             marketSearchPayload      `json:"market"`
-	Wallet             walletSnapshotPayload    `json:"wallet"`
-	Inventory          inventorySnapshotPayload `json:"inventory"`
+	Accepted          bool                     `json:"accepted"`
+	Duplicate         bool                     `json:"duplicate,omitempty"`
+	Listing           marketListingPayload     `json:"listing"`
+	Quantity          int64                    `json:"quantity,omitempty"`
+	ServerTotal       int64                    `json:"server_total,omitempty"`
+	ServerFee         int64                    `json:"server_fee,omitempty"`
+	FinalPricePending bool                     `json:"final_price_pending"`
+	Market            marketSearchPayload      `json:"market"`
+	Wallet            walletSnapshotPayload    `json:"wallet"`
+	Inventory         inventorySnapshotPayload `json:"inventory"`
 }
 
 type auctionSearchPayload struct {
@@ -65,20 +67,20 @@ type auctionSearchPayload struct {
 }
 
 type auctionLotPayload struct {
-	AuctionID          string `json:"auction_id"`
-	PayloadType        string `json:"payload_type"`
-	DefinitionID       string `json:"definition_id"`
-	Quantity           int64  `json:"quantity"`
-	Currency           string `json:"currency_type"`
-	StartPrice         int64  `json:"start_price"`
-	CurrentBid         int64  `json:"current_bid"`
-	HasBid             bool   `json:"has_bid"`
-	Leading            bool   `json:"leading"`
-	BuyNowPrice        *int64 `json:"buy_now_price,omitempty"`
-	Status             string `json:"status"`
-	StartsAt           int64  `json:"starts_at"`
-	EndsAt             int64  `json:"ends_at"`
-	ServerRecalculates bool   `json:"server_recalculates"`
+	AuctionID         string `json:"auction_id"`
+	PayloadType       string `json:"payload_type"`
+	DefinitionID      string `json:"definition_id"`
+	Quantity          int64  `json:"quantity"`
+	Currency          string `json:"currency_type"`
+	StartPrice        int64  `json:"start_price"`
+	CurrentBid        int64  `json:"current_bid"`
+	HasBid            bool   `json:"has_bid"`
+	Leading           bool   `json:"leading"`
+	BuyNowPrice       *int64 `json:"buy_now_price,omitempty"`
+	Status            string `json:"status"`
+	StartsAt          int64  `json:"starts_at"`
+	EndsAt            int64  `json:"ends_at"`
+	FinalPricePending bool   `json:"final_price_pending"`
 }
 
 type auctionGrantPayload struct {
@@ -91,15 +93,15 @@ type auctionGrantPayload struct {
 }
 
 type auctionMutationPayload struct {
-	Accepted           bool                  `json:"accepted"`
-	Duplicate          bool                  `json:"duplicate,omitempty"`
-	Lot                auctionLotPayload     `json:"lot"`
-	Amount             int64                 `json:"amount,omitempty"`
-	Price              int64                 `json:"price,omitempty"`
-	Grant              *auctionGrantPayload  `json:"grant,omitempty"`
-	Auction            auctionSearchPayload  `json:"auction"`
-	Wallet             walletSnapshotPayload `json:"wallet"`
-	ServerRecalculates bool                  `json:"server_recalculates"`
+	Accepted          bool                  `json:"accepted"`
+	Duplicate         bool                  `json:"duplicate,omitempty"`
+	Lot               auctionLotPayload     `json:"lot"`
+	Amount            int64                 `json:"amount,omitempty"`
+	Price             int64                 `json:"price,omitempty"`
+	Grant             *auctionGrantPayload  `json:"grant,omitempty"`
+	Auction           auctionSearchPayload  `json:"auction"`
+	Wallet            walletSnapshotPayload `json:"wallet"`
+	FinalPricePending bool                  `json:"final_price_pending"`
 }
 
 type premiumSummaryPayload struct {
@@ -435,7 +437,7 @@ func (runtime *Runtime) handleAuctionBuyNow(ctx realtime.CommandContext, request
 	return marshalPayload(runtime.auctionMutationResponseLocked(ctx.PlayerID, result.Lot, 0, result.Price, &grant, result.Duplicate))
 }
 
-func (runtime *Runtime) handleAuctionClaimGrant(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+func (runtime *Runtime) handleAuctionGrants(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
 	if err := rejectTrustedPayload(request.Payload); err != nil {
 		return nil, err
 	}
@@ -500,12 +502,25 @@ func (runtime *Runtime) handlePremiumWeeklyXCore(ctx realtime.CommandContext, re
 	if err := rejectTrustedPayload(request.Payload); err != nil {
 		return nil, err
 	}
+	var payload struct {
+		ProductID string `json:"product_id"`
+		PeriodKey string `json:"period_key"`
+	}
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	if payload.ProductID != premiumWeeklyXCoreProductID {
+		return nil, invalidPayload("Premium product is invalid.", nil)
+	}
+	if payload.PeriodKey == "" || payload.PeriodKey != runtime.currentPremiumPeriodKey() {
+		return nil, invalidPayload("Premium stock period is not available.", nil)
+	}
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	result, err := runtime.Premium.PurchaseWeeklyXCore(premium.PurchaseWeeklyXCoreInput{
 		PlayerID:          ctx.PlayerID,
 		WorldID:           runtime.worldID,
-		PeriodKey:         runtime.currentPremiumPeriodKey(),
+		PeriodKey:         payload.PeriodKey,
 		PurchaseReference: request.RequestID.String(),
 		PaymentCurrency:   economy.CurrencyBucketPremiumPaid,
 		PriceAmount:       weeklyXCorePremiumPrice,
@@ -549,30 +564,30 @@ func (runtime *Runtime) handleAdminEconomyDashboard(ctx realtime.CommandContext,
 
 func (runtime *Runtime) marketMutationResponseLocked(playerID foundation.PlayerID, listing market.Listing, quantity int64, serverTotal int64, serverFee int64, duplicate bool) marketMutationPayload {
 	return marketMutationPayload{
-		Accepted:           true,
-		Duplicate:          duplicate,
-		Listing:            marketListingPayloadFromListing(listing, playerID),
-		Quantity:           quantity,
-		ServerTotal:        serverTotal,
-		ServerFee:          serverFee,
-		ServerRecalculates: true,
-		Market:             runtime.marketSearchPayload(playerID, ""),
-		Wallet:             runtime.walletSnapshotLocked(playerID),
-		Inventory:          runtime.inventorySnapshotLocked(playerID),
+		Accepted:          true,
+		Duplicate:         duplicate,
+		Listing:           marketListingPayloadFromListing(listing, playerID),
+		Quantity:          quantity,
+		ServerTotal:       serverTotal,
+		ServerFee:         serverFee,
+		FinalPricePending: true,
+		Market:            runtime.marketSearchPayload(playerID, ""),
+		Wallet:            runtime.walletSnapshotLocked(playerID),
+		Inventory:         runtime.inventorySnapshotLocked(playerID),
 	}
 }
 
 func (runtime *Runtime) auctionMutationResponseLocked(playerID foundation.PlayerID, lot auction.Lot, amount int64, price int64, grant *auctionGrantPayload, duplicate bool) auctionMutationPayload {
 	return auctionMutationPayload{
-		Accepted:           true,
-		Duplicate:          duplicate,
-		Lot:                auctionLotPayloadFromLot(lot, playerID),
-		Amount:             amount,
-		Price:              price,
-		Grant:              grant,
-		Auction:            runtime.auctionSearchPayload(playerID),
-		Wallet:             runtime.walletSnapshotLocked(playerID),
-		ServerRecalculates: true,
+		Accepted:          true,
+		Duplicate:         duplicate,
+		Lot:               auctionLotPayloadFromLot(lot, playerID),
+		Amount:            amount,
+		Price:             price,
+		Grant:             grant,
+		Auction:           runtime.auctionSearchPayload(playerID),
+		Wallet:            runtime.walletSnapshotLocked(playerID),
+		FinalPricePending: true,
 	}
 }
 
@@ -612,7 +627,7 @@ func marketListingPayloadFromListing(listing market.Listing, viewerID foundation
 		Currency:              listing.Currency.String(),
 		Status:                listing.Status.String(),
 		OwnedByYou:            listing.SellerPlayerID == viewerID,
-		ServerRecalculates:    true,
+		FinalPricePending:     true,
 		EstimatedUnitPurchase: estimate,
 	}
 	if listing.ExpiresAt != nil {
@@ -633,20 +648,20 @@ func (runtime *Runtime) auctionSearchPayload(playerID foundation.PlayerID) aucti
 
 func auctionLotPayloadFromLot(lot auction.Lot, viewerID foundation.PlayerID) auctionLotPayload {
 	return auctionLotPayload{
-		AuctionID:          lot.AuctionID.String(),
-		PayloadType:        lot.Payload.Type.String(),
-		DefinitionID:       lot.Payload.Source.DefinitionID.String(),
-		Quantity:           lot.Payload.Quantity,
-		Currency:           lot.Currency.String(),
-		StartPrice:         lot.StartPrice,
-		CurrentBid:         lot.CurrentBid,
-		HasBid:             !lot.CurrentBidderID.IsZero(),
-		Leading:            lot.CurrentBidderID == viewerID,
-		BuyNowPrice:        cloneInt64(lot.BuyNowPrice),
-		Status:             lot.Status.String(),
-		StartsAt:           lot.StartsAt.UTC().UnixMilli(),
-		EndsAt:             lot.EndsAt.UTC().UnixMilli(),
-		ServerRecalculates: true,
+		AuctionID:         lot.AuctionID.String(),
+		PayloadType:       lot.Payload.Type.String(),
+		DefinitionID:      lot.Payload.Source.DefinitionID.String(),
+		Quantity:          lot.Payload.Quantity,
+		Currency:          lot.Currency.String(),
+		StartPrice:        lot.StartPrice,
+		CurrentBid:        lot.CurrentBid,
+		HasBid:            !lot.CurrentBidderID.IsZero(),
+		Leading:           lot.CurrentBidderID == viewerID,
+		BuyNowPrice:       cloneInt64(lot.BuyNowPrice),
+		Status:            lot.Status.String(),
+		StartsAt:          lot.StartsAt.UTC().UnixMilli(),
+		EndsAt:            lot.EndsAt.UTC().UnixMilli(),
+		FinalPricePending: true,
 	}
 }
 

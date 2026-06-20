@@ -13,6 +13,8 @@ var (
 	ErrInvalidPosition = errors.New("invalid spatial position")
 	// ErrNegativeRadius reports a radius query with a negative radius.
 	ErrNegativeRadius = errors.New("negative spatial query radius")
+	// ErrNegativeHalfExtent reports a square window query with a negative half extent.
+	ErrNegativeHalfExtent = errors.New("negative spatial query half extent")
 )
 
 // Position is a minimal 2D world coordinate used by the spatial package.
@@ -66,6 +68,29 @@ func cellsForRadius(center Position, radius float64, cellSize float64) ([]Cell, 
 
 	minCell := CellCoord(Position{X: center.X - radius, Y: center.Y - radius}, cellSize)
 	maxCell := CellCoord(Position{X: center.X + radius, Y: center.Y + radius}, cellSize)
+
+	cells := make([]Cell, 0, (maxCell.X-minCell.X+1)*(maxCell.Y-minCell.Y+1))
+	for y := minCell.Y; y <= maxCell.Y; y++ {
+		for x := minCell.X; x <= maxCell.X; x++ {
+			cells = append(cells, Cell{X: x, Y: y})
+		}
+	}
+	return cells, nil
+}
+
+func cellsForWindow(center Position, halfExtent float64, cellSize float64) ([]Cell, error) {
+	if err := center.Validate(); err != nil {
+		return nil, err
+	}
+	if halfExtent < 0 || math.IsNaN(halfExtent) || math.IsInf(halfExtent, 0) {
+		return nil, fmt.Errorf("half extent %v: %w", halfExtent, ErrNegativeHalfExtent)
+	}
+	if err := validateCellSize(cellSize); err != nil {
+		return nil, err
+	}
+
+	minCell := CellCoord(Position{X: center.X - halfExtent, Y: center.Y - halfExtent}, cellSize)
+	maxCell := CellCoord(Position{X: center.X + halfExtent, Y: center.Y + halfExtent}, cellSize)
 
 	cells := make([]Cell, 0, (maxCell.X-minCell.X+1)*(maxCell.Y-minCell.Y+1))
 	for y := minCell.Y; y <= maxCell.Y; y++ {

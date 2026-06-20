@@ -1,6 +1,7 @@
 import { Application, Assets, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 
 import { EntityPayload, Vec2 } from '../protocol/envelope';
+import { clearHUDInputSuppression, pointerTargetOwnsUI, worldCanvasInputBlocked } from '../input/world-input-authority';
 import { currentEntityPosition, estimateServerTime, isSelfEntity, serverClockOffset } from '../state/movement';
 import { WorldFeedbackEffect, WorldMapMemoryMarker } from '../state/types';
 import { WorldInputHandlers, WorldViewState } from './world-view';
@@ -336,10 +337,10 @@ export class WorldRenderer {
             return;
           }
           this.ignoreWorldInputUntil = 0;
-          (window as Window & { __SPACE_MORPG_HUD_INPUT_UNTIL__?: number }).__SPACE_MORPG_HUD_INPUT_UNTIL__ = 0;
+          clearHUDInputSuppression();
           return;
         }
-        if (blocksWorldCanvasInput(event.target)) {
+        if (pointerTargetOwnsUI(event.target)) {
           this.ignoreWorldInputUntil = performance.now() + 220;
         }
       },
@@ -373,11 +374,10 @@ export class WorldRenderer {
   }
 
   private shouldIgnoreWorldClick(): boolean {
-    const hudBlockUntil = (window as Window & { __SPACE_MORPG_HUD_INPUT_UNTIL__?: number }).__SPACE_MORPG_HUD_INPUT_UNTIL__ ?? 0;
-    if (performance.now() < Math.max(this.ignoreWorldInputUntil, hudBlockUntil)) {
+    if (performance.now() < this.ignoreWorldInputUntil) {
       return true;
     }
-    return document.activeElement instanceof HTMLElement && Boolean(document.activeElement.closest('input, textarea, select, [role="dialog"]'));
+    return worldCanvasInputBlocked(document.activeElement);
   }
 
   private createEntityView(entity: EntityPayload): Graphics {
@@ -530,50 +530,13 @@ export class WorldRenderer {
   }
 
   private drawFog(state: WorldViewState): void {
-    if (!this.app || !state.minimap) {
-      this.fogLayer.clear();
-      this.fogDebug = { active: false, revealCenter: null, revealRadius: 0, rememberedPockets: 0, overlayAlpha: 0 };
-      return;
-    }
-
-    const local = state.entities.find(isSelfEntity) ?? state.entities.find((entity) => entity.entity_type === 'player');
-    if (!local) {
-      this.fogLayer.clear();
-      this.fogDebug = { active: false, revealCenter: null, revealRadius: 0, rememberedPockets: 0, overlayAlpha: 0 };
-      return;
-    }
-
-    const revealWorld = this.entityWorldPositions.get(local.entity_id) ?? this.authoritativeDisplayPosition(local);
-    const revealCenter = this.worldToScreen(revealWorld);
-    const revealRadius = clamp(state.minimap.radar_range * this.scale, 128, Math.max(this.app.screen.width, this.app.screen.height) * 0.72);
-    const overlayAlpha = 0.58;
-    const padding = revealRadius + 260;
-    const pockets = this.fogMemoryPockets(state);
-
     this.fogLayer.clear();
-    this.fogLayer.rect(-padding, -padding, this.app.screen.width + padding * 2, this.app.screen.height + padding * 2).fill({
-      color: 0x010406,
-      alpha: overlayAlpha,
-    });
-    this.fogLayer.circle(revealCenter.x, revealCenter.y, revealRadius).cut();
-    for (const pocket of pockets) {
-      this.fogLayer.circle(pocket.screen.x, pocket.screen.y, pocket.radius).cut();
-    }
-
-    this.fogLayer.circle(revealCenter.x, revealCenter.y, revealRadius + 18).stroke({ color: hudColors.cyan, width: 2, alpha: 0.15 });
-    this.fogLayer.circle(revealCenter.x, revealCenter.y, revealRadius + 62).stroke({ color: 0x071219, width: 46, alpha: 0.22 });
-    for (const pocket of pockets) {
-      const color = pocket.freshness === 'stale' ? hudColors.amber : hudColors.green;
-      this.fogLayer.circle(pocket.screen.x, pocket.screen.y, pocket.radius + 10).stroke({ color, width: 1, alpha: 0.2 });
-      this.fogLayer.circle(pocket.screen.x, pocket.screen.y, pocket.radius + 32).stroke({ color, width: 18, alpha: 0.06 });
-    }
-
     this.fogDebug = {
-      active: true,
-      revealCenter,
-      revealRadius,
-      rememberedPockets: pockets.length,
-      overlayAlpha,
+      active: false,
+      revealCenter: null,
+      revealRadius: 0,
+      rememberedPockets: this.fogMemoryPockets(state).length,
+      overlayAlpha: 0,
     };
   }
 
@@ -1259,14 +1222,6 @@ function isUnknownSignal(entity: EntityPayload): boolean {
   return (
     entity.entity_type === 'planet_signal' &&
     (entity.status_flags?.includes('unknown_signal') || entity.display?.disposition === 'unknown' || /unknown/i.test(entity.display?.label ?? ''))
-  );
-}
-
-function blocksWorldCanvasInput(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    !target.classList.contains('world-canvas') &&
-    Boolean(target.closest('.hud, .auth-panel, .hud-modal, .hud-window, button, input, select, textarea, [role="dialog"]'))
   );
 }
 

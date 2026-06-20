@@ -4,10 +4,12 @@ import {
   EventEnvelope,
   JsonObject,
   JsonValue,
+  OPERATIONS,
   rejectForbiddenPayloadKeys,
   Vec2,
 } from '../protocol/envelope';
 import {
+  CargoItemSummary,
   CargoSummary,
   CraftingSummary,
   AbuseCoverageSummary,
@@ -214,6 +216,7 @@ export function reduceClientState(state: ClientState, action: ClientAction): Cli
         ...state,
         connectionStatus: action.status,
         socketURL: action.socketURL ?? state.socketURL,
+        lastSequence: resetsRealtimeStream(action.status) ? 0 : state.lastSequence,
         commandLog: appendLog(state.commandLog, 'info', `Connection ${action.status}.`),
       };
 
@@ -339,6 +342,9 @@ export function reduceClientState(state: ClientState, action: ClientAction): Cli
       );
 
     case 'eventReceived':
+      if (isStaleEvent(state, action.envelope)) {
+        return state;
+      }
       return applyEvent(state, action.envelope);
 
     case 'serverCorrection':
@@ -378,10 +384,124 @@ function replaceVisibleEntities(
     movementTarget: movementTargetFromAuthoritativeSelf(visibleEntities, null),
     lastCorrection: null,
     knownLoot: retainVisibleLootDrops(state.knownLoot, visibleEntities),
+    minimap: rebuildMinimapLiveContacts(state.minimap, visibleEntities),
     planetIntel: updateVisibleSignalCount(state.planetIntel, countPlanetSignals(visibleEntities)),
     lastServerTime: serverTime,
     lastSequence: sequence ? Math.max(state.lastSequence, sequence) : state.lastSequence,
   };
+}
+
+function contactFromEntity(entity: EntityPayload): MinimapContact {
+  return {
+    entity_id: entity.entity_id,
+    entity_type: entity.entity_type,
+    position: entity.position,
+    disposition: entity.display?.disposition,
+    status_flags: entity.status_flags ? [...entity.status_flags] : undefined,
+  };
+}
+
+const safeStatusFlags = new Set([
+  'damaged',
+  'friendly',
+  'hostile',
+  'known_intel',
+  'load_smoke',
+  'local',
+  'loot',
+  'moving',
+  'neutral',
+  'scan_revealed',
+  'scannable',
+  'self',
+  'stealthed',
+  'unknown_signal',
+  'visible',
+]);
+
+function parsePublicStatusFlags(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const flags = value.filter((flag): flag is string => typeof flag === 'string' && safeStatusFlags.has(flag));
+  if (!flags.includes('self')) {
+    const selfOnly = flags.indexOf('stealthed');
+    if (selfOnly >= 0) {
+      flags.splice(selfOnly, 1);
+    }
+  }
+  return flags.length > 0 ? flags : undefined;
+}
+
+function upsertMinimapContact(minimap: MinimapSummary | null, entity: EntityPayload): MinimapSummary | null {
+  if (!minimap) {
+    return minimap;
+  }
+  const contact = contactFromEntity(entity);
+  const nextContacts = minimap.live_contacts.filter((entry) => entry.entity_id !== entity.entity_id);
+  nextContacts.push(contact);
+  nextContacts.sort((a, b) => a.entity_id.localeCompare(b.entity_id));
+  return {
+    ...minimap,
+    live_contacts: nextContacts,
+  };
+}
+
+function rebuildMinimapLiveContacts(
+  minimap: MinimapSummary | null,
+  visibleEntities: Record<string, EntityPayload>,
+): MinimapSummary | null {
+  if (!minimap) {
+    return minimap;
+  }
+  const liveContacts = Object.values(visibleEntities)
+    .map(contactFromEntity)
+    .sort((a, b) => a.entity_id.localeCompare(b.entity_id));
+  return {
+    ...minimap,
+    live_contacts: liveContacts,
+  };
+}
+
+function removeMinimapContact(minimap: MinimapSummary | null, entityID: string): MinimapSummary | null {
+  if (!minimap) {
+    return minimap;
+  }
+  const nextContacts = minimap.live_contacts.filter((entry) => entry.entity_id !== entityID);
+  if (nextContacts.length === minimap.live_contacts.length) {
+    return minimap;
+  }
+  return {
+    ...minimap,
+    live_contacts: nextContacts,
+  };
+}
+
+function isStaleEvent(state: ClientState, envelope: EventEnvelope): boolean {
+  return envelope.seq > 0 && state.lastSequence > 0 && envelope.seq <= state.lastSequence;
+}
+
+function resetsRealtimeStream(status: ClientState['connectionStatus']): boolean {
+  return status === 'authenticated_pending_socket' || status === 'connected' || status === 'reconnecting';
+}
+
+function withoutPendingOperations(state: ClientState, operations: readonly string[]): ClientState {
+  if (operations.length === 0) {
+    return state;
+  }
+
+  const operationSet = new Set(operations);
+  let changed = false;
+  const pendingCommands: ClientState['pendingCommands'] = {};
+  for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
+    if (operationSet.has(pending.op)) {
+      changed = true;
+      continue;
+    }
+    pendingCommands[requestID] = pending;
+  }
+
+  return changed ? { ...state, pendingCommands } : state;
 }
 
 function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
@@ -397,6 +517,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
           submitting: false,
           error: null,
         },
+        connectionStatus: 'connected',
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
@@ -429,56 +550,63 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
     case CLIENT_EVENTS.targetUpdated:
       return applyTargetUpdated(state, envelope);
 
-    case CLIENT_EVENTS.combatDamage:
+    case CLIENT_EVENTS.combatDamage: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.combatUseSkill]);
       return appendWorldEffect(
         {
-          ...state,
+          ...nextState,
           lastServerTime: envelope.server_time,
-          lastSequence: Math.max(state.lastSequence, envelope.seq),
+          lastSequence: Math.max(nextState.lastSequence, envelope.seq),
           combatLog: appendLog(
-            state.combatLog,
+            nextState.combatLog,
             'info',
-            `Hit ${displayNameForEntity(state, stringField(envelope.payload, 'target_id'))} for ${Math.round(numberField(envelope.payload, 'amount') ?? 0)}.`,
+            `Hit ${displayNameForEntity(nextState, stringField(envelope.payload, 'target_id'))} for ${Math.round(numberField(envelope.payload, 'amount') ?? 0)}.`,
           ),
         },
-        feedbackEffect(state, envelope, 'damage'),
+        feedbackEffect(nextState, envelope, 'damage'),
       );
+    }
 
-    case CLIENT_EVENTS.combatMiss:
+    case CLIENT_EVENTS.combatMiss: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.combatUseSkill]);
       return appendWorldEffect(
         {
-          ...state,
+          ...nextState,
           lastServerTime: envelope.server_time,
-          lastSequence: Math.max(state.lastSequence, envelope.seq),
-          combatLog: appendLog(state.combatLog, 'warn', `Missed ${displayNameForEntity(state, stringField(envelope.payload, 'target_id'))}.`),
+          lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+          combatLog: appendLog(nextState.combatLog, 'warn', `Missed ${displayNameForEntity(nextState, stringField(envelope.payload, 'target_id'))}.`),
         },
-        feedbackEffect(state, envelope, 'miss'),
+        feedbackEffect(nextState, envelope, 'miss'),
       );
+    }
 
     case CLIENT_EVENTS.combatCooldownStarted: {
       const skillID = stringField(envelope.payload, 'skill_id') ?? 'basic_laser';
       const readyAt = numberField(envelope.payload, 'cooldown_ready_at_ms') ?? envelope.server_time;
+      const nextState = withoutPendingOperations(state, [OPERATIONS.combatUseSkill]);
       return appendWorldEffect(
         {
-          ...state,
-          skillCooldowns: { ...state.skillCooldowns, [skillID]: readyAt },
+          ...nextState,
+          skillCooldowns: { ...nextState.skillCooldowns, [skillID]: readyAt },
           lastServerTime: envelope.server_time,
-          lastSequence: Math.max(state.lastSequence, envelope.seq),
+          lastSequence: Math.max(nextState.lastSequence, envelope.seq),
         },
-        feedbackEffect(state, envelope, 'laser'),
+        feedbackEffect(nextState, envelope, 'laser'),
       );
     }
 
-    case CLIENT_EVENTS.combatNPCKilled:
+    case CLIENT_EVENTS.combatNPCKilled: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.combatUseSkill]);
       return appendWorldEffect(
         {
-          ...state,
+          ...nextState,
           lastServerTime: envelope.server_time,
-          lastSequence: Math.max(state.lastSequence, envelope.seq),
-          combatLog: appendLog(state.combatLog, 'info', `${stringField(envelope.payload, 'npc_type') ?? 'Hostile'} destroyed.`),
+          lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+          combatLog: appendLog(nextState.combatLog, 'info', `${stringField(envelope.payload, 'npc_type') ?? 'Hostile'} destroyed.`),
         },
-        feedbackEffect(state, envelope, 'destroyed'),
+        feedbackEffect(nextState, envelope, 'destroyed'),
       );
+    }
 
     case CLIENT_EVENTS.lootCreated:
     case CLIENT_EVENTS.lootUpdated: {
@@ -499,34 +627,38 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
 
     case CLIENT_EVENTS.lootRemoved: {
       const entityID = requireEntityID(envelope.payload);
-      const visibleEntities = { ...state.visibleEntities };
-      const knownLoot = { ...state.knownLoot };
+      const nextState = withoutPendingOperations(state, [OPERATIONS.lootPickup]);
+      const visibleEntities = { ...nextState.visibleEntities };
+      const knownLoot = { ...nextState.knownLoot };
       delete visibleEntities[entityID];
       delete knownLoot[entityID];
       return {
-        ...state,
+        ...nextState,
         visibleEntities,
+        minimap: removeMinimapContact(nextState.minimap, entityID),
         knownLoot,
-        selectedTargetID: state.selectedTargetID === entityID ? null : state.selectedTargetID,
+        selectedTargetID: nextState.selectedTargetID === entityID ? null : nextState.selectedTargetID,
         lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
       };
     }
 
-    case CLIENT_EVENTS.lootPickedUp:
+    case CLIENT_EVENTS.lootPickedUp: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.lootPickup]);
       return appendWorldEffect(
         {
-          ...state,
+          ...nextState,
           lastServerTime: envelope.server_time,
-          lastSequence: Math.max(state.lastSequence, envelope.seq),
+          lastSequence: Math.max(nextState.lastSequence, envelope.seq),
           combatLog: appendLog(
-            state.combatLog,
+            nextState.combatLog,
             'info',
             `Recovered ${stringField(envelope.payload, 'item_id') ?? 'item'} x${Math.round(numberField(envelope.payload, 'quantity') ?? 0)}.`,
           ),
         },
-        feedbackEffect(state, envelope, 'loot_pickup'),
+        feedbackEffect(nextState, envelope, 'loot_pickup'),
       );
+    }
 
     case CLIENT_EVENTS.progressionSnapshot:
       return {
@@ -575,35 +707,40 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
     case CLIENT_EVENTS.scanPulseStarted:
     {
       const scan = parseScanPulse(envelope.payload, state.planetIntel?.lastScan ?? null);
+      const nextState = withoutPendingOperations(state, [OPERATIONS.scanPulse]);
       return {
-        ...state,
-        planetIntel: applyScanPulse(state.planetIntel, scan),
-        scanMode: scanModeAfterPulseStarted(state.scanMode, scan),
+        ...nextState,
+        planetIntel: applyScanPulse(nextState.planetIntel, scan),
+        scanMode: scanModeAfterPulseStarted(nextState.scanMode, scan),
         lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
       };
     }
 
     case CLIENT_EVENTS.scanPulseResolved:
     case CLIENT_EVENTS.scanPlanetDiscovered: {
       const scan = parseScanPulse(envelope.payload, state.planetIntel?.lastScan ?? null);
+      const nextState = withoutPendingOperations(state, [OPERATIONS.scanPulse]);
       return {
-        ...state,
-        planetIntel: applyScanPulse(state.planetIntel, scan),
-        scanMode: scanModeAfterPulseResolved(state.scanMode),
+        ...nextState,
+        planetIntel: applyScanPulse(nextState.planetIntel, scan),
+        scanMode: scanModeAfterPulseResolved(nextState.scanMode),
         lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
-        commandLog: appendLog(state.commandLog, scan.status === 'planet_discovered' ? 'info' : 'warn', scanLogLine(scan)),
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        commandLog: appendLog(nextState.commandLog, scan.status === 'planet_discovered' ? 'info' : 'warn', scanLogLine(scan)),
       };
     }
 
-    case CLIENT_EVENTS.knownPlanets:
+    case CLIENT_EVENTS.knownPlanets: {
+      const minimap = objectField(envelope.payload, 'minimap');
       return {
         ...state,
         planetIntel: parseKnownPlanets(envelope.payload, state.planetIntel),
+        minimap: minimap ? parseMinimapSummary(minimap, state.minimap) : state.minimap,
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
+    }
 
     case CLIENT_EVENTS.planetDetail:
       return {
@@ -621,6 +758,15 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
 
+    case CLIENT_EVENTS.planetStorageSummary: {
+      const storagePayload = objectField(envelope.payload, 'planet_storage') ?? envelope.payload;
+      return {
+        ...applyPlanetStorageSummary(state, parsePlanetStorage(storagePayload)),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+    }
+
     case CLIENT_EVENTS.routeList:
       return {
         ...state,
@@ -628,6 +774,16 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
+
+    case CLIENT_EVENTS.routeSnapshot: {
+      const routePayload = objectField(envelope.payload, 'route') ?? envelope.payload;
+      const route = parseRoute(routePayload);
+      return {
+        ...(route ? applyRouteSnapshot(state, route) : state),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+    }
 
     case CLIENT_EVENTS.marketListingCreated:
     case CLIENT_EVENTS.marketListingUpdated:
@@ -641,7 +797,6 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       };
 
     case CLIENT_EVENTS.auctionLotUpdated:
-    case CLIENT_EVENTS.auctionBidPlaced:
     case CLIENT_EVENTS.auctionClosed:
       return {
         ...state,
@@ -649,6 +804,16 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
         lastSequence: Math.max(state.lastSequence, envelope.seq),
         commandLog: appendLog(state.commandLog, 'info', economyEventLog(envelope.type)),
       };
+
+    case CLIENT_EVENTS.auctionBidPlaced: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.auctionBid]);
+      return {
+        ...nextState,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        commandLog: appendLog(nextState.commandLog, 'info', economyEventLog(envelope.type)),
+      };
+    }
 
     case CLIENT_EVENTS.premiumEntitlementCreated:
     case CLIENT_EVENTS.premiumEntitlementClaimed:
@@ -723,20 +888,22 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
 
     case CLIENT_EVENTS.deathShipDisabled:
       return {
-        ...state,
+        ...applyDeathShipDisabled(state, envelope.payload),
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
         combatLog: appendLog(state.combatLog, 'error', 'Ship disabled.'),
       };
 
-    case CLIENT_EVENTS.deathRepaired:
+    case CLIENT_EVENTS.deathRepaired: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.deathRepairShip]);
       return {
-        ...state,
+        ...nextState,
         repairQuote: null,
         lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
-        combatLog: appendLog(state.combatLog, 'info', 'Ship repaired.'),
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        combatLog: appendLog(nextState.combatLog, 'info', 'Ship repaired.'),
       };
+    }
 
     case CLIENT_EVENTS.cargoSnapshot:
       return {
@@ -781,6 +948,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       return {
         ...state,
         visibleEntities,
+        minimap: upsertMinimapContact(state.minimap, entity),
         movementTarget: movementTargetFromAuthoritativeSelf(visibleEntities, state.movementTarget),
         planetIntel:
           entity.entity_type === 'planet_signal'
@@ -800,6 +968,7 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       return {
         ...state,
         visibleEntities,
+        minimap: removeMinimapContact(state.minimap, entityID),
         knownLoot,
         selectedTargetID: state.selectedTargetID === entityID ? null : state.selectedTargetID,
         planetIntel: updateVisibleSignalCount(state.planetIntel, countPlanetSignals(visibleEntities)),
@@ -812,16 +981,18 @@ function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
       const entityID = requireEntityID(envelope.payload);
       const position = requirePosition(envelope.payload);
       const movement = parseEntityMovement(envelope.payload);
-      return applyCorrection(state, entityID, position, movement, envelope.server_time, envelope.seq);
+      return applyCorrection(withoutPendingOperations(state, [OPERATIONS.moveTo]), entityID, position, movement, envelope.server_time, envelope.seq);
     }
 
-    case CLIENT_EVENTS.movementStopped:
+    case CLIENT_EVENTS.movementStopped: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.stop, OPERATIONS.moveTo]);
       return {
-        ...state,
+        ...nextState,
         movementTarget: null,
         lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
       };
+    }
 
     case CLIENT_EVENTS.serverNotice:
       return {
@@ -869,6 +1040,9 @@ function applyCorrection(
   return {
     ...state,
     visibleEntities,
+    minimap: entity
+      ? upsertMinimapContact(state.minimap, { ...entity, position, movement })
+      : state.minimap,
     movementTarget: movement?.moving ? movement.target : null,
     lastCorrection: { entityID, position },
     lastServerTime: serverTime,
@@ -1167,12 +1341,25 @@ function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientSt
     };
   }
 
+  const planetStorage = objectField(payload, 'planet_storage');
+  if (planetStorage) {
+    next = applyPlanetStorageSummary(next, parsePlanetStorage(planetStorage));
+  }
+
   const routes = objectField(payload, 'routes') ?? objectField(payload, 'route_list');
   if (routes) {
     next = {
       ...next,
       routes: parseRouteList(routes, next.routes),
     };
+  }
+
+  const route = objectField(payload, 'route');
+  if (route) {
+    const parsedRoute = parseRoute(route);
+    if (parsedRoute) {
+      next = applyRouteSnapshot(next, parsedRoute);
+    }
   }
 
   const market = objectField(payload, 'market');
@@ -1304,9 +1491,7 @@ function parseEntityPayload(payload: JsonObject): EntityPayload {
     entity_id: entityID,
     entity_type: entityType,
     position,
-    status_flags: Array.isArray(source.status_flags)
-      ? source.status_flags.filter((flag): flag is string => typeof flag === 'string')
-      : undefined,
+    status_flags: parsePublicStatusFlags(source.status_flags),
     display: parseEntityDisplay(source),
     combat: parseEntityCombat(source),
     movement: parseEntityMovement(source),
@@ -1370,10 +1555,7 @@ function parseCargoSummary(payload: JsonObject, fallback: CargoSummary | null): 
   const rawItems = Array.isArray(payload.items) ? payload.items : fallback?.items ?? [];
   const items = rawItems
     .filter(isJsonObject)
-    .map((item) => ({
-      item_id: stringField(item, 'item_id') ?? '',
-      quantity: numberField(item, 'quantity') ?? 0,
-    }))
+    .map(parseCargoItemSummary)
     .filter((item) => item.item_id !== '' && item.quantity > 0);
 
   return {
@@ -1381,6 +1563,50 @@ function parseCargoSummary(payload: JsonObject, fallback: CargoSummary | null): 
     capacity: Math.max(0, Math.round(capacity)),
     items,
   };
+}
+
+function parseCargoItemSummary(item: JsonObject): CargoItemSummary {
+  const parsed: CargoItemSummary = {
+    item_id: stringField(item, 'item_id') ?? '',
+    quantity: numberField(item, 'quantity') ?? 0,
+  };
+  const displayName = stringField(item, 'display_name');
+  if (displayName) {
+    parsed.display_name = displayName;
+  }
+  const category = stringField(item, 'category');
+  if (category) {
+    parsed.category = category;
+  }
+  const artKey = stringField(item, 'art_key');
+  if (artKey) {
+    parsed.art_key = artKey;
+  }
+  const rarity = stringField(item, 'rarity');
+  if (rarity) {
+    parsed.rarity = rarity;
+  }
+  const unitWeight = optionalRoundedNumber(item, 'unit_weight', undefined);
+  if (unitWeight !== undefined) {
+    parsed.unit_weight = unitWeight;
+  }
+  const usedUnits = optionalRoundedNumber(item, 'used_units', undefined);
+  if (usedUnits !== undefined) {
+    parsed.used_units = usedUnits;
+  }
+  const location = stringField(item, 'location');
+  if (location) {
+    parsed.location = location;
+  }
+  const moveEligible = booleanField(item, 'move_eligible');
+  if (moveEligible !== null) {
+    parsed.move_eligible = moveEligible;
+  }
+  const lockedReason = stringField(item, 'locked_reason');
+  if (lockedReason) {
+    parsed.locked_reason = lockedReason;
+  }
+  return parsed;
 }
 
 function parseWalletSummary(payload: JsonObject, fallback: WalletSummary | null): WalletSummary {
@@ -1403,6 +1629,28 @@ function parseShipSummary(payload: JsonObject, fallback: ShipSummary | null): Sh
     max_capacitor: Math.max(0, Math.round(numberField(payload, 'max_capacitor') ?? fallback?.max_capacitor ?? 0)),
     disabled: booleanField(payload, 'disabled') ?? fallback?.disabled ?? false,
     repair_state: stringField(payload, 'repair_state') ?? fallback?.repair_state ?? '',
+  };
+}
+
+function applyDeathShipDisabled(state: ClientState, payload: JsonObject): ClientState {
+  const shipPayload = objectField(payload, 'ship');
+  const shipID = stringField(payload, 'ship_id') ?? stringField(shipPayload ?? {}, 'active_ship_id') ?? '';
+  const disabledReason = stringField(payload, 'disabled_reason') ?? 'disabled';
+  const ship = shipPayload
+    ? parseShipSummary({ ...shipPayload, disabled: true, repair_state: disabledReason }, state.ship)
+    : state.ship && (!shipID || state.ship.active_ship_id === shipID)
+      ? {
+          ...state.ship,
+          disabled: true,
+          repair_state: disabledReason,
+        }
+      : state.ship;
+  const quote = objectField(payload, 'repair_quote');
+
+  return {
+    ...state,
+    ship,
+    repairQuote: quote ? parseRepairQuote(quote, state.repairQuote) : state.repairQuote,
   };
 }
 
@@ -1645,9 +1893,11 @@ function parseCraftingJob(payload: JsonObject): CraftingSummary['active_jobs'][n
 
 function parseScanPulse(payload: JsonObject, fallback: ScanPulseSummary | null): ScanPulseSummary {
   const signal = objectField(payload, 'signal');
+  const status = stringField(payload, 'status') ?? fallback?.status ?? 'unknown';
+  const clearsPlanetResult = status === 'started' || status === 'no_signal' || status === 'player_revealed';
   return {
     pulse_reference: stringField(payload, 'pulse_reference') ?? fallback?.pulse_reference ?? '',
-    status: stringField(payload, 'status') ?? fallback?.status ?? 'unknown',
+    status,
     resolve_after: optionalRoundedNumber(payload, 'resolve_after', fallback?.resolve_after),
     message: stringField(payload, 'message') ?? fallback?.message,
     signal: signal
@@ -1656,9 +1906,11 @@ function parseScanPulse(payload: JsonObject, fallback: ScanPulseSummary | null):
           signal_band: stringField(signal, 'signal_band') ?? '',
           approx_distance: stringField(signal, 'approx_distance') ?? '',
         }
-      : fallback?.signal,
-    planet_id: stringField(payload, 'planet_id') ?? fallback?.planet_id,
-    xp_granted: booleanField(payload, 'xp_granted') ?? fallback?.xp_granted,
+      : clearsPlanetResult
+        ? undefined
+        : fallback?.signal,
+    planet_id: stringField(payload, 'planet_id') ?? (clearsPlanetResult ? undefined : fallback?.planet_id),
+    xp_granted: booleanField(payload, 'xp_granted') ?? (clearsPlanetResult ? false : fallback?.xp_granted),
     duplicate: booleanField(payload, 'duplicate') ?? fallback?.duplicate,
   };
 }
@@ -1712,15 +1964,18 @@ function parseKnownPlanet(payload: JsonObject): KnownPlanetSummary | null {
 }
 
 function parsePlanetDetail(payload: JsonObject, fallback: PlanetDetailSummary | null): PlanetDetailSummary {
-  const base = parseKnownPlanet(payload) ?? fallback;
-  const coordinates = isVec2(payload.coordinates) ? payload.coordinates : fallback?.coordinates ?? null;
+  const parsed = parseKnownPlanet(payload);
+  const planetID = parsed?.planet_id ?? stringField(payload, 'planet_id') ?? fallback?.planet_id ?? '';
+  const matchingFallback = fallback?.planet_id === planetID ? fallback : null;
+  const base = parsed ?? matchingFallback;
+  const coordinates = isVec2(payload.coordinates) ? payload.coordinates : matchingFallback?.coordinates ?? null;
   const production = objectField(payload, 'production');
   const routes = Array.isArray(payload.routes)
     ? payload.routes
         .filter(isJsonObject)
         .map(parseRoute)
         .filter((route): route is RouteSummary => route !== null)
-    : fallback?.routes ?? [];
+    : matchingFallback?.routes ?? [];
   return {
     ...(base ?? {
       planet_id: '',
@@ -1735,12 +1990,12 @@ function parsePlanetDetail(payload: JsonObject, fallback: PlanetDetailSummary | 
       discovered_at: 0,
     }),
     coordinates,
-    production: production ? parseProductionPlanet(production) ?? undefined : fallback?.production,
+    production: production ? parseProductionPlanet(production) ?? undefined : matchingFallback?.production,
     routes,
-    production_locked: booleanField(payload, 'production_locked') ?? fallback?.production_locked ?? true,
+    production_locked: booleanField(payload, 'production_locked') ?? matchingFallback?.production_locked ?? true,
     available_commands: Array.isArray(payload.available_commands)
       ? payload.available_commands.filter((command): command is string => typeof command === 'string')
-      : fallback?.available_commands ?? [],
+      : matchingFallback?.available_commands ?? [],
   };
 }
 
@@ -1792,6 +2047,53 @@ function parsePlanetStorage(payload: JsonObject): PlanetStorageSummary {
           }))
           .filter((item) => item.item_id !== '' && item.quantity > 0)
       : [],
+  };
+}
+
+function applyPlanetStorageSummary(state: ClientState, storage: PlanetStorageSummary): ClientState {
+  if (!storage.planet_id) {
+    return state;
+  }
+
+  const production = state.production
+    ? {
+        planets: state.production.planets.map((planet) =>
+          planet.planet_id === storage.planet_id ? { ...planet, storage } : planet,
+        ),
+      }
+    : state.production;
+
+  const currentPlanetIntel = state.planetIntel;
+  const selectedPlanet = currentPlanetIntel?.selectedPlanet;
+  const planetIntel =
+    currentPlanetIntel && selectedPlanet && selectedPlanet.planet_id === storage.planet_id
+      ? {
+          ...currentPlanetIntel,
+          selectedPlanet: {
+            ...selectedPlanet,
+            production: selectedPlanet.production
+              ? { ...selectedPlanet.production, storage }
+              : storageOnlyProductionSummary(storage),
+          },
+        }
+      : currentPlanetIntel;
+
+  return {
+    ...state,
+    production,
+    planetIntel,
+  };
+}
+
+function storageOnlyProductionSummary(storage: PlanetStorageSummary): PlanetProductionSummary {
+  return {
+    planet_id: storage.planet_id,
+    production_enabled: false,
+    last_calculated_at: storage.updated_at,
+    energy_capacity_per_hour: 0,
+    energy_reserved_per_hour: 0,
+    storage,
+    buildings: [],
   };
 }
 
@@ -1848,6 +2150,40 @@ function parseRoute(payload: JsonObject): RouteSummary | null {
   };
 }
 
+function applyRouteSnapshot(state: ClientState, route: RouteSummary): ClientState {
+  const routes = { routes: upsertRoute(state.routes?.routes ?? [], route) };
+  const currentPlanetIntel = state.planetIntel;
+  const selectedPlanet = currentPlanetIntel?.selectedPlanet;
+  const shouldUpdateSelected =
+    selectedPlanet &&
+    (selectedPlanet.planet_id === route.source_planet_id ||
+      selectedPlanet.routes.some((existingRoute) => existingRoute.route_id === route.route_id));
+  const planetIntel =
+    currentPlanetIntel && selectedPlanet && shouldUpdateSelected
+      ? {
+          ...currentPlanetIntel,
+          selectedPlanet: {
+            ...selectedPlanet,
+            routes: upsertRoute(selectedPlanet.routes, route),
+          },
+        }
+      : currentPlanetIntel;
+
+  return {
+    ...state,
+    routes,
+    planetIntel,
+  };
+}
+
+function upsertRoute(routes: RouteSummary[], route: RouteSummary): RouteSummary[] {
+  const index = routes.findIndex((existingRoute) => existingRoute.route_id === route.route_id);
+  if (index === -1) {
+    return [...routes, route];
+  }
+  return routes.map((existingRoute, routeIndex) => (routeIndex === index ? route : existingRoute));
+}
+
 function parseMarketSummary(payload: JsonObject, fallback: MarketSummary | null): MarketSummary {
   const listings = Array.isArray(payload.listings)
     ? payload.listings
@@ -1883,7 +2219,8 @@ function parseMarketListing(payload: JsonObject): MarketListingSummary | null {
     status: stringField(payload, 'status') ?? '',
     expires_at: optionalRoundedNumber(payload, 'expires_at', undefined),
     owned_by_you: booleanField(payload, 'owned_by_you') ?? false,
-    server_recalculates: booleanField(payload, 'server_recalculates') ?? true,
+    final_price_pending:
+      booleanField(payload, 'final_price_pending') ?? booleanField(payload, 'server_recalculates') ?? true,
     estimated_unit_purchase: {
       quantity: Math.max(0, Math.round(numberField(estimate, 'quantity') ?? 0)),
       subtotal: Math.max(0, Math.round(numberField(estimate, 'subtotal') ?? 0)),
@@ -1928,7 +2265,8 @@ function parseAuctionLot(payload: JsonObject): AuctionLotSummary | null {
     status: stringField(payload, 'status') ?? '',
     starts_at: Math.max(0, Math.round(numberField(payload, 'starts_at') ?? 0)),
     ends_at: Math.max(0, Math.round(numberField(payload, 'ends_at') ?? 0)),
-    server_recalculates: booleanField(payload, 'server_recalculates') ?? true,
+    final_price_pending:
+      booleanField(payload, 'final_price_pending') ?? booleanField(payload, 'server_recalculates') ?? true,
   };
 }
 
@@ -2396,6 +2734,7 @@ function parseMinimapSummary(payload: JsonObject, fallback: MinimapSummary | nul
 
   return {
     radar_range: Math.max(0, numberField(payload, 'radar_range') ?? fallback?.radar_range ?? 0),
+    projection_window_size: optionalRoundedNumber(payload, 'projection_window_size', fallback?.projection_window_size),
     live_contacts: liveContacts,
     remembered,
   };
@@ -2413,9 +2752,7 @@ function parseMinimapContact(payload: JsonObject): MinimapContact | null {
     entity_type: entityType,
     position,
     disposition: stringField(payload, 'disposition') ?? undefined,
-    status_flags: Array.isArray(payload.status_flags)
-      ? payload.status_flags.filter((flag): flag is string => typeof flag === 'string')
-      : undefined,
+    status_flags: parsePublicStatusFlags(payload.status_flags),
   };
 }
 
@@ -2425,6 +2762,8 @@ function parseMinimapMemory(payload: JsonObject): MinimapMemory | null {
   }
   return {
     kind: stringField(payload, 'kind') ?? '',
+    planet_id: stringField(payload, 'planet_id') ?? undefined,
+    detail_id: stringField(payload, 'detail_id') ?? undefined,
     label: stringField(payload, 'label') ?? '',
     position: payload.position,
     freshness: stringField(payload, 'freshness') ?? '',
@@ -2672,6 +3011,9 @@ function scanLogLine(scan: ScanPulseSummary): string {
   }
   if (scan.status === 'started') {
     return 'Scanner pulse started.';
+  }
+  if (scan.status === 'player_revealed') {
+    return scan.message || 'Scanner revealed a radar contact.';
   }
   return scan.message || 'Scanner pulse resolved with no signal.';
 }

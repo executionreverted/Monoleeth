@@ -22,6 +22,99 @@ func TestCanSendEntityToClientRejectsHiddenEntity(t *testing.T) {
 	}
 }
 
+func TestCanSendEntityToClientAllowsHiddenSelfEntity(t *testing.T) {
+	viewer := testViewer(100)
+	viewer.PlayerID = "player-1"
+	entity := testEntity(world.Vec2{X: 10, Y: 0})
+	entity.PlayerID = "player-1"
+	entity.Hidden = true
+
+	if !visibility.CanSendEntityToClient(viewer, entity) {
+		t.Fatal("CanSendEntityToClient() = false, want true for hidden self entity")
+	}
+}
+
+func TestCanSendEntityToClientAllowsHiddenPlayerWithActiveWitness(t *testing.T) {
+	now := time.Unix(100, 0)
+	viewer := testViewer(100)
+	viewer.PlayerID = "viewer-player"
+	viewer.ObservedAt = now
+	viewer.Witnesses = []visibility.Witness{{
+		TargetPlayerID: "target-player",
+		ExpiresAt:      now.Add(15 * time.Minute),
+	}}
+	entity := testEntity(world.Vec2{X: 10, Y: 0})
+	entity.PlayerID = "target-player"
+	entity.Hidden = true
+
+	if !visibility.CanSendEntityToClient(viewer, entity) {
+		t.Fatal("CanSendEntityToClient() = false, want true for witnessed hidden player")
+	}
+}
+
+func TestCanSendEntityToClientRejectsHiddenPlayerWithoutMatchingActiveWitness(t *testing.T) {
+	now := time.Unix(100, 0)
+	tests := []struct {
+		name      string
+		witnesses []visibility.Witness
+	}{
+		{name: "none"},
+		{
+			name: "other target",
+			witnesses: []visibility.Witness{{
+				TargetPlayerID: "other-player",
+				ExpiresAt:      now.Add(15 * time.Minute),
+			}},
+		},
+		{
+			name: "expired",
+			witnesses: []visibility.Witness{{
+				TargetPlayerID: "target-player",
+				ExpiresAt:      now,
+			}},
+		},
+		{
+			name: "missing expiry",
+			witnesses: []visibility.Witness{{
+				TargetPlayerID: "target-player",
+			}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			viewer := testViewer(100)
+			viewer.PlayerID = "viewer-player"
+			viewer.ObservedAt = now
+			viewer.Witnesses = test.witnesses
+			entity := testEntity(world.Vec2{X: 10, Y: 0})
+			entity.PlayerID = "target-player"
+			entity.Hidden = true
+
+			if visibility.CanSendEntityToClient(viewer, entity) {
+				t.Fatal("CanSendEntityToClient() = true, want false without matching active witness")
+			}
+		})
+	}
+}
+
+func TestCanSendEntityToClientWitnessDoesNotBypassRange(t *testing.T) {
+	now := time.Unix(100, 0)
+	viewer := testViewer(50)
+	viewer.PlayerID = "viewer-player"
+	viewer.ObservedAt = now
+	viewer.Witnesses = []visibility.Witness{{
+		TargetPlayerID: "target-player",
+		ExpiresAt:      now.Add(15 * time.Minute),
+	}}
+	entity := testEntity(world.Vec2{X: 60, Y: 0})
+	entity.PlayerID = "target-player"
+	entity.Hidden = true
+
+	if visibility.CanSendEntityToClient(viewer, entity) {
+		t.Fatal("CanSendEntityToClient() = true, want false for witnessed hidden player outside range")
+	}
+}
+
 func TestCanSendEntityToClientAllowsNormalEntityInRadarRange(t *testing.T) {
 	viewer := testViewer(100)
 	entity := testEntity(world.Vec2{X: 60, Y: 80})

@@ -172,6 +172,16 @@ func (command StopCommand) apply(worker *Worker) error {
 	return worker.stopPlayer(command.PlayerID)
 }
 
+// SetPlayerSpeedCommand changes a player's authoritative movement speed.
+type SetPlayerSpeedCommand struct {
+	PlayerID foundation.PlayerID
+	Speed    float64
+}
+
+func (command SetPlayerSpeedCommand) apply(worker *Worker) error {
+	return worker.setPlayerSpeed(command.PlayerID, command.Speed)
+}
+
 // DebugSpawnNPCCommand inserts an NPC placeholder for local harness tests.
 type DebugSpawnNPCCommand struct {
 	EntityID world.EntityID

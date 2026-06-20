@@ -59,7 +59,21 @@ export interface LogLine {
 export interface CargoSummary {
   used: number;
   capacity: number;
-  items: Array<{ item_id: string; quantity: number }>;
+  items: CargoItemSummary[];
+}
+
+export interface CargoItemSummary {
+  item_id: string;
+  display_name?: string;
+  category?: string;
+  art_key?: string;
+  rarity?: string;
+  quantity: number;
+  unit_weight?: number;
+  used_units?: number;
+  location?: string;
+  move_eligible?: boolean;
+  locked_reason?: string;
 }
 
 export interface WalletSummary {
@@ -79,7 +93,7 @@ export interface MarketListingSummary {
   status: string;
   expires_at?: number;
   owned_by_you: boolean;
-  server_recalculates: boolean;
+  final_price_pending: boolean;
   estimated_unit_purchase: {
     quantity: number;
     subtotal: number;
@@ -110,7 +124,7 @@ export interface AuctionLotSummary {
   status: string;
   starts_at: number;
   ends_at: number;
-  server_recalculates: boolean;
+  final_price_pending: boolean;
 }
 
 export interface AuctionGrantSummary {
@@ -611,6 +625,8 @@ export interface MinimapContact {
 
 export interface MinimapMemory {
   kind: string;
+  planet_id?: string;
+  detail_id?: string;
   label: string;
   position: Vec2;
   freshness: string;
@@ -618,6 +634,7 @@ export interface MinimapMemory {
 
 export interface MinimapSummary {
   radar_range: number;
+  projection_window_size?: number;
   live_contacts: MinimapContact[];
   remembered: MinimapMemory[];
 }

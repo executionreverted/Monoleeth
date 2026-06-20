@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"sort"
 	"time"
 
 	"gameproject/internal/game/auth"
@@ -162,13 +163,12 @@ func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, st
 }
 
 func (runtime *Runtime) viewerForPlayerLocked(playerID foundation.PlayerID) (visibility.Viewer, error) {
-	state := runtime.players[playerID]
 	entity, ok := runtime.Worker.PlayerEntity(playerID)
 	if !ok {
 		return visibility.Viewer{}, worker.ErrUnknownPlayer
 	}
 	statSnapshot := stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
-		Exploration: stats.ExplorationStats{RadarRange: state.Stats.RadarRange},
+		Exploration: stats.ExplorationStats{RadarRange: runtimeLiveProjectionDiagonalRange},
 	}, runtime.clock.Now())
 	return visibility.Viewer{
 		WorldID:    runtime.worldID,
@@ -264,12 +264,49 @@ func (runtime *Runtime) cargoSnapshotFromInventoryLocked(playerID foundation.Pla
 	}
 	items := make([]cargoItemStack, 0, len(itemsByID))
 	for itemID, quantity := range itemsByID {
-		items = append(items, cargoItemStack{ItemID: itemID, Quantity: quantity})
+		items = append(items, runtime.cargoItemStackPayloadLocked(foundation.ItemID(itemID), quantity, location))
 	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].ItemID < items[j].ItemID
+	})
 	return cargoSnapshotPayload{
 		Used:     used,
 		Capacity: state.Cargo.Capacity,
 		Items:    items,
+	}
+}
+
+func (runtime *Runtime) cargoItemStackPayloadLocked(itemID foundation.ItemID, quantity int64, location economy.ItemLocation) cargoItemStack {
+	payload := cargoItemStack{
+		ItemID:       itemID.String(),
+		DisplayName:  itemID.String(),
+		Category:     "unknown",
+		ArtKey:       "item." + itemID.String(),
+		Quantity:     quantity,
+		Location:     location.Kind.String(),
+		MoveEligible: false,
+		LockedReason: "cargo_transfer_unavailable",
+	}
+	if definition, ok := runtime.itemCatalog[itemID]; ok {
+		unitWeight := definition.WeightUnits.Int64()
+		payload.DisplayName = definition.Name
+		payload.Category = cargoItemCategory(definition)
+		payload.ArtKey = "item." + definition.ItemID.String()
+		payload.Rarity = definition.Rarity.String()
+		payload.UnitWeight = unitWeight
+		payload.UsedUnits = unitWeight * quantity
+	}
+	return payload
+}
+
+func cargoItemCategory(definition economy.ItemDefinition) string {
+	switch definition.Type {
+	case economy.ItemTypeStackable:
+		return "resource"
+	case economy.ItemTypeInstance:
+		return "module"
+	default:
+		return definition.Type.String()
 	}
 }
 
@@ -284,6 +321,41 @@ func (runtime *Runtime) repairQuoteLocked(state playerRuntimeState) repairQuoteP
 		Cost:     cost,
 		Disabled: state.Ship.Disabled,
 	}
+}
+
+func (runtime *Runtime) shipDisabledRefreshEvents(sessionID auth.SessionID, playerID foundation.PlayerID) ([]realtime.EventEnvelope, error) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	state, ok := runtime.players[playerID]
+	if !ok {
+		return nil, worker.ErrUnknownPlayer
+	}
+	if !state.Ship.Disabled && state.Ship.RepairState != "disabled" {
+		return nil, nil
+	}
+	if state.Ship.RepairState == "" {
+		state.Ship.RepairState = "disabled"
+		runtime.players[playerID] = state
+	}
+	payload := map[string]any{
+		"ship_id":         state.Ship.ActiveShipID,
+		"disabled_reason": shipDisabledReason(state.Ship),
+		"ship":            state.Ship,
+		"repair_quote":    runtime.repairQuoteLocked(state),
+	}
+	return []realtime.EventEnvelope{
+		runtime.eventLocked(sessionID, realtime.EventDeathShipDisabled, payload),
+		runtime.eventLocked(sessionID, realtime.EventShipSnapshot, state.Ship),
+		runtime.eventLocked(sessionID, realtime.EventPlayerSnapshot, state.playerSnapshot()),
+	}, nil
+}
+
+func shipDisabledReason(ship shipSnapshotPayload) string {
+	if ship.RepairState != "" && ship.RepairState != "ready" && ship.RepairState != "disabled" {
+		return ship.RepairState
+	}
+	return "death"
 }
 
 func (runtime *Runtime) queueEventLocked(sessionID auth.SessionID, eventType realtime.ClientEventType, payload any) {

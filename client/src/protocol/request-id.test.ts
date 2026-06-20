@@ -3,6 +3,48 @@ import { expect, test } from 'vitest';
 import { assertClientSafePayload, CommandBuilder } from './commands';
 import { createRequestId } from './request-id';
 
+const SHARED_SENSITIVE_CLIENT_FIELDS = [
+  'account_id',
+  'client_player_id',
+  'player_id',
+  'session_id',
+  'world_id',
+  'zone_id',
+  'speed',
+  'hidden',
+  'internal_metadata',
+  'gameplay_seed',
+  'procedural_seed',
+  'world_seed',
+  'future_spawn_data',
+  'candidate_key',
+  'detection_roll',
+  'scan_roll',
+  'scan_cell',
+  'scan_result',
+  'scan_candidates',
+  'target_player_id',
+  'witness_expires_at',
+  'hidden_target_metadata',
+  'provider',
+  'provider_reference',
+  'source_return_location',
+  'seller_player_id',
+  'buyer_player_id',
+  'bidder_player_id',
+  'winning_player_id',
+  'generated_payload',
+  'generated_seed',
+  'loot_roll',
+  'password',
+  'password_hash',
+  'token',
+  'session_token',
+  'reset_secret',
+  'auth_header',
+  'cookie',
+] as const;
+
 test('createRequestId returns non-empty unique ids', () => {
   const ids = new Set(Array.from({ length: 20 }, () => createRequestId()));
 
@@ -21,7 +63,17 @@ test('command builders include request ids and omit trusted fields', () => {
   const activate = builder.hangarActivateShip('starter');
   const equip = builder.loadoutEquipModule('offensive_1', 'laser_alpha_t1-instance-2');
   const unequip = builder.loadoutUnequipModule('offensive_1');
-  const serializedPayloads = JSON.stringify([move.payload, fire.payload, pickup.payload, scan.payload, activate.payload, equip.payload, unequip.payload]);
+  const stealth = builder.stealthToggle(true);
+  const serializedPayloads = JSON.stringify([
+    move.payload,
+    fire.payload,
+    pickup.payload,
+    scan.payload,
+    activate.payload,
+    equip.payload,
+    unequip.payload,
+    stealth.payload,
+  ]);
 
   expect(move.request_id).toBeTruthy();
   expect(move.client_seq).toBe(1);
@@ -38,6 +90,8 @@ test('command builders include request ids and omit trusted fields', () => {
   expect(equip.payload).toEqual({ slot_id: 'offensive_1', item_instance_id: 'laser_alpha_t1-instance-2' });
   expect(unequip.op).toBe('loadout.unequip_module');
   expect(unequip.payload).toEqual({ slot_id: 'offensive_1' });
+  expect(stealth.op).toBe('stealth.toggle');
+  expect(stealth.payload).toEqual({ enabled: true });
   expect(serializedPayloads).not.toContain('player_id');
   expect(serializedPayloads).not.toContain('damage');
   expect(serializedPayloads).not.toContain('xp');
@@ -83,10 +137,10 @@ test('economy, premium, and quest command builders omit trusted result fields', 
     builder.auctionSearch(),
     builder.auctionBid('auction-1', 50),
     builder.auctionBuyNow('auction-1'),
-    builder.auctionClaimGrant(),
+    builder.auctionGrants(),
     builder.premiumEntitlements(),
     builder.premiumClaim('entitlement-1'),
-    builder.premiumPurchaseWeeklyXCore(),
+    builder.premiumPurchaseWeeklyXCore('weekly_xcore', '2026-W25'),
     builder.questBoard(),
     builder.questAccept('offer-1'),
     builder.questProgress(),
@@ -104,6 +158,7 @@ test('economy, premium, and quest command builders omit trusted result fields', 
   });
   expect(commands[5].payload).toEqual({ auction_id: 'auction-1', amount: 50 });
   expect(commands[14].payload).toEqual({ quest_id: 'quest-1' });
+  expect(commands[10].payload).toEqual({ product_id: 'weekly_xcore', period_key: '2026-W25' });
 
   for (const forbidden of [
     'player_id',
@@ -141,4 +196,18 @@ test('command payloads reject client-authored economy, combat, and hidden world 
   expect(() => assertClientSafePayload({ hidden: true })).toThrow(/trusted field: hidden/);
   expect(() => assertClientSafePayload({ scan_result: { detected: true } })).toThrow(/trusted field: scan_result/);
   expect(() => assertClientSafePayload({ loot_table: 'rare' })).toThrow(/trusted field: loot_table/);
+});
+
+test.each(SHARED_SENSITIVE_CLIENT_FIELDS)('command payload rejects shared sensitive field %s', (field) => {
+  expect(() => assertClientSafePayload({ outer: [{ [field]: 'spoof' }] })).toThrow(new RegExp(`trusted field: ${field}`));
+});
+
+test('admin inspect is the only command-builder target_player_id exception', () => {
+  const builder = new CommandBuilder();
+
+  expect(builder.adminInspectPlayer('player-admin-target').payload).toEqual({ target_player_id: 'player-admin-target' });
+  expect(() => assertClientSafePayload({ target_player_id: 'player-admin-target' })).toThrow(/trusted field: target_player_id/);
+  expect(() =>
+    assertClientSafePayload({ admin: { target_player_id: 'player-admin-target' } }),
+  ).toThrow(/trusted field: target_player_id/);
 });

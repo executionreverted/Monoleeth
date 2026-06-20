@@ -1,7 +1,19 @@
 import { AuthClient, AuthClientError } from '../auth/auth-client';
 import { RealtimeClient } from '../net/realtime-client';
 import { CommandBuilder } from '../protocol/commands';
-import { CLIENT_EVENTS, EntityPayload, ErrorEnvelope, OPERATIONS, RequestEnvelope, ServerMessage, Vec2 } from '../protocol/envelope';
+import { canSendRealtimeCommand } from './command-gate';
+import { resolvePlanetNavigationTarget } from './planet-navigation';
+import { nextCycleTargetID } from './target-cycle';
+import {
+  CLIENT_EVENTS,
+  EntityPayload,
+  ErrorEnvelope,
+  Operation,
+  OPERATIONS,
+  RequestEnvelope,
+  ServerMessage,
+  Vec2,
+} from '../protocol/envelope';
 import { WorldRenderer } from '../render/world-renderer';
 import { AuthPanel } from '../ui/auth-panel';
 import { HUD } from '../ui/hud';
@@ -21,6 +33,7 @@ import { ClientAction, ClientState, PublicSession, WorldMapMemoryMarker } from '
 import { worldMapMemoryMarkers } from '../state/world-memory';
 
 type DemoStateModule = typeof import('./demo-state');
+type TargetSelectionSource = 'world' | 'hud' | 'radar';
 
 const SCAN_PENDING_RECHECK_MS = 500;
 const SCAN_STARTED_RECHECK_MS = 350;
@@ -29,6 +42,7 @@ const SCAN_ERROR_BACKOFF_MS = 3_200;
 const MOVEMENT_ETA_RENDER_MS = 100;
 const NAVIGATION_RECHECK_MS = 140;
 const NAVIGATION_TARGET_TOLERANCE_UNITS = 24;
+const ECONOMY_REFRESH_DEBOUNCE_MS = 50;
 
 export class ClientApp {
   private state: ClientState = createInitialState();
@@ -36,7 +50,7 @@ export class ClientApp {
   private readonly commandBuilder = new CommandBuilder();
   private readonly renderer = new WorldRenderer({
     onMoveIntent: (target) => this.handleWorldMoveIntent(target),
-    onSelectTarget: (entityID) => this.selectEntity(entityID),
+    onSelectTarget: (entityID) => this.selectEntity(entityID, 'world'),
     onSelectMemoryMarker: (marker) => this.selectMemoryMarker(marker),
   });
   private readonly realtime = new RealtimeClient({
@@ -60,10 +74,21 @@ export class ClientApp {
   private acceptedMovementSignature: string | null = null;
   private scanTimer: number | null = null;
   private scanTimerAt = 0;
+  private economyRefreshTimer: number | null = null;
+  private readonly pendingEconomyRefreshOps = new Set<Operation>();
+  private readonly pendingGameplayActionKeys = new Set<string>();
+  private readonly pendingGameplayActionKeysByRequest = new Map<string, string>();
   private pendingLootPickupID: string | null = null;
   private pendingLootApproachID: string | null = null;
   private intentionalDisconnect = false;
   private systemsSnapshotRequested = false;
+  private readonly smokePendingHistory: Array<{
+    kind: 'queued' | 'auth_expired';
+    requestID?: string;
+    op?: Operation;
+    pendingCount: number;
+    at: number;
+  }> = [];
   private demoState: DemoStateModule | null = null;
   private readonly demoMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1';
 
@@ -103,20 +128,23 @@ export class ClientApp {
       onRepairQuote: () => this.sendCommand(this.commandBuilder.deathRepairQuote()),
       onRepair: () => this.sendCommand(this.commandBuilder.deathRepairShip()),
       onScan: () => this.toggleScanMode(),
+      onStealthToggle: () => this.toggleStealth(),
+      onSelectTarget: (entityID, source) => this.selectEntity(entityID, source ?? 'hud'),
+      onCycleTarget: () => this.cycleTarget(),
       onPlanetDetail: (planetID) => this.requestPlanetDetail(planetID),
       onPlanetNavigate: (planetID) => this.navigateToPlanet(planetID),
-      onHangarActivateShip: (shipID) => this.sendCommand(this.commandBuilder.hangarActivateShip(shipID)),
-      onLoadoutEquipModule: (slotID, itemInstanceID) =>
-        this.sendCommand(this.commandBuilder.loadoutEquipModule(slotID, itemInstanceID)),
-      onLoadoutUnequipModule: (slotID) => this.sendCommand(this.commandBuilder.loadoutUnequipModule(slotID)),
+      onHangarActivateShip: (shipID) => this.sendHangarActivateShip(shipID),
+      onLoadoutEquipModule: (slotID, itemInstanceID) => this.sendLoadoutEquipModule(slotID, itemInstanceID),
+      onLoadoutUnequipModule: (slotID) => this.sendLoadoutUnequipModule(slotID),
       onMarketCreateListing: (input) => this.sendCommand(this.commandBuilder.marketCreateListing(input)),
       onMarketBuy: (listingID, quantity) => this.sendCommand(this.commandBuilder.marketBuy(listingID, quantity)),
       onMarketCancel: (listingID) => this.sendCommand(this.commandBuilder.marketCancel(listingID)),
-      onAuctionBid: (auctionID, amount) => this.sendCommand(this.commandBuilder.auctionBid(auctionID, amount)),
+      onAuctionBid: (auctionID, amount) => this.sendAuctionBid(auctionID, amount),
       onAuctionBuyNow: (auctionID) => this.sendCommand(this.commandBuilder.auctionBuyNow(auctionID)),
-      onAuctionClaimGrant: () => this.sendCommand(this.commandBuilder.auctionClaimGrant()),
+      onAuctionGrants: () => this.sendCommand(this.commandBuilder.auctionGrants()),
       onPremiumClaim: (entitlementID) => this.sendCommand(this.commandBuilder.premiumClaim(entitlementID)),
-      onPremiumWeeklyXCore: () => this.sendCommand(this.commandBuilder.premiumPurchaseWeeklyXCore()),
+      onPremiumWeeklyXCore: (productID, periodKey) =>
+        this.sendCommand(this.commandBuilder.premiumPurchaseWeeklyXCore(productID, periodKey)),
       onQuestAccept: (offerID) => this.sendCommand(this.commandBuilder.questAccept(offerID)),
       onQuestClaim: (questID) => this.sendCommand(this.commandBuilder.questClaimReward(questID)),
       onQuestReroll: () => this.sendCommand(this.commandBuilder.questReroll()),
@@ -138,6 +166,8 @@ export class ClientApp {
   private connect(url: string): void {
     this.intentionalDisconnect = false;
     this.cancelNavigation();
+    this.clearEconomyRefreshTimer();
+    this.clearPendingGameplayActionKeys();
     this.pendingLootPickupID = null;
     this.pendingLootApproachID = null;
     this.dispatch({ type: 'replaceVisibleEntities', entities: [], serverTime: null });
@@ -147,6 +177,8 @@ export class ClientApp {
   private disconnect(): void {
     this.intentionalDisconnect = true;
     this.cancelNavigation();
+    this.clearEconomyRefreshTimer();
+    this.clearPendingGameplayActionKeys();
     this.systemsSnapshotRequested = false;
     this.pendingLootPickupID = null;
     this.pendingLootApproachID = null;
@@ -267,6 +299,60 @@ export class ClientApp {
     this.activateLootTarget(target, 'action');
   }
 
+  private sendAuctionBid(auctionID: string, amount: number): void {
+    if (this.hasPendingOperation(OPERATIONS.auctionBid)) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Auction bid already pending.' });
+      return;
+    }
+
+    this.sendCommand(this.commandBuilder.auctionBid(auctionID, amount));
+  }
+
+  private sendHangarActivateShip(shipID: string): void {
+    if (!shipID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `activate:${shipID}`,
+      () => this.commandBuilder.hangarActivateShip(shipID),
+      'Ship activation already pending.',
+    );
+  }
+
+  private sendLoadoutEquipModule(slotID: string, itemInstanceID: string): void {
+    if (!slotID || !itemInstanceID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `equip:${slotID}:${itemInstanceID}`,
+      () => this.commandBuilder.loadoutEquipModule(slotID, itemInstanceID),
+      'Module equip already pending.',
+    );
+  }
+
+  private sendLoadoutUnequipModule(slotID: string): void {
+    if (!slotID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `unequip:${slotID}`,
+      () => this.commandBuilder.loadoutUnequipModule(slotID),
+      'Module unequip already pending.',
+    );
+  }
+
+  private sendGuardedGameplayCommand(actionKey: string, buildEnvelope: () => RequestEnvelope, pendingMessage: string): void {
+    if (this.pendingGameplayActionKeys.has(actionKey)) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: pendingMessage });
+      return;
+    }
+    const envelope = buildEnvelope();
+    if (this.sendCommand(envelope)) {
+      this.pendingGameplayActionKeys.add(actionKey);
+      this.pendingGameplayActionKeysByRequest.set(envelope.request_id, actionKey);
+    }
+  }
+
   private requestPlanetDetail(planetID: string): void {
     if (!planetID) {
       return;
@@ -286,24 +372,32 @@ export class ClientApp {
       return;
     }
 
-    const target = detail.coordinates;
-    if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y)) {
+    const target = resolvePlanetNavigationTarget(this.state.planetIntel, planetID);
+    if (!target) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'Planet navigation rejected: awaiting server coordinates.' });
       this.requestPlanetDetail(planetID);
       return;
     }
 
-    this.sendMove({ ...target });
+    this.sendMove(target);
   }
 
   private toggleScanMode(): void {
     this.dispatch({ type: 'scanModeToggled' });
   }
 
-  private sendCommand(envelope: RequestEnvelope): void {
-    if (this.state.auth.mode === 'real' && this.state.connectionStatus !== 'connected') {
-      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Waiting for authenticated realtime link.' });
+  private toggleStealth(): void {
+    if (this.hasPendingOperation(OPERATIONS.stealthToggle)) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Cloak toggle already pending.' });
       return;
+    }
+    this.sendCommand(this.commandBuilder.stealthToggle(!this.selfStealthEnabled()));
+  }
+
+  private sendCommand(envelope: RequestEnvelope): boolean {
+    if (!canSendRealtimeCommand(this.state.auth.mode, this.state.connectionStatus)) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Waiting for authenticated realtime link.' });
+      return false;
     }
 
     this.dispatch({ type: 'requestQueued', envelope });
@@ -322,12 +416,14 @@ export class ClientApp {
             },
       );
     }
+    return true;
   }
 
   private applyServerMessage(message: ServerMessage): void {
     if ('event_id' in message) {
       this.dispatch({ type: 'eventReceived', envelope: message });
       this.logAcceptedSelfMovement();
+      this.handleEconomyRefreshForEvent(message.type);
       if (message.type === CLIENT_EVENTS.worldSnapshot) {
         this.requestSystemsSnapshotOnce();
       }
@@ -335,6 +431,7 @@ export class ClientApp {
     }
 
     const pending = this.state.pendingCommands[message.request_id] ?? null;
+    this.clearPendingGameplayActionKey(message.request_id);
     this.dispatch({ type: 'responseReceived', envelope: message });
     if (pending?.op === OPERATIONS.moveTo && message.ok === false) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: `Move rejected: ${message.error.message}` });
@@ -418,6 +515,8 @@ export class ClientApp {
   private async logout(): Promise<void> {
     this.intentionalDisconnect = true;
     this.cancelNavigation();
+    this.clearEconomyRefreshTimer();
+    this.clearPendingGameplayActionKeys();
     this.systemsSnapshotRequested = false;
     this.pendingLootPickupID = null;
     this.pendingLootApproachID = null;
@@ -438,6 +537,8 @@ export class ClientApp {
     }
     this.intentionalDisconnect = false;
     this.cancelNavigation();
+    this.clearEconomyRefreshTimer();
+    this.clearPendingGameplayActionKeys();
     this.systemsSnapshotRequested = false;
     this.pendingLootPickupID = null;
     this.pendingLootApproachID = null;
@@ -503,9 +604,95 @@ export class ClientApp {
     this.sendCommand(this.commandBuilder.observabilityAbuseCoverage());
   }
 
+  private handleEconomyRefreshForEvent(eventType: string): void {
+    switch (eventType) {
+      case CLIENT_EVENTS.marketListingCreated:
+      case CLIENT_EVENTS.marketListingCancelled:
+        this.scheduleEconomyRefresh(OPERATIONS.marketSearch, OPERATIONS.inventorySnapshot);
+        return;
+      case CLIENT_EVENTS.marketListingUpdated:
+        this.scheduleEconomyRefresh(OPERATIONS.marketSearch);
+        return;
+      case CLIENT_EVENTS.marketSaleCompleted:
+        this.scheduleEconomyRefresh(OPERATIONS.marketSearch, OPERATIONS.walletSnapshot, OPERATIONS.inventorySnapshot);
+        return;
+      case CLIENT_EVENTS.auctionLotUpdated:
+        this.scheduleEconomyRefresh(OPERATIONS.auctionSearch);
+        return;
+      case CLIENT_EVENTS.auctionBidPlaced:
+      case CLIENT_EVENTS.auctionClosed:
+        this.scheduleEconomyRefresh(OPERATIONS.auctionSearch, OPERATIONS.walletSnapshot);
+        return;
+      case CLIENT_EVENTS.premiumEntitlementCreated:
+        this.scheduleEconomyRefresh(OPERATIONS.premiumEntitlements);
+        return;
+      case CLIENT_EVENTS.premiumEntitlementClaimed:
+      case CLIENT_EVENTS.premiumStockConsumed:
+        this.scheduleEconomyRefresh(OPERATIONS.premiumEntitlements, OPERATIONS.walletSnapshot);
+        return;
+      case CLIENT_EVENTS.economyFlowUpdated:
+        this.scheduleEconomyRefresh(OPERATIONS.adminEconomyDashboard);
+        return;
+      default:
+        return;
+    }
+  }
+
+  private scheduleEconomyRefresh(...ops: Operation[]): void {
+    if (this.state.auth.mode !== 'real' || this.state.connectionStatus !== 'connected') {
+      return;
+    }
+    for (const op of ops) {
+      this.pendingEconomyRefreshOps.add(op);
+    }
+    if (this.economyRefreshTimer !== null) {
+      return;
+    }
+    this.economyRefreshTimer = window.setTimeout(() => {
+      this.economyRefreshTimer = null;
+      const refreshOps = [...this.pendingEconomyRefreshOps];
+      this.pendingEconomyRefreshOps.clear();
+      if (this.state.auth.mode !== 'real' || this.state.connectionStatus !== 'connected') {
+        return;
+      }
+      for (const op of refreshOps) {
+        this.sendEconomyRefreshCommand(op);
+      }
+    }, ECONOMY_REFRESH_DEBOUNCE_MS);
+  }
+
+  private sendEconomyRefreshCommand(op: Operation): void {
+    switch (op) {
+      case OPERATIONS.marketSearch:
+        this.sendCommand(this.commandBuilder.marketSearch());
+        return;
+      case OPERATIONS.auctionSearch:
+        this.sendCommand(this.commandBuilder.auctionSearch());
+        return;
+      case OPERATIONS.premiumEntitlements:
+        this.sendCommand(this.commandBuilder.premiumEntitlements());
+        return;
+      case OPERATIONS.walletSnapshot:
+        this.sendCommand(this.commandBuilder.walletSnapshot());
+        return;
+      case OPERATIONS.inventorySnapshot:
+        this.sendCommand(this.commandBuilder.inventorySnapshot());
+        return;
+      case OPERATIONS.adminEconomyDashboard:
+        if (this.state.auth.session?.account?.admin) {
+          this.sendCommand(this.commandBuilder.adminEconomyDashboard());
+        }
+        return;
+      default:
+        return;
+    }
+  }
+
   private handleAuthExpired(message: string): void {
     this.intentionalDisconnect = true;
     this.cancelNavigation();
+    this.clearEconomyRefreshTimer();
+    this.clearPendingGameplayActionKeys();
     this.pendingLootPickupID = null;
     this.pendingLootApproachID = null;
     this.clearReconnectTimer();
@@ -537,6 +724,28 @@ export class ClientApp {
     this.reconnectTimer = null;
   }
 
+  private clearEconomyRefreshTimer(): void {
+    if (this.economyRefreshTimer !== null) {
+      window.clearTimeout(this.economyRefreshTimer);
+      this.economyRefreshTimer = null;
+    }
+    this.pendingEconomyRefreshOps.clear();
+  }
+
+  private clearPendingGameplayActionKey(requestID: string): void {
+    const actionKey = this.pendingGameplayActionKeysByRequest.get(requestID);
+    if (!actionKey) {
+      return;
+    }
+    this.pendingGameplayActionKeysByRequest.delete(requestID);
+    this.pendingGameplayActionKeys.delete(actionKey);
+  }
+
+  private clearPendingGameplayActionKeys(): void {
+    this.pendingGameplayActionKeys.clear();
+    this.pendingGameplayActionKeysByRequest.clear();
+  }
+
   private dispatch(action: ClientAction): void {
     try {
       this.state = reduceClientState(this.state, action);
@@ -547,6 +756,7 @@ export class ClientApp {
         text: error instanceof Error ? error.message : String(error),
       });
     }
+    this.recordSmokePendingHistory(action);
     this.syncServerClock();
     this.render();
     this.tryPendingLootPickup();
@@ -589,8 +799,16 @@ export class ClientApp {
     return this.state.selectedTargetID ? this.state.visibleEntities[this.state.selectedTargetID] ?? null : null;
   }
 
-  private selectEntity(entityID: string | null): void {
-    if (!entityID || entityID !== this.pendingLootPickupID) {
+  private selfStealthEnabled(): boolean {
+    return Object.values(this.state.visibleEntities).some((entity) => {
+      const flags = entity.status_flags ?? [];
+      return flags.includes('self') && flags.includes('stealthed');
+    });
+  }
+
+  private selectEntity(entityID: string | null, source: TargetSelectionSource = 'world'): void {
+    const preservePendingLootApproach = source === 'world' && entityID === this.pendingLootPickupID;
+    if (!preservePendingLootApproach) {
       this.pendingLootPickupID = null;
       this.pendingLootApproachID = null;
     }
@@ -601,10 +819,20 @@ export class ClientApp {
 
     const target = this.state.visibleEntities[entityID];
     if (target?.entity_type === 'loot') {
-      this.activateLootTarget(target, 'click');
+      if (source === 'world') {
+        this.activateLootTarget(target, 'click');
+      }
       return;
     }
     this.pendingLootPickupID = null;
+  }
+
+  private cycleTarget(): void {
+    const nextTargetID = nextCycleTargetID(this.state, this.estimatedServerTime());
+    if (!nextTargetID) {
+      return;
+    }
+    this.selectEntity(nextTargetID);
   }
 
   private selectMemoryMarker(marker: WorldMapMemoryMarker): void {
@@ -986,6 +1214,8 @@ export class ClientApp {
         minimap: this.state.minimap,
         visibleEntities: this.state.visibleEntities,
         selectedTargetID: this.state.selectedTargetID,
+        movementTarget: this.state.movementTarget,
+        lastCorrection: this.state.lastCorrection,
         knownLoot: this.state.knownLoot,
         worldEffects: this.state.worldEffects,
         cargo: this.state.cargo,
@@ -1014,9 +1244,12 @@ export class ClientApp {
         abuseCoverage: this.state.abuseCoverage,
         repairQuote: this.state.repairQuote,
         skillCooldowns: this.state.skillCooldowns,
+        pendingCommands: this.state.pendingCommands,
+        pendingHistory: this.smokePendingHistory,
         commandLog: this.state.commandLog,
         combatLog: this.state.combatLog,
         auth: this.state.auth,
+        navigationTarget: this.navigationTarget,
         serverNow,
         movementEta: movementEtaSmokeState(this.selfEntity(), serverNow),
         worldView: this.renderer.debugSnapshot(),
@@ -1033,6 +1266,31 @@ export class ClientApp {
       return;
     }
     this.smokeStateTimer = window.setInterval(() => this.publishSmokeState(), 50);
+  }
+
+  private recordSmokePendingHistory(action: ClientAction): void {
+    if (typeof window === 'undefined' || !new URLSearchParams(window.location.search).has('smoke')) {
+      return;
+    }
+    if (action.type === 'requestQueued') {
+      this.smokePendingHistory.push({
+        kind: 'queued',
+        requestID: action.envelope.request_id,
+        op: action.envelope.op,
+        pendingCount: Object.keys(this.state.pendingCommands).length,
+        at: Date.now(),
+      });
+    }
+    if (action.type === 'authExpired') {
+      this.smokePendingHistory.push({
+        kind: 'auth_expired',
+        pendingCount: Object.keys(this.state.pendingCommands).length,
+        at: Date.now(),
+      });
+    }
+    if (this.smokePendingHistory.length > 200) {
+      this.smokePendingHistory.splice(0, this.smokePendingHistory.length - 200);
+    }
   }
 }
 

@@ -138,11 +138,24 @@ func TestDecodeRequestEnvelopeAcceptsHangarAndLoadoutMutationOperations(t *testi
 	}
 }
 
+func TestDecodeRequestEnvelopeAcceptsStealthToggleOperation(t *testing.T) {
+	envelope, err := DecodeRequestEnvelope([]byte(`{"request_id":"request-stealth-toggle","op":"stealth.toggle","payload":{"enabled":true},"client_seq":9,"v":1}`))
+	if err != nil {
+		t.Fatalf("decode stealth request envelope: %v", err)
+	}
+	if envelope.Op != OperationStealthToggle {
+		t.Fatalf("op = %q, want %q", envelope.Op, OperationStealthToggle)
+	}
+}
+
 func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testing.T) {
 	disallowed := []Operation{
 		Operation("crafting.start"),
 		Operation("crafting.complete"),
 		Operation("crafting.cancel"),
+		Operation("inventory.move"),
+		Operation("progression.unlock_skill"),
+		Operation("progression.respec_skills"),
 		Operation("discovery.claim_planet"),
 		Operation("planet.building_build"),
 		Operation("planet.building_upgrade"),
@@ -151,6 +164,14 @@ func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testin
 		Operation("route.enable"),
 		Operation("route.disable"),
 		Operation("route.settle"),
+		Operation("intel.share"),
+		Operation("intel.coordinate_item_create"),
+		Operation("intel.coordinate_item_use"),
+		Operation("coordinate_scroll.create"),
+		Operation("coordinate_scroll.use"),
+		Operation("mail.send"),
+		Operation("social.friend_request"),
+		Operation("social.party_invite"),
 	}
 
 	registry := OperationRegistry()

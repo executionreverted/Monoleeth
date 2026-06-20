@@ -89,6 +89,10 @@ export class CommandBuilder {
     return this.build(OPERATIONS.statsSnapshot, {});
   }
 
+  stealthToggle(enabled: boolean): RequestEnvelope<{ enabled: boolean }> {
+    return this.build(OPERATIONS.stealthToggle, { enabled });
+  }
+
   craftingRecipes(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.craftingRecipes, {});
   }
@@ -181,8 +185,8 @@ export class CommandBuilder {
     });
   }
 
-  auctionClaimGrant(): RequestEnvelope<Record<string, never>> {
-    return this.build(OPERATIONS.auctionClaimGrant, {});
+  auctionGrants(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.auctionGrants, {});
   }
 
   premiumEntitlements(): RequestEnvelope<Record<string, never>> {
@@ -195,8 +199,11 @@ export class CommandBuilder {
     });
   }
 
-  premiumPurchaseWeeklyXCore(): RequestEnvelope<Record<string, never>> {
-    return this.build(OPERATIONS.premiumPurchaseWeeklyXCore, {});
+  premiumPurchaseWeeklyXCore(productID: string, periodKey: string): RequestEnvelope<{ product_id: string; period_key: string }> {
+    return this.build(OPERATIONS.premiumPurchaseWeeklyXCore, {
+      product_id: productID,
+      period_key: periodKey,
+    });
   }
 
   questBoard(): RequestEnvelope<Record<string, never>> {
@@ -220,7 +227,9 @@ export class CommandBuilder {
   }
 
   adminInspectPlayer(targetPlayerID?: string): RequestEnvelope<{ target_player_id?: string }> {
-    return this.build(OPERATIONS.adminInspectPlayer, targetPlayerID ? { target_player_id: targetPlayerID } : {});
+    return this.build(OPERATIONS.adminInspectPlayer, targetPlayerID ? { target_player_id: targetPlayerID } : {}, [
+      'target_player_id',
+    ]);
   }
 
   adminRepairCraftJob(jobID: string): RequestEnvelope<{ job_id: string }> {
@@ -254,8 +263,12 @@ export class CommandBuilder {
     });
   }
 
-  build<TPayload extends CommandPayload>(op: Operation, payload: TPayload): RequestEnvelope<TPayload> {
-    assertClientSafePayload(payload);
+  private build<TPayload extends CommandPayload>(
+    op: Operation,
+    payload: TPayload,
+    trustedTopLevelFieldAllowlist: readonly string[] = [],
+  ): RequestEnvelope<TPayload> {
+    assertClientSafePayloadInternal(payload, trustedTopLevelFieldAllowlist);
     this.clientSeq += 1;
     return {
       request_id: createRequestId(),
@@ -268,16 +281,26 @@ export class CommandBuilder {
 }
 
 export function assertClientSafePayload(payload: CommandPayload): void {
-  const forbidden = findTrustedClientField(payload);
+  assertClientSafePayloadInternal(payload);
+}
+
+function assertClientSafePayloadInternal(
+  payload: CommandPayload,
+  trustedTopLevelFieldAllowlist: readonly string[] = [],
+): void {
+  const forbidden = findTrustedClientField(
+    payload,
+    new Set(trustedTopLevelFieldAllowlist.map((field) => field.toLowerCase())),
+  );
   if (forbidden) {
     throw new Error(`Command payload must not include trusted field: ${forbidden}`);
   }
 }
 
-function findTrustedClientField(value: unknown): string | null {
+function findTrustedClientField(value: unknown, trustedTopLevelFieldAllowlist: ReadonlySet<string>, depth = 0): string | null {
   if (Array.isArray(value)) {
     for (const item of value) {
-      const found = findTrustedClientField(item);
+      const found = findTrustedClientField(item, trustedTopLevelFieldAllowlist, depth + 1);
       if (found) {
         return found;
       }
@@ -291,13 +314,22 @@ function findTrustedClientField(value: unknown): string | null {
 
   for (const [key, child] of Object.entries(value)) {
     const normalized = key.toLowerCase();
+    if (depth === 0 && trustedTopLevelFieldAllowlist.has(normalized)) {
+      const childFound = findTrustedClientField(child, new Set(), depth + 1);
+      if (childFound) {
+        return childFound;
+      }
+      continue;
+    }
     if (
       normalized === 'player_id' ||
+      normalized === 'client_player_id' ||
       normalized === 'account_id' ||
       normalized === 'session_id' ||
       normalized === 'world_id' ||
       normalized === 'zone_id' ||
       normalized === 'damage' ||
+      normalized === 'speed' ||
       normalized === 'xp' ||
       normalized === 'main_xp' ||
       normalized === 'combat_xp' ||
@@ -320,6 +352,7 @@ function findTrustedClientField(value: unknown): string | null {
       normalized === 'seller_proceeds' ||
       normalized === 'escrow' ||
       normalized === 'escrow_location' ||
+      normalized === 'source_return_location' ||
       normalized === 'seller_player_id' ||
       normalized === 'buyer_player_id' ||
       normalized === 'bidder_player_id' ||
@@ -361,15 +394,26 @@ function findTrustedClientField(value: unknown): string | null {
       normalized === 'candidate_key' ||
       normalized === 'planet_candidate' ||
       normalized === 'detection_roll' ||
+      normalized === 'scan_roll' ||
       normalized === 'scan_cell' ||
       normalized === 'scan_result' ||
+      normalized === 'scan_candidate' ||
+      normalized === 'scan_candidates' ||
+      normalized === 'candidate_data' ||
+      normalized === 'target_player_id' ||
+      normalized === 'witness_expires_at' ||
+      normalized === 'witness_expiry' ||
+      normalized === 'hidden_target_metadata' ||
       normalized === 'loot_roll' ||
-      normalized === 'loot_table'
+      normalized === 'loot_table' ||
+      normalized === 'password' ||
+      normalized === 'password_hash' ||
+      normalized === 'cookie'
     ) {
       return key;
     }
 
-    const childFound = findTrustedClientField(child);
+    const childFound = findTrustedClientField(child, trustedTopLevelFieldAllowlist, depth + 1);
     if (childFound) {
       return childFound;
     }

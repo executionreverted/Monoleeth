@@ -7,6 +7,15 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [ ] Add owner-aware passive economy fanout for online market, auction, and
+  premium viewers. The Task 001 Phase 01 client now refreshes `market.search`,
+  `auction.search`, `premium.entitlements`, wallet, inventory, and admin economy
+  dashboard snapshots after economy events, but the runtime still queues most
+  events only to the acting session. Future backend work must notify affected
+  sellers, buyers, previous bidders, winners, entitlement owners, and passive
+  shop viewers without leaking private grants, provider refs, or
+  viewer-relative auction `leading` state. Source:
+  `docs/plans/task-001/01-gameplay-connection-audit.md`.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.
@@ -191,6 +200,13 @@ for phase status; this file is a compact pending-work index.
 
 ## Completed
 
+- [x] Add a browser-level revoked-session/auth-expiry smoke scenario for Task
+  001 Phase 01. Browser smoke now externally revokes a live authenticated
+  session, sends `world.snapshot` over the still-open WebSocket, observes the
+  terminal auth error/1008 close path, enters `auth_expired`, clears pending
+  commands, and removes gameplay state. Source:
+  `docs/plans/task-001/01-gameplay-connection-audit.md`,
+  `client/tests/browser-smoke.mjs`.
 - [x] Finish mockup-level entity asset parity for planets/signals/loot/NPCs.
   Visible objects are selectable and interactive, and the renderer now uses
   mockup-aligned HUD marker language: player radar/ship glow, hostile
@@ -259,8 +275,9 @@ for phase status; this file is a compact pending-work index.
   `internal/game/server/runtime.go`, `internal/game/server/server_test.go`.
 - [x] Add guard tests proving unimplemented browser mutation contracts are not
   registered or visible by default. Realtime, client protocol, and browser smoke
-  checks cover loadout, crafting, planet claim/building, and route mutation ops
-  until real server-owned contracts exist. Source:
+  checks cover crafting, inventory move, progression skill unlock/respec,
+  planet claim/building, route mutation, intel share, coordinate item, and
+  mail/social mutation ops until real server-owned contracts exist. Source:
   `internal/game/realtime/envelope_test.go`,
   `client/src/protocol/envelope.test.ts`,
   `client/tests/browser-smoke.mjs`.

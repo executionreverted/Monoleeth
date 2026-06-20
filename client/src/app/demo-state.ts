@@ -88,8 +88,8 @@ export function demoEvents(): EventEnvelope[] {
       used: 17,
       capacity: 60,
       items: [
-        { item_id: 'raw_ore', quantity: 11 },
-        { item_id: 'salvage_thread', quantity: 6 },
+        { item_id: 'raw_ore', display_name: 'Raw Ore', category: 'resource', art_key: 'item.raw_ore', quantity: 11, unit_weight: 1, used_units: 11, location: 'ship_cargo', move_eligible: false, locked_reason: 'cargo_transfer_unavailable' },
+        { item_id: 'salvage_thread', display_name: 'Salvage Thread', category: 'resource', art_key: 'item.salvage_thread', quantity: 6, unit_weight: 1, used_units: 6, location: 'ship_cargo', move_eligible: false, locked_reason: 'cargo_transfer_unavailable' },
       ],
     }),
     event(CLIENT_EVENTS.walletSnapshot, {

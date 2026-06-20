@@ -55,6 +55,87 @@ client/src/ui/hud.ts
 - AOI diff events update visible entities but do not currently reconcile
   minimap live contacts.
 
+## Subagent Review Additions - 2026-06-20
+
+- Make the projection implementation task exact: `Runtime.aoiSnapshotForPlayerLocked`
+  must not rely on the old radar-only feel or full-snapshot filtering. Expose a
+  worker-owned bounded spatial projection and document whether the playtest
+  policy is radius or square window.
+- Add minimap reconciliation from `aoi.entity_entered`,
+  `aoi.entity_updated`, and `aoi.entity_left`. The HUD renders from minimap
+  state, so visible entity changes must also update live contacts or trigger a
+  safe minimap refresh.
+- Add a stable identity contract for minimap interactions. Live contacts need
+  `data-entity-id` and `data-entity-type`; remembered planet contacts need
+  server-owned `planet_id` or `detail_id`, not client-guessed coordinates.
+- Rewrite smoke expectations that still assume active visual fog or a fixed
+  `radar_range === 420`. Task 001 smoke should assert fog overlay absence and
+  preserved hidden-data filtering instead.
+
+## Second Subagent Review Additions - 2026-06-20
+
+- Define projection input sources, not just projection size. The widened view
+  must specify how worker-owned entities, DB overlay entities, procedural/cache
+  materialization, known planet intel, NPCs, loot, and player entities enter the
+  bounded projection before visibility filtering.
+- Add tests that prove the widened projection is not only showing current
+  in-memory seed fixtures. A live/procedural/DB-backed entity inside the policy
+  window must appear when visible, while a hidden entity from the same source
+  remains filtered.
+- Document refresh behavior when movement crosses materialization boundaries:
+  old live contacts leave, newly materialized contacts enter, and minimap state
+  reconciles through AOI diffs or a safe snapshot refresh.
+
+## Third Subagent Review Additions - 2026-06-20
+
+- Current implementation evidence proves a larger worker snapshot, but not the
+  full projection source contract. Runtime still queries only
+  `Worker.EntitiesWithinWindow`, so Task 001 must document or implement how DB
+  overlays, procedural/live materialization, known intel, seeded NPCs, loot,
+  and player entities enter the `2000x2000` projection before visibility
+  filtering.
+- Add a server test proving a non-fixture materialized or DB-backed visible
+  entity enters the projection while a hidden entity from the same source stays
+  filtered.
+- Add browser smoke covering projection beyond static fixtures: live contact,
+  remembered planet/intel marker, hidden absence, and movement/materialization
+  boundary refresh.
+
+## Fourth Subagent Review Additions - 2026-06-20
+
+- `known_planets` or scanner intel updates must refresh minimap remembered
+  contacts and main world memory markers immediately, or trigger a safe
+  `world.snapshot`/memory refresh. Smoke must not mask this gap by pressing
+  Sync before checking the newly discovered marker.
+- Define the far-memory policy. Remembered planets outside the current
+  projection must either render as an explicit off-ring/distance marker or stay
+  off radar; they must not be clamped onto the minimap edge as fake nearby
+  contacts.
+- Define stale/wrong-zone/invalidated remembered intel behavior before render:
+  current world/zone filtering, stale styling, click behavior, and whether
+  colonized/claimed memories remain visible.
+- Document square projection versus circular radar semantics. The server
+  `2000x2000` square gives corner contacts beyond a 1000-unit circular radius;
+  payload naming, radar scale, and contact rendering must make that policy
+  deterministic.
+- Add browser/server tests for scan discovery without manual Sync, far memory,
+  invalidated or wrong-zone memory, and corner contacts inside the square
+  projection but outside a strict radar circle.
+
+## Fifth Subagent Review Additions - 2026-06-20
+
+- Server responses that replace `entities` without a `minimap` payload can leave
+  `minimap.live_contacts` stale. Fix by including a fresh minimap projection in
+  those responses or by rebuilding live contacts from replacement entities in
+  the reducer while preserving remembered intel.
+- Minimap live contact actions need a stable type contract. Hostile NPC/player
+  contacts select, loot contacts use selection-only `loot-select`, remembered
+  planet contacts open detail, and self/friendly/unknown non-detail contacts
+  should no-op or be explicitly disabled.
+- Scan/known-planet discovery still needs no-manual-Sync smoke: newly learned
+  remembered markers should appear and open detail from the event/query flow
+  that discovered them.
+
 ## Implementation Plan
 
 1. Define the Task 001 live visibility window.
@@ -124,24 +205,84 @@ client/tests/browser-smoke.mjs
 docs/plans/task-001/02-aoi-radar-map-visibility.md
 ```
 
+## Implementation Evidence - 2026-06-20
+
+- Live projection policy is a server-owned `2000x2000` square window:
+  `runtimeLiveProjectionDiameter = 2000`, half extent `1000`.
+- Player `stats.radar_range` remains a ship/stat value; it is not mutated to
+  widen the playtest map projection.
+- Runtime projection uses worker `EntitiesWithinWindow`, backed by the spatial
+  index `QueryWindow`, before AOI/security filtering.
+- Visibility still runs through `aoi.BuildVisibleSnapshot` and hidden entities
+  inside the projection window remain absent from world entities and minimap
+  contacts.
+- Minimap live contacts reconcile from AOI enter/update/left/correction
+  events, carry stable entity ids/types, and are clickable local target selects.
+- Remembered planet minimap contacts now carry server-owned `planet_id` and
+  `detail_id`; clicking them opens planet detail without sending movement.
+- World-map memory markers include selected planet detail and all server-owned
+  remembered minimap planet memories with coordinates.
+- Planet navigation buttons carry only `planet_id`; the client resolves the
+  final navigation destination from selected `discovery.planet_detail`
+  coordinates only. Cross-planet stale coordinate fallback is regression-tested
+  so a detail response without coordinates cannot inherit another planet's last
+  known coordinates.
+- Long-range planet navigation may still send bounded movement waypoints, but
+  those waypoints are derived from the server-timed current ship position and
+  the server-returned final planet coordinate. Browser smoke asserts the final
+  navigation target equals the selected server detail coordinates.
+- Minimap live contacts are regression-tested to mirror the matching server AOI
+  snapshot entity id, type, and position.
+- `move_to` and `stop` responses now include the server-owned minimap projection
+  alongside replacement entities. The client also rebuilds `minimap.live_contacts`
+  from server-owned replacement entities when no fresh minimap payload is
+  present, preserving remembered planet intel while removing stale live
+  contacts.
+- Scan discovery now refreshes remembered planet minimap contacts without a
+  manual Sync. `discovery.known_planets` events and query responses include a
+  server-owned `minimap` payload while `known_planets.planets[]` remains
+  coordinate-free.
+- Client reducer coverage proves a `discovery.known_planets` event with
+  `minimap.remembered` immediately produces `worldMapMemoryMarkers()` without
+  `planet_detail` or `world.snapshot`.
+- Browser smoke now asserts real scan discovery creates remembered minimap and
+  world memory markers before any manual Sync path can mask the bug.
+- Minimap loot contacts are selection-only at the radar layer and are covered by
+  browser smoke so they cannot accidentally issue movement or pickup commands.
+- Visual fog overlay is disabled in the renderer while server-side visibility
+  and hidden-data filtering remain active.
+
 ## Acceptance Criteria
 
-- [ ] The live map/radar projection policy is documented and tested.
-- [ ] Projection range/window is separate from player `stats.radar_range`, or
+- [x] The live map/radar projection policy is documented and tested.
+- [x] Projection range/window is separate from player `stats.radar_range`, or
       the intentional radar stat buff and its combat/loot impact are tested.
-- [ ] Worker exposes a bounded spatial query used by runtime projection.
-- [ ] The widened window includes allowed visible entities near the player.
-- [ ] Hidden entities remain absent even inside the widened window.
-- [ ] Known planets and safe remembered intel render in map/radar.
-- [ ] The radar is a stable circular surface with clickable contacts.
-- [ ] Live radar contacts include stable entity ids/types.
-- [ ] Remembered planet contacts include stable server-owned planet/detail ids.
-- [ ] AOI diff events keep minimap contacts current or trigger a minimap refresh.
-- [ ] Clicking a radar memory/contact opens detail or selects target without
+- [x] Worker exposes a bounded spatial query used by runtime projection.
+- [x] The widened window includes allowed visible entities near the player.
+- [x] Hidden entities remain absent even inside the widened window.
+- [x] Known planets and safe remembered intel render in map/radar.
+- [x] The radar is a stable circular surface with clickable contacts.
+- [x] Live radar contacts include stable entity ids/types.
+- [x] Remembered planet contacts include stable server-owned planet/detail ids.
+- [x] AOI diff events and entity-replacement responses keep minimap live
+      contacts current or trigger a minimap refresh.
+- [x] Clicking a radar memory/contact opens detail or selects target without
       leaking movement.
-- [ ] Navigate uses only server-returned coordinates.
-- [ ] Client fog visual overlay is removed or disabled in real playtest mode.
-- [ ] Server visibility/fog security tests still pass.
+- [x] Navigate uses only server-returned coordinates.
+- [x] Client fog visual overlay is removed or disabled in real playtest mode.
+- [x] Server visibility/fog security tests still pass.
+- [ ] Projection input sources for worker, DB overlay, procedural/live
+      materialization, known intel, NPCs, loot, and players are documented and
+      tested.
+- [ ] Projection smoke proves the widened view is not only direct worker
+      fixture insertion and reconciles source changes after movement.
+- [ ] Scan/known-planet updates refresh remembered minimap and world-map markers
+      without requiring manual Sync.
+- [ ] Far remembered planets do not clamp into fake nearby radar contacts.
+- [ ] Stale, invalidated, and wrong-zone remembered intel have explicit render
+      and click behavior.
+- [ ] Square projection and circular radar semantics are documented and tested,
+      including corner contacts.
 
 ## Verification
 

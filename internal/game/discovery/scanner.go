@@ -22,6 +22,7 @@ func NewScannerService(config ScannerServiceConfig) (*ScannerService, error) {
 		positions:         normalized.Positions,
 		cooldowns:         normalized.Cooldowns,
 		energy:            normalized.Energy,
+		reveals:           normalized.Reveals,
 		xp:                normalized.XP,
 		candidateOptions:  normalized.CandidateOptions,
 		scanCellSize:      normalized.ScanCellSize,
@@ -218,6 +219,31 @@ func (service *ScannerService) Events() []ScannerEventRecord {
 }
 
 func (service *ScannerService) resolvePulseLocked(pulse scanPulse, now time.Time) (ResolveScanPulseResult, error) {
+	if service.reveals != nil {
+		reveal, err := service.reveals.RevealHiddenPlayer(ScannerPlayerRevealInput{
+			PlayerID:       pulse.playerID,
+			ShipID:         pulse.shipID,
+			WorldID:        pulse.worldID,
+			ZoneID:         pulse.zoneID,
+			PulseReference: pulse.reference,
+			Position:       pulse.position,
+			Stats:          pulse.stats,
+			RevealedAt:     now,
+		})
+		if err != nil {
+			return ResolveScanPulseResult{}, err
+		}
+		if reveal.Revealed {
+			service.appendEventLocked(newScannerEvent(ScannerEventPulseResolved, pulse, "", now))
+			service.appendEventLocked(newScannerEvent(ScannerEventPlayerRevealed, pulse, "", now))
+			return ResolveScanPulseResult{
+				PulseReference: pulse.reference,
+				Status:         ScanPulseStatusPlayerRevealed,
+				Message:        "Scanner revealed a radar contact.",
+			}, nil
+		}
+	}
+
 	candidates, err := GeneratePlanetCandidates(service.seed, pulse.cell, service.candidateOptions)
 	if err != nil {
 		return ResolveScanPulseResult{}, err

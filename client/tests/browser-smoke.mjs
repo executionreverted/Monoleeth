@@ -47,6 +47,58 @@ const forbiddenText = [
   'npc_placeholder',
   'loot_placeholder',
   'planet_signal_placeholder',
+  'server_recalculates',
+  'server recalculates',
+  'server-owned',
+  'server policy',
+  'no server-owned routes',
+  'server-side',
+  'server lock',
+  'server move',
+  'server contract',
+];
+const allowedEnabledActions = [
+  'admin-refresh',
+  'admin-repair-craft-job',
+  'auction-bid',
+  'auction-buy-now',
+  'auction-refresh',
+  'connect',
+  'disconnect',
+  'fire',
+  'hangar-activate',
+  'hangar-select',
+  'inventory-tab',
+  'loadout-equip',
+  'loadout-unequip',
+  'logout',
+  'loot',
+  'loot-select',
+  'market-buy',
+  'market-cancel',
+  'market-create',
+  'module-filter',
+  'module-select',
+  'open-window',
+  'planet-detail',
+  'planet-navigate',
+  'planet-select',
+  'premium-claim',
+  'premium-weekly-xcore',
+  'quest-accept',
+  'quest-claim',
+  'quest-reroll',
+  'quest-select',
+  'repair',
+  'repair-quote',
+  'scan',
+  'shop-category',
+  'shop-qty',
+  'shop-select',
+  'stealth',
+  'stop',
+  'sync',
+  'target-select',
 ];
 const fakeSocialCountPatterns = [
   { label: 'unread mail count', pattern: /\b(?:mail|inbox|unread)\b[^\n]{0,24}\b\d+\b/i },
@@ -60,6 +112,9 @@ const unimplementedMutationOps = [
   'crafting.start',
   'crafting.complete',
   'crafting.cancel',
+  'inventory.move',
+  'progression.unlock_skill',
+  'progression.respec_skills',
   'discovery.claim_planet',
   'planet.building_build',
   'planet.building_upgrade',
@@ -68,11 +123,27 @@ const unimplementedMutationOps = [
   'route.enable',
   'route.disable',
   'route.settle',
+  'intel.share',
+  'intel.coordinate_item_create',
+  'intel.coordinate_item_use',
+  'coordinate_scroll.create',
+  'coordinate_scroll.use',
+  'mail.send',
+  'social.friend_request',
+  'social.party_invite',
 ];
 const unimplementedMutationControlPatterns = [
   {
     label: 'crafting mutation',
     pattern: /\b(?:craft|crafting|recipe)\b[^\n]{0,32}\b(?:start|complete|cancel)\b|\b(?:start|complete|cancel)\b[^\n]{0,32}\b(?:craft|crafting|recipe)\b/i,
+  },
+  {
+    label: 'inventory move mutation',
+    pattern: /\b(?:inventory|cargo|item)\b[^\n]{0,32}\bmove\b|\bmove\b[^\n]{0,32}\b(?:inventory|cargo|item)\b/i,
+  },
+  {
+    label: 'progression skill mutation',
+    pattern: /\b(?:pilot|progression|skill)\b[^\n]{0,32}\b(?:unlock|respec)\b|\b(?:unlock|respec)\b[^\n]{0,32}\b(?:pilot|progression|skill)\b/i,
   },
   {
     label: 'planet claim mutation',
@@ -85,6 +156,18 @@ const unimplementedMutationControlPatterns = [
   {
     label: 'route mutation',
     pattern: /\broute\b[^\n]{0,32}\b(?:create|update|enable|disable|settle)\b|\b(?:create|update|enable|disable|settle)\b[^\n]{0,32}\broute\b/i,
+  },
+  {
+    label: 'intel share mutation',
+    pattern: /\b(?:intel|coordinate|planet)\b[^\n]{0,32}\bshare\b|\bshare\b[^\n]{0,32}\b(?:intel|coordinate|planet)\b/i,
+  },
+  {
+    label: 'coordinate item mutation',
+    pattern: /\b(?:coordinate|scroll|intel item)\b[^\n]{0,32}\b(?:create|use)\b|\b(?:create|use)\b[^\n]{0,32}\b(?:coordinate|scroll|intel item)\b/i,
+  },
+  {
+    label: 'mail/social mutation',
+    pattern: /\b(?:mail|message|friend|party|social)\b[^\n]{0,32}\b(?:send|request|invite)\b|\b(?:send|request|invite)\b[^\n]{0,32}\b(?:mail|message|friend|party|social)\b/i,
   },
 ];
 let eventSequence = 100;
@@ -131,6 +214,7 @@ async function verifyRealViewport(viewport, label) {
   const password = 'correct-password';
   const callsign = `Smoke-${label}`;
   try {
+    await installWebSocketRecorder(page);
     await page.goto(withSmokeParam(url), { waitUntil: 'networkidle' });
     await page.waitForSelector('.auth-card', { timeout: 10000 });
     await page.waitForFunction(() => Boolean(window.__SPACE_MORPG_SMOKE_STATE__), null, { timeout: 10000 });
@@ -195,13 +279,16 @@ async function verifyRealViewport(viewport, label) {
             state?.playerSnapshot?.callsign === expectedCallsign &&
             state?.sector?.name === 'Origin Fringe' &&
             state?.minimap?.live_contacts?.some((contact) => contact.entity_id === 'entity_training_npc') &&
+            state?.minimap?.radar_range === 1000 &&
+            state?.minimap?.projection_window_size === 2000 &&
             state?.cargo?.capacity === 60 &&
             state?.wallet?.credits === 1200 &&
             state?.wallet?.premium_paid === 300 &&
             state?.ship?.active_ship_id === 'starter' &&
             state?.ship?.disabled === false &&
             state?.progression?.rank >= 1 &&
-            state?.stats?.radar_range === 420 &&
+            Number.isFinite(state?.stats?.radar_range) &&
+            state.stats.radar_range > 0 &&
             state?.stats?.loot_pickup_range === 120 &&
             state?.stats?.basic_laser_energy_cost === 10 &&
             state?.inventory?.counts?.cargo_stacks === 0 &&
@@ -216,9 +303,9 @@ async function verifyRealViewport(viewport, label) {
             state?.production?.planets?.length === 0 &&
             state?.routes?.routes?.length === 0 &&
             state?.market?.listings?.some(
-              (listing) => listing.status === 'active' && !listing.owned_by_you && listing.server_recalculates === true,
+              (listing) => listing.status === 'active' && !listing.owned_by_you && listing.final_price_pending === true,
             ) &&
-            state?.auction?.lots?.some((lot) => lot.status === 'active' && lot.server_recalculates === true) &&
+            state?.auction?.lots?.some((lot) => lot.status === 'active' && lot.final_price_pending === true) &&
             state?.premium?.entitlements?.length === 1 &&
             state?.premium?.stock?.length === 1 &&
             hasPlayer &&
@@ -236,6 +323,7 @@ async function verifyRealViewport(viewport, label) {
     }
     await assertNoUnimplementedMutationControls(page, `${label} authenticated bootstrap`);
     await verifyQuickActionContracts(page, viewport, label);
+    await verifyRadarContactInteractions(page, label);
     await verifyInventoryLoadout(page, viewport, label);
     await verifyHangarSurface(page, viewport, label);
 
@@ -254,6 +342,7 @@ async function verifyRealViewport(viewport, label) {
     await assertNoForbiddenLeaks(page, label);
     await assertNoFakeTopbarCounts(page, `${label} authenticated`);
     await assertNoUnimplementedMutationControls(page, `${label} authenticated`);
+    await assertNoRealModeDebugOperations(page, `${label} authenticated`);
     await page.screenshot({ path: path.join(outputDir, `live-${label}.png`), fullPage: true });
     await page.screenshot({ path: path.join(phase07OutputDir, `live-${label}.png`), fullPage: true });
     await page.screenshot({ path: path.join(phase08OutputDir, `live-${label}.png`), fullPage: true });
@@ -263,6 +352,9 @@ async function verifyRealViewport(viewport, label) {
       await verifyRealCombatLoot(page);
       await verifyRealMovementInterpolation(page);
       await verifyPlanetNavigateAction(page, label);
+      await assertNoRealModeDebugOperations(page, `${label} post-reconnect`);
+      await verifyRevokedSessionAuthExpiry(page, label);
+      return;
     }
 
     await page.locator('[data-action="logout"]').click();
@@ -285,6 +377,81 @@ async function verifyRealViewport(viewport, label) {
   } finally {
     await page.close();
   }
+}
+
+async function installWebSocketRecorder(page) {
+  await page.addInitScript(() => {
+    const NativeWebSocket = window.WebSocket;
+    if (window.__SPACE_MORPG_WS_EVENTS__) {
+      return;
+    }
+    const events = [];
+    window.__SPACE_MORPG_WS_EVENTS__ = events;
+    window.authExpiredClearFailures = () => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      const checks = [
+        ['connectionStatus', state?.connectionStatus === 'auth_expired'],
+        ['auth.session', state?.auth?.session === null],
+        ['auth.error', /session/i.test(state?.auth?.error ?? '')],
+        ['pendingCommands', Object.keys(state?.pendingCommands ?? {}).length === 0],
+        ['lastServerTime', state?.lastServerTime === null],
+        ['lastSequence', state?.lastSequence === 0],
+        ['playerSnapshot', state?.playerSnapshot === null],
+        ['sector', state?.sector === null],
+        ['minimap', state?.minimap === null],
+        ['selectedTargetID', state?.selectedTargetID === null],
+        ['movementTarget', state?.movementTarget === null],
+        ['knownLoot', Object.keys(state?.knownLoot ?? {}).length === 0],
+        ['worldEffects', (state?.worldEffects ?? []).length === 0],
+        ['cargo', state?.cargo === null],
+        ['wallet', state?.wallet === null],
+        ['ship', state?.ship === null],
+        ['stats', state?.stats === null],
+        ['progression', state?.progression === null],
+        ['inventory', state?.inventory === null],
+        ['hangar', state?.hangar === null],
+        ['loadout', state?.loadout === null],
+        ['crafting', state?.crafting === null],
+        ['repairQuote', state?.repairQuote === null],
+        ['skillCooldowns', Object.keys(state?.skillCooldowns ?? {}).length === 0],
+        ['questBoard', state?.questBoard === null],
+        ['planetIntel', state?.planetIntel === null],
+        ['scanMode', state?.scanMode?.enabled === false],
+        ['production', state?.production === null],
+        ['routes', state?.routes === null],
+        ['market', state?.market === null],
+        ['auction', state?.auction === null],
+        ['premium', state?.premium === null],
+        ['visibleEntities', Object.keys(state?.visibleEntities ?? {}).length === 0],
+        ['commandLog', (state?.commandLog ?? []).some((line) => /session/i.test(line.text))],
+        [
+          'pendingHistory.auth_expired',
+          (state?.pendingHistory ?? []).some((entry) => entry.kind === 'auth_expired' && entry.pendingCount === 0),
+        ],
+      ];
+      return checks.filter(([, ok]) => !ok).map(([name]) => name);
+    };
+    window.WebSocket = class SmokeWebSocket extends NativeWebSocket {
+      constructor(...args) {
+        super(...args);
+        events.push({ kind: 'construct', url: String(args[0] ?? ''), at: Date.now() });
+        this.addEventListener('open', () => {
+          events.push({ kind: 'open', at: Date.now() });
+        });
+        this.addEventListener('message', (event) => {
+          events.push({ kind: 'message', data: typeof event.data === 'string' ? event.data : '[non-text]', at: Date.now() });
+        });
+        this.addEventListener('close', (event) => {
+          events.push({ kind: 'close', code: event.code, reason: event.reason, at: Date.now() });
+        });
+      }
+
+      send(data) {
+        events.push({ kind: 'send', data: typeof data === 'string' ? data : '[non-text]', at: Date.now() });
+        return super.send(data);
+      }
+    };
+  });
 }
 
 async function verifyPlanetMemoryMarker(page, label) {
@@ -369,6 +536,18 @@ async function verifyPlanetMemoryMarker(page, label) {
 async function verifyPlanetNavigateAction(page, label) {
   await page.locator('[data-panel="planets"] [data-action="planet-detail"]').first().dispatchEvent('click');
   await page.waitForSelector('[data-modal="planet-detail"] [data-action="planet-navigate"]:not([disabled])', { timeout: 10000 });
+  const navigateButtonDataset = await page.locator('[data-modal="planet-detail"] [data-action="planet-navigate"]').evaluate((button) => ({
+    x: button.dataset.x,
+    y: button.dataset.y,
+    planetId: button.dataset.planetId,
+  }));
+  if (navigateButtonDataset.x !== undefined || navigateButtonDataset.y !== undefined || !navigateButtonDataset.planetId) {
+    throw new Error(`${label}: planet navigate button carried guessed coordinates ${JSON.stringify(navigateButtonDataset)}`);
+  }
+  const serverCoordinates = await page.evaluate(() => window.__SPACE_MORPG_SMOKE_STATE__?.planetIntel?.selectedPlanet?.coordinates ?? null);
+  if (!isFiniteVec(serverCoordinates)) {
+    throw new Error(`${label}: planet navigate missing server detail coordinates ${JSON.stringify(serverCoordinates)}`);
+  }
   const moveCountBeforeNavigate = await commandLogCount(page, 'Sent move_to.');
   await page.locator('[data-modal="planet-detail"] [data-action="planet-navigate"]').click();
   await page.waitForFunction(
@@ -379,8 +558,36 @@ async function verifyPlanetNavigateAction(page, label) {
     moveCountBeforeNavigate,
     { timeout: 10000 },
   );
+  await page.waitForFunction(
+    (coordinates) => {
+      const target = window.__SPACE_MORPG_SMOKE_STATE__?.navigationTarget;
+      return (
+        Number.isFinite(target?.x) &&
+        Number.isFinite(target?.y) &&
+        Math.abs(target.x - coordinates.x) < 0.001 &&
+        Math.abs(target.y - coordinates.y) < 0.001
+      );
+    },
+    serverCoordinates,
+    { timeout: 10000 },
+  );
   await page.locator('[data-modal-close="button"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
+}
+
+async function verifyRadarContactInteractions(page, label) {
+  await page.waitForSelector('.minimap__point[data-entity-id="entity_training_npc"][data-entity-type="npc"][data-target-source="radar"]', {
+    timeout: 10000,
+  });
+  const moveCountBefore = await commandLogCount(page, 'Sent move_to.');
+  await page.locator('.minimap__point[data-entity-id="entity_training_npc"]').click();
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'entity_training_npc', null, {
+    timeout: 10000,
+  });
+  const moveCountAfter = await commandLogCount(page, 'Sent move_to.');
+  if (moveCountAfter !== moveCountBefore) {
+    throw new Error(`${label}: minimap contact click emitted move_to`);
+  }
 }
 
 async function verifyPlanetCatalogSurface(page, viewport, label) {
@@ -543,17 +750,32 @@ async function syncRememberedMinimap(page, label) {
   if (leaked.hiddenVisible || leaked.hiddenContact) {
     throw new Error(`${label}: hidden planet signal leaked while syncing remembered minimap ${JSON.stringify(leaked)}`);
   }
+  if (!leaked.remembered.some((memory) => memory.planet_id || memory.detail_id)) {
+    throw new Error(`${label}: remembered minimap missing server-owned planet/detail id ${JSON.stringify(leaked.remembered)}`);
+  }
+  const moveCountBefore = await commandLogCount(page, 'Sent move_to.');
+  await page.locator('.minimap__memory[data-planet-id], .minimap__memory[data-action="planet-detail"]').first().click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-modal="planet-detail"] [data-planet-detail]') instanceof HTMLElement,
+    null,
+    { timeout: 10000 },
+  );
+  const moveCountAfter = await commandLogCount(page, 'Sent move_to.');
+  if (moveCountAfter !== moveCountBefore) {
+    throw new Error(`${label}: remembered minimap click emitted move_to`);
+  }
+  await page.locator('[data-modal-close="button"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-modal]'), null, { timeout: 10000 });
 }
 
 async function verifyFogOfWar(page, label) {
   await page.waitForFunction(() => {
     const fog = window.__SPACE_MORPG_SMOKE_STATE__?.worldView?.fog;
     return (
-      fog?.active === true &&
-      Number.isFinite(fog.revealCenter?.x) &&
-      Number.isFinite(fog.revealCenter?.y) &&
-      fog.revealRadius > 100 &&
-      fog.overlayAlpha >= 0.45 &&
+      fog?.active === false &&
+      fog.revealCenter === null &&
+      fog.revealRadius === 0 &&
+      fog.overlayAlpha === 0 &&
       fog.rememberedPockets >= 1
     );
   }, null, { timeout: 10000 });
@@ -589,7 +811,7 @@ async function verifyQuickActionContracts(page, viewport, label) {
     { id: 'laser', action: 'fire', slot: '1', commandOp: 'combat.use_skill', locked: false },
     { id: 'rocket', action: 'rocket', slot: '2', commandOp: '', locked: true },
     { id: 'scan', action: 'scan', slot: '3', commandOp: 'scan.pulse', locked: false },
-    { id: 'shield', action: 'shield', slot: '4', commandOp: '', locked: true },
+    { id: 'stealth', action: 'stealth', slot: '4', commandOp: 'stealth.toggle', locked: false },
     { id: 'warp', action: 'warp', slot: '5', commandOp: '', locked: true },
     { id: 'gather', action: 'loot', slot: '6', commandOp: 'loot.pickup', locked: false },
   ];
@@ -611,14 +833,13 @@ async function verifyQuickActionContracts(page, viewport, label) {
 
   const sentBeforeLocked = await commandLogSentCount(page);
   await page.evaluate(() => {
-    for (const id of ['rocket', 'shield', 'warp']) {
+    for (const id of ['rocket', 'warp']) {
       document.querySelector(`.hud__actionbar [data-quick-action="${id}"]`)?.dispatchEvent(
         new MouseEvent('click', { bubbles: true, cancelable: true }),
       );
     }
   });
   await page.keyboard.press('2');
-  await page.keyboard.press('4');
   await page.keyboard.press('5');
   await page.waitForTimeout(80);
   const sentAfterLocked = await commandLogSentCount(page);
@@ -626,11 +847,87 @@ async function verifyQuickActionContracts(page, viewport, label) {
     throw new Error(`${label}: locked quick actions emitted command log entries`);
   }
 
+  const sentBeforeTab = await commandLogSentCount(page);
+  const tabPrevented = await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    return !window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+  });
+  if (!tabPrevented) {
+    throw new Error(`${label}: Tab target cycling did not consume world-focus keyboard input`);
+  }
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'entity_training_npc', null, {
+    timeout: 10000,
+  });
+  await page.waitForSelector('[data-panel="target"] .target-lock[data-target-kind="npc"]', { timeout: 10000 });
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'entity_training_npc', null, {
+    timeout: 10000,
+  });
+  const sentAfterTab = await commandLogSentCount(page);
+  if (sentAfterTab !== sentBeforeTab) {
+    throw new Error(`${label}: Tab target cycling emitted a server command`);
+  }
+
+  const skillBeforeRepeat = await commandLogCount(page, 'Sent combat.use_skill.');
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '1', repeat: true, bubbles: true, cancelable: true }));
+  });
+  await page.waitForTimeout(80);
+  const skillAfterRepeat = await commandLogCount(page, 'Sent combat.use_skill.');
+  if (skillAfterRepeat !== skillBeforeRepeat) {
+    throw new Error(`${label}: repeated quick-action key emitted a combat command`);
+  }
+
+  const stealthBefore = await commandLogCount(page, 'Sent stealth.toggle.');
+  await page.locator('.hud__actionbar [data-quick-action="stealth"]').click();
+  await page.waitForFunction(
+    (before) => (window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? []).filter((line) => line.text === 'Sent stealth.toggle.').length > before,
+    stealthBefore,
+    { timeout: 10000 },
+  );
+  await page.waitForFunction(
+    () =>
+      Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).some(
+        (entity) => entity.status_flags?.includes('self') && entity.status_flags.includes('stealthed'),
+      ),
+    null,
+    { timeout: 10000 },
+  );
+  const stealthEnabledCount = await commandLogCount(page, 'Sent stealth.toggle.');
+  await page.keyboard.press('4');
+  await page.waitForFunction(
+    (before) => (window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? []).filter((line) => line.text === 'Sent stealth.toggle.').length > before,
+    stealthEnabledCount,
+    { timeout: 10000 },
+  );
+  await page.waitForFunction(
+    () =>
+      !Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).some(
+        (entity) => entity.status_flags?.includes('self') && entity.status_flags.includes('stealthed'),
+      ),
+    null,
+    { timeout: 10000 },
+  );
+
   if (label === 'desktop') {
     await page.locator('[data-panel-toggle="cargo"]').click();
     await page.waitForSelector('[data-window-panel="cargo"][data-focused="true"]', { timeout: 10000 });
     await page.locator('[data-window-panel="cargo"]').focus();
     const sentBeforeFocus = await commandLogSentCount(page);
+    const targetBeforeFocusTab = await selectedTargetID(page);
+    const windowTabPrevented = await page.evaluate(() => {
+      return !window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    });
+    if (windowTabPrevented) {
+      throw new Error(`${label}: Tab was consumed while a HUD window owned focus`);
+    }
+    await page.waitForTimeout(120);
+    const targetAfterFocusTab = await selectedTargetID(page);
+    if (targetAfterFocusTab !== targetBeforeFocusTab) {
+      throw new Error(`${label}: Tab changed target while a HUD window owned focus`);
+    }
     await page.keyboard.press('3');
     await page.keyboard.press('1');
     await page.waitForTimeout(120);
@@ -653,9 +950,175 @@ async function verifyQuickActionContracts(page, viewport, label) {
 
 async function verifyInventoryLoadout(page, viewport, label) {
   await page.locator('[data-panel-toggle="cargo"]').click();
-  await page.waitForSelector('[data-window-panel="cargo"][data-focused="true"] .loadout-console', { timeout: 10000 });
-  await page.waitForSelector('[data-loadout-slot-id="offensive_1"]', { timeout: 10000 });
+  await page.waitForSelector('[data-window-panel="cargo"][data-focused="true"] [data-inventory-system="true"]', { timeout: 10000 });
+  const tabs = await page.evaluate(() => {
+    const root = document.querySelector('[data-window-panel="cargo"]');
+    return {
+      title: root?.getAttribute('aria-label') ?? '',
+      active: root?.querySelector('[data-inventory-system="true"]')?.getAttribute('data-active-inventory-tab') ?? '',
+      labels: [...(root?.querySelectorAll('[data-action="inventory-tab"]') ?? [])].map((tab) => tab.textContent?.trim() ?? ''),
+      buttonCount: root?.querySelectorAll('[data-action="inventory-tab"]').length ?? 0,
+      combinedTitle: root?.querySelector('.hud-window__title strong')?.textContent?.trim() ?? '',
+    };
+  });
+  if (
+    tabs.title !== 'Inventory' ||
+    tabs.active !== 'equipment' ||
+    tabs.buttonCount !== 4 ||
+    !tabs.labels.some((labelText) => labelText.includes('Equipment')) ||
+    !tabs.labels.some((labelText) => labelText.includes('Inventory')) ||
+    !tabs.labels.some((labelText) => labelText.includes('Cargo')) ||
+    !tabs.labels.some((labelText) => labelText.includes('Crafting')) ||
+    /Inventory\s*\/\s*Cargo/i.test(tabs.combinedTitle)
+  ) {
+    throw new Error(`${label}: inventory tabs mismatch ${JSON.stringify(tabs)}`);
+  }
+
+  await page.locator('[data-window-panel="cargo"] [data-action="inventory-tab"][data-inventory-tab="cargo"]').click();
+  await page.waitForSelector('[data-window-panel="cargo"] [data-inventory-tab-panel="cargo"] [data-cargo-tab="true"]', { timeout: 10000 });
+  const cargoDisplay = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const items = state?.cargo?.items ?? [];
+    const named = items.filter((item) => item.display_name && item.item_id);
+    const text = document.querySelector('[data-window-panel="cargo"] .cargo-strip__list')?.textContent ?? '';
+    return {
+      checked: named.length,
+      missingDisplay: named.filter((item) => !text.includes(item.display_name)).map((item) => item.display_name),
+      leakedIDs: named.filter((item) => text.includes(item.item_id)).map((item) => item.item_id),
+    };
+  });
+  if (cargoDisplay.checked > 0 && (cargoDisplay.missingDisplay.length > 0 || cargoDisplay.leakedIDs.length > 0)) {
+    throw new Error(`${label}: cargo metadata display mismatch ${JSON.stringify(cargoDisplay)}`);
+  }
+  const cargoTabState = await page.evaluate(() => ({
+    active: document.querySelector('[data-window-panel="cargo"] [data-inventory-system="true"]')?.getAttribute('data-active-inventory-tab') ?? '',
+    hasModuleBay: Boolean(document.querySelector('[data-window-panel="cargo"] [data-inventory-tab-panel="cargo"] .module-bay')),
+    hasLoadoutSlots: Boolean(document.querySelector('[data-window-panel="cargo"] [data-inventory-tab-panel="cargo"] [data-loadout-slot-id]')),
+    hasCargoList: Boolean(document.querySelector('[data-window-panel="cargo"] [data-inventory-tab-panel="cargo"] .cargo-strip__list')),
+  }));
+  if (cargoTabState.active !== 'cargo' || cargoTabState.hasModuleBay || cargoTabState.hasLoadoutSlots) {
+    throw new Error(`${label}: cargo tab isolation mismatch ${JSON.stringify(cargoTabState)}`);
+  }
+
+  await page.locator('[data-window-panel="cargo"] [data-action="inventory-tab"][data-inventory-tab="inventory"]').click();
+  await page.waitForSelector('[data-window-panel="cargo"] [data-inventory-tab-panel="inventory"] [data-inventory-storage="true"]', { timeout: 10000 });
+  const inventoryTabState = await page.evaluate(() => ({
+    active: document.querySelector('[data-window-panel="cargo"] [data-inventory-system="true"]')?.getAttribute('data-active-inventory-tab') ?? '',
+    moduleCards: document.querySelectorAll('[data-window-panel="cargo"] [data-inventory-tab-panel="inventory"] [data-module-instance-id]').length,
+    stackPanel: Boolean(document.querySelector('[data-window-panel="cargo"] [data-inventory-tab-panel="inventory"] .inventory-stack-panel')),
+  }));
+  if (inventoryTabState.active !== 'inventory' || inventoryTabState.moduleCards < 1 || !inventoryTabState.stackPanel) {
+    throw new Error(`${label}: inventory tab state mismatch ${JSON.stringify(inventoryTabState)}`);
+  }
+
+  await page.locator('[data-window-panel="cargo"] [data-action="inventory-tab"][data-inventory-tab="crafting"]').click();
+  await page.waitForSelector('[data-window-panel="cargo"] [data-inventory-tab-panel="crafting"] [data-crafting-tab="true"]', { timeout: 10000 });
+  const craftingTabState = await page.evaluate(() => ({
+    active: document.querySelector('[data-window-panel="cargo"] [data-inventory-system="true"]')?.getAttribute('data-active-inventory-tab') ?? '',
+    enabledCraftingActions: [
+      ...document.querySelectorAll('[data-window-panel="cargo"] [data-inventory-tab-panel="crafting"] button[data-action]'),
+    ].filter((button) => button instanceof HTMLButtonElement && !button.disabled).length,
+  }));
+  if (craftingTabState.active !== 'crafting' || craftingTabState.enabledCraftingActions !== 0) {
+    throw new Error(`${label}: crafting tab lock mismatch ${JSON.stringify(craftingTabState)}`);
+  }
+
+  await page.locator('[data-window-panel="cargo"] [data-action="inventory-tab"][data-inventory-tab="equipment"]').click();
+  await page.waitForSelector('[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] .loadout-console', { timeout: 10000 });
+  await page.waitForSelector('[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-loadout-slot-id="offensive_1"]', { timeout: 10000 });
   await page.waitForSelector('[data-module-slot-type="offensive"]', { timeout: 10000 });
+  const equipmentTabState = await page.evaluate(() => ({
+    active: document.querySelector('[data-window-panel="cargo"] [data-inventory-system="true"]')?.getAttribute('data-active-inventory-tab') ?? '',
+    hasLoadoutSlots: Boolean(document.querySelector('[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-loadout-slot-id]')),
+    hasCargoList: Boolean(document.querySelector('[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] .cargo-strip__list')),
+  }));
+  if (equipmentTabState.active !== 'equipment' || !equipmentTabState.hasLoadoutSlots || equipmentTabState.hasCargoList) {
+    throw new Error(`${label}: equipment tab isolation mismatch ${JSON.stringify(equipmentTabState)}`);
+  }
+
+  await page.waitForSelector('[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-module-filter-bar="true"]', { timeout: 10000 });
+  const slotGroupState = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const root = document.querySelector('[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"]');
+    const groups = [...(root?.querySelectorAll('[data-loadout-slot-group]') ?? [])];
+    const slots = [...(root?.querySelectorAll('[data-loadout-slot-id]') ?? [])];
+    const slotRects = slots.map((slot) => {
+      const rect = slot.getBoundingClientRect();
+      return { id: slot.getAttribute('data-loadout-slot-id') ?? '', width: rect.width, height: rect.height };
+    });
+    const stateSlots = state?.loadout?.slots ?? [];
+    const stateGroups = [...new Set(stateSlots.map((slot) => slot.slot_type))];
+    return {
+      groupCount: groups.length,
+      groupNames: groups.map((group) => group.getAttribute('data-loadout-slot-group') ?? ''),
+      stateGroups,
+      slotCount: slots.length,
+      stateSlotCount: stateSlots.length,
+      tooSmallSlots: slotRects.filter((rect) => rect.width < 40 || rect.height < 40),
+      panelOverflow:
+        root instanceof HTMLElement ? root.scrollWidth > root.clientWidth + 1 : false,
+    };
+  });
+  if (
+    slotGroupState.groupCount < Math.min(2, slotGroupState.stateGroups.length) ||
+    slotGroupState.slotCount !== slotGroupState.stateSlotCount ||
+    slotGroupState.tooSmallSlots.length > 0 ||
+    slotGroupState.panelOverflow ||
+    slotGroupState.stateGroups.some((group) => !slotGroupState.groupNames.includes(group))
+  ) {
+    throw new Error(`${label}: loadout slot group mismatch ${JSON.stringify(slotGroupState)}`);
+  }
+
+  const moduleFilterProbe = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const root = document.querySelector('[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"]');
+    const modules = (state?.inventory?.instances ?? []).filter((item) => item.module_slot_type && item.location !== 'ship_equipped');
+    const counts = modules.reduce(
+      (acc, item) => {
+        if (item.module_slot_type === 'offensive' || item.module_slot_type === 'defensive' || item.module_slot_type === 'utility') {
+          acc[item.module_slot_type] += 1;
+        }
+        acc.all += 1;
+        return acc;
+      },
+      { all: 0, offensive: 0, defensive: 0, utility: 0 },
+    );
+    return {
+      counts,
+      filters: [...(root?.querySelectorAll('[data-action="module-filter"]') ?? [])].map((button) => ({
+        filter: button.getAttribute('data-module-filter') ?? '',
+        active: button.getAttribute('data-active') ?? '',
+        text: button.textContent?.trim() ?? '',
+      })),
+    };
+  });
+  const filterToTest = ['offensive', 'defensive', 'utility'].find((filter) => moduleFilterProbe.counts[filter] > 0);
+  if (
+    moduleFilterProbe.filters.length !== 4 ||
+    !moduleFilterProbe.filters.some((filter) => filter.filter === 'all' && filter.active === 'true') ||
+    !moduleFilterProbe.filters.every((filter) => ['all', 'offensive', 'defensive', 'utility'].includes(filter.filter))
+  ) {
+    throw new Error(`${label}: module filter bar mismatch ${JSON.stringify(moduleFilterProbe)}`);
+  }
+  if (filterToTest) {
+    await page.locator(`[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-action="module-filter"][data-module-filter="${filterToTest}"]`).click();
+    await page.waitForSelector(`[data-window-panel="cargo"] [data-action="module-filter"][data-module-filter="${filterToTest}"][data-active="true"]`, { timeout: 10000 });
+    const filteredCards = await page.evaluate((expectedFilter) => {
+      const cards = [...document.querySelectorAll('[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-module-grid="true"] [data-module-slot-type]')];
+      return {
+        expectedFilter,
+        count: cards.length,
+        wrongTypes: cards
+          .map((card) => card.getAttribute('data-module-slot-type') ?? '')
+          .filter((slotType) => slotType !== expectedFilter),
+      };
+    }, filterToTest);
+    if (filteredCards.count !== moduleFilterProbe.counts[filterToTest] || filteredCards.wrongTypes.length > 0) {
+      throw new Error(`${label}: module filter result mismatch ${JSON.stringify(filteredCards)}`);
+    }
+    await page.locator('[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-action="module-filter"][data-module-filter="all"]').click();
+    await page.waitForSelector('[data-window-panel="cargo"] [data-action="module-filter"][data-module-filter="all"][data-active="true"]', { timeout: 10000 });
+  }
 
   const initial = await page.evaluate(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
@@ -664,8 +1127,8 @@ async function verifyInventoryLoadout(page, viewport, label) {
       laserID: laser?.item_instance_id ?? '',
       laserLocation: laser?.location ?? '',
       equipped: state?.loadout?.slots?.find((slot) => slot.slot_id === 'offensive_1')?.item_instance_id ?? '',
-      slotCount: document.querySelectorAll('[data-loadout-slot-id]').length,
-      moduleCards: document.querySelectorAll('[data-module-instance-id]').length,
+      slotCount: document.querySelectorAll('[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-loadout-slot-id]').length,
+      moduleCards: document.querySelectorAll('[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-module-instance-id]').length,
       moduleDetail: document.querySelector('[data-window-panel="cargo"] [data-module-detail]')?.getAttribute('data-module-detail') ?? '',
       moduleSelectButtons: document.querySelectorAll('[data-window-panel="cargo"] [data-action="module-select"]').length,
     };
@@ -681,14 +1144,19 @@ async function verifyInventoryLoadout(page, viewport, label) {
   ) {
     throw new Error(`${label}: inventory loadout initial state mismatch ${JSON.stringify(initial)}`);
   }
-  await page.locator(`[data-window-panel="cargo"] [data-action="module-select"][data-module-instance-id="${initial.laserID}"]`).click();
+  await page.locator(`[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-action="module-select"][data-module-instance-id="${initial.laserID}"]`).click();
   await page.waitForFunction(
     (laserID) => document.querySelector('[data-window-panel="cargo"] [data-module-detail]')?.getAttribute('data-module-detail') === laserID,
     initial.laserID,
     { timeout: 10000 },
   );
 
-  await dispatchLoadoutDrop(page, `[data-module-instance-id="${initial.laserID}"]`, '[data-loadout-slot-id="offensive_1"]');
+  let commandCountBefore = await commandLogCount(page, 'Sent loadout.equip_module.');
+  await dispatchRepeatedClicks(
+    page,
+    `[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-action="loadout-equip"][data-item-instance-id="${initial.laserID}"]`,
+    2,
+  );
   await page.waitForFunction(
     (laserID) => {
       const state = window.__SPACE_MORPG_SMOKE_STATE__;
@@ -701,11 +1169,16 @@ async function verifyInventoryLoadout(page, viewport, label) {
     initial.laserID,
     { timeout: 10000 },
   );
+  let commandCountAfter = await commandLogCount(page, 'Sent loadout.equip_module.');
+  if (commandCountAfter - commandCountBefore !== 1) {
+    throw new Error(`${label}: click equip emitted ${commandCountAfter - commandCountBefore} commands, want 1`);
+  }
 
-  await dispatchLoadoutDrop(
+  commandCountBefore = await commandLogCount(page, 'Sent loadout.unequip_module.');
+  await dispatchRepeatedClicks(
     page,
-    `[data-equipped-slot-id="offensive_1"][data-module-instance-id="${initial.laserID}"]`,
-    '.module-bay[data-loadout-inventory-drop="true"]',
+    '[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-action="loadout-unequip"][data-slot-id="offensive_1"]',
+    2,
   );
   await page.waitForFunction(
     (laserID) => {
@@ -719,6 +1192,57 @@ async function verifyInventoryLoadout(page, viewport, label) {
     initial.laserID,
     { timeout: 10000 },
   );
+  commandCountAfter = await commandLogCount(page, 'Sent loadout.unequip_module.');
+  if (commandCountAfter - commandCountBefore !== 1) {
+    throw new Error(`${label}: click unequip emitted ${commandCountAfter - commandCountBefore} commands, want 1`);
+  }
+
+  commandCountBefore = await commandLogCount(page, 'Sent loadout.equip_module.');
+  await dispatchLoadoutDrop(
+    page,
+    `[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-module-instance-id="${initial.laserID}"]`,
+    '[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-loadout-slot-id="offensive_1"]',
+    2,
+  );
+  await page.waitForFunction(
+    (laserID) => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      return (
+        state?.loadout?.slots?.some((slot) => slot.slot_id === 'offensive_1' && slot.item_instance_id === laserID) &&
+        state?.inventory?.instances?.some((item) => item.item_instance_id === laserID && item.location === 'ship_equipped')
+      );
+    },
+    initial.laserID,
+    { timeout: 10000 },
+  );
+  commandCountAfter = await commandLogCount(page, 'Sent loadout.equip_module.');
+  if (commandCountAfter - commandCountBefore !== 1) {
+    throw new Error(`${label}: drag equip emitted ${commandCountAfter - commandCountBefore} commands, want 1`);
+  }
+
+  commandCountBefore = await commandLogCount(page, 'Sent loadout.unequip_module.');
+  await dispatchLoadoutDrop(
+    page,
+    `[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] [data-equipped-slot-id="offensive_1"][data-module-instance-id="${initial.laserID}"]`,
+    '[data-window-panel="cargo"] [data-inventory-tab-panel="equipment"] .module-bay[data-loadout-inventory-drop="true"]',
+    2,
+  );
+  await page.waitForFunction(
+    (laserID) => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      return (
+        state?.loadout?.slots?.some((slot) => slot.slot_id === 'offensive_1' && !slot.item_instance_id) &&
+        state?.inventory?.instances?.some((item) => item.item_instance_id === laserID && item.location === 'account_inventory') &&
+        (state?.commandLog ?? []).some((line) => line.text === 'Sent loadout.unequip_module.')
+      );
+    },
+    initial.laserID,
+    { timeout: 10000 },
+  );
+  commandCountAfter = await commandLogCount(page, 'Sent loadout.unequip_module.');
+  if (commandCountAfter - commandCountBefore !== 1) {
+    throw new Error(`${label}: drag unequip emitted ${commandCountAfter - commandCountBefore} commands, want 1`);
+  }
 
   await page.screenshot({ path: path.join(outputDir, `inventory-loadout-${label}.png`), fullPage: true });
   if (viewport.width < 768) {
@@ -741,6 +1265,7 @@ async function verifyHangarSurface(page, viewport, label) {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     const active = state?.hangar?.ships?.find((ship) => ship.ship_id === state?.hangar?.active_ship_id);
     const activateButton = document.querySelector('[data-window-panel="systems"] [data-action="hangar-activate"]');
+    const activeBadge = document.querySelector('[data-window-panel="systems"] [data-hangar-active-badge="true"]');
     return {
       activeShipID: state?.hangar?.active_ship_id ?? '',
       rowCount: state?.hangar?.ships?.length ?? 0,
@@ -754,7 +1279,8 @@ async function verifyHangarSurface(page, viewport, label) {
             utility: active.slot_utility,
           }
         : null,
-      activateDisabled: activateButton instanceof HTMLButtonElement ? activateButton.disabled : null,
+      activateVisible: activateButton instanceof HTMLButtonElement,
+      activeBadge: activeBadge?.textContent?.trim() ?? '',
       commandSent: (state?.commandLog ?? []).some((line) => line.text === 'Sent hangar.activate_ship.'),
       selectedRow: document.querySelector('.hangar-row[data-selected="true"]')?.getAttribute('data-ship-id') ?? '',
       detailTitle: document.querySelector('.hangar-detail .hangar-preview strong')?.textContent?.trim() ?? '',
@@ -767,7 +1293,8 @@ async function verifyHangarSurface(page, viewport, label) {
     summary.activeRow.active !== true ||
     summary.activeRow.cargo <= 0 ||
     summary.activeRow.utility !== 1 ||
-    summary.activateDisabled !== true ||
+    summary.activateVisible ||
+    summary.activeBadge !== 'Active' ||
     summary.commandSent ||
     summary.selectedRow !== 'starter' ||
     !summary.detailTitle
@@ -786,21 +1313,41 @@ async function verifyHangarSurface(page, viewport, label) {
   await page.waitForFunction(() => !document.querySelector('[data-window-panel="systems"]'), null, { timeout: 10000 });
 }
 
-async function dispatchLoadoutDrop(page, sourceSelector, targetSelector) {
+async function dispatchRepeatedClicks(page, selector, count = 2) {
   await page.evaluate(
-    ({ sourceSelector, targetSelector }) => {
-      const source = document.querySelector(sourceSelector);
-      const target = document.querySelector(targetSelector);
-      if (!source || !target) {
-        throw new Error(`Missing drag source or target: ${sourceSelector} -> ${targetSelector}`);
+    ({ selector, count }) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) {
+        throw new Error(`Missing click target: ${selector}`);
       }
-      const dataTransfer = new DataTransfer();
-      source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }));
-      target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
-      target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
-      source.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer }));
+      if (element instanceof HTMLButtonElement && element.disabled) {
+        throw new Error(`Click target disabled: ${selector}`);
+      }
+      for (let index = 0; index < count; index += 1) {
+        element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      }
     },
-    { sourceSelector, targetSelector },
+    { selector, count },
+  );
+}
+
+async function dispatchLoadoutDrop(page, sourceSelector, targetSelector, count = 1) {
+  await page.evaluate(
+    ({ sourceSelector, targetSelector, count }) => {
+      for (let index = 0; index < count; index += 1) {
+        const source = document.querySelector(sourceSelector);
+        const target = document.querySelector(targetSelector);
+        if (!source || !target) {
+          throw new Error(`Missing drag source or target: ${sourceSelector} -> ${targetSelector}`);
+        }
+        const dataTransfer = new DataTransfer();
+        source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }));
+        target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+        target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+        source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer }));
+      }
+    },
+    { sourceSelector, targetSelector, count },
   );
 }
 
@@ -842,6 +1389,158 @@ async function verifyReconnectReconciliation(page, expectedCallsign) {
   await assertNoForbiddenLeaks(page, 'desktop-reconnect');
   await assertNoFakeTopbarCounts(page, 'desktop-reconnect');
   await assertNoUnimplementedMutationControls(page, 'desktop-reconnect');
+}
+
+async function verifyRevokedSessionAuthExpiry(page, label) {
+  const eventCountBeforeRevoke = await page.evaluate(() => window.__SPACE_MORPG_WS_EVENTS__?.length ?? 0);
+  const liveBeforeRevoke = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return {
+      connectionStatus: state?.connectionStatus,
+      authenticated: state?.auth?.session?.authenticated === true,
+      entityCount: Object.keys(state?.visibleEntities ?? {}).length,
+      hasWallet: Boolean(state?.wallet),
+      hasInventory: Boolean(state?.inventory),
+    };
+  });
+  if (
+    liveBeforeRevoke.connectionStatus !== 'connected' ||
+    !liveBeforeRevoke.authenticated ||
+    liveBeforeRevoke.entityCount === 0 ||
+    !liveBeforeRevoke.hasWallet ||
+    !liveBeforeRevoke.hasInventory
+  ) {
+    throw new Error(`${label}: auth-expiry smoke did not start from live gameplay ${JSON.stringify(liveBeforeRevoke)}`);
+  }
+
+  const revokeResult = await page.evaluate(async () => {
+    const response = await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const text = await response.text().catch(() => '');
+    return {
+      ok: response.ok,
+      status: response.status,
+      body: text,
+      parsed: text ? JSON.parse(text) : null,
+    };
+  });
+  if (!revokeResult.ok || revokeResult.parsed?.authenticated !== false) {
+    throw new Error(`${label}: external session revoke failed ${JSON.stringify(revokeResult)}`);
+  }
+  const liveAfterExternalRevoke = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return {
+      connectionStatus: state?.connectionStatus,
+      authenticated: state?.auth?.session?.authenticated === true,
+      entityCount: Object.keys(state?.visibleEntities ?? {}).length,
+      pendingCount: Object.keys(state?.pendingCommands ?? {}).length,
+    };
+  });
+  if (
+    liveAfterExternalRevoke.connectionStatus !== 'connected' ||
+    !liveAfterExternalRevoke.authenticated ||
+    liveAfterExternalRevoke.entityCount === 0 ||
+    liveAfterExternalRevoke.pendingCount !== 0
+  ) {
+    throw new Error(`${label}: external revoke mutated app before WS command ${JSON.stringify(liveAfterExternalRevoke)}`);
+  }
+
+  await page.locator('[data-action="sync"]').click();
+  await page.waitForFunction((before) => {
+    const events = window.__SPACE_MORPG_WS_EVENTS__ ?? [];
+    return events.slice(before).some((event) => {
+      if (event.kind !== 'send' || typeof event.data !== 'string') {
+        return false;
+      }
+      try {
+        return JSON.parse(event.data).op === 'world.snapshot';
+      } catch {
+        return false;
+      }
+    });
+  }, eventCountBeforeRevoke, { timeout: 10000 });
+  const revokedRequest = await page.evaluate((before) => {
+    const events = window.__SPACE_MORPG_WS_EVENTS__ ?? [];
+    for (const event of events.slice(before)) {
+      if (event.kind !== 'send' || typeof event.data !== 'string') {
+        continue;
+      }
+      try {
+        const message = JSON.parse(event.data);
+        if (message.op === 'world.snapshot') {
+          return {
+            requestID: message.request_id,
+            op: message.op,
+            at: event.at,
+          };
+        }
+      } catch {
+        // Ignore non-JSON recorder data.
+      }
+    }
+    return null;
+  }, eventCountBeforeRevoke);
+  if (!revokedRequest?.requestID) {
+    throw new Error(`${label}: sync did not send world.snapshot after revoke`);
+  }
+
+  await page.waitForFunction((requestID) => {
+    const history = window.__SPACE_MORPG_SMOKE_STATE__?.pendingHistory ?? [];
+    return history.some(
+      (entry) => entry.kind === 'queued' && entry.requestID === requestID && entry.op === 'world.snapshot' && entry.pendingCount >= 1,
+    );
+  }, revokedRequest.requestID, { timeout: 10000 });
+  await page.waitForFunction((requestID) => {
+    const events = window.__SPACE_MORPG_WS_EVENTS__ ?? [];
+    return events.some((event) => {
+      if (event.kind === 'close' && event.code === 1008) {
+        return true;
+      }
+      if (event.kind !== 'message' || typeof event.data !== 'string') {
+        return false;
+      }
+      try {
+        const message = JSON.parse(event.data);
+        return (
+          message.request_id === requestID &&
+          message.ok === false &&
+          ['ERR_SESSION_REVOKED', 'ERR_SESSION_EXPIRED', 'ERR_AUTH_REQUIRED', 'ERR_UNAUTHENTICATED'].includes(message.error?.code)
+        );
+      } catch {
+        return false;
+      }
+    });
+  }, revokedRequest.requestID, { timeout: 10000 });
+  try {
+    await page.waitForFunction(() => authExpiredClearFailures().length === 0, null, { timeout: 10000 });
+  } catch (error) {
+    const diagnostics = await page.evaluate(() => ({
+      failures: authExpiredClearFailures(),
+      state: window.__SPACE_MORPG_SMOKE_STATE__,
+      wsTail: (window.__SPACE_MORPG_WS_EVENTS__ ?? []).slice(-12),
+    }));
+    throw new Error(`${label}: auth-expired clear state failed ${JSON.stringify(diagnostics)}`, { cause: error });
+  }
+  await page.waitForSelector('.auth-card', { timeout: 10000 });
+  const terminalEventCount = await page.evaluate(() => window.__SPACE_MORPG_WS_EVENTS__?.length ?? 0);
+  await page.waitForTimeout(1000);
+  const postTerminal = await page.evaluate((afterIndex) => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const events = window.__SPACE_MORPG_WS_EVENTS__ ?? [];
+    return {
+      connectionStatus: state?.connectionStatus,
+      newOpenOrSend: events.slice(afterIndex).some((event) => event.kind === 'open' || event.kind === 'send'),
+      requestStillPending: Boolean(state?.pendingCommands?.[state?.pendingHistory?.findLast?.((entry) => entry.op === 'world.snapshot')?.requestID]),
+    };
+  }, terminalEventCount);
+  if (postTerminal.connectionStatus !== 'auth_expired' || postTerminal.newOpenOrSend || postTerminal.requestStillPending) {
+    throw new Error(`${label}: terminal auth state was not stable ${JSON.stringify(postTerminal)}`);
+  }
+  await assertNoForbiddenLeaks(page, `${label} auth-expired`);
+  await assertNoFakeTopbarCounts(page, `${label} auth-expired`);
+  await assertNoUnimplementedMutationControls(page, `${label} auth-expired`);
 }
 
 async function verifyAdminViewport(viewport, label) {
@@ -915,7 +1614,9 @@ async function verifyFixtureViewport(viewport, label) {
         state?.playerSnapshot?.callsign === 'Server-Pilot' &&
         state?.cargo?.capacity === 80 &&
         state?.wallet?.credits === 1250 &&
-        state?.stats?.radar_range === 420 &&
+        Number.isFinite(state?.stats?.radar_range) &&
+        state.stats.radar_range > 0 &&
+        state?.minimap?.projection_window_size === 2000 &&
         state?.stats?.loot_pickup_range === 120 &&
         state?.stats?.basic_laser_energy_cost === 10 &&
         entityTypes.has('player') &&
@@ -962,6 +1663,27 @@ async function verifyFixtureViewport(viewport, label) {
 
       await clickWorldPosition(page, { x: 150, y: -250 });
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'npc-rake-01');
+
+      await page.locator('[data-action="sync"]').click();
+      await realtime.waitForOpCount('debug_snapshot', 2);
+      await page.waitForFunction(() => {
+        const state = window.__SPACE_MORPG_SMOKE_STATE__;
+        const ids = (state?.minimap?.live_contacts ?? []).map((contact) => contact.entity_id).sort();
+        const self = state?.minimap?.live_contacts?.find((contact) => contact.entity_id === 'player-local');
+        return (
+          state?.selectedTargetID === null &&
+          !state?.visibleEntities?.['npc-rake-01'] &&
+          !state?.visibleEntities?.['loot-scrap-01'] &&
+          ids.join(',') === 'player-local,signal-eris-04' &&
+          self?.position?.x === 40 &&
+          self?.position?.y === -220 &&
+          state?.minimap?.radar_range === 1000 &&
+          state?.minimap?.projection_window_size === 2000 &&
+          state?.minimap?.remembered?.some((memory) => memory.planet_id === 'planet-memory-01' && memory.detail_id === 'planet-memory-01') &&
+          !document.querySelector('.minimap__point[data-entity-id="npc-rake-01"]') &&
+          document.querySelector('.minimap__memory[data-planet-id="planet-memory-01"]') instanceof HTMLElement
+        );
+      }, null, { timeout: 10000 });
     }
 
     if (label === 'fixture-desktop') {
@@ -1018,6 +1740,27 @@ async function verifyScanModeAutomation(page, viewport, label) {
       state?.planetIntel?.knownSignals === 1 &&
       state?.planetIntel?.planets?.length === 1 &&
       state?.progression?.main_xp >= 25
+    );
+  }, null, { timeout: 10000 });
+  await page.waitForFunction(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const planetID = state?.planetIntel?.lastScan?.planet_id ?? null;
+    const remembered = state?.minimap?.remembered ?? [];
+    const markers = state?.worldView?.memoryMarkers ?? [];
+    return (
+      planetID &&
+      remembered.some(
+        (memory) =>
+          (memory.planet_id === planetID || memory.detail_id === planetID) &&
+          Number.isFinite(memory.position?.x) &&
+          Number.isFinite(memory.position?.y),
+      ) &&
+      markers.some(
+        (marker) =>
+          marker.detailID === planetID &&
+          Number.isFinite(marker.position?.x) &&
+          Number.isFinite(marker.position?.y),
+      )
     );
   }, null, { timeout: 10000 });
   const sentAfter = await commandLogCount(page, 'Sent scan.pulse.');
@@ -1104,17 +1847,34 @@ async function verifyRealCombatLoot(page) {
     );
   }, null, { timeout: 10000 });
 
-  const dropPosition = await page.evaluate(() => {
+  const dropInfo = await page.evaluate(() => {
     const drop = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.visibleEntities ?? {}).find(
       (entity) => entity.entity_type === 'loot',
     );
-    return drop?.position ?? null;
+    return drop ? { id: drop.entity_id, position: drop.position } : null;
   });
-  if (!dropPosition) {
+  if (!dropInfo) {
     throw new Error('No server-created loot drop was visible after combat.');
   }
 
-  await clickWorldPosition(page, dropPosition);
+  await page.waitForSelector(`.minimap__point[data-entity-id="${dropInfo.id}"][data-entity-type="loot"][data-target-source="radar"]`, {
+    timeout: 10000,
+  });
+  const moveCountBeforeLootRadar = await commandLogCount(page, 'Sent move_to.');
+  const pickupCountBeforeLootRadar = await commandLogCount(page, 'Sent loot.pickup.');
+  await page.locator(`.minimap__point[data-entity-id="${dropInfo.id}"][data-entity-type="loot"]`).click();
+  await page.waitForFunction((dropID) => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === dropID, dropInfo.id, {
+    timeout: 10000,
+  });
+  const moveCountAfterLootRadar = await commandLogCount(page, 'Sent move_to.');
+  const pickupCountAfterLootRadar = await commandLogCount(page, 'Sent loot.pickup.');
+  if (moveCountAfterLootRadar !== moveCountBeforeLootRadar || pickupCountAfterLootRadar !== pickupCountBeforeLootRadar) {
+    throw new Error('desktop: minimap loot contact click emitted move_to or loot.pickup');
+  }
+
+  const moveCountBeforeWorldLoot = await commandLogCount(page, 'Sent move_to.');
+  const pickupCountBeforeWorldLoot = await commandLogCount(page, 'Sent loot.pickup.');
+  await clickWorldPosition(page, dropInfo.position);
   try {
     await page.waitForFunction(() => {
       const state = window.__SPACE_MORPG_SMOKE_STATE__;
@@ -1127,10 +1887,22 @@ async function verifyRealCombatLoot(page) {
         effects.some((effect) => effect.kind === 'loot_pickup' && effect.itemID === 'raw_ore' && effect.quantity === 3) &&
         !Object.values(entities).some((entity) => entity.entity_type === 'loot')
       );
-    }, null, { timeout: 10000 });
+  }, null, { timeout: 10000 });
   } catch (error) {
-    console.error('desktop loot pickup state', JSON.stringify(await lootDiagnostics(page, dropPosition), null, 2));
+    console.error('desktop loot pickup state', JSON.stringify(await lootDiagnostics(page, dropInfo.position), null, 2));
     throw error;
+  }
+  const moveCountAfterWorldLoot = await commandLogCount(page, 'Sent move_to.');
+  const pickupCountAfterWorldLoot = await commandLogCount(page, 'Sent loot.pickup.');
+  if (pickupCountAfterWorldLoot !== pickupCountBeforeWorldLoot + 1) {
+    throw new Error(
+      `desktop: world loot click did not emit one loot.pickup (${JSON.stringify({
+        moveCountBeforeWorldLoot,
+        moveCountAfterWorldLoot,
+        pickupCountBeforeWorldLoot,
+        pickupCountAfterWorldLoot,
+      })})`,
+    );
   }
 }
 
@@ -1320,11 +2092,14 @@ async function verifyRealMovementInterpolation(page) {
   if (distance(second.entity.movement.target, secondTarget) > 16) {
     throw new Error(`desktop reclick movement target = ${JSON.stringify(second.entity.movement.target)}, want near ${JSON.stringify(secondTarget)}`);
   }
-  if (distance(second.entity.movement.origin, beforeSecond.entity.position) > 25) {
+  const expectedReclickOrigin = movementPositionAt(beforeSecond.entity.movement, second.entity.movement.started_at_ms);
+  if (!expectedReclickOrigin || distance(second.entity.movement.origin, expectedReclickOrigin) > 25) {
     throw new Error(
-      `desktop reclick origin ${JSON.stringify(second.entity.movement.origin)} not near server in-flight position ${JSON.stringify(
-        beforeSecond.entity.position,
-      )}`,
+      `desktop reclick origin ${JSON.stringify(second.entity.movement.origin)} not near timed in-flight position ${JSON.stringify({
+        expected: expectedReclickOrigin,
+        previousMovement: beforeSecond.entity.movement,
+        nextStartedAtMS: second.entity.movement.started_at_ms,
+      })}`,
     );
   }
   const moveIntentCount = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
@@ -1396,6 +2171,22 @@ async function verifyHudInputIsolationDuringMovement(page) {
   if (skillAfterWindowKey !== skillBefore) {
     throw new Error('desktop movement HUD window focus allowed a quick action command');
   }
+  const moveDebugBeforeWindowCanvas = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
+  await page.waitForTimeout(350);
+  const windowBlockedCanvasPoint = await uncoveredCanvasPoint(page);
+  if (!windowBlockedCanvasPoint) {
+    throw new Error('desktop movement could not find uncovered canvas point while HUD windows were open');
+  }
+  await page.mouse.click(windowBlockedCanvasPoint.x, windowBlockedCanvasPoint.y);
+  await page.waitForTimeout(120);
+  const moveAfterWindowCanvas = await commandLogCount(page, 'Sent move_to.');
+  if (moveAfterWindowCanvas !== moveBefore) {
+    throw new Error('desktop movement focused HUD window canvas click leaked into move_to after suppression timeout');
+  }
+  const moveDebugAfterWindowCanvas = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
+  if (moveDebugAfterWindowCanvas !== moveDebugBeforeWindowCanvas) {
+    throw new Error('desktop movement focused HUD window canvas click changed move debug log after suppression timeout');
+  }
 
   const beforeDrag = await windowRect(page, 'economy');
   const header = await page.locator('[data-window-panel="economy"] .hud-window__header').boundingBox();
@@ -1420,6 +2211,34 @@ async function verifyHudInputIsolationDuringMovement(page) {
   if (skillAfterModalKey !== skillBefore) {
     throw new Error('desktop movement modal focus allowed a quick action command');
   }
+  const targetBeforeModalTab = await selectedTargetID(page);
+  const modalTabPrevented = await page.evaluate(() => {
+    return !window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+  });
+  if (modalTabPrevented) {
+    throw new Error('desktop movement modal focus consumed native Tab');
+  }
+  await page.waitForTimeout(80);
+  const targetAfterModalTab = await selectedTargetID(page);
+  if (targetAfterModalTab !== targetBeforeModalTab) {
+    throw new Error('desktop movement modal focus changed target on Tab');
+  }
+  const moveDebugBeforeModalCanvas = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
+  await page.waitForTimeout(350);
+  const modalBlockedCanvasPoint = await canvasProbePoint(page);
+  if (!modalBlockedCanvasPoint) {
+    throw new Error('desktop movement could not resolve canvas point while modal was open');
+  }
+  await dispatchCanvasClickAtPoint(page, modalBlockedCanvasPoint);
+  await page.waitForTimeout(120);
+  const moveAfterModalCanvas = await commandLogCount(page, 'Sent move_to.');
+  if (moveAfterModalCanvas !== moveBefore) {
+    throw new Error('desktop movement focused modal canvas click leaked into move_to after suppression timeout');
+  }
+  const moveDebugAfterModalCanvas = await commandLogMatchCount(page, '^Move -?\\d+,-?\\d+ -> -?\\d+,-?\\d+, \\d+u, eta');
+  if (moveDebugAfterModalCanvas !== moveDebugBeforeModalCanvas) {
+    throw new Error('desktop movement focused modal canvas click changed move debug log after suppression timeout');
+  }
 
   const modalBefore = await page.locator('[data-modal="economy"]').boundingBox();
   const modalHeader = await page.locator('[data-modal="economy"] .hud-modal__header').boundingBox();
@@ -1442,10 +2261,15 @@ async function verifyHudInputIsolationDuringMovement(page) {
   }
   await page.waitForFunction(() => !document.querySelector('[data-window-panel]'), null, { timeout: 10000 });
 
-  const moveAfter = await commandLogCount(page, 'Sent move_to.');
-  if (moveAfter !== moveBefore) {
-    throw new Error('desktop movement HUD/modal click leaked into move_to');
-  }
+  const moveBeforeRelease = await commandLogCount(page, 'Sent move_to.');
+  const releaseSample = await selfMovementSample(page);
+  const releaseTarget = await movementTargetAwayFromMemory(page, releaseSample.entity.position, [{ x: 160, y: -160 }, { x: -180, y: 140 }]);
+  await clickWorldPosition(page, releaseTarget);
+  await page.waitForFunction(
+    (before) => (window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? []).filter((line) => line.text === 'Sent move_to.').length > before,
+    moveBeforeRelease,
+    { timeout: 3000 },
+  );
 }
 
 function backgroundOffsetDelta(before, after) {
@@ -1517,6 +2341,7 @@ async function verifyRealEconomy(page, viewport, label) {
     const activeListing = state?.market?.listings?.find((listing) => listing.status === 'active' && !listing.owned_by_you);
     return activeListing?.remaining_quantity > 0 && button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 10000 });
+  const marketBuyAt = await page.evaluate(() => Date.now());
   await page.locator('[data-window-panel="economy"] [data-action="market-buy"]').dispatchEvent('click');
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
@@ -1525,6 +2350,9 @@ async function verifyRealEconomy(page, viewport, label) {
       state?.inventory?.stackable?.some((item) => item.item_id === 'raw_ore' && item.quantity === 1 && item.location === 'account_inventory')
     );
   }, null, { timeout: 10000 });
+  await waitForCommandLogAfter(page, 'Sent market.search.', marketBuyAt);
+  await waitForCommandLogAfter(page, 'Sent wallet.snapshot.', marketBuyAt);
+  await waitForCommandLogAfter(page, 'Sent inventory.snapshot.', marketBuyAt);
 
   await page.locator('[data-window-panel="economy"] [data-shop-category="sell"]').click();
   await page.waitForFunction(() => {
@@ -1558,11 +2386,20 @@ async function verifyRealEconomy(page, viewport, label) {
     const button = document.querySelector('[data-window-panel="economy"] [data-action="auction-bid"]');
     return button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 10000 });
+  const auctionBidBefore = await commandLogCount(page, 'Sent auction.bid.');
+  const auctionBidAt = await page.evaluate(() => Date.now());
+  await page.locator('[data-window-panel="economy"] [data-action="auction-bid"]').dispatchEvent('click');
   await page.locator('[data-window-panel="economy"] [data-action="auction-bid"]').dispatchEvent('click');
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return state?.auction?.lots?.[0]?.leading === true && state?.wallet?.credits < 1175;
   }, null, { timeout: 10000 });
+  await waitForCommandLogAfter(page, 'Sent auction.search.', auctionBidAt);
+  await waitForCommandLogAfter(page, 'Sent wallet.snapshot.', auctionBidAt);
+  const auctionBidAfter = await commandLogCount(page, 'Sent auction.bid.');
+  if (auctionBidAfter !== auctionBidBefore + 1) {
+    throw new Error(`pending auction bid guard emitted ${auctionBidAfter - auctionBidBefore} auction.bid commands, want 1`);
+  }
 
   await page.locator('[data-window-panel="economy"] [data-shop-category="premium"]').click();
   await page.locator('[data-window-panel="economy"] [data-shop-kind="premium_entitlement"]').first().click();
@@ -1570,22 +2407,28 @@ async function verifyRealEconomy(page, viewport, label) {
     const button = document.querySelector('[data-window-panel="economy"] [data-action="premium-claim"]');
     return button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 10000 });
+  const premiumClaimAt = await page.evaluate(() => Date.now());
   await page.locator('[data-window-panel="economy"] [data-action="premium-claim"]').dispatchEvent('click');
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return state?.wallet?.premium_earned === 50 && state?.premium?.entitlements?.[0]?.state === 'claimed';
   }, null, { timeout: 10000 });
+  await waitForCommandLogAfter(page, 'Sent premium.entitlements.', premiumClaimAt);
+  await waitForCommandLogAfter(page, 'Sent wallet.snapshot.', premiumClaimAt);
 
   await page.locator('[data-window-panel="economy"] [data-shop-kind="premium_stock"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-window-panel="economy"] [data-action="premium-weekly-xcore"]');
     return button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 10000 });
+  const premiumStockAt = await page.evaluate(() => Date.now());
   await page.locator('[data-window-panel="economy"] [data-action="premium-weekly-xcore"]').dispatchEvent('click');
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return state?.wallet?.premium_paid === 200 && state?.premium?.purchases?.length === 1;
   }, null, { timeout: 10000 });
+  await waitForCommandLogAfter(page, 'Sent premium.entitlements.', premiumStockAt);
+  await waitForCommandLogAfter(page, 'Sent wallet.snapshot.', premiumStockAt);
   await page.locator('[data-window-panel="economy"] [data-shop-category="market"]').click();
   await page.locator('[data-window-panel="economy"] [data-panel-close="economy"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-window-panel="economy"]'), null, { timeout: 10000 });
@@ -1781,6 +2624,24 @@ function distance(a, b) {
   return Math.hypot(dx, dy);
 }
 
+function movementPositionAt(movement, serverTimeMS) {
+  if (
+    !movement?.moving ||
+    !Number.isFinite(movement.started_at_ms) ||
+    !Number.isFinite(movement.arrive_at_ms) ||
+    !Number.isFinite(serverTimeMS)
+  ) {
+    return null;
+  }
+  const duration = Math.max(1, movement.arrive_at_ms - movement.started_at_ms);
+  const elapsed = Math.max(0, Math.min(duration, serverTimeMS - movement.started_at_ms));
+  const progress = elapsed / duration;
+  return {
+    x: movement.origin.x + (movement.target.x - movement.origin.x) * progress,
+    y: movement.origin.y + (movement.target.y - movement.origin.y) * progress,
+  };
+}
+
 function isFiniteVec(value) {
   return Number.isFinite(value?.x) && Number.isFinite(value?.y);
 }
@@ -1790,6 +2651,21 @@ async function commandLogCount(page, text) {
     const lines = window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? [];
     return lines.filter((line) => line.text === needle).length;
   }, text);
+}
+
+async function selectedTargetID(page) {
+  return page.evaluate(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID ?? null);
+}
+
+async function waitForCommandLogAfter(page, text, afterAt) {
+  await page.waitForFunction(
+    ({ needle, minimumAt }) => {
+      const lines = window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? [];
+      return lines.some((line) => line.text === needle && line.at >= minimumAt);
+    },
+    { needle: text, minimumAt: afterAt },
+    { timeout: 10000 },
+  );
 }
 
 async function commandLogMatchCount(page, pattern) {
@@ -2030,8 +2906,9 @@ async function assertNoFakeTopbarCounts(page, label) {
 
 async function assertNoUnimplementedMutationControls(page, label) {
   const violations = await page.evaluate(
-    ({ operations, patterns }) => {
+    ({ operations, patterns, allowedActions }) => {
       const compiled = patterns.map((entry) => ({ label: entry.label, pattern: new RegExp(entry.source, entry.flags) }));
+      const allowedActionSet = new Set(allowedActions);
       const aliases = operations.flatMap((operation) => [
         operation,
         operation.replace(/\./g, '-'),
@@ -2080,6 +2957,11 @@ async function assertNoUnimplementedMutationControls(page, label) {
 
       for (const element of candidates) {
         const haystack = `${elementText(element)} ${elementMetadata(element)}`.replace(/\s+/g, ' ').trim();
+        const action = element.getAttribute('data-action');
+        if (action && !allowedActionSet.has(action)) {
+          matches.push({ kind: `unknown enabled action ${action}`, text: haystack });
+          continue;
+        }
         const normalized = haystack.toLowerCase();
         const alias = uniqueAliases.find((entry) => normalized.includes(entry));
         if (alias) {
@@ -2102,6 +2984,7 @@ async function assertNoUnimplementedMutationControls(page, label) {
         source: entry.pattern.source,
         flags: entry.pattern.flags,
       })),
+      allowedActions: allowedEnabledActions,
     },
   );
 
@@ -2111,6 +2994,24 @@ async function assertNoUnimplementedMutationControls(page, label) {
         .map((violation) => `${violation.kind} in "${violation.text}"`)
         .join('; ')}`,
     );
+  }
+}
+
+async function assertNoRealModeDebugOperations(page, label) {
+  const debugOps = await page.evaluate(() =>
+    (window.__SPACE_MORPG_WS_EVENTS__ ?? [])
+      .filter((event) => event.kind === 'send' && typeof event.data === 'string')
+      .map((event) => {
+        try {
+          return JSON.parse(event.data).op;
+        } catch {
+          return null;
+        }
+      })
+      .filter((op) => op === 'debug_snapshot' || op === 'debug_spawn_npc'),
+  );
+  if (debugOps.length > 0) {
+    throw new Error(`${label}: real-mode sent debug ops ${debugOps.join(', ')}`);
   }
 }
 
@@ -2124,6 +3025,55 @@ async function clickWorldPosition(page, world) {
     throw new Error(`World click at ${Math.round(point.x)},${Math.round(point.y)} hit ${String(point.element)} (${JSON.stringify(point)})`);
   }
   await page.mouse.click(point.x, point.y);
+}
+
+async function uncoveredCanvasPoint(page) {
+  return page.evaluate(() => {
+    const canvas = document.querySelector('canvas.world-canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return null;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const candidates = [
+      { x: 0.18, y: 0.82 },
+      { x: 0.82, y: 0.18 },
+      { x: 0.5, y: 0.18 },
+      { x: 0.22, y: 0.5 },
+      { x: 0.78, y: 0.5 },
+      { x: 0.5, y: 0.82 },
+    ];
+    for (const candidate of candidates) {
+      const x = rect.left + rect.width * candidate.x;
+      const y = rect.top + rect.height * candidate.y;
+      if (document.elementFromPoint(x, y) === canvas) {
+        return { x, y };
+      }
+    }
+    return null;
+  });
+}
+
+async function canvasProbePoint(page) {
+  return page.evaluate(() => {
+    const canvas = document.querySelector('canvas.world-canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return null;
+    }
+    const rect = canvas.getBoundingClientRect();
+    return { x: rect.left + rect.width * 0.5, y: rect.top + rect.height * 0.5 };
+  });
+}
+
+async function dispatchCanvasClickAtPoint(page, point) {
+  await page.evaluate(({ x, y }) => {
+    const canvas = document.querySelector('canvas.world-canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      throw new Error('Missing world canvas.');
+    }
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, button: 0 }));
+    canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, button: 0 }));
+    canvas.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 }));
+  }, point);
 }
 
 async function clickWorldPositionsRapid(page, worlds) {
@@ -2201,8 +3151,9 @@ async function worldClickPoint(page, world) {
 }
 
 function assertNoForbiddenText(text, label) {
+  const normalized = String(text).toLowerCase();
   for (const forbidden of forbiddenText) {
-    if (text.includes(forbidden)) {
+    if (normalized.includes(forbidden.toLowerCase())) {
       throw new Error(`${label}: forbidden debug text leaked: ${forbidden}`);
     }
   }
@@ -2261,6 +3212,7 @@ async function startMockRealtimeServer() {
   const received = [];
   const waiters = new Map();
   const sockets = new Set();
+  const fixtureState = { debugSnapshotCount: 0 };
   const server = net.createServer((socket) => {
     sockets.add(socket);
     let buffer = Buffer.alloc(0);
@@ -2290,7 +3242,7 @@ async function startMockRealtimeServer() {
           return;
         }
         if (frame.opcode === 1) {
-          handleClientMessage(socket, frame.payload, received, waiters);
+          handleClientMessage(socket, frame.payload, received, waiters, fixtureState);
         }
       }
     });
@@ -2432,7 +3384,7 @@ function readClientFrame(buffer) {
   };
 }
 
-function handleClientMessage(socket, raw, received, waiters) {
+function handleClientMessage(socket, raw, received, waiters, fixtureState) {
   const request = JSON.parse(raw);
   received.push(request);
   const waiter = waiters.get(request.op);
@@ -2443,7 +3395,14 @@ function handleClientMessage(socket, raw, received, waiters) {
 
   switch (request.op) {
     case 'debug_snapshot':
-      sendMessage(socket, response(request.request_id, snapshotPayload()));
+      fixtureState.debugSnapshotCount += 1;
+      sendMessage(
+        socket,
+        response(
+          request.request_id,
+          fixtureState.debugSnapshotCount >= 2 ? replacementSnapshotWithoutMinimapPayload() : snapshotPayload(),
+        ),
+      );
       sendMessage(
         socket,
         event('hidden-rejected', 'aoi.entity_entered', {
@@ -2470,8 +3429,8 @@ function handleClientMessage(socket, raw, received, waiters) {
             used: 21,
             capacity: 80,
             items: [
-              { item_id: 'raw_ore', quantity: 15 },
-              { item_id: 'salvage_thread', quantity: 6 },
+              { item_id: 'raw_ore', display_name: 'Raw Ore', category: 'resource', art_key: 'item.raw_ore', quantity: 15, unit_weight: 1, used_units: 15, location: 'ship_cargo', move_eligible: false, locked_reason: 'cargo_transfer_unavailable' },
+              { item_id: 'salvage_thread', display_name: 'Salvage Thread', category: 'resource', art_key: 'item.salvage_thread', quantity: 6, unit_weight: 1, used_units: 6, location: 'ship_cargo', move_eligible: false, locked_reason: 'cargo_transfer_unavailable' },
             ],
           },
         }),
@@ -2497,6 +3456,16 @@ function handleClientMessage(socket, raw, received, waiters) {
       }, 90);
       break;
     }
+    case 'stealth.toggle':
+      sendMessage(socket, response(request.request_id, { accepted: true, stealth: { enabled: request.payload.enabled === true }, stats: fixtureStats }));
+      sendMessage(
+        socket,
+        event(`stealth-stats-${request.request_id}`, 'stats.updated', {
+          ...fixtureStats,
+          speed: request.payload.enabled === true ? Math.round(fixtureStats.speed * 0.7) : fixtureStats.speed,
+        }),
+      );
+      break;
     default:
       sendMessage(socket, errorResponse(request.request_id, 'ERR_INVALID_PAYLOAD', 'Unsupported operation.'));
   }
@@ -2600,10 +3569,11 @@ function snapshotPayload() {
       region: 'Fixture Belt',
       danger: 'locked',
       contested: false,
-    },
+	    },
     minimap: {
-      radar_range: 420,
-      live_contacts: [
+      radar_range: 1000,
+      projection_window_size: 2000,
+	      live_contacts: [
         {
           entity_id: 'player-local',
           entity_type: 'player',
@@ -2633,7 +3603,16 @@ function snapshotPayload() {
           status_flags: ['unknown_signal'],
         },
       ],
-      remembered: [],
+      remembered: [
+        {
+          kind: 'known_planet',
+          planet_id: 'planet-memory-01',
+          detail_id: 'planet-memory-01',
+          label: 'Memory Planet',
+          position: { x: 720, y: -360 },
+          freshness: 'fresh',
+        },
+      ],
     },
     player: {
       callsign: 'Server-Pilot',
@@ -2661,8 +3640,8 @@ function snapshotPayload() {
       used: 17,
       capacity: 80,
       items: [
-        { item_id: 'raw_ore', quantity: 11 },
-        { item_id: 'salvage_thread', quantity: 6 },
+        { item_id: 'raw_ore', display_name: 'Raw Ore', category: 'resource', art_key: 'item.raw_ore', quantity: 11, unit_weight: 1, used_units: 11, location: 'ship_cargo', move_eligible: false, locked_reason: 'cargo_transfer_unavailable' },
+        { item_id: 'salvage_thread', display_name: 'Salvage Thread', category: 'resource', art_key: 'item.salvage_thread', quantity: 6, unit_weight: 1, used_units: 6, location: 'ship_cargo', move_eligible: false, locked_reason: 'cargo_transfer_unavailable' },
       ],
     },
     wallet: {
@@ -2679,6 +3658,28 @@ function snapshotPayload() {
       basic_laser_energy_cost: 10,
       basic_laser_cooldown_ms: 350,
     },
+  };
+}
+
+function replacementSnapshotWithoutMinimapPayload() {
+  return {
+    accepted: true,
+    entities: [
+      {
+        entity_id: 'player-local',
+        entity_type: 'player',
+        position: { x: 40, y: -220 },
+        status_flags: ['local', 'self'],
+        display: { label: 'Server-Pilot', disposition: 'self' },
+      },
+      {
+        entity_id: 'signal-eris-04',
+        entity_type: 'planet_signal',
+        display: { label: 'Unknown Signal', disposition: 'unknown' },
+        position: { x: 260, y: 150 },
+        status_flags: ['known_intel'],
+      },
+    ],
   };
 }
 

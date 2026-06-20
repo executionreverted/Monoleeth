@@ -49,6 +49,76 @@ client/src/state/reducer.ts
   real `ClaimService`/`AutomationRouteService` wiring, idempotency, recovery,
   and authenticated handlers.
 
+## Subagent Review Additions - 2026-06-20
+
+- Add concrete reducer tasks for `planet.storage_summary` and
+  `route.snapshot`. Server payloads that return `planet_storage` or singular
+  `route` must reconcile into client state without requiring a full list
+  refresh.
+- Remove disabled primary placeholders from normal planet UI. `Claim`, `Build`,
+  `Upgrade`, `Route`, and `Auto` appear only when meaningful and backed by a
+  real contract; otherwise use quiet game copy or hide the section.
+- Remove internal copy from planet detail, including `server policy`,
+  `server-owned routes`, and implementation-lock explanations.
+- Add display metadata to planet storage/routes. Resource rows need display
+  name/category/art key or catalog reference data; UI must not render raw
+  `item_id` or `resource_item_id` as player-facing labels.
+- Planet detail opening should issue or schedule refreshes for detail,
+  production, storage, and routes, and claim/route success must reconcile all
+  related snapshots.
+
+## Second Subagent Review Additions - 2026-06-20
+
+- Align smoke with the plan. Browser smoke must fail on disabled primary
+  placeholders such as `Claim Locked`, `Build`, `Upgrade`, `Route`, and `Auto`
+  when their actions are not meaningful or backed by real contracts.
+- Add an owner-checked production settlement wrapper before login/detail-open
+  settlement is exposed. The detail open flow should settle, then refresh
+  production, storage, and routes in deterministic order.
+- Selecting/opening a planet must issue or schedule `discovery.planet_detail`,
+  `planet.production_summary`, `planet.storage_summary`, and route refreshes
+  without triggering movement.
+- Storage and route payloads currently risk raw resource ids. Require display
+  metadata or catalog refs for resource rows, route endpoints, route cargo, and
+  production outputs.
+- Claim/build/route success must refresh known planets, selected detail,
+  production, storage, routes, wallet/inventory where costs apply, and any
+  stale market/intel listings if those adapters are present.
+
+## Third Subagent Review Additions - 2026-06-20
+
+- Claim/build/route browser mutations are still not registered. Runtime exposes
+  read ops for planet detail, production/storage summaries, and routes, but no
+  `discovery.claim_planet`, `planet.building_*`, or route mutation handlers.
+  UI must hide those primary actions until authenticated services are wired.
+- Current planet UI still shows disabled primary placeholders for `Claim`,
+  `Build`, `Upgrade`, `Route`, and `Auto`. These must become absent or quiet
+  game status copy unless the action is meaningful and backed by a real
+  contract.
+- Planet detail open should trigger a deterministic refresh chain:
+  `discovery.planet_detail` -> `planet.production_summary` ->
+  `planet.storage_summary` -> `route.list`, without movement side effects.
+- Backend planet inspection needs an owner-checked production settlement wrapper
+  before returning fresh production, storage, and route views.
+- Storage and route payloads must include display metadata/catalog refs for
+  resources, route endpoints, buildings, and outputs instead of raw ids.
+
+## Fourth Subagent Review Additions - 2026-06-20
+
+- Resolve `planet.storage_summary` payload shape. If the server returns a
+  collection such as `{ planet_storage: { planets: [] } }`, the reducer must
+  merge every planet entry; if the UI expects a singular selected planet
+  payload, the server contract and tests must change to match.
+- Selected planet routes must include outbound and inbound routes. Direction,
+  source label, destination label, endpoint ids, route cargo, and resource
+  display metadata must be server-owned.
+- Planet action visibility should use server `available_commands` or explicit
+  `can_claim` / `can_build` / `can_route` capability state. Hard-coded disabled
+  primary buttons remain a release blocker.
+- Browser smoke must cover storage collection merge, inbound route rendering,
+  and action visibility driven by server capabilities rather than local
+  placeholders.
+
 ## Implementation Plan
 
 1. Wire claim contract.
@@ -132,16 +202,32 @@ docs/plans/task-001/08-planets-production-routes-claim.md
       registered.
 - [ ] Claim uses real `discovery.claim_planet` or remains hidden with a named
       blocker.
+- [ ] Claim/build/route primary controls are hidden until their authenticated
+      runtime handlers are registered and tested.
 - [ ] Claim validates visibility/range/rank/cost/idempotency server-side.
 - [ ] Claim transaction/recovery risk is resolved or browser claim remains
       blocked with a named durable-state blocker.
 - [ ] Unclaimed planets do not show Build/Route as primary actions.
+- [ ] Disabled primary placeholders for unavailable planet actions are absent
+      from normal player UI and browser smoke asserts absence.
 - [ ] Claimed planets show Production, Storage, and Routes sections/tabs.
 - [ ] `planet.storage_summary`, `route.list`, and `route.snapshot` reconcile.
+- [ ] `planet.storage_summary` collection and singular payload behavior is
+      chosen, documented, and reducer-tested.
+- [ ] Selected planet route UI includes inbound and outbound routes with
+      direction and endpoint display metadata.
+- [ ] Planet action visibility is driven by server capability state such as
+      `available_commands` or `can_*` fields.
+- [ ] Planet storage/routes render display metadata or catalog refs, never raw
+      `item_id` / `resource_item_id` as player-facing labels.
 - [ ] `planet.building_build`, `planet.building_upgrade`, and route mutations
       are real with server-owned wrappers or explicitly blocked and hidden.
 - [ ] Planet detail open and claim/route/settlement success refresh related
       production/storage/route snapshots.
+- [ ] Production settlement is exposed through an owner-checked wrapper before
+      login/detail-open settlement is enabled.
+- [ ] Planet select/detail open refreshes detail, production, storage, and
+      routes in deterministic order without triggering movement.
 - [ ] Internal server-policy copy is gone from player UI.
 - [ ] Browser smoke verifies claim or documented locked blocker path.
 

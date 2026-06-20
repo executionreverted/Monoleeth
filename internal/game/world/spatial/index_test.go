@@ -39,6 +39,24 @@ func TestQueryRadiusExcludesFarEntitiesAfterExactDistanceCheck(t *testing.T) {
 	}
 }
 
+func TestQueryWindowReturnsEntitiesInsideSquareWindow(t *testing.T) {
+	idx := newTestIndex(t, 10)
+	mustInsert(t, idx, "center", Position{X: 0, Y: 0})
+	mustInsert(t, idx, "corner", Position{X: 10, Y: 10})
+	mustInsert(t, idx, "edge", Position{X: -10, Y: 0})
+	mustInsert(t, idx, "outside-x", Position{X: 10.1, Y: 0})
+	mustInsert(t, idx, "outside-y", Position{X: 0, Y: -10.1})
+
+	results, err := idx.QueryWindow(Position{X: 0, Y: 0}, 10)
+	if err != nil {
+		t.Fatalf("QueryWindow() = %v, want nil", err)
+	}
+
+	if got, want := resultIDs(results), []EntityID{"center", "corner", "edge"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("QueryWindow ids = %v, want %v", got, want)
+	}
+}
+
 func TestUpdateMovesEntityBetweenCells(t *testing.T) {
 	idx := newTestIndex(t, 10)
 	mustInsert(t, idx, "ship", Position{X: 0, Y: 0})
@@ -133,6 +151,9 @@ func TestIndexRejectsInvalidInputs(t *testing.T) {
 	}
 	if _, err := idx.QueryRadius(Position{}, math.Inf(1)); !errors.Is(err, ErrNegativeRadius) {
 		t.Fatalf("QueryRadius(infinite radius) error = %v, want ErrNegativeRadius", err)
+	}
+	if _, err := idx.QueryWindow(Position{}, math.Inf(1)); !errors.Is(err, ErrNegativeHalfExtent) {
+		t.Fatalf("QueryWindow(infinite half extent) error = %v, want ErrNegativeHalfExtent", err)
 	}
 }
 

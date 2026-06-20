@@ -52,6 +52,52 @@ func TestWorkerCanSpawnPlayer(t *testing.T) {
 	}
 }
 
+func TestBoundedSpatialProjectionQueryReturnsOnlyEntitiesInsideWindow(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{}, 10)
+	mustInsertWorkerEntity(t, zoneWorker, "entity-corner", world.EntityTypeNPC, world.Vec2{X: 1000, Y: 1000})
+	mustInsertWorkerEntity(t, zoneWorker, "entity-outside", world.EntityTypeNPC, world.Vec2{X: 1001, Y: 0})
+
+	snapshot, err := zoneWorker.EntitiesWithinWindow(world.Vec2{}, 1000)
+	if err != nil {
+		t.Fatalf("EntitiesWithinWindow() = %v, want nil", err)
+	}
+
+	if got, want := workerSnapshotEntityIDs(snapshot), []world.EntityID{"entity-corner", "entity-player-1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("window entity ids = %v, want %v", got, want)
+	}
+}
+
+func TestBoundedSpatialProjectionQueryUsesUpdatedIndexPositions(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+	mustInsertWorkerEntity(t, zoneWorker, "entity-drifter", world.EntityTypeNPC, world.Vec2{X: 1500, Y: 0})
+
+	initial, err := zoneWorker.EntitiesWithinWindow(world.Vec2{}, 1000)
+	if err != nil {
+		t.Fatalf("initial EntitiesWithinWindow() = %v, want nil", err)
+	}
+	if hasWorkerSnapshotEntityID(initial, "entity-drifter") {
+		t.Fatalf("initial window included outside entity: %+v", initial.Entities)
+	}
+
+	entity, ok := zoneWorker.Entity("entity-drifter")
+	if !ok {
+		t.Fatal("Entity(entity-drifter) ok = false")
+	}
+	entity.Position = world.Vec2{X: 999, Y: 0}
+	if err := zoneWorker.UpdateEntity(entity); err != nil {
+		t.Fatalf("UpdateEntity() = %v, want nil", err)
+	}
+
+	updated, err := zoneWorker.EntitiesWithinWindow(world.Vec2{}, 1000)
+	if err != nil {
+		t.Fatalf("updated EntitiesWithinWindow() = %v, want nil", err)
+	}
+	if !hasWorkerSnapshotEntityID(updated, "entity-drifter") {
+		t.Fatalf("updated window missing moved entity: %+v", updated.Entities)
+	}
+}
+
 func TestMoveToCommandUpdatesPositionByServerSpeed(t *testing.T) {
 	zoneWorker := newTestWorker(t, time.Second)
 	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{}, 10)
@@ -117,6 +163,36 @@ func TestMoveToWhileMovingStartsFromServerCurrentPosition(t *testing.T) {
 	}
 }
 
+func TestMoveToWhileMovingStartsFromServerTimedPosition(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+	clock := zoneWorker.clock.(*testutil.FakeClock)
+	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{}, 10)
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, world.Vec2{X: 100, Y: 0}),
+	}))
+	inFlight, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() ok = false, want true")
+	}
+	assertVecNear(t, inFlight.Position, world.Vec2{X: 10, Y: 0})
+
+	clock.Advance(4 * time.Second)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, world.Vec2{X: 0, Y: 100}),
+	}))
+	retargeted, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() ok = false, want true")
+	}
+	assertVecNear(t, retargeted.Movement.Origin, world.Vec2{X: 40, Y: 0})
+	if retargeted.Movement.Target != (world.Vec2{X: 0, Y: 100}) {
+		t.Fatalf("retargeted movement target = %+v, want 0,100", retargeted.Movement.Target)
+	}
+}
+
 func TestStopCommandClearsMovementTarget(t *testing.T) {
 	zoneWorker := newTestWorker(t, time.Second)
 	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{}, 10)
@@ -176,6 +252,71 @@ func TestSettleAndDetachSessionStopsMovementAtServerTimedPosition(t *testing.T) 
 	}
 	if _, ok := zoneWorker.AttachedPlayer("session-1"); ok {
 		t.Fatal("AttachedPlayer(session-1) ok = true, want detached")
+	}
+}
+
+func TestSetPlayerSpeedCommandRecalculatesMovingRouteFromServerPosition(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+	clock := zoneWorker.clock.(*testutil.FakeClock)
+	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{}, 10)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, world.Vec2{X: 100, Y: 0}),
+	}))
+
+	clock.Advance(4 * time.Second)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, SetPlayerSpeedCommand{
+		PlayerID: "player-1",
+		Speed:    7,
+	}))
+
+	entity, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() ok = false, want true")
+	}
+	speed, ok := zoneWorker.EntitySpeed("entity-player-1")
+	if !ok || speed != 7 {
+		t.Fatalf("EntitySpeed() = %v, %v; want 7,true", speed, ok)
+	}
+	assertVecNear(t, entity.Movement.Origin, world.Vec2{X: 40, Y: 0})
+	assertVecNear(t, entity.Position, world.Vec2{X: 47, Y: 0})
+	if entity.Movement.Target != (world.Vec2{X: 100, Y: 0}) {
+		t.Fatalf("movement target = %+v, want original target 100,0", entity.Movement.Target)
+	}
+	if entity.Movement.Speed != 7 {
+		t.Fatalf("movement speed = %v, want recalculated speed 7", entity.Movement.Speed)
+	}
+	if entity.Movement.ArriveAtMS <= entity.Movement.StartedAtMS {
+		t.Fatalf("movement timing = %+v, want future arrival at slower speed", entity.Movement)
+	}
+}
+
+func TestSetPlayerSpeedCommandZeroSpeedSettlesAndStopsRoute(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+	clock := zoneWorker.clock.(*testutil.FakeClock)
+	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{}, 10)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, world.Vec2{X: 100, Y: 0}),
+	}))
+
+	clock.Advance(4 * time.Second)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, SetPlayerSpeedCommand{
+		PlayerID: "player-1",
+		Speed:    0,
+	}))
+
+	entity, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() ok = false, want true")
+	}
+	speed, ok := zoneWorker.EntitySpeed("entity-player-1")
+	if !ok || speed != 0 {
+		t.Fatalf("EntitySpeed() = %v, %v; want 0,true", speed, ok)
+	}
+	assertVecNear(t, entity.Position, world.Vec2{X: 40, Y: 0})
+	if entity.Movement.Moving {
+		t.Fatalf("movement = %+v, want stopped after zero speed", entity.Movement)
 	}
 }
 
@@ -699,6 +840,35 @@ func spawnPlayer(t *testing.T, zoneWorker *Worker, playerID foundation.PlayerID,
 		t.Fatalf("Submit(spawn) error = %v", err)
 	}
 	assertNoCommandErrors(t, zoneWorker.Tick())
+}
+
+func mustInsertWorkerEntity(t *testing.T, zoneWorker *Worker, entityID world.EntityID, entityType world.EntityType, position world.Vec2) {
+	t.Helper()
+
+	entity, err := world.NewEntity(zoneWorker.WorldID(), zoneWorker.ZoneID(), entityID, entityType, position)
+	if err != nil {
+		t.Fatalf("NewEntity(%q) = %v, want nil", entityID, err)
+	}
+	if err := zoneWorker.InsertEntity(entity, 0); err != nil {
+		t.Fatalf("InsertEntity(%q) = %v, want nil", entityID, err)
+	}
+}
+
+func workerSnapshotEntityIDs(snapshot Snapshot) []world.EntityID {
+	ids := make([]world.EntityID, 0, len(snapshot.Entities))
+	for _, entity := range snapshot.Entities {
+		ids = append(ids, entity.ID)
+	}
+	return ids
+}
+
+func hasWorkerSnapshotEntityID(snapshot Snapshot, entityID world.EntityID) bool {
+	for _, entity := range snapshot.Entities {
+		if entity.ID == entityID {
+			return true
+		}
+	}
+	return false
 }
 
 func tickSubmitted(t *testing.T, zoneWorker *Worker, command Command) TickResult {

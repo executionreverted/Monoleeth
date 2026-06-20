@@ -18,71 +18,93 @@ import (
 )
 
 var trustedClientPayloadKeys = map[string]struct{}{
-	"account_id":         {},
-	"player_id":          {},
-	"session_id":         {},
-	"world_id":           {},
-	"zone_id":            {},
-	"speed":              {},
-	"damage":             {},
-	"xp":                 {},
-	"main_xp":            {},
-	"combat_xp":          {},
-	"role_xp":            {},
-	"rank":               {},
-	"skill_points":       {},
-	"wallet_amount":      {},
-	"balance":            {},
-	"balance_after":      {},
-	"total":              {},
-	"total_amount":       {},
-	"price_total":        {},
-	"fee":                {},
-	"fee_amount":         {},
-	"seller_proceeds":    {},
-	"quest_progress":     {},
-	"progress":           {},
-	"progress_json":      {},
-	"objective_progress": {},
-	"completed":          {},
-	"completed_at":       {},
-	"claimed_at":         {},
-	"reward":             {},
-	"reward_payload":     {},
-	"reward_claimed_at":  {},
-	"generated_payload":  {},
-	"generated_seed":     {},
-	"rare_cap":           {},
-	"reference_id":       {},
-	"escrow":             {},
-	"escrow_location":    {},
-	"seller_player_id":   {},
-	"buyer_player_id":    {},
-	"bidder_player_id":   {},
-	"current_bid":        {},
-	"current_bidder_id":  {},
-	"winning_player_id":  {},
-	"stock_total":        {},
-	"stock_remaining":    {},
-	"provider":           {},
-	"provider_reference": {},
-	"entitlement_state":  {},
-	"cooldown":           {},
-	"hit":                {},
-	"crit":               {},
-	"hidden":             {},
-	"internal":           {},
-	"gameplay_seed":      {},
-	"procedural_seed":    {},
-	"world_seed":         {},
-	"future_spawn":       {},
-	"spawn_candidates":   {},
-	"candidate":          {},
-	"candidate_key":      {},
-	"planet_candidate":   {},
-	"detection_roll":     {},
-	"scan_cell":          {},
-	"scan_result":        {},
+	"account_id":             {},
+	"client_player_id":       {},
+	"player_id":              {},
+	"session_id":             {},
+	"world_id":               {},
+	"zone_id":                {},
+	"speed":                  {},
+	"damage":                 {},
+	"xp":                     {},
+	"main_xp":                {},
+	"combat_xp":              {},
+	"role_xp":                {},
+	"rank":                   {},
+	"skill_points":           {},
+	"loot":                   {},
+	"wallet_amount":          {},
+	"balance":                {},
+	"balance_after":          {},
+	"total":                  {},
+	"total_amount":           {},
+	"price_total":            {},
+	"fee":                    {},
+	"fee_amount":             {},
+	"seller_proceeds":        {},
+	"quest_progress":         {},
+	"progress":               {},
+	"progress_json":          {},
+	"objective_progress":     {},
+	"completed":              {},
+	"completed_at":           {},
+	"claimed_at":             {},
+	"reward":                 {},
+	"reward_payload":         {},
+	"reward_claimed_at":      {},
+	"generated_payload":      {},
+	"generated_seed":         {},
+	"rare_cap":               {},
+	"reference_id":           {},
+	"escrow":                 {},
+	"escrow_location":        {},
+	"source_return_location": {},
+	"seller_player_id":       {},
+	"buyer_player_id":        {},
+	"bidder_player_id":       {},
+	"current_bid":            {},
+	"current_bidder_id":      {},
+	"winning_player_id":      {},
+	"stock_total":            {},
+	"stock_remaining":        {},
+	"provider":               {},
+	"provider_reference":     {},
+	"entitlement_state":      {},
+	"cooldown":               {},
+	"hit":                    {},
+	"crit":                   {},
+	"hidden":                 {},
+	"internal":               {},
+	"internal_metadata":      {},
+	"gameplay_seed":          {},
+	"procedural_seed":        {},
+	"world_seed":             {},
+	"future_spawn":           {},
+	"future_spawn_data":      {},
+	"spawn_candidates":       {},
+	"candidate":              {},
+	"candidate_key":          {},
+	"planet_candidate":       {},
+	"detection_roll":         {},
+	"scan_roll":              {},
+	"scan_cell":              {},
+	"scan_result":            {},
+	"scan_candidate":         {},
+	"scan_candidates":        {},
+	"candidate_data":         {},
+	"target_player_id":       {},
+	"witness_expires_at":     {},
+	"witness_expiry":         {},
+	"hidden_target_metadata": {},
+	"loot_roll":              {},
+	"loot_table":             {},
+	"password":               {},
+	"password_hash":          {},
+	"token":                  {},
+	"session_token":          {},
+	"reset_secret":           {},
+	"auth_header":            {},
+	"cookie":                 {},
 }
 
 func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.CommandHandler {
@@ -103,6 +125,7 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationLoadoutEquipModule:   runtime.handleLoadoutEquipModule,
 		realtime.OperationLoadoutUnequipModule: runtime.handleLoadoutUnequipModule,
 		realtime.OperationStatsSnapshot:        runtime.handleStatsSnapshot,
+		realtime.OperationStealthToggle:        runtime.handleStealthToggle,
 		realtime.OperationCraftingRecipes:      runtime.handleCraftingRecipes,
 		realtime.OperationScanPulse:            runtime.handleScanPulse,
 		realtime.OperationKnownPlanets:         runtime.handleKnownPlanets,
@@ -119,7 +142,7 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationAuctionSearch:        runtime.handleAuctionSearch,
 		realtime.OperationAuctionBid:           runtime.handleAuctionBid,
 		realtime.OperationAuctionBuyNow:        runtime.handleAuctionBuyNow,
-		realtime.OperationAuctionClaimGrant:    runtime.handleAuctionClaimGrant,
+		realtime.OperationAuctionGrants:        runtime.handleAuctionGrants,
 		realtime.OperationPremiumEntitlements:  runtime.handlePremiumEntitlements,
 		realtime.OperationPremiumClaim:         runtime.handlePremiumClaim,
 		realtime.OperationPremiumWeeklyXCore:   runtime.handlePremiumWeeklyXCore,
@@ -205,7 +228,8 @@ func (runtime *Runtime) handleMoveTo(ctx realtime.CommandContext, request realti
 	return marshalPayload(struct {
 		Accepted bool                `json:"accepted"`
 		Entities []aoi.EntityPayload `json:"entities"`
-	}{Accepted: true, Entities: snapshot.Entities})
+		Minimap  minimapPayload      `json:"minimap"`
+	}{Accepted: true, Entities: snapshot.Entities, Minimap: snapshot.Minimap})
 }
 
 func (runtime *Runtime) handleStop(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -230,7 +254,8 @@ func (runtime *Runtime) handleStop(ctx realtime.CommandContext, request realtime
 	return marshalPayload(struct {
 		Accepted bool                `json:"accepted"`
 		Entities []aoi.EntityPayload `json:"entities"`
-	}{Accepted: true, Entities: snapshot.Entities})
+		Minimap  minimapPayload      `json:"minimap"`
+	}{Accepted: true, Entities: snapshot.Entities, Minimap: snapshot.Minimap})
 }
 
 func (runtime *Runtime) validateMoveIntentLocked(playerID foundation.PlayerID, intent world.MovementIntent) error {
@@ -341,31 +366,41 @@ func decodeMoveIntent(payload json.RawMessage) (world.MovementIntent, error) {
 }
 
 func rejectTrustedPayload(payload json.RawMessage) error {
+	return rejectTrustedPayloadAllowing(payload)
+}
+
+func rejectTrustedPayloadAllowing(payload json.RawMessage, allowedKeys ...string) error {
 	var value any
 	if err := json.Unmarshal(payload, &value); err != nil {
 		return invalidPayload("Invalid payload.", err)
 	}
-	if found := findTrustedPayloadKey(value); found != "" {
+	allowed := make(map[string]struct{}, len(allowedKeys))
+	for _, key := range allowedKeys {
+		allowed[strings.ToLower(key)] = struct{}{}
+	}
+	if found := findTrustedPayloadKey(value, allowed, 0); found != "" {
 		return invalidPayload(fmt.Sprintf("Payload field %q is server-owned.", found), nil)
 	}
 	return nil
 }
 
-func findTrustedPayloadKey(value any) string {
+func findTrustedPayloadKey(value any, allowed map[string]struct{}, depth int) string {
 	switch typed := value.(type) {
 	case map[string]any:
 		for key, child := range typed {
 			normalized := strings.ToLower(key)
 			if _, forbidden := trustedClientPayloadKeys[normalized]; forbidden {
-				return key
+				if _, ok := allowed[normalized]; !ok || depth != 0 {
+					return key
+				}
 			}
-			if found := findTrustedPayloadKey(child); found != "" {
+			if found := findTrustedPayloadKey(child, allowed, depth+1); found != "" {
 				return found
 			}
 		}
 	case []any:
 		for _, child := range typed {
-			if found := findTrustedPayloadKey(child); found != "" {
+			if found := findTrustedPayloadKey(child, allowed, depth+1); found != "" {
 				return found
 			}
 		}

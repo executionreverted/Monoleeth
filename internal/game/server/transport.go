@@ -67,6 +67,16 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 			_ = conn.Close(websocket.StatusPolicyViolation, "session invalid")
 			return
 		}
+		if response.HasError && response.Error.Error.Code == foundation.CodeShipDisabled {
+			events, err := server.runtime.shipDisabledRefreshEvents(resolved.SessionID, resolved.PlayerID)
+			if err != nil {
+				_ = conn.Close(websocket.StatusInternalError, "event publish failed")
+				return
+			}
+			if !server.writeEvents(client, events) {
+				return
+			}
+		}
 		if requestErr != nil || response.HasError {
 			continue
 		}

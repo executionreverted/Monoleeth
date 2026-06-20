@@ -35,27 +35,32 @@ import (
 )
 
 const (
-	starterShipID                  foundation.ShipID = ships.ShipIDStarter
-	starterShipDisplayName                           = "Sparrow"
-	defaultPlayerSpeed                               = 180
-	defaultRadarRange                                = 420
-	defaultMaxMoveDistance                           = 1200
-	runtimeLootPickupRange                           = 120.0
-	runtimeBasicLaserEnergyCost                      = 10
-	runtimeBasicLaserCooldownMS                      = 350
-	minMoveCommandInterval                           = 75 * time.Millisecond
-	runtimeHangarSafeRadius                          = 250.0
-	starterScannerItemID                             = "scanner_t1"
-	starterScannerModuleID                           = "scanner_t1"
-	starterScannerScanPower                          = 500
-	starterScannerScanRadius                         = 2000
-	starterScannerScanInterval                       = time.Second
-	starterScannerEnergyCost                         = 8
-	starterWalletCredits                             = 1200
-	starterWalletPremiumPaid                         = 300
-	weeklyXCorePremiumPrice                          = 100
-	weeklyXCoreStockTotal                            = 5
-	runtimeQuestRewardLedgerReason                   = economy.LedgerReason("quest_reward")
+	starterShipID                      foundation.ShipID = ships.ShipIDStarter
+	starterShipDisplayName                               = "Sparrow"
+	defaultPlayerSpeed                                   = 180
+	defaultRadarRange                                    = 420
+	runtimeLiveProjectionDiameter                        = 2000.0
+	runtimeLiveProjectionHalfExtent                      = runtimeLiveProjectionDiameter / 2
+	runtimeLiveProjectionDiagonalRange                   = runtimeLiveProjectionHalfExtent * math.Sqrt2
+	defaultMaxMoveDistance                               = 1200
+	runtimeLootPickupRange                               = 120.0
+	runtimeBasicLaserEnergyCost                          = 10
+	runtimeBasicLaserCooldownMS                          = 350
+	minMoveCommandInterval                               = 75 * time.Millisecond
+	runtimeHangarSafeRadius                              = 250.0
+	runtimeStealthSpeedMultiplier                        = 0.70
+	starterScannerItemID                                 = "scanner_t1"
+	starterScannerModuleID                               = "scanner_t1"
+	starterScannerScanPower                              = 500
+	starterScannerScanRadius                             = 2000
+	starterScannerScanInterval                           = time.Second
+	starterScannerEnergyCost                             = 8
+	runtimeHiddenPlayerWitnessDuration                   = 15 * time.Minute
+	starterWalletCredits                                 = 1200
+	starterWalletPremiumPaid                             = 300
+	weeklyXCorePremiumPrice                              = 100
+	weeklyXCoreStockTotal                                = 5
+	runtimeQuestRewardLedgerReason                       = economy.LedgerReason("quest_reward")
 )
 
 // RuntimeConfig wires the single-process game runtime.
@@ -83,13 +88,16 @@ type Runtime struct {
 	worldID foundation.WorldID
 	zoneID  foundation.ZoneID
 
-	players      map[foundation.PlayerID]playerRuntimeState
-	hidden       map[world.EntityID]bool
-	eventSeq     map[auth.SessionID]uint64
-	sessions     map[auth.SessionID]foundation.PlayerID
-	lastAOI      map[auth.SessionID]aoi.Snapshot
-	lastMove     map[foundation.PlayerID]time.Time
-	queuedEvents map[auth.SessionID][]realtime.EventEnvelope
+	players               map[foundation.PlayerID]playerRuntimeState
+	hidden                map[world.EntityID]bool
+	hiddenPlayers         map[foundation.PlayerID]bool
+	stealthBaseSpeeds     map[foundation.PlayerID]float64
+	hiddenPlayerWitnesses map[hiddenPlayerWitnessKey]time.Time
+	eventSeq              map[auth.SessionID]uint64
+	sessions              map[auth.SessionID]foundation.PlayerID
+	lastAOI               map[auth.SessionID]aoi.Snapshot
+	lastMove              map[foundation.PlayerID]time.Time
+	queuedEvents          map[auth.SessionID][]realtime.EventEnvelope
 
 	nextPlayerEntity int
 
@@ -123,6 +131,11 @@ type Runtime struct {
 	repairAttempts      map[foundation.IdempotencyKey]repairAttemptRecord
 	scanCooldowns       map[scanCooldownKey]time.Time
 	scanCapacitorSpends map[discovery.ScanPulseReference]scanCapacitorSpendRecord
+}
+
+type hiddenPlayerWitnessKey struct {
+	ViewerPlayerID foundation.PlayerID
+	TargetPlayerID foundation.PlayerID
 }
 
 type scanCooldownKey struct {
@@ -199,8 +212,17 @@ type cargoSnapshotPayload struct {
 }
 
 type cargoItemStack struct {
-	ItemID   string `json:"item_id"`
-	Quantity int64  `json:"quantity"`
+	ItemID       string `json:"item_id"`
+	DisplayName  string `json:"display_name"`
+	Category     string `json:"category"`
+	ArtKey       string `json:"art_key"`
+	Rarity       string `json:"rarity,omitempty"`
+	Quantity     int64  `json:"quantity"`
+	UnitWeight   int64  `json:"unit_weight"`
+	UsedUnits    int64  `json:"used_units"`
+	Location     string `json:"location"`
+	MoveEligible bool   `json:"move_eligible"`
+	LockedReason string `json:"locked_reason,omitempty"`
 }
 
 type progressionSnapshotPayload struct {
@@ -226,9 +248,10 @@ type sectorPayload struct {
 }
 
 type minimapPayload struct {
-	RadarRange   float64                 `json:"radar_range"`
-	LiveContacts []minimapContactPayload `json:"live_contacts"`
-	Remembered   []minimapMemoryPayload  `json:"remembered"`
+	RadarRange           float64                 `json:"radar_range"`
+	ProjectionWindowSize float64                 `json:"projection_window_size"`
+	LiveContacts         []minimapContactPayload `json:"live_contacts"`
+	Remembered           []minimapMemoryPayload  `json:"remembered"`
 }
 
 type minimapContactPayload struct {
@@ -241,6 +264,8 @@ type minimapContactPayload struct {
 
 type minimapMemoryPayload struct {
 	Kind      string     `json:"kind"`
+	PlanetID  string     `json:"planet_id,omitempty"`
+	DetailID  string     `json:"detail_id,omitempty"`
 	Label     string     `json:"label"`
 	Position  world.Vec2 `json:"position"`
 	Freshness string     `json:"freshness"`
@@ -387,39 +412,42 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		hidden: map[world.EntityID]bool{
 			"entity_hidden_planet_signal": true,
 		},
-		eventSeq:            make(map[auth.SessionID]uint64),
-		sessions:            make(map[auth.SessionID]foundation.PlayerID),
-		lastAOI:             make(map[auth.SessionID]aoi.Snapshot),
-		lastMove:            make(map[foundation.PlayerID]time.Time),
-		queuedEvents:        make(map[auth.SessionID][]realtime.EventEnvelope),
-		Combat:              combatService,
-		Loot:                lootService,
-		Inventory:           inventory,
-		CargoService:        cargoService,
-		Wallet:              walletService,
-		Market:              marketService,
-		Auction:             auctionService,
-		Premium:             premiumService,
-		Quest:               questService,
-		Admin:               adminService,
-		Progression:         progressionService,
-		ShipCatalog:         shipCatalog,
-		HangarStore:         hangarStore,
-		Hangar:              hangarService,
-		ModuleCatalog:       moduleCatalog,
-		LoadoutStore:        loadoutStore,
-		Loadout:             loadoutService,
-		Recipes:             recipeCatalog,
-		Discovery:           discoveryStore,
-		Production:          productionStore,
-		CommandLog:          commandLogger,
-		Metrics:             metricRecorder,
-		combatXP:            combatXP,
-		lootTable:           lootTable,
-		itemCatalog:         itemCatalog,
-		repairAttempts:      make(map[foundation.IdempotencyKey]repairAttemptRecord),
-		scanCooldowns:       make(map[scanCooldownKey]time.Time),
-		scanCapacitorSpends: make(map[discovery.ScanPulseReference]scanCapacitorSpendRecord),
+		hiddenPlayers:         make(map[foundation.PlayerID]bool),
+		stealthBaseSpeeds:     make(map[foundation.PlayerID]float64),
+		hiddenPlayerWitnesses: make(map[hiddenPlayerWitnessKey]time.Time),
+		eventSeq:              make(map[auth.SessionID]uint64),
+		sessions:              make(map[auth.SessionID]foundation.PlayerID),
+		lastAOI:               make(map[auth.SessionID]aoi.Snapshot),
+		lastMove:              make(map[foundation.PlayerID]time.Time),
+		queuedEvents:          make(map[auth.SessionID][]realtime.EventEnvelope),
+		Combat:                combatService,
+		Loot:                  lootService,
+		Inventory:             inventory,
+		CargoService:          cargoService,
+		Wallet:                walletService,
+		Market:                marketService,
+		Auction:               auctionService,
+		Premium:               premiumService,
+		Quest:                 questService,
+		Admin:                 adminService,
+		Progression:           progressionService,
+		ShipCatalog:           shipCatalog,
+		HangarStore:           hangarStore,
+		Hangar:                hangarService,
+		ModuleCatalog:         moduleCatalog,
+		LoadoutStore:          loadoutStore,
+		Loadout:               loadoutService,
+		Recipes:               recipeCatalog,
+		Discovery:             discoveryStore,
+		Production:            productionStore,
+		CommandLog:            commandLogger,
+		Metrics:               metricRecorder,
+		combatXP:              combatXP,
+		lootTable:             lootTable,
+		itemCatalog:           itemCatalog,
+		repairAttempts:        make(map[foundation.IdempotencyKey]repairAttemptRecord),
+		scanCooldowns:         make(map[scanCooldownKey]time.Time),
+		scanCapacitorSpends:   make(map[discovery.ScanPulseReference]scanCapacitorSpendRecord),
 	}
 	scannerSeed, err := discovery.NewWorldSeed(discovery.WorldSeedInput{
 		StaticSeed: []byte("phase07-static-seed"),
@@ -436,6 +464,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Positions: runtimeScannerPositionProvider{runtime: runtime},
 		Cooldowns: runtimeScannerCooldownProvider{runtime: runtime},
 		Energy:    runtimeScannerEnergyProvider{runtime: runtime},
+		Reveals:   runtimeScannerPlayerRevealProvider{runtime: runtime},
 		XP:        runtimeScanXPProvider{progression: progressionService},
 		CandidateOptions: discovery.CandidateGenerationOptions{
 			DiscoveryHorizon: 200_000,
@@ -609,7 +638,13 @@ func (runtime *Runtime) applyActiveShipLocked(playerID foundation.PlayerID, ship
 		state.Ship.MaxShield = int(definition.BaseStats.Shield)
 		state.Ship.Capacitor = int(definition.BaseStats.Energy)
 		state.Ship.MaxCapacitor = int(definition.BaseStats.Energy)
-		state.Stats.Speed = float64(definition.BaseStats.Speed)
+		baseSpeed := float64(definition.BaseStats.Speed)
+		if runtime.hiddenPlayers[playerID] {
+			runtime.stealthBaseSpeeds[playerID] = baseSpeed
+			state.Stats.Speed = runtimePlayerSpeedForStealth(baseSpeed, true)
+		} else {
+			state.Stats.Speed = baseSpeed
+		}
 		state.Stats.RadarRange = float64(definition.BaseStats.Radar)
 		state.Stats.CargoCapacity = definition.BaseStats.CargoCapacity
 		state.Cargo.Capacity = definition.BaseStats.CargoCapacity
@@ -647,6 +682,61 @@ func (runtime *Runtime) playerInCombatLocked(playerID foundation.PlayerID) bool 
 		return false
 	}
 	return state.Ship.Disabled || state.Ship.RepairState == "disabled"
+}
+
+func (runtime *Runtime) setPlayerStealth(playerID foundation.PlayerID, enabled bool) error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.setPlayerStealthLocked(playerID, enabled)
+}
+
+func (runtime *Runtime) setPlayerStealthLocked(playerID foundation.PlayerID, enabled bool) error {
+	state, ok := runtime.players[playerID]
+	if !ok {
+		return worker.ErrUnknownPlayer
+	}
+	baseSpeed := runtime.stealthBaseSpeedLocked(playerID, state)
+	speed := runtimePlayerSpeedForStealth(baseSpeed, enabled)
+	if err := runtime.Worker.Submit(worker.SetPlayerSpeedCommand{PlayerID: playerID, Speed: speed}); err != nil {
+		return err
+	}
+	result := runtime.Worker.Tick()
+	if len(result.CommandErrors) > 0 {
+		return result.CommandErrors[0].Err
+	}
+	state.Stats.Speed = speed
+	runtime.players[playerID] = state
+	if enabled {
+		runtime.hiddenPlayers[playerID] = true
+		runtime.stealthBaseSpeeds[playerID] = baseSpeed
+	} else {
+		delete(runtime.hiddenPlayers, playerID)
+		delete(runtime.stealthBaseSpeeds, playerID)
+	}
+	return nil
+}
+
+func (runtime *Runtime) stealthBaseSpeedLocked(playerID foundation.PlayerID, state playerRuntimeState) float64 {
+	if baseSpeed := runtime.stealthBaseSpeeds[playerID]; baseSpeed > 0 {
+		return baseSpeed
+	}
+	if state.Stats.Speed > 0 {
+		if runtime.hiddenPlayers[playerID] {
+			return state.Stats.Speed / runtimeStealthSpeedMultiplier
+		}
+		return state.Stats.Speed
+	}
+	return defaultPlayerSpeed
+}
+
+func runtimePlayerSpeedForStealth(baseSpeed float64, enabled bool) float64 {
+	if baseSpeed <= 0 {
+		baseSpeed = defaultPlayerSpeed
+	}
+	if enabled {
+		return baseSpeed * runtimeStealthSpeedMultiplier
+	}
+	return baseSpeed
 }
 
 func (runtime *Runtime) detachSession(sessionID auth.SessionID) {
@@ -728,13 +818,14 @@ func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.
 		realtime.OperationHangarActivateShip,
 		realtime.OperationLoadoutEquipModule,
 		realtime.OperationLoadoutUnequipModule,
+		realtime.OperationStealthToggle,
 		realtime.OperationScanPulse,
 		realtime.OperationMarketCreateListing,
 		realtime.OperationMarketBuy,
 		realtime.OperationMarketCancel,
 		realtime.OperationAuctionBid,
 		realtime.OperationAuctionBuyNow,
-		realtime.OperationAuctionClaimGrant,
+		realtime.OperationAuctionGrants,
 		realtime.OperationPremiumClaim,
 		realtime.OperationPremiumWeeklyXCore,
 		realtime.OperationQuestBoard,
@@ -790,31 +881,56 @@ func (runtime *Runtime) worldSnapshotLocked(playerID foundation.PlayerID) (world
 	}, nil
 }
 
+func (runtime *Runtime) currentMinimapPayload(playerID foundation.PlayerID) (minimapPayload, error) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	snapshot, radarRange, _, err := runtime.aoiSnapshotForPlayerLocked(playerID)
+	if err != nil {
+		return minimapPayload{}, err
+	}
+	return runtime.minimapForPlayerLocked(playerID, snapshot, radarRange)
+}
+
 func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID) (aoi.Snapshot, float64, uint64, error) {
-	state := runtime.players[playerID]
 	playerEntity, ok := runtime.Worker.PlayerEntity(playerID)
 	if !ok {
 		return aoi.Snapshot{}, 0, 0, worker.ErrUnknownPlayer
 	}
 	now := runtime.clock.Now()
 	statSnapshot := stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
-		Exploration: stats.ExplorationStats{RadarRange: state.Stats.RadarRange},
+		Exploration: stats.ExplorationStats{RadarRange: runtimeLiveProjectionDiagonalRange},
 	}, now)
-	radarRange := visibility.RadarRangeFromStatSnapshot(statSnapshot)
+	projectionRange := visibility.RadarRangeFromStatSnapshot(statSnapshot)
 	viewer := visibility.Viewer{
+		PlayerID:   playerID,
 		WorldID:    runtime.worldID,
 		ZoneID:     runtime.zoneID,
 		Position:   playerEntity.Position,
-		RadarRange: radarRange,
+		RadarRange: projectionRange,
+		Witnesses:  runtime.hiddenPlayerWitnessesForViewerLocked(playerID, now),
+		ObservedAt: now,
 	}
-	workerSnapshot := runtime.Worker.Snapshot()
+	workerSnapshot, err := runtime.Worker.EntitiesWithinWindow(playerEntity.Position, runtimeLiveProjectionHalfExtent)
+	if err != nil {
+		return aoi.Snapshot{}, 0, 0, err
+	}
 	states := make([]aoi.EntityState, 0, len(workerSnapshot.Entities))
 	for _, entity := range workerSnapshot.Entities {
 		flags, display, combatStatus := runtime.publicEntityMetadataLocked(playerID, entity)
+		entityPlayerID, _, _ := runtime.playerByEntityLocked(entity.ID)
+		hidden := runtime.hidden[entity.ID]
+		if !entityPlayerID.IsZero() && runtime.hiddenPlayers[entityPlayerID] {
+			hidden = true
+			if entityPlayerID != playerID && runtime.hiddenPlayerWitnessActiveLocked(playerID, entityPlayerID, now) {
+				flags = append(flags, "scan_revealed")
+			}
+		}
 		states = append(states, aoi.EntityState{
 			Entity:            entity,
+			PlayerID:          entityPlayerID,
 			Signature:         visibility.EntitySignature(1),
-			Hidden:            runtime.hidden[entity.ID],
+			Hidden:            hidden,
 			PublicStatusFlags: flags,
 			PublicDisplay:     display,
 			PublicCombat:      combatStatus,
@@ -822,7 +938,43 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 		})
 	}
 	snapshot := aoi.BuildVisibleSnapshot(viewer, states)
-	return snapshot, radarRange.Units(), workerSnapshot.Tick, nil
+	return snapshot, runtimeLiveProjectionHalfExtent, workerSnapshot.Tick, nil
+}
+
+func (runtime *Runtime) hiddenPlayerWitnessesForViewerLocked(viewerID foundation.PlayerID, now time.Time) []visibility.Witness {
+	witnesses := make([]visibility.Witness, 0)
+	for key, expiresAt := range runtime.hiddenPlayerWitnesses {
+		if !expiresAt.After(now) {
+			delete(runtime.hiddenPlayerWitnesses, key)
+			continue
+		}
+		if key.ViewerPlayerID != viewerID {
+			continue
+		}
+		witnesses = append(witnesses, visibility.Witness{
+			TargetPlayerID: key.TargetPlayerID,
+			ExpiresAt:      expiresAt,
+		})
+	}
+	return witnesses
+}
+
+func (runtime *Runtime) hiddenPlayerWitnessActiveLocked(viewerID foundation.PlayerID, targetID foundation.PlayerID, now time.Time) bool {
+	expiresAt, ok := runtime.hiddenPlayerWitnesses[hiddenPlayerWitnessKey{
+		ViewerPlayerID: viewerID,
+		TargetPlayerID: targetID,
+	}]
+	if !ok {
+		return false
+	}
+	if !expiresAt.After(now) {
+		delete(runtime.hiddenPlayerWitnesses, hiddenPlayerWitnessKey{
+			ViewerPlayerID: viewerID,
+			TargetPlayerID: targetID,
+		})
+		return false
+	}
+	return true
 }
 
 func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.EventEnvelope {
@@ -915,7 +1067,11 @@ func (runtime *Runtime) publicEntityMetadataLocked(viewerID foundation.PlayerID,
 	case world.EntityTypePlayer:
 		if playerID, playerState, ok := runtime.playerByEntityLocked(entity.ID); ok {
 			if playerID == viewerID {
-				return []aoi.StatusFlag{"friendly", "self"}, &aoi.EntityDisplay{Label: playerState.Callsign, Disposition: "self"}, nil
+				flags := []aoi.StatusFlag{"friendly", "self"}
+				if runtime.hiddenPlayers[playerID] {
+					flags = append(flags, "stealthed")
+				}
+				return flags, &aoi.EntityDisplay{Label: playerState.Callsign, Disposition: "self"}, nil
 			}
 			return []aoi.StatusFlag{"friendly"}, &aoi.EntityDisplay{Label: playerState.Callsign, Disposition: "friendly"}, nil
 		}
@@ -973,9 +1129,10 @@ func minimapFromAOI(snapshot aoi.Snapshot, radarRange float64) minimapPayload {
 		})
 	}
 	return minimapPayload{
-		RadarRange:   radarRange,
-		LiveContacts: contacts,
-		Remembered:   []minimapMemoryPayload{},
+		RadarRange:           radarRange,
+		ProjectionWindowSize: runtimeLiveProjectionDiameter,
+		LiveContacts:         contacts,
+		Remembered:           []minimapMemoryPayload{},
 	}
 }
 
@@ -1005,6 +1162,8 @@ func (runtime *Runtime) rememberedMinimapPayloadLocked(playerID foundation.Playe
 		}
 		remembered = append(remembered, minimapMemoryPayload{
 			Kind:      "known_planet",
+			PlanetID:  intel.PlanetID.String(),
+			DetailID:  intel.PlanetID.String(),
 			Label:     planetMemoryLabel(planet),
 			Position:  intel.Coordinates,
 			Freshness: string(intel.State),

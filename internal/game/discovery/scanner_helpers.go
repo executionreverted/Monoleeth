@@ -119,6 +119,41 @@ func (input ScannerEnergyInput) Validate() error {
 	return nil
 }
 
+// Validate reports whether input can be used by a runtime player-reveal bridge.
+func (input ScannerPlayerRevealInput) Validate() error {
+	if err := input.PlayerID.Validate(); err != nil {
+		return fmt.Errorf("player_id: %w", err)
+	}
+	if err := input.ShipID.Validate(); err != nil {
+		return fmt.Errorf("ship_id: %w", err)
+	}
+	if err := input.WorldID.Validate(); err != nil {
+		return fmt.Errorf("world_id: %w", err)
+	}
+	if err := input.ZoneID.Validate(); err != nil {
+		return fmt.Errorf("zone_id: %w", err)
+	}
+	if err := input.PulseReference.Validate(); err != nil {
+		return err
+	}
+	if err := input.Position.Validate(); err != nil {
+		return err
+	}
+	if input.RevealedAt.IsZero() {
+		return fmt.Errorf("revealed_at: %w", ErrInvalidScanPulse)
+	}
+	values := []float64{
+		input.Stats.Exploration.ScanPower,
+		input.Stats.Exploration.ScanRadius,
+	}
+	for _, value := range values {
+		if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+			return ErrInvalidScannerStats
+		}
+	}
+	return nil
+}
+
 // Validate reports whether input is a progression-compatible scan XP grant.
 func (input ScanXPGrantInput) Validate() error {
 	if err := input.PlayerID.Validate(); err != nil {

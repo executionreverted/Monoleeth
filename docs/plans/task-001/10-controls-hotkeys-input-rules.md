@@ -56,6 +56,91 @@ internal/game/server/handlers.go
     after server reconciliation
   - empty radar space: no accidental movement unless explicitly supported
 
+## Subagent Review Additions - 2026-06-20
+
+- Define one shared world-focus authority used by HUD shortcuts, renderer click
+  filtering, minimap/radar clicks, and modal/window drag interactions. A timer
+  suppression heuristic is not enough as the long-term rule.
+- Add `Tab` target cycling through visible hostile AOI entities. It skips self,
+  friendly players, loot, planet signals, unavailable/out-of-range targets, and
+  includes Phase 03 `scan_revealed` hostile players when server-sent.
+- Add radar/minimap click contracts to the DOM and app layer: live contacts need
+  stable `data-entity-id`/`data-entity-type`; remembered planets need
+  `planet_id` or `detail_id`; empty radar clicks no-op unless explicitly
+  designed.
+- Decide WASD in this phase, not later by accident. Either document it as
+  blocked, or implement throttled bounded `move_to`/`movement.set_input` with
+  diagonal normalization, keyup semantics, and rate-limit tests.
+- Browser smoke must prove valid `1` and `6` hotkeys emit exactly one command,
+  locked/focused hotkeys emit none, `Tab` cycles targets, radar click selects or
+  opens detail, and modal/window interaction never leaks `move_to`.
+
+## Second Subagent Review Additions - 2026-06-20
+
+- Replace timer-only HUD suppression with a single world-focus/input authority.
+  It must be shared by HUD shortcuts, renderer click filtering, minimap/radar
+  clicks, modal/window focus, drag interactions, and focused form elements.
+- Current shortcut handling covers `1..6` only. Add `Tab` target cycling tests
+  and implementation, including `scan_revealed` hostile players from Phase 03.
+- Decide WASD in this phase. If implemented, add movement semantics,
+  diagonal normalization, keyup/stop behavior, command cadence, and rate-limit
+  tests. If deferred, the blocker must keep WASD UI/copy absent.
+- Radar live contacts need type-specific behavior. Loot should not accidentally
+  start navigation from a target-select click; planet/signal contacts need a
+  server-owned detail id path or must no-op with player-safe copy.
+- Smoke must test delayed clicks after modal/window focus, not only immediate
+  suppression inside the old timer window.
+
+## Third Subagent Review Additions - 2026-06-20
+
+- Current shortcut handling still covers only `1..6`; `Tab` target cycling is
+  missing from the input path and smoke.
+- WASD remains undecided. This phase must either implement server-owned,
+  throttled movement semantics with keyup/diagonal/rate tests, or keep WASD
+  absent and document the blocker.
+- Minimap click behavior is too generic. Split live contact actions by entity
+  type: hostile/player select, loot select without accidental navigation,
+  remembered planet detail, and empty radar no-op unless explicit navigation
+  mode is implemented.
+- Timer-only suppression must not be the authority. Smoke needs delayed clicks
+  after modal/window focus, after any old suppression timeout would expire, and
+  must prove no `move_to` leaks.
+
+## Fourth Subagent Review Additions - 2026-06-20
+
+- `Tab` target cycling happens only when world focus owns the keyboard and must
+  call `preventDefault` in that mode. Inside modals, windows, forms, and focus
+  traps, `Tab` keeps native/focus-trap behavior and must not change targets.
+- Ignore `KeyboardEvent.repeat` for quick actions. Holding `1`, `3`, `4`, or
+  `6` must emit at most one intent until keyup or server/pending state makes a
+  new action meaningful.
+- Add real limiter or named blocker coverage for hotkey-emitted operations:
+  `combat.use_skill`, `loot.pickup`, `scan.pulse`, `stealth.toggle`, and
+  `stop`, not only `move_to`.
+- Define mobile/tablet behavior with Phase 04: draggable windows on touch, or
+  explicit bottom-sheet non-draggable exception with matching smoke.
+- Browser smoke must simulate repeated/held quick-action keys and moving plus
+  modal/window click/drag/touch isolation across desktop, tablet, and mobile.
+
+## Fifth Subagent Review Additions - 2026-06-20
+
+- Minimap live contacts must expose type-specific UI intent, not only a generic
+  `target-select`. Loot contact clicks are radar selection only and must never
+  auto-approach or auto-pickup; world/canvas loot clicks and explicit gather
+  remain the active pickup paths.
+- Minimap contact stacking is part of the interaction contract. Loot, hostile,
+  friendly/player, and remembered planet points can overlap; the z-order must
+  keep important contacts clickable without hiding remembered planet details.
+- Stale live contacts after server responses that replace `entities` without a
+  `minimap` payload remain a backend/UI integration risk. Either include
+  `minimap` in those responses or rebuild `minimap.live_contacts` from
+  replacement entities while preserving remembered contacts.
+- Hostile player contact selection needs a PvP contract decision. Until player
+  combat is implemented server-side, player contacts should not imply that fire
+  is valid just because selection is possible.
+- Empty radar background clicks are expected to no-op unless an explicit
+  navigation mode is implemented, and this still needs direct smoke coverage.
+
 ## Implementation Plan
 
 1. Harden focus and click ownership.
@@ -99,6 +184,36 @@ internal/game/server/handlers.go
    - Convert passive minimap spans into pointer-enabled buttons/elements with
      data-action handlers.
 
+## Implementation Evidence - 2026-06-20
+
+- Server `move_to` retarget now settles the active route to the worker's
+  authoritative timed in-flight position before creating the next movement
+  state. Mid-route reclicks no longer restart from a stale tick position.
+- Worker unit coverage locks the server-time retarget case with a fake clock.
+- Browser smoke now checks reclick origin against the previous route at the
+  next route's `started_at_ms`, instead of comparing against a stale snapshot
+  position.
+- `Tab` now cycles a client-local target selection over server-visible hostile
+  NPC/player entities only. The helper skips self, friendly contacts, loot,
+  planet signals, destroyed targets, hidden non-witnessed targets, and
+  out-of-weapon-range targets; combat still revalidates server-side.
+- Browser smoke verifies world-focus `Tab` selects the live training NPC without
+  sending a server command, repeated quick-action keydown is ignored, and
+  focused HUD windows/modals do not hijack native `Tab`.
+- HUD keyboard gating and renderer canvas-click gating now share
+  `world-input-authority`. Focused windows, open modals, auth/forms, and
+  drag/HUD interaction state block world input after the old short suppression
+  timeout has expired; the timer remains only as immediate same-event debounce.
+- Browser smoke waits beyond the HUD suppression timeout and proves focused
+  windows/modals do not emit `move_to` or new move-debug logs from canvas
+  clicks while movement continues and UI stays usable.
+- Minimap live loot contacts now use an explicit `loot-select` action and
+  source-aware target selection. Radar loot selection only selects the drop; it
+  does not call the world/canvas loot approach or pickup path.
+- Browser smoke covers a server-spawned loot contact after combat: minimap
+  click selects the drop while emitting zero `move_to` and zero `loot.pickup`,
+  then a normal world/canvas loot click still gathers the same drop.
+
 ## Likely Files
 
 ```text
@@ -119,19 +234,38 @@ docs/plans/task-001/10-controls-hotkeys-input-rules.md
 
 - [ ] `1..6` quick action hotkeys work only with valid world focus.
 - [ ] Locked quick actions emit no commands.
-- [ ] `Tab` cycles visible hostile targets, skipping self/friendly/loot/planet
+- [x] Held/repeated quick-action keys emit no duplicate command flood.
+- [ ] Hotkey-emitted combat, loot, scan, stealth, and stop operations have
+      limiter tests or named blockers.
+- [x] World focus/input authority is shared by HUD, renderer, minimap/radar,
+      modal/window drag, and form focus paths; timer-only suppression is gone.
+- [x] `Tab` cycles visible hostile targets, skipping self/friendly/loot/planet
       signals and including witnessed hidden hostiles when eligible.
+- [ ] `Tab` preserves native/focus-trap behavior in modals, windows, and form
+      fields, and only cycles targets when world focus owns keyboard input.
 - [ ] WASD is server-owned if enabled or documented as blocked.
 - [ ] WASD decision documents tap/hold semantics, diagonal behavior, throttle,
       keyup behavior, and `move_to` vs `movement.set_input`.
 - [ ] `stop` and any new movement input op have rate-limit posture.
 - [ ] Modals/windows can open, drag, close, and click while ship is moving.
 - [ ] Modal/window/HUD clicks do not send `move_to`.
-- [ ] Radar contact click selects/opens detail.
+- [x] World reclick movement starts from the server-timed in-flight position
+      instead of a stale snapshot/tick origin.
+- [x] Radar contact click selects/opens detail for hostile NPC contacts,
+      remembered planet contacts, and server-spawned loot contacts without
+      leaking movement or pickup commands.
 - [ ] One radar/user click starts one navigation route with at most one
       immediate bounded `move_to`; later chunks wait for server reconciliation.
 - [ ] Empty no-lock target UI does not show useless action buttons.
 - [ ] Empty radar clicks no-op unless explicitly designed.
+- [x] Smoke proves modal/window focused canvas clicks still emit no `move_to`
+      after any short HUD suppression timeout would have expired.
+- [ ] Browser smoke covers minimap contact behavior by type: hostile/player,
+      loot, remembered planet, and empty radar. Current coverage includes
+      hostile NPC, remembered planet, and server-spawned loot; hostile player
+      and empty radar no-op remain open.
+- [ ] Browser smoke covers moving plus modal/window click/drag/touch isolation
+      on desktop, tablet, and mobile.
 
 ## Verification
 

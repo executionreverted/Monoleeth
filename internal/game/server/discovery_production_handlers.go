@@ -154,7 +154,7 @@ func (runtime *Runtime) handleScanPulse(ctx realtime.CommandContext, request rea
 	})
 	if errors.Is(err, discovery.ErrScanPulseNotReady) {
 		payload := scanPulsePayloadFromStart(start)
-		runtime.queueScanEvents(authSessionID(ctx.SessionID), ctx.PlayerID, payload, nil)
+		runtime.queueScanEvents(authSessionID(ctx.SessionID), ctx.PlayerID, payload, nil, nil)
 		return marshalPayload(map[string]any{"scan": payload})
 	}
 	if err != nil {
@@ -162,15 +162,23 @@ func (runtime *Runtime) handleScanPulse(ctx realtime.CommandContext, request rea
 	}
 
 	scan := scanPulsePayloadFromResult(result)
+	if result.Status == discovery.ScanPulseStatusPlayerRevealed {
+		runtime.queueScanEvents(authSessionID(ctx.SessionID), ctx.PlayerID, scan, nil, nil)
+		return marshalPayload(map[string]any{"scan": scan})
+	}
 	knownPlanets, err := runtime.knownPlanetsPayload(ctx.PlayerID)
 	if err != nil {
 		return nil, domainErrorForDiscovery(err)
+	}
+	minimap, err := runtime.currentMinimapPayload(ctx.PlayerID)
+	if err != nil {
+		return nil, domainErrorForRuntime(err)
 	}
 	progressionSnapshot, err := runtime.Progression.GetProgressionSnapshot(ctx.PlayerID)
 	if err != nil {
 		return nil, err
 	}
-	runtime.queueScanEvents(authSessionID(ctx.SessionID), ctx.PlayerID, scan, &knownPlanets)
+	runtime.queueScanEvents(authSessionID(ctx.SessionID), ctx.PlayerID, scan, &knownPlanets, &minimap)
 	return marshalPayload(map[string]any{
 		"scan":          scan,
 		"known_planets": knownPlanets,
@@ -186,7 +194,11 @@ func (runtime *Runtime) handleKnownPlanets(ctx realtime.CommandContext, request 
 	if err != nil {
 		return nil, domainErrorForDiscovery(err)
 	}
-	return marshalPayload(map[string]any{"known_planets": payload})
+	minimap, err := runtime.currentMinimapPayload(ctx.PlayerID)
+	if err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	return marshalPayload(map[string]any{"known_planets": payload, "minimap": minimap})
 }
 
 func (runtime *Runtime) handlePlanetDetail(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -271,7 +283,7 @@ func (runtime *Runtime) handleRouteSnapshot(ctx realtime.CommandContext, request
 	return marshalPayload(map[string]any{"route": routePayloadFromRoute(route)})
 }
 
-func (runtime *Runtime) queueScanEvents(sessionID auth.SessionID, playerID foundation.PlayerID, scan scanPulsePayload, knownPlanets *knownPlanetsPayload) {
+func (runtime *Runtime) queueScanEvents(sessionID auth.SessionID, playerID foundation.PlayerID, scan scanPulsePayload, knownPlanets *knownPlanetsPayload, minimap *minimapPayload) {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 
@@ -285,7 +297,14 @@ func (runtime *Runtime) queueScanEvents(sessionID auth.SessionID, playerID found
 		runtime.queueEventLocked(sessionID, realtime.EventScanPlanetDiscovered, scan)
 	}
 	if knownPlanets != nil {
-		runtime.queueEventLocked(sessionID, realtime.EventKnownPlanets, *knownPlanets)
+		payload := map[string]any{
+			"planets": knownPlanets.Planets,
+			"counts":  knownPlanets.Counts,
+		}
+		if minimap != nil {
+			payload["minimap"] = *minimap
+		}
+		runtime.queueEventLocked(sessionID, realtime.EventKnownPlanets, payload)
 	}
 	_ = playerID
 }

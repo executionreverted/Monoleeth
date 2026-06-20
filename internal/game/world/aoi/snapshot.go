@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"sort"
 
+	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/visibility"
 )
@@ -43,6 +44,7 @@ type EntityMovementStatus struct {
 // client payload.
 type EntityState struct {
 	Entity            world.Entity
+	PlayerID          foundation.PlayerID
 	Signature         visibility.EntitySignature
 	Hidden            bool
 	PublicStatusFlags []StatusFlag
@@ -87,6 +89,7 @@ func BuildVisibleSnapshot(viewer visibility.Viewer, entities []EntityState) Snap
 			continue
 		}
 		if !visibility.CanSendEntityToClient(viewer, visibility.Entity{
+			PlayerID:  state.PlayerID,
 			WorldID:   state.Entity.WorldID,
 			ZoneID:    state.Entity.ZoneID,
 			ID:        state.Entity.ID,

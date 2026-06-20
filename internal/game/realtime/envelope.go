@@ -35,6 +35,7 @@ const (
 	OperationLoadoutEquipModule   Operation = "loadout.equip_module"
 	OperationLoadoutUnequipModule Operation = "loadout.unequip_module"
 	OperationStatsSnapshot        Operation = "stats.snapshot"
+	OperationStealthToggle        Operation = "stealth.toggle"
 	OperationCraftingRecipes      Operation = "crafting.recipes"
 	OperationScanPulse            Operation = "scan.pulse"
 	OperationKnownPlanets         Operation = "discovery.known_planets"
@@ -51,7 +52,7 @@ const (
 	OperationAuctionSearch        Operation = "auction.search"
 	OperationAuctionBid           Operation = "auction.bid"
 	OperationAuctionBuyNow        Operation = "auction.buy_now"
-	OperationAuctionClaimGrant    Operation = "auction.claim_grant"
+	OperationAuctionGrants        Operation = "auction.grants"
 	OperationPremiumEntitlements  Operation = "premium.entitlements"
 	OperationPremiumClaim         Operation = "premium.claim"
 	OperationPremiumWeeklyXCore   Operation = "premium.purchase_weekly_xcore"
@@ -225,6 +226,10 @@ var registeredOperations = map[Operation]OperationSpec{
 		Operation:        OperationStatsSnapshot,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
+	OperationStealthToggle: {
+		Operation:        OperationStealthToggle,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
 	OperationCraftingRecipes: {
 		Operation:        OperationCraftingRecipes,
 		RateLimitPosture: RateLimitPostureIntentBurst,
@@ -289,8 +294,8 @@ var registeredOperations = map[Operation]OperationSpec{
 		Operation:        OperationAuctionBuyNow,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
-	OperationAuctionClaimGrant: {
-		Operation:        OperationAuctionClaimGrant,
+	OperationAuctionGrants: {
+		Operation:        OperationAuctionGrants,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationPremiumEntitlements: {

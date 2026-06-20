@@ -328,6 +328,65 @@ func (worker *Worker) Snapshot() Snapshot {
 	}
 }
 
+// EntitiesWithinRadius returns a deterministic bounded copy of worker-owned
+// entities near center. It uses the worker spatial index as the first filter;
+// callers must still apply gameplay visibility rules before serializing.
+func (worker *Worker) EntitiesWithinRadius(center world.Vec2, radius float64) (Snapshot, error) {
+	results, err := worker.index.QueryRadius(spatialPosition(center), radius)
+	if err != nil {
+		return Snapshot{}, err
+	}
+
+	entities := make([]world.Entity, 0, len(results))
+	for _, result := range results {
+		entity, ok := worker.entities[world.EntityID(result.ID)]
+		if !ok {
+			continue
+		}
+		entities = append(entities, entity)
+	}
+	sort.Slice(entities, func(i, j int) bool {
+		return entities[i].ID < entities[j].ID
+	})
+
+	return Snapshot{
+		WorldID:  worker.worldID,
+		ZoneID:   worker.zoneID,
+		Tick:     worker.tick,
+		Entities: entities,
+	}, nil
+}
+
+// EntitiesWithinWindow returns a deterministic bounded copy of worker-owned
+// entities inside a square window centered on center. It uses the worker
+// spatial index as the first filter; callers must still apply gameplay
+// visibility rules before serializing.
+func (worker *Worker) EntitiesWithinWindow(center world.Vec2, halfExtent float64) (Snapshot, error) {
+	results, err := worker.index.QueryWindow(spatialPosition(center), halfExtent)
+	if err != nil {
+		return Snapshot{}, err
+	}
+
+	entities := make([]world.Entity, 0, len(results))
+	for _, result := range results {
+		entity, ok := worker.entities[world.EntityID(result.ID)]
+		if !ok {
+			continue
+		}
+		entities = append(entities, entity)
+	}
+	sort.Slice(entities, func(i, j int) bool {
+		return entities[i].ID < entities[j].ID
+	})
+
+	return Snapshot{
+		WorldID:  worker.worldID,
+		ZoneID:   worker.zoneID,
+		Tick:     worker.tick,
+		Entities: entities,
+	}, nil
+}
+
 // ScheduleTask adds a map-local delayed task and returns the accepted copy.
 func (worker *Worker) ScheduleTask(task ScheduledTask) (ScheduledTask, error) {
 	if strings.TrimSpace(task.ID) == "" || strings.TrimSpace(task.Kind) == "" {
@@ -532,7 +591,9 @@ func (worker *Worker) movePlayerTo(playerID foundation.PlayerID, intent world.Mo
 		return err
 	}
 
-	movement, err := world.NewTimedMovementState(entity.Position, intent.Target, worker.entitySpeeds[entity.ID], worker.clock.Now())
+	now := worker.clock.Now()
+	entity.Position = worker.settledMovementPosition(entity, now)
+	movement, err := world.NewTimedMovementState(entity.Position, intent.Target, worker.entitySpeeds[entity.ID], now)
 	if err != nil {
 		return err
 	}
@@ -550,16 +611,44 @@ func (worker *Worker) settlePlayerMovement(playerID foundation.PlayerID) error {
 		return nil
 	}
 
-	settled, _ := world.MovementPositionAt(entity.Movement, worker.clock.Now())
-	if entity.Position.DistanceSquared(entity.Movement.Target) <= settled.DistanceSquared(entity.Movement.Target) {
-		settled = entity.Position
-	}
-	entity.Position = settled
+	entity.Position = worker.settledMovementPosition(entity, worker.clock.Now())
 	entity.Movement = world.MovementState{}
 	if err := worker.index.Update(spatial.EntityID(entity.ID.String()), spatialPosition(entity.Position)); err != nil {
 		return err
 	}
 	worker.entities[entity.ID] = entity
+	return nil
+}
+
+func (worker *Worker) setPlayerSpeed(playerID foundation.PlayerID, speed float64) error {
+	if err := validateServerSpeed(speed); err != nil {
+		return err
+	}
+	entity, err := worker.playerEntityForMutation(playerID)
+	if err != nil {
+		return err
+	}
+
+	next := entity
+	if entity.Movement.Moving {
+		target := entity.Movement.Target
+		next.Position = worker.settledMovementPosition(entity, worker.clock.Now())
+		if speed > 0 && next.Position.DistanceSquared(target) > 0 {
+			movement, err := world.NewTimedMovementState(next.Position, target, speed, worker.clock.Now())
+			if err != nil {
+				return err
+			}
+			next.Movement = movement
+		} else {
+			next.Movement = world.MovementState{}
+		}
+		if err := worker.index.Update(spatial.EntityID(next.ID.String()), spatialPosition(next.Position)); err != nil {
+			return err
+		}
+	}
+
+	worker.entitySpeeds[next.ID] = speed
+	worker.entities[next.ID] = next
 	return nil
 }
 
@@ -586,6 +675,20 @@ func (worker *Worker) playerEntityForMutation(playerID foundation.PlayerID) (wor
 		return world.Entity{}, fmt.Errorf("entity %q: %w", entityID, ErrUnknownEntity)
 	}
 	return entity, nil
+}
+
+func (worker *Worker) settledMovementPosition(entity world.Entity, at time.Time) world.Vec2 {
+	if !entity.Movement.Moving {
+		return entity.Position
+	}
+	settled, done := world.MovementPositionAt(entity.Movement, at)
+	if done {
+		return settled
+	}
+	if entity.Position.DistanceSquared(entity.Movement.Target) <= settled.DistanceSquared(entity.Movement.Target) {
+		return entity.Position
+	}
+	return settled
 }
 
 func (worker *Worker) advanceMovement() []CommandError {

@@ -7,6 +7,9 @@ const UNIMPLEMENTED_MUTATION_OPS = [
   'crafting.start',
   'crafting.complete',
   'crafting.cancel',
+  'inventory.move',
+  'progression.unlock_skill',
+  'progression.respec_skills',
   'discovery.claim_planet',
   'planet.building_build',
   'planet.building_upgrade',
@@ -15,6 +18,14 @@ const UNIMPLEMENTED_MUTATION_OPS = [
   'route.enable',
   'route.disable',
   'route.settle',
+  'intel.share',
+  'intel.coordinate_item_create',
+  'intel.coordinate_item_use',
+  'coordinate_scroll.create',
+  'coordinate_scroll.use',
+  'mail.send',
+  'social.friend_request',
+  'social.party_invite',
 ] as const;
 
 describe('parseServerMessage', () => {
@@ -64,17 +75,56 @@ describe('parseServerMessage', () => {
     });
   });
 
-  test('rejects hidden or internal server payload fields', () => {
+  test.each([
+    'account_id',
+    'client_player_id',
+    'player_id',
+    'session_id',
+    'world_id',
+    'zone_id',
+    'gameplay_seed',
+    'procedural_seed',
+    'world_seed',
+    'future_spawn_data',
+    'detection_roll',
+    'target_player_id',
+    'witness_expires_at',
+    'witness_expiry',
+    'hidden_target_metadata',
+    'provider',
+    'provider_reference',
+    'source_return_location',
+    'seller_player_id',
+    'buyer_player_id',
+    'bidder_player_id',
+    'winning_player_id',
+    'generated_payload',
+    'generated_seed',
+    'loot_roll',
+    'password',
+    'password_hash',
+    'token',
+    'session_token',
+    'reset_secret',
+    'auth_header',
+    'cookie',
+    'scan_cell',
+    'scan_result',
+    'scan_roll',
+    'scan_candidate',
+    'scan_candidates',
+    'candidate_data',
+  ])('rejects hidden or internal server payload field %s', (field) => {
     expect(() =>
       parseServerMessage(
         JSON.stringify({
-          event_id: 'event-hidden',
+          event_id: `event-${field}`,
           type: CLIENT_EVENTS.entityEntered,
           payload: {
-            entity_id: 'hidden-planet',
-            entity_type: 'planet_signal',
+            entity_id: 'visible-contact',
+            entity_type: 'player',
             position: { x: 1, y: 2 },
-            gameplay_seed: 'server-only',
+            nested: { [field]: 'server-only' },
           },
           server_time: 1,
           seq: 1,
@@ -82,6 +132,33 @@ describe('parseServerMessage', () => {
         }),
       ),
     ).toThrow(/Forbidden server payload rejected/);
+  });
+
+  test('accepts public progression fields from server payloads', () => {
+    const message = parseServerMessage(
+      JSON.stringify({
+        request_id: 'request-progression',
+        ok: true,
+        payload: {
+          progression: {
+            main_level: 2,
+            main_xp: 175,
+            rank: 2,
+            combat_level: 1,
+            combat_xp: 25,
+            role_rewards: [{ role: 'combat', xp: 25 }],
+          },
+        },
+        server_time: 182736125,
+        v: 1,
+      }),
+    );
+
+    expect(message).toMatchObject({
+      request_id: 'request-progression',
+      ok: true,
+      payload: { progression: { rank: 2, main_xp: 175, role_rewards: [{ xp: 25 }] } },
+    });
   });
 
   test('accepts phase 05 combat payloads that do not expose server-only truth fields', () => {
@@ -182,6 +259,7 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.hangarActivateShip).toBe('hangar.activate_ship');
     expect(OPERATIONS.loadoutEquipModule).toBe('loadout.equip_module');
     expect(OPERATIONS.loadoutUnequipModule).toBe('loadout.unequip_module');
+    expect(OPERATIONS.stealthToggle).toBe('stealth.toggle');
 
     const builder = new CommandBuilder();
     expect(builder.hangarActivateShip('starter').payload).toEqual({ ship_id: 'starter' });
@@ -190,6 +268,7 @@ describe('default outbound operations', () => {
       item_instance_id: 'laser_alpha_t1-instance-2',
     });
     expect(builder.loadoutUnequipModule('offensive_1').payload).toEqual({ slot_id: 'offensive_1' });
+    expect(builder.stealthToggle(true).payload).toEqual({ enabled: true });
   });
 
   test('exclude unimplemented browser mutation contracts', () => {
@@ -206,6 +285,9 @@ describe('default outbound operations', () => {
       'craftingStart',
       'craftingComplete',
       'craftingCancel',
+      'inventoryMove',
+      'progressionUnlockSkill',
+      'progressionRespecSkills',
       'discoveryClaimPlanet',
       'planetBuildingBuild',
       'planetBuildingUpgrade',
@@ -214,6 +296,14 @@ describe('default outbound operations', () => {
       'routeEnable',
       'routeDisable',
       'routeSettle',
+      'intelShare',
+      'intelCoordinateItemCreate',
+      'intelCoordinateItemUse',
+      'coordinateScrollCreate',
+      'coordinateScrollUse',
+      'mailSend',
+      'socialFriendRequest',
+      'socialPartyInvite',
     ];
 
     for (const method of forbiddenMethodNames) {

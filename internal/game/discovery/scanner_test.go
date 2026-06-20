@@ -314,6 +314,92 @@ func TestResolveScanPulseDiscoversPlanetWritesIntelEventAndXPOnce(t *testing.T) 
 	}
 }
 
+func TestResolveScanPulsePlayerRevealDoesNotCreatePlanetIntelOrXP(t *testing.T) {
+	seed := scannerTestSeed(t)
+	_, candidate := findScannerTestCandidate(t, seed)
+	store := NewInMemoryStore()
+	xp := &recordingScanXPProvider{}
+	reveals := &recordingScannerPlayerRevealProvider{revealed: true}
+	service := newScannerTestService(t, scannerTestServiceOptions{
+		seed:          seed,
+		store:         store,
+		position:      candidate.Position(),
+		snapshot:      scannerSnapshot(candidate, 100_000, scannerRadarRangeFor(candidate), 0),
+		moduleOK:      true,
+		cooldownOK:    true,
+		xp:            xp,
+		playerReveals: reveals,
+	})
+
+	if _, err := service.StartScanPulse(scannerStartInput("pulse_player_reveal")); err != nil {
+		t.Fatalf("StartScanPulse() error = %v, want nil", err)
+	}
+	result, err := service.ResolveScanPulse(scannerResolveInput("pulse_player_reveal"))
+	if err != nil {
+		t.Fatalf("ResolveScanPulse() error = %v, want nil", err)
+	}
+	if result.Status != ScanPulseStatusPlayerRevealed {
+		t.Fatalf("result status = %q, want %q", result.Status, ScanPulseStatusPlayerRevealed)
+	}
+	if result.Signal != nil || result.PlanetID != "" || result.XPGranted {
+		t.Fatalf("player reveal result = %+v, want no signal, planet, or XP", result)
+	}
+	if got := len(store.Planets()); got != 0 {
+		t.Fatalf("planets materialized = %d, want 0", got)
+	}
+	intel, err := store.PlayerPlanetIntelRecords(scannerTestPlayerID)
+	if err != nil {
+		t.Fatalf("PlayerPlanetIntelRecords() error = %v, want nil", err)
+	}
+	if len(intel) != 0 {
+		t.Fatalf("intel records = %+v, want none", intel)
+	}
+	if len(xp.calls) != 0 {
+		t.Fatalf("xp grants = %d, want 0", len(xp.calls))
+	}
+	if !hasScannerEvent(service.Events(), ScannerEventPlayerRevealed) {
+		t.Fatalf("scanner events = %+v, want %s", service.Events(), ScannerEventPlayerRevealed)
+	}
+	if reveals.calls != 1 {
+		t.Fatalf("player reveal calls = %d, want 1", reveals.calls)
+	}
+	assertNoScannerHiddenLeak(t, result, candidate)
+}
+
+func TestResolveScanPulsePlayerRevealDuplicateDoesNotCallProviderTwice(t *testing.T) {
+	seed := scannerTestSeed(t)
+	_, candidate := findScannerTestCandidate(t, seed)
+	reveals := &recordingScannerPlayerRevealProvider{revealed: true}
+	service := newScannerTestService(t, scannerTestServiceOptions{
+		seed:          seed,
+		store:         NewInMemoryStore(),
+		position:      candidate.Position(),
+		snapshot:      scannerSnapshot(candidate, 100_000, scannerRadarRangeFor(candidate), 0),
+		moduleOK:      true,
+		cooldownOK:    true,
+		xp:            &recordingScanXPProvider{},
+		playerReveals: reveals,
+	})
+
+	if _, err := service.StartScanPulse(scannerStartInput("pulse_player_reveal_duplicate")); err != nil {
+		t.Fatalf("StartScanPulse() error = %v, want nil", err)
+	}
+	first, err := service.ResolveScanPulse(scannerResolveInput("pulse_player_reveal_duplicate"))
+	if err != nil {
+		t.Fatalf("first ResolveScanPulse() error = %v, want nil", err)
+	}
+	duplicate, err := service.ResolveScanPulse(scannerResolveInput("pulse_player_reveal_duplicate"))
+	if err != nil {
+		t.Fatalf("duplicate ResolveScanPulse() error = %v, want nil", err)
+	}
+	if first.Status != ScanPulseStatusPlayerRevealed || duplicate.Status != ScanPulseStatusPlayerRevealed || !duplicate.Duplicate {
+		t.Fatalf("first=%+v duplicate=%+v, want duplicate player reveal", first, duplicate)
+	}
+	if reveals.calls != 1 {
+		t.Fatalf("player reveal calls = %d, want 1", reveals.calls)
+	}
+}
+
 func TestResolveScanPulseDuplicateIsIdempotent(t *testing.T) {
 	seed := scannerTestSeed(t)
 	_, candidate := findScannerTestCandidate(t, seed)
@@ -408,6 +494,7 @@ type scannerTestServiceOptions struct {
 	cooldownOK      bool
 	cooldowns       ScannerCooldownProvider
 	energy          ScannerEnergyProvider
+	playerReveals   ScannerPlayerRevealProvider
 	xp              *recordingScanXPProvider
 }
 
@@ -432,6 +519,7 @@ func newScannerTestService(t *testing.T, options scannerTestServiceOptions) *Sca
 		},
 		Cooldowns: scannerCooldownProviderForTest(options),
 		Energy:    scannerEnergyProviderForTest(options),
+		Reveals:   options.playerReveals,
 		XP:        options.xp,
 		CandidateOptions: CandidateGenerationOptions{
 			DiscoveryHorizon: defaultScannerDiscoveryHorizon,
@@ -554,6 +642,16 @@ func assertNoScannerHiddenLeak(t *testing.T, result ResolveScanPulseResult, cand
 		"key",
 		"position",
 		"coordinates",
+		"target_player_id",
+		"witness",
+		"witness_expires_at",
+		"witness_expiry",
+		"hidden",
+		"hidden_target_metadata",
+		"scan_roll",
+		"scan_candidate",
+		"scan_candidates",
+		"candidate_data",
 		"roll",
 		"seed",
 		"cell",
@@ -659,6 +757,21 @@ func (provider *recordingScannerEnergyProvider) CheckScanEnergy(input ScannerEne
 	provider.calls++
 	provider.inputs = append(provider.inputs, input)
 	return ScannerEnergyResult{Accepted: provider.accepted}, nil
+}
+
+type recordingScannerPlayerRevealProvider struct {
+	revealed bool
+	calls    int
+	inputs   []ScannerPlayerRevealInput
+}
+
+func (provider *recordingScannerPlayerRevealProvider) RevealHiddenPlayer(input ScannerPlayerRevealInput) (ScannerPlayerRevealResult, error) {
+	if err := input.Validate(); err != nil {
+		return ScannerPlayerRevealResult{}, err
+	}
+	provider.calls++
+	provider.inputs = append(provider.inputs, input)
+	return ScannerPlayerRevealResult{Revealed: provider.revealed}, nil
 }
 
 type recordingScanXPProvider struct {
