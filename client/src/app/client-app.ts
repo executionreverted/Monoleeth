@@ -283,7 +283,7 @@ export class ClientApp {
 
   private sendBasicSkill(): void {
     const target = this.selectedTarget();
-    if (!target || target.entity_type !== 'npc') {
+    if (!target || target.entity_type !== 'npc' || !isHostileEntity(target)) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'No hostile target selected.' });
       return;
     }
@@ -1312,6 +1312,14 @@ function isAuthError(message: ErrorEnvelope): boolean {
 
 function entityLabel(entity: EntityPayload): string {
   return entity.display?.label || entity.entity_id;
+}
+
+function isHostileEntity(entity: EntityPayload): boolean {
+  const flags = entity.status_flags ?? [];
+  if (flags.includes('friendly') || entity.display?.disposition === 'friendly' || entity.display?.disposition === 'self') {
+    return false;
+  }
+  return flags.includes('hostile') || flags.includes('scan_revealed') || entity.display?.disposition === 'hostile';
 }
 
 function movementEtaFromStats(distance: number, speed: number | null): number | null {

@@ -1871,6 +1871,8 @@ async function verifyFixtureViewport(viewport, label) {
     });
     await assertNoDeadTargetClutter(page, `${label} connected empty target`);
     if (label === 'fixture-desktop') {
+      await verifyFixtureHostilePlayerRadarContact(page, realtime, label);
+
       await clickWorldPosition(page, { x: 150, y: -250 });
       await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'npc-rake-01');
       await page.waitForSelector('[data-panel="target"] .target-lock[data-target-kind="npc"]', { timeout: 10000 });
@@ -1940,6 +1942,138 @@ async function verifyFixtureViewport(viewport, label) {
   } finally {
     await page.close();
     await realtime.close();
+  }
+}
+
+async function verifyFixtureHostilePlayerRadarContact(page, realtime, label) {
+  await page.waitForSelector(
+    '.minimap__point[data-entity-id="pilot-raider-01"][data-entity-type="player"][data-kind="hostile"][data-action="target-select"]',
+    { timeout: 10000 },
+  );
+  const contract = await page.evaluate(() => {
+    const point = (id) => {
+      const element = document.querySelector(`.minimap__point[data-entity-id="${id}"]`);
+      return {
+        id,
+        exists: element instanceof HTMLButtonElement,
+        action: element?.getAttribute('data-action') ?? '',
+        disabled: element instanceof HTMLButtonElement ? element.disabled : false,
+        kind: element?.getAttribute('data-kind') ?? '',
+        entityType: element?.getAttribute('data-entity-type') ?? '',
+      };
+    };
+    return {
+      hostile: point('pilot-raider-01'),
+      friendly: point('pilot-friendly-01'),
+      self: point('player-local'),
+      neutralNPC: point('npc-neutral-01'),
+      signal: point('signal-eris-04'),
+    };
+  });
+  if (
+    contract.hostile.action !== 'target-select' ||
+    contract.hostile.disabled ||
+    contract.hostile.entityType !== 'player' ||
+    contract.friendly.action ||
+    !contract.friendly.disabled ||
+    contract.self.action ||
+    !contract.self.disabled ||
+    contract.neutralNPC.action ||
+    !contract.neutralNPC.disabled ||
+    contract.signal.action ||
+    !contract.signal.disabled
+  ) {
+    throw new Error(`${label}: minimap player contact action contract mismatch ${JSON.stringify(contract)}`);
+  }
+
+  const sentBeforeSelect = await commandLogSentCount(page);
+  await page.locator('.minimap__point[data-entity-id="pilot-raider-01"]').click();
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'pilot-raider-01', null, {
+    timeout: 10000,
+  });
+  await page.waitForSelector('[data-panel="target"] .target-lock[data-target-kind="player"]', { timeout: 10000 });
+  const sentAfterSelect = await commandLogSentCount(page);
+  const targetActions = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-panel="target"] .target-actions button')).map((button) => ({
+      text: (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      action: button.getAttribute('data-action') ?? '',
+      disabled: button instanceof HTMLButtonElement ? button.disabled : false,
+    })),
+  );
+  if (sentAfterSelect !== sentBeforeSelect || targetActions.length > 0) {
+    throw new Error(
+      `${label}: hostile player radar select leaked command or target actions ${JSON.stringify({
+        sentBeforeSelect,
+        sentAfterSelect,
+        targetActions,
+      })}`,
+    );
+  }
+  await assertNoDeadTargetClutter(page, `${label} hostile player radar target`);
+
+  const combatBefore = await commandLogCount(page, 'Sent combat.use_skill.');
+  const serverCombatBefore = realtime.opCount('combat.use_skill');
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    document.querySelector('.hud__actionbar [data-quick-action="laser"]')?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+  });
+  await page.keyboard.press('1');
+  await page.waitForTimeout(120);
+  const combatAfter = await commandLogCount(page, 'Sent combat.use_skill.');
+  const serverCombatAfter = realtime.opCount('combat.use_skill');
+  if (combatAfter !== combatBefore || serverCombatAfter !== serverCombatBefore) {
+    throw new Error(
+      `${label}: hostile player target emitted combat.use_skill ${JSON.stringify({
+        combatBefore,
+        combatAfter,
+        serverCombatBefore,
+        serverCombatAfter,
+      })}`,
+    );
+  }
+
+  const neutralCombatBefore = await commandLogCount(page, 'Sent combat.use_skill.');
+  const neutralServerCombatBefore = realtime.opCount('combat.use_skill');
+  await clickWorldPosition(page, { x: 320, y: -170 });
+  await page.waitForFunction(() => window.__SPACE_MORPG_SMOKE_STATE__?.selectedTargetID === 'npc-neutral-01', null, {
+    timeout: 10000,
+  });
+  await page.waitForSelector('[data-panel="target"] .target-lock[data-target-kind="npc"]', { timeout: 10000 });
+  const neutralActions = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-panel="target"] .target-actions button')).map((button) => ({
+      text: (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      action: button.getAttribute('data-action') ?? '',
+      disabled: button instanceof HTMLButtonElement ? button.disabled : false,
+    })),
+  );
+  if (neutralActions.length > 0) {
+    throw new Error(`${label}: neutral NPC target exposed hostile actions ${JSON.stringify(neutralActions)}`);
+  }
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    document.querySelector('.hud__actionbar [data-quick-action="laser"]')?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+  });
+  await page.keyboard.press('1');
+  await page.waitForTimeout(120);
+  const neutralCombatAfter = await commandLogCount(page, 'Sent combat.use_skill.');
+  const neutralServerCombatAfter = realtime.opCount('combat.use_skill');
+  if (neutralCombatAfter !== neutralCombatBefore || neutralServerCombatAfter !== neutralServerCombatBefore) {
+    throw new Error(
+      `${label}: neutral NPC target emitted combat.use_skill ${JSON.stringify({
+        neutralCombatBefore,
+        neutralCombatAfter,
+        neutralServerCombatBefore,
+        neutralServerCombatAfter,
+      })}`,
+    );
   }
 }
 
@@ -4019,6 +4153,7 @@ async function startMockRealtimeServer() {
     url: `ws://127.0.0.1:${address.port}/ws`,
     waitForOp: (op) => waitForOp(received, waiters, op),
     waitForOpCount: (op, count) => waitForOpCount(received, op, count),
+    opCount: (op) => received.filter((message) => message.op === op).length,
     close: async () => {
       for (const socket of sockets) {
         socket.destroy();
@@ -4347,6 +4482,28 @@ function snapshotPayload() {
         status_flags: ['visible'],
       },
       {
+        entity_id: 'pilot-raider-01',
+        entity_type: 'player',
+        display: { label: 'Raider Pilot', disposition: 'hostile' },
+        position: { x: -240, y: 120 },
+        status_flags: ['visible', 'hostile'],
+        combat: { hp: 64, max_hp: 100, shield: 25, max_shield: 50 },
+      },
+      {
+        entity_id: 'pilot-friendly-01',
+        entity_type: 'player',
+        display: { label: 'Wing Pilot', disposition: 'friendly' },
+        position: { x: -320, y: -40 },
+        status_flags: ['visible', 'friendly'],
+      },
+      {
+        entity_id: 'npc-neutral-01',
+        entity_type: 'npc',
+        display: { label: 'Drifter Drone', disposition: 'neutral' },
+        position: { x: 320, y: -170 },
+        status_flags: ['visible', 'neutral'],
+      },
+      {
         entity_id: 'signal-eris-04',
         entity_type: 'planet_signal',
         display: { label: 'Unknown Signal', disposition: 'unknown' },
@@ -4385,6 +4542,27 @@ function snapshotPayload() {
           position: { x: -110, y: -220 },
           disposition: 'neutral',
           status_flags: ['loot'],
+        },
+        {
+          entity_id: 'pilot-raider-01',
+          entity_type: 'player',
+          position: { x: -240, y: 120 },
+          disposition: 'hostile',
+          status_flags: ['hostile'],
+        },
+        {
+          entity_id: 'pilot-friendly-01',
+          entity_type: 'player',
+          position: { x: -320, y: -40 },
+          disposition: 'friendly',
+          status_flags: ['friendly'],
+        },
+        {
+          entity_id: 'npc-neutral-01',
+          entity_type: 'npc',
+          position: { x: 320, y: -170 },
+          disposition: 'neutral',
+          status_flags: ['neutral'],
         },
         {
           entity_id: 'signal-eris-04',

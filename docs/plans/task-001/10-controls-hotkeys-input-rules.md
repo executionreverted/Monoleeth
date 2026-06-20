@@ -235,6 +235,14 @@ internal/game/server/handlers.go
 - Browser smoke now uses valid world-focus `1` and `6` hotkeys for the real
   combat/loot flow: `1` emits exactly one `combat.use_skill`, and selected loot
   plus `6` emits exactly one `loot.pickup`.
+- Fixture browser smoke now covers hostile and friendly player minimap contact
+  behavior by type. A hostile player radar point selects a local player target
+  without sending a command, shows no Fire/Gather clutter, and both click and
+  `1` hotkey paths emit zero `combat.use_skill`; self, friendly player, and
+  planet-signal radar points stay inert. Minimap target selection now also
+  requires hostile disposition/flags for NPC contacts, and neutral NPC world
+  selection exposes no Fire action or `combat.use_skill` path until the server
+  marks the contact as hostile.
 - Realtime operation registration documents the rate-limit posture for
   `combat.use_skill`, `loot.pickup`, `scan.pulse`, `stealth.toggle`, `move_to`,
   and `stop` as `IntentBurst`. `stop` has no quick-key binding in this phase.
@@ -288,10 +296,10 @@ docs/plans/task-001/10-controls-hotkeys-input-rules.md
 - [x] Empty radar clicks no-op unless explicitly designed.
 - [x] Smoke proves modal/window focused canvas clicks still emit no `move_to`
       after any short HUD suppression timeout would have expired.
-- [ ] Browser smoke covers minimap contact behavior by type: hostile/player,
+- [x] Browser smoke covers minimap contact behavior by type: hostile/player,
       loot, remembered planet, and empty radar. Current coverage includes
       hostile NPC, remembered planet, server-spawned loot, and empty radar;
-      hostile-player fixture/smoke remains open.
+      hostile-player fixture/smoke covers command-safe player selection.
 - [x] Browser smoke covers moving plus modal/window click/drag/touch isolation
       on desktop, tablet, and mobile.
 

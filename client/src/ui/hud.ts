@@ -2671,7 +2671,7 @@ function targetPanel(state: ClientState, serverNow: number | null = Date.now()):
 
 function targetActionButtons(target: VisibleEntity | null, laser: QuickActionState, loot: QuickActionState): string {
   const buttons: string[] = [];
-  if (target?.entity_type === 'npc') {
+  if (target?.entity_type === 'npc' && isHostileVisibleEntity(target)) {
     buttons.push(
       `<button type="button" data-action="fire" ${laser.enabled ? '' : 'disabled'} title="${escapeHTML(laser.title)}">Fire</button>`,
     );
@@ -3084,13 +3084,17 @@ function minimapLiveContactAction(contact: MinimapContact): 'target-select' | 'l
   if (contact.entity_type === 'loot') {
     return 'loot-select';
   }
-  if (contact.entity_type === 'npc') {
+  if (contact.entity_type === 'npc' && isHostileMinimapContact(contact, flags)) {
     return 'target-select';
   }
-  if (contact.entity_type === 'player' && (flags.has('hostile') || flags.has('scan_revealed') || contact.disposition === 'hostile')) {
+  if (contact.entity_type === 'player' && isHostileMinimapContact(contact, flags)) {
     return 'target-select';
   }
   return null;
+}
+
+function isHostileMinimapContact(contact: MinimapContact, flags = new Set(contact.status_flags ?? [])): boolean {
+  return flags.has('hostile') || flags.has('scan_revealed') || contact.disposition === 'hostile';
 }
 
 function logPanel(state: ClientState): string {
@@ -3241,7 +3245,7 @@ function laserActionState(state: ClientState, target: VisibleEntity | null): Act
   if (state.ship?.disabled === true) {
     return { enabled: false, label: 'Laser', detail: 'Disabled', title: 'Repair the ship before firing.' };
   }
-  if (!target || target.entity_type !== 'npc') {
+  if (!target || target.entity_type !== 'npc' || !isHostileVisibleEntity(target)) {
     return { enabled: false, label: 'Laser', detail: 'Standby', title: 'Select a hostile target.' };
   }
   if (hasPendingOp(state, 'combat.use_skill')) {
@@ -3400,6 +3404,14 @@ function lootActionState(state: ClientState, target: VisibleEntity | null, serve
 
 function hasPendingOp(state: ClientState, op: string): boolean {
   return Object.values(state.pendingCommands).some((command) => command.op === op);
+}
+
+function isHostileVisibleEntity(entity: VisibleEntity): boolean {
+  const flags = entity.status_flags ?? [];
+  if (flags.includes('friendly') || entity.display?.disposition === 'friendly' || entity.display?.disposition === 'self') {
+    return false;
+  }
+  return flags.includes('hostile') || flags.includes('scan_revealed') || entity.display?.disposition === 'hostile';
 }
 
 function distanceToTarget(state: ClientState, targetID: string, serverNow: number | null): number | null {
