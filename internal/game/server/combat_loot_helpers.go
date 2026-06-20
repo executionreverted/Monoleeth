@@ -368,6 +368,21 @@ func (runtime *Runtime) drainQueuedEventsLocked(sessionID auth.SessionID) []real
 	return append([]realtime.EventEnvelope(nil), events...)
 }
 
+func (runtime *Runtime) drainQueuedEventsBySessionLocked() map[auth.SessionID][]realtime.EventEnvelope {
+	if len(runtime.queuedEvents) == 0 {
+		return nil
+	}
+	eventsBySession := make(map[auth.SessionID][]realtime.EventEnvelope, len(runtime.queuedEvents))
+	for sessionID, events := range runtime.queuedEvents {
+		delete(runtime.queuedEvents, sessionID)
+		if len(events) == 0 {
+			continue
+		}
+		eventsBySession[sessionID] = append([]realtime.EventEnvelope(nil), events...)
+	}
+	return eventsBySession
+}
+
 func lootDropPayload(drop loot.Drop, now time.Time) map[string]any {
 	return map[string]any{
 		"drop_id":    drop.ID.String(),

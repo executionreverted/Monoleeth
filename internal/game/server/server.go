@@ -10,6 +10,7 @@ import (
 	"github.com/coder/websocket"
 
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/realtime"
 )
 
 // Server owns HTTP routing and the concrete WebSocket transport.
@@ -85,7 +86,9 @@ func (server *Server) Run(ctx context.Context) error {
 	if server == nil || server.server == nil {
 		return errors.New("nil game server")
 	}
-	server.runtime.StartWithEventSink(ctx, server.writeEventsToSession)
+	server.runtime.StartWithEventSink(ctx, func(sessionID auth.SessionID, events []realtime.EventEnvelope) {
+		server.writeEventsToSession(sessionID, events)
+	})
 	errc := make(chan error, 1)
 	go func() {
 		err := server.server.ListenAndServe()

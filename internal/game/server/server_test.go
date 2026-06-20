@@ -19,6 +19,7 @@ import (
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/market"
 	"gameproject/internal/game/observability"
 	"gameproject/internal/game/premium"
 	"gameproject/internal/game/quests"
@@ -1626,6 +1627,285 @@ func TestMarketCreateListingDuplicateRequestIDReturnsCachedResponse(t *testing.T
 	if got := len(gameServer.runtime.Inventory.ItemLedgerEntries()); got != beforeLedger+2 {
 		t.Fatalf("item ledger entries after duplicate = %d, want %d", got, beforeLedger+2)
 	}
+}
+
+func TestMarketPassiveFanoutNotifiesSellerBuyerAndViewer(t *testing.T) {
+	_, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+
+	sellerConn := dialWebSocket(t, httpServer, registerPilotWithIdentity(t, httpServer, "seller@example.com", "Seller-01"))
+	defer sellerConn.CloseNow()
+	buyerConn := dialWebSocket(t, httpServer, registerPilotWithIdentity(t, httpServer, "buyer@example.com", "Buyer-01"))
+	defer buyerConn.CloseNow()
+	passiveConn := dialWebSocket(t, httpServer, registerPilotWithIdentity(t, httpServer, "viewer@example.com", "Viewer-01"))
+	defer passiveConn.CloseNow()
+	readBootstrapEvents(t, sellerConn)
+	readBootstrapEvents(t, buyerConn)
+	readBootstrapEvents(t, passiveConn)
+
+	writeText(t, sellerConn, `{"request_id":"request-market-fanout-seller-inventory","op":"inventory.snapshot","payload":{},"client_seq":1,"v":1}`)
+	inventoryResponse := readResponse(t, sellerConn)
+	if !inventoryResponse.OK {
+		t.Fatalf("seller inventory response = %+v, want success", inventoryResponse)
+	}
+	var inventoryPayload struct {
+		Inventory inventorySnapshotPayload `json:"inventory"`
+	}
+	if err := json.Unmarshal(inventoryResponse.Payload, &inventoryPayload); err != nil {
+		t.Fatalf("decode seller inventory: %v", err)
+	}
+	laserID := requireInventoryInstance(t, inventoryPayload.Inventory, "laser_alpha_t1", economy.LocationKindAccountInventory.String())
+
+	createRequest := `{"request_id":"request-market-fanout-create","op":"market.create_listing","payload":{"item_id":"laser_alpha_t1","item_instance_id":"` + laserID + `","quantity":1,"unit_price":90},"client_seq":2,"v":1}`
+	writeText(t, sellerConn, createRequest)
+	createResponse := readResponse(t, sellerConn)
+	if !createResponse.OK {
+		t.Fatalf("market create response = %+v, want success", createResponse)
+	}
+	var createPayload marketMutationPayload
+	if err := json.Unmarshal(createResponse.Payload, &createPayload); err != nil {
+		t.Fatalf("decode market create: %v", err)
+	}
+	if createPayload.Listing.ListingID == "" || !createPayload.Listing.OwnedByYou {
+		t.Fatalf("create listing payload = %+v, want seller-owned listing", createPayload.Listing)
+	}
+	sellerCreated := readEvent(t, sellerConn)
+	if sellerCreated.Type != realtime.EventMarketListingCreated {
+		t.Fatalf("seller create event type = %s, want %s", sellerCreated.Type, realtime.EventMarketListingCreated)
+	}
+	var sellerCreatedListing marketListingPayload
+	if err := json.Unmarshal(sellerCreated.Payload, &sellerCreatedListing); err != nil {
+		t.Fatalf("decode seller created event: %v", err)
+	}
+	if !sellerCreatedListing.OwnedByYou {
+		t.Fatalf("seller created listing = %+v, want owned_by_you", sellerCreatedListing)
+	}
+	sellerInventory := readEvent(t, sellerConn)
+	if sellerInventory.Type != realtime.EventInventorySnapshot {
+		t.Fatalf("seller create refresh = %s, want %s", sellerInventory.Type, realtime.EventInventorySnapshot)
+	}
+
+	buyerCreated := readEvent(t, buyerConn)
+	assertPassiveMarketEvent(t, "buyer passive create", buyerCreated, realtime.EventMarketListingCreated)
+	passiveCreated := readEvent(t, passiveConn)
+	createdListing := assertPassiveMarketEvent(t, "viewer passive create", passiveCreated, realtime.EventMarketListingCreated)
+	if createdListing.OwnedByYou || createdListing.ListingID != createPayload.Listing.ListingID {
+		t.Fatalf("passive created listing = %+v, want public non-owned listing %q", createdListing, createPayload.Listing.ListingID)
+	}
+
+	writeText(t, buyerConn, `{"request_id":"request-market-fanout-buy","op":"market.buy","payload":{"listing_id":"`+createPayload.Listing.ListingID+`","quantity":1},"client_seq":3,"v":1}`)
+	buyResponse := readResponse(t, buyerConn)
+	if !buyResponse.OK {
+		t.Fatalf("market buy response = %+v, want success", buyResponse)
+	}
+
+	buyerSale := readEvent(t, buyerConn)
+	if buyerSale.Type != realtime.EventMarketSaleCompleted {
+		t.Fatalf("buyer sale event type = %s, want %s", buyerSale.Type, realtime.EventMarketSaleCompleted)
+	}
+	assertNoEconomyLeak(t, "buyer sale event", buyerSale.Payload)
+	buyerWallet := readEvent(t, buyerConn)
+	if buyerWallet.Type != realtime.EventWalletSnapshot {
+		t.Fatalf("buyer wallet event type = %s, want %s", buyerWallet.Type, realtime.EventWalletSnapshot)
+	}
+	buyerInventory := readEvent(t, buyerConn)
+	if buyerInventory.Type != realtime.EventInventorySnapshot {
+		t.Fatalf("buyer inventory event type = %s, want %s", buyerInventory.Type, realtime.EventInventorySnapshot)
+	}
+
+	sellerSale := readEventOfTypeSkipping(t, sellerConn, realtime.EventMarketSaleCompleted)
+	assertNoEconomyLeak(t, "seller passive sale event", sellerSale.Payload)
+	var sellerSalePayload struct {
+		Listing marketListingPayload `json:"listing"`
+	}
+	if err := json.Unmarshal(sellerSale.Payload, &sellerSalePayload); err != nil {
+		t.Fatalf("decode seller sale event: %v", err)
+	}
+	if !sellerSalePayload.Listing.OwnedByYou {
+		t.Fatalf("seller sale listing = %+v, want owned_by_you", sellerSalePayload.Listing)
+	}
+	sellerWallet := readEvent(t, sellerConn)
+	if sellerWallet.Type != realtime.EventWalletSnapshot {
+		t.Fatalf("seller passive wallet event type = %s, want %s", sellerWallet.Type, realtime.EventWalletSnapshot)
+	}
+
+	passiveUpdated := readEvent(t, passiveConn)
+	updatedListing := assertPassiveMarketEvent(t, "viewer passive buy update", passiveUpdated, realtime.EventMarketListingUpdated)
+	if updatedListing.Status != "sold" || updatedListing.RemainingQuantity != 0 {
+		t.Fatalf("passive updated listing = %+v, want sold empty listing", updatedListing)
+	}
+	if passiveUpdated.Sequence <= passiveCreated.Sequence || sellerSale.Sequence <= sellerCreated.Sequence {
+		t.Fatalf("event seq did not advance: passive %d->%d seller %d->%d", passiveCreated.Sequence, passiveUpdated.Sequence, sellerCreated.Sequence, sellerSale.Sequence)
+	}
+}
+
+func TestMarketPassiveFanoutUsesOwnerAwarePrivateAndPublicEvents(t *testing.T) {
+	_, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	sellerCookie := registerPilotWithIdentity(t, httpServer, "seller@example.com", "Seller")
+	buyerCookie := registerPilotWithIdentity(t, httpServer, "buyer@example.com", "Buyer")
+	passiveCookie := registerPilotWithIdentity(t, httpServer, "passive@example.com", "Passive")
+
+	sellerConn := dialWebSocket(t, httpServer, sellerCookie)
+	defer sellerConn.CloseNow()
+	buyerConn := dialWebSocket(t, httpServer, buyerCookie)
+	defer buyerConn.CloseNow()
+	passiveConn := dialWebSocket(t, httpServer, passiveCookie)
+	defer passiveConn.CloseNow()
+	sellerBootstrap := readBootstrapEvents(t, sellerConn)
+	buyerBootstrap := readBootstrapEvents(t, buyerConn)
+	passiveBootstrap := readBootstrapEvents(t, passiveConn)
+	sellerSeq := sellerBootstrap[len(sellerBootstrap)-1].Sequence
+	buyerSeq := buyerBootstrap[len(buyerBootstrap)-1].Sequence
+	passiveSeq := passiveBootstrap[len(passiveBootstrap)-1].Sequence
+
+	writeText(t, sellerConn, `{"request_id":"request-market-passive-inventory","op":"inventory.snapshot","payload":{},"client_seq":1,"v":1}`)
+	inventoryResponse := readResponse(t, sellerConn)
+	if !inventoryResponse.OK {
+		t.Fatalf("seller inventory response = %+v, want success", inventoryResponse)
+	}
+	var inventoryPayload struct {
+		Inventory inventorySnapshotPayload `json:"inventory"`
+	}
+	if err := json.Unmarshal(inventoryResponse.Payload, &inventoryPayload); err != nil {
+		t.Fatalf("decode seller inventory: %v", err)
+	}
+	laserID := requireInventoryInstance(t, inventoryPayload.Inventory, "laser_alpha_t1", economy.LocationKindAccountInventory.String())
+	shieldID := requireInventoryInstance(t, inventoryPayload.Inventory, "shield_generator_t1", economy.LocationKindAccountInventory.String())
+
+	createRequest := `{"request_id":"request-market-passive-create","op":"market.create_listing","payload":{"item_id":"laser_alpha_t1","item_instance_id":"` + laserID + `","quantity":1,"unit_price":75},"client_seq":2,"v":1}`
+	writeText(t, sellerConn, createRequest)
+	createResponse := readResponse(t, sellerConn)
+	if !createResponse.OK {
+		t.Fatalf("market create response = %+v, want success", createResponse)
+	}
+	var createPayload marketMutationPayload
+	if err := json.Unmarshal(createResponse.Payload, &createPayload); err != nil {
+		t.Fatalf("decode market create: %v", err)
+	}
+	listingID := createPayload.Listing.ListingID
+
+	sellerCreated := readEvent(t, sellerConn)
+	sellerInventory := readEvent(t, sellerConn)
+	if sellerCreated.Type != realtime.EventMarketListingCreated || sellerInventory.Type != realtime.EventInventorySnapshot {
+		t.Fatalf("seller create events = %s/%s, want listing created/inventory", sellerCreated.Type, sellerInventory.Type)
+	}
+	if sellerCreated.Sequence != sellerSeq+1 || sellerInventory.Sequence != sellerSeq+2 {
+		t.Fatalf("seller create seq = %d/%d after %d, want contiguous", sellerCreated.Sequence, sellerInventory.Sequence, sellerSeq)
+	}
+	sellerSeq = sellerInventory.Sequence
+
+	buyerCreated := readEvent(t, buyerConn)
+	if buyerCreated.Type != realtime.EventMarketListingCreated || buyerCreated.Sequence != buyerSeq+1 {
+		t.Fatalf("buyer passive create event = %+v, want listing created next seq", buyerCreated)
+	}
+	buyerSeq = buyerCreated.Sequence
+	assertPassiveMarketEvent(t, "buyer passive create", buyerCreated, realtime.EventMarketListingCreated)
+
+	passiveCreated := readEvent(t, passiveConn)
+	if passiveCreated.Type != realtime.EventMarketListingCreated || passiveCreated.Sequence != passiveSeq+1 {
+		t.Fatalf("passive create event = %+v, want listing created next seq", passiveCreated)
+	}
+	passiveSeq = passiveCreated.Sequence
+	passiveCreatedListing := assertPassiveMarketEvent(t, "passive create", passiveCreated, realtime.EventMarketListingCreated)
+	if passiveCreatedListing.ListingID != listingID || passiveCreatedListing.OwnedByYou {
+		t.Fatalf("passive create listing = %+v, want public non-owned listing %s", passiveCreatedListing, listingID)
+	}
+
+	writeText(t, buyerConn, `{"request_id":"request-market-passive-buy","op":"market.buy","payload":{"listing_id":"`+listingID+`","quantity":1},"client_seq":3,"v":1}`)
+	buyResponse := readResponse(t, buyerConn)
+	if !buyResponse.OK {
+		t.Fatalf("market buy response = %+v, want success", buyResponse)
+	}
+	var buyPayload marketMutationPayload
+	if err := json.Unmarshal(buyResponse.Payload, &buyPayload); err != nil {
+		t.Fatalf("decode market buy: %v", err)
+	}
+	if buyPayload.Wallet.Credits != starterWalletCredits-75 || !inventorySnapshotHasInstance(buyPayload.Inventory, "laser_alpha_t1") {
+		t.Fatalf("buyer market buy = %+v, want wallet debit and laser inventory", buyPayload)
+	}
+	buyerSale := readEvent(t, buyerConn)
+	buyerWallet := readEvent(t, buyerConn)
+	buyerInventory := readEvent(t, buyerConn)
+	if buyerSale.Type != realtime.EventMarketSaleCompleted || buyerWallet.Type != realtime.EventWalletSnapshot || buyerInventory.Type != realtime.EventInventorySnapshot {
+		t.Fatalf("buyer buy events = %s/%s/%s, want sale/wallet/inventory", buyerSale.Type, buyerWallet.Type, buyerInventory.Type)
+	}
+	if buyerSale.Sequence != buyerSeq+1 || buyerWallet.Sequence != buyerSeq+2 || buyerInventory.Sequence != buyerSeq+3 {
+		t.Fatalf("buyer buy seq = %d/%d/%d after %d, want contiguous", buyerSale.Sequence, buyerWallet.Sequence, buyerInventory.Sequence, buyerSeq)
+	}
+	buyerSeq = buyerInventory.Sequence
+
+	sellerSale := readEvent(t, sellerConn)
+	sellerWallet := readEvent(t, sellerConn)
+	if sellerSale.Type != realtime.EventMarketSaleCompleted || sellerWallet.Type != realtime.EventWalletSnapshot {
+		t.Fatalf("seller passive sale events = %s/%s, want sale/wallet", sellerSale.Type, sellerWallet.Type)
+	}
+	if sellerSale.Sequence != sellerSeq+1 || sellerWallet.Sequence != sellerSeq+2 {
+		t.Fatalf("seller passive sale seq = %d/%d after %d, want contiguous", sellerSale.Sequence, sellerWallet.Sequence, sellerSeq)
+	}
+	sellerSeq = sellerWallet.Sequence
+	assertNoEconomyLeak(t, "seller sale fanout", sellerSale.Payload)
+
+	passiveUpdated := readEvent(t, passiveConn)
+	if passiveUpdated.Type != realtime.EventMarketListingUpdated || passiveUpdated.Sequence != passiveSeq+1 {
+		t.Fatalf("passive update event = %+v, want listing updated next seq", passiveUpdated)
+	}
+	passiveSeq = passiveUpdated.Sequence
+	passiveUpdatedListing := assertPassiveMarketEvent(t, "passive update", passiveUpdated, realtime.EventMarketListingUpdated)
+	if passiveUpdatedListing.ListingID != listingID || passiveUpdatedListing.Status != market.ListingStatusSold.String() || passiveUpdatedListing.OwnedByYou {
+		t.Fatalf("passive update listing = %+v, want public sold listing %s", passiveUpdatedListing, listingID)
+	}
+
+	cancelCreateRequest := `{"request_id":"request-market-passive-cancel-create","op":"market.create_listing","payload":{"item_id":"shield_generator_t1","item_instance_id":"` + shieldID + `","quantity":1,"unit_price":90},"client_seq":4,"v":1}`
+	writeText(t, sellerConn, cancelCreateRequest)
+	cancelCreateResponse := readResponse(t, sellerConn)
+	if !cancelCreateResponse.OK {
+		t.Fatalf("market cancel fixture create response = %+v, want success", cancelCreateResponse)
+	}
+	var cancelCreatePayload marketMutationPayload
+	if err := json.Unmarshal(cancelCreateResponse.Payload, &cancelCreatePayload); err != nil {
+		t.Fatalf("decode cancel fixture create: %v", err)
+	}
+	cancelListingID := cancelCreatePayload.Listing.ListingID
+	drainEventTypes(t, sellerConn, realtime.EventMarketListingCreated, realtime.EventInventorySnapshot)
+	sellerSeq += 2
+	buyerCancelCreated := readEvent(t, buyerConn)
+	passiveCancelCreated := readEvent(t, passiveConn)
+	if buyerCancelCreated.Type != realtime.EventMarketListingCreated || buyerCancelCreated.Sequence != buyerSeq+1 {
+		t.Fatalf("buyer second passive create = %+v, want listing created next seq", buyerCancelCreated)
+	}
+	buyerSeq = buyerCancelCreated.Sequence
+	if passiveCancelCreated.Type != realtime.EventMarketListingCreated || passiveCancelCreated.Sequence != passiveSeq+1 {
+		t.Fatalf("passive second create = %+v, want listing created next seq", passiveCancelCreated)
+	}
+	passiveSeq = passiveCancelCreated.Sequence
+	assertPassiveMarketEvent(t, "passive second create", passiveCancelCreated, realtime.EventMarketListingCreated)
+
+	writeText(t, sellerConn, `{"request_id":"request-market-passive-cancel","op":"market.cancel","payload":{"listing_id":"`+cancelListingID+`"},"client_seq":5,"v":1}`)
+	cancelResponse := readResponse(t, sellerConn)
+	if !cancelResponse.OK {
+		t.Fatalf("market cancel response = %+v, want success", cancelResponse)
+	}
+	sellerCanceled := readEvent(t, sellerConn)
+	sellerCancelInventory := readEvent(t, sellerConn)
+	if sellerCanceled.Type != realtime.EventMarketListingCanceled || sellerCancelInventory.Type != realtime.EventInventorySnapshot {
+		t.Fatalf("seller cancel events = %s/%s, want listing cancelled/inventory", sellerCanceled.Type, sellerCancelInventory.Type)
+	}
+	if sellerCanceled.Sequence != sellerSeq+1 || sellerCancelInventory.Sequence != sellerSeq+2 {
+		t.Fatalf("seller cancel seq = %d/%d after %d, want contiguous", sellerCanceled.Sequence, sellerCancelInventory.Sequence, sellerSeq)
+	}
+
+	buyerCanceled := readEvent(t, buyerConn)
+	if buyerCanceled.Type != realtime.EventMarketListingCanceled || buyerCanceled.Sequence != buyerSeq+1 {
+		t.Fatalf("buyer passive cancel event = %+v, want listing cancelled next seq", buyerCanceled)
+	}
+	assertPassiveMarketEvent(t, "buyer passive cancel", buyerCanceled, realtime.EventMarketListingCanceled)
+
+	passiveCanceled := readEvent(t, passiveConn)
+	if passiveCanceled.Type != realtime.EventMarketListingCanceled || passiveCanceled.Sequence != passiveSeq+1 {
+		t.Fatalf("passive cancel event = %+v, want listing cancelled next seq", passiveCanceled)
+	}
+	assertPassiveMarketEvent(t, "passive cancel", passiveCanceled, realtime.EventMarketListingCanceled)
 }
 
 func TestShopCatalogUsesServerOwnedGameCatalog(t *testing.T) {
@@ -3303,7 +3583,12 @@ func newTestServer(t *testing.T, devMode bool) (*Server, *httptest.Server) {
 
 func registerPilot(t *testing.T, httpServer *httptest.Server) *http.Cookie {
 	t.Helper()
-	body := strings.NewReader(`{"email":"pilot@example.com","password":"correct-password","callsign":"Frontier-01"}`)
+	return registerPilotWithIdentity(t, httpServer, "pilot@example.com", "Frontier-01")
+}
+
+func registerPilotWithIdentity(t *testing.T, httpServer *httptest.Server, email string, callsign string) *http.Cookie {
+	t.Helper()
+	body := strings.NewReader(fmt.Sprintf(`{"email":%q,"password":"correct-password","callsign":%q}`, email, callsign))
 	req, err := http.NewRequest(http.MethodPost, httpServer.URL+"/api/auth/register", body)
 	if err != nil {
 		t.Fatalf("new register request: %v", err)
@@ -3987,6 +4272,18 @@ func readEvent(t *testing.T, conn *websocket.Conn) realtime.EventEnvelope {
 	return event
 }
 
+func readEventOfTypeSkipping(t *testing.T, conn *websocket.Conn, want realtime.ClientEventType) realtime.EventEnvelope {
+	t.Helper()
+	for range 8 {
+		event := readEvent(t, conn)
+		if event.Type == want {
+			return event
+		}
+	}
+	t.Fatalf("no %s event received before skip limit", want)
+	return realtime.EventEnvelope{}
+}
+
 func drainEventTypes(t *testing.T, conn *websocket.Conn, wants ...realtime.ClientEventType) {
 	t.Helper()
 	seen := make(map[realtime.ClientEventType]bool, len(wants))
@@ -4024,6 +4321,33 @@ func assertNoEconomyLeak(t *testing.T, label string, payload json.RawMessage) {
 			t.Fatalf("%s leaked %q in %s", label, forbidden, raw)
 		}
 	}
+}
+
+func assertPassiveMarketEventSafe(t *testing.T, label string, payload json.RawMessage) {
+	t.Helper()
+	assertNoEconomyLeak(t, label, payload)
+	raw := string(payload)
+	for _, forbidden := range []string{"wallet", "inventory"} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("%s leaked private refresh %q in %s", label, forbidden, raw)
+		}
+	}
+}
+
+func assertPassiveMarketEvent(t *testing.T, label string, event realtime.EventEnvelope, want realtime.ClientEventType) marketListingPayload {
+	t.Helper()
+	if event.Type != want {
+		t.Fatalf("%s event type = %s, want %s", label, event.Type, want)
+	}
+	assertPassiveMarketEventSafe(t, label, event.Payload)
+	var listing marketListingPayload
+	if err := json.Unmarshal(event.Payload, &listing); err != nil {
+		t.Fatalf("decode %s listing event: %v", label, err)
+	}
+	if listing.OwnedByYou {
+		t.Fatalf("%s listing = %+v, want public non-owned listing", label, listing)
+	}
+	return listing
 }
 
 func countInventoryInstances(items []economy.InstanceItem, itemID string) int {

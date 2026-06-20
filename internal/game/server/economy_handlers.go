@@ -259,9 +259,9 @@ func (runtime *Runtime) handleMarketCreateListing(ctx realtime.CommandContext, r
 		return nil, domainErrorForEconomy(err)
 	}
 	if !result.Duplicate {
-		sessionID := authSessionID(ctx.SessionID)
-		runtime.queueEventLocked(sessionID, realtime.EventMarketListingCreated, marketListingPayloadFromListing(result.Listing, ctx.PlayerID))
-		runtime.queueEventLocked(sessionID, realtime.EventInventorySnapshot, runtime.inventorySnapshotLocked(ctx.PlayerID))
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventMarketListingCreated, marketListingPayloadFromListing(result.Listing, ctx.PlayerID))
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventInventorySnapshot, runtime.inventorySnapshotLocked(ctx.PlayerID))
+		runtime.queuePassiveMarketListingEventLocked(realtime.EventMarketListingCreated, result.Listing, ctx.PlayerID)
 	}
 	return marshalPayload(runtime.marketMutationResponseLocked(ctx.PlayerID, result.Listing, 0, 0, 0, result.Duplicate))
 }
@@ -302,19 +302,25 @@ func (runtime *Runtime) handleMarketBuy(ctx realtime.CommandContext, request rea
 		}
 		runtime.recordItemLedgerMetrics(result.ItemMove.LedgerEntries)
 	}
-	sessionID := authSessionID(ctx.SessionID)
 	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
 	state := runtime.players[ctx.PlayerID]
 	state.Wallet = wallet
 	runtime.players[ctx.PlayerID] = state
-	runtime.queueEventLocked(sessionID, realtime.EventMarketSaleCompleted, map[string]any{
-		"listing":      marketListingPayloadFromListing(result.Listing, ctx.PlayerID),
-		"quantity":     result.Quantity,
-		"server_total": result.TotalAmount,
-		"server_fee":   result.FeeAmount,
-	})
-	runtime.queueEventLocked(sessionID, realtime.EventWalletSnapshot, wallet)
-	runtime.queueEventLocked(sessionID, realtime.EventInventorySnapshot, runtime.inventorySnapshotLocked(ctx.PlayerID))
+	if !result.Duplicate {
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventMarketSaleCompleted, marketSaleEventPayload(result.Listing, ctx.PlayerID, result.Quantity, result.TotalAmount, result.FeeAmount))
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventWalletSnapshot, wallet)
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventInventorySnapshot, runtime.inventorySnapshotLocked(ctx.PlayerID))
+
+		sellerID := result.Listing.SellerPlayerID
+		sellerWallet := runtime.walletSnapshotLocked(sellerID)
+		if sellerState, ok := runtime.players[sellerID]; ok {
+			sellerState.Wallet = sellerWallet
+			runtime.players[sellerID] = sellerState
+		}
+		runtime.queueEventToPlayerSessionsLocked(sellerID, realtime.EventMarketSaleCompleted, marketSaleEventPayload(result.Listing, sellerID, result.Quantity, result.TotalAmount, result.FeeAmount))
+		runtime.queueEventToPlayerSessionsLocked(sellerID, realtime.EventWalletSnapshot, sellerWallet)
+		runtime.queuePassiveMarketListingEventLocked(realtime.EventMarketListingUpdated, result.Listing, ctx.PlayerID, sellerID)
+	}
 	return marshalPayload(runtime.marketMutationResponseLocked(ctx.PlayerID, result.Listing, result.Quantity, result.TotalAmount, result.FeeAmount, result.Duplicate))
 }
 
@@ -342,9 +348,11 @@ func (runtime *Runtime) handleMarketCancel(ctx realtime.CommandContext, request 
 	if err != nil {
 		return nil, domainErrorForEconomy(err)
 	}
-	sessionID := authSessionID(ctx.SessionID)
-	runtime.queueEventLocked(sessionID, realtime.EventMarketListingCanceled, marketListingPayloadFromListing(result.Listing, ctx.PlayerID))
-	runtime.queueEventLocked(sessionID, realtime.EventInventorySnapshot, runtime.inventorySnapshotLocked(ctx.PlayerID))
+	if !result.Duplicate {
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventMarketListingCanceled, marketListingPayloadFromListing(result.Listing, ctx.PlayerID))
+		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventInventorySnapshot, runtime.inventorySnapshotLocked(ctx.PlayerID))
+		runtime.queuePassiveMarketListingEventLocked(realtime.EventMarketListingCanceled, result.Listing, ctx.PlayerID)
+	}
 	return marshalPayload(runtime.marketMutationResponseLocked(ctx.PlayerID, result.Listing, result.ReturnedQuantity, 0, 0, result.Duplicate))
 }
 
@@ -576,6 +584,37 @@ func (runtime *Runtime) marketMutationResponseLocked(playerID foundation.PlayerI
 		Market:            runtime.marketSearchPayload(playerID, ""),
 		Wallet:            runtime.walletSnapshotLocked(playerID),
 		Inventory:         runtime.inventorySnapshotLocked(playerID),
+	}
+}
+
+func (runtime *Runtime) queueEventToPlayerSessionsLocked(playerID foundation.PlayerID, eventType realtime.ClientEventType, payload any) {
+	for sessionID, sessionPlayerID := range runtime.sessions {
+		if sessionPlayerID != playerID {
+			continue
+		}
+		runtime.queueEventLocked(sessionID, eventType, payload)
+	}
+}
+
+func (runtime *Runtime) queuePassiveMarketListingEventLocked(eventType realtime.ClientEventType, listing market.Listing, excludedPlayers ...foundation.PlayerID) {
+	excluded := make(map[foundation.PlayerID]struct{}, len(excludedPlayers))
+	for _, playerID := range excludedPlayers {
+		excluded[playerID] = struct{}{}
+	}
+	for sessionID, playerID := range runtime.sessions {
+		if _, skip := excluded[playerID]; skip {
+			continue
+		}
+		runtime.queueEventLocked(sessionID, eventType, marketListingPayloadFromListing(listing, playerID))
+	}
+}
+
+func marketSaleEventPayload(listing market.Listing, viewerID foundation.PlayerID, quantity int64, serverTotal int64, serverFee int64) map[string]any {
+	return map[string]any{
+		"listing":      marketListingPayloadFromListing(listing, viewerID),
+		"quantity":     quantity,
+		"server_total": serverTotal,
+		"server_fee":   serverFee,
 	}
 }
 

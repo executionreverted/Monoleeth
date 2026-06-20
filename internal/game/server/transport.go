@@ -80,13 +80,15 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 		if requestErr != nil || response.HasError {
 			continue
 		}
-		events, err := server.runtime.postCommandEvents(resolved.SessionID, request.Op, resolved.PlayerID)
+		eventsBySession, err := server.runtime.postCommandEventsBySession(resolved.SessionID, request.Op, resolved.PlayerID)
 		if err != nil {
 			_ = conn.Close(websocket.StatusInternalError, "event publish failed")
 			return
 		}
-		if !server.writeEvents(client, events) {
-			return
+		for sessionID, events := range eventsBySession {
+			if !server.writeEventsToSession(sessionID, events) && sessionID == resolved.SessionID {
+				return
+			}
 		}
 	}
 }
@@ -158,20 +160,23 @@ func (server *Server) unregisterConnection(client *clientConnection) {
 	server.connMu.Unlock()
 }
 
-func (server *Server) writeEventsToSession(sessionID auth.SessionID, events []realtime.EventEnvelope) {
+func (server *Server) writeEventsToSession(sessionID auth.SessionID, events []realtime.EventEnvelope) bool {
 	if len(events) == 0 {
-		return
+		return true
 	}
+	allWritten := true
 	server.conns.Range(func(key, _ any) bool {
-		client, ok := key.(*clientConnection)
-		if !ok || client.sessionID != sessionID {
+		client, isClient := key.(*clientConnection)
+		if !isClient || client.sessionID != sessionID {
 			return true
 		}
 		if !server.writeEvents(client, events) {
 			_ = client.conn.Close(websocket.StatusInternalError, "event publish failed")
+			allWritten = false
 		}
 		return true
 	})
+	return allWritten
 }
 
 func writeHTTPError(w http.ResponseWriter, err error) {

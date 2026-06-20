@@ -187,6 +187,17 @@ stock, and clear buy/list/bid actions backed by the owning server contract.
   `market.create_listing`, `market.cancel`, `auction.buy_now`, `premium.claim`,
   and premium stock purchase, not only `auction.bid`.
 
+## Implementation Notes - 2026-06-21
+
+- Market listing create, buy, and cancel now fan out owner-aware realtime events
+  to online seller, buyer, and passive viewer sessions.
+- Market owner sessions receive their private listing event plus wallet and/or
+  inventory refreshes where relevant; passive sessions receive public listing
+  create/update/cancel payloads only.
+- Multi-client server coverage now proves seller, buyer, and passive viewer
+  market fanout, including event sequence continuity and private payload leak
+  checks. Auction and premium passive fanout remain open Phase 07 work.
+
 ## Implementation Plan
 
 1. Replace shop layout.

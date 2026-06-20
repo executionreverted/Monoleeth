@@ -805,6 +805,14 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realti
 }
 
 func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.Operation, playerID foundation.PlayerID) ([]realtime.EventEnvelope, error) {
+	eventsBySession, err := runtime.postCommandEventsBySession(sessionID, op, playerID)
+	if err != nil {
+		return nil, err
+	}
+	return eventsBySession[sessionID], nil
+}
+
+func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op realtime.Operation, playerID foundation.PlayerID) (map[auth.SessionID][]realtime.EventEnvelope, error) {
 	switch op {
 	case realtime.OperationMoveTo, realtime.OperationStop:
 		runtime.mu.Lock()
@@ -826,7 +834,7 @@ func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.
 			events = append(events, runtime.eventAtLocked(sessionID, realtime.EventMovementStopped, payload, now))
 		}
 		events = append(events, runtime.aoiDiffEventsLocked(sessionID, playerID)...)
-		return events, nil
+		return map[auth.SessionID][]realtime.EventEnvelope{sessionID: events}, nil
 	case realtime.OperationCombatUseSkill,
 		realtime.OperationLootPickup,
 		realtime.OperationDeathRepairQuote,
@@ -853,11 +861,29 @@ func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.
 		realtime.OperationObservabilityGate:
 		runtime.mu.Lock()
 		defer runtime.mu.Unlock()
-		events := runtime.drainQueuedEventsLocked(sessionID)
-		events = append(events, runtime.aoiDiffEventsLocked(sessionID, playerID)...)
-		return events, nil
+		eventsBySession := runtime.drainQueuedEventsBySessionLocked()
+		actorEvents := eventsBySession[sessionID]
+		if opEmitsPostCommandAOIDiff(op) {
+			actorEvents = append(actorEvents, runtime.aoiDiffEventsLocked(sessionID, playerID)...)
+		}
+		if len(actorEvents) > 0 {
+			if eventsBySession == nil {
+				eventsBySession = make(map[auth.SessionID][]realtime.EventEnvelope, 1)
+			}
+			eventsBySession[sessionID] = actorEvents
+		}
+		return eventsBySession, nil
 	default:
 		return nil, nil
+	}
+}
+
+func opEmitsPostCommandAOIDiff(op realtime.Operation) bool {
+	switch op {
+	case realtime.OperationMarketCreateListing, realtime.OperationMarketBuy, realtime.OperationMarketCancel:
+		return false
+	default:
+		return true
 	}
 }
 
