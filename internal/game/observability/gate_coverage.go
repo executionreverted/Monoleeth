@@ -238,7 +238,7 @@ var phase12ReleaseModuleProfiles = []releaseModuleProfile{
 	),
 	releaseModuleProfileFor(
 		"09-market-auction-premium",
-		evidence("gameproject/internal/game/market", "TestCreateListingRejectsDuplicateListingIDWithoutMutation", "market listing unit coverage exists"),
+		evidence("gameproject/internal/game/market", "TestCreateListingDuplicateReferenceReturnsCachedResultWithoutMutation", "market listing unit coverage exists"),
 		satisfied(evidence("gameproject/internal/game/auction", "TestPlaceBidDuplicateRetryDoesNotDebitOrRefundTwice", "auction bidding is duplicate-safe and refund-aware")),
 		satisfied(evidence("gameproject/internal/game/observability/simulations", "TestMarketBuyCancelRaceSimulationConservesItems", "market buy/cancel race simulation conserves value")),
 		satisfied(evidence("gameproject/internal/game/admin", "TestAdminDisablesSuspiciousListingAndMarksIntelStale", "admin can disable suspicious listings and mark stale intel")),

@@ -151,14 +151,32 @@ func TestCreateListingRejectsInvalidInputsWithoutMutation(t *testing.T) {
 	}
 }
 
-func TestCreateListingRejectsDuplicateListingIDWithoutMutation(t *testing.T) {
+func TestCreateListingDuplicateReferenceReturnsCachedResultWithoutMutation(t *testing.T) {
 	fixture := newMarketFixture(t)
 	fixture.seedSellerItems(t, 20, "seed-duplicate")
-	first := fixture.createListing(t, "listing-duplicate", 5, 20)
+	input := fixture.createListingInput("listing-duplicate", 5, 20)
+	first, err := fixture.service.CreateListing(input)
+	if err != nil {
+		t.Fatalf("first CreateListing: %v", err)
+	}
+	ledgerCount := len(fixture.inventory.ItemLedgerEntries())
 
-	_, err := fixture.service.CreateListing(fixture.createListingInput("listing-duplicate", 5, 20))
-	if !errors.Is(err, ErrDuplicateListingID) {
-		t.Fatalf("duplicate CreateListing error = %v, want ErrDuplicateListingID", err)
+	second, err := fixture.service.CreateListing(input)
+	if err != nil {
+		t.Fatalf("duplicate CreateListing: %v", err)
+	}
+	if first.Duplicate {
+		t.Fatal("first CreateListing Duplicate = true, want false")
+	}
+	if !second.Duplicate {
+		t.Fatal("duplicate CreateListing Duplicate = false, want true")
+	}
+	if second.Listing.ListingID != first.Listing.ListingID || second.ReferenceKey != first.ReferenceKey {
+		t.Fatalf("duplicate result = %+v, want cached listing/reference from %+v", second, first)
+	}
+	if second.EscrowMove.LedgerEntries[0].LedgerID != first.EscrowMove.LedgerEntries[0].LedgerID ||
+		second.EscrowMove.LedgerEntries[1].LedgerID != first.EscrowMove.LedgerEntries[1].LedgerID {
+		t.Fatalf("duplicate escrow ledger ids = %+v, want cached ids %+v", second.EscrowMove.LedgerEntries, first.EscrowMove.LedgerEntries)
 	}
 	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, fixture.sourceLocation); got != 15 {
 		t.Fatalf("source quantity after duplicate = %d, want 15", got)
@@ -168,6 +186,37 @@ func TestCreateListingRejectsDuplicateListingIDWithoutMutation(t *testing.T) {
 	}
 	if got := len(fixture.service.Listings()); got != 1 {
 		t.Fatalf("listings len = %d, want 1", got)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != ledgerCount {
+		t.Fatalf("item ledger entries after duplicate = %d, want %d", got, ledgerCount)
+	}
+
+	mismatch := input
+	mismatch.Quantity = 6
+	_, err = fixture.service.CreateListing(mismatch)
+	if !errors.Is(err, ErrCreateListingReferenceMismatch) {
+		t.Fatalf("mismatched duplicate CreateListing error = %v, want ErrCreateListingReferenceMismatch", err)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != ledgerCount {
+		t.Fatalf("item ledger entries after mismatch = %d, want %d", got, ledgerCount)
+	}
+}
+
+func TestCreateListingNewReferenceForSameItemValidatesCurrentSourceQuantity(t *testing.T) {
+	fixture := newMarketFixture(t)
+	fixture.seedSellerItems(t, 20, "seed-new-reference")
+	_ = fixture.createListing(t, "listing-first-reference", 5, 20)
+	ledgerCount := len(fixture.inventory.ItemLedgerEntries())
+
+	_, err := fixture.service.CreateListing(fixture.createListingInput("listing-new-reference", 16, 20))
+	if !errors.Is(err, economy.ErrInsufficientItemQuantity) {
+		t.Fatalf("new reference CreateListing error = %v, want economy.ErrInsufficientItemQuantity", err)
+	}
+	if got := len(fixture.service.Listings()); got != 1 {
+		t.Fatalf("listings len = %d, want 1", got)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != ledgerCount {
+		t.Fatalf("item ledger entries after failed new reference = %d, want %d", got, ledgerCount)
 	}
 }
 

@@ -69,6 +69,7 @@ type CreateListingResult struct {
 	Listing      Listing                   `json:"listing"`
 	EscrowMove   economy.MoveItemResult    `json:"escrow_move"`
 	ReferenceKey foundation.IdempotencyKey `json:"reference_id"`
+	Duplicate    bool                      `json:"duplicate"`
 }
 
 // BuyListingInput describes one fixed-price listing purchase attempt.

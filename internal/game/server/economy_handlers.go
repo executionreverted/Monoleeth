@@ -258,10 +258,12 @@ func (runtime *Runtime) handleMarketCreateListing(ctx realtime.CommandContext, r
 	if err != nil {
 		return nil, domainErrorForEconomy(err)
 	}
-	sessionID := authSessionID(ctx.SessionID)
-	runtime.queueEventLocked(sessionID, realtime.EventMarketListingCreated, marketListingPayloadFromListing(result.Listing, ctx.PlayerID))
-	runtime.queueEventLocked(sessionID, realtime.EventInventorySnapshot, runtime.inventorySnapshotLocked(ctx.PlayerID))
-	return marshalPayload(runtime.marketMutationResponseLocked(ctx.PlayerID, result.Listing, 0, 0, 0, false))
+	if !result.Duplicate {
+		sessionID := authSessionID(ctx.SessionID)
+		runtime.queueEventLocked(sessionID, realtime.EventMarketListingCreated, marketListingPayloadFromListing(result.Listing, ctx.PlayerID))
+		runtime.queueEventLocked(sessionID, realtime.EventInventorySnapshot, runtime.inventorySnapshotLocked(ctx.PlayerID))
+	}
+	return marshalPayload(runtime.marketMutationResponseLocked(ctx.PlayerID, result.Listing, 0, 0, 0, result.Duplicate))
 }
 
 func (runtime *Runtime) handleMarketBuy(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -842,6 +844,8 @@ func domainErrorForEconomy(err error) error {
 		return foundation.NewDomainError(foundation.CodeForbidden, "Economy record is not active.", foundation.WithCause(err))
 	case errors.Is(err, market.ErrSellerCannotBuyOwnListing), errors.Is(err, auction.ErrCurrentWinningBidder), errors.Is(err, premium.ErrWeeklyLimitReached):
 		return foundation.NewDomainError(foundation.CodeForbidden, "Economy action is not allowed.", foundation.WithCause(err))
+	case errors.Is(err, market.ErrCreateListingReferenceMismatch):
+		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Economy request was already used with different details.", foundation.WithCause(err))
 	case errors.Is(err, foundation.ErrNonPositiveAmount), errors.Is(err, auction.ErrBidTooLow), errors.Is(err, auction.ErrBidReachesBuyNow), errors.Is(err, auction.ErrBuyNowUnavailable), errors.Is(err, premium.ErrWeeklyStockSoldOut), errors.Is(err, premium.ErrWeeklyStockNotSet):
 		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Economy amount is not valid.", foundation.WithCause(err))
 	case errors.Is(err, economy.ErrInvalidTradeFlag):

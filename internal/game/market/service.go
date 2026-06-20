@@ -59,6 +59,7 @@ type MarketService struct {
 	systemFeePlayerID foundation.PlayerID
 
 	listings      map[foundation.ListingID]Listing
+	createResults map[foundation.IdempotencyKey]CreateListingResult
 	buyResults    map[foundation.IdempotencyKey]BuyListingResult
 	cancelResults map[foundation.ListingID]CancelListingResult
 	expireResults map[foundation.ListingID]ExpireListingResult
@@ -110,6 +111,7 @@ func NewMarketService(config MarketServiceConfig) (*MarketService, error) {
 		suspiciousPolicy:  suspiciousPolicy,
 		systemFeePlayerID: systemFeePlayerID,
 		listings:          make(map[foundation.ListingID]Listing),
+		createResults:     make(map[foundation.IdempotencyKey]CreateListingResult),
 		buyResults:        make(map[foundation.IdempotencyKey]BuyListingResult),
 		cancelResults:     make(map[foundation.ListingID]CancelListingResult),
 		expireResults:     make(map[foundation.ListingID]ExpireListingResult),
@@ -135,6 +137,14 @@ func (service *MarketService) CreateListing(input CreateListingInput) (CreateLis
 	defer service.mu.Unlock()
 
 	if _, exists := service.listings[input.ListingID]; exists {
+		if previous, ok := service.createResults[referenceKey]; ok {
+			if err := createListingInputMatchesResult(input, previous); err != nil {
+				return CreateListingResult{}, err
+			}
+			result := cloneCreateListingResult(previous)
+			result.Duplicate = true
+			return result, nil
+		}
 		return CreateListingResult{}, fmt.Errorf("listing %q: %w", input.ListingID, ErrDuplicateListingID)
 	}
 	if err := service.validateSourceQuantity(input.SellerPlayerID, input.ItemRef.Definition, input.SourceLocation, input.Quantity); err != nil {
@@ -174,11 +184,13 @@ func (service *MarketService) CreateListing(input CreateListingInput) (CreateLis
 	}
 	service.listings[input.ListingID] = cloneListing(listing)
 
-	return CreateListingResult{
+	result := CreateListingResult{
 		Listing:      cloneListing(listing),
 		EscrowMove:   escrowMove,
 		ReferenceKey: referenceKey,
-	}, nil
+	}
+	service.createResults[referenceKey] = cloneCreateListingResult(result)
+	return result, nil
 }
 
 // BuyListing settles a buyer purchase against active escrowed listing quantity.
@@ -692,6 +704,23 @@ func (service *MarketService) calculateSettlement(unitPrice int64, quantity int6
 	return total, fee, sellerProceeds, nil
 }
 
+func createListingInputMatchesResult(input CreateListingInput, result CreateListingResult) error {
+	listing := result.Listing
+	matches := listing.ListingID == input.ListingID &&
+		listing.SellerPlayerID == input.SellerPlayerID &&
+		listing.ItemID == input.ItemRef.Definition.ItemID &&
+		listing.ItemInstanceID == input.ItemRef.ItemInstanceID &&
+		listing.OriginalQuantity == input.Quantity &&
+		listing.UnitPrice == input.UnitPrice &&
+		listing.Currency == input.Currency &&
+		listing.SourceReturnLocation == input.SourceLocation &&
+		sameOptionalTime(listing.ExpiresAt, input.ExpiresAt)
+	if !matches {
+		return fmt.Errorf("listing %q: %w", input.ListingID, ErrCreateListingReferenceMismatch)
+	}
+	return nil
+}
+
 func (service *MarketService) recordSuspiciousTradeLocked(listing Listing, input BuyListingInput, total int64, referenceKey foundation.IdempotencyKey) {
 	threshold := service.suspiciousPolicy.HighValueSaleThreshold
 	if threshold <= 0 || total < threshold {
@@ -761,6 +790,19 @@ func cloneTimePointer(value *time.Time) *time.Time {
 	}
 	copied := *value
 	return &copied
+}
+
+func sameOptionalTime(left *time.Time, right *time.Time) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Equal(*right)
+}
+
+func cloneCreateListingResult(result CreateListingResult) CreateListingResult {
+	result.Listing = cloneListing(result.Listing)
+	result.EscrowMove = cloneMoveItemResult(result.EscrowMove)
+	return result
 }
 
 func cloneBuyListingResult(result BuyListingResult) BuyListingResult {

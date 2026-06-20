@@ -1357,6 +1357,67 @@ func TestPhase08MarketAuctionPremiumUseServerEconomyState(t *testing.T) {
 	})
 }
 
+func TestMarketCreateListingDuplicateRequestIDReturnsCachedResponse(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	writeText(t, conn, `{"request_id":"request-market-create-inventory","op":"inventory.snapshot","payload":{},"client_seq":1,"v":1}`)
+	inventoryResponse := readResponse(t, conn)
+	if !inventoryResponse.OK {
+		t.Fatalf("inventory response = %+v, want success", inventoryResponse)
+	}
+	var inventoryPayload struct {
+		Inventory inventorySnapshotPayload `json:"inventory"`
+	}
+	if err := json.Unmarshal(inventoryResponse.Payload, &inventoryPayload); err != nil {
+		t.Fatalf("decode inventory snapshot: %v", err)
+	}
+	laserID := requireInventoryInstance(t, inventoryPayload.Inventory, "laser_alpha_t1", economy.LocationKindAccountInventory.String())
+	beforeListings := len(gameServer.runtime.Market.Listings())
+	beforeLedger := len(gameServer.runtime.Inventory.ItemLedgerEntries())
+
+	request := `{"request_id":"request-market-create-listing-dup","op":"market.create_listing","payload":{"item_id":"laser_alpha_t1","item_instance_id":"` + laserID + `","quantity":1,"unit_price":75},"client_seq":2,"v":1}`
+	writeText(t, conn, request)
+	firstRaw := readRawText(t, conn)
+	first := decodeRawResponse(t, firstRaw)
+	if !first.OK {
+		t.Fatalf("market create response = %+v, want success", first)
+	}
+	var firstPayload marketMutationPayload
+	if err := json.Unmarshal(first.Payload, &firstPayload); err != nil {
+		t.Fatalf("decode market create: %v", err)
+	}
+	if !firstPayload.Accepted || firstPayload.Listing.ListingID != "listing-request-market-create-listing-dup" {
+		t.Fatalf("market create payload = %+v, want accepted listing from request id", firstPayload)
+	}
+	if got := len(gameServer.runtime.Market.Listings()); got != beforeListings+1 {
+		t.Fatalf("listings after create = %d, want %d", got, beforeListings+1)
+	}
+	if got := len(gameServer.runtime.Inventory.ItemLedgerEntries()); got != beforeLedger+2 {
+		t.Fatalf("item ledger entries after create = %d, want %d", got, beforeLedger+2)
+	}
+	drainEventTypes(t, conn, realtime.EventMarketListingCreated, realtime.EventInventorySnapshot)
+
+	writeText(t, conn, request)
+	secondRaw := readRawText(t, conn)
+	if !bytes.Equal(firstRaw, secondRaw) {
+		t.Fatalf("duplicate market create response changed:\nfirst=%s\nsecond=%s", firstRaw, secondRaw)
+	}
+	second := decodeRawResponse(t, secondRaw)
+	if !second.OK {
+		t.Fatalf("duplicate market create response = %+v, want cached success", second)
+	}
+	if got := len(gameServer.runtime.Market.Listings()); got != beforeListings+1 {
+		t.Fatalf("listings after duplicate = %d, want %d", got, beforeListings+1)
+	}
+	if got := len(gameServer.runtime.Inventory.ItemLedgerEntries()); got != beforeLedger+2 {
+		t.Fatalf("item ledger entries after duplicate = %d, want %d", got, beforeLedger+2)
+	}
+}
+
 func TestShopCatalogUsesServerOwnedGameCatalog(t *testing.T) {
 	_, httpServer := newTestServer(t, false)
 	defer httpServer.Close()

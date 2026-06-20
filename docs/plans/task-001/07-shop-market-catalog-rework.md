@@ -282,7 +282,7 @@ docs/plans/task-001/07-shop-market-catalog-rework.md
 - [ ] Sell/listing eligibility comes from server inventory metadata or a
       `market.sell_options` query; locked stacks do not appear as enabled sell
       actions.
-- [ ] `market.create_listing` is retry/idempotency safe for duplicate requests.
+- [x] `market.create_listing` is retry/idempotency safe for duplicate requests.
 - [ ] Auction bid/buy-now UI uses `lot.currency_type` wallet data.
 - [x] Premium stock purchase identity is product-specific and server-owned.
 - [ ] All economy mutations have duplicate-send pending guards and smoke, not
