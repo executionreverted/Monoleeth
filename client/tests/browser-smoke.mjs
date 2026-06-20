@@ -26,6 +26,7 @@ const phase07OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-pat
 const phase08OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-2', '08');
 const phasePatch3OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'ui-patch-3');
 const task001Phase04OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'task-001', '04');
+const task001Phase09OutputDir = path.resolve(repoRoot, 'output', 'screenshots', 'task-001', '09');
 const adminEmail = 'smoke-admin@example.com';
 const adminPassword = 'correct-admin-password';
 const adminCallsign = 'Smoke-Admin';
@@ -196,6 +197,7 @@ try {
   await mkdir(phase08OutputDir, { recursive: true });
   await mkdir(phasePatch3OutputDir, { recursive: true });
   await mkdir(task001Phase04OutputDir, { recursive: true });
+  await mkdir(task001Phase09OutputDir, { recursive: true });
   if (useFixture) {
     await verifyFixtureViewport({ width: 1440, height: 900 }, 'fixture-desktop');
     await verifyFixtureViewport({ width: 390, height: 844 }, 'fixture-mobile');
@@ -703,6 +705,9 @@ async function verifyQuestBoardSurface(page, viewport, label) {
       hasReward: Boolean(document.querySelector('[data-window-panel="quests"] .quest-reward-row')),
       offers: window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.offers?.length ?? 0,
       active: window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.active?.length ?? 0,
+      hasServerActionState:
+        window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.offers?.every((offer) => typeof offer.can_accept === 'boolean') === true &&
+        typeof window.__SPACE_MORPG_SMOKE_STATE__?.questBoard?.can_reroll === 'boolean',
     };
   });
   if (!/quests/i.test(initial.navText) || /galaxy/i.test(initial.navText)) {
@@ -712,7 +717,8 @@ async function verifyQuestBoardSurface(page, viewport, label) {
     initial.rowCount < 2 ||
     !['Offers', 'Active', 'Claimable', 'Completed'].every((section) => initial.sectionLabels.includes(section)) ||
     !initial.hasObjective ||
-    !initial.hasReward
+    !initial.hasReward ||
+    !initial.hasServerActionState
   ) {
     throw new Error(`${label}: quest board surface incomplete ${JSON.stringify(initial)}`);
   }
@@ -750,19 +756,32 @@ async function verifyQuestBoardSurface(page, viewport, label) {
   const actionState = await page.evaluate(() => {
     const reroll = document.querySelector('[data-window-panel="quests"] [data-action="quest-reroll"]');
     const claim = document.querySelector('[data-window-panel="quests"] [data-action="quest-claim"]');
+    const disabledQuestPrimary = [...document.querySelectorAll('[data-window-panel="quests"] [data-action="quest-accept"], [data-window-panel="quests"] [data-action="quest-claim"]')].filter(
+      (node) => node instanceof HTMLButtonElement && node.disabled,
+    );
     return {
       acceptedCommands: (window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? []).filter((line) => line.text === 'Sent quest.accept.').length,
       hasRerollContract: reroll instanceof HTMLButtonElement,
-      hasClaimContract: claim instanceof HTMLButtonElement,
+      claimContractValid: !(claim instanceof HTMLButtonElement) || !claim.disabled,
+      disabledQuestPrimaryCount: disabledQuestPrimary.length,
+      hasClaimLockedCopy: /claim locked/i.test(document.querySelector('[data-window-panel="quests"]')?.textContent ?? ''),
       activeRows: document.querySelectorAll('[data-window-panel="quests"] .quest-section[data-quest-section="active"] .quest-row').length,
       detailKey: document.querySelector('[data-window-panel="quests"] [data-quest-detail]')?.getAttribute('data-quest-detail') ?? '',
     };
   });
-  if (actionState.acceptedCommands <= acceptBefore || !actionState.hasRerollContract || !actionState.hasClaimContract || actionState.activeRows < 1) {
+  if (
+    actionState.acceptedCommands <= acceptBefore ||
+    !actionState.hasRerollContract ||
+    !actionState.claimContractValid ||
+    actionState.disabledQuestPrimaryCount > 0 ||
+    actionState.hasClaimLockedCopy ||
+    actionState.activeRows < 1
+  ) {
     throw new Error(`${label}: quest action wiring incomplete ${JSON.stringify(actionState)}`);
   }
 
   await page.screenshot({ path: path.join(phasePatch3OutputDir, `quests-${label}.png`), fullPage: true });
+  await page.screenshot({ path: path.join(task001Phase09OutputDir, `quests-${label}.png`), fullPage: true });
   if (viewport.width < 768) {
     const hasHorizontalScroll = await page.evaluate(() => document.scrollingElement.scrollWidth > window.innerWidth + 1);
     if (hasHorizontalScroll) {

@@ -2398,6 +2398,9 @@ function parseQuestBoardSummary(payload: JsonObject, fallback: QuestBoardSummary
       currency_type: stringField(rerollCost, 'currency_type') ?? fallback?.reroll_cost.currency_type ?? 'credits',
       amount: Math.max(0, Math.round(numberField(rerollCost, 'amount') ?? fallback?.reroll_cost.amount ?? 0)),
     },
+    can_reroll: booleanField(payload, 'can_reroll') ?? fallback?.can_reroll ?? false,
+    locked_reason: stringField(payload, 'locked_reason') ?? fallback?.locked_reason ?? undefined,
+    reset_at: optionalRoundedNumber(payload, 'reset_at', fallback?.reset_at),
     generated_at: Math.max(0, Math.round(numberField(payload, 'generated_at') ?? fallback?.generated_at ?? 0)),
   };
 }
@@ -2415,6 +2418,8 @@ function parseQuestOffer(payload: JsonObject): QuestOfferSummary | null {
     objectives: parseQuestObjectives(payload),
     rewards: parseQuestRewards(payload),
     expires_at: Math.max(0, Math.round(numberField(payload, 'expires_at') ?? 0)),
+    can_accept: booleanField(payload, 'can_accept') ?? true,
+    locked_reason: stringField(payload, 'locked_reason') ?? undefined,
   };
 }
 
@@ -2425,6 +2430,7 @@ function parseQuestSummary(payload: JsonObject, fallback: QuestSummary | null): 
   }
   return {
     quest_id: questID,
+    accepted_offer_id: stringField(payload, 'accepted_offer_id') ?? fallback?.accepted_offer_id ?? undefined,
     quest_type: stringField(payload, 'quest_type') ?? fallback?.quest_type ?? '',
     title: stringField(payload, 'title') ?? fallback?.title ?? questID,
     description: stringField(payload, 'description') ?? fallback?.description ?? '',
@@ -3020,14 +3026,16 @@ function applyQuestUpdate(board: QuestBoardSummary | null, quest: QuestSummary):
   if (!board) {
     return null;
   }
+  const offers = quest.accepted_offer_id ? board.offers.filter((offer) => offer.offer_id !== quest.accepted_offer_id) : board.offers;
   const active = board.active.some((item) => item.quest_id === quest.quest_id)
     ? board.active.map((item) => (item.quest_id === quest.quest_id ? quest : item))
     : [...board.active, quest];
   return {
     ...board,
+    offers,
     active,
     counts: {
-      offers: board.offers.length,
+      offers: offers.length,
       active: countQuests(active, 'accepted'),
       completed: countQuests(active, 'completed'),
       claimable: active.filter((item) => item.can_claim).length,

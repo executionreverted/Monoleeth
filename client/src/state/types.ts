@@ -203,10 +203,13 @@ export interface QuestOfferSummary {
   objectives: QuestObjectiveSummary[];
   rewards: QuestRewardSummary[];
   expires_at: number;
+  can_accept: boolean;
+  locked_reason?: string;
 }
 
 export interface QuestSummary {
   quest_id: string;
+  accepted_offer_id?: string;
   quest_type: string;
   title: string;
   description: string;
@@ -233,6 +236,9 @@ export interface QuestBoardSummary {
     currency_type: string;
     amount: number;
   };
+  can_reroll: boolean;
+  locked_reason?: string;
+  reset_at?: number;
   generated_at: number;
 }
 

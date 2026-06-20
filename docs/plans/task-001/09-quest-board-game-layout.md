@@ -125,6 +125,25 @@ limits, objective progress, hidden target ids, or reward grant truth.
 - Browser smoke must include an expired offer or stale board refresh path, in
   addition to accept/claim/reroll happy paths where fixtures expose them.
 
+## Implementation Evidence - 2026-06-20
+
+- Quest board payloads now include server-owned action state: offer
+  `can_accept`, quest `can_claim`, board `can_reroll`, player-facing locked
+  reason, offer `expires_at`, and board `reset_at`.
+- `quest.accepted` events include `accepted_offer_id`. The client reducer uses
+  that id to remove stale offers even when the response path is absent, and
+  reducer coverage asserts the event-only cleanup.
+- The Quest HUD uses server action state instead of local wallet/selection
+  heuristics for accept/reroll visibility. Non-claimable quests render quiet
+  status copy instead of a disabled primary `Claim Locked` button.
+- Browser smoke now fails if the Quest board lacks server action-state fields,
+  if disabled quest primary buttons appear, or if `Claim Locked` leaks into
+  player UI. Quest screenshots are also captured under
+  `output/screenshots/task-001/09/`.
+- Server coverage verifies quest board action state, accept offer removal,
+  client-authored progress rejection, reward claim idempotency, and reroll
+  wallet debit/board refresh.
+
 ## Implementation Plan
 
 1. Build the board model.
@@ -177,29 +196,29 @@ docs/plans/task-001/09-quest-board-game-layout.md
 
 ## Acceptance Criteria
 
-- [ ] Quests has an owning Task 001 phase and visible board layout.
-- [ ] The menu label and window title are `Quests`, not `Galaxy`.
-- [ ] Quest rows are selectable and show server-owned state.
-- [ ] Selected quest detail shows objectives, progress, and rewards.
-- [ ] Accept, claim, and reroll actions are real or absent/locked with game copy.
-- [ ] Reward claim is idempotent and cannot duplicate XP/currency/items.
-- [ ] Client cannot author quest completion/progress.
-- [ ] Passive quest events reconcile or trigger explicit refresh.
-- [ ] Quest board payload includes server-owned action state for accept, claim,
+- [x] Quests has an owning Task 001 phase and visible board layout.
+- [x] The menu label and window title are `Quests`, not `Galaxy`.
+- [x] Quest rows are selectable and show server-owned state.
+- [x] Selected quest detail shows objectives, progress, and rewards.
+- [x] Accept, claim, and reroll actions are real or absent/locked with game copy.
+- [x] Reward claim is idempotent and cannot duplicate XP/currency/items.
+- [x] Client cannot author quest completion/progress.
+- [x] Passive quest events reconcile or trigger explicit refresh.
+- [x] Quest board payload includes server-owned action state for accept, claim,
       and reroll availability.
-- [ ] `quest.accepted` event-only reducer path removes the accepted offer or
+- [x] `quest.accepted` event-only reducer path removes the accepted offer or
       refreshes the board.
 - [ ] Objective/reward UI renders server display metadata and does not print raw
       target/item ids.
-- [ ] Non-claimable quests do not render disabled primary `Claim Locked`
+- [x] Non-claimable quests do not render disabled primary `Claim Locked`
       controls in normal player UI.
-- [ ] Quest board payload includes expiry/reset state or a named blocker for
+- [x] Quest board payload includes expiry/reset state or a named blocker for
       offers that can expire.
 - [ ] Expired offers cannot remain enabled through stale local selection state.
 - [ ] Reducer and smoke cover stale board revision or expired offer refresh.
 - [ ] Browser smoke exercises real claim and reroll happy paths or names the
       missing fixture blocker.
-- [ ] Browser smoke captures quest board screenshots under
+- [x] Browser smoke captures quest board screenshots under
       `output/screenshots/task-001/09/` or the final Task 001 screenshot set.
 
 ## Verification

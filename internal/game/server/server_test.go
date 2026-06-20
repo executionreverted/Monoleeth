@@ -1385,6 +1385,9 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 	if len(boardPayload.QuestBoard.Offers) != quests.BoardOfferCount || boardPayload.QuestBoard.RerollCost.Amount <= 0 {
 		t.Fatalf("quest board = %+v, want ten server offers and reroll cost", boardPayload.QuestBoard)
 	}
+	if !boardPayload.QuestBoard.CanReroll || boardPayload.QuestBoard.ResetAt <= boardPayload.QuestBoard.GeneratedAt || !boardPayload.QuestBoard.Offers[0].CanAccept {
+		t.Fatalf("quest board action state = %+v first offer %+v, want server-owned reroll/accept/reset state", boardPayload.QuestBoard, boardPayload.QuestBoard.Offers[0])
+	}
 	drainEventTypes(t, conn, realtime.EventQuestBoardGenerated)
 
 	writeText(t, conn, `{"request_id":"request-quest-progress-spoof","op":"quest.progress","payload":{"progress":{"current":999,"completed":true}},"client_seq":2,"v":1}`)
@@ -1406,6 +1409,9 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 	}
 	if accepted.Quest == nil || accepted.Quest.QuestID == "" || accepted.Quest.State != quests.QuestStateAccepted.String() {
 		t.Fatalf("accepted quest = %+v, want accepted quest", accepted.Quest)
+	}
+	if accepted.Quest.AcceptedOfferID != offer.OfferID || accepted.QuestBoard.Counts.Offers != quests.BoardOfferCount-1 {
+		t.Fatalf("accepted quest offer reconciliation = quest %+v board counts %+v, want accepted offer removed", accepted.Quest, accepted.QuestBoard.Counts)
 	}
 	drainEventTypes(t, conn, realtime.EventQuestAccepted)
 

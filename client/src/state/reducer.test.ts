@@ -1957,11 +1957,14 @@ describe('reduceClientState', () => {
           objectives: [{ id: 'kill', kind: 'kill', target: 'pirate_drone', current: 0, required: 2, completed: false }],
           rewards: [{ kind: 'currency', currency_type: 'credits', amount: 100 }],
           expires_at: 5000,
+          can_accept: true,
         },
       ],
       active: [],
       counts: { offers: 1, active: 0, completed: 0, claimable: 0, claimed: 0 },
       reroll_cost: { currency_type: 'credits', amount: 25 },
+      can_reroll: true,
+      reset_at: 5000,
       generated_at: 1000,
     };
     const withBoard = reduceClientState(createInitialState(), {
@@ -1977,6 +1980,7 @@ describe('reduceClientState', () => {
 
     const acceptedQuest = {
       quest_id: 'quest-1',
+      accepted_offer_id: 'offer-1',
       quest_type: 'kill',
       title: 'Training Sweep',
       description: 'Destroy hostile targets confirmed by the server.',
@@ -2071,6 +2075,8 @@ describe('reduceClientState', () => {
 
     expect(withBoard.questBoard?.offers[0].offer_id).toBe('offer-1');
     expect(withAccepted.questBoard?.counts.active).toBe(1);
+    expect(withAccepted.questBoard?.offers).toHaveLength(0);
+    expect(withAccepted.questBoard?.counts.offers).toBe(0);
     expect(withProgress.questBoard?.counts.claimable).toBe(1);
     expect(afterClaim.questBoard?.counts.claimed).toBe(1);
     expect(afterClaim.wallet?.credits).toBe(600);

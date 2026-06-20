@@ -8,6 +8,7 @@ import (
 	"hash/fnv"
 	"sort"
 	"strings"
+	"time"
 
 	"gameproject/internal/game/admin"
 	"gameproject/internal/game/auth"
@@ -21,11 +22,14 @@ import (
 )
 
 type questBoardSummaryPayload struct {
-	Offers      []questOfferPayload `json:"offers"`
-	Active      []questPayload      `json:"active"`
-	Counts      questCountsPayload  `json:"counts"`
-	RerollCost  questRerollCost     `json:"reroll_cost"`
-	GeneratedAt int64               `json:"generated_at"`
+	Offers       []questOfferPayload `json:"offers"`
+	Active       []questPayload      `json:"active"`
+	Counts       questCountsPayload  `json:"counts"`
+	RerollCost   questRerollCost     `json:"reroll_cost"`
+	CanReroll    bool                `json:"can_reroll"`
+	LockedReason string              `json:"locked_reason,omitempty"`
+	ResetAt      int64               `json:"reset_at,omitempty"`
+	GeneratedAt  int64               `json:"generated_at"`
 }
 
 type questCountsPayload struct {
@@ -37,27 +41,30 @@ type questCountsPayload struct {
 }
 
 type questOfferPayload struct {
-	OfferID     string                  `json:"offer_id"`
-	Type        string                  `json:"quest_type"`
-	Title       string                  `json:"title"`
-	Description string                  `json:"description"`
-	Objectives  []questObjectivePayload `json:"objectives"`
-	Rewards     []questRewardPayload    `json:"rewards"`
-	ExpiresAt   int64                   `json:"expires_at"`
+	OfferID      string                  `json:"offer_id"`
+	Type         string                  `json:"quest_type"`
+	Title        string                  `json:"title"`
+	Description  string                  `json:"description"`
+	Objectives   []questObjectivePayload `json:"objectives"`
+	Rewards      []questRewardPayload    `json:"rewards"`
+	ExpiresAt    int64                   `json:"expires_at"`
+	CanAccept    bool                    `json:"can_accept"`
+	LockedReason string                  `json:"locked_reason,omitempty"`
 }
 
 type questPayload struct {
-	QuestID     string                  `json:"quest_id"`
-	Type        string                  `json:"quest_type"`
-	Title       string                  `json:"title"`
-	Description string                  `json:"description"`
-	State       string                  `json:"state"`
-	Objectives  []questObjectivePayload `json:"objectives"`
-	Rewards     []questRewardPayload    `json:"rewards"`
-	AcceptedAt  int64                   `json:"accepted_at"`
-	CompletedAt int64                   `json:"completed_at,omitempty"`
-	ClaimedAt   int64                   `json:"claimed_at,omitempty"`
-	CanClaim    bool                    `json:"can_claim"`
+	QuestID         string                  `json:"quest_id"`
+	AcceptedOfferID string                  `json:"accepted_offer_id,omitempty"`
+	Type            string                  `json:"quest_type"`
+	Title           string                  `json:"title"`
+	Description     string                  `json:"description"`
+	State           string                  `json:"state"`
+	Objectives      []questObjectivePayload `json:"objectives"`
+	Rewards         []questRewardPayload    `json:"rewards"`
+	AcceptedAt      int64                   `json:"accepted_at"`
+	CompletedAt     int64                   `json:"completed_at,omitempty"`
+	ClaimedAt       int64                   `json:"claimed_at,omitempty"`
+	CanClaim        bool                    `json:"can_claim"`
 }
 
 type questObjectivePayload struct {
@@ -235,6 +242,7 @@ func (runtime *Runtime) handleQuestAccept(ctx realtime.CommandContext, request r
 		return nil, domainErrorForQuest(err)
 	}
 	questPayload := runtime.questPayloadFromQuest(quest)
+	questPayload.AcceptedOfferID = offerID.String()
 	runtime.queueEventLocked(authSessionID(ctx.SessionID), realtime.EventQuestAccepted, questPayload)
 	board, _, err := runtime.ensureQuestBoardLocked(ctx.PlayerID)
 	if err != nil {
@@ -586,17 +594,15 @@ func (runtime *Runtime) questBoardSeedLocked(player quests.PlayerQuestBoardSnaps
 }
 
 func (runtime *Runtime) questBoardSummaryPayload(playerID foundation.PlayerID, offers []quests.GeneratedBoardOffer, playerQuests []quests.PlayerQuest) (questBoardSummaryPayload, error) {
-	offerPayloads := make([]questOfferPayload, 0, len(offers))
-	for _, offer := range offers {
-		offerPayloads = append(offerPayloads, runtime.questOfferPayloadFromOffer(offer))
-	}
-	sort.Slice(offerPayloads, func(i, j int) bool { return offerPayloads[i].OfferID < offerPayloads[j].OfferID })
-
 	activePayloads := make([]questPayload, 0, len(playerQuests))
-	counts := questCountsPayload{Offers: len(offerPayloads)}
+	counts := questCountsPayload{}
+	activeLimitCount := 0
 	for _, quest := range playerQuests {
 		payload := runtime.questPayloadFromQuest(quest)
 		activePayloads = append(activePayloads, payload)
+		if questCountsAgainstActiveLimitForPayload(quest) {
+			activeLimitCount++
+		}
 		switch quest.State {
 		case quests.QuestStateAccepted:
 			counts.Active++
@@ -619,6 +625,23 @@ func (runtime *Runtime) questBoardSummaryPayload(playerID foundation.PlayerID, o
 	if err != nil {
 		return questBoardSummaryPayload{}, err
 	}
+	now := runtime.clock.Now().UTC()
+	offerPayloads := make([]questOfferPayload, 0, len(offers))
+	resetAt := int64(0)
+	for _, offer := range offers {
+		offerPayload := runtime.questOfferPayloadFromOffer(offer, activeLimitCount, now)
+		offerPayloads = append(offerPayloads, offerPayload)
+		if offerPayload.ExpiresAt > 0 && (resetAt == 0 || offerPayload.ExpiresAt < resetAt) {
+			resetAt = offerPayload.ExpiresAt
+		}
+	}
+	sort.Slice(offerPayloads, func(i, j int) bool { return offerPayloads[i].OfferID < offerPayloads[j].OfferID })
+	counts.Offers = len(offerPayloads)
+	canReroll := runtime.Wallet.Balance(playerID, cost.Currency) >= cost.Amount
+	lockedReason := ""
+	if !canReroll {
+		lockedReason = "Insufficient balance."
+	}
 	return questBoardSummaryPayload{
 		Offers: offerPayloads,
 		Active: activePayloads,
@@ -627,19 +650,42 @@ func (runtime *Runtime) questBoardSummaryPayload(playerID foundation.PlayerID, o
 			Currency: cost.Currency.String(),
 			Amount:   cost.Amount,
 		},
-		GeneratedAt: runtime.clock.Now().UTC().UnixMilli(),
+		CanReroll:    canReroll,
+		LockedReason: lockedReason,
+		ResetAt:      resetAt,
+		GeneratedAt:  now.UnixMilli(),
 	}, nil
 }
 
-func (runtime *Runtime) questOfferPayloadFromOffer(offer quests.GeneratedBoardOffer) questOfferPayload {
+func (runtime *Runtime) questOfferPayloadFromOffer(offer quests.GeneratedBoardOffer, activeLimitCount int, now time.Time) questOfferPayload {
+	canAccept := activeLimitCount < quests.MaxActivePlayerQuests && offer.ExpiresAt.After(now)
+	lockedReason := ""
+	if !offer.ExpiresAt.After(now) {
+		lockedReason = "Offer expired."
+	} else if activeLimitCount >= quests.MaxActivePlayerQuests {
+		lockedReason = "Quest slots full."
+	}
 	return questOfferPayload{
-		OfferID:     offer.OfferID.String(),
-		Type:        offer.Type.String(),
-		Title:       questTitle(offer.TemplateID.String()),
-		Description: questDescription(offer.Type),
-		Objectives:  questObjectivesFromSchema(offer.GeneratedPayload.Objective, nil),
-		Rewards:     questRewardsFromPayload(offer.RewardPayload),
-		ExpiresAt:   offer.ExpiresAt.UTC().UnixMilli(),
+		OfferID:      offer.OfferID.String(),
+		Type:         offer.Type.String(),
+		Title:        questTitle(offer.TemplateID.String()),
+		Description:  questDescription(offer.Type),
+		Objectives:   questObjectivesFromSchema(offer.GeneratedPayload.Objective, nil),
+		Rewards:      questRewardsFromPayload(offer.RewardPayload),
+		ExpiresAt:    offer.ExpiresAt.UTC().UnixMilli(),
+		CanAccept:    canAccept,
+		LockedReason: lockedReason,
+	}
+}
+
+func questCountsAgainstActiveLimitForPayload(quest quests.PlayerQuest) bool {
+	switch quest.State {
+	case quests.QuestStateAccepted:
+		return true
+	case quests.QuestStateCompleted:
+		return quest.ClaimedAt == nil && quest.RewardClaimedAt == nil
+	default:
+		return false
 	}
 }
 

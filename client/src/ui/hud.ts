@@ -2420,8 +2420,8 @@ function questBoardPanel(state: ClientState): string {
   const sections = questBoardSections(board);
   const entries = [...sections.claimable, ...sections.active, ...sections.offers, ...sections.completed];
   const selected = selectedQuestEntry(entries);
-  const balance = state.wallet ? walletBalanceForCurrency(state.wallet, board.reroll_cost.currency_type) : null;
-  const canReroll = balance !== null && balance >= board.reroll_cost.amount;
+  const canReroll = board.can_reroll;
+  const rerollTitle = canReroll ? 'Reroll the quest board' : board.locked_reason || 'Reroll unavailable';
 
   return `
     <section class="quest-board" data-quest-board="true">
@@ -2444,7 +2444,7 @@ function questBoardPanel(state: ClientState): string {
             <span>Reroll Cost</span>
             <strong>${board.reroll_cost.amount} ${escapeHTML(board.reroll_cost.currency_type.replace(/_/g, ' '))}</strong>
           </div>
-          <button type="button" data-action="quest-reroll" ${canReroll ? '' : 'disabled'} title="${canReroll ? 'Reroll the quest board' : 'Insufficient wallet balance'}">Reroll</button>
+          <button type="button" data-action="quest-reroll" ${canReroll ? '' : 'disabled'} title="${escapeHTML(rerollTitle)}">Reroll</button>
         </div>
       </div>
     </section>
@@ -2576,10 +2576,15 @@ function questObjectiveRow(objective: QuestOfferSummary['objectives'][number]): 
 
 function questActionButton(entry: QuestEntry): string {
   if (entry.kind === 'offer') {
+    if (!entry.item.can_accept) {
+      return `<span class="quest-action-status">${escapeHTML(entry.item.locked_reason || 'Quest unavailable')}</span>`;
+    }
     return `<button type="button" data-action="quest-accept" data-offer-id="${escapeHTML(entry.item.offer_id)}">Accept</button>`;
   }
-  const claimable = entry.item.can_claim;
-  return `<button type="button" data-action="quest-claim" data-quest-id="${escapeHTML(entry.item.quest_id)}" ${claimable ? '' : 'disabled'}>${claimable ? 'Claim' : 'Claim Locked'}</button>`;
+  if (entry.item.can_claim) {
+    return `<button type="button" data-action="quest-claim" data-quest-id="${escapeHTML(entry.item.quest_id)}">Claim</button>`;
+  }
+  return `<span class="quest-action-status">${escapeHTML(questStatusLabel(entry.item))}</span>`;
 }
 
 function questStatusLabel(quest: QuestSummary): string {

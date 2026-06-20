@@ -2548,6 +2548,14 @@ button:disabled {
   gap: 0.4rem;
 }
 
+.quest-action-status {
+  align-self: center;
+  min-width: 0;
+  color: rgba(215, 247, 255, 0.62);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+}
+
 .quest-actions button,
 .quest-reroll button {
   min-width: 4.25rem;
