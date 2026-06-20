@@ -573,7 +573,7 @@ func (input CreateListingInput) validate(now time.Time) error {
 	if err := input.SourceLocation.Validate(); err != nil {
 		return err
 	}
-	if err := validateListingSourceLocation(input.SellerPlayerID, input.SourceLocation); err != nil {
+	if err := ValidateListingSourceLocation(input.SellerPlayerID, input.SourceLocation); err != nil {
 		return err
 	}
 	if _, err := foundation.NewQuantity(input.Quantity); err != nil {
@@ -742,7 +742,8 @@ func (service *MarketService) recordSuspiciousTradeLocked(listing Listing, input
 	})
 }
 
-func validateListingSourceLocation(sellerID foundation.PlayerID, location economy.ItemLocation) error {
+// ValidateListingSourceLocation applies the market source-location policy used by CreateListing.
+func ValidateListingSourceLocation(sellerID foundation.PlayerID, location economy.ItemLocation) error {
 	if err := economy.ValidatePlayerTradeOrEquipLocation(location, location.Kind == economy.LocationKindShipEquipped); err != nil {
 		return err
 	}

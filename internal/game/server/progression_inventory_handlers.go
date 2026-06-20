@@ -11,6 +11,7 @@ import (
 	"gameproject/internal/game/crafting"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/market"
 	"gameproject/internal/game/modules"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/ships"
@@ -24,10 +25,12 @@ type inventorySnapshotPayload struct {
 }
 
 type inventoryStackPayload struct {
-	ItemID      string `json:"item_id"`
-	DisplayName string `json:"display_name,omitempty"`
-	Quantity    int64  `json:"quantity"`
-	Location    string `json:"location"`
+	ItemID       string `json:"item_id"`
+	DisplayName  string `json:"display_name,omitempty"`
+	Quantity     int64  `json:"quantity"`
+	Location     string `json:"location"`
+	ListEligible bool   `json:"list_eligible"`
+	LockedReason string `json:"locked_reason,omitempty"`
 }
 
 type inventoryInstancePayload struct {
@@ -341,11 +344,14 @@ func (runtime *Runtime) inventorySnapshotLocked(playerID foundation.PlayerID) in
 		} else if isStorageLocation(item.Location.Kind) {
 			counts.StorageStacks++
 		}
+		listEligible, lockedReason := runtime.marketListEligibilityForStackLocked(playerID, item)
 		stackable = append(stackable, inventoryStackPayload{
-			ItemID:      item.ItemID.String(),
-			DisplayName: runtime.itemDisplayName(item.ItemID),
-			Quantity:    item.Quantity.Int64(),
-			Location:    location,
+			ItemID:       item.ItemID.String(),
+			DisplayName:  runtime.itemDisplayName(item.ItemID),
+			Quantity:     item.Quantity.Int64(),
+			Location:     location,
+			ListEligible: listEligible,
+			LockedReason: lockedReason,
 		})
 	}
 
@@ -408,6 +414,27 @@ func (runtime *Runtime) inventorySnapshotLocked(playerID foundation.PlayerID) in
 		Instances: instances,
 		Counts:    counts,
 	}
+}
+
+func (runtime *Runtime) marketListEligibilityForStackLocked(playerID foundation.PlayerID, item economy.StackableItem) (bool, string) {
+	if item.Quantity.Int64() <= 0 {
+		return false, "Market listing unavailable"
+	}
+	definition, ok := runtime.itemCatalog[item.ItemID]
+	if !ok {
+		return false, "Market listing unavailable"
+	}
+	if err := economy.ValidateMarketListingTradeFlags(definition.TradeFlags); err != nil {
+		return false, "Item cannot be listed"
+	}
+	sourceLocation, err := runtime.resolveMarketSourceLocationLocked(playerID, publicInventoryLocation(item.Location))
+	if err != nil || sourceLocation != item.Location {
+		return false, "Move item to inventory first"
+	}
+	if err := market.ValidateListingSourceLocation(playerID, sourceLocation); err != nil {
+		return false, "Move item to inventory first"
+	}
+	return true, ""
 }
 
 func (runtime *Runtime) hangarSnapshotLocked(playerID foundation.PlayerID) (hangarSnapshotPayload, error) {

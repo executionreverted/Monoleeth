@@ -1357,6 +1357,78 @@ func TestPhase08MarketAuctionPremiumUseServerEconomyState(t *testing.T) {
 	})
 }
 
+func TestInventorySnapshotCarriesServerOwnedMarketListEligibility(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	writeText(t, conn, `{"request_id":"request-market-buy-for-sell-eligibility","op":"market.buy","payload":{"listing_id":"`+seedMarketListingID.String()+`","quantity":1},"client_seq":1,"v":1}`)
+	buyResponse := readResponse(t, conn)
+	if !buyResponse.OK {
+		t.Fatalf("market buy response = %+v, want success", buyResponse)
+	}
+	var buyPayload marketMutationPayload
+	if err := json.Unmarshal(buyResponse.Payload, &buyPayload); err != nil {
+		t.Fatalf("decode market buy: %v", err)
+	}
+	rawOre := requireInventoryStack(t, buyPayload.Inventory, "raw_ore", economy.LocationKindAccountInventory.String())
+	if !rawOre.ListEligible || rawOre.LockedReason != "" {
+		t.Fatalf("raw ore market eligibility = %+v, want eligible without locked reason", rawOre)
+	}
+	drainEventTypes(t, conn, realtime.EventMarketSaleCompleted, realtime.EventWalletSnapshot, realtime.EventInventorySnapshot)
+
+	accountLocation, err := economy.NewItemLocation(economy.LocationKindAccountInventory, resolved.PlayerID.String())
+	if err != nil {
+		t.Fatalf("account location: %v", err)
+	}
+	blockedLocation, err := economy.NewItemLocation(economy.LocationKindCraftingReserved, "craft-reserved-sell-test")
+	if err != nil {
+		t.Fatalf("blocked location: %v", err)
+	}
+	unlistedDefinition := testStackableDefinition(t, "bound_scrap", "Bound Scrap", []economy.TradeFlag{economy.TradeFlagDroppable})
+
+	gameServer.runtime.mu.Lock()
+	marketDefinition, ok := gameServer.runtime.itemCatalog["raw_ore"]
+	if !ok {
+		gameServer.runtime.mu.Unlock()
+		t.Fatal("raw_ore definition missing")
+	}
+	gameServer.runtime.itemCatalog[unlistedDefinition.ItemID] = unlistedDefinition
+	gameServer.runtime.mu.Unlock()
+
+	addTestInventoryStack(t, gameServer, resolved.PlayerID, unlistedDefinition, 2, accountLocation, "sell-eligibility-non-market")
+	addTestInventoryStack(t, gameServer, resolved.PlayerID, marketDefinition, 2, blockedLocation, "sell-eligibility-blocked-location")
+
+	writeText(t, conn, `{"request_id":"request-inventory-sell-eligibility","op":"inventory.snapshot","payload":{},"client_seq":2,"v":1}`)
+	inventoryResponse := readResponse(t, conn)
+	if !inventoryResponse.OK {
+		t.Fatalf("inventory response = %+v, want success", inventoryResponse)
+	}
+	var inventoryPayload struct {
+		Inventory inventorySnapshotPayload `json:"inventory"`
+	}
+	if err := json.Unmarshal(inventoryResponse.Payload, &inventoryPayload); err != nil {
+		t.Fatalf("decode inventory snapshot: %v", err)
+	}
+
+	accountRawOre := requireInventoryStack(t, inventoryPayload.Inventory, "raw_ore", economy.LocationKindAccountInventory.String())
+	if !accountRawOre.ListEligible || accountRawOre.LockedReason != "" {
+		t.Fatalf("account raw ore eligibility = %+v, want eligible without locked reason", accountRawOre)
+	}
+	boundScrap := requireInventoryStack(t, inventoryPayload.Inventory, "bound_scrap", economy.LocationKindAccountInventory.String())
+	if boundScrap.ListEligible || boundScrap.LockedReason != "Item cannot be listed" {
+		t.Fatalf("bound scrap eligibility = %+v, want item cannot be listed", boundScrap)
+	}
+	reservedRawOre := requireInventoryStack(t, inventoryPayload.Inventory, "raw_ore", economy.LocationKindCraftingReserved.String())
+	if reservedRawOre.ListEligible || reservedRawOre.LockedReason != "Move item to inventory first" {
+		t.Fatalf("reserved raw ore eligibility = %+v, want move-to-inventory lock", reservedRawOre)
+	}
+}
+
 func TestMarketCreateListingDuplicateRequestIDReturnsCachedResponse(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
@@ -3365,6 +3437,17 @@ func assertQuestRewardInventorySnapshot(t *testing.T, inventory inventorySnapsho
 	t.Fatalf("quest reward inventory = %+v, missing %s x%d in account inventory", inventory, reward.ItemID, reward.Amount)
 }
 
+func requireInventoryStack(t *testing.T, inventory inventorySnapshotPayload, itemID string, location string) inventoryStackPayload {
+	t.Helper()
+	for _, stack := range inventory.Stackable {
+		if stack.ItemID == itemID && stack.Location == location {
+			return stack
+		}
+	}
+	t.Fatalf("inventory = %+v, missing stack %s at %s", inventory, itemID, location)
+	return inventoryStackPayload{}
+}
+
 func requireInventoryInstance(t *testing.T, inventory inventorySnapshotPayload, itemID string, location string) string {
 	t.Helper()
 	for _, item := range inventory.Instances {
@@ -3390,6 +3473,56 @@ func requireInventoryInstanceLocation(t *testing.T, inventory inventorySnapshotP
 		}
 	}
 	t.Fatalf("inventory = %+v, missing instance %s", inventory, itemInstanceID)
+}
+
+func testStackableDefinition(t *testing.T, itemID string, name string, flags []economy.TradeFlag) economy.ItemDefinition {
+	t.Helper()
+	source, err := catalog.NewVersionedDefinitionFromStrings(itemID, "v1")
+	if err != nil {
+		t.Fatalf("definition source: %v", err)
+	}
+	maxStack, err := foundation.NewQuantity(999)
+	if err != nil {
+		t.Fatalf("max stack: %v", err)
+	}
+	weight, err := foundation.NewQuantity(1)
+	if err != nil {
+		t.Fatalf("weight: %v", err)
+	}
+	definition, err := economy.NewItemDefinition(
+		source,
+		foundation.ItemID(itemID),
+		name,
+		economy.ItemTypeStackable,
+		economy.ItemRarityCommon,
+		maxStack,
+		weight,
+		flags,
+		[]economy.BindRule{economy.BindRuleNone},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("stackable definition: %v", err)
+	}
+	return definition
+}
+
+func addTestInventoryStack(t *testing.T, gameServer *Server, playerID foundation.PlayerID, definition economy.ItemDefinition, quantity int64, location economy.ItemLocation, referenceSuffix string) {
+	t.Helper()
+	referenceKey, err := foundation.AdminCompensationIdempotencyKey(playerID.String(), referenceSuffix)
+	if err != nil {
+		t.Fatalf("inventory reference: %v", err)
+	}
+	if _, err := gameServer.runtime.Inventory.AddItem(economy.AddItemInput{
+		PlayerID:       playerID,
+		ItemDefinition: definition,
+		Quantity:       quantity,
+		Location:       location,
+		Reason:         runtimeSeedLedgerReason,
+		ReferenceKey:   referenceKey,
+	}); err != nil {
+		t.Fatalf("add inventory stack: %v", err)
+	}
 }
 
 func requireLoadoutSlot(t *testing.T, loadout loadoutSnapshotPayload, slotID string) loadoutSlotPayload {
