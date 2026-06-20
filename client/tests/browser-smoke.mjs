@@ -106,6 +106,15 @@ const allowedEnabledActions = [
   'sync',
   'target-select',
 ];
+const economyDuplicateSendTargets = [
+  { op: 'market.buy', action: 'market-buy' },
+  { op: 'market.create_listing', action: 'market-create' },
+  { op: 'market.cancel', action: 'market-cancel' },
+  { op: 'auction.bid', action: 'auction-bid' },
+  { op: 'auction.buy_now', action: 'auction-buy-now' },
+  { op: 'premium.claim', action: 'premium-claim' },
+  { op: 'premium.purchase_weekly_xcore', action: 'premium-weekly-xcore' },
+];
 const fakeSocialCountPatterns = [
   { label: 'unread mail count', pattern: /\b(?:mail|inbox|unread)\b[^\n]{0,24}\b\d+\b/i },
   { label: 'friend count', pattern: /\bfriends?\b[^\n]{0,24}\b\d+\b/i },
@@ -2982,28 +2991,19 @@ async function verifyRealEconomy(page, viewport, label) {
   await page.locator(`[data-window-panel="economy"] [data-action="shop-select"][data-shop-key="${laserProductID}"]`).click();
   const shopBuySelector = `[data-window-panel="economy"] [data-action="shop-buy-product"][data-product-id="${laserProductID}"]`;
   await page.waitForSelector(`${shopBuySelector}:not([disabled])`, { timeout: 10000 });
+  const beforeShopBuySends = await outboundSendsForOp(page, 'shop.buy_product');
   const beforeBuy = await page.evaluate((productID) => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
-    const sends = (window.__SPACE_MORPG_WS_EVENTS__ ?? [])
-      .filter((event) => event.kind === 'send' && typeof event.data === 'string')
-      .map((event) => {
-        try {
-          return JSON.parse(event.data);
-        } catch {
-          return null;
-        }
-      })
-      .filter((message) => message?.op === 'shop.buy_product');
     return {
       credits: state?.wallet?.credits ?? null,
       laserCount: (state?.inventory?.instances ?? []).filter((item) => item.item_id === 'laser_alpha_t1').length,
       pendingCount: Object.values(state?.pendingCommands ?? {}).filter((command) => command.op === 'shop.buy_product').length,
-      sendCount: sends.length,
       productAvailable: state?.shopCatalog?.products?.some(
         (product) => product.product_id === productID && product.availability?.available === true,
       ),
     };
   }, laserProductID);
+  beforeBuy.sendCount = beforeShopBuySends.length;
   if (beforeBuy.credits === null || beforeBuy.pendingCount !== 0 || beforeBuy.productAvailable !== true) {
     throw new Error(`${label}: shop buy precondition mismatch ${JSON.stringify(beforeBuy)}`);
   }
@@ -3034,25 +3034,16 @@ async function verifyRealEconomy(page, viewport, label) {
     { beforeCredits: beforeBuy.credits, beforeLaserCount: beforeBuy.laserCount, productID: laserProductID },
     { timeout: 10000 },
   );
+  const afterShopBuySends = await outboundSendsForOp(page, 'shop.buy_product');
   const afterBuy = await page.evaluate(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
-    const sends = (window.__SPACE_MORPG_WS_EVENTS__ ?? [])
-      .filter((event) => event.kind === 'send' && typeof event.data === 'string')
-      .map((event) => {
-        try {
-          return JSON.parse(event.data);
-        } catch {
-          return null;
-        }
-      })
-      .filter((message) => message?.op === 'shop.buy_product');
     return {
       credits: state?.wallet?.credits ?? null,
       laserCount: (state?.inventory?.instances ?? []).filter((item) => item.item_id === 'laser_alpha_t1').length,
       pendingCount: Object.values(state?.pendingCommands ?? {}).filter((command) => command.op === 'shop.buy_product').length,
-      sends,
     };
   });
+  afterBuy.sends = afterShopBuySends;
   const commandCountAfterBuy = await commandLogCount(page, 'Sent shop.buy_product.');
   const newShopBuySends = afterBuy.sends.slice(beforeBuy.sendCount);
   const outboundPayload = newShopBuySends[0]?.payload ?? {};
@@ -3075,8 +3066,166 @@ async function verifyRealEconomy(page, viewport, label) {
       })}`,
     );
   }
+  await assertEconomyDuplicateSendCoverage(page, label, [
+    {
+      op: 'shop.buy_product',
+      status: 'covered',
+      newSendCount: newShopBuySends.length,
+    },
+  ]);
   await page.locator('[data-window-panel="economy"] [data-panel-close="economy"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-window-panel="economy"]'), null, { timeout: 10000 });
+}
+
+async function assertEconomyDuplicateSendCoverage(page, label, initialOutcomes = []) {
+  const outcomes = [...initialOutcomes];
+  for (const target of economyDuplicateSendTargets) {
+    const actionState = await economyActionState(page, target.action);
+    if (actionState.enabledCount > 0) {
+      await assertEconomyMutationDoubleClickSendsOnce(page, label, target);
+      outcomes.push({ op: target.op, status: 'covered' });
+      continue;
+    }
+    const blocker = economyActionBlocker(target.op, actionState);
+    if (!blocker) {
+      throw new Error(`${label}: ${target.op} had no enabled button and no exact blocker ${JSON.stringify(actionState)}`);
+    }
+    outcomes.push({
+      op: target.op,
+      status: actionState.visibleCount > 0 ? 'disabled' : 'hidden',
+      blocker,
+    });
+  }
+  console.log(`${label}: economy duplicate-send coverage ${JSON.stringify(outcomes)}`);
+}
+
+async function economyActionState(page, action) {
+  return page.evaluate((actionName) => {
+    const isVisible = (element) => {
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    const buttons = Array.from(document.querySelectorAll(`[data-window-panel="economy"] [data-action="${actionName}"]`))
+      .filter((button) => button instanceof HTMLButtonElement)
+      .map((button) => ({
+        disabled: button.disabled,
+        visible: isVisible(button),
+        title: button.getAttribute('title') ?? '',
+        text: (button.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      }));
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    const activeListings = state?.market?.listings?.filter((listing) => listing.status === 'active') ?? [];
+    const sellableStacks = state?.inventory?.stackable?.filter((item) => item.list_eligible === true && item.quantity > 0) ?? [];
+    const activeLots = state?.auction?.lots?.filter((lot) => lot.status === 'active') ?? [];
+    const pendingEntitlements = state?.premium?.entitlements?.filter((entitlement) => entitlement.state === 'pending') ?? [];
+    const stock = state?.premium?.stock ?? [];
+    return {
+      totalCount: buttons.length,
+      visibleCount: buttons.filter((button) => button.visible).length,
+      enabledCount: buttons.filter((button) => button.visible && !button.disabled).length,
+      buttons,
+      smokeState: {
+        activeBuyListings: activeListings.filter((listing) => !listing.owned_by_you).length,
+        ownedListings: activeListings.filter((listing) => listing.owned_by_you).length,
+        sellableStacks: sellableStacks.length,
+        activeAuctionLots: activeLots.length,
+        buyNowLots: activeLots.filter((lot) => lot.buy_now_price !== undefined).length,
+        pendingEntitlements: pendingEntitlements.length,
+        premiumStock: stock.length,
+      },
+    };
+  }, action);
+}
+
+function economyActionBlocker(op, actionState) {
+  const disabledReasons = actionState.buttons
+    .filter((button) => button.disabled && button.visible)
+    .map((button) => button.title || button.text)
+    .filter(Boolean);
+  if (disabledReasons.length > 0) {
+    return `disabled: ${disabledReasons.join('; ')}`;
+  }
+  const snapshot = actionState.smokeState;
+  switch (op) {
+    case 'market.buy':
+      return `hidden: current shop console renders system catalog only; active external market listings=${snapshot.activeBuyListings}`;
+    case 'market.create_listing':
+      return snapshot.sellableStacks > 0
+        ? `hidden: current shop console renders system catalog only; sellable stacks=${snapshot.sellableStacks}`
+        : 'hidden: no sellable inventory stacks in current real smoke state';
+    case 'market.cancel':
+      return snapshot.ownedListings > 0
+        ? `hidden: current shop console renders system catalog only; owned listings=${snapshot.ownedListings}`
+        : 'hidden: no owned active market listing in current real smoke state';
+    case 'auction.bid':
+      return `hidden: current shop console renders system catalog only; active auction lots=${snapshot.activeAuctionLots}`;
+    case 'auction.buy_now':
+      return `hidden: current shop console renders system catalog only; buy-now auction lots=${snapshot.buyNowLots}`;
+    case 'premium.claim':
+      return `hidden: current shop console renders system catalog only; pending entitlements=${snapshot.pendingEntitlements}`;
+    case 'premium.purchase_weekly_xcore':
+      return `hidden: current shop console renders system catalog only; premium stock entries=${snapshot.premiumStock}`;
+    default:
+      return '';
+  }
+}
+
+async function assertEconomyMutationDoubleClickSendsOnce(page, label, target) {
+  const beforeSends = await outboundSendsForOp(page, target.op);
+  const commandCountBefore = await commandLogCount(page, `Sent ${target.op}.`);
+  await page.evaluate((actionName) => {
+    const selector = `[data-window-panel="economy"] [data-action="${actionName}"]`;
+    const isVisible = (element) => {
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    const firstButton = Array.from(document.querySelectorAll(selector)).find(
+      (button) => button instanceof HTMLButtonElement && isVisible(button) && !button.disabled,
+    );
+    if (!(firstButton instanceof HTMLButtonElement)) {
+      throw new Error(`No enabled button for ${actionName}`);
+    }
+    firstButton.click();
+    const repeatedButton = document.querySelector(selector);
+    if (repeatedButton instanceof HTMLButtonElement) {
+      repeatedButton.click();
+    }
+  }, target.action);
+  await page.waitForFunction(
+    ({ op, beforeCount }) => {
+      const sent = (window.__SPACE_MORPG_WS_EVENTS__ ?? [])
+        .filter((event) => event.kind === 'send' && typeof event.data === 'string')
+        .map((event) => {
+          try {
+            return JSON.parse(event.data);
+          } catch {
+            return null;
+          }
+        })
+        .filter((message) => message?.op === op).length;
+      const pending = Object.values(window.__SPACE_MORPG_SMOKE_STATE__?.pendingCommands ?? {}).filter(
+        (command) => command.op === op,
+      ).length;
+      return sent >= beforeCount + 1 && pending === 0;
+    },
+    { op: target.op, beforeCount: beforeSends.length },
+    { timeout: 10000 },
+  );
+  const afterSends = await outboundSendsForOp(page, target.op);
+  const commandCountAfter = await commandLogCount(page, `Sent ${target.op}.`);
+  if (afterSends.length !== beforeSends.length + 1 || commandCountAfter !== commandCountBefore + 1) {
+    throw new Error(
+      `${label}: ${target.op} duplicate-send guard failed ${JSON.stringify({
+        beforeCount: beforeSends.length,
+        afterCount: afterSends.length,
+        commandCountBefore,
+        commandCountAfter,
+        newSends: afterSends.slice(beforeSends.length),
+      })}`,
+    );
+  }
 }
 
 async function assertFixtureOldInventorySellGuard(page, label) {
@@ -3536,6 +3685,21 @@ async function commandLogCount(page, text) {
     const lines = window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? [];
     return lines.filter((line) => line.text === needle).length;
   }, text);
+}
+
+async function outboundSendsForOp(page, op) {
+  return page.evaluate((operation) =>
+    (window.__SPACE_MORPG_WS_EVENTS__ ?? [])
+      .filter((event) => event.kind === 'send' && typeof event.data === 'string')
+      .map((event) => {
+        try {
+          return JSON.parse(event.data);
+        } catch {
+          return null;
+        }
+      })
+      .filter((message) => message?.op === operation),
+  op);
 }
 
 async function selectedTargetID(page) {
