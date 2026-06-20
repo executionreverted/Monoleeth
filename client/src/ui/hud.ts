@@ -1,4 +1,4 @@
-import { ClientState } from '../state/types';
+import { ClientState, MinimapContact } from '../state/types';
 import { activeEntityMovement, currentEntityPosition, distanceBetween, selfEntity } from '../state/movement';
 import {
   isClickableMinimapMemory,
@@ -3032,9 +3032,11 @@ function minimapPanel(state: ClientState): string {
         return '';
       }
       const disposition = contact.status_flags?.includes('self') ? 'self' : contact.disposition || dispositionForType(contact.entity_type);
-      const action = contact.entity_type === 'loot' ? 'loot-select' : 'target-select';
+      const action = minimapLiveContactAction(contact);
+      const actionAttr = action ? ` data-action="${action}"` : '';
+      const disabledAttr = action ? '' : ' disabled';
       const source = contact.projection_source ? ` data-projection-source="${escapeHTML(contact.projection_source)}"` : '';
-      return `<button class="minimap__point" type="button" data-action="${action}" data-target-source="radar" data-kind="${escapeHTML(disposition)}" data-entity-id="${escapeHTML(contact.entity_id)}" data-entity-type="${escapeHTML(contact.entity_type)}"${source} style="left:${point.left}%;top:${point.top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></button>`;
+      return `<button class="minimap__point" type="button"${actionAttr}${disabledAttr} data-target-source="radar" data-kind="${escapeHTML(disposition)}" data-entity-id="${escapeHTML(contact.entity_id)}" data-entity-type="${escapeHTML(contact.entity_type)}"${source} style="left:${point.left}%;top:${point.top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></button>`;
     })
     .join('');
   const memoryPoints = memories
@@ -3072,6 +3074,23 @@ function minimapPanel(state: ClientState): string {
       <span data-kind="memory">Memory</span>
     </div>
   `;
+}
+
+function minimapLiveContactAction(contact: MinimapContact): 'target-select' | 'loot-select' | null {
+  const flags = new Set(contact.status_flags ?? []);
+  if (flags.has('self') || flags.has('local') || flags.has('friendly')) {
+    return null;
+  }
+  if (contact.entity_type === 'loot') {
+    return 'loot-select';
+  }
+  if (contact.entity_type === 'npc') {
+    return 'target-select';
+  }
+  if (contact.entity_type === 'player' && (flags.has('hostile') || flags.has('scan_revealed') || contact.disposition === 'hostile')) {
+    return 'target-select';
+  }
+  return null;
 }
 
 function logPanel(state: ClientState): string {

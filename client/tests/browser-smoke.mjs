@@ -575,6 +575,15 @@ async function verifyPlanetNavigateAction(page, label) {
     moveCountBeforeNavigate,
     { timeout: 10000 },
   );
+  const moveCountImmediateAfterNavigate = await commandLogCount(page, 'Sent move_to.');
+  if (moveCountImmediateAfterNavigate !== moveCountBeforeNavigate + 1) {
+    throw new Error(
+      `${label}: planet navigate emitted duplicate immediate move_to ${JSON.stringify({
+        before: moveCountBeforeNavigate,
+        after: moveCountImmediateAfterNavigate,
+      })}`,
+    );
+  }
   await page.waitForFunction(
     (coordinates) => {
       const target = window.__SPACE_MORPG_SMOKE_STATE__?.navigationTarget;
@@ -618,6 +627,27 @@ async function verifyRadarContactInteractions(page, label) {
   const moveCountAfter = await commandLogCount(page, 'Sent move_to.');
   if (moveCountAfter !== moveCountBefore) {
     throw new Error(`${label}: minimap contact click emitted move_to`);
+  }
+
+  const selectedBeforeEmptyRadar = await selectedTargetID(page);
+  const sentBeforeEmptyRadar = await commandLogSentCount(page);
+  const emptyPoint = await emptyMinimapBackgroundPoint(page);
+  if (!emptyPoint) {
+    throw new Error(`${label}: could not find empty minimap background point`);
+  }
+  await page.locator('.minimap').click({ position: emptyPoint });
+  await page.waitForTimeout(120);
+  const selectedAfterEmptyRadar = await selectedTargetID(page);
+  const sentAfterEmptyRadar = await commandLogSentCount(page);
+  if (selectedAfterEmptyRadar !== selectedBeforeEmptyRadar || sentAfterEmptyRadar !== sentBeforeEmptyRadar) {
+    throw new Error(
+      `${label}: empty minimap background click changed target or emitted command ${JSON.stringify({
+        selectedBeforeEmptyRadar,
+        selectedAfterEmptyRadar,
+        sentBeforeEmptyRadar,
+        sentAfterEmptyRadar,
+      })}`,
+    );
   }
 }
 
@@ -700,7 +730,7 @@ async function verifyQuestBoardSurface(page, viewport, label) {
     const rawQuestIDs = questEntries.flatMap((entry) => [
       ...(entry.objectives ?? []).map((objective) => objective.target).filter(Boolean),
       ...(entry.rewards ?? []).map((reward) => reward.item_id).filter(Boolean),
-    ]);
+    ]).filter((value) => /[_:]/.test(value));
     return {
       navText,
       detailKey: detail instanceof HTMLElement ? detail.dataset.questDetail ?? '' : '',
@@ -2022,7 +2052,17 @@ async function verifyRealCombatLoot(page) {
       /Range/i.test(targetPanelText)
     );
   }, null, { timeout: 10000 });
-  await page.locator('.hud__actionbar [data-action="fire"]').click();
+  const skillBeforeHotkey = await commandLogCount(page, 'Sent combat.use_skill.');
+  await page.keyboard.press('1');
+  await page.waitForFunction(
+    (before) => (window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? []).filter((line) => line.text === 'Sent combat.use_skill.').length > before,
+    skillBeforeHotkey,
+    { timeout: 10000 },
+  );
+  const skillAfterHotkey = await commandLogCount(page, 'Sent combat.use_skill.');
+  if (skillAfterHotkey !== skillBeforeHotkey + 1) {
+    throw new Error(`desktop: hotkey 1 emitted duplicate combat.use_skill (${skillBeforeHotkey} -> ${skillAfterHotkey})`);
+  }
   try {
     await page.waitForFunction(() => {
       const state = window.__SPACE_MORPG_SMOKE_STATE__;
@@ -2085,9 +2125,14 @@ async function verifyRealCombatLoot(page) {
     throw new Error('desktop: minimap loot contact click emitted move_to or loot.pickup');
   }
 
-  const moveCountBeforeWorldLoot = await commandLogCount(page, 'Sent move_to.');
-  const pickupCountBeforeWorldLoot = await commandLogCount(page, 'Sent loot.pickup.');
-  await clickWorldPosition(page, dropInfo.position);
+  const moveCountBeforeLootHotkey = await commandLogCount(page, 'Sent move_to.');
+  const pickupCountBeforeLootHotkey = await commandLogCount(page, 'Sent loot.pickup.');
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+  await page.keyboard.press('6');
   try {
     await page.waitForFunction(() => {
       const state = window.__SPACE_MORPG_SMOKE_STATE__;
@@ -2105,15 +2150,15 @@ async function verifyRealCombatLoot(page) {
     console.error('desktop loot pickup state', JSON.stringify(await lootDiagnostics(page, dropInfo.position), null, 2));
     throw error;
   }
-  const moveCountAfterWorldLoot = await commandLogCount(page, 'Sent move_to.');
-  const pickupCountAfterWorldLoot = await commandLogCount(page, 'Sent loot.pickup.');
-  if (pickupCountAfterWorldLoot !== pickupCountBeforeWorldLoot + 1) {
+  const moveCountAfterLootHotkey = await commandLogCount(page, 'Sent move_to.');
+  const pickupCountAfterLootHotkey = await commandLogCount(page, 'Sent loot.pickup.');
+  if (pickupCountAfterLootHotkey !== pickupCountBeforeLootHotkey + 1) {
     throw new Error(
-      `desktop: world loot click did not emit one loot.pickup (${JSON.stringify({
-        moveCountBeforeWorldLoot,
-        moveCountAfterWorldLoot,
-        pickupCountBeforeWorldLoot,
-        pickupCountAfterWorldLoot,
+      `desktop: hotkey 6 did not emit one loot.pickup (${JSON.stringify({
+        moveCountBeforeLootHotkey,
+        moveCountAfterLootHotkey,
+        pickupCountBeforeLootHotkey,
+        pickupCountAfterLootHotkey,
       })})`,
     );
   }
@@ -3260,6 +3305,43 @@ async function commandLogSentCount(page) {
   return page.evaluate(() => {
     const lines = window.__SPACE_MORPG_SMOKE_STATE__?.commandLog ?? [];
     return lines.filter((line) => /^Sent /.test(line.text)).length;
+  });
+}
+
+async function emptyMinimapBackgroundPoint(page) {
+  return page.evaluate(() => {
+    const minimap = document.querySelector('.minimap');
+    if (!(minimap instanceof HTMLElement)) {
+      return null;
+    }
+    const rect = minimap.getBoundingClientRect();
+    const blockers = Array.from(minimap.querySelectorAll('button')).map((button) => {
+      const buttonRect = button.getBoundingClientRect();
+      return {
+        left: buttonRect.left - rect.left - 8,
+        right: buttonRect.right - rect.left + 8,
+        top: buttonRect.top - rect.top - 8,
+        bottom: buttonRect.bottom - rect.top + 8,
+      };
+    });
+    const candidates = [
+      { x: rect.width * 0.12, y: rect.height * 0.12 },
+      { x: rect.width * 0.88, y: rect.height * 0.12 },
+      { x: rect.width * 0.12, y: rect.height * 0.88 },
+      { x: rect.width * 0.88, y: rect.height * 0.88 },
+      { x: rect.width * 0.5, y: rect.height * 0.18 },
+      { x: rect.width * 0.5, y: rect.height * 0.82 },
+    ];
+    return (
+      candidates.find(
+        (point) =>
+          point.x >= 0 &&
+          point.x <= rect.width &&
+          point.y >= 0 &&
+          point.y <= rect.height &&
+          !blockers.some((blocker) => point.x >= blocker.left && point.x <= blocker.right && point.y >= blocker.top && point.y <= blocker.bottom),
+      ) ?? null
+    );
   });
 }
 

@@ -223,6 +223,24 @@ internal/game/server/handlers.go
   mobile asserts bottom-sheet/non-draggable header policy. Delayed canvas clicks
   after window/modal focus, drag/touch, and standalone HUD focus must emit zero
   `move_to` and zero new movement debug logs.
+- Minimap live contact buttons now use type-specific intent. Loot contacts keep
+  `loot-select`; hostile NPC contacts and hostile/scanner-revealed player
+  contacts can select targets; self, local, friendly, neutral players, and
+  planet-signal contacts render as inert radar points instead of generic target
+  actions.
+- Browser smoke now verifies empty minimap background clicks keep the current
+  target and emit zero commands, and planet detail navigation emits exactly one
+  immediate `move_to` for the user click before navigation waits on server-owned
+  movement state.
+- Browser smoke now uses valid world-focus `1` and `6` hotkeys for the real
+  combat/loot flow: `1` emits exactly one `combat.use_skill`, and selected loot
+  plus `6` emits exactly one `loot.pickup`.
+- Realtime operation registration documents the rate-limit posture for
+  `combat.use_skill`, `loot.pickup`, `scan.pulse`, `stealth.toggle`, `move_to`,
+  and `stop` as `IntentBurst`. `stop` has no quick-key binding in this phase.
+- WASD remains intentionally absent. No tap/hold, diagonal, keyup, or cadence
+  semantics are active; enabling WASD still requires a server-owned
+  `move_to`/`movement.set_input` contract and limiter tests.
 
 ## Likely Files
 
@@ -242,21 +260,21 @@ docs/plans/task-001/10-controls-hotkeys-input-rules.md
 
 ## Acceptance Criteria
 
-- [ ] `1..6` quick action hotkeys work only with valid world focus.
-- [ ] Locked quick actions emit no commands.
+- [x] `1..6` quick action hotkeys work only with valid world focus.
+- [x] Locked quick actions emit no commands.
 - [x] Held/repeated quick-action keys emit no duplicate command flood.
-- [ ] Hotkey-emitted combat, loot, scan, stealth, and stop operations have
+- [x] Hotkey-emitted combat, loot, scan, stealth, and stop operations have
       limiter tests or named blockers.
 - [x] World focus/input authority is shared by HUD, renderer, minimap/radar,
       modal/window drag, and form focus paths; timer-only suppression is gone.
 - [x] `Tab` cycles visible hostile targets, skipping self/friendly/loot/planet
       signals and including witnessed hidden hostiles when eligible.
-- [ ] `Tab` preserves native/focus-trap behavior in modals, windows, and form
+- [x] `Tab` preserves native/focus-trap behavior in modals, windows, and form
       fields, and only cycles targets when world focus owns keyboard input.
-- [ ] WASD is server-owned if enabled or documented as blocked.
-- [ ] WASD decision documents tap/hold semantics, diagonal behavior, throttle,
+- [x] WASD is server-owned if enabled or documented as blocked.
+- [x] WASD decision documents tap/hold semantics, diagonal behavior, throttle,
       keyup behavior, and `move_to` vs `movement.set_input`.
-- [ ] `stop` and any new movement input op have rate-limit posture.
+- [x] `stop` and any new movement input op have rate-limit posture.
 - [x] Modals/windows can open, drag, close, and click while ship is moving.
 - [x] Modal/window/HUD clicks do not send `move_to`.
 - [x] World reclick movement starts from the server-timed in-flight position
@@ -264,16 +282,16 @@ docs/plans/task-001/10-controls-hotkeys-input-rules.md
 - [x] Radar contact click selects/opens detail for hostile NPC contacts,
       remembered planet contacts, and server-spawned loot contacts without
       leaking movement or pickup commands.
-- [ ] One radar/user click starts one navigation route with at most one
+- [x] One radar/user click starts one navigation route with at most one
       immediate bounded `move_to`; later chunks wait for server reconciliation.
-- [ ] Empty no-lock target UI does not show useless action buttons.
-- [ ] Empty radar clicks no-op unless explicitly designed.
+- [x] Empty no-lock target UI does not show useless action buttons.
+- [x] Empty radar clicks no-op unless explicitly designed.
 - [x] Smoke proves modal/window focused canvas clicks still emit no `move_to`
       after any short HUD suppression timeout would have expired.
 - [ ] Browser smoke covers minimap contact behavior by type: hostile/player,
       loot, remembered planet, and empty radar. Current coverage includes
-      hostile NPC, remembered planet, and server-spawned loot; hostile player
-      and empty radar no-op remain open.
+      hostile NPC, remembered planet, server-spawned loot, and empty radar;
+      hostile-player fixture/smoke remains open.
 - [x] Browser smoke covers moving plus modal/window click/drag/touch isolation
       on desktop, tablet, and mobile.
 
