@@ -400,6 +400,10 @@ function contactFromEntity(entity: EntityPayload, fallback?: MinimapContact): Mi
     disposition: entity.display?.disposition,
     status_flags: entity.status_flags ? [...entity.status_flags] : undefined,
   };
+  if (entity.projection_source) {
+    contact.projection_source = entity.projection_source;
+    return contact;
+  }
   if (fallback?.projection_source) {
     contact.projection_source = fallback.projection_source;
   }
@@ -1502,6 +1506,7 @@ function parseEntityPayload(payload: JsonObject): EntityPayload {
     display: parseEntityDisplay(source),
     combat: parseEntityCombat(source),
     movement: parseEntityMovement(source),
+    projection_source: stringField(source, 'projection_source') ?? undefined,
   };
 }
 

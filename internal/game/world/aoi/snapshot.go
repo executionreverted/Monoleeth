@@ -51,6 +51,7 @@ type EntityState struct {
 	PublicDisplay     *EntityDisplay
 	PublicCombat      *EntityCombatStatus
 	PublicMovement    *EntityMovementStatus
+	ProjectionSource  string
 
 	InternalMetadata map[string]string
 	GameplaySeed     string
@@ -59,13 +60,14 @@ type EntityState struct {
 
 // EntityPayload is the complete public payload for a visible entity.
 type EntityPayload struct {
-	ID          world.EntityID        `json:"entity_id"`
-	Type        world.EntityType      `json:"entity_type"`
-	Position    world.Vec2            `json:"position"`
-	StatusFlags []StatusFlag          `json:"status_flags,omitempty"`
-	Display     *EntityDisplay        `json:"display,omitempty"`
-	Combat      *EntityCombatStatus   `json:"combat,omitempty"`
-	Movement    *EntityMovementStatus `json:"movement,omitempty"`
+	ID               world.EntityID        `json:"entity_id"`
+	Type             world.EntityType      `json:"entity_type"`
+	Position         world.Vec2            `json:"position"`
+	StatusFlags      []StatusFlag          `json:"status_flags,omitempty"`
+	Display          *EntityDisplay        `json:"display,omitempty"`
+	Combat           *EntityCombatStatus   `json:"combat,omitempty"`
+	Movement         *EntityMovementStatus `json:"movement,omitempty"`
+	ProjectionSource string                `json:"projection_source,omitempty"`
 }
 
 // Snapshot is a deterministic client-safe AOI snapshot.
@@ -100,13 +102,14 @@ func BuildVisibleSnapshot(viewer visibility.Viewer, entities []EntityState) Snap
 			continue
 		}
 		payloads = append(payloads, EntityPayload{
-			ID:          state.Entity.ID,
-			Type:        state.Entity.Type,
-			Position:    state.Entity.Position,
-			StatusFlags: cloneStatusFlags(state.PublicStatusFlags),
-			Display:     cloneEntityDisplay(state.PublicDisplay),
-			Combat:      cloneEntityCombatStatus(state.PublicCombat),
-			Movement:    cloneEntityMovementStatus(state.PublicMovement),
+			ID:               state.Entity.ID,
+			Type:             state.Entity.Type,
+			Position:         state.Entity.Position,
+			StatusFlags:      cloneStatusFlags(state.PublicStatusFlags),
+			Display:          cloneEntityDisplay(state.PublicDisplay),
+			Combat:           cloneEntityCombatStatus(state.PublicCombat),
+			Movement:         cloneEntityMovementStatus(state.PublicMovement),
+			ProjectionSource: state.ProjectionSource,
 		})
 	}
 	sortEntityPayloads(payloads)

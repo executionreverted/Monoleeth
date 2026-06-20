@@ -272,10 +272,28 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
   freshness is otherwise `fresh`. Reducer and fixture smoke cover this behavior
   so stale memory clicks cannot emit movement and bad memory cannot appear as
   fake radar/map contacts.
-- Remaining server blocker: runtime minimap memory payloads still need a fully
-  documented and tested `sector_key`/`projection_source` contract for every
-  projection input path: worker, DB overlay, procedural/live materialization,
-  known intel, NPCs, loot, and players.
+- Runtime projection source contract is now explicit and tested. Live worker
+  projection entities and minimap contacts carry `projection_source:
+  worker_projection`; this covers the current live materialization path for
+  players, NPCs, loot, and planet signals after they enter the authoritative
+  world worker. Materialized discovery/DB overlay planet intel enters radar/map
+  memory as `projection_source: known_intel` with `sector_key:
+  origin-fringe`, and never becomes a fake live contact without worker
+  materialization.
+- AOI entity payloads now carry the same projection source as live minimap
+  contacts, so `aoi.entity_entered`/`aoi.entity_updated`, `move_to`,
+  `stop`, and `world.snapshot` replacement paths can rebuild live contacts
+  without dropping source evidence.
+- Server regression now covers worker NPC, loot, and player projection sources,
+  hidden same-window filtering, materialized discovery planet intel memory,
+  source/sector metadata, and server-owned movement crossing a projection
+  boundary where the old entity leaves and the new entity enters with
+  `worker_projection`.
+- Browser smoke now asserts real-server entity/contact source metadata and DOM
+  `data-projection-source` after authenticated bootstrap, remembered-minimap
+  refresh, and movement projection refresh. Fixture smoke also proves fallback
+  replacement snapshots preserve `worker_projection` and `known_intel` source
+  evidence.
 
 ## Acceptance Criteria
 
@@ -296,10 +314,10 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
 - [x] Navigate uses only server-returned coordinates.
 - [x] Client fog visual overlay is removed or disabled in real playtest mode.
 - [x] Server visibility/fog security tests still pass.
-- [ ] Projection input sources for worker, DB overlay, procedural/live
+- [x] Projection input sources for worker, DB overlay, procedural/live
       materialization, known intel, NPCs, loot, and players are documented and
       tested.
-- [ ] Projection smoke proves the widened view is not only direct worker
+- [x] Projection smoke proves the widened view is not only direct worker
       fixture insertion and reconciles source changes after movement.
 - [x] Scan/known-planet updates refresh remembered minimap and world-map markers
       without requiring manual Sync.

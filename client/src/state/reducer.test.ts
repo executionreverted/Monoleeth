@@ -82,6 +82,7 @@ describe('reduceClientState', () => {
         position: { x: 10, y: 20 },
         display: { label: 'Training Drone', disposition: 'hostile' },
         status_flags: ['hostile', 'hidden', 'scan_revealed', 'stealthed'],
+        projection_source: 'worker_projection',
       }),
     });
 
@@ -96,6 +97,7 @@ describe('reduceClientState', () => {
         position: { x: 10, y: 20 },
         disposition: 'hostile',
         status_flags: ['hostile', 'scan_revealed'],
+        projection_source: 'worker_projection',
       },
     ]);
     expect(entered.visibleEntities['npc-1'].status_flags).toEqual(['hostile', 'scan_revealed']);
@@ -981,6 +983,7 @@ describe('reduceClientState', () => {
               position: { x: 2, y: 4 },
               status_flags: ['self', 'hidden', 'stealthed'],
               display: { label: 'Pilot', disposition: 'self' },
+              projection_source: 'worker_projection',
             },
             {
               entity_id: 'loot-1',
@@ -988,6 +991,7 @@ describe('reduceClientState', () => {
               position: { x: 30, y: 40 },
               status_flags: ['loot', 'hidden'],
               display: { label: 'Cache', disposition: 'neutral' },
+              projection_source: 'worker_projection',
             },
           ],
         },
@@ -1008,6 +1012,7 @@ describe('reduceClientState', () => {
         position: { x: 30, y: 40 },
         disposition: 'neutral',
         status_flags: ['loot'],
+        projection_source: 'worker_projection',
       },
       {
         entity_id: 'player-local',
@@ -1015,6 +1020,7 @@ describe('reduceClientState', () => {
         position: { x: 2, y: 4 },
         disposition: 'self',
         status_flags: ['self', 'stealthed'],
+        projection_source: 'worker_projection',
       },
     ]);
   });

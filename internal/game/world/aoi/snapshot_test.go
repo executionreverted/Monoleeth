@@ -175,7 +175,7 @@ func TestSnapshotPayloadOmitsHiddenInternalFields(t *testing.T) {
 	}
 
 	payloadType := reflect.TypeOf(aoi.EntityPayload{})
-	if got, want := exportedFieldNames(payloadType), []string{"ID", "Type", "Position", "StatusFlags", "Display", "Combat", "Movement"}; !reflect.DeepEqual(got, want) {
+	if got, want := exportedFieldNames(payloadType), []string{"ID", "Type", "Position", "StatusFlags", "Display", "Combat", "Movement", "ProjectionSource"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("EntityPayload fields = %v, want %v", got, want)
 	}
 }

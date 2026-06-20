@@ -335,6 +335,7 @@ async function verifyRealViewport(viewport, label) {
     await assertNoDeadTargetClutter(page, `${label} authenticated bootstrap`);
     await verifyQuickActionContracts(page, viewport, label);
     await verifyRadarContactInteractions(page, label);
+    await assertProjectionSourceContracts(page, `${label} bootstrap`);
     await verifyInventoryLoadout(page, viewport, label);
     await verifyHangarSurface(page, viewport, label);
 
@@ -882,6 +883,10 @@ async function syncRememberedMinimap(page, label) {
   if (!leaked.remembered.some((memory) => memory.planet_id || memory.detail_id)) {
     throw new Error(`${label}: remembered minimap missing server-owned planet/detail id ${JSON.stringify(leaked.remembered)}`);
   }
+  if (!leaked.remembered.every((memory) => memory.projection_source === 'known_intel')) {
+    throw new Error(`${label}: remembered minimap missing known_intel source ${JSON.stringify(leaked.remembered)}`);
+  }
+  await assertProjectionSourceContracts(page, `${label} remembered minimap`, { requireRemembered: true });
   const moveCountBefore = await commandLogCount(page, 'Sent move_to.');
   await page.locator('.minimap__memory[data-planet-id], .minimap__memory[data-action="planet-detail"]').first().click();
   await page.waitForFunction(
@@ -922,6 +927,61 @@ async function verifyFogOfWar(page, label) {
   });
   if (farMemory.remembered && (!farMemory.worldMarker || farMemory.radarPoint)) {
     throw new Error(`${label}: far remembered planet clamped into radar contact ${JSON.stringify(farMemory)}`);
+  }
+}
+
+async function assertProjectionSourceContracts(page, label, options = {}) {
+  await page.waitForFunction(
+    ({ requireRemembered }) => {
+      const state = window.__SPACE_MORPG_SMOKE_STATE__;
+      const entities = Object.values(state?.visibleEntities ?? {});
+      const contacts = state?.minimap?.live_contacts ?? [];
+      const remembered = state?.minimap?.remembered ?? [];
+      if (entities.length === 0 || contacts.length === 0) {
+        return false;
+      }
+      if (requireRemembered && remembered.length === 0) {
+        return false;
+      }
+      const liveSourcesReady =
+        entities.every((entity) => entity.projection_source === 'worker_projection') &&
+        contacts.every((contact) => contact.projection_source === 'worker_projection');
+      const renderedSourcesReady = contacts.every((contact) => {
+        const point = document.querySelector(`.minimap__point[data-entity-id="${contact.entity_id}"]`);
+        return !(point instanceof HTMLElement) || point.getAttribute('data-projection-source') === 'worker_projection';
+      });
+      const rememberedSourcesReady = remembered.every((memory) => memory.projection_source === 'known_intel');
+      const renderedMemoryReady = remembered.every((memory) => {
+        const id = memory.planet_id || memory.detail_id;
+        if (!id) {
+          return false;
+        }
+        const memoryElement = document.querySelector(`.minimap__memory[data-planet-id="${id}"], .minimap__memory[data-detail-id="${id}"]`);
+        return !(memoryElement instanceof HTMLElement) || memoryElement.getAttribute('data-projection-source') === 'known_intel';
+      });
+      return liveSourcesReady && renderedSourcesReady && rememberedSourcesReady && renderedMemoryReady;
+    },
+    { requireRemembered: Boolean(options.requireRemembered) },
+    { timeout: 10000 },
+  );
+
+  const diagnostics = await page.evaluate(() => {
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return {
+      sectorKey: state?.sector?.sector_key ?? null,
+      entitySources: Object.fromEntries(
+        Object.values(state?.visibleEntities ?? {}).map((entity) => [entity.entity_id, entity.projection_source ?? null]),
+      ),
+      contactSources: Object.fromEntries(
+        (state?.minimap?.live_contacts ?? []).map((contact) => [contact.entity_id, contact.projection_source ?? null]),
+      ),
+      rememberedSources: Object.fromEntries(
+        (state?.minimap?.remembered ?? []).map((memory) => [memory.planet_id || memory.detail_id || memory.label, memory.projection_source ?? null]),
+      ),
+    };
+  });
+  if (diagnostics.sectorKey === null) {
+    throw new Error(`${label}: projection sector key missing ${JSON.stringify(diagnostics)}`);
   }
 }
 
@@ -1006,6 +1066,7 @@ async function verifySquareProjectionCornerRadarContact(page, label) {
       top: point instanceof HTMLElement ? point.style.top : '',
       projectionWindow: state?.minimap?.projection_window_size ?? null,
       radarRange: state?.minimap?.radar_range ?? null,
+      projectionSource: contact?.projection_source ?? null,
       contact,
       circleDistance: Math.hypot(
         (contact?.position?.x ?? 0) - (self?.position?.x ?? 0),
@@ -1019,6 +1080,7 @@ async function verifySquareProjectionCornerRadarContact(page, label) {
     corner.top !== '96%' ||
     corner.projectionWindow !== 2000 ||
     corner.radarRange !== 1000 ||
+    corner.projectionSource !== 'worker_projection' ||
     corner.circleDistance <= 1000
   ) {
     throw new Error(`${label}: square projection corner radar contact failed ${JSON.stringify(corner)}`);
@@ -1910,16 +1972,20 @@ async function verifyFixtureViewport(viewport, label) {
         const state = window.__SPACE_MORPG_SMOKE_STATE__;
         const ids = (state?.minimap?.live_contacts ?? []).map((contact) => contact.entity_id).sort();
         const self = state?.minimap?.live_contacts?.find((contact) => contact.entity_id === 'player-local');
+        const sources = (state?.minimap?.live_contacts ?? []).map((contact) => contact.projection_source).sort();
+        const memory = state?.minimap?.remembered?.find((entry) => entry.planet_id === 'planet-memory-01');
         return (
           state?.selectedTargetID === null &&
           !state?.visibleEntities?.['npc-rake-01'] &&
           !state?.visibleEntities?.['loot-scrap-01'] &&
           ids.join(',') === 'npc-corner-01,player-local,signal-eris-04' &&
+          sources.join(',') === 'worker_projection,worker_projection,worker_projection' &&
           self?.position?.x === 40 &&
           self?.position?.y === -220 &&
           state?.minimap?.radar_range === 1000 &&
           state?.minimap?.projection_window_size === 2000 &&
-          state?.minimap?.remembered?.some((memory) => memory.planet_id === 'planet-memory-01' && memory.detail_id === 'planet-memory-01') &&
+          memory?.detail_id === 'planet-memory-01' &&
+          memory?.projection_source === 'known_intel' &&
           !document.querySelector('.minimap__point[data-entity-id="npc-rake-01"]') &&
           document.querySelector('.minimap__point[data-entity-id="npc-corner-01"]') instanceof HTMLElement &&
           document.querySelector('.minimap__memory[data-planet-id="planet-memory-01"]') instanceof HTMLElement
@@ -2396,6 +2462,7 @@ async function verifyRealMovementInterpolation(page) {
     console.error('desktop first movement state', JSON.stringify(await movementDiagnostics(page, firstTarget), null, 2));
     throw error;
   }
+  await assertProjectionSourceContracts(page, 'desktop movement projection refresh');
   await page.waitForFunction(() => document.querySelector('[data-movement-eta-active="true"]'), null, { timeout: 3000 });
   await page.waitForFunction(
     () =>
@@ -4466,6 +4533,7 @@ function snapshotPayload() {
         position: { x: 0, y: 0 },
         status_flags: ['local', 'self'],
         display: { label: 'Server-Pilot', disposition: 'self' },
+        projection_source: 'worker_projection',
       },
       {
         entity_id: 'npc-rake-01',
@@ -4473,6 +4541,7 @@ function snapshotPayload() {
         display: { label: 'Drone Rake', disposition: 'hostile' },
         position: { x: 150, y: -250 },
         status_flags: ['visible', 'hostile'],
+        projection_source: 'worker_projection',
       },
       {
         entity_id: 'loot-scrap-01',
@@ -4480,6 +4549,7 @@ function snapshotPayload() {
         display: { label: 'Scrap Cache', disposition: 'neutral' },
         position: { x: -110, y: -220 },
         status_flags: ['visible'],
+        projection_source: 'worker_projection',
       },
       {
         entity_id: 'pilot-raider-01',
@@ -4488,6 +4558,7 @@ function snapshotPayload() {
         position: { x: -240, y: 120 },
         status_flags: ['visible', 'hostile'],
         combat: { hp: 64, max_hp: 100, shield: 25, max_shield: 50 },
+        projection_source: 'worker_projection',
       },
       {
         entity_id: 'pilot-friendly-01',
@@ -4495,6 +4566,7 @@ function snapshotPayload() {
         display: { label: 'Wing Pilot', disposition: 'friendly' },
         position: { x: -320, y: -40 },
         status_flags: ['visible', 'friendly'],
+        projection_source: 'worker_projection',
       },
       {
         entity_id: 'npc-neutral-01',
@@ -4502,6 +4574,7 @@ function snapshotPayload() {
         display: { label: 'Drifter Drone', disposition: 'neutral' },
         position: { x: 320, y: -170 },
         status_flags: ['visible', 'neutral'],
+        projection_source: 'worker_projection',
       },
       {
         entity_id: 'signal-eris-04',
@@ -4509,6 +4582,7 @@ function snapshotPayload() {
         display: { label: 'Unknown Signal', disposition: 'unknown' },
         position: { x: 260, y: 150 },
         status_flags: ['known_intel'],
+        projection_source: 'worker_projection',
       },
     ],
     sector: {
@@ -4528,6 +4602,7 @@ function snapshotPayload() {
           position: { x: 0, y: 0 },
           disposition: 'self',
           status_flags: ['self'],
+          projection_source: 'worker_projection',
         },
         {
           entity_id: 'npc-rake-01',
@@ -4535,6 +4610,7 @@ function snapshotPayload() {
           position: { x: 150, y: -250 },
           disposition: 'hostile',
           status_flags: ['hostile'],
+          projection_source: 'worker_projection',
         },
         {
           entity_id: 'loot-scrap-01',
@@ -4542,6 +4618,7 @@ function snapshotPayload() {
           position: { x: -110, y: -220 },
           disposition: 'neutral',
           status_flags: ['loot'],
+          projection_source: 'worker_projection',
         },
         {
           entity_id: 'pilot-raider-01',
@@ -4549,6 +4626,7 @@ function snapshotPayload() {
           position: { x: -240, y: 120 },
           disposition: 'hostile',
           status_flags: ['hostile'],
+          projection_source: 'worker_projection',
         },
         {
           entity_id: 'pilot-friendly-01',
@@ -4556,6 +4634,7 @@ function snapshotPayload() {
           position: { x: -320, y: -40 },
           disposition: 'friendly',
           status_flags: ['friendly'],
+          projection_source: 'worker_projection',
         },
         {
           entity_id: 'npc-neutral-01',
@@ -4563,6 +4642,7 @@ function snapshotPayload() {
           position: { x: 320, y: -170 },
           disposition: 'neutral',
           status_flags: ['neutral'],
+          projection_source: 'worker_projection',
         },
         {
           entity_id: 'signal-eris-04',
@@ -4570,6 +4650,7 @@ function snapshotPayload() {
           position: { x: 260, y: 150 },
           disposition: 'unknown',
           status_flags: ['unknown_signal'],
+          projection_source: 'worker_projection',
         },
       ],
       remembered: [
@@ -4580,6 +4661,7 @@ function snapshotPayload() {
           label: 'Memory Planet',
           position: { x: 720, y: -360 },
           freshness: 'fresh',
+          projection_source: 'known_intel',
         },
         {
           kind: 'known_planet',
@@ -4588,6 +4670,7 @@ function snapshotPayload() {
           label: 'Far Memory Planet',
           position: { x: 5200, y: -3800 },
           freshness: 'fresh',
+          projection_source: 'known_intel',
         },
         {
           kind: 'known_planet',
@@ -4688,6 +4771,7 @@ function replacementSnapshotWithoutMinimapPayload() {
         position: { x: 40, y: -220 },
         status_flags: ['local', 'self'],
         display: { label: 'Server-Pilot', disposition: 'self' },
+        projection_source: 'worker_projection',
       },
       {
         entity_id: 'signal-eris-04',
@@ -4695,6 +4779,7 @@ function replacementSnapshotWithoutMinimapPayload() {
         display: { label: 'Unknown Signal', disposition: 'unknown' },
         position: { x: 260, y: 150 },
         status_flags: ['known_intel'],
+        projection_source: 'worker_projection',
       },
       {
         entity_id: 'npc-corner-01',
@@ -4702,6 +4787,7 @@ function replacementSnapshotWithoutMinimapPayload() {
         display: { label: 'Corner Drone', disposition: 'hostile' },
         position: { x: 1040, y: 780 },
         status_flags: ['visible', 'hostile'],
+        projection_source: 'worker_projection',
       },
     ],
   };

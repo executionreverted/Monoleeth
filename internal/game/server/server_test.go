@@ -108,6 +108,9 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 	npcCombatCount := 0
 	for _, entity := range snapshot.Entities {
 		entitiesByID[entity.ID.String()] = entity
+		if entity.ProjectionSource != runtimeProjectionSourceWorker {
+			t.Fatalf("entity %s projection source = %q, want %q", entity.ID, entity.ProjectionSource, runtimeProjectionSourceWorker)
+		}
 		if strings.Contains(entity.Type.String(), "placeholder") {
 			t.Fatalf("entity type %q still uses placeholder contract", entity.Type)
 		}
@@ -146,6 +149,9 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 		}
 		if contact.EntityType != entity.Type || contact.Position != entity.Position {
 			t.Fatalf("minimap contact %+v does not mirror snapshot entity %+v", contact, entity)
+		}
+		if contact.ProjectionSource != entity.ProjectionSource {
+			t.Fatalf("minimap contact %+v projection source does not mirror snapshot entity %+v", contact, entity)
 		}
 	}
 }
@@ -2308,7 +2314,10 @@ func TestStealthToggleCommandUsesServerOwnedStateAndSafePayload(t *testing.T) {
 func TestWorldSnapshotProjectionPolicyIsServerOwnedAndSeparateFromRadarStat(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "projection@example.com", "Projection")
+	other := createResolvedRuntimeSession(t, gameServer, "projection-other@example.com", "Projection Other")
+	moveTestPlayerEntity(gameServer, other.PlayerID, world.Vec2{X: -750, Y: 100})
 	insertTestWorldEntity(t, gameServer, "entity_projection_corner", world.EntityTypeNPC, world.Vec2{X: runtimeLiveProjectionHalfExtent, Y: runtimeLiveProjectionHalfExtent}, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_loot", world.EntityTypeLoot, world.Vec2{X: 640, Y: -120}, false)
 	insertTestWorldEntity(t, gameServer, "entity_projection_outside", world.EntityTypeNPC, world.Vec2{X: runtimeLiveProjectionHalfExtent + 1, Y: 0}, false)
 	insertTestWorldEntity(t, gameServer, "entity_projection_hidden_inside", world.EntityTypeNPC, world.Vec2{X: 100, Y: 100}, true)
 
@@ -2327,8 +2336,15 @@ func TestWorldSnapshotProjectionPolicyIsServerOwnedAndSeparateFromRadarStat(t *t
 	if snapshot.Minimap.RadarRange != runtimeLiveProjectionHalfExtent || snapshot.Minimap.ProjectionWindowSize != runtimeLiveProjectionDiameter {
 		t.Fatalf("projection payload = %+v, want half extent/window", snapshot.Minimap)
 	}
-	if !hasEntityID(snapshot.Entities, "entity_projection_corner") {
-		t.Fatalf("projection snapshot missing square corner entity: %+v", snapshot.Entities)
+	otherEntityID := testPlayerEntityID(t, gameServer, other.PlayerID)
+	for _, want := range []string{"entity_projection_corner", "entity_projection_loot", otherEntityID.String()} {
+		if !hasEntityID(snapshot.Entities, want) {
+			t.Fatalf("projection snapshot missing %s: %+v", want, snapshot.Entities)
+		}
+		contact, ok := minimapContactByID(snapshot.Minimap.LiveContacts, want)
+		if !ok || contact.ProjectionSource != runtimeProjectionSourceWorker {
+			t.Fatalf("projection contact %s = %+v, want source %q", want, contact, runtimeProjectionSourceWorker)
+		}
 	}
 	for _, forbidden := range []string{"entity_projection_outside", "entity_projection_hidden_inside"} {
 		if hasEntityID(snapshot.Entities, forbidden) {
@@ -2407,6 +2423,65 @@ func TestWorldSnapshotFarRememberedPlanetStaysMemoryNotLiveContact(t *testing.T)
 	}
 	if memory.Freshness != string(discovery.IntelStateFresh) {
 		t.Fatalf("far memory freshness = %q, want fresh", memory.Freshness)
+	}
+	if memory.SectorKey != runtimeSectorKey || memory.ProjectionSource != runtimeProjectionSourceKnownIntel {
+		t.Fatalf("far memory sector/source = %+v, want %s/%s", memory, runtimeSectorKey, runtimeProjectionSourceKnownIntel)
+	}
+}
+
+func TestWorldProjectionSourcesReconcileAfterServerOwnedMovement(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "projection-move@example.com", "Projection Move")
+	insertTestWorldEntity(t, gameServer, "entity_projection_departing", world.EntityTypeNPC, world.Vec2{X: -900, Y: 0}, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_arriving", world.EntityTypeLoot, world.Vec2{X: 1500, Y: 0}, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_hidden_arriving", world.EntityTypeNPC, world.Vec2{X: 1500, Y: 10}, true)
+
+	events, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("bootstrap events: %v", err)
+	}
+	initial := decodeWorldSnapshotForTest(t, events)
+	if !hasEntityID(initial.Entities, "entity_projection_departing") || hasEntityID(initial.Entities, "entity_projection_arriving") {
+		t.Fatalf("initial projection entities = %+v, want departing visible and arriving outside", initial.Entities)
+	}
+
+	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 600, Y: 0})
+	eventsBySession := gameServer.runtime.tickAndCollectAOIEvents()
+	sessionEvents := eventsBySession[resolved.SessionID]
+	if len(sessionEvents) == 0 {
+		t.Fatalf("movement projection events = none, want entered/left")
+	}
+	seenEntered := false
+	seenLeft := false
+	for _, event := range sessionEvents {
+		raw := string(event.Payload)
+		if strings.Contains(raw, "entity_projection_hidden_arriving") {
+			t.Fatalf("hidden arriving entity leaked into movement AOI event %s", raw)
+		}
+		switch event.Type {
+		case realtime.EventAOIEntityEntered:
+			var entered aoi.EntityPayload
+			if err := json.Unmarshal(event.Payload, &entered); err != nil {
+				t.Fatalf("decode entered entity: %v", err)
+			}
+			if entered.ID == "entity_projection_arriving" {
+				seenEntered = true
+				if entered.ProjectionSource != runtimeProjectionSourceWorker {
+					t.Fatalf("entered projection source = %q, want %q", entered.ProjectionSource, runtimeProjectionSourceWorker)
+				}
+			}
+		case realtime.EventAOIEntityLeft:
+			var left map[string]string
+			if err := json.Unmarshal(event.Payload, &left); err != nil {
+				t.Fatalf("decode left entity: %v", err)
+			}
+			if left["entity_id"] == "entity_projection_departing" {
+				seenLeft = true
+			}
+		}
+	}
+	if !seenEntered || !seenLeft {
+		t.Fatalf("movement projection events = %+v, want arriving entered and departing left", sessionEvents)
 	}
 }
 
@@ -3205,7 +3280,19 @@ func assertMinimapMirrorsEntities(t *testing.T, label string, entities []aoi.Ent
 		if contact.EntityType != entity.Type || contact.Position != entity.Position {
 			t.Fatalf("%s minimap contact %+v does not mirror entity %+v", label, contact, entity)
 		}
+		if contact.ProjectionSource != entity.ProjectionSource {
+			t.Fatalf("%s minimap contact %+v projection source does not mirror entity %+v", label, contact, entity)
+		}
 	}
+}
+
+func minimapContactByID(contacts []minimapContactPayload, want string) (minimapContactPayload, bool) {
+	for _, contact := range contacts {
+		if contact.EntityID == want {
+			return contact, true
+		}
+	}
+	return minimapContactPayload{}, false
 }
 
 func entityPayloadByID(entities []aoi.EntityPayload, want string) (aoi.EntityPayload, bool) {

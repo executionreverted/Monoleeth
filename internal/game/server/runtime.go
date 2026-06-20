@@ -61,6 +61,9 @@ const (
 	weeklyXCorePremiumPrice                              = 100
 	weeklyXCoreStockTotal                                = 5
 	runtimeQuestRewardLedgerReason                       = economy.LedgerReason("quest_reward")
+	runtimeSectorKey                                     = "origin-fringe"
+	runtimeProjectionSourceWorker                        = "worker_projection"
+	runtimeProjectionSourceKnownIntel                    = "known_intel"
 )
 
 // RuntimeConfig wires the single-process game runtime.
@@ -241,6 +244,7 @@ type worldSnapshotPayload struct {
 }
 
 type sectorPayload struct {
+	SectorKey string `json:"sector_key,omitempty"`
 	Name      string `json:"name"`
 	Region    string `json:"region"`
 	Danger    string `json:"danger"`
@@ -255,20 +259,23 @@ type minimapPayload struct {
 }
 
 type minimapContactPayload struct {
-	EntityID    string           `json:"entity_id"`
-	EntityType  world.EntityType `json:"entity_type"`
-	Position    world.Vec2       `json:"position"`
-	Disposition string           `json:"disposition,omitempty"`
-	StatusFlags []aoi.StatusFlag `json:"status_flags,omitempty"`
+	EntityID         string           `json:"entity_id"`
+	EntityType       world.EntityType `json:"entity_type"`
+	Position         world.Vec2       `json:"position"`
+	Disposition      string           `json:"disposition,omitempty"`
+	StatusFlags      []aoi.StatusFlag `json:"status_flags,omitempty"`
+	ProjectionSource string           `json:"projection_source"`
 }
 
 type minimapMemoryPayload struct {
-	Kind      string     `json:"kind"`
-	PlanetID  string     `json:"planet_id,omitempty"`
-	DetailID  string     `json:"detail_id,omitempty"`
-	Label     string     `json:"label"`
-	Position  world.Vec2 `json:"position"`
-	Freshness string     `json:"freshness"`
+	Kind             string     `json:"kind"`
+	SectorKey        string     `json:"sector_key,omitempty"`
+	PlanetID         string     `json:"planet_id,omitempty"`
+	DetailID         string     `json:"detail_id,omitempty"`
+	Label            string     `json:"label"`
+	Position         world.Vec2 `json:"position"`
+	Freshness        string     `json:"freshness"`
+	ProjectionSource string     `json:"projection_source"`
 }
 
 // NewRuntime creates the single-process runtime.
@@ -935,6 +942,7 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 			PublicDisplay:     display,
 			PublicCombat:      combatStatus,
 			PublicMovement:    runtime.publicMovementPayloadLocked(entity, now),
+			ProjectionSource:  runtimeProjectionSourceWorker,
 		})
 	}
 	snapshot := aoi.BuildVisibleSnapshot(viewer, states)
@@ -1106,6 +1114,7 @@ func (runtime *Runtime) playerByEntityLocked(entityID world.EntityID) (foundatio
 
 func (runtime *Runtime) sectorPayloadLocked() sectorPayload {
 	return sectorPayload{
+		SectorKey: runtimeSectorKey,
 		Name:      "Origin Fringe",
 		Region:    "Origin Belt",
 		Danger:    "low",
@@ -1121,11 +1130,12 @@ func minimapFromAOI(snapshot aoi.Snapshot, radarRange float64) minimapPayload {
 			disposition = entity.Display.Disposition
 		}
 		contacts = append(contacts, minimapContactPayload{
-			EntityID:    entity.ID.String(),
-			EntityType:  entity.Type,
-			Position:    entity.Position,
-			Disposition: disposition,
-			StatusFlags: append([]aoi.StatusFlag(nil), entity.StatusFlags...),
+			EntityID:         entity.ID.String(),
+			EntityType:       entity.Type,
+			Position:         entity.Position,
+			Disposition:      disposition,
+			StatusFlags:      append([]aoi.StatusFlag(nil), entity.StatusFlags...),
+			ProjectionSource: runtimeProjectionSourceWorker,
 		})
 	}
 	return minimapPayload{
@@ -1161,12 +1171,14 @@ func (runtime *Runtime) rememberedMinimapPayloadLocked(playerID foundation.Playe
 			continue
 		}
 		remembered = append(remembered, minimapMemoryPayload{
-			Kind:      "known_planet",
-			PlanetID:  intel.PlanetID.String(),
-			DetailID:  intel.PlanetID.String(),
-			Label:     planetMemoryLabel(planet),
-			Position:  intel.Coordinates,
-			Freshness: string(intel.State),
+			Kind:             "known_planet",
+			SectorKey:        runtimeSectorKey,
+			PlanetID:         intel.PlanetID.String(),
+			DetailID:         intel.PlanetID.String(),
+			Label:            planetMemoryLabel(planet),
+			Position:         intel.Coordinates,
+			Freshness:        string(intel.State),
+			ProjectionSource: runtimeProjectionSourceKnownIntel,
 		})
 	}
 	return remembered, nil

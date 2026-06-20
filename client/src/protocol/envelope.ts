@@ -155,6 +155,7 @@ export interface EntityPayload {
     status?: string;
   };
   movement?: EntityMovementPayload;
+  projection_source?: string;
 }
 
 export interface RequestEnvelope<TPayload extends JsonObject = JsonObject> {
