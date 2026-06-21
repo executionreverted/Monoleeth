@@ -17,8 +17,10 @@ import (
 	"gameproject/internal/game/auction"
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/catalog"
+	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
+	gameevents "gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/market"
 	"gameproject/internal/game/observability"
@@ -2891,6 +2893,125 @@ func TestRepairQuoteAndRepairUseServerOwnedActiveShip(t *testing.T) {
 		if !seen[want] {
 			t.Fatalf("repair events seen = %#v, missing %s", seen, want)
 		}
+	}
+}
+
+func TestShipDisabledDomainEventQueuesClientSafeRealtimeEvents(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "death-bridge@example.com", "Death-Bridge")
+
+	intent, err := world.NewMovementIntent(world.Vec2{X: 400, Y: 0})
+	if err != nil {
+		t.Fatalf("movement intent: %v", err)
+	}
+	gameServer.runtime.mu.Lock()
+	if err := gameServer.runtime.Worker.Submit(worker.MoveToCommand{PlayerID: resolved.PlayerID, Intent: intent}); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("submit move: %v", err)
+	}
+	if err := commandErrors(gameServer.runtime.Worker.Tick()); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("tick move: %v", err)
+	}
+	before, ok := gameServer.runtime.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+	if !ok || !before.Movement.Moving {
+		t.Fatalf("player movement before death = %+v ok=%v, want moving", before.Movement, ok)
+	}
+
+	lethalKey, err := deathdomain.NewLethalEventKey(foundation.EventID("lethal-runtime-1"))
+	if err != nil {
+		t.Fatalf("lethal key: %v", err)
+	}
+	disabledAt := time.Unix(1_720_000_000, 0).UTC()
+	domainPayload := deathdomain.ShipDisabledEvent{
+		DeathID:           foundation.EventID("death-runtime-1"),
+		LethalEventKey:    lethalKey,
+		PlayerID:          resolved.PlayerID,
+		ShipID:            starterShipID,
+		DisabledReason:    "death",
+		DisabledAt:        disabledAt,
+		RespawnLocationID: deathdomain.RespawnLocationID("origin-station"),
+	}
+	raw, err := json.Marshal(domainPayload)
+	if err != nil {
+		t.Fatalf("marshal domain payload: %v", err)
+	}
+
+	gameServer.runtime.Record(gameevents.NewEventEnvelope(
+		foundation.EventID("domain-ship-disabled-1"),
+		deathdomain.EventShipDisabled,
+		raw,
+		disabledAt.UnixMilli(),
+		1,
+	))
+
+	gameServer.runtime.mu.Lock()
+	queued := gameServer.runtime.drainQueuedEventsLocked(resolved.SessionID)
+	state := gameServer.runtime.players[resolved.PlayerID]
+	actor, actorOK := gameServer.runtime.Combat.Actor(state.EntityID)
+	after, entityOK := gameServer.runtime.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+
+	if !state.Ship.Disabled || state.Ship.RepairState != "disabled" || state.Ship.Hull != 0 || state.Ship.Shield != 0 || state.Ship.Capacitor != 0 {
+		t.Fatalf("runtime ship after domain event = %+v, want disabled depleted active ship", state.Ship)
+	}
+	if !actorOK || !actor.Dead || actor.HP != 0 {
+		t.Fatalf("combat actor after domain event = %+v ok=%v, want dead actor", actor, actorOK)
+	}
+	if !entityOK || after.Movement.Moving {
+		t.Fatalf("player movement after domain event = %+v ok=%v, want stopped", after.Movement, entityOK)
+	}
+
+	seen := map[realtime.ClientEventType]realtime.EventEnvelope{}
+	for _, event := range queued {
+		seen[event.Type] = event
+		rawEvent := string(mustJSON(t, event))
+		for _, forbidden := range []string{
+			resolved.PlayerID.String(),
+			resolved.SessionID.String(),
+			"player_id",
+			"session_id",
+			"death_id",
+			"lethal_event_key",
+			"respawn_location_id",
+		} {
+			if strings.Contains(rawEvent, forbidden) {
+				t.Fatalf("death bridge event %s leaked %q in %s", event.Type, forbidden, rawEvent)
+			}
+		}
+	}
+	for _, want := range []realtime.ClientEventType{
+		realtime.EventDeathShipDisabled,
+		realtime.EventShipSnapshot,
+		realtime.EventPlayerSnapshot,
+		realtime.EventMovementStopped,
+	} {
+		if _, ok := seen[want]; !ok {
+			t.Fatalf("queued death bridge events = %#v, missing %s", seen, want)
+		}
+	}
+
+	var publicDisabled struct {
+		ShipID         string              `json:"ship_id"`
+		DisabledReason string              `json:"disabled_reason"`
+		Ship           shipSnapshotPayload `json:"ship"`
+		RepairQuote    repairQuotePayload  `json:"repair_quote"`
+	}
+	if err := json.Unmarshal(seen[realtime.EventDeathShipDisabled].Payload, &publicDisabled); err != nil {
+		t.Fatalf("decode public death disabled event: %v", err)
+	}
+	if publicDisabled.ShipID != starterShipID.String() ||
+		publicDisabled.DisabledReason != "death" ||
+		publicDisabled.Ship.ActiveShipID != starterShipID.String() ||
+		!publicDisabled.Ship.Disabled ||
+		publicDisabled.Ship.RepairState != "disabled" ||
+		publicDisabled.Ship.Hull != 0 ||
+		publicDisabled.Ship.Shield != 0 ||
+		publicDisabled.Ship.Capacitor != 0 ||
+		publicDisabled.RepairQuote.ShipID != starterShipID.String() ||
+		!publicDisabled.RepairQuote.Disabled {
+		t.Fatalf("public death disabled payload = %+v, want client-safe disabled ship state", publicDisabled)
 	}
 }
 
