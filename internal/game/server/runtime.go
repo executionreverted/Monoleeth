@@ -512,27 +512,39 @@ func (runtime *Runtime) seedWorld() error {
 		if instance == nil || instance.Worker == nil {
 			return fmt.Errorf("map %q: %w", mapID, errMapInstanceNotFound)
 		}
+		overrides := map[worldmaps.EnemyPoolID][]world.EntityID(nil)
+		if mapID == worldmaps.StarterMapID {
+			overrides = map[worldmaps.EnemyPoolID][]world.EntityID{
+				"starter_training_drone_pool": {"entity_training_npc"},
+			}
+		}
+		if err := commandErrorsFromSubmitAndTick(instance.Worker, worker.InitializeEnemyPoolsCommand{
+			Definition:        instance.Definition,
+			EntityIDOverrides: overrides,
+		}); err != nil {
+			return err
+		}
+		for _, record := range instance.Worker.EnemySpawnSnapshot().Records {
+			if !record.Alive || record.NPCType != trainingNPCType {
+				continue
+			}
+			entity, ok := instance.Worker.Entity(record.EntityID)
+			if !ok {
+				return fmt.Errorf("spawned npc %q: %w", record.EntityID, worker.ErrUnknownEntity)
+			}
+			if err := runtime.Combat.UpsertActor(runtime.trainingNPCActor(entity)); err != nil {
+				return err
+			}
+		}
+
 		spawnPosition := world.Vec2{}
 		if len(instance.Definition.SpawnPoints) > 0 {
 			spawnPosition = instance.Definition.SpawnPoints[0].Position
 		}
-		visiblePosition := boundedOffset(instance.Definition.Bounds, spawnPosition, world.Vec2{X: 80, Y: 0})
 		hiddenPosition := boundedOffset(instance.Definition.Bounds, spawnPosition, world.Vec2{X: 120, Y: 0})
-		visibleID := world.EntityID("entity_training_npc_" + mapID.String())
 		hiddenID := world.EntityID("entity_hidden_planet_signal_" + mapID.String())
 		if mapID == worldmaps.StarterMapID {
-			visibleID = "entity_training_npc"
 			hiddenID = "entity_hidden_planet_signal"
-		}
-		visible, err := world.NewEntity(instance.Definition.WorldID, instance.Definition.ZoneID, visibleID, world.EntityTypeNPCPlaceholder, visiblePosition)
-		if err != nil {
-			return err
-		}
-		if err := instance.Worker.InsertEntity(visible, 0); err != nil {
-			return err
-		}
-		if err := runtime.Combat.UpsertActor(runtime.trainingNPCActor(visible)); err != nil {
-			return err
 		}
 		hidden, err := world.NewEntity(instance.Definition.WorldID, instance.Definition.ZoneID, hiddenID, world.EntityTypePlanetSignalPlaceholder, hiddenPosition)
 		if err != nil {

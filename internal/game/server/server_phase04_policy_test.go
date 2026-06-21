@@ -146,6 +146,7 @@ func TestAllowedPvPPersistsTargetPlayerStateAndEvents(t *testing.T) {
 func TestPvEAllowedInSafeAndPVEMap(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "pve-safe-map@example.com", "PvE Safe")
+	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
 
 	response := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(resolved.SessionID.String()),

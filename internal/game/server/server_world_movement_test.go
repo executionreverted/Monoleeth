@@ -15,8 +15,9 @@ import (
 )
 
 func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) {
-	_, httpServer := newTestServer(t, false)
+	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
+	insertTestWorldEntity(t, gameServer, "entity_contract_visible_npc", world.EntityTypeNPC, world.Vec2{X: 100, Y: 0}, false)
 
 	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
 	defer conn.CloseNow()

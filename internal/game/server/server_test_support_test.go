@@ -308,6 +308,28 @@ func moveTestPlayerEntity(gameServer *Server, playerID foundation.PlayerID, posi
 	entity.Movement = world.MovementState{}
 	_ = instance.Worker.UpdateEntity(entity)
 }
+func moveTestPlayerNearEntity(t *testing.T, gameServer *Server, playerID foundation.PlayerID, entityID world.EntityID, offset world.Vec2) {
+	t.Helper()
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	instance, _, err := gameServer.runtime.activeMapInstanceLocked(playerID)
+	if err != nil {
+		t.Fatalf("activeMapInstanceLocked() error = %v, want nil", err)
+	}
+	target, ok := instance.Worker.Entity(entityID)
+	if !ok {
+		t.Fatalf("target entity %q missing", entityID)
+	}
+	player, ok := instance.Worker.PlayerEntity(playerID)
+	if !ok {
+		t.Fatalf("player entity for %q missing", playerID)
+	}
+	player.Position = world.Vec2{X: target.Position.X + offset.X, Y: target.Position.Y + offset.Y}
+	player.Movement = world.MovementState{}
+	if err := instance.Worker.UpdateEntity(player); err != nil {
+		t.Fatalf("UpdateEntity(player near %q) = %v, want nil", entityID, err)
+	}
+}
 func testActiveMapInstanceLocked(gameServer *Server, playerID foundation.PlayerID) *mapInstance {
 	if playerID != "" {
 		instance, _, err := gameServer.runtime.activeMapInstanceLocked(playerID)
@@ -598,29 +620,56 @@ func completeQuestWithServerEvents(t *testing.T, gameServer *Server, playerID fo
 func killTrainingNPCForDrop(t *testing.T, conn *websocket.Conn) string {
 	t.Helper()
 	writeText(t, conn, `{"request_id":"request-combat-drop","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"entity_training_npc"},"client_seq":1,"v":1}`)
-	response := readResponse(t, conn)
+	response := readResponseSkippingEvents(t, conn)
 	if !response.OK {
 		t.Fatalf("combat-for-drop response = %+v, want success", response)
 	}
 
 	var dropID string
+	enteredIDs := make(map[string]struct{})
+	sawDropEntered := false
+	sawTrainingLeft := false
 	seen := map[realtime.ClientEventType]bool{}
-	for attempts := 0; attempts < 12 && (!seen[realtime.EventAOIEntityEntered] || !seen[realtime.EventAOIEntityLeft] || dropID == ""); attempts++ {
+	for attempts := 0; attempts < 16 && (dropID == "" || !sawDropEntered || !sawTrainingLeft); attempts++ {
 		event := readEvent(t, conn)
 		seen[event.Type] = true
-		if event.Type != realtime.EventLootCreated {
-			continue
+		switch event.Type {
+		case realtime.EventLootCreated:
+			var payload struct {
+				DropID string `json:"drop_id"`
+			}
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatalf("decode loot.created: %v", err)
+			}
+			dropID = payload.DropID
+			if _, ok := enteredIDs[dropID]; ok {
+				sawDropEntered = true
+			}
+		case realtime.EventAOIEntityEntered:
+			var payload struct {
+				EntityID string `json:"entity_id"`
+			}
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatalf("decode aoi.entity_entered: %v", err)
+			}
+			enteredIDs[payload.EntityID] = struct{}{}
+			if payload.EntityID == dropID && dropID != "" {
+				sawDropEntered = true
+			}
+		case realtime.EventAOIEntityLeft:
+			var payload struct {
+				EntityID string `json:"entity_id"`
+			}
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatalf("decode aoi.entity_left: %v", err)
+			}
+			if payload.EntityID == "entity_training_npc" {
+				sawTrainingLeft = true
+			}
 		}
-		var payload struct {
-			DropID string `json:"drop_id"`
-		}
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			t.Fatalf("decode loot.created: %v", err)
-		}
-		dropID = payload.DropID
 	}
-	if dropID == "" {
-		t.Fatalf("combat-for-drop events seen = %#v, missing loot.created", seen)
+	if dropID == "" || !sawDropEntered || !sawTrainingLeft {
+		t.Fatalf("combat-for-drop events seen = %#v dropID=%q dropEntered=%v trainingLeft=%v", seen, dropID, sawDropEntered, sawTrainingLeft)
 	}
 	return dropID
 }

@@ -17,14 +17,18 @@ import (
 )
 
 func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
-	_, httpServer := newTestServer(t, false)
+	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
-	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
+	gameServer.runtime.tickAndCollectAOIEvents()
 
 	writeText(t, conn, `{"request_id":"request-combat-1","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"entity_training_npc"},"client_seq":1,"v":1}`)
-	response := readResponse(t, conn)
+	response := readResponseSkippingEvents(t, conn)
 	if !response.OK {
 		t.Fatalf("combat response = %+v, want success", response)
 	}
@@ -45,7 +49,7 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 
 	var dropID string
 	seen := map[realtime.ClientEventType]bool{}
-	for attempts := 0; attempts < 12 && (dropID == "" || !seen[realtime.EventAOIEntityEntered] || !seen[realtime.EventAOIEntityLeft]); attempts++ {
+	for attempts := 0; attempts < 12 && dropID == ""; attempts++ {
 		event := readEvent(t, conn)
 		seen[event.Type] = true
 		raw := string(event.Payload)
@@ -83,9 +87,10 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 		}
 	}
 
+	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, world.EntityID(dropID), world.Vec2{})
 	request := `{"request_id":"request-loot-1","op":"loot.pickup","payload":{"drop_id":"` + dropID + `"},"client_seq":2,"v":1}`
 	writeText(t, conn, request)
-	pickup := readResponse(t, conn)
+	pickup := readResponseSkippingEvents(t, conn)
 	if !pickup.OK {
 		t.Fatalf("pickup response = %+v, want success", pickup)
 	}
@@ -128,20 +133,28 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 	}
 
 	seen = map[realtime.ClientEventType]bool{}
-	for attempts := 0; attempts < 8 && !seen[realtime.EventAOIEntityLeft]; attempts++ {
+	for attempts := 0; attempts < 8 && !pickupEventsComplete(seen); attempts++ {
 		event := readEvent(t, conn)
 		seen[event.Type] = true
 	}
-	for _, want := range []realtime.ClientEventType{realtime.EventLootPickedUp, realtime.EventLootRemoved, realtime.EventCargoSnapshot, realtime.EventProgressionSnapshot, realtime.EventAOIEntityLeft} {
+	for _, want := range []realtime.ClientEventType{realtime.EventLootPickedUp, realtime.EventLootRemoved, realtime.EventCargoSnapshot, realtime.EventInventorySnapshot, realtime.EventProgressionSnapshot} {
 		if !seen[want] {
 			t.Fatalf("pickup events seen = %#v, missing %s", seen, want)
 		}
 	}
 	writeText(t, conn, request)
-	duplicatePickup := readResponse(t, conn)
+	duplicatePickup := readResponseSkippingEvents(t, conn)
 	if !bytes.Equal(duplicatePickup.Payload, pickup.Payload) {
 		t.Fatalf("duplicate pickup payload changed:\nfirst=%s\nsecond=%s", pickup.Payload, duplicatePickup.Payload)
 	}
+}
+
+func pickupEventsComplete(seen map[realtime.ClientEventType]bool) bool {
+	return seen[realtime.EventLootPickedUp] &&
+		seen[realtime.EventLootRemoved] &&
+		seen[realtime.EventCargoSnapshot] &&
+		seen[realtime.EventInventorySnapshot] &&
+		seen[realtime.EventProgressionSnapshot]
 }
 func TestCombatRejectsClientAuthoredGameplayTruth(t *testing.T) {
 	_, httpServer := newTestServer(t, false)
@@ -185,10 +198,11 @@ func TestCombatRejectsHiddenOutOfRangeAndDisabledWithoutEnergySpend(t *testing.T
 		defer conn.CloseNow()
 		readBootstrapEvents(t, conn)
 		resolved := resolvedSessionForCookie(t, gameServer, cookie)
+		moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{X: -20})
 		setTestWeaponRange(gameServer, resolved.PlayerID, 10)
 
 		writeText(t, conn, `{"request_id":"request-combat-range","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"entity_training_npc"},"client_seq":1,"v":1}`)
-		got := readError(t, conn)
+		got := readErrorSkippingEvents(t, conn)
 		if got.Error.Code != foundation.CodeOutOfRange {
 			t.Fatalf("out-of-range combat error = %+v, want %s", got.Error, foundation.CodeOutOfRange)
 		}
@@ -225,12 +239,14 @@ func TestLootPickupRejectsOutOfRangeDropWithoutCargoMutation(t *testing.T) {
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
 	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
+	gameServer.runtime.tickAndCollectAOIEvents()
 	dropID := killTrainingNPCForDrop(t, conn)
 	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 1000, Y: 0})
 	setTestRadarRange(gameServer, resolved.PlayerID, 2000)
 
 	writeText(t, conn, `{"request_id":"request-loot-far","op":"loot.pickup","payload":{"drop_id":"`+dropID+`"},"client_seq":2,"v":1}`)
-	got := readError(t, conn)
+	got := readErrorSkippingEvents(t, conn)
 	if got.Error.Code != foundation.CodeOutOfRange {
 		t.Fatalf("out-of-range pickup error = %+v, want %s", got.Error, foundation.CodeOutOfRange)
 	}

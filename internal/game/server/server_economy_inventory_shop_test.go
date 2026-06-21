@@ -11,12 +11,14 @@ import (
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/world"
 )
 
 func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
-	_, httpServer := newTestServer(t, false)
+	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
-	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
 
@@ -143,9 +145,12 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 		t.Fatalf("spoofed progression error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
 	}
 
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
+	gameServer.runtime.tickAndCollectAOIEvents()
 	dropID := killTrainingNPCForDrop(t, conn)
 	writeText(t, conn, `{"request_id":"request-phase06-loot","op":"loot.pickup","payload":{"drop_id":"`+dropID+`"},"client_seq":8,"v":1}`)
-	pickup := readResponse(t, conn)
+	pickup := readResponseSkippingEvents(t, conn)
 	if !pickup.OK {
 		t.Fatalf("phase06 pickup response = %+v, want success", pickup)
 	}

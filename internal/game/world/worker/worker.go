@@ -66,6 +66,7 @@ type Worker struct {
 
 	entities     map[world.EntityID]world.Entity
 	entitySpeeds map[world.EntityID]float64
+	enemySpawner *enemySpawnerState
 
 	playerEntities map[foundation.PlayerID]world.EntityID
 	entityPlayers  map[world.EntityID]foundation.PlayerID
@@ -178,6 +179,7 @@ func NewWorker(config Config) (*Worker, error) {
 		index:                 index,
 		entities:              make(map[world.EntityID]world.Entity),
 		entitySpeeds:          make(map[world.EntityID]float64),
+		enemySpawner:          newEnemySpawnerState(),
 		playerEntities:        make(map[foundation.PlayerID]world.EntityID),
 		entityPlayers:         make(map[world.EntityID]foundation.PlayerID),
 		sessionPlayers:        make(map[realtime.SessionID]foundation.PlayerID),

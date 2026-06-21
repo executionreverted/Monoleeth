@@ -17,9 +17,11 @@ import (
 func TestWorldProjectionSourcesReconcileAfterServerOwnedMovement(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "projection-move@example.com", "Projection Move")
+	arrivingPosition := world.Vec2{X: defaultRadarRange + 200, Y: 0}
+	movePosition := world.Vec2{X: defaultRadarRange + 80, Y: 0}
 	insertTestWorldEntity(t, gameServer, "entity_projection_departing", world.EntityTypeNPC, world.Vec2{X: 0, Y: 0}, false)
-	insertTestWorldEntity(t, gameServer, "entity_projection_arriving", world.EntityTypeLoot, world.Vec2{X: 650, Y: 0}, false)
-	insertTestWorldEntity(t, gameServer, "entity_projection_hidden_arriving", world.EntityTypeNPC, world.Vec2{X: 650, Y: 10}, true)
+	insertTestWorldEntity(t, gameServer, "entity_projection_arriving", world.EntityTypeLoot, arrivingPosition, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_hidden_arriving", world.EntityTypeNPC, world.Vec2{X: arrivingPosition.X, Y: 10}, true)
 
 	events, err := gameServer.runtime.bootstrapEvents(resolved)
 	if err != nil {
@@ -30,7 +32,7 @@ func TestWorldProjectionSourcesReconcileAfterServerOwnedMovement(t *testing.T) {
 		t.Fatalf("initial projection entities = %+v, want departing visible and arriving outside", initial.Entities)
 	}
 
-	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 500, Y: 0})
+	moveTestPlayerEntity(gameServer, resolved.PlayerID, movePosition)
 	eventsBySession := gameServer.runtime.tickAndCollectAOIEvents()
 	sessionEvents := eventsBySession[resolved.SessionID]
 	if len(sessionEvents) == 0 {

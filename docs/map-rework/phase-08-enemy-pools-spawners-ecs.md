@@ -100,13 +100,51 @@ profiles whose risk band does not exactly match the owning map risk band.
 
 Deferred Phase 08 work:
 
-- map-worker spawner component
-- initial fill from enabled pools
 - runtime actor projection from stat templates
 - kill/respawn path and cap accounting
 - map-aware loot selector
 - aggro/leash ticks
 - boss/event hooks
+
+## Phase08B Landed Initial Spawner Slice
+
+The landed Phase08B slice adds worker-local enemy spawner state under
+`internal/game/world/worker`. The spawner stores server-only live NPC rows with
+entity id, enemy pool id, spawn area id, NPC type, chosen MVP level, stat/drop,
+aggro, leash profile ids, position, alive state, and spawn timestamp. It keeps
+entity and pool alive indexes inside the map worker and exposes clone-safe
+server/internal read APIs for tests; these structures are not client wire JSON.
+
+Map workers now accept `InitializeEnemyPoolsCommand`, which performs the
+deterministic initial-fill MVP from a validated `worldmaps.MapDefinition`.
+Enabled, non-disabled pools seed up to `initial_alive` while respecting each
+pool cap and the strictest configured map cap across enabled pools until a
+future catalog-level map cap field exists. The Phase08B candidate is the
+configured spawn area center; future RNG, jitter, and richer placement remain
+deferred. Candidates are skipped without client leakage when they are outside
+map bounds, inside a PvP-blocking safe zone for safe-zone-excluded areas, or
+inside a visible portal exclusion radius. Spawned NPC world entities use
+`world.EntityTypeNPC`, and server speed comes from the referenced NPC stat
+template.
+
+`runtime.seedWorld` now initializes NPCs through the spawner command instead of
+manually inserting a default visible training NPC into every map. The starter
+map still passes an explicit migration entity-id override so its first training
+drone remains `entity_training_npc`; maps without enemy pools, including
+`1-2`, do not receive a default training NPC. Hidden planet signal seeding is
+unchanged. The runtime still uses the old training NPC combat actor projection
+and global training salvage loot table after the spawner-created entity exists;
+catalog-backed actor projection and map-aware loot selection are not landed in
+this slice.
+
+Deferred Phase08 work after Phase08B:
+
+- catalog-backed runtime actor projection from spawner stat templates
+- kill/death accounting in spawner rows and alive counters
+- delayed respawn and periodic fill ticks
+- map/risk/rank-aware loot table selector
+- aggro/leash simulation
+- boss/event spawn hooks
 
 ### NPC State Ownership
 
