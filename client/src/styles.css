@@ -1953,10 +1953,14 @@ button:disabled {
 }
 
 .module-hover-card {
-  position: absolute;
-  z-index: 50;
-  left: 50%;
-  top: calc(100% + 0.35rem);
+  display: none;
+}
+
+.hud-floating-tooltip {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  z-index: 60;
   width: min(13rem, calc(100vw - 2rem));
   display: grid;
   gap: 0.18rem;
@@ -1969,26 +1973,24 @@ button:disabled {
   text-align: left;
   pointer-events: none;
   opacity: 0;
-  transform: translate(-50%, -0.15rem);
+  transform: scale(0.98);
+  transform-origin: top left;
   transition: opacity 120ms ease, transform 120ms ease;
 }
 
-.module-card:hover .module-hover-card,
-.module-card:focus-visible .module-hover-card,
-.slot-module-chip:hover .module-hover-card,
-.slot-module-chip:focus-visible .module-hover-card {
+.hud-floating-tooltip[data-open='true'] {
   opacity: 1;
-  transform: translate(-50%, 0);
+  transform: scale(1);
 }
 
-.module-hover-card strong {
+.hud-floating-tooltip strong {
   color: #f5f7f8;
   font-size: 0.74rem;
   display: block;
   white-space: normal;
 }
 
-.module-hover-card span {
+.hud-floating-tooltip span {
   display: block;
   color: rgba(215, 247, 255, 0.72);
   font-size: 0.62rem;

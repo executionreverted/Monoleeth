@@ -176,6 +176,7 @@ export class HUD {
   private readonly nav: HTMLElement;
   private readonly windowLayer: HTMLElement;
   private readonly modalLayer: HTMLElement;
+  private readonly moduleTooltip: HTMLElement;
   private readonly movementEta: HTMLElement;
   private readonly socketInput: HTMLInputElement;
   private readonly panels: Record<string, HTMLElement>;
@@ -244,6 +245,7 @@ export class HUD {
       </aside>
       <footer class="hud__actionbar panel" data-panel="actions"></footer>
       <footer class="hud__log panel" data-panel="log"></footer>
+      <div class="hud-floating-tooltip" id="module-floating-tooltip" data-module-tooltip-layer role="tooltip" aria-hidden="true"></div>
       <div class="hud__modal-layer" data-modal-layer></div>
       <div class="toast" role="status" aria-live="polite"></div>
     `;
@@ -252,6 +254,7 @@ export class HUD {
     this.nav = this.root.querySelector<HTMLElement>('[data-hud-nav]')!;
     this.windowLayer = this.root.querySelector<HTMLElement>('[data-window-layer]')!;
     this.modalLayer = this.root.querySelector<HTMLElement>('[data-modal-layer]')!;
+    this.moduleTooltip = this.root.querySelector<HTMLElement>('[data-module-tooltip-layer]')!;
     this.movementEta = this.root.querySelector<HTMLElement>('[data-movement-eta]')!;
     this.socketInput = this.root.querySelector<HTMLInputElement>('.socket-field__input')!;
     this.toast = this.root.querySelector<HTMLElement>('.toast')!;
@@ -378,6 +381,13 @@ export class HUD {
     window.addEventListener('pointerup', this.dragEnd);
     window.addEventListener('pointercancel', this.dragEnd);
     window.addEventListener('keydown', this.shortcutKeyDown);
+    window.addEventListener('resize', () => this.hideModuleTooltip());
+
+    this.root.addEventListener('pointerover', (event) => this.handleModuleTooltipPointerOver(event));
+    this.root.addEventListener('pointerout', (event) => this.handleModuleTooltipPointerOut(event));
+    this.root.addEventListener('focusin', (event) => this.handleModuleTooltipFocus(event));
+    this.root.addEventListener('focusout', (event) => this.handleModuleTooltipBlur(event));
+    this.root.addEventListener('scroll', () => this.hideModuleTooltip(), { capture: true });
 
     this.root.addEventListener('click', (event) => {
       if (pointerTargetOwnsUI(event.target)) {
@@ -462,6 +472,138 @@ export class HUD {
     this.root.addEventListener('dragend', () => this.handleLoadoutDragEnd());
     this.root.addEventListener('dragover', (event) => this.handleLoadoutDragOver(event));
     this.root.addEventListener('drop', (event) => this.handleLoadoutDrop(event));
+  }
+
+  private handleModuleTooltipPointerOver(event: PointerEvent): void {
+    const trigger = this.moduleTooltipTrigger(event.target);
+    if (!trigger) {
+      return;
+    }
+    const related = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+    if (related && trigger.contains(related)) {
+      return;
+    }
+    this.showModuleTooltip(trigger);
+  }
+
+  private handleModuleTooltipPointerOut(event: PointerEvent): void {
+    const trigger = this.moduleTooltipTrigger(event.target);
+    if (!trigger) {
+      return;
+    }
+    const related = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+    if (related && trigger.contains(related)) {
+      return;
+    }
+    this.hideModuleTooltip();
+  }
+
+  private handleModuleTooltipFocus(event: FocusEvent): void {
+    const trigger = this.moduleTooltipTrigger(event.target);
+    if (trigger) {
+      this.showModuleTooltip(trigger);
+    }
+  }
+
+  private handleModuleTooltipBlur(event: FocusEvent): void {
+    const trigger = this.moduleTooltipTrigger(event.target);
+    if (!trigger) {
+      return;
+    }
+    const related = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+    if (related && trigger.contains(related)) {
+      return;
+    }
+    this.hideModuleTooltip();
+  }
+
+  private moduleTooltipTrigger(target: EventTarget | null): HTMLElement | null {
+    if (!(target instanceof HTMLElement)) {
+      return null;
+    }
+    return target.closest<HTMLElement>('[data-module-tooltip="true"]');
+  }
+
+  private showModuleTooltip(trigger: HTMLElement): void {
+    const source = trigger.querySelector<HTMLElement>('.module-hover-card');
+    const tooltipHTML = source?.innerHTML.trim();
+    if (!tooltipHTML) {
+      this.hideModuleTooltip();
+      return;
+    }
+    this.clearModuleTooltipDescriptions();
+    trigger.setAttribute('aria-describedby', this.moduleTooltip.id);
+    this.moduleTooltip.innerHTML = tooltipHTML;
+    this.moduleTooltip.style.left = '-9999px';
+    this.moduleTooltip.style.top = '-9999px';
+    this.moduleTooltip.dataset.open = 'true';
+    this.moduleTooltip.removeAttribute('aria-hidden');
+    this.positionModuleTooltip(trigger);
+  }
+
+  private positionModuleTooltip(trigger: HTMLElement): void {
+    const triggerRect = trigger.getBoundingClientRect();
+    const tooltipRect = this.moduleTooltip.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const margin = 8;
+    const gap = 8;
+    const tooltipWidth = Math.min(tooltipRect.width || 208, Math.max(160, viewportWidth - margin * 2));
+    const tooltipHeight = Math.min(tooltipRect.height || 96, Math.max(80, viewportHeight - margin * 2));
+    const leftSpace = triggerRect.left - margin;
+    const rightSpace = viewportWidth - triggerRect.right - margin;
+    const topSpace = triggerRect.top - margin;
+    const bottomSpace = viewportHeight - triggerRect.bottom - margin;
+    const fitsRight = rightSpace >= tooltipWidth + gap;
+    const fitsLeft = leftSpace >= tooltipWidth + gap;
+    const fitsBottom = bottomSpace >= tooltipHeight + gap;
+    const fitsTop = topSpace >= tooltipHeight + gap;
+    let side: 'left' | 'right' | 'top' | 'bottom' = rightSpace >= leftSpace ? 'right' : 'left';
+    if (side === 'right' && !fitsRight && fitsLeft) {
+      side = 'left';
+    } else if (side === 'left' && !fitsLeft && fitsRight) {
+      side = 'right';
+    } else if (!fitsRight && !fitsLeft) {
+      side = bottomSpace >= topSpace ? 'bottom' : 'top';
+      if (side === 'bottom' && !fitsBottom && fitsTop) {
+        side = 'top';
+      } else if (side === 'top' && !fitsTop && fitsBottom) {
+        side = 'bottom';
+      }
+    }
+
+    let x = 0;
+    let y = 0;
+    if (side === 'right') {
+      x = triggerRect.right + gap;
+      y = triggerRect.top + triggerRect.height / 2 - tooltipHeight / 2;
+    } else if (side === 'left') {
+      x = triggerRect.left - tooltipWidth - gap;
+      y = triggerRect.top + triggerRect.height / 2 - tooltipHeight / 2;
+    } else if (side === 'bottom') {
+      x = triggerRect.left + triggerRect.width / 2 - tooltipWidth / 2;
+      y = triggerRect.bottom + gap;
+    } else {
+      x = triggerRect.left + triggerRect.width / 2 - tooltipWidth / 2;
+      y = triggerRect.top - tooltipHeight - gap;
+    }
+
+    this.moduleTooltip.dataset.side = side;
+    this.moduleTooltip.style.left = `${clamp(x, margin, viewportWidth - tooltipWidth - margin)}px`;
+    this.moduleTooltip.style.top = `${clamp(y, margin, viewportHeight - tooltipHeight - margin)}px`;
+  }
+
+  private hideModuleTooltip(): void {
+    delete this.moduleTooltip.dataset.open;
+    delete this.moduleTooltip.dataset.side;
+    this.moduleTooltip.setAttribute('aria-hidden', 'true');
+    this.clearModuleTooltipDescriptions();
+  }
+
+  private clearModuleTooltipDescriptions(): void {
+    for (const element of this.root.querySelectorAll<HTMLElement>('[aria-describedby="module-floating-tooltip"]')) {
+      element.removeAttribute('aria-describedby');
+    }
   }
 
   private dispatchAction(action: string | undefined): boolean {
@@ -738,6 +880,7 @@ export class HUD {
     event.dataTransfer.setData('text/plain', payload.itemInstanceID);
     moduleCard.dataset.dragging = 'true';
     this.markLoadoutDropTargets(payload);
+    this.hideModuleTooltip();
     markHUDInputSuppressed();
   }
 
@@ -918,6 +1061,7 @@ export class HUD {
     if (html === this.windowRenderSignature) {
       return;
     }
+    this.hideModuleTooltip();
     this.windowRenderSignature = html;
     this.windowLayer.innerHTML = html;
   }
@@ -1858,11 +2002,12 @@ function loadoutSlotCard(slot: NonNullable<ClientState['loadout']>['slots'][numb
         occupied
           ? `<div class="slot-module-chip"
                 draggable="true"
+                data-module-tooltip="true"
                 data-module-instance-id="${escapeHTML(slot.item_instance_id ?? '')}"
                 data-equipped-slot-id="${escapeHTML(slot.slot_id)}"
                 data-module-slot-type="${escapeHTML(slot.slot_type)}"
                 aria-label="${escapeHTML(moduleName)}">
-               <span class="module-hover-card" role="tooltip">
+               <span class="module-hover-card" aria-hidden="true">
                  <strong>${escapeHTML(moduleName)}</strong>
                  <span>${escapeHTML(publicModuleSlotGroupLabel(slot.slot_type))} · ${escapeHTML(slot.module_state || 'online')}</span>
                  <span>Dur ${formatDurability(slot.durability, slot.durability_max)}</span>
@@ -1889,6 +2034,7 @@ function moduleInventoryCard(
     <button class="module-card"
       type="button"
       data-action="module-select"
+      data-module-tooltip="true"
       draggable="true"
       data-module-instance-id="${escapeHTML(item.item_instance_id)}"
       data-module-slot-type="${escapeHTML(item.module_slot_type ?? '')}"
@@ -1896,7 +2042,7 @@ function moduleInventoryCard(
       data-selected="${item.item_instance_id === selectedID ? 'true' : 'false'}"
       aria-label="${escapeHTML(item.display_name || item.item_id)}">
       <span class="module-card__rarity">${escapeHTML(publicRarityBadge(item.rarity || item.bound_state || 'owned'))}</span>
-      <span class="module-hover-card" role="tooltip">
+      <span class="module-hover-card" aria-hidden="true">
         <strong>${escapeHTML(item.display_name || item.item_id)}</strong>
         <span>${escapeHTML(publicModuleSlotGroupLabel(item.module_slot_type ?? 'module'))}</span>
         <span>Dur ${formatDurability(item.durability_current, item.durability_max)}</span>
