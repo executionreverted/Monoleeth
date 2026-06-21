@@ -323,6 +323,13 @@ Current Phase 05 radar visibility payload rules:
   stealth-score, jammer, scan-power, scan-candidate, map-worker, or hidden
   target internals must be rejected as server-owned fields.
 
+Current Phase 06 scanner payload rule:
+
+- `scan.pulse` is a strict empty-intent command. The only valid payload is `{}`;
+  any client-supplied payload field, including arbitrary unknown or nested
+  fields, is rejected before any cooldown, energy, pulse, planet, intel, XP, or
+  event mutation.
+
 ## Edge Cases
 
 - Client reconnects after command accepted but response lost.

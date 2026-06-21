@@ -101,27 +101,6 @@ func TestSameSeedAndCellGenerateSameCandidates(t *testing.T) {
 	}
 }
 
-func TestPlanetCandidateGenerationFiltersByDiscoveryHorizon(t *testing.T) {
-	seed := testSeed(t, "horizon-seed")
-	cell, candidates := findCellWithCandidates(t, seed, 1)
-	candidate := candidates[0]
-
-	horizon := candidate.Position().Distance(world.Vec2{}) - 1
-	if horizon < 0 {
-		horizon = 0
-	}
-	got, err := discovery.GeneratePlanetCandidates(seed, cell, discovery.CandidateGenerationOptions{
-		DiscoveryHorizon: horizon,
-		SpawnBudget:      3,
-	})
-	if err != nil {
-		t.Fatalf("GeneratePlanetCandidates() error = %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("GeneratePlanetCandidates() = %d candidates, want horizon-filtered none", len(got))
-	}
-}
-
 func TestPlanetCandidateGenerationFiltersByBiomeAndSpawnBudget(t *testing.T) {
 	seed := testSeed(t, "biome-budget-seed")
 	cell, candidates := findCellWithCandidates(t, seed, 1)
@@ -129,9 +108,14 @@ func TestPlanetCandidateGenerationFiltersByBiomeAndSpawnBudget(t *testing.T) {
 	blockingBiome := differentBiome(biome)
 
 	filtered, err := discovery.GeneratePlanetCandidates(seed, cell, discovery.CandidateGenerationOptions{
-		DiscoveryHorizon: 200_000,
-		AllowedBiomes:    []discovery.Biome{blockingBiome},
-		SpawnBudget:      3,
+		MapID:          "test_map",
+		ProfileVersion: "test_profile_v1",
+		MapBounds:      discovery.ExactCandidateMapBounds(),
+		LevelMin:       1,
+		LevelMax:       6,
+		Density:        1,
+		AllowedBiomes:  []discovery.Biome{blockingBiome},
+		SpawnBudget:    3,
 	})
 	if err != nil {
 		t.Fatalf("GeneratePlanetCandidates(biome-filtered) error = %v", err)
@@ -141,8 +125,13 @@ func TestPlanetCandidateGenerationFiltersByBiomeAndSpawnBudget(t *testing.T) {
 	}
 
 	zeroBudget, err := discovery.GeneratePlanetCandidates(seed, cell, discovery.CandidateGenerationOptions{
-		DiscoveryHorizon: 200_000,
-		SpawnBudget:      0,
+		MapID:          "test_map",
+		ProfileVersion: "test_profile_v1",
+		MapBounds:      discovery.ExactCandidateMapBounds(),
+		LevelMin:       1,
+		LevelMax:       6,
+		Density:        1,
+		SpawnBudget:    0,
 	})
 	if err != nil {
 		t.Fatalf("GeneratePlanetCandidates(zero budget) error = %v", err)
@@ -152,8 +141,13 @@ func TestPlanetCandidateGenerationFiltersByBiomeAndSpawnBudget(t *testing.T) {
 	}
 
 	oneBudget, err := discovery.GeneratePlanetCandidates(seed, cell, discovery.CandidateGenerationOptions{
-		DiscoveryHorizon: 200_000,
-		SpawnBudget:      1,
+		MapID:          "test_map",
+		ProfileVersion: "test_profile_v1",
+		MapBounds:      discovery.ExactCandidateMapBounds(),
+		LevelMin:       1,
+		LevelMax:       6,
+		Density:        1,
+		SpawnBudget:    1,
 	})
 	if err != nil {
 		t.Fatalf("GeneratePlanetCandidates(one budget) error = %v", err)
@@ -197,6 +191,8 @@ func TestClientSafeSignalProjectionOmitsSeedAndHiddenCandidateInternals(t *testi
 	payload := string(data)
 	for _, leaked := range []string{
 		"server-static-gameplay-seed",
+		"test_map",
+		"test_profile_v1",
 		"candidate",
 		"key",
 		"position",
@@ -231,15 +227,20 @@ func testSeed(t *testing.T, material string) discovery.WorldSeed {
 
 func testOptions() discovery.CandidateGenerationOptions {
 	return discovery.CandidateGenerationOptions{
-		DiscoveryHorizon: 200_000,
-		SpawnBudget:      3,
+		MapID:          "test_map",
+		ProfileVersion: "test_profile_v1",
+		MapBounds:      discovery.ExactCandidateMapBounds(),
+		LevelMin:       1,
+		LevelMax:       6,
+		Density:        1,
+		SpawnBudget:    3,
 	}
 }
 
 func findCellWithCandidates(t *testing.T, seed discovery.WorldSeed, minCandidates int) (discovery.ScanCellCoord, []discovery.PlanetCandidate) {
 	t.Helper()
-	for y := int64(-50); y <= 50; y++ {
-		for x := int64(-50); x <= 50; x++ {
+	for y := int64(-2); y <= 22; y++ {
+		for x := int64(-2); x <= 22; x++ {
 			cell := discovery.ScanCellCoord{X: x, Y: y}
 			candidates, err := discovery.GeneratePlanetCandidates(seed, cell, testOptions())
 			if err != nil {

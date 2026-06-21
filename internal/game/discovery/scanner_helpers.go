@@ -241,9 +241,6 @@ func normalizeScannerConfig(config ScannerServiceConfig) (ScannerServiceConfig, 
 	if config.DiscoveryXPAmount < 0 {
 		return ScannerServiceConfig{}, fmt.Errorf("discovery_xp_amount %d: %w", config.DiscoveryXPAmount, ErrInvalidScannerConfig)
 	}
-	if config.CandidateOptions.DiscoveryHorizon == 0 {
-		config.CandidateOptions.DiscoveryHorizon = defaultScannerDiscoveryHorizon
-	}
 	if config.CandidateOptions.SpawnBudget == 0 {
 		config.CandidateOptions.SpawnBudget = defaultScannerSpawnBudget
 	}
@@ -323,6 +320,12 @@ func scannerDetectionChance(effective stats.EffectiveStats, candidate PlanetCand
 		return 0
 	}
 	return chance
+}
+
+func (service *ScannerService) candidateOptionsForPulse(pulse scanPulse) CandidateGenerationOptions {
+	options := service.candidateOptions
+	options.MapID = pulse.zoneID.String()
+	return options
 }
 
 func scannerDetectionRoll(seed WorldSeed, pulse scanPulse, candidate PlanetCandidate) (float64, error) {

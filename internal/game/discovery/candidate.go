@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"gameproject/internal/game/world"
 )
@@ -25,6 +26,14 @@ const (
 	CandidateRarityCommon   CandidateRarity = "common"
 	CandidateRarityUncommon CandidateRarity = "uncommon"
 	CandidateRarityRare     CandidateRarity = "rare"
+
+	defaultCandidateMapID          = "default_map"
+	defaultCandidateProfileVersion = "bounded_v1"
+	defaultCandidateLevelMin       = 1
+	defaultCandidateLevelMax       = 6
+	defaultCandidateDensity        = 1
+	exactCandidateMinCoordinate    = 0
+	exactCandidateMaxCoordinate    = 10000
 )
 
 // SignalBand is a coarse client-safe signal strength label for revealed
@@ -39,6 +48,14 @@ const (
 
 // CandidateGenerationOptions controls deterministic hidden planet generation.
 type CandidateGenerationOptions struct {
+	MapID          string
+	ProfileVersion string
+	MapBounds      CandidateMapBounds
+	LevelMin       int
+	LevelMax       int
+	Density        float64
+
+	// DiscoveryHorizon is deprecated. Bounded map-local generation ignores it.
 	DiscoveryHorizon float64
 	AllowedBiomes    []Biome
 	SpawnBudget      int
@@ -50,8 +67,11 @@ type CandidateGenerationOptions struct {
 // lacks exported JSON fields and fails closed if marshaled directly.
 type PlanetCandidate struct {
 	key           uint64
+	mapID         string
+	profile       string
 	cell          ScanCellCoord
 	chunk         ChunkCoord
+	bounds        CandidateMapBounds
 	biome         Biome
 	position      world.Vec2
 	level         int
@@ -68,6 +88,54 @@ type CandidateSignalProjection struct {
 	ApproxDistance string     `json:"approx_distance"`
 }
 
+// CandidateMapBounds describes inclusive map-local scanner bounds.
+type CandidateMapBounds struct {
+	MinX float64
+	MinY float64
+	MaxX float64
+	MaxY float64
+}
+
+// ExactCandidateMapBounds returns the required 0..10000 scanner rectangle.
+func ExactCandidateMapBounds() CandidateMapBounds {
+	return CandidateMapBounds{
+		MinX: exactCandidateMinCoordinate,
+		MinY: exactCandidateMinCoordinate,
+		MaxX: exactCandidateMaxCoordinate,
+		MaxY: exactCandidateMaxCoordinate,
+	}
+}
+
+// IsZero reports whether bounds were omitted from options.
+func (bounds CandidateMapBounds) IsZero() bool {
+	return bounds == CandidateMapBounds{}
+}
+
+// ValidateExactPlayable reports whether bounds match the current map contract.
+func (bounds CandidateMapBounds) ValidateExactPlayable() error {
+	values := []float64{bounds.MinX, bounds.MinY, bounds.MaxX, bounds.MaxY}
+	for _, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return fmt.Errorf("map bounds %+v: %w", bounds, ErrInvalidCandidateOptions)
+		}
+	}
+	if bounds != ExactCandidateMapBounds() {
+		return fmt.Errorf("map bounds %+v must equal 0..10000: %w", bounds, ErrInvalidCandidateOptions)
+	}
+	return nil
+}
+
+// Contains reports whether position is inside inclusive map-local bounds.
+func (bounds CandidateMapBounds) Contains(position world.Vec2) bool {
+	if err := position.Validate(); err != nil {
+		return false
+	}
+	return position.X >= bounds.MinX &&
+		position.Y >= bounds.MinY &&
+		position.X <= bounds.MaxX &&
+		position.Y <= bounds.MaxY
+}
+
 // GeneratePlanetCandidates returns deterministic hidden candidates for one
 // scan cell. Results are computed in memory only and are not persisted.
 func GeneratePlanetCandidates(seed WorldSeed, cell ScanCellCoord, options CandidateGenerationOptions) ([]PlanetCandidate, error) {
@@ -79,6 +147,9 @@ func GeneratePlanetCandidates(seed WorldSeed, cell ScanCellCoord, options Candid
 		return nil, ErrInvalidWorldSeed
 	}
 	if normalized.spawnBudget <= 0 {
+		return nil, nil
+	}
+	if !normalized.cellMayIntersectBounds(cell) {
 		return nil, nil
 	}
 
@@ -106,6 +177,15 @@ func GeneratePlanetCandidates(seed WorldSeed, cell ScanCellCoord, options Candid
 	if count == 0 {
 		return nil, nil
 	}
+	if normalized.density < defaultCandidateDensity {
+		densityHash, err := CellHash(seed, cell, normalized.profilePurpose("planet_candidate_density"))
+		if err != nil {
+			return nil, err
+		}
+		if unitFloatFromHash(densityHash) > normalized.density {
+			return nil, nil
+		}
+	}
 
 	candidates := make([]PlanetCandidate, 0, count)
 	for index := 0; index < count; index++ {
@@ -113,7 +193,7 @@ func GeneratePlanetCandidates(seed WorldSeed, cell ScanCellCoord, options Candid
 		if err != nil {
 			return nil, err
 		}
-		if distanceFromOrigin(candidate.position) > normalized.discoveryHorizon {
+		if !normalized.bounds.Contains(candidate.position) {
 			continue
 		}
 		candidates = append(candidates, candidate)
@@ -177,19 +257,66 @@ func (candidate PlanetCandidate) ClientSafeSignal() CandidateSignalProjection {
 	return CandidateSignalProjection{
 		Biome:          candidate.biome,
 		SignalBand:     signalBand(candidate.signature),
-		ApproxDistance: approximateDistance(candidate.position),
+		ApproxDistance: approximateMapLocalSignal(candidate.position, candidate.bounds),
 	}
 }
 
 type normalizedCandidateOptions struct {
-	discoveryHorizon float64
-	allowedBiomes    map[Biome]struct{}
-	spawnBudget      int
-	scanCellSize     float64
-	chunkSize        float64
+	mapID          string
+	profileVersion string
+	bounds         CandidateMapBounds
+	levelMin       int
+	levelMax       int
+	density        float64
+	allowedBiomes  map[Biome]struct{}
+	spawnBudget    int
+	scanCellSize   float64
+	chunkSize      float64
 }
 
 func normalizeCandidateOptions(options CandidateGenerationOptions) (normalizedCandidateOptions, error) {
+	mapID := strings.TrimSpace(options.MapID)
+	if mapID == "" {
+		mapID = defaultCandidateMapID
+	}
+	if mapID != options.MapID && options.MapID != "" {
+		return normalizedCandidateOptions{}, fmt.Errorf("map_id %q: %w", options.MapID, ErrInvalidCandidateOptions)
+	}
+
+	profileVersion := strings.TrimSpace(options.ProfileVersion)
+	if profileVersion == "" {
+		profileVersion = defaultCandidateProfileVersion
+	}
+	if profileVersion != options.ProfileVersion && options.ProfileVersion != "" {
+		return normalizedCandidateOptions{}, fmt.Errorf("profile_version %q: %w", options.ProfileVersion, ErrInvalidCandidateOptions)
+	}
+
+	bounds := options.MapBounds
+	if bounds.IsZero() {
+		bounds = ExactCandidateMapBounds()
+	}
+	if err := bounds.ValidateExactPlayable(); err != nil {
+		return normalizedCandidateOptions{}, err
+	}
+
+	levelMin := options.LevelMin
+	levelMax := options.LevelMax
+	if levelMin == 0 && levelMax == 0 {
+		levelMin = defaultCandidateLevelMin
+		levelMax = defaultCandidateLevelMax
+	}
+	if levelMin <= 0 || levelMax < levelMin {
+		return normalizedCandidateOptions{}, fmt.Errorf("level band %d..%d: %w", levelMin, levelMax, ErrInvalidCandidateOptions)
+	}
+
+	density := options.Density
+	if density == 0 {
+		density = defaultCandidateDensity
+	}
+	if density < 0 || density > 1 || math.IsNaN(density) || math.IsInf(density, 0) {
+		return normalizedCandidateOptions{}, fmt.Errorf("density %v: %w", options.Density, ErrInvalidCandidateOptions)
+	}
+
 	scanCellSize := options.ScanCellSize
 	if scanCellSize == 0 {
 		scanCellSize = DefaultScanCellSize
@@ -216,11 +343,16 @@ func normalizeCandidateOptions(options CandidateGenerationOptions) (normalizedCa
 	}
 
 	return normalizedCandidateOptions{
-		discoveryHorizon: options.DiscoveryHorizon,
-		allowedBiomes:    allowedBiomes,
-		spawnBudget:      options.SpawnBudget,
-		scanCellSize:     scanCellSize,
-		chunkSize:        chunkSize,
+		mapID:          mapID,
+		profileVersion: profileVersion,
+		bounds:         bounds,
+		levelMin:       levelMin,
+		levelMax:       levelMax,
+		density:        density,
+		allowedBiomes:  allowedBiomes,
+		spawnBudget:    options.SpawnBudget,
+		scanCellSize:   scanCellSize,
+		chunkSize:      chunkSize,
 	}, nil
 }
 
@@ -232,6 +364,30 @@ func (options normalizedCandidateOptions) allowsBiome(biome Biome) bool {
 	return ok
 }
 
+func (options normalizedCandidateOptions) cellMayIntersectBounds(cell ScanCellCoord) bool {
+	cellMinX := float64(cell.X) * options.scanCellSize
+	cellMinY := float64(cell.Y) * options.scanCellSize
+	cellMaxX := cellMinX + options.scanCellSize
+	cellMaxY := cellMinY + options.scanCellSize
+	return cellMaxX >= options.bounds.MinX &&
+		cellMaxY >= options.bounds.MinY &&
+		cellMinX <= options.bounds.MaxX &&
+		cellMinY <= options.bounds.MaxY
+}
+
+func (options normalizedCandidateOptions) profilePurpose(purpose string) string {
+	return purpose + ":" + options.profileVersion
+}
+
+func (options normalizedCandidateOptions) mapProfilePurpose(purpose string) string {
+	return purpose + ":" + options.mapID + ":" + options.profileVersion
+}
+
+func (options normalizedCandidateOptions) levelFromHash(hash uint64) int {
+	span := options.levelMax - options.levelMin + 1
+	return options.levelMin + int(hash%uint64(span))
+}
+
 func buildPlanetCandidate(seed WorldSeed, cell ScanCellCoord, biome Biome, index int, options normalizedCandidateOptions) (PlanetCandidate, error) {
 	offsetXHash, err := indexedCellHash(seed, cell, "planet_candidate_offset_x", index)
 	if err != nil {
@@ -241,11 +397,15 @@ func buildPlanetCandidate(seed WorldSeed, cell ScanCellCoord, biome Biome, index
 	if err != nil {
 		return PlanetCandidate{}, err
 	}
-	key, err := indexedCellHash(seed, cell, "planet_candidate_key", index)
+	key, err := indexedCellHash(seed, cell, options.mapProfilePurpose("planet_candidate_key"), index)
 	if err != nil {
 		return PlanetCandidate{}, err
 	}
 	rarityHash, err := indexedCellHash(seed, cell, "planet_candidate_rarity", index)
+	if err != nil {
+		return PlanetCandidate{}, err
+	}
+	levelHash, err := indexedCellHash(seed, cell, options.profilePurpose("planet_candidate_level"), index)
 	if err != nil {
 		return PlanetCandidate{}, err
 	}
@@ -259,18 +419,17 @@ func buildPlanetCandidate(seed WorldSeed, cell ScanCellCoord, biome Biome, index
 		return PlanetCandidate{}, err
 	}
 
-	distance := distanceFromOrigin(position)
 	rarity := candidateRarity(rarityHash)
-	level := int(math.Log(distance/2_000+1)*4) + biomeLevelModifier(biome) + rarityLevelModifier(rarity) + 1
-	if level < 1 {
-		level = 1
-	}
+	level := options.levelFromHash(levelHash)
 
 	signature := 0.25 + unitFloatFromHash(rarityHash)*0.75
 	return PlanetCandidate{
 		key:           key,
+		mapID:         options.mapID,
+		profile:       options.profileVersion,
 		cell:          cell,
 		chunk:         chunk,
+		bounds:        options.bounds,
 		biome:         biome,
 		position:      position,
 		level:         level,
@@ -278,10 +437,6 @@ func buildPlanetCandidate(seed WorldSeed, cell ScanCellCoord, biome Biome, index
 		minRadarLevel: minRadarLevel(level, biome),
 		rarity:        rarity,
 	}, nil
-}
-
-func distanceFromOrigin(position world.Vec2) float64 {
-	return math.Sqrt(position.X*position.X + position.Y*position.Y)
 }
 
 func candidateRarity(hash uint64) CandidateRarity {
@@ -329,17 +484,26 @@ func signalBand(signature float64) SignalBand {
 	}
 }
 
-func approximateDistance(position world.Vec2) string {
-	distance := distanceFromOrigin(position)
+func approximateMapLocalSignal(position world.Vec2, bounds CandidateMapBounds) string {
+	width := bounds.MaxX - bounds.MinX
+	height := bounds.MaxY - bounds.MinY
+	if width <= 0 || height <= 0 {
+		return "map_local"
+	}
+	center := world.Vec2{
+		X: bounds.MinX + width/2,
+		Y: bounds.MinY + height/2,
+	}
+	maxDistance := math.Sqrt(width*width+height*height) / 2
+	distance := center.Distance(position)
+	ratio := distance / maxDistance
 	switch {
-	case distance < 5_000:
-		return "near_origin"
-	case distance < 20_000:
-		return "outer_drift"
-	case distance < 50_000:
-		return "deep_space"
+	case ratio < 0.34:
+		return "map_core"
+	case ratio < 0.67:
+		return "map_mid"
 	default:
-		return "frontier"
+		return "map_edge"
 	}
 }
 

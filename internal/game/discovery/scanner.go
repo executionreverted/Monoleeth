@@ -252,7 +252,7 @@ func (service *ScannerService) resolvePulseLocked(pulse scanPulse, now time.Time
 		}
 	}
 
-	candidates, err := GeneratePlanetCandidates(service.seed, pulse.cell, service.candidateOptions)
+	candidates, err := GeneratePlanetCandidates(service.seed, pulse.cell, service.candidateOptionsForPulse(pulse))
 	if err != nil {
 		return ResolveScanPulseResult{}, err
 	}

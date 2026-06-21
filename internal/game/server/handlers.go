@@ -464,6 +464,41 @@ func rejectTrustedPayload(payload json.RawMessage) error {
 	return rejectTrustedPayloadAllowing(payload)
 }
 
+func rejectTrustedPayloadWithAdditional(payload json.RawMessage, additionalKeys ...string) error {
+	var value any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		return invalidPayload("Invalid payload.", err)
+	}
+	if found := findTrustedPayloadKey(value, nil, 0); found != "" {
+		return invalidPayload(fmt.Sprintf("Payload field %q is server-owned.", found), nil)
+	}
+	additional := make(map[string]struct{}, len(additionalKeys))
+	for _, key := range additionalKeys {
+		additional[strings.ToLower(key)] = struct{}{}
+	}
+	if found := findPayloadKey(value, additional); found != "" {
+		return invalidPayload(fmt.Sprintf("Payload field %q is server-owned.", found), nil)
+	}
+	return nil
+}
+
+func rejectEmptyIntentPayload(payload json.RawMessage, additionalTrustedKeys ...string) error {
+	if err := rejectTrustedPayloadWithAdditional(payload, additionalTrustedKeys...); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return invalidPayload("Invalid payload.", err)
+	}
+	if fields == nil {
+		return invalidPayload("Payload must be an empty object.", nil)
+	}
+	for key := range fields {
+		return invalidPayload(fmt.Sprintf("Payload field %q is not accepted for this command.", key), nil)
+	}
+	return nil
+}
+
 func rejectTrustedPayloadAllowing(payload json.RawMessage, allowedKeys ...string) error {
 	var value any
 	if err := json.Unmarshal(payload, &value); err != nil {
@@ -496,6 +531,27 @@ func findTrustedPayloadKey(value any, allowed map[string]struct{}, depth int) st
 	case []any:
 		for _, child := range typed {
 			if found := findTrustedPayloadKey(child, allowed, depth+1); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
+}
+
+func findPayloadKey(value any, keys map[string]struct{}) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if _, forbidden := keys[strings.ToLower(key)]; forbidden {
+				return key
+			}
+			if found := findPayloadKey(child, keys); found != "" {
+				return found
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if found := findPayloadKey(child, keys); found != "" {
 				return found
 			}
 		}

@@ -237,7 +237,7 @@ func TestScanPulseRejectsInsufficientCapacitorBeforeDiscoveryMutation(t *testing
 	resolved := resolvedSessionForCookie(t, gameServer, cookie)
 	setTestShipCapacitor(gameServer, resolved.PlayerID, starterScannerEnergyCost-1)
 
-	writeText(t, conn, `{"request_id":"request-scan-low-cap","op":"scan.pulse","payload":{"energy":999,"capacitor":999},"client_seq":1,"v":1}`)
+	writeText(t, conn, `{"request_id":"request-scan-low-cap","op":"scan.pulse","payload":{},"client_seq":1,"v":1}`)
 	got := readError(t, conn)
 	if got.Error.Code != foundation.CodeNotEnoughEnergy {
 		t.Fatalf("low-capacitor scan error = %+v, want %s", got.Error, foundation.CodeNotEnoughEnergy)
@@ -259,6 +259,115 @@ func TestScanPulseRejectsInsufficientCapacitorBeforeDiscoveryMutation(t *testing
 		t.Fatalf("low-capacitor scan events = %d, want none", len(events))
 	}
 }
+
+func TestScanPulseRejectsTrustedClientScannerFields(t *testing.T) {
+	for _, fixture := range []struct {
+		name    string
+		payload string
+	}{
+		{name: "map", payload: `{"map_id":"map_1_2"}`},
+		{name: "position", payload: `{"position":{"x":1,"y":1}}`},
+		{name: "candidate", payload: `{"candidate_key":"forced"}`},
+		{name: "radar", payload: `{"radar_range":9999}`},
+		{name: "cooldown", payload: `{"cooldown":0}`},
+		{name: "energy", payload: `{"energy":999,"capacitor":999}`},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			assertScanPulsePayloadRejectedBeforeMutation(t, "trusted-"+fixture.name, fixture.payload)
+		})
+	}
+}
+
+func TestScanPulseRejectsEmptyIntentAliasFields(t *testing.T) {
+	for _, fixture := range []struct {
+		name    string
+		payload string
+	}{
+		{name: "x", payload: `{"x":100}`},
+		{name: "y", payload: `{"y":200}`},
+		{name: "target", payload: `{"target":{"x":100,"y":200}}`},
+		{name: "planet_id", payload: `{"planet_id":"planet-forced"}`},
+		{name: "radar", payload: `{"radar":{"range":9999}}`},
+		{name: "scanner_power", payload: `{"scanner_power":9999}`},
+		{name: "discovery_result", payload: `{"discovery_result":{"planet_id":"planet-forced"}}`},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			assertScanPulsePayloadRejectedBeforeMutation(t, "alias-"+fixture.name, fixture.payload)
+		})
+	}
+}
+
+func TestScanPulseRejectsArbitraryUnknownFields(t *testing.T) {
+	for _, fixture := range []struct {
+		name    string
+		payload string
+	}{
+		{name: "scalar", payload: `{"client_note":"scan now"}`},
+		{name: "nested_object", payload: `{"unknown":{"nested":true}}`},
+		{name: "nested_array_object", payload: `{"items":[{"unknown":1}]}`},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			assertScanPulsePayloadRejectedBeforeMutation(t, "unknown-"+fixture.name, fixture.payload)
+		})
+	}
+}
+
+func assertScanPulsePayloadRejectedBeforeMutation(t *testing.T, requestSuffix string, payload string) {
+	t.Helper()
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	beforeProgression, err := gameServer.runtime.Progression.GetProgressionSnapshot(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("GetProgressionSnapshot(before) error = %v, want nil", err)
+	}
+	beforeCapacitor := testShipCapacitor(gameServer, resolved.PlayerID)
+
+	writeText(t, conn, `{"request_id":"request-scan-`+requestSuffix+`","op":"scan.pulse","payload":`+payload+`,"client_seq":1,"v":1}`)
+	got := readError(t, conn)
+	if got.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("scan payload %s error = %+v, want %s", payload, got.Error, foundation.CodeInvalidPayload)
+	}
+	if capacitor := testShipCapacitor(gameServer, resolved.PlayerID); capacitor != beforeCapacitor {
+		t.Fatalf("scan payload %s capacitor = %d, want unchanged %d", payload, capacitor, beforeCapacitor)
+	}
+	gameServer.runtime.mu.Lock()
+	cooldowns := len(gameServer.runtime.scanCooldowns)
+	capacitorSpends := len(gameServer.runtime.scanCapacitorSpends)
+	queuedEvents := len(gameServer.runtime.queuedEvents[resolved.SessionID])
+	gameServer.runtime.mu.Unlock()
+	if cooldowns != 0 || capacitorSpends != 0 {
+		t.Fatalf("scan payload %s cooldowns=%d capacitor_spends=%d, want none", payload, cooldowns, capacitorSpends)
+	}
+	if queuedEvents != 0 {
+		t.Fatalf("scan payload %s queued events = %d, want none", payload, queuedEvents)
+	}
+	if planets := gameServer.runtime.Discovery.Planets(); len(planets) != 0 {
+		t.Fatalf("scan payload %s planets = %d, want no mutation", payload, len(planets))
+	}
+	intel, err := gameServer.runtime.Discovery.PlayerPlanetIntelRecords(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("PlayerPlanetIntelRecords() error = %v, want nil", err)
+	}
+	if len(intel) != 0 {
+		t.Fatalf("scan payload %s intel records = %d, want none", payload, len(intel))
+	}
+	afterProgression, err := gameServer.runtime.Progression.GetProgressionSnapshot(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("GetProgressionSnapshot(after) error = %v, want nil", err)
+	}
+	if afterProgression.Player.MainXP != beforeProgression.Player.MainXP {
+		t.Fatalf("scan payload %s main XP = %d, want unchanged %d", payload, afterProgression.Player.MainXP, beforeProgression.Player.MainXP)
+	}
+	if events := gameServer.runtime.Scanner.Events(); len(events) != 0 {
+		t.Fatalf("scan payload %s scanner events = %d, want none", payload, len(events))
+	}
+}
+
 func TestScanPulseDuplicateRequestIDDoesNotDoubleSpend(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()

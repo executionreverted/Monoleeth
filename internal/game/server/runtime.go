@@ -375,6 +375,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	scannerBounds := worldmaps.ExactPlayableBounds()
 	scanner, err := discovery.NewScannerService(discovery.ScannerServiceConfig{
 		Store:     discoveryStore,
 		WorldSeed: scannerSeed,
@@ -387,9 +388,18 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Reveals:   runtimeScannerPlayerRevealProvider{runtime: runtime},
 		XP:        runtimeScanXPProvider{progression: progressionService},
 		CandidateOptions: discovery.CandidateGenerationOptions{
-			DiscoveryHorizon: 200_000,
-			SpawnBudget:      8,
-			ScanCellSize:     discovery.DefaultScanCellSize,
+			ProfileVersion: "runtime_phase06_bounded_v1",
+			MapBounds: discovery.CandidateMapBounds{
+				MinX: scannerBounds.MinX,
+				MinY: scannerBounds.MinY,
+				MaxX: scannerBounds.MaxX,
+				MaxY: scannerBounds.MaxY,
+			},
+			LevelMin:     1,
+			LevelMax:     4,
+			Density:      1,
+			SpawnBudget:  8,
+			ScanCellSize: discovery.DefaultScanCellSize,
 		},
 		RadarLevelUnit:    defaultRadarRange,
 		DiscoveryXPAmount: 25,

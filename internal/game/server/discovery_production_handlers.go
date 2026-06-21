@@ -153,7 +153,7 @@ type routeRiskPayload struct {
 }
 
 func (runtime *Runtime) handleScanPulse(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
-	if err := rejectTrustedPayload(request.Payload); err != nil {
+	if err := rejectEmptyIntentPayload(request.Payload, "position", "coordinates", "energy", "capacitor", "max_energy"); err != nil {
 		return nil, err
 	}
 	sessionID := authSessionID(ctx.SessionID)

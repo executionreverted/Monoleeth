@@ -316,21 +316,24 @@ func TestResolveScanPulseDiscoversPlanetWritesIntelEventAndXPOnce(t *testing.T) 
 
 func TestResolveScanPulseMaterializationAndIntelAreZoneScoped(t *testing.T) {
 	seed := scannerTestSeed(t)
-	_, candidate := findScannerTestCandidate(t, seed)
-	store := NewInMemoryStore()
 	zoneOne := foundation.ZoneID("map_1_1")
 	zoneTwo := foundation.ZoneID("map_1_2")
+	_, candidateOne, candidateTwo := findScannerTestCandidateInBothMaps(t, seed, zoneOne.String(), zoneTwo.String())
+	if candidateOne.Key() == candidateTwo.Key() {
+		t.Fatalf("candidate keys match across maps: %d", candidateOne.Key())
+	}
+	store := NewInMemoryStore()
 
 	serviceOne := newScannerTestService(t, scannerTestServiceOptions{
 		seed:     seed,
 		store:    store,
-		position: candidate.Position(),
+		position: candidateOne.Position(),
 		scannerPosition: ScannerPosition{
 			WorldID:  scannerTestWorldID,
 			ZoneID:   zoneOne,
-			Position: candidate.Position(),
+			Position: candidateOne.Position(),
 		},
-		snapshot:   scannerSnapshot(candidate, 100_000, scannerRadarRangeFor(candidate), 0),
+		snapshot:   scannerSnapshot(candidateOne, 100_000, scannerRadarRangeFor(candidateOne), 0),
 		moduleOK:   true,
 		cooldownOK: true,
 		xp:         &recordingScanXPProvider{},
@@ -338,13 +341,13 @@ func TestResolveScanPulseMaterializationAndIntelAreZoneScoped(t *testing.T) {
 	serviceTwo := newScannerTestService(t, scannerTestServiceOptions{
 		seed:     seed,
 		store:    store,
-		position: candidate.Position(),
+		position: candidateTwo.Position(),
 		scannerPosition: ScannerPosition{
 			WorldID:  scannerTestWorldID,
 			ZoneID:   zoneTwo,
-			Position: candidate.Position(),
+			Position: candidateTwo.Position(),
 		},
-		snapshot:   scannerSnapshot(candidate, 100_000, scannerRadarRangeFor(candidate), 0),
+		snapshot:   scannerSnapshot(candidateTwo, 100_000, scannerRadarRangeFor(candidateTwo), 0),
 		moduleOK:   true,
 		cooldownOK: true,
 		xp:         &recordingScanXPProvider{},
@@ -605,14 +608,11 @@ func newScannerTestService(t *testing.T, options scannerTestServiceOptions) *Sca
 		Positions: fixedScannerPositionProvider{
 			position: scannerPosition,
 		},
-		Cooldowns: scannerCooldownProviderForTest(options),
-		Energy:    scannerEnergyProviderForTest(options),
-		Reveals:   options.playerReveals,
-		XP:        options.xp,
-		CandidateOptions: CandidateGenerationOptions{
-			DiscoveryHorizon: defaultScannerDiscoveryHorizon,
-			SpawnBudget:      defaultScannerSpawnBudget,
-		},
+		Cooldowns:        scannerCooldownProviderForTest(options),
+		Energy:           scannerEnergyProviderForTest(options),
+		Reveals:          options.playerReveals,
+		XP:               options.xp,
+		CandidateOptions: scannerTestCandidateOptions(""),
 	})
 	if err != nil {
 		t.Fatalf("NewScannerService() error = %v, want nil", err)
@@ -693,12 +693,14 @@ func scannerTestSeed(t *testing.T) WorldSeed {
 
 func findScannerTestCandidate(t *testing.T, seed WorldSeed) (ScanCellCoord, PlanetCandidate) {
 	t.Helper()
-	options := CandidateGenerationOptions{
-		DiscoveryHorizon: defaultScannerDiscoveryHorizon,
-		SpawnBudget:      defaultScannerSpawnBudget,
-	}
-	for y := int64(-50); y <= 50; y++ {
-		for x := int64(-50); x <= 50; x++ {
+	return findScannerTestCandidateForMap(t, seed, scannerTestZoneID.String())
+}
+
+func findScannerTestCandidateForMap(t *testing.T, seed WorldSeed, mapID string) (ScanCellCoord, PlanetCandidate) {
+	t.Helper()
+	options := scannerTestCandidateOptions(mapID)
+	for y := int64(-2); y <= 22; y++ {
+		for x := int64(-2); x <= 22; x++ {
 			cell := ScanCellCoord{X: x, Y: y}
 			candidates, err := GeneratePlanetCandidates(seed, cell, options)
 			if err != nil {
@@ -711,6 +713,50 @@ func findScannerTestCandidate(t *testing.T, seed WorldSeed) (ScanCellCoord, Plan
 	}
 	t.Fatal("no scanner test candidate found")
 	return ScanCellCoord{}, PlanetCandidate{}
+}
+
+func findScannerTestCandidateInBothMaps(
+	t *testing.T,
+	seed WorldSeed,
+	mapOne string,
+	mapTwo string,
+) (ScanCellCoord, PlanetCandidate, PlanetCandidate) {
+	t.Helper()
+	optionsOne := scannerTestCandidateOptions(mapOne)
+	optionsTwo := scannerTestCandidateOptions(mapTwo)
+	for y := int64(-2); y <= 22; y++ {
+		for x := int64(-2); x <= 22; x++ {
+			cell := ScanCellCoord{X: x, Y: y}
+			candidatesOne, err := GeneratePlanetCandidates(seed, cell, optionsOne)
+			if err != nil {
+				t.Fatalf("GeneratePlanetCandidates(map one %+v) error = %v", cell, err)
+			}
+			candidatesTwo, err := GeneratePlanetCandidates(seed, cell, optionsTwo)
+			if err != nil {
+				t.Fatalf("GeneratePlanetCandidates(map two %+v) error = %v", cell, err)
+			}
+			if len(candidatesOne) > 0 && len(candidatesTwo) > 0 {
+				return cell, candidatesOne[0], candidatesTwo[0]
+			}
+		}
+	}
+	t.Fatalf("no scanner test cell found in both maps %s and %s", mapOne, mapTwo)
+	return ScanCellCoord{}, PlanetCandidate{}, PlanetCandidate{}
+}
+
+func scannerTestCandidateOptions(mapID string) CandidateGenerationOptions {
+	if mapID == "" {
+		mapID = scannerTestZoneID.String()
+	}
+	return CandidateGenerationOptions{
+		MapID:          mapID,
+		ProfileVersion: "scanner_test_bounded_v1",
+		MapBounds:      ExactCandidateMapBounds(),
+		LevelMin:       1,
+		LevelMax:       6,
+		Density:        1,
+		SpawnBudget:    defaultScannerSpawnBudget,
+	}
 }
 
 func scannerTestTime() time.Time {

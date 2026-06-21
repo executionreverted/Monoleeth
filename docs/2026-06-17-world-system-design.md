@@ -4,27 +4,44 @@ Date: 2026-06-17
 
 ## Purpose
 
-This document defines how the game world works: what the map is, what a zone is, how infinite space is generated, how planets are discovered, what gets stored in the database, what stays procedural, and how players turn unknown space into a galaxy network.
+This document defines how the game world works: what the map is, what a zone is,
+how bounded map-local space is generated, how planets are discovered, what gets
+stored in the database, what stays procedural, and how players turn unknown
+space into a galaxy network.
+
+## 2026-06-21 Bounded Map Supersession
+
+The playable scanner/planet model is now bounded-map first. For scanner planet
+discovery, legacy infinite-plane, discovery-horizon, distance-from-origin level
+scaling, and fog-wave expansion language below is superseded by:
+
+- active maps are exact local `0..10000` coordinate spaces
+- scanner candidates are generated only inside the active server-owned map
+- candidate identity includes hidden map id and profile version
+- candidate level comes from the map profile level band
+- client-safe signal labels are map-local, not origin-distance labels
+- known planet intel is memory, not live fog-wave visibility
 
 The core fantasy:
 
 ```text
-Start at 0,0.
-Push into the dark.
+Start in a bounded map.
+Push into unexplored local space.
 Discover planets.
 Build a network.
 Trade information.
-Scale forever.
+Travel through server-owned maps.
 ```
 
 ## Core Decisions
 
 - The universe is persistent.
-- The world has no hard border.
+- The current playable world is composed of bounded `0..10000` maps.
 - The base universe is generated from server-only procedural seeds.
 - The map is not fully stored in the database.
 - Permanent things become database records only after discovery, claim, ownership, or player modification.
-- Fog of war is personal by default.
+- Known planet intel is personal by default.
+- Live visibility is current-map membership plus radar/stealth rules.
 - Planets are global shared objects, not personal instances.
 - Planet intel is personal unless explicitly shared.
 - Live ops content is layered on top of the persistent universe.
@@ -33,26 +50,31 @@ Scale forever.
 
 ### Universe
 
-The full infinite coordinate plane.
+The persistent shard containing all bounded maps.
 
 ```text
-origin = 0,0
-world = infinite x/y coordinate plane
+world = persistent shard
+map = bounded local coordinate space
 ```
 
-Players experience this as one continuous space. They should not feel traditional "map loading" unless a feature such as a wormhole, station docking, or special event deliberately creates that transition.
+Players move between maps through server-validated traversal such as portals,
+wormholes, docking, or event transport.
 
 ### Map
 
-The player's conceptual view of the universe.
+The player's current playable coordinate space plus server-approved memory.
 
-"Map" means the visible and remembered coordinate space in the UI: fog, discovered planets, known routes, radar contacts, wormholes, unknown signals, and player-owned network nodes.
+"Map" means an exact `0..10000` local coordinate space containing visible
+entities, discovered planets, known routes, radar contacts, wormholes, unknown
+signals, and player-owned network nodes.
 
-The map is not a fixed 1000x1000 level. It is a window into the infinite universe.
+The browser may render remembered intel for other maps, but live scanning and
+interactions are scoped to the authenticated player's active server-owned map.
 
 ### Region
 
-A large procedural area used for biome, risk, density, and progression feel.
+A map profile or catalog grouping used for biome, risk, density, and progression
+feel.
 
 Examples:
 
@@ -65,7 +87,8 @@ Nebula Scar
 Dead Zone
 ```
 
-Regions can be generated from distance-from-origin plus noise. A region influences what can appear there.
+Regions are catalog/profile data for bounded maps. A region influences what can
+appear there without relying on distance from origin.
 
 ### Zone
 
@@ -362,9 +385,9 @@ object_id = hash(epoch_seed, cell_x, cell_y, local_index, object_type)
 
 Generated objects must be filtered by:
 
-- Discovery horizon.
-- Biome.
-- Distance band.
+- Active map bounds.
+- Map profile and biome.
+- Map profile level band.
 - Spawn budget.
 - Existing DB overlay.
 - Loot cooldown state.
@@ -372,29 +395,12 @@ Generated objects must be filtered by:
 
 ## Discovery Horizon
 
-The universe is infinite, but meaningful civilization expands gradually.
+Superseded for scanner planets.
 
-The game should not spawn valuable content billions of units from origin on day one.
-
-Use a discovery horizon:
-
-```text
-discovery_horizon = farthest meaningful discovered/claimed frontier from origin
-```
-
-However, simply flying far away should not expand the horizon.
-
-Horizon expansion should require meaningful progress:
-
-- Planet discovery.
-- Planet claim.
-- Radar relay.
-- Wormhole anchor.
-- Major anomaly scan.
-- Outpost construction.
-- Frontier event completion.
-
-This prevents empty long-distance travel from forcing absurd world expansion.
+`DiscoveryHorizon` was the old infinite-plane gate. Bounded scanner planets now
+use active map bounds, map profile density/spawn budget, map profile level band,
+radar tier, scanner power, cooldown, and energy cost. Future expansion should
+add or unlock maps rather than stretch an origin-distance horizon.
 
 ## Planet Generation
 
@@ -429,26 +435,26 @@ planet joins player/alliance network
 
 ## Planet Level Scaling
 
-Since the universe is infinite, planet level should generally increase with distance from origin.
+Superseded for scanner planets.
 
-The scaling should not be linear. Linear scaling breaks economy and progression.
-
-Use distance bands or logarithmic scaling.
+Planet level now comes from the active map profile level band. Rarity, biome, or
+live-ops modifiers may tune inside that band only if they remain bounded by the
+profile.
 
 Example:
 
 ```text
-base_level = floor(log(distance / origin_scale + 1) * level_scale)
-planet_level = base_level + biome_modifier + rarity_modifier
+planet_level = deterministic_roll(map_id, profile_version, cell, index)
+planet_level = clamp(planet_level, profile.level_min, profile.level_max)
 ```
 
-Distance sets the expected level range. Noise and rarity create variation.
+The map profile sets the expected level range. Noise and rarity can create
+variation inside that range.
 
 Rules:
 
-- Deeper space means harder, stranger, more valuable planets.
-- Not every far planet is amazing.
-- Not every near planet is useless.
+- Harder maps can define higher level bands.
+- Starter maps can keep rare planets low enough for early progression.
 - Rare rolls can create standout planets inside a band.
 - Biome modifies both value and difficulty.
 
@@ -475,8 +481,8 @@ High-level flow:
 
 ```text
 1. Player flies through space.
-2. Server computes nearby procedural scan cells.
-3. Server checks whether any static planet candidates exist.
+2. Server resolves the player's active map and map-local scan cell.
+3. Server checks bounded static planet candidates for that active map/profile.
 4. Player activates scanner utility.
 5. Ship slows heavily or becomes stationary.
 6. Scanner emits pulses every X seconds.
@@ -517,7 +523,7 @@ radar_level
 planet_signature
 planet_level
 distance_to_candidate
-biome_interference
+map_profile_interference
 jammer_interference
 live_ops_modifiers
 ```
@@ -739,11 +745,11 @@ event_reward_tables
 When a player moves:
 
 ```text
-1. Zone worker updates authoritative position.
+1. Active map worker updates authoritative map-local position.
 2. Worker determines nearby scan cells/chunks.
 3. Worker loads DB overlay for relevant area.
 4. Worker fetches or computes Redis procedural cache.
-5. Worker applies fog/visibility rules.
+5. Worker applies current-map radar/stealth visibility rules.
 6. Worker sends only allowed visible/intel data to client.
 ```
 
@@ -751,11 +757,12 @@ When a player scans:
 
 ```text
 1. Client sends scanner activation intent.
-2. Server validates module and authoritative ship state.
-3. Server validates stationary or slow-scan state and capacitor availability.
-4. Server starts cooldown and creates the pulse only after those gates pass.
-5. Server emits scan pulses every X seconds.
-6. Each pulse checks procedural candidates and DB overlay.
+2. Server resolves session, player, active map, and authoritative ship state.
+3. Server rejects any non-empty scan payload before cooldown, energy, pulse,
+   planet, intel, XP, or event mutation.
+4. Server validates stationary or slow-scan state and capacitor availability.
+5. Server starts cooldown and creates the pulse only after those gates pass.
+6. Each pulse checks bounded map-local candidates and DB overlay.
 7. Server rolls detection/discovery.
 8. Successful discoveries materialize persistent records.
 9. Client receives signal/planet intel updates.
@@ -783,7 +790,7 @@ The client can render:
 - Nebula parallax.
 - Decorative particles.
 - UI panels.
-- Fog memory.
+- Server-approved known planet memory.
 - Server-approved visible entities.
 - Server-approved intel.
 
@@ -795,6 +802,8 @@ The client must not know:
 - Hidden rare POIs.
 - Hidden loot objects.
 - Hidden NPC/player positions.
+- Hidden map id, profile version, candidate key, scan cell, signature, level,
+  or roll data.
 
 All gameplay discovery is server-owned.
 
@@ -809,11 +818,10 @@ These should be tuned through prototype testing:
 - Scan pulse interval.
 - Scan capacitor cost.
 - Scan success rates.
-- Planet density per distance band.
+- Planet density per map profile.
 - Rare planet rate.
 - X Core drop rate.
 - Claim channel duration.
-- Horizon expansion rate.
 - Redis TTL strategy.
 - Which temporary loot needs DB audit.
 
@@ -822,10 +830,10 @@ These should be tuned through prototype testing:
 The first world prototype should prove:
 
 ```text
-1. Infinite coordinate movement.
+1. Bounded map-local movement.
 2. Server-only procedural cells.
-3. Colorful canvas with fog and simple POIs.
-4. Static planet candidate generation.
+3. Colorful canvas with radar/minimap and simple POIs.
+4. Static bounded planet candidate generation.
 5. Active scanner pulse.
 6. Roll-based planet discovery.
 7. Planet materialization into DB.

@@ -12,6 +12,8 @@ import (
 )
 
 const (
+	// defaultScannerDiscoveryHorizon is deprecated; bounded map profiles now
+	// own candidate limits. Kept only while older callers carry the field.
 	defaultScannerDiscoveryHorizon = 200_000
 	defaultScannerSpawnBudget      = 3
 	defaultScannerXPAmount         = 25

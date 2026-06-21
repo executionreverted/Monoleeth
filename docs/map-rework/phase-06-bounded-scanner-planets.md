@@ -60,6 +60,45 @@ explicitly shared records.
   scan, known planets, and planet detail must be server-backed and must not
   invent fake planets or coordinates.
 
+## Landed 2026-06-21 MVP Slice
+
+- Candidate generation now takes bounded map-profile options: server map
+  identity, profile version, exact `0..10000` bounds, level band, density,
+  spawn budget, scan cell size, and chunk size.
+- `DiscoveryHorizon` remains only as a deprecated compatibility field. Runtime
+  scanner config no longer sets or relies on it.
+- Runtime scanner config uses `worldmaps.ExactPlayableBounds()` and derives the
+  hidden candidate map identity from the server-owned pulse zone/map, not from
+  client payload.
+- Candidate positions are filtered to inclusive map-local bounds. Negative,
+  outside, and edge cells either return no candidates or only in-bounds
+  candidates.
+- Candidate keys include hidden map/profile identity, so identical local scan
+  cells in different maps or profiles produce distinct server materialization
+  identities.
+- Candidate level now comes from the configured map level band, not
+  distance-from-origin. Client-safe signal labels are map-local
+  `map_core`/`map_mid`/`map_edge`, not infinite-plane distance labels.
+- Hidden candidate serialization still fails closed. Scan responses and
+  client-safe signal projections still omit candidate keys, exact coordinates,
+  map internals, profile version, rolls, seed, signature, and level.
+- Existing hidden-player scanner reveal behavior remains unchanged: same active
+  map, radar/scan radius, stealth/detection, witness expiry, no planet intel or
+  XP side effects.
+- `scan.pulse` is now a strict empty-intent command: `{}` is accepted, and any
+  client-supplied payload field is rejected before cooldown, energy, pulse,
+  planet, intel, XP, or event mutation.
+
+## Deferred
+
+- Full per-map planet balancing UI and live tuning.
+- Durable DB migration/backfill for map/profile-aware persisted planets.
+- Planet claim, X Core, production, and route changes beyond existing active
+  map read filtering.
+- Multi-cell scan sweeps and full jammer/effect system.
+- Public protocol expansion for map-profile metadata beyond existing
+  `public_map_key` known-planet/detail payloads.
+
 ## Target Model
 
 Each playable map is a bounded `10000x10000` coordinate space with a server-owned
