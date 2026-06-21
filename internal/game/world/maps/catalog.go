@@ -142,19 +142,25 @@ func (safeZone SafeZoneDefinition) Contains(position world.Vec2) bool {
 
 // MapDefinition is server-owned bounded map catalog data.
 type MapDefinition struct {
-	InternalMapID  MapID
-	PublicMapKey   PublicMapKey
-	WorldID        world.WorldID
-	ZoneID         world.ZoneID
-	DisplayName    string
-	Region         string
-	RiskBand       string
-	PVPPolicy      string
-	VisualThemeKey string
-	Bounds         Bounds
-	SpawnPoints    []SpawnPointDefinition
-	Portals        []PortalDefinition
-	SafeZones      []SafeZoneDefinition
+	InternalMapID    MapID
+	PublicMapKey     PublicMapKey
+	WorldID          world.WorldID
+	ZoneID           world.ZoneID
+	DisplayName      string
+	Region           string
+	RiskBand         string
+	PVPPolicy        string
+	VisualThemeKey   string
+	Bounds           Bounds
+	SpawnPoints      []SpawnPointDefinition
+	Portals          []PortalDefinition
+	SafeZones        []SafeZoneDefinition
+	SpawnAreas       []MapSpawnAreaDefinition `json:"-"`
+	EnemyPools       []MapEnemyPoolDefinition `json:"-"`
+	NPCStatTemplates []NPCStatTemplate        `json:"-"`
+	NPCDropProfiles  []NPCDropProfile         `json:"-"`
+	NPCAggroProfiles []NPCAggroProfile        `json:"-"`
+	NPCLeashProfiles []NPCLeashProfile        `json:"-"`
 }
 
 // ClientMapProjection is the client-safe public subset of a map definition.
@@ -453,6 +459,12 @@ func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 					Visible:            true,
 				},
 			},
+			SpawnAreas:       starterMapSpawnAreas(),
+			EnemyPools:       starterMapEnemyPools(),
+			NPCStatTemplates: starterMapNPCStatTemplates(),
+			NPCDropProfiles:  starterMapNPCDropProfiles(),
+			NPCAggroProfiles: starterMapNPCAggroProfiles(),
+			NPCLeashProfiles: starterMapNPCLeashProfiles(),
 		},
 		{
 			InternalMapID:  "map_1_2",
@@ -570,6 +582,9 @@ func (catalog *Catalog) validateMapContents(definition MapDefinition) error {
 			return fmt.Errorf("map %q safe zone %q radius %v: %w", definition.InternalMapID, safeZone.SafeZoneID, safeZone.Radius, ErrInvalidMapDefinition)
 		}
 	}
+	if err := validateEnemyContent(definition); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -577,6 +592,12 @@ func cloneDefinition(definition MapDefinition) MapDefinition {
 	definition.SpawnPoints = append([]SpawnPointDefinition(nil), definition.SpawnPoints...)
 	definition.Portals = append([]PortalDefinition(nil), definition.Portals...)
 	definition.SafeZones = append([]SafeZoneDefinition(nil), definition.SafeZones...)
+	definition.SpawnAreas = append([]MapSpawnAreaDefinition(nil), definition.SpawnAreas...)
+	definition.EnemyPools = cloneEnemyPoolDefinitions(definition.EnemyPools)
+	definition.NPCStatTemplates = append([]NPCStatTemplate(nil), definition.NPCStatTemplates...)
+	definition.NPCDropProfiles = append([]NPCDropProfile(nil), definition.NPCDropProfiles...)
+	definition.NPCAggroProfiles = append([]NPCAggroProfile(nil), definition.NPCAggroProfiles...)
+	definition.NPCLeashProfiles = append([]NPCLeashProfile(nil), definition.NPCLeashProfiles...)
 	return definition
 }
 

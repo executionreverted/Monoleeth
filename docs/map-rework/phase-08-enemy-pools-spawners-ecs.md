@@ -85,6 +85,29 @@ single global table. The selected table is passed into the existing loot service
 at kill time. Hidden loot rolls, future spawn candidates, spawn seeds, and table
 contents are never serialized to clients.
 
+## Phase08A Landed Catalog Slice
+
+The landed Phase08A slice adds server-owned enemy pool catalog primitives and
+validation under `internal/game/world/maps`. Starter map `1-1` now declares the
+current `training_drone` and `training_drone_salvage` behavior as explicit map
+catalog content: one circular spawn area, one enabled periodic pool, one stat
+template, one drop profile, one aggro profile, and one leash profile. These
+catalog internals remain outside `ClientMapProjection`; browser JSON does not
+receive enemy pool, spawn area, profile, loot table, or future spawn data.
+Pool validation resolves referenced stat templates and drop profiles and rejects
+NPC type mismatches, level bands that do not fully cover the pool band, and drop
+profiles whose risk band does not exactly match the owning map risk band.
+
+Deferred Phase 08 work:
+
+- map-worker spawner component
+- initial fill from enabled pools
+- runtime actor projection from stat templates
+- kill/respawn path and cap accounting
+- map-aware loot selector
+- aggro/leash ticks
+- boss/event hooks
+
 ### NPC State Ownership
 
 Avoid dual truth between ECS-style worker storage and `CombatService`.
