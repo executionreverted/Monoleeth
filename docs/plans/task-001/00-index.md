@@ -21,6 +21,7 @@ server-ownership, UI layout, and verification gates.
 ```text
 docs/plans/task-001-goal.md
 docs/plans/task-001/task-001-status-report-2026-06-21.md
+docs/plans/task-001/gameplay-gap-audit-2026-06-21.md
 docs/plans/task-001/browser-e2e-rebuild-plan.md
 output/mockups/final-mockup.png
 output/mockups/darkorbit-magaza-ornek-mockup.png
@@ -122,6 +123,8 @@ Summary:
 - Task 001 is not complete.
 - Phase checklist progress is `137 / 227 = 60.4%`.
 - Browser/e2e release proof is absent until the per-flow harness is rebuilt.
+- Gameplay integration gaps are tracked in
+  [`gameplay-gap-audit-2026-06-21.md`](./gameplay-gap-audit-2026-06-21.md).
 - Primary execution spine is Phase 05 -> Phase 07 -> Phase 08 -> Phase 11.
 - Phase 06, Phase 03, and Phase 04 side gates must close before Phase 11 can
   honestly pass.
