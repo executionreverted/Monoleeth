@@ -1,4 +1,4 @@
-# World AOI, Fog Of War, Visibility, And Security
+# World AOI, Visibility, Known Intel, And Security
 
 Date: 2026-06-17
 
@@ -18,7 +18,7 @@ Bu sadece UI kuralı değil, security kuralıdır.
 
 ```text
 AOIService
-FogOfWarService
+KnownIntelMemoryService
 VisibilityService
 ScannerVisibilityBridge
 ```
@@ -36,19 +36,23 @@ ScannerVisibilityBridge
 Bir entity'nin client'e gönderilmesi için birden fazla katman geçilir:
 
 ```text
-world/zone membership
+current-map membership
 AOI distance
 radar/sensor detection
-fog/intel permission
+known-intel permission
 stealth/jammer modifiers
 entity-specific visibility rules
 ```
+
+During the bounded-map migration, `world_id` and `zone_id` may remain internal
+worker/shard identifiers, but gameplay visibility is current-map membership.
+Do not treat world/zone equality as a client-visible permission by itself.
 
 Basit:
 
 ```go
 func CanSendEntityToClient(viewer PlayerID, entity Entity) bool {
-	if !SameWorldOrZone(viewer, entity) {
+	if !SameCurrentMap(viewer, entity) {
 		return false
 	}
 	if !WithinAOI(viewer.Position, entity.Position) {
@@ -73,7 +77,7 @@ AOI inputs:
 - radar range
 - entity type
 - entity signature
-- server zone
+- current map / internal worker partition
 
 Spatial index:
 
@@ -100,9 +104,9 @@ func NearbyCells(center Cell, radius int) []Cell {
 }
 ```
 
-## Fog Of War Memory
+## Known Intel Memory
 
-Fog memory:
+Known intel memory:
 
 - discovered planets
 - known coordinates
@@ -110,7 +114,7 @@ Fog memory:
 - scanned anomalies
 - known wormholes
 
-Fog memory does not mean live visibility.
+Known intel memory does not mean live visibility.
 
 ```text
 Known planet can appear on map memory.
@@ -122,14 +126,22 @@ Live entity at that location still requires visibility to interact.
 Detection can use:
 
 ```text
-detection_score = viewer.radar_power
+detection_score = viewer.detection_power
                 + scanner_bonus
-                - target.stealth
-                - jammer_noise
+                + stealth_detection_bonus
+                + entity_signature
+                - target.stealth_score
+                - max(0, jammer_strength - viewer.jammer_resistance)
                 - distance_penalty
 ```
 
 For non-hidden normal entities, distance may be enough.
+
+For hidden or stealthed entities:
+
+- same current-map membership and radar range still apply
+- self and server-owned witness/reveal may allow visibility
+- otherwise the detection score must pass
 
 For hidden planets:
 
@@ -152,7 +164,7 @@ Never send:
 Send:
 
 - visible entity snapshots
-- known fog memory summaries
+- known-intel memory summaries
 - viewer's own current safe-zone/protection summary
 - decorative visual seed only if not gameplay-relevant
 
@@ -187,7 +199,7 @@ func ValidateInteraction(viewer PlayerID, target EntityID, action ActionType) er
 ## Scanner Bridge
 
 Scanner activation is an intent. Before a pulse starts, the server must resolve
-scanner module state, authoritative zone position/movement, stat snapshot,
+scanner module state, authoritative current-map position/movement, stat snapshot,
 capacitor/energy availability, and cooldown from trusted providers. A moving
 ship fails before cooldown, pulse, event, planet, intel, or XP mutation; the
 Phase 08 MVP models this as a stationary scan gate, with live slow-state leases
@@ -206,7 +218,7 @@ Visibility module updates:
 
 ```text
 player_planet_intel
-fog memory
+known intel memory
 temporary radar contacts
 ```
 
@@ -229,7 +241,7 @@ aoi.entity_entered
 aoi.entity_left
 visibility.entity_detected
 visibility.entity_lost
-fog.memory_updated
+known_intel.memory_updated
 scanner.visibility_unlocked
 ```
 
@@ -238,9 +250,9 @@ scanner.visibility_unlocked
 - Entity visible by AOI but hidden by stealth.
 - Entity was visible, then jammer hides it.
 - Client targets entity that just left visibility.
-- Fog memory shows planet but live owner changed.
+- Known intel memory shows planet but live owner changed.
 - Drop public but outside visibility.
-- Zone boundary transfer duplicates visibility updates.
+- Map transfer duplicates visibility updates.
 
 ## Abuse Vectors
 
@@ -294,7 +306,7 @@ Defense:
 - Entity leaving AOI sends left/despawn.
 - Attack hidden target fails.
 - Pickup hidden drop fails.
-- Fog memory does not imply interaction permission.
+- Known intel memory does not imply interaction permission.
 - Scanner discovery writes intel.
 - Scanner activation rejects missing energy before pulse mutation.
 - Scanner activation rejects non-stationary server movement state.

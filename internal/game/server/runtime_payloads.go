@@ -44,13 +44,16 @@ type shipSnapshotPayload struct {
 }
 
 type statSnapshotPayload struct {
-	Speed                float64 `json:"speed"`
-	RadarRange           float64 `json:"radar_range"`
-	WeaponRange          float64 `json:"weapon_range"`
-	CargoCapacity        int64   `json:"cargo_capacity"`
-	LootPickupRange      float64 `json:"loot_pickup_range"`
-	BasicLaserEnergyCost int     `json:"basic_laser_energy_cost"`
-	BasicLaserCooldownMS int     `json:"basic_laser_cooldown_ms"`
+	Speed                 float64 `json:"speed"`
+	RadarRange            float64 `json:"radar_range"`
+	DetectionPower        float64 `json:"detection_power,omitempty"`
+	JammerResistance      float64 `json:"jammer_resistance,omitempty"`
+	StealthDetectionBonus float64 `json:"stealth_detection_bonus,omitempty"`
+	WeaponRange           float64 `json:"weapon_range"`
+	CargoCapacity         int64   `json:"cargo_capacity"`
+	LootPickupRange       float64 `json:"loot_pickup_range"`
+	BasicLaserEnergyCost  int     `json:"basic_laser_energy_cost"`
+	BasicLaserCooldownMS  int     `json:"basic_laser_cooldown_ms"`
 }
 
 type walletSnapshotPayload struct {

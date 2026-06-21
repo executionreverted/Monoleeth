@@ -84,15 +84,18 @@ const (
 type StatKey string
 
 const (
-	StatWeaponDamage  StatKey = "weapon_damage"
-	StatWeaponRange   StatKey = "weapon_range"
-	StatAccuracy      StatKey = "accuracy"
-	StatShieldMax     StatKey = "shield_max"
-	StatShieldRegen   StatKey = "shield_regen"
-	StatScanPower     StatKey = "scan_power"
-	StatScanRadius    StatKey = "scan_radius"
-	StatRadarRange    StatKey = "radar_range"
-	StatCargoCapacity StatKey = "cargo_capacity"
+	StatWeaponDamage          StatKey = "weapon_damage"
+	StatWeaponRange           StatKey = "weapon_range"
+	StatAccuracy              StatKey = "accuracy"
+	StatShieldMax             StatKey = "shield_max"
+	StatShieldRegen           StatKey = "shield_regen"
+	StatScanPower             StatKey = "scan_power"
+	StatScanRadius            StatKey = "scan_radius"
+	StatRadarRange            StatKey = "radar_range"
+	StatDetectionPower        StatKey = "detection_power"
+	StatJammerResistance      StatKey = "jammer_resistance"
+	StatStealthDetectionBonus StatKey = "stealth_detection_bonus"
+	StatCargoCapacity         StatKey = "cargo_capacity"
 )
 
 // StatModifierKind identifies how a stat modifier is applied during aggregation.

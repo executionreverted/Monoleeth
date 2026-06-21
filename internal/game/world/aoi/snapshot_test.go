@@ -142,6 +142,8 @@ func TestSnapshotPayloadOmitsHiddenInternalFields(t *testing.T) {
 	state := testState("entity-planet-1", world.EntityTypePlanetSignalPlaceholder, world.Vec2{X: 10}, false)
 	state.Entity.Movement = world.MovementState{Moving: true, Target: world.Vec2{X: 99, Y: 100}}
 	state.PublicStatusFlags = []aoi.StatusFlag{"scannable", "neutral"}
+	state.StealthScore = 99
+	state.JammerStrength = 13
 	state.InternalMetadata = map[string]string{"secret_name": "undiscovered-planet"}
 	state.GameplaySeed = "server-gameplay-seed"
 	state.FutureSpawnData = []string{"future-spawn-candidate"}
@@ -160,6 +162,10 @@ func TestSnapshotPayloadOmitsHiddenInternalFields(t *testing.T) {
 		"secret_name",
 		"movement",
 		"signature",
+		"stealth_score",
+		"jammer_strength",
+		"detection_score",
+		"detection_threshold",
 		"hidden",
 		"world_id",
 		"zone_id",
@@ -276,7 +282,7 @@ func testState(entityID world.EntityID, entityType world.EntityType, position wo
 	}
 	return aoi.EntityState{
 		Entity:    entity,
-		Signature: visibility.EntitySignature(1),
+		Signature: visibility.SignatureForEntityType(entityType),
 		Hidden:    hidden,
 	}
 }

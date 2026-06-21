@@ -9,6 +9,7 @@ import (
 	"gameproject/internal/game/stats"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
+	"gameproject/internal/game/world/visibility"
 	"gameproject/internal/game/world/worker"
 )
 
@@ -42,17 +43,19 @@ func (provider runtimeScannerStatsProvider) ScanStats(input discovery.ScannerSta
 	if input.ShipID != starterShipID {
 		return stats.StatSnapshot{}, worker.ErrUnknownPlayer
 	}
+	exploration := provider.runtime.explorationStatsForPlayerStateLocked(state)
+	exploration.ScanPower = starterScannerScanPower
+	exploration.ScanRadius = starterScannerScanRadius
+	exploration.ScanInterval = starterScannerScanInterval.Seconds()
+	if exploration.DetectionPower <= 0 {
+		exploration.DetectionPower = exploration.ScanPower
+	}
 	return stats.NewStatSnapshot(input.PlayerID, input.ShipID, 1, stats.EffectiveStats{
 		Core: stats.CoreStats{
 			EnergyMax:   float64(state.Ship.MaxCapacitor),
 			EnergyRegen: 4,
 		},
-		Exploration: stats.ExplorationStats{
-			RadarRange:   state.Stats.RadarRange,
-			ScanPower:    starterScannerScanPower,
-			ScanRadius:   starterScannerScanRadius,
-			ScanInterval: starterScannerScanInterval.Seconds(),
-		},
+		Exploration: exploration,
 	}, provider.runtime.clock.Now()), nil
 }
 
@@ -205,12 +208,23 @@ func (provider runtimeScannerPlayerRevealProvider) RevealHiddenPlayer(input disc
 	if err != nil {
 		return discovery.ScannerPlayerRevealResult{}, err
 	}
+	statSnapshot := stats.NewStatSnapshot(input.PlayerID, input.ShipID, 1, input.Stats, input.RevealedAt.UTC())
+	viewer := visibility.Viewer{
+		PlayerID:       input.PlayerID,
+		WorldID:        input.WorldID,
+		ZoneID:         input.ZoneID,
+		Position:       input.Position,
+		RadarRange:     visibility.RadarRangeFromStatSnapshot(statSnapshot),
+		DetectionStats: visibility.DetectionStatsFromStatSnapshot(statSnapshot),
+		ObservedAt:     input.RevealedAt.UTC(),
+	}
 
 	scanRadiusSq := input.Stats.Exploration.ScanRadius * input.Stats.Exploration.ScanRadius
 	maxDistanceSq := effectiveRevealRange * effectiveRevealRange
 	var bestTarget foundation.PlayerID
 	var bestDistanceSq float64
 	rangeMiss := false
+	detectionMiss := false
 	for targetID, hidden := range instance.HiddenPlayers {
 		if !hidden || targetID == input.PlayerID {
 			continue
@@ -227,6 +241,21 @@ func (provider runtimeScannerPlayerRevealProvider) RevealHiddenPlayer(input disc
 			rangeMiss = true
 			continue
 		}
+		signature, stealthScore, jammerStrength := provider.runtime.visibilityInputsForEntityLocked(entity, targetID, true)
+		if !visibility.DetectionForEntity(viewer, visibility.Entity{
+			PlayerID:       targetID,
+			WorldID:        entity.WorldID,
+			ZoneID:         entity.ZoneID,
+			ID:             entity.ID,
+			Position:       entity.Position,
+			Signature:      signature,
+			StealthScore:   stealthScore,
+			JammerStrength: jammerStrength,
+			Hidden:         true,
+		}).Passed {
+			detectionMiss = true
+			continue
+		}
 		if bestTarget.IsZero() ||
 			distanceSq < bestDistanceSq ||
 			(distanceSq == bestDistanceSq && targetID.String() < bestTarget.String()) {
@@ -235,7 +264,7 @@ func (provider runtimeScannerPlayerRevealProvider) RevealHiddenPlayer(input disc
 		}
 	}
 	if bestTarget.IsZero() {
-		if rangeMiss {
+		if rangeMiss || detectionMiss {
 			return discovery.ScannerPlayerRevealResult{NoSignal: true}, nil
 		}
 		return discovery.ScannerPlayerRevealResult{}, nil

@@ -15,7 +15,8 @@ Reuse:
 - `docs/plans/modules/14-world-aoi-fog-security.md:9` defines visibility as a
   security rule, not only a UI rule.
 - `docs/plans/modules/14-world-aoi-fog-security.md:34` lists visibility layers:
-  membership, AOI distance, radar/sensor detection, fog/intel permission,
+  current-map membership, AOI distance, radar/sensor detection, known-intel
+  permission,
   stealth/jammer modifiers, and entity-specific rules.
 - `docs/plans/modules/14-world-aoi-fog-security.md:120` defines detection as
   radar/scanner minus stealth/jammer/distance.
@@ -49,17 +50,18 @@ Reuse:
   maintain minimap live contacts from visible entities.
 
 Replace or extend:
-- `docs/plans/modules/14-world-aoi-fog-security.md:103` describes fog memory.
-  The fog-wave world model is removed. Keep only safe known-intel memory such as
-  scanned planets, stale coordinate intel, and owned planet summaries.
+- `docs/plans/modules/14-world-aoi-fog-security.md` now supersedes old fog
+  memory language with safe known-intel memory such as scanned planets, stale
+  coordinate intel, and owned planet summaries.
 - `internal/game/server/runtime.go:949` currently creates a stat snapshot with
   `runtimeLiveProjectionDiagonalRange`; radar must come from effective
   ship/module stats.
 - `internal/game/server/runtime.go:962` fetches entities from a fixed projection
   window. The new AOI query should use current-map spatial index plus the
   viewer's authoritative radar/detection stats.
-- `internal/game/server/runtime.go:980` assigns a placeholder signature of `1`.
-  Entity signatures must become content/stat driven.
+- `internal/game/server/runtime_world_snapshot.go` previously assigned a
+  placeholder signature of `1`. TASK-0299 replaces this in runtime AOI/combat
+  paths with content/stat-driven signatures.
 - `client/src/protocol/envelope.ts:130` lacks portal and other map-object entity
   types that may need radar-visible public markers.
 - `client/src/protocol/envelope.ts:207` should reject additional map, worker,
@@ -263,8 +265,9 @@ They must not carry data that would be forbidden in `aoi` events.
    detection_score = viewer.detection_power
                    + scanner_bonus
                    + stealth_detection_bonus
+                   + entity_signature
                    - target.stealth_score
-                   - jammer_strength
+                   - max(0, jammer_strength - viewer.jammer_resistance)
                    - distance_penalty
    ```
 
@@ -291,6 +294,32 @@ They must not carry data that would be forbidden in `aoi` events.
 16. Add observability for AOI candidate count, visible count, hidden filtered
     count, radar range distribution, detection reveals, jammer hides, and
     cross-map filter rejections.
+
+## Landed in TASK-0299
+
+- `stats.ExplorationStats` now carries server-owned `detection_power`,
+  `jammer_resistance`, and `stealth_detection_bonus` alongside existing radar,
+  scanner, signature, stealth, and jammer fields.
+- Runtime AOI, combat actor, scanner reveal, and loot pickup visibility inputs
+  use content/ship-driven signatures for players, NPCs, loot, and map signals
+  instead of the old `EntitySignature(1)` runtime placeholder.
+- Hidden and stealthed entities still require current-map membership and radar
+  range, then require self visibility, an active server-owned witness, or a
+  passing server detection score. Normal non-hidden entities still pass by
+  current-map radar range without requiring detection stats.
+- Scanner hidden-player witness state remains current-map scoped and
+  server-time expiring. Detection scores, signatures, stealth scores, jammer
+  strengths, witness expiry, and hidden target ids remain internal-only.
+- Command payload filtering rejects client-authored detection, signature,
+  stealth-score, jammer, scan-power, and radar-range fields.
+
+Deferred:
+
+- Full jammer entity/effect ownership and map-local jammer lifecycle.
+- Full radar/stealth tier progression and equip-driven balancing beyond stat
+  aggregation fields and module stat-key plumbing.
+- Browser HUD/protocol parser changes for displaying detection stats.
+- Planet scan rarity/claim integration; Phase06 owns bounded scanner planets.
 
 ## Tests to add/update
 

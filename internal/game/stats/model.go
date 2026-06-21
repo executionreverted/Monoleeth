@@ -50,15 +50,18 @@ type CombatStats struct {
 
 // ExplorationStats are used by radar, scanner, stealth, and jamming systems.
 type ExplorationStats struct {
-	RadarRange       float64 `json:"radar_range"`
-	ScanPower        float64 `json:"scan_power"`
-	ScanRadius       float64 `json:"scan_radius"`
-	ScanInterval     float64 `json:"scan_interval"`
-	ScanSuccessBonus float64 `json:"scan_success_bonus"`
-	FogRevealRadius  float64 `json:"fog_reveal_radius"`
-	SignatureRadius  float64 `json:"signature_radius"`
-	StealthStrength  float64 `json:"stealth_strength"`
-	JammerStrength   float64 `json:"jammer_strength"`
+	RadarRange            float64 `json:"radar_range"`
+	DetectionPower        float64 `json:"detection_power"`
+	JammerResistance      float64 `json:"jammer_resistance"`
+	StealthDetectionBonus float64 `json:"stealth_detection_bonus"`
+	ScanPower             float64 `json:"scan_power"`
+	ScanRadius            float64 `json:"scan_radius"`
+	ScanInterval          float64 `json:"scan_interval"`
+	ScanSuccessBonus      float64 `json:"scan_success_bonus"`
+	FogRevealRadius       float64 `json:"fog_reveal_radius"`
+	SignatureRadius       float64 `json:"signature_radius"`
+	StealthStrength       float64 `json:"stealth_strength"`
+	JammerStrength        float64 `json:"jammer_strength"`
 }
 
 // EconomyStats are read by production, routing, crafting, and market rules.
@@ -101,6 +104,9 @@ func (stats *EffectiveStats) Clamp() {
 	stats.Combat.ResistKinetic = clampUnit(stats.Combat.ResistKinetic)
 
 	stats.Exploration.RadarRange = clampNonNegative(stats.Exploration.RadarRange)
+	stats.Exploration.DetectionPower = clampNonNegative(stats.Exploration.DetectionPower)
+	stats.Exploration.JammerResistance = clampNonNegative(stats.Exploration.JammerResistance)
+	stats.Exploration.StealthDetectionBonus = clampNonNegative(stats.Exploration.StealthDetectionBonus)
 	stats.Exploration.ScanPower = clampNonNegative(stats.Exploration.ScanPower)
 	stats.Exploration.ScanRadius = clampNonNegative(stats.Exploration.ScanRadius)
 	stats.Exploration.ScanInterval = clampNonNegative(stats.Exploration.ScanInterval)
@@ -149,6 +155,9 @@ func (stats *EffectiveStats) applyPercent(percent PercentStats) {
 	stats.Combat.ResistKinetic *= percentMultiplier(modifier.Combat.ResistKinetic)
 
 	stats.Exploration.RadarRange *= percentMultiplier(modifier.Exploration.RadarRange)
+	stats.Exploration.DetectionPower *= percentMultiplier(modifier.Exploration.DetectionPower)
+	stats.Exploration.JammerResistance *= percentMultiplier(modifier.Exploration.JammerResistance)
+	stats.Exploration.StealthDetectionBonus *= percentMultiplier(modifier.Exploration.StealthDetectionBonus)
 	stats.Exploration.ScanPower *= percentMultiplier(modifier.Exploration.ScanPower)
 	stats.Exploration.ScanRadius *= percentMultiplier(modifier.Exploration.ScanRadius)
 	stats.Exploration.ScanInterval *= percentMultiplier(modifier.Exploration.ScanInterval)
@@ -191,6 +200,9 @@ func (stats *EffectiveStats) add(delta EffectiveStats) {
 	stats.Combat.ResistKinetic += delta.Combat.ResistKinetic
 
 	stats.Exploration.RadarRange += delta.Exploration.RadarRange
+	stats.Exploration.DetectionPower += delta.Exploration.DetectionPower
+	stats.Exploration.JammerResistance += delta.Exploration.JammerResistance
+	stats.Exploration.StealthDetectionBonus += delta.Exploration.StealthDetectionBonus
 	stats.Exploration.ScanPower += delta.Exploration.ScanPower
 	stats.Exploration.ScanRadius += delta.Exploration.ScanRadius
 	stats.Exploration.ScanInterval += delta.Exploration.ScanInterval

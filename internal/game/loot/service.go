@@ -693,7 +693,7 @@ func visibilityEntityFromDrop(drop Drop) visibility.Entity {
 		ZoneID:    drop.ZoneID,
 		ID:        drop.ID,
 		Position:  drop.Position,
-		Signature: visibility.EntitySignature(1),
+		Signature: visibility.SignatureForEntityType(world.EntityTypeLoot),
 	}
 }
 

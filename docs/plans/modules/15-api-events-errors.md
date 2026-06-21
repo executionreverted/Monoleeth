@@ -96,7 +96,8 @@ Realtime event:
 AOI events:
 
 - include visible entity only
-- no hidden metadata
+- no hidden metadata, internal signatures, detection scores, stealth scores, or
+  jammer strength values
 
 ## Request Rules
 
@@ -119,7 +120,12 @@ Never trust:
 - XP
 - reward
 - cooldown
+- radar_range, detection_power, jammer_resistance, stealth_detection_bonus
 - timestamp
+
+Public `stats.updated`/`stats.snapshot` payloads may expose radar-facing stat
+outputs such as `radar_range`, `detection_power`, and `jammer_resistance`.
+Client payloads must not send those fields as gameplay truth.
 
 ## Idempotency
 
@@ -293,7 +299,7 @@ quest.updated
 market.sale_completed
 planet.production_summary
 route.updated
-fog.updated
+known_intel.updated
 ```
 
 Current map-rework transport events also include
@@ -303,6 +309,19 @@ break-on-PvP initiation clears protection. Its public payload is limited to
 `break_on_pvp_action` plus the normal map subscription epoch; it must not include
 internal map id, spawn id, worker id, or destination internals. A cleared
 protection event uses `blocks_pvp=false` and `break_on_pvp_action=false`.
+
+Current Phase 05 radar visibility payload rules:
+
+- `stats.updated` may expose public radar-facing values such as
+  `radar_range`, `detection_power`, and `jammer_resistance`.
+- `world.snapshot`, `map.snapshot`, AOI events, scan responses, combat
+  responses, and loot responses must not expose internal `entity_signature`,
+  `detection_score`, `detection_threshold`, `stealth_score`,
+  `jammer_strength`, witness expiry, hidden target ids, scanner rolls, or
+  hidden target metadata.
+- Client command payloads that include radar range, detection, signature,
+  stealth-score, jammer, scan-power, scan-candidate, map-worker, or hidden
+  target internals must be rejected as server-owned fields.
 
 ## Edge Cases
 
@@ -387,7 +406,7 @@ MVP:
 Current Phase 04 implementation note:
 
 - `internal/game/realtime.Gateway` is transport-agnostic request handling. It
-  decodes JSON envelopes, resolves authenticated session/player/world/zone
+  decodes JSON envelopes, resolves authenticated session/player/current-map
   identity through a server-side resolver, executes handlers with that resolved
   context, and caches responses by session/request id.
 - Client payload identity fields such as `player_id` are not trusted by the

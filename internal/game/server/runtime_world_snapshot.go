@@ -1,14 +1,12 @@
 package server
 
 import (
-	"math"
 	"sort"
 	"time"
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
-	"gameproject/internal/game/stats"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
 	worldmaps "gameproject/internal/game/world/maps"
@@ -69,19 +67,17 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 		return aoi.Snapshot{}, 0, 0, worker.ErrUnknownPlayer
 	}
 	now := runtime.clock.Now()
-	radarRangeUnits := runtime.effectiveRadarRangeUnitsLocked(playerID)
-	statSnapshot := stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
-		Exploration: stats.ExplorationStats{RadarRange: radarRangeUnits},
-	}, now)
+	statSnapshot := runtime.visibilityStatSnapshotLocked(playerID, now)
 	projectionRange := visibility.RadarRangeFromStatSnapshot(statSnapshot)
 	viewer := visibility.Viewer{
-		PlayerID:   playerID,
-		WorldID:    location.WorldID,
-		ZoneID:     location.ZoneID,
-		Position:   playerEntity.Position,
-		RadarRange: projectionRange,
-		Witnesses:  runtime.hiddenPlayerWitnessesForViewerLocked(instance, playerID, now),
-		ObservedAt: now,
+		PlayerID:       playerID,
+		WorldID:        location.WorldID,
+		ZoneID:         location.ZoneID,
+		Position:       playerEntity.Position,
+		RadarRange:     projectionRange,
+		DetectionStats: visibility.DetectionStatsFromStatSnapshot(statSnapshot),
+		Witnesses:      runtime.hiddenPlayerWitnessesForViewerLocked(instance, playerID, now),
+		ObservedAt:     now,
 	}
 	workerSnapshot, err := instance.Worker.EntitiesWithinRadius(playerEntity.Position, projectionRange.Units())
 	if err != nil {
@@ -98,10 +94,13 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 				flags = append(flags, "scan_revealed")
 			}
 		}
+		signature, stealthScore, jammerStrength := runtime.visibilityInputsForEntityLocked(entity, entityPlayerID, hidden)
 		states = append(states, aoi.EntityState{
 			Entity:            entity,
 			PlayerID:          entityPlayerID,
-			Signature:         visibility.EntitySignature(1),
+			Signature:         signature,
+			StealthScore:      stealthScore,
+			JammerStrength:    jammerStrength,
 			Hidden:            hidden,
 			PublicStatusFlags: flags,
 			PublicDisplay:     display,
@@ -116,12 +115,12 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 
 func (runtime *Runtime) effectiveRadarRangeUnitsLocked(playerID foundation.PlayerID) float64 {
 	state, ok := runtime.players[playerID]
-	if !ok || state.Stats.RadarRange <= 0 || math.IsNaN(state.Stats.RadarRange) || math.IsInf(state.Stats.RadarRange, 0) {
+	if !ok {
 		// Conservative server fallback for bootstrap/test harnesses before a
 		// stat provider has materialized an effective radar snapshot.
 		return defaultRadarRange
 	}
-	return state.Stats.RadarRange
+	return runtime.explorationStatsForPlayerStateLocked(state).RadarRange
 }
 
 func (runtime *Runtime) hiddenPlayerWitnessesForViewerLocked(instance *mapInstance, viewerID foundation.PlayerID, now time.Time) []visibility.Witness {

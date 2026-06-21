@@ -238,7 +238,11 @@ func (service *Service) validatedAttackActorsLocked(input BasicAttackInput, now 
 	if attacker.WorldID != target.WorldID || attacker.ZoneID != target.ZoneID {
 		return ActorState{}, ActorState{}, ErrDifferentWorldZone
 	}
-	if err := visibility.CanInteract(viewerFromActor(attacker), visibilityEntityFromActor(target)); err != nil {
+	viewer, err := viewerForAttack(input, attacker)
+	if err != nil {
+		return ActorState{}, ActorState{}, err
+	}
+	if err := visibility.CanInteract(viewer, visibilityEntityFromActor(target)); err != nil {
 		return ActorState{}, ActorState{}, ErrTargetNotVisible
 	}
 	if attacker.Position.Distance(target.Position) > attacker.Stats.Stats.Combat.WeaponRange {
@@ -326,21 +330,46 @@ func highestContributor(target ActorState) foundation.PlayerID {
 
 func viewerFromActor(actor ActorState) visibility.Viewer {
 	return visibility.Viewer{
-		WorldID:    actor.WorldID,
-		ZoneID:     actor.ZoneID,
-		Position:   actor.Position,
-		RadarRange: visibility.RadarRangeFromStatSnapshot(actor.Stats),
+		PlayerID:       actor.PlayerID,
+		WorldID:        actor.WorldID,
+		ZoneID:         actor.ZoneID,
+		Position:       actor.Position,
+		RadarRange:     visibility.RadarRangeFromStatSnapshot(actor.Stats),
+		DetectionStats: visibility.DetectionStatsFromStatSnapshot(actor.Stats),
 	}
+}
+
+func viewerForAttack(input BasicAttackInput, attacker ActorState) (visibility.Viewer, error) {
+	if input.Viewer == nil {
+		return viewerFromActor(attacker), nil
+	}
+	viewer := *input.Viewer
+	if !viewerMatchesActor(viewer, attacker) {
+		return visibility.Viewer{}, ErrTargetNotVisible
+	}
+	return viewer, nil
+}
+
+func viewerMatchesActor(viewer visibility.Viewer, actor ActorState) bool {
+	if actor.Type == world.EntityTypePlayer && viewer.PlayerID != actor.PlayerID {
+		return false
+	}
+	return viewer.WorldID == actor.WorldID &&
+		viewer.ZoneID == actor.ZoneID &&
+		viewer.Position == actor.Position
 }
 
 func visibilityEntityFromActor(actor ActorState) visibility.Entity {
 	return visibility.Entity{
-		WorldID:   actor.WorldID,
-		ZoneID:    actor.ZoneID,
-		ID:        actor.EntityID,
-		Position:  actor.Position,
-		Signature: actor.Signature,
-		Hidden:    actor.Hidden,
+		PlayerID:       actor.PlayerID,
+		WorldID:        actor.WorldID,
+		ZoneID:         actor.ZoneID,
+		ID:             actor.EntityID,
+		Position:       actor.Position,
+		Signature:      actor.Signature,
+		StealthScore:   actor.StealthScore,
+		JammerStrength: actor.JammerStrength,
+		Hidden:         actor.Hidden,
 	}
 }
 

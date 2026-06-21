@@ -64,20 +64,25 @@ func (runtime *Runtime) syncPlayerCombatActorLocked(playerID foundation.PlayerID
 	if !ok {
 		return combat.ActorState{}, worker.ErrUnknownPlayer
 	}
+	hidden := instance.HiddenPlayers[playerID] || instance.HiddenEntities[entity.ID]
+	signature, stealthScore, jammerStrength := runtime.visibilityInputsForEntityLocked(entity, playerID, hidden)
 	actor := combat.ActorState{
-		EntityID:      entity.ID,
-		Type:          world.EntityTypePlayer,
-		PlayerID:      playerID,
-		WorldID:       entity.WorldID,
-		ZoneID:        entity.ZoneID,
-		Position:      entity.Position,
-		Signature:     visibility.EntitySignature(1),
-		Stats:         runtime.playerCombatStatsLocked(playerID, state),
-		HP:            float64(state.Ship.Hull),
-		Shield:        float64(state.Ship.Shield),
-		Energy:        float64(state.Ship.Capacitor),
-		Cooldowns:     combat.CooldownState{},
-		Contributions: make(map[foundation.PlayerID]float64),
+		EntityID:       entity.ID,
+		Type:           world.EntityTypePlayer,
+		PlayerID:       playerID,
+		WorldID:        entity.WorldID,
+		ZoneID:         entity.ZoneID,
+		Position:       entity.Position,
+		Signature:      signature,
+		StealthScore:   stealthScore,
+		JammerStrength: jammerStrength,
+		Hidden:         hidden,
+		Stats:          runtime.playerCombatStatsLocked(playerID, state),
+		HP:             float64(state.Ship.Hull),
+		Shield:         float64(state.Ship.Shield),
+		Energy:         float64(state.Ship.Capacitor),
+		Cooldowns:      combat.CooldownState{},
+		Contributions:  make(map[foundation.PlayerID]float64),
 	}
 	if existing, ok := runtime.Combat.Actor(entity.ID); ok {
 		actor.Cooldowns = existing.Cooldowns
@@ -110,13 +115,24 @@ func (runtime *Runtime) syncWorldCombatActorLocked(playerID foundation.PlayerID,
 	if entity.Type != world.EntityTypeNPC {
 		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Target is not a hostile entity.")
 	}
+	hidden := instance.HiddenEntities[entity.ID]
+	signature, stealthScore, jammerStrength := runtime.visibilityInputsForEntityLocked(entity, "", hidden)
 	if actor, ok := runtime.Combat.Actor(entityID); ok {
 		actor.Position = entity.Position
 		actor.WorldID = entity.WorldID
 		actor.ZoneID = entity.ZoneID
+		actor.Signature = signature
+		actor.StealthScore = stealthScore
+		actor.JammerStrength = jammerStrength
+		actor.Hidden = hidden
 		return runtime.Combat.UpsertActor(actor)
 	}
-	return runtime.Combat.UpsertActor(runtime.trainingNPCActor(entity))
+	actor := runtime.trainingNPCActor(entity)
+	actor.Signature = signature
+	actor.StealthScore = stealthScore
+	actor.JammerStrength = jammerStrength
+	actor.Hidden = hidden
+	return runtime.Combat.UpsertActor(actor)
 }
 
 func (runtime *Runtime) trainingNPCActor(entity world.Entity) combat.ActorState {
@@ -127,7 +143,7 @@ func (runtime *Runtime) trainingNPCActor(entity world.Entity) combat.ActorState 
 		WorldID:   entity.WorldID,
 		ZoneID:    entity.ZoneID,
 		Position:  entity.Position,
-		Signature: visibility.EntitySignature(1),
+		Signature: visibility.SignatureForEntityType(world.EntityTypeNPC),
 		Stats: stats.NewStatSnapshot("", "training_drone", 1, stats.EffectiveStats{
 			Core: stats.CoreStats{
 				HPMax:       30,
@@ -152,6 +168,7 @@ func (runtime *Runtime) trainingNPCActor(entity world.Entity) combat.ActorState 
 }
 
 func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, state playerRuntimeState) stats.StatSnapshot {
+	exploration := runtime.explorationStatsForPlayerStateLocked(state)
 	return stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
 		Core: stats.CoreStats{
 			HPMax:         float64(state.Ship.MaxHull),
@@ -168,9 +185,7 @@ func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, st
 			WeaponEnergyCost: float64(runtimeBasicLaserEnergyCost),
 			Accuracy:         1,
 		},
-		Exploration: stats.ExplorationStats{
-			RadarRange: state.Stats.RadarRange,
-		},
+		Exploration: exploration,
 	}, runtime.clock.Now())
 }
 
@@ -184,18 +199,16 @@ func (runtime *Runtime) viewerForPlayerLocked(playerID foundation.PlayerID) (vis
 		return visibility.Viewer{}, worker.ErrUnknownPlayer
 	}
 	now := runtime.clock.Now()
-	radarRangeUnits := runtime.effectiveRadarRangeUnitsLocked(playerID)
-	statSnapshot := stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
-		Exploration: stats.ExplorationStats{RadarRange: radarRangeUnits},
-	}, now)
+	statSnapshot := runtime.visibilityStatSnapshotLocked(playerID, now)
 	return visibility.Viewer{
-		PlayerID:   playerID,
-		WorldID:    location.WorldID,
-		ZoneID:     location.ZoneID,
-		Position:   entity.Position,
-		RadarRange: visibility.RadarRangeFromStatSnapshot(statSnapshot),
-		Witnesses:  runtime.hiddenPlayerWitnessesForViewerLocked(instance, playerID, now),
-		ObservedAt: now,
+		PlayerID:       playerID,
+		WorldID:        location.WorldID,
+		ZoneID:         location.ZoneID,
+		Position:       entity.Position,
+		RadarRange:     visibility.RadarRangeFromStatSnapshot(statSnapshot),
+		DetectionStats: visibility.DetectionStatsFromStatSnapshot(statSnapshot),
+		Witnesses:      runtime.hiddenPlayerWitnessesForViewerLocked(instance, playerID, now),
+		ObservedAt:     now,
 	}, nil
 }
 

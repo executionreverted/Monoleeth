@@ -108,6 +108,9 @@ func (stat StatKey) Validate() error {
 		StatScanPower,
 		StatScanRadius,
 		StatRadarRange,
+		StatDetectionPower,
+		StatJammerResistance,
+		StatStealthDetectionBonus,
 		StatCargoCapacity:
 		return nil
 	default:

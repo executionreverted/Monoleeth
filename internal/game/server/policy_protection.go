@@ -10,7 +10,6 @@ import (
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
-	"gameproject/internal/game/world/visibility"
 	"gameproject/internal/game/world/worker"
 )
 
@@ -226,20 +225,28 @@ func (runtime *Runtime) syncPlayerTargetCombatActorLocked(entity world.Entity) e
 	if !ok {
 		return worker.ErrUnknownPlayer
 	}
+	hidden := false
+	if instance, _, err := runtime.activeMapInstanceLocked(targetPlayerID); err == nil {
+		hidden = instance.HiddenPlayers[targetPlayerID] || instance.HiddenEntities[entity.ID]
+	}
+	signature, stealthScore, jammerStrength := runtime.visibilityInputsForEntityLocked(entity, targetPlayerID, hidden)
 	actor := combat.ActorState{
-		EntityID:      entity.ID,
-		Type:          world.EntityTypePlayer,
-		PlayerID:      targetPlayerID,
-		WorldID:       entity.WorldID,
-		ZoneID:        entity.ZoneID,
-		Position:      entity.Position,
-		Signature:     visibility.EntitySignature(1),
-		Stats:         runtime.playerCombatStatsLocked(targetPlayerID, state),
-		HP:            float64(state.Ship.Hull),
-		Shield:        float64(state.Ship.Shield),
-		Energy:        float64(state.Ship.Capacitor),
-		Cooldowns:     combat.CooldownState{},
-		Contributions: make(map[foundation.PlayerID]float64),
+		EntityID:       entity.ID,
+		Type:           world.EntityTypePlayer,
+		PlayerID:       targetPlayerID,
+		WorldID:        entity.WorldID,
+		ZoneID:         entity.ZoneID,
+		Position:       entity.Position,
+		Signature:      signature,
+		StealthScore:   stealthScore,
+		JammerStrength: jammerStrength,
+		Hidden:         hidden,
+		Stats:          runtime.playerCombatStatsLocked(targetPlayerID, state),
+		HP:             float64(state.Ship.Hull),
+		Shield:         float64(state.Ship.Shield),
+		Energy:         float64(state.Ship.Capacitor),
+		Cooldowns:      combat.CooldownState{},
+		Contributions:  make(map[foundation.PlayerID]float64),
 	}
 	if existing, ok := runtime.Combat.Actor(entity.ID); ok {
 		actor.Cooldowns = existing.Cooldowns

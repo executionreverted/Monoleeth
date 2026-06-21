@@ -68,6 +68,10 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	if err := runtime.syncWorldCombatActorLocked(ctx.PlayerID, intent.TargetID); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
+	viewer, err := runtime.viewerForPlayerLocked(ctx.PlayerID)
+	if err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
 	if !runtime.entityVisibleToPlayerLocked(ctx.PlayerID, intent.TargetID) {
 		return nil, foundation.NewDomainError(foundation.CodeNotVisible, "Target is not visible.")
 	}
@@ -75,6 +79,7 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	result, err := runtime.Combat.ExecuteBasicAttack(combat.BasicAttackInput{
 		AttackerID: attacker.EntityID,
 		TargetID:   intent.TargetID,
+		Viewer:     &viewer,
 		Policy:     runtime.basicAttackPolicyLocked(),
 	})
 	if err != nil {

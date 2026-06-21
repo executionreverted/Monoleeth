@@ -41,8 +41,10 @@ type ActorState struct {
 	ZoneID   world.ZoneID
 	Position world.Vec2
 
-	Signature visibility.EntitySignature
-	Hidden    bool
+	Signature      visibility.EntitySignature
+	StealthScore   float64
+	JammerStrength float64
+	Hidden         bool
 
 	Stats  stats.StatSnapshot
 	HP     float64
@@ -63,6 +65,7 @@ type CooldownState map[string]time.Time
 type BasicAttackInput struct {
 	AttackerID world.EntityID
 	TargetID   world.EntityID
+	Viewer     *visibility.Viewer
 	Policy     AttackPolicy
 }
 
@@ -140,7 +143,11 @@ func (actor ActorState) validate() error {
 	if err := actor.Position.Validate(); err != nil {
 		return err
 	}
-	if !finiteNonNegative(actor.HP) || !finiteNonNegative(actor.Shield) || !finiteNonNegative(actor.Energy) {
+	if !finiteNonNegative(actor.HP) ||
+		!finiteNonNegative(actor.Shield) ||
+		!finiteNonNegative(actor.Energy) ||
+		!finiteNonNegative(actor.StealthScore) ||
+		!finiteNonNegative(actor.JammerStrength) {
 		return ErrInvalidActorState
 	}
 	if err := validateEffectiveCombatStats(actor.Stats.Stats); err != nil {
@@ -254,6 +261,13 @@ func validateEffectiveCombatStats(effective stats.EffectiveStats) error {
 		effective.Combat.Penetration,
 		effective.Combat.ResistLaser,
 		effective.Exploration.RadarRange,
+		effective.Exploration.DetectionPower,
+		effective.Exploration.JammerResistance,
+		effective.Exploration.StealthDetectionBonus,
+		effective.Exploration.ScanPower,
+		effective.Exploration.SignatureRadius,
+		effective.Exploration.StealthStrength,
+		effective.Exploration.JammerStrength,
 	}
 	for _, value := range values {
 		if !finiteNonNegative(value) {

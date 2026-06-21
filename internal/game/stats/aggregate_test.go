@@ -121,8 +121,11 @@ func TestAggregateStatsClampsEffectiveStats(t *testing.T) {
 				ResistExplosive:  -1,
 			},
 			Exploration: ExplorationStats{
-				ScanSuccessBonus: 2,
-				FogRevealRadius:  -1,
+				DetectionPower:        -1,
+				JammerResistance:      math.Inf(1),
+				StealthDetectionBonus: -2,
+				ScanSuccessBonus:      2,
+				FogRevealRadius:       -1,
 			},
 			Economy: EconomyStats{
 				ConstructionSpeed:        -1,
@@ -154,6 +157,9 @@ func TestAggregateStatsClampsEffectiveStats(t *testing.T) {
 	assertFloatEqual(t, got.Combat.CritChance, 0)
 	assertFloatEqual(t, got.Combat.ResistLaser, 1)
 	assertFloatEqual(t, got.Combat.ResistExplosive, 0)
+	assertFloatEqual(t, got.Exploration.DetectionPower, 0)
+	assertFloatEqual(t, got.Exploration.JammerResistance, 0)
+	assertFloatEqual(t, got.Exploration.StealthDetectionBonus, 0)
 	assertFloatEqual(t, got.Exploration.ScanSuccessBonus, 1)
 	assertFloatEqual(t, got.Exploration.FogRevealRadius, 0)
 	assertFloatEqual(t, got.Economy.ConstructionSpeed, 0)
@@ -161,6 +167,44 @@ func TestAggregateStatsClampsEffectiveStats(t *testing.T) {
 	assertFloatEqual(t, got.Economy.RouteLossReduction, 0)
 	assertFloatEqual(t, got.Economy.RouteCargoCapacityBonus, 0)
 	assertFloatEqual(t, got.Economy.CraftMaterialRefundBonus, 1)
+}
+
+func TestAggregateStatsAppliesDetectionExplorationFields(t *testing.T) {
+	input := AggregationInput{
+		BaseShip: EffectiveStats{
+			Exploration: ExplorationStats{
+				DetectionPower:        10,
+				JammerResistance:      4,
+				StealthDetectionBonus: 2,
+			},
+		},
+		FlatModules: []FlatModifier{
+			{
+				Source: ModifierSourceModule,
+				Stats: FlatStats{Exploration: ExplorationStats{
+					DetectionPower:        5,
+					JammerResistance:      2,
+					StealthDetectionBonus: 1,
+				}},
+			},
+		},
+		PercentModules: []PercentModifier{
+			{
+				Source: ModifierSourceModule,
+				Stats: PercentStats{Exploration: ExplorationStats{
+					DetectionPower:        0.10,
+					JammerResistance:      0.50,
+					StealthDetectionBonus: 1,
+				}},
+			},
+		},
+	}
+
+	got := AggregateStats(input)
+
+	assertFloatEqual(t, got.Exploration.DetectionPower, 16.5)
+	assertFloatEqual(t, got.Exploration.JammerResistance, 9)
+	assertFloatEqual(t, got.Exploration.StealthDetectionBonus, 6)
 }
 
 func TestAggregateStatsDoesNotMutateInput(t *testing.T) {

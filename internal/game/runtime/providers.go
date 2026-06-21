@@ -413,6 +413,12 @@ func applyFlatModuleStat(flat *stats.FlatStats, stat modules.StatKey, value floa
 		flat.Exploration.ScanRadius += value
 	case modules.StatRadarRange:
 		flat.Exploration.RadarRange += value
+	case modules.StatDetectionPower:
+		flat.Exploration.DetectionPower += value
+	case modules.StatJammerResistance:
+		flat.Exploration.JammerResistance += value
+	case modules.StatStealthDetectionBonus:
+		flat.Exploration.StealthDetectionBonus += value
 	case modules.StatCargoCapacity:
 		flat.Core.CargoCapacity += value
 	}
@@ -436,6 +442,12 @@ func applyPercentModuleStat(percent *stats.PercentStats, stat modules.StatKey, v
 		percent.Exploration.ScanRadius += value
 	case modules.StatRadarRange:
 		percent.Exploration.RadarRange += value
+	case modules.StatDetectionPower:
+		percent.Exploration.DetectionPower += value
+	case modules.StatJammerResistance:
+		percent.Exploration.JammerResistance += value
+	case modules.StatStealthDetectionBonus:
+		percent.Exploration.StealthDetectionBonus += value
 	case modules.StatCargoCapacity:
 		percent.Core.CargoCapacity += value
 	}

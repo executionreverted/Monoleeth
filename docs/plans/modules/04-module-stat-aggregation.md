@@ -288,11 +288,14 @@ Exploration:
 
 ```text
 radar_range
+detection_power
+jammer_resistance
+stealth_detection_bonus
 scan_power
 scan_radius
 scan_interval
 scan_success_bonus
-fog_reveal_radius
+known_intel_reveal_radius (legacy code field: fog_reveal_radius)
 signature_radius
 stealth_strength
 jammer_strength

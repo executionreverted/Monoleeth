@@ -46,6 +46,8 @@ type EntityState struct {
 	Entity            world.Entity
 	PlayerID          foundation.PlayerID
 	Signature         visibility.EntitySignature
+	StealthScore      float64
+	JammerStrength    float64
 	Hidden            bool
 	PublicStatusFlags []StatusFlag
 	PublicDisplay     *EntityDisplay
@@ -91,13 +93,15 @@ func BuildVisibleSnapshot(viewer visibility.Viewer, entities []EntityState) Snap
 			continue
 		}
 		if !visibility.CanSendEntityToClient(viewer, visibility.Entity{
-			PlayerID:  state.PlayerID,
-			WorldID:   state.Entity.WorldID,
-			ZoneID:    state.Entity.ZoneID,
-			ID:        state.Entity.ID,
-			Position:  state.Entity.Position,
-			Signature: state.Signature,
-			Hidden:    state.Hidden,
+			PlayerID:       state.PlayerID,
+			WorldID:        state.Entity.WorldID,
+			ZoneID:         state.Entity.ZoneID,
+			ID:             state.Entity.ID,
+			Position:       state.Entity.Position,
+			Signature:      state.Signature,
+			StealthScore:   state.StealthScore,
+			JammerStrength: state.JammerStrength,
+			Hidden:         state.Hidden,
 		}) {
 			continue
 		}

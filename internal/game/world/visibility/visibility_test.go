@@ -124,6 +124,74 @@ func TestCanSendEntityToClientAllowsNormalEntityInRadarRange(t *testing.T) {
 	}
 }
 
+func TestCanSendEntityToClientHiddenDetectionUsesServerOwnedStats(t *testing.T) {
+	entity := testEntity(world.Vec2{X: 10, Y: 0})
+	entity.Hidden = true
+	entity.Signature = visibility.SignatureForEntityType(world.EntityTypePlayer)
+	entity.StealthScore = 125
+	entity.JammerStrength = 5
+
+	lowDetection := testViewerWithExploration(stats.ExplorationStats{
+		RadarRange: 100,
+	})
+	if visibility.CanSendEntityToClient(lowDetection, entity) {
+		t.Fatal("CanSendEntityToClient() = true, want false for hidden target with no detection stats")
+	}
+	if result := visibility.DetectionForEntity(lowDetection, entity); result.Passed {
+		t.Fatalf("DetectionForEntity() = %+v, want failed without server detection power", result)
+	}
+
+	highDetection := testViewerWithExploration(stats.ExplorationStats{
+		RadarRange:            100,
+		DetectionPower:        30,
+		JammerResistance:      5,
+		StealthDetectionBonus: 5,
+	})
+	if !visibility.CanSendEntityToClient(highDetection, entity) {
+		t.Fatal("CanSendEntityToClient() = false, want true when server detection stats pass")
+	}
+	if result := visibility.DetectionForEntity(highDetection, entity); !result.Passed {
+		t.Fatalf("DetectionForEntity() = %+v, want passed with server detection power", result)
+	}
+}
+
+func TestCanSendEntityToClientDetectionDoesNotBypassCurrentMap(t *testing.T) {
+	viewer := testViewerWithExploration(stats.ExplorationStats{
+		RadarRange:     500,
+		DetectionPower: 500,
+	})
+	entity := testEntity(world.Vec2{X: 10, Y: 0})
+	entity.ZoneID = "zone-other"
+	entity.Hidden = true
+	entity.Signature = visibility.SignatureForEntityType(world.EntityTypePlayer)
+	entity.StealthScore = 10
+
+	if visibility.CanSendEntityToClient(viewer, entity) {
+		t.Fatal("CanSendEntityToClient() = true, want false across current-map boundary")
+	}
+	if result := visibility.DetectionForEntity(viewer, entity); result.Passed {
+		t.Fatalf("DetectionForEntity() = %+v, want failed across current-map boundary", result)
+	}
+}
+
+func TestDetectionStatsFromStatSnapshotUsesScannerBonus(t *testing.T) {
+	viewer := testViewerWithExploration(stats.ExplorationStats{
+		RadarRange: 100,
+		ScanPower:  20,
+	})
+	entity := testEntity(world.Vec2{X: 10, Y: 0})
+	entity.Hidden = true
+	entity.Signature = visibility.SignatureForEntityType(world.EntityTypeLoot)
+	entity.StealthScore = 40
+
+	if got := viewer.DetectionStats.ScannerBonus(); got != 20 {
+		t.Fatalf("ScannerBonus() = %v, want 20", got)
+	}
+	if !visibility.DetectionForEntity(viewer, entity).Passed {
+		t.Fatal("DetectionForEntity().Passed = false, want scanner bonus to contribute")
+	}
+}
+
 func TestCanSendEntityToClientRejectsEntityOutsideRange(t *testing.T) {
 	viewer := testViewer(99)
 	entity := testEntity(world.Vec2{X: 60, Y: 80})
@@ -183,23 +251,28 @@ func TestViewerRadarRangeComesFromServerStatSnapshot(t *testing.T) {
 }
 
 func testViewer(radarRange float64) visibility.Viewer {
+	return testViewerWithExploration(stats.ExplorationStats{
+		RadarRange: radarRange,
+	})
+}
+
+func testViewerWithExploration(exploration stats.ExplorationStats) visibility.Viewer {
 	snapshot := stats.NewStatSnapshot(
 		"player-1",
 		"ship-1",
 		1,
 		stats.EffectiveStats{
-			Exploration: stats.ExplorationStats{
-				RadarRange: radarRange,
-			},
+			Exploration: exploration,
 		},
 		time.Unix(1, 0),
 	)
 
 	return visibility.Viewer{
-		WorldID:    "world-1",
-		ZoneID:     "zone-1",
-		Position:   world.Vec2{X: 0, Y: 0},
-		RadarRange: visibility.RadarRangeFromStatSnapshot(snapshot),
+		WorldID:        "world-1",
+		ZoneID:         "zone-1",
+		Position:       world.Vec2{X: 0, Y: 0},
+		RadarRange:     visibility.RadarRangeFromStatSnapshot(snapshot),
+		DetectionStats: visibility.DetectionStatsFromStatSnapshot(snapshot),
 	}
 }
 
@@ -209,6 +282,6 @@ func testEntity(position world.Vec2) visibility.Entity {
 		ZoneID:    "zone-1",
 		ID:        "entity-1",
 		Position:  position,
-		Signature: visibility.EntitySignature(1),
+		Signature: visibility.SignatureForEntityType(world.EntityTypeNPC),
 	}
 }
