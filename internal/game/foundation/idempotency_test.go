@@ -83,6 +83,13 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			want:  "premium_webhook:provider-event-5",
 		},
 		{
+			name: "planet claim",
+			build: func() (IdempotencyKey, error) {
+				return PlanetClaimIdempotencyKey(PlayerID("player-1"), PlanetID("planet-7"))
+			},
+			want: "planet_claim:player-1:planet-7",
+		},
+		{
 			name: "offline settlement",
 			build: func() (IdempotencyKey, error) {
 				return OfflineSettlementIdempotencyKey(PlanetID("planet-4"), "window-20260617-10")
@@ -218,6 +225,8 @@ func TestIdempotencyKeyRejectsMalformedKeys(t *testing.T) {
 		"quest_reward:player-quest-9:extra",
 		"quest_reroll:player-2",
 		"quest_reroll:player-2:20260618:extra",
+		"planet_claim:player-1",
+		"planet_claim:player-1:planet-7:extra",
 		"death_cargo_drop:death-combat-9",
 		"death_cargo_drop:death-combat-9:iron-stack-1:extra",
 		"offline_settlement:planet-4",

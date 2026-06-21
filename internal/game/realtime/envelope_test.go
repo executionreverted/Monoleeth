@@ -210,6 +210,19 @@ func TestDecodeRequestEnvelopeAcceptsPortalEnterOperationAndTransferEvents(t *te
 	}
 }
 
+func TestDecodeRequestEnvelopeAcceptsDiscoveryClaimPlanetOperation(t *testing.T) {
+	envelope, err := DecodeRequestEnvelope([]byte(`{"request_id":"request-claim-planet","op":"discovery.claim_planet","payload":{"planet_id":"planet-1"},"client_seq":11,"v":1}`))
+	if err != nil {
+		t.Fatalf("decode discovery claim request envelope: %v", err)
+	}
+	if envelope.Op != OperationDiscoveryClaimPlanet {
+		t.Fatalf("op = %q, want %q", envelope.Op, OperationDiscoveryClaimPlanet)
+	}
+	if EventPlanetClaimed != "planet.claimed" {
+		t.Fatalf("planet claimed event constant = %q, want planet.claimed", EventPlanetClaimed)
+	}
+}
+
 func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testing.T) {
 	disallowed := []Operation{
 		Operation("crafting.start"),
@@ -218,7 +231,6 @@ func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testin
 		Operation("inventory.move"),
 		Operation("progression.unlock_skill"),
 		Operation("progression.respec_skills"),
-		Operation("discovery.claim_planet"),
 		Operation("planet.building_build"),
 		Operation("planet.building_upgrade"),
 		Operation("route.create"),

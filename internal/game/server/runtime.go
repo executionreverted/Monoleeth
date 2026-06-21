@@ -127,6 +127,7 @@ type Runtime struct {
 	Recipes       crafting.RecipeCatalog
 	Discovery     *discovery.InMemoryStore
 	Scanner       *discovery.ScannerService
+	Claim         *discovery.ClaimService
 	Production    *production.InMemoryStore
 	CommandLog    *observability.MemoryCommandLogger
 	Metrics       *observability.MetricRecorder
@@ -408,6 +409,33 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, err
 	}
 	runtime.Scanner = scanner
+	xCoreDefinition, ok := itemCatalog["x_core"]
+	if !ok {
+		return nil, fmt.Errorf("x_core definition missing")
+	}
+	claimProductionInitializer, err := production.NewClaimProductionInitializer(production.ClaimProductionInitializerConfig{
+		Store: productionStore,
+		Defaults: production.ClaimProductionInitializationDefaults{
+			StorageCapacityUnits:  runtimeClaimProductionStorageCapacity,
+			EnergyCapacityPerHour: runtimeClaimProductionEnergyCapacity,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	claimService, err := discovery.NewClaimService(discovery.ClaimServiceConfig{
+		Store:                 discoveryStore,
+		Clock:                 clock,
+		Ranks:                 runtimeClaimRankProvider{progression: progressionService},
+		Proximity:             runtimeClaimProximityProvider{runtime: runtime},
+		XCoreConsumer:         runtimeClaimXCoreConsumer{inventory: inventory},
+		ProductionInitializer: claimProductionInitializer,
+		XCoreItemDefinition:   xCoreDefinition,
+	})
+	if err != nil {
+		return nil, err
+	}
+	runtime.Claim = claimService
 	if err := runtime.seedWorld(); err != nil {
 		return nil, err
 	}

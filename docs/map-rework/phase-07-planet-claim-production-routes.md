@@ -69,6 +69,41 @@ truth.
   route mutations, durable discovery stores, durable production stores, and
   route settlement outbox until implementation closes them.
 
+## Phase07A Landed Backend MVP Slice
+
+- Added the Go realtime operation `discovery.claim_planet` with intent-burst
+  posture and owner-scoped `planet.claimed` client event.
+- Runtime now constructs a discovery `ClaimService` using the existing
+  in-memory discovery store, production store, inventory service, progression
+  service, map router/catalog, and server clock.
+- Claim rank is resolved from server-owned progression state. The command does
+  not accept rank or player identity from the client.
+- Claim proximity is resolved from the player's active map/entity state. Claims
+  fail during active map transfer, across maps, or outside the conservative
+  runtime claim range.
+- `x_core` is registered as a stackable runtime item definition and claim
+  consumption uses `Inventory.SystemRemoveItem` with
+  `planet_claim:<player_id>:<planet_id>` as the domain idempotency key.
+- Successful claims initialize production through
+  `production.NewClaimProductionInitializer` with conservative default storage
+  and energy capacity.
+- The realtime handler accepts only `{ "planet_id": "..." }`, rejects trusted
+  or unknown payload fields before mutation, returns refreshed safe
+  known/detail/production/inventory state, and queues owner-scoped claim,
+  known-planet, detail, production, and inventory events after success.
+- The `planet.claimed` payload is a client-safe summary. It does not include
+  internal map id, world id, zone id, owner player id, hidden coordinates,
+  X Core source details, or production internals.
+
+Deferred from Phase07A:
+
+- Durable discovery/ownership DB rows, row locks/CAS, and outbox publishing.
+- Crash recovery for owner-set but production-initialization/event-cache gaps.
+- Route create/update/enable/disable/settle handlers and map-aware route rows.
+- Building build/upgrade/storage mutation handlers.
+- Browser claim button/UI flow and TypeScript protocol exposure.
+- Durable market/listed-intel stale-listing adapter.
+
 ## Target Model
 
 Planet claim is a server-owned transaction:

@@ -29,6 +29,11 @@ func runtimeLootCatalog() (loot.LootTable, map[foundation.ItemID]economy.ItemDef
 	itemCatalog := map[foundation.ItemID]economy.ItemDefinition{
 		rawOre.ItemID: rawOre,
 	}
+	xCore, err := runtimeXCoreDefinition()
+	if err != nil {
+		return loot.LootTable{}, nil, err
+	}
+	itemCatalog[xCore.ItemID] = xCore
 	for _, itemID := range []foundation.ItemID{
 		"iron_ore",
 		"carbon_shards",
@@ -48,6 +53,33 @@ func runtimeLootCatalog() (loot.LootTable, map[foundation.ItemID]economy.ItemDef
 
 func runtimeRawOreDefinition() (economy.ItemDefinition, error) {
 	return runtimeStackableDefinition("raw_ore", "Raw Ore")
+}
+
+func runtimeXCoreDefinition() (economy.ItemDefinition, error) {
+	source, err := catalog.NewVersionedDefinitionFromStrings("x_core", "v1")
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	maxStack, err := foundation.NewQuantity(99)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	weight, err := foundation.NewQuantity(1)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	return economy.NewItemDefinition(
+		source,
+		"x_core",
+		"X Core",
+		economy.ItemTypeStackable,
+		economy.ItemRarityRare,
+		maxStack,
+		weight,
+		[]economy.TradeFlag{economy.TradeFlagTradeable},
+		[]economy.BindRule{economy.BindRuleNone},
+		nil,
+	)
 }
 
 func runtimeStackableDefinition(itemID foundation.ItemID, name string) (economy.ItemDefinition, error) {

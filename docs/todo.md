@@ -83,10 +83,12 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage.
-- [ ] Add gateway/session authorization for discovery commands so client input
-  can only express scan/share/claim/use intents for the authenticated player;
-  never accept client-authored coordinates, planet candidates, XP, X Core
-  consumption, or scroll metadata.
+- [ ] Finish gateway/session authorization for remaining discovery commands.
+  `scan.pulse` and the Phase07A backend `discovery.claim_planet` handler now
+  resolve the authenticated player server-side and reject client-authored
+  coordinates, planet candidates, XP, map/position truth, and X Core
+  consumption. Intel share and coordinate item create/use gateway intents still
+  need the same treatment before browser exposure.
 - [x] Add authenticated browser loadout mutation contracts for
   `loadout.equip_module` and `loadout.unequip_module`. Server handlers must
   resolve player, active ship, slot, owned module instance, rank, compatibility,
@@ -104,13 +106,15 @@ for phase status; this file is a compact pending-work index.
   wallet, rank, location authorization, queue limits, and output capacity, then
   emit crafting/inventory/wallet/progression snapshots after commit. Source:
   Phase 10 audit.
-- [ ] Add authenticated planet ownership/building mutation contracts for
-  `discovery.claim_planet`, `planet.building_build`, and
-  `planet.building_upgrade`. Server handlers must re-check visibility/fog,
-  range or claim policy, ownership, required X Core/materials/wallet balance,
-  storage capacity, rank/building requirements, and idempotency keys before
-  publishing `planet.claimed`, `planet.storage_updated`, and
-  `planet.building_updated` events. Source: Phase 10 audit.
+- [ ] Finish authenticated planet ownership/building mutation contracts.
+  Phase07A landed the backend `discovery.claim_planet` handler with
+  authenticated player resolution, active-map range checks, rank validation,
+  one-X-Core inventory idempotency, production initialization, and owner-scoped
+  `planet.claimed` fanout. Durable DB/outbox claim recovery plus
+  `planet.building_build` and `planet.building_upgrade` remain open; building
+  handlers still need ownership, requirements, materials/wallet, storage
+  capacity, idempotency, and `planet.storage_updated` /
+  `planet.building_updated` events. Source: Phase 10 audit and Phase07A.
 - [ ] Add authenticated automation route mutation contracts for `route.create`,
   `route.update`, `route.enable`, `route.disable`, and `route.settle`. Server
   handlers must validate endpoint visibility/access, ownership, route capacity,

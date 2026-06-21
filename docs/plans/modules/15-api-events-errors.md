@@ -330,6 +330,25 @@ Current Phase 06 scanner payload rule:
   fields, is rejected before any cooldown, energy, pulse, planet, intel, XP, or
   event mutation.
 
+Current Phase 07A claim payload rule:
+
+- `discovery.claim_planet` is a narrow backend MVP command. The only valid
+  payload field is `planet_id`.
+- The gateway derives authenticated `player_id`, active map/world/zone,
+  position, player rank, X Core source, production defaults, and claim
+  idempotency reference server-side.
+- The stable domain reference is
+  `planet_claim:<player_id>:<planet_id>` and is reused for X Core inventory
+  removal idempotency.
+- Payload fields such as `player_id`, `map_id`, `internal_map_id`, `world_id`,
+  `zone_id`, `position`, `coordinates`, `owner`, `owner_player_id`, `rank`,
+  `x_core`, `inventory`, `storage`, `production`, and `claim_reference` are
+  server-owned and rejected before claim mutation.
+- `planet.claimed` is owner-scoped and client-safe. It may include a known
+  planet summary with `public_map_key` and owner status, but it must not include
+  internal map id, world id, zone id, owner player id, hidden coordinates,
+  X Core source details, production internals, or hidden candidate data.
+
 ## Edge Cases
 
 - Client reconnects after command accepted but response lost.

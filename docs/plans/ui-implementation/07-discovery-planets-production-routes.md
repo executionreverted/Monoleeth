@@ -33,6 +33,12 @@ Current slice completed:
   coordinate item use, building mutation, offline settlement, and route
   mutation flows. Those controls remain absent, locked, or read-only until their
   server-authoritative transaction paths are implemented.
+- Phase07A backend follow-up: authenticated `discovery.claim_planet` now exists
+  in the Go realtime gateway only. It accepts only `planet_id`, resolves
+  player/rank/map/position/X Core source server-side, consumes one `x_core`
+  through inventory idempotency, initializes production, and emits owner-scoped
+  safe events. Browser claim UI, TypeScript protocol exposure, durable
+  DB/outbox, building mutations, and route mutations remain open.
 
 ## Source Specs
 
@@ -146,7 +152,7 @@ Mockup areas covered:
 - [x] Add scanner event mapper to safe UI payloads.
 - [x] Add planet list/summary query for known/owned planets.
 - [x] Add selected planet detail query with visibility checks.
-- [ ] Add planet claim command handler.
+- [x] Add planet claim command handler.
 - [ ] Add intel share and coordinate item handlers with visibility-safe
       recipient filtering.
 - [x] Add read-only production summary handler for owned planets.
@@ -166,8 +172,8 @@ Mockup areas covered:
 
 - [x] Client cannot send planet candidate data as truth.
 - [x] Client cannot send scan result or procedural seed.
-- [ ] Client cannot claim hidden/unowned-invalid planet.
-- [ ] Client cannot fake X Core consumption.
+- [x] Client cannot claim hidden/unowned-invalid planet.
+- [x] Client cannot fake X Core consumption.
 - [ ] Intel sharing cannot reveal a coordinate the sender cannot safely expose.
 - [ ] Coordinate item use consumes an owned item once.
 - [x] Planet panel open rechecks visibility/ownership.
@@ -182,7 +188,7 @@ Mockup areas covered:
 - [ ] Scan rejects moving/energy-insufficient player before mutation.
 - [x] Scan result does not leak seed or future candidates.
 - [ ] Hidden planet detail returns safe error.
-- [ ] Claim consumes required item once and sets owner once.
+- [x] Claim consumes required item once and sets owner once.
 - [ ] Intel share rejects hidden/not-owned coordinate references.
 - [ ] Coordinate item create/use consumes owned items once and filters results.
 - [ ] Building build/upgrade debits materials/currency once.

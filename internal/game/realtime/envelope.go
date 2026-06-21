@@ -41,6 +41,7 @@ const (
 	OperationScanPulse            Operation = "scan.pulse"
 	OperationKnownPlanets         Operation = "discovery.known_planets"
 	OperationPlanetDetail         Operation = "discovery.planet_detail"
+	OperationDiscoveryClaimPlanet Operation = "discovery.claim_planet"
 	OperationProductionSummary    Operation = "planet.production_summary"
 	OperationPlanetStorage        Operation = "planet.storage_summary"
 	OperationRouteList            Operation = "route.list"
@@ -113,6 +114,7 @@ const (
 	EventScanPlanetDiscovered  ClientEventType = "scan.planet_discovered"
 	EventKnownPlanets          ClientEventType = "discovery.known_planets"
 	EventPlanetDetail          ClientEventType = "discovery.planet_detail"
+	EventPlanetClaimed         ClientEventType = "planet.claimed"
 	EventProductionSummary     ClientEventType = "planet.production_summary"
 	EventPlanetStorage         ClientEventType = "planet.storage_summary"
 	EventRouteList             ClientEventType = "route.list"
@@ -255,6 +257,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationPlanetDetail: {
 		Operation:        OperationPlanetDetail,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationDiscoveryClaimPlanet: {
+		Operation:        OperationDiscoveryClaimPlanet,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationProductionSummary: {

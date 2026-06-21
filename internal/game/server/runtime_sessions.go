@@ -211,6 +211,7 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 		realtime.OperationLoadoutUnequipModule,
 		realtime.OperationStealthToggle,
 		realtime.OperationScanPulse,
+		realtime.OperationDiscoveryClaimPlanet,
 		realtime.OperationMarketCreateListing,
 		realtime.OperationMarketBuy,
 		realtime.OperationMarketCancel,
@@ -249,6 +250,7 @@ func opEmitsPostCommandAOIDiff(op realtime.Operation) bool {
 	switch op {
 	case realtime.OperationMarketCreateListing,
 		realtime.OperationPortalEnter,
+		realtime.OperationDiscoveryClaimPlanet,
 		realtime.OperationMarketBuy,
 		realtime.OperationMarketCancel,
 		realtime.OperationAuctionBid,
@@ -326,6 +328,7 @@ func mapScopedEventType(eventType realtime.ClientEventType) bool {
 		realtime.EventScanPlanetDiscovered,
 		realtime.EventKnownPlanets,
 		realtime.EventPlanetDetail,
+		realtime.EventPlanetClaimed,
 		realtime.EventProductionSummary,
 		realtime.EventPlanetStorage,
 		realtime.EventRouteList,
