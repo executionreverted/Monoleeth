@@ -109,6 +109,8 @@ export function clearGameplay(state: ClientState): ClientState {
     ...state,
     lastServerTime: null,
     lastSequence: 0,
+    mapSubscriptionEpoch: null,
+    mapTransfer: null,
     playerSnapshot: null,
     sector: null,
     minimap: null,

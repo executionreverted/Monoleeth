@@ -353,6 +353,101 @@ resolve active map from server-side session/player state.
 - Add release notes explaining that fog-wave world discovery is removed; live
   visibility is current map plus radar range only.
 
+## Progress Notes
+
+2026-06-21 local TASK-0284 Phase 03 portal handoff after split:
+
+- Added `portal.enter` as a registered realtime operation and
+  `map.transfer_started`, `map.transfer_completed`, and
+  `map.transfer_failed` as client event contracts.
+- Implemented the transport-safe `portal.enter` MVP against the split runtime
+  files. The server resolves the authenticated player/session active map,
+  rejects client-authored internal map/worker/transfer fields, validates the
+  portal from the current map catalog, proximity, destination spawn, cooldown,
+  and active transfer state, then synchronously moves the player entity and all
+  active player sessions from the source map instance to the destination map
+  instance.
+- Added map subscription epoch issuance on session attach/rebind, included
+  `map_subscription_epoch` in map-scoped snapshots/events, cleared source
+  `LastAOI` during rebind, seeded destination `LastAOI`, and filtered queued
+  old-epoch origin events before delivery.
+- Added transfer-state guards for movement, stop, combat skill, loot pickup,
+  scan pulse, stealth toggle, and repeated portal entry while a transfer is
+  active.
+- Added client protocol support for `OPERATIONS.portalEnter` and
+  `CommandBuilder.portalEnter(portalID)`, plus client/server forbidden-field
+  rejection for internal map, worker, destination, and transfer keys.
+- Added client reducer handling for transfer lifecycle events. On
+  `map.transfer_completed`, the reducer clears origin visible entities,
+  selected target, movement target, live loot, live minimap contacts, world
+  effects, combat cooldowns, and transient scanner/live signal state before
+  applying the destination snapshot. Old-epoch map-scoped events are ignored.
+- Added focused server and client tests for payload spoof rejection,
+  out-of-range/cooldown non-mutation, successful all-session transfer,
+  idempotent duplicate request handling, active-transfer command guards,
+  old-epoch event dropping, map-session isolation after tick, snapshot epoch
+  presence, reducer destination replacement, and protocol leak rejection.
+
+2026-06-21 local TASK-0286 review-blocker fix:
+
+- Updated successful `portal.enter` response handling so the client reads the
+  destination snapshot nested under `snapshot`, clears origin map-local live
+  state immediately, and applies the destination map epoch/snapshot without
+  waiting for `map.transfer_completed`.
+- Made old-epoch `map.transfer_started` events delivered after the successful
+  response an explicit late lifecycle no-op. The event can no longer regress a
+  completed destination snapshot or restore origin transfer state; the following
+  `map.transfer_completed` event remains idempotent and destination-authoritative.
+- Added reducer regression tests for response-only handoff and the real
+  response-then-`map.transfer_started`-then-`map.transfer_completed` ordering.
+
+2026-06-21 local TASK-0290 scan transfer race hardening:
+
+- Added a per-player scan map guard that captures the active internal map,
+  world/zone, session id, and `map_subscription_epoch` for the whole
+  `scan.pulse` mutation path. A concurrent `portal.enter` for the same player
+  now fails while that guard is active instead of rebinding the session before
+  scan events are queued.
+- Re-check the captured map/epoch before scanner mutation, before resolve, and
+  while queueing scan events so stale old-map scan results cannot be stamped
+  with a destination epoch.
+- Added focused server regression coverage for a portal attempt interleaved
+  before scan event queueing and for a forced map/epoch change before scanner
+  mutation; the latter proves no scanner cooldown, capacitor spend, or queued
+  scan event occurs after the guard detects stale map state.
+
+2026-06-21 local TASK-0292 portal rollback and strict snapshot parsing fixes:
+
+- Added rollback cleanup for destination worker/session state when
+  `portal.enter` fails after the destination player has been spawned or
+  destination session attachment has begun. The rollback now removes the
+  destination player entity, worker session attachments, runtime active-session
+  entries, `LastAOI`, hidden-player state, and destination session location
+  before restoring source map ownership.
+- Added deterministic same-package regression coverage that forces failure
+  after destination session attach, then asserts the player exists only in the
+  source map, both sessions are restored to the source worker/runtime maps, no
+  destination entity/session state remains, no cooldown is consumed, and no
+  failed transfer is cached as an idempotent success.
+- Tightened client transfer parsing so successful `portal.enter` responses and
+  `map.transfer_completed` events require a nested destination `snapshot` object
+  with snapshot entities before clearing origin live state or applying
+  destination map truth. Missing or non-object nested snapshots no longer fall
+  back to treating the whole portal/transfer payload as a snapshot.
+- Added reducer regression coverage for missing and invalid nested snapshots
+  while preserving the existing late old-epoch `map.transfer_started` no-op
+  behavior after a response-applied destination snapshot.
+
+Deferred to Phase 04+:
+
+- Full safe-zone/PvP/combat escape policy, rank/faction gates, portal locking,
+  spawn protection semantics, and durable transfer persistence/reconnect
+  recovery remain future work.
+- Transfer observability counters and a real browser portal smoke test remain
+  future hardening beyond this split-file MVP.
+- Scanner, production, market, and route gameplay semantics beyond current-map
+  transport safety are not changed by this slice.
+
 ## Risks and acceptance criteria
 
 Risks:

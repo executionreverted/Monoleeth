@@ -178,6 +178,36 @@ func TestDecodeRequestEnvelopeAcceptsStealthToggleOperation(t *testing.T) {
 	}
 }
 
+func TestDecodeRequestEnvelopeAcceptsPortalEnterOperation(t *testing.T) {
+	envelope, err := DecodeRequestEnvelope([]byte(`{"request_id":"request-portal-enter","op":"portal.enter","payload":{"portal_id":"east_gate"},"client_seq":10,"v":1}`))
+	if err != nil {
+		t.Fatalf("decode portal request envelope: %v", err)
+	}
+	if envelope.Op != OperationPortalEnter {
+		t.Fatalf("op = %q, want %q", envelope.Op, OperationPortalEnter)
+	}
+	if EventMapTransferStarted != "map.transfer_started" ||
+		EventMapTransferCompleted != "map.transfer_completed" ||
+		EventMapTransferFailed != "map.transfer_failed" {
+		t.Fatalf("map transfer event constants = %q/%q/%q", EventMapTransferStarted, EventMapTransferCompleted, EventMapTransferFailed)
+	}
+}
+
+func TestDecodeRequestEnvelopeAcceptsPortalEnterOperationAndTransferEvents(t *testing.T) {
+	envelope, err := DecodeRequestEnvelope([]byte(`{"request_id":"request-portal-enter","op":"portal.enter","payload":{"portal_id":"east_gate"},"client_seq":10,"v":1}`))
+	if err != nil {
+		t.Fatalf("decode portal request envelope: %v", err)
+	}
+	if envelope.Op != OperationPortalEnter {
+		t.Fatalf("op = %q, want %q", envelope.Op, OperationPortalEnter)
+	}
+	if EventMapTransferStarted != "map.transfer_started" ||
+		EventMapTransferCompleted != "map.transfer_completed" ||
+		EventMapTransferFailed != "map.transfer_failed" {
+		t.Fatalf("map transfer event constants = %q/%q/%q", EventMapTransferStarted, EventMapTransferCompleted, EventMapTransferFailed)
+	}
+}
+
 func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testing.T) {
 	disallowed := []Operation{
 		Operation("crafting.start"),

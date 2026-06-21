@@ -21,6 +21,7 @@ const (
 	OperationWorldSnapshot        Operation = "world.snapshot"
 	OperationMoveTo               Operation = "move_to"
 	OperationStop                 Operation = "stop"
+	OperationPortalEnter          Operation = "portal.enter"
 	OperationDebugSpawnNPC        Operation = "debug_spawn_npc"
 	OperationDebugSnapshot        Operation = "debug_snapshot"
 	OperationCombatUseSkill       Operation = "combat.use_skill"
@@ -83,6 +84,9 @@ const (
 	EventWalletSnapshot        ClientEventType = "wallet.snapshot"
 	EventCargoSnapshot         ClientEventType = "cargo.snapshot"
 	EventWorldSnapshot         ClientEventType = "world.snapshot"
+	EventMapTransferStarted    ClientEventType = "map.transfer_started"
+	EventMapTransferCompleted  ClientEventType = "map.transfer_completed"
+	EventMapTransferFailed     ClientEventType = "map.transfer_failed"
 	EventAOIEntityEntered      ClientEventType = "aoi.entity_entered"
 	EventAOIEntityUpdated      ClientEventType = "aoi.entity_updated"
 	EventAOIEntityLeft         ClientEventType = "aoi.entity_left"
@@ -170,6 +174,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationStop: {
 		Operation:        OperationStop,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationPortalEnter: {
+		Operation:        OperationPortalEnter,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationDebugSpawnNPC: {

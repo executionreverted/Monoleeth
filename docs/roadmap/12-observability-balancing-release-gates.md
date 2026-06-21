@@ -200,6 +200,11 @@ registered realtime operations (`move_to`, `stop`, `debug_spawn_npc`, and
 `debug_snapshot`). Future operations must add coverage or the coverage report
 and tests fail closed.
 
+Implementation note 2026-06-21:
+`portal.enter` is now included in `Phase12CommandSecurityCoverage` with
+server-side portal intent, ownership/session, range/cooldown, idempotency, and
+safe-error evidence from the Phase 03 map transport tests.
+
 ## TODO: Release Gates
 
 Before enabling each module beyond local development:

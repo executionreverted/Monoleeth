@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -117,6 +118,7 @@ func (runtime *Runtime) detachSession(sessionID auth.SessionID) {
 	}
 	delete(runtime.sessions, sessionID)
 	delete(runtime.sessionLocations, sessionID)
+	delete(runtime.sessionEpochs, sessionID)
 }
 
 func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realtime.EventEnvelope, error) {
@@ -124,7 +126,10 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realti
 	defer runtime.mu.Unlock()
 
 	state := runtime.players[resolved.PlayerID]
-	worldSnapshot, err := runtime.worldSnapshotLocked(resolved.PlayerID)
+	if instance, _, err := runtime.activeMapInstanceLocked(resolved.PlayerID); err == nil {
+		runtime.attachSessionToInstanceLocked(instance, resolved.SessionID, resolved.PlayerID)
+	}
+	worldSnapshot, err := runtime.worldSnapshotForSessionLocked(resolved.PlayerID, resolved.SessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +139,6 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realti
 	}
 	if instance, _, err := runtime.activeMapInstanceLocked(resolved.PlayerID); err == nil {
 		instance.LastAOI[resolved.SessionID] = aoi.Snapshot{Entities: cloneAOIEntities(worldSnapshot.Entities)}
-		runtime.attachSessionToInstanceLocked(instance, resolved.SessionID, resolved.PlayerID)
 	}
 	events := make([]realtime.EventEnvelope, 0, 8)
 	sessionPayload := sessionReadyPayload{
@@ -199,6 +203,7 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 		return map[auth.SessionID][]realtime.EventEnvelope{sessionID: events}, nil
 	case realtime.OperationCombatUseSkill,
 		realtime.OperationLootPickup,
+		realtime.OperationPortalEnter,
 		realtime.OperationDeathRepairQuote,
 		realtime.OperationDeathRepairShip,
 		realtime.OperationHangarActivateShip,
@@ -243,6 +248,7 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 func opEmitsPostCommandAOIDiff(op realtime.Operation) bool {
 	switch op {
 	case realtime.OperationMarketCreateListing,
+		realtime.OperationPortalEnter,
 		realtime.OperationMarketBuy,
 		realtime.OperationMarketCancel,
 		realtime.OperationAuctionBid,
@@ -261,6 +267,9 @@ func (runtime *Runtime) eventLocked(sessionID auth.SessionID, eventType realtime
 
 func (runtime *Runtime) eventAtLocked(sessionID auth.SessionID, eventType realtime.ClientEventType, payload any, at time.Time) realtime.EventEnvelope {
 	runtime.eventSeq[sessionID]++
+	if mapScopedEventType(eventType) {
+		payload = runtime.payloadWithMapSubscriptionEpochLocked(sessionID, payload)
+	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		data = []byte(`{}`)
@@ -272,6 +281,111 @@ func (runtime *Runtime) eventAtLocked(sessionID auth.SessionID, eventType realti
 		at.UTC().UnixMilli(),
 		runtime.eventSeq[sessionID],
 	)
+}
+
+func (runtime *Runtime) payloadWithMapSubscriptionEpochLocked(sessionID auth.SessionID, payload any) any {
+	epoch := runtime.sessionMapEpochLocked(sessionID)
+	if epoch == 0 {
+		return payload
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return payload
+	}
+	var object map[string]any
+	if err := json.Unmarshal(data, &object); err != nil {
+		return payload
+	}
+	object["map_subscription_epoch"] = epoch
+	return object
+}
+
+func mapScopedEventType(eventType realtime.ClientEventType) bool {
+	switch eventType {
+	case realtime.EventWorldSnapshot,
+		realtime.EventMapTransferStarted,
+		realtime.EventMapTransferCompleted,
+		realtime.EventMapTransferFailed,
+		realtime.EventAOIEntityEntered,
+		realtime.EventAOIEntityUpdated,
+		realtime.EventAOIEntityLeft,
+		realtime.EventPositionCorrected,
+		realtime.EventMovementStopped,
+		realtime.EventTargetUpdated,
+		realtime.EventCombatDamage,
+		realtime.EventCombatMiss,
+		realtime.EventCombatCooldownStarted,
+		realtime.EventCombatNPCKilled,
+		realtime.EventLootCreated,
+		realtime.EventLootUpdated,
+		realtime.EventLootRemoved,
+		realtime.EventLootPickedUp,
+		realtime.EventScanPulseStarted,
+		realtime.EventScanPulseResolved,
+		realtime.EventScanPlanetDiscovered,
+		realtime.EventKnownPlanets,
+		realtime.EventPlanetDetail,
+		realtime.EventProductionSummary,
+		realtime.EventPlanetStorage,
+		realtime.EventRouteList,
+		realtime.EventRouteSnapshot:
+		return true
+	default:
+		return false
+	}
+}
+
+func (runtime *Runtime) filterEventsForActiveEpochLocked(sessionID auth.SessionID, events []realtime.EventEnvelope) []realtime.EventEnvelope {
+	if len(events) == 0 {
+		return nil
+	}
+	activeEpoch := runtime.sessionMapEpochLocked(sessionID)
+	filtered := make([]realtime.EventEnvelope, 0, len(events))
+	for _, event := range events {
+		eventEpoch, ok := eventMapSubscriptionEpoch(event)
+		if ok && transferLifecycleEvent(event.Type) {
+			filtered = append(filtered, event)
+			continue
+		}
+		if ok && activeEpoch != 0 && eventEpoch != activeEpoch {
+			continue
+		}
+		filtered = append(filtered, event)
+	}
+	return filtered
+}
+
+func transferLifecycleEvent(eventType realtime.ClientEventType) bool {
+	return eventType == realtime.EventMapTransferStarted ||
+		eventType == realtime.EventMapTransferCompleted ||
+		eventType == realtime.EventMapTransferFailed
+}
+
+func eventMapSubscriptionEpoch(event realtime.EventEnvelope) (uint64, bool) {
+	var payload map[string]any
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return 0, false
+	}
+	raw, ok := payload["map_subscription_epoch"]
+	if !ok {
+		return 0, false
+	}
+	switch value := raw.(type) {
+	case float64:
+		if value <= 0 || math.Trunc(value) != value {
+			return 0, false
+		}
+		return uint64(value), true
+	case uint64:
+		return value, true
+	case int:
+		if value <= 0 {
+			return 0, false
+		}
+		return uint64(value), true
+	default:
+		return 0, false
+	}
 }
 
 func commandErrors(result worker.TickResult) error {

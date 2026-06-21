@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { CommandBuilder } from './commands';
+import { assertClientSafePayload, CommandBuilder } from './commands';
 import { CLIENT_EVENTS, OPERATIONS, parseServerMessage, rejectForbiddenPayloadKeys } from './envelope';
 
 const UNIMPLEMENTED_MUTATION_OPS = [
@@ -82,6 +82,16 @@ describe('parseServerMessage', () => {
     'session_id',
     'world_id',
     'zone_id',
+    'map_id',
+    'internal_map_id',
+    'worker_id',
+    'map_worker_id',
+    'transfer_id',
+    'transfer_token',
+    'destination_worker',
+    'origin_worker',
+    'destination_map_id',
+    'destination_spawn_id',
     'gameplay_seed',
     'procedural_seed',
     'world_seed',
@@ -185,6 +195,34 @@ describe('parseServerMessage', () => {
     });
   });
 
+  test('accepts public map keys and map subscription epoch in snapshots', () => {
+    const message = parseServerMessage(
+      JSON.stringify({
+        event_id: 'world-snapshot-1',
+        type: CLIENT_EVENTS.worldSnapshot,
+        payload: {
+          map_subscription_epoch: 2,
+          map: {
+            map_key: '1-2',
+            public_map_key: '1-2',
+            display_name: 'Outer Ring',
+            bounds: { min_x: 0, min_y: 0, max_x: 10000, max_y: 10000 },
+          },
+          entities: [],
+          minimap: { radar_range: 420, live_contacts: [], remembered: [] },
+        },
+        server_time: 182736126,
+        seq: 12,
+        v: 1,
+      }),
+    );
+
+    expect(message).toMatchObject({
+      type: CLIENT_EVENTS.worldSnapshot,
+      payload: { map_subscription_epoch: 2, map: { public_map_key: '1-2' } },
+    });
+  });
+
   test('accepts phase 09 public quest payloads without raw generation data', () => {
     const message = parseServerMessage(
       JSON.stringify({
@@ -257,6 +295,10 @@ describe('rejectForbiddenPayloadKeys', () => {
 describe('default outbound operations', () => {
   test('include server-owned hangar and loadout mutation contracts', () => {
     expect(OPERATIONS.hangarActivateShip).toBe('hangar.activate_ship');
+    expect(OPERATIONS.portalEnter).toBe('portal.enter');
+    expect(CLIENT_EVENTS.mapTransferStarted).toBe('map.transfer_started');
+    expect(CLIENT_EVENTS.mapTransferCompleted).toBe('map.transfer_completed');
+    expect(CLIENT_EVENTS.mapTransferFailed).toBe('map.transfer_failed');
     expect(OPERATIONS.loadoutEquipModule).toBe('loadout.equip_module');
     expect(OPERATIONS.loadoutUnequipModule).toBe('loadout.unequip_module');
     expect(OPERATIONS.stealthToggle).toBe('stealth.toggle');
@@ -264,6 +306,7 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.shopBuyProduct).toBe('shop.buy_product');
 
     const builder = new CommandBuilder();
+    expect(builder.portalEnter('east_gate').payload).toEqual({ portal_id: 'east_gate' });
     expect(builder.hangarActivateShip('starter').payload).toEqual({ ship_id: 'starter' });
     expect(builder.loadoutEquipModule('offensive_1', 'laser_alpha_t1-instance-2').payload).toEqual({
       slot_id: 'offensive_1',
@@ -277,6 +320,23 @@ describe('default outbound operations', () => {
       product_id: 'product_module_laser_alpha_t1',
       quantity: 1,
     });
+  });
+
+  test.each([
+    'map_id',
+    'internal_map_id',
+    'worker_id',
+    'map_worker_id',
+    'transfer_id',
+    'transfer_token',
+    'destination_worker',
+    'origin_worker',
+    'destination_map_id',
+    'destination_spawn_id',
+  ])('rejects trusted client command field %s', (field) => {
+    expect(() => assertClientSafePayload({ portal_id: 'east_gate', [field]: 'client-authored' })).toThrow(
+      /trusted field/,
+    );
   });
 
   test('exclude unimplemented browser mutation contracts', () => {

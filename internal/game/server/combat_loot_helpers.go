@@ -387,7 +387,7 @@ func (runtime *Runtime) queueEventLocked(sessionID auth.SessionID, eventType rea
 func (runtime *Runtime) drainQueuedEventsLocked(sessionID auth.SessionID) []realtime.EventEnvelope {
 	events := runtime.queuedEvents[sessionID]
 	delete(runtime.queuedEvents, sessionID)
-	return append([]realtime.EventEnvelope(nil), events...)
+	return runtime.filterEventsForActiveEpochLocked(sessionID, append([]realtime.EventEnvelope(nil), events...))
 }
 
 func (runtime *Runtime) drainQueuedEventsBySessionLocked() map[auth.SessionID][]realtime.EventEnvelope {
@@ -400,7 +400,11 @@ func (runtime *Runtime) drainQueuedEventsBySessionLocked() map[auth.SessionID][]
 		if len(events) == 0 {
 			continue
 		}
-		eventsBySession[sessionID] = append([]realtime.EventEnvelope(nil), events...)
+		filtered := runtime.filterEventsForActiveEpochLocked(sessionID, append([]realtime.EventEnvelope(nil), events...))
+		if len(filtered) == 0 {
+			continue
+		}
+		eventsBySession[sessionID] = filtered
 	}
 	return eventsBySession
 }

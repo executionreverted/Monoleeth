@@ -14,6 +14,12 @@ export class CommandBuilder {
     return this.build(OPERATIONS.worldSnapshot, {});
   }
 
+  portalEnter(portalID: string): RequestEnvelope<{ portal_id: string }> {
+    return this.build(OPERATIONS.portalEnter, {
+      portal_id: portalID,
+    });
+  }
+
   moveTo(target: Vec2): RequestEnvelope<{ target: Vec2 }> {
     return this.build(OPERATIONS.moveTo, { target });
   }
@@ -339,6 +345,16 @@ function findTrustedClientField(value: unknown, trustedTopLevelFieldAllowlist: R
       normalized === 'session_id' ||
       normalized === 'world_id' ||
       normalized === 'zone_id' ||
+      normalized === 'map_id' ||
+      normalized === 'internal_map_id' ||
+      normalized === 'worker_id' ||
+      normalized === 'map_worker_id' ||
+      normalized === 'transfer_id' ||
+      normalized === 'transfer_token' ||
+      normalized === 'destination_worker' ||
+      normalized === 'origin_worker' ||
+      normalized === 'destination_map_id' ||
+      normalized === 'destination_spawn_id' ||
       normalized === 'damage' ||
       normalized === 'speed' ||
       normalized === 'xp' ||

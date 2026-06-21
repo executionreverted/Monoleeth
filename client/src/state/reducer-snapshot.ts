@@ -46,11 +46,20 @@ import {
   parseQuestBoardSummary,
   parseReleaseGateSummary,
 } from './reducer-quests-admin';
+import { mapSubscriptionEpochFromPayload } from './reducer-world';
 
 export function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientState {
   rejectForbiddenPayloadKeys(payload);
 
   let next = state;
+  const mapSubscriptionEpoch = mapSubscriptionEpochFromPayload(payload);
+  if (mapSubscriptionEpoch !== null) {
+    next = {
+      ...next,
+      mapSubscriptionEpoch,
+    };
+  }
+
   if (typeof payload.authenticated === 'boolean') {
     next = {
       ...next,

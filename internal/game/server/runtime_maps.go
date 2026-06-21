@@ -14,7 +14,12 @@ import (
 	"gameproject/internal/game/world/worker"
 )
 
-var errMapInstanceNotFound = errors.New("map instance not found")
+var (
+	errMapInstanceNotFound = errors.New("map instance not found")
+	errTransferActive      = errors.New("map transfer active")
+	errScanPulseActive     = errors.New("scan pulse active")
+	errMapEpochChanged     = errors.New("map subscription epoch changed")
+)
 
 type hiddenPlayerWitnessKey struct {
 	ViewerPlayerID foundation.PlayerID
@@ -137,6 +142,10 @@ func (runtime *Runtime) attachSessionToInstanceLocked(instance *mapInstance, ses
 	}
 	instance.ActiveSessions[sessionID] = playerID
 	runtime.sessions[sessionID] = playerID
+	if runtime.sessionLocations[sessionID] != instance.Definition.InternalMapID || runtime.sessionEpochs[sessionID] == 0 {
+		runtime.nextSessionEpoch++
+		runtime.sessionEpochs[sessionID] = runtime.nextSessionEpoch
+	}
 	runtime.sessionLocations[sessionID] = instance.Definition.InternalMapID
 }
 
@@ -155,4 +164,11 @@ func (runtime *Runtime) detachSessionFromInstanceLocked(instance *mapInstance, s
 	if runtime.sessionLocations[sessionID] == instance.Definition.InternalMapID {
 		delete(runtime.sessionLocations, sessionID)
 	}
+}
+
+func (runtime *Runtime) sessionMapEpochLocked(sessionID auth.SessionID) uint64 {
+	if runtime == nil {
+		return 0
+	}
+	return runtime.sessionEpochs[sessionID]
 }

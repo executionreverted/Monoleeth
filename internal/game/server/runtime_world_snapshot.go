@@ -38,6 +38,15 @@ func (runtime *Runtime) worldSnapshotLocked(playerID foundation.PlayerID) (world
 	}, nil
 }
 
+func (runtime *Runtime) worldSnapshotForSessionLocked(playerID foundation.PlayerID, sessionID auth.SessionID) (worldSnapshotPayload, error) {
+	snapshot, err := runtime.worldSnapshotLocked(playerID)
+	if err != nil {
+		return worldSnapshotPayload{}, err
+	}
+	snapshot.MapSubscriptionEpoch = runtime.sessionMapEpochLocked(sessionID)
+	return snapshot, nil
+}
+
 func (runtime *Runtime) currentMinimapPayload(playerID foundation.PlayerID) (minimapPayload, error) {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()

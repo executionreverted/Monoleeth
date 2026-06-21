@@ -1,3 +1,4 @@
+import { OPERATIONS } from '../protocol/envelope';
 import { ClientAction, ClientState } from './types';
 import {
   appendLog,
@@ -6,11 +7,13 @@ import {
   initialScanMode,
   isVec2,
   newLog,
+  objectField,
 } from './reducer-helpers';
 import { applyEvent } from './reducer-events';
 import { applySnapshotPayload } from './reducer-snapshot';
 import {
   applyCorrection,
+  clearOriginMapLiveState,
   isStaleEvent,
   movementTargetFromAuthoritativeSelf,
   parseSnapshotEntities,
@@ -30,6 +33,8 @@ export function createInitialState(): ClientState {
     socketURL: defaultSocketURL(),
     lastServerTime: null,
     lastSequence: 0,
+    mapSubscriptionEpoch: null,
+    mapTransfer: null,
     playerSnapshot: null,
     sector: null,
     minimap: null,
@@ -265,14 +270,33 @@ export function reduceClientState(state: ClientState, action: ClientAction): Cli
         };
       }
 
+      const baseResponseState = {
+        ...state,
+        pendingCommands,
+        lastServerTime: action.envelope.server_time,
+        commandLog: appendLog(state.commandLog, 'info', `Accepted ${action.envelope.request_id}.`),
+      };
+      const isPortalTransferResponse = pending?.op === OPERATIONS.portalEnter;
+      if (isPortalTransferResponse) {
+        const snapshotPayload = objectField(action.envelope.payload, 'snapshot');
+        if (!snapshotPayload) {
+          return baseResponseState;
+        }
+        const snapshotEntities = parseSnapshotEntities(snapshotPayload);
+        if (!snapshotEntities) {
+          return baseResponseState;
+        }
+        const stateWithSnapshots = applySnapshotPayload(clearOriginMapLiveState(baseResponseState), snapshotPayload);
+        return replaceVisibleEntities(
+          { ...stateWithSnapshots, mapTransfer: null },
+          snapshotEntities,
+          action.envelope.server_time,
+        );
+      }
+
       const snapshotEntities = parseSnapshotEntities(action.envelope.payload);
       const stateWithSnapshots = applySnapshotPayload(
-        {
-          ...state,
-          pendingCommands,
-          lastServerTime: action.envelope.server_time,
-          commandLog: appendLog(state.commandLog, 'info', `Accepted ${action.envelope.request_id}.`),
-        },
+        baseResponseState,
         action.envelope.payload,
       );
       if (snapshotEntities) {

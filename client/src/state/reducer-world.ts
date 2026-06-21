@@ -1,4 +1,5 @@
 import {
+  CLIENT_EVENTS,
   EntityPayload,
   EventEnvelope,
   JsonObject,
@@ -15,6 +16,7 @@ import type {
 import {
   booleanField,
   isJsonObject,
+  initialScanMode,
   isKnownEntityType,
   isVec2,
   numberField,
@@ -49,6 +51,34 @@ export function replaceVisibleEntities(
     planetIntel: updateVisibleSignalCount(state.planetIntel, countPlanetSignals(visibleEntities)),
     lastServerTime: serverTime,
     lastSequence: sequence ? Math.max(state.lastSequence, sequence) : state.lastSequence,
+  };
+}
+
+export function clearOriginMapLiveState(state: ClientState): ClientState {
+  return {
+    ...state,
+    visibleEntities: {},
+    selectedTargetID: null,
+    movementTarget: null,
+    lastCorrection: null,
+    knownLoot: {},
+    worldEffects: [],
+    skillCooldowns: {},
+    planetIntel: state.planetIntel
+      ? {
+          ...state.planetIntel,
+          knownSignals: 0,
+          selectedPlanet: null,
+          lastScan: null,
+        }
+      : null,
+    scanMode: initialScanMode(),
+    minimap: state.minimap
+      ? {
+          ...state.minimap,
+          live_contacts: [],
+        }
+      : null,
   };
 }
 
@@ -117,7 +147,64 @@ export function removeMinimapContact(minimap: MinimapSummary | null, entityID: s
 }
 
 export function isStaleEvent(state: ClientState, envelope: EventEnvelope): boolean {
-  return envelope.seq > 0 && state.lastSequence > 0 && envelope.seq <= state.lastSequence;
+  if (envelope.seq > 0 && state.lastSequence > 0 && envelope.seq <= state.lastSequence) {
+    return true;
+  }
+
+  const eventEpoch = mapSubscriptionEpochFromPayload(envelope.payload);
+  if (eventEpoch === null || state.mapSubscriptionEpoch === null) {
+    return false;
+  }
+  if (envelope.type === CLIENT_EVENTS.mapTransferStarted) {
+    return false;
+  }
+  if (envelope.type === CLIENT_EVENTS.mapTransferCompleted || envelope.type === CLIENT_EVENTS.worldSnapshot) {
+    return eventEpoch < state.mapSubscriptionEpoch;
+  }
+  if (!isMapScopedClientEvent(envelope.type)) {
+    return false;
+  }
+  return eventEpoch !== state.mapSubscriptionEpoch;
+}
+
+function isMapScopedClientEvent(eventType: string): boolean {
+  return (
+    eventType === CLIENT_EVENTS.entityEntered ||
+    eventType === CLIENT_EVENTS.entityUpdated ||
+    eventType === CLIENT_EVENTS.entityLeft ||
+    eventType === CLIENT_EVENTS.positionCorrected ||
+    eventType === CLIENT_EVENTS.movementStopped ||
+    eventType === CLIENT_EVENTS.targetUpdated ||
+    eventType === CLIENT_EVENTS.combatDamage ||
+    eventType === CLIENT_EVENTS.combatMiss ||
+    eventType === CLIENT_EVENTS.combatCooldownStarted ||
+    eventType === CLIENT_EVENTS.combatNPCKilled ||
+    eventType === CLIENT_EVENTS.lootCreated ||
+    eventType === CLIENT_EVENTS.lootUpdated ||
+    eventType === CLIENT_EVENTS.lootRemoved ||
+    eventType === CLIENT_EVENTS.lootPickedUp ||
+    eventType === CLIENT_EVENTS.scanPulseStarted ||
+    eventType === CLIENT_EVENTS.scanPulseResolved ||
+    eventType === CLIENT_EVENTS.scanPlanetDiscovered ||
+    eventType === CLIENT_EVENTS.knownPlanets ||
+    eventType === CLIENT_EVENTS.planetDetail ||
+    eventType === CLIENT_EVENTS.productionSummary ||
+    eventType === CLIENT_EVENTS.planetStorageSummary ||
+    eventType === CLIENT_EVENTS.routeList ||
+    eventType === CLIENT_EVENTS.routeSnapshot ||
+    eventType === CLIENT_EVENTS.worldSnapshot ||
+    eventType === CLIENT_EVENTS.mapTransferStarted ||
+    eventType === CLIENT_EVENTS.mapTransferCompleted ||
+    eventType === CLIENT_EVENTS.mapTransferFailed
+  );
+}
+
+export function mapSubscriptionEpochFromPayload(payload: JsonObject): number | null {
+  const epoch = numberField(payload, 'map_subscription_epoch');
+  if (epoch === null || epoch <= 0) {
+    return null;
+  }
+  return Math.round(epoch);
 }
 
 export function resetsRealtimeStream(status: ClientState['connectionStatus']): boolean {

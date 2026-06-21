@@ -49,6 +49,7 @@ const (
 	starterScannerScanInterval                           = time.Second
 	starterScannerEnergyCost                             = 8
 	runtimeHiddenPlayerWitnessDuration                   = 15 * time.Minute
+	runtimePortalCooldown                                = 30 * time.Second
 	starterWalletCredits                                 = 1200
 	starterWalletPremiumPaid                             = 300
 	weeklyXCorePremiumPrice                              = 100
@@ -92,8 +93,14 @@ type Runtime struct {
 	eventSeq          map[auth.SessionID]uint64
 	sessions          map[auth.SessionID]foundation.PlayerID
 	sessionLocations  map[auth.SessionID]worldmaps.MapID
+	sessionEpochs     map[auth.SessionID]uint64
+	nextSessionEpoch  uint64
 	lastMove          map[foundation.PlayerID]time.Time
 	queuedEvents      map[auth.SessionID][]realtime.EventEnvelope
+	activeTransfers   map[foundation.PlayerID]portalTransferState
+	activeScanPulses  map[foundation.PlayerID]scanPulseMapGuard
+	portalCooldowns   map[portalCooldownKey]time.Time
+	portalAttempts    map[portalRequestKey]portalTransferRecord
 
 	nextPlayerEntity int
 
@@ -321,8 +328,13 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		eventSeq:            make(map[auth.SessionID]uint64),
 		sessions:            make(map[auth.SessionID]foundation.PlayerID),
 		sessionLocations:    make(map[auth.SessionID]worldmaps.MapID),
+		sessionEpochs:       make(map[auth.SessionID]uint64),
 		lastMove:            make(map[foundation.PlayerID]time.Time),
 		queuedEvents:        make(map[auth.SessionID][]realtime.EventEnvelope),
+		activeTransfers:     make(map[foundation.PlayerID]portalTransferState),
+		activeScanPulses:    make(map[foundation.PlayerID]scanPulseMapGuard),
+		portalCooldowns:     make(map[portalCooldownKey]time.Time),
+		portalAttempts:      make(map[portalRequestKey]portalTransferRecord),
 		Combat:              combatService,
 		Loot:                lootService,
 		Inventory:           inventory,

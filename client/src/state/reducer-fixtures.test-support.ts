@@ -18,6 +18,8 @@ export function event(type: string, payload: JsonObject, seq = 1): EventEnvelope
 export function expectServerOwnedGameplayCleared(state: ClientState): void {
   expect(state.lastServerTime).toBeNull();
   expect(state.lastSequence).toBe(0);
+  expect(state.mapSubscriptionEpoch).toBeNull();
+  expect(state.mapTransfer).toBeNull();
   expect(state.playerSnapshot).toBeNull();
   expect(state.sector).toBeNull();
   expect(state.minimap).toBeNull();
@@ -81,6 +83,14 @@ export function stateWithServerOwnedGameplay(): ClientState {
     connectionStatus: 'connected',
     lastServerTime: 1000,
     lastSequence: 42,
+    mapSubscriptionEpoch: 7,
+    mapTransfer: {
+      state: 'started',
+      portal_id: 'east_gate',
+      from_public_map_key: '1-1',
+      to_public_map_key: '1-2',
+      started_at: 999,
+    },
     playerSnapshot: { callsign: 'Server-Pilot', hp: 80, shield: 70, energy: 60 },
     sector: { name: 'Origin Fringe', region: 'Origin Belt', danger: 'low', contested: false },
     minimap: { radar_range: 420, live_contacts: [], remembered: [] },

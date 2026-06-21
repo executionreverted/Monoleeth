@@ -56,12 +56,18 @@ func TestWorldProjectionSourcesReconcileAfterServerOwnedMovement(t *testing.T) {
 				}
 			}
 		case realtime.EventAOIEntityLeft:
-			var left map[string]string
+			var left struct {
+				EntityID             string `json:"entity_id"`
+				MapSubscriptionEpoch uint64 `json:"map_subscription_epoch"`
+			}
 			if err := json.Unmarshal(event.Payload, &left); err != nil {
 				t.Fatalf("decode left entity: %v", err)
 			}
-			if left["entity_id"] == "entity_projection_departing" {
+			if left.EntityID == "entity_projection_departing" {
 				seenLeft = true
+				if left.MapSubscriptionEpoch == 0 {
+					t.Fatalf("left event missing map_subscription_epoch: %s", event.Payload)
+				}
 			}
 		}
 	}

@@ -721,6 +721,15 @@ export interface KnownLootDrop {
   position?: Vec2;
 }
 
+export interface MapTransferState {
+  state: 'started' | 'failed';
+  portal_id?: string;
+  from_public_map_key?: string;
+  to_public_map_key?: string;
+  reason?: string;
+  started_at: number;
+}
+
 export type WorldFeedbackKind = 'laser' | 'damage' | 'miss' | 'destroyed' | 'loot_spawn' | 'loot_pickup';
 
 export interface WorldFeedbackEffect {
@@ -745,6 +754,8 @@ export interface ClientState {
   socketURL: string;
   lastServerTime: number | null;
   lastSequence: number;
+  mapSubscriptionEpoch: number | null;
+  mapTransfer: MapTransferState | null;
   playerSnapshot: PlayerSnapshot | null;
   sector: SectorSummary | null;
   minimap: MinimapSummary | null;

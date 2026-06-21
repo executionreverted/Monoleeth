@@ -10,6 +10,16 @@ const SHARED_SENSITIVE_CLIENT_FIELDS = [
   'session_id',
   'world_id',
   'zone_id',
+  'map_id',
+  'internal_map_id',
+  'worker_id',
+  'map_worker_id',
+  'transfer_id',
+  'transfer_token',
+  'destination_worker',
+  'origin_worker',
+  'destination_map_id',
+  'destination_spawn_id',
   'speed',
   'hidden',
   'internal_metadata',
@@ -59,6 +69,7 @@ test('command builders include request ids and omit trusted fields', () => {
   const move = builder.moveTo({ x: 120, y: -40 });
   const fire = builder.combatUseSkill('npc-1');
   const pickup = builder.lootPickup('drop-1');
+  const portal = builder.portalEnter('east_gate');
   const scan = builder.scanPulse();
   const activate = builder.hangarActivateShip('starter');
   const equip = builder.loadoutEquipModule('offensive_1', 'laser_alpha_t1-instance-2');
@@ -68,6 +79,7 @@ test('command builders include request ids and omit trusted fields', () => {
     move.payload,
     fire.payload,
     pickup.payload,
+    portal.payload,
     scan.payload,
     activate.payload,
     equip.payload,
@@ -82,6 +94,8 @@ test('command builders include request ids and omit trusted fields', () => {
   expect(fire.payload).toEqual({ target_id: 'npc-1', skill_id: 'basic_laser' });
   expect(pickup.op).toBe('loot.pickup');
   expect(pickup.payload).toEqual({ drop_id: 'drop-1' });
+  expect(portal.op).toBe('portal.enter');
+  expect(portal.payload).toEqual({ portal_id: 'east_gate' });
   expect(scan.op).toBe('scan.pulse');
   expect(scan.payload).toEqual({});
   expect(activate.op).toBe('hangar.activate_ship');

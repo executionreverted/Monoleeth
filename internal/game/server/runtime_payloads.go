@@ -88,11 +88,12 @@ type progressionSnapshotPayload struct {
 }
 
 type worldSnapshotPayload struct {
-	Sector         sectorPayload                 `json:"sector"`
-	Map            worldmaps.ClientMapProjection `json:"map"`
-	Entities       []aoi.EntityPayload           `json:"entities"`
-	Minimap        minimapPayload                `json:"minimap"`
-	SnapshotCursor uint64                        `json:"snapshot_cursor"`
+	Sector               sectorPayload                 `json:"sector"`
+	Map                  worldmaps.ClientMapProjection `json:"map"`
+	Entities             []aoi.EntityPayload           `json:"entities"`
+	Minimap              minimapPayload                `json:"minimap"`
+	SnapshotCursor       uint64                        `json:"snapshot_cursor"`
+	MapSubscriptionEpoch uint64                        `json:"map_subscription_epoch"`
 }
 
 type sectorPayload struct {
@@ -129,6 +130,33 @@ type minimapMemoryPayload struct {
 	Position         world.Vec2 `json:"position"`
 	Freshness        string     `json:"freshness"`
 	ProjectionSource string     `json:"projection_source"`
+}
+
+type portalEnterIntent struct {
+	PortalID worldmaps.PortalID `json:"portal_id"`
+}
+
+type mapTransferStartedPayload struct {
+	PortalID             string `json:"portal_id"`
+	FromPublicMapKey     string `json:"from_public_map_key"`
+	ToPublicMapKey       string `json:"to_public_map_key"`
+	MapSubscriptionEpoch uint64 `json:"map_subscription_epoch"`
+}
+
+type mapTransferCompletedPayload struct {
+	PortalID             string               `json:"portal_id"`
+	FromPublicMapKey     string               `json:"from_public_map_key"`
+	ToPublicMapKey       string               `json:"to_public_map_key"`
+	Position             world.Vec2           `json:"position"`
+	MapSubscriptionEpoch uint64               `json:"map_subscription_epoch"`
+	Snapshot             worldSnapshotPayload `json:"snapshot"`
+}
+
+type mapTransferFailedPayload struct {
+	PortalID             string `json:"portal_id,omitempty"`
+	FromPublicMapKey     string `json:"from_public_map_key,omitempty"`
+	Reason               string `json:"reason"`
+	MapSubscriptionEpoch uint64 `json:"map_subscription_epoch"`
 }
 
 func sectorPayloadFromMap(projection worldmaps.ClientMapProjection) sectorPayload {

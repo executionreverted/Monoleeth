@@ -43,6 +43,10 @@ var trustedClientPayloadKeys = map[string]struct{}{
 	"worker_id":              {},
 	"map_worker_id":          {},
 	"worker_topology":        {},
+	"transfer_id":            {},
+	"transfer_token":         {},
+	"destination_worker":     {},
+	"origin_worker":          {},
 	"speed":                  {},
 	"damage":                 {},
 	"xp":                     {},
@@ -134,6 +138,7 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationWorldSnapshot:        runtime.handleWorldSnapshot,
 		realtime.OperationMoveTo:               runtime.handleMoveTo,
 		realtime.OperationStop:                 runtime.handleStop,
+		realtime.OperationPortalEnter:          runtime.handlePortalEnter,
 		realtime.OperationCombatUseSkill:       runtime.handleCombatUseSkill,
 		realtime.OperationLootPickup:           runtime.handleLootPickup,
 		realtime.OperationDeathRepairQuote:     runtime.handleDeathRepairQuote,
@@ -217,14 +222,17 @@ func (runtime *Runtime) handleWorldSnapshot(ctx realtime.CommandContext, request
 	}
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	payload, err := runtime.worldSnapshotLocked(ctx.PlayerID)
+	sessionID := authSessionID(ctx.SessionID)
+	instance, _, instanceErr := runtime.activeMapInstanceLocked(ctx.PlayerID)
+	if instanceErr == nil {
+		runtime.attachSessionToInstanceLocked(instance, sessionID, ctx.PlayerID)
+	}
+	payload, err := runtime.worldSnapshotForSessionLocked(ctx.PlayerID, sessionID)
 	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
-	if instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID); err == nil {
-		sessionID := authSessionID(ctx.SessionID)
+	if instanceErr == nil {
 		instance.LastAOI[sessionID] = aoi.Snapshot{Entities: cloneAOIEntities(payload.Entities)}
-		runtime.attachSessionToInstanceLocked(instance, sessionID, ctx.PlayerID)
 	}
 	return marshalPayload(payload)
 }
@@ -252,7 +260,7 @@ func (runtime *Runtime) handleMoveTo(ctx realtime.CommandContext, request realti
 	if err := commandErrors(instance.Worker.Tick()); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
-	snapshot, err := runtime.worldSnapshotLocked(ctx.PlayerID)
+	snapshot, err := runtime.worldSnapshotForSessionLocked(ctx.PlayerID, authSessionID(ctx.SessionID))
 	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
@@ -262,12 +270,14 @@ func (runtime *Runtime) handleMoveTo(ctx realtime.CommandContext, request realti
 		Map          worldmaps.ClientMapProjection `json:"map"`
 		Entities     []aoi.EntityPayload           `json:"entities"`
 		Minimap      minimapPayload                `json:"minimap"`
+		Epoch        uint64                        `json:"map_subscription_epoch"`
 	}{
 		Accepted:     true,
 		PublicMapKey: snapshot.Map.PublicMapKey,
 		Map:          snapshot.Map,
 		Entities:     snapshot.Entities,
 		Minimap:      snapshot.Minimap,
+		Epoch:        snapshot.MapSubscriptionEpoch,
 	})
 }
 
@@ -290,7 +300,7 @@ func (runtime *Runtime) handleStop(ctx realtime.CommandContext, request realtime
 	if err := commandErrors(instance.Worker.Tick()); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
-	snapshot, err := runtime.worldSnapshotLocked(ctx.PlayerID)
+	snapshot, err := runtime.worldSnapshotForSessionLocked(ctx.PlayerID, authSessionID(ctx.SessionID))
 	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
@@ -298,7 +308,8 @@ func (runtime *Runtime) handleStop(ctx realtime.CommandContext, request realtime
 		Accepted bool                `json:"accepted"`
 		Entities []aoi.EntityPayload `json:"entities"`
 		Minimap  minimapPayload      `json:"minimap"`
-	}{Accepted: true, Entities: snapshot.Entities, Minimap: snapshot.Minimap})
+		Epoch    uint64              `json:"map_subscription_epoch"`
+	}{Accepted: true, Entities: snapshot.Entities, Minimap: snapshot.Minimap, Epoch: snapshot.MapSubscriptionEpoch})
 }
 
 func (runtime *Runtime) validateMoveIntentLocked(playerID foundation.PlayerID, intent world.MovementIntent) error {
@@ -331,12 +342,22 @@ func (runtime *Runtime) validateMoveIntentLocked(playerID foundation.PlayerID, i
 }
 
 func (runtime *Runtime) validateShipCanMoveLocked(playerID foundation.PlayerID) error {
+	if err := runtime.validateNoActiveTransferLocked(playerID); err != nil {
+		return err
+	}
 	state, ok := runtime.players[playerID]
 	if !ok {
 		return domainErrorForRuntime(worker.ErrUnknownPlayer)
 	}
 	if state.Ship.Disabled || state.Ship.RepairState == "disabled" {
 		return foundation.NewDomainError(foundation.CodeShipDisabled, "Ship is disabled.")
+	}
+	return nil
+}
+
+func (runtime *Runtime) validateNoActiveTransferLocked(playerID foundation.PlayerID) error {
+	if _, active := runtime.activeTransfers[playerID]; active {
+		return foundation.NewDomainError(foundation.CodeForbidden, "Map transfer is active.", foundation.WithCause(errTransferActive))
 	}
 	return nil
 }

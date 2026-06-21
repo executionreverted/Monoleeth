@@ -1,5 +1,5 @@
 import { CLIENT_EVENTS, EventEnvelope, OPERATIONS, rejectForbiddenPayloadKeys } from '../protocol/envelope';
-import type { ClientState } from './types';
+import type { ClientState, MapTransferState } from './types';
 import { appendLog, numberField, objectField, stringField } from './reducer-helpers';
 import {
   applyPlanetDetail,
@@ -40,9 +40,11 @@ import {
   appendWorldEffect,
   applyCorrection,
   applyTargetUpdated,
+  clearOriginMapLiveState,
   displayNameForEntity,
   feedbackEffect,
   movementTargetFromAuthoritativeSelf,
+  mapSubscriptionEpochFromPayload,
   parseEntityMovement,
   parseEntityPayload,
   parseKnownLootDrop,
@@ -534,6 +536,67 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
 
+    case CLIENT_EVENTS.mapTransferStarted: {
+      const eventEpoch = mapSubscriptionEpochFromPayload(envelope.payload);
+      if (eventEpoch !== null && state.mapSubscriptionEpoch !== null && eventEpoch < state.mapSubscriptionEpoch) {
+        return {
+          ...state,
+          lastServerTime: envelope.server_time,
+          lastSequence: Math.max(state.lastSequence, envelope.seq),
+        };
+      }
+      return {
+        ...state,
+        mapTransfer: parseMapTransferStarted(envelope.payload, envelope.server_time),
+        mapSubscriptionEpoch: eventEpoch ?? state.mapSubscriptionEpoch,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.mapTransferCompleted: {
+      const snapshotPayload = objectField(envelope.payload, 'snapshot');
+      if (!snapshotPayload) {
+        return {
+          ...state,
+          lastServerTime: envelope.server_time,
+          lastSequence: Math.max(state.lastSequence, envelope.seq),
+        };
+      }
+      const entities = parseSnapshotEntities(snapshotPayload);
+      if (!entities) {
+        return {
+          ...state,
+          lastServerTime: envelope.server_time,
+          lastSequence: Math.max(state.lastSequence, envelope.seq),
+        };
+      }
+      const cleared = clearOriginMapLiveState(state);
+      const withSnapshotPayload = applySnapshotPayload(cleared, snapshotPayload);
+      return {
+        ...replaceVisibleEntities(withSnapshotPayload, entities, envelope.server_time, envelope.seq),
+        mapTransfer: null,
+        mapSubscriptionEpoch:
+          mapSubscriptionEpochFromPayload(envelope.payload) ??
+          mapSubscriptionEpochFromPayload(snapshotPayload) ??
+          withSnapshotPayload.mapSubscriptionEpoch,
+        connectionStatus: state.auth.mode === 'real' && state.auth.session ? 'connected' : state.connectionStatus,
+      };
+    }
+
+    case CLIENT_EVENTS.mapTransferFailed:
+      return {
+        ...state,
+        mapTransfer: parseMapTransferFailed(envelope.payload, envelope.server_time),
+        lastError: {
+          code: 'ERR_FORBIDDEN',
+          message: stringField(envelope.payload, 'reason') ?? 'Map transfer failed.',
+          retryable: false,
+        },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
     case CLIENT_EVENTS.worldSnapshot: {
       const entities = parseSnapshotEntities(envelope.payload) ?? [];
       const withSnapshotPayload = applySnapshotPayload(state, envelope.payload);
@@ -615,4 +678,24 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
         commandLog: appendLog(state.commandLog, 'warn', `Unhandled event ${envelope.type}.`),
       };
   }
+}
+
+function parseMapTransferStarted(payload: EventEnvelope['payload'], serverTime: number): MapTransferState {
+  return {
+    state: 'started',
+    portal_id: stringField(payload, 'portal_id') ?? undefined,
+    from_public_map_key: stringField(payload, 'from_public_map_key') ?? undefined,
+    to_public_map_key: stringField(payload, 'to_public_map_key') ?? undefined,
+    started_at: serverTime,
+  };
+}
+
+function parseMapTransferFailed(payload: EventEnvelope['payload'], serverTime: number): MapTransferState {
+  return {
+    state: 'failed',
+    portal_id: stringField(payload, 'portal_id') ?? undefined,
+    from_public_map_key: stringField(payload, 'from_public_map_key') ?? undefined,
+    reason: stringField(payload, 'reason') ?? 'Map transfer failed.',
+    started_at: serverTime,
+  };
 }

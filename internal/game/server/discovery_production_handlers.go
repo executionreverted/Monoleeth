@@ -10,6 +10,7 @@ import (
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
+	worldmaps "gameproject/internal/game/world/maps"
 )
 
 type scanPulsePayload struct {
@@ -22,6 +23,26 @@ type scanPulsePayload struct {
 	XPGranted      bool                                 `json:"xp_granted,omitempty"`
 	Duplicate      bool                                 `json:"duplicate,omitempty"`
 }
+
+type scanPulseMapGuard struct {
+	PlayerID  foundation.PlayerID
+	SessionID auth.SessionID
+	MapID     worldmaps.MapID
+	WorldID   foundation.WorldID
+	ZoneID    foundation.ZoneID
+	Epoch     uint64
+}
+
+type scanPulseInterleaveStage string
+
+const (
+	scanPulseInterleaveBeforeMutation scanPulseInterleaveStage = "before_mutation"
+	scanPulseInterleaveBeforeQueue    scanPulseInterleaveStage = "before_queue"
+)
+
+// scanPulseInterleaveTestHook is nil in production. Same-package tests install
+// it to force scan/transfer interleavings at deterministic guard boundaries.
+var scanPulseInterleaveTestHook func(scanPulseInterleaveStage, *Runtime, scanPulseMapGuard)
 
 type knownPlanetsPayload struct {
 	Planets []knownPlanetPayload `json:"planets"`
@@ -135,43 +156,66 @@ func (runtime *Runtime) handleScanPulse(ctx realtime.CommandContext, request rea
 	if err := rejectTrustedPayload(request.Payload); err != nil {
 		return nil, err
 	}
+	sessionID := authSessionID(ctx.SessionID)
 	runtime.mu.Lock()
-	location, err := runtime.mapRouter.ActiveLocation(ctx.PlayerID)
+	guard, err := runtime.beginScanPulseMapGuardLocked(sessionID, ctx.PlayerID)
 	runtime.mu.Unlock()
 	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
+	defer runtime.finishScanPulseMapGuard(guard)
+
+	notifyScanPulseInterleaveTestHook(scanPulseInterleaveBeforeMutation, runtime, guard)
+	if err := runtime.validateScanPulseMapGuard(guard); err != nil {
+		return nil, err
+	}
+
 	ref := discovery.ScanPulseReference("pulse_" + request.RequestID.String())
 	start, err := runtime.Scanner.StartScanPulse(discovery.StartScanPulseInput{
 		PlayerID:       ctx.PlayerID,
-		WorldID:        location.WorldID,
-		ZoneID:         location.ZoneID,
+		WorldID:        guard.WorldID,
+		ZoneID:         guard.ZoneID,
 		ShipID:         starterShipID,
 		PulseReference: ref,
 	})
 	if err != nil {
 		return nil, domainErrorForDiscovery(err)
 	}
+	if err := runtime.validateScanPulseMapGuard(guard); err != nil {
+		return nil, err
+	}
 
 	result, err := runtime.Scanner.ResolveScanPulse(discovery.ResolveScanPulseInput{
 		PlayerID:       ctx.PlayerID,
-		WorldID:        location.WorldID,
-		ZoneID:         location.ZoneID,
+		WorldID:        guard.WorldID,
+		ZoneID:         guard.ZoneID,
 		PulseReference: ref,
 	})
 	if errors.Is(err, discovery.ErrScanPulseNotReady) {
 		payload := scanPulsePayloadFromStart(start)
-		runtime.queueScanEvents(authSessionID(ctx.SessionID), ctx.PlayerID, payload, nil, nil)
+		notifyScanPulseInterleaveTestHook(scanPulseInterleaveBeforeQueue, runtime, guard)
+		if err := runtime.queueScanEvents(guard, payload, nil, nil); err != nil {
+			return nil, err
+		}
 		return marshalPayload(map[string]any{"scan": payload})
 	}
 	if err != nil {
 		return nil, domainErrorForDiscovery(err)
 	}
+	if err := runtime.validateScanPulseMapGuard(guard); err != nil {
+		return nil, err
+	}
 
 	scan := scanPulsePayloadFromResult(result)
 	if result.Status == discovery.ScanPulseStatusPlayerRevealed {
-		runtime.queueScanEvents(authSessionID(ctx.SessionID), ctx.PlayerID, scan, nil, nil)
+		notifyScanPulseInterleaveTestHook(scanPulseInterleaveBeforeQueue, runtime, guard)
+		if err := runtime.queueScanEvents(guard, scan, nil, nil); err != nil {
+			return nil, err
+		}
 		return marshalPayload(map[string]any{"scan": scan})
+	}
+	if err := runtime.validateScanPulseMapGuard(guard); err != nil {
+		return nil, err
 	}
 	knownPlanets, err := runtime.knownPlanetsPayload(ctx.PlayerID)
 	if err != nil {
@@ -185,7 +229,10 @@ func (runtime *Runtime) handleScanPulse(ctx realtime.CommandContext, request rea
 	if err != nil {
 		return nil, err
 	}
-	runtime.queueScanEvents(authSessionID(ctx.SessionID), ctx.PlayerID, scan, &knownPlanets, &minimap)
+	notifyScanPulseInterleaveTestHook(scanPulseInterleaveBeforeQueue, runtime, guard)
+	if err := runtime.queueScanEvents(guard, scan, &knownPlanets, &minimap); err != nil {
+		return nil, err
+	}
 	return marshalPayload(map[string]any{
 		"scan":          scan,
 		"known_planets": knownPlanets,
@@ -290,18 +337,91 @@ func (runtime *Runtime) handleRouteSnapshot(ctx realtime.CommandContext, request
 	return marshalPayload(map[string]any{"route": routePayloadFromRoute(route)})
 }
 
-func (runtime *Runtime) queueScanEvents(sessionID auth.SessionID, playerID foundation.PlayerID, scan scanPulsePayload, knownPlanets *knownPlanetsPayload, minimap *minimapPayload) {
+func (runtime *Runtime) beginScanPulseMapGuardLocked(sessionID auth.SessionID, playerID foundation.PlayerID) (scanPulseMapGuard, error) {
+	if err := runtime.validateNoActiveTransferLocked(playerID); err != nil {
+		return scanPulseMapGuard{}, err
+	}
+	if _, active := runtime.activeScanPulses[playerID]; active {
+		return scanPulseMapGuard{}, foundation.NewDomainError(foundation.CodeForbidden, "Scan pulse is already active.", foundation.WithCause(errScanPulseActive))
+	}
+	location, err := runtime.mapRouter.ActiveLocation(playerID)
+	if err != nil {
+		return scanPulseMapGuard{}, err
+	}
+	epoch := runtime.sessionMapEpochLocked(sessionID)
+	if epoch == 0 || runtime.sessionLocations[sessionID] != location.InternalMapID {
+		return scanPulseMapGuard{}, foundation.NewDomainError(foundation.CodeForbidden, "Map subscription is not active.", foundation.WithCause(errMapEpochChanged))
+	}
+	guard := scanPulseMapGuard{
+		PlayerID:  playerID,
+		SessionID: sessionID,
+		MapID:     location.InternalMapID,
+		WorldID:   location.WorldID,
+		ZoneID:    location.ZoneID,
+		Epoch:     epoch,
+	}
+	runtime.activeScanPulses[playerID] = guard
+	return guard, nil
+}
+
+func (runtime *Runtime) finishScanPulseMapGuard(guard scanPulseMapGuard) {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 
-	runtime.queueEventLocked(sessionID, realtime.EventScanPulseStarted, map[string]any{
+	if active, ok := runtime.activeScanPulses[guard.PlayerID]; ok && active == guard {
+		delete(runtime.activeScanPulses, guard.PlayerID)
+	}
+}
+
+func (runtime *Runtime) validateScanPulseMapGuard(guard scanPulseMapGuard) error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	return runtime.validateScanPulseMapGuardLocked(guard)
+}
+
+func (runtime *Runtime) validateScanPulseMapGuardLocked(guard scanPulseMapGuard) error {
+	if err := runtime.validateNoActiveTransferLocked(guard.PlayerID); err != nil {
+		return err
+	}
+	active, ok := runtime.activeScanPulses[guard.PlayerID]
+	if !ok || active != guard {
+		return foundation.NewDomainError(foundation.CodeForbidden, "Scan pulse map guard changed.", foundation.WithCause(errScanPulseActive))
+	}
+	location, err := runtime.mapRouter.ActiveLocation(guard.PlayerID)
+	if err != nil {
+		return err
+	}
+	if location.InternalMapID != guard.MapID || location.WorldID != guard.WorldID || location.ZoneID != guard.ZoneID {
+		return foundation.NewDomainError(foundation.CodeForbidden, "Map subscription changed during scan.", foundation.WithCause(errMapEpochChanged))
+	}
+	if runtime.sessionLocations[guard.SessionID] != guard.MapID || runtime.sessionMapEpochLocked(guard.SessionID) != guard.Epoch {
+		return foundation.NewDomainError(foundation.CodeForbidden, "Map subscription changed during scan.", foundation.WithCause(errMapEpochChanged))
+	}
+	return nil
+}
+
+func notifyScanPulseInterleaveTestHook(stage scanPulseInterleaveStage, runtime *Runtime, guard scanPulseMapGuard) {
+	if scanPulseInterleaveTestHook != nil {
+		scanPulseInterleaveTestHook(stage, runtime, guard)
+	}
+}
+
+func (runtime *Runtime) queueScanEvents(guard scanPulseMapGuard, scan scanPulsePayload, knownPlanets *knownPlanetsPayload, minimap *minimapPayload) error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	if err := runtime.validateScanPulseMapGuardLocked(guard); err != nil {
+		return err
+	}
+	runtime.queueEventLocked(guard.SessionID, realtime.EventScanPulseStarted, map[string]any{
 		"pulse_reference": scan.PulseReference,
 		"status":          "started",
 		"resolve_after":   scan.ResolveAfter,
 	})
-	runtime.queueEventLocked(sessionID, realtime.EventScanPulseResolved, scan)
+	runtime.queueEventLocked(guard.SessionID, realtime.EventScanPulseResolved, scan)
 	if scan.PlanetID != "" {
-		runtime.queueEventLocked(sessionID, realtime.EventScanPlanetDiscovered, scan)
+		runtime.queueEventLocked(guard.SessionID, realtime.EventScanPlanetDiscovered, scan)
 	}
 	if knownPlanets != nil {
 		payload := map[string]any{
@@ -311,9 +431,9 @@ func (runtime *Runtime) queueScanEvents(sessionID auth.SessionID, playerID found
 		if minimap != nil {
 			payload["minimap"] = *minimap
 		}
-		runtime.queueEventLocked(sessionID, realtime.EventKnownPlanets, payload)
+		runtime.queueEventLocked(guard.SessionID, realtime.EventKnownPlanets, payload)
 	}
-	_ = playerID
+	return nil
 }
 
 func (runtime *Runtime) knownPlanetsPayload(playerID foundation.PlayerID) (knownPlanetsPayload, error) {
