@@ -577,7 +577,7 @@ func (runtime *Runtime) questBoardSnapshotLocked(playerID foundation.PlayerID) (
 	for _, role := range progressionSnapshot.RoleLevels() {
 		roleLevels[role.Role] = role.Level
 	}
-	knownPlanets, err := runtime.knownPlanetsPayload(playerID)
+	knownPlanets, err := runtime.knownPlanetsPayloadLocked(playerID)
 	if err != nil {
 		return quests.PlayerQuestBoardSnapshot{}, err
 	}

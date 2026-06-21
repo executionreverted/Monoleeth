@@ -180,14 +180,19 @@ func (runtime *Runtime) viewerForPlayerLocked(playerID foundation.PlayerID) (vis
 	if !ok {
 		return visibility.Viewer{}, worker.ErrUnknownPlayer
 	}
+	now := runtime.clock.Now()
+	radarRangeUnits := runtime.effectiveRadarRangeUnitsLocked(playerID)
 	statSnapshot := stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
-		Exploration: stats.ExplorationStats{RadarRange: runtimeLiveProjectionDiagonalRange},
-	}, runtime.clock.Now())
+		Exploration: stats.ExplorationStats{RadarRange: radarRangeUnits},
+	}, now)
 	return visibility.Viewer{
+		PlayerID:   playerID,
 		WorldID:    location.WorldID,
 		ZoneID:     location.ZoneID,
 		Position:   entity.Position,
 		RadarRange: visibility.RadarRangeFromStatSnapshot(statSnapshot),
+		Witnesses:  runtime.hiddenPlayerWitnessesForViewerLocked(instance, playerID, now),
+		ObservedAt: now,
 	}, nil
 }
 

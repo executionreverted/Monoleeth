@@ -502,3 +502,56 @@ Acceptance criteria:
 - Rare planet discovery, claim, and production contracts are map-scoped.
 - Tests cover multi-map isolation, portal transfer, bounds, reconnect,
   safe/PvP rules, scanner scope, and socket event isolation.
+
+## Progress Notes
+
+2026-06-21 local TASK-0259 server slice:
+
+- Implemented runtime-owned map instances for every configured map definition,
+  with each worker using `ZoneID == internal_map_id`.
+- Moved live session membership, last AOI cursors, hidden entities, hidden
+  players, and scanner witness state into `MapInstance` runtime state.
+- Updated session bootstrap/reconnect/detach to attach sessions to the active
+  map instance, detach them from stale instances, and clear stale AOI cursors.
+- Updated `StartWithEventSink`/tick collection to tick map instances and emit
+  AOI diffs only to sessions attached to the instance being diffed.
+- Updated `world.snapshot`, post-command AOI diffs, movement, stop, combat,
+  loot, scanner reveal, and debug spawn paths to resolve or use the active map
+  instance.
+- Replaced fixed AOI projection-window snapshots with server-owned effective
+  radar range from runtime player stats, with a conservative `defaultRadarRange`
+  fallback for bootstrap/test paths before stats are materialized.
+- Added map safe-zone definitions and switched hangar safety classification from
+  origin-radius distance to map-definition safe zones.
+- Added focused tests for per-map worker construction, cross-map AOI isolation,
+  reconnect/session AOI scoping, active-map snapshots, active-map movement/stop,
+  out-of-bounds rejection, and safe-zone classification.
+
+Intentionally deferred:
+
+- Public `portal.enter` protocol and atomic portal transfer events remain Phase
+  03 work; this slice did not add a partial client operation.
+- Full safe/PvP combat policy enforcement remains Phase 04.
+- Advanced radar/stealth gameplay and bounded scanner tuning remain later Phase
+  05/06 work.
+
+2026-06-21 local TASK-0262 review-blocker fix:
+
+- Scoped scanner materialization keys, materialized planet records, and
+  personal planet intel memory by authoritative world/zone map context so the
+  same local scan cell in different runtime maps no longer collides.
+- Filtered known-planet query payloads and remembered minimap memory to the
+  authenticated player's active map only, while exposing only the client-safe
+  `public_map_key`.
+- Replaced the hidden-player scan reveal projection gate with the active-map
+  effective radar/scan range rule, so same-map targets inside authoritative
+  range can be revealed beyond the old 1000-unit window and out-of-range
+  targets are not revealed.
+
+2026-06-21 local TASK-0265 production/storage scope fix:
+
+- Filtered planet production and storage summary payloads through the
+  server-owned active map location before exposing owned live production/storage
+  data.
+- Added focused server regression coverage for owned planets in `map_1_1` and
+  `map_1_2`, including explicit `planet_id` requests outside the active map.

@@ -41,6 +41,8 @@ func testIntel(
 	return PlayerPlanetIntel{
 		PlayerID:        playerID,
 		PlanetID:        planetID,
+		WorldID:         "world-1",
+		ZoneID:          "zone-1",
 		Coordinates:     world.Vec2{X: 1200, Y: -450},
 		State:           state,
 		Confidence:      confidence,

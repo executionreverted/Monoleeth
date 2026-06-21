@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -41,15 +42,11 @@ const (
 	starterShipDisplayName                               = "Sparrow"
 	defaultPlayerSpeed                                   = 180
 	defaultRadarRange                                    = 420
-	runtimeLiveProjectionDiameter                        = 2000.0
-	runtimeLiveProjectionHalfExtent                      = runtimeLiveProjectionDiameter / 2
-	runtimeLiveProjectionDiagonalRange                   = runtimeLiveProjectionHalfExtent * math.Sqrt2
 	defaultMaxMoveDistance                               = 1200
 	runtimeLootPickupRange                               = 120.0
 	runtimeBasicLaserEnergyCost                          = 10
 	runtimeBasicLaserCooldownMS                          = 350
 	minMoveCommandInterval                               = 75 * time.Millisecond
-	runtimeHangarSafeRadius                              = 250.0
 	runtimeStealthSpeedMultiplier                        = 0.70
 	starterScannerItemID                                 = "scanner_t1"
 	starterScannerModuleID                               = "scanner_t1"
@@ -98,16 +95,13 @@ type Runtime struct {
 	mapRouter    *worldmaps.Router
 	mapInstances map[worldmaps.MapID]*mapInstance
 
-	players               map[foundation.PlayerID]playerRuntimeState
-	hidden                map[world.EntityID]bool
-	hiddenPlayers         map[foundation.PlayerID]bool
-	stealthBaseSpeeds     map[foundation.PlayerID]float64
-	hiddenPlayerWitnesses map[hiddenPlayerWitnessKey]time.Time
-	eventSeq              map[auth.SessionID]uint64
-	sessions              map[auth.SessionID]foundation.PlayerID
-	lastAOI               map[auth.SessionID]aoi.Snapshot
-	lastMove              map[foundation.PlayerID]time.Time
-	queuedEvents          map[auth.SessionID][]realtime.EventEnvelope
+	players           map[foundation.PlayerID]playerRuntimeState
+	stealthBaseSpeeds map[foundation.PlayerID]float64
+	eventSeq          map[auth.SessionID]uint64
+	sessions          map[auth.SessionID]foundation.PlayerID
+	sessionLocations  map[auth.SessionID]worldmaps.MapID
+	lastMove          map[foundation.PlayerID]time.Time
+	queuedEvents      map[auth.SessionID][]realtime.EventEnvelope
 
 	nextPlayerEntity int
 
@@ -158,8 +152,13 @@ type scanCooldownKey struct {
 }
 
 type mapInstance struct {
-	Definition worldmaps.MapDefinition
-	Worker     *worker.Worker
+	Definition            worldmaps.MapDefinition
+	Worker                *worker.Worker
+	ActiveSessions        map[auth.SessionID]foundation.PlayerID
+	LastAOI               map[auth.SessionID]aoi.Snapshot
+	HiddenEntities        map[world.EntityID]bool
+	HiddenPlayers         map[foundation.PlayerID]bool
+	HiddenPlayerWitnesses map[hiddenPlayerWitnessKey]time.Time
 }
 
 type playerRuntimeState struct {
@@ -285,6 +284,7 @@ type minimapContactPayload struct {
 type minimapMemoryPayload struct {
 	Kind             string     `json:"kind"`
 	SectorKey        string     `json:"sector_key,omitempty"`
+	PublicMapKey     string     `json:"public_map_key,omitempty"`
 	PlanetID         string     `json:"planet_id,omitempty"`
 	DetailID         string     `json:"detail_id,omitempty"`
 	Label            string     `json:"label"`
@@ -342,8 +342,13 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 			return nil, err
 		}
 		mapInstances[definition.InternalMapID] = &mapInstance{
-			Definition: definition,
-			Worker:     instanceWorker,
+			Definition:            definition,
+			Worker:                instanceWorker,
+			ActiveSessions:        make(map[auth.SessionID]foundation.PlayerID),
+			LastAOI:               make(map[auth.SessionID]aoi.Snapshot),
+			HiddenEntities:        make(map[world.EntityID]bool),
+			HiddenPlayers:         make(map[foundation.PlayerID]bool),
+			HiddenPlayerWitnesses: make(map[hiddenPlayerWitnessKey]time.Time),
 		}
 		if definition.InternalMapID == worldmaps.StarterMapID {
 			zoneWorker = instanceWorker
@@ -457,57 +462,52 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	commandLogger := observability.NewMemoryCommandLogger()
 	metricRecorder := observability.NewMetricRecorder()
 	runtime := &Runtime{
-		clock:        clock,
-		devMode:      config.DevMode,
-		Auth:         authService,
-		Worker:       zoneWorker,
-		worldID:      config.WorldID,
-		zoneID:       starterMap.ZoneID,
-		mapCatalog:   mapCatalog,
-		mapRouter:    mapRouter,
-		mapInstances: mapInstances,
-		players:      make(map[foundation.PlayerID]playerRuntimeState),
-		hidden: map[world.EntityID]bool{
-			"entity_hidden_planet_signal": true,
-		},
-		hiddenPlayers:         make(map[foundation.PlayerID]bool),
-		stealthBaseSpeeds:     make(map[foundation.PlayerID]float64),
-		hiddenPlayerWitnesses: make(map[hiddenPlayerWitnessKey]time.Time),
-		eventSeq:              make(map[auth.SessionID]uint64),
-		sessions:              make(map[auth.SessionID]foundation.PlayerID),
-		lastAOI:               make(map[auth.SessionID]aoi.Snapshot),
-		lastMove:              make(map[foundation.PlayerID]time.Time),
-		queuedEvents:          make(map[auth.SessionID][]realtime.EventEnvelope),
-		Combat:                combatService,
-		Loot:                  lootService,
-		Inventory:             inventory,
-		CargoService:          cargoService,
-		Wallet:                walletService,
-		Market:                marketService,
-		Auction:               auctionService,
-		Premium:               premiumService,
-		Quest:                 questService,
-		Admin:                 adminService,
-		Progression:           progressionService,
-		ShipCatalog:           shipCatalog,
-		HangarStore:           hangarStore,
-		Hangar:                hangarService,
-		ModuleCatalog:         moduleCatalog,
-		Content:               contentRegistry,
-		LoadoutStore:          loadoutStore,
-		Loadout:               loadoutService,
-		Recipes:               recipeCatalog,
-		Discovery:             discoveryStore,
-		Production:            productionStore,
-		CommandLog:            commandLogger,
-		Metrics:               metricRecorder,
-		combatXP:              combatXP,
-		lootTable:             lootTable,
-		itemCatalog:           itemCatalog,
-		repairAttempts:        make(map[foundation.IdempotencyKey]repairAttemptRecord),
-		shopPurchases:         make(map[foundation.IdempotencyKey]shopPurchaseRecord),
-		scanCooldowns:         make(map[scanCooldownKey]time.Time),
-		scanCapacitorSpends:   make(map[discovery.ScanPulseReference]scanCapacitorSpendRecord),
+		clock:               clock,
+		devMode:             config.DevMode,
+		Auth:                authService,
+		Worker:              zoneWorker,
+		worldID:             config.WorldID,
+		zoneID:              starterMap.ZoneID,
+		mapCatalog:          mapCatalog,
+		mapRouter:           mapRouter,
+		mapInstances:        mapInstances,
+		players:             make(map[foundation.PlayerID]playerRuntimeState),
+		stealthBaseSpeeds:   make(map[foundation.PlayerID]float64),
+		eventSeq:            make(map[auth.SessionID]uint64),
+		sessions:            make(map[auth.SessionID]foundation.PlayerID),
+		sessionLocations:    make(map[auth.SessionID]worldmaps.MapID),
+		lastMove:            make(map[foundation.PlayerID]time.Time),
+		queuedEvents:        make(map[auth.SessionID][]realtime.EventEnvelope),
+		Combat:              combatService,
+		Loot:                lootService,
+		Inventory:           inventory,
+		CargoService:        cargoService,
+		Wallet:              walletService,
+		Market:              marketService,
+		Auction:             auctionService,
+		Premium:             premiumService,
+		Quest:               questService,
+		Admin:               adminService,
+		Progression:         progressionService,
+		ShipCatalog:         shipCatalog,
+		HangarStore:         hangarStore,
+		Hangar:              hangarService,
+		ModuleCatalog:       moduleCatalog,
+		Content:             contentRegistry,
+		LoadoutStore:        loadoutStore,
+		Loadout:             loadoutService,
+		Recipes:             recipeCatalog,
+		Discovery:           discoveryStore,
+		Production:          productionStore,
+		CommandLog:          commandLogger,
+		Metrics:             metricRecorder,
+		combatXP:            combatXP,
+		lootTable:           lootTable,
+		itemCatalog:         itemCatalog,
+		repairAttempts:      make(map[foundation.IdempotencyKey]repairAttemptRecord),
+		shopPurchases:       make(map[foundation.IdempotencyKey]shopPurchaseRecord),
+		scanCooldowns:       make(map[scanCooldownKey]time.Time),
+		scanCapacitorSpends: make(map[discovery.ScanPulseReference]scanCapacitorSpendRecord),
 	}
 	scannerSeed, err := discovery.NewWorldSeed(discovery.WorldSeedInput{
 		StaticSeed: []byte("phase07-static-seed"),
@@ -569,10 +569,10 @@ func (runtime *Runtime) Start(ctx context.Context) {
 // StartWithEventSink runs the worker lifecycle and publishes per-session
 // filtered AOI diffs after authoritative ticks.
 func (runtime *Runtime) StartWithEventSink(ctx context.Context, sink func(auth.SessionID, []realtime.EventEnvelope)) {
-	if runtime == nil || runtime.Worker == nil {
+	if runtime == nil || len(runtime.mapInstances) == 0 {
 		return
 	}
-	ticker := time.NewTicker(runtime.Worker.TickDelta())
+	ticker := time.NewTicker(runtime.tickDelta())
 	go func() {
 		defer ticker.Stop()
 		for {
@@ -594,22 +594,75 @@ func (runtime *Runtime) StartWithEventSink(ctx context.Context, sink func(auth.S
 	}()
 }
 
+func (runtime *Runtime) tickDelta() time.Duration {
+	if runtime == nil {
+		return worker.DefaultTickDelta
+	}
+	for _, instance := range runtime.mapInstances {
+		if instance != nil && instance.Worker != nil {
+			return instance.Worker.TickDelta()
+		}
+	}
+	if runtime.Worker != nil {
+		return runtime.Worker.TickDelta()
+	}
+	return worker.DefaultTickDelta
+}
+
 func (runtime *Runtime) seedWorld() error {
-	visible, err := world.NewEntity(runtime.worldID, runtime.zoneID, "entity_training_npc", world.EntityTypeNPCPlaceholder, world.Vec2{X: 80, Y: 0})
-	if err != nil {
-		return err
+	for mapID, instance := range runtime.mapInstances {
+		if instance == nil || instance.Worker == nil {
+			return fmt.Errorf("map %q: %w", mapID, errMapInstanceNotFound)
+		}
+		spawnPosition := world.Vec2{}
+		if len(instance.Definition.SpawnPoints) > 0 {
+			spawnPosition = instance.Definition.SpawnPoints[0].Position
+		}
+		visiblePosition := boundedOffset(instance.Definition.Bounds, spawnPosition, world.Vec2{X: 80, Y: 0})
+		hiddenPosition := boundedOffset(instance.Definition.Bounds, spawnPosition, world.Vec2{X: 120, Y: 0})
+		visibleID := world.EntityID("entity_training_npc_" + mapID.String())
+		hiddenID := world.EntityID("entity_hidden_planet_signal_" + mapID.String())
+		if mapID == worldmaps.StarterMapID {
+			visibleID = "entity_training_npc"
+			hiddenID = "entity_hidden_planet_signal"
+		}
+		visible, err := world.NewEntity(instance.Definition.WorldID, instance.Definition.ZoneID, visibleID, world.EntityTypeNPCPlaceholder, visiblePosition)
+		if err != nil {
+			return err
+		}
+		if err := instance.Worker.InsertEntity(visible, 0); err != nil {
+			return err
+		}
+		if err := runtime.Combat.UpsertActor(runtime.trainingNPCActor(visible)); err != nil {
+			return err
+		}
+		hidden, err := world.NewEntity(instance.Definition.WorldID, instance.Definition.ZoneID, hiddenID, world.EntityTypePlanetSignalPlaceholder, hiddenPosition)
+		if err != nil {
+			return err
+		}
+		if err := instance.Worker.InsertEntity(hidden, 0); err != nil {
+			return err
+		}
+		instance.HiddenEntities[hidden.ID] = true
 	}
-	if err := runtime.Worker.InsertEntity(visible, 0); err != nil {
-		return err
+	return nil
+}
+
+func boundedOffset(bounds worldmaps.Bounds, origin world.Vec2, offset world.Vec2) world.Vec2 {
+	position := world.Vec2{X: origin.X + offset.X, Y: origin.Y + offset.Y}
+	if position.X < bounds.MinX {
+		position.X = bounds.MinX
 	}
-	if err := runtime.Combat.UpsertActor(runtime.trainingNPCActor(visible)); err != nil {
-		return err
+	if position.Y < bounds.MinY {
+		position.Y = bounds.MinY
 	}
-	hidden, err := world.NewEntity(runtime.worldID, runtime.zoneID, "entity_hidden_planet_signal", world.EntityTypePlanetSignalPlaceholder, world.Vec2{X: 120, Y: 0})
-	if err != nil {
-		return err
+	if position.X > bounds.MaxX {
+		position.X = bounds.MaxX
 	}
-	return runtime.Worker.InsertEntity(hidden, 0)
+	if position.Y > bounds.MaxY {
+		position.Y = bounds.MaxY
+	}
+	return position
 }
 
 func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error {
@@ -634,27 +687,34 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 	if err != nil {
 		return err
 	}
+	sessionIDs := runtime.sessionIDsForPlayerLocked(resolved.PlayerID, resolved.SessionID)
+	for _, sessionID := range sessionIDs {
+		runtime.detachSessionFromInactiveInstancesLocked(sessionID, location.InternalMapID)
+	}
 	runtime.removePlayerFromInactiveInstancesLocked(resolved.PlayerID, location.InternalMapID)
 	if _, ok := instance.Worker.PlayerEntity(resolved.PlayerID); !ok {
 		if err = instance.Worker.Submit(worker.SpawnPlayerCommand{
-			PlayerID:  resolved.PlayerID,
-			EntityID:  state.EntityID,
-			Position:  location.Position,
-			Speed:     defaultPlayerSpeed,
-			SessionID: realtime.SessionID(resolved.SessionID.String()),
-		}); err != nil {
-			return err
-		}
-		err = commandErrors(instance.Worker.Tick())
-	} else {
-		if err = instance.Worker.Submit(worker.AttachSessionCommand{
-			SessionID: realtime.SessionID(resolved.SessionID.String()),
-			PlayerID:  resolved.PlayerID,
+			PlayerID: resolved.PlayerID,
+			EntityID: state.EntityID,
+			Position: location.Position,
+			Speed:    defaultPlayerSpeed,
 		}); err != nil {
 			return err
 		}
 		err = commandErrors(instance.Worker.Tick())
 	}
+	if err != nil {
+		return err
+	}
+	for _, sessionID := range sessionIDs {
+		if err = instance.Worker.Submit(worker.AttachSessionCommand{
+			SessionID: realtime.SessionID(sessionID.String()),
+			PlayerID:  resolved.PlayerID,
+		}); err != nil {
+			return err
+		}
+	}
+	err = commandErrors(instance.Worker.Tick())
 	if err != nil {
 		return err
 	}
@@ -667,8 +727,30 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 	if _, err := runtime.syncPlayerCombatActorLocked(resolved.PlayerID); err != nil {
 		return err
 	}
-	runtime.sessions[resolved.SessionID] = resolved.PlayerID
+	for _, sessionID := range sessionIDs {
+		runtime.attachSessionToInstanceLocked(instance, sessionID, resolved.PlayerID)
+	}
 	return nil
+}
+
+func (runtime *Runtime) sessionIDsForPlayerLocked(playerID foundation.PlayerID, include auth.SessionID) []auth.SessionID {
+	seen := make(map[auth.SessionID]struct{}, len(runtime.sessions)+1)
+	if include != "" {
+		seen[include] = struct{}{}
+	}
+	for sessionID, sessionPlayerID := range runtime.sessions {
+		if sessionPlayerID == playerID {
+			seen[sessionID] = struct{}{}
+		}
+	}
+	sessionIDs := make([]auth.SessionID, 0, len(seen))
+	for sessionID := range seen {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	sort.Slice(sessionIDs, func(i, j int) bool {
+		return sessionIDs[i] < sessionIDs[j]
+	})
+	return sessionIDs
 }
 
 func (runtime *Runtime) ensurePlayerHangarLocked(playerID foundation.PlayerID) error {
@@ -707,7 +789,7 @@ func (runtime *Runtime) applyActiveShipLocked(playerID foundation.PlayerID, ship
 		state.Ship.Capacitor = int(definition.BaseStats.Energy)
 		state.Ship.MaxCapacitor = int(definition.BaseStats.Energy)
 		baseSpeed := float64(definition.BaseStats.Speed)
-		if runtime.hiddenPlayers[playerID] {
+		if instance, _, err := runtime.activeMapInstanceLocked(playerID); err == nil && instance.HiddenPlayers[playerID] {
 			runtime.stealthBaseSpeeds[playerID] = baseSpeed
 			state.Stats.Speed = runtimePlayerSpeedForStealth(baseSpeed, true)
 		} else {
@@ -745,7 +827,8 @@ func (runtime *Runtime) playerInSafeHangarAreaLocked(playerID foundation.PlayerI
 	if entity.Movement.Moving {
 		return false
 	}
-	return math.Hypot(entity.Position.X, entity.Position.Y) <= runtimeHangarSafeRadius
+	safeZone, ok := instance.Definition.SafeZoneAt(entity.Position)
+	return ok && safeZone.HangarActions
 }
 
 func (runtime *Runtime) playerInCombatLocked(playerID foundation.PlayerID) bool {
@@ -783,11 +866,12 @@ func (runtime *Runtime) setPlayerStealthLocked(playerID foundation.PlayerID, ena
 	state.Stats.Speed = speed
 	runtime.players[playerID] = state
 	if enabled {
-		runtime.hiddenPlayers[playerID] = true
+		instance.HiddenPlayers[playerID] = true
 		runtime.stealthBaseSpeeds[playerID] = baseSpeed
 	} else {
-		delete(runtime.hiddenPlayers, playerID)
+		delete(instance.HiddenPlayers, playerID)
 		delete(runtime.stealthBaseSpeeds, playerID)
+		runtime.deleteHiddenPlayerWitnessesLocked(instance, playerID)
 	}
 	return nil
 }
@@ -797,7 +881,7 @@ func (runtime *Runtime) stealthBaseSpeedLocked(playerID foundation.PlayerID, sta
 		return baseSpeed
 	}
 	if state.Stats.Speed > 0 {
-		if runtime.hiddenPlayers[playerID] {
+		if instance, _, err := runtime.activeMapInstanceLocked(playerID); err == nil && instance.HiddenPlayers[playerID] {
 			return state.Stats.Speed / runtimeStealthSpeedMultiplier
 		}
 		return state.Stats.Speed
@@ -818,10 +902,9 @@ func runtimePlayerSpeedForStealth(baseSpeed float64, enabled bool) float64 {
 func (runtime *Runtime) detachSession(sessionID auth.SessionID) {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	if playerID, ok := runtime.sessions[sessionID]; ok {
-		if instance, _, err := runtime.activeMapInstanceLocked(playerID); err == nil {
-			_ = instance.Worker.Submit(worker.SettleAndDetachSessionCommand{SessionID: realtime.SessionID(sessionID.String())})
-			instance.Worker.Tick()
+	if mapID, ok := runtime.sessionLocations[sessionID]; ok {
+		if instance, err := runtime.mapInstanceLocked(mapID); err == nil {
+			runtime.detachSessionFromInstanceLocked(instance, sessionID, true)
 		} else {
 			runtime.detachSessionFromAllInstancesLocked(sessionID)
 		}
@@ -829,7 +912,7 @@ func (runtime *Runtime) detachSession(sessionID auth.SessionID) {
 		runtime.detachSessionFromAllInstancesLocked(sessionID)
 	}
 	delete(runtime.sessions, sessionID)
-	delete(runtime.lastAOI, sessionID)
+	delete(runtime.sessionLocations, sessionID)
 }
 
 func (runtime *Runtime) activeMapInstanceLocked(playerID foundation.PlayerID) (*mapInstance, worldmaps.PlayerMapLocation, error) {
@@ -887,6 +970,17 @@ func (runtime *Runtime) removePlayerFromInactiveInstancesLocked(playerID foundat
 		if _, ok := instance.Worker.PlayerEntity(playerID); ok {
 			instance.Worker.RemoveEntity(state.EntityID)
 		}
+		delete(instance.HiddenPlayers, playerID)
+		runtime.deleteHiddenPlayerWitnessesLocked(instance, playerID)
+	}
+}
+
+func (runtime *Runtime) detachSessionFromInactiveInstancesLocked(sessionID auth.SessionID, activeMapID worldmaps.MapID) {
+	for mapID, instance := range runtime.mapInstances {
+		if mapID == activeMapID || instance == nil || instance.Worker == nil {
+			continue
+		}
+		runtime.detachSessionFromInstanceLocked(instance, sessionID, true)
 	}
 }
 
@@ -895,8 +989,39 @@ func (runtime *Runtime) detachSessionFromAllInstancesLocked(sessionID auth.Sessi
 		if instance == nil || instance.Worker == nil {
 			continue
 		}
-		_ = instance.Worker.Submit(worker.SettleAndDetachSessionCommand{SessionID: realtime.SessionID(sessionID.String())})
-		instance.Worker.Tick()
+		runtime.detachSessionFromInstanceLocked(instance, sessionID, true)
+	}
+}
+
+func (runtime *Runtime) attachSessionToInstanceLocked(instance *mapInstance, sessionID auth.SessionID, playerID foundation.PlayerID) {
+	if instance == nil {
+		return
+	}
+	if instance.ActiveSessions == nil {
+		instance.ActiveSessions = make(map[auth.SessionID]foundation.PlayerID)
+	}
+	if instance.LastAOI == nil {
+		instance.LastAOI = make(map[auth.SessionID]aoi.Snapshot)
+	}
+	instance.ActiveSessions[sessionID] = playerID
+	runtime.sessions[sessionID] = playerID
+	runtime.sessionLocations[sessionID] = instance.Definition.InternalMapID
+}
+
+func (runtime *Runtime) detachSessionFromInstanceLocked(instance *mapInstance, sessionID auth.SessionID, settle bool) {
+	if instance == nil || instance.Worker == nil {
+		return
+	}
+	command := worker.Command(worker.DetachSessionCommand{SessionID: realtime.SessionID(sessionID.String())})
+	if settle {
+		command = worker.SettleAndDetachSessionCommand{SessionID: realtime.SessionID(sessionID.String())}
+	}
+	_ = instance.Worker.Submit(command)
+	_ = commandErrors(instance.Worker.Tick())
+	delete(instance.ActiveSessions, sessionID)
+	delete(instance.LastAOI, sessionID)
+	if runtime.sessionLocations[sessionID] == instance.Definition.InternalMapID {
+		delete(runtime.sessionLocations, sessionID)
 	}
 }
 
@@ -913,7 +1038,10 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realti
 	if err != nil {
 		return nil, err
 	}
-	runtime.lastAOI[resolved.SessionID] = aoi.Snapshot{Entities: cloneAOIEntities(worldSnapshot.Entities)}
+	if instance, _, err := runtime.activeMapInstanceLocked(resolved.PlayerID); err == nil {
+		instance.LastAOI[resolved.SessionID] = aoi.Snapshot{Entities: cloneAOIEntities(worldSnapshot.Entities)}
+		runtime.attachSessionToInstanceLocked(instance, resolved.SessionID, resolved.PlayerID)
+	}
 	events := make([]realtime.EventEnvelope, 0, 8)
 	sessionPayload := sessionReadyPayload{
 		Authenticated: true,
@@ -1095,8 +1223,9 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 		return aoi.Snapshot{}, 0, 0, worker.ErrUnknownPlayer
 	}
 	now := runtime.clock.Now()
+	radarRangeUnits := runtime.effectiveRadarRangeUnitsLocked(playerID)
 	statSnapshot := stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
-		Exploration: stats.ExplorationStats{RadarRange: runtimeLiveProjectionDiagonalRange},
+		Exploration: stats.ExplorationStats{RadarRange: radarRangeUnits},
 	}, now)
 	projectionRange := visibility.RadarRangeFromStatSnapshot(statSnapshot)
 	viewer := visibility.Viewer{
@@ -1105,21 +1234,21 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 		ZoneID:     location.ZoneID,
 		Position:   playerEntity.Position,
 		RadarRange: projectionRange,
-		Witnesses:  runtime.hiddenPlayerWitnessesForViewerLocked(playerID, now),
+		Witnesses:  runtime.hiddenPlayerWitnessesForViewerLocked(instance, playerID, now),
 		ObservedAt: now,
 	}
-	workerSnapshot, err := instance.Worker.EntitiesWithinWindow(playerEntity.Position, runtimeLiveProjectionHalfExtent)
+	workerSnapshot, err := instance.Worker.EntitiesWithinRadius(playerEntity.Position, projectionRange.Units())
 	if err != nil {
 		return aoi.Snapshot{}, 0, 0, err
 	}
 	states := make([]aoi.EntityState, 0, len(workerSnapshot.Entities))
 	for _, entity := range workerSnapshot.Entities {
-		flags, display, combatStatus := runtime.publicEntityMetadataLocked(playerID, entity)
+		flags, display, combatStatus := runtime.publicEntityMetadataLocked(instance, playerID, entity)
 		entityPlayerID, _, _ := runtime.playerByEntityLocked(entity.ID)
-		hidden := runtime.hidden[entity.ID]
-		if !entityPlayerID.IsZero() && runtime.hiddenPlayers[entityPlayerID] {
+		hidden := instance.HiddenEntities[entity.ID]
+		if !entityPlayerID.IsZero() && instance.HiddenPlayers[entityPlayerID] {
 			hidden = true
-			if entityPlayerID != playerID && runtime.hiddenPlayerWitnessActiveLocked(playerID, entityPlayerID, now) {
+			if entityPlayerID != playerID && runtime.hiddenPlayerWitnessActiveLocked(instance, playerID, entityPlayerID, now) {
 				flags = append(flags, "scan_revealed")
 			}
 		}
@@ -1136,14 +1265,27 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 		})
 	}
 	snapshot := aoi.BuildVisibleSnapshot(viewer, states)
-	return snapshot, runtimeLiveProjectionHalfExtent, workerSnapshot.Tick, nil
+	return snapshot, projectionRange.Units(), workerSnapshot.Tick, nil
 }
 
-func (runtime *Runtime) hiddenPlayerWitnessesForViewerLocked(viewerID foundation.PlayerID, now time.Time) []visibility.Witness {
+func (runtime *Runtime) effectiveRadarRangeUnitsLocked(playerID foundation.PlayerID) float64 {
+	state, ok := runtime.players[playerID]
+	if !ok || state.Stats.RadarRange <= 0 || math.IsNaN(state.Stats.RadarRange) || math.IsInf(state.Stats.RadarRange, 0) {
+		// Conservative server fallback for bootstrap/test harnesses before a
+		// stat provider has materialized an effective radar snapshot.
+		return defaultRadarRange
+	}
+	return state.Stats.RadarRange
+}
+
+func (runtime *Runtime) hiddenPlayerWitnessesForViewerLocked(instance *mapInstance, viewerID foundation.PlayerID, now time.Time) []visibility.Witness {
 	witnesses := make([]visibility.Witness, 0)
-	for key, expiresAt := range runtime.hiddenPlayerWitnesses {
+	if instance == nil {
+		return witnesses
+	}
+	for key, expiresAt := range instance.HiddenPlayerWitnesses {
 		if !expiresAt.After(now) {
-			delete(runtime.hiddenPlayerWitnesses, key)
+			delete(instance.HiddenPlayerWitnesses, key)
 			continue
 		}
 		if key.ViewerPlayerID != viewerID {
@@ -1157,22 +1299,34 @@ func (runtime *Runtime) hiddenPlayerWitnessesForViewerLocked(viewerID foundation
 	return witnesses
 }
 
-func (runtime *Runtime) hiddenPlayerWitnessActiveLocked(viewerID foundation.PlayerID, targetID foundation.PlayerID, now time.Time) bool {
-	expiresAt, ok := runtime.hiddenPlayerWitnesses[hiddenPlayerWitnessKey{
+func (runtime *Runtime) hiddenPlayerWitnessActiveLocked(instance *mapInstance, viewerID foundation.PlayerID, targetID foundation.PlayerID, now time.Time) bool {
+	if instance == nil {
+		return false
+	}
+	key := hiddenPlayerWitnessKey{
 		ViewerPlayerID: viewerID,
 		TargetPlayerID: targetID,
-	}]
+	}
+	expiresAt, ok := instance.HiddenPlayerWitnesses[key]
 	if !ok {
 		return false
 	}
 	if !expiresAt.After(now) {
-		delete(runtime.hiddenPlayerWitnesses, hiddenPlayerWitnessKey{
-			ViewerPlayerID: viewerID,
-			TargetPlayerID: targetID,
-		})
+		delete(instance.HiddenPlayerWitnesses, key)
 		return false
 	}
 	return true
+}
+
+func (runtime *Runtime) deleteHiddenPlayerWitnessesLocked(instance *mapInstance, playerID foundation.PlayerID) {
+	if instance == nil {
+		return
+	}
+	for key := range instance.HiddenPlayerWitnesses {
+		if key.ViewerPlayerID == playerID || key.TargetPlayerID == playerID {
+			delete(instance.HiddenPlayerWitnesses, key)
+		}
+	}
 }
 
 func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.EventEnvelope {
@@ -1183,23 +1337,50 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 		instance.Worker.Tick()
 	}
 	eventsBySession := make(map[auth.SessionID][]realtime.EventEnvelope)
-	for sessionID, playerID := range runtime.sessions {
-		events := runtime.aoiDiffEventsLocked(sessionID, playerID)
-		if len(events) > 0 {
-			eventsBySession[sessionID] = events
+	for _, instance := range runtime.sortedMapInstancesLocked() {
+		for _, sessionID := range sortedSessionIDs(instance.ActiveSessions) {
+			playerID := instance.ActiveSessions[sessionID]
+			events := runtime.aoiDiffEventsForInstanceLocked(instance, sessionID, playerID)
+			if len(events) > 0 {
+				eventsBySession[sessionID] = append(eventsBySession[sessionID], events...)
+			}
 		}
 	}
 	return eventsBySession
 }
 
 func (runtime *Runtime) aoiDiffEventsLocked(sessionID auth.SessionID, playerID foundation.PlayerID) []realtime.EventEnvelope {
+	instance, _, err := runtime.activeMapInstanceLocked(playerID)
+	if err != nil {
+		return nil
+	}
+	return runtime.aoiDiffEventsForInstanceLocked(instance, sessionID, playerID)
+}
+
+func (runtime *Runtime) aoiDiffEventsForInstanceLocked(instance *mapInstance, sessionID auth.SessionID, playerID foundation.PlayerID) []realtime.EventEnvelope {
+	if instance == nil {
+		return nil
+	}
+	location, err := runtime.mapRouter.ActiveLocation(playerID)
+	if err != nil || location.InternalMapID != instance.Definition.InternalMapID {
+		delete(instance.ActiveSessions, sessionID)
+		delete(instance.LastAOI, sessionID)
+		if runtime.sessionLocations[sessionID] == instance.Definition.InternalMapID {
+			delete(runtime.sessionLocations, sessionID)
+		}
+		return nil
+	}
+	if runtime.sessionLocations[sessionID] != instance.Definition.InternalMapID {
+		delete(instance.LastAOI, sessionID)
+		runtime.attachSessionToInstanceLocked(instance, sessionID, playerID)
+	}
 	current, _, _, err := runtime.aoiSnapshotForPlayerLocked(playerID)
 	if err != nil {
 		return nil
 	}
-	previous := runtime.lastAOI[sessionID]
+	previous := instance.LastAOI[sessionID]
 	diff := aoi.DiffSnapshots(previous, current)
-	runtime.lastAOI[sessionID] = aoi.Snapshot{Entities: cloneAOIEntities(current.Entities)}
+	instance.LastAOI[sessionID] = aoi.Snapshot{Entities: cloneAOIEntities(current.Entities)}
 
 	events := make([]realtime.EventEnvelope, 0, len(diff.Entered)+len(diff.Updated)+len(diff.Left))
 	for _, entity := range diff.Entered {
@@ -1212,6 +1393,40 @@ func (runtime *Runtime) aoiDiffEventsLocked(sessionID auth.SessionID, playerID f
 		events = append(events, runtime.eventLocked(sessionID, realtime.EventAOIEntityLeft, map[string]string{"entity_id": entityID.String()}))
 	}
 	return events
+}
+
+func (runtime *Runtime) sortedMapInstancesLocked() []*mapInstance {
+	if len(runtime.mapInstances) == 0 {
+		return nil
+	}
+	mapIDs := make([]worldmaps.MapID, 0, len(runtime.mapInstances))
+	for mapID := range runtime.mapInstances {
+		mapIDs = append(mapIDs, mapID)
+	}
+	sort.Slice(mapIDs, func(i, j int) bool {
+		return mapIDs[i] < mapIDs[j]
+	})
+	instances := make([]*mapInstance, 0, len(mapIDs))
+	for _, mapID := range mapIDs {
+		if instance := runtime.mapInstances[mapID]; instance != nil && instance.Worker != nil {
+			instances = append(instances, instance)
+		}
+	}
+	return instances
+}
+
+func sortedSessionIDs(sessions map[auth.SessionID]foundation.PlayerID) []auth.SessionID {
+	if len(sessions) == 0 {
+		return nil
+	}
+	sessionIDs := make([]auth.SessionID, 0, len(sessions))
+	for sessionID := range sessions {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	sort.Slice(sessionIDs, func(i, j int) bool {
+		return sessionIDs[i] < sessionIDs[j]
+	})
+	return sessionIDs
 }
 
 func (runtime *Runtime) recordCurrencyLedgerMetric(entry economy.CurrencyLedgerEntry) {
@@ -1262,13 +1477,13 @@ func (runtime *Runtime) recordQuestRewardMetrics(result quests.ClaimRewardResult
 	}
 }
 
-func (runtime *Runtime) publicEntityMetadataLocked(viewerID foundation.PlayerID, entity world.Entity) ([]aoi.StatusFlag, *aoi.EntityDisplay, *aoi.EntityCombatStatus) {
+func (runtime *Runtime) publicEntityMetadataLocked(instance *mapInstance, viewerID foundation.PlayerID, entity world.Entity) ([]aoi.StatusFlag, *aoi.EntityDisplay, *aoi.EntityCombatStatus) {
 	switch entity.Type {
 	case world.EntityTypePlayer:
 		if playerID, playerState, ok := runtime.playerByEntityLocked(entity.ID); ok {
 			if playerID == viewerID {
 				flags := []aoi.StatusFlag{"friendly", "self"}
-				if runtime.hiddenPlayers[playerID] {
+				if instance != nil && instance.HiddenPlayers[playerID] {
 					flags = append(flags, "stealthed")
 				}
 				return flags, &aoi.EntityDisplay{Label: playerState.Callsign, Disposition: "self"}, nil
@@ -1351,7 +1566,7 @@ func minimapFromAOI(snapshot aoi.Snapshot, radarRange float64) minimapPayload {
 	}
 	return minimapPayload{
 		RadarRange:           radarRange,
-		ProjectionWindowSize: runtimeLiveProjectionDiameter,
+		ProjectionWindowSize: radarRange * 2,
 		LiveContacts:         contacts,
 		Remembered:           []minimapMemoryPayload{},
 	}
@@ -1372,14 +1587,15 @@ func (runtime *Runtime) rememberedMinimapPayloadLocked(playerID foundation.Playe
 	if err != nil {
 		return nil, err
 	}
-	mapProjection, err := runtime.mapRouter.ClientProjection(playerID)
+	location, err := runtime.mapRouter.ActiveLocation(playerID)
 	if err != nil {
 		return nil, err
 	}
-	sectorKey := mapProjection.PublicMapKey
-	if sectorKey == "" {
-		sectorKey = mapProjection.MapKey
+	mapProjection, err := runtime.mapCatalog.ClientProjection(location.InternalMapID)
+	if err != nil {
+		return nil, err
 	}
+	publicMapKey := publicMapKeyFromProjection(mapProjection)
 	remembered := make([]minimapMemoryPayload, 0, len(intelRows))
 	for _, intel := range intelRows {
 		planet, ok, err := runtime.Discovery.Planet(intel.PlanetID)
@@ -1389,9 +1605,13 @@ func (runtime *Runtime) rememberedMinimapPayloadLocked(playerID foundation.Playe
 		if !ok {
 			continue
 		}
+		if !intelAndPlanetMatchActiveMap(intel, planet, location.WorldID, location.ZoneID) {
+			continue
+		}
 		remembered = append(remembered, minimapMemoryPayload{
 			Kind:             "known_planet",
-			SectorKey:        sectorKey,
+			SectorKey:        publicMapKey,
+			PublicMapKey:     publicMapKey,
 			PlanetID:         intel.PlanetID.String(),
 			DetailID:         intel.PlanetID.String(),
 			Label:            planetMemoryLabel(planet),
@@ -1401,6 +1621,20 @@ func (runtime *Runtime) rememberedMinimapPayloadLocked(playerID foundation.Playe
 		})
 	}
 	return remembered, nil
+}
+
+func publicMapKeyFromProjection(projection worldmaps.ClientMapProjection) string {
+	if projection.PublicMapKey != "" {
+		return projection.PublicMapKey
+	}
+	return projection.MapKey
+}
+
+func intelAndPlanetMatchActiveMap(intel discovery.PlayerPlanetIntel, planet discovery.Planet, worldID foundation.WorldID, zoneID foundation.ZoneID) bool {
+	return intel.WorldID == worldID &&
+		intel.ZoneID == zoneID &&
+		planet.WorldID == worldID &&
+		planet.ZoneID == zoneID
 }
 
 func planetMemoryLabel(planet discovery.Planet) string {

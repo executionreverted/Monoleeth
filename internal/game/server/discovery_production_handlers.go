@@ -36,6 +36,7 @@ type planetIntelCounts struct {
 
 type knownPlanetPayload struct {
 	PlanetID     string `json:"planet_id"`
+	PublicMapKey string `json:"public_map_key"`
 	Biome        string `json:"biome"`
 	PlanetType   string `json:"planet_type"`
 	Rarity       string `json:"rarity"`
@@ -316,6 +317,22 @@ func (runtime *Runtime) queueScanEvents(sessionID auth.SessionID, playerID found
 }
 
 func (runtime *Runtime) knownPlanetsPayload(playerID foundation.PlayerID) (knownPlanetsPayload, error) {
+	scope, err := runtime.knownPlanetMapScope(playerID)
+	if err != nil {
+		return knownPlanetsPayload{}, err
+	}
+	return runtime.knownPlanetsPayloadForScope(playerID, scope)
+}
+
+func (runtime *Runtime) knownPlanetsPayloadLocked(playerID foundation.PlayerID) (knownPlanetsPayload, error) {
+	scope, err := runtime.knownPlanetMapScopeLocked(playerID)
+	if err != nil {
+		return knownPlanetsPayload{}, err
+	}
+	return runtime.knownPlanetsPayloadForScope(playerID, scope)
+}
+
+func (runtime *Runtime) knownPlanetsPayloadForScope(playerID foundation.PlayerID, scope knownPlanetMapScope) (knownPlanetsPayload, error) {
 	intelRows, err := runtime.Discovery.PlayerPlanetIntelRecords(playerID)
 	if err != nil {
 		return knownPlanetsPayload{}, err
@@ -330,7 +347,10 @@ func (runtime *Runtime) knownPlanetsPayload(playerID foundation.PlayerID) (known
 		if !ok {
 			continue
 		}
-		summary := knownPlanetPayloadFromIntel(playerID, planet, intel)
+		if !intelAndPlanetMatchActiveMap(intel, planet, scope.worldID, scope.zoneID) {
+			continue
+		}
+		summary := knownPlanetPayloadFromIntel(playerID, planet, intel, scope.publicMapKey)
 		planets = append(planets, summary)
 		counts.Known++
 		if intel.State == discovery.IntelStateStale {
@@ -347,6 +367,10 @@ func (runtime *Runtime) knownPlanetsPayload(playerID foundation.PlayerID) (known
 }
 
 func (runtime *Runtime) planetDetailPayload(playerID foundation.PlayerID, planetID foundation.PlanetID) (planetDetailPayload, error) {
+	scope, err := runtime.knownPlanetMapScope(playerID)
+	if err != nil {
+		return planetDetailPayload{}, err
+	}
 	intel, ok, err := runtime.Discovery.PlayerPlanetIntel(playerID, planetID)
 	if err != nil {
 		return planetDetailPayload{}, err
@@ -361,9 +385,12 @@ func (runtime *Runtime) planetDetailPayload(playerID foundation.PlayerID, planet
 	if !ok {
 		return planetDetailPayload{}, foundation.NewDomainError(foundation.CodeNotFound, "Planet was not found.")
 	}
+	if !intelAndPlanetMatchActiveMap(intel, planet, scope.worldID, scope.zoneID) {
+		return planetDetailPayload{}, foundation.NewDomainError(foundation.CodeNotFound, "Planet was not found.")
+	}
 
 	detail := planetDetailPayload{
-		knownPlanetPayload: knownPlanetPayloadFromIntel(playerID, planet, intel),
+		knownPlanetPayload: knownPlanetPayloadFromIntel(playerID, planet, intel, scope.publicMapKey),
 		Coordinates: publicVec2{
 			X: intel.Coordinates.X,
 			Y: intel.Coordinates.Y,
@@ -384,6 +411,10 @@ func (runtime *Runtime) planetDetailPayload(playerID foundation.PlayerID, planet
 }
 
 func (runtime *Runtime) productionSummaryPayload(playerID foundation.PlayerID, planetID foundation.PlanetID) (planetProductionCollectionPayload, error) {
+	scope, err := runtime.knownPlanetMapScope(playerID)
+	if err != nil {
+		return planetProductionCollectionPayload{}, err
+	}
 	snapshots := runtime.Production.Snapshots()
 	planets := make([]planetProductionPayload, 0, len(snapshots))
 	for _, snapshot := range snapshots {
@@ -395,6 +426,9 @@ func (runtime *Runtime) productionSummaryPayload(playerID foundation.PlayerID, p
 			return planetProductionCollectionPayload{}, err
 		}
 		if !ok || planet.OwnerPlayerID != playerID {
+			continue
+		}
+		if planet.WorldID != scope.worldID || planet.ZoneID != scope.zoneID {
 			continue
 		}
 		planets = append(planets, planetProductionPayloadFromSnapshot(snapshot))
@@ -438,9 +472,39 @@ func (runtime *Runtime) routesForPlanet(playerID foundation.PlayerID, planetID f
 	return payload
 }
 
-func knownPlanetPayloadFromIntel(playerID foundation.PlayerID, planet discovery.Planet, intel discovery.PlayerPlanetIntel) knownPlanetPayload {
+type knownPlanetMapScope struct {
+	worldID      foundation.WorldID
+	zoneID       foundation.ZoneID
+	publicMapKey string
+}
+
+func (runtime *Runtime) knownPlanetMapScope(playerID foundation.PlayerID) (knownPlanetMapScope, error) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	return runtime.knownPlanetMapScopeLocked(playerID)
+}
+
+func (runtime *Runtime) knownPlanetMapScopeLocked(playerID foundation.PlayerID) (knownPlanetMapScope, error) {
+	location, err := runtime.mapRouter.ActiveLocation(playerID)
+	if err != nil {
+		return knownPlanetMapScope{}, err
+	}
+	projection, err := runtime.mapCatalog.ClientProjection(location.InternalMapID)
+	if err != nil {
+		return knownPlanetMapScope{}, err
+	}
+	return knownPlanetMapScope{
+		worldID:      location.WorldID,
+		zoneID:       location.ZoneID,
+		publicMapKey: publicMapKeyFromProjection(projection),
+	}, nil
+}
+
+func knownPlanetPayloadFromIntel(playerID foundation.PlayerID, planet discovery.Planet, intel discovery.PlayerPlanetIntel, publicMapKey string) knownPlanetPayload {
 	return knownPlanetPayload{
 		PlanetID:     planet.ID.String(),
+		PublicMapKey: publicMapKey,
 		Biome:        string(planet.Biome),
 		PlanetType:   string(planet.Type),
 		Rarity:       string(planet.Rarity),

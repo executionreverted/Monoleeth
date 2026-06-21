@@ -221,7 +221,11 @@ func (runtime *Runtime) handleWorldSnapshot(ctx realtime.CommandContext, request
 	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
-	runtime.lastAOI[authSessionID(ctx.SessionID)] = aoi.Snapshot{Entities: cloneAOIEntities(payload.Entities)}
+	if instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID); err == nil {
+		sessionID := authSessionID(ctx.SessionID)
+		instance.LastAOI[sessionID] = aoi.Snapshot{Entities: cloneAOIEntities(payload.Entities)}
+		runtime.attachSessionToInstanceLocked(instance, sessionID, ctx.PlayerID)
+	}
 	return marshalPayload(payload)
 }
 

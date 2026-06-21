@@ -143,6 +143,7 @@ func (input ScannerPlayerRevealInput) Validate() error {
 		return fmt.Errorf("revealed_at: %w", ErrInvalidScanPulse)
 	}
 	values := []float64{
+		input.Stats.Exploration.RadarRange,
 		input.Stats.Exploration.ScanPower,
 		input.Stats.Exploration.ScanRadius,
 	}
@@ -348,10 +349,11 @@ func scanPulseMatchesResolveInput(pulse scanPulse, input ResolveScanPulseInput) 
 
 func scannerMaterializationKey(
 	worldID foundation.WorldID,
+	zoneID foundation.ZoneID,
 	cell ScanCellCoord,
 	candidate PlanetCandidate,
 ) PlanetMaterializationKey {
-	digest := scannerDigest("materialization", worldID.String(), cell.X, cell.Y, candidate.Key())
+	digest := scannerDigest("materialization", worldID.String(), zoneID.String(), cell.X, cell.Y, candidate.Key())
 	return PlanetMaterializationKey("candidate_" + hex.EncodeToString(digest[:12]))
 }
 

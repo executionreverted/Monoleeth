@@ -25,6 +25,7 @@ import (
 	"gameproject/internal/game/market"
 	"gameproject/internal/game/observability"
 	"gameproject/internal/game/premium"
+	"gameproject/internal/game/production"
 	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/testutil"
@@ -149,8 +150,8 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 			t.Fatalf("world snapshot leaked %q in %s", forbidden, rawSnapshot)
 		}
 	}
-	if snapshot.Minimap.RadarRange != runtimeLiveProjectionHalfExtent || snapshot.Minimap.ProjectionWindowSize != runtimeLiveProjectionDiameter {
-		t.Fatalf("minimap projection = range %v window %v, want %v/%v", snapshot.Minimap.RadarRange, snapshot.Minimap.ProjectionWindowSize, runtimeLiveProjectionHalfExtent, runtimeLiveProjectionDiameter)
+	if snapshot.Minimap.RadarRange != defaultRadarRange || snapshot.Minimap.ProjectionWindowSize != defaultRadarRange*2 {
+		t.Fatalf("minimap projection = range %v window %v, want %v/%v", snapshot.Minimap.RadarRange, snapshot.Minimap.ProjectionWindowSize, defaultRadarRange, defaultRadarRange*2)
 	}
 	if len(snapshot.Minimap.LiveContacts) != len(snapshot.Entities) {
 		t.Fatalf("minimap contacts = %d, entities = %d", len(snapshot.Minimap.LiveContacts), len(snapshot.Entities))
@@ -973,6 +974,10 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 		"world_seed",
 		"detection_roll",
 		"scan_cell",
+		`"world_id"`,
+		`"zone_id"`,
+		`"internal_map_id"`,
+		`"map_id"`,
 		`"coordinates"`,
 		`"x"`,
 		`"y"`,
@@ -998,6 +1003,9 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	if len(scanPayload.KnownPlanets.Planets) != 1 || scanPayload.KnownPlanets.Counts.Known != 1 {
 		t.Fatalf("known planets = %+v, want one server-authored intel row", scanPayload.KnownPlanets)
 	}
+	if scanPayload.KnownPlanets.Planets[0].PublicMapKey != "1-1" {
+		t.Fatalf("known planet public map key = %q, want 1-1", scanPayload.KnownPlanets.Planets[0].PublicMapKey)
+	}
 	planetID := scanPayload.Scan.PlanetID
 
 	seen := map[realtime.ClientEventType]bool{}
@@ -1009,7 +1017,7 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	for attempts := 0; attempts < 6 && (!seen[realtime.EventScanPulseStarted] || !seen[realtime.EventScanPulseResolved] || !seen[realtime.EventScanPlanetDiscovered] || !seen[realtime.EventKnownPlanets]); attempts++ {
 		event := readEvent(t, conn)
 		seen[event.Type] = true
-		if raw := string(mustJSON(t, event)); strings.Contains(raw, "candidate_key") || strings.Contains(raw, "procedural_seed") || strings.Contains(raw, "detection_roll") {
+		if raw := string(mustJSON(t, event)); strings.Contains(raw, "candidate_key") || strings.Contains(raw, "procedural_seed") || strings.Contains(raw, "detection_roll") || strings.Contains(raw, `"world_id"`) || strings.Contains(raw, `"zone_id"`) || strings.Contains(raw, `"internal_map_id"`) || strings.Contains(raw, `"map_id"`) {
 			t.Fatalf("scan event leaked hidden scanner truth: %s", raw)
 		}
 		if event.Type == realtime.EventKnownPlanets {
@@ -1030,6 +1038,9 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	if eventMemory.Kind != "known_planet" || eventMemory.PlanetID != planetID || eventMemory.DetailID != planetID {
 		t.Fatalf("known planets event memory = %+v, want known planet %s", eventMemory, planetID)
 	}
+	if eventMemory.PublicMapKey != "1-1" {
+		t.Fatalf("known planets event memory public map key = %q, want 1-1", eventMemory.PublicMapKey)
+	}
 	if eventMemory.Position.X == 0 && eventMemory.Position.Y == 0 {
 		t.Fatalf("known planets event memory position = %+v, want client-safe discovered coordinates", eventMemory.Position)
 	}
@@ -1049,8 +1060,14 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	if len(knownPayload.KnownPlanets.Planets) != 1 || knownPayload.KnownPlanets.Planets[0].PlanetID != planetID {
 		t.Fatalf("known planets response = %+v, want discovered planet %s", knownPayload.KnownPlanets, planetID)
 	}
+	if knownPayload.KnownPlanets.Planets[0].PublicMapKey != "1-1" {
+		t.Fatalf("known planets response public map key = %q, want 1-1", knownPayload.KnownPlanets.Planets[0].PublicMapKey)
+	}
 	if len(knownPayload.Minimap.Remembered) != 1 || knownPayload.Minimap.Remembered[0].PlanetID != planetID {
 		t.Fatalf("known planets remembered minimap = %+v, want discovered planet %s", knownPayload.Minimap.Remembered, planetID)
+	}
+	if knownPayload.Minimap.Remembered[0].PublicMapKey != "1-1" {
+		t.Fatalf("known planets remembered public map key = %q, want 1-1", knownPayload.Minimap.Remembered[0].PublicMapKey)
 	}
 
 	writeText(t, conn, `{"request_id":"request-planet-detail","op":"discovery.planet_detail","payload":{"planet_id":"`+planetID+`"},"client_seq":3,"v":1}`)
@@ -1092,6 +1109,9 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	}
 	if memory.PlanetID != planetID || memory.DetailID != planetID {
 		t.Fatalf("remembered minimap memory ids = %+v, want planet/detail %s", memory, planetID)
+	}
+	if memory.PublicMapKey != "1-1" {
+		t.Fatalf("remembered minimap public map key = %q, want 1-1", memory.PublicMapKey)
 	}
 	if memory.Position.X != detailPayload.PlanetDetail.Coordinates.X || memory.Position.Y != detailPayload.PlanetDetail.Coordinates.Y {
 		t.Fatalf("remembered minimap position = %+v, want detail coordinates %+v", memory.Position, detailPayload.PlanetDetail.Coordinates)
@@ -3115,8 +3135,8 @@ func TestAOIDiffEventsAreFilteredPerSession(t *testing.T) {
 		t.Fatalf("bootstrap events: %v", err)
 	}
 	_ = decodeWorldSnapshotForTest(t, events)
-	insertTestWorldEntity(t, gameServer, "entity_projection_hidden", world.EntityTypeNPC, world.Vec2{X: 880, Y: 0}, true)
-	insertTestWorldEntity(t, gameServer, "entity_projection_visible", world.EntityTypeNPC, world.Vec2{X: 900, Y: 0}, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_hidden", world.EntityTypeNPC, world.Vec2{X: 180, Y: 0}, true)
+	insertTestWorldEntity(t, gameServer, "entity_projection_visible", world.EntityTypeNPC, world.Vec2{X: 200, Y: 0}, false)
 
 	eventsBySession := gameServer.runtime.tickAndCollectAOIEvents()
 	sessionEvents := eventsBySession[resolved.SessionID]
@@ -3343,7 +3363,7 @@ func TestScanPulseRevealsHiddenPlayerWithoutPlanetIntelOrXP(t *testing.T) {
 	}
 }
 
-func TestScanPulseDoesNotRevealHiddenPlayerOutsideProjectionWindow(t *testing.T) {
+func TestScanPulseDoesNotRevealHiddenPlayerOutsideEffectiveRadarRange(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
 		AllowedOrigins: []string{testOrigin},
@@ -3359,7 +3379,7 @@ func TestScanPulseDoesNotRevealHiddenPlayerOutsideProjectionWindow(t *testing.T)
 	target := createResolvedRuntimeSession(t, gameServer, "hidden-scan-far-target@example.com", "Hidden Far")
 	viewer := createResolvedRuntimeSession(t, gameServer, "hidden-scan-far-viewer@example.com", "Scanner Far")
 	targetEntityID := testPlayerEntityID(t, gameServer, target.PlayerID)
-	moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: runtimeLiveProjectionHalfExtent + 250, Y: 0})
+	moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: defaultRadarRange + 250, Y: 0})
 	setTestHiddenPlayer(gameServer, target.PlayerID, true)
 
 	viewerEvents, err := gameServer.runtime.bootstrapEvents(viewer)
@@ -3368,57 +3388,130 @@ func TestScanPulseDoesNotRevealHiddenPlayerOutsideProjectionWindow(t *testing.T)
 	}
 	viewerSnapshot := decodeWorldSnapshotForTest(t, viewerEvents)
 	if hasEntityID(viewerSnapshot.Entities, targetEntityID.String()) {
-		t.Fatalf("viewer saw out-of-projection hidden target before scan: %+v", viewerSnapshot.Entities)
+		t.Fatalf("viewer saw out-of-range hidden target before scan: %+v", viewerSnapshot.Entities)
 	}
 
 	response := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(viewer.SessionID.String()),
-		[]byte(`{"request_id":"request-scan-player-projection-miss","op":"scan.pulse","payload":{},"client_seq":1,"v":1}`),
+		[]byte(`{"request_id":"request-scan-player-range-miss","op":"scan.pulse","payload":{},"client_seq":1,"v":1}`),
 	)
 	if response.HasError {
-		t.Fatalf("scan projection miss response error = %+v, want success", response.Error)
+		t.Fatalf("scan range miss response error = %+v, want success", response.Error)
 	}
 	rawResponse := string(response.Response.Payload)
 	for _, forbidden := range []string{targetEntityID.String(), target.PlayerID.String(), "target_player_id", "witness_expires_at", "hidden"} {
 		if strings.Contains(rawResponse, forbidden) {
-			t.Fatalf("scan projection miss response leaked %q in %s", forbidden, rawResponse)
+			t.Fatalf("scan range miss response leaked %q in %s", forbidden, rawResponse)
 		}
 	}
 	var payload struct {
 		Scan scanPulsePayload `json:"scan"`
 	}
 	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
-		t.Fatalf("decode scan projection miss payload: %v", err)
+		t.Fatalf("decode scan range miss payload: %v", err)
 	}
 	if payload.Scan.Status != string(discovery.ScanPulseStatusNoSignal) {
-		t.Fatalf("scan status = %q, want %q for hidden-player reveal outside projection", payload.Scan.Status, discovery.ScanPulseStatusNoSignal)
+		t.Fatalf("scan status = %q, want %q for hidden-player reveal outside effective radar range", payload.Scan.Status, discovery.ScanPulseStatusNoSignal)
 	}
 
 	gameServer.runtime.mu.Lock()
-	witnessed := gameServer.runtime.hiddenPlayerWitnessActiveLocked(viewer.PlayerID, target.PlayerID, clock.Now())
+	instance, _, instanceErr := gameServer.runtime.activeMapInstanceLocked(viewer.PlayerID)
+	if instanceErr != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active instance: %v", instanceErr)
+	}
+	witnessed := gameServer.runtime.hiddenPlayerWitnessActiveLocked(instance, viewer.PlayerID, target.PlayerID, clock.Now())
 	gameServer.runtime.mu.Unlock()
 	if witnessed {
-		t.Fatal("hidden player witness active outside projection, want none")
+		t.Fatal("hidden player witness active outside effective radar range, want none")
 	}
 
 	events, err := gameServer.runtime.postCommandEvents(viewer.SessionID, realtime.OperationScanPulse, viewer.PlayerID)
 	if err != nil {
-		t.Fatalf("post scan projection miss events: %v", err)
+		t.Fatalf("post scan range miss events: %v", err)
 	}
 	for _, event := range events {
 		rawEvent := string(mustJSON(t, event))
 		if strings.Contains(rawEvent, targetEntityID.String()) || strings.Contains(rawEvent, target.PlayerID.String()) {
-			t.Fatalf("scan projection miss event leaked target in %s", rawEvent)
+			t.Fatalf("scan range miss event leaked target in %s", rawEvent)
 		}
 	}
 
 	afterEvents, err := gameServer.runtime.bootstrapEvents(viewer)
 	if err != nil {
-		t.Fatalf("viewer after projection miss bootstrap events: %v", err)
+		t.Fatalf("viewer after range miss bootstrap events: %v", err)
 	}
 	afterSnapshot := decodeWorldSnapshotForTest(t, afterEvents)
 	if hasEntityID(afterSnapshot.Entities, targetEntityID.String()) {
-		t.Fatalf("viewer saw out-of-projection hidden target after scan: %+v", afterSnapshot.Entities)
+		t.Fatalf("viewer saw out-of-range hidden target after scan: %+v", afterSnapshot.Entities)
+	}
+}
+
+func TestScanPulseRevealsHiddenPlayerInsideEffectiveRadarRangeBeyondOldProjectionWindow(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	gameServer, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		SessionTTL:     time.Hour,
+		TickDelta:      50 * time.Millisecond,
+		Clock:          clock,
+		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+
+	target := createResolvedRuntimeSession(t, gameServer, "hidden-scan-authoritative-target@example.com", "Hidden Authoritative")
+	viewer := createResolvedRuntimeSession(t, gameServer, "hidden-scan-authoritative-viewer@example.com", "Scanner Authoritative")
+	targetEntityID := testPlayerEntityID(t, gameServer, target.PlayerID)
+	moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: 1250, Y: 0})
+	setTestHiddenPlayer(gameServer, target.PlayerID, true)
+	setTestRadarRange(gameServer, viewer.PlayerID, 1500)
+
+	viewerEvents, err := gameServer.runtime.bootstrapEvents(viewer)
+	if err != nil {
+		t.Fatalf("viewer bootstrap events: %v", err)
+	}
+	viewerSnapshot := decodeWorldSnapshotForTest(t, viewerEvents)
+	if hasEntityID(viewerSnapshot.Entities, targetEntityID.String()) {
+		t.Fatalf("viewer saw hidden target before scan: %+v", viewerSnapshot.Entities)
+	}
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(viewer.SessionID.String()),
+		[]byte(`{"request_id":"request-scan-player-authoritative-range","op":"scan.pulse","payload":{},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("scan authoritative range response error = %+v, want success", response.Error)
+	}
+	var payload struct {
+		Scan scanPulsePayload `json:"scan"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode scan authoritative range payload: %v", err)
+	}
+	if payload.Scan.Status != string(discovery.ScanPulseStatusPlayerRevealed) {
+		t.Fatalf("scan status = %q, want %q for same-map target inside authoritative range", payload.Scan.Status, discovery.ScanPulseStatusPlayerRevealed)
+	}
+
+	events, err := gameServer.runtime.postCommandEvents(viewer.SessionID, realtime.OperationScanPulse, viewer.PlayerID)
+	if err != nil {
+		t.Fatalf("post scan authoritative range events: %v", err)
+	}
+	seenEntered := false
+	for _, event := range events {
+		rawEvent := string(mustJSON(t, event))
+		if strings.Contains(rawEvent, "target_player_id") || strings.Contains(rawEvent, target.PlayerID.String()) {
+			t.Fatalf("scan authoritative range event leaked target internals in %s", rawEvent)
+		}
+		if event.Type == realtime.EventAOIEntityEntered && strings.Contains(rawEvent, targetEntityID.String()) {
+			seenEntered = true
+			if !strings.Contains(rawEvent, "scan_revealed") {
+				t.Fatalf("aoi entered event = %s, want scan_revealed", rawEvent)
+			}
+		}
+	}
+	if !seenEntered {
+		t.Fatalf("post scan authoritative range events = %+v, want AOI entered for revealed hidden target", events)
 	}
 }
 
@@ -3458,7 +3551,12 @@ func TestRuntimePlayerStealthAppliesSpeedPenaltyWithoutStackingAndRecalculatesRo
 	gameServer.runtime.mu.Lock()
 	state := gameServer.runtime.players[resolved.PlayerID]
 	entity, ok := gameServer.runtime.Worker.PlayerEntity(resolved.PlayerID)
-	hidden := gameServer.runtime.hiddenPlayers[resolved.PlayerID]
+	instance, _, instanceErr := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if instanceErr != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active instance: %v", instanceErr)
+	}
+	hidden := instance.HiddenPlayers[resolved.PlayerID]
 	speed, speedOK := gameServer.runtime.Worker.EntitySpeed(state.EntityID)
 	gameServer.runtime.mu.Unlock()
 	if !ok || !speedOK || !hidden {
@@ -3487,7 +3585,12 @@ func TestRuntimePlayerStealthAppliesSpeedPenaltyWithoutStackingAndRecalculatesRo
 	}
 	gameServer.runtime.mu.Lock()
 	restoredState := gameServer.runtime.players[resolved.PlayerID]
-	restoredHidden := gameServer.runtime.hiddenPlayers[resolved.PlayerID]
+	instance, _, instanceErr = gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if instanceErr != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active instance: %v", instanceErr)
+	}
+	restoredHidden := instance.HiddenPlayers[resolved.PlayerID]
 	restoredSpeed, _ := gameServer.runtime.Worker.EntitySpeed(restoredState.EntityID)
 	gameServer.runtime.mu.Unlock()
 	if restoredHidden {
@@ -3638,26 +3741,31 @@ func TestStealthToggleCommandUsesServerOwnedStateAndSafePayload(t *testing.T) {
 	}
 	gameServer.runtime.mu.Lock()
 	state := gameServer.runtime.players[resolved.PlayerID]
-	hidden := gameServer.runtime.hiddenPlayers[resolved.PlayerID]
+	instance, _, instanceErr := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if instanceErr != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active instance: %v", instanceErr)
+	}
+	hidden := instance.HiddenPlayers[resolved.PlayerID]
 	gameServer.runtime.mu.Unlock()
 	if hidden || state.Stats.Speed != defaultPlayerSpeed {
 		t.Fatalf("disable hidden=%v speed=%v, want false/%v", hidden, state.Stats.Speed, defaultPlayerSpeed)
 	}
 }
 
-func TestWorldSnapshotProjectionPolicyIsServerOwnedAndSeparateFromRadarStat(t *testing.T) {
+func TestWorldSnapshotProjectionUsesServerOwnedRadarStat(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "projection@example.com", "Projection")
 	other := createResolvedRuntimeSession(t, gameServer, "projection-other@example.com", "Projection Other")
-	moveTestPlayerEntity(gameServer, other.PlayerID, world.Vec2{X: -750, Y: 100})
-	insertTestWorldEntity(t, gameServer, "entity_projection_corner", world.EntityTypeNPC, world.Vec2{X: runtimeLiveProjectionHalfExtent, Y: runtimeLiveProjectionHalfExtent}, false)
-	insertTestWorldEntity(t, gameServer, "entity_projection_loot", world.EntityTypeLoot, world.Vec2{X: 640, Y: -120}, false)
-	insertTestWorldEntity(t, gameServer, "entity_projection_outside", world.EntityTypeNPC, world.Vec2{X: runtimeLiveProjectionHalfExtent + 1, Y: 0}, false)
+	moveTestPlayerEntity(gameServer, other.PlayerID, world.Vec2{X: 90, Y: 0})
+	insertTestWorldEntity(t, gameServer, "entity_projection_inside", world.EntityTypeNPC, world.Vec2{X: 100, Y: 0}, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_loot", world.EntityTypeLoot, world.Vec2{X: 120, Y: 0}, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_outside", world.EntityTypeNPC, world.Vec2{X: 151, Y: 0}, false)
 	insertTestWorldEntity(t, gameServer, "entity_projection_hidden_inside", world.EntityTypeNPC, world.Vec2{X: 100, Y: 100}, true)
 
 	gameServer.runtime.mu.Lock()
 	state := gameServer.runtime.players[resolved.PlayerID]
-	state.Stats.RadarRange = 10
+	state.Stats.RadarRange = 150
 	gameServer.runtime.players[resolved.PlayerID] = state
 	gameServer.runtime.mu.Unlock()
 
@@ -3667,11 +3775,11 @@ func TestWorldSnapshotProjectionPolicyIsServerOwnedAndSeparateFromRadarStat(t *t
 	}
 	snapshot := decodeWorldSnapshotForTest(t, events)
 
-	if snapshot.Minimap.RadarRange != runtimeLiveProjectionHalfExtent || snapshot.Minimap.ProjectionWindowSize != runtimeLiveProjectionDiameter {
-		t.Fatalf("projection payload = %+v, want half extent/window", snapshot.Minimap)
+	if snapshot.Minimap.RadarRange != 150 || snapshot.Minimap.ProjectionWindowSize != 300 {
+		t.Fatalf("projection payload = %+v, want server-owned radar range/window", snapshot.Minimap)
 	}
 	otherEntityID := testPlayerEntityID(t, gameServer, other.PlayerID)
-	for _, want := range []string{"entity_projection_corner", "entity_projection_loot", otherEntityID.String()} {
+	for _, want := range []string{"entity_projection_inside", "entity_projection_loot", otherEntityID.String()} {
 		if !hasEntityID(snapshot.Entities, want) {
 			t.Fatalf("projection snapshot missing %s: %+v", want, snapshot.Entities)
 		}
@@ -3692,8 +3800,8 @@ func TestWorldSnapshotProjectionPolicyIsServerOwnedAndSeparateFromRadarStat(t *t
 	}
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
-	if got := gameServer.runtime.players[resolved.PlayerID].Stats.RadarRange; got != 10 {
-		t.Fatalf("player stat radar range = %v, want unchanged 10", got)
+	if got := gameServer.runtime.players[resolved.PlayerID].Stats.RadarRange; got != 150 {
+		t.Fatalf("player stat radar range = %v, want unchanged 150", got)
 	}
 }
 
@@ -3724,6 +3832,8 @@ func TestWorldSnapshotFarRememberedPlanetStaysMemoryNotLiveContact(t *testing.T)
 	if _, _, err := gameServer.runtime.Discovery.UpsertPlayerPlanetIntel(discovery.PlayerPlanetIntel{
 		PlayerID:        resolved.PlayerID,
 		PlanetID:        planetID,
+		WorldID:         gameServer.runtime.worldID,
+		ZoneID:          gameServer.runtime.zoneID,
 		Coordinates:     coordinates,
 		State:           discovery.IntelStateFresh,
 		Confidence:      100,
@@ -3758,17 +3868,153 @@ func TestWorldSnapshotFarRememberedPlanetStaysMemoryNotLiveContact(t *testing.T)
 	if memory.Freshness != string(discovery.IntelStateFresh) {
 		t.Fatalf("far memory freshness = %q, want fresh", memory.Freshness)
 	}
-	if memory.SectorKey != "1-1" || memory.ProjectionSource != runtimeProjectionSourceKnownIntel {
+	if memory.SectorKey != "1-1" || memory.PublicMapKey != "1-1" || memory.ProjectionSource != runtimeProjectionSourceKnownIntel {
 		t.Fatalf("far memory sector/source = %+v, want %s/%s", memory, "1-1", runtimeProjectionSourceKnownIntel)
 	}
+}
+
+func TestKnownPlanetMemoryIsFilteredToActiveMapPublicKey(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "known-map-filter@example.com", "Known Map")
+	now := gameServer.runtime.clock.Now().UTC()
+	starterPlanetID := foundation.PlanetID("planet-known-map-1-1")
+	mapTwoPlanetID := foundation.PlanetID("planet-known-map-1-2")
+	mapTwoZoneID := worldmaps.MapID("map_1_2").ZoneID()
+
+	fixtures := []struct {
+		planetID     foundation.PlanetID
+		zoneID       foundation.ZoneID
+		coordinates  world.Vec2
+		candidateKey discovery.PlanetMaterializationKey
+	}{
+		{
+			planetID:     starterPlanetID,
+			zoneID:       gameServer.runtime.zoneID,
+			coordinates:  world.Vec2{X: 1400, Y: 1500},
+			candidateKey: "candidate-known-map-1-1",
+		},
+		{
+			planetID:     mapTwoPlanetID,
+			zoneID:       mapTwoZoneID,
+			coordinates:  world.Vec2{X: 1600, Y: 5200},
+			candidateKey: "candidate-known-map-1-2",
+		},
+	}
+	for _, fixture := range fixtures {
+		if _, err := gameServer.runtime.Discovery.MaterializePlanet(discovery.MaterializePlanetInput{
+			CandidateKey: fixture.candidateKey,
+			Planet: discovery.Planet{
+				ID:           fixture.planetID,
+				WorldID:      gameServer.runtime.worldID,
+				ZoneID:       fixture.zoneID,
+				Coordinates:  fixture.coordinates,
+				Biome:        discovery.PlanetBiomeOuterDrift,
+				Type:         discovery.PlanetTypeIce,
+				Rarity:       discovery.PlanetRarityUncommon,
+				Level:        2,
+				DiscoveredAt: now,
+				DiscoveredBy: resolved.PlayerID,
+			},
+		}); err != nil {
+			t.Fatalf("MaterializePlanet(%s) error = %v, want nil", fixture.planetID, err)
+		}
+		if _, _, err := gameServer.runtime.Discovery.UpsertPlayerPlanetIntel(discovery.PlayerPlanetIntel{
+			PlayerID:        resolved.PlayerID,
+			PlanetID:        fixture.planetID,
+			WorldID:         gameServer.runtime.worldID,
+			ZoneID:          fixture.zoneID,
+			Coordinates:     fixture.coordinates,
+			State:           discovery.IntelStateFresh,
+			Confidence:      100,
+			LastSeenAt:      now,
+			SourceType:      discovery.IntelSourceAdmin,
+			SourceReference: string(fixture.candidateKey),
+		}); err != nil {
+			t.Fatalf("UpsertPlayerPlanetIntel(%s) error = %v, want nil", fixture.planetID, err)
+		}
+	}
+
+	known, err := gameServer.runtime.knownPlanetsPayload(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("knownPlanetsPayload(starter) error = %v, want nil", err)
+	}
+	if len(known.Planets) != 1 || known.Planets[0].PlanetID != starterPlanetID.String() || known.Planets[0].PublicMapKey != "1-1" {
+		t.Fatalf("starter known planets = %+v, want only %s on public map 1-1", known, starterPlanetID)
+	}
+	minimap, err := gameServer.runtime.currentMinimapPayload(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("currentMinimapPayload(starter) error = %v, want nil", err)
+	}
+	if len(minimap.Remembered) != 1 || minimap.Remembered[0].PlanetID != starterPlanetID.String() || minimap.Remembered[0].PublicMapKey != "1-1" {
+		t.Fatalf("starter remembered minimap = %+v, want only %s on public map 1-1", minimap.Remembered, starterPlanetID)
+	}
+
+	gameServer.runtime.mu.Lock()
+	if _, err := gameServer.runtime.mapRouter.SetActiveLocationFromSpawn(resolved.PlayerID, "map_1_2", "west_gate"); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("SetActiveLocationFromSpawn(map_1_2) error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Unlock()
+	if err := gameServer.runtime.ensurePlayerSession(resolved); err != nil {
+		t.Fatalf("ensurePlayerSession(map_1_2) error = %v, want nil", err)
+	}
+
+	known, err = gameServer.runtime.knownPlanetsPayload(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("knownPlanetsPayload(map_1_2) error = %v, want nil", err)
+	}
+	if len(known.Planets) != 1 || known.Planets[0].PlanetID != mapTwoPlanetID.String() || known.Planets[0].PublicMapKey != "1-2" {
+		t.Fatalf("map_1_2 known planets = %+v, want only %s on public map 1-2", known, mapTwoPlanetID)
+	}
+	minimap, err = gameServer.runtime.currentMinimapPayload(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("currentMinimapPayload(map_1_2) error = %v, want nil", err)
+	}
+	if len(minimap.Remembered) != 1 || minimap.Remembered[0].PlanetID != mapTwoPlanetID.String() || minimap.Remembered[0].PublicMapKey != "1-2" {
+		t.Fatalf("map_1_2 remembered minimap = %+v, want only %s on public map 1-2", minimap.Remembered, mapTwoPlanetID)
+	}
+}
+
+func TestProductionAndStorageSummariesAreFilteredToActiveMap(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "production-map-filter@example.com", "Production Map")
+	starterPlanetID := foundation.PlanetID("planet-production-map-1-1")
+	mapTwoPlanetID := foundation.PlanetID("planet-production-map-1-2")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, starterPlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-production-map-1-1")
+	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, mapTwoPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-production-map-1-2")
+
+	assertProductionSummaryPlanetIDs(t, gameServer, resolved.PlayerID, "", []foundation.PlanetID{starterPlanetID})
+	assertStorageSummaryPlanetIDs(t, gameServer, resolved.PlayerID, "", []foundation.PlanetID{starterPlanetID})
+	assertProductionSummaryPlanetIDs(t, gameServer, resolved.PlayerID, starterPlanetID, []foundation.PlanetID{starterPlanetID})
+	assertStorageSummaryPlanetIDs(t, gameServer, resolved.PlayerID, starterPlanetID, []foundation.PlanetID{starterPlanetID})
+	assertProductionSummaryPlanetIDs(t, gameServer, resolved.PlayerID, mapTwoPlanetID, nil)
+	assertStorageSummaryPlanetIDs(t, gameServer, resolved.PlayerID, mapTwoPlanetID, nil)
+
+	gameServer.runtime.mu.Lock()
+	if _, err := gameServer.runtime.mapRouter.SetActiveLocationFromSpawn(resolved.PlayerID, "map_1_2", "west_gate"); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("SetActiveLocationFromSpawn(map_1_2) error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Unlock()
+	if err := gameServer.runtime.ensurePlayerSession(resolved); err != nil {
+		t.Fatalf("ensurePlayerSession(map_1_2) error = %v, want nil", err)
+	}
+
+	assertProductionSummaryPlanetIDs(t, gameServer, resolved.PlayerID, "", []foundation.PlanetID{mapTwoPlanetID})
+	assertStorageSummaryPlanetIDs(t, gameServer, resolved.PlayerID, "", []foundation.PlanetID{mapTwoPlanetID})
+	assertProductionSummaryPlanetIDs(t, gameServer, resolved.PlayerID, mapTwoPlanetID, []foundation.PlanetID{mapTwoPlanetID})
+	assertStorageSummaryPlanetIDs(t, gameServer, resolved.PlayerID, mapTwoPlanetID, []foundation.PlanetID{mapTwoPlanetID})
+	assertProductionSummaryPlanetIDs(t, gameServer, resolved.PlayerID, starterPlanetID, nil)
+	assertStorageSummaryPlanetIDs(t, gameServer, resolved.PlayerID, starterPlanetID, nil)
 }
 
 func TestWorldProjectionSourcesReconcileAfterServerOwnedMovement(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "projection-move@example.com", "Projection Move")
-	insertTestWorldEntity(t, gameServer, "entity_projection_departing", world.EntityTypeNPC, world.Vec2{X: -900, Y: 0}, false)
-	insertTestWorldEntity(t, gameServer, "entity_projection_arriving", world.EntityTypeLoot, world.Vec2{X: 1500, Y: 0}, false)
-	insertTestWorldEntity(t, gameServer, "entity_projection_hidden_arriving", world.EntityTypeNPC, world.Vec2{X: 1500, Y: 10}, true)
+	insertTestWorldEntity(t, gameServer, "entity_projection_departing", world.EntityTypeNPC, world.Vec2{X: 0, Y: 0}, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_arriving", world.EntityTypeLoot, world.Vec2{X: 650, Y: 0}, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_hidden_arriving", world.EntityTypeNPC, world.Vec2{X: 650, Y: 10}, true)
 
 	events, err := gameServer.runtime.bootstrapEvents(resolved)
 	if err != nil {
@@ -3779,7 +4025,7 @@ func TestWorldProjectionSourcesReconcileAfterServerOwnedMovement(t *testing.T) {
 		t.Fatalf("initial projection entities = %+v, want departing visible and arriving outside", initial.Entities)
 	}
 
-	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 600, Y: 0})
+	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 500, Y: 0})
 	eventsBySession := gameServer.runtime.tickAndCollectAOIEvents()
 	sessionEvents := eventsBySession[resolved.SessionID]
 	if len(sessionEvents) == 0 {
@@ -3848,6 +4094,37 @@ func TestMultiTabAttachDoesNotDuplicatePlayerEntity(t *testing.T) {
 	}
 }
 
+func TestRuntimeConstructsWorkerPerConfiguredMapDefinition(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+
+	definitions := gameServer.runtime.mapCatalog.Definitions()
+	if len(gameServer.runtime.mapInstances) != len(definitions) {
+		t.Fatalf("map instances = %d, definitions = %d", len(gameServer.runtime.mapInstances), len(definitions))
+	}
+	for _, definition := range definitions {
+		instance, err := gameServer.runtime.mapInstanceLocked(definition.InternalMapID)
+		if err != nil {
+			t.Fatalf("mapInstanceLocked(%q) = %v, want nil", definition.InternalMapID, err)
+		}
+		if instance.Worker.WorldID() != definition.WorldID {
+			t.Fatalf("worker %q world = %q, want %q", definition.InternalMapID, instance.Worker.WorldID(), definition.WorldID)
+		}
+		if instance.Worker.ZoneID() != definition.InternalMapID.ZoneID() {
+			t.Fatalf("worker %q zone = %q, want internal map id", definition.InternalMapID, instance.Worker.ZoneID())
+		}
+	}
+	starter, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		t.Fatalf("starter map instance: %v", err)
+	}
+	if gameServer.runtime.Worker != starter.Worker {
+		t.Fatal("runtime compatibility worker is not the starter map worker")
+	}
+}
+
 func TestEnsurePlayerSessionPreservesExistingActiveMap(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "router-preserve@example.com", "Router Preserve")
@@ -3895,6 +4172,130 @@ func TestEnsurePlayerSessionPreservesExistingActiveMap(t *testing.T) {
 	}
 }
 
+func TestSessionReconnectMovesMembershipAndAOICursorToActiveMap(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "runtime-membership@example.com", "Runtime Membership")
+
+	starterEvents, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("starter bootstrap events: %v", err)
+	}
+	_ = decodeWorldSnapshotForTest(t, starterEvents)
+
+	gameServer.runtime.mu.Lock()
+	starter, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("starter instance: %v", err)
+	}
+	if starter.ActiveSessions[resolved.SessionID] != resolved.PlayerID {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("starter active sessions = %+v, want session attached", starter.ActiveSessions)
+	}
+	if _, ok := starter.LastAOI[resolved.SessionID]; !ok {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("starter LastAOI missing session %q", resolved.SessionID)
+	}
+	if _, err := gameServer.runtime.mapRouter.SetActiveLocationFromSpawn(resolved.PlayerID, "map_1_2", "west_gate"); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("SetActiveLocationFromSpawn() error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Unlock()
+
+	if err := gameServer.runtime.ensurePlayerSession(resolved); err != nil {
+		t.Fatalf("ensurePlayerSession(map_1_2) error = %v, want nil", err)
+	}
+	mapTwoEvents, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("map_1_2 bootstrap events: %v", err)
+	}
+	mapTwoSnapshot := decodeWorldSnapshotForTest(t, mapTwoEvents)
+	if mapTwoSnapshot.Map.PublicMapKey != "1-2" {
+		t.Fatalf("reconnect snapshot map = %+v, want 1-2", mapTwoSnapshot.Map)
+	}
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	mapTwo, err := gameServer.runtime.mapInstanceLocked("map_1_2")
+	if err != nil {
+		t.Fatalf("map_1_2 instance: %v", err)
+	}
+	if _, ok := starter.ActiveSessions[resolved.SessionID]; ok {
+		t.Fatalf("starter active sessions still contains %q: %+v", resolved.SessionID, starter.ActiveSessions)
+	}
+	if _, ok := starter.LastAOI[resolved.SessionID]; ok {
+		t.Fatalf("starter LastAOI still contains %q", resolved.SessionID)
+	}
+	if _, ok := starter.Worker.PlayerEntity(resolved.PlayerID); ok {
+		t.Fatalf("starter worker still has player %q after active map switch", resolved.PlayerID)
+	}
+	if mapTwo.ActiveSessions[resolved.SessionID] != resolved.PlayerID {
+		t.Fatalf("map_1_2 active sessions = %+v, want session attached", mapTwo.ActiveSessions)
+	}
+	if _, ok := mapTwo.LastAOI[resolved.SessionID]; !ok {
+		t.Fatalf("map_1_2 LastAOI missing session %q", resolved.SessionID)
+	}
+	if gameServer.runtime.sessionLocations[resolved.SessionID] != "map_1_2" {
+		t.Fatalf("session location = %q, want map_1_2", gameServer.runtime.sessionLocations[resolved.SessionID])
+	}
+}
+
+func TestReconnectMovesAllPlayerSessionsToActiveMap(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "runtime-multisession@example.com", "Runtime Multi")
+	secondLogin, err := gameServer.runtime.Auth.Login(context.Background(), auth.LoginInput{
+		Email:    "runtime-multisession@example.com",
+		Password: "correct-password",
+	})
+	if err != nil {
+		t.Fatalf("second login error = %v, want nil", err)
+	}
+	if err := gameServer.runtime.ensurePlayerSession(secondLogin.Session); err != nil {
+		t.Fatalf("ensure second session: %v", err)
+	}
+	if _, err := gameServer.runtime.bootstrapEvents(resolved); err != nil {
+		t.Fatalf("bootstrap first session: %v", err)
+	}
+	if _, err := gameServer.runtime.bootstrapEvents(secondLogin.Session); err != nil {
+		t.Fatalf("bootstrap second session: %v", err)
+	}
+
+	gameServer.runtime.mu.Lock()
+	if _, err := gameServer.runtime.mapRouter.SetActiveLocationFromSpawn(resolved.PlayerID, "map_1_2", "west_gate"); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("SetActiveLocationFromSpawn() error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Unlock()
+	if err := gameServer.runtime.ensurePlayerSession(resolved); err != nil {
+		t.Fatalf("ensure first session after map switch: %v", err)
+	}
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	starter, _ := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	mapTwo, _ := gameServer.runtime.mapInstanceLocked("map_1_2")
+	for _, sessionID := range []auth.SessionID{resolved.SessionID, secondLogin.Session.SessionID} {
+		if _, ok := starter.ActiveSessions[sessionID]; ok {
+			t.Fatalf("starter active sessions still contains %q: %+v", sessionID, starter.ActiveSessions)
+		}
+		if _, ok := starter.LastAOI[sessionID]; ok {
+			t.Fatalf("starter LastAOI still contains %q", sessionID)
+		}
+		if mapTwo.ActiveSessions[sessionID] != resolved.PlayerID {
+			t.Fatalf("map_1_2 active session %q = %q, want %q", sessionID, mapTwo.ActiveSessions[sessionID], resolved.PlayerID)
+		}
+		if gameServer.runtime.sessionLocations[sessionID] != "map_1_2" {
+			t.Fatalf("session %q location = %q, want map_1_2", sessionID, gameServer.runtime.sessionLocations[sessionID])
+		}
+	}
+	if _, ok := starter.Worker.PlayerEntity(resolved.PlayerID); ok {
+		t.Fatalf("starter worker still has player %q after multi-session map switch", resolved.PlayerID)
+	}
+	if _, ok := mapTwo.Worker.PlayerEntity(resolved.PlayerID); !ok {
+		t.Fatalf("map_1_2 worker missing player %q after multi-session map switch", resolved.PlayerID)
+	}
+}
+
 func TestActiveMapSnapshotUsesActiveMapWorker(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "router-snapshot@example.com", "Router Snapshot")
@@ -3936,6 +4337,152 @@ func TestActiveMapSnapshotUsesActiveMapWorker(t *testing.T) {
 	if selfCount != 1 {
 		t.Fatalf("map_1_2 snapshot self count = %d in %+v, want 1", selfCount, snapshot.Entities)
 	}
+}
+
+func TestWorldSnapshotUsesActiveMapEntitiesAndStoresInstanceAOI(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSessionOnMap(t, gameServer, "snapshot-active-map@example.com", "Snapshot Active", "map_1_2", "west_gate")
+
+	gameServer.runtime.mu.Lock()
+	insertTestWorldEntityInMapLocked(t, gameServer, worldmaps.StarterMapID, "entity_snapshot_starter_only", world.EntityTypeNPC, world.Vec2{X: 410, Y: 5000}, false)
+	insertTestWorldEntityInMapLocked(t, gameServer, "map_1_2", "entity_snapshot_map_two", world.EntityTypeNPC, world.Vec2{X: 410, Y: 5000}, false)
+	gameServer.runtime.mu.Unlock()
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-active-map-snapshot","op":"world.snapshot","payload":{},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("world snapshot response error = %+v, want success", response.Error)
+	}
+	var snapshot worldSnapshotPayload
+	if err := json.Unmarshal(response.Response.Payload, &snapshot); err != nil {
+		t.Fatalf("decode world snapshot: %v", err)
+	}
+	if snapshot.Map.PublicMapKey != "1-2" {
+		t.Fatalf("snapshot map = %+v, want 1-2", snapshot.Map)
+	}
+	if !hasEntityID(snapshot.Entities, "entity_snapshot_map_two") {
+		t.Fatalf("snapshot entities = %+v, missing map_1_2 entity", snapshot.Entities)
+	}
+	if hasEntityID(snapshot.Entities, "entity_snapshot_starter_only") {
+		t.Fatalf("snapshot leaked starter map entity: %+v", snapshot.Entities)
+	}
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	starter, _ := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	mapTwo, _ := gameServer.runtime.mapInstanceLocked("map_1_2")
+	if _, ok := starter.LastAOI[resolved.SessionID]; ok {
+		t.Fatalf("starter LastAOI contains active map_1_2 session")
+	}
+	if _, ok := mapTwo.LastAOI[resolved.SessionID]; !ok {
+		t.Fatalf("map_1_2 LastAOI missing active session")
+	}
+}
+
+func TestTickLoopEmitsAOIOnlyToSessionsAttachedToSameMap(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	starterPlayer := createResolvedRuntimeSession(t, gameServer, "tick-map-one@example.com", "Tick One")
+	mapTwoPlayer := createResolvedRuntimeSessionOnMap(t, gameServer, "tick-map-two@example.com", "Tick Two", "map_1_2", "west_gate")
+	moveTestPlayerEntity(gameServer, starterPlayer.PlayerID, world.Vec2{X: 100, Y: 100})
+	moveTestPlayerEntity(gameServer, mapTwoPlayer.PlayerID, world.Vec2{X: 100, Y: 100})
+
+	if _, err := gameServer.runtime.bootstrapEvents(starterPlayer); err != nil {
+		t.Fatalf("starter bootstrap events: %v", err)
+	}
+	if _, err := gameServer.runtime.bootstrapEvents(mapTwoPlayer); err != nil {
+		t.Fatalf("map_1_2 bootstrap events: %v", err)
+	}
+
+	gameServer.runtime.mu.Lock()
+	insertTestWorldEntityInMapLocked(t, gameServer, worldmaps.StarterMapID, "entity_tick_map_one", world.EntityTypeNPC, world.Vec2{X: 120, Y: 100}, false)
+	insertTestWorldEntityInMapLocked(t, gameServer, "map_1_2", "entity_tick_map_two", world.EntityTypeNPC, world.Vec2{X: 120, Y: 100}, false)
+	gameServer.runtime.mu.Unlock()
+
+	eventsBySession := gameServer.runtime.tickAndCollectAOIEvents()
+	assertEventsContainEntityOnly(t, eventsBySession[starterPlayer.SessionID], "entity_tick_map_one", "entity_tick_map_two")
+	assertEventsContainEntityOnly(t, eventsBySession[mapTwoPlayer.SessionID], "entity_tick_map_two", "entity_tick_map_one")
+}
+
+func TestMoveToAndStopMutateOnlyActiveMapWorker(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSessionOnMap(t, gameServer, "move-active-map@example.com", "Move Active", "map_1_2", "west_gate")
+
+	move := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-active-map-move","op":"move_to","payload":{"target":{"x":450,"y":5000}},"client_seq":1,"v":1}`),
+	)
+	if move.HasError {
+		t.Fatalf("move response error = %+v, want success", move.Error)
+	}
+
+	gameServer.runtime.mu.Lock()
+	starter, _ := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	mapTwo, _ := gameServer.runtime.mapInstanceLocked("map_1_2")
+	_, starterHasPlayer := starter.Worker.PlayerEntity(resolved.PlayerID)
+	entity, mapTwoHasPlayer := mapTwo.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+	if starterHasPlayer {
+		t.Fatalf("starter worker has active map_1_2 player %q", resolved.PlayerID)
+	}
+	if !mapTwoHasPlayer || !entity.Movement.Moving || entity.Movement.Target != (world.Vec2{X: 450, Y: 5000}) {
+		t.Fatalf("map_1_2 movement entity = %+v ok=%v, want moving to 450,5000", entity, mapTwoHasPlayer)
+	}
+
+	outOfBounds := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-active-map-move-oob","op":"move_to","payload":{"target":{"x":10001,"y":5000}},"client_seq":2,"v":1}`),
+	)
+	if !outOfBounds.HasError || outOfBounds.Error.Error.Code != foundation.CodeOutOfRange {
+		t.Fatalf("out-of-bounds move response = %+v, want out of range", outOfBounds)
+	}
+
+	stop := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-active-map-stop","op":"stop","payload":{},"client_seq":3,"v":1}`),
+	)
+	if stop.HasError {
+		t.Fatalf("stop response error = %+v, want success", stop.Error)
+	}
+	gameServer.runtime.mu.Lock()
+	stopped, ok := mapTwo.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+	if !ok || stopped.Movement.Moving {
+		t.Fatalf("stopped entity = %+v ok=%v, want active map movement stopped", stopped, ok)
+	}
+}
+
+func TestSafeHangarClassificationUsesMapSafeZoneDefinition(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSessionOnMap(t, gameServer, "safe-zone-map@example.com", "Safe Zone", "map_1_2", "west_gate")
+
+	gameServer.runtime.mu.Lock()
+	if !gameServer.runtime.playerInSafeHangarAreaLocked(resolved.PlayerID) {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("player at map_1_2 west gate spawn is not in map-defined hangar safe zone")
+	}
+	instance, _, err := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active instance: %v", err)
+	}
+	entity, ok := instance.Worker.PlayerEntity(resolved.PlayerID)
+	if !ok {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active map missing player")
+	}
+	entity.Position = world.Vec2{X: 0, Y: 0}
+	entity.Movement = world.MovementState{}
+	if err := instance.Worker.UpdateEntity(entity); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("UpdateEntity(origin) error = %v, want nil", err)
+	}
+	if gameServer.runtime.playerInSafeHangarAreaLocked(resolved.PlayerID) {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("map_1_2 origin classified safe; want only map-defined west gate safe zone")
+	}
+	gameServer.runtime.mu.Unlock()
 }
 
 func TestSectorPayloadFromMapUsesProjectionKey(t *testing.T) {
@@ -4372,6 +4919,101 @@ func createResolvedRuntimeSession(t *testing.T, gameServer *Server, email string
 	return result.Session
 }
 
+func createResolvedRuntimeSessionOnMap(t *testing.T, gameServer *Server, email string, callsign string, mapID worldmaps.MapID, spawnID worldmaps.SpawnID) auth.ResolvedSession {
+	t.Helper()
+	resolved := createResolvedRuntimeSession(t, gameServer, email, callsign)
+	gameServer.runtime.mu.Lock()
+	if _, err := gameServer.runtime.mapRouter.SetActiveLocationFromSpawn(resolved.PlayerID, mapID, spawnID); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("SetActiveLocationFromSpawn(%q, %q) error = %v, want nil", mapID, spawnID, err)
+	}
+	gameServer.runtime.mu.Unlock()
+	if err := gameServer.runtime.ensurePlayerSession(resolved); err != nil {
+		t.Fatalf("ensurePlayerSession(%q) error = %v, want nil", mapID, err)
+	}
+	return resolved
+}
+
+func seedOwnedProductionPlanetForTest(
+	t *testing.T,
+	gameServer *Server,
+	ownerID foundation.PlayerID,
+	planetID foundation.PlanetID,
+	zoneID foundation.ZoneID,
+	coordinates world.Vec2,
+	candidateKey discovery.PlanetMaterializationKey,
+) {
+	t.Helper()
+	now := gameServer.runtime.clock.Now().UTC()
+	ownerChangedAt := now
+	if _, err := gameServer.runtime.Discovery.MaterializePlanet(discovery.MaterializePlanetInput{
+		CandidateKey: candidateKey,
+		Planet: discovery.Planet{
+			ID:             planetID,
+			WorldID:        gameServer.runtime.worldID,
+			ZoneID:         zoneID,
+			Coordinates:    coordinates,
+			Biome:          discovery.PlanetBiomeOuterDrift,
+			Type:           discovery.PlanetTypeIce,
+			Rarity:         discovery.PlanetRarityUncommon,
+			Level:          2,
+			DiscoveredAt:   now,
+			DiscoveredBy:   ownerID,
+			OwnerPlayerID:  ownerID,
+			OwnerChangedAt: &ownerChangedAt,
+		},
+	}); err != nil {
+		t.Fatalf("MaterializePlanet(%s) error = %v, want nil", planetID, err)
+	}
+	if _, err := gameServer.runtime.Production.InitializePlanetProduction(production.InitializePlanetProductionInput{
+		PlanetID:              planetID,
+		LastCalculatedAt:      now,
+		StorageCapacityUnits:  250,
+		EnergyCapacityPerHour: 40,
+		UpdatedAt:             now,
+	}); err != nil {
+		t.Fatalf("InitializePlanetProduction(%s) error = %v, want nil", planetID, err)
+	}
+}
+
+func assertProductionSummaryPlanetIDs(t *testing.T, gameServer *Server, playerID foundation.PlayerID, planetID foundation.PlanetID, want []foundation.PlanetID) {
+	t.Helper()
+	payload, err := gameServer.runtime.productionSummaryPayload(playerID, planetID)
+	if err != nil {
+		t.Fatalf("productionSummaryPayload(%q) error = %v, want nil", planetID, err)
+	}
+	got := make([]foundation.PlanetID, 0, len(payload.Planets))
+	for _, planet := range payload.Planets {
+		got = append(got, foundation.PlanetID(planet.PlanetID))
+	}
+	assertPlanetIDListForTest(t, "production summary", got, want)
+}
+
+func assertStorageSummaryPlanetIDs(t *testing.T, gameServer *Server, playerID foundation.PlayerID, planetID foundation.PlanetID, want []foundation.PlanetID) {
+	t.Helper()
+	payload, err := gameServer.runtime.storageSummaryPayload(playerID, planetID)
+	if err != nil {
+		t.Fatalf("storageSummaryPayload(%q) error = %v, want nil", planetID, err)
+	}
+	got := make([]foundation.PlanetID, 0, len(payload.Planets))
+	for _, planet := range payload.Planets {
+		got = append(got, foundation.PlanetID(planet.PlanetID))
+	}
+	assertPlanetIDListForTest(t, "storage summary", got, want)
+}
+
+func assertPlanetIDListForTest(t *testing.T, label string, got []foundation.PlanetID, want []foundation.PlanetID) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s planet ids = %v, want %v", label, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s planet ids = %v, want %v", label, got, want)
+		}
+	}
+}
+
 func setTestShipDisabled(gameServer *Server, playerID foundation.PlayerID, disabled bool) {
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
@@ -4388,19 +5030,22 @@ func setTestShipDisabled(gameServer *Server, playerID foundation.PlayerID, disab
 func setTestHidden(gameServer *Server, entityID world.EntityID, hidden bool) {
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
-	gameServer.runtime.hidden[entityID] = hidden
+	instance := testActiveMapInstanceLocked(gameServer, "")
+	instance.HiddenEntities[entityID] = hidden
 }
 
 func setTestHiddenPlayer(gameServer *Server, playerID foundation.PlayerID, hidden bool) {
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
-	gameServer.runtime.hiddenPlayers[playerID] = hidden
+	instance := testActiveMapInstanceLocked(gameServer, playerID)
+	instance.HiddenPlayers[playerID] = hidden
 }
 
 func setTestHiddenPlayerWitness(gameServer *Server, viewerID foundation.PlayerID, targetID foundation.PlayerID, expiresAt time.Time) {
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
-	gameServer.runtime.hiddenPlayerWitnesses[hiddenPlayerWitnessKey{
+	instance := testActiveMapInstanceLocked(gameServer, viewerID)
+	instance.HiddenPlayerWitnesses[hiddenPlayerWitnessKey{
 		ViewerPlayerID: viewerID,
 		TargetPlayerID: targetID,
 	}] = expiresAt
@@ -4421,14 +5066,23 @@ func insertTestWorldEntity(t *testing.T, gameServer *Server, entityID world.Enti
 	t.Helper()
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
-	entity, err := world.NewEntity(gameServer.runtime.worldID, gameServer.runtime.zoneID, entityID, entityType, position)
+	insertTestWorldEntityInMapLocked(t, gameServer, worldmaps.StarterMapID, entityID, entityType, position, hidden)
+}
+
+func insertTestWorldEntityInMapLocked(t *testing.T, gameServer *Server, mapID worldmaps.MapID, entityID world.EntityID, entityType world.EntityType, position world.Vec2, hidden bool) {
+	t.Helper()
+	instance, err := gameServer.runtime.mapInstanceLocked(mapID)
+	if err != nil {
+		t.Fatalf("mapInstanceLocked(%q) = %v, want nil", mapID, err)
+	}
+	entity, err := world.NewEntity(instance.Definition.WorldID, instance.Definition.ZoneID, entityID, entityType, position)
 	if err != nil {
 		t.Fatalf("NewEntity(%q) = %v, want nil", entityID, err)
 	}
-	if err := gameServer.runtime.Worker.InsertEntity(entity, 0); err != nil {
+	if err := instance.Worker.InsertEntity(entity, 0); err != nil {
 		t.Fatalf("InsertEntity(%q) = %v, want nil", entityID, err)
 	}
-	gameServer.runtime.hidden[entityID] = hidden
+	instance.HiddenEntities[entityID] = hidden
 }
 
 func setTestWeaponRange(gameServer *Server, playerID foundation.PlayerID, weaponRange float64) {
@@ -4450,13 +5104,31 @@ func setTestRadarRange(gameServer *Server, playerID foundation.PlayerID, radarRa
 func moveTestPlayerEntity(gameServer *Server, playerID foundation.PlayerID, position world.Vec2) {
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
-	entity, ok := gameServer.runtime.Worker.PlayerEntity(playerID)
+	instance, _, err := gameServer.runtime.activeMapInstanceLocked(playerID)
+	if err != nil {
+		return
+	}
+	entity, ok := instance.Worker.PlayerEntity(playerID)
 	if !ok {
 		return
 	}
 	entity.Position = position
 	entity.Movement = world.MovementState{}
-	_ = gameServer.runtime.Worker.UpdateEntity(entity)
+	_ = instance.Worker.UpdateEntity(entity)
+}
+
+func testActiveMapInstanceLocked(gameServer *Server, playerID foundation.PlayerID) *mapInstance {
+	if playerID != "" {
+		instance, _, err := gameServer.runtime.activeMapInstanceLocked(playerID)
+		if err == nil {
+			return instance
+		}
+	}
+	instance, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		panic(err)
+	}
+	return instance
 }
 
 func testShipCapacitor(gameServer *Server, playerID foundation.PlayerID) int {
@@ -4799,10 +5471,27 @@ func hasEntityID(entities []aoi.EntityPayload, want string) bool {
 	return false
 }
 
+func assertEventsContainEntityOnly(t *testing.T, events []realtime.EventEnvelope, want string, forbidden string) {
+	t.Helper()
+	found := false
+	for _, event := range events {
+		raw := string(event.Payload)
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("events leaked forbidden entity %q in %+v", forbidden, events)
+		}
+		if strings.Contains(raw, want) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("events = %+v, missing entity %q", events, want)
+	}
+}
+
 func assertMinimapMirrorsEntities(t *testing.T, label string, entities []aoi.EntityPayload, minimap minimapPayload) {
 	t.Helper()
-	if minimap.RadarRange != runtimeLiveProjectionHalfExtent || minimap.ProjectionWindowSize != runtimeLiveProjectionDiameter {
-		t.Fatalf("%s minimap projection = range %v window %v, want %v/%v", label, minimap.RadarRange, minimap.ProjectionWindowSize, runtimeLiveProjectionHalfExtent, runtimeLiveProjectionDiameter)
+	if minimap.RadarRange <= 0 || minimap.ProjectionWindowSize != minimap.RadarRange*2 {
+		t.Fatalf("%s minimap projection = range %v window %v, want positive range and 2x window", label, minimap.RadarRange, minimap.ProjectionWindowSize)
 	}
 	if len(minimap.LiveContacts) != len(entities) {
 		t.Fatalf("%s minimap contacts = %d, entities = %d", label, len(minimap.LiveContacts), len(entities))

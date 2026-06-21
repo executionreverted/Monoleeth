@@ -314,6 +314,94 @@ func TestResolveScanPulseDiscoversPlanetWritesIntelEventAndXPOnce(t *testing.T) 
 	}
 }
 
+func TestResolveScanPulseMaterializationAndIntelAreZoneScoped(t *testing.T) {
+	seed := scannerTestSeed(t)
+	_, candidate := findScannerTestCandidate(t, seed)
+	store := NewInMemoryStore()
+	zoneOne := foundation.ZoneID("map_1_1")
+	zoneTwo := foundation.ZoneID("map_1_2")
+
+	serviceOne := newScannerTestService(t, scannerTestServiceOptions{
+		seed:     seed,
+		store:    store,
+		position: candidate.Position(),
+		scannerPosition: ScannerPosition{
+			WorldID:  scannerTestWorldID,
+			ZoneID:   zoneOne,
+			Position: candidate.Position(),
+		},
+		snapshot:   scannerSnapshot(candidate, 100_000, scannerRadarRangeFor(candidate), 0),
+		moduleOK:   true,
+		cooldownOK: true,
+		xp:         &recordingScanXPProvider{},
+	})
+	serviceTwo := newScannerTestService(t, scannerTestServiceOptions{
+		seed:     seed,
+		store:    store,
+		position: candidate.Position(),
+		scannerPosition: ScannerPosition{
+			WorldID:  scannerTestWorldID,
+			ZoneID:   zoneTwo,
+			Position: candidate.Position(),
+		},
+		snapshot:   scannerSnapshot(candidate, 100_000, scannerRadarRangeFor(candidate), 0),
+		moduleOK:   true,
+		cooldownOK: true,
+		xp:         &recordingScanXPProvider{},
+	})
+
+	inputOne := scannerStartInputForZone("pulse_map_one", zoneOne)
+	if _, err := serviceOne.StartScanPulse(inputOne); err != nil {
+		t.Fatalf("StartScanPulse(map one) error = %v, want nil", err)
+	}
+	resultOne, err := serviceOne.ResolveScanPulse(scannerResolveInputForZone("pulse_map_one", zoneOne))
+	if err != nil {
+		t.Fatalf("ResolveScanPulse(map one) error = %v, want nil", err)
+	}
+
+	inputTwo := scannerStartInputForZone("pulse_map_two", zoneTwo)
+	if _, err := serviceTwo.StartScanPulse(inputTwo); err != nil {
+		t.Fatalf("StartScanPulse(map two) error = %v, want nil", err)
+	}
+	resultTwo, err := serviceTwo.ResolveScanPulse(scannerResolveInputForZone("pulse_map_two", zoneTwo))
+	if err != nil {
+		t.Fatalf("ResolveScanPulse(map two) error = %v, want nil", err)
+	}
+
+	if resultOne.PlanetID == "" || resultTwo.PlanetID == "" || resultOne.PlanetID == resultTwo.PlanetID {
+		t.Fatalf("planet ids map one=%q map two=%q, want distinct map-scoped materializations", resultOne.PlanetID, resultTwo.PlanetID)
+	}
+	planets := store.Planets()
+	if len(planets) != 2 {
+		t.Fatalf("materialized planets = %d, want 2 for same local cell in different maps", len(planets))
+	}
+	planetZones := map[foundation.ZoneID]bool{}
+	for _, planet := range planets {
+		planetZones[planet.ZoneID] = true
+	}
+	if !planetZones[zoneOne] || !planetZones[zoneTwo] {
+		t.Fatalf("planet zones = %#v, want both %s and %s", planetZones, zoneOne, zoneTwo)
+	}
+
+	intelRows, err := store.PlayerPlanetIntelRecords(scannerTestPlayerID)
+	if err != nil {
+		t.Fatalf("PlayerPlanetIntelRecords() error = %v, want nil", err)
+	}
+	if len(intelRows) != 2 {
+		t.Fatalf("intel rows = %d, want two map-scoped rows", len(intelRows))
+	}
+	intelZones := map[foundation.ZoneID]bool{}
+	for _, intel := range intelRows {
+		intelZones[intel.ZoneID] = true
+		if intel.WorldID != scannerTestWorldID {
+			t.Fatalf("intel world = %q, want %q", intel.WorldID, scannerTestWorldID)
+		}
+	}
+	if !intelZones[zoneOne] || !intelZones[zoneTwo] {
+		t.Fatalf("intel zones = %#v, want both %s and %s", intelZones, zoneOne, zoneTwo)
+	}
+}
+
 func TestResolveScanPulsePlayerRevealDoesNotCreatePlanetIntelOrXP(t *testing.T) {
 	seed := scannerTestSeed(t)
 	_, candidate := findScannerTestCandidate(t, seed)
@@ -547,20 +635,28 @@ func scannerEnergyProviderForTest(options scannerTestServiceOptions) ScannerEner
 }
 
 func scannerStartInput(ref ScanPulseReference) StartScanPulseInput {
+	return scannerStartInputForZone(ref, scannerTestZoneID)
+}
+
+func scannerStartInputForZone(ref ScanPulseReference, zoneID foundation.ZoneID) StartScanPulseInput {
 	return StartScanPulseInput{
 		PlayerID:       scannerTestPlayerID,
 		WorldID:        scannerTestWorldID,
-		ZoneID:         scannerTestZoneID,
+		ZoneID:         zoneID,
 		ShipID:         scannerTestShipID,
 		PulseReference: ref,
 	}
 }
 
 func scannerResolveInput(ref ScanPulseReference) ResolveScanPulseInput {
+	return scannerResolveInputForZone(ref, scannerTestZoneID)
+}
+
+func scannerResolveInputForZone(ref ScanPulseReference, zoneID foundation.ZoneID) ResolveScanPulseInput {
 	return ResolveScanPulseInput{
 		PlayerID:       scannerTestPlayerID,
 		WorldID:        scannerTestWorldID,
-		ZoneID:         scannerTestZoneID,
+		ZoneID:         zoneID,
 		PulseReference: ref,
 	}
 }

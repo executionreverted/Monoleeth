@@ -42,10 +42,14 @@ type SpawnID string
 // PortalID identifies a portal scoped by source map.
 type PortalID string
 
+// SafeZoneID identifies a safe zone scoped by map.
+type SafeZoneID string
+
 func (id MapID) String() string         { return string(id) }
 func (key PublicMapKey) String() string { return string(key) }
 func (id SpawnID) String() string       { return string(id) }
 func (id PortalID) String() string      { return string(id) }
+func (id SafeZoneID) String() string    { return string(id) }
 
 func (id MapID) ZoneID() world.ZoneID { return world.ZoneID(id) }
 
@@ -53,6 +57,7 @@ func (id MapID) Validate() error         { return validateCatalogID("map", strin
 func (key PublicMapKey) Validate() error { return validateCatalogID("public map key", string(key)) }
 func (id SpawnID) Validate() error       { return validateCatalogID("spawn", string(id)) }
 func (id PortalID) Validate() error      { return validateCatalogID("portal", string(id)) }
+func (id SafeZoneID) Validate() error    { return validateCatalogID("safe zone", string(id)) }
 
 // Bounds describes inclusive local map coordinates.
 type Bounds struct {
@@ -114,6 +119,26 @@ type PortalDefinition struct {
 	Visible            bool
 }
 
+// SafeZoneDefinition is server-owned catalog data used for hangar/station
+// safety classification.
+type SafeZoneDefinition struct {
+	SafeZoneID    SafeZoneID `json:"-"`
+	Center        world.Vec2
+	Radius        float64
+	DisplayName   string
+	HangarActions bool
+}
+
+func (safeZone SafeZoneDefinition) Contains(position world.Vec2) bool {
+	if safeZone.Radius <= 0 || !isFinite(safeZone.Radius) {
+		return false
+	}
+	if err := position.Validate(); err != nil {
+		return false
+	}
+	return safeZone.Center.DistanceSquared(position) <= safeZone.Radius*safeZone.Radius
+}
+
 // MapDefinition is server-owned bounded map catalog data.
 type MapDefinition struct {
 	InternalMapID  MapID
@@ -128,19 +153,21 @@ type MapDefinition struct {
 	Bounds         Bounds
 	SpawnPoints    []SpawnPointDefinition
 	Portals        []PortalDefinition
+	SafeZones      []SafeZoneDefinition
 }
 
 // ClientMapProjection is the client-safe public subset of a map definition.
 type ClientMapProjection struct {
-	MapKey         string                   `json:"map_key"`
-	PublicMapKey   string                   `json:"public_map_key"`
-	DisplayName    string                   `json:"display_name"`
-	Region         string                   `json:"region"`
-	RiskBand       string                   `json:"risk_band"`
-	PVPPolicy      string                   `json:"pvp_policy"`
-	VisualThemeKey string                   `json:"visual_theme_key,omitempty"`
-	Bounds         Bounds                   `json:"bounds"`
-	VisiblePortals []ClientPortalProjection `json:"visible_portals"`
+	MapKey         string                     `json:"map_key"`
+	PublicMapKey   string                     `json:"public_map_key"`
+	DisplayName    string                     `json:"display_name"`
+	Region         string                     `json:"region"`
+	RiskBand       string                     `json:"risk_band"`
+	PVPPolicy      string                     `json:"pvp_policy"`
+	VisualThemeKey string                     `json:"visual_theme_key,omitempty"`
+	Bounds         Bounds                     `json:"bounds"`
+	VisiblePortals []ClientPortalProjection   `json:"visible_portals"`
+	SafeZones      []ClientSafeZoneProjection `json:"safe_zones,omitempty"`
 }
 
 // ClientPortalProjection is the client-safe public subset of a visible portal.
@@ -149,6 +176,15 @@ type ClientPortalProjection struct {
 	DisplayName       string     `json:"display_name,omitempty"`
 	Position          world.Vec2 `json:"position"`
 	InteractionRadius float64    `json:"interaction_radius"`
+}
+
+// ClientSafeZoneProjection is the client-safe public subset of a safe zone.
+type ClientSafeZoneProjection struct {
+	SafeAreaID    string     `json:"safe_area_id"`
+	DisplayName   string     `json:"display_name,omitempty"`
+	Center        world.Vec2 `json:"center"`
+	Radius        float64    `json:"radius"`
+	HangarActions bool       `json:"hangar_actions"`
 }
 
 // Catalog stores validated server-owned map definitions.
@@ -319,6 +355,20 @@ func (definition MapDefinition) ClientProjection() ClientMapProjection {
 			InteractionRadius: portal.InteractionRadius,
 		})
 	}
+	safeZoneDefinitions := append([]SafeZoneDefinition(nil), definition.SafeZones...)
+	sort.Slice(safeZoneDefinitions, func(i, j int) bool {
+		return safeZoneDefinitions[i].SafeZoneID < safeZoneDefinitions[j].SafeZoneID
+	})
+	safeZones := make([]ClientSafeZoneProjection, 0, len(safeZoneDefinitions))
+	for _, safeZone := range safeZoneDefinitions {
+		safeZones = append(safeZones, ClientSafeZoneProjection{
+			SafeAreaID:    safeZone.SafeZoneID.String(),
+			DisplayName:   safeZone.DisplayName,
+			Center:        safeZone.Center,
+			Radius:        safeZone.Radius,
+			HangarActions: safeZone.HangarActions,
+		})
+	}
 	return ClientMapProjection{
 		MapKey:         definition.PublicMapKey.String(),
 		PublicMapKey:   definition.PublicMapKey.String(),
@@ -329,7 +379,17 @@ func (definition MapDefinition) ClientProjection() ClientMapProjection {
 		VisualThemeKey: definition.VisualThemeKey,
 		Bounds:         definition.Bounds,
 		VisiblePortals: portals,
+		SafeZones:      safeZones,
 	}
+}
+
+func (definition MapDefinition) SafeZoneAt(position world.Vec2) (SafeZoneDefinition, bool) {
+	for _, safeZone := range definition.SafeZones {
+		if safeZone.Contains(position) {
+			return safeZone, true
+		}
+	}
+	return SafeZoneDefinition{}, false
 }
 
 // StarterCatalog returns the first DarkOrbit-style bounded map set.
@@ -350,6 +410,10 @@ func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 			SpawnPoints: []SpawnPointDefinition{
 				{SpawnID: StarterSpawnID, Position: world.Vec2{X: 0, Y: 0}, Label: "Starter Dock"},
 				{SpawnID: "east_gate", Position: world.Vec2{X: 9600, Y: 5000}, Label: "East Gate"},
+			},
+			SafeZones: []SafeZoneDefinition{
+				{SafeZoneID: "starter_dock", Center: world.Vec2{X: 0, Y: 0}, Radius: 250, DisplayName: "Starter Dock", HangarActions: true},
+				{SafeZoneID: "east_gate", Center: world.Vec2{X: 9600, Y: 5000}, Radius: 260, DisplayName: "East Gate", HangarActions: true},
 			},
 			Portals: []PortalDefinition{
 				{
@@ -377,6 +441,9 @@ func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 			Bounds:         bounds,
 			SpawnPoints: []SpawnPointDefinition{
 				{SpawnID: "west_gate", Position: world.Vec2{X: 400, Y: 5000}, Label: "West Gate"},
+			},
+			SafeZones: []SafeZoneDefinition{
+				{SafeZoneID: "west_gate", Center: world.Vec2{X: 400, Y: 5000}, Radius: 260, DisplayName: "West Gate", HangarActions: true},
 			},
 			Portals: []PortalDefinition{
 				{
@@ -460,12 +527,30 @@ func (catalog *Catalog) validateMapContents(definition MapDefinition) error {
 			return fmt.Errorf("portal %q destination spawn %q: %w", portal.PortalID, portal.DestinationSpawnID, ErrSpawnNotFound)
 		}
 	}
+
+	safeZoneIDs := make(map[SafeZoneID]struct{}, len(definition.SafeZones))
+	for _, safeZone := range definition.SafeZones {
+		if err := safeZone.SafeZoneID.Validate(); err != nil {
+			return fmt.Errorf("map %q safe zone: %w", definition.InternalMapID, err)
+		}
+		if _, exists := safeZoneIDs[safeZone.SafeZoneID]; exists {
+			return fmt.Errorf("map %q duplicate safe zone %q: %w", definition.InternalMapID, safeZone.SafeZoneID, ErrInvalidCatalog)
+		}
+		safeZoneIDs[safeZone.SafeZoneID] = struct{}{}
+		if err := catalog.ValidatePosition(definition.InternalMapID, safeZone.Center); err != nil {
+			return fmt.Errorf("map %q safe zone %q: %w", definition.InternalMapID, safeZone.SafeZoneID, err)
+		}
+		if safeZone.Radius <= 0 || !isFinite(safeZone.Radius) {
+			return fmt.Errorf("map %q safe zone %q radius %v: %w", definition.InternalMapID, safeZone.SafeZoneID, safeZone.Radius, ErrInvalidMapDefinition)
+		}
+	}
 	return nil
 }
 
 func cloneDefinition(definition MapDefinition) MapDefinition {
 	definition.SpawnPoints = append([]SpawnPointDefinition(nil), definition.SpawnPoints...)
 	definition.Portals = append([]PortalDefinition(nil), definition.Portals...)
+	definition.SafeZones = append([]SafeZoneDefinition(nil), definition.SafeZones...)
 	return definition
 }
 

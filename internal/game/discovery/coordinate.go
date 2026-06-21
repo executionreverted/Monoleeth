@@ -75,6 +75,8 @@ type UseCoordinateScrollResult struct {
 type CoordinateScrollMetadata struct {
 	ScrollItemInstanceID foundation.ItemID         `json:"scroll_item_instance_id"`
 	PlanetID             foundation.PlanetID       `json:"planet_id"`
+	WorldID              foundation.WorldID        `json:"-"`
+	ZoneID               foundation.ZoneID         `json:"-"`
 	Coordinates          world.Vec2                `json:"coordinates"`
 	PlanetLevelKnown     int                       `json:"planet_level_known"`
 	PlanetTypeKnown      PlanetType                `json:"planet_type_known"`
@@ -430,6 +432,12 @@ func (metadata CoordinateScrollMetadata) Validate() error {
 	if err := metadata.PlanetID.Validate(); err != nil {
 		return fmt.Errorf("planet_id: %w", err)
 	}
+	if err := metadata.WorldID.Validate(); err != nil {
+		return fmt.Errorf("world_id: %w", err)
+	}
+	if err := metadata.ZoneID.Validate(); err != nil {
+		return fmt.Errorf("zone_id: %w", err)
+	}
 	if err := metadata.Coordinates.Validate(); err != nil {
 		return err
 	}
@@ -660,6 +668,8 @@ func newCoordinateScrollMetadata(
 	return CoordinateScrollMetadata{
 		ScrollItemInstanceID: scrollItemInstanceID,
 		PlanetID:             sourceIntel.PlanetID,
+		WorldID:              sourceIntel.WorldID,
+		ZoneID:               sourceIntel.ZoneID,
 		Coordinates:          sourceIntel.Coordinates,
 		PlanetLevelKnown:     planet.Level,
 		PlanetTypeKnown:      planet.Type,
@@ -681,6 +691,8 @@ func playerIntelFromCoordinateScroll(
 	return PlayerPlanetIntel{
 		PlayerID:        playerID,
 		PlanetID:        metadata.PlanetID,
+		WorldID:         metadata.WorldID,
+		ZoneID:          metadata.ZoneID,
 		Coordinates:     metadata.Coordinates,
 		State:           metadata.State,
 		Confidence:      metadata.Confidence,
@@ -693,6 +705,8 @@ func playerIntelFromCoordinateScroll(
 func coordinateScrollMetadataMatchesIdentity(a CoordinateScrollMetadata, b CoordinateScrollMetadata) bool {
 	return a.ScrollItemInstanceID == b.ScrollItemInstanceID &&
 		a.PlanetID == b.PlanetID &&
+		a.WorldID == b.WorldID &&
+		a.ZoneID == b.ZoneID &&
 		a.Coordinates == b.Coordinates &&
 		a.LastVerifiedAt.Equal(b.LastVerifiedAt) &&
 		a.Confidence == b.Confidence &&

@@ -48,6 +48,8 @@ const staleIntelConfidence = 40
 type PlayerPlanetIntel struct {
 	PlayerID    foundation.PlayerID
 	PlanetID    foundation.PlanetID
+	WorldID     foundation.WorldID `json:"-"`
+	ZoneID      foundation.ZoneID  `json:"-"`
 	Coordinates world.Vec2
 
 	State      IntelState
@@ -64,6 +66,12 @@ func (intel PlayerPlanetIntel) Validate() error {
 		return err
 	}
 	if err := intel.PlanetID.Validate(); err != nil {
+		return err
+	}
+	if err := intel.WorldID.Validate(); err != nil {
+		return err
+	}
+	if err := intel.ZoneID.Validate(); err != nil {
 		return err
 	}
 	if err := intel.Coordinates.Validate(); err != nil {

@@ -270,7 +270,7 @@ func (service *ScannerService) resolvePulseLocked(pulse scanPulse, now time.Time
 		}, nil
 	}
 
-	materializationKey := scannerMaterializationKey(pulse.worldID, pulse.cell, candidate)
+	materializationKey := scannerMaterializationKey(pulse.worldID, pulse.zoneID, pulse.cell, candidate)
 	planet := service.planetFromCandidate(pulse, candidate, materializationKey, now)
 	materialized, err := service.store.MaterializePlanet(MaterializePlanetInput{
 		CandidateKey: materializationKey,
@@ -283,6 +283,8 @@ func (service *ScannerService) resolvePulseLocked(pulse scanPulse, now time.Time
 	intel := PlayerPlanetIntel{
 		PlayerID:        pulse.playerID,
 		PlanetID:        materialized.Planet.ID,
+		WorldID:         materialized.Planet.WorldID,
+		ZoneID:          materialized.Planet.ZoneID,
 		Coordinates:     materialized.Planet.Coordinates,
 		State:           IntelStateFresh,
 		Confidence:      scannerIntelConfidence(candidate),

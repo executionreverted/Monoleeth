@@ -148,7 +148,7 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 		if !instance.Worker.RemoveEntity(intent.TargetID) {
 			return nil, domainErrorForRuntime(worker.ErrUnknownEntity)
 		}
-		runtime.hidden[intent.TargetID] = true
+		instance.HiddenEntities[intent.TargetID] = true
 	}
 
 	response := map[string]any{
@@ -212,7 +212,7 @@ func (runtime *Runtime) handleLootPickup(ctx realtime.CommandContext, request re
 		return nil, domainErrorForRuntime(err)
 	}
 	instance.Worker.RemoveEntity(intent.DropID)
-	runtime.hidden[intent.DropID] = true
+	instance.HiddenEntities[intent.DropID] = true
 
 	state := runtime.players[ctx.PlayerID]
 	state.Cargo = runtime.cargoSnapshotFromInventoryLocked(ctx.PlayerID)
