@@ -124,6 +124,96 @@ func TestCreateRouteDistanceAndRiskCalculation(t *testing.T) {
 	})
 }
 
+func TestCreateRouteValidatesPolicyMapIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		edit func(RouteCreatePolicy) RouteCreatePolicy
+	}{
+		{
+			name: "missing source map",
+			edit: func(policy RouteCreatePolicy) RouteCreatePolicy {
+				policy.SourceMapID = ""
+				return policy
+			},
+		},
+		{
+			name: "missing destination map",
+			edit: func(policy RouteCreatePolicy) RouteCreatePolicy {
+				policy.DestinationMapID = ""
+				return policy
+			},
+		},
+		{
+			name: "invalid source map",
+			edit: func(policy RouteCreatePolicy) RouteCreatePolicy {
+				policy.SourceMapID = " map_1_1"
+				return policy
+			},
+		},
+		{
+			name: "invalid destination map",
+			edit: func(policy RouteCreatePolicy) RouteCreatePolicy {
+				policy.DestinationMapID = "map:1:1"
+				return policy
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewInMemoryStore()
+			provider := &fakeRoutePolicyProvider{policy: tc.edit(validRoutePolicy())}
+			service := newTestRouteService(t, store, provider, testRouteNow())
+
+			_, err := service.CreateRoute(validCreateRouteInput())
+			if !errors.Is(err, ErrInvalidRouteMapID) {
+				t.Fatalf("CreateRoute() error = %v, want ErrInvalidRouteMapID", err)
+			}
+		})
+	}
+}
+
+func TestAutomationRouteValidateRequiresMapIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		edit func(AutomationRoute) AutomationRoute
+	}{
+		{
+			name: "missing source map",
+			edit: func(route AutomationRoute) AutomationRoute {
+				route.SourceMapID = ""
+				return route
+			},
+		},
+		{
+			name: "missing destination map",
+			edit: func(route AutomationRoute) AutomationRoute {
+				route.DestinationMapID = ""
+				return route
+			},
+		},
+		{
+			name: "invalid source map",
+			edit: func(route AutomationRoute) AutomationRoute {
+				route.SourceMapID = "map_1_1\n"
+				return route
+			},
+		},
+		{
+			name: "invalid destination map",
+			edit: func(route AutomationRoute) AutomationRoute {
+				route.DestinationMapID = " map_1_1"
+				return route
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.edit(validSettlementRoute(testRouteNow())).Validate()
+			if !errors.Is(err, ErrInvalidRouteMapID) {
+				t.Fatalf("Validate() error = %v, want ErrInvalidRouteMapID", err)
+			}
+		})
+	}
+}
+
 func TestCreateRouteStoresDetachedEnabledRoute(t *testing.T) {
 	store := NewInMemoryStore()
 	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
@@ -154,8 +244,11 @@ func TestCreateRouteStoresDetachedEnabledRoute(t *testing.T) {
 	if result.Route.EnergyCostPerHour != provider.policy.EnergyCostPerHour {
 		t.Fatalf("EnergyCostPerHour = %d, want %d", result.Route.EnergyCostPerHour, provider.policy.EnergyCostPerHour)
 	}
+	assertRouteMapIdentity(t, result.Route, provider.policy.SourceMapID, provider.policy.DestinationMapID)
 
 	result.Route.Enabled = false
+	result.Route.SourceMapID = "map_mutated"
+	result.Route.DestinationMapID = "map_mutated"
 	stored, ok, err := store.AutomationRoute(input.RouteID)
 	if err != nil || !ok {
 		t.Fatalf("AutomationRoute() ok = %v err = %v, want true nil", ok, err)
@@ -163,7 +256,9 @@ func TestCreateRouteStoresDetachedEnabledRoute(t *testing.T) {
 	if !stored.Enabled {
 		t.Fatal("mutating result changed stored route Enabled to false")
 	}
+	assertRouteMapIdentity(t, stored, provider.policy.SourceMapID, provider.policy.DestinationMapID)
 	stored.AmountPerHour = 999
+	stored.SourceMapID = "map_mutated_again"
 	storedAgain, ok, err := store.AutomationRoute(input.RouteID)
 	if err != nil || !ok {
 		t.Fatalf("AutomationRoute(second) ok = %v err = %v, want true nil", ok, err)
@@ -171,6 +266,7 @@ func TestCreateRouteStoresDetachedEnabledRoute(t *testing.T) {
 	if storedAgain.AmountPerHour != input.AmountPerHour {
 		t.Fatalf("stored AmountPerHour = %d, want %d", storedAgain.AmountPerHour, input.AmountPerHour)
 	}
+	assertRouteMapIdentity(t, storedAgain, provider.policy.SourceMapID, provider.policy.DestinationMapID)
 }
 
 func TestCreateRouteDuplicateRouteIDFailsWithoutOverwrite(t *testing.T) {

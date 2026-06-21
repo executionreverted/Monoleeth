@@ -162,7 +162,7 @@ function parseProductionPlanet(payload: JsonObject): PlanetProductionSummary | n
   if (!planetID || !storage) {
     return null;
   }
-  return {
+  const planet: PlanetProductionSummary = {
     planet_id: planetID,
     production_enabled: booleanField(payload, 'production_enabled') ?? false,
     last_calculated_at: Math.max(0, Math.round(numberField(payload, 'last_calculated_at') ?? 0)),
@@ -176,10 +176,15 @@ function parseProductionPlanet(payload: JsonObject): PlanetProductionSummary | n
           .filter((building): building is PlanetProductionSummary['buildings'][number] => building !== null)
       : [],
   };
+  const publicMapKey = stringField(payload, 'public_map_key');
+  if (publicMapKey) {
+    planet.public_map_key = publicMapKey;
+  }
+  return planet;
 }
 
 export function parsePlanetStorage(payload: JsonObject): PlanetStorageSummary {
-  return {
+  const storage: PlanetStorageSummary = {
     planet_id: stringField(payload, 'planet_id') ?? '',
     used_units: Math.max(0, Math.round(numberField(payload, 'used_units') ?? 0)),
     free_units: Math.max(0, Math.round(numberField(payload, 'free_units') ?? 0)),
@@ -195,6 +200,11 @@ export function parsePlanetStorage(payload: JsonObject): PlanetStorageSummary {
           .filter((item) => item.item_id !== '' && item.quantity > 0)
       : [],
   };
+  const publicMapKey = stringField(payload, 'public_map_key');
+  if (publicMapKey) {
+    storage.public_map_key = publicMapKey;
+  }
+  return storage;
 }
 
 export function applyPlanetStorageSummary(state: ClientState, storage: PlanetStorageSummary): ClientState {
@@ -233,7 +243,7 @@ export function applyPlanetStorageSummary(state: ClientState, storage: PlanetSto
 }
 
 function storageOnlyProductionSummary(storage: PlanetStorageSummary): PlanetProductionSummary {
-  return {
+  const production: PlanetProductionSummary = {
     planet_id: storage.planet_id,
     production_enabled: false,
     last_calculated_at: storage.updated_at,
@@ -242,6 +252,10 @@ function storageOnlyProductionSummary(storage: PlanetStorageSummary): PlanetProd
     storage,
     buildings: [],
   };
+  if (storage.public_map_key) {
+    production.public_map_key = storage.public_map_key;
+  }
+  return production;
 }
 
 function parsePlanetBuilding(payload: JsonObject): PlanetProductionSummary['buildings'][number] | null {
@@ -249,7 +263,7 @@ function parsePlanetBuilding(payload: JsonObject): PlanetProductionSummary['buil
   if (!buildingID) {
     return null;
   }
-  return {
+  const building: PlanetProductionSummary['buildings'][number] = {
     building_id: buildingID,
     building_type: stringField(payload, 'building_type') ?? '',
     category: stringField(payload, 'category') ?? '',
@@ -257,6 +271,15 @@ function parsePlanetBuilding(payload: JsonObject): PlanetProductionSummary['buil
     state: stringField(payload, 'state') ?? '',
     updated_at: Math.max(0, Math.round(numberField(payload, 'updated_at') ?? 0)),
   };
+  const planetID = stringField(payload, 'planet_id');
+  const publicMapKey = stringField(payload, 'public_map_key');
+  if (planetID) {
+    building.planet_id = planetID;
+  }
+  if (publicMapKey) {
+    building.public_map_key = publicMapKey;
+  }
+  return building;
 }
 
 export function parseRouteList(payload: JsonObject, fallback: RouteListSummary | null): RouteListSummary {
@@ -276,7 +299,7 @@ export function parseRoute(payload: JsonObject): RouteSummary | null {
     return null;
   }
   const risk = objectField(payload, 'risk') ?? {};
-  return {
+  const route: RouteSummary = {
     route_id: routeID,
     source_planet_id: stringField(payload, 'source_planet_id') ?? '',
     destination: {
@@ -295,6 +318,15 @@ export function parseRoute(payload: JsonObject): RouteSummary | null {
     last_calculated_at: Math.max(0, Math.round(numberField(payload, 'last_calculated_at') ?? 0)),
     updated_at: Math.max(0, Math.round(numberField(payload, 'updated_at') ?? 0)),
   };
+  const fromPublicMapKey = stringField(payload, 'from_public_map_key');
+  const toPublicMapKey = stringField(payload, 'to_public_map_key');
+  if (fromPublicMapKey) {
+    route.from_public_map_key = fromPublicMapKey;
+  }
+  if (toPublicMapKey) {
+    route.to_public_map_key = toPublicMapKey;
+  }
+  return route;
 }
 
 export function applyRouteSnapshot(state: ClientState, route: RouteSummary): ClientState {

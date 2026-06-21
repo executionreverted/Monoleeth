@@ -585,6 +585,7 @@ export interface KnownPlanetSummary {
 
 export interface PlanetStorageSummary {
   planet_id: string;
+  public_map_key?: string;
   used_units: number;
   free_units: number;
   capacity_units: number;
@@ -593,6 +594,8 @@ export interface PlanetStorageSummary {
 }
 
 export interface PlanetBuildingSummary {
+  planet_id?: string;
+  public_map_key?: string;
   building_id: string;
   building_type: string;
   category: string;
@@ -603,6 +606,7 @@ export interface PlanetBuildingSummary {
 
 export interface PlanetProductionSummary {
   planet_id: string;
+  public_map_key?: string;
   production_enabled: boolean;
   last_calculated_at: number;
   energy_capacity_per_hour: number;
@@ -614,6 +618,8 @@ export interface PlanetProductionSummary {
 export interface RouteSummary {
   route_id: string;
   source_planet_id: string;
+  from_public_map_key?: string;
+  to_public_map_key?: string;
   destination: { type: string; id: string };
   resource_item_id: string;
   amount_per_hour: number;

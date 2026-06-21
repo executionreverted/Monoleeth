@@ -8,7 +8,6 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
-	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
 	worldmaps "gameproject/internal/game/world/maps"
 )
@@ -89,6 +88,7 @@ type planetProductionCollectionPayload struct {
 
 type planetProductionPayload struct {
 	PlanetID              string                  `json:"planet_id"`
+	PublicMapKey          string                  `json:"public_map_key"`
 	ProductionEnabled     bool                    `json:"production_enabled"`
 	LastCalculatedAt      int64                   `json:"last_calculated_at"`
 	EnergyCapacityPerHour int64                   `json:"energy_capacity_per_hour"`
@@ -103,6 +103,7 @@ type planetStorageCollectionPayload struct {
 
 type planetStoragePayload struct {
 	PlanetID      string              `json:"planet_id"`
+	PublicMapKey  string              `json:"public_map_key"`
 	UsedUnits     int64               `json:"used_units"`
 	FreeUnits     int64               `json:"free_units"`
 	CapacityUnits int64               `json:"capacity_units"`
@@ -116,6 +117,8 @@ type planetStorageItem struct {
 }
 
 type planetBuildingPayload struct {
+	PlanetID     string `json:"planet_id"`
+	PublicMapKey string `json:"public_map_key"`
 	BuildingID   string `json:"building_id"`
 	BuildingType string `json:"building_type"`
 	Category     string `json:"category"`
@@ -131,6 +134,8 @@ type routeListPayload struct {
 type routePayload struct {
 	RouteID           string                  `json:"route_id"`
 	SourcePlanetID    string                  `json:"source_planet_id"`
+	FromPublicMapKey  string                  `json:"from_public_map_key"`
+	ToPublicMapKey    string                  `json:"to_public_map_key"`
 	Destination       routeDestinationPayload `json:"destination"`
 	ResourceItemID    string                  `json:"resource_item_id"`
 	AmountPerHour     int64                   `json:"amount_per_hour"`
@@ -310,7 +315,11 @@ func (runtime *Runtime) handleRouteList(ctx realtime.CommandContext, request rea
 	if err := rejectTrustedPayload(request.Payload); err != nil {
 		return nil, err
 	}
-	return marshalPayload(map[string]any{"routes": runtime.routeListPayload(ctx.PlayerID)})
+	payload, err := runtime.routeListPayload(ctx.PlayerID)
+	if err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	return marshalPayload(map[string]any{"routes": payload})
 }
 
 func (runtime *Runtime) handleRouteSnapshot(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -334,7 +343,11 @@ func (runtime *Runtime) handleRouteSnapshot(ctx realtime.CommandContext, request
 	if !ok || route.OwnerPlayerID != ctx.PlayerID {
 		return nil, foundation.NewDomainError(foundation.CodeNotFound, "Route was not found.")
 	}
-	return marshalPayload(map[string]any{"route": routePayloadFromRoute(route)})
+	routePayload, err := runtime.routePayloadFromRoute(route)
+	if err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	return marshalPayload(map[string]any{"route": routePayload})
 }
 
 func (runtime *Runtime) beginScanPulseMapGuardLocked(sessionID auth.SessionID, playerID foundation.PlayerID) (scanPulseMapGuard, error) {
@@ -521,10 +534,18 @@ func (runtime *Runtime) planetDetailPayload(playerID foundation.PlayerID, planet
 		if snapshot, ok, err := runtime.Production.Snapshot(planetID); err != nil {
 			return planetDetailPayload{}, err
 		} else if ok {
-			productionPayload := planetProductionPayloadFromSnapshot(snapshot)
+			publicMapKey, err := runtime.publicMapKeyForPlanet(planet)
+			if err != nil {
+				return planetDetailPayload{}, err
+			}
+			productionPayload := planetProductionPayloadFromSnapshot(snapshot, publicMapKey)
 			detail.Production = &productionPayload
 		}
-		detail.Routes = runtime.routesForPlanet(playerID, planetID)
+		routes, err := runtime.routesForPlanet(playerID, planetID)
+		if err != nil {
+			return planetDetailPayload{}, err
+		}
+		detail.Routes = routes
 		detail.AvailableCommands = []string{"planet.production_summary", "planet.storage_summary", "route.list"}
 	}
 	return detail, nil
@@ -551,7 +572,11 @@ func (runtime *Runtime) productionSummaryPayload(playerID foundation.PlayerID, p
 		if planet.WorldID != scope.worldID || planet.ZoneID != scope.zoneID {
 			continue
 		}
-		planets = append(planets, planetProductionPayloadFromSnapshot(snapshot))
+		publicMapKey, err := runtime.publicMapKeyForPlanet(planet)
+		if err != nil {
+			return planetProductionCollectionPayload{}, err
+		}
+		planets = append(planets, planetProductionPayloadFromSnapshot(snapshot, publicMapKey))
 	}
 	return planetProductionCollectionPayload{Planets: planets}, nil
 }
@@ -568,28 +593,36 @@ func (runtime *Runtime) storageSummaryPayload(playerID foundation.PlayerID, plan
 	return planetStorageCollectionPayload{Planets: storage}, nil
 }
 
-func (runtime *Runtime) routeListPayload(playerID foundation.PlayerID) routeListPayload {
+func (runtime *Runtime) routeListPayload(playerID foundation.PlayerID) (routeListPayload, error) {
 	routes := runtime.Production.AutomationRoutes()
 	payload := make([]routePayload, 0, len(routes))
 	for _, route := range routes {
 		if route.OwnerPlayerID != playerID {
 			continue
 		}
-		payload = append(payload, routePayloadFromRoute(route))
+		routePayload, err := runtime.routePayloadFromRoute(route)
+		if err != nil {
+			return routeListPayload{}, err
+		}
+		payload = append(payload, routePayload)
 	}
-	return routeListPayload{Routes: payload}
+	return routeListPayload{Routes: payload}, nil
 }
 
-func (runtime *Runtime) routesForPlanet(playerID foundation.PlayerID, planetID foundation.PlanetID) []routePayload {
+func (runtime *Runtime) routesForPlanet(playerID foundation.PlayerID, planetID foundation.PlanetID) ([]routePayload, error) {
 	routes := runtime.Production.AutomationRoutes()
 	payload := make([]routePayload, 0)
 	for _, route := range routes {
 		if route.OwnerPlayerID != playerID || route.SourcePlanetID != planetID {
 			continue
 		}
-		payload = append(payload, routePayloadFromRoute(route))
+		routePayload, err := runtime.routePayloadFromRoute(route)
+		if err != nil {
+			return nil, err
+		}
+		payload = append(payload, routePayload)
 	}
-	return payload
+	return payload, nil
 }
 
 type knownPlanetMapScope struct {
@@ -619,123 +652,6 @@ func (runtime *Runtime) knownPlanetMapScopeLocked(playerID foundation.PlayerID) 
 		zoneID:       location.ZoneID,
 		publicMapKey: publicMapKeyFromProjection(projection),
 	}, nil
-}
-
-func knownPlanetPayloadFromIntel(playerID foundation.PlayerID, planet discovery.Planet, intel discovery.PlayerPlanetIntel, publicMapKey string) knownPlanetPayload {
-	return knownPlanetPayload{
-		PlanetID:     planet.ID.String(),
-		PublicMapKey: publicMapKey,
-		Biome:        string(planet.Biome),
-		PlanetType:   string(planet.Type),
-		Rarity:       string(planet.Rarity),
-		Level:        planet.Level,
-		IntelState:   string(intel.State),
-		Confidence:   intel.Confidence,
-		LastSeenAt:   intel.LastSeenAt.UTC().UnixMilli(),
-		OwnerStatus:  publicPlanetOwnerStatus(playerID, planet),
-		DiscoveredAt: planet.DiscoveredAt.UTC().UnixMilli(),
-	}
-}
-
-func publicPlanetOwnerStatus(playerID foundation.PlayerID, planet discovery.Planet) string {
-	if planet.OwnerPlayerID.IsZero() {
-		return "unclaimed"
-	}
-	if planet.OwnerPlayerID == playerID {
-		return "owned_by_you"
-	}
-	return "claimed"
-}
-
-func scanPulsePayloadFromStart(start discovery.StartScanPulseResult) scanPulsePayload {
-	return scanPulsePayload{
-		PulseReference: string(start.PulseReference),
-		Status:         string(start.Status),
-		ResolveAfter:   start.ResolveAfter.UTC().UnixMilli(),
-	}
-}
-
-func scanPulsePayloadFromResult(result discovery.ResolveScanPulseResult) scanPulsePayload {
-	return scanPulsePayload{
-		PulseReference: string(result.PulseReference),
-		Status:         string(result.Status),
-		Message:        result.Message,
-		Signal:         result.Signal,
-		PlanetID:       result.PlanetID.String(),
-		XPGranted:      result.XPGranted,
-		Duplicate:      result.Duplicate,
-	}
-}
-
-func planetProductionPayloadFromSnapshot(snapshot production.PlanetProductionSnapshot) planetProductionPayload {
-	buildings := make([]planetBuildingPayload, 0, len(snapshot.Buildings))
-	for _, building := range snapshot.Buildings {
-		buildings = append(buildings, planetBuildingPayload{
-			BuildingID:   building.BuildingID.String(),
-			BuildingType: building.BuildingType.String(),
-			Category:     productionDefinitionCategory(building),
-			Level:        building.Level,
-			State:        building.State.String(),
-			UpdatedAt:    building.UpdatedAt.UTC().UnixMilli(),
-		})
-	}
-	return planetProductionPayload{
-		PlanetID:              snapshot.State.PlanetID.String(),
-		ProductionEnabled:     snapshot.State.ProductionEnabled,
-		LastCalculatedAt:      snapshot.State.LastCalculatedAt.UTC().UnixMilli(),
-		EnergyCapacityPerHour: snapshot.State.EnergyCapacityPerHour,
-		EnergyReservedPerHour: snapshot.State.EnergyReservedPerHour,
-		Storage:               planetStoragePayloadFromStorage(snapshot.Storage),
-		Buildings:             buildings,
-	}
-}
-
-func planetStoragePayloadFromStorage(storage production.PlanetStorage) planetStoragePayload {
-	items := make([]planetStorageItem, 0, len(storage.Items))
-	for _, item := range storage.Items {
-		items = append(items, planetStorageItem{
-			ItemID:   item.ItemID.String(),
-			Quantity: item.Quantity,
-		})
-	}
-	return planetStoragePayload{
-		PlanetID:      storage.PlanetID.String(),
-		UsedUnits:     storage.UsedUnits(),
-		FreeUnits:     storage.FreeUnits(),
-		CapacityUnits: storage.CapacityUnits,
-		UpdatedAt:     storage.UpdatedAt.UTC().UnixMilli(),
-		Items:         items,
-	}
-}
-
-func productionDefinitionCategory(building production.PlanetBuilding) string {
-	switch building.BuildingType {
-	case production.BuildingTypeIronExtractor:
-		return production.BuildingCategoryExtractor.String()
-	case production.BuildingTypeAlloyFoundry:
-		return production.BuildingCategoryRefinery.String()
-	default:
-		return ""
-	}
-}
-
-func routePayloadFromRoute(route production.AutomationRoute) routePayload {
-	return routePayload{
-		RouteID:           route.RouteID.String(),
-		SourcePlanetID:    route.SourcePlanetID.String(),
-		Destination:       routeDestinationPayload{Type: route.Destination.Type.String(), ID: route.Destination.ID.String()},
-		ResourceItemID:    route.ResourceItemID.String(),
-		AmountPerHour:     route.AmountPerHour,
-		EnergyCostPerHour: route.EnergyCostPerHour,
-		Enabled:           route.Enabled,
-		Risk: routeRiskPayload{
-			LossChance:     route.Risk.LossChance,
-			MinLossPercent: route.Risk.MinLossPercent,
-			MaxLossPercent: route.Risk.MaxLossPercent,
-		},
-		LastCalculatedAt: route.LastCalculatedAt.UTC().UnixMilli(),
-		UpdatedAt:        route.UpdatedAt.UTC().UnixMilli(),
-	}
 }
 
 func optionalPlanetID(payload json.RawMessage) (foundation.PlanetID, error) {

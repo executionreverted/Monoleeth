@@ -101,6 +101,8 @@ func validRoutePolicy() RouteCreatePolicy {
 		DestinationAccessible:     true,
 		ResourceRouteable:         true,
 		RequirementsMet:           true,
+		SourceMapID:               "map_1_1",
+		DestinationMapID:          "map_1_1",
 		DistanceUnits:             100,
 		MaxDistanceUnits:          1_000,
 		BaseLossChance:            0.02,
@@ -136,10 +138,12 @@ func validSettlementRoute(lastCalculatedAt time.Time) AutomationRoute {
 		RouteID:        "route-1",
 		OwnerPlayerID:  "player-1",
 		SourcePlanetID: "planet-1",
+		SourceMapID:    "map_1_1",
 		Destination: RouteDestination{
 			Type: RouteDestinationTypePlanet,
 			ID:   "planet-2",
 		},
+		DestinationMapID:  "map_1_1",
 		ResourceItemID:    "refined_alloy",
 		AmountPerHour:     40,
 		EnergyCostPerHour: 12,
@@ -188,6 +192,18 @@ func assertRouteAmountAndTime(
 	}
 	if !route.LastCalculatedAt.Equal(lastCalculatedAt) || !route.UpdatedAt.Equal(lastCalculatedAt) {
 		t.Fatalf("route timestamps = %s/%s, want %s", route.LastCalculatedAt, route.UpdatedAt, lastCalculatedAt)
+	}
+}
+
+func assertRouteMapIdentity(
+	t *testing.T,
+	route AutomationRoute,
+	sourceMapID RouteMapID,
+	destinationMapID RouteMapID,
+) {
+	t.Helper()
+	if route.SourceMapID != sourceMapID || route.DestinationMapID != destinationMapID {
+		t.Fatalf("route map ids = %q/%q, want %q/%q", route.SourceMapID, route.DestinationMapID, sourceMapID, destinationMapID)
 	}
 }
 

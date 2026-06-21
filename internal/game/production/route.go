@@ -30,6 +30,11 @@ const (
 // planet-shaped id through RouteDestination for a uniform durable route row.
 type RouteDestinationID string
 
+// RouteMapID is a production-owned copy of the server-only internal map id.
+// Production stores it for route policy/read-model grouping without importing
+// runtime or browser-facing map packages.
+type RouteMapID string
+
 // RouteDestination records the server-validated destination selected by intent.
 type RouteDestination struct {
 	Type RouteDestinationType `json:"type"`
@@ -48,7 +53,9 @@ type AutomationRoute struct {
 	RouteID           foundation.RouteID  `json:"route_id"`
 	OwnerPlayerID     foundation.PlayerID `json:"owner_player_id"`
 	SourcePlanetID    foundation.PlanetID `json:"source_planet_id"`
+	SourceMapID       RouteMapID          `json:"source_map_id"`
 	Destination       RouteDestination    `json:"destination"`
+	DestinationMapID  RouteMapID          `json:"destination_map_id"`
 	ResourceItemID    foundation.ItemID   `json:"resource_item_id"`
 	AmountPerHour     int64               `json:"amount_per_hour"`
 	EnergyCostPerHour int64               `json:"energy_cost_per_hour"`
@@ -123,6 +130,9 @@ type RouteCreatePolicy struct {
 	ResourceRouteable     bool
 	RequirementsMet       bool
 
+	SourceMapID      RouteMapID
+	DestinationMapID RouteMapID
+
 	DistanceUnits    float64
 	MaxDistanceUnits float64
 
@@ -153,6 +163,9 @@ func (destinationType RouteDestinationType) String() string { return string(dest
 // String returns the stable destination id representation.
 func (id RouteDestinationID) String() string { return string(id) }
 
+// String returns the stable internal route map id representation.
+func (id RouteMapID) String() string { return string(id) }
+
 // Validate reports whether destinationType is supported by the MVP route model.
 func (destinationType RouteDestinationType) Validate() error {
 	switch destinationType {
@@ -171,6 +184,18 @@ func (id RouteDestinationID) Validate() error {
 	}
 	if value != strings.TrimSpace(value) || strings.Contains(value, ":") || strings.IndexFunc(value, unicode.IsControl) >= 0 {
 		return fmt.Errorf("route destination id %q: %w", value, ErrInvalidRouteDestinationID)
+	}
+	return nil
+}
+
+// Validate reports whether id is non-blank and safe for internal route storage.
+func (id RouteMapID) Validate() error {
+	value := string(id)
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("route map id: %w", ErrInvalidRouteMapID)
+	}
+	if value != strings.TrimSpace(value) || strings.Contains(value, ":") || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return fmt.Errorf("route map id %q: %w", value, ErrInvalidRouteMapID)
 	}
 	return nil
 }
@@ -330,6 +355,12 @@ func (policy RouteCreatePolicy) Validate() error {
 	case !policy.RequirementsMet:
 		return ErrRouteRequirementNotMet
 	}
+	if err := policy.SourceMapID.Validate(); err != nil {
+		return err
+	}
+	if err := policy.DestinationMapID.Validate(); err != nil {
+		return err
+	}
 	if err := validateRouteDistance(policy.DistanceUnits, policy.MaxDistanceUnits); err != nil {
 		return err
 	}
@@ -392,7 +423,13 @@ func (route AutomationRoute) Validate() error {
 	if err := route.SourcePlanetID.Validate(); err != nil {
 		return err
 	}
+	if err := route.SourceMapID.Validate(); err != nil {
+		return err
+	}
 	if err := route.Destination.Validate(); err != nil {
+		return err
+	}
+	if err := route.DestinationMapID.Validate(); err != nil {
 		return err
 	}
 	if err := route.ResourceItemID.Validate(); err != nil {
@@ -446,7 +483,9 @@ func newAutomationRoute(input CreateRouteInput, policy RouteCreatePolicy, now ti
 		RouteID:           input.RouteID,
 		OwnerPlayerID:     input.OwnerPlayerID,
 		SourcePlanetID:    input.SourcePlanetID,
+		SourceMapID:       policy.SourceMapID,
 		Destination:       input.Destination,
+		DestinationMapID:  policy.DestinationMapID,
 		ResourceItemID:    input.ResourceItemID,
 		AmountPerHour:     input.AmountPerHour,
 		EnergyCostPerHour: policy.EnergyCostPerHour,

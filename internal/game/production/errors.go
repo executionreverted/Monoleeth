@@ -36,6 +36,7 @@ var (
 	ErrInvalidProductionEvent        = errors.New("invalid planet production event")
 	ErrInvalidRouteDestinationType   = errors.New("invalid route destination type")
 	ErrInvalidRouteDestinationID     = errors.New("invalid route destination id")
+	ErrInvalidRouteMapID             = errors.New("invalid route map id")
 	ErrInvalidRouteRisk              = errors.New("invalid route risk")
 	ErrInvalidRouteRate              = errors.New("invalid route amount per hour")
 	ErrInvalidRouteEnergyCost        = errors.New("invalid route energy cost per hour")

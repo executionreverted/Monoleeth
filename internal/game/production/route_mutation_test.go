@@ -30,6 +30,9 @@ func TestDisableRouteSettlesOldRouteBeforeDisabling(t *testing.T) {
 	if result.Route.Enabled {
 		t.Fatal("route Enabled = true, want false")
 	}
+	assertRouteMapIdentity(t, result.Route, route.SourceMapID, route.DestinationMapID)
+	assertRouteMapIdentity(t, result.Settlement.BeforeRoute, route.SourceMapID, route.DestinationMapID)
+	assertRouteMapIdentity(t, result.Settlement.AfterRoute, route.SourceMapID, route.DestinationMapID)
 	if result.Settlement.AddedAmount != 40 || result.Settlement.TakenAmount != 40 {
 		t.Fatalf("settlement taken/added = %d/%d, want 40/40", result.Settlement.TakenAmount, result.Settlement.AddedAmount)
 	}
@@ -177,6 +180,7 @@ func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 		nil,
 	)
 	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
+	provider.policy.DestinationMapID = "map_1_2"
 	service := newTestRouteService(t, store, provider, updateAt)
 	input := validUpdateRouteInput()
 	input.AmountPerHour = 80
@@ -197,12 +201,18 @@ func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 	if result.Route.SourcePlanetID != route.SourcePlanetID || result.Route.OwnerPlayerID != route.OwnerPlayerID || !result.Route.CreatedAt.Equal(route.CreatedAt) {
 		t.Fatalf("source/owner/created changed: %+v, want source %q owner %q created %s", result.Route, route.SourcePlanetID, route.OwnerPlayerID, route.CreatedAt)
 	}
+	assertRouteMapIdentity(t, result.Route, route.SourceMapID, provider.policy.DestinationMapID)
 	if provider.calls != 1 || provider.lastInput.SourcePlanetID != route.SourcePlanetID || provider.lastInput.AmountPerHour != 80 {
 		t.Fatalf("policy calls/input = %d/%+v, want one call with source %q amount 80", provider.calls, provider.lastInput, route.SourcePlanetID)
 	}
 	assertRouteSettlementRouteTime(t, store, route.RouteID, updateAt)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 960, updateAt)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, updateAt)
+	storedAfterUpdate, ok, err := store.AutomationRoute(route.RouteID)
+	if err != nil || !ok {
+		t.Fatalf("AutomationRoute(%q) ok = %v err = %v, want true nil", route.RouteID, ok, err)
+	}
+	assertRouteMapIdentity(t, storedAfterUpdate, route.SourceMapID, provider.policy.DestinationMapID)
 
 	settleService := newTestRouteSettlementService(t, store, settleAt, nil)
 	settleResult, err := settleService.SettleRoute(route.RouteID)
@@ -214,6 +224,42 @@ func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 	}
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 880, settleAt)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 120, settleAt)
+	settledRoute, ok, err := store.AutomationRoute(route.RouteID)
+	if err != nil || !ok {
+		t.Fatalf("AutomationRoute(%q) ok = %v err = %v, want true nil", route.RouteID, ok, err)
+	}
+	assertRouteMapIdentity(t, settledRoute, route.SourceMapID, provider.policy.DestinationMapID)
+}
+
+func TestUpdateRouteRejectsSourceMapPolicyMismatchWithoutMutation(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
+	provider.policy.SourceMapID = "map_1_2"
+	service := newTestRouteService(t, store, provider, now)
+	input := validUpdateRouteInput()
+	input.AmountPerHour = 80
+
+	_, err := service.UpdateRoute(input)
+	if !errors.Is(err, ErrInvalidRouteMapID) {
+		t.Fatalf("UpdateRoute() error = %v, want ErrInvalidRouteMapID", err)
+	}
+	assertRouteAmountAndTime(t, store, route.RouteID, 40, last)
+	stored, ok, lookupErr := store.AutomationRoute(route.RouteID)
+	if lookupErr != nil || !ok {
+		t.Fatalf("AutomationRoute(%q) ok = %v err = %v, want true nil", route.RouteID, ok, lookupErr)
+	}
+	assertRouteMapIdentity(t, stored, route.SourceMapID, route.DestinationMapID)
+	assertNoRouteEvents(t, store)
 }
 
 func TestUpdateRouteRejectsOwnerMismatchWithoutMutation(t *testing.T) {

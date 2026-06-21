@@ -14,6 +14,9 @@ import (
 const (
 	ReasonPlanetProduction economy.LedgerReason = "planet_production"
 	ReasonRouteLoss        economy.LedgerReason = "route_loss"
+
+	simulationRouteSourceMapID      production.RouteMapID = "simulation_route_map_1"
+	simulationRouteDestinationMapID production.RouteMapID = "simulation_route_map_1"
 )
 
 // PlanetSettlementSimulationConfig tunes deterministic offline production
@@ -451,6 +454,8 @@ func simulationRoutePolicy() production.RouteCreatePolicy {
 		DestinationAccessible: true,
 		ResourceRouteable:     true,
 		RequirementsMet:       true,
+		SourceMapID:           simulationRouteSourceMapID,
+		DestinationMapID:      simulationRouteDestinationMapID,
 		DistanceUnits:         100,
 		MaxDistanceUnits:      1_000,
 		BaseLossChance:        production.MaxRouteLossChance,

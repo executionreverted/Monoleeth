@@ -5,8 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"gameproject/internal/game/auth"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
@@ -409,6 +411,8 @@ func TestProductionAndStorageSummariesAreFilteredToActiveMap(t *testing.T) {
 
 	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, starterPlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-production-map-1-1")
 	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, mapTwoPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-production-map-1-2")
+	routeID := foundation.RouteID("route-production-map-1-1-to-1-2")
+	seedAutomationRouteForTest(t, gameServer, resolved.PlayerID, routeID, starterPlanetID, mapTwoPlanetID, "map_1_1", "map_1_2")
 
 	assertProductionSummaryPlanetIDs(t, gameServer, resolved.PlayerID, "", []foundation.PlanetID{starterPlanetID})
 	assertStorageSummaryPlanetIDs(t, gameServer, resolved.PlayerID, "", []foundation.PlanetID{starterPlanetID})
@@ -416,6 +420,8 @@ func TestProductionAndStorageSummariesAreFilteredToActiveMap(t *testing.T) {
 	assertStorageSummaryPlanetIDs(t, gameServer, resolved.PlayerID, starterPlanetID, []foundation.PlanetID{starterPlanetID})
 	assertProductionSummaryPlanetIDs(t, gameServer, resolved.PlayerID, mapTwoPlanetID, nil)
 	assertStorageSummaryPlanetIDs(t, gameServer, resolved.PlayerID, mapTwoPlanetID, nil)
+	assertProductionAndStorageMapKeys(t, gameServer, resolved.PlayerID, starterPlanetID, "1-1")
+	assertRouteListAndSnapshotMapKeys(t, gameServer, resolved, routeID, "1-1", "1-2")
 
 	gameServer.runtime.mu.Lock()
 	if _, err := gameServer.runtime.mapRouter.SetActiveLocationFromSpawn(resolved.PlayerID, "map_1_2", "west_gate"); err != nil {
@@ -433,4 +439,170 @@ func TestProductionAndStorageSummariesAreFilteredToActiveMap(t *testing.T) {
 	assertStorageSummaryPlanetIDs(t, gameServer, resolved.PlayerID, mapTwoPlanetID, []foundation.PlanetID{mapTwoPlanetID})
 	assertProductionSummaryPlanetIDs(t, gameServer, resolved.PlayerID, starterPlanetID, nil)
 	assertStorageSummaryPlanetIDs(t, gameServer, resolved.PlayerID, starterPlanetID, nil)
+	assertProductionAndStorageMapKeys(t, gameServer, resolved.PlayerID, mapTwoPlanetID, "1-2")
+
+	other := createResolvedRuntimeSession(t, gameServer, "route-not-owner@example.com", "Route Not Owner")
+	notOwner := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(other.SessionID.String()),
+		[]byte(`{"request_id":"request-route-snapshot-non-owner","op":"route.snapshot","payload":{"route_id":"`+routeID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if !notOwner.HasError || notOwner.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("non-owner route snapshot = %+v, want safe not-found", notOwner)
+	}
+}
+
+func assertProductionAndStorageMapKeys(t *testing.T, gameServer *Server, playerID foundation.PlayerID, planetID foundation.PlanetID, publicMapKey string) {
+	t.Helper()
+	productionPayload, err := gameServer.runtime.productionSummaryPayload(playerID, planetID)
+	if err != nil {
+		t.Fatalf("productionSummaryPayload(%q) error = %v, want nil", planetID, err)
+	}
+	if len(productionPayload.Planets) != 1 {
+		t.Fatalf("productionSummaryPayload(%q) planets = %+v, want one planet", planetID, productionPayload.Planets)
+	}
+	productionPlanet := productionPayload.Planets[0]
+	if productionPlanet.PublicMapKey != publicMapKey || productionPlanet.Storage.PublicMapKey != publicMapKey {
+		t.Fatalf("production/storage public map keys = %q/%q, want %q", productionPlanet.PublicMapKey, productionPlanet.Storage.PublicMapKey, publicMapKey)
+	}
+	assertPayloadOmitsInternalMapIdentity(t, "production payload", productionPayload)
+
+	storagePayload, err := gameServer.runtime.storageSummaryPayload(playerID, planetID)
+	if err != nil {
+		t.Fatalf("storageSummaryPayload(%q) error = %v, want nil", planetID, err)
+	}
+	if len(storagePayload.Planets) != 1 || storagePayload.Planets[0].PublicMapKey != publicMapKey {
+		t.Fatalf("storageSummaryPayload(%q) = %+v, want public map key %q", planetID, storagePayload.Planets, publicMapKey)
+	}
+	assertPayloadOmitsInternalMapIdentity(t, "storage payload", storagePayload)
+}
+
+func assertRouteListAndSnapshotMapKeys(t *testing.T, gameServer *Server, resolved auth.ResolvedSession, routeID foundation.RouteID, fromPublicMapKey string, toPublicMapKey string) {
+	t.Helper()
+	list := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-route-list-map-keys","op":"route.list","payload":{},"client_seq":1,"v":1}`),
+	)
+	if list.HasError {
+		t.Fatalf("route.list error = %+v, want success", list.Error)
+	}
+	assertPayloadOmitsInternalMapIdentity(t, "route.list payload", list.Response.Payload)
+	var listPayload struct {
+		Routes routeListPayload `json:"routes"`
+	}
+	if err := json.Unmarshal(list.Response.Payload, &listPayload); err != nil {
+		t.Fatalf("decode route.list payload: %v", err)
+	}
+	if len(listPayload.Routes.Routes) != 1 {
+		t.Fatalf("route.list routes = %+v, want one route", listPayload.Routes.Routes)
+	}
+	assertRoutePayloadMapKeys(t, listPayload.Routes.Routes[0], routeID, fromPublicMapKey, toPublicMapKey)
+
+	snapshot := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-route-snapshot-map-keys","op":"route.snapshot","payload":{"route_id":"`+routeID.String()+`"},"client_seq":2,"v":1}`),
+	)
+	if snapshot.HasError {
+		t.Fatalf("route.snapshot error = %+v, want success", snapshot.Error)
+	}
+	assertPayloadOmitsInternalMapIdentity(t, "route.snapshot payload", snapshot.Response.Payload)
+	var snapshotPayload struct {
+		Route routePayload `json:"route"`
+	}
+	if err := json.Unmarshal(snapshot.Response.Payload, &snapshotPayload); err != nil {
+		t.Fatalf("decode route.snapshot payload: %v", err)
+	}
+	assertRoutePayloadMapKeys(t, snapshotPayload.Route, routeID, fromPublicMapKey, toPublicMapKey)
+}
+
+func assertRoutePayloadMapKeys(t *testing.T, payload routePayload, routeID foundation.RouteID, fromPublicMapKey string, toPublicMapKey string) {
+	t.Helper()
+	if payload.RouteID != routeID.String() || payload.FromPublicMapKey != fromPublicMapKey || payload.ToPublicMapKey != toPublicMapKey {
+		t.Fatalf("route payload = %+v, want route %q public map keys %q/%q", payload, routeID, fromPublicMapKey, toPublicMapKey)
+	}
+}
+
+func assertPayloadOmitsInternalMapIdentity(t *testing.T, label string, payload any) {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal %s: %v", label, err)
+	}
+	raw := string(data)
+	for _, forbidden := range []string{
+		`"internal_map_id"`,
+		`"source_map_id"`,
+		`"destination_map_id"`,
+		`"world_id"`,
+		`"zone_id"`,
+		`"map_id"`,
+		`"map_1_1"`,
+		`"map_1_2"`,
+	} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("%s leaked %q in %s", label, forbidden, raw)
+		}
+	}
+}
+
+func seedAutomationRouteForTest(
+	t *testing.T,
+	gameServer *Server,
+	ownerID foundation.PlayerID,
+	routeID foundation.RouteID,
+	sourcePlanetID foundation.PlanetID,
+	destinationPlanetID foundation.PlanetID,
+	sourceMapID production.RouteMapID,
+	destinationMapID production.RouteMapID,
+) {
+	t.Helper()
+	service, err := production.NewAutomationRouteService(production.AutomationRouteServiceConfig{
+		Store:  gameServer.runtime.Production,
+		Clock:  gameServer.runtime.clock,
+		Policy: mapAwareRoutePolicyForTest{sourceMapID: sourceMapID, destinationMapID: destinationMapID},
+	})
+	if err != nil {
+		t.Fatalf("NewAutomationRouteService() error = %v, want nil", err)
+	}
+	destination, err := production.NewPlanetRouteDestination(destinationPlanetID)
+	if err != nil {
+		t.Fatalf("NewPlanetRouteDestination(%q) error = %v, want nil", destinationPlanetID, err)
+	}
+	result, err := service.CreateRoute(production.CreateRouteInput{
+		RouteID:        routeID,
+		OwnerPlayerID:  ownerID,
+		SourcePlanetID: sourcePlanetID,
+		Destination:    destination,
+		ResourceItemID: "refined_alloy",
+		AmountPerHour:  40,
+	})
+	if err != nil {
+		t.Fatalf("CreateRoute(%q) error = %v, want nil", routeID, err)
+	}
+	if result.Route.SourceMapID != sourceMapID || result.Route.DestinationMapID != destinationMapID {
+		t.Fatalf("seeded route map ids = %q/%q, want %q/%q", result.Route.SourceMapID, result.Route.DestinationMapID, sourceMapID, destinationMapID)
+	}
+}
+
+type mapAwareRoutePolicyForTest struct {
+	sourceMapID      production.RouteMapID
+	destinationMapID production.RouteMapID
+}
+
+func (policy mapAwareRoutePolicyForTest) RouteCreatePolicy(input production.RouteCreatePolicyInput) (production.RouteCreatePolicy, error) {
+	if err := input.Validate(); err != nil {
+		return production.RouteCreatePolicy{}, err
+	}
+	return production.RouteCreatePolicy{
+		SourcePlanetOwned:     true,
+		DestinationAccessible: true,
+		ResourceRouteable:     true,
+		RequirementsMet:       true,
+		SourceMapID:           policy.sourceMapID,
+		DestinationMapID:      policy.destinationMapID,
+		DistanceUnits:         100,
+		MaxDistanceUnits:      1_000,
+		MinLossPercent:        0,
+		MaxLossPercent:        0,
+		EnergyCostPerHour:     4,
+	}, nil
 }

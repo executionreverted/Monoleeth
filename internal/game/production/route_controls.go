@@ -207,6 +207,9 @@ func (store *InMemoryStore) UpdateRoute(
 	if route.OwnerPlayerID != input.OwnerPlayerID {
 		return UpdateRouteResult{}, fmt.Errorf("route %q owner %q: %w", input.RouteID, input.OwnerPlayerID, ErrRouteOwnerMismatch)
 	}
+	if policy.SourceMapID != route.SourceMapID {
+		return UpdateRouteResult{}, fmt.Errorf("route %q source map %q policy %q: %w", input.RouteID, route.SourceMapID, policy.SourceMapID, ErrInvalidRouteMapID)
+	}
 
 	risk, err := policy.CalculateRisk()
 	if err != nil {
@@ -215,6 +218,7 @@ func (store *InMemoryStore) UpdateRoute(
 
 	updatedRoute := cloneAutomationRoute(route)
 	updatedRoute.Destination = input.Destination
+	updatedRoute.DestinationMapID = policy.DestinationMapID
 	updatedRoute.ResourceItemID = input.ResourceItemID
 	updatedRoute.AmountPerHour = input.AmountPerHour
 	updatedRoute.EnergyCostPerHour = policy.EnergyCostPerHour
@@ -233,6 +237,8 @@ func (store *InMemoryStore) UpdateRoute(
 	settledRoute := store.routes[input.RouteID]
 	updatedRoute.OwnerPlayerID = settledRoute.OwnerPlayerID
 	updatedRoute.SourcePlanetID = settledRoute.SourcePlanetID
+	updatedRoute.SourceMapID = settledRoute.SourceMapID
+	updatedRoute.DestinationMapID = policy.DestinationMapID
 	updatedRoute.CreatedAt = settledRoute.CreatedAt
 	updatedRoute.Enabled = route.Enabled
 	updatedRoute.LastCalculatedAt = maxRouteTimestamp(settledRoute.LastCalculatedAt, now)

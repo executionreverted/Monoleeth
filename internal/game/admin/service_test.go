@@ -689,6 +689,8 @@ func (testRoutePolicy) RouteCreatePolicy(input production.RouteCreatePolicyInput
 		DestinationAccessible: true,
 		ResourceRouteable:     true,
 		RequirementsMet:       true,
+		SourceMapID:           "map_1_1",
+		DestinationMapID:      "map_1_1",
 		DistanceUnits:         10,
 		MaxDistanceUnits:      100,
 		EnergyCostPerHour:     1,

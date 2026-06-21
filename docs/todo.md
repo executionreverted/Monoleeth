@@ -120,7 +120,9 @@ for phase status; this file is a compact pending-work index.
   handlers must validate endpoint visibility/access, ownership, route capacity,
   energy/upkeep policy, duplicate settlement windows, and storage capacity, then
   reconcile the browser through `route.list`, `route.snapshot`, and
-  `route.updated`/`route.settled` events. Source: Phase 10 audit.
+  `route.updated`/`route.settled` events. Phase07B map-tagged the route domain
+  rows and read payloads for `route.list`/`route.snapshot`; mutation handlers
+  remain open. Source: Phase 10 audit.
 - [ ] Add a real browser death/respawn E2E scenario. Combat or zone-worker
   authority should produce `death.ship_disabled` for the authenticated active
   ship without client-authored damage or death state; the browser can then use

@@ -349,6 +349,21 @@ Current Phase 07A claim payload rule:
   internal map id, world id, zone id, owner player id, hidden coordinates,
   X Core source details, production internals, or hidden candidate data.
 
+Current Phase 07B production/route read payload rule:
+
+- `planet.production_summary` and `planet.storage_summary` are authenticated
+  owner read models filtered to the player's active map. Planet production,
+  storage, and building payloads may include catalog-derived `public_map_key`,
+  but must not include `internal_map_id`, `world_id`, or `zone_id`.
+- `route.list` and `route.snapshot` are owner-scoped route read models. They may
+  include `from_public_map_key` and `to_public_map_key`, derived server-side
+  from stored route map ids through the map catalog. Browser payloads must not
+  include `source_map_id`, `destination_map_id`, `internal_map_id`, `world_id`,
+  or `zone_id`.
+- Route mutation commands and route settlement gateway handlers remain
+  unimplemented. When added, they must derive owner and map truth from the
+  authenticated session and server policy facts, never from client payload ids.
+
 ## Edge Cases
 
 - Client reconnects after command accepted but response lost.

@@ -39,6 +39,13 @@ Current slice completed:
   through inventory idempotency, initializes production, and emits owner-scoped
   safe events. Browser claim UI, TypeScript protocol exposure, durable
   DB/outbox, building mutations, and route mutations remain open.
+- Phase07B backend/client read-model follow-up: owned planet production,
+  storage, and building payloads now include catalog-derived `public_map_key`;
+  automation route rows store internal source/destination map ids for server
+  policy/read grouping, while route list/detail/snapshot payloads expose only
+  `from_public_map_key` and `to_public_map_key`. The browser reducer parses
+  route public map keys. Route mutation handlers, building mutation handlers,
+  durable DB/outbox, and route settlement idempotency remain open.
 
 ## Source Specs
 
@@ -102,12 +109,12 @@ route.settle
 | `intel.share` | recipient, intel/planet/coordinate reference | sender visibility, recipient eligibility, client-safe filtering; never share hidden coordinates |
 | `intel.coordinate_item.create` | known coordinate reference | owned/visible coordinate; consume/move item through inventory ledger once |
 | `intel.coordinate_item.use` | owned coordinate item id | ownership, visibility rules, item consumption idempotency; reveal only safe result |
-| `planet.production_summary` | planet id | ownership/access; settle/reconcile server-owned windows as needed |
+| `planet.production_summary` | planet id | ownership/access; active-map filtered read payload includes catalog-derived `public_map_key`; settle/reconcile server-owned windows as needed |
 | `planet.building_build` | planet id, building type/slot | ownership, requirements, storage/wallet/materials; lock/mutate/ledger/event/commit |
 | `planet.building_upgrade` | building id | ownership, level requirements, storage/wallet/materials; lock/mutate/ledger/event/commit |
-| `planet.storage_summary` | planet id | ownership/access; client-safe capacity and visible stacks |
+| `planet.storage_summary` | planet id | ownership/access; client-safe capacity, visible stacks, and catalog-derived `public_map_key` |
 | `route.create/update/enable/disable` | endpoint/config intent | endpoint visibility/access, ownership, capacity, policy; mutate route state server-side |
-| `route.list/snapshot` | filter or empty | owner/access; reconnect-safe route state and cursors |
+| `route.list/snapshot` | filter or empty | owner/access; reconnect-safe route state, cursors, and public source/destination map keys |
 | `route.settle` | route id or empty reconcile intent | server computes eligible windows under lock; idempotency key `route_settle:<route_id>:<window>` |
 
 Offline production and route settlement are never client-timed truth. UI requests

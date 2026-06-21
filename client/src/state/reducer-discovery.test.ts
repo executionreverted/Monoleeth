@@ -629,6 +629,8 @@ describe('reduceClientState', () => {
     const initialRoute = {
       route_id: 'route-1',
       source_planet_id: 'planet-eris',
+      from_public_map_key: '1-1',
+      to_public_map_key: '1-2',
       destination: { type: 'planet', id: 'planet-nova' },
       resource_item_id: 'ferrite_ore',
       amount_per_hour: 10,
@@ -685,7 +687,13 @@ describe('reduceClientState', () => {
     });
 
     expect(withRoute.routes?.routes).toHaveLength(1);
-    expect(withRoute.routes?.routes[0]).toMatchObject({ route_id: 'route-1', amount_per_hour: 25, enabled: true });
+    expect(withRoute.routes?.routes[0]).toMatchObject({
+      route_id: 'route-1',
+      amount_per_hour: 25,
+      enabled: true,
+      from_public_map_key: '1-1',
+      to_public_map_key: '1-2',
+    });
     expect(withRoute.planetIntel?.selectedPlanet?.routes).toHaveLength(1);
     expect(withRoute.planetIntel?.selectedPlanet?.routes[0]).toEqual(withRoute.routes?.routes[0]);
 
@@ -705,7 +713,13 @@ describe('reduceClientState', () => {
     });
 
     expect(withEventRoute.routes?.routes).toHaveLength(1);
-    expect(withEventRoute.routes?.routes[0]).toMatchObject({ route_id: 'route-1', amount_per_hour: 30, enabled: true });
+    expect(withEventRoute.routes?.routes[0]).toMatchObject({
+      route_id: 'route-1',
+      amount_per_hour: 30,
+      enabled: true,
+      from_public_map_key: '1-1',
+      to_public_map_key: '1-2',
+    });
     expect(withEventRoute.planetIntel?.selectedPlanet?.routes[0]).toEqual(withEventRoute.routes?.routes[0]);
   });
 });

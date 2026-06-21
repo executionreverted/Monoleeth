@@ -268,6 +268,8 @@ func TestSettleRouteDoubleSettlementDoesNotDuplicateTransfer(t *testing.T) {
 	if first.AddedAmount != 40 {
 		t.Fatalf("first AddedAmount = %d, want 40", first.AddedAmount)
 	}
+	assertRouteMapIdentity(t, first.BeforeRoute, route.SourceMapID, route.DestinationMapID)
+	assertRouteMapIdentity(t, first.AfterRoute, route.SourceMapID, route.DestinationMapID)
 	if !second.NoOp || second.AddedAmount != 0 || second.ElapsedApplied != 0 {
 		t.Fatalf("second NoOp/added/applied = %v/%d/%s, want true/0/0", second.NoOp, second.AddedAmount, second.ElapsedApplied)
 	}

@@ -104,6 +104,33 @@ Deferred from Phase07A:
 - Browser claim button/UI flow and TypeScript protocol exposure.
 - Durable market/listed-intel stale-listing adapter.
 
+## Phase07B Landed Read-Model Slice
+
+- Owned planet production, storage, and building read payloads now include
+  catalog-derived `public_map_key` values. The gateway derives those keys from
+  the materialized planet row's map/zone and the map catalog, not from client
+  input.
+- Production and storage summaries still filter to the authenticated player's
+  active map. Tests cover map `1-1` and `1-2` after active-map switching and
+  assert browser JSON omits internal map/world/zone identifiers.
+- `production.AutomationRoute` rows now store validated internal source and
+  destination map ids supplied by `RouteCreatePolicy`. Create stores both map
+  ids, update preserves the source map id and refreshes destination map id from
+  policy, and clone/settlement/control flows preserve them.
+- Route list and snapshot payloads expose only `from_public_map_key` and
+  `to_public_map_key`, resolved from the route row through the map catalog.
+  Owner scoping remains enforced; non-owner snapshots return safe not-found.
+- The browser discovery reducer now parses route public map keys from route
+  list/detail/snapshot payloads. Protocol command builders remain unchanged.
+
+Deferred after Phase07B:
+
+- Route create/update/enable/disable/settle gateway handlers.
+- Building build/upgrade/storage mutation handlers.
+- Durable discovery/ownership and production/route DB rows, row locks/CAS,
+  settlement idempotency rows, and outbox publishing.
+- Browser claim UI and browser route mutation UI.
+
 ## Target Model
 
 Planet claim is a server-owned transaction:
