@@ -728,6 +728,7 @@ export class HUD {
     const payload = {
       itemInstanceID: moduleCard.dataset.moduleInstanceId ?? '',
       slotID: moduleCard.dataset.equippedSlotId ?? '',
+      moduleSlotType: moduleCard.dataset.moduleSlotType ?? '',
     };
     if (!payload.itemInstanceID) {
       return;
@@ -736,6 +737,7 @@ export class HUD {
     event.dataTransfer.setData('application/x-space-mORPG-module', JSON.stringify(payload));
     event.dataTransfer.setData('text/plain', payload.itemInstanceID);
     moduleCard.dataset.dragging = 'true';
+    this.markLoadoutDropTargets(payload);
     markHUDInputSuppressed();
   }
 
@@ -743,13 +745,22 @@ export class HUD {
     for (const element of this.root.querySelectorAll<HTMLElement>('[data-module-instance-id][data-dragging="true"]')) {
       delete element.dataset.dragging;
     }
+    this.clearLoadoutDropTargets();
     markHUDInputSuppressed();
   }
 
   private handleLoadoutDragOver(event: DragEvent): void {
     const target = event.target instanceof HTMLElement ? event.target : null;
-    if (!target?.closest('[data-loadout-slot-id], [data-loadout-inventory-drop]')) {
+    this.clearLoadoutDropHover();
+    const slotTarget = target?.closest<HTMLElement>('[data-loadout-slot-id]');
+    const inventoryTarget = target?.closest<HTMLElement>('[data-loadout-inventory-drop]');
+    if (!slotTarget && !inventoryTarget) {
       return;
+    }
+    if (slotTarget?.dataset.dropState === 'compatible') {
+      slotTarget.dataset.dropHover = 'true';
+    } else if (inventoryTarget?.dataset.dropState === 'compatible') {
+      inventoryTarget.dataset.dropHover = 'true';
     }
     event.preventDefault();
     if (event.dataTransfer) {
@@ -772,6 +783,7 @@ export class HUD {
     if (slotTarget?.dataset.loadoutSlotId) {
       event.preventDefault();
       event.stopPropagation();
+      this.clearLoadoutDropTargets();
       this.handlers.onLoadoutEquipModule(slotTarget.dataset.loadoutSlotId, payload.itemInstanceID);
       markHUDInputSuppressed();
       return;
@@ -779,8 +791,35 @@ export class HUD {
     if (inventoryTarget && payload.slotID) {
       event.preventDefault();
       event.stopPropagation();
+      this.clearLoadoutDropTargets();
       this.handlers.onLoadoutUnequipModule(payload.slotID);
       markHUDInputSuppressed();
+    }
+  }
+
+  private markLoadoutDropTargets(payload: { itemInstanceID: string; slotID?: string; moduleSlotType?: string }): void {
+    this.clearLoadoutDropTargets();
+    const moduleSlotType = payload.moduleSlotType ?? '';
+    for (const slot of this.root.querySelectorAll<HTMLElement>('[data-loadout-slot-id]')) {
+      slot.dataset.dropState = moduleSlotType && slot.dataset.slotType === moduleSlotType ? 'compatible' : 'blocked';
+    }
+    for (const bay of this.root.querySelectorAll<HTMLElement>('[data-loadout-inventory-drop]')) {
+      if (payload.slotID) {
+        bay.dataset.dropState = 'compatible';
+      }
+    }
+  }
+
+  private clearLoadoutDropTargets(): void {
+    for (const element of this.root.querySelectorAll<HTMLElement>('[data-drop-state], [data-drop-hover]')) {
+      delete element.dataset.dropState;
+      delete element.dataset.dropHover;
+    }
+  }
+
+  private clearLoadoutDropHover(): void {
+    for (const element of this.root.querySelectorAll<HTMLElement>('[data-drop-hover]')) {
+      delete element.dataset.dropHover;
     }
   }
 
@@ -1258,7 +1297,7 @@ function windowLayout(id: HUDWindowID): { width: number; preferredHeight: number
       return { width: 450, preferredHeight: 520, size: 'compact' };
     case 'cargo':
     default:
-      return { width: 560, preferredHeight: 630, size: 'system' };
+      return { width: 760, preferredHeight: 610, size: 'triple-pane' };
   }
 }
 
@@ -1270,18 +1309,19 @@ function isQuickActionKey(key: string): boolean {
   return key === '1' || key === '2' || key === '3' || key === '4' || key === '5' || key === '6';
 }
 
-function parseLoadoutDragPayload(raw: string): { itemInstanceID: string; slotID?: string } | null {
+function parseLoadoutDragPayload(raw: string): { itemInstanceID: string; slotID?: string; moduleSlotType?: string } | null {
   if (!raw) {
     return null;
   }
   try {
-    const parsed = JSON.parse(raw) as { itemInstanceID?: unknown; slotID?: unknown };
+    const parsed = JSON.parse(raw) as { itemInstanceID?: unknown; slotID?: unknown; moduleSlotType?: unknown };
     if (typeof parsed.itemInstanceID !== 'string' || parsed.itemInstanceID === '') {
       return null;
     }
     return {
       itemInstanceID: parsed.itemInstanceID,
       slotID: typeof parsed.slotID === 'string' && parsed.slotID !== '' ? parsed.slotID : undefined,
+      moduleSlotType: typeof parsed.moduleSlotType === 'string' && parsed.moduleSlotType !== '' ? parsed.moduleSlotType : undefined,
     };
   } catch {
     return null;
@@ -1648,9 +1688,8 @@ function moduleBayPanel(
       ${moduleFilterBar(moduleItems, selectedModuleFilter)}
       ${
         visibleItems.length > 0
-          ? `<div class="module-grid" data-module-grid="true">${visibleItems.map((item) => moduleInventoryCard(item, slots, selectedModule?.item_instance_id ?? '')).join('')}</div>
-             ${selectedModule ? moduleDetailPanel(selectedModule, slots) : ''}`
-          : `<div class="empty-line">No ${escapeHTML(publicModuleSlotGroupLabel(selectedModuleFilter).toLowerCase())} modules in inventory.</div>`
+          ? `<div class="module-grid" data-module-grid="true">${visibleItems.map((item) => moduleInventoryCard(item, slots, selectedModule?.item_instance_id ?? '')).join('')}</div>`
+          : `<div class="empty-line">${escapeHTML(emptyModuleFilterCopy(selectedModuleFilter))}</div>`
       }
     </div>
   `;
@@ -1674,8 +1713,9 @@ function moduleFilterBar(moduleItems: ModuleInventoryItem[], activeFilter: Modul
               data-action="module-filter"
               data-module-filter="${filterID}"
               data-active="${activeFilter === filterID ? 'true' : 'false'}"
-              aria-pressed="${activeFilter === filterID ? 'true' : 'false'}">
-              <span>${escapeHTML(publicModuleSlotGroupLabel(filterID))}</span>
+              aria-pressed="${activeFilter === filterID ? 'true' : 'false'}"
+              title="${escapeHTML(publicModuleSlotGroupLabel(filterID))}">
+              <span>${escapeHTML(publicModuleFilterShortLabel(filterID))}</span>
               <strong>${filterCounts[filterID]}</strong>
             </button>
           `,
@@ -1683,6 +1723,13 @@ function moduleFilterBar(moduleItems: ModuleInventoryItem[], activeFilter: Modul
         .join('')}
     </div>
   `;
+}
+
+function emptyModuleFilterCopy(filterID: ModuleFilterID): string {
+  if (filterID === 'all') {
+    return 'No modules in inventory.';
+  }
+  return `No ${publicModuleSlotGroupLabel(filterID).toLowerCase()} modules in inventory.`;
 }
 
 function cargoItemLabel(item: { item_id: string; display_name?: string }): string {
@@ -1788,25 +1835,41 @@ function publicModuleSlotGroupLabel(slotType: string): string {
   }
 }
 
+function publicModuleFilterShortLabel(filterID: ModuleFilterID): string {
+  switch (filterID) {
+    case 'all':
+      return 'All';
+    case 'offensive':
+      return 'WPN';
+    case 'defensive':
+      return 'DEF';
+    case 'utility':
+      return 'UTL';
+  }
+}
+
 function loadoutSlotCard(slot: NonNullable<ClientState['loadout']>['slots'][number]): string {
   const occupied = Boolean(slot.item_instance_id);
+  const slotLabel = publicSlotLabel(slot.slot_type, slot.slot_id);
+  const moduleName = slot.display_name || slot.module_item_id || slot.item_instance_id || 'Module';
   return `
-    <div class="loadout-slot" data-loadout-slot-id="${escapeHTML(slot.slot_id)}" data-slot-type="${escapeHTML(slot.slot_type)}" data-occupied="${occupied ? 'true' : 'false'}">
-      <div class="loadout-slot__label">
-        <span>${escapeHTML(slot.slot_type)}</span>
-        <strong>${escapeHTML(slot.slot_id.replace('_', ' '))}</strong>
-      </div>
+    <div class="loadout-slot" data-loadout-slot-id="${escapeHTML(slot.slot_id)}" data-slot-type="${escapeHTML(slot.slot_type)}" data-occupied="${occupied ? 'true' : 'false'}" title="${escapeHTML(occupied ? `${moduleName} · drag to inventory` : `Drop ${slotLabel} module here`)}">
       ${
         occupied
-          ? `<div class="module-card module-card--equipped"
+          ? `<div class="slot-module-chip"
                 draggable="true"
                 data-module-instance-id="${escapeHTML(slot.item_instance_id ?? '')}"
-                data-equipped-slot-id="${escapeHTML(slot.slot_id)}">
-               <strong>${escapeHTML(slot.display_name || slot.module_item_id || slot.item_instance_id || 'Module')}</strong>
-               <span>${escapeHTML(slot.module_state || 'online')} · ${formatDurability(slot.durability, slot.durability_max)}</span>
-               <button type="button" data-action="loadout-unequip" data-slot-id="${escapeHTML(slot.slot_id)}">Unequip</button>
+                data-equipped-slot-id="${escapeHTML(slot.slot_id)}"
+                data-module-slot-type="${escapeHTML(slot.slot_type)}"
+                aria-label="${escapeHTML(moduleName)}">
+               <span class="module-hover-card" role="tooltip">
+                 <strong>${escapeHTML(moduleName)}</strong>
+                 <span>${escapeHTML(publicModuleSlotGroupLabel(slot.slot_type))} · ${escapeHTML(slot.module_state || 'online')}</span>
+                 <span>Dur ${formatDurability(slot.durability, slot.durability_max)}</span>
+                 <span>Drop on inventory bay to unequip.</span>
+               </span>
              </div>`
-          : '<div class="loadout-slot__empty">Empty</div>'
+          : '<div class="loadout-slot__empty" aria-label="Empty module slot"></div>'
       }
     </div>
   `;
@@ -1823,51 +1886,64 @@ function moduleInventoryCard(
     null;
   const compatible = Boolean(compatibleSlot);
   return `
-    <div class="module-card"
+    <button class="module-card"
+      type="button"
+      data-action="module-select"
       draggable="true"
       data-module-instance-id="${escapeHTML(item.item_instance_id)}"
       data-module-slot-type="${escapeHTML(item.module_slot_type ?? '')}"
       data-compatible="${compatible ? 'true' : 'false'}"
-      data-selected="${item.item_instance_id === selectedID ? 'true' : 'false'}">
-      <strong>${escapeHTML(item.display_name || item.item_id)}</strong>
-      <span>${escapeHTML(item.module_slot_type ?? 'module')} · ${formatDurability(item.durability_current, item.durability_max)}</span>
-      <em>${escapeHTML(item.rarity || item.bound_state || 'owned')}</em>
-      <button type="button"
-        data-action="module-select"
-        data-module-instance-id="${escapeHTML(item.item_instance_id)}">Details</button>
-      <button type="button"
-        data-action="loadout-equip"
-        data-slot-id="${escapeHTML(compatibleSlot?.slot_id ?? '')}"
-        data-item-instance-id="${escapeHTML(item.item_instance_id)}"
-        ${compatibleSlot ? '' : 'disabled'}>Equip</button>
-    </div>
+      data-selected="${item.item_instance_id === selectedID ? 'true' : 'false'}"
+      aria-label="${escapeHTML(item.display_name || item.item_id)}">
+      <span class="module-card__rarity">${escapeHTML(publicRarityBadge(item.rarity || item.bound_state || 'owned'))}</span>
+      <span class="module-hover-card" role="tooltip">
+        <strong>${escapeHTML(item.display_name || item.item_id)}</strong>
+        <span>${escapeHTML(publicModuleSlotGroupLabel(item.module_slot_type ?? 'module'))}</span>
+        <span>Dur ${formatDurability(item.durability_current, item.durability_max)}</span>
+        <span>${escapeHTML(item.rarity || item.bound_state || publicInventoryStateLabel(item.location))}</span>
+        <span>${compatibleSlot ? `Drop on ${escapeHTML(publicSlotLabel(compatibleSlot.slot_type, compatibleSlot.slot_id))}.` : 'No compatible slot online.'}</span>
+      </span>
+    </button>
   `;
 }
 
-function moduleDetailPanel(item: ModuleInventoryItem, slots: NonNullable<ClientState['loadout']>['slots']): string {
-  const compatibleSlot =
-    slots.find((slot) => slot.slot_type === item.module_slot_type && !slot.item_instance_id) ??
-    slots.find((slot) => slot.slot_type === item.module_slot_type) ??
-    null;
-  return `
-    <div class="module-detail" data-module-detail="${escapeHTML(item.item_instance_id)}">
-      <div>
-        <span>Selected Module</span>
-        <strong>${escapeHTML(item.display_name || item.item_id)}</strong>
-      </div>
-      <div class="module-detail__grid">
-        <span>Slot <strong>${escapeHTML(item.module_slot_type ?? 'module')}</strong></span>
-        <span>Dur <strong>${formatDurability(item.durability_current, item.durability_max)}</strong></span>
-        <span>State <strong>${escapeHTML(publicInventoryStateLabel(item.bound_state || item.location))}</strong></span>
-        <span>Fit <strong>${escapeHTML(compatibleSlot?.slot_id ?? 'locked')}</strong></span>
-      </div>
-      <button type="button"
-        data-action="loadout-equip"
-        data-slot-id="${escapeHTML(compatibleSlot?.slot_id ?? '')}"
-        data-item-instance-id="${escapeHTML(item.item_instance_id)}"
-        ${compatibleSlot ? '' : 'disabled'}>Equip Selected</button>
-    </div>
-  `;
+function publicRarityBadge(value: string): string {
+  switch (value.toLowerCase()) {
+    case 'common':
+      return 'C';
+    case 'uncommon':
+      return 'U';
+    case 'rare':
+      return 'R';
+    case 'epic':
+      return 'E';
+    case 'legendary':
+      return 'L';
+    default:
+      return value.slice(0, 1).toUpperCase();
+  }
+}
+
+function publicSlotAbbreviation(slotType: string): string {
+  switch (slotType) {
+    case 'offensive':
+      return 'OFF';
+    case 'defensive':
+      return 'DEF';
+    case 'utility':
+      return 'UTL';
+    default:
+      return slotType.slice(0, 3).toUpperCase();
+  }
+}
+
+function publicSlotLabel(slotType: string, slotID: string): string {
+  return `${publicSlotAbbreviation(slotType)} ${slotOrdinal(slotID)}`;
+}
+
+function slotOrdinal(slotID: string): string {
+  const match = slotID.match(/(\d+)$/);
+  return match?.[1] ?? slotID.replace(/_/g, ' ');
 }
 
 function economyPanel(state: ClientState): string {
