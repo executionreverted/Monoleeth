@@ -65,7 +65,7 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
-	if err := runtime.syncWorldCombatActorLocked(intent.TargetID); err != nil {
+	if err := runtime.syncWorldCombatActorLocked(ctx.PlayerID, intent.TargetID); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
 	if !runtime.entityVisibleToPlayerLocked(ctx.PlayerID, intent.TargetID) {
@@ -141,7 +141,11 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 			}
 			runtime.queueEventLocked(sessionID, realtime.EventLootCreated, lootDropPayload(drop, runtime.clock.Now()))
 		}
-		if !runtime.Worker.RemoveEntity(intent.TargetID) {
+		instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
+		if err != nil {
+			return nil, domainErrorForRuntime(err)
+		}
+		if !instance.Worker.RemoveEntity(intent.TargetID) {
 			return nil, domainErrorForRuntime(worker.ErrUnknownEntity)
 		}
 		runtime.hidden[intent.TargetID] = true
@@ -203,7 +207,11 @@ func (runtime *Runtime) handleLootPickup(ctx realtime.CommandContext, request re
 	if err != nil {
 		return nil, domainErrorForLoot(err)
 	}
-	runtime.Worker.RemoveEntity(intent.DropID)
+	instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
+	if err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	instance.Worker.RemoveEntity(intent.DropID)
 	runtime.hidden[intent.DropID] = true
 
 	state := runtime.players[ctx.PlayerID]

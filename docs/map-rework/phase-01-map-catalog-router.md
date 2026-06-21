@@ -372,6 +372,20 @@ changes land:
 - Update UI docs so minimap and world canvas render current-map bounds and
   server-authored map metadata only.
 
+## Progress Notes
+
+- 2026-06-21: Added the Phase 01 catalog/router foundation slice: server-owned
+  map catalog primitives, exact `0..10000` bounds validation, starter `1-1`
+  plus adjacent `1-2` catalog data, spawn/portal validation, private in-memory
+  active-map router, minimal catalog map instance registry, starter spawn
+  bootstrap, active-map worker resolution for bootstrap/snapshot/AOI/move/stop
+  and debug spawn, client-safe `world.snapshot.map` and `move_to.map`
+  projections, public-map-key sector projection, movement/debug bounds
+  rejection, and trusted payload rejection for map/router-owned fields. This is
+  not full Phase 02 runtime orchestration: no portal transfer state machine,
+  safe/PvP enforcement, scanner/planet remap, enemy pool runtime, map UI, or
+  production-ready multi-worker scaling is complete.
+
 ## Risks And Acceptance Criteria
 
 Risks:

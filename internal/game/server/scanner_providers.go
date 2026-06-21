@@ -64,7 +64,11 @@ func (provider runtimeScannerPositionProvider) PlayerScanPosition(input discover
 	provider.runtime.mu.Lock()
 	defer provider.runtime.mu.Unlock()
 
-	entity, ok := provider.runtime.Worker.PlayerEntity(input.PlayerID)
+	instance, _, err := provider.runtime.activeMapInstanceLocked(input.PlayerID)
+	if err != nil {
+		return discovery.ScannerPosition{}, err
+	}
+	entity, ok := instance.Worker.PlayerEntity(input.PlayerID)
 	if !ok {
 		return discovery.ScannerPosition{}, worker.ErrUnknownPlayer
 	}
@@ -205,7 +209,11 @@ func (provider runtimeScannerPlayerRevealProvider) RevealHiddenPlayer(input disc
 		if !hidden || targetID == input.PlayerID {
 			continue
 		}
-		entity, ok := provider.runtime.Worker.PlayerEntity(targetID)
+		instance, _, err := provider.runtime.activeMapInstanceLocked(targetID)
+		if err != nil {
+			continue
+		}
+		entity, ok := instance.Worker.PlayerEntity(targetID)
 		if !ok || entity.WorldID != input.WorldID || entity.ZoneID != input.ZoneID {
 			continue
 		}

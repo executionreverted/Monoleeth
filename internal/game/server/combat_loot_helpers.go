@@ -17,6 +17,7 @@ import (
 	"gameproject/internal/game/stats"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
+	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/visibility"
 	"gameproject/internal/game/world/worker"
 )
@@ -55,7 +56,11 @@ func (runtime *Runtime) syncPlayerCombatActorLocked(playerID foundation.PlayerID
 	if !ok {
 		return combat.ActorState{}, worker.ErrUnknownPlayer
 	}
-	entity, ok := runtime.Worker.PlayerEntity(playerID)
+	instance, _, err := runtime.activeMapInstanceLocked(playerID)
+	if err != nil {
+		return combat.ActorState{}, err
+	}
+	entity, ok := instance.Worker.PlayerEntity(playerID)
 	if !ok {
 		return combat.ActorState{}, worker.ErrUnknownPlayer
 	}
@@ -90,8 +95,12 @@ func (runtime *Runtime) syncPlayerCombatActorLocked(playerID foundation.PlayerID
 	return actor, nil
 }
 
-func (runtime *Runtime) syncWorldCombatActorLocked(entityID world.EntityID) error {
-	entity, ok := runtime.Worker.Entity(entityID)
+func (runtime *Runtime) syncWorldCombatActorLocked(playerID foundation.PlayerID, entityID world.EntityID) error {
+	instance, _, err := runtime.activeMapInstanceLocked(playerID)
+	if err != nil {
+		return err
+	}
+	entity, ok := instance.Worker.Entity(entityID)
 	if !ok {
 		return worker.ErrUnknownEntity
 	}
@@ -163,7 +172,11 @@ func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, st
 }
 
 func (runtime *Runtime) viewerForPlayerLocked(playerID foundation.PlayerID) (visibility.Viewer, error) {
-	entity, ok := runtime.Worker.PlayerEntity(playerID)
+	instance, location, err := runtime.activeMapInstanceLocked(playerID)
+	if err != nil {
+		return visibility.Viewer{}, err
+	}
+	entity, ok := instance.Worker.PlayerEntity(playerID)
 	if !ok {
 		return visibility.Viewer{}, worker.ErrUnknownPlayer
 	}
@@ -171,8 +184,8 @@ func (runtime *Runtime) viewerForPlayerLocked(playerID foundation.PlayerID) (vis
 		Exploration: stats.ExplorationStats{RadarRange: runtimeLiveProjectionDiagonalRange},
 	}, runtime.clock.Now())
 	return visibility.Viewer{
-		WorldID:    runtime.worldID,
-		ZoneID:     runtime.zoneID,
+		WorldID:    location.WorldID,
+		ZoneID:     location.ZoneID,
 		Position:   entity.Position,
 		RadarRange: visibility.RadarRangeFromStatSnapshot(statSnapshot),
 	}, nil
@@ -232,7 +245,11 @@ func (runtime *Runtime) insertLootDropEntityLocked(drop loot.Drop) error {
 	if err != nil {
 		return err
 	}
-	return runtime.Worker.InsertEntity(entity, 0)
+	instance, err := runtime.mapInstanceLocked(worldmaps.MapID(drop.ZoneID.String()))
+	if err != nil {
+		return err
+	}
+	return instance.Worker.InsertEntity(entity, 0)
 }
 
 func (runtime *Runtime) activeCargoLocationLocked(playerID foundation.PlayerID) economy.ItemLocation {

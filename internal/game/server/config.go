@@ -8,6 +8,7 @@ import (
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/foundation"
+	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
 )
 
@@ -51,7 +52,7 @@ func DefaultConfig() Config {
 		SocketReadLimit:    defaultSocketReadLimit,
 		TickDelta:          worker.DefaultTickDelta,
 		WorldID:            "world-1",
-		ZoneID:             "zone-1",
+		ZoneID:             foundation.ZoneID(worldmaps.StarterMapID),
 	}
 }
 

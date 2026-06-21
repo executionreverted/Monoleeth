@@ -581,7 +581,11 @@ func (runtime *Runtime) questBoardSnapshotLocked(playerID foundation.PlayerID) (
 	if err != nil {
 		return quests.PlayerQuestBoardSnapshot{}, err
 	}
-	sector := runtime.sectorPayloadLocked()
+	mapProjection, err := runtime.mapRouter.ClientProjection(playerID)
+	if err != nil {
+		return quests.PlayerQuestBoardSnapshot{}, err
+	}
+	sector := sectorPayloadFromMap(mapProjection)
 	return quests.PlayerQuestBoardSnapshot{
 		PlayerID:         playerID,
 		Rank:             progressionSnapshot.Player.Rank,

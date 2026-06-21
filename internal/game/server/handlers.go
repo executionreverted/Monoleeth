@@ -14,6 +14,7 @@ import (
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
+	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
 )
 
@@ -24,6 +25,24 @@ var trustedClientPayloadKeys = map[string]struct{}{
 	"session_id":             {},
 	"world_id":               {},
 	"zone_id":                {},
+	"map_id":                 {},
+	"internal_map_id":        {},
+	"public_map_key":         {},
+	"map_key":                {},
+	"map":                    {},
+	"source_map_id":          {},
+	"source_map_key":         {},
+	"source_map":             {},
+	"source_spawn_id":        {},
+	"destination_map_id":     {},
+	"destination_map_key":    {},
+	"destination_map":        {},
+	"destination_spawn_id":   {},
+	"spawn_id":               {},
+	"worker":                 {},
+	"worker_id":              {},
+	"map_worker_id":          {},
+	"worker_topology":        {},
 	"speed":                  {},
 	"damage":                 {},
 	"xp":                     {},
@@ -219,10 +238,14 @@ func (runtime *Runtime) handleMoveTo(ctx realtime.CommandContext, request realti
 	if err := runtime.validateMoveIntentLocked(ctx.PlayerID, intent); err != nil {
 		return nil, err
 	}
-	if err := runtime.Worker.Submit(worker.MoveToCommand{PlayerID: ctx.PlayerID, Intent: intent}); err != nil {
+	instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
+	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
-	if err := commandErrors(runtime.Worker.Tick()); err != nil {
+	if err := instance.Worker.Submit(worker.MoveToCommand{PlayerID: ctx.PlayerID, Intent: intent}); err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	if err := commandErrors(instance.Worker.Tick()); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
 	snapshot, err := runtime.worldSnapshotLocked(ctx.PlayerID)
@@ -230,10 +253,18 @@ func (runtime *Runtime) handleMoveTo(ctx realtime.CommandContext, request realti
 		return nil, domainErrorForRuntime(err)
 	}
 	return marshalPayload(struct {
-		Accepted bool                `json:"accepted"`
-		Entities []aoi.EntityPayload `json:"entities"`
-		Minimap  minimapPayload      `json:"minimap"`
-	}{Accepted: true, Entities: snapshot.Entities, Minimap: snapshot.Minimap})
+		Accepted     bool                          `json:"accepted"`
+		PublicMapKey string                        `json:"public_map_key"`
+		Map          worldmaps.ClientMapProjection `json:"map"`
+		Entities     []aoi.EntityPayload           `json:"entities"`
+		Minimap      minimapPayload                `json:"minimap"`
+	}{
+		Accepted:     true,
+		PublicMapKey: snapshot.Map.PublicMapKey,
+		Map:          snapshot.Map,
+		Entities:     snapshot.Entities,
+		Minimap:      snapshot.Minimap,
+	})
 }
 
 func (runtime *Runtime) handleStop(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -245,10 +276,14 @@ func (runtime *Runtime) handleStop(ctx realtime.CommandContext, request realtime
 	if err := runtime.validateShipCanMoveLocked(ctx.PlayerID); err != nil {
 		return nil, err
 	}
-	if err := runtime.Worker.Submit(worker.StopCommand{PlayerID: ctx.PlayerID}); err != nil {
+	instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
+	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
-	if err := commandErrors(runtime.Worker.Tick()); err != nil {
+	if err := instance.Worker.Submit(worker.StopCommand{PlayerID: ctx.PlayerID}); err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	if err := commandErrors(instance.Worker.Tick()); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
 	snapshot, err := runtime.worldSnapshotLocked(ctx.PlayerID)
@@ -266,7 +301,17 @@ func (runtime *Runtime) validateMoveIntentLocked(playerID foundation.PlayerID, i
 	if err := runtime.validateShipCanMoveLocked(playerID); err != nil {
 		return err
 	}
-	entity, ok := runtime.Worker.PlayerEntity(playerID)
+	if err := runtime.mapRouter.ValidateActivePosition(playerID, intent.Target); err != nil {
+		if errors.Is(err, worldmaps.ErrPositionOutOfBounds) {
+			return foundation.NewDomainError(foundation.CodeOutOfRange, "Move target is outside map bounds.", foundation.WithCause(err))
+		}
+		return err
+	}
+	instance, _, err := runtime.activeMapInstanceLocked(playerID)
+	if err != nil {
+		return err
+	}
+	entity, ok := instance.Worker.PlayerEntity(playerID)
 	if !ok {
 		return domainErrorForRuntime(worker.ErrUnknownPlayer)
 	}
@@ -317,13 +362,22 @@ func (runtime *Runtime) handleDebugSpawnNPC(ctx realtime.CommandContext, request
 	if err != nil {
 		return nil, invalidPayload("Entity is invalid.", err)
 	}
-	entity, err := world.NewEntity(runtime.worldID, runtime.zoneID, entityID, world.EntityTypeNPCPlaceholder, payload.Position)
-	if err != nil {
-		return nil, invalidPayload("Entity is invalid.", err)
-	}
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
-	if err := runtime.Worker.InsertEntity(entity, 0); err != nil {
+	if err := runtime.mapRouter.ValidateActivePosition(ctx.PlayerID, payload.Position); err != nil {
+		if errors.Is(err, worldmaps.ErrPositionOutOfBounds) {
+			return nil, foundation.NewDomainError(foundation.CodeOutOfRange, "Debug spawn position is outside map bounds.", foundation.WithCause(err))
+		}
+		return nil, domainErrorForRuntime(err)
+	}
+	instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
+	if err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	if err := instance.Worker.Submit(worker.DebugSpawnNPCCommand{EntityID: entityID, Position: payload.Position}); err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	if err := commandErrors(instance.Worker.Tick()); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
 	return marshalPayload(map[string]any{"accepted": true})

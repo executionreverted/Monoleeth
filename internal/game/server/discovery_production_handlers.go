@@ -134,11 +134,17 @@ func (runtime *Runtime) handleScanPulse(ctx realtime.CommandContext, request rea
 	if err := rejectTrustedPayload(request.Payload); err != nil {
 		return nil, err
 	}
+	runtime.mu.Lock()
+	location, err := runtime.mapRouter.ActiveLocation(ctx.PlayerID)
+	runtime.mu.Unlock()
+	if err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
 	ref := discovery.ScanPulseReference("pulse_" + request.RequestID.String())
 	start, err := runtime.Scanner.StartScanPulse(discovery.StartScanPulseInput{
 		PlayerID:       ctx.PlayerID,
-		WorldID:        runtime.worldID,
-		ZoneID:         runtime.zoneID,
+		WorldID:        location.WorldID,
+		ZoneID:         location.ZoneID,
 		ShipID:         starterShipID,
 		PulseReference: ref,
 	})
@@ -148,8 +154,8 @@ func (runtime *Runtime) handleScanPulse(ctx realtime.CommandContext, request rea
 
 	result, err := runtime.Scanner.ResolveScanPulse(discovery.ResolveScanPulseInput{
 		PlayerID:       ctx.PlayerID,
-		WorldID:        runtime.worldID,
-		ZoneID:         runtime.zoneID,
+		WorldID:        location.WorldID,
+		ZoneID:         location.ZoneID,
 		PulseReference: ref,
 	})
 	if errors.Is(err, discovery.ErrScanPulseNotReady) {

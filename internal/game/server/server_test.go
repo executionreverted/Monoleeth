@@ -30,10 +30,25 @@ import (
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
+	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
 )
 
 const testOrigin = "http://example.com"
+
+func TestServerRejectsNonStarterRuntimeZone(t *testing.T) {
+	_, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		SessionTTL:     time.Hour,
+		TickDelta:      50 * time.Millisecond,
+		WorldID:        "world-1",
+		ZoneID:         "zone-1",
+		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err == nil || !strings.Contains(err.Error(), string(worldmaps.StarterMapID)) {
+		t.Fatalf("New(non-starter zone) error = %v, want starter map zone validation", err)
+	}
+}
 
 func TestServerAuthRoutesAndWebSocketBootstrap(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
@@ -54,6 +69,11 @@ func TestServerAuthRoutesAndWebSocketBootstrap(t *testing.T) {
 			"session_id",
 			"world_id",
 			"zone_id",
+			"map_id",
+			"internal_map_id",
+			"destination_map_id",
+			"destination_spawn_id",
+			"worker_id",
 			"entity_hidden_planet_signal",
 			"npc_placeholder",
 			"loot_placeholder",
@@ -100,6 +120,34 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 	}
 	if snapshot.Sector.Name != "Origin Fringe" || snapshot.Sector.Region != "Origin Belt" || snapshot.Sector.Danger == "" {
 		t.Fatalf("sector payload = %+v, want client-safe sector summary", snapshot.Sector)
+	}
+	if snapshot.Sector.SectorKey != "1-1" {
+		t.Fatalf("sector key = %q, want current public map key", snapshot.Sector.SectorKey)
+	}
+	if snapshot.Map.MapKey != "1-1" || snapshot.Map.PublicMapKey != "1-1" || snapshot.Map.Bounds != worldmaps.ExactPlayableBounds() {
+		t.Fatalf("map projection = %+v, want public 1-1 exact-bounds projection", snapshot.Map)
+	}
+	if len(snapshot.Map.VisiblePortals) != 1 || snapshot.Map.VisiblePortals[0].PortalID == "" {
+		t.Fatalf("map visible portals = %+v, want client-safe visible portal summary", snapshot.Map.VisiblePortals)
+	}
+	rawSnapshot := string(mustJSON(t, snapshot))
+	for _, forbidden := range []string{
+		"internal_map_id",
+		"map_id",
+		"zone_id",
+		"worker_id",
+		"map_worker_id",
+		"destination_map_id",
+		"destination_spawn_id",
+		"map_1_1",
+		"map_1_2",
+		"gameplay_seed",
+		"procedural_seed",
+		"enemy_pool",
+	} {
+		if strings.Contains(rawSnapshot, forbidden) {
+			t.Fatalf("world snapshot leaked %q in %s", forbidden, rawSnapshot)
+		}
 	}
 	if snapshot.Minimap.RadarRange != runtimeLiveProjectionHalfExtent || snapshot.Minimap.ProjectionWindowSize != runtimeLiveProjectionDiameter {
 		t.Fatalf("minimap projection = range %v window %v, want %v/%v", snapshot.Minimap.RadarRange, snapshot.Minimap.ProjectionWindowSize, runtimeLiveProjectionHalfExtent, runtimeLiveProjectionDiameter)
@@ -190,15 +238,20 @@ func TestMoveToThroughWebSocketUsesGatewayAndServerPosition(t *testing.T) {
 		t.Fatalf("move response = %+v, want success", response)
 	}
 	var payload struct {
-		Accepted bool                `json:"accepted"`
-		Entities []aoi.EntityPayload `json:"entities"`
-		Minimap  minimapPayload      `json:"minimap"`
+		Accepted     bool                          `json:"accepted"`
+		PublicMapKey string                        `json:"public_map_key"`
+		Map          worldmaps.ClientMapProjection `json:"map"`
+		Entities     []aoi.EntityPayload           `json:"entities"`
+		Minimap      minimapPayload                `json:"minimap"`
 	}
 	if err := json.Unmarshal(response.Payload, &payload); err != nil {
 		t.Fatalf("decode move payload: %v", err)
 	}
 	if !payload.Accepted {
 		t.Fatal("move accepted = false, want true")
+	}
+	if payload.PublicMapKey != "1-1" || payload.Map.MapKey != "1-1" || payload.Map.Bounds != worldmaps.ExactPlayableBounds() {
+		t.Fatalf("move map projection = key %q map %+v, want current public 1-1 map", payload.PublicMapKey, payload.Map)
 	}
 	assertMinimapMirrorsEntities(t, "move response", payload.Entities, payload.Minimap)
 	var playerX float64
@@ -329,6 +382,44 @@ func TestMoveToRejectsExcessivePathAndDisabledShip(t *testing.T) {
 		got := readError(t, conn)
 		if got.Error.Code != foundation.CodeInvalidPayload {
 			t.Fatalf("non-finite move error = %+v, want %s", got.Error, foundation.CodeInvalidPayload)
+		}
+	})
+
+	for _, tc := range []struct {
+		name   string
+		target world.Vec2
+	}{
+		{name: "x below bounds", target: world.Vec2{X: -1, Y: 0}},
+		{name: "y below bounds", target: world.Vec2{X: 0, Y: -1}},
+		{name: "x above bounds", target: world.Vec2{X: worldmaps.PlayableMaxCoordinate + 1, Y: 0}},
+		{name: "y above bounds", target: world.Vec2{X: 0, Y: worldmaps.PlayableMaxCoordinate + 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, httpServer := newTestServer(t, false)
+			defer httpServer.Close()
+			conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+			defer conn.CloseNow()
+			readBootstrapEvents(t, conn)
+
+			writeText(t, conn, fmt.Sprintf(`{"request_id":"request-move-%s","op":"move_to","payload":{"target":{"x":%v,"y":%v}},"client_seq":1,"v":1}`, strings.ReplaceAll(tc.name, " ", "-"), tc.target.X, tc.target.Y))
+			got := readError(t, conn)
+			if got.Error.Code != foundation.CodeOutOfRange {
+				t.Fatalf("out-of-bounds move error = %+v, want %s", got.Error, foundation.CodeOutOfRange)
+			}
+		})
+	}
+
+	t.Run("trusted map payload", func(t *testing.T) {
+		_, httpServer := newTestServer(t, false)
+		defer httpServer.Close()
+		conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+		defer conn.CloseNow()
+		readBootstrapEvents(t, conn)
+
+		writeText(t, conn, `{"request_id":"request-move-map-spoof","op":"move_to","payload":{"target":{"x":100,"y":0},"map_id":"map_1_2"},"client_seq":1,"v":1}`)
+		got := readError(t, conn)
+		if got.Error.Code != foundation.CodeInvalidPayload {
+			t.Fatalf("map spoof move error = %+v, want %s", got.Error, foundation.CodeInvalidPayload)
 		}
 	})
 
@@ -3667,8 +3758,8 @@ func TestWorldSnapshotFarRememberedPlanetStaysMemoryNotLiveContact(t *testing.T)
 	if memory.Freshness != string(discovery.IntelStateFresh) {
 		t.Fatalf("far memory freshness = %q, want fresh", memory.Freshness)
 	}
-	if memory.SectorKey != runtimeSectorKey || memory.ProjectionSource != runtimeProjectionSourceKnownIntel {
-		t.Fatalf("far memory sector/source = %+v, want %s/%s", memory, runtimeSectorKey, runtimeProjectionSourceKnownIntel)
+	if memory.SectorKey != "1-1" || memory.ProjectionSource != runtimeProjectionSourceKnownIntel {
+		t.Fatalf("far memory sector/source = %+v, want %s/%s", memory, "1-1", runtimeProjectionSourceKnownIntel)
 	}
 }
 
@@ -3757,6 +3848,114 @@ func TestMultiTabAttachDoesNotDuplicatePlayerEntity(t *testing.T) {
 	}
 }
 
+func TestEnsurePlayerSessionPreservesExistingActiveMap(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "router-preserve@example.com", "Router Preserve")
+
+	gameServer.runtime.mu.Lock()
+	want, err := gameServer.runtime.mapRouter.SetActiveLocationFromSpawn(resolved.PlayerID, "map_1_2", "west_gate")
+	gameServer.runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("SetActiveLocationFromSpawn() error = %v, want nil", err)
+	}
+
+	login, err := gameServer.runtime.Auth.Login(context.Background(), auth.LoginInput{
+		Email:    resolved.Email.String(),
+		Password: "correct-password",
+	})
+	if err != nil {
+		t.Fatalf("Login() error = %v, want nil", err)
+	}
+	if err := gameServer.runtime.ensurePlayerSession(login.Session); err != nil {
+		t.Fatalf("ensurePlayerSession(reconnect) error = %v, want nil", err)
+	}
+
+	gameServer.runtime.mu.Lock()
+	got, err := gameServer.runtime.mapRouter.ActiveLocation(resolved.PlayerID)
+	instance, _, instanceErr := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	_, starterHasPlayer := gameServer.runtime.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("ActiveLocation() error = %v, want nil", err)
+	}
+	if got != want {
+		t.Fatalf("active location after reconnect = %+v, want preserved %+v", got, want)
+	}
+	if instanceErr != nil {
+		t.Fatalf("active instance error = %v, want nil", instanceErr)
+	}
+	if instance.Definition.InternalMapID != "map_1_2" || instance.Worker.ZoneID() != world.ZoneID("map_1_2") {
+		t.Fatalf("active instance = %+v zone %q, want map_1_2 worker", instance.Definition, instance.Worker.ZoneID())
+	}
+	if _, ok := instance.Worker.PlayerEntity(resolved.PlayerID); !ok {
+		t.Fatalf("active map_1_2 worker missing player %q", resolved.PlayerID)
+	}
+	if starterHasPlayer {
+		t.Fatalf("starter worker still has player %q after active map_1_2 reconnect", resolved.PlayerID)
+	}
+}
+
+func TestActiveMapSnapshotUsesActiveMapWorker(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "router-snapshot@example.com", "Router Snapshot")
+
+	gameServer.runtime.mu.Lock()
+	if _, err := gameServer.runtime.mapRouter.SetActiveLocationFromSpawn(resolved.PlayerID, "map_1_2", "west_gate"); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("SetActiveLocationFromSpawn() error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Unlock()
+	login, err := gameServer.runtime.Auth.Login(context.Background(), auth.LoginInput{
+		Email:    resolved.Email.String(),
+		Password: "correct-password",
+	})
+	if err != nil {
+		t.Fatalf("Login() error = %v, want nil", err)
+	}
+	if err := gameServer.runtime.ensurePlayerSession(login.Session); err != nil {
+		t.Fatalf("ensurePlayerSession(map_1_2) error = %v, want nil", err)
+	}
+
+	events, err := gameServer.runtime.bootstrapEvents(login.Session)
+	if err != nil {
+		t.Fatalf("bootstrap events: %v", err)
+	}
+	snapshot := decodeWorldSnapshotForTest(t, events)
+	if snapshot.Map.PublicMapKey != "1-2" || snapshot.Sector.SectorKey != "1-2" {
+		t.Fatalf("snapshot map/sector = %+v/%+v, want active public 1-2", snapshot.Map, snapshot.Sector)
+	}
+	selfCount := 0
+	for _, entity := range snapshot.Entities {
+		if hasStatusFlag(entity.StatusFlags, "self") {
+			selfCount++
+			if entity.Position != (world.Vec2{X: 400, Y: 5000}) {
+				t.Fatalf("self position = %+v, want map_1_2 west gate spawn", entity.Position)
+			}
+		}
+	}
+	if selfCount != 1 {
+		t.Fatalf("map_1_2 snapshot self count = %d in %+v, want 1", selfCount, snapshot.Entities)
+	}
+}
+
+func TestSectorPayloadFromMapUsesProjectionKey(t *testing.T) {
+	sector := sectorPayloadFromMap(worldmaps.ClientMapProjection{
+		MapKey:       "1-2",
+		PublicMapKey: "1-2",
+		DisplayName:  "Outer Ring",
+		Region:       "Origin Belt",
+		RiskBand:     "low",
+		PVPPolicy:    "pve",
+	})
+	if sector.SectorKey != "1-2" || sector.Name != "Outer Ring" || sector.Contested {
+		t.Fatalf("sector from map = %+v, want 1-2 projection", sector)
+	}
+	fallback := sectorPayloadFromMap(worldmaps.ClientMapProjection{})
+	if fallback.SectorKey != runtimeSectorKey {
+		t.Fatalf("empty map sector key = %q, want fallback %q", fallback.SectorKey, runtimeSectorKey)
+	}
+}
+
 func TestDuplicateRequestIDReturnsCachedWebSocketResponse(t *testing.T) {
 	_, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
@@ -3794,6 +3993,20 @@ func TestBadPayloadReturnsSafeErrorAndLogoutRejectsFurtherCommands(t *testing.T)
 	revoked := readError(t, conn)
 	if revoked.Error.Code != foundation.CodeSessionRevoked {
 		t.Fatalf("after logout error = %+v, want %s", revoked.Error, foundation.CodeSessionRevoked)
+	}
+}
+
+func TestDebugSpawnNPCRejectsOutOfBoundsPosition(t *testing.T) {
+	_, httpServer := newTestServer(t, true)
+	defer httpServer.Close()
+	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	writeText(t, conn, `{"request_id":"request-debug-spawn-oob","op":"debug_spawn_npc","payload":{"entity_id":"debug_npc_oob","position":{"x":10001,"y":0}},"client_seq":1,"v":1}`)
+	got := readError(t, conn)
+	if got.Error.Code != foundation.CodeOutOfRange {
+		t.Fatalf("debug spawn out-of-bounds error = %+v, want %s", got.Error, foundation.CodeOutOfRange)
 	}
 }
 
@@ -3863,6 +4076,24 @@ func TestRejectTrustedPayloadSharedSensitiveFieldsAndAdminException(t *testing.T
 		"session_id",
 		"world_id",
 		"zone_id",
+		"map_id",
+		"internal_map_id",
+		"public_map_key",
+		"map_key",
+		"map",
+		"source_map_id",
+		"source_map_key",
+		"source_map",
+		"source_spawn_id",
+		"destination_map_id",
+		"destination_map_key",
+		"destination_map",
+		"destination_spawn_id",
+		"spawn_id",
+		"worker",
+		"worker_id",
+		"map_worker_id",
+		"worker_topology",
 		"speed",
 		"hidden",
 		"internal_metadata",

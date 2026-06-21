@@ -52,8 +52,12 @@ func (runtime *Runtime) applyShipDisabledDomainEventLocked(payload deathdomain.S
 	runtime.players[payload.PlayerID] = state
 
 	_, _ = runtime.syncPlayerCombatActorLocked(payload.PlayerID)
-	if err := runtime.Worker.Submit(worker.StopCommand{PlayerID: payload.PlayerID}); err == nil {
-		_ = commandErrors(runtime.Worker.Tick())
+	var activeInstance *mapInstance
+	if instance, _, err := runtime.activeMapInstanceLocked(payload.PlayerID); err == nil {
+		activeInstance = instance
+		if err := instance.Worker.Submit(worker.StopCommand{PlayerID: payload.PlayerID}); err == nil {
+			_ = commandErrors(instance.Worker.Tick())
+		}
 	}
 
 	publicPayload := map[string]any{
@@ -69,7 +73,11 @@ func (runtime *Runtime) applyShipDisabledDomainEventLocked(payload deathdomain.S
 		runtime.queueEventLocked(sessionID, realtime.EventDeathShipDisabled, publicPayload)
 		runtime.queueEventLocked(sessionID, realtime.EventShipSnapshot, state.Ship)
 		runtime.queueEventLocked(sessionID, realtime.EventPlayerSnapshot, state.playerSnapshot())
-		if entity, ok := runtime.Worker.PlayerEntity(payload.PlayerID); ok {
+		if activeInstance != nil {
+			entity, ok := activeInstance.Worker.PlayerEntity(payload.PlayerID)
+			if !ok {
+				continue
+			}
 			runtime.queueEventLocked(sessionID, realtime.EventMovementStopped, map[string]any{
 				"entity_id": entity.ID.String(),
 				"position":  entity.Position,
