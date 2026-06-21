@@ -1,0 +1,430 @@
+@media (max-width: 767px) {
+  .hud__topbar {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+
+  .hud__movement-eta {
+    top: 9.35rem;
+    width: calc(100vw - 1.5rem);
+  }
+
+  .movement-eta {
+    min-height: 2.85rem;
+    padding: 0.4rem 0.55rem 0.48rem;
+  }
+
+  .movement-eta::before,
+  .movement-eta::after {
+    display: none;
+  }
+
+  .top-status {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .top-status__cell {
+    min-height: 1.9rem;
+    grid-template-columns: 0.9rem minmax(0, 1fr);
+    column-gap: 0.35rem;
+    padding: 0.12rem 0.35rem;
+  }
+
+  .top-status__icon {
+    width: 0.82rem;
+    height: 0.82rem;
+  }
+
+  .top-status span {
+    font-size: 0.58rem;
+  }
+
+  .top-status strong {
+    font-size: 0.72rem;
+  }
+
+  .socket-field {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+
+  .socket-field span {
+    display: none;
+  }
+
+  .toolbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .hangar-console {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .hangar-detail {
+    grid-template-rows: auto;
+  }
+
+  .hangar-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .planet-catalog {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .planet-catalog__actions,
+  .planet-tabs,
+  .planet-section-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .planet-section-grid section:last-child {
+    grid-column: auto;
+  }
+
+  .quest-board,
+  .quest-detail-card__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quest-board {
+    min-height: 0;
+  }
+
+  .quest-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quest-board__detail {
+    min-height: 13rem;
+  }
+
+  .quest-row {
+    grid-template-columns: 0.5rem minmax(0, 1fr);
+  }
+
+  .quest-row small {
+    grid-column: 2;
+  }
+
+  .shop-console,
+  .shop-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .shop-console {
+    min-height: 0;
+  }
+
+  .shop-categories {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shop-detail {
+    min-height: 13rem;
+  }
+
+  .shop-entry {
+    grid-template-columns: 0.5rem minmax(0, 1fr);
+  }
+
+  .shop-entry small {
+    grid-column: 2;
+  }
+
+  .shop-quantity {
+    grid-template-columns: auto repeat(3, minmax(1.8rem, 1fr));
+  }
+
+  .tool-button {
+    min-height: 2.2rem;
+    min-width: 0;
+    padding: 0 0.35rem;
+    font-size: 0.72rem;
+  }
+
+  .hud__rail--left {
+    top: 12rem;
+    left: 0.5rem;
+    right: 0.5rem;
+    width: auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hud__rail--left [data-panel="status"] {
+    display: none;
+  }
+
+  .hud__nav {
+    width: 100%;
+    grid-template-columns: repeat(6, minmax(4.5rem, 1fr));
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding: 0.35rem;
+  }
+
+  .hud-nav-button {
+    min-width: 4.5rem;
+    min-height: 2.4rem;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1rem auto;
+    gap: 0.2rem;
+    justify-items: center;
+    border-bottom: 0;
+    border-right: 1px solid rgba(215, 247, 255, 0.14);
+    text-align: center;
+    font-size: 0.68rem;
+  }
+
+  .hud-nav-button__icon {
+    width: 0.95rem;
+    height: 0.95rem;
+  }
+
+  .hud__window-layer {
+    left: 0.5rem;
+    right: 0.5rem;
+    top: auto;
+    bottom: 5.65rem;
+    inset-inline: 0.5rem;
+    height: min(16rem, calc(100vh - 13.5rem));
+  }
+
+  .hud-window {
+    left: 0 !important;
+    top: auto !important;
+    bottom: 0;
+    width: 100%;
+    height: auto;
+    max-height: min(16rem, calc(100vh - 13.5rem));
+  }
+
+  .hud-window:not([data-focused="true"]) {
+    display: none;
+  }
+
+  .hud-modal {
+    width: calc(100vw - 1rem);
+    max-height: calc(100vh - 1.5rem);
+  }
+
+  .hud-modal__header,
+  .hud-window__header {
+    padding: 0.5rem;
+    cursor: default;
+    touch-action: pan-y;
+  }
+
+  .hud-modal__header button,
+  .hud-window__header button {
+    min-width: 3rem;
+    padding: 0 0.45rem;
+  }
+
+  .hud__rail--right {
+    top: auto;
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: 6.25rem;
+    width: auto;
+    grid-template-columns: repeat(3, minmax(10rem, 1fr));
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .hud__rail--right .panel {
+    min-width: 10rem;
+    max-height: 10.5rem;
+    overflow: hidden;
+  }
+
+  .hud__rail--right [data-panel="ship"] {
+    display: none;
+  }
+
+  .hud__rail--right [data-panel="intel"] .minimap {
+    aspect-ratio: 1.9;
+    min-height: 4.8rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .hud__rail--right [data-panel="intel"] .intel-metrics,
+  .hud__rail--right [data-panel="intel"] .scan-readout,
+  .hud__rail--right [data-panel="intel"] .planet-list {
+    display: none;
+  }
+
+  .hud__actionbar {
+    bottom: 0.45rem;
+    grid-template-columns: repeat(6, minmax(3.7rem, 1fr));
+    gap: 0.35rem;
+    width: calc(100vw - 1rem);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .action-button {
+    min-height: 3.45rem;
+    padding: 0.3rem 0.25rem 0.35rem;
+  }
+
+  .action-button__icon {
+    width: 1.3rem;
+    height: 1.3rem;
+  }
+
+  .action-button__label {
+    font-size: 0.68rem;
+  }
+
+  .action-button small {
+    font-size: 0.58rem;
+  }
+
+  .hud__log {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .auth-card {
+    padding: 1.25rem;
+  }
+
+  .loadout-slots {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .auth-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .hud__topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .top-status {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .toolbar {
+    display: flex;
+    gap: 0.4rem;
+  }
+
+  .tool-button {
+    min-width: 4.2rem;
+    min-height: 2rem;
+    padding: 0 0.65rem;
+  }
+
+  .tool-button--locked {
+    min-width: 2.35rem;
+    color: transparent;
+    background:
+      radial-gradient(circle, rgba(215, 247, 255, 0.84) 0 0.12rem, transparent 0.14rem),
+      rgba(138, 245, 255, 0.05);
+  }
+
+  .hud__rail--right [data-panel="ship"] {
+    display: none;
+  }
+
+  .hud__rail--right {
+    grid-template-rows: auto auto minmax(13rem, 1fr);
+  }
+
+  .hud__rail--right [data-panel="intel"] {
+    align-self: end;
+    max-height: 17rem;
+    overflow: hidden;
+  }
+
+}
+
+@media (min-width: 768px) and (max-width: 1099px) {
+  .hud__log {
+    display: none;
+  }
+
+  .hud__actionbar {
+    grid-template-columns: repeat(6, minmax(3.35rem, 1fr));
+    gap: 0.35rem;
+    width: min(24rem, calc(100vw - 40rem));
+    padding: 0.42rem;
+  }
+
+  .action-button {
+    min-height: 4.2rem;
+    padding: 0.35rem 0.25rem 0.38rem;
+  }
+
+  .action-button__icon {
+    width: 1.55rem;
+    height: 1.55rem;
+  }
+
+  .action-button__label {
+    font-size: 0.72rem;
+  }
+
+  .action-button small {
+    font-size: 0.6rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .top-status {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .hud__rail--left {
+    width: 13rem;
+  }
+
+  .hud__rail--right {
+    width: 19.25rem;
+  }
+
+  .panel--status {
+    min-height: 11rem;
+  }
+
+  .panel--planets {
+    min-height: 13rem;
+  }
+
+  .loadout-console--equipment {
+    grid-template-columns: minmax(7rem, 0.72fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .loadout-console--equipment .loadout-ship {
+    min-height: 13.25rem;
+    align-content: center;
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .loadout-slot-groups,
+  .module-bay {
+    align-self: stretch;
+  }
+
+  .hud__actionbar {
+    width: min(35.75rem, calc(100vw - 40rem));
+  }
+}
+
+@media (min-width: 1100px) {
+  .hud__actionbar {
+    width: min(35.75rem, calc(100vw - 44rem));
+  }
+}

@@ -1,0 +1,218 @@
+.minimap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  min-height: 7rem;
+  margin-bottom: 0.625rem;
+  border: 1px solid rgba(138, 245, 255, 0.18);
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(138, 245, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(138, 245, 255, 0.08) 1px, transparent 1px),
+    rgba(3, 6, 8, 0.62);
+  background-size: 25% 25%;
+}
+
+.minimap--empty {
+  display: grid;
+  place-items: center;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.minimap__ring,
+.minimap__axis {
+  position: absolute;
+  pointer-events: none;
+}
+
+.minimap__point,
+.minimap__memory {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  cursor: pointer;
+}
+
+.minimap__ring {
+  inset: 12%;
+  border: 1px dashed rgba(138, 245, 255, 0.28);
+  border-radius: 50%;
+}
+
+.minimap__ring--middle {
+  inset: 29%;
+  border-color: rgba(138, 245, 255, 0.18);
+}
+
+.minimap__axis--x {
+  left: 8%;
+  right: 8%;
+  top: 50%;
+  border-top: 1px solid rgba(215, 247, 255, 0.14);
+}
+
+.minimap__axis--y {
+  top: 8%;
+  bottom: 8%;
+  left: 50%;
+  border-left: 1px solid rgba(215, 247, 255, 0.14);
+}
+
+.minimap__point {
+  width: 0.625rem;
+  height: 0.625rem;
+  border: 1px solid currentColor;
+  background: rgba(138, 245, 255, 0.08);
+  transform: translate(-50%, -50%) rotate(45deg);
+  z-index: 2;
+}
+
+.minimap__point[data-kind="self"] {
+  width: 0.75rem;
+  height: 0.75rem;
+  color: #ffffff;
+  background: #ffffff;
+  clip-path: polygon(50% 0, 100% 100%, 50% 76%, 0 100%);
+  transform: translate(-50%, -50%);
+  z-index: 4;
+  pointer-events: none;
+}
+
+.minimap__point[data-kind="hostile"] {
+  color: #ff5c7a;
+}
+
+.minimap__point[data-entity-type="loot"] {
+  width: 0.7rem;
+  height: 0.7rem;
+  color: #f4c95d;
+  background: rgba(244, 201, 93, 0.16);
+  z-index: 3;
+}
+
+.minimap__point[data-entity-type="planet_signal"] {
+  width: 0.72rem;
+  height: 0.72rem;
+  color: #f4c95d;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, currentColor 0 18%, transparent 20%),
+    rgba(244, 201, 93, 0.08);
+  transform: translate(-50%, -50%);
+}
+
+.minimap__point[data-kind="unknown"] {
+  color: #f4c95d;
+  border-radius: 50%;
+}
+
+.minimap__point[data-kind="friendly"],
+.minimap__point[data-kind="neutral"] {
+  color: #7cff9b;
+  z-index: 2;
+}
+
+.minimap__point[data-entity-type="loot"][data-kind="neutral"] {
+  color: #f4c95d;
+  z-index: 3;
+}
+
+.minimap__memory {
+  width: 1rem;
+  height: 1rem;
+  background: rgba(3, 8, 10, 0.68);
+  border: 1px solid rgba(124, 255, 155, 0.68);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0.65rem rgba(124, 255, 155, 0.22),
+    inset 0 0 0.35rem rgba(124, 255, 155, 0.16);
+  transform: translate(-50%, -50%);
+  z-index: 3;
+}
+
+.minimap__memory[data-freshness="stale"] {
+  border-color: rgba(244, 201, 93, 0.74);
+  box-shadow:
+    0 0 0.65rem rgba(244, 201, 93, 0.2),
+    inset 0 0 0.35rem rgba(244, 201, 93, 0.14);
+}
+
+.minimap-legend {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.25rem;
+  margin-bottom: 0.375rem;
+  color: rgba(215, 247, 255, 0.68);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.minimap-legend span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minimap-legend span::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.25rem;
+  border: 1px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.minimap-legend span[data-kind="self"] {
+  color: #ffffff;
+}
+
+.minimap-legend span[data-kind="hostile"] {
+  color: #ff5c7a;
+}
+
+.minimap-legend span[data-kind="loot"] {
+  color: #f4c95d;
+}
+
+.minimap-legend span[data-kind="memory"] {
+  color: #7cff9b;
+}
+
+.minimap-legend span[data-kind="memory"]::before {
+  border-radius: 50%;
+  transform: none;
+}
+
+.minimap-legend span[data-kind="unknown"] {
+  color: #f4c95d;
+}
+
+.minimap-legend span[data-kind="unknown"]::before {
+  border-radius: 50%;
+  transform: none;
+}
+
+.intel-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.375rem 0.625rem;
+  margin-top: 0.5rem;
+}
+
+.intel-metrics span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem;
+  color: rgba(215, 247, 255, 0.62);
+  font-size: 0.75rem;
+}
+
+.intel-metrics strong {
+  color: #f4c95d;
+  white-space: nowrap;
+}
