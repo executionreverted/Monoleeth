@@ -184,6 +184,7 @@ ERR_RANK_TOO_LOW
 ERR_ITEM_NOT_TRADEABLE
 ERR_SHIP_DISABLED
 ERR_STORAGE_FULL
+ERR_PVP_BLOCKED
 ```
 
 Error messages to client should not leak hidden truth.
@@ -285,6 +286,7 @@ player.snapshot
 ship.changed
 stats.updated
 combat.damage
+player.protection_updated
 loot.created
 loot.removed
 quest.updated
@@ -293,6 +295,14 @@ planet.production_summary
 route.updated
 fog.updated
 ```
+
+Current map-rework transport events also include
+`player.protection_updated` after successful portal/spawn attach and when
+break-on-PvP initiation clears protection. Its public payload is limited to
+`reason`, `public_map_key`, `expires_at`, `blocks_pvp`, and
+`break_on_pvp_action` plus the normal map subscription epoch; it must not include
+internal map id, spawn id, worker id, or destination internals. A cleared
+protection event uses `blocks_pvp=false` and `break_on_pvp_action=false`.
 
 ## Edge Cases
 

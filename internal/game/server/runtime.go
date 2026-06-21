@@ -50,6 +50,7 @@ const (
 	starterScannerEnergyCost                             = 8
 	runtimeHiddenPlayerWitnessDuration                   = 15 * time.Minute
 	runtimePortalCooldown                                = 30 * time.Second
+	runtimePortalProtectionDuration                      = 10 * time.Second
 	starterWalletCredits                                 = 1200
 	starterWalletPremiumPaid                             = 300
 	weeklyXCorePremiumPrice                              = 100
@@ -101,6 +102,7 @@ type Runtime struct {
 	activeScanPulses  map[foundation.PlayerID]scanPulseMapGuard
 	portalCooldowns   map[portalCooldownKey]time.Time
 	portalAttempts    map[portalRequestKey]portalTransferRecord
+	playerProtections map[protectionKey]playerProtectionState
 
 	nextPlayerEntity int
 
@@ -335,6 +337,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		activeScanPulses:    make(map[foundation.PlayerID]scanPulseMapGuard),
 		portalCooldowns:     make(map[portalCooldownKey]time.Time),
 		portalAttempts:      make(map[portalRequestKey]portalTransferRecord),
+		playerProtections:   make(map[protectionKey]playerProtectionState),
 		Combat:              combatService,
 		Loot:                lootService,
 		Inventory:           inventory,

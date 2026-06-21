@@ -439,6 +439,15 @@ func TestMoveToAndStopMutateOnlyActiveMapWorker(t *testing.T) {
 	if !outOfBounds.HasError || outOfBounds.Error.Error.Code != foundation.CodeOutOfRange {
 		t.Fatalf("out-of-bounds move response = %+v, want out of range", outOfBounds)
 	}
+	gameServer.runtime.mu.Lock()
+	afterOutOfBounds, afterOutOfBoundsOK := mapTwo.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+	if !afterOutOfBoundsOK ||
+		!afterOutOfBounds.Movement.Moving ||
+		afterOutOfBounds.Movement.Target != (world.Vec2{X: 450, Y: 5000}) ||
+		afterOutOfBounds.Position != entity.Position {
+		t.Fatalf("after out-of-bounds move entity = %+v ok=%v, want unchanged active target/state", afterOutOfBounds, afterOutOfBoundsOK)
+	}
 
 	stop := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(resolved.SessionID.String()),

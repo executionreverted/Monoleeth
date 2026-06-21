@@ -95,6 +95,35 @@ func TestExecuteBasicAttackRejectsEnergyShortageBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestExecuteBasicAttackAppliesPolicyBeforeEnergyCooldownAndDamage(t *testing.T) {
+	service := newCombatService(t, []float64{0})
+	addDefaultActors(t, service)
+	beforeAttacker, _ := service.Actor("player_entity_1")
+	beforeTarget, _ := service.Actor("npc_1")
+
+	_, err := service.ExecuteBasicAttack(combat.BasicAttackInput{
+		AttackerID: "player_entity_1",
+		TargetID:   "npc_1",
+		Policy: combat.AttackPolicyFunc(func(combat.AttackPolicyInput) error {
+			return combat.ErrPVPBlocked
+		}),
+	})
+	if !errors.Is(err, combat.ErrPVPBlocked) {
+		t.Fatalf("ExecuteBasicAttack() error = %v, want ErrPVPBlocked", err)
+	}
+	afterAttacker, _ := service.Actor("player_entity_1")
+	afterTarget, _ := service.Actor("npc_1")
+	if afterAttacker.Energy != beforeAttacker.Energy {
+		t.Fatalf("energy mutated on policy failure: got %v, want %v", afterAttacker.Energy, beforeAttacker.Energy)
+	}
+	if !afterAttacker.Cooldowns.Ready(combat.BasicLaserCooldownKey, time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("cooldown started on policy failure: %+v", afterAttacker.Cooldowns)
+	}
+	if afterTarget.HP != beforeTarget.HP || afterTarget.Shield != beforeTarget.Shield {
+		t.Fatalf("target mutated on policy failure: after hp/shield=%v/%v before=%v/%v", afterTarget.HP, afterTarget.Shield, beforeTarget.HP, beforeTarget.Shield)
+	}
+}
+
 func TestExecuteBasicAttackRecordsCombatActionMetric(t *testing.T) {
 	service := newCombatService(t, []float64{0})
 	addDefaultActors(t, service)

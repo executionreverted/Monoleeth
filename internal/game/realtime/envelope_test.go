@@ -188,8 +188,9 @@ func TestDecodeRequestEnvelopeAcceptsPortalEnterOperation(t *testing.T) {
 	}
 	if EventMapTransferStarted != "map.transfer_started" ||
 		EventMapTransferCompleted != "map.transfer_completed" ||
-		EventMapTransferFailed != "map.transfer_failed" {
-		t.Fatalf("map transfer event constants = %q/%q/%q", EventMapTransferStarted, EventMapTransferCompleted, EventMapTransferFailed)
+		EventMapTransferFailed != "map.transfer_failed" ||
+		EventPlayerProtection != "player.protection_updated" {
+		t.Fatalf("map transfer/protection event constants = %q/%q/%q/%q", EventMapTransferStarted, EventMapTransferCompleted, EventMapTransferFailed, EventPlayerProtection)
 	}
 }
 
@@ -203,8 +204,9 @@ func TestDecodeRequestEnvelopeAcceptsPortalEnterOperationAndTransferEvents(t *te
 	}
 	if EventMapTransferStarted != "map.transfer_started" ||
 		EventMapTransferCompleted != "map.transfer_completed" ||
-		EventMapTransferFailed != "map.transfer_failed" {
-		t.Fatalf("map transfer event constants = %q/%q/%q", EventMapTransferStarted, EventMapTransferCompleted, EventMapTransferFailed)
+		EventMapTransferFailed != "map.transfer_failed" ||
+		EventPlayerProtection != "player.protection_updated" {
+		t.Fatalf("map transfer/protection event constants = %q/%q/%q/%q", EventMapTransferStarted, EventMapTransferCompleted, EventMapTransferFailed, EventPlayerProtection)
 	}
 }
 

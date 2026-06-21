@@ -30,6 +30,7 @@ const (
 	CodeItemNotTradeable Code = "ERR_ITEM_NOT_TRADEABLE"
 	CodeShipDisabled     Code = "ERR_SHIP_DISABLED"
 	CodeStorageFull      Code = "ERR_STORAGE_FULL"
+	CodePVPBlocked       Code = "ERR_PVP_BLOCKED"
 )
 
 // String returns the wire representation of the code.

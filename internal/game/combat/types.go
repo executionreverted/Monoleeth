@@ -22,6 +22,7 @@ var (
 	ErrDifferentWorldZone = errors.New("different world or zone")
 	ErrTargetNotVisible   = errors.New("target not visible")
 	ErrOutOfRange         = errors.New("target out of range")
+	ErrPVPBlocked         = errors.New("pvp blocked")
 	ErrCooldownNotReady   = errors.New("cooldown not ready")
 	ErrNotEnoughEnergy    = errors.New("not enough energy")
 	ErrInvalidActorState  = errors.New("invalid combat actor state")
@@ -62,6 +63,30 @@ type CooldownState map[string]time.Time
 type BasicAttackInput struct {
 	AttackerID world.EntityID
 	TargetID   world.EntityID
+	Policy     AttackPolicy
+}
+
+// AttackPolicy is a server-side facade for map, safe-zone, and protection
+// decisions that must run before cooldown, energy, or damage mutation.
+type AttackPolicy interface {
+	ValidateBasicAttack(AttackPolicyInput) error
+}
+
+// AttackPolicyInput carries validated actor state to policy consumers.
+type AttackPolicyInput struct {
+	Attacker ActorState
+	Target   ActorState
+	Now      time.Time
+}
+
+// AttackPolicyFunc adapts a function to AttackPolicy.
+type AttackPolicyFunc func(AttackPolicyInput) error
+
+func (fn AttackPolicyFunc) ValidateBasicAttack(input AttackPolicyInput) error {
+	if fn == nil {
+		return nil
+	}
+	return fn(input)
 }
 
 // BasicAttackResult reports the state transition from one basic laser attempt.

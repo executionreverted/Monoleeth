@@ -306,6 +306,7 @@ func mapScopedEventType(eventType realtime.ClientEventType) bool {
 		realtime.EventMapTransferStarted,
 		realtime.EventMapTransferCompleted,
 		realtime.EventMapTransferFailed,
+		realtime.EventPlayerProtection,
 		realtime.EventAOIEntityEntered,
 		realtime.EventAOIEntityUpdated,
 		realtime.EventAOIEntityLeft,

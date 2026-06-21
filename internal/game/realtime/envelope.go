@@ -87,6 +87,7 @@ const (
 	EventMapTransferStarted    ClientEventType = "map.transfer_started"
 	EventMapTransferCompleted  ClientEventType = "map.transfer_completed"
 	EventMapTransferFailed     ClientEventType = "map.transfer_failed"
+	EventPlayerProtection      ClientEventType = "player.protection_updated"
 	EventAOIEntityEntered      ClientEventType = "aoi.entity_entered"
 	EventAOIEntityUpdated      ClientEventType = "aoi.entity_updated"
 	EventAOIEntityLeft         ClientEventType = "aoi.entity_left"

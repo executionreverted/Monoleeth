@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/foundation"
@@ -105,6 +106,7 @@ func TestPortalEnterTransfersPlayerAndAllActiveSessions(t *testing.T) {
 	gameServer.runtime.mu.Lock()
 	oldEpoch := gameServer.runtime.sessionMapEpochLocked(resolved.SessionID)
 	gameServer.runtime.mu.Unlock()
+	requestedAt := gameServer.runtime.clock.Now()
 
 	response := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(resolved.SessionID.String()),
@@ -124,6 +126,19 @@ func TestPortalEnterTransfersPlayerAndAllActiveSessions(t *testing.T) {
 	}
 	if !responsePayload.Accepted || responsePayload.ToPublicMapKey != "1-2" || responsePayload.Snapshot.Map.PublicMapKey != "1-2" {
 		t.Fatalf("portal response = %+v, want destination 1-2 snapshot", responsePayload)
+	}
+	if responsePayload.Snapshot.Map.Protection == nil ||
+		responsePayload.Snapshot.Map.Protection.Reason != protectionReasonPortal ||
+		responsePayload.Snapshot.Map.Protection.ExpiresAt < requestedAt.Add(9*time.Second).UTC().UnixMilli() ||
+		!responsePayload.Snapshot.Map.Protection.BlocksPVP ||
+		!responsePayload.Snapshot.Map.Protection.BreakOnPVPAction {
+		t.Fatalf("portal response protection = %+v, want 10s server-owned portal protection", responsePayload.Snapshot.Map.Protection)
+	}
+	if responsePayload.Snapshot.Map.SafeZone == nil ||
+		!responsePayload.Snapshot.Map.SafeZone.Inside ||
+		!responsePayload.Snapshot.Map.SafeZone.BlocksPVP ||
+		responsePayload.Snapshot.Map.SafeZone.ProtectionExpiresAt != responsePayload.Snapshot.Map.Protection.ExpiresAt {
+		t.Fatalf("portal response safe-zone summary = %+v, protection = %+v", responsePayload.Snapshot.Map.SafeZone, responsePayload.Snapshot.Map.Protection)
 	}
 	if responsePayload.MapSubscriptionEpoch == 0 || responsePayload.MapSubscriptionEpoch <= oldEpoch || responsePayload.Snapshot.MapSubscriptionEpoch != responsePayload.MapSubscriptionEpoch {
 		t.Fatalf("portal response epoch old=%d payload=%d snapshot=%d", oldEpoch, responsePayload.MapSubscriptionEpoch, responsePayload.Snapshot.MapSubscriptionEpoch)
@@ -166,9 +181,26 @@ func TestPortalEnterTransfersPlayerAndAllActiveSessions(t *testing.T) {
 	for _, sessionID := range []auth.SessionID{resolved.SessionID, secondLogin.Session.SessionID} {
 		events := eventsBySession[sessionID]
 		started := requireEventTypeForTest(t, events, realtime.EventMapTransferStarted)
+		protectionUpdated := requireEventTypeForTest(t, events, realtime.EventPlayerProtection)
 		completed := requireEventTypeForTest(t, events, realtime.EventMapTransferCompleted)
-		if epochForEventForTest(t, started) == 0 || epochForEventForTest(t, completed) == 0 {
+		if epochForEventForTest(t, started) == 0 || epochForEventForTest(t, protectionUpdated) == 0 || epochForEventForTest(t, completed) == 0 {
 			t.Fatalf("transfer events for %q missing epochs: %+v", sessionID, events)
+		}
+		var protectionPayload playerProtectionUpdatedPayload
+		if err := json.Unmarshal(protectionUpdated.Payload, &protectionPayload); err != nil {
+			t.Fatalf("decode protection payload: %v", err)
+		}
+		if protectionPayload.Reason != protectionReasonPortal ||
+			protectionPayload.PublicMapKey != "1-2" ||
+			protectionPayload.ExpiresAt != responsePayload.Snapshot.Map.Protection.ExpiresAt ||
+			!protectionPayload.BlocksPVP ||
+			!protectionPayload.BreakOnPVPAction {
+			t.Fatalf("protection payload = %+v, want client-safe destination protection", protectionPayload)
+		}
+		for _, forbidden := range []string{"internal_map_id", "map_1_2", "spawn", "worker"} {
+			if strings.Contains(string(protectionUpdated.Payload), forbidden) {
+				t.Fatalf("protection event leaked %q in %s", forbidden, protectionUpdated.Payload)
+			}
 		}
 		var completedPayload mapTransferCompletedPayload
 		if err := json.Unmarshal(completed.Payload, &completedPayload); err != nil {
@@ -177,6 +209,36 @@ func TestPortalEnterTransfersPlayerAndAllActiveSessions(t *testing.T) {
 		if completedPayload.Snapshot.Map.PublicMapKey != "1-2" || completedPayload.Snapshot.MapSubscriptionEpoch == 0 {
 			t.Fatalf("completed payload = %+v, want destination snapshot with epoch", completedPayload)
 		}
+		if completedPayload.Snapshot.Map.Protection == nil ||
+			completedPayload.Snapshot.Map.Protection.ExpiresAt != responsePayload.Snapshot.Map.Protection.ExpiresAt {
+			t.Fatalf("completed protection = %+v, want response protection expiry", completedPayload.Snapshot.Map.Protection)
+		}
+	}
+}
+
+func TestWorldSnapshotIgnoresAndClearsExpiredProtection(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSessionOnMap(t, gameServer, "expired-protection@example.com", "Expired Protection", "map_1_2", "west_gate")
+
+	gameServer.runtime.mu.Lock()
+	protection, err := gameServer.runtime.startPortalProtectionLocked(resolved.PlayerID, "map_1_2")
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("startPortalProtectionLocked() error = %v, want nil", err)
+	}
+	protection.ExpiresAt = gameServer.runtime.clock.Now().Add(-time.Second)
+	gameServer.runtime.playerProtections[protectionKey{PlayerID: resolved.PlayerID, MapID: "map_1_2"}] = protection
+	snapshot, err := gameServer.runtime.worldSnapshotForSessionLocked(resolved.PlayerID, resolved.SessionID)
+	_, stillStored := gameServer.runtime.playerProtections[protectionKey{PlayerID: resolved.PlayerID, MapID: "map_1_2"}]
+	gameServer.runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("worldSnapshotForSessionLocked() error = %v, want nil", err)
+	}
+	if snapshot.Map.Protection != nil {
+		t.Fatalf("expired protection projected in snapshot: %+v", snapshot.Map.Protection)
+	}
+	if stillStored {
+		t.Fatalf("expired protection remained stored")
 	}
 }
 

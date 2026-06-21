@@ -30,6 +30,7 @@ func TestErrorCodesStringifyAndSerializePredictably(t *testing.T) {
 		{name: "item not tradeable", code: CodeItemNotTradeable, want: "ERR_ITEM_NOT_TRADEABLE"},
 		{name: "ship disabled", code: CodeShipDisabled, want: "ERR_SHIP_DISABLED"},
 		{name: "storage full", code: CodeStorageFull, want: "ERR_STORAGE_FULL"},
+		{name: "pvp blocked", code: CodePVPBlocked, want: "ERR_PVP_BLOCKED"},
 	}
 
 	for _, tt := range tests {

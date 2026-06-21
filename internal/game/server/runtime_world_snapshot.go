@@ -29,6 +29,7 @@ func (runtime *Runtime) worldSnapshotLocked(playerID foundation.PlayerID) (world
 	if err != nil {
 		return worldSnapshotPayload{}, err
 	}
+	mapProjection = runtime.mapProjectionWithViewerPolicyLocked(playerID, mapProjection)
 	return worldSnapshotPayload{
 		Sector:         sectorPayloadFromMap(mapProjection),
 		Map:            mapProjection,

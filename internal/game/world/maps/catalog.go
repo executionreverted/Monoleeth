@@ -126,6 +126,7 @@ type SafeZoneDefinition struct {
 	Center        world.Vec2
 	Radius        float64
 	DisplayName   string
+	BlocksPVP     bool
 	HangarActions bool
 }
 
@@ -168,6 +169,8 @@ type ClientMapProjection struct {
 	Bounds         Bounds                     `json:"bounds"`
 	VisiblePortals []ClientPortalProjection   `json:"visible_portals"`
 	SafeZones      []ClientSafeZoneProjection `json:"safe_zones,omitempty"`
+	SafeZone       *ClientSafeZoneSummary     `json:"safe_zone,omitempty"`
+	Protection     *ClientProtectionSummary   `json:"protection,omitempty"`
 }
 
 // ClientPortalProjection is the client-safe public subset of a visible portal.
@@ -184,7 +187,24 @@ type ClientSafeZoneProjection struct {
 	DisplayName   string     `json:"display_name,omitempty"`
 	Center        world.Vec2 `json:"center"`
 	Radius        float64    `json:"radius"`
+	BlocksPVP     bool       `json:"blocks_pvp"`
 	HangarActions bool       `json:"hangar_actions"`
+}
+
+// ClientSafeZoneSummary is the viewer's own current safe-zone state. It is
+// populated by runtime snapshot projection, not by static catalog projection.
+type ClientSafeZoneSummary struct {
+	Inside              bool  `json:"inside"`
+	BlocksPVP           bool  `json:"blocks_pvp"`
+	ProtectionExpiresAt int64 `json:"protection_expires_at,omitempty"`
+}
+
+// ClientProtectionSummary is the viewer's own active spawn/portal protection.
+type ClientProtectionSummary struct {
+	Reason           string `json:"reason"`
+	ExpiresAt        int64  `json:"expires_at"`
+	BlocksPVP        bool   `json:"blocks_pvp"`
+	BreakOnPVPAction bool   `json:"break_on_pvp_action"`
 }
 
 // Catalog stores validated server-owned map definitions.
@@ -366,6 +386,7 @@ func (definition MapDefinition) ClientProjection() ClientMapProjection {
 			DisplayName:   safeZone.DisplayName,
 			Center:        safeZone.Center,
 			Radius:        safeZone.Radius,
+			BlocksPVP:     safeZone.BlocksPVP,
 			HangarActions: safeZone.HangarActions,
 		})
 	}
@@ -392,6 +413,11 @@ func (definition MapDefinition) SafeZoneAt(position world.Vec2) (SafeZoneDefinit
 	return SafeZoneDefinition{}, false
 }
 
+func (definition MapDefinition) PVPBlockingSafeZoneAt(position world.Vec2) (SafeZoneDefinition, bool) {
+	safeZone, ok := definition.SafeZoneAt(position)
+	return safeZone, ok && safeZone.BlocksPVP
+}
+
 // StarterCatalog returns the first DarkOrbit-style bounded map set.
 func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 	bounds := ExactPlayableBounds()
@@ -412,8 +438,8 @@ func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 				{SpawnID: "east_gate", Position: world.Vec2{X: 9600, Y: 5000}, Label: "East Gate"},
 			},
 			SafeZones: []SafeZoneDefinition{
-				{SafeZoneID: "starter_dock", Center: world.Vec2{X: 0, Y: 0}, Radius: 250, DisplayName: "Starter Dock", HangarActions: true},
-				{SafeZoneID: "east_gate", Center: world.Vec2{X: 9600, Y: 5000}, Radius: 260, DisplayName: "East Gate", HangarActions: true},
+				{SafeZoneID: "starter_dock", Center: world.Vec2{X: 0, Y: 0}, Radius: 250, DisplayName: "Starter Dock", BlocksPVP: true, HangarActions: true},
+				{SafeZoneID: "east_gate", Center: world.Vec2{X: 9600, Y: 5000}, Radius: 260, DisplayName: "East Gate", BlocksPVP: true, HangarActions: true},
 			},
 			Portals: []PortalDefinition{
 				{
@@ -443,7 +469,7 @@ func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 				{SpawnID: "west_gate", Position: world.Vec2{X: 400, Y: 5000}, Label: "West Gate"},
 			},
 			SafeZones: []SafeZoneDefinition{
-				{SafeZoneID: "west_gate", Center: world.Vec2{X: 400, Y: 5000}, Radius: 260, DisplayName: "West Gate", HangarActions: true},
+				{SafeZoneID: "west_gate", Center: world.Vec2{X: 400, Y: 5000}, Radius: 260, DisplayName: "West Gate", BlocksPVP: true, HangarActions: true},
 			},
 			Portals: []PortalDefinition{
 				{

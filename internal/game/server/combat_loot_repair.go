@@ -75,16 +75,16 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	result, err := runtime.Combat.ExecuteBasicAttack(combat.BasicAttackInput{
 		AttackerID: attacker.EntityID,
 		TargetID:   intent.TargetID,
+		Policy:     runtime.basicAttackPolicyLocked(),
 	})
 	if err != nil {
 		return nil, domainErrorForCombat(err)
 	}
 
-	state := runtime.players[ctx.PlayerID]
-	state.Ship.Capacitor = roundCombatValue(result.Attacker.Energy)
-	state.Ship.Hull = roundCombatValue(result.Attacker.HP)
-	state.Ship.Shield = roundCombatValue(result.Attacker.Shield)
-	runtime.players[ctx.PlayerID] = state
+	state, ok := runtime.applyCombatActorToPlayerShipLocked(ctx.PlayerID, result.Attacker)
+	if !ok {
+		return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
+	}
 
 	sessionID := authSessionID(ctx.SessionID)
 	runtime.queueEventLocked(sessionID, realtime.EventPlayerSnapshot, state.playerSnapshot())
@@ -107,6 +107,27 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 		})
 	}
 	runtime.queueTargetUpdatedLocked(sessionID, result.Target)
+	if result.Target.Type == world.EntityTypePlayer && !result.Target.PlayerID.IsZero() && result.Target.PlayerID != ctx.PlayerID {
+		targetState, ok := runtime.applyCombatActorToPlayerShipLocked(result.Target.PlayerID, result.Target)
+		if !ok {
+			return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
+		}
+		runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventPlayerSnapshot, targetState.playerSnapshot())
+		runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventShipSnapshot, targetState.Ship)
+		if result.Hit {
+			runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventCombatDamage, map[string]any{
+				"target_id":     result.Target.EntityID.String(),
+				"amount":        roundCombatValue(result.Damage),
+				"shield_amount": roundCombatValue(result.ShieldDamage),
+				"hull_amount":   roundCombatValue(result.HPDamage),
+			})
+		} else {
+			runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventCombatMiss, map[string]any{
+				"target_id": result.Target.EntityID.String(),
+			})
+		}
+		runtime.queueTargetUpdatedToPlayerSessionsLocked(result.Target.PlayerID, result.Target)
+	}
 
 	var drops []loot.Drop
 	var progressionSnapshot *progressionSnapshotPayload

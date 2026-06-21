@@ -104,6 +104,9 @@ func (runtime *Runtime) syncWorldCombatActorLocked(playerID foundation.PlayerID,
 	if !ok {
 		return worker.ErrUnknownEntity
 	}
+	if entity.Type == world.EntityTypePlayer {
+		return runtime.syncPlayerTargetCombatActorLocked(entity)
+	}
 	if entity.Type != world.EntityTypeNPC {
 		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Target is not a hostile entity.")
 	}
@@ -218,6 +221,24 @@ func (runtime *Runtime) queueTargetUpdatedLocked(sessionID auth.SessionID, actor
 		"entity_id": actor.EntityID.String(),
 		"combat":    status,
 	})
+}
+
+func (runtime *Runtime) queueTargetUpdatedToPlayerSessionsLocked(playerID foundation.PlayerID, actor combat.ActorState) {
+	for _, sessionID := range runtime.sessionIDsForPlayerLocked(playerID, "") {
+		runtime.queueTargetUpdatedLocked(sessionID, actor)
+	}
+}
+
+func (runtime *Runtime) applyCombatActorToPlayerShipLocked(playerID foundation.PlayerID, actor combat.ActorState) (playerRuntimeState, bool) {
+	state, ok := runtime.players[playerID]
+	if !ok {
+		return playerRuntimeState{}, false
+	}
+	state.Ship.Capacitor = roundCombatValue(actor.Energy)
+	state.Ship.Hull = roundCombatValue(actor.HP)
+	state.Ship.Shield = roundCombatValue(actor.Shield)
+	runtime.players[playerID] = state
+	return state, true
 }
 
 func (runtime *Runtime) entityCombatStatusLocked(entityID world.EntityID) *aoi.EntityCombatStatus {
@@ -461,6 +482,8 @@ func domainErrorForCombat(err error) error {
 		return foundation.NewDomainError(foundation.CodeNotEnoughEnergy, "Not enough energy.", foundation.WithCause(err))
 	case errors.Is(err, combat.ErrOutOfRange):
 		return foundation.NewDomainError(foundation.CodeOutOfRange, "Target is out of range.", foundation.WithCause(err))
+	case errors.Is(err, combat.ErrPVPBlocked):
+		return foundation.NewDomainError(foundation.CodePVPBlocked, "PvP is blocked here.", foundation.WithCause(err))
 	case errors.Is(err, combat.ErrTargetNotVisible), errors.Is(err, combat.ErrDifferentWorldZone):
 		return foundation.NewDomainError(foundation.CodeNotVisible, "Target is not visible.", foundation.WithCause(err))
 	case errors.Is(err, combat.ErrUnknownActor), errors.Is(err, combat.ErrTargetDead), errors.Is(err, combat.ErrAttackerDead):

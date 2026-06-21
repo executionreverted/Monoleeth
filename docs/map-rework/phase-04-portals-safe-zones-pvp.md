@@ -372,6 +372,49 @@ cooldown and energy pass
   `player_id + source_map_id + portal_id` key.
 - Document map catalog authoring rules for portal destination safety.
 
+## Progress Notes
+
+Landed in the Phase 04 server policy MVP slice:
+
+- `move_to` rejects targets outside the active map's `0..10000` bounds before
+  worker mutation, with server coverage proving the active movement
+  target/state remains unchanged on out-of-bounds intent.
+- Successful portal destination attach starts server-owned per-player,
+  per-current-map portal protection for 10 seconds.
+- `player.protection_updated` is a realtime event constant and is queued for
+  the transferred player's active sessions after destination attach. The public
+  payload contains only `reason`, `public_map_key`, `expires_at`, `blocks_pvp`,
+  and `break_on_pvp_action` plus the normal map subscription epoch.
+- `world.snapshot` projects the viewer's own current PvP-blocking safe-zone
+  summary and active protection summary; hidden/internal map, spawn, and worker
+  details remain server-only.
+- Combat now uses a server-side policy facade before cooldown, energy, or
+  damage mutation. Player-vs-player attacks are blocked when the attacker or
+  target is in a PvP-blocking safe zone, either player has active portal
+  protection, or the active map policy is `safe`/`pve`.
+- Protected players attempting PvP are rejected without energy, cooldown, or
+  damage mutation; when their protection has `break_on_pvp_action`, the server
+  clears it on that rejected initiation and emits an inactive
+  `player.protection_updated` payload with public map context.
+- Allowed player-vs-player hits on PvP-enabled maps persist the target player's
+  authoritative ship hull, shield, and capacitor from combat actor state and
+  queue target player, ship, combat, and target update events to the target's
+  active sessions.
+- PvE attacks continue through the existing visibility, range, cooldown, and
+  energy path in safe/PvE maps.
+
+Deferred from this MVP slice:
+
+- Browser HUD/UI for protection or cooldown display.
+- Station, hangar, repair proximity, and respawn checkpoint enforcement.
+- Durable persistence for protection and cooldown state.
+- NPC aggro/leash, AoE, delayed damage, and death/cargo policy consumers.
+- Full PvP death, repair, cargo-loss, loot, and respawn flow after a player
+  target reaches zero hull.
+- Full map entry gates for faction, rank, quest, ship class, or event access.
+- Public portal entity rendering/client reducer work beyond existing server
+  transport contracts.
+
 ## Risks and acceptance criteria
 
 Risks:

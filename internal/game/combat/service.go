@@ -244,6 +244,15 @@ func (service *Service) validatedAttackActorsLocked(input BasicAttackInput, now 
 	if attacker.Position.Distance(target.Position) > attacker.Stats.Stats.Combat.WeaponRange {
 		return ActorState{}, ActorState{}, ErrOutOfRange
 	}
+	if input.Policy != nil {
+		if err := input.Policy.ValidateBasicAttack(AttackPolicyInput{
+			Attacker: attacker,
+			Target:   target,
+			Now:      now,
+		}); err != nil {
+			return ActorState{}, ActorState{}, err
+		}
+	}
 	if !attacker.Cooldowns.Ready(BasicLaserCooldownKey, now) {
 		return ActorState{}, ActorState{}, ErrCooldownNotReady
 	}

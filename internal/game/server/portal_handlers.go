@@ -232,6 +232,11 @@ func (runtime *Runtime) transferThroughPortalLocked(sessionID auth.SessionID, pl
 		runtime.attachSessionToInstanceLocked(destination, playerSessionID, playerID)
 	}
 	runtime.portalCooldowns[cooldownKey] = now.Add(runtimePortalCooldown)
+	protection, err := runtime.startPortalProtectionLocked(playerID, destination.Definition.InternalMapID)
+	if err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	runtime.queueProtectionUpdatedLocked(sessionIDs, protection)
 
 	snapshotsBySession := make(map[auth.SessionID]worldSnapshotPayload, len(sessionIDs))
 	for _, playerSessionID := range sessionIDs {

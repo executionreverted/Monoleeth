@@ -153,6 +153,7 @@ Send:
 
 - visible entity snapshots
 - known fog memory summaries
+- viewer's own current safe-zone/protection summary
 - decorative visual seed only if not gameplay-relevant
 
 ## Interaction Validation

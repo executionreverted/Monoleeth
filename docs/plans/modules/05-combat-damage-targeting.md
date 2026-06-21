@@ -62,6 +62,7 @@ Server karar verir:
 
 - Target görülebilir mi?
 - Target range içinde mi?
+- PvP/safe-zone/protection policy bu saldırıya izin veriyor mu?
 - Weapon cooldown hazır mı?
 - Energy yeterli mi?
 - Hit oldu mu?
@@ -112,6 +113,9 @@ func ValidateTarget(ctx CombatContext, attacker Entity, target Entity, stats Eff
 	}
 	if Distance(attacker.Pos, target.Pos) > stats.WeaponRange {
 		return ErrOutOfRange
+	}
+	if err := ctx.Policy.ValidateAttack(attacker, target); err != nil {
+		return err
 	}
 	if ctx.Relationship.IsFriendly(attacker, target) && !ctx.Rules.AllowFriendlyFire {
 		return ErrFriendlyTarget
@@ -384,12 +388,22 @@ PvP later can reuse same flow.
 
 Additional checks:
 
-- zone PvP rules
+- active map PvP policy (`safe`/`pve` blocks player-vs-player)
+- attacker/target safe-zone state
+- attacker/target spawn or portal protection
 - faction/clan relation
-- safe zone protection
 - recent aggression flag
 - cargo death rules
 - reputation/bounty
+
+Current Phase 04 server policy slice adds a combat policy facade before
+cooldown, energy, or damage mutation. It blocks player-vs-player combat when
+the active map is safe/PvE, either player is inside a PvP-blocking safe zone, or
+either player has active portal/spawn protection. PvE attacks continue through
+the existing visibility/range/cooldown/energy validation path. Allowed PvP hits
+on PvP-enabled maps persist the target player's authoritative ship state and
+publish target-side snapshots/events; the full PvP death, repair, loot, and
+respawn flow remains deferred.
 
 ## Events Emitted
 
