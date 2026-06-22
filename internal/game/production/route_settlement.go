@@ -109,6 +109,11 @@ func (store *InMemoryStore) settleRouteLocked(
 	if err := attachRouteSettlementEvidence(&result, route.LastCalculatedAt, route.LastCalculatedAt.Add(result.ElapsedApplied)); err != nil {
 		return RouteSettlementResult{}, err
 	}
+	if store.hasSettlementReferenceLocked(result.ReferenceKey) {
+		result.NoOp = true
+		result.ElapsedApplied = 0
+		return result, nil
+	}
 	result.WantedAmount = wholeUnitsForElapsed(route.AmountPerHour, result.ElapsedApplied)
 	if result.WantedAmount < 1 {
 		route.LastCalculatedAt = now
@@ -118,6 +123,7 @@ func (store *InMemoryStore) settleRouteLocked(
 		}
 		store.routes[routeID] = cloneAutomationRoute(route)
 		result.AfterRoute = cloneAutomationRoute(route)
+		store.recordSettlementReferenceLocked(routeSettlementReferenceRecord(result))
 		if err := store.appendRouteSettlementEventsLocked(result); err != nil {
 			return RouteSettlementResult{}, err
 		}
@@ -167,6 +173,7 @@ func (store *InMemoryStore) settleRouteLocked(
 	}
 	store.routes[routeID] = cloneAutomationRoute(route)
 	result.AfterRoute = cloneAutomationRoute(route)
+	store.recordSettlementReferenceLocked(routeSettlementReferenceRecord(result))
 	if err := store.appendRouteSettlementEventsLocked(result); err != nil {
 		return RouteSettlementResult{}, err
 	}
@@ -182,21 +189,22 @@ func (store *InMemoryStore) appendRouteSettlementEventsLocked(result RouteSettle
 		return err
 	}
 	if result.LossApplied {
-		if err := store.appendProductionEventLocked(EventType(EventRouteTransferLost), payload, result.SettledAt); err != nil {
+		if _, err := store.appendProductionEventLocked(EventType(EventRouteTransferLost), payload, result.SettledAt); err != nil {
 			return err
 		}
 	}
 	if result.SourceEmpty {
-		if err := store.appendProductionEventLocked(EventType(EventRouteSourceEmpty), payload, result.SettledAt); err != nil {
+		if _, err := store.appendProductionEventLocked(EventType(EventRouteSourceEmpty), payload, result.SettledAt); err != nil {
 			return err
 		}
 	}
 	if result.DestinationFull {
-		if err := store.appendProductionEventLocked(EventType(EventRouteDestinationFull), payload, result.SettledAt); err != nil {
+		if _, err := store.appendProductionEventLocked(EventType(EventRouteDestinationFull), payload, result.SettledAt); err != nil {
 			return err
 		}
 	}
-	return store.appendProductionEventLocked(EventType(EventRouteTransferSettled), payload, result.SettledAt)
+	_, err = store.appendProductionEventLocked(EventType(EventRouteTransferSettled), payload, result.SettledAt)
+	return err
 }
 
 func newRouteSettlementResult(route AutomationRoute, now time.Time) RouteSettlementResult {
@@ -207,6 +215,17 @@ func newRouteSettlementResult(route AutomationRoute, now time.Time) RouteSettlem
 		MaxRouteOfflineSettlementDuration: DefaultMaxRouteOfflineSettlementDuration,
 		BeforeRoute:                       route,
 		AfterRoute:                        route,
+	}
+}
+
+func routeSettlementReferenceRecord(result RouteSettlementResult) SettlementReferenceRecord {
+	return SettlementReferenceRecord{
+		ReferenceKey:     result.ReferenceKey,
+		SettlementWindow: result.SettlementWindow,
+		Kind:             SettlementKindRoute,
+		RouteID:          result.RouteID,
+		AppliedAt:        result.SettledAt.UTC(),
+		RecordedAt:       result.SettledAt.UTC(),
 	}
 }
 

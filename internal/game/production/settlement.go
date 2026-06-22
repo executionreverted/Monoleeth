@@ -154,10 +154,17 @@ func (store *InMemoryStore) settlePlanetProductionLocked(
 		if err := attachProductionSettlementEvidence(&result, state.LastCalculatedAt, state.LastCalculatedAt.Add(result.ElapsedApplied)); err != nil {
 			return PlanetProductionSettlementResult{}, err
 		}
+		if store.hasSettlementReferenceLocked(result.ReferenceKey) {
+			result.NoOp = true
+			result.ElapsedApplied = 0
+			result.After = before.Clone()
+			return result, nil
+		}
 		state.LastCalculatedAt = now
 		state.UpdatedAt = now
 		store.states[planetID] = cloneProductionState(state)
 		result.After, _ = store.snapshotLocked(planetID)
+		store.recordSettlementReferenceLocked(productionSettlementReferenceRecord(result))
 		if err := store.appendProductionSettlementEventsLocked(result); err != nil {
 			return PlanetProductionSettlementResult{}, err
 		}
@@ -176,6 +183,12 @@ func (store *InMemoryStore) settlePlanetProductionLocked(
 	result.ElapsedApplied = elapsedApplied
 	if err := attachProductionSettlementEvidence(&result, state.LastCalculatedAt, state.LastCalculatedAt.Add(result.ElapsedApplied)); err != nil {
 		return PlanetProductionSettlementResult{}, err
+	}
+	if store.hasSettlementReferenceLocked(result.ReferenceKey) {
+		result.NoOp = true
+		result.ElapsedApplied = 0
+		result.After = before.Clone()
+		return result, nil
 	}
 
 	energyUsedPerHour := state.EnergyReservedPerHour
@@ -215,6 +228,7 @@ func (store *InMemoryStore) settlePlanetProductionLocked(
 	result.After, _ = store.snapshotLocked(planetID)
 	sortSettlementItemDeltas(result.ProducedItems)
 	sortSettlementItemDeltas(result.ConsumedInputs)
+	store.recordSettlementReferenceLocked(productionSettlementReferenceRecord(result))
 	if err := store.appendProductionSettlementEventsLocked(result); err != nil {
 		return PlanetProductionSettlementResult{}, err
 	}
@@ -244,7 +258,7 @@ func (store *InMemoryStore) appendProductionSettlementEventsLocked(result Planet
 		if err != nil {
 			return err
 		}
-		if err := store.appendProductionEventLocked(EventType(EventPlanetBuildingProduced), payload, result.SettledAt); err != nil {
+		if _, err := store.appendProductionEventLocked(EventType(EventPlanetBuildingProduced), payload, result.SettledAt); err != nil {
 			return err
 		}
 	}
@@ -254,19 +268,20 @@ func (store *InMemoryStore) appendProductionSettlementEventsLocked(result Planet
 		return err
 	}
 	if result.StorageFull {
-		if err := store.appendProductionEventLocked(EventType(EventPlanetStorageFull), payload, result.SettledAt); err != nil {
+		if _, err := store.appendProductionEventLocked(EventType(EventPlanetStorageFull), payload, result.SettledAt); err != nil {
 			return err
 		}
 	}
 	if result.EnergyInsufficient {
-		if err := store.appendProductionEventLocked(EventType(EventPlanetEnergyInsufficient), payload, result.SettledAt); err != nil {
+		if _, err := store.appendProductionEventLocked(EventType(EventPlanetEnergyInsufficient), payload, result.SettledAt); err != nil {
 			return err
 		}
 	}
-	if err := store.appendProductionEventLocked(EventType(EventPlanetProductionSettled), payload, result.SettledAt); err != nil {
+	if _, err := store.appendProductionEventLocked(EventType(EventPlanetProductionSettled), payload, result.SettledAt); err != nil {
 		return err
 	}
-	return store.appendProductionEventLocked(EventType(EventOfflineSettlementCompleted), payload, result.SettledAt)
+	_, err = store.appendProductionEventLocked(EventType(EventOfflineSettlementCompleted), payload, result.SettledAt)
+	return err
 }
 
 func newSettlementResult(planetID foundation.PlanetID, now time.Time, before PlanetProductionSnapshot) PlanetProductionSettlementResult {
@@ -299,6 +314,17 @@ func attachRouteSettlementEvidence(result *RouteSettlementResult, start time.Tim
 	result.SettlementWindow = window
 	result.ReferenceKey = reference
 	return nil
+}
+
+func productionSettlementReferenceRecord(result PlanetProductionSettlementResult) SettlementReferenceRecord {
+	return SettlementReferenceRecord{
+		ReferenceKey:     result.ReferenceKey,
+		SettlementWindow: result.SettlementWindow,
+		Kind:             SettlementKindProduction,
+		PlanetID:         result.PlanetID,
+		AppliedAt:        result.SettledAt.UTC(),
+		RecordedAt:       result.SettledAt.UTC(),
+	}
 }
 
 func settlementWindow(start time.Time, end time.Time) string {

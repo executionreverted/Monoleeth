@@ -113,6 +113,15 @@ Current slice completed:
   emit no events and may have empty reference/window evidence. Durable DB rows,
   row locks/CAS, idempotency table enforcement, and outbox publishing remain
   open.
+- Phase07J in-memory durable-boundary follow-up: the production store now
+  records non-no-op production and route settlement references keyed by the
+  server-derived idempotency key and mirrors appended production-domain events
+  into pending in-memory outbox records under the same store lock as the state
+  mutation and event append. Duplicate reuse of a recorded settlement reference
+  no-ops before mutation/events/outbox, read APIs clone reference/outbox/event
+  payload data, and browser-safe realtime payloads remain unchanged. Real DB
+  rows, row locks/CAS across processes, DB idempotency-table enforcement,
+  durable publisher/retry workers, and durable outbox persistence remain open.
 
 ## Source Specs
 
@@ -244,6 +253,8 @@ Mockup areas covered:
       production/storage summary queries.
 - [x] Add production/route settlement domain result and outbox payload evidence
       with server-derived reference keys and deterministic settlement windows.
+- [x] Add process-local store-owned settlement reference records and pending
+      outbox records for production and route settlements.
 - [x] Add route.create handler for owned planet-to-planet MVP.
 - [x] Add route.update handler for owned routes.
 - [x] Add route.enable and route.disable handlers for owned routes.
@@ -289,12 +300,18 @@ Mockup areas covered:
 - [ ] Building build/upgrade debits materials/currency once.
 - [x] Production summary/storage duplicate and sub-unit polls no-op without
       advancing production time or queuing duplicate events.
+- [x] Production settlement stores an in-memory settlement reference and pending
+      outbox records for settlement events; duplicate reference reuse no-ops
+      without mutation, duplicate events, or duplicate outbox records.
 - [ ] Durable production settlement is enforced by DB/idempotency rows and
       published through the durable outbox.
 - [x] Server route.settle transfers storage once, returns no-op on immediate
       duplicate reconcile, rejects spoofed settlement facts and wrong-owner
       attempts without mutation/events, emits owner-scoped `route.settled`
       plus route reconciliation events, and avoids AOI diffs.
+- [x] Route settlement stores an in-memory settlement reference and pending
+      outbox records for route transfer events; duplicate reference reuse
+      no-ops without transfer, duplicate events, or duplicate outbox records.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

@@ -106,7 +106,16 @@ func TestSettleRouteEmitsSettlementAndConditionEvents(t *testing.T) {
 	)
 	assertRouteSettlementEventPayloadEvidence(t, store.Events()[0].Payload, wantReference, wantWindow)
 	assertRouteSettlementEventPayloadEvidence(t, store.Events()[1].Payload, wantReference, wantWindow)
+	assertSettlementReferenceRecord(t, store.SettlementReferences(), SettlementKindRoute, "", route.RouteID, wantReference, wantWindow, now)
+	assertOutboxEventTypes(t, store.OutboxRecords(),
+		EventRouteDestinationFull,
+		EventRouteTransferSettled,
+	)
+	assertOutboxRecordEvidence(t, store.OutboxRecords(), EventRouteDestinationFull, wantReference, wantWindow)
+	assertOutboxRecordEvidence(t, store.OutboxRecords(), EventRouteTransferSettled, wantReference, wantWindow)
 	firstEventCount := len(store.Events())
+	firstOutboxCount := len(store.OutboxRecords())
+	firstReferenceCount := len(store.SettlementReferences())
 
 	duplicate, err := service.SettleRoute(route.RouteID)
 	if err != nil {
@@ -120,6 +129,12 @@ func TestSettleRouteEmitsSettlementAndConditionEvents(t *testing.T) {
 	}
 	if got := len(store.Events()); got != firstEventCount {
 		t.Fatalf("event count after duplicate route settlement = %d, want unchanged %d", got, firstEventCount)
+	}
+	if got := len(store.OutboxRecords()); got != firstOutboxCount {
+		t.Fatalf("outbox count after duplicate route settlement = %d, want unchanged %d", got, firstOutboxCount)
+	}
+	if got := len(store.SettlementReferences()); got != firstReferenceCount {
+		t.Fatalf("reference count after duplicate route settlement = %d, want unchanged %d", got, firstReferenceCount)
 	}
 }
 

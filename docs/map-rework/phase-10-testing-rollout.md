@@ -99,8 +99,10 @@ marked `Open` are not implemented rollout controls yet.
   leave other-owner/other-map planets untouched. Durable production
   DB/outbox/window idempotency remains open, though production and route domain
   settlement results/events now carry deterministic server-derived
-  `reference_key` plus colon-free applied settlement windows for future outbox
-  records. Focused server coverage proves create derives owner, route id, and
+  `reference_key` plus colon-free applied settlement windows and the production
+  store now records process-local settlement references plus pending in-memory
+  outbox records for applied production and route settlements. Focused server
+  coverage proves create derives owner, route id, and
   endpoint map ids server-side; update derives owner from the authenticated
   context, preserves server-owned source truth, changes destination/resource/rate
   through policy validation, settles elapsed old terms before replacement, and
@@ -116,8 +118,11 @@ marked `Open` are not implemented rollout controls yet.
   once, returns immediate duplicate no-op settlements, emits owner-scoped
   `route.settled` plus route reconciliation events without AOI diffs, rejects
   wrong-owner and forged settlement/window/storage/risk/amount facts before
-  mutation, and keeps stored-route/config errors internal. The focused
-  Phase10 route browser proof now clicks real HUD controls for create, update,
+  mutation, and keeps stored-route/config errors internal. Store-level boundary
+  coverage proves outbox reads clone event payloads/status/event envelopes and
+  duplicate settlement reference reuse no-ops before mutation/events/outbox.
+  The focused Phase10 route browser proof now clicks real HUD controls for
+  create, update,
   disable, enable, single-route settle, and empty-payload owner reconcile,
   asserts exact outbound safe payload keys, verifies `state.routes`
   reconciliation, and scans browser/log surfaces for route internals. Durable

@@ -51,7 +51,17 @@ func TestSettlePlanetProductionEmitsSettlementEventsOnce(t *testing.T) {
 	)
 	assertProductionSettlementEventPayloadEvidence(t, store.Events()[1].Payload, wantReference, wantWindow)
 	assertProductionSettlementEventPayloadEvidence(t, store.Events()[2].Payload, wantReference, wantWindow)
+	assertSettlementReferenceRecord(t, store.SettlementReferences(), SettlementKindProduction, "planet-1", "", wantReference, wantWindow, now)
+	assertOutboxEventTypes(t, store.OutboxRecords(),
+		EventPlanetBuildingProduced,
+		EventPlanetProductionSettled,
+		EventOfflineSettlementCompleted,
+	)
+	assertOutboxRecordEvidence(t, store.OutboxRecords(), EventPlanetProductionSettled, wantReference, wantWindow)
+	assertOutboxRecordEvidence(t, store.OutboxRecords(), EventOfflineSettlementCompleted, wantReference, wantWindow)
 	firstEventCount := len(store.Events())
+	firstOutboxCount := len(store.OutboxRecords())
+	firstReferenceCount := len(store.SettlementReferences())
 
 	duplicate, err := store.SettlePlanetProduction("planet-1", now)
 	if err != nil {
@@ -65,6 +75,12 @@ func TestSettlePlanetProductionEmitsSettlementEventsOnce(t *testing.T) {
 	}
 	if got := len(store.Events()); got != firstEventCount {
 		t.Fatalf("event count after duplicate settlement = %d, want unchanged %d", got, firstEventCount)
+	}
+	if got := len(store.OutboxRecords()); got != firstOutboxCount {
+		t.Fatalf("outbox count after duplicate settlement = %d, want unchanged %d", got, firstOutboxCount)
+	}
+	if got := len(store.SettlementReferences()); got != firstReferenceCount {
+		t.Fatalf("reference count after duplicate settlement = %d, want unchanged %d", got, firstReferenceCount)
 	}
 }
 

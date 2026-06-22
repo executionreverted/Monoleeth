@@ -363,6 +363,34 @@ Deferred after Phase07I:
 - Durable retry/recovery workers that use settlement references to reconcile
   missed or duplicate outbox publications.
 
+## Phase07J Landed In-Memory Settlement Boundary Slice
+
+- The production store now records one in-memory settlement reference for each
+  non-no-op production or route settlement, keyed by the server-derived
+  `offline_settlement:*` or `route_settlement:*` idempotency key and carrying
+  the settlement window, kind, planet or route id, applied time, and recorded
+  time.
+- The same store lock now covers settlement state mutation, settlement
+  reference recording, domain event append, and creation of pending in-memory
+  outbox records. Outbox records carry their own sequence/id, pending status,
+  created time, the domain event envelope, cloned payload bytes, and
+  reference/window metadata when the settlement payload carries it.
+- If an otherwise non-no-op production or route settlement attempts to reuse an
+  already-recorded settlement reference, it returns a safe no-op before storage
+  or cursor mutation and does not append duplicate events or outbox records.
+  Normal timestamp duplicate no-ops still emit no events/outbox and keep empty
+  reference/window evidence.
+- Browser-safe realtime response and event payloads are unchanged; reference
+  and outbox records remain internal store read APIs for future durable
+  adapters.
+
+Deferred after Phase07J:
+
+- Real durable production/route DB rows and outbox rows.
+- Row locks/CAS and idempotency-table enforcement across processes.
+- Durable publisher/retry workers that mark outbox records delivered, retry
+  failed publications, and reconcile missed duplicate settlement publications.
+
 ## Target Model
 
 Planet claim is a server-owned transaction:
@@ -559,8 +587,10 @@ contracts:
   fields before mutation, and emit only owner-scoped safe production/storage
   reconciliation events.
 - Production settlement domain results/events now carry deterministic
-  server-derived settlement reference/window evidence; durable DB rows, row
-  locks/CAS, idempotency table enforcement, and outbox publishing remain open.
+  server-derived settlement reference/window evidence and the in-memory store
+  now records settlement references plus pending outbox rows for applied
+  settlements. Durable DB rows, row locks/CAS, idempotency table enforcement,
+  and durable publisher/retry workers remain open.
 - Route create accepts only intent fields, derives owner/route id/map ids
   server-side, reconciles safe route list/snapshot payloads, and rejects
   unowned source, inaccessible destination, hidden endpoint, bad resource,
@@ -578,9 +608,11 @@ contracts:
   `route.settled` plus route reconciliation events, avoids AOI diffs, and
   reconciles active-map production/storage snapshots when storage changes.
 - Route settlement domain results/events now carry deterministic
-  server-derived settlement reference/window evidence; durable route settlement
-  idempotency table enforcement must still respect source storage, destination
-  capacity, loss rolls, and map-risk policy.
+  server-derived settlement reference/window evidence and the in-memory store
+  now records settlement references plus pending outbox rows for applied route
+  settlements. Durable route settlement idempotency table enforcement must
+  still respect source storage, destination capacity, loss rolls, and map-risk
+  policy.
 - Realtime/event tests prove claim, production, and route events do not leak to
   other maps or unrelated sessions.
 - Browser/API tests prove mutation controls reconcile from server snapshots and
@@ -639,9 +671,9 @@ Acceptance criteria:
   production with server time, remain capped and storage-cap aware, and prove
   immediate/sequential duplicate no-op behavior in the current in-memory
   gateway. Domain results/events now carry server-derived settlement
-  reference/window evidence for the future outbox. Durable concurrent DB rows,
-  row locks/CAS, idempotency table enforcement, and outbox publishing remain
-  open.
+  reference/window evidence and process-local store-owned reference/outbox
+  records for applied settlements. Durable concurrent DB rows, row locks/CAS,
+  idempotency table enforcement, and outbox publishing remain open.
 - Route rows carry source/destination map identity and use map policy for
   endpoint access and risk.
 - Route mutations and settlements use server-resolved ownership and do not
