@@ -37,6 +37,7 @@ import {
   parseStatSummary,
   parseWalletSummary,
 } from './reducer-player-parsers';
+import { applyMapSnapshotPayload } from './reducer-map';
 import {
   parseAbuseCoverageSummary,
   parseAdminInspection,
@@ -46,19 +47,14 @@ import {
   parseQuestBoardSummary,
   parseReleaseGateSummary,
 } from './reducer-quests-admin';
-import { mapSubscriptionEpochFromPayload } from './reducer-world';
+import { clearOriginMapLiveState } from './reducer-world';
 
 export function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientState {
   rejectForbiddenPayloadKeys(payload);
 
-  let next = state;
-  const mapSubscriptionEpoch = mapSubscriptionEpochFromPayload(payload);
-  if (mapSubscriptionEpoch !== null) {
-    next = {
-      ...next,
-      mapSubscriptionEpoch,
-    };
-  }
+  let next = applyMapSnapshotPayload(state, payload, {
+    clearMapScopedState: clearOriginMapLiveState,
+  });
 
   if (typeof payload.authenticated === 'boolean') {
     next = {

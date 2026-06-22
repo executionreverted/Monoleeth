@@ -73,6 +73,50 @@ describe('reduceClientState world payload guards', () => {
     ).toThrow(/Forbidden server payload rejected/);
   });
 
+  test('world snapshot rejects forbidden map payload keys before state mutation', () => {
+    const state = createInitialState();
+
+    expect(() =>
+      reduceClientState(state, {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.worldSnapshot, {
+          map: {
+            public_map_key: '1-1',
+            display_name: 'Origin Fringe',
+            internal_map_id: 'server-only',
+            bounds: { min_x: 0, min_y: 0, max_x: 10000, max_y: 10000 },
+          },
+          entities: [],
+        }),
+      }),
+    ).toThrow(/Forbidden server payload rejected/);
+  });
+
+  test('direct map snapshot rejects forbidden map payload keys before state mutation', () => {
+    const state = createInitialState();
+
+    expect(() =>
+      reduceClientState(state, {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.mapSnapshot, {
+          map_subscription_epoch: 3,
+          public_map_key: '1-2',
+          display_name: 'Outer Ring',
+          bounds: { min_x: 0, min_y: 0, max_x: 10000, max_y: 10000 },
+          visible_portals: [
+            {
+              portal_id: 'west_gate',
+              position: { x: 100, y: 200 },
+              interaction_radius: 160,
+              internal_map_id: 'server-only',
+            },
+          ],
+          safe_zones: [],
+        }),
+      }),
+    ).toThrow(/Forbidden server payload rejected/);
+  });
+
   test('rejects invalid entity movement timing', () => {
     expect(() =>
       reduceClientState(createInitialState(), {

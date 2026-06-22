@@ -35,6 +35,7 @@ import {
   parseWalletSummary,
 } from './reducer-player-parsers';
 import { applyQuestUpdate, parseAdminRepairCraftJob, parseQuestBoardSummary, parseQuestSummary, questEventLog } from './reducer-quests-admin';
+import { applyMapSnapshotPayload, mapSubscriptionEpochFromPayload } from './reducer-map';
 import { applySnapshotPayload } from './reducer-snapshot';
 import {
   appendWorldEffect,
@@ -44,7 +45,6 @@ import {
   displayNameForEntity,
   feedbackEffect,
   movementTargetFromAuthoritativeSelf,
-  mapSubscriptionEpochFromPayload,
   parseEntityMovement,
   parseEntityPayload,
   parseKnownLootDrop,
@@ -535,6 +535,44 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
+
+    case CLIENT_EVENTS.mapSnapshot: {
+      const withSnapshotPayload = applySnapshotPayload(state, envelope.payload);
+      return {
+        ...withSnapshotPayload,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(withSnapshotPayload.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.mapChanged: {
+      const withSnapshotPayload = applyMapSnapshotPayload(state, envelope.payload, {
+        clearMapScopedState: clearOriginMapLiveState,
+        forceClearMapScopedState: true,
+      });
+      return {
+        ...withSnapshotPayload,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(withSnapshotPayload.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.portalCooldownStarted: {
+      const portalID = stringField(envelope.payload, 'portal_id')?.trim();
+      const readyAt =
+        numberField(envelope.payload, 'cooldown_ready_at_ms') ??
+        numberField(envelope.payload, 'ready_at_ms') ??
+        numberField(envelope.payload, 'expires_at');
+      return {
+        ...state,
+        portalCooldowns:
+          portalID && readyAt !== null
+            ? { ...state.portalCooldowns, [portalID]: Math.max(0, Math.round(readyAt)) }
+            : state.portalCooldowns,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+    }
 
     case CLIENT_EVENTS.mapTransferStarted: {
       const eventEpoch = mapSubscriptionEpochFromPayload(envelope.payload);

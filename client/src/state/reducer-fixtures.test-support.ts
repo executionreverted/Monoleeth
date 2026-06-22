@@ -20,6 +20,8 @@ export function expectServerOwnedGameplayCleared(state: ClientState): void {
   expect(state.lastSequence).toBe(0);
   expect(state.mapSubscriptionEpoch).toBeNull();
   expect(state.mapTransfer).toBeNull();
+  expect(state.currentMap).toBeNull();
+  expect(state.portalCooldowns).toEqual({});
   expect(state.playerSnapshot).toBeNull();
   expect(state.sector).toBeNull();
   expect(state.minimap).toBeNull();
@@ -91,6 +93,18 @@ export function stateWithServerOwnedGameplay(): ClientState {
       to_public_map_key: '1-2',
       started_at: 999,
     },
+    currentMap: {
+      map_key: '1-1',
+      public_map_key: '1-1',
+      display_name: 'Origin Fringe',
+      region: 'Origin Belt',
+      risk_band: 'low',
+      pvp_policy: 'pve',
+      bounds: { min_x: 0, min_y: 0, max_x: 10000, max_y: 10000 },
+      visible_portals: [{ portal_id: 'east_gate', display_name: 'East Gate', position: { x: 9800, y: 5000 }, interaction_radius: 160 }],
+      safe_zones: [],
+    },
+    portalCooldowns: { east_gate: 2000 },
     playerSnapshot: { callsign: 'Server-Pilot', hp: 80, shield: 70, energy: 60 },
     sector: { name: 'Origin Fringe', region: 'Origin Belt', danger: 'low', contested: false },
     minimap: { radar_range: 420, live_contacts: [], remembered: [] },

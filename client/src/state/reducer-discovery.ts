@@ -28,6 +28,7 @@ import {
   roundedOptional,
   stringField,
 } from './reducer-helpers';
+import { parseMapBounds, parsePortalSummaries, parseSafeZoneProjections } from './reducer-map';
 import { isRenderableMinimapMemory } from './world-memory';
 
 const SCAN_REPEAT_DELAY_MS = 2_800;
@@ -391,12 +392,32 @@ export function parseMinimapSummary(payload: JsonObject, fallback: MinimapSummar
         .filter((memory): memory is MinimapMemory => memory !== null)
     : fallback?.remembered ?? [];
 
-  return {
+  const summary: MinimapSummary = {
     radar_range: Math.max(0, numberField(payload, 'radar_range') ?? fallback?.radar_range ?? 0),
     projection_window_size: optionalRoundedNumber(payload, 'projection_window_size', fallback?.projection_window_size),
     live_contacts: liveContacts,
     remembered,
   };
+  const publicMapKey = stringField(payload, 'public_map_key')?.trim() || fallback?.public_map_key;
+  const boundsPayload = objectField(payload, 'bounds');
+  const bounds = 'bounds' in payload ? (boundsPayload ? parseMapBounds(boundsPayload) ?? undefined : undefined) : fallback?.bounds;
+  const visiblePortals = 'visible_portals' in payload
+    ? parsePortalSummaries(payload.visible_portals)
+    : fallback?.visible_portals;
+  const safeZones = 'safe_zones' in payload ? parseSafeZoneProjections(payload.safe_zones) : fallback?.safe_zones;
+  if (publicMapKey) {
+    summary.public_map_key = publicMapKey;
+  }
+  if (bounds) {
+    summary.bounds = bounds;
+  }
+  if (visiblePortals) {
+    summary.visible_portals = visiblePortals;
+  }
+  if (safeZones) {
+    summary.safe_zones = safeZones;
+  }
+  return summary;
 }
 
 function parseMinimapContact(payload: JsonObject): MinimapContact | null {
@@ -426,6 +447,7 @@ function parseMinimapMemory(payload: JsonObject): MinimapMemory | null {
   }
   const memory: MinimapMemory = {
     kind: stringField(payload, 'kind') ?? '',
+    public_map_key: stringField(payload, 'public_map_key') ?? undefined,
     planet_id: stringField(payload, 'planet_id') ?? undefined,
     detail_id: stringField(payload, 'detail_id') ?? undefined,
     label: stringField(payload, 'label') ?? '',
@@ -433,10 +455,14 @@ function parseMinimapMemory(payload: JsonObject): MinimapMemory | null {
     freshness: stringField(payload, 'freshness') ?? 'known',
   };
   const sectorKey = stringField(payload, 'sector_key');
+  const publicMapKey = stringField(payload, 'public_map_key');
   const invalidated = booleanField(payload, 'invalidated');
   const projectionSource = stringField(payload, 'projection_source');
   if (sectorKey) {
     memory.sector_key = sectorKey;
+  }
+  if (publicMapKey) {
+    memory.public_map_key = publicMapKey;
   }
   if (invalidated !== null) {
     memory.invalidated = invalidated;

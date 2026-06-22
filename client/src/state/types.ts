@@ -676,6 +676,57 @@ export interface RepairQuote {
   disabled: boolean;
 }
 
+export interface MapBounds {
+  min_x: number;
+  min_y: number;
+  max_x: number;
+  max_y: number;
+}
+
+export interface PublicPortalSummary {
+  portal_id: string;
+  display_name?: string;
+  position: Vec2;
+  interaction_radius: number;
+}
+
+export interface SafeZoneProjection {
+  safe_area_id: string;
+  display_name?: string;
+  center: Vec2;
+  radius: number;
+  blocks_pvp: boolean;
+  hangar_actions: boolean;
+}
+
+export interface ViewerSafeZoneSummary {
+  inside: boolean;
+  blocks_pvp: boolean;
+  protection_expires_at?: number;
+}
+
+export interface ViewerProtectionSummary {
+  reason: string;
+  expires_at: number;
+  blocks_pvp: boolean;
+  break_on_pvp_action: boolean;
+}
+
+export interface MapSummary {
+  map_key?: string;
+  public_map_key?: string;
+  display_name?: string;
+  region?: string;
+  risk_band?: string;
+  pvp_policy?: string;
+  visual_theme_key?: string;
+  bounds: MapBounds;
+  visible_portals: PublicPortalSummary[];
+  safe_zones: SafeZoneProjection[];
+  safe_zone?: ViewerSafeZoneSummary;
+  protection?: ViewerProtectionSummary;
+}
+
 export interface SectorSummary {
   sector_key?: string;
   name: string;
@@ -696,6 +747,7 @@ export interface MinimapContact {
 export interface MinimapMemory {
   kind: string;
   sector_key?: string;
+  public_map_key?: string;
   planet_id?: string;
   detail_id?: string;
   label: string;
@@ -706,6 +758,10 @@ export interface MinimapMemory {
 }
 
 export interface MinimapSummary {
+  public_map_key?: string;
+  bounds?: MapBounds;
+  visible_portals?: PublicPortalSummary[];
+  safe_zones?: SafeZoneProjection[];
   radar_range: number;
   projection_window_size?: number;
   live_contacts: MinimapContact[];
@@ -762,6 +818,8 @@ export interface ClientState {
   lastSequence: number;
   mapSubscriptionEpoch: number | null;
   mapTransfer: MapTransferState | null;
+  currentMap: MapSummary | null;
+  portalCooldowns: Record<string, number>;
   playerSnapshot: PlayerSnapshot | null;
   sector: SectorSummary | null;
   minimap: MinimapSummary | null;

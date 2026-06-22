@@ -26,6 +26,23 @@ describe('reduceClientState world transfer lifecycle', () => {
     expect(stale.minimap?.live_contacts).toEqual([]);
     expect(stale.lastSequence).toBe(0);
 
+    const staleMapChanged = reduceClientState(state, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.mapChanged, {
+        map_subscription_epoch: 1,
+        map: {
+          public_map_key: 'old-map',
+          display_name: 'Old Map',
+          bounds: { min_x: 0, min_y: 0, max_x: 10000, max_y: 10000 },
+          visible_portals: [],
+          safe_zones: [],
+        },
+      }),
+    });
+    expect(staleMapChanged.mapSubscriptionEpoch).toBe(2);
+    expect(staleMapChanged.currentMap).toBeNull();
+    expect(staleMapChanged.lastSequence).toBe(0);
+
     const current = reduceClientState(state, {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.entityEntered, {
@@ -51,6 +68,18 @@ describe('reduceClientState world transfer lifecycle', () => {
         started_at: 1000,
       },
       sector: { sector_key: '1-1', name: 'Origin Fringe', region: 'Origin Belt', danger: 'low', contested: false },
+      currentMap: {
+        map_key: '1-1',
+        public_map_key: '1-1',
+        display_name: 'Origin Fringe',
+        region: 'Origin Belt',
+        risk_band: 'low',
+        pvp_policy: 'pve',
+        bounds: { min_x: 0, min_y: 0, max_x: 10000, max_y: 10000 },
+        visible_portals: [{ portal_id: 'east_gate', display_name: 'East Gate', position: { x: 9800, y: 5000 }, interaction_radius: 160 }],
+        safe_zones: [],
+      },
+      portalCooldowns: { east_gate: 1500 },
       minimap: {
         radar_range: 420,
         projection_window_size: 840,
@@ -133,6 +162,8 @@ describe('reduceClientState world transfer lifecycle', () => {
 
     expect(transferred.mapSubscriptionEpoch).toBe(2);
     expect(transferred.mapTransfer).toBeNull();
+    expect(transferred.currentMap).toMatchObject({ public_map_key: '1-2', display_name: 'Outer Ring' });
+    expect(transferred.portalCooldowns).toEqual({});
     expect(transferred.sector).toMatchObject({ sector_key: '1-2', name: 'Outer Ring' });
     expect(Object.keys(transferred.visibleEntities).sort()).toEqual(['destination-npc', 'player-self']);
     expect(transferred.visibleEntities['old-npc']).toBeUndefined();
@@ -335,6 +366,18 @@ function originPortalResponseState(): ClientState {
   return {
     ...createInitialState(),
     mapSubscriptionEpoch: 1,
+    currentMap: {
+      map_key: '1-1',
+      public_map_key: '1-1',
+      display_name: 'Origin Fringe',
+      region: 'Origin Belt',
+      risk_band: 'low',
+      pvp_policy: 'pve',
+      bounds: { min_x: 0, min_y: 0, max_x: 10000, max_y: 10000 },
+      visible_portals: [{ portal_id: 'east_gate', display_name: 'East Gate', position: { x: 9800, y: 5000 }, interaction_radius: 160 }],
+      safe_zones: [],
+    },
+    portalCooldowns: { east_gate: 1500 },
     sector: { sector_key: '1-1', name: 'Origin Fringe', region: 'Origin Belt', danger: 'low', contested: false },
     minimap: {
       radar_range: 420,
@@ -465,6 +508,8 @@ function partialNestedDestinationSnapshot() {
 
 function expectOriginLiveStatePreserved(state: ClientState): void {
   expect(state.mapSubscriptionEpoch).toBe(1);
+  expect(state.currentMap).toMatchObject({ public_map_key: '1-1', display_name: 'Origin Fringe' });
+  expect(state.portalCooldowns).toEqual({ east_gate: 1500 });
   expect(state.sector).toMatchObject({ sector_key: '1-1', name: 'Origin Fringe' });
   expect(Object.keys(state.visibleEntities).sort()).toEqual(['old-npc', 'player-self']);
   expect(state.visibleEntities['old-npc']).toMatchObject({ position: { x: 9800, y: 5000 } });
@@ -483,6 +528,8 @@ function expectOriginLiveStatePreserved(state: ClientState): void {
 function expectDestinationTransferState(state: ClientState): void {
   expect(state.mapSubscriptionEpoch).toBe(2);
   expect(state.mapTransfer).toBeNull();
+  expect(state.currentMap).toMatchObject({ public_map_key: '1-2', display_name: 'Outer Ring' });
+  expect(state.portalCooldowns).toEqual({});
   expect(state.sector).toMatchObject({ sector_key: '1-2', name: 'Outer Ring' });
   expect(Object.keys(state.visibleEntities).sort()).toEqual(['destination-npc', 'player-self']);
   expect(state.visibleEntities['old-npc']).toBeUndefined();

@@ -250,6 +250,16 @@ Snapshot/event rules:
 
 ## Migration/Doc Updates
 
+- 2026-06-22 Phase09A progress: client state now has nullable
+  server-owned `currentMap`, map-safe portal/safe-zone/protection summaries,
+  portal cooldown UI state, nested and direct public `map.snapshot` parsing,
+  and reducer tests for default empty state, malformed public map entries,
+  forbidden payload keys, and transfer snapshot replacement. Follow-up
+  code-quality fix clears map-scoped live state before changed-map or
+  changed-epoch `map.snapshot` application, handles `map.changed` with or
+  without a destination summary, and preserves same-map same-epoch metadata
+  refreshes. Renderer, minimap drawing, portal click UX, and new command
+  builders remain open.
 - Update UI implementation docs after the protocol lands to state that
   `currentMap`, portals, minimap bounds, and safe/PvP flags are server-owned.
 - Update local run/smoke docs with a deterministic two-map seed that includes at

@@ -223,6 +223,31 @@ describe('parseServerMessage', () => {
     });
   });
 
+  test('accepts direct public map snapshot payloads', () => {
+    const message = parseServerMessage(
+      JSON.stringify({
+        event_id: 'map-snapshot-1',
+        type: CLIENT_EVENTS.mapSnapshot,
+        payload: {
+          map_subscription_epoch: 3,
+          public_map_key: '2-1',
+          display_name: 'Rust Frontier',
+          bounds: { min_x: 0, min_y: 0, max_x: 10000, max_y: 10000 },
+          visible_portals: [],
+          safe_zones: [],
+        },
+        server_time: 182736127,
+        seq: 13,
+        v: 1,
+      }),
+    );
+
+    expect(message).toMatchObject({
+      type: CLIENT_EVENTS.mapSnapshot,
+      payload: { map_subscription_epoch: 3, public_map_key: '2-1' },
+    });
+  });
+
   test('accepts phase 09 public quest payloads without raw generation data', () => {
     const message = parseServerMessage(
       JSON.stringify({
@@ -296,9 +321,13 @@ describe('default outbound operations', () => {
   test('include server-owned hangar and loadout mutation contracts', () => {
     expect(OPERATIONS.hangarActivateShip).toBe('hangar.activate_ship');
     expect(OPERATIONS.portalEnter).toBe('portal.enter');
+    expect(CLIENT_EVENTS.mapSnapshot).toBe('map.snapshot');
+    expect(CLIENT_EVENTS.mapChanged).toBe('map.changed');
     expect(CLIENT_EVENTS.mapTransferStarted).toBe('map.transfer_started');
     expect(CLIENT_EVENTS.mapTransferCompleted).toBe('map.transfer_completed');
     expect(CLIENT_EVENTS.mapTransferFailed).toBe('map.transfer_failed');
+    expect(CLIENT_EVENTS.portalCooldownStarted).toBe('portal.cooldown_started');
+    expect(CLIENT_EVENTS.mapPolicyUpdated).toBe('map.policy_updated');
     expect(OPERATIONS.loadoutEquipModule).toBe('loadout.equip_module');
     expect(OPERATIONS.loadoutUnequipModule).toBe('loadout.unequip_module');
     expect(OPERATIONS.stealthToggle).toBe('stealth.toggle');

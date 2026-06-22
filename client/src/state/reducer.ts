@@ -35,6 +35,8 @@ export function createInitialState(): ClientState {
     lastSequence: 0,
     mapSubscriptionEpoch: null,
     mapTransfer: null,
+    currentMap: null,
+    portalCooldowns: {},
     playerSnapshot: null,
     sector: null,
     minimap: null,

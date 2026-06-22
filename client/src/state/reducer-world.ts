@@ -26,6 +26,7 @@ import {
   stringField,
 } from './reducer-helpers';
 import { countPlanetSignals, updateVisibleSignalCount } from './reducer-discovery';
+import { mapSubscriptionEpochFromPayload } from './reducer-map';
 
 export function replaceVisibleEntities(
   state: ClientState,
@@ -61,6 +62,9 @@ export function clearOriginMapLiveState(state: ClientState): ClientState {
     selectedTargetID: null,
     movementTarget: null,
     lastCorrection: null,
+    mapTransfer: null,
+    currentMap: null,
+    portalCooldowns: {},
     knownLoot: {},
     worldEffects: [],
     skillCooldowns: {},
@@ -76,6 +80,10 @@ export function clearOriginMapLiveState(state: ClientState): ClientState {
     minimap: state.minimap
       ? {
           ...state.minimap,
+          public_map_key: undefined,
+          bounds: undefined,
+          visible_portals: [],
+          safe_zones: [],
           live_contacts: [],
         }
       : null,
@@ -158,7 +166,12 @@ export function isStaleEvent(state: ClientState, envelope: EventEnvelope): boole
   if (envelope.type === CLIENT_EVENTS.mapTransferStarted) {
     return false;
   }
-  if (envelope.type === CLIENT_EVENTS.mapTransferCompleted || envelope.type === CLIENT_EVENTS.worldSnapshot) {
+  if (
+    envelope.type === CLIENT_EVENTS.mapTransferCompleted ||
+    envelope.type === CLIENT_EVENTS.worldSnapshot ||
+    envelope.type === CLIENT_EVENTS.mapSnapshot ||
+    envelope.type === CLIENT_EVENTS.mapChanged
+  ) {
     return eventEpoch < state.mapSubscriptionEpoch;
   }
   if (!isMapScopedClientEvent(envelope.type)) {
@@ -193,18 +206,14 @@ function isMapScopedClientEvent(eventType: string): boolean {
     eventType === CLIENT_EVENTS.routeList ||
     eventType === CLIENT_EVENTS.routeSnapshot ||
     eventType === CLIENT_EVENTS.worldSnapshot ||
+    eventType === CLIENT_EVENTS.mapSnapshot ||
+    eventType === CLIENT_EVENTS.mapChanged ||
+    eventType === CLIENT_EVENTS.portalCooldownStarted ||
+    eventType === CLIENT_EVENTS.mapPolicyUpdated ||
     eventType === CLIENT_EVENTS.mapTransferStarted ||
     eventType === CLIENT_EVENTS.mapTransferCompleted ||
     eventType === CLIENT_EVENTS.mapTransferFailed
   );
-}
-
-export function mapSubscriptionEpochFromPayload(payload: JsonObject): number | null {
-  const epoch = numberField(payload, 'map_subscription_epoch');
-  if (epoch === null || epoch <= 0) {
-    return null;
-  }
-  return Math.round(epoch);
 }
 
 export function resetsRealtimeStream(status: ClientState['connectionStatus']): boolean {
