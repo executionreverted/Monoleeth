@@ -133,10 +133,11 @@ for phase status; this file is a compact pending-work index.
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete second-map enemy rollout coverage for map `1-2`. The
   deterministic `outer_ring_scout_drone` seed, initial spawn, actor projection,
-  and bootstrap no-hidden-pool leak check now exist; Phase09 now proves starter
-  and destination browser fight/loot pickup after portal handoff, but remaining
-  work includes destination-map spawn cap, respawn, aggro/leash, and broader
-  matrix proof. Source:
+  bootstrap no-hidden-pool leak check, and server/runtime destination respawn
+  proof with stable spawn caps now exist; Phase09 now proves starter and
+  destination browser fight/loot pickup after portal handoff, but remaining
+  work includes browser respawn proof, aggro/leash proof, and broader matrix
+  coverage. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add a deterministic per-map scanner/claim/drop seed matrix. Focused
   server/discovery scanner rarity/hidden-scan-data regression coverage now

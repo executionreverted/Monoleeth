@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"gameproject/internal/game/auth"
 	"gameproject/internal/game/combat"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/visibility"
@@ -117,6 +119,185 @@ func TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner(t *testing.T)
 		mapTwoActor.Signature != wantSignature ||
 		mapTwoActor.Stats.Stats.Exploration.SignatureRadius != wantSignature.Units() {
 		t.Fatalf("map_1_2 combat actor = %+v, want outer ring scout template projection", mapTwoActor)
+	}
+}
+
+func TestRuntimeMapTwoEnemyLifecycleRespawnsThroughMapInstance(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+	gameServer, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		SessionTTL:     time.Hour,
+		TickDelta:      50 * time.Millisecond,
+		Clock:          clock,
+		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+
+	starter, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		t.Fatalf("starter map instance: %v", err)
+	}
+	mapTwo, err := gameServer.runtime.mapInstanceLocked("map_1_2")
+	if err != nil {
+		t.Fatalf("map_1_2 instance: %v", err)
+	}
+	if len(mapTwo.Definition.EnemyPools) != 1 {
+		t.Fatalf("map_1_2 enemy pools = %+v, want one deterministic destination pool", mapTwo.Definition.EnemyPools)
+	}
+	pool := mapTwo.Definition.EnemyPools[0]
+	initial := mapTwo.Worker.EnemySpawnSnapshot()
+	if len(initial.Records) != 1 ||
+		initial.MapAliveCount != 1 ||
+		initial.PoolAliveCounts[pool.EnemyPoolID] != 1 {
+		t.Fatalf("initial map_1_2 spawn snapshot = %+v, want one live row at cap-safe counts", initial)
+	}
+	record := initial.Records[0]
+	if record.EnemyPoolID != pool.EnemyPoolID ||
+		record.EntityID == "entity_training_npc" ||
+		record.NPCType != "outer_ring_scout_drone" ||
+		!record.Alive {
+		t.Fatalf("initial map_1_2 spawn record = %+v, want destination scout row isolated from starter seed", record)
+	}
+	if _, ok := starter.Worker.Entity(record.EntityID); ok {
+		t.Fatalf("starter worker contains destination NPC %q", record.EntityID)
+	}
+	if _, ok := mapTwo.Worker.Entity("entity_training_npc"); ok {
+		t.Fatal("map_1_2 worker contains starter training NPC")
+	}
+	if actor, ok := gameServer.runtime.Combat.Actor(record.EntityID); !ok ||
+		actor.Type != world.EntityTypeNPC ||
+		actor.NPCType != record.NPCType ||
+		actor.HP != 36 ||
+		actor.Shield != 4 {
+		t.Fatalf("initial map_1_2 combat actor = %+v ok=%v, want live destination projection", actor, ok)
+	}
+
+	killedAt := clock.Now()
+	deadActor, ok := gameServer.runtime.Combat.Actor(record.EntityID)
+	if !ok {
+		t.Fatalf("combat actor %q missing before death mark", record.EntityID)
+	}
+	deadActor.HP = 0
+	deadActor.Shield = 0
+	deadActor.Dead = true
+	deadActor.DiedAt = &killedAt
+	if err := gameServer.runtime.Combat.UpsertActor(deadActor); err != nil {
+		t.Fatalf("UpsertActor(dead destination NPC) error = %v, want nil", err)
+	}
+	if err := gameServer.runtime.submitWorkerCommandAndRecordMetricsLocked(mapTwo, worker.MarkEnemyKilledCommand{
+		Definition:  mapTwo.Definition,
+		NPCEntityID: record.EntityID,
+		KilledAt:    killedAt,
+	}); err != nil {
+		t.Fatalf("MarkEnemyKilledCommand(map_1_2) error = %v, want nil", err)
+	}
+	mapTwo.HiddenEntities[record.EntityID] = true
+
+	dead, ok := mapTwo.Worker.EnemySpawnRecord(record.EntityID)
+	if !ok {
+		t.Fatalf("map_1_2 spawn row %q missing after death mark", record.EntityID)
+	}
+	if dead.Alive ||
+		!dead.DeadAt.Equal(killedAt) ||
+		!dead.NextRespawnAt.Equal(killedAt.Add(pool.KillRespawnDelay)) ||
+		dead.EntityID != record.EntityID {
+		t.Fatalf("dead map_1_2 record = %+v, want same row dead until KillRespawnDelay", dead)
+	}
+	deadSnapshot := mapTwo.Worker.EnemySpawnSnapshot()
+	if len(deadSnapshot.Records) != 1 ||
+		deadSnapshot.MapAliveCount != 0 ||
+		deadSnapshot.PoolAliveCounts[pool.EnemyPoolID] != 0 {
+		t.Fatalf("dead map_1_2 snapshot = %+v, want one pending row and no live destination NPCs", deadSnapshot)
+	}
+	if _, ok := mapTwo.Worker.Entity(record.EntityID); ok {
+		t.Fatalf("map_1_2 entity %q still exists after death mark", record.EntityID)
+	}
+
+	clock.Advance(pool.KillRespawnDelay - time.Nanosecond)
+	if err := commandErrors(mapTwo.Worker.Tick()); err != nil {
+		t.Fatalf("map_1_2 tick before respawn due error = %v, want nil", err)
+	}
+	beforeDue, ok := mapTwo.Worker.EnemySpawnRecord(record.EntityID)
+	if !ok || beforeDue.Alive {
+		t.Fatalf("record before respawn due = %+v ok=%v, want same dead row", beforeDue, ok)
+	}
+
+	respawnedAt := clock.Advance(time.Nanosecond)
+	if err := commandErrors(mapTwo.Worker.Tick()); err != nil {
+		t.Fatalf("map_1_2 tick at respawn due error = %v, want nil", err)
+	}
+	if err := gameServer.runtime.syncAliveNPCCombatActorProjectionsLocked(mapTwo); err != nil {
+		t.Fatalf("syncAliveNPCCombatActorProjectionsLocked(map_1_2) error = %v, want nil", err)
+	}
+
+	respawned, ok := mapTwo.Worker.EnemySpawnRecord(record.EntityID)
+	if !ok {
+		t.Fatalf("map_1_2 spawn row %q missing after respawn", record.EntityID)
+	}
+	if !respawned.Alive ||
+		respawned.EntityID != record.EntityID ||
+		!respawned.SpawnedAt.Equal(respawnedAt) ||
+		!respawned.DeadAt.IsZero() ||
+		!respawned.NextRespawnAt.IsZero() {
+		t.Fatalf("respawned map_1_2 record = %+v, want same row alive with cleared death timing", respawned)
+	}
+	if entity, ok := mapTwo.Worker.Entity(record.EntityID); !ok ||
+		entity.Type != world.EntityTypeNPC ||
+		entity.Position != respawned.Position {
+		t.Fatalf("respawned map_1_2 entity = %+v ok=%v, want restored NPC at %+v", entity, ok, respawned.Position)
+	}
+	respawnedSnapshot := mapTwo.Worker.EnemySpawnSnapshot()
+	if len(respawnedSnapshot.Records) < 1 ||
+		respawnedSnapshot.MapAliveCount < 1 ||
+		respawnedSnapshot.PoolAliveCounts[pool.EnemyPoolID] < 1 ||
+		respawnedSnapshot.MapAliveCount > pool.MapMaxAlive ||
+		respawnedSnapshot.PoolAliveCounts[pool.EnemyPoolID] > pool.PoolMaxAlive {
+		t.Fatalf("respawned map_1_2 snapshot = %+v, want stable cap-safe destination rows", respawnedSnapshot)
+	}
+	seenRespawnedID := false
+	seenEntityIDs := map[world.EntityID]bool{}
+	for _, row := range respawnedSnapshot.Records {
+		if seenEntityIDs[row.EntityID] {
+			t.Fatalf("respawned map_1_2 snapshot = %+v, duplicate entity id %q", respawnedSnapshot, row.EntityID)
+		}
+		seenEntityIDs[row.EntityID] = true
+		if row.EntityID == record.EntityID {
+			seenRespawnedID = true
+		}
+	}
+	if !seenRespawnedID {
+		t.Fatalf("respawned map_1_2 snapshot = %+v, missing reused entity id %q", respawnedSnapshot, record.EntityID)
+	}
+	restoredActor, ok := gameServer.runtime.Combat.Actor(record.EntityID)
+	if !ok ||
+		restoredActor.Dead ||
+		restoredActor.DiedAt != nil ||
+		restoredActor.HP != 36 ||
+		restoredActor.Shield != 4 ||
+		restoredActor.NPCType != record.NPCType ||
+		restoredActor.Position != respawned.Position ||
+		restoredActor.Hidden {
+		t.Fatalf("restored map_1_2 combat actor = %+v ok=%v, want live respawn projection", restoredActor, ok)
+	}
+	if mapTwo.HiddenEntities[record.EntityID] {
+		t.Fatalf("map_1_2 hidden state for %q still set after projection sync", record.EntityID)
+	}
+	starterSnapshot := starter.Worker.EnemySpawnSnapshot()
+	if len(starterSnapshot.Records) != 1 ||
+		starterSnapshot.MapAliveCount != 1 ||
+		starterSnapshot.Records[0].EntityID != "entity_training_npc" {
+		t.Fatalf("starter snapshot after map_1_2 respawn = %+v, want starter seed uncontaminated", starterSnapshot)
+	}
+	if _, ok := starter.Worker.Entity("entity_training_npc"); !ok {
+		t.Fatal("starter training NPC missing after map_1_2 lifecycle")
+	}
+	if _, ok := starter.Worker.Entity(record.EntityID); ok {
+		t.Fatalf("starter worker contains respawned destination NPC %q", record.EntityID)
 	}
 }
 
