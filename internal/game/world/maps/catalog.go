@@ -554,6 +554,12 @@ func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 					Visible:            true,
 				},
 			},
+			SpawnAreas:       borderSkirmishMapSpawnAreas(),
+			EnemyPools:       borderSkirmishMapEnemyPools(),
+			NPCStatTemplates: borderSkirmishMapNPCStatTemplates(),
+			NPCDropProfiles:  borderSkirmishMapNPCDropProfiles(),
+			NPCAggroProfiles: borderSkirmishMapNPCAggroProfiles(),
+			NPCLeashProfiles: borderSkirmishMapNPCLeashProfiles(),
 		},
 	}
 	return NewCatalog(definitions, StarterMapID, StarterSpawnID)

@@ -168,6 +168,8 @@ func TestNPCLootSelectorAcceptsSeededMapMatrixRows(t *testing.T) {
 		wantLevel        int
 		wantProfileID    worldmaps.NPCDropProfileID
 		wantTableID      string
+		wantItemID       foundation.ItemID
+		wantQuantity     int64
 	}{
 		{
 			name:             "starter training drone",
@@ -178,6 +180,8 @@ func TestNPCLootSelectorAcceptsSeededMapMatrixRows(t *testing.T) {
 			wantLevel:        1,
 			wantProfileID:    "training_drone_salvage",
 			wantTableID:      trainingDroneSalvageLootTableID,
+			wantItemID:       "raw_ore",
+			wantQuantity:     3,
 		},
 		{
 			name:             "outer ring scout drone",
@@ -188,6 +192,20 @@ func TestNPCLootSelectorAcceptsSeededMapMatrixRows(t *testing.T) {
 			wantLevel:        1,
 			wantProfileID:    "outer_ring_scout_drone_salvage",
 			wantTableID:      trainingDroneSalvageLootTableID,
+			wantItemID:       "raw_ore",
+			wantQuantity:     3,
+		},
+		{
+			name:             "border skirmish raider drone",
+			mapID:            "map_1_3",
+			wantPublicMapKey: "1-3",
+			wantRiskBand:     "medium",
+			wantNPCType:      "border_raider_drone",
+			wantLevel:        2,
+			wantProfileID:    "border_raider_drone_salvage",
+			wantTableID:      borderRaiderSalvageLootTableID,
+			wantItemID:       "carbon_shards",
+			wantQuantity:     2,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -233,6 +251,18 @@ func TestNPCLootSelectorAcceptsSeededMapMatrixRows(t *testing.T) {
 			}
 			if got := selected.Source.DefinitionID.String(); got != tc.wantTableID {
 				t.Fatalf("selected loot table id = %q, want %q", got, tc.wantTableID)
+			}
+			created, err := gameServer.runtime.Loot.CreateDropsForNPCKill(event, selected)
+			if err != nil {
+				t.Fatalf("CreateDropsForNPCKill() error = %v, want nil", err)
+			}
+			if len(created.Drops) != 1 ||
+				created.Drops[0].WorldID != instance.Definition.WorldID ||
+				created.Drops[0].ZoneID != instance.Definition.ZoneID ||
+				created.Drops[0].SourceID != record.EntityID ||
+				created.Drops[0].ItemDefinition.ItemID != tc.wantItemID ||
+				created.Drops[0].Quantity != tc.wantQuantity {
+				t.Fatalf("created drops = %+v, want %s x%d in %s", created.Drops, tc.wantItemID, tc.wantQuantity, tc.wantPublicMapKey)
 			}
 		})
 	}

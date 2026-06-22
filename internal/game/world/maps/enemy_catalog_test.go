@@ -176,6 +176,108 @@ func TestStarterCatalogContainsStarterEnemyCatalogData(t *testing.T) {
 	if len(second.NPCEventSpawns) != 0 {
 		t.Fatalf("map 1-2 event spawns = %+v, want no event hooks in this seed", second.NPCEventSpawns)
 	}
+
+	third, ok := catalog.ByPublicKey("1-3")
+	if !ok {
+		t.Fatalf("map 1-3 missing")
+	}
+	if third.RiskBand != "medium" || third.PVPPolicy != "pvp" {
+		t.Fatalf("map 1-3 policy = risk:%q pvp:%q, want medium/pvp", third.RiskBand, third.PVPPolicy)
+	}
+	if len(third.SpawnAreas) != 1 || third.SpawnAreas[0].SpawnAreaID != "border_raider_drone_area" {
+		t.Fatalf("map 1-3 spawn areas = %+v, want border raider area", third.SpawnAreas)
+	}
+	thirdArea := third.SpawnAreas[0]
+	if thirdArea.Shape != SpawnAreaShapeCircle || thirdArea.Center != (world.Vec2{X: 5400, Y: 5200}) || thirdArea.Radius != 260 {
+		t.Fatalf("map 1-3 spawn area = %+v, want circle at 5400,5200 radius 260", thirdArea)
+	}
+	if !thirdArea.SafeZoneExcluded || thirdArea.PortalExclusionRadius != 420 {
+		t.Fatalf("map 1-3 spawn area safety = %+v, want safe-zone excluded with portal exclusion", thirdArea)
+	}
+	for _, safeZone := range third.SafeZones {
+		if safeZone.BlocksPVP {
+			minDistance := thirdArea.Radius + safeZone.Radius
+			if thirdArea.Center.DistanceSquared(safeZone.Center) <= minDistance*minDistance {
+				t.Fatalf("map 1-3 spawn area %+v overlaps safe zone %+v", thirdArea, safeZone)
+			}
+		}
+	}
+	for _, portal := range third.Portals {
+		if portal.Visible && thirdArea.Center.DistanceSquared(portal.SourcePosition) <= thirdArea.PortalExclusionRadius*thirdArea.PortalExclusionRadius {
+			t.Fatalf("map 1-3 spawn center %+v inside portal exclusion for %+v", thirdArea.Center, portal)
+		}
+	}
+
+	if len(third.EnemyPools) != 1 {
+		t.Fatalf("map 1-3 enemy pools = %+v, want one border raider pool", third.EnemyPools)
+	}
+	thirdPool := third.EnemyPools[0]
+	if thirdPool.EnemyPoolID != "border_raider_drone_pool" || thirdPool.NPCType != "border_raider_drone" {
+		t.Fatalf("map 1-3 enemy pool = %+v, want border raider drone pool", thirdPool)
+	}
+	if thirdPool.MinLevel != 2 || thirdPool.MaxLevel != 2 ||
+		thirdPool.MapMaxAlive != 5 || thirdPool.PoolMaxAlive != 2 || thirdPool.InitialAlive != 1 {
+		t.Fatalf("map 1-3 pool caps/level = %+v, want level=2 map=5 pool=2 initial=1", thirdPool)
+	}
+	if thirdPool.SpawnInterval != time.Minute || thirdPool.KillRespawnDelay != time.Minute || thirdPool.SpawnJitter != 0 {
+		t.Fatalf("map 1-3 pool timing = %+v, want 60s/60s/0", thirdPool)
+	}
+	if thirdPool.SpawnMode != SpawnModePeriodic || !thirdPool.Enabled {
+		t.Fatalf("map 1-3 pool mode/enabled = %s/%v, want periodic enabled", thirdPool.SpawnMode, thirdPool.Enabled)
+	}
+	if len(thirdPool.SpawnAreaIDs) != 1 || thirdPool.SpawnAreaIDs[0] != thirdArea.SpawnAreaID {
+		t.Fatalf("map 1-3 pool spawn refs = %+v, want %q", thirdPool.SpawnAreaIDs, thirdArea.SpawnAreaID)
+	}
+
+	if len(third.NPCStatTemplates) != 1 || thirdPool.StatTemplateID != third.NPCStatTemplates[0].StatTemplateID {
+		t.Fatalf("map 1-3 stat template refs = %+v pool=%+v, want referenced template", third.NPCStatTemplates, thirdPool)
+	}
+	thirdTemplate := third.NPCStatTemplates[0]
+	if thirdTemplate.NPCType != "border_raider_drone" ||
+		thirdTemplate.MinLevel != 2 ||
+		thirdTemplate.MaxLevel != 2 ||
+		thirdTemplate.HPMax != 58 ||
+		thirdTemplate.ShieldMax != 14 ||
+		thirdTemplate.EnergyMax != 4 ||
+		thirdTemplate.WeaponRange != 120 ||
+		thirdTemplate.WeaponDamage != 5 ||
+		thirdTemplate.WeaponCooldown != 2*time.Second ||
+		thirdTemplate.Accuracy != 0.82 ||
+		thirdTemplate.RadarSignature != visibility.SignatureForEntityType(world.EntityTypeNPC).Units() ||
+		thirdTemplate.Speed != 90 ||
+		thirdTemplate.XPValue != 0 {
+		t.Fatalf("map 1-3 stat template = %+v, want medium-risk raider behavior", thirdTemplate)
+	}
+
+	if len(third.NPCDropProfiles) != 1 || thirdPool.DropProfileID != third.NPCDropProfiles[0].DropProfileID {
+		t.Fatalf("map 1-3 drop profile refs = %+v pool=%+v, want referenced profile", third.NPCDropProfiles, thirdPool)
+	}
+	thirdDrop := third.NPCDropProfiles[0]
+	if thirdDrop.NPCType != "border_raider_drone" ||
+		thirdDrop.RiskBand != "medium" ||
+		thirdDrop.LootTableID != "border_raider_salvage" {
+		t.Fatalf("map 1-3 drop profile = %+v, want medium-risk border raider table", thirdDrop)
+	}
+	if len(third.NPCAggroProfiles) != 1 || thirdPool.AggroProfileID != third.NPCAggroProfiles[0].AggroProfileID {
+		t.Fatalf("map 1-3 aggro refs = %+v pool=%+v, want referenced profile", third.NPCAggroProfiles, thirdPool)
+	}
+	thirdAggro := third.NPCAggroProfiles[0]
+	if thirdAggro.AggroRadius != 520 ||
+		thirdAggro.AssistRadius != 180 ||
+		thirdAggro.TargetMemory != 8*time.Second ||
+		thirdAggro.SafeZoneAttackPolicy != "never" {
+		t.Fatalf("map 1-3 aggro profile = %+v, want hunter profile with safe-zone attack disabled", thirdAggro)
+	}
+	if len(third.NPCLeashProfiles) != 1 || thirdPool.LeashProfileID != third.NPCLeashProfiles[0].LeashProfileID {
+		t.Fatalf("map 1-3 leash refs = %+v pool=%+v, want referenced profile", third.NPCLeashProfiles, thirdPool)
+	}
+	thirdLeash := third.NPCLeashProfiles[0]
+	if thirdLeash.LeashDistance != 900 || !thirdLeash.ResetOnBreak {
+		t.Fatalf("map 1-3 leash profile = %+v, want resettable 900u patrol leash", thirdLeash)
+	}
+	if len(third.NPCEventSpawns) != 0 {
+		t.Fatalf("map 1-3 event spawns = %+v, want no event hooks in this seed", third.NPCEventSpawns)
+	}
 }
 
 func TestEnemyCatalogValidationRejectsInvalidDefinitions(t *testing.T) {

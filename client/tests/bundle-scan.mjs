@@ -34,6 +34,13 @@ const serverOnlyContentSnippets = [
   'outer_ring_scout_drone_level_1',
   'outer_ring_scout_drone_cautious',
   'outer_ring_scout_drone_patrol',
+  'border_raider_drone_pool',
+  'border_raider_drone_area',
+  'border_raider_drone_salvage',
+  'border_raider_drone_level_2',
+  'border_raider_drone_hunter',
+  'border_raider_drone_patrol',
+  'border_raider_salvage',
 ];
 
 const forbiddenSnippetGroups = [

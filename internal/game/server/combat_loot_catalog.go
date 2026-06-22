@@ -8,19 +8,22 @@ import (
 	"gameproject/internal/game/modules"
 )
 
-const trainingDroneSalvageLootTableID = "training_drone_salvage"
+const (
+	trainingDroneSalvageLootTableID = "training_drone_salvage"
+	borderRaiderSalvageLootTableID  = "border_raider_salvage"
+)
 
 func runtimeLootCatalog() (map[string]loot.LootTable, map[foundation.ItemID]economy.ItemDefinition, error) {
 	rawOre, err := runtimeRawOreDefinition()
 	if err != nil {
 		return nil, nil, err
 	}
-	source, err := catalog.NewLootTableSource(trainingDroneSalvageLootTableID, "v1")
+	trainingSource, err := catalog.NewLootTableSource(trainingDroneSalvageLootTableID, "v1")
 	if err != nil {
 		return nil, nil, err
 	}
-	table := loot.LootTable{
-		Source: source,
+	trainingTable := loot.LootTable{
+		Source: trainingSource,
 		Rows: []loot.LootRow{{
 			ItemDefinition: rawOre,
 			MinQuantity:    3,
@@ -36,9 +39,13 @@ func runtimeLootCatalog() (map[string]loot.LootTable, map[foundation.ItemID]econ
 		return nil, nil, err
 	}
 	itemCatalog[xCore.ItemID] = xCore
+	carbonShards, err := runtimeStackableDefinition("carbon_shards", "carbon_shards")
+	if err != nil {
+		return nil, nil, err
+	}
+	itemCatalog[carbonShards.ItemID] = carbonShards
 	for _, itemID := range []foundation.ItemID{
 		"iron_ore",
-		"carbon_shards",
 		"energy_cell",
 		"scanner_circuit",
 		"refined_alloy",
@@ -50,8 +57,22 @@ func runtimeLootCatalog() (map[string]loot.LootTable, map[foundation.ItemID]econ
 		}
 		itemCatalog[definition.ItemID] = definition
 	}
+	borderSource, err := catalog.NewLootTableSource(borderRaiderSalvageLootTableID, "v1")
+	if err != nil {
+		return nil, nil, err
+	}
+	borderTable := loot.LootTable{
+		Source: borderSource,
+		Rows: []loot.LootRow{{
+			ItemDefinition: carbonShards,
+			MinQuantity:    2,
+			MaxQuantity:    2,
+			Chance:         1,
+		}},
+	}
 	return map[string]loot.LootTable{
-		trainingDroneSalvageLootTableID: table,
+		trainingDroneSalvageLootTableID: trainingTable,
+		borderRaiderSalvageLootTableID:  borderTable,
 	}, itemCatalog, nil
 }
 

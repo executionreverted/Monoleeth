@@ -120,6 +120,66 @@ func TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner(t *testing.T)
 		mapTwoActor.Stats.Stats.Exploration.SignatureRadius != wantSignature.Units() {
 		t.Fatalf("map_1_2 combat actor = %+v, want outer ring scout template projection", mapTwoActor)
 	}
+
+	mapThree, err := gameServer.runtime.mapInstanceLocked("map_1_3")
+	if err != nil {
+		t.Fatalf("map_1_3 instance: %v", err)
+	}
+	mapThreeSnapshot := mapThree.Worker.EnemySpawnSnapshot()
+	if len(mapThreeSnapshot.Records) != 1 || mapThreeSnapshot.MapAliveCount != 1 {
+		t.Fatalf("map_1_3 spawn snapshot = %+v, want one border raider", mapThreeSnapshot)
+	}
+	mapThreeRecord := mapThreeSnapshot.Records[0]
+	if mapThreeRecord.EnemyPoolID != "border_raider_drone_pool" ||
+		mapThreeRecord.SpawnAreaID != "border_raider_drone_area" ||
+		mapThreeRecord.NPCType != "border_raider_drone" ||
+		mapThreeRecord.Level != 2 ||
+		mapThreeRecord.StatTemplateID != "border_raider_drone_level_2" ||
+		mapThreeRecord.DropProfileID != "border_raider_drone_salvage" ||
+		mapThreeRecord.AggroProfileID != "border_raider_drone_hunter" ||
+		mapThreeRecord.LeashProfileID != "border_raider_drone_patrol" ||
+		!mapThreeRecord.Alive {
+		t.Fatalf("map_1_3 spawn record = %+v, want border raider pool row", mapThreeRecord)
+	}
+	if mapThreeRecord.Position != (world.Vec2{X: 5400, Y: 5200}) {
+		t.Fatalf("map_1_3 spawn position = %+v, want deterministic center", mapThreeRecord.Position)
+	}
+	if _, ok := starter.Worker.Entity(mapThreeRecord.EntityID); ok {
+		t.Fatalf("starter worker contains map_1_3 NPC %q", mapThreeRecord.EntityID)
+	}
+	if _, ok := mapTwo.Worker.Entity(mapThreeRecord.EntityID); ok {
+		t.Fatalf("map_1_2 worker contains map_1_3 NPC %q", mapThreeRecord.EntityID)
+	}
+	if npcCount := countWorkerEntitiesOfType(mapThree.Worker.Snapshot(), world.EntityTypeNPC); npcCount != 1 {
+		t.Fatalf("map_1_3 NPC count = %d, want one", npcCount)
+	}
+	mapThreeEntity, ok := mapThree.Worker.Entity(mapThreeRecord.EntityID)
+	if !ok {
+		t.Fatalf("map_1_3 worker missing spawned NPC %q", mapThreeRecord.EntityID)
+	}
+	if mapThreeEntity.Type != world.EntityTypeNPC || mapThreeEntity.Position != mapThreeRecord.Position {
+		t.Fatalf("map_1_3 entity = %+v, want spawner-created NPC at %+v", mapThreeEntity, mapThreeRecord.Position)
+	}
+	mapThreeActor, ok := gameServer.runtime.Combat.Actor(mapThreeRecord.EntityID)
+	if !ok {
+		t.Fatalf("map_1_3 combat actor missing %q after seed", mapThreeRecord.EntityID)
+	}
+	if mapThreeActor.Type != world.EntityTypeNPC ||
+		mapThreeActor.NPCType != "border_raider_drone" ||
+		mapThreeActor.WorldID != mapThree.Definition.WorldID ||
+		mapThreeActor.ZoneID != mapThree.Definition.ZoneID ||
+		mapThreeActor.HP != 58 ||
+		mapThreeActor.Stats.Stats.Core.HPMax != 58 ||
+		mapThreeActor.Shield != 14 ||
+		mapThreeActor.Stats.Stats.Core.ShieldMax != 14 ||
+		mapThreeActor.Energy != 4 ||
+		mapThreeActor.Stats.Stats.Core.EnergyMax != 4 ||
+		mapThreeActor.Stats.Stats.Combat.WeaponRange != 120 ||
+		mapThreeActor.Stats.Stats.Combat.Accuracy != 0.82 ||
+		mapThreeActor.Signature != wantSignature ||
+		mapThreeActor.Stats.Stats.Exploration.SignatureRadius != wantSignature.Units() {
+		t.Fatalf("map_1_3 combat actor = %+v, want border raider template projection", mapThreeActor)
+	}
 }
 
 func TestRuntimeMapTwoEnemyLifecycleRespawnsThroughMapInstance(t *testing.T) {

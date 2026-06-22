@@ -138,14 +138,15 @@ for phase status; this file is a compact pending-work index.
   work is runtime/browser PvP death/cargo/checkpoint integration coverage and a
   real browser safe-zone PvP click rejection proof. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Complete second-map enemy rollout coverage for map `1-2`. The
-  deterministic `outer_ring_scout_drone` seed, initial spawn, actor projection,
-  bootstrap no-hidden-pool leak check, server/runtime destination respawn proof
-  with stable spawn caps, and seeded passive `1-1`/`1-2` server aggro/leash
-  non-acquisition proof now exist; Phase09 now proves starter and destination
-  browser fight/loot pickup after portal handoff, but remaining work includes
-  browser respawn proof, browser aggro/leash proof, aggressive seeded-map
-  aggro/leash proof, and broader matrix coverage. Source:
+- [ ] Complete second/PvP-map enemy rollout coverage. The deterministic
+  `outer_ring_scout_drone` and `border_raider_drone` seeds, initial spawn,
+  actor projection for public `1-1`/`1-2`/`1-3`, bootstrap no-hidden-pool leak
+  check, server/runtime destination respawn proof with stable spawn caps, and
+  seeded passive `1-1`/`1-2` server aggro/leash non-acquisition proof now
+  exist; Phase09 now proves starter and destination browser fight/loot pickup
+  after portal handoff, but remaining work includes browser respawn proof,
+  browser aggro/leash proof, aggressive seeded-map aggro/leash proof, and
+  broader matrix coverage. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add a deterministic per-map scanner/claim/drop seed matrix. Focused
   server/discovery scanner rarity/hidden-scan-data regression coverage now
@@ -155,16 +156,17 @@ for phase status; this file is a compact pending-work index.
   `1-3`, and server-only scanner scope proof now shows an active `map_1_2`
   session keeps `scan.pulse`
   response/event/read-model memory on public `1-2`. Domain scanner
-  materialization/intel now covers seeded public maps `1-1`, `1-2`, and `1-3`;
-  remaining work is the claim/drop seeded-map matrix, browser claim flow, and
-  broader browser scan success/no-signal variants. Source:
+  materialization/intel now covers seeded public maps `1-1`, `1-2`, and `1-3`,
+  and server-only drop matrix coverage now includes public `1-1`, `1-2`, and
+  medium PvP `1-3`; remaining work is browser claim/drop flow and broader
+  browser scan success/no-signal variants. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete broader per-map/risk/rank drop balance matrix coverage across
   seeded maps. Current server tests cover starter selection, `map_1_2`
-  `outer_ring_scout_drone` spawn-record/drop-profile selection, accepted starter
-  plus destination matrix rows, full selector mismatch guards for wrong
-  map/world-zone, NPC type, level/rank band, risk band, missing inputs, and
-  missing table cases without starter fallback, and domain-level
+  `outer_ring_scout_drone` spawn-record/drop-profile selection, accepted
+  starter, destination, and medium PvP `1-3` matrix rows, full selector mismatch
+  guards for wrong map/world-zone, NPC type, level/rank band, risk band,
+  missing inputs, and missing table cases without starter fallback, and domain-level
   hidden/far/cross-map pickup rejection. Phase09 now covers starter and
   destination browser fight/loot pickup; broader balance coverage and
   additional rollout/browser proof remain open. Source:

@@ -786,3 +786,85 @@ func outerRingMapNPCLeashProfiles() []NPCLeashProfile {
 		ResetOnBreak:   true,
 	}}
 }
+
+func borderSkirmishMapSpawnAreas() []MapSpawnAreaDefinition {
+	return []MapSpawnAreaDefinition{{
+		SpawnAreaID:           "border_raider_drone_area",
+		Shape:                 SpawnAreaShapeCircle,
+		Center:                world.Vec2{X: 5400, Y: 5200},
+		Radius:                260,
+		SafeZoneExcluded:      true,
+		PortalExclusionRadius: 420,
+	}}
+}
+
+func borderSkirmishMapEnemyPools() []MapEnemyPoolDefinition {
+	return []MapEnemyPoolDefinition{{
+		EnemyPoolID:      "border_raider_drone_pool",
+		NPCType:          "border_raider_drone",
+		MinLevel:         2,
+		MaxLevel:         2,
+		SpawnAreaIDs:     []SpawnAreaID{"border_raider_drone_area"},
+		MapMaxAlive:      5,
+		PoolMaxAlive:     2,
+		InitialAlive:     1,
+		SpawnInterval:    60 * time.Second,
+		KillRespawnDelay: 60 * time.Second,
+		SpawnJitter:      0,
+		SpawnMode:        SpawnModePeriodic,
+		StatTemplateID:   "border_raider_drone_level_2",
+		DropProfileID:    "border_raider_drone_salvage",
+		AggroProfileID:   "border_raider_drone_hunter",
+		LeashProfileID:   "border_raider_drone_patrol",
+		Enabled:          true,
+	}}
+}
+
+func borderSkirmishMapNPCStatTemplates() []NPCStatTemplate {
+	return []NPCStatTemplate{{
+		StatTemplateID: "border_raider_drone_level_2",
+		NPCType:        "border_raider_drone",
+		MinLevel:       2,
+		MaxLevel:       2,
+		LabelKey:       "npc.border_raider_drone",
+		HPMax:          58,
+		ShieldMax:      14,
+		EnergyMax:      4,
+		WeaponRange:    120,
+		WeaponDamage:   5,
+		WeaponCooldown: 2 * time.Second,
+		Accuracy:       0.82,
+		RadarSignature: visibility.SignatureForEntityType(world.EntityTypeNPC).Units(),
+		Speed:          90,
+		XPValue:        0,
+	}}
+}
+
+func borderSkirmishMapNPCDropProfiles() []NPCDropProfile {
+	return []NPCDropProfile{{
+		DropProfileID: "border_raider_drone_salvage",
+		NPCType:       "border_raider_drone",
+		MinLevel:      2,
+		MaxLevel:      2,
+		RiskBand:      "medium",
+		LootTableID:   "border_raider_salvage",
+	}}
+}
+
+func borderSkirmishMapNPCAggroProfiles() []NPCAggroProfile {
+	return []NPCAggroProfile{{
+		AggroProfileID:       "border_raider_drone_hunter",
+		AggroRadius:          520,
+		AssistRadius:         180,
+		TargetMemory:         8 * time.Second,
+		SafeZoneAttackPolicy: "never",
+	}}
+}
+
+func borderSkirmishMapNPCLeashProfiles() []NPCLeashProfile {
+	return []NPCLeashProfile{{
+		LeashProfileID: "border_raider_drone_patrol",
+		LeashDistance:  900,
+		ResetOnBreak:   true,
+	}}
+}

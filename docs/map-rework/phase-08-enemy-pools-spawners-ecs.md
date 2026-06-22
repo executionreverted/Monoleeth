@@ -135,8 +135,10 @@ template.
 `runtime.seedWorld` now initializes NPCs through the spawner command instead of
 manually inserting a default visible training NPC into every map. The starter
 map still passes an explicit migration entity-id override so its first training
-drone remains `entity_training_npc`; maps without enemy pools, including
-`1-2`, do not receive a default training NPC. Hidden planet signal seeding is
+drone remains `entity_training_npc`; maps that do not define enemy pools do not
+receive a default training NPC. At the time Phase08B landed, that included
+then-empty `1-2`; later slices added explicit map-owned pools for `1-2` and
+`1-3`. Hidden planet signal seeding is
 unchanged. At the end of Phase08B, the runtime still used the old training NPC
 combat actor projection and global training salvage loot table after the
 spawner-created entity existed; catalog-backed actor projection and map-aware
@@ -659,6 +661,29 @@ Phase08K coverage was added or updated in:
 - `internal/game/world/maps/enemy_catalog_test.go`
 - `internal/game/server/server_enemy_spawner_test.go`
 
+## Phase10 Follow-Up PvP Map Enemy Seed Slice
+
+The Phase10 audit follow-up adds explicit medium-risk enemy content for PvP map
+`map_1_3` / public `1-3`. Border Skirmish now owns one deterministic
+`border_raider_drone` spawn area, periodic pool, stat template, drop profile,
+aggro profile, and leash profile. The spawn center is far from the west-gate
+safe zone and visible portal exclusion. The drop profile is map-owned,
+medium-risk compatible, and selects the distinct `border_raider_salvage` loot
+table.
+
+Runtime seed initializes the Border Skirmish pool through the same worker
+`InitializeEnemyPoolsCommand` path as `1-1` and `1-2`, then projects the spawned
+NPC into a catalog-backed combat actor. Client projection and bundle canaries
+must continue to treat the new pool, spawn area, stat, drop, aggro, leash, loot
+table, and internal map ids as server-only data.
+
+Phase10 PvP map seed coverage was added or updated in:
+
+- `internal/game/world/maps/enemy_catalog_test.go`
+- `internal/game/server/server_enemy_spawner_test.go`
+- `internal/game/server/npc_loot_selector_test.go`
+- `client/tests/bundle-scan.mjs`
+
 ## Migration/Doc Updates
 
 - Update the active map catalog docs to include enemy pool, spawn area, stat,
@@ -699,9 +724,10 @@ spawning. Phase08I satisfies the metrics MVP for spawn, respawn, death,
 drop-selector, aggro, and ownership rejection decisions. Phase08J satisfies the
 debug/demo quarantine criterion for default authenticated real gameplay.
 Phase08K satisfies the deterministic second-map enemy seed and bootstrap leak
-coverage slice. No Phase 08 acceptance item is currently marked open in this
-file; phase-wide closure still requires the full project verification suite
-before handoff.
+coverage slice. The Phase10 follow-up satisfies the deterministic PvP-map enemy
+seed and seeded `1-3` loot selector matrix slice. No Phase 08 acceptance item is
+currently marked open in this file; phase-wide closure still requires the full
+project verification suite before handoff.
 
 - No default gameplay path uses `trainingNPCActor` or one global
   `training_drone_salvage` table as the source of truth.
