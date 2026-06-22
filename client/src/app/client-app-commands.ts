@@ -1,6 +1,7 @@
 import { canSendRealtimeCommand } from './command-gate';
 import { resolvePlanetNavigationTarget } from './planet-navigation';
 import { activeEntityMovement, boundedMovementTarget, currentEntityPosition, distanceBetween, LONG_RANGE_MOVE_STEP_UNITS } from '../state/movement';
+import { isAttackableVisibleTarget } from '../state/target-eligibility';
 import { CLIENT_EVENTS, EntityPayload, Operation, OPERATIONS, RequestEnvelope, Vec2 } from '../protocol/envelope';
 import {
   ClientAppCore,
@@ -107,8 +108,8 @@ export abstract class ClientAppCommands extends ClientAppCore {
 
   protected sendBasicSkill(): void {
     const target = this.selectedTarget();
-    if (!target || target.entity_type !== 'npc' || !isHostileEntity(target)) {
-      this.dispatch({ type: 'appendLog', level: 'warn', text: 'No hostile target selected.' });
+    if (!target || !isAttackableVisibleTarget(target, this.selfEntity())) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'No attackable target selected.' });
       return;
     }
     this.sendCommand(this.commandBuilder.combatUseSkill(target.entity_id));
@@ -489,14 +490,6 @@ export abstract class ClientAppCommands extends ClientAppCore {
     }
   }
 
-}
-
-function isHostileEntity(entity: EntityPayload): boolean {
-  const flags = entity.status_flags ?? [];
-  if (flags.includes('friendly') || entity.display?.disposition === 'friendly' || entity.display?.disposition === 'self') {
-    return false;
-  }
-  return flags.includes('hostile') || flags.includes('scan_revealed') || entity.display?.disposition === 'hostile';
 }
 
 function movementEtaFromStats(distance: number, speed: number | null): number | null {

@@ -126,16 +126,16 @@ export function minimapPanel(state: ClientState, serverNow: number | null = Date
 
 export function minimapLiveContactAction(contact: MinimapContact): 'target-select' | 'loot-select' | null {
   const flags = new Set(contact.status_flags ?? []);
-  if (flags.has('self') || flags.has('local') || flags.has('friendly')) {
+  if (flags.has('self') || flags.has('local') || flags.has('hidden') || flags.has('destroyed') || flags.has('disabled')) {
     return null;
   }
   if (contact.entity_type === 'loot') {
     return 'loot-select';
   }
-  if (contact.entity_type === 'npc' && isHostileMinimapContact(contact, flags)) {
+  if (contact.entity_type === 'npc' && !flags.has('friendly') && contact.disposition !== 'friendly' && isHostileMinimapContact(contact, flags)) {
     return 'target-select';
   }
-  if (contact.entity_type === 'player' && isHostileMinimapContact(contact, flags)) {
+  if (contact.entity_type === 'player') {
     return 'target-select';
   }
   return null;

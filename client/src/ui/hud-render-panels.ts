@@ -1,5 +1,6 @@
 import type { ClientState } from '../state/types';
 import { activeEntityMovement, currentEntityPosition, distanceBetween, selfEntity } from '../state/movement';
+import { isAttackableVisibleTarget } from '../state/target-eligibility';
 import { galaxyIconURL, gatherIconURL, hangarIconURL, inventoryIconURL, laserIconURL, menuIconURL, planetsIconURL, rocketIconURL, scanIconURL, shieldIconURL, shopIconURL, warpIconURL } from './hud-icons';
 import { hudSelection } from './hud-selection';
 import { economyPanel } from './hud-render-economy';
@@ -406,7 +407,7 @@ export function targetPanel(state: ClientState, serverNow: number | null = Date.
   const targetLabel = target?.display?.label ?? target?.entity_id ?? '';
   const distance = target ? distanceToTarget(state, target.entity_id, serverNow) : null;
   const knownLoot = target ? state.knownLoot[target.entity_id] : null;
-  const targetActions = targetActionButtons(target, laser, loot);
+  const targetActions = targetActionButtons(target, laser, loot, selfEntity(state.visibleEntities));
   return `
     <h2>Target</h2>
     ${
@@ -430,9 +431,9 @@ export function targetPanel(state: ClientState, serverNow: number | null = Date.
   `;
 }
 
-export function targetActionButtons(target: VisibleEntity | null, laser: QuickActionState, loot: QuickActionState): string {
+export function targetActionButtons(target: VisibleEntity | null, laser: QuickActionState, loot: QuickActionState, self: VisibleEntity | null = null): string {
   const buttons: string[] = [];
-  if (target?.entity_type === 'npc' && isHostileVisibleEntity(target)) {
+  if (isAttackableVisibleTarget(target, self)) {
     buttons.push(
       `<button type="button" data-action="fire" ${laser.enabled ? '' : 'disabled'} title="${escapeHTML(laser.title)}">Fire</button>`,
     );
@@ -707,8 +708,8 @@ export function laserActionState(state: ClientState, target: VisibleEntity | nul
   if (state.ship?.disabled === true) {
     return { enabled: false, label: 'Laser', detail: 'Disabled', title: 'Repair the ship before firing.' };
   }
-  if (!target || target.entity_type !== 'npc' || !isHostileVisibleEntity(target)) {
-    return { enabled: false, label: 'Laser', detail: 'Standby', title: 'Select a hostile target.' };
+  if (!isAttackableVisibleTarget(target, selfEntity(state.visibleEntities))) {
+    return { enabled: false, label: 'Laser', detail: 'Standby', title: 'Select an attackable target.' };
   }
   if (hasPendingOp(state, 'combat.use_skill')) {
     return { enabled: false, label: 'Laser', detail: 'Pending', title: 'Basic laser is pending.' };
@@ -862,14 +863,6 @@ export function lootActionState(state: ClientState, target: VisibleEntity | null
     detail: `${Math.round(distance)}u`,
     title: `Move toward drop, then request pickup within ${Math.round(pickupRange)}u.`,
   };
-}
-
-export function isHostileVisibleEntity(entity: VisibleEntity): boolean {
-  const flags = entity.status_flags ?? [];
-  if (flags.includes('friendly') || entity.display?.disposition === 'friendly' || entity.display?.disposition === 'self') {
-    return false;
-  }
-  return flags.includes('hostile') || flags.includes('scan_revealed') || entity.display?.disposition === 'hostile';
 }
 
 export function distanceToTarget(state: ClientState, targetID: string, serverNow: number | null): number | null {

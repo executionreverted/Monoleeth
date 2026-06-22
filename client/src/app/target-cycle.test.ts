@@ -51,8 +51,7 @@ describe('nextCycleTargetID', () => {
 
   test('skips self, nonhostile contacts, loot, planet signals, destroyed, hidden, and out of range', () => {
     const visibleHostile = target('npc-valid', { position: { x: 120, y: 0 } });
-    const friendlyPlayer = target('pilot-friendly', {
-      entity_type: 'player',
+    const friendlyNPC = target('npc-friendly', {
       display: { label: 'Friendly', disposition: 'friendly' },
       status_flags: ['friendly'],
       position: { x: 90, y: 0 },
@@ -66,20 +65,31 @@ describe('nextCycleTargetID', () => {
     const hidden = target('npc-hidden', { status_flags: ['hostile', 'hidden'], position: { x: 70, y: 0 } });
     const outOfRange = target('npc-out', { position: { x: 900, y: 0 } });
 
-    expect(nextCycleTargetID(state(null, [friendlyPlayer, loot, signal, destroyed, hidden, outOfRange, visibleHostile]), 1000)).toBe(
+    expect(nextCycleTargetID(state(null, [friendlyNPC, loot, signal, destroyed, hidden, outOfRange, visibleHostile]), 1000)).toBe(
       'npc-valid',
     );
   });
 
-  test('includes scan-revealed hidden hostile players', () => {
-    const revealed = target('pilot-revealed', {
+  test('includes visible non-friendly players', () => {
+    const visiblePlayer = target('pilot-visible', {
       entity_type: 'player',
       position: { x: 100, y: 0 },
-      status_flags: ['hostile', 'hidden', 'stealthed', 'scan_revealed'],
-      display: { label: 'Revealed Pilot', disposition: 'hostile' },
+      status_flags: [],
+      display: { label: 'Visible Pilot', disposition: 'neutral' },
     });
 
-    expect(nextCycleTargetID(state(null, [revealed]), 1000)).toBe('pilot-revealed');
+    expect(nextCycleTargetID(state(null, [visiblePlayer]), 1000)).toBe('pilot-visible');
+  });
+
+  test('skips hidden players even if scan-revealed', () => {
+    const hidden = target('pilot-hidden', {
+      entity_type: 'player',
+      position: { x: 100, y: 0 },
+      status_flags: ['hostile', 'hidden', 'scan_revealed'],
+      display: { label: 'Hidden Pilot', disposition: 'hostile' },
+    });
+
+    expect(nextCycleTargetID(state(null, [hidden]), 1000)).toBeNull();
   });
 
   test('starts at nearest hostile when current selection is not a candidate', () => {
@@ -117,7 +127,7 @@ describe('nextCycleTargetID', () => {
     expect(nextCycleTargetID(state(null, [movingTarget]), 4000)).toBe('npc-moving-in');
   });
 
-  test('skips scan-revealed friendly players', () => {
+  test('includes friendly-projected visible players', () => {
     const friendly = target('pilot-friendly-revealed', {
       entity_type: 'player',
       status_flags: ['friendly', 'scan_revealed'],
@@ -125,6 +135,6 @@ describe('nextCycleTargetID', () => {
       position: { x: 100, y: 0 },
     });
 
-    expect(nextCycleTargetID(state(null, [friendly]), 1000)).toBeNull();
+    expect(nextCycleTargetID(state(null, [friendly]), 1000)).toBe('pilot-friendly-revealed');
   });
 });

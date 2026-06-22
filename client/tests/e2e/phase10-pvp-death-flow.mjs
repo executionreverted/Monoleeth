@@ -17,6 +17,7 @@ const pvpAttackerTarget = { x: 900, y: 5000 };
 const pvpTargetTarget = { x: 980, y: 5000 };
 const pvpRespawnCheckpoint = { x: 400, y: 5000 };
 const safeZoneRadius = 260;
+const protectedUIClickOffset = { x: pvpRespawnCheckpoint.x + 170, y: pvpRespawnCheckpoint.y };
 const commandTimeoutMS = 12000;
 
 const strictLeakTokens = [
@@ -134,6 +135,9 @@ async function main() {
     assert(protectedPVP?.ok === false, `protected PvP command accepted: ${JSON.stringify(protectedPVP)}`);
     assert(protectedPVP.error?.code === 'ERR_PVP_BLOCKED', `protected PvP error = ${JSON.stringify(protectedPVP.error)}`);
     assertNoStrictLeak(protectedPVP, 'protected PvP rejection');
+    await moveToPosition(attacker, protectedUIClickOffset, 35, 'attacker protected UI click offset', 30000);
+    const uiSafeTarget = await waitForVisiblePlayer(attacker, target.callsign, 'target visible for protected PvP UI click');
+    await proveProtectedPVPUIClickRejected(attacker, uiSafeTarget.entity_id);
 
     await waitOutProtections([attacker, target]);
     await Promise.all([
@@ -569,6 +573,155 @@ async function moveToPosition(client, targetPosition, arriveDistance, label, tim
 async function waitForVisiblePlayer(client, callsign, description) {
   const state = await waitSmoke(client, (candidate) => findPlayerByCallsign(candidate, callsign), description, 15000);
   return findPlayerByCallsign(state, callsign);
+}
+
+async function proveProtectedPVPUIClickRejected(client, targetID) {
+  await resetWebSocketFrames(client);
+  const selectedByTargetSelect = await clickTargetSelect(client, targetID);
+  assert(selectedByTargetSelect === true, `${client.label} target-select click did not select ${targetID}`);
+  await waitSmoke(client, (state) => state.selectedTargetID === targetID, 'protected PvP UI target selection', 5000);
+  const fireButton = client.page.locator('button[data-action="fire"][data-quick-action="laser"]');
+  await fireButton.waitFor({ state: 'visible', timeout: 5000 });
+  const readiness = await fireButtonReadiness(client, targetID);
+  assert(readiness.disabled === false, `${client.label} protected PvP Fire button disabled before UI proof: ${JSON.stringify(readiness)}`);
+  await fireButton.click();
+  const exchange = await waitForUICombatError(client, targetID, 'ERR_PVP_BLOCKED', 'protected PvP UI click rejection', 10000);
+  assertNoStrictLeak(exchange.outbound, 'protected PvP UI outbound command');
+  assertNoStrictLeak(exchange.inbound, 'protected PvP UI inbound rejection');
+}
+
+async function clickTargetSelect(client, targetID) {
+  const deadline = Date.now() + 5000;
+  let observed = [];
+  while (Date.now() < deadline) {
+    const buttons = await client.page.locator('button[data-action="target-select"]').elementHandles();
+    observed = [];
+    for (const button of buttons) {
+      const info = await button.evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          entityID: node.getAttribute('data-entity-id'),
+          entityType: node.getAttribute('data-entity-type'),
+          targetSource: node.getAttribute('data-target-source'),
+          disabled: node.disabled === true,
+          title: node.getAttribute('title'),
+          text: node.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+          visible: rect.width > 0 && rect.height > 0,
+          rect: {
+            x: Math.round(rect.x),
+            y: Math.round(rect.y),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          },
+        };
+      });
+      observed.push(info);
+      if (info.entityID === targetID) {
+        assert(info.disabled === false, `${client.label} target-select ${targetID} is disabled. Observed: ${JSON.stringify(observed)}`);
+        try {
+          await button.click({ timeout: 1500 });
+        } catch (error) {
+          throw new Error(
+            `${client.label} failed to click real target-select button for ${targetID}: ${error?.message ?? error}. Observed: ${JSON.stringify(observed)}`,
+          );
+        }
+        try {
+          await waitSmoke(client, (state) => state.selectedTargetID === targetID, 'real target-select button selection', 2000);
+        } catch (error) {
+          const state = await smoke(client);
+          throw new Error(
+            `${client.label} clicked target-select ${targetID} but selectedTargetID is ${state?.selectedTargetID ?? null}. Observed: ${JSON.stringify(
+              observed,
+            )}. ${error?.message ?? error}`,
+          );
+        }
+        return true;
+      }
+    }
+    await delay(100);
+  }
+  throw new Error(`${client.label} missing real target-select button for ${targetID}. Observed: ${JSON.stringify(observed)}`);
+}
+
+async function waitForUICombatError(client, targetID, errorCode, description, timeoutMS) {
+  const started = Date.now();
+  let lastFrames = [];
+  while (Date.now() - started < timeoutMS) {
+    const parsedFrames = (await websocketFrames(client)).map((frame) => ({ ...frame, parsed: parseFrameJSON(frame.text) }));
+    lastFrames = parsedFrames;
+    const outbound = parsedFrames.find(
+      (frame) =>
+        frame.direction === 'out' &&
+        frame.parsed?.op === 'combat.use_skill' &&
+        frame.parsed?.payload?.skill_id === 'basic_laser' &&
+        frame.parsed?.payload?.target_id === targetID,
+    );
+    if (outbound) {
+      assert(outbound.parsed.request_id, `${client.label} UI combat outbound missing request_id`);
+      assert(outbound.parsed.v === 1, `${client.label} UI combat outbound version ${outbound.parsed.v}`);
+      const inbound = parsedFrames.find(
+        (frame) =>
+          frame.direction === 'in' &&
+          frame.parsed?.request_id === outbound.parsed.request_id &&
+          frame.parsed?.ok === false,
+      );
+      if (inbound) {
+        assert(inbound.parsed.error?.code === errorCode, `${client.label} ${description} error = ${JSON.stringify(inbound.parsed.error)}`);
+        return { outbound: outbound.parsed, inbound: inbound.parsed };
+      }
+    }
+    await delay(100);
+  }
+  throw new Error(`${client.label} timed out waiting for ${description}. Frames: ${JSON.stringify(lastFrames.slice(-12))}`);
+}
+
+async function fireButtonReadiness(client, targetID) {
+  return client.page.evaluate((entityID) => {
+    const button = document.querySelector('button[data-action="fire"][data-quick-action="laser"]');
+    const state = window.__SPACE_MORPG_SMOKE_STATE__;
+    return {
+      disabled: button?.disabled === true,
+      title: button?.getAttribute('title') ?? null,
+      text: button?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      selectedTargetID: state?.selectedTargetID ?? null,
+      target: state?.visibleEntities?.[entityID] ?? null,
+      ship: state?.ship
+        ? {
+            disabled: state.ship.disabled,
+            capacitor: state.ship.capacitor,
+            max_capacitor: state.ship.max_capacitor,
+            repair_state: state.ship.repair_state,
+          }
+        : null,
+      stats: state?.stats
+        ? {
+            basic_laser_energy_cost: state.stats.basic_laser_energy_cost,
+            basic_laser_cooldown_ms: state.stats.basic_laser_cooldown_ms,
+            weapon_range: state.stats.weapon_range,
+          }
+        : null,
+      connectionStatus: state?.connectionStatus ?? null,
+      pending: Object.values(state?.pendingCommands ?? {}).map((entry) => entry.op),
+      skillCooldown: state?.skillCooldowns?.basic_laser ?? null,
+      serverNow: state?.serverNow ?? null,
+    };
+  }, targetID);
+}
+
+async function websocketFrames(client) {
+  return client.page.evaluate(() =>
+    (window.__phase10WebSocketFrames ?? []).map((frame) => ({
+      client_label: frame.client_label,
+      direction: frame.direction,
+      index: frame.index,
+      socket_id: frame.socket_id,
+      path: frame.path,
+      kind: frame.kind,
+      text: frame.text,
+      text_length: frame.text_length,
+      truncated: frame.truncated,
+    })),
+  );
 }
 
 async function waitOutProtections(clients) {

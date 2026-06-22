@@ -147,8 +147,10 @@ for phase status; this file is a compact pending-work index.
   death cargo drop, target `death.repair_quote` / `death.repair_ship`, repaired
   public `1-3` checkpoint/protection reconciliation, protected/safe-spawn
   `ERR_PVP_BLOCKED`, disabled-action `ERR_SHIP_DISABLED`, and focused
-  death/repair leak canaries. Remaining work is a real browser safe-zone PvP UI
-  click rejection proof plus broader rollout canaries. Source:
+  death/repair leak canaries. The same Phase10 browser proof now selects the
+  visible protected player through real HUD target selection, clicks
+  `[data-action="fire"]`, captures outbound UI `combat.use_skill`, and verifies
+  inbound `ERR_PVP_BLOCKED`. Remaining work is broader rollout canaries. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete second/PvP-map enemy rollout coverage. The deterministic
   `outer_ring_scout_drone` and `border_raider_drone` seeds, initial spawn,

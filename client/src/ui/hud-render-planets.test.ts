@@ -5,7 +5,7 @@ import { createInitialState } from '../state/reducer';
 import type { ClientState, MapSummary, MinimapSummary } from '../state/types';
 import { hudSelection } from './hud-selection';
 import { minimapPanel } from './hud-render-planets';
-import { actionBar } from './hud-render-panels';
+import { actionBar, targetPanel } from './hud-render-panels';
 import { topbarDangerText, topbarLocationText } from './hud-topbar';
 
 describe('minimapPanel', () => {
@@ -409,6 +409,52 @@ describe('actionBar', () => {
       dateNow.mockRestore();
     }
   });
+
+  test('visible non-self player target enables laser and target Fire controls even with friendly projection', () => {
+    const state = combatReadyState();
+    state.selectedTargetID = 'pilot-rival';
+    state.visibleEntities = {
+      'pilot-self': selfEntity(),
+      'pilot-rival': {
+        entity_id: 'pilot-rival',
+        entity_type: 'player',
+        position: { x: 120, y: 20 },
+        status_flags: ['friendly'],
+        display: { label: 'Rival Pilot', disposition: 'friendly' },
+        combat: { hp: 100, max_hp: 100, shield: 50, max_shield: 50, status: 'active' },
+      },
+    };
+
+    const barHTML = actionBar(state, 20_000);
+    const laserSlot = actionSlot(barHTML, 'laser');
+    const targetHTML = targetPanel(state, 20_000);
+
+    expect(laserSlot).toContain('data-state="ready"');
+    expect(laserSlot).toContain('data-action="fire"');
+    expect(laserSlot).not.toContain('disabled');
+    expect(targetHTML).toContain('data-target-kind="player"');
+    expect(targetHTML).toMatch(/data-action="fire"[^>]*>Fire/);
+    expect(targetHTML).not.toMatch(/data-action="fire"[^>]*disabled/);
+  });
+
+  test('self player target keeps laser blocked and hides target Fire control', () => {
+    const state = combatReadyState();
+    const self = selfEntity();
+    state.selectedTargetID = self.entity_id;
+    state.visibleEntities = {
+      [self.entity_id]: self,
+    };
+
+    const barHTML = actionBar(state, 20_000);
+    const laserSlot = actionSlot(barHTML, 'laser');
+    const targetHTML = targetPanel(state, 20_000);
+
+    expect(laserSlot).toContain('data-state="blocked"');
+    expect(laserSlot).toContain('Select an attackable target.');
+    expect(laserSlot).toMatch(/data-action="fire"[^>]*disabled/);
+    expect(targetHTML).toContain('data-target-kind="player"');
+    expect(targetHTML).not.toContain('data-action="fire"');
+  });
 });
 
 function withCurrentMap(state: ClientState, overrides: Partial<MapSummary>): ClientState {
@@ -494,6 +540,17 @@ function combatReadyState(): ClientState {
     basic_laser_cooldown_ms: 800,
   };
   return state;
+}
+
+function selfEntity() {
+  return {
+    entity_id: 'pilot-self',
+    entity_type: 'player' as const,
+    position: { x: 0, y: 20 },
+    status_flags: ['self'],
+    display: { label: 'You', disposition: 'self' },
+    combat: { hp: 100, max_hp: 100, shield: 50, max_shield: 50, status: 'active' },
+  };
 }
 
 function actionSlot(html: string, id: string): string {

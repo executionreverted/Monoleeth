@@ -153,6 +153,11 @@
   z-index: 3;
 }
 
+.minimap__point[data-action="target-select"],
+.minimap__point[data-action="loot-select"] {
+  z-index: 6;
+}
+
 .minimap__memory {
   width: 1rem;
   height: 1rem;
