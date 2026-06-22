@@ -25,33 +25,35 @@ var ErrInvalidIdempotencyPart = errors.New("invalid idempotency key part")
 type IdempotencyKey string
 
 const (
-	idempotencyQuestReward         = "quest_reward"
-	idempotencyQuestReroll         = "quest_reroll"
-	idempotencyCraftStart          = "craft_start"
-	idempotencyCraftComplete       = "craft_complete"
-	idempotencyDeathCargoDrop      = "death_cargo_drop"
-	idempotencyLootPickup          = "loot_pickup"
-	idempotencyAuctionBid          = "auction_bid"
-	idempotencyAuctionRefund       = "auction_refund"
-	idempotencyAuctionBuyNow       = "auction_buy_now"
-	idempotencyAuctionBuyNowRefund = "auction_buy_now_refund"
-	idempotencyAuctionClose        = "auction_close"
-	idempotencyPremiumWebhook      = "premium_webhook"
-	idempotencyPremiumWeeklyXCore  = "premium_weekly_xcore"
-	idempotencyPlanetClaim         = "planet_claim"
-	idempotencyOfflineSettlement   = "offline_settlement"
-	idempotencyRouteSettlement     = "route_settlement"
-	idempotencyMarketListing       = "market_listing"
-	idempotencyMarketBuy           = "market_buy"
-	idempotencyMarketSale          = "market_sale"
-	idempotencyMarketFee           = "market_fee"
-	idempotencyShopPurchase        = "shop_purchase"
-	idempotencyMarketCancel        = "market_cancel"
-	idempotencyMarketExpire        = "market_expire"
-	idempotencyShipRepair          = "ship_repair"
-	idempotencyModuleEquip         = "module_equip"
-	idempotencyModuleUnequip       = "module_unequip"
-	idempotencyAdminCompensation   = "admin_compensation"
+	idempotencyQuestReward           = "quest_reward"
+	idempotencyQuestReroll           = "quest_reroll"
+	idempotencyCraftStart            = "craft_start"
+	idempotencyCraftComplete         = "craft_complete"
+	idempotencyDeathCargoDrop        = "death_cargo_drop"
+	idempotencyLootPickup            = "loot_pickup"
+	idempotencyAuctionBid            = "auction_bid"
+	idempotencyAuctionRefund         = "auction_refund"
+	idempotencyAuctionBuyNow         = "auction_buy_now"
+	idempotencyAuctionBuyNowRefund   = "auction_buy_now_refund"
+	idempotencyAuctionClose          = "auction_close"
+	idempotencyPremiumWebhook        = "premium_webhook"
+	idempotencyPremiumWeeklyXCore    = "premium_weekly_xcore"
+	idempotencyPlanetClaim           = "planet_claim"
+	idempotencyPlanetBuildingBuild   = "planet_building_build"
+	idempotencyPlanetBuildingUpgrade = "planet_building_upgrade"
+	idempotencyOfflineSettlement     = "offline_settlement"
+	idempotencyRouteSettlement       = "route_settlement"
+	idempotencyMarketListing         = "market_listing"
+	idempotencyMarketBuy             = "market_buy"
+	idempotencyMarketSale            = "market_sale"
+	idempotencyMarketFee             = "market_fee"
+	idempotencyShopPurchase          = "shop_purchase"
+	idempotencyMarketCancel          = "market_cancel"
+	idempotencyMarketExpire          = "market_expire"
+	idempotencyShipRepair            = "ship_repair"
+	idempotencyModuleEquip           = "module_equip"
+	idempotencyModuleUnequip         = "module_unequip"
+	idempotencyAdminCompensation     = "admin_compensation"
 )
 
 // ParseIdempotencyKey validates value and returns an IdempotencyKey.
@@ -130,6 +132,34 @@ func PremiumWeeklyXCorePurchaseIdempotencyKey(playerID PlayerID, periodKey strin
 // PlanetClaimIdempotencyKey returns planet_claim:<player_id>:<planet_id>.
 func PlanetClaimIdempotencyKey(playerID PlayerID, planetID PlanetID) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyPlanetClaim, playerID.String(), planetID.String())
+}
+
+// PlanetBuildingBuildIdempotencyKey returns planet_building_build:<planet_id>:<building_id>.
+func PlanetBuildingBuildIdempotencyKey(planetID PlanetID, buildingID string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyPlanetBuildingBuild, planetID.String(), buildingID)
+}
+
+// PlanetBuildingUpgradeIdempotencyKey returns planet_building_upgrade:<planet_id>:<building_id>:<next_level>.
+func PlanetBuildingUpgradeIdempotencyKey(planetID PlanetID, buildingID string, nextLevel int) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyPlanetBuildingUpgrade, planetID.String(), buildingID, fmt.Sprintf("%d", nextLevel))
+}
+
+// ValidatePlanetBuildingBuildIdempotencyKey requires planet_building_build:<planet_id>:<building_id>.
+func ValidatePlanetBuildingBuildIdempotencyKey(key IdempotencyKey, planetID PlanetID, buildingID string) error {
+	expected, err := PlanetBuildingBuildIdempotencyKey(planetID, buildingID)
+	if err != nil {
+		return err
+	}
+	return validateExpectedIdempotencyKey(key, expected)
+}
+
+// ValidatePlanetBuildingUpgradeIdempotencyKey requires planet_building_upgrade:<planet_id>:<building_id>:<next_level>.
+func ValidatePlanetBuildingUpgradeIdempotencyKey(key IdempotencyKey, planetID PlanetID, buildingID string, nextLevel int) error {
+	expected, err := PlanetBuildingUpgradeIdempotencyKey(planetID, buildingID, nextLevel)
+	if err != nil {
+		return err
+	}
+	return validateExpectedIdempotencyKey(key, expected)
 }
 
 // OfflineSettlementIdempotencyKey returns offline_settlement:<planet_id>:<settlement_window>.
@@ -244,6 +274,16 @@ func buildIdempotencyKey(operation string, parts ...string) (IdempotencyKey, err
 	return IdempotencyKey(strings.Join(values, ":")), nil
 }
 
+func validateExpectedIdempotencyKey(key IdempotencyKey, expected IdempotencyKey) error {
+	if err := key.Validate(); err != nil {
+		return err
+	}
+	if key != expected {
+		return fmt.Errorf("idempotency key %q expected %q: %w", key, expected, ErrInvalidIdempotencyKey)
+	}
+	return nil
+}
+
 func validateIdempotencyKey(value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("idempotency key: %w", ErrEmptyIdempotencyKey)
@@ -296,6 +336,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 		return 2, true
 	case idempotencyRouteSettlement:
 		return 2, true
+	case idempotencyPlanetBuildingBuild:
+		return 2, true
 	case idempotencyQuestReroll:
 		return 2, true
 	case idempotencyPlanetClaim:
@@ -307,7 +349,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyPremiumWeeklyXCore,
 		idempotencyMarketBuy,
 		idempotencyMarketSale,
-		idempotencyMarketFee:
+		idempotencyMarketFee,
+		idempotencyPlanetBuildingUpgrade:
 		return 3, true
 	case idempotencyShipRepair,
 		idempotencyAdminCompensation,

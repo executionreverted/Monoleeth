@@ -125,13 +125,18 @@ for phase status; this file is a compact pending-work index.
   production/inventory, and handles `planet.claimed` without an unhandled-event
   log. Phase07M adds a process-local claim reference/outbox boundary for
   successful cached claim results, and Phase07N adds process-local claim
-  outbox delivery state plus claim-token guards. Durable DB/outbox claim
-  recovery, cross-process CAS/locks, idempotency-table enforcement, durable
-  outbox persistence/publisher workers, plus `planet.building_build` and
-  `planet.building_upgrade` remain open; building handlers still need
-  ownership, requirements, materials/wallet, storage capacity, idempotency, and
-  `planet.storage_updated` /
-  `planet.building_updated` events. Source: Phase 10 audit, Phase07A, and
+  outbox delivery state plus claim-token guards. Phase07O adds a
+  process-local production-domain foundation for building build/upgrade:
+  catalog-backed active building creation, next-level upgrades, material debits
+  from `PlanetStorage`, production-local material ledger rows, optional wallet
+  debit adapter ordering, duplicate reference replay, and
+  `planet.storage_updated` / `planet.building_updated` events through the
+  in-memory outbox path. Durable DB/outbox claim recovery, cross-process
+  CAS/locks, idempotency-table enforcement, durable outbox persistence/
+  publisher workers, plus authenticated `planet.building_build` and
+  `planet.building_upgrade` gateway handlers remain open; handlers still need
+  ownership, requirements, storage capacity policy, server-owned cost wiring,
+  and browser reconciliation. Source: Phase 10 audit, Phase07A, Phase07O, and
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Finish durable authenticated automation route persistence and rollout
   hardening. Server/browser work now has a focused real-client

@@ -90,6 +90,20 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			want: "planet_claim:player-1:planet-7",
 		},
 		{
+			name: "planet building build",
+			build: func() (IdempotencyKey, error) {
+				return PlanetBuildingBuildIdempotencyKey(PlanetID("planet-7"), "building-1")
+			},
+			want: "planet_building_build:planet-7:building-1",
+		},
+		{
+			name: "planet building upgrade",
+			build: func() (IdempotencyKey, error) {
+				return PlanetBuildingUpgradeIdempotencyKey(PlanetID("planet-7"), "building-1", 2)
+			},
+			want: "planet_building_upgrade:planet-7:building-1:2",
+		},
+		{
 			name: "offline settlement",
 			build: func() (IdempotencyKey, error) {
 				return OfflineSettlementIdempotencyKey(PlanetID("planet-4"), "window-20260617-10")
@@ -167,6 +181,40 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 				t.Fatalf("ParseIdempotencyKey() = %q, want %q", parsed, key)
 			}
 		})
+	}
+}
+
+func TestPlanetBuildingIdempotencyKeyValidationRequiresExpectedEntity(t *testing.T) {
+	buildKey, err := PlanetBuildingBuildIdempotencyKey(PlanetID("planet-1"), "building-1")
+	if err != nil {
+		t.Fatalf("PlanetBuildingBuildIdempotencyKey: %v", err)
+	}
+	if err := ValidatePlanetBuildingBuildIdempotencyKey(buildKey, PlanetID("planet-1"), "building-1"); err != nil {
+		t.Fatalf("ValidatePlanetBuildingBuildIdempotencyKey() error = %v, want nil", err)
+	}
+	if err := ValidatePlanetBuildingBuildIdempotencyKey(buildKey, PlanetID("planet-2"), "building-1"); !errors.Is(err, ErrInvalidIdempotencyKey) {
+		t.Fatalf("ValidatePlanetBuildingBuildIdempotencyKey(wrong planet) = %v, want ErrInvalidIdempotencyKey", err)
+	}
+	if err := ValidatePlanetBuildingBuildIdempotencyKey(buildKey, PlanetID("planet-1"), "building-2"); !errors.Is(err, ErrInvalidIdempotencyKey) {
+		t.Fatalf("ValidatePlanetBuildingBuildIdempotencyKey(wrong building) = %v, want ErrInvalidIdempotencyKey", err)
+	}
+
+	upgradeKey, err := PlanetBuildingUpgradeIdempotencyKey(PlanetID("planet-1"), "building-1", 2)
+	if err != nil {
+		t.Fatalf("PlanetBuildingUpgradeIdempotencyKey: %v", err)
+	}
+	if err := ValidatePlanetBuildingUpgradeIdempotencyKey(upgradeKey, PlanetID("planet-1"), "building-1", 2); err != nil {
+		t.Fatalf("ValidatePlanetBuildingUpgradeIdempotencyKey() error = %v, want nil", err)
+	}
+	if err := ValidatePlanetBuildingUpgradeIdempotencyKey(upgradeKey, PlanetID("planet-1"), "building-1", 3); !errors.Is(err, ErrInvalidIdempotencyKey) {
+		t.Fatalf("ValidatePlanetBuildingUpgradeIdempotencyKey(wrong level) = %v, want ErrInvalidIdempotencyKey", err)
+	}
+	wrongDomain, err := QuestRewardIdempotencyKey(QuestID("quest-1"))
+	if err != nil {
+		t.Fatalf("QuestRewardIdempotencyKey: %v", err)
+	}
+	if err := ValidatePlanetBuildingUpgradeIdempotencyKey(wrongDomain, PlanetID("planet-1"), "building-1", 2); !errors.Is(err, ErrInvalidIdempotencyKey) {
+		t.Fatalf("ValidatePlanetBuildingUpgradeIdempotencyKey(wrong domain) = %v, want ErrInvalidIdempotencyKey", err)
 	}
 }
 

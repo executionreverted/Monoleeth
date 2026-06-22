@@ -157,6 +157,18 @@ Current slice completed:
   terminal. Durable claim DB rows, cross-process row locks/CAS, idempotency
   table enforcement, durable outbox persistence, and durable publisher workers
   remain open.
+- Phase07O production-domain building mutation follow-up: process-local
+  `planet_building_build` and `planet_building_upgrade` idempotency keys now
+  guard in-memory planet building mutations. The production domain can build an
+  active catalog-backed building, upgrade an existing building to the next
+  catalog level, debit required materials from `PlanetStorage` atomically with
+  storage/building mutation, write production-local material ledger rows, call
+  an optional wallet debit adapter before mutating store state, cache duplicate
+  results without double debit, and append `planet.storage_updated` plus
+  `planet.building_updated` events through the existing in-memory outbox path.
+  Authenticated gateway handlers, ownership/range/requirement policy wiring,
+  durable DB rows, cross-process locks/CAS, durable idempotency-table
+  enforcement, and durable material/outbox persistence remain open.
 
 ## Source Specs
 
@@ -286,7 +298,9 @@ Mockup areas covered:
       recipient filtering.
 - [x] Add read-only production summary handler for owned planets.
 - [ ] Add production build/upgrade handlers.
-- [ ] Add ledger-backed transaction flows for claim/build/upgrade/storage
+- [x] Add process-local production-domain build/upgrade material debit ledger,
+      idempotency, and in-memory event/outbox foundation.
+- [ ] Add authenticated gateway transaction flows for claim/build/upgrade/storage
       mutations.
 - [x] Add offline settlement reconcile path that uses server-owned windows for
       production/storage summary queries.

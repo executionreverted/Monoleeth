@@ -30,25 +30,29 @@ type InitializePlanetProductionResult struct {
 type InMemoryStore struct {
 	mu sync.RWMutex
 
-	states             map[foundation.PlanetID]PlanetProductionState
-	storage            map[foundation.PlanetID]PlanetStorage
-	buildings          map[foundation.PlanetID]map[BuildingID]PlanetBuilding
-	routes             map[foundation.RouteID]AutomationRoute
-	events             []gameevents.EventEnvelope
-	nextEventSequence  uint64
-	references         map[foundation.IdempotencyKey]SettlementReferenceRecord
-	outbox             []ProductionOutboxRecord
-	nextOutboxSequence uint64
+	states                     map[foundation.PlanetID]PlanetProductionState
+	storage                    map[foundation.PlanetID]PlanetStorage
+	buildings                  map[foundation.PlanetID]map[BuildingID]PlanetBuilding
+	routes                     map[foundation.RouteID]AutomationRoute
+	events                     []gameevents.EventEnvelope
+	nextEventSequence          uint64
+	references                 map[foundation.IdempotencyKey]SettlementReferenceRecord
+	buildingReferences         map[foundation.IdempotencyKey]BuildingMutationReferenceRecord
+	buildingMaterialLedger     []BuildingMaterialLedgerEntry
+	nextBuildingLedgerSequence uint64
+	outbox                     []ProductionOutboxRecord
+	nextOutboxSequence         uint64
 }
 
 // NewInMemoryStore returns an empty production repository.
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
-		states:     make(map[foundation.PlanetID]PlanetProductionState),
-		storage:    make(map[foundation.PlanetID]PlanetStorage),
-		buildings:  make(map[foundation.PlanetID]map[BuildingID]PlanetBuilding),
-		routes:     make(map[foundation.RouteID]AutomationRoute),
-		references: make(map[foundation.IdempotencyKey]SettlementReferenceRecord),
+		states:             make(map[foundation.PlanetID]PlanetProductionState),
+		storage:            make(map[foundation.PlanetID]PlanetStorage),
+		buildings:          make(map[foundation.PlanetID]map[BuildingID]PlanetBuilding),
+		routes:             make(map[foundation.RouteID]AutomationRoute),
+		references:         make(map[foundation.IdempotencyKey]SettlementReferenceRecord),
+		buildingReferences: make(map[foundation.IdempotencyKey]BuildingMutationReferenceRecord),
 	}
 }
 
@@ -86,6 +90,11 @@ func (store *InMemoryStore) Clone() *InMemoryStore {
 	for referenceKey, reference := range store.references {
 		cloned.references[referenceKey] = cloneSettlementReferenceRecord(reference)
 	}
+	for referenceKey, reference := range store.buildingReferences {
+		cloned.buildingReferences[referenceKey] = cloneBuildingMutationReferenceRecord(reference)
+	}
+	cloned.buildingMaterialLedger = cloneBuildingMaterialLedgerEntries(store.buildingMaterialLedger)
+	cloned.nextBuildingLedgerSequence = store.nextBuildingLedgerSequence
 	cloned.outbox = cloneProductionOutboxRecords(store.outbox)
 	cloned.nextOutboxSequence = store.nextOutboxSequence
 	return cloned
@@ -336,6 +345,9 @@ func (store *InMemoryStore) ensureMapsLocked() {
 	}
 	if store.references == nil {
 		store.references = make(map[foundation.IdempotencyKey]SettlementReferenceRecord)
+	}
+	if store.buildingReferences == nil {
+		store.buildingReferences = make(map[foundation.IdempotencyKey]BuildingMutationReferenceRecord)
 	}
 }
 
