@@ -1,12 +1,7 @@
-import type { ClientState, MinimapContact } from '../state/types';
-import {
-  isClickableMinimapMemory,
-  minimapPointPercent,
-  rememberedIntelState,
-  rememberedMinimapDetailID,
-  shouldRenderRememberedMinimapMemory,
-} from '../state/world-memory';
-import { dispositionForType, escapeHTML, formatCompactNumber, formatVec, lockedValue, publicEntityType, publicPlanetName } from './hud-formatters';
+import type { ClientState } from '../state/types';
+import { escapeHTML, formatVec, lockedValue, publicPlanetName } from './hud-formatters';
+
+export { minimapPanel } from './hud-render-minimap';
 
 export function planetsPanel(state: ClientState): string {
   const intel = state.planetIntel;
@@ -260,87 +255,4 @@ export function planetModalTitle(state: ClientState, planetID?: string): string 
     intel?.planets.find((planet) => planet.planet_id === planetID) ??
     null;
   return summary ? `Planet: ${publicPlanetName(summary)}` : 'Planet Detail';
-}
-
-export function minimapPanel(state: ClientState): string {
-  if (!state.minimap || (state.minimap.live_contacts.length === 0 && state.minimap.remembered.length === 0)) {
-    return '<div class="minimap minimap--empty"><div class="empty-line">Awaiting map projection.</div></div>';
-  }
-
-  const contacts = state.minimap.live_contacts;
-  const memories = state.minimap.remembered;
-  const self = contacts.find((contact) => contact.status_flags?.includes('self')) ?? contacts.find((contact) => contact.entity_type === 'player');
-  const center = self?.position ?? { x: 0, y: 0 };
-  const radius = Math.max(state.minimap.radar_range, 1);
-  const projectionHalfExtent = Math.max((state.minimap.projection_window_size ?? radius * 2) / 2, 1);
-  const points = contacts
-    .map((contact) => {
-      const point = minimapPointPercent(center, contact.position, radius);
-      if (!point) {
-        return '';
-      }
-      const disposition = contact.status_flags?.includes('self') ? 'self' : contact.disposition || dispositionForType(contact.entity_type);
-      const action = minimapLiveContactAction(contact);
-      const actionAttr = action ? ` data-action="${action}"` : '';
-      const disabledAttr = action ? '' : ' disabled';
-      const source = contact.projection_source ? ` data-projection-source="${escapeHTML(contact.projection_source)}"` : '';
-      return `<button class="minimap__point" type="button"${actionAttr}${disabledAttr} data-target-source="radar" data-kind="${escapeHTML(disposition)}" data-entity-id="${escapeHTML(contact.entity_id)}" data-entity-type="${escapeHTML(contact.entity_type)}"${source} style="left:${point.left}%;top:${point.top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></button>`;
-    })
-    .join('');
-  const memoryPoints = memories
-    .filter((memory) => shouldRenderRememberedMinimapMemory(state, memory, center, projectionHalfExtent))
-    .map((memory) => {
-      const point = minimapPointPercent(center, memory.position, radius);
-      if (!point) {
-        return '';
-      }
-      const planetID = rememberedMinimapDetailID(state, memory) ?? '';
-      const clickable = isClickableMinimapMemory(memory);
-      const action = clickable ? ' data-action="planet-detail"' : '';
-      const planet = planetID ? ` data-planet-id="${escapeHTML(planetID)}"` : '';
-      const disabled = clickable ? '' : ' disabled';
-      const intelState = rememberedIntelState(memory);
-      const sector = memory.sector_key ? ` data-sector-key="${escapeHTML(memory.sector_key)}"` : '';
-      const source = memory.projection_source ? ` data-projection-source="${escapeHTML(memory.projection_source)}"` : '';
-      return `<button class="minimap__memory" type="button"${action}${planet}${disabled} data-kind="${escapeHTML(memory.kind)}" data-freshness="${escapeHTML(intelState)}"${sector}${source} style="left:${point.left}%;top:${point.top}%" title="${escapeHTML(memory.label || memory.kind)}"></button>`;
-    })
-    .join('');
-
-  return `
-    <div class="minimap" aria-label="Sector map">
-      <span class="minimap__ring minimap__ring--outer"></span>
-      <span class="minimap__ring minimap__ring--middle"></span>
-      <span class="minimap__axis minimap__axis--x"></span>
-      <span class="minimap__axis minimap__axis--y"></span>
-      ${memoryPoints}
-      ${points}
-    </div>
-    <div class="minimap-legend">
-      <span data-kind="self">You</span>
-      <span data-kind="hostile">Hostile</span>
-      <span data-kind="loot">Loot</span>
-      <span data-kind="memory">Memory</span>
-    </div>
-  `;
-}
-
-export function minimapLiveContactAction(contact: MinimapContact): 'target-select' | 'loot-select' | null {
-  const flags = new Set(contact.status_flags ?? []);
-  if (flags.has('self') || flags.has('local') || flags.has('friendly')) {
-    return null;
-  }
-  if (contact.entity_type === 'loot') {
-    return 'loot-select';
-  }
-  if (contact.entity_type === 'npc' && isHostileMinimapContact(contact, flags)) {
-    return 'target-select';
-  }
-  if (contact.entity_type === 'player' && isHostileMinimapContact(contact, flags)) {
-    return 'target-select';
-  }
-  return null;
-}
-
-export function isHostileMinimapContact(contact: MinimapContact, flags = new Set(contact.status_flags ?? [])): boolean {
-  return flags.has('hostile') || flags.has('scan_revealed') || contact.disposition === 'hostile';
 }

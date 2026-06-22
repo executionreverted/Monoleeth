@@ -12,22 +12,18 @@ responses, and events.
 
 Replace or extend:
 
-- `client/src/protocol/envelope.ts:3-57` has operations for session, world
-  snapshot, movement, combat, loot, stealth, scan, planet, route, and economy,
-  but no first-class map summary or portal entry operation.
-- `client/src/protocol/envelope.ts:61-121` has world/AOI/combat/loot/scan
-  events, but no map changed, portal entered/exited, map policy updated, or
-  portal cooldown event.
+- `client/src/protocol/envelope.ts` now includes `portal.enter` plus map
+  snapshot/changed/transfer, map policy, and portal cooldown client event
+  constants. Continue to keep portal entry as an intent-only operation and do
+  not add trusted map, destination, player, position, speed, or cooldown fields
+  to client payloads.
 - `client/src/protocol/envelope.ts:130-161` models entities as player, NPC,
   loot, or planet signal with position, display, combat, movement, and public
   status flags, but not portal entities or map-boundary objects.
-- `client/src/state/types.ts:673-707` models `SectorSummary` and
-  `MinimapSummary` as sector/danger plus radar contacts and remembered memory,
-  but does not include map id, bounds, portals, safe zones, PvP flags, or map
-  background/theme.
-- `client/src/state/types.ts:742-788` stores `sector`, `minimap`,
-  `visibleEntities`, `knownLoot`, `planetIntel`, `scanMode`, production, and
-  route state, but has no `currentMap` or portal handoff state.
+- `client/src/state/types.ts` now has nullable server-owned `currentMap`, map
+  bounds, public map keys, visible portals, safe zones, safe-zone/protection
+  summaries, portal cooldowns, map transfer state, map subscription epoch, and
+  minimap map extensions.
 - `client/src/state/reducer.ts:1538-1551` parses `sector` and `minimap`
   snapshots from generic payloads; this is the natural extension point for map
   summary parsing.
@@ -37,14 +33,13 @@ Replace or extend:
 - `client/src/state/reducer.ts:1010-1047` applies AOI entity enter/update/left
   events directly; new handlers must reject or ignore stale events from prior
   map streams.
-- `client/src/render/world-renderer.ts:67-80` still has fog debug/layer fields.
-  Fog-of-war wave is removed from the map surface; radar/scan visuals stay.
-- `client/src/render/world-renderer.ts:538-583` currently makes fog drawing a
-  no-op but still calculates remembered pockets; remove the fog concept from
-  the new map UI contract instead of reviving it.
-- `client/src/render/world-renderer.ts:1090-1109` projects an unbounded world
-  around the player center. Bounded maps need optional boundary/grid/portal
-  projection and client-side UX clamping while server bounds remain authority.
+- `client/src/render/world-renderer.ts` now exposes `mapOverlay` debug state
+  instead of UI-facing fog state, and `client/src/render/map-overlay.ts` projects
+  map bounds, visible portals, and safe zones from `currentMap`/`minimap`.
+  Continue to keep scanner/radar feedback separate from removed fog-wave UI.
+- The center world camera remains player-centered for navigation while the
+  overlay/minimap layers project bounded map information for UX only; server
+  bounds remain authoritative.
 
 Reuse:
 
@@ -258,15 +253,22 @@ Snapshot/event rules:
   code-quality fix clears map-scoped live state before changed-map or
   changed-epoch `map.snapshot` application, handles `map.changed` with or
   without a destination summary, and preserves same-map same-epoch metadata
-  refreshes. Renderer, minimap drawing, portal click UX, and new command
-  builders remain open.
+  refreshes. Renderer and minimap drawing remained open at that point; portal
+  click UX remained open.
 - 2026-06-22 Phase09B progress: the Pixi renderer now receives server-owned
   `currentMap`, publishes it through smoke state, draws a lightweight canvas map
   overlay from `currentMap`/`minimap` bounds, visible portals, and safe zones
   only when those fields are present, and exposes `worldView.mapOverlay` debug
   state instead of the old UI-facing `fog` field. Portal click UX, HUD
-  location/topbar changes, minimap DOM work, and portal command builders remain
-  open.
+  location/topbar changes, and minimap DOM work remained open.
+- 2026-06-22 Phase09C progress: the HUD topbar now prefers server-owned map
+  display/public keys and current map risk/PvP/safe-zone/protection state before
+  falling back to legacy sector labels. The DOM minimap now renders a bounded
+  map frame from `currentMap` or `minimap.bounds` even when the server reports
+  zero contacts, projects contacts/memory/portal/safe-zone markers by bounds
+  when available, filters remembered planet memory by current public map key,
+  and keeps portal markers display-only with no portal command action. Portal
+  click UX and browser smoke for portal traversal remain open.
 - Update UI implementation docs after the protocol lands to state that
   `currentMap`, portals, minimap bounds, and safe/PvP flags are server-owned.
 - Update local run/smoke docs with a deterministic two-map seed that includes at

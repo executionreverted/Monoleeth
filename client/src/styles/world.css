@@ -35,6 +35,13 @@
   cursor: pointer;
 }
 
+.minimap__portal,
+.minimap__safe-zone,
+.minimap__meta {
+  position: absolute;
+  pointer-events: none;
+}
+
 .minimap__ring {
   inset: 12%;
   border: 1px dashed rgba(138, 245, 255, 0.28);
@@ -58,6 +65,34 @@
   bottom: 8%;
   left: 50%;
   border-left: 1px solid rgba(215, 247, 255, 0.14);
+}
+
+.minimap__meta {
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: 0.45rem;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem;
+  color: rgba(215, 247, 255, 0.66);
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.minimap__meta strong,
+.minimap__meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.minimap__meta strong {
+  color: rgba(215, 247, 255, 0.9);
+  font-weight: 600;
 }
 
 .minimap__point {
@@ -139,6 +174,47 @@
     inset 0 0 0.35rem rgba(244, 201, 93, 0.14);
 }
 
+.minimap__portal {
+  width: 1rem;
+  height: 1rem;
+  z-index: 3;
+  border: 1px solid rgba(183, 110, 255, 0.82);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(183, 110, 255, 0.95) 0 18%, transparent 20%),
+    rgba(183, 110, 255, 0.12);
+  box-shadow: 0 0 0.85rem rgba(183, 110, 255, 0.38);
+  transform: translate(-50%, -50%);
+}
+
+.minimap__safe-zone {
+  width: var(--zone-size, 12%);
+  aspect-ratio: 1;
+  z-index: 1;
+  border: 1px solid rgba(124, 255, 155, 0.46);
+  border-radius: 50%;
+  background: rgba(124, 255, 155, 0.06);
+  box-shadow: inset 0 0 1rem rgba(124, 255, 155, 0.08);
+  transform: translate(-50%, -50%);
+}
+
+.minimap__portal > span,
+.minimap__safe-zone > span {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  max-width: 5.5rem;
+  margin-top: 0.18rem;
+  overflow: hidden;
+  color: rgba(215, 247, 255, 0.76);
+  font-size: 0.625rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
 .minimap-legend {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -176,6 +252,24 @@
 
 .minimap-legend span[data-kind="loot"] {
   color: #f4c95d;
+}
+
+.minimap-legend span[data-kind="portal"] {
+  color: #b76eff;
+}
+
+.minimap-legend span[data-kind="portal"]::before {
+  border-radius: 50%;
+  transform: none;
+}
+
+.minimap-legend span[data-kind="safe-zone"] {
+  color: #7cff9b;
+}
+
+.minimap-legend span[data-kind="safe-zone"]::before {
+  border-radius: 50%;
+  transform: none;
 }
 
 .minimap-legend span[data-kind="memory"] {

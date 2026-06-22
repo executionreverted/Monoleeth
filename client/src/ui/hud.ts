@@ -7,6 +7,7 @@ import { cargoPanel } from './hud-render-inventory';
 import { economyPanel } from './hud-render-economy';
 import { questsPanel } from './hud-render-quests';
 import { planetsPanel } from './hud-render-planets';
+import { topbarDangerText, topbarLocationText } from './hud-topbar';
 import { actionBar, baseWindowDefinitions, intelPanel, logPanel, modalDefinition, movementEtaPanel, opsPanel, quickActionStates, shipPanel, statusPanel, systemsPanel, targetPanel, windowDefinitions, windowLayout } from './hud-render-panels';
 import type { HUDDragState, HUDHandlers, HUDModalDragState, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, HUDWindowState } from './hud-types';
 import { clamp, escapeHTML, formatCompactNumber, formatPair, formatPercent, isControlElement, isInventoryTabID, isModuleFilterID, isQuickActionKey, isShopCategoryID, normalizeModalID, normalizePanelID, parseLoadoutDragPayload } from './hud-formatters';
@@ -70,10 +71,10 @@ export class HUD {
     const credits = this.root.querySelector<HTMLElement>('[data-top-credits]');
     const cap = this.root.querySelector<HTMLElement>('[data-top-cap]');
     if (sector) {
-      sector.textContent = state.sector?.name || '--';
+      sector.textContent = topbarLocationText(state);
     }
     if (danger) {
-      danger.textContent = state.sector ? (state.sector.contested ? 'contested' : state.sector.danger) : '--';
+      danger.textContent = topbarDangerText(state);
     }
     if (cargo) {
       cargo.textContent = state.cargo ? `${state.cargo.used}/${state.cargo.capacity}` : '--';
