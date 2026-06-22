@@ -56,8 +56,16 @@ Current slice completed:
   server-side, requires both endpoint planets to be owned by the authenticated
   player for this MVP, and reconciles through safe route response plus
   owner-scoped `route.updated`, `route.snapshot`, and `route.list` events.
-  Browser route create proof, route update/enable/disable/settle handlers,
-  durable DB/outbox, and route settlement idempotency remain open.
+- Phase07D backend gateway follow-up: authenticated `route.enable` and
+  `route.disable` now exist for owned routes. They accept only `route_id`,
+  derive owner from the authenticated command context, reject client-authored
+  owner/map/enabled/settlement/source/destination/storage/risk facts before
+  mutation, and reconcile through safe route response plus owner-scoped
+  `route.updated`, `route.snapshot`, and `route.list` events. If
+  `route.disable` settles elapsed storage transfer, it also returns and emits
+  active-map filtered production/storage snapshots. Browser route
+  create/control proof, route update/settle handlers, durable DB/outbox, and
+  route settlement idempotency remain open.
 
 ## Source Specs
 
@@ -125,7 +133,8 @@ route.settle
 | `planet.building_build` | planet id, building type/slot | ownership, requirements, storage/wallet/materials; lock/mutate/ledger/event/commit |
 | `planet.building_upgrade` | building id | ownership, level requirements, storage/wallet/materials; lock/mutate/ledger/event/commit |
 | `planet.storage_summary` | planet id | ownership/access; client-safe capacity, visible stacks, and catalog-derived `public_map_key` |
-| `route.create/update/enable/disable` | endpoint/config intent | endpoint visibility/access, ownership, capacity, policy; mutate route state server-side |
+| `route.create/update` | endpoint/config intent | endpoint visibility/access, ownership, capacity, policy; mutate route terms server-side |
+| `route.enable/disable` | route id | owner is resolved from the authenticated session; control accepts only `route_id`, rechecks route ownership, and returns safe route/list snapshots |
 | `route.list/snapshot` | filter or empty | owner/access; reconnect-safe route state, cursors, and public source/destination map keys |
 | `route.settle` | route id or empty reconcile intent | server computes eligible windows under lock; idempotency key `route_settle:<route_id>:<window>` |
 
@@ -182,7 +191,8 @@ Mockup areas covered:
       mutations.
 - [ ] Add offline settlement reconcile path that uses server-owned windows.
 - [x] Add route.create handler for owned planet-to-planet MVP.
-- [ ] Add route update/enable/disable/settle handlers.
+- [x] Add route.enable and route.disable handlers for owned routes.
+- [ ] Add route update/settle handlers.
 - [x] Add route list/snapshot handlers for reconnect.
 - [x] Add client reducer state for signals, planets, production, routes.
 - [x] Add right rail known planet list.
@@ -224,10 +234,14 @@ Mockup areas covered:
 - [x] Server route.create creates an owned planet route with server-derived
       owner, route id, map ids, safe response/events, and route list/snapshot
       reconciliation.
+- [x] Server route.enable/disable toggles an owned route with server-derived
+      owner, rejects spoofed server-owned fields and wrong-owner attempts, and
+      emits owner-scoped safe route events plus active-map production/storage
+      snapshots when disable settlement touches storage.
 - [x] Browser scan creates safe discovered intel.
 - [x] Browser selected planet panel uses server detail.
 - [x] Browser claim reflects server state.
-- [ ] Browser route create/update reflects server state.
+- [ ] Browser route create/update/control reflects server state.
 
 ## Done Criteria
 

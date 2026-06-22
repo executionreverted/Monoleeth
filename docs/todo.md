@@ -121,8 +121,8 @@ for phase status; this file is a compact pending-work index.
   `planet.building_updated` events. Source: Phase 10 audit, Phase07A, and
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Finish authenticated automation route mutation contracts for
-  `route.update`, `route.enable`, `route.disable`, and `route.settle`, plus the
-  browser route create/update proof. Server handlers must validate endpoint
+  `route.update` and `route.settle`, plus the browser route
+  create/update/control proof. Server handlers must validate endpoint
   visibility/access, ownership, route capacity, energy/upkeep policy, duplicate
   settlement windows, and storage capacity, then reconcile the browser through
   `route.list`, `route.snapshot`, and `route.updated`/`route.settled` events.
@@ -130,9 +130,14 @@ for phase status; this file is a compact pending-work index.
   `route.list`/`route.snapshot`; Phase07C landed authenticated `route.create`
   as an owned planet-to-planet gateway slice that rejects client-authored
   owner/map/energy/risk fields, derives owner/route id/map ids server-side, and
-  queues owner-scoped safe route events. Update/enable/disable/settle mutation
-  handlers and browser route creation proof remain open. Source: Phase 10
-  audit and Phase07C.
+  queues owner-scoped safe route events. Phase07D landed authenticated
+  `route.enable` and `route.disable` as owned-route gateway controls that
+  accept only `route_id`, derive owner server-side, reject spoofed route facts
+  and wrong-owner attempts without mutation/events, and queue owner-scoped safe
+  route events. Disable also reconciles active-map production/storage snapshots
+  when server-owned settlement touches storage. Update/settle mutation handlers
+  plus browser route creation and control proof remain open. Source: Phase 10
+  audit, Phase07C, and Phase07D.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server

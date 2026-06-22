@@ -155,8 +155,37 @@ Deferred after Phase07B:
 
 Deferred after Phase07C:
 
-- Route update/enable/disable/settle gateway handlers.
-- Browser route create/update proof and TypeScript protocol/UI work.
+- Route enable/disable gateway handlers, later landed in Phase07D below.
+- Route update/settle gateway handlers.
+- Browser route create/update/control proof and TypeScript protocol/UI work.
+- Durable production/route DB rows, row locks/CAS, settlement idempotency rows,
+  and outbox publishing.
+
+## Phase07D Landed Route Control Gateway Slice
+
+- Added authenticated `route.enable` and `route.disable` to the realtime
+  registry with intent-burst posture.
+- The gateway accepts only `{ "route_id": "..." }`. It rejects
+  client-authored owner/player/session, map/internal/public map fields,
+  enabled state, settlement facts, source/destination route facts, timestamps,
+  storage, energy/risk/loss/cost/rate/resource facts, cooldown, position, and
+  hidden internals before mutation, including nested payload fields.
+- The owner is resolved from the authenticated command context and passed to
+  `production.AutomationRouteService.EnableRouteForOwner` or
+  `DisableRouteForOwner` against the runtime production store, server clock,
+  and runtime route policy provider.
+- Successful controls return safe `route` plus refreshed `routes` payloads and
+  queue owner-scoped `route.updated`, `route.snapshot`, and `route.list` events
+  without internal map/world/zone ids. When `route.disable` settles an elapsed
+  route period that touches storage, the response also includes active-map
+  filtered `production` and `storage` snapshots and queues owner-scoped
+  `planet.production_summary` and `planet.storage_summary` events. No new
+  route settlement event type was added in this slice.
+
+Deferred after Phase07D:
+
+- Route update/settle gateway handlers.
+- Browser route create/update/control proof and TypeScript protocol/UI work.
 - Durable production/route DB rows, row locks/CAS, settlement idempotency rows,
   and outbox publishing.
 
@@ -318,8 +347,8 @@ contracts:
     safe/PvP zone, source/destination map risk, route distance within map or
     portal-hop distance, player bonuses, and route security modifiers.
 11. Add route mutation handlers using owner wrappers and server-derived player
-    id. `route.create` has landed for owned planet-to-planet MVP; update,
-    enable, disable, and settle remain open.
+    id. `route.create`, `route.enable`, and `route.disable` have landed for
+    the owned-route MVP; update and settle remain open.
 12. Make route settlement durable and idempotent by route/window key, for
     example `route_settle:<route_id>:<window_start>:<window_end>`.
 13. Add owner-scoped fanout after commit for claim, production, storage,
@@ -358,7 +387,11 @@ contracts:
   insufficient capacity, and forged owner/map/energy/risk payloads.
 - Route update settles old terms before replacing terms and preserves owner/map
   rules.
-- Route enable/disable/settle owner wrappers reject wrong-owner attempts.
+- Route enable/disable gateway controls accept only `route_id`, derive owner
+  server-side, reject wrong-owner and spoofed server-owned fields without
+  mutation/events, emit only owner-scoped safe route events, and reconcile
+  active-map production/storage snapshots when disable settlement touches
+  storage. Route settle remains future work.
 - Route settlement is idempotent by durable window and respects source storage,
   destination capacity, loss rolls, and map-risk policy.
 - Realtime/event tests prove claim, production, and route events do not leak to

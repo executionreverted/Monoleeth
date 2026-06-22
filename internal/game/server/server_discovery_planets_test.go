@@ -813,24 +813,6 @@ func TestRouteMutationOperationsRemainUnregisteredGatewayQuarantine(t *testing.T
 			}`,
 		},
 		{
-			name: "enable",
-			op:   "route.enable",
-			payload: `{
-				"route_id":"route-quarantine-map-1-1-to-1-2",
-				"owner_player_id":"spoofed-player",
-				"source_map_id":"map_1_1"
-			}`,
-		},
-		{
-			name: "disable",
-			op:   "route.disable",
-			payload: `{
-				"route_id":"route-quarantine-map-1-1-to-1-2",
-				"owner_player_id":"spoofed-player",
-				"source_map_id":"map_1_1"
-			}`,
-		},
-		{
 			name: "settle",
 			op:   "route.settle",
 			payload: `{
