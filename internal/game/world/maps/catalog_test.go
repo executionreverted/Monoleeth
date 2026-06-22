@@ -33,9 +33,16 @@ func TestStarterCatalogReturnsBoundedStarterSpawnAndProjection(t *testing.T) {
 	if !ok || second.InternalMapID != "map_1_2" || second.ZoneID != second.InternalMapID.ZoneID() {
 		t.Fatalf("1-2 lookup = %+v ok=%v, want second starter-adjacent map", second, ok)
 	}
+	third, ok := catalog.ByPublicKey("1-3")
+	if !ok || third.InternalMapID != "map_1_3" || third.ZoneID != third.InternalMapID.ZoneID() {
+		t.Fatalf("1-3 lookup = %+v ok=%v, want seeded pvp border map", third, ok)
+	}
 
 	definitions := catalog.Definitions()
-	if len(definitions) != 2 || definitions[0].InternalMapID != StarterMapID || definitions[1].InternalMapID != "map_1_2" {
+	if len(definitions) != 3 ||
+		definitions[0].InternalMapID != StarterMapID ||
+		definitions[1].InternalMapID != "map_1_2" ||
+		definitions[2].InternalMapID != "map_1_3" {
 		t.Fatalf("Definitions() = %+v, want sorted starter map set", definitions)
 	}
 
@@ -49,7 +56,43 @@ func TestStarterCatalogReturnsBoundedStarterSpawnAndProjection(t *testing.T) {
 	if len(projection.VisiblePortals) != 1 || projection.VisiblePortals[0].PortalID != "east_gate" {
 		t.Fatalf("projection portals = %+v, want visible starter route", projection.VisiblePortals)
 	}
-	raw := string(mustMarshalMapTest(t, projection))
+
+	secondProjection, err := catalog.ClientProjection("map_1_2")
+	if err != nil {
+		t.Fatalf("ClientProjection(map_1_2) error = %v, want nil", err)
+	}
+	secondPortalIDs := make(map[string]bool, len(secondProjection.VisiblePortals))
+	for _, portal := range secondProjection.VisiblePortals {
+		secondPortalIDs[portal.PortalID] = true
+	}
+	if len(secondPortalIDs) != 2 || !secondPortalIDs["west_gate"] || !secondPortalIDs["skirmish_gate"] {
+		t.Fatalf("map 1-2 projection portals = %+v, want west_gate and skirmish_gate", secondProjection.VisiblePortals)
+	}
+	if strings.Contains(string(mustMarshalMapTest(t, secondProjection)), "east_gate") {
+		t.Fatalf("map 1-2 projection leaked origin east_gate portal: %+v", secondProjection.VisiblePortals)
+	}
+
+	thirdProjection, err := catalog.ClientProjection("map_1_3")
+	if err != nil {
+		t.Fatalf("ClientProjection(map_1_3) error = %v, want nil", err)
+	}
+	if thirdProjection.MapKey != "1-3" ||
+		thirdProjection.DisplayName != "Border Skirmish" ||
+		thirdProjection.RiskBand != "medium" ||
+		thirdProjection.PVPPolicy != "pvp" ||
+		thirdProjection.Bounds != ExactPlayableBounds() {
+		t.Fatalf("map 1-3 projection = %+v, want public seeded pvp map fields", thirdProjection)
+	}
+	if len(thirdProjection.VisiblePortals) != 1 || thirdProjection.VisiblePortals[0].PortalID != "west_gate" {
+		t.Fatalf("map 1-3 projection portals = %+v, want return west_gate", thirdProjection.VisiblePortals)
+	}
+	if len(thirdProjection.SafeZones) != 1 ||
+		thirdProjection.SafeZones[0].SafeAreaID != "west_gate" ||
+		!thirdProjection.SafeZones[0].BlocksPVP {
+		t.Fatalf("map 1-3 safe zones = %+v, want pvp-blocking west gate safe zone", thirdProjection.SafeZones)
+	}
+
+	raw := string(mustMarshalMapTest(t, []ClientMapProjection{projection, secondProjection, thirdProjection}))
 	for _, forbidden := range []string{
 		"internal_map_id",
 		"map_id",
@@ -59,6 +102,7 @@ func TestStarterCatalogReturnsBoundedStarterSpawnAndProjection(t *testing.T) {
 		"destination_spawn_id",
 		"map_1_1",
 		"map_1_2",
+		"map_1_3",
 		"gameplay_seed",
 		"scan_seed",
 		"enemy_pool",

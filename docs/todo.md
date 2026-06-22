@@ -124,9 +124,12 @@ for phase status; this file is a compact pending-work index.
   rows and read payloads for `route.list`/`route.snapshot`; mutation handlers
   remain open. The Phase10 map rollout audit still treats this as the
   authenticated route mutation gateway blocker. Source: Phase 10 audit.
-- [ ] Add a Phase10 PvP rollout seed and policy test matrix: at least one
-  PvP-enabled map seed, PvP death/cargo/checkpoint tests, and a real browser
-  safe-zone PvP click rejection proof. Source:
+- [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
+  catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
+  reachable through the server-owned `1-2` `skirmish_gate` portal, and server
+  tests cover allowed PvP outside safe zones plus safe-zone and protection
+  blocking on that seeded map. Remaining work is PvP death/cargo/checkpoint
+  coverage and a real browser safe-zone PvP click rejection proof. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete second-map enemy rollout coverage for map `1-2`. The
   deterministic `outer_ring_scout_drone` seed, initial spawn, actor projection,

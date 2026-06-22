@@ -507,6 +507,16 @@ func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 					DisplayName:        "West Gate",
 					Visible:            true,
 				},
+				{
+					PortalID:           "skirmish_gate",
+					SourceMapID:        "map_1_2",
+					SourcePosition:     world.Vec2{X: 9800, Y: 5000},
+					InteractionRadius:  180,
+					DestinationMapID:   "map_1_3",
+					DestinationSpawnID: "west_gate",
+					DisplayName:        "Skirmish Gate",
+					Visible:            true,
+				},
 			},
 			SpawnAreas:       outerRingMapSpawnAreas(),
 			EnemyPools:       outerRingMapEnemyPools(),
@@ -514,6 +524,36 @@ func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 			NPCDropProfiles:  outerRingMapNPCDropProfiles(),
 			NPCAggroProfiles: outerRingMapNPCAggroProfiles(),
 			NPCLeashProfiles: outerRingMapNPCLeashProfiles(),
+		},
+		{
+			InternalMapID:  "map_1_3",
+			PublicMapKey:   "1-3",
+			WorldID:        worldID,
+			ZoneID:         MapID("map_1_3").ZoneID(),
+			DisplayName:    "Border Skirmish",
+			Region:         "Origin Belt",
+			RiskBand:       "medium",
+			PVPPolicy:      "pvp",
+			VisualThemeKey: "border-amber",
+			Bounds:         bounds,
+			SpawnPoints: []SpawnPointDefinition{
+				{SpawnID: "west_gate", Position: world.Vec2{X: 400, Y: 5000}, Label: "West Gate"},
+			},
+			SafeZones: []SafeZoneDefinition{
+				{SafeZoneID: "west_gate", Center: world.Vec2{X: 400, Y: 5000}, Radius: 260, DisplayName: "West Gate", BlocksPVP: true, HangarActions: true},
+			},
+			Portals: []PortalDefinition{
+				{
+					PortalID:           "west_gate",
+					SourceMapID:        "map_1_3",
+					SourcePosition:     world.Vec2{X: 200, Y: 5000},
+					InteractionRadius:  180,
+					DestinationMapID:   "map_1_2",
+					DestinationSpawnID: "west_gate",
+					DisplayName:        "West Gate",
+					Visible:            true,
+				},
+			},
 		},
 	}
 	return NewCatalog(definitions, StarterMapID, StarterSpawnID)

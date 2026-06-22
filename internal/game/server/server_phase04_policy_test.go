@@ -13,6 +13,8 @@ import (
 	worldmaps "gameproject/internal/game/world/maps"
 )
 
+const seededPVPMapID = worldmaps.MapID("map_1_3")
+
 func TestPvPBlockedByMapPolicyBeforeCombatMutation(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	attacker := createResolvedRuntimeSession(t, gameServer, "pvp-policy-attacker@example.com", "Policy Attacker")
@@ -28,13 +30,12 @@ func TestPvPBlockedByMapPolicyBeforeCombatMutation(t *testing.T) {
 	assertPvPBlockedNoMutationForTest(t, gameServer, attacker.PlayerID, target.PlayerID)
 }
 
-func TestPvPBlockedBySafeZoneBeforeCombatMutation(t *testing.T) {
+func TestSeededPVPMapSafeZoneBlocksPvPBeforeCombatMutation(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
-	attacker := createResolvedRuntimeSession(t, gameServer, "pvp-safe-attacker@example.com", "Safe Attacker")
-	target := createResolvedRuntimeSession(t, gameServer, "pvp-safe-target@example.com", "Safe Target")
-	setTestActiveMapPVPPolicy(t, gameServer, attacker.PlayerID, "pvp")
-	moveTestPlayerEntity(gameServer, attacker.PlayerID, world.Vec2{X: 0, Y: 0})
-	moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: 10, Y: 0})
+	attacker := createResolvedRuntimeSessionOnMap(t, gameServer, "pvp-safe-attacker@example.com", "Safe Attacker", seededPVPMapID, "west_gate")
+	target := createResolvedRuntimeSessionOnMap(t, gameServer, "pvp-safe-target@example.com", "Safe Target", seededPVPMapID, "west_gate")
+	moveTestPlayerEntity(gameServer, attacker.PlayerID, world.Vec2{X: 400, Y: 5000})
+	moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: 410, Y: 5000})
 
 	response := requestPlayerAttackForTest(t, gameServer, attacker, target)
 
@@ -44,15 +45,14 @@ func TestPvPBlockedBySafeZoneBeforeCombatMutation(t *testing.T) {
 	assertPvPBlockedNoMutationForTest(t, gameServer, attacker.PlayerID, target.PlayerID)
 }
 
-func TestPvPBlockedByProtectionBeforeCombatMutationAndInitiationBreaksProtection(t *testing.T) {
+func TestSeededPVPMapProtectionBlocksBeforeCombatMutationAndInitiationBreaksProtection(t *testing.T) {
 	t.Run("target protection blocks incoming pvp", func(t *testing.T) {
 		gameServer, _ := newTestServer(t, false)
-		attacker := createResolvedRuntimeSession(t, gameServer, "pvp-target-protection-attacker@example.com", "Target Protection Attacker")
-		target := createResolvedRuntimeSession(t, gameServer, "pvp-target-protection-target@example.com", "Target Protection Target")
-		setTestActiveMapPVPPolicy(t, gameServer, attacker.PlayerID, "pvp")
+		attacker := createResolvedRuntimeSessionOnMap(t, gameServer, "pvp-target-protection-attacker@example.com", "Target Protection Attacker", seededPVPMapID, "west_gate")
+		target := createResolvedRuntimeSessionOnMap(t, gameServer, "pvp-target-protection-target@example.com", "Target Protection Target", seededPVPMapID, "west_gate")
 		moveTestPlayerEntity(gameServer, attacker.PlayerID, world.Vec2{X: 500, Y: 500})
 		moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: 520, Y: 500})
-		startTestProtection(t, gameServer, target.PlayerID, worldmaps.StarterMapID)
+		startTestProtection(t, gameServer, target.PlayerID, seededPVPMapID)
 
 		response := requestPlayerAttackForTest(t, gameServer, attacker, target)
 
@@ -65,12 +65,11 @@ func TestPvPBlockedByProtectionBeforeCombatMutationAndInitiationBreaksProtection
 
 	t.Run("attacker protection breaks on pvp initiation", func(t *testing.T) {
 		gameServer, _ := newTestServer(t, false)
-		attacker := createResolvedRuntimeSession(t, gameServer, "pvp-attacker-protection-attacker@example.com", "Attacker Protection Attacker")
-		target := createResolvedRuntimeSession(t, gameServer, "pvp-attacker-protection-target@example.com", "Attacker Protection Target")
-		setTestActiveMapPVPPolicy(t, gameServer, attacker.PlayerID, "pvp")
+		attacker := createResolvedRuntimeSessionOnMap(t, gameServer, "pvp-attacker-protection-attacker@example.com", "Attacker Protection Attacker", seededPVPMapID, "west_gate")
+		target := createResolvedRuntimeSessionOnMap(t, gameServer, "pvp-attacker-protection-target@example.com", "Attacker Protection Target", seededPVPMapID, "west_gate")
 		moveTestPlayerEntity(gameServer, attacker.PlayerID, world.Vec2{X: 500, Y: 500})
 		moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: 520, Y: 500})
-		startTestProtection(t, gameServer, attacker.PlayerID, worldmaps.StarterMapID)
+		startTestProtection(t, gameServer, attacker.PlayerID, seededPVPMapID)
 
 		response := requestPlayerAttackForTest(t, gameServer, attacker, target)
 
@@ -87,17 +86,16 @@ func TestPvPBlockedByProtectionBeforeCombatMutationAndInitiationBreaksProtection
 		if err := json.Unmarshal(protectionEvent.Payload, &payload); err != nil {
 			t.Fatalf("decode protection cleared event: %v", err)
 		}
-		if payload.Reason != protectionReasonPVPAction || payload.PublicMapKey != "1-1" || payload.BlocksPVP || payload.BreakOnPVPAction {
+		if payload.Reason != protectionReasonPVPAction || payload.PublicMapKey != "1-3" || payload.BlocksPVP || payload.BreakOnPVPAction {
 			t.Fatalf("protection cleared payload = %+v, want inactive pvp_action on public map", payload)
 		}
 	})
 }
 
-func TestAllowedPvPPersistsTargetPlayerStateAndEvents(t *testing.T) {
+func TestSeededPVPMapOutsideSafeZoneAllowsPvPPersistsTargetPlayerStateAndEvents(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
-	attacker := createResolvedRuntimeSession(t, gameServer, "pvp-allowed-attacker@example.com", "Allowed Attacker")
-	target := createResolvedRuntimeSession(t, gameServer, "pvp-allowed-target@example.com", "Allowed Target")
-	setTestActiveMapPVPPolicy(t, gameServer, attacker.PlayerID, "pvp")
+	attacker := createResolvedRuntimeSessionOnMap(t, gameServer, "pvp-allowed-attacker@example.com", "Allowed Attacker", seededPVPMapID, "west_gate")
+	target := createResolvedRuntimeSessionOnMap(t, gameServer, "pvp-allowed-target@example.com", "Allowed Target", seededPVPMapID, "west_gate")
 	moveTestPlayerEntity(gameServer, attacker.PlayerID, world.Vec2{X: 500, Y: 500})
 	moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: 520, Y: 500})
 
@@ -193,17 +191,6 @@ func assertPvPBlockedNoMutationForTest(t *testing.T, gameServer *Server, attacke
 	if !targetOK || target.HP != float64(targetState.Ship.Hull) || target.Shield != float64(targetState.Ship.Shield) {
 		t.Fatalf("blocked pvp target actor = %+v ok=%v, want unchanged hull/shield", target, targetOK)
 	}
-}
-
-func setTestActiveMapPVPPolicy(t *testing.T, gameServer *Server, playerID foundation.PlayerID, policy string) {
-	t.Helper()
-	gameServer.runtime.mu.Lock()
-	defer gameServer.runtime.mu.Unlock()
-	instance, _, err := gameServer.runtime.activeMapInstanceLocked(playerID)
-	if err != nil {
-		t.Fatalf("activeMapInstanceLocked() error = %v, want nil", err)
-	}
-	instance.Definition.PVPPolicy = policy
 }
 
 func startTestProtection(t *testing.T, gameServer *Server, playerID foundation.PlayerID, mapID worldmaps.MapID) {

@@ -554,7 +554,7 @@ function parseFrameJSON(text) {
 }
 
 const leakTokens = [
-  'map_1_1', 'map_1_2', 'internal_map_id', 'destination_map_id', 'destination_spawn_id', 'source_map_id',
+  'map_1_1', 'map_1_2', 'map_1_3', 'internal_map_id', 'destination_map_id', 'destination_spawn_id', 'source_map_id',
   'source_spawn_id', 'spawn_id', 'worker_id', 'map_worker_id', 'destination_worker', 'origin_worker',
   'destination_id', 'destination_key', 'destination_map_key', 'destination_position', 'destination_public_key',
   'destination_public_map_key', 'from_map_key', 'from_public_map_key', 'source_map_key', 'source_public_map_key',

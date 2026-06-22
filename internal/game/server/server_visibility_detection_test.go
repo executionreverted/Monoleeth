@@ -173,10 +173,9 @@ func TestWorldSnapshotHiddenDetectionUsesServerStatsAndSafePayload(t *testing.T)
 
 func TestScanWitnessAllowsCombatAgainstHiddenPlayerWhileActive(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
-	attacker := createResolvedRuntimeSession(t, gameServer, "witness-combat-attacker@example.com", "Witness Attacker")
-	target := createResolvedRuntimeSession(t, gameServer, "witness-combat-target@example.com", "Witness Target")
+	attacker := createResolvedRuntimeSessionOnMap(t, gameServer, "witness-combat-attacker@example.com", "Witness Attacker", seededPVPMapID, "west_gate")
+	target := createResolvedRuntimeSessionOnMap(t, gameServer, "witness-combat-target@example.com", "Witness Target", seededPVPMapID, "west_gate")
 	targetEntityID := testPlayerEntityID(t, gameServer, target.PlayerID)
-	setTestActiveMapPVPPolicy(t, gameServer, attacker.PlayerID, "pvp")
 	moveTestPlayerEntity(gameServer, attacker.PlayerID, world.Vec2{X: 500, Y: 500})
 	moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: 520, Y: 500})
 	setTestHiddenPlayer(gameServer, target.PlayerID, true)

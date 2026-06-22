@@ -21,6 +21,7 @@ const fakeFixtureSnippets = [
 const serverOnlyContentSnippets = [
   'map_1_1',
   'map_1_2',
+  'map_1_3',
   'starter_training_drone_pool',
   'starter_training_drone_area',
   'training_drone_salvage',

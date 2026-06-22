@@ -219,6 +219,36 @@ func TestPortalEnterTransfersPlayerAndAllActiveSessions(t *testing.T) {
 	}
 }
 
+func TestPortalEnterTransfersToSeededPVPMap(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSessionOnMap(t, gameServer, "portal-pvp-map@example.com", "Portal PvP", "map_1_2", "west_gate")
+	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 9800, Y: 5000})
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-portal-pvp-map","op":"portal.enter","payload":{"portal_id":"skirmish_gate"},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("pvp portal transfer response error = %+v, want success", response.Error)
+	}
+	var responsePayload struct {
+		Accepted       bool                 `json:"accepted"`
+		ToPublicMapKey string               `json:"to_public_map_key"`
+		Snapshot       worldSnapshotPayload `json:"snapshot"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &responsePayload); err != nil {
+		t.Fatalf("decode pvp portal response: %v", err)
+	}
+	if !responsePayload.Accepted ||
+		responsePayload.ToPublicMapKey != "1-3" ||
+		responsePayload.Snapshot.Map.PublicMapKey != "1-3" ||
+		responsePayload.Snapshot.Map.PVPPolicy != "pvp" ||
+		responsePayload.Snapshot.Map.RiskBand != "medium" {
+		t.Fatalf("pvp portal response = %+v, want public 1-3 pvp map snapshot", responsePayload)
+	}
+	assertPlayerOnlyInMapForTest(t, gameServer, resolved.PlayerID, "map_1_3")
+}
+
 func TestPortalDestinationAttachRecordsEnemyTelemetryMetrics(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
