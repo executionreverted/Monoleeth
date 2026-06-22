@@ -63,8 +63,17 @@ Current slice completed:
   mutation, and reconcile through safe route response plus owner-scoped
   `route.updated`, `route.snapshot`, and `route.list` events. If
   `route.disable` settles elapsed storage transfer, it also returns and emits
-  active-map filtered production/storage snapshots. Browser route
-  create/control proof, route update/settle handlers, durable DB/outbox, and
+  active-map filtered production/storage snapshots.
+- Phase07E backend gateway follow-up: authenticated `route.update` now exists
+  for owned routes. It accepts only `route_id`, `destination_planet_id`,
+  `resource_item_id`, and `amount_per_hour`, derives owner from the
+  authenticated command context, loads source truth from the server-owned route
+  row, rejects client-authored owner/map/source/destination object/enabled/
+  settlement/storage/energy/risk facts before mutation, and reconciles through
+  safe route response plus owner-scoped `route.updated`, `route.snapshot`, and
+  `route.list` events. If update settlement touches storage, it also returns
+  and emits active-map filtered production/storage snapshots. Browser route
+  create/update/control proof, route.settle handler, durable DB/outbox, and
   route settlement idempotency remain open.
 
 ## Source Specs
@@ -133,7 +142,7 @@ route.settle
 | `planet.building_build` | planet id, building type/slot | ownership, requirements, storage/wallet/materials; lock/mutate/ledger/event/commit |
 | `planet.building_upgrade` | building id | ownership, level requirements, storage/wallet/materials; lock/mutate/ledger/event/commit |
 | `planet.storage_summary` | planet id | ownership/access; client-safe capacity, visible stacks, and catalog-derived `public_map_key` |
-| `route.create/update` | endpoint/config intent | endpoint visibility/access, ownership, capacity, policy; mutate route terms server-side |
+| `route.create/update` | endpoint/config intent; update accepts only `route_id`, `destination_planet_id`, `resource_item_id`, `amount_per_hour` | endpoint visibility/access, ownership, capacity, policy; mutate route terms server-side and settle old update terms before replacement |
 | `route.enable/disable` | route id | owner is resolved from the authenticated session; control accepts only `route_id`, rechecks route ownership, and returns safe route/list snapshots |
 | `route.list/snapshot` | filter or empty | owner/access; reconnect-safe route state, cursors, and public source/destination map keys |
 | `route.settle` | route id or empty reconcile intent | server computes eligible windows under lock; idempotency key `route_settle:<route_id>:<window>` |
@@ -191,8 +200,9 @@ Mockup areas covered:
       mutations.
 - [ ] Add offline settlement reconcile path that uses server-owned windows.
 - [x] Add route.create handler for owned planet-to-planet MVP.
+- [x] Add route.update handler for owned routes.
 - [x] Add route.enable and route.disable handlers for owned routes.
-- [ ] Add route update/settle handlers.
+- [ ] Add route.settle handler.
 - [x] Add route list/snapshot handlers for reconnect.
 - [x] Add client reducer state for signals, planets, production, routes.
 - [x] Add right rail known planet list.
@@ -210,6 +220,8 @@ Mockup areas covered:
 - [ ] Coordinate item use consumes an owned item once.
 - [x] Planet panel open rechecks visibility/ownership.
 - [x] Route creation rechecks both endpoints and ownership/access.
+- [x] Route update rechecks destination ownership/access and preserves
+      server-owned source truth.
 - [ ] Offline settlement duration is server-calculated.
 - [ ] Route settlement windows are server-calculated and idempotent.
 - [ ] Building and route mutations use inventory/wallet/storage ledgers.
@@ -238,6 +250,11 @@ Mockup areas covered:
       owner, rejects spoofed server-owned fields and wrong-owner attempts, and
       emits owner-scoped safe route events plus active-map production/storage
       snapshots when disable settlement touches storage.
+- [x] Server route.update changes an owned route with server-derived owner,
+      rejects spoofed server-owned fields, wrong-owner attempts, and
+      X Core/non-routeable resources without mutation/events, emits
+      owner-scoped safe route events, and emits active-map production/storage
+      snapshots when update settlement touches storage.
 - [x] Browser scan creates safe discovered intel.
 - [x] Browser selected planet panel uses server detail.
 - [x] Browser claim reflects server state.

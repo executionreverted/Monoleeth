@@ -780,7 +780,7 @@ func TestRouteCreateRejectsXCoreResourceBeforeMutation(t *testing.T) {
 	}
 }
 
-func TestRouteMutationOperationsRemainUnregisteredGatewayQuarantine(t *testing.T) {
+func TestRouteSettleOperationRemainsUnregisteredGatewayQuarantine(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "route-quarantine@example.com", "Route Quarantine")
 	starterPlanetID := foundation.PlanetID("planet-route-quarantine-map-1-1")
@@ -801,17 +801,6 @@ func TestRouteMutationOperationsRemainUnregisteredGatewayQuarantine(t *testing.T
 		op      string
 		payload string
 	}{
-		{
-			name: "update",
-			op:   "route.update",
-			payload: `{
-				"route_id":"route-quarantine-map-1-1-to-1-2",
-				"owner_player_id":"spoofed-player",
-				"source_map_id":"map_1_1",
-				"destination_map_id":"map_1_2",
-				"amount_per_hour":999999
-			}`,
-		},
 		{
 			name: "settle",
 			op:   "route.settle",

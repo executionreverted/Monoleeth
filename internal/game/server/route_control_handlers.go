@@ -113,49 +113,62 @@ func (runtime *Runtime) handleRouteControl(
 		return nil, domainErrorForRouteControl(err)
 	}
 
-	routePayload, err := runtime.routePayloadFromRoute(result.Route)
+	responsePayload, err := runtime.routeMutationResponseAndEvents(ctx.PlayerID, result.Route, result.Settlement)
 	if err != nil {
 		return nil, domainErrorForRouteControl(err)
 	}
-	routes, err := runtime.routeListPayload(ctx.PlayerID)
+
+	return marshalPayload(responsePayload)
+}
+
+func (runtime *Runtime) routeMutationResponseAndEvents(
+	playerID foundation.PlayerID,
+	route production.AutomationRoute,
+	settlement production.RouteSettlementResult,
+) (map[string]any, error) {
+	routePayload, err := runtime.routePayloadFromRoute(route)
 	if err != nil {
-		return nil, domainErrorForRouteControl(err)
+		return nil, err
+	}
+	routes, err := runtime.routeListPayload(playerID)
+	if err != nil {
+		return nil, err
 	}
 
 	responsePayload := map[string]any{
 		"route":  routePayload,
 		"routes": routes,
 	}
-	includeSettlementSnapshots := routeControlSettlementTouchedStorage(result.Settlement)
+	includeSettlementSnapshots := routeSettlementTouchedStorage(settlement)
 	var productionPayload planetProductionCollectionPayload
 	var storagePayload planetStorageCollectionPayload
 	if includeSettlementSnapshots {
-		productionPayload, err = runtime.productionSummaryPayload(ctx.PlayerID, "")
+		productionPayload, err = runtime.productionSummaryPayload(playerID, "")
 		if err != nil {
-			return nil, domainErrorForRouteControl(err)
+			return nil, err
 		}
-		storagePayload, err = runtime.storageSummaryPayload(ctx.PlayerID, "")
+		storagePayload, err = runtime.storageSummaryPayload(playerID, "")
 		if err != nil {
-			return nil, domainErrorForRouteControl(err)
+			return nil, err
 		}
 		responsePayload["production"] = productionPayload
 		responsePayload["storage"] = storagePayload
 	}
 
 	runtime.mu.Lock()
-	runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventRouteUpdated, map[string]any{"route": routePayload})
-	runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventRouteSnapshot, map[string]any{"route": routePayload})
-	runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventRouteList, map[string]any{"routes": routes})
+	runtime.queueEventToPlayerSessionsLocked(playerID, realtime.EventRouteUpdated, map[string]any{"route": routePayload})
+	runtime.queueEventToPlayerSessionsLocked(playerID, realtime.EventRouteSnapshot, map[string]any{"route": routePayload})
+	runtime.queueEventToPlayerSessionsLocked(playerID, realtime.EventRouteList, map[string]any{"routes": routes})
 	if includeSettlementSnapshots {
-		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventProductionSummary, productionPayload)
-		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventPlanetStorage, storagePayload)
+		runtime.queueEventToPlayerSessionsLocked(playerID, realtime.EventProductionSummary, productionPayload)
+		runtime.queueEventToPlayerSessionsLocked(playerID, realtime.EventPlanetStorage, storagePayload)
 	}
 	runtime.mu.Unlock()
 
-	return marshalPayload(responsePayload)
+	return responsePayload, nil
 }
 
-func routeControlSettlementTouchedStorage(settlement production.RouteSettlementResult) bool {
+func routeSettlementTouchedStorage(settlement production.RouteSettlementResult) bool {
 	if settlement.NoOp || settlement.RouteID.IsZero() {
 		return false
 	}

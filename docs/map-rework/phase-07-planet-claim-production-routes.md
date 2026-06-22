@@ -125,7 +125,8 @@ Deferred from Phase07A:
 
 Deferred after Phase07B:
 
-- Route update/enable/disable/settle gateway handlers.
+- Route create landed in Phase07C, enable/disable landed in Phase07D, and
+  update landed in Phase07E below; route.settle remains open.
 - Building build/upgrade/storage mutation handlers.
 - Durable discovery/ownership and production/route DB rows, row locks/CAS,
   settlement idempotency rows, and outbox publishing.
@@ -156,7 +157,7 @@ Deferred after Phase07B:
 Deferred after Phase07C:
 
 - Route enable/disable gateway handlers, later landed in Phase07D below.
-- Route update/settle gateway handlers.
+- Route update later landed in Phase07E below; route.settle remains open.
 - Browser route create/update/control proof and TypeScript protocol/UI work.
 - Durable production/route DB rows, row locks/CAS, settlement idempotency rows,
   and outbox publishing.
@@ -184,7 +185,43 @@ Deferred after Phase07C:
 
 Deferred after Phase07D:
 
-- Route update/settle gateway handlers.
+- Route update later landed in Phase07E below; route.settle remains open.
+- Browser route create/update/control proof and TypeScript protocol/UI work.
+- Durable production/route DB rows, row locks/CAS, settlement idempotency rows,
+  and outbox publishing.
+
+## Phase07E Landed Route Update Gateway Slice
+
+- Added authenticated `route.update` to the realtime registry with intent-burst
+  posture.
+- The gateway accepts only `route_id`, `destination_planet_id`,
+  `resource_item_id`, and `amount_per_hour`. It rejects client-authored
+  owner/player/session, route/list payloads, source/source-planet/source-map
+  facts, destination object/type/id/map/public-map facts, enabled state,
+  settlement facts, timestamps, storage, energy/cost, risk/loss, cooldown,
+  position/coordinates, and non-exact amount/rate/resource aliases before
+  mutation, including nested payload fields.
+- The owner is resolved from the authenticated command context, while the route
+  source and existing owner are loaded from the server-owned route row.
+  Destination is rebuilt with `production.NewPlanetRouteDestination`, and the
+  runtime calls `AutomationRouteService.UpdateRouteForOwner` with the runtime
+  production store, server clock, and map-aware route policy provider.
+- Successful updates return safe `route` plus refreshed `routes` payloads and
+  queue owner-scoped `route.updated`, `route.snapshot`, and `route.list` events
+  without internal map/world/zone ids or AOI diffs. If the pre-update
+  settlement touches storage, the response also includes active-map filtered
+  production/storage snapshots and queues owner-scoped
+  `planet.production_summary` and `planet.storage_summary` events. No
+  `route.settled` event was added in this slice.
+- Focused gateway tests cover owned route term updates, elapsed settlement
+  storage reconciliation, wrong-owner rejection without mutation/events,
+  spoofed server-owned payload rejection before mutation, X Core/non-routeable
+  resource rejection, realtime registry acceptance, and `route.settle`
+  quarantine.
+
+Deferred after Phase07E:
+
+- Route settle gateway handler and durable route settlement idempotency/outbox.
 - Browser route create/update/control proof and TypeScript protocol/UI work.
 - Durable production/route DB rows, row locks/CAS, settlement idempotency rows,
   and outbox publishing.
@@ -347,8 +384,8 @@ contracts:
     safe/PvP zone, source/destination map risk, route distance within map or
     portal-hop distance, player bonuses, and route security modifiers.
 11. Add route mutation handlers using owner wrappers and server-derived player
-    id. `route.create`, `route.enable`, and `route.disable` have landed for
-    the owned-route MVP; update and settle remain open.
+    id. `route.create`, `route.update`, `route.enable`, and `route.disable`
+    have landed for the owned-route MVP; settle remains open.
 12. Make route settlement durable and idempotent by route/window key, for
     example `route_settle:<route_id>:<window_start>:<window_end>`.
 13. Add owner-scoped fanout after commit for claim, production, storage,

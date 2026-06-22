@@ -223,20 +223,25 @@ func TestDecodeRequestEnvelopeAcceptsDiscoveryClaimPlanetOperation(t *testing.T)
 	}
 }
 
-func TestDecodeRequestEnvelopeAcceptsRouteControlOperations(t *testing.T) {
+func TestDecodeRequestEnvelopeAcceptsRouteMutationOperations(t *testing.T) {
 	cases := []struct {
 		name string
 		body string
 		want Operation
 	}{
 		{
+			name: "update",
+			body: `{"request_id":"request-route-update","op":"route.update","payload":{"route_id":"route-1","destination_planet_id":"planet-2","resource_item_id":"refined_alloy","amount_per_hour":25},"client_seq":12,"v":1}`,
+			want: OperationRouteUpdate,
+		},
+		{
 			name: "enable",
-			body: `{"request_id":"request-route-enable","op":"route.enable","payload":{"route_id":"route-1"},"client_seq":12,"v":1}`,
+			body: `{"request_id":"request-route-enable","op":"route.enable","payload":{"route_id":"route-1"},"client_seq":13,"v":1}`,
 			want: OperationRouteEnable,
 		},
 		{
 			name: "disable",
-			body: `{"request_id":"request-route-disable","op":"route.disable","payload":{"route_id":"route-1"},"client_seq":13,"v":1}`,
+			body: `{"request_id":"request-route-disable","op":"route.disable","payload":{"route_id":"route-1"},"client_seq":14,"v":1}`,
 			want: OperationRouteDisable,
 		},
 	}
@@ -245,7 +250,7 @@ func TestDecodeRequestEnvelopeAcceptsRouteControlOperations(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			envelope, err := DecodeRequestEnvelope([]byte(tc.body))
 			if err != nil {
-				t.Fatalf("decode route control request envelope: %v", err)
+				t.Fatalf("decode route mutation request envelope: %v", err)
 			}
 			if envelope.Op != tc.want {
 				t.Fatalf("op = %q, want %q", envelope.Op, tc.want)
@@ -255,7 +260,7 @@ func TestDecodeRequestEnvelopeAcceptsRouteControlOperations(t *testing.T) {
 				t.Fatalf("LookupOperation(%q) not registered", tc.want)
 			}
 			if spec.RateLimitPosture != RateLimitPostureIntentBurst {
-				t.Fatalf("route control posture = %q, want %q", spec.RateLimitPosture, RateLimitPostureIntentBurst)
+				t.Fatalf("route mutation posture = %q, want %q", spec.RateLimitPosture, RateLimitPostureIntentBurst)
 			}
 		})
 	}
@@ -271,7 +276,6 @@ func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testin
 		Operation("progression.respec_skills"),
 		Operation("planet.building_build"),
 		Operation("planet.building_upgrade"),
-		Operation("route.update"),
 		Operation("route.settle"),
 		Operation("intel.share"),
 		Operation("intel.coordinate_item_create"),

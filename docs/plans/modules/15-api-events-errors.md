@@ -360,9 +360,12 @@ Current Phase 07B production/route read payload rule:
   from stored route map ids through the map catalog. Browser payloads must not
   include `source_map_id`, `destination_map_id`, `internal_map_id`, `world_id`,
   or `zone_id`.
-- Route mutation commands and route settlement gateway handlers remain
-  unimplemented. When added, they must derive owner and map truth from the
-  authenticated session and server policy facts, never from client payload ids.
+- `route.create`, `route.update`, `route.enable`, and `route.disable` are
+  authenticated gateway slices. They derive owner, map, and route facts
+  server-side and reject client-authored owner, map, energy, risk, source,
+  destination, settlement, or storage truth as applicable.
+- The `route.settle` gateway remains unimplemented and quarantined. Future work
+  must use server-owned settlement windows and idempotency.
 
 ## Edge Cases
 

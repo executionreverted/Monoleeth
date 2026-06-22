@@ -45,6 +45,7 @@ const (
 	OperationProductionSummary    Operation = "planet.production_summary"
 	OperationPlanetStorage        Operation = "planet.storage_summary"
 	OperationRouteCreate          Operation = "route.create"
+	OperationRouteUpdate          Operation = "route.update"
 	OperationRouteEnable          Operation = "route.enable"
 	OperationRouteDisable         Operation = "route.disable"
 	OperationRouteList            Operation = "route.list"
@@ -277,6 +278,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationRouteCreate: {
 		Operation:        OperationRouteCreate,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationRouteUpdate: {
+		Operation:        OperationRouteUpdate,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationRouteEnable: {
