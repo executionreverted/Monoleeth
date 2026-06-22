@@ -46,6 +46,33 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 	if !combatPayload.Accepted || !combatPayload.Killed || combatPayload.Amount <= 0 || combatPayload.Ship.Capacitor >= 100 {
 		t.Fatalf("combat payload = %+v, want accepted killed with energy spent", combatPayload)
 	}
+	func() {
+		gameServer.runtime.mu.Lock()
+		defer gameServer.runtime.mu.Unlock()
+
+		instance, _, err := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+		if err != nil {
+			t.Fatalf("active map instance: %v", err)
+		}
+		targetID := world.EntityID("entity_training_npc")
+		record, ok := instance.Worker.EnemySpawnRecord(targetID)
+		if !ok {
+			t.Fatalf("starter spawner missing %q after kill; snapshot=%+v", targetID, instance.Worker.EnemySpawnSnapshot())
+		}
+		if record.Alive || record.DeadAt.IsZero() || !record.NextRespawnAt.Equal(record.DeadAt.Add(instance.Definition.EnemyPools[0].KillRespawnDelay)) {
+			t.Fatalf("starter spawn record after kill = %+v, want dead with respawn timing", record)
+		}
+		snapshot := instance.Worker.EnemySpawnSnapshot()
+		if snapshot.MapAliveCount != 0 || snapshot.PoolAliveCounts[record.EnemyPoolID] != 0 {
+			t.Fatalf("starter alive counts after kill = pool %+v map %d, want zero", snapshot.PoolAliveCounts, snapshot.MapAliveCount)
+		}
+		if _, ok := instance.Worker.Entity(targetID); ok {
+			t.Fatalf("target entity %q still present in worker after kill", targetID)
+		}
+		if !instance.HiddenEntities[targetID] {
+			t.Fatalf("target entity %q not hidden after worker accepted death", targetID)
+		}
+	}()
 
 	var dropID string
 	seen := map[realtime.ClientEventType]bool{}

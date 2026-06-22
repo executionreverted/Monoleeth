@@ -141,6 +141,19 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 			"entity_id": result.KillEvent.NPCEntityID.String(),
 			"npc_type":  result.KillEvent.NPCType,
 		})
+		instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
+		if err != nil {
+			return nil, domainErrorForRuntime(err)
+		}
+		if err := commandErrorsFromSubmitAndTick(instance.Worker, worker.MarkEnemyKilledCommand{
+			Definition:  instance.Definition,
+			NPCEntityID: result.KillEvent.NPCEntityID,
+			KilledAt:    result.KillEvent.KilledAt,
+		}); err != nil {
+			return nil, domainErrorForRuntime(err)
+		}
+		instance.HiddenEntities[result.KillEvent.NPCEntityID] = true
+
 		if updated, err := runtime.Quest.ConsumeCombatNPCKilled(quests.CombatNPCKilledInput{
 			EventID:          foundation.EventID("quest-combat-" + request.RequestID.String()),
 			ProgressEventKey: quests.QuestProgressEventKey("combat.npc_killed:" + result.KillEvent.NPCEntityID.String()),
@@ -167,14 +180,6 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 			}
 			runtime.queueEventLocked(sessionID, realtime.EventLootCreated, lootDropPayload(drop, runtime.clock.Now()))
 		}
-		instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
-		if err != nil {
-			return nil, domainErrorForRuntime(err)
-		}
-		if !instance.Worker.RemoveEntity(intent.TargetID) {
-			return nil, domainErrorForRuntime(worker.ErrUnknownEntity)
-		}
-		instance.HiddenEntities[intent.TargetID] = true
 	}
 
 	response := map[string]any{

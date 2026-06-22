@@ -163,9 +163,33 @@ Phase08C coverage was added or updated in:
 - `internal/game/server/server_visibility_detection_test.go`
 - `internal/game/server/server_world_movement_test.go`
 
-Deferred Phase08 work after Phase08C:
+## Phase08D Landed Enemy Death Accounting Slice
 
-- kill/death accounting in spawner rows and alive counters
+The landed Phase08D slice adds worker-owned kill/death accounting for
+spawner-backed NPCs without adding respawn/fill spawning yet. The map worker now
+accepts `MarkEnemyKilledCommand`, validates that the supplied map definition is
+owned by the worker, resolves the server-only spawner row by NPC entity id, and
+marks live rows dead exactly once. A live death records `DeadAt`, derives
+`NextRespawnAt` from the owning pool `KillRespawnDelay`, updates the row
+position from the current worker entity when available, decrements the pool and
+map alive counts once, and removes the world entity. Duplicate death marks are
+idempotent: original timing and counts remain unchanged, while any leftover
+world entity with that id is removed. Unknown or non-spawner entities return the
+worker unknown-entity error.
+
+`combat.use_skill` now notifies the owning map worker/spawner before loot drop
+creation and marks the NPC hidden only after the worker accepts the death. Quest
+progress and XP remain on their existing kill-event flow. Loot selection is
+intentionally unchanged in this slice and still uses the existing runtime loot
+table until the map/risk/rank-aware selector lands.
+
+Phase08D coverage was added or updated in:
+
+- `internal/game/world/worker/enemy_spawner_test.go`
+- `internal/game/server/server_combat_loot_death_test.go`
+
+Deferred Phase08 work after Phase08D:
+
 - delayed respawn and periodic fill ticks
 - map/risk/rank-aware loot table selector
 - aggro/leash simulation
@@ -378,9 +402,10 @@ Risks:
 Acceptance criteria:
 
 Phase08C satisfies the `trainingNPCActor` replacement portion of the first
-criterion for spawner-backed NPCs. The global loot table replacement, death
-accounting, respawn/fill ticks, aggro/leash behavior, and boss/event hooks
-remain open, so the full Phase 08 acceptance criteria are not complete.
+criterion for spawner-backed NPCs. Phase08D satisfies narrow death accounting
+for spawner rows and alive counters. The global loot table replacement,
+respawn/fill ticks, aggro/leash behavior, and boss/event hooks remain open, so
+the full Phase 08 acceptance criteria are not complete.
 
 - No default gameplay path uses `trainingNPCActor` or one global
   `training_drone_salvage` table as the source of truth.

@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -57,6 +58,137 @@ func TestEnemySpawnerInitialFillSpawnsStarterPoolNPC(t *testing.T) {
 	if snapshot.PoolAliveCounts[record.EnemyPoolID] != 1 || snapshot.MapAliveCount != 1 {
 		t.Fatalf("alive counts = pool %+v map %d, want one alive", snapshot.PoolAliveCounts, snapshot.MapAliveCount)
 	}
+}
+
+func TestEnemySpawnerMarkKilledUpdatesDeathAccountingAndRemovesEntity(t *testing.T) {
+	definition := testEnemyMapDefinition()
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+	record := zoneWorker.EnemySpawnSnapshot().Records[0]
+
+	entity, ok := zoneWorker.Entity(record.EntityID)
+	if !ok {
+		t.Fatalf("spawned entity %q missing before kill", record.EntityID)
+	}
+	entity.Position = world.Vec2{X: 575, Y: 525}
+	if err := zoneWorker.UpdateEntity(entity); err != nil {
+		t.Fatalf("UpdateEntity(%q) error = %v, want nil", record.EntityID, err)
+	}
+	killedAt := time.Date(2026, 6, 17, 12, 3, 0, 0, time.UTC)
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MarkEnemyKilledCommand{
+		Definition:  definition,
+		NPCEntityID: record.EntityID,
+		KilledAt:    killedAt,
+	}))
+
+	got, ok := zoneWorker.EnemySpawnRecord(record.EntityID)
+	if !ok {
+		t.Fatalf("EnemySpawnRecord(%q) missing after kill", record.EntityID)
+	}
+	if got.Alive {
+		t.Fatalf("record = %+v, want dead", got)
+	}
+	if !got.DeadAt.Equal(killedAt) {
+		t.Fatalf("DeadAt = %s, want %s", got.DeadAt, killedAt)
+	}
+	wantRespawn := killedAt.Add(definition.EnemyPools[0].KillRespawnDelay)
+	if !got.NextRespawnAt.Equal(wantRespawn) {
+		t.Fatalf("NextRespawnAt = %s, want %s", got.NextRespawnAt, wantRespawn)
+	}
+	if got.Position != entity.Position {
+		t.Fatalf("record position = %+v, want current entity position %+v", got.Position, entity.Position)
+	}
+	snapshot := zoneWorker.EnemySpawnSnapshot()
+	if snapshot.PoolAliveCounts[record.EnemyPoolID] != 0 || snapshot.MapAliveCount != 0 {
+		t.Fatalf("alive counts = pool %+v map %d, want zero", snapshot.PoolAliveCounts, snapshot.MapAliveCount)
+	}
+	if _, ok := zoneWorker.Entity(record.EntityID); ok {
+		t.Fatalf("Entity(%q) still present after kill", record.EntityID)
+	}
+}
+
+func TestEnemySpawnerMarkKilledDuplicateIsIdempotent(t *testing.T) {
+	definition := testEnemyMapDefinition()
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+	record := zoneWorker.EnemySpawnSnapshot().Records[0]
+	firstKilledAt := time.Date(2026, 6, 17, 12, 4, 0, 0, time.UTC)
+	secondKilledAt := firstKilledAt.Add(5 * time.Minute)
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MarkEnemyKilledCommand{
+		Definition:  definition,
+		NPCEntityID: record.EntityID,
+		KilledAt:    firstKilledAt,
+	}))
+	first, ok := zoneWorker.EnemySpawnRecord(record.EntityID)
+	if !ok {
+		t.Fatalf("EnemySpawnRecord(%q) missing after first kill", record.EntityID)
+	}
+	mustInsertWorkerEntity(t, zoneWorker, record.EntityID, world.EntityTypeNPC, world.Vec2{X: 650, Y: 650})
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MarkEnemyKilledCommand{
+		Definition:  definition,
+		NPCEntityID: record.EntityID,
+		KilledAt:    secondKilledAt,
+	}))
+
+	duplicate, ok := zoneWorker.EnemySpawnRecord(record.EntityID)
+	if !ok {
+		t.Fatalf("EnemySpawnRecord(%q) missing after duplicate kill", record.EntityID)
+	}
+	if duplicate.Alive {
+		t.Fatalf("record = %+v, want still dead after duplicate kill", duplicate)
+	}
+	if !duplicate.DeadAt.Equal(first.DeadAt) || !duplicate.NextRespawnAt.Equal(first.NextRespawnAt) {
+		t.Fatalf("duplicate timing = dead %s respawn %s, want original dead %s respawn %s",
+			duplicate.DeadAt, duplicate.NextRespawnAt, first.DeadAt, first.NextRespawnAt)
+	}
+	if duplicate.Position != first.Position {
+		t.Fatalf("duplicate position = %+v, want original death position %+v", duplicate.Position, first.Position)
+	}
+	snapshot := zoneWorker.EnemySpawnSnapshot()
+	if snapshot.PoolAliveCounts[record.EnemyPoolID] != 0 || snapshot.MapAliveCount != 0 {
+		t.Fatalf("alive counts after duplicate = pool %+v map %d, want zero", snapshot.PoolAliveCounts, snapshot.MapAliveCount)
+	}
+	if _, ok := zoneWorker.Entity(record.EntityID); ok {
+		t.Fatalf("leftover Entity(%q) still present after duplicate kill", record.EntityID)
+	}
+}
+
+func TestEnemySpawnerMarkKilledUnknownOrNonSpawnerEntityReturnsUnknown(t *testing.T) {
+	definition := testEnemyMapDefinition()
+
+	t.Run("unknown entity", func(t *testing.T) {
+		zoneWorker := newWorkerForMapDefinition(t, definition)
+
+		result := tickSubmitted(t, zoneWorker, MarkEnemyKilledCommand{
+			Definition:  definition,
+			NPCEntityID: "entity_missing",
+			KilledAt:    time.Date(2026, 6, 17, 12, 5, 0, 0, time.UTC),
+		})
+		if len(result.CommandErrors) != 1 || !errors.Is(result.CommandErrors[0].Err, ErrUnknownEntity) {
+			t.Fatalf("command errors = %+v, want ErrUnknownEntity", result.CommandErrors)
+		}
+	})
+
+	t.Run("non spawner entity", func(t *testing.T) {
+		zoneWorker := newWorkerForMapDefinition(t, definition)
+		assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+		mustInsertWorkerEntity(t, zoneWorker, "entity_non_spawner_npc", world.EntityTypeNPC, world.Vec2{X: 700, Y: 700})
+
+		result := tickSubmitted(t, zoneWorker, MarkEnemyKilledCommand{
+			Definition:  definition,
+			NPCEntityID: "entity_non_spawner_npc",
+			KilledAt:    time.Date(2026, 6, 17, 12, 6, 0, 0, time.UTC),
+		})
+		if len(result.CommandErrors) != 1 || !errors.Is(result.CommandErrors[0].Err, ErrUnknownEntity) {
+			t.Fatalf("command errors = %+v, want ErrUnknownEntity", result.CommandErrors)
+		}
+		if _, ok := zoneWorker.Entity("entity_non_spawner_npc"); !ok {
+			t.Fatal("non-spawner entity was removed despite ErrUnknownEntity")
+		}
+	})
 }
 
 func TestEnemySpawnerInitialFillRespectsPoolAndMapCaps(t *testing.T) {

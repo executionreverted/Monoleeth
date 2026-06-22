@@ -50,6 +50,18 @@ func (command InitializeEnemyPoolsCommand) apply(worker *Worker) error {
 	return worker.initializeEnemyPools(command.Definition, command.EntityIDOverrides)
 }
 
+// MarkEnemyKilledCommand records a spawner-backed NPC death in worker-owned
+// lifecycle state and removes the live world entity if it is still present.
+type MarkEnemyKilledCommand struct {
+	Definition  worldmaps.MapDefinition
+	NPCEntityID world.EntityID
+	KilledAt    time.Time
+}
+
+func (command MarkEnemyKilledCommand) apply(worker *Worker) error {
+	return worker.markEnemyKilled(command.Definition, command.NPCEntityID, command.KilledAt)
+}
+
 // EnemySpawnSnapshot returns clone-safe server-only spawner state.
 func (worker *Worker) EnemySpawnSnapshot() EnemySpawnSnapshot {
 	if worker.enemySpawner == nil {
@@ -149,6 +161,49 @@ func (worker *Worker) initializeEnemyPools(definition worldmaps.MapDefinition, o
 	return nil
 }
 
+func (worker *Worker) markEnemyKilled(definition worldmaps.MapDefinition, entityID world.EntityID, killedAt time.Time) error {
+	if err := worker.validateEnemyPoolDefinitionOwnership(definition); err != nil {
+		return err
+	}
+	if worker.enemySpawner == nil {
+		return fmt.Errorf("enemy spawn entity %q: %w", entityID, ErrUnknownEntity)
+	}
+
+	index, ok := worker.enemySpawner.byEntityID[entityID]
+	if !ok {
+		return fmt.Errorf("enemy spawn entity %q: %w", entityID, ErrUnknownEntity)
+	}
+	record := worker.enemySpawner.rows[index]
+	if !record.Alive {
+		worker.removeEntity(entityID)
+		return nil
+	}
+
+	pools := enemyPoolsByID(definition.EnemyPools)
+	pool, ok := pools[record.EnemyPoolID]
+	if !ok {
+		return fmt.Errorf("enemy pool %q: %w", record.EnemyPoolID, worldmaps.ErrInvalidCatalog)
+	}
+	if killedAt.IsZero() {
+		killedAt = worker.clock.Now()
+	}
+	if entity, ok := worker.entities[entityID]; ok {
+		record.Position = entity.Position
+	}
+	record.Alive = false
+	record.DeadAt = killedAt
+	record.NextRespawnAt = killedAt.Add(pool.KillRespawnDelay)
+	worker.enemySpawner.rows[index] = record
+
+	if worker.enemySpawner.aliveByPool[record.EnemyPoolID] > 0 {
+		worker.enemySpawner.aliveByPool[record.EnemyPoolID]--
+	} else {
+		worker.enemySpawner.aliveByPool[record.EnemyPoolID] = 0
+	}
+	worker.removeEntity(entityID)
+	return nil
+}
+
 func initialEnemyMapAliveCap(pools []worldmaps.MapEnemyPoolDefinition) (int, bool) {
 	cap := 0
 	hasCap := false
@@ -184,6 +239,14 @@ func spawnAreasByID(areas []worldmaps.MapSpawnAreaDefinition) map[worldmaps.Spaw
 	byID := make(map[worldmaps.SpawnAreaID]worldmaps.MapSpawnAreaDefinition, len(areas))
 	for _, area := range areas {
 		byID[area.SpawnAreaID] = area
+	}
+	return byID
+}
+
+func enemyPoolsByID(pools []worldmaps.MapEnemyPoolDefinition) map[worldmaps.EnemyPoolID]worldmaps.MapEnemyPoolDefinition {
+	byID := make(map[worldmaps.EnemyPoolID]worldmaps.MapEnemyPoolDefinition, len(pools))
+	for _, pool := range pools {
+		byID[pool.EnemyPoolID] = pool
 	}
 	return byID
 }
