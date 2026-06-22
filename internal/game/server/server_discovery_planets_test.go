@@ -191,6 +191,186 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 		t.Fatalf("spoofed scan error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
 	}
 }
+
+func TestScanPulseUsesActiveDestinationMapScope(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSessionOnMap(t, gameServer, "scan-map-two@example.com", "Scan Map Two", "map_1_2", "west_gate")
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-scan-map-two","op":"scan.pulse","payload":{},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("scan.pulse response error = %+v, want success", response.Error)
+	}
+	assertPayloadOmitsScannerNoFogTruth(t, "map_1_2 scan response", response.Response.Payload)
+	assertPayloadOmitsActiveMapInternalTruth(t, "map_1_2 scan response", response.Response.Payload)
+
+	var scanPayload struct {
+		Scan         scanPulsePayload           `json:"scan"`
+		KnownPlanets knownPlanetsPayload        `json:"known_planets"`
+		Progression  progressionSnapshotPayload `json:"progression"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &scanPayload); err != nil {
+		t.Fatalf("decode map_1_2 scan response: %v", err)
+	}
+
+	events, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationScanPulse, resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("post map_1_2 scan events: %v", err)
+	}
+	for _, event := range events {
+		assertPayloadOmitsScannerNoFogTruth(t, string(event.Type)+" map_1_2 event", mustJSON(t, event))
+		assertPayloadOmitsActiveMapInternalTruth(t, string(event.Type)+" map_1_2 event", mustJSON(t, event))
+	}
+
+	switch scanPayload.Scan.Status {
+	case string(discovery.ScanPulseStatusPlanetDiscovered):
+		if scanPayload.Scan.PlanetID == "" || scanPayload.Scan.Signal == nil {
+			t.Fatalf("scan payload = %+v, want discovered planet with safe signal", scanPayload.Scan)
+		}
+		if len(scanPayload.KnownPlanets.Planets) != 1 || scanPayload.KnownPlanets.Planets[0].PlanetID != scanPayload.Scan.PlanetID {
+			t.Fatalf("known planets = %+v, want only discovered planet %s", scanPayload.KnownPlanets, scanPayload.Scan.PlanetID)
+		}
+		if scanPayload.KnownPlanets.Planets[0].PublicMapKey != "1-2" {
+			t.Fatalf("known planet public map key = %q, want 1-2", scanPayload.KnownPlanets.Planets[0].PublicMapKey)
+		}
+		assertScanMapTwoKnownEvent(t, events, scanPayload.Scan.PlanetID)
+		assertScanMapTwoKnownPlanetsQuery(t, gameServer, resolved, scanPayload.Scan.PlanetID)
+		assertScanMapTwoPlanetDetail(t, gameServer, resolved, scanPayload.Scan.PlanetID)
+		assertScanMapTwoWorldSnapshot(t, gameServer, resolved, scanPayload.Scan.PlanetID)
+	case string(discovery.ScanPulseStatusNoSignal):
+		if scanPayload.Scan.PlanetID != "" || scanPayload.Scan.Signal != nil || scanPayload.Scan.XPGranted {
+			t.Fatalf("no-signal scan payload = %+v, want no planet/intel/xp truth", scanPayload.Scan)
+		}
+		if len(scanPayload.KnownPlanets.Planets) != 0 || scanPayload.KnownPlanets.Counts.Known != 0 {
+			t.Fatalf("no-signal known planets = %+v, want none", scanPayload.KnownPlanets)
+		}
+		if planets := gameServer.runtime.Discovery.Planets(); len(planets) != 0 {
+			t.Fatalf("no-signal scan planets = %d, want no discovery mutation", len(planets))
+		}
+		intel, err := gameServer.runtime.Discovery.PlayerPlanetIntelRecords(resolved.PlayerID)
+		if err != nil {
+			t.Fatalf("PlayerPlanetIntelRecords() error = %v, want nil", err)
+		}
+		if len(intel) != 0 {
+			t.Fatalf("no-signal scan intel records = %d, want none", len(intel))
+		}
+		assertScanMapTwoWorldSnapshot(t, gameServer, resolved, "")
+	default:
+		t.Fatalf("scan status = %q, want planet_discovered or no_signal", scanPayload.Scan.Status)
+	}
+}
+
+func assertScanMapTwoKnownEvent(t *testing.T, events []realtime.EventEnvelope, planetID string) {
+	t.Helper()
+	for _, event := range events {
+		if event.Type != realtime.EventKnownPlanets {
+			continue
+		}
+		var payload struct {
+			Planets []knownPlanetPayload `json:"planets"`
+			Counts  planetIntelCounts    `json:"counts"`
+			Minimap minimapPayload       `json:"minimap"`
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatalf("decode known planets event: %v", err)
+		}
+		if len(payload.Planets) != 1 || payload.Planets[0].PlanetID != planetID || payload.Planets[0].PublicMapKey != "1-2" {
+			t.Fatalf("known planets event = %+v, want planet %s on public map 1-2", payload.Planets, planetID)
+		}
+		if len(payload.Minimap.Remembered) != 1 || payload.Minimap.Remembered[0].PlanetID != planetID || payload.Minimap.Remembered[0].PublicMapKey != "1-2" {
+			t.Fatalf("known planets event minimap = %+v, want planet %s on public map 1-2", payload.Minimap.Remembered, planetID)
+		}
+		return
+	}
+	t.Fatalf("events = %+v, missing known planets event", events)
+}
+
+func assertScanMapTwoKnownPlanetsQuery(t *testing.T, gameServer *Server, resolved auth.ResolvedSession, planetID string) {
+	t.Helper()
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-known-planets-map-two","op":"discovery.known_planets","payload":{},"client_seq":2,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("discovery.known_planets response error = %+v, want success", response.Error)
+	}
+	assertPayloadOmitsScannerNoFogTruth(t, "map_1_2 known planets response", response.Response.Payload)
+	assertPayloadOmitsActiveMapInternalTruth(t, "map_1_2 known planets response", response.Response.Payload)
+	var payload struct {
+		KnownPlanets knownPlanetsPayload `json:"known_planets"`
+		Minimap      minimapPayload      `json:"minimap"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode known planets response: %v", err)
+	}
+	if len(payload.KnownPlanets.Planets) != 1 || payload.KnownPlanets.Planets[0].PlanetID != planetID || payload.KnownPlanets.Planets[0].PublicMapKey != "1-2" {
+		t.Fatalf("known planets response = %+v, want planet %s on public map 1-2", payload.KnownPlanets.Planets, planetID)
+	}
+	if len(payload.Minimap.Remembered) != 1 || payload.Minimap.Remembered[0].PlanetID != planetID || payload.Minimap.Remembered[0].PublicMapKey != "1-2" {
+		t.Fatalf("known planets minimap = %+v, want planet %s on public map 1-2", payload.Minimap.Remembered, planetID)
+	}
+}
+
+func assertScanMapTwoPlanetDetail(t *testing.T, gameServer *Server, resolved auth.ResolvedSession, planetID string) {
+	t.Helper()
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-planet-detail-map-two","op":"discovery.planet_detail","payload":{"planet_id":"`+planetID+`"},"client_seq":3,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("discovery.planet_detail response error = %+v, want success", response.Error)
+	}
+	assertPayloadOmitsScannerNoFogTruth(t, "map_1_2 planet detail response", response.Response.Payload)
+	assertPayloadOmitsActiveMapInternalTruth(t, "map_1_2 planet detail response", response.Response.Payload)
+	var payload struct {
+		PlanetDetail planetDetailPayload `json:"planet_detail"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode planet detail response: %v", err)
+	}
+	if payload.PlanetDetail.PlanetID != planetID || payload.PlanetDetail.PublicMapKey != "1-2" {
+		t.Fatalf("planet detail = %+v, want planet %s on public map 1-2", payload.PlanetDetail, planetID)
+	}
+	if payload.PlanetDetail.Coordinates.X == 0 && payload.PlanetDetail.Coordinates.Y == 0 {
+		t.Fatalf("planet detail coordinates = %+v, want discovered map-local coordinates", payload.PlanetDetail.Coordinates)
+	}
+}
+
+func assertScanMapTwoWorldSnapshot(t *testing.T, gameServer *Server, resolved auth.ResolvedSession, planetID string) {
+	t.Helper()
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-world-snapshot-map-two","op":"world.snapshot","payload":{},"client_seq":4,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("world.snapshot response error = %+v, want success", response.Error)
+	}
+	assertPayloadOmitsScannerNoFogTruth(t, "map_1_2 world snapshot response", response.Response.Payload)
+	assertPayloadOmitsActiveMapInternalTruth(t, "map_1_2 world snapshot response", response.Response.Payload)
+	var snapshot worldSnapshotPayload
+	if err := json.Unmarshal(response.Response.Payload, &snapshot); err != nil {
+		t.Fatalf("decode world snapshot response: %v", err)
+	}
+	if snapshot.Map.PublicMapKey != "1-2" {
+		t.Fatalf("world snapshot map = %+v, want public map 1-2", snapshot.Map)
+	}
+	if planetID == "" {
+		if len(snapshot.Minimap.Remembered) != 0 {
+			t.Fatalf("no-signal remembered minimap = %+v, want none", snapshot.Minimap.Remembered)
+		}
+		return
+	}
+	if len(snapshot.Minimap.Remembered) != 1 {
+		t.Fatalf("remembered minimap = %+v, want only discovered destination-map planet", snapshot.Minimap.Remembered)
+	}
+	memory := snapshot.Minimap.Remembered[0]
+	if memory.PlanetID != planetID || memory.DetailID != planetID || memory.PublicMapKey != "1-2" || memory.SectorKey == "1-1" {
+		t.Fatalf("remembered minimap memory = %+v, want planet %s only on public map 1-2", memory, planetID)
+	}
+}
+
 func TestScanPulseSpendsStarterShipCapacitorOnce(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
@@ -668,6 +848,23 @@ func assertPayloadOmitsScannerNoFogTruth(t *testing.T, label string, payload []b
 	for _, fragment := range forbidden {
 		if strings.Contains(raw, fragment) {
 			t.Fatalf("%s leaked %q in %s", label, fragment, raw)
+		}
+	}
+}
+
+func assertPayloadOmitsActiveMapInternalTruth(t *testing.T, label string, payload []byte) {
+	t.Helper()
+	raw := string(payload)
+	for _, forbidden := range []string{
+		"map_1_1",
+		"map_1_2",
+		"world_id",
+		"zone_id",
+		"candidate_key",
+		"procedural_seed",
+	} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("%s leaked %q in %s", label, forbidden, raw)
 		}
 	}
 }
