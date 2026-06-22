@@ -3,306 +3,161 @@
 ## Goal
 
 Verify and roll out the bounded multi-map rework without cross-map data leaks,
-fake client state, or economy/combat regressions. This phase is the release gate
-for map catalog, map workers, portal handoff, safe/PvP policy, radar/stealth,
-bounded scanner/planet logic, per-map enemy pools, map-aware loot, and the
+fake client state, or economy/combat regressions. This phase is the release
+gate for map catalog/schema, runtime map membership, portal handoff,
+safe/PvP policy, radar/stealth visibility, bounded scanner/planet logic,
+planet claim/production/routes, per-map enemy pools, map-aware loot, and the
 client map UI/protocol.
 
-## Current State To Replace/Reuse
+This document is an audit and rollout record only. It must not invent release
+evidence. Rows marked `Covered` cite existing named audit/test evidence. Rows
+marked `Partial` have some named coverage but still have audit gaps. Rows
+marked `Open` are not implemented rollout controls yet.
 
-Replace or expand:
+## Phase10 Progress/Audit Table
 
-- `docs/map-rework/00-index.md:23-50` records canonical rework decisions:
-  bounded `0..10000` maps, local radar visibility, no fog-of-war wave,
-  map-owned workers/content, portal validation, rare planet scanning, map-owned
-  enemy pools, and data-oriented worker/spawner storage.
-- `docs/map-rework/00-index.md:85-99` defines cross-phase invariants such as no
-  cross-map leakage, broadcast after mutation, server-owned map membership,
-  bounds enforcement, safe/PvP server enforcement, radar/stealth authority, and
-  hidden seed exclusion.
-- `docs/plans/ui-implementation/05-combat-loot-death-repair.md:77-100`
-  documents the existing combat/loot/death event contract and recipient-safe
-  payload expectations.
-- `docs/plans/ui-implementation/05-combat-loot-death-repair.md:108-135`
-  documents the current real fight/loot loop and notes that repair/death
-  hardening still has gaps.
-- `docs/plans/ui-implementation/10-final-mockup-parity-hardening.md:35-64`
-  documents the current HUD state, real-data requirement, action rail, minimap,
-  marker parity, and screenshot artifacts.
-- `docs/plans/ui-implementation/10-final-mockup-parity-hardening.md:158-201`
-  lists the existing backend/client/E2E verification matrix.
-- `docs/plans/ui-implementation/10-final-mockup-parity-hardening.md:207-218`
-  requires the browser runner to use the real Go server, mail/password auth,
-  cookie session, `/ws`, real protocol, and no JavaScript fixtures.
-- `docs/plans/ui-implementation/10-final-mockup-parity-hardening.md:309-318`
-  records the release gate: `go test ./...`, client
-  `npm --cache /tmp/gameproject-npm-cache run check`, and `git diff --check`.
+| Area | Status | Owner package/files | Command/query/event names | Positive tests | Negative/abuse tests | Browser artifact | Rollout note |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Map catalog/schema | Partial | `internal/game/world/maps/catalog.go`, `internal/game/world/maps/router.go`, `docs/map-rework/phase-01-map-catalog-router.md` | `map.snapshot`, `world.snapshot`, catalog `ClientMapProjection` | `catalog/router`: `TestStarterCatalogReturnsBoundedStarterSpawnAndProjection`, `TestRouterEnsureStarterLocationCreatesOnceAndPreservesExisting`, `TestRouterValidatesActivePosition` | `catalog/router`: `TestCatalogValidationRejectsInvalidDefinitions`; audit gap: invalid risk/`PVPPolicy` validation direct test missing | Covered indirectly by Phase09 desktop map screenshots only | Keep catalog seed deterministic. Production rollout still needs durable flag/backfill docs if DB persistence is introduced. |
+| Runtime map instances/membership | Covered | `internal/game/server/runtime.go`, `internal/game/server/server_world_runtime_map_test.go`, `internal/game/world/worker` | `world.snapshot`, `move_to`, `stop`, AOI diffs, `map_subscription_epoch` | `server_world_runtime_map`: `TestRuntimeConstructsWorkerPerConfiguredMapDefinition`, `TestEnsurePlayerSessionPreservesExistingActiveMap`, `TestSessionReconnectMovesMembershipAndAOICursorToActiveMap`, `TestActiveMapSnapshotUsesActiveMapWorker`, `TestTickLoopEmitsAOIOnlyToSessionsAttachedToSameMap` | `server_world_runtime_map`: `TestMoveToAndStopMutateOnlyActiveMapWorker`; live commands during transfer covered in `server_map_transport` | Phase09 desktop screenshots prove starter and destination snapshots only | Current in-memory/dev runtime already routes through bounded multi-map behavior. Production persistence needs migration/backfill/quarantine planning. |
+| Portal handoff | Partial | `internal/game/server/server_map_transport_test.go`, `internal/game/server/transport.go`, `client/src/app`, `client/src/state` | `portal.enter`, `map.transfer_started`, `map.transfer_completed`, `map.transfer_failed`, `map.changed`, `world.snapshot`, `player.protection_updated`, `map_subscription_epoch` | `server_map_transport`: `TestPortalEnterTransfersPlayerAndAllActiveSessions`, `TestWorldSnapshotBootstrapIncludesMapSubscriptionEpoch`; client e2e phase09 drives `portal.enter` through a same-session browser WebSocket | `server_map_transport`: `TestPortalEnterRejectsTrustedInternalFieldsWithoutMutation`, `TestPortalEnterOutOfRangeAndCooldownAreNonMutating`, `TestPortalEnterRollbackCleansDestinationAfterSessionAttachFailure`, `TestPortalEnterDuplicateAndOldEpochQueuedEventsDoNotDuplicateOrLeak`, `TestLiveCommandsRejectWhileTransferActive`, `TestScanPulseRejectsPortalTransferInterleavingBeforeQueue`, `TestScanPulseAbortsWhenMapEpochChangesBeforeMutation` | `output/screenshots/ui-implementation/09/map-origin-desktop.png`, `output/screenshots/ui-implementation/09/map-outer-ring-desktop.png` | Browser proof is partial: full fight/loot/scan/portal loop and tablet/mobile screenshots remain open. |
+| Safe/PvP policy | Partial | `internal/game/server/server_phase04_policy_test.go`, `internal/game/server/policy_protection.go`, `docs/map-rework/phase-04-portals-safe-zones-pvp.md` | `combat.use_skill`, `player.protection_updated`, `world.snapshot`, map `pvp_policy` | `server_phase04_policy`: `TestAllowedPvPPersistsTargetPlayerStateAndEvents`, `TestPvEAllowedInSafeAndPVEMap` | `server_phase04_policy`: `TestPvPBlockedByMapPolicyBeforeCombatMutation`, `TestPvPBlockedBySafeZoneBeforeCombatMutation`, `TestPvPBlockedByProtectionBeforeCombatMutationAndInitiationBreaksProtection`; audit gaps: no PvP-enabled map seed, invalid risk/`PVPPolicy` validation direct test missing, PvP death/cargo/checkpoint tests missing, safe-zone PvP browser click gap | Phase09 destination screenshot includes safe-zone/protection state, but no browser PvP click proof | Starter maps stay PvP-disabled/protected. PvP rewards must not roll out until death/cargo/checkpoint and abuse coverage exist. |
+| Radar/stealth visibility | Partial | `internal/game/server/server_world_visibility_test.go`, `internal/game/world/visibility`, `internal/game/world/worker` | `stealth.toggle`, `scan.pulse`, `aoi.entity_entered`, `aoi.entity_updated`, `world.snapshot` | `server_world_visibility`: `TestHiddenPlayerWitnessVisibilityIsViewerSpecificAndExpires`, `TestScanPulseRevealsHiddenPlayerWithoutPlanetIntelOrXP`, `TestWorldSnapshotProjectionUsesServerOwnedRadarStat`, `TestKnownPlanetMemoryIsFilteredToActiveMapPublicKey` | `server_world_visibility`: `TestScanPulseDoesNotRevealHiddenPlayerOutsideEffectiveRadarRange`, forbidden hidden-player leak checks in witness tests; audit gap: storage/cookie/WebSocket/screenshot leak scans missing | No complete browser witness artifact in this rollout audit | Server-side visibility is strong; rollout still needs broader browser/leak canary scope. |
+| Bounded scanner/planets | Partial | `internal/game/discovery/candidate.go`, `internal/game/discovery/scanner.go`, `internal/game/server/server_discovery_planets_test.go`, `docs/map-rework/phase-06-bounded-scanner-planets.md` | `scan.pulse`, `scan.pulse_started`, `scan.pulse_resolved`, `scan.planet_discovered`, `discovery.known_planets`, `discovery.planet_detail` | discovery candidate/scanner: `TestResolveScanPulseDiscoversPlanetWritesIntelEventAndXPOnce`, `TestResolveScanPulseMaterializationAndIntelAreZoneScoped`, `server_discovery_planets` | discovery candidate/scanner: `TestStartScanPulseCooldownBlocksSpamWithoutMutation`, `TestStartScanPulseEnergyUnavailableFailsBeforeCooldownAndMutation`, `TestResolveScanPulseRadarTooLowReturnsGenericNoSignal`, `TestResolveScanPulseResultJSONOmitsHiddenTruth`; audit gaps: no per-map scanner/claim/drop seed matrix, scanner rarity/no-fog regression missing | Phase09 browser proof does not cover scanner success/no-signal paths | Keep dev/test scanner seed deterministic and separate from production rarity tuning. |
+| Planet claim/production/routes | Partial | `internal/game/server/server_planet_claim_test.go`, `internal/game/production/route_test.go`, `internal/game/production/route_mutation_test.go`, `docs/map-rework/phase-07-planet-claim-production-routes.md` | `discovery.claim_planet`, `planet.claimed`, `discovery.known_planets`, `discovery.planet_detail`, `planet.production_summary`, `planet.storage_summary`, `route.list`, `route.snapshot`, future `route.create/update/enable/disable/settle` | `server_planet_claim`: `TestClaimPlanetSucceedsForKnownNearbyPlanetAndEmitsSafeOwnerEvents`, `TestClaimPlanetDuplicateRetryDoesNotConsumeSecondXCore`; production route: `TestCreateRouteDistanceAndRiskCalculation`, `TestCreateRouteStoresDetachedEnabledRoute`, `TestAutomationRouteValidateRequiresMapIdentity` | `server_planet_claim`: trusted/unknown payload, missing X Core, cross-map, out-of-range, low-rank rejection tests; production route: ownership, destination, non-routeable, unsupported destination, non-positive rate, requirement, policy map identity tests; audit gap: authenticated route mutation gateway contracts open | No claim/route browser rollout artifact in Phase09 proof | Route mutation gap remains tracked in `docs/todo.md`; durable DB/outbox/backfill is still required before multi-process persistence. |
+| Enemy pools/spawners | Partial | `internal/game/world/maps/enemy_catalog.go`, `internal/game/world/worker/enemy_spawner.go`, `internal/game/server/server_enemy_spawner_test.go`, `docs/map-rework/phase-08-enemy-pools-spawners-ecs.md` | Worker `InitializeEnemyPoolsCommand`, `TriggerEnemyEventSpawnCommand`, `combat.use_skill`, worker tick telemetry | `enemy_spawner`: `TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner`, `TestNPCActorProjectionRefreshesTemplateBackedStats`, worker `enemy_spawner` respawn/fill coverage | `enemy_spawner`: `TestBootstrapProjectionDoesNotLeakEnemyPoolOrDropProfileInternals`, ownership/cap/forbidden-candidate tests; audit gaps: map `1-2` lacks enemy pool, second-map enemy pool seed missing | Starter NPC can appear in normal browser play, but no second-map enemy proof | Add a second-map seed before treating cross-map combat/spawn behavior as rollout-complete. |
+| Map-aware loot/drop | Partial | `internal/game/server/npc_loot_selector.go`, `internal/game/server/npc_loot_selector_test.go`, `internal/game/loot/service.go`, `internal/game/loot/service_test.go` | `combat.use_skill`, `loot.drop_created`, `loot.pickup`, `inventory.snapshot`, `wallet.snapshot` | `npc_loot_selector`: `TestNPCLootSelectorUsesSpawnRecordDropProfileLootTable`; loot service: `TestCreateDropsForNPCKillRollsServerSideAndIsIdempotent`, `TestPickupDropOwnerLockPublicAndExpiredWindows` | `npc_loot_selector`: `TestNPCLootSelectorRejectsMissingInputsWithoutTrainingFallback`; loot service: far/hidden/cargo-full, duplicate/concurrent pickup, expired/claimed tests; audit gap: map-aware drop matrix/cross-map loot pickup missing | Existing Phase09 proof does not include fight/loot after portal | Need per-map/risk/rank drop seed matrix plus cross-map pickup rejection before rollout. |
+| Client map UI/protocol | Partial | `client/src/protocol/envelope.ts`, `client/src/state/reducer.ts`, `client/src/render`, `client/src/ui`, `client/tests/e2e/phase09-map-flow.mjs`, `docs/map-rework/phase-09-client-map-ui-protocol.md` | `world.snapshot`, `map.snapshot`, `map.changed`, `map.policy_updated`, `portal.enter`, `player.protection_updated` | client e2e phase09 verifies real auth, starter map `1-1`, portal visibility, destination `1-2`, old portal absence, and desktop screenshots | Client protocol/reducer forbidden key tests; e2e scans DOM/smoke state for hidden map/spawn/seed/destination internals; audit gaps: desktop/tablet/mobile screenshots incomplete, full fight/loot/scan/portal browser loop missing, safe-zone PvP browser click gap, e2e not in `npm run check` | `output/screenshots/ui-implementation/09/map-origin-desktop.png`, `output/screenshots/ui-implementation/09/map-outer-ring-desktop.png` | Keep Phase09 smoke explicit until project decides whether to include it in `client` check. |
+| No fake/default fixtures | Partial | `client/src/app`, `client/src/protocol/envelope.ts`, `client` bundle scan, `internal/game/server/server_auth_transport_test.go`, `docs/todo.md` | default real mode, `?demo=1` dev-only fixture path, `debug_spawn_npc`, `debug_snapshot` | Phase08J debug/demo spawn quarantine; default authenticated client path uses real Go server/session | Protocol forbidden-payload tests, production debug spawn rejection, partial bundle hidden-token scan; audit gaps: storage/cookie/WebSocket/screenshot leak scans missing, bundle hidden-token scan partial | Phase09 screenshots are real-server screenshots, not fixture screenshots | Do not use demo/fixture screenshots as release proof. Add broader leak canaries before rollout. |
+| Rollout/migration controls | Open | `docs/running-local-game.md`, future server config/docs, future persistence migration docs | Proposed flag only: `GAME_FEATURE_BOUNDED_MULTI_MAP`; future migration/backfill jobs | This docs patch defines the runbook; no code flag/test evidence exists today | No durable flag/backfill/quarantine/rollback tests yet | N/A | Current in-memory/dev runtime already routes through bounded multi-map behavior, but production rollout still needs a durable flag/backfill plan if DB persistence is introduced. |
 
-Reuse:
+## Known Audit Gaps
 
-- `client/src/protocol/envelope.ts:207-317` as the client-side forbidden
-  payload scan gate for hidden seeds, future spawns, scan candidates, loot rolls,
-  loot tables, trusted ids, and secrets.
-- `client/src/state/reducer.ts:3286-3331` as the gameplay clearing model for
-  auth/logout/session failure and as the pattern for map-change clearing.
-- `internal/game/loot/service.go:187-227` and
-  `internal/game/loot/service.go:608-614` for duplicate-safe drop creation from
-  one NPC death source.
-- `internal/game/loot/service.go:337-345` for ledger/idempotency on loot pickup.
-- `docs/2026-06-17-progression-economy-systems-design.md:2785-2808` for the
-  rule that the client cannot decide damage, hit/miss, loot drop, pickup
-  validity, XP, production, ship death, repair cost, or planet ownership.
-- `docs/2026-06-17-progression-economy-systems-design.md:3018-3036` for the
-  loot drop persistence fields that already carry world/zone, position,
-  item/quantity, owner lock, source type/id, and timestamps.
+- No PvP-enabled map seed.
+- Map `1-2` lacks an enemy pool; second-map enemy pool seed is missing.
+- No per-map scanner/claim/drop seed matrix.
+- Invalid risk/`PVPPolicy` validation direct test is missing.
+- PvP death/cargo/checkpoint tests are missing.
+- Scanner rarity/no-fog regression is missing.
+- Authenticated route mutation gateway contracts remain open; use the existing
+  `docs/todo.md` route mutation TODO rather than duplicating it.
+- Map-aware drop matrix/cross-map loot pickup tests are missing.
+- Desktop/tablet/mobile screenshots are incomplete; current Phase09 artifacts
+  are desktop only.
+- Full fight/loot/scan/portal browser loop is missing.
+- Storage/cookie/WebSocket/screenshot leak scans are missing.
+- Bundle hidden-token scan is partial.
+- Safe-zone PvP browser click proof is missing.
+- `client` `npm run check` does not run the Phase09 Playwright smoke.
+- Old design docs still contain legacy infinite-space, distance-from-origin, and
+  fog-memory language. `docs/2026-06-17-world-system-design.md` has a bounded
+  supersession note but still needs local terminology cleanup; the progression
+  economy doc still needs a bounded-map risk-policy pass.
 
-## Target Model
+## Rollout/Runbook
 
-Rollout proceeds behind deterministic map seeds and explicit feature gates until
-the real server browser smoke covers the full map loop:
+### Current Dev Runtime
 
-```text
-register/login
-restore authenticated session
-spawn in starter map
-receive map snapshot with bounds, policy, portals, minimap, and AOI
-move within bounds
-fight per-map NPCs from map enemy pools
-create map/risk-aware drops
-pick up visible owned/public drops
-scan for rare planet signal in bounded map
-portal to another map
-verify old-map contacts disappear
-verify safe-zone PvP is blocked
-verify PvP-map policy allows eligible PvP later
-reconnect and reconcile current map/member state
+The current in-memory/dev runtime already routes authenticated sessions through
+bounded multi-map behavior: map catalog lookup, per-map worker instances,
+server-owned active map membership, bounded movement, portal transfer, public
+map snapshots, and map-scoped AOI all run in the local Go server.
+
+There is no production rollout flag in code today. Use `GAME_FEATURE_BOUNDED_MULTI_MAP`
+as the proposed future flag name if a durable DB-backed or production
+deployment path is introduced. Do not document that flag as available until the
+server actually reads it.
+
+### Deterministic Seeds
+
+Local and CI smoke should use deterministic map seeds:
+
+- starter map `1-1` / Origin Fringe, bounded `0..10000`
+- destination map `1-2` / Outer Ring, bounded `0..10000`
+- explicit bidirectional portals such as `east_gate` and `west_gate`
+- explicit safe-zone/protection projections
+- explicit starter enemy pool and future second-map enemy pool
+- explicit scanner and planet claim/drop profiles for a per-map matrix
+
+Production tuning must stay separate from dev/test seeds. Scanner rarity,
+enemy spawn density, drop rates, route risk, and PvP rewards should not inherit
+forced deterministic smoke values.
+
+### Local Smoke
+
+Run the focused real-server Phase09 bounded-map/portal smoke explicitly:
+
+```bash
+npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase09-map
 ```
 
-No rollout step may use client fixtures as proof of gameplay behavior. Demo and
-fixture modes can remain only for explicit dev/test paths and must be excluded
-from default authenticated play.
+The current expected screenshot artifacts are:
 
-## Data Structures/Contracts To Add Or Change
+```text
+output/screenshots/ui-implementation/09/map-origin-desktop.png
+output/screenshots/ui-implementation/09/map-outer-ring-desktop.png
+```
 
-Testing fixtures/seeds:
+Those artifacts prove only the current desktop Phase09 path. They do not prove
+tablet/mobile layout, fight/loot/scan/portal end-to-end flow, browser PvP
+clicks, storage/cookie/WebSocket/screenshot leak scans, or inclusion in
+`npm run check`.
 
-- Deterministic starter account/session seed path for real auth smoke.
-- Deterministic map catalog with at least:
-  - `map_id = starter_map`
-  - `bounds = 0..10000`
-  - one safe zone
-  - one PvP-enabled map or PvP zone
-  - two portals linking two maps
-  - one enemy pool per map
-  - one scanner profile with rare planet chance
-  - one claimable planet candidate/profile for controlled tests
-- Deterministic enemy pool seed with caps and respawn delays small enough for
-  tests but clearly marked as test/dev tuning.
-- Deterministic drop profile seed for `npc_type + map_id/risk/rank_band`.
+### Canary Leak Scope
 
-Release gate reports:
+Before production enablement, canary checks must scan at least:
 
-- Add a map rework audit table with rows for:
-  - map catalog/schema
-  - map worker ownership
-  - portal handoff
-  - safe/PvP policy
-  - radar/stealth visibility
-  - bounded scanner/planet discovery
-  - planet claim/production/routes
-  - enemy pools/spawners
-  - drop table selection
-  - client map UI/protocol
-  - no fake/default fixtures
-- Each row records command/query/event names, owner package, positive test,
-  abuse/negative test, browser artifact, and rollout status.
+- authenticated WebSocket payloads and queued events
+- DOM text and smoke-visible app state
+- local/session storage
+- cookies and session metadata exposed to the browser
+- screenshot OCR/text or equivalent screenshot artifact scans
+- production bundle text and source maps if published
+- server logs and debug/admin responses
 
-Runtime/observability contracts:
+The forbidden scope includes hidden candidates, procedural seeds, future spawn
+candidates, enemy pool internals, spawn area ids, drop table ids, loot rolls,
+scan rolls, internal map ids, destination spawn internals, session tokens,
+passwords, password hashes, reset secrets, and fake/default fixture labels.
 
-- Metrics for map worker count, players per map, AOI recipients per map,
-  portal attempts/success/failure, cross-map rejection, safe-zone PvP rejection,
-  spawn cap skips, respawns, NPC kills by map/pool/type, drop profile selected
-  by map/risk/rank, scanner success/no-signal, and hidden payload rejection.
-- Logs must include public map keys and operation ids but not passwords, session
-  tokens, seeds, scan rolls, loot rolls, future spawn candidates, or hidden
-  planet data.
+### Migration, Backfill, And Quarantine
 
-Rollout controls:
+If DB persistence is introduced, write a migration plan before enabling the
+future flag:
 
-- Feature flag for bounded multi-map runtime, disabled by default until the
-  phase gate passes.
-- Deterministic dev/test map seed separate from production tuning.
-- Backfill plan for old world/zone/planet/route rows:
-  - valid starter data maps to starter map id
-  - out-of-bounds coordinates are quarantined for manual repair
-  - no silent coordinate clamping
-- Rollback plan:
-  - stop new portal transfers
-  - keep current player map state readable
-  - restore starter-map spawn fallback
-  - preserve ledger/inventory/claim/route mutations already committed
-- Canary leak checks for WebSocket payloads, logs, DOM/app state, screenshots,
-  local storage, cookies, and production bundle text.
-- Debug/admin leak audit:
-  - debug commands require explicit dev/admin mode
-  - admin map targets resolve server-side
-  - public responses omit hidden candidates, spawn pools, drop tables, seeds,
-    roll results, and transfer internals
+- Backfill valid existing world/zone/player rows into the starter internal map.
+- Preserve committed wallet, inventory, loot, claim, route, and production
+  references; do not rewrite ledger truth silently.
+- Quarantine rows with non-finite or out-of-bounds coordinates for manual
+  repair. Do not silently clamp old data into `0..10000`.
+- Quarantine rows that cannot be assigned to a known map/catalog version.
+- Backfill route rows with source/destination map identity only when endpoint
+  visibility/access can be proven from durable ownership/intel.
+- Keep hidden scanner candidates and loot/spawn rolls server-only during any
+  export or repair job.
+- Reconcile old sessions by forcing fresh authenticated `world.snapshot`
+  resolution through the server-owned map router.
 
-Starter and PvP rollout policy:
+### Rollback
 
-- Starter maps are PvP-disabled or protected by default.
-- Graduation into PvP maps is controlled by rank, quest, portal unlock, or
-  explicit player action.
-- PvP maps must define cargo drop policy, repair/checkpoint policy, honor/XP or
-  bounty hooks if enabled, anti-farming constraints, and kill credit rules.
-- PvP rewards must not ship before abuse tests exist for repeated kills,
-  alternate accounts, safe-zone baiting, portal camping, and disconnect abuse.
+Rollback must preserve committed player and economy state:
 
-## Implementation Tasks In Order
+1. Disable the future `GAME_FEATURE_BOUNDED_MULTI_MAP` flag if it exists.
+2. Stop accepting new `portal.enter` transfers.
+3. Keep current player map state readable for reconciliation.
+4. Force reconnecting sessions to a safe starter-map snapshot only through
+   server-owned session resolution.
+5. Preserve committed ledger, inventory, loot pickup, planet claim, production,
+   and route mutations.
+6. Stop PvP reward/cargo-risk paths first if safe/PvP policy or death coverage
+   is suspected.
+7. Run canary leak scans again after rollback to ensure old-map or hidden
+   payloads are not left in DOM/app state/storage.
 
-1. Create a rollout checklist that maps each map-rework phase to concrete tests,
-   browser smoke assertions, screenshots, and release gate evidence.
-2. Add a bounded-map feature flag and rollout/rollback checklist before routing
-   real sessions through the new runtime.
-3. Add deterministic dev/test map catalog seed covering two maps, a bidirectional
-   portal, a starter safe zone, a PvP zone/map, enemy pools, scanner profile,
-   and planet scan/claim profile.
-4. Add backend unit tests for map catalog validation and bounded coordinate
-   clamping/rejection.
-5. Add worker tests for map membership isolation, AOI same-map filtering,
-   radar/stealth visibility, and no cross-map entity leakage.
-6. Add portal handoff tests for proximity, cooldown, destination validation,
-   spawn position, old worker removal, destination worker insertion, session
-   stream scoping, reconnect recovery, and duplicate/retry safety.
-7. Add safe-zone/PvP tests for attack blocking, death/cargo policy, NPC aggro
-   reset, and portal arrival protection.
-8. Add scanner tests for bounded map profiles, rarity, no fog-wave dependency,
-   no hidden seed/candidate serialization, and no cross-map planet results.
-9. Add planet claim/production/route tests for discovered-intel requirement,
-   proximity, rank, X Core/inventory/ledger mutation, idempotency, storage cap,
-   offline settlement, and route map endpoints.
-10. Add enemy pool/spawner tests for caps, respawn delay, map ownership,
-   aggro/leash, duplicate kill handling, and no safe-zone spawns unless
-   explicitly allowed.
-11. Add loot/drop tests for map-aware table selection, owner lock, visible
-    pickup, hidden/far pickup rejection, cargo capacity, duplicate pickup, and
-    quest/progression idempotency.
-12. Add client reducer/protocol tests for map summary, bounds, portal events,
-    map change clearing, stale old-map event rejection, minimap contacts, and
-    forbidden payload keys.
-13. Add real-server browser smoke that runs the full bounded map loop and writes
-    desktop/tablet/mobile screenshots for authenticated map state.
-14. Add leak scans over DOM text, app state, WebSocket payloads, storage, cookies,
-    screenshots, and production bundle text for fake/default fixtures and hidden
-    map/scan/spawn/loot internals.
-15. Add admin/debug leak audit tests for map target resolution, dev-mode gates,
-    redacted logs, and no hidden map/scan/spawn/drop internals in responses.
-16. Run narrow packages during development, then run the full verification gate.
-17. Update docs and rollout checklist only for behavior actually implemented and
-    verified.
+## Verification Policy
 
-## Tests To Add/Update
-
-Backend:
-
-- Map catalog rejects invalid bounds, out-of-bounds portals/spawn areas/zones,
-  duplicate ids, missing destination maps, and invalid risk policy.
-- Movement beyond `0..10000` is rejected or corrected by the server; client
-  clamping is not treated as authority.
-- AOI snapshot includes only entities in current map and radar range.
-- Cross-map movement, combat, loot pickup, scan result, portal, planet claim,
-  production, route, market/admin debug, and minimap payloads do not leak hidden
-  entities.
-- Portal entry validates session, current map, proximity, cooldown,
-  destination, spawn point, transfer state, and duplicate request behavior.
-- Map-scoped events carry `map_subscription_epoch`, and stale old-epoch events
-  are dropped or ignored.
-- Safe-zone PvP is blocked without energy/cooldown/cargo/death mutation.
-- Enemy spawner maintains per-map and per-pool caps under concurrent kills,
-  duplicate death events, despawns, and respawns.
-- NPC kill drop selection uses `npc_type + map_id/risk/rank_band`.
-- Scanner rarity uses server-owned bounded map profile and does not serialize
-  seed, roll, candidate, or hidden planet information.
-- Planet claim requires discovered intel, same-map/proximity, rank, X Core,
-  inventory/ledger mutation, and idempotency.
-
-Client:
-
-- Protocol parser accepts public map summaries, bounds, portals, safe/PvP flags,
-  map minimap fields, and map transfer events.
-- Protocol parser rejects forbidden hidden/trusted keys in map, portal, scan,
-  combat, loot, and admin payloads.
-- Reducer initializes map state empty and clears it on auth/logout/demo/session
-  failure.
-- Reducer clears old-map entities, selected target, loot, minimap contacts,
-  transient effects, and movement target on map change.
-- Reducer ignores stale old-map AOI/combat/loot/scan events after handoff.
-- Renderer draws map bounds, radar contacts, portals, and safe/PvP hints only
-  when server state provides them.
-- UI never renders fake HP/shield/energy, cargo, wallet, quest counts, planets,
-  NPCs, loot, market, portal, or premium data in default real mode.
-
-Browser/E2E:
-
-- Login and `/ws` use real mail/password auth and cookie session.
-- Starter map snapshot shows `10000x10000` bounds, map name, policy, self, and
-  only same-map AOI contacts.
-- Fight/loot loop kills an NPC from the starter map pool and picks up a visible
-  owned/public drop.
-- Spawn cap test kills enough NPCs to prove caps and respawn delay behavior.
-- Portal handoff removes old-map entities and shows destination map entities
-  only after server completion.
-- Safe-zone PvP attempt is rejected and does not mutate combat state.
-- Starter maps are PvP-disabled or protected by default.
-- PvP map smoke covers configured death/cargo/repair/checkpoint risk without
-  shipping untested reward abuse vectors.
-- Scanner smoke verifies no-signal and rare success paths under deterministic
-  test config, without leaked roll/candidate data.
-- Reconnect restores current map membership and reconciles map/AOI/minimap.
-- Desktop, tablet, and mobile screenshots show bounded map HUD without overlap.
-
-## Migration/Doc Updates
-
-- Rewrite or supersede old infinite-world and fog-wave language in world,
-  discovery, UI, and module docs after implementation lands.
-- Update progression/economy docs so death cargo risk, loot drops, scanner XP,
-  planet production, and route risk refer to bounded map/risk policy.
-- Update running-local docs with deterministic map seed flags and unsafe dev
-  defaults.
-- Add migration docs for backfill, quarantine, feature flag rollout, rollback,
-  and canary leak checks.
-- Update `docs/todo.md` with any missing map loop contracts rather than faking
-  UI data.
-- Update release/audit docs with exact test names, screenshot paths, and known
-  rollout limitations.
-
-## Risks And Acceptance Criteria
-
-Risks:
-
-- Old infinite-plane assumptions can survive in tests that only cover one map.
-- Portal handoff can leak stale AOI events if server stream ownership and client
-  clearing are not both verified.
-- Safe-zone policy can be shown in UI but missed in combat/death services.
-- Scanner rarity can become impossible to test unless deterministic test config
-  is separate from production tuning.
-- Spawn and planet tests can pass in unit isolation but fail under real
-  authenticated browser flow.
-- Fixture/demo content can hide missing server contracts if included in default
-  screenshots or bundle output.
-
-Acceptance criteria:
-
-- Every map-rework phase has positive, negative/abuse, and browser evidence.
-- No cross-map leakage is demonstrated across snapshots, AOI events, minimap,
-  combat, loot, scanner, portals, planet intel, reconnect, and admin/debug
-  surfaces.
-- Portal handoff, safe-zone PvP blocking, spawn caps, map-aware drops, scanner
-  rarity, and reconnect reconciliation are covered by automated tests.
-- Browser screenshots cover desktop, tablet, and mobile authenticated map UI.
-- Default real mode contains no fake gameplay values or fixture labels.
-- Full verification passes before handoff:
+Docs-only updates do not require the full release gate. Code rollout must run
+the normal project checks before handoff:
 
 ```bash
 go test ./...
@@ -311,5 +166,13 @@ cd client
 npm --cache /tmp/gameproject-npm-cache run check
 ```
 
-- No code rollout is considered complete until failed/missing contracts are
-  documented in `docs/todo.md` instead of being masked by client placeholders.
+Client map rollout evidence must also include the explicit Phase09 smoke until
+the project intentionally wires it into `npm run check`:
+
+```bash
+npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase09-map
+```
+
+No release claim should be made from fixture/demo screenshots or client-local
+mock state. Open contracts must stay visible in `docs/todo.md` instead of being
+masked by placeholder UI data.

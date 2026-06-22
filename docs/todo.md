@@ -122,7 +122,45 @@ for phase status; this file is a compact pending-work index.
   reconcile the browser through `route.list`, `route.snapshot`, and
   `route.updated`/`route.settled` events. Phase07B map-tagged the route domain
   rows and read payloads for `route.list`/`route.snapshot`; mutation handlers
-  remain open. Source: Phase 10 audit.
+  remain open. The Phase10 map rollout audit still treats this as the
+  authenticated route mutation gateway blocker. Source: Phase 10 audit.
+- [ ] Add a Phase10 PvP rollout seed and policy test matrix: at least one
+  PvP-enabled map seed, direct invalid risk/`PVPPolicy` validation coverage,
+  PvP death/cargo/checkpoint tests, and a real browser safe-zone PvP click
+  rejection proof. Source: `docs/map-rework/phase-10-testing-rollout.md`.
+- [ ] Add a second-map enemy seed for map `1-2` and verify per-map enemy pool,
+  spawn cap, respawn, aggro/leash, and no-hidden-pool leak behavior across both
+  starter and destination maps. Source:
+  `docs/map-rework/phase-10-testing-rollout.md`.
+- [ ] Add a deterministic per-map scanner/claim/drop seed matrix, including
+  scanner rarity/no-fog regression coverage and claim/drop behavior for each
+  seeded map. Source: `docs/map-rework/phase-10-testing-rollout.md`.
+- [ ] Add map-aware drop matrix and cross-map loot pickup tests covering
+  `npc_type + map_id/risk/rank_band` selection, hidden/far/cross-map pickup
+  rejection, and no fallback to default training loot outside explicit seeded
+  content. Source: `docs/map-rework/phase-10-testing-rollout.md`.
+- [ ] Extend the Phase09 browser map smoke into a full real-server
+  fight/loot/scan/portal loop with desktop, tablet, and mobile screenshots;
+  decide explicitly whether `e2e:phase09-map` belongs in `client` `npm run
+  check` or remains a separate release-gate command. Source:
+  `docs/map-rework/phase-10-testing-rollout.md`.
+- [ ] Add Phase10 leak canaries over WebSocket payloads, DOM/app state,
+  local/session storage, cookies, screenshots, server logs/debug responses, and
+  production bundle text for hidden map/scan/spawn/loot internals and
+  fake/default fixture labels. Source:
+  `docs/map-rework/phase-10-testing-rollout.md`.
+- [ ] Clean up legacy infinite-space, distance-from-origin, zone-risk, and
+  fog-memory wording in the world/progression/module docs. The bounded-map
+  rework supersedes those concepts with map profiles, risk bands, radar, and
+  known-intel memory, but `docs/2026-06-17-world-system-design.md` and
+  `docs/2026-06-17-progression-economy-systems-design.md` still need a
+  dedicated terminology pass. Source:
+  `docs/map-rework/phase-10-testing-rollout.md`.
+- [ ] Finalize production bounded multi-map rollout controls if DB persistence
+  is introduced: implement or document the future
+  `GAME_FEATURE_BOUNDED_MULTI_MAP` flag, deterministic seed selection,
+  backfill/quarantine commands, rollback order, and no-silent-clamp migration
+  checks. Source: `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add a real browser death/respawn E2E scenario. Combat or zone-worker
   authority should produce `death.ship_disabled` for the authenticated active
   ship without client-authored damage or death state; the browser can then use

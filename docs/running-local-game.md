@@ -58,6 +58,20 @@ GAME_CLIENT_PROXY_TARGET=http://127.0.0.1:8081 \
 npm --cache /tmp/gameproject-npm-cache run dev -- --port 5174
 ```
 
+## Bounded Multi-Map Dev Behavior
+
+The local in-memory/dev runtime already routes the real authenticated client
+through bounded multi-map behavior: server-owned active map membership,
+`10000x10000` map snapshots, per-map workers/AOI, and portal handoff between
+the starter `1-1` Origin Fringe map and the `1-2` Outer Ring map.
+
+There is no production feature flag for this today. If DB persistence or a
+production rollout path is introduced later, use
+`GAME_FEATURE_BOUNDED_MULTI_MAP` as the proposed flag name and add explicit
+backfill/quarantine docs before enabling it. Old durable coordinates should be
+backfilled to a known map only when valid, and out-of-bounds or unassigned rows
+should be quarantined instead of silently clamped.
+
 ## Verification
 
 Before handing off changes:
@@ -80,4 +94,12 @@ npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase09-map
 ```
 
 That smoke starts its own real Go server and Vite dev server, then writes
-screenshots under `output/screenshots/ui-implementation/09/`.
+screenshots under `output/screenshots/ui-implementation/09/`, including the
+current desktop artifacts:
+
+```text
+output/screenshots/ui-implementation/09/map-origin-desktop.png
+output/screenshots/ui-implementation/09/map-outer-ring-desktop.png
+```
+
+This smoke is not part of `npm run check` today.
