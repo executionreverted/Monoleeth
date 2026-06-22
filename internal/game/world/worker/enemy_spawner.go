@@ -914,10 +914,8 @@ func enemySpawnEntityID(mapID worldmaps.MapID, poolID worldmaps.EnemyPoolID, spa
 		}
 	}
 	return world.EntityID(fmt.Sprintf(
-		"entity_npc_%s_%s_%s_%03d",
-		sanitizeEntityIDPart(mapID.String()),
-		sanitizeEntityIDPart(poolID.String()),
-		entityIDRawPartSuffix(mapID.String(), poolID.String()),
+		"entity_npc_%s_%03d",
+		entityIDOpaqueHashSuffix(mapID.String(), poolID.String()),
 		spawnIndex+1,
 	))
 }
@@ -928,22 +926,6 @@ func enemyEventSpawnEntityID(mapID worldmaps.MapID, poolID worldmaps.EnemyPoolID
 		entityIDOpaqueHashSuffix(mapID.String(), poolID.String(), eventSpawnID.String()),
 		spawnIndex+1,
 	))
-}
-
-func sanitizeEntityIDPart(value string) string {
-	value = strings.TrimSpace(value)
-	replacer := strings.NewReplacer(" ", "_", ":", "_", "/", "_", "\\", "_")
-	return replacer.Replace(value)
-}
-
-func entityIDRawPartSuffix(parts ...string) string {
-	var raw strings.Builder
-	for _, part := range parts {
-		fmt.Fprintf(&raw, "%d:", len(part))
-		raw.WriteString(part)
-		raw.WriteByte('|')
-	}
-	return hex.EncodeToString([]byte(raw.String()))
 }
 
 func entityIDOpaqueHashSuffix(parts ...string) string {

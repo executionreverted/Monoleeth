@@ -704,3 +704,85 @@ func starterMapNPCLeashProfiles() []NPCLeashProfile {
 		ResetOnBreak:   true,
 	}}
 }
+
+func outerRingMapSpawnAreas() []MapSpawnAreaDefinition {
+	return []MapSpawnAreaDefinition{{
+		SpawnAreaID:           "outer_ring_scout_drone_area",
+		Shape:                 SpawnAreaShapeCircle,
+		Center:                world.Vec2{X: 1800, Y: 5400},
+		Radius:                220,
+		SafeZoneExcluded:      true,
+		PortalExclusionRadius: 320,
+	}}
+}
+
+func outerRingMapEnemyPools() []MapEnemyPoolDefinition {
+	return []MapEnemyPoolDefinition{{
+		EnemyPoolID:      "outer_ring_scout_drone_pool",
+		NPCType:          "outer_ring_scout_drone",
+		MinLevel:         1,
+		MaxLevel:         1,
+		SpawnAreaIDs:     []SpawnAreaID{"outer_ring_scout_drone_area"},
+		MapMaxAlive:      4,
+		PoolMaxAlive:     2,
+		InitialAlive:     1,
+		SpawnInterval:    45 * time.Second,
+		KillRespawnDelay: 45 * time.Second,
+		SpawnJitter:      0,
+		SpawnMode:        SpawnModePeriodic,
+		StatTemplateID:   "outer_ring_scout_drone_level_1",
+		DropProfileID:    "outer_ring_scout_drone_salvage",
+		AggroProfileID:   "outer_ring_scout_drone_cautious",
+		LeashProfileID:   "outer_ring_scout_drone_patrol",
+		Enabled:          true,
+	}}
+}
+
+func outerRingMapNPCStatTemplates() []NPCStatTemplate {
+	return []NPCStatTemplate{{
+		StatTemplateID: "outer_ring_scout_drone_level_1",
+		NPCType:        "outer_ring_scout_drone",
+		MinLevel:       1,
+		MaxLevel:       1,
+		LabelKey:       "npc.outer_ring_scout_drone",
+		HPMax:          36,
+		ShieldMax:      4,
+		EnergyMax:      2,
+		WeaponRange:    1,
+		WeaponDamage:   0,
+		WeaponCooldown: time.Second,
+		Accuracy:       1,
+		RadarSignature: visibility.SignatureForEntityType(world.EntityTypeNPC).Units(),
+		Speed:          0,
+		XPValue:        0,
+	}}
+}
+
+func outerRingMapNPCDropProfiles() []NPCDropProfile {
+	return []NPCDropProfile{{
+		DropProfileID: "outer_ring_scout_drone_salvage",
+		NPCType:       "outer_ring_scout_drone",
+		MinLevel:      1,
+		MaxLevel:      1,
+		RiskBand:      "low",
+		LootTableID:   "training_drone_salvage",
+	}}
+}
+
+func outerRingMapNPCAggroProfiles() []NPCAggroProfile {
+	return []NPCAggroProfile{{
+		AggroProfileID:       "outer_ring_scout_drone_cautious",
+		AggroRadius:          0,
+		AssistRadius:         0,
+		TargetMemory:         0,
+		SafeZoneAttackPolicy: "never",
+	}}
+}
+
+func outerRingMapNPCLeashProfiles() []NPCLeashProfile {
+	return []NPCLeashProfile{{
+		LeashProfileID: "outer_ring_scout_drone_patrol",
+		LeashDistance:  1,
+		ResetOnBreak:   true,
+	}}
+}

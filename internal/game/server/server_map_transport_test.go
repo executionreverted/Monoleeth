@@ -234,29 +234,19 @@ func TestPortalDestinationAttachRecordsEnemyTelemetryMetrics(t *testing.T) {
 	resolved := createResolvedRuntimeSession(t, gameServer, "portal-telemetry@example.com", "Portal Telemetry")
 
 	gameServer.runtime.mu.Lock()
-	starter, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
-	if err != nil {
-		gameServer.runtime.mu.Unlock()
-		t.Fatalf("starter map instance: %v", err)
-	}
 	destination, err := gameServer.runtime.mapInstanceLocked("map_1_2")
 	if err != nil {
 		gameServer.runtime.mu.Unlock()
 		t.Fatalf("destination map instance: %v", err)
 	}
 	definition := destination.Definition
-	pool := starter.Definition.EnemyPools[0]
-	pool.InitialAlive = 0
-	pool.PoolMaxAlive = 1
-	pool.MapMaxAlive = 1
-	pool.SpawnInterval = time.Second
-	definition.SpawnAreas = append([]worldmaps.MapSpawnAreaDefinition(nil), starter.Definition.SpawnAreas...)
-	definition.EnemyPools = []worldmaps.MapEnemyPoolDefinition{pool}
-	definition.NPCEventSpawns = nil
-	definition.NPCStatTemplates = append([]worldmaps.NPCStatTemplate(nil), starter.Definition.NPCStatTemplates[:1]...)
-	definition.NPCDropProfiles = append([]worldmaps.NPCDropProfile(nil), starter.Definition.NPCDropProfiles[:1]...)
-	definition.NPCAggroProfiles = append([]worldmaps.NPCAggroProfile(nil), starter.Definition.NPCAggroProfiles...)
-	definition.NPCLeashProfiles = append([]worldmaps.NPCLeashProfile(nil), starter.Definition.NPCLeashProfiles...)
+	if len(definition.EnemyPools) != 1 {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("destination enemy pools = %+v, want one configured pool", definition.EnemyPools)
+	}
+	definition.EnemyPools[0].PoolMaxAlive = 2
+	definition.EnemyPools[0].MapMaxAlive = 2
+	definition.EnemyPools[0].SpawnInterval = time.Second
 	destination.Definition = definition
 	if err := gameServer.runtime.submitWorkerCommandAndRecordMetricsLocked(destination, worker.InitializeEnemyPoolsCommand{Definition: definition}); err != nil {
 		gameServer.runtime.mu.Unlock()
@@ -277,7 +267,7 @@ func TestPortalDestinationAttachRecordsEnemyTelemetryMetrics(t *testing.T) {
 
 	requireMetricCounter(t, gameServer.runtime.Metrics.Snapshot(), observability.MetricEnemySpawnDecisions, 1, []observability.Label{
 		{Name: "map_key", Value: "1-2"},
-		{Name: "npc_type", Value: "training_drone"},
+		{Name: "npc_type", Value: "outer_ring_scout_drone"},
 		{Name: "reason", Value: "none"},
 		{Name: "result", Value: "spawned"},
 		{Name: "risk_band", Value: "low"},

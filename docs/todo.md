@@ -128,8 +128,10 @@ for phase status; this file is a compact pending-work index.
   PvP-enabled map seed, PvP death/cargo/checkpoint tests, and a real browser
   safe-zone PvP click rejection proof. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Add a second-map enemy seed for map `1-2` and verify per-map enemy pool,
-  spawn cap, respawn, aggro/leash, and no-hidden-pool leak behavior across both
+- [ ] Complete second-map enemy rollout coverage for map `1-2`. The
+  deterministic `outer_ring_scout_drone` seed, initial spawn, actor projection,
+  and bootstrap no-hidden-pool leak check now exist; remaining work is per-map
+  spawn cap, respawn, aggro/leash, fight/loot, and browser proof across both
   starter and destination maps. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add a deterministic per-map scanner/claim/drop seed matrix, including

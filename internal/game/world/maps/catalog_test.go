@@ -205,6 +205,9 @@ func TestCatalogValidationAcceptsKnownRiskBandsAndPVPPolicies(t *testing.T) {
 			definitions := testMapDefinitions()
 			definitions[1].RiskBand = tc.riskBand
 			definitions[1].PVPPolicy = tc.pvpPolicy
+			for i := range definitions[1].NPCDropProfiles {
+				definitions[1].NPCDropProfiles[i].RiskBand = tc.riskBand
+			}
 			if _, err := NewCatalog(definitions, StarterMapID, StarterSpawnID); err != nil {
 				t.Fatalf("NewCatalog() error = %v, want nil for risk=%s pvp=%s", err, tc.riskBand, tc.pvpPolicy)
 			}

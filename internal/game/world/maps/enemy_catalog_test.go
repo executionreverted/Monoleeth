@@ -103,8 +103,78 @@ func TestStarterCatalogContainsStarterEnemyCatalogData(t *testing.T) {
 	if !ok {
 		t.Fatalf("map 1-2 missing")
 	}
-	if len(second.EnemyPools) != 0 || len(second.SpawnAreas) != 0 || len(second.NPCEventSpawns) != 0 {
-		t.Fatalf("map 1-2 enemy content = pools %+v areas %+v events %+v, want none in Phase08", second.EnemyPools, second.SpawnAreas, second.NPCEventSpawns)
+	if len(second.SpawnAreas) != 1 || second.SpawnAreas[0].SpawnAreaID != "outer_ring_scout_drone_area" {
+		t.Fatalf("map 1-2 spawn areas = %+v, want outer ring scout area", second.SpawnAreas)
+	}
+	secondArea := second.SpawnAreas[0]
+	if secondArea.Shape != SpawnAreaShapeCircle || secondArea.Center != (world.Vec2{X: 1800, Y: 5400}) || secondArea.Radius != 220 {
+		t.Fatalf("map 1-2 spawn area = %+v, want circle at 1800,5400 radius 220", secondArea)
+	}
+	if !secondArea.SafeZoneExcluded || secondArea.PortalExclusionRadius != 320 {
+		t.Fatalf("map 1-2 spawn area safety = %+v, want safe-zone excluded with portal exclusion", secondArea)
+	}
+	if westGate, ok := second.PVPBlockingSafeZoneAt(secondArea.Center); ok {
+		t.Fatalf("map 1-2 spawn center %+v overlaps safe zone %+v", secondArea.Center, westGate)
+	}
+	for _, portal := range second.Portals {
+		if portal.Visible && secondArea.Center.DistanceSquared(portal.SourcePosition) <= secondArea.PortalExclusionRadius*secondArea.PortalExclusionRadius {
+			t.Fatalf("map 1-2 spawn center %+v inside portal exclusion for %+v", secondArea.Center, portal)
+		}
+	}
+
+	if len(second.EnemyPools) != 1 {
+		t.Fatalf("map 1-2 enemy pools = %+v, want one scout drone pool", second.EnemyPools)
+	}
+	secondPool := second.EnemyPools[0]
+	if secondPool.EnemyPoolID != "outer_ring_scout_drone_pool" || secondPool.NPCType != "outer_ring_scout_drone" {
+		t.Fatalf("map 1-2 enemy pool = %+v, want outer ring scout drone pool", secondPool)
+	}
+	if secondPool.MapMaxAlive != 4 || secondPool.PoolMaxAlive != 2 || secondPool.InitialAlive != 1 {
+		t.Fatalf("map 1-2 pool caps = %+v, want map=4 pool=2 initial=1", secondPool)
+	}
+	if secondPool.SpawnInterval != 45*time.Second || secondPool.KillRespawnDelay != 45*time.Second || secondPool.SpawnJitter != 0 {
+		t.Fatalf("map 1-2 pool timing = %+v, want 45s/45s/0", secondPool)
+	}
+	if secondPool.SpawnMode != SpawnModePeriodic || !secondPool.Enabled {
+		t.Fatalf("map 1-2 pool mode/enabled = %s/%v, want periodic enabled", secondPool.SpawnMode, secondPool.Enabled)
+	}
+	if len(secondPool.SpawnAreaIDs) != 1 || secondPool.SpawnAreaIDs[0] != secondArea.SpawnAreaID {
+		t.Fatalf("map 1-2 pool spawn refs = %+v, want %q", secondPool.SpawnAreaIDs, secondArea.SpawnAreaID)
+	}
+
+	if len(second.NPCStatTemplates) != 1 || secondPool.StatTemplateID != second.NPCStatTemplates[0].StatTemplateID {
+		t.Fatalf("map 1-2 stat template refs = %+v pool=%+v, want referenced template", second.NPCStatTemplates, secondPool)
+	}
+	secondTemplate := second.NPCStatTemplates[0]
+	if secondTemplate.NPCType != "outer_ring_scout_drone" ||
+		secondTemplate.MinLevel != 1 ||
+		secondTemplate.MaxLevel != 1 ||
+		secondTemplate.HPMax != 36 ||
+		secondTemplate.ShieldMax != 4 ||
+		secondTemplate.EnergyMax != 2 ||
+		secondTemplate.WeaponRange != 1 ||
+		secondTemplate.Accuracy != 1 ||
+		secondTemplate.RadarSignature != visibility.SignatureForEntityType(world.EntityTypeNPC).Units() ||
+		secondTemplate.Speed != 0 ||
+		secondTemplate.XPValue != 0 {
+		t.Fatalf("map 1-2 stat template = %+v, want low-risk scout behavior", secondTemplate)
+	}
+
+	if len(second.NPCDropProfiles) != 1 || secondPool.DropProfileID != second.NPCDropProfiles[0].DropProfileID {
+		t.Fatalf("map 1-2 drop profile refs = %+v pool=%+v, want referenced profile", second.NPCDropProfiles, secondPool)
+	}
+	secondDrop := second.NPCDropProfiles[0]
+	if secondDrop.NPCType != "outer_ring_scout_drone" || secondDrop.RiskBand != "low" || secondDrop.LootTableID != "training_drone_salvage" {
+		t.Fatalf("map 1-2 drop profile = %+v, want low-risk profile using existing salvage table", secondDrop)
+	}
+	if len(second.NPCAggroProfiles) != 1 || secondPool.AggroProfileID != second.NPCAggroProfiles[0].AggroProfileID {
+		t.Fatalf("map 1-2 aggro refs = %+v pool=%+v, want referenced profile", second.NPCAggroProfiles, secondPool)
+	}
+	if len(second.NPCLeashProfiles) != 1 || secondPool.LeashProfileID != second.NPCLeashProfiles[0].LeashProfileID {
+		t.Fatalf("map 1-2 leash refs = %+v pool=%+v, want referenced profile", second.NPCLeashProfiles, secondPool)
+	}
+	if len(second.NPCEventSpawns) != 0 {
+		t.Fatalf("map 1-2 event spawns = %+v, want no event hooks in this seed", second.NPCEventSpawns)
 	}
 }
 

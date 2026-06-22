@@ -508,6 +508,12 @@ func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 					Visible:            true,
 				},
 			},
+			SpawnAreas:       outerRingMapSpawnAreas(),
+			EnemyPools:       outerRingMapEnemyPools(),
+			NPCStatTemplates: outerRingMapNPCStatTemplates(),
+			NPCDropProfiles:  outerRingMapNPCDropProfiles(),
+			NPCAggroProfiles: outerRingMapNPCAggroProfiles(),
+			NPCLeashProfiles: outerRingMapNPCLeashProfiles(),
 		},
 	}
 	return NewCatalog(definitions, StarterMapID, StarterSpawnID)

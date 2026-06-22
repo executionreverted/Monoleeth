@@ -638,6 +638,27 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
   Phase08J landed production server rejection/no-mutation coverage and
   DEV-gated browser demo/debug mode.
 
+## Phase08K Landed Second-Map Enemy Seed Slice
+
+The landed Phase08K slice adds explicit low-risk enemy content for destination
+map `map_1_2` / public `1-2`. The Outer Ring now owns one deterministic
+`outer_ring_scout_drone` spawn area, periodic pool, stat template, drop
+profile, aggro profile, and leash profile. The drop profile is map-owned and
+low-risk compatible while reusing the existing `training_drone_salvage` loot
+table to keep this slice small.
+
+Runtime seed initializes the Outer Ring pool through the same worker
+`InitializeEnemyPoolsCommand` path as the starter map and projects the spawned
+NPC into a catalog-backed combat actor. The spawn center is inside `0..10000`
+and away from the `west_gate` safe zone and portal exclusion. Client bootstrap
+payloads for starter and destination sessions continue to omit enemy pool,
+spawn area, stat, drop, aggro, leash, loot table, and internal map ids.
+
+Phase08K coverage was added or updated in:
+
+- `internal/game/world/maps/enemy_catalog_test.go`
+- `internal/game/server/server_enemy_spawner_test.go`
+
 ## Migration/Doc Updates
 
 - Update the active map catalog docs to include enemy pool, spawn area, stat,
@@ -676,9 +697,11 @@ worker-local aggro/leash movement simulation. Phase08H satisfies the
 disabled-by-default boss/event hook slice with explicit server-owned trigger
 spawning. Phase08I satisfies the metrics MVP for spawn, respawn, death,
 drop-selector, aggro, and ownership rejection decisions. Phase08J satisfies the
-debug/demo quarantine criterion for default authenticated real gameplay. No
-Phase 08 acceptance item is currently marked open in this file; phase-wide
-closure still requires the full project verification suite before handoff.
+debug/demo quarantine criterion for default authenticated real gameplay.
+Phase08K satisfies the deterministic second-map enemy seed and bootstrap leak
+coverage slice. No Phase 08 acceptance item is currently marked open in this
+file; phase-wide closure still requires the full project verification suite
+before handoff.
 
 - No default gameplay path uses `trainingNPCActor` or one global
   `training_drone_salvage` table as the source of truth.

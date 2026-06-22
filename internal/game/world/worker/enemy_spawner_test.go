@@ -2,6 +2,7 @@ package worker
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -635,6 +636,15 @@ func TestEnemySpawnerGeneratedEntityIDsAreDistinctForSanitizedPoolCollisions(t *
 	for _, record := range snapshot.Records {
 		if _, exists := entityIDs[record.EntityID]; exists {
 			t.Fatalf("duplicate entity id %q in snapshot %+v", record.EntityID, snapshot)
+		}
+		for _, forbidden := range []string{
+			definition.InternalMapID.String(),
+			slashPool.EnemyPoolID.String(),
+			underscorePool.EnemyPoolID.String(),
+		} {
+			if strings.Contains(record.EntityID.String(), forbidden) {
+				t.Fatalf("generated entity id %q leaked raw map/pool token %q", record.EntityID, forbidden)
+			}
 		}
 		entityIDs[record.EntityID] = struct{}{}
 		poolIDs[record.EnemyPoolID] = struct{}{}
