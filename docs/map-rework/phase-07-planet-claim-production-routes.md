@@ -307,6 +307,37 @@ Deferred after Phase07G:
   idempotency rows, and outbox publishing.
 - Broader route policy/UI matrix beyond the owned same-map MVP proof.
 
+## Phase07H Landed Production Summary Settlement Slice
+
+- Authenticated `planet.production_summary` and `planet.storage_summary` now
+  reconcile eligible owned active-map planet production before returning
+  snapshots. The handlers derive owner and active map from authenticated runtime
+  state, gather only complete owned production snapshots in that active map,
+  call `SettlePlanetProductionIfWholeOutputAvailable` with one request-scoped
+  server timestamp, and shape fresh client-safe production/storage payloads.
+- The query payloads still accept only `{}` or `{ "planet_id": "..." }`.
+  Client-authored owner/player, map, time, elapsed, output, storage, building,
+  procedural, and internal fields are rejected before settlement.
+- If settlement changes production/storage time or contents, the runtime queues
+  owner-scoped `planet.production_summary` and `planet.storage_summary` events
+  to that player's sessions and suppresses AOI diffs. Immediate duplicate
+  and near-immediate sequential duplicate queries no-op through the production
+  store without advancing `last_calculated_at`, duplicating output, or queuing
+  reconciliation events.
+- Focused server tests cover active-map/owner filtering, storage reflection,
+  one request-scoped settlement timestamp across multiple planets, safe
+  response/event payloads, spoofed-field rejection before mutation, and
+  immediate/near-immediate duplicate no-op behavior.
+
+Deferred after Phase07H:
+
+- Durable production DB rows, row locks, idempotency rows, and outbox
+  publishing.
+- Building build/upgrade/storage mutation handlers and ledger-backed
+  material/wallet/storage transaction flows.
+- Broader browser proof for production settlement UI timing beyond the
+  existing production/storage read-model surfaces.
+
 ## Target Model
 
 Planet claim is a server-owned transaction:
@@ -497,8 +528,13 @@ contracts:
 - Building build/upgrade handlers reject unowned planets, wrong-map access, bad
   requirements, insufficient materials/wallet, capacity overflow, and duplicate
   references.
-- Production settlement is capped, server-timed, storage-cap aware, idempotent,
-  and emits map-tagged events after commit.
+- Production summary/storage queries settle eligible owned active-map
+  production with server time, cap storage, no-op immediate and near-immediate
+  sequential duplicates, reject spoofed owner/map/time/storage/output/building
+  fields before mutation, and emit only owner-scoped safe production/storage
+  reconciliation events.
+- Durable production settlement remains to be proven with row locks,
+  idempotency rows, and outbox references.
 - Route create accepts only intent fields, derives owner/route id/map ids
   server-side, reconciles safe route list/snapshot payloads, and rejects
   unowned source, inaccessible destination, hidden endpoint, bad resource,
@@ -533,8 +569,8 @@ contracts:
   when mutation handlers exist, including command payloads, map ids, empty
   states, locked states, and abuse controls.
 - Keep `docs/todo.md` entries open until durable repositories/outbox,
-  claim-production recovery, route mutation contracts, and settlement
-  idempotency are implemented.
+  claim-production recovery, building mutation contracts, and durable
+  settlement idempotency are implemented.
 - Durable migration path:
   - existing materialized planets get the starter map id and validated
     map-local coordinates
@@ -571,8 +607,10 @@ Acceptance criteria:
   recoverable.
 - Claimed planets carry map identity through ownership, production, storage,
   building, and route read models.
-- Production settlement remains server-timed, capped, idempotent, and
-  storage-cap aware.
+- Production summary/storage queries reconcile eligible owned active-map
+  production with server time, remain capped and storage-cap aware, and prove
+  immediate/sequential duplicate no-op behavior in the current in-memory
+  gateway. Durable concurrent DB/outbox/window idempotency remains open.
 - Route rows carry source/destination map identity and use map policy for
   endpoint access and risk.
 - Route mutations and settlements use server-resolved ownership and do not

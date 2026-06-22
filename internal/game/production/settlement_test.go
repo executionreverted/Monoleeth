@@ -242,6 +242,120 @@ func TestSettlePlanetProductionDisabledPlanetAdvancesTimestampWithoutOutput(t *t
 	}
 }
 
+func TestSettlePlanetProductionIfWholeOutputAvailableSkipsSubUnitWithoutAdvancing(t *testing.T) {
+	base := testTime(0)
+	store := newSettlementStore(t, "planet-1", base, 100, 10)
+	addSettlementBuilding(t, store, "planet-1", "building-1", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+
+	first, err := store.SettlePlanetProductionIfWholeOutputAvailable("planet-1", base.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("SettlePlanetProductionIfWholeOutputAvailable(first) error = %v, want nil", err)
+	}
+	if !first.NoOp || first.ElapsedRequested != time.Minute || first.ElapsedApplied != 0 {
+		t.Fatalf("first NoOp/requested/applied = %v/%s/%s, want true/1m/0", first.NoOp, first.ElapsedRequested, first.ElapsedApplied)
+	}
+	if got := first.After.State.LastCalculatedAt; !got.Equal(base) {
+		t.Fatalf("first LastCalculatedAt = %s, want unchanged %s", got, base)
+	}
+	if got := len(store.Events()); got != 0 {
+		t.Fatalf("first events = %d, want none", got)
+	}
+
+	second, err := store.SettlePlanetProductionIfWholeOutputAvailable("planet-1", base.Add(90*time.Second))
+	if err != nil {
+		t.Fatalf("SettlePlanetProductionIfWholeOutputAvailable(second) error = %v, want nil", err)
+	}
+	if !second.NoOp {
+		t.Fatal("second NoOp = false, want true")
+	}
+	if got := second.After.State.LastCalculatedAt; !got.Equal(base) {
+		t.Fatalf("second LastCalculatedAt = %s, want unchanged %s", got, base)
+	}
+	if got := len(store.Events()); got != 0 {
+		t.Fatalf("second events = %d, want none", got)
+	}
+
+	settledAt := base.Add(2 * time.Minute)
+	settled, err := store.SettlePlanetProductionIfWholeOutputAvailable("planet-1", settledAt)
+	if err != nil {
+		t.Fatalf("SettlePlanetProductionIfWholeOutputAvailable(settled) error = %v, want nil", err)
+	}
+	if settled.NoOp || settled.ElapsedApplied != 2*time.Minute {
+		t.Fatalf("settled NoOp/applied = %v/%s, want false/2m", settled.NoOp, settled.ElapsedApplied)
+	}
+	assertSettlementDelta(t, settled.ProducedItems, "iron_ore", 1)
+	if got := settled.After.State.LastCalculatedAt; !got.Equal(settledAt) {
+		t.Fatalf("settled LastCalculatedAt = %s, want %s", got, settledAt)
+	}
+	if got := settled.After.Storage.QuantityOf("iron_ore"); got != 1 {
+		t.Fatalf("settled iron_ore = %d, want 1", got)
+	}
+	assertProductionEventTypes(t, store.Events(),
+		EventPlanetBuildingProduced,
+		EventPlanetProductionSettled,
+		EventOfflineSettlementCompleted,
+	)
+}
+
+func TestSettlePlanetProductionIfWholeOutputAvailableDuplicateSubUnitAfterSettlementNoOps(t *testing.T) {
+	store := newSettlementStore(t, "planet-1", testTime(0), 100, 10)
+	addSettlementBuilding(t, store, "planet-1", "building-1", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+	settledAt := testTime(0).Add(time.Hour)
+
+	first, err := store.SettlePlanetProductionIfWholeOutputAvailable("planet-1", settledAt)
+	if err != nil {
+		t.Fatalf("SettlePlanetProductionIfWholeOutputAvailable(first) error = %v, want nil", err)
+	}
+	assertSettlementDelta(t, first.ProducedItems, "iron_ore", 30)
+	eventCountAfterFirst := len(store.Events())
+
+	duplicate, err := store.SettlePlanetProductionIfWholeOutputAvailable("planet-1", settledAt.Add(time.Second))
+	if err != nil {
+		t.Fatalf("SettlePlanetProductionIfWholeOutputAvailable(duplicate) error = %v, want nil", err)
+	}
+	if !duplicate.NoOp || duplicate.ElapsedRequested != time.Second || duplicate.ElapsedApplied != 0 {
+		t.Fatalf("duplicate NoOp/requested/applied = %v/%s/%s, want true/1s/0", duplicate.NoOp, duplicate.ElapsedRequested, duplicate.ElapsedApplied)
+	}
+	if got := duplicate.After.State.LastCalculatedAt; !got.Equal(settledAt) {
+		t.Fatalf("duplicate LastCalculatedAt = %s, want unchanged %s", got, settledAt)
+	}
+	if got := duplicate.After.Storage.QuantityOf("iron_ore"); got != 30 {
+		t.Fatalf("duplicate iron_ore = %d, want 30", got)
+	}
+	if got := len(store.Events()); got != eventCountAfterFirst {
+		t.Fatalf("duplicate events = %d, want unchanged %d", got, eventCountAfterFirst)
+	}
+}
+
+func TestSettlePlanetProductionIfWholeOutputAvailableDisabledPlanetNoOpsWithoutAdvancing(t *testing.T) {
+	base := testTime(0)
+	store := newSettlementStore(t, "planet-1", base, 100, 10)
+	addSettlementBuilding(t, store, "planet-1", "building-1", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+	state, ok, err := store.ProductionState("planet-1")
+	if err != nil || !ok {
+		t.Fatalf("ProductionState() ok = %v err = %v, want true nil", ok, err)
+	}
+	state.ProductionEnabled = false
+	state.UpdatedAt = base
+	if err := store.SaveProductionState(state); err != nil {
+		t.Fatalf("SaveProductionState() error = %v, want nil", err)
+	}
+
+	result, err := store.SettlePlanetProductionIfWholeOutputAvailable("planet-1", base.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("SettlePlanetProductionIfWholeOutputAvailable() error = %v, want nil", err)
+	}
+	if !result.NoOp || result.ProductionEnabled {
+		t.Fatalf("NoOp/ProductionEnabled = %v/%v, want true/false", result.NoOp, result.ProductionEnabled)
+	}
+	if got := result.After.State.LastCalculatedAt; !got.Equal(base) {
+		t.Fatalf("LastCalculatedAt = %s, want unchanged %s", got, base)
+	}
+	if got := len(store.Events()); got != 0 {
+		t.Fatalf("events = %d, want none", got)
+	}
+}
+
 func TestSettlePlanetProductionSummaryIncludesRuntimeElapsedAndSnapshots(t *testing.T) {
 	store := newSettlementStore(t, "planet-1", testTime(0), 200, 10)
 	addSettlementBuilding(t, store, "planet-1", "building-1", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"time"
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/discovery"
@@ -289,9 +290,13 @@ func (runtime *Runtime) handleProductionSummary(ctx realtime.CommandContext, req
 	if err != nil {
 		return nil, invalidPayload("Planet is invalid.", err)
 	}
-	payload, err := runtime.productionSummaryPayload(ctx.PlayerID, planetID)
+	now := runtime.clock.Now().UTC()
+	payload, storagePayload, changed, err := runtime.settleOwnedProductionForSummary(ctx.PlayerID, planetID, now)
 	if err != nil {
 		return nil, domainErrorForDiscovery(err)
+	}
+	if changed {
+		runtime.queueProductionSummarySettlementEvents(ctx.PlayerID, payload, storagePayload)
 	}
 	return marshalPayload(map[string]any{"production": payload})
 }
@@ -304,9 +309,13 @@ func (runtime *Runtime) handlePlanetStorage(ctx realtime.CommandContext, request
 	if err != nil {
 		return nil, invalidPayload("Planet is invalid.", err)
 	}
-	payload, err := runtime.storageSummaryPayload(ctx.PlayerID, planetID)
+	now := runtime.clock.Now().UTC()
+	productionPayload, payload, changed, err := runtime.settleOwnedProductionForSummary(ctx.PlayerID, planetID, now)
 	if err != nil {
 		return nil, domainErrorForDiscovery(err)
+	}
+	if changed {
+		runtime.queueProductionSummarySettlementEvents(ctx.PlayerID, productionPayload, payload)
 	}
 	return marshalPayload(map[string]any{"planet_storage": payload})
 }
@@ -556,6 +565,10 @@ func (runtime *Runtime) productionSummaryPayload(playerID foundation.PlayerID, p
 	if err != nil {
 		return planetProductionCollectionPayload{}, err
 	}
+	return runtime.productionSummaryPayloadForScope(playerID, planetID, scope)
+}
+
+func (runtime *Runtime) productionSummaryPayloadForScope(playerID foundation.PlayerID, planetID foundation.PlanetID, scope knownPlanetMapScope) (planetProductionCollectionPayload, error) {
 	snapshots := runtime.Production.Snapshots()
 	planets := make([]planetProductionPayload, 0, len(snapshots))
 	for _, snapshot := range snapshots {
@@ -586,11 +599,84 @@ func (runtime *Runtime) storageSummaryPayload(playerID foundation.PlayerID, plan
 	if err != nil {
 		return planetStorageCollectionPayload{}, err
 	}
+	return storageSummaryPayloadFromProduction(productionPayload), nil
+}
+
+func storageSummaryPayloadFromProduction(productionPayload planetProductionCollectionPayload) planetStorageCollectionPayload {
 	storage := make([]planetStoragePayload, 0, len(productionPayload.Planets))
 	for _, planet := range productionPayload.Planets {
 		storage = append(storage, planet.Storage)
 	}
-	return planetStorageCollectionPayload{Planets: storage}, nil
+	return planetStorageCollectionPayload{Planets: storage}
+}
+
+func (runtime *Runtime) settleOwnedProductionForSummary(
+	playerID foundation.PlayerID,
+	planetID foundation.PlanetID,
+	now time.Time,
+) (planetProductionCollectionPayload, planetStorageCollectionPayload, bool, error) {
+	scope, err := runtime.knownPlanetMapScope(playerID)
+	if err != nil {
+		return planetProductionCollectionPayload{}, planetStorageCollectionPayload{}, false, err
+	}
+	planetIDs, err := runtime.ownedProductionPlanetIDsForScope(playerID, planetID, scope)
+	if err != nil {
+		return planetProductionCollectionPayload{}, planetStorageCollectionPayload{}, false, err
+	}
+	changed := false
+	for _, candidateID := range planetIDs {
+		result, err := runtime.Production.SettlePlanetProductionIfWholeOutputAvailable(candidateID, now)
+		if err != nil {
+			return planetProductionCollectionPayload{}, planetStorageCollectionPayload{}, false, err
+		}
+		if !result.NoOp {
+			changed = true
+		}
+	}
+
+	productionPayload, err := runtime.productionSummaryPayloadForScope(playerID, planetID, scope)
+	if err != nil {
+		return planetProductionCollectionPayload{}, planetStorageCollectionPayload{}, false, err
+	}
+	return productionPayload, storageSummaryPayloadFromProduction(productionPayload), changed, nil
+}
+
+func (runtime *Runtime) ownedProductionPlanetIDsForScope(
+	playerID foundation.PlayerID,
+	planetID foundation.PlanetID,
+	scope knownPlanetMapScope,
+) ([]foundation.PlanetID, error) {
+	snapshots := runtime.Production.Snapshots()
+	planetIDs := make([]foundation.PlanetID, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		if !planetID.IsZero() && snapshot.State.PlanetID != planetID {
+			continue
+		}
+		planet, ok, err := runtime.Discovery.Planet(snapshot.State.PlanetID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || planet.OwnerPlayerID != playerID {
+			continue
+		}
+		if planet.WorldID != scope.worldID || planet.ZoneID != scope.zoneID {
+			continue
+		}
+		planetIDs = append(planetIDs, snapshot.State.PlanetID)
+	}
+	return planetIDs, nil
+}
+
+func (runtime *Runtime) queueProductionSummarySettlementEvents(
+	playerID foundation.PlayerID,
+	productionPayload planetProductionCollectionPayload,
+	storagePayload planetStorageCollectionPayload,
+) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	runtime.queueEventToPlayerSessionsLocked(playerID, realtime.EventProductionSummary, productionPayload)
+	runtime.queueEventToPlayerSessionsLocked(playerID, realtime.EventPlanetStorage, storagePayload)
 }
 
 func (runtime *Runtime) routeListPayload(playerID foundation.PlayerID) (routeListPayload, error) {

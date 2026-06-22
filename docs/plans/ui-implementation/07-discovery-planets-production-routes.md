@@ -30,10 +30,10 @@ Current slice completed:
 - 2026-06-19 follow-up: clicking a known planet memory marker on the world map
   opens the planet detail modal immediately and still requests fresh server
   detail for reconciliation.
-- Phase 10 records the exact missing contracts for planet claim, intel share,
-  coordinate item use, building mutation, offline settlement, and route
-  mutation flows. Those controls remain absent, locked, or read-only until their
-  server-authoritative transaction paths are implemented.
+- Phase 10 records the remaining missing contracts for intel share, coordinate
+  item use, building mutation, durable persistence/outbox, and broader
+  rollout. Unimplemented controls remain absent, locked, or read-only until
+  their server-authoritative transaction paths are implemented.
 - Phase07A backend follow-up: authenticated `discovery.claim_planet` now exists
   in the Go realtime gateway only. It accepts only `planet_id`, resolves
   player/rank/map/position/X Core source server-side, consumes one `x_core`
@@ -92,6 +92,18 @@ Current slice completed:
   e2e:phase10-route` using a guarded `GAME_DEV_MODE=1` +
   `GAME_E2E_ROUTE_SEED=1` real-server seed. Durable production/route DB rows,
   outbox publishing, and durable settlement window idempotency remain open.
+- Phase07H backend query follow-up: authenticated
+  `planet.production_summary` and `planet.storage_summary` now reconcile
+  eligible owned active-map production through
+  `SettlePlanetProductionIfWholeOutputAvailable` before returning safe
+  snapshots. The runtime uses one request-scoped server clock timestamp,
+  rejects client-authored owner/map/time/output/storage/building facts, filters
+  out other-owner and other-map planets, emits only owner-scoped
+  `planet.production_summary` and `planet.storage_summary` events when a
+  whole-output settlement changes production/storage state, and avoids AOI
+  diffs. Immediate and near-immediate sequential duplicate queries no-op
+  without advancing `last_calculated_at`; durable production DB rows/outbox and
+  building build/upgrade handlers remain open.
 
 ## Source Specs
 
@@ -158,7 +170,7 @@ route.settle
 | `planet.production_summary` | planet id | ownership/access; active-map filtered read payload includes catalog-derived `public_map_key`; settle/reconcile server-owned windows as needed |
 | `planet.building_build` | planet id, building type/slot | ownership, requirements, storage/wallet/materials; lock/mutate/ledger/event/commit |
 | `planet.building_upgrade` | building id | ownership, level requirements, storage/wallet/materials; lock/mutate/ledger/event/commit |
-| `planet.storage_summary` | planet id | ownership/access; client-safe capacity, visible stacks, and catalog-derived `public_map_key` |
+| `planet.storage_summary` | planet id | ownership/access; reconciles eligible owned active-map production first; client-safe capacity, visible stacks, and catalog-derived `public_map_key` |
 | `route.create/update` | endpoint/config intent; update accepts only `route_id`, `destination_planet_id`, `resource_item_id`, `amount_per_hour` | endpoint visibility/access, ownership, capacity, policy; mutate route terms server-side and settle old update terms before replacement |
 | `route.enable/disable` | route id | owner is resolved from the authenticated session; control accepts only `route_id`, rechecks route ownership, and returns safe route/list snapshots |
 | `route.list/snapshot` | filter or empty | owner/access; reconnect-safe route state, cursors, and public source/destination map keys |
@@ -166,8 +178,10 @@ route.settle
 
 Offline production and route settlement are never client-timed truth. UI requests
 may ask the server to reconcile, but the server calculates eligible windows,
-locks ownership/storage, applies idempotency, writes ledger/events, commits, and
-then broadcasts snapshots.
+locks ownership/storage, applies in-memory duplicate/no-op guards where
+implemented, and then broadcasts snapshots after state changes. Durable DB
+idempotency rows, ledger/outbox references, and commit boundaries remain
+follow-up work where the code has not implemented them yet.
 
 ## Events
 
@@ -182,6 +196,8 @@ intel.updated
 coordinate_item.created
 planet.production_updated
 planet.storage_updated
+planet.production_summary
+planet.storage_summary
 planet.building_updated
 route.updated
 route.settled
@@ -215,7 +231,8 @@ Mockup areas covered:
 - [ ] Add production build/upgrade handlers.
 - [ ] Add ledger-backed transaction flows for claim/build/upgrade/storage
       mutations.
-- [ ] Add offline settlement reconcile path that uses server-owned windows.
+- [x] Add offline settlement reconcile path that uses server-owned windows for
+      production/storage summary queries.
 - [x] Add route.create handler for owned planet-to-planet MVP.
 - [x] Add route.update handler for owned routes.
 - [x] Add route.enable and route.disable handlers for owned routes.
@@ -239,7 +256,7 @@ Mockup areas covered:
 - [x] Route creation rechecks both endpoints and ownership/access.
 - [x] Route update rechecks destination ownership/access and preserves
       server-owned source truth.
-- [ ] Offline settlement duration is server-calculated.
+- [x] Offline settlement duration is server-calculated.
 - [x] Route settlement timing is server-calculated in the backend gateway.
 - [ ] Durable route settlement windows are DB/outbox idempotent.
 - [ ] Building and route mutations use inventory/wallet/storage ledgers.
@@ -258,7 +275,10 @@ Mockup areas covered:
 - [ ] Intel share rejects hidden/not-owned coordinate references.
 - [ ] Coordinate item create/use consumes owned items once and filters results.
 - [ ] Building build/upgrade debits materials/currency once.
-- [ ] Production settlement is idempotent.
+- [x] Production summary/storage duplicate and sub-unit polls no-op without
+      advancing production time or queuing duplicate events.
+- [ ] Durable production settlement is idempotent by DB window and outbox
+      reference.
 - [x] Server route.settle transfers storage once, returns no-op on immediate
       duplicate reconcile, rejects spoofed settlement facts and wrong-owner
       attempts without mutation/events, emits owner-scoped `route.settled`

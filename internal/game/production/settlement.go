@@ -87,6 +87,39 @@ func (store *InMemoryStore) SettlePlanetProduction(planetID foundation.PlanetID,
 	now = now.UTC()
 	store.mu.Lock()
 	defer store.mu.Unlock()
+
+	return store.settlePlanetProductionLocked(planetID, now, catalogRows, false)
+}
+
+// SettlePlanetProductionIfWholeOutputAvailable applies production only when the
+// current locked snapshot can produce at least one whole output unit. It is
+// intended for query-time reconciliation so frequent polls cannot advance the
+// production cursor for fractional zero-output windows.
+func (store *InMemoryStore) SettlePlanetProductionIfWholeOutputAvailable(planetID foundation.PlanetID, now time.Time) (PlanetProductionSettlementResult, error) {
+	if err := planetID.Validate(); err != nil {
+		return PlanetProductionSettlementResult{}, err
+	}
+	if now.IsZero() {
+		return PlanetProductionSettlementResult{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
+	}
+	catalogRows, err := MVPCatalog()
+	if err != nil {
+		return PlanetProductionSettlementResult{}, err
+	}
+
+	now = now.UTC()
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	return store.settlePlanetProductionLocked(planetID, now, catalogRows, true)
+}
+
+func (store *InMemoryStore) settlePlanetProductionLocked(
+	planetID foundation.PlanetID,
+	now time.Time,
+	catalogRows Catalog,
+	requireWholeOutput bool,
+) (PlanetProductionSettlementResult, error) {
 	store.ensureMapsLocked()
 
 	before, ok := store.snapshotLocked(planetID)
@@ -107,9 +140,15 @@ func (store *InMemoryStore) SettlePlanetProduction(planetID foundation.PlanetID,
 		result.After = before.Clone()
 		return result, nil
 	}
-	result.ElapsedApplied = minDuration(result.ElapsedRequested, DefaultMaxOfflineSettlementDuration)
+	elapsedApplied := minDuration(result.ElapsedRequested, DefaultMaxOfflineSettlementDuration)
 
 	if !state.ProductionEnabled {
+		if requireWholeOutput {
+			result.NoOp = true
+			result.After = before.Clone()
+			return result, nil
+		}
+		result.ElapsedApplied = elapsedApplied
 		state.LastCalculatedAt = now
 		state.UpdatedAt = now
 		store.states[planetID] = cloneProductionState(state)
@@ -124,6 +163,12 @@ func (store *InMemoryStore) SettlePlanetProduction(planetID foundation.PlanetID,
 	if err != nil {
 		return PlanetProductionSettlementResult{}, err
 	}
+	if requireWholeOutput && !settlementBuildingsCanProduceWholeOutput(active, elapsedApplied) {
+		result.NoOp = true
+		result.After = before.Clone()
+		return result, nil
+	}
+	result.ElapsedApplied = elapsedApplied
 
 	energyUsedPerHour := state.EnergyReservedPerHour
 	for _, activeBuilding := range active {
@@ -166,6 +211,17 @@ func (store *InMemoryStore) SettlePlanetProduction(planetID foundation.PlanetID,
 		return PlanetProductionSettlementResult{}, err
 	}
 	return result, nil
+}
+
+func settlementBuildingsCanProduceWholeOutput(active []settlementBuilding, elapsed time.Duration) bool {
+	for _, activeBuilding := range active {
+		for _, output := range activeBuilding.definition.Outputs {
+			if wholeUnitsForElapsed(output.AmountPerHour, elapsed) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (store *InMemoryStore) appendProductionSettlementEventsLocked(result PlanetProductionSettlementResult) error {
