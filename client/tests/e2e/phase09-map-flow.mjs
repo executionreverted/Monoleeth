@@ -10,8 +10,14 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const clientDir = resolve(scriptDir, '../..');
 const repoRoot = resolve(clientDir, '..');
 const screenshotDir = resolve(repoRoot, 'output/screenshots/ui-implementation/09');
+const starterNpcApproachTarget = { x: 800, y: 400 };
 const gateTarget = { x: 9800, y: 5000 };
-const viewport = { width: 1440, height: 900 };
+const screenshotViewports = [
+  { name: 'desktop', viewport: { width: 1440, height: 900 } },
+  { name: 'tablet', viewport: { width: 900, height: 1100 } },
+  { name: 'mobile', viewport: { width: 390, height: 844 } },
+];
+const desktopViewport = screenshotViewports[0].viewport;
 let clientSeq = 1;
 
 async function main() {
@@ -39,7 +45,7 @@ async function main() {
     await waitHTTP(`${clientOrigin}/?smoke=1`, 'Vite client', viteServer);
 
     browser = await chromium.launch();
-    const page = await browser.newPage({ viewport });
+    const page = await browser.newPage({ viewport: desktopViewport });
     await page.goto(`${clientOrigin}/?smoke=1`, { waitUntil: 'domcontentloaded' });
 
     const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -47,21 +53,26 @@ async function main() {
     const origin = await waitSmoke(page, originReady, 'authenticated Origin map state', 30000);
     assertOrigin(origin);
     await assertNoLeak(page, origin, 'origin');
-    await page.screenshot({ path: resolve(screenshotDir, 'map-origin-desktop.png'), fullPage: true });
+    await captureViewportScreenshots(page, 'map-origin');
 
     await openCommandSocket(page);
+    const originAfterLoop = await completeFightLootScanLoop(page);
+    await assertNoLeak(page, originAfterLoop, 'origin-fight-loot-scan');
     await moveToGate(page);
     ok(await send(page, 'portal.enter', { portal_id: 'east_gate' }), 'portal.enter');
 
     const outer = await waitSmoke(page, (s) => s.currentMap?.public_map_key === '1-2', 'Outer Ring map state', 15000);
     assertOuter(outer);
-    assertNoOriginMapLeakage(origin, outer);
+    assertNoOriginMapLeakage(originAfterLoop, outer);
     await assertNoLeak(page, outer, 'outer-ring');
-    await page.screenshot({ path: resolve(screenshotDir, 'map-outer-ring-desktop.png'), fullPage: true });
+    await captureViewportScreenshots(page, 'map-outer-ring');
     await page.evaluate(() => window.__phase09CommandSocket?.close());
 
     console.log(
-      `phase09-map smoke ok origin=${origin.currentMap.public_map_key} destination=${outer.currentMap.public_map_key} screenshots=${resolve(screenshotDir, 'map-origin-desktop.png')},${resolve(screenshotDir, 'map-outer-ring-desktop.png')}`,
+      `phase09-map smoke ok origin=${origin.currentMap.public_map_key} destination=${outer.currentMap.public_map_key} screenshots=${screenshotViewports
+        .flatMap(({ name }) => [`map-origin-${name}.png`, `map-outer-ring-${name}.png`])
+        .map((name) => resolve(screenshotDir, name))
+        .join(',')}`,
     );
   } finally {
     if (browser) await browser.close().catch(() => {});
@@ -107,6 +118,11 @@ function assertOuter(state) {
   } else {
     assert(map.protection?.blocks_pvp === true, 'destination protection blocks PvP');
   }
+  const self = selfEntity(state);
+  assert(self?.entity_type === 'player', 'destination self entity visible');
+  const destinationEntities = Object.values(state.visibleEntities ?? {});
+  assert(destinationEntities.every((entity) => entity.entity_id !== 'entity_training_npc'), 'origin training NPC absent from destination entities');
+  assertNoInternalEntityLeak(destinationEntities, 'destination visible entities');
 }
 
 function assertNoOriginMapLeakage(origin, outer) {
@@ -142,16 +158,73 @@ function assertBounds(bounds) {
   assert(bounds?.min_x === 0 && bounds?.min_y === 0 && bounds?.max_x === 10000 && bounds?.max_y === 10000, `bounds ${JSON.stringify(bounds)}`);
 }
 
+async function completeFightLootScanLoop(page) {
+  if (!findHostileNPC(await smoke(page))) {
+    await moveToPosition(page, starterNpcApproachTarget, 260, 'starter NPC radar approach', 25000);
+  }
+  const withNPC = await waitSmoke(page, (s) => findHostileNPC(s), 'visible Origin hostile NPC', 15000);
+  const npc = findHostileNPC(withNPC);
+  assert(npc, 'origin NPC target present');
+
+  await moveToPosition(page, npc.position, Math.max(80, Math.min(220, (withNPC.stats?.weapon_range ?? 260) - 40)), `combat target ${npc.entity_id}`, 30000);
+  const combatPayload = payloadOf(await send(page, 'combat.use_skill', { skill_id: 'basic_laser', target_id: npc.entity_id }), 'combat.use_skill');
+  assert(combatPayload.accepted === true, `combat accepted ${JSON.stringify(combatPayload)}`);
+  assert(combatPayload.killed === true, `combat killed ${JSON.stringify(combatPayload)}`);
+  assert(combatPayload.amount > 0, `combat amount ${JSON.stringify(combatPayload)}`);
+  assertNoPayloadLeak(combatPayload, 'combat response');
+
+  const dropFromResponse = Array.isArray(combatPayload.drops) ? combatPayload.drops.find((drop) => drop?.item_id === 'raw_ore') : null;
+  const dropID = dropFromResponse?.drop_id ?? dropFromResponse?.entity_id;
+  const withDrop = await waitSmoke(
+    page,
+    (s) => {
+      if (dropID && s.knownLoot?.[dropID]?.item_id === 'raw_ore') return true;
+      return Object.values(s.knownLoot ?? {}).some((drop) => drop.item_id === 'raw_ore' && drop.quantity >= 3);
+    },
+    'server-created raw_ore loot drop',
+    15000,
+  );
+  const drop = dropID ? withDrop.knownLoot[dropID] : Object.values(withDrop.knownLoot ?? {}).find((entry) => entry.item_id === 'raw_ore');
+  assert(drop?.drop_id, `raw_ore drop present ${JSON.stringify(withDrop.knownLoot)}`);
+  assert(drop.quantity >= 3, `raw_ore drop quantity ${JSON.stringify(drop)}`);
+
+  await moveToPosition(page, drop.position, Math.max(45, (withDrop.stats?.loot_pickup_range ?? 120) - 25), `loot drop ${drop.drop_id}`, 30000);
+  const pickupPayload = payloadOf(await send(page, 'loot.pickup', { drop_id: drop.drop_id }), 'loot.pickup');
+  assert(pickupPayload.accepted === true, `loot pickup accepted ${JSON.stringify(pickupPayload)}`);
+  assertRawOreCargo(pickupPayload.cargo, 'pickup response cargo');
+  assertNoPayloadLeak(pickupPayload, 'loot pickup response');
+
+  const withCargo = await waitSmoke(page, (s) => hasRawOreCargo(s.cargo) && !s.knownLoot?.[drop.drop_id], 'cargo reconciliation after loot pickup', 15000);
+  assertRawOreCargo(withCargo.cargo, 'smoke cargo');
+
+  const scanPayload = payloadOf(await send(page, 'scan.pulse', {}), 'scan.pulse');
+  assertSafeScan(scanPayload);
+  const withScan = await waitSmoke(
+    page,
+    (s) => s.planetIntel?.lastScan?.pulse_reference === scanPayload.scan?.pulse_reference || s.planetIntel?.lastScan?.status === scanPayload.scan?.status,
+    'scan pulse result in smoke state',
+    15000,
+  );
+  assertSafeScan({ scan: withScan.planetIntel?.lastScan });
+  await waitSmoke(page, (s) => Object.keys(s.pendingCommands ?? {}).length === 0, 'post-scan pending commands clear', 10000);
+  return smoke(page);
+}
+
 async function moveToGate(page) {
-  const deadline = Date.now() + 90000;
+  return moveToPosition(page, gateTarget, 120, 'east_gate', 90000);
+}
+
+async function moveToPosition(page, targetPosition, arriveDistance, label, timeoutMS) {
+  assert(targetPosition, `${label} target position present`);
+  const deadline = Date.now() + timeoutMS;
   while (Date.now() < deadline) {
     await waitSmoke(page, (s) => s.connectionStatus === 'connected' && Object.keys(s.pendingCommands ?? {}).length === 0, 'pending commands clear', 10000);
     const state = await smoke(page);
     const self = selfEntity(state);
     const position = positionNow(self, state);
-    if (distance(position, gateTarget) <= 120) return;
+    if (distance(position, targetPosition) <= arriveDistance) return state;
 
-    const target = step(position, gateTarget, 1100);
+    const target = step(position, targetPosition, 1100);
     const response = await send(page, 'move_to', { target });
     if (response.ok !== true && response.error?.code === 'ERR_RATE_LIMITED') {
       await delay(125);
@@ -163,13 +236,13 @@ async function moveToGate(page) {
       page,
       (candidate) => {
         const pos = positionNow(selfEntity(candidate), candidate);
-        return distance(pos, target) <= 35 || distance(pos, gateTarget) <= 120;
+        return distance(pos, target) <= 35 || distance(pos, targetPosition) <= arriveDistance;
       },
       `movement to ${fmt(target)}`,
       Math.max(5000, eta + 5000),
     );
   }
-  throw new Error(`Timed out before reaching east_gate at ${fmt(gateTarget)}`);
+  throw new Error(`Timed out before reaching ${label} at ${fmt(targetPosition)}`);
 }
 
 async function openCommandSocket(page) {
@@ -290,6 +363,8 @@ async function assertNoLeak(page, state, label) {
   }
   const key = forbiddenKey(state);
   assert(!key, `${label} smoke state leaked forbidden key ${key}`);
+  const browserLeak = await browserStorageLeak(page, leakTokens);
+  assert(!browserLeak, `${label} browser storage leaked ${browserLeak}`);
 }
 
 const leakTokens = [
@@ -301,7 +376,99 @@ const leakTokens = [
   'to_public_map_key',
   'gameplay_seed', 'procedural_seed', 'world_seed', 'spawn_candidates', 'planet_candidate', 'scan_roll',
   'loot_roll', 'loot_table',
+  'enemy_pool_id', 'spawn_area_id', 'stat_template_id', 'drop_profile_id', 'aggro_profile_id', 'leash_profile_id',
+  'starter_training_drone_pool', 'starter_training_drone_area', 'training_drone_salvage',
+  'outer_ring_scout_drone_pool', 'outer_ring_scout_drone_area', 'outer_ring_scout_drone_salvage',
+  'demo_npc', 'fixture_npc', 'mock_npc', 'fake_npc', 'mock_wallet', 'mock_cargo',
 ];
+
+async function captureViewportScreenshots(page, prefix) {
+  for (const { name, viewport } of screenshotViewports) {
+    await page.setViewportSize(viewport);
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: resolve(screenshotDir, `${prefix}-${name}.png`), fullPage: true });
+  }
+  await page.setViewportSize(desktopViewport);
+  await page.waitForTimeout(150);
+}
+
+function findHostileNPC(state) {
+  return Object.values(state?.visibleEntities ?? {}).find((entity) => entity.entity_type === 'npc' && entity.position && (entity.combat?.hp ?? 1) > 0) ?? null;
+}
+
+function assertRawOreCargo(cargo, label) {
+  const rawOre = cargo?.items?.find((item) => item.item_id === 'raw_ore');
+  assert(rawOre, `${label} includes raw_ore`);
+  assert(rawOre.quantity >= 3, `${label} raw_ore quantity ${rawOre.quantity}`);
+  assert(cargo.used >= 6, `${label} used cargo ${cargo.used}`);
+}
+
+function hasRawOreCargo(cargo) {
+  return cargo?.items?.some((item) => item.item_id === 'raw_ore' && item.quantity >= 3) === true;
+}
+
+function assertSafeScan(payload) {
+  assert(payload?.scan, `scan payload present ${JSON.stringify(payload)}`);
+  assert(
+    ['started', 'no_signal', 'planet_discovered', 'player_revealed'].includes(payload.scan.status),
+    `scan status ${JSON.stringify(payload.scan)}`,
+  );
+  assert(payload.scan.pulse_reference, `scan pulse reference present ${JSON.stringify(payload.scan)}`);
+  assertNoPayloadLeak(payload, 'scan payload');
+}
+
+function assertNoPayloadLeak(payload, label) {
+  const json = JSON.stringify(payload);
+  for (const token of leakTokens) {
+    assert(!json.includes(token), `${label} leaked ${token}`);
+  }
+  const key = forbiddenKey(payload);
+  assert(!key, `${label} leaked forbidden key ${key}`);
+}
+
+function assertNoInternalEntityLeak(entities, label) {
+  assertNoPayloadLeak({ entities }, label);
+}
+
+function payloadOf(response, label) {
+  ok(response, label);
+  const payload = typeof response.payload === 'string' ? JSON.parse(response.payload) : response.payload;
+  assert(payload && typeof payload === 'object', `${label} payload present`);
+  return payload;
+}
+
+async function browserStorageLeak(page, tokens) {
+  const storageLeak = await page.evaluate((scanTokens) => {
+    const scanText = (surface, text, key = '') => {
+      const haystack = String(text ?? '');
+      for (const token of scanTokens) {
+        if (haystack.includes(token)) return `${surface}${key ? `:${key}` : ''}:${token}`;
+      }
+      return null;
+    };
+    const scanStorage = (surface, storage) => {
+      for (let i = 0; i < storage.length; i += 1) {
+        const key = storage.key(i) ?? '';
+        const keyLeak = scanText(`${surface}.key`, key);
+        if (keyLeak) return keyLeak;
+        const valueLeak = scanText(`${surface}.value`, storage.getItem(key), key);
+        if (valueLeak) return valueLeak;
+      }
+      return null;
+    };
+    return scanStorage('localStorage', window.localStorage) ?? scanStorage('sessionStorage', window.sessionStorage) ?? scanText('document.cookie', document.cookie);
+  }, tokens);
+  if (storageLeak) return storageLeak;
+
+  const cookies = await page.context().cookies();
+  for (const cookie of cookies) {
+    for (const token of tokens) {
+      if (cookie.name.includes(token)) return `cookie.name:${cookie.name}:${token}`;
+      if (cookie.value.includes(token)) return `cookie.value:${cookie.name}:${token}`;
+    }
+  }
+  return null;
+}
 
 function forbiddenKey(value, path = []) {
   if (Array.isArray(value)) {

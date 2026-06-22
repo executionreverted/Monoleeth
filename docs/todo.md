@@ -130,31 +130,35 @@ for phase status; this file is a compact pending-work index.
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete second-map enemy rollout coverage for map `1-2`. The
   deterministic `outer_ring_scout_drone` seed, initial spawn, actor projection,
-  and bootstrap no-hidden-pool leak check now exist; remaining work is per-map
-  spawn cap, respawn, aggro/leash, fight/loot, and browser proof across both
-  starter and destination maps. Source:
+  and bootstrap no-hidden-pool leak check now exist; Phase09 now proves the
+  starter-map browser fight/loot path, but remaining work is destination-map
+  spawn cap, respawn, aggro/leash, fight/loot, and browser proof. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add a deterministic per-map scanner/claim/drop seed matrix. Focused
-  server/discovery scanner rarity/hidden-scan-data regression coverage now exists;
-  remaining work is per-map scanner tuning, claim/drop behavior for each seeded
-  map, and browser hidden-scan-data leak proof. Source:
+  server/discovery scanner rarity/hidden-scan-data regression coverage now
+  exists, and Phase09 now covers one browser `scan.pulse` with
+  DOM/state/storage/cookie leak checks; remaining work is per-map scanner
+  tuning, claim/drop behavior for each seeded map, and broader browser scan
+  variants. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete the full map-aware drop matrix covering
   `npc_type + map_id/risk/rank_band` selection across seeded maps. Current
   server tests cover starter selection, `map_1_2` `outer_ring_scout_drone`
   spawn-record/drop-profile selection, no fallback when the destination table
-  is missing, and domain-level hidden/far/cross-map pickup rejection. Browser
-  fight/loot proof remains tracked separately. Source:
+  is missing, and domain-level hidden/far/cross-map pickup rejection. Phase09
+  now covers starter-map browser fight/loot pickup; destination browser
+  fight/loot and the full matrix remain open. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Extend the Phase09 browser map smoke into a full real-server
-  fight/loot/scan/portal loop with desktop, tablet, and mobile screenshots;
-  decide explicitly whether `e2e:phase09-map` belongs in `client` `npm run
-  check` or remains a separate release-gate command. Source:
+- [x] Extend the Phase09 browser map smoke into a full real-server
+  fight/loot/scan/portal loop with desktop, tablet, and mobile screenshots.
+  The command remains explicit as `e2e:phase09-map` and is not wired into
+  `client` `npm run check` to avoid changing routine check cost. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Add Phase10 leak canaries over WebSocket payloads, DOM/app state,
-  local/session storage, cookies, screenshots, server logs/debug responses, and
-  production bundle text for hidden map/scan/spawn/loot internals and
-  fake/default fixture labels. Source:
+- [ ] Add Phase10 leak canaries over WebSocket payloads, screenshots,
+  server logs/debug responses, and production bundle text for hidden
+  map/scan/spawn/loot internals and fake/default fixture labels. Phase09 now
+  covers DOM/app state, local/session storage, and cookies for its smoke path,
+  but the broader release canary scope remains open. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Clean up active legacy semantic contradictions in the scoped
   world/progression/module/UI docs. The bounded-map rework now defines active
