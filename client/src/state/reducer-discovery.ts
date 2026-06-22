@@ -87,7 +87,7 @@ export function parseKnownPlanets(payload: JsonObject, fallback: PlanetIntelSumm
   };
 }
 
-function parseKnownPlanet(payload: JsonObject): KnownPlanetSummary | null {
+export function parseKnownPlanet(payload: JsonObject): KnownPlanetSummary | null {
   const planetID = stringField(payload, 'planet_id') ?? '';
   if (!planetID) {
     return null;
@@ -109,6 +109,38 @@ function parseKnownPlanet(payload: JsonObject): KnownPlanetSummary | null {
     planet.sector_key = sectorKey;
   }
   return planet;
+}
+
+export function applyPlanetClaimed(fallback: PlanetIntelSummary | null, payload: JsonObject): PlanetIntelSummary | null {
+  const planetPayload = objectField(payload, 'planet');
+  if (!planetPayload) {
+    return fallback;
+  }
+  const claimedPlanet = parseKnownPlanet(planetPayload);
+  if (!claimedPlanet) {
+    return fallback;
+  }
+
+  const next = fallback ?? emptyPlanetIntel();
+  const planets = next.planets.some((planet) => planet.planet_id === claimedPlanet.planet_id)
+    ? next.planets.map((planet) => (planet.planet_id === claimedPlanet.planet_id ? { ...planet, ...claimedPlanet } : planet))
+    : [...next.planets, claimedPlanet];
+  const selectedPlanet =
+    next.selectedPlanet?.planet_id === claimedPlanet.planet_id
+      ? { ...next.selectedPlanet, ...claimedPlanet }
+      : next.selectedPlanet;
+  const ownedPlanets = Math.max(
+    next.ownedPlanets,
+    planets.filter((planet) => planet.owner_status === 'owned_by_you' || planet.owner_status === 'owned').length,
+  );
+
+  return {
+    ...next,
+    knownSignals: Math.max(next.knownSignals, planets.length),
+    ownedPlanets,
+    planets,
+    selectedPlanet,
+  };
 }
 
 export function parsePlanetDetail(payload: JsonObject, fallback: PlanetDetailSummary | null): PlanetDetailSummary {

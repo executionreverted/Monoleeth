@@ -201,6 +201,7 @@ function isMapScopedClientEvent(eventType: string): boolean {
     eventType === CLIENT_EVENTS.scanPlanetDiscovered ||
     eventType === CLIENT_EVENTS.knownPlanets ||
     eventType === CLIENT_EVENTS.planetDetail ||
+    eventType === CLIENT_EVENTS.planetClaimed ||
     eventType === CLIENT_EVENTS.productionSummary ||
     eventType === CLIENT_EVENTS.planetStorageSummary ||
     eventType === CLIENT_EVENTS.routeList ||

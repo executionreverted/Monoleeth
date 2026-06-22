@@ -500,6 +500,243 @@ describe('reduceClientState', () => {
     expect(worldMapMemoryMarkers(withSecondDetail)).toEqual([]);
   });
 
+  test('claim response reconciles known planet, detail, production, inventory, and pending state', () => {
+    const state = reduceClientState(
+      {
+        ...createInitialState(),
+        pendingCommands: {
+          'claim-1': {
+            requestID: 'claim-1',
+            op: OPERATIONS.discoveryClaimPlanet,
+            queuedAt: 1,
+            payload: { planet_id: 'planet-eris' },
+          },
+          'claim-2': {
+            requestID: 'claim-2',
+            op: OPERATIONS.discoveryClaimPlanet,
+            queuedAt: 1,
+            payload: { planet_id: 'planet-other' },
+          },
+        },
+      },
+      {
+        type: 'responseReceived',
+        envelope: {
+          request_id: 'claim-1',
+          ok: true,
+          payload: {
+            claim: {
+              accepted: true,
+              planet: {
+                planet_id: 'planet-eris',
+                biome: 'ice',
+                planet_type: 'dwarf_planet',
+                rarity: 'uncommon',
+                level: 2,
+                intel_state: 'verified',
+                confidence: 100,
+                last_seen_at: 1200,
+                owner_status: 'owned_by_you',
+                discovered_at: 900,
+              },
+              production_included: true,
+            },
+            known_planets: {
+              planets: [
+                {
+                  planet_id: 'planet-eris',
+                  biome: 'ice',
+                  planet_type: 'dwarf_planet',
+                  rarity: 'uncommon',
+                  level: 2,
+                  intel_state: 'verified',
+                  confidence: 100,
+                  last_seen_at: 1200,
+                  owner_status: 'owned_by_you',
+                  discovered_at: 900,
+                },
+              ],
+              counts: { known: 1, stale: 0, owned: 1 },
+            },
+            planet_detail: {
+              planet_id: 'planet-eris',
+              biome: 'ice',
+              planet_type: 'dwarf_planet',
+              rarity: 'uncommon',
+              level: 2,
+              intel_state: 'verified',
+              confidence: 100,
+              last_seen_at: 1200,
+              owner_status: 'owned_by_you',
+              discovered_at: 900,
+              coordinates: { x: 320, y: 140 },
+              production_locked: false,
+              available_commands: ['planet.production_summary', 'planet.storage_summary'],
+              routes: [],
+              production: {
+                planet_id: 'planet-eris',
+                production_enabled: true,
+                last_calculated_at: 1200,
+                energy_capacity_per_hour: 40,
+                energy_reserved_per_hour: 0,
+                storage: {
+                  planet_id: 'planet-eris',
+                  used_units: 0,
+                  free_units: 250,
+                  capacity_units: 250,
+                  updated_at: 1200,
+                  items: [],
+                },
+                buildings: [],
+              },
+            },
+            production: {
+              planets: [
+                {
+                  planet_id: 'planet-eris',
+                  production_enabled: true,
+                  last_calculated_at: 1200,
+                  energy_capacity_per_hour: 40,
+                  energy_reserved_per_hour: 0,
+                  storage: {
+                    planet_id: 'planet-eris',
+                    used_units: 0,
+                    free_units: 250,
+                    capacity_units: 250,
+                    updated_at: 1200,
+                    items: [],
+                  },
+                  buildings: [],
+                },
+              ],
+            },
+            inventory: {
+              stackable: [],
+              instances: [],
+              counts: { cargo_stacks: 0, storage_stacks: 0, equipped_instances: 0 },
+            },
+          },
+          server_time: 1200,
+          v: 1,
+        },
+      },
+    );
+
+    expect(state.pendingCommands['claim-1']).toBeUndefined();
+    expect(state.pendingCommands['claim-2']).toMatchObject({
+      op: OPERATIONS.discoveryClaimPlanet,
+      payload: { planet_id: 'planet-other' },
+    });
+    expect(state.planetIntel?.ownedPlanets).toBe(1);
+    expect(state.planetIntel?.selectedPlanet).toMatchObject({
+      planet_id: 'planet-eris',
+      owner_status: 'owned_by_you',
+      production_locked: false,
+      coordinates: { x: 320, y: 140 },
+    });
+    expect(state.production?.planets[0]).toMatchObject({
+      planet_id: 'planet-eris',
+      production_enabled: true,
+      storage: { free_units: 250 },
+    });
+    expect(state.inventory?.stackable.some((item) => item.item_id === 'x_core')).toBe(false);
+  });
+
+  test('planet claimed event clears pending claim and updates safe planet summary without unhandled log', () => {
+    const state = reduceClientState(
+      {
+        ...createInitialState(),
+        pendingCommands: {
+          'claim-1': {
+            requestID: 'claim-1',
+            op: OPERATIONS.discoveryClaimPlanet,
+            queuedAt: 1,
+            payload: { planet_id: 'planet-eris' },
+          },
+          'claim-2': {
+            requestID: 'claim-2',
+            op: OPERATIONS.discoveryClaimPlanet,
+            queuedAt: 1,
+            payload: { planet_id: 'planet-other' },
+          },
+        },
+        planetIntel: {
+          knownSignals: 1,
+          staleIntel: 0,
+          ownedPlanets: 0,
+          planets: [
+            {
+              planet_id: 'planet-eris',
+              biome: 'ice',
+              planet_type: 'dwarf_planet',
+              rarity: 'uncommon',
+              level: 2,
+              intel_state: 'fresh',
+              confidence: 88,
+              last_seen_at: 1000,
+              owner_status: 'unclaimed',
+              discovered_at: 900,
+            },
+          ],
+          selectedPlanet: {
+            planet_id: 'planet-eris',
+            biome: 'ice',
+            planet_type: 'dwarf_planet',
+            rarity: 'uncommon',
+            level: 2,
+            intel_state: 'fresh',
+            confidence: 88,
+            last_seen_at: 1000,
+            owner_status: 'unclaimed',
+            discovered_at: 900,
+            coordinates: { x: 320, y: 140 },
+            production_locked: true,
+            routes: [],
+            available_commands: [],
+          },
+          lastScan: null,
+        },
+      },
+      {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.planetClaimed, {
+          accepted: true,
+          planet: {
+            planet_id: 'planet-eris',
+            biome: 'ice',
+            planet_type: 'dwarf_planet',
+            rarity: 'uncommon',
+            level: 2,
+            intel_state: 'verified',
+            confidence: 100,
+            last_seen_at: 1200,
+            owner_status: 'owned_by_you',
+            discovered_at: 900,
+          },
+          production_included: true,
+        }),
+      },
+    );
+
+    expect(state.pendingCommands['claim-1']).toBeUndefined();
+    expect(state.pendingCommands['claim-2']).toMatchObject({
+      op: OPERATIONS.discoveryClaimPlanet,
+      payload: { planet_id: 'planet-other' },
+    });
+    expect(state.planetIntel?.planets[0]).toMatchObject({
+      planet_id: 'planet-eris',
+      owner_status: 'owned_by_you',
+      intel_state: 'verified',
+    });
+    expect(state.planetIntel?.selectedPlanet).toMatchObject({
+      planet_id: 'planet-eris',
+      owner_status: 'owned_by_you',
+      coordinates: { x: 320, y: 140 },
+    });
+    expect(state.commandLog.some((line) => line.text.includes('Unhandled event'))).toBe(false);
+    expect(state.commandLog.some((line) => line.text === 'Planet claim accepted.')).toBe(true);
+  });
+
   test('planet storage summary updates selected planet and production state', () => {
     const seeded = reduceClientState(createInitialState(), {
       type: 'responseReceived',

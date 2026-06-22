@@ -115,6 +115,10 @@ export class CommandBuilder {
     return this.build(OPERATIONS.planetDetail, { planet_id: planetID });
   }
 
+  claimPlanet(planetID: string): RequestEnvelope<{ planet_id: string }> {
+    return this.build(OPERATIONS.discoveryClaimPlanet, { planet_id: planetID });
+  }
+
   productionSummary(planetID?: string): RequestEnvelope<{ planet_id?: string }> {
     return this.build(OPERATIONS.productionSummary, planetID ? { planet_id: planetID } : {});
   }

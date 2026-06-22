@@ -32,6 +32,12 @@ export function hasPendingOp(state: ClientState, op: string): boolean {
   return Object.values(state.pendingCommands).some((command) => command.op === op);
 }
 
+export function hasPendingOpPayloadField(state: ClientState, op: string, field: string, value: string): boolean {
+  return Object.values(state.pendingCommands).some(
+    (command) => command.op === op && command.payload && command.payload[field] === value,
+  );
+}
+
 export function realtimeReady(state: ClientState): boolean {
   return state.auth.mode === 'demo' || state.connectionStatus === 'connected';
 }

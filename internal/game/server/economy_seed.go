@@ -19,7 +19,9 @@ const (
 	seedAuctionID        foundation.AuctionID = "auction-xcore-fragments-1"
 )
 
-const runtimeSeedLedgerReason economy.LedgerReason = "runtime_seed"
+const (
+	runtimeSeedLedgerReason economy.LedgerReason = "runtime_seed"
+)
 
 func (runtime *Runtime) seedSharedEconomy() error {
 	if err := runtime.seedMarketFixture(); err != nil {
@@ -107,6 +109,9 @@ func (runtime *Runtime) ensurePlayerEconomyLocked(playerID foundation.PlayerID) 
 		return err
 	}
 	if err := runtime.seedStarterModulesAndLoadout(playerID); err != nil {
+		return err
+	}
+	if err := runtime.seedE2EPlanetClaimProof(playerID); err != nil {
 		return err
 	}
 	state := runtime.players[playerID]

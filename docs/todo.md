@@ -110,11 +110,16 @@ for phase status; this file is a compact pending-work index.
   Phase07A landed the backend `discovery.claim_planet` handler with
   authenticated player resolution, active-map range checks, rank validation,
   one-X-Core inventory idempotency, production initialization, and owner-scoped
-  `planet.claimed` fanout. Durable DB/outbox claim recovery plus
-  `planet.building_build` and `planet.building_upgrade` remain open; building
-  handlers still need ownership, requirements, materials/wallet, storage
-  capacity, idempotency, and `planet.storage_updated` /
-  `planet.building_updated` events. Source: Phase 10 audit and Phase07A.
+  `planet.claimed` fanout. Phase10 now has client protocol/HUD/reducer wiring
+  and a focused real-browser claim proof that sends only `planet_id`, uses an
+  E2E-only Inventory X Core plus Progression rank seed, reconciles
+  production/inventory, and handles `planet.claimed` without an unhandled-event
+  log. Durable DB/outbox claim recovery plus `planet.building_build` and
+  `planet.building_upgrade` remain open; building handlers still need
+  ownership, requirements, materials/wallet, storage capacity, idempotency, and
+  `planet.storage_updated` /
+  `planet.building_updated` events. Source: Phase 10 audit, Phase07A, and
+  `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add authenticated automation route mutation contracts for `route.create`,
   `route.update`, `route.enable`, `route.disable`, and `route.settle`. Server
   handlers must validate endpoint visibility/access, ownership, route capacity,
@@ -176,8 +181,9 @@ for phase status; this file is a compact pending-work index.
   response/event/read-model memory on public `1-2`. Domain scanner
   materialization/intel now covers seeded public maps `1-1`, `1-2`, and `1-3`,
   and server-only drop matrix coverage now includes public `1-1`, `1-2`, and
-  medium PvP `1-3`; remaining work is browser claim/drop flow and broader
-  browser scan success/no-signal variants. Source:
+  medium PvP `1-3`. Phase10 now adds a focused browser claim proof for public
+  `1-1`; remaining work is browser drop flow plus broader browser claim/drop
+  and scan success/no-signal variants. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete broader per-map/risk/rank drop balance matrix coverage across
   seeded maps. Current server tests cover starter selection, `map_1_2`

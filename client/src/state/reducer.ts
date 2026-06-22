@@ -193,6 +193,7 @@ export function reduceClientState(state: ClientState, action: ClientAction): Cli
             requestID: action.envelope.request_id,
             op: action.envelope.op,
             queuedAt: Date.now(),
+            payload: action.envelope.payload,
           },
         },
         commandLog: appendLog(state.commandLog, 'info', `Sent ${action.envelope.op}.`),

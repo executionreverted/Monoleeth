@@ -64,22 +64,24 @@ const (
 
 // RuntimeConfig wires the single-process game runtime.
 type RuntimeConfig struct {
-	Clock      foundation.Clock
-	RNG        foundation.RNG
-	SessionTTL time.Duration
-	TickDelta  time.Duration
-	WorldID    foundation.WorldID
-	ZoneID     foundation.ZoneID
-	DevMode    bool
-	AdminSeed  auth.AdminSeedInput
-	Passwords  auth.PasswordHasher
+	Clock              foundation.Clock
+	RNG                foundation.RNG
+	SessionTTL         time.Duration
+	TickDelta          time.Duration
+	WorldID            foundation.WorldID
+	ZoneID             foundation.ZoneID
+	DevMode            bool
+	E2EPlanetClaimSeed bool
+	AdminSeed          auth.AdminSeedInput
+	Passwords          auth.PasswordHasher
 }
 
 // Runtime composes auth, realtime gateway, and the Phase 02 world worker.
 type Runtime struct {
-	mu      sync.Mutex
-	clock   foundation.Clock
-	devMode bool
+	mu                 sync.Mutex
+	clock              foundation.Clock
+	devMode            bool
+	e2ePlanetClaimSeed bool
 
 	Auth    *auth.Service
 	Gateway *realtime.Gateway
@@ -154,6 +156,9 @@ type scanCooldownKey struct {
 
 // NewRuntime creates the single-process runtime.
 func NewRuntime(config RuntimeConfig) (*Runtime, error) {
+	if config.E2EPlanetClaimSeed && !config.DevMode {
+		return nil, fmt.Errorf("%s requires %s=true", EnvE2EPlanetClaimSeed, EnvDevMode)
+	}
 	clock := config.Clock
 	if clock == nil {
 		clock = foundation.RealClock{}
@@ -340,6 +345,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	runtime := &Runtime{
 		clock:               clock,
 		devMode:             config.DevMode,
+		e2ePlanetClaimSeed:  config.E2EPlanetClaimSeed,
 		Auth:                authService,
 		Worker:              zoneWorker,
 		worldID:             config.WorldID,

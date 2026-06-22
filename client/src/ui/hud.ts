@@ -489,6 +489,11 @@ export class HUD {
             this.handlers.onPlanetNavigate(button.dataset.planetId);
           }
           break;
+        case 'planet-claim':
+          if (button.dataset.planetId) {
+            this.handlers.onPlanetClaim(button.dataset.planetId);
+          }
+          break;
         case 'hangar-activate':
           if (button.dataset.shipId) {
             this.handlers.onHangarActivateShip(button.dataset.shipId);

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -33,15 +34,19 @@ type clientConnection struct {
 // New returns a concrete game server.
 func New(config Config) (*Server, error) {
 	config = config.withDefaults()
+	if config.E2EPlanetClaimSeed && !config.DevMode {
+		return nil, fmt.Errorf("%s requires %s=true", EnvE2EPlanetClaimSeed, EnvDevMode)
+	}
 	runtime, err := NewRuntime(RuntimeConfig{
-		Clock:      config.Clock,
-		SessionTTL: config.SessionTTL,
-		TickDelta:  config.TickDelta,
-		WorldID:    config.WorldID,
-		ZoneID:     config.ZoneID,
-		DevMode:    config.DevMode,
-		AdminSeed:  config.AdminSeed,
-		Passwords:  config.PasswordHasher,
+		Clock:              config.Clock,
+		SessionTTL:         config.SessionTTL,
+		TickDelta:          config.TickDelta,
+		WorldID:            config.WorldID,
+		ZoneID:             config.ZoneID,
+		DevMode:            config.DevMode,
+		E2EPlanetClaimSeed: config.E2EPlanetClaimSeed,
+		AdminSeed:          config.AdminSeed,
+		Passwords:          config.PasswordHasher,
 	})
 	if err != nil {
 		return nil, err

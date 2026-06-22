@@ -2,8 +2,9 @@
 
 ## Status
 
-- State: Completed for scanner/read-model MVP; planet/building/route mutation
-  contracts remain tracked in `docs/todo.md`
+- State: Completed for scanner/read-model MVP plus focused browser claim proof;
+  durable planet/building/route mutation contracts remain tracked in
+  `docs/todo.md`
 - Owner: Exploration and persistent planet network UI
 - Depends on: Phase 06
 - Unlocks: long-term strategy loop
@@ -37,8 +38,11 @@ Current slice completed:
   in the Go realtime gateway only. It accepts only `planet_id`, resolves
   player/rank/map/position/X Core source server-side, consumes one `x_core`
   through inventory idempotency, initializes production, and emits owner-scoped
-  safe events. Browser claim UI, TypeScript protocol exposure, durable
-  DB/outbox, building mutations, and route mutations remain open.
+  safe events. Browser claim UI and TypeScript protocol exposure now send only
+  `planet_id`, reconcile the claim response and `planet.claimed` event, and are
+  covered by a focused real-browser proof using an E2E-only Inventory X Core
+  plus Progression rank seed. Durable DB/outbox, building mutations, route
+  mutations, drop flow, and broader claim/drop matrix coverage remain open.
 - Phase07B backend/client read-model follow-up: owned planet production,
   storage, and building payloads now include catalog-derived `public_map_key`;
   automation route rows store internal source/destination map ids for server
@@ -160,6 +164,8 @@ Mockup areas covered:
 - [x] Add planet list/summary query for known/owned planets.
 - [x] Add selected planet detail query with visibility checks.
 - [x] Add planet claim command handler.
+- [x] Add browser planet claim protocol, HUD action, reducer handling, and
+      focused real-browser proof.
 - [ ] Add intel share and coordinate item handlers with visibility-safe
       recipient filtering.
 - [x] Add read-only production summary handler for owned planets.
@@ -196,6 +202,10 @@ Mockup areas covered:
 - [x] Scan result does not leak seed or future candidates.
 - [ ] Hidden planet detail returns safe error.
 - [x] Claim consumes required item once and sets owner once.
+- [x] Browser claim sends only `planet_id`, consumes the server-owned E2E X Core
+      seed through Inventory, uses server-owned E2E Progression rank eligibility,
+      initializes production, clears pending state, and handles `planet.claimed`
+      without an unhandled-event log.
 - [ ] Intel share rejects hidden/not-owned coordinate references.
 - [ ] Coordinate item create/use consumes owned items once and filters results.
 - [ ] Building build/upgrade debits materials/currency once.
@@ -204,6 +214,7 @@ Mockup areas covered:
 - [x] Route list/snapshot restores route read model after reconnect.
 - [x] Browser scan creates safe discovered intel.
 - [x] Browser selected planet panel uses server detail.
+- [x] Browser claim reflects server state.
 - [ ] Browser route create/update reflects server state.
 
 ## Done Criteria

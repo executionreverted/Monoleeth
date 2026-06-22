@@ -47,6 +47,7 @@ export class ClientApp extends ClientAppHandlers {
       onPortalEnter: (portalID) => this.sendPortalEnter(portalID),
       onPlanetDetail: (planetID) => this.requestPlanetDetail(planetID),
       onPlanetNavigate: (planetID) => this.navigateToPlanet(planetID),
+      onPlanetClaim: (planetID) => this.sendPlanetClaim(planetID),
       onHangarActivateShip: (shipID) => this.sendHangarActivateShip(shipID),
       onLoadoutEquipModule: (slotID, itemInstanceID) => this.sendLoadoutEquipModule(slotID, itemInstanceID),
       onLoadoutUnequipModule: (slotID) => this.sendLoadoutUnequipModule(slotID),

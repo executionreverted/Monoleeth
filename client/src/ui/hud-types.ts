@@ -17,6 +17,7 @@ export interface HUDHandlers {
   onPortalEnter(portalID: string): void;
   onPlanetDetail(planetID: string): void;
   onPlanetNavigate(planetID: string): void;
+  onPlanetClaim(planetID: string): void;
   onHangarActivateShip(shipID: string): void;
   onLoadoutEquipModule(slotID: string, itemInstanceID: string): void;
   onLoadoutUnequipModule(slotID: string): void;

@@ -777,6 +777,7 @@ export interface PendingCommand {
   requestID: string;
   op: string;
   queuedAt: number;
+  payload?: JsonObject;
 }
 
 export interface KnownLootDrop {

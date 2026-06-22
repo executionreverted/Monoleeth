@@ -10,7 +10,6 @@ const UNIMPLEMENTED_MUTATION_OPS = [
   'inventory.move',
   'progression.unlock_skill',
   'progression.respec_skills',
-  'discovery.claim_planet',
   'planet.building_build',
   'planet.building_upgrade',
   'route.create',
@@ -334,6 +333,8 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.stealthToggle).toBe('stealth.toggle');
     expect(OPERATIONS.shopCatalog).toBe('shop.catalog');
     expect(OPERATIONS.shopBuyProduct).toBe('shop.buy_product');
+    expect(OPERATIONS.discoveryClaimPlanet).toBe('discovery.claim_planet');
+    expect(CLIENT_EVENTS.planetClaimed).toBe('planet.claimed');
 
     const builder = new CommandBuilder();
     const portalEnter = builder.portalEnter('east_gate');
@@ -352,6 +353,29 @@ describe('default outbound operations', () => {
       product_id: 'product_module_laser_alpha_t1',
       quantity: 1,
     });
+  });
+
+  test('claim planet command sends only planet id intent', () => {
+    const claim = new CommandBuilder().claimPlanet('planet-eris');
+
+    expect(claim.op).toBe(OPERATIONS.discoveryClaimPlanet);
+    expect(claim.payload).toEqual({ planet_id: 'planet-eris' });
+    expect(Object.keys(claim.payload)).toEqual(['planet_id']);
+    for (const forbidden of [
+      'player_id',
+      'map_id',
+      'position',
+      'coordinates',
+      'owner',
+      'owner_player_id',
+      'x_core',
+      'production',
+      'inventory',
+      'storage',
+      'claim_reference',
+    ]) {
+      expect(claim.payload).not.toHaveProperty(forbidden);
+    }
   });
 
   test.each([
@@ -412,7 +436,6 @@ describe('default outbound operations', () => {
       'inventoryMove',
       'progressionUnlockSkill',
       'progressionRespecSkills',
-      'discoveryClaimPlanet',
       'planetBuildingBuild',
       'planetBuildingUpgrade',
       'routeCreate',

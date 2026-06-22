@@ -307,6 +307,17 @@ export abstract class ClientAppCommands extends ClientAppCore {
     this.sendMove(target);
   }
 
+  protected sendPlanetClaim(planetID: string): void {
+    if (!planetID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `planet-claim:${planetID}`,
+      () => this.commandBuilder.claimPlanet(planetID),
+      'Planet claim already pending.',
+    );
+  }
+
   protected toggleScanMode(): void {
     this.dispatch({ type: 'scanModeToggled' });
   }

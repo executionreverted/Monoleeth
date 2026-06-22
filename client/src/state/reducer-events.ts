@@ -3,6 +3,7 @@ import type { ClientState, MapTransferState } from './types';
 import { appendLog, numberField, objectField, stringField } from './reducer-helpers';
 import {
   applyPlanetDetail,
+  applyPlanetClaimed,
   applyPlanetStorageSummary,
   applyRouteSnapshot,
   applyScanPulse,
@@ -307,6 +308,17 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
+
+    case CLIENT_EVENTS.planetClaimed: {
+      const nextState = withoutPendingPlanetClaim(state, envelope.payload);
+      return {
+        ...nextState,
+        planetIntel: applyPlanetClaimed(nextState.planetIntel, envelope.payload),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        commandLog: appendLog(nextState.commandLog, 'info', 'Planet claim accepted.'),
+      };
+    }
 
     case CLIENT_EVENTS.productionSummary:
       return {
@@ -739,6 +751,24 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
         commandLog: appendLog(state.commandLog, 'warn', `Unhandled event ${envelope.type}.`),
       };
   }
+}
+
+function withoutPendingPlanetClaim(state: ClientState, payload: EventEnvelope['payload']): ClientState {
+  const planetPayload = objectField(payload, 'planet');
+  const planetID = planetPayload ? stringField(planetPayload, 'planet_id') : null;
+  if (!planetID) {
+    return state;
+  }
+  const pendingCommands: ClientState['pendingCommands'] = {};
+  let changed = false;
+  for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
+    if (pending.op === OPERATIONS.discoveryClaimPlanet && pending.payload?.planet_id === planetID) {
+      changed = true;
+      continue;
+    }
+    pendingCommands[requestID] = pending;
+  }
+  return changed ? { ...state, pendingCommands } : state;
 }
 
 function parseMapTransferStarted(payload: EventEnvelope['payload'], serverTime: number): MapTransferState {

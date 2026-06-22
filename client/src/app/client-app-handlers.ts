@@ -1,5 +1,5 @@
 import { AuthClientError } from '../auth/auth-client';
-import { CLIENT_EVENTS, EntityPayload, ErrorEnvelope, OPERATIONS, ServerMessage } from '../protocol/envelope';
+import { CLIENT_EVENTS, EntityPayload, ErrorEnvelope, EventEnvelope, OPERATIONS, ServerMessage } from '../protocol/envelope';
 import { activeEntityMovement, currentEntityPosition, distanceBetween, estimateServerTime, movementTiming, selfEntity as selectSelfEntity, serverClockOffset } from '../state/movement';
 import { reduceClientState } from '../state/reducer';
 import { ClientAction, ClientState, PublicSession, WorldMapMemoryMarker } from '../state/types';
@@ -22,7 +22,7 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
   protected applyServerMessage(message: ServerMessage): void {
     if ('event_id' in message) {
       this.dispatch({ type: 'eventReceived', envelope: message });
-      this.clearPendingGameplayActionKeysForEvent(message.type);
+      this.clearPendingGameplayActionKeysForEvent(message);
       this.logAcceptedSelfMovement();
       this.handleEconomyRefreshForEvent(message.type);
       if (message.type === CLIENT_EVENTS.worldSnapshot) {
@@ -202,8 +202,8 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
     this.pendingGameplayActionKeys.delete(actionKey);
   }
 
-  protected clearPendingGameplayActionKeysForEvent(eventType: string): void {
-    switch (eventType) {
+  protected clearPendingGameplayActionKeysForEvent(event: EventEnvelope): void {
+    switch (event.type) {
       case CLIENT_EVENTS.marketListingCreated:
         this.clearPendingGameplayActionKeysByPrefix('market-create:');
         return;
@@ -232,8 +232,33 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
       case CLIENT_EVENTS.mapChanged:
         this.clearPendingGameplayActionKeysByPrefix('portal-enter:');
         return;
+      case CLIENT_EVENTS.planetClaimed:
+        this.clearPendingPlanetClaimActionKey(event);
+        return;
       default:
         return;
+    }
+  }
+
+  protected clearPendingPlanetClaimActionKey(event: EventEnvelope): void {
+    const planet = event.payload.planet as Record<string, unknown> | undefined;
+    const planetID =
+      planet && typeof planet === 'object' && !Array.isArray(planet) && typeof planet.planet_id === 'string'
+        ? planet.planet_id
+        : '';
+    if (planetID) {
+      this.clearPendingGameplayActionKeyByValue(`planet-claim:${planetID}`);
+    }
+  }
+
+  protected clearPendingGameplayActionKeyByValue(actionKey: string): void {
+    if (!this.pendingGameplayActionKeys.delete(actionKey)) {
+      return;
+    }
+    for (const [requestID, pendingActionKey] of [...this.pendingGameplayActionKeysByRequest.entries()]) {
+      if (pendingActionKey === actionKey) {
+        this.pendingGameplayActionKeysByRequest.delete(requestID);
+      }
     }
   }
 

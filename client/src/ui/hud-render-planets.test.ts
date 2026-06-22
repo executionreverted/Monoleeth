@@ -4,7 +4,7 @@ import { OPERATIONS } from '../protocol/envelope';
 import { createInitialState } from '../state/reducer';
 import type { ClientState, MapSummary, MinimapSummary } from '../state/types';
 import { hudSelection } from './hud-selection';
-import { minimapPanel } from './hud-render-planets';
+import { minimapPanel, planetCatalogPanel, planetDetailModal } from './hud-render-planets';
 import { actionBar, targetPanel } from './hud-render-panels';
 import { topbarDangerText, topbarLocationText } from './hud-topbar';
 
@@ -368,6 +368,58 @@ describe('minimapPanel', () => {
   });
 });
 
+describe('planet claim controls', () => {
+  test('catalog and modal enable claim for connected unclaimed planet without inventing X Core truth', () => {
+    const state = planetClaimState('unclaimed');
+
+    const catalogHTML = planetCatalogPanel(state);
+    const modalHTML = planetDetailModal(state, 'planet-eris');
+
+    expect(catalogHTML).toMatch(/data-action="planet-claim"[^>]*data-planet-id="planet-eris"[^>]*>Claim/);
+    expect(catalogHTML).not.toMatch(/data-action="planet-claim"[^>]*disabled/);
+    expect(modalHTML).toMatch(/data-action="planet-claim"[^>]*data-planet-id="planet-eris"[^>]*>Claim/);
+    expect(modalHTML).not.toMatch(/data-action="planet-claim"[^>]*disabled/);
+    expect(catalogHTML).not.toContain('x_core');
+    expect(modalHTML).not.toContain('x_core');
+  });
+
+  test('claim button disables when planet is owned or claim is pending', () => {
+    const owned = planetClaimState('owned_by_you');
+    const ownedHTML = planetCatalogPanel(owned);
+
+    expect(ownedHTML).toMatch(/data-action="planet-claim"[^>]*disabled[^>]*>Claim/);
+    expect(ownedHTML).toContain('Planet already claimed');
+
+    const pending = planetClaimState('unclaimed');
+    pending.pendingCommands = {
+      'claim-1': {
+        requestID: 'claim-1',
+        op: OPERATIONS.discoveryClaimPlanet,
+        queuedAt: 1,
+        payload: { planet_id: 'planet-eris' },
+      },
+    };
+    const pendingHTML = planetCatalogPanel(pending);
+
+    expect(pendingHTML).toMatch(/data-action="planet-claim"[^>]*disabled[^>]*>Claiming/);
+    expect(pendingHTML).toContain('Planet claim pending');
+
+    const otherPending = planetClaimState('unclaimed');
+    otherPending.pendingCommands = {
+      'claim-2': {
+        requestID: 'claim-2',
+        op: OPERATIONS.discoveryClaimPlanet,
+        queuedAt: 1,
+        payload: { planet_id: 'planet-other' },
+      },
+    };
+    const otherPendingHTML = planetCatalogPanel(otherPending);
+
+    expect(otherPendingHTML).toMatch(/data-action="planet-claim"[^>]*data-planet-id="planet-eris"[^>]*>Claim/);
+    expect(otherPendingHTML).not.toMatch(/data-action="planet-claim"[^>]*disabled/);
+  });
+});
+
 describe('topbar map labels', () => {
   test('location prefers current map display, public key, map key, then sector', () => {
     expect(topbarLocationText(withCurrentMap(createInitialState(), { display_name: 'Veil-03' }))).toBe('Veil-03');
@@ -471,6 +523,48 @@ function withCurrentMap(state: ClientState, overrides: Partial<MapSummary>): Cli
     visible_portals: [],
     safe_zones: [],
     ...overrides,
+  };
+  return state;
+}
+
+function planetClaimState(ownerStatus: string): ClientState {
+  const state = createInitialState();
+  state.connectionStatus = 'connected';
+  state.planetIntel = {
+    knownSignals: 1,
+    staleIntel: 0,
+    ownedPlanets: ownerStatus === 'owned_by_you' ? 1 : 0,
+    planets: [
+      {
+        planet_id: 'planet-eris',
+        biome: 'ice',
+        planet_type: 'dwarf_planet',
+        rarity: 'uncommon',
+        level: 2,
+        intel_state: 'fresh',
+        confidence: 88,
+        last_seen_at: 1000,
+        owner_status: ownerStatus,
+        discovered_at: 900,
+      },
+    ],
+    selectedPlanet: {
+      planet_id: 'planet-eris',
+      biome: 'ice',
+      planet_type: 'dwarf_planet',
+      rarity: 'uncommon',
+      level: 2,
+      intel_state: 'fresh',
+      confidence: 88,
+      last_seen_at: 1000,
+      owner_status: ownerStatus,
+      discovered_at: 900,
+      coordinates: { x: 320, y: 140 },
+      production_locked: true,
+      available_commands: ['discovery.claim_planet'],
+      routes: [],
+    },
+    lastScan: null,
   };
   return state;
 }

@@ -1,5 +1,6 @@
+import { OPERATIONS } from '../protocol/envelope';
 import type { ClientState } from '../state/types';
-import { escapeHTML, formatVec, lockedValue, publicPlanetName } from './hud-formatters';
+import { escapeHTML, formatVec, hasPendingOpPayloadField, lockedValue, publicPlanetName, realtimeReady } from './hud-formatters';
 
 export { minimapPanel } from './hud-render-minimap';
 
@@ -84,6 +85,7 @@ export function planetCatalogPanel(state: ClientState): string {
                </div>
                <div class="planet-catalog__actions">
                  <button type="button" data-action="planet-navigate" data-planet-id="${escapeHTML(selectedSummary.planet_id)}" ${canNavigate ? '' : 'disabled'} title="${canNavigate ? 'Navigate to this known coordinate' : 'Select planet coordinates first'}">Navigate</button>
+                 ${planetClaimButton(state, selectedSummary)}
                </div>
                <div class="planet-tabs" aria-label="Planet detail sections">
                  <span>Overview</span>
@@ -150,6 +152,30 @@ export function planetCatalogPanel(state: ClientState): string {
       </div>
     </section>
   `;
+}
+
+function planetClaimButton(
+  state: ClientState,
+  planet: NonNullable<ClientState['planetIntel']>['planets'][number] | NonNullable<ClientState['planetIntel']>['selectedPlanet'],
+): string {
+  const planetID = planet?.planet_id ?? '';
+  const pending = planetID ? hasPendingOpPayloadField(state, OPERATIONS.discoveryClaimPlanet, 'planet_id', planetID) : false;
+  const ownerStatus = (planet?.owner_status ?? '').toLowerCase();
+  const owned = ownerStatus === 'owned_by_you' || ownerStatus === 'owned' || ownerStatus.startsWith('owned_');
+  const claimable = ownerStatus === 'unclaimed' || ownerStatus === 'claimable';
+  const enabled = Boolean(planetID && realtimeReady(state) && claimable && !owned && !pending);
+  const title = !planetID
+    ? 'Planet id unavailable'
+    : pending
+      ? 'Planet claim pending'
+      : owned
+        ? 'Planet already claimed'
+        : !realtimeReady(state)
+          ? 'Realtime connection required'
+          : claimable
+            ? 'Send planet claim intent'
+            : 'Planet cannot be claimed from current public state';
+  return `<button type="button" data-action="planet-claim" data-planet-id="${escapeHTML(planetID)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${pending ? 'Claiming' : 'Claim'}</button>`;
 }
 
 export function planetCatalogRow(planet: NonNullable<ClientState['planetIntel']>['planets'][number], selectedPlanetID: string): string {
@@ -220,6 +246,7 @@ export function planetDetailModal(state: ClientState, planetID?: string): string
       </div>
       <div class="segmented planet-actions">
         <button type="button" data-action="planet-navigate" data-planet-id="${escapeHTML(summary.planet_id)}" ${canNavigate ? '' : 'disabled'} title="${canNavigate ? 'Navigate to this known coordinate' : 'Request coordinates before navigating'}">Navigate</button>
+        ${planetClaimButton(state, summary)}
       </div>
       <div class="systems-subhead">Production</div>
       ${

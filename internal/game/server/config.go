@@ -18,6 +18,7 @@ const (
 	EnvAllowMissingOrigin  = "GAME_ALLOW_MISSING_ORIGIN"
 	EnvCookieSecure        = "GAME_COOKIE_SECURE"
 	EnvDevMode             = "GAME_DEV_MODE"
+	EnvE2EPlanetClaimSeed  = "GAME_E2E_PLANET_CLAIM_SEED"
 	defaultServerAddr      = ":8080"
 	defaultSocketReadLimit = 64 * 1024
 )
@@ -29,6 +30,7 @@ type Config struct {
 	AllowMissingOrigin bool
 	CookieSecure       bool
 	DevMode            bool
+	E2EPlanetClaimSeed bool
 	SessionTTL         time.Duration
 	SocketReadTimeout  time.Duration
 	SocketWriteTimeout time.Duration
@@ -68,6 +70,7 @@ func ConfigFromEnv() Config {
 	config.AllowMissingOrigin = envBool(EnvAllowMissingOrigin, config.AllowMissingOrigin)
 	config.CookieSecure = envBool(EnvCookieSecure, config.CookieSecure)
 	config.DevMode = envBool(EnvDevMode, config.DevMode)
+	config.E2EPlanetClaimSeed = envBool(EnvE2EPlanetClaimSeed, config.E2EPlanetClaimSeed)
 	config.AdminSeed = auth.AdminSeedInput{
 		Enabled:  os.Getenv(auth.EnvAdminEmail) != "" || os.Getenv(auth.EnvAdminPassword) != "",
 		Email:    os.Getenv(auth.EnvAdminEmail),
