@@ -72,6 +72,7 @@ type RuntimeConfig struct {
 	ZoneID             foundation.ZoneID
 	DevMode            bool
 	E2EPlanetClaimSeed bool
+	E2ERouteSeed       bool
 	AdminSeed          auth.AdminSeedInput
 	Passwords          auth.PasswordHasher
 }
@@ -82,6 +83,7 @@ type Runtime struct {
 	clock              foundation.Clock
 	devMode            bool
 	e2ePlanetClaimSeed bool
+	e2eRouteSeed       bool
 
 	Auth    *auth.Service
 	Gateway *realtime.Gateway
@@ -158,6 +160,9 @@ type scanCooldownKey struct {
 func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if config.E2EPlanetClaimSeed && !config.DevMode {
 		return nil, fmt.Errorf("%s requires %s=true", EnvE2EPlanetClaimSeed, EnvDevMode)
+	}
+	if config.E2ERouteSeed && !config.DevMode {
+		return nil, fmt.Errorf("%s requires %s=true", EnvE2ERouteSeed, EnvDevMode)
 	}
 	clock := config.Clock
 	if clock == nil {
@@ -346,6 +351,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		clock:               clock,
 		devMode:             config.DevMode,
 		e2ePlanetClaimSeed:  config.E2EPlanetClaimSeed,
+		e2eRouteSeed:        config.E2ERouteSeed,
 		Auth:                authService,
 		Worker:              zoneWorker,
 		worldID:             config.WorldID,

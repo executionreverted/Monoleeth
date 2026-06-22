@@ -403,6 +403,85 @@
   min-height: 0;
 }
 
+.route-controls {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.route-create,
+.route-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.4rem;
+  border: 1px solid rgba(215, 247, 255, 0.12);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.route-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.route-create select,
+.route-create input,
+.route-row select,
+.route-row input {
+  min-width: 0;
+  min-height: 2rem;
+  border: 1px solid rgba(215, 247, 255, 0.16);
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(245, 247, 248, 0.9);
+  font: inherit;
+  font-size: 0.68rem;
+}
+
+.route-create button,
+.route-row button,
+.route-controls > button {
+  min-height: 2.25rem;
+  border: 1px solid rgba(215, 247, 255, 0.22);
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(245, 247, 248, 0.88);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+}
+
+.route-create button:hover:not(:disabled),
+.route-row button:hover:not(:disabled),
+.route-controls > button:hover:not(:disabled) {
+  border-color: #2bdfff;
+  color: #8af5ff;
+}
+
+.route-create button:disabled,
+.route-row button:disabled,
+.route-controls > button:disabled,
+.route-create select:disabled,
+.route-create input:disabled,
+.route-row select:disabled,
+.route-row input:disabled {
+  color: rgba(215, 247, 255, 0.34);
+}
+
+.route-row > button:first-child {
+  color: #f4c95d;
+  text-align: left;
+}
+
+.route-row[data-selected='true'] {
+  border-color: rgba(43, 223, 255, 0.45);
+}
+
+@media (min-width: 768px) {
+  .route-create,
+  .route-row {
+    grid-template-columns: minmax(5.5rem, 1fr) minmax(5.5rem, 1fr);
+  }
+}
+
 .systems-block {
   display: grid;
   gap: 0.125rem;

@@ -159,7 +159,8 @@ Deferred after Phase07C:
 - Route enable/disable gateway handlers, later landed in Phase07D below.
 - Route update later landed in Phase07E and route settle later landed in
   Phase07F below.
-- Browser route create/update/control proof and TypeScript protocol/UI work.
+- Browser route create/update/control proof and TypeScript protocol/UI work,
+  later landed in Phase07G.
 - Durable production/route DB rows, row locks/CAS, settlement idempotency rows,
   and outbox publishing.
 
@@ -188,7 +189,8 @@ Deferred after Phase07D:
 
 - Route update later landed in Phase07E and route settle later landed in
   Phase07F below.
-- Browser route create/update/control proof and TypeScript protocol/UI work.
+- Browser route create/update/control proof and TypeScript protocol/UI work,
+  later landed in Phase07G.
 - Durable production/route DB rows, row locks/CAS, settlement idempotency rows,
   and outbox publishing.
 
@@ -223,7 +225,8 @@ Deferred after Phase07D:
 Deferred after Phase07E:
 
 - Route settle gateway handler later landed in Phase07F below.
-- Browser route create/update/control proof and TypeScript protocol/UI work.
+- Browser route create/update/control proof and TypeScript protocol/UI work,
+  later landed in Phase07G.
 - Durable production/route DB rows, row locks/CAS, settlement idempotency rows,
   and outbox publishing.
 
@@ -265,11 +268,44 @@ Deferred after Phase07E:
 
 Deferred after Phase07F:
 
-- Browser route create/update/control/settle proof and route UI work. Minimal
-  TypeScript protocol constants/builder now exist for `route.settle`; route
-  create/update/control protocol exposure remains open.
+- Browser route create/update/control/settle proof and route UI work landed in
+  the Phase07G browser slice below.
 - Durable production/route DB rows, row locks/CAS, durable settlement window
   idempotency rows, and outbox publishing.
+
+## Phase07G Landed Browser Route Mutation Proof
+
+- Added TypeScript protocol constants and command builders for `route.create`,
+  `route.update`, `route.enable`, `route.disable`, and `route.settle`.
+- Browser route command payloads contain only client intent fields:
+  `source_planet_id`, `destination_planet_id`, `resource_item_id`,
+  `amount_per_hour`, and/or `route_id`. They do not include owner/player,
+  session, map, position, enabled, risk, energy, storage, settlement, or timing
+  truth.
+- Added route controls to the owned selected-planet HUD surfaces. Controls are
+  disabled unless authenticated realtime state exposes an owned source planet,
+  another owned known endpoint, and server-owned source storage resource state.
+- Client reducer/event handling now reconciles `route.updated` and
+  `route.settled`, clears pending route operations, and logs safe public route
+  status without an unhandled-event entry.
+- Added guarded dev-only `GAME_E2E_ROUTE_SEED`, accepted only with
+  `GAME_DEV_MODE=1`, to seed two owned same-map production planets plus
+  routeable source storage for the browser proof. The seed is session-time,
+  idempotent, and exposes no browser setup endpoint.
+- Added `client/tests/e2e/phase10-route-flow.mjs` and
+  `npm --cache /tmp/gameproject-npm-cache --prefix client run
+  e2e:phase10-route`, which boots the real Go server and Vite client,
+  registers a real browser user, clicks the HUD to create, update, disable,
+  enable, settle one route, and reconcile all routes, captures outbound
+  WebSocket frames, asserts exact client-safe payload keys, verifies browser
+  `state.routes` reconciliation, and scans DOM/state/WebSocket/log surfaces for
+  forbidden internals.
+
+Deferred after Phase07G:
+
+- Durable production/route DB rows, row locks/CAS, durable settlement window
+  idempotency rows, and outbox publishing.
+- Broader route policy/UI matrix beyond the owned same-map MVP proof.
 
 ## Target Model
 

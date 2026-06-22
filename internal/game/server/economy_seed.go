@@ -114,6 +114,9 @@ func (runtime *Runtime) ensurePlayerEconomyLocked(playerID foundation.PlayerID) 
 	if err := runtime.seedE2EPlanetClaimProof(playerID); err != nil {
 		return err
 	}
+	if err := runtime.seedE2ERouteProof(playerID); err != nil {
+		return err
+	}
 	state := runtime.players[playerID]
 	state.Wallet = runtime.walletSnapshotLocked(playerID)
 	state.Cargo = runtime.cargoSnapshotFromInventoryLocked(playerID)

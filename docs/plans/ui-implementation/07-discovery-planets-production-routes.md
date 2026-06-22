@@ -81,8 +81,17 @@ Current slice completed:
   settlement payloads plus owner-scoped `route.settled`, `route.updated`,
   `route.snapshot`, and one `route.list` event. If settlement touches storage,
   it also returns and emits active-map filtered production/storage snapshots.
-  Browser route create/update/control/settle proof, durable DB/outbox, and
-  durable route settlement window idempotency remain open.
+  Durable DB/outbox and durable route settlement window idempotency remain
+  open.
+- Phase07G browser route proof follow-up: the browser now exposes
+  `route.create`, `route.update`, `route.enable`, `route.disable`, and
+  `route.settle` command builders and HUD controls. The route UI sends only
+  server-safe intent fields, reconciles from route response/list/snapshot/
+  updated/settled payloads, clears pending route operations, and is covered by
+  `npm --cache /tmp/gameproject-npm-cache --prefix client run
+  e2e:phase10-route` using a guarded `GAME_DEV_MODE=1` +
+  `GAME_E2E_ROUTE_SEED=1` real-server seed. Durable production/route DB rows,
+  outbox publishing, and durable settlement window idempotency remain open.
 
 ## Source Specs
 
@@ -271,7 +280,7 @@ Mockup areas covered:
 - [x] Browser scan creates safe discovered intel.
 - [x] Browser selected planet panel uses server detail.
 - [x] Browser claim reflects server state.
-- [ ] Browser route create/update/control/settle reflects server state.
+- [x] Browser route create/update/control/settle reflects server state.
 
 ## Done Criteria
 

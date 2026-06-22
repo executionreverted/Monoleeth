@@ -1,6 +1,7 @@
 import { OPERATIONS } from '../protocol/envelope';
-import type { ClientState } from '../state/types';
+import type { ClientState, KnownPlanetSummary, RouteSummary } from '../state/types';
 import { escapeHTML, formatVec, hasPendingOpPayloadField, lockedValue, publicPlanetName, realtimeReady } from './hud-formatters';
+import { hudSelection } from './hud-selection';
 
 export { minimapPanel } from './hud-render-minimap';
 
@@ -56,6 +57,7 @@ export function planetCatalogPanel(state: ClientState): string {
   const production = selectedSummary ? planetProductionFor(state, selectedSummary.planet_id, selectedDetail?.production) : null;
   const storage = production?.storage ?? null;
   const routes = selectedSummary ? planetRoutesFor(state, selectedSummary.planet_id, selectedDetail?.routes) : [];
+  const routeControls = selectedSummary ? routeControlsPanel(state, selectedSummary, production, routes) : '';
   const coordinates = selectedDetail?.coordinates ?? null;
   const canNavigate = Boolean(coordinates && Number.isFinite(coordinates.x) && Number.isFinite(coordinates.y));
   return `
@@ -131,14 +133,7 @@ export function planetCatalogPanel(state: ClientState): string {
                  </section>
                  <section>
                    <h3>Routes</h3>
-                   ${
-                     routes.length > 0
-                       ? `<ul class="compact-list">${routes
-                           .slice(0, 4)
-                           .map((route) => `<li><span>${escapeHTML(route.resource_item_id)}</span><strong>${route.enabled ? 'on' : 'off'}</strong></li>`)
-                           .join('')}</ul>`
-                       : '<div class="empty-line">No routes.</div>'
-                   }
+                   ${routeControls}
                  </section>
                  <section>
                    <h3>Intel</h3>
@@ -226,7 +221,8 @@ export function planetDetailModal(state: ClientState, planetID?: string): string
   const canNavigate = Boolean(coordinates && Number.isFinite(coordinates.x) && Number.isFinite(coordinates.y));
   const production = detail?.production;
   const storage = production?.storage;
-  const routes = detail?.routes ?? [];
+  const routes = summary ? planetRoutesFor(state, summary.planet_id, detail?.routes) : [];
+  const routeControls = routeControlsPanel(state, summary, production, routes);
   return `
     <h2>Planet</h2>
     <div class="planet-detail planet-detail--modal" data-planet-detail="${escapeHTML(summary.planet_id)}">
@@ -260,16 +256,7 @@ export function planetDetailModal(state: ClientState, planetID?: string): string
           : `<div class="empty-line">${detail?.production_locked ? 'Production locked.' : 'No production snapshot for this planet yet.'}</div>`
       }
       <div class="systems-subhead">Routes</div>
-      ${
-        routes.length > 0
-          ? `<ul class="compact-list">
-               ${routes
-                 .slice(0, 4)
-                 .map((route) => `<li><span>${escapeHTML(route.resource_item_id)}</span><strong>${route.enabled ? 'on' : 'off'}</strong></li>`)
-                 .join('')}
-             </ul>`
-          : '<div class="empty-line">No routes for this planet.</div>'
-      }
+      ${routeControls}
     </div>
   `;
 }
@@ -282,4 +269,168 @@ export function planetModalTitle(state: ClientState, planetID?: string): string 
     intel?.planets.find((planet) => planet.planet_id === planetID) ??
     null;
   return summary ? `Planet: ${publicPlanetName(summary)}` : 'Planet Detail';
+}
+
+function routeControlsPanel(
+  state: ClientState,
+  source: KnownPlanetSummary,
+  production: NonNullable<ClientState['production']>['planets'][number] | null | undefined,
+  routes: RouteSummary[],
+): string {
+  const ownedSource = isOwnedPlanet(source);
+  const endpoints = ownedRouteEndpoints(state, source.planet_id);
+  const resources = routeableStorageResources(production, routes);
+  const createPending = hasPendingOpPayloadField(state, OPERATIONS.routeCreate, 'source_planet_id', source.planet_id);
+  const controlsReady = realtimeReady(state) && ownedSource;
+  const createEnabled = controlsReady && endpoints.length > 0 && resources.length > 0 && !createPending;
+  const createTitle = !ownedSource
+    ? 'Own this planet before creating routes'
+    : !realtimeReady(state)
+      ? 'Realtime connection required'
+      : endpoints.length === 0
+        ? 'No other owned known endpoint available'
+        : resources.length === 0
+          ? 'No server-owned storage resource available'
+          : createPending
+            ? 'Route create pending'
+            : 'Create owned planet route';
+  const selectedRoute = selectedRouteFor(routes);
+  const routeRows =
+    routes.length > 0
+      ? routes
+          .slice(0, 4)
+          .map((route) => routeControlRow(state, route, endpoints, resources, route.route_id === selectedRoute?.route_id))
+          .join('')
+      : '<div class="empty-line">No routes for this planet.</div>';
+  const reconcilePending = hasPendingRouteSettle(state, undefined);
+
+  return `
+    <div class="route-controls">
+      <div class="route-create" data-route-create-control="true" data-route-source-planet-id="${escapeHTML(source.planet_id)}">
+        <select data-route-create-destination ${createEnabled ? '' : 'disabled'} aria-label="Route destination">
+          ${routeEndpointOptions(endpoints, endpoints[0]?.planet_id ?? '')}
+        </select>
+        <select data-route-create-resource ${createEnabled ? '' : 'disabled'} aria-label="Route resource">
+          ${resourceOptions(resources, resources[0] ?? '')}
+        </select>
+        <input type="number" min="1" step="1" value="${defaultRouteRate(resources[0])}" data-route-rate ${createEnabled ? '' : 'disabled'} aria-label="Route amount per hour" />
+        <button type="button" data-action="route-create" data-source-planet-id="${escapeHTML(source.planet_id)}" ${createEnabled ? '' : 'disabled'} title="${escapeHTML(createTitle)}">${createPending ? 'Creating' : 'Create'}</button>
+      </div>
+      <div class="route-list">
+        ${routeRows}
+      </div>
+      <button type="button" data-action="route-settle" ${controlsReady && routes.length > 0 && !reconcilePending ? '' : 'disabled'} title="${escapeHTML(reconcilePending ? 'Route reconcile pending' : 'Reconcile all owned routes')}">${reconcilePending ? 'Reconciling' : 'Settle All'}</button>
+    </div>
+  `;
+}
+
+function routeControlRow(
+  state: ClientState,
+  route: RouteSummary,
+  endpoints: KnownPlanetSummary[],
+  resources: string[],
+  selected: boolean,
+): string {
+  const routePending = hasPendingRouteMutation(state, route.route_id);
+  const settlePending = hasPendingRouteSettle(state, route.route_id);
+  const controlsReady = realtimeReady(state) && !routePending;
+  const controlAction = route.enabled ? 'route-disable' : 'route-enable';
+  const controlLabel = route.enabled ? 'Disable' : 'Enable';
+  const endpointOptions = routeEndpointOptions(endpoints, route.destination.id);
+  const mergedResources = resources.includes(route.resource_item_id) ? resources : [route.resource_item_id, ...resources];
+  const resourceSelect = resourceOptions(mergedResources, route.resource_item_id);
+  const updateEnabled = controlsReady && endpoints.length > 0 && mergedResources.length > 0;
+  return `
+    <div class="route-row" data-route-update-control="true" data-route-id="${escapeHTML(route.route_id)}" data-selected="${selected ? 'true' : 'false'}">
+      <button type="button" data-action="route-select" data-route-id="${escapeHTML(route.route_id)}" title="Select route">${escapeHTML(route.resource_item_id)} ${route.enabled ? 'on' : 'off'}</button>
+      <select data-route-update-destination ${updateEnabled ? '' : 'disabled'} aria-label="Update route destination">${endpointOptions}</select>
+      <select data-route-update-resource ${updateEnabled ? '' : 'disabled'} aria-label="Update route resource">${resourceSelect}</select>
+      <input type="number" min="1" step="1" value="${Math.max(1, Math.round(route.amount_per_hour))}" data-route-rate ${updateEnabled ? '' : 'disabled'} aria-label="Update route amount per hour" />
+      <button type="button" data-action="route-update" data-route-id="${escapeHTML(route.route_id)}" ${updateEnabled ? '' : 'disabled'} title="${escapeHTML(routePending ? 'Route mutation pending' : 'Update route terms')}">Update</button>
+      <button type="button" data-action="${controlAction}" data-route-id="${escapeHTML(route.route_id)}" ${controlsReady ? '' : 'disabled'} title="${escapeHTML(routePending ? 'Route mutation pending' : `${controlLabel} route`)}">${controlLabel}</button>
+      <button type="button" data-action="route-settle" data-route-id="${escapeHTML(route.route_id)}" ${realtimeReady(state) && !settlePending ? '' : 'disabled'} title="${escapeHTML(settlePending ? 'Route settlement pending' : 'Settle route')}">${settlePending ? 'Settling' : 'Settle'}</button>
+    </div>
+  `;
+}
+
+function selectedRouteFor(routes: RouteSummary[]): RouteSummary | null {
+  if (hudSelection.selectedRouteID) {
+    return routes.find((route) => route.route_id === hudSelection.selectedRouteID) ?? routes[0] ?? null;
+  }
+  return routes[0] ?? null;
+}
+
+function ownedRouteEndpoints(state: ClientState, sourcePlanetID: string): KnownPlanetSummary[] {
+  return state.planetIntel?.planets.filter((planet) => planet.planet_id !== sourcePlanetID && isOwnedPlanet(planet)) ?? [];
+}
+
+function routeableStorageResources(
+  production: NonNullable<ClientState['production']>['planets'][number] | null | undefined,
+  routes: RouteSummary[],
+): string[] {
+  const seen = new Set<string>();
+  const resources: string[] = [];
+  for (const item of production?.storage.items ?? []) {
+    if (item.item_id && item.quantity > 0 && !seen.has(item.item_id)) {
+      seen.add(item.item_id);
+      resources.push(item.item_id);
+    }
+  }
+  for (const route of routes) {
+    if (route.resource_item_id && !seen.has(route.resource_item_id)) {
+      seen.add(route.resource_item_id);
+      resources.push(route.resource_item_id);
+    }
+  }
+  return resources;
+}
+
+function routeEndpointOptions(planets: KnownPlanetSummary[], selectedPlanetID: string): string {
+  if (planets.length === 0) {
+    return '<option value="">No endpoint</option>';
+  }
+  return planets
+    .map(
+      (planet) =>
+        `<option value="${escapeHTML(planet.planet_id)}" ${planet.planet_id === selectedPlanetID ? 'selected' : ''}>${escapeHTML(publicPlanetName(planet))}</option>`,
+    )
+    .join('');
+}
+
+function resourceOptions(resources: string[], selectedResource: string): string {
+  if (resources.length === 0) {
+    return '<option value="">No resource</option>';
+  }
+  return resources
+    .map((resource) => `<option value="${escapeHTML(resource)}" ${resource === selectedResource ? 'selected' : ''}>${escapeHTML(resource)}</option>`)
+    .join('');
+}
+
+function defaultRouteRate(resource?: string): number {
+  return resource ? 40 : 1;
+}
+
+function hasPendingRouteMutation(state: ClientState, routeID: string): boolean {
+  return (
+    hasPendingOpPayloadField(state, OPERATIONS.routeUpdate, 'route_id', routeID) ||
+    hasPendingOpPayloadField(state, OPERATIONS.routeEnable, 'route_id', routeID) ||
+    hasPendingOpPayloadField(state, OPERATIONS.routeDisable, 'route_id', routeID)
+  );
+}
+
+function hasPendingRouteSettle(state: ClientState, routeID: string | undefined): boolean {
+  return Object.values(state.pendingCommands).some((command) => {
+    if (command.op !== OPERATIONS.routeSettle) {
+      return false;
+    }
+    if (!routeID) {
+      return !command.payload || typeof command.payload.route_id !== 'string';
+    }
+    return command.payload?.route_id === routeID;
+  });
+}
+
+function isOwnedPlanet(planet: KnownPlanetSummary): boolean {
+  const ownerStatus = (planet.owner_status ?? '').toLowerCase();
+  return ownerStatus === 'owned_by_you' || ownerStatus === 'owned' || ownerStatus.startsWith('owned_');
 }

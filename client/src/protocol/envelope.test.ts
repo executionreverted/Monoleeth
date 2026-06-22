@@ -12,10 +12,6 @@ const UNIMPLEMENTED_MUTATION_OPS = [
   'progression.respec_skills',
   'planet.building_build',
   'planet.building_upgrade',
-  'route.create',
-  'route.update',
-  'route.enable',
-  'route.disable',
   'intel.share',
   'intel.coordinate_item_create',
   'intel.coordinate_item_use',
@@ -335,6 +331,11 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.shopBuyProduct).toBe('shop.buy_product');
     expect(OPERATIONS.discoveryClaimPlanet).toBe('discovery.claim_planet');
     expect(CLIENT_EVENTS.planetClaimed).toBe('planet.claimed');
+    expect(OPERATIONS.routeCreate).toBe('route.create');
+    expect(OPERATIONS.routeUpdate).toBe('route.update');
+    expect(OPERATIONS.routeEnable).toBe('route.enable');
+    expect(OPERATIONS.routeDisable).toBe('route.disable');
+    expect(CLIENT_EVENTS.routeUpdated).toBe('route.updated');
 
     const builder = new CommandBuilder();
     const portalEnter = builder.portalEnter('east_gate');
@@ -428,6 +429,83 @@ describe('default outbound operations', () => {
     }
   });
 
+  test('route mutation commands send only client intent fields', () => {
+    const builder = new CommandBuilder();
+    const create = builder.routeCreate({
+      sourcePlanetID: 'planet-source',
+      destinationPlanetID: 'planet-destination',
+      resourceItemID: 'refined_alloy',
+      amountPerHour: 40.2,
+    });
+    expect(create.op).toBe(OPERATIONS.routeCreate);
+    expect(create.payload).toEqual({
+      source_planet_id: 'planet-source',
+      destination_planet_id: 'planet-destination',
+      resource_item_id: 'refined_alloy',
+      amount_per_hour: 40,
+    });
+    expect(Object.keys(create.payload)).toEqual([
+      'source_planet_id',
+      'destination_planet_id',
+      'resource_item_id',
+      'amount_per_hour',
+    ]);
+
+    const update = builder.routeUpdate({
+      routeID: 'route-alpha',
+      destinationPlanetID: 'planet-new-destination',
+      resourceItemID: 'raw_ore',
+      amountPerHour: 75,
+    });
+    expect(update.op).toBe(OPERATIONS.routeUpdate);
+    expect(update.payload).toEqual({
+      route_id: 'route-alpha',
+      destination_planet_id: 'planet-new-destination',
+      resource_item_id: 'raw_ore',
+      amount_per_hour: 75,
+    });
+    expect(Object.keys(update.payload)).toEqual([
+      'route_id',
+      'destination_planet_id',
+      'resource_item_id',
+      'amount_per_hour',
+    ]);
+
+    const enable = builder.routeEnable('route-alpha');
+    const disable = builder.routeDisable('route-alpha');
+    expect(enable.op).toBe(OPERATIONS.routeEnable);
+    expect(disable.op).toBe(OPERATIONS.routeDisable);
+    expect(enable.payload).toEqual({ route_id: 'route-alpha' });
+    expect(disable.payload).toEqual({ route_id: 'route-alpha' });
+
+    for (const payload of [create.payload, update.payload, enable.payload, disable.payload]) {
+      for (const forbidden of [
+        'owner',
+        'owner_player_id',
+        'player_id',
+        'session_id',
+        'source',
+        'destination',
+        'source_map_id',
+        'destination_map_id',
+        'map_id',
+        'from_public_map_key',
+        'to_public_map_key',
+        'enabled',
+        'settlement',
+        'storage',
+        'energy_cost_per_hour',
+        'risk',
+        'loss_chance',
+        'last_calculated_at',
+        'position',
+        'coordinates',
+      ]) {
+        expect(payload).not.toHaveProperty(forbidden);
+      }
+    }
+  });
+
   test.each([
     'map_id',
     'map_key',
@@ -488,10 +566,6 @@ describe('default outbound operations', () => {
       'progressionRespecSkills',
       'planetBuildingBuild',
       'planetBuildingUpgrade',
-      'routeCreate',
-      'routeUpdate',
-      'routeEnable',
-      'routeDisable',
       'intelShare',
       'intelCoordinateItemCreate',
       'intelCoordinateItemUse',

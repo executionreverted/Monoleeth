@@ -420,6 +420,50 @@ describe('planet claim controls', () => {
   });
 });
 
+describe('route controls', () => {
+  test('owned selected planet renders route create, update, control, and settle actions from server state', () => {
+    const state = planetRouteState();
+
+    const catalogHTML = planetCatalogPanel(state);
+    const modalHTML = planetDetailModal(state, 'planet-source');
+
+    for (const html of [catalogHTML, modalHTML]) {
+      expect(html).toContain('data-route-create-control="true"');
+      expect(html).toContain('data-route-source-planet-id="planet-source"');
+      expect(html).toMatch(/data-action="route-create"[^>]*data-source-planet-id="planet-source"[^>]*>Create/);
+      expect(html).toContain('data-route-create-destination');
+      expect(html).toContain('value="planet-destination"');
+      expect(html).toContain('data-route-create-resource');
+      expect(html).toContain('value="refined_alloy"');
+      expect(html).toContain('data-route-rate');
+      expect(html).toContain('data-action="route-update"');
+      expect(html).toContain('data-action="route-disable"');
+      expect(html).toContain('data-action="route-settle" data-route-id="route-1"');
+      expect(html).toMatch(/data-action="route-settle"[^>]*>Settle All/);
+      expect(html).not.toContain('owner_player_id');
+      expect(html).not.toContain('source_map_id');
+      expect(html).not.toContain('destination_map_id');
+    }
+  });
+
+  test('route create disables without another owned endpoint or source storage resource', () => {
+    const state = planetRouteState();
+    state.planetIntel!.planets = [state.planetIntel!.planets[0]];
+    state.planetIntel!.selectedPlanet!.production!.storage.items = [];
+    state.production = { planets: [state.planetIntel!.selectedPlanet!.production!] };
+    state.routes = { routes: [] };
+    state.planetIntel!.selectedPlanet!.routes = [];
+
+    const html = planetCatalogPanel(state);
+
+    expect(html).toContain('data-route-create-control="true"');
+    expect(html).toMatch(/data-action="route-create"[^>]*disabled[^>]*>Create/);
+    expect(html).toContain('No endpoint');
+    expect(html).toContain('No resource');
+    expect(html).toContain('No routes for this planet.');
+  });
+});
+
 describe('topbar map labels', () => {
   test('location prefers current map display, public key, map key, then sector', () => {
     expect(topbarLocationText(withCurrentMap(createInitialState(), { display_name: 'Veil-03' }))).toBe('Veil-03');
@@ -566,6 +610,95 @@ function planetClaimState(ownerStatus: string): ClientState {
     },
     lastScan: null,
   };
+  return state;
+}
+
+function planetRouteState(): ClientState {
+  const state = createInitialState();
+  state.connectionStatus = 'connected';
+  const route = {
+    route_id: 'route-1',
+    source_planet_id: 'planet-source',
+    from_public_map_key: '1-1',
+    to_public_map_key: '1-1',
+    destination: { type: 'planet', id: 'planet-destination' },
+    resource_item_id: 'refined_alloy',
+    amount_per_hour: 40,
+    energy_cost_per_hour: 4,
+    enabled: true,
+    risk: { loss_chance: 0.02, min_loss_percent: 0, max_loss_percent: 0 },
+    last_calculated_at: 1000,
+    updated_at: 1000,
+  };
+  state.planetIntel = {
+    knownSignals: 2,
+    staleIntel: 0,
+    ownedPlanets: 2,
+    planets: [
+      {
+        planet_id: 'planet-source',
+        biome: 'origin_belt',
+        planet_type: 'terrestrial',
+        rarity: 'common',
+        level: 1,
+        intel_state: 'verified',
+        confidence: 100,
+        last_seen_at: 1000,
+        owner_status: 'owned_by_you',
+        discovered_at: 900,
+      },
+      {
+        planet_id: 'planet-destination',
+        biome: 'origin_belt',
+        planet_type: 'ice',
+        rarity: 'common',
+        level: 1,
+        intel_state: 'verified',
+        confidence: 100,
+        last_seen_at: 1000,
+        owner_status: 'owned_by_you',
+        discovered_at: 900,
+      },
+    ],
+    selectedPlanet: {
+      planet_id: 'planet-source',
+      biome: 'origin_belt',
+      planet_type: 'terrestrial',
+      rarity: 'common',
+      level: 1,
+      intel_state: 'verified',
+      confidence: 100,
+      last_seen_at: 1000,
+      owner_status: 'owned_by_you',
+      discovered_at: 900,
+      coordinates: { x: 2400, y: 2600 },
+      production_locked: false,
+      available_commands: ['route.list'],
+      routes: [route],
+      production: {
+        planet_id: 'planet-source',
+        production_enabled: true,
+        last_calculated_at: 1000,
+        energy_capacity_per_hour: 80,
+        energy_reserved_per_hour: 0,
+        storage: {
+          planet_id: 'planet-source',
+          used_units: 340,
+          free_units: 160,
+          capacity_units: 500,
+          updated_at: 1000,
+          items: [
+            { item_id: 'refined_alloy', quantity: 160 },
+            { item_id: 'raw_ore', quantity: 180 },
+          ],
+        },
+        buildings: [],
+      },
+    },
+    lastScan: null,
+  };
+  state.production = { planets: [state.planetIntel.selectedPlanet!.production!] };
+  state.routes = { routes: [route] };
   return state;
 }
 

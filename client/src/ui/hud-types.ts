@@ -18,6 +18,11 @@ export interface HUDHandlers {
   onPlanetDetail(planetID: string): void;
   onPlanetNavigate(planetID: string): void;
   onPlanetClaim(planetID: string): void;
+  onRouteCreate(input: { sourcePlanetID: string; destinationPlanetID: string; resourceItemID: string; amountPerHour: number }): void;
+  onRouteUpdate(input: { routeID: string; destinationPlanetID: string; resourceItemID: string; amountPerHour: number }): void;
+  onRouteEnable(routeID: string): void;
+  onRouteDisable(routeID: string): void;
+  onRouteSettle(routeID?: string): void;
   onHangarActivateShip(shipID: string): void;
   onLoadoutEquipModule(slotID: string, itemInstanceID: string): void;
   onLoadoutUnequipModule(slotID: string): void;

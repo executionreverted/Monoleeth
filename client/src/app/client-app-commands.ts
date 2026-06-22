@@ -318,6 +318,69 @@ export abstract class ClientAppCommands extends ClientAppCore {
     );
   }
 
+  protected sendRouteCreate(input: {
+    sourcePlanetID: string;
+    destinationPlanetID: string;
+    resourceItemID: string;
+    amountPerHour: number;
+  }): void {
+    if (!input.sourcePlanetID || !input.destinationPlanetID || !input.resourceItemID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `route-create:${input.sourcePlanetID}:${input.destinationPlanetID}:${input.resourceItemID}`,
+      () => this.commandBuilder.routeCreate(input),
+      'Route create already pending.',
+    );
+  }
+
+  protected sendRouteUpdate(input: {
+    routeID: string;
+    destinationPlanetID: string;
+    resourceItemID: string;
+    amountPerHour: number;
+  }): void {
+    if (!input.routeID || !input.destinationPlanetID || !input.resourceItemID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `route-update:${input.routeID}`,
+      () => this.commandBuilder.routeUpdate(input),
+      'Route update already pending.',
+    );
+  }
+
+  protected sendRouteEnable(routeID: string): void {
+    if (!routeID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `route-enable:${routeID}`,
+      () => this.commandBuilder.routeEnable(routeID),
+      'Route enable already pending.',
+    );
+  }
+
+  protected sendRouteDisable(routeID: string): void {
+    if (!routeID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `route-disable:${routeID}`,
+      () => this.commandBuilder.routeDisable(routeID),
+      'Route disable already pending.',
+    );
+  }
+
+  protected sendRouteSettle(routeID?: string): void {
+    const actionKey = routeID ? `route-settle:${routeID}` : 'route-settle:all';
+    this.sendGuardedGameplayCommand(
+      actionKey,
+      () => this.commandBuilder.routeSettle(routeID),
+      'Route settlement already pending.',
+    );
+  }
+
   protected toggleScanMode(): void {
     this.dispatch({ type: 'scanModeToggled' });
   }

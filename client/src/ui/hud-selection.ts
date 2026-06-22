@@ -11,4 +11,5 @@ export const hudSelection = {
   selectedHangarShipID: null as string | null,
   selectedPortalID: null as string | null,
   selectedPortalScope: null as string | null,
+  selectedRouteID: null as string | null,
 };

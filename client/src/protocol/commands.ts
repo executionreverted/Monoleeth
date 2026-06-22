@@ -127,6 +127,52 @@ export class CommandBuilder {
     return this.build(OPERATIONS.planetStorageSummary, planetID ? { planet_id: planetID } : {});
   }
 
+  routeCreate(input: {
+    sourcePlanetID: string;
+    destinationPlanetID: string;
+    resourceItemID: string;
+    amountPerHour: number;
+  }): RequestEnvelope<{
+    source_planet_id: string;
+    destination_planet_id: string;
+    resource_item_id: string;
+    amount_per_hour: number;
+  }> {
+    return this.build(OPERATIONS.routeCreate, {
+      source_planet_id: input.sourcePlanetID,
+      destination_planet_id: input.destinationPlanetID,
+      resource_item_id: input.resourceItemID,
+      amount_per_hour: Math.max(1, Math.round(input.amountPerHour)),
+    });
+  }
+
+  routeUpdate(input: {
+    routeID: string;
+    destinationPlanetID: string;
+    resourceItemID: string;
+    amountPerHour: number;
+  }): RequestEnvelope<{
+    route_id: string;
+    destination_planet_id: string;
+    resource_item_id: string;
+    amount_per_hour: number;
+  }> {
+    return this.build(OPERATIONS.routeUpdate, {
+      route_id: input.routeID,
+      destination_planet_id: input.destinationPlanetID,
+      resource_item_id: input.resourceItemID,
+      amount_per_hour: Math.max(1, Math.round(input.amountPerHour)),
+    });
+  }
+
+  routeEnable(routeID: string): RequestEnvelope<{ route_id: string }> {
+    return this.build(OPERATIONS.routeEnable, { route_id: routeID });
+  }
+
+  routeDisable(routeID: string): RequestEnvelope<{ route_id: string }> {
+    return this.build(OPERATIONS.routeDisable, { route_id: routeID });
+  }
+
   routeList(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.routeList, {});
   }

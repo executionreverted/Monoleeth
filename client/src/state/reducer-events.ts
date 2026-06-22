@@ -355,6 +355,28 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
       };
     }
 
+    case CLIENT_EVENTS.routeUpdated: {
+      const routePayload = objectField(envelope.payload, 'route') ?? envelope.payload;
+      const route = parseRoute(routePayload);
+      const nextState = route ? withoutPendingRouteUpdated(state, route) : state;
+      return {
+        ...(route ? applyRouteSnapshot(nextState, route) : nextState),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        commandLog: appendLog(nextState.commandLog, 'info', 'Route state updated.'),
+      };
+    }
+
+    case CLIENT_EVENTS.routeSettled: {
+      const nextState = withoutPendingRouteSettled(state, envelope.payload);
+      return {
+        ...applySnapshotPayload(nextState, envelope.payload),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        commandLog: appendLog(nextState.commandLog, 'info', 'Route settlement reconciled.'),
+      };
+    }
+
     case CLIENT_EVENTS.marketListingCreated: {
       const nextState = withoutPendingOperations(state, [OPERATIONS.marketCreateListing]);
       return {
@@ -769,6 +791,67 @@ function withoutPendingPlanetClaim(state: ClientState, payload: EventEnvelope['p
     pendingCommands[requestID] = pending;
   }
   return changed ? { ...state, pendingCommands } : state;
+}
+
+type RoutePendingMatch = {
+  route_id: string;
+  source_planet_id: string;
+  destination: {
+    id: string;
+  };
+  resource_item_id: string;
+};
+
+function withoutPendingRouteUpdated(state: ClientState, route: RoutePendingMatch): ClientState {
+  const pendingCommands: ClientState['pendingCommands'] = {};
+  let changed = false;
+  for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
+    if (pendingRouteUpdatedMatches(pending.op, pending.payload, route)) {
+      changed = true;
+      continue;
+    }
+    pendingCommands[requestID] = pending;
+  }
+  return changed ? { ...state, pendingCommands } : state;
+}
+
+function pendingRouteUpdatedMatches(op: string, payload: EventEnvelope['payload'] | undefined, route: RoutePendingMatch): boolean {
+  if (op === OPERATIONS.routeUpdate || op === OPERATIONS.routeEnable || op === OPERATIONS.routeDisable) {
+    return !!payload && stringField(payload, 'route_id') === route.route_id;
+  }
+  if (op !== OPERATIONS.routeCreate || !payload) {
+    return false;
+  }
+  return (
+    stringField(payload, 'source_planet_id') === route.source_planet_id &&
+    stringField(payload, 'destination_planet_id') === route.destination.id &&
+    stringField(payload, 'resource_item_id') === route.resource_item_id
+  );
+}
+
+function withoutPendingRouteSettled(state: ClientState, payload: EventEnvelope['payload']): ClientState {
+  const settlement = objectField(payload, 'settlement');
+  const settlementRouteID = settlement ? stringField(settlement, 'route_id') : null;
+  const routePayload = objectField(payload, 'route');
+  const routeID = settlementRouteID ?? (routePayload ? stringField(routePayload, 'route_id') : null);
+  const pendingCommands: ClientState['pendingCommands'] = {};
+  let changed = false;
+  for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
+    if (pending.op === OPERATIONS.routeSettle && pendingRouteSettleMatches(pending.payload, routeID)) {
+      changed = true;
+      continue;
+    }
+    pendingCommands[requestID] = pending;
+  }
+  return changed ? { ...state, pendingCommands } : state;
+}
+
+function pendingRouteSettleMatches(payload: EventEnvelope['payload'] | undefined, routeID: string | null): boolean {
+  const pendingRouteID = payload ? stringField(payload, 'route_id') : null;
+  if (routeID) {
+    return pendingRouteID === routeID;
+  }
+  return !pendingRouteID;
 }
 
 function parseMapTransferStarted(payload: EventEnvelope['payload'], serverTime: number): MapTransferState {

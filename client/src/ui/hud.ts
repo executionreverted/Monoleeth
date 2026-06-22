@@ -494,6 +494,45 @@ export class HUD {
             this.handlers.onPlanetClaim(button.dataset.planetId);
           }
           break;
+        case 'route-select':
+          if (button.dataset.routeId) {
+            hudSelection.selectedRouteID = button.dataset.routeId;
+            if (this.currentState) {
+              this.render(this.currentState);
+            }
+          }
+          break;
+        case 'route-create': {
+          const control = button.closest<HTMLElement>('[data-route-create-control]');
+          const sourcePlanetID = button.dataset.sourcePlanetId ?? control?.dataset.routeSourcePlanetId ?? '';
+          const destinationPlanetID = routeControlValue(control, '[data-route-create-destination]');
+          const resourceItemID = routeControlValue(control, '[data-route-create-resource]');
+          const amountPerHour = Number(routeControlValue(control, '[data-route-rate]'));
+          this.handlers.onRouteCreate({ sourcePlanetID, destinationPlanetID, resourceItemID, amountPerHour });
+          break;
+        }
+        case 'route-update': {
+          const control = button.closest<HTMLElement>('[data-route-update-control]');
+          const routeID = button.dataset.routeId ?? control?.dataset.routeId ?? '';
+          const destinationPlanetID = routeControlValue(control, '[data-route-update-destination]');
+          const resourceItemID = routeControlValue(control, '[data-route-update-resource]');
+          const amountPerHour = Number(routeControlValue(control, '[data-route-rate]'));
+          this.handlers.onRouteUpdate({ routeID, destinationPlanetID, resourceItemID, amountPerHour });
+          break;
+        }
+        case 'route-enable':
+          if (button.dataset.routeId) {
+            this.handlers.onRouteEnable(button.dataset.routeId);
+          }
+          break;
+        case 'route-disable':
+          if (button.dataset.routeId) {
+            this.handlers.onRouteDisable(button.dataset.routeId);
+          }
+          break;
+        case 'route-settle':
+          this.handlers.onRouteSettle(button.dataset.routeId || undefined);
+          break;
         case 'hangar-activate':
           if (button.dataset.shipId) {
             this.handlers.onHangarActivateShip(button.dataset.shipId);
@@ -1212,4 +1251,9 @@ export class HUD {
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
     }
   }
+}
+
+function routeControlValue(container: HTMLElement | null | undefined, selector: string): string {
+  const control = container?.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
+  return control?.value ?? '';
 }

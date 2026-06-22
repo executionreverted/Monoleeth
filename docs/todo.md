@@ -120,13 +120,13 @@ for phase status; this file is a compact pending-work index.
   `planet.storage_updated` /
   `planet.building_updated` events. Source: Phase 10 audit, Phase07A, and
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Finish authenticated automation route browser proof and durable
-  settlement persistence. Server/browser work still needs real-client
-  create/update/control/settle proof plus durable route rows, endpoint
-  visibility/access policy, route capacity, energy/upkeep policy, duplicate
-  settlement window idempotency, storage capacity persistence, and outbox
-  reconciliation through `route.list`, `route.snapshot`, and
-  `route.updated`/`route.settled` events.
+- [ ] Finish durable authenticated automation route persistence and rollout
+  hardening. Server/browser work now has a focused real-client
+  create/update/control/settle proof; remaining work is durable route rows,
+  endpoint visibility/access policy beyond the owned same-map MVP, route
+  capacity, energy/upkeep policy, duplicate settlement window idempotency,
+  storage capacity persistence, and outbox reconciliation through `route.list`,
+  `route.snapshot`, and `route.updated`/`route.settled` events.
   Phase07B map-tagged the route domain rows and read payloads for
   `route.list`/`route.snapshot`; Phase07C landed authenticated `route.create`
   as an owned planet-to-planet gateway slice that rejects client-authored
@@ -150,9 +150,12 @@ for phase status; this file is a compact pending-work index.
   attempts without mutation/events, returns safe settlement payloads, queues
   owner-scoped `route.settled` plus route reconciliation events without AOI
   diffs, and reconciles active-map production/storage snapshots when settlement
-  touches storage. Browser route create/update/control/settle proof and durable
-  DB/outbox/window idempotency remain open. Source: Phase 10 audit, Phase07C,
-  Phase07D, Phase07E, and Phase07F.
+  touches storage. Phase07G added browser protocol builders, HUD controls,
+  reducer reconciliation, a dev-only guarded `GAME_E2E_ROUTE_SEED`, and the
+  focused real-browser `e2e:phase10-route` proof for route
+  create/update/disable/enable/settle/reconcile. Durable DB/outbox/window
+  idempotency remains open. Source: Phase 10 audit, Phase07C, Phase07D,
+  Phase07E, Phase07F, and Phase07G.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server
