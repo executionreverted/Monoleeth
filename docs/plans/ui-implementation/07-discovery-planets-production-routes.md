@@ -138,6 +138,17 @@ Current slice completed:
   the old token before a later reclaim generates a new one. Real durable DB
   outbox rows, cross-process row-lock/CAS semantics, durable idempotency-table
   enforcement, and a durable publisher remain open.
+- Phase07M claim-boundary follow-up: the discovery claim service now records
+  successful cached claim references in process-local memory and mirrors each
+  new-owner `planet.claimed` domain event into one pending process-local claim
+  outbox record. Duplicate claim references return the cached result without
+  duplicate reference, event, or outbox rows; initializer/stale-marker failures
+  record no boundary rows before retry, and same-owner repair preserves the
+  existing no-event behavior while caching an already-owned claim reference.
+  Read APIs return detached records in deterministic reference or append order.
+  Durable claim DB rows, row locks/CAS, DB idempotency-table enforcement,
+  durable outbox rows, publisher workers, and cross-process recovery remain
+  open.
 
 ## Source Specs
 
@@ -259,6 +270,8 @@ Mockup areas covered:
 - [x] Add planet claim command handler.
 - [x] Add browser planet claim protocol, HUD action, reducer handling, and
       focused real-browser proof.
+- [x] Add process-local claim reference records and pending claim outbox
+      records for successful discovery claim owner changes.
 - [ ] Add intel share and coordinate item handlers with visibility-safe
       recipient filtering.
 - [x] Add read-only production summary handler for owned planets.
@@ -316,6 +329,9 @@ Mockup areas covered:
       seed through Inventory, uses server-owned E2E Progression rank eligibility,
       initializes production, clears pending state, and handles `planet.claimed`
       without an unhandled-event log.
+- [x] Claim success stores one process-local claim reference plus one pending
+      claim outbox record; duplicate references and repair retries do not
+      duplicate events/outbox rows, and read APIs return detached records.
 - [ ] Intel share rejects hidden/not-owned coordinate references.
 - [ ] Coordinate item create/use consumes owned items once and filters results.
 - [ ] Building build/upgrade debits materials/currency once.

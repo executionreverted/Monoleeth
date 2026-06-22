@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -206,6 +207,37 @@ func TestClaimPlanetSuccessConsumesXCoreSetsOwnerEmitsEventAndMarksIntelStale(t 
 	if stale.SourceType != IntelSourcePlanetOwnerChanged || !strings.HasPrefix(stale.SourceReference, "planet.claimed:") {
 		t.Fatalf("stale source = %s/%s, want planet owner changed by claim event", stale.SourceType, stale.SourceReference)
 	}
+
+	references := service.ClaimReferences()
+	if len(references) != 1 {
+		t.Fatalf("ClaimReferences() len = %d, want 1; records = %+v", len(references), references)
+	}
+	reference := references[0]
+	if reference.ClaimReference != "claim_success" || reference.PlayerID != claimTestPlayerID || reference.PlanetID != planet.ID {
+		t.Fatalf("claim reference record = %+v, want claim_success/player/planet", reference)
+	}
+	if reference.AlreadyOwned {
+		t.Fatalf("claim reference already_owned = true, want false")
+	}
+	if !reference.ClaimedAt.Equal(claimTestTime()) || !reference.RecordedAt.Equal(claimTestTime()) {
+		t.Fatalf("claim reference times = %s/%s, want %s", reference.ClaimedAt, reference.RecordedAt, claimTestTime())
+	}
+	if reference.EventID != events[0].EventID {
+		t.Fatalf("claim reference event id = %q, want %q", reference.EventID, events[0].EventID)
+	}
+	outbox := service.ClaimOutboxRecords()
+	if len(outbox) != 1 {
+		t.Fatalf("ClaimOutboxRecords() len = %d, want 1; records = %+v", len(outbox), outbox)
+	}
+	if outbox[0].OutboxID == "" || outbox[0].Sequence != 1 || outbox[0].Status != ClaimOutboxStatusPending {
+		t.Fatalf("claim outbox metadata = %+v, want sequence 1 pending with id", outbox[0])
+	}
+	if outbox[0].ClaimReference != "claim_success" || outbox[0].Event.EventID != events[0].EventID || outbox[0].Event.Type != ClaimEventPlanetClaimed {
+		t.Fatalf("claim outbox event evidence = %+v, want claim event %q", outbox[0], events[0].EventID)
+	}
+	if !outbox[0].CreatedAt.Equal(events[0].CreatedAt) {
+		t.Fatalf("claim outbox created_at = %s, want event created_at %s", outbox[0].CreatedAt, events[0].CreatedAt)
+	}
 }
 
 func TestClaimPlanetNilProductionInitializerKeepsSuccessBehavior(t *testing.T) {
@@ -326,6 +358,54 @@ func TestClaimPlanetDuplicateReferenceDoesNotConsumeEmitOrInitializeAgain(t *tes
 	if got := len(initializer.calls); got != 1 {
 		t.Fatalf("production initializer calls after duplicate = %d, want 1", got)
 	}
+	if got := len(service.ClaimReferences()); got != 1 {
+		t.Fatalf("claim references after duplicate = %d, want 1", got)
+	}
+	if got := len(service.ClaimOutboxRecords()); got != 1 {
+		t.Fatalf("claim outbox records after duplicate = %d, want 1", got)
+	}
+}
+
+func TestClaimPlanetConflictingReferenceDoesNotMutateBoundaryRecords(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim")
+	otherPlanet := claimTestPlanet("planet-other")
+	materializeClaimTestPlanet(t, store, planet)
+	materializeClaimTestPlanet(t, store, otherPlanet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	upsertClaimIntel(t, store, claimTestPlayerID, otherPlanet.ID, testTime(1))
+	consumer := &recordingClaimXCoreConsumer{}
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:    store,
+		rank:     planet.Level,
+		inRange:  true,
+		consumer: consumer,
+	})
+	input := claimInput("claim_conflict", planet.ID)
+
+	if _, err := service.ClaimPlanet(input); err != nil {
+		t.Fatalf("first ClaimPlanet() error = %v, want nil", err)
+	}
+	beforeReferences := service.ClaimReferences()
+	beforeOutbox := service.ClaimOutboxRecords()
+	beforeEvents := service.Events()
+
+	_, err := service.ClaimPlanet(claimInput("claim_conflict", otherPlanet.ID))
+	if !errors.Is(err, ErrPlanetClaimReferenceConflict) {
+		t.Fatalf("conflicting planet ClaimPlanet() error = %v, want ErrPlanetClaimReferenceConflict", err)
+	}
+	conflictingPlayer := input
+	conflictingPlayer.PlayerID = "player_other_claimant"
+	_, err = service.ClaimPlanet(conflictingPlayer)
+	if !errors.Is(err, ErrPlanetClaimReferenceConflict) {
+		t.Fatalf("conflicting player ClaimPlanet() error = %v, want ErrPlanetClaimReferenceConflict", err)
+	}
+	if got := len(consumer.calls); got != 1 {
+		t.Fatalf("x core consume calls after conflicts = %d, want 1", got)
+	}
+	assertClaimReferencesEqual(t, service.ClaimReferences(), beforeReferences, "conflict")
+	assertClaimOutboxEqual(t, service.ClaimOutboxRecords(), beforeOutbox, "conflict")
+	assertClaimEventsEqual(t, service.Events(), beforeEvents, "conflict")
 }
 
 func TestClaimPlanetProductionInitializerErrorReturnsBeforeEventOrClaimCache(t *testing.T) {
@@ -355,6 +435,12 @@ func TestClaimPlanetProductionInitializerErrorReturnsBeforeEventOrClaimCache(t *
 	if got := len(service.Events()); got != 0 {
 		t.Fatalf("claim events after initializer failure = %d, want 0", got)
 	}
+	if got := len(service.ClaimReferences()); got != 0 {
+		t.Fatalf("claim references after initializer failure = %d, want 0", got)
+	}
+	if got := len(service.ClaimOutboxRecords()); got != 0 {
+		t.Fatalf("claim outbox records after initializer failure = %d, want 0", got)
+	}
 	if got := len(consumer.calls); got != 1 {
 		t.Fatalf("x core consume calls after initializer failure = %d, want 1", got)
 	}
@@ -374,6 +460,16 @@ func TestClaimPlanetProductionInitializerErrorReturnsBeforeEventOrClaimCache(t *
 	}
 	if got := len(consumer.calls); got != 1 {
 		t.Fatalf("x core consume calls after retry = %d, want 1", got)
+	}
+	references := service.ClaimReferences()
+	if len(references) != 1 || references[0].ClaimReference != "claim_init_fail" || !references[0].AlreadyOwned {
+		t.Fatalf("claim references after repair = %+v, want one already-owned repair reference", references)
+	}
+	if references[0].EventID != "" {
+		t.Fatalf("repair claim reference event id = %q, want empty because no repair event", references[0].EventID)
+	}
+	if got := len(service.ClaimOutboxRecords()); got != 0 {
+		t.Fatalf("claim outbox records after repair = %d, want 0", got)
 	}
 }
 
@@ -409,6 +505,12 @@ func TestClaimPlanetProductionInitializerErrorRetryCachesRepairWithoutDuplicateS
 	}
 	if got := len(service.Events()); got != 0 {
 		t.Fatalf("claim events after initializer failure = %d, want 0", got)
+	}
+	if got := len(service.ClaimReferences()); got != 0 {
+		t.Fatalf("claim references after initializer failure = %d, want 0", got)
+	}
+	if got := len(service.ClaimOutboxRecords()); got != 0 {
+		t.Fatalf("claim outbox records after initializer failure = %d, want 0", got)
 	}
 	if got := len(staleMarker.calls); got != 0 {
 		t.Fatalf("stale marker calls after initializer failure = %d, want 0", got)
@@ -460,6 +562,16 @@ func TestClaimPlanetProductionInitializerErrorRetryCachesRepairWithoutDuplicateS
 	if got := len(service.Events()); got != 0 {
 		t.Fatalf("claim events after duplicate = %d, want 0", got)
 	}
+	references := service.ClaimReferences()
+	if len(references) != 1 || references[0].ClaimReference != "claim_init_retry_repair" || !references[0].AlreadyOwned {
+		t.Fatalf("claim references after duplicate repair = %+v, want one already-owned repair reference", references)
+	}
+	if references[0].EventID != "" {
+		t.Fatalf("repair claim reference event id = %q, want empty because no repair event", references[0].EventID)
+	}
+	if got := len(service.ClaimOutboxRecords()); got != 0 {
+		t.Fatalf("claim outbox records after duplicate repair = %d, want 0", got)
+	}
 	if got := len(consumer.calls); got != 1 {
 		t.Fatalf("x core consume calls after duplicate = %d, want 1", got)
 	}
@@ -499,6 +611,12 @@ func TestClaimPlanetListedIntelStaleMarkerFailureCanRepairOnRetry(t *testing.T) 
 	if got := len(service.Events()); got != 0 {
 		t.Fatalf("claim events after marker failure = %d, want 0", got)
 	}
+	if got := len(service.ClaimReferences()); got != 0 {
+		t.Fatalf("claim references after marker failure = %d, want 0", got)
+	}
+	if got := len(service.ClaimOutboxRecords()); got != 0 {
+		t.Fatalf("claim outbox records after marker failure = %d, want 0", got)
+	}
 
 	staleMarker.err = nil
 	retry, err := service.ClaimPlanet(input)
@@ -513,6 +631,13 @@ func TestClaimPlanetListedIntelStaleMarkerFailureCanRepairOnRetry(t *testing.T) 
 	}
 	if got := len(staleMarker.calls); got != 2 {
 		t.Fatalf("stale marker calls after retry = %d, want 2", got)
+	}
+	references := service.ClaimReferences()
+	if len(references) != 1 || references[0].ClaimReference != "claim_stale_marker_retry" || !references[0].AlreadyOwned {
+		t.Fatalf("claim references after marker repair = %+v, want one already-owned repair reference", references)
+	}
+	if got := len(service.ClaimOutboxRecords()); got != 0 {
+		t.Fatalf("claim outbox records after marker repair = %d, want 0", got)
 	}
 }
 
@@ -557,6 +682,16 @@ func TestClaimPlanetAlreadyOwnedBySamePlayerInitializesWithoutConsumeOrEvent(t *
 	if !call.ClaimedAt.Equal(changedAt) {
 		t.Fatalf("initializer claimed_at = %s, want owner changed at %s", call.ClaimedAt, changedAt)
 	}
+	references := service.ClaimReferences()
+	if len(references) != 1 || references[0].ClaimReference != "claim_owned_same" || !references[0].AlreadyOwned {
+		t.Fatalf("claim references after same-owner repair = %+v, want one already-owned reference", references)
+	}
+	if !references[0].ClaimedAt.Equal(changedAt) {
+		t.Fatalf("same-owner reference claimed_at = %s, want owner changed at %s", references[0].ClaimedAt, changedAt)
+	}
+	if got := len(service.ClaimOutboxRecords()); got != 0 {
+		t.Fatalf("claim outbox records for same-owner repair = %d, want 0", got)
+	}
 }
 
 func TestClaimPlanetAlreadyOwnedByAnotherPlayerRejected(t *testing.T) {
@@ -587,6 +722,92 @@ func TestClaimPlanetAlreadyOwnedByAnotherPlayerRejected(t *testing.T) {
 	}
 	if got := len(service.Events()); got != 0 {
 		t.Fatalf("claim events = %d, want 0", got)
+	}
+}
+
+func TestClaimPlanetBoundaryReadAPIsReturnDetachedRecordsAndValidateLookup(t *testing.T) {
+	store := NewInMemoryStore()
+	planetA := claimTestPlanet("planet-claim-a")
+	planetB := claimTestPlanet("planet-claim-b")
+	materializeClaimTestPlanet(t, store, planetB)
+	materializeClaimTestPlanet(t, store, planetA)
+	upsertClaimIntel(t, store, claimTestPlayerID, planetA.ID, testTime(1))
+	upsertClaimIntel(t, store, claimTestPlayerID, planetB.ID, testTime(1))
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:    store,
+		rank:     planetA.Level,
+		inRange:  true,
+		consumer: &recordingClaimXCoreConsumer{},
+	})
+
+	if _, err := service.ClaimPlanet(claimInput("claim_ref_b", planetB.ID)); err != nil {
+		t.Fatalf("ClaimPlanet(B) error = %v, want nil", err)
+	}
+	if _, err := service.ClaimPlanet(claimInput("claim_ref_a", planetA.ID)); err != nil {
+		t.Fatalf("ClaimPlanet(A) error = %v, want nil", err)
+	}
+
+	references := service.ClaimReferences()
+	if len(references) != 2 {
+		t.Fatalf("ClaimReferences() len = %d, want 2", len(references))
+	}
+	if references[0].ClaimReference != "claim_ref_a" || references[1].ClaimReference != "claim_ref_b" {
+		t.Fatalf("ClaimReferences() order = %+v, want sorted by reference", references)
+	}
+	lookup, ok, err := service.ClaimReference("claim_ref_a")
+	if err != nil || !ok {
+		t.Fatalf("ClaimReference(claim_ref_a) ok = %v err = %v, want true nil", ok, err)
+	}
+	if lookup.PlanetID != planetA.ID {
+		t.Fatalf("ClaimReference(claim_ref_a) planet = %q, want %q", lookup.PlanetID, planetA.ID)
+	}
+	if _, ok, err := service.ClaimReference(""); err == nil || ok {
+		t.Fatalf("ClaimReference(invalid) ok = %v err = %v, want false error", ok, err)
+	}
+
+	originalReferenceTime := references[0].ClaimedAt
+	references[0].ClaimedAt = testTime(99)
+	references[0].RecordedAt = testTime(100)
+	references[0].AlreadyOwned = true
+	references[0].EventID = "event_mutated"
+	storedReference, ok, err := service.ClaimReference("claim_ref_a")
+	if err != nil || !ok {
+		t.Fatalf("ClaimReference(after mutate) ok = %v err = %v, want true nil", ok, err)
+	}
+	if !storedReference.ClaimedAt.Equal(originalReferenceTime) || storedReference.AlreadyOwned {
+		t.Fatalf("stored reference after returned mutation = %+v, want original time and not already-owned", storedReference)
+	}
+	if storedReference.EventID == "event_mutated" {
+		t.Fatalf("stored reference event id mutated through returned record")
+	}
+
+	outbox := service.ClaimOutboxRecords()
+	if len(outbox) != 2 {
+		t.Fatalf("ClaimOutboxRecords() len = %d, want 2", len(outbox))
+	}
+	originalStatus := outbox[0].Status
+	originalCreatedAt := outbox[0].CreatedAt
+	originalEventType := outbox[0].Event.Type
+	originalEventCreatedAt := outbox[0].Event.CreatedAt
+	outbox[0].Status = ClaimOutboxStatus("sent")
+	outbox[0].CreatedAt = testTime(101)
+	outbox[0].Event.Type = ClaimEventType("mutated")
+	outbox[0].Event.CreatedAt = testTime(102)
+
+	storedOutbox := service.ClaimOutboxRecords()
+	if storedOutbox[0].Status != originalStatus || !storedOutbox[0].CreatedAt.Equal(originalCreatedAt) {
+		t.Fatalf("stored outbox after returned mutation = %+v, want status/time unchanged", storedOutbox[0])
+	}
+	if storedOutbox[0].Event.Type != originalEventType || !storedOutbox[0].Event.CreatedAt.Equal(originalEventCreatedAt) {
+		t.Fatalf("stored outbox event after returned mutation = %+v, want event unchanged", storedOutbox[0].Event)
+	}
+
+	events := service.Events()
+	originalReturnedEventType := events[0].Type
+	events[0].Type = ClaimEventType("mutated_event")
+	storedEvents := service.Events()
+	if storedEvents[0].Type != originalReturnedEventType {
+		t.Fatalf("stored event type after returned mutation = %q, want %q", storedEvents[0].Type, originalReturnedEventType)
 	}
 }
 
@@ -765,4 +986,25 @@ func (marker *recordingClaimListedIntelStaleMarker) MarkClaimedPlanetListingsSta
 		return ClaimListedIntelStaleResult{}, marker.err
 	}
 	return ClaimListedIntelStaleResult{MarkedCount: marker.markedCount}, nil
+}
+
+func assertClaimReferencesEqual(t *testing.T, got []ClaimReferenceRecord, want []ClaimReferenceRecord, context string) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("claim references changed after %s:\ngot  %+v\nwant %+v", context, got, want)
+	}
+}
+
+func assertClaimOutboxEqual(t *testing.T, got []ClaimOutboxRecord, want []ClaimOutboxRecord, context string) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("claim outbox changed after %s:\ngot  %+v\nwant %+v", context, got, want)
+	}
+}
+
+func assertClaimEventsEqual(t *testing.T, got []ClaimEventRecord, want []ClaimEventRecord, context string) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("claim events changed after %s:\ngot  %+v\nwant %+v", context, got, want)
+	}
 }

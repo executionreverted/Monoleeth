@@ -403,6 +403,38 @@ Phase07K/Phase07L process-local publisher follow-up:
   rows, cross-process row-lock/CAS semantics, DB idempotency enforcement, and a
   durable publisher process remain deferred.
 
+## Phase07M Landed Process-Local Claim Boundary Slice
+
+- The discovery claim service now records a process-local
+  `ClaimReferenceRecord` for each successful cached claim result. Records are
+  keyed by the server-derived `PlanetClaimReference`, include player/planet
+  identity, claim and record timestamps, already-owned repair status, and the
+  claim event id when a new owner-change event exists.
+- New owner-change claim success still appends exactly one `planet.claimed`
+  claim event, and the same service lock now mirrors that append into one
+  pending process-local `ClaimOutboxRecord` with append-order sequence/id,
+  event evidence, created time, pending status, and claim reference.
+- Duplicate retries with the same reference return the cached result without
+  appending duplicate reference, event, or outbox records. Conflicting reuse of
+  a reference still fails safely before boundary mutation.
+- Initializer and stale-listing failures record no claim reference or outbox
+  row before retry. If retry repairs an owner that was already set by the
+  failed attempt, it preserves the current no-event repair behavior and records
+  only the already-owned claim reference/cache.
+- `ClaimReferences()`, `ClaimReference(ref)`, and `ClaimOutboxRecords()` are
+  internal read APIs for future durable adapters. They return detached records
+  in deterministic reference order or append order and do not change the
+  browser-safe realtime claim payload.
+
+Deferred after Phase07M:
+
+- Real durable discovery/claim DB rows and outbox rows.
+- Cross-process row locks/CAS and idempotency-table enforcement tying X Core
+  consumption, owner transition, production initialization, stale markers,
+  claim cache, and event/outbox publication together.
+- Durable publisher/retry workers and recovery for crash windows between the
+  current in-memory mutation steps.
+
 ## Target Model
 
 Planet claim is a server-owned transaction:
@@ -543,6 +575,9 @@ contracts:
    stale intel/listing markers, and claim event/outbox writes into a durable
    transaction or explicit recoverable state machine:
    `lock -> validate -> mutate ledger/inventory -> set owner -> init production -> outbox -> commit`.
+   Phase07M added only a process-local claim reference/outbox boundary around
+   successful cached claim results; durable DB rows and cross-process recovery
+   remain open.
 5. Add recovery for production initialization after claim. A retry must repair
    missing production rows without consuming a second X Core or changing owner
    twice.
@@ -585,6 +620,9 @@ contracts:
 - Duplicate claim retry returns the original result and does not consume a
   second X Core.
 - Conflicting claim reference reuse fails safely.
+- Claim success records one process-local claim reference and one pending claim
+  outbox row; duplicate retries, conflicting reference reuse, and failed
+  initializer/stale-marker attempts do not append duplicate boundary rows.
 - Concurrent claims for the same unowned planet produce one owner and one
   durable claim event.
 - Claim initializes production rows once and recovers missing initialization on

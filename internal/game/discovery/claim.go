@@ -207,8 +207,11 @@ type ClaimService struct {
 	xCoreItemDefinition    economy.ItemDefinition
 	claimReason            economy.LedgerReason
 
-	claims map[PlanetClaimReference]claimRecord
-	events []ClaimEventRecord
+	claims             map[PlanetClaimReference]claimRecord
+	events             []ClaimEventRecord
+	references         map[PlanetClaimReference]ClaimReferenceRecord
+	outbox             []ClaimOutboxRecord
+	nextOutboxSequence uint64
 }
 
 type claimRecord struct {
@@ -236,6 +239,7 @@ func NewClaimService(config ClaimServiceConfig) (*ClaimService, error) {
 		xCoreItemDefinition:    normalized.XCoreItemDefinition,
 		claimReason:            normalized.ClaimReason,
 		claims:                 make(map[PlanetClaimReference]claimRecord),
+		references:             make(map[PlanetClaimReference]ClaimReferenceRecord),
 	}, nil
 }
 
@@ -289,6 +293,7 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 			StaleListingCount: staleListings.MarkedCount,
 		}
 		service.claims[input.ClaimReference] = claimRecord{input: input, result: cloneClaimPlanetResult(result)}
+		service.recordClaimReferenceLocked(input, claimedAt, service.clock.Now().UTC(), true, "")
 		return result, nil
 	}
 	if !planet.OwnerPlayerID.IsZero() {
@@ -324,6 +329,7 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 		return ClaimPlanetResult{}, err
 	}
 	service.events = append(service.events, event)
+	service.appendClaimOutboxRecordLocked(event)
 
 	result := ClaimPlanetResult{
 		Planet:            ownerChange.Planet,
@@ -332,6 +338,7 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 		StaleListingCount: staleListings.MarkedCount,
 	}
 	service.claims[input.ClaimReference] = claimRecord{input: input, result: cloneClaimPlanetResult(result)}
+	service.recordClaimReferenceLocked(input, now, now, false, event.EventID)
 	return result, nil
 }
 
@@ -341,7 +348,9 @@ func (service *ClaimService) Events() []ClaimEventRecord {
 	defer service.mu.Unlock()
 
 	events := make([]ClaimEventRecord, len(service.events))
-	copy(events, service.events)
+	for index, event := range service.events {
+		events[index] = cloneClaimEventRecord(event)
+	}
 	return events
 }
 
