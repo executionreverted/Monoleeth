@@ -18,6 +18,27 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
 	insertTestWorldEntity(t, gameServer, "entity_contract_visible_npc", world.EntityTypeNPC, world.Vec2{X: 100, Y: 0}, false)
+	gameServer.runtime.mu.Lock()
+	starter, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("starter map instance: %v", err)
+	}
+	trainingNPC, ok := starter.Worker.Entity("entity_training_npc")
+	if !ok {
+		gameServer.runtime.mu.Unlock()
+		t.Fatal("starter worker missing entity_training_npc")
+	}
+	trainingNPC.Position = world.Vec2{X: 140, Y: 0}
+	if err := starter.Worker.UpdateEntity(trainingNPC); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("UpdateEntity(entity_training_npc) error = %v, want nil", err)
+	}
+	if _, err := gameServer.runtime.upsertNPCCombatActorProjectionLocked(starter, trainingNPC); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("upsertNPCCombatActorProjectionLocked(entity_training_npc) error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Unlock()
 
 	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
 	defer conn.CloseNow()
@@ -66,6 +87,7 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 	}
 	entitiesByID := make(map[string]aoi.EntityPayload, len(snapshot.Entities))
 	selfCount := 0
+	adHocNPCSeen := false
 	npcCombatCount := 0
 	for _, entity := range snapshot.Entities {
 		entitiesByID[entity.ID.String()] = entity
@@ -85,6 +107,13 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 			}
 		}
 		if entity.Type == "npc" {
+			if entity.ID == "entity_contract_visible_npc" {
+				adHocNPCSeen = true
+				if entity.Display.Label != "NPC" || entity.Display.Disposition != "hostile" || entity.Combat != nil {
+					t.Fatalf("ad-hoc npc entity = %+v, want hostile NPC display and nil combat", entity)
+				}
+				continue
+			}
 			npcCombatCount++
 			if entity.Combat == nil || entity.Combat.HP <= 0 || entity.Combat.MaxHP <= 0 || entity.Combat.Status == "" {
 				t.Fatalf("npc entity = %+v, want public combat status in initial snapshot", entity)
@@ -94,8 +123,11 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 	if selfCount != 1 {
 		t.Fatalf("self entity count = %d, want 1", selfCount)
 	}
+	if !adHocNPCSeen {
+		t.Fatalf("world snapshot missing visible ad-hoc npc contract test")
+	}
 	if npcCombatCount == 0 {
-		t.Fatalf("world snapshot missing visible npc for combat contract test")
+		t.Fatalf("world snapshot missing visible spawner-backed npc combat contract test")
 	}
 	for _, contact := range snapshot.Minimap.LiveContacts {
 		if contact.EntityID == "" || contact.EntityType == "" {

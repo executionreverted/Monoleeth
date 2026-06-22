@@ -525,14 +525,14 @@ func (runtime *Runtime) seedWorld() error {
 			return err
 		}
 		for _, record := range instance.Worker.EnemySpawnSnapshot().Records {
-			if !record.Alive || record.NPCType != trainingNPCType {
+			if !record.Alive {
 				continue
 			}
 			entity, ok := instance.Worker.Entity(record.EntityID)
 			if !ok {
 				return fmt.Errorf("spawned npc %q: %w", record.EntityID, worker.ErrUnknownEntity)
 			}
-			if err := runtime.Combat.UpsertActor(runtime.trainingNPCActor(entity)); err != nil {
+			if _, err := runtime.upsertNPCCombatActorProjectionLocked(instance, entity); err != nil {
 				return err
 			}
 		}

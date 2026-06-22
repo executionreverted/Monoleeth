@@ -115,56 +115,8 @@ func (runtime *Runtime) syncWorldCombatActorLocked(playerID foundation.PlayerID,
 	if entity.Type != world.EntityTypeNPC {
 		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Target is not a hostile entity.")
 	}
-	hidden := instance.HiddenEntities[entity.ID]
-	signature, stealthScore, jammerStrength := runtime.visibilityInputsForEntityLocked(entity, "", hidden)
-	if actor, ok := runtime.Combat.Actor(entityID); ok {
-		actor.Position = entity.Position
-		actor.WorldID = entity.WorldID
-		actor.ZoneID = entity.ZoneID
-		actor.Signature = signature
-		actor.StealthScore = stealthScore
-		actor.JammerStrength = jammerStrength
-		actor.Hidden = hidden
-		return runtime.Combat.UpsertActor(actor)
-	}
-	actor := runtime.trainingNPCActor(entity)
-	actor.Signature = signature
-	actor.StealthScore = stealthScore
-	actor.JammerStrength = jammerStrength
-	actor.Hidden = hidden
-	return runtime.Combat.UpsertActor(actor)
-}
-
-func (runtime *Runtime) trainingNPCActor(entity world.Entity) combat.ActorState {
-	return combat.ActorState{
-		EntityID:  entity.ID,
-		Type:      world.EntityTypeNPC,
-		NPCType:   trainingNPCType,
-		WorldID:   entity.WorldID,
-		ZoneID:    entity.ZoneID,
-		Position:  entity.Position,
-		Signature: visibility.SignatureForEntityType(world.EntityTypeNPC),
-		Stats: stats.NewStatSnapshot("", "training_drone", 1, stats.EffectiveStats{
-			Core: stats.CoreStats{
-				HPMax:       30,
-				ShieldMax:   0,
-				EnergyMax:   1,
-				EnergyRegen: 0,
-			},
-			Combat: stats.CombatStats{
-				WeaponRange: 1,
-				Accuracy:    1,
-			},
-			Exploration: stats.ExplorationStats{
-				RadarRange: 1,
-			},
-		}, runtime.clock.Now()),
-		HP:            30,
-		Shield:        0,
-		Energy:        1,
-		Cooldowns:     combat.CooldownState{},
-		Contributions: make(map[foundation.PlayerID]float64),
-	}
+	_, err = runtime.upsertNPCCombatActorProjectionLocked(instance, entity)
+	return err
 }
 
 func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, state playerRuntimeState) stats.StatSnapshot {

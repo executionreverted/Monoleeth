@@ -13,17 +13,22 @@ service.
 
 ## Current State To Replace/Reuse
 
-Replace:
+Replace/retire from default gameplay paths:
 
 - `internal/game/server/combat_loot_repair.go:16-19` defines
   `trainingNPCType = "training_drone"` as the only runtime NPC type for the
-  current browser loop.
+  original browser loop. Phase08A/08B moved this into explicit starter-map
+  catalog and spawner content rather than a global default population.
 - `internal/game/server/combat_loot_helpers.go:93-108` turns any target world
   NPC entity into a combat actor by calling `trainingNPCActor` when no actor
-  already exists.
+  already exists. Phase08C removed this as the default runtime path:
+  spawner-backed NPCs project actors from catalog state, while ad-hoc inserted
+  NPC entities stay visible generic NPCs without combat actors.
 - `internal/game/server/combat_loot_helpers.go:110-140` hard-codes the training
   NPC stat snapshot: type, level, HP, shield, energy, weapon range, accuracy,
-  and radar range.
+  and radar range. Phase08C replaced this for spawner-backed NPC projection
+  with `EnemySpawnRecord` + `NPCStatTemplate` data and preserved mutable combat
+  state across resync.
 - `internal/game/server/combat_loot_catalog.go:11-47` creates one global
   `training_drone_salvage` loot table that always drops `raw_ore x3`.
 - `internal/game/server/combat_loot_repair.go:111-148` handles NPC kill side
@@ -132,14 +137,34 @@ manually inserting a default visible training NPC into every map. The starter
 map still passes an explicit migration entity-id override so its first training
 drone remains `entity_training_npc`; maps without enemy pools, including
 `1-2`, do not receive a default training NPC. Hidden planet signal seeding is
-unchanged. The runtime still uses the old training NPC combat actor projection
-and global training salvage loot table after the spawner-created entity exists;
-catalog-backed actor projection and map-aware loot selection are not landed in
-this slice.
+unchanged. At the end of Phase08B, the runtime still used the old training NPC
+combat actor projection and global training salvage loot table after the
+spawner-created entity existed; catalog-backed actor projection and map-aware
+loot selection were still deferred.
 
-Deferred Phase08 work after Phase08B:
+## Phase08C Landed Catalog-Backed Actor Projection Slice
 
-- catalog-backed runtime actor projection from spawner stat templates
+The landed Phase08C slice replaces the default hard-coded `trainingNPCActor`
+runtime path with catalog-backed NPC combat actor projection. Runtime seed now
+projects every alive spawner-backed NPC from its `EnemySpawnRecord` and the
+referenced `NPCStatTemplate`. Ad-hoc inserted NPC world entities remain visible
+generic NPCs, but they do not receive combat actors just because their entity
+type is `npc`.
+
+Spawner-backed NPC AOI/public metadata can expose client-safe combat status.
+The projection uses template combat stats and content-driven signature data,
+while mutable `CombatService` state such as HP, shield, energy, cooldowns, and
+contributions is preserved across resync instead of being reset from the
+template on every sync.
+
+Phase08C coverage was added or updated in:
+
+- `internal/game/server/server_enemy_spawner_test.go`
+- `internal/game/server/server_visibility_detection_test.go`
+- `internal/game/server/server_world_movement_test.go`
+
+Deferred Phase08 work after Phase08C:
+
 - kill/death accounting in spawner rows and alive counters
 - delayed respawn and periodic fill ticks
 - map/risk/rank-aware loot table selector
@@ -235,10 +260,12 @@ Add live map-worker/spawner state:
 Change contracts:
 
 - Replace the training actor factory with a map/NPC catalog-backed actor
-  projection. The map worker row supplies lifecycle, map ownership, position,
-  signature, NPC type, and stat template identity. `CombatService` supplies or
-  updates HP, shield, energy, cooldowns, contributions, death decision, and kill
-  event through the corresponding `combat.ActorState`.
+  projection. Phase08C landed this for spawner-backed NPCs: the map worker row
+  supplies lifecycle, map ownership, position, NPC type, and stat template
+  identity; catalog/template data supplies stats and signature; and
+  `CombatService` supplies or updates HP, shield, energy, cooldowns,
+  contributions, death decision, and kill event through the corresponding
+  `combat.ActorState`.
 - Change NPC kill handling so the worker/spawner receives the death before the
   entity is hidden or removed. The spawner decrements alive count, records
   respawn state, and schedules/derives the next spawn.
@@ -267,7 +294,9 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
    respecting `map_max_alive`, `pool_max_alive`, spawn area bounds, portal
    exclusion radii, and safe zone restrictions.
 5. Replace `trainingNPCActor` projection with catalog-backed NPC actor
-   projection from map-worker row state.
+   projection from map-worker row state. Landed in Phase08C for alive
+   spawner-backed NPCs; ad-hoc inserted NPCs remain generic visible NPCs
+   without combat actors.
 6. Route combat target sync through the owning map worker so cross-map or
    missing-map targets fail before combat service execution.
 7. On NPC death, notify the spawner first, then create drops with the
@@ -302,7 +331,8 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
 - Respawn does not exceed caps after repeated kills or duplicate death events.
 - Kill-triggered replacement waits for `kill_respawn_delay_ms`.
 - NPC actor projection uses the configured stat template and preserves existing
-  combat cooldown/contribution state.
+  combat HP/shield/energy, cooldown, and contribution state. Phase08C landed
+  this for spawner-backed NPC projection.
 - NPC HP/shield/energy have one authoritative owner; ECS/spawner caches cannot
   diverge from `CombatService`.
 - Combat against an NPC in another map fails as not visible/not found and does
@@ -346,6 +376,11 @@ Risks:
   player every frame.
 
 Acceptance criteria:
+
+Phase08C satisfies the `trainingNPCActor` replacement portion of the first
+criterion for spawner-backed NPCs. The global loot table replacement, death
+accounting, respawn/fill ticks, aggro/leash behavior, and boss/event hooks
+remain open, so the full Phase 08 acceptance criteria are not complete.
 
 - No default gameplay path uses `trainingNPCActor` or one global
   `training_drone_salvage` table as the source of truth.

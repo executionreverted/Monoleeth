@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/visibility"
+	"gameproject/internal/game/world/worker"
 )
 
 func TestRuntimeVisibilityCandidatesUseContentDrivenSignatures(t *testing.T) {
@@ -38,19 +40,45 @@ func TestRuntimeVisibilityCandidatesUseContentDrivenSignatures(t *testing.T) {
 		t.Fatalf("player actor signature = %v, want ship/content signature", viewerActor.Signature)
 	}
 
+	trainingNPC, ok := instance.Worker.Entity("entity_training_npc")
+	if !ok {
+		t.Fatal("training npc entity missing")
+	}
+	trainingSignature, _, _, ok := gameServer.runtime.npcVisibilityInputsLocked(instance, trainingNPC, false)
+	if !ok || trainingSignature != visibility.SignatureForEntityType(world.EntityTypeNPC) || trainingSignature == visibility.EntitySignature(1) {
+		t.Fatalf("training npc visibility signature = %v ok=%v, want template NPC signature", trainingSignature, ok)
+	}
+
 	npc, ok := instance.Worker.Entity("entity_signature_npc")
 	if !ok {
 		t.Fatal("npc entity missing")
 	}
-	if err := gameServer.runtime.syncWorldCombatActorLocked(viewer.PlayerID, npc.ID); err != nil {
-		t.Fatalf("syncWorldCombatActorLocked(npc) error = %v, want nil", err)
+	npcSignature, _, _ := gameServer.runtime.visibilityInputsForEntityLocked(npc, "", false)
+	if npcSignature != visibility.SignatureForEntityType(world.EntityTypeNPC) || npcSignature == visibility.EntitySignature(1) {
+		t.Fatalf("ad-hoc npc signature = %v, want content-driven generic NPC signature", npcSignature)
 	}
-	npcActor, ok := gameServer.runtime.Combat.Actor(npc.ID)
-	if !ok {
-		t.Fatal("npc combat actor missing")
+	if err := gameServer.runtime.syncWorldCombatActorLocked(viewer.PlayerID, npc.ID); !errors.Is(err, worker.ErrUnknownEntity) {
+		t.Fatalf("syncWorldCombatActorLocked(ad-hoc npc) error = %v, want %v", err, worker.ErrUnknownEntity)
 	}
-	if npcActor.Signature != visibility.SignatureForEntityType(world.EntityTypeNPC) || npcActor.Signature == visibility.EntitySignature(1) {
-		t.Fatalf("npc actor signature = %v, want content-driven NPC signature", npcActor.Signature)
+	if _, ok := gameServer.runtime.Combat.Actor(npc.ID); ok {
+		t.Fatal("ad-hoc npc combat actor exists, want none")
+	}
+	snapshot, _, _, err := gameServer.runtime.aoiSnapshotForPlayerLocked(viewer.PlayerID)
+	if err != nil {
+		t.Fatalf("aoiSnapshotForPlayerLocked() error = %v, want nil", err)
+	}
+	foundAdHocNPC := false
+	for _, entity := range snapshot.Entities {
+		if entity.ID != npc.ID {
+			continue
+		}
+		foundAdHocNPC = true
+		if entity.Combat != nil || entity.Display == nil || entity.Display.Label != "NPC" || entity.Display.Disposition != "hostile" {
+			t.Fatalf("ad-hoc npc payload = %+v, want NPC hostile display with nil combat", entity)
+		}
+	}
+	if !foundAdHocNPC {
+		t.Fatalf("ad-hoc npc %q missing from visible snapshot", npc.ID)
 	}
 
 	otherEntity, ok := instance.Worker.PlayerEntity(other.PlayerID)

@@ -95,6 +95,13 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 			}
 		}
 		signature, stealthScore, jammerStrength := runtime.visibilityInputsForEntityLocked(entity, entityPlayerID, hidden)
+		if entity.Type == world.EntityTypeNPC {
+			if npcSignature, npcStealthScore, npcJammerStrength, ok := runtime.npcVisibilityInputsLocked(instance, entity, hidden); ok {
+				signature = npcSignature
+				stealthScore = npcStealthScore
+				jammerStrength = npcJammerStrength
+			}
+		}
 		states = append(states, aoi.EntityState{
 			Entity:            entity,
 			PlayerID:          entityPlayerID,
@@ -289,15 +296,7 @@ func (runtime *Runtime) publicEntityMetadataLocked(instance *mapInstance, viewer
 		}
 		return []aoi.StatusFlag{"friendly"}, &aoi.EntityDisplay{Label: "Pilot", Disposition: "friendly"}, nil
 	case world.EntityTypeNPC:
-		flags := []aoi.StatusFlag{"hostile"}
-		combatStatus := runtime.entityCombatStatusLocked(entity.ID)
-		if combatStatus == nil {
-			combatStatus = combatStatusFromActor(runtime.trainingNPCActor(entity))
-		}
-		if combatStatus != nil && combatStatus.HP < combatStatus.MaxHP {
-			flags = append(flags, "damaged")
-		}
-		return flags, &aoi.EntityDisplay{Label: displayLabelForEntity(entity.ID, "Training Drone"), Disposition: "hostile"}, combatStatus
+		return runtime.publicNPCMetadataLocked(instance, entity)
 	case world.EntityTypeLoot:
 		return []aoi.StatusFlag{"loot"}, &aoi.EntityDisplay{Label: "Loot Cache", Disposition: "neutral"}, nil
 	case world.EntityTypePlanetSignal:
@@ -381,14 +380,5 @@ func (runtime *Runtime) publicMovementPayloadLocked(entity world.Entity, _ time.
 		Speed:       entity.Movement.Speed,
 		StartedAtMS: entity.Movement.StartedAtMS,
 		ArriveAtMS:  entity.Movement.ArriveAtMS,
-	}
-}
-
-func displayLabelForEntity(entityID world.EntityID, fallback string) string {
-	switch entityID {
-	case "entity_training_npc":
-		return "Training Drone"
-	default:
-		return fallback
 	}
 }
