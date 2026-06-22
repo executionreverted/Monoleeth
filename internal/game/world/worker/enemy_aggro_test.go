@@ -8,30 +8,42 @@ import (
 	worldmaps "gameproject/internal/game/world/maps"
 )
 
-func TestEnemyAggroPassiveStarterProfileDoesNotAcquireOrMove(t *testing.T) {
+func TestSeededPassiveEnemyAggroProfilesDoNotAcquireOrMoveAcrossMaps(t *testing.T) {
 	catalog, err := worldmaps.StarterCatalog("world-1")
 	if err != nil {
 		t.Fatalf("StarterCatalog() error = %v, want nil", err)
 	}
-	definition, ok := catalog.Get(worldmaps.StarterMapID)
-	if !ok {
-		t.Fatal("starter map definition missing")
-	}
-	zoneWorker := newWorkerForMapDefinition(t, definition)
-	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{X: 820, Y: 400}, 100)
 
-	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+	for _, mapID := range []worldmaps.MapID{worldmaps.StarterMapID, "map_1_2"} {
+		definition, ok := catalog.Get(mapID)
+		if !ok {
+			t.Fatalf("map definition %q missing", mapID)
+		}
+		t.Run(string(definition.PublicMapKey), func(t *testing.T) {
+			if len(definition.SpawnAreas) == 0 {
+				t.Fatalf("map %s has no seeded spawn areas", definition.PublicMapKey)
+			}
+			zoneWorker := newWorkerForMapDefinition(t, definition)
+			spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", definition.SpawnAreas[0].Center, 100)
 
-	record := onlyEnemyAggroRecord(t, zoneWorker)
-	if !record.AggroTargetEntityID.IsZero() || !record.AggroAcquiredAt.IsZero() || !record.AggroTargetLastSeenAt.IsZero() {
-		t.Fatalf("starter passive aggro state = %+v, want no acquired target", record)
-	}
-	entity, ok := zoneWorker.Entity(record.EntityID)
-	if !ok {
-		t.Fatalf("Entity(%q) missing", record.EntityID)
-	}
-	if entity.Movement.Moving || entity.Position != record.LeashOrigin {
-		t.Fatalf("starter passive entity = %+v record=%+v, want stationary at leash origin", entity, record)
+			assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+
+			snapshot := zoneWorker.EnemySpawnSnapshot()
+			if len(snapshot.Records) != 1 || snapshot.MapAliveCount != 1 {
+				t.Fatalf("EnemySpawnSnapshot() = %+v, want one initial seeded NPC row", snapshot)
+			}
+			record := snapshot.Records[0]
+			if !record.AggroTargetEntityID.IsZero() || !record.AggroAcquiredAt.IsZero() || !record.AggroTargetLastSeenAt.IsZero() {
+				t.Fatalf("%s passive aggro state = %+v, want no acquired target", definition.PublicMapKey, record)
+			}
+			entity, ok := zoneWorker.Entity(record.EntityID)
+			if !ok {
+				t.Fatalf("Entity(%q) missing", record.EntityID)
+			}
+			if entity.Movement.Moving || entity.Position != record.LeashOrigin || entity.Position != record.Position {
+				t.Fatalf("%s passive entity = %+v record=%+v, want stationary at leash origin/record position", definition.PublicMapKey, entity, record)
+			}
+		})
 	}
 }
 
