@@ -146,13 +146,15 @@ for phase status; this file is a compact pending-work index.
   tuning, claim/drop behavior for each seeded map, and broader browser scan
   variants. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Complete the full map-aware drop matrix covering
-  `npc_type + map_id/risk/rank_band` selection across seeded maps. Current
-  server tests cover starter selection, `map_1_2` `outer_ring_scout_drone`
-  spawn-record/drop-profile selection, no fallback when the destination table
-  is missing, and domain-level hidden/far/cross-map pickup rejection. Phase09
-  now covers starter and destination browser fight/loot pickup; the full matrix
-  remains open. Source:
+- [ ] Complete broader per-map/risk/rank drop balance matrix coverage across
+  seeded maps. Current server tests cover starter selection, `map_1_2`
+  `outer_ring_scout_drone` spawn-record/drop-profile selection, accepted starter
+  plus destination matrix rows, full selector mismatch guards for wrong
+  map/world-zone, NPC type, level/rank band, risk band, missing inputs, and
+  missing table cases without starter fallback, and domain-level
+  hidden/far/cross-map pickup rejection. Phase09 now covers starter and
+  destination browser fight/loot pickup; broader balance coverage and
+  additional rollout/browser proof remain open. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Extend the Phase09 browser map smoke into a full real-server
   fight/loot/scan/portal loop with desktop, tablet, and mobile screenshots,

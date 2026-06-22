@@ -158,6 +158,98 @@ func TestNPCLootSelectorUsesOuterRingSpawnRecordDropProfileLootTable(t *testing.
 	}
 }
 
+func TestNPCLootSelectorAcceptsSeededMapMatrixRows(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		mapID            worldmaps.MapID
+		wantPublicMapKey string
+		wantRiskBand     string
+		wantNPCType      string
+		wantLevel        int
+		wantProfileID    worldmaps.NPCDropProfileID
+		wantTableID      string
+	}{
+		{
+			name:             "starter training drone",
+			mapID:            worldmaps.StarterMapID,
+			wantPublicMapKey: "1-1",
+			wantRiskBand:     "low",
+			wantNPCType:      "training_drone",
+			wantLevel:        1,
+			wantProfileID:    "training_drone_salvage",
+			wantTableID:      trainingDroneSalvageLootTableID,
+		},
+		{
+			name:             "outer ring scout drone",
+			mapID:            "map_1_2",
+			wantPublicMapKey: "1-2",
+			wantRiskBand:     "low",
+			wantNPCType:      "outer_ring_scout_drone",
+			wantLevel:        1,
+			wantProfileID:    "outer_ring_scout_drone_salvage",
+			wantTableID:      trainingDroneSalvageLootTableID,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gameServer, httpServer := newTestServer(t, false)
+			defer httpServer.Close()
+			resolved := createResolvedRuntimeSession(t, gameServer, "selector-matrix-accepted@example.com", "Selector Matrix Accepted")
+
+			gameServer.runtime.mu.Lock()
+			defer gameServer.runtime.mu.Unlock()
+
+			instance, err := gameServer.runtime.mapInstanceLocked(tc.mapID)
+			if err != nil {
+				t.Fatalf("map instance %q: %v", tc.mapID, err)
+			}
+			if got := instance.Definition.PublicMapKey.String(); got != tc.wantPublicMapKey {
+				t.Fatalf("public map key = %q, want %q", got, tc.wantPublicMapKey)
+			}
+			if got := instance.Definition.RiskBand; got != tc.wantRiskBand {
+				t.Fatalf("risk band = %q, want %q", got, tc.wantRiskBand)
+			}
+			record := requireSpawnRecordByNPCType(t, instance, tc.wantNPCType)
+			if record.NPCType != tc.wantNPCType ||
+				record.Level != tc.wantLevel ||
+				record.DropProfileID != tc.wantProfileID {
+				t.Fatalf("spawn record = %+v, want npc_type=%q level=%d profile=%q", record, tc.wantNPCType, tc.wantLevel, tc.wantProfileID)
+			}
+			profile, ok := npcDropProfileByID(instance.Definition, record.DropProfileID)
+			if !ok {
+				t.Fatalf("drop profile %q missing", record.DropProfileID)
+			}
+			if profile.NPCType != tc.wantNPCType ||
+				profile.MinLevel > record.Level ||
+				profile.MaxLevel < record.Level ||
+				profile.RiskBand != tc.wantRiskBand ||
+				profile.LootTableID != tc.wantTableID {
+				t.Fatalf("drop profile = %+v, want matrix npc_type=%q level=%d risk=%q table=%q", profile, tc.wantNPCType, record.Level, tc.wantRiskBand, tc.wantTableID)
+			}
+
+			event := testNPCKilledEventForRecord(resolved.PlayerID, instance, record)
+			selected, err := gameServer.runtime.selectNPCKillLootTableForInstanceLocked(instance, event)
+			if err != nil {
+				t.Fatalf("selectNPCKillLootTableForInstanceLocked() error = %v, want nil", err)
+			}
+			if got := selected.Source.DefinitionID.String(); got != tc.wantTableID {
+				t.Fatalf("selected loot table id = %q, want %q", got, tc.wantTableID)
+			}
+		})
+	}
+}
+
+func requireSpawnRecordByNPCType(t *testing.T, instance *mapInstance, npcType string) worker.EnemySpawnRecord {
+	t.Helper()
+	snapshot := instance.Worker.EnemySpawnSnapshot()
+	for _, record := range snapshot.Records {
+		if record.NPCType == npcType {
+			return record
+		}
+	}
+	t.Fatalf("spawn record with npc_type %q missing; snapshot=%+v", npcType, snapshot)
+	return worker.EnemySpawnRecord{}
+}
+
 func TestNPCLootSelectorRejectsOuterRingMissingTableWithoutTrainingFallback(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
@@ -201,6 +293,118 @@ func TestNPCLootSelectorRejectsOuterRingMissingTableWithoutTrainingFallback(t *t
 	})
 	if drop, ok := gameServer.runtime.Loot.Drop("drop_1"); ok {
 		t.Fatalf("selector failure created drop %+v; want no fallback drop", drop)
+	}
+}
+
+func TestNPCLootSelectorRejectsMatrixMismatchesWithoutTrainingFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		arrange     func(*mapInstance, *combat.NPCKilledEvent)
+		want        error
+		wantStage   string
+		wantReason  string
+		wantMapKey  string
+		wantRisk    string
+		wantWorldID string
+		wantZoneID  string
+		wantNPCType string
+	}{
+		{
+			name: "kill event wrong map",
+			arrange: func(_ *mapInstance, event *combat.NPCKilledEvent) {
+				event.WorldID = "world-2"
+				event.ZoneID = worldmaps.MapID("map_1_2").ZoneID()
+			},
+			want:        errNPCLootMapUnavailable,
+			wantStage:   npcLootSelectorStageMap,
+			wantReason:  npcLootSelectorReasonMismatch,
+			wantMapKey:  "1-1",
+			wantRisk:    "low",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_1",
+			wantNPCType: "training_drone",
+		},
+		{
+			name: "kill event npc type mismatches spawn record",
+			arrange: func(_ *mapInstance, event *combat.NPCKilledEvent) {
+				event.NPCType = "outer_ring_scout_drone"
+			},
+			want:        errNPCLootProfileMismatch,
+			wantStage:   npcLootSelectorStageKillRecord,
+			wantReason:  npcLootSelectorReasonMismatch,
+			wantMapKey:  "1-1",
+			wantRisk:    "low",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_1",
+			wantNPCType: "outer_ring_scout_drone",
+		},
+		{
+			name: "record level outside profile rank band",
+			arrange: func(instance *mapInstance, _ *combat.NPCKilledEvent) {
+				instance.Definition.NPCDropProfiles[0].MinLevel = 2
+				instance.Definition.NPCDropProfiles[0].MaxLevel = 2
+			},
+			want:        errNPCLootProfileMismatch,
+			wantStage:   npcLootSelectorStageDropProfile,
+			wantReason:  npcLootSelectorReasonMismatch,
+			wantMapKey:  "1-1",
+			wantRisk:    "low",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_1",
+			wantNPCType: "training_drone",
+		},
+		{
+			name: "profile risk mismatches map risk",
+			arrange: func(instance *mapInstance, _ *combat.NPCKilledEvent) {
+				instance.Definition.NPCDropProfiles[0].RiskBand = "medium"
+			},
+			want:        errNPCLootProfileMismatch,
+			wantStage:   npcLootSelectorStageDropProfile,
+			wantReason:  npcLootSelectorReasonMismatch,
+			wantMapKey:  "1-1",
+			wantRisk:    "low",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_1",
+			wantNPCType: "training_drone",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gameServer, httpServer := newTestServer(t, false)
+			defer httpServer.Close()
+			resolved := createResolvedRuntimeSession(t, gameServer, "selector-matrix-rejected@example.com", "Selector Matrix Rejected")
+
+			gameServer.runtime.mu.Lock()
+			defer gameServer.runtime.mu.Unlock()
+
+			starter, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+			if err != nil {
+				t.Fatalf("starter map instance: %v", err)
+			}
+			record, ok := starter.Worker.EnemySpawnRecord("entity_training_npc")
+			if !ok {
+				t.Fatalf("starter spawner missing entity_training_npc; snapshot=%+v", starter.Worker.EnemySpawnSnapshot())
+			}
+			event := testNPCKilledEventForRecord(resolved.PlayerID, starter, record)
+			tc.arrange(starter, &event)
+
+			_, err = gameServer.runtime.selectNPCKillLootTableForInstanceLocked(starter, event)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("selectNPCKillLootTableForInstanceLocked() error = %v, want %v", err, tc.want)
+			}
+			requireMetricCounter(t, gameServer.runtime.Metrics.Snapshot(), observability.MetricNPCLootSelectorDecisions, 1, []observability.Label{
+				{Name: "map_key", Value: tc.wantMapKey},
+				{Name: "npc_type", Value: tc.wantNPCType},
+				{Name: "reason", Value: tc.wantReason},
+				{Name: "result", Value: "rejected"},
+				{Name: "risk_band", Value: tc.wantRisk},
+				{Name: "stage", Value: tc.wantStage},
+				{Name: "world_id", Value: tc.wantWorldID},
+				{Name: "zone_id", Value: tc.wantZoneID},
+			})
+			if drop, ok := gameServer.runtime.Loot.Drop("drop_1"); ok {
+				t.Fatalf("selector matrix mismatch created fallback drop %+v; want no fallback drop", drop)
+			}
+		})
 	}
 }
 
