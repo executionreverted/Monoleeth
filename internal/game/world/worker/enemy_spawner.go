@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"hash/fnv"
@@ -17,6 +18,7 @@ import (
 type EnemySpawnRecord struct {
 	EntityID       world.EntityID
 	EnemyPoolID    worldmaps.EnemyPoolID
+	EventSpawnID   worldmaps.NPCEventSpawnID
 	SpawnAreaID    worldmaps.SpawnAreaID
 	NPCType        string
 	Level          int
@@ -69,6 +71,18 @@ func (command MarkEnemyKilledCommand) apply(worker *Worker) error {
 	return worker.markEnemyKilled(command.Definition, command.NPCEntityID, command.KilledAt)
 }
 
+// TriggerEnemyEventSpawnCommand is a server-owned hook for due boss/event
+// spawns. It is not a client command and exposes no event internals to clients.
+type TriggerEnemyEventSpawnCommand struct {
+	Definition   worldmaps.MapDefinition
+	EventSpawnID worldmaps.NPCEventSpawnID
+	TriggeredAt  time.Time
+}
+
+func (command TriggerEnemyEventSpawnCommand) apply(worker *Worker) error {
+	return worker.triggerEnemyEventSpawn(command.Definition, command.EventSpawnID, command.TriggeredAt)
+}
+
 // EnemySpawnSnapshot returns clone-safe server-only spawner state.
 func (worker *Worker) EnemySpawnSnapshot() EnemySpawnSnapshot {
 	if worker.enemySpawner == nil {
@@ -112,7 +126,7 @@ func (worker *Worker) initializeEnemyPools(definition worldmaps.MapDefinition, o
 		if worker.enemySpawner.poolInitialized(pool.EnemyPoolID) {
 			continue
 		}
-		if !pool.Enabled || pool.SpawnMode == worldmaps.SpawnModeDisabled {
+		if !pool.Enabled || pool.SpawnMode == worldmaps.SpawnModeDisabled || pool.SpawnMode == worldmaps.SpawnModeEventScheduled {
 			worker.enemySpawner.markPoolInitialized(pool.EnemyPoolID)
 			continue
 		}
@@ -182,7 +196,11 @@ func (worker *Worker) markEnemyKilled(definition worldmaps.MapDefinition, entity
 	}
 	record.Alive = false
 	record.DeadAt = killedAt
-	record.NextRespawnAt = killedAt.Add(pool.KillRespawnDelay + deterministicSpawnJitter(pool.SpawnJitter, definition.InternalMapID.String(), pool.EnemyPoolID.String(), entityID.String()))
+	if pool.SpawnMode == worldmaps.SpawnModeEventScheduled {
+		record.NextRespawnAt = time.Time{}
+	} else {
+		record.NextRespawnAt = killedAt.Add(pool.KillRespawnDelay + deterministicSpawnJitter(pool.SpawnJitter, definition.InternalMapID.String(), pool.EnemyPoolID.String(), entityID.String()))
+	}
 	clearEnemyAggroState(&record)
 	worker.enemySpawner.rows[index] = record
 
@@ -229,7 +247,7 @@ func (worker *Worker) tickEnemySpawnerDefinition(definition worldmaps.MapDefinit
 		if !ok {
 			return fmt.Errorf("enemy pool %q: %w", record.EnemyPoolID, worldmaps.ErrInvalidCatalog)
 		}
-		if !pool.Enabled || pool.SpawnMode == worldmaps.SpawnModeDisabled {
+		if !pool.Enabled || pool.SpawnMode == worldmaps.SpawnModeDisabled || pool.SpawnMode == worldmaps.SpawnModeEventScheduled {
 			continue
 		}
 		if worker.enemySpawner.poolAliveCount(record.EnemyPoolID) >= pool.PoolMaxAlive || (hasMapAliveCap && mapAliveCount >= mapAliveCap) {
@@ -327,6 +345,98 @@ func (worker *Worker) newEnemySpawnRecord(
 	}, nil
 }
 
+func (worker *Worker) triggerEnemyEventSpawn(definition worldmaps.MapDefinition, eventSpawnID worldmaps.NPCEventSpawnID, triggeredAt time.Time) error {
+	if err := worker.validateEnemyPoolDefinitionOwnership(definition); err != nil {
+		return err
+	}
+	if worker.enemySpawner == nil {
+		worker.enemySpawner = newEnemySpawnerState()
+	}
+	now := triggeredAt
+	if now.IsZero() {
+		now = worker.clock.Now()
+	}
+	if !worker.enemySpawner.hasTickDefinition {
+		worker.enemySpawner.configureTicks(definition, now)
+	}
+
+	eventSpawns := eventSpawnsByID(definition.NPCEventSpawns)
+	eventSpawn, ok := eventSpawns[eventSpawnID]
+	if !ok {
+		return fmt.Errorf("npc event spawn %q: %w", eventSpawnID, worldmaps.ErrInvalidCatalog)
+	}
+	if !eventSpawn.Enabled {
+		return nil
+	}
+	if eventSpawn.MapPolicy != worldmaps.NPCEventSpawnMapPolicyCurrentMapOnly {
+		return fmt.Errorf("npc event spawn %q map policy %q: %w", eventSpawn.EventSpawnID, eventSpawn.MapPolicy, worldmaps.ErrInvalidMapDefinition)
+	}
+	dueAt := worker.enemySpawner.ensureEventDueAt(eventSpawn, now)
+	if now.Before(dueAt) {
+		return nil
+	}
+
+	pools := enemyPoolsByID(definition.EnemyPools)
+	pool, ok := pools[eventSpawn.EnemyPoolID]
+	if !ok {
+		return fmt.Errorf("npc event spawn %q enemy pool %q: %w", eventSpawn.EventSpawnID, eventSpawn.EnemyPoolID, worldmaps.ErrInvalidCatalog)
+	}
+	if !pool.Enabled {
+		return nil
+	}
+	if pool.SpawnMode != worldmaps.SpawnModeEventScheduled {
+		return fmt.Errorf("npc event spawn %q enemy pool %q spawn mode %q: %w", eventSpawn.EventSpawnID, pool.EnemyPoolID, pool.SpawnMode, worldmaps.ErrInvalidCatalog)
+	}
+	if worker.enemySpawner.eventAliveCount(eventSpawn.EventSpawnID) >= eventSpawn.MaxAlive {
+		return nil
+	}
+	if worker.enemySpawner.poolAliveCount(pool.EnemyPoolID) >= pool.PoolMaxAlive {
+		return nil
+	}
+	if mapAliveCap, hasMapAliveCap := enabledEnemyMapAliveCap(definition.EnemyPools); hasMapAliveCap && worker.enemySpawner.mapAliveCount() >= mapAliveCap {
+		return nil
+	}
+
+	spawnAreas := spawnAreasByID(definition.SpawnAreas)
+	statTemplates := statTemplatesByID(definition.NPCStatTemplates)
+	dropProfiles := dropProfilesByID(definition.NPCDropProfiles)
+	statTemplate, ok := statTemplates[pool.StatTemplateID]
+	if !ok {
+		return fmt.Errorf("enemy pool %q stat template %q: %w", pool.EnemyPoolID, pool.StatTemplateID, worldmaps.ErrInvalidCatalog)
+	}
+	if !statTemplateCompatibleWithPool(pool, statTemplate) {
+		return fmt.Errorf("npc event spawn %q stat template %q incompatible with pool %q: %w", eventSpawn.EventSpawnID, statTemplate.StatTemplateID, pool.EnemyPoolID, worldmaps.ErrInvalidCatalog)
+	}
+	dropProfile, ok := dropProfiles[eventSpawn.DropProfileID]
+	if !ok {
+		return fmt.Errorf("npc event spawn %q drop profile %q: %w", eventSpawn.EventSpawnID, eventSpawn.DropProfileID, worldmaps.ErrInvalidCatalog)
+	}
+	if !dropProfileCompatibleWithPool(definition, pool, dropProfile) {
+		return fmt.Errorf("npc event spawn %q drop profile %q incompatible with pool %q: %w", eventSpawn.EventSpawnID, dropProfile.DropProfileID, pool.EnemyPoolID, worldmaps.ErrInvalidCatalog)
+	}
+	spawnIndex := worker.enemySpawner.rowCountForPool(pool.EnemyPoolID)
+	area, ok, err := selectSpawnArea(definition, spawnAreas, pool, spawnIndex)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+
+	entityID := enemyEventSpawnEntityID(definition.InternalMapID, pool.EnemyPoolID, eventSpawn.EventSpawnID, spawnIndex)
+	if _, exists := worker.enemySpawner.byEntityID[entityID]; exists {
+		return fmt.Errorf("enemy spawn entity %q: %w", entityID, ErrEntityAlreadyExists)
+	}
+	record, err := worker.newEnemySpawnRecord(definition, pool, statTemplate, area, entityID, now)
+	if err != nil {
+		return err
+	}
+	record.EventSpawnID = eventSpawn.EventSpawnID
+	record.DropProfileID = eventSpawn.DropProfileID
+	worker.enemySpawner.add(record)
+	return nil
+}
+
 func (worker *Worker) respawnEnemyRecord(index int, definition worldmaps.MapDefinition, statTemplate worldmaps.NPCStatTemplate, area worldmaps.MapSpawnAreaDefinition, spawnedAt time.Time) error {
 	record := worker.enemySpawner.rows[index]
 	entity, err := world.NewEntity(definition.WorldID, definition.ZoneID, record.EntityID, world.EntityTypeNPC, area.Center)
@@ -352,6 +462,21 @@ func initialEnemyMapAliveCap(pools []worldmaps.MapEnemyPoolDefinition) (int, boo
 	cap := 0
 	hasCap := false
 	for _, pool := range pools {
+		if !pool.Enabled || pool.SpawnMode == worldmaps.SpawnModeDisabled || pool.SpawnMode == worldmaps.SpawnModeEventScheduled {
+			continue
+		}
+		if !hasCap || pool.MapMaxAlive < cap {
+			cap = pool.MapMaxAlive
+			hasCap = true
+		}
+	}
+	return cap, hasCap
+}
+
+func enabledEnemyMapAliveCap(pools []worldmaps.MapEnemyPoolDefinition) (int, bool) {
+	cap := 0
+	hasCap := false
+	for _, pool := range pools {
 		if !pool.Enabled || pool.SpawnMode == worldmaps.SpawnModeDisabled {
 			continue
 		}
@@ -367,11 +492,14 @@ func (worker *Worker) validateEnemyPoolDefinitionOwnership(definition worldmaps.
 	if definition.WorldID != worker.worldID {
 		return fmt.Errorf("enemy pools map %q world %q not owned by worker world %q: %w", definition.InternalMapID, definition.WorldID, worker.worldID, ErrInvalidWorkerConfig)
 	}
-	if definition.ZoneID != worker.zoneID {
-		return fmt.Errorf("enemy pools map %q zone %q not owned by worker zone %q: %w", definition.InternalMapID, definition.ZoneID, worker.zoneID, ErrInvalidWorkerConfig)
-	}
 	if err := definition.InternalMapID.Validate(); err != nil {
 		return err
+	}
+	if definition.ZoneID != definition.InternalMapID.ZoneID() {
+		return fmt.Errorf("enemy pools map %q zone %q does not match internal map zone %q: %w", definition.InternalMapID, definition.ZoneID, definition.InternalMapID.ZoneID(), ErrInvalidWorkerConfig)
+	}
+	if definition.ZoneID != worker.zoneID {
+		return fmt.Errorf("enemy pools map %q zone %q not owned by worker zone %q: %w", definition.InternalMapID, definition.ZoneID, worker.zoneID, ErrInvalidWorkerConfig)
 	}
 	if err := definition.Bounds.ValidateExactPlayable(); err != nil {
 		return err
@@ -399,6 +527,39 @@ func statTemplatesByID(templates []worldmaps.NPCStatTemplate) map[worldmaps.NPCS
 	byID := make(map[worldmaps.NPCStatTemplateID]worldmaps.NPCStatTemplate, len(templates))
 	for _, template := range templates {
 		byID[template.StatTemplateID] = template
+	}
+	return byID
+}
+
+func dropProfilesByID(profiles []worldmaps.NPCDropProfile) map[worldmaps.NPCDropProfileID]worldmaps.NPCDropProfile {
+	byID := make(map[worldmaps.NPCDropProfileID]worldmaps.NPCDropProfile, len(profiles))
+	for _, profile := range profiles {
+		byID[profile.DropProfileID] = profile
+	}
+	return byID
+}
+
+func statTemplateCompatibleWithPool(pool worldmaps.MapEnemyPoolDefinition, template worldmaps.NPCStatTemplate) bool {
+	if template.NPCType != pool.NPCType {
+		return false
+	}
+	return template.MinLevel <= pool.MinLevel && template.MaxLevel >= pool.MaxLevel
+}
+
+func dropProfileCompatibleWithPool(definition worldmaps.MapDefinition, pool worldmaps.MapEnemyPoolDefinition, profile worldmaps.NPCDropProfile) bool {
+	if profile.NPCType != pool.NPCType {
+		return false
+	}
+	if pool.MinLevel < profile.MinLevel || pool.MaxLevel > profile.MaxLevel {
+		return false
+	}
+	return profile.RiskBand == definition.RiskBand
+}
+
+func eventSpawnsByID(eventSpawns []worldmaps.NPCEventSpawnDefinition) map[worldmaps.NPCEventSpawnID]worldmaps.NPCEventSpawnDefinition {
+	byID := make(map[worldmaps.NPCEventSpawnID]worldmaps.NPCEventSpawnDefinition, len(eventSpawns))
+	for _, eventSpawn := range eventSpawns {
+		byID[eventSpawn.EventSpawnID] = eventSpawn
 	}
 	return byID
 }
@@ -481,6 +642,14 @@ func enemySpawnEntityID(mapID worldmaps.MapID, poolID worldmaps.EnemyPoolID, spa
 	))
 }
 
+func enemyEventSpawnEntityID(mapID worldmaps.MapID, poolID worldmaps.EnemyPoolID, eventSpawnID worldmaps.NPCEventSpawnID, spawnIndex int) world.EntityID {
+	return world.EntityID(fmt.Sprintf(
+		"entity_npc_evt_%s_%03d",
+		entityIDOpaqueHashSuffix(mapID.String(), poolID.String(), eventSpawnID.String()),
+		spawnIndex+1,
+	))
+}
+
 func sanitizeEntityIDPart(value string) string {
 	value = strings.TrimSpace(value)
 	replacer := strings.NewReplacer(" ", "_", ":", "_", "/", "_", "\\", "_")
@@ -497,6 +666,17 @@ func entityIDRawPartSuffix(parts ...string) string {
 	return hex.EncodeToString([]byte(raw.String()))
 }
 
+func entityIDOpaqueHashSuffix(parts ...string) string {
+	var raw strings.Builder
+	for _, part := range parts {
+		fmt.Fprintf(&raw, "%d:", len(part))
+		raw.WriteString(part)
+		raw.WriteByte('|')
+	}
+	sum := sha256.Sum256([]byte(raw.String()))
+	return hex.EncodeToString(sum[:16])
+}
+
 type enemySpawnerState struct {
 	rows              []EnemySpawnRecord
 	byEntityID        map[world.EntityID]int
@@ -505,6 +685,7 @@ type enemySpawnerState struct {
 	hasTickDefinition bool
 	tickDefinition    worldmaps.MapDefinition
 	lastFillByPool    map[worldmaps.EnemyPoolID]time.Time
+	eventDueByID      map[worldmaps.NPCEventSpawnID]time.Time
 }
 
 func newEnemySpawnerState() *enemySpawnerState {
@@ -514,6 +695,7 @@ func newEnemySpawnerState() *enemySpawnerState {
 		aliveByPool:      make(map[worldmaps.EnemyPoolID]int),
 		initializedPools: make(map[worldmaps.EnemyPoolID]struct{}),
 		lastFillByPool:   make(map[worldmaps.EnemyPoolID]time.Time),
+		eventDueByID:     make(map[worldmaps.NPCEventSpawnID]time.Time),
 	}
 }
 
@@ -559,6 +741,16 @@ func (spawner *enemySpawnerState) snapshot() EnemySpawnSnapshot {
 
 func (spawner *enemySpawnerState) poolAliveCount(poolID worldmaps.EnemyPoolID) int {
 	return spawner.aliveByPool[poolID]
+}
+
+func (spawner *enemySpawnerState) eventAliveCount(eventSpawnID worldmaps.NPCEventSpawnID) int {
+	count := 0
+	for _, record := range spawner.rows {
+		if record.EventSpawnID == eventSpawnID && record.Alive {
+			count++
+		}
+	}
+	return count
 }
 
 func (spawner *enemySpawnerState) poolReservedCount(poolID worldmaps.EnemyPoolID) int {
@@ -611,6 +803,11 @@ func (spawner *enemySpawnerState) configureTicks(definition worldmaps.MapDefinit
 			spawner.lastFillByPool[pool.EnemyPoolID] = now
 		}
 	}
+	for _, eventSpawn := range definition.NPCEventSpawns {
+		if _, exists := spawner.eventDueByID[eventSpawn.EventSpawnID]; !exists {
+			spawner.eventDueByID[eventSpawn.EventSpawnID] = now.Add(eventSpawn.StartsAfter)
+		}
+	}
 }
 
 func (spawner *enemySpawnerState) lastPeriodicFillAt(poolID worldmaps.EnemyPoolID) time.Time {
@@ -622,6 +819,15 @@ func (spawner *enemySpawnerState) lastPeriodicFillAt(poolID worldmaps.EnemyPoolI
 
 func (spawner *enemySpawnerState) setLastPeriodicFillAt(poolID worldmaps.EnemyPoolID, at time.Time) {
 	spawner.lastFillByPool[poolID] = at
+}
+
+func (spawner *enemySpawnerState) ensureEventDueAt(eventSpawn worldmaps.NPCEventSpawnDefinition, firstSeenAt time.Time) time.Time {
+	if dueAt, ok := spawner.eventDueByID[eventSpawn.EventSpawnID]; ok {
+		return dueAt
+	}
+	dueAt := firstSeenAt.Add(eventSpawn.StartsAfter)
+	spawner.eventDueByID[eventSpawn.EventSpawnID] = dueAt
+	return dueAt
 }
 
 func (spawner *enemySpawnerState) rowCountForPool(poolID worldmaps.EnemyPoolID) int {
@@ -644,6 +850,7 @@ func cloneEnemySpawnerTickDefinition(definition worldmaps.MapDefinition) worldma
 	for index := range cloned.EnemyPools {
 		cloned.EnemyPools[index].SpawnAreaIDs = append([]worldmaps.SpawnAreaID(nil), definition.EnemyPools[index].SpawnAreaIDs...)
 	}
+	cloned.NPCEventSpawns = append([]worldmaps.NPCEventSpawnDefinition(nil), definition.NPCEventSpawns...)
 	cloned.NPCStatTemplates = append([]worldmaps.NPCStatTemplate(nil), definition.NPCStatTemplates...)
 	cloned.NPCDropProfiles = append([]worldmaps.NPCDropProfile(nil), definition.NPCDropProfiles...)
 	cloned.NPCAggroProfiles = append([]worldmaps.NPCAggroProfile(nil), definition.NPCAggroProfiles...)

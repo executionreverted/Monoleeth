@@ -27,12 +27,16 @@ type NPCAggroProfileID string
 // NPCLeashProfileID identifies an NPC leash profile scoped by map.
 type NPCLeashProfileID string
 
+// NPCEventSpawnID identifies a server-owned event/boss spawn hook scoped by map.
+type NPCEventSpawnID string
+
 func (id EnemyPoolID) String() string       { return string(id) }
 func (id SpawnAreaID) String() string       { return string(id) }
 func (id NPCStatTemplateID) String() string { return string(id) }
 func (id NPCDropProfileID) String() string  { return string(id) }
 func (id NPCAggroProfileID) String() string { return string(id) }
 func (id NPCLeashProfileID) String() string { return string(id) }
+func (id NPCEventSpawnID) String() string   { return string(id) }
 
 func (id EnemyPoolID) Validate() error { return validateCatalogID("enemy pool", string(id)) }
 func (id SpawnAreaID) Validate() error { return validateCatalogID("spawn area", string(id)) }
@@ -46,6 +50,9 @@ func (id NPCAggroProfileID) Validate() error {
 func (id NPCLeashProfileID) Validate() error {
 	return validateCatalogID("npc leash profile", string(id))
 }
+func (id NPCEventSpawnID) Validate() error {
+	return validateCatalogID("npc event spawn", string(id))
+}
 
 // SpawnMode defines how a map enemy pool is replenished.
 type SpawnMode string
@@ -53,15 +60,32 @@ type SpawnMode string
 const (
 	SpawnModePeriodic        SpawnMode = "periodic"
 	SpawnModeKillReplacement SpawnMode = "kill_replacement"
+	SpawnModeEventScheduled  SpawnMode = "event_scheduled"
 	SpawnModeDisabled        SpawnMode = "disabled"
 )
 
 func (mode SpawnMode) Validate() error {
 	switch mode {
-	case SpawnModePeriodic, SpawnModeKillReplacement, SpawnModeDisabled:
+	case SpawnModePeriodic, SpawnModeKillReplacement, SpawnModeEventScheduled, SpawnModeDisabled:
 		return nil
 	default:
 		return fmt.Errorf("spawn mode %q: %w", mode, ErrInvalidMapDefinition)
+	}
+}
+
+// NPCEventSpawnMapPolicy defines the map ownership policy for event/boss hooks.
+type NPCEventSpawnMapPolicy string
+
+const (
+	NPCEventSpawnMapPolicyCurrentMapOnly NPCEventSpawnMapPolicy = "current_map_only"
+)
+
+func (policy NPCEventSpawnMapPolicy) Validate() error {
+	switch policy {
+	case NPCEventSpawnMapPolicyCurrentMapOnly:
+		return nil
+	default:
+		return fmt.Errorf("npc event spawn map policy %q: %w", policy, ErrInvalidMapDefinition)
 	}
 }
 
@@ -110,6 +134,19 @@ type MapEnemyPoolDefinition struct {
 	AggroProfileID   NPCAggroProfileID `json:"-"`
 	LeashProfileID   NPCLeashProfileID `json:"-"`
 	Enabled          bool              `json:"-"`
+}
+
+// NPCEventSpawnDefinition is server-only catalog data for explicit event/boss
+// spawn hooks. It is not serialized to clients and does not imply automatic
+// spawning.
+type NPCEventSpawnDefinition struct {
+	EventSpawnID  NPCEventSpawnID        `json:"-"`
+	EnemyPoolID   EnemyPoolID            `json:"-"`
+	DropProfileID NPCDropProfileID       `json:"-"`
+	Enabled       bool                   `json:"-"`
+	StartsAfter   time.Duration          `json:"-"`
+	MaxAlive      int                    `json:"-"`
+	MapPolicy     NPCEventSpawnMapPolicy `json:"-"`
 }
 
 // NPCStatTemplate is server-owned catalog data for NPC combat projection.
@@ -229,6 +266,7 @@ func validateEnemyContent(definition MapDefinition) error {
 	}
 
 	poolIDs := make(map[EnemyPoolID]struct{}, len(definition.EnemyPools))
+	pools := make(map[EnemyPoolID]MapEnemyPoolDefinition, len(definition.EnemyPools))
 	for _, pool := range definition.EnemyPools {
 		if err := pool.EnemyPoolID.Validate(); err != nil {
 			return fmt.Errorf("map %q enemy pool: %w", definition.InternalMapID, err)
@@ -237,8 +275,23 @@ func validateEnemyContent(definition MapDefinition) error {
 			return fmt.Errorf("map %q duplicate enemy pool %q: %w", definition.InternalMapID, pool.EnemyPoolID, ErrInvalidCatalog)
 		}
 		poolIDs[pool.EnemyPoolID] = struct{}{}
+		pools[pool.EnemyPoolID] = pool
 		if err := validateEnemyPoolDefinition(pool, definition.RiskBand, spawnAreas, statTemplates, dropProfiles, aggroProfiles, leashProfiles); err != nil {
 			return fmt.Errorf("map %q enemy pool %q: %w", definition.InternalMapID, pool.EnemyPoolID, err)
+		}
+	}
+
+	eventSpawnIDs := make(map[NPCEventSpawnID]struct{}, len(definition.NPCEventSpawns))
+	for _, eventSpawn := range definition.NPCEventSpawns {
+		if err := eventSpawn.EventSpawnID.Validate(); err != nil {
+			return fmt.Errorf("map %q npc event spawn: %w", definition.InternalMapID, err)
+		}
+		if _, exists := eventSpawnIDs[eventSpawn.EventSpawnID]; exists {
+			return fmt.Errorf("map %q duplicate npc event spawn %q: %w", definition.InternalMapID, eventSpawn.EventSpawnID, ErrInvalidCatalog)
+		}
+		eventSpawnIDs[eventSpawn.EventSpawnID] = struct{}{}
+		if err := validateNPCEventSpawnDefinition(eventSpawn, definition.RiskBand, pools, dropProfiles); err != nil {
+			return fmt.Errorf("map %q npc event spawn %q: %w", definition.InternalMapID, eventSpawn.EventSpawnID, err)
 		}
 	}
 	return nil
@@ -399,6 +452,44 @@ func validateEnemyPoolDefinition(
 	return nil
 }
 
+func validateNPCEventSpawnDefinition(
+	eventSpawn NPCEventSpawnDefinition,
+	mapRiskBand string,
+	pools map[EnemyPoolID]MapEnemyPoolDefinition,
+	dropProfiles map[NPCDropProfileID]NPCDropProfile,
+) error {
+	if err := eventSpawn.EnemyPoolID.Validate(); err != nil {
+		return err
+	}
+	pool, exists := pools[eventSpawn.EnemyPoolID]
+	if !exists {
+		return fmt.Errorf("enemy pool %q: %w", eventSpawn.EnemyPoolID, ErrInvalidCatalog)
+	}
+	if pool.SpawnMode != SpawnModeEventScheduled {
+		return fmt.Errorf("enemy pool %q spawn mode %q is not event scheduled: %w", pool.EnemyPoolID, pool.SpawnMode, ErrInvalidCatalog)
+	}
+	if eventSpawn.StartsAfter < 0 {
+		return fmt.Errorf("starts after %s: %w", eventSpawn.StartsAfter, ErrInvalidMapDefinition)
+	}
+	if eventSpawn.MaxAlive <= 0 || eventSpawn.MaxAlive > pool.PoolMaxAlive {
+		return fmt.Errorf("event cap %d pool cap %d: %w", eventSpawn.MaxAlive, pool.PoolMaxAlive, ErrInvalidMapDefinition)
+	}
+	if err := eventSpawn.MapPolicy.Validate(); err != nil {
+		return err
+	}
+	if err := eventSpawn.DropProfileID.Validate(); err != nil {
+		return err
+	}
+	dropProfile, exists := dropProfiles[eventSpawn.DropProfileID]
+	if !exists {
+		return fmt.Errorf("drop profile %q: %w", eventSpawn.DropProfileID, ErrInvalidCatalog)
+	}
+	if err := validatePoolDropProfileCompatibility(pool, dropProfile, mapRiskBand); err != nil {
+		return err
+	}
+	return nil
+}
+
 func validatePoolStatTemplateCompatibility(pool MapEnemyPoolDefinition, template NPCStatTemplate) error {
 	if template.NPCType != pool.NPCType {
 		return fmt.Errorf("stat template %q npc type %q does not match pool npc type %q: %w", template.StatTemplateID, template.NPCType, pool.NPCType, ErrInvalidCatalog)
@@ -461,6 +552,15 @@ func cloneEnemyPoolDefinitions(pools []MapEnemyPoolDefinition) []MapEnemyPoolDef
 	return cloned
 }
 
+func cloneNPCEventSpawnDefinitions(eventSpawns []NPCEventSpawnDefinition) []NPCEventSpawnDefinition {
+	if len(eventSpawns) == 0 {
+		return nil
+	}
+	cloned := make([]NPCEventSpawnDefinition, len(eventSpawns))
+	copy(cloned, eventSpawns)
+	return cloned
+}
+
 func starterMapSpawnAreas() []MapSpawnAreaDefinition {
 	return []MapSpawnAreaDefinition{{
 		SpawnAreaID:           "starter_training_drone_area",
@@ -473,55 +573,117 @@ func starterMapSpawnAreas() []MapSpawnAreaDefinition {
 }
 
 func starterMapEnemyPools() []MapEnemyPoolDefinition {
-	return []MapEnemyPoolDefinition{{
-		EnemyPoolID:      "starter_training_drone_pool",
-		NPCType:          "training_drone",
-		MinLevel:         1,
-		MaxLevel:         1,
-		SpawnAreaIDs:     []SpawnAreaID{"starter_training_drone_area"},
-		MapMaxAlive:      3,
-		PoolMaxAlive:     1,
-		InitialAlive:     1,
-		SpawnInterval:    30 * time.Second,
-		KillRespawnDelay: 30 * time.Second,
-		SpawnJitter:      0,
-		SpawnMode:        SpawnModePeriodic,
-		StatTemplateID:   "training_drone_level_1",
-		DropProfileID:    "training_drone_salvage",
-		AggroProfileID:   "training_drone_passive",
-		LeashProfileID:   "training_drone_stationary",
-		Enabled:          true,
-	}}
+	return []MapEnemyPoolDefinition{
+		{
+			EnemyPoolID:      "starter_training_drone_pool",
+			NPCType:          "training_drone",
+			MinLevel:         1,
+			MaxLevel:         1,
+			SpawnAreaIDs:     []SpawnAreaID{"starter_training_drone_area"},
+			MapMaxAlive:      3,
+			PoolMaxAlive:     1,
+			InitialAlive:     1,
+			SpawnInterval:    30 * time.Second,
+			KillRespawnDelay: 30 * time.Second,
+			SpawnJitter:      0,
+			SpawnMode:        SpawnModePeriodic,
+			StatTemplateID:   "training_drone_level_1",
+			DropProfileID:    "training_drone_salvage",
+			AggroProfileID:   "training_drone_passive",
+			LeashProfileID:   "training_drone_stationary",
+			Enabled:          true,
+		},
+		{
+			EnemyPoolID:      "starter_event_overseer_pool",
+			NPCType:          "training_overseer",
+			MinLevel:         2,
+			MaxLevel:         2,
+			SpawnAreaIDs:     []SpawnAreaID{"starter_training_drone_area"},
+			MapMaxAlive:      3,
+			PoolMaxAlive:     1,
+			InitialAlive:     0,
+			SpawnInterval:    time.Minute,
+			KillRespawnDelay: time.Minute,
+			SpawnJitter:      0,
+			SpawnMode:        SpawnModeEventScheduled,
+			StatTemplateID:   "training_overseer_level_2",
+			DropProfileID:    "training_overseer_salvage",
+			AggroProfileID:   "training_drone_passive",
+			LeashProfileID:   "training_drone_stationary",
+			Enabled:          true,
+		},
+	}
 }
 
 func starterMapNPCStatTemplates() []NPCStatTemplate {
-	return []NPCStatTemplate{{
-		StatTemplateID: "training_drone_level_1",
-		NPCType:        "training_drone",
-		MinLevel:       1,
-		MaxLevel:       1,
-		LabelKey:       "npc.training_drone",
-		HPMax:          30,
-		ShieldMax:      0,
-		EnergyMax:      1,
-		WeaponRange:    1,
-		WeaponDamage:   0,
-		WeaponCooldown: time.Second,
-		Accuracy:       1,
-		RadarSignature: visibility.SignatureForEntityType(world.EntityTypeNPC).Units(),
-		Speed:          0,
-		XPValue:        0,
-	}}
+	return []NPCStatTemplate{
+		{
+			StatTemplateID: "training_drone_level_1",
+			NPCType:        "training_drone",
+			MinLevel:       1,
+			MaxLevel:       1,
+			LabelKey:       "npc.training_drone",
+			HPMax:          30,
+			ShieldMax:      0,
+			EnergyMax:      1,
+			WeaponRange:    1,
+			WeaponDamage:   0,
+			WeaponCooldown: time.Second,
+			Accuracy:       1,
+			RadarSignature: visibility.SignatureForEntityType(world.EntityTypeNPC).Units(),
+			Speed:          0,
+			XPValue:        0,
+		},
+		{
+			StatTemplateID: "training_overseer_level_2",
+			NPCType:        "training_overseer",
+			MinLevel:       2,
+			MaxLevel:       2,
+			LabelKey:       "npc.training_overseer",
+			HPMax:          120,
+			ShieldMax:      25,
+			EnergyMax:      10,
+			WeaponRange:    120,
+			WeaponDamage:   4,
+			WeaponCooldown: 2 * time.Second,
+			Accuracy:       0.85,
+			RadarSignature: visibility.SignatureForEntityType(world.EntityTypeNPC).Units(),
+			Speed:          0,
+			XPValue:        0,
+		},
+	}
 }
 
 func starterMapNPCDropProfiles() []NPCDropProfile {
-	return []NPCDropProfile{{
-		DropProfileID: "training_drone_salvage",
-		NPCType:       "training_drone",
-		MinLevel:      1,
-		MaxLevel:      1,
-		RiskBand:      "low",
-		LootTableID:   "training_drone_salvage",
+	return []NPCDropProfile{
+		{
+			DropProfileID: "training_drone_salvage",
+			NPCType:       "training_drone",
+			MinLevel:      1,
+			MaxLevel:      1,
+			RiskBand:      "low",
+			LootTableID:   "training_drone_salvage",
+		},
+		{
+			DropProfileID: "training_overseer_salvage",
+			NPCType:       "training_overseer",
+			MinLevel:      2,
+			MaxLevel:      2,
+			RiskBand:      "low",
+			LootTableID:   "training_drone_salvage",
+		},
+	}
+}
+
+func starterMapNPCEventSpawns() []NPCEventSpawnDefinition {
+	return []NPCEventSpawnDefinition{{
+		EventSpawnID:  "starter_disabled_overseer_event",
+		EnemyPoolID:   "starter_event_overseer_pool",
+		DropProfileID: "training_overseer_salvage",
+		Enabled:       false,
+		StartsAfter:   time.Minute,
+		MaxAlive:      1,
+		MapPolicy:     NPCEventSpawnMapPolicyCurrentMapOnly,
 	}}
 }
 

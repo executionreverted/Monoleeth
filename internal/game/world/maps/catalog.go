@@ -155,12 +155,13 @@ type MapDefinition struct {
 	SpawnPoints      []SpawnPointDefinition
 	Portals          []PortalDefinition
 	SafeZones        []SafeZoneDefinition
-	SpawnAreas       []MapSpawnAreaDefinition `json:"-"`
-	EnemyPools       []MapEnemyPoolDefinition `json:"-"`
-	NPCStatTemplates []NPCStatTemplate        `json:"-"`
-	NPCDropProfiles  []NPCDropProfile         `json:"-"`
-	NPCAggroProfiles []NPCAggroProfile        `json:"-"`
-	NPCLeashProfiles []NPCLeashProfile        `json:"-"`
+	SpawnAreas       []MapSpawnAreaDefinition  `json:"-"`
+	EnemyPools       []MapEnemyPoolDefinition  `json:"-"`
+	NPCEventSpawns   []NPCEventSpawnDefinition `json:"-"`
+	NPCStatTemplates []NPCStatTemplate         `json:"-"`
+	NPCDropProfiles  []NPCDropProfile          `json:"-"`
+	NPCAggroProfiles []NPCAggroProfile         `json:"-"`
+	NPCLeashProfiles []NPCLeashProfile         `json:"-"`
 }
 
 // ClientMapProjection is the client-safe public subset of a map definition.
@@ -461,6 +462,7 @@ func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 			},
 			SpawnAreas:       starterMapSpawnAreas(),
 			EnemyPools:       starterMapEnemyPools(),
+			NPCEventSpawns:   starterMapNPCEventSpawns(),
 			NPCStatTemplates: starterMapNPCStatTemplates(),
 			NPCDropProfiles:  starterMapNPCDropProfiles(),
 			NPCAggroProfiles: starterMapNPCAggroProfiles(),
@@ -594,6 +596,7 @@ func cloneDefinition(definition MapDefinition) MapDefinition {
 	definition.SafeZones = append([]SafeZoneDefinition(nil), definition.SafeZones...)
 	definition.SpawnAreas = append([]MapSpawnAreaDefinition(nil), definition.SpawnAreas...)
 	definition.EnemyPools = cloneEnemyPoolDefinitions(definition.EnemyPools)
+	definition.NPCEventSpawns = cloneNPCEventSpawnDefinitions(definition.NPCEventSpawns)
 	definition.NPCStatTemplates = append([]NPCStatTemplate(nil), definition.NPCStatTemplates...)
 	definition.NPCDropProfiles = append([]NPCDropProfile(nil), definition.NPCDropProfiles...)
 	definition.NPCAggroProfiles = append([]NPCAggroProfile(nil), definition.NPCAggroProfiles...)

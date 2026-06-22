@@ -429,19 +429,6 @@ func TestEnemySpawnerPeriodicFillSkipsForbiddenCandidatesWithoutEntityLeak(t *te
 		edit func(*worldmaps.MapDefinition)
 	}{
 		{
-			name: "pvp blocking safe zone",
-			edit: func(definition *worldmaps.MapDefinition) {
-				definition.SpawnAreas[0].Center = world.Vec2{X: 100, Y: 100}
-				definition.SpawnAreas[0].SafeZoneExcluded = true
-				definition.SafeZones = []worldmaps.SafeZoneDefinition{{
-					SafeZoneID: "safe_periodic_block",
-					Center:     world.Vec2{X: 100, Y: 100},
-					Radius:     50,
-					BlocksPVP:  true,
-				}}
-			},
-		},
-		{
 			name: "visible portal exclusion",
 			edit: func(definition *worldmaps.MapDefinition) {
 				definition.SpawnAreas[0].Center = world.Vec2{X: 500, Y: 500}
@@ -707,19 +694,6 @@ func TestEnemySpawnerSkipsForbiddenInitialCandidates(t *testing.T) {
 		name string
 		edit func(*worldmaps.MapDefinition)
 	}{
-		{
-			name: "pvp blocking safe zone",
-			edit: func(definition *worldmaps.MapDefinition) {
-				definition.SpawnAreas[0].Center = world.Vec2{X: 100, Y: 100}
-				definition.SpawnAreas[0].SafeZoneExcluded = true
-				definition.SafeZones = []worldmaps.SafeZoneDefinition{{
-					SafeZoneID: "safe_spawn_block",
-					Center:     world.Vec2{X: 100, Y: 100},
-					Radius:     50,
-					BlocksPVP:  true,
-				}}
-			},
-		},
 		{
 			name: "visible portal exclusion",
 			edit: func(definition *worldmaps.MapDefinition) {

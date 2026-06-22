@@ -30,8 +30,8 @@ func TestStarterCatalogContainsStarterEnemyCatalogData(t *testing.T) {
 		t.Fatalf("starter spawn area SafeZoneExcluded = false, want true")
 	}
 
-	if len(starter.EnemyPools) != 1 {
-		t.Fatalf("starter enemy pools = %+v, want one training drone pool", starter.EnemyPools)
+	if len(starter.EnemyPools) != 2 {
+		t.Fatalf("starter enemy pools = %+v, want training drone pool plus disabled event pool", starter.EnemyPools)
 	}
 	pool := starter.EnemyPools[0]
 	if pool.EnemyPoolID != "starter_training_drone_pool" || pool.NPCType != "training_drone" {
@@ -49,9 +49,17 @@ func TestStarterCatalogContainsStarterEnemyCatalogData(t *testing.T) {
 	if len(pool.SpawnAreaIDs) != 1 || pool.SpawnAreaIDs[0] != area.SpawnAreaID {
 		t.Fatalf("starter pool spawn refs = %+v, want %q", pool.SpawnAreaIDs, area.SpawnAreaID)
 	}
+	eventPool := starter.EnemyPools[1]
+	if eventPool.EnemyPoolID != "starter_event_overseer_pool" ||
+		eventPool.NPCType != "training_overseer" ||
+		eventPool.SpawnMode != SpawnModeEventScheduled ||
+		eventPool.InitialAlive != 0 ||
+		!eventPool.Enabled {
+		t.Fatalf("starter event pool = %+v, want enabled event-scheduled overseer pool with no initial fill", eventPool)
+	}
 
-	if len(starter.NPCStatTemplates) != 1 {
-		t.Fatalf("starter stat templates = %+v, want one training drone template", starter.NPCStatTemplates)
+	if len(starter.NPCStatTemplates) != 2 {
+		t.Fatalf("starter stat templates = %+v, want training plus event templates", starter.NPCStatTemplates)
 	}
 	template := starter.NPCStatTemplates[0]
 	if pool.StatTemplateID != template.StatTemplateID || template.NPCType != "training_drone" {
@@ -64,8 +72,8 @@ func TestStarterCatalogContainsStarterEnemyCatalogData(t *testing.T) {
 		t.Fatalf("starter stat template = %+v, want current training actor behavior", template)
 	}
 
-	if len(starter.NPCDropProfiles) != 1 {
-		t.Fatalf("starter drop profiles = %+v, want one training drone salvage profile", starter.NPCDropProfiles)
+	if len(starter.NPCDropProfiles) != 2 {
+		t.Fatalf("starter drop profiles = %+v, want training plus event profiles", starter.NPCDropProfiles)
 	}
 	drop := starter.NPCDropProfiles[0]
 	if pool.DropProfileID != drop.DropProfileID || drop.NPCType != "training_drone" || drop.LootTableID != "training_drone_salvage" {
@@ -77,13 +85,26 @@ func TestStarterCatalogContainsStarterEnemyCatalogData(t *testing.T) {
 	if len(starter.NPCLeashProfiles) != 1 || pool.LeashProfileID != starter.NPCLeashProfiles[0].LeashProfileID {
 		t.Fatalf("starter leash refs = %+v pool=%+v, want referenced profile", starter.NPCLeashProfiles, pool)
 	}
+	if len(starter.NPCEventSpawns) != 1 {
+		t.Fatalf("starter event spawns = %+v, want disabled overseer hook", starter.NPCEventSpawns)
+	}
+	eventSpawn := starter.NPCEventSpawns[0]
+	if eventSpawn.EventSpawnID != "starter_disabled_overseer_event" ||
+		eventSpawn.EnemyPoolID != eventPool.EnemyPoolID ||
+		eventSpawn.DropProfileID != eventPool.DropProfileID ||
+		eventSpawn.Enabled ||
+		eventSpawn.StartsAfter != time.Minute ||
+		eventSpawn.MaxAlive != 1 ||
+		eventSpawn.MapPolicy != NPCEventSpawnMapPolicyCurrentMapOnly {
+		t.Fatalf("starter event spawn = %+v eventPool=%+v, want disabled server-only overseer hook", eventSpawn, eventPool)
+	}
 
 	second, ok := catalog.ByPublicKey("1-2")
 	if !ok {
 		t.Fatalf("map 1-2 missing")
 	}
-	if len(second.EnemyPools) != 0 || len(second.SpawnAreas) != 0 {
-		t.Fatalf("map 1-2 enemy content = pools %+v areas %+v, want none in Phase08A", second.EnemyPools, second.SpawnAreas)
+	if len(second.EnemyPools) != 0 || len(second.SpawnAreas) != 0 || len(second.NPCEventSpawns) != 0 {
+		t.Fatalf("map 1-2 enemy content = pools %+v areas %+v events %+v, want none in Phase08", second.EnemyPools, second.SpawnAreas, second.NPCEventSpawns)
 	}
 }
 
@@ -224,6 +245,70 @@ func TestEnemyCatalogValidationRejectsInvalidDefinitions(t *testing.T) {
 				return definitions
 			},
 			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "duplicate event spawn id",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCEventSpawns = append(definitions[0].NPCEventSpawns, definitions[0].NPCEventSpawns[0])
+				return definitions
+			},
+			want: ErrInvalidCatalog,
+		},
+		{
+			name: "event spawn unknown pool ref",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCEventSpawns[0].EnemyPoolID = "missing_event_pool"
+				return definitions
+			},
+			want: ErrInvalidCatalog,
+		},
+		{
+			name: "event spawn pool not event scheduled",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCEventSpawns[0].EnemyPoolID = definitions[0].EnemyPools[0].EnemyPoolID
+				return definitions
+			},
+			want: ErrInvalidCatalog,
+		},
+		{
+			name: "event spawn invalid cap",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCEventSpawns[0].MaxAlive = definitions[0].EnemyPools[1].PoolMaxAlive + 1
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "event spawn invalid schedule",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCEventSpawns[0].StartsAfter = -time.Second
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "event spawn invalid map policy",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCEventSpawns[0].MapPolicy = "all_maps"
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "event spawn unknown drop profile",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCEventSpawns[0].DropProfileID = "missing_event_drop"
+				return definitions
+			},
+			want: ErrInvalidCatalog,
+		},
+		{
+			name: "event spawn drop profile mismatch",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCEventSpawns[0].DropProfileID = definitions[0].NPCDropProfiles[0].DropProfileID
+				return definitions
+			},
+			want: ErrInvalidCatalog,
 		},
 	}
 

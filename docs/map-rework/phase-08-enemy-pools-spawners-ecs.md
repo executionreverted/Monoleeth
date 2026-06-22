@@ -302,9 +302,69 @@ Phase08G coverage was added in:
 - `internal/game/world/worker/enemy_aggro.go`
 - `internal/game/world/worker/enemy_aggro_test.go`
 
+Phase08H picked up the boss/event spawn hooks that Phase08G deferred.
+
 Deferred Phase08 work after Phase08G:
 
-- boss/event spawn hooks
+- metrics/logging for spawn, cap, death, drop, respawn, aggro reset, and
+  cross-map rejection paths
+- debug/demo spawn path quarantine remains to be audited outside the event hook
+  slice
+
+## Phase08H Landed Boss/Event Spawn Hooks Slice
+
+The landed Phase08H slice adds server-owned disabled-by-default boss/event spawn
+catalog hooks without changing starter gameplay. `MapDefinition` now carries
+server-only `NPCEventSpawnDefinition` entries and `SpawnModeEventScheduled`
+enemy pools. These fields remain excluded from `ClientMapProjection`; browser
+map JSON still does not receive event ids, pool ids, stat template ids, drop
+profile ids, schedules, caps, spawn candidates, loot table ids, rare caps, or
+roll data.
+
+The starter map now includes a disabled overseer event hook and event-scheduled
+pool as validation content. Because event-scheduled pools are skipped by
+initial fill, periodic fill, and automatic kill-delay respawn, the default
+starter runtime still spawns only the existing training drone unless a
+server-owned trigger explicitly accepts an enabled, due event hook.
+
+Map workers now accept `TriggerEnemyEventSpawnCommand`. The command is an
+in-process server hook, not a client operation. It validates worker map
+ownership, event hook existence, hook enablement, schedule delay, event cap,
+pool cap, map cap, event-owned pool mode, spawn area validity, safe-zone
+exclusion, visible portal exclusion, stat template presence/compatibility,
+event map policy, and event drop profile compatibility before inserting a
+normal spawner-backed NPC row and world NPC entity. Spawned rows carry
+server-only event metadata plus the normal pool/stat/drop/aggro/leash metadata,
+so existing actor projection, aggro/leash, death accounting, and Phase08F loot
+selection continue to work without a combat or loot rewrite. Trigger no-ops for
+disabled, not-yet-due, capped, or forbidden-candidate hooks do not insert stale
+rows or entities.
+
+The Phase08H review retry hardened event hooks so newly introduced event ids
+initialize and respect their `StartsAfter` due cache, event entity ids use an
+opaque deterministic hash suffix instead of reversible map/pool/event text, and
+event triggers enforce the strictest enabled map cap across mixed normal/event
+pools before spawning. The final rereview fix also keeps raw worker
+`MapDefinition` inputs fail-closed unless `ZoneID` equals
+`InternalMapID.ZoneID()` and that zone is the worker-owned current map, so
+event triggers and shared enemy pool commands cannot seed rows for a different
+internal map.
+
+Phase08H coverage was added or updated in:
+
+- `internal/game/world/maps/enemy_catalog.go`
+- `internal/game/world/maps/enemy_catalog_test.go`
+- `internal/game/world/maps/catalog_test.go`
+- `internal/game/world/worker/enemy_spawner.go`
+- `internal/game/world/worker/enemy_event_spawner_test.go`
+- `internal/game/world/worker/enemy_spawner_test.go`
+
+Deferred Phase08 work after Phase08H:
+
+- metrics/logging for spawn attempts, cap skips, kill/drop selection, respawn
+  delays, aggro resets, and cross-map rejection counts without logging hidden
+  roll data
+- debug/demo spawn command quarantine from default real gameplay remains open
 
 ### NPC State Ownership
 
@@ -369,6 +429,14 @@ Add catalog data:
   - `rank_band`
   - weighted loot table reference
   - rare drop caps and event/boss overrides
+- `NPCEventSpawnDefinition`
+  - `event_spawn_id`
+  - `enemy_pool_id`
+  - `drop_profile_id`
+  - `enabled`
+  - `starts_after`
+  - `max_alive`
+  - `map_policy`
 - `NPCAggroProfile`
   - aggro radius
   - assist radius
@@ -450,7 +518,9 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
     respawn delays, aggro resets, and cross-map rejection counts without logging
     hidden roll data.
 11. Add boss/event spawn hooks as disabled-by-default catalog entries with
-    explicit event schedule, cap, map policy, and reward/drop profile.
+    explicit event schedule, cap, map policy, and reward/drop profile. Landed
+    in Phase08H for server-only catalog hooks and explicit worker trigger
+    spawning.
 12. Remove or quarantine debug/demo spawn paths from default real gameplay.
     Any retained helper must require explicit dev/test mode.
 13. Update phase docs and module docs only after behavior is implemented and
@@ -492,7 +562,9 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
   leash-break, dead-row, and respawn clearing coverage; portal transfer remains
   covered by same-worker ownership rather than cross-map traversal.
 - Boss/event spawns are disabled unless a catalog event enables them and tests
-  cover their caps/reward profile.
+  cover their caps/reward profile. Phase08H landed disabled starter event
+  catalog content, event-owned pool validation, due/enabled trigger behavior,
+  event/pool/map caps, and forbidden candidate no-op coverage.
 - Debug/demo spawn commands are unavailable in default authenticated real mode.
 
 ## Migration/Doc Updates
@@ -529,8 +601,10 @@ criterion for spawner-backed NPCs. Phase08D satisfies narrow death accounting
 for spawner rows and alive counters. Phase08E satisfies worker-local
 kill-delay respawn and periodic fill tick behavior. Phase08F satisfies the
 global loot table replacement for default NPC kill drops. Phase08G satisfies
-worker-local aggro/leash movement simulation. Boss/event hooks remain open, so
-the full Phase 08 acceptance criteria are not complete.
+worker-local aggro/leash movement simulation. Phase08H satisfies the
+disabled-by-default boss/event hook slice with explicit server-owned trigger
+spawning. Metrics/logging and debug/demo quarantine remain open, so the full
+Phase 08 acceptance criteria are not complete.
 
 - No default gameplay path uses `trainingNPCActor` or one global
   `training_drone_salvage` table as the source of truth.

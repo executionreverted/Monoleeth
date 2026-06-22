@@ -62,13 +62,16 @@ func TestStarterCatalogReturnsBoundedStarterSpawnAndProjection(t *testing.T) {
 		"gameplay_seed",
 		"scan_seed",
 		"enemy_pool",
+		"event_spawn",
 		"spawn_area",
 		"stat_template",
 		"drop_profile",
 		"aggro",
 		"leash",
 		"training_drone",
+		"training_overseer",
 		"training_drone_salvage",
+		"training_overseer_salvage",
 	} {
 		if strings.Contains(raw, forbidden) {
 			t.Fatalf("client projection leaked %q in %s", forbidden, raw)
