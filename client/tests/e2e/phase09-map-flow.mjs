@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import net from 'node:net';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
@@ -10,6 +10,8 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const clientDir = resolve(scriptDir, '../..');
 const repoRoot = resolve(clientDir, '..');
 const screenshotDir = resolve(repoRoot, 'output/screenshots/ui-implementation/09');
+const tesseractBin = process.env.PHASE09_TESSERACT_BIN || '/opt/homebrew/bin/tesseract';
+const screenshotOCRTimeoutMS = 30000;
 const starterNpcApproachTarget = { x: 800, y: 400 };
 const destinationNpcApproachTarget = { x: 1800, y: 5400 };
 const gateTarget = { x: 9800, y: 5000 };
@@ -55,7 +57,7 @@ async function main() {
     const origin = await waitSmoke(page, originReady, 'authenticated Origin map state', 30000);
     assertOrigin(origin);
     await assertNoLeak(page, origin, 'origin');
-    await captureViewportScreenshots(page, 'map-origin');
+    const screenshotPaths = await captureViewportScreenshots(page, 'map-origin');
 
     await openCommandSocket(page);
     const originAfterLoop = await completeFightLootScanLoop(page);
@@ -68,7 +70,7 @@ async function main() {
     assertOuter(outer);
     assertNoOriginMapLeakage(originAfterLoop, outer);
     await assertNoLeak(page, outer, 'outer-ring');
-    await captureViewportScreenshots(page, 'map-outer-ring');
+    screenshotPaths.push(...(await captureViewportScreenshots(page, 'map-outer-ring')));
     const outerAfterLoop = await completeFightLootLoop(page, {
       mapLabel: 'Outer Ring',
       approachTarget: destinationNpcApproachTarget,
@@ -76,12 +78,11 @@ async function main() {
     });
     await assertNoLeak(page, outerAfterLoop, 'outer-ring-fight-loot');
     await assertWebSocketCanary(page, 'outer-ring-fight-loot');
+    await assertScreenshotOCRCanary(screenshotPaths);
     await page.evaluate(() => window.__phase09CommandSocket?.close());
 
     console.log(
-      `phase09-map smoke ok origin=${origin.currentMap.public_map_key} destination=${outer.currentMap.public_map_key} screenshots=${screenshotViewports
-        .flatMap(({ name }) => [`map-origin-${name}.png`, `map-outer-ring-${name}.png`])
-        .map((name) => resolve(screenshotDir, name))
+      `phase09-map smoke ok origin=${origin.currentMap.public_map_key} destination=${outer.currentMap.public_map_key} screenshots=${screenshotPaths
         .join(',')}`,
     );
   } finally {
@@ -547,13 +548,67 @@ const allowedWebSocketPublicMapKeys = new Set(['from_public_map_key', 'to_public
 const webSocketLeakTokens = leakTokens.filter((token) => !allowedWebSocketPublicMapKeys.has(token));
 
 async function captureViewportScreenshots(page, prefix) {
+  const paths = [];
   for (const { name, viewport } of screenshotViewports) {
     await page.setViewportSize(viewport);
     await page.waitForTimeout(250);
-    await page.screenshot({ path: resolve(screenshotDir, `${prefix}-${name}.png`), fullPage: true });
+    const screenshotPath = resolve(screenshotDir, `${prefix}-${name}.png`);
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    paths.push(screenshotPath);
   }
   await page.setViewportSize(desktopViewport);
   await page.waitForTimeout(150);
+  return paths;
+}
+
+async function assertScreenshotOCRCanary(paths) {
+  assert(paths.length > 0, 'screenshot OCR canary has no screenshots to scan');
+  for (const screenshotPath of paths) {
+    const ocrText = await runScreenshotOCR(screenshotPath);
+    assert(ocrText.trim().length > 0, `${basename(screenshotPath)} OCR produced no text`);
+    const token = screenshotLeakToken(ocrText);
+    assert(!token, `${basename(screenshotPath)} OCR leaked token ${token}`);
+  }
+}
+
+async function runScreenshotOCR(screenshotPath) {
+  const proc = spawn(tesseractBin, [screenshotPath, 'stdout'], {
+    cwd: repoRoot,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const stdout = [];
+  let missingTesseract = false;
+  const exit = new Promise((resolve) => {
+    proc.on('error', (error) => {
+      missingTesseract = error?.code === 'ENOENT';
+      resolve({ code: -1, signal: null });
+    });
+    proc.on('exit', (code, signal) => resolve({ code, signal }));
+  });
+  proc.stdout.on('data', (chunk) => stdout.push(chunk));
+  proc.stderr.resume();
+
+  const timed = await Promise.race([
+    exit,
+    delay(screenshotOCRTimeoutMS).then(() => ({ timedOut: true })),
+  ]);
+  if (timed.timedOut) {
+    signal(proc, 'SIGKILL');
+    await waitExit(proc, 2000);
+    throw new Error(`${basename(screenshotPath)} OCR timed out after ${screenshotOCRTimeoutMS}ms`);
+  }
+  if (missingTesseract) {
+    throw new Error(`Tesseract OCR is required for Phase09 screenshot leak canary but was not found at ${tesseractBin}`);
+  }
+  if (timed.code !== 0) {
+    throw new Error(`${basename(screenshotPath)} OCR failed with exit code ${timed.code ?? 'null'}${timed.signal ? ` signal ${timed.signal}` : ''}`);
+  }
+  return Buffer.concat(stdout).toString('utf8');
+}
+
+function screenshotLeakToken(text) {
+  const haystack = text.toLowerCase();
+  return leakTokens.find((token) => haystack.includes(token.toLowerCase())) ?? null;
 }
 
 function findHostileNPC(state) {
