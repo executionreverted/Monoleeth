@@ -50,6 +50,14 @@ Current slice completed:
   `from_public_map_key` and `to_public_map_key`. The browser reducer parses
   route public map keys. Route mutation handlers, building mutation handlers,
   durable DB/outbox, and route settlement idempotency remain open.
+- Phase07C backend gateway follow-up: authenticated `route.create` now exists
+  as the first route mutation slice. It accepts only planet-to-planet route
+  intent fields, derives owner, route id, endpoint map ids, energy, and risk
+  server-side, requires both endpoint planets to be owned by the authenticated
+  player for this MVP, and reconciles through safe route response plus
+  owner-scoped `route.updated`, `route.snapshot`, and `route.list` events.
+  Browser route create proof, route update/enable/disable/settle handlers,
+  durable DB/outbox, and route settlement idempotency remain open.
 
 ## Source Specs
 
@@ -173,7 +181,8 @@ Mockup areas covered:
 - [ ] Add ledger-backed transaction flows for claim/build/upgrade/storage
       mutations.
 - [ ] Add offline settlement reconcile path that uses server-owned windows.
-- [ ] Add route create/update/enable/disable/settle handlers.
+- [x] Add route.create handler for owned planet-to-planet MVP.
+- [ ] Add route update/enable/disable/settle handlers.
 - [x] Add route list/snapshot handlers for reconnect.
 - [x] Add client reducer state for signals, planets, production, routes.
 - [x] Add right rail known planet list.
@@ -190,7 +199,7 @@ Mockup areas covered:
 - [ ] Intel sharing cannot reveal a coordinate the sender cannot safely expose.
 - [ ] Coordinate item use consumes an owned item once.
 - [x] Planet panel open rechecks visibility/ownership.
-- [ ] Route creation rechecks both endpoints and ownership/access.
+- [x] Route creation rechecks both endpoints and ownership/access.
 - [ ] Offline settlement duration is server-calculated.
 - [ ] Route settlement windows are server-calculated and idempotent.
 - [ ] Building and route mutations use inventory/wallet/storage ledgers.
@@ -212,6 +221,9 @@ Mockup areas covered:
 - [ ] Production settlement is idempotent.
 - [ ] Route settlement is idempotent and respects storage capacity.
 - [x] Route list/snapshot restores route read model after reconnect.
+- [x] Server route.create creates an owned planet route with server-derived
+      owner, route id, map ids, safe response/events, and route list/snapshot
+      reconciliation.
 - [x] Browser scan creates safe discovered intel.
 - [x] Browser selected planet panel uses server detail.
 - [x] Browser claim reflects server state.

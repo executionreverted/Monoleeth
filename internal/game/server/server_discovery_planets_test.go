@@ -611,6 +611,175 @@ func TestProductionAndStorageSummariesAreFilteredToActiveMap(t *testing.T) {
 	}
 }
 
+func TestRouteCreateCreatesOwnedPlanetRouteThroughGateway(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "route-create-owner@example.com", "Route Create Owner")
+	other := createResolvedRuntimeSession(t, gameServer, "route-create-other@example.com", "Route Create Other")
+	sourcePlanetID := foundation.PlanetID("planet-route-create-source")
+	destinationPlanetID := foundation.PlanetID("planet-route-create-destination")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-route-create-source")
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, destinationPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-route-create-destination")
+
+	requestID := foundation.RequestID("request-route-create-owned")
+	wantRouteID := foundation.RouteID("route-" + requestID.String())
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"`+requestID.String()+`","op":"route.create","payload":{"source_planet_id":"`+sourcePlanetID.String()+`","destination_planet_id":"`+destinationPlanetID.String()+`","resource_item_id":"refined_alloy","amount_per_hour":40},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("route.create response error = %+v, want success", response.Error)
+	}
+	assertPayloadOmitsInternalMapIdentity(t, "route.create response", response.Response.Payload)
+	var payload struct {
+		Route  routePayload     `json:"route"`
+		Routes routeListPayload `json:"routes"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode route.create payload: %v", err)
+	}
+	assertRoutePayloadMapKeys(t, payload.Route, wantRouteID, "1-1", "1-2")
+	if payload.Route.SourcePlanetID != sourcePlanetID.String() ||
+		payload.Route.Destination.Type != production.RouteDestinationTypePlanet.String() ||
+		payload.Route.Destination.ID != destinationPlanetID.String() ||
+		payload.Route.ResourceItemID != "refined_alloy" ||
+		payload.Route.AmountPerHour != 40 ||
+		!payload.Route.Enabled {
+		t.Fatalf("route.create route payload = %+v, want safe created route", payload.Route)
+	}
+	if len(payload.Routes.Routes) != 1 {
+		t.Fatalf("route.create route list = %+v, want one route", payload.Routes.Routes)
+	}
+	assertRoutePayloadMapKeys(t, payload.Routes.Routes[0], wantRouteID, "1-1", "1-2")
+
+	stored, ok, err := gameServer.runtime.Production.AutomationRoute(wantRouteID)
+	if err != nil || !ok {
+		t.Fatalf("AutomationRoute(%q) ok=%v err=%v, want stored route", wantRouteID, ok, err)
+	}
+	if stored.OwnerPlayerID != owner.PlayerID {
+		t.Fatalf("stored route owner = %q, want server-resolved %q", stored.OwnerPlayerID, owner.PlayerID)
+	}
+	if stored.SourceMapID != "map_1_1" || stored.DestinationMapID != "map_1_2" {
+		t.Fatalf("stored route map ids = %q/%q, want server-derived map_1_1/map_1_2", stored.SourceMapID, stored.DestinationMapID)
+	}
+
+	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteCreate, owner.PlayerID)
+	if err != nil {
+		t.Fatalf("post route.create events: %v", err)
+	}
+	if _, leaked := eventsBySession[other.SessionID]; leaked {
+		t.Fatalf("route.create events leaked to non-owner session: %+v", eventsBySession[other.SessionID])
+	}
+	ownerEvents := eventsBySession[owner.SessionID]
+	requireEventTypeForTest(t, ownerEvents, realtime.EventRouteUpdated)
+	requireEventTypeForTest(t, ownerEvents, realtime.EventRouteList)
+	requireEventTypeForTest(t, ownerEvents, realtime.EventRouteSnapshot)
+	for _, event := range ownerEvents {
+		assertPayloadOmitsInternalMapIdentity(t, string(event.Type)+" event", event.Payload)
+	}
+	assertRouteCreateEventPayloads(t, ownerEvents, wantRouteID, "1-1", "1-2")
+
+	assertRouteListAndSnapshotMapKeysWithRequestSuffix(t, gameServer, owner, wantRouteID, "1-1", "1-2", "create-owned")
+}
+
+func assertRouteCreateEventPayloads(t *testing.T, events []realtime.EventEnvelope, routeID foundation.RouteID, fromPublicMapKey string, toPublicMapKey string) {
+	t.Helper()
+	for _, event := range events {
+		switch event.Type {
+		case realtime.EventRouteUpdated, realtime.EventRouteSnapshot:
+			var payload struct {
+				Route routePayload `json:"route"`
+			}
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatalf("decode %s event payload: %v", event.Type, err)
+			}
+			assertRoutePayloadMapKeys(t, payload.Route, routeID, fromPublicMapKey, toPublicMapKey)
+		case realtime.EventRouteList:
+			var payload struct {
+				Routes routeListPayload `json:"routes"`
+			}
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatalf("decode route.list event payload: %v", err)
+			}
+			if len(payload.Routes.Routes) != 1 {
+				t.Fatalf("route.list event routes = %+v, want one route", payload.Routes.Routes)
+			}
+			assertRoutePayloadMapKeys(t, payload.Routes.Routes[0], routeID, fromPublicMapKey, toPublicMapKey)
+		}
+	}
+}
+
+func TestRouteCreateRejectsSpoofedServerOwnedFieldsBeforeMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "route-create-spoof@example.com", "Route Create Spoof")
+	sourcePlanetID := foundation.PlanetID("planet-route-create-spoof-source")
+	destinationPlanetID := foundation.PlanetID("planet-route-create-spoof-destination")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-route-create-spoof-source")
+	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, destinationPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-route-create-spoof-destination")
+
+	tests := []struct {
+		name  string
+		field string
+	}{
+		{name: "owner player", field: `"owner_player_id":"spoofed-player"`},
+		{name: "source map", field: `"source_map_id":"map_1_1"`},
+		{name: "destination map", field: `"destination_map_id":"map_1_2"`},
+		{name: "route id", field: `"route_id":"route-spoofed"`},
+		{name: "energy cost", field: `"energy_cost_per_hour":1`},
+		{name: "risk", field: `"risk":{"loss_chance":0.99}`},
+		{name: "loss chance", field: `"loss_chance":0.99`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := gameServer.runtime.Gateway.HandleRequest(
+				realtime.SessionID(resolved.SessionID.String()),
+				[]byte(`{"request_id":"request-route-create-spoof-`+strings.ReplaceAll(tt.name, " ", "-")+`","op":"route.create","payload":{"source_planet_id":"`+sourcePlanetID.String()+`","destination_planet_id":"`+destinationPlanetID.String()+`","resource_item_id":"refined_alloy","amount_per_hour":40,`+tt.field+`},"client_seq":1,"v":1}`),
+			)
+			if !response.HasError || response.Error.Error.Code != foundation.CodeInvalidPayload {
+				t.Fatalf("route.create spoof response = %+v, want invalid payload", response)
+			}
+			if routes := gameServer.runtime.Production.AutomationRoutes(); len(routes) != 0 {
+				t.Fatalf("routes after spoofed %s = %+v, want no mutation", tt.name, routes)
+			}
+			gameServer.runtime.mu.Lock()
+			queuedEvents := len(gameServer.runtime.queuedEvents[resolved.SessionID])
+			gameServer.runtime.mu.Unlock()
+			if queuedEvents != 0 {
+				t.Fatalf("spoofed %s queued events = %d, want none", tt.name, queuedEvents)
+			}
+		})
+	}
+}
+
+func TestRouteCreateRejectsXCoreResourceBeforeMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "route-create-xcore@example.com", "Route Create XCore")
+	sourcePlanetID := foundation.PlanetID("planet-route-create-xcore-source")
+	destinationPlanetID := foundation.PlanetID("planet-route-create-xcore-destination")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-route-create-xcore-source")
+	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, destinationPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-route-create-xcore-destination")
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-route-create-xcore","op":"route.create","payload":{"source_planet_id":"`+sourcePlanetID.String()+`","destination_planet_id":"`+destinationPlanetID.String()+`","resource_item_id":"x_core","amount_per_hour":1},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeForbidden {
+		t.Fatalf("route.create x_core response = %+v, want forbidden", response)
+	}
+	if routes := gameServer.runtime.Production.AutomationRoutes(); len(routes) != 0 {
+		t.Fatalf("routes after x_core route.create = %+v, want no mutation", routes)
+	}
+	gameServer.runtime.mu.Lock()
+	queuedEvents := len(gameServer.runtime.queuedEvents[resolved.SessionID])
+	gameServer.runtime.mu.Unlock()
+	if queuedEvents != 0 {
+		t.Fatalf("x_core route.create queued events = %d, want none", queuedEvents)
+	}
+}
+
 func TestRouteMutationOperationsRemainUnregisteredGatewayQuarantine(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "route-quarantine@example.com", "Route Quarantine")
@@ -632,19 +801,6 @@ func TestRouteMutationOperationsRemainUnregisteredGatewayQuarantine(t *testing.T
 		op      string
 		payload string
 	}{
-		{
-			name: "create",
-			op:   "route.create",
-			payload: `{
-				"owner_player_id":"spoofed-player",
-				"source_planet_id":"planet-route-quarantine-map-1-1",
-				"source_map_id":"map_1_1",
-				"destination_planet_id":"planet-route-quarantine-map-1-2",
-				"destination_map_id":"map_1_2",
-				"amount_per_hour":999999,
-				"resource_item_id":"refined_alloy"
-			}`,
-		},
 		{
 			name: "update",
 			op:   "route.update",

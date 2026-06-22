@@ -120,19 +120,19 @@ for phase status; this file is a compact pending-work index.
   `planet.storage_updated` /
   `planet.building_updated` events. Source: Phase 10 audit, Phase07A, and
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Add authenticated automation route mutation contracts for `route.create`,
-  `route.update`, `route.enable`, `route.disable`, and `route.settle`. Server
-  handlers must validate endpoint visibility/access, ownership, route capacity,
-  energy/upkeep policy, duplicate settlement windows, and storage capacity, then
-  reconcile the browser through `route.list`, `route.snapshot`, and
-  `route.updated`/`route.settled` events. Phase07B map-tagged the route domain
-  rows and read payloads for `route.list`/`route.snapshot`; Phase10 now has a
-  server-only gateway quarantine proof that authenticated
-  `route.create/update/enable/disable/settle` requests with client-authored
-  owner/map/amount fields return invalid payload without route mutation or
-  queued events. Mutation handlers/contracts remain open, so the Phase10 map
-  rollout audit still treats this as the authenticated route mutation gateway
-  blocker. Source: Phase 10 audit.
+- [ ] Finish authenticated automation route mutation contracts for
+  `route.update`, `route.enable`, `route.disable`, and `route.settle`, plus the
+  browser route create/update proof. Server handlers must validate endpoint
+  visibility/access, ownership, route capacity, energy/upkeep policy, duplicate
+  settlement windows, and storage capacity, then reconcile the browser through
+  `route.list`, `route.snapshot`, and `route.updated`/`route.settled` events.
+  Phase07B map-tagged the route domain rows and read payloads for
+  `route.list`/`route.snapshot`; Phase07C landed authenticated `route.create`
+  as an owned planet-to-planet gateway slice that rejects client-authored
+  owner/map/energy/risk fields, derives owner/route id/map ids server-side, and
+  queues owner-scoped safe route events. Update/enable/disable/settle mutation
+  handlers and browser route creation proof remain open. Source: Phase 10
+  audit and Phase07C.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server

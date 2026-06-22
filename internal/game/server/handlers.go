@@ -171,6 +171,7 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationDiscoveryClaimPlanet: runtime.handleClaimPlanet,
 		realtime.OperationProductionSummary:    runtime.handleProductionSummary,
 		realtime.OperationPlanetStorage:        runtime.handlePlanetStorage,
+		realtime.OperationRouteCreate:          runtime.handleRouteCreate,
 		realtime.OperationRouteList:            runtime.handleRouteList,
 		realtime.OperationRouteSnapshot:        runtime.handleRouteSnapshot,
 		realtime.OperationWalletSnapshot:       runtime.handleWalletSnapshot,

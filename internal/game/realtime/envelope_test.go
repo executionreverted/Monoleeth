@@ -233,7 +233,6 @@ func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testin
 		Operation("progression.respec_skills"),
 		Operation("planet.building_build"),
 		Operation("planet.building_upgrade"),
-		Operation("route.create"),
 		Operation("route.update"),
 		Operation("route.enable"),
 		Operation("route.disable"),

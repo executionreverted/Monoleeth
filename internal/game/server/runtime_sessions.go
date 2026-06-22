@@ -216,6 +216,7 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 		realtime.OperationStealthToggle,
 		realtime.OperationScanPulse,
 		realtime.OperationDiscoveryClaimPlanet,
+		realtime.OperationRouteCreate,
 		realtime.OperationMarketCreateListing,
 		realtime.OperationMarketBuy,
 		realtime.OperationMarketCancel,
@@ -335,6 +336,7 @@ func mapScopedEventType(eventType realtime.ClientEventType) bool {
 		realtime.EventPlanetClaimed,
 		realtime.EventProductionSummary,
 		realtime.EventPlanetStorage,
+		realtime.EventRouteUpdated,
 		realtime.EventRouteList,
 		realtime.EventRouteSnapshot:
 		return true

@@ -44,6 +44,7 @@ const (
 	OperationDiscoveryClaimPlanet Operation = "discovery.claim_planet"
 	OperationProductionSummary    Operation = "planet.production_summary"
 	OperationPlanetStorage        Operation = "planet.storage_summary"
+	OperationRouteCreate          Operation = "route.create"
 	OperationRouteList            Operation = "route.list"
 	OperationRouteSnapshot        Operation = "route.snapshot"
 	OperationWalletSnapshot       Operation = "wallet.snapshot"
@@ -117,6 +118,7 @@ const (
 	EventPlanetClaimed         ClientEventType = "planet.claimed"
 	EventProductionSummary     ClientEventType = "planet.production_summary"
 	EventPlanetStorage         ClientEventType = "planet.storage_summary"
+	EventRouteUpdated          ClientEventType = "route.updated"
 	EventRouteList             ClientEventType = "route.list"
 	EventRouteSnapshot         ClientEventType = "route.snapshot"
 	EventMarketListingCreated  ClientEventType = "market.listing_created"
@@ -269,6 +271,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationPlanetStorage: {
 		Operation:        OperationPlanetStorage,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationRouteCreate: {
+		Operation:        OperationRouteCreate,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationRouteList: {
