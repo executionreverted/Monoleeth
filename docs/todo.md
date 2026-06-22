@@ -156,11 +156,12 @@ for phase status; this file is a compact pending-work index.
   remains explicit as `e2e:phase09-map` and is not wired into `client`
   `npm run check` to avoid changing routine check cost. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Add Phase10 leak canaries over WebSocket payloads, screenshots,
-  server logs/debug responses, and production bundle text for hidden
+- [ ] Complete Phase10 leak canaries over screenshots, server logs/debug
+  responses, production bundle text, and non-Phase09 WebSocket paths for hidden
   map/scan/spawn/loot internals and fake/default fixture labels. Phase09 now
-  covers DOM/app state, local/session storage, and cookies for its smoke path,
-  but the broader release canary scope remains open. Source:
+  covers DOM/app state, local/session storage, cookies, and inbound/outbound
+  app plus command WebSocket text frames for its real-server smoke path, but the
+  broader release canary scope remains open. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Clean up active legacy semantic contradictions in the scoped
   world/progression/module/UI docs. The bounded-map rework now defines active

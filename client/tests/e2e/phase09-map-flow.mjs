@@ -47,6 +47,7 @@ async function main() {
 
     browser = await chromium.launch();
     const page = await browser.newPage({ viewport: desktopViewport });
+    await installWebSocketCanary(page);
     await page.goto(`${clientOrigin}/?smoke=1`, { waitUntil: 'domcontentloaded' });
 
     const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -59,6 +60,7 @@ async function main() {
     await openCommandSocket(page);
     const originAfterLoop = await completeFightLootScanLoop(page);
     await assertNoLeak(page, originAfterLoop, 'origin-fight-loot-scan');
+    await assertWebSocketCanary(page, 'origin-fight-loot-scan');
     await moveToGate(page);
     ok(await send(page, 'portal.enter', { portal_id: 'east_gate' }), 'portal.enter');
 
@@ -73,6 +75,7 @@ async function main() {
       expectedMapKey: '1-2',
     });
     await assertNoLeak(page, outerAfterLoop, 'outer-ring-fight-loot');
+    await assertWebSocketCanary(page, 'outer-ring-fight-loot');
     await page.evaluate(() => window.__phase09CommandSocket?.close());
 
     console.log(
@@ -86,6 +89,72 @@ async function main() {
     if (viteServer) await stop(viteServer);
     await stop(goServer);
   }
+}
+
+async function installWebSocketCanary(page) {
+  await page.addInitScript(() => {
+    if (window.__phase09WebSocketCanaryInstalled) return;
+    window.__phase09WebSocketCanaryInstalled = true;
+
+    const NativeWebSocket = window.WebSocket;
+    const maxTextLength = 1_000_000;
+    const frames = [];
+    const state = { nextSocketID: 1, nextFrameIndex: 0 };
+    window.__phase09WebSocketFrames = frames;
+
+    function safePath(url) {
+      try {
+        return new URL(String(url), window.location.href).pathname;
+      } catch {
+        return '';
+      }
+    }
+
+    function captureText(data) {
+      if (typeof data === 'string') {
+        return {
+          kind: 'text',
+          text: data.length > maxTextLength ? data.slice(0, maxTextLength) : data,
+          text_length: data.length,
+          truncated: data.length > maxTextLength,
+        };
+      }
+      if (data instanceof ArrayBuffer) {
+        return { kind: 'arraybuffer', text: '', text_length: 0, byte_length: data.byteLength, truncated: false };
+      }
+      if (ArrayBuffer.isView(data)) {
+        return { kind: 'arraybuffer-view', text: '', text_length: 0, byte_length: data.byteLength, truncated: false };
+      }
+      return { kind: Object.prototype.toString.call(data), text: '', text_length: 0, byte_length: 0, truncated: false };
+    }
+
+    function capture(direction, socketID, url, data) {
+      const frameText = captureText(data);
+      frames.push({
+        direction,
+        index: state.nextFrameIndex++,
+        socket_id: socketID,
+        path: safePath(url),
+        ...frameText,
+      });
+    }
+
+    class Phase09WebSocket extends NativeWebSocket {
+      constructor(...args) {
+        super(...args);
+        const socketID = state.nextSocketID++;
+        this.__phase09SocketID = socketID;
+        this.addEventListener('message', (event) => capture('in', socketID, this.url || args[0], event.data));
+      }
+
+      send(data) {
+        capture('out', this.__phase09SocketID ?? 0, this.url, data);
+        return super.send(data);
+      }
+    }
+
+    window.WebSocket = Phase09WebSocket;
+  });
 }
 
 async function register(page, email, password, callsign) {
@@ -417,6 +486,49 @@ async function assertNoLeak(page, state, label) {
   assert(!browserLeak, `${label} browser storage leaked ${browserLeak}`);
 }
 
+async function assertWebSocketCanary(page, label) {
+  const frames = await page.evaluate(() =>
+    (window.__phase09WebSocketFrames ?? []).map((frame) => ({
+      direction: frame.direction,
+      index: frame.index,
+      socket_id: frame.socket_id,
+      path: frame.path,
+      kind: frame.kind,
+      text: frame.text,
+      text_length: frame.text_length,
+      truncated: frame.truncated,
+    })),
+  );
+  const inbound = frames.filter((frame) => frame.direction === 'in').length;
+  const outbound = frames.filter((frame) => frame.direction === 'out').length;
+  const sockets = new Set(frames.map((frame) => frame.socket_id).filter(Boolean));
+  assert(inbound > 0, `${label} WebSocket canary captured no inbound frames`);
+  assert(outbound > 0, `${label} WebSocket canary captured no outbound frames`);
+  assert(sockets.size >= 2, `${label} WebSocket canary captured fewer than two sockets`);
+  for (const frame of frames) assertNoWebSocketFrameLeak(frame);
+}
+
+function assertNoWebSocketFrameLeak(frame) {
+  const surface = `websocket.${frame.direction}[${frame.index}]`;
+  assert(frame.truncated !== true, `${surface} text exceeded canary scan limit`);
+  if (!frame.text) return;
+  for (const token of webSocketLeakTokens) {
+    assert(!frame.text.includes(token), `${surface} leaked token ${token}`);
+  }
+  const parsed = parseFrameJSON(frame.text);
+  if (parsed === null) return;
+  const key = forbiddenKey(parsed, [], webSocketLeakTokens);
+  assert(!key, `${surface} leaked forbidden key ${key}`);
+}
+
+function parseFrameJSON(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 const leakTokens = [
   'map_1_1', 'map_1_2', 'internal_map_id', 'destination_map_id', 'destination_spawn_id', 'source_map_id',
   'source_spawn_id', 'spawn_id', 'worker_id', 'map_worker_id', 'destination_worker', 'origin_worker',
@@ -431,6 +543,8 @@ const leakTokens = [
   'outer_ring_scout_drone_pool', 'outer_ring_scout_drone_area', 'outer_ring_scout_drone_salvage',
   'demo_npc', 'fixture_npc', 'mock_npc', 'fake_npc', 'mock_wallet', 'mock_cargo',
 ];
+const allowedWebSocketPublicMapKeys = new Set(['from_public_map_key', 'to_public_map_key']);
+const webSocketLeakTokens = leakTokens.filter((token) => !allowedWebSocketPublicMapKeys.has(token));
 
 async function captureViewportScreenshots(page, prefix) {
   for (const { name, viewport } of screenshotViewports) {
@@ -555,19 +669,19 @@ async function browserStorageLeak(page, tokens) {
   return null;
 }
 
-function forbiddenKey(value, path = []) {
+function forbiddenKey(value, path = [], forbiddenTokens = leakTokens) {
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i += 1) {
-      const found = forbiddenKey(value[i], [...path, String(i)]);
+      const found = forbiddenKey(value[i], [...path, String(i)], forbiddenTokens);
       if (found) return found;
     }
     return null;
   }
   if (!value || typeof value !== 'object') return null;
-  const forbidden = new Set(leakTokens);
+  const forbidden = new Set(forbiddenTokens);
   for (const [key, child] of Object.entries(value)) {
     if (forbidden.has(key.toLowerCase())) return [...path, key].join('.');
-    const found = forbiddenKey(child, [...path, key]);
+    const found = forbiddenKey(child, [...path, key], forbiddenTokens);
     if (found) return found;
   }
   return null;
