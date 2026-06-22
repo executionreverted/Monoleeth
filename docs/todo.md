@@ -156,15 +156,18 @@ for phase status; this file is a compact pending-work index.
   remains explicit as `e2e:phase09-map` and is not wired into `client`
   `npm run check` to avoid changing routine check cost. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Complete Phase10 leak canaries over server logs/debug responses, source
-  maps/published bundle artifacts, non-Phase09 WebSocket paths, and screenshot
-  artifacts outside the Phase09 smoke for hidden map/scan/spawn/loot internals
-  and fake/default fixture labels. Phase09 now covers DOM/app state,
-  local/session storage, cookies, inbound/outbound app plus command WebSocket
-  text frames, and Tesseract OCR over its six generated real-server screenshot
-  PNGs, and the default production bundle text scan covers fake/default fixture
-  labels/ids plus server-only content ids, but the broader release canary scope
-  remains open. Source:
+- [ ] Complete remaining Phase10 leak canaries over production logs beyond the
+  Phase09 harness, admin/debug responses outside the normal-session
+  `debug_snapshot`/`debug_spawn_npc` rejection path, source maps/published
+  bundle artifacts, non-Phase09 WebSocket paths, and screenshot artifacts
+  outside the Phase09 smoke for hidden map/scan/spawn/loot internals and
+  fake/default fixture labels. Phase09 now covers DOM/app state, local/session
+  storage, cookies, inbound/outbound app plus command WebSocket text frames,
+  production debug rejection responses for those two ops, captured Go/Vite
+  stdout/stderr lines from its own harness, and Tesseract OCR over its six
+  generated real-server screenshot PNGs, and the default production bundle text
+  scan covers fake/default fixture labels/ids plus server-only content ids, but
+  the broader release canary scope remains open. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Clean up active legacy semantic contradictions in the scoped
   world/progression/module/UI docs. The bounded-map rework now defines active

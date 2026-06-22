@@ -12,6 +12,7 @@ const repoRoot = resolve(clientDir, '..');
 const screenshotDir = resolve(repoRoot, 'output/screenshots/ui-implementation/09');
 const tesseractBin = process.env.PHASE09_TESSERACT_BIN || '/opt/homebrew/bin/tesseract';
 const screenshotOCRTimeoutMS = 30000;
+const maxProcessLogLines = 5000;
 const starterNpcApproachTarget = { x: 800, y: 400 };
 const destinationNpcApproachTarget = { x: 1800, y: 5400 };
 const gateTarget = { x: 9800, y: 5000 };
@@ -60,6 +61,7 @@ async function main() {
     const screenshotPaths = await captureViewportScreenshots(page, 'map-origin');
 
     await openCommandSocket(page);
+    await assertDebugResponseCanary(page);
     const originAfterLoop = await completeFightLootScanLoop(page);
     await assertNoLeak(page, originAfterLoop, 'origin-fight-loot-scan');
     await assertWebSocketCanary(page, 'origin-fight-loot-scan');
@@ -79,6 +81,7 @@ async function main() {
     await assertNoLeak(page, outerAfterLoop, 'outer-ring-fight-loot');
     await assertWebSocketCanary(page, 'outer-ring-fight-loot');
     await assertScreenshotOCRCanary(screenshotPaths);
+    assertProcessLogCanary([goServer, viteServer]);
     await page.evaluate(() => window.__phase09CommandSocket?.close());
 
     console.log(
@@ -421,6 +424,26 @@ async function send(page, op, payload) {
   );
 }
 
+async function assertDebugResponseCanary(page) {
+  const snapshot = await send(page, 'debug_snapshot', {});
+  assertSafeDebugRejection(snapshot, 'debug_snapshot');
+
+  const spawn = await send(page, 'debug_spawn_npc', {
+    entity_id: 'phase09_canary_debug_spawn',
+    position: { x: 10001, y: 0 },
+  });
+  assertSafeDebugRejection(spawn, 'debug_spawn_npc');
+}
+
+const safeDebugErrorCodes = new Set(['ERR_FORBIDDEN', 'ERR_INVALID_PAYLOAD', 'ERR_OUT_OF_RANGE']);
+
+function assertSafeDebugRejection(response, label) {
+  assert(response?.ok === false, `${label} accepted debug operation`);
+  assert(safeDebugErrorCodes.has(response?.error?.code), `${label} returned unsafe debug rejection code`);
+  assert(response?.error?.retryable !== true, `${label} debug rejection was retryable`);
+  assertNoPayloadLeak(response, `${label} debug rejection`);
+}
+
 async function smoke(page) {
   return page.evaluate(() => window.__SPACE_MORPG_SMOKE_STATE__ ?? null);
 }
@@ -546,6 +569,19 @@ const leakTokens = [
 ];
 const allowedWebSocketPublicMapKeys = new Set(['from_public_map_key', 'to_public_map_key']);
 const webSocketLeakTokens = leakTokens.filter((token) => !allowedWebSocketPublicMapKeys.has(token));
+const processLogLeakTokens = leakTokens.filter((token) => !allowedWebSocketPublicMapKeys.has(token));
+
+function assertProcessLogCanary(processes) {
+  for (const proc of processes.filter(Boolean)) {
+    for (const line of proc.logLines ?? []) {
+      for (const token of processLogLeakTokens) {
+        if (line.text.includes(token)) {
+          throw new Error(`${line.process}:${line.tag}[${line.index}] leaked token ${token}`);
+        }
+      }
+    }
+  }
+}
 
 async function captureViewportScreenshots(page, prefix) {
   const paths = [];
@@ -750,9 +786,15 @@ function child(name, command, args, cwd, env) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   proc.output = [];
+  proc.logLines = [];
+  proc.nextLogLineIndex = 0;
   const collect = (chunk, tag) => {
-    for (const line of chunk.toString().split(/\r?\n/).filter(Boolean)) proc.output.push(`[${name}:${tag}] ${line}`);
+    for (const line of chunk.toString().split(/\r?\n/).filter(Boolean)) {
+      proc.output.push(`[${name}:${tag}] ${line}`);
+      proc.logLines.push({ process: name, tag, index: proc.nextLogLineIndex++, text: line });
+    }
     if (proc.output.length > 80) proc.output.splice(0, proc.output.length - 80);
+    if (proc.logLines.length > maxProcessLogLines) proc.logLines.splice(0, proc.logLines.length - maxProcessLogLines);
   };
   proc.stdout.on('data', (chunk) => collect(chunk, 'out'));
   proc.stderr.on('data', (chunk) => collect(chunk, 'err'));
