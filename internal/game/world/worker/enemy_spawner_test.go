@@ -156,6 +156,147 @@ func TestEnemySpawnerMarkKilledDuplicateIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestEnemySpawnerRespawnWaitsForDelayAndReusesDeadRow(t *testing.T) {
+	definition := testEnemyMapDefinition()
+	definition.EnemyPools[0].PoolMaxAlive = 1
+	definition.EnemyPools[0].MapMaxAlive = 1
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	clock := fakeClockForWorker(t, zoneWorker)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+	record := zoneWorker.EnemySpawnSnapshot().Records[0]
+	killedAt := clock.Now()
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MarkEnemyKilledCommand{
+		Definition:  definition,
+		NPCEntityID: record.EntityID,
+		KilledAt:    killedAt,
+	}))
+	clock.Advance(definition.EnemyPools[0].KillRespawnDelay - time.Nanosecond)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	beforeDue, ok := zoneWorker.EnemySpawnRecord(record.EntityID)
+	if !ok {
+		t.Fatalf("EnemySpawnRecord(%q) missing before respawn", record.EntityID)
+	}
+	if beforeDue.Alive || beforeDue.DeadAt.IsZero() || beforeDue.NextRespawnAt.IsZero() {
+		t.Fatalf("record before due = %+v, want still dead with respawn timing", beforeDue)
+	}
+	if _, ok := zoneWorker.Entity(record.EntityID); ok {
+		t.Fatalf("Entity(%q) exists before respawn delay elapsed", record.EntityID)
+	}
+
+	respawnedAt := clock.Advance(time.Nanosecond)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	respawned, ok := zoneWorker.EnemySpawnRecord(record.EntityID)
+	if !ok {
+		t.Fatalf("EnemySpawnRecord(%q) missing after respawn", record.EntityID)
+	}
+	if !respawned.Alive ||
+		!respawned.SpawnedAt.Equal(respawnedAt) ||
+		!respawned.DeadAt.IsZero() ||
+		!respawned.NextRespawnAt.IsZero() ||
+		respawned.EntityID != record.EntityID ||
+		respawned.Position != definition.SpawnAreas[0].Center {
+		t.Fatalf("respawned record = %+v, want same row alive at spawn center with cleared death timing", respawned)
+	}
+	entity, ok := zoneWorker.Entity(record.EntityID)
+	if !ok || entity.Type != world.EntityTypeNPC || entity.Position != respawned.Position {
+		t.Fatalf("respawned entity = %+v ok=%v, want NPC at %+v", entity, ok, respawned.Position)
+	}
+	if speed, ok := zoneWorker.EntitySpeed(record.EntityID); !ok || speed != definition.NPCStatTemplates[0].Speed {
+		t.Fatalf("respawned speed = %v ok=%v, want %v", speed, ok, definition.NPCStatTemplates[0].Speed)
+	}
+	snapshot := zoneWorker.EnemySpawnSnapshot()
+	if len(snapshot.Records) != 1 || snapshot.MapAliveCount != 1 || snapshot.PoolAliveCounts[record.EnemyPoolID] != 1 {
+		t.Fatalf("snapshot after respawn = %+v, want one alive reused row", snapshot)
+	}
+}
+
+func TestEnemySpawnerPeriodicFillReservesPendingRespawnCapacity(t *testing.T) {
+	definition := testEnemyMapDefinition()
+	definition.EnemyPools[0].InitialAlive = 1
+	definition.EnemyPools[0].PoolMaxAlive = 1
+	definition.EnemyPools[0].MapMaxAlive = 1
+	definition.EnemyPools[0].SpawnInterval = time.Second
+	definition.EnemyPools[0].KillRespawnDelay = 5 * time.Second
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	clock := fakeClockForWorker(t, zoneWorker)
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+	record := zoneWorker.EnemySpawnSnapshot().Records[0]
+	killedAt := clock.Now()
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MarkEnemyKilledCommand{
+		Definition:  definition,
+		NPCEntityID: record.EntityID,
+		KilledAt:    killedAt,
+	}))
+
+	clock.Advance(definition.EnemyPools[0].SpawnInterval)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	pending := zoneWorker.EnemySpawnSnapshot()
+	if len(pending.Records) != 1 || pending.MapAliveCount != 0 || pending.PoolAliveCounts[record.EnemyPoolID] != 0 {
+		t.Fatalf("snapshot after periodic interval = %+v, want one pending dead row and no periodic replacement", pending)
+	}
+	if pending.Records[0].EntityID != record.EntityID || pending.Records[0].Alive {
+		t.Fatalf("record after periodic interval = %+v, want original entity still pending respawn", pending.Records[0])
+	}
+	if _, ok := zoneWorker.Entity(record.EntityID); ok {
+		t.Fatalf("Entity(%q) exists before kill respawn delay elapsed", record.EntityID)
+	}
+
+	respawnedAt := clock.Advance(definition.EnemyPools[0].KillRespawnDelay - definition.EnemyPools[0].SpawnInterval)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	respawned := zoneWorker.EnemySpawnSnapshot()
+	if len(respawned.Records) != 1 || respawned.MapAliveCount != 1 || respawned.PoolAliveCounts[record.EnemyPoolID] != 1 {
+		t.Fatalf("snapshot after kill delay = %+v, want same row respawned at cap", respawned)
+	}
+	if respawned.Records[0].EntityID != record.EntityID ||
+		!respawned.Records[0].Alive ||
+		!respawned.Records[0].SpawnedAt.Equal(respawnedAt) ||
+		!respawned.Records[0].DeadAt.IsZero() ||
+		!respawned.Records[0].NextRespawnAt.IsZero() {
+		t.Fatalf("record after kill delay = %+v, want original entity id respawned", respawned.Records[0])
+	}
+	if _, ok := zoneWorker.Entity(record.EntityID); !ok {
+		t.Fatalf("Entity(%q) missing after kill respawn delay elapsed", record.EntityID)
+	}
+}
+
+func TestEnemySpawnerDuplicateDeathThenRespawnDoesNotDuplicateOrDriftCaps(t *testing.T) {
+	definition := testEnemyMapDefinition()
+	definition.EnemyPools[0].PoolMaxAlive = 1
+	definition.EnemyPools[0].MapMaxAlive = 1
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	clock := fakeClockForWorker(t, zoneWorker)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+	record := zoneWorker.EnemySpawnSnapshot().Records[0]
+	killedAt := clock.Now()
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MarkEnemyKilledCommand{
+		Definition:  definition,
+		NPCEntityID: record.EntityID,
+		KilledAt:    killedAt,
+	}))
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MarkEnemyKilledCommand{
+		Definition:  definition,
+		NPCEntityID: record.EntityID,
+		KilledAt:    killedAt.Add(time.Second),
+	}))
+	clock.Advance(definition.EnemyPools[0].KillRespawnDelay)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+
+	snapshot := zoneWorker.EnemySpawnSnapshot()
+	if len(snapshot.Records) != 1 || snapshot.MapAliveCount != 1 || snapshot.PoolAliveCounts[record.EnemyPoolID] != 1 {
+		t.Fatalf("snapshot after duplicate death respawn = %+v, want exactly one alive row", snapshot)
+	}
+	if len(zoneWorker.Snapshot().Entities) != 1 || !hasWorkerSnapshotEntityID(zoneWorker.Snapshot(), record.EntityID) {
+		t.Fatalf("worker entities after duplicate death respawn = %+v, want only %q", zoneWorker.Snapshot().Entities, record.EntityID)
+	}
+	respawned, ok := zoneWorker.EnemySpawnRecord(record.EntityID)
+	if !ok || !respawned.Alive || !respawned.DeadAt.IsZero() || !respawned.NextRespawnAt.IsZero() {
+		t.Fatalf("record after duplicate death respawn = %+v ok=%v, want alive with cleared death timing", respawned, ok)
+	}
+}
+
 func TestEnemySpawnerMarkKilledUnknownOrNonSpawnerEntityReturnsUnknown(t *testing.T) {
 	definition := testEnemyMapDefinition()
 
@@ -189,6 +330,226 @@ func TestEnemySpawnerMarkKilledUnknownOrNonSpawnerEntityReturnsUnknown(t *testin
 			t.Fatal("non-spawner entity was removed despite ErrUnknownEntity")
 		}
 	})
+}
+
+func TestEnemySpawnerPeriodicFillWaitsForIntervalAndRespectsCaps(t *testing.T) {
+	definition := testEnemyMapDefinition()
+	definition.EnemyPools[0].InitialAlive = 0
+	definition.EnemyPools[0].PoolMaxAlive = 2
+	definition.EnemyPools[0].MapMaxAlive = 2
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	clock := fakeClockForWorker(t, zoneWorker)
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+	clock.Advance(definition.EnemyPools[0].SpawnInterval - time.Nanosecond)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	if snapshot := zoneWorker.EnemySpawnSnapshot(); len(snapshot.Records) != 0 || snapshot.MapAliveCount != 0 {
+		t.Fatalf("snapshot before periodic interval = %+v, want no fill", snapshot)
+	}
+
+	clock.Advance(time.Nanosecond)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	first := zoneWorker.EnemySpawnSnapshot()
+	if len(first.Records) != 1 || first.MapAliveCount != 1 || first.PoolAliveCounts["test_pool"] != 1 {
+		t.Fatalf("snapshot after first periodic fill = %+v, want one alive", first)
+	}
+	firstID := first.Records[0].EntityID
+
+	clock.Advance(definition.EnemyPools[0].SpawnInterval)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	second := zoneWorker.EnemySpawnSnapshot()
+	if len(second.Records) != 2 || second.MapAliveCount != 2 || second.PoolAliveCounts["test_pool"] != 2 {
+		t.Fatalf("snapshot after second periodic fill = %+v, want two alive capped by pool/map", second)
+	}
+	if second.Records[0].EntityID == second.Records[1].EntityID {
+		t.Fatalf("periodic fill records = %+v, want distinct entity ids", second.Records)
+	}
+	if !hasWorkerSnapshotEntityID(zoneWorker.Snapshot(), firstID) {
+		t.Fatalf("worker snapshot missing first periodic entity %q", firstID)
+	}
+
+	clock.Advance(definition.EnemyPools[0].SpawnInterval)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	capped := zoneWorker.EnemySpawnSnapshot()
+	if len(capped.Records) != 2 || capped.MapAliveCount != 2 || len(zoneWorker.Snapshot().Entities) != 2 {
+		t.Fatalf("snapshot after capped periodic tick = %+v entities=%+v, want no third spawn", capped, zoneWorker.Snapshot().Entities)
+	}
+}
+
+func TestEnemySpawnerKillReplacementAndDisabledModesStayInertForPeriodicFill(t *testing.T) {
+	t.Run("kill replacement only respawns killed rows", func(t *testing.T) {
+		definition := testEnemyMapDefinition()
+		definition.EnemyPools[0].SpawnMode = worldmaps.SpawnModeKillReplacement
+		definition.EnemyPools[0].InitialAlive = 1
+		definition.EnemyPools[0].PoolMaxAlive = 3
+		definition.EnemyPools[0].MapMaxAlive = 3
+		zoneWorker := newWorkerForMapDefinition(t, definition)
+		clock := fakeClockForWorker(t, zoneWorker)
+
+		assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+		record := zoneWorker.EnemySpawnSnapshot().Records[0]
+		clock.Advance(definition.EnemyPools[0].SpawnInterval)
+		assertNoCommandErrors(t, zoneWorker.Tick())
+		if snapshot := zoneWorker.EnemySpawnSnapshot(); len(snapshot.Records) != 1 || snapshot.MapAliveCount != 1 {
+			t.Fatalf("kill replacement snapshot after periodic interval = %+v, want no periodic fill", snapshot)
+		}
+
+		assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MarkEnemyKilledCommand{
+			Definition:  definition,
+			NPCEntityID: record.EntityID,
+			KilledAt:    clock.Now(),
+		}))
+		clock.Advance(definition.EnemyPools[0].KillRespawnDelay)
+		assertNoCommandErrors(t, zoneWorker.Tick())
+		respawned := zoneWorker.EnemySpawnSnapshot()
+		if len(respawned.Records) != 1 || respawned.MapAliveCount != 1 || respawned.Records[0].EntityID != record.EntityID || !respawned.Records[0].Alive {
+			t.Fatalf("kill replacement snapshot after respawn = %+v, want same killed row restored only", respawned)
+		}
+	})
+
+	t.Run("disabled stays inert after ticks", func(t *testing.T) {
+		definition := testEnemyMapDefinition()
+		definition.EnemyPools[0].SpawnMode = worldmaps.SpawnModeDisabled
+		definition.EnemyPools[0].InitialAlive = 1
+		zoneWorker := newWorkerForMapDefinition(t, definition)
+		clock := fakeClockForWorker(t, zoneWorker)
+
+		assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+		clock.Advance(definition.EnemyPools[0].SpawnInterval)
+		assertNoCommandErrors(t, zoneWorker.Tick())
+		if snapshot := zoneWorker.EnemySpawnSnapshot(); len(snapshot.Records) != 0 || snapshot.MapAliveCount != 0 || len(zoneWorker.Snapshot().Entities) != 0 {
+			t.Fatalf("disabled snapshot=%+v entities=%+v, want no spawn after tick", snapshot, zoneWorker.Snapshot().Entities)
+		}
+	})
+}
+
+func TestEnemySpawnerPeriodicFillSkipsForbiddenCandidatesWithoutEntityLeak(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*worldmaps.MapDefinition)
+	}{
+		{
+			name: "pvp blocking safe zone",
+			edit: func(definition *worldmaps.MapDefinition) {
+				definition.SpawnAreas[0].Center = world.Vec2{X: 100, Y: 100}
+				definition.SpawnAreas[0].SafeZoneExcluded = true
+				definition.SafeZones = []worldmaps.SafeZoneDefinition{{
+					SafeZoneID: "safe_periodic_block",
+					Center:     world.Vec2{X: 100, Y: 100},
+					Radius:     50,
+					BlocksPVP:  true,
+				}}
+			},
+		},
+		{
+			name: "visible portal exclusion",
+			edit: func(definition *worldmaps.MapDefinition) {
+				definition.SpawnAreas[0].Center = world.Vec2{X: 500, Y: 500}
+				definition.SpawnAreas[0].PortalExclusionRadius = 200
+				definition.Portals = []worldmaps.PortalDefinition{{
+					PortalID:          "periodic_gate",
+					SourceMapID:       definition.InternalMapID,
+					SourcePosition:    world.Vec2{X: 500, Y: 500},
+					InteractionRadius: 180,
+					Visible:           true,
+				}}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			definition := testEnemyMapDefinition()
+			definition.EnemyPools[0].InitialAlive = 0
+			definition.EnemyPools[0].PoolMaxAlive = 1
+			definition.EnemyPools[0].MapMaxAlive = 1
+			tc.edit(&definition)
+			zoneWorker := newWorkerForMapDefinition(t, definition)
+			clock := fakeClockForWorker(t, zoneWorker)
+
+			assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+			clock.Advance(definition.EnemyPools[0].SpawnInterval)
+			assertNoCommandErrors(t, zoneWorker.Tick())
+
+			snapshot := zoneWorker.EnemySpawnSnapshot()
+			if len(snapshot.Records) != 0 || snapshot.MapAliveCount != 0 || len(zoneWorker.Snapshot().Entities) != 0 {
+				t.Fatalf("snapshot=%+v entities=%+v, want forbidden periodic candidate skipped without entity leak", snapshot, zoneWorker.Snapshot().Entities)
+			}
+		})
+	}
+}
+
+func TestEnemySpawnerPeriodicFillUsesDeterministicSpawnJitter(t *testing.T) {
+	definition := testEnemyMapDefinition()
+	definition.EnemyPools[0].EnemyPoolID = "test_pool_periodic_jitter"
+	definition.EnemyPools[0].InitialAlive = 0
+	definition.EnemyPools[0].PoolMaxAlive = 1
+	definition.EnemyPools[0].MapMaxAlive = 1
+	definition.EnemyPools[0].SpawnJitter = 5 * time.Second
+	pool := definition.EnemyPools[0]
+	jitter := deterministicSpawnJitter(pool.SpawnJitter, definition.InternalMapID.String(), pool.EnemyPoolID.String(), "periodic")
+	if jitter <= 0 {
+		t.Fatalf("deterministic periodic jitter = %s, want non-zero for coverage", jitter)
+	}
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	clock := fakeClockForWorker(t, zoneWorker)
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+	clock.Advance(pool.SpawnInterval)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	if snapshot := zoneWorker.EnemySpawnSnapshot(); len(snapshot.Records) != 0 || snapshot.MapAliveCount != 0 {
+		t.Fatalf("snapshot at base interval = %+v, want jitter to delay periodic fill", snapshot)
+	}
+
+	spawnedAt := clock.Advance(jitter)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	snapshot := zoneWorker.EnemySpawnSnapshot()
+	if len(snapshot.Records) != 1 || snapshot.MapAliveCount != 1 || !snapshot.Records[0].Alive || !snapshot.Records[0].SpawnedAt.Equal(spawnedAt) {
+		t.Fatalf("snapshot at deterministic jitter due time = %+v, want one periodic spawn at %s", snapshot, spawnedAt)
+	}
+}
+
+func TestEnemySpawnerRespawnUsesDeterministicSpawnJitter(t *testing.T) {
+	definition := testEnemyMapDefinition()
+	definition.EnemyPools[0].EnemyPoolID = "test_pool_respawn_jitter"
+	definition.EnemyPools[0].SpawnMode = worldmaps.SpawnModeKillReplacement
+	definition.EnemyPools[0].PoolMaxAlive = 1
+	definition.EnemyPools[0].MapMaxAlive = 1
+	definition.EnemyPools[0].SpawnJitter = 5 * time.Second
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	clock := fakeClockForWorker(t, zoneWorker)
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+	record := zoneWorker.EnemySpawnSnapshot().Records[0]
+	pool := definition.EnemyPools[0]
+	jitter := deterministicSpawnJitter(pool.SpawnJitter, definition.InternalMapID.String(), pool.EnemyPoolID.String(), record.EntityID.String())
+	if jitter <= 0 {
+		t.Fatalf("deterministic respawn jitter = %s, want non-zero for coverage", jitter)
+	}
+	killedAt := clock.Now()
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MarkEnemyKilledCommand{
+		Definition:  definition,
+		NPCEntityID: record.EntityID,
+		KilledAt:    killedAt,
+	}))
+	dead, ok := zoneWorker.EnemySpawnRecord(record.EntityID)
+	if !ok || !dead.NextRespawnAt.Equal(killedAt.Add(pool.KillRespawnDelay+jitter)) {
+		t.Fatalf("dead record = %+v ok=%v, want deterministic jitter respawn at %s", dead, ok, killedAt.Add(pool.KillRespawnDelay+jitter))
+	}
+
+	clock.Advance(pool.KillRespawnDelay)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	beforeJitterDue, ok := zoneWorker.EnemySpawnRecord(record.EntityID)
+	if !ok || beforeJitterDue.Alive {
+		t.Fatalf("record at base kill delay = %+v ok=%v, want jitter to delay respawn", beforeJitterDue, ok)
+	}
+
+	respawnedAt := clock.Advance(jitter)
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	respawned, ok := zoneWorker.EnemySpawnRecord(record.EntityID)
+	if !ok || !respawned.Alive || respawned.EntityID != record.EntityID || !respawned.SpawnedAt.Equal(respawnedAt) {
+		t.Fatalf("record at deterministic jitter due time = %+v ok=%v, want same entity respawned at %s", respawned, ok, respawnedAt)
+	}
 }
 
 func TestEnemySpawnerInitialFillRespectsPoolAndMapCaps(t *testing.T) {
@@ -404,6 +765,16 @@ func newWorkerForMapDefinition(t *testing.T, definition worldmaps.MapDefinition)
 		t.Fatalf("NewWorker() error = %v", err)
 	}
 	return zoneWorker
+}
+
+func fakeClockForWorker(t *testing.T, zoneWorker *Worker) *testutil.FakeClock {
+	t.Helper()
+
+	clock, ok := zoneWorker.clock.(*testutil.FakeClock)
+	if !ok {
+		t.Fatalf("worker clock = %T, want *testutil.FakeClock", zoneWorker.clock)
+	}
+	return clock
 }
 
 func testEnemyMapDefinition() worldmaps.MapDefinition {

@@ -37,7 +37,12 @@ func (runtime *Runtime) projectNPCCombatActorLocked(instance *mapInstance, entit
 	if err != nil {
 		return combat.ActorState{}, err
 	}
+	existing, hasExisting := runtime.Combat.Actor(entity.ID)
 	hidden := instance.HiddenEntities[entity.ID]
+	if hasExisting && shouldResetNPCCombatStateForSpawn(record, existing) {
+		delete(instance.HiddenEntities, entity.ID)
+		hidden = false
+	}
 	signature, stealthScore, jammerStrength := npcTemplateVisibilityInputs(template, hidden)
 	actor := combat.ActorState{
 		EntityID:       entity.ID,
@@ -57,7 +62,7 @@ func (runtime *Runtime) projectNPCCombatActorLocked(instance *mapInstance, entit
 		Cooldowns:      combat.CooldownState{},
 		Contributions:  make(map[foundation.PlayerID]float64),
 	}
-	if existing, ok := runtime.Combat.Actor(entity.ID); ok {
+	if hasExisting && shouldPreserveNPCCombatState(record, existing) {
 		actor.HP = existing.HP
 		actor.Shield = existing.Shield
 		actor.Energy = existing.Energy
@@ -67,6 +72,39 @@ func (runtime *Runtime) projectNPCCombatActorLocked(instance *mapInstance, entit
 		actor.Contributions = existing.Contributions
 	}
 	return actor, nil
+}
+
+func (runtime *Runtime) syncAliveNPCCombatActorProjectionsLocked(instance *mapInstance) error {
+	if instance == nil || instance.Worker == nil {
+		return nil
+	}
+	for _, record := range instance.Worker.EnemySpawnSnapshot().Records {
+		if !record.Alive {
+			continue
+		}
+		entity, ok := instance.Worker.Entity(record.EntityID)
+		if !ok {
+			continue
+		}
+		if _, err := runtime.upsertNPCCombatActorProjectionLocked(instance, entity); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func shouldResetNPCCombatStateForSpawn(record worker.EnemySpawnRecord, existing combat.ActorState) bool {
+	if !record.Alive {
+		return false
+	}
+	if existing.Dead || existing.HP <= 0 {
+		return true
+	}
+	return existing.DiedAt != nil && !record.SpawnedAt.IsZero() && !record.SpawnedAt.Before(*existing.DiedAt)
+}
+
+func shouldPreserveNPCCombatState(record worker.EnemySpawnRecord, existing combat.ActorState) bool {
+	return !shouldResetNPCCombatStateForSpawn(record, existing)
 }
 
 func (runtime *Runtime) npcSpawnRecordAndTemplateLocked(instance *mapInstance, entityID world.EntityID) (worker.EnemySpawnRecord, worldmaps.NPCStatTemplate, error) {
@@ -143,11 +181,9 @@ func (runtime *Runtime) publicNPCMetadataLocked(instance *mapInstance, entity wo
 	}
 	display.Label = displayLabelForNPCType(record.NPCType)
 	combatStatus := runtime.entityCombatStatusLocked(entity.ID)
-	if combatStatus == nil {
-		actor, err := runtime.projectNPCCombatActorLocked(instance, entity)
-		if err == nil {
-			combatStatus = combatStatusFromActor(actor)
-		}
+	actor, err := runtime.upsertNPCCombatActorProjectionLocked(instance, entity)
+	if err == nil {
+		combatStatus = combatStatusFromActor(actor)
 	}
 	if combatStatus != nil && combatStatus.HP < combatStatus.MaxHP {
 		flags = append(flags, "damaged")

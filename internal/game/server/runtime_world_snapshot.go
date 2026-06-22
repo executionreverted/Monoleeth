@@ -6,6 +6,7 @@ import (
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
@@ -185,11 +186,25 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 
-	for _, instance := range runtime.mapInstances {
-		instance.Worker.Tick()
+	failedInstances := make(map[*mapInstance]struct{})
+	for _, instance := range runtime.sortedMapInstancesLocked() {
+		result := instance.Worker.Tick()
+		if err := commandErrors(result); err != nil {
+			runtime.recordAOITickErrorLocked(instance, "worker_tick", err)
+			failedInstances[instance] = struct{}{}
+			continue
+		}
+		if err := runtime.syncAliveNPCCombatActorProjectionsLocked(instance); err != nil {
+			runtime.recordAOITickErrorLocked(instance, "npc_projection", err)
+			failedInstances[instance] = struct{}{}
+			continue
+		}
 	}
 	eventsBySession := make(map[auth.SessionID][]realtime.EventEnvelope)
 	for _, instance := range runtime.sortedMapInstancesLocked() {
+		if _, failed := failedInstances[instance]; failed {
+			continue
+		}
 		for _, sessionID := range sortedSessionIDs(instance.ActiveSessions) {
 			playerID := instance.ActiveSessions[sessionID]
 			events := runtime.aoiDiffEventsForInstanceLocked(instance, sessionID, playerID)
@@ -199,6 +214,23 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 		}
 	}
 	return eventsBySession
+}
+
+func (runtime *Runtime) recordAOITickErrorLocked(instance *mapInstance, stage string, err error) {
+	if runtime == nil || runtime.Metrics == nil || instance == nil || err == nil {
+		return
+	}
+	code, ok := foundation.CodeOf(err)
+	if !ok {
+		code = foundation.CodeInternal
+	}
+	_ = runtime.Metrics.AddCounter(observability.MetricErrorsByCode, observability.Labels{
+		"code":     code.String(),
+		"op":       "runtime_aoi_tick",
+		"stage":    stage,
+		"world_id": instance.Definition.WorldID.String(),
+		"zone_id":  instance.Definition.ZoneID.String(),
+	}, 1)
 }
 
 func (runtime *Runtime) aoiDiffEventsLocked(sessionID auth.SessionID, playerID foundation.PlayerID) []realtime.EventEnvelope {

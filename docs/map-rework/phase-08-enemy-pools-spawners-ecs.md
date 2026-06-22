@@ -188,9 +188,46 @@ Phase08D coverage was added or updated in:
 - `internal/game/world/worker/enemy_spawner_test.go`
 - `internal/game/server/server_combat_loot_death_test.go`
 
-Deferred Phase08 work after Phase08D:
+## Phase08E Landed Enemy Respawn And Periodic Fill Tick Slice
 
-- delayed respawn and periodic fill ticks
+The landed Phase08E slice adds worker-local spawner tick logic for map-owned
+enemy pools. `InitializeEnemyPoolsCommand` now installs a private, cloned map
+definition for subsequent worker ticks, and `Worker.Tick()` evaluates due enemy
+respawns and periodic fills after movement without exposing pool ids, spawn
+candidates, timing seeds, or future rolls to clients.
+
+Kill-delay respawn reuses the dead spawner row and entity id when the row's
+`NextRespawnAt` is due, clears `DeadAt`/`NextRespawnAt`, updates `SpawnedAt`,
+reinserts the NPC world entity, and restores stat-template speed. Duplicate
+death marks remain idempotent and do not drift pool or map alive counts. The
+runtime projection now resets stale dead combat actors and clears the killed
+hidden flag when a reused respawn id becomes alive again.
+
+Periodic fill is enabled only for enabled `SpawnModePeriodic` pools. It waits
+for `SpawnInterval`, creates at most one new row per due pool tick, derives the
+new entity id with the existing `enemySpawnEntityID` style and next per-pool
+row index, and respects pool caps plus the same strictest enabled pool
+`MapMaxAlive` cap used by initial fill. Dead rows with pending
+`NextRespawnAt` reserve pool and map capacity so periodic fill cannot consume
+the slot before kill-delay respawn restores the original entity id.
+`SpawnModeKillReplacement` restores killed rows through kill-delay respawn but
+does not periodic-fill extra rows, and `SpawnModeDisabled` stays inert. Respawn
+and periodic fill reuse the Phase08B deterministic center candidate and skip
+candidates inside forbidden safe-zone or visible portal exclusion positions
+without leaking entities.
+
+`SpawnJitter` is honored as a deterministic server-only timing offset derived
+from map/pool/entity identifiers; `SpawnJitter=0` remains exact and tested.
+Richer random placement inside spawn areas remains deferred.
+
+Phase08E coverage was added or updated in:
+
+- `internal/game/world/worker/enemy_spawner_test.go`
+- `internal/game/server/npc_actor_projection.go`
+- `internal/game/server/runtime_world_snapshot.go`
+
+Deferred Phase08 work after Phase08E:
+
 - map/risk/rank-aware loot table selector
 - aggro/leash simulation
 - boss/event spawn hooks
@@ -328,7 +365,7 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
    only to sessions in the same map.
 8. Add periodic fill and kill-delay respawn scheduling/tick logic that restores
    NPCs after `spawn_interval_ms` or `kill_respawn_delay_ms` without exceeding
-   map/pool caps.
+   map/pool caps. Landed in Phase08E for worker-local pool ticks.
 9. Add aggro/leash tick logic as a narrow data-oriented system:
    acquire visible targets in radar/aggro range, chase only inside leash policy,
    reset when target leaves map/range/safe state, and never cross portals.
@@ -350,10 +387,13 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
 - Starter map seed creates the former training NPC only through a map enemy
   pool definition.
 - Spawner initial fill respects per-pool and per-map max alive counts.
-- Periodic spawn fill respects `spawn_interval_ms`, `spawn_jitter_ms`,
-  `map_max_alive`, and `pool_max_alive`.
+- Periodic spawn fill respects `spawn_interval_ms`, deterministic
+  `spawn_jitter_ms`, `map_max_alive`, and `pool_max_alive`. Phase08E landed the
+  worker-local deterministic center-candidate MVP.
 - Respawn does not exceed caps after repeated kills or duplicate death events.
-- Kill-triggered replacement waits for `kill_respawn_delay_ms`.
+  Phase08E landed this for worker-local spawner rows.
+- Kill-triggered replacement waits for `kill_respawn_delay_ms`. Phase08E landed
+  this for worker-local spawner rows.
 - NPC actor projection uses the configured stat template and preserves existing
   combat HP/shield/energy, cooldown, and contribution state. Phase08C landed
   this for spawner-backed NPC projection.
@@ -403,9 +443,10 @@ Acceptance criteria:
 
 Phase08C satisfies the `trainingNPCActor` replacement portion of the first
 criterion for spawner-backed NPCs. Phase08D satisfies narrow death accounting
-for spawner rows and alive counters. The global loot table replacement,
-respawn/fill ticks, aggro/leash behavior, and boss/event hooks remain open, so
-the full Phase 08 acceptance criteria are not complete.
+for spawner rows and alive counters. Phase08E satisfies worker-local
+kill-delay respawn and periodic fill tick behavior. The global loot table
+replacement, aggro/leash behavior, and boss/event hooks remain open, so the
+full Phase 08 acceptance criteria are not complete.
 
 - No default gameplay path uses `trainingNPCActor` or one global
   `training_drone_salvage` table as the source of truth.

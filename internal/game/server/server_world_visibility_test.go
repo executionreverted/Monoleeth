@@ -9,6 +9,7 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
@@ -47,6 +48,62 @@ func TestAOIDiffEventsAreFilteredPerSession(t *testing.T) {
 		}
 	}
 }
+
+func TestAOIDiffSkipsFailedWorkerTickInstance(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "aoi-worker-error@example.com", "AOI-Worker-Error")
+
+	events, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("bootstrap events: %v", err)
+	}
+	_ = decodeWorldSnapshotForTest(t, events)
+	insertTestWorldEntity(t, gameServer, "entity_tick_error_visible", world.EntityTypeNPC, world.Vec2{X: 200, Y: 0}, false)
+
+	gameServer.runtime.mu.Lock()
+	instance, _, err := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active map instance: %v", err)
+	}
+	if err := instance.Worker.Submit(worker.RemoveEntityCommand{EntityID: "entity_missing_for_aoi_tick"}); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("Submit(bad remove) error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Unlock()
+
+	eventsBySession := gameServer.runtime.tickAndCollectAOIEvents()
+	if got := eventsBySession[resolved.SessionID]; len(got) != 0 {
+		t.Fatalf("events after failed worker tick = %+v, want none for failed instance", got)
+	}
+	gameServer.runtime.mu.Lock()
+	lastAOI := instance.LastAOI[resolved.SessionID]
+	gameServer.runtime.mu.Unlock()
+	if hasEntityID(lastAOI.Entities, "entity_tick_error_visible") {
+		t.Fatalf("LastAOI advanced after failed worker tick: %+v", lastAOI.Entities)
+	}
+	requireMetricCounter(t, gameServer.runtime.Metrics.Snapshot(), observability.MetricErrorsByCode, 1, []observability.Label{
+		{Name: "code", Value: foundation.CodeInternal.String()},
+		{Name: "op", Value: "runtime_aoi_tick"},
+		{Name: "stage", Value: "worker_tick"},
+		{Name: "world_id", Value: "world-1"},
+		{Name: "zone_id", Value: "map_1_1"},
+	})
+
+	eventsBySession = gameServer.runtime.tickAndCollectAOIEvents()
+	sessionEvents := eventsBySession[resolved.SessionID]
+	if len(sessionEvents) == 0 || sessionEvents[0].Type != realtime.EventAOIEntityEntered {
+		t.Fatalf("events after next clean tick = %+v, want delayed entity entered", sessionEvents)
+	}
+	var entered aoiEntityPayloadForTest
+	if err := json.Unmarshal(sessionEvents[0].Payload, &entered); err != nil {
+		t.Fatalf("decode delayed entered event: %v", err)
+	}
+	if entered.EntityID != "entity_tick_error_visible" {
+		t.Fatalf("delayed entered entity = %+v, want entity_tick_error_visible", entered)
+	}
+}
+
 func TestHiddenPlayerWitnessVisibilityIsViewerSpecificAndExpires(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{

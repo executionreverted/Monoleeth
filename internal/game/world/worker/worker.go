@@ -229,6 +229,7 @@ func (worker *Worker) Tick() TickResult {
 	}
 
 	result.CommandErrors = append(result.CommandErrors, worker.advanceMovement()...)
+	result.CommandErrors = append(result.CommandErrors, worker.tickEnemySpawner()...)
 	result.DueTasks = worker.scheduler.drainDue(worker.clock.Now())
 	result.ScheduledTaskErrors = worker.dispatchScheduledTasks(result.DueTasks)
 	worker.tick++

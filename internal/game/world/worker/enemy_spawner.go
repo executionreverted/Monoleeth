@@ -3,6 +3,7 @@ package worker
 import (
 	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 	"sort"
 	"strings"
 	"time"
@@ -90,13 +91,14 @@ func (worker *Worker) initializeEnemyPools(definition worldmaps.MapDefinition, o
 	if worker.enemySpawner == nil {
 		worker.enemySpawner = newEnemySpawnerState()
 	}
+	now := worker.clock.Now()
+	worker.enemySpawner.configureTicks(definition, now)
 	if len(definition.EnemyPools) == 0 {
 		return nil
 	}
 
 	spawnAreas := spawnAreasByID(definition.SpawnAreas)
 	statTemplates := statTemplatesByID(definition.NPCStatTemplates)
-	now := worker.clock.Now()
 	mapAliveCount := worker.enemySpawner.mapAliveCount()
 	mapAliveCap, hasMapAliveCap := initialEnemyMapAliveCap(definition.EnemyPools)
 
@@ -130,27 +132,9 @@ func (worker *Worker) initializeEnemyPools(definition worldmaps.MapDefinition, o
 			if _, exists := worker.entities[entityID]; exists {
 				return fmt.Errorf("enemy spawn entity %q: %w", entityID, ErrEntityAlreadyExists)
 			}
-			entity, err := world.NewEntity(definition.WorldID, definition.ZoneID, entityID, world.EntityTypeNPC, area.Center)
+			record, err := worker.newEnemySpawnRecord(definition, pool, statTemplate, area, entityID, now)
 			if err != nil {
 				return err
-			}
-			if err := worker.insertEntity(entity, statTemplate.Speed); err != nil {
-				return err
-			}
-
-			record := EnemySpawnRecord{
-				EntityID:       entityID,
-				EnemyPoolID:    pool.EnemyPoolID,
-				SpawnAreaID:    area.SpawnAreaID,
-				NPCType:        pool.NPCType,
-				Level:          pool.MinLevel,
-				StatTemplateID: pool.StatTemplateID,
-				DropProfileID:  pool.DropProfileID,
-				AggroProfileID: pool.AggroProfileID,
-				LeashProfileID: pool.LeashProfileID,
-				Position:       area.Center,
-				Alive:          true,
-				SpawnedAt:      now,
 			}
 			worker.enemySpawner.add(record)
 			poolAliveCount++
@@ -192,7 +176,7 @@ func (worker *Worker) markEnemyKilled(definition worldmaps.MapDefinition, entity
 	}
 	record.Alive = false
 	record.DeadAt = killedAt
-	record.NextRespawnAt = killedAt.Add(pool.KillRespawnDelay)
+	record.NextRespawnAt = killedAt.Add(pool.KillRespawnDelay + deterministicSpawnJitter(pool.SpawnJitter, definition.InternalMapID.String(), pool.EnemyPoolID.String(), entityID.String()))
 	worker.enemySpawner.rows[index] = record
 
 	if worker.enemySpawner.aliveByPool[record.EnemyPoolID] > 0 {
@@ -201,6 +185,156 @@ func (worker *Worker) markEnemyKilled(definition worldmaps.MapDefinition, entity
 		worker.enemySpawner.aliveByPool[record.EnemyPoolID] = 0
 	}
 	worker.removeEntity(entityID)
+	return nil
+}
+
+func (worker *Worker) tickEnemySpawner() []CommandError {
+	if worker.enemySpawner == nil || !worker.enemySpawner.hasTickDefinition {
+		return nil
+	}
+	if err := worker.tickEnemySpawnerDefinition(worker.enemySpawner.tickDefinition); err != nil {
+		return []CommandError{{Index: -1, Err: err}}
+	}
+	return nil
+}
+
+func (worker *Worker) tickEnemySpawnerDefinition(definition worldmaps.MapDefinition) error {
+	if err := worker.validateEnemyPoolDefinitionOwnership(definition); err != nil {
+		return err
+	}
+	if len(definition.EnemyPools) == 0 {
+		return nil
+	}
+
+	spawnAreas := spawnAreasByID(definition.SpawnAreas)
+	pools := enemyPoolsByID(definition.EnemyPools)
+	statTemplates := statTemplatesByID(definition.NPCStatTemplates)
+	now := worker.clock.Now()
+	mapAliveCap, hasMapAliveCap := initialEnemyMapAliveCap(definition.EnemyPools)
+	mapAliveCount := worker.enemySpawner.mapAliveCount()
+
+	for index := range worker.enemySpawner.rows {
+		record := worker.enemySpawner.rows[index]
+		if record.Alive || record.NextRespawnAt.IsZero() || now.Before(record.NextRespawnAt) {
+			continue
+		}
+		pool, ok := pools[record.EnemyPoolID]
+		if !ok {
+			return fmt.Errorf("enemy pool %q: %w", record.EnemyPoolID, worldmaps.ErrInvalidCatalog)
+		}
+		if !pool.Enabled || pool.SpawnMode == worldmaps.SpawnModeDisabled {
+			continue
+		}
+		if worker.enemySpawner.poolAliveCount(record.EnemyPoolID) >= pool.PoolMaxAlive || (hasMapAliveCap && mapAliveCount >= mapAliveCap) {
+			continue
+		}
+		statTemplate, ok := statTemplates[record.StatTemplateID]
+		if !ok {
+			return fmt.Errorf("enemy pool %q stat template %q: %w", record.EnemyPoolID, record.StatTemplateID, worldmaps.ErrInvalidCatalog)
+		}
+		area, ok := spawnAreas[record.SpawnAreaID]
+		if !ok {
+			return fmt.Errorf("enemy pool %q spawn area %q: %w", record.EnemyPoolID, record.SpawnAreaID, worldmaps.ErrInvalidCatalog)
+		}
+		if !validSpawnCandidate(definition, area, area.Center) {
+			continue
+		}
+		if err := worker.respawnEnemyRecord(index, definition, statTemplate, area, now); err != nil {
+			return err
+		}
+		mapAliveCount++
+	}
+
+	mapReservedCount := worker.enemySpawner.mapReservedCount()
+	for _, pool := range definition.EnemyPools {
+		if !pool.Enabled || pool.SpawnMode != worldmaps.SpawnModePeriodic {
+			continue
+		}
+		if worker.enemySpawner.poolReservedCount(pool.EnemyPoolID) >= pool.PoolMaxAlive || (hasMapAliveCap && mapReservedCount >= mapAliveCap) {
+			continue
+		}
+		lastFillAt := worker.enemySpawner.lastPeriodicFillAt(pool.EnemyPoolID)
+		nextFillAt := lastFillAt.Add(pool.SpawnInterval + deterministicSpawnJitter(pool.SpawnJitter, definition.InternalMapID.String(), pool.EnemyPoolID.String(), "periodic"))
+		if now.Before(nextFillAt) {
+			continue
+		}
+		worker.enemySpawner.setLastPeriodicFillAt(pool.EnemyPoolID, now)
+
+		statTemplate, ok := statTemplates[pool.StatTemplateID]
+		if !ok {
+			return fmt.Errorf("enemy pool %q stat template %q: %w", pool.EnemyPoolID, pool.StatTemplateID, worldmaps.ErrInvalidCatalog)
+		}
+		spawnIndex := worker.enemySpawner.rowCountForPool(pool.EnemyPoolID)
+		area, ok, err := selectSpawnArea(definition, spawnAreas, pool, spawnIndex)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		entityID := enemySpawnEntityID(definition.InternalMapID, pool.EnemyPoolID, spawnIndex, nil)
+		if _, exists := worker.enemySpawner.byEntityID[entityID]; exists {
+			return fmt.Errorf("enemy spawn entity %q: %w", entityID, ErrEntityAlreadyExists)
+		}
+		record, err := worker.newEnemySpawnRecord(definition, pool, statTemplate, area, entityID, now)
+		if err != nil {
+			return err
+		}
+		worker.enemySpawner.add(record)
+		mapAliveCount++
+		mapReservedCount++
+	}
+	return nil
+}
+
+func (worker *Worker) newEnemySpawnRecord(
+	definition worldmaps.MapDefinition,
+	pool worldmaps.MapEnemyPoolDefinition,
+	statTemplate worldmaps.NPCStatTemplate,
+	area worldmaps.MapSpawnAreaDefinition,
+	entityID world.EntityID,
+	spawnedAt time.Time,
+) (EnemySpawnRecord, error) {
+	entity, err := world.NewEntity(definition.WorldID, definition.ZoneID, entityID, world.EntityTypeNPC, area.Center)
+	if err != nil {
+		return EnemySpawnRecord{}, err
+	}
+	if err := worker.insertEntity(entity, statTemplate.Speed); err != nil {
+		return EnemySpawnRecord{}, err
+	}
+
+	return EnemySpawnRecord{
+		EntityID:       entityID,
+		EnemyPoolID:    pool.EnemyPoolID,
+		SpawnAreaID:    area.SpawnAreaID,
+		NPCType:        pool.NPCType,
+		Level:          pool.MinLevel,
+		StatTemplateID: pool.StatTemplateID,
+		DropProfileID:  pool.DropProfileID,
+		AggroProfileID: pool.AggroProfileID,
+		LeashProfileID: pool.LeashProfileID,
+		Position:       area.Center,
+		Alive:          true,
+		SpawnedAt:      spawnedAt,
+	}, nil
+}
+
+func (worker *Worker) respawnEnemyRecord(index int, definition worldmaps.MapDefinition, statTemplate worldmaps.NPCStatTemplate, area worldmaps.MapSpawnAreaDefinition, spawnedAt time.Time) error {
+	record := worker.enemySpawner.rows[index]
+	entity, err := world.NewEntity(definition.WorldID, definition.ZoneID, record.EntityID, world.EntityTypeNPC, area.Center)
+	if err != nil {
+		return err
+	}
+	if err := worker.insertEntity(entity, statTemplate.Speed); err != nil {
+		return err
+	}
+	record.Position = area.Center
+	record.Alive = true
+	record.SpawnedAt = spawnedAt
+	record.DeadAt = time.Time{}
+	record.NextRespawnAt = time.Time{}
+	worker.enemySpawner.rows[index] = record
+	worker.enemySpawner.aliveByPool[record.EnemyPoolID]++
 	return nil
 }
 
@@ -259,7 +393,7 @@ func statTemplatesByID(templates []worldmaps.NPCStatTemplate) map[worldmaps.NPCS
 	return byID
 }
 
-func selectInitialSpawnArea(
+func selectSpawnArea(
 	definition worldmaps.MapDefinition,
 	spawnAreas map[worldmaps.SpawnAreaID]worldmaps.MapSpawnAreaDefinition,
 	pool worldmaps.MapEnemyPoolDefinition,
@@ -274,16 +408,25 @@ func selectInitialSpawnArea(
 		if !ok {
 			return worldmaps.MapSpawnAreaDefinition{}, false, fmt.Errorf("enemy pool %q spawn area %q: %w", pool.EnemyPoolID, areaID, worldmaps.ErrInvalidCatalog)
 		}
-		// Phase08B deterministic MVP: use the area center as the initial-fill
-		// candidate. RNG/jittered candidate generation remains deferred.
-		if validInitialSpawnCandidate(definition, area, area.Center) {
+		// Phase08B/08E deterministic MVP: use the area center as the spawn
+		// candidate. Richer RNG placement remains deferred.
+		if validSpawnCandidate(definition, area, area.Center) {
 			return area, true, nil
 		}
 	}
 	return worldmaps.MapSpawnAreaDefinition{}, false, nil
 }
 
-func validInitialSpawnCandidate(definition worldmaps.MapDefinition, area worldmaps.MapSpawnAreaDefinition, position world.Vec2) bool {
+func selectInitialSpawnArea(
+	definition worldmaps.MapDefinition,
+	spawnAreas map[worldmaps.SpawnAreaID]worldmaps.MapSpawnAreaDefinition,
+	pool worldmaps.MapEnemyPoolDefinition,
+	spawnIndex int,
+) (worldmaps.MapSpawnAreaDefinition, bool, error) {
+	return selectSpawnArea(definition, spawnAreas, pool, spawnIndex)
+}
+
+func validSpawnCandidate(definition worldmaps.MapDefinition, area worldmaps.MapSpawnAreaDefinition, position world.Vec2) bool {
 	if err := position.Validate(); err != nil {
 		return false
 	}
@@ -307,6 +450,10 @@ func validInitialSpawnCandidate(definition worldmaps.MapDefinition, area worldma
 		}
 	}
 	return true
+}
+
+func validInitialSpawnCandidate(definition worldmaps.MapDefinition, area worldmaps.MapSpawnAreaDefinition, position world.Vec2) bool {
+	return validSpawnCandidate(definition, area, position)
 }
 
 func enemySpawnEntityID(mapID worldmaps.MapID, poolID worldmaps.EnemyPoolID, spawnIndex int, overrides map[worldmaps.EnemyPoolID][]world.EntityID) world.EntityID {
@@ -341,10 +488,13 @@ func entityIDRawPartSuffix(parts ...string) string {
 }
 
 type enemySpawnerState struct {
-	rows             []EnemySpawnRecord
-	byEntityID       map[world.EntityID]int
-	aliveByPool      map[worldmaps.EnemyPoolID]int
-	initializedPools map[worldmaps.EnemyPoolID]struct{}
+	rows              []EnemySpawnRecord
+	byEntityID        map[world.EntityID]int
+	aliveByPool       map[worldmaps.EnemyPoolID]int
+	initializedPools  map[worldmaps.EnemyPoolID]struct{}
+	hasTickDefinition bool
+	tickDefinition    worldmaps.MapDefinition
+	lastFillByPool    map[worldmaps.EnemyPoolID]time.Time
 }
 
 func newEnemySpawnerState() *enemySpawnerState {
@@ -353,6 +503,7 @@ func newEnemySpawnerState() *enemySpawnerState {
 		byEntityID:       make(map[world.EntityID]int),
 		aliveByPool:      make(map[worldmaps.EnemyPoolID]int),
 		initializedPools: make(map[worldmaps.EnemyPoolID]struct{}),
+		lastFillByPool:   make(map[worldmaps.EnemyPoolID]time.Time),
 	}
 }
 
@@ -400,10 +551,33 @@ func (spawner *enemySpawnerState) poolAliveCount(poolID worldmaps.EnemyPoolID) i
 	return spawner.aliveByPool[poolID]
 }
 
+func (spawner *enemySpawnerState) poolReservedCount(poolID worldmaps.EnemyPoolID) int {
+	count := 0
+	for _, record := range spawner.rows {
+		if record.EnemyPoolID != poolID {
+			continue
+		}
+		if record.Alive || !record.NextRespawnAt.IsZero() {
+			count++
+		}
+	}
+	return count
+}
+
 func (spawner *enemySpawnerState) mapAliveCount() int {
 	count := 0
 	for _, record := range spawner.rows {
 		if record.Alive {
+			count++
+		}
+	}
+	return count
+}
+
+func (spawner *enemySpawnerState) mapReservedCount() int {
+	count := 0
+	for _, record := range spawner.rows {
+		if record.Alive || !record.NextRespawnAt.IsZero() {
 			count++
 		}
 	}
@@ -417,4 +591,63 @@ func (spawner *enemySpawnerState) poolInitialized(poolID worldmaps.EnemyPoolID) 
 
 func (spawner *enemySpawnerState) markPoolInitialized(poolID worldmaps.EnemyPoolID) {
 	spawner.initializedPools[poolID] = struct{}{}
+}
+
+func (spawner *enemySpawnerState) configureTicks(definition worldmaps.MapDefinition, now time.Time) {
+	spawner.tickDefinition = cloneEnemySpawnerTickDefinition(definition)
+	spawner.hasTickDefinition = true
+	for _, pool := range definition.EnemyPools {
+		if _, exists := spawner.lastFillByPool[pool.EnemyPoolID]; !exists {
+			spawner.lastFillByPool[pool.EnemyPoolID] = now
+		}
+	}
+}
+
+func (spawner *enemySpawnerState) lastPeriodicFillAt(poolID worldmaps.EnemyPoolID) time.Time {
+	if last, ok := spawner.lastFillByPool[poolID]; ok {
+		return last
+	}
+	return time.Time{}
+}
+
+func (spawner *enemySpawnerState) setLastPeriodicFillAt(poolID worldmaps.EnemyPoolID, at time.Time) {
+	spawner.lastFillByPool[poolID] = at
+}
+
+func (spawner *enemySpawnerState) rowCountForPool(poolID worldmaps.EnemyPoolID) int {
+	count := 0
+	for _, record := range spawner.rows {
+		if record.EnemyPoolID == poolID {
+			count++
+		}
+	}
+	return count
+}
+
+func cloneEnemySpawnerTickDefinition(definition worldmaps.MapDefinition) worldmaps.MapDefinition {
+	cloned := definition
+	cloned.SpawnPoints = append([]worldmaps.SpawnPointDefinition(nil), definition.SpawnPoints...)
+	cloned.Portals = append([]worldmaps.PortalDefinition(nil), definition.Portals...)
+	cloned.SafeZones = append([]worldmaps.SafeZoneDefinition(nil), definition.SafeZones...)
+	cloned.SpawnAreas = append([]worldmaps.MapSpawnAreaDefinition(nil), definition.SpawnAreas...)
+	cloned.EnemyPools = append([]worldmaps.MapEnemyPoolDefinition(nil), definition.EnemyPools...)
+	for index := range cloned.EnemyPools {
+		cloned.EnemyPools[index].SpawnAreaIDs = append([]worldmaps.SpawnAreaID(nil), definition.EnemyPools[index].SpawnAreaIDs...)
+	}
+	cloned.NPCStatTemplates = append([]worldmaps.NPCStatTemplate(nil), definition.NPCStatTemplates...)
+	cloned.NPCDropProfiles = append([]worldmaps.NPCDropProfile(nil), definition.NPCDropProfiles...)
+	cloned.NPCAggroProfiles = append([]worldmaps.NPCAggroProfile(nil), definition.NPCAggroProfiles...)
+	cloned.NPCLeashProfiles = append([]worldmaps.NPCLeashProfile(nil), definition.NPCLeashProfiles...)
+	return cloned
+}
+
+func deterministicSpawnJitter(limit time.Duration, parts ...string) time.Duration {
+	if limit <= 0 {
+		return 0
+	}
+	hasher := fnv.New64a()
+	for _, part := range parts {
+		fmt.Fprintf(hasher, "%d:%s|", len(part), part)
+	}
+	return time.Duration(hasher.Sum64() % uint64(limit+1))
 }
