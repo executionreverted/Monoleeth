@@ -131,13 +131,16 @@ for phase status; this file is a compact pending-work index.
   from `PlanetStorage`, production-local material ledger rows, optional wallet
   debit adapter ordering, duplicate reference replay, and
   `planet.storage_updated` / `planet.building_updated` events through the
-  in-memory outbox path. Durable DB/outbox claim recovery, cross-process
+  in-memory outbox path. Phase07P adds authenticated
+  `planet.building_build` and `planet.building_upgrade` gateway handlers with
+  server-derived owner, active-map scope, deterministic building ids,
+  catalog-backed definitions, material/wallet costs, idempotency references,
+  spoof-field rejection, duplicate replay, and owner-scoped production/storage/
+  wallet reconciliation. Durable DB/outbox claim recovery, cross-process
   CAS/locks, idempotency-table enforcement, durable outbox persistence/
-  publisher workers, plus authenticated `planet.building_build` and
-  `planet.building_upgrade` gateway handlers remain open; handlers still need
-  ownership, requirements, storage capacity policy, server-owned cost wiring,
-  and browser reconciliation. Source: Phase 10 audit, Phase07A, Phase07O, and
-  `docs/map-rework/phase-10-testing-rollout.md`.
+  publisher workers, broader building requirement/cost balancing, and browser
+  HUD controls remain open. Source: Phase 10 audit, Phase07A, Phase07O,
+  Phase07P, and `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Finish durable authenticated automation route persistence and rollout
   hardening. Server/browser work now has a focused real-client
   create/update/control/settle proof; remaining work is durable route rows,

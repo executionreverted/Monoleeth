@@ -13,6 +13,7 @@ const ProductionCatalogVersion catalog.Version = "production_catalog_mvp_v1"
 // MVP production definition ids.
 const (
 	ProductionDefinitionIDIronExtractorL1 catalog.DefinitionID = "iron_extractor_l1"
+	ProductionDefinitionIDIronExtractorL2 catalog.DefinitionID = "iron_extractor_l2"
 	ProductionDefinitionIDAlloyFoundryL1  catalog.DefinitionID = "alloy_foundry_l1"
 )
 
@@ -135,6 +136,17 @@ func MVPProductionDefinitions() []BuildingProductionDefinition {
 				mustItemRate("refined_alloy", 10),
 			},
 			5,
+		),
+		newMVPDefinition(
+			ProductionDefinitionIDIronExtractorL2,
+			BuildingTypeIronExtractor,
+			BuildingCategoryExtractor,
+			2,
+			nil,
+			[]ItemRate{
+				mustItemRate("iron_ore", 60),
+			},
+			8,
 		),
 	}
 }

@@ -12,7 +12,7 @@ func TestMVPCatalogContainsExtractorAndRefineryDefinitions(t *testing.T) {
 	catalogRows := MustMVPCatalog()
 	definitions := catalogRows.Definitions()
 
-	if got, want := len(definitions), 2; got != want {
+	if got, want := len(definitions), 3; got != want {
 		t.Fatalf("MVP definitions count = %d, want %d", got, want)
 	}
 
@@ -40,12 +40,49 @@ func TestMVPCatalogContainsExtractorAndRefineryDefinitions(t *testing.T) {
 		t.Fatalf("refinery EnergyCostPerHour = %d, want 5", refinery.EnergyCostPerHour)
 	}
 
+	extractorL2, err := catalogRows.MustGet(ProductionDefinitionIDIronExtractorL2)
+	if err != nil {
+		t.Fatalf("MustGet(%q) error = %v, want nil", ProductionDefinitionIDIronExtractorL2, err)
+	}
+	if err := extractorL2.Validate(); err != nil {
+		t.Fatalf("extractor L2 Validate() = %v, want nil", err)
+	}
+	if extractorL2.Source.Version != ProductionCatalogVersion {
+		t.Fatalf("extractor L2 Source.Version = %q, want %q", extractorL2.Source.Version, ProductionCatalogVersion)
+	}
+	if extractorL2.DefinitionID != ProductionDefinitionIDIronExtractorL2 {
+		t.Fatalf("extractor L2 DefinitionID = %q, want %q", extractorL2.DefinitionID, ProductionDefinitionIDIronExtractorL2)
+	}
+	if extractorL2.BuildingType != BuildingTypeIronExtractor {
+		t.Fatalf("extractor L2 BuildingType = %q, want %q", extractorL2.BuildingType, BuildingTypeIronExtractor)
+	}
+	if extractorL2.Category != BuildingCategoryExtractor {
+		t.Fatalf("extractor L2 Category = %q, want %q", extractorL2.Category, BuildingCategoryExtractor)
+	}
+	if extractorL2.Level != 2 {
+		t.Fatalf("extractor L2 level = %d, want 2", extractorL2.Level)
+	}
+	if len(extractorL2.Inputs) != 0 {
+		t.Fatalf("extractor L2 Inputs len = %d, want 0", len(extractorL2.Inputs))
+	}
+	assertRate(t, extractorL2.Outputs, "iron_ore", 60)
+	if extractorL2.EnergyCostPerHour != 8 {
+		t.Fatalf("extractor L2 EnergyCostPerHour = %d, want 8", extractorL2.EnergyCostPerHour)
+	}
+
 	byBuilding, ok := catalogRows.GetBuilding(BuildingTypeAlloyFoundry, 1)
 	if !ok {
 		t.Fatalf("GetBuilding(%q, 1) = false, want true", BuildingTypeAlloyFoundry)
 	}
 	if byBuilding.DefinitionID != ProductionDefinitionIDAlloyFoundryL1 {
 		t.Fatalf("GetBuilding DefinitionID = %q, want %q", byBuilding.DefinitionID, ProductionDefinitionIDAlloyFoundryL1)
+	}
+	byBuilding, ok = catalogRows.GetBuilding(BuildingTypeIronExtractor, 2)
+	if !ok {
+		t.Fatalf("GetBuilding(%q, 2) = false, want true", BuildingTypeIronExtractor)
+	}
+	if byBuilding.DefinitionID != ProductionDefinitionIDIronExtractorL2 {
+		t.Fatalf("GetBuilding DefinitionID = %q, want %q", byBuilding.DefinitionID, ProductionDefinitionIDIronExtractorL2)
 	}
 }
 

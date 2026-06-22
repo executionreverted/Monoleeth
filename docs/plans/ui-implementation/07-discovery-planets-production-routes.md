@@ -169,6 +169,20 @@ Current slice completed:
   Authenticated gateway handlers, ownership/range/requirement policy wiring,
   durable DB rows, cross-process locks/CAS, durable idempotency-table
   enforcement, and durable material/outbox persistence remain open.
+- Phase07P backend gateway follow-up: authenticated `planet.building_build`
+  and `planet.building_upgrade` now exist in the Go realtime gateway. Build
+  accepts only `planet_id`, `building_type`, and `slot`; upgrade accepts only
+  `planet_id`, `building_id`, and `target_level`/`next_level` with conflict
+  rejection. The handlers derive player, active-map scope, catalog definition,
+  deterministic building id, idempotency reference, material costs, wallet
+  credit costs, and production snapshots server-side; wrong-owner, other-map,
+  spoofed owner/map/wallet/material/storage/cost/level/catalog fields are
+  rejected before mutation. Successful mutations settle owned production first,
+  mutate through the production domain, and reconcile with owner-scoped
+  production, storage, and wallet snapshots. Durable DB rows, cross-process
+  locks/CAS, durable idempotency-table enforcement, durable material/outbox
+  persistence, broader cost/requirement balancing, and browser HUD controls
+  remain open.
 
 ## Source Specs
 

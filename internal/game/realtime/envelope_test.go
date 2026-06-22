@@ -279,6 +279,44 @@ func TestDecodeRequestEnvelopeAcceptsRouteMutationOperations(t *testing.T) {
 	}
 }
 
+func TestDecodeRequestEnvelopeAcceptsPlanetBuildingMutationOperations(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want Operation
+	}{
+		{
+			name: "build",
+			body: `{"request_id":"request-building-build","op":"planet.building_build","payload":{"planet_id":"planet-1","building_type":"alloy_foundry","slot":"slot-a"},"client_seq":17,"v":1}`,
+			want: OperationPlanetBuildingBuild,
+		},
+		{
+			name: "upgrade",
+			body: `{"request_id":"request-building-upgrade","op":"planet.building_upgrade","payload":{"planet_id":"planet-1","building_id":"planet-1-building-iron_extractor-slot-a","target_level":2},"client_seq":18,"v":1}`,
+			want: OperationPlanetBuildingUpgrade,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			envelope, err := DecodeRequestEnvelope([]byte(tc.body))
+			if err != nil {
+				t.Fatalf("decode planet building mutation request envelope: %v", err)
+			}
+			if envelope.Op != tc.want {
+				t.Fatalf("op = %q, want %q", envelope.Op, tc.want)
+			}
+			spec, ok := LookupOperation(tc.want)
+			if !ok {
+				t.Fatalf("LookupOperation(%q) not registered", tc.want)
+			}
+			if spec.RateLimitPosture != RateLimitPostureIntentBurst {
+				t.Fatalf("planet building mutation posture = %q, want %q", spec.RateLimitPosture, RateLimitPostureIntentBurst)
+			}
+		})
+	}
+}
+
 func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testing.T) {
 	disallowed := []Operation{
 		Operation("crafting.start"),
@@ -287,8 +325,6 @@ func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testin
 		Operation("inventory.move"),
 		Operation("progression.unlock_skill"),
 		Operation("progression.respec_skills"),
-		Operation("planet.building_build"),
-		Operation("planet.building_upgrade"),
 		Operation("intel.share"),
 		Operation("intel.coordinate_item_create"),
 		Operation("intel.coordinate_item_use"),

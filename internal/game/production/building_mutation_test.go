@@ -577,14 +577,15 @@ func TestBuildingMutationAdaptersCanReenterProductionReadsWithoutDeadlock(t *tes
 func TestBuildingMutationUpgradeUnknownNextLevelFailsWithoutMutation(t *testing.T) {
 	store := newBuildingMutationStore(t, []StoredItem{{ItemID: "iron_ore", Quantity: 100}})
 	catalogRows := MustMVPCatalog()
-	addBuildingMutationBuilding(t, store, catalogRows, "building-1", ProductionDefinitionIDIronExtractorL1)
+	addBuildingMutationBuilding(t, store, catalogRows, "building-1", ProductionDefinitionIDIronExtractorL2)
 	service := newTestBuildingMutationService(t, store, catalogRows, nil, mapBuildingCosts{})
 
 	_, err := service.UpgradePlanetBuilding(UpgradePlanetBuildingInput{
 		PlanetID:     "planet-1",
 		BuildingID:   "building-1",
+		NextLevel:    3,
 		RequestedAt:  testTime(2),
-		ReferenceKey: mustBuildingUpgradeKey(t, "planet-1", "building-1", 2),
+		ReferenceKey: mustBuildingUpgradeKey(t, "planet-1", "building-1", 3),
 	})
 	if !errors.Is(err, ErrUnknownBuildingDefinition) {
 		t.Fatalf("UpgradePlanetBuilding() error = %v, want ErrUnknownBuildingDefinition", err)
@@ -741,20 +742,7 @@ func newTestBuildingMutationService(
 
 func testBuildingMutationCatalogWithL2(t *testing.T) Catalog {
 	t.Helper()
-	definitions := append(MVPProductionDefinitions(), newMVPDefinition(
-		"iron_extractor_l2",
-		BuildingTypeIronExtractor,
-		BuildingCategoryExtractor,
-		2,
-		nil,
-		[]ItemRate{mustItemRate("iron_ore", 60)},
-		8,
-	))
-	catalogRows, err := NewCatalog(definitions)
-	if err != nil {
-		t.Fatalf("NewCatalog(L2) error = %v, want nil", err)
-	}
-	return catalogRows
+	return MustMVPCatalog()
 }
 
 func addBuildingMutationBuilding(t *testing.T, store *InMemoryStore, catalogRows Catalog, buildingID BuildingID, definitionID catalog.DefinitionID) {

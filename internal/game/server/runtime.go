@@ -79,7 +79,12 @@ type RuntimeConfig struct {
 
 // Runtime composes auth, realtime gateway, and the Phase 02 world worker.
 type Runtime struct {
-	mu                 sync.Mutex
+	mu sync.Mutex
+
+	// buildingMutationMu serializes in-process building build/upgrade commands
+	// so wallet debit cannot outrun production commit.
+	buildingMutationMu sync.Mutex
+
 	clock              foundation.Clock
 	devMode            bool
 	e2ePlanetClaimSeed bool
