@@ -153,9 +153,10 @@ for phase status; this file is a compact pending-work index.
   DOM/state/storage/cookie leak checks, server-only claim success covers seeded
   destination map `map_1_2` / public `1-2`, and server-only scanner scope proof
   now shows an active `map_1_2` session keeps `scan.pulse`
-  response/event/read-model memory on public `1-2`; remaining work is
-  scanner/drop behavior for each seeded map, browser claim flow, and broader
-  browser scan success/no-signal variants. Source:
+  response/event/read-model memory on public `1-2`. Domain scanner
+  materialization/intel now covers seeded public maps `1-1`, `1-2`, and `1-3`;
+  remaining work is the claim/drop seeded-map matrix, browser claim flow, and
+  broader browser scan success/no-signal variants. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete broader per-map/risk/rank drop balance matrix coverage across
   seeded maps. Current server tests cover starter selection, `map_1_2`
