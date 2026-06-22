@@ -151,8 +151,9 @@ for phase status; this file is a compact pending-work index.
   server/discovery scanner rarity/hidden-scan-data regression coverage now
   exists, Phase09 now covers one browser `scan.pulse` with
   DOM/state/storage/cookie leak checks, server-only claim success covers seeded
-  destination map `map_1_2` / public `1-2`, and server-only scanner scope proof
-  now shows an active `map_1_2` session keeps `scan.pulse`
+  destination map `map_1_2` / public `1-2` and PvP map `map_1_3` / public
+  `1-3`, and server-only scanner scope proof now shows an active `map_1_2`
+  session keeps `scan.pulse`
   response/event/read-model memory on public `1-2`. Domain scanner
   materialization/intel now covers seeded public maps `1-1`, `1-2`, and `1-3`;
   remaining work is the claim/drop seeded-map matrix, browser claim flow, and
