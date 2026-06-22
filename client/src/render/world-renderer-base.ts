@@ -3,14 +3,15 @@ import { Application, Container, Graphics, Text, Texture } from 'pixi.js';
 import { EntityPayload, Vec2 } from '../protocol/envelope';
 import { currentEntityPosition, estimateServerTime } from '../state/movement';
 import { WorldMapMemoryMarker } from '../state/types';
+import { emptyMapOverlayDebug, MapOverlayDebugState } from './map-overlay';
 import { WorldInputHandlers, WorldViewState } from './world-view';
-import { FogDebugState, StarfieldDebugState, StarfieldTile } from './world-renderer-types';
+import { StarfieldDebugState, StarfieldTile } from './world-renderer-types';
 
 export abstract class WorldRendererBase {
   protected app: Application | null = null;
   protected readonly backgroundLayer = new Container();
   protected readonly starfieldLayer = new Container();
-  protected readonly fogLayer = new Graphics();
+  protected readonly mapOverlayLayer = new Graphics();
   protected readonly scanLayer = new Graphics();
   protected readonly worldLayer = new Container();
   protected readonly memoryMarkerLayer = new Container();
@@ -47,7 +48,7 @@ export abstract class WorldRendererBase {
     screen: Vec2 | null;
     rings: Array<{ radius: number; alpha: number }>;
   } = { active: false, screen: null, rings: [] };
-  protected fogDebug: FogDebugState = { active: false, revealCenter: null, revealRadius: 0, rememberedPockets: 0, overlayAlpha: 0 };
+  protected mapOverlayDebug: MapOverlayDebugState = emptyMapOverlayDebug();
 
   protected constructor(protected readonly handlers: WorldInputHandlers) {}
 

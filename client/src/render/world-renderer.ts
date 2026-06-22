@@ -2,9 +2,10 @@ import { Application, Assets, Text, Texture } from 'pixi.js';
 
 import { Vec2 } from '../protocol/envelope';
 import { isSelfEntity, serverClockOffset } from '../state/movement';
+import { cloneMapOverlayDebug, MapOverlayDebugState } from './map-overlay';
 import { WorldInputHandlers, WorldViewState } from './world-view';
 import { WorldRendererEntities } from './world-renderer-entities';
-import { FogDebugState, labelColorForEntity, labelForEntity, StarfieldDebugState } from './world-renderer-types';
+import { labelColorForEntity, labelForEntity, StarfieldDebugState } from './world-renderer-types';
 import starfieldURL from '../assets/starfield_2048x1152.png?url';
 
 export class WorldRenderer extends WorldRendererEntities {
@@ -29,7 +30,7 @@ export class WorldRenderer extends WorldRendererEntities {
     this.backgroundLayer.addChild(this.starfieldLayer);
     this.backgroundLayer.addChild(this.nebulaLayer);
     this.backgroundLayer.addChild(this.gridLayer);
-    app.stage.addChild(this.fogLayer);
+    app.stage.addChild(this.mapOverlayLayer);
     app.stage.addChild(this.scanLayer);
     app.stage.addChild(this.worldLayer);
     app.stage.addChild(this.memoryMarkerLayer);
@@ -60,7 +61,7 @@ export class WorldRenderer extends WorldRendererEntities {
       this.updateMemoryMarkerPositions();
       this.updateBackground();
       if (this.state) {
-        this.drawFog(this.state);
+        this.drawMapOverlay(this.state);
         this.drawScanWaves(this.state);
         this.drawMarkers(this.state);
       }
@@ -85,7 +86,7 @@ export class WorldRenderer extends WorldRendererEntities {
     this.center = local ? this.authoritativeDisplayPosition(local) : this.center;
     this.scale = this.app.screen.width < 700 ? 0.78 : 1;
     this.updateBackground();
-    this.drawFog(state);
+    this.drawMapOverlay(state);
 
     const activeIDs = new Set(state.entities.map((entity) => entity.entity_id));
     for (const [entityID, view] of this.entityViews) {
@@ -141,7 +142,7 @@ export class WorldRenderer extends WorldRendererEntities {
     scanWaves: { active: boolean; screen: Vec2 | null; rings: Array<{ radius: number; alpha: number }> };
     projectiles: Array<{ id: string; source: Vec2; target: Vec2; head: Vec2; progress: number; active: boolean; alpha: number }>;
     background: StarfieldDebugState;
-    fog: FogDebugState;
+    mapOverlay: MapOverlayDebugState;
   } {
     const displayPositions: Record<string, Vec2> = {};
     for (const [entityID, position] of this.entityWorldPositions) {
@@ -173,13 +174,7 @@ export class WorldRenderer extends WorldRendererEntities {
         midOffset: { ...this.starfieldDebug.midOffset },
         sampleTiles: this.starfieldDebug.sampleTiles.map((tile) => ({ ...tile, screen: { ...tile.screen } })),
       },
-      fog: {
-        active: this.fogDebug.active,
-        revealCenter: this.fogDebug.revealCenter ? { ...this.fogDebug.revealCenter } : null,
-        revealRadius: this.fogDebug.revealRadius,
-        rememberedPockets: this.fogDebug.rememberedPockets,
-        overlayAlpha: this.fogDebug.overlayAlpha,
-      },
+      mapOverlay: cloneMapOverlayDebug(this.mapOverlayDebug),
     };
   }
 

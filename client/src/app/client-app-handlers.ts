@@ -274,6 +274,7 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
     this.root.dataset.connection = this.state.connectionStatus;
     this.renderer.render({
       entities: Object.values(this.state.visibleEntities),
+      currentMap: this.state.currentMap,
       sector: this.state.sector,
       minimap: this.state.minimap,
       selectedTargetID: this.state.selectedTargetID,
@@ -713,6 +714,10 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
         connectionStatus: this.state.connectionStatus,
         lastServerTime: this.state.lastServerTime,
         lastSequence: this.state.lastSequence,
+        mapSubscriptionEpoch: this.state.mapSubscriptionEpoch,
+        mapTransfer: this.state.mapTransfer,
+        currentMap: this.state.currentMap,
+        portalCooldowns: this.state.portalCooldowns,
         playerSnapshot: this.state.playerSnapshot,
         sector: this.state.sector,
         minimap: this.state.minimap,

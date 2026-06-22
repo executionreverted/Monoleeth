@@ -56,15 +56,6 @@ export interface StarfieldDebugState {
   sampleTiles: Array<{ layer: StarfieldLayerID; mirrorX: boolean; mirrorY: boolean; screen: Vec2 }>;
 }
 
-export interface FogDebugState {
-  active: boolean;
-  revealCenter: Vec2 | null;
-  revealRadius: number;
-  rememberedPockets: number;
-  overlayAlpha: number;
-}
-
-
 export function damageLabel(effect: WorldFeedbackEffect): string {
   if (typeof effect.amount === 'number') {
     return `-${effect.amount}`;

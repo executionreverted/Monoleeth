@@ -1,8 +1,9 @@
 import { EntityPayload, Vec2 } from '../protocol/envelope';
-import { MinimapSummary, ScanModeState, SectorSummary, WorldFeedbackEffect, WorldMapMemoryMarker } from '../state/types';
+import { MapSummary, MinimapSummary, ScanModeState, SectorSummary, WorldFeedbackEffect, WorldMapMemoryMarker } from '../state/types';
 
 export interface WorldViewState {
   entities: EntityPayload[];
+  currentMap: MapSummary | null;
   sector: SectorSummary | null;
   minimap: MinimapSummary | null;
   selectedTargetID: string | null;

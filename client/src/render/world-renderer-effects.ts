@@ -3,66 +3,108 @@ import { Graphics, Text } from 'pixi.js';
 import { Vec2 } from '../protocol/envelope';
 import { isSelfEntity } from '../state/movement';
 import { WorldFeedbackEffect } from '../state/types';
+import { emptyMapOverlayDebug, MapOverlayFrameDebug, MapOverlayPortalDebug, MapOverlaySafeZoneDebug, summarizeMapOverlay } from './map-overlay';
 import { WorldViewState } from './world-view';
 import { WorldRendererStarfield } from './world-renderer-starfield';
 import {
   clamp,
   damageLabel,
   hudColors,
-  isFiniteVec,
   lerpVec,
   pickupLabel,
   PROJECTILE_TRAVEL_MS,
 } from './world-renderer-types';
 
 export abstract class WorldRendererEffects extends WorldRendererStarfield {
-  protected drawFog(state: WorldViewState): void {
-    this.fogLayer.clear();
-    this.fogDebug = {
-      active: false,
-      revealCenter: null,
-      revealRadius: 0,
-      rememberedPockets: this.fogMemoryPockets(state).length,
-      overlayAlpha: 0,
-    };
-  }
-
-  protected fogMemoryPockets(state: WorldViewState): Array<{ screen: Vec2; radius: number; freshness: string }> {
+  protected drawMapOverlay(state: WorldViewState): void {
+    this.mapOverlayLayer.clear();
     if (!this.app) {
-      return [];
+      this.mapOverlayDebug = emptyMapOverlayDebug();
+      return;
     }
-    const seen = new Set<string>();
-    const pockets: Array<{ screen: Vec2; radius: number; freshness: string }> = [];
-    const add = (position: Vec2, freshness: string): void => {
-      if (!isFiniteVec(position)) {
-        return;
-      }
-      const key = `${Math.round(position.x)}:${Math.round(position.y)}`;
-      if (seen.has(key)) {
-        return;
-      }
-      seen.add(key);
-      const screen = this.worldToScreen(position);
-      const margin = 190;
-      if (screen.x < -margin || screen.y < -margin || screen.x > this.app!.screen.width + margin || screen.y > this.app!.screen.height + margin) {
-        return;
-      }
-      pockets.push({
-        screen,
-        radius: clamp((state.minimap?.radar_range ?? 360) * this.scale * 0.18, 58, 126),
-        freshness,
-      });
-    };
 
-    for (const memory of state.minimap?.remembered ?? []) {
-      add(memory.position, memory.freshness);
+    const overlay = summarizeMapOverlay(
+      { currentMap: state.currentMap, minimap: state.minimap },
+      {
+        center: this.center,
+        screen: { width: this.app.screen.width, height: this.app.screen.height },
+        scale: this.scale,
+      },
+    );
+    this.mapOverlayDebug = overlay;
+    if (!overlay.active || !overlay.bounds) {
+      return;
     }
-    for (const marker of state.memoryMarkers) {
-      add(marker.position, marker.state);
+
+    this.drawMapBoundsFrame(overlay.bounds);
+    for (const safeZone of overlay.safeZones) {
+      this.drawSafeZoneHint(safeZone);
     }
-    return pockets.slice(0, 12);
+    for (const portal of overlay.portalMarkers) {
+      this.drawPortalMarker(portal);
+    }
   }
 
+  protected drawMapBoundsFrame(bounds: MapOverlayFrameDebug): void {
+    if (bounds.width <= 0 || bounds.height <= 0) {
+      return;
+    }
+
+    const corner = clamp(Math.min(bounds.width, bounds.height) * 0.08, 24, 72);
+    this.mapOverlayLayer
+      .rect(bounds.topLeft.x, bounds.topLeft.y, bounds.width, bounds.height)
+      .fill({ color: hudColors.cyan, alpha: 0.012 })
+      .stroke({ color: hudColors.cyan, width: 2, alpha: 0.24 });
+    this.mapOverlayLayer
+      .moveTo(bounds.topLeft.x, bounds.topLeft.y + corner)
+      .lineTo(bounds.topLeft.x, bounds.topLeft.y)
+      .lineTo(bounds.topLeft.x + corner, bounds.topLeft.y)
+      .moveTo(bounds.topRight.x - corner, bounds.topRight.y)
+      .lineTo(bounds.topRight.x, bounds.topRight.y)
+      .lineTo(bounds.topRight.x, bounds.topRight.y + corner)
+      .moveTo(bounds.bottomRight.x, bounds.bottomRight.y - corner)
+      .lineTo(bounds.bottomRight.x, bounds.bottomRight.y)
+      .lineTo(bounds.bottomRight.x - corner, bounds.bottomRight.y)
+      .moveTo(bounds.bottomLeft.x + corner, bounds.bottomLeft.y)
+      .lineTo(bounds.bottomLeft.x, bounds.bottomLeft.y)
+      .lineTo(bounds.bottomLeft.x, bounds.bottomLeft.y - corner)
+      .stroke({ color: hudColors.cyanSoft, width: 3, alpha: 0.42 });
+  }
+
+  protected drawPortalMarker(portal: MapOverlayPortalDebug): void {
+    const radius = clamp(portal.screenRadius, 10, 30);
+    const x = portal.screen.x;
+    const y = portal.screen.y;
+    this.mapOverlayLayer.circle(x, y, radius + 10).stroke({ color: hudColors.cyan, width: 1, alpha: 0.18 });
+    this.mapOverlayLayer
+      .moveTo(x, y - radius)
+      .lineTo(x + radius, y)
+      .lineTo(x, y + radius)
+      .lineTo(x - radius, y)
+      .closePath()
+      .fill({ color: hudColors.panel, alpha: 0.58 })
+      .stroke({ color: hudColors.cyanSoft, width: 2, alpha: 0.76 });
+    this.mapOverlayLayer
+      .moveTo(x - radius - 7, y)
+      .lineTo(x - radius + 3, y)
+      .moveTo(x + radius - 3, y)
+      .lineTo(x + radius + 7, y)
+      .moveTo(x, y - radius - 7)
+      .lineTo(x, y - radius + 3)
+      .moveTo(x, y + radius - 3)
+      .lineTo(x, y + radius + 7)
+      .stroke({ color: hudColors.cyan, width: 1, alpha: 0.58 });
+  }
+
+  protected drawSafeZoneHint(zone: MapOverlaySafeZoneDebug): void {
+    const radius = clamp(zone.screenRadius, 12, 1600);
+    const color = zone.blocksPVP ? hudColors.green : hudColors.amber;
+    this.mapOverlayLayer
+      .circle(zone.screen.x, zone.screen.y, radius)
+      .fill({ color, alpha: zone.blocksPVP ? 0.026 : 0.018 })
+      .stroke({ color, width: 2, alpha: zone.blocksPVP ? 0.28 : 0.22 });
+    this.mapOverlayLayer.circle(zone.screen.x, zone.screen.y, clamp(radius * 0.075, 4, 12)).fill({ color, alpha: 0.34 });
+  }
 
   protected drawMarkers(state: WorldViewState): void {
     const staleMarkers = this.markerLayer.removeChildren();

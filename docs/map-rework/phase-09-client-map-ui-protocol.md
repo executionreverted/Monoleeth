@@ -260,6 +260,13 @@ Snapshot/event rules:
   without a destination summary, and preserves same-map same-epoch metadata
   refreshes. Renderer, minimap drawing, portal click UX, and new command
   builders remain open.
+- 2026-06-22 Phase09B progress: the Pixi renderer now receives server-owned
+  `currentMap`, publishes it through smoke state, draws a lightweight canvas map
+  overlay from `currentMap`/`minimap` bounds, visible portals, and safe zones
+  only when those fields are present, and exposes `worldView.mapOverlay` debug
+  state instead of the old UI-facing `fog` field. Portal click UX, HUD
+  location/topbar changes, minimap DOM work, and portal command builders remain
+  open.
 - Update UI implementation docs after the protocol lands to state that
   `currentMap`, portals, minimap bounds, and safe/PvP flags are server-owned.
 - Update local run/smoke docs with a deterministic two-map seed that includes at
