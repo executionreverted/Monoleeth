@@ -2,7 +2,10 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 
-const distRoot = path.resolve('dist');
+const scanRoots = [
+  { label: 'dist', root: path.resolve('dist') },
+  ...process.argv.slice(2).map((arg) => ({ label: arg, root: path.resolve(arg) })),
+];
 const fakeFixtureSnippets = [
   'Demo Fringe',
   'Fixture Belt',
@@ -38,20 +41,31 @@ const forbiddenSnippetGroups = [
   { name: 'server-only map/content id', snippets: serverOnlyContentSnippets },
 ];
 
-const distStats = await stat(distRoot).catch(() => null);
-if (!distStats?.isDirectory()) {
-  console.error('Production bundle scan failed: dist/ does not exist. Run npm run build first.');
-  process.exit(1);
+for (const scanRoot of scanRoots) {
+  const rootStats = await stat(scanRoot.root).catch(() => null);
+  if (!rootStats?.isDirectory()) {
+    const rootLabel = formatDisplayPath(scanRoot.root);
+    if (scanRoot.label === 'dist') {
+      console.error('Production bundle scan failed: dist/ does not exist. Run npm run build first.');
+    } else {
+      console.error(`Production bundle scan failed: artifact root is missing or not a directory: ${rootLabel}`);
+    }
+    process.exit(1);
+  }
 }
 
-const files = await listBuiltTextAndSourceMapArtifacts(distRoot);
 const violations = [];
-for (const file of files) {
-  const text = await readFile(file, 'utf8');
-  for (const group of forbiddenSnippetGroups) {
-    for (const snippet of group.snippets) {
-      if (text.includes(snippet)) {
-        violations.push(`${path.relative(process.cwd(), file)} contains ${group.name} ${JSON.stringify(snippet)}`);
+for (const scanRoot of scanRoots) {
+  const files = await listBuiltTextAndSourceMapArtifacts(scanRoot.root);
+  for (const file of files) {
+    const text = await readFile(file, 'utf8');
+    for (const group of forbiddenSnippetGroups) {
+      for (const snippet of group.snippets) {
+        if (text.includes(snippet)) {
+          violations.push(
+            `${formatDisplayPath(scanRoot.root)}/${path.relative(scanRoot.root, file)} contains ${group.name} ${JSON.stringify(snippet)}`,
+          );
+        }
       }
     }
   }
@@ -79,4 +93,12 @@ async function listBuiltTextAndSourceMapArtifacts(dir) {
     }
   }
   return files;
+}
+
+function formatDisplayPath(filePath) {
+  const relativePath = path.relative(process.cwd(), filePath);
+  if (relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath)) {
+    return relativePath;
+  }
+  return filePath;
 }

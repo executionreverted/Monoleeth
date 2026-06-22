@@ -165,18 +165,19 @@ for phase status; this file is a compact pending-work index.
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete remaining Phase10 leak canaries over production logs beyond the
   Phase09 harness, admin/debug responses outside the normal-session
-  `debug_snapshot`/`debug_spawn_npc` rejection path, published bundle artifacts,
-  non-Phase09 WebSocket paths, and screenshot artifacts outside the Phase09
-  smoke for hidden map/scan/spawn/loot internals and fake/default fixture
-  labels. Phase09 now covers DOM/app state, local/session storage, cookies,
-  inbound/outbound app plus command WebSocket text frames, production debug
-  rejection responses for those two ops, captured Go/Vite stdout/stderr lines
-  from its own harness, and Tesseract OCR over its six generated real-server
-  screenshot PNGs, and the default production bundle text/source-map scan
-  covers fake/default fixture labels/ids plus server-only content ids when
-  source maps are present in `dist`, but production logs/admin responses
-  outside that path, non-Phase09 paths, deployed artifacts, and screenshots
-  outside Phase09 remain open. Source:
+  `debug_snapshot`/`debug_spawn_npc` rejection path, CI/deploy-fed published
+  bundle artifacts, non-Phase09 WebSocket paths, and screenshot artifacts
+  outside the Phase09 smoke for hidden map/scan/spawn/loot internals and
+  fake/default fixture labels. Phase09 now covers DOM/app state, local/session
+  storage, cookies, inbound/outbound app plus command WebSocket text frames,
+  production debug rejection responses for those two ops, captured Go/Vite
+  stdout/stderr lines from its own harness, and Tesseract OCR over its six
+  generated real-server screenshot PNGs, and the bundle scan covers
+  fake/default fixture labels/ids plus server-only content ids in default
+  `dist` and explicit extra artifact roots. Production logs/admin responses
+  outside that path, non-Phase09 paths, wiring the real deployed/published
+  artifact set into CI/deploy, and screenshots outside Phase09 remain open.
+  Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Clean up active legacy semantic contradictions in the scoped
   world/progression/module/UI docs. The bounded-map rework now defines active
