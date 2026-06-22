@@ -12,6 +12,7 @@ import (
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/combat"
 	"gameproject/internal/game/crafting"
+	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
@@ -64,6 +65,7 @@ const (
 // RuntimeConfig wires the single-process game runtime.
 type RuntimeConfig struct {
 	Clock      foundation.Clock
+	RNG        foundation.RNG
 	SessionTTL time.Duration
 	TickDelta  time.Duration
 	WorldID    foundation.WorldID
@@ -107,6 +109,7 @@ type Runtime struct {
 	nextPlayerEntity int
 
 	Combat        *combat.Service
+	Death         *deathdomain.DeathService
 	Loot          *loot.Service
 	Inventory     *economy.InventoryService
 	CargoService  *economy.CargoService
@@ -153,6 +156,10 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	clock := config.Clock
 	if clock == nil {
 		clock = foundation.RealClock{}
+	}
+	rng := config.RNG
+	if rng == nil {
+		rng = newRuntimeRNG(clock.Now().UnixNano())
 	}
 	authStore := auth.NewInMemoryStore()
 	authService, err := auth.NewService(auth.ServiceConfig{
@@ -275,6 +282,19 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	deathService, err := deathdomain.NewDeathService(deathdomain.Config{
+		Clock:           clock,
+		RNG:             rng,
+		Inventory:       inventory,
+		Loot:            lootService,
+		Ships:           hangarService,
+		EquippedModules: loadoutService,
+	})
+	if err != nil {
+		return nil, err
+	}
+	inventory.SetCargoTransferGuard(deathService)
+	cargoService.SetCargoTransferGuard(deathService)
 	marketService, err := market.NewMarketService(market.MarketServiceConfig{
 		Clock:     clock,
 		Inventory: inventory,
@@ -340,6 +360,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		portalAttempts:      make(map[portalRequestKey]portalTransferRecord),
 		playerProtections:   make(map[protectionKey]playerProtectionState),
 		Combat:              combatService,
+		Death:               deathService,
 		Loot:                lootService,
 		Inventory:           inventory,
 		CargoService:        cargoService,

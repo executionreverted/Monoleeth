@@ -500,6 +500,60 @@ func TestDeathServiceBlocksCargoMoveWhileDeathProcessing(t *testing.T) {
 	}
 }
 
+func TestDeathServiceProcessDeathCargoSnapshotProviderRunsInsideDeathCargoBlock(t *testing.T) {
+	fixture := newDeathServiceFixture(t, nil, nil)
+	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
+	cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
+	added := fixture.addCargo(t, iron, 10, cargoLocation)
+	providerCalled := false
+	input := death.ProcessDeathInput{
+		LethalEventID:   "lethal-event-provider-cargo-lock",
+		PlayerID:        "player-1",
+		WorldID:         "world-1",
+		ZoneID:          "zone-1",
+		Position:        world.Vec2{X: 1, Y: 2},
+		Reason:          death.DeathReasonCombat,
+		CargoDropPolicy: cargoPolicy(t, 0.50, 0.50),
+		CargoSnapshot: func() ([]death.CargoStack, error) {
+			providerCalled = true
+			lease, err := fixture.death.BeginCargoTransfer(economy.CargoTransferGuardInput{
+				PlayerID:     "player-1",
+				FromLocation: cargoLocation,
+				ToLocation:   mustDeathServiceLocation(t, economy.LocationKindAccountInventory, "player-1"),
+				Reason:       economy.LedgerReason("inventory_move"),
+				ReferenceKey: mustDeathServiceLootPickupKey(t, "provider-cargo-lock-probe"),
+			})
+			if err == nil {
+				if lease != nil {
+					lease.Release()
+				}
+				return nil, errors.New("cargo snapshot provider acquired transfer during death block")
+			}
+			if !errors.Is(err, death.ErrDeathCargoTransferBlocked) {
+				return nil, err
+			}
+			return []death.CargoStack{
+				cargoStackFromDeathServiceStackable(t, added.StackableItems[0], iron),
+			}, nil
+		},
+		RespawnLocationID: "origin-station",
+	}
+
+	result, err := fixture.death.ProcessDeath(input)
+	if err != nil {
+		t.Fatalf("ProcessDeath() error = %v", err)
+	}
+	if !providerCalled {
+		t.Fatal("CargoSnapshot provider was not called")
+	}
+	if result.Duplicate || len(result.CargoDrops) != 1 || len(result.LootDrops) != 1 {
+		t.Fatalf("ProcessDeath result = %+v, want one cargo-backed loot drop", result)
+	}
+	if got := fixture.inventory.TotalItemQuantity("player-1", iron.ItemID, cargoLocation); got != 5 {
+		t.Fatalf("remaining cargo after provider death = %d, want 5", got)
+	}
+}
+
 func TestDeathServiceWaitsForInFlightCargoTransferBeforeProcessing(t *testing.T) {
 	fixture := newDeathServiceFixture(t, nil, nil)
 	iron := deathServiceItemDefinition(t, "iron_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})

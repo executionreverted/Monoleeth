@@ -96,6 +96,14 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	}
 
 	var drops []loot.Drop
+	lethalPlayerDeath := isLethalPlayerCombatResult(targetBefore, result)
+	if lethalPlayerDeath {
+		playerDeathDrops, err := runtime.processLethalPVPDeathLocked(request.RequestID, result.Attacker, result.Target)
+		if err != nil {
+			return nil, domainErrorForRuntime(err)
+		}
+		drops = append(drops, playerDeathDrops...)
+	}
 	var progressionSnapshot *progressionSnapshotPayload
 	var questUpdates []quests.PlayerQuest
 	if result.KillEvent != nil {
@@ -172,12 +180,6 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	}
 	runtime.queueTargetUpdatedLocked(sessionID, result.Target)
 	if result.Target.Type == world.EntityTypePlayer && !result.Target.PlayerID.IsZero() && result.Target.PlayerID != ctx.PlayerID {
-		targetState, ok := runtime.applyCombatActorToPlayerShipLocked(result.Target.PlayerID, result.Target)
-		if !ok {
-			return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
-		}
-		runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventPlayerSnapshot, targetState.playerSnapshot())
-		runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventShipSnapshot, targetState.Ship)
 		if result.Hit {
 			runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventCombatDamage, map[string]any{
 				"target_id":     result.Target.EntityID.String(),
@@ -189,6 +191,14 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 			runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventCombatMiss, map[string]any{
 				"target_id": result.Target.EntityID.String(),
 			})
+		}
+		if !lethalPlayerDeath {
+			targetState, ok := runtime.applyCombatActorToPlayerShipLocked(result.Target.PlayerID, result.Target)
+			if !ok {
+				return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
+			}
+			runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventPlayerSnapshot, targetState.playerSnapshot())
+			runtime.queueEventToPlayerSessionsLocked(result.Target.PlayerID, realtime.EventShipSnapshot, targetState.Ship)
 		}
 		runtime.queueTargetUpdatedToPlayerSessionsLocked(result.Target.PlayerID, result.Target)
 	}
@@ -205,6 +215,12 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 			runtime.queueEventLocked(sessionID, realtime.EventLootCreated, lootDropPayload(drop, runtime.clock.Now()))
 		}
 	}
+	if lethalPlayerDeath {
+		for _, drop := range drops {
+			runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventLootCreated, lootDropPayload(drop, runtime.clock.Now()))
+		}
+	}
+	targetKilled := result.Killed || lethalPlayerDeath
 
 	response := map[string]any{
 		"accepted":             true,
@@ -212,7 +228,7 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 		"target_id":            intent.TargetID.String(),
 		"hit":                  result.Hit,
 		"amount":               roundCombatValue(result.Damage),
-		"killed":               result.Killed,
+		"killed":               targetKilled,
 		"cooldown_ready_at_ms": result.CooldownReadyAt.UTC().UnixMilli(),
 		"ship":                 state.Ship,
 		"player":               state.playerSnapshot(),

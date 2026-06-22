@@ -69,6 +69,10 @@ type EquippedModuleProvider interface {
 	EquippedItemIDs(foundation.PlayerID, foundation.ShipID) ([]foundation.ItemID, error)
 }
 
+// CargoSnapshotProvider returns authoritative cargo while DeathService's
+// cargo-transfer block is active.
+type CargoSnapshotProvider func() ([]CargoStack, error)
+
 // EventEmitter is the optional post-mutation event hook.
 type EventEmitter interface {
 	Record(events.EventEnvelope)
@@ -120,16 +124,17 @@ type processDeathAttempt struct {
 
 // ProcessDeathInput is one authoritative lethal event to process once.
 type ProcessDeathInput struct {
-	LethalEventID     foundation.EventID  `json:"lethal_event_id"`
-	PlayerID          foundation.PlayerID `json:"player_id"`
-	WorldID           world.WorldID       `json:"world_id"`
-	ZoneID            world.ZoneID        `json:"zone_id"`
-	Position          world.Vec2          `json:"position"`
-	KillerEntityID    world.EntityID      `json:"killer_entity_id,omitempty"`
-	Reason            DeathReason         `json:"death_reason"`
-	CargoDropPolicy   ZoneCargoDropPolicy `json:"cargo_drop_policy"`
-	Cargo             []CargoStack        `json:"cargo"`
-	RespawnLocationID RespawnLocationID   `json:"respawn_location_id"`
+	LethalEventID     foundation.EventID    `json:"lethal_event_id"`
+	PlayerID          foundation.PlayerID   `json:"player_id"`
+	WorldID           world.WorldID         `json:"world_id"`
+	ZoneID            world.ZoneID          `json:"zone_id"`
+	Position          world.Vec2            `json:"position"`
+	KillerEntityID    world.EntityID        `json:"killer_entity_id,omitempty"`
+	Reason            DeathReason           `json:"death_reason"`
+	CargoDropPolicy   ZoneCargoDropPolicy   `json:"cargo_drop_policy"`
+	Cargo             []CargoStack          `json:"cargo"`
+	CargoSnapshot     CargoSnapshotProvider `json:"-"`
+	RespawnLocationID RespawnLocationID     `json:"respawn_location_id"`
 
 	// DropOwnerPlayerID is optional. PvP rules can set it to the killer; PvE can
 	// leave it empty so the drop becomes public after the loot service windows.
@@ -355,6 +360,7 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 	}
 
 	attempt, ok := service.attempts[lethalKey]
+	var cargo []CargoStack
 	var newAttemptEquippedItemIDs []foundation.ItemID
 	if !ok {
 		activeShipID, activeShipDisabled, err := service.activeShipForDeath(input.PlayerID)
@@ -375,7 +381,11 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 			service.processed[lethalKey] = cloneProcessDeathResult(result)
 			return cloneProcessDeathResult(result), nil
 		}
-		if err := validateDeathCargoStacks(input.PlayerID, activeShipID, input.Cargo); err != nil {
+		cargo, err = input.cargoStacks()
+		if err != nil {
+			return ProcessDeathResult{}, err
+		}
+		if err := validateDeathCargoStacks(input.PlayerID, activeShipID, cargo); err != nil {
 			return ProcessDeathResult{}, err
 		}
 		newAttemptEquippedItemIDs, err = service.equippedItemIDsForDeath(input.PlayerID, activeShipID)
@@ -400,12 +410,12 @@ func (service *DeathService) ProcessDeath(input ProcessDeathInput) (ProcessDeath
 	}
 
 	if !ok {
-		if err := validateDeathCargoStacks(input.PlayerID, shipDisable.ActiveShip.ShipID, input.Cargo); err != nil {
+		if err := validateDeathCargoStacks(input.PlayerID, shipDisable.ActiveShip.ShipID, cargo); err != nil {
 			return ProcessDeathResult{}, err
 		}
 		selection, err := SelectCargoDrops(SelectCargoDropsInput{
 			Policy: input.CargoDropPolicy,
-			Cargo:  input.Cargo,
+			Cargo:  cargo,
 			RNG:    service.rng,
 		})
 		if err != nil {
@@ -541,6 +551,17 @@ func (input ProcessDeathInput) validate() error {
 		}
 	}
 	return nil
+}
+
+func (input ProcessDeathInput) cargoStacks() ([]CargoStack, error) {
+	if input.CargoSnapshot != nil {
+		cargo, err := input.CargoSnapshot()
+		if err != nil {
+			return nil, err
+		}
+		return append([]CargoStack(nil), cargo...), nil
+	}
+	return append([]CargoStack(nil), input.Cargo...), nil
 }
 
 func (service *DeathService) deathEventsLocked(result ProcessDeathResult) []events.EventEnvelope {

@@ -134,8 +134,12 @@ for phase status; this file is a compact pending-work index.
   tests cover allowed PvP outside safe zones plus safe-zone and protection
   blocking on that seeded map. Death-domain coverage now proves
   `DeathService.ProcessDeath` preserves a PvP killer, killer-owned loot drop,
-  zone cargo policy, and checkpoint/respawn id in results/events. Remaining
-  work is runtime/browser PvP death/cargo/checkpoint integration coverage and a
+  zone cargo policy, and checkpoint/respawn id in results/events. Runtime
+  coverage now proves lethal seeded-map PvP invokes `DeathService.ProcessDeath`
+  with server-owned target, cargo, killer, zone, and checkpoint data, disables
+  the target ship, creates killer-owned player-death cargo drops, keeps death
+  internals out of queued client events, and blocks target actions before
+  repair. Remaining work is real browser PvP death/cargo/checkpoint proof and a
   real browser safe-zone PvP click rejection proof. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete second/PvP-map enemy rollout coverage. The deterministic
