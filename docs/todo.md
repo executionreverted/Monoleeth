@@ -130,9 +130,10 @@ for phase status; this file is a compact pending-work index.
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete second-map enemy rollout coverage for map `1-2`. The
   deterministic `outer_ring_scout_drone` seed, initial spawn, actor projection,
-  and bootstrap no-hidden-pool leak check now exist; Phase09 now proves the
-  starter-map browser fight/loot path, but remaining work is destination-map
-  spawn cap, respawn, aggro/leash, fight/loot, and browser proof. Source:
+  and bootstrap no-hidden-pool leak check now exist; Phase09 now proves starter
+  and destination browser fight/loot pickup after portal handoff, but remaining
+  work includes destination-map spawn cap, respawn, aggro/leash, and broader
+  matrix proof. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add a deterministic per-map scanner/claim/drop seed matrix. Focused
   server/discovery scanner rarity/hidden-scan-data regression coverage now
@@ -146,13 +147,14 @@ for phase status; this file is a compact pending-work index.
   server tests cover starter selection, `map_1_2` `outer_ring_scout_drone`
   spawn-record/drop-profile selection, no fallback when the destination table
   is missing, and domain-level hidden/far/cross-map pickup rejection. Phase09
-  now covers starter-map browser fight/loot pickup; destination browser
-  fight/loot and the full matrix remain open. Source:
+  now covers starter and destination browser fight/loot pickup; the full matrix
+  remains open. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Extend the Phase09 browser map smoke into a full real-server
-  fight/loot/scan/portal loop with desktop, tablet, and mobile screenshots.
-  The command remains explicit as `e2e:phase09-map` and is not wired into
-  `client` `npm run check` to avoid changing routine check cost. Source:
+  fight/loot/scan/portal loop with desktop, tablet, and mobile screenshots,
+  including destination-map fight/loot pickup after portal handoff. The command
+  remains explicit as `e2e:phase09-map` and is not wired into `client`
+  `npm run check` to avoid changing routine check cost. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add Phase10 leak canaries over WebSocket payloads, screenshots,
   server logs/debug responses, and production bundle text for hidden

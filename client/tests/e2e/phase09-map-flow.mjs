@@ -11,6 +11,7 @@ const clientDir = resolve(scriptDir, '../..');
 const repoRoot = resolve(clientDir, '..');
 const screenshotDir = resolve(repoRoot, 'output/screenshots/ui-implementation/09');
 const starterNpcApproachTarget = { x: 800, y: 400 };
+const destinationNpcApproachTarget = { x: 1800, y: 5400 };
 const gateTarget = { x: 9800, y: 5000 };
 const screenshotViewports = [
   { name: 'desktop', viewport: { width: 1440, height: 900 } },
@@ -66,6 +67,12 @@ async function main() {
     assertNoOriginMapLeakage(originAfterLoop, outer);
     await assertNoLeak(page, outer, 'outer-ring');
     await captureViewportScreenshots(page, 'map-outer-ring');
+    const outerAfterLoop = await completeFightLootLoop(page, {
+      mapLabel: 'Outer Ring',
+      approachTarget: destinationNpcApproachTarget,
+      expectedMapKey: '1-2',
+    });
+    await assertNoLeak(page, outerAfterLoop, 'outer-ring-fight-loot');
     await page.evaluate(() => window.__phase09CommandSocket?.close());
 
     console.log(
@@ -159,43 +166,11 @@ function assertBounds(bounds) {
 }
 
 async function completeFightLootScanLoop(page) {
-  if (!findHostileNPC(await smoke(page))) {
-    await moveToPosition(page, starterNpcApproachTarget, 260, 'starter NPC radar approach', 25000);
-  }
-  const withNPC = await waitSmoke(page, (s) => findHostileNPC(s), 'visible Origin hostile NPC', 15000);
-  const npc = findHostileNPC(withNPC);
-  assert(npc, 'origin NPC target present');
-
-  await moveToPosition(page, npc.position, Math.max(80, Math.min(220, (withNPC.stats?.weapon_range ?? 260) - 40)), `combat target ${npc.entity_id}`, 30000);
-  const combatPayload = payloadOf(await send(page, 'combat.use_skill', { skill_id: 'basic_laser', target_id: npc.entity_id }), 'combat.use_skill');
-  assert(combatPayload.accepted === true, `combat accepted ${JSON.stringify(combatPayload)}`);
-  assert(combatPayload.killed === true, `combat killed ${JSON.stringify(combatPayload)}`);
-  assert(combatPayload.amount > 0, `combat amount ${JSON.stringify(combatPayload)}`);
-  assertNoPayloadLeak(combatPayload, 'combat response');
-
-  const dropFromResponse = Array.isArray(combatPayload.drops) ? combatPayload.drops.find((drop) => drop?.item_id === 'raw_ore') : null;
-  const dropID = dropFromResponse?.drop_id ?? dropFromResponse?.entity_id;
-  const withDrop = await waitSmoke(
-    page,
-    (s) => {
-      if (dropID && s.knownLoot?.[dropID]?.item_id === 'raw_ore') return true;
-      return Object.values(s.knownLoot ?? {}).some((drop) => drop.item_id === 'raw_ore' && drop.quantity >= 3);
-    },
-    'server-created raw_ore loot drop',
-    15000,
-  );
-  const drop = dropID ? withDrop.knownLoot[dropID] : Object.values(withDrop.knownLoot ?? {}).find((entry) => entry.item_id === 'raw_ore');
-  assert(drop?.drop_id, `raw_ore drop present ${JSON.stringify(withDrop.knownLoot)}`);
-  assert(drop.quantity >= 3, `raw_ore drop quantity ${JSON.stringify(drop)}`);
-
-  await moveToPosition(page, drop.position, Math.max(45, (withDrop.stats?.loot_pickup_range ?? 120) - 25), `loot drop ${drop.drop_id}`, 30000);
-  const pickupPayload = payloadOf(await send(page, 'loot.pickup', { drop_id: drop.drop_id }), 'loot.pickup');
-  assert(pickupPayload.accepted === true, `loot pickup accepted ${JSON.stringify(pickupPayload)}`);
-  assertRawOreCargo(pickupPayload.cargo, 'pickup response cargo');
-  assertNoPayloadLeak(pickupPayload, 'loot pickup response');
-
-  const withCargo = await waitSmoke(page, (s) => hasRawOreCargo(s.cargo) && !s.knownLoot?.[drop.drop_id], 'cargo reconciliation after loot pickup', 15000);
-  assertRawOreCargo(withCargo.cargo, 'smoke cargo');
+  await completeFightLootLoop(page, {
+    mapLabel: 'Origin',
+    approachTarget: starterNpcApproachTarget,
+    expectedMapKey: '1-1',
+  });
 
   const scanPayload = payloadOf(await send(page, 'scan.pulse', {}), 'scan.pulse');
   assertSafeScan(scanPayload);
@@ -208,6 +183,81 @@ async function completeFightLootScanLoop(page) {
   assertSafeScan({ scan: withScan.planetIntel?.lastScan });
   await waitSmoke(page, (s) => Object.keys(s.pendingCommands ?? {}).length === 0, 'post-scan pending commands clear', 10000);
   return smoke(page);
+}
+
+async function completeFightLootLoop(page, { mapLabel, approachTarget, expectedMapKey }) {
+  if (!findHostileNPC(await smoke(page))) {
+    await moveToPosition(page, approachTarget, 260, `${mapLabel} hostile radar approach`, 30000);
+  }
+  const withNPC = await waitSmoke(
+    page,
+    (s) => s.currentMap?.public_map_key === expectedMapKey && findHostileNPC(s),
+    `visible ${mapLabel} hostile NPC`,
+    15000,
+  );
+  const npc = findHostileNPC(withNPC);
+  assert(npc, `${mapLabel} NPC target present`);
+
+  await moveToPosition(page, npc.position, Math.max(80, Math.min(220, (withNPC.stats?.weapon_range ?? 260) - 40)), `combat target ${npc.entity_id}`, 30000);
+  const combatPayload = await fightNPCUntilKilled(page, npc.entity_id, mapLabel);
+
+  const expectedDrop = responseDrop(combatPayload, `${mapLabel} combat response`);
+  const withDrop = await waitSmoke(
+    page,
+    (s) => s.currentMap?.public_map_key === expectedMapKey && findKnownDrop(s, expectedDrop),
+    `server-created ${mapLabel} loot drop`,
+    15000,
+  );
+  const drop = findKnownDrop(withDrop, expectedDrop);
+  assertDropMatches(drop, expectedDrop, `${mapLabel} loot drop`);
+  assertNoPayloadLeak({ drop }, `${mapLabel} smoke loot drop`);
+
+  const pickupDropID = drop.drop_id ?? expectedDrop.drop_id ?? expectedDrop.entity_id;
+  assert(pickupDropID, `${mapLabel} pickup drop id present`);
+  const beforeCargo = withDrop.cargo;
+  await moveToPosition(page, drop.position, Math.max(45, (withDrop.stats?.loot_pickup_range ?? 120) - 25), `loot drop ${pickupDropID}`, 30000);
+  const pickupPayload = payloadOf(await send(page, 'loot.pickup', { drop_id: pickupDropID }), 'loot.pickup');
+  assert(pickupPayload.accepted === true, `${mapLabel} loot pickup accepted ${JSON.stringify(pickupPayload)}`);
+  assertCargoPickup(pickupPayload.cargo, beforeCargo, drop, `${mapLabel} pickup response cargo`);
+  assertNoPayloadLeak(pickupPayload, `${mapLabel} loot pickup response`);
+
+  const withCargo = await waitSmoke(
+    page,
+    (s) => s.currentMap?.public_map_key === expectedMapKey && cargoIncludesPickup(s.cargo, beforeCargo, drop) && !s.knownLoot?.[pickupDropID],
+    `${mapLabel} cargo reconciliation after loot pickup`,
+    15000,
+  );
+  assertCargoPickup(withCargo.cargo, beforeCargo, drop, `${mapLabel} smoke cargo`);
+  return withCargo;
+}
+
+async function fightNPCUntilKilled(page, targetID, mapLabel) {
+  let lastPayload = null;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const combatPayload = payloadOf(await send(page, 'combat.use_skill', { skill_id: 'basic_laser', target_id: targetID }), 'combat.use_skill');
+    assert(combatPayload.accepted === true, `${mapLabel} combat accepted ${JSON.stringify(combatPayload)}`);
+    assertNoPayloadLeak(combatPayload, `${mapLabel} combat response ${attempt}`);
+    lastPayload = combatPayload;
+    if (combatPayload.killed === true) {
+      assert(combatPayload.amount > 0, `${mapLabel} lethal combat amount ${JSON.stringify(combatPayload)}`);
+      return combatPayload;
+    }
+    assert(combatPayload.target?.status === 'active', `${mapLabel} combat target active after nonlethal hit ${JSON.stringify(combatPayload)}`);
+    await waitCombatCooldown(page, combatPayload, mapLabel);
+  }
+  throw new Error(`${mapLabel} combat did not kill target after retries: ${JSON.stringify(lastPayload)}`);
+}
+
+async function waitCombatCooldown(page, combatPayload, mapLabel) {
+  const readyAt = Number(combatPayload.cooldown_ready_at_ms ?? 0);
+  const delayMS = readyAt > Date.now() ? readyAt - Date.now() + 75 : 100;
+  await delay(Math.min(Math.max(delayMS, 100), 5000));
+  await waitSmoke(
+    page,
+    (s) => s.connectionStatus === 'connected' && (readyAt <= 0 || Date.now() >= readyAt || (s.serverNow ?? 0) >= readyAt),
+    `${mapLabel} basic_laser cooldown`,
+    Math.max(1500, Math.min(delayMS + 1500, 6500)),
+  );
 }
 
 async function moveToGate(page) {
@@ -396,15 +446,50 @@ function findHostileNPC(state) {
   return Object.values(state?.visibleEntities ?? {}).find((entity) => entity.entity_type === 'npc' && entity.position && (entity.combat?.hp ?? 1) > 0) ?? null;
 }
 
-function assertRawOreCargo(cargo, label) {
-  const rawOre = cargo?.items?.find((item) => item.item_id === 'raw_ore');
-  assert(rawOre, `${label} includes raw_ore`);
-  assert(rawOre.quantity >= 3, `${label} raw_ore quantity ${rawOre.quantity}`);
-  assert(cargo.used >= 6, `${label} used cargo ${cargo.used}`);
+function responseDrop(combatPayload, label) {
+  const drop = Array.isArray(combatPayload.drops)
+    ? combatPayload.drops.find((entry) => entry?.item_id && Number(entry.quantity) > 0 && (entry.drop_id || entry.entity_id))
+    : null;
+  assert(drop, `${label} includes server loot drop ${JSON.stringify(combatPayload)}`);
+  assertNoPayloadLeak({ drop }, `${label} drop`);
+  return {
+    drop_id: drop.drop_id,
+    entity_id: drop.entity_id,
+    item_id: drop.item_id,
+    quantity: Number(drop.quantity),
+  };
 }
 
-function hasRawOreCargo(cargo) {
-  return cargo?.items?.some((item) => item.item_id === 'raw_ore' && item.quantity >= 3) === true;
+function findKnownDrop(state, expectedDrop) {
+  const dropID = expectedDrop.drop_id ?? expectedDrop.entity_id;
+  if (dropID && state?.knownLoot?.[dropID]) return state.knownLoot[dropID];
+  return Object.values(state?.knownLoot ?? {}).find(
+    (drop) => drop.item_id === expectedDrop.item_id && Number(drop.quantity) >= expectedDrop.quantity,
+  );
+}
+
+function assertDropMatches(drop, expectedDrop, label) {
+  assert(drop, `${label} present`);
+  assert((drop.drop_id ?? drop.entity_id), `${label} has public drop id`);
+  assert(drop.item_id === expectedDrop.item_id, `${label} item ${drop.item_id}, want ${expectedDrop.item_id}`);
+  assert(Number(drop.quantity) >= expectedDrop.quantity, `${label} quantity ${drop.quantity}, want at least ${expectedDrop.quantity}`);
+  assert(drop.position, `${label} position present`);
+}
+
+function assertCargoPickup(cargo, beforeCargo, drop, label) {
+  assert(cargoIncludesPickup(cargo, beforeCargo, drop), `${label} includes picked ${drop.item_id} x${drop.quantity}`);
+  assert((cargo.used ?? 0) > (beforeCargo?.used ?? 0), `${label} used cargo ${cargo.used}, before ${beforeCargo?.used ?? 0}`);
+}
+
+function cargoIncludesPickup(cargo, beforeCargo, drop) {
+  const itemID = drop.item_id;
+  const quantity = Number(drop.quantity);
+  if (!itemID || !(quantity > 0)) return false;
+  return cargoQuantity(cargo, itemID) >= cargoQuantity(beforeCargo, itemID) + quantity;
+}
+
+function cargoQuantity(cargo, itemID) {
+  return Number(cargo?.items?.find((item) => item.item_id === itemID)?.quantity ?? 0);
 }
 
 function assertSafeScan(payload) {
