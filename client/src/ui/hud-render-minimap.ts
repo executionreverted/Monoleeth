@@ -14,9 +14,12 @@ import { topbarLocationText } from './hud-topbar';
 export function minimapPanel(state: ClientState, serverNow: number | null = Date.now()): string {
   const bounds = chooseMinimapBounds(state);
   if (!bounds && !hasRenderableMinimapPayload(state.minimap)) {
+    const snapshotState = missingMapSnapshotState(state);
     reconcilePortalSelectionForRender(state, null);
     return `
-      <div class="minimap minimap--empty"><div class="empty-line">Awaiting map projection.</div></div>
+      <div class="minimap minimap--empty minimap--${snapshotState.kind}" aria-label="Sector map" data-map-state="${snapshotState.kind}">
+        <div class="empty-line"><strong>${escapeHTML(snapshotState.minimapLabel)}</strong> <span>${escapeHTML(snapshotState.minimapDetail)}</span></div>
+      </div>
       ${portalActionStrip(state, [], serverNow)}
     `;
   }
@@ -170,6 +173,10 @@ function hasRenderableMinimapPayload(minimap: MinimapSummary | null): boolean {
   );
 }
 
+function hasMapSnapshotContext(state: ClientState): boolean {
+  return Boolean(state.currentMap || isUsableBounds(state.minimap?.bounds) || hasRenderableMinimapPayload(state.minimap));
+}
+
 function projectMinimapPoint(projection: MinimapProjection, position: { x: number; y: number }): { left: number; top: number } | null {
   if (!isFinitePoint(position)) {
     return null;
@@ -260,9 +267,13 @@ function portalActionStrip(state: ClientState, portals: PublicPortalSummary[], s
       : null;
   const now = serverNow ?? Date.now();
 
-  if (!state.currentMap && !state.minimap) {
-    const label = realtimePortalListLoading(state) ? 'Awaiting portal list' : 'Portal list locked';
-    return emptyPortalStrip(label, 'Map snapshot required.');
+  if (!hasMapSnapshotContext(state)) {
+    const snapshotState = missingMapSnapshotState(state);
+    return emptyPortalStrip(snapshotState.portalLabel, snapshotState.portalDetail);
+  }
+
+  if (portals.length > 0 && !realtimeReady(state)) {
+    return emptyPortalStrip('Portal actions locked', 'Realtime map connection required.');
   }
 
   if (portals.length === 0) {
@@ -347,8 +358,62 @@ function portalEnterReadiness(
   return { enabled: true, title: 'Enter selected portal.', reason: null };
 }
 
-function realtimePortalListLoading(state: ClientState): boolean {
-  return state.connectionStatus === 'connecting' || state.connectionStatus === 'connected' || state.connectionStatus === 'authenticated_pending_socket';
+interface MissingMapSnapshotState {
+  kind: 'loading' | 'locked' | 'disconnected';
+  minimapLabel: string;
+  minimapDetail: string;
+  portalLabel: string;
+  portalDetail: string;
+}
+
+function missingMapSnapshotState(state: ClientState): MissingMapSnapshotState {
+  switch (state.connectionStatus) {
+    case 'logged_out':
+      return {
+        kind: 'locked',
+        minimapLabel: 'Map snapshot locked.',
+        minimapDetail: 'Log in to load server-owned map state.',
+        portalLabel: 'Portal list locked',
+        portalDetail: 'Locked map snapshot required.',
+      };
+    case 'auth_expired':
+      return {
+        kind: 'locked',
+        minimapLabel: 'Map snapshot locked.',
+        minimapDetail: 'Session expired. Log in again.',
+        portalLabel: 'Portal list locked',
+        portalDetail: 'Locked map snapshot required.',
+      };
+    case 'offline':
+    case 'error':
+    case 'reconnecting':
+      return {
+        kind: 'disconnected',
+        minimapLabel: 'Map snapshot disconnected.',
+        minimapDetail: 'Realtime connection required for server-owned map state.',
+        portalLabel: 'Portal list disconnected',
+        portalDetail: 'Disconnected map snapshot required.',
+      };
+    case 'connected':
+      return {
+        kind: 'loading',
+        minimapLabel: 'Awaiting map snapshot.',
+        minimapDetail: 'Connected. Waiting for server-owned map projection.',
+        portalLabel: 'Awaiting portal list',
+        portalDetail: 'Awaiting server map snapshot.',
+      };
+    case 'restoring':
+    case 'connecting':
+    case 'authenticated_pending_socket':
+    default:
+      return {
+        kind: 'loading',
+        minimapLabel: 'Loading map snapshot.',
+        minimapDetail: 'Waiting for authenticated server map state.',
+        portalLabel: 'Awaiting portal list',
+        portalDetail: 'Awaiting server map snapshot.',
+      };
+  }
 }
 
 function isSelectedPortal(portalID: string, currentScope: string | null): boolean {

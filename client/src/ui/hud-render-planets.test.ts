@@ -14,15 +14,93 @@ describe('minimapPanel', () => {
     hudSelection.selectedPortalScope = null;
   });
 
-  test('no minimap and no current map bounds renders awaiting without fake markers', () => {
-    const html = minimapPanel(createInitialState());
+  test('missing map snapshot while bootstrapping renders loading states without fake markers', () => {
+    const cases: Array<{
+      status: ClientState['connectionStatus'];
+      label: string;
+    }> = [
+      { status: 'restoring', label: 'Loading map snapshot.' },
+      { status: 'connecting', label: 'Loading map snapshot.' },
+      { status: 'authenticated_pending_socket', label: 'Loading map snapshot.' },
+      { status: 'connected', label: 'Awaiting map snapshot.' },
+    ];
 
-    expect(html).toContain('Awaiting map projection.');
-    expect(html).toContain('data-portal-strip="true"');
-    expect(html).not.toContain('minimap__point');
-    expect(html).not.toContain('minimap__portal');
-    expect(html).not.toContain('minimap__safe-zone');
-    expect(html).not.toContain('data-action');
+    for (const item of cases) {
+      const state = createInitialState();
+      state.connectionStatus = item.status;
+      const html = minimapPanel(state);
+
+      expect(html, item.status).toContain('data-map-state="loading"');
+      expect(html, item.status).toContain(item.label);
+      expect(html, item.status).toContain('Awaiting portal list');
+      expect(html, item.status).toContain('Awaiting server map snapshot.');
+      expectNoMinimapActions(html, item.status);
+    }
+  });
+
+  test('missing map snapshot while locked or disconnected renders no marker actions', () => {
+    const cases: Array<{
+      status: ClientState['connectionStatus'];
+      mapState: string;
+      label: string;
+      detail: string;
+      portalLabel: string;
+      portalDetail: string;
+    }> = [
+      {
+        status: 'logged_out',
+        mapState: 'locked',
+        label: 'Map snapshot locked.',
+        detail: 'Log in to load server-owned map state.',
+        portalLabel: 'Portal list locked',
+        portalDetail: 'Locked map snapshot required.',
+      },
+      {
+        status: 'auth_expired',
+        mapState: 'locked',
+        label: 'Map snapshot locked.',
+        detail: 'Session expired. Log in again.',
+        portalLabel: 'Portal list locked',
+        portalDetail: 'Locked map snapshot required.',
+      },
+      {
+        status: 'offline',
+        mapState: 'disconnected',
+        label: 'Map snapshot disconnected.',
+        detail: 'Realtime connection required for server-owned map state.',
+        portalLabel: 'Portal list disconnected',
+        portalDetail: 'Disconnected map snapshot required.',
+      },
+      {
+        status: 'error',
+        mapState: 'disconnected',
+        label: 'Map snapshot disconnected.',
+        detail: 'Realtime connection required for server-owned map state.',
+        portalLabel: 'Portal list disconnected',
+        portalDetail: 'Disconnected map snapshot required.',
+      },
+      {
+        status: 'reconnecting',
+        mapState: 'disconnected',
+        label: 'Map snapshot disconnected.',
+        detail: 'Realtime connection required for server-owned map state.',
+        portalLabel: 'Portal list disconnected',
+        portalDetail: 'Disconnected map snapshot required.',
+      },
+    ];
+
+    for (const item of cases) {
+      const state = createInitialState();
+      state.connectionStatus = item.status;
+      const itemHTML = minimapPanel(state);
+
+      expect(itemHTML, item.status).toContain(`data-map-state="${item.mapState}"`);
+      expect(itemHTML, item.status).toContain(item.label);
+      expect(itemHTML, item.status).toContain(item.detail);
+      expect(itemHTML, item.status).toContain(item.portalLabel);
+      expect(itemHTML, item.status).toContain(item.portalDetail);
+      expectNoMinimapActions(itemHTML, item.status);
+    }
   });
 
   test('bounds-only current map renders bounded frame metadata without fake contacts', () => {
@@ -39,6 +117,7 @@ describe('minimapPanel', () => {
     expect(html).toContain('Origin Gate');
     expect(html).toContain('Bounds 10K x 10K');
     expect(html).toContain('low/pve');
+    expect(html).toContain('No visible portals');
     expect(html).not.toContain('Awaiting map projection.');
     expect(html).not.toContain('minimap__point');
   });
@@ -205,7 +284,11 @@ describe('minimapPanel', () => {
     state.connectionStatus = 'reconnecting';
     const reconnectingHTML = minimapPanel(state, 1_000);
 
-    expect(reconnectingHTML).toContain('Select a portal');
+    expect(reconnectingHTML).toContain('class="minimap__portal"');
+    expect(reconnectingHTML).toMatch(/class="minimap__portal"[^>]*disabled/);
+    expect(reconnectingHTML).toContain('Portal actions locked');
+    expect(reconnectingHTML).toContain('Realtime map connection required.');
+    expect(reconnectingHTML).not.toContain('data-action="portal-enter"');
     expect(hudSelection.selectedPortalID).toBeNull();
     expect(hudSelection.selectedPortalScope).toBeNull();
 
@@ -363,6 +446,16 @@ function firstPortalScope(html: string): string {
   const match = html.match(/data-portal-scope="([^"]+)"/);
   expect(match?.[1]).toBeTruthy();
   return match?.[1] ?? '';
+}
+
+function expectNoMinimapActions(html: string, label: string): void {
+  expect(html, label).toContain('data-portal-strip="true"');
+  expect(html, label).toMatch(/<button class="portal-strip__action"[^>]*disabled[^>]*>Enter<\/button>/);
+  expect(html, label).not.toContain('minimap__point');
+  expect(html, label).not.toContain('minimap__portal');
+  expect(html, label).not.toContain('minimap__safe-zone');
+  expect(html, label).not.toContain('data-action');
+  expect(html, label).not.toContain('data-marker');
 }
 
 function combatReadyState(): ClientState {

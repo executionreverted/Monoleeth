@@ -295,6 +295,18 @@ Snapshot/event rules:
   internal map payload fields before mutation, and ignores cross-map public key
   mismatches. Backend emission and browser smoke for live policy updates remain
   open.
+- 2026-06-22 Phase09F progress: Task 12 now distinguishes missing map snapshot
+  UI states without adding fake map data. Restoring, connecting,
+  authenticated-pending-socket, and connected-before-snapshot states render
+  loading/awaiting minimap and portal-list copy; logged-out and auth-expired
+  states render locked copy; offline, error, and reconnecting states render
+  disconnected copy. Bounds-only server snapshots still render bounded minimap
+  metadata with no fake contacts and a no-visible-portals strip. When a current
+  map snapshot remains visible while realtime is not ready, portal selection is
+  cleared and portal entry stays locked while the last server-owned markers may
+  remain visible. Focused Vitest coverage lives in
+  `client/src/ui/hud-render-planets.test.ts`; browser smoke for real portal
+  traversal remains open.
 - Update UI implementation docs after the protocol lands to state that
   `currentMap`, portals, minimap bounds, and safe/PvP flags are server-owned.
 - Update local run/smoke docs with a deterministic two-map seed that includes at
