@@ -130,6 +130,14 @@ Current slice completed:
   and keep published rows out of pending/retryable selection. Real DB rows,
   row locks/CAS across processes, DB idempotency-table enforcement, a durable
   publisher process, and durable outbox persistence remain open.
+- Phase07L stale-publisher guard follow-up: each process-local production
+  outbox claim now receives a deterministic claim token tied to the current
+  attempt. Publish/fail mutations require the current token and in-flight
+  status, so stale callbacks from older attempts return `ok=false` without
+  mutating status, timestamps, error evidence, or payload bytes. Retry clears
+  the old token before a later reclaim generates a new one. Real durable DB
+  outbox rows, cross-process row-lock/CAS semantics, durable idempotency-table
+  enforcement, and a durable publisher remain open.
 
 ## Source Specs
 
@@ -265,6 +273,9 @@ Mockup areas covered:
       outbox records for production and route settlements.
 - [x] Add process-local production outbox claim/publish/fail/retry delivery
       state for publisher-worker behavior.
+- [x] Add process-local production outbox claim-token guards so publish/fail
+      callbacks cannot mutate a retried or reclaimed attempt with a stale
+      token.
 - [x] Add route.create handler for owned planet-to-planet MVP.
 - [x] Add route.update handler for owned routes.
 - [x] Add route.enable and route.disable handlers for owned routes.
@@ -314,8 +325,9 @@ Mockup areas covered:
       outbox records for settlement events; duplicate reference reuse no-ops
       without mutation, duplicate events, or duplicate outbox records.
 - [x] Production settlement outbox records can be filtered, claimed, marked
-      published or failed, and explicitly retried in append order without
-      exposing mutable event payload aliases.
+      published or failed with the current claim token, and explicitly retried
+      in append order without exposing mutable event payload aliases or letting
+      stale publisher callbacks mutate later attempts.
 - [ ] Durable production settlement is enforced by DB/idempotency rows and
       published through the durable outbox.
 - [x] Server route.settle transfers storage once, returns no-op on immediate
@@ -327,7 +339,8 @@ Mockup areas covered:
       no-ops without transfer, duplicate events, or duplicate outbox records.
 - [x] Route settlement outbox records share the process-local delivery state
       machine for pending, in-flight, published, failed, and explicit retry
-      behavior.
+      behavior, including claim-token publish/fail guards for retried or
+      reclaimed attempts.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

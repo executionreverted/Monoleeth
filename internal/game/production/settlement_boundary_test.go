@@ -184,6 +184,10 @@ func TestOutboxClaimMovesPendingToInFlightWithDetachedRecords(t *testing.T) {
 		if record.Attempts != 1 {
 			t.Fatalf("claimed[%d] Attempts = %d, want 1", index, record.Attempts)
 		}
+		wantClaimToken := productionOutboxClaimToken(record.OutboxID, record.Attempts)
+		if record.ClaimToken != wantClaimToken {
+			t.Fatalf("claimed[%d] ClaimToken = %q, want %q", index, record.ClaimToken, wantClaimToken)
+		}
 	}
 	if len(claimed[0].Event.Payload) == 0 {
 		t.Fatal("claimed[0] payload empty, want payload")
@@ -206,9 +210,9 @@ func TestOutboxPublishedRecordsAreNotPendingOrRetryable(t *testing.T) {
 	claimed := store.ClaimPendingOutboxRecords(2, testTime(12))
 	publishedAt := testTime(13)
 
-	published, ok := store.MarkOutboxPublished(claimed[0].OutboxID, publishedAt)
+	published, ok := store.MarkClaimedOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, publishedAt)
 	if !ok {
-		t.Fatal("MarkOutboxPublished() ok = false, want true")
+		t.Fatal("MarkClaimedOutboxPublished() ok = false, want true")
 	}
 	if published.Status != ProductionOutboxStatusPublished {
 		t.Fatalf("published status = %q, want published", published.Status)
@@ -217,9 +221,11 @@ func TestOutboxPublishedRecordsAreNotPendingOrRetryable(t *testing.T) {
 		t.Fatalf("PublishedAt = %s, want %s", published.PublishedAt, publishedAt)
 	}
 
-	if _, ok := store.MarkOutboxFailed(claimed[0].OutboxID, "late failure", testTime(14)); !ok {
-		t.Fatal("MarkOutboxFailed(published) ok = false, want true")
+	beforeLateFailure := store.OutboxRecords()
+	if record, ok := store.MarkClaimedOutboxFailed(claimed[0].OutboxID, claimed[0].ClaimToken, "late failure", testTime(14)); ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimedOutboxFailed(published) = %+v/%v, want zero/false", record, ok)
 	}
+	assertOutboxUnchanged(t, store, beforeLateFailure, "late failure after publish")
 	retryable := store.RetryFailedOutboxRecords(10, testTime(15))
 	if len(retryable) != 0 {
 		t.Fatalf("RetryFailedOutboxRecords() len = %d, want 0 for published record", len(retryable))
@@ -241,9 +247,9 @@ func TestOutboxFailedRecordsRetryBackToPendingWithoutPayloadAliases(t *testing.T
 	claimed := store.ClaimPendingOutboxRecords(1, testTime(16))
 	failedAt := testTime(17)
 
-	failed, ok := store.MarkOutboxFailed(claimed[0].OutboxID, "temporary broker outage", failedAt)
+	failed, ok := store.MarkClaimedOutboxFailed(claimed[0].OutboxID, claimed[0].ClaimToken, "temporary broker outage", failedAt)
 	if !ok {
-		t.Fatal("MarkOutboxFailed() ok = false, want true")
+		t.Fatal("MarkClaimedOutboxFailed() ok = false, want true")
 	}
 	if failed.Status != ProductionOutboxStatusFailed {
 		t.Fatalf("failed status = %q, want failed", failed.Status)
@@ -266,6 +272,9 @@ func TestOutboxFailedRecordsRetryBackToPendingWithoutPayloadAliases(t *testing.T
 	if retried[0].Status != ProductionOutboxStatusPending {
 		t.Fatalf("retried status = %q, want pending", retried[0].Status)
 	}
+	if retried[0].ClaimToken != "" {
+		t.Fatalf("retried ClaimToken = %q, want empty", retried[0].ClaimToken)
+	}
 	if !retried[0].FailedAt.Equal(failedAt) || retried[0].LastError != "temporary broker outage" {
 		t.Fatalf("retried failure evidence = %q/%s, want preserved %q/%s", retried[0].LastError, retried[0].FailedAt, failed.LastError, failedAt)
 	}
@@ -284,21 +293,97 @@ func TestOutboxFailedRecordsRetryBackToPendingWithoutPayloadAliases(t *testing.T
 	if reclaimed[0].Attempts != 2 {
 		t.Fatalf("reclaimed Attempts = %d, want 2", reclaimed[0].Attempts)
 	}
+	wantClaimToken := productionOutboxClaimToken(reclaimed[0].OutboxID, reclaimed[0].Attempts)
+	if reclaimed[0].ClaimToken != wantClaimToken {
+		t.Fatalf("reclaimed ClaimToken = %q, want %q", reclaimed[0].ClaimToken, wantClaimToken)
+	}
 }
 
-func TestOutboxUnknownMarkReturnsFalseWithoutMutation(t *testing.T) {
+func TestOutboxWrongAndStaleClaimTokensDoNotMutateRecords(t *testing.T) {
+	store := newOutboxStateMachineStore(t)
+	claimed := store.ClaimPendingOutboxRecords(1, testTime(20))
+	first := claimed[0]
+
+	beforeWrongPublish := store.OutboxRecords()
+	if record, ok := store.MarkClaimedOutboxPublished(first.OutboxID, "wrong-token", testTime(21)); ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimedOutboxPublished(wrong token) = %+v/%v, want zero/false", record, ok)
+	}
+	assertOutboxUnchanged(t, store, beforeWrongPublish, "wrong publish token")
+
+	beforeWrongFail := store.OutboxRecords()
+	if record, ok := store.MarkClaimedOutboxFailed(first.OutboxID, "wrong-token", "wrong token failure", testTime(22)); ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimedOutboxFailed(wrong token) = %+v/%v, want zero/false", record, ok)
+	}
+	assertOutboxUnchanged(t, store, beforeWrongFail, "wrong fail token")
+
+	if _, ok := store.MarkClaimedOutboxFailed(first.OutboxID, first.ClaimToken, "temporary broker outage", testTime(23)); !ok {
+		t.Fatal("MarkClaimedOutboxFailed(current token) ok = false, want true")
+	}
+	retried := store.RetryFailedOutboxRecords(1, testTime(24))
+	if len(retried) != 1 {
+		t.Fatalf("RetryFailedOutboxRecords() len = %d, want 1", len(retried))
+	}
+	if retried[0].ClaimToken != "" {
+		t.Fatalf("retried ClaimToken = %q, want empty", retried[0].ClaimToken)
+	}
+
+	beforePendingStale := store.OutboxRecords()
+	if record, ok := store.MarkClaimedOutboxPublished(first.OutboxID, first.ClaimToken, testTime(25)); ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimedOutboxPublished(stale pending token) = %+v/%v, want zero/false", record, ok)
+	}
+	if record, ok := store.MarkClaimedOutboxFailed(first.OutboxID, first.ClaimToken, "stale pending failure", testTime(26)); ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimedOutboxFailed(stale pending token) = %+v/%v, want zero/false", record, ok)
+	}
+	assertOutboxUnchanged(t, store, beforePendingStale, "stale token while pending")
+
+	reclaimed := store.ClaimPendingOutboxRecords(1, testTime(27))
+	if len(reclaimed) != 1 {
+		t.Fatalf("reclaim len = %d, want 1", len(reclaimed))
+	}
+	second := reclaimed[0]
+	if second.ClaimToken == first.ClaimToken {
+		t.Fatalf("reclaimed ClaimToken = first token %q, want new attempt token", second.ClaimToken)
+	}
+
+	beforeReclaimedStale := store.OutboxRecords()
+	if record, ok := store.MarkClaimedOutboxPublished(second.OutboxID, first.ClaimToken, testTime(28)); ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimedOutboxPublished(stale reclaimed token) = %+v/%v, want zero/false", record, ok)
+	}
+	if record, ok := store.MarkClaimedOutboxFailed(second.OutboxID, first.ClaimToken, "stale reclaimed failure", testTime(29)); ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimedOutboxFailed(stale reclaimed token) = %+v/%v, want zero/false", record, ok)
+	}
+	assertOutboxUnchanged(t, store, beforeReclaimedStale, "stale token after reclaim")
+
+	published, ok := store.MarkClaimedOutboxPublished(second.OutboxID, second.ClaimToken, testTime(30))
+	if !ok {
+		t.Fatal("MarkClaimedOutboxPublished(new token) ok = false, want true")
+	}
+	if published.Status != ProductionOutboxStatusPublished {
+		t.Fatalf("published status = %q, want published", published.Status)
+	}
+}
+
+func TestOutboxUnknownClaimedMarkReturnsFalseWithoutMutation(t *testing.T) {
 	store := newOutboxStateMachineStore(t)
 	before := store.OutboxRecords()
 
-	if record, ok := store.MarkOutboxPublished("missing-outbox", testTime(20)); ok || record.OutboxID != "" {
-		t.Fatalf("MarkOutboxPublished(missing) = %+v/%v, want zero/false", record, ok)
+	if record, ok := store.MarkClaimedOutboxPublished("missing-outbox", "missing-token", testTime(31)); ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimedOutboxPublished(missing) = %+v/%v, want zero/false", record, ok)
 	}
-	if record, ok := store.MarkOutboxFailed("missing-outbox", "missing", testTime(21)); ok || record.OutboxID != "" {
-		t.Fatalf("MarkOutboxFailed(missing) = %+v/%v, want zero/false", record, ok)
+	if record, ok := store.MarkClaimedOutboxFailed("missing-outbox", "missing-token", "missing", testTime(32)); ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimedOutboxFailed(missing) = %+v/%v, want zero/false", record, ok)
 	}
 	after := store.OutboxRecords()
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("outbox mutated after unknown mark\nbefore=%+v\nafter=%+v", before, after)
+	}
+}
+
+func assertOutboxUnchanged(t *testing.T, store *InMemoryStore, before []ProductionOutboxRecord, context string) {
+	t.Helper()
+	after := store.OutboxRecords()
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("outbox mutated after %s\nbefore=%+v\nafter=%+v", context, before, after)
 	}
 }
 

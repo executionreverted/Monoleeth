@@ -50,6 +50,7 @@ type ProductionOutboxRecord struct {
 	Status           ProductionOutboxStatus
 	CreatedAt        time.Time
 	ClaimedAt        time.Time
+	ClaimToken       string
 	PublishedAt      time.Time
 	FailedAt         time.Time
 	RetriedAt        time.Time
@@ -135,13 +136,16 @@ func (store *InMemoryStore) ClaimPendingOutboxRecords(limit int, claimedAt time.
 		store.outbox[index].Status = ProductionOutboxStatusInFlight
 		store.outbox[index].ClaimedAt = claimedAt
 		store.outbox[index].Attempts++
+		store.outbox[index].ClaimToken = productionOutboxClaimToken(store.outbox[index].OutboxID, store.outbox[index].Attempts)
 		records = append(records, cloneProductionOutboxRecord(store.outbox[index]))
 	}
 	return records
 }
 
-// MarkOutboxPublished records successful delivery for one outbox record.
-func (store *InMemoryStore) MarkOutboxPublished(outboxID string, publishedAt time.Time) (ProductionOutboxRecord, bool) {
+// MarkClaimedOutboxPublished records successful delivery for the current claim
+// attempt. Missing records, stale claim tokens, and non-in-flight records do
+// not mutate state.
+func (store *InMemoryStore) MarkClaimedOutboxPublished(outboxID string, claimToken string, publishedAt time.Time) (ProductionOutboxRecord, bool) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
@@ -149,15 +153,18 @@ func (store *InMemoryStore) MarkOutboxPublished(outboxID string, publishedAt tim
 	if !ok {
 		return ProductionOutboxRecord{}, false
 	}
-	if store.outbox[index].Status != ProductionOutboxStatusPublished {
-		store.outbox[index].Status = ProductionOutboxStatusPublished
-		store.outbox[index].PublishedAt = publishedAt.UTC()
+	if !store.outboxClaimMatchesLocked(index, claimToken) {
+		return ProductionOutboxRecord{}, false
 	}
+	store.outbox[index].Status = ProductionOutboxStatusPublished
+	store.outbox[index].PublishedAt = publishedAt.UTC()
 	return cloneProductionOutboxRecord(store.outbox[index]), true
 }
 
-// MarkOutboxFailed records failed delivery for one outbox record.
-func (store *InMemoryStore) MarkOutboxFailed(outboxID string, reason string, failedAt time.Time) (ProductionOutboxRecord, bool) {
+// MarkClaimedOutboxFailed records failed delivery for the current claim
+// attempt. Missing records, stale claim tokens, and non-in-flight records do
+// not mutate state.
+func (store *InMemoryStore) MarkClaimedOutboxFailed(outboxID string, claimToken string, reason string, failedAt time.Time) (ProductionOutboxRecord, bool) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
@@ -165,8 +172,8 @@ func (store *InMemoryStore) MarkOutboxFailed(outboxID string, reason string, fai
 	if !ok {
 		return ProductionOutboxRecord{}, false
 	}
-	if store.outbox[index].Status == ProductionOutboxStatusPublished {
-		return cloneProductionOutboxRecord(store.outbox[index]), true
+	if !store.outboxClaimMatchesLocked(index, claimToken) {
+		return ProductionOutboxRecord{}, false
 	}
 	store.outbox[index].Status = ProductionOutboxStatusFailed
 	store.outbox[index].FailedAt = failedAt.UTC()
@@ -194,6 +201,7 @@ func (store *InMemoryStore) RetryFailedOutboxRecords(limit int, retriedAt time.T
 		}
 		store.outbox[index].Status = ProductionOutboxStatusPending
 		store.outbox[index].ClaimedAt = time.Time{}
+		store.outbox[index].ClaimToken = ""
 		store.outbox[index].RetriedAt = retriedAt
 		records = append(records, cloneProductionOutboxRecord(store.outbox[index]))
 	}
@@ -238,6 +246,15 @@ func (store *InMemoryStore) outboxIndexLocked(outboxID string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func (store *InMemoryStore) outboxClaimMatchesLocked(index int, claimToken string) bool {
+	record := store.outbox[index]
+	return record.Status == ProductionOutboxStatusInFlight && record.ClaimToken != "" && record.ClaimToken == claimToken
+}
+
+func productionOutboxClaimToken(outboxID string, attempts int) string {
+	return fmt.Sprintf("%s-attempt-%d", outboxID, attempts)
 }
 
 func settlementEvidenceFromPayload(payload any) (foundation.IdempotencyKey, string) {

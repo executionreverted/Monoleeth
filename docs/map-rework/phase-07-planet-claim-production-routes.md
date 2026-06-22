@@ -391,6 +391,18 @@ Deferred after Phase07J:
 - Durable publisher/retry workers that mark outbox records delivered, retry
   failed publications, and reconcile missed duplicate settlement publications.
 
+Phase07K/Phase07L process-local publisher follow-up:
+
+- The in-memory production outbox now has pending, in-flight, published, and
+  failed delivery states plus explicit retry behavior.
+- Each claim generates a deterministic per-attempt claim token. Publish/fail
+  callbacks must present the current token while the record is in-flight, so
+  stale callbacks from older attempts return `ok=false` without mutating a
+  retried or reclaimed record.
+- These guards protect the local publisher boundary only. Durable DB outbox
+  rows, cross-process row-lock/CAS semantics, DB idempotency enforcement, and a
+  durable publisher process remain deferred.
+
 ## Target Model
 
 Planet claim is a server-owned transaction:
