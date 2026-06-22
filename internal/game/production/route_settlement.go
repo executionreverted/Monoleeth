@@ -32,23 +32,25 @@ type routeLossResult struct {
 
 // RouteSettlementResult summarizes one server-timed automation route settlement.
 type RouteSettlementResult struct {
-	RouteID                           foundation.RouteID `json:"route_id"`
-	SettledAt                         time.Time          `json:"settled_at"`
-	MaxRouteOfflineSettlementDuration time.Duration      `json:"max_route_offline_settlement_duration"`
-	ElapsedRequested                  time.Duration      `json:"elapsed_requested"`
-	ElapsedApplied                    time.Duration      `json:"elapsed_applied"`
-	BeforeRoute                       AutomationRoute    `json:"before_route"`
-	AfterRoute                        AutomationRoute    `json:"after_route"`
-	WantedAmount                      int64              `json:"wanted_amount"`
-	TakenAmount                       int64              `json:"taken_amount"`
-	LostAmount                        int64              `json:"lost_amount"`
-	DeliveredAmount                   int64              `json:"delivered_amount"`
-	AddedAmount                       int64              `json:"added_amount"`
-	LossPercent                       float64            `json:"loss_percent"`
-	SourceEmpty                       bool               `json:"source_empty"`
-	DestinationFull                   bool               `json:"destination_full"`
-	LossApplied                       bool               `json:"loss_applied"`
-	NoOp                              bool               `json:"no_op"`
+	RouteID                           foundation.RouteID        `json:"route_id"`
+	SettledAt                         time.Time                 `json:"settled_at"`
+	ReferenceKey                      foundation.IdempotencyKey `json:"reference_key,omitempty"`
+	SettlementWindow                  string                    `json:"settlement_window,omitempty"`
+	MaxRouteOfflineSettlementDuration time.Duration             `json:"max_route_offline_settlement_duration"`
+	ElapsedRequested                  time.Duration             `json:"elapsed_requested"`
+	ElapsedApplied                    time.Duration             `json:"elapsed_applied"`
+	BeforeRoute                       AutomationRoute           `json:"before_route"`
+	AfterRoute                        AutomationRoute           `json:"after_route"`
+	WantedAmount                      int64                     `json:"wanted_amount"`
+	TakenAmount                       int64                     `json:"taken_amount"`
+	LostAmount                        int64                     `json:"lost_amount"`
+	DeliveredAmount                   int64                     `json:"delivered_amount"`
+	AddedAmount                       int64                     `json:"added_amount"`
+	LossPercent                       float64                   `json:"loss_percent"`
+	SourceEmpty                       bool                      `json:"source_empty"`
+	DestinationFull                   bool                      `json:"destination_full"`
+	LossApplied                       bool                      `json:"loss_applied"`
+	NoOp                              bool                      `json:"no_op"`
 }
 
 // SettleRoute applies one atomic virtual transfer for an automation route using
@@ -104,6 +106,9 @@ func (store *InMemoryStore) settleRouteLocked(
 	}
 
 	result.ElapsedApplied = minDuration(result.ElapsedRequested, DefaultMaxRouteOfflineSettlementDuration)
+	if err := attachRouteSettlementEvidence(&result, route.LastCalculatedAt, route.LastCalculatedAt.Add(result.ElapsedApplied)); err != nil {
+		return RouteSettlementResult{}, err
+	}
 	result.WantedAmount = wholeUnitsForElapsed(route.AmountPerHour, result.ElapsedApplied)
 	if result.WantedAmount < 1 {
 		route.LastCalculatedAt = now

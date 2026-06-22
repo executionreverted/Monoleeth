@@ -104,6 +104,15 @@ Current slice completed:
   diffs. Immediate and near-immediate sequential duplicate queries no-op
   without advancing `last_calculated_at`; durable production DB rows/outbox and
   building build/upgrade handlers remain open.
+- Phase07I durable-readiness follow-up: production and route settlement domain
+  results plus outbox-safe domain event payloads now carry server-derived
+  `reference_key` and deterministic colon-free `<from_unix_ms>-<to_unix_ms>`
+  settlement windows using the existing `offline_settlement:*` and
+  `route_settlement:*` idempotency key builders. Browser-safe realtime
+  settlement payloads remain unchanged, and no-op duplicate settlements still
+  emit no events and may have empty reference/window evidence. Durable DB rows,
+  row locks/CAS, idempotency table enforcement, and outbox publishing remain
+  open.
 
 ## Source Specs
 
@@ -233,6 +242,8 @@ Mockup areas covered:
       mutations.
 - [x] Add offline settlement reconcile path that uses server-owned windows for
       production/storage summary queries.
+- [x] Add production/route settlement domain result and outbox payload evidence
+      with server-derived reference keys and deterministic settlement windows.
 - [x] Add route.create handler for owned planet-to-planet MVP.
 - [x] Add route.update handler for owned routes.
 - [x] Add route.enable and route.disable handlers for owned routes.
@@ -258,7 +269,8 @@ Mockup areas covered:
       server-owned source truth.
 - [x] Offline settlement duration is server-calculated.
 - [x] Route settlement timing is server-calculated in the backend gateway.
-- [ ] Durable route settlement windows are DB/outbox idempotent.
+- [ ] Durable route settlement windows are enforced by DB/idempotency rows and
+      published through the durable outbox.
 - [ ] Building and route mutations use inventory/wallet/storage ledgers.
 - [ ] Storage capacity cannot be exceeded.
 
@@ -277,13 +289,14 @@ Mockup areas covered:
 - [ ] Building build/upgrade debits materials/currency once.
 - [x] Production summary/storage duplicate and sub-unit polls no-op without
       advancing production time or queuing duplicate events.
-- [ ] Durable production settlement is idempotent by DB window and outbox
-      reference.
+- [ ] Durable production settlement is enforced by DB/idempotency rows and
+      published through the durable outbox.
 - [x] Server route.settle transfers storage once, returns no-op on immediate
       duplicate reconcile, rejects spoofed settlement facts and wrong-owner
       attempts without mutation/events, emits owner-scoped `route.settled`
       plus route reconciliation events, and avoids AOI diffs.
-- [ ] Durable route settlement is idempotent by DB window and outbox reference.
+- [ ] Durable route settlement is enforced by DB/idempotency rows and published
+      through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.
 - [x] Server route.create creates an owned planet route with server-derived
       owner, route id, map ids, safe response/events, and route list/snapshot

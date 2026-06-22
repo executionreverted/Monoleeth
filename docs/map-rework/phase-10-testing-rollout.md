@@ -97,8 +97,10 @@ marked `Open` are not implemented rollout controls yet.
   duplicate or sub-unit polls without advancing `last_calculated_at`, reject
   spoofed owner/map/time/output/storage/building facts before mutation, and
   leave other-owner/other-map planets untouched. Durable production
-  DB/outbox/window idempotency remains open. Focused server coverage proves
-  create derives owner, route id, and
+  DB/outbox/window idempotency remains open, though production and route domain
+  settlement results/events now carry deterministic server-derived
+  `reference_key` plus colon-free applied settlement windows for future outbox
+  records. Focused server coverage proves create derives owner, route id, and
   endpoint map ids server-side; update derives owner from the authenticated
   context, preserves server-owned source truth, changes destination/resource/rate
   through policy validation, settles elapsed old terms before replacement, and
@@ -119,7 +121,8 @@ marked `Open` are not implemented rollout controls yet.
   disable, enable, single-route settle, and empty-payload owner reconcile,
   asserts exact outbound safe payload keys, verifies `state.routes`
   reconciliation, and scans browser/log surfaces for route internals. Durable
-  DB/outbox/window idempotency remains open.
+  DB rows, row locks/CAS, idempotency table enforcement, and outbox publishing
+  remain open.
 - Full server-side selector mismatch guard is now covered for wrong kill-event
   map/world-zone, NPC type, level/rank band, risk band, missing inputs, and
   missing table cases without starter fallback. Current positive coverage

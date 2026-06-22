@@ -124,9 +124,9 @@ for phase status; this file is a compact pending-work index.
   hardening. Server/browser work now has a focused real-client
   create/update/control/settle proof; remaining work is durable route rows,
   endpoint visibility/access policy beyond the owned same-map MVP, route
-  capacity, energy/upkeep policy, duplicate settlement window idempotency,
-  storage capacity persistence, and outbox reconciliation through `route.list`,
-  `route.snapshot`, and `route.updated`/`route.settled` events.
+  capacity, energy/upkeep policy, durable settlement idempotency table
+  enforcement, storage capacity persistence, and outbox reconciliation through
+  `route.list`, `route.snapshot`, and `route.updated`/`route.settled` events.
   Phase07B map-tagged the route domain rows and read payloads for
   `route.list`/`route.snapshot`; Phase07C landed authenticated `route.create`
   as an owned planet-to-planet gateway slice that rejects client-authored
@@ -153,9 +153,12 @@ for phase status; this file is a compact pending-work index.
   touches storage. Phase07G added browser protocol builders, HUD controls,
   reducer reconciliation, a dev-only guarded `GAME_E2E_ROUTE_SEED`, and the
   focused real-browser `e2e:phase10-route` proof for route
-  create/update/disable/enable/settle/reconcile. Durable DB/outbox/window
-  idempotency remains open. Source: Phase 10 audit, Phase07C, Phase07D,
-  Phase07E, Phase07F, and Phase07G.
+  create/update/disable/enable/settle/reconcile. Phase07I added
+  server-derived route settlement reference/window evidence to domain results
+  and outbox-safe domain payloads while leaving browser-safe realtime payloads
+  unchanged. Durable DB rows, row locks/CAS, idempotency table enforcement, and
+  outbox publishing remain open. Source: Phase 10 audit, Phase07C, Phase07D,
+  Phase07E, Phase07F, Phase07G, and Phase07I.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server
@@ -288,8 +291,10 @@ for phase status; this file is a compact pending-work index.
   runtime deployment; current MVP services use process-local mutexes.
 - [ ] Replace Phase 09 in-memory production/route settlement event envelopes
   with a durable outbox before exposing production and automation routes through
-  runtime or gateway callers. Current services append process-local settlement
-  events but do not persist or publish them across processes.
+  runtime or gateway callers. Phase07I added server-derived reference/window
+  evidence to production and route domain results plus outbox-safe domain
+  payloads, but current services still append process-local settlement events
+  and do not persist or publish them across processes.
 - [ ] Add station/storage destination settlement adapters for Phase 09
   automation routes. Current `SettleRoute` supports planet-to-planet storage and
   rejects generic `storage` or `station` destinations with an explicit error.

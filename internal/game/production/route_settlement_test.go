@@ -1,10 +1,12 @@
 package production
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
+	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/testutil"
 )
 
@@ -93,10 +95,17 @@ func TestSettleRouteEmitsSettlementAndConditionEvents(t *testing.T) {
 	if !result.DestinationFull || result.AddedAmount != 0 {
 		t.Fatalf("DestinationFull/AddedAmount = %v/%d, want true/0", result.DestinationFull, result.AddedAmount)
 	}
+	wantWindow := wantSettlementWindow(last, now)
+	wantReference := mustRouteSettlementKey(t, route.RouteID, wantWindow)
+	if result.SettlementWindow != wantWindow || result.ReferenceKey != wantReference {
+		t.Fatalf("settlement evidence = %q/%q, want %q/%q", result.SettlementWindow, result.ReferenceKey, wantWindow, wantReference)
+	}
 	assertProductionEventTypes(t, store.Events(),
 		EventRouteDestinationFull,
 		EventRouteTransferSettled,
 	)
+	assertRouteSettlementEventPayloadEvidence(t, store.Events()[0].Payload, wantReference, wantWindow)
+	assertRouteSettlementEventPayloadEvidence(t, store.Events()[1].Payload, wantReference, wantWindow)
 	firstEventCount := len(store.Events())
 
 	duplicate, err := service.SettleRoute(route.RouteID)
@@ -106,8 +115,22 @@ func TestSettleRouteEmitsSettlementAndConditionEvents(t *testing.T) {
 	if !duplicate.NoOp {
 		t.Fatal("duplicate NoOp = false, want true")
 	}
+	if duplicate.ReferenceKey != "" || duplicate.SettlementWindow != "" {
+		t.Fatalf("duplicate evidence = %q/%q, want empty", duplicate.ReferenceKey, duplicate.SettlementWindow)
+	}
 	if got := len(store.Events()); got != firstEventCount {
 		t.Fatalf("event count after duplicate route settlement = %d, want unchanged %d", got, firstEventCount)
+	}
+}
+
+func assertRouteSettlementEventPayloadEvidence(t *testing.T, eventPayload json.RawMessage, reference foundation.IdempotencyKey, window string) {
+	t.Helper()
+	var payload RouteSettlementPayload
+	if err := json.Unmarshal(eventPayload, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(route settlement payload) error = %v, want nil", err)
+	}
+	if payload.ReferenceKey != reference || payload.SettlementWindow != window {
+		t.Fatalf("event evidence = %q/%q, want %q/%q", payload.ReferenceKey, payload.SettlementWindow, reference, window)
 	}
 }
 
@@ -373,6 +396,11 @@ func TestSettleRouteOfflineCapApplies(t *testing.T) {
 	}
 	if result.ElapsedApplied != DefaultMaxRouteOfflineSettlementDuration {
 		t.Fatalf("ElapsedApplied = %s, want %s", result.ElapsedApplied, DefaultMaxRouteOfflineSettlementDuration)
+	}
+	wantWindow := wantSettlementWindow(last, last.Add(DefaultMaxRouteOfflineSettlementDuration))
+	wantReference := mustRouteSettlementKey(t, route.RouteID, wantWindow)
+	if result.SettlementWindow != wantWindow || result.ReferenceKey != wantReference {
+		t.Fatalf("capped settlement evidence = %q/%q, want %q/%q", result.SettlementWindow, result.ReferenceKey, wantWindow, wantReference)
 	}
 	if result.WantedAmount != 2_880 || result.AddedAmount != 2_880 {
 		t.Fatalf("wanted/added = %d/%d, want 2880/2880", result.WantedAmount, result.AddedAmount)

@@ -1,6 +1,7 @@
 package production
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -38,11 +39,18 @@ func TestSettlePlanetProductionEmitsSettlementEventsOnce(t *testing.T) {
 		t.Fatalf("SettlePlanetProduction(first) error = %v, want nil", err)
 	}
 	assertSettlementDelta(t, result.ProducedItems, "iron_ore", 30)
+	wantWindow := wantSettlementWindow(testTime(0), now)
+	wantReference := mustOfflineSettlementKey(t, "planet-1", wantWindow)
+	if result.SettlementWindow != wantWindow || result.ReferenceKey != wantReference {
+		t.Fatalf("settlement evidence = %q/%q, want %q/%q", result.SettlementWindow, result.ReferenceKey, wantWindow, wantReference)
+	}
 	assertProductionEventTypes(t, store.Events(),
 		EventPlanetBuildingProduced,
 		EventPlanetProductionSettled,
 		EventOfflineSettlementCompleted,
 	)
+	assertProductionSettlementEventPayloadEvidence(t, store.Events()[1].Payload, wantReference, wantWindow)
+	assertProductionSettlementEventPayloadEvidence(t, store.Events()[2].Payload, wantReference, wantWindow)
 	firstEventCount := len(store.Events())
 
 	duplicate, err := store.SettlePlanetProduction("planet-1", now)
@@ -52,8 +60,22 @@ func TestSettlePlanetProductionEmitsSettlementEventsOnce(t *testing.T) {
 	if !duplicate.NoOp {
 		t.Fatal("duplicate NoOp = false, want true")
 	}
+	if duplicate.ReferenceKey != "" || duplicate.SettlementWindow != "" {
+		t.Fatalf("duplicate evidence = %q/%q, want empty", duplicate.ReferenceKey, duplicate.SettlementWindow)
+	}
 	if got := len(store.Events()); got != firstEventCount {
 		t.Fatalf("event count after duplicate settlement = %d, want unchanged %d", got, firstEventCount)
+	}
+}
+
+func assertProductionSettlementEventPayloadEvidence(t *testing.T, eventPayload json.RawMessage, reference foundation.IdempotencyKey, window string) {
+	t.Helper()
+	var payload ProductionSettlementPayload
+	if err := json.Unmarshal(eventPayload, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(production settlement payload) error = %v, want nil", err)
+	}
+	if payload.ReferenceKey != reference || payload.SettlementWindow != window {
+		t.Fatalf("event evidence = %q/%q, want %q/%q", payload.ReferenceKey, payload.SettlementWindow, reference, window)
 	}
 }
 
@@ -133,6 +155,11 @@ func TestSettlePlanetProductionOfflineCapApplies(t *testing.T) {
 	}
 	if result.ElapsedApplied != DefaultMaxOfflineSettlementDuration {
 		t.Fatalf("ElapsedApplied = %s, want %s", result.ElapsedApplied, DefaultMaxOfflineSettlementDuration)
+	}
+	wantWindow := wantSettlementWindow(testTime(0), testTime(0).Add(DefaultMaxOfflineSettlementDuration))
+	wantReference := mustOfflineSettlementKey(t, "planet-1", wantWindow)
+	if result.SettlementWindow != wantWindow || result.ReferenceKey != wantReference {
+		t.Fatalf("capped settlement evidence = %q/%q, want %q/%q", result.SettlementWindow, result.ReferenceKey, wantWindow, wantReference)
 	}
 	assertSettlementDelta(t, result.ProducedItems, "iron_ore", 2160)
 	if got := result.After.State.LastCalculatedAt; !got.Equal(now) {

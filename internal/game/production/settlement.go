@@ -51,6 +51,8 @@ type PlanetProductionBuildingResult struct {
 type PlanetProductionSettlementResult struct {
 	PlanetID                     foundation.PlanetID              `json:"planet_id"`
 	SettledAt                    time.Time                        `json:"settled_at"`
+	ReferenceKey                 foundation.IdempotencyKey        `json:"reference_key,omitempty"`
+	SettlementWindow             string                           `json:"settlement_window,omitempty"`
 	MaxOfflineSettlementDuration time.Duration                    `json:"max_offline_settlement_duration"`
 	ElapsedRequested             time.Duration                    `json:"elapsed_requested"`
 	ElapsedApplied               time.Duration                    `json:"elapsed_applied"`
@@ -149,6 +151,9 @@ func (store *InMemoryStore) settlePlanetProductionLocked(
 			return result, nil
 		}
 		result.ElapsedApplied = elapsedApplied
+		if err := attachProductionSettlementEvidence(&result, state.LastCalculatedAt, state.LastCalculatedAt.Add(result.ElapsedApplied)); err != nil {
+			return PlanetProductionSettlementResult{}, err
+		}
 		state.LastCalculatedAt = now
 		state.UpdatedAt = now
 		store.states[planetID] = cloneProductionState(state)
@@ -169,6 +174,9 @@ func (store *InMemoryStore) settlePlanetProductionLocked(
 		return result, nil
 	}
 	result.ElapsedApplied = elapsedApplied
+	if err := attachProductionSettlementEvidence(&result, state.LastCalculatedAt, state.LastCalculatedAt.Add(result.ElapsedApplied)); err != nil {
+		return PlanetProductionSettlementResult{}, err
+	}
 
 	energyUsedPerHour := state.EnergyReservedPerHour
 	for _, activeBuilding := range active {
@@ -269,6 +277,32 @@ func newSettlementResult(planetID foundation.PlanetID, now time.Time, before Pla
 		Before:                       before.Clone(),
 		After:                        before.Clone(),
 	}
+}
+
+func attachProductionSettlementEvidence(result *PlanetProductionSettlementResult, start time.Time, end time.Time) error {
+	window := settlementWindow(start, end)
+	reference, err := foundation.OfflineSettlementIdempotencyKey(result.PlanetID, window)
+	if err != nil {
+		return err
+	}
+	result.SettlementWindow = window
+	result.ReferenceKey = reference
+	return nil
+}
+
+func attachRouteSettlementEvidence(result *RouteSettlementResult, start time.Time, end time.Time) error {
+	window := settlementWindow(start, end)
+	reference, err := foundation.RouteSettlementIdempotencyKey(result.RouteID, window)
+	if err != nil {
+		return err
+	}
+	result.SettlementWindow = window
+	result.ReferenceKey = reference
+	return nil
+}
+
+func settlementWindow(start time.Time, end time.Time) string {
+	return fmt.Sprintf("%d-%d", start.UTC().UnixMilli(), end.UTC().UnixMilli())
 }
 
 func settlementBuildings(

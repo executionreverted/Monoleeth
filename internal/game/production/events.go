@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"gameproject/internal/game/catalog"
@@ -62,6 +63,8 @@ type BuildingUpdatedPayload struct {
 type ProductionSettlementPayload struct {
 	PlanetID           foundation.PlanetID         `json:"planet_id"`
 	SettledAt          time.Time                   `json:"settled_at"`
+	ReferenceKey       foundation.IdempotencyKey   `json:"reference_key,omitempty"`
+	SettlementWindow   string                      `json:"settlement_window,omitempty"`
 	ElapsedApplied     time.Duration               `json:"elapsed_applied"`
 	ProducedItems      []SettlementItemDelta       `json:"produced_items,omitempty"`
 	ConsumedInputs     []SettlementItemDelta       `json:"consumed_inputs,omitempty"`
@@ -90,23 +93,25 @@ type BuildingProducedPayload struct {
 // RouteSettlementPayload is a compact outbox-safe summary of one virtual route
 // settlement.
 type RouteSettlementPayload struct {
-	RouteID         foundation.RouteID  `json:"route_id"`
-	OwnerPlayerID   foundation.PlayerID `json:"owner_player_id"`
-	SourcePlanetID  foundation.PlanetID `json:"source_planet_id"`
-	Destination     RouteDestination    `json:"destination"`
-	ResourceItemID  foundation.ItemID   `json:"resource_item_id"`
-	SettledAt       time.Time           `json:"settled_at"`
-	ElapsedApplied  time.Duration       `json:"elapsed_applied"`
-	WantedAmount    int64               `json:"wanted_amount"`
-	TakenAmount     int64               `json:"taken_amount"`
-	LostAmount      int64               `json:"lost_amount"`
-	DeliveredAmount int64               `json:"delivered_amount"`
-	AddedAmount     int64               `json:"added_amount"`
-	LossPercent     float64             `json:"loss_percent,omitempty"`
-	SourceEmpty     bool                `json:"source_empty,omitempty"`
-	DestinationFull bool                `json:"destination_full,omitempty"`
-	LossApplied     bool                `json:"loss_applied,omitempty"`
-	NoOp            bool                `json:"no_op,omitempty"`
+	RouteID          foundation.RouteID        `json:"route_id"`
+	ReferenceKey     foundation.IdempotencyKey `json:"reference_key,omitempty"`
+	SettlementWindow string                    `json:"settlement_window,omitempty"`
+	OwnerPlayerID    foundation.PlayerID       `json:"owner_player_id"`
+	SourcePlanetID   foundation.PlanetID       `json:"source_planet_id"`
+	Destination      RouteDestination          `json:"destination"`
+	ResourceItemID   foundation.ItemID         `json:"resource_item_id"`
+	SettledAt        time.Time                 `json:"settled_at"`
+	ElapsedApplied   time.Duration             `json:"elapsed_applied"`
+	WantedAmount     int64                     `json:"wanted_amount"`
+	TakenAmount      int64                     `json:"taken_amount"`
+	LostAmount       int64                     `json:"lost_amount"`
+	DeliveredAmount  int64                     `json:"delivered_amount"`
+	AddedAmount      int64                     `json:"added_amount"`
+	LossPercent      float64                   `json:"loss_percent,omitempty"`
+	SourceEmpty      bool                      `json:"source_empty,omitempty"`
+	DestinationFull  bool                      `json:"destination_full,omitempty"`
+	LossApplied      bool                      `json:"loss_applied,omitempty"`
+	NoOp             bool                      `json:"no_op,omitempty"`
 }
 
 // String returns the stable event type representation.
@@ -207,6 +212,9 @@ func NewProductionSettlementPayload(result PlanetProductionSettlementResult) (Pr
 	if result.ElapsedApplied < 0 {
 		return ProductionSettlementPayload{}, fmt.Errorf("elapsed_applied %s: %w", result.ElapsedApplied, ErrInvalidProductionEvent)
 	}
+	if err := validateProductionSettlementEvidence(result); err != nil {
+		return ProductionSettlementPayload{}, err
+	}
 	if err := validateSettlementItemDeltas("produced_items", result.ProducedItems); err != nil {
 		return ProductionSettlementPayload{}, err
 	}
@@ -219,6 +227,8 @@ func NewProductionSettlementPayload(result PlanetProductionSettlementResult) (Pr
 	return ProductionSettlementPayload{
 		PlanetID:           result.PlanetID,
 		SettledAt:          result.SettledAt.UTC(),
+		ReferenceKey:       result.ReferenceKey,
+		SettlementWindow:   result.SettlementWindow,
 		ElapsedApplied:     result.ElapsedApplied,
 		ProducedItems:      cloneSettlementItemDeltas(result.ProducedItems),
 		ConsumedInputs:     cloneSettlementItemDeltas(result.ConsumedInputs),
@@ -303,28 +313,78 @@ func NewRouteSettlementPayload(result RouteSettlementResult) (RouteSettlementPay
 	if result.ElapsedApplied < 0 {
 		return RouteSettlementPayload{}, fmt.Errorf("elapsed_applied %s: %w", result.ElapsedApplied, ErrInvalidProductionEvent)
 	}
+	if err := validateRouteSettlementEvidence(result); err != nil {
+		return RouteSettlementPayload{}, err
+	}
 	if err := validateRouteSettlementAmounts(result); err != nil {
 		return RouteSettlementPayload{}, err
 	}
 	return RouteSettlementPayload{
-		RouteID:         result.RouteID,
-		OwnerPlayerID:   result.AfterRoute.OwnerPlayerID,
-		SourcePlanetID:  result.AfterRoute.SourcePlanetID,
-		Destination:     result.AfterRoute.Destination,
-		ResourceItemID:  result.AfterRoute.ResourceItemID,
-		SettledAt:       result.SettledAt.UTC(),
-		ElapsedApplied:  result.ElapsedApplied,
-		WantedAmount:    result.WantedAmount,
-		TakenAmount:     result.TakenAmount,
-		LostAmount:      result.LostAmount,
-		DeliveredAmount: result.DeliveredAmount,
-		AddedAmount:     result.AddedAmount,
-		LossPercent:     result.LossPercent,
-		SourceEmpty:     result.SourceEmpty,
-		DestinationFull: result.DestinationFull,
-		LossApplied:     result.LossApplied,
-		NoOp:            result.NoOp,
+		RouteID:          result.RouteID,
+		ReferenceKey:     result.ReferenceKey,
+		SettlementWindow: result.SettlementWindow,
+		OwnerPlayerID:    result.AfterRoute.OwnerPlayerID,
+		SourcePlanetID:   result.AfterRoute.SourcePlanetID,
+		Destination:      result.AfterRoute.Destination,
+		ResourceItemID:   result.AfterRoute.ResourceItemID,
+		SettledAt:        result.SettledAt.UTC(),
+		ElapsedApplied:   result.ElapsedApplied,
+		WantedAmount:     result.WantedAmount,
+		TakenAmount:      result.TakenAmount,
+		LostAmount:       result.LostAmount,
+		DeliveredAmount:  result.DeliveredAmount,
+		AddedAmount:      result.AddedAmount,
+		LossPercent:      result.LossPercent,
+		SourceEmpty:      result.SourceEmpty,
+		DestinationFull:  result.DestinationFull,
+		LossApplied:      result.LossApplied,
+		NoOp:             result.NoOp,
 	}, nil
+}
+
+func validateProductionSettlementEvidence(result PlanetProductionSettlementResult) error {
+	if result.NoOp && result.ReferenceKey.IsZero() && result.SettlementWindow == "" {
+		return nil
+	}
+	if err := validateSettlementWindow(result.SettlementWindow); err != nil {
+		return err
+	}
+	want, err := foundation.OfflineSettlementIdempotencyKey(result.PlanetID, result.SettlementWindow)
+	if err != nil {
+		return fmt.Errorf("settlement evidence: %v: %w", err, ErrInvalidProductionEvent)
+	}
+	return validateSettlementReference(result.ReferenceKey, want)
+}
+
+func validateRouteSettlementEvidence(result RouteSettlementResult) error {
+	if result.NoOp && result.ReferenceKey.IsZero() && result.SettlementWindow == "" {
+		return nil
+	}
+	if err := validateSettlementWindow(result.SettlementWindow); err != nil {
+		return err
+	}
+	want, err := foundation.RouteSettlementIdempotencyKey(result.RouteID, result.SettlementWindow)
+	if err != nil {
+		return fmt.Errorf("settlement evidence: %v: %w", err, ErrInvalidProductionEvent)
+	}
+	return validateSettlementReference(result.ReferenceKey, want)
+}
+
+func validateSettlementWindow(window string) error {
+	if strings.TrimSpace(window) == "" || strings.Contains(window, ":") {
+		return fmt.Errorf("settlement_window %q: %w", window, ErrInvalidProductionEvent)
+	}
+	return nil
+}
+
+func validateSettlementReference(got foundation.IdempotencyKey, want foundation.IdempotencyKey) error {
+	if err := got.Validate(); err != nil {
+		return fmt.Errorf("reference_key %q: %v: %w", got, err, ErrInvalidProductionEvent)
+	}
+	if got != want {
+		return fmt.Errorf("reference_key %q does not match settlement window %q: %w", got, want, ErrInvalidProductionEvent)
+	}
+	return nil
 }
 
 func validateSettlementItemDeltas(name string, deltas []SettlementItemDelta) error {

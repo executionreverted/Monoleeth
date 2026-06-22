@@ -3,6 +3,7 @@ package production
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -61,12 +62,34 @@ func TestProductionEventRejectsUnknownType(t *testing.T) {
 
 func TestProductionSettlementPayloadRejectsInvalidFacts(t *testing.T) {
 	base := PlanetProductionSettlementResult{
-		PlanetID:       "planet-1",
-		SettledAt:      testTime(1),
-		ElapsedApplied: time.Hour,
-		ProducedItems:  []SettlementItemDelta{{ItemID: "iron_ore", Quantity: 1}},
+		PlanetID:         "planet-1",
+		SettledAt:        testTime(1),
+		ReferenceKey:     mustOfflineSettlementKey(t, "planet-1", wantSettlementWindow(testTime(0), testTime(1))),
+		SettlementWindow: wantSettlementWindow(testTime(0), testTime(1)),
+		ElapsedApplied:   time.Hour,
+		ProducedItems:    []SettlementItemDelta{{ItemID: "iron_ore", Quantity: 1}},
 	}
 	cases := map[string]PlanetProductionSettlementResult{
+		"missing reference": func() PlanetProductionSettlementResult {
+			result := base
+			result.ReferenceKey = ""
+			return result
+		}(),
+		"missing window": func() PlanetProductionSettlementResult {
+			result := base
+			result.SettlementWindow = ""
+			return result
+		}(),
+		"window contains colon": func() PlanetProductionSettlementResult {
+			result := base
+			result.SettlementWindow = "from:to"
+			return result
+		}(),
+		"reference mismatch": func() PlanetProductionSettlementResult {
+			result := base
+			result.ReferenceKey = mustOfflineSettlementKey(t, result.PlanetID, "other-window")
+			return result
+		}(),
 		"negative elapsed": func() PlanetProductionSettlementResult {
 			result := base
 			result.ElapsedApplied = -time.Second
@@ -142,16 +165,38 @@ func TestBuildingProducedPayloadRejectsEmptyDeltas(t *testing.T) {
 func TestRouteSettlementPayloadRejectsInvalidFacts(t *testing.T) {
 	route := validSettlementRoute(testRouteNow())
 	base := RouteSettlementResult{
-		RouteID:         route.RouteID,
-		SettledAt:       testRouteNow().Add(time.Hour),
-		ElapsedApplied:  time.Hour,
-		AfterRoute:      route,
-		WantedAmount:    40,
-		TakenAmount:     40,
-		DeliveredAmount: 40,
-		AddedAmount:     40,
+		RouteID:          route.RouteID,
+		SettledAt:        testRouteNow().Add(time.Hour),
+		ReferenceKey:     mustRouteSettlementKey(t, route.RouteID, wantSettlementWindow(testRouteNow(), testRouteNow().Add(time.Hour))),
+		SettlementWindow: wantSettlementWindow(testRouteNow(), testRouteNow().Add(time.Hour)),
+		ElapsedApplied:   time.Hour,
+		AfterRoute:       route,
+		WantedAmount:     40,
+		TakenAmount:      40,
+		DeliveredAmount:  40,
+		AddedAmount:      40,
 	}
 	cases := map[string]RouteSettlementResult{
+		"missing reference": func() RouteSettlementResult {
+			result := base
+			result.ReferenceKey = ""
+			return result
+		}(),
+		"missing window": func() RouteSettlementResult {
+			result := base
+			result.SettlementWindow = ""
+			return result
+		}(),
+		"window contains colon": func() RouteSettlementResult {
+			result := base
+			result.SettlementWindow = "from:to"
+			return result
+		}(),
+		"reference mismatch": func() RouteSettlementResult {
+			result := base
+			result.ReferenceKey = mustRouteSettlementKey(t, result.RouteID, "other-window")
+			return result
+		}(),
 		"negative elapsed": func() RouteSettlementResult {
 			result := base
 			result.ElapsedApplied = -time.Second
@@ -207,6 +252,34 @@ func TestRouteSettlementPayloadRejectsInvalidFacts(t *testing.T) {
 	}
 }
 
+func TestSettlementPayloadsAllowNoOpWithoutEvidence(t *testing.T) {
+	productionPayload, err := NewProductionSettlementPayload(PlanetProductionSettlementResult{
+		PlanetID:  "planet-1",
+		SettledAt: testTime(1),
+		NoOp:      true,
+	})
+	if err != nil {
+		t.Fatalf("NewProductionSettlementPayload(no-op) error = %v, want nil", err)
+	}
+	if productionPayload.ReferenceKey != "" || productionPayload.SettlementWindow != "" {
+		t.Fatalf("production no-op evidence = %q/%q, want empty", productionPayload.ReferenceKey, productionPayload.SettlementWindow)
+	}
+
+	route := validSettlementRoute(testRouteNow())
+	routePayload, err := NewRouteSettlementPayload(RouteSettlementResult{
+		RouteID:    route.RouteID,
+		SettledAt:  testRouteNow(),
+		AfterRoute: route,
+		NoOp:       true,
+	})
+	if err != nil {
+		t.Fatalf("NewRouteSettlementPayload(no-op) error = %v, want nil", err)
+	}
+	if routePayload.ReferenceKey != "" || routePayload.SettlementWindow != "" {
+		t.Fatalf("route no-op evidence = %q/%q, want empty", routePayload.ReferenceKey, routePayload.SettlementWindow)
+	}
+}
+
 func assertProductionEventTypes(t *testing.T, events []gameevents.EventEnvelope, want ...string) {
 	t.Helper()
 	if len(events) != len(want) {
@@ -223,4 +296,26 @@ func assertProductionEventTypes(t *testing.T, events []gameevents.EventEnvelope,
 			t.Fatalf("event[%d] EventID is empty", index)
 		}
 	}
+}
+
+func wantSettlementWindow(start time.Time, end time.Time) string {
+	return fmt.Sprintf("%d-%d", start.UTC().UnixMilli(), end.UTC().UnixMilli())
+}
+
+func mustOfflineSettlementKey(t *testing.T, planetID foundation.PlanetID, window string) foundation.IdempotencyKey {
+	t.Helper()
+	key, err := foundation.OfflineSettlementIdempotencyKey(planetID, window)
+	if err != nil {
+		t.Fatalf("OfflineSettlementIdempotencyKey(%q, %q) error = %v, want nil", planetID, window, err)
+	}
+	return key
+}
+
+func mustRouteSettlementKey(t *testing.T, routeID foundation.RouteID, window string) foundation.IdempotencyKey {
+	t.Helper()
+	key, err := foundation.RouteSettlementIdempotencyKey(routeID, window)
+	if err != nil {
+		t.Fatalf("RouteSettlementIdempotencyKey(%q, %q) error = %v, want nil", routeID, window, err)
+	}
+	return key
 }

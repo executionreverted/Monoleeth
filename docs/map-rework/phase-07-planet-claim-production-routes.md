@@ -338,6 +338,31 @@ Deferred after Phase07H:
 - Broader browser proof for production settlement UI timing beyond the
   existing production/storage read-model surfaces.
 
+## Phase07I Landed Settlement Evidence Readiness Slice
+
+- Production settlement results now include `reference_key` and
+  `settlement_window` evidence derived server-side from the applied settlement
+  cursor window. Non-no-op production settlement events
+  `planet.production_settled` and `offline.settlement_completed` carry the same
+  evidence in the outbox-safe domain payload.
+- Route settlement results now include `reference_key` and `settlement_window`
+  evidence derived server-side from the applied route cursor window. Route
+  transfer domain events carry the same evidence in their outbox-safe payloads.
+- Settlement windows use deterministic colon-free
+  `<from_unix_ms>-<to_unix_ms>` strings. Capped offline settlements use the
+  actual applied start/end window instead of the longer requested elapsed span.
+- Browser-safe realtime settlement response and event payloads are unchanged;
+  reference/window evidence stays in domain results and domain event payloads.
+- Immediate duplicate/no-op settlements still emit no domain events and do not
+  require reference/window evidence.
+
+Deferred after Phase07I:
+
+- Durable production/route DB rows, row locks/CAS, idempotency table
+  enforcement, and outbox publishing.
+- Durable retry/recovery workers that use settlement references to reconcile
+  missed or duplicate outbox publications.
+
 ## Target Model
 
 Planet claim is a server-owned transaction:
@@ -533,8 +558,9 @@ contracts:
   sequential duplicates, reject spoofed owner/map/time/storage/output/building
   fields before mutation, and emit only owner-scoped safe production/storage
   reconciliation events.
-- Durable production settlement remains to be proven with row locks,
-  idempotency rows, and outbox references.
+- Production settlement domain results/events now carry deterministic
+  server-derived settlement reference/window evidence; durable DB rows, row
+  locks/CAS, idempotency table enforcement, and outbox publishing remain open.
 - Route create accepts only intent fields, derives owner/route id/map ids
   server-side, reconciles safe route list/snapshot payloads, and rejects
   unowned source, inaccessible destination, hidden endpoint, bad resource,
@@ -551,8 +577,10 @@ contracts:
   settlement fields without mutation/events, emits owner-scoped safe
   `route.settled` plus route reconciliation events, avoids AOI diffs, and
   reconciles active-map production/storage snapshots when storage changes.
-- Durable route settlement is idempotent by durable window and respects source
-  storage, destination capacity, loss rolls, and map-risk policy.
+- Route settlement domain results/events now carry deterministic
+  server-derived settlement reference/window evidence; durable route settlement
+  idempotency table enforcement must still respect source storage, destination
+  capacity, loss rolls, and map-risk policy.
 - Realtime/event tests prove claim, production, and route events do not leak to
   other maps or unrelated sessions.
 - Browser/API tests prove mutation controls reconcile from server snapshots and
@@ -610,7 +638,10 @@ Acceptance criteria:
 - Production summary/storage queries reconcile eligible owned active-map
   production with server time, remain capped and storage-cap aware, and prove
   immediate/sequential duplicate no-op behavior in the current in-memory
-  gateway. Durable concurrent DB/outbox/window idempotency remains open.
+  gateway. Domain results/events now carry server-derived settlement
+  reference/window evidence for the future outbox. Durable concurrent DB rows,
+  row locks/CAS, idempotency table enforcement, and outbox publishing remain
+  open.
 - Route rows carry source/destination map identity and use map policy for
   endpoint access and risk.
 - Route mutations and settlements use server-resolved ownership and do not
