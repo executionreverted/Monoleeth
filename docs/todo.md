@@ -157,11 +157,13 @@ for phase status; this file is a compact pending-work index.
   `npm run check` to avoid changing routine check cost. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete Phase10 leak canaries over screenshots, server logs/debug
-  responses, production bundle text, and non-Phase09 WebSocket paths for hidden
-  map/scan/spawn/loot internals and fake/default fixture labels. Phase09 now
-  covers DOM/app state, local/session storage, cookies, and inbound/outbound
-  app plus command WebSocket text frames for its real-server smoke path, but the
-  broader release canary scope remains open. Source:
+  responses, source maps/published bundle artifacts, and non-Phase09 WebSocket
+  paths for hidden map/scan/spawn/loot internals and fake/default fixture
+  labels. Phase09 now covers DOM/app state, local/session storage, cookies, and
+  inbound/outbound app plus command WebSocket text frames for its real-server
+  smoke path, and the default production bundle text scan covers fake/default
+  fixture labels/ids plus server-only content ids, but the broader release
+  canary scope remains open. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Clean up active legacy semantic contradictions in the scoped
   world/progression/module/UI docs. The bounded-map rework now defines active
