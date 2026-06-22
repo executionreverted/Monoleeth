@@ -13,7 +13,10 @@ import (
 type ClaimOutboxStatus string
 
 const (
-	ClaimOutboxStatusPending ClaimOutboxStatus = "pending"
+	ClaimOutboxStatusPending   ClaimOutboxStatus = "pending"
+	ClaimOutboxStatusInFlight  ClaimOutboxStatus = "in_flight"
+	ClaimOutboxStatusPublished ClaimOutboxStatus = "published"
+	ClaimOutboxStatusFailed    ClaimOutboxStatus = "failed"
 )
 
 // ClaimReferenceRecord is the process-local durable-boundary marker for one
@@ -36,6 +39,13 @@ type ClaimOutboxRecord struct {
 	Event          ClaimEventRecord
 	Status         ClaimOutboxStatus
 	CreatedAt      time.Time
+	ClaimedAt      time.Time
+	ClaimToken     string
+	PublishedAt    time.Time
+	FailedAt       time.Time
+	RetriedAt      time.Time
+	Attempts       int
+	LastError      string
 	ClaimReference PlanetClaimReference
 }
 
@@ -85,6 +95,108 @@ func (service *ClaimService) ClaimOutboxRecords() []ClaimOutboxRecord {
 	return cloneClaimOutboxRecords(service.outbox)
 }
 
+// PendingClaimOutboxRecords returns pending claim outbox records in append
+// order.
+func (service *ClaimService) PendingClaimOutboxRecords(limit int) []ClaimOutboxRecord {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	return service.claimOutboxRecordsByStatusLocked(ClaimOutboxStatusPending, limit)
+}
+
+// ClaimPendingClaimOutboxRecords moves pending claim outbox records to
+// in-flight in append order, recording one publisher attempt per record.
+func (service *ClaimService) ClaimPendingClaimOutboxRecords(limit int, claimedAt time.Time) []ClaimOutboxRecord {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	if limit <= 0 {
+		return nil
+	}
+	claimedAt = claimedAt.UTC()
+	records := make([]ClaimOutboxRecord, 0, limit)
+	for index := range service.outbox {
+		if len(records) >= limit {
+			break
+		}
+		if service.outbox[index].Status != ClaimOutboxStatusPending {
+			continue
+		}
+		service.outbox[index].Status = ClaimOutboxStatusInFlight
+		service.outbox[index].ClaimedAt = claimedAt
+		service.outbox[index].Attempts++
+		service.outbox[index].ClaimToken = claimOutboxClaimToken(service.outbox[index].OutboxID, service.outbox[index].Attempts)
+		records = append(records, cloneClaimOutboxRecord(service.outbox[index]))
+	}
+	return records
+}
+
+// MarkClaimedClaimOutboxPublished records successful delivery for the current
+// claim attempt. Missing records, stale tokens, and non-in-flight records do
+// not mutate state.
+func (service *ClaimService) MarkClaimedClaimOutboxPublished(outboxID string, claimToken string, publishedAt time.Time) (ClaimOutboxRecord, bool) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	index, ok := service.claimOutboxIndexLocked(outboxID)
+	if !ok {
+		return ClaimOutboxRecord{}, false
+	}
+	if !service.claimOutboxClaimMatchesLocked(index, claimToken) {
+		return ClaimOutboxRecord{}, false
+	}
+	service.outbox[index].Status = ClaimOutboxStatusPublished
+	service.outbox[index].PublishedAt = publishedAt.UTC()
+	return cloneClaimOutboxRecord(service.outbox[index]), true
+}
+
+// MarkClaimedClaimOutboxFailed records failed delivery for the current claim
+// attempt. Missing records, stale tokens, and non-in-flight records do not
+// mutate state.
+func (service *ClaimService) MarkClaimedClaimOutboxFailed(outboxID string, claimToken string, reason string, failedAt time.Time) (ClaimOutboxRecord, bool) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	index, ok := service.claimOutboxIndexLocked(outboxID)
+	if !ok {
+		return ClaimOutboxRecord{}, false
+	}
+	if !service.claimOutboxClaimMatchesLocked(index, claimToken) {
+		return ClaimOutboxRecord{}, false
+	}
+	service.outbox[index].Status = ClaimOutboxStatusFailed
+	service.outbox[index].FailedAt = failedAt.UTC()
+	service.outbox[index].LastError = reason
+	return cloneClaimOutboxRecord(service.outbox[index]), true
+}
+
+// RetryFailedClaimOutboxRecords moves failed claim outbox records back to
+// pending in append order while preserving failure evidence for diagnostics.
+func (service *ClaimService) RetryFailedClaimOutboxRecords(limit int, retriedAt time.Time) []ClaimOutboxRecord {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	if limit <= 0 {
+		return nil
+	}
+	retriedAt = retriedAt.UTC()
+	records := make([]ClaimOutboxRecord, 0, limit)
+	for index := range service.outbox {
+		if len(records) >= limit {
+			break
+		}
+		if service.outbox[index].Status != ClaimOutboxStatusFailed {
+			continue
+		}
+		service.outbox[index].Status = ClaimOutboxStatusPending
+		service.outbox[index].ClaimedAt = time.Time{}
+		service.outbox[index].ClaimToken = ""
+		service.outbox[index].RetriedAt = retriedAt
+		records = append(records, cloneClaimOutboxRecord(service.outbox[index]))
+	}
+	return records
+}
+
 func (service *ClaimService) recordClaimReferenceLocked(input ClaimPlanetInput, claimedAt time.Time, recordedAt time.Time, alreadyOwned bool, eventID foundation.EventID) {
 	service.references[input.ClaimReference] = cloneClaimReferenceRecord(ClaimReferenceRecord{
 		ClaimReference: input.ClaimReference,
@@ -110,6 +222,40 @@ func (service *ClaimService) appendClaimOutboxRecordLocked(event ClaimEventRecor
 	})
 }
 
+func (service *ClaimService) claimOutboxRecordsByStatusLocked(status ClaimOutboxStatus, limit int) []ClaimOutboxRecord {
+	if limit <= 0 {
+		return nil
+	}
+	records := make([]ClaimOutboxRecord, 0, limit)
+	for _, record := range service.outbox {
+		if len(records) >= limit {
+			break
+		}
+		if record.Status == status {
+			records = append(records, cloneClaimOutboxRecord(record))
+		}
+	}
+	return records
+}
+
+func (service *ClaimService) claimOutboxIndexLocked(outboxID string) (int, bool) {
+	for index, record := range service.outbox {
+		if record.OutboxID == outboxID {
+			return index, true
+		}
+	}
+	return 0, false
+}
+
+func (service *ClaimService) claimOutboxClaimMatchesLocked(index int, claimToken string) bool {
+	record := service.outbox[index]
+	return record.Status == ClaimOutboxStatusInFlight && record.ClaimToken != "" && record.ClaimToken == claimToken
+}
+
+func claimOutboxClaimToken(outboxID string, attempts int) string {
+	return fmt.Sprintf("%s-attempt-%d", outboxID, attempts)
+}
+
 func cloneClaimReferenceRecord(record ClaimReferenceRecord) ClaimReferenceRecord {
 	record.ClaimedAt = record.ClaimedAt.UTC()
 	record.RecordedAt = record.RecordedAt.UTC()
@@ -130,6 +276,10 @@ func cloneClaimOutboxRecords(records []ClaimOutboxRecord) []ClaimOutboxRecord {
 func cloneClaimOutboxRecord(record ClaimOutboxRecord) ClaimOutboxRecord {
 	record.Event = cloneClaimEventRecord(record.Event)
 	record.CreatedAt = record.CreatedAt.UTC()
+	record.ClaimedAt = record.ClaimedAt.UTC()
+	record.PublishedAt = record.PublishedAt.UTC()
+	record.FailedAt = record.FailedAt.UTC()
+	record.RetriedAt = record.RetriedAt.UTC()
 	return record
 }
 

@@ -72,15 +72,19 @@ for phase status; this file is a compact pending-work index.
 - [ ] Replace Phase 08 in-memory discovery stores, idempotency maps, and local
   event/outbox slices with durable repositories/outbox records before
   multi-process runtime or DB-backed deployment. Phase07M adds process-local
-  claim reference records plus pending claim outbox rows under the claim
-  service lock, but they are not durable or cross-process.
+  claim reference records plus claim outbox rows under the claim service lock,
+  and Phase07N adds process-local delivery state plus claim-token guards, but
+  the rows are not durable or cross-process.
 - [ ] Move Phase 08 planet claim into a durable transaction/CAS boundary that
   ties unowned-owner transition, X Core reservation/consume, idempotency, and
   event/outbox emission together. Phase07M now records successful cached claim
   references and pending `planet.claimed` outbox rows in process-local memory,
-  including duplicate/conflict/no-boundary-on-failure coverage, but durable DB
-  rows, row locks/CAS, a durable idempotency table, and durable outbox
-  publishing remain open.
+  including duplicate/conflict/no-boundary-on-failure coverage. Phase07N adds
+  process-local pending/in-flight/published/failed delivery state, explicit
+  retry, and claim-token publish/fail guards for stale publisher callbacks, but
+  durable DB rows, cross-process row locks/CAS, durable idempotency-table
+  enforcement, durable outbox persistence, and durable publisher/recovery
+  workers remain open.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
   planet claim transaction. Current in-memory flow can repair production state
   on retry, but initializer failure after owner mutation does not recover the
@@ -120,9 +124,11 @@ for phase status; this file is a compact pending-work index.
   E2E-only Inventory X Core plus Progression rank seed, reconciles
   production/inventory, and handles `planet.claimed` without an unhandled-event
   log. Phase07M adds a process-local claim reference/outbox boundary for
-  successful cached claim results, while durable DB/outbox claim recovery plus
-  `planet.building_build` and `planet.building_upgrade` remain open; building
-  handlers still need
+  successful cached claim results, and Phase07N adds process-local claim
+  outbox delivery state plus claim-token guards. Durable DB/outbox claim
+  recovery, cross-process CAS/locks, idempotency-table enforcement, durable
+  outbox persistence/publisher workers, plus `planet.building_build` and
+  `planet.building_upgrade` remain open; building handlers still need
   ownership, requirements, materials/wallet, storage capacity, idempotency, and
   `planet.storage_updated` /
   `planet.building_updated` events. Source: Phase 10 audit, Phase07A, and

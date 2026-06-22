@@ -149,6 +149,14 @@ Current slice completed:
   Durable claim DB rows, row locks/CAS, DB idempotency-table enforcement,
   durable outbox rows, publisher workers, and cross-process recovery remain
   open.
+- Phase07N process-local claim publisher follow-up: claim outbox rows now have
+  pending, in-flight, published, and failed delivery states plus explicit
+  claim/retry APIs. Each claim attempt receives a deterministic claim token,
+  publish/fail callbacks require the current in-flight token, retry clears the
+  stale token while preserving failure diagnostics, and published rows are
+  terminal. Durable claim DB rows, cross-process row locks/CAS, idempotency
+  table enforcement, durable outbox persistence, and durable publisher workers
+  remain open.
 
 ## Source Specs
 
@@ -272,6 +280,8 @@ Mockup areas covered:
       focused real-browser proof.
 - [x] Add process-local claim reference records and pending claim outbox
       records for successful discovery claim owner changes.
+- [x] Add process-local claim outbox delivery state and claim-token guards for
+      publisher-worker behavior.
 - [ ] Add intel share and coordinate item handlers with visibility-safe
       recipient filtering.
 - [x] Add read-only production summary handler for owned planets.
@@ -332,6 +342,10 @@ Mockup areas covered:
 - [x] Claim success stores one process-local claim reference plus one pending
       claim outbox record; duplicate references and repair retries do not
       duplicate events/outbox rows, and read APIs return detached records.
+- [x] Claim outbox records can be filtered, claimed, marked published or failed
+      with the current claim token, and explicitly retried in append order
+      without exposing mutable event aliases or letting stale publisher
+      callbacks mutate later attempts.
 - [ ] Intel share rejects hidden/not-owned coordinate references.
 - [ ] Coordinate item create/use consumes owned items once and filters results.
 - [ ] Building build/upgrade debits materials/currency once.

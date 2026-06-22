@@ -435,6 +435,30 @@ Deferred after Phase07M:
 - Durable publisher/retry workers and recovery for crash windows between the
   current in-memory mutation steps.
 
+## Phase07N Landed Process-Local Claim Publisher Slice
+
+- Process-local claim outbox records now use pending, in-flight, published, and
+  failed delivery states plus claim, publish, fail, and explicit retry APIs.
+- Claiming a pending row increments attempts and assigns a deterministic
+  per-attempt claim token. Publish and fail callbacks require the current
+  non-empty token while the row is in-flight, so wrong, missing, stale,
+  retried, or already-published callbacks return `ok=false` without mutation.
+- Retry moves failed rows back to pending in append order, clears the claim
+  token and claim timestamp, preserves failure diagnostics, and records retry
+  evidence for process-local publisher adapters.
+- `ClaimOutboxRecords()` remains an append-order diagnostic API, while pending,
+  claim, publish, fail, and retry APIs all return detached records and keep
+  `planet.claimed` payloads browser-safe and unchanged.
+
+Deferred after Phase07N:
+
+- Real durable discovery/claim DB rows and outbox rows.
+- Cross-process row locks/CAS and idempotency-table enforcement tying X Core
+  consumption, owner transition, production initialization, stale markers,
+  claim cache, and event/outbox publication together.
+- Durable publisher/retry workers, durable outbox persistence, and recovery for
+  crash windows between the current in-memory mutation steps.
+
 ## Target Model
 
 Planet claim is a server-owned transaction:
@@ -575,9 +599,11 @@ contracts:
    stale intel/listing markers, and claim event/outbox writes into a durable
    transaction or explicit recoverable state machine:
    `lock -> validate -> mutate ledger/inventory -> set owner -> init production -> outbox -> commit`.
-   Phase07M added only a process-local claim reference/outbox boundary around
-   successful cached claim results; durable DB rows and cross-process recovery
-   remain open.
+   Phase07M added a process-local claim reference/outbox boundary around
+   successful cached claim results, and Phase07N added process-local claim
+   outbox delivery state plus claim-token guards. Durable DB rows,
+   cross-process recovery, durable outbox persistence, and idempotency-table
+   enforcement remain open.
 5. Add recovery for production initialization after claim. A retry must repair
    missing production rows without consuming a second X Core or changing owner
    twice.
