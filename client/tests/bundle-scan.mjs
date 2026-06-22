@@ -44,7 +44,7 @@ if (!distStats?.isDirectory()) {
   process.exit(1);
 }
 
-const files = await listBundleFiles(distRoot);
+const files = await listBuiltTextAndSourceMapArtifacts(distRoot);
 const violations = [];
 for (const file of files) {
   const text = await readFile(file, 'utf8');
@@ -65,16 +65,16 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-async function listBundleFiles(dir) {
+async function listBuiltTextAndSourceMapArtifacts(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
     const child = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await listBundleFiles(child)));
+      files.push(...(await listBuiltTextAndSourceMapArtifacts(child)));
       continue;
     }
-    if (entry.isFile() && /\.(?:html|css|js|mjs|json|txt)$/i.test(entry.name)) {
+    if (entry.isFile() && /\.(?:html|css|js|mjs|json|txt|map)$/i.test(entry.name)) {
       files.push(child);
     }
   }
