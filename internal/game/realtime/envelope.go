@@ -48,6 +48,7 @@ const (
 	OperationRouteUpdate          Operation = "route.update"
 	OperationRouteEnable          Operation = "route.enable"
 	OperationRouteDisable         Operation = "route.disable"
+	OperationRouteSettle          Operation = "route.settle"
 	OperationRouteList            Operation = "route.list"
 	OperationRouteSnapshot        Operation = "route.snapshot"
 	OperationWalletSnapshot       Operation = "wallet.snapshot"
@@ -122,6 +123,7 @@ const (
 	EventProductionSummary     ClientEventType = "planet.production_summary"
 	EventPlanetStorage         ClientEventType = "planet.storage_summary"
 	EventRouteUpdated          ClientEventType = "route.updated"
+	EventRouteSettled          ClientEventType = "route.settled"
 	EventRouteList             ClientEventType = "route.list"
 	EventRouteSnapshot         ClientEventType = "route.snapshot"
 	EventMarketListingCreated  ClientEventType = "market.listing_created"
@@ -290,6 +292,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationRouteDisable: {
 		Operation:        OperationRouteDisable,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationRouteSettle: {
+		Operation:        OperationRouteSettle,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationRouteList: {

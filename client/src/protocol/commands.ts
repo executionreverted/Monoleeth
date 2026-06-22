@@ -135,6 +135,10 @@ export class CommandBuilder {
     return this.build(OPERATIONS.routeSnapshot, { route_id: routeID });
   }
 
+  routeSettle(routeID?: string): RequestEnvelope<{ route_id?: string }> {
+    return this.build(OPERATIONS.routeSettle, routeID === undefined ? {} : { route_id: routeID });
+  }
+
   walletSnapshot(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.walletSnapshot, {});
   }

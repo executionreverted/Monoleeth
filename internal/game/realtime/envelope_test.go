@@ -244,6 +244,16 @@ func TestDecodeRequestEnvelopeAcceptsRouteMutationOperations(t *testing.T) {
 			body: `{"request_id":"request-route-disable","op":"route.disable","payload":{"route_id":"route-1"},"client_seq":14,"v":1}`,
 			want: OperationRouteDisable,
 		},
+		{
+			name: "settle one route",
+			body: `{"request_id":"request-route-settle","op":"route.settle","payload":{"route_id":"route-1"},"client_seq":15,"v":1}`,
+			want: OperationRouteSettle,
+		},
+		{
+			name: "settle owner reconcile",
+			body: `{"request_id":"request-route-settle-all","op":"route.settle","payload":{},"client_seq":16,"v":1}`,
+			want: OperationRouteSettle,
+		},
 	}
 
 	for _, tc := range cases {
@@ -262,6 +272,9 @@ func TestDecodeRequestEnvelopeAcceptsRouteMutationOperations(t *testing.T) {
 			if spec.RateLimitPosture != RateLimitPostureIntentBurst {
 				t.Fatalf("route mutation posture = %q, want %q", spec.RateLimitPosture, RateLimitPostureIntentBurst)
 			}
+			if EventRouteSettled != "route.settled" {
+				t.Fatalf("route settled event constant = %q, want route.settled", EventRouteSettled)
+			}
 		})
 	}
 }
@@ -276,7 +289,6 @@ func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testin
 		Operation("progression.respec_skills"),
 		Operation("planet.building_build"),
 		Operation("planet.building_upgrade"),
-		Operation("route.settle"),
 		Operation("intel.share"),
 		Operation("intel.coordinate_item_create"),
 		Operation("intel.coordinate_item_use"),

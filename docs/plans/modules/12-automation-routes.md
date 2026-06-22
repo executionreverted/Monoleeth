@@ -308,5 +308,12 @@ MVP:
 - star map route summary API
 - local settlement event envelopes for route settled, route loss, source empty,
   and destination full conditions
+- authenticated realtime gateway handlers now cover `route.create`,
+  `route.update`, `route.enable`, `route.disable`, and `route.settle`; the
+  settle gateway accepts only `route_id` or `{}` owner reconcile intent,
+  derives owner from the session, returns safe settlement payloads, and emits
+  owner-scoped `route.settled` plus route reconciliation events
 - durable outbox/publisher remains a later persistence boundary
+- durable DB route rows, row locks, and route/window idempotency references
+  remain future persistence work
 - no physical convoy yet

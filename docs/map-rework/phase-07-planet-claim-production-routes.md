@@ -125,8 +125,8 @@ Deferred from Phase07A:
 
 Deferred after Phase07B:
 
-- Route create landed in Phase07C, enable/disable landed in Phase07D, and
-  update landed in Phase07E below; route.settle remains open.
+- Route create landed in Phase07C, enable/disable landed in Phase07D, update
+  landed in Phase07E, and settle landed in Phase07F below.
 - Building build/upgrade/storage mutation handlers.
 - Durable discovery/ownership and production/route DB rows, row locks/CAS,
   settlement idempotency rows, and outbox publishing.
@@ -157,7 +157,8 @@ Deferred after Phase07B:
 Deferred after Phase07C:
 
 - Route enable/disable gateway handlers, later landed in Phase07D below.
-- Route update later landed in Phase07E below; route.settle remains open.
+- Route update later landed in Phase07E and route settle later landed in
+  Phase07F below.
 - Browser route create/update/control proof and TypeScript protocol/UI work.
 - Durable production/route DB rows, row locks/CAS, settlement idempotency rows,
   and outbox publishing.
@@ -185,7 +186,8 @@ Deferred after Phase07C:
 
 Deferred after Phase07D:
 
-- Route update later landed in Phase07E below; route.settle remains open.
+- Route update later landed in Phase07E and route settle later landed in
+  Phase07F below.
 - Browser route create/update/control proof and TypeScript protocol/UI work.
 - Durable production/route DB rows, row locks/CAS, settlement idempotency rows,
   and outbox publishing.
@@ -216,15 +218,58 @@ Deferred after Phase07D:
 - Focused gateway tests cover owned route term updates, elapsed settlement
   storage reconciliation, wrong-owner rejection without mutation/events,
   spoofed server-owned payload rejection before mutation, X Core/non-routeable
-  resource rejection, realtime registry acceptance, and `route.settle`
-  quarantine.
+  resource rejection, and realtime registry acceptance.
 
 Deferred after Phase07E:
 
-- Route settle gateway handler and durable route settlement idempotency/outbox.
+- Route settle gateway handler later landed in Phase07F below.
 - Browser route create/update/control proof and TypeScript protocol/UI work.
 - Durable production/route DB rows, row locks/CAS, settlement idempotency rows,
   and outbox publishing.
+
+## Phase07F Landed Route Settle Gateway Slice
+
+- Added authenticated `route.settle` to the realtime registry with
+  intent-burst posture and owner-scoped `route.settled` fanout. Runtime
+  post-command draining includes the operation but explicitly suppresses AOI
+  diff emission.
+- The gateway accepts only `{ "route_id": "..." }` to settle one owned route
+  or `{}` as an owner reconcile intent. It rejects client-authored
+  owner/player/session, map/internal/public map truth, route/list/result
+  payloads, source/destination facts, enabled state, timestamps, settlement
+  windows, storage, energy/cost, risk/loss, wanted/taken/lost/delivered/added
+  amounts, amount/rate/resource aliases, cooldown, and position/coordinate
+  fields before mutation, including nested payload fields. Unknown fields fail
+  strict decode.
+- The owner is resolved from the authenticated command context. Single-route
+  settlement calls `AutomationRouteService.SettleRouteForOwner`; owner
+  reconcile enumerates only stored routes whose owner matches the authenticated
+  player and settles each through the same owner wrapper.
+- Successful single-route responses include safe `route`, refreshed safe
+  `routes`, and safe `settlement`. Owner reconcile responses include refreshed
+  safe `routes` and one safe settlement per owned route. Settlement payloads
+  expose only route id, resource item id, server settlement time, elapsed
+  applied milliseconds, wanted/taken/lost/delivered/added amounts, and
+  source-empty/destination-full/loss/no-op booleans.
+- For each settled route the runtime queues owner-scoped `route.settled`,
+  `route.updated`, and `route.snapshot` events, plus one `route.list` after all
+  settlements. When any settlement touches storage, responses and events include
+  active-map filtered `planet.production_summary` and
+  `planet.storage_summary` snapshots once.
+- Focused gateway tests cover storage transfer, route cursor advancement,
+  safe response/event payloads, no other-session leak, no AOI diff, immediate
+  no-op duplicate settlement, owner-wide reconcile scoping, wrong-owner
+  rejection without mutation/events, spoofed server-owned field rejection,
+  invalid route ids, safe error mapping, realtime registry acceptance, and
+  observability command-security evidence.
+
+Deferred after Phase07F:
+
+- Browser route create/update/control/settle proof and route UI work. Minimal
+  TypeScript protocol constants/builder now exist for `route.settle`; route
+  create/update/control protocol exposure remains open.
+- Durable production/route DB rows, row locks/CAS, durable settlement window
+  idempotency rows, and outbox publishing.
 
 ## Target Model
 
@@ -384,8 +429,8 @@ contracts:
     safe/PvP zone, source/destination map risk, route distance within map or
     portal-hop distance, player bonuses, and route security modifiers.
 11. Add route mutation handlers using owner wrappers and server-derived player
-    id. `route.create`, `route.update`, `route.enable`, and `route.disable`
-    have landed for the owned-route MVP; settle remains open.
+    id. `route.create`, `route.update`, `route.enable`, `route.disable`, and
+    `route.settle` have landed for the owned-route backend MVP.
 12. Make route settlement durable and idempotent by route/window key, for
     example `route_settle:<route_id>:<window_start>:<window_end>`.
 13. Add owner-scoped fanout after commit for claim, production, storage,
@@ -428,9 +473,14 @@ contracts:
   server-side, reject wrong-owner and spoofed server-owned fields without
   mutation/events, emit only owner-scoped safe route events, and reconcile
   active-map production/storage snapshots when disable settlement touches
-  storage. Route settle remains future work.
-- Route settlement is idempotent by durable window and respects source storage,
-  destination capacity, loss rolls, and map-risk policy.
+  storage.
+- Route settle gateway accepts only `route_id` or `{}` owner reconcile intent,
+  derives owner server-side, rejects wrong-owner and spoofed server-owned
+  settlement fields without mutation/events, emits owner-scoped safe
+  `route.settled` plus route reconciliation events, avoids AOI diffs, and
+  reconciles active-map production/storage snapshots when storage changes.
+- Durable route settlement is idempotent by durable window and respects source
+  storage, destination capacity, loss rolls, and map-risk policy.
 - Realtime/event tests prove claim, production, and route events do not leak to
   other maps or unrelated sessions.
 - Browser/API tests prove mutation controls reconcile from server snapshots and

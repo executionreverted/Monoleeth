@@ -175,6 +175,7 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationRouteUpdate:          runtime.handleRouteUpdate,
 		realtime.OperationRouteEnable:          runtime.handleRouteEnable,
 		realtime.OperationRouteDisable:         runtime.handleRouteDisable,
+		realtime.OperationRouteSettle:          runtime.handleRouteSettle,
 		realtime.OperationRouteList:            runtime.handleRouteList,
 		realtime.OperationRouteSnapshot:        runtime.handleRouteSnapshot,
 		realtime.OperationWalletSnapshot:       runtime.handleWalletSnapshot,

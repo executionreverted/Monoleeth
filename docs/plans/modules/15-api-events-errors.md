@@ -349,7 +349,7 @@ Current Phase 07A claim payload rule:
   internal map id, world id, zone id, owner player id, hidden coordinates,
   X Core source details, production internals, or hidden candidate data.
 
-Current Phase 07B production/route read payload rule:
+Current Phase 07B-F production/route payload rules:
 
 - `planet.production_summary` and `planet.storage_summary` are authenticated
   owner read models filtered to the player's active map. Planet production,
@@ -360,12 +360,22 @@ Current Phase 07B production/route read payload rule:
   from stored route map ids through the map catalog. Browser payloads must not
   include `source_map_id`, `destination_map_id`, `internal_map_id`, `world_id`,
   or `zone_id`.
-- `route.create`, `route.update`, `route.enable`, and `route.disable` are
-  authenticated gateway slices. They derive owner, map, and route facts
-  server-side and reject client-authored owner, map, energy, risk, source,
-  destination, settlement, or storage truth as applicable.
-- The `route.settle` gateway remains unimplemented and quarantined. Future work
-  must use server-owned settlement windows and idempotency.
+- `route.create`, `route.update`, `route.enable`, `route.disable`, and
+  `route.settle` are authenticated gateway slices. They derive owner, map, and
+  route facts server-side and reject client-authored owner, map, energy, risk,
+  source, destination, settlement, or storage truth as applicable.
+- `route.settle` accepts only `{ "route_id": "..." }` or `{}` for authenticated
+  owner reconcile. It returns safe `settlement` / `settlements` payloads with
+  `route_id`, `resource_item_id`, `settled_at`, `elapsed_applied_ms`,
+  `wanted_amount`, `taken_amount`, `lost_amount`, `delivered_amount`,
+  `added_amount`, `source_empty`, `destination_full`, `loss_applied`, and
+  `no_op`. Browser settlement payloads must not include owner player id,
+  internal map ids, world/zone ids, source/destination facts, storage internals,
+  route windows, or RNG/loss percent rolls beyond the safe settlement result.
+- `route.settle` queues owner-scoped `route.settled`, `route.updated`,
+  `route.snapshot`, one `route.list` per reconcile, and active-map filtered
+  production/storage snapshots when storage changes. Durable DB/outbox window
+  idempotency remains future persistence work.
 
 ## Edge Cases
 

@@ -220,6 +220,7 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 		realtime.OperationRouteUpdate,
 		realtime.OperationRouteEnable,
 		realtime.OperationRouteDisable,
+		realtime.OperationRouteSettle,
 		realtime.OperationMarketCreateListing,
 		realtime.OperationMarketBuy,
 		realtime.OperationMarketCancel,
@@ -262,6 +263,7 @@ func opEmitsPostCommandAOIDiff(op realtime.Operation) bool {
 		realtime.OperationRouteUpdate,
 		realtime.OperationRouteEnable,
 		realtime.OperationRouteDisable,
+		realtime.OperationRouteSettle,
 		realtime.OperationMarketBuy,
 		realtime.OperationMarketCancel,
 		realtime.OperationAuctionBid,
@@ -343,6 +345,7 @@ func mapScopedEventType(eventType realtime.ClientEventType) bool {
 		realtime.EventProductionSummary,
 		realtime.EventPlanetStorage,
 		realtime.EventRouteUpdated,
+		realtime.EventRouteSettled,
 		realtime.EventRouteList,
 		realtime.EventRouteSnapshot:
 		return true

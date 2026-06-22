@@ -120,12 +120,13 @@ for phase status; this file is a compact pending-work index.
   `planet.storage_updated` /
   `planet.building_updated` events. Source: Phase 10 audit, Phase07A, and
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Finish authenticated automation route mutation contracts for
-  `route.settle`, plus the browser route create/update/control proof. Server
-  handlers must validate endpoint
-  visibility/access, ownership, route capacity, energy/upkeep policy, duplicate
-  settlement windows, and storage capacity, then reconcile the browser through
-  `route.list`, `route.snapshot`, and `route.updated`/`route.settled` events.
+- [ ] Finish authenticated automation route browser proof and durable
+  settlement persistence. Server/browser work still needs real-client
+  create/update/control/settle proof plus durable route rows, endpoint
+  visibility/access policy, route capacity, energy/upkeep policy, duplicate
+  settlement window idempotency, storage capacity persistence, and outbox
+  reconciliation through `route.list`, `route.snapshot`, and
+  `route.updated`/`route.settled` events.
   Phase07B map-tagged the route domain rows and read payloads for
   `route.list`/`route.snapshot`; Phase07C landed authenticated `route.create`
   as an owned planet-to-planet gateway slice that rejects client-authored
@@ -142,9 +143,16 @@ for phase status; this file is a compact pending-work index.
   route row, rejects spoofed route facts, wrong-owner attempts, and
   X Core/non-routeable resources without mutation/events, queues owner-scoped
   safe route events, and reconciles active-map production/storage snapshots
-  when update settlement touches storage. `route.settle` plus browser route
-  creation/update/control proof remain open. Source: Phase 10 audit, Phase07C,
-  Phase07D, and Phase07E.
+  when update settlement touches storage. Phase07F landed authenticated
+  `route.settle` as an owned-route gateway mutation that accepts only
+  `route_id` or `{}` owner reconcile intent, derives owner server-side, rejects
+  spoofed settlement/window/storage/risk/amount/resource facts and wrong-owner
+  attempts without mutation/events, returns safe settlement payloads, queues
+  owner-scoped `route.settled` plus route reconciliation events without AOI
+  diffs, and reconciles active-map production/storage snapshots when settlement
+  touches storage. Browser route create/update/control/settle proof and durable
+  DB/outbox/window idempotency remain open. Source: Phase 10 audit, Phase07C,
+  Phase07D, Phase07E, and Phase07F.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server

@@ -72,9 +72,17 @@ Current slice completed:
   settlement/storage/energy/risk facts before mutation, and reconciles through
   safe route response plus owner-scoped `route.updated`, `route.snapshot`, and
   `route.list` events. If update settlement touches storage, it also returns
-  and emits active-map filtered production/storage snapshots. Browser route
-  create/update/control proof, route.settle handler, durable DB/outbox, and
-  route settlement idempotency remain open.
+  and emits active-map filtered production/storage snapshots.
+- Phase07F backend gateway follow-up: authenticated `route.settle` now exists
+  for owned routes. It accepts only `route_id` or `{}` owner reconcile intent,
+  derives owner from the authenticated command context, rejects client-authored
+  owner/map/source/destination/enabled/settlement/window/storage/energy/risk/
+  amount/rate/resource facts before mutation, and reconciles through safe
+  settlement payloads plus owner-scoped `route.settled`, `route.updated`,
+  `route.snapshot`, and one `route.list` event. If settlement touches storage,
+  it also returns and emits active-map filtered production/storage snapshots.
+  Browser route create/update/control/settle proof, durable DB/outbox, and
+  durable route settlement window idempotency remain open.
 
 ## Source Specs
 
@@ -145,7 +153,7 @@ route.settle
 | `route.create/update` | endpoint/config intent; update accepts only `route_id`, `destination_planet_id`, `resource_item_id`, `amount_per_hour` | endpoint visibility/access, ownership, capacity, policy; mutate route terms server-side and settle old update terms before replacement |
 | `route.enable/disable` | route id | owner is resolved from the authenticated session; control accepts only `route_id`, rechecks route ownership, and returns safe route/list snapshots |
 | `route.list/snapshot` | filter or empty | owner/access; reconnect-safe route state, cursors, and public source/destination map keys |
-| `route.settle` | route id or empty reconcile intent | server computes eligible windows under lock; idempotency key `route_settle:<route_id>:<window>` |
+| `route.settle` | route id or empty reconcile intent | backend gateway derives owner from the authenticated session, settles one owned route or all authenticated-owner routes through owner wrappers, returns safe settlement payloads, and keeps durable idempotency key `route_settle:<route_id>:<window>` as future DB/outbox work |
 
 Offline production and route settlement are never client-timed truth. UI requests
 may ask the server to reconcile, but the server calculates eligible windows,
@@ -202,7 +210,7 @@ Mockup areas covered:
 - [x] Add route.create handler for owned planet-to-planet MVP.
 - [x] Add route.update handler for owned routes.
 - [x] Add route.enable and route.disable handlers for owned routes.
-- [ ] Add route.settle handler.
+- [x] Add route.settle handler.
 - [x] Add route list/snapshot handlers for reconnect.
 - [x] Add client reducer state for signals, planets, production, routes.
 - [x] Add right rail known planet list.
@@ -223,7 +231,8 @@ Mockup areas covered:
 - [x] Route update rechecks destination ownership/access and preserves
       server-owned source truth.
 - [ ] Offline settlement duration is server-calculated.
-- [ ] Route settlement windows are server-calculated and idempotent.
+- [x] Route settlement timing is server-calculated in the backend gateway.
+- [ ] Durable route settlement windows are DB/outbox idempotent.
 - [ ] Building and route mutations use inventory/wallet/storage ledgers.
 - [ ] Storage capacity cannot be exceeded.
 
@@ -241,7 +250,11 @@ Mockup areas covered:
 - [ ] Coordinate item create/use consumes owned items once and filters results.
 - [ ] Building build/upgrade debits materials/currency once.
 - [ ] Production settlement is idempotent.
-- [ ] Route settlement is idempotent and respects storage capacity.
+- [x] Server route.settle transfers storage once, returns no-op on immediate
+      duplicate reconcile, rejects spoofed settlement facts and wrong-owner
+      attempts without mutation/events, emits owner-scoped `route.settled`
+      plus route reconciliation events, and avoids AOI diffs.
+- [ ] Durable route settlement is idempotent by DB window and outbox reference.
 - [x] Route list/snapshot restores route read model after reconnect.
 - [x] Server route.create creates an owned planet route with server-derived
       owner, route id, map ids, safe response/events, and route list/snapshot
@@ -258,7 +271,7 @@ Mockup areas covered:
 - [x] Browser scan creates safe discovered intel.
 - [x] Browser selected planet panel uses server detail.
 - [x] Browser claim reflects server state.
-- [ ] Browser route create/update/control reflects server state.
+- [ ] Browser route create/update/control/settle reflects server state.
 
 ## Done Criteria
 

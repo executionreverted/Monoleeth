@@ -16,7 +16,6 @@ const UNIMPLEMENTED_MUTATION_OPS = [
   'route.update',
   'route.enable',
   'route.disable',
-  'route.settle',
   'intel.share',
   'intel.coordinate_item_create',
   'intel.coordinate_item_use',
@@ -100,6 +99,7 @@ describe('parseServerMessage', () => {
     'witness_expires_at',
     'witness_expiry',
     'hidden_target_metadata',
+    'loss_percent',
     'provider',
     'provider_reference',
     'source_return_location',
@@ -378,6 +378,56 @@ describe('default outbound operations', () => {
     }
   });
 
+  test('route settle command sends only route intent or empty reconcile intent', () => {
+    expect(OPERATIONS.routeSettle).toBe('route.settle');
+    expect(CLIENT_EVENTS.routeSettled).toBe('route.settled');
+
+    const builder = new CommandBuilder();
+    const singleRoute = builder.routeSettle('route-alpha');
+    expect(singleRoute.op).toBe(OPERATIONS.routeSettle);
+    expect(singleRoute.payload).toEqual({ route_id: 'route-alpha' });
+    expect(Object.keys(singleRoute.payload)).toEqual(['route_id']);
+
+    const reconcile = builder.routeSettle();
+    expect(reconcile.op).toBe(OPERATIONS.routeSettle);
+    expect(reconcile.payload).toEqual({});
+    expect(Object.keys(reconcile.payload)).toEqual([]);
+
+    for (const payload of [singleRoute.payload, reconcile.payload]) {
+      for (const forbidden of [
+        'owner',
+        'owner_player_id',
+        'player_id',
+        'session_id',
+        'map_id',
+        'source',
+        'destination',
+        'enabled',
+        'settled_at',
+        'elapsed_applied_ms',
+        'storage',
+        'energy',
+        'risk',
+        'loss_percent',
+        'wanted_amount',
+        'taken_amount',
+        'lost_amount',
+        'delivered_amount',
+        'added_amount',
+        'amount',
+        'rate',
+        'resource_item_id',
+        'cooldown',
+        'position',
+        'coordinates',
+        'x',
+        'y',
+      ]) {
+        expect(payload).not.toHaveProperty(forbidden);
+      }
+    }
+  });
+
   test.each([
     'map_id',
     'map_key',
@@ -442,7 +492,6 @@ describe('default outbound operations', () => {
       'routeUpdate',
       'routeEnable',
       'routeDisable',
-      'routeSettle',
       'intelShare',
       'intelCoordinateItemCreate',
       'intelCoordinateItemUse',
