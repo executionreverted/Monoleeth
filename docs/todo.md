@@ -134,9 +134,11 @@ for phase status; this file is a compact pending-work index.
   spawn cap, respawn, aggro/leash, fight/loot, and browser proof across both
   starter and destination maps. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Add a deterministic per-map scanner/claim/drop seed matrix, including
-  scanner rarity/no-fog regression coverage and claim/drop behavior for each
-  seeded map. Source: `docs/map-rework/phase-10-testing-rollout.md`.
+- [ ] Add a deterministic per-map scanner/claim/drop seed matrix. Focused
+  server/discovery scanner rarity/no-fog regression coverage now exists;
+  remaining work is per-map scanner tuning, claim/drop behavior for each seeded
+  map, and browser no-fog leak proof. Source:
+  `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete the full map-aware drop matrix covering
   `npc_type + map_id/risk/rank_band` selection across seeded maps. Current
   server tests cover starter selection, `map_1_2` `outer_ring_scout_drone`

@@ -213,13 +213,14 @@ func TestStartScanPulseZeroScanIntervalUsesMinimumCooldown(t *testing.T) {
 func TestResolveScanPulseRadarTooLowReturnsGenericNoSignal(t *testing.T) {
 	seed := scannerTestSeed(t)
 	_, candidate := findScannerTestCandidate(t, seed)
+	blockedRadarRange := float64(candidate.MinRadarLevel()*DefaultScanCellSize) - 1
 	store := NewInMemoryStore()
 	xp := &recordingScanXPProvider{}
 	service := newScannerTestService(t, scannerTestServiceOptions{
 		seed:       seed,
 		store:      store,
 		position:   candidate.Position(),
-		snapshot:   scannerSnapshot(candidate, 10_000, 0, 0),
+		snapshot:   scannerSnapshot(candidate, 100_000, blockedRadarRange, 0),
 		moduleOK:   true,
 		cooldownOK: true,
 		xp:         xp,
@@ -239,6 +240,12 @@ func TestResolveScanPulseRadarTooLowReturnsGenericNoSignal(t *testing.T) {
 		t.Fatalf("no-signal result leaked signal/planet data: %+v", result)
 	}
 	assertNoScannerHiddenLeak(t, result, candidate)
+	if hasScannerEvent(service.Events(), ScannerEventPlanetDiscovered) {
+		t.Fatalf("scanner events = %+v, want no planet discovery event when radar is below %d", service.Events(), candidate.MinRadarLevel())
+	}
+	if hasScannerEvent(service.Events(), ScannerEventPlayerRevealed) {
+		t.Fatalf("scanner events = %+v, want no player reveal event when resolving planet radar gate", service.Events())
+	}
 	if got := len(store.Planets()); got != 0 {
 		t.Fatalf("planets materialized = %d, want 0", got)
 	}
@@ -802,6 +809,12 @@ func assertNoScannerHiddenLeak(t *testing.T, result ResolveScanPulseResult, cand
 		"min_radar",
 		"level",
 		"rarity",
+		"fog",
+		"fog_wave",
+		"fog_memory",
+		"fog-of-war",
+		"fog_of_war",
+		"fogOfWar",
 		strconv.FormatUint(candidate.Key(), 10),
 		strconv.FormatUint(candidate.Key(), 16),
 		strconv.FormatFloat(candidate.Position().X, 'f', -1, 64),

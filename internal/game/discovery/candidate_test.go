@@ -157,6 +157,25 @@ func TestPlanetCandidateGenerationFiltersByBiomeAndSpawnBudget(t *testing.T) {
 	}
 }
 
+func TestPlanetCandidateGenerationLowDensityBlocksOtherwiseEligibleCell(t *testing.T) {
+	seed := testSeed(t, "density-rarity-seed")
+	const lowDensity = 0.000001
+	cell, fullDensityCandidates := findCellBlockedByLowDensity(t, seed, lowDensity)
+	if len(fullDensityCandidates) == 0 {
+		t.Fatal("full-density candidates are empty, want otherwise eligible candidate cell")
+	}
+
+	options := testOptions()
+	options.Density = lowDensity
+	blocked, err := discovery.GeneratePlanetCandidates(seed, cell, options)
+	if err != nil {
+		t.Fatalf("GeneratePlanetCandidates(low density) error = %v", err)
+	}
+	if len(blocked) != 0 {
+		t.Fatalf("low-density candidates = %d, want none for deterministic blocked cell %+v", len(blocked), cell)
+	}
+}
+
 func TestSeedAndHiddenCandidateSerializationFailClosed(t *testing.T) {
 	input := discovery.WorldSeedInput{
 		StaticSeed: []byte("server-static-gameplay-seed"),
@@ -252,6 +271,33 @@ func findCellWithCandidates(t *testing.T, seed discovery.WorldSeed, minCandidate
 		}
 	}
 	t.Fatalf("no deterministic test cell produced at least %d candidates", minCandidates)
+	return discovery.ScanCellCoord{}, nil
+}
+
+func findCellBlockedByLowDensity(t *testing.T, seed discovery.WorldSeed, density float64) (discovery.ScanCellCoord, []discovery.PlanetCandidate) {
+	t.Helper()
+	for y := int64(-2); y <= 22; y++ {
+		for x := int64(-2); x <= 22; x++ {
+			cell := discovery.ScanCellCoord{X: x, Y: y}
+			fullDensity, err := discovery.GeneratePlanetCandidates(seed, cell, testOptions())
+			if err != nil {
+				t.Fatalf("GeneratePlanetCandidates(full density %+v) error = %v", cell, err)
+			}
+			if len(fullDensity) == 0 {
+				continue
+			}
+			options := testOptions()
+			options.Density = density
+			lowDensity, err := discovery.GeneratePlanetCandidates(seed, cell, options)
+			if err != nil {
+				t.Fatalf("GeneratePlanetCandidates(low density %+v) error = %v", cell, err)
+			}
+			if len(lowDensity) == 0 {
+				return cell, fullDensity
+			}
+		}
+	}
+	t.Fatalf("no deterministic test cell was blocked by density %f", density)
 	return discovery.ScanCellCoord{}, nil
 }
 

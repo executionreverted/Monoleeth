@@ -26,26 +26,7 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	if !scanResponse.OK {
 		t.Fatalf("scan response = %+v, want success", scanResponse)
 	}
-	rawScan := string(scanResponse.Payload)
-	for _, forbidden := range []string{
-		"candidate_key",
-		"planet_candidate",
-		"procedural_seed",
-		"world_seed",
-		"detection_roll",
-		"scan_cell",
-		`"world_id"`,
-		`"zone_id"`,
-		`"internal_map_id"`,
-		`"map_id"`,
-		`"coordinates"`,
-		`"x"`,
-		`"y"`,
-	} {
-		if strings.Contains(rawScan, forbidden) {
-			t.Fatalf("scan response leaked %q in %s", forbidden, rawScan)
-		}
-	}
+	assertPayloadOmitsScannerNoFogTruth(t, "scan response", scanResponse.Payload, `"coordinates"`, `"x"`, `"y"`)
 	var scanPayload struct {
 		Scan         scanPulsePayload           `json:"scan"`
 		KnownPlanets knownPlanetsPayload        `json:"known_planets"`
@@ -77,9 +58,7 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	for attempts := 0; attempts < 6 && (!seen[realtime.EventScanPulseStarted] || !seen[realtime.EventScanPulseResolved] || !seen[realtime.EventScanPlanetDiscovered] || !seen[realtime.EventKnownPlanets]); attempts++ {
 		event := readEvent(t, conn)
 		seen[event.Type] = true
-		if raw := string(mustJSON(t, event)); strings.Contains(raw, "candidate_key") || strings.Contains(raw, "procedural_seed") || strings.Contains(raw, "detection_roll") || strings.Contains(raw, `"world_id"`) || strings.Contains(raw, `"zone_id"`) || strings.Contains(raw, `"internal_map_id"`) || strings.Contains(raw, `"map_id"`) {
-			t.Fatalf("scan event leaked hidden scanner truth: %s", raw)
-		}
+		assertPayloadOmitsScannerNoFogTruth(t, string(event.Type)+" event", mustJSON(t, event))
 		if event.Type == realtime.EventKnownPlanets {
 			if err := json.Unmarshal(event.Payload, &knownEventPayload); err != nil {
 				t.Fatalf("decode known planets event: %v", err)
@@ -156,6 +135,7 @@ func TestPhase07DiscoveryProductionRouteQueriesUseServerState(t *testing.T) {
 	if !worldResponse.OK {
 		t.Fatalf("world snapshot response = %+v, want success", worldResponse)
 	}
+	assertPayloadOmitsScannerNoFogTruth(t, "world snapshot response", worldResponse.Payload)
 	var worldPayload worldSnapshotPayload
 	if err := json.Unmarshal(worldResponse.Payload, &worldPayload); err != nil {
 		t.Fatalf("decode world snapshot: %v", err)
@@ -540,6 +520,38 @@ func assertPayloadOmitsInternalMapIdentity(t *testing.T, label string, payload a
 	} {
 		if strings.Contains(raw, forbidden) {
 			t.Fatalf("%s leaked %q in %s", label, forbidden, raw)
+		}
+	}
+}
+
+func assertPayloadOmitsScannerNoFogTruth(t *testing.T, label string, payload []byte, extraForbidden ...string) {
+	t.Helper()
+	raw := string(payload)
+	forbidden := append([]string{
+		"candidate_key",
+		"planet_candidate",
+		"procedural_seed",
+		"world_seed",
+		"detection_roll",
+		"scan_roll",
+		"scan_cell",
+		"scan_candidate",
+		"scan_candidates",
+		"candidate_data",
+		`"world_id"`,
+		`"zone_id"`,
+		`"internal_map_id"`,
+		`"map_id"`,
+		"fog",
+		"fog_wave",
+		"fog_memory",
+		"fog-of-war",
+		"fog_of_war",
+		"fogOfWar",
+	}, extraForbidden...)
+	for _, fragment := range forbidden {
+		if strings.Contains(raw, fragment) {
+			t.Fatalf("%s leaked %q in %s", label, fragment, raw)
 		}
 	}
 }
