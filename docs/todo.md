@@ -158,10 +158,13 @@ for phase status; this file is a compact pending-work index.
   and outbox-safe domain payloads while leaving browser-safe realtime payloads
   unchanged. Phase07J added process-local store-owned settlement references
   and pending in-memory outbox records for applied route settlements, including
-  duplicate reference no-op guards and cloned read APIs. Durable DB rows, row
-  locks/CAS, idempotency table enforcement, and durable outbox publishing
-  remain open. Source: Phase 10 audit, Phase07C, Phase07D, Phase07E, Phase07F,
-  Phase07G, Phase07I, and Phase07J.
+  duplicate reference no-op guards and cloned read APIs. Phase07K narrows
+  in-process publisher/retry behavior with pending, in-flight, published, and
+  failed outbox states plus explicit retry, but does not make those records
+  durable or cross-process. Durable DB rows, row locks/CAS, idempotency table
+  enforcement, and durable outbox publishing remain open. Source: Phase 10
+  audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
+  and Phase07K.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server
@@ -292,14 +295,17 @@ for phase status; this file is a compact pending-work index.
 - [ ] Narrow lock scope or add per-player/per-planet coordination for Phase 08
   scan, claim, share, and coordinate-scroll services before high-concurrency
   runtime deployment; current MVP services use process-local mutexes.
-- [ ] Replace Phase07J in-memory production/route settlement reference and
-  pending outbox boundary with durable DB rows, idempotency-table enforcement,
-  and a publisher/retry worker before multi-process production deployment.
+- [ ] Replace Phase07J/Phase07K in-memory production/route settlement reference
+  and outbox delivery boundary with durable DB rows, idempotency-table
+  enforcement, and a publisher/retry worker before multi-process production
+  deployment.
   Phase07I added server-derived reference/window evidence to production and
   route domain results plus outbox-safe domain payloads. Phase07J now records
   process-local settlement references and pending outbox rows under the same
-  store lock as state mutation/event append, but those records are still not
-  durable, cross-process, or published/retried.
+  store lock as state mutation/event append. Phase07K now narrows
+  process-local publisher/retry behavior with pending, in-flight, published,
+  failed, and retry states, but those records are still not durable,
+  cross-process, or delivered by a durable publisher process.
 - [ ] Add station/storage destination settlement adapters for Phase 09
   automation routes. Current `SettleRoute` supports planet-to-planet storage and
   rejects generic `storage` or `station` destinations with an explicit error.

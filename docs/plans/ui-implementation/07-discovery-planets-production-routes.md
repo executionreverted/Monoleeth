@@ -122,6 +122,14 @@ Current slice completed:
   payload data, and browser-safe realtime payloads remain unchanged. Real DB
   rows, row locks/CAS across processes, DB idempotency-table enforcement,
   durable publisher/retry workers, and durable outbox persistence remain open.
+- Phase07K in-memory publisher-state follow-up: pending production outbox
+  records now have a process-local delivery state machine with pending,
+  in-flight, published, and failed states plus claim/publish/fail/retry APIs.
+  Publisher reads and mutations return cloned records, preserve append-order
+  diagnostics through `OutboxRecords()`, track attempts and failure evidence,
+  and keep published rows out of pending/retryable selection. Real DB rows,
+  row locks/CAS across processes, DB idempotency-table enforcement, a durable
+  publisher process, and durable outbox persistence remain open.
 
 ## Source Specs
 
@@ -255,6 +263,8 @@ Mockup areas covered:
       with server-derived reference keys and deterministic settlement windows.
 - [x] Add process-local store-owned settlement reference records and pending
       outbox records for production and route settlements.
+- [x] Add process-local production outbox claim/publish/fail/retry delivery
+      state for publisher-worker behavior.
 - [x] Add route.create handler for owned planet-to-planet MVP.
 - [x] Add route.update handler for owned routes.
 - [x] Add route.enable and route.disable handlers for owned routes.
@@ -303,6 +313,9 @@ Mockup areas covered:
 - [x] Production settlement stores an in-memory settlement reference and pending
       outbox records for settlement events; duplicate reference reuse no-ops
       without mutation, duplicate events, or duplicate outbox records.
+- [x] Production settlement outbox records can be filtered, claimed, marked
+      published or failed, and explicitly retried in append order without
+      exposing mutable event payload aliases.
 - [ ] Durable production settlement is enforced by DB/idempotency rows and
       published through the durable outbox.
 - [x] Server route.settle transfers storage once, returns no-op on immediate
@@ -312,6 +325,9 @@ Mockup areas covered:
 - [x] Route settlement stores an in-memory settlement reference and pending
       outbox records for route transfer events; duplicate reference reuse
       no-ops without transfer, duplicate events, or duplicate outbox records.
+- [x] Route settlement outbox records share the process-local delivery state
+      machine for pending, in-flight, published, failed, and explicit retry
+      behavior.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

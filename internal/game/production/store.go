@@ -26,47 +26,6 @@ type InitializePlanetProductionResult struct {
 	Created  bool
 }
 
-// SettlementKind identifies the production subsystem that owns a settlement
-// reference.
-type SettlementKind string
-
-const (
-	SettlementKindProduction SettlementKind = "production"
-	SettlementKindRoute      SettlementKind = "route"
-)
-
-// ProductionOutboxStatus identifies the delivery state of an in-memory outbox
-// record.
-type ProductionOutboxStatus string
-
-const (
-	ProductionOutboxStatusPending ProductionOutboxStatus = "pending"
-)
-
-// SettlementReferenceRecord is the in-memory durable-boundary marker for one
-// applied production-domain settlement window.
-type SettlementReferenceRecord struct {
-	ReferenceKey     foundation.IdempotencyKey
-	SettlementWindow string
-	Kind             SettlementKind
-	PlanetID         foundation.PlanetID
-	RouteID          foundation.RouteID
-	AppliedAt        time.Time
-	RecordedAt       time.Time
-}
-
-// ProductionOutboxRecord is the in-memory pending publisher boundary for a
-// production-domain event envelope.
-type ProductionOutboxRecord struct {
-	OutboxID         string
-	Sequence         uint64
-	Event            gameevents.EventEnvelope
-	Status           ProductionOutboxStatus
-	CreatedAt        time.Time
-	ReferenceKey     foundation.IdempotencyKey
-	SettlementWindow string
-}
-
 // InMemoryStore is a mutex-protected repository for Phase 09 production state.
 type InMemoryStore struct {
 	mu sync.RWMutex
@@ -305,53 +264,6 @@ func (store *InMemoryStore) Events() []gameevents.EventEnvelope {
 	return cloneProductionEventEnvelopes(store.events)
 }
 
-// SettlementReferences returns all recorded settlement references in
-// deterministic reference-key order.
-func (store *InMemoryStore) SettlementReferences() []SettlementReferenceRecord {
-	store.mu.RLock()
-	defer store.mu.RUnlock()
-
-	if len(store.references) == 0 {
-		return nil
-	}
-	keys := make([]foundation.IdempotencyKey, 0, len(store.references))
-	for referenceKey := range store.references {
-		keys = append(keys, referenceKey)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		return keys[i] < keys[j]
-	})
-	records := make([]SettlementReferenceRecord, 0, len(keys))
-	for _, referenceKey := range keys {
-		records = append(records, cloneSettlementReferenceRecord(store.references[referenceKey]))
-	}
-	return records
-}
-
-// SettlementReference returns one recorded settlement reference by key.
-func (store *InMemoryStore) SettlementReference(referenceKey foundation.IdempotencyKey) (SettlementReferenceRecord, bool, error) {
-	if err := referenceKey.Validate(); err != nil {
-		return SettlementReferenceRecord{}, false, err
-	}
-	store.mu.RLock()
-	defer store.mu.RUnlock()
-
-	record, ok := store.references[referenceKey]
-	if !ok {
-		return SettlementReferenceRecord{}, false, nil
-	}
-	return cloneSettlementReferenceRecord(record), true, nil
-}
-
-// OutboxRecords returns pending production-domain outbox records in append
-// order.
-func (store *InMemoryStore) OutboxRecords() []ProductionOutboxRecord {
-	store.mu.RLock()
-	defer store.mu.RUnlock()
-
-	return cloneProductionOutboxRecords(store.outbox)
-}
-
 // Snapshot returns one validated aggregate snapshot by planet id.
 func (store *InMemoryStore) Snapshot(planetID foundation.PlanetID) (PlanetProductionSnapshot, bool, error) {
 	if err := planetID.Validate(); err != nil {
@@ -456,51 +368,6 @@ func (store *InMemoryStore) appendProductionEventLocked(eventType EventType, pay
 	return event, nil
 }
 
-func (store *InMemoryStore) appendOutboxRecordLocked(event gameevents.EventEnvelope, payload any) {
-	store.nextOutboxSequence++
-	sequence := store.nextOutboxSequence
-	referenceKey, settlementWindow := settlementEvidenceFromPayload(payload)
-	store.outbox = append(store.outbox, ProductionOutboxRecord{
-		OutboxID:         fmt.Sprintf("production-outbox-%d", sequence),
-		Sequence:         sequence,
-		Event:            cloneProductionEventEnvelope(event),
-		Status:           ProductionOutboxStatusPending,
-		CreatedAt:        time.UnixMilli(event.ServerTime).UTC(),
-		ReferenceKey:     referenceKey,
-		SettlementWindow: settlementWindow,
-	})
-}
-
-func settlementEvidenceFromPayload(payload any) (foundation.IdempotencyKey, string) {
-	switch typed := payload.(type) {
-	case ProductionSettlementPayload:
-		return typed.ReferenceKey, typed.SettlementWindow
-	case *ProductionSettlementPayload:
-		if typed != nil {
-			return typed.ReferenceKey, typed.SettlementWindow
-		}
-	case RouteSettlementPayload:
-		return typed.ReferenceKey, typed.SettlementWindow
-	case *RouteSettlementPayload:
-		if typed != nil {
-			return typed.ReferenceKey, typed.SettlementWindow
-		}
-	}
-	return "", ""
-}
-
-func (store *InMemoryStore) hasSettlementReferenceLocked(referenceKey foundation.IdempotencyKey) bool {
-	if referenceKey.IsZero() {
-		return false
-	}
-	_, ok := store.references[referenceKey]
-	return ok
-}
-
-func (store *InMemoryStore) recordSettlementReferenceLocked(record SettlementReferenceRecord) {
-	store.references[record.ReferenceKey] = cloneSettlementReferenceRecord(record)
-}
-
 func (store *InMemoryStore) snapshotLocked(planetID foundation.PlanetID) (PlanetProductionSnapshot, bool) {
 	state, hasState := store.states[planetID]
 	storage, hasStorage := store.storage[planetID]
@@ -557,25 +424,6 @@ func cloneProductionEventEnvelopes(envelopes []gameevents.EventEnvelope) []gamee
 func cloneProductionEventEnvelope(envelope gameevents.EventEnvelope) gameevents.EventEnvelope {
 	cloned := envelope
 	cloned.Payload = append([]byte(nil), envelope.Payload...)
-	return cloned
-}
-
-func cloneSettlementReferenceRecord(record SettlementReferenceRecord) SettlementReferenceRecord {
-	record.AppliedAt = record.AppliedAt.UTC()
-	record.RecordedAt = record.RecordedAt.UTC()
-	return record
-}
-
-func cloneProductionOutboxRecords(records []ProductionOutboxRecord) []ProductionOutboxRecord {
-	if len(records) == 0 {
-		return nil
-	}
-	cloned := make([]ProductionOutboxRecord, len(records))
-	for index, record := range records {
-		cloned[index] = record
-		cloned[index].Event = cloneProductionEventEnvelope(record.Event)
-		cloned[index].CreatedAt = record.CreatedAt.UTC()
-	}
 	return cloned
 }
 
