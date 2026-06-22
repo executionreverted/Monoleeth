@@ -141,10 +141,11 @@ for phase status; this file is a compact pending-work index.
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add a deterministic per-map scanner/claim/drop seed matrix. Focused
   server/discovery scanner rarity/hidden-scan-data regression coverage now
-  exists, and Phase09 now covers one browser `scan.pulse` with
-  DOM/state/storage/cookie leak checks; remaining work is per-map scanner
-  tuning, claim/drop behavior for each seeded map, and broader browser scan
-  variants. Source:
+  exists, Phase09 now covers one browser `scan.pulse` with
+  DOM/state/storage/cookie leak checks, and a server-only claim success proof
+  now covers seeded destination map `map_1_2` / public `1-2`; remaining work is
+  scanner/drop behavior for each seeded map, browser claim flow, and broader
+  browser scan variants. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete broader per-map/risk/rank drop balance matrix coverage across
   seeded maps. Current server tests cover starter selection, `map_1_2`

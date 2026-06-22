@@ -113,6 +113,69 @@ func TestClaimPlanetDuplicateRetryDoesNotConsumeSecondXCore(t *testing.T) {
 	}
 }
 
+func TestClaimPlanetSucceedsOnSeededDestinationMap(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSessionOnMap(t, gameServer, "claim-map-two@example.com", "Claim Map Two", "map_1_2", "west_gate")
+	planetID := foundation.PlanetID("claim-map-two-planet")
+	coordinates := world.Vec2{X: 520, Y: 5000}
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, "map_1_2", coordinates, 1)
+	grantClaimXCoreForTest(t, gameServer, owner.PlayerID, 1, "claim-map-two-xcore")
+
+	response := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-map-two", planetID)
+	if response.HasError {
+		t.Fatalf("claim response error = %+v, want success", response.Error)
+	}
+	assertPlanetClaimJSONSafeForTest(t, "map two claim response", response.Response.Payload, owner.PlayerID)
+	var payload planetClaimResponsePayload
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode claim response: %v", err)
+	}
+	if !payload.Claim.Accepted || payload.Claim.Duplicate || !payload.Claim.ProductionIncluded {
+		t.Fatalf("claim payload = %+v, want accepted non-duplicate with production", payload.Claim)
+	}
+	if payload.Claim.Planet.PublicMapKey != "1-2" || payload.Claim.Planet.OwnerStatus != "owned_by_you" {
+		t.Fatalf("claim planet summary = %+v, want owned public map 1-2", payload.Claim.Planet)
+	}
+	if payload.PlanetDetail.PublicMapKey != "1-2" ||
+		payload.PlanetDetail.Coordinates.X != coordinates.X ||
+		payload.PlanetDetail.Coordinates.Y != coordinates.Y ||
+		payload.PlanetDetail.Production == nil {
+		t.Fatalf("planet detail = %+v, want safe map 1-2 coordinates and initialized production", payload.PlanetDetail)
+	}
+	if len(payload.Production.Planets) != 1 ||
+		payload.Production.Planets[0].PlanetID != planetID.String() ||
+		payload.Production.Planets[0].PublicMapKey != "1-2" ||
+		!payload.Production.Planets[0].ProductionEnabled ||
+		payload.Production.Planets[0].Storage.CapacityUnits == 0 {
+		t.Fatalf("production payload = %+v, want initialized map 1-2 production", payload.Production)
+	}
+	if stack := inventoryStackQuantityForTest(gameServer, owner.PlayerID, "x_core"); stack != 0 {
+		t.Fatalf("x_core quantity = %d, want consumed", stack)
+	}
+	if got := claimXCoreDecreaseLedgerCountForTest(gameServer, owner.PlayerID); got != 1 {
+		t.Fatalf("x_core decrease ledger entries = %d, want one", got)
+	}
+	planet, ok, err := gameServer.runtime.Discovery.Planet(planetID)
+	if err != nil || !ok {
+		t.Fatalf("claimed planet lookup = ok %v err %v, want ok", ok, err)
+	}
+	if planet.OwnerPlayerID != owner.PlayerID {
+		t.Fatalf("planet owner = %q, want %q", planet.OwnerPlayerID, owner.PlayerID)
+	}
+	if _, ok, err := gameServer.runtime.Production.Snapshot(planetID); err != nil || !ok {
+		t.Fatalf("production snapshot = ok %v err %v, want initialized", ok, err)
+	}
+
+	events, err := gameServer.runtime.postCommandEvents(owner.SessionID, realtime.OperationDiscoveryClaimPlanet, owner.PlayerID)
+	if err != nil {
+		t.Fatalf("post claim events: %v", err)
+	}
+	for _, event := range events {
+		assertPlanetClaimJSONSafeForTest(t, string(event.Type), event.Payload, owner.PlayerID)
+	}
+	assertClaimedEventSafeForTest(t, requireEventTypeForTest(t, events, realtime.EventPlanetClaimed), owner.PlayerID, "1-2")
+}
+
 func TestClaimPlanetRejectsTrustedAndUnknownPayloadFieldsWithoutMutation(t *testing.T) {
 	for _, field := range []string{"player_id", "map_id", "coordinates", "owner", "x_core", "production", "unexpected"} {
 		t.Run(field, func(t *testing.T) {
@@ -308,29 +371,42 @@ func claimXCoreDecreaseLedgerCountForTest(gameServer *Server, playerID foundatio
 	return count
 }
 
-func assertClaimedEventSafeForTest(t *testing.T, event realtime.EventEnvelope, playerID foundation.PlayerID) {
+func assertPlanetClaimJSONSafeForTest(t *testing.T, label string, payload json.RawMessage, playerID foundation.PlayerID) {
 	t.Helper()
-	if event.Type != realtime.EventPlanetClaimed {
-		t.Fatalf("event type = %s, want %s", event.Type, realtime.EventPlanetClaimed)
-	}
-	raw := string(event.Payload)
+	raw := string(payload)
 	for _, forbidden := range []string{
 		"world_id",
 		"zone_id",
 		"internal_map_id",
-		"coordinates",
+		"map_1_2",
 		"owner_player_id",
+		"player_id",
 		playerID.String(),
 	} {
 		if strings.Contains(raw, forbidden) {
-			t.Fatalf("planet.claimed event leaked %q in %s", forbidden, raw)
+			t.Fatalf("%s leaked %q in %s", label, forbidden, raw)
 		}
+	}
+}
+
+func assertClaimedEventSafeForTest(t *testing.T, event realtime.EventEnvelope, playerID foundation.PlayerID, wantPublicMapKey ...string) {
+	t.Helper()
+	if event.Type != realtime.EventPlanetClaimed {
+		t.Fatalf("event type = %s, want %s", event.Type, realtime.EventPlanetClaimed)
+	}
+	assertPlanetClaimJSONSafeForTest(t, "planet.claimed event", event.Payload, playerID)
+	if strings.Contains(string(event.Payload), "coordinates") {
+		t.Fatalf("planet.claimed event leaked coordinates in %s", event.Payload)
 	}
 	var payload planetClaimedPayload
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		t.Fatalf("decode planet.claimed event: %v", err)
 	}
-	if !payload.Accepted || payload.Planet.OwnerStatus != "owned_by_you" || payload.Planet.PublicMapKey != "1-1" {
-		t.Fatalf("planet.claimed payload = %+v, want safe owned summary", payload)
+	publicMapKey := "1-1"
+	if len(wantPublicMapKey) > 0 {
+		publicMapKey = wantPublicMapKey[0]
+	}
+	if !payload.Accepted || payload.Planet.OwnerStatus != "owned_by_you" || payload.Planet.PublicMapKey != publicMapKey {
+		t.Fatalf("planet.claimed payload = %+v, want safe owned summary on %s", payload, publicMapKey)
 	}
 }
