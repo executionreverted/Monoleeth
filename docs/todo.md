@@ -132,8 +132,11 @@ for phase status; this file is a compact pending-work index.
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server
   tests cover allowed PvP outside safe zones plus safe-zone and protection
-  blocking on that seeded map. Remaining work is PvP death/cargo/checkpoint
-  coverage and a real browser safe-zone PvP click rejection proof. Source:
+  blocking on that seeded map. Death-domain coverage now proves
+  `DeathService.ProcessDeath` preserves a PvP killer, killer-owned loot drop,
+  zone cargo policy, and checkpoint/respawn id in results/events. Remaining
+  work is runtime/browser PvP death/cargo/checkpoint integration coverage and a
+  real browser safe-zone PvP click rejection proof. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete second-map enemy rollout coverage for map `1-2`. The
   deterministic `outer_ring_scout_drone` seed, initial spawn, actor projection,

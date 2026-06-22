@@ -164,6 +164,59 @@ func TestDeathServiceProcessDeathDropsCargoCreatesLootDisablesShipRecordsRespawn
 	}
 }
 
+func TestDeathServiceProcessDeathPvPKillerOwnedDropUsesZonePolicyAndCheckpoint(t *testing.T) {
+	fixture := newDeathServiceFixture(t, nil, nil)
+	ore := deathServiceItemDefinition(t, "border_ore", economy.ItemTypeStackable, []economy.TradeFlag{economy.TradeFlagDroppable})
+	cargoLocation := mustDeathServiceCargoLocation(t, ships.ShipIDFighterT1.String())
+	added := fixture.addCargo(t, ore, 6, cargoLocation)
+
+	result, err := fixture.death.ProcessDeath(death.ProcessDeathInput{
+		LethalEventID:     "pvp-lethal-border-1",
+		PlayerID:          "player-1",
+		WorldID:           "world-1",
+		ZoneID:            "zone-1",
+		Position:          world.Vec2{X: 8200, Y: 4100},
+		KillerEntityID:    "player-2",
+		Reason:            death.DeathReasonCombat,
+		CargoDropPolicy:   cargoPolicy(t, 0.50, 0.50),
+		Cargo:             []death.CargoStack{cargoStackFromDeathServiceStackable(t, added.StackableItems[0], ore)},
+		DropOwnerPlayerID: "player-2",
+		RespawnLocationID: "checkpoint-border-skirmish",
+	})
+	if err != nil {
+		t.Fatalf("ProcessDeath() error = %v", err)
+	}
+
+	if result.Record.KillerEntityID != world.EntityID("player-2") ||
+		result.Record.RespawnLocationID != death.RespawnLocationID("checkpoint-border-skirmish") ||
+		result.Record.CargoDropPercent != 0.50 {
+		t.Fatalf("death record = %+v, want PvP killer, checkpoint, and zone cargo policy", result.Record)
+	}
+	if got := fixture.inventory.TotalItemQuantity("player-1", ore.ItemID, cargoLocation); got != 3 {
+		t.Fatalf("remaining victim cargo = %d, want 3", got)
+	}
+	if len(result.LootDrops) != 1 ||
+		result.LootDrops[0].OwnerPlayerID != foundation.PlayerID("player-2") ||
+		result.LootDrops[0].SourceType != loot.DropSourcePlayerDeath ||
+		result.LootDrops[0].Quantity != 3 {
+		t.Fatalf("loot drops = %+v, want killer-owned player-death drop", result.LootDrops)
+	}
+
+	testutil.AssertRecordedEventTypes(t, fixture.events, death.EventPlayerDied, death.EventShipDisabled, death.EventDeathCargoDropped)
+	recorded := fixture.events.Events()
+	playerDied := decodeDeathServiceEventPayload[death.PlayerDiedEvent](t, recorded[0].Payload)
+	if playerDied.KillerEntityID != world.EntityID("player-2") ||
+		playerDied.RespawnLocationID != death.RespawnLocationID("checkpoint-border-skirmish") ||
+		playerDied.CargoDropPercent != 0.50 {
+		t.Fatalf("player.died payload = %+v, want PvP killer, checkpoint, and cargo policy", playerDied)
+	}
+	shipDisabled := decodeDeathServiceEventPayload[death.ShipDisabledEvent](t, recorded[1].Payload)
+	if shipDisabled.RespawnLocationID != death.RespawnLocationID("checkpoint-border-skirmish") ||
+		shipDisabled.DisabledReason != ships.DisabledReasonDeath {
+		t.Fatalf("ship.disabled payload = %+v, want checkpoint death disable", shipDisabled)
+	}
+}
+
 func TestDeathServiceProcessDeathRejectsZonePolicyMismatch(t *testing.T) {
 	fixture := newDeathServiceFixture(t, nil, nil)
 	policy, err := death.NewZoneCargoDropPolicy("zone-2", 0.50, 0.50)
