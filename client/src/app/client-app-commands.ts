@@ -334,7 +334,7 @@ export abstract class ClientAppCommands extends ClientAppCore {
 
 
   protected syncSnapshot(): void {
-    if (this.state.auth.mode === 'demo') {
+    if (this.demoMode && this.state.auth.mode === 'demo') {
       this.sendCommand(this.commandBuilder.debugSnapshot());
       return;
     }

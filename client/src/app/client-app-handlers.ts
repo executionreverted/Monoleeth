@@ -76,7 +76,7 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
       this.dispatch({ type: 'connectionChanged', status });
     }
 
-    if (this.state.auth.mode === 'demo' && status === 'connected') {
+    if (this.demoMode && this.state.auth.mode === 'demo' && status === 'connected') {
       this.sendCommand(this.commandBuilder.debugSnapshot());
     }
   }

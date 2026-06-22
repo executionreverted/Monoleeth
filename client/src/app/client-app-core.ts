@@ -20,6 +20,10 @@ export const NAVIGATION_RECHECK_MS = 140;
 export const NAVIGATION_TARGET_TOLERANCE_UNITS = 24;
 export const ECONOMY_REFRESH_DEBOUNCE_MS = 50;
 
+export function isDemoModeEnabled(search: string, devBuild: boolean): boolean {
+  return devBuild && new URLSearchParams(search).get('demo') === '1';
+}
+
 export abstract class ClientAppCore {
   protected state: ClientState = createInitialState();
   protected readonly authClient = new AuthClient();
@@ -66,7 +70,7 @@ export abstract class ClientAppCore {
     at: number;
   }> = [];
   protected demoState: DemoStateModule | null = null;
-  protected readonly demoMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1';
+  protected readonly demoMode = typeof window !== 'undefined' && isDemoModeEnabled(window.location.search, import.meta.env.DEV);
 
   protected constructor(protected readonly root: HTMLElement) {}
 

@@ -156,9 +156,10 @@ func TestDebugSpawnNPCRejectsOutOfBoundsPosition(t *testing.T) {
 	}
 }
 func TestProductionWebSocketForbidsDebugOperationsAndKeepsSessionSnapshotPublic(t *testing.T) {
-	_, httpServer := newTestServer(t, false)
+	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
-	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
 
@@ -190,7 +191,7 @@ func TestProductionWebSocketForbidsDebugOperationsAndKeepsSessionSnapshotPublic(
 	for index, body := range []string{
 		`{"request_id":"request-debug-snapshot","op":"debug_snapshot","payload":{},"client_seq":2,"v":1}`,
 		`{"request_id":"request-debug-spawn","op":"debug_spawn_npc","payload":{"entity_id":"debug_npc","position":{"x":1,"y":2}},"client_seq":3,"v":1}`,
-		`{"request_id":"request-debug-spawn-spoof","op":"debug_spawn_npc","payload":{"entity_id":"debug_npc","position":{"x":1,"y":2},"player_id":"spoof"},"client_seq":4,"v":1}`,
+		`{"request_id":"request-debug-spawn-spoof","op":"debug_spawn_npc","payload":{"entity_id":"debug_npc_spoof","position":{"x":1,"y":2},"player_id":"spoof"},"client_seq":4,"v":1}`,
 	} {
 		writeText(t, conn, body)
 		response := readError(t, conn)
@@ -206,10 +207,34 @@ func TestProductionWebSocketForbidsDebugOperationsAndKeepsSessionSnapshotPublic(
 		}
 	}
 
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	gameServer.runtime.mu.Lock()
+	instance, _, instanceErr := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if instanceErr != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("activeMapInstanceLocked() error = %v, want nil", instanceErr)
+	}
+	for _, forbiddenEntity := range []foundation.EntityID{"debug_npc", "debug_npc_spoof"} {
+		if _, spawned := instance.Worker.Entity(forbiddenEntity); spawned {
+			gameServer.runtime.mu.Unlock()
+			t.Fatalf("debug_spawn_npc inserted %s in production mode", forbiddenEntity)
+		}
+	}
+	gameServer.runtime.mu.Unlock()
+
 	writeText(t, conn, `{"request_id":"request-world-after-debug","op":"world.snapshot","payload":{},"client_seq":5,"v":1}`)
 	world := readResponse(t, conn)
 	if !world.OK {
 		t.Fatalf("world snapshot after debug forbids = %+v, want live socket", world)
+	}
+	var worldPayload worldSnapshotPayload
+	if err := json.Unmarshal(world.Payload, &worldPayload); err != nil {
+		t.Fatalf("decode world snapshot after debug forbids: %v", err)
+	}
+	for _, forbiddenEntity := range []string{"debug_npc", "debug_npc_spoof"} {
+		if hasEntityID(worldPayload.Entities, forbiddenEntity) {
+			t.Fatalf("world snapshot after debug forbids includes %q: %+v", forbiddenEntity, worldPayload.Entities)
+		}
 	}
 }
 func TestRejectTrustedPayloadSharedSensitiveFieldsAndAdminException(t *testing.T) {

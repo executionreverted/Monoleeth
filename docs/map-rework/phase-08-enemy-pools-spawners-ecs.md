@@ -308,8 +308,8 @@ Deferred Phase08 work after Phase08G:
 
 - metrics/logging for spawn, cap, death, drop, respawn, aggro reset, and
   cross-map rejection paths
-- debug/demo spawn path quarantine remains to be audited outside the event hook
-  slice
+- debug/demo spawn path quarantine, later picked up by Phase08J outside the
+  event hook slice
 
 ## Phase08H Landed Boss/Event Spawn Hooks Slice
 
@@ -407,9 +407,29 @@ Phase08I coverage was added or updated in:
 - `internal/game/server/npc_loot_selector.go`
 - `internal/game/server/npc_loot_selector_test.go`
 
-Deferred Phase08 work after Phase08I:
+## Phase08J Landed Debug/Demo Spawn Quarantine Slice
 
-- debug/demo spawn command quarantine from default real gameplay remains open
+The landed Phase08J slice closes the default real-gameplay debug/demo spawn
+quarantine. Server `debug_snapshot` and `debug_spawn_npc` handlers remain
+registered for dev/test harnesses, but production runtime instances reject both
+operations before payload trust checks or worker mutation. The authenticated
+production WebSocket test now proves the rejected debug spawn does not insert a
+debug NPC into the active map worker and does not appear in the follow-up public
+world snapshot.
+
+The browser client keeps protocol constants and the dev fixture helper for
+explicit local development, but the `?demo=1` URL flag is now ignored unless the
+bundle is a development build. Client debug snapshot sends are also guarded by
+the same DEV-gated demo mode so production builds stay on the authenticated real
+client path even when a URL contains `?demo=1`.
+
+Phase08J coverage was added or updated in:
+
+- `internal/game/server/server_auth_transport_test.go`
+- `client/src/app/client-app-core.ts`
+- `client/src/app/client-app-handlers.ts`
+- `client/src/app/client-app-commands.ts`
+- `client/src/app/demo-mode.test.ts`
 
 ### NPC State Ownership
 
@@ -569,7 +589,9 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
     in Phase08H for server-only catalog hooks and explicit worker trigger
     spawning.
 12. Remove or quarantine debug/demo spawn paths from default real gameplay.
-    Any retained helper must require explicit dev/test mode.
+    Any retained helper must require explicit dev/test mode. Landed in
+    Phase08J for server production debug-op rejection, no-mutation coverage, and
+    DEV-gated client demo/debug mode.
 13. Update phase docs and module docs only after behavior is implemented and
     verified.
 
@@ -613,6 +635,8 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
   catalog content, event-owned pool validation, due/enabled trigger behavior,
   event/pool/map caps, and forbidden candidate no-op coverage.
 - Debug/demo spawn commands are unavailable in default authenticated real mode.
+  Phase08J landed production server rejection/no-mutation coverage and
+  DEV-gated browser demo/debug mode.
 
 ## Migration/Doc Updates
 
@@ -651,8 +675,10 @@ global loot table replacement for default NPC kill drops. Phase08G satisfies
 worker-local aggro/leash movement simulation. Phase08H satisfies the
 disabled-by-default boss/event hook slice with explicit server-owned trigger
 spawning. Phase08I satisfies the metrics MVP for spawn, respawn, death,
-drop-selector, aggro, and ownership rejection decisions. Debug/demo quarantine
-remains open, so the full Phase 08 acceptance criteria are not complete.
+drop-selector, aggro, and ownership rejection decisions. Phase08J satisfies the
+debug/demo quarantine criterion for default authenticated real gameplay. No
+Phase 08 acceptance item is currently marked open in this file; phase-wide
+closure still requires the full project verification suite before handoff.
 
 - No default gameplay path uses `trainingNPCActor` or one global
   `training_drone_salvage` table as the source of truth.
