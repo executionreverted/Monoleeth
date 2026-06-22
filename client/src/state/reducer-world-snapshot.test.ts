@@ -349,6 +349,67 @@ describe('reduceClientState world requests and snapshots', () => {
     expect(state.movementTarget).toEqual({ x: 100, y: 0 });
   });
 
+  test('portal parser keeps sanitized public optional fields and ignores invalid optional values', () => {
+    const state = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.mapSnapshot, {
+        map_subscription_epoch: 4,
+        public_map_key: '1-1',
+        display_name: 'Origin Fringe',
+        bounds: { min_x: 0, min_y: 0, max_x: 10000, max_y: 10000 },
+        visible_portals: [
+          {
+            portal_id: ' north_gate ',
+            label: ' North Gate ',
+            display_name: ' Legacy North ',
+            destination_label: ' Outer Ring ',
+            state: 'available',
+            cooldown_ready_at_ms: 1234.6,
+            locked_reason: ' Access pass ',
+            position: { x: 5000, y: 100 },
+            interaction_radius: 160,
+          },
+          {
+            portal_id: 'invalid_optional_gate',
+            display_name: 'Invalid Optional Gate',
+            destination_label: ' ',
+            state: 'charging',
+            cooldown_ready_at_ms: -10,
+            locked_reason: '',
+            position: { x: 100, y: 5000 },
+            interaction_radius: 160,
+          },
+          {
+            portal_id: 'missing-position',
+            state: 'available',
+            interaction_radius: 160,
+          },
+        ],
+        safe_zones: [],
+      }, 2),
+    });
+
+    expect(state.currentMap?.visible_portals).toEqual([
+      {
+        portal_id: 'north_gate',
+        label: 'North Gate',
+        display_name: 'Legacy North',
+        destination_label: 'Outer Ring',
+        state: 'available',
+        cooldown_ready_at_ms: 1235,
+        locked_reason: 'Access pass',
+        position: { x: 5000, y: 100 },
+        interaction_radius: 160,
+      },
+      {
+        portal_id: 'invalid_optional_gate',
+        display_name: 'Invalid Optional Gate',
+        position: { x: 100, y: 5000 },
+        interaction_radius: 160,
+      },
+    ]);
+  });
+
   test('world snapshot without map does not invent current map state', () => {
     const state = reduceClientState(createInitialState(), {
       type: 'eventReceived',

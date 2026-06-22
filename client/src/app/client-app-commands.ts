@@ -254,6 +254,17 @@ export abstract class ClientAppCommands extends ClientAppCore {
     );
   }
 
+  protected sendPortalEnter(portalID: string): void {
+    if (!portalID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `portal-enter:${portalID}`,
+      () => this.commandBuilder.portalEnter(portalID),
+      'Portal entry already pending.',
+    );
+  }
+
   protected sendGuardedGameplayCommand(actionKey: string, buildEnvelope: () => RequestEnvelope, pendingMessage: string): void {
     if (this.pendingGameplayActionKeys.has(actionKey)) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: pendingMessage });

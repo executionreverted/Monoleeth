@@ -189,6 +189,9 @@ export function parseSafeZoneProjections(value: unknown): SafeZoneProjection[] {
 }
 
 function parsePortalSummary(payload: JsonObject): PublicPortalSummary | null {
+  rejectForbiddenPayloadKeys(payload);
+  rejectForbiddenPortalSummaryKeys(payload);
+
   const portalID = nonEmptyString(payload, 'portal_id');
   const radius = numberField(payload, 'interaction_radius');
   if (!portalID || !isVec2(payload.position) || radius === null || radius <= 0) {
@@ -200,7 +203,22 @@ function parsePortalSummary(payload: JsonObject): PublicPortalSummary | null {
     position: payload.position,
     interaction_radius: radius,
   };
+  copyOptionalString(payload, portal, 'label');
   copyOptionalString(payload, portal, 'display_name');
+
+  copyOptionalString(payload, portal, 'destination_label');
+  copyOptionalString(payload, portal, 'locked_reason');
+
+  const state = portalState(payload);
+  if (state) {
+    portal.state = state;
+  }
+
+  const cooldownReadyAt = numberField(payload, 'cooldown_ready_at_ms');
+  if (cooldownReadyAt !== null && cooldownReadyAt >= 0) {
+    portal.cooldown_ready_at_ms = Math.round(cooldownReadyAt);
+  }
+
   return portal;
 }
 
@@ -279,4 +297,72 @@ function copyOptionalString<T extends object>(source: JsonObject, target: T, key
   if (value) {
     (target as Record<string, unknown>)[key] = value;
   }
+}
+
+function portalState(payload: JsonObject): PublicPortalSummary['state'] | null {
+  const value = nonEmptyString(payload, 'state');
+  if (value === 'available' || value === 'cooldown' || value === 'locked' || value === 'offline') {
+    return value;
+  }
+  return null;
+}
+
+const forbiddenPortalSummaryKeys = new Set([
+  'destination',
+  'destination_id',
+  'destination_key',
+  'destination_map_id',
+  'destination_map_key',
+  'destination_position',
+  'destination_public_key',
+  'destination_public_map_key',
+  'destination_spawn_id',
+  'from_map_key',
+  'from_public_map_key',
+  'internal_map_id',
+  'map_id',
+  'map_key',
+  'public_map_key',
+  'spawn',
+  'spawn_map_key',
+  'spawn_point',
+  'spawn_position',
+  'spawn_public_map_key',
+  'to_map_key',
+  'to_public_map_key',
+]);
+
+function rejectForbiddenPortalSummaryKeys(payload: JsonObject): void {
+  const found = findForbiddenPortalSummaryKey(payload);
+  if (found) {
+    throw new Error(`Forbidden server payload rejected: ${found}`);
+  }
+}
+
+function findForbiddenPortalSummaryKey(value: unknown, depth = 0): string | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findForbiddenPortalSummaryKey(item, depth + 1);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  if (!isJsonObject(value)) {
+    return null;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    const normalized = key.toLowerCase();
+    if (forbiddenPortalSummaryKeys.has(normalized)) {
+      return key;
+    }
+    const found = findForbiddenPortalSummaryKey(child, depth + 1);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
 }

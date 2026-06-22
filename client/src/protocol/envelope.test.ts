@@ -335,7 +335,9 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.shopBuyProduct).toBe('shop.buy_product');
 
     const builder = new CommandBuilder();
-    expect(builder.portalEnter('east_gate').payload).toEqual({ portal_id: 'east_gate' });
+    const portalEnter = builder.portalEnter('east_gate');
+    expect(portalEnter.payload).toEqual({ portal_id: 'east_gate' });
+    expect(Object.keys(portalEnter.payload)).toEqual(['portal_id']);
     expect(builder.hangarActivateShip('starter').payload).toEqual({ ship_id: 'starter' });
     expect(builder.loadoutEquipModule('offensive_1', 'laser_alpha_t1-instance-2').payload).toEqual({
       slot_id: 'offensive_1',
@@ -353,18 +355,42 @@ describe('default outbound operations', () => {
 
   test.each([
     'map_id',
+    'map_key',
     'internal_map_id',
+    'public_map_key',
     'worker_id',
     'map_worker_id',
     'transfer_id',
     'transfer_token',
+    'destination',
     'destination_worker',
     'origin_worker',
+    'destination_id',
     'destination_map_id',
+    'destination_map_key',
+    'destination_public_key',
+    'destination_public_map_key',
     'destination_spawn_id',
+    'spawn',
+    'spawn_point',
+    'spawn_position',
+    'to_map_key',
+    'to_public_map_key',
+    'cooldown_ready_at_ms',
+    'ready_at_ms',
+    'expires_at',
   ])('rejects trusted client command field %s', (field) => {
     expect(() => assertClientSafePayload({ portal_id: 'east_gate', [field]: 'client-authored' })).toThrow(
       /trusted field/,
+    );
+  });
+
+  test('rejects nested trusted portal command destination and spawn fields', () => {
+    expect(() => assertClientSafePayload({ portal_id: 'east_gate', destination: { public_map_key: '2-1' } })).toThrow(
+      /trusted field: destination/,
+    );
+    expect(() => assertClientSafePayload({ portal_id: 'east_gate', spawn: { position: { x: 1, y: 2 } } })).toThrow(
+      /trusted field: spawn/,
     );
   });
 

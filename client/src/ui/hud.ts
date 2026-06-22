@@ -97,7 +97,7 @@ export class HUD {
     this.panels.planets.innerHTML = planetsPanel(state);
     this.panels.target.innerHTML = targetPanel(state, serverNow);
     this.panels.ship.innerHTML = shipPanel(state);
-    this.panels.intel.innerHTML = intelPanel(state);
+    this.panels.intel.innerHTML = intelPanel(state, serverNow);
     this.panels.actions.innerHTML = actionBar(state, serverNow);
     this.panels.log.innerHTML = logPanel(state);
     this.movementEta.innerHTML = movementEtaPanel(state, serverNow);
@@ -458,6 +458,25 @@ export class HUD {
         case 'loot-select':
           if (button.dataset.entityId) {
             this.handlers.onSelectTarget(button.dataset.entityId, 'radar');
+          }
+          break;
+        case 'portal-select':
+          if (button.dataset.portalId && button.dataset.portalScope) {
+            hudSelection.selectedPortalID = button.dataset.portalId;
+            hudSelection.selectedPortalScope = button.dataset.portalScope;
+            if (this.currentState) {
+              this.render(this.currentState, this.currentServerNow);
+            }
+          }
+          break;
+        case 'portal-enter':
+          if (
+            button.dataset.portalId &&
+            button.dataset.portalScope &&
+            button.dataset.portalId === hudSelection.selectedPortalID &&
+            button.dataset.portalScope === hudSelection.selectedPortalScope
+          ) {
+            this.handlers.onPortalEnter(button.dataset.portalId);
           }
           break;
         case 'planet-select':

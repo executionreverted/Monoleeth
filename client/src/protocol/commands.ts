@@ -346,15 +346,27 @@ function findTrustedClientField(value: unknown, trustedTopLevelFieldAllowlist: R
       normalized === 'world_id' ||
       normalized === 'zone_id' ||
       normalized === 'map_id' ||
+      normalized === 'map_key' ||
       normalized === 'internal_map_id' ||
+      normalized === 'public_map_key' ||
       normalized === 'worker_id' ||
       normalized === 'map_worker_id' ||
       normalized === 'transfer_id' ||
       normalized === 'transfer_token' ||
+      normalized === 'destination' ||
       normalized === 'destination_worker' ||
       normalized === 'origin_worker' ||
+      normalized === 'destination_id' ||
       normalized === 'destination_map_id' ||
+      normalized === 'destination_map_key' ||
+      normalized === 'destination_public_key' ||
+      normalized === 'destination_public_map_key' ||
       normalized === 'destination_spawn_id' ||
+      normalized === 'spawn' ||
+      normalized === 'spawn_point' ||
+      normalized === 'spawn_position' ||
+      normalized === 'to_map_key' ||
+      normalized === 'to_public_map_key' ||
       normalized === 'damage' ||
       normalized === 'speed' ||
       normalized === 'xp' ||
@@ -365,6 +377,9 @@ function findTrustedClientField(value: unknown, trustedTopLevelFieldAllowlist: R
       normalized === 'skill_points' ||
       normalized === 'loot' ||
       normalized === 'cooldown' ||
+      normalized === 'cooldown_ready_at_ms' ||
+      normalized === 'ready_at_ms' ||
+      normalized === 'expires_at' ||
       normalized === 'wallet_amount' ||
       normalized === 'hidden' ||
       normalized === 'internal' ||

@@ -226,6 +226,12 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
       case CLIENT_EVENTS.premiumStockConsumed:
         this.clearPendingGameplayActionKeysByPrefix('premium-weekly-xcore:');
         return;
+      case CLIENT_EVENTS.mapTransferStarted:
+      case CLIENT_EVENTS.mapTransferCompleted:
+      case CLIENT_EVENTS.mapTransferFailed:
+      case CLIENT_EVENTS.mapChanged:
+        this.clearPendingGameplayActionKeysByPrefix('portal-enter:');
+        return;
       default:
         return;
     }
@@ -482,8 +488,9 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
   }
 
   protected scheduleCooldownRender(): void {
-    const readyAt = this.state.skillCooldowns.basic_laser ?? 0;
-    const delay = readyAt - Date.now();
+    const now = this.estimatedServerTime() ?? Date.now();
+    const readyAt = nextCooldownRenderAt(this.state, now);
+    const delay = readyAt - now;
     if (delay <= 0) {
       this.clearCooldownRenderTimer();
       return;
@@ -840,4 +847,14 @@ function movementEtaSmokeState(entity: EntityPayload | null, serverNow: number |
     remainingMs: timing.remainingMs,
     progress: timing.progress,
   };
+}
+
+function nextCooldownRenderAt(state: ClientState, now: number): number {
+  const readyTimes = [
+    state.skillCooldowns.basic_laser ?? 0,
+    ...Object.values(state.portalCooldowns),
+    ...(state.currentMap?.visible_portals.map((portal) => portal.cooldown_ready_at_ms ?? 0) ?? []),
+    ...(state.minimap?.visible_portals?.map((portal) => portal.cooldown_ready_at_ms ?? 0) ?? []),
+  ].filter((value) => Number.isFinite(value) && value > now);
+  return readyTimes.length > 0 ? Math.min(...readyTimes) : 0;
 }

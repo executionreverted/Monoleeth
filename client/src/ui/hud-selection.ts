@@ -9,4 +9,6 @@ export const hudSelection = {
   selectedModuleFilter: 'all' as ModuleFilterID,
   selectedModuleInstanceID: null as string | null,
   selectedHangarShipID: null as string | null,
+  selectedPortalID: null as string | null,
+  selectedPortalScope: null as string | null,
 };

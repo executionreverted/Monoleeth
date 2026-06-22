@@ -685,9 +685,14 @@ export interface MapBounds {
 
 export interface PublicPortalSummary {
   portal_id: string;
+  label?: string;
   display_name?: string;
   position: Vec2;
   interaction_radius: number;
+  destination_label?: string;
+  state?: 'available' | 'cooldown' | 'locked' | 'offline';
+  cooldown_ready_at_ms?: number;
+  locked_reason?: string;
 }
 
 export interface SafeZoneProjection {

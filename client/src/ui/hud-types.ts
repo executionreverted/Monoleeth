@@ -14,6 +14,7 @@ export interface HUDHandlers {
   onStealthToggle(): void;
   onSelectTarget(entityID: string, source?: 'hud' | 'radar'): void;
   onCycleTarget(): void;
+  onPortalEnter(portalID: string): void;
   onPlanetDetail(planetID: string): void;
   onPlanetNavigate(planetID: string): void;
   onHangarActivateShip(shipID: string): void;

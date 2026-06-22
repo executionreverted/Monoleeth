@@ -44,6 +44,7 @@ export class ClientApp extends ClientAppHandlers {
       onStealthToggle: () => this.toggleStealth(),
       onSelectTarget: (entityID, source) => this.selectEntity(entityID, source ?? 'hud'),
       onCycleTarget: () => this.cycleTarget(),
+      onPortalEnter: (portalID) => this.sendPortalEnter(portalID),
       onPlanetDetail: (planetID) => this.requestPlanetDetail(planetID),
       onPlanetNavigate: (planetID) => this.navigateToPlanet(planetID),
       onHangarActivateShip: (shipID) => this.sendHangarActivateShip(shipID),

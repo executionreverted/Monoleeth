@@ -1,3 +1,4 @@
+import { OPERATIONS } from '../protocol/envelope';
 import type { ClientState, MapBounds, MinimapContact, MinimapMemory, MinimapSummary, PublicPortalSummary, SafeZoneProjection } from '../state/types';
 import {
   isClickableMinimapMemory,
@@ -6,15 +7,23 @@ import {
   rememberedMinimapDetailID,
   shouldRenderRememberedMinimapMemory,
 } from '../state/world-memory';
-import { clamp, dispositionForType, escapeHTML, formatCompactNumber, lockedValue, publicEntityType } from './hud-formatters';
+import { hudSelection } from './hud-selection';
+import { clamp, dispositionForType, escapeHTML, formatCompactNumber, formatCooldown, hasPendingOp, lockedValue, publicEntityType, realtimeReady } from './hud-formatters';
 import { topbarLocationText } from './hud-topbar';
 
-export function minimapPanel(state: ClientState): string {
+export function minimapPanel(state: ClientState, serverNow: number | null = Date.now()): string {
   const bounds = chooseMinimapBounds(state);
   if (!bounds && !hasRenderableMinimapPayload(state.minimap)) {
-    return '<div class="minimap minimap--empty"><div class="empty-line">Awaiting map projection.</div></div>';
+    reconcilePortalSelectionForRender(state, null);
+    return `
+      <div class="minimap minimap--empty"><div class="empty-line">Awaiting map projection.</div></div>
+      ${portalActionStrip(state, [], serverNow)}
+    `;
   }
 
+  const portals = collectMinimapPortals(state);
+  const portalScope = portalSelectionScope(state);
+  reconcilePortalSelectionForRender(state, portalScope);
   const contacts = state.minimap?.live_contacts ?? [];
   const memories = state.minimap?.remembered ?? [];
   const self = contacts.find((contact) => contact.status_flags?.includes('self')) ?? contacts.find((contact) => contact.entity_type === 'player');
@@ -57,14 +66,18 @@ export function minimapPanel(state: ClientState): string {
       return `<button class="minimap__memory" type="button"${action}${planet}${disabled} data-kind="${escapeHTML(memory.kind)}" data-freshness="${escapeHTML(intelState)}"${sector}${publicMap}${source} style="${minimapPointStyle(point)}" title="${escapeHTML(memory.label || memory.kind)}"></button>`;
     })
     .join('');
-  const portalMarkers = collectMinimapPortals(state)
+  const portalMarkers = portals
     .map((portal) => {
       const point = projectMinimapPoint(projection, portal.position);
       if (!point) {
         return '';
       }
-      const label = markerLabel(portal.display_name, 'Portal');
-      return `<span class="minimap__portal" data-marker="portal" data-portal-id="${escapeHTML(portal.portal_id)}" style="${minimapPointStyle(point)}" title="${escapeHTML(label)}"><span>${escapeHTML(label)}</span></span>`;
+      const selected = isSelectedPortal(portal.portal_id, portalScope);
+      const label = portalLabel(portal);
+      const scopeAttr = portalScope ? ` data-portal-scope="${escapeHTML(portalScope)}"` : '';
+      const disabledAttr = portalScope ? '' : ' disabled';
+      const stateAttr = portal.state ? ` data-portal-state="${escapeHTML(portal.state)}"` : '';
+      return `<button class="minimap__portal" type="button" data-action="portal-select" data-marker="portal" data-portal-id="${escapeHTML(portal.portal_id)}"${scopeAttr}${stateAttr}${disabledAttr} data-selected="${selected ? 'true' : 'false'}" aria-pressed="${selected ? 'true' : 'false'}" style="${minimapPointStyle(point)}" title="${escapeHTML(label)}"><span>${escapeHTML(label)}</span></button>`;
     })
     .join('');
   const safeZoneMarkers = collectMinimapSafeZones(state)
@@ -104,6 +117,7 @@ export function minimapPanel(state: ClientState): string {
       <span data-kind="portal">Portal</span>
       <span data-kind="safe-zone">Safe</span>
     </div>
+    ${portalActionStrip(state, portals, serverNow)}
   `;
 }
 
@@ -203,19 +217,167 @@ function currentPublicMapKey(state: ClientState): string | null {
 
 function collectMinimapPortals(state: ClientState): PublicPortalSummary[] {
   const portals: PublicPortalSummary[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, number>();
   const add = (items: PublicPortalSummary[] | undefined): void => {
     for (const portal of items ?? []) {
-      if (!portal.portal_id || seen.has(portal.portal_id) || !isFinitePoint(portal.position)) {
+      if (!portal.portal_id || !isFinitePoint(portal.position)) {
         continue;
       }
-      seen.add(portal.portal_id);
-      portals.push(portal);
+      const existingIndex = seen.get(portal.portal_id);
+      if (existingIndex === undefined) {
+        seen.set(portal.portal_id, portals.length);
+        portals.push(portal);
+        continue;
+      }
+      portals[existingIndex] = mergePortalSummary(portals[existingIndex], portal);
     }
   };
   add(state.currentMap?.visible_portals);
   add(state.minimap?.visible_portals);
   return portals;
+}
+
+function mergePortalSummary(primary: PublicPortalSummary, secondary: PublicPortalSummary): PublicPortalSummary {
+  return {
+    ...secondary,
+    ...primary,
+    label: primary.label ?? secondary.label,
+    display_name: primary.display_name ?? secondary.display_name,
+    destination_label: primary.destination_label ?? secondary.destination_label,
+    state: primary.state ?? secondary.state,
+    cooldown_ready_at_ms: primary.cooldown_ready_at_ms ?? secondary.cooldown_ready_at_ms,
+    locked_reason: primary.locked_reason ?? secondary.locked_reason,
+  };
+}
+
+function portalActionStrip(state: ClientState, portals: PublicPortalSummary[], serverNow: number | null): string {
+  const currentScope = portalSelectionScope(state);
+  const selectedID = hudSelection.selectedPortalID;
+  const selectedScope = hudSelection.selectedPortalScope;
+  const selectedPortal =
+    selectedID && selectedScope && selectedScope === currentScope
+      ? portals.find((portal) => portal.portal_id === selectedID) ?? null
+      : null;
+  const now = serverNow ?? Date.now();
+
+  if (!state.currentMap && !state.minimap) {
+    const label = realtimePortalListLoading(state) ? 'Awaiting portal list' : 'Portal list locked';
+    return emptyPortalStrip(label, 'Map snapshot required.');
+  }
+
+  if (portals.length === 0) {
+    return emptyPortalStrip('No visible portals', 'Server snapshot has no selectable portal.');
+  }
+
+  if (selectedID && selectedScope !== currentScope) {
+    return emptyPortalStrip('Select a portal', 'Fresh click required.');
+  }
+
+  if (selectedID && !selectedPortal) {
+    return emptyPortalStrip('Portal signal lost', 'Selected portal is no longer visible.');
+  }
+
+  if (!selectedPortal) {
+    return emptyPortalStrip('Select a portal', `${portals.length} visible`);
+  }
+
+  const readiness = portalEnterReadiness(state, selectedPortal, currentScope, now);
+  const destination = cleanText(selectedPortal.destination_label);
+  const reason = readiness.reason ?? cleanText(selectedPortal.locked_reason);
+  const stateLabel = selectedPortal.state ?? lockedValue();
+  const scopeAttr = currentScope ? ` data-portal-scope="${escapeHTML(currentScope)}"` : '';
+  return `
+    <div class="portal-strip" data-portal-strip="true" data-portal-state="${escapeHTML(selectedPortal.state ?? 'unknown')}"${scopeAttr}>
+      <div class="portal-strip__main">
+        <span>Portal</span>
+        <strong>${escapeHTML(portalLabel(selectedPortal))}</strong>
+      </div>
+      <div class="portal-strip__facts">
+        ${destination ? `<span><em>Dest</em><strong>${escapeHTML(destination)}</strong></span>` : ''}
+        <span><em>State</em><strong>${escapeHTML(stateLabel)}</strong></span>
+        ${reason ? `<span><em>Status</em><strong>${escapeHTML(reason)}</strong></span>` : ''}
+      </div>
+      <button class="portal-strip__action" type="button" data-action="portal-enter" data-portal-id="${escapeHTML(selectedPortal.portal_id)}"${scopeAttr} ${readiness.enabled ? '' : 'disabled'} title="${escapeHTML(readiness.title)}">Enter</button>
+    </div>
+  `;
+}
+
+function emptyPortalStrip(label: string, detail: string): string {
+  return `
+    <div class="portal-strip portal-strip--empty" data-portal-strip="true" data-portal-state="empty">
+      <div class="portal-strip__main">
+        <span>Portal</span>
+        <strong>${escapeHTML(label)}</strong>
+      </div>
+      <div class="portal-strip__facts">
+        <span><em>Status</em><strong>${escapeHTML(detail)}</strong></span>
+      </div>
+      <button class="portal-strip__action" type="button" disabled>Enter</button>
+    </div>
+  `;
+}
+
+function portalEnterReadiness(
+  state: ClientState,
+  portal: PublicPortalSummary,
+  currentScope: string | null,
+  now: number,
+): { enabled: boolean; title: string; reason: string | null } {
+  if (!currentScope || hudSelection.selectedPortalScope !== currentScope) {
+    return { enabled: false, title: 'Select a current-map portal.', reason: 'Fresh click required' };
+  }
+  if (!realtimeReady(state)) {
+    return { enabled: false, title: 'Realtime link is not authenticated.', reason: 'Offline' };
+  }
+  if (hasPendingOp(state, OPERATIONS.portalEnter)) {
+    return { enabled: false, title: 'Portal entry is pending.', reason: 'Pending' };
+  }
+
+  const readyAt = Math.max(portal.cooldown_ready_at_ms ?? 0, state.portalCooldowns[portal.portal_id] ?? 0);
+  const remainingCooldown = readyAt - now;
+  if (portal.state !== 'available') {
+    if (portal.state === 'cooldown' && remainingCooldown > 0) {
+      return { enabled: false, title: `Portal cooldown ${formatCooldown(remainingCooldown)}.`, reason: `Ready ${formatCooldown(remainingCooldown)}` };
+    }
+    return { enabled: false, title: 'Portal entry unavailable.', reason: cleanText(portal.locked_reason) };
+  }
+  if (remainingCooldown > 0) {
+    return { enabled: false, title: `Portal cooldown ${formatCooldown(remainingCooldown)}.`, reason: `Ready ${formatCooldown(remainingCooldown)}` };
+  }
+  return { enabled: true, title: 'Enter selected portal.', reason: null };
+}
+
+function realtimePortalListLoading(state: ClientState): boolean {
+  return state.connectionStatus === 'connecting' || state.connectionStatus === 'connected' || state.connectionStatus === 'authenticated_pending_socket';
+}
+
+function isSelectedPortal(portalID: string, currentScope: string | null): boolean {
+  return Boolean(portalID && currentScope && hudSelection.selectedPortalID === portalID && hudSelection.selectedPortalScope === currentScope);
+}
+
+function reconcilePortalSelectionForRender(state: ClientState, currentScope: string | null): void {
+  if (!hudSelection.selectedPortalID && !hudSelection.selectedPortalScope) {
+    return;
+  }
+  if (!currentScope || (state.auth.mode === 'real' && state.connectionStatus !== 'connected')) {
+    hudSelection.selectedPortalID = null;
+    hudSelection.selectedPortalScope = null;
+  }
+}
+
+function portalSelectionScope(state: ClientState): string | null {
+  if (!realtimeReady(state)) {
+    return null;
+  }
+  const mapIdentity =
+    cleanText(state.currentMap?.public_map_key) ??
+    cleanText(state.currentMap?.map_key) ??
+    cleanText(state.currentMap?.display_name) ??
+    cleanText(state.minimap?.public_map_key);
+  if (!mapIdentity || state.mapSubscriptionEpoch === null) {
+    return null;
+  }
+  return `${mapIdentity}:${state.mapSubscriptionEpoch}`;
 }
 
 function collectMinimapSafeZones(state: ClientState): SafeZoneProjection[] {
@@ -278,6 +440,10 @@ function minimapPercent(value: number): string {
 
 function markerLabel(value: string | undefined, fallback: string): string {
   return cleanText(value) ?? fallback;
+}
+
+function portalLabel(portal: PublicPortalSummary): string {
+  return cleanText(portal.label) ?? cleanText(portal.display_name) ?? portal.portal_id;
 }
 
 function cleanText(value: string | undefined): string | null {

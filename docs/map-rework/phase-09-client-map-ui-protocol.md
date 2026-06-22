@@ -269,6 +269,22 @@ Snapshot/event rules:
   when available, filters remembered planet memory by current public map key,
   and keeps portal markers display-only with no portal command action. Portal
   click UX and browser smoke for portal traversal remain open.
+- 2026-06-22 Phase09D progress: client portal summaries now retain sanitized
+  public `label`/`display_name`, `destination_label`, `state`,
+  `cooldown_ready_at_ms`, and `locked_reason` fields while still dropping
+  malformed required portal entries. Portal summary parsing rejects hidden
+  destination/spawn/map aliases and nested destination/spawn objects before state
+  mutation. The DOM minimap now renders server-provided portal markers as
+  selectable HUD-local controls scoped by current public map identity plus
+  `map_subscription_epoch`, shows a compact portal detail/action strip from
+  server-owned public fields only, disables Enter for stale selections,
+  unavailable states, active portal cooldowns, pending `portal.enter`, or
+  disconnected realtime state, and dispatches `portal.enter` through the guarded
+  command path with only `{ portal_id }`. Final review patch also rejects
+  outbound cooldown timing aliases `ready_at_ms` and `expires_at` and renders
+  the basic laser cooldown/readiness from the same server-time basis used by
+  cooldown scheduling. Browser smoke for real portal traversal and cross-map
+  leakage remains open.
 - Update UI implementation docs after the protocol lands to state that
   `currentMap`, portals, minimap bounds, and safe/PvP flags are server-owned.
 - Update local run/smoke docs with a deterministic two-map seed that includes at

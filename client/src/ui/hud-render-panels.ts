@@ -512,7 +512,7 @@ export function movementEtaPanel(state: ClientState, serverNow: number | null): 
   `;
 }
 
-export function intelPanel(state: ClientState): string {
+export function intelPanel(state: ClientState, serverNow: number | null = Date.now()): string {
   const intel = state.planetIntel;
   const lastScan = intel?.lastScan ?? null;
   const knownPlanets = intel?.planets.slice(0, 2) ?? [];
@@ -521,7 +521,7 @@ export function intelPanel(state: ClientState): string {
   const scanAction = scanActionState(state);
   return `
     <h2>Sector Map</h2>
-    ${minimapPanel(state)}
+    ${minimapPanel(state, serverNow)}
     <div class="intel-metrics">
       <span>Known<strong>${intel ? intel.knownSignals : lockedValue()}</strong></span>
       <span>Stale<strong>${intel?.staleIntel ?? lockedValue()}</strong></span>
@@ -611,7 +611,7 @@ export function quickActionStates(state: ClientState, serverNow: number | null):
   const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
   const loot = lootActionState(state, target, serverNow);
   return [
-    liveQuickAction('laser', 'fire', 1, '1', laserIconURL, 'combat.use_skill', laserActionState(state, target)),
+    liveQuickAction('laser', 'fire', 1, '1', laserIconURL, 'combat.use_skill', laserActionState(state, target, serverNow)),
     lockedQuickAction('rocket', 'rocket', 2, '2', rocketIconURL, 'Rocket', 'Missile systems are not installed yet.'),
     liveQuickAction('scan', 'scan', 3, '3', scanIconURL, 'scan.pulse', scanActionState(state)),
     liveQuickAction('stealth', 'stealth', 4, '4', shieldIconURL, 'stealth.toggle', stealthActionState(state)),
@@ -700,7 +700,7 @@ export function lootCommandOp(action: ActionState): string {
   return action.label === 'Approach' ? 'move_to' : 'loot.pickup';
 }
 
-export function laserActionState(state: ClientState, target: VisibleEntity | null): ActionState {
+export function laserActionState(state: ClientState, target: VisibleEntity | null, serverNow: number | null = Date.now()): ActionState {
   if (!realtimeReady(state)) {
     return { enabled: false, label: 'Laser', detail: 'Offline', title: 'Realtime link is not authenticated.' };
   }
@@ -714,7 +714,7 @@ export function laserActionState(state: ClientState, target: VisibleEntity | nul
     return { enabled: false, label: 'Laser', detail: 'Pending', title: 'Basic laser is pending.' };
   }
 
-  const cooldownRemaining = (state.skillCooldowns.basic_laser ?? 0) - Date.now();
+  const cooldownRemaining = (state.skillCooldowns.basic_laser ?? 0) - (serverNow ?? Date.now());
   if (cooldownRemaining > 0) {
     return {
       enabled: false,

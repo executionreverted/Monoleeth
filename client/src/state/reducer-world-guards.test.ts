@@ -4,6 +4,18 @@ import { CLIENT_EVENTS } from '../protocol/envelope';
 import { createInitialState, reduceClientState } from './reducer';
 import { event } from './reducer-fixtures.test-support';
 
+const portalLeakCases: Array<[string, Record<string, unknown>]> = [
+  ['nested destination public map key', { destination: { public_map_key: '2-1' } }],
+  ['nested spawn position', { spawn: { position: { x: 20, y: 30 } } }],
+  ['destination id alias', { destination_id: 'server-only-destination' }],
+  ['destination map key alias', { destination_map_key: '2-1' }],
+  ['destination public map key alias', { destination_public_map_key: '2-1' }],
+  ['spawn position alias', { spawn_position: { x: 20, y: 30 } }],
+  ['to map key alias', { to_map_key: '2-1' }],
+  ['to public map key alias', { to_public_map_key: '2-1' }],
+  ['portal-level public map key', { public_map_key: '1-1' }],
+];
+
 describe('reduceClientState world payload guards', () => {
   test('rejects hidden debug payloads before state mutation', () => {
     const state = createInitialState();
@@ -109,6 +121,31 @@ describe('reduceClientState world payload guards', () => {
               position: { x: 100, y: 200 },
               interaction_radius: 160,
               internal_map_id: 'server-only',
+            },
+          ],
+          safe_zones: [],
+        }),
+      }),
+    ).toThrow(/Forbidden server payload rejected/);
+  });
+
+  test.each(portalLeakCases)('portal summaries reject %s before state mutation', (_name, leak) => {
+    const state = createInitialState();
+
+    expect(() =>
+      reduceClientState(state, {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.mapSnapshot, {
+          map_subscription_epoch: 3,
+          public_map_key: '1-2',
+          display_name: 'Outer Ring',
+          bounds: { min_x: 0, min_y: 0, max_x: 10000, max_y: 10000 },
+          visible_portals: [
+            {
+              portal_id: 'west_gate',
+              position: { x: 100, y: 200 },
+              interaction_radius: 160,
+              ...leak,
             },
           ],
           safe_zones: [],
