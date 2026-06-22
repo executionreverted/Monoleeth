@@ -285,6 +285,16 @@ Snapshot/event rules:
   the basic laser cooldown/readiness from the same server-time basis used by
   cooldown scheduling. Browser smoke for real portal traversal and cross-map
   leakage remains open.
+- 2026-06-22 Phase09E progress: `map.policy_updated` now applies
+  same-map/same-epoch public policy deltas to an existing server-owned
+  `currentMap` without treating the event as a handoff. The reducer accepts
+  public `region`, `risk_band`, `pvp_policy`, `visual_theme_key`, viewer
+  `safe_zone`/`protection`, and `safe_zones` updates, mirrors only supplied
+  safe-zone projections into the minimap, preserves live AOI/minimap contacts,
+  loot, target, movement, transfer, and portal cooldown state, rejects hidden
+  internal map payload fields before mutation, and ignores cross-map public key
+  mismatches. Backend emission and browser smoke for live policy updates remain
+  open.
 - Update UI implementation docs after the protocol lands to state that
   `currentMap`, portals, minimap bounds, and safe/PvP flags are server-owned.
 - Update local run/smoke docs with a deterministic two-map seed that includes at

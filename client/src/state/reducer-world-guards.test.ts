@@ -129,6 +129,22 @@ describe('reduceClientState world payload guards', () => {
     ).toThrow(/Forbidden server payload rejected/);
   });
 
+  test('map policy update rejects forbidden map payload keys before state mutation', () => {
+    const state = createInitialState();
+
+    expect(() =>
+      reduceClientState(state, {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.mapPolicyUpdated, {
+          map_subscription_epoch: 3,
+          public_map_key: '1-2',
+          risk_band: 'high',
+          internal_map_id: 'server-only',
+        }),
+      }),
+    ).toThrow(/Forbidden server payload rejected/);
+  });
+
   test.each(portalLeakCases)('portal summaries reject %s before state mutation', (_name, leak) => {
     const state = createInitialState();
 

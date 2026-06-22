@@ -54,6 +54,74 @@ export function applyMapSnapshotPayload(
   return next;
 }
 
+export function applyMapPolicyUpdatedPayload(state: ClientState, payload: JsonObject): ClientState {
+  rejectForbiddenPayloadKeys(payload);
+
+  const mapPayload = objectField(payload, 'map');
+  const policyPayload = mapPayload ?? payload;
+  if (mapPayload) {
+    rejectForbiddenPayloadKeys(mapPayload);
+  }
+
+  if (!state.currentMap) {
+    return state;
+  }
+
+  const mapSubscriptionEpoch = mapSubscriptionEpochFromPayload(payload);
+  if (state.mapSubscriptionEpoch !== null && mapSubscriptionEpoch !== state.mapSubscriptionEpoch) {
+    return state;
+  }
+
+  if (!mapPolicyPayloadMatchesCurrentMap(state.currentMap, payload, policyPayload)) {
+    return state;
+  }
+
+  let currentMap: MapSummary = { ...state.currentMap };
+  copyOptionalString(policyPayload, currentMap, 'region');
+  copyOptionalString(policyPayload, currentMap, 'risk_band');
+  copyOptionalString(policyPayload, currentMap, 'pvp_policy');
+  copyOptionalString(policyPayload, currentMap, 'visual_theme_key');
+
+  if ('safe_zone' in policyPayload) {
+    if (policyPayload.safe_zone === null) {
+      currentMap = { ...currentMap };
+      delete currentMap.safe_zone;
+    } else {
+      const safeZonePayload = objectField(policyPayload, 'safe_zone');
+      const safeZone = safeZonePayload ? parseViewerSafeZoneSummary(safeZonePayload) : null;
+      if (safeZone) {
+        currentMap = { ...currentMap, safe_zone: safeZone };
+      }
+    }
+  }
+
+  if ('protection' in policyPayload) {
+    if (policyPayload.protection === null) {
+      currentMap = { ...currentMap };
+      delete currentMap.protection;
+    } else {
+      const protectionPayload = objectField(policyPayload, 'protection');
+      const protection = protectionPayload ? parseViewerProtectionSummary(protectionPayload) : null;
+      if (protection) {
+        currentMap = { ...currentMap, protection };
+      }
+    }
+  }
+
+  let minimap = state.minimap;
+  if ('safe_zones' in policyPayload) {
+    const safeZones = parseSafeZoneProjections(policyPayload.safe_zones);
+    currentMap = { ...currentMap, safe_zones: safeZones };
+    minimap = minimap ? { ...minimap, safe_zones: safeZones } : minimap;
+  }
+
+  return {
+    ...state,
+    currentMap,
+    minimap,
+  };
+}
+
 export function parseMapSnapshotSummary(payload: JsonObject): ParsedMapSnapshotSummary {
   if ('map' in payload) {
     const mapPayload = objectField(payload, 'map');
@@ -140,6 +208,32 @@ function shouldClearMapScopedState(
 
 function publicMapIdentity(map: MapSummary): string | null {
   return map.public_map_key ?? map.map_key ?? map.display_name ?? null;
+}
+
+function mapPolicyPayloadMatchesCurrentMap(currentMap: MapSummary, payload: JsonObject, policyPayload: JsonObject): boolean {
+  return (
+    mapPolicyIdentitySourceMatchesCurrentMap(currentMap, payload) &&
+    (policyPayload === payload || mapPolicyIdentitySourceMatchesCurrentMap(currentMap, policyPayload))
+  );
+}
+
+function mapPolicyIdentitySourceMatchesCurrentMap(currentMap: MapSummary, payload: JsonObject): boolean {
+  const currentKeys = [currentMap.public_map_key, currentMap.map_key].filter((value): value is string => Boolean(value));
+  if (currentKeys.length === 0) {
+    return true;
+  }
+
+  const publicMapKey = nonEmptyString(payload, 'public_map_key');
+  if (publicMapKey && !currentKeys.includes(publicMapKey)) {
+    return false;
+  }
+
+  const mapKey = nonEmptyString(payload, 'map_key');
+  if (mapKey && !currentKeys.includes(mapKey)) {
+    return false;
+  }
+
+  return true;
 }
 
 function hasMapScopedLiveState(state: ClientState): boolean {

@@ -621,6 +621,250 @@ describe('reduceClientState world requests and snapshots', () => {
     expect(state.currentMap).toBeNull();
   });
 
+  test('map policy update applies public policy without clearing live state', () => {
+    const base = mapScopedLiveState();
+    const state = reduceClientState(base, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.mapPolicyUpdated, {
+        map_subscription_epoch: 1,
+        public_map_key: '1-1',
+        display_name: 'Spoofed Name',
+        region: 'Outer Belt',
+        risk_band: 'high',
+        pvp_policy: 'pvp',
+        visual_theme_key: 'red_frontier',
+        safe_zone: { inside: true, blocks_pvp: true, protection_expires_at: 2500 },
+        protection: { reason: 'portal_spawn', expires_at: 2500, blocks_pvp: true, break_on_pvp_action: true },
+        safe_zones: [
+          {
+            safe_area_id: 'dock-ring',
+            display_name: 'Dock Ring',
+            center: { x: 500, y: 600 },
+            radius: 300,
+            blocks_pvp: true,
+            hangar_actions: true,
+          },
+          { safe_area_id: 'bad-zone', center: { x: 1, y: 2 }, radius: -1, blocks_pvp: true, hangar_actions: true },
+        ],
+      }, 7),
+    });
+
+    expect(state.currentMap).toMatchObject({
+      public_map_key: '1-1',
+      display_name: 'Origin Fringe',
+      region: 'Outer Belt',
+      risk_band: 'high',
+      pvp_policy: 'pvp',
+      visual_theme_key: 'red_frontier',
+      safe_zone: { inside: true, blocks_pvp: true, protection_expires_at: 2500 },
+      protection: { reason: 'portal_spawn', expires_at: 2500, blocks_pvp: true, break_on_pvp_action: true },
+    });
+    expect(state.currentMap?.bounds).toEqual(base.currentMap?.bounds);
+    expect(state.currentMap?.visible_portals).toEqual(base.currentMap?.visible_portals);
+    expect(state.currentMap?.safe_zones).toEqual([
+      {
+        safe_area_id: 'dock-ring',
+        display_name: 'Dock Ring',
+        center: { x: 500, y: 600 },
+        radius: 300,
+        blocks_pvp: true,
+        hangar_actions: true,
+      },
+    ]);
+    expect(state.minimap?.safe_zones).toEqual(state.currentMap?.safe_zones);
+    expect(state.minimap?.live_contacts).toEqual(base.minimap?.live_contacts);
+    expect(state.minimap?.bounds).toEqual(base.minimap?.bounds);
+    expect(state.minimap?.visible_portals).toEqual(base.minimap?.visible_portals);
+    expect(state.minimap?.remembered).toEqual(base.minimap?.remembered);
+    expect(state.visibleEntities).toEqual(base.visibleEntities);
+    expect(state.knownLoot).toEqual(base.knownLoot);
+    expect(state.selectedTargetID).toBe('old-npc');
+    expect(state.movementTarget).toEqual(base.movementTarget);
+    expect(state.portalCooldowns).toEqual(base.portalCooldowns);
+    expect(state.mapTransfer).toEqual(base.mapTransfer);
+    expect(state.lastServerTime).toBe(1007);
+    expect(state.lastSequence).toBe(7);
+  });
+
+  test('nested map policy update clears viewer policy summaries without changing map truth', () => {
+    const base = {
+      ...mapScopedLiveState(),
+      currentMap: {
+        ...mapScopedLiveState().currentMap!,
+        safe_zone: { inside: true, blocks_pvp: true, protection_expires_at: 3000 },
+        protection: { reason: 'portal_spawn', expires_at: 3000, blocks_pvp: true, break_on_pvp_action: true },
+        safe_zones: [
+          {
+            safe_area_id: 'dock-ring',
+            display_name: 'Dock Ring',
+            center: { x: 500, y: 600 },
+            radius: 300,
+            blocks_pvp: true,
+            hangar_actions: true,
+          },
+        ],
+      },
+      minimap: {
+        ...mapScopedLiveState().minimap!,
+        safe_zones: [
+          {
+            safe_area_id: 'dock-ring',
+            display_name: 'Dock Ring',
+            center: { x: 500, y: 600 },
+            radius: 300,
+            blocks_pvp: true,
+            hangar_actions: true,
+          },
+        ],
+      },
+    };
+
+    const state = reduceClientState(base, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.mapPolicyUpdated, {
+        map_subscription_epoch: 1,
+        map: {
+          public_map_key: '1-1',
+          display_name: 'Spoofed Name',
+          bounds: { min_x: -100, min_y: -100, max_x: 20000, max_y: 20000 },
+          visible_portals: [{ portal_id: 'fake_gate', position: { x: 10, y: 20 }, interaction_radius: 999 }],
+          safe_zone: null,
+          protection: null,
+          safe_zones: [],
+        },
+      }, 8),
+    });
+
+    expect(state.currentMap?.safe_zone).toBeUndefined();
+    expect(state.currentMap?.protection).toBeUndefined();
+    expect(state.currentMap?.safe_zones).toEqual([]);
+    expect(state.minimap?.safe_zones).toEqual([]);
+    expect(state.currentMap?.display_name).toBe('Origin Fringe');
+    expect(state.currentMap?.bounds).toEqual(base.currentMap?.bounds);
+    expect(state.currentMap?.visible_portals).toEqual(base.currentMap?.visible_portals);
+  });
+
+  test('malformed map policy summaries are ignored without clearing existing summaries', () => {
+    const base = {
+      ...mapScopedLiveState(),
+      currentMap: {
+        ...mapScopedLiveState().currentMap!,
+        safe_zone: { inside: true, blocks_pvp: true, protection_expires_at: 3000 },
+        protection: { reason: 'portal_spawn', expires_at: 3000, blocks_pvp: true, break_on_pvp_action: true },
+      },
+    };
+
+    const state = reduceClientState(base, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.mapPolicyUpdated, {
+        map_subscription_epoch: 1,
+        public_map_key: '1-1',
+        safe_zone: { inside: true },
+        protection: { reason: 'portal_spawn' },
+      }, 9),
+    });
+
+    expect(state.currentMap?.safe_zone).toEqual(base.currentMap?.safe_zone);
+    expect(state.currentMap?.protection).toEqual(base.currentMap?.protection);
+  });
+
+  test('map policy update without current map does not invent map state', () => {
+    const state = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.mapPolicyUpdated, {
+        map_subscription_epoch: 1,
+        public_map_key: '1-1',
+        risk_band: 'high',
+        pvp_policy: 'pvp',
+      }, 10),
+    });
+
+    expect(state.currentMap).toBeNull();
+    expect(state.minimap).toBeNull();
+    expect(state.lastServerTime).toBe(1010);
+    expect(state.lastSequence).toBe(10);
+  });
+
+  test('stale map policy update is ignored by subscription epoch guard', () => {
+    const base = {
+      ...mapScopedLiveState(),
+      mapSubscriptionEpoch: 2,
+    };
+
+    const state = reduceClientState(base, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.mapPolicyUpdated, {
+        map_subscription_epoch: 1,
+        public_map_key: '1-1',
+        risk_band: 'high',
+      }, 11),
+    });
+
+    expect(state).toBe(base);
+  });
+
+  test('map policy update without subscription epoch does not mutate current map', () => {
+    const base = mapScopedLiveState();
+    const state = reduceClientState(base, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.mapPolicyUpdated, {
+        public_map_key: '1-1',
+        risk_band: 'high',
+        pvp_policy: 'pvp',
+      }, 12),
+    });
+
+    expect(state.currentMap).toEqual(base.currentMap);
+    expect(state.minimap).toEqual(base.minimap);
+    expect(state.lastServerTime).toBe(1012);
+    expect(state.lastSequence).toBe(12);
+  });
+
+  test('map policy update ignores mismatched public or map keys while advancing event clock', () => {
+    const base = {
+      ...mapScopedLiveState(),
+      currentMap: { ...mapScopedLiveState().currentMap!, map_key: 'origin-internal-public' },
+    };
+
+    const publicMismatch = reduceClientState(base, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.mapPolicyUpdated, {
+        map_subscription_epoch: 1,
+        public_map_key: '1-2',
+        risk_band: 'high',
+      }, 13),
+    });
+    const mapKeyMismatch = reduceClientState(base, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.mapPolicyUpdated, {
+        map_subscription_epoch: 1,
+        map_key: 'other-map-key',
+        risk_band: 'high',
+      }, 14),
+    });
+
+    expect(publicMismatch.currentMap?.risk_band).toBe('low');
+    expect(publicMismatch.lastSequence).toBe(13);
+    expect(mapKeyMismatch.currentMap?.risk_band).toBe('low');
+    expect(mapKeyMismatch.lastSequence).toBe(14);
+  });
+
+  test('display name mismatch alone does not block map policy update or mutate display name', () => {
+    const state = reduceClientState(mapScopedLiveState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.mapPolicyUpdated, {
+        map_subscription_epoch: 1,
+        map: {
+          display_name: 'Spoofed Name',
+          risk_band: 'medium',
+        },
+      }, 15),
+    });
+
+    expect(state.currentMap?.display_name).toBe('Origin Fringe');
+    expect(state.currentMap?.risk_band).toBe('medium');
+  });
+
   test('failed move response clears speculative target marker back to authoritative movement', () => {
     const state = reduceClientState(
       {
