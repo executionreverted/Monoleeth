@@ -38,7 +38,7 @@ Read before implementation:
 - server position correction
 - radar range from stats
 - sector danger/contested status summary
-- minimap projection from client-safe AOI/fog data
+- minimap projection from client-safe AOI/known-intel data
 
 ## Commands
 
@@ -111,12 +111,13 @@ internal movement state.
 
 ## AOI And Minimap Contract
 
-AOI events are filtered per connected session after server visibility/fog checks.
+AOI events are filtered per connected session after server visibility,
+radar/stealth, and known-intel checks.
 A global entity event must not be broadcast directly to every socket.
 
 The minimap separates:
 - live AOI contacts: precise, currently visible, short-lived entities
-- remembered fog/intel: coarse or stale discovered locations safe for this
+- known-intel memory: coarse or stale discovered locations safe for this
   player
 
 Neither channel may include hidden entities, undiscovered planets, future spawn
@@ -142,7 +143,7 @@ Mockup areas covered:
 - [x] Wire `move_to` and `stop` through concrete WebSocket.
 - [x] Add server-side idempotent player spawn/attach bootstrap.
 - [x] Add sector status summary payload.
-- [x] Add minimap-safe live AOI and remembered fog/intel projection payloads.
+- [x] Add minimap-safe live AOI and known-intel memory projection payloads.
 - [x] Update client reducer for `aoi.entity_updated`.
 - [x] Update renderer to use real entity types, not placeholder names.
 - [x] Add interpolation using server snapshots/corrections.
@@ -155,7 +156,7 @@ Mockup areas covered:
   `snapshot_cursor`. `sector` is a client-safe projection with name, region,
   danger, and contested state. `minimap.live_contacts` is built only from the
   same AOI-filtered visible entity set; `minimap.remembered` is currently an
-  empty safe fog-memory channel until discovery/intel data is exposed.
+  empty safe known-intel memory channel until discovery/intel data is exposed.
 - Visible entity payloads use public entity types: `player`, `npc`, `loot`, and
   `planet_signal`. Normal client state no longer receives placeholder type
   names. Server-side deprecated aliases remain only to avoid unrelated domain
@@ -204,7 +205,8 @@ Mockup areas covered:
 - [x] `move_to` rejects disabled/dead ship state.
 - [x] `stop` clears movement target server-side.
 - [x] Hidden entity in worker is absent from snapshot and minimap.
-- [x] Two players with different fog/AOI receive different filtered radar data.
+- [x] Two players with different radar/AOI permissions receive different
+      filtered radar data.
 - [x] Entity entering AOI appears in client reducer.
 - [x] Entity leaving AOI disappears.
 - [x] Reconnect/multi-tab attach does not duplicate player entities.

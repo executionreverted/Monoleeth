@@ -16,11 +16,11 @@ Hiçbir kritik oyun kuralı konuşmada kaybolmasın.
 Ekonomi, progression ve server-authoritative kurallar baştan net olsun.
 ```
 
-Bu doküman world system dokümanının üstüne oturur. World system tarafı infinite space, procedural universe, fog of war, planet discovery ve colonization gibi konuları tanımlar. Bu doküman ise oyuncunun güçlenmesini, item ekonomisini, gemi yaşam döngüsünü ve planet üretimini tanımlar.
+Bu doküman world system dokümanının üstüne oturur. World system tarafı bounded map-local universe, server-only procedural generation, radar/stealth visibility, known planet intel, planet discovery ve colonization gibi konuları tanımlar. Bu doküman ise oyuncunun güçlenmesini, item ekonomisini, gemi yaşam döngüsünü ve planet üretimini tanımlar.
 
 ## Core Fantasy
 
-Oyuncu küçük bir gemiyle `0,0` yakınında başlar.
+Oyuncu küçük bir gemiyle starter map içinde server-owned spawn noktasında başlar.
 
 Başta yavaş, fakir ve zayıftır. Uzaya açılır, loot toplar, NPC keser, görev yapar, gezegen tarar, craft yapar, marketten alım satım yapar, gemisini ve modüllerini geliştirir.
 
@@ -30,7 +30,7 @@ Zamanla:
 - Daha yüksek tier modüller takar.
 - Rank kazanır.
 - Pilot pasifleriyle aynı gemiyi daha iyi kullanır.
-- Daha derin uzayda daha yüksek level planetler kolonize eder.
+- Daha riskli map profillerinde daha yüksek level planetler kolonize eder.
 - Planet üretim ağı kurar.
 - Resource rotaları ve wormhole ağıyla kendi galactic network'ünü büyütür.
 - Koordinat, intel, material, modül ve premium currency ekonomisinin parçası olur.
@@ -1205,7 +1205,7 @@ scan_power
 scan_radius
 scan_interval
 scan_success_bonus
-fog_reveal_radius
+known_intel_range
 signal_detection_bonus
 signal_classification_bonus
 signature_radius
@@ -1516,7 +1516,7 @@ Drop ownership controls pickup, not visibility.
 
 Yani drop herkes tarafından görülebilir ama ilk süre sadece sahibi alabilir.
 
-Fog of war/AOI kuralı hâlâ geçerli:
+Current-map AOI/radar visibility kuralı hâlâ geçerli:
 
 - Oyuncu drop'un olduğu alanı görmüyorsa client'e gönderilmez.
 - Server visible entity filter uygular.
@@ -2299,7 +2299,8 @@ Quest difficulty:
 - Player rank
 - Main level
 - Role levels
-- Distance from origin
+- Map risk band
+- Map profile level band
 - Known planet network
 - Recent activities
 
@@ -2532,16 +2533,16 @@ Sanal transfer tick:
 ```text
 every route_tick:
   take X resource from source
-  roll route success/loss based on zone risk
+  roll route success/loss based on map profile route risk
   deliver remaining to destination
 ```
 
 Risk:
 
-- Source/destination distance
-- Region risk
-- PvP zone
-- Deep-space level
+- Source/destination maps and portal path
+- Map risk/profile bands
+- PvP policy
+- Per-map NPC/event pressure
 - Route security modules/buildings
 - Player construction/trade bonuses
 
@@ -2683,7 +2684,7 @@ Only planets can be shared.
 
 Share sonucu:
 
-- Receiver fog memory'de planet açılır.
+- Receiver known-intel memory'sinde planet açılır.
 - In-game mail gider.
 - Intel record receiver'a yazılır.
 - Confidence/last_seen bilgisi taşınır.

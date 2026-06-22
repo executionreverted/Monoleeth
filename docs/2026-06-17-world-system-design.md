@@ -11,16 +11,16 @@ space into a galaxy network.
 
 ## 2026-06-21 Bounded Map Supersession
 
-The playable scanner/planet model is now bounded-map first. For scanner planet
-discovery, legacy infinite-plane, discovery-horizon, distance-from-origin level
-scaling, and fog-wave expansion language below is superseded by:
+The playable scanner/planet model is now bounded-map first. Earlier drafts used
+unbounded-plane discovery gates, origin-distance scaling, and wave-style live
+reveal terminology. Those concepts are superseded by:
 
 - active maps are exact local `0..10000` coordinate spaces
 - scanner candidates are generated only inside the active server-owned map
 - candidate identity includes hidden map id and profile version
 - candidate level comes from the map profile level band
 - client-safe signal labels are map-local, not origin-distance labels
-- known planet intel is memory, not live fog-wave visibility
+- known planet intel is memory, not live wave visibility
 
 The core fantasy:
 
@@ -82,13 +82,13 @@ Examples:
 Origin Belt
 Outer Drift
 Deep Space
-Void Frontier
+Void Reach
 Nebula Scar
 Dead Zone
 ```
 
 Regions are catalog/profile data for bounded maps. A region influences what can
-appear there without relying on distance from origin.
+appear there without using global coordinates as the level scaler.
 
 ### Zone
 
@@ -184,7 +184,7 @@ It controls:
 
 The static seed must never be sent to the client.
 
-If the client can calculate planet candidates, the entire fog-of-war and coordinate economy collapses.
+If the client can calculate planet candidates, the hidden-intel and coordinate economy collapses.
 
 ### 2. Epoch / Live Ops Procedural Layer
 
@@ -307,17 +307,17 @@ The visual seed must not reveal gameplay POIs.
 
 Biome can be derived from:
 
-- Distance from origin.
-- Low-frequency noise.
-- Region modifiers.
+- Map profile.
+- Local low-frequency noise.
+- Catalog risk band.
 - Live ops overrides.
 
 Example:
 
 ```text
-distance = sqrt(x*x + y*y)
-noise = perlin(static_seed, x / biome_scale, y / biome_scale)
-biome = classify(distance, noise)
+profile = map_catalog_profile(map_id)
+noise = perlin(static_seed, map_id, x / biome_scale, y / biome_scale)
+biome = classify(profile.biome_table, noise)
 ```
 
 Biome affects:
@@ -393,14 +393,15 @@ Generated objects must be filtered by:
 - Loot cooldown state.
 - Visibility and scan rules.
 
-## Discovery Horizon
+## Legacy Scanner Gate
 
 Superseded for scanner planets.
 
-`DiscoveryHorizon` was the old infinite-plane gate. Bounded scanner planets now
-use active map bounds, map profile density/spawn budget, map profile level band,
-radar tier, scanner power, cooldown, and energy cost. Future expansion should
-add or unlock maps rather than stretch an origin-distance horizon.
+`DiscoveryHorizon` is a superseded scanner-planet gate from an older
+unbounded-plane draft. Bounded scanner planets now use active map bounds, map
+profile density/spawn budget, map profile level band, radar tier, scanner power,
+cooldown, and energy cost. Future expansion should add or unlock maps rather
+than stretch a global coordinate gate.
 
 ## Planet Generation
 
@@ -554,7 +555,7 @@ This creates room for:
 
 ### Scanner
 
-Scanner is for discovery, target classification, and fog interaction.
+Scanner is for discovery, target classification, and known-intel updates.
 
 Possible scanner actions:
 
@@ -568,7 +569,7 @@ Tradeoffs:
 
 - Slows/stops the ship.
 - Consumes capacitor.
-- Reveals player activity through scan waves.
+- Reveals player activity through scan emissions.
 - Can be interrupted by danger.
 
 ### Jammer
@@ -581,7 +582,7 @@ Possible jammer effects:
 - Masks ship signature.
 - Creates false signals.
 - Reduces enemy radar confidence.
-- Protects hidden routes or frontier colonies.
+- Protects hidden routes or remote colonies.
 
 Jammer should be server authoritative and visible as a tactical choice, not a client-only visual.
 
@@ -681,7 +682,7 @@ These can be:
 - Sent through mail.
 - Shared manually.
 - Sold on the market.
-- Consumed to add planet intel to fog memory.
+- Consumed to add planet intel to known planet memory.
 
 If the planet changes ownership while an intel item is listed, the listing should become stale and be hidden from default market search until reverified.
 
@@ -721,7 +722,7 @@ The universe is persistent, but live ops can add temporary layers.
 Live ops examples:
 
 - Loot waves.
-- Frontier storms.
+- Border-map storms.
 - NPC invasions.
 - Rare scanner signatures.
 - Temporary resource blooms.

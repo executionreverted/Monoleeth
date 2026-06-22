@@ -135,9 +135,9 @@ for phase status; this file is a compact pending-work index.
   starter and destination maps. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add a deterministic per-map scanner/claim/drop seed matrix. Focused
-  server/discovery scanner rarity/no-fog regression coverage now exists;
+  server/discovery scanner rarity/hidden-scan-data regression coverage now exists;
   remaining work is per-map scanner tuning, claim/drop behavior for each seeded
-  map, and browser no-fog leak proof. Source:
+  map, and browser hidden-scan-data leak proof. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete the full map-aware drop matrix covering
   `npc_type + map_id/risk/rank_band` selection across seeded maps. Current
@@ -156,12 +156,12 @@ for phase status; this file is a compact pending-work index.
   production bundle text for hidden map/scan/spawn/loot internals and
   fake/default fixture labels. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Clean up legacy infinite-space, distance-from-origin, zone-risk, and
-  fog-memory wording in the world/progression/module docs. The bounded-map
-  rework supersedes those concepts with map profiles, risk bands, radar, and
-  known-intel memory, but `docs/2026-06-17-world-system-design.md` and
-  `docs/2026-06-17-progression-economy-systems-design.md` still need a
-  dedicated terminology pass. Source:
+- [x] Clean up active legacy semantic contradictions in the scoped
+  world/progression/module/UI docs. The bounded-map rework now defines active
+  maps as `0..10000`, current-map membership, radar/stealth visibility, known
+  planet intel memory, portal travel, and per-map risk/profile tuning in the
+  touched design docs. Remaining old-term search hits should be limited to
+  superseded labels, legacy file paths, or historical notes. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Finalize production bounded multi-map rollout controls if DB persistence
   is introduced: implement or document the future
@@ -411,7 +411,7 @@ Task 001 release proof must be rebuilt through
 - [x] Map unlocked pilot-skill passive stat effects into runtime stat input.
   `runtime.StatInputProvider` can now read authoritative progression snapshots
   and map every MVP pilot-skill effect into stat aggregation passive buckets,
-  including combat, scanner/fog, cargo, craft, construction, and route-capacity
+  including combat, scanner/visibility, cargo, craft, construction, and route-capacity
   targets. Source: `docs/roadmap/03-progression-ships-modules-stats.md`.
 - [x] Wire realtime gateway request handling to authenticated session and
   server-side player resolution. `realtime.Gateway` now decodes request

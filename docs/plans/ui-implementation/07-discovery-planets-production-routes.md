@@ -10,7 +10,7 @@
 
 ## Goal
 
-Expose scanner discovery, fog/intel, coordinate items, planet claiming,
+Expose scanner discovery, known intel, coordinate items, planet claiming,
 production buildings/storage, offline settlement, and automation routes through
 real server-backed panels and map interactions.
 
@@ -102,7 +102,7 @@ route.settle
 
 | Operation | Client Intent | Server Authority / Mutation |
 | --- | --- | --- |
-| `scan.pulse` | request scan | server position, stationary state, energy, cooldown, fog; emits safe signal/discovery results |
+| `scan.pulse` | request scan | server position, stationary state, energy, cooldown, active-map visibility; emits safe signal/discovery results |
 | `discovery.known_planets` | list/filter | player visibility/intel/ownership; returns only known safe summaries |
 | `discovery.planet_detail` | planet id | recheck visibility/ownership; omit hidden/procedural fields |
 | `discovery.claim_planet` | planet id | validate visibility, range/policy, required item/currency; lock/mutate/ledger/event/commit |
