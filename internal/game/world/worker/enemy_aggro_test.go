@@ -47,6 +47,112 @@ func TestSeededPassiveEnemyAggroProfilesDoNotAcquireOrMoveAcrossMaps(t *testing.
 	}
 }
 
+func TestSeededBorderSkirmishAggressiveEnemyAggroLeashUsesCatalogSeed(t *testing.T) {
+	catalog, err := worldmaps.StarterCatalog("world-1")
+	if err != nil {
+		t.Fatalf("StarterCatalog() error = %v, want nil", err)
+	}
+	definition, ok := catalog.Get("map_1_3")
+	if !ok {
+		t.Fatalf("map_1_3 definition missing")
+	}
+	if definition.PublicMapKey != "1-3" {
+		t.Fatalf("map_1_3 public key = %q, want 1-3", definition.PublicMapKey)
+	}
+	if len(definition.EnemyPools) != 1 || len(definition.SpawnAreas) != 1 ||
+		len(definition.NPCStatTemplates) != 1 || len(definition.NPCAggroProfiles) != 1 ||
+		len(definition.NPCLeashProfiles) != 1 {
+		t.Fatalf("map 1-3 seed rows = pools:%+v areas:%+v stats:%+v aggro:%+v leash:%+v, want one border raider seed row",
+			definition.EnemyPools,
+			definition.SpawnAreas,
+			definition.NPCStatTemplates,
+			definition.NPCAggroProfiles,
+			definition.NPCLeashProfiles,
+		)
+	}
+
+	pool := definition.EnemyPools[0]
+	spawnArea := definition.SpawnAreas[0]
+	statTemplate := definition.NPCStatTemplates[0]
+	aggroProfile := definition.NPCAggroProfiles[0]
+	leashProfile := definition.NPCLeashProfiles[0]
+	if pool.NPCType != "border_raider_drone" || pool.StatTemplateID != statTemplate.StatTemplateID ||
+		pool.AggroProfileID != aggroProfile.AggroProfileID || pool.LeashProfileID != leashProfile.LeashProfileID {
+		t.Fatalf("map 1-3 enemy seed refs pool=%+v stat=%+v aggro=%+v leash=%+v, want border raider seed wiring",
+			pool,
+			statTemplate,
+			aggroProfile,
+			leashProfile,
+		)
+	}
+	if aggroProfile.AggroRadius != 520 || aggroProfile.TargetMemory != 8*time.Second ||
+		aggroProfile.SafeZoneAttackPolicy != "never" || leashProfile.LeashDistance != 900 ||
+		!leashProfile.ResetOnBreak || statTemplate.Speed != 90 {
+		t.Fatalf("map 1-3 aggro/leash/stat seed = aggro:%+v leash:%+v stat:%+v, want seeded border raider hunter behavior",
+			aggroProfile,
+			leashProfile,
+			statTemplate,
+		)
+	}
+
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	spawnCenter := spawnArea.Center
+	targetInsideAggro := world.Vec2{X: spawnCenter.X + 300, Y: spawnCenter.Y}
+	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", targetInsideAggro, 100)
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+
+	acquired := onlyEnemyAggroRecord(t, zoneWorker)
+	if acquired.EnemyPoolID != pool.EnemyPoolID || acquired.NPCType != pool.NPCType ||
+		acquired.StatTemplateID != statTemplate.StatTemplateID ||
+		acquired.AggroProfileID != aggroProfile.AggroProfileID ||
+		acquired.LeashProfileID != leashProfile.LeashProfileID ||
+		acquired.LeashOrigin != spawnCenter {
+		t.Fatalf("seeded border raider record = %+v, want catalog-owned pool/stat/aggro/leash at %+v", acquired, spawnCenter)
+	}
+	if got, want := acquired.AggroTargetEntityID, world.EntityID("entity-player-1"); got != want {
+		t.Fatalf("aggro target = %q, want seeded border raider to acquire %q", got, want)
+	}
+	if acquired.AggroAcquiredAt.IsZero() || acquired.AggroTargetLastSeenAt.IsZero() || acquired.LastAggroTickAt.IsZero() {
+		t.Fatalf("aggro timing = %+v, want acquired/seen/ticked timestamps", acquired)
+	}
+	entity, ok := zoneWorker.Entity(acquired.EntityID)
+	if !ok {
+		t.Fatalf("Entity(%q) missing", acquired.EntityID)
+	}
+	if !entity.Movement.Moving || entity.Movement.Target != targetInsideAggro || entity.Movement.Speed != statTemplate.Speed {
+		t.Fatalf("movement after acquire = %+v, want chase target %+v at seeded speed %v", entity.Movement, targetInsideAggro, statTemplate.Speed)
+	}
+
+	npcAwayFromOrigin := world.Vec2{X: spawnCenter.X + 200, Y: spawnCenter.Y}
+	targetBeyondLeash := world.Vec2{X: spawnCenter.X + leashProfile.LeashDistance + 1, Y: spawnCenter.Y}
+	setWorkerEntityPosition(t, zoneWorker, acquired.EntityID, npcAwayFromOrigin)
+	setWorkerEntityPosition(t, zoneWorker, "entity-player-1", targetBeyondLeash)
+
+	assertNoCommandErrors(t, zoneWorker.Tick())
+
+	reset := onlyEnemyAggroRecord(t, zoneWorker)
+	if !reset.AggroTargetEntityID.IsZero() || !reset.AggroAcquiredAt.IsZero() || !reset.AggroTargetLastSeenAt.IsZero() {
+		t.Fatalf("aggro after seeded leash break = %+v, want target memory reset", reset)
+	}
+	entity, ok = zoneWorker.Entity(reset.EntityID)
+	if !ok {
+		t.Fatalf("Entity(%q) missing", reset.EntityID)
+	}
+	if reset.LeashOrigin != spawnCenter || !entity.Movement.Moving ||
+		entity.Movement.Target != spawnCenter || entity.Movement.Speed != statTemplate.Speed {
+		t.Fatalf("movement after seeded leash break = %+v record=%+v, want return to seed origin %+v at speed %v",
+			entity.Movement,
+			reset,
+			spawnCenter,
+			statTemplate.Speed,
+		)
+	}
+	if entity.Movement.Target == targetBeyondLeash {
+		t.Fatalf("movement after seeded leash break still chases target beyond leash: %+v", entity.Movement)
+	}
+}
+
 func TestEnemyAggroAcquiresNearestPlayerAndStartsChase(t *testing.T) {
 	definition := aggressiveEnemyMapDefinition()
 	zoneWorker := newWorkerForMapDefinition(t, definition)
