@@ -21,6 +21,17 @@ const (
 	StarterSpawnID SpawnID = "starter"
 )
 
+const (
+	riskBandLow    = "low"
+	riskBandMedium = "medium"
+	riskBandHigh   = "high"
+
+	pvpPolicyPVE       = "pve"
+	pvpPolicySafe      = "safe"
+	pvpPolicyPVP       = "pvp"
+	pvpPolicyContested = "contested"
+)
+
 var (
 	ErrInvalidCatalog       = errors.New("invalid map catalog")
 	ErrMapNotFound          = errors.New("map not found")
@@ -521,10 +532,34 @@ func validateMapDefinitionBasics(definition MapDefinition) error {
 	if strings.TrimSpace(definition.DisplayName) == "" {
 		return fmt.Errorf("display name: %w", ErrInvalidMapDefinition)
 	}
+	if err := validateRiskBand(definition.RiskBand); err != nil {
+		return err
+	}
+	if err := validatePVPPolicy(definition.PVPPolicy); err != nil {
+		return err
+	}
 	if err := definition.Bounds.ValidateExactPlayable(); err != nil {
 		return err
 	}
 	return nil
+}
+
+func validateRiskBand(riskBand string) error {
+	switch riskBand {
+	case riskBandLow, riskBandMedium, riskBandHigh:
+		return nil
+	default:
+		return fmt.Errorf("risk band %q: %w", riskBand, ErrInvalidMapDefinition)
+	}
+}
+
+func validatePVPPolicy(policy string) error {
+	switch policy {
+	case pvpPolicyPVE, pvpPolicySafe, pvpPolicyPVP, pvpPolicyContested:
+		return nil
+	default:
+		return fmt.Errorf("pvp policy %q: %w", policy, ErrInvalidMapDefinition)
+	}
 }
 
 func (catalog *Catalog) validateMapContents(definition MapDefinition) error {

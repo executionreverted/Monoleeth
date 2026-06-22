@@ -125,9 +125,9 @@ for phase status; this file is a compact pending-work index.
   remain open. The Phase10 map rollout audit still treats this as the
   authenticated route mutation gateway blocker. Source: Phase 10 audit.
 - [ ] Add a Phase10 PvP rollout seed and policy test matrix: at least one
-  PvP-enabled map seed, direct invalid risk/`PVPPolicy` validation coverage,
-  PvP death/cargo/checkpoint tests, and a real browser safe-zone PvP click
-  rejection proof. Source: `docs/map-rework/phase-10-testing-rollout.md`.
+  PvP-enabled map seed, PvP death/cargo/checkpoint tests, and a real browser
+  safe-zone PvP click rejection proof. Source:
+  `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add a second-map enemy seed for map `1-2` and verify per-map enemy pool,
   spawn cap, respawn, aggro/leash, and no-hidden-pool leak behavior across both
   starter and destination maps. Source:

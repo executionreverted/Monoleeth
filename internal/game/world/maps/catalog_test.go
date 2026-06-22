@@ -121,6 +121,22 @@ func TestCatalogValidationRejectsInvalidDefinitions(t *testing.T) {
 			want: ErrInvalidMapDefinition,
 		},
 		{
+			name: "invalid risk band",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[1].RiskBand = "frontier"
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "invalid pvp policy",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[1].PVPPolicy = "open_pvp"
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
 			name: "out of bounds spawn",
 			edit: func(definitions []MapDefinition) []MapDefinition {
 				definitions[0].SpawnPoints[0].Position = world.Vec2{X: -1, Y: 0}
@@ -167,6 +183,30 @@ func TestCatalogValidationRejectsInvalidDefinitions(t *testing.T) {
 			_, err := NewCatalog(tc.edit(testMapDefinitions()), StarterMapID, StarterSpawnID)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("NewCatalog() error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestCatalogValidationAcceptsKnownRiskBandsAndPVPPolicies(t *testing.T) {
+	tests := []struct {
+		name      string
+		riskBand  string
+		pvpPolicy string
+	}{
+		{name: "starter safe", riskBand: "low", pvpPolicy: "safe"},
+		{name: "pve", riskBand: "medium", pvpPolicy: "pve"},
+		{name: "pvp", riskBand: "high", pvpPolicy: "pvp"},
+		{name: "contested", riskBand: "high", pvpPolicy: "contested"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			definitions := testMapDefinitions()
+			definitions[1].RiskBand = tc.riskBand
+			definitions[1].PVPPolicy = tc.pvpPolicy
+			if _, err := NewCatalog(definitions, StarterMapID, StarterSpawnID); err != nil {
+				t.Fatalf("NewCatalog() error = %v, want nil for risk=%s pvp=%s", err, tc.riskBand, tc.pvpPolicy)
 			}
 		})
 	}
