@@ -98,6 +98,7 @@ Protocol additions:
   - `map.transfer_failed`
   - `portal.cooldown_started`
   - `map.policy_updated`
+  - `player.protection_updated`
 - Extend `EntityType` with:
   - `portal`
   - optional `map_object` only if needed for non-interactive server objects
@@ -307,6 +308,25 @@ Snapshot/event rules:
   remain visible. Focused Vitest coverage lives in
   `client/src/ui/hud-render-planets.test.ts`; browser smoke for real portal
   traversal remains open.
+- 2026-06-22 Phase09G Task 13 partial browser proof: added a focused
+  `client/tests/e2e/phase09-map-flow.mjs` Playwright harness that starts the
+  real Go game server on an isolated port, starts Vite with an env-derived proxy
+  target, registers through the real browser auth form, verifies the
+  server-owned Origin Fringe `1-1` bounded map snapshot, checks visible
+  `east_gate` portal and safe-zone projections, captures
+  `output/screenshots/ui-implementation/09/map-origin-desktop.png`, drives
+  server-real movement and `portal.enter` through a second same-session browser
+  WebSocket, verifies the `1-2` Outer Ring destination snapshot with
+  `west_gate`, safe-zone/protection PvP blocking, absence of `east_gate`, and no
+  hidden map/spawn/seed/destination internals in DOM or smoke state, then
+  captures `map-outer-ring-desktop.png`. The client also handles
+  `player.protection_updated` as a current-map public protection update, so
+  portal protection changes no longer show as unhandled HUD log noise. This is
+  not full Task 13 completion: browser safe-zone PvP blocked click proof remains
+  open because the current UI naturally attacks hostile NPC targets only, not
+  PvP player targets. The server rule remains covered by Go
+  `server_phase04_policy_test.go` until a player-PvP browser command contract
+  exists.
 - Update UI implementation docs after the protocol lands to state that
   `currentMap`, portals, minimap bounds, and safe/PvP flags are server-owned.
 - Update local run/smoke docs with a deterministic two-map seed that includes at

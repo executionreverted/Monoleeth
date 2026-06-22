@@ -210,6 +210,7 @@ function isMapScopedClientEvent(eventType: string): boolean {
     eventType === CLIENT_EVENTS.mapChanged ||
     eventType === CLIENT_EVENTS.portalCooldownStarted ||
     eventType === CLIENT_EVENTS.mapPolicyUpdated ||
+    eventType === CLIENT_EVENTS.playerProtectionUpdated ||
     eventType === CLIENT_EVENTS.mapTransferStarted ||
     eventType === CLIENT_EVENTS.mapTransferCompleted ||
     eventType === CLIENT_EVENTS.mapTransferFailed

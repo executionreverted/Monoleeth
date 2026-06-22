@@ -686,6 +686,58 @@ describe('reduceClientState world requests and snapshots', () => {
     expect(state.lastSequence).toBe(7);
   });
 
+  test('player protection update applies public protection without warning log', () => {
+    const base = mapScopedLiveState();
+    const state = reduceClientState(base, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.playerProtectionUpdated, {
+        map_subscription_epoch: 1,
+        public_map_key: '1-1',
+        reason: 'portal',
+        expires_at: 4200,
+        blocks_pvp: true,
+        break_on_pvp_action: true,
+      }, 16),
+    });
+
+    expect(state.currentMap?.protection).toEqual({
+      reason: 'portal',
+      expires_at: 4200,
+      blocks_pvp: true,
+      break_on_pvp_action: true,
+    });
+    expect(state.visibleEntities).toEqual(base.visibleEntities);
+    expect(state.commandLog.some((line) => line.text.includes('Unhandled event'))).toBe(false);
+    expect(state.lastServerTime).toBe(1016);
+    expect(state.lastSequence).toBe(16);
+  });
+
+  test('player protection clear event removes active protection summary', () => {
+    const base = {
+      ...mapScopedLiveState(),
+      currentMap: {
+        ...mapScopedLiveState().currentMap!,
+        protection: { reason: 'portal', expires_at: 4200, blocks_pvp: true, break_on_pvp_action: true },
+      },
+    };
+    const state = reduceClientState(base, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.playerProtectionUpdated, {
+        map_subscription_epoch: 1,
+        public_map_key: '1-1',
+        reason: 'pvp_action',
+        expires_at: 4300,
+        blocks_pvp: false,
+        break_on_pvp_action: false,
+      }, 17),
+    });
+
+    expect(state.currentMap?.protection).toBeUndefined();
+    expect(state.currentMap?.visible_portals).toEqual(base.currentMap?.visible_portals);
+    expect(state.lastServerTime).toBe(1017);
+    expect(state.lastSequence).toBe(17);
+  });
+
   test('nested map policy update clears viewer policy summaries without changing map truth', () => {
     const base = {
       ...mapScopedLiveState(),

@@ -51,6 +51,12 @@ http://127.0.0.1:5173
 ```
 
 Vite proxies `/api` and `/ws` to the Go server on `127.0.0.1:8080`.
+Override the proxy for isolated local runs with:
+
+```bash
+GAME_CLIENT_PROXY_TARGET=http://127.0.0.1:8081 \
+npm --cache /tmp/gameproject-npm-cache run dev -- --port 5174
+```
 
 ## Verification
 
@@ -64,6 +70,14 @@ cd ..
 git diff --check
 ```
 
-The client check runs lint, typecheck, unit tests, and the real-server
-Playwright smoke. Smoke screenshots are written under
-`output/screenshots/ui-implementation/10/`.
+The client check runs lint, typecheck, unit tests, and bundle scan. It does not
+run Playwright smoke.
+
+Run the focused Phase09 bounded-map/portal browser proof explicitly:
+
+```bash
+npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase09-map
+```
+
+That smoke starts its own real Go server and Vite dev server, then writes
+screenshots under `output/screenshots/ui-implementation/09/`.

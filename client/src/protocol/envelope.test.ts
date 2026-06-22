@@ -328,6 +328,7 @@ describe('default outbound operations', () => {
     expect(CLIENT_EVENTS.mapTransferFailed).toBe('map.transfer_failed');
     expect(CLIENT_EVENTS.portalCooldownStarted).toBe('portal.cooldown_started');
     expect(CLIENT_EVENTS.mapPolicyUpdated).toBe('map.policy_updated');
+    expect(CLIENT_EVENTS.playerProtectionUpdated).toBe('player.protection_updated');
     expect(OPERATIONS.loadoutEquipModule).toBe('loadout.equip_module');
     expect(OPERATIONS.loadoutUnequipModule).toBe('loadout.unequip_module');
     expect(OPERATIONS.stealthToggle).toBe('stealth.toggle');

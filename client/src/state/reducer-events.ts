@@ -35,7 +35,12 @@ import {
   parseWalletSummary,
 } from './reducer-player-parsers';
 import { applyQuestUpdate, parseAdminRepairCraftJob, parseQuestBoardSummary, parseQuestSummary, questEventLog } from './reducer-quests-admin';
-import { applyMapPolicyUpdatedPayload, applyMapSnapshotPayload, mapSubscriptionEpochFromPayload } from './reducer-map';
+import {
+  applyMapPolicyUpdatedPayload,
+  applyMapSnapshotPayload,
+  applyPlayerProtectionUpdatedPayload,
+  mapSubscriptionEpochFromPayload,
+} from './reducer-map';
 import { applySnapshotPayload } from './reducer-snapshot';
 import {
   appendWorldEffect,
@@ -580,6 +585,15 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
         ...withPolicyUpdate,
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(withPolicyUpdate.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.playerProtectionUpdated: {
+      const withProtectionUpdate = applyPlayerProtectionUpdatedPayload(state, envelope.payload);
+      return {
+        ...withProtectionUpdate,
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(withProtectionUpdate.lastSequence, envelope.seq),
       };
     }
 

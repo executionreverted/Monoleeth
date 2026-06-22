@@ -74,6 +74,7 @@ export const CLIENT_EVENTS = {
   mapTransferFailed: 'map.transfer_failed',
   portalCooldownStarted: 'portal.cooldown_started',
   mapPolicyUpdated: 'map.policy_updated',
+  playerProtectionUpdated: 'player.protection_updated',
   entityEntered: 'aoi.entity_entered',
   entityUpdated: 'aoi.entity_updated',
   entityLeft: 'aoi.entity_left',

@@ -43,6 +43,32 @@ describe('reduceClientState world transfer lifecycle', () => {
     expect(staleMapChanged.currentMap).toBeNull();
     expect(staleMapChanged.lastSequence).toBe(0);
 
+    const staleProtection = reduceClientState(
+      {
+        ...state,
+        currentMap: {
+          public_map_key: '1-2',
+          display_name: 'Outer Ring',
+          bounds: { min_x: 0, min_y: 0, max_x: 10000, max_y: 10000 },
+          visible_portals: [],
+          safe_zones: [],
+        },
+      },
+      {
+        type: 'eventReceived',
+        envelope: event(CLIENT_EVENTS.playerProtectionUpdated, {
+          map_subscription_epoch: 1,
+          public_map_key: '1-1',
+          reason: 'portal',
+          expires_at: 9000,
+          blocks_pvp: true,
+          break_on_pvp_action: true,
+        }, 3),
+      },
+    );
+    expect(staleProtection.currentMap?.protection).toBeUndefined();
+    expect(staleProtection.lastSequence).toBe(0);
+
     const current = reduceClientState(state, {
       type: 'eventReceived',
       envelope: event(CLIENT_EVENTS.entityEntered, {

@@ -122,6 +122,45 @@ export function applyMapPolicyUpdatedPayload(state: ClientState, payload: JsonOb
   };
 }
 
+export function applyPlayerProtectionUpdatedPayload(state: ClientState, payload: JsonObject): ClientState {
+  rejectForbiddenPayloadKeys(payload);
+
+  const blocksPVP = booleanField(payload, 'blocks_pvp');
+  if (blocksPVP === null) {
+    return state;
+  }
+
+  const policyPayload: JsonObject = {};
+  const mapSubscriptionEpoch = mapSubscriptionEpochFromPayload(payload);
+  if (mapSubscriptionEpoch !== null) {
+    policyPayload.map_subscription_epoch = mapSubscriptionEpoch;
+  }
+  const publicMapKey = stringField(payload, 'public_map_key')?.trim();
+  if (publicMapKey) {
+    policyPayload.public_map_key = publicMapKey;
+  }
+
+  if (!blocksPVP) {
+    policyPayload.protection = null;
+    return applyMapPolicyUpdatedPayload(state, policyPayload);
+  }
+
+  const reason = stringField(payload, 'reason')?.trim();
+  const expiresAt = numberField(payload, 'expires_at');
+  const breakOnPVPAction = booleanField(payload, 'break_on_pvp_action');
+  if (!reason || expiresAt === null || breakOnPVPAction === null) {
+    return state;
+  }
+
+  policyPayload.protection = {
+    reason,
+    expires_at: Math.round(expiresAt),
+    blocks_pvp: true,
+    break_on_pvp_action: breakOnPVPAction,
+  };
+  return applyMapPolicyUpdatedPayload(state, policyPayload);
+}
+
 export function parseMapSnapshotSummary(payload: JsonObject): ParsedMapSnapshotSummary {
   if ('map' in payload) {
     const mapPayload = objectField(payload, 'map');
