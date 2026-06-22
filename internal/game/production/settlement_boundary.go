@@ -208,10 +208,17 @@ func (store *InMemoryStore) RetryFailedOutboxRecords(limit int, retriedAt time.T
 	return records
 }
 
-func (store *InMemoryStore) appendOutboxRecordLocked(event gameevents.EventEnvelope, payload any) {
+func (store *InMemoryStore) appendOutboxRecordLocked(
+	event gameevents.EventEnvelope,
+	payload any,
+	referenceKey foundation.IdempotencyKey,
+	settlementWindow string,
+) {
 	store.nextOutboxSequence++
 	sequence := store.nextOutboxSequence
-	referenceKey, settlementWindow := settlementEvidenceFromPayload(payload)
+	if referenceKey.IsZero() && settlementWindow == "" {
+		referenceKey, settlementWindow = settlementEvidenceFromPayload(payload)
+	}
 	store.outbox = append(store.outbox, ProductionOutboxRecord{
 		OutboxID:         fmt.Sprintf("production-outbox-%d", sequence),
 		Sequence:         sequence,

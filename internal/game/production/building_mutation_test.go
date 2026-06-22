@@ -44,9 +44,7 @@ func TestBuildingMutationBuildDebitsMaterialsRecordsLedgerAndEmitsEvents(t *test
 	assertBuildingMutationStorage(t, store, "iron_ore", 30)
 	assertBuildingMaterialLedger(t, store, reference, "iron_ore", 20, 30)
 	assertBuildingMutationEvents(t, store, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
-	if got := len(store.OutboxRecords()); got != 2 {
-		t.Fatalf("outbox records = %d, want 2", got)
-	}
+	assertBuildingMutationOutboxReferences(t, store.OutboxRecords(), reference, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
 	if wallet.calls != 1 || wallet.last.ReferenceKey != reference || wallet.last.Amount != 100 {
 		t.Fatalf("wallet calls/input = %d/%+v, want one debit amount 100 ref %q", wallet.calls, wallet.last, reference)
 	}
@@ -376,6 +374,7 @@ func TestBuildingMutationUpgradeUsesNextCatalogLevelAndDuplicateIsSafe(t *testin
 	assertBuildingMutationStorage(t, store, "iron_ore", 70)
 	assertBuildingMaterialLedger(t, store, reference, "iron_ore", 30, 70)
 	assertBuildingMutationEvents(t, store, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
+	assertBuildingMutationOutboxReferences(t, store.OutboxRecords(), reference, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
 
 	duplicate, err := service.UpgradePlanetBuilding(UpgradePlanetBuildingInput{
 		PlanetID:     "planet-1",
@@ -395,6 +394,44 @@ func TestBuildingMutationUpgradeUsesNextCatalogLevelAndDuplicateIsSafe(t *testin
 	}
 	if got := len(store.Events()); got != 2 {
 		t.Fatalf("events after duplicate = %d, want 2", got)
+	}
+}
+
+func TestBuildingMutationOutboxReferenceEvidenceSurvivesPublisherStateTransitions(t *testing.T) {
+	store := newBuildingMutationStore(t, []StoredItem{{ItemID: "iron_ore", Quantity: 50}})
+	service := newTestBuildingMutationService(t, store, MustMVPCatalog(), nil, mapBuildingCosts{
+		{operation: BuildingMutationBuild, definitionID: ProductionDefinitionIDAlloyFoundryL1}: {
+			Materials: []BuildingMaterialCost{{ItemID: "iron_ore", Quantity: 20}},
+		},
+	})
+	reference := mustBuildingBuildKey(t, "planet-1", "building-1")
+
+	if _, err := service.BuildPlanetBuilding(BuildPlanetBuildingInput{
+		PlanetID:     "planet-1",
+		BuildingID:   "building-1",
+		DefinitionID: ProductionDefinitionIDAlloyFoundryL1,
+		RequestedAt:  testTime(1),
+		ReferenceKey: reference,
+	}); err != nil {
+		t.Fatalf("BuildPlanetBuilding() error = %v, want nil", err)
+	}
+
+	pending := store.PendingOutboxRecords(10)
+	assertBuildingMutationOutboxReferences(t, pending, reference, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
+	claimed := store.ClaimPendingOutboxRecords(1, testTime(2))
+	assertBuildingMutationOutboxReferences(t, claimed, reference, EventPlanetStorageUpdated)
+	if claimed[0].Status != ProductionOutboxStatusInFlight || claimed[0].ClaimToken == "" {
+		t.Fatalf("claimed outbox = %+v, want in-flight with claim token", claimed[0])
+	}
+	failed, ok := store.MarkClaimedOutboxFailed(claimed[0].OutboxID, claimed[0].ClaimToken, "temporary broker outage", testTime(3))
+	if !ok {
+		t.Fatal("MarkClaimedOutboxFailed() ok = false, want true")
+	}
+	assertBuildingMutationOutboxReferences(t, []ProductionOutboxRecord{failed}, reference, EventPlanetStorageUpdated)
+	retried := store.RetryFailedOutboxRecords(1, testTime(4))
+	assertBuildingMutationOutboxReferences(t, retried, reference, EventPlanetStorageUpdated)
+	if retried[0].Status != ProductionOutboxStatusPending || retried[0].ClaimToken != "" {
+		t.Fatalf("retried outbox = %+v, want pending without stale claim token", retried[0])
 	}
 }
 
@@ -801,6 +838,33 @@ func assertBuildingMutationEvents(t *testing.T, store *InMemoryStore, wantTypes 
 	for index, wantType := range wantTypes {
 		if events[index].Type != wantType.String() {
 			t.Fatalf("event[%d] type = %q, want %q", index, events[index].Type, wantType)
+		}
+	}
+}
+
+func assertBuildingMutationOutboxReferences(
+	t *testing.T,
+	records []ProductionOutboxRecord,
+	reference foundation.IdempotencyKey,
+	wantTypes ...EventType,
+) {
+	t.Helper()
+	if len(records) != len(wantTypes) {
+		t.Fatalf("outbox records = %d, want %d; records = %+v", len(records), len(wantTypes), records)
+	}
+	for index, wantType := range wantTypes {
+		record := records[index]
+		if record.Event.Type != wantType.String() {
+			t.Fatalf("outbox[%d] event type = %q, want %q; records = %+v", index, record.Event.Type, wantType, records)
+		}
+		if record.ReferenceKey != reference {
+			t.Fatalf("outbox[%d] reference = %q, want %q; record = %+v", index, record.ReferenceKey, reference, record)
+		}
+		if record.SettlementWindow != "" {
+			t.Fatalf("outbox[%d] settlement window = %q, want empty for building mutation; record = %+v", index, record.SettlementWindow, record)
+		}
+		if record.Status == "" || record.OutboxID == "" || record.Sequence == 0 {
+			t.Fatalf("outbox[%d] missing delivery identity/state: %+v", index, record)
 		}
 	}
 }

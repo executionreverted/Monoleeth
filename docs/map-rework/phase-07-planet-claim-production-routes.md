@@ -748,8 +748,10 @@ Acceptance criteria:
   immediate/sequential duplicate no-op behavior in the current in-memory
   gateway. Domain results/events now carry server-derived settlement
   reference/window evidence and process-local store-owned reference/outbox
-  records for applied settlements. Durable concurrent DB rows, row locks/CAS,
-  idempotency table enforcement, and outbox publishing remain open.
+  records for applied settlements. Building mutation outbox rows now carry the
+  committed build/upgrade idempotency reference through the process-local
+  publisher state machine. Durable concurrent DB rows, row locks/CAS,
+  idempotency table enforcement, and durable outbox publishing remain open.
 - Route rows carry source/destination map identity and use map policy for
   endpoint access and risk.
 - Route mutations and settlements use server-resolved ownership and do not

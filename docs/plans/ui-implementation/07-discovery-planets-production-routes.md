@@ -183,6 +183,13 @@ Current slice completed:
   locks/CAS, durable idempotency-table enforcement, durable material/outbox
   persistence, broader cost/requirement balancing, and browser HUD controls
   remain open.
+- Phase07Q building outbox evidence follow-up: building mutation
+  `planet.storage_updated` and `planet.building_updated` outbox rows now carry
+  the same server-derived `planet_building_build` /
+  `planet_building_upgrade` idempotency reference as the committed mutation,
+  and the existing pending/in-flight/failed/published publisher state machine
+  preserves that evidence. Real durable DB rows and cross-process publisher
+  ownership remain open.
 
 ## Source Specs
 

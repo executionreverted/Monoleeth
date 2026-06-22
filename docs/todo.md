@@ -136,11 +136,13 @@ for phase status; this file is a compact pending-work index.
   server-derived owner, active-map scope, deterministic building ids,
   catalog-backed definitions, material/wallet costs, idempotency references,
   spoof-field rejection, duplicate replay, and owner-scoped production/storage/
-  wallet reconciliation. Durable DB/outbox claim recovery, cross-process
+  wallet reconciliation. Phase07Q tags building storage/building outbox rows
+  with the committed building mutation idempotency reference and proves the
+  publisher state machine preserves that evidence. Durable DB/outbox claim recovery, cross-process
   CAS/locks, idempotency-table enforcement, durable outbox persistence/
   publisher workers, broader building requirement/cost balancing, and browser
   HUD controls remain open. Source: Phase 10 audit, Phase07A, Phase07O,
-  Phase07P, and `docs/map-rework/phase-10-testing-rollout.md`.
+  Phase07P, Phase07Q, and `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Finish durable authenticated automation route persistence and rollout
   hardening. Server/browser work now has a focused real-client
   create/update/control/settle proof; remaining work is durable route rows,

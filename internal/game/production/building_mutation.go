@@ -532,13 +532,13 @@ func (store *InMemoryStore) applyBuildingMutationLocked(
 
 	events := make([]gameevents.EventEnvelope, 0, 2)
 	if len(materialLedger) > 0 {
-		event, err := store.appendProductionEventLocked(EventPlanetStorageUpdated, storagePayload, requestedAt)
+		event, err := store.appendProductionEventWithOutboxEvidenceLocked(EventPlanetStorageUpdated, storagePayload, requestedAt, referenceKey, "")
 		if err != nil {
 			return BuildingMutationResult{}, err
 		}
 		events = append(events, event)
 	}
-	event, err := store.appendProductionEventLocked(EventPlanetBuildingUpdated, buildingPayload, requestedAt)
+	event, err := store.appendProductionEventWithOutboxEvidenceLocked(EventPlanetBuildingUpdated, buildingPayload, requestedAt, referenceKey, "")
 	if err != nil {
 		return BuildingMutationResult{}, err
 	}

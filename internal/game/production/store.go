@@ -367,6 +367,16 @@ func (store *InMemoryStore) insertAutomationRoute(route AutomationRoute) (Automa
 }
 
 func (store *InMemoryStore) appendProductionEventLocked(eventType EventType, payload any, occurredAt time.Time) (gameevents.EventEnvelope, error) {
+	return store.appendProductionEventWithOutboxEvidenceLocked(eventType, payload, occurredAt, "", "")
+}
+
+func (store *InMemoryStore) appendProductionEventWithOutboxEvidenceLocked(
+	eventType EventType,
+	payload any,
+	occurredAt time.Time,
+	referenceKey foundation.IdempotencyKey,
+	settlementWindow string,
+) (gameevents.EventEnvelope, error) {
 	store.nextEventSequence++
 	sequence := store.nextEventSequence
 	eventID := foundation.EventID(fmt.Sprintf("production-event-%d", sequence))
@@ -376,7 +386,7 @@ func (store *InMemoryStore) appendProductionEventLocked(eventType EventType, pay
 		return gameevents.EventEnvelope{}, err
 	}
 	store.events = append(store.events, event)
-	store.appendOutboxRecordLocked(event, payload)
+	store.appendOutboxRecordLocked(event, payload, referenceKey, settlementWindow)
 	return event, nil
 }
 
