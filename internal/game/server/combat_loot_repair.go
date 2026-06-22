@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"gameproject/internal/game/combat"
 	"gameproject/internal/game/economy"
@@ -10,6 +11,7 @@ import (
 	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
+	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
 )
 
@@ -32,6 +34,9 @@ type repairAttemptRecord struct {
 	ReferenceKey foundation.IdempotencyKey
 	Ship         shipSnapshotPayload
 	Wallet       walletSnapshotPayload
+	PublicMapKey string
+	Position     world.Vec2
+	Protection   worldmaps.ClientProtectionSummary
 	Repaired     bool
 	RepairCost   int64
 }
@@ -41,6 +46,17 @@ type repairQuotePayload struct {
 	Currency string `json:"currency"`
 	Cost     int64  `json:"cost"`
 	Disabled bool   `json:"disabled"`
+}
+
+func runtimeShipRepairIdempotencyKey(playerID foundation.PlayerID, shipID foundation.ShipID, requestID foundation.RequestID) (foundation.IdempotencyKey, error) {
+	if err := playerID.Validate(); err != nil {
+		return "", err
+	}
+	if err := requestID.Validate(); err != nil {
+		return "", err
+	}
+	repairReference := fmt.Sprintf("player%d.%s.request%d.%s", len(playerID.String()), playerID.String(), len(requestID.String()), requestID.String())
+	return foundation.ShipRepairIdempotencyKey(shipID, repairReference)
 }
 
 func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -353,22 +369,25 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 	if !ok {
 		return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
 	}
-	if !state.Ship.Disabled {
-		return nil, foundation.NewDomainError(foundation.CodeShipDisabled, "Ship is not disabled.")
-	}
-	referenceKey, err := foundation.ShipRepairIdempotencyKey(foundation.ShipID(state.Ship.ActiveShipID), request.RequestID.String())
+	referenceKey, err := runtimeShipRepairIdempotencyKey(ctx.PlayerID, foundation.ShipID(state.Ship.ActiveShipID), request.RequestID)
 	if err != nil {
 		return nil, invalidPayload("Repair reference is invalid.", err)
 	}
 	if previous, ok := runtime.repairAttempts[referenceKey]; ok {
 		return marshalPayload(map[string]any{
-			"accepted":    true,
-			"duplicate":   true,
-			"repaired":    previous.Repaired,
-			"repair_cost": previous.RepairCost,
-			"ship":        previous.Ship,
-			"wallet":      previous.Wallet,
+			"accepted":       true,
+			"duplicate":      true,
+			"repaired":       previous.Repaired,
+			"repair_cost":    previous.RepairCost,
+			"ship":           previous.Ship,
+			"wallet":         previous.Wallet,
+			"public_map_key": previous.PublicMapKey,
+			"position":       previous.Position,
+			"protection":     previous.Protection,
 		})
+	}
+	if !state.Ship.Disabled {
+		return nil, foundation.NewDomainError(foundation.CodeShipDisabled, "Ship is not disabled.")
 	}
 
 	quote := runtime.repairQuoteLocked(state)
@@ -394,14 +413,19 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 	state.Ship.Shield = state.Ship.MaxShield
 	state.Ship.Capacitor = state.Ship.MaxCapacitor
 	runtime.players[ctx.PlayerID] = state
-	if _, err := runtime.syncPlayerCombatActorLocked(ctx.PlayerID); err != nil {
+	respawn, err := runtime.repairRespawnPlayerLocked(ctx.PlayerID, authSessionID(ctx.SessionID))
+	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
+	state = runtime.players[ctx.PlayerID]
 
 	record := repairAttemptRecord{
 		ReferenceKey: referenceKey,
 		Ship:         state.Ship,
 		Wallet:       state.Wallet,
+		PublicMapKey: respawn.PublicMapKey,
+		Position:     respawn.Position,
+		Protection:   respawn.Protection,
 		Repaired:     true,
 		RepairCost:   quote.Cost,
 	}
@@ -418,10 +442,13 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 	runtime.queueEventLocked(sessionID, realtime.EventWalletSnapshot, runtime.walletSnapshotLocked(ctx.PlayerID))
 
 	return marshalPayload(map[string]any{
-		"accepted":    true,
-		"repaired":    true,
-		"repair_cost": quote.Cost,
-		"ship":        state.Ship,
-		"wallet":      runtime.walletSnapshotLocked(ctx.PlayerID),
+		"accepted":       true,
+		"repaired":       true,
+		"repair_cost":    quote.Cost,
+		"ship":           state.Ship,
+		"wallet":         runtime.walletSnapshotLocked(ctx.PlayerID),
+		"public_map_key": respawn.PublicMapKey,
+		"position":       respawn.Position,
+		"protection":     respawn.Protection,
 	})
 }

@@ -15,6 +15,7 @@ import (
 
 const (
 	protectionReasonPortal    = "portal"
+	protectionReasonRespawn   = "respawn"
 	protectionReasonPVPAction = "pvp_action"
 )
 
@@ -42,6 +43,10 @@ type playerProtectionUpdatedPayload struct {
 }
 
 func (runtime *Runtime) startPortalProtectionLocked(playerID foundation.PlayerID, mapID worldmaps.MapID) (playerProtectionState, error) {
+	return runtime.startPlayerProtectionLocked(playerID, mapID, protectionReasonPortal)
+}
+
+func (runtime *Runtime) startPlayerProtectionLocked(playerID foundation.PlayerID, mapID worldmaps.MapID, reason string) (playerProtectionState, error) {
 	definition, ok := runtime.mapCatalog.Get(mapID)
 	if !ok {
 		return playerProtectionState{}, worldmaps.ErrMapNotFound
@@ -51,7 +56,7 @@ func (runtime *Runtime) startPortalProtectionLocked(playerID foundation.PlayerID
 		PlayerID:         playerID,
 		InternalMapID:    mapID,
 		PublicMapKey:     definition.PublicMapKey,
-		Reason:           protectionReasonPortal,
+		Reason:           reason,
 		ExpiresAt:        runtime.clock.Now().Add(runtimePortalProtectionDuration).UTC(),
 		BlocksPVP:        true,
 		BreakOnPVPAction: true,

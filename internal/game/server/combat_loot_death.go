@@ -219,6 +219,7 @@ func (runtime *Runtime) applyProcessDeathResultLocked(result deathdomain.Process
 	if record.PlayerID.IsZero() {
 		return nil
 	}
+	runtime.recordPendingRespawnTargetLocked(record)
 	playerShip := result.ShipDisableResult.PlayerShip
 	disabledAt := record.CreatedAt
 	if playerShip.DisabledAt != nil {
