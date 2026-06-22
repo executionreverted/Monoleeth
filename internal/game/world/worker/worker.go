@@ -70,8 +70,11 @@ type Worker struct {
 
 	playerEntities map[foundation.PlayerID]world.EntityID
 	entityPlayers  map[world.EntityID]foundation.PlayerID
-	sessionPlayers map[realtime.SessionID]foundation.PlayerID
-	playerSessions map[foundation.PlayerID]map[realtime.SessionID]struct{}
+	// playerAggroIneligible is worker-local server truth used only by NPC
+	// aggro targeting. It is not serialized to clients.
+	playerAggroIneligible map[foundation.PlayerID]bool
+	sessionPlayers        map[realtime.SessionID]foundation.PlayerID
+	playerSessions        map[foundation.PlayerID]map[realtime.SessionID]struct{}
 
 	scheduler             delayedScheduler
 	scheduledTaskHandlers []ScheduledTaskHandler
@@ -182,6 +185,7 @@ func NewWorker(config Config) (*Worker, error) {
 		enemySpawner:          newEnemySpawnerState(),
 		playerEntities:        make(map[foundation.PlayerID]world.EntityID),
 		entityPlayers:         make(map[world.EntityID]foundation.PlayerID),
+		playerAggroIneligible: make(map[foundation.PlayerID]bool),
 		sessionPlayers:        make(map[realtime.SessionID]foundation.PlayerID),
 		playerSessions:        make(map[foundation.PlayerID]map[realtime.SessionID]struct{}),
 		scheduler:             newDelayedScheduler(),
@@ -230,6 +234,7 @@ func (worker *Worker) Tick() TickResult {
 
 	result.CommandErrors = append(result.CommandErrors, worker.advanceMovement()...)
 	result.CommandErrors = append(result.CommandErrors, worker.tickEnemySpawner()...)
+	result.CommandErrors = append(result.CommandErrors, worker.tickEnemyAggro()...)
 	result.DueTasks = worker.scheduler.drainDue(worker.clock.Now())
 	result.ScheduledTaskErrors = worker.dispatchScheduledTasks(result.DueTasks)
 	worker.tick++
@@ -517,6 +522,7 @@ func (worker *Worker) detachPlayerEntity(playerID foundation.PlayerID) {
 	}
 	delete(worker.playerEntities, playerID)
 	delete(worker.entityPlayers, entityID)
+	delete(worker.playerAggroIneligible, playerID)
 
 	for sessionID, attachedPlayerID := range worker.sessionPlayers {
 		if attachedPlayerID == playerID {

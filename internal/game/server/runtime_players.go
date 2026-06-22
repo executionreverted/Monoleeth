@@ -107,6 +107,9 @@ func (runtime *Runtime) setPlayerStealthLocked(playerID foundation.PlayerID, ena
 	if err := instance.Worker.Submit(worker.SetPlayerSpeedCommand{PlayerID: playerID, Speed: speed}); err != nil {
 		return err
 	}
+	if err := instance.Worker.Submit(worker.SetPlayerAggroEligibilityCommand{PlayerID: playerID, Eligible: !enabled}); err != nil {
+		return err
+	}
 	result := instance.Worker.Tick()
 	if len(result.CommandErrors) > 0 {
 		return result.CommandErrors[0].Err

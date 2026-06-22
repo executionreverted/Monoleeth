@@ -182,6 +182,18 @@ func (command SetPlayerSpeedCommand) apply(worker *Worker) error {
 	return worker.setPlayerSpeed(command.PlayerID, command.Speed)
 }
 
+// SetPlayerAggroEligibilityCommand changes server-owned NPC aggro target
+// eligibility for a player. Hidden/stealthed players should be marked
+// ineligible by runtime-owned state sync before aggro ticks.
+type SetPlayerAggroEligibilityCommand struct {
+	PlayerID foundation.PlayerID
+	Eligible bool
+}
+
+func (command SetPlayerAggroEligibilityCommand) apply(worker *Worker) error {
+	return worker.setPlayerAggroEligibility(command.PlayerID, command.Eligible)
+}
+
 // DebugSpawnNPCCommand inserts an NPC placeholder for local harness tests.
 type DebugSpawnNPCCommand struct {
 	EntityID world.EntityID

@@ -262,7 +262,48 @@ Phase08F coverage was added or updated in:
 
 Deferred Phase08 work after Phase08F:
 
-- aggro/leash simulation
+- boss/event spawn hooks
+
+## Phase08G Landed Worker-Local Aggro/Leash Simulation Slice
+
+The landed Phase08G slice adds worker-owned, server-only aggro/leash state to
+spawner-backed NPC rows. Rows now track leash origin, aggro target entity id,
+target acquired/last-seen timestamps, and last aggro tick time. These fields are
+kept inside `EnemySpawnRecord`/`EnemySpawnSnapshot` server-only copies and are
+not added to AOI, map, combat, minimap, or client payloads.
+
+Spawn and respawn initialize leash origin at the spawn position. Death and
+respawn clear stale target memory and aggro tick state before the row can
+participate again. The starter training drone remains passive and stationary
+because its catalog aggro radius is `0` and speed is `0`.
+
+`Worker.Tick()` now runs a narrow aggro system after movement and spawner
+respawn/fill handling. The system only considers alive spawner-backed NPC rows,
+uses same-worker `playerEntities` as the only target source, excludes
+worker-marked hidden/stealthed aggro-ineligible players, chooses the nearest
+eligible player inside `NPCAggroProfile.AggroRadius` deterministically, and
+drives chase or return movement through existing server-owned
+`world.MovementState` and `entitySpeeds`. It does not traverse portals or query
+destination maps. Runtime stealth sync updates this worker-owned eligibility
+state before aggro ticks so NPC public movement targets cannot retain hidden
+player coordinates.
+
+NPCs using `SafeZoneAttackPolicy == "never"` do not acquire or keep targets
+when either the NPC or the target is inside a PvP-blocking safe zone. Targets
+that leave aggro range are remembered only until `TargetMemory` expires. If the
+NPC or target breaks `NPCLeashProfile.LeashDistance` and `ResetOnBreak` is true,
+the target is cleared and the NPC returns toward its leash origin when speed
+permits. Phase08G deliberately does not add auto-attack, damage ticks, assist
+aggro, public combat events, client UI, metrics/logging, or boss/event spawn
+hooks.
+
+Phase08G coverage was added in:
+
+- `internal/game/world/worker/enemy_aggro.go`
+- `internal/game/world/worker/enemy_aggro_test.go`
+
+Deferred Phase08 work after Phase08G:
+
 - boss/event spawn hooks
 
 ### NPC State Ownership
@@ -403,6 +444,8 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
 9. Add aggro/leash tick logic as a narrow data-oriented system:
    acquire visible targets in radar/aggro range, chase only inside leash policy,
    reset when target leaves map/range/safe state, and never cross portals.
+   Landed in Phase08G for worker-local same-map player acquisition, target
+   memory, safe-zone reset, leash break reset, and chase/return movement.
 10. Add metrics and logs for spawn attempts, cap skips, kill/drop selection,
     respawn delays, aggro resets, and cross-map rejection counts without logging
     hidden roll data.
@@ -442,8 +485,12 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
   grant loot, cargo, XP, quest progress, or metrics.
 - Drops remain visible only through same-map radar/AOI, preserve owner lock, and
   reject hidden/far pickup.
-- Aggro starts only for visible/radar-valid targets and resets on leash break,
-  safe-zone entry, portal transfer, death, or map mismatch.
+- Aggro starts only for visible/radar-valid targets and resets on hidden/stealth
+  ineligibility, leash break, safe-zone entry, portal transfer, death, or map
+  mismatch. Phase08G landed the worker-local same-worker target acquisition,
+  hidden/stealth ineligibility filtering, safe-zone reset, target-memory,
+  leash-break, dead-row, and respawn clearing coverage; portal transfer remains
+  covered by same-worker ownership rather than cross-map traversal.
 - Boss/event spawns are disabled unless a catalog event enables them and tests
   cover their caps/reward profile.
 - Debug/demo spawn commands are unavailable in default authenticated real mode.
@@ -481,9 +528,9 @@ Phase08C satisfies the `trainingNPCActor` replacement portion of the first
 criterion for spawner-backed NPCs. Phase08D satisfies narrow death accounting
 for spawner rows and alive counters. Phase08E satisfies worker-local
 kill-delay respawn and periodic fill tick behavior. Phase08F satisfies the
-global loot table replacement for default NPC kill drops. Aggro/leash behavior
-and boss/event hooks remain open, so the full Phase 08 acceptance criteria are
-not complete.
+global loot table replacement for default NPC kill drops. Phase08G satisfies
+worker-local aggro/leash movement simulation. Boss/event hooks remain open, so
+the full Phase 08 acceptance criteria are not complete.
 
 - No default gameplay path uses `trainingNPCActor` or one global
   `training_drone_salvage` table as the source of truth.

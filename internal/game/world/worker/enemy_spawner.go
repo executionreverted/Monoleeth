@@ -25,10 +25,16 @@ type EnemySpawnRecord struct {
 	AggroProfileID worldmaps.NPCAggroProfileID
 	LeashProfileID worldmaps.NPCLeashProfileID
 	Position       world.Vec2
+	LeashOrigin    world.Vec2
 	Alive          bool
 	SpawnedAt      time.Time
 	DeadAt         time.Time
 	NextRespawnAt  time.Time
+
+	AggroTargetEntityID   world.EntityID
+	AggroAcquiredAt       time.Time
+	AggroTargetLastSeenAt time.Time
+	LastAggroTickAt       time.Time
 }
 
 // EnemySpawnSnapshot is a deterministic server-only copy of worker spawner
@@ -177,6 +183,7 @@ func (worker *Worker) markEnemyKilled(definition worldmaps.MapDefinition, entity
 	record.Alive = false
 	record.DeadAt = killedAt
 	record.NextRespawnAt = killedAt.Add(pool.KillRespawnDelay + deterministicSpawnJitter(pool.SpawnJitter, definition.InternalMapID.String(), pool.EnemyPoolID.String(), entityID.String()))
+	clearEnemyAggroState(&record)
 	worker.enemySpawner.rows[index] = record
 
 	if worker.enemySpawner.aliveByPool[record.EnemyPoolID] > 0 {
@@ -314,6 +321,7 @@ func (worker *Worker) newEnemySpawnRecord(
 		AggroProfileID: pool.AggroProfileID,
 		LeashProfileID: pool.LeashProfileID,
 		Position:       area.Center,
+		LeashOrigin:    area.Center,
 		Alive:          true,
 		SpawnedAt:      spawnedAt,
 	}, nil
@@ -329,10 +337,12 @@ func (worker *Worker) respawnEnemyRecord(index int, definition worldmaps.MapDefi
 		return err
 	}
 	record.Position = area.Center
+	record.LeashOrigin = area.Center
 	record.Alive = true
 	record.SpawnedAt = spawnedAt
 	record.DeadAt = time.Time{}
 	record.NextRespawnAt = time.Time{}
+	clearEnemyAggroState(&record)
 	worker.enemySpawner.rows[index] = record
 	worker.enemySpawner.aliveByPool[record.EnemyPoolID]++
 	return nil
