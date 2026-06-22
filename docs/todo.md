@@ -140,9 +140,15 @@ for phase status; this file is a compact pending-work index.
   the target ship, creates killer-owned player-death cargo drops, keeps death
   internals out of queued client events, blocks target actions before repair,
   and repairs by snapping the target to the server-selected checkpoint with
-  respawn protection and client-safe position/protection events. Remaining work
-  is real browser PvP death/cargo/checkpoint proof and a real browser safe-zone
-  PvP click rejection proof. Source:
+  respawn protection and client-safe position/protection events. Phase10 browser
+  command-socket coverage now proves two real authenticated browser sessions,
+  real target `raw_ore` cargo from NPC loot, public portal travel
+  `1-1` -> `1-2` -> `1-3`, lethal PvP `combat.use_skill`, attacker-visible
+  death cargo drop, target `death.repair_quote` / `death.repair_ship`, repaired
+  public `1-3` checkpoint/protection reconciliation, protected/safe-spawn
+  `ERR_PVP_BLOCKED`, disabled-action `ERR_SHIP_DISABLED`, and focused
+  death/repair leak canaries. Remaining work is a real browser safe-zone PvP UI
+  click rejection proof plus broader rollout canaries. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete second/PvP-map enemy rollout coverage. The deterministic
   `outer_ring_scout_drone` and `border_raider_drone` seeds, initial spawn,
@@ -212,11 +218,14 @@ for phase status; this file is a compact pending-work index.
   `GAME_FEATURE_BOUNDED_MULTI_MAP` flag, deterministic seed selection,
   backfill/quarantine commands, rollback order, and no-silent-clamp migration
   checks. Source: `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Add a real browser death/respawn E2E scenario. Combat or zone-worker
-  authority should produce `death.ship_disabled` for the authenticated active
-  ship without client-authored damage or death state; the browser can then use
-  `death.repair_quote` and `death.repair_ship` and reconcile wallet/ship
-  snapshots. Source: Phase 10 audit.
+- [x] Add a real browser death/respawn E2E scenario. The explicit
+  `e2e:phase10-pvp-death` command starts the real Go server and Vite client,
+  registers two isolated real browser sessions, moves both through public
+  portal intents to `1-3`, produces `death.ship_disabled` through
+  server-authoritative PvP combat without client-authored damage/death state,
+  then uses `death.repair_quote` and `death.repair_ship` and reconciles
+  repaired ship, checkpoint position, and respawn protection in browser smoke
+  state. Source: Phase 10 audit.
 - [ ] Add server-backed mail/social/menu contracts before enabling those topbar
   affordances. The default browser smoke now guards against fake unread mail,
   friend, party, menu, or social notification counts; future contracts should
