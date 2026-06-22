@@ -159,9 +159,10 @@ for phase status; this file is a compact pending-work index.
   seeded passive `1-1`/`1-2` server aggro/leash non-acquisition proof now
   exist. Seeded public `1-3` aggressive border raider aggro/leash behavior is
   also covered by a server/worker proof only; Phase09 now proves starter and
-  destination browser fight/loot pickup after portal handoff, but remaining
-  work includes browser respawn proof, browser aggro/leash proof, and broader
-  matrix coverage. Source:
+  destination browser fight/loot pickup after portal handoff and includes a
+  same-entity public `1-2` browser respawn assertion after `KillRespawnDelay`,
+  but remaining work includes browser aggro/leash proof and broader matrix
+  coverage. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Add a deterministic per-map scanner/claim/drop seed matrix. Focused
   server/discovery scanner rarity/hidden-scan-data regression coverage now

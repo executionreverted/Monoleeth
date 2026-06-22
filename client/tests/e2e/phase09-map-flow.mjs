@@ -15,6 +15,9 @@ const screenshotOCRTimeoutMS = 30000;
 const maxProcessLogLines = 5000;
 const starterNpcApproachTarget = { x: 800, y: 400 };
 const destinationNpcApproachTarget = { x: 1800, y: 5400 };
+const destinationNpcRespawnDelayMS = 45000;
+const destinationNpcRespawnTimeoutMS = 70000;
+const npcNonLiveObservationTimeoutMS = 10000;
 const gateTarget = { x: 9800, y: 5000 };
 const screenshotViewports = [
   { name: 'desktop', viewport: { width: 1440, height: 900 } },
@@ -77,9 +80,12 @@ async function main() {
       mapLabel: 'Outer Ring',
       approachTarget: destinationNpcApproachTarget,
       expectedMapKey: '1-2',
+      expectRespawn: true,
+      respawnDelayMS: destinationNpcRespawnDelayMS,
+      respawnTimeoutMS: destinationNpcRespawnTimeoutMS,
     });
-    await assertNoLeak(page, outerAfterLoop, 'outer-ring-fight-loot');
-    await assertWebSocketCanary(page, 'outer-ring-fight-loot');
+    await assertNoLeak(page, outerAfterLoop, 'outer-ring-fight-loot-respawn');
+    await assertWebSocketCanary(page, 'outer-ring-fight-loot-respawn');
     await assertScreenshotOCRCanary(screenshotPaths);
     assertProcessLogCanary([goServer, viteServer]);
     await page.evaluate(() => window.__phase09CommandSocket?.close());
@@ -258,7 +264,7 @@ async function completeFightLootScanLoop(page) {
   return smoke(page);
 }
 
-async function completeFightLootLoop(page, { mapLabel, approachTarget, expectedMapKey }) {
+async function completeFightLootLoop(page, { mapLabel, approachTarget, expectedMapKey, expectRespawn = false, respawnDelayMS = 0, respawnTimeoutMS = 0 }) {
   if (!findHostileNPC(await smoke(page))) {
     await moveToPosition(page, approachTarget, 260, `${mapLabel} hostile radar approach`, 30000);
   }
@@ -270,9 +276,20 @@ async function completeFightLootLoop(page, { mapLabel, approachTarget, expectedM
   );
   const npc = findHostileNPC(withNPC);
   assert(npc, `${mapLabel} NPC target present`);
+  const killedNPCID = npc.entity_id;
+  assert(killedNPCID, `${mapLabel} NPC public entity id present`);
 
   await moveToPosition(page, npc.position, Math.max(80, Math.min(220, (withNPC.stats?.weapon_range ?? 260) - 40)), `combat target ${npc.entity_id}`, 30000);
-  const combatPayload = await fightNPCUntilKilled(page, npc.entity_id, mapLabel);
+  const combatPayload = await fightNPCUntilKilled(page, killedNPCID, mapLabel);
+  const killedAtMS = Date.now();
+  const nonLiveObservation = expectRespawn
+    ? await waitForNPCNonLive(page, {
+        mapLabel,
+        expectedMapKey,
+        entityID: killedNPCID,
+        timeoutMS: npcNonLiveObservationTimeoutMS,
+      })
+    : null;
 
   const expectedDrop = responseDrop(combatPayload, `${mapLabel} combat response`);
   const withDrop = await waitSmoke(
@@ -301,7 +318,53 @@ async function completeFightLootLoop(page, { mapLabel, approachTarget, expectedM
     15000,
   );
   assertCargoPickup(withCargo.cargo, beforeCargo, drop, `${mapLabel} smoke cargo`);
-  return withCargo;
+  if (!expectRespawn) return withCargo;
+  return waitForNPCRespawn(page, {
+    mapLabel,
+    expectedMapKey,
+    entityID: killedNPCID,
+    killedAtMS,
+    observedNonLiveAtMS: nonLiveObservation.observedAtMS,
+    minimumElapsedMS: respawnDelayMS,
+    timeoutMS: respawnTimeoutMS,
+  });
+}
+
+async function waitForNPCNonLive(page, { mapLabel, expectedMapKey, entityID, timeoutMS }) {
+  let observedAtMS = 0;
+  const state = await waitSmoke(
+    page,
+    (s) => {
+      if (s.currentMap?.public_map_key !== expectedMapKey) return false;
+      if (isLiveNPC(s.visibleEntities?.[entityID])) return false;
+      observedAtMS = Date.now();
+      return true;
+    },
+    `${mapLabel} killed NPC ${entityID} observed non-live/absent on ${expectedMapKey}`,
+    timeoutMS,
+  );
+  return { state, observedAtMS: observedAtMS || Date.now() };
+}
+
+async function waitForNPCRespawn(page, { mapLabel, expectedMapKey, entityID, killedAtMS, observedNonLiveAtMS, minimumElapsedMS, timeoutMS }) {
+  assert(
+    Number.isFinite(observedNonLiveAtMS) && observedNonLiveAtMS >= killedAtMS,
+    `${mapLabel} killed NPC ${entityID} missing non-live observation before respawn wait`,
+  );
+  const withRespawn = await waitSmoke(
+    page,
+    (s) => {
+      if (s.currentMap?.public_map_key !== expectedMapKey) return false;
+      const npc = s.visibleEntities?.[entityID];
+      return isLiveNPC(npc) && Date.now() - killedAtMS >= minimumElapsedMS;
+    },
+    `${mapLabel} killed NPC ${entityID} respawn visible on ${expectedMapKey} after non-live observation`,
+    timeoutMS,
+  );
+  const npc = withRespawn.visibleEntities?.[entityID];
+  assertRespawnedNPC(npc, `${mapLabel} respawned NPC ${entityID}`);
+  assertNoPayloadLeak({ npc }, `${mapLabel} respawned NPC`);
+  return withRespawn;
 }
 
 async function fightNPCUntilKilled(page, targetID, mapLabel) {
@@ -648,7 +711,28 @@ function screenshotLeakToken(text) {
 }
 
 function findHostileNPC(state) {
-  return Object.values(state?.visibleEntities ?? {}).find((entity) => entity.entity_type === 'npc' && entity.position && (entity.combat?.hp ?? 1) > 0) ?? null;
+  return Object.values(state?.visibleEntities ?? {}).find(isLiveNPC) ?? null;
+}
+
+function isLiveNPC(entity) {
+  if (entity?.entity_type !== 'npc' || !entity.position) return false;
+  if (!entity.combat) return true;
+  const hp = Number(entity.combat.hp ?? 0);
+  if (!(hp > 0)) return false;
+  return !['dead', 'destroyed', 'disabled'].includes(String(entity.combat.status ?? 'active').toLowerCase());
+}
+
+function assertRespawnedNPC(npc, label) {
+  assert(npc?.entity_type === 'npc', `${label} entity_type ${npc?.entity_type}`);
+  assert(npc.entity_id, `${label} public entity id present`);
+  assert(npc.position, `${label} position present`);
+  if (npc.combat) {
+    assert(Number(npc.combat.hp ?? 0) > 0, `${label} hp restored ${JSON.stringify(npc.combat)}`);
+    assert(
+      !['dead', 'destroyed', 'disabled'].includes(String(npc.combat.status ?? 'active').toLowerCase()),
+      `${label} combat status active ${JSON.stringify(npc.combat)}`,
+    );
+  }
 }
 
 function responseDrop(combatPayload, label) {
@@ -877,6 +961,12 @@ function compact(state) {
     connectionStatus: state.connectionStatus,
     currentMap: state.currentMap,
     self: selfEntity(state),
+    entities: Object.values(state.visibleEntities ?? {}).map((entity) => ({
+      id: entity.entity_id,
+      type: entity.entity_type,
+      hp: entity.combat?.hp,
+      status: entity.combat?.status,
+    })),
     pending: Object.keys(state.pendingCommands ?? {}),
     transfer: state.mapTransfer,
     lastError: state.lastError,
