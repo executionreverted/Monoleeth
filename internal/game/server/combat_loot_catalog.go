@@ -8,14 +8,16 @@ import (
 	"gameproject/internal/game/modules"
 )
 
-func runtimeLootCatalog() (loot.LootTable, map[foundation.ItemID]economy.ItemDefinition, error) {
+const trainingDroneSalvageLootTableID = "training_drone_salvage"
+
+func runtimeLootCatalog() (map[string]loot.LootTable, map[foundation.ItemID]economy.ItemDefinition, error) {
 	rawOre, err := runtimeRawOreDefinition()
 	if err != nil {
-		return loot.LootTable{}, nil, err
+		return nil, nil, err
 	}
-	source, err := catalog.NewLootTableSource("training_drone_salvage", "v1")
+	source, err := catalog.NewLootTableSource(trainingDroneSalvageLootTableID, "v1")
 	if err != nil {
-		return loot.LootTable{}, nil, err
+		return nil, nil, err
 	}
 	table := loot.LootTable{
 		Source: source,
@@ -31,7 +33,7 @@ func runtimeLootCatalog() (loot.LootTable, map[foundation.ItemID]economy.ItemDef
 	}
 	xCore, err := runtimeXCoreDefinition()
 	if err != nil {
-		return loot.LootTable{}, nil, err
+		return nil, nil, err
 	}
 	itemCatalog[xCore.ItemID] = xCore
 	for _, itemID := range []foundation.ItemID{
@@ -44,11 +46,13 @@ func runtimeLootCatalog() (loot.LootTable, map[foundation.ItemID]economy.ItemDef
 	} {
 		definition, err := runtimeStackableDefinition(itemID, itemID.String())
 		if err != nil {
-			return loot.LootTable{}, nil, err
+			return nil, nil, err
 		}
 		itemCatalog[definition.ItemID] = definition
 	}
-	return table, itemCatalog, nil
+	return map[string]loot.LootTable{
+		trainingDroneSalvageLootTableID: table,
+	}, itemCatalog, nil
 }
 
 func runtimeRawOreDefinition() (economy.ItemDefinition, error) {

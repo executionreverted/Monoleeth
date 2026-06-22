@@ -75,6 +75,15 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	if !runtime.entityVisibleToPlayerLocked(ctx.PlayerID, intent.TargetID) {
 		return nil, foundation.NewDomainError(foundation.CodeNotVisible, "Target is not visible.")
 	}
+	attackerBefore := attacker
+	targetBefore, ok := runtime.Combat.Actor(intent.TargetID)
+	if !ok {
+		return nil, domainErrorForRuntime(worker.ErrUnknownEntity)
+	}
+	restoreAttackActors := func() {
+		_ = runtime.Combat.UpsertActor(attackerBefore)
+		_ = runtime.Combat.UpsertActor(targetBefore)
+	}
 
 	result, err := runtime.Combat.ExecuteBasicAttack(combat.BasicAttackInput{
 		AttackerID: attacker.EntityID,
@@ -84,6 +93,56 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	})
 	if err != nil {
 		return nil, domainErrorForCombat(err)
+	}
+
+	var drops []loot.Drop
+	var progressionSnapshot *progressionSnapshotPayload
+	var questUpdates []quests.PlayerQuest
+	if result.KillEvent != nil {
+		instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
+		if err != nil {
+			restoreAttackActors()
+			return nil, domainErrorForRuntime(err)
+		}
+		lootTable, err := runtime.selectNPCKillLootTableForInstanceLocked(instance, *result.KillEvent)
+		if err != nil {
+			restoreAttackActors()
+			return nil, domainErrorForRuntime(err)
+		}
+		if err := commandErrorsFromSubmitAndTick(instance.Worker, worker.MarkEnemyKilledCommand{
+			Definition:  instance.Definition,
+			NPCEntityID: result.KillEvent.NPCEntityID,
+			KilledAt:    result.KillEvent.KilledAt,
+		}); err != nil {
+			restoreAttackActors()
+			return nil, domainErrorForRuntime(err)
+		}
+		instance.HiddenEntities[result.KillEvent.NPCEntityID] = true
+
+		if updated, err := runtime.Quest.ConsumeCombatNPCKilled(quests.CombatNPCKilledInput{
+			EventID:          foundation.EventID("quest-combat-" + request.RequestID.String()),
+			ProgressEventKey: quests.QuestProgressEventKey("combat.npc_killed:" + result.KillEvent.NPCEntityID.String()),
+			PlayerID:         ctx.PlayerID,
+			NPCType:          result.KillEvent.NPCType,
+		}); err != nil {
+			return nil, domainErrorForQuest(err)
+		} else {
+			questUpdates = updated
+		}
+		if xpResult, err := runtime.combatXP.GrantNPCKillXP(*result.KillEvent); err == nil {
+			payload := progressionPayload(xpResult.Snapshot)
+			progressionSnapshot = &payload
+		}
+		created, err := runtime.Loot.CreateDropsForNPCKill(*result.KillEvent, lootTable)
+		if err != nil {
+			return nil, domainErrorForRuntime(err)
+		}
+		drops = created.Drops
+		for _, drop := range drops {
+			if err := runtime.insertLootDropEntityLocked(drop); err != nil {
+				return nil, domainErrorForRuntime(err)
+			}
+		}
 	}
 
 	state, ok := runtime.applyCombatActorToPlayerShipLocked(ctx.PlayerID, result.Attacker)
@@ -133,51 +192,16 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 		}
 		runtime.queueTargetUpdatedToPlayerSessionsLocked(result.Target.PlayerID, result.Target)
 	}
-
-	var drops []loot.Drop
-	var progressionSnapshot *progressionSnapshotPayload
 	if result.KillEvent != nil {
 		runtime.queueEventLocked(sessionID, realtime.EventCombatNPCKilled, map[string]any{
 			"entity_id": result.KillEvent.NPCEntityID.String(),
 			"npc_type":  result.KillEvent.NPCType,
 		})
-		instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
-		if err != nil {
-			return nil, domainErrorForRuntime(err)
+		runtime.queueQuestProgressEventsLocked(sessionID, questUpdates)
+		if progressionSnapshot != nil {
+			runtime.queueEventLocked(sessionID, realtime.EventProgressionSnapshot, *progressionSnapshot)
 		}
-		if err := commandErrorsFromSubmitAndTick(instance.Worker, worker.MarkEnemyKilledCommand{
-			Definition:  instance.Definition,
-			NPCEntityID: result.KillEvent.NPCEntityID,
-			KilledAt:    result.KillEvent.KilledAt,
-		}); err != nil {
-			return nil, domainErrorForRuntime(err)
-		}
-		instance.HiddenEntities[result.KillEvent.NPCEntityID] = true
-
-		if updated, err := runtime.Quest.ConsumeCombatNPCKilled(quests.CombatNPCKilledInput{
-			EventID:          foundation.EventID("quest-combat-" + request.RequestID.String()),
-			ProgressEventKey: quests.QuestProgressEventKey("combat.npc_killed:" + result.KillEvent.NPCEntityID.String()),
-			PlayerID:         ctx.PlayerID,
-			NPCType:          result.KillEvent.NPCType,
-		}); err != nil {
-			return nil, domainErrorForQuest(err)
-		} else {
-			runtime.queueQuestProgressEventsLocked(sessionID, updated)
-		}
-		if xpResult, err := runtime.combatXP.GrantNPCKillXP(*result.KillEvent); err == nil {
-			payload := progressionPayload(xpResult.Snapshot)
-			progressionSnapshot = &payload
-			runtime.queueEventLocked(sessionID, realtime.EventProgressionSnapshot, payload)
-		}
-		created, err := runtime.Loot.CreateDropsForNPCKill(*result.KillEvent, runtime.lootTable)
-		if err != nil {
-			return nil, domainErrorForRuntime(err)
-		}
-		drops = created.Drops
 		for _, drop := range drops {
-			if err := runtime.insertLootDropEntityLocked(drop); err != nil {
-				return nil, domainErrorForRuntime(err)
-			}
 			runtime.queueEventLocked(sessionID, realtime.EventLootCreated, lootDropPayload(drop, runtime.clock.Now()))
 		}
 	}

@@ -226,9 +226,42 @@ Phase08E coverage was added or updated in:
 - `internal/game/server/npc_actor_projection.go`
 - `internal/game/server/runtime_world_snapshot.go`
 
-Deferred Phase08 work after Phase08E:
+Phase08F picked up the map/risk/rank-aware loot selector that Phase08E
+deferred. Other Phase08E deferred work remains:
 
-- map/risk/rank-aware loot table selector
+- aggro/leash simulation
+- boss/event spawn hooks
+
+## Phase08F Landed Map/Risk/Rank-Aware Loot Selector Slice
+
+The landed Phase08F slice replaces the runtime's single global NPC loot table
+with a server-only loot table registry keyed by loot table id. The starter
+`training_drone_salvage` table remains seeded as content, so the starter
+training drone still drops `raw_ore x3`, but default NPC kill handling no
+longer falls back to it.
+
+On NPC kill, the runtime resolves the active map instance, the killed NPC's
+`EnemySpawnRecord`, the record's `NPCDropProfile`, profile compatibility, and
+the registry loot table before `MarkEnemyKilledCommand` marks/removes the NPC
+and before realtime combat events are queued. Compatibility checks keep NPC
+type, killed entity id, record level, and map risk band aligned with the drop
+profile. Missing records, profiles, mismatches, or tables return safe runtime
+errors, restore the pre-command combat actor state, leave the spawner row alive,
+and do not create drops or queued stale combat events.
+
+The selector keeps table ids, drop profile ids, pool ids, roll data, seeds, and
+future spawn data server-only. Client loot payloads remain limited to drop id,
+entity id, position, item id, quantity, state, and expiry.
+
+Phase08F coverage was added or updated in:
+
+- `internal/game/server/npc_loot_selector.go`
+- `internal/game/server/npc_loot_selector_command_test.go`
+- `internal/game/server/npc_loot_selector_test.go`
+- `internal/game/server/server_combat_loot_death_test.go`
+
+Deferred Phase08 work after Phase08F:
+
 - aggro/leash simulation
 - boss/event spawn hooks
 
@@ -362,7 +395,8 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
    missing-map targets fail before combat service execution.
 7. On NPC death, notify the spawner first, then create drops with the
    `npc_type + map_id/risk/rank_band` table selector, then broadcast AOI removal
-   only to sessions in the same map.
+   only to sessions in the same map. Landed in Phase08F for
+   spawner-record/drop-profile-based loot table selection.
 8. Add periodic fill and kill-delay respawn scheduling/tick logic that restores
    NPCs after `spawn_interval_ms` or `kill_respawn_delay_ms` without exceeding
    map/pool caps. Landed in Phase08E for worker-local pool ticks.
@@ -402,6 +436,8 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
 - Combat against an NPC in another map fails as not visible/not found and does
   not spend energy or mutate target state.
 - NPC death selects a loot table by `npc_type + map_id/risk/rank_band`.
+  Phase08F landed this through the active map spawner record and
+  `NPCDropProfile.LootTableID`.
 - Duplicate kill/drop creation returns the existing drops and does not double
   grant loot, cargo, XP, quest progress, or metrics.
 - Drops remain visible only through same-map radar/AOI, preserve owner lock, and
@@ -444,9 +480,10 @@ Acceptance criteria:
 Phase08C satisfies the `trainingNPCActor` replacement portion of the first
 criterion for spawner-backed NPCs. Phase08D satisfies narrow death accounting
 for spawner rows and alive counters. Phase08E satisfies worker-local
-kill-delay respawn and periodic fill tick behavior. The global loot table
-replacement, aggro/leash behavior, and boss/event hooks remain open, so the
-full Phase 08 acceptance criteria are not complete.
+kill-delay respawn and periodic fill tick behavior. Phase08F satisfies the
+global loot table replacement for default NPC kill drops. Aggro/leash behavior
+and boss/event hooks remain open, so the full Phase 08 acceptance criteria are
+not complete.
 
 - No default gameplay path uses `trainingNPCActor` or one global
   `training_drone_salvage` table as the source of truth.

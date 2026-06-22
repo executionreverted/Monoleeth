@@ -1490,6 +1490,13 @@ Bu yüzden normal drop:
 
 olmalı.
 
+NPC drop table seçimi global fallback değildir. Server, NPC öldüğünde aktif map
+instance içindeki spawner record'u, record'un drop profile'ını, map risk band'ı
+ve NPC level/type uyumunu doğrular; sonra `NPCDropProfile.LootTableID` ile
+runtime loot table registry'den tablo seçer. Eksik record/profile/table veya
+uyumsuz risk/level/type durumunda güvenli hata döner ve starter training loot'a
+sessiz fallback yapılmaz.
+
 Bitmiş module drop'u:
 
 - Çok nadir

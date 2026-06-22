@@ -80,7 +80,7 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 		event := readEvent(t, conn)
 		seen[event.Type] = true
 		raw := string(event.Payload)
-		for _, forbidden := range []string{"player_id", "damage", "loot_table", "gameplay_seed"} {
+		for _, forbidden := range []string{"player_id", "damage", "loot_table", "drop_profile", trainingDroneSalvageLootTableID, "gameplay_seed"} {
 			if strings.Contains(raw, forbidden) {
 				t.Fatalf("combat event leaked %q in %s", forbidden, raw)
 			}

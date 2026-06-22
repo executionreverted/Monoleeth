@@ -133,7 +133,7 @@ type Runtime struct {
 	Metrics       *observability.MetricRecorder
 
 	combatXP            *combat.NPCKillXPHandler
-	lootTable           loot.LootTable
+	lootTables          map[string]loot.LootTable
 	itemCatalog         map[foundation.ItemID]economy.ItemDefinition
 	repairAttempts      map[foundation.IdempotencyKey]repairAttemptRecord
 	shopPurchases       map[foundation.IdempotencyKey]shopPurchaseRecord
@@ -246,7 +246,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, err
 	}
 	moduleCatalog := modules.MustMVPCatalog()
-	lootTable, itemCatalog, err := runtimeLootCatalog()
+	lootTables, itemCatalog, err := runtimeLootCatalog()
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +363,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		CommandLog:          commandLogger,
 		Metrics:             metricRecorder,
 		combatXP:            combatXP,
-		lootTable:           lootTable,
+		lootTables:          lootTables,
 		itemCatalog:         itemCatalog,
 		repairAttempts:      make(map[foundation.IdempotencyKey]repairAttemptRecord),
 		shopPurchases:       make(map[foundation.IdempotencyKey]shopPurchaseRecord),

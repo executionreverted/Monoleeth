@@ -74,10 +74,23 @@ NPC death:
 
 ```text
 CombatService emits combat.npc_killed
-LootService rolls loot table
+Runtime selects loot table from active map spawner record + NPCDropProfile
+LootService rolls selected loot table
 LootService creates world_loot_drops
 AOI broadcasts drop_created to visible players
 ```
+
+The NPC loot table selector is server-only. It resolves the player's active map
+instance, the killed NPC's `EnemySpawnRecord`, the matching `NPCDropProfile`,
+NPC type/level/risk compatibility, and then a runtime loot table registry entry
+by `NPCDropProfile.LootTableID`. If any part is missing or incompatible, the
+runtime returns a safe error and does not fall back to starter training loot.
+Combat command handling must validate this selector before spawner death
+marking and before realtime combat events are queued, so selector configuration
+errors cannot create fallback drops, dead spawner rows, or stale queued combat
+events that publish on a later successful command.
+Clients never receive loot table ids, drop profile ids, pool ids, roll data,
+seeds, or future spawn data.
 
 Player death:
 
@@ -314,6 +327,7 @@ Defense:
 - Concurrent pickup only one succeeds.
 - Cargo full blocks pickup and drop remains.
 - NPC duplicate death does not duplicate drops.
+- Missing NPC spawn/drop profile/table does not create fallback drops.
 
 ## Implementation Notes
 
