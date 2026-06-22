@@ -121,9 +121,13 @@ for phase status; this file is a compact pending-work index.
   energy/upkeep policy, duplicate settlement windows, and storage capacity, then
   reconcile the browser through `route.list`, `route.snapshot`, and
   `route.updated`/`route.settled` events. Phase07B map-tagged the route domain
-  rows and read payloads for `route.list`/`route.snapshot`; mutation handlers
-  remain open. The Phase10 map rollout audit still treats this as the
-  authenticated route mutation gateway blocker. Source: Phase 10 audit.
+  rows and read payloads for `route.list`/`route.snapshot`; Phase10 now has a
+  server-only gateway quarantine proof that authenticated
+  `route.create/update/enable/disable/settle` requests with client-authored
+  owner/map/amount fields return invalid payload without route mutation or
+  queued events. Mutation handlers/contracts remain open, so the Phase10 map
+  rollout audit still treats this as the authenticated route mutation gateway
+  blocker. Source: Phase 10 audit.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server

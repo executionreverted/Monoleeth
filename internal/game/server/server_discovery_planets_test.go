@@ -431,6 +431,117 @@ func TestProductionAndStorageSummariesAreFilteredToActiveMap(t *testing.T) {
 	}
 }
 
+func TestRouteMutationOperationsRemainUnregisteredGatewayQuarantine(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "route-quarantine@example.com", "Route Quarantine")
+	starterPlanetID := foundation.PlanetID("planet-route-quarantine-map-1-1")
+	mapTwoPlanetID := foundation.PlanetID("planet-route-quarantine-map-1-2")
+	routeID := foundation.RouteID("route-quarantine-map-1-1-to-1-2")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, starterPlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-route-quarantine-map-1-1")
+	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, mapTwoPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-route-quarantine-map-1-2")
+	seedAutomationRouteForTest(t, gameServer, resolved.PlayerID, routeID, starterPlanetID, mapTwoPlanetID, "map_1_1", "map_1_2")
+
+	beforeRoutes := gameServer.runtime.Production.AutomationRoutes()
+	if len(beforeRoutes) != 1 {
+		t.Fatalf("seeded routes = %+v, want one route", beforeRoutes)
+	}
+
+	tests := []struct {
+		name    string
+		op      string
+		payload string
+	}{
+		{
+			name: "create",
+			op:   "route.create",
+			payload: `{
+				"owner_player_id":"spoofed-player",
+				"source_planet_id":"planet-route-quarantine-map-1-1",
+				"source_map_id":"map_1_1",
+				"destination_planet_id":"planet-route-quarantine-map-1-2",
+				"destination_map_id":"map_1_2",
+				"amount_per_hour":999999,
+				"resource_item_id":"refined_alloy"
+			}`,
+		},
+		{
+			name: "update",
+			op:   "route.update",
+			payload: `{
+				"route_id":"route-quarantine-map-1-1-to-1-2",
+				"owner_player_id":"spoofed-player",
+				"source_map_id":"map_1_1",
+				"destination_map_id":"map_1_2",
+				"amount_per_hour":999999
+			}`,
+		},
+		{
+			name: "enable",
+			op:   "route.enable",
+			payload: `{
+				"route_id":"route-quarantine-map-1-1-to-1-2",
+				"owner_player_id":"spoofed-player",
+				"source_map_id":"map_1_1"
+			}`,
+		},
+		{
+			name: "disable",
+			op:   "route.disable",
+			payload: `{
+				"route_id":"route-quarantine-map-1-1-to-1-2",
+				"owner_player_id":"spoofed-player",
+				"source_map_id":"map_1_1"
+			}`,
+		},
+		{
+			name: "settle",
+			op:   "route.settle",
+			payload: `{
+				"route_id":"route-quarantine-map-1-1-to-1-2",
+				"owner_player_id":"spoofed-player",
+				"source_map_id":"map_1_1",
+				"destination_map_id":"map_1_2",
+				"amount_per_hour":999999
+			}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := gameServer.runtime.Gateway.HandleRequest(
+				realtime.SessionID(resolved.SessionID.String()),
+				[]byte(`{"request_id":"request-route-quarantine-`+tt.name+`","op":"`+tt.op+`","payload":`+tt.payload+`,"client_seq":1,"v":1}`),
+			)
+			if !response.HasError || response.Error.Error.Code != foundation.CodeInvalidPayload {
+				t.Fatalf("%s response = %+v, want invalid payload error", tt.op, response)
+			}
+			assertRouteQuarantineUnchanged(t, gameServer, resolved, routeID, beforeRoutes, tt.name)
+		})
+	}
+}
+
+func assertRouteQuarantineUnchanged(t *testing.T, gameServer *Server, resolved auth.ResolvedSession, routeID foundation.RouteID, beforeRoutes []production.AutomationRoute, requestSuffix string) {
+	t.Helper()
+	afterRoutes := gameServer.runtime.Production.AutomationRoutes()
+	if len(afterRoutes) != len(beforeRoutes) {
+		t.Fatalf("routes after rejected mutation = %+v, want unchanged count %d", afterRoutes, len(beforeRoutes))
+	}
+	if len(afterRoutes) != 1 || afterRoutes[0] != beforeRoutes[0] {
+		t.Fatalf("routes after rejected mutation = %+v, want unchanged %+v", afterRoutes, beforeRoutes)
+	}
+	if _, ok, err := gameServer.runtime.Production.AutomationRoute(routeID); err != nil || !ok {
+		t.Fatalf("AutomationRoute(%q) = ok %v err %v, want existing route", routeID, ok, err)
+	}
+	gameServer.runtime.mu.Lock()
+	queuedEvents := len(gameServer.runtime.queuedEvents[resolved.SessionID])
+	gameServer.runtime.mu.Unlock()
+	if queuedEvents != 0 {
+		t.Fatalf("route mutation queued events = %d, want none", queuedEvents)
+	}
+	assertRouteListAndSnapshotMapKeysWithRequestSuffix(t, gameServer, resolved, routeID, "1-1", "1-2", "quarantine-"+requestSuffix)
+}
+
 func assertProductionAndStorageMapKeys(t *testing.T, gameServer *Server, playerID foundation.PlayerID, planetID foundation.PlanetID, publicMapKey string) {
 	t.Helper()
 	productionPayload, err := gameServer.runtime.productionSummaryPayload(playerID, planetID)
@@ -458,9 +569,14 @@ func assertProductionAndStorageMapKeys(t *testing.T, gameServer *Server, playerI
 
 func assertRouteListAndSnapshotMapKeys(t *testing.T, gameServer *Server, resolved auth.ResolvedSession, routeID foundation.RouteID, fromPublicMapKey string, toPublicMapKey string) {
 	t.Helper()
+	assertRouteListAndSnapshotMapKeysWithRequestSuffix(t, gameServer, resolved, routeID, fromPublicMapKey, toPublicMapKey, "map-keys")
+}
+
+func assertRouteListAndSnapshotMapKeysWithRequestSuffix(t *testing.T, gameServer *Server, resolved auth.ResolvedSession, routeID foundation.RouteID, fromPublicMapKey string, toPublicMapKey string, requestSuffix string) {
+	t.Helper()
 	list := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(resolved.SessionID.String()),
-		[]byte(`{"request_id":"request-route-list-map-keys","op":"route.list","payload":{},"client_seq":1,"v":1}`),
+		[]byte(`{"request_id":"request-route-list-`+requestSuffix+`","op":"route.list","payload":{},"client_seq":1,"v":1}`),
 	)
 	if list.HasError {
 		t.Fatalf("route.list error = %+v, want success", list.Error)
@@ -479,7 +595,7 @@ func assertRouteListAndSnapshotMapKeys(t *testing.T, gameServer *Server, resolve
 
 	snapshot := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(resolved.SessionID.String()),
-		[]byte(`{"request_id":"request-route-snapshot-map-keys","op":"route.snapshot","payload":{"route_id":"`+routeID.String()+`"},"client_seq":2,"v":1}`),
+		[]byte(`{"request_id":"request-route-snapshot-`+requestSuffix+`","op":"route.snapshot","payload":{"route_id":"`+routeID.String()+`"},"client_seq":2,"v":1}`),
 	)
 	if snapshot.HasError {
 		t.Fatalf("route.snapshot error = %+v, want success", snapshot.Error)
