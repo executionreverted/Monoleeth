@@ -359,11 +359,56 @@ Phase08H coverage was added or updated in:
 - `internal/game/world/worker/enemy_event_spawner_test.go`
 - `internal/game/world/worker/enemy_spawner_test.go`
 
-Deferred Phase08 work after Phase08H:
+## Phase08I Landed Enemy Lifecycle Telemetry Metrics Slice
 
-- metrics/logging for spawn attempts, cap skips, kill/drop selection, respawn
-  delays, aggro resets, and cross-map rejection counts without logging hidden
-  roll data
+The landed Phase08I slice adds server-only metrics for enemy lifecycle decisions
+without adding client payload fields or exposing hidden content identifiers.
+Map workers now return safe enemy lifecycle telemetry summaries in `TickResult`
+for spawn, respawn, death accounting, aggro, and enemy spawner command
+rejection decisions. The runtime records those summaries into
+`observability.MetricRecorder` using only safe labels: `world_id`, `zone_id`,
+`map_key`, `risk_band`, `npc_type`, `spawn_mode`, `stage`, `result`, and
+`reason`.
+
+Metric series added:
+
+- `enemy_spawn_decisions`
+- `enemy_respawn_decisions`
+- `enemy_death_accounting`
+- `npc_loot_selector_decisions`
+- `enemy_aggro_decisions`
+- `enemy_spawner_command_rejections`
+
+The metrics cover spawn attempts/spawned/skipped outcomes, cap and forbidden
+candidate skips, respawn due/restored/skipped decisions, accepted/duplicate/
+unknown death accounting, safe loot selector accepted/rejected stages, aggro
+acquire/clear/reset decisions, and ownership rejection counts for enemy
+pool/spawner command paths. Labels deliberately exclude pool ids, spawn area
+ids, event spawn ids, stat template ids, drop profile ids, loot table ids,
+entity ids, player ids, session ids, coordinates, RNG seeds, future candidates,
+and roll data.
+
+Structured logs were not added in this slice. The existing safe command log
+path is command-oriented, and broadening it into a lifecycle logging framework
+would expand the task beyond Phase08I. Metrics are the observability MVP for
+this slice and are covered by focused safety tests.
+
+Phase08I coverage was added or updated in:
+
+- `internal/game/observability/metrics.go`
+- `internal/game/observability/metrics_test.go`
+- `internal/game/world/worker/enemy_telemetry.go`
+- `internal/game/world/worker/enemy_telemetry_test.go`
+- `internal/game/world/worker/enemy_spawner.go`
+- `internal/game/world/worker/enemy_aggro.go`
+- `internal/game/world/worker/player_aggro_eligibility.go`
+- `internal/game/server/runtime_metrics.go`
+- `internal/game/server/server_enemy_telemetry_metrics_test.go`
+- `internal/game/server/npc_loot_selector.go`
+- `internal/game/server/npc_loot_selector_test.go`
+
+Deferred Phase08 work after Phase08I:
+
 - debug/demo spawn command quarantine from default real gameplay remains open
 
 ### NPC State Ownership
@@ -516,7 +561,9 @@ select_loot_table(npc_type, map_id, risk_band, rank_band, killed_at)
    memory, safe-zone reset, leash break reset, and chase/return movement.
 10. Add metrics and logs for spawn attempts, cap skips, kill/drop selection,
     respawn delays, aggro resets, and cross-map rejection counts without logging
-    hidden roll data.
+    hidden roll data. Landed in Phase08I as server-only metrics; structured
+    lifecycle logs were intentionally deferred to avoid introducing a broad
+    logging framework outside this metrics MVP.
 11. Add boss/event spawn hooks as disabled-by-default catalog entries with
     explicit event schedule, cap, map policy, and reward/drop profile. Landed
     in Phase08H for server-only catalog hooks and explicit worker trigger
@@ -603,8 +650,9 @@ kill-delay respawn and periodic fill tick behavior. Phase08F satisfies the
 global loot table replacement for default NPC kill drops. Phase08G satisfies
 worker-local aggro/leash movement simulation. Phase08H satisfies the
 disabled-by-default boss/event hook slice with explicit server-owned trigger
-spawning. Metrics/logging and debug/demo quarantine remain open, so the full
-Phase 08 acceptance criteria are not complete.
+spawning. Phase08I satisfies the metrics MVP for spawn, respawn, death,
+drop-selector, aggro, and ownership rejection decisions. Debug/demo quarantine
+remains open, so the full Phase 08 acceptance criteria are not complete.
 
 - No default gameplay path uses `trainingNPCActor` or one global
   `training_drone_salvage` table as the source of truth.

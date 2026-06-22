@@ -24,6 +24,7 @@ func (worker *Worker) tickEnemyAggro() []CommandError {
 
 func (worker *Worker) tickEnemyAggroDefinition(definition worldmaps.MapDefinition) error {
 	if err := worker.validateEnemyPoolDefinitionOwnership(definition); err != nil {
+		worker.recordEnemySpawnerRejection(EnemyTelemetryStageTickAggro, EnemyTelemetryReasonOwnership)
 		return err
 	}
 	if len(worker.enemySpawner.rows) == 0 {
@@ -69,6 +70,16 @@ func (worker *Worker) tickEnemyAggroRow(
 	record.Position = entity.Position
 
 	if aggroProfile.AggroRadius <= 0 {
+		if !record.AggroTargetEntityID.IsZero() {
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindAggro,
+				EnemyTelemetryStageTargeting,
+				EnemyTelemetryResultCleared,
+				EnemyTelemetryReasonPassive,
+				record.NPCType,
+				"",
+			)
+		}
 		clearEnemyTargetMemory(&record)
 		entity = worker.stopEnemyMovement(entity)
 		worker.enemySpawner.rows[index] = record
@@ -76,6 +87,16 @@ func (worker *Worker) tickEnemyAggroRow(
 	}
 
 	if safeZoneAttackNever(aggroProfile) && definitionPositionInPVPBlockingSafeZone(definition, entity.Position) {
+		if !record.AggroTargetEntityID.IsZero() {
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindAggro,
+				EnemyTelemetryStageTargeting,
+				EnemyTelemetryResultReset,
+				EnemyTelemetryReasonSafeZone,
+				record.NPCType,
+				"",
+			)
+		}
 		entity, err := worker.resetEnemyTargetAndMaybeReturn(entity, &record, leashProfile, now)
 		if err != nil {
 			return err
@@ -99,10 +120,26 @@ func (worker *Worker) tickEnemyAggroRow(
 		record.AggroTargetEntityID = target.ID
 		record.AggroAcquiredAt = now
 		record.AggroTargetLastSeenAt = now
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindAggro,
+			EnemyTelemetryStageTargeting,
+			EnemyTelemetryResultAcquired,
+			EnemyTelemetryReasonInRange,
+			record.NPCType,
+			"",
+		)
 	}
 
-	target, keep := worker.currentAggroTarget(record.AggroTargetEntityID)
+	target, keep, lostReason := worker.currentAggroTarget(record.AggroTargetEntityID)
 	if !keep {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindAggro,
+			EnemyTelemetryStageTargeting,
+			EnemyTelemetryResultCleared,
+			lostReason,
+			record.NPCType,
+			"",
+		)
 		entity, err := worker.resetEnemyTargetAndMaybeReturn(entity, &record, leashProfile, now)
 		if err != nil {
 			return err
@@ -113,6 +150,14 @@ func (worker *Worker) tickEnemyAggroRow(
 	}
 
 	if safeZoneAttackNever(aggroProfile) && (definitionPositionInPVPBlockingSafeZone(definition, entity.Position) || definitionPositionInPVPBlockingSafeZone(definition, target.Position)) {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindAggro,
+			EnemyTelemetryStageTargeting,
+			EnemyTelemetryResultReset,
+			EnemyTelemetryReasonSafeZone,
+			record.NPCType,
+			"",
+		)
 		entity, err := worker.resetEnemyTargetAndMaybeReturn(entity, &record, leashProfile, now)
 		if err != nil {
 			return err
@@ -123,6 +168,14 @@ func (worker *Worker) tickEnemyAggroRow(
 	}
 
 	if leashProfile.ResetOnBreak && enemyLeashBroken(record.LeashOrigin, leashProfile.LeashDistance, entity.Position, target.Position) {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindAggro,
+			EnemyTelemetryStageTargeting,
+			EnemyTelemetryResultReset,
+			EnemyTelemetryReasonLeashBreak,
+			record.NPCType,
+			"",
+		)
 		entity, err := worker.resetEnemyTargetAndMaybeReturn(entity, &record, leashProfile, now)
 		if err != nil {
 			return err
@@ -135,6 +188,14 @@ func (worker *Worker) tickEnemyAggroRow(
 	if entity.Position.DistanceSquared(target.Position) <= aggroProfile.AggroRadius*aggroProfile.AggroRadius {
 		record.AggroTargetLastSeenAt = now
 	} else if aggroTargetMemoryExpired(record, aggroProfile, now) {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindAggro,
+			EnemyTelemetryStageTargeting,
+			EnemyTelemetryResultReset,
+			EnemyTelemetryReasonTargetMemoryExpired,
+			record.NPCType,
+			"",
+		)
 		entity, err := worker.resetEnemyTargetAndMaybeReturn(entity, &record, leashProfile, now)
 		if err != nil {
 			return err
@@ -229,15 +290,15 @@ func (worker *Worker) nearestAggroTarget(
 	return best, found
 }
 
-func (worker *Worker) currentAggroTarget(entityID world.EntityID) (world.Entity, bool) {
+func (worker *Worker) currentAggroTarget(entityID world.EntityID) (world.Entity, bool, string) {
 	target, ok := worker.entities[entityID]
 	if !ok || target.Type != world.EntityTypePlayer {
-		return world.Entity{}, false
+		return world.Entity{}, false, EnemyTelemetryReasonTargetMissing
 	}
 	if !worker.playerAggroEligibleByEntityID(target.ID) {
-		return world.Entity{}, false
+		return world.Entity{}, false, EnemyTelemetryReasonTargetIneligible
 	}
-	return target, true
+	return target, true, ""
 }
 
 func (worker *Worker) playerAggroEligibleByEntityID(entityID world.EntityID) bool {

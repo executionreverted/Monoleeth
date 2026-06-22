@@ -56,7 +56,9 @@ func (runtime *Runtime) applyShipDisabledDomainEventLocked(payload deathdomain.S
 	if instance, _, err := runtime.activeMapInstanceLocked(payload.PlayerID); err == nil {
 		activeInstance = instance
 		if err := instance.Worker.Submit(worker.StopCommand{PlayerID: payload.PlayerID}); err == nil {
-			_ = commandErrors(instance.Worker.Tick())
+			result := instance.Worker.Tick()
+			runtime.recordEnemyTelemetryLocked(instance, result)
+			_ = commandErrors(result)
 		}
 	}
 

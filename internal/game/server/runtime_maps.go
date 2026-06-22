@@ -158,7 +158,9 @@ func (runtime *Runtime) detachSessionFromInstanceLocked(instance *mapInstance, s
 		command = worker.SettleAndDetachSessionCommand{SessionID: realtime.SessionID(sessionID.String())}
 	}
 	_ = instance.Worker.Submit(command)
-	_ = commandErrors(instance.Worker.Tick())
+	result := instance.Worker.Tick()
+	runtime.recordEnemyTelemetryLocked(instance, result)
+	_ = commandErrors(result)
 	delete(instance.ActiveSessions, sessionID)
 	delete(instance.LastAOI, sessionID)
 	if runtime.sessionLocations[sessionID] == instance.Definition.InternalMapID {

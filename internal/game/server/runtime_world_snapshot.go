@@ -189,6 +189,7 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 	failedInstances := make(map[*mapInstance]struct{})
 	for _, instance := range runtime.sortedMapInstancesLocked() {
 		result := instance.Worker.Tick()
+		runtime.recordEnemyTelemetryLocked(instance, result)
 		if err := commandErrors(result); err != nil {
 			runtime.recordAOITickErrorLocked(instance, "worker_tick", err)
 			failedInstances[instance] = struct{}{}

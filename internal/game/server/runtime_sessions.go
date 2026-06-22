@@ -52,7 +52,9 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 		}); err != nil {
 			return err
 		}
-		err = commandErrors(instance.Worker.Tick())
+		result := instance.Worker.Tick()
+		runtime.recordEnemyTelemetryLocked(instance, result)
+		err = commandErrors(result)
 	}
 	if err != nil {
 		return err
@@ -65,7 +67,9 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 			return err
 		}
 	}
-	err = commandErrors(instance.Worker.Tick())
+	result := instance.Worker.Tick()
+	runtime.recordEnemyTelemetryLocked(instance, result)
+	err = commandErrors(result)
 	if err != nil {
 		return err
 	}

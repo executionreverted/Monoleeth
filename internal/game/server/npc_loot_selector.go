@@ -19,9 +19,21 @@ var (
 	errNPCLootTableUnavailable   = errors.New("npc loot table unavailable")
 )
 
+const (
+	npcLootSelectorStageMap          = "map"
+	npcLootSelectorStageSpawnRecord  = "spawn_record"
+	npcLootSelectorStageKillRecord   = "kill_record"
+	npcLootSelectorStageDropProfile  = "drop_profile"
+	npcLootSelectorStageLootTable    = "loot_table"
+	npcLootSelectorReasonUnavailable = "unavailable"
+	npcLootSelectorReasonMismatch    = "mismatch"
+	npcLootSelectorReasonSelected    = "selected"
+)
+
 func (runtime *Runtime) selectNPCKillLootTableLocked(playerID foundation.PlayerID, event combat.NPCKilledEvent) (loot.LootTable, error) {
 	instance, _, err := runtime.activeMapInstanceLocked(playerID)
 	if err != nil {
+		runtime.recordNPCLootSelectorMetricLocked(nil, event, npcLootSelectorStageMap, worker.EnemyTelemetryResultRejected, npcLootSelectorReasonUnavailable)
 		return loot.LootTable{}, err
 	}
 	return runtime.selectNPCKillLootTableForInstanceLocked(instance, event)
@@ -29,33 +41,43 @@ func (runtime *Runtime) selectNPCKillLootTableLocked(playerID foundation.PlayerI
 
 func (runtime *Runtime) selectNPCKillLootTableForInstanceLocked(instance *mapInstance, event combat.NPCKilledEvent) (loot.LootTable, error) {
 	if runtime == nil || instance == nil || instance.Worker == nil {
+		if runtime != nil {
+			runtime.recordNPCLootSelectorMetricLocked(instance, event, npcLootSelectorStageMap, worker.EnemyTelemetryResultRejected, npcLootSelectorReasonUnavailable)
+		}
 		return loot.LootTable{}, errNPCLootMapUnavailable
 	}
 	if event.WorldID != instance.Definition.WorldID || event.ZoneID != instance.Definition.ZoneID {
+		runtime.recordNPCLootSelectorMetricLocked(instance, event, npcLootSelectorStageMap, worker.EnemyTelemetryResultRejected, npcLootSelectorReasonMismatch)
 		return loot.LootTable{}, errNPCLootMapUnavailable
 	}
 
 	record, ok := instance.Worker.EnemySpawnRecord(event.NPCEntityID)
 	if !ok {
+		runtime.recordNPCLootSelectorMetricLocked(instance, event, npcLootSelectorStageSpawnRecord, worker.EnemyTelemetryResultRejected, npcLootSelectorReasonUnavailable)
 		return loot.LootTable{}, errNPCLootSpawnUnavailable
 	}
 	if !npcLootRecordMatchesKill(record, event) {
+		runtime.recordNPCLootSelectorMetricLocked(instance, event, npcLootSelectorStageKillRecord, worker.EnemyTelemetryResultRejected, npcLootSelectorReasonMismatch)
 		return loot.LootTable{}, errNPCLootProfileMismatch
 	}
 
 	profile, ok := npcDropProfileByID(instance.Definition, record.DropProfileID)
 	if !ok {
+		runtime.recordNPCLootSelectorMetricLocked(instance, event, npcLootSelectorStageDropProfile, worker.EnemyTelemetryResultRejected, npcLootSelectorReasonUnavailable)
 		return loot.LootTable{}, errNPCLootProfileUnavailable
 	}
 	if !npcDropProfileCompatible(instance.Definition, record, event, profile) {
+		runtime.recordNPCLootSelectorMetricLocked(instance, event, npcLootSelectorStageDropProfile, worker.EnemyTelemetryResultRejected, npcLootSelectorReasonMismatch)
 		return loot.LootTable{}, errNPCLootProfileMismatch
 	}
 
 	tableID := strings.TrimSpace(profile.LootTableID)
 	table, ok := runtime.lootTables[tableID]
 	if !ok || table.Source.DefinitionID.String() != tableID {
+		runtime.recordNPCLootSelectorMetricLocked(instance, event, npcLootSelectorStageLootTable, worker.EnemyTelemetryResultRejected, npcLootSelectorReasonUnavailable)
 		return loot.LootTable{}, errNPCLootTableUnavailable
 	}
+	runtime.recordNPCLootSelectorMetricLocked(instance, event, npcLootSelectorStageLootTable, worker.EnemyTelemetryResultAccepted, npcLootSelectorReasonSelected)
 	return table, nil
 }
 

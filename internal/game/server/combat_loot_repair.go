@@ -109,7 +109,7 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 			restoreAttackActors()
 			return nil, domainErrorForRuntime(err)
 		}
-		if err := commandErrorsFromSubmitAndTick(instance.Worker, worker.MarkEnemyKilledCommand{
+		if err := runtime.submitWorkerCommandAndRecordMetricsLocked(instance, worker.MarkEnemyKilledCommand{
 			Definition:  instance.Definition,
 			NPCEntityID: result.KillEvent.NPCEntityID,
 			KilledAt:    result.KillEvent.KilledAt,

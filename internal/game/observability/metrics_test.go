@@ -284,6 +284,24 @@ func TestMetricHelpersRecordPhase12Series(t *testing.T) {
 		func() error { return recorder.RecordMarketSale("credits", foundation.ItemID("item-ore"), 5, 25) },
 		func() error { return recorder.RecordAuctionBid("credits", 40) },
 		func() error { return recorder.RecordAuctionClearing("credits", foundation.ItemID("item-ore"), 2, 60) },
+		func() error {
+			return recorder.RecordEnemySpawnDecision(foundation.WorldID("world-1"), foundation.ZoneID("zone-1"), "1-1", "low", "initial_fill", "spawned", "none", "training_drone", "periodic")
+		},
+		func() error {
+			return recorder.RecordEnemyRespawnDecision(foundation.WorldID("world-1"), foundation.ZoneID("zone-1"), "1-1", "low", "kill_delay", "restored", "none", "training_drone", "periodic")
+		},
+		func() error {
+			return recorder.RecordEnemyDeathAccounting(foundation.WorldID("world-1"), foundation.ZoneID("zone-1"), "1-1", "low", "command", "accepted", "none", "training_drone")
+		},
+		func() error {
+			return recorder.RecordNPCLootSelectorDecision(foundation.WorldID("world-1"), foundation.ZoneID("zone-1"), "1-1", "low", "loot_table", "accepted", "selected", "training_drone")
+		},
+		func() error {
+			return recorder.RecordEnemyAggroDecision(foundation.WorldID("world-1"), foundation.ZoneID("zone-1"), "1-1", "low", "targeting", "acquired", "target_in_range", "training_drone")
+		},
+		func() error {
+			return recorder.RecordEnemySpawnerCommandRejection(foundation.WorldID("world-1"), foundation.ZoneID("zone-1"), "1-1", "low", "initial_fill", "rejected", "ownership")
+		},
 	}
 	for i, helper := range helpers {
 		if err := helper(); err != nil {
@@ -325,9 +343,60 @@ func TestMetricHelpersRecordPhase12Series(t *testing.T) {
 		MetricAuctionClearingVolume,
 		MetricAuctionClearingQuantity,
 		MetricAuctionClears,
+		MetricEnemySpawnDecisions,
+		MetricEnemyRespawnDecisions,
+		MetricEnemyDeathAccounting,
+		MetricNPCLootSelectorDecisions,
+		MetricEnemyAggroDecisions,
+		MetricEnemySpawnerCommandRejections,
 	} {
 		if !metricNames[want] {
 			t.Fatalf("missing helper metric %q in snapshot %#v", want, snapshot)
+		}
+	}
+}
+
+func TestEnemyLifecycleMetricHelpersUseSafeLabelsOnly(t *testing.T) {
+	recorder := NewMetricRecorder()
+	if err := recorder.RecordEnemySpawnDecision(
+		foundation.WorldID("world-1"),
+		foundation.ZoneID("map_1_1"),
+		"1-1",
+		"low",
+		"initial_fill",
+		"spawned",
+		"none",
+		"training_drone",
+		"periodic",
+	); err != nil {
+		t.Fatalf("RecordEnemySpawnDecision() error = %v, want nil", err)
+	}
+
+	payload, err := json.Marshal(recorder.Snapshot())
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	raw := string(payload)
+	for _, forbidden := range []string{
+		"pool_id",
+		"starter_training_drone_pool",
+		"spawn_area_id",
+		"starter_training_drone_area",
+		"event_spawn_id",
+		"stat_template_id",
+		"training_drone_level_1",
+		"drop_profile_id",
+		"training_drone_salvage",
+		"loot_table_id",
+		"entity_training_npc",
+		"player_id",
+		"session_id",
+		"rng",
+		"seed",
+		"roll",
+	} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("enemy lifecycle metric leaked %q in %s", forbidden, raw)
 		}
 	}
 }

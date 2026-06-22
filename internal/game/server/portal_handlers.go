@@ -210,7 +210,9 @@ func (runtime *Runtime) transferThroughPortalLocked(sessionID auth.SessionID, pl
 			return nil, domainErrorForRuntime(err)
 		}
 	}
-	if err := commandErrors(destination.Worker.Tick()); err != nil {
+	result := destination.Worker.Tick()
+	runtime.recordEnemyTelemetryLocked(destination, result)
+	if err := commandErrors(result); err != nil {
 		runtime.cleanupDestinationAfterFailedTransferLocked(destination, sessionIDs, playerID, sourceEntity.ID)
 		runtime.restoreSourceAfterFailedTransferLocked(source, sourceLocation, sourceEntity, sourceSpeed, sessionIDs, playerID)
 		runtime.queueTransferFailedLocked(sessionIDs, portal, source, "Portal transfer failed.")
@@ -274,19 +276,12 @@ func (runtime *Runtime) attachPlayerToDestinationLocked(instance *mapInstance, p
 		entity.Movement = world.MovementState{}
 		return instance.Worker.UpdateEntity(entity)
 	}
-	return commandErrorsFromSubmitAndTick(instance.Worker, worker.SpawnPlayerCommand{
+	return runtime.submitWorkerCommandAndRecordMetricsLocked(instance, worker.SpawnPlayerCommand{
 		PlayerID: playerID,
 		EntityID: entityID,
 		Position: position,
 		Speed:    defaultPlayerSpeed,
 	})
-}
-
-func commandErrorsFromSubmitAndTick(workerInstance *worker.Worker, command worker.Command) error {
-	if err := workerInstance.Submit(command); err != nil {
-		return err
-	}
-	return commandErrors(workerInstance.Tick())
 }
 
 func notifyPortalTransferInterleaveTestHook(stage portalTransferInterleaveStage, runtime *Runtime, context portalTransferInterleaveContext) error {
@@ -303,7 +298,9 @@ func (runtime *Runtime) cleanupDestinationAfterFailedTransferLocked(destination 
 	for _, sessionID := range sessionIDs {
 		_ = destination.Worker.Submit(worker.DetachSessionCommand{SessionID: realtime.SessionID(sessionID.String())})
 	}
-	_ = commandErrors(destination.Worker.Tick())
+	result := destination.Worker.Tick()
+	runtime.recordEnemyTelemetryLocked(destination, result)
+	_ = commandErrors(result)
 	destination.Worker.RemoveEntity(entityID)
 	delete(destination.HiddenPlayers, playerID)
 	runtime.deleteHiddenPlayerWitnessesLocked(destination, playerID)
@@ -322,7 +319,7 @@ func (runtime *Runtime) restoreSourceAfterFailedTransferLocked(source *mapInstan
 		if _, exists := source.Worker.Entity(sourceEntity.ID); exists {
 			source.Worker.RemoveEntity(sourceEntity.ID)
 		}
-		if err := commandErrorsFromSubmitAndTick(source.Worker, worker.SpawnPlayerCommand{
+		if err := runtime.submitWorkerCommandAndRecordMetricsLocked(source, worker.SpawnPlayerCommand{
 			PlayerID: playerID,
 			EntityID: sourceEntity.ID,
 			Position: sourceEntity.Position,
@@ -338,7 +335,9 @@ func (runtime *Runtime) restoreSourceAfterFailedTransferLocked(source *mapInstan
 		}); err != nil && !errors.Is(err, worker.ErrPlayerAlreadyExists) {
 			continue
 		}
-		_ = commandErrors(source.Worker.Tick())
+		result := source.Worker.Tick()
+		runtime.recordEnemyTelemetryLocked(source, result)
+		_ = commandErrors(result)
 		runtime.attachSessionToInstanceLocked(source, sessionID, playerID)
 	}
 }

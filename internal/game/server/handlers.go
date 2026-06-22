@@ -270,7 +270,9 @@ func (runtime *Runtime) handleMoveTo(ctx realtime.CommandContext, request realti
 	if err := instance.Worker.Submit(worker.MoveToCommand{PlayerID: ctx.PlayerID, Intent: intent}); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
-	if err := commandErrors(instance.Worker.Tick()); err != nil {
+	result := instance.Worker.Tick()
+	runtime.recordEnemyTelemetryLocked(instance, result)
+	if err := commandErrors(result); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
 	snapshot, err := runtime.worldSnapshotForSessionLocked(ctx.PlayerID, authSessionID(ctx.SessionID))
@@ -310,7 +312,9 @@ func (runtime *Runtime) handleStop(ctx realtime.CommandContext, request realtime
 	if err := instance.Worker.Submit(worker.StopCommand{PlayerID: ctx.PlayerID}); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
-	if err := commandErrors(instance.Worker.Tick()); err != nil {
+	result := instance.Worker.Tick()
+	runtime.recordEnemyTelemetryLocked(instance, result)
+	if err := commandErrors(result); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
 	snapshot, err := runtime.worldSnapshotForSessionLocked(ctx.PlayerID, authSessionID(ctx.SessionID))
@@ -415,7 +419,9 @@ func (runtime *Runtime) handleDebugSpawnNPC(ctx realtime.CommandContext, request
 	if err := instance.Worker.Submit(worker.DebugSpawnNPCCommand{EntityID: entityID, Position: payload.Position}); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
-	if err := commandErrors(instance.Worker.Tick()); err != nil {
+	result := instance.Worker.Tick()
+	runtime.recordEnemyTelemetryLocked(instance, result)
+	if err := commandErrors(result); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
 	return marshalPayload(map[string]any{"accepted": true})

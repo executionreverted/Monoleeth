@@ -56,7 +56,11 @@ type InitializeEnemyPoolsCommand struct {
 }
 
 func (command InitializeEnemyPoolsCommand) apply(worker *Worker) error {
-	return worker.initializeEnemyPools(command.Definition, command.EntityIDOverrides)
+	err := worker.initializeEnemyPools(command.Definition, command.EntityIDOverrides)
+	if err != nil {
+		worker.recordEnemySpawnerCommandRejection(EnemyTelemetryStageInitialFill, err)
+	}
+	return err
 }
 
 // MarkEnemyKilledCommand records a spawner-backed NPC death in worker-owned
@@ -68,7 +72,11 @@ type MarkEnemyKilledCommand struct {
 }
 
 func (command MarkEnemyKilledCommand) apply(worker *Worker) error {
-	return worker.markEnemyKilled(command.Definition, command.NPCEntityID, command.KilledAt)
+	err := worker.markEnemyKilled(command.Definition, command.NPCEntityID, command.KilledAt)
+	if err != nil {
+		worker.recordEnemySpawnerCommandRejection(EnemyTelemetryStageCommand, err)
+	}
+	return err
 }
 
 // TriggerEnemyEventSpawnCommand is a server-owned hook for due boss/event
@@ -80,7 +88,11 @@ type TriggerEnemyEventSpawnCommand struct {
 }
 
 func (command TriggerEnemyEventSpawnCommand) apply(worker *Worker) error {
-	return worker.triggerEnemyEventSpawn(command.Definition, command.EventSpawnID, command.TriggeredAt)
+	err := worker.triggerEnemyEventSpawn(command.Definition, command.EventSpawnID, command.TriggeredAt)
+	if err != nil {
+		worker.recordEnemySpawnerCommandRejection(EnemyTelemetryStageEventSpawn, err)
+	}
+	return err
 }
 
 // EnemySpawnSnapshot returns clone-safe server-only spawner state.
@@ -127,6 +139,18 @@ func (worker *Worker) initializeEnemyPools(definition worldmaps.MapDefinition, o
 			continue
 		}
 		if !pool.Enabled || pool.SpawnMode == worldmaps.SpawnModeDisabled || pool.SpawnMode == worldmaps.SpawnModeEventScheduled {
+			reason := EnemyTelemetryReasonDisabled
+			if pool.Enabled && pool.SpawnMode == worldmaps.SpawnModeEventScheduled {
+				reason = EnemyTelemetryReasonEventScheduled
+			}
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindSpawn,
+				EnemyTelemetryStageInitialFill,
+				EnemyTelemetryResultSkipped,
+				reason,
+				pool.NPCType,
+				string(pool.SpawnMode),
+			)
 			worker.enemySpawner.markPoolInitialized(pool.EnemyPoolID)
 			continue
 		}
@@ -137,14 +161,49 @@ func (worker *Worker) initializeEnemyPools(definition worldmaps.MapDefinition, o
 
 		poolAliveCount := worker.enemySpawner.poolAliveCount(pool.EnemyPoolID)
 		for spawnIndex := 0; spawnIndex < pool.InitialAlive; spawnIndex++ {
-			if poolAliveCount >= pool.PoolMaxAlive || (hasMapAliveCap && mapAliveCount >= mapAliveCap) {
+			if poolAliveCount >= pool.PoolMaxAlive {
+				worker.recordEnemyTelemetry(
+					EnemyTelemetryKindSpawn,
+					EnemyTelemetryStageInitialFill,
+					EnemyTelemetryResultSkipped,
+					EnemyTelemetryReasonPoolCap,
+					pool.NPCType,
+					string(pool.SpawnMode),
+				)
 				break
 			}
+			if hasMapAliveCap && mapAliveCount >= mapAliveCap {
+				worker.recordEnemyTelemetry(
+					EnemyTelemetryKindSpawn,
+					EnemyTelemetryStageInitialFill,
+					EnemyTelemetryResultSkipped,
+					EnemyTelemetryReasonMapCap,
+					pool.NPCType,
+					string(pool.SpawnMode),
+				)
+				break
+			}
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindSpawn,
+				EnemyTelemetryStageInitialFill,
+				EnemyTelemetryResultAttempted,
+				EnemyTelemetryStageInitialFill,
+				pool.NPCType,
+				string(pool.SpawnMode),
+			)
 			area, ok, err := selectInitialSpawnArea(definition, spawnAreas, pool, spawnIndex)
 			if err != nil {
 				return err
 			}
 			if !ok {
+				worker.recordEnemyTelemetry(
+					EnemyTelemetryKindSpawn,
+					EnemyTelemetryStageInitialFill,
+					EnemyTelemetryResultSkipped,
+					EnemyTelemetryReasonForbiddenCandidate,
+					pool.NPCType,
+					string(pool.SpawnMode),
+				)
 				continue
 			}
 
@@ -157,6 +216,14 @@ func (worker *Worker) initializeEnemyPools(definition worldmaps.MapDefinition, o
 				return err
 			}
 			worker.enemySpawner.add(record)
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindSpawn,
+				EnemyTelemetryStageInitialFill,
+				EnemyTelemetryResultSpawned,
+				EnemyTelemetryStageInitialFill,
+				pool.NPCType,
+				string(pool.SpawnMode),
+			)
 			poolAliveCount++
 			mapAliveCount++
 		}
@@ -170,16 +237,40 @@ func (worker *Worker) markEnemyKilled(definition worldmaps.MapDefinition, entity
 		return err
 	}
 	if worker.enemySpawner == nil {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindDeath,
+			EnemyTelemetryStageCommand,
+			EnemyTelemetryResultUnknown,
+			EnemyTelemetryReasonUnknownEntity,
+			"",
+			"",
+		)
 		return fmt.Errorf("enemy spawn entity %q: %w", entityID, ErrUnknownEntity)
 	}
 
 	index, ok := worker.enemySpawner.byEntityID[entityID]
 	if !ok {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindDeath,
+			EnemyTelemetryStageCommand,
+			EnemyTelemetryResultUnknown,
+			EnemyTelemetryReasonUnknownEntity,
+			"",
+			"",
+		)
 		return fmt.Errorf("enemy spawn entity %q: %w", entityID, ErrUnknownEntity)
 	}
 	record := worker.enemySpawner.rows[index]
 	if !record.Alive {
 		worker.removeEntity(entityID)
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindDeath,
+			EnemyTelemetryStageCommand,
+			EnemyTelemetryResultDuplicate,
+			EnemyTelemetryReasonAlreadyDead,
+			record.NPCType,
+			"",
+		)
 		return nil
 	}
 
@@ -201,6 +292,16 @@ func (worker *Worker) markEnemyKilled(definition worldmaps.MapDefinition, entity
 	} else {
 		record.NextRespawnAt = killedAt.Add(pool.KillRespawnDelay + deterministicSpawnJitter(pool.SpawnJitter, definition.InternalMapID.String(), pool.EnemyPoolID.String(), entityID.String()))
 	}
+	if !record.AggroTargetEntityID.IsZero() {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindAggro,
+			EnemyTelemetryStageTargeting,
+			EnemyTelemetryResultReset,
+			EnemyTelemetryReasonDeath,
+			record.NPCType,
+			string(pool.SpawnMode),
+		)
+	}
 	clearEnemyAggroState(&record)
 	worker.enemySpawner.rows[index] = record
 
@@ -210,6 +311,14 @@ func (worker *Worker) markEnemyKilled(definition worldmaps.MapDefinition, entity
 		worker.enemySpawner.aliveByPool[record.EnemyPoolID] = 0
 	}
 	worker.removeEntity(entityID)
+	worker.recordEnemyTelemetry(
+		EnemyTelemetryKindDeath,
+		EnemyTelemetryStageCommand,
+		EnemyTelemetryResultAccepted,
+		EnemyTelemetryReasonNone,
+		record.NPCType,
+		string(pool.SpawnMode),
+	)
 	return nil
 }
 
@@ -225,6 +334,7 @@ func (worker *Worker) tickEnemySpawner() []CommandError {
 
 func (worker *Worker) tickEnemySpawnerDefinition(definition worldmaps.MapDefinition) error {
 	if err := worker.validateEnemyPoolDefinitionOwnership(definition); err != nil {
+		worker.recordEnemySpawnerRejection(EnemyTelemetryStageTickSpawner, EnemyTelemetryReasonOwnership)
 		return err
 	}
 	if len(definition.EnemyPools) == 0 {
@@ -247,10 +357,49 @@ func (worker *Worker) tickEnemySpawnerDefinition(definition worldmaps.MapDefinit
 		if !ok {
 			return fmt.Errorf("enemy pool %q: %w", record.EnemyPoolID, worldmaps.ErrInvalidCatalog)
 		}
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindRespawn,
+			EnemyTelemetryStageKillDelay,
+			EnemyTelemetryResultDue,
+			EnemyTelemetryStageKillDelay,
+			record.NPCType,
+			string(pool.SpawnMode),
+		)
 		if !pool.Enabled || pool.SpawnMode == worldmaps.SpawnModeDisabled || pool.SpawnMode == worldmaps.SpawnModeEventScheduled {
+			reason := EnemyTelemetryReasonDisabled
+			if pool.Enabled && pool.SpawnMode == worldmaps.SpawnModeEventScheduled {
+				reason = EnemyTelemetryReasonEventScheduled
+			}
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindRespawn,
+				EnemyTelemetryStageKillDelay,
+				EnemyTelemetryResultSkipped,
+				reason,
+				record.NPCType,
+				string(pool.SpawnMode),
+			)
 			continue
 		}
-		if worker.enemySpawner.poolAliveCount(record.EnemyPoolID) >= pool.PoolMaxAlive || (hasMapAliveCap && mapAliveCount >= mapAliveCap) {
+		if worker.enemySpawner.poolAliveCount(record.EnemyPoolID) >= pool.PoolMaxAlive {
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindRespawn,
+				EnemyTelemetryStageKillDelay,
+				EnemyTelemetryResultSkipped,
+				EnemyTelemetryReasonPoolCap,
+				record.NPCType,
+				string(pool.SpawnMode),
+			)
+			continue
+		}
+		if hasMapAliveCap && mapAliveCount >= mapAliveCap {
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindRespawn,
+				EnemyTelemetryStageKillDelay,
+				EnemyTelemetryResultSkipped,
+				EnemyTelemetryReasonMapCap,
+				record.NPCType,
+				string(pool.SpawnMode),
+			)
 			continue
 		}
 		statTemplate, ok := statTemplates[record.StatTemplateID]
@@ -262,11 +411,27 @@ func (worker *Worker) tickEnemySpawnerDefinition(definition worldmaps.MapDefinit
 			return fmt.Errorf("enemy pool %q spawn area %q: %w", record.EnemyPoolID, record.SpawnAreaID, worldmaps.ErrInvalidCatalog)
 		}
 		if !validSpawnCandidate(definition, area, area.Center) {
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindRespawn,
+				EnemyTelemetryStageKillDelay,
+				EnemyTelemetryResultSkipped,
+				EnemyTelemetryReasonForbiddenCandidate,
+				record.NPCType,
+				string(pool.SpawnMode),
+			)
 			continue
 		}
 		if err := worker.respawnEnemyRecord(index, definition, statTemplate, area, now); err != nil {
 			return err
 		}
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindRespawn,
+			EnemyTelemetryStageKillDelay,
+			EnemyTelemetryResultRestored,
+			EnemyTelemetryStageKillDelay,
+			record.NPCType,
+			string(pool.SpawnMode),
+		)
 		mapAliveCount++
 	}
 
@@ -275,15 +440,42 @@ func (worker *Worker) tickEnemySpawnerDefinition(definition worldmaps.MapDefinit
 		if !pool.Enabled || pool.SpawnMode != worldmaps.SpawnModePeriodic {
 			continue
 		}
-		if worker.enemySpawner.poolReservedCount(pool.EnemyPoolID) >= pool.PoolMaxAlive || (hasMapAliveCap && mapReservedCount >= mapAliveCap) {
-			continue
-		}
 		lastFillAt := worker.enemySpawner.lastPeriodicFillAt(pool.EnemyPoolID)
 		nextFillAt := lastFillAt.Add(pool.SpawnInterval + deterministicSpawnJitter(pool.SpawnJitter, definition.InternalMapID.String(), pool.EnemyPoolID.String(), "periodic"))
 		if now.Before(nextFillAt) {
 			continue
 		}
+		if worker.enemySpawner.poolReservedCount(pool.EnemyPoolID) >= pool.PoolMaxAlive {
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindSpawn,
+				EnemyTelemetryStagePeriodicFill,
+				EnemyTelemetryResultSkipped,
+				EnemyTelemetryReasonPoolCap,
+				pool.NPCType,
+				string(pool.SpawnMode),
+			)
+			continue
+		}
+		if hasMapAliveCap && mapReservedCount >= mapAliveCap {
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindSpawn,
+				EnemyTelemetryStagePeriodicFill,
+				EnemyTelemetryResultSkipped,
+				EnemyTelemetryReasonMapCap,
+				pool.NPCType,
+				string(pool.SpawnMode),
+			)
+			continue
+		}
 		worker.enemySpawner.setLastPeriodicFillAt(pool.EnemyPoolID, now)
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindSpawn,
+			EnemyTelemetryStagePeriodicFill,
+			EnemyTelemetryResultAttempted,
+			EnemyTelemetryStagePeriodicFill,
+			pool.NPCType,
+			string(pool.SpawnMode),
+		)
 
 		statTemplate, ok := statTemplates[pool.StatTemplateID]
 		if !ok {
@@ -295,6 +487,14 @@ func (worker *Worker) tickEnemySpawnerDefinition(definition worldmaps.MapDefinit
 			return err
 		}
 		if !ok {
+			worker.recordEnemyTelemetry(
+				EnemyTelemetryKindSpawn,
+				EnemyTelemetryStagePeriodicFill,
+				EnemyTelemetryResultSkipped,
+				EnemyTelemetryReasonForbiddenCandidate,
+				pool.NPCType,
+				string(pool.SpawnMode),
+			)
 			continue
 		}
 		entityID := enemySpawnEntityID(definition.InternalMapID, pool.EnemyPoolID, spawnIndex, nil)
@@ -306,6 +506,14 @@ func (worker *Worker) tickEnemySpawnerDefinition(definition worldmaps.MapDefinit
 			return err
 		}
 		worker.enemySpawner.add(record)
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindSpawn,
+			EnemyTelemetryStagePeriodicFill,
+			EnemyTelemetryResultSpawned,
+			EnemyTelemetryStagePeriodicFill,
+			pool.NPCType,
+			string(pool.SpawnMode),
+		)
 		mapAliveCount++
 		mapReservedCount++
 	}
@@ -366,6 +574,14 @@ func (worker *Worker) triggerEnemyEventSpawn(definition worldmaps.MapDefinition,
 		return fmt.Errorf("npc event spawn %q: %w", eventSpawnID, worldmaps.ErrInvalidCatalog)
 	}
 	if !eventSpawn.Enabled {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindSpawn,
+			EnemyTelemetryStageEventSpawn,
+			EnemyTelemetryResultSkipped,
+			EnemyTelemetryReasonDisabled,
+			"",
+			string(worldmaps.SpawnModeEventScheduled),
+		)
 		return nil
 	}
 	if eventSpawn.MapPolicy != worldmaps.NPCEventSpawnMapPolicyCurrentMapOnly {
@@ -373,6 +589,14 @@ func (worker *Worker) triggerEnemyEventSpawn(definition worldmaps.MapDefinition,
 	}
 	dueAt := worker.enemySpawner.ensureEventDueAt(eventSpawn, now)
 	if now.Before(dueAt) {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindSpawn,
+			EnemyTelemetryStageEventSpawn,
+			EnemyTelemetryResultSkipped,
+			EnemyTelemetryStageKillDelay,
+			"",
+			string(worldmaps.SpawnModeEventScheduled),
+		)
 		return nil
 	}
 
@@ -382,18 +606,50 @@ func (worker *Worker) triggerEnemyEventSpawn(definition worldmaps.MapDefinition,
 		return fmt.Errorf("npc event spawn %q enemy pool %q: %w", eventSpawn.EventSpawnID, eventSpawn.EnemyPoolID, worldmaps.ErrInvalidCatalog)
 	}
 	if !pool.Enabled {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindSpawn,
+			EnemyTelemetryStageEventSpawn,
+			EnemyTelemetryResultSkipped,
+			EnemyTelemetryReasonDisabled,
+			pool.NPCType,
+			string(pool.SpawnMode),
+		)
 		return nil
 	}
 	if pool.SpawnMode != worldmaps.SpawnModeEventScheduled {
 		return fmt.Errorf("npc event spawn %q enemy pool %q spawn mode %q: %w", eventSpawn.EventSpawnID, pool.EnemyPoolID, pool.SpawnMode, worldmaps.ErrInvalidCatalog)
 	}
 	if worker.enemySpawner.eventAliveCount(eventSpawn.EventSpawnID) >= eventSpawn.MaxAlive {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindSpawn,
+			EnemyTelemetryStageEventSpawn,
+			EnemyTelemetryResultSkipped,
+			EnemyTelemetryReasonEventCap,
+			pool.NPCType,
+			string(pool.SpawnMode),
+		)
 		return nil
 	}
 	if worker.enemySpawner.poolAliveCount(pool.EnemyPoolID) >= pool.PoolMaxAlive {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindSpawn,
+			EnemyTelemetryStageEventSpawn,
+			EnemyTelemetryResultSkipped,
+			EnemyTelemetryReasonPoolCap,
+			pool.NPCType,
+			string(pool.SpawnMode),
+		)
 		return nil
 	}
 	if mapAliveCap, hasMapAliveCap := enabledEnemyMapAliveCap(definition.EnemyPools); hasMapAliveCap && worker.enemySpawner.mapAliveCount() >= mapAliveCap {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindSpawn,
+			EnemyTelemetryStageEventSpawn,
+			EnemyTelemetryResultSkipped,
+			EnemyTelemetryReasonMapCap,
+			pool.NPCType,
+			string(pool.SpawnMode),
+		)
 		return nil
 	}
 
@@ -415,11 +671,27 @@ func (worker *Worker) triggerEnemyEventSpawn(definition worldmaps.MapDefinition,
 		return fmt.Errorf("npc event spawn %q drop profile %q incompatible with pool %q: %w", eventSpawn.EventSpawnID, dropProfile.DropProfileID, pool.EnemyPoolID, worldmaps.ErrInvalidCatalog)
 	}
 	spawnIndex := worker.enemySpawner.rowCountForPool(pool.EnemyPoolID)
+	worker.recordEnemyTelemetry(
+		EnemyTelemetryKindSpawn,
+		EnemyTelemetryStageEventSpawn,
+		EnemyTelemetryResultAttempted,
+		EnemyTelemetryStageEventSpawn,
+		pool.NPCType,
+		string(pool.SpawnMode),
+	)
 	area, ok, err := selectSpawnArea(definition, spawnAreas, pool, spawnIndex)
 	if err != nil {
 		return err
 	}
 	if !ok {
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindSpawn,
+			EnemyTelemetryStageEventSpawn,
+			EnemyTelemetryResultSkipped,
+			EnemyTelemetryReasonForbiddenCandidate,
+			pool.NPCType,
+			string(pool.SpawnMode),
+		)
 		return nil
 	}
 
@@ -434,6 +706,14 @@ func (worker *Worker) triggerEnemyEventSpawn(definition worldmaps.MapDefinition,
 	record.EventSpawnID = eventSpawn.EventSpawnID
 	record.DropProfileID = eventSpawn.DropProfileID
 	worker.enemySpawner.add(record)
+	worker.recordEnemyTelemetry(
+		EnemyTelemetryKindSpawn,
+		EnemyTelemetryStageEventSpawn,
+		EnemyTelemetryResultSpawned,
+		EnemyTelemetryStageEventSpawn,
+		pool.NPCType,
+		string(pool.SpawnMode),
+	)
 	return nil
 }
 

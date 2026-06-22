@@ -102,14 +102,14 @@ func installAggressiveStarterNPCForAggroVisibilityTestLocked(
 	overrides := map[worldmaps.EnemyPoolID][]world.EntityID{
 		"starter_training_drone_pool": {"entity_training_npc"},
 	}
-	if err := commandErrorsFromSubmitAndTick(replacement, worker.InitializeEnemyPoolsCommand{
+	if err := gameServer.runtime.submitWorkerCommandAndRecordMetricsLocked(starter, worker.InitializeEnemyPoolsCommand{
 		Definition:        definition,
 		EntityIDOverrides: overrides,
 	}); err != nil {
 		t.Fatalf("InitializeEnemyPoolsCommand error = %v, want nil", err)
 	}
 	targetState := gameServer.runtime.players[targetPlayerID]
-	if err := commandErrorsFromSubmitAndTick(replacement, worker.SpawnPlayerCommand{
+	if err := gameServer.runtime.submitWorkerCommandAndRecordMetricsLocked(starter, worker.SpawnPlayerCommand{
 		PlayerID: targetPlayerID,
 		EntityID: targetState.EntityID,
 		Position: targetPosition,
@@ -118,7 +118,7 @@ func installAggressiveStarterNPCForAggroVisibilityTestLocked(
 		t.Fatalf("SpawnPlayerCommand(target) error = %v, want nil", err)
 	}
 	viewerState := gameServer.runtime.players[viewerPlayerID]
-	if err := commandErrorsFromSubmitAndTick(replacement, worker.SpawnPlayerCommand{
+	if err := gameServer.runtime.submitWorkerCommandAndRecordMetricsLocked(starter, worker.SpawnPlayerCommand{
 		PlayerID: viewerPlayerID,
 		EntityID: viewerState.EntityID,
 		Position: viewerPosition,

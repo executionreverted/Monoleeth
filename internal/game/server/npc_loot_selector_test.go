@@ -11,6 +11,7 @@ import (
 	"gameproject/internal/game/combat"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
+	"gameproject/internal/game/observability"
 	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
 )
@@ -40,7 +41,7 @@ func TestNPCLootSelectorUsesSpawnRecordDropProfileLootTable(t *testing.T) {
 	starter.Definition.NPCDropProfiles[0].LootTableID = selectorTableID
 
 	event := testNPCKilledEventForRecord(resolved.PlayerID, starter, record)
-	if err := commandErrorsFromSubmitAndTick(starter.Worker, worker.MarkEnemyKilledCommand{
+	if err := gameServer.runtime.submitWorkerCommandAndRecordMetricsLocked(starter, worker.MarkEnemyKilledCommand{
 		Definition:  starter.Definition,
 		NPCEntityID: event.NPCEntityID,
 		KilledAt:    event.KilledAt,
@@ -55,6 +56,16 @@ func TestNPCLootSelectorUsesSpawnRecordDropProfileLootTable(t *testing.T) {
 	if got := selected.Source.DefinitionID.String(); got != selectorTableID {
 		t.Fatalf("selected loot table id = %q, want %q", got, selectorTableID)
 	}
+	requireMetricCounter(t, gameServer.runtime.Metrics.Snapshot(), observability.MetricNPCLootSelectorDecisions, 1, []observability.Label{
+		{Name: "map_key", Value: "1-1"},
+		{Name: "npc_type", Value: "training_drone"},
+		{Name: "reason", Value: "selected"},
+		{Name: "result", Value: "accepted"},
+		{Name: "risk_band", Value: "low"},
+		{Name: "stage", Value: "loot_table"},
+		{Name: "world_id", Value: "world-1"},
+		{Name: "zone_id", Value: "map_1_1"},
+	})
 	created, err := gameServer.runtime.Loot.CreateDropsForNPCKill(event, selected)
 	if err != nil {
 		t.Fatalf("CreateDropsForNPCKill() error = %v, want nil", err)
@@ -132,6 +143,18 @@ func TestNPCLootSelectorRejectsMissingInputsWithoutTrainingFallback(t *testing.T
 			_, err = gameServer.runtime.selectNPCKillLootTableLocked(resolved.PlayerID, event)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("selectNPCKillLootTableLocked() error = %v, want %v", err, tc.want)
+			}
+			if tc.want == errNPCLootTableUnavailable {
+				requireMetricCounter(t, gameServer.runtime.Metrics.Snapshot(), observability.MetricNPCLootSelectorDecisions, 1, []observability.Label{
+					{Name: "map_key", Value: "1-1"},
+					{Name: "npc_type", Value: "training_drone"},
+					{Name: "reason", Value: "unavailable"},
+					{Name: "result", Value: "rejected"},
+					{Name: "risk_band", Value: "low"},
+					{Name: "stage", Value: "loot_table"},
+					{Name: "world_id", Value: "world-1"},
+					{Name: "zone_id", Value: "map_1_1"},
+				})
 			}
 			if drop, ok := gameServer.runtime.Loot.Drop("drop_1"); ok {
 				t.Fatalf("selector failure created drop %+v; want no fallback drop", drop)

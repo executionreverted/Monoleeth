@@ -518,7 +518,7 @@ func (runtime *Runtime) seedWorld() error {
 				"starter_training_drone_pool": {"entity_training_npc"},
 			}
 		}
-		if err := commandErrorsFromSubmitAndTick(instance.Worker, worker.InitializeEnemyPoolsCommand{
+		if err := runtime.submitWorkerCommandAndRecordMetricsLocked(instance, worker.InitializeEnemyPoolsCommand{
 			Definition:        instance.Definition,
 			EntityIDOverrides: overrides,
 		}); err != nil {

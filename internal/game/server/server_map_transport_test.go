@@ -11,9 +11,12 @@ import (
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
+	"gameproject/internal/game/world/worker"
 )
 
 func TestPortalEnterRejectsTrustedInternalFieldsWithoutMutation(t *testing.T) {
@@ -214,6 +217,75 @@ func TestPortalEnterTransfersPlayerAndAllActiveSessions(t *testing.T) {
 			t.Fatalf("completed protection = %+v, want response protection expiry", completedPayload.Snapshot.Map.Protection)
 		}
 	}
+}
+
+func TestPortalDestinationAttachRecordsEnemyTelemetryMetrics(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+	gameServer, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		SessionTTL:     time.Hour,
+		TickDelta:      50 * time.Millisecond,
+		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		Clock:          clock,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+	resolved := createResolvedRuntimeSession(t, gameServer, "portal-telemetry@example.com", "Portal Telemetry")
+
+	gameServer.runtime.mu.Lock()
+	starter, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("starter map instance: %v", err)
+	}
+	destination, err := gameServer.runtime.mapInstanceLocked("map_1_2")
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("destination map instance: %v", err)
+	}
+	definition := destination.Definition
+	pool := starter.Definition.EnemyPools[0]
+	pool.InitialAlive = 0
+	pool.PoolMaxAlive = 1
+	pool.MapMaxAlive = 1
+	pool.SpawnInterval = time.Second
+	definition.SpawnAreas = append([]worldmaps.MapSpawnAreaDefinition(nil), starter.Definition.SpawnAreas...)
+	definition.EnemyPools = []worldmaps.MapEnemyPoolDefinition{pool}
+	definition.NPCEventSpawns = nil
+	definition.NPCStatTemplates = append([]worldmaps.NPCStatTemplate(nil), starter.Definition.NPCStatTemplates[:1]...)
+	definition.NPCDropProfiles = append([]worldmaps.NPCDropProfile(nil), starter.Definition.NPCDropProfiles[:1]...)
+	definition.NPCAggroProfiles = append([]worldmaps.NPCAggroProfile(nil), starter.Definition.NPCAggroProfiles...)
+	definition.NPCLeashProfiles = append([]worldmaps.NPCLeashProfile(nil), starter.Definition.NPCLeashProfiles...)
+	destination.Definition = definition
+	if err := gameServer.runtime.submitWorkerCommandAndRecordMetricsLocked(destination, worker.InitializeEnemyPoolsCommand{Definition: definition}); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("InitializeEnemyPoolsCommand(destination) error = %v, want nil", err)
+	}
+	gameServer.runtime.mu.Unlock()
+
+	clock.Advance(time.Second + time.Millisecond)
+	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 9800, Y: 5000})
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-portal-telemetry","op":"portal.enter","payload":{"portal_id":"east_gate"},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("portal transfer response error = %+v, want success", response.Error)
+	}
+
+	requireMetricCounter(t, gameServer.runtime.Metrics.Snapshot(), observability.MetricEnemySpawnDecisions, 1, []observability.Label{
+		{Name: "map_key", Value: "1-2"},
+		{Name: "npc_type", Value: "training_drone"},
+		{Name: "reason", Value: "none"},
+		{Name: "result", Value: "spawned"},
+		{Name: "risk_band", Value: "low"},
+		{Name: "spawn_mode", Value: "periodic"},
+		{Name: "stage", Value: "periodic_fill"},
+		{Name: "world_id", Value: "world-1"},
+		{Name: "zone_id", Value: "map_1_2"},
+	})
 }
 
 func TestWorldSnapshotIgnoresAndClearsExpiredProtection(t *testing.T) {

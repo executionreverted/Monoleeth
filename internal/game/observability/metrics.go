@@ -11,27 +11,35 @@ import (
 )
 
 const (
-	MetricCommandsPerSecond       = "commands_per_sec"
-	MetricErrorsByCode            = "errors_by_code"
-	MetricZoneTickMS              = "zone_tick_ms"
-	MetricVisibleEntityCount      = "visible_entity_count"
-	MetricCombatActionsPerSecond  = "combat_actions_per_sec"
-	MetricLootCreatedPerSecond    = "loot_created_per_sec"
-	MetricLootPickedPerSecond     = "loot_picked_per_sec"
-	MetricWalletDeltaByReason     = "wallet_delta_by_reason"
-	MetricItemDeltaByReason       = "item_delta_by_reason"
-	MetricCraftJobsStarted        = "craft_jobs_started"
-	MetricCraftJobsCompleted      = "craft_jobs_completed"
-	MetricQuestRewardsClaimed     = "quest_rewards_claimed"
-	MetricPlanetSettlements       = "planet_settlements"
-	MetricRouteSettlements        = "route_settlements"
-	MetricMarketVolume            = "market_volume"
-	MetricMarketQuantity          = "market_quantity"
-	MetricMarketSales             = "market_sales"
-	MetricAuctionVolume           = "auction_volume"
-	MetricAuctionClearingVolume   = "auction_clearing_volume"
-	MetricAuctionClearingQuantity = "auction_clearing_quantity"
-	MetricAuctionClears           = "auction_clears"
+	MetricCommandsPerSecond             = "commands_per_sec"
+	MetricErrorsByCode                  = "errors_by_code"
+	MetricZoneTickMS                    = "zone_tick_ms"
+	MetricVisibleEntityCount            = "visible_entity_count"
+	MetricCombatActionsPerSecond        = "combat_actions_per_sec"
+	MetricLootCreatedPerSecond          = "loot_created_per_sec"
+	MetricLootPickedPerSecond           = "loot_picked_per_sec"
+	MetricWalletDeltaByReason           = "wallet_delta_by_reason"
+	MetricItemDeltaByReason             = "item_delta_by_reason"
+	MetricCraftJobsStarted              = "craft_jobs_started"
+	MetricCraftJobsCompleted            = "craft_jobs_completed"
+	MetricQuestRewardsClaimed           = "quest_rewards_claimed"
+	MetricPlanetSettlements             = "planet_settlements"
+	MetricRouteSettlements              = "route_settlements"
+	MetricMarketVolume                  = "market_volume"
+	MetricMarketQuantity                = "market_quantity"
+	MetricMarketSales                   = "market_sales"
+	MetricAuctionVolume                 = "auction_volume"
+	MetricAuctionClearingVolume         = "auction_clearing_volume"
+	MetricAuctionClearingQuantity       = "auction_clearing_quantity"
+	MetricAuctionClears                 = "auction_clears"
+	MetricEnemySpawnDecisions           = "enemy_spawn_decisions"
+	MetricEnemyRespawnDecisions         = "enemy_respawn_decisions"
+	MetricEnemyDeathAccounting          = "enemy_death_accounting"
+	MetricNPCLootSelectorDecisions      = "npc_loot_selector_decisions"
+	MetricEnemyLootSelection            = MetricNPCLootSelectorDecisions
+	MetricEnemyAggroDecisions           = "enemy_aggro_decisions"
+	MetricEnemySpawnerCommandRejections = "enemy_spawner_command_rejections"
+	MetricEnemySpawnerRejections        = MetricEnemySpawnerCommandRejections
 )
 
 // Labels is a caller-supplied metric label set.
@@ -439,6 +447,67 @@ func (recorder *MetricRecorder) RecordAuctionClearing(currencyType string, itemI
 	return recorder.AddCounter(MetricAuctionClears, labels, 1)
 }
 
+// RecordEnemySpawnDecision increments a safe Phase08 enemy spawn decision counter.
+func (recorder *MetricRecorder) RecordEnemySpawnDecision(worldID foundation.WorldID, zoneID foundation.ZoneID, mapKey, riskBand, stage, result, reason, npcType, spawnMode string) error {
+	labels, err := enemyLifecycleLabels(worldID, zoneID, mapKey, riskBand, stage, result, reason)
+	if err != nil {
+		return err
+	}
+	labels["npc_type"] = safeMetricLabelValue(npcType)
+	labels["spawn_mode"] = safeMetricLabelValue(spawnMode)
+	return recorder.AddCounter(MetricEnemySpawnDecisions, labels, 1)
+}
+
+// RecordEnemyRespawnDecision increments a safe Phase08 enemy respawn decision counter.
+func (recorder *MetricRecorder) RecordEnemyRespawnDecision(worldID foundation.WorldID, zoneID foundation.ZoneID, mapKey, riskBand, stage, result, reason, npcType, spawnMode string) error {
+	labels, err := enemyLifecycleLabels(worldID, zoneID, mapKey, riskBand, stage, result, reason)
+	if err != nil {
+		return err
+	}
+	labels["npc_type"] = safeMetricLabelValue(npcType)
+	labels["spawn_mode"] = safeMetricLabelValue(spawnMode)
+	return recorder.AddCounter(MetricEnemyRespawnDecisions, labels, 1)
+}
+
+// RecordEnemyDeathAccounting increments a safe Phase08 enemy death accounting counter.
+func (recorder *MetricRecorder) RecordEnemyDeathAccounting(worldID foundation.WorldID, zoneID foundation.ZoneID, mapKey, riskBand, stage, result, reason, npcType string) error {
+	labels, err := enemyLifecycleLabels(worldID, zoneID, mapKey, riskBand, stage, result, reason)
+	if err != nil {
+		return err
+	}
+	labels["npc_type"] = safeMetricLabelValue(npcType)
+	return recorder.AddCounter(MetricEnemyDeathAccounting, labels, 1)
+}
+
+// RecordNPCLootSelectorDecision increments a safe Phase08 NPC loot selector counter.
+func (recorder *MetricRecorder) RecordNPCLootSelectorDecision(worldID foundation.WorldID, zoneID foundation.ZoneID, mapKey, riskBand, stage, result, reason, npcType string) error {
+	labels, err := enemyLifecycleLabels(worldID, zoneID, mapKey, riskBand, stage, result, reason)
+	if err != nil {
+		return err
+	}
+	labels["npc_type"] = safeMetricLabelValue(npcType)
+	return recorder.AddCounter(MetricNPCLootSelectorDecisions, labels, 1)
+}
+
+// RecordEnemyAggroDecision increments a safe Phase08 enemy aggro decision counter.
+func (recorder *MetricRecorder) RecordEnemyAggroDecision(worldID foundation.WorldID, zoneID foundation.ZoneID, mapKey, riskBand, stage, result, reason, npcType string) error {
+	labels, err := enemyLifecycleLabels(worldID, zoneID, mapKey, riskBand, stage, result, reason)
+	if err != nil {
+		return err
+	}
+	labels["npc_type"] = safeMetricLabelValue(npcType)
+	return recorder.AddCounter(MetricEnemyAggroDecisions, labels, 1)
+}
+
+// RecordEnemySpawnerCommandRejection increments a safe Phase08 worker command rejection counter.
+func (recorder *MetricRecorder) RecordEnemySpawnerCommandRejection(worldID foundation.WorldID, zoneID foundation.ZoneID, mapKey, riskBand, stage, result, reason string) error {
+	labels, err := enemyLifecycleLabels(worldID, zoneID, mapKey, riskBand, stage, result, reason)
+	if err != nil {
+		return err
+	}
+	return recorder.AddCounter(MetricEnemySpawnerCommandRejections, labels, 1)
+}
+
 func (recorder *MetricRecorder) ensureMaps() {
 	if recorder.counters == nil {
 		recorder.counters = make(map[metricKey]counterSeries)
@@ -502,6 +571,32 @@ func validateLabelValue(value string) error {
 		return fmt.Errorf("label value %q: %w", value, ErrUnsafeLabelValue)
 	}
 	return nil
+}
+
+func enemyLifecycleLabels(worldID foundation.WorldID, zoneID foundation.ZoneID, mapKey, riskBand, stage, result, reason string) (Labels, error) {
+	if err := worldID.Validate(); err != nil {
+		return nil, err
+	}
+	if err := zoneID.Validate(); err != nil {
+		return nil, err
+	}
+	return Labels{
+		"map_key":   safeMetricLabelValue(mapKey),
+		"reason":    safeMetricLabelValue(reason),
+		"result":    safeMetricLabelValue(result),
+		"risk_band": safeMetricLabelValue(riskBand),
+		"stage":     safeMetricLabelValue(stage),
+		"world_id":  worldID.String(),
+		"zone_id":   zoneID.String(),
+	}, nil
+}
+
+func safeMetricLabelValue(value string) string {
+	value = strings.TrimSpace(value)
+	if err := validateLabelValue(value); err != nil {
+		return "unknown"
+	}
+	return value
 }
 
 func isSafeName(name string) bool {

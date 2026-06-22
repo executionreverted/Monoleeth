@@ -111,6 +111,7 @@ func (runtime *Runtime) setPlayerStealthLocked(playerID foundation.PlayerID, ena
 		return err
 	}
 	result := instance.Worker.Tick()
+	runtime.recordEnemyTelemetryLocked(instance, result)
 	if len(result.CommandErrors) > 0 {
 		return result.CommandErrors[0].Err
 	}

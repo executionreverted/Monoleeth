@@ -32,6 +32,14 @@ func (worker *Worker) clearEnemyAggroTargetsForPlayer(playerID foundation.Player
 		if record.AggroTargetEntityID != entityID {
 			continue
 		}
+		worker.recordEnemyTelemetry(
+			EnemyTelemetryKindAggro,
+			EnemyTelemetryStageTargeting,
+			EnemyTelemetryResultCleared,
+			EnemyTelemetryReasonTargetIneligible,
+			record.NPCType,
+			"",
+		)
 		clearEnemyTargetMemory(&record)
 		worker.enemySpawner.rows[index] = record
 		if entity, ok := worker.entities[record.EntityID]; ok {

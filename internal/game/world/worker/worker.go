@@ -75,6 +75,7 @@ type Worker struct {
 	playerAggroIneligible map[foundation.PlayerID]bool
 	sessionPlayers        map[realtime.SessionID]foundation.PlayerID
 	playerSessions        map[foundation.PlayerID]map[realtime.SessionID]struct{}
+	enemyTelemetry        []EnemyLifecycleTelemetry
 
 	scheduler             delayedScheduler
 	scheduledTaskHandlers []ScheduledTaskHandler
@@ -85,6 +86,7 @@ type TickResult struct {
 	Tick                uint64
 	DrainedCommands     int
 	CommandErrors       []CommandError
+	EnemyTelemetry      []EnemyLifecycleTelemetry
 	DueTasks            []ScheduledTask
 	ScheduledTaskErrors []ScheduledTaskError
 }
@@ -216,6 +218,7 @@ func (worker *Worker) Submit(command Command) error {
 // Tick drains queued commands, advances movement, and drains due local tasks.
 func (worker *Worker) Tick() TickResult {
 	commands := worker.mailbox.Drain()
+	worker.resetEnemyLifecycleTelemetry()
 	result := TickResult{
 		Tick:            worker.tick + 1,
 		DrainedCommands: len(commands),
@@ -237,6 +240,7 @@ func (worker *Worker) Tick() TickResult {
 	result.CommandErrors = append(result.CommandErrors, worker.tickEnemyAggro()...)
 	result.DueTasks = worker.scheduler.drainDue(worker.clock.Now())
 	result.ScheduledTaskErrors = worker.dispatchScheduledTasks(result.DueTasks)
+	result.EnemyTelemetry = worker.enemyLifecycleTelemetrySnapshot()
 	worker.tick++
 	return result
 }
