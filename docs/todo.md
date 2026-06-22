@@ -137,10 +137,13 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add a deterministic per-map scanner/claim/drop seed matrix, including
   scanner rarity/no-fog regression coverage and claim/drop behavior for each
   seeded map. Source: `docs/map-rework/phase-10-testing-rollout.md`.
-- [ ] Add map-aware drop matrix and cross-map loot pickup tests covering
-  `npc_type + map_id/risk/rank_band` selection, hidden/far/cross-map pickup
-  rejection, and no fallback to default training loot outside explicit seeded
-  content. Source: `docs/map-rework/phase-10-testing-rollout.md`.
+- [ ] Complete the full map-aware drop matrix covering
+  `npc_type + map_id/risk/rank_band` selection across seeded maps. Current
+  server tests cover starter selection, `map_1_2` `outer_ring_scout_drone`
+  spawn-record/drop-profile selection, no fallback when the destination table
+  is missing, and domain-level hidden/far/cross-map pickup rejection. Browser
+  fight/loot proof remains tracked separately. Source:
+  `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Extend the Phase09 browser map smoke into a full real-server
   fight/loot/scan/portal loop with desktop, tablet, and mobile screenshots;
   decide explicitly whether `e2e:phase09-map` belongs in `client` `npm run

@@ -450,6 +450,43 @@ func TestPickupDropRejectsFarHiddenAndCargoFullWithoutClaim(t *testing.T) {
 	}
 }
 
+func TestPickupDropRejectsCrossMapViewerWithoutClaim(t *testing.T) {
+	service, _, inventory, _ := newLootService(t, []int{0}, []float64{0})
+	event := npcKilledEvent()
+	event.NPCEntityID = "npc_map_two"
+	event.SourceID = event.NPCEntityID
+	event.ZoneID = "map_1_2"
+	result, err := service.CreateDropsForNPCKill(event, lootTable(t, 3, 3, 1))
+	if err != nil {
+		t.Fatalf("CreateDropsForNPCKill(map_1_2) error = %v", err)
+	}
+	if len(result.Drops) != 1 {
+		t.Fatalf("drops len = %d, want 1", len(result.Drops))
+	}
+	drop := result.Drops[0]
+	cargoLocation := mustCargoLocation(t, "ship_1")
+	viewer := viewerAt(drop.Position)
+	viewer.ZoneID = "map_1_1"
+
+	_, err = service.PickupDrop(loot.PickupInput{
+		PlayerID:           drop.OwnerPlayerID,
+		DropID:             drop.ID,
+		Viewer:             viewer,
+		ActiveCargo:        cargoLocation,
+		CargoCapacityUnits: 100,
+	})
+	if !errors.Is(err, loot.ErrPickupNotVisible) {
+		t.Fatalf("cross-map PickupDrop() error = %v, want ErrPickupNotVisible", err)
+	}
+	after, ok := service.Drop(drop.ID)
+	if !ok || after.ClaimedAt != nil || after.ClaimedBy != "" {
+		t.Fatalf("drop after cross-map pickup = %+v, ok %t; want unclaimed", after, ok)
+	}
+	if got := inventory.TotalItemQuantity(drop.OwnerPlayerID, rawOreDefinition(t).ItemID, cargoLocation); got != 0 {
+		t.Fatalf("cargo quantity after rejected cross-map pickup = %d, want 0", got)
+	}
+}
+
 func TestConcurrentPickupOnlyOneSucceeds(t *testing.T) {
 	service, clock, inventory, _ := newLootService(t, []int{0}, []float64{0})
 	drop := createOneDrop(t, service)

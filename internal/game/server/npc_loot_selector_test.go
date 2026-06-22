@@ -92,6 +92,118 @@ func TestNPCLootSelectorUsesSpawnRecordDropProfileLootTable(t *testing.T) {
 	}
 }
 
+func TestNPCLootSelectorUsesOuterRingSpawnRecordDropProfileLootTable(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSessionOnMap(t, gameServer, "selector-map-two@example.com", "Selector Map Two", "map_1_2", "west_gate")
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+
+	mapTwo, err := gameServer.runtime.mapInstanceLocked("map_1_2")
+	if err != nil {
+		t.Fatalf("map_1_2 instance: %v", err)
+	}
+	snapshot := mapTwo.Worker.EnemySpawnSnapshot()
+	if len(snapshot.Records) != 1 {
+		t.Fatalf("map_1_2 spawn records = %+v, want one outer ring scout", snapshot.Records)
+	}
+	record := snapshot.Records[0]
+	if record.NPCType != "outer_ring_scout_drone" ||
+		record.DropProfileID != "outer_ring_scout_drone_salvage" ||
+		record.Level != 1 ||
+		!record.Alive {
+		t.Fatalf("map_1_2 spawn record = %+v, want live outer ring scout drop profile", record)
+	}
+	profile, ok := npcDropProfileByID(mapTwo.Definition, record.DropProfileID)
+	if !ok {
+		t.Fatalf("map_1_2 drop profile %q missing", record.DropProfileID)
+	}
+	if profile.NPCType != "outer_ring_scout_drone" ||
+		profile.RiskBand != "low" ||
+		profile.LootTableID != trainingDroneSalvageLootTableID {
+		t.Fatalf("map_1_2 drop profile = %+v, want explicit outer ring scout training salvage table", profile)
+	}
+
+	event := testNPCKilledEventForRecord(resolved.PlayerID, mapTwo, record)
+	selected, err := gameServer.runtime.selectNPCKillLootTableLocked(resolved.PlayerID, event)
+	if err != nil {
+		t.Fatalf("selectNPCKillLootTableLocked(map_1_2) error = %v, want nil", err)
+	}
+	if got := selected.Source.DefinitionID.String(); got != trainingDroneSalvageLootTableID {
+		t.Fatalf("selected loot table id = %q, want explicit profile table %q", got, trainingDroneSalvageLootTableID)
+	}
+	requireMetricCounter(t, gameServer.runtime.Metrics.Snapshot(), observability.MetricNPCLootSelectorDecisions, 1, []observability.Label{
+		{Name: "map_key", Value: "1-2"},
+		{Name: "npc_type", Value: "outer_ring_scout_drone"},
+		{Name: "reason", Value: "selected"},
+		{Name: "result", Value: "accepted"},
+		{Name: "risk_band", Value: "low"},
+		{Name: "stage", Value: "loot_table"},
+		{Name: "world_id", Value: "world-1"},
+		{Name: "zone_id", Value: "map_1_2"},
+	})
+
+	created, err := gameServer.runtime.Loot.CreateDropsForNPCKill(event, selected)
+	if err != nil {
+		t.Fatalf("CreateDropsForNPCKill(map_1_2) error = %v, want nil", err)
+	}
+	if len(created.Drops) != 1 ||
+		created.Drops[0].WorldID != mapTwo.Definition.WorldID ||
+		created.Drops[0].ZoneID != mapTwo.Definition.ZoneID ||
+		created.Drops[0].SourceID != record.EntityID ||
+		created.Drops[0].ItemDefinition.ItemID != "raw_ore" ||
+		created.Drops[0].Quantity != 3 {
+		t.Fatalf("map_1_2 created drops = %+v, want raw_ore x3 in destination map", created.Drops)
+	}
+}
+
+func TestNPCLootSelectorRejectsOuterRingMissingTableWithoutTrainingFallback(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSessionOnMap(t, gameServer, "selector-map-two-missing@example.com", "Selector Map Two Missing", "map_1_2", "west_gate")
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+
+	mapTwo, err := gameServer.runtime.mapInstanceLocked("map_1_2")
+	if err != nil {
+		t.Fatalf("map_1_2 instance: %v", err)
+	}
+	snapshot := mapTwo.Worker.EnemySpawnSnapshot()
+	if len(snapshot.Records) != 1 {
+		t.Fatalf("map_1_2 spawn records = %+v, want one outer ring scout", snapshot.Records)
+	}
+	record := snapshot.Records[0]
+	if record.NPCType != "outer_ring_scout_drone" || record.DropProfileID != "outer_ring_scout_drone_salvage" {
+		t.Fatalf("map_1_2 spawn record = %+v, want outer ring scout drop profile", record)
+	}
+	for index := range mapTwo.Definition.NPCDropProfiles {
+		if mapTwo.Definition.NPCDropProfiles[index].DropProfileID == record.DropProfileID {
+			mapTwo.Definition.NPCDropProfiles[index].LootTableID = "missing_outer_ring_salvage"
+		}
+	}
+
+	event := testNPCKilledEventForRecord(resolved.PlayerID, mapTwo, record)
+	_, err = gameServer.runtime.selectNPCKillLootTableLocked(resolved.PlayerID, event)
+	if !errors.Is(err, errNPCLootTableUnavailable) {
+		t.Fatalf("selectNPCKillLootTableLocked(map_1_2 missing table) error = %v, want %v", err, errNPCLootTableUnavailable)
+	}
+	requireMetricCounter(t, gameServer.runtime.Metrics.Snapshot(), observability.MetricNPCLootSelectorDecisions, 1, []observability.Label{
+		{Name: "map_key", Value: "1-2"},
+		{Name: "npc_type", Value: "outer_ring_scout_drone"},
+		{Name: "reason", Value: "unavailable"},
+		{Name: "result", Value: "rejected"},
+		{Name: "risk_band", Value: "low"},
+		{Name: "stage", Value: "loot_table"},
+		{Name: "world_id", Value: "world-1"},
+		{Name: "zone_id", Value: "map_1_2"},
+	})
+	if drop, ok := gameServer.runtime.Loot.Drop("drop_1"); ok {
+		t.Fatalf("selector failure created drop %+v; want no fallback drop", drop)
+	}
+}
+
 func TestNPCLootSelectorRejectsMissingInputsWithoutTrainingFallback(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
