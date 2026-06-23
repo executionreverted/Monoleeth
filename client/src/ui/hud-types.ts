@@ -1,4 +1,5 @@
 import type { ClientState } from '../state/types';
+import type { RouteDestinationInput } from '../protocol/commands';
 
 export interface HUDHandlers {
   onConnect(url: string): void;
@@ -19,15 +20,18 @@ export interface HUDHandlers {
   onPlanetNavigate(planetID: string): void;
   onPlanetClaim(planetID: string): void;
   onIntelShare(input: { planetID: string; toPlayerID: string }): void;
+  onIntelShareToEntity(planetID: string, toEntityID: string): void;
   onCoordinateItemCreate(planetID: string): void;
   onCoordinateItemUse(itemInstanceID: string): void;
+  onIntelCoordinateItemCreate(planetID: string): void;
+  onIntelCoordinateItemUse(itemInstanceID: string): void;
   onPlanetBuildingBuild(input: { planetID: string; buildingType: string; slot: string }): void;
   onPlanetBuildingUpgrade(input: { planetID: string; buildingID: string; targetLevel: number }): void;
   onCraftingStart(recipeID: string): void;
   onCraftingComplete(jobID: string): void;
   onCraftingCancel(jobID: string): void;
-  onRouteCreate(input: { sourcePlanetID: string; destinationPlanetID: string; resourceItemID: string; amountPerHour: number }): void;
-  onRouteUpdate(input: { routeID: string; destinationPlanetID: string; resourceItemID: string; amountPerHour: number }): void;
+  onRouteCreate(input: { sourcePlanetID: string; destinationPlanetID?: string; destination?: RouteDestinationInput; resourceItemID: string; amountPerHour: number }): void;
+  onRouteUpdate(input: { routeID: string; destinationPlanetID?: string; destination?: RouteDestinationInput; resourceItemID: string; amountPerHour: number }): void;
   onRouteEnable(routeID: string): void;
   onRouteDisable(routeID: string): void;
   onRouteSettle(routeID?: string): void;

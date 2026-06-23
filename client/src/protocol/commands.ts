@@ -3,6 +3,19 @@ import { JsonObject, OPERATIONS, Operation, PROTOCOL_VERSION, RequestEnvelope, V
 
 type CommandPayload = JsonObject;
 
+export type RouteDestinationType = 'planet' | 'storage' | 'station';
+
+export interface RouteDestinationInput {
+  type: RouteDestinationType;
+  id: string;
+}
+
+type CraftingStartInput = string | {
+  recipeID: string;
+  locationType?: string;
+  locationID?: string;
+};
+
 export class CommandBuilder {
   private clientSeq = 0;
 
@@ -103,8 +116,20 @@ export class CommandBuilder {
     return this.build(OPERATIONS.craftingRecipes, {});
   }
 
-  craftingStart(recipeID: string): RequestEnvelope<{ recipe_id: string }> {
-    return this.build(OPERATIONS.craftingStart, { recipe_id: recipeID });
+  craftingStart(input: CraftingStartInput): RequestEnvelope<{ recipe_id: string; location_type?: string; location_id?: string }> {
+    if (typeof input === 'string') {
+      return this.build(OPERATIONS.craftingStart, { recipe_id: input });
+    }
+    const payload: { recipe_id: string; location_type?: string; location_id?: string } = {
+      recipe_id: input.recipeID,
+    };
+    if (input.locationType) {
+      payload.location_type = input.locationType;
+    }
+    if (input.locationID) {
+      payload.location_id = input.locationID;
+    }
+    return this.build(OPERATIONS.craftingStart, payload);
   }
 
   craftingComplete(jobID: string): RequestEnvelope<{ job_id: string }> {
@@ -135,6 +160,13 @@ export class CommandBuilder {
     return this.build(OPERATIONS.intelShare, {
       planet_id: planetID,
       to_player_id: toPlayerID,
+    });
+  }
+
+  intelShareToEntity(planetID: string, toEntityID: string): RequestEnvelope<{ planet_id: string; to_entity_id: string }> {
+    return this.build(OPERATIONS.intelShare, {
+      planet_id: planetID,
+      to_entity_id: toEntityID,
     });
   }
 
@@ -188,40 +220,54 @@ export class CommandBuilder {
 
   routeCreate(input: {
     sourcePlanetID: string;
-    destinationPlanetID: string;
+    destinationPlanetID?: string;
+    destination?: RouteDestinationInput;
     resourceItemID: string;
     amountPerHour: number;
   }): RequestEnvelope<{
     source_planet_id: string;
-    destination_planet_id: string;
+    destination_planet_id?: string;
+    destination_type?: RouteDestinationType;
+    destination_id?: string;
     resource_item_id: string;
     amount_per_hour: number;
   }> {
-    return this.build(OPERATIONS.routeCreate, {
-      source_planet_id: input.sourcePlanetID,
-      destination_planet_id: input.destinationPlanetID,
-      resource_item_id: input.resourceItemID,
-      amount_per_hour: Math.max(1, Math.round(input.amountPerHour)),
-    });
+    return this.build(
+      OPERATIONS.routeCreate,
+      {
+        source_planet_id: input.sourcePlanetID,
+        ...routeDestinationPayload(input),
+        resource_item_id: input.resourceItemID,
+        amount_per_hour: Math.max(1, Math.round(input.amountPerHour)),
+      },
+      ['destination_id'],
+    );
   }
 
   routeUpdate(input: {
     routeID: string;
-    destinationPlanetID: string;
+    destinationPlanetID?: string;
+    destination?: RouteDestinationInput;
     resourceItemID: string;
     amountPerHour: number;
   }): RequestEnvelope<{
     route_id: string;
-    destination_planet_id: string;
+    destination_planet_id?: string;
+    destination_type?: RouteDestinationType;
+    destination_id?: string;
     resource_item_id: string;
     amount_per_hour: number;
   }> {
-    return this.build(OPERATIONS.routeUpdate, {
-      route_id: input.routeID,
-      destination_planet_id: input.destinationPlanetID,
-      resource_item_id: input.resourceItemID,
-      amount_per_hour: Math.max(1, Math.round(input.amountPerHour)),
-    });
+    return this.build(
+      OPERATIONS.routeUpdate,
+      {
+        route_id: input.routeID,
+        ...routeDestinationPayload(input),
+        resource_item_id: input.resourceItemID,
+        amount_per_hour: Math.max(1, Math.round(input.amountPerHour)),
+      },
+      ['destination_id'],
+    );
   }
 
   routeEnable(routeID: string): RequestEnvelope<{ route_id: string }> {
@@ -412,6 +458,22 @@ export class CommandBuilder {
 
 export function assertClientSafePayload(payload: CommandPayload): void {
   assertClientSafePayloadInternal(payload);
+}
+
+function routeDestinationPayload(input: {
+  destinationPlanetID?: string;
+  destination?: RouteDestinationInput;
+}): { destination_planet_id?: string; destination_type?: RouteDestinationType; destination_id?: string } {
+  if (input.destination) {
+    if (input.destination.type === 'planet') {
+      return { destination_planet_id: input.destination.id };
+    }
+    return {
+      destination_type: input.destination.type,
+      destination_id: input.destination.id,
+    };
+  }
+  return { destination_planet_id: input.destinationPlanetID ?? '' };
 }
 
 function assertClientSafePayloadInternal(

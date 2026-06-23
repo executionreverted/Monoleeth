@@ -63,6 +63,11 @@ func TestSettleRouteEmptySourceTransfersZeroAndUpdatesTimestamps(t *testing.T) {
 		t.Fatalf("amounts = wanted %d taken %d lost %d delivered %d added %d, want 40/0/0/0/0",
 			result.WantedAmount, result.TakenAmount, result.LostAmount, result.DeliveredAmount, result.AddedAmount)
 	}
+	wantWindow := wantSettlementWindow(last, now)
+	wantReference := mustRouteSettlementKey(t, route.RouteID, wantWindow)
+	if result.SettlementWindow != wantWindow || result.ReferenceKey != wantReference {
+		t.Fatalf("source-empty settlement evidence = %q/%q, want %q/%q", result.SettlementWindow, result.ReferenceKey, wantWindow, wantReference)
+	}
 	if !result.SourceEmpty {
 		t.Fatal("SourceEmpty = false, want true")
 	}
@@ -72,6 +77,18 @@ func TestSettleRouteEmptySourceTransfersZeroAndUpdatesTimestamps(t *testing.T) {
 	assertRouteSettlementRouteTime(t, store, route.RouteID, now)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 0, now)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, now)
+	assertProductionEventTypes(t, store.Events(),
+		EventRouteSourceEmpty,
+		EventRouteTransferSettled,
+	)
+	assertSettlementReferenceRecord(t, store.SettlementReferences(), SettlementKindRoute, "", route.RouteID, wantReference, wantWindow, now)
+	assertRouteDurableRecord(t, store, route.RouteID, wantReference, 2, result.AfterRoute)
+	assertOutboxEventTypes(t, store.OutboxRecords(),
+		EventRouteSourceEmpty,
+		EventRouteTransferSettled,
+	)
+	assertOutboxRecordEvidence(t, store.OutboxRecords(), EventRouteSourceEmpty, wantReference, wantWindow)
+	assertOutboxRecordEvidence(t, store.OutboxRecords(), EventRouteTransferSettled, wantReference, wantWindow)
 	assertNoRouteStorageLedger(t, store)
 }
 

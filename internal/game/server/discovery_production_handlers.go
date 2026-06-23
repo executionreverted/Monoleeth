@@ -75,6 +75,7 @@ type planetDetailPayload struct {
 	Coordinates       publicVec2               `json:"coordinates"`
 	Production        *planetProductionPayload `json:"production,omitempty"`
 	Routes            []routePayload           `json:"routes,omitempty"`
+	RouteEndpoints    []routeEndpointPayload   `json:"route_endpoints,omitempty"`
 	ProductionLocked  bool                     `json:"production_locked"`
 	AvailableCommands []string                 `json:"available_commands,omitempty"`
 }
@@ -346,16 +347,13 @@ func (runtime *Runtime) handleRouteSnapshot(ctx realtime.CommandContext, request
 	if err != nil {
 		return nil, invalidPayload("Route is invalid.", err)
 	}
-	route, ok, err := runtime.Production.AutomationRoute(routeID)
+	route, err := runtime.routeSettleRouteForOwner(ctx.PlayerID, routeID)
 	if err != nil {
-		return nil, err
-	}
-	if !ok || route.OwnerPlayerID != ctx.PlayerID {
-		return nil, foundation.NewDomainError(foundation.CodeNotFound, "Route was not found.")
+		return nil, domainErrorForRouteSettle(err)
 	}
 	routePayload, err := runtime.routePayloadFromRoute(route)
 	if err != nil {
-		return nil, domainErrorForRuntime(err)
+		return nil, domainErrorForRouteSettle(err)
 	}
 	return marshalPayload(map[string]any{"route": routePayload})
 }
@@ -556,6 +554,7 @@ func (runtime *Runtime) planetDetailPayload(playerID foundation.PlayerID, planet
 			return planetDetailPayload{}, err
 		}
 		detail.Routes = routes
+		detail.RouteEndpoints = runtime.routeEndpointPayloadsForOwner(playerID)
 		detail.AvailableCommands = []string{"planet.production_summary", "planet.storage_summary", "route.list"}
 	}
 	return detail, nil

@@ -5,6 +5,8 @@ import {
   applyScanPulse,
   applyPlanetDetail,
   applyPlanetStorageSummary,
+  applyRouteList,
+  applyRouteSettlementSnapshot,
   applyRouteSnapshot,
   parseKnownPlanets,
   parseMinimapSummary,
@@ -200,10 +202,7 @@ export function applySnapshotPayload(state: ClientState, payload: JsonObject): C
 
   const routes = objectField(payload, 'routes') ?? objectField(payload, 'route_list');
   if (routes) {
-    next = {
-      ...next,
-      routes: parseRouteList(routes, next.routes),
-    };
+    next = applyRouteList(next, parseRouteList(routes, next.routes));
   }
 
   const route = objectField(payload, 'route');
@@ -223,8 +222,11 @@ export function applySnapshotPayload(state: ClientState, payload: JsonObject): C
     const currentRoute = parsedSettlement
       ? next.routes?.routes.find((candidate) => candidate.route_id === parsedSettlement.route_id)
       : null;
-    if (parsedSettlement && currentRoute) {
-      next = applyRouteSnapshot(next, { ...currentRoute, last_settlement: parsedSettlement });
+    if (parsedSettlement) {
+      next = applyRouteSettlementSnapshot(next, parsedSettlement);
+      if (currentRoute) {
+        next = applyRouteSnapshot(next, { ...currentRoute, last_settlement: parsedSettlement });
+      }
     }
   }
 

@@ -410,7 +410,7 @@ func (runtime *Runtime) handleAdminInspectPlayer(ctx realtime.CommandContext, re
 }
 
 func (runtime *Runtime) handleAdminRepairCraftJob(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
-	if err := rejectTrustedPayload(request.Payload); err != nil {
+	if err := rejectTrustedPayloadAllowing(request.Payload, "job_id"); err != nil {
 		return nil, err
 	}
 	if _, err := runtime.requireAdmin(ctx, "Admin craft repair is restricted."); err != nil {
@@ -431,7 +431,7 @@ func (runtime *Runtime) handleAdminRepairCraftJob(ctx realtime.CommandContext, r
 	defer runtime.mu.Unlock()
 	result, err := runtime.Admin.RepairStuckCraftJob(admin.RepairCraftJobInput{JobID: jobID})
 	if err != nil {
-		if errors.Is(err, admin.ErrMissingCraftingService) {
+		if errors.Is(err, admin.ErrMissingCraftingService) || errors.Is(err, crafting.ErrCraftJobNotFound) {
 			response := adminRepairCraftJobPayload{
 				Accepted: false,
 				JobID:    jobID.String(),

@@ -11,6 +11,7 @@ import (
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/intel"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/world"
 )
 
 const (
@@ -31,6 +32,7 @@ var coordinateItemUseInterleaveTestHook func(coordinateItemUseInterleaveStage, *
 
 type intelShareRequest struct {
 	ToPlayerID string `json:"to_player_id"`
+	ToEntityID string `json:"to_entity_id"`
 	PlanetID   string `json:"planet_id"`
 }
 
@@ -44,7 +46,8 @@ type intelCoordinateItemUseRequest struct {
 
 type intelSharePayload struct {
 	PlanetID        string `json:"planet_id"`
-	ToPlayerID      string `json:"to_player_id"`
+	ToPlayerID      string `json:"to_player_id,omitempty"`
+	ToEntityID      string `json:"to_entity_id,omitempty"`
 	Shared          bool   `json:"shared"`
 	ReceiverUpdated bool   `json:"receiver_updated"`
 	Duplicate       bool   `json:"duplicate"`
@@ -83,19 +86,13 @@ func (runtime *Runtime) handleIntelShare(ctx realtime.CommandContext, request re
 	if err := decodeStrict(request.Payload, &intent); err != nil {
 		return nil, invalidPayload("Intel share intent is invalid.", err)
 	}
-	toPlayerID := foundation.PlayerID(strings.TrimSpace(intent.ToPlayerID))
+	toPlayerID, toEntityID, err := runtime.resolveIntelShareRecipient(ctx.PlayerID, intent)
+	if err != nil {
+		return nil, err
+	}
 	planetID := foundation.PlanetID(strings.TrimSpace(intent.PlanetID))
-	if toPlayerID.IsZero() || toPlayerID == ctx.PlayerID {
-		return nil, invalidPayload("Intel share target is invalid.", nil)
-	}
-	if err := toPlayerID.Validate(); err != nil {
-		return nil, invalidPayload("Intel share target is invalid.", err)
-	}
 	if err := planetID.Validate(); err != nil {
 		return nil, invalidPayload("Planet id is invalid.", err)
-	}
-	if err := runtime.requireKnownIntelShareReceiver(toPlayerID); err != nil {
-		return nil, err
 	}
 	reference, err := foundation.IntelShareIdempotencyKey(ctx.PlayerID, toPlayerID, planetID, request.RequestID.String())
 	if err != nil {
@@ -130,13 +127,52 @@ func (runtime *Runtime) handleIntelShare(ctx realtime.CommandContext, request re
 	payload := map[string]any{
 		"share": intelSharePayload{
 			PlanetID:        result.ReceiverIntel.PlanetID.String(),
-			ToPlayerID:      toPlayerID.String(),
+			ToPlayerID:      strings.TrimSpace(intent.ToPlayerID),
+			ToEntityID:      toEntityID.String(),
 			Shared:          result.Shared,
 			ReceiverUpdated: result.ReceiverUpdated,
 			Duplicate:       result.Duplicate,
 		},
 	}
 	return marshalPayload(payload)
+}
+
+func (runtime *Runtime) resolveIntelShareRecipient(
+	senderID foundation.PlayerID,
+	intent intelShareRequest,
+) (foundation.PlayerID, world.EntityID, error) {
+	toPlayerValue := strings.TrimSpace(intent.ToPlayerID)
+	toEntityValue := strings.TrimSpace(intent.ToEntityID)
+	if (toPlayerValue == "") == (toEntityValue == "") {
+		return "", "", invalidPayload("Intel share target is invalid.", nil)
+	}
+	if toPlayerValue != "" {
+		toPlayerID := foundation.PlayerID(toPlayerValue)
+		if toPlayerID.IsZero() || toPlayerID == senderID {
+			return "", "", invalidPayload("Intel share target is invalid.", nil)
+		}
+		if err := toPlayerID.Validate(); err != nil {
+			return "", "", invalidPayload("Intel share target is invalid.", err)
+		}
+		if err := runtime.requireKnownIntelShareReceiver(toPlayerID); err != nil {
+			return "", "", err
+		}
+		return toPlayerID, "", nil
+	}
+	entityID, err := foundation.ParseEntityID(toEntityValue)
+	if err != nil {
+		return "", "", invalidPayload("Intel share target is invalid.", err)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if !runtime.entityVisibleToPlayerLocked(senderID, entityID) {
+		return "", "", foundation.NewDomainError(foundation.CodeNotFound, "Intel share target was not found.")
+	}
+	toPlayerID, _, ok := runtime.playerByEntityLocked(entityID)
+	if !ok || toPlayerID.IsZero() || toPlayerID == senderID {
+		return "", "", foundation.NewDomainError(foundation.CodeNotFound, "Intel share target was not found.")
+	}
+	return toPlayerID, entityID, nil
 }
 
 func (runtime *Runtime) requireKnownIntelShareReceiver(playerID foundation.PlayerID) error {

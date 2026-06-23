@@ -3,6 +3,7 @@ import { resolvePlanetNavigationTarget } from './planet-navigation';
 import { activeEntityMovement, boundedMovementTarget, currentEntityPosition, distanceBetween, LONG_RANGE_MOVE_STEP_UNITS } from '../state/movement';
 import { isAttackableVisibleTarget } from '../state/target-eligibility';
 import { CLIENT_EVENTS, EntityPayload, Operation, OPERATIONS, RequestEnvelope, Vec2 } from '../protocol/envelope';
+import type { RouteDestinationInput } from '../protocol/commands';
 import {
   ClientAppCore,
   DemoStateModule,
@@ -331,6 +332,19 @@ export abstract class ClientAppCommands extends ClientAppCore {
     );
   }
 
+  protected sendIntelShareToEntity(planetIDValue: string, toEntityIDValue: string): void {
+    const planetID = planetIDValue.trim();
+    const toEntityID = toEntityIDValue.trim();
+    if (!planetID || !toEntityID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `intel-share-entity:${planetID}:${toEntityID}`,
+      () => this.commandBuilder.intelShareToEntity(planetID, toEntityID),
+      'Intel share already pending.',
+    );
+  }
+
   protected sendCoordinateItemCreate(planetID: string): void {
     if (!planetID) {
       return;
@@ -410,15 +424,17 @@ export abstract class ClientAppCommands extends ClientAppCore {
 
   protected sendRouteCreate(input: {
     sourcePlanetID: string;
-    destinationPlanetID: string;
+    destinationPlanetID?: string;
+    destination?: RouteDestinationInput;
     resourceItemID: string;
     amountPerHour: number;
   }): void {
-    if (!input.sourcePlanetID || !input.destinationPlanetID || !input.resourceItemID) {
+    const destinationKey = routeDestinationActionKey(input);
+    if (!input.sourcePlanetID || !destinationKey || !input.resourceItemID) {
       return;
     }
     this.sendGuardedGameplayCommand(
-      `route-create:${input.sourcePlanetID}:${input.destinationPlanetID}:${input.resourceItemID}`,
+      `route-create:${input.sourcePlanetID}:${destinationKey}:${input.resourceItemID}`,
       () => this.commandBuilder.routeCreate(input),
       'Route create already pending.',
     );
@@ -426,11 +442,12 @@ export abstract class ClientAppCommands extends ClientAppCore {
 
   protected sendRouteUpdate(input: {
     routeID: string;
-    destinationPlanetID: string;
+    destinationPlanetID?: string;
+    destination?: RouteDestinationInput;
     resourceItemID: string;
     amountPerHour: number;
   }): void {
-    if (!input.routeID || !input.destinationPlanetID || !input.resourceItemID) {
+    if (!input.routeID || !routeDestinationActionKey(input) || !input.resourceItemID) {
       return;
     }
     this.sendGuardedGameplayCommand(
@@ -658,6 +675,13 @@ export abstract class ClientAppCommands extends ClientAppCore {
 
 function movementEtaFromStats(distance: number, speed: number | null): number | null {
   return speed && speed > 0 ? (distance / speed) * 1000 : null;
+}
+
+function routeDestinationActionKey(input: { destinationPlanetID?: string; destination?: RouteDestinationInput }): string {
+  if (input.destination?.id) {
+    return `${input.destination.type}:${input.destination.id}`;
+  }
+  return input.destinationPlanetID ?? '';
 }
 
 export function formatDuration(milliseconds: number | null): string {

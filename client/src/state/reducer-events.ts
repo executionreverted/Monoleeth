@@ -5,6 +5,7 @@ import {
   applyPlanetDetail,
   applyPlanetClaimed,
   applyPlanetStorageSummary,
+  applyRouteList,
   applyRouteSnapshot,
   applyScanPulse,
   countPlanetSignals,
@@ -320,13 +321,16 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
       };
     }
 
-    case CLIENT_EVENTS.productionSummary:
+    case CLIENT_EVENTS.productionSummary: {
+      const production = parseProductionCollection(envelope.payload, state.production);
+      const nextState = withoutPendingPlanetBuildingMutations(state, production);
       return {
-        ...state,
-        production: parseProductionCollection(envelope.payload, state.production),
+        ...nextState,
+        production,
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
+    }
 
     case CLIENT_EVENTS.planetStorageSummary: {
       const storagePayload = objectField(envelope.payload, 'planet_storage') ?? envelope.payload;
@@ -339,8 +343,7 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
 
     case CLIENT_EVENTS.routeList:
       return {
-        ...state,
-        routes: parseRouteList(envelope.payload, state.routes),
+        ...applyRouteList(state, parseRouteList(envelope.payload, state.routes)),
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
@@ -793,10 +796,44 @@ function withoutPendingPlanetClaim(state: ClientState, payload: EventEnvelope['p
   return changed ? { ...state, pendingCommands } : state;
 }
 
+function withoutPendingPlanetBuildingMutations(
+  state: ClientState,
+  production: NonNullable<ClientState['production']>,
+): ClientState {
+  const planetIDs = new Set(production.planets.map((planet) => planet.planet_id));
+  const buildingIDs = new Set(production.planets.flatMap((planet) => planet.buildings.map((building) => building.building_id)));
+  if (planetIDs.size === 0 && buildingIDs.size === 0) {
+    return state;
+  }
+  const pendingCommands: ClientState['pendingCommands'] = {};
+  let changed = false;
+  for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
+    if (
+      pending.op === OPERATIONS.planetBuildingBuild &&
+      pending.payload?.planet_id &&
+      planetIDs.has(String(pending.payload.planet_id))
+    ) {
+      changed = true;
+      continue;
+    }
+    if (
+      pending.op === OPERATIONS.planetBuildingUpgrade &&
+      pending.payload?.building_id &&
+      buildingIDs.has(String(pending.payload.building_id))
+    ) {
+      changed = true;
+      continue;
+    }
+    pendingCommands[requestID] = pending;
+  }
+  return changed ? { ...state, pendingCommands } : state;
+}
+
 type RoutePendingMatch = {
   route_id: string;
   source_planet_id: string;
   destination: {
+    type: string;
     id: string;
   };
   resource_item_id: string;
@@ -822,9 +859,13 @@ function pendingRouteUpdatedMatches(op: string, payload: EventEnvelope['payload'
   if (op !== OPERATIONS.routeCreate || !payload) {
     return false;
   }
+  const pendingDestinationType = stringField(payload, 'destination_type') ?? 'planet';
+  const pendingDestinationID = stringField(payload, 'destination_id') ?? stringField(payload, 'destination_planet_id') ?? '';
+  const routeDestinationIDMatches = route.destination.id === pendingDestinationID || (route.destination.type !== 'planet' && route.destination.id === '');
   return (
     stringField(payload, 'source_planet_id') === route.source_planet_id &&
-    stringField(payload, 'destination_planet_id') === route.destination.id &&
+    route.destination.type === pendingDestinationType &&
+    routeDestinationIDMatches &&
     stringField(payload, 'resource_item_id') === route.resource_item_id
   );
 }

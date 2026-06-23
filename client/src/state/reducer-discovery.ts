@@ -10,6 +10,7 @@ import type {
   PlanetProductionSummary,
   PlanetStorageSummary,
   ProductionCollectionSummary,
+  RouteEndpointSummary,
   RouteListSummary,
   RouteSettlementSummary,
   RouteSummary,
@@ -173,10 +174,21 @@ export function parsePlanetDetail(payload: JsonObject, fallback: PlanetDetailSum
     coordinates,
     production: production ? parseProductionPlanet(production) ?? undefined : matchingFallback?.production,
     routes,
+    route_endpoints: Array.isArray(payload.route_endpoints)
+      ? payload.route_endpoints.filter(isJsonObject).map(parseRouteEndpoint).filter((endpoint) => endpoint.id && endpoint.type)
+      : matchingFallback?.route_endpoints ?? [],
     production_locked: booleanField(payload, 'production_locked') ?? matchingFallback?.production_locked ?? true,
     available_commands: Array.isArray(payload.available_commands)
       ? payload.available_commands.filter((command): command is string => typeof command === 'string')
       : matchingFallback?.available_commands ?? [],
+  };
+}
+
+function parseRouteEndpoint(payload: JsonObject): RouteEndpointSummary {
+  return {
+    type: stringField(payload, 'type') ?? '',
+    id: stringField(payload, 'id') ?? '',
+    label: stringField(payload, 'label') ?? stringField(payload, 'type') ?? '',
   };
 }
 
@@ -326,6 +338,26 @@ export function parseRouteList(payload: JsonObject, fallback: RouteListSummary |
   return { routes };
 }
 
+export function applyRouteList(state: ClientState, routes: RouteListSummary): ClientState {
+  const planetIntel = state.planetIntel;
+  const selectedPlanet = planetIntel?.selectedPlanet;
+  if (!selectedPlanet) {
+    return { ...state, routes };
+  }
+  const selectedRoutes = routes.routes.filter((route) => route.source_planet_id === selectedPlanet.planet_id);
+  return {
+    ...state,
+    routes,
+    planetIntel: {
+      ...planetIntel,
+      selectedPlanet: {
+        ...selectedPlanet,
+        routes: selectedRoutes,
+      },
+    },
+  };
+}
+
 export function parseRoute(payload: JsonObject): RouteSummary | null {
   const routeID = stringField(payload, 'route_id') ?? '';
   const destination = objectField(payload, 'destination');
@@ -408,6 +440,16 @@ export function applyRouteSnapshot(state: ClientState, route: RouteSummary): Cli
     ...state,
     routes,
     planetIntel,
+  };
+}
+
+export function applyRouteSettlementSnapshot(state: ClientState, settlement: RouteSettlementSummary): ClientState {
+  return {
+    ...state,
+    routeSettlements: {
+      ...(state.routeSettlements ?? {}),
+      [settlement.route_id]: settlement,
+    },
   };
 }
 

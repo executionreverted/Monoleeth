@@ -321,6 +321,9 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.loadoutEquipModule).toBe('loadout.equip_module');
     expect(OPERATIONS.loadoutUnequipModule).toBe('loadout.unequip_module');
     expect(OPERATIONS.stealthToggle).toBe('stealth.toggle');
+    expect(OPERATIONS.craftingStart).toBe('crafting.start');
+    expect(OPERATIONS.craftingComplete).toBe('crafting.complete');
+    expect(OPERATIONS.craftingCancel).toBe('crafting.cancel');
     expect(OPERATIONS.shopCatalog).toBe('shop.catalog');
     expect(OPERATIONS.shopBuyProduct).toBe('shop.buy_product');
     expect(OPERATIONS.discoveryClaimPlanet).toBe('discovery.claim_planet');
@@ -345,12 +348,65 @@ describe('default outbound operations', () => {
     });
     expect(builder.loadoutUnequipModule('offensive_1').payload).toEqual({ slot_id: 'offensive_1' });
     expect(builder.stealthToggle(true).payload).toEqual({ enabled: true });
+    const craftStart = builder.craftingStart({ recipeID: 'refined_alloy_batch' });
+    expect(craftStart.op).toBe(OPERATIONS.craftingStart);
+    expect(craftStart.payload).toEqual({ recipe_id: 'refined_alloy_batch' });
+    expect(Object.keys(craftStart.payload)).toEqual(['recipe_id']);
+    const craftComplete = builder.craftingComplete('craft-job-1');
+    expect(craftComplete.op).toBe(OPERATIONS.craftingComplete);
+    expect(craftComplete.payload).toEqual({ job_id: 'craft-job-1' });
+    expect(Object.keys(craftComplete.payload)).toEqual(['job_id']);
+    const craftCancel = builder.craftingCancel('craft-job-1');
+    expect(craftCancel.op).toBe(OPERATIONS.craftingCancel);
+    expect(craftCancel.payload).toEqual({ job_id: 'craft-job-1' });
+    expect(Object.keys(craftCancel.payload)).toEqual(['job_id']);
     expect(builder.shopCatalog().payload).toEqual({});
     expect(builder.shopCatalog('weapons').payload).toEqual({ category_id: 'weapons' });
     expect(builder.shopBuyProduct('product_module_laser_alpha_t1', 1).payload).toEqual({
       product_id: 'product_module_laser_alpha_t1',
       quantity: 1,
     });
+  });
+
+  test('planet building commands send only client intent fields', () => {
+    const builder = new CommandBuilder();
+    const build = builder.planetBuildingBuild({ planetID: 'planet-eris', buildingType: 'alloy_foundry', slot: 'alpha' });
+    expect(build.op).toBe(OPERATIONS.planetBuildingBuild);
+    expect(build.payload).toEqual({
+      planet_id: 'planet-eris',
+      building_type: 'alloy_foundry',
+      slot: 'alpha',
+    });
+    expect(Object.keys(build.payload)).toEqual(['planet_id', 'building_type', 'slot']);
+
+    const upgrade = builder.planetBuildingUpgrade({ planetID: 'planet-eris', buildingID: 'building-alpha', targetLevel: 2.4 });
+    expect(upgrade.op).toBe(OPERATIONS.planetBuildingUpgrade);
+    expect(upgrade.payload).toEqual({
+      planet_id: 'planet-eris',
+      building_id: 'building-alpha',
+      target_level: 2,
+    });
+    expect(Object.keys(upgrade.payload)).toEqual(['planet_id', 'building_id', 'target_level']);
+
+    for (const payload of [build.payload, upgrade.payload]) {
+      for (const forbidden of [
+        'owner',
+        'owner_player_id',
+        'player_id',
+        'wallet',
+        'cost',
+        'materials',
+        'storage',
+        'production',
+        'coordinates',
+        'position',
+        'public_map_key',
+        'level',
+        'definition_id',
+      ]) {
+        expect(payload).not.toHaveProperty(forbidden);
+      }
+    }
   });
 
   test('claim planet command sends only planet id intent', () => {
@@ -382,6 +438,11 @@ describe('default outbound operations', () => {
     expect(share.op).toBe(OPERATIONS.intelShare);
     expect(share.payload).toEqual({ planet_id: 'planet-eris', to_player_id: 'player-friend' });
     expect(Object.keys(share.payload)).toEqual(['planet_id', 'to_player_id']);
+
+    const shareEntity = builder.intelShareToEntity('planet-eris', 'entity_pilot_2');
+    expect(shareEntity.op).toBe(OPERATIONS.intelShare);
+    expect(shareEntity.payload).toEqual({ planet_id: 'planet-eris', to_entity_id: 'entity_pilot_2' });
+    expect(Object.keys(shareEntity.payload)).toEqual(['planet_id', 'to_entity_id']);
 
     const create = builder.intelCoordinateItemCreate('planet-eris');
     expect(create.op).toBe(OPERATIONS.intelCoordinateItemCreate);
@@ -494,6 +555,27 @@ describe('default outbound operations', () => {
       'amount_per_hour',
     ]);
 
+    const createStorage = builder.routeCreate({
+      sourcePlanetID: 'planet-source',
+      destination: { type: 'storage', id: 'storage-alpha' },
+      resourceItemID: 'refined_alloy',
+      amountPerHour: 12.8,
+    });
+    expect(createStorage.payload).toEqual({
+      source_planet_id: 'planet-source',
+      destination_type: 'storage',
+      destination_id: 'storage-alpha',
+      resource_item_id: 'refined_alloy',
+      amount_per_hour: 13,
+    });
+    expect(Object.keys(createStorage.payload)).toEqual([
+      'source_planet_id',
+      'destination_type',
+      'destination_id',
+      'resource_item_id',
+      'amount_per_hour',
+    ]);
+
     const update = builder.routeUpdate({
       routeID: 'route-alpha',
       destinationPlanetID: 'planet-new-destination',
@@ -510,6 +592,27 @@ describe('default outbound operations', () => {
     expect(Object.keys(update.payload)).toEqual([
       'route_id',
       'destination_planet_id',
+      'resource_item_id',
+      'amount_per_hour',
+    ]);
+
+    const updateStation = builder.routeUpdate({
+      routeID: 'route-alpha',
+      destination: { type: 'station', id: 'station-alpha' },
+      resourceItemID: 'raw_ore',
+      amountPerHour: 76.2,
+    });
+    expect(updateStation.payload).toEqual({
+      route_id: 'route-alpha',
+      destination_type: 'station',
+      destination_id: 'station-alpha',
+      resource_item_id: 'raw_ore',
+      amount_per_hour: 76,
+    });
+    expect(Object.keys(updateStation.payload)).toEqual([
+      'route_id',
+      'destination_type',
+      'destination_id',
       'resource_item_id',
       'amount_per_hour',
     ]);

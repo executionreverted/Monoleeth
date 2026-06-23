@@ -74,9 +74,12 @@ marked `Open` are not implemented rollout controls yet.
   `scan.pulse` active-map scan scope/read-model isolation, and domain scanner
   materialization/intel across seeded public maps `1-1`, `1-2`, and `1-3`.
   Server-side drop matrix coverage now includes seeded public maps `1-1`,
-  `1-2`, and medium PvP `1-3`. A focused browser claim proof now exists for
-  public `1-1`, but browser drop flow and broader browser scanner/claim/drop
-  matrix variants remain open.
+  `1-2`, and medium PvP `1-3`. `TestPlayableVerticalServerAuthoritativeLoop`
+  now ties a single server-authoritative loop across starter combat/loot,
+  route create/settle, portal handoff, destination scan, planet detail, Core
+  claim, and production initialization. A focused browser claim proof now
+  exists for public `1-1`, but browser drop flow and broader browser
+  scanner/claim/drop matrix variants remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone
   UI-click rejection proof exist in
   `client/tests/e2e/phase10-pvp-death-flow.mjs`; remaining PvP browser gaps are
@@ -86,8 +89,10 @@ marked `Open` are not implemented rollout controls yet.
   scan-scope proof for public `1-2` and `1-3`, domain scanner
   materialization/intel proof across public `1-1`/`1-2`/`1-3`, and Phase09
   now covers one browser scan pulse with DOM/state/storage/cookie leak checks,
-  and Phase10 now has a focused browser claim proof. Drop matrix coverage and
-  broader browser scan variants remain missing.
+  Phase10 now has a focused browser claim proof, and the server playable
+  vertical harness proves scan/detail/claim after a real portal transfer.
+  Browser drop matrix coverage and broader browser scan variants remain
+  missing.
 - Authenticated `route.create`, `route.update`, `route.enable`, and
   `route.disable` now have server gateway slices for owned planet-to-planet MVP
   routes. `planet.production_summary` and `planet.storage_summary` now settle
@@ -131,9 +136,12 @@ marked `Open` are not implemented rollout controls yet.
 - Full server-side selector mismatch guard is now covered for wrong kill-event
   map/world-zone, NPC type, starter level/rank band, starter risk band, missing
   inputs, missing table cases, and seeded destination/PvP level/risk/table
-  unavailable/table-source mismatch cases without starter fallback. Current
-  positive coverage includes seeded public `1-1`, `1-2`, and medium PvP `1-3`
-  matrix rows, domain-level cross-map pickup rejection, and
+  unavailable/table-source mismatch cases without starter fallback. Seeded
+  cross-map spawn-record mismatch coverage now proves a public `1-2` NPC kill
+  event cannot be resolved through the public `1-3` PvP map selector or fall
+  back to starter loot. Current positive coverage includes seeded public `1-1`,
+  `1-2`, and medium PvP `1-3` matrix rows, domain-level cross-map pickup
+  rejection, and
   starter/destination browser fight/loot pickup proof. Broader balance tuning
   and additional rollout/browser proof remain open.
 - Phase09 now covers inbound/outbound WebSocket text frames,
