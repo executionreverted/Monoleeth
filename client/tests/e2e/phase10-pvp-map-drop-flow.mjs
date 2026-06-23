@@ -106,6 +106,7 @@ async function main() {
     await openCommandSocket(client);
     await enterPortalViaPosition(client, 'east_gate', eastGateTarget, '1-2', 'Outer Ring');
     await enterPortalViaPosition(client, 'skirmish_gate', skirmishGateTarget, '1-3', 'Border Skirmish');
+    await provePVPMapScan(client);
 
     await moveToPosition(client, borderRaiderApproachTarget, 220, 'border raider approach', 90000);
     const withNPC = await waitSmoke(
@@ -157,7 +158,7 @@ async function main() {
     await assertWebSocketCanary(client, 'pvp-map drop');
     assertProcessLogCanary([goServer]);
 
-    console.log(`phase10-pvp-map-drop smoke ok map=1-3 npc=${npc.entity_id} drop=${pickupDropID} item=${drop.item_id}x${drop.quantity}`);
+    console.log(`phase10-pvp-map-drop smoke ok map=1-3 scan=ok npc=${npc.entity_id} drop=${pickupDropID} item=${drop.item_id}x${drop.quantity}`);
   } finally {
     if (context) await context.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
@@ -293,6 +294,27 @@ async function enterPortalViaPosition(client, portalID, position, expectedMapKey
   assertMap(state, expectedMapKey, expectedDisplay, expectedDisplay);
   await assertNoLeak(client, state, `${expectedMapKey} arrival`);
   return state;
+}
+
+async function provePVPMapScan(client) {
+  await resetWebSocketFrames(client);
+  const payload = payloadOf(await send(client, 'scan.pulse', {}), 'scan.pulse');
+  assert(payload.scan?.status === 'planet_discovered', `pvp-map scan status ${compact(payload.scan)}`);
+  assert(payload.scan?.planet_id, `pvp-map scan missing planet_id ${compact(payload.scan)}`);
+  assert(payload.scan?.signal, `pvp-map scan missing safe signal ${compact(payload.scan)}`);
+  const planet = (payload.known_planets?.planets ?? []).find((candidate) => candidate.planet_id === payload.scan.planet_id);
+  assert(planet?.public_map_key === '1-3', `pvp-map scan known planet ${compact(planet)}`);
+  assertNoPayloadLeak(payload, 'pvp-map scan response');
+  const state = await waitSmoke(
+    client,
+    (candidate) =>
+      candidate.currentMap?.public_map_key === '1-3' &&
+      candidate.planetIntel?.lastScan?.planet_id === payload.scan.planet_id &&
+      (candidate.planetIntel?.planets ?? []).some((known) => known.planet_id === payload.scan.planet_id && known.public_map_key === '1-3'),
+    'pvp-map scan reconciliation',
+    15000,
+  );
+  await assertNoLeak(client, state, 'pvp-map scan');
 }
 
 async function moveToPosition(client, targetPosition, arriveDistance, label, timeoutMS) {

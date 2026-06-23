@@ -553,9 +553,9 @@ for phase status; this file is a compact pending-work index.
   create/settle, then transfers through `east_gate` to public `1-2` and proves
   destination-map combat/drop/pickup with DOM/state/storage/WebSocket/log leak
   canaries. The focused built-client `e2e:phase10-pvp-map-drop` proof now
-  covers one public `1-3` browser combat/drop/pickup path for `carbon_shards`.
-  Remaining work is broader browser claim/drop and scan success/no-signal
-  variants.
+  covers one public `1-3` browser scan plus combat/drop/pickup path for
+  `carbon_shards`. Remaining work is broader browser claim/drop and scan
+  no-signal variants.
   Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete broader per-map/risk/rank drop balance matrix coverage across

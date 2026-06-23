@@ -178,9 +178,10 @@ npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-pvp-map-d
 ```
 
 That proof registers a normal browser player, travels through `1-1` -> `1-2` ->
-`1-3`, kills a public Border Skirmish NPC, picks up the server-created
-`carbon_shards` drop, and scans DOM/state/storage/WebSocket/process-log
-surfaces for hidden map/drop internals without Vite.
+`1-3`, resolves a PvP-map `scan.pulse` into a public `1-3` known planet, kills
+a public Border Skirmish NPC, picks up the server-created `carbon_shards` drop,
+and scans DOM/state/storage/WebSocket/process-log surfaces for hidden
+map/scan/drop internals without Vite.
 
 The separate Phase09 map smoke starts its own real Go server and Vite dev
 server, then writes screenshots under `output/screenshots/ui-implementation/09/`,
