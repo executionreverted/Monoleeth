@@ -144,6 +144,58 @@ func TestClaimDurableLifecycleStoreReadbackMissingAndInvalidReferences(t *testin
 	}
 }
 
+func TestClaimDurableLifecyclePlanApplyDurableLifecycle(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	store := NewInMemoryClaimDurableLifecycleStore()
+
+	committed, err := plan.ApplyDurableLifecycle(store)
+	if err != nil {
+		t.Fatalf("ApplyDurableLifecycle() error = %v, want nil", err)
+	}
+	if committed.Duplicate || committed.Plan.Commit.Boundary.ClaimReference != plan.Commit.Boundary.ClaimReference {
+		t.Fatalf("ApplyDurableLifecycle() result = %+v, want first commit", committed)
+	}
+
+	duplicate, err := plan.ApplyDurableLifecycle(store)
+	if err != nil {
+		t.Fatalf("duplicate ApplyDurableLifecycle() error = %v, want nil", err)
+	}
+	if !duplicate.Duplicate || len(store.ClaimReferences()) != 1 {
+		t.Fatalf("duplicate ApplyDurableLifecycle() = %+v refs %d, want duplicate without append", duplicate, len(store.ClaimReferences()))
+	}
+}
+
+func TestClaimDurableLifecyclePlanApplyDurableLifecycleRejectsInvalidInputs(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	if result, err := plan.ApplyDurableLifecycle(nil); !errors.Is(err, ErrInvalidClaimDurableCommit) || result.Plan.Commit.Boundary.ClaimReference != "" {
+		t.Fatalf("ApplyDurableLifecycle(nil store) = %+v/%v, want invalid durable commit", result, err)
+	}
+
+	invalid := plan
+	invalid.Commit.Outbox.Status = ClaimOutboxStatusPublished
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if result, err := invalid.ApplyDurableLifecycle(store); !errors.Is(err, ErrInvalidClaimDurableCommit) || result.Plan.Commit.Boundary.ClaimReference != "" {
+		t.Fatalf("ApplyDurableLifecycle(invalid plan) = %+v/%v, want invalid durable commit", result, err)
+	}
+	if len(store.ClaimReferences()) != 0 {
+		t.Fatalf("ClaimReferences() len after invalid ApplyDurableLifecycle = %d, want 0", len(store.ClaimReferences()))
+	}
+
+	invalidInit := plan
+	invalidInit.ProductionInitialized.Initialization.Created = false
+	invalidInit.ProductionInitialized.Initialization.AlreadyInitialized = false
+	if result, err := invalidInit.ApplyDurableLifecycle(store); !errors.Is(err, ErrInvalidClaimDurableCommit) || result.Plan.Commit.Boundary.ClaimReference != "" {
+		t.Fatalf("ApplyDurableLifecycle(invalid production init) = %+v/%v, want invalid durable commit", result, err)
+	}
+	if len(store.ClaimReferences()) != 0 {
+		t.Fatalf("ClaimReferences() len after invalid production init = %d, want 0", len(store.ClaimReferences()))
+	}
+
+	if result, err := (ClaimDurableLifecyclePlan{}).ApplyDurableLifecycle(store); err != nil || result.Plan.Commit.Boundary.ClaimReference != "" {
+		t.Fatalf("ApplyDurableLifecycle(no-op) = %+v/%v, want empty nil", result, err)
+	}
+}
+
 func claimDurableLifecyclePlanForStoreTest(t *testing.T) ClaimDurableLifecyclePlan {
 	t.Helper()
 	beginPlan, initPlan, commitPlan := claimDurableLifecyclePlansForTest(t)

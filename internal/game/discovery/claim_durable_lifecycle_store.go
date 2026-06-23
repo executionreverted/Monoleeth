@@ -27,6 +27,17 @@ type ClaimDurableLifecycleResult struct {
 	Duplicate bool
 }
 
+// ApplyDurableLifecycle validates and records this lifecycle plan through a
+// durable claim lifecycle adapter.
+func (plan ClaimDurableLifecyclePlan) ApplyDurableLifecycle(
+	store ClaimDurableLifecycleStore,
+) (ClaimDurableLifecycleResult, error) {
+	if store == nil {
+		return ClaimDurableLifecycleResult{}, ErrInvalidClaimDurableCommit
+	}
+	return store.ApplyClaimDurableLifecyclePlan(plan)
+}
+
 // InMemoryClaimDurableLifecycleStore is a process-local durable-table contract
 // used by tests and future DB adapters.
 type InMemoryClaimDurableLifecycleStore struct {
@@ -123,11 +134,62 @@ func normalizeClaimDurableLifecyclePlan(plan ClaimDurableLifecyclePlan) (ClaimDu
 	if !plan.HasProductionInit && !reflect.DeepEqual(plan.ProductionInitialized, ClaimProductionInitializationDurablePlan{}) {
 		return ClaimDurableLifecyclePlan{}, fmt.Errorf("production_initialization: %w", ErrInvalidClaimDurableCommit)
 	}
+	begin, err := normalizeClaimDurableLifecycleBeginPlan(plan.Begin)
+	if err != nil {
+		return ClaimDurableLifecyclePlan{}, fmt.Errorf("begin: %w", err)
+	}
+	commit, err := normalizeClaimDurableLifecycleCommitPlan(plan.Commit)
+	if err != nil {
+		return ClaimDurableLifecyclePlan{}, fmt.Errorf("commit: %w", err)
+	}
 	var productionInit *ClaimProductionInitializationDurablePlan
 	if plan.HasProductionInit {
-		productionInit = &plan.ProductionInitialized
+		normalizedInit, err := normalizeClaimDurableLifecycleProductionInitPlan(plan.ProductionInitialized)
+		if err != nil {
+			return ClaimDurableLifecyclePlan{}, fmt.Errorf("production_initialization: %w", err)
+		}
+		productionInit = &normalizedInit
 	}
-	return NewClaimDurableLifecyclePlan(&plan.Begin, productionInit, &plan.Commit)
+	return NewClaimDurableLifecyclePlan(&begin, productionInit, &commit)
+}
+
+func normalizeClaimDurableLifecycleBeginPlan(plan ClaimDurableBeginPlan) (ClaimDurableBeginPlan, error) {
+	if err := validateClaimDurableBeginPlan(plan); err != nil {
+		return ClaimDurableBeginPlan{}, err
+	}
+	if !plan.HasXCoreStorageMutation {
+		return ClaimDurableBeginPlan{}, ErrInvalidClaimDurableCommit
+	}
+	return NewClaimDurableBeginPlan(
+		&plan.XCoreStorageMutation,
+		&plan.Planet,
+		&plan.Boundary,
+		plan.StaleIntel,
+	)
+}
+
+func normalizeClaimDurableLifecycleCommitPlan(plan ClaimDurableCommitPlan) (ClaimDurableCommitPlan, error) {
+	var xcore *ClaimXCoreConsumptionRecord
+	if claimLifecycleXCorePresent(plan.XCoreConsumption) {
+		xcore = &plan.XCoreConsumption
+	}
+	return NewClaimDurableCommitPlan(
+		&plan.Boundary,
+		&plan.Reference,
+		&plan.Event,
+		&plan.Outbox,
+		xcore,
+	)
+}
+
+func normalizeClaimDurableLifecycleProductionInitPlan(
+	plan ClaimProductionInitializationDurablePlan,
+) (ClaimProductionInitializationDurablePlan, error) {
+	var boundary *ClaimBoundaryRecord
+	if !reflect.DeepEqual(plan.Boundary, ClaimBoundaryRecord{}) {
+		boundary = &plan.Boundary
+	}
+	return NewClaimProductionInitializationDurablePlan(&plan.Initialization, boundary)
 }
 
 func claimDurableLifecyclePlanIsNoOp(plan ClaimDurableLifecyclePlan) bool {

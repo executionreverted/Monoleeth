@@ -610,6 +610,9 @@ Mockup areas covered:
       storage-mutation evidence cannot satisfy durable claim/storage coupling.
 - [x] Add claim durable lifecycle-store adapter contract with idempotent exact
       replay, conflict rejection, and claim-reference readback.
+- [x] Add claim durable lifecycle plan handoff helper that revalidates nested
+      begin/commit/production-init rows and applies completed claim bundles
+      through the lifecycle-store adapter.
 - [ ] Add durable authenticated transaction flows for claim/storage mutation
       coupling once DB/CAS storage boundaries replace process-local stores.
 - [x] Add offline settlement reconcile path that uses server-owned windows for
