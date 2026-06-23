@@ -118,6 +118,27 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			want: "route_settlement:route-7:window-20260617-10",
 		},
 		{
+			name: "intel share",
+			build: func() (IdempotencyKey, error) {
+				return IntelShareIdempotencyKey(PlayerID("player-1"), PlayerID("player-2"), PlanetID("planet-7"), "request-9")
+			},
+			want: "intel_share:player-1:player-2:planet-7:request-9",
+		},
+		{
+			name: "coordinate item create",
+			build: func() (IdempotencyKey, error) {
+				return CoordinateItemCreateIdempotencyKey(PlayerID("player-1"), PlanetID("planet-7"), ItemID("coordinate-item-7"))
+			},
+			want: "coordinate_item_create:player-1:planet-7:coordinate-item-7",
+		},
+		{
+			name: "coordinate item use",
+			build: func() (IdempotencyKey, error) {
+				return CoordinateItemUseIdempotencyKey(PlayerID("player-2"), ItemID("coordinate-item-7"), "request-10")
+			},
+			want: "coordinate_item_use:player-2:coordinate-item-7:request-10",
+		},
+		{
 			name: "market buy",
 			build: func() (IdempotencyKey, error) {
 				return MarketBuyIdempotencyKey(ListingID("listing-9"), PlayerID("player-2"), RequestID("request-5"))
@@ -215,6 +236,41 @@ func TestPlanetBuildingIdempotencyKeyValidationRequiresExpectedEntity(t *testing
 	}
 	if err := ValidatePlanetBuildingUpgradeIdempotencyKey(wrongDomain, PlanetID("planet-1"), "building-1", 2); !errors.Is(err, ErrInvalidIdempotencyKey) {
 		t.Fatalf("ValidatePlanetBuildingUpgradeIdempotencyKey(wrong domain) = %v, want ErrInvalidIdempotencyKey", err)
+	}
+}
+
+func TestIntelIdempotencyKeyValidationRequiresExpectedEntity(t *testing.T) {
+	shareKey, err := IntelShareIdempotencyKey(PlayerID("player-1"), PlayerID("player-2"), PlanetID("planet-1"), "request-1")
+	if err != nil {
+		t.Fatalf("IntelShareIdempotencyKey: %v", err)
+	}
+	if err := ValidateIntelShareIdempotencyKey(shareKey, PlayerID("player-1"), PlayerID("player-2"), PlanetID("planet-1")); err != nil {
+		t.Fatalf("ValidateIntelShareIdempotencyKey() error = %v, want nil", err)
+	}
+	if err := ValidateIntelShareIdempotencyKey(shareKey, PlayerID("player-1"), PlayerID("player-3"), PlanetID("planet-1")); !errors.Is(err, ErrInvalidIdempotencyKey) {
+		t.Fatalf("ValidateIntelShareIdempotencyKey(wrong receiver) = %v, want ErrInvalidIdempotencyKey", err)
+	}
+
+	createKey, err := CoordinateItemCreateIdempotencyKey(PlayerID("player-1"), PlanetID("planet-1"), ItemID("coordinate-item-1"))
+	if err != nil {
+		t.Fatalf("CoordinateItemCreateIdempotencyKey: %v", err)
+	}
+	if err := ValidateCoordinateItemCreateIdempotencyKey(createKey, PlayerID("player-1"), PlanetID("planet-1"), ItemID("coordinate-item-1")); err != nil {
+		t.Fatalf("ValidateCoordinateItemCreateIdempotencyKey() error = %v, want nil", err)
+	}
+	if err := ValidateCoordinateItemCreateIdempotencyKey(createKey, PlayerID("player-1"), PlanetID("planet-1"), ItemID("coordinate-item-2")); !errors.Is(err, ErrInvalidIdempotencyKey) {
+		t.Fatalf("ValidateCoordinateItemCreateIdempotencyKey(wrong item) = %v, want ErrInvalidIdempotencyKey", err)
+	}
+
+	useKey, err := CoordinateItemUseIdempotencyKey(PlayerID("player-2"), ItemID("coordinate-item-1"), "request-2")
+	if err != nil {
+		t.Fatalf("CoordinateItemUseIdempotencyKey: %v", err)
+	}
+	if err := ValidateCoordinateItemUseIdempotencyKey(useKey, PlayerID("player-2"), ItemID("coordinate-item-1")); err != nil {
+		t.Fatalf("ValidateCoordinateItemUseIdempotencyKey() error = %v, want nil", err)
+	}
+	if err := ValidateCoordinateItemUseIdempotencyKey(useKey, PlayerID("player-3"), ItemID("coordinate-item-1")); !errors.Is(err, ErrInvalidIdempotencyKey) {
+		t.Fatalf("ValidateCoordinateItemUseIdempotencyKey(wrong player) = %v, want ErrInvalidIdempotencyKey", err)
 	}
 }
 

@@ -138,11 +138,16 @@ for phase status; this file is a compact pending-work index.
   spoof-field rejection, duplicate replay, and owner-scoped production/storage/
   wallet reconciliation. Phase07Q tags building storage/building outbox rows
   with the committed building mutation idempotency reference and proves the
-  publisher state machine preserves that evidence. Durable DB/outbox claim recovery, cross-process
+  publisher state machine preserves that evidence. Phase07R starts the
+  server-authoritative intel/coordinate domain foundation for share,
+  coordinate-item creation, coordinate-item use, canonical idempotency keys,
+  and consume-once item state. Durable DB/outbox claim recovery, cross-process
   CAS/locks, idempotency-table enforcement, durable outbox persistence/
-  publisher workers, broader building requirement/cost balancing, and browser
-  HUD controls remain open. Source: Phase 10 audit, Phase07A, Phase07O,
-  Phase07P, Phase07Q, and `docs/map-rework/phase-10-testing-rollout.md`.
+  publisher workers, broader building requirement/cost balancing, browser HUD
+  controls, realtime intel handlers, inventory-backed coordinate items, and
+  intel quotas remain open. Source: Phase 10 audit, Phase07A, Phase07O,
+  Phase07P, Phase07Q, Phase07R, and
+  `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Finish durable authenticated automation route persistence and rollout
   hardening. Server/browser work now has a focused real-client
   create/update/control/settle proof; remaining work is durable route rows,

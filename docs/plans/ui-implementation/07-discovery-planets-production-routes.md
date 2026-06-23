@@ -190,6 +190,15 @@ Current slice completed:
   and the existing pending/in-flight/failed/published publisher state machine
   preserves that evidence. Real durable DB rows and cross-process publisher
   ownership remain open.
+- Phase07R intel domain foundation follow-up: `internal/game/intel` now owns a
+  small server-authoritative in-memory foundation for `intel.share`,
+  `intel.coordinate_item.create`, and `intel.coordinate_item.use`. It records
+  player planet memory, creates coordinate item payloads only from stored
+  server intel, consumes coordinate items once, uses canonical foundation
+  idempotency keys for share/create/use duplicate safety, and rejects
+  mismatched reference/entity attempts before mutation. Realtime handlers,
+  economy inventory item movement, daily quotas, stale market listing hooks,
+  and durable DB rows remain open.
 
 ## Source Specs
 

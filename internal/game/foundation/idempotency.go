@@ -43,6 +43,9 @@ const (
 	idempotencyPlanetBuildingUpgrade = "planet_building_upgrade"
 	idempotencyOfflineSettlement     = "offline_settlement"
 	idempotencyRouteSettlement       = "route_settlement"
+	idempotencyIntelShare            = "intel_share"
+	idempotencyCoordinateItemCreate  = "coordinate_item_create"
+	idempotencyCoordinateItemUse     = "coordinate_item_use"
 	idempotencyMarketListing         = "market_listing"
 	idempotencyMarketBuy             = "market_buy"
 	idempotencyMarketSale            = "market_sale"
@@ -170,6 +173,61 @@ func OfflineSettlementIdempotencyKey(planetID PlanetID, settlementWindow string)
 // RouteSettlementIdempotencyKey returns route_settlement:<route_id>:<settlement_window>.
 func RouteSettlementIdempotencyKey(routeID RouteID, settlementWindow string) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyRouteSettlement, routeID.String(), settlementWindow)
+}
+
+// IntelShareIdempotencyKey returns intel_share:<from_player_id>:<to_player_id>:<planet_id>:<share_reference>.
+func IntelShareIdempotencyKey(fromPlayerID PlayerID, toPlayerID PlayerID, planetID PlanetID, shareReference string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyIntelShare, fromPlayerID.String(), toPlayerID.String(), planetID.String(), shareReference)
+}
+
+// CoordinateItemCreateIdempotencyKey returns coordinate_item_create:<player_id>:<planet_id>:<item_instance_id>.
+func CoordinateItemCreateIdempotencyKey(playerID PlayerID, planetID PlanetID, itemInstanceID ItemID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyCoordinateItemCreate, playerID.String(), planetID.String(), itemInstanceID.String())
+}
+
+// CoordinateItemUseIdempotencyKey returns coordinate_item_use:<player_id>:<item_instance_id>:<use_reference>.
+func CoordinateItemUseIdempotencyKey(playerID PlayerID, itemInstanceID ItemID, useReference string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyCoordinateItemUse, playerID.String(), itemInstanceID.String(), useReference)
+}
+
+// ValidateIntelShareIdempotencyKey requires intel_share:<from_player_id>:<to_player_id>:<planet_id>:<share_reference>.
+func ValidateIntelShareIdempotencyKey(key IdempotencyKey, fromPlayerID PlayerID, toPlayerID PlayerID, planetID PlanetID) error {
+	if err := key.Validate(); err != nil {
+		return err
+	}
+	parts := strings.Split(key.String(), ":")
+	if len(parts) != 5 ||
+		parts[0] != idempotencyIntelShare ||
+		parts[1] != fromPlayerID.String() ||
+		parts[2] != toPlayerID.String() ||
+		parts[3] != planetID.String() {
+		return fmt.Errorf("idempotency key %q: %w", key, ErrInvalidIdempotencyKey)
+	}
+	return nil
+}
+
+// ValidateCoordinateItemCreateIdempotencyKey requires coordinate_item_create:<player_id>:<planet_id>:<item_instance_id>.
+func ValidateCoordinateItemCreateIdempotencyKey(key IdempotencyKey, playerID PlayerID, planetID PlanetID, itemInstanceID ItemID) error {
+	expected, err := CoordinateItemCreateIdempotencyKey(playerID, planetID, itemInstanceID)
+	if err != nil {
+		return err
+	}
+	return validateExpectedIdempotencyKey(key, expected)
+}
+
+// ValidateCoordinateItemUseIdempotencyKey requires coordinate_item_use:<player_id>:<item_instance_id>:<use_reference>.
+func ValidateCoordinateItemUseIdempotencyKey(key IdempotencyKey, playerID PlayerID, itemInstanceID ItemID) error {
+	if err := key.Validate(); err != nil {
+		return err
+	}
+	parts := strings.Split(key.String(), ":")
+	if len(parts) != 4 ||
+		parts[0] != idempotencyCoordinateItemUse ||
+		parts[1] != playerID.String() ||
+		parts[2] != itemInstanceID.String() {
+		return fmt.Errorf("idempotency key %q: %w", key, ErrInvalidIdempotencyKey)
+	}
+	return nil
 }
 
 // MarketListingIdempotencyKey returns market_listing:<listing_id>.
@@ -350,8 +408,12 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyMarketBuy,
 		idempotencyMarketSale,
 		idempotencyMarketFee,
+		idempotencyCoordinateItemCreate,
+		idempotencyCoordinateItemUse,
 		idempotencyPlanetBuildingUpgrade:
 		return 3, true
+	case idempotencyIntelShare:
+		return 4, true
 	case idempotencyShipRepair,
 		idempotencyAdminCompensation,
 		idempotencyShopPurchase:

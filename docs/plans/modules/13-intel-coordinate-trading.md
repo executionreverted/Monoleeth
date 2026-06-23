@@ -285,6 +285,16 @@ Defense:
 - Existing fresher intel not overwritten by stale.
 - Client cannot create arbitrary intel.
 
+Current backend foundation:
+
+- Phase07R adds `internal/game/intel` with in-memory tests for source intel
+  ownership, non-invalidated visibility, server-created coordinate payloads,
+  share/create/use idempotency, consume-once coordinate item state, reference
+  mismatch rejection, and clone-on-read safety.
+- Realtime commands, inventory-backed coordinate item creation/consumption,
+  daily quotas, market listing staleness, and durable DB rows are still future
+  slices.
+
 ## Implementation Notes
 
 MVP:
@@ -294,4 +304,3 @@ MVP:
 - coordinate scroll item
 - market stale marking
 - confidence and last_seen fields
-
