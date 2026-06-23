@@ -50,7 +50,7 @@ func (bundle GameplayContent) Validate() error {
 	if err := validateMapLootReferences(bundle); err != nil {
 		return err
 	}
-	if err := bundle.Scanner.Validate(); err != nil {
+	if err := bundle.Scanner.Validate(bundle.Maps); err != nil {
 		return err
 	}
 	return nil

@@ -23,6 +23,7 @@ func NewScannerService(config ScannerServiceConfig) (*ScannerService, error) {
 		cooldowns:         normalized.Cooldowns,
 		energy:            normalized.Energy,
 		reveals:           normalized.Reveals,
+		profiles:          normalized.Profiles,
 		xp:                normalized.XP,
 		candidateOptions:  normalized.CandidateOptions,
 		scanCellSize:      normalized.ScanCellSize,

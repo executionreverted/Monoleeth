@@ -70,6 +70,8 @@ Add `Validate() error` and helpers for:
 - production item refs
 - server-only scanner seed, bounded candidate options, radar-level unit, and
   discovery XP amount
+- per-map scanner profile refs, duplicate profile rejection, and candidate
+  option validation per bounded map
 
 **Step 5: Run focused test**
 
@@ -121,6 +123,40 @@ Expected: pass.
 git add internal/game/content internal/game/server
 git commit -m "game: load runtime catalogs through content bundle"
 ```
+
+### Task 2B: Map-Scoped Scanner Profiles
+
+**Files:**
+- Modify: `internal/game/content/scanner.go`
+- Modify: `internal/game/discovery/scanner_types.go`
+- Modify: `internal/game/discovery/scanner.go`
+- Modify: `internal/game/discovery/scanner_helpers.go`
+- Modify: `internal/game/server/runtime.go`
+- Test: `internal/game/content/bundle_test.go`
+
+**Step 1: Add profile resolver**
+
+Add a scanner candidate-options provider that resolves options by active
+server-owned map/zone. Runtime injects the content bundle as this provider, so
+scan pulses use only the player's current bounded map.
+
+**Step 2: Preserve demo canaries**
+
+Keep current demo first-scan discoveries stable on `1-1`, `1-2`, and `1-3`.
+Profile rows may vary level band and spawn budget, but density/seed choices must
+not break the playable vertical-slice scanner loop until cooldown-backed rare
+planet tuning exists.
+
+**Step 3: Validate**
+
+Run:
+
+```bash
+go test ./internal/game/discovery ./internal/game/content ./internal/game/server -run 'TestDefaultGameplayContent|TestGameplayContent|TestScannerContent|TestResolveScanPulseMaterializationAndIntelAreSeededMapScoped|TestE2EScanNoPlanetSeedReturnsNoSignalWithoutPlanetMutation|TestScanPulseUsesActiveSeededMapScope' -count=1
+git diff --check
+```
+
+Expected: pass.
 
 ### Task 3: Docs And Final Checks
 

@@ -466,6 +466,10 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, err
 	}
 	scannerCandidateOptions := contentBundle.Scanner.CandidateOptionsForRuntime(config.E2EScanNoPlanetSeed)
+	var scannerProfiles discovery.ScannerCandidateOptionsProvider
+	if !config.E2EScanNoPlanetSeed {
+		scannerProfiles = contentBundle.Scanner
+	}
 	scanner, err := discovery.NewScannerService(discovery.ScannerServiceConfig{
 		Store:             discoveryStore,
 		WorldSeed:         scannerSeed,
@@ -476,6 +480,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Cooldowns:         runtimeScannerCooldownProvider{runtime: runtime},
 		Energy:            runtimeScannerEnergyProvider{runtime: runtime},
 		Reveals:           runtimeScannerPlayerRevealProvider{runtime: runtime},
+		Profiles:          scannerProfiles,
 		XP:                runtimeScanXPProvider{progression: progressionService},
 		CandidateOptions:  scannerCandidateOptions,
 		RadarLevelUnit:    contentBundle.Scanner.RadarLevelUnit,

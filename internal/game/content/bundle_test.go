@@ -34,6 +34,9 @@ func TestDefaultGameplayContentValidates(t *testing.T) {
 	if got := bundle.Scanner.CandidateOptions.ProfileVersion; got != DefaultScannerProfileVersion {
 		t.Fatalf("scanner profile = %q, want %q", got, DefaultScannerProfileVersion)
 	}
+	if got, want := len(bundle.Scanner.MapProfiles), 3; got != want {
+		t.Fatalf("scanner map profile count = %d, want %d", got, want)
+	}
 }
 
 func TestGameplayContentRejectsLootRowUnknownItem(t *testing.T) {
@@ -202,6 +205,36 @@ func TestGameplayContentRejectsScannerInvalidDensity(t *testing.T) {
 	}
 }
 
+func TestGameplayContentRejectsScannerInvalidMapProfile(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Scanner.MapProfiles[0].Density = 1.5
+
+	err := bundle.Validate()
+	if !errors.Is(err, discovery.ErrInvalidCandidateOptions) {
+		t.Fatalf("Validate() error = %v, want %v", err, discovery.ErrInvalidCandidateOptions)
+	}
+}
+
+func TestGameplayContentRejectsScannerUnknownMapProfile(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Scanner.MapProfiles[0].MapID = "missing_map"
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrInvalidScannerContent) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidScannerContent)
+	}
+}
+
+func TestGameplayContentRejectsScannerDuplicateMapProfile(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Scanner.MapProfiles[1].MapID = bundle.Scanner.MapProfiles[0].MapID
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrInvalidScannerContent) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidScannerContent)
+	}
+}
+
 func TestGameplayContentRejectsScannerMissingSeed(t *testing.T) {
 	bundle := validBundle(t)
 	bundle.Scanner.StaticSeed = nil
@@ -221,5 +254,28 @@ func TestScannerContentE2ENoPlanetOptionsDoNotMutateBundle(t *testing.T) {
 	}
 	if len(bundle.Scanner.CandidateOptions.AllowedBiomes) != 0 {
 		t.Fatalf("bundle allowed biomes mutated: %+v", bundle.Scanner.CandidateOptions.AllowedBiomes)
+	}
+}
+
+func TestScannerContentResolvesMapProfiles(t *testing.T) {
+	bundle := validBundle(t)
+
+	options, ok := bundle.Scanner.CandidateOptionsForZone("map_1_3")
+	if !ok {
+		t.Fatal("CandidateOptionsForZone(map_1_3) ok=false, want true")
+	}
+	if options.MapID != "map_1_3" || options.ProfileVersion != DefaultScannerProfileVersion {
+		t.Fatalf("map_1_3 options = %+v, want map profile", options)
+	}
+	if options.LevelMin != 1 || options.LevelMax != 4 || options.SpawnBudget != 6 {
+		t.Fatalf("map_1_3 profile options = %+v, want 1..4 level band and spawn budget 6", options)
+	}
+
+	fallback, ok := bundle.Scanner.CandidateOptionsForZone("map_9_9")
+	if ok {
+		t.Fatal("CandidateOptionsForZone(map_9_9) ok=true, want fallback false")
+	}
+	if fallback.MapID != "map_9_9" || fallback.ProfileVersion != DefaultScannerProfileVersion {
+		t.Fatalf("fallback options = %+v, want default profile with requested map id", fallback)
 	}
 }

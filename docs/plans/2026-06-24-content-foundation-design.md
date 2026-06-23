@@ -46,8 +46,12 @@ proprietary labels or assets.
   stats keep using existing map catalog validation
 - loot table rows must reference known item definitions and have valid weights
 - scanner/planet discovery config is server-only content: static seed material,
-  bounded candidate options, scanner radar-level unit, and discovery XP
-  validate before runtime builds `ScannerService`
+  bounded candidate options, per-map scanner profiles, scanner radar-level
+  unit, and discovery XP validate before runtime builds `ScannerService`
+- scanner profiles are keyed by bounded map. The demo rows keep first-scan
+  discovery stable for the current vertical slice while still letting each map
+  own its level band and spawn budget. Later CMS tuning can lower density and
+  add rare planet pacing once cooldowns and live balancing tools exist.
 
 ## Non-Goals
 
@@ -78,5 +82,7 @@ Use narrow tests:
 - production output referencing unknown item fails
 - scanner candidate options outside `0..10000`, invalid density, or missing seed
   fail before runtime starts
+- scanner map profiles must reference known maps and reject duplicate profile
+  rows
 - runtime uses the validated content bundle for item/loot catalogs
   and scanner/planet discovery config
