@@ -526,6 +526,31 @@ describe('route controls', () => {
     expect(html).not.toContain('owner_player_id');
     expect(html).not.toContain('settlement_window');
   });
+
+  test('storage and station destination routes can settle without exposing internal endpoint ids or browser update', () => {
+    const cases = [
+      { type: 'storage', label: 'Storage (1-1)', internalID: 'storage-route-settle-destination' },
+      { type: 'station', label: 'Station (1-1)', internalID: 'station-route-settle-destination' },
+    ];
+
+    for (const item of cases) {
+      const state = planetRouteState();
+      state.planetIntel!.selectedPlanet!.routes[0] = {
+        ...state.planetIntel!.selectedPlanet!.routes[0],
+        route_id: `route-${item.type}`,
+        destination: { type: item.type, id: '' },
+      };
+
+      const html = planetDetailModal(state, 'planet-source');
+
+      expect(html).toContain(`data-route-destination-type="${item.type}"`);
+      expect(html).toContain(item.label);
+      expect(html).toMatch(new RegExp(`data-action="route-update"[^>]*data-route-id="route-${item.type}"[^>]*disabled`));
+      expect(html).toContain(`data-action="route-settle" data-route-id="route-${item.type}"`);
+      expect(html).not.toContain(item.internalID);
+      expect(html).not.toContain('destination_map_id');
+    }
+  });
 });
 
 describe('topbar map labels', () => {

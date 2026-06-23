@@ -401,23 +401,40 @@ function routeControlRow(
   const controlsReady = realtimeReady(state) && !routePending;
   const controlAction = route.enabled ? 'route-disable' : 'route-enable';
   const controlLabel = route.enabled ? 'Disable' : 'Enable';
+  const planetDestination = route.destination.type === 'planet' && route.destination.id !== '';
   const endpointOptions = routeEndpointOptions(endpoints, route.destination.id);
   const mergedResources = resources.includes(route.resource_item_id) ? resources : [route.resource_item_id, ...resources];
   const resourceSelect = resourceOptions(mergedResources, route.resource_item_id);
-  const updateEnabled = controlsReady && endpoints.length > 0 && mergedResources.length > 0;
+  const updateEnabled = controlsReady && planetDestination && endpoints.length > 0 && mergedResources.length > 0;
+  const updateTitle = !planetDestination
+    ? `${publicRouteDestinationLabel(route, endpoints)} routes can settle here, but browser update is planet-only.`
+    : routePending
+      ? 'Route mutation pending'
+      : 'Update route terms';
   const settlementHTML = routeSettlementResult(route);
   return `
     <div class="route-row" data-route-update-control="true" data-route-id="${escapeHTML(route.route_id)}" data-selected="${selected ? 'true' : 'false'}">
       <button type="button" data-action="route-select" data-route-id="${escapeHTML(route.route_id)}" title="Select route">${escapeHTML(route.resource_item_id)} ${route.enabled ? 'on' : 'off'}</button>
+      <span class="route-destination" data-route-destination-type="${escapeHTML(route.destination.type)}">${escapeHTML(publicRouteDestinationLabel(route, endpoints))}</span>
       <select data-route-update-destination ${updateEnabled ? '' : 'disabled'} aria-label="Update route destination">${endpointOptions}</select>
       <select data-route-update-resource ${updateEnabled ? '' : 'disabled'} aria-label="Update route resource">${resourceSelect}</select>
       <input type="number" min="1" step="1" value="${Math.max(1, Math.round(route.amount_per_hour))}" data-route-rate ${updateEnabled ? '' : 'disabled'} aria-label="Update route amount per hour" />
-      <button type="button" data-action="route-update" data-route-id="${escapeHTML(route.route_id)}" ${updateEnabled ? '' : 'disabled'} title="${escapeHTML(routePending ? 'Route mutation pending' : 'Update route terms')}">Update</button>
+      <button type="button" data-action="route-update" data-route-id="${escapeHTML(route.route_id)}" ${updateEnabled ? '' : 'disabled'} title="${escapeHTML(updateTitle)}">Update</button>
       <button type="button" data-action="${controlAction}" data-route-id="${escapeHTML(route.route_id)}" ${controlsReady ? '' : 'disabled'} title="${escapeHTML(routePending ? 'Route mutation pending' : `${controlLabel} route`)}">${controlLabel}</button>
       <button type="button" data-action="route-settle" data-route-id="${escapeHTML(route.route_id)}" ${realtimeReady(state) && !settlePending ? '' : 'disabled'} title="${escapeHTML(settlePending ? 'Route settlement pending' : 'Settle route')}">${settlePending ? 'Settling' : 'Settle'}</button>
       ${settlementHTML}
     </div>
   `;
+}
+
+function publicRouteDestinationLabel(route: RouteSummary, endpoints: KnownPlanetSummary[]): string {
+  if (route.destination.type === 'planet') {
+    const endpoint = endpoints.find((planet) => planet.planet_id === route.destination.id);
+    const planetLabel = endpoint ? publicPlanetName(endpoint) : 'Planet route';
+    return route.to_public_map_key ? `${planetLabel} (${route.to_public_map_key})` : planetLabel;
+  }
+  const type = route.destination.type === 'station' ? 'Station' : route.destination.type === 'storage' ? 'Storage' : 'Route endpoint';
+  return route.to_public_map_key ? `${type} (${route.to_public_map_key})` : type;
 }
 
 function routeSettlementResult(route: RouteSummary): string {
