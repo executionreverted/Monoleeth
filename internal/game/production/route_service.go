@@ -134,10 +134,18 @@ func (service *AutomationRouteService) DisableRouteForOwner(
 	ownerPlayerID foundation.PlayerID,
 	routeID foundation.RouteID,
 ) (RouteControlResult, error) {
+	return service.DisableRouteForOwnerWithRequest(ownerPlayerID, routeID, "")
+}
+
+func (service *AutomationRouteService) DisableRouteForOwnerWithRequest(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+	requestID foundation.RequestID,
+) (RouteControlResult, error) {
 	if service == nil || service.store == nil || service.clock == nil || service.lossRoller == nil {
 		return RouteControlResult{}, ErrInvalidRouteSettlementConfig
 	}
-	return service.store.DisableRouteForOwner(ownerPlayerID, routeID, service.clock.Now(), service.lossRoller)
+	return service.store.DisableRouteForOwnerWithRequest(ownerPlayerID, routeID, service.clock.Now(), service.lossRoller, requestID)
 }
 
 // EnableRoute re-enables a disabled route and starts a fresh settlement period
@@ -155,10 +163,18 @@ func (service *AutomationRouteService) EnableRouteForOwner(
 	ownerPlayerID foundation.PlayerID,
 	routeID foundation.RouteID,
 ) (RouteControlResult, error) {
+	return service.EnableRouteForOwnerWithRequest(ownerPlayerID, routeID, "")
+}
+
+func (service *AutomationRouteService) EnableRouteForOwnerWithRequest(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+	requestID foundation.RequestID,
+) (RouteControlResult, error) {
 	if service == nil || service.store == nil || service.clock == nil {
 		return RouteControlResult{}, ErrInvalidRouteSettlementConfig
 	}
-	return service.store.EnableRouteForOwner(ownerPlayerID, routeID, service.clock.Now())
+	return service.store.EnableRouteForOwnerWithRequest(ownerPlayerID, routeID, service.clock.Now(), requestID)
 }
 
 // UpdateRoute settles old route terms first, then replaces mutable terms using
@@ -204,5 +220,17 @@ func (service *AutomationRouteService) UpdateRouteForOwner(
 	input UpdateRouteInput,
 ) (UpdateRouteResult, error) {
 	input.OwnerPlayerID = ownerPlayerID
+	return service.UpdateRoute(input)
+}
+
+// UpdateRouteForOwnerWithRequest updates a route and records the server
+// request id as part of the durable route mutation idempotency key.
+func (service *AutomationRouteService) UpdateRouteForOwnerWithRequest(
+	ownerPlayerID foundation.PlayerID,
+	input UpdateRouteInput,
+	requestID foundation.RequestID,
+) (UpdateRouteResult, error) {
+	input.OwnerPlayerID = ownerPlayerID
+	input.RequestID = requestID
 	return service.UpdateRoute(input)
 }

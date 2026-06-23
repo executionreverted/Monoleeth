@@ -118,12 +118,12 @@ func (runtime *Runtime) handleRouteUpdate(ctx realtime.CommandContext, request r
 	if err != nil {
 		return nil, domainErrorForRouteUpdate(err)
 	}
-	result, err := service.UpdateRouteForOwner(ctx.PlayerID, production.UpdateRouteInput{
+	result, err := service.UpdateRouteForOwnerWithRequest(ctx.PlayerID, production.UpdateRouteInput{
 		RouteID:        routeID,
 		Destination:    destination,
 		ResourceItemID: resourceItemID,
 		AmountPerHour:  intent.AmountPerHour,
-	})
+	}, request.RequestID)
 	if err != nil {
 		return nil, domainErrorForRouteUpdate(err)
 	}

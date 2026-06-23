@@ -75,6 +75,21 @@ func TestAutomationRouteDurableStoreUpdatesWithExpectedRevisionCAS(t *testing.T)
 	if updated.Record.Revision != 2 || updated.Record.Route.AmountPerHour != 75 {
 		t.Fatalf("updated route durable record = %+v, want revision 2 amount 75", updated.Record)
 	}
+
+	createdByReference, ok, err := store.CommittedAutomationRouteDurableRecordByReference(createPlan.ReferenceKey)
+	if err != nil || !ok {
+		t.Fatalf("CommittedAutomationRouteDurableRecordByReference(create) ok=%v err=%v, want true nil", ok, err)
+	}
+	if createdByReference.Revision != 1 || createdByReference.Route.AmountPerHour != route.AmountPerHour {
+		t.Fatalf("create reference record after update = %+v, want immutable revision 1 route", createdByReference)
+	}
+	duplicateCreate, err := store.ApplyAutomationRouteDurableCommitPlan(createPlan)
+	if err != nil {
+		t.Fatalf("duplicate create ApplyAutomationRouteDurableCommitPlan() error = %v, want nil", err)
+	}
+	if !duplicateCreate.Duplicate || duplicateCreate.Record.Revision != 1 {
+		t.Fatalf("duplicate create result = %+v, want immutable revision 1 replay", duplicateCreate)
+	}
 }
 
 func TestAutomationRouteDurableStoreRejectsStaleRevisionWithoutMutation(t *testing.T) {

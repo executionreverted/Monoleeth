@@ -20,7 +20,7 @@ func TestDisableRouteSettlesOldRouteBeforeDisabling(t *testing.T) {
 	)
 	service := newTestRouteSettlementService(t, store, now, nil)
 
-	result, err := service.DisableRoute(route.RouteID)
+	result, err := service.DisableRouteForOwnerWithRequest("player-1", route.RouteID, "request-disable-route-1")
 	if err != nil {
 		t.Fatalf("DisableRoute() error = %v, want nil", err)
 	}
@@ -40,6 +40,7 @@ func TestDisableRouteSettlesOldRouteBeforeDisabling(t *testing.T) {
 	assertRouteEnabled(t, store, route.RouteID, false)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, now)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, now)
+	assertRouteDurableRecord(t, store, route.RouteID, "route_disable:player-1:route-1:request-disable-route-1", 2, result.Route)
 }
 
 func TestDisableRouteForOwnerRejectsWrongOwnerWithoutMutation(t *testing.T) {
@@ -83,7 +84,7 @@ func TestEnableRouteResetsLastCalculatedAtSoDisabledElapsedDoesNotTransfer(t *te
 	)
 	enableService := newTestRouteSettlementService(t, store, enableAt, nil)
 
-	enableResult, err := enableService.EnableRoute(route.RouteID)
+	enableResult, err := enableService.EnableRouteForOwnerWithRequest("player-1", route.RouteID, "request-enable-route-1")
 	if err != nil {
 		t.Fatalf("EnableRoute() error = %v, want nil", err)
 	}
@@ -91,6 +92,7 @@ func TestEnableRouteResetsLastCalculatedAtSoDisabledElapsedDoesNotTransfer(t *te
 		t.Fatalf("enable Changed/Enabled = %v/%v, want true/true", enableResult.Changed, enableResult.Route.Enabled)
 	}
 	assertRouteSettlementRouteTime(t, store, route.RouteID, enableAt)
+	assertRouteDurableRecord(t, store, route.RouteID, "route_enable:player-1:route-1:request-enable-route-1", 2, enableResult.Route)
 
 	settleService := newTestRouteSettlementService(t, store, settleAt, nil)
 	settleResult, err := settleService.SettleRoute(route.RouteID)
@@ -184,6 +186,7 @@ func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 	service := newTestRouteService(t, store, provider, updateAt)
 	input := validUpdateRouteInput()
 	input.AmountPerHour = 80
+	input.RequestID = "request-update-route-1"
 
 	result, err := service.UpdateRoute(input)
 	if err != nil {
@@ -213,6 +216,7 @@ func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 		t.Fatalf("AutomationRoute(%q) ok = %v err = %v, want true nil", route.RouteID, ok, err)
 	}
 	assertRouteMapIdentity(t, storedAfterUpdate, route.SourceMapID, provider.policy.DestinationMapID)
+	assertRouteDurableRecord(t, store, route.RouteID, "route_update:player-1:route-1:request-update-route-1", 2, storedAfterUpdate)
 
 	settleService := newTestRouteSettlementService(t, store, settleAt, nil)
 	settleResult, err := settleService.SettleRoute(route.RouteID)
@@ -229,6 +233,49 @@ func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 		t.Fatalf("AutomationRoute(%q) ok = %v err = %v, want true nil", route.RouteID, ok, err)
 	}
 	assertRouteMapIdentity(t, settledRoute, route.SourceMapID, provider.policy.DestinationMapID)
+}
+
+func TestUpdateRouteDuplicateRequestDoesNotSettleTwice(t *testing.T) {
+	last := testRouteNow()
+	firstUpdateAt := last.Add(time.Hour)
+	duplicateAt := firstUpdateAt.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		1_000,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 1_000}},
+		1_000,
+		nil,
+	)
+	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
+	provider.policy.DestinationMapID = "map_1_2"
+	input := validUpdateRouteInput()
+	input.AmountPerHour = 80
+	input.RequestID = "request-update-duplicate"
+
+	firstService := newTestRouteService(t, store, provider, firstUpdateAt)
+	first, err := firstService.UpdateRoute(input)
+	if err != nil {
+		t.Fatalf("UpdateRoute(first) error = %v, want nil", err)
+	}
+	if first.Settlement.AddedAmount != 40 {
+		t.Fatalf("first settlement added = %d, want 40", first.Settlement.AddedAmount)
+	}
+
+	duplicateService := newTestRouteService(t, store, provider, duplicateAt)
+	duplicate, err := duplicateService.UpdateRoute(input)
+	if err != nil {
+		t.Fatalf("UpdateRoute(duplicate) error = %v, want nil", err)
+	}
+	if duplicate.Updated || !duplicate.Settlement.RouteID.IsZero() {
+		t.Fatalf("duplicate Updated/settlement = %v/%+v, want replay without mutation", duplicate.Updated, duplicate.Settlement)
+	}
+	if !duplicate.Route.UpdatedAt.Equal(first.Route.UpdatedAt) || duplicate.Route.AmountPerHour != first.Route.AmountPerHour {
+		t.Fatalf("duplicate route = %+v, want first durable route %+v", duplicate.Route, first.Route)
+	}
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 960, firstUpdateAt)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, firstUpdateAt)
 }
 
 func TestUpdateRouteRejectsSourceMapPolicyMismatchWithoutMutation(t *testing.T) {
@@ -416,6 +463,44 @@ func TestDisableRouteDuplicateIsIdempotent(t *testing.T) {
 	}
 	assertRouteSettlementRouteTime(t, store, route.RouteID, firstDisableAt)
 	assertRouteEnabled(t, store, route.RouteID, false)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, firstDisableAt)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, firstDisableAt)
+}
+
+func TestDisableRouteDuplicateRequestDoesNotSettleTwice(t *testing.T) {
+	last := testRouteNow()
+	firstDisableAt := last.Add(time.Hour)
+	duplicateAt := firstDisableAt.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+
+	firstService := newTestRouteSettlementService(t, store, firstDisableAt, nil)
+	first, err := firstService.DisableRouteForOwnerWithRequest("player-1", route.RouteID, "request-disable-duplicate")
+	if err != nil {
+		t.Fatalf("DisableRoute(first) error = %v, want nil", err)
+	}
+	if !first.Changed || first.Settlement.AddedAmount != 40 {
+		t.Fatalf("first Changed/added = %v/%d, want true/40", first.Changed, first.Settlement.AddedAmount)
+	}
+
+	duplicateService := newTestRouteSettlementService(t, store, duplicateAt, nil)
+	duplicate, err := duplicateService.DisableRouteForOwnerWithRequest("player-1", route.RouteID, "request-disable-duplicate")
+	if err != nil {
+		t.Fatalf("DisableRoute(duplicate) error = %v, want nil", err)
+	}
+	if duplicate.Changed || !duplicate.Settlement.RouteID.IsZero() {
+		t.Fatalf("duplicate Changed/settlement = %v/%+v, want replay without mutation", duplicate.Changed, duplicate.Settlement)
+	}
+	if !duplicate.Route.UpdatedAt.Equal(first.Route.UpdatedAt) || duplicate.Route.Enabled {
+		t.Fatalf("duplicate route = %+v, want first disabled route %+v", duplicate.Route, first.Route)
+	}
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, firstDisableAt)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, firstDisableAt)
 }

@@ -208,6 +208,34 @@ func assertRouteMapIdentity(
 	}
 }
 
+func assertRouteDurableRecord(
+	t *testing.T,
+	store *InMemoryStore,
+	routeID foundation.RouteID,
+	referenceKey foundation.IdempotencyKey,
+	revision uint64,
+	wantRoute AutomationRoute,
+) {
+	t.Helper()
+	record, ok, err := store.CommittedAutomationRouteDurableRecord(routeID)
+	if err != nil || !ok {
+		t.Fatalf("CommittedAutomationRouteDurableRecord(%q) ok = %v err = %v, want true nil", routeID, ok, err)
+	}
+	if record.Revision != revision || record.ReferenceKey != referenceKey {
+		t.Fatalf("durable route record revision/reference = %d/%q, want %d/%q", record.Revision, record.ReferenceKey, revision, referenceKey)
+	}
+	if record.Route != cloneAutomationRoute(wantRoute) {
+		t.Fatalf("durable route = %+v, want %+v", record.Route, cloneAutomationRoute(wantRoute))
+	}
+	byReference, ok, err := store.CommittedAutomationRouteDurableRecordByReference(referenceKey)
+	if err != nil || !ok {
+		t.Fatalf("CommittedAutomationRouteDurableRecordByReference(%q) ok = %v err = %v, want true nil", referenceKey, ok, err)
+	}
+	if byReference.Route.RouteID != routeID || byReference.Revision != revision {
+		t.Fatalf("durable route by reference = %+v, want route %q revision %d", byReference, routeID, revision)
+	}
+}
+
 func newRouteSettlementStore(
 	t *testing.T,
 	route AutomationRoute,

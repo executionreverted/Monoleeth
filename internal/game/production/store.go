@@ -34,6 +34,8 @@ type InMemoryStore struct {
 	storage                    map[foundation.PlanetID]PlanetStorage
 	buildings                  map[foundation.PlanetID]map[BuildingID]PlanetBuilding
 	routes                     map[foundation.RouteID]AutomationRoute
+	routeDurableRecords        map[foundation.RouteID]AutomationRouteDurableRecord
+	routeDurableReferences     map[foundation.IdempotencyKey]AutomationRouteDurableRecord
 	events                     []gameevents.EventEnvelope
 	nextEventSequence          uint64
 	references                 map[foundation.IdempotencyKey]SettlementReferenceRecord
@@ -49,12 +51,14 @@ type InMemoryStore struct {
 // NewInMemoryStore returns an empty production repository.
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
-		states:             make(map[foundation.PlanetID]PlanetProductionState),
-		storage:            make(map[foundation.PlanetID]PlanetStorage),
-		buildings:          make(map[foundation.PlanetID]map[BuildingID]PlanetBuilding),
-		routes:             make(map[foundation.RouteID]AutomationRoute),
-		references:         make(map[foundation.IdempotencyKey]SettlementReferenceRecord),
-		buildingReferences: make(map[foundation.IdempotencyKey]BuildingMutationReferenceRecord),
+		states:                 make(map[foundation.PlanetID]PlanetProductionState),
+		storage:                make(map[foundation.PlanetID]PlanetStorage),
+		buildings:              make(map[foundation.PlanetID]map[BuildingID]PlanetBuilding),
+		routes:                 make(map[foundation.RouteID]AutomationRoute),
+		routeDurableRecords:    make(map[foundation.RouteID]AutomationRouteDurableRecord),
+		routeDurableReferences: make(map[foundation.IdempotencyKey]AutomationRouteDurableRecord),
+		references:             make(map[foundation.IdempotencyKey]SettlementReferenceRecord),
+		buildingReferences:     make(map[foundation.IdempotencyKey]BuildingMutationReferenceRecord),
 	}
 }
 
@@ -86,6 +90,12 @@ func (store *InMemoryStore) Clone() *InMemoryStore {
 	}
 	for routeID, route := range store.routes {
 		cloned.routes[routeID] = cloneAutomationRoute(route)
+	}
+	for routeID, record := range store.routeDurableRecords {
+		cloned.routeDurableRecords[routeID] = cloneAutomationRouteDurableRecord(record)
+	}
+	for referenceKey, record := range store.routeDurableReferences {
+		cloned.routeDurableReferences[referenceKey] = cloneAutomationRouteDurableRecord(record)
 	}
 	cloned.events = cloneProductionEventEnvelopes(store.events)
 	cloned.nextEventSequence = store.nextEventSequence
@@ -347,6 +357,7 @@ func (store *InMemoryStore) ensureMapsLocked() {
 	if store.routes == nil {
 		store.routes = make(map[foundation.RouteID]AutomationRoute)
 	}
+	ensureAutomationRouteDurableMaps(&store.routeDurableRecords, &store.routeDurableReferences)
 	if store.references == nil {
 		store.references = make(map[foundation.IdempotencyKey]SettlementReferenceRecord)
 	}
@@ -365,6 +376,18 @@ func (store *InMemoryStore) insertAutomationRoute(route AutomationRoute) (Automa
 
 	if _, ok := store.routes[route.RouteID]; ok {
 		return AutomationRoute{}, fmt.Errorf("route %q: %w", route.RouteID, ErrDuplicateRoute)
+	}
+	referenceKey, err := foundation.RouteCreateIdempotencyKey(route.OwnerPlayerID, route.RouteID)
+	if err != nil {
+		return AutomationRoute{}, err
+	}
+	if _, err := store.applyAutomationRouteDurableCommitPlanLocked(AutomationRouteDurableCommitPlan{
+		Route:            route,
+		ReferenceKey:     referenceKey,
+		ExpectedRevision: 0,
+		RecordedAt:       route.CreatedAt,
+	}); err != nil {
+		return AutomationRoute{}, err
 	}
 	store.routes[route.RouteID] = cloneAutomationRoute(route)
 	return cloneAutomationRoute(route), nil

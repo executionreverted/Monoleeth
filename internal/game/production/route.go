@@ -80,11 +80,12 @@ type CreateRouteInput struct {
 // UpdateRouteInput carries new route terms for an existing automation route.
 // The source planet and owner identity are loaded from the durable route row.
 type UpdateRouteInput struct {
-	RouteID        foundation.RouteID  `json:"route_id"`
-	OwnerPlayerID  foundation.PlayerID `json:"owner_player_id"`
-	Destination    RouteDestination    `json:"destination"`
-	ResourceItemID foundation.ItemID   `json:"resource_item_id"`
-	AmountPerHour  int64               `json:"amount_per_hour"`
+	RouteID        foundation.RouteID   `json:"route_id"`
+	OwnerPlayerID  foundation.PlayerID  `json:"owner_player_id"`
+	RequestID      foundation.RequestID `json:"request_id,omitempty"`
+	Destination    RouteDestination     `json:"destination"`
+	ResourceItemID foundation.ItemID    `json:"resource_item_id"`
+	AmountPerHour  int64                `json:"amount_per_hour"`
 }
 
 // CreateRouteResult returns the detached route row created by the server.
@@ -297,6 +298,11 @@ func (input UpdateRouteInput) Validate() error {
 	}
 	if err := input.OwnerPlayerID.Validate(); err != nil {
 		return err
+	}
+	if !input.RequestID.IsZero() {
+		if err := input.RequestID.Validate(); err != nil {
+			return err
+		}
 	}
 	if err := input.Destination.Validate(); err != nil {
 		return err

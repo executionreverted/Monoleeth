@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"gameproject/internal/game/foundation"
 )
 
 func TestCreateRouteValidatesSourceOwnership(t *testing.T) {
@@ -267,6 +269,7 @@ func TestCreateRouteStoresDetachedEnabledRoute(t *testing.T) {
 		t.Fatalf("stored AmountPerHour = %d, want %d", storedAgain.AmountPerHour, input.AmountPerHour)
 	}
 	assertRouteMapIdentity(t, storedAgain, provider.policy.SourceMapID, provider.policy.DestinationMapID)
+	assertRouteDurableRecord(t, store, input.RouteID, foundation.IdempotencyKey("route_create:player-1:route-1"), 1, storedAgain)
 }
 
 func TestCreateRouteDuplicateRouteIDFailsWithoutOverwrite(t *testing.T) {

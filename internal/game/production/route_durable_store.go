@@ -42,13 +42,13 @@ type AutomationRouteDurableCommitResult struct {
 type InMemoryAutomationRouteDurableStore struct {
 	mu         sync.RWMutex
 	records    map[foundation.RouteID]AutomationRouteDurableRecord
-	references map[foundation.IdempotencyKey]foundation.RouteID
+	references map[foundation.IdempotencyKey]AutomationRouteDurableRecord
 }
 
 func NewInMemoryAutomationRouteDurableStore() *InMemoryAutomationRouteDurableStore {
 	return &InMemoryAutomationRouteDurableStore{
 		records:    make(map[foundation.RouteID]AutomationRouteDurableRecord),
-		references: make(map[foundation.IdempotencyKey]foundation.RouteID),
+		references: make(map[foundation.IdempotencyKey]AutomationRouteDurableRecord),
 	}
 }
 
@@ -70,39 +70,10 @@ func (store *InMemoryAutomationRouteDurableStore) ApplyAutomationRouteDurableCom
 	if automationRouteDurableCommitPlanIsNoOp(plan) {
 		return AutomationRouteDurableCommitResult{}, nil
 	}
-	if err := plan.Validate(); err != nil {
-		return AutomationRouteDurableCommitResult{}, err
-	}
-	normalized := normalizeAutomationRouteDurableCommitPlan(plan)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.ensureMapsLocked()
-
-	if routeID, ok := store.references[normalized.ReferenceKey]; ok {
-		record := store.records[routeID]
-		if routeID != normalized.Route.RouteID ||
-			!automationRouteDurableRecordsEqual(record, automationRouteDurableRecordFromPlan(normalized, record.Revision)) {
-			return AutomationRouteDurableCommitResult{}, fmt.Errorf("reference_conflict: %w", ErrInvalidAutomationRouteDurableCommit)
-		}
-		return AutomationRouteDurableCommitResult{
-			Record:    cloneAutomationRouteDurableRecord(record),
-			Duplicate: true,
-		}, nil
-	}
-
-	existing, exists := store.records[normalized.Route.RouteID]
-	switch {
-	case !exists && normalized.ExpectedRevision != 0:
-		return AutomationRouteDurableCommitResult{}, fmt.Errorf("route %q expected revision %d: %w", normalized.Route.RouteID, normalized.ExpectedRevision, ErrStaleAutomationRouteDurableCommit)
-	case exists && existing.Revision != normalized.ExpectedRevision:
-		return AutomationRouteDurableCommitResult{}, fmt.Errorf("route %q expected revision %d current %d: %w", normalized.Route.RouteID, normalized.ExpectedRevision, existing.Revision, ErrStaleAutomationRouteDurableCommit)
-	}
-
-	record := automationRouteDurableRecordFromPlan(normalized, normalized.ExpectedRevision+1)
-	store.records[record.Route.RouteID] = cloneAutomationRouteDurableRecord(record)
-	store.references[record.ReferenceKey] = record.Route.RouteID
-	return AutomationRouteDurableCommitResult{Record: cloneAutomationRouteDurableRecord(record)}, nil
+	return applyAutomationRouteDurableCommitPlanToMaps(&store.records, &store.references, plan)
 }
 
 func (store *InMemoryAutomationRouteDurableStore) CommittedAutomationRouteDurableRecord(
@@ -136,11 +107,7 @@ func (store *InMemoryAutomationRouteDurableStore) CommittedAutomationRouteDurabl
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 
-	routeID, ok := store.references[referenceKey]
-	if !ok {
-		return AutomationRouteDurableRecord{}, false, nil
-	}
-	record, ok := store.records[routeID]
+	record, ok := store.references[referenceKey]
 	if !ok {
 		return AutomationRouteDurableRecord{}, false, nil
 	}
@@ -210,12 +177,218 @@ func (input AutomationRouteDurableCommitPlan) Validate() error {
 }
 
 func (store *InMemoryAutomationRouteDurableStore) ensureMapsLocked() {
-	if store.records == nil {
-		store.records = make(map[foundation.RouteID]AutomationRouteDurableRecord)
+	ensureAutomationRouteDurableMaps(&store.records, &store.references)
+}
+
+func (store *InMemoryStore) ApplyAutomationRouteDurableCommitPlan(
+	plan AutomationRouteDurableCommitPlan,
+) (AutomationRouteDurableCommitResult, error) {
+	if store == nil {
+		return AutomationRouteDurableCommitResult{}, ErrInvalidAutomationRouteDurableCommit
 	}
-	if store.references == nil {
-		store.references = make(map[foundation.IdempotencyKey]foundation.RouteID)
+	if automationRouteDurableCommitPlanIsNoOp(plan) {
+		return AutomationRouteDurableCommitResult{}, nil
 	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.ensureMapsLocked()
+	return store.applyAutomationRouteDurableCommitPlanLocked(plan)
+}
+
+func (store *InMemoryStore) CommittedAutomationRouteDurableRecord(
+	routeID foundation.RouteID,
+) (AutomationRouteDurableRecord, bool, error) {
+	if err := routeID.Validate(); err != nil {
+		return AutomationRouteDurableRecord{}, false, err
+	}
+	if store == nil {
+		return AutomationRouteDurableRecord{}, false, ErrInvalidAutomationRouteDurableCommit
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	record, ok := store.routeDurableRecords[routeID]
+	if !ok {
+		return AutomationRouteDurableRecord{}, false, nil
+	}
+	return cloneAutomationRouteDurableRecord(record), true, nil
+}
+
+func (store *InMemoryStore) CommittedAutomationRouteDurableRecordByReference(
+	referenceKey foundation.IdempotencyKey,
+) (AutomationRouteDurableRecord, bool, error) {
+	if err := referenceKey.Validate(); err != nil {
+		return AutomationRouteDurableRecord{}, false, err
+	}
+	if store == nil {
+		return AutomationRouteDurableRecord{}, false, ErrInvalidAutomationRouteDurableCommit
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	record, ok := store.routeDurableReferences[referenceKey]
+	if !ok {
+		return AutomationRouteDurableRecord{}, false, nil
+	}
+	return cloneAutomationRouteDurableRecord(record), true, nil
+}
+
+func (store *InMemoryStore) CommittedAutomationRouteDurableRecordsForOwner(
+	playerID foundation.PlayerID,
+) ([]AutomationRouteDurableRecord, error) {
+	if err := playerID.Validate(); err != nil {
+		return nil, err
+	}
+	if store == nil {
+		return nil, ErrInvalidAutomationRouteDurableCommit
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	return automationRouteDurableRecordsForOwner(store.routeDurableRecords, playerID), nil
+}
+
+func (store *InMemoryStore) AutomationRouteDurableRecords() []AutomationRouteDurableRecord {
+	if store == nil {
+		return nil
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	return automationRouteDurableRecordsFromMap(store.routeDurableRecords)
+}
+
+func (store *InMemoryStore) applyAutomationRouteDurableCommitPlanLocked(
+	plan AutomationRouteDurableCommitPlan,
+) (AutomationRouteDurableCommitResult, error) {
+	return applyAutomationRouteDurableCommitPlanToMaps(
+		&store.routeDurableRecords,
+		&store.routeDurableReferences,
+		plan,
+	)
+}
+
+func (store *InMemoryStore) commitRouteDurableMutationLocked(
+	route AutomationRoute,
+	referenceKey foundation.IdempotencyKey,
+	recordedAt time.Time,
+) error {
+	if referenceKey.IsZero() {
+		return nil
+	}
+	expectedRevision := uint64(0)
+	if record, ok := store.routeDurableRecords[route.RouteID]; ok {
+		expectedRevision = record.Revision
+	}
+	_, err := store.applyAutomationRouteDurableCommitPlanLocked(AutomationRouteDurableCommitPlan{
+		Route:            route,
+		ReferenceKey:     referenceKey,
+		ExpectedRevision: expectedRevision,
+		RecordedAt:       recordedAt,
+	})
+	return err
+}
+
+func (store *InMemoryStore) committedAutomationRouteDurableRecordByReferenceLocked(
+	referenceKey foundation.IdempotencyKey,
+) (AutomationRouteDurableRecord, bool) {
+	record, ok := store.routeDurableReferences[referenceKey]
+	if !ok {
+		return AutomationRouteDurableRecord{}, false
+	}
+	return cloneAutomationRouteDurableRecord(record), true
+}
+
+func ensureAutomationRouteDurableMaps(
+	records *map[foundation.RouteID]AutomationRouteDurableRecord,
+	references *map[foundation.IdempotencyKey]AutomationRouteDurableRecord,
+) {
+	if *records == nil {
+		*records = make(map[foundation.RouteID]AutomationRouteDurableRecord)
+	}
+	if *references == nil {
+		*references = make(map[foundation.IdempotencyKey]AutomationRouteDurableRecord)
+	}
+}
+
+func applyAutomationRouteDurableCommitPlanToMaps(
+	records *map[foundation.RouteID]AutomationRouteDurableRecord,
+	references *map[foundation.IdempotencyKey]AutomationRouteDurableRecord,
+	plan AutomationRouteDurableCommitPlan,
+) (AutomationRouteDurableCommitResult, error) {
+	if records == nil || references == nil {
+		return AutomationRouteDurableCommitResult{}, ErrInvalidAutomationRouteDurableCommit
+	}
+	if automationRouteDurableCommitPlanIsNoOp(plan) {
+		return AutomationRouteDurableCommitResult{}, nil
+	}
+	if err := plan.Validate(); err != nil {
+		return AutomationRouteDurableCommitResult{}, err
+	}
+	normalized := normalizeAutomationRouteDurableCommitPlan(plan)
+	ensureAutomationRouteDurableMaps(records, references)
+
+	if record, ok := (*references)[normalized.ReferenceKey]; ok {
+		if record.Route.RouteID != normalized.Route.RouteID ||
+			!automationRouteDurableRecordsEqual(record, automationRouteDurableRecordFromPlan(normalized, record.Revision)) {
+			return AutomationRouteDurableCommitResult{}, fmt.Errorf("reference_conflict: %w", ErrInvalidAutomationRouteDurableCommit)
+		}
+		return AutomationRouteDurableCommitResult{
+			Record:    cloneAutomationRouteDurableRecord(record),
+			Duplicate: true,
+		}, nil
+	}
+
+	existing, exists := (*records)[normalized.Route.RouteID]
+	switch {
+	case !exists && normalized.ExpectedRevision != 0:
+		return AutomationRouteDurableCommitResult{}, fmt.Errorf("route %q expected revision %d: %w", normalized.Route.RouteID, normalized.ExpectedRevision, ErrStaleAutomationRouteDurableCommit)
+	case exists && existing.Revision != normalized.ExpectedRevision:
+		return AutomationRouteDurableCommitResult{}, fmt.Errorf("route %q expected revision %d current %d: %w", normalized.Route.RouteID, normalized.ExpectedRevision, existing.Revision, ErrStaleAutomationRouteDurableCommit)
+	}
+
+	record := automationRouteDurableRecordFromPlan(normalized, normalized.ExpectedRevision+1)
+	(*records)[record.Route.RouteID] = cloneAutomationRouteDurableRecord(record)
+	(*references)[record.ReferenceKey] = cloneAutomationRouteDurableRecord(record)
+	return AutomationRouteDurableCommitResult{Record: cloneAutomationRouteDurableRecord(record)}, nil
+}
+
+func automationRouteDurableRecordsForOwner(
+	records map[foundation.RouteID]AutomationRouteDurableRecord,
+	playerID foundation.PlayerID,
+) []AutomationRouteDurableRecord {
+	routeIDs := make([]foundation.RouteID, 0, len(records))
+	for routeID, record := range records {
+		if record.Route.OwnerPlayerID == playerID {
+			routeIDs = append(routeIDs, routeID)
+		}
+	}
+	sort.Slice(routeIDs, func(i, j int) bool {
+		return routeIDs[i] < routeIDs[j]
+	})
+	ownerRecords := make([]AutomationRouteDurableRecord, 0, len(routeIDs))
+	for _, routeID := range routeIDs {
+		ownerRecords = append(ownerRecords, cloneAutomationRouteDurableRecord(records[routeID]))
+	}
+	return ownerRecords
+}
+
+func automationRouteDurableRecordsFromMap(
+	records map[foundation.RouteID]AutomationRouteDurableRecord,
+) []AutomationRouteDurableRecord {
+	routeIDs := make([]foundation.RouteID, 0, len(records))
+	for routeID := range records {
+		routeIDs = append(routeIDs, routeID)
+	}
+	sort.Slice(routeIDs, func(i, j int) bool {
+		return routeIDs[i] < routeIDs[j]
+	})
+	durableRecords := make([]AutomationRouteDurableRecord, 0, len(routeIDs))
+	for _, routeID := range routeIDs {
+		durableRecords = append(durableRecords, cloneAutomationRouteDurableRecord(records[routeID]))
+	}
+	return durableRecords
 }
 
 func automationRouteDurableRecordFromPlan(

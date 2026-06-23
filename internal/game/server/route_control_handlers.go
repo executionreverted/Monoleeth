@@ -14,7 +14,7 @@ type routeControlIntent struct {
 	RouteID string `json:"route_id"`
 }
 
-type routeControlAction func(*production.AutomationRouteService, foundation.PlayerID, foundation.RouteID) (production.RouteControlResult, error)
+type routeControlAction func(*production.AutomationRouteService, foundation.PlayerID, foundation.RouteID, foundation.RequestID) (production.RouteControlResult, error)
 
 var routeControlServerOwnedPayloadKeys = []string{
 	"owner",
@@ -73,11 +73,11 @@ var routeControlServerOwnedPayloadKeys = []string{
 }
 
 func (runtime *Runtime) handleRouteEnable(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
-	return runtime.handleRouteControl(ctx, request, (*production.AutomationRouteService).EnableRouteForOwner)
+	return runtime.handleRouteControl(ctx, request, (*production.AutomationRouteService).EnableRouteForOwnerWithRequest)
 }
 
 func (runtime *Runtime) handleRouteDisable(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
-	return runtime.handleRouteControl(ctx, request, (*production.AutomationRouteService).DisableRouteForOwner)
+	return runtime.handleRouteControl(ctx, request, (*production.AutomationRouteService).DisableRouteForOwnerWithRequest)
 }
 
 func (runtime *Runtime) handleRouteControl(
@@ -108,7 +108,7 @@ func (runtime *Runtime) handleRouteControl(
 	if err != nil {
 		return nil, domainErrorForRouteControl(err)
 	}
-	result, err := control(service, ctx.PlayerID, routeID)
+	result, err := control(service, ctx.PlayerID, routeID, request.RequestID)
 	if err != nil {
 		return nil, domainErrorForRouteControl(err)
 	}

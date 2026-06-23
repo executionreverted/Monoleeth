@@ -387,10 +387,11 @@ Current slice completed:
   records validated `AutomationRoute` snapshots with domain idempotency
   references, revision CAS, exact replay, stale revision rejection, reference
   conflict rejection, detached route/readback APIs, and deterministic owner
-  route reads. Runtime route create/update/control still write only to the
-  active production store, and the future DB adapter must co-commit route rows,
-  settlement evidence, storage ledger rows, and outbox rows where a route
-  mutation settles old terms.
+  route reads. Phase07BO wires runtime route create/update/enable/disable
+  mutations to that durable row contract with server-derived references and
+  revision advancement under the production store lock. Pure route settlement
+  still needs a durable route-row co-commit with settlement evidence, storage
+  ledger rows, and outbox rows.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -942,6 +943,9 @@ Mockup areas covered:
 - [x] Automation route durable-row contract records route snapshots with
       idempotency references, revision CAS, detached readback, and owner route
       recovery queries.
+- [x] Runtime route create/update/enable/disable writes durable route-row
+      snapshots with server-derived idempotency references and revision
+      advancement.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

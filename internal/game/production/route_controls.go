@@ -10,11 +10,24 @@ import (
 // EnableRoute enables a disabled route and resets its settlement clock so
 // disabled elapsed time cannot accrue a free transfer.
 func (store *InMemoryStore) EnableRoute(routeID foundation.RouteID, now time.Time) (RouteControlResult, error) {
+	return store.enableRouteWithRequest(routeID, now, "")
+}
+
+func (store *InMemoryStore) enableRouteWithRequest(
+	routeID foundation.RouteID,
+	now time.Time,
+	requestID foundation.RequestID,
+) (RouteControlResult, error) {
 	if err := routeID.Validate(); err != nil {
 		return RouteControlResult{}, err
 	}
 	if now.IsZero() {
 		return RouteControlResult{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
+	}
+	if !requestID.IsZero() {
+		if err := requestID.Validate(); err != nil {
+			return RouteControlResult{}, err
+		}
 	}
 	now = now.UTC()
 
@@ -22,7 +35,7 @@ func (store *InMemoryStore) EnableRoute(routeID foundation.RouteID, now time.Tim
 	defer store.mu.Unlock()
 	store.ensureMapsLocked()
 
-	return store.enableRouteLocked(routeID, now)
+	return store.enableRouteLocked(routeID, now, requestID)
 }
 
 // EnableRouteForOwner enables a disabled route only after matching the
@@ -31,6 +44,15 @@ func (store *InMemoryStore) EnableRouteForOwner(
 	ownerPlayerID foundation.PlayerID,
 	routeID foundation.RouteID,
 	now time.Time,
+) (RouteControlResult, error) {
+	return store.EnableRouteForOwnerWithRequest(ownerPlayerID, routeID, now, "")
+}
+
+func (store *InMemoryStore) EnableRouteForOwnerWithRequest(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+	now time.Time,
+	requestID foundation.RequestID,
 ) (RouteControlResult, error) {
 	if err := ownerPlayerID.Validate(); err != nil {
 		return RouteControlResult{}, err
@@ -41,6 +63,11 @@ func (store *InMemoryStore) EnableRouteForOwner(
 	if now.IsZero() {
 		return RouteControlResult{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
 	}
+	if !requestID.IsZero() {
+		if err := requestID.Validate(); err != nil {
+			return RouteControlResult{}, err
+		}
+	}
 	now = now.UTC()
 
 	store.mu.Lock()
@@ -50,16 +77,34 @@ func (store *InMemoryStore) EnableRouteForOwner(
 	if err := store.requireRouteOwnerLocked(ownerPlayerID, routeID); err != nil {
 		return RouteControlResult{}, err
 	}
-	return store.enableRouteLocked(routeID, now)
+	return store.enableRouteLocked(routeID, now, requestID)
 }
 
-func (store *InMemoryStore) enableRouteLocked(routeID foundation.RouteID, now time.Time) (RouteControlResult, error) {
+func (store *InMemoryStore) enableRouteLocked(
+	routeID foundation.RouteID,
+	now time.Time,
+	requestID foundation.RequestID,
+) (RouteControlResult, error) {
 	route, ok := store.routes[routeID]
 	if !ok {
 		return RouteControlResult{}, fmt.Errorf("route %q: %w", routeID, ErrRouteNotFound)
 	}
 	if err := route.Validate(); err != nil {
 		return RouteControlResult{}, err
+	}
+	var referenceKey foundation.IdempotencyKey
+	if !requestID.IsZero() {
+		var err error
+		referenceKey, err = foundation.RouteEnableIdempotencyKey(route.OwnerPlayerID, route.RouteID, requestID)
+		if err != nil {
+			return RouteControlResult{}, err
+		}
+		if record, ok := store.committedAutomationRouteDurableRecordByReferenceLocked(referenceKey); ok {
+			if record.Route.RouteID != routeID {
+				return RouteControlResult{}, fmt.Errorf("route %q reference %q: %w", routeID, referenceKey, ErrInvalidAutomationRouteDurableCommit)
+			}
+			return RouteControlResult{Route: cloneAutomationRoute(record.Route)}, nil
+		}
 	}
 	if route.Enabled {
 		return RouteControlResult{Route: cloneAutomationRoute(route)}, nil
@@ -70,6 +115,11 @@ func (store *InMemoryStore) enableRouteLocked(routeID foundation.RouteID, now ti
 	route.UpdatedAt = now
 	if err := route.Validate(); err != nil {
 		return RouteControlResult{}, err
+	}
+	if !referenceKey.IsZero() {
+		if err := store.commitRouteDurableMutationLocked(route, referenceKey, now); err != nil {
+			return RouteControlResult{}, err
+		}
 	}
 	store.routes[routeID] = cloneAutomationRoute(route)
 	return RouteControlResult{Route: cloneAutomationRoute(route), Changed: true}, nil
@@ -82,11 +132,25 @@ func (store *InMemoryStore) DisableRoute(
 	now time.Time,
 	lossRoller RouteLossRoller,
 ) (RouteControlResult, error) {
+	return store.disableRouteWithRequest(routeID, now, lossRoller, "")
+}
+
+func (store *InMemoryStore) disableRouteWithRequest(
+	routeID foundation.RouteID,
+	now time.Time,
+	lossRoller RouteLossRoller,
+	requestID foundation.RequestID,
+) (RouteControlResult, error) {
 	if err := routeID.Validate(); err != nil {
 		return RouteControlResult{}, err
 	}
 	if now.IsZero() {
 		return RouteControlResult{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
+	}
+	if !requestID.IsZero() {
+		if err := requestID.Validate(); err != nil {
+			return RouteControlResult{}, err
+		}
 	}
 	if lossRoller == nil {
 		lossRoller = defaultRouteLossRoller{}
@@ -97,7 +161,7 @@ func (store *InMemoryStore) DisableRoute(
 	defer store.mu.Unlock()
 	store.ensureMapsLocked()
 
-	return store.disableRouteLocked(routeID, now, lossRoller)
+	return store.disableRouteLocked(routeID, now, lossRoller, requestID)
 }
 
 // DisableRouteForOwner settles and disables an enabled route only after
@@ -108,6 +172,16 @@ func (store *InMemoryStore) DisableRouteForOwner(
 	now time.Time,
 	lossRoller RouteLossRoller,
 ) (RouteControlResult, error) {
+	return store.DisableRouteForOwnerWithRequest(ownerPlayerID, routeID, now, lossRoller, "")
+}
+
+func (store *InMemoryStore) DisableRouteForOwnerWithRequest(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+	now time.Time,
+	lossRoller RouteLossRoller,
+	requestID foundation.RequestID,
+) (RouteControlResult, error) {
 	if err := ownerPlayerID.Validate(); err != nil {
 		return RouteControlResult{}, err
 	}
@@ -116,6 +190,11 @@ func (store *InMemoryStore) DisableRouteForOwner(
 	}
 	if now.IsZero() {
 		return RouteControlResult{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
+	}
+	if !requestID.IsZero() {
+		if err := requestID.Validate(); err != nil {
+			return RouteControlResult{}, err
+		}
 	}
 	if lossRoller == nil {
 		lossRoller = defaultRouteLossRoller{}
@@ -129,13 +208,14 @@ func (store *InMemoryStore) DisableRouteForOwner(
 	if err := store.requireRouteOwnerLocked(ownerPlayerID, routeID); err != nil {
 		return RouteControlResult{}, err
 	}
-	return store.disableRouteLocked(routeID, now, lossRoller)
+	return store.disableRouteLocked(routeID, now, lossRoller, requestID)
 }
 
 func (store *InMemoryStore) disableRouteLocked(
 	routeID foundation.RouteID,
 	now time.Time,
 	lossRoller RouteLossRoller,
+	requestID foundation.RequestID,
 ) (RouteControlResult, error) {
 	route, ok := store.routes[routeID]
 	if !ok {
@@ -143,6 +223,20 @@ func (store *InMemoryStore) disableRouteLocked(
 	}
 	if err := route.Validate(); err != nil {
 		return RouteControlResult{}, err
+	}
+	var referenceKey foundation.IdempotencyKey
+	if !requestID.IsZero() {
+		var err error
+		referenceKey, err = foundation.RouteDisableIdempotencyKey(route.OwnerPlayerID, route.RouteID, requestID)
+		if err != nil {
+			return RouteControlResult{}, err
+		}
+		if record, ok := store.committedAutomationRouteDurableRecordByReferenceLocked(referenceKey); ok {
+			if record.Route.RouteID != routeID {
+				return RouteControlResult{}, fmt.Errorf("route %q reference %q: %w", routeID, referenceKey, ErrInvalidAutomationRouteDurableCommit)
+			}
+			return RouteControlResult{Route: cloneAutomationRoute(record.Route)}, nil
+		}
 	}
 	if !route.Enabled {
 		return RouteControlResult{Route: cloneAutomationRoute(route)}, nil
@@ -165,6 +259,11 @@ func (store *InMemoryStore) disableRouteLocked(
 	route.UpdatedAt = now
 	if err := route.Validate(); err != nil {
 		return RouteControlResult{}, err
+	}
+	if !referenceKey.IsZero() {
+		if err := store.commitRouteDurableMutationLocked(route, referenceKey, now); err != nil {
+			return RouteControlResult{}, err
+		}
 	}
 	store.routes[routeID] = cloneAutomationRoute(route)
 	return RouteControlResult{
@@ -210,6 +309,20 @@ func (store *InMemoryStore) UpdateRoute(
 	if policy.SourceMapID != route.SourceMapID {
 		return UpdateRouteResult{}, fmt.Errorf("route %q source map %q policy %q: %w", input.RouteID, route.SourceMapID, policy.SourceMapID, ErrInvalidRouteMapID)
 	}
+	var referenceKey foundation.IdempotencyKey
+	if !input.RequestID.IsZero() {
+		var err error
+		referenceKey, err = foundation.RouteUpdateIdempotencyKey(input.OwnerPlayerID, input.RouteID, input.RequestID)
+		if err != nil {
+			return UpdateRouteResult{}, err
+		}
+		if record, ok := store.committedAutomationRouteDurableRecordByReferenceLocked(referenceKey); ok {
+			if record.Route.RouteID != input.RouteID {
+				return UpdateRouteResult{}, fmt.Errorf("route %q reference %q: %w", input.RouteID, referenceKey, ErrInvalidAutomationRouteDurableCommit)
+			}
+			return UpdateRouteResult{Route: cloneAutomationRoute(record.Route)}, nil
+		}
+	}
 
 	risk, err := policy.CalculateRisk()
 	if err != nil {
@@ -245,6 +358,11 @@ func (store *InMemoryStore) UpdateRoute(
 	updatedRoute.UpdatedAt = now
 	if err := updatedRoute.Validate(); err != nil {
 		return UpdateRouteResult{}, err
+	}
+	if !referenceKey.IsZero() {
+		if err := store.commitRouteDurableMutationLocked(updatedRoute, referenceKey, now); err != nil {
+			return UpdateRouteResult{}, err
+		}
 	}
 	store.routes[input.RouteID] = cloneAutomationRoute(updatedRoute)
 	return UpdateRouteResult{
