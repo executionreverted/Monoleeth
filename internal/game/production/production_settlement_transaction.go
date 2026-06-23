@@ -31,6 +31,13 @@ type ProductionSettlementTransactionResult struct {
 	OutboxRecords []ProductionOutboxRecord
 }
 
+// DurableCommitPlan returns the validated row bundle this transaction committed
+// for future durable DB/publisher adapters. Duplicate/no-op transactions return
+// an empty plan.
+func (result ProductionSettlementTransactionResult) DurableCommitPlan() (SettlementDurableCommitPlan, error) {
+	return NewSettlementDurableCommitPlan(result.Reference, result.OutboxRecords, nil)
+}
+
 // ApplyProductionSettlementTransaction settles one planet production window
 // under the store lock, returning only rows created by this transaction.
 // Duplicate/no-op settlements return no new audit rows.

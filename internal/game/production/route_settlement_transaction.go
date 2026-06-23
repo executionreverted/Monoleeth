@@ -35,6 +35,13 @@ type RouteSettlementTransactionResult struct {
 	StorageLedger []RouteStorageLedgerEntry
 }
 
+// DurableCommitPlan returns the validated row bundle this transaction committed
+// for future durable DB/publisher adapters. Duplicate/no-op transactions return
+// an empty plan.
+func (result RouteSettlementTransactionResult) DurableCommitPlan() (SettlementDurableCommitPlan, error) {
+	return NewSettlementDurableCommitPlan(result.Reference, result.OutboxRecords, result.StorageLedger)
+}
+
 // ApplyRouteSettlementTransaction settles one owner-scoped route under the
 // store lock, returning only the reference/outbox/ledger rows created by this
 // transaction. Duplicate/no-op settlements return no new audit rows.
