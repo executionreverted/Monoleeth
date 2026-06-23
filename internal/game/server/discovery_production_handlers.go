@@ -150,7 +150,7 @@ type routePayload struct {
 
 type routeDestinationPayload struct {
 	Type string `json:"type"`
-	ID   string `json:"id"`
+	ID   string `json:"id,omitempty"`
 }
 
 type routeRiskPayload struct {

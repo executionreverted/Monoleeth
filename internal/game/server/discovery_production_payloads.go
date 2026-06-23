@@ -152,15 +152,13 @@ func (runtime *Runtime) routePayloadFromRoute(route production.AutomationRoute) 
 	if err != nil {
 		return routePayload{}, err
 	}
+	destinationPayload := routeDestinationPayloadFromRouteDestination(route.Destination)
 	return routePayload{
-		RouteID:          route.RouteID.String(),
-		SourcePlanetID:   route.SourcePlanetID.String(),
-		FromPublicMapKey: fromPublicMapKey,
-		ToPublicMapKey:   toPublicMapKey,
-		Destination: routeDestinationPayload{
-			Type: route.Destination.Type.String(),
-			ID:   route.Destination.ID.String(),
-		},
+		RouteID:           route.RouteID.String(),
+		SourcePlanetID:    route.SourcePlanetID.String(),
+		FromPublicMapKey:  fromPublicMapKey,
+		ToPublicMapKey:    toPublicMapKey,
+		Destination:       destinationPayload,
 		ResourceItemID:    route.ResourceItemID.String(),
 		AmountPerHour:     route.AmountPerHour,
 		EnergyCostPerHour: route.EnergyCostPerHour,
@@ -173,4 +171,14 @@ func (runtime *Runtime) routePayloadFromRoute(route production.AutomationRoute) 
 		LastCalculatedAt: route.LastCalculatedAt.UTC().UnixMilli(),
 		UpdatedAt:        route.UpdatedAt.UTC().UnixMilli(),
 	}, nil
+}
+
+func routeDestinationPayloadFromRouteDestination(destination production.RouteDestination) routeDestinationPayload {
+	payload := routeDestinationPayload{
+		Type: destination.Type.String(),
+	}
+	if destination.Type == production.RouteDestinationTypePlanet {
+		payload.ID = destination.ID.String()
+	}
+	return payload
 }

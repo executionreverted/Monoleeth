@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
@@ -81,6 +82,93 @@ func TestRouteSettleTransfersStorageAndQueuesSafeOwnerEvents(t *testing.T) {
 		t.Fatalf("route.settle events leaked to non-owner session: %+v", eventsBySession[other.SessionID])
 	}
 	assertRouteSettleEvents(t, eventsBySession[owner.SessionID], routeID, sourcePlanetID, "1-1", "1-2", owner.PlayerID, 60, 1)
+}
+
+func TestRouteSettleNonPlanetDestinationRoutesThroughGateway(t *testing.T) {
+	cases := []struct {
+		name        string
+		destination production.RouteDestination
+	}{
+		{
+			name: "storage",
+			destination: production.RouteDestination{
+				Type: production.RouteDestinationTypeStorage,
+				ID:   "storage-route-settle-destination",
+			},
+		},
+		{
+			name: "station",
+			destination: production.RouteDestination{
+				Type: production.RouteDestinationTypeStation,
+				ID:   "station-route-settle-destination",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+			gameServer := newRouteControlTestServer(t, clock)
+			owner := createResolvedRuntimeSession(t, gameServer, "route-settle-"+tc.name+"-owner@example.com", "Route Settle "+tc.name+" Owner")
+			other := createResolvedRuntimeSession(t, gameServer, "route-settle-"+tc.name+"-other@example.com", "Route Settle "+tc.name+" Other")
+			sourcePlanetID := foundation.PlanetID("planet-route-settle-" + tc.name + "-source")
+			destinationStorageID := foundation.PlanetID(tc.destination.ID)
+			routeID := foundation.RouteID("route-settle-" + tc.name + "-destination")
+
+			seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, discovery.PlanetMaterializationKey("candidate-route-settle-"+tc.name+"-source"))
+			saveRouteControlStorage(t, gameServer, sourcePlanetID, []production.StoredItem{{ItemID: "refined_alloy", Quantity: 100}})
+			saveRouteControlStorage(t, gameServer, destinationStorageID, nil)
+			seedAutomationRouteToDestinationForTest(t, gameServer, owner.PlayerID, routeID, sourcePlanetID, tc.destination, "map_1_1", "map_1_1")
+			clock.Advance(time.Hour)
+
+			response := gameServer.runtime.Gateway.HandleRequest(
+				realtime.SessionID(owner.SessionID.String()),
+				[]byte(`{"request_id":"request-route-settle-`+tc.name+`-destination","op":"route.settle","payload":{"route_id":"`+routeID.String()+`"},"client_seq":1,"v":1}`),
+			)
+			if response.HasError {
+				t.Fatalf("route.settle %s destination response error = %+v, want success", tc.name, response.Error)
+			}
+			assertPayloadOmitsInternalMapIdentity(t, "route.settle "+tc.name+" response", response.Response.Payload)
+			assertPayloadOmitsPlayerOwner(t, "route.settle "+tc.name+" response", response.Response.Payload, owner.PlayerID)
+			var payload struct {
+				Route      routePayload                      `json:"route"`
+				Routes     routeListPayload                  `json:"routes"`
+				Settlement routeSettlementPayload            `json:"settlement"`
+				Production planetProductionCollectionPayload `json:"production"`
+				Storage    planetStorageCollectionPayload    `json:"storage"`
+			}
+			if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+				t.Fatalf("decode route.settle %s payload: %v", tc.name, err)
+			}
+			assertRoutePayloadMapKeys(t, payload.Route, routeID, "1-1", "1-1")
+			if payload.Route.Destination.Type != tc.destination.Type.String() || payload.Route.Destination.ID != "" {
+				t.Fatalf("route.settle %s route destination = %+v, want public %q destination without internal id", tc.name, payload.Route.Destination, tc.destination.Type)
+			}
+			assertPayloadOmitsRouteEndpointID(t, "route.settle "+tc.name+" response", response.Response.Payload, tc.destination.ID.String())
+			if len(payload.Routes.Routes) != 1 ||
+				payload.Routes.Routes[0].Destination.Type != tc.destination.Type.String() ||
+				payload.Routes.Routes[0].Destination.ID != "" {
+				t.Fatalf("route.settle %s route list = %+v, want one public %q destination without internal id", tc.name, payload.Routes.Routes, tc.destination.Type)
+			}
+			assertRouteSettlementPayload(t, payload.Settlement, routeID, "refined_alloy", 3_600_000, 40, 40, 0, 40, 40, false, "route.settle "+tc.name+" response")
+			assertRouteSettlementPayloadOmitsServerTruth(t, payload.Settlement, owner.PlayerID, "route.settle "+tc.name+" settlement")
+			assertRouteControlActiveMapSnapshots(t, payload.Production, payload.Storage, sourcePlanetID, 60)
+			assertStoredRouteStorageQuantity(t, gameServer, sourcePlanetID, "refined_alloy", 60)
+			assertStoredRouteStorageQuantity(t, gameServer, destinationStorageID, "refined_alloy", 40)
+			assertRouteDurableSettlementRows(t, gameServer, []foundation.RouteID{routeID}, 2)
+
+			eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteSettle, owner.PlayerID)
+			if err != nil {
+				t.Fatalf("post route.settle %s events: %v", tc.name, err)
+			}
+			if _, leaked := eventsBySession[other.SessionID]; leaked {
+				t.Fatalf("route.settle %s events leaked to non-owner session: %+v", tc.name, eventsBySession[other.SessionID])
+			}
+			for _, event := range eventsBySession[owner.SessionID] {
+				assertPayloadOmitsRouteEndpointID(t, string(event.Type)+" "+tc.name+" event", event.Payload, tc.destination.ID.String())
+			}
+			assertRouteSettleEvents(t, eventsBySession[owner.SessionID], routeID, sourcePlanetID, "1-1", "1-1", owner.PlayerID, 60, 1)
+		})
+	}
 }
 
 func TestRouteSettleClampsDestinationStorageCapacity(t *testing.T) {
@@ -836,6 +924,44 @@ func assertRouteDurableSettlementRows(t *testing.T, gameServer *Server, routeIDs
 	}
 }
 
+func seedAutomationRouteToDestinationForTest(
+	t *testing.T,
+	gameServer *Server,
+	ownerID foundation.PlayerID,
+	routeID foundation.RouteID,
+	sourcePlanetID foundation.PlanetID,
+	destination production.RouteDestination,
+	sourceMapID production.RouteMapID,
+	destinationMapID production.RouteMapID,
+) {
+	t.Helper()
+	service, err := production.NewAutomationRouteService(production.AutomationRouteServiceConfig{
+		Store:  gameServer.runtime.Production,
+		Clock:  gameServer.runtime.clock,
+		Policy: mapAwareRoutePolicyForTest{sourceMapID: sourceMapID, destinationMapID: destinationMapID},
+	})
+	if err != nil {
+		t.Fatalf("NewAutomationRouteService() error = %v, want nil", err)
+	}
+	result, err := service.CreateRoute(production.CreateRouteInput{
+		RouteID:        routeID,
+		OwnerPlayerID:  ownerID,
+		SourcePlanetID: sourcePlanetID,
+		Destination:    destination,
+		ResourceItemID: "refined_alloy",
+		AmountPerHour:  40,
+	})
+	if err != nil {
+		t.Fatalf("CreateRoute(%q) error = %v, want nil", routeID, err)
+	}
+	if result.Route.Destination != destination {
+		t.Fatalf("seeded route destination = %+v, want %+v", result.Route.Destination, destination)
+	}
+	if result.Route.SourceMapID != sourceMapID || result.Route.DestinationMapID != destinationMapID {
+		t.Fatalf("seeded route map ids = %q/%q, want %q/%q", result.Route.SourceMapID, result.Route.DestinationMapID, sourceMapID, destinationMapID)
+	}
+}
+
 func assertRouteSettlementIDs(t *testing.T, settlements []routeSettlementPayload, routeIDs ...foundation.RouteID) {
 	t.Helper()
 	got := make(map[string]struct{}, len(settlements))
@@ -891,6 +1017,17 @@ func assertPayloadOmitsPlayerOwner(t *testing.T, label string, payload any, owne
 		if strings.Contains(raw, forbidden) {
 			t.Fatalf("%s leaked %q in %s", label, forbidden, raw)
 		}
+	}
+}
+
+func assertPayloadOmitsRouteEndpointID(t *testing.T, label string, payload any, endpointID string) {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal %s: %v", label, err)
+	}
+	if strings.Contains(string(data), endpointID) {
+		t.Fatalf("%s leaked route endpoint id %q in %s", label, endpointID, string(data))
 	}
 }
 

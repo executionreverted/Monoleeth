@@ -559,9 +559,12 @@ for phase status; this file is a compact pending-work index.
   with normal route ledger, durable route-row, reference/window, and outbox
   evidence. Phase07BY extends the same adapter contract to `station`
   destinations while adding public gateway guardrails so browser route
-  create/update still cannot author non-planet endpoints. Runtime/browser
-  non-planet route access policy and durable DB-backed storage/station endpoint
-  rows remain open.
+  create/update still cannot author non-planet endpoints. Phase07BZ proves
+  existing owner-scoped storage/station routes can settle through the
+  authenticated `route.settle` gateway with safe payloads/events, masking
+  storage/station aggregate IDs while preserving public destination type, and
+  durable settlement evidence. Runtime/browser non-planet route create/update
+  access policy and durable DB-backed storage/station endpoint rows remain open.
 - [ ] Replace Phase 09 in-memory production, storage, and route repositories with
   durable per-planet/per-route transactions or row locks before multi-process
   runtime deployment.

@@ -458,6 +458,15 @@ Current slice completed:
   `destination_type: station` payloads are rejected before mutation.
   Runtime/browser non-planet route access policy and durable DB endpoint rows
   remain open.
+- Phase07BZ non-planet route settlement gateway follow-up:
+  Existing owner-scoped `storage` and `station` routes now have focused
+  authenticated `route.settle` gateway proof. The browser still sends only
+  `route_id`; the server settles the named endpoint storage, returns safe
+  route/list/settlement/production/storage payloads with storage/station
+  aggregate IDs masked, emits owner-only route events, and records durable
+  settlement reference/window, route ledger, route-row, and outbox evidence.
+  Public non-planet route create/update policy and durable DB endpoint rows
+  remain open.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -1028,6 +1037,10 @@ Mockup areas covered:
 - [x] Route settlement supports named storage/station-destination aggregates with the
       same server-owned window/reference, ledger, durable route-row, and outbox
       evidence as planet destinations.
+- [x] Existing owner-scoped storage/station routes can settle through the
+      authenticated gateway with safe payloads/events, masked aggregate IDs,
+      and durable settlement evidence while public create/update remains
+      planet-only.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.
