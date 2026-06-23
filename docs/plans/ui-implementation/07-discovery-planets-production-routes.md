@@ -387,6 +387,14 @@ Current slice completed:
   preserving retry-without-second-debit behavior. A real durable adapter still
   needs DB row locks/CAS, idempotency rows, ledger mutation, and claim boundary
   writes in one transaction or recoverable state machine.
+- Phase07AQ settlement outbox dispatch contract follow-up:
+  `NewSettlementOutboxDispatchPlan` now validates the after-commit handoff from
+  production/route settlement transactions to a durable publisher scheduler.
+  It requires a committed settlement reference for non-empty dispatches, pending
+  outbox rows with payloads, matching reference/window evidence when a row
+  carries settlement evidence, and at least one settlement-evidenced outbox row.
+  This is still a contract/helper layer; durable DB rows, scheduler wiring, and
+  cross-process publisher ownership remain open.
 
 ## Source Specs
 
@@ -527,6 +535,8 @@ Mockup areas covered:
       production/storage summary queries.
 - [x] Add production/route settlement domain result and outbox payload evidence
       with server-derived reference keys and deterministic settlement windows.
+- [x] Add settlement outbox dispatch-plan validation for after-commit
+      production/route publisher scheduling.
 - [x] Add process-local store-owned settlement reference records and pending
       outbox records for production and route settlements.
 - [x] Add process-local production outbox claim/publish/fail/retry delivery
@@ -605,6 +615,8 @@ Mockup areas covered:
 - [x] Production settlement uses an explicit transaction boundary that returns
       the committed production idempotency reference and pending outbox rows
       from the same store lock.
+- [x] Production settlement transaction outbox rows validate into an
+      after-commit dispatch plan before durable publisher scheduling.
 - [ ] Durable production settlement is enforced by DB/idempotency rows and
       published through the durable outbox.
 - [x] Server route.settle transfers storage once, returns no-op on immediate
@@ -624,6 +636,8 @@ Mockup areas covered:
       machine for pending, in-flight, published, failed, and explicit retry
       behavior, including claim-token publish/fail guards for retried or
       reclaimed attempts.
+- [x] Route settlement transaction outbox rows validate into an after-commit
+      dispatch plan before durable publisher scheduling.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.
