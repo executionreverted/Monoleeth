@@ -392,8 +392,10 @@ destination/PvP scanner, claim, plus Border Skirmish drop canary, and scanner
 no-signal canary. Use
 `GAME_PLAYTEST_VERIFY_DRY_RUN=true scripts/verify_playtest_vertical_slice.sh`
 to print the command sequence without launching the browser proofs.
-Last verified locally on 2026-06-24: the full gate passed, including the
-deployable artifact build/staged-publish scan, `e2e:playtest-server`,
+Last verified locally on 2026-06-24 after the shield-repair, packaged-release,
+and entity-asset bundle-guard slices: the full gate passed, including the
+deployable artifact build/staged-publish scan with bundle-scan extra-root,
+entity-asset, and size canaries, `e2e:playtest-server`,
 `e2e:playtest-server-pvp`, `e2e:phase10-enemy-aggro-built`,
 `e2e:phase10-pvp-map-drop`, and `e2e:phase10-scan-no-signal`.
 

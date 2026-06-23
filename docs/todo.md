@@ -895,10 +895,11 @@ Task 001 release proof must be rebuilt through
   artifact for browser canaries instead of rebuilding before every E2E command,
   while falling back to npm build-and-run scripts when the build gate is
   disabled. Dry-run mode prints the command sequence without launching browser
-  proofs. The full gate passed locally on 2026-06-24, including the deployable
-  artifact build/staged-publish scan and all five built-client browser
-  canaries: main loop, PvP/death/repair, Border Skirmish enemy aggro/leash,
-  destination/PvP scanner-claim-drop, and scanner no-signal.
+  proofs. The full gate passed locally again on 2026-06-24 after the
+  shield-repair, packaged-release, and entity-asset bundle-guard slices,
+  including the deployable artifact build/staged-publish scan and all five
+  built-client browser canaries: main loop, PvP/death/repair, Border Skirmish
+  enemy aggro/leash, destination/PvP scanner-claim-drop, and scanner no-signal.
 - [x] Finish entity selection, combat feedback, and loot pickup presentation in
   the mockup HUD. Visible objects select with reticles, target panels show
   server-safe HP/shield/status, firing produces laser/damage/miss reactions,
