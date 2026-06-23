@@ -118,7 +118,7 @@ export function equipmentPanel(context: InventoryTabContext): string {
 }
 
 export function inventoryStoredPanel(context: InventoryTabContext): string {
-  const { inventory, loadout, moduleItems, selectedModule } = context;
+  const { inventory, loadout, moduleItems, selectedModule, state } = context;
   const stackRows = inventory.stackable
     .map(
       (item) => `
@@ -132,6 +132,7 @@ export function inventoryStoredPanel(context: InventoryTabContext): string {
   return `
     <section class="inventory-storage-console" data-inventory-storage="true">
       ${moduleBayPanel(moduleItems, loadout.slots, selectedModule, 'Account modules')}
+      ${coordinateScrollPanel(inventory.instances, state)}
       <div class="inventory-stack-panel">
         <div class="module-bay__head">
           <strong>Stored cargo items</strong>
@@ -144,6 +145,47 @@ export function inventoryStoredPanel(context: InventoryTabContext): string {
         }
       </div>
     </section>
+  `;
+}
+
+function coordinateScrollPanel(items: NonNullable<ClientState['inventory']>['instances'], state: ClientState): string {
+  const scrolls = items.filter((item) => item.item_id === 'planet_coordinate_scroll');
+  if (scrolls.length === 0) {
+    return '';
+  }
+  return `
+    <div class="inventory-stack-panel" data-coordinate-scrolls="true">
+      <div class="module-bay__head">
+        <strong>Coordinate scrolls</strong>
+        <span>${scrolls.length} owned</span>
+      </div>
+      <ul class="compact-list inventory-stack-list">
+        ${scrolls.map((item) => coordinateScrollRow(item, state)).join('')}
+      </ul>
+    </div>
+  `;
+}
+
+function coordinateScrollRow(item: NonNullable<ClientState['inventory']>['instances'][number], state: ClientState): string {
+  const pending = hasPendingOpPayloadField(state, OPERATIONS.intelCoordinateItemUse, 'item_instance_id', item.item_instance_id);
+  const enabled = realtimeReady(state) && !pending && item.location === 'account_inventory';
+  const title = item.location !== 'account_inventory'
+    ? 'Coordinate scroll must be in account inventory'
+    : pending
+      ? 'Coordinate item use pending'
+      : !realtimeReady(state)
+        ? 'Realtime connection required'
+        : 'Use this server-owned coordinate scroll';
+  return `
+    <li data-coordinate-item-id="${escapeHTML(item.item_instance_id)}">
+      <span title="${escapeHTML(publicInventoryStateLabel(item.location))}">${escapeHTML(item.display_name || item.item_id)}</span>
+      <button
+        type="button"
+        data-action="coordinate-item-use"
+        data-item-instance-id="${escapeHTML(item.item_instance_id)}"
+        ${enabled ? '' : 'disabled'}
+        title="${escapeHTML(title)}">${pending ? 'Using' : 'Use'}</button>
+    </li>
   `;
 }
 

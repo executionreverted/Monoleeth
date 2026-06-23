@@ -228,7 +228,8 @@ Current slice completed:
   ownership/consume-once through the intel domain, writes the discovery read
   model, and queues owner-scoped known-planets and planet-detail refreshes.
   Inventory-backed coordinate item mint/consume, daily quotas, market/listing
-  staleness hooks, durable DB rows, and browser HUD controls remain open.
+  staleness hooks, durable DB rows, and browser HUD controls remained open at
+  this slice.
 - Phase07T inventory-backed coordinate item follow-up:
   `intel.coordinate_item.create` now mints a real
   `planet_coordinate_scroll` inventory instance with the same server-authored
@@ -243,7 +244,15 @@ Current slice completed:
   purchase with the same market-buy idempotency key, so duplicate buy retries
   can repair the transfer and the buyer can use the bought scroll once. Daily
   quotas, durable DB rows, cross-service transaction/compensation, and browser
-  HUD controls remain open.
+  HUD controls remained open at this slice.
+- Phase07CV browser coordinate item follow-up: the browser now exposes
+  coordinate scroll create/use controls from real server state. Planet panels
+  send only `planet_id` for `intel.coordinate_item.create`, inventory renders
+  owned `planet_coordinate_scroll` instances, and Use sends only
+  `item_instance_id` for `intel.coordinate_item.use`. Matching pending commands
+  disable controls, and no coordinate/source/confidence truth is authored by
+  the client. Browser `intel.share`, daily quotas, durable DB rows, and
+  cross-service transaction/compensation remain open.
 - Phase07U outbox publisher-boundary follow-up: discovery claim outbox and
   production-domain outbox records now have small interface-backed publisher
   drain helpers. The production helper covers production settlements, route
@@ -877,6 +886,8 @@ Mockup areas covered:
       publisher-worker behavior.
 - [x] Add intel share and coordinate item handlers with visibility-safe
       recipient filtering.
+- [x] Add browser coordinate item create/use controls with pending states and
+      server-owned id-only intents.
 - [x] Add read-only production summary handler for owned planets.
 - [x] Add production build/upgrade handlers.
 - [x] Add process-local production-domain build/upgrade material debit ledger,
@@ -1036,6 +1047,8 @@ Mockup areas covered:
       lease-released through the claim outbox publisher contracts.
 - [x] Intel share rejects hidden/not-owned coordinate references.
 - [x] Coordinate item create/use consumes owned items once and filters results.
+- [x] Browser coordinate item create/use controls send only `planet_id` or
+      `item_instance_id` and do not expose hidden coordinate payloads.
 - [x] Market-bought coordinate scrolls transfer server-owned intel item
       authority to the buyer and can be used once by that buyer.
 - [x] Planet claim marks active coordinate-scroll market listings for the

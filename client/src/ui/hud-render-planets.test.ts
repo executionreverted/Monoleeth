@@ -483,6 +483,32 @@ describe('route controls', () => {
     }
   });
 
+  test('known planet renders coordinate item create action without coordinate truth payload', () => {
+    const state = planetRouteState();
+
+    const catalogHTML = planetCatalogPanel(state);
+    const modalHTML = planetDetailModal(state, 'planet-source');
+
+    for (const html of [catalogHTML, modalHTML]) {
+      expect(html).toMatch(/data-action="coordinate-item-create"[^>]*data-planet-id="planet-source"[^>]*>Coord/);
+      expect(html).not.toContain('data-coordinates');
+      expect(html).not.toContain('source_player_id');
+      expect(html).not.toContain('confidence_override');
+    }
+
+    state.pendingCommands = {
+      'coordinate-create-1': {
+        requestID: 'coordinate-create-1',
+        op: OPERATIONS.intelCoordinateItemCreate,
+        payload: { planet_id: 'planet-source' },
+        queuedAt: 1,
+      },
+    };
+
+    const pendingHTML = planetDetailModal(state, 'planet-source');
+    expect(pendingHTML).toMatch(/data-action="coordinate-item-create"[^>]*disabled[^>]*>Creating/);
+  });
+
   test('route create disables without another owned endpoint or source storage resource', () => {
     const state = planetRouteState();
     state.planetIntel!.planets = [state.planetIntel!.planets[0]];

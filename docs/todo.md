@@ -270,7 +270,12 @@ for phase status; this file is a compact pending-work index.
   idempotency-table enforcement, durable outbox persistence/publisher workers,
   broader building requirement/cost balancing, coordinate item durable
   transaction/compensation, market/listing staleness hooks, and intel quotas
-  remain open. Phase07CT adds browser command builders and HUD controls for
+  remain open. Phase07CV adds browser coordinate item create/use controls:
+  planet panels send only `planet_id`, inventory renders real
+  `planet_coordinate_scroll` instances, Use sends only `item_instance_id`, and
+  pending states lock matching commands without client-authored coordinates,
+  source, confidence, or owner truth. Browser `intel.share` controls remain
+  open. Phase07CT adds browser command builders and HUD controls for
   `planet.building_build` / `planet.building_upgrade`; those controls send
   only server-safe intent fields and render from owned production snapshots
   without material, wallet, cost, owner, or map truth. Phase07Z adds a

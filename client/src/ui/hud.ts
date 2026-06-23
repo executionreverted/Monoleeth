@@ -494,6 +494,16 @@ export class HUD {
             this.handlers.onPlanetClaim(button.dataset.planetId);
           }
           break;
+        case 'coordinate-item-create':
+          if (button.dataset.planetId) {
+            this.handlers.onCoordinateItemCreate(button.dataset.planetId);
+          }
+          break;
+        case 'coordinate-item-use':
+          if (button.dataset.itemInstanceId) {
+            this.handlers.onCoordinateItemUse(button.dataset.itemInstanceId);
+          }
+          break;
         case 'planet-building-build': {
           const control = button.closest<HTMLElement>('[data-building-build-control]');
           const planetID = button.dataset.planetId ?? control?.dataset.planetId ?? '';

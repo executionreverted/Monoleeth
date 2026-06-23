@@ -70,6 +70,39 @@ describe('cargoPanel crafting tab', () => {
     expect(html).not.toContain('data-action="crafting-start"');
     expect(html).not.toContain('data-action="crafting-complete"');
   });
+
+  test('renders owned coordinate scroll item use intent without hidden coordinate payload', () => {
+    hudSelection.selectedInventoryTab = 'inventory';
+    const state = craftingState();
+    state.inventory!.instances.push({
+      item_instance_id: 'coord-scroll-1',
+      item_id: 'planet_coordinate_scroll',
+      display_name: 'Planet Coordinate Scroll',
+      location: 'account_inventory',
+    });
+
+    const html = cargoPanel(state, 2_000);
+
+    expect(html).toContain('data-coordinate-scrolls="true"');
+    expect(html).toContain('Planet Coordinate Scroll');
+    expect(html).toContain('data-action="coordinate-item-use"');
+    expect(html).toContain('data-item-instance-id="coord-scroll-1"');
+    expect(html).not.toContain('data-planet-id');
+    expect(html).not.toContain('data-coordinates');
+
+    state.pendingCommands = {
+      'coordinate-use-1': {
+        requestID: 'coordinate-use-1',
+        op: OPERATIONS.intelCoordinateItemUse,
+        payload: { item_instance_id: 'coord-scroll-1' },
+        queuedAt: 1,
+      },
+    };
+
+    const pendingHTML = cargoPanel(state, 2_000);
+    expect(buttonHTML(pendingHTML, 'coordinate-item-use')).toContain('disabled');
+    expect(buttonHTML(pendingHTML, 'coordinate-item-use')).toContain('Using');
+  });
 });
 
 function craftingState(): ClientState {

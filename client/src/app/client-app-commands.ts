@@ -318,6 +318,28 @@ export abstract class ClientAppCommands extends ClientAppCore {
     );
   }
 
+  protected sendCoordinateItemCreate(planetID: string): void {
+    if (!planetID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `coordinate-create:${planetID}`,
+      () => this.commandBuilder.intelCoordinateItemCreate(planetID),
+      'Coordinate item creation already pending.',
+    );
+  }
+
+  protected sendCoordinateItemUse(itemInstanceID: string): void {
+    if (!itemInstanceID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `coordinate-use:${itemInstanceID}`,
+      () => this.commandBuilder.intelCoordinateItemUse(itemInstanceID),
+      'Coordinate item use already pending.',
+    );
+  }
+
   protected sendPlanetBuildingBuild(input: { planetID: string; buildingType: string; slot: string }): void {
     if (!input.planetID || !input.buildingType || !input.slot) {
       return;
