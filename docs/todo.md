@@ -96,7 +96,12 @@ for phase status; this file is a compact pending-work index.
   pending claim outbox creation into the store-owned boundary completion so
   duplicate completion replays or repairs existing artifacts instead of minting
   another event/outbox row, and completed-boundary claim replays after process
-  cache loss no longer become already-owned repairs.
+  cache loss no longer become already-owned repairs. Phase07AC routes
+  `ClaimService` through a `ClaimBoundaryStore` interface so durable DB
+  adapters can own begin/complete/read claim boundary operations behind
+  row-lock/CAS semantics; the default implementation remains in-memory. X Core
+  consumption is still not atomically coupled to DB begin/owner-CAS failure
+  handling.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
   planet claim transaction. Current in-memory flow can repair production state
   on retry, and Phase07W now records process-local claim recovery evidence
@@ -174,7 +179,10 @@ for phase status; this file is a compact pending-work index.
   transaction; Phase07AA wires `ClaimService` through that boundary while
   Phase07AB records reference/event/outbox completion artifacts under the same
   store lock and replays completed boundaries without duplicate repair side
-  effects. Durable DB rows and recovery workers remain open.
+  effects. Phase07AC adds the claim boundary adapter contract and retry/error
+  coverage around repository read/complete failures, but not yet X Core debit
+  rollback/recovery for begin failures. Durable DB rows and recovery workers
+  remain open.
   Source: Phase 10 audit, Phase07A, Phase07O, Phase07P, Phase07Q, Phase07R,
   Phase07S, and
   `docs/map-rework/phase-10-testing-rollout.md`.

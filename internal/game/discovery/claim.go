@@ -181,6 +181,7 @@ type ClaimListedIntelStaleMarker interface {
 // concrete progression, world, or inventory services.
 type ClaimServiceConfig struct {
 	Store                  *InMemoryStore
+	ClaimBoundaries        ClaimBoundaryStore
 	Clock                  foundation.Clock
 	Ranks                  ClaimRankProvider
 	Proximity              ClaimProximityProvider
@@ -197,6 +198,7 @@ type ClaimService struct {
 	mu sync.Mutex
 
 	store                  *InMemoryStore
+	claimBoundaries        ClaimBoundaryStore
 	clock                  foundation.Clock
 	ranks                  ClaimRankProvider
 	proximity              ClaimProximityProvider
@@ -230,6 +232,7 @@ func NewClaimService(config ClaimServiceConfig) (*ClaimService, error) {
 	}
 	return &ClaimService{
 		store:                  normalized.Store,
+		claimBoundaries:        normalized.ClaimBoundaries,
 		clock:                  normalized.Clock,
 		ranks:                  normalized.Ranks,
 		proximity:              normalized.Proximity,
@@ -306,10 +309,10 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 		if err != nil {
 			return ClaimPlanetResult{}, err
 		}
-		if err := service.completeClaimBoundary(input, claimedAt, staleListings.MarkedCount); err != nil {
-			return ClaimPlanetResult{}, err
-		}
 		if hasBoundary && boundary.Status == ClaimBoundaryStatusPendingSideEffects {
+			if err := service.completeClaimBoundary(input, claimedAt, staleListings.MarkedCount); err != nil {
+				return ClaimPlanetResult{}, err
+			}
 			result := ClaimPlanetResult{
 				Planet:            clonePlanet(planet),
 				Claimed:           true,
@@ -350,7 +353,7 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 
 	now := service.clock.Now().UTC()
 	event := newClaimEvent(ClaimEventPlanetClaimed, input, now)
-	claimBoundary, err := service.store.BeginPlanetClaimBoundary(BeginPlanetClaimBoundaryInput{
+	claimBoundary, err := service.claimBoundaries.BeginPlanetClaimBoundary(BeginPlanetClaimBoundaryInput{
 		ClaimReference:  input.ClaimReference,
 		PlayerID:        input.PlayerID,
 		PlanetID:        planet.ID,
@@ -555,6 +558,9 @@ func normalizeClaimConfig(config ClaimServiceConfig) (ClaimServiceConfig, error)
 	if config.Store == nil {
 		config.Store = NewInMemoryStore()
 	}
+	if config.ClaimBoundaries == nil {
+		config.ClaimBoundaries = config.Store
+	}
 	if config.Clock == nil {
 		config.Clock = foundation.RealClock{}
 	}
@@ -639,7 +645,7 @@ func (service *ClaimService) validateRank(playerID foundation.PlayerID, planet P
 }
 
 func (service *ClaimService) validateClaimBoundaryPreflight(input ClaimPlanetInput) error {
-	boundary, ok, err := service.store.ClaimBoundary(input.ClaimReference)
+	boundary, ok, err := service.claimBoundaries.ClaimBoundary(input.ClaimReference)
 	if err != nil {
 		return err
 	}
@@ -653,7 +659,7 @@ func (service *ClaimService) validateClaimBoundaryPreflight(input ClaimPlanetInp
 }
 
 func (service *ClaimService) claimBoundaryForInput(input ClaimPlanetInput) (ClaimBoundaryRecord, bool, error) {
-	boundary, ok, err := service.store.ClaimBoundary(input.ClaimReference)
+	boundary, ok, err := service.claimBoundaries.ClaimBoundary(input.ClaimReference)
 	if err != nil || !ok {
 		return ClaimBoundaryRecord{}, ok, err
 	}
@@ -698,16 +704,13 @@ func (service *ClaimService) consumeXCore(input ClaimPlanetInput, planet Planet)
 }
 
 func (service *ClaimService) completeClaimBoundary(input ClaimPlanetInput, completedAt time.Time, staleListingCount int) error {
-	_, err := service.store.CompletePlanetClaimBoundary(CompletePlanetClaimBoundaryInput{
+	_, err := service.claimBoundaries.CompletePlanetClaimBoundary(CompletePlanetClaimBoundaryInput{
 		ClaimReference:    input.ClaimReference,
 		PlayerID:          input.PlayerID,
 		PlanetID:          input.PlanetID,
 		CompletedAt:       completedAt,
 		StaleListingCount: staleListingCount,
 	})
-	if errors.Is(err, ErrClaimBoundaryNotFound) {
-		return nil
-	}
 	return err
 }
 

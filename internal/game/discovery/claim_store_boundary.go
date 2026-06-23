@@ -50,6 +50,15 @@ type CompletePlanetClaimBoundaryResult struct {
 	Duplicate bool
 }
 
+// ClaimBoundaryStore is the DB-adapter-ready owner-CAS and completion boundary
+// used by planet claims. Durable implementations must perform begin/complete
+// with row-lock/CAS and idempotency semantics for the claim reference.
+type ClaimBoundaryStore interface {
+	BeginPlanetClaimBoundary(input BeginPlanetClaimBoundaryInput) (BeginPlanetClaimBoundaryResult, error)
+	CompletePlanetClaimBoundary(input CompletePlanetClaimBoundaryInput) (CompletePlanetClaimBoundaryResult, error)
+	ClaimBoundary(ref PlanetClaimReference) (ClaimBoundaryRecord, bool, error)
+}
+
 // ClaimBoundaryRecord is the store-owned transaction marker for a planet claim
 // whose owner CAS has committed but whose post-owner side effects may still be
 // pending. It mirrors the shape a durable DB row should use later.

@@ -286,6 +286,17 @@ Current slice completed:
   read/publisher APIs delegate boundary-backed claim artifacts to the
   store-owned state. Durable DB rows, X Core/owner-CAS transaction coupling,
   and cross-process publisher/recovery workers remain open.
+- Phase07AC claim boundary adapter contract follow-up: `ClaimService` now uses
+  a `ClaimBoundaryStore` interface for begin/complete/read claim boundary
+  operations, while defaulting to the existing `InMemoryStore`. The contract
+  matches the future durable DB adapter seam for row-lock/CAS and idempotent
+  claim completion, and focused tests prove boundary read failures stop before
+  X Core consumption while completion failures leave a retryable pending
+  boundary that completes without a second X Core consume. This slice does not
+  yet move X Core consumption inside the same durable begin transaction, so a
+  future DB begin/row-lock failure after inventory debit still belongs to the
+  open X Core/owner-CAS transaction-coupling work. Real durable rows,
+  cross-service transaction coupling, and recovery workers remain open.
 
 ## Source Specs
 
