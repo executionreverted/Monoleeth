@@ -260,6 +260,14 @@ Current slice completed:
   adapters can expose the same strict cutoff, token-clearing, retry-evidence
   preserving semantics behind row-lock/CAS updates. Durable rows, scheduler
   wiring, and cross-process idempotency enforcement remain open.
+- Phase07Z store-owned claim boundary follow-up: discovery `InMemoryStore` now
+  has a transaction-shaped claim boundary row with begin/complete APIs. Begin
+  performs the owner CAS, marks older planet intel stale, and records a
+  `pending_side_effects` claim boundary with typed idempotency evidence when
+  the canonical claim key is used; complete marks production/listing side
+  effects done without changing the original owner CAS evidence. Wiring
+  `ClaimService` to this boundary, durable DB rows, cross-service transaction
+  enforcement, recovery workers, and outbox/event completion remain open.
 
 ## Source Specs
 

@@ -87,6 +87,9 @@ for phase status; this file is a compact pending-work index.
   workers remain open. Phase07V preserves typed claim idempotency-key evidence
   on process-local claim reference and outbox rows for canonical gateway
   references, but it does not make those rows durable or transactional.
+  Phase07Z adds a store-owned transaction-shaped claim boundary for owner-CAS
+  begin plus side-effect completion evidence; the current claim service still
+  needs to use it and durable DB rows still remain open.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
   planet claim transaction. Current in-memory flow can repair production state
   on retry, and Phase07W now records process-local claim recovery evidence
@@ -159,7 +162,9 @@ for phase status; this file is a compact pending-work index.
   idempotency-table enforcement, durable outbox persistence/publisher workers,
   broader building requirement/cost balancing, browser HUD controls, coordinate
   item durable transaction/compensation, market/listing staleness hooks, and
-  intel quotas remain open.
+  intel quotas remain open. Phase07Z adds a store-owned begin/complete claim
+  boundary row that models the future owner-CAS plus pending-side-effects DB
+  transaction; `ClaimService` wiring through that boundary remains open.
   Source: Phase 10 audit, Phase07A, Phase07O, Phase07P, Phase07Q, Phase07R,
   Phase07S, and
   `docs/map-rework/phase-10-testing-rollout.md`.

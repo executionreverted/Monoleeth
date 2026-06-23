@@ -45,6 +45,7 @@ type InMemoryStore struct {
 	planetIDsByCandidateKey map[PlanetMaterializationKey]foundation.PlanetID
 	intel                   map[playerPlanetIntelKey]PlayerPlanetIntel
 	intelPlayersByPlanet    map[foundation.PlanetID]map[foundation.PlayerID]struct{}
+	claimBoundaries         map[PlanetClaimReference]ClaimBoundaryRecord
 }
 
 type playerPlanetIntelKey struct {
@@ -59,6 +60,7 @@ func NewInMemoryStore() *InMemoryStore {
 		planetIDsByCandidateKey: make(map[PlanetMaterializationKey]foundation.PlanetID),
 		intel:                   make(map[playerPlanetIntelKey]PlayerPlanetIntel),
 		intelPlayersByPlanet:    make(map[foundation.PlanetID]map[foundation.PlayerID]struct{}),
+		claimBoundaries:         make(map[PlanetClaimReference]ClaimBoundaryRecord),
 	}
 }
 
@@ -311,6 +313,9 @@ func (store *InMemoryStore) ensureMapsLocked() {
 	}
 	if store.intelPlayersByPlanet == nil {
 		store.intelPlayersByPlanet = make(map[foundation.PlanetID]map[foundation.PlayerID]struct{})
+	}
+	if store.claimBoundaries == nil {
+		store.claimBoundaries = make(map[PlanetClaimReference]ClaimBoundaryRecord)
 	}
 }
 
