@@ -103,6 +103,23 @@ export class CommandBuilder {
     return this.build(OPERATIONS.craftingRecipes, {});
   }
 
+  craftingStart(input: {
+    recipeID: string;
+    locationType?: string;
+    locationID?: string;
+  }): RequestEnvelope<{ recipe_id: string; location_type?: string; location_id?: string }> {
+    const payload: { recipe_id: string; location_type?: string; location_id?: string } = {
+      recipe_id: input.recipeID,
+    };
+    if (input.locationType) {
+      payload.location_type = input.locationType;
+    }
+    if (input.locationID) {
+      payload.location_id = input.locationID;
+    }
+    return this.build(OPERATIONS.craftingStart, payload);
+  }
+
   scanPulse(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.scanPulse, {});
   }

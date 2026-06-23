@@ -38,6 +38,7 @@ const (
 	OperationStatsSnapshot         Operation = "stats.snapshot"
 	OperationStealthToggle         Operation = "stealth.toggle"
 	OperationCraftingRecipes       Operation = "crafting.recipes"
+	OperationCraftingStart         Operation = "crafting.start"
 	OperationScanPulse             Operation = "scan.pulse"
 	OperationKnownPlanets          Operation = "discovery.known_planets"
 	OperationPlanetDetail          Operation = "discovery.planet_detail"
@@ -257,6 +258,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationCraftingRecipes: {
 		Operation:        OperationCraftingRecipes,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationCraftingStart: {
+		Operation:        OperationCraftingStart,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationScanPulse: {

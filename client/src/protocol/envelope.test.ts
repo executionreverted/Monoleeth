@@ -4,7 +4,6 @@ import { assertClientSafePayload, CommandBuilder } from './commands';
 import { CLIENT_EVENTS, OPERATIONS, parseServerMessage, rejectForbiddenPayloadKeys } from './envelope';
 
 const UNIMPLEMENTED_MUTATION_OPS = [
-  'crafting.start',
   'crafting.complete',
   'crafting.cancel',
   'inventory.move',
@@ -324,6 +323,7 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.loadoutEquipModule).toBe('loadout.equip_module');
     expect(OPERATIONS.loadoutUnequipModule).toBe('loadout.unequip_module');
     expect(OPERATIONS.stealthToggle).toBe('stealth.toggle');
+    expect(OPERATIONS.craftingStart).toBe('crafting.start');
     expect(OPERATIONS.shopCatalog).toBe('shop.catalog');
     expect(OPERATIONS.shopBuyProduct).toBe('shop.buy_product');
     expect(OPERATIONS.discoveryClaimPlanet).toBe('discovery.claim_planet');
@@ -348,6 +348,10 @@ describe('default outbound operations', () => {
     });
     expect(builder.loadoutUnequipModule('offensive_1').payload).toEqual({ slot_id: 'offensive_1' });
     expect(builder.stealthToggle(true).payload).toEqual({ enabled: true });
+    const craftStart = builder.craftingStart({ recipeID: 'refined_alloy_batch' });
+    expect(craftStart.op).toBe(OPERATIONS.craftingStart);
+    expect(craftStart.payload).toEqual({ recipe_id: 'refined_alloy_batch' });
+    expect(Object.keys(craftStart.payload)).toEqual(['recipe_id']);
     expect(builder.shopCatalog().payload).toEqual({});
     expect(builder.shopCatalog('weapons').payload).toEqual({ category_id: 'weapons' });
     expect(builder.shopBuyProduct('product_module_laser_alpha_t1', 1).payload).toEqual({
@@ -645,7 +649,6 @@ describe('default outbound operations', () => {
   test('do not expose command-builder helpers for unimplemented browser mutations', () => {
     const builderMethods = new Set(Object.getOwnPropertyNames(CommandBuilder.prototype));
     const forbiddenMethodNames = [
-      'craftingStart',
       'craftingComplete',
       'craftingCancel',
       'inventoryMove',

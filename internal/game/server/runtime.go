@@ -124,6 +124,7 @@ type Runtime struct {
 	Death                          *deathdomain.DeathService
 	Loot                           *loot.Service
 	Inventory                      *economy.InventoryService
+	Reservations                   *economy.ReservationService
 	CargoService                   *economy.CargoService
 	Wallet                         *economy.WalletService
 	Market                         *market.MarketService
@@ -140,6 +141,7 @@ type Runtime struct {
 	LoadoutStore                   *modules.InMemoryLoadoutStore
 	Loadout                        modules.LoadoutService
 	Recipes                        crafting.RecipeCatalog
+	Crafting                       *crafting.CraftingService
 	Discovery                      *discovery.InMemoryStore
 	Scanner                        *discovery.ScannerService
 	Claim                          *discovery.ClaimService
@@ -243,6 +245,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, fmt.Errorf("starter map instance: %w", errMapInstanceNotFound)
 	}
 	inventory := economy.NewInventoryService(clock)
+	reservationService := economy.NewReservationService(inventory)
 	cargoService := economy.NewCargoService(inventory)
 	walletService := economy.NewWalletService(clock)
 	progressionService := progression.NewProgressionService(clock, nil)
@@ -288,6 +291,19 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, err
 	}
 	recipeCatalog, err := crafting.MVPRecipeCatalog()
+	if err != nil {
+		return nil, err
+	}
+	craftingService, err := crafting.NewCraftingService(crafting.CraftingServiceConfig{
+		Clock:           clock,
+		Recipes:         recipeCatalog,
+		ItemDefinitions: crafting.ItemDefinitionMap(itemCatalog),
+		Reservations:    reservationService,
+		Inventory:       inventory,
+		Wallet:          walletService,
+		Progression:     progressionService,
+		Ships:           hangarService,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -359,6 +375,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Wallet:     walletService,
 		Market:     marketService,
 		Auction:    auctionService,
+		Crafting:   craftingService,
 		Production: productionStore,
 		Clock:      clock,
 	})
@@ -395,6 +412,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Death:                          deathService,
 		Loot:                           lootService,
 		Inventory:                      inventory,
+		Reservations:                   reservationService,
 		CargoService:                   cargoService,
 		Wallet:                         walletService,
 		Market:                         marketService,
@@ -411,6 +429,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		LoadoutStore:                   loadoutStore,
 		Loadout:                        loadoutService,
 		Recipes:                        recipeCatalog,
+		Crafting:                       craftingService,
 		Discovery:                      discoveryStore,
 		Intel:                          intelService,
 		Production:                     productionStore,

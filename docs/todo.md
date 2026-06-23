@@ -19,10 +19,12 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.
-- [ ] Map gateway/API request ids to the required
+- [x] Map gateway/API request ids to the required
   `CraftingService.StartCraft` domain `ReferenceKey` before exposing craft
-  start externally; the Phase 06 domain service is now idempotent when callers
-  provide a stable player-scoped `craft_start:*` reference.
+  start externally. The runtime `crafting.start` handler derives a
+  player-scoped `craft_start:*` reference from authenticated player id plus
+  request id, rejects client-authored job/economy fields, and returns
+  crafting/inventory/wallet snapshots after reservation/debit.
 - [ ] Replace `RepairService` compensating wallet refunds with a durable
   transaction/outbox boundary when wallet and ship state move out of the
   in-memory Phase 06 slice. Restore failure after debit is currently net-zero
@@ -203,14 +205,18 @@ for phase status; this file is a compact pending-work index.
   `loadout.snapshot`, `inventory.snapshot`, and `stats.snapshot`. Source:
   Phase 10 audit. Implemented in UI Patch 3 Phase 04 with inventory/loadout
   window drag/drop and button fallback.
+- [x] Add authenticated server/browser protocol contract for `crafting.start`.
+  The server resolves player identity from the session, validates recipe,
+  wallet, materials, station location, rank, and idempotency, and the client
+  command builder sends only recipe/location intent fields. Browser UI controls
+  remain locked until the crafting panel slice.
 - [ ] Add authenticated browser crafting mutation contracts for
-  `crafting.start`, `crafting.complete`, and `crafting.cancel`. Server handlers
-  must map request ids to stable domain references such as
-  `craft_start:<player_id>:<recipe_id>:<location_id>`,
-  `craft_complete:<job_id>`, and `craft_cancel:<job_id>`, validate materials,
-  wallet, rank, location authorization, queue limits, and output capacity, then
-  emit crafting/inventory/wallet/progression snapshots after commit. Source:
-  Phase 10 audit.
+  `crafting.complete` and `crafting.cancel`. Server handlers must map request
+  ids to stable domain references such as `craft_complete:<job_id>` and
+  `craft_cancel:<job_id>`, validate job owner/state, server time, cancellation
+  window, refund/release policy, output capacity, and emit
+  crafting/inventory/wallet/progression snapshots after commit. Source: Phase
+  10 audit.
 - [ ] Finish authenticated planet ownership/building mutation contracts.
   Phase07A landed the backend `discovery.claim_planet` handler with
   authenticated player resolution, active-map range checks, rank validation,

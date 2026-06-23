@@ -317,9 +317,25 @@ func TestDecodeRequestEnvelopeAcceptsPlanetBuildingMutationOperations(t *testing
 	}
 }
 
+func TestDecodeRequestEnvelopeAcceptsCraftingStartContract(t *testing.T) {
+	envelope, err := DecodeRequestEnvelope([]byte(`{"request_id":"request-craft-start","op":"crafting.start","payload":{"recipe_id":"refined_alloy_batch"},"client_seq":19,"v":1}`))
+	if err != nil {
+		t.Fatalf("decode crafting.start request envelope: %v", err)
+	}
+	if envelope.Op != OperationCraftingStart {
+		t.Fatalf("op = %q, want %q", envelope.Op, OperationCraftingStart)
+	}
+	spec, ok := LookupOperation(OperationCraftingStart)
+	if !ok {
+		t.Fatalf("LookupOperation(%q) not registered", OperationCraftingStart)
+	}
+	if spec.RateLimitPosture != RateLimitPostureIntentBurst {
+		t.Fatalf("crafting.start posture = %q, want %q", spec.RateLimitPosture, RateLimitPostureIntentBurst)
+	}
+}
+
 func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testing.T) {
 	disallowed := []Operation{
-		Operation("crafting.start"),
 		Operation("crafting.complete"),
 		Operation("crafting.cancel"),
 		Operation("inventory.move"),

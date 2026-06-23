@@ -324,7 +324,7 @@ func (runtime *Runtime) handleCraftingRecipes(ctx realtime.CommandContext, reque
 		return nil, err
 	}
 	return marshalPayload(map[string]any{
-		"crafting": runtime.craftingSnapshot(),
+		"crafting": runtime.craftingSnapshot(ctx.PlayerID),
 	})
 }
 
@@ -572,15 +572,24 @@ func (runtime *Runtime) loadoutSnapshotLocked(playerID foundation.PlayerID) (loa
 	}, nil
 }
 
-func (runtime *Runtime) craftingSnapshot() craftingSnapshotPayload {
+func (runtime *Runtime) craftingSnapshot(playerID foundation.PlayerID) craftingSnapshotPayload {
 	definitions := runtime.Recipes.Definitions()
 	recipes := make([]craftingRecipePayload, 0, len(definitions))
 	for _, definition := range definitions {
 		recipes = append(recipes, craftingRecipe(definition))
 	}
+	jobs := make([]craftingJobPayload, 0)
+	if runtime.Crafting != nil {
+		for _, job := range runtime.Crafting.Jobs() {
+			if job.PlayerID != playerID {
+				continue
+			}
+			jobs = append(jobs, craftingJob(job))
+		}
+	}
 	return craftingSnapshotPayload{
 		Recipes:    recipes,
-		ActiveJobs: []craftingJobPayload{},
+		ActiveJobs: jobs,
 	}
 }
 
@@ -798,6 +807,16 @@ func craftingRecipe(definition crafting.RecipeDefinition) craftingRecipePayload 
 		RequiredLocationType: definition.RequiredLocationType.String(),
 		CraftDurationMS:      definition.CraftDuration.Milliseconds(),
 		Repeatable:           definition.Repeatable,
+	}
+}
+
+func craftingJob(job crafting.CraftJob) craftingJobPayload {
+	return craftingJobPayload{
+		JobID:       job.JobID.String(),
+		RecipeID:    job.RecipeSource.DefinitionID.String(),
+		State:       job.State.String(),
+		StartedAt:   job.StartedAt.UnixMilli(),
+		CompletesAt: job.CompletesAt.UnixMilli(),
 	}
 }
 
