@@ -245,6 +245,15 @@ func TestBuildingMutationDurableCommitStorePublishesCommittedOutboxRows(t *testi
 	if !buildingMutationMaterialLedgerEqual(store.BuildingMaterialLedgerEntries(), ledgerBefore) {
 		t.Fatalf("material ledger after publish = %+v, want unchanged %+v", store.BuildingMaterialLedgerEntries(), ledgerBefore)
 	}
+	recovered, ok, err := store.CommittedBuildingMutationDurableCommitPlan(plan.Reference.ReferenceKey)
+	if err != nil || !ok {
+		t.Fatalf("CommittedBuildingMutationDurableCommitPlan(after publish) = ok %v err %v, want true nil", ok, err)
+	}
+	for _, row := range recovered.OutboxRecords {
+		if row.Status != ProductionOutboxStatusPublished || row.PublishedAt.IsZero() {
+			t.Fatalf("recovered building outbox row after publish = %+v, want published delivery evidence", row)
+		}
+	}
 }
 
 func TestBuildingMutationDurableCommitStoreRecordsPublishFailures(t *testing.T) {
@@ -290,6 +299,22 @@ func TestBuildingMutationDurableCommitStoreRecordsPublishFailures(t *testing.T) 
 		failed.Event.Type != failedType ||
 		failed.ReferenceKey != plan.Reference.ReferenceKey {
 		t.Fatalf("failed durable building outbox row = %+v, want failed committed evidence", failed)
+	}
+	recovered, ok, err := store.CommittedBuildingMutationDurableCommitPlan(plan.Reference.ReferenceKey)
+	if err != nil || !ok {
+		t.Fatalf("CommittedBuildingMutationDurableCommitPlan(after failure) = ok %v err %v, want true nil", ok, err)
+	}
+	var recoveredFailed ProductionOutboxRecord
+	for _, row := range recovered.OutboxRecords {
+		if row.Event.Type == failedType {
+			recoveredFailed = row
+			break
+		}
+	}
+	if recoveredFailed.Status != ProductionOutboxStatusFailed ||
+		recoveredFailed.LastError != temporaryErr.Error() ||
+		!recoveredFailed.FailedAt.Equal(testTime(43)) {
+		t.Fatalf("recovered building outbox row after failure = %+v, want failed delivery evidence", recoveredFailed)
 	}
 }
 

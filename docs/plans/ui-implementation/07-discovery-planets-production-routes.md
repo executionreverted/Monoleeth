@@ -499,6 +499,14 @@ Current slice completed:
   validation return detached rows and reject conflicting row evidence. Durable
   DB row locks/CAS, idempotency table enforcement, and scheduled durable
   publisher/recovery workers remain open.
+- Phase07CE durable outbox readback follow-up:
+  Claim lifecycle, settlement/route, and building mutation durable stores can
+  now rebuild committed durable plans after their outbox rows move through
+  in-flight, published, failed, retry, or lease-release states. Readback
+  validates delivery-state consistency while normalizing a copy back to the
+  original pending commit shape, then returns detached rows with the current
+  publisher evidence intact. Real durable DB rows, cross-process leases, and
+  scheduled publisher/recovery workers remain open.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -1044,6 +1052,9 @@ Mockup areas covered:
 - [x] Durable route settlement outbox rows can be claimed, published, failed,
       and lease-released through the production outbox publisher contracts
       without mutating committed route storage ledger rows.
+- [x] Durable settlement/route, building mutation, and claim lifecycle
+      readback rebuilds committed plans after publisher delivery-state changes
+      while preserving current outbox evidence.
 - [x] Building mutation durable readback rebuilds a validated pending outbox
       dispatch plan for `planet.building_updated` publisher scheduling.
 - [x] Building mutation durable outbox rows can be claimed, published, failed,

@@ -377,9 +377,13 @@ func (store *InMemorySettlementDurableCommitStore) CommittedSettlementDurableCom
 		return SettlementDurableCommitPlan{}, false, nil
 	}
 	cloned := cloneSettlementDurableCommitPlan(plan)
+	if err := validateProductionOutboxReadbackStates(cloned.Outbox.OutboxRecords, ErrInvalidSettlementDurableCommit); err != nil {
+		return SettlementDurableCommitPlan{}, false, err
+	}
+	pendingOutbox := pendingProductionOutboxRecordsForCommitValidation(cloned.Outbox.OutboxRecords)
 	if _, err := NewSettlementDurableCommitPlanWithRows(
 		&cloned.Reference,
-		cloned.Outbox.OutboxRecords,
+		pendingOutbox,
 		cloned.RouteStorageLedger,
 		cloned.RouteRow,
 		cloned.ProductionState,

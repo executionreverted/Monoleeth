@@ -415,6 +415,15 @@ func TestSettlementDurableCommitStorePublishesCommittedSettlementOutboxRows(t *t
 			if got := store.RouteStorageLedgerEntries(); len(got) != len(ledgerBefore) {
 				t.Fatalf("route ledger rows after publish = %+v, want unchanged %+v", got, ledgerBefore)
 			}
+			recovered, ok, err := store.CommittedSettlementDurableCommitPlan(tc.plan.Reference.ReferenceKey)
+			if err != nil || !ok {
+				t.Fatalf("CommittedSettlementDurableCommitPlan(after publish) = ok %v err %v, want true nil", ok, err)
+			}
+			for _, row := range recovered.Outbox.OutboxRecords {
+				if row.Status != ProductionOutboxStatusPublished || row.PublishedAt.IsZero() {
+					t.Fatalf("recovered settlement outbox row after publish = %+v, want published delivery evidence", row)
+				}
+			}
 		})
 	}
 }
@@ -475,6 +484,15 @@ func TestSettlementDurableCommitStoreReadbackMissingAndInvalidReferences(t *test
 	}
 	if dispatch, ok, err := store.CommittedSettlementOutboxDispatchPlan(""); err == nil || ok || !dispatch.Reference.ReferenceKey.IsZero() {
 		t.Fatalf("CommittedSettlementOutboxDispatchPlan(invalid) = %+v/%v/%v, want error false empty", dispatch, ok, err)
+	}
+
+	corruptDelivery := cloneSettlementDurableCommitPlan(plan)
+	corruptDelivery.Outbox.OutboxRecords[0].Status = ProductionOutboxStatusPublished
+	corruptDelivery.Outbox.OutboxRecords[0].PublishedAt = testTime(90)
+	store.plans[plan.Reference.ReferenceKey] = cloneSettlementDurableCommitPlan(corruptDelivery)
+	store.references = append(store.references, plan.Reference.ReferenceKey)
+	if recovered, ok, err := store.CommittedSettlementDurableCommitPlan(plan.Reference.ReferenceKey); !errors.Is(err, ErrInvalidSettlementDurableCommit) || ok || !recovered.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedSettlementDurableCommitPlan(corrupt published) = %+v/%v/%v, want invalid durable commit", recovered, ok, err)
 	}
 }
 

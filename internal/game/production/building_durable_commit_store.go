@@ -352,11 +352,20 @@ func (store *InMemoryBuildingMutationDurableCommitStore) CommittedBuildingMutati
 		return BuildingMutationDurableCommitPlan{}, false, nil
 	}
 	cloned := cloneBuildingMutationDurableCommitPlan(plan)
-	normalized, err := NewBuildingMutationDurableCommitPlan(&cloned.Reference, cloned.OutboxRecords, cloned.MaterialLedger)
-	if err != nil {
+	if err := validateProductionOutboxReadbackStates(cloned.OutboxRecords, ErrInvalidBuildingMutationDurableCommit); err != nil {
 		return BuildingMutationDurableCommitPlan{}, false, err
 	}
-	return normalized, true, nil
+	pendingOutbox := pendingProductionOutboxRecordsForCommitValidation(cloned.OutboxRecords)
+	if _, err := NewBuildingMutationDurableCommitPlan(&cloned.Reference, pendingOutbox, cloned.MaterialLedger); err != nil {
+		return BuildingMutationDurableCommitPlan{}, false, err
+	}
+	if !buildingMutationOutboxRecordsEqual(cloned.Reference.Result.OutboxRecords, pendingOutbox) {
+		return BuildingMutationDurableCommitPlan{}, false, fmt.Errorf("outbox.result: %w", ErrInvalidBuildingMutationDurableCommit)
+	}
+	if !buildingMutationMaterialLedgerEqual(cloned.Reference.Result.MaterialLedger, cloned.MaterialLedger) {
+		return BuildingMutationDurableCommitPlan{}, false, fmt.Errorf("material_ledger.result: %w", ErrInvalidBuildingMutationDurableCommit)
+	}
+	return cloned, true, nil
 }
 
 // CommittedBuildingMutationOutboxDispatchPlan returns the validated publisher

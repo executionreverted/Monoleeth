@@ -249,6 +249,14 @@ func TestClaimDurableLifecycleStorePublishesCommittedClaimOutboxRows(t *testing.
 	if len(rows) != 1 || rows[0].Status != ClaimOutboxStatusPublished {
 		t.Fatalf("OutboxRecords() = %+v, want published committed row", rows)
 	}
+	recovered, ok, err := store.CommittedClaimDurableLifecyclePlan(plan.Commit.Boundary.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimDurableLifecyclePlan(after publish) = ok %v err %v, want true nil", ok, err)
+	}
+	if recovered.Commit.Outbox.Status != ClaimOutboxStatusPublished ||
+		!recovered.Commit.Outbox.PublishedAt.Equal(testTime(51)) {
+		t.Fatalf("recovered lifecycle after publish = %+v, want published outbox evidence", recovered.Commit.Outbox)
+	}
 }
 
 func TestClaimDurableLifecycleStoreRecordsCommittedClaimOutboxPublishFailures(t *testing.T) {
@@ -280,6 +288,31 @@ func TestClaimDurableLifecycleStoreRecordsCommittedClaimOutboxPublishFailures(t 
 		results[0].Record.ClaimReference != plan.Commit.Boundary.ClaimReference {
 		t.Fatalf("failed durable claim outbox row = %+v, want failed committed evidence", results[0].Record)
 	}
+	recovered, ok, err := store.CommittedClaimDurableLifecyclePlan(plan.Commit.Boundary.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimDurableLifecyclePlan(after failure) = ok %v err %v, want true nil", ok, err)
+	}
+	if recovered.Commit.Outbox.Status != ClaimOutboxStatusFailed ||
+		recovered.Commit.Outbox.LastError != temporaryErr.Error() ||
+		!recovered.Commit.Outbox.FailedAt.Equal(testTime(53)) {
+		t.Fatalf("recovered lifecycle after failure = %+v, want failed outbox evidence", recovered.Commit.Outbox)
+	}
+	retried, err := store.RetryFailedClaimOutboxRecordsForPublish(1, testTime(54))
+	if err != nil {
+		t.Fatalf("RetryFailedClaimOutboxRecordsForPublish() error = %v, want nil", err)
+	}
+	if len(retried) != 1 || retried[0].Status != ClaimOutboxStatusPending || retried[0].LastError != temporaryErr.Error() {
+		t.Fatalf("retried durable claim outbox rows = %+v, want pending with failure evidence", retried)
+	}
+	recovered, ok, err = store.CommittedClaimDurableLifecyclePlan(plan.Commit.Boundary.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimDurableLifecyclePlan(after retry) = ok %v err %v, want true nil", ok, err)
+	}
+	if recovered.Commit.Outbox.Status != ClaimOutboxStatusPending ||
+		recovered.Commit.Outbox.LastError != temporaryErr.Error() ||
+		!recovered.Commit.Outbox.FailedAt.Equal(testTime(53)) {
+		t.Fatalf("recovered lifecycle after retry = %+v, want pending row with preserved failure evidence", recovered.Commit.Outbox)
+	}
 }
 
 func TestClaimDurableLifecycleStorePublisherRejectsStaleClaimTokens(t *testing.T) {
@@ -305,6 +338,14 @@ func TestClaimDurableLifecycleStorePublisherRejectsStaleClaimTokens(t *testing.T
 	rows := store.OutboxRecords()
 	if len(rows) != 1 || rows[0].Status != ClaimOutboxStatusInFlight || rows[0].ClaimToken != claimed[0].ClaimToken {
 		t.Fatalf("durable claim outbox after stale token = %+v, want original in-flight row", rows)
+	}
+	recovered, ok, err := store.CommittedClaimDurableLifecyclePlan(plan.Commit.Boundary.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimDurableLifecyclePlan(in-flight) = ok %v err %v, want true nil", ok, err)
+	}
+	if recovered.Commit.Outbox.Status != ClaimOutboxStatusInFlight ||
+		recovered.Commit.Outbox.ClaimToken != claimed[0].ClaimToken {
+		t.Fatalf("recovered lifecycle while in-flight = %+v, want in-flight outbox evidence", recovered.Commit.Outbox)
 	}
 }
 
@@ -338,6 +379,15 @@ func TestClaimDurableLifecycleStoreReleasesExpiredClaimOutboxLeases(t *testing.T
 	}
 	if _, ok, err := store.MarkClaimOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(73)); err != nil || ok {
 		t.Fatalf("MarkClaimOutboxPublished(stale token after release) = ok %v err %v, want false nil", ok, err)
+	}
+	recovered, ok, err := store.CommittedClaimDurableLifecyclePlan(plan.Commit.Boundary.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimDurableLifecyclePlan(after release) = ok %v err %v, want true nil", ok, err)
+	}
+	if recovered.Commit.Outbox.Status != ClaimOutboxStatusPending ||
+		recovered.Commit.Outbox.ClaimToken != "" ||
+		!recovered.Commit.Outbox.RetriedAt.Equal(testTime(72)) {
+		t.Fatalf("recovered lifecycle after lease release = %+v, want pending released evidence", recovered.Commit.Outbox)
 	}
 
 	reclaimed, err := store.ClaimPendingClaimOutboxRecordsForPublish(1, testTime(74))
@@ -396,6 +446,15 @@ func TestClaimDurableLifecycleStoreReadbackMissingAndInvalidReferences(t *testin
 	}
 	if dispatch, ok, err := store.CommittedClaimOutboxDispatchPlan(""); err == nil || ok || dispatch.Reference.ClaimReference != "" {
 		t.Fatalf("CommittedClaimOutboxDispatchPlan(invalid) = %+v/%v/%v, want error false empty", dispatch, ok, err)
+	}
+
+	corruptDelivery := plan
+	corruptDelivery.Commit.Outbox.Status = ClaimOutboxStatusPublished
+	corruptDelivery.Commit.Outbox.PublishedAt = testTime(90)
+	store.plans[plan.Commit.Boundary.ClaimReference] = cloneClaimDurableLifecyclePlan(corruptDelivery)
+	store.references = append(store.references, plan.Commit.Boundary.ClaimReference)
+	if recovered, ok, err := store.CommittedClaimDurableLifecyclePlan(plan.Commit.Boundary.ClaimReference); !errors.Is(err, ErrInvalidClaimDurableCommit) || ok || recovered.Commit.Boundary.ClaimReference != "" {
+		t.Fatalf("CommittedClaimDurableLifecyclePlan(corrupt published) = %+v/%v/%v, want invalid durable commit", recovered, ok, err)
 	}
 }
 

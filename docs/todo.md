@@ -544,7 +544,10 @@ for phase status; this file is a compact pending-work index.
   Phase07CD adds committed production-state and storage-row evidence to
   production settlement durable commit bundles, plus ledger-backed changed
   storage-row evidence to route settlement bundles, with detached readback and
-  exact replay conflict validation.
+  exact replay conflict validation. Phase07CE lets claim lifecycle,
+  settlement/route, and building mutation durable-store readbacks rebuild
+  committed plans after publisher delivery-state changes while returning the
+  current outbox evidence.
   Durable claim, production, route settlement, and building mutation tables
   plus publisher scheduling remain open.
   Those records are still not durable, cross-process, or delivered by a durable

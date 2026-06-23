@@ -309,11 +309,15 @@ func (store *InMemoryClaimDurableLifecycleStore) CommittedClaimDurableLifecycleP
 		return ClaimDurableLifecyclePlan{}, false, nil
 	}
 	cloned := cloneClaimDurableLifecyclePlan(plan)
-	normalized, err := normalizeClaimDurableLifecyclePlan(cloned)
-	if err != nil {
+	if err := validateClaimOutboxReadbackState(cloned.Commit.Outbox); err != nil {
 		return ClaimDurableLifecyclePlan{}, false, err
 	}
-	return normalized, true, nil
+	validationPlan := cloneClaimDurableLifecyclePlan(cloned)
+	validationPlan.Commit.Outbox = pendingClaimOutboxRecordForCommitValidation(validationPlan.Commit.Outbox)
+	if _, err := normalizeClaimDurableLifecyclePlan(validationPlan); err != nil {
+		return ClaimDurableLifecyclePlan{}, false, err
+	}
+	return cloned, true, nil
 }
 
 // CommittedClaimOutboxDispatchPlan returns the validated publisher dispatch
