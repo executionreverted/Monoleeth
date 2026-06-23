@@ -1204,6 +1204,9 @@ Mockup areas covered:
 - [x] Authenticated duplicate `route.update` request IDs replay the original
       safe route response even when the retry payload changes, without adding a
       second settlement ledger, outbox, storage mutation, or event batch.
+- [x] Authenticated duplicate `route.create` request IDs replay the original
+      safe route response even when the retry payload changes, without creating
+      a second route, durable route row, energy reservation, or event batch.
 - [x] Durable claim, settlement/route, and building outbox stores expose an
       explicit failed-row retry boundary that preserves failure evidence before
       republishing.

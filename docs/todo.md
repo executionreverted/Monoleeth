@@ -454,7 +454,10 @@ for phase status; this file is a compact pending-work index.
   durable settlement reference/outbox evidence. Phase07DD proves authenticated
   duplicate `route.update` request IDs ignore changed retry payloads, replay the
   original safe route response, and do not append a second settlement ledger,
-  outbox, storage mutation, or route event batch.
+  outbox, storage mutation, or route event batch. Phase07DE proves
+  authenticated duplicate `route.create` request IDs ignore changed retry
+  payloads, replay the original safe route response, and do not create a second
+  route, durable route row, energy reservation, or route event batch.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10

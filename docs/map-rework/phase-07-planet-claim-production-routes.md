@@ -706,6 +706,10 @@ contracts:
   the original safe route response even if the retry payload changes, and do
   not append a second settlement ledger, outbox, storage mutation, or event
   batch.
+- Duplicate `route.create` request IDs through the authenticated gateway replay
+  the original safe route response even if the retry payload changes, and do
+  not create a second route, durable route row, energy reservation, or event
+  batch.
 - Realtime/event tests prove claim, production, and route events do not leak to
   other maps or unrelated sessions.
 - Browser/API tests prove mutation controls reconcile from server snapshots and
