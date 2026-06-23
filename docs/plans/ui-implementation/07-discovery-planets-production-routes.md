@@ -410,6 +410,14 @@ Current slice completed:
   consume a single validated row bundle directly from the transaction result,
   without callers manually matching references, outbox rows, and route storage
   ledger rows. Concrete durable stores and workers remain open.
+- Phase07AT claim durable commit-plan follow-up:
+  `NewClaimDurableCommitPlan` and
+  `CompletePlanetClaimBoundaryResult.DurableCommitPlan()` now validate the
+  completed planet-claim row bundle a future durable DB adapter must commit:
+  owner-CAS boundary row, idempotency reference, `planet.claimed` event, pending
+  claim outbox row, and optional X Core debit evidence. This is still a
+  contract/helper layer; durable DB rows, cross-process locks/CAS, and durable
+  publisher scheduling remain open.
 
 ## Source Specs
 
@@ -544,6 +552,9 @@ Mockup areas covered:
 - [x] Add authenticated gateway transaction flows for build/upgrade mutations.
 - [x] Add explicit claim X Core debit plus owner-CAS begin boundary contract
       for future durable claim/storage adapters.
+- [x] Add claim durable commit-plan validation tying completed owner-CAS
+      boundary rows, claim references, events, pending outbox rows, and optional
+      X Core debit evidence together.
 - [ ] Add durable authenticated transaction flows for claim/storage mutation
       coupling once DB/CAS storage boundaries replace process-local stores.
 - [x] Add offline settlement reconcile path that uses server-owned windows for
