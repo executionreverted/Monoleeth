@@ -63,11 +63,22 @@ const unimplementedMutationOps = [
   'discovery.claim_planet',
   'planet.building_build',
   'planet.building_upgrade',
+  'inventory.move',
+  'progression.unlock_skill',
+  'progression.respec_skills',
   'route.create',
   'route.update',
   'route.enable',
   'route.disable',
   'route.settle',
+  'intel.share',
+  'intel.coordinate_create',
+  'intel.coordinate_use',
+  'intel.coordinate_item.create',
+  'intel.coordinate_item.use',
+  'mail.send',
+  'social.friend_request',
+  'social.party_invite',
 ];
 const unimplementedMutationControlPatterns = [
   {
@@ -549,17 +560,16 @@ async function verifyFogOfWar(page, label) {
   await page.waitForFunction(() => {
     const fog = window.__SPACE_MORPG_SMOKE_STATE__?.worldView?.fog;
     return (
-      fog?.active === true &&
-      Number.isFinite(fog.revealCenter?.x) &&
-      Number.isFinite(fog.revealCenter?.y) &&
-      fog.revealRadius > 100 &&
-      fog.overlayAlpha >= 0.45 &&
+      fog?.active === false &&
+      fog.revealCenter === null &&
+      fog.revealRadius === 0 &&
+      fog.overlayAlpha === 0 &&
       fog.rememberedPockets >= 1
     );
   }, null, { timeout: 10000 });
   const memoryCount = await page.locator('.minimap__memory').count();
   if (memoryCount < 1) {
-    throw new Error(`${label}: minimap did not render remembered fog memory`);
+    throw new Error(`${label}: minimap did not render remembered planet memory`);
   }
 }
 
@@ -1281,7 +1291,7 @@ async function verifyRealMovementInterpolation(page) {
 
   await page.waitForTimeout(90);
   const beforeSecond = await selfMovementSample(page);
-  const secondTarget = await movementTargetAwayFromMemory(page, beforeSecond.entity.position, [
+  const secondTarget = await movementTargetAwayFromMemory(page, beforeSecond.display, [
     { x: -320, y: 220 },
     { x: 320, y: 220 },
     { x: -260, y: -260 },
@@ -1558,11 +1568,16 @@ async function verifyRealEconomy(page, viewport, label) {
     const button = document.querySelector('[data-window-panel="economy"] [data-action="auction-bid"]');
     return button instanceof HTMLButtonElement && !button.disabled;
   }, null, { timeout: 10000 });
+  const auctionBidBefore = await commandLogCount(page, 'Sent auction.bid.');
   await page.locator('[data-window-panel="economy"] [data-action="auction-bid"]').dispatchEvent('click');
   await page.waitForFunction(() => {
     const state = window.__SPACE_MORPG_SMOKE_STATE__;
     return state?.auction?.lots?.[0]?.leading === true && state?.wallet?.credits < 1175;
   }, null, { timeout: 10000 });
+  const auctionBidAfter = await commandLogCount(page, 'Sent auction.bid.');
+  if (auctionBidAfter !== auctionBidBefore + 1) {
+    throw new Error(`desktop economy auction bid emitted ${auctionBidAfter - auctionBidBefore} commands for one click`);
+  }
 
   await page.locator('[data-window-panel="economy"] [data-shop-category="premium"]').click();
   await page.locator('[data-window-panel="economy"] [data-shop-kind="premium_entitlement"]').first().click();
@@ -2603,6 +2618,7 @@ function snapshotPayload() {
     },
     minimap: {
       radar_range: 420,
+      projection_radius: 1000,
       live_contacts: [
         {
           entity_id: 'player-local',

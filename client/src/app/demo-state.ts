@@ -34,6 +34,7 @@ export function demoEvents(): EventEnvelope[] {
       sector: { name: 'Demo Fringe', region: 'Fixture Belt', danger: 'locked', contested: false },
       minimap: {
         radar_range: 420,
+        projection_radius: 1000,
         live_contacts: [
           { entity_id: 'player-local', entity_type: 'player', position: { x: 0, y: 0 }, disposition: 'self', status_flags: ['self'] },
           { entity_id: 'npc-rake-01', entity_type: 'npc', position: { x: 180, y: -72 }, disposition: 'hostile', status_flags: ['hostile'] },

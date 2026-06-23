@@ -28,6 +28,7 @@ export interface HUDHandlers {
   onSync(): void;
   onFire(): void;
   onLoot(): void;
+  onMinimapContact(entityID: string): void;
   onRepairQuote(): void;
   onRepair(): void;
   onScan(): void;
@@ -507,6 +508,18 @@ export class HUD {
         case 'planet-select':
           if (button.dataset.planetId) {
             this.handlers.onPlanetDetail(button.dataset.planetId);
+          }
+          break;
+        case 'minimap-contact':
+          if (button.dataset.entityId) {
+            this.handlers.onMinimapContact(button.dataset.entityId);
+          }
+          break;
+        case 'minimap-memory':
+          if (button.dataset.detailId && this.currentState) {
+            this.openModal('planet-detail', this.currentState, button.dataset.detailId);
+            this.render(this.currentState);
+            this.handlers.onPlanetDetail(button.dataset.detailId);
           }
           break;
         case 'planet-navigate':
@@ -2562,20 +2575,24 @@ function minimapPanel(state: ClientState): string {
   const memories = state.minimap.remembered;
   const self = contacts.find((contact) => contact.status_flags?.includes('self')) ?? contacts.find((contact) => contact.entity_type === 'player');
   const center = self?.position ?? { x: 0, y: 0 };
-  const radius = Math.max(state.minimap.radar_range, 1);
+  const radius = Math.max(state.minimap.projection_radius || state.minimap.radar_range, 1);
   const points = contacts
     .map((contact) => {
       const left = clamp(50 + ((contact.position.x - center.x) / (radius * 2)) * 100, 4, 96);
       const top = clamp(50 + ((contact.position.y - center.y) / (radius * 2)) * 100, 4, 96);
       const disposition = contact.status_flags?.includes('self') ? 'self' : contact.disposition || dispositionForType(contact.entity_type);
-      return `<span class="minimap__point" data-kind="${escapeHTML(disposition)}" data-entity-type="${escapeHTML(contact.entity_type)}" style="left:${left}%;top:${top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}"></span>`;
+      return `<button class="minimap__point" type="button" data-action="minimap-contact" data-entity-id="${escapeHTML(contact.entity_id)}" data-kind="${escapeHTML(disposition)}" data-entity-type="${escapeHTML(contact.entity_type)}" style="left:${left}%;top:${top}%" title="${escapeHTML(publicEntityType(contact.entity_type))}" aria-label="${escapeHTML(publicEntityType(contact.entity_type))} contact"></button>`;
     })
     .join('');
   const memoryPoints = memories
     .map((memory) => {
+      const detailID = memory.detail_id || memory.planet_id;
+      if (!detailID) {
+        return '';
+      }
       const left = clamp(50 + ((memory.position.x - center.x) / (radius * 2)) * 100, 4, 96);
       const top = clamp(50 + ((memory.position.y - center.y) / (radius * 2)) * 100, 4, 96);
-      return `<span class="minimap__memory" data-kind="${escapeHTML(memory.kind)}" data-freshness="${escapeHTML(memory.freshness)}" style="left:${left}%;top:${top}%" title="${escapeHTML(memory.label || memory.kind)}"></span>`;
+      return `<button class="minimap__memory" type="button" data-action="minimap-memory" data-detail-id="${escapeHTML(detailID)}" data-kind="${escapeHTML(memory.kind)}" data-freshness="${escapeHTML(memory.freshness)}" style="left:${left}%;top:${top}%" title="${escapeHTML(memory.label || memory.kind)}" aria-label="${escapeHTML(memory.label || memory.kind)} memory"></button>`;
     })
     .join('');
 

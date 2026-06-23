@@ -47,6 +47,9 @@ internal/game/quest/
   game copy.
 - Progression unlocks and skill/rank effects remain server-owned. The UI can
   show requirements and rewards but cannot submit completion truth.
+- Reward claim events must either carry safe updated snapshots or trigger
+  explicit refreshes for quest board, wallet, progression, inventory/cargo, and
+  rank. Visible balances update only from server truth.
 
 ## Implementation Plan
 
@@ -73,6 +76,11 @@ internal/game/quest/
    - Quest accept/progress/claim/reroll responses update board state.
    - Passive quest events either carry safe payloads or trigger refresh queries.
    - Reward grants reconcile wallet, XP, inventory/cargo, rank, and quest state.
+   - `quest.reward_claimed` must use the domain idempotency key
+     `quest_reward:<player_quest_id>` and duplicate events/requests must not
+     duplicate visible value.
+   - Public quest payloads must support `objectives[]`; multi-objective quests
+     cannot collapse into a single generic progress row.
 
 5. Add tests.
    - Selection and tab/category switching.
@@ -106,8 +114,15 @@ docs/plans/task-001/09-quest-board-game-layout.md
 - [ ] Selected quest detail shows objectives, progress, and rewards.
 - [ ] Accept, claim, and reroll actions are real or absent/locked with game copy.
 - [ ] Reward claim is idempotent and cannot duplicate XP/currency/items.
+- [ ] `quest.reward_claimed` carries safe updated snapshots or triggers
+      explicit quest board, wallet, progression, inventory/cargo, and rank
+      refreshes.
+- [ ] Visible reward balances update only from server snapshots/responses, not
+      from client-estimated rewards.
 - [ ] Client cannot author quest completion/progress.
 - [ ] Passive quest events reconcile or trigger explicit refresh.
+- [ ] Multi-objective quest payloads render as multiple objective rows with
+      server-owned progress.
 - [ ] Browser smoke captures quest board screenshots under
       `output/screenshots/task-001/09/` or the final Task 001 screenshot set.
 
@@ -120,4 +135,3 @@ cd client
 npm --cache /tmp/gameproject-npm-cache run test -- --run src/protocol src/state
 npm --cache /tmp/gameproject-npm-cache run smoke
 ```
-

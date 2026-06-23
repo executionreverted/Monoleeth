@@ -15,8 +15,10 @@ import (
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/catalog"
+	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
+	gameevents "gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/observability"
 	"gameproject/internal/game/premium"
@@ -25,6 +27,7 @@ import (
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
+	"gameproject/internal/game/world/worker"
 )
 
 const testOrigin = "http://example.com"
@@ -98,6 +101,9 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 	if snapshot.Minimap.RadarRange != defaultRadarRange {
 		t.Fatalf("minimap radar = %v, want %v", snapshot.Minimap.RadarRange, defaultRadarRange)
 	}
+	if snapshot.Minimap.ProjectionRadius != defaultLiveProjectionRadius {
+		t.Fatalf("minimap projection radius = %v, want %v", snapshot.Minimap.ProjectionRadius, defaultLiveProjectionRadius)
+	}
 	if len(snapshot.Minimap.LiveContacts) != len(snapshot.Entities) {
 		t.Fatalf("minimap contacts = %d, entities = %d", len(snapshot.Minimap.LiveContacts), len(snapshot.Entities))
 	}
@@ -132,6 +138,37 @@ func TestWorldSnapshotCarriesSectorMinimapAndPublicEntityContract(t *testing.T) 
 	for _, contact := range snapshot.Minimap.LiveContacts {
 		if contact.EntityID == "entity_hidden_planet_signal" {
 			t.Fatalf("hidden entity leaked into minimap contact %+v", contact)
+		}
+	}
+}
+
+func TestWorldProjectionIncludesEdgeContactsWithoutHiddenLeaks(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "projection@example.com", "Projection")
+	insertTestWorldEntity(t, gameServer, "entity_projection_edge", world.EntityTypeLoot, world.Vec2{X: 900, Y: 0}, false)
+	insertTestWorldEntity(t, gameServer, "entity_projection_hidden", world.EntityTypeNPC, world.Vec2{X: 850, Y: 0}, true)
+
+	events, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("bootstrap events: %v", err)
+	}
+	snapshot := decodeWorldSnapshotForTest(t, events)
+
+	if snapshot.Minimap.RadarRange != defaultRadarRange {
+		t.Fatalf("minimap radar = %v, want stat radar %v", snapshot.Minimap.RadarRange, defaultRadarRange)
+	}
+	if snapshot.Minimap.ProjectionRadius != defaultLiveProjectionRadius {
+		t.Fatalf("projection radius = %v, want %v", snapshot.Minimap.ProjectionRadius, defaultLiveProjectionRadius)
+	}
+	if !hasEntityID(snapshot.Entities, "entity_projection_edge") {
+		t.Fatalf("projection snapshot missing edge contact: %+v", snapshot.Entities)
+	}
+	if hasEntityID(snapshot.Entities, "entity_projection_hidden") {
+		t.Fatalf("projection snapshot leaked hidden contact: %+v", snapshot.Entities)
+	}
+	for _, contact := range snapshot.Minimap.LiveContacts {
+		if contact.EntityID == "entity_projection_hidden" {
+			t.Fatalf("minimap leaked hidden contact: %+v", contact)
 		}
 	}
 }
@@ -1577,6 +1614,26 @@ func TestCombatRejectsHiddenOutOfRangeAndDisabledWithoutEnergySpend(t *testing.T
 		}
 	})
 
+	t.Run("projected outside stat radar", func(t *testing.T) {
+		gameServer, httpServer := newTestServer(t, false)
+		defer httpServer.Close()
+		cookie := registerPilot(t, httpServer)
+		conn := dialWebSocket(t, httpServer, cookie)
+		defer conn.CloseNow()
+		readBootstrapEvents(t, conn)
+		resolved := resolvedSessionForCookie(t, gameServer, cookie)
+		insertTestWorldEntity(t, gameServer, "entity_projection_npc", world.EntityTypeNPC, world.Vec2{X: 900, Y: 0}, false)
+
+		writeText(t, conn, `{"request_id":"request-combat-projection","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"entity_projection_npc"},"client_seq":1,"v":1}`)
+		got := readError(t, conn)
+		if got.Error.Code != foundation.CodeNotVisible {
+			t.Fatalf("projected combat error = %+v, want %s", got.Error, foundation.CodeNotVisible)
+		}
+		if capacitor := testShipCapacitor(gameServer, resolved.PlayerID); capacitor != 100 {
+			t.Fatalf("projected combat capacitor = %d, want unchanged", capacitor)
+		}
+	})
+
 	t.Run("out of range", func(t *testing.T) {
 		gameServer, httpServer := newTestServer(t, false)
 		defer httpServer.Close()
@@ -1640,6 +1697,26 @@ func TestLootPickupRejectsOutOfRangeDropWithoutCargoMutation(t *testing.T) {
 	}
 }
 
+func TestLootPickupRejectsProjectedDropOutsideStatRadarWithoutCargoMutation(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	insertTestWorldEntity(t, gameServer, "entity_projection_drop", world.EntityTypeLoot, world.Vec2{X: 900, Y: 0}, false)
+
+	writeText(t, conn, `{"request_id":"request-loot-projection","op":"loot.pickup","payload":{"drop_id":"entity_projection_drop"},"client_seq":2,"v":1}`)
+	got := readError(t, conn)
+	if got.Error.Code != foundation.CodeNotVisible {
+		t.Fatalf("projected pickup error = %+v, want %s", got.Error, foundation.CodeNotVisible)
+	}
+	if used := testCargoUsed(gameServer, resolved.PlayerID); used != 0 {
+		t.Fatalf("projected pickup cargo used = %d, want unchanged", used)
+	}
+}
+
 func TestRepairQuoteAndRepairUseServerOwnedActiveShip(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
@@ -1697,6 +1774,125 @@ func TestRepairQuoteAndRepairUseServerOwnedActiveShip(t *testing.T) {
 	}
 }
 
+func TestShipDisabledDomainEventQueuesClientSafeRealtimeEvents(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "death-bridge@example.com", "Death-Bridge")
+
+	intent, err := world.NewMovementIntent(world.Vec2{X: 400, Y: 0})
+	if err != nil {
+		t.Fatalf("movement intent: %v", err)
+	}
+	gameServer.runtime.mu.Lock()
+	if err := gameServer.runtime.Worker.Submit(worker.MoveToCommand{PlayerID: resolved.PlayerID, Intent: intent}); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("submit move: %v", err)
+	}
+	if err := commandErrors(gameServer.runtime.Worker.Tick()); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("tick move: %v", err)
+	}
+	before, ok := gameServer.runtime.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+	if !ok || !before.Movement.Moving {
+		t.Fatalf("player movement before death = %+v ok=%v, want moving", before.Movement, ok)
+	}
+
+	lethalKey, err := deathdomain.NewLethalEventKey(foundation.EventID("lethal-runtime-1"))
+	if err != nil {
+		t.Fatalf("lethal key: %v", err)
+	}
+	disabledAt := time.Unix(1_720_000_000, 0).UTC()
+	domainPayload := deathdomain.ShipDisabledEvent{
+		DeathID:           foundation.EventID("death-runtime-1"),
+		LethalEventKey:    lethalKey,
+		PlayerID:          resolved.PlayerID,
+		ShipID:            starterShipID,
+		DisabledReason:    "death",
+		DisabledAt:        disabledAt,
+		RespawnLocationID: deathdomain.RespawnLocationID("origin-station"),
+	}
+	raw, err := json.Marshal(domainPayload)
+	if err != nil {
+		t.Fatalf("marshal domain payload: %v", err)
+	}
+
+	gameServer.runtime.Record(gameevents.NewEventEnvelope(
+		foundation.EventID("domain-ship-disabled-1"),
+		deathdomain.EventShipDisabled,
+		raw,
+		disabledAt.UnixMilli(),
+		1,
+	))
+
+	gameServer.runtime.mu.Lock()
+	queued := gameServer.runtime.drainQueuedEventsLocked(resolved.SessionID)
+	state := gameServer.runtime.players[resolved.PlayerID]
+	actor, actorOK := gameServer.runtime.Combat.Actor(state.EntityID)
+	after, entityOK := gameServer.runtime.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+
+	if !state.Ship.Disabled || state.Ship.RepairState != "disabled" || state.Ship.Hull != 0 || state.Ship.Shield != 0 || state.Ship.Capacitor != 0 {
+		t.Fatalf("runtime ship after domain event = %+v, want disabled depleted active ship", state.Ship)
+	}
+	if !actorOK || !actor.Dead || actor.HP != 0 {
+		t.Fatalf("combat actor after domain event = %+v ok=%v, want dead actor", actor, actorOK)
+	}
+	if !entityOK || after.Movement.Moving {
+		t.Fatalf("player movement after domain event = %+v ok=%v, want stopped", after.Movement, entityOK)
+	}
+
+	seen := map[realtime.ClientEventType]realtime.EventEnvelope{}
+	for _, event := range queued {
+		seen[event.Type] = event
+		rawEvent := string(mustJSON(t, event))
+		for _, forbidden := range []string{
+			resolved.PlayerID.String(),
+			resolved.SessionID.String(),
+			"player_id",
+			"session_id",
+			"death_id",
+			"lethal_event_key",
+			"respawn_location_id",
+		} {
+			if strings.Contains(rawEvent, forbidden) {
+				t.Fatalf("death bridge event %s leaked %q in %s", event.Type, forbidden, rawEvent)
+			}
+		}
+	}
+	for _, want := range []realtime.ClientEventType{
+		realtime.EventDeathShipDisabled,
+		realtime.EventShipSnapshot,
+		realtime.EventPlayerSnapshot,
+		realtime.EventMovementStopped,
+	} {
+		if _, ok := seen[want]; !ok {
+			t.Fatalf("queued death bridge events = %#v, missing %s", seen, want)
+		}
+	}
+
+	var publicDisabled struct {
+		ShipID       string `json:"ship_id"`
+		ActiveShipID string `json:"active_ship_id"`
+		Disabled     bool   `json:"disabled"`
+		RepairState  string `json:"repair_state"`
+		Hull         int    `json:"hull"`
+		Shield       int    `json:"shield"`
+		Capacitor    int    `json:"capacitor"`
+	}
+	if err := json.Unmarshal(seen[realtime.EventDeathShipDisabled].Payload, &publicDisabled); err != nil {
+		t.Fatalf("decode public death disabled event: %v", err)
+	}
+	if publicDisabled.ShipID != starterShipID.String() ||
+		publicDisabled.ActiveShipID != starterShipID.String() ||
+		!publicDisabled.Disabled ||
+		publicDisabled.RepairState != "disabled" ||
+		publicDisabled.Hull != 0 ||
+		publicDisabled.Shield != 0 ||
+		publicDisabled.Capacitor != 0 {
+		t.Fatalf("public death disabled payload = %+v, want client-safe disabled ship state", publicDisabled)
+	}
+}
+
 func TestAOIDiffEventsAreFilteredPerSession(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "aoi-filter@example.com", "AOI-Filter")
@@ -1705,6 +1901,7 @@ func TestAOIDiffEventsAreFilteredPerSession(t *testing.T) {
 	state := gameServer.runtime.players[resolved.PlayerID]
 	state.Stats.RadarRange = 10
 	gameServer.runtime.players[resolved.PlayerID] = state
+	gameServer.runtime.hidden["entity_training_npc"] = true
 	gameServer.runtime.mu.Unlock()
 
 	events, err := gameServer.runtime.bootstrapEvents(resolved)
@@ -1720,9 +1917,7 @@ func TestAOIDiffEventsAreFilteredPerSession(t *testing.T) {
 	}
 
 	gameServer.runtime.mu.Lock()
-	state = gameServer.runtime.players[resolved.PlayerID]
-	state.Stats.RadarRange = defaultRadarRange
-	gameServer.runtime.players[resolved.PlayerID] = state
+	gameServer.runtime.hidden["entity_training_npc"] = false
 	gameServer.runtime.mu.Unlock()
 
 	eventsBySession := gameServer.runtime.tickAndCollectAOIEvents()
@@ -1761,11 +1956,17 @@ func TestTwoPlayersWithDifferentRadarReceiveDifferentFilteredSnapshots(t *testin
 	limitedSnapshot := decodeWorldSnapshotForTest(t, limitedEvents)
 	defaultSnapshot := decodeWorldSnapshotForTest(t, defaultEvents)
 
-	if hasEntityID(limitedSnapshot.Entities, "entity_training_npc") {
-		t.Fatalf("limited radar snapshot included training npc: %+v", limitedSnapshot.Entities)
+	if !hasEntityID(limitedSnapshot.Entities, "entity_training_npc") {
+		t.Fatalf("limited radar projection missing training npc: %+v", limitedSnapshot.Entities)
 	}
 	if !hasEntityID(defaultSnapshot.Entities, "entity_training_npc") {
 		t.Fatalf("default radar snapshot missing training npc: %+v", defaultSnapshot.Entities)
+	}
+	if limitedSnapshot.Minimap.RadarRange != 10 || limitedSnapshot.Minimap.ProjectionRadius != defaultLiveProjectionRadius {
+		t.Fatalf("limited minimap = %+v, want stat radar 10 with playtest projection", limitedSnapshot.Minimap)
+	}
+	if defaultSnapshot.Minimap.RadarRange != defaultRadarRange || defaultSnapshot.Minimap.ProjectionRadius != defaultLiveProjectionRadius {
+		t.Fatalf("default minimap = %+v, want default stat radar with playtest projection", defaultSnapshot.Minimap)
 	}
 }
 
@@ -2071,6 +2272,20 @@ func setTestShipDisabled(gameServer *Server, playerID foundation.PlayerID, disab
 func setTestHidden(gameServer *Server, entityID world.EntityID, hidden bool) {
 	gameServer.runtime.mu.Lock()
 	defer gameServer.runtime.mu.Unlock()
+	gameServer.runtime.hidden[entityID] = hidden
+}
+
+func insertTestWorldEntity(t *testing.T, gameServer *Server, entityID world.EntityID, entityType world.EntityType, position world.Vec2, hidden bool) {
+	t.Helper()
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	entity, err := world.NewEntity(gameServer.runtime.worldID, gameServer.runtime.zoneID, entityID, entityType, position)
+	if err != nil {
+		t.Fatalf("NewEntity(%q) error = %v", entityID, err)
+	}
+	if err := gameServer.runtime.Worker.InsertEntity(entity, 0); err != nil {
+		t.Fatalf("InsertEntity(%q) error = %v", entityID, err)
+	}
 	gameServer.runtime.hidden[entityID] = hidden
 }
 

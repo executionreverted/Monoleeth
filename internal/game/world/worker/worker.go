@@ -328,6 +328,42 @@ func (worker *Worker) Snapshot() Snapshot {
 	}
 }
 
+// SnapshotWithinRadius returns a deterministic bounded copy of entities around
+// center. It is a worker-owned spatial projection helper; callers must still
+// apply AOI/visibility security before serializing any result to clients.
+func (worker *Worker) SnapshotWithinRadius(center world.Vec2, radius float64) (Snapshot, error) {
+	if err := center.Validate(); err != nil {
+		return Snapshot{}, err
+	}
+	if radius < 0 || math.IsNaN(radius) || math.IsInf(radius, 0) {
+		return Snapshot{}, fmt.Errorf("projection radius %v: %w", radius, ErrInvalidWorkerConfig)
+	}
+
+	results, err := worker.index.QueryRadius(spatialPosition(center), radius)
+	if err != nil {
+		return Snapshot{}, err
+	}
+
+	entities := make([]world.Entity, 0, len(results))
+	for _, result := range results {
+		entity, ok := worker.entities[world.EntityID(result.ID)]
+		if !ok {
+			continue
+		}
+		entities = append(entities, entity)
+	}
+	sort.Slice(entities, func(i, j int) bool {
+		return entities[i].ID < entities[j].ID
+	})
+
+	return Snapshot{
+		WorldID:  worker.worldID,
+		ZoneID:   worker.zoneID,
+		Tick:     worker.tick,
+		Entities: entities,
+	}, nil
+}
+
 // ScheduleTask adds a map-local delayed task and returns the accepted copy.
 func (worker *Worker) ScheduleTask(task ScheduledTask) (ScheduledTask, error) {
 	if strings.TrimSpace(task.ID) == "" || strings.TrimSpace(task.Kind) == "" {

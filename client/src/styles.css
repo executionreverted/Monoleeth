@@ -2408,10 +2408,11 @@ button:disabled {
 .minimap {
   position: relative;
   width: 100%;
-  aspect-ratio: 1.35;
+  aspect-ratio: 1;
   min-height: 7rem;
   margin-bottom: 0.625rem;
   border: 1px solid rgba(138, 245, 255, 0.18);
+  border-radius: 50%;
   overflow: hidden;
   background:
     linear-gradient(90deg, rgba(138, 245, 255, 0.08) 1px, transparent 1px),
@@ -2428,11 +2429,19 @@ button:disabled {
 }
 
 .minimap__ring,
-.minimap__axis,
+.minimap__axis {
+  position: absolute;
+  pointer-events: none;
+}
+
 .minimap__point,
 .minimap__memory {
   position: absolute;
-  pointer-events: none;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
 }
 
 .minimap__ring {
@@ -2464,7 +2473,14 @@ button:disabled {
   width: 0.625rem;
   height: 0.625rem;
   border: 1px solid currentColor;
+  background: transparent;
   transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.minimap__point:focus-visible,
+.minimap__memory:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.86);
+  outline-offset: 3px;
 }
 
 .minimap__point[data-kind="self"] {
@@ -2517,6 +2533,7 @@ button:disabled {
   height: 1rem;
   border: 1px solid rgba(124, 255, 155, 0.68);
   border-radius: 50%;
+  background: rgba(3, 6, 8, 0.28);
   box-shadow:
     0 0 0.65rem rgba(124, 255, 155, 0.22),
     inset 0 0 0.35rem rgba(124, 255, 155, 0.16);

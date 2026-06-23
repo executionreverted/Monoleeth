@@ -318,6 +318,38 @@ func TestWorkerEntityInsertUpdateRemove(t *testing.T) {
 	}
 }
 
+func TestSnapshotWithinRadiusUsesWorkerSpatialIndex(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+	mustInsertEntity(t, zoneWorker, "entity-near", world.EntityTypeNPC, world.Vec2{X: 300, Y: 0})
+	mustInsertEntity(t, zoneWorker, "entity-edge", world.EntityTypeLoot, world.Vec2{X: 600, Y: 800})
+	mustInsertEntity(t, zoneWorker, "entity-far", world.EntityTypeNPC, world.Vec2{X: 1001, Y: 0})
+
+	snapshot, err := zoneWorker.SnapshotWithinRadius(world.Vec2{}, 1000)
+	if err != nil {
+		t.Fatalf("SnapshotWithinRadius() error = %v, want nil", err)
+	}
+	if got, want := workerSnapshotEntityIDs(snapshot), []world.EntityID{"entity-edge", "entity-near"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("SnapshotWithinRadius ids = %v, want %v", got, want)
+	}
+
+	moved, ok := zoneWorker.Entity("entity-near")
+	if !ok {
+		t.Fatal("Entity(entity-near) ok = false, want true")
+	}
+	moved.Position = world.Vec2{X: 1200, Y: 0}
+	if err := zoneWorker.UpdateEntity(moved); err != nil {
+		t.Fatalf("UpdateEntity() error = %v, want nil", err)
+	}
+
+	snapshot, err = zoneWorker.SnapshotWithinRadius(world.Vec2{}, 1000)
+	if err != nil {
+		t.Fatalf("SnapshotWithinRadius after update error = %v, want nil", err)
+	}
+	if got, want := workerSnapshotEntityIDs(snapshot), []world.EntityID{"entity-edge"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("SnapshotWithinRadius after update ids = %v, want %v", got, want)
+	}
+}
+
 func TestDelayedTaskSchedulerDrainsDueTasksInOrder(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	zoneWorker, err := NewWorker(Config{
@@ -699,6 +731,25 @@ func spawnPlayer(t *testing.T, zoneWorker *Worker, playerID foundation.PlayerID,
 		t.Fatalf("Submit(spawn) error = %v", err)
 	}
 	assertNoCommandErrors(t, zoneWorker.Tick())
+}
+
+func mustInsertEntity(t *testing.T, zoneWorker *Worker, entityID world.EntityID, entityType world.EntityType, position world.Vec2) {
+	t.Helper()
+	entity, err := world.NewEntity(zoneWorker.worldID, zoneWorker.zoneID, entityID, entityType, position)
+	if err != nil {
+		t.Fatalf("NewEntity(%q) error = %v", entityID, err)
+	}
+	if err := zoneWorker.InsertEntity(entity, 0); err != nil {
+		t.Fatalf("InsertEntity(%q) error = %v", entityID, err)
+	}
+}
+
+func workerSnapshotEntityIDs(snapshot Snapshot) []world.EntityID {
+	ids := make([]world.EntityID, 0, len(snapshot.Entities))
+	for _, entity := range snapshot.Entities {
+		ids = append(ids, entity.ID)
+	}
+	return ids
 }
 
 func tickSubmitted(t *testing.T, zoneWorker *Worker, command Command) TickResult {

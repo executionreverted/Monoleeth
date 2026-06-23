@@ -19,6 +19,7 @@ import {
 import { createInitialState, reduceClientState } from '../state/reducer';
 import { ClientAction, ClientState, PublicSession, WorldMapMemoryMarker } from '../state/types';
 import { worldMapMemoryMarkers } from '../state/world-memory';
+import { canSendRealtimeCommand } from './command-gate';
 
 type DemoStateModule = typeof import('./demo-state');
 
@@ -100,6 +101,7 @@ export class ClientApp {
       onSync: () => this.syncSnapshot(),
       onFire: () => this.sendBasicSkill(),
       onLoot: () => this.sendLootPickup(),
+      onMinimapContact: (entityID) => this.selectEntity(entityID),
       onRepairQuote: () => this.sendCommand(this.commandBuilder.deathRepairQuote()),
       onRepair: () => this.sendCommand(this.commandBuilder.deathRepairShip()),
       onScan: () => this.toggleScanMode(),
@@ -185,7 +187,7 @@ export class ClientApp {
       return;
     }
 
-    if (this.state.auth.mode === 'real' && this.state.connectionStatus !== 'connected') {
+    if (!canSendRealtimeCommand(this.state)) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'Move rejected: waiting for authenticated realtime link.' });
       this.cancelNavigation();
       return;
@@ -301,7 +303,7 @@ export class ClientApp {
   }
 
   private sendCommand(envelope: RequestEnvelope): void {
-    if (this.state.auth.mode === 'real' && this.state.connectionStatus !== 'connected') {
+    if (!canSendRealtimeCommand(this.state)) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'Waiting for authenticated realtime link.' });
       return;
     }
@@ -658,7 +660,7 @@ export class ClientApp {
 
   private tryPendingLootPickup(): void {
     const dropID = this.pendingLootPickupID;
-    if (!dropID || (this.state.auth.mode === 'real' && this.state.connectionStatus !== 'connected')) {
+    if (!dropID || !canSendRealtimeCommand(this.state)) {
       return;
     }
 
@@ -948,7 +950,7 @@ export class ClientApp {
   }
 
   private scanRuntimeReady(): boolean {
-    return this.state.auth.mode === 'demo' || this.state.connectionStatus === 'connected';
+    return canSendRealtimeCommand(this.state);
   }
 
   private hasPendingOperation(op: string): boolean {

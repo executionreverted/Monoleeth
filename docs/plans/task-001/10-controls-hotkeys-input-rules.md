@@ -55,6 +55,12 @@ internal/game/server/handlers.go
     most one immediate bounded `move_to`; follow-up bounded steps happen only
     after server reconciliation
   - empty radar space: no accidental movement unless explicitly supported
+- HUD/window/modal focus ownership must be a durable state, not a short
+  suppression timer. Open or focused UI blocks world clicks and hotkeys until
+  explicit world refocus.
+- `death.ship_disabled` must clear navigation intent and disable movement,
+  quick action, Tab, and WASD paths until repair/server snapshots re-enable
+  them.
 
 ## Implementation Plan
 
@@ -65,6 +71,11 @@ internal/game/server/handlers.go
    - Define world focus precisely: input/HUD/modal/window focus blocks world
      hotkeys and movement clicks; empty canvas only moves when world focus is
      valid.
+   - Replace time-window-only suppression with a single HUD/world focus
+     ownership state consumed by renderer, hotkeys, radar clicks, and quick
+     actions.
+   - Smoke must wait beyond the current suppression timeout with a window/modal
+     open, click canvas, and assert no `move_to`.
 
 2. Quick hotkeys.
    - Keep `1..6` mapped to quick actions.
@@ -75,6 +86,8 @@ internal/game/server/handlers.go
 3. Target cycling.
    - Build ordered list of visible hostile NPC/player targets from current AOI.
    - `Tab` selects next valid target.
+   - Handle `Tab` at the app/world-focus layer, prevent default only when world
+     focus is valid, and never emit a command by itself.
    - Cycling ignores hidden/unavailable/out-of-range targets.
    - Selection is client-local unless this phase adds a real `target.set`
      command. Combat/gather still re-validates target server-side at use time.
@@ -88,6 +101,7 @@ internal/game/server/handlers.go
    - Alternative: introduce `movement.set_input` as a real server contract with
      rate-limit tests.
    - If not implemented, document blocker in this phase and do not fake it.
+   - If deferred, smoke asserts WASD emits no movement command in real mode.
    - Define rate limits for `stop` and any new movement input op so key
      down/up cannot flood the server.
 
@@ -119,14 +133,23 @@ docs/plans/task-001/10-controls-hotkeys-input-rules.md
 
 - [ ] `1..6` quick action hotkeys work only with valid world focus.
 - [ ] Locked quick actions emit no commands.
+- [ ] A single HUD/world focus ownership state gates renderer clicks, quick
+      hotkeys, Tab, radar clicks, and WASD.
 - [ ] `Tab` cycles visible hostile targets, skipping self/friendly/loot/planet
       signals and including witnessed hidden hostiles when eligible.
+- [ ] `Tab` prevents default only with valid world focus and emits no command
+      until an action key is pressed.
 - [ ] WASD is server-owned if enabled or documented as blocked.
+- [ ] If WASD is deferred, smoke proves WASD emits no movement in real mode.
 - [ ] WASD decision documents tap/hold semantics, diagonal behavior, throttle,
       keyup behavior, and `move_to` vs `movement.set_input`.
 - [ ] `stop` and any new movement input op have rate-limit posture.
 - [ ] Modals/windows can open, drag, close, and click while ship is moving.
 - [ ] Modal/window/HUD clicks do not send `move_to`.
+- [ ] Canvas clicks after the suppression timeout still do not move while a
+      modal or HUD window owns focus.
+- [ ] `death.ship_disabled` clears navigation intent and disables movement,
+      quick actions, Tab, and WASD until repair/server refresh.
 - [ ] Radar contact click selects/opens detail.
 - [ ] One radar/user click starts one navigation route with at most one
       immediate bounded `move_to`; later chunks wait for server reconciliation.

@@ -179,16 +179,22 @@ func (runtime *Runtime) viewerForPlayerLocked(playerID foundation.PlayerID) (vis
 }
 
 func (runtime *Runtime) entityVisibleToPlayerLocked(playerID foundation.PlayerID, entityID world.EntityID) bool {
-	snapshot, _, _, err := runtime.aoiSnapshotForPlayerLocked(playerID)
+	viewer, err := runtime.viewerForPlayerLocked(playerID)
 	if err != nil {
 		return false
 	}
-	for _, entity := range snapshot.Entities {
-		if entity.ID == entityID {
-			return true
-		}
+	entity, ok := runtime.Worker.Entity(entityID)
+	if !ok {
+		return false
 	}
-	return false
+	return visibility.CanSendEntityToClient(viewer, visibility.Entity{
+		WorldID:   entity.WorldID,
+		ZoneID:    entity.ZoneID,
+		ID:        entity.ID,
+		Position:  entity.Position,
+		Signature: visibility.EntitySignature(1),
+		Hidden:    runtime.hidden[entity.ID],
+	})
 }
 
 func (runtime *Runtime) queueTargetUpdatedLocked(sessionID auth.SessionID, actor combat.ActorState) {

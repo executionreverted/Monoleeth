@@ -48,6 +48,12 @@ client/src/state/reducer.ts
 - Claim/build/route browser mutations must not be exposed until runtime has
   real `ClaimService`/`AutomationRouteService` wiring, idempotency, recovery,
   and authenticated handlers.
+- Claim/build/route controls render from server `available_commands` or an
+  equivalent capabilities payload only. Unsupported actions are absent or
+  secondary game copy, never disabled primary placeholders.
+- Production storage and route summaries need display metadata for resources
+  and destinations; normal player UI must not show raw `item_id` or
+  `resource_item_id`.
 
 ## Implementation Plan
 
@@ -71,6 +77,8 @@ client/src/state/reducer.ts
    - Use game copy for unavailable states.
    - Remove disabled primary Claim/Build/Upgrade/Route/Auto placeholders and
      any `server policy`, `server-owned`, or `not enabled in this slice` copy.
+   - Render claim/build/route controls only when the selected planet detail
+     includes the corresponding server capability.
 
 3. Production/storage/routes.
    - Ensure `planet.storage_summary` and production summary parse into state.
@@ -94,6 +102,10 @@ client/src/state/reducer.ts
      at once.
    - Opening detail refreshes planet detail, production, storage, and routes.
    - Claim success, route mutation, and settlement refresh all related snapshots.
+   - Claim, route, and settlement success must refresh known planets, selected
+     detail, production summary, planet storage summary, and route list/snapshot.
+   - Storage and routes use catalog display names/art keys for resource and
+     destination rows.
 
 5. Add tests.
    - Claim success and failure.
@@ -136,12 +148,18 @@ docs/plans/task-001/08-planets-production-routes-claim.md
 - [ ] Claim transaction/recovery risk is resolved or browser claim remains
       blocked with a named durable-state blocker.
 - [ ] Unclaimed planets do not show Build/Route as primary actions.
+- [ ] Claim/Build/Route controls render only from server
+      `available_commands`/capabilities.
 - [ ] Claimed planets show Production, Storage, and Routes sections/tabs.
 - [ ] `planet.storage_summary`, `route.list`, and `route.snapshot` reconcile.
+- [ ] Storage and route rows use server display metadata and never expose raw
+      `item_id`/`resource_item_id` as player-facing labels.
 - [ ] `planet.building_build`, `planet.building_upgrade`, and route mutations
       are real with server-owned wrappers or explicitly blocked and hidden.
 - [ ] Planet detail open and claim/route/settlement success refresh related
       production/storage/route snapshots.
+- [ ] Claim/route/settlement success refreshes known planets, selected planet
+      detail, production, storage, and routes.
 - [ ] Internal server-policy copy is gone from player UI.
 - [ ] Browser smoke verifies claim or documented locked blocker path.
 

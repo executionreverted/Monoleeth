@@ -44,6 +44,8 @@ client/tests/browser-smoke.mjs
 - Do not show internal/server implementation phrases in normal play UI.
 - Normal player UI copy ban applies globally, not only to surfaces changed in
   this phase. Admin-only diagnostics are exempt only when role-gated.
+- Window/modal open and focus state must be observable by the app/renderer so
+  Phase 10 can block world clicks and hotkeys while HUD owns input.
 
 ## Implementation Plan
 
@@ -57,6 +59,8 @@ client/tests/browser-smoke.mjs
    - Keep headers, footers, and action rows fixed while only the body scrolls.
    - Add measurable smoke checks for sparse Shop/Hangar/Inventory windows, but
      leave their system-specific layout redesign to phases 06 and 07.
+   - Expose a single HUD-owned input/focus state when any modal/window is open
+     or focused; do not rely only on short click-suppression timers.
 
 2. Remove generic `Inspect`.
    - Delete titlebar inspect button generation.
@@ -109,6 +113,8 @@ docs/plans/task-001/04-hud-modal-tutorial-window-system.md
 - [ ] Contextual `?` opens a tutorial/help modal with selected topic.
 - [ ] Windows are content-sized and only body-scroll after max height.
 - [ ] Shared window shell no longer forces large empty fixed panels when sparse.
+- [ ] HUD window/modal open/focus ownership is available to renderer/input
+      code; Phase 10 can consume it to block canvas movement and hotkeys.
 - [ ] Target panel does not show `No lock` plus dead action clutter.
 - [ ] Internal/debug phrases are absent from all normal player UI, with
       role-gated admin diagnostics exempted.

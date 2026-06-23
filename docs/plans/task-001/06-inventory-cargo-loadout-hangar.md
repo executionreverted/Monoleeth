@@ -55,6 +55,11 @@ internal/game/ships/catalog.go
 - Browser reconciliation is snapshot-only unless this phase explicitly adds
   public events for `ship.active_changed`, `module.equipped`,
   `module.unequipped`, or `player.stats_invalidated`.
+- The UI may enable equip, unequip, hangar activation, inventory moves, or
+  cargo transfers only from server-computed affordance fields, not from local
+  slot-type guesses, fallback prices, or raw `locked_reason` strings.
+- Crafting must stay hidden or named-blocked until recipe payloads include
+  display metadata, `can_start`, valid locations, and real mutation contracts.
 
 ## Implementation Plan
 
@@ -72,6 +77,9 @@ internal/game/ships/catalog.go
    - Cargo rows need display name, category, quantity, capacity impact,
      location, transfer eligibility, and action affordances from server-safe
      metadata.
+   - Loadout slot/item payloads need server-computed `can_equip_slots`,
+     `can_unequip`, blocked reason codes, and any durability/repair state
+     required to render enabled actions.
 
 3. Wire real actions.
    - Keep existing `loadout.equip_module` and `loadout.unequip_module`.
@@ -87,6 +95,9 @@ internal/game/ships/catalog.go
    - Use real `hangar.activate_ship`.
    - Display locked reasons only as game copy: safe zone, cargo not empty, rank,
      damaged, unavailable.
+   - Hangar payloads need server-computed `can_activate` and a player-safe
+     blocked reason code; the client must not infer activation eligibility from
+     rank/state text alone.
    - Validate cargo overflow using module-aware effective capacity, or document
      the runtime `BaseShipCargoCapacityProvider` as a blocker before enabling
      non-starter activation.
@@ -130,13 +141,24 @@ docs/plans/task-001/06-inventory-cargo-loadout-hangar.md
 - [ ] Cargo has its own tab/surface and does not masquerade as inventory.
 - [ ] Cargo/inventory payloads include display metadata and action affordances
       needed by the UI.
+- [ ] Loadout payloads include `can_equip_slots`, `can_unequip`, and
+      player-safe blocked reason codes; UI enables slot actions only from those
+      affordances.
+- [ ] Cargo/inventory move/list/transfer payloads include `can_move`,
+      `max_quantity`, allowed destinations/currencies, and blocked reason
+      codes before controls are enabled.
 - [ ] Hangar shows owned ships, selected ship detail, and active ship state.
 - [ ] Activation uses real `hangar.activate_ship` or remains clearly unavailable
       with game copy and a named contract blocker.
+- [ ] Hangar activation buttons are enabled only by server `can_activate`
+      affordances.
 - [ ] Hangar activation validates module-aware cargo capacity or records a
       named blocker.
 - [ ] Crafting controls are implemented with real contracts or hidden/blocked
       with a named owner phase.
+- [ ] Crafting recipes/details are hidden or named-blocked until safe display
+      metadata, `can_start`, location options, and real start/complete/cancel
+      contracts exist.
 - [ ] No Phase 06 surface shows `server-owned`, raw item ids, or internal
       validation copy to normal players.
 - [ ] Browser smoke verifies real data, not client fixtures.

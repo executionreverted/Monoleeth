@@ -54,6 +54,12 @@ client/src/styles.css
   policy, and backing item/module/ship refs.
 - Auction and premium grant surfaces must be hidden/locked unless concrete
   grant adapters exist for their payload types.
+- Real-mode shop must not derive products or categories from player market
+  listings; listings, auctions, premium, and system shop products are distinct
+  server-owned data sources.
+- Product/listing action enablement must come from server fields such as
+  `can_buy`, `can_list`, `max_quantity`, `allowed_currencies`, quote policy,
+  stock, and player-safe blocked reason codes.
 
 ## Implementation Plan
 
@@ -69,7 +75,11 @@ client/src/styles.css
 2. Normalize catalog data.
    - Introduce a server-owned `shop.catalog`/system-product payload or expand
      market payloads with explicit product metadata.
+   - Preferred `shop.catalog` fields: `catalog_version`, category id/name, art
+     key, product type, backing item/module/ship refs, price/quote policy,
+     availability, stock, rank/requirement copy, and safe lock reason.
    - Do not create client-only products in real mode.
+   - Do not use market listings as the source of system shop categories.
    - Rename temporary raw ids into presentable game names where they remain.
    - Keep catalog version and reference integrity tied to Phase 05.
 
@@ -82,6 +92,11 @@ client/src/styles.css
    - Every new purchase/grant path needs ledger/reference assertions.
    - Passive market/auction/premium events must either update reducer state or
      trigger explicit refresh queries, with multi-client tests.
+   - Refresh policy must name exact follow-up queries: `market.search`,
+     `auction.search`, `premium.entitlements`, `wallet.snapshot`, and/or
+     `inventory.snapshot`.
+   - Two-client smoke must prove buy/bid/claim changes reconcile on the passive
+     client without manual Sync.
    - Pending-action UI must disable/debounce double-clicks; idempotency only
      protects repeated requests with the same request id.
 
@@ -127,7 +142,15 @@ docs/plans/task-001/07-shop-market-catalog-rework.md
 - [ ] Shop follows category/list/detail/buy-panel layout.
 - [ ] Server-owned shop catalog/system-product contract exists or the expanded
       market payload explicitly provides equivalent metadata.
+- [ ] `shop.catalog`/system-product payload includes catalog version, category,
+      art key, product type, backing refs, availability, lock reason, and quote
+      policy.
+- [ ] Real-mode shop does not derive products or categories from market
+      listings.
 - [ ] Categories map to real server catalog/listing data.
+- [ ] Buy/list/bid buttons are enabled only from server affordances such as
+      `can_buy`, `can_list`, `max_quantity`, `allowed_currencies`, and blocked
+      reason codes.
 - [ ] No player-facing `server recalculates` copy remains.
 - [ ] `server_recalculates` is absent from normal player UI and client smoke
       expectations.
@@ -135,8 +158,15 @@ docs/plans/task-001/07-shop-market-catalog-rework.md
 - [ ] Quantity and purchase/list/bid actions reconcile with server responses.
 - [ ] Market totals/fees/escrow are not trusted from the client.
 - [ ] Auction and premium event paths reconcile or refresh passive clients.
+- [ ] Passive event refresh policy names exact queries for market, auction,
+      premium, wallet, and inventory reconciliation.
+- [ ] Two-client smoke proves market buy/list/cancel, auction bid, and premium
+      claim reconcile on a passive client without manual Sync or fixture data.
 - [ ] Auction/premium grants are real for their payload type or hidden/locked
       with a named blocker.
+- [ ] Auction/premium grant rows and buttons render only when claim produces
+      the owning snapshot delta, or remain hidden behind a named non-player
+      blocker.
 - [ ] Purchase/bid buttons debounce pending actions and smoke asserts one click
       emits exactly one mutation command.
 - [ ] New purchase/grant paths have ledger/reference tests or a named durable

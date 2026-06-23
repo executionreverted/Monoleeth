@@ -40,20 +40,25 @@ client/src/ui/hud.ts
 ## Current Findings
 
 - `defaultRadarRange = 420` seeds the current player radar feel.
+- Implemented slice: Task 001 playtest live projection is a server-owned
+  circular `defaultLiveProjectionRadius = 1000`, giving a 2000-unit diameter
+  window around the authoritative player position. This is deliberately
+  separate from `stats.radar_range`.
 - Scanner discovery radius is `2000`, but that is for scan/discovery, not live
   AOI.
-- Current AOI builds from worker snapshot then filters; widening it should use
-  or expose spatial index queries instead of scanning too much work.
-- Minimap payload is built from live AOI plus remembered planet intel.
-- Remembered minimap entries need stable ids such as `planet_id` or
-  `detail_id`.
-- Client fog overlay lives in `world-renderer.ts` and can be disabled visually.
+- Current AOI projection now uses worker-owned `SnapshotWithinRadius`, backed by
+  the spatial index, before visibility filtering.
+- Minimap payload is built from live AOI plus remembered planet intel and now
+  exposes both `radar_range` and `projection_radius`.
+- Remembered minimap entries now carry stable `planet_id`/`detail_id`.
+- Client fog overlay is visually disabled in `world-renderer.ts`; renderer debug
+  reports inactive fog while remembered planet markers still render.
 - Server hidden filtering must remain fail-closed.
-- Current runtime uses `state.Stats.RadarRange` for AOI filtering and minimap
-  scale; widening this directly can accidentally widen combat and loot
-  interaction checks.
-- AOI diff events update visible entities but do not currently reconcile
-  minimap live contacts.
+- Combat and loot prechecks now use stat-radar visibility, not the widened
+  projection snapshot, before domain range/capacity validation.
+- AOI diff events reconcile minimap live contacts in the reducer.
+- HUD minimap plotting uses `projection_radius` with `radar_range` retained as
+  the displayed/stat value.
 
 ## Implementation Plan
 
@@ -65,6 +70,8 @@ client/src/ui/hud.ts
      range.
    - Prefer a separate server-owned `live_projection_range` or
      `projection_window_size` over changing `stats.radar_range`.
+   - Add `projection_radius` or `projection_window` to `world.snapshot/minimap`
+     and use that field for map plotting instead of combat/stat `radar_range`.
    - If radar stats are intentionally buffed instead, document the combat/loot
      range impact and add regression tests proving interactions still re-check
      their own ranges.
@@ -85,6 +92,10 @@ client/src/ui/hud.ts
      attributes.
    - Give remembered planet contacts stable `planet_id` or `detail_id` from
      player-owned intel records only.
+   - Preserve/reject remembered contacts at the reducer boundary based on those
+     ids; the UI must never infer a planet id from coordinates.
+   - Render minimap contacts as pointer-enabled buttons/elements with
+     `data-entity-id`, `data-entity-type`, or `data-detail-id`.
    - Click known planet/contact opens detail first; navigation uses
      server-returned coordinates only.
    - Reconcile minimap live contacts after AOI entered/updated/left events or
@@ -126,22 +137,49 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
 
 ## Acceptance Criteria
 
-- [ ] The live map/radar projection policy is documented and tested.
-- [ ] Projection range/window is separate from player `stats.radar_range`, or
+- [x] The live map/radar projection policy is documented and tested.
+- [x] Projection range/window is separate from player `stats.radar_range`, or
       the intentional radar stat buff and its combat/loot impact are tested.
-- [ ] Worker exposes a bounded spatial query used by runtime projection.
-- [ ] The widened window includes allowed visible entities near the player.
-- [ ] Hidden entities remain absent even inside the widened window.
-- [ ] Known planets and safe remembered intel render in map/radar.
-- [ ] The radar is a stable circular surface with clickable contacts.
-- [ ] Live radar contacts include stable entity ids/types.
-- [ ] Remembered planet contacts include stable server-owned planet/detail ids.
-- [ ] AOI diff events keep minimap contacts current or trigger a minimap refresh.
-- [ ] Clicking a radar memory/contact opens detail or selects target without
+- [x] `world.snapshot/minimap` exposes `projection_radius` or
+      `projection_window` and HUD plotting uses it instead of combat/stat
+      radar range.
+- [x] Widened playtest projection renders edge contacts without widening
+      attack, pickup, or other interaction ranges.
+- [x] Worker exposes a bounded spatial query used by runtime projection.
+- [x] The widened window includes allowed visible entities near the player.
+- [x] Hidden entities remain absent even inside the widened window.
+- [x] Known planets and safe remembered intel render in map/radar.
+- [x] The radar is a stable circular surface with clickable contacts.
+- [x] Live radar contacts include stable entity ids/types.
+- [x] Remembered planet contacts include stable server-owned planet/detail ids.
+- [x] Reducer rejects remembered real-mode contacts that lack server-owned
+      planet/detail ids.
+- [x] Minimap/radar contact DOM nodes are clickable controls keyed by
+      server-owned ids, not passive spans or guessed coordinates.
+- [x] AOI diff events keep minimap contacts current or trigger a minimap refresh.
+- [x] Clicking a radar memory/contact opens detail or selects target without
       leaking movement.
-- [ ] Navigate uses only server-returned coordinates.
-- [ ] Client fog visual overlay is removed or disabled in real playtest mode.
-- [ ] Server visibility/fog security tests still pass.
+- [x] Navigate uses only server-returned coordinates.
+- [x] Client fog visual overlay is removed or disabled in real playtest mode.
+- [x] Server visibility/fog security tests still pass.
+
+## Verified In This Slice
+
+```bash
+go test ./internal/game/world/worker -run 'TestSnapshotWithinRadiusUsesWorkerSpatialIndex' -count=1
+go test ./internal/game/server -run 'Test(WorldSnapshotCarriesSectorMinimapAndPublicEntityContract|WorldProjectionIncludesEdgeContactsWithoutHiddenLeaks|AOIDiffEventsAreFilteredPerSession|TwoPlayersWithDifferentRadarReceiveDifferentFilteredSnapshots|CombatRejectsHiddenOutOfRangeAndDisabledWithoutEnergySpend|LootPickupRejects.*Projection|LootPickupRejectsOutOfRangeDropWithoutCargoMutation)' -count=1
+go test ./internal/game/server ./internal/game/world/... -run 'Test.*(Projection|SnapshotWithinRadius|WorldSnapshot|AOI|Hidden|Visibility|Combat|LootPickup)' -count=1
+go test ./internal/game/server ./internal/game/world/... -count=1
+cd client && npm --cache /tmp/gameproject-npm-cache run test -- --run src/state/reducer.test.ts
+cd client && npm --cache /tmp/gameproject-npm-cache run typecheck
+cd client && npm --cache /tmp/gameproject-npm-cache run smoke
+cd client && npm --cache /tmp/gameproject-npm-cache run check
+```
+
+Navigation evidence: `client/src/app/client-app.ts` `navigateToPlanet` only calls
+`sendMove` after the selected server planet detail for that `planet_id` contains
+finite coordinates; otherwise it requests server detail and does not infer from
+minimap position.
 
 ## Verification
 

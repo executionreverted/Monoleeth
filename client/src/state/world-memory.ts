@@ -1,11 +1,20 @@
-import type { ClientState, PlanetDetailSummary, WorldMapMemoryMarker } from './types';
+import type { ClientState, MinimapMemory, PlanetDetailSummary, WorldMapMemoryMarker } from './types';
 
 export function worldMapMemoryMarkers(state: ClientState): WorldMapMemoryMarker[] {
-  const planet = state.planetIntel?.selectedPlanet;
-  if (!planet?.planet_id || !isFiniteVec(planet.coordinates)) {
-    return [];
+  const markers = new Map<string, WorldMapMemoryMarker>();
+  for (const memory of state.minimap?.remembered ?? []) {
+    const marker = minimapMemoryMarker(memory);
+    if (marker) {
+      markers.set(marker.id, marker);
+    }
   }
-  return [planetMemoryMarker(planet, planet.coordinates)];
+
+  const planet = state.planetIntel?.selectedPlanet;
+  if (planet?.planet_id && isFiniteVec(planet.coordinates)) {
+    const marker = planetMemoryMarker(planet, planet.coordinates);
+    markers.set(marker.id, marker);
+  }
+  return [...markers.values()];
 }
 
 function planetMemoryMarker(planet: PlanetDetailSummary, coordinates: { x: number; y: number }): WorldMapMemoryMarker {
@@ -16,6 +25,21 @@ function planetMemoryMarker(planet: PlanetDetailSummary, coordinates: { x: numbe
     position: { ...coordinates },
     detailID: planet.planet_id,
     state: planet.owner_status || planet.intel_state || 'known',
+  };
+}
+
+function minimapMemoryMarker(memory: MinimapMemory): WorldMapMemoryMarker | null {
+  const detailID = memory.detail_id || memory.planet_id;
+  if (memory.kind !== 'known_planet' || !detailID || !isFiniteVec(memory.position)) {
+    return null;
+  }
+  return {
+    id: `known_planet:${detailID}`,
+    kind: 'known_planet',
+    label: memory.label || 'known planet',
+    position: { ...memory.position },
+    detailID,
+    state: memory.freshness || 'known',
   };
 }
 

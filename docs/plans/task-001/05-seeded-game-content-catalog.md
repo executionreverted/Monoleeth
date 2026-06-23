@@ -51,6 +51,9 @@ internal/game/ships/catalog.go
   explicit cross-catalog validator covering items, modules, ships, NPCs, loot,
   shop products, auctions, crafting recipes, production outputs, routes, and
   quests.
+- Definitions exposed to UI phases need player-facing display metadata:
+  display name, category, art/icon key where available, safe requirement/lock
+  reason codes, and backing refs for item/module/ship/product relationships.
 
 ## Seed Categories
 
@@ -87,6 +90,8 @@ names.
      durability, tradeability, and bind rules.
    - Add stackable item definitions with display names, categories, cargo
      behavior, and trade flags.
+   - Add UI-facing art/icon keys and safe lock/requirement reason codes for
+     shop, inventory, loadout, hangar, planet, and quest surfaces.
    - Add NPC/loot archetypes with stats, display names, drop tables, XP, and
      balance knobs instead of hard-coded training NPC/drop helpers.
    - Add planet/building/production/route/quest seed definitions needed by
@@ -104,6 +109,8 @@ names.
    - Market, auction, premium, planet storage, route, cargo, loot, and quest
      payloads include display names/categories so the client does not print raw
      ids.
+   - System shop products include stable product ids, categories, art keys,
+     backing refs, availability rules, and quote policy metadata.
 
 3. Connect UI.
    - Shop categories use catalog categories.
@@ -152,11 +159,15 @@ docs/plans/task-001/05-seeded-game-content-catalog.md
       into an intentional resource with game context.
 - [ ] Raw ids/snake_case are not used as player display names.
 - [ ] Seeded products/listings reference valid server definitions.
+- [ ] System shop products include stable product ids, categories, art/icon
+      keys, backing refs, availability rules, and quote policy metadata.
 - [ ] Loot and NPC names are visible from server-owned data.
 - [ ] Crafting recipes reference real item/module/ship definitions.
 - [ ] Planet, production, route, and quest fixtures exist for downstream UI
       phases.
 - [ ] Server payloads include display metadata needed to avoid raw id rendering.
+- [ ] Server payloads include safe requirement/lock reason codes instead of
+      internal validation strings for normal player UI.
 - [ ] Tests protect catalog reference integrity.
 
 ## Verification

@@ -39,6 +39,7 @@ const (
 	starterShipDisplayName                           = "Sparrow"
 	defaultPlayerSpeed                               = 180
 	defaultRadarRange                                = 420
+	defaultLiveProjectionRadius                      = 1000.0
 	defaultMaxMoveDistance                           = 1200
 	runtimeLootPickupRange                           = 120.0
 	runtimeBasicLaserEnergyCost                      = 10
@@ -226,9 +227,10 @@ type sectorPayload struct {
 }
 
 type minimapPayload struct {
-	RadarRange   float64                 `json:"radar_range"`
-	LiveContacts []minimapContactPayload `json:"live_contacts"`
-	Remembered   []minimapMemoryPayload  `json:"remembered"`
+	RadarRange       float64                 `json:"radar_range"`
+	ProjectionRadius float64                 `json:"projection_radius"`
+	LiveContacts     []minimapContactPayload `json:"live_contacts"`
+	Remembered       []minimapMemoryPayload  `json:"remembered"`
 }
 
 type minimapContactPayload struct {
@@ -241,6 +243,8 @@ type minimapContactPayload struct {
 
 type minimapMemoryPayload struct {
 	Kind      string     `json:"kind"`
+	PlanetID  string     `json:"planet_id,omitempty"`
+	DetailID  string     `json:"detail_id,omitempty"`
 	Label     string     `json:"label"`
 	Position  world.Vec2 `json:"position"`
 	Freshness string     `json:"freshness"`
@@ -774,11 +778,11 @@ func (runtime *Runtime) eventAtLocked(sessionID auth.SessionID, eventType realti
 }
 
 func (runtime *Runtime) worldSnapshotLocked(playerID foundation.PlayerID) (worldSnapshotPayload, error) {
-	snapshot, radarRange, tick, err := runtime.aoiSnapshotForPlayerLocked(playerID)
+	snapshot, radarRange, projectionRadius, tick, err := runtime.aoiSnapshotForPlayerLocked(playerID)
 	if err != nil {
 		return worldSnapshotPayload{}, err
 	}
-	minimap, err := runtime.minimapForPlayerLocked(playerID, snapshot, radarRange)
+	minimap, err := runtime.minimapForPlayerLocked(playerID, snapshot, radarRange, projectionRadius)
 	if err != nil {
 		return worldSnapshotPayload{}, err
 	}
@@ -790,24 +794,29 @@ func (runtime *Runtime) worldSnapshotLocked(playerID foundation.PlayerID) (world
 	}, nil
 }
 
-func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID) (aoi.Snapshot, float64, uint64, error) {
+func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID) (aoi.Snapshot, float64, float64, uint64, error) {
 	state := runtime.players[playerID]
 	playerEntity, ok := runtime.Worker.PlayerEntity(playerID)
 	if !ok {
-		return aoi.Snapshot{}, 0, 0, worker.ErrUnknownPlayer
+		return aoi.Snapshot{}, 0, 0, 0, worker.ErrUnknownPlayer
 	}
 	now := runtime.clock.Now()
 	statSnapshot := stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
 		Exploration: stats.ExplorationStats{RadarRange: state.Stats.RadarRange},
 	}, now)
 	radarRange := visibility.RadarRangeFromStatSnapshot(statSnapshot)
+	projectionRadius := defaultLiveProjectionRadius
+	projectionRange := visibility.RadarRangeFromServerPolicy(projectionRadius)
 	viewer := visibility.Viewer{
 		WorldID:    runtime.worldID,
 		ZoneID:     runtime.zoneID,
 		Position:   playerEntity.Position,
-		RadarRange: radarRange,
+		RadarRange: projectionRange,
 	}
-	workerSnapshot := runtime.Worker.Snapshot()
+	workerSnapshot, err := runtime.Worker.SnapshotWithinRadius(playerEntity.Position, projectionRadius)
+	if err != nil {
+		return aoi.Snapshot{}, 0, 0, 0, err
+	}
 	states := make([]aoi.EntityState, 0, len(workerSnapshot.Entities))
 	for _, entity := range workerSnapshot.Entities {
 		flags, display, combatStatus := runtime.publicEntityMetadataLocked(playerID, entity)
@@ -822,7 +831,7 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 		})
 	}
 	snapshot := aoi.BuildVisibleSnapshot(viewer, states)
-	return snapshot, radarRange.Units(), workerSnapshot.Tick, nil
+	return snapshot, radarRange.Units(), projectionRadius, workerSnapshot.Tick, nil
 }
 
 func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.EventEnvelope {
@@ -841,7 +850,7 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 }
 
 func (runtime *Runtime) aoiDiffEventsLocked(sessionID auth.SessionID, playerID foundation.PlayerID) []realtime.EventEnvelope {
-	current, _, _, err := runtime.aoiSnapshotForPlayerLocked(playerID)
+	current, _, _, _, err := runtime.aoiSnapshotForPlayerLocked(playerID)
 	if err != nil {
 		return nil
 	}
@@ -957,7 +966,7 @@ func (runtime *Runtime) sectorPayloadLocked() sectorPayload {
 	}
 }
 
-func minimapFromAOI(snapshot aoi.Snapshot, radarRange float64) minimapPayload {
+func minimapFromAOI(snapshot aoi.Snapshot, radarRange float64, projectionRadius float64) minimapPayload {
 	contacts := make([]minimapContactPayload, 0, len(snapshot.Entities))
 	for _, entity := range snapshot.Entities {
 		disposition := ""
@@ -973,14 +982,15 @@ func minimapFromAOI(snapshot aoi.Snapshot, radarRange float64) minimapPayload {
 		})
 	}
 	return minimapPayload{
-		RadarRange:   radarRange,
-		LiveContacts: contacts,
-		Remembered:   []minimapMemoryPayload{},
+		RadarRange:       radarRange,
+		ProjectionRadius: projectionRadius,
+		LiveContacts:     contacts,
+		Remembered:       []minimapMemoryPayload{},
 	}
 }
 
-func (runtime *Runtime) minimapForPlayerLocked(playerID foundation.PlayerID, snapshot aoi.Snapshot, radarRange float64) (minimapPayload, error) {
-	payload := minimapFromAOI(snapshot, radarRange)
+func (runtime *Runtime) minimapForPlayerLocked(playerID foundation.PlayerID, snapshot aoi.Snapshot, radarRange float64, projectionRadius float64) (minimapPayload, error) {
+	payload := minimapFromAOI(snapshot, radarRange, projectionRadius)
 	remembered, err := runtime.rememberedMinimapPayloadLocked(playerID)
 	if err != nil {
 		return minimapPayload{}, err
@@ -1005,6 +1015,8 @@ func (runtime *Runtime) rememberedMinimapPayloadLocked(playerID foundation.Playe
 		}
 		remembered = append(remembered, minimapMemoryPayload{
 			Kind:      "known_planet",
+			PlanetID:  intel.PlanetID.String(),
+			DetailID:  intel.PlanetID.String(),
 			Label:     planetMemoryLabel(planet),
 			Position:  intel.Coordinates,
 			Freshness: string(intel.State),

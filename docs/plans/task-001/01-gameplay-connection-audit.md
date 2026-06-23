@@ -39,10 +39,15 @@ internal/game/server/handlers.go
   handling for `planet_storage` is weak or missing.
 - `route.snapshot` exists, but reducer/UI handling expects route lists more than
   a singular route response.
-- `death.ship_disabled` is mapped but mostly logs; disabled/repair UI state
-  depends on separate snapshots.
-- Market, auction, and premium broadcast events do not strongly update passive
-  clients.
+- `death.ship_disabled` now updates client disabled state when received, and
+  runtime maps domain `ship.disabled` events to client-safe
+  `death.ship_disabled`, `ship.snapshot`, `player.snapshot`, and
+  `movement.stopped` events. Full combat/zone-worker death E2E remains tracked
+  in `docs/todo.md`.
+- Market, auction, and premium events now reconcile reducer state when delivered
+  to a client. Cross-session passive fanout is still session-scoped in backend
+  handlers and remains an explicit backend blocker for true two-client passive
+  updates.
 - `auction.bid` can be double-sent from one click path.
 - `admin.repair_craft_job` exists, but crafting job creation is not exposed in
   the normal browser loop.
@@ -55,6 +60,35 @@ internal/game/server/handlers.go
   `session.ready`, reconnect, auth expiry, pending-command cleanup, and command
   gating must prove the authenticated real client reaches a command-enabled
   state only after server-resolved session readiness.
+- App command gating now has an explicit `canSendRealtimeCommand` unit test:
+  real mode blocks `authenticated_pending_socket`, `connecting`,
+  `reconnecting`, `offline`, `auth_expired`, and `error` states, and enables
+  commands only after `session.ready` promotes state to `connected`.
+- The control/contract matrix and envelope parity table now live in
+  `docs/plans/task-001/01-control-contract-matrix.md`; later UI phases must
+  keep it current when they enable or hide gameplay controls.
+- Reducer-level pending command cleanup now covers socket loss and
+  response-lost/event-delivered recovery for movement and scanner commands;
+  browser-level reconnect smoke still needs to prove the full session loop.
+- Event `seq` now rejects lower stale events at the reducer boundary; event-id
+  dedupe still needs a broader replay policy, while reducer and server tests now
+  cover reconnect cursor/snapshot refresh behavior.
+- Coordinate/intel operation names drift between older docs and Task 001; guard
+  tests must reject both short forms and `intel.coordinate_item.*` forms until
+  the owner phase standardizes the contract.
+
+## Passive Economy Event Contract
+
+| Event | Client-safe payload | Reducer behavior | Remaining blocker |
+| --- | --- | --- | --- |
+| `market.listing_created` / `market.listing_updated` | listing payload | upsert listing, recalculate known counts | backend currently queues only to command session |
+| `market.sale_completed` | `{ listing, quantity, server_total, server_fee }` | upsert listing from `listing` | two-client fanout/refresh policy |
+| `market.listing_cancelled` | listing payload | upsert cancelled listing, recalculate known counts | two-client fanout/refresh policy |
+| `auction.bid_placed` / `auction.lot_updated` | auction lot payload | upsert lot | backend currently queues only to bidder session |
+| `auction.closed` | `{ lot, grant }` | upsert lot and grant | two-client fanout/refresh policy |
+| `premium.entitlement_created` / `premium.entitlement_claimed` | entitlement payload | upsert entitlement | backend currently queues only to command session |
+| `premium.stock_consumed` | stock payload | upsert stock row | two-client fanout/refresh policy |
+| `economy.flow_updated` | observability/event summary | log only until payload contract is public | define safe player-facing payload or admin-only scope |
 
 ## Implementation Plan
 
@@ -81,7 +115,8 @@ internal/game/server/handlers.go
      responses/events.
    - Add the backend bridge from domain `ship.disabled` to public
      `death.ship_disabled`, or record it as a named blocker before UI depends
-     on it.
+     on it. The bridge is now implemented; full death E2E remains a named
+     follow-up.
    - Make passive economy/auction/premium events update state, trigger explicit
      refresh, or document backend fanout/session-scope policy.
    - Fix `auction.bid` so one click sends one command.
@@ -94,8 +129,8 @@ internal/game/server/handlers.go
    - Extend TypeScript protocol tests for unimplemented or forbidden browser
      operations.
    - Include `inventory.move`, skill unlock/respec, `intel.share`, coordinate
-     item create/use, and mail/social operations in guard tests or named
-     deferrals.
+     item create/use, both documented coordinate op-name forms, and mail/social
+     operations in guard tests or named deferrals.
    - Keep future operations rejected until implemented in their phase.
 
 4. Remove or downgrade misleading controls.
@@ -135,27 +170,32 @@ internal/game/server/combat_loot_helpers.go
 internal/game/server/server_test.go
 internal/game/death/service.go
 docs/plans/task-001/01-gameplay-connection-audit.md
+docs/plans/task-001/01-control-contract-matrix.md
 ```
 
 ## Acceptance Criteria
 
-- [ ] A committed matrix exists in this phase file or a linked audit doc.
-- [ ] An envelope/protocol parity table exists for browser operations/events.
-- [ ] Session/reconnect tests prove real mode blocks gameplay commands before
+- [x] A committed matrix exists in this phase file or a linked audit doc.
+- [x] An envelope/protocol parity table exists for browser operations/events.
+- [x] Session/reconnect tests prove real mode blocks gameplay commands before
       `session.ready`, enables them after readiness, clears pending commands on
       logout/auth expiry, and reconciles reconnect bootstrap/cursor state.
+- [x] Socket drop with in-flight `move_to`, `scan.pulse`, and economy commands
+      clears or reconciles pending state without leaving controls blocked.
+- [x] Stale/duplicate event `seq` payloads do not mutate state after a newer
+      event has been applied.
 - [ ] No visible enabled control lacks a real server-backed operation.
-- [ ] `planet.storage_summary` updates client state.
-- [ ] `route.snapshot` updates client state.
-- [ ] `death.ship_disabled` makes disabled/repair state visible or triggers a
+- [x] `planet.storage_summary` updates client state.
+- [x] `route.snapshot` updates client state.
+- [x] `death.ship_disabled` makes disabled/repair state visible or triggers a
       documented refresh path.
-- [ ] Passive market/auction/premium events reconcile, refresh, or document an
+- [x] Passive market/auction/premium events reconcile, refresh, or document an
       explicit backend fanout blocker.
-- [ ] One auction bid click emits exactly one `auction.bid`.
-- [ ] Guard tests name every unimplemented browser mutation still blocked.
-- [ ] Reducer/event tests cover duplicate or stale `seq`, unknown events,
+- [x] One auction bid click emits exactly one `auction.bid`.
+- [x] Guard tests name every unimplemented browser mutation still blocked.
+- [x] Reducer/event tests cover duplicate or stale `seq`, unknown events,
       response-lost/event-delivered recovery, and reconnect snapshot refresh.
-- [ ] Every passive event either carries enough client-safe payload to reconcile
+- [x] Every passive event either carries enough client-safe payload to reconcile
       state or names the exact refresh query the client must issue.
 - [ ] Crafting, progression unlock, intel/coordinate, mail/social, and menu
       affordances are implemented in their owner phase or explicitly deferred
@@ -166,7 +206,9 @@ docs/plans/task-001/01-gameplay-connection-audit.md
 ```bash
 go test ./internal/game/realtime -run 'TestOperationRegistry' -count=1
 go test ./internal/game/server -run 'Test.*(Route|PlanetStorage|Auction|Repair|Death)' -count=1
+go test ./internal/game/server -run 'TestShipDisabledDomainEventQueuesClientSafeRealtimeEvents' -count=1
 cd client
+npm --cache /tmp/gameproject-npm-cache run test -- --run src/app/command-gate.test.ts
 npm --cache /tmp/gameproject-npm-cache run test -- --run src/protocol src/state
 npm --cache /tmp/gameproject-npm-cache run smoke
 ```

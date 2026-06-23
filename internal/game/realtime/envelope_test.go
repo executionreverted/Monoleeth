@@ -146,11 +146,22 @@ func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testin
 		Operation("discovery.claim_planet"),
 		Operation("planet.building_build"),
 		Operation("planet.building_upgrade"),
+		Operation("inventory.move"),
+		Operation("progression.unlock_skill"),
+		Operation("progression.respec_skills"),
 		Operation("route.create"),
 		Operation("route.update"),
 		Operation("route.enable"),
 		Operation("route.disable"),
 		Operation("route.settle"),
+		Operation("intel.share"),
+		Operation("intel.coordinate_create"),
+		Operation("intel.coordinate_use"),
+		Operation("intel.coordinate_item.create"),
+		Operation("intel.coordinate_item.use"),
+		Operation("mail.send"),
+		Operation("social.friend_request"),
+		Operation("social.party_invite"),
 	}
 
 	registry := OperationRegistry()

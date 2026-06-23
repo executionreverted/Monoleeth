@@ -27,6 +27,13 @@ func RadarRangeFromStatSnapshot(snapshot stats.StatSnapshot) ServerRadarRange {
 	return ServerRadarRange{units: snapshot.Stats.Exploration.RadarRange}
 }
 
+// RadarRangeFromServerPolicy wraps a server-owned AOI projection policy. Use
+// this only for authoritative runtime visibility windows, never for client
+// submitted values.
+func RadarRangeFromServerPolicy(units float64) ServerRadarRange {
+	return ServerRadarRange{units: units}
+}
+
 // Units returns the radar range in world units.
 func (radarRange ServerRadarRange) Units() float64 {
 	return radarRange.units

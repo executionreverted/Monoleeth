@@ -28,6 +28,8 @@ export interface PublicSession extends JsonObject {
   player?: PublicPlayer;
   roles?: string[];
   expires_at?: number;
+  protocol_version?: number;
+  reconnect_cursor?: number;
   server_time: number;
 }
 
@@ -611,6 +613,8 @@ export interface MinimapContact {
 
 export interface MinimapMemory {
   kind: string;
+  planet_id?: string;
+  detail_id?: string;
   label: string;
   position: Vec2;
   freshness: string;
@@ -618,6 +622,7 @@ export interface MinimapMemory {
 
 export interface MinimapSummary {
   radar_range: number;
+  projection_radius: number;
   live_contacts: MinimapContact[];
   remembered: MinimapMemory[];
 }

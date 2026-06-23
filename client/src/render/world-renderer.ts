@@ -530,50 +530,14 @@ export class WorldRenderer {
   }
 
   private drawFog(state: WorldViewState): void {
-    if (!this.app || !state.minimap) {
-      this.fogLayer.clear();
-      this.fogDebug = { active: false, revealCenter: null, revealRadius: 0, rememberedPockets: 0, overlayAlpha: 0 };
-      return;
-    }
-
-    const local = state.entities.find(isSelfEntity) ?? state.entities.find((entity) => entity.entity_type === 'player');
-    if (!local) {
-      this.fogLayer.clear();
-      this.fogDebug = { active: false, revealCenter: null, revealRadius: 0, rememberedPockets: 0, overlayAlpha: 0 };
-      return;
-    }
-
-    const revealWorld = this.entityWorldPositions.get(local.entity_id) ?? this.authoritativeDisplayPosition(local);
-    const revealCenter = this.worldToScreen(revealWorld);
-    const revealRadius = clamp(state.minimap.radar_range * this.scale, 128, Math.max(this.app.screen.width, this.app.screen.height) * 0.72);
-    const overlayAlpha = 0.58;
-    const padding = revealRadius + 260;
-    const pockets = this.fogMemoryPockets(state);
-
     this.fogLayer.clear();
-    this.fogLayer.rect(-padding, -padding, this.app.screen.width + padding * 2, this.app.screen.height + padding * 2).fill({
-      color: 0x010406,
-      alpha: overlayAlpha,
-    });
-    this.fogLayer.circle(revealCenter.x, revealCenter.y, revealRadius).cut();
-    for (const pocket of pockets) {
-      this.fogLayer.circle(pocket.screen.x, pocket.screen.y, pocket.radius).cut();
-    }
-
-    this.fogLayer.circle(revealCenter.x, revealCenter.y, revealRadius + 18).stroke({ color: hudColors.cyan, width: 2, alpha: 0.15 });
-    this.fogLayer.circle(revealCenter.x, revealCenter.y, revealRadius + 62).stroke({ color: 0x071219, width: 46, alpha: 0.22 });
-    for (const pocket of pockets) {
-      const color = pocket.freshness === 'stale' ? hudColors.amber : hudColors.green;
-      this.fogLayer.circle(pocket.screen.x, pocket.screen.y, pocket.radius + 10).stroke({ color, width: 1, alpha: 0.2 });
-      this.fogLayer.circle(pocket.screen.x, pocket.screen.y, pocket.radius + 32).stroke({ color, width: 18, alpha: 0.06 });
-    }
-
+    const pockets = this.app ? this.fogMemoryPockets(state) : [];
     this.fogDebug = {
-      active: true,
-      revealCenter,
-      revealRadius,
+      active: false,
+      revealCenter: null,
+      revealRadius: 0,
       rememberedPockets: pockets.length,
-      overlayAlpha,
+      overlayAlpha: 0,
     };
   }
 
