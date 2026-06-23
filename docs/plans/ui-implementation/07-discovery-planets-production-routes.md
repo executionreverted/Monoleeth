@@ -231,6 +231,14 @@ Current slice completed:
   adapters can implement the same contract with row-lock/CAS semantics. Real
   durable DB rows, durable publisher process scheduling, cross-process leases,
   and idempotency-table enforcement remain open.
+- Phase07V claim idempotency evidence follow-up: process-local planet claim
+  reference rows and claim outbox rows now preserve typed
+  `foundation.IdempotencyKey` evidence when the claim reference is canonical
+  `planet_claim:<player_id>:<planet_id>`. Legacy local test references remain
+  valid without typed evidence, while the authenticated gateway path records
+  DB-adapter-ready claim idempotency metadata. Durable claim DB rows,
+  cross-service transaction/CAS, production-init recovery, and durable outbox
+  publishing remain open.
 
 ## Source Specs
 

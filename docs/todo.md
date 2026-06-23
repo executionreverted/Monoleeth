@@ -84,7 +84,9 @@ for phase status; this file is a compact pending-work index.
   retry, and claim-token publish/fail guards for stale publisher callbacks, but
   durable DB rows, cross-process row locks/CAS, durable idempotency-table
   enforcement, durable outbox persistence, and durable publisher/recovery
-  workers remain open.
+  workers remain open. Phase07V preserves typed claim idempotency-key evidence
+  on process-local claim reference and outbox rows for canonical gateway
+  references, but it does not make those rows durable or transactional.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
   planet claim transaction. Current in-memory flow can repair production state
   on retry, but initializer failure after owner mutation does not recover the

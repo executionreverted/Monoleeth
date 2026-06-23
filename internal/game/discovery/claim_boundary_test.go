@@ -95,6 +95,72 @@ func TestClaimPlanetBoundaryReadAPIsReturnDetachedRecordsAndValidateLookup(t *te
 	}
 }
 
+func TestClaimBoundaryRecordsCanonicalIdempotencyKeyEvidence(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim-canonical")
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:    store,
+		rank:     planet.Level,
+		inRange:  true,
+		consumer: &recordingClaimXCoreConsumer{},
+	})
+	key, err := foundation.PlanetClaimIdempotencyKey(claimTestPlayerID, planet.ID)
+	if err != nil {
+		t.Fatalf("PlanetClaimIdempotencyKey: %v", err)
+	}
+	ref := PlanetClaimReference(key.String())
+
+	if _, err := service.ClaimPlanet(claimInput(ref, planet.ID)); err != nil {
+		t.Fatalf("ClaimPlanet() error = %v, want nil", err)
+	}
+
+	reference, ok, err := service.ClaimReference(ref)
+	if err != nil || !ok {
+		t.Fatalf("ClaimReference() ok = %v err = %v, want true nil", ok, err)
+	}
+	if reference.ReferenceKey != key {
+		t.Fatalf("claim reference key = %q, want %q", reference.ReferenceKey, key)
+	}
+	outbox := service.ClaimOutboxRecords()
+	if len(outbox) != 1 {
+		t.Fatalf("ClaimOutboxRecords() len = %d, want 1", len(outbox))
+	}
+	if outbox[0].ReferenceKey != key {
+		t.Fatalf("claim outbox reference key = %q, want %q", outbox[0].ReferenceKey, key)
+	}
+
+	reference.ReferenceKey = "mutated_reference"
+	outbox[0].ReferenceKey = "mutated_outbox"
+	storedReference, _, _ := service.ClaimReference(ref)
+	storedOutbox := service.ClaimOutboxRecords()
+	if storedReference.ReferenceKey != key || storedOutbox[0].ReferenceKey != key {
+		t.Fatalf("stored reference/outbox evidence mutated = %q/%q, want %q", storedReference.ReferenceKey, storedOutbox[0].ReferenceKey, key)
+	}
+}
+
+func TestPlanetClaimReferenceIdempotencyKeyRequiresExpectedClaimEntity(t *testing.T) {
+	planetID := foundation.PlanetID("planet-claim-expected")
+	key, err := foundation.PlanetClaimIdempotencyKey(claimTestPlayerID, planetID)
+	if err != nil {
+		t.Fatalf("PlanetClaimIdempotencyKey: %v", err)
+	}
+	if got, ok := PlanetClaimReference(key.String()).IdempotencyKey(claimTestPlayerID, planetID); !ok || got != key {
+		t.Fatalf("IdempotencyKey(expected) = %q/%v, want %q/true", got, ok, key)
+	}
+	if got, ok := PlanetClaimReference(key.String()).IdempotencyKey(claimTestPlayerID, "planet-claim-other"); ok || !got.IsZero() {
+		t.Fatalf("IdempotencyKey(wrong planet) = %q/%v, want zero/false", got, ok)
+	}
+	questKey, err := foundation.QuestRewardIdempotencyKey("quest-claim-not-a-claim")
+	if err != nil {
+		t.Fatalf("QuestRewardIdempotencyKey: %v", err)
+	}
+	if got, ok := PlanetClaimReference(questKey.String()).IdempotencyKey(claimTestPlayerID, planetID); ok || !got.IsZero() {
+		t.Fatalf("IdempotencyKey(wrong domain) = %q/%v, want zero/false", got, ok)
+	}
+}
+
 func TestClaimOutboxPendingRecordsFilterByStatusLimitAndAppendOrder(t *testing.T) {
 	service := newClaimOutboxStateMachineService(t, 4)
 

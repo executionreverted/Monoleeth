@@ -362,6 +362,20 @@ func (ref PlanetClaimReference) Validate() error {
 	return nil
 }
 
+// IdempotencyKey returns typed durable-boundary evidence for the canonical
+// planet claim key matching this player and planet. Legacy local references
+// remain valid but carry no typed evidence.
+func (ref PlanetClaimReference) IdempotencyKey(playerID foundation.PlayerID, planetID foundation.PlanetID) (foundation.IdempotencyKey, bool) {
+	key, err := foundation.PlanetClaimIdempotencyKey(playerID, planetID)
+	if err != nil {
+		return "", false
+	}
+	if ref != PlanetClaimReference(key.String()) {
+		return "", false
+	}
+	return key, true
+}
+
 // Validate reports whether input has the required server-resolved identity.
 func (input ClaimPlanetInput) Validate() error {
 	if err := input.PlayerID.Validate(); err != nil {

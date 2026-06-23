@@ -23,6 +23,7 @@ const (
 // successfully cached planet claim result. It is not durable or cross-process.
 type ClaimReferenceRecord struct {
 	ClaimReference PlanetClaimReference
+	ReferenceKey   foundation.IdempotencyKey
 	PlayerID       foundation.PlayerID
 	PlanetID       foundation.PlanetID
 	ClaimedAt      time.Time
@@ -47,6 +48,7 @@ type ClaimOutboxRecord struct {
 	Attempts       int
 	LastError      string
 	ClaimReference PlanetClaimReference
+	ReferenceKey   foundation.IdempotencyKey
 }
 
 // ClaimReferences returns process-local claim reference records in deterministic
@@ -198,8 +200,10 @@ func (service *ClaimService) RetryFailedClaimOutboxRecords(limit int, retriedAt 
 }
 
 func (service *ClaimService) recordClaimReferenceLocked(input ClaimPlanetInput, claimedAt time.Time, recordedAt time.Time, alreadyOwned bool, eventID foundation.EventID) {
+	referenceKey, _ := input.ClaimReference.IdempotencyKey(input.PlayerID, input.PlanetID)
 	service.references[input.ClaimReference] = cloneClaimReferenceRecord(ClaimReferenceRecord{
 		ClaimReference: input.ClaimReference,
+		ReferenceKey:   referenceKey,
 		PlayerID:       input.PlayerID,
 		PlanetID:       input.PlanetID,
 		ClaimedAt:      claimedAt.UTC(),
@@ -212,6 +216,7 @@ func (service *ClaimService) recordClaimReferenceLocked(input ClaimPlanetInput, 
 func (service *ClaimService) appendClaimOutboxRecordLocked(event ClaimEventRecord) {
 	service.nextOutboxSequence++
 	sequence := service.nextOutboxSequence
+	referenceKey, _ := event.ClaimReference.IdempotencyKey(event.PlayerID, event.PlanetID)
 	service.outbox = append(service.outbox, ClaimOutboxRecord{
 		OutboxID:       fmt.Sprintf("claim-outbox-%d", sequence),
 		Sequence:       sequence,
@@ -219,6 +224,7 @@ func (service *ClaimService) appendClaimOutboxRecordLocked(event ClaimEventRecor
 		Status:         ClaimOutboxStatusPending,
 		CreatedAt:      event.CreatedAt.UTC(),
 		ClaimReference: event.ClaimReference,
+		ReferenceKey:   referenceKey,
 	})
 }
 
