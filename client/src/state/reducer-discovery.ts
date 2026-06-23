@@ -339,15 +339,18 @@ export function parseRouteList(payload: JsonObject, fallback: RouteListSummary |
 }
 
 export function applyRouteList(state: ClientState, routes: RouteListSummary): ClientState {
+  const hydratedRoutes: RouteListSummary = {
+    routes: routes.routes.map((route) => routeWithKnownSettlement(state, route)),
+  };
   const planetIntel = state.planetIntel;
   const selectedPlanet = planetIntel?.selectedPlanet;
   if (!selectedPlanet) {
-    return { ...state, routes };
+    return { ...state, routes: hydratedRoutes };
   }
-  const selectedRoutes = routes.routes.filter((route) => route.source_planet_id === selectedPlanet.planet_id);
+  const selectedRoutes = hydratedRoutes.routes.filter((route) => route.source_planet_id === selectedPlanet.planet_id);
   return {
     ...state,
-    routes,
+    routes: hydratedRoutes,
     planetIntel: {
       ...planetIntel,
       selectedPlanet: {
@@ -392,6 +395,13 @@ export function parseRoute(payload: JsonObject): RouteSummary | null {
   if (toPublicMapKey) {
     route.to_public_map_key = toPublicMapKey;
   }
+  const lastSettlement = objectField(payload, 'last_settlement');
+  if (lastSettlement) {
+    const parsedSettlement = parseRouteSettlement(lastSettlement);
+    if (parsedSettlement) {
+      route.last_settlement = parsedSettlement;
+    }
+  }
   return route;
 }
 
@@ -418,20 +428,21 @@ export function parseRouteSettlement(payload: JsonObject): RouteSettlementSummar
 }
 
 export function applyRouteSnapshot(state: ClientState, route: RouteSummary): ClientState {
-  const routes = { routes: upsertRoute(state.routes?.routes ?? [], route) };
+  const nextRoute = routeWithKnownSettlement(state, route);
+  const routes = { routes: upsertRoute(state.routes?.routes ?? [], nextRoute) };
   const currentPlanetIntel = state.planetIntel;
   const selectedPlanet = currentPlanetIntel?.selectedPlanet;
   const shouldUpdateSelected =
     selectedPlanet &&
-    (selectedPlanet.planet_id === route.source_planet_id ||
-      selectedPlanet.routes.some((existingRoute) => existingRoute.route_id === route.route_id));
+    (selectedPlanet.planet_id === nextRoute.source_planet_id ||
+      selectedPlanet.routes.some((existingRoute) => existingRoute.route_id === nextRoute.route_id));
   const planetIntel =
     currentPlanetIntel && selectedPlanet && shouldUpdateSelected
       ? {
           ...currentPlanetIntel,
           selectedPlanet: {
             ...selectedPlanet,
-            routes: upsertRoute(selectedPlanet.routes, route),
+            routes: upsertRoute(selectedPlanet.routes, nextRoute),
           },
         }
       : currentPlanetIntel;
@@ -441,6 +452,20 @@ export function applyRouteSnapshot(state: ClientState, route: RouteSummary): Cli
     routes,
     planetIntel,
   };
+}
+
+function routeWithKnownSettlement(state: ClientState, route: RouteSummary): RouteSummary {
+  if (route.last_settlement) {
+    return route;
+  }
+  const knownSettlement =
+    state.routeSettlements?.[route.route_id] ??
+    state.routes?.routes.find((existingRoute) => existingRoute.route_id === route.route_id)?.last_settlement ??
+    state.planetIntel?.selectedPlanet?.routes.find((existingRoute) => existingRoute.route_id === route.route_id)?.last_settlement;
+  if (!knownSettlement) {
+    return route;
+  }
+  return { ...route, last_settlement: knownSettlement };
 }
 
 export function applyRouteSettlementSnapshot(state: ClientState, settlement: RouteSettlementSummary): ClientState {

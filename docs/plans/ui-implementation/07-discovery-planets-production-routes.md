@@ -99,7 +99,11 @@ Current slice completed:
   safe server `route.settle` result payloads onto the route read model and HUD
   rows. Single-route responses/events and owner reconcile `settlements[]`
   responses can display source-empty, destination-full, no-op, and loss-applied
-  outcomes without trusting client-authored route/storage/window facts.
+  outcomes without trusting client-authored route/storage/window facts. Route
+  snapshot/list reconciliation now preserves the last server settlement result
+  when later route read-model events omit settlement details, so queued
+  `route.updated`, `route.snapshot`, or `route.list` events cannot erase the
+  player's settlement feedback.
   Phase07DC locks matching route row mutation controls while a single-route
   settlement is pending and locks route create plus all row controls while
   owner-wide reconcile is pending, avoiding duplicate browser intents during

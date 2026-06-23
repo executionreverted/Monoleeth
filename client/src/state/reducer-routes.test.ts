@@ -249,6 +249,37 @@ describe('route reducer reconciliation', () => {
     });
     expect(next.planetIntel?.selectedPlanet?.routes[0].last_settlement).toEqual(next.routes?.routes[0].last_settlement);
   });
+
+  test('route snapshot and list events preserve the last server settlement result', () => {
+    const seeded = routeSeedState(routeFixture({ amount_per_hour: 40 }));
+    const settled = reduceClientState(seeded, {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.routeSettled,
+        {
+          route: routeFixture({ last_calculated_at: 1800, updated_at: 1800 }),
+          settlement: settlementFixture({ settled_at: 1800, source_empty: true, no_op: true }),
+        },
+        5,
+      ),
+    });
+
+    const snapshotted = reduceClientState(settled, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.routeSnapshot, { route: routeFixture({ last_calculated_at: 1800, updated_at: 1801 }) }, 6),
+    });
+    const listed = reduceClientState(snapshotted, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.routeList, { routes: [routeFixture({ last_calculated_at: 1800, updated_at: 1802 })] }, 7),
+    });
+
+    expect(listed.routes?.routes[0]).toMatchObject({
+      route_id: 'route-1',
+      updated_at: 1802,
+      last_settlement: { route_id: 'route-1', source_empty: true, no_op: true },
+    });
+    expect(listed.planetIntel?.selectedPlanet?.routes[0].last_settlement).toEqual(listed.routes?.routes[0].last_settlement);
+  });
 });
 
 function routeFixture(overrides: Partial<NonNullable<ReturnType<typeof createInitialState>['routes']>['routes'][number]> = {}) {
