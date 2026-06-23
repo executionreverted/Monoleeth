@@ -519,6 +519,13 @@ Current slice completed:
   committed/pending recovery readback instead of being treated as valid claim
   recovery state. Real DB rows, cross-service row locks/CAS, an atomic
   claim/production transaction, and scheduled recovery workers remain open.
+- Phase07CR claim production-init recovery primitive follow-up:
+  Recovery workers now have a bounded deterministic helper that scans pending
+  claim production-initialization rows, proves each row against committed claim
+  lifecycle readback, advances matching rows with the completed claim boundary,
+  skips missing lifecycle bundles, and fails closed when a completed lifecycle
+  lacks production-init evidence. Real DB rows, cross-process leases, and a
+  scheduled worker loop remain open.
 - Phase07CG settlement outbox worker readback validation follow-up:
   Settlement durable-store publisher, publish/fail callbacks, lease release,
   and failed-row retry paths now revalidate the committed settlement bundle
