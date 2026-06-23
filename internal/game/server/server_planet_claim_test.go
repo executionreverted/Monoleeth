@@ -151,6 +151,60 @@ func TestClaimPlanetDuplicateRetryDoesNotConsumeSecondXCore(t *testing.T) {
 	}
 }
 
+func TestClaimPlanetDuplicateRetryRepairsMissingProductionReadModelWithoutSecondXCore(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "claim-duplicate-repair@example.com", "Claim Duplicate Repair")
+	planetID := foundation.PlanetID("claim-duplicate-repair-planet")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 120, Y: 0}, 1)
+	grantClaimXCoreForTest(t, gameServer, owner.PlayerID, 1, "claim-duplicate-repair-xcore")
+
+	first := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-duplicate-repair-first", planetID)
+	if first.HasError {
+		t.Fatalf("first claim error = %+v, want success", first.Error)
+	}
+	if _, err := gameServer.runtime.postCommandEvents(owner.SessionID, realtime.OperationDiscoveryClaimPlanet, owner.PlayerID); err != nil {
+		t.Fatalf("post first claim events: %v", err)
+	}
+	if err := gameServer.runtime.Production.DropPlanetProductionReadModel(planetID); err != nil {
+		t.Fatalf("DropPlanetProductionReadModel(%q) error = %v, want nil", planetID, err)
+	}
+	if _, ok, err := gameServer.runtime.Production.Snapshot(planetID); err != nil || ok {
+		t.Fatalf("production snapshot after drop = ok %v err %v, want absent", ok, err)
+	}
+	grantClaimXCoreForTest(t, gameServer, owner.PlayerID, 1, "claim-duplicate-repair-extra-xcore")
+
+	second := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-duplicate-repair-second", planetID)
+	if second.HasError {
+		t.Fatalf("duplicate repair claim error = %+v, want success", second.Error)
+	}
+	var payload planetClaimResponsePayload
+	if err := json.Unmarshal(second.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode duplicate repair claim: %v", err)
+	}
+	if !payload.Claim.Duplicate || !payload.Claim.Accepted || !payload.Claim.ProductionIncluded {
+		t.Fatalf("duplicate repair claim payload = %+v, want duplicate accepted with production", payload.Claim)
+	}
+	if len(payload.Production.Planets) != 1 ||
+		payload.Production.Planets[0].PlanetID != planetID.String() ||
+		payload.PlanetDetail.Production == nil {
+		t.Fatalf("duplicate repair payload = %+v, want repaired production/detail", payload)
+	}
+	if _, ok, err := gameServer.runtime.Production.Snapshot(planetID); err != nil || !ok {
+		t.Fatalf("production snapshot after duplicate repair = ok %v err %v, want restored", ok, err)
+	}
+	if got := inventoryStackQuantityForTest(gameServer, owner.PlayerID, "x_core"); got != 1 {
+		t.Fatalf("x_core quantity after duplicate repair = %d, want extra core untouched", got)
+	}
+	if got := claimXCoreDecreaseLedgerCountForTest(gameServer, owner.PlayerID); got != 1 {
+		t.Fatalf("x_core decrease ledger entries after duplicate repair = %d, want one", got)
+	}
+	events, err := gameServer.runtime.postCommandEvents(owner.SessionID, realtime.OperationDiscoveryClaimPlanet, owner.PlayerID)
+	if err != nil {
+		t.Fatalf("post duplicate repair events: %v", err)
+	}
+	requireEventTypeForTest(t, events, realtime.EventProductionSummary)
+}
+
 func TestClaimPlanetFailureDoesNotRecordDurableLifecycle(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "claim-failed-lifecycle@example.com", "Claim Failed Lifecycle")

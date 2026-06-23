@@ -7,6 +7,7 @@ import (
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
 )
 
@@ -81,6 +82,9 @@ func (runtime *Runtime) handleClaimPlanet(ctx realtime.CommandContext, request r
 	if err := runtime.applyClaimDurableLifecycle(claimReference); err != nil {
 		return nil, domainErrorForClaim(err)
 	}
+	if err := runtime.ensureClaimProductionReadModel(ctx.PlayerID, claimReference, result); err != nil {
+		return nil, domainErrorForClaim(err)
+	}
 
 	knownPlanets, err := runtime.knownPlanetsPayload(ctx.PlayerID)
 	if err != nil {
@@ -145,6 +149,47 @@ func (runtime *Runtime) applyClaimDurableLifecycle(reference discovery.PlanetCla
 		}
 	}
 	_, err = plan.ApplyDurableLifecycle(runtime.ClaimLifecycles)
+	return err
+}
+
+func (runtime *Runtime) ensureClaimProductionReadModel(
+	playerID foundation.PlayerID,
+	reference discovery.PlanetClaimReference,
+	result discovery.ClaimPlanetResult,
+) error {
+	if !result.Claimed {
+		return nil
+	}
+	if runtime == nil || runtime.Production == nil {
+		return production.ErrInvalidClaimProductionInitializerConfig
+	}
+	if result.Planet.OwnerPlayerID != playerID {
+		return discovery.ErrPlanetAlreadyOwned
+	}
+	planetID := result.Planet.ID
+	if _, ok, err := runtime.Production.Snapshot(planetID); err != nil || ok {
+		return err
+	}
+	claimedAt := runtime.clock.Now().UTC()
+	if result.Planet.OwnerChangedAt != nil {
+		claimedAt = result.Planet.OwnerChangedAt.UTC()
+	}
+	if runtime.ClaimProductionInitializations != nil {
+		plan, ok, err := runtime.ClaimProductionInitializations.CommittedClaimProductionInitializationDurablePlan(reference)
+		if err != nil {
+			return err
+		}
+		if ok && plan.Initialization.PlanetID == planetID {
+			claimedAt = plan.Initialization.ClaimedAt.UTC()
+		}
+	}
+	_, err := runtime.Production.InitializePlanetProduction(production.InitializePlanetProductionInput{
+		PlanetID:              planetID,
+		LastCalculatedAt:      claimedAt,
+		StorageCapacityUnits:  runtimeClaimProductionStorageCapacity,
+		EnergyCapacityPerHour: runtimeClaimProductionEnergyCapacity,
+		UpdatedAt:             claimedAt,
+	})
 	return err
 }
 

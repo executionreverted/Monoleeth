@@ -34,6 +34,7 @@ var (
 	ErrInvalidProductionState            = errors.New("invalid planet production state")
 	ErrProductionSnapshotIncomplete      = errors.New("incomplete planet production snapshot")
 	ErrInvalidProductionEvent            = errors.New("invalid planet production event")
+	ErrInvalidProductionStore            = errors.New("invalid planet production store")
 	ErrInvalidProductionSettlementConfig = errors.New("invalid planet production settlement config")
 	ErrInvalidRouteDestinationType       = errors.New("invalid route destination type")
 	ErrInvalidRouteDestinationID         = errors.New("invalid route destination id")

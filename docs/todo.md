@@ -171,9 +171,13 @@ for phase status; this file is a compact pending-work index.
   effects without replaying completed rows. Phase07CF tightens the durable
   store/readback contract so production-init rows without pending or complete
   claim-boundary evidence are rejected instead of becoming orphan recovery
-  state. Real durable claim/production DB rows, cross-service row locks/CAS, an
-  atomic claim/production transaction, and scheduled recovery workers remain
-  open.
+  state. Phase07CI adds runtime read-model repair for duplicate/same-owner
+  claim retries: if process-local production/storage rows are missing after an
+  authoritative claim, the gateway restores them from server claim evidence
+  before returning planet detail/production snapshots, without consuming a
+  second X Core. Real durable claim/production DB rows, cross-service row
+  locks/CAS, an atomic claim/production transaction, and scheduled recovery
+  workers remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory

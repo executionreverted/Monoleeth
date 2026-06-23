@@ -141,6 +141,25 @@ func (store *InMemoryStore) InitializePlanetProduction(input InitializePlanetPro
 	return InitializePlanetProductionResult{Snapshot: snapshot, Created: true}, nil
 }
 
+// DropPlanetProductionReadModel removes process-local production/storage rows
+// while leaving unrelated durable claim evidence intact. Recovery tests use it
+// to prove claim retries can rebuild gameplay read models from server facts.
+func (store *InMemoryStore) DropPlanetProductionReadModel(planetID foundation.PlanetID) error {
+	if err := planetID.Validate(); err != nil {
+		return err
+	}
+	if store == nil {
+		return ErrInvalidProductionStore
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.ensureMapsLocked()
+	delete(store.states, planetID)
+	delete(store.storage, planetID)
+	delete(store.buildings, planetID)
+	return nil
+}
+
 // SaveProductionState validates and replaces one planet production state row.
 func (store *InMemoryStore) SaveProductionState(state PlanetProductionState) error {
 	if err := state.Validate(); err != nil {

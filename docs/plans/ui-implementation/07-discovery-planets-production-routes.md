@@ -259,6 +259,14 @@ Current slice completed:
   repair completed, without minting duplicate claim events/outbox rows. Durable
   recovery rows, cross-service transaction/CAS, and recovery workers remain
   open.
+- Phase07CI claim production read-model repair follow-up:
+  `discovery.claim_planet` now repairs missing live production/storage rows
+  before building duplicate/same-owner claim response snapshots. A duplicate
+  retry after process-local production read-model loss restores production from
+  server claim evidence, returns production/detail snapshots for the browser,
+  emits the normal production summary event, and does not consume a second
+  X Core. Durable DB claim/production rows and scheduled recovery workers
+  remain open.
 - Phase07X outbox lease recovery follow-up: process-local claim outbox and
   production/route settlement outbox records can now release expired
   in-flight publisher leases back to pending in append order. Release clears
