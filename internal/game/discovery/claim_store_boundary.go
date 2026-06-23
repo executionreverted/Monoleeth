@@ -44,6 +44,9 @@ type CompletePlanetClaimBoundaryInput struct {
 
 type CompletePlanetClaimBoundaryResult struct {
 	Boundary  ClaimBoundaryRecord
+	Reference ClaimReferenceRecord
+	Event     ClaimEventRecord
+	Outbox    ClaimOutboxRecord
 	Duplicate bool
 }
 
@@ -146,13 +149,30 @@ func (store *InMemoryStore) CompletePlanetClaimBoundary(input CompletePlanetClai
 	}
 	if record.Status == ClaimBoundaryStatusComplete {
 		completed := cloneClaimBoundaryRecord(record)
-		return CompletePlanetClaimBoundaryResult{Boundary: completed, Duplicate: true}, nil
+		reference, event, outbox := store.ensureClaimBoundaryCompletionArtifactsLocked(completed)
+		return CompletePlanetClaimBoundaryResult{
+			Boundary:  completed,
+			Reference: reference,
+			Event:     event,
+			Outbox:    outbox,
+			Duplicate: true,
+		}, nil
 	}
 	record.Status = ClaimBoundaryStatusComplete
 	record.CompletedAt = input.CompletedAt.UTC()
 	record.StaleListingCount = input.StaleListingCount
 	store.claimBoundaries[input.ClaimReference] = cloneClaimBoundaryRecord(record)
-	return CompletePlanetClaimBoundaryResult{Boundary: cloneClaimBoundaryRecord(record)}, nil
+
+	reference := store.recordClaimReferenceLocked(record, false)
+	event := claimEventFromBoundary(record)
+	store.claimEvents = append(store.claimEvents, cloneClaimEventRecord(event))
+	outbox := store.appendClaimOutboxRecordLocked(event)
+	return CompletePlanetClaimBoundaryResult{
+		Boundary:  cloneClaimBoundaryRecord(record),
+		Reference: reference,
+		Event:     event,
+		Outbox:    outbox,
+	}, nil
 }
 
 func (store *InMemoryStore) ClaimBoundary(ref PlanetClaimReference) (ClaimBoundaryRecord, bool, error) {
@@ -233,6 +253,71 @@ func (input CompletePlanetClaimBoundaryInput) Validate() error {
 
 func claimBoundaryMatches(record ClaimBoundaryRecord, playerID foundation.PlayerID, planetID foundation.PlanetID) bool {
 	return record.PlayerID == playerID && record.PlanetID == planetID
+}
+
+func (store *InMemoryStore) ensureClaimBoundaryCompletionArtifactsLocked(record ClaimBoundaryRecord) (ClaimReferenceRecord, ClaimEventRecord, ClaimOutboxRecord) {
+	reference, ok := store.claimReferences[record.ClaimReference]
+	if !ok {
+		reference = store.recordClaimReferenceLocked(record, false)
+	} else {
+		reference = cloneClaimReferenceRecord(reference)
+	}
+
+	event, ok := store.claimBoundaryEventLocked(record)
+	if !ok {
+		event = claimEventFromBoundary(record)
+		store.claimEvents = append(store.claimEvents, cloneClaimEventRecord(event))
+	}
+
+	outbox, ok := store.claimBoundaryOutboxLocked(record)
+	if !ok {
+		outbox = store.appendClaimOutboxRecordLocked(event)
+	}
+	return reference, event, outbox
+}
+
+func (store *InMemoryStore) claimBoundaryEventLocked(record ClaimBoundaryRecord) (ClaimEventRecord, bool) {
+	for _, candidate := range store.claimEvents {
+		if candidate.EventID == record.EventID && candidate.ClaimReference == record.ClaimReference {
+			return cloneClaimEventRecord(candidate), true
+		}
+	}
+	return ClaimEventRecord{}, false
+}
+
+func (store *InMemoryStore) claimBoundaryOutboxLocked(record ClaimBoundaryRecord) (ClaimOutboxRecord, bool) {
+	for _, candidate := range store.claimOutbox {
+		if candidate.ClaimReference == record.ClaimReference && candidate.Event.EventID == record.EventID {
+			return cloneClaimOutboxRecord(candidate), true
+		}
+	}
+	return ClaimOutboxRecord{}, false
+}
+
+func (store *InMemoryStore) recordClaimReferenceLocked(record ClaimBoundaryRecord, alreadyOwned bool) ClaimReferenceRecord {
+	reference := ClaimReferenceRecord{
+		ClaimReference: record.ClaimReference,
+		ReferenceKey:   record.ReferenceKey,
+		PlayerID:       record.PlayerID,
+		PlanetID:       record.PlanetID,
+		ClaimedAt:      record.ClaimedAt.UTC(),
+		RecordedAt:     record.CompletedAt.UTC(),
+		AlreadyOwned:   alreadyOwned,
+		EventID:        record.EventID,
+	}
+	store.claimReferences[record.ClaimReference] = cloneClaimReferenceRecord(reference)
+	return cloneClaimReferenceRecord(reference)
+}
+
+func claimEventFromBoundary(record ClaimBoundaryRecord) ClaimEventRecord {
+	return ClaimEventRecord{
+		EventID:        record.EventID,
+		Type:           ClaimEventPlanetClaimed,
+		PlayerID:       record.PlayerID,
+		PlanetID:       record.PlanetID,
+		ClaimReference: record.ClaimReference,
+		CreatedAt:      record.ClaimedAt.UTC(),
+	}
 }
 
 func cloneClaimBoundaryRecord(record ClaimBoundaryRecord) ClaimBoundaryRecord {

@@ -284,6 +284,21 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 		if err != nil {
 			return ClaimPlanetResult{}, err
 		}
+		if hasBoundary && boundary.Status == ClaimBoundaryStatusComplete {
+			if err := service.completeClaimBoundary(input, claimedAt, boundary.StaleListingCount); err != nil {
+				return ClaimPlanetResult{}, err
+			}
+			result := ClaimPlanetResult{
+				Planet:            clonePlanet(planet),
+				Claimed:           true,
+				StaleIntelCount:   boundary.StaleIntelCount,
+				StaleListingCount: boundary.StaleListingCount,
+			}
+			service.claims[input.ClaimReference] = claimRecord{input: input, result: cloneClaimPlanetResult(result)}
+			duplicate := cloneClaimPlanetResult(result)
+			duplicate.Duplicate = true
+			return duplicate, nil
+		}
 		if err := service.initializeProduction(input, planet, claimedAt); err != nil {
 			return ClaimPlanetResult{}, err
 		}
@@ -295,12 +310,6 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 			return ClaimPlanetResult{}, err
 		}
 		if hasBoundary && boundary.Status == ClaimBoundaryStatusPendingSideEffects {
-			event := newClaimEvent(ClaimEventPlanetClaimed, input, boundary.ClaimedAt)
-			if !boundary.EventID.IsZero() {
-				event.EventID = boundary.EventID
-			}
-			service.events = append(service.events, event)
-			service.appendClaimOutboxRecordLocked(event)
 			result := ClaimPlanetResult{
 				Planet:            clonePlanet(planet),
 				Claimed:           true,
@@ -308,7 +317,6 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 				StaleListingCount: staleListings.MarkedCount,
 			}
 			service.claims[input.ClaimReference] = claimRecord{input: input, result: cloneClaimPlanetResult(result)}
-			service.recordClaimReferenceLocked(input, boundary.ClaimedAt, service.clock.Now().UTC(), false, event.EventID)
 			return result, nil
 		}
 		result := ClaimPlanetResult{
@@ -363,8 +371,6 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 	if err := service.completeClaimBoundary(input, now, staleListings.MarkedCount); err != nil {
 		return ClaimPlanetResult{}, err
 	}
-	service.events = append(service.events, event)
-	service.appendClaimOutboxRecordLocked(event)
 
 	result := ClaimPlanetResult{
 		Planet:            claimBoundary.Planet,
@@ -373,7 +379,6 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 		StaleListingCount: staleListings.MarkedCount,
 	}
 	service.claims[input.ClaimReference] = claimRecord{input: input, result: cloneClaimPlanetResult(result)}
-	service.recordClaimReferenceLocked(input, now, now, false, event.EventID)
 	return result, nil
 }
 
@@ -382,9 +387,11 @@ func (service *ClaimService) Events() []ClaimEventRecord {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
-	events := make([]ClaimEventRecord, len(service.events))
-	for index, event := range service.events {
-		events[index] = cloneClaimEventRecord(event)
+	storeEvents := service.store.ClaimEvents()
+	events := make([]ClaimEventRecord, 0, len(storeEvents)+len(service.events))
+	events = append(events, storeEvents...)
+	for _, event := range service.events {
+		events = append(events, cloneClaimEventRecord(event))
 	}
 	return events
 }

@@ -145,6 +145,15 @@ func TestCompletePlanetClaimBoundaryMarksSideEffectsCompleteAndReplaysDuplicate(
 	if completed.Duplicate || completed.Boundary.Status != ClaimBoundaryStatusComplete || !completed.Boundary.CompletedAt.Equal(testTime(11)) || completed.Boundary.StaleListingCount != 3 {
 		t.Fatalf("completed boundary = %+v, want complete at %s with listing count", completed, testTime(11))
 	}
+	if completed.Reference.ClaimReference != reference || completed.Reference.EventID != "event_boundary_complete" || completed.Reference.AlreadyOwned {
+		t.Fatalf("completed reference = %+v, want claim reference with event evidence", completed.Reference)
+	}
+	if completed.Event.EventID != "event_boundary_complete" || completed.Event.Type != ClaimEventPlanetClaimed || !completed.Event.CreatedAt.Equal(testTime(10)) {
+		t.Fatalf("completed event = %+v, want boundary event at original claim time", completed.Event)
+	}
+	if completed.Outbox.Status != ClaimOutboxStatusPending || completed.Outbox.Event.EventID != completed.Event.EventID || completed.Outbox.Sequence != 1 {
+		t.Fatalf("completed outbox = %+v, want pending sequence 1 for completed event", completed.Outbox)
+	}
 
 	duplicate, err := store.CompletePlanetClaimBoundary(CompletePlanetClaimBoundaryInput{
 		ClaimReference:    reference,
@@ -158,6 +167,80 @@ func TestCompletePlanetClaimBoundaryMarksSideEffectsCompleteAndReplaysDuplicate(
 	}
 	if !duplicate.Duplicate || !duplicate.Boundary.CompletedAt.Equal(testTime(11)) || duplicate.Boundary.StaleListingCount != 3 {
 		t.Fatalf("duplicate complete = %+v, want replay of first completion", duplicate)
+	}
+	if duplicate.Reference != completed.Reference || duplicate.Event != completed.Event || duplicate.Outbox.OutboxID != completed.Outbox.OutboxID {
+		t.Fatalf("duplicate artifacts = %+v, want replay of completed artifacts %+v", duplicate, completed)
+	}
+	if got := len(store.ClaimReferences()); got != 1 {
+		t.Fatalf("ClaimReferences() after duplicate complete = %d, want 1", got)
+	}
+	if got := len(store.ClaimEvents()); got != 1 {
+		t.Fatalf("ClaimEvents() after duplicate complete = %d, want 1", got)
+	}
+	if got := len(store.ClaimOutboxRecords()); got != 1 {
+		t.Fatalf("ClaimOutboxRecords() after duplicate complete = %d, want 1", got)
+	}
+}
+
+func TestCompletePlanetClaimBoundaryRepairsMissingArtifactsForCompletedBoundary(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-boundary-complete-repair")
+	materializeClaimTestPlanet(t, store, planet)
+	reference := PlanetClaimReference("claim_boundary_complete_repair")
+	if _, err := store.BeginPlanetClaimBoundary(BeginPlanetClaimBoundaryInput{
+		ClaimReference:  reference,
+		PlayerID:        claimTestPlayerID,
+		PlanetID:        planet.ID,
+		ClaimedAt:       testTime(10),
+		EventID:         "event_boundary_complete_repair",
+		SourceReference: "planet.claimed:event_boundary_complete_repair",
+	}); err != nil {
+		t.Fatalf("BeginPlanetClaimBoundary() error = %v, want nil", err)
+	}
+
+	store.mu.Lock()
+	boundary := store.claimBoundaries[reference]
+	boundary.Status = ClaimBoundaryStatusComplete
+	boundary.CompletedAt = testTime(11)
+	boundary.StaleListingCount = 2
+	store.claimBoundaries[reference] = boundary
+	store.mu.Unlock()
+
+	repaired, err := store.CompletePlanetClaimBoundary(CompletePlanetClaimBoundaryInput{
+		ClaimReference:    reference,
+		PlayerID:          claimTestPlayerID,
+		PlanetID:          planet.ID,
+		CompletedAt:       testTime(20),
+		StaleListingCount: 99,
+	})
+	if err != nil {
+		t.Fatalf("repair CompletePlanetClaimBoundary() error = %v, want nil", err)
+	}
+	if !repaired.Duplicate || repaired.Reference.ClaimReference != reference || repaired.Event.EventID != "event_boundary_complete_repair" || repaired.Outbox.Status != ClaimOutboxStatusPending {
+		t.Fatalf("repaired duplicate = %+v, want replay with reconstructed artifacts", repaired)
+	}
+
+	replayed, err := store.CompletePlanetClaimBoundary(CompletePlanetClaimBoundaryInput{
+		ClaimReference:    reference,
+		PlayerID:          claimTestPlayerID,
+		PlanetID:          planet.ID,
+		CompletedAt:       testTime(30),
+		StaleListingCount: 100,
+	})
+	if err != nil {
+		t.Fatalf("replay CompletePlanetClaimBoundary() error = %v, want nil", err)
+	}
+	if replayed.Outbox.OutboxID != repaired.Outbox.OutboxID {
+		t.Fatalf("replay outbox = %+v, want same outbox %+v", replayed.Outbox, repaired.Outbox)
+	}
+	if got := len(store.ClaimReferences()); got != 1 {
+		t.Fatalf("ClaimReferences() after repair replay = %d, want 1", got)
+	}
+	if got := len(store.ClaimEvents()); got != 1 {
+		t.Fatalf("ClaimEvents() after repair replay = %d, want 1", got)
+	}
+	if got := len(store.ClaimOutboxRecords()); got != 1 {
+		t.Fatalf("ClaimOutboxRecords() after repair replay = %d, want 1", got)
 	}
 }
 

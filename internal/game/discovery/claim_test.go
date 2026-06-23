@@ -367,6 +367,71 @@ func TestClaimPlanetDuplicateReferenceDoesNotConsumeEmitOrInitializeAgain(t *tes
 	}
 }
 
+func TestClaimPlanetCompletedBoundaryReplayAfterServiceCacheLossDoesNotRepairSameOwner(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim-cache-loss")
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	firstConsumer := &recordingClaimXCoreConsumer{}
+	firstInitializer := &recordingClaimProductionInitializer{}
+	firstService := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    firstConsumer,
+		initializer: firstInitializer,
+	})
+	input := claimInput("claim_completed_boundary_replay", planet.ID)
+
+	first, err := firstService.ClaimPlanet(input)
+	if err != nil {
+		t.Fatalf("first ClaimPlanet() error = %v, want nil", err)
+	}
+	if !first.Claimed || first.AlreadyOwned || first.Duplicate {
+		t.Fatalf("first result = %+v, want original claimed result", first)
+	}
+
+	replayConsumer := &recordingClaimXCoreConsumer{}
+	replayInitializer := &recordingClaimProductionInitializer{}
+	replayMarker := &recordingClaimListedIntelStaleMarker{markedCount: 9}
+	replayService := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    replayConsumer,
+		initializer: replayInitializer,
+		staleMarker: replayMarker,
+	})
+	replayed, err := replayService.ClaimPlanet(input)
+	if err != nil {
+		t.Fatalf("replay ClaimPlanet() error = %v, want nil", err)
+	}
+	if !replayed.Duplicate || !replayed.Claimed || replayed.AlreadyOwned {
+		t.Fatalf("replay result = %+v, want duplicate original claim replay", replayed)
+	}
+	if got := len(replayConsumer.calls); got != 0 {
+		t.Fatalf("x core consume calls during completed replay = %d, want 0", got)
+	}
+	if got := len(replayInitializer.calls); got != 0 {
+		t.Fatalf("production initializer calls during completed replay = %d, want 0", got)
+	}
+	if got := len(replayMarker.calls); got != 0 {
+		t.Fatalf("stale marker calls during completed replay = %d, want 0", got)
+	}
+	if got := len(replayService.ClaimRecoveries()); got != 0 {
+		t.Fatalf("claim recoveries during completed replay = %d, want 0", got)
+	}
+	if got := len(replayService.ClaimReferences()); got != 1 {
+		t.Fatalf("claim references during completed replay = %d, want 1", got)
+	}
+	if got := len(replayService.Events()); got != 1 {
+		t.Fatalf("claim events during completed replay = %d, want 1", got)
+	}
+	if got := len(replayService.ClaimOutboxRecords()); got != 1 {
+		t.Fatalf("claim outbox records during completed replay = %d, want 1", got)
+	}
+}
+
 func TestClaimPlanetConflictingReferenceDoesNotMutateBoundaryRecords(t *testing.T) {
 	store := NewInMemoryStore()
 	planet := claimTestPlanet("planet-claim")

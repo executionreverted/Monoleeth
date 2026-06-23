@@ -92,7 +92,11 @@ for phase status; this file is a compact pending-work index.
   needs durable DB rows. Phase07AA wires `ClaimService` through that boundary
   so failed side effects leave pending evidence, retries complete it without a
   second X Core consume, and claim-reference conflicts are rejected before
-  another consume.
+  another consume. Phase07AB moves claim reference, `planet.claimed` event, and
+  pending claim outbox creation into the store-owned boundary completion so
+  duplicate completion replays or repairs existing artifacts instead of minting
+  another event/outbox row, and completed-boundary claim replays after process
+  cache loss no longer become already-owned repairs.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
   planet claim transaction. Current in-memory flow can repair production state
   on retry, and Phase07W now records process-local claim recovery evidence
@@ -168,7 +172,9 @@ for phase status; this file is a compact pending-work index.
   intel quotas remain open. Phase07Z adds a store-owned begin/complete claim
   boundary row that models the future owner-CAS plus pending-side-effects DB
   transaction; Phase07AA wires `ClaimService` through that boundary while
-  durable DB rows and recovery workers remain open.
+  Phase07AB records reference/event/outbox completion artifacts under the same
+  store lock and replays completed boundaries without duplicate repair side
+  effects. Durable DB rows and recovery workers remain open.
   Source: Phase 10 audit, Phase07A, Phase07O, Phase07P, Phase07Q, Phase07R,
   Phase07S, and
   `docs/map-rework/phase-10-testing-rollout.md`.

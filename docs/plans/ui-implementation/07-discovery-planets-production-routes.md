@@ -276,6 +276,16 @@ Current slice completed:
   before a second consume. Durable DB rows, cross-service transaction
   enforcement, recovery workers, and durable event/outbox completion remain
   open.
+- Phase07AB store-owned claim completion artifacts follow-up: completing a
+  claim boundary now records the claim reference, `planet.claimed` event, and
+  pending claim outbox row under the discovery store lock. Duplicate completion
+  replays the original artifacts without minting another event/outbox row, and
+  repairs missing completion artifacts if an older completed boundary is
+  replayed. `ClaimService` now treats a completed boundary after process cache
+  loss as an original claim replay, not an already-owned repair, and its
+  read/publisher APIs delegate boundary-backed claim artifacts to the
+  store-owned state. Durable DB rows, X Core/owner-CAS transaction coupling,
+  and cross-process publisher/recovery workers remain open.
 
 ## Source Specs
 
