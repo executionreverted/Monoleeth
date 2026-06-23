@@ -133,6 +133,55 @@ func TestClaimDurableLifecycleStoreReadsCommittedPlanByReference(t *testing.T) {
 	}
 }
 
+func TestClaimDurableLifecycleStoreReadbackPreservesCompletedProductionInit(t *testing.T) {
+	beginPlan, pendingInitPlan, commitPlan := claimDurableLifecyclePlansForTest(t)
+	completedInitPlan, err := NewClaimProductionInitializationDurablePlan(&pendingInitPlan.Initialization, &commitPlan.Boundary)
+	if err != nil {
+		t.Fatalf("NewClaimProductionInitializationDurablePlan(complete) error = %v, want nil", err)
+	}
+	commitPlanWithXCore, err := NewClaimDurableCommitPlan(
+		&commitPlan.Boundary,
+		&commitPlan.Reference,
+		&commitPlan.Event,
+		&commitPlan.Outbox,
+		&beginPlan.XCoreConsumption,
+	)
+	if err != nil {
+		t.Fatalf("NewClaimDurableCommitPlan(with xcore) error = %v, want nil", err)
+	}
+	plan, err := NewClaimDurableLifecyclePlan(&beginPlan, &completedInitPlan, &commitPlanWithXCore)
+	if err != nil {
+		t.Fatalf("NewClaimDurableLifecyclePlan(complete init) error = %v, want nil", err)
+	}
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(plan); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan(complete init) error = %v, want nil", err)
+	}
+
+	recovered, ok, err := store.CommittedClaimDurableLifecyclePlan(plan.Commit.Boundary.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimDurableLifecyclePlan(complete init) = ok %v err %v, want true nil", ok, err)
+	}
+	if !recovered.HasProductionInit ||
+		recovered.ProductionInitialized.Boundary.Status != ClaimBoundaryStatusComplete ||
+		recovered.ProductionInitialized.Boundary.StaleListingCount != commitPlan.Boundary.StaleListingCount ||
+		recovered.ProductionInitialized.Initialization.ClaimReference != completedInitPlan.Initialization.ClaimReference ||
+		recovered.ProductionInitialized.Initialization.PlanetID != completedInitPlan.Initialization.PlanetID {
+		t.Fatalf("recovered completed production init = %+v, want completed lifecycle evidence %+v", recovered.ProductionInitialized, completedInitPlan)
+	}
+
+	recovered.ProductionInitialized.Boundary.Status = ClaimBoundaryStatusPendingSideEffects
+	recovered.ProductionInitialized.Initialization.PlanetID = "mutated-planet"
+	again, ok, err := store.CommittedClaimDurableLifecyclePlan(plan.Commit.Boundary.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimDurableLifecyclePlan(second complete init) = ok %v err %v, want true nil", ok, err)
+	}
+	if again.ProductionInitialized.Boundary.Status != ClaimBoundaryStatusComplete ||
+		again.ProductionInitialized.Initialization.PlanetID == "mutated-planet" {
+		t.Fatalf("recovered completed production init reused mutable rows: %+v", again.ProductionInitialized)
+	}
+}
+
 func TestClaimDurableLifecycleStoreReadsCommittedDispatchPlanByReference(t *testing.T) {
 	plan := claimDurableLifecyclePlanForStoreTest(t)
 	store := NewInMemoryClaimDurableLifecycleStore()

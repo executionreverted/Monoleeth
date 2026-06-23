@@ -220,6 +220,17 @@ func TestClaimPlanetStaleMarkerFailureRecordsPendingProductionInitialization(t *
 	if references := gameServer.runtime.ClaimLifecycles.ClaimReferences(); len(references) != 1 || references[0] != claimReference {
 		t.Fatalf("claim lifecycle references after retry = %+v, want completed [%q]", references, claimReference)
 	}
+	lifecycle, ok, err := gameServer.runtime.ClaimLifecycles.CommittedClaimDurableLifecyclePlan(claimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimDurableLifecyclePlan(recovered init) = ok %v err %v, want true nil", ok, err)
+	}
+	if !lifecycle.HasProductionInit ||
+		lifecycle.ProductionInitialized.Initialization.ClaimReference != complete.Initialization.ClaimReference ||
+		lifecycle.ProductionInitialized.Initialization.PlanetID != complete.Initialization.PlanetID ||
+		lifecycle.ProductionInitialized.Boundary.Status != discovery.ClaimBoundaryStatusComplete ||
+		lifecycle.ProductionInitialized.Boundary.StaleListingCount != complete.Boundary.StaleListingCount {
+		t.Fatalf("lifecycle production init = %+v, want completed sidecar plan %+v", lifecycle.ProductionInitialized, complete)
+	}
 	if got := claimXCoreDecreaseLedgerCountForTest(gameServer, owner.PlayerID); got != 1 {
 		t.Fatalf("x_core decrease ledger entries = %d, want one", got)
 	}

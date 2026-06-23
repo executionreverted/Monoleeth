@@ -547,6 +547,11 @@ Current slice completed:
   boundary evidence to complete boundary evidence on a successful retry without
   appending a second row. Real DB rows, cross-service row locks/CAS, scheduled
   recovery workers, and an atomic claim/production transaction remain open.
+- Phase07BW claim production-init recovery readback follow-up:
+  Runtime and durable-store tests now prove that a production-init row first
+  committed as pending after a later side-effect failure advances to completed
+  evidence on retry, and the committed claim lifecycle readback embeds the same
+  completed production-init evidence instead of only relying on the sidecar row.
 - Phase07AW claim durable lifecycle-plan follow-up:
   `NewClaimDurableLifecyclePlan` now validates that a completed claim lifecycle
   is one coherent row bundle across begin, optional production-init, and commit
