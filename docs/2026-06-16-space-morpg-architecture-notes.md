@@ -10,7 +10,8 @@ The target mood is:
 
 - Oldschool DarkOrbit-style 2D space movement and combat.
 - OGame / Travian-style persistence, resource loops, timers, economy, alliances, and long-term planning.
-- A more tactical, information-driven space game where sensors, fog of war, range, cargo, gathering, loot, and map control matter.
+- A more tactical, information-driven space game where sensors, radar/stealth
+  visibility, range, cargo, gathering, loot, and map control matter.
 - Pixel art or 16/32-bit inspired visuals rendered on a game canvas, with UI panels that can feel like a ship console.
 
 The game should work in the browser and also as a packaged desktop client. The same client should ideally be reused for both.
@@ -26,7 +27,7 @@ The client should never be trusted for:
 - Hit validation.
 - Range checks.
 - Line of sight.
-- Visibility / fog of war.
+- Visibility, radar, stealth, and hidden-data filtering.
 - Loot ownership.
 - Resource gathering progress.
 - Cargo capacity.
@@ -52,7 +53,10 @@ Examples:
 - React, Solid, or another DOM UI layer for panels such as inventory, cargo, chat, station UI, market, quests, and terminal screens.
 - Tauri for desktop packaging.
 
-PixiJS is a good fit because this game needs a custom 2D render surface, sprite control, overlays, fog rendering, effects, map layers, and a lot of UI composition around the canvas. Phaser can work, but PixiJS is more flexible as a rendering engine when the game logic is already server-owned.
+PixiJS is a good fit because this game needs a custom 2D render surface, sprite
+control, radar/minimap overlays, effects, map layers, and a lot of UI
+composition around the canvas. Phaser can work, but PixiJS is more flexible as
+a rendering engine when the game logic is already server-owned.
 
 ### Realtime Network
 
@@ -129,62 +133,71 @@ The map worker is responsible for:
 - Combat and gathering validation.
 - Delayed events like respawns and despawns.
 
-## Infinite Frontier and Discovery Horizon
+## Bounded Multi-Map Frontier
 
-The universe has no hard border.
+The playable universe is composed of bounded maps connected by portals.
 
 Conceptually:
 
 ```text
-Origin: 0,0
-Universe: infinite coordinate plane
+Map: 10000 x 10000 local coordinate space
+Portal: server-owned transition from one map to another
+Universe: graph of bounded maps with different profiles
 ```
 
-Players begin near the origin and push outward. The goal is to explore fog, discover planets, claim/build on them, create production routes, and connect those planets into a personal or alliance galaxy network.
+Players begin in an entry map and move through portals into other maps. The goal
+is to scan, discover planets, claim/build on them, create production routes, and
+connect those planets into a personal or alliance network.
 
 The key design hook:
 
 ```text
-The universe is infinite, but civilization only exists as far as players can push the dark back.
+The universe can grow by adding maps, but each playable map stays bounded,
+readable, and server-authoritative.
 ```
 
-### Discovery Horizon
+### Map Unlock Horizon
 
-The game should not spawn meaningful content at arbitrary coordinates such as `5315151513,53153151351` on day one.
+The game should not spawn meaningful content at arbitrary unbounded coordinates.
 
-Instead, the world has a moving expansion boundary:
+Instead, expansion is controlled by map catalog/profile rollout:
 
 ```text
-discovery_horizon = farthest meaningful discovered/claimed frontier from origin
-spawnable_area = area between origin and discovery_horizon
+map_catalog = explicit bounded maps
+portal_graph = explicit transitions between maps
+candidate_budget = per-map planet/resource/anomaly/enemy budget
 ```
 
-New planets, resources, anomalies, NPC zones, and special points of interest should spawn only within the currently unlocked horizon or near its outer frontier band.
+New planets, resources, anomalies, NPC zones, and special points of interest are
+generated or selected from the current map profile and its durable overlay.
 
-This keeps the infinite universe controlled, readable, and socially alive.
+This keeps the universe controlled, readable, and socially alive while still
+allowing live ops to add new maps later.
 
 Important distinction:
 
 ```text
-Flying through empty space does not automatically expand the horizon.
-Meaningful discovery or infrastructure expands the horizon.
+Flying to the edge of a map does not create more world.
+Portal unlocks, events, and map rollout expand the playable graph.
 ```
 
-Valid horizon-expanding events can include:
+Valid map-expanding events can include:
 
 - Discovering a new planet.
 - Claiming or activating a planet.
-- Building a radar relay.
+- Building map infrastructure.
 - Establishing a wormhole anchor.
 - Scanning a major anomaly.
 - Creating an outpost.
 - Completing a frontier event.
 
-This prevents one player from flying in a straight line for hours and forcing the entire world generator to expand into absurd coordinates.
+This prevents one player from flying in a straight line for hours and forcing
+the world generator to expand into absurd coordinates.
 
 ### Controlled Procedural Spawning
 
-The world can still be procedural, but it should be procedural inside the active frontier.
+The world can still be procedural, but it should be procedural inside bounded
+maps and server-owned map profiles.
 
 Suggested model:
 
@@ -266,13 +279,15 @@ Except for energy-powered warp/wormhole travel between discovered or connected p
 Travel modes:
 
 ```text
-Free Flight:
-  Can go anywhere.
+Map Flight:
+  Can move within the current bounded map.
   Slow, especially early.
-  Exposes the player to fog, threats, cargo risk, and travel time.
+  Exposes the player to radar-limited visibility, threats, cargo risk, and
+  travel time.
 
-Planet Warp / Wormhole:
-  Only works between discovered, claimed, or linked planets.
+Portal / Planet Warp / Wormhole:
+  Works only through server-owned portals or discovered/claimed/linked
+  infrastructure.
   Consumes energy.
   Requires infrastructure.
   Creates strategic transport networks.
@@ -294,7 +309,7 @@ Kappa Mine:
   ore production
 
 Silent Relay:
-  radar and fog coverage
+  radar and scan coverage
 
 Veil Forge:
   crafting and module production
@@ -348,9 +363,9 @@ Planet intel freshness:
 Example:
 
 ```text
-Player A flies from 35,24 toward 124,50.
+Player A flies inside map `1-1` from 3500,2400 toward 5200,6100.
 Player A detects a planet.
-The planet is added to Player A's fog memory.
+The planet is added to Player A's known intel.
 
 Later, Player B reaches the same planet and colonizes it.
 Planet ownership changes globally.
@@ -423,7 +438,7 @@ There can be a "share" mechanic:
 ```text
 Player A shares Planet ABC with Player B.
 Player B receives an in-game mail or notification.
-Planet ABC appears in Player B's fog memory.
+Planet ABC appears in Player B's known intel.
 Player B gains a planet intel record.
 ```
 
@@ -447,7 +462,7 @@ These can be:
 - Shared with an alliance.
 - Listed on the market.
 - Bought by scouts, settlers, pirates, traders, or alliances.
-- Consumed to reveal the planet in the buyer's fog memory.
+- Consumed to reveal the planet in the buyer's known intel.
 
 Possible item fields:
 
@@ -460,7 +475,8 @@ intel_item:
   snapshot_type
   snapshot_rarity
   snapshot_energy
-  snapshot_distance_from_origin
+  snapshot_map_id
+  snapshot_map_position
   expires_at
   validity_state
 ```
@@ -517,7 +533,7 @@ MapWorker
   has fixed tick loop
   has delayed task scheduler
   has spatial grid
-  has visibility/fog system
+  has radar/stealth visibility system
   has combat system
   has resource/gather system
   has loot system
@@ -913,7 +929,7 @@ If a map becomes too hot:
 The most important scaling tools are:
 
 - AOI/interest management.
-- Server-side fog filtering.
+- Server-side hidden-data filtering.
 - Map/zone ownership.
 - Efficient binary protocol.
 - Avoiding global broadcasts.
@@ -1149,7 +1165,7 @@ Explorer / Scanner:
   low-medium weapons
   strong radar slots
   passive scan range or anomaly detection bonus
-  good for fog exploration and finding planets/resources
+  good for radar/scanner exploration and finding planets/resources
 
 Miner / Industrial:
   mining laser bonuses
@@ -1230,7 +1246,7 @@ This prevents planetary economy from turning directly into unlimited firing powe
 
 ## Open Questions
 
-- Should explored fog memory be per player, per party, per alliance, or per account?
+- Should known intel be per player, per party, per alliance, or per account?
 - Should map visibility be circular sensor radius only, or should cones/scanner arcs exist later?
 - Should combat be mostly target-lock based, skill-shot based, or hybrid?
 - Should resource gathering continue while offline, or only while the ship is present and vulnerable?
@@ -1245,14 +1261,14 @@ A good first vertical slice:
 ```text
 One server
 One gateway
-Two maps: A and B
+Two bounded maps: A and B
 One portal from A to B
 One player ship
 One NPC monster type
 One resource node type
 One loot drop type
 One cargo limit
-Server-side fog of war
+Server-side radar/stealth visibility filtering
 Server-side movement
 Server-side attack range/damage
 Server-side gather tick

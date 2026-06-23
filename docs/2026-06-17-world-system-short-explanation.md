@@ -1,18 +1,25 @@
-# Infinite Space Game - World System Summary
+# Bounded Multi-Map Space Game - World System Summary
 
-The game takes place in an infinite 2D space universe.
+The game takes place in a shared 2D space universe made of bounded maps.
 
-Everyone starts near the origin point, `0,0`. From there, players slowly push outward into unknown space. There is no fixed map border. The farther players travel, the deeper and more dangerous space becomes.
+Everyone starts in an entry map. Each map is currently planned around a
+`10000 x 10000` local coordinate space, with portals connecting maps together.
+Map difficulty, PvP rules, enemy pools, planet candidates, and resource quality
+come from the current map profile instead of distance from an infinite origin.
 
 ## The Main Idea
 
-The universe is infinite, but civilization only exists where players have explored, discovered planets, built colonies, and connected them into networks.
+The universe grows through multiple bounded maps, not one endless plane.
+Civilization exists where players have discovered planets, built colonies, and
+connected them into networks.
 
-Players do not simply open a map and see everything. Most of space is hidden by fog of war.
+Players do not simply open a map and see everything. Live information is limited
+by current-map membership, radar range, scan results, and stealth/counter-scan
+rules. There is no client-side fog wave that reveals hidden truth.
 
 To progress, players must:
 
-- Fly into unexplored space.
+- Travel inside bounded maps and use portals to reach other maps.
 - Use scanners to search for signals.
 - Discover planets, resources, anomalies, and threats.
 - Colonize valuable planets.
@@ -36,21 +43,20 @@ Planets are hidden until discovered.
 
 A player needs scanner modules to search an area. When scanning, the ship slows down or stops and sends scan pulses over time. Each pulse has a chance to detect hidden signals.
 
-Higher-level planets require better radar or scanner levels. Deep space planets are harder to find, but more valuable.
+Higher-level planets require better radar or scanner levels. Higher-tier maps
+and riskier map profiles can contain rarer planets and stronger enemies.
 
 This means exploration is not instant. Players have to travel, scan, take risks, and invest in better ships and modules.
 
-## Infinite Scaling
+## Map Scaling
 
-The farther away from `0,0` a planet is, the higher its potential level becomes.
-
-Near the center:
+Lower-tier maps:
 
 - Easier planets.
 - Lower rewards.
 - Safer space.
 
-Farther out:
+Higher-tier or PvP maps:
 
 - Higher-level planets.
 - Better resources.
@@ -58,7 +64,8 @@ Farther out:
 - More PvP risk.
 - Better long-term rewards.
 
-The game can scale forever because planet levels and rewards grow with distance, but in a controlled way.
+The game scales by adding maps, map profiles, portal routes, enemy pools, and
+planet candidate budgets.
 
 ## Colonization
 
@@ -78,11 +85,12 @@ Level 7 planet -> requires player rank 7+
 
 The `X Core` item prevents players from claiming every planet they see. Colonization becomes a serious decision.
 
-## Player Knowledge and Fog of War
+## Player Knowledge, Radar, and Intel
 
 The world is shared, but knowledge is personal.
 
-If you discover a planet, it appears in your fog of war memory. Other players do not automatically know about it.
+If you discover a planet, it appears in your known intel. Other players do not
+automatically know about it.
 
 You can share planet information manually with another player or a clan member. This can reveal that planet in their own map memory.
 
@@ -106,9 +114,12 @@ If the planet gets colonized before someone buys the coordinate item, the intel 
 
 ## Procedural World
 
-The server does not store the entire infinite map in the database.
+The server does not store every possible candidate object in every map as a
+permanent database row.
 
-Instead, the world is generated from hidden server seeds. As long as the seed stays the same, the same planets and objects can always be generated again.
+Instead, bounded maps have server-owned profiles, seeds, candidate budgets, and
+durable overlays. As long as those server inputs stay stable, the same hidden
+candidates can be resolved again without leaking seeds to the client.
 
 Only important things are saved permanently:
 
@@ -118,10 +129,11 @@ Only important things are saved permanently:
 - Buildings.
 - Production.
 - Player intel.
-- Wormhole routes.
+- Portal/route topology.
 - Marketed coordinate items.
 
-This keeps the world infinite without needing to store everything.
+This keeps maps rich without storing every undiscovered candidate as gameplay
+truth.
 
 ## Daily and Live Events
 
@@ -165,4 +177,3 @@ In short:
 ```text
 Build your own galaxy by pushing into the unknown.
 ```
-

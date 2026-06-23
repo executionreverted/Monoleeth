@@ -416,8 +416,11 @@ for phase status; this file is a compact pending-work index.
   world/progression/module/UI docs. The bounded-map rework now defines active
   maps as `0..10000`, current-map membership, radar/stealth visibility, known
   planet intel memory, portal travel, and per-map risk/profile tuning in the
-  touched design docs. Remaining old-term search hits should be limited to
-  superseded labels, legacy file paths, or historical notes. Source:
+  touched design docs. The older world-system summary and architecture notes
+  now describe bounded maps, portals, known intel, and radar/stealth filtering
+  instead of an infinite origin plane or client fog-of-war reveal. Remaining
+  old-term search hits should be limited to superseded labels, legacy file
+  paths, or historical notes. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Finalize production bounded multi-map rollout controls if DB persistence
   is introduced: implement or document the future
