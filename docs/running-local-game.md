@@ -4,6 +4,9 @@ This is the local real-client path. It uses mail/password auth, server-owned
 cookie sessions, and the Go WebSocket gateway. Do not use `?demo=1` unless you
 are explicitly testing the isolated fixture/demo path.
 
+For the current playable-build status, remaining rollout tasks, test-server
+commands, and asset needs, see `docs/playtest-vertical-slice-status.md`.
+
 ## Start The Server
 
 From the repo root:
