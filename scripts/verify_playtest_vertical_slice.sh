@@ -29,8 +29,8 @@ cd "$ROOT_DIR"
 
 if env_bool "${GAME_PLAYTEST_VERIFY_BUILD_GATE:-true}"; then
   run_step \
-    "Build deployable playtest artifact and scan bundle" \
-    env GAME_PLAYTEST_BUILD_ONLY=true scripts/run_playtest_server.sh
+    "Build deployable playtest artifact and scan staged publish bundle" \
+    scripts/ci_playtest_artifact_gate.sh
 fi
 
 if env_bool "${GAME_PLAYTEST_VERIFY_MAIN_LOOP:-true}"; then

@@ -191,24 +191,29 @@ marked `Open` are not implemented rollout controls yet.
   now covers fake/default fixture labels/ids and server-only content ids in
   `dist` plus explicit extra artifact roots. The single-process playtest runner
   now has a `GAME_PLAYTEST_BUILD_ONLY=true` build/artifact-scan gate before
-  server startup. `scripts/ci_playtest_artifact_gate.sh` now wraps dependency
-  install plus that deployable client build/bundle leak scan for CI or deploy
-  jobs. Production logs beyond this harness, admin/debug responses outside this
-  rejection path, non-Phase09 WebSocket paths, and a hosted CI workflow or
-  deploy job that passes final staged/published artifact roots are still
-  missing.
+  server startup and can stage `client/dist` into
+  `GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR` before scanning that published copy.
+  `scripts/ci_playtest_artifact_gate.sh` now wraps dependency install, the
+  extra-root regression, a temporary staged publish directory, and that
+  deployable client build/bundle leak scan for CI or deploy jobs. Production
+  logs beyond this harness, admin/debug responses outside this rejection path,
+  non-Phase09 WebSocket paths, and a hosted CI workflow or external deploy job
+  that calls the gate are still missing.
 - Bundle hidden-token scan remains partial: `client/tests/bundle-scan.mjs`
   checks default `dist` text and source-map assets if present, and can now scan
   explicit extra artifact roots with the same forbidden snippet list through
   either CLI arguments or `GAME_ARTIFACT_SCAN_ROOTS`. The local
   `scripts/run_playtest_server.sh` build-only mode now runs this scan as part
   of the deployable playtest package gate, and
+  `GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR=/path/to/publish
+  scripts/run_playtest_server.sh` stages and scans a published copy of
+  `client/dist`. The
   `client/tests/bundle-scan-extra-root.test.mjs` proves clean extra roots pass
   while both positional and `GAME_ARTIFACT_SCAN_ROOTS` roots fail on forbidden
   fixture/server-only tokens. `scripts/ci_playtest_artifact_gate.sh` runs that
-  regression before the build-only gate and is ready for CI/deploy jobs to
-  call. Deploy pipelines still need to pass the real deployed or otherwise
-  published artifact set.
+  regression before a build-only gate with a temporary staged publish root and
+  is ready for CI/deploy jobs to call. External deploy pipelines still need to
+  call the gate before hosted rollout.
 - Broader PvP rollout canaries beyond the focused safe-zone UI click proof are
   still missing.
 - `client` `npm run check` does not run the Phase09 Playwright smoke.
@@ -357,9 +362,9 @@ Run the full built-client playtest vertical-slice gate explicitly:
 scripts/verify_playtest_vertical_slice.sh
 ```
 
-This chains the playtest build/artifact scan gate, built-client main playtest
-loop, built-client PvP/death/repair loop, and destination/PvP scanner, claim,
-plus Border Skirmish drop canary. Use
+This chains the playtest build/staged-publish artifact scan gate, built-client
+main playtest loop, built-client PvP/death/repair loop, and destination/PvP
+scanner, claim, plus Border Skirmish drop canary. Use
 `GAME_PLAYTEST_VERIFY_DRY_RUN=true scripts/verify_playtest_vertical_slice.sh`
 to print the command sequence without launching the browser proofs.
 Last verified locally on 2026-06-23: the full gate passed, including
@@ -454,10 +459,13 @@ roots pass, positional extra roots fail on server-only map ids, and
 intentionally does not forbid generic protocol guard field names such as hidden
 scan or loot key strings. `GAME_PLAYTEST_BUILD_ONLY=true
 scripts/run_playtest_server.sh` now builds `client/dist` and runs the scan
-without starting the long-running server. `scripts/ci_playtest_artifact_gate.sh`
-wraps dependency installation, the extra-root scanner regression, and that
-build-only gate for hosted CI/deploy jobs. Deploy pipelines still need to pass
-the real deployed or otherwise published artifact set through the same scanner.
+without starting the long-running server.
+`GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR=/path/to/publish
+scripts/run_playtest_server.sh` copies `client/dist` into that publish
+directory and scans both `dist` and the staged publish copy. The CI gate wraps
+dependency installation, the extra-root scanner regression, a temporary staged
+publish root, and that build-only gate. External deploy pipelines still need to
+call the gate before rollout.
 
 The Phase09 smoke currently satisfies only a narrow server-side canary subset:
 captured local Go/Vite stdout/stderr lines from that harness and production

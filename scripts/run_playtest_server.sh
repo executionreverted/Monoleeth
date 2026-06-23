@@ -17,10 +17,22 @@ if ! env_bool "${GAME_SKIP_CLIENT_BUILD:-false}"; then
   npm --cache "$NPM_CACHE" --prefix client run build
 fi
 
+artifact_scan_roots="${GAME_ARTIFACT_SCAN_ROOTS:-}"
+if [[ -n "${GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR:-}" ]]; then
+  published_artifact_dir="$GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR"
+  case "$published_artifact_dir" in
+    /*) ;;
+    *) published_artifact_dir="$ROOT_DIR/$published_artifact_dir" ;;
+  esac
+  mkdir -p "$published_artifact_dir"
+  cp -R client/dist/. "$published_artifact_dir"/
+  artifact_scan_roots="${artifact_scan_roots:+${artifact_scan_roots}:}${published_artifact_dir}"
+fi
+
 if env_bool "${GAME_RUN_BUNDLE_SCAN:-true}"; then
   (
     cd client
-    node tests/bundle-scan.mjs
+    GAME_ARTIFACT_SCAN_ROOTS="$artifact_scan_roots" node tests/bundle-scan.mjs
   )
 fi
 
@@ -31,9 +43,12 @@ export GAME_PLAYTEST_SEED="${GAME_PLAYTEST_SEED:-true}"
 echo "Playtest client: http://${GAME_SERVER_ADDR}"
 echo "Static dir: ${GAME_CLIENT_STATIC_DIR}"
 echo "Playtest seed: ${GAME_PLAYTEST_SEED}"
+if [[ -n "${GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR:-}" ]]; then
+  echo "Published artifact dir: ${published_artifact_dir}"
+fi
 
 if env_bool "${GAME_PLAYTEST_BUILD_ONLY:-false}"; then
-  echo "GAME_PLAYTEST_BUILD_ONLY=true; build and artifact scan completed."
+  echo "GAME_PLAYTEST_BUILD_ONLY=true; build and artifact scans completed."
   exit 0
 fi
 
