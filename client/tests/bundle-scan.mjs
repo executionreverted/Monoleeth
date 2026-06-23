@@ -51,6 +51,15 @@ const forbiddenSnippetGroups = [
   { name: 'fake/default fixture label or id', snippets: fakeFixtureSnippets },
   { name: 'server-only map/content id', snippets: serverOnlyContentSnippets },
 ];
+const oversizedEntityAssetSnippets = [
+  'Nebula_Vanguard',
+  'Crimson_Vortex',
+  'Emerald_Void_Reaver',
+  'Azure_Dreadnought',
+  'Obsidian_Leviathan',
+  'spin_512',
+];
+const maxArtifactBytes = Number.parseInt(process.env.GAME_ARTIFACT_MAX_BYTES ?? String(30 * 1024 * 1024), 10);
 
 for (const scanRoot of scanRoots) {
   const rootStats = await stat(scanRoot.root).catch(() => null);
@@ -67,6 +76,24 @@ for (const scanRoot of scanRoots) {
 
 const violations = [];
 for (const scanRoot of scanRoots) {
+  const artifactFiles = await listBuiltArtifacts(scanRoot.root);
+  const totalBytes = artifactFiles.reduce((sum, file) => sum + file.size, 0);
+  if (Number.isFinite(maxArtifactBytes) && maxArtifactBytes > 0 && totalBytes > maxArtifactBytes) {
+    violations.push(
+      `${formatDisplayPath(scanRoot.root)} total artifact size ${formatBytes(totalBytes)} exceeds ${formatBytes(maxArtifactBytes)}`,
+    );
+  }
+  for (const file of artifactFiles) {
+    const relativeName = path.relative(scanRoot.root, file.path);
+    for (const snippet of oversizedEntityAssetSnippets) {
+      if (relativeName.includes(snippet)) {
+        violations.push(
+          `${formatDisplayPath(scanRoot.root)}/${relativeName} looks like an oversized source entity asset (${snippet})`,
+        );
+      }
+    }
+  }
+
   const files = await listBuiltTextAndSourceMapArtifacts(scanRoot.root);
   for (const file of files) {
     const text = await readFile(file, 'utf8');
@@ -90,6 +117,23 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
+async function listBuiltArtifacts(dir) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const child = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await listBuiltArtifacts(child)));
+      continue;
+    }
+    if (entry.isFile()) {
+      const stats = await stat(child);
+      files.push({ path: child, size: stats.size });
+    }
+  }
+  return files;
+}
+
 async function listBuiltTextAndSourceMapArtifacts(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
   const files = [];
@@ -104,6 +148,12 @@ async function listBuiltTextAndSourceMapArtifacts(dir) {
     }
   }
   return files;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function formatDisplayPath(filePath) {

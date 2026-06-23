@@ -917,6 +917,11 @@ Task 001 release proof must be rebuilt through
   builds the Go server binary, and writes a host-copyable release directory with
   `client-dist`, `bin/game-server`, `manifest.json`, README, and guarded
   `run.sh`. Covered by `scripts/test_playtest_release_package.sh`.
+- [x] Guard against accidental generated entity asset bundle bloat.
+  `client/tests/bundle-scan.mjs` now checks deploy artifact total size and
+  rejects source entity asset path/name markers such as `Nebula_Vanguard` and
+  `spin_512`; `client/tests/bundle-scan-extra-root-regression.mjs` proves both
+  failures against extra publish roots.
 - [x] Add server-authoritative continuous movement timing for browser movement.
   The client receives server-owned origin, destination, speed, start, and
   arrival timing; re-clicks while in transit start from the server-computed

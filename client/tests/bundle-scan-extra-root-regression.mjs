@@ -33,6 +33,22 @@ try {
   assertIncludes(badEnv.stderr, 'Demo Fringe', 'bad env token');
   assertIncludes(badEnv.stderr, 'published-env', 'bad env root label');
 
+  const badEntityRoot = path.join(root, 'published-entity-asset');
+  await mkdir(path.join(badEntityRoot, 'assets'), { recursive: true });
+  await writeFile(path.join(badEntityRoot, 'assets', 'Nebula_Vanguard_2_spin_512-CANARY.gif'), 'oversized entity asset');
+  const badEntity = runScanner(root, [badEntityRoot]);
+  assertRun(badEntity, 1, 'bad oversized entity asset root');
+  assertIncludes(badEntity.stderr, 'Nebula_Vanguard', 'bad entity asset token');
+  assertIncludes(badEntity.stderr, 'oversized source entity asset', 'bad entity asset reason');
+
+  const badSizeRoot = path.join(root, 'published-too-large');
+  await mkdir(badSizeRoot, { recursive: true });
+  await writeFile(path.join(badSizeRoot, 'big.bin'), '0123456789abcdef');
+  const badSize = runScanner(root, [badSizeRoot], { GAME_ARTIFACT_MAX_BYTES: '8' });
+  assertRun(badSize, 1, 'bad artifact size root');
+  assertIncludes(badSize.stderr, 'total artifact size', 'bad size reason');
+  assertIncludes(badSize.stderr, 'exceeds', 'bad size threshold');
+
   console.log('bundle-scan extra root regression ok');
 } finally {
   await rm(root, { recursive: true, force: true });

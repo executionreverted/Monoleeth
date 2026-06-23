@@ -30,6 +30,9 @@ Separate built-client canaries cover:
 - public `1-2` and `1-3` scanner/detail/claim/drop matrix proof
 - scanner `no_signal` for a no-planet candidate and hidden player outside radar
 - deployable `client/dist` artifact scanning, including a staged publish copy
+- entity asset bundle posture: the large `client/src/assets/entities` source
+  set must not appear in deploy artifacts unless the bundle-scan canary is
+  intentionally updated
 
 ## Run Commands
 
@@ -109,6 +112,7 @@ npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-pvp-map-d
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-scan-no-signal
 scripts/ci_playtest_artifact_gate.sh
 scripts/test_playtest_release_package.sh
+npm --cache /tmp/gameproject-npm-cache --prefix client run test:bundle-scan-extra-root
 ```
 
 Full local vertical-slice gate:
@@ -129,6 +133,7 @@ Focused canaries and repair proof also verified standalone:
 2026-06-24: go test ./internal/game/server -run 'TestShieldRepairTick|TestCombatUseSkillRefreshesShieldRepairCombatLock|TestRealtimeOperationRegistry' -count=1 passed.
 2026-06-24: npm --cache /tmp/gameproject-npm-cache --prefix client run check passed after adding repair.shield_tick.
 2026-06-24: scripts/test_playtest_release_package.sh passed.
+2026-06-24: npm --cache /tmp/gameproject-npm-cache --prefix client run test:bundle-scan-extra-root passed with entity-asset path and artifact-size canaries.
 ```
 
 That run used the built `client/dist` served by `cmd/game-server` and proved the
@@ -136,6 +141,9 @@ public `1-3` Border Skirmish NPC aggro/leash behavior without Vite.
 The focused shield repair proof covers DarkOrbit-style out-of-combat shield
 repair from an equipped shield module, server-owned combat lock rejection,
 trusted-payload rejection, and shield-only mutation.
+The bundle-scan proof rejects accidental inclusion of oversized source entity
+asset filenames such as `Nebula_Vanguard`/`spin_512` and enforces a default
+deploy artifact size ceiling.
 
 The playtest asset screenshot proof writes:
 
@@ -147,6 +155,12 @@ The renderer currently loads the first world asset set from:
 
 ```text
 client/src/assets/world/
+```
+
+The larger generated entity source set remains outside the deployed bundle:
+
+```text
+client/src/assets/entities/
 ```
 
 ## Remaining Work Before A Public Test Server
