@@ -132,6 +132,9 @@ func (service *Service) SharePlanetIntel(input SharePlanetIntelInput) (SharePlan
 	if err != nil {
 		return SharePlanetIntelResult{}, err
 	}
+	if !shareableIntelState(source.State) {
+		return SharePlanetIntelResult{}, fmt.Errorf("player %q planet %q state %q: %w", input.FromPlayerID, input.PlanetID, source.State, ErrPlanetIntelNotShareable)
+	}
 	receiver := clonePlayerPlanetIntel(source)
 	receiver.PlayerID = input.ToPlayerID
 	receiver.SourceType = IntelSourceShareReceived
@@ -393,6 +396,10 @@ func useInputMatches(a UseCoordinateItemInput, b UseCoordinateItemInput) bool {
 	return a.PlayerID == b.PlayerID &&
 		a.ItemInstanceID == b.ItemInstanceID &&
 		a.Reference == b.Reference
+}
+
+func shareableIntelState(state IntelState) bool {
+	return state == IntelStateFresh || state == IntelStateVerified
 }
 
 func transferInputMatches(a TransferCoordinateItemOwnerInput, b TransferCoordinateItemOwnerInput) bool {

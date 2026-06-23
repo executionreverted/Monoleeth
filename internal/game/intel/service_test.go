@@ -48,6 +48,28 @@ func TestSharePlanetIntelRequiresKnownNonInvalidatedSource(t *testing.T) {
 	}
 }
 
+func TestSharePlanetIntelRejectsUnsafeSourceStates(t *testing.T) {
+	for _, state := range []IntelState{
+		IntelStateStale,
+		IntelStateColonizedByOther,
+	} {
+		t.Run(string(state), func(t *testing.T) {
+			service := NewService(fixedClock{now: testTime(10)})
+			source := validIntel(testScout, testPlanet, testTime(1), "scan:unsafe-share")
+			source.State = state
+			upsertIntel(t, service, source)
+
+			_, err := service.SharePlanetIntel(shareInput(t, "unsafe-"+string(state), testPlanet))
+			if !errors.Is(err, ErrPlanetIntelNotShareable) {
+				t.Fatalf("SharePlanetIntel(%s) error = %v, want ErrPlanetIntelNotShareable", state, err)
+			}
+			if _, ok, err := service.PlayerPlanetIntel(testReceiver, testPlanet); err != nil || ok {
+				t.Fatalf("receiver intel ok = %v err = %v, want false nil", ok, err)
+			}
+		})
+	}
+}
+
 func TestSharePlanetIntelUpsertsReceiverFromServerSourceAndIsIdempotent(t *testing.T) {
 	service := NewService(fixedClock{now: testTime(10)})
 	source := upsertIntel(t, service, validIntel(testScout, testPlanet, testTime(1), "scan:source"))

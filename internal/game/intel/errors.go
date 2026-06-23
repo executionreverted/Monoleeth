@@ -12,6 +12,7 @@ var (
 	ErrZeroTimestamp                 = errors.New("zero timestamp")
 	ErrPlanetIntelNotKnown           = errors.New("planet intel not known")
 	ErrPlanetIntelInvalidated        = errors.New("planet intel invalidated")
+	ErrPlanetIntelNotShareable       = errors.New("planet intel not shareable")
 	ErrReferenceConflict             = errors.New("intel reference conflict")
 	ErrCoordinateItemAlreadyExists   = errors.New("coordinate item already exists")
 	ErrCoordinateItemNotFound        = errors.New("coordinate item not found")

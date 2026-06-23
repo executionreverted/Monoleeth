@@ -80,6 +80,44 @@ func TestIntelShareRejectsSpoofedServerOwnedFieldsBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestIntelShareRejectsUnsafeSourceStateBeforeReceiverMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	sender := createResolvedRuntimeSession(t, gameServer, "intel-share-stale@example.com", "Intel Share Stale")
+	receiver := createResolvedRuntimeSession(t, gameServer, "intel-share-stale-receiver@example.com", "Intel Share Stale Receiver")
+	planetID := foundation.PlanetID("planet-intel-share-stale")
+	if _, _, err := gameServer.runtime.Discovery.UpsertPlayerPlanetIntel(discovery.PlayerPlanetIntel{
+		PlayerID:        sender.PlayerID,
+		PlanetID:        planetID,
+		WorldID:         gameServer.runtime.worldID,
+		ZoneID:          gameServer.runtime.zoneID,
+		Coordinates:     world.Vec2{X: 1200, Y: 1300},
+		State:           discovery.IntelStateStale,
+		Confidence:      30,
+		LastSeenAt:      gameServer.runtime.clock.Now().UTC(),
+		SourceType:      discovery.IntelSourceScanSuccess,
+		SourceReference: "scan:stale-share",
+	}); err != nil {
+		t.Fatalf("UpsertPlayerPlanetIntel(stale source): %v", err)
+	}
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(sender.SessionID.String()),
+		[]byte(`{"request_id":"request-intel-share-stale","op":"intel.share","payload":{"planet_id":"`+planetID.String()+`","to_player_id":"`+receiver.PlayerID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("stale intel.share response = %+v, want safe not found", response)
+	}
+	if _, ok, err := gameServer.runtime.Discovery.PlayerPlanetIntel(receiver.PlayerID, planetID); err != nil || ok {
+		t.Fatalf("receiver intel after stale share ok=%v err=%v, want no mutation", ok, err)
+	}
+	gameServer.runtime.mu.Lock()
+	receiverEvents := len(gameServer.runtime.queuedEvents[receiver.SessionID])
+	gameServer.runtime.mu.Unlock()
+	if receiverEvents != 0 {
+		t.Fatalf("stale share receiver queued events = %d, want none", receiverEvents)
+	}
+}
+
 func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-owner@example.com", "Coordinate Owner")

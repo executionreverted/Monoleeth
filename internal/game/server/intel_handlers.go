@@ -453,7 +453,10 @@ func discoverySourceFromIntel(source intel.IntelSourceType) discovery.IntelSourc
 
 func intelDomainError(err error) error {
 	switch {
-	case errors.Is(err, intel.ErrPlanetIntelNotKnown), errors.Is(err, intel.ErrPlanetIntelInvalidated), errors.Is(err, intel.ErrCoordinateItemNotFound):
+	case errors.Is(err, intel.ErrPlanetIntelNotKnown),
+		errors.Is(err, intel.ErrPlanetIntelInvalidated),
+		errors.Is(err, intel.ErrPlanetIntelNotShareable),
+		errors.Is(err, intel.ErrCoordinateItemNotFound):
 		return foundation.NewDomainError(foundation.CodeNotFound, "Intel was not found.")
 	case errors.Is(err, intel.ErrCoordinateItemNotOwned), errors.Is(err, intel.ErrCoordinateItemAlreadyUsed):
 		return foundation.NewDomainError(foundation.CodeForbidden, "Coordinate item cannot be used.")

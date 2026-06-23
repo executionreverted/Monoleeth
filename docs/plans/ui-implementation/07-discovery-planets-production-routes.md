@@ -339,6 +339,10 @@ Current slice completed:
   safe forbidden error before capacitor spend, planet creation, intel writes, or
   scanner events; this completes the movement half of the existing scanner
   mutation guard evidence alongside the insufficient-capacitor regression.
+- Phase07AI intel share safety follow-up: `intel.share` now only copies
+  shareable sender intel states (`fresh` and `verified`); stale,
+  invalidated, missing, or colonized-by-other sender memory returns a safe
+  not-found style error before receiver intel writes or receiver event fanout.
 
 ## Source Specs
 
@@ -500,7 +504,7 @@ Mockup areas covered:
 - [x] Client cannot send scan result or procedural seed.
 - [x] Client cannot claim hidden/unowned-invalid planet.
 - [x] Client cannot fake X Core consumption.
-- [ ] Intel sharing cannot reveal a coordinate the sender cannot safely expose.
+- [x] Intel sharing cannot reveal a coordinate the sender cannot safely expose.
 - [x] Coordinate item use consumes an owned item once.
 - [x] Planet panel open rechecks visibility/ownership.
 - [x] Route creation rechecks both endpoints and ownership/access.
@@ -530,7 +534,7 @@ Mockup areas covered:
       with the current claim token, and explicitly retried in append order
       without exposing mutable event aliases or letting stale publisher
       callbacks mutate later attempts.
-- [ ] Intel share rejects hidden/not-owned coordinate references.
+- [x] Intel share rejects hidden/not-owned coordinate references.
 - [x] Coordinate item create/use consumes owned items once and filters results.
 - [x] Market-bought coordinate scrolls transfer server-owned intel item
       authority to the buyer and can be used once by that buyer.
