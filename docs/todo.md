@@ -124,8 +124,10 @@ for phase status; this file is a compact pending-work index.
   helper that revalidates nested begin/commit/production-init rows. Phase07BB
   applies completed `discovery.claim_planet` lifecycle bundles through the
   runtime claim lifecycle-store adapter, with duplicate exact-replay and no
-  rows for failed claims; durable DB rows and cross-process enforcement remain
-  open.
+  rows for failed claims. Phase07BC adds claim outbox dispatch-plan validation
+  plus committed lifecycle-store readback for durable `planet.claimed`
+  publisher scheduling; durable DB rows, cross-process leases, scheduled
+  publisher workers, and cross-process enforcement remain open.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
   planet claim transaction. Current in-memory flow can repair production state
   on retry, and Phase07W now records process-local claim recovery evidence
@@ -446,6 +448,9 @@ for phase status; this file is a compact pending-work index.
   begin/commit/production-init rows. Phase07BB applies completed claim
   lifecycle bundles through the runtime claim lifecycle-store adapter after
   successful authenticated claim commands, without duplicate rows on retries.
+  Phase07BC adds claim outbox dispatch-plan validation and committed
+  lifecycle-store readback for future durable `planet.claimed` publisher
+  scheduling.
   Durable claim, production, and route settlement tables plus publisher
   scheduling remain open.
   Those records are still not durable, cross-process, or delivered by a durable

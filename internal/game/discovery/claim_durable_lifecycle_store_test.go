@@ -132,6 +132,33 @@ func TestClaimDurableLifecycleStoreReadsCommittedPlanByReference(t *testing.T) {
 	}
 }
 
+func TestClaimDurableLifecycleStoreReadsCommittedDispatchPlanByReference(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(plan); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan() error = %v, want nil", err)
+	}
+
+	dispatch, ok, err := store.CommittedClaimOutboxDispatchPlan(plan.Commit.Boundary.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimOutboxDispatchPlan() = ok %v err %v, want true nil", ok, err)
+	}
+	if dispatch.Reference.ClaimReference != plan.Commit.Boundary.ClaimReference ||
+		dispatch.Outbox.ClaimReference != plan.Commit.Boundary.ClaimReference ||
+		dispatch.Outbox.Event.Type != ClaimEventPlanetClaimed {
+		t.Fatalf("dispatch plan = %+v, want committed claim outbox dispatch", dispatch)
+	}
+
+	dispatch.Outbox.OutboxID = "mutated-outbox"
+	again, ok, err := store.CommittedClaimOutboxDispatchPlan(plan.Commit.Boundary.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimOutboxDispatchPlan(second) = ok %v err %v, want true nil", ok, err)
+	}
+	if again.Outbox.OutboxID == "mutated-outbox" {
+		t.Fatalf("recovered dispatch plan reused mutable rows: %+v", again)
+	}
+}
+
 func TestClaimDurableLifecycleStoreReadbackMissingAndInvalidReferences(t *testing.T) {
 	plan := claimDurableLifecyclePlanForStoreTest(t)
 	store := NewInMemoryClaimDurableLifecycleStore()
@@ -139,8 +166,14 @@ func TestClaimDurableLifecycleStoreReadbackMissingAndInvalidReferences(t *testin
 	if recovered, ok, err := store.CommittedClaimDurableLifecyclePlan(plan.Commit.Boundary.ClaimReference); err != nil || ok || recovered.Commit.Boundary.ClaimReference != "" {
 		t.Fatalf("CommittedClaimDurableLifecyclePlan(missing) = %+v/%v/%v, want empty false nil", recovered, ok, err)
 	}
+	if dispatch, ok, err := store.CommittedClaimOutboxDispatchPlan(plan.Commit.Boundary.ClaimReference); err != nil || ok || dispatch.Reference.ClaimReference != "" {
+		t.Fatalf("CommittedClaimOutboxDispatchPlan(missing) = %+v/%v/%v, want empty false nil", dispatch, ok, err)
+	}
 	if recovered, ok, err := store.CommittedClaimDurableLifecyclePlan(""); err == nil || ok || recovered.Commit.Boundary.ClaimReference != "" {
 		t.Fatalf("CommittedClaimDurableLifecyclePlan(invalid) = %+v/%v/%v, want error false empty", recovered, ok, err)
+	}
+	if dispatch, ok, err := store.CommittedClaimOutboxDispatchPlan(""); err == nil || ok || dispatch.Reference.ClaimReference != "" {
+		t.Fatalf("CommittedClaimOutboxDispatchPlan(invalid) = %+v/%v/%v, want error false empty", dispatch, ok, err)
 	}
 }
 

@@ -18,6 +18,7 @@ type ClaimDurableLifecycleStore interface {
 // claim lifecycle adapter.
 type ClaimDurableLifecycleReader interface {
 	CommittedClaimDurableLifecyclePlan(PlanetClaimReference) (ClaimDurableLifecyclePlan, bool, error)
+	CommittedClaimOutboxDispatchPlan(PlanetClaimReference) (ClaimOutboxDispatchPlan, bool, error)
 }
 
 // ClaimDurableLifecycleResult reports the rows accepted by the durable claim
@@ -122,6 +123,22 @@ func (store *InMemoryClaimDurableLifecycleStore) CommittedClaimDurableLifecycleP
 		return ClaimDurableLifecyclePlan{}, false, err
 	}
 	return normalized, true, nil
+}
+
+// CommittedClaimOutboxDispatchPlan returns the validated publisher dispatch
+// handoff for one committed claim reference.
+func (store *InMemoryClaimDurableLifecycleStore) CommittedClaimOutboxDispatchPlan(
+	reference PlanetClaimReference,
+) (ClaimOutboxDispatchPlan, bool, error) {
+	plan, ok, err := store.CommittedClaimDurableLifecyclePlan(reference)
+	if err != nil || !ok {
+		return ClaimOutboxDispatchPlan{}, ok, err
+	}
+	dispatch, err := NewClaimOutboxDispatchPlan(&plan.Commit.Reference, &plan.Commit.Outbox)
+	if err != nil {
+		return ClaimOutboxDispatchPlan{}, false, err
+	}
+	return dispatch, true, nil
 }
 
 func (store *InMemoryClaimDurableLifecycleStore) ensureMapsLocked() {

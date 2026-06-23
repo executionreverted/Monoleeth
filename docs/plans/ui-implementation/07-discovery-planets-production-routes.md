@@ -467,6 +467,14 @@ Current slice completed:
   adapter without appending another lifecycle row, and failed claims do not
   record lifecycle evidence. Real durable DB rows, cross-service row locks/CAS,
   durable outbox persistence, and recovery workers remain open.
+- Phase07BC claim outbox dispatch-readback follow-up:
+  `NewClaimOutboxDispatchPlan` now validates the after-commit handoff from a
+  completed planet claim lifecycle to a durable publisher scheduler: committed
+  claim reference evidence, pending `planet.claimed` outbox row, matching
+  event/reference identity, and empty delivery lease state. The claim lifecycle
+  durable store can now rebuild this dispatch plan by claim reference after a
+  restart. Real durable DB rows, cross-process publisher leases, and scheduled
+  publisher/recovery workers remain open.
 
 ## Source Specs
 
@@ -625,6 +633,8 @@ Mockup areas covered:
 - [x] Apply completed claim durable lifecycle bundles through the runtime
       claim lifecycle-store adapter after authenticated
       `discovery.claim_planet` success.
+- [x] Add claim outbox dispatch-plan validation and committed lifecycle-store
+      readback for durable `planet.claimed` publisher scheduling.
 - [ ] Add durable authenticated transaction flows for claim/storage mutation
       coupling once DB/CAS storage boundaries replace process-local stores.
 - [x] Add offline settlement reconcile path that uses server-owned windows for
@@ -711,6 +721,8 @@ Mockup areas covered:
 - [x] Claim handler applies completed claim lifecycle evidence through the
       runtime claim lifecycle-store adapter; duplicate retries exact-replay
       without another lifecycle row, and failed claims record none.
+- [x] Claim lifecycle durable readback rebuilds a validated pending outbox
+      dispatch plan for `planet.claimed` publisher scheduling.
 - [x] Intel share rejects hidden/not-owned coordinate references.
 - [x] Coordinate item create/use consumes owned items once and filters results.
 - [x] Market-bought coordinate scrolls transfer server-owned intel item
