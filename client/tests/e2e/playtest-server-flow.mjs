@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import net from 'node:net';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
@@ -11,6 +11,8 @@ const clientDir = resolve(scriptDir, '../..');
 const repoRoot = resolve(clientDir, '..');
 const screenshotDir = resolve(repoRoot, 'output/screenshots/ui-implementation/playtest');
 const magickBin = process.env.PLAYTEST_MAGICK_BIN || 'magick';
+const tesseractBin = process.env.PLAYTEST_TESSERACT_BIN || '/opt/homebrew/bin/tesseract';
+const screenshotOCRTimeoutMS = 30000;
 const maxProcessLogLines = 3000;
 const viewport = { width: 1440, height: 900 };
 const starterNpcApproachTarget = { x: 800, y: 400 };
@@ -311,6 +313,7 @@ async function captureAssetSpriteProof(client, name) {
   await client.page.locator('canvas.world-canvas').screenshot({ path: screenshotPath });
   const pixelProof = await imagePixelProof(screenshotPath);
   assert(pixelProof.ok, `asset canvas pixel proof failed ${compact(pixelProof)}`);
+  await assertScreenshotOCRCanary(screenshotPath);
   return screenshotPath;
 }
 
@@ -341,6 +344,50 @@ async function imagePixelProof(screenshotPath) {
     }
   }
   return { ok: brightPixels > 120 && buckets.size >= 4, brightPixels, colorBuckets: buckets.size };
+}
+
+async function assertScreenshotOCRCanary(screenshotPath) {
+  const ocrText = await runScreenshotOCR(screenshotPath);
+  assert(ocrText.trim().length > 0, `${basename(screenshotPath)} OCR produced no text`);
+  const token = screenshotLeakToken(ocrText);
+  assert(!token, `${basename(screenshotPath)} OCR leaked token ${token}`);
+}
+
+async function runScreenshotOCR(screenshotPath) {
+  const proc = spawn(tesseractBin, [screenshotPath, 'stdout'], {
+    cwd: repoRoot,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const stdout = [];
+  let missingTesseract = false;
+  const exit = new Promise((resolve) => {
+    proc.on('error', (error) => {
+      missingTesseract = error?.code === 'ENOENT';
+      resolve({ code: -1, signal: null });
+    });
+    proc.on('exit', (code, signal) => resolve({ code, signal }));
+  });
+  proc.stdout.on('data', (chunk) => stdout.push(chunk));
+  proc.stderr.resume();
+
+  const timed = await Promise.race([exit, delay(screenshotOCRTimeoutMS).then(() => ({ timedOut: true }))]);
+  if (timed.timedOut) {
+    signal(proc, 'SIGKILL');
+    await waitExit(proc, 2000);
+    throw new Error(`${basename(screenshotPath)} OCR timed out after ${screenshotOCRTimeoutMS}ms`);
+  }
+  if (missingTesseract) {
+    throw new Error(`Tesseract OCR is required for playtest screenshot leak canary but was not found at ${tesseractBin}`);
+  }
+  if (timed.code !== 0) {
+    throw new Error(`${basename(screenshotPath)} OCR failed with exit code ${timed.code ?? 'null'}${timed.signal ? ` signal ${timed.signal}` : ''}`);
+  }
+  return Buffer.concat(stdout).toString('utf8');
+}
+
+function screenshotLeakToken(text) {
+  const haystack = text.toLowerCase();
+  return leakTokens.find((token) => haystack.includes(token.toLowerCase())) ?? null;
 }
 
 function routeSourceID(state) {

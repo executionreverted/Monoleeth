@@ -600,12 +600,14 @@ for phase status; this file is a compact pending-work index.
   generated real-server screenshot PNGs, and the bundle scan covers
   fake/default fixture labels/ids plus server-only content ids in default
   `dist` and extra artifact roots passed by CLI argument or
-  `GAME_ARTIFACT_SCAN_ROOTS`. `GAME_PLAYTEST_BUILD_ONLY=true
+  `GAME_ARTIFACT_SCAN_ROOTS`. The built-client playtest asset screenshot now
+  has ImageMagick pixel proof plus Tesseract hidden-token OCR leak canary.
+  `GAME_PLAYTEST_BUILD_ONLY=true
   scripts/run_playtest_server.sh` now runs the local deployable playtest build
   plus artifact scan without starting the server. Production logs/admin
-  responses outside that path, non-Phase09 paths, wiring the real
-  deployed/published artifact set into CI/deploy, and screenshots outside
-  Phase09 remain open.
+  responses outside that path, non-Phase09 paths beyond the playtest asset
+  screenshot, and wiring the real deployed/published artifact set into
+  CI/deploy remain open.
   Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Clean up active legacy semantic contradictions in the scoped
@@ -855,9 +857,9 @@ Task 001 release proof must be rebuilt through
 - [x] Add authenticated playtest screenshot/pixel proof for world sprites.
   `client/tests/e2e/playtest-server-flow.mjs` captures the built-client canvas
   to `output/screenshots/ui-implementation/playtest/asset-sprites-desktop.png`,
-  samples it with ImageMagick, and requires nonblank/diverse pixels before the
-  same script continues through combat, loot, scan, claim, route, portal, and
-  destination loot.
+  samples it with ImageMagick, checks OCR text with Tesseract for hidden-token
+  leaks, and requires nonblank/diverse pixels before the same script continues
+  through combat, loot, scan, claim, route, portal, and destination loot.
 - [x] Add a single-command built-client vertical-slice verification gate.
   `scripts/verify_playtest_vertical_slice.sh` chains the playtest build/artifact
   scan gate, built-client main playtest loop, built-client PvP/death/repair

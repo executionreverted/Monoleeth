@@ -178,14 +178,15 @@ marked `Open` are not implemented rollout controls yet.
   DOM/smoke-state/localStorage/sessionStorage/cookie canaries, production
   `debug_snapshot`/`debug_spawn_npc` rejection responses, captured Go/Vite
   stdout/stderr lines from its own harness, and Tesseract OCR/text scans over
-  its six generated real-server screenshot PNGs only. Default production bundle
-  text/source-map scan now covers fake/default fixture labels/ids and
-  server-only content ids in `dist` plus explicit extra artifact roots. The
-  single-process playtest runner now has a `GAME_PLAYTEST_BUILD_ONLY=true`
-  build/artifact-scan gate before server startup. Production logs beyond this
-  harness, admin/debug responses outside this rejection path, non-Phase09
-  WebSocket paths, CI/deploy wiring that passes the real deployed/published
-  artifact set, and screenshot paths outside the Phase09 smoke are still
+  its six generated real-server screenshot PNGs. The built-client playtest
+  asset screenshot now also has ImageMagick pixel proof plus Tesseract
+  hidden-token OCR leak canary. Default production bundle text/source-map scan
+  now covers fake/default fixture labels/ids and server-only content ids in
+  `dist` plus explicit extra artifact roots. The single-process playtest runner
+  now has a `GAME_PLAYTEST_BUILD_ONLY=true` build/artifact-scan gate before
+  server startup. Production logs beyond this harness, admin/debug responses
+  outside this rejection path, non-Phase09 WebSocket paths, and CI/deploy
+  wiring that passes the real deployed/published artifact set are still
   missing.
 - Bundle hidden-token scan remains partial: `client/tests/bundle-scan.mjs`
   checks default `dist` text and source-map assets if present, and can now scan
