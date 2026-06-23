@@ -1197,6 +1197,10 @@ Mockup areas covered:
 - [x] Future `route.enable`, `route.disable`, and `route.update` requests
       restore the live route read model from committed durable route rows after
       route row loss while preserving wrong-owner rejection.
+- [x] Authenticated source-empty `route.settle` returns safe
+      `source_empty` response/event payloads, advances the route cursor without
+      storage ledger rows, and keeps durable settlement reference/outbox
+      evidence.
 - [x] Durable claim, settlement/route, and building outbox stores expose an
       explicit failed-row retry boundary that preserves failure evidence before
       republishing.

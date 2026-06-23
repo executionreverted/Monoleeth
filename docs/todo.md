@@ -448,7 +448,10 @@ for phase status; this file is a compact pending-work index.
   advance storage again instead of returning not-found. Phase07DB applies the
   same durable route-row restore to future `route.enable`, `route.disable`, and
   `route.update` requests after live route-row loss while preserving wrong-owner
-  fail-closed behavior.
+  fail-closed behavior. Phase07DC proves authenticated source-empty
+  `route.settle` returns a safe `source_empty` settlement payload/event,
+  advances the route cursor without storage ledger rows, and still records
+  durable settlement reference/outbox evidence.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10

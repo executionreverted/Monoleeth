@@ -698,6 +698,10 @@ contracts:
 - Future `route.enable`, `route.disable`, and `route.update` requests use the
   same durable route-row restore after live route-row loss, while wrong-owner
   attempts still fail before mutation.
+- Source-empty `route.settle` through the authenticated gateway now exposes a
+  safe `source_empty` response/event, advances the route cursor with zero
+  transfers, and records durable settlement reference/outbox evidence without
+  storage ledger rows.
 - Realtime/event tests prove claim, production, and route events do not leak to
   other maps or unrelated sessions.
 - Browser/API tests prove mutation controls reconcile from server snapshots and
