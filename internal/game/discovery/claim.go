@@ -182,6 +182,7 @@ type ClaimListedIntelStaleMarker interface {
 type ClaimServiceConfig struct {
 	Store                  *InMemoryStore
 	ClaimBoundaries        ClaimBoundaryStore
+	XCoreOwnerBoundary     ClaimXCoreOwnerBoundary
 	Clock                  foundation.Clock
 	Ranks                  ClaimRankProvider
 	Proximity              ClaimProximityProvider
@@ -199,6 +200,7 @@ type ClaimService struct {
 
 	store                  *InMemoryStore
 	claimBoundaries        ClaimBoundaryStore
+	xCoreOwnerBoundary     ClaimXCoreOwnerBoundary
 	clock                  foundation.Clock
 	ranks                  ClaimRankProvider
 	proximity              ClaimProximityProvider
@@ -235,6 +237,7 @@ func NewClaimService(config ClaimServiceConfig) (*ClaimService, error) {
 	return &ClaimService{
 		store:                     normalized.Store,
 		claimBoundaries:           normalized.ClaimBoundaries,
+		xCoreOwnerBoundary:        normalized.XCoreOwnerBoundary,
 		clock:                     normalized.Clock,
 		ranks:                     normalized.Ranks,
 		proximity:                 normalized.Proximity,
@@ -351,20 +354,10 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 	if err := service.validateRank(input.PlayerID, planet); err != nil {
 		return ClaimPlanetResult{}, err
 	}
-	if err := service.consumeXCore(input, planet); err != nil {
-		return ClaimPlanetResult{}, err
-	}
 
 	now := service.clock.Now().UTC()
 	event := newClaimEvent(ClaimEventPlanetClaimed, input, now)
-	claimBoundary, err := service.claimBoundaries.BeginPlanetClaimBoundary(BeginPlanetClaimBoundaryInput{
-		ClaimReference:  input.ClaimReference,
-		PlayerID:        input.PlayerID,
-		PlanetID:        planet.ID,
-		ClaimedAt:       now,
-		EventID:         event.EventID,
-		SourceReference: claimOwnerChangeSourceReference(event),
-	})
+	claimBoundary, err := service.beginClaimWithXCore(input, planet, now, event)
 	if err != nil {
 		return ClaimPlanetResult{}, err
 	}
@@ -580,6 +573,12 @@ func normalizeClaimConfig(config ClaimServiceConfig) (ClaimServiceConfig, error)
 	if config.XCoreSources == nil {
 		config.XCoreSources = defaultClaimXCoreSourceProvider{}
 	}
+	if config.XCoreOwnerBoundary == nil {
+		config.XCoreOwnerBoundary = composedClaimXCoreOwnerBoundary{
+			Consumer:   config.XCoreConsumer,
+			Boundaries: config.ClaimBoundaries,
+		}
+	}
 	if err := config.XCoreItemDefinition.Validate(); err != nil {
 		return ClaimServiceConfig{}, fmt.Errorf("x_core_item_definition: %w", err)
 	}
@@ -673,23 +672,62 @@ func (service *ClaimService) claimBoundaryForInput(input ClaimPlanetInput) (Clai
 	return boundary, true, nil
 }
 
-func (service *ClaimService) consumeXCore(input ClaimPlanetInput, planet Planet) error {
-	if consumed, err := service.claimXCoreAlreadyConsumedLocked(input); err != nil || consumed {
-		return err
+func (service *ClaimService) beginClaimWithXCore(
+	input ClaimPlanetInput,
+	planet Planet,
+	claimedAt time.Time,
+	event ClaimEventRecord,
+) (BeginPlanetClaimBoundaryResult, error) {
+	beginInput := BeginPlanetClaimBoundaryInput{
+		ClaimReference:  input.ClaimReference,
+		PlayerID:        input.PlayerID,
+		PlanetID:        planet.ID,
+		ClaimedAt:       claimedAt,
+		EventID:         event.EventID,
+		SourceReference: claimOwnerChangeSourceReference(event),
 	}
+	if consumed, err := service.claimXCoreAlreadyConsumedLocked(input); err != nil {
+		return BeginPlanetClaimBoundaryResult{}, err
+	} else if consumed {
+		return service.claimBoundaries.BeginPlanetClaimBoundary(beginInput)
+	}
+	consumeInput, err := service.claimXCoreConsumeInput(input, planet)
+	if err != nil {
+		return BeginPlanetClaimBoundaryResult{}, err
+	}
+	result, err := service.xCoreOwnerBoundary.BeginPlanetClaimWithXCore(BeginPlanetClaimWithXCoreInput{
+		XCore:      consumeInput,
+		Boundary:   beginInput,
+		ConsumedAt: service.clock.Now().UTC(),
+	})
+	if result.XCoreConsumption.ClaimReference != "" {
+		if result.XCoreConsumption.ClaimReference != input.ClaimReference ||
+			result.XCoreConsumption.PlayerID != input.PlayerID ||
+			result.XCoreConsumption.PlanetID != input.PlanetID {
+			return BeginPlanetClaimBoundaryResult{}, ErrPlanetClaimReferenceConflict
+		}
+		service.recordClaimXCoreConsumptionRecordLocked(result.XCoreConsumption)
+	}
+	if err != nil {
+		return BeginPlanetClaimBoundaryResult{}, err
+	}
+	return result.Boundary, nil
+}
+
+func (service *ClaimService) claimXCoreConsumeInput(input ClaimPlanetInput, planet Planet) (ClaimXCoreConsumeInput, error) {
 	sourceInput := ClaimXCoreSourceInput{
 		PlayerID: input.PlayerID,
 		PlanetID: planet.ID,
 	}
 	if err := sourceInput.Validate(); err != nil {
-		return err
+		return ClaimXCoreConsumeInput{}, err
 	}
 	sourceLocation, err := service.xCoreSources.ClaimXCoreSourceLocation(sourceInput)
 	if err != nil {
-		return err
+		return ClaimXCoreConsumeInput{}, err
 	}
 	if err := sourceLocation.Validate(); err != nil {
-		return fmt.Errorf("x core source: %w", err)
+		return ClaimXCoreConsumeInput{}, fmt.Errorf("x core source: %w", err)
 	}
 
 	consumeInput := ClaimXCoreConsumeInput{
@@ -704,14 +742,9 @@ func (service *ClaimService) consumeXCore(input ClaimPlanetInput, planet Planet)
 		Reference:      input.ClaimReference,
 	}
 	if err := consumeInput.Validate(); err != nil {
-		return err
+		return ClaimXCoreConsumeInput{}, err
 	}
-	result, err := service.xCoreConsumer.ConsumeClaimXCore(consumeInput)
-	if err != nil {
-		return err
-	}
-	service.recordClaimXCoreConsumptionLocked(consumeInput, result, service.clock.Now().UTC())
-	return nil
+	return consumeInput, nil
 }
 
 func (service *ClaimService) completeClaimBoundary(input ClaimPlanetInput, completedAt time.Time, staleListingCount int) error {

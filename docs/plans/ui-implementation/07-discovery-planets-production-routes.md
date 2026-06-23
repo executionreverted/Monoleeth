@@ -378,6 +378,15 @@ Current slice completed:
   `SettlePlanetProduction` and `SettlePlanetProductionIfWholeOutputAvailable`
   now go through this boundary. Real DB row locks/CAS and durable outbox tables
   remain open.
+- Phase07AP claim X Core/owner boundary follow-up:
+  `ClaimService.ClaimPlanet` now begins new owner claims through
+  `ClaimXCoreOwnerBoundary`, a DB-adapter-ready contract that couples the
+  server-derived X Core debit input with the unowned-planet owner-CAS begin
+  input. The default in-memory adapter composes the existing inventory consumer
+  and claim boundary while returning debit evidence even when owner begin fails,
+  preserving retry-without-second-debit behavior. A real durable adapter still
+  needs DB row locks/CAS, idempotency rows, ledger mutation, and claim boundary
+  writes in one transaction or recoverable state machine.
 
 ## Source Specs
 
@@ -510,6 +519,8 @@ Mockup areas covered:
 - [x] Add process-local production-domain build/upgrade material debit ledger,
       idempotency, and in-memory event/outbox foundation.
 - [x] Add authenticated gateway transaction flows for build/upgrade mutations.
+- [x] Add explicit claim X Core debit plus owner-CAS begin boundary contract
+      for future durable claim/storage adapters.
 - [ ] Add durable authenticated transaction flows for claim/storage mutation
       coupling once DB/CAS storage boundaries replace process-local stores.
 - [x] Add offline settlement reconcile path that uses server-owned windows for
@@ -572,6 +583,9 @@ Mockup areas covered:
       with the current claim token, and explicitly retried in append order
       without exposing mutable event aliases or letting stale publisher
       callbacks mutate later attempts.
+- [x] Claim X Core debit and owner-CAS begin use a single boundary contract
+      that returns debit evidence on owner-begin failure so retries do not call
+      the X Core consumer a second time.
 - [x] Intel share rejects hidden/not-owned coordinate references.
 - [x] Coordinate item create/use consumes owned items once and filters results.
 - [x] Market-bought coordinate scrolls transfer server-owned intel item

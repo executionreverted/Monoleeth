@@ -3,7 +3,97 @@ package discovery
 import (
 	"errors"
 	"testing"
+
+	"gameproject/internal/game/economy"
+	"gameproject/internal/game/foundation"
 )
+
+func TestBeginPlanetClaimWithXCoreReturnsDebitEvidenceAndOwnerBoundary(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim-xcore-owner-boundary")
+	materializeClaimTestPlanet(t, store, planet)
+	consumer := &recordingClaimXCoreConsumer{}
+	ref := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
+	key, err := foundation.PlanetClaimIdempotencyKey(claimTestPlayerID, planet.ID)
+	if err != nil {
+		t.Fatalf("PlanetClaimIdempotencyKey() error = %v, want nil", err)
+	}
+	input := beginClaimWithXCoreInputForTest(t, planet.ID, ref)
+
+	result, err := composedClaimXCoreOwnerBoundary{
+		Consumer:   consumer,
+		Boundaries: store,
+	}.BeginPlanetClaimWithXCore(input)
+	if err != nil {
+		t.Fatalf("BeginPlanetClaimWithXCore() error = %v, want nil", err)
+	}
+	if len(consumer.calls) != 1 {
+		t.Fatalf("x core consumer calls = %d, want 1", len(consumer.calls))
+	}
+	if result.XCoreConsumption.ClaimReference != ref ||
+		result.XCoreConsumption.ReferenceKey != key ||
+		result.XCoreConsumption.PlayerID != claimTestPlayerID ||
+		result.XCoreConsumption.PlanetID != planet.ID ||
+		!result.XCoreConsumption.ConsumedAt.Equal(input.ConsumedAt) {
+		t.Fatalf("x core consumption evidence = %+v, want claim/player/planet/key evidence", result.XCoreConsumption)
+	}
+	if result.Boundary.Boundary.Status != ClaimBoundaryStatusPendingSideEffects ||
+		result.Boundary.Boundary.ClaimReference != ref ||
+		result.Boundary.Planet.OwnerPlayerID != claimTestPlayerID {
+		t.Fatalf("owner boundary result = %+v, want pending owner boundary", result.Boundary)
+	}
+	assertClaimBoundaryStatus(t, store, ref, planet.ID, ClaimBoundaryStatusPendingSideEffects, 0)
+}
+
+func TestBeginPlanetClaimWithXCoreBeginFailureReturnsDebitEvidence(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim-xcore-owner-begin-failure")
+	materializeClaimTestPlanet(t, store, planet)
+	beginErr := errors.New("owner cas failed")
+	consumer := &recordingClaimXCoreConsumer{}
+	ref := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
+
+	result, err := composedClaimXCoreOwnerBoundary{
+		Consumer: consumer,
+		Boundaries: &recordingClaimBoundaryStore{
+			inner:    store,
+			beginErr: beginErr,
+		},
+	}.BeginPlanetClaimWithXCore(beginClaimWithXCoreInputForTest(t, planet.ID, ref))
+	if !errors.Is(err, beginErr) {
+		t.Fatalf("BeginPlanetClaimWithXCore() error = %v, want begin error", err)
+	}
+	if len(consumer.calls) != 1 {
+		t.Fatalf("x core consumer calls = %d, want 1", len(consumer.calls))
+	}
+	if result.XCoreConsumption.ClaimReference != ref || result.XCoreConsumption.PlayerID != claimTestPlayerID || result.XCoreConsumption.PlanetID != planet.ID {
+		t.Fatalf("x core evidence after begin failure = %+v, want populated claim evidence", result.XCoreConsumption)
+	}
+	if _, ok, lookupErr := store.ClaimBoundary(ref); lookupErr != nil || ok {
+		t.Fatalf("ClaimBoundary() after failed begin ok = %v err = %v, want false nil", ok, lookupErr)
+	}
+}
+
+func TestBeginPlanetClaimWithXCoreRejectsMismatchedFactsBeforeDebit(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim-xcore-owner-mismatch")
+	materializeClaimTestPlanet(t, store, planet)
+	consumer := &recordingClaimXCoreConsumer{}
+	ref := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
+	input := beginClaimWithXCoreInputForTest(t, planet.ID, ref)
+	input.Boundary.PlanetID = "planet-claim-xcore-owner-other"
+
+	_, err := composedClaimXCoreOwnerBoundary{
+		Consumer:   consumer,
+		Boundaries: store,
+	}.BeginPlanetClaimWithXCore(input)
+	if !errors.Is(err, ErrPlanetClaimReferenceConflict) {
+		t.Fatalf("BeginPlanetClaimWithXCore(mismatch) error = %v, want ErrPlanetClaimReferenceConflict", err)
+	}
+	if len(consumer.calls) != 0 {
+		t.Fatalf("x core consumer calls after mismatch = %d, want 0", len(consumer.calls))
+	}
+}
 
 func TestClaimPlanetBeginBoundaryRetryUsesRecordedXCoreConsumption(t *testing.T) {
 	store := NewInMemoryStore()
@@ -82,5 +172,38 @@ func TestClaimPlanetRecordedXCoreReferenceConflictRejectsBeforeSecondConsume(t *
 	}
 	if got := len(service.Events()); got != 0 {
 		t.Fatalf("claim events after conflict = %d, want 0", got)
+	}
+}
+
+func beginClaimWithXCoreInputForTest(t *testing.T, planetID foundation.PlanetID, ref PlanetClaimReference) BeginPlanetClaimWithXCoreInput {
+	t.Helper()
+	sourceLocation, err := defaultClaimXCoreSourceProvider{}.ClaimXCoreSourceLocation(ClaimXCoreSourceInput{
+		PlayerID: claimTestPlayerID,
+		PlanetID: planetID,
+	})
+	if err != nil {
+		t.Fatalf("ClaimXCoreSourceLocation() error = %v, want nil", err)
+	}
+	return BeginPlanetClaimWithXCoreInput{
+		XCore: ClaimXCoreConsumeInput{
+			PlayerID: claimTestPlayerID,
+			PlanetID: planetID,
+			ItemRef: economy.RemoveItemRef{
+				Definition: claimTestXCoreDefinition(t),
+			},
+			SourceLocation: sourceLocation,
+			Quantity:       defaultClaimXCoreQuantity,
+			Reason:         defaultClaimReason,
+			Reference:      ref,
+		},
+		Boundary: BeginPlanetClaimBoundaryInput{
+			ClaimReference:  ref,
+			PlayerID:        claimTestPlayerID,
+			PlanetID:        planetID,
+			ClaimedAt:       testTime(10),
+			EventID:         "event_xcore_owner_boundary",
+			SourceReference: "planet.claimed:event_xcore_owner_boundary",
+		},
+		ConsumedAt: testTime(11),
 	}
 }

@@ -57,9 +57,13 @@ func (service *ClaimService) claimXCoreAlreadyConsumedLocked(input ClaimPlanetIn
 	return true, nil
 }
 
-func (service *ClaimService) recordClaimXCoreConsumptionLocked(input ClaimXCoreConsumeInput, result ClaimXCoreConsumeResult, consumedAt time.Time) {
+func (service *ClaimService) recordClaimXCoreConsumptionRecordLocked(record ClaimXCoreConsumptionRecord) {
+	service.xCoreConsumptions[record.ClaimReference] = cloneClaimXCoreConsumptionRecord(record)
+}
+
+func newClaimXCoreConsumptionRecord(input ClaimXCoreConsumeInput, result ClaimXCoreConsumeResult, consumedAt time.Time) ClaimXCoreConsumptionRecord {
 	referenceKey, _ := input.Reference.IdempotencyKey(input.PlayerID, input.PlanetID)
-	service.xCoreConsumptions[input.Reference] = cloneClaimXCoreConsumptionRecord(ClaimXCoreConsumptionRecord{
+	return ClaimXCoreConsumptionRecord{
 		ClaimReference: input.Reference,
 		ReferenceKey:   referenceKey,
 		PlayerID:       input.PlayerID,
@@ -69,7 +73,7 @@ func (service *ClaimService) recordClaimXCoreConsumptionLocked(input ClaimXCoreC
 		Reason:         input.Reason,
 		ConsumedAt:     consumedAt.UTC(),
 		Duplicate:      result.Duplicate,
-	})
+	}
 }
 
 func cloneClaimXCoreConsumptionRecord(record ClaimXCoreConsumptionRecord) ClaimXCoreConsumptionRecord {
