@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="portal gate">
+  <circle cx="48" cy="48" r="34" fill="none" stroke="#2bdfff" stroke-width="3"/>
+  <circle cx="48" cy="48" r="22" fill="none" stroke="#8af5ff" stroke-width="2" stroke-dasharray="6 5"/>
+  <path d="M48 16 58 36 80 48 58 60 48 80 38 60 16 48 38 36Z" fill="#03080a" stroke="#8af5ff" stroke-width="2"/>
+</svg>

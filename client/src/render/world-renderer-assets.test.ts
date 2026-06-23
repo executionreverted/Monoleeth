@@ -10,6 +10,29 @@ import {
 } from './world-renderer-assets';
 
 describe('world renderer asset registry', () => {
+  test('binds every render asset to a concrete client asset URL', () => {
+    const descriptors = Object.values(WORLD_RENDER_ASSETS);
+    expect(descriptors).toHaveLength(Object.keys(WORLD_RENDER_ASSETS).length);
+    for (const descriptor of descriptors) {
+      expect(descriptor.assetURL).toMatch(/^(data:image\/svg\+xml|.*\.(png|svg)(\?|$))/);
+      expect(descriptor.visualRole).toMatch(/\S/);
+      expect(descriptor.key).toMatch(/^[a-z0-9.-]+$/);
+    }
+  });
+
+  test('covers the first playable asset set required by the real map loop', () => {
+    const roles = new Set(Object.values(WORLD_RENDER_ASSETS).map((descriptor) => descriptor.visualRole));
+    expect(roles.has('map background')).toBe(true);
+    expect(roles.has('player ship')).toBe(true);
+    expect(roles.has('hostile npc')).toBe(true);
+    expect(roles.has('laser projectile')).toBe(true);
+    expect(roles.has('loot crate')).toBe(true);
+    expect(roles.has('known planet signal')).toBe(true);
+    expect(roles.has('portal gate')).toBe(true);
+    expect(roles.has('safe zone')).toBe(true);
+    expect(roles.has('radar warning zone')).toBe(true);
+  });
+
   test('maps server-visible entities to stable render assets', () => {
     expect(worldAssetForEntity({ entity_id: 'self', entity_type: 'player', position: { x: 0, y: 0 } }, true).key).toBe('ship.player.self');
     expect(
@@ -43,7 +66,7 @@ describe('world renderer asset registry', () => {
     expect(isUnknownSignalAsset(known)).toBe(false);
     expect(worldAssetForEntity(unknown).key).toBe('planet.signal.unknown');
     expect(worldAssetForEntity(known).key).toBe('planet.signal.known');
-    expect(JSON.stringify(WORLD_RENDER_ASSETS)).not.toMatch(/seed|candidate|loot_table|internal_map_id/i);
+    expect(JSON.stringify(WORLD_RENDER_ASSETS)).not.toMatch(/seed|candidate|loot_table|internal_map_id|spawn_area|drop_profile/i);
   });
 
   test('maps map utility objects to DarkOrbit-style portal and safe-zone assets', () => {

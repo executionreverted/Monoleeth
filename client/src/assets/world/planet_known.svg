@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="known planet">
+  <circle cx="48" cy="48" r="25" fill="#17252a" stroke="#2bdfff" stroke-width="3"/>
+  <circle cx="38" cy="38" r="10" fill="#8af5ff" opacity=".22"/>
+  <path d="M12 56c20-14 52-22 72-16" fill="none" stroke="#d8ddde" stroke-width="4" opacity=".52"/>
+  <path d="M22 64c18-10 42-15 62-10" fill="none" stroke="#2bdfff" stroke-width="2" opacity=".7"/>
+</svg>

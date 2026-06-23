@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="loot crate">
+  <path d="M48 14 78 30v36L48 82 18 66V30Z" fill="#03080a" stroke="#f4c95d" stroke-width="3"/>
+  <path d="M18 30 48 46 78 30M48 46v36M34 22l30 16M28 52l20 10 20-10" fill="none" stroke="#d8ddde" stroke-width="2" opacity=".55"/>
+  <rect x="37" y="46" width="22" height="12" fill="none" stroke="#f4c95d" stroke-width="2"/>
+</svg>

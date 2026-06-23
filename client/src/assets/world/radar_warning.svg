@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="radar warning">
+  <circle cx="48" cy="48" r="36" fill="none" stroke="#f4c95d" stroke-width="3"/>
+  <path d="M48 48 78 34" stroke="#fff0a8" stroke-width="4" stroke-linecap="round"/>
+  <path d="M20 48a28 28 0 0 1 56 0M30 48a18 18 0 0 1 36 0" fill="none" stroke="#f4c95d" stroke-width="2" opacity=".7"/>
+  <circle cx="48" cy="48" r="5" fill="#fff0a8"/>
+</svg>

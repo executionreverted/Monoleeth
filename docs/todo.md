@@ -7,6 +7,11 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [ ] Render the first real world asset set as canvas sprites/meshes, then add
+  screenshot or pixel proof against the authenticated playtest server. The
+  current renderer registry maps every world surface role to concrete client
+  assets under `client/src/assets/world/`, but entity drawing still uses
+  procedural Pixi `Graphics` shapes while the sprite/3D pass is prepared.
 - [ ] Add owner-aware passive economy fanout for online market, auction, and
   premium viewers. The Task 001 Phase 01 client now refreshes `market.search`,
   `auction.search`, `premium.entitlements`, wallet, inventory, and admin economy

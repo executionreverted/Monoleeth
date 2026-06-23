@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="player ship">
+  <defs>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <path d="M48 8 68 72 53 62 48 88 43 62 28 72Z" fill="#d8ddde" stroke="#8af5ff" stroke-width="3" filter="url(#glow)"/>
+  <path d="M48 22 56 62 48 55 40 62Z" fill="#03080a" opacity=".72"/>
+  <circle cx="38" cy="78" r="4" fill="#2bdfff"/>
+  <circle cx="58" cy="78" r="4" fill="#2bdfff"/>
+</svg>

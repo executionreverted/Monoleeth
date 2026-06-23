@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 24" role="img" aria-label="laser projectile">
+  <path d="M8 12h80" stroke="#2bdfff" stroke-width="4" stroke-linecap="round"/>
+  <path d="M24 12h56" stroke="#fff0a8" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="82" cy="12" r="7" fill="#f4c95d"/>
+</svg>

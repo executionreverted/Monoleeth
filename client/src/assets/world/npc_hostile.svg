@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="hostile npc">
+  <circle cx="48" cy="48" r="34" fill="none" stroke="#ff4236" stroke-width="2" opacity=".35"/>
+  <path d="M48 18 62 36 78 40 64 54 62 72 48 62 34 72 32 54 18 40 34 36Z" fill="#180708" stroke="#ff5c7a" stroke-width="3"/>
+  <circle cx="48" cy="48" r="7" fill="#ff4236"/>
+  <path d="M18 48h20M58 48h20M48 18v20M48 58v20" stroke="#ff5c7a" stroke-width="4" stroke-linecap="round"/>
+</svg>

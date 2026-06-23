@@ -1,6 +1,20 @@
 import type { EntityPayload } from '../protocol/envelope';
 import type { WorldMapMemoryMarker } from '../state/types';
 import type { MapOverlayPortalDebug, MapOverlaySafeZoneDebug } from './map-overlay';
+import damageBurstURL from '../assets/world/damage_burst.svg?url';
+import lootCrateURL from '../assets/world/loot_crate.svg?url';
+import lootSparkURL from '../assets/world/loot_spark.svg?url';
+import movementMarkerURL from '../assets/world/movement_marker.svg?url';
+import npcHostileURL from '../assets/world/npc_hostile.svg?url';
+import planetKnownURL from '../assets/world/planet_known.svg?url';
+import planetUnknownURL from '../assets/world/planet_unknown.svg?url';
+import portalGateURL from '../assets/world/portal_gate.svg?url';
+import projectileLaserURL from '../assets/world/projectile_laser.svg?url';
+import radarWarningURL from '../assets/world/radar_warning.svg?url';
+import safeZoneURL from '../assets/world/safe_zone.svg?url';
+import selectionReticleURL from '../assets/world/selection_reticle.svg?url';
+import shipPlayerURL from '../assets/world/ship_player.svg?url';
+import starfieldURL from '../assets/starfield_2048x1152.png?url';
 
 export type WorldRenderAssetKey =
   | 'background.starfield'
@@ -27,29 +41,157 @@ export type WorldRenderAssetLayer = 'background' | 'world' | 'overlay' | 'effect
 export interface WorldRenderAssetDescriptor {
   key: WorldRenderAssetKey;
   layer: WorldRenderAssetLayer;
+  assetURL: string;
+  visualRole: string;
   accentColor: number;
   glowColor: number;
 }
 
 export const WORLD_RENDER_ASSETS: Record<WorldRenderAssetKey, WorldRenderAssetDescriptor> = {
-  'background.starfield': { key: 'background.starfield', layer: 'background', accentColor: 0x2bdfff, glowColor: 0x8af5ff },
-  'ship.player.self': { key: 'ship.player.self', layer: 'world', accentColor: 0x2bdfff, glowColor: 0x8af5ff },
-  'ship.player.friendly': { key: 'ship.player.friendly', layer: 'world', accentColor: 0x44e878, glowColor: 0x8af5ff },
-  'ship.player.neutral': { key: 'ship.player.neutral', layer: 'world', accentColor: 0x8af5ff, glowColor: 0x2bdfff },
-  'npc.swarm.hostile': { key: 'npc.swarm.hostile', layer: 'world', accentColor: 0xff4236, glowColor: 0xff5c7a },
-  'loot.cache': { key: 'loot.cache', layer: 'world', accentColor: 0xf4c95d, glowColor: 0xfff0a8 },
-  'planet.signal.unknown': { key: 'planet.signal.unknown', layer: 'world', accentColor: 0xf4c95d, glowColor: 0xfff0a8 },
-  'planet.signal.known': { key: 'planet.signal.known', layer: 'world', accentColor: 0x2bdfff, glowColor: 0x8af5ff },
-  'planet.memory.owned': { key: 'planet.memory.owned', layer: 'world', accentColor: 0x44e878, glowColor: 0x8af5ff },
-  'planet.memory.known': { key: 'planet.memory.known', layer: 'world', accentColor: 0x44e878, glowColor: 0x8af5ff },
-  'portal.gate.visible': { key: 'portal.gate.visible', layer: 'overlay', accentColor: 0x8af5ff, glowColor: 0x2bdfff },
-  'zone.safe.pvp-blocked': { key: 'zone.safe.pvp-blocked', layer: 'overlay', accentColor: 0x44e878, glowColor: 0x8af5ff },
-  'zone.safe.warning': { key: 'zone.safe.warning', layer: 'overlay', accentColor: 0xf4c95d, glowColor: 0xfff0a8 },
-  'projectile.laser.basic': { key: 'projectile.laser.basic', layer: 'effect', accentColor: 0xf4c95d, glowColor: 0x2bdfff },
-  'marker.movement.target': { key: 'marker.movement.target', layer: 'overlay', accentColor: 0xf4c95d, glowColor: 0xfff0a8 },
-  'marker.selection.target': { key: 'marker.selection.target', layer: 'overlay', accentColor: 0x8af5ff, glowColor: 0x2bdfff },
-  'effect.damage': { key: 'effect.damage', layer: 'effect', accentColor: 0xff5c7a, glowColor: 0xff4236 },
-  'effect.loot': { key: 'effect.loot', layer: 'effect', accentColor: 0xf4c95d, glowColor: 0xfff0a8 },
+  'background.starfield': {
+    key: 'background.starfield',
+    layer: 'background',
+    assetURL: starfieldURL,
+    visualRole: 'map background',
+    accentColor: 0x2bdfff,
+    glowColor: 0x8af5ff,
+  },
+  'ship.player.self': {
+    key: 'ship.player.self',
+    layer: 'world',
+    assetURL: shipPlayerURL,
+    visualRole: 'player ship',
+    accentColor: 0x2bdfff,
+    glowColor: 0x8af5ff,
+  },
+  'ship.player.friendly': {
+    key: 'ship.player.friendly',
+    layer: 'world',
+    assetURL: shipPlayerURL,
+    visualRole: 'friendly player ship',
+    accentColor: 0x44e878,
+    glowColor: 0x8af5ff,
+  },
+  'ship.player.neutral': {
+    key: 'ship.player.neutral',
+    layer: 'world',
+    assetURL: shipPlayerURL,
+    visualRole: 'neutral player ship',
+    accentColor: 0x8af5ff,
+    glowColor: 0x2bdfff,
+  },
+  'npc.swarm.hostile': {
+    key: 'npc.swarm.hostile',
+    layer: 'world',
+    assetURL: npcHostileURL,
+    visualRole: 'hostile npc',
+    accentColor: 0xff4236,
+    glowColor: 0xff5c7a,
+  },
+  'loot.cache': {
+    key: 'loot.cache',
+    layer: 'world',
+    assetURL: lootCrateURL,
+    visualRole: 'loot crate',
+    accentColor: 0xf4c95d,
+    glowColor: 0xfff0a8,
+  },
+  'planet.signal.unknown': {
+    key: 'planet.signal.unknown',
+    layer: 'world',
+    assetURL: planetUnknownURL,
+    visualRole: 'unknown planet signal',
+    accentColor: 0xf4c95d,
+    glowColor: 0xfff0a8,
+  },
+  'planet.signal.known': {
+    key: 'planet.signal.known',
+    layer: 'world',
+    assetURL: planetKnownURL,
+    visualRole: 'known planet signal',
+    accentColor: 0x2bdfff,
+    glowColor: 0x8af5ff,
+  },
+  'planet.memory.owned': {
+    key: 'planet.memory.owned',
+    layer: 'world',
+    assetURL: planetKnownURL,
+    visualRole: 'owned planet memory marker',
+    accentColor: 0x44e878,
+    glowColor: 0x8af5ff,
+  },
+  'planet.memory.known': {
+    key: 'planet.memory.known',
+    layer: 'world',
+    assetURL: planetKnownURL,
+    visualRole: 'known planet memory marker',
+    accentColor: 0x44e878,
+    glowColor: 0x8af5ff,
+  },
+  'portal.gate.visible': {
+    key: 'portal.gate.visible',
+    layer: 'overlay',
+    assetURL: portalGateURL,
+    visualRole: 'portal gate',
+    accentColor: 0x8af5ff,
+    glowColor: 0x2bdfff,
+  },
+  'zone.safe.pvp-blocked': {
+    key: 'zone.safe.pvp-blocked',
+    layer: 'overlay',
+    assetURL: safeZoneURL,
+    visualRole: 'safe zone',
+    accentColor: 0x44e878,
+    glowColor: 0x8af5ff,
+  },
+  'zone.safe.warning': {
+    key: 'zone.safe.warning',
+    layer: 'overlay',
+    assetURL: radarWarningURL,
+    visualRole: 'radar warning zone',
+    accentColor: 0xf4c95d,
+    glowColor: 0xfff0a8,
+  },
+  'projectile.laser.basic': {
+    key: 'projectile.laser.basic',
+    layer: 'effect',
+    assetURL: projectileLaserURL,
+    visualRole: 'laser projectile',
+    accentColor: 0xf4c95d,
+    glowColor: 0x2bdfff,
+  },
+  'marker.movement.target': {
+    key: 'marker.movement.target',
+    layer: 'overlay',
+    assetURL: movementMarkerURL,
+    visualRole: 'movement target marker',
+    accentColor: 0xf4c95d,
+    glowColor: 0xfff0a8,
+  },
+  'marker.selection.target': {
+    key: 'marker.selection.target',
+    layer: 'overlay',
+    assetURL: selectionReticleURL,
+    visualRole: 'selection reticle',
+    accentColor: 0x8af5ff,
+    glowColor: 0x2bdfff,
+  },
+  'effect.damage': {
+    key: 'effect.damage',
+    layer: 'effect',
+    assetURL: damageBurstURL,
+    visualRole: 'damage burst',
+    accentColor: 0xff5c7a,
+    glowColor: 0xff4236,
+  },
+  'effect.loot': {
+    key: 'effect.loot',
+    layer: 'effect',
+    assetURL: lootSparkURL,
+    visualRole: 'loot pickup spark',
+    accentColor: 0xf4c95d,
+    glowColor: 0xfff0a8,
+  },
 };
 
 export function worldAssetForEntity(entity: EntityPayload, self = false): WorldRenderAssetDescriptor {

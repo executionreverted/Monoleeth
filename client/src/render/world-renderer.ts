@@ -4,9 +4,9 @@ import { Vec2 } from '../protocol/envelope';
 import { isSelfEntity, serverClockOffset } from '../state/movement';
 import { cloneMapOverlayDebug, MapOverlayDebugState } from './map-overlay';
 import { WorldInputHandlers, WorldViewState } from './world-view';
+import { WORLD_RENDER_ASSETS } from './world-renderer-assets';
 import { WorldRendererEntities } from './world-renderer-entities';
 import { labelColorForEntity, labelForEntity, StarfieldDebugState } from './world-renderer-types';
-import starfieldURL from '../assets/starfield_2048x1152.png?url';
 
 export class WorldRenderer extends WorldRendererEntities {
   constructor(handlers: WorldInputHandlers) {
@@ -36,7 +36,7 @@ export class WorldRenderer extends WorldRendererEntities {
     app.stage.addChild(this.memoryMarkerLayer);
     app.stage.addChild(this.markerLayer);
 
-    this.starfieldTexture = await Assets.load<Texture>(starfieldURL);
+    this.starfieldTexture = await Assets.load<Texture>(WORLD_RENDER_ASSETS['background.starfield'].assetURL);
     this.createStarfield();
     this.emptyLabel = new Text({
       text: 'AWAITING SERVER SNAPSHOT',

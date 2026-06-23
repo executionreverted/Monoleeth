@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="selection reticle">
+  <circle cx="48" cy="48" r="32" fill="none" stroke="#8af5ff" stroke-width="2"/>
+  <path d="M48 4v20M48 72v20M4 48h20M72 48h20" stroke="#2bdfff" stroke-width="4" stroke-linecap="round"/>
+  <path d="M20 20h18M20 20v18M76 20H58M76 20v18M76 76H58M76 76V58M20 76h18M20 76V58" stroke="#8af5ff" stroke-width="3" stroke-linecap="round"/>
+</svg>
