@@ -120,6 +120,31 @@ func TestIntelShareRejectsUnsafeSourceStateBeforeReceiverMutation(t *testing.T) 
 	}
 }
 
+func TestIntelShareRejectsInactiveMapSourceBeforeReceiverMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	sender := createResolvedRuntimeSessionOnMap(t, gameServer, "intel-share-inactive-map@example.com", "Intel Share Map", "map_1_2", "west_gate")
+	receiver := createResolvedRuntimeSession(t, gameServer, "intel-share-inactive-map-receiver@example.com", "Intel Share Map Receiver")
+	planetID := foundation.PlanetID("planet-intel-share-inactive-map")
+	seedKnownClaimPlanetForTest(t, gameServer, sender.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1200, Y: 1300}, 2)
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(sender.SessionID.String()),
+		[]byte(`{"request_id":"request-intel-share-inactive-map","op":"intel.share","payload":{"planet_id":"`+planetID.String()+`","to_player_id":"`+receiver.PlayerID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("inactive-map intel.share response = %+v, want safe not found", response)
+	}
+	if _, ok, err := gameServer.runtime.Discovery.PlayerPlanetIntel(receiver.PlayerID, planetID); err != nil || ok {
+		t.Fatalf("receiver intel after inactive-map share ok=%v err=%v, want no mutation", ok, err)
+	}
+	gameServer.runtime.mu.Lock()
+	receiverEvents := len(gameServer.runtime.queuedEvents[receiver.SessionID])
+	gameServer.runtime.mu.Unlock()
+	if receiverEvents != 0 {
+		t.Fatalf("inactive-map share receiver queued events = %d, want none", receiverEvents)
+	}
+}
+
 func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-owner@example.com", "Coordinate Owner")
@@ -422,6 +447,28 @@ func TestCoordinateItemCreateRequiresKnownPlanet(t *testing.T) {
 	}
 }
 
+func TestCoordinateItemCreateRejectsInactiveMapSourceBeforeInventoryMint(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSessionOnMap(t, gameServer, "coordinate-inactive-map-create@example.com", "Coordinate Map Create", "map_1_2", "west_gate")
+	planetID := foundation.PlanetID("planet-coordinate-inactive-map-create")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1500, Y: 1600}, 3)
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-coordinate-inactive-map-create","op":"intel.coordinate_item.create","payload":{"planet_id":"`+planetID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("inactive-map coordinate create response = %+v, want safe not found", response)
+	}
+	if got := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), coordinateScrollItemID.String()); got != 0 {
+		t.Fatalf("coordinate scroll inventory instances = %d, want none after inactive-map create", got)
+	}
+	itemID := deterministicCoordinateItemID(owner.PlayerID, planetID, foundation.RequestID("request-coordinate-inactive-map-create"))
+	if _, ok, err := gameServer.runtime.Intel.CoordinateItem(itemID); err != nil || ok {
+		t.Fatalf("coordinate item after inactive-map create ok=%v err=%v, want no item", ok, err)
+	}
+}
+
 func TestCoordinateItemCreateRejectsSpoofedServerOwnedFieldsBeforeMutation(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-create-spoof@example.com", "Coordinate Create Spoof")
@@ -477,6 +524,47 @@ func TestCoordinateItemUseRejectsWrongOwner(t *testing.T) {
 	)
 	if !use.HasError || use.Error.Error.Code != foundation.CodeForbidden {
 		t.Fatalf("wrong-owner coordinate use response = %+v, want forbidden", use)
+	}
+}
+
+func TestCoordinateItemUseRejectsInactiveMapBeforeInventoryConsume(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-inactive-map-use@example.com", "Coordinate Map Use")
+	planetID := foundation.PlanetID("planet-coordinate-inactive-map-use")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1500, Y: 1600}, 3)
+
+	createPayload := createCoordinateItemForTest(t, gameServer, owner, planetID, "request-coordinate-inactive-map-use-create")
+	if _, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationIntelCoordinateCreate, owner.PlayerID); err != nil {
+		t.Fatalf("post coordinate create events: %v", err)
+	}
+	if _, err := gameServer.runtime.mapRouter.SetActiveLocationFromSpawn(owner.PlayerID, "map_1_2", "west_gate"); err != nil {
+		t.Fatalf("SetActiveLocationFromSpawn(map_1_2): %v", err)
+	}
+
+	use := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-coordinate-inactive-map-use","op":"intel.coordinate_item.use","payload":{"item_instance_id":"`+createPayload.CoordinateItem.ItemInstanceID+`"},"client_seq":2,"v":1}`),
+	)
+	if !use.HasError || use.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("inactive-map coordinate use response = %+v, want safe not found", use)
+	}
+	item, ok, err := gameServer.runtime.Intel.CoordinateItem(foundation.ItemID(createPayload.CoordinateItem.ItemInstanceID))
+	if err != nil || !ok {
+		t.Fatalf("CoordinateItem ok=%v err=%v, want existing item after inactive-map use", ok, err)
+	}
+	if item.UsedAt != nil {
+		t.Fatalf("coordinate item used_at = %v, want unconsumed after inactive-map use", item.UsedAt)
+	}
+	inventory := gameServer.runtime.inventorySnapshotForPlayer(owner.PlayerID)
+	if !inventorySnapshotHasInstanceID(inventory, createPayload.CoordinateItem.ItemInstanceID, coordinateScrollItemID.String(), economy.LocationKindAccountInventory.String()) {
+		t.Fatalf("inventory after inactive-map use = %+v, want coordinate scroll still owned", inventory)
+	}
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionDecrease, intelCoordinateItemUseLedgerReason, 0)
+	gameServer.runtime.mu.Lock()
+	queuedEvents := len(gameServer.runtime.queuedEvents[owner.SessionID])
+	gameServer.runtime.mu.Unlock()
+	if queuedEvents != 0 {
+		t.Fatalf("inactive-map coordinate use queued events = %d, want none", queuedEvents)
 	}
 }
 

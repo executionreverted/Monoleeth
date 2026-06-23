@@ -199,7 +199,10 @@ for phase status; this file is a compact pending-work index.
   `intel.coordinate_item.create`, and `intel.coordinate_item.use` handlers
   that derive sender/source intel/item payloads server-side and reject
   client-authored coordinates, ownership, source, confidence, timestamp, and
-  inventory truth.
+  inventory truth. Phase07CR also gates intel share, coordinate item creation,
+  and coordinate item use to the authenticated player's active map, with
+  coordinate scroll wrong-map use rejected before inventory consume or reveal
+  events.
 - [x] Add authenticated browser loadout mutation contracts for
   `loadout.equip_module` and `loadout.unequip_module`. Server handlers must
   resolve player, active ship, slot, owned module instance, rank, compatibility,

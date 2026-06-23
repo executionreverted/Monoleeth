@@ -656,6 +656,9 @@ contracts:
 - Claim initializes production rows once and recovers missing initialization on
   retry.
 - Claim marks stale intel/listings without revealing hidden coordinates.
+- Intel share and coordinate scroll create/use paths reject other-map source
+  intel or scroll payloads with safe not-found responses before receiver
+  fanout, inventory mutation, or coordinate reveal events.
 - Building build/upgrade handlers reject unowned planets, wrong-map access, bad
   requirements, insufficient materials/wallet, capacity overflow, and duplicate
   references.
@@ -740,6 +743,8 @@ Acceptance criteria:
 - `discovery.claim_planet` succeeds only for an authenticated player with
   server-approved planet intel, same active map, proximity, rank, and one
   consumable X Core.
+- Coordinate intel share/create/use succeeds only when the source planet or
+  coordinate scroll belongs to the authenticated player's active map.
 - Claim idempotency, X Core ledger mutation, owner CAS, production
   initialization, stale intel/listing updates, and events are durable or
   recoverable.

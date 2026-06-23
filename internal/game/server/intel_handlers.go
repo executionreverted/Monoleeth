@@ -241,6 +241,9 @@ func (runtime *Runtime) handleIntelCoordinateItemUse(ctx realtime.CommandContext
 	if err := runtime.requireUsableCoordinateItem(ctx.PlayerID, itemID, reference); err != nil {
 		return nil, intelDomainError(err)
 	}
+	if err := runtime.requireCoordinateItemActiveMap(ctx.PlayerID, itemID); err != nil {
+		return nil, intelDomainError(err)
+	}
 	if err := runtime.consumeCoordinateItemFromInventory(ctx.PlayerID, itemID, reference); err != nil {
 		return nil, err
 	}
@@ -354,6 +357,24 @@ func (runtime *Runtime) requireUsableCoordinateItem(playerID foundation.PlayerID
 	return nil
 }
 
+func (runtime *Runtime) requireCoordinateItemActiveMap(playerID foundation.PlayerID, itemInstanceID foundation.ItemID) error {
+	item, ok, err := runtime.Intel.CoordinateItem(itemInstanceID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return intel.ErrCoordinateItemNotFound
+	}
+	scope, err := runtime.knownPlanetMapScope(playerID)
+	if err != nil {
+		return err
+	}
+	if item.WorldID != scope.worldID || item.ZoneID != scope.zoneID {
+		return intel.ErrCoordinateItemNotFound
+	}
+	return nil
+}
+
 func (runtime *Runtime) consumeCoordinateItemFromInventory(playerID foundation.PlayerID, itemInstanceID foundation.ItemID, reference foundation.IdempotencyKey) error {
 	return runtime.removeCoordinateItemFromInventory(playerID, itemInstanceID, reference, intelCoordinateItemUseLedgerReason)
 }
@@ -447,6 +468,20 @@ func (runtime *Runtime) syncIntelFromDiscovery(playerID foundation.PlayerID, pla
 		return intel.PlayerPlanetIntel{}, err
 	}
 	if !ok {
+		return intel.PlayerPlanetIntel{}, intel.ErrPlanetIntelNotKnown
+	}
+	planet, ok, err := runtime.Discovery.Planet(planetID)
+	if err != nil {
+		return intel.PlayerPlanetIntel{}, err
+	}
+	if !ok {
+		return intel.PlayerPlanetIntel{}, intel.ErrPlanetIntelNotKnown
+	}
+	scope, err := runtime.knownPlanetMapScope(playerID)
+	if err != nil {
+		return intel.PlayerPlanetIntel{}, err
+	}
+	if !intelAndPlanetMatchActiveMap(row, planet, scope.worldID, scope.zoneID) {
 		return intel.PlayerPlanetIntel{}, intel.ErrPlanetIntelNotKnown
 	}
 	converted := intelFromDiscovery(row)

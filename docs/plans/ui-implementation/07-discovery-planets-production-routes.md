@@ -366,6 +366,12 @@ Current slice completed:
   shareable sender intel states (`fresh` and `verified`); stale,
   invalidated, missing, or colonized-by-other sender memory returns a safe
   not-found style error before receiver intel writes or receiver event fanout.
+- Phase07CR intel active-map safety follow-up: `intel.share` and
+  `intel.coordinate_item.create` now sync only planet intel that belongs to the
+  authenticated player's active map, and `intel.coordinate_item.use` rejects a
+  coordinate scroll from another map before inventory consume or discovery
+  mutation. Wrong-map attempts return safe not-found style errors without
+  receiver fanout, coordinate-item minting, inventory debit, or reveal events.
 - Phase07AJ hidden planet detail regression follow-up: `discovery.planet_detail`
   now has server test evidence that materialized planets without player intel
   return a safe not-found response without creating intel rows or queued events.
@@ -1058,7 +1064,8 @@ Mockup areas covered:
 - [x] Claim lifecycle durable outbox rows can be claimed, published, failed, or
       lease-released through the claim outbox publisher contracts.
 - [x] Intel share rejects hidden/not-owned coordinate references.
-- [x] Coordinate item create/use consumes owned items once and filters results.
+- [x] Coordinate item create/use consumes owned active-map items once and
+      filters results.
 - [x] Market-bought coordinate scrolls transfer server-owned intel item
       authority to the buyer and can be used once by that buyer.
 - [x] Planet claim marks active coordinate-scroll market listings for the
