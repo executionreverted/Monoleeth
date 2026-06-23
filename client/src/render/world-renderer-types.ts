@@ -3,12 +3,13 @@ import { Graphics, Sprite } from 'pixi.js';
 import { EntityPayload, Vec2 } from '../protocol/envelope';
 import { isSelfEntity } from '../state/movement';
 import { WorldFeedbackEffect, WorldMapMemoryMarker } from '../state/types';
+import { isUnknownSignalAsset, worldAssetForEntity } from './world-renderer-assets';
 
 export const entityColors: Record<EntityPayload['entity_type'], number> = {
-  player: 0x2bdfff,
-  npc: 0xff4236,
-  loot: 0xf4c95d,
-  planet_signal: 0xf4c95d,
+  player: worldAssetForEntity({ entity_id: 'sample-player', entity_type: 'player', position: { x: 0, y: 0 } }).accentColor,
+  npc: worldAssetForEntity({ entity_id: 'sample-npc', entity_type: 'npc', position: { x: 0, y: 0 } }).accentColor,
+  loot: worldAssetForEntity({ entity_id: 'sample-loot', entity_type: 'loot', position: { x: 0, y: 0 } }).accentColor,
+  planet_signal: worldAssetForEntity({ entity_id: 'sample-signal', entity_type: 'planet_signal', position: { x: 0, y: 0 } }).accentColor,
 };
 
 export const hudColors = {
@@ -109,12 +110,12 @@ export function labelColorForEntity(entity: EntityPayload): number {
     return hudColors.redSoft;
   }
   if (entity.entity_type === 'loot' || isUnknownSignal(entity)) {
-    return hudColors.amber;
+    return worldAssetForEntity(entity).accentColor;
   }
   if (entity.display?.disposition === 'friendly') {
-    return hudColors.green;
+    return worldAssetForEntity(entity).accentColor;
   }
-  return entityColors[entity.entity_type];
+  return worldAssetForEntity(entity, isSelfEntity(entity)).accentColor;
 }
 
 export function labelOffsetForEntity(entity: EntityPayload): { x: number; y: number; anchorX: number; anchorY: number } {
@@ -147,10 +148,7 @@ export function markerHitRadius(entity: EntityPayload): number {
 }
 
 export function isUnknownSignal(entity: EntityPayload): boolean {
-  return (
-    entity.entity_type === 'planet_signal' &&
-    (entity.status_flags?.includes('unknown_signal') || entity.display?.disposition === 'unknown' || /unknown/i.test(entity.display?.label ?? ''))
-  );
+  return isUnknownSignalAsset(entity);
 }
 
 export function drawDiamond(view: Graphics, radius: number, color: number, fillAlpha: number, strokeAlpha: number): void {

@@ -5,6 +5,7 @@ import { isSelfEntity } from '../state/movement';
 import { WorldFeedbackEffect } from '../state/types';
 import { emptyMapOverlayDebug, MapOverlayFrameDebug, MapOverlayPortalDebug, MapOverlaySafeZoneDebug, summarizeMapOverlay } from './map-overlay';
 import { WorldViewState } from './world-view';
+import { WORLD_RENDER_ASSETS, worldAssetForPortal, worldAssetForSafeZone } from './world-renderer-assets';
 import { WorldRendererStarfield } from './world-renderer-starfield';
 import {
   clamp,
@@ -72,10 +73,11 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
   }
 
   protected drawPortalMarker(portal: MapOverlayPortalDebug): void {
+    const asset = worldAssetForPortal(portal);
     const radius = clamp(portal.screenRadius, 10, 30);
     const x = portal.screen.x;
     const y = portal.screen.y;
-    this.mapOverlayLayer.circle(x, y, radius + 10).stroke({ color: hudColors.cyan, width: 1, alpha: 0.18 });
+    this.mapOverlayLayer.circle(x, y, radius + 10).stroke({ color: asset.glowColor, width: 1, alpha: 0.18 });
     this.mapOverlayLayer
       .moveTo(x, y - radius)
       .lineTo(x + radius, y)
@@ -83,7 +85,7 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
       .lineTo(x - radius, y)
       .closePath()
       .fill({ color: hudColors.panel, alpha: 0.58 })
-      .stroke({ color: hudColors.cyanSoft, width: 2, alpha: 0.76 });
+      .stroke({ color: asset.accentColor, width: 2, alpha: 0.76 });
     this.mapOverlayLayer
       .moveTo(x - radius - 7, y)
       .lineTo(x - radius + 3, y)
@@ -93,12 +95,13 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
       .lineTo(x, y - radius + 3)
       .moveTo(x, y + radius - 3)
       .lineTo(x, y + radius + 7)
-      .stroke({ color: hudColors.cyan, width: 1, alpha: 0.58 });
+      .stroke({ color: asset.glowColor, width: 1, alpha: 0.58 });
   }
 
   protected drawSafeZoneHint(zone: MapOverlaySafeZoneDebug): void {
+    const asset = worldAssetForSafeZone(zone);
     const radius = clamp(zone.screenRadius, 12, 1600);
-    const color = zone.blocksPVP ? hudColors.green : hudColors.amber;
+    const color = asset.accentColor;
     this.mapOverlayLayer
       .circle(zone.screen.x, zone.screen.y, radius)
       .fill({ color, alpha: zone.blocksPVP ? 0.026 : 0.018 })
@@ -113,11 +116,13 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
     }
 
     if (state.movementTarget) {
+      const asset = WORLD_RENDER_ASSETS['marker.movement.target'];
       const target = this.worldToScreen(state.movementTarget);
       const marker = new Graphics();
-      marker.circle(0, 0, 16).stroke({ color: 0xf4c95d, width: 2, alpha: 0.7 });
-      marker.moveTo(-22, 0).lineTo(-8, 0).moveTo(8, 0).lineTo(22, 0).stroke({ color: 0xf4c95d, width: 2 });
-      marker.moveTo(0, -22).lineTo(0, -8).moveTo(0, 8).lineTo(0, 22).stroke({ color: 0xf4c95d, width: 2 });
+      marker.label = asset.key;
+      marker.circle(0, 0, 16).stroke({ color: asset.accentColor, width: 2, alpha: 0.7 });
+      marker.moveTo(-22, 0).lineTo(-8, 0).moveTo(8, 0).lineTo(22, 0).stroke({ color: asset.accentColor, width: 2 });
+      marker.moveTo(0, -22).lineTo(0, -8).moveTo(0, 8).lineTo(0, 22).stroke({ color: asset.accentColor, width: 2 });
       marker.position.set(target.x, target.y);
       this.markerLayer.addChild(marker);
     }
@@ -192,6 +197,7 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
   }
 
   protected drawLaserEffect(effect: WorldFeedbackEffect, now: number): void {
+    const asset = WORLD_RENDER_ASSETS['projectile.laser.basic'];
     const target = this.effectScreenPosition(effect);
     if (!target) {
       return;
@@ -200,21 +206,22 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
     const alpha = this.effectAlpha(effect, now);
     const progress = this.projectileProgress(effect, now);
     const marker = new Graphics();
+    marker.label = asset.key;
     if (source) {
       const head = lerpVec(source, target, progress);
       const tail = lerpVec(source, target, Math.max(0, progress - 0.2));
       marker
         .moveTo(source.x, source.y)
         .lineTo(target.x, target.y)
-        .stroke({ color: 0x2bdfff, width: 1, alpha: 0.12 * alpha })
+        .stroke({ color: asset.glowColor, width: 1, alpha: 0.12 * alpha })
         .circle(source.x, source.y, 6 + (1 - progress) * 5)
-        .stroke({ color: 0x8af5ff, width: 1, alpha: 0.42 * alpha })
+        .stroke({ color: asset.glowColor, width: 1, alpha: 0.42 * alpha })
         .moveTo(tail.x, tail.y)
         .lineTo(head.x, head.y)
-        .stroke({ color: 0x2bdfff, width: 7, alpha: 0.22 * alpha })
+        .stroke({ color: asset.glowColor, width: 7, alpha: 0.22 * alpha })
         .moveTo(tail.x, tail.y)
         .lineTo(head.x, head.y)
-        .stroke({ color: 0xf4c95d, width: 2, alpha: 0.92 * alpha })
+        .stroke({ color: asset.accentColor, width: 2, alpha: 0.92 * alpha })
         .circle(head.x, head.y, 5)
         .fill({ color: 0xfff0a8, alpha: 0.95 * alpha })
         .circle(head.x, head.y, 11)

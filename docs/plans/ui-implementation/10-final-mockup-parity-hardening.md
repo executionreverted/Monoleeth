@@ -72,6 +72,12 @@ Must avoid:
   minimap points carry both disposition and entity-type styling. Fixture smoke
   verifies player/NPC/loot/signal presence, target-kind selection, and updated
   screenshots.
+- 2026-06-23 playtest slice added a renderer asset registry for the DarkOrbit-
+  style world surface. Server-visible player ships, NPC swarms, loot caches,
+  unknown/known planet signals, remembered planets, portal gates, safe zones,
+  movement markers, and laser effects now resolve through stable asset keys
+  before drawing. This keeps the current canvas shapes real-state driven while
+  giving the upcoming 2D/3D asset pass a single integration point.
 - The default browser path remains real/authenticated only. Demo fixtures are
   still available for explicit dev/test fixture mode, but they are dev-only lazy
   imports and the production bundle scan fails on fixture labels.
