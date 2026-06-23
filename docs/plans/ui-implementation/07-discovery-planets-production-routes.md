@@ -370,6 +370,14 @@ Current slice completed:
   outbox rows are produced under one store lock and returned as newly committed
   rows. `SettleRouteForOwner` now goes through this boundary. Real DB row
   locks/CAS and durable outbox tables remain open.
+- Phase07AO production settlement transaction-boundary follow-up:
+  `ApplyProductionSettlementTransaction` now gives offline planet production
+  settlement the matching DB-adapter-ready contract: planet validation,
+  settlement window idempotency reference, and pending production outbox rows
+  are produced under one store lock and returned as newly committed rows.
+  `SettlePlanetProduction` and `SettlePlanetProductionIfWholeOutputAvailable`
+  now go through this boundary. Real DB row locks/CAS and durable outbox tables
+  remain open.
 
 ## Source Specs
 
@@ -580,6 +588,9 @@ Mockup areas covered:
       published or failed with the current claim token, and explicitly retried
       in append order without exposing mutable event payload aliases or letting
       stale publisher callbacks mutate later attempts.
+- [x] Production settlement uses an explicit transaction boundary that returns
+      the committed production idempotency reference and pending outbox rows
+      from the same store lock.
 - [ ] Durable production settlement is enforced by DB/idempotency rows and
       published through the durable outbox.
 - [x] Server route.settle transfers storage once, returns no-op on immediate

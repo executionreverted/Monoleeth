@@ -389,8 +389,9 @@ for phase status; this file is a compact pending-work index.
   process-local publisher/retry behavior with pending, in-flight, published,
   failed, retry, and lease release state. Phase07AN adds a DB-adapter-ready
   route settlement transaction contract for owner-scoped route windows, but
-  durable production/route settlement tables and publisher scheduling remain
-  open.
+  Phase07AO adds the matching production settlement transaction contract for
+  planet production windows. Durable production/route settlement tables and
+  publisher scheduling remain open.
   Those records are still not durable, cross-process, or delivered by a durable
   publisher process. Phase07L adds
   process-local claim tokens so publish/fail callbacks require the current

@@ -75,22 +75,14 @@ type settlementBuilding struct {
 
 // SettlePlanetProduction applies server-timed offline production for one planet.
 func (store *InMemoryStore) SettlePlanetProduction(planetID foundation.PlanetID, now time.Time) (PlanetProductionSettlementResult, error) {
-	if err := planetID.Validate(); err != nil {
-		return PlanetProductionSettlementResult{}, err
-	}
-	if now.IsZero() {
-		return PlanetProductionSettlementResult{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
-	}
-	catalogRows, err := MVPCatalog()
+	result, err := store.ApplyProductionSettlementTransaction(ProductionSettlementTransactionInput{
+		PlanetID:  planetID,
+		SettledAt: now,
+	})
 	if err != nil {
 		return PlanetProductionSettlementResult{}, err
 	}
-
-	now = now.UTC()
-	store.mu.Lock()
-	defer store.mu.Unlock()
-
-	return store.settlePlanetProductionLocked(planetID, now, catalogRows, false)
+	return result.Settlement, nil
 }
 
 // SettlePlanetProductionIfWholeOutputAvailable applies production only when the
@@ -98,22 +90,15 @@ func (store *InMemoryStore) SettlePlanetProduction(planetID foundation.PlanetID,
 // intended for query-time reconciliation so frequent polls cannot advance the
 // production cursor for fractional zero-output windows.
 func (store *InMemoryStore) SettlePlanetProductionIfWholeOutputAvailable(planetID foundation.PlanetID, now time.Time) (PlanetProductionSettlementResult, error) {
-	if err := planetID.Validate(); err != nil {
-		return PlanetProductionSettlementResult{}, err
-	}
-	if now.IsZero() {
-		return PlanetProductionSettlementResult{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
-	}
-	catalogRows, err := MVPCatalog()
+	result, err := store.ApplyProductionSettlementTransaction(ProductionSettlementTransactionInput{
+		PlanetID:           planetID,
+		SettledAt:          now,
+		RequireWholeOutput: true,
+	})
 	if err != nil {
 		return PlanetProductionSettlementResult{}, err
 	}
-
-	now = now.UTC()
-	store.mu.Lock()
-	defer store.mu.Unlock()
-
-	return store.settlePlanetProductionLocked(planetID, now, catalogRows, true)
+	return result.Settlement, nil
 }
 
 func (store *InMemoryStore) settlePlanetProductionLocked(

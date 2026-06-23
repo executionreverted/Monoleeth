@@ -147,6 +147,144 @@ func TestSettleRouteRecordedReferenceReuseNoOpsBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestApplyProductionSettlementTransactionReturnsCommittedReferenceAndOutbox(t *testing.T) {
+	store := newSettlementStore(t, "planet-1", testTime(0), 100, 10)
+	addSettlementBuilding(t, store, "planet-1", "building-1", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+	now := testTime(0).Add(time.Hour)
+	window := wantSettlementWindow(testTime(0), now)
+	reference := mustOfflineSettlementKey(t, "planet-1", window)
+
+	result, err := store.ApplyProductionSettlementTransaction(ProductionSettlementTransactionInput{
+		PlanetID:  "planet-1",
+		SettledAt: now,
+	})
+	if err != nil {
+		t.Fatalf("ApplyProductionSettlementTransaction() error = %v, want nil", err)
+	}
+	if result.Settlement.ReferenceKey != reference || result.Settlement.SettlementWindow != window {
+		t.Fatalf("transaction settlement evidence = %q/%q, want %q/%q", result.Settlement.ReferenceKey, result.Settlement.SettlementWindow, reference, window)
+	}
+	if result.Reference == nil {
+		t.Fatal("transaction reference = nil, want committed production reference")
+	}
+	if result.Reference.Kind != SettlementKindProduction || result.Reference.PlanetID != "planet-1" || result.Reference.ReferenceKey != reference {
+		t.Fatalf("transaction reference = %+v, want production reference %q", result.Reference, reference)
+	}
+	assertOutboxEventTypes(t, result.OutboxRecords,
+		EventPlanetBuildingProduced,
+		EventPlanetProductionSettled,
+		EventOfflineSettlementCompleted,
+	)
+	assertOutboxRecordEvidence(t, result.OutboxRecords, EventPlanetProductionSettled, reference, window)
+	if got := result.Settlement.After.Storage.QuantityOf("iron_ore"); got != 30 {
+		t.Fatalf("after storage iron_ore = %d, want 30", got)
+	}
+}
+
+func TestApplyProductionSettlementTransactionReferenceReuseReturnsNoNewRows(t *testing.T) {
+	store := newSettlementStore(t, "planet-1", testTime(0), 100, 10)
+	addSettlementBuilding(t, store, "planet-1", "building-1", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+	now := testTime(0).Add(time.Hour)
+	window := wantSettlementWindow(testTime(0), now)
+	reference := mustOfflineSettlementKey(t, "planet-1", window)
+
+	store.mu.Lock()
+	store.ensureMapsLocked()
+	store.recordSettlementReferenceLocked(SettlementReferenceRecord{
+		ReferenceKey:     reference,
+		SettlementWindow: window,
+		Kind:             SettlementKindProduction,
+		PlanetID:         "planet-1",
+		AppliedAt:        now,
+		RecordedAt:       now,
+	})
+	store.mu.Unlock()
+
+	result, err := store.ApplyProductionSettlementTransaction(ProductionSettlementTransactionInput{
+		PlanetID:  "planet-1",
+		SettledAt: now,
+	})
+	if err != nil {
+		t.Fatalf("ApplyProductionSettlementTransaction(reuse) error = %v, want nil", err)
+	}
+	if !result.Settlement.NoOp {
+		t.Fatal("transaction reuse NoOp = false, want true")
+	}
+	if result.Reference != nil {
+		t.Fatalf("transaction reuse reference = %+v, want nil for no new row", result.Reference)
+	}
+	if len(result.OutboxRecords) != 0 {
+		t.Fatalf("transaction reuse outbox = %+v, want no new rows", result.OutboxRecords)
+	}
+	if got := result.Settlement.After.Storage.QuantityOf("iron_ore"); got != 0 {
+		t.Fatalf("after storage iron_ore = %d, want 0", got)
+	}
+	if got := len(store.Events()); got != 0 {
+		t.Fatalf("events after transaction reuse = %d, want 0", got)
+	}
+}
+
+func TestApplyProductionSettlementTransactionRequireWholeOutputNoOpsWithoutRows(t *testing.T) {
+	base := testTime(0)
+	store := newSettlementStore(t, "planet-1", base, 100, 10)
+	addSettlementBuilding(t, store, "planet-1", "building-1", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+
+	result, err := store.ApplyProductionSettlementTransaction(ProductionSettlementTransactionInput{
+		PlanetID:           "planet-1",
+		SettledAt:          base.Add(time.Minute),
+		RequireWholeOutput: true,
+	})
+	if err != nil {
+		t.Fatalf("ApplyProductionSettlementTransaction(sub-unit) error = %v, want nil", err)
+	}
+	if !result.Settlement.NoOp {
+		t.Fatal("sub-unit transaction NoOp = false, want true")
+	}
+	if result.Reference != nil || len(result.OutboxRecords) != 0 {
+		t.Fatalf("sub-unit transaction reference/outbox = %+v/%+v, want no rows", result.Reference, result.OutboxRecords)
+	}
+	stored, ok, err := store.ProductionState("planet-1")
+	if err != nil || !ok {
+		t.Fatalf("ProductionState() ok = %v err = %v, want true nil", ok, err)
+	}
+	if !stored.LastCalculatedAt.Equal(base) {
+		t.Fatalf("LastCalculatedAt = %s, want unchanged %s", stored.LastCalculatedAt, base)
+	}
+}
+
+func TestApplyProductionSettlementTransactionRejectsInvalidInputWithoutMutation(t *testing.T) {
+	base := testTime(0)
+	store := newSettlementStore(t, "planet-1", base, 100, 10)
+	addSettlementBuilding(t, store, "planet-1", "building-1", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+
+	cases := map[string]ProductionSettlementTransactionInput{
+		"missing planet": {SettledAt: base.Add(time.Hour)},
+		"zero time":      {PlanetID: "planet-1"},
+		"missing rows":   {PlanetID: "planet-missing", SettledAt: base.Add(time.Hour)},
+	}
+	for name, input := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := store.ApplyProductionSettlementTransaction(input)
+			if err == nil {
+				t.Fatal("ApplyProductionSettlementTransaction() error = nil, want error")
+			}
+			stored, ok, lookupErr := store.ProductionState("planet-1")
+			if lookupErr != nil || !ok {
+				t.Fatalf("ProductionState() ok = %v err = %v, want true nil", ok, lookupErr)
+			}
+			if !stored.LastCalculatedAt.Equal(base) {
+				t.Fatalf("LastCalculatedAt after invalid transaction = %s, want %s", stored.LastCalculatedAt, base)
+			}
+			if got := len(store.SettlementReferences()); got != 0 {
+				t.Fatalf("references after invalid transaction = %d, want 0", got)
+			}
+			if got := len(store.OutboxRecords()); got != 0 {
+				t.Fatalf("outbox after invalid transaction = %d, want 0", got)
+			}
+		})
+	}
+}
+
 func TestApplyRouteSettlementTransactionReturnsCommittedReferenceOutboxAndLedger(t *testing.T) {
 	last := testRouteNow()
 	now := last.Add(time.Hour)
