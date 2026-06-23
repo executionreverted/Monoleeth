@@ -75,6 +75,7 @@ type planetDetailPayload struct {
 	Coordinates       publicVec2               `json:"coordinates"`
 	Production        *planetProductionPayload `json:"production,omitempty"`
 	Routes            []routePayload           `json:"routes,omitempty"`
+	RouteEndpoints    []routeEndpointPayload   `json:"route_endpoints,omitempty"`
 	ProductionLocked  bool                     `json:"production_locked"`
 	AvailableCommands []string                 `json:"available_commands,omitempty"`
 }
@@ -553,6 +554,7 @@ func (runtime *Runtime) planetDetailPayload(playerID foundation.PlayerID, planet
 			return planetDetailPayload{}, err
 		}
 		detail.Routes = routes
+		detail.RouteEndpoints = runtime.routeEndpointPayloadsForOwner(playerID)
 		detail.AvailableCommands = []string{"planet.production_summary", "planet.storage_summary", "route.list"}
 	}
 	return detail, nil

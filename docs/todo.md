@@ -648,7 +648,11 @@ for phase status; this file is a compact pending-work index.
   destinations. Phase07CG opens public route create/update for typed
   storage/station intent when the named endpoint storage aggregate already
   exists, keeps nested/server-owned destination facts rejected, and continues
-  masking non-planet destination ids from route payloads. Phase07BZ proves
+  masking non-planet destination ids from route payloads. Phase07CH adds an
+  owner-scoped route endpoint catalog to `planet_detail`, has the browser send
+  typed storage/station endpoint ids only from server state, and restricts
+  public create/update to the authenticated player's catalog endpoint ids while
+  idempotently ensuring endpoint storage. Phase07BZ proves
   existing owner-scoped storage/station routes can settle through the
   authenticated `route.settle` gateway with safe payloads/events, masking
   storage/station aggregate IDs while preserving public destination type, and

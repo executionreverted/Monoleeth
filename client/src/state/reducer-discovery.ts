@@ -10,6 +10,7 @@ import type {
   PlanetProductionSummary,
   PlanetStorageSummary,
   ProductionCollectionSummary,
+  RouteEndpointSummary,
   RouteListSummary,
   RouteSummary,
   ScanModeState,
@@ -172,10 +173,21 @@ export function parsePlanetDetail(payload: JsonObject, fallback: PlanetDetailSum
     coordinates,
     production: production ? parseProductionPlanet(production) ?? undefined : matchingFallback?.production,
     routes,
+    route_endpoints: Array.isArray(payload.route_endpoints)
+      ? payload.route_endpoints.filter(isJsonObject).map(parseRouteEndpoint).filter((endpoint) => endpoint.id && endpoint.type)
+      : matchingFallback?.route_endpoints ?? [],
     production_locked: booleanField(payload, 'production_locked') ?? matchingFallback?.production_locked ?? true,
     available_commands: Array.isArray(payload.available_commands)
       ? payload.available_commands.filter((command): command is string => typeof command === 'string')
       : matchingFallback?.available_commands ?? [],
+  };
+}
+
+function parseRouteEndpoint(payload: JsonObject): RouteEndpointSummary {
+  return {
+    type: stringField(payload, 'type') ?? '',
+    id: stringField(payload, 'id') ?? '',
+    label: stringField(payload, 'label') ?? stringField(payload, 'type') ?? '',
   };
 }
 

@@ -1,10 +1,30 @@
 import { describe, expect, test } from 'vitest';
 
 import { CLIENT_EVENTS, OPERATIONS } from '../protocol/envelope';
+import { parsePlanetDetail } from './reducer-discovery';
 import { createInitialState, reduceClientState } from './reducer';
 import { event } from './reducer-fixtures.test-support';
 
 describe('route destination reducer behavior', () => {
+  test('planet detail parser preserves server-owned route endpoint catalog', () => {
+    const detail = parsePlanetDetail(
+      {
+        planet_id: 'planet-source',
+        coordinates: { x: 1, y: 2 },
+        route_endpoints: [
+          { type: 'storage', id: 'storage-alpha', label: 'Storage' },
+          { type: 'station', id: 'station-alpha', label: 'Station' },
+        ],
+      },
+      null,
+    );
+
+    expect(detail.route_endpoints).toEqual([
+      { type: 'storage', id: 'storage-alpha', label: 'Storage' },
+      { type: 'station', id: 'station-alpha', label: 'Station' },
+    ]);
+  });
+
   test('non-planet route update clears matching typed create pending command with masked response id', () => {
     const state = createInitialState();
     state.pendingCommands = {

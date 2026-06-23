@@ -1,5 +1,4 @@
 import { OPERATIONS } from '../protocol/envelope';
-import type { RouteDestinationInput } from '../protocol/commands';
 import type { ClientState, KnownPlanetSummary, RouteSummary } from '../state/types';
 import { escapeHTML, formatVec, hasPendingOpPayloadField, lockedValue, publicPlanetName, realtimeReady } from './hud-formatters';
 import { hudSelection } from './hud-selection';
@@ -423,7 +422,7 @@ function selectedRouteFor(routes: RouteSummary[]): RouteSummary | null {
   return routes[0] ?? null;
 }
 
-type RouteEndpointOption = RouteDestinationInput & { label: string };
+type RouteEndpointOption = { type: string; id: string; label: string };
 
 function routeEndpointOptionsForState(state: ClientState, sourcePlanetID: string, routes: RouteSummary[]): RouteEndpointOption[] {
   const endpoints: RouteEndpointOption[] =
@@ -435,6 +434,15 @@ function routeEndpointOptionsForState(state: ClientState, sourcePlanetID: string
         label: publicPlanetName(planet),
       })) ?? [];
   const seen = new Set(endpoints.map(routeEndpointValue));
+  const selectedEndpoints =
+    state.planetIntel?.selectedPlanet?.planet_id === sourcePlanetID ? (state.planetIntel.selectedPlanet.route_endpoints ?? []) : [];
+  for (const endpoint of selectedEndpoints ?? []) {
+    const value = routeEndpointValue(endpoint);
+    if (endpoint.id && endpoint.type && !seen.has(value)) {
+      seen.add(value);
+      endpoints.push(endpoint);
+    }
+  }
   for (const route of routes) {
     if ((route.destination.type === 'storage' || route.destination.type === 'station') && route.destination.id) {
       const endpoint = {

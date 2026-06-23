@@ -634,10 +634,17 @@ export interface RouteSummary {
   updated_at: number;
 }
 
+export interface RouteEndpointSummary {
+  type: string;
+  id: string;
+  label: string;
+}
+
 export interface PlanetDetailSummary extends KnownPlanetSummary {
   coordinates: Vec2 | null;
   production?: PlanetProductionSummary;
   routes: RouteSummary[];
+  route_endpoints?: RouteEndpointSummary[];
   production_locked: boolean;
   available_commands: string[];
 }

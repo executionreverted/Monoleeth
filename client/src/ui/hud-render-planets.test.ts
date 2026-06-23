@@ -475,6 +475,21 @@ describe('route controls', () => {
     expect(html).not.toContain('destination_id');
     expect(html).not.toContain('destination_map_id');
   });
+
+  test('route create includes server-owned storage and station endpoint catalog options', () => {
+    const state = planetRouteState();
+    state.planetIntel!.selectedPlanet!.route_endpoints = [
+      { type: 'storage', id: 'storage-alpha', label: 'Storage' },
+      { type: 'station', id: 'station-alpha', label: 'Station' },
+    ];
+
+    const html = planetDetailModal(state, 'planet-source');
+
+    expect(html).toContain('value="storage:storage-alpha"');
+    expect(html).toContain('>Storage</option>');
+    expect(html).toContain('value="station:station-alpha"');
+    expect(html).toContain('>Station</option>');
+  });
 });
 
 describe('planet building controls', () => {

@@ -103,6 +103,9 @@ func (runtime *Runtime) handleRouteUpdate(ctx realtime.CommandContext, request r
 	if err != nil {
 		return nil, err
 	}
+	if err := runtime.ensurePlayerRouteEndpointStorage(ctx.PlayerID, destination); err != nil {
+		return nil, domainErrorForRouteUpdate(err)
+	}
 
 	service, err := production.NewAutomationRouteService(production.AutomationRouteServiceConfig{
 		Store:  runtime.Production,

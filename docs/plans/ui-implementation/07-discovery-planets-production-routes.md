@@ -454,8 +454,8 @@ Current slice completed:
   storage aggregates. Storage-destination settlements use the same
   server-timed reference/window evidence, route storage ledger rows, durable
   route-row cursor snapshots, and outbox evidence as planet destinations.
-  Station destinations are covered by Phase07BY; durable DB endpoint rows and
-  browser endpoint catalog exposure remain open.
+  Station destinations are covered by Phase07BY; durable DB endpoint rows
+  remain open.
 - Phase07BY station destination route adapter follow-up:
   The same production-domain route adapter now accepts `station` destinations
   behind the route policy boundary and settles them into named station storage
@@ -464,7 +464,15 @@ Current slice completed:
   `destination_type` + `destination_id` intent for storage/station endpoints
   whose storage aggregate already exists, while still masking non-planet
   destination ids from route response/event payloads. Durable DB endpoint rows
-  and browser endpoint catalog exposure remain open.
+  remain open.
+- Phase07CH route endpoint catalog follow-up:
+  `planet_detail` now includes owner-scoped storage/station route endpoint
+  catalog entries for owned planets. The browser route controls merge those
+  server-owned endpoint ids with owned planet endpoints and send typed
+  storage/station route intent without inventing endpoints locally. Route
+  create/update only accept the authenticated player's catalog endpoint ids,
+  idempotently ensuring the endpoint storage aggregate before mutation, and
+  still mask non-planet destination ids from route response/event payloads.
 - Phase07BZ non-planet route settlement gateway follow-up:
   Existing owner-scoped `storage` and `station` routes now have focused
   authenticated `route.settle` gateway proof. The browser still sends only

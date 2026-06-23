@@ -81,6 +81,9 @@ func (runtime *Runtime) handleRouteCreate(ctx realtime.CommandContext, request r
 	if err != nil {
 		return nil, err
 	}
+	if err := runtime.ensurePlayerRouteEndpointStorage(ctx.PlayerID, destination); err != nil {
+		return nil, domainErrorForRouteCreate(err)
+	}
 	routeID, err := foundation.ParseRouteID("route-" + request.RequestID.String())
 	if err != nil {
 		return nil, invalidPayload("Route request is invalid.", err)
@@ -212,6 +215,9 @@ func (provider runtimeRouteCreatePolicyProvider) routeDestinationPolicyFacts(
 	destinationStorageID, err := production.RouteSettlementDestinationStorageID(input.Destination)
 	if err != nil {
 		return "", 0, err
+	}
+	if !runtimeRouteDestinationMatchesPlayerEndpoint(input.OwnerPlayerID, input.Destination) {
+		return "", 0, production.ErrRouteDestinationNotAccessible
 	}
 	if _, ok, err := provider.runtime.Production.PlanetStorage(destinationStorageID); err != nil {
 		return "", 0, err
