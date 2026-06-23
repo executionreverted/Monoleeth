@@ -50,6 +50,31 @@ func TestE2EPlanetClaimSeedGrantsClaimProofStateIdempotently(t *testing.T) {
 	assertE2EClaimSeedRank(t, gameServer, resolved.PlayerID)
 }
 
+func TestE2EPlanetClaimSeedCanGrantMultipleXCoreForMatrixProof(t *testing.T) {
+	gameServer, err := New(Config{
+		AllowedOrigins:      []string{testOrigin},
+		DevMode:             true,
+		E2EPlanetClaimSeed:  true,
+		E2EPlanetClaimCores: 2,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+
+	resolved := createResolvedRuntimeSession(t, gameServer, "claim-seed-matrix@example.com", "ClaimSeedMatrix")
+	if got := inventoryStackQuantityForTest(gameServer, resolved.PlayerID, "x_core"); got != 2 {
+		t.Fatalf("x_core quantity = %d, want 2 with matrix E2E seed", got)
+	}
+	assertE2EClaimSeedRank(t, gameServer, resolved.PlayerID)
+
+	if err := gameServer.runtime.ensurePlayerSession(resolved); err != nil {
+		t.Fatalf("ensurePlayerSession second call error = %v, want nil", err)
+	}
+	if got := inventoryStackQuantityForTest(gameServer, resolved.PlayerID, "x_core"); got != 2 {
+		t.Fatalf("x_core quantity after second ensure = %d, want 2", got)
+	}
+}
+
 func assertE2EClaimSeedRank(t *testing.T, gameServer *Server, playerID foundation.PlayerID) {
 	t.Helper()
 

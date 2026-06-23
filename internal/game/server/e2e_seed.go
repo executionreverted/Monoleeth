@@ -50,7 +50,7 @@ func (runtime *Runtime) seedE2EPlanetClaimXCore(playerID foundation.PlayerID, se
 	_, err = runtime.Inventory.AddItem(economy.AddItemInput{
 		PlayerID:       playerID,
 		ItemDefinition: definition,
-		Quantity:       1,
+		Quantity:       int64(runtime.e2ePlanetClaimCoreQuantity()),
 		Location:       location,
 		Reason:         runtime.claimSeedLedgerReason(seedPrefix),
 		ReferenceKey:   referenceKey,
@@ -250,4 +250,18 @@ func (runtime *Runtime) claimSeedReason(seedPrefix string) string {
 		return playtestSeedReason
 	}
 	return e2ePlanetClaimSeedReason
+}
+
+func (runtime *Runtime) e2ePlanetClaimCoreQuantity() int {
+	if runtime.playtestSeed {
+		return defaultE2EClaimCores
+	}
+	return e2ePlanetClaimCoreQuantity(runtime.e2ePlanetClaimCores)
+}
+
+func e2ePlanetClaimCoreQuantity(quantity int) int {
+	if quantity <= 0 {
+		return defaultE2EClaimCores
+	}
+	return quantity
 }

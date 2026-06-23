@@ -100,10 +100,11 @@ marked `Open` are not implemented rollout controls yet.
   on public `1-2`, opens server-owned planet detail, claims that discovered
   destination-map planet with the E2E X Core seed, verifies production
   initialization and X Core consumption, then travels `1-2` -> `1-3`, resolves
-  browser `scan.pulse` successfully on public `1-3`, kills a Border Skirmish
-  NPC, and picks up the server-created `carbon_shards` drop without leaking
-  map/scan/claim/drop internals. Broader browser scanner/claim/drop matrix
-  variants remain open.
+  browser `scan.pulse` successfully on public `1-3`, claims that discovered
+  PvP-map planet with the second E2E X Core, verifies production initialization
+  and final X Core consumption, kills a Border Skirmish NPC, and picks up the
+  server-created `carbon_shards` drop without leaking map/scan/claim/drop
+  internals. Broader browser scanner/claim/drop matrix variants remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone
   UI-click rejection proof exist in
   `client/tests/e2e/phase10-pvp-death-flow.mjs`. The same flow now also runs as
@@ -357,8 +358,8 @@ scripts/verify_playtest_vertical_slice.sh
 ```
 
 This chains the playtest build/artifact scan gate, built-client main playtest
-loop, built-client PvP/death/repair loop, and destination/PvP scanner plus
-Border Skirmish drop canary. Use
+loop, built-client PvP/death/repair loop, and destination/PvP scanner, claim,
+plus Border Skirmish drop canary. Use
 `GAME_PLAYTEST_VERIFY_DRY_RUN=true scripts/verify_playtest_vertical_slice.sh`
 to print the command sequence without launching the browser proofs.
 Last verified locally on 2026-06-23: the full gate passed, including
@@ -372,9 +373,11 @@ claim commands, and verify the server-owned claim response, `planet.claimed`
 event, production initialization, E2E-seeded X Core inventory consumption,
 Progression rank eligibility, pending-command clear, and leak canaries.
 `e2e:phase10-planet-claim` covers public `1-1` through the HUD controls.
-`e2e:phase10-pvp-map-drop` covers a public `1-2` destination-map claim before
-continuing through portal travel to the public `1-3` drop canary. These focused
-proofs do not capture screenshots.
+`e2e:phase10-pvp-map-drop` covers a public `1-2` destination-map claim and a
+public `1-3` PvP-map claim before continuing to the public `1-3` drop canary.
+It sets `GAME_E2E_PLANET_CLAIM_X_CORES=2` for that matrix proof only; normal
+playtest seeding still grants one onboarding X Core. These focused proofs do
+not capture screenshots.
 
 The route proof starts the local Go server with `GAME_DEV_MODE=1` and
 `GAME_E2E_ROUTE_SEED=1`, registers a real browser user, loads two owned

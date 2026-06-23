@@ -31,6 +31,22 @@ func TestPlaytestSeedGrantsClaimAndRouteOnboardingState(t *testing.T) {
 	assertPlaytestSeedState(t, gameServer, first.PlayerID)
 }
 
+func TestPlaytestSeedIgnoresE2EClaimCoreMatrixQuantity(t *testing.T) {
+	gameServer, err := New(Config{
+		AllowedOrigins:      []string{testOrigin},
+		PlaytestSeed:        true,
+		E2EPlanetClaimCores: 2,
+	})
+	if err != nil {
+		t.Fatalf("New(playtest seed) error = %v, want nil", err)
+	}
+
+	resolved := createResolvedRuntimeSession(t, gameServer, "playtest-seed-cores@example.com", "Playtest Cores")
+	if got := inventoryStackQuantityForTest(gameServer, resolved.PlayerID, "x_core"); got != 1 {
+		t.Fatalf("x_core quantity = %d, want playtest default 1", got)
+	}
+}
+
 func assertPlaytestSeedState(t *testing.T, gameServer *Server, playerID foundation.PlayerID) {
 	t.Helper()
 

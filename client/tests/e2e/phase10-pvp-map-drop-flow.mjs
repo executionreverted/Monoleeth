@@ -83,6 +83,7 @@ async function main() {
     GAME_CLIENT_STATIC_DIR: 'client/dist',
     GAME_DEV_MODE: '1',
     GAME_E2E_PLANET_CLAIM_SEED: '1',
+    GAME_E2E_PLANET_CLAIM_X_CORES: '2',
   });
   let browser;
   let context;
@@ -103,15 +104,16 @@ async function main() {
     const originState = await waitSmoke(client, originReady, 'authenticated Origin state', 30000);
     assert(originState.auth?.session?.authenticated === true, 'real authenticated session missing');
     assertMap(originState, '1-1', 'Origin', 'origin');
-    await waitSmoke(client, (state) => inventoryQuantity(state.inventory, 'x_core') === 1, 'E2E X Core inventory seed', 20000);
+    await waitSmoke(client, (state) => inventoryQuantity(state.inventory, 'x_core') === 2, 'E2E X Core inventory seed', 20000);
     await assertNoLeak(client, originState, 'origin');
 
     await openCommandSocket(client);
     await enterPortalViaPosition(client, 'east_gate', eastGateTarget, '1-2', 'Outer Ring');
     const destinationScan = await proveCurrentMapScan(client, '1-2', 'destination-map');
-    await claimScannedPlanet(client, destinationScan.scan.planet_id, 'destination-map');
+    await claimScannedPlanet(client, destinationScan.scan.planet_id, '1-2', 1, 'destination-map');
     await enterPortalViaPosition(client, 'skirmish_gate', skirmishGateTarget, '1-3', 'Border Skirmish');
-    await proveCurrentMapScan(client, '1-3', 'pvp-map');
+    const pvpScan = await proveCurrentMapScan(client, '1-3', 'pvp-map');
+    await claimScannedPlanet(client, pvpScan.scan.planet_id, '1-3', 0, 'pvp-map');
 
     await moveToPosition(client, borderRaiderApproachTarget, 220, 'border raider approach', 90000);
     const withNPC = await waitSmoke(
@@ -164,7 +166,7 @@ async function main() {
     assertProcessLogCanary([goServer]);
 
     console.log(
-      `phase10-pvp-map-drop smoke ok scan=1-2,1-3 claim=${destinationScan.scan.planet_id} npc=${npc.entity_id} drop=${pickupDropID} item=${drop.item_id}x${drop.quantity}`,
+      `phase10-pvp-map-drop smoke ok scan=1-2,1-3 claim=1-2:${destinationScan.scan.planet_id},1-3:${pvpScan.scan.planet_id} npc=${npc.entity_id} drop=${pickupDropID} item=${drop.item_id}x${drop.quantity}`,
     );
   } finally {
     if (context) await context.close().catch(() => {});
@@ -325,13 +327,13 @@ async function proveCurrentMapScan(client, expectedMapKey, label) {
   return { scan: payload.scan, planet, state };
 }
 
-async function claimScannedPlanet(client, planetID, label) {
+async function claimScannedPlanet(client, planetID, expectedMapKey, expectedRemainingXCore, label) {
   assert(planetID, `${label} claim planet id present`);
   await resetWebSocketFrames(client);
   const detailPayload = payloadOf(await send(client, 'discovery.planet_detail', { planet_id: planetID }), `${label} discovery.planet_detail`);
   const detail = detailPayload.planet_detail;
   assert(detail?.planet_id === planetID, `${label} detail planet mismatch ${compact(detail)}`);
-  assert(detail?.public_map_key === '1-2', `${label} detail public map ${compact(detail)}`);
+  assert(detail?.public_map_key === expectedMapKey, `${label} detail public map ${compact(detail)}`);
   assert(detail?.coordinates, `${label} detail missing coordinates ${compact(detail)}`);
   assertNoPayloadLeak(detailPayload, `${label} detail response`);
 
@@ -350,16 +352,19 @@ async function claimScannedPlanet(client, planetID, label) {
   assert(claimPayload.claim?.planet?.planet_id === planetID, `${label} claim planet mismatch ${compact(claimPayload.claim)}`);
   assert(claimPayload.claim?.planet?.owner_status === 'owned_by_you', `${label} claim owner ${compact(claimPayload.claim?.planet)}`);
   assert((claimPayload.production?.planets ?? []).some((planet) => planet.planet_id === planetID), `${label} claim missing production`);
-  assert(inventoryQuantity(claimPayload.inventory, 'x_core') === 0, `${label} claim did not consume x_core ${compact(claimPayload.inventory)}`);
+  assert(
+    inventoryQuantity(claimPayload.inventory, 'x_core') === expectedRemainingXCore,
+    `${label} claim x_core remaining ${compact(claimPayload.inventory)}, want ${expectedRemainingXCore}`,
+  );
   assertNoPayloadLeak(claimPayload, `${label} claim response`);
 
   const claimed = await waitSmoke(
     client,
     (state) =>
-      state.currentMap?.public_map_key === '1-2' &&
+      state.currentMap?.public_map_key === expectedMapKey &&
       planetOwnerStatus(state, planetID) === 'owned_by_you' &&
       productionInitialized(state, planetID) &&
-      inventoryQuantity(state.inventory, 'x_core') === 0 &&
+      inventoryQuantity(state.inventory, 'x_core') === expectedRemainingXCore &&
       !hasPendingOp(state, 'discovery.claim_planet') &&
       !hasUnhandledEventLog(state),
     `${label} claim reconciliation`,

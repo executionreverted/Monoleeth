@@ -41,17 +41,18 @@ func New(config Config) (*Server, error) {
 		return nil, fmt.Errorf("%s requires %s=true", EnvE2ERouteSeed, EnvDevMode)
 	}
 	runtime, err := NewRuntime(RuntimeConfig{
-		Clock:              config.Clock,
-		SessionTTL:         config.SessionTTL,
-		TickDelta:          config.TickDelta,
-		WorldID:            config.WorldID,
-		ZoneID:             config.ZoneID,
-		PlaytestSeed:       config.PlaytestSeed,
-		DevMode:            config.DevMode,
-		E2EPlanetClaimSeed: config.E2EPlanetClaimSeed,
-		E2ERouteSeed:       config.E2ERouteSeed,
-		AdminSeed:          config.AdminSeed,
-		Passwords:          config.PasswordHasher,
+		Clock:               config.Clock,
+		SessionTTL:          config.SessionTTL,
+		TickDelta:           config.TickDelta,
+		WorldID:             config.WorldID,
+		ZoneID:              config.ZoneID,
+		PlaytestSeed:        config.PlaytestSeed,
+		DevMode:             config.DevMode,
+		E2EPlanetClaimSeed:  config.E2EPlanetClaimSeed,
+		E2EPlanetClaimCores: config.E2EPlanetClaimCores,
+		E2ERouteSeed:        config.E2ERouteSeed,
+		AdminSeed:           config.AdminSeed,
+		Passwords:           config.PasswordHasher,
 	})
 	if err != nil {
 		return nil, err

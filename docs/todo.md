@@ -562,9 +562,10 @@ for phase status; this file is a compact pending-work index.
   canaries. The focused built-client `e2e:phase10-pvp-map-drop` proof now
   covers browser `scan.pulse` success on public `1-2`, destination-map planet
   detail and claim with E2E X Core consumption and production initialization,
-  browser `scan.pulse` success on public `1-3`, then kills a public `1-3`
-  Border Skirmish NPC and picks up the server-created `carbon_shards` drop.
-  The focused built-client
+  browser `scan.pulse` success on public `1-3`, PvP-map planet detail and
+  claim with the second E2E X Core plus production initialization, then kills a
+  public `1-3` Border Skirmish NPC and picks up the server-created
+  `carbon_shards` drop. The focused built-client
   `e2e:phase10-scan-no-signal` proof now covers a browser `no_signal` response
   for a stealthed player outside radar but inside scan radius, with
   DOM/state/storage/WebSocket/process-log leak canaries. Remaining work is

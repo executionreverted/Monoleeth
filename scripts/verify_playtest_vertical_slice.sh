@@ -47,7 +47,7 @@ fi
 
 if env_bool "${GAME_PLAYTEST_VERIFY_PVP_MAP_DROP:-true}"; then
   run_step \
-    "Built-client destination/PvP scanner and Border Skirmish drop canary" \
+    "Built-client destination/PvP scanner, claim, and Border Skirmish drop canary" \
     npm --cache "$NPM_CACHE" --prefix client run e2e:phase10-pvp-map-drop
 fi
 

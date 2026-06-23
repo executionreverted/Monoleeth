@@ -65,18 +65,19 @@ const (
 
 // RuntimeConfig wires the single-process game runtime.
 type RuntimeConfig struct {
-	Clock              foundation.Clock
-	RNG                foundation.RNG
-	SessionTTL         time.Duration
-	TickDelta          time.Duration
-	WorldID            foundation.WorldID
-	ZoneID             foundation.ZoneID
-	PlaytestSeed       bool
-	DevMode            bool
-	E2EPlanetClaimSeed bool
-	E2ERouteSeed       bool
-	AdminSeed          auth.AdminSeedInput
-	Passwords          auth.PasswordHasher
+	Clock               foundation.Clock
+	RNG                 foundation.RNG
+	SessionTTL          time.Duration
+	TickDelta           time.Duration
+	WorldID             foundation.WorldID
+	ZoneID              foundation.ZoneID
+	PlaytestSeed        bool
+	DevMode             bool
+	E2EPlanetClaimSeed  bool
+	E2EPlanetClaimCores int
+	E2ERouteSeed        bool
+	AdminSeed           auth.AdminSeedInput
+	Passwords           auth.PasswordHasher
 }
 
 // Runtime composes auth, realtime gateway, and the Phase 02 world worker.
@@ -87,11 +88,12 @@ type Runtime struct {
 	// so wallet debit cannot outrun production commit.
 	buildingMutationMu sync.Mutex
 
-	clock              foundation.Clock
-	devMode            bool
-	playtestSeed       bool
-	e2ePlanetClaimSeed bool
-	e2eRouteSeed       bool
+	clock               foundation.Clock
+	devMode             bool
+	playtestSeed        bool
+	e2ePlanetClaimSeed  bool
+	e2ePlanetClaimCores int
+	e2eRouteSeed        bool
 
 	Auth    *auth.Service
 	Gateway *realtime.Gateway
@@ -396,6 +398,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		devMode:                        config.DevMode,
 		playtestSeed:                   config.PlaytestSeed,
 		e2ePlanetClaimSeed:             config.E2EPlanetClaimSeed,
+		e2ePlanetClaimCores:            e2ePlanetClaimCoreQuantity(config.E2EPlanetClaimCores),
 		e2eRouteSeed:                   config.E2ERouteSeed,
 		Auth:                           authService,
 		Worker:                         zoneWorker,

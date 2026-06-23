@@ -25,6 +25,26 @@ func TestConfigFromEnvE2EPlanetClaimSeedOptIn(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvE2EPlanetClaimCoresOptIn(t *testing.T) {
+	t.Setenv(EnvE2EPlanetClaimCores, "2")
+
+	config := ConfigFromEnv().withDefaults()
+
+	if config.E2EPlanetClaimCores != 2 {
+		t.Fatalf("E2EPlanetClaimCores = %d, want 2", config.E2EPlanetClaimCores)
+	}
+}
+
+func TestConfigFromEnvE2EPlanetClaimCoresInvalidFallsBack(t *testing.T) {
+	t.Setenv(EnvE2EPlanetClaimCores, "-4")
+
+	config := ConfigFromEnv().withDefaults()
+
+	if config.E2EPlanetClaimCores != defaultE2EClaimCores {
+		t.Fatalf("E2EPlanetClaimCores = %d, want default %d", config.E2EPlanetClaimCores, defaultE2EClaimCores)
+	}
+}
+
 func TestConfigFromEnvE2ERouteSeedDefaultsOff(t *testing.T) {
 	t.Setenv(EnvE2ERouteSeed, "")
 
