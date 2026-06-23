@@ -63,6 +63,64 @@ func TestIntelShareUsesServerOwnedKnownPlanetAndQueuesReceiverIntel(t *testing.T
 	}
 }
 
+func TestIntelShareCanTargetVisiblePlayerEntityWithoutLeakingReceiverPlayerID(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	sender := createResolvedRuntimeSession(t, gameServer, "intel-share-entity-sender@example.com", "Intel Entity Sender")
+	receiver := createResolvedRuntimeSession(t, gameServer, "intel-share-entity-receiver@example.com", "Intel Entity Receiver")
+	planetID := foundation.PlanetID("planet-intel-share-entity")
+	seedKnownClaimPlanetForTest(t, gameServer, sender.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1200, Y: 1300}, 2)
+	moveTestPlayerEntity(gameServer, sender.PlayerID, world.Vec2{X: 0, Y: 0})
+	moveTestPlayerEntity(gameServer, receiver.PlayerID, world.Vec2{X: 90, Y: 0})
+	receiverEntityID := testPlayerEntityID(t, gameServer, receiver.PlayerID)
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(sender.SessionID.String()),
+		[]byte(`{"request_id":"request-intel-share-entity","op":"intel.share","payload":{"planet_id":"`+planetID.String()+`","to_entity_id":"`+receiverEntityID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("intel.share entity response error = %+v, want success", response.Error)
+	}
+	assertIntelPayloadSafe(t, "intel.share entity response", response.Response.Payload)
+	assertIntelPayloadOmitsCoordinates(t, "intel.share entity response", response.Response.Payload)
+	if strings.Contains(string(response.Response.Payload), receiver.PlayerID.String()) || strings.Contains(string(response.Response.Payload), `"to_player_id"`) {
+		t.Fatalf("intel.share entity response leaked receiver player id: %s", response.Response.Payload)
+	}
+	var payload struct {
+		Share intelSharePayload `json:"share"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode intel.share entity payload: %v", err)
+	}
+	if payload.Share.PlanetID != planetID.String() || payload.Share.ToEntityID != receiverEntityID.String() || !payload.Share.Shared || !payload.Share.ReceiverUpdated {
+		t.Fatalf("share entity payload = %+v, want receiver entity update for %s", payload.Share, planetID)
+	}
+	if _, ok, err := gameServer.runtime.Discovery.PlayerPlanetIntel(receiver.PlayerID, planetID); err != nil || !ok {
+		t.Fatalf("receiver PlayerPlanetIntel ok=%v err=%v, want stored intel", ok, err)
+	}
+}
+
+func TestIntelShareRejectsHiddenEntityTargetBeforeReceiverMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	sender := createResolvedRuntimeSession(t, gameServer, "intel-share-hidden-entity@example.com", "Intel Hidden Entity")
+	receiver := createResolvedRuntimeSession(t, gameServer, "intel-share-hidden-entity-receiver@example.com", "Intel Hidden Receiver")
+	planetID := foundation.PlanetID("planet-intel-share-hidden-entity")
+	seedKnownClaimPlanetForTest(t, gameServer, sender.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1200, Y: 1300}, 2)
+	moveTestPlayerEntity(gameServer, sender.PlayerID, world.Vec2{X: 0, Y: 0})
+	moveTestPlayerEntity(gameServer, receiver.PlayerID, world.Vec2{X: 9500, Y: 9500})
+	receiverEntityID := testPlayerEntityID(t, gameServer, receiver.PlayerID)
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(sender.SessionID.String()),
+		[]byte(`{"request_id":"request-intel-share-hidden-entity","op":"intel.share","payload":{"planet_id":"`+planetID.String()+`","to_entity_id":"`+receiverEntityID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("hidden entity intel.share response = %+v, want not found", response)
+	}
+	if _, ok, err := gameServer.runtime.Discovery.PlayerPlanetIntel(receiver.PlayerID, planetID); err != nil || ok {
+		t.Fatalf("receiver intel after hidden entity share ok=%v err=%v, want no mutation", ok, err)
+	}
+}
+
 func TestIntelShareRejectsSpoofedServerOwnedFieldsBeforeMutation(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	sender := createResolvedRuntimeSession(t, gameServer, "intel-share-spoof@example.com", "Intel Spoof")

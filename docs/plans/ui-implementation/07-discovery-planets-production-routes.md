@@ -258,8 +258,13 @@ Current slice completed:
   render owned `planet_coordinate_scroll` items and expose an authenticated
   `intel.coordinate_item.use` action that sends only `item_instance_id`, locks
   while the matching command is pending, and relies on server snapshots/events
-  to reconcile known planets and inventory. Coordinate item share browser
-  controls remain tracked separately.
+  to reconcile known planets and inventory.
+- Phase07CX browser intel share follow-up: planet catalog/detail panels now
+  render a visible-pilot share control from real AOI player entities and send
+  `intel.share` with only `planet_id` plus `to_entity_id`. The server resolves
+  the visible entity to a receiver player internally, rejects hidden/nonvisible
+  entity targets before mutation, and does not echo receiver `player_id` in the
+  entity-target response.
 - Phase07CW claim recovery follow-up: pending production-init evidence now has
   focused server regression coverage for live read-model loss before retry. A
   stale-marker failure can leave pending initialization evidence, drop the
@@ -1245,6 +1250,9 @@ Mockup areas covered:
 - [x] Browser inventory exposes coordinate item use through the authenticated
       `intel.coordinate_item.use` command with pending state and no planet or
       coordinate truth in the UI intent.
+- [x] Browser planet panels expose intel share through authenticated
+      `intel.share` with visible entity targets, pending state, and no receiver
+      `player_id` in the browser intent or entity-target response.
 
 ## Done Criteria
 

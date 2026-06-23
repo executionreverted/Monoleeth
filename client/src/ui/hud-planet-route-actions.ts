@@ -24,6 +24,14 @@ export function dispatchPlanetRouteButtonAction(
         handlers.onPlanetClaim(button.dataset.planetId);
       }
       return true;
+    case 'intel-share': {
+      const control = button.closest<HTMLElement>('[data-intel-share-control]');
+      handlers.onIntelShareToEntity(
+        button.dataset.planetId ?? control?.dataset.planetId ?? '',
+        routeControlValue(control, '[data-intel-share-target]'),
+      );
+      return true;
+    }
     case 'intel-coordinate-create':
       if (button.dataset.planetId) {
         handlers.onIntelCoordinateItemCreate(button.dataset.planetId);

@@ -450,6 +450,72 @@ describe('planet claim controls', () => {
     expect(html).toMatch(/data-action="intel-coordinate-create"[^>]*disabled[^>]*>Creating/);
     expect(html).toContain('Coordinate item creation pending');
   });
+
+  test('intel share control targets only visible non-self player entities', () => {
+    const state = planetClaimState('owned_by_you');
+    state.visibleEntities = {
+      'pilot-self': selfEntity(),
+      'entity_pilot_2': {
+        entity_id: 'entity_pilot_2',
+        entity_type: 'player',
+        position: { x: 80, y: 0 },
+        status_flags: ['friendly'],
+        display: { label: 'Nearby Pilot', disposition: 'friendly' },
+      },
+      'npc-1': {
+        entity_id: 'npc-1',
+        entity_type: 'npc',
+        position: { x: 100, y: 0 },
+        status_flags: ['hostile'],
+      },
+    };
+
+    const catalogHTML = planetCatalogPanel(state);
+    const modalHTML = planetDetailModal(state, 'planet-eris');
+
+    for (const html of [catalogHTML, modalHTML]) {
+      expect(html).toContain('data-intel-share-control="true"');
+      expect(html).toContain('data-action="intel-share"');
+      expect(html).toContain('value="entity_pilot_2"');
+      expect(html).toContain('Nearby Pilot');
+      expect(html).not.toContain('value="pilot-self"');
+      expect(html).not.toContain('value="npc-1"');
+      expect(html).not.toContain('to_player_id');
+      expect(html).not.toContain('owner_player_id');
+      expect(html).not.toMatch(/data-action="intel-share"[^>]*disabled/);
+    }
+  });
+
+  test('intel share control disables without visible recipients or while pending', () => {
+    const noRecipient = planetClaimState('owned_by_you');
+    noRecipient.visibleEntities = { 'pilot-self': selfEntity() };
+    const noRecipientHTML = planetCatalogPanel(noRecipient);
+
+    expect(noRecipientHTML).toMatch(/data-action="intel-share"[^>]*disabled[^>]*>Share/);
+    expect(noRecipientHTML).toContain('No visible pilot target');
+
+    const pending = planetClaimState('owned_by_you');
+    pending.visibleEntities = {
+      'entity_pilot_2': {
+        entity_id: 'entity_pilot_2',
+        entity_type: 'player',
+        position: { x: 80, y: 0 },
+        display: { label: 'Nearby Pilot' },
+      },
+    };
+    pending.pendingCommands = {
+      'share-1': {
+        requestID: 'share-1',
+        op: OPERATIONS.intelShare,
+        queuedAt: 1,
+        payload: { planet_id: 'planet-eris', to_entity_id: 'entity_pilot_2' },
+      },
+    };
+    const pendingHTML = planetCatalogPanel(pending);
+
+    expect(pendingHTML).toMatch(/data-action="intel-share"[^>]*disabled[^>]*>Sharing/);
+    expect(pendingHTML).toContain('Intel share pending');
+  });
 });
 
 describe('route controls', () => {

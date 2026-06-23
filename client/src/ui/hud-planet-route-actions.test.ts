@@ -1,39 +1,27 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { dispatchCraftingButtonAction } from './hud-crafting-actions';
-import { dispatchInventoryButtonAction } from './hud-inventory-actions';
+import { dispatchPlanetRouteButtonAction } from './hud-planet-route-actions';
 import type { HUDHandlers } from './hud-types';
 
-describe('inventory and crafting HUD action dispatch', () => {
-  test('dispatches coordinate item use with only the item instance id', () => {
+describe('planet route HUD action dispatch', () => {
+  test('dispatches intel share with planet id and visible entity id only', () => {
     const handlers = testHandlers();
-    const button = testButton('intel-coordinate-use', { itemInstanceId: 'coord-scroll-1' });
+    const control = {
+      dataset: { planetId: 'planet-eris' },
+      querySelector: vi.fn(() => ({ value: 'entity_pilot_2' })),
+    };
+    const button = {
+      dataset: { action: 'intel-share', planetId: 'planet-eris' },
+      closest: vi.fn(() => control),
+    } as unknown as HTMLButtonElement;
 
-    const handled = dispatchInventoryButtonAction(button, handlers, () => {});
+    const handled = dispatchPlanetRouteButtonAction(button, handlers, () => {});
 
     expect(handled).toBe(true);
-    expect(handlers.onIntelCoordinateItemUse).toHaveBeenCalledWith('coord-scroll-1');
-    expect(handlers.onIntelCoordinateItemUse).toHaveBeenCalledTimes(1);
-  });
-
-  test('dispatches crafting controls through the existing helper', () => {
-    const handlers = testHandlers();
-
-    expect(dispatchCraftingButtonAction(testButton('crafting-start', { recipeId: 'alloy' }), handlers)).toBe(true);
-    expect(dispatchCraftingButtonAction(testButton('crafting-complete', { jobId: 'job-1' }), handlers)).toBe(true);
-    expect(dispatchCraftingButtonAction(testButton('crafting-cancel', { jobId: 'job-2' }), handlers)).toBe(true);
-
-    expect(handlers.onCraftingStart).toHaveBeenCalledWith('alloy');
-    expect(handlers.onCraftingComplete).toHaveBeenCalledWith('job-1');
-    expect(handlers.onCraftingCancel).toHaveBeenCalledWith('job-2');
+    expect(handlers.onIntelShareToEntity).toHaveBeenCalledWith('planet-eris', 'entity_pilot_2');
+    expect(handlers.onIntelShareToEntity).toHaveBeenCalledTimes(1);
   });
 });
-
-function testButton(action: string, dataset: Record<string, string>): HTMLButtonElement {
-  return {
-    dataset: { action, ...dataset },
-  } as unknown as HTMLButtonElement;
-}
 
 function testHandlers(): HUDHandlers {
   return {

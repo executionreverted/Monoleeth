@@ -197,7 +197,10 @@ for phase status; this file is a compact pending-work index.
   browser coordinate item use from inventory instance rows through the
   authenticated `intel.coordinate_item.use` command, sending only the owned
   `item_instance_id` and pending/reconciling through server snapshots. Browser
-  coordinate item share controls remain open. The
+  intel share controls now target visible non-self player entities through
+  `intel.share` with `to_entity_id`; the server resolves that visible entity to
+  the receiver internally, rechecks visibility, and does not echo receiver
+  `player_id` to the browser. The
   intel/economy writes are still process-local and not wrapped in a durable
   cross-service transaction.
 - [x] Finish gateway/session authorization for remaining discovery commands.

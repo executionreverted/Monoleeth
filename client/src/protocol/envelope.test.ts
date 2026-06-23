@@ -439,6 +439,11 @@ describe('default outbound operations', () => {
     expect(share.payload).toEqual({ planet_id: 'planet-eris', to_player_id: 'player-friend' });
     expect(Object.keys(share.payload)).toEqual(['planet_id', 'to_player_id']);
 
+    const shareEntity = builder.intelShareToEntity('planet-eris', 'entity_pilot_2');
+    expect(shareEntity.op).toBe(OPERATIONS.intelShare);
+    expect(shareEntity.payload).toEqual({ planet_id: 'planet-eris', to_entity_id: 'entity_pilot_2' });
+    expect(Object.keys(shareEntity.payload)).toEqual(['planet_id', 'to_entity_id']);
+
     const create = builder.intelCoordinateItemCreate('planet-eris');
     expect(create.op).toBe(OPERATIONS.intelCoordinateItemCreate);
     expect(create.payload).toEqual({ planet_id: 'planet-eris' });

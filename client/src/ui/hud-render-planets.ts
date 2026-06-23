@@ -142,6 +142,7 @@ export function planetCatalogPanel(state: ClientState): string {
                    <div class="meta-row"><span>State</span><strong>${escapeHTML(selectedSummary.intel_state || 'known')}</strong></div>
                    <div class="meta-row"><span>Confidence</span><strong>${selectedSummary.confidence}%</strong></div>
                    <div class="meta-row"><span>Owner</span><strong>${escapeHTML(selectedSummary.owner_status || 'intel')}</strong></div>
+                   ${intelShareControl(state, selectedSummary)}
                  </section>
                </div>`
             : '<div class="empty-line">Select a discovered planet.</div>'
@@ -190,6 +191,49 @@ function coordinateItemCreateButton(
         ? 'Realtime connection required'
         : 'Create coordinate item from server intel';
   return `<button type="button" data-action="intel-coordinate-create" data-planet-id="${escapeHTML(planetID)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${pending ? 'Creating' : 'Coordinate'}</button>`;
+}
+
+function intelShareControl(
+  state: ClientState,
+  planet: NonNullable<ClientState['planetIntel']>['planets'][number] | NonNullable<ClientState['planetIntel']>['selectedPlanet'],
+): string {
+  const planetID = planet?.planet_id ?? '';
+  const recipients = visibleShareRecipients(state);
+  const pending = planetID ? hasPendingOpPayloadField(state, OPERATIONS.intelShare, 'planet_id', planetID) : false;
+  const enabled = Boolean(planetID && realtimeReady(state) && recipients.length > 0 && !pending);
+  const title = !planetID
+    ? 'Planet id unavailable'
+    : pending
+      ? 'Intel share pending'
+      : !realtimeReady(state)
+        ? 'Realtime connection required'
+        : recipients.length === 0
+          ? 'No visible pilot target'
+          : 'Share this planet intel with a visible pilot';
+  return `
+    <div class="intel-share-control" data-intel-share-control="true" data-planet-id="${escapeHTML(planetID)}">
+      <select data-intel-share-target ${recipients.length > 0 && !pending ? '' : 'disabled'} aria-label="Visible pilot">
+        ${
+          recipients.length > 0
+            ? recipients
+                .map((recipient) => `<option value="${escapeHTML(recipient.entityID)}">${escapeHTML(recipient.label)}</option>`)
+                .join('')
+            : '<option value="">No visible pilot</option>'
+        }
+      </select>
+      <button type="button" data-action="intel-share" data-planet-id="${escapeHTML(planetID)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${pending ? 'Sharing' : 'Share'}</button>
+    </div>
+  `;
+}
+
+function visibleShareRecipients(state: ClientState): Array<{ entityID: string; label: string }> {
+  return Object.values(state.visibleEntities)
+    .filter((entity) => entity.entity_type === 'player' && !(entity.status_flags ?? []).includes('self'))
+    .map((entity) => ({
+      entityID: entity.entity_id,
+      label: entity.display?.label || entity.entity_id,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label) || left.entityID.localeCompare(right.entityID));
 }
 
 export function planetCatalogRow(planet: NonNullable<ClientState['planetIntel']>['planets'][number], selectedPlanetID: string): string {
@@ -264,6 +308,7 @@ export function planetDetailModal(state: ClientState, planetID?: string): string
         ${planetClaimButton(state, summary)}
         ${coordinateItemCreateButton(state, summary)}
       </div>
+      ${intelShareControl(state, summary)}
       <div class="systems-subhead">Production</div>
       ${
         production

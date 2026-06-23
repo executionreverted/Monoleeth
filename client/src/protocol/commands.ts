@@ -158,6 +158,13 @@ export class CommandBuilder {
     });
   }
 
+  intelShareToEntity(planetID: string, toEntityID: string): RequestEnvelope<{ planet_id: string; to_entity_id: string }> {
+    return this.build(OPERATIONS.intelShare, {
+      planet_id: planetID,
+      to_entity_id: toEntityID,
+    });
+  }
+
   intelCoordinateItemCreate(planetID: string): RequestEnvelope<{ planet_id: string }> {
     return this.build(OPERATIONS.intelCoordinateItemCreate, { planet_id: planetID });
   }
