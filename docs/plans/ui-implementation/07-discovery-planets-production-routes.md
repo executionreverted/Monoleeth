@@ -395,6 +395,12 @@ Current slice completed:
   under the production store lock. Durable DB adapters still need to make route
   rows, settlement evidence, storage ledger rows, and outbox rows one
   row-locked/CAS commit.
+- Phase07BQ route settlement durable bundle follow-up:
+  `SettlementDurableCommitPlan` now requires route settlements to carry the
+  committed durable route-row snapshot alongside the settlement reference,
+  pending outbox rows, and route storage ledger rows. Production settlement
+  bundles still reject route rows. This makes the future DB adapter contract
+  explicit without moving to a real durable DB implementation yet.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -951,6 +957,8 @@ Mockup areas covered:
       advancement.
 - [x] Pure route settlement writes durable route-row cursor snapshots with the
       server-derived route settlement idempotency reference.
+- [x] Route settlement durable commit bundles include the committed route-row
+      snapshot with settlement reference, outbox, and route ledger rows.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

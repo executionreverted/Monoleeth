@@ -31,6 +31,7 @@ type RouteSettlementTransactionInput struct {
 type RouteSettlementTransactionResult struct {
 	Settlement    RouteSettlementResult
 	Reference     *SettlementReferenceRecord
+	RouteRow      *AutomationRouteDurableRecord
 	OutboxRecords []ProductionOutboxRecord
 	StorageLedger []RouteStorageLedgerEntry
 }
@@ -39,7 +40,7 @@ type RouteSettlementTransactionResult struct {
 // for future durable DB/publisher adapters. Duplicate/no-op transactions return
 // an empty plan.
 func (result RouteSettlementTransactionResult) DurableCommitPlan() (SettlementDurableCommitPlan, error) {
-	return NewSettlementDurableCommitPlan(result.Reference, result.OutboxRecords, result.StorageLedger)
+	return NewSettlementDurableCommitPlan(result.Reference, result.OutboxRecords, result.StorageLedger, result.RouteRow)
 }
 
 // ApplyDurableCommit validates and records the row bundle returned by this
@@ -100,6 +101,11 @@ func (store *InMemoryStore) ApplyRouteSettlementTransaction(
 		if reference, ok := store.references[settlement.ReferenceKey]; ok {
 			cloned := cloneSettlementReferenceRecord(reference)
 			result.Reference = &cloned
+		}
+	}
+	if result.Reference != nil {
+		if routeRow, ok := store.committedAutomationRouteDurableRecordByReferenceLocked(result.Reference.ReferenceKey); ok {
+			result.RouteRow = cloneAutomationRouteDurableRecordPointer(&routeRow)
 		}
 	}
 	return result, nil

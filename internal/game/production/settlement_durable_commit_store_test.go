@@ -36,8 +36,11 @@ func TestSettlementDurableCommitStoreCommitsRoutePlanWithLedger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplySettlementDurableCommitPlan(route) error = %v, want nil", err)
 	}
-	if result.Duplicate || result.Reference == nil || result.Reference.Kind != SettlementKindRoute {
+	if result.Duplicate || result.Reference == nil || result.Reference.Kind != SettlementKindRoute || result.RouteRow == nil {
 		t.Fatalf("route durable commit result = %+v, want committed route reference", result)
+	}
+	if result.RouteRow.ReferenceKey != plan.Reference.ReferenceKey || result.RouteRow.Route.RouteID != plan.Reference.RouteID {
+		t.Fatalf("route durable row = %+v, want plan route/reference", result.RouteRow)
 	}
 	if len(result.OutboxRecords) == 0 || len(result.RouteStorageLedger) != len(plan.RouteStorageLedger) {
 		t.Fatalf("route durable commit rows = outbox %+v ledger %+v, want outbox and route ledger", result.OutboxRecords, result.RouteStorageLedger)
@@ -87,6 +90,13 @@ func TestSettlementDurableCommitStoreRejectsConflictingReferenceReuse(t *testing
 	_, err := store.ApplySettlementDurableCommitPlan(conflict)
 	if !errors.Is(err, ErrInvalidSettlementDurableCommit) {
 		t.Fatalf("conflicting ApplySettlementDurableCommitPlan() error = %v, want ErrInvalidSettlementDurableCommit", err)
+	}
+	routeRowConflict := plan
+	routeRowConflict.RouteRow = cloneAutomationRouteDurableRecordPointer(plan.RouteRow)
+	routeRowConflict.RouteRow.Route.AmountPerHour++
+	_, err = store.ApplySettlementDurableCommitPlan(routeRowConflict)
+	if !errors.Is(err, ErrInvalidSettlementDurableCommit) {
+		t.Fatalf("conflicting route row ApplySettlementDurableCommitPlan() error = %v, want ErrInvalidSettlementDurableCommit", err)
 	}
 	if len(store.SettlementReferences()) != 1 ||
 		len(store.OutboxRecords()) != len(plan.Outbox.OutboxRecords) ||
@@ -144,13 +154,21 @@ func TestSettlementDurableCommitStoreReturnsDetachedRows(t *testing.T) {
 
 	result.Reference.RouteID = "route-mutated"
 	result.OutboxRecords[0].OutboxID = "outbox-mutated"
+	result.RouteRow.Route.RouteID = "route-mutated"
 	result.RouteStorageLedger[0].LedgerID = "ledger-mutated"
 
 	references := store.SettlementReferences()
 	outbox := store.OutboxRecords()
 	ledger := store.RouteStorageLedgerEntries()
-	if references[0].RouteID == "route-mutated" || outbox[0].OutboxID == "outbox-mutated" || ledger[0].LedgerID == "ledger-mutated" {
-		t.Fatalf("durable store returned live rows: refs=%+v outbox=%+v ledger=%+v", references, outbox, ledger)
+	recovered, ok, err := store.CommittedSettlementDurableCommitPlan(plan.Reference.ReferenceKey)
+	if err != nil || !ok {
+		t.Fatalf("CommittedSettlementDurableCommitPlan() ok=%v err=%v, want true nil", ok, err)
+	}
+	if references[0].RouteID == "route-mutated" ||
+		outbox[0].OutboxID == "outbox-mutated" ||
+		recovered.RouteRow.Route.RouteID == "route-mutated" ||
+		ledger[0].LedgerID == "ledger-mutated" {
+		t.Fatalf("durable store returned live rows: refs=%+v outbox=%+v route=%+v ledger=%+v", references, outbox, recovered.RouteRow, ledger)
 	}
 }
 
@@ -166,6 +184,8 @@ func TestSettlementDurableCommitStoreReadsCommittedPlanByReference(t *testing.T)
 		t.Fatalf("CommittedSettlementDurableCommitPlan() = ok %v err %v, want true nil", ok, err)
 	}
 	if recovered.Reference.ReferenceKey != plan.Reference.ReferenceKey ||
+		recovered.RouteRow == nil ||
+		recovered.RouteRow.ReferenceKey != plan.Reference.ReferenceKey ||
 		len(recovered.Outbox.OutboxRecords) != len(plan.Outbox.OutboxRecords) ||
 		len(recovered.RouteStorageLedger) != len(plan.RouteStorageLedger) {
 		t.Fatalf("recovered durable plan = %+v, want committed plan %+v", recovered, plan)
@@ -173,6 +193,7 @@ func TestSettlementDurableCommitStoreReadsCommittedPlanByReference(t *testing.T)
 
 	recovered.Reference.RouteID = "route-mutated"
 	recovered.Outbox.OutboxRecords[0].OutboxID = "outbox-mutated"
+	recovered.RouteRow.Route.RouteID = "route-mutated"
 	recovered.RouteStorageLedger[0].LedgerID = "ledger-mutated"
 	again, ok, err := store.CommittedSettlementDurableCommitPlan(plan.Reference.ReferenceKey)
 	if err != nil || !ok {
@@ -180,6 +201,7 @@ func TestSettlementDurableCommitStoreReadsCommittedPlanByReference(t *testing.T)
 	}
 	if again.Reference.RouteID == "route-mutated" ||
 		again.Outbox.OutboxRecords[0].OutboxID == "outbox-mutated" ||
+		again.RouteRow.Route.RouteID == "route-mutated" ||
 		again.RouteStorageLedger[0].LedgerID == "ledger-mutated" {
 		t.Fatalf("recovered durable plan reused mutable rows: %+v", again)
 	}

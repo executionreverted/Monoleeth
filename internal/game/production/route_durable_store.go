@@ -422,3 +422,13 @@ func cloneAutomationRouteDurableRecord(record AutomationRouteDurableRecord) Auto
 	record.RecordedAt = record.RecordedAt.UTC()
 	return record
 }
+
+func cloneAutomationRouteDurableRecordPointer(
+	record *AutomationRouteDurableRecord,
+) *AutomationRouteDurableRecord {
+	if record == nil {
+		return nil
+	}
+	cloned := cloneAutomationRouteDurableRecord(*record)
+	return &cloned
+}

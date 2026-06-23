@@ -317,6 +317,9 @@ func TestApplyRouteSettlementTransactionReturnsCommittedReferenceOutboxAndLedger
 	if result.Reference.Kind != SettlementKindRoute || result.Reference.RouteID != route.RouteID || result.Reference.ReferenceKey != reference {
 		t.Fatalf("transaction reference = %+v, want route reference %q", result.Reference, reference)
 	}
+	if result.RouteRow == nil || result.RouteRow.ReferenceKey != reference || result.RouteRow.Route.RouteID != route.RouteID {
+		t.Fatalf("transaction route row = %+v, want route/reference", result.RouteRow)
+	}
 	assertOutboxEventTypes(t, result.OutboxRecords, EventRouteTransferSettled)
 	assertOutboxRecordEvidence(t, result.OutboxRecords, EventRouteTransferSettled, reference, window)
 	assertRouteStorageLedgerEntries(t, result.StorageLedger,

@@ -304,13 +304,16 @@ for phase status; this file is a compact pending-work index.
   and revision advancement under the production store lock. Phase07BP wires
   pure route settlement cursor advancement to write durable route-row snapshots
   with the server-derived `route_settlement:<route_id>:<window>` reference
-  under that same store lock. DB adapters still need to co-commit route rows
+  under that same store lock. Phase07BQ makes route settlement durable commit
+  bundles require that committed route-row snapshot beside settlement evidence,
+  route ledger rows, and pending outbox rows, while production settlement
+  bundles reject route rows. DB adapters still need to co-commit route rows
   with settlement evidence, storage ledger rows, and outbox rows where
   mutations settle old terms. Durable DB rows, row locks/CAS, idempotency table
   enforcement, and durable outbox publishing remain open.
   Source: Phase 10
   audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
-  Phase07K, Phase07AN, Phase07BN, Phase07BO, and Phase07BP.
+  Phase07K, Phase07AN, Phase07BN, Phase07BO, Phase07BP, and Phase07BQ.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server

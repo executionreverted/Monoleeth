@@ -98,12 +98,15 @@ func TestSettlementDurableCommitPlanFromRouteTransaction(t *testing.T) {
 		t.Fatalf("ApplyRouteSettlementTransaction() error = %v, want nil", err)
 	}
 
-	plan, err := NewSettlementDurableCommitPlan(result.Reference, result.OutboxRecords, result.StorageLedger)
+	plan, err := NewSettlementDurableCommitPlan(result.Reference, result.OutboxRecords, result.StorageLedger, result.RouteRow)
 	if err != nil {
 		t.Fatalf("NewSettlementDurableCommitPlan(route) error = %v, want nil", err)
 	}
 	if plan.Reference.Kind != SettlementKindRoute || plan.Reference.RouteID != route.RouteID || plan.Reference.ReferenceKey != reference {
 		t.Fatalf("durable route reference = %+v, want route %q reference %q", plan.Reference, route.RouteID, reference)
+	}
+	if plan.RouteRow == nil || plan.RouteRow.ReferenceKey != reference || plan.RouteRow.Route.RouteID != route.RouteID {
+		t.Fatalf("durable route row = %+v, want route %q reference %q", plan.RouteRow, route.RouteID, reference)
 	}
 	if len(plan.RouteStorageLedger) != 2 {
 		t.Fatalf("durable route ledger len = %d, want 2; rows = %+v", len(plan.RouteStorageLedger), plan.RouteStorageLedger)
@@ -147,6 +150,9 @@ func TestRouteSettlementTransactionResultDurableCommitPlan(t *testing.T) {
 	if plan.Reference.ReferenceKey != reference || len(plan.RouteStorageLedger) != 2 {
 		t.Fatalf("route durable commit plan = %+v, want reference %q and route ledger rows", plan, reference)
 	}
+	if plan.RouteRow == nil || plan.RouteRow.ReferenceKey != reference || plan.RouteRow.Route.RouteID != route.RouteID {
+		t.Fatalf("route durable commit plan route row = %+v, want route/reference", plan.RouteRow)
+	}
 	for _, row := range plan.RouteStorageLedger {
 		if row.ReferenceKey != reference || row.SettlementWindow != window || row.RouteID != route.RouteID {
 			t.Fatalf("route durable commit ledger row = %+v, want route/reference/window evidence", row)
@@ -165,7 +171,7 @@ func TestRouteSettlementTransactionResultDurableCommitPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("duplicate route DurableCommitPlan() error = %v, want nil", err)
 	}
-	if !empty.Reference.ReferenceKey.IsZero() || len(empty.Outbox.OutboxRecords) != 0 || len(empty.RouteStorageLedger) != 0 {
+	if !empty.Reference.ReferenceKey.IsZero() || empty.RouteRow != nil || len(empty.Outbox.OutboxRecords) != 0 || len(empty.RouteStorageLedger) != 0 {
 		t.Fatalf("duplicate route durable commit plan = %+v, want empty no-op plan", empty)
 	}
 }
@@ -173,6 +179,16 @@ func TestRouteSettlementTransactionResultDurableCommitPlan(t *testing.T) {
 func TestSettlementDurableCommitPlanNoOpAndInvalidRows(t *testing.T) {
 	if plan, err := NewSettlementDurableCommitPlan(nil, nil, nil); err != nil || !plan.Reference.ReferenceKey.IsZero() {
 		t.Fatalf("NewSettlementDurableCommitPlan(no-op) = %+v/%v, want empty nil", plan, err)
+	}
+
+	productionStore := newSettlementStore(t, "planet-route-row-invalid", testTime(0), 100, 10)
+	addSettlementBuilding(t, productionStore, "planet-route-row-invalid", "building-route-row-invalid", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+	productionResult, err := productionStore.ApplyProductionSettlementTransaction(ProductionSettlementTransactionInput{
+		PlanetID:  "planet-route-row-invalid",
+		SettledAt: testTime(0).Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("ApplyProductionSettlementTransaction() error = %v, want nil", err)
 	}
 
 	last := testRouteNow()
@@ -224,4 +240,46 @@ func TestSettlementDurableCommitPlanNoOpAndInvalidRows(t *testing.T) {
 			}
 		})
 	}
+
+	routeRowCases := map[string]func() *AutomationRouteDurableRecord{
+		"missing route row": func() *AutomationRouteDurableRecord {
+			return nil
+		},
+		"mismatched route row reference": func() *AutomationRouteDurableRecord {
+			row := cloneAutomationRouteDurableRecordPointer(result.RouteRow)
+			row.ReferenceKey = "route_settlement:route-other:window"
+			return row
+		},
+		"mismatched route row route": func() *AutomationRouteDurableRecord {
+			row := cloneAutomationRouteDurableRecordPointer(result.RouteRow)
+			row.Route.RouteID = "route-other"
+			return row
+		},
+		"zero route row revision": func() *AutomationRouteDurableRecord {
+			row := cloneAutomationRouteDurableRecordPointer(result.RouteRow)
+			row.Revision = 0
+			return row
+		},
+		"stale route row cursor": func() *AutomationRouteDurableRecord {
+			row := cloneAutomationRouteDurableRecordPointer(result.RouteRow)
+			row.Route.LastCalculatedAt = last
+			row.Route.UpdatedAt = last
+			return row
+		},
+	}
+	for name, routeRow := range routeRowCases {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewSettlementDurableCommitPlan(result.Reference, result.OutboxRecords, result.StorageLedger, routeRow())
+			if !errors.Is(err, ErrInvalidSettlementDurableCommit) {
+				t.Fatalf("NewSettlementDurableCommitPlan(%s) error = %v, want ErrInvalidSettlementDurableCommit", name, err)
+			}
+		})
+	}
+
+	t.Run("production reference with route row", func(t *testing.T) {
+		_, err := NewSettlementDurableCommitPlan(productionResult.Reference, productionResult.OutboxRecords, nil, result.RouteRow)
+		if !errors.Is(err, ErrInvalidSettlementDurableCommit) {
+			t.Fatalf("NewSettlementDurableCommitPlan(production route row) error = %v, want ErrInvalidSettlementDurableCommit", err)
+		}
+	})
 }

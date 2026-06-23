@@ -34,6 +34,7 @@ type SettlementDurableCommitReader interface {
 type SettlementDurableCommitResult struct {
 	Reference          *SettlementReferenceRecord
 	OutboxRecords      []ProductionOutboxRecord
+	RouteRow           *AutomationRouteDurableRecord
 	RouteStorageLedger []RouteStorageLedgerEntry
 	Duplicate          bool
 }
@@ -80,6 +81,7 @@ func (store *InMemorySettlementDurableCommitStore) ApplySettlementDurableCommitP
 		&plan.Reference,
 		plan.Outbox.OutboxRecords,
 		plan.RouteStorageLedger,
+		plan.RouteRow,
 	)
 	if err != nil {
 		return SettlementDurableCommitResult{}, err
@@ -326,7 +328,7 @@ func (store *InMemorySettlementDurableCommitStore) CommittedSettlementDurableCom
 		return SettlementDurableCommitPlan{}, false, nil
 	}
 	cloned := cloneSettlementDurableCommitPlan(plan)
-	if _, err := NewSettlementDurableCommitPlan(&cloned.Reference, cloned.Outbox.OutboxRecords, cloned.RouteStorageLedger); err != nil {
+	if _, err := NewSettlementDurableCommitPlan(&cloned.Reference, cloned.Outbox.OutboxRecords, cloned.RouteStorageLedger, cloned.RouteRow); err != nil {
 		return SettlementDurableCommitPlan{}, false, err
 	}
 	return cloned, true, nil
@@ -446,6 +448,7 @@ func settlementDurableCommitResultFromPlan(
 	return SettlementDurableCommitResult{
 		Reference:          &reference,
 		OutboxRecords:      cloneProductionOutboxRecords(plan.Outbox.OutboxRecords),
+		RouteRow:           cloneAutomationRouteDurableRecordPointer(plan.RouteRow),
 		RouteStorageLedger: cloneRouteStorageLedgerEntries(plan.RouteStorageLedger),
 		Duplicate:          duplicate,
 	}
@@ -455,6 +458,7 @@ func cloneSettlementDurableCommitPlan(plan SettlementDurableCommitPlan) Settleme
 	plan.Reference = cloneSettlementReferenceRecord(plan.Reference)
 	plan.Outbox.Reference = cloneSettlementReferenceRecord(plan.Outbox.Reference)
 	plan.Outbox.OutboxRecords = cloneProductionOutboxRecords(plan.Outbox.OutboxRecords)
+	plan.RouteRow = cloneAutomationRouteDurableRecordPointer(plan.RouteRow)
 	plan.RouteStorageLedger = cloneRouteStorageLedgerEntries(plan.RouteStorageLedger)
 	return plan
 }
