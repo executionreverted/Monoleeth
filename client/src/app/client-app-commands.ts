@@ -389,13 +389,15 @@ export abstract class ClientAppCommands extends ClientAppCore {
     );
   }
 
-  protected sendCraftingStart(recipeID: string): void {
+  protected sendCraftingStart(recipeID: string, locationType?: string): void {
     if (!recipeID) {
       return;
     }
+    const locationIntent = locationType ? { recipeID, locationType } : recipeID;
+    const actionLocation = locationType || 'default';
     this.sendGuardedGameplayCommand(
-      `crafting-start:${recipeID}`,
-      () => this.commandBuilder.craftingStart(recipeID),
+      `crafting-start:${recipeID}:${actionLocation}`,
+      () => this.commandBuilder.craftingStart(locationIntent),
       'Craft start already pending.',
     );
   }

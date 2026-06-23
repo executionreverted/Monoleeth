@@ -25,10 +25,12 @@ Current slice completed:
 - Phase06C exposes browser crafting start/complete controls from the real
   crafting snapshot. The Crafting tab renders server recipes and active jobs,
   disables matching pending commands, derives timers from server timestamps, and
-  sends only `recipe_id` or `job_id` intents. Phase06F adds authenticated
-  `crafting.cancel` server and browser controls: cancel accepts only `job_id`,
-  releases reserved materials, refunds the craft fee through ledger-backed
-  wallet credit, removes the active job, emits the internal
+  sends only `recipe_id` plus optional server-validated station `location_type`
+  intent for starts or `job_id` for completion. It does not send station ids,
+  materials, wallet, output, owner, production, or reference truth. Phase06F
+  adds authenticated `crafting.cancel` server and browser controls: cancel
+  accepts only `job_id`, releases reserved materials, refunds the craft fee
+  through ledger-backed wallet credit, removes the active job, emits the internal
   `craft.job_cancelled` event once, and reconciles crafting/inventory/wallet/
   progression snapshots. Queue/location UX balancing and durable crash recovery
   after partial complete or cancel remain open.
@@ -206,8 +208,9 @@ Mockup areas covered:
 - [x] Browser inventory panel uses server snapshot.
 - [x] Browser topbar credits uses server wallet snapshot.
 - [x] Browser equip action updates loadout/stats from server event.
-- [x] Browser crafting start/complete/cancel controls send only server-owned
-      ids and lock on matching pending commands.
+- [x] Browser crafting start/complete/cancel controls send only server-safe
+      recipe/job ids plus station location intent where required, and lock on
+      matching pending commands.
 - [x] Browser crafting timer survives reconnect snapshot.
 
 ## Done Criteria

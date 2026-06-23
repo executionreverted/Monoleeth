@@ -4,7 +4,7 @@ export function dispatchCraftingButtonAction(button: HTMLButtonElement, handlers
   switch (button.dataset.action) {
     case 'crafting-start':
       if (button.dataset.recipeId) {
-        handlers.onCraftingStart(button.dataset.recipeId);
+        handlers.onCraftingStart(button.dataset.recipeId, button.dataset.locationType || undefined);
       }
       return true;
     case 'crafting-complete':

@@ -310,6 +310,8 @@ function craftingRecipePanel(recipes: NonNullable<ClientState['crafting']>['reci
 function craftingRecipeCard(recipe: NonNullable<ClientState['crafting']>['recipes'][number], state: ClientState): string {
   const pending = hasPendingOpPayloadField(state, OPERATIONS.craftingStart, 'recipe_id', recipe.recipe_id);
   const disabled = pending || !realtimeReady(state);
+  const locationType = craftingStartLocationType(recipe);
+  const locationTypeAttr = locationType ? ` data-location-type="${escapeHTML(locationType)}"` : '';
   return `
     <article class="module-card" data-crafting-recipe-id="${escapeHTML(recipe.recipe_id)}">
       <strong>${escapeHTML(craftingOutputLabel(recipe))}</strong>
@@ -319,10 +321,15 @@ function craftingRecipeCard(recipe: NonNullable<ClientState['crafting']>['recipe
         type="button"
         data-action="crafting-start"
         data-recipe-id="${escapeHTML(recipe.recipe_id)}"
+        ${locationTypeAttr}
         ${disabled ? 'disabled' : ''}
         title="${escapeHTML(disabled ? 'Craft start unavailable.' : 'Start this craft job.')}">${pending ? 'Pending' : 'Start'}</button>
     </article>
   `;
+}
+
+function craftingStartLocationType(recipe: NonNullable<ClientState['crafting']>['recipes'][number]): string {
+  return recipe.required_location_type === 'station' ? 'station' : '';
 }
 
 function craftingJobStatus(job: NonNullable<ClientState['crafting']>['active_jobs'][number], serverNow: number | null): { ready: boolean; label: string; detail: string; title: string } {

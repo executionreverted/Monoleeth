@@ -28,6 +28,20 @@ describe('cargoPanel crafting tab', () => {
     expect(html).not.toContain('data-inputs');
     expect(html).not.toContain('data-wallet');
     expect(html).not.toContain('data-owner');
+    expect(html).not.toContain('data-location-id');
+  });
+
+  test('adds explicit station crafting location intent without inventing a location id', () => {
+    const state = craftingState();
+    state.crafting!.recipes[0] = {
+      ...state.crafting!.recipes[0],
+      required_location_type: 'station',
+    };
+
+    const html = cargoPanel(state, 2_000);
+
+    expect(buttonHTML(html, 'crafting-start')).toContain('data-location-type="station"');
+    expect(buttonHTML(html, 'crafting-start')).not.toContain('data-location-id');
   });
 
   test('locks crafting controls while matching commands are pending or jobs are still running', () => {

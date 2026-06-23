@@ -256,8 +256,9 @@ for phase status; this file is a compact pending-work index.
   location intent, complete accepts only `job_id`, and both reconcile safe
   crafting/inventory/wallet/progression snapshots without client-authored
   material, wallet, output, owner, production state, or reference truth.
-  Explicit station location intent is accepted, while non-station intent for
-  current MVP station recipes is rejected without wallet or inventory mutation.
+  Explicit station location intent is accepted and sent by the browser for
+  station recipes, while non-station intent for current MVP station recipes is
+  rejected without wallet or inventory mutation.
   Phase06C adds browser action controls/timers from the
   real crafting snapshot and locks matching pending start/complete intents.
   Phase06D covers reconnect snapshots advancing the browser crafting timer from

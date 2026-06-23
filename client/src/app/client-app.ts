@@ -56,7 +56,7 @@ export class ClientApp extends ClientAppHandlers {
       onIntelCoordinateItemUse: (itemInstanceID) => this.sendCoordinateItemUse(itemInstanceID),
       onPlanetBuildingBuild: (input) => this.sendPlanetBuildingBuild(input),
       onPlanetBuildingUpgrade: (input) => this.sendPlanetBuildingUpgrade(input),
-      onCraftingStart: (recipeID) => this.sendCraftingStart(recipeID),
+      onCraftingStart: (recipeID, locationType) => this.sendCraftingStart(recipeID, locationType),
       onCraftingComplete: (jobID) => this.sendCraftingComplete(jobID),
       onCraftingCancel: (jobID) => this.sendCraftingCancel(jobID),
       onRouteCreate: (input) => this.sendRouteCreate(input),

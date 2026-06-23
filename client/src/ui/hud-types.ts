@@ -27,7 +27,7 @@ export interface HUDHandlers {
   onIntelCoordinateItemUse(itemInstanceID: string): void;
   onPlanetBuildingBuild(input: { planetID: string; buildingType: string; slot: string }): void;
   onPlanetBuildingUpgrade(input: { planetID: string; buildingID: string; targetLevel: number }): void;
-  onCraftingStart(recipeID: string): void;
+  onCraftingStart(recipeID: string, locationType?: string): void;
   onCraftingComplete(jobID: string): void;
   onCraftingCancel(jobID: string): void;
   onRouteCreate(input: { sourcePlanetID: string; destinationPlanetID?: string; destination?: RouteDestinationInput; resourceItemID: string; amountPerHour: number }): void;

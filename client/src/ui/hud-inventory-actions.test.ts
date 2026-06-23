@@ -19,11 +19,11 @@ describe('inventory and crafting HUD action dispatch', () => {
   test('dispatches crafting controls through the existing helper', () => {
     const handlers = testHandlers();
 
-    expect(dispatchCraftingButtonAction(testButton('crafting-start', { recipeId: 'alloy' }), handlers)).toBe(true);
+    expect(dispatchCraftingButtonAction(testButton('crafting-start', { recipeId: 'alloy', locationType: 'station' }), handlers)).toBe(true);
     expect(dispatchCraftingButtonAction(testButton('crafting-complete', { jobId: 'job-1' }), handlers)).toBe(true);
     expect(dispatchCraftingButtonAction(testButton('crafting-cancel', { jobId: 'job-2' }), handlers)).toBe(true);
 
-    expect(handlers.onCraftingStart).toHaveBeenCalledWith('alloy');
+    expect(handlers.onCraftingStart).toHaveBeenCalledWith('alloy', 'station');
     expect(handlers.onCraftingComplete).toHaveBeenCalledWith('job-1');
     expect(handlers.onCraftingCancel).toHaveBeenCalledWith('job-2');
   });

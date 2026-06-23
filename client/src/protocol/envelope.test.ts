@@ -717,6 +717,11 @@ describe('default outbound operations', () => {
     expect(start.payload).toEqual({ recipe_id: 'refined_alloy_batch' });
     expect(Object.keys(start.payload)).toEqual(['recipe_id']);
 
+    const startAtStation = builder.craftingStart({ recipeID: 'refined_alloy_batch', locationType: 'station' });
+    expect(startAtStation.op).toBe(OPERATIONS.craftingStart);
+    expect(startAtStation.payload).toEqual({ recipe_id: 'refined_alloy_batch', location_type: 'station' });
+    expect(Object.keys(startAtStation.payload)).toEqual(['recipe_id', 'location_type']);
+
     const complete = builder.craftingComplete('craft-job-1');
     expect(complete.op).toBe(OPERATIONS.craftingComplete);
     expect(complete.payload).toEqual({ job_id: 'craft-job-1' });
@@ -727,7 +732,7 @@ describe('default outbound operations', () => {
     expect(cancel.payload).toEqual({ job_id: 'craft-job-1' });
     expect(Object.keys(cancel.payload)).toEqual(['job_id']);
 
-    for (const payload of [start.payload, complete.payload, cancel.payload]) {
+    for (const payload of [start.payload, startAtStation.payload, complete.payload, cancel.payload]) {
       for (const forbidden of [
         'owner',
         'owner_player_id',
@@ -735,7 +740,6 @@ describe('default outbound operations', () => {
         'session_id',
         'location',
         'location_id',
-        'location_type',
         'materials',
         'inputs',
         'output',

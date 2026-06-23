@@ -619,7 +619,7 @@ export class HUD {
           break;
         case 'crafting-start':
           if (button.dataset.recipeId) {
-            this.handlers.onCraftingStart(button.dataset.recipeId);
+            this.handlers.onCraftingStart(button.dataset.recipeId, button.dataset.locationType || undefined);
           }
           break;
         case 'crafting-complete':
