@@ -247,6 +247,13 @@ Current slice completed:
   repair completed, without minting duplicate claim events/outbox rows. Durable
   recovery rows, cross-service transaction/CAS, and recovery workers remain
   open.
+- Phase07X outbox lease recovery follow-up: process-local claim outbox and
+  production/route settlement outbox records can now release expired
+  in-flight publisher leases back to pending in append order. Release clears
+  stale claim tokens, preserves attempt/failure evidence, uses strict
+  `claimed_at < cutoff` semantics, and lets the next claim create a fresh
+  token. Durable DB rows, cross-process leases, scheduled workers, and
+  row-lock/CAS enforcement remain open.
 
 ## Source Specs
 

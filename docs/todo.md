@@ -353,10 +353,11 @@ for phase status; this file is a compact pending-work index.
   in-flight attempt and stale callbacks cannot mutate retried or reclaimed
   attempts. Phase07U adds interface-backed publisher drain helpers for claim
   and production/route settlement outbox records, preserving claim-token
-  publish/fail semantics behind a DB-adapter-ready contract. Durable DB rows,
-  row locks/CAS, cross-process leases, idempotency-table enforcement, and a
-  scheduled durable publisher still need to preserve that semantic across
-  processes.
+  publish/fail semantics behind a DB-adapter-ready contract. Phase07X adds
+  process-local in-flight lease expiry release back to pending for claim and
+  production/route settlement outbox rows. Durable DB rows, row locks/CAS,
+  cross-process leases, idempotency-table enforcement, and a scheduled durable
+  publisher still need to preserve that semantic across processes.
 - [ ] Add station/storage destination settlement adapters for Phase 09
   automation routes. Current `SettleRoute` supports planet-to-planet storage and
   rejects generic `storage` or `station` destinations with an explicit error.

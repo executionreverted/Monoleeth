@@ -383,6 +383,100 @@ func TestClaimOutboxFailRetryAndStaleClaimTokens(t *testing.T) {
 	}
 }
 
+func TestClaimOutboxExpiredInFlightReleaseReturnsRecordsToPending(t *testing.T) {
+	service := newClaimOutboxStateMachineService(t, 3)
+	oldClaimedAt := testTime(60)
+	boundaryClaimedAt := testTime(70)
+	retriedAt := testTime(80)
+
+	claimed := service.ClaimPendingClaimOutboxRecords(3, oldClaimedAt)
+	if len(claimed) != 3 {
+		t.Fatalf("claimed len = %d, want 3", len(claimed))
+	}
+	if _, ok := service.MarkClaimedClaimOutboxFailed(claimed[1].OutboxID, claimed[1].ClaimToken, "temporary broker outage", testTime(61)); !ok {
+		t.Fatal("fail second record ok = false, want true")
+	}
+	if retried := service.RetryFailedClaimOutboxRecords(1, testTime(62)); len(retried) != 1 || retried[0].OutboxID != claimed[1].OutboxID {
+		t.Fatalf("retried failed record = %+v, want second record", retried)
+	}
+	reclaimedWithFailure := service.ClaimPendingClaimOutboxRecords(1, oldClaimedAt)
+	if len(reclaimedWithFailure) != 1 || reclaimedWithFailure[0].OutboxID != claimed[1].OutboxID || reclaimedWithFailure[0].LastError != "temporary broker outage" {
+		t.Fatalf("reclaimed failed record = %+v, want second record with preserved failure", reclaimedWithFailure)
+	}
+	if _, ok := service.MarkClaimedClaimOutboxPublished(claimed[2].OutboxID, claimed[2].ClaimToken, testTime(61)); !ok {
+		t.Fatal("publish third record ok = false, want true")
+	}
+	service.ClaimPendingClaimOutboxRecords(1, boundaryClaimedAt)
+
+	released := service.ReleaseExpiredClaimOutboxRecords(1, boundaryClaimedAt, retriedAt)
+	assertClaimOutboxSequences(t, released, 1)
+	if released[0].Status != ClaimOutboxStatusPending || !released[0].ClaimedAt.IsZero() || released[0].ClaimToken != "" {
+		t.Fatalf("released record = %+v, want pending with cleared claim", released[0])
+	}
+	if released[0].Attempts != 1 || !released[0].RetriedAt.Equal(retriedAt) {
+		t.Fatalf("released attempts/retried = %d/%s, want 1/%s", released[0].Attempts, released[0].RetriedAt, retriedAt)
+	}
+	if record, ok := service.MarkClaimedClaimOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(81)); ok || record.OutboxID != "" {
+		t.Fatalf("stale publish after release = %+v/%v, want zero/false", record, ok)
+	}
+	reclaimed := service.ClaimPendingClaimOutboxRecords(1, testTime(82))
+	if len(reclaimed) != 1 || reclaimed[0].OutboxID != claimed[0].OutboxID {
+		t.Fatalf("reclaimed = %+v, want first released record", reclaimed)
+	}
+	if reclaimed[0].Attempts != 2 || reclaimed[0].ClaimToken == claimed[0].ClaimToken {
+		t.Fatalf("reclaimed attempts/token = %d/%q, want attempt 2 with new token", reclaimed[0].Attempts, reclaimed[0].ClaimToken)
+	}
+
+	secondRelease := service.ReleaseExpiredClaimOutboxRecords(10, boundaryClaimedAt, testTime(83))
+	assertClaimOutboxSequences(t, secondRelease, 2)
+	if secondRelease[0].LastError != "temporary broker outage" {
+		t.Fatalf("released failure evidence = %q, want preserved error", secondRelease[0].LastError)
+	}
+	for _, record := range secondRelease {
+		if record.Sequence == 3 {
+			t.Fatalf("published record released unexpectedly: %+v", secondRelease)
+		}
+	}
+}
+
+func TestClaimOutboxExpiredInFlightReleaseIgnoresBoundaryAndInvalidInputs(t *testing.T) {
+	service := newClaimOutboxStateMachineService(t, 1)
+	claimedAt := testTime(90)
+	claimed := service.ClaimPendingClaimOutboxRecords(1, claimedAt)
+
+	if got := service.ReleaseExpiredClaimOutboxRecords(0, claimedAt.Add(time.Second), testTime(91)); got != nil {
+		t.Fatalf("ReleaseExpiredClaimOutboxRecords(limit 0) = %+v, want nil", got)
+	}
+	if got := service.ReleaseExpiredClaimOutboxRecords(1, time.Time{}, testTime(91)); got != nil {
+		t.Fatalf("ReleaseExpiredClaimOutboxRecords(zero cutoff) = %+v, want nil", got)
+	}
+	if got := service.ReleaseExpiredClaimOutboxRecords(1, claimedAt, testTime(91)); len(got) != 0 {
+		t.Fatalf("ReleaseExpiredClaimOutboxRecords(boundary equal) = %+v, want empty", got)
+	}
+	if record, ok := service.MarkClaimedClaimOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(92)); !ok || record.Status != ClaimOutboxStatusPublished {
+		t.Fatalf("publish after boundary release check = %+v/%v, want published", record, ok)
+	}
+}
+
+func TestClaimOutboxClaimWithZeroTimeCanBeReleased(t *testing.T) {
+	service := newClaimOutboxStateMachineService(t, 1)
+	claimed := service.ClaimPendingClaimOutboxRecords(1, time.Time{})
+	if len(claimed) != 1 {
+		t.Fatalf("claimed len = %d, want 1", len(claimed))
+	}
+	if claimed[0].ClaimedAt.IsZero() {
+		t.Fatalf("claimed_at is zero, want normalized releaseable timestamp")
+	}
+
+	released := service.ReleaseExpiredClaimOutboxRecords(1, time.Unix(1, 0).UTC(), testTime(93))
+	if len(released) != 1 || released[0].OutboxID != claimed[0].OutboxID {
+		t.Fatalf("released zero-time claimed record = %+v, want claimed record", released)
+	}
+	if record, ok := service.MarkClaimedClaimOutboxFailed(claimed[0].OutboxID, claimed[0].ClaimToken, "stale", testTime(94)); ok || record.OutboxID != "" {
+		t.Fatalf("stale fail after zero-time release = %+v/%v, want zero/false", record, ok)
+	}
+}
+
 func TestClaimOutboxWrongTokenAndMissingIDDoNotMutateRecords(t *testing.T) {
 	service := newClaimOutboxStateMachineService(t, 1)
 	claimed := service.ClaimPendingClaimOutboxRecords(1, testTime(45))

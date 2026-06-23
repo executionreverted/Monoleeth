@@ -138,6 +138,9 @@ func (service *ClaimService) ClaimPendingClaimOutboxRecords(limit int, claimedAt
 		return nil
 	}
 	claimedAt = claimedAt.UTC()
+	if claimedAt.IsZero() {
+		claimedAt = time.Unix(0, 0).UTC()
+	}
 	records := make([]ClaimOutboxRecord, 0, limit)
 	for index := range service.outbox {
 		if len(records) >= limit {
@@ -210,6 +213,35 @@ func (service *ClaimService) RetryFailedClaimOutboxRecords(limit int, retriedAt 
 			break
 		}
 		if service.outbox[index].Status != ClaimOutboxStatusFailed {
+			continue
+		}
+		service.outbox[index].Status = ClaimOutboxStatusPending
+		service.outbox[index].ClaimedAt = time.Time{}
+		service.outbox[index].ClaimToken = ""
+		service.outbox[index].RetriedAt = retriedAt
+		records = append(records, cloneClaimOutboxRecord(service.outbox[index]))
+	}
+	return records
+}
+
+// ReleaseExpiredClaimOutboxRecords moves stale in-flight claim outbox records
+// back to pending in append order, preserving attempts and failure evidence.
+func (service *ClaimService) ReleaseExpiredClaimOutboxRecords(limit int, claimedBefore time.Time, retriedAt time.Time) []ClaimOutboxRecord {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	if limit <= 0 || claimedBefore.IsZero() {
+		return nil
+	}
+	claimedBefore = claimedBefore.UTC()
+	retriedAt = retriedAt.UTC()
+	records := make([]ClaimOutboxRecord, 0, limit)
+	for index := range service.outbox {
+		if len(records) >= limit {
+			break
+		}
+		record := service.outbox[index]
+		if record.Status != ClaimOutboxStatusInFlight || record.ClaimedAt.IsZero() || !record.ClaimedAt.Before(claimedBefore) {
 			continue
 		}
 		service.outbox[index].Status = ClaimOutboxStatusPending

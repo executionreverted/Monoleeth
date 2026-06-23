@@ -125,6 +125,9 @@ func (store *InMemoryStore) ClaimPendingOutboxRecords(limit int, claimedAt time.
 		return nil
 	}
 	claimedAt = claimedAt.UTC()
+	if claimedAt.IsZero() {
+		claimedAt = time.Unix(0, 0).UTC()
+	}
 	records := make([]ProductionOutboxRecord, 0, limit)
 	for index := range store.outbox {
 		if len(records) >= limit {
@@ -197,6 +200,35 @@ func (store *InMemoryStore) RetryFailedOutboxRecords(limit int, retriedAt time.T
 			break
 		}
 		if store.outbox[index].Status != ProductionOutboxStatusFailed {
+			continue
+		}
+		store.outbox[index].Status = ProductionOutboxStatusPending
+		store.outbox[index].ClaimedAt = time.Time{}
+		store.outbox[index].ClaimToken = ""
+		store.outbox[index].RetriedAt = retriedAt
+		records = append(records, cloneProductionOutboxRecord(store.outbox[index]))
+	}
+	return records
+}
+
+// ReleaseExpiredOutboxRecords moves stale in-flight outbox records back to
+// pending in append order, preserving attempts and failure evidence.
+func (store *InMemoryStore) ReleaseExpiredOutboxRecords(limit int, claimedBefore time.Time, retriedAt time.Time) []ProductionOutboxRecord {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	if limit <= 0 || claimedBefore.IsZero() {
+		return nil
+	}
+	claimedBefore = claimedBefore.UTC()
+	retriedAt = retriedAt.UTC()
+	records := make([]ProductionOutboxRecord, 0, limit)
+	for index := range store.outbox {
+		if len(records) >= limit {
+			break
+		}
+		record := store.outbox[index]
+		if record.Status != ProductionOutboxStatusInFlight || record.ClaimedAt.IsZero() || !record.ClaimedAt.Before(claimedBefore) {
 			continue
 		}
 		store.outbox[index].Status = ProductionOutboxStatusPending
