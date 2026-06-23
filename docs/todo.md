@@ -862,7 +862,8 @@ Task 001 release proof must be rebuilt through
   `scripts/verify_playtest_vertical_slice.sh` chains the playtest build/artifact
   scan gate, built-client main playtest loop, built-client PvP/death/repair
   loop, and destination/PvP scanner plus Border Skirmish drop canary. Dry-run
-  mode prints the command sequence without launching browser proofs.
+  mode prints the command sequence without launching browser proofs. The full
+  gate passed locally on 2026-06-23.
 - [x] Finish entity selection, combat feedback, and loot pickup presentation in
   the mockup HUD. Visible objects select with reticles, target panels show
   server-safe HP/shield/status, firing produces laser/damage/miss reactions,

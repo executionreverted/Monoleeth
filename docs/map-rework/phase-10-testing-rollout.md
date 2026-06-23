@@ -335,6 +335,9 @@ loop, built-client PvP/death/repair loop, and destination/PvP scanner plus
 Border Skirmish drop canary. Use
 `GAME_PLAYTEST_VERIFY_DRY_RUN=true scripts/verify_playtest_vertical_slice.sh`
 to print the command sequence without launching the browser proofs.
+Last verified locally on 2026-06-23: the full gate passed, including
+`e2e:playtest-server`, `e2e:playtest-server-pvp`, and
+`e2e:phase10-pvp-map-drop`.
 
 The planet claim proof starts the local Go server with
 `GAME_DEV_MODE=1` and `GAME_E2E_PLANET_CLAIM_SEED=1`, registers a real browser
