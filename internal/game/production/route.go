@@ -108,6 +108,23 @@ type UpdateRouteResult struct {
 	Updated    bool                  `json:"updated"`
 }
 
+// DropAutomationRouteReadModel removes only the process-local live route row.
+// Durable route records and idempotency references are preserved so recovery
+// paths can prove they rebuild from committed evidence instead of live state.
+func (store *InMemoryStore) DropAutomationRouteReadModel(routeID foundation.RouteID) error {
+	if err := routeID.Validate(); err != nil {
+		return err
+	}
+	if store == nil {
+		return ErrInvalidAutomationRouteDurableCommit
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.ensureMapsLocked()
+	delete(store.routes, routeID)
+	return nil
+}
+
 // RouteCreatePolicyInput asks the policy boundary for server-owned route facts.
 type RouteCreatePolicyInput struct {
 	OwnerPlayerID  foundation.PlayerID

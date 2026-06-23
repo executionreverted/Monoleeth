@@ -372,7 +372,10 @@ for phase status; this file is a compact pending-work index.
   the committed durable reference, route-row, pending outbox, ledger, and
   storage-row handoff after live route-row loss without appending duplicate
   process-local rows, while missing handoff evidence, wrong-owner, and
-  future-window attempts still fail closed.
+  future-window attempts still fail closed. Authenticated `route.settle`
+  route-id retries now also fall back to committed durable route rows before
+  live read-model preflight, so the gateway reaches that exact replay/repair
+  path instead of returning not-found after a live route row loss.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10

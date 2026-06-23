@@ -168,6 +168,30 @@ func TestInMemoryStoreAppliesRouteDurableSourceProductionStateUnderCommit(t *tes
 	}
 }
 
+func TestDropAutomationRouteReadModelPreservesDurableRouteRecord(t *testing.T) {
+	route := validSettlementRoute(testTime(1))
+	store := NewInMemoryStore()
+	plan := automationRouteDurablePlanForTest(route, "route_create:player-1:route-1", 0, testTime(2))
+	if _, err := store.ApplyAutomationRouteDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyAutomationRouteDurableCommitPlan() error = %v, want nil", err)
+	}
+	store.routes[route.RouteID] = cloneAutomationRoute(route)
+
+	if err := store.DropAutomationRouteReadModel(route.RouteID); err != nil {
+		t.Fatalf("DropAutomationRouteReadModel() error = %v, want nil", err)
+	}
+	if _, ok, err := store.AutomationRoute(route.RouteID); err != nil || ok {
+		t.Fatalf("AutomationRoute(%q) ok=%v err=%v, want missing nil", route.RouteID, ok, err)
+	}
+	record, ok, err := store.CommittedAutomationRouteDurableRecord(route.RouteID)
+	if err != nil || !ok {
+		t.Fatalf("CommittedAutomationRouteDurableRecord(%q) ok=%v err=%v, want true nil", route.RouteID, ok, err)
+	}
+	if record.Route != route {
+		t.Fatalf("durable route after drop = %+v, want %+v", record.Route, route)
+	}
+}
+
 func TestAutomationRouteDurableStoreRejectsStaleRevisionWithoutMutation(t *testing.T) {
 	route := validSettlementRoute(testTime(1))
 	store := NewInMemoryAutomationRouteDurableStore()

@@ -264,6 +264,66 @@ func TestRouteSettleImmediateDuplicateReturnsNoOpWithoutDuplicateTransfer(t *tes
 	assertRouteSettleNoOpEvents(t, eventsBySession[owner.SessionID], routeID)
 }
 
+func TestRouteSettleDuplicateReplaysDurableHandoffAfterLiveRouteRowLoss(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+	gameServer := newRouteControlTestServer(t, clock)
+	owner := createResolvedRuntimeSession(t, gameServer, "route-settle-replay@example.com", "Route Settle Replay")
+	sourcePlanetID := foundation.PlanetID("planet-route-settle-replay-a")
+	destinationPlanetID := foundation.PlanetID("planet-route-settle-replay-b")
+	routeID := foundation.RouteID("route-settle-replay")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-route-settle-replay-a")
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, destinationPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-route-settle-replay-b")
+	saveRouteControlStorage(t, gameServer, sourcePlanetID, []production.StoredItem{{ItemID: "refined_alloy", Quantity: 100}})
+	seedAutomationRouteForTest(t, gameServer, owner.PlayerID, routeID, sourcePlanetID, destinationPlanetID, "map_1_1", "map_1_2")
+	clock.Advance(time.Hour)
+
+	first := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-route-settle-replay-first","op":"route.settle","payload":{"route_id":"`+routeID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if first.HasError {
+		t.Fatalf("first route.settle response error = %+v, want success", first.Error)
+	}
+	durableOutboxAfterFirst := len(gameServer.runtime.Settlements.OutboxRecords())
+	durableLedgerAfterFirst := len(gameServer.runtime.Settlements.RouteStorageLedgerEntries())
+	if err := gameServer.runtime.Production.DropAutomationRouteReadModel(routeID); err != nil {
+		t.Fatalf("DropAutomationRouteReadModel() error = %v, want nil", err)
+	}
+
+	second := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-route-settle-replay-second","op":"route.settle","payload":{"route_id":"`+routeID.String()+`"},"client_seq":2,"v":1}`),
+	)
+	if second.HasError {
+		t.Fatalf("duplicate route.settle replay response error = %+v, want success", second.Error)
+	}
+	var payload struct {
+		Settlement routeSettlementPayload `json:"settlement"`
+		Routes     routeListPayload       `json:"routes"`
+	}
+	if err := json.Unmarshal(second.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode duplicate replay route.settle payload: %v", err)
+	}
+	assertRouteSettlementPayload(t, payload.Settlement, routeID, "refined_alloy", 0, 0, 0, 0, 0, 0, true, "duplicate replay route.settle response")
+	if len(payload.Routes.Routes) != 1 || payload.Routes.Routes[0].RouteID != routeID.String() {
+		t.Fatalf("duplicate replay route list = %+v, want recovered durable route %q", payload.Routes.Routes, routeID)
+	}
+	assertStoredRouteStorageQuantity(t, gameServer, sourcePlanetID, "refined_alloy", 60)
+	assertStoredRouteStorageQuantity(t, gameServer, destinationPlanetID, "refined_alloy", 40)
+	if got := len(gameServer.runtime.Settlements.OutboxRecords()); got != durableOutboxAfterFirst {
+		t.Fatalf("duplicate replay durable outbox rows = %d, want %d", got, durableOutboxAfterFirst)
+	}
+	if got := len(gameServer.runtime.Settlements.RouteStorageLedgerEntries()); got != durableLedgerAfterFirst {
+		t.Fatalf("duplicate replay durable ledger rows = %d, want %d", got, durableLedgerAfterFirst)
+	}
+	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteSettle, owner.PlayerID)
+	if err != nil {
+		t.Fatalf("post duplicate replay route.settle events: %v", err)
+	}
+	assertRouteSettleNoOpEvents(t, routeSettleEventSuffixForTest(t, eventsBySession[owner.SessionID], 4), routeID)
+}
+
 func TestRouteSettleEmptyPayloadReconcilesOwnedRoutesOnly(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
 	gameServer := newRouteControlTestServer(t, clock)
@@ -826,6 +886,24 @@ func assertRouteSettleNoOpEvents(t *testing.T, events []realtime.EventEnvelope, 
 	}
 	assertRoutePayloadMapKeys(t, payload.Route, routeID, "1-1", "1-2")
 	assertRouteSettlementPayload(t, payload.Settlement, routeID, "refined_alloy", 0, 0, 0, 0, 0, 0, true, "no-op route.settled event")
+	list := requireEventTypeForTest(t, events, realtime.EventRouteList)
+	var listPayload struct {
+		Routes routeListPayload `json:"routes"`
+	}
+	if err := json.Unmarshal(list.Payload, &listPayload); err != nil {
+		t.Fatalf("decode no-op route.list event payload: %v", err)
+	}
+	if len(listPayload.Routes.Routes) != 1 || listPayload.Routes.Routes[0].RouteID != routeID.String() {
+		t.Fatalf("no-op route.list event routes = %+v, want route %q", listPayload.Routes.Routes, routeID)
+	}
+}
+
+func routeSettleEventSuffixForTest(t *testing.T, events []realtime.EventEnvelope, count int) []realtime.EventEnvelope {
+	t.Helper()
+	if len(events) < count {
+		t.Fatalf("route.settle events = %+v, want at least %d events", events, count)
+	}
+	return events[len(events)-count:]
 }
 
 func assertRouteSettleReconcileEvents(t *testing.T, events []realtime.EventEnvelope, routeIDs []foundation.RouteID, ownerID foundation.PlayerID) {

@@ -179,7 +179,14 @@ func (runtime *Runtime) routeSettleRouteForOwner(
 		return production.AutomationRoute{}, err
 	}
 	if !ok {
-		return production.AutomationRoute{}, fmt.Errorf("route %q: %w", routeID, production.ErrRouteNotFound)
+		record, durableOK, durableErr := runtime.Production.CommittedAutomationRouteDurableRecord(routeID)
+		if durableErr != nil {
+			return production.AutomationRoute{}, durableErr
+		}
+		if !durableOK {
+			return production.AutomationRoute{}, fmt.Errorf("route %q: %w", routeID, production.ErrRouteNotFound)
+		}
+		route = record.Route
 	}
 	if err := route.Validate(); err != nil {
 		return production.AutomationRoute{}, err

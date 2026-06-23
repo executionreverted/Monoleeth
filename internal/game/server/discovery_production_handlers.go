@@ -699,12 +699,30 @@ func (runtime *Runtime) queueProductionSummarySettlementEvents(
 }
 
 func (runtime *Runtime) routeListPayload(playerID foundation.PlayerID) (routeListPayload, error) {
-	routes := runtime.Production.AutomationRoutes()
-	payload := make([]routePayload, 0, len(routes))
-	for _, route := range routes {
-		if route.OwnerPlayerID != playerID {
-			continue
+	routesByID := make(map[foundation.RouteID]production.AutomationRoute)
+	for _, route := range runtime.Production.AutomationRoutes() {
+		if route.OwnerPlayerID == playerID {
+			routesByID[route.RouteID] = route
 		}
+	}
+	durableRecords, err := runtime.Production.CommittedAutomationRouteDurableRecordsForOwner(playerID)
+	if err != nil {
+		return routeListPayload{}, err
+	}
+	for _, record := range durableRecords {
+		if _, ok := routesByID[record.Route.RouteID]; !ok {
+			routesByID[record.Route.RouteID] = record.Route
+		}
+	}
+	routeIDs := make([]foundation.RouteID, 0, len(routesByID))
+	for routeID := range routesByID {
+		routeIDs = append(routeIDs, routeID)
+	}
+	sort.Slice(routeIDs, func(i, j int) bool { return routeIDs[i] < routeIDs[j] })
+
+	payload := make([]routePayload, 0, len(routeIDs))
+	for _, routeID := range routeIDs {
+		route := routesByID[routeID]
 		routePayload, err := runtime.routePayloadFromRoute(route)
 		if err != nil {
 			return routeListPayload{}, err
