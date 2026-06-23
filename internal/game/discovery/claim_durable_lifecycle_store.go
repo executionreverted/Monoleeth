@@ -410,11 +410,7 @@ func normalizeClaimDurableLifecycleCommitPlan(plan ClaimDurableCommitPlan) (Clai
 func normalizeClaimDurableLifecycleProductionInitPlan(
 	plan ClaimProductionInitializationDurablePlan,
 ) (ClaimProductionInitializationDurablePlan, error) {
-	var boundary *ClaimBoundaryRecord
-	if !reflect.DeepEqual(plan.Boundary, ClaimBoundaryRecord{}) {
-		boundary = &plan.Boundary
-	}
-	return NewClaimProductionInitializationDurablePlan(&plan.Initialization, boundary)
+	return normalizeClaimProductionInitializationDurablePlan(plan)
 }
 
 func claimDurableLifecyclePlanIsNoOp(plan ClaimDurableLifecyclePlan) bool {

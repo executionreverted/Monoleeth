@@ -507,6 +507,13 @@ Current slice completed:
   original pending commit shape, then returns detached rows with the current
   publisher evidence intact. Real durable DB rows, cross-process leases, and
   scheduled publisher/recovery workers remain open.
+- Phase07CF claim production-init boundary strictness follow-up:
+  Claim production-initialization durable-store apply/readback now requires
+  pending or complete claim-boundary evidence. Orphan production-init rows
+  without claim boundary evidence are rejected before mutation and fail
+  committed/pending recovery readback instead of being treated as valid claim
+  recovery state. Real DB rows, cross-service row locks/CAS, an atomic
+  claim/production transaction, and scheduled recovery workers remain open.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -871,6 +878,9 @@ Mockup areas covered:
 - [x] Add pending production-init durable readback for recovery workers so
       initialized-but-incomplete claim side effects can be scanned without
       replaying completed rows.
+- [x] Require pending or complete claim-boundary evidence when applying or
+      reading claim production-initialization durable rows so orphan init rows
+      cannot satisfy recovery contracts.
 - [x] Add claim outbox dispatch-plan validation and committed lifecycle-store
       readback for durable `planet.claimed` publisher scheduling.
 - [x] Let the claim durable lifecycle-store adapter satisfy the claim outbox

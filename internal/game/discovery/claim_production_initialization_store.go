@@ -133,10 +133,8 @@ func (store *InMemoryClaimProductionInitializationDurableStore) PendingClaimProd
 	defer store.mu.RUnlock()
 
 	refs := make([]PlanetClaimReference, 0, len(store.plans))
-	for ref, plan := range store.plans {
-		if plan.Boundary.Status == ClaimBoundaryStatusPendingSideEffects {
-			refs = append(refs, ref)
-		}
+	for ref := range store.plans {
+		refs = append(refs, ref)
 	}
 	sort.Slice(refs, func(i, j int) bool {
 		return refs[i] < refs[j]
@@ -155,6 +153,9 @@ func (store *InMemoryClaimProductionInitializationDurableStore) PendingClaimProd
 		normalized, err := normalizeClaimProductionInitializationDurablePlan(cloned)
 		if err != nil {
 			return nil, err
+		}
+		if normalized.Boundary.Status != ClaimBoundaryStatusPendingSideEffects {
+			continue
 		}
 		plans = append(plans, normalized)
 	}
@@ -196,11 +197,10 @@ func (store *InMemoryClaimProductionInitializationDurableStore) ensureMapsLocked
 func normalizeClaimProductionInitializationDurablePlan(
 	plan ClaimProductionInitializationDurablePlan,
 ) (ClaimProductionInitializationDurablePlan, error) {
-	var boundary *ClaimBoundaryRecord
-	if !reflect.DeepEqual(plan.Boundary, ClaimBoundaryRecord{}) {
-		boundary = &plan.Boundary
+	if reflect.DeepEqual(plan.Boundary, ClaimBoundaryRecord{}) {
+		return ClaimProductionInitializationDurablePlan{}, fmt.Errorf("boundary: %w", ErrInvalidClaimDurableCommit)
 	}
-	return NewClaimProductionInitializationDurablePlan(&plan.Initialization, boundary)
+	return NewClaimProductionInitializationDurablePlan(&plan.Initialization, &plan.Boundary)
 }
 
 func claimProductionInitializationDurablePlanIsNoOp(plan ClaimProductionInitializationDurablePlan) bool {

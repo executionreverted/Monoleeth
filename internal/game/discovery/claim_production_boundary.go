@@ -24,14 +24,16 @@ type ClaimProductionInitializationRecord struct {
 }
 
 // ClaimProductionInitializationDurablePlan validates the production-init row a
-// future durable claim/production adapter must persist after owner-CAS.
+// future durable claim/production adapter must persist after owner-CAS. Durable
+// store apply/readback paths require pending or complete boundary evidence so
+// an initialization row cannot be orphaned from its claim.
 type ClaimProductionInitializationDurablePlan struct {
 	Initialization ClaimProductionInitializationRecord
 	Boundary       ClaimBoundaryRecord
 }
 
-// DurablePlan validates this production-init record against an optional claim
-// boundary. Boundary evidence may be pending or complete because retries can
+// DurablePlan validates this production-init record against claim boundary
+// evidence. Boundary evidence may be pending or complete because retries can
 // read the initialization row before or after side-effect completion.
 func (record ClaimProductionInitializationRecord) DurablePlan(
 	boundary *ClaimBoundaryRecord,
@@ -40,7 +42,8 @@ func (record ClaimProductionInitializationRecord) DurablePlan(
 }
 
 // NewClaimProductionInitializationDurablePlan validates one claim-production
-// initialization evidence row. Empty input is a no-op plan.
+// initialization evidence row. Empty input is a no-op plan. Callers that apply
+// or read durable rows must include boundary evidence.
 func NewClaimProductionInitializationDurablePlan(
 	record *ClaimProductionInitializationRecord,
 	boundary *ClaimBoundaryRecord,
@@ -107,15 +110,17 @@ func (service *ClaimService) ClaimProductionInitializationDurablePlan(
 		return ClaimProductionInitializationDurablePlan{}, ok, err
 	}
 	var boundary *ClaimBoundaryRecord
-	if service.claimBoundaries != nil {
-		claimBoundary, hasBoundary, err := service.claimBoundaries.ClaimBoundary(reference)
-		if err != nil {
-			return ClaimProductionInitializationDurablePlan{}, false, err
-		}
-		if hasBoundary {
-			boundary = &claimBoundary
-		}
+	if service.claimBoundaries == nil {
+		return ClaimProductionInitializationDurablePlan{}, false, ErrInvalidClaimDurableCommit
 	}
+	claimBoundary, hasBoundary, err := service.claimBoundaries.ClaimBoundary(reference)
+	if err != nil {
+		return ClaimProductionInitializationDurablePlan{}, false, err
+	}
+	if !hasBoundary {
+		return ClaimProductionInitializationDurablePlan{}, false, ErrInvalidClaimDurableCommit
+	}
+	boundary = &claimBoundary
 	plan, err := record.DurablePlan(boundary)
 	if err != nil {
 		return ClaimProductionInitializationDurablePlan{}, false, err

@@ -150,15 +150,64 @@ func TestClaimProductionInitializationDurableStoreRejectsInvalidPlanWithoutMutat
 		t.Fatalf("ApplyClaimProductionInitializationDurablePlan(no-op) = %+v/%v, want empty nil", result, err)
 	}
 
+	withoutBoundary := plan
+	withoutBoundary.Boundary = ClaimBoundaryRecord{}
+	_, err := store.ApplyClaimProductionInitializationDurablePlan(withoutBoundary)
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) {
+		t.Fatalf("boundaryless ApplyClaimProductionInitializationDurablePlan() error = %v, want ErrInvalidClaimDurableCommit", err)
+	}
+	if len(store.ClaimReferences()) != 0 {
+		t.Fatalf("ClaimReferences() len after boundaryless plan = %d, want 0", len(store.ClaimReferences()))
+	}
+
 	invalid := plan
 	invalid.Initialization.Created = false
 	invalid.Initialization.AlreadyInitialized = false
-	_, err := store.ApplyClaimProductionInitializationDurablePlan(invalid)
+	_, err = store.ApplyClaimProductionInitializationDurablePlan(invalid)
 	if !errors.Is(err, ErrInvalidClaimDurableCommit) {
 		t.Fatalf("invalid ApplyClaimProductionInitializationDurablePlan() error = %v, want ErrInvalidClaimDurableCommit", err)
 	}
 	if len(store.ClaimReferences()) != 0 {
 		t.Fatalf("ClaimReferences() len after invalid plan = %d, want 0", len(store.ClaimReferences()))
+	}
+}
+
+func TestClaimProductionInitializationDurableStoreReadbackRejectsBoundarylessRows(t *testing.T) {
+	plan := claimProductionInitializationDurableStorePlanForTest(t, "boundaryless-readback", false)
+	store := NewInMemoryClaimProductionInitializationDurableStore()
+	boundaryless := plan
+	boundaryless.Boundary = ClaimBoundaryRecord{}
+	store.plans[plan.Initialization.ClaimReference] = boundaryless
+
+	recovered, ok, err := store.CommittedClaimProductionInitializationDurablePlan(plan.Initialization.ClaimReference)
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) || ok || recovered.Initialization.ClaimReference != "" {
+		t.Fatalf("CommittedClaimProductionInitializationDurablePlan(boundaryless) = %+v/%v/%v, want invalid durable commit", recovered, ok, err)
+	}
+}
+
+func TestClaimProductionInitializationDurableStorePendingReadbackRejectsBoundarylessRows(t *testing.T) {
+	plan := claimProductionInitializationDurableStorePlanForTest(t, "pending-boundaryless-readback", false)
+	store := NewInMemoryClaimProductionInitializationDurableStore()
+	boundaryless := plan
+	boundaryless.Boundary = ClaimBoundaryRecord{}
+	store.plans[plan.Initialization.ClaimReference] = boundaryless
+
+	pending, err := store.PendingClaimProductionInitializationDurablePlans(10)
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) || len(pending) != 0 {
+		t.Fatalf("PendingClaimProductionInitializationDurablePlans(boundaryless) = %+v/%v, want invalid durable commit", pending, err)
+	}
+}
+
+func TestClaimProductionInitializationDurableStorePendingReadbackRejectsInvalidBoundaryRows(t *testing.T) {
+	plan := claimProductionInitializationDurableStorePlanForTest(t, "pending-invalid-boundary", false)
+	store := NewInMemoryClaimProductionInitializationDurableStore()
+	invalidBoundary := plan
+	invalidBoundary.Boundary.StaleListingCount = 1
+	store.plans[plan.Initialization.ClaimReference] = invalidBoundary
+
+	pending, err := store.PendingClaimProductionInitializationDurablePlans(10)
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) || len(pending) != 0 {
+		t.Fatalf("PendingClaimProductionInitializationDurablePlans(invalid boundary) = %+v/%v, want invalid durable commit", pending, err)
 	}
 }
 

@@ -159,9 +159,12 @@ for phase status; this file is a compact pending-work index.
   evidence by claim reference so later side-effect retries do not call the
   initializer twice. Phase07CC adds deterministic pending production-init
   readback so recovery workers can scan initialized-but-incomplete claim side
-  effects without replaying completed rows. Real durable claim/production DB rows,
-  cross-service row locks/CAS, an atomic claim/production transaction, and
-  scheduled recovery workers remain open.
+  effects without replaying completed rows. Phase07CF tightens the durable
+  store/readback contract so production-init rows without pending or complete
+  claim-boundary evidence are rejected instead of becoming orphan recovery
+  state. Real durable claim/production DB rows, cross-service row locks/CAS, an
+  atomic claim/production transaction, and scheduled recovery workers remain
+  open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory

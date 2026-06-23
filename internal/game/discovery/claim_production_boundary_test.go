@@ -159,6 +159,37 @@ func TestClaimProductionInitializationRecordDurablePlan(t *testing.T) {
 	}
 }
 
+func TestClaimProductionInitializationDurablePlanRejectsMissingBoundaryEvidence(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim-production-init-missing-boundary")
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	markerErr := errors.New("stale listing marker unavailable")
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    &recordingClaimXCoreConsumer{},
+		initializer: &recordingClaimProductionInitializer{},
+		staleMarker: &recordingClaimListedIntelStaleMarker{err: markerErr},
+	})
+	input := claimInput(canonicalClaimReference(t, claimTestPlayerID, planet.ID), planet.ID)
+
+	_, err := service.ClaimPlanet(input)
+	if !errors.Is(err, markerErr) {
+		t.Fatalf("ClaimPlanet() error = %v, want stale marker error", err)
+	}
+	if records := service.ClaimProductionInitializations(); len(records) != 1 {
+		t.Fatalf("ClaimProductionInitializations() = %+v, want one record", records)
+	}
+	delete(store.claimBoundaries, input.ClaimReference)
+
+	plan, ok, err := service.ClaimProductionInitializationDurablePlan(input.ClaimReference)
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) || ok || plan.Initialization.ClaimReference != "" {
+		t.Fatalf("ClaimProductionInitializationDurablePlan(missing boundary) = %+v/%v/%v, want invalid durable commit", plan, ok, err)
+	}
+}
+
 func TestClaimProductionInitializationDurablePlanNoOpAndInvalidRows(t *testing.T) {
 	if plan, err := NewClaimProductionInitializationDurablePlan(nil, nil); err != nil || plan.Initialization.ClaimReference != "" {
 		t.Fatalf("NewClaimProductionInitializationDurablePlan(no-op) = %+v/%v, want empty nil", plan, err)
