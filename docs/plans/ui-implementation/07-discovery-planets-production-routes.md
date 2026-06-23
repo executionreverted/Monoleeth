@@ -377,6 +377,9 @@ Current slice completed:
   safe forbidden error before capacitor spend, planet creation, intel writes, or
   scanner events; this completes the movement half of the existing scanner
   mutation guard evidence alongside the insufficient-capacitor regression.
+  Scanner retries after a map transfer now miss the old transport cache and
+  safely revalidate against the current map instead of replaying previous-map
+  known-planet payloads.
 - Phase07AI intel share safety follow-up: `intel.share` now only copies
   shareable sender intel states (`fresh` and `verified`); stale,
   invalidated, missing, or colonized-by-other sender memory returns a safe

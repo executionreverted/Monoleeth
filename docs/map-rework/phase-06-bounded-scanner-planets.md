@@ -204,6 +204,9 @@ other players' stealth reveal outcomes from another map.
   be grouped by map without treating all coordinates as one global plane.
 - Make scanner cooldown and pulse identity map-scoped:
   `player_id + ship_id + world_id + map_id`.
+- Clear completed transport retry responses when a session rebinds to another
+  map so duplicate `scan.pulse` request ids cannot replay previous-map payloads
+  after a portal, death, reconnect, or admin-side map transition.
 - Add public map identity to safe scanner and planet payloads:
   - `scan.pulse_started`
   - `scan.pulse_resolved`
@@ -266,6 +269,9 @@ other players' stealth reveal outcomes from another map.
 - Scan in map A cannot discover or reveal entities in map B.
 - Scanner cooldown and energy spend are idempotent per pulse reference and
   scoped by active map.
+- Replaying a completed `scan.pulse` request id after a session map rebind
+  returns a safe current-map validation result, not the previous map's cached
+  known-planet payload.
 - Radar tier below candidate minimum cannot discover the planet.
 - Higher scanner power/radar tier can improve detection without leaking rolls.
 - Known planets and planet detail include public map key and never invent

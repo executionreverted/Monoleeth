@@ -355,6 +355,29 @@ func TestRequestCacheEvictsOldestResponseAtCapacity(t *testing.T) {
 	}
 }
 
+func TestRequestCacheForgetSessionRemovesOnlyThatSession(t *testing.T) {
+	cache := NewRequestCache(3)
+
+	cache.Remember(SessionID("session-1"), foundation.RequestID("request-1"), cachedPayload("request-1", `{"session":1}`))
+	cache.Remember(SessionID("session-1"), foundation.RequestID("request-2"), cachedPayload("request-2", `{"session":1}`))
+	cache.Remember(SessionID("session-2"), foundation.RequestID("request-1"), cachedPayload("request-1", `{"session":2}`))
+
+	cache.ForgetSession(SessionID("session-1"))
+
+	if _, ok := cache.Lookup(SessionID("session-1"), foundation.RequestID("request-1")); ok {
+		t.Fatal("session-1 request-1 remained cached")
+	}
+	if _, ok := cache.Lookup(SessionID("session-1"), foundation.RequestID("request-2")); ok {
+		t.Fatal("session-1 request-2 remained cached")
+	}
+	if _, ok := cache.Lookup(SessionID("session-2"), foundation.RequestID("request-1")); !ok {
+		t.Fatal("session-2 request should remain cached")
+	}
+	if got := cache.Len(); got != 1 {
+		t.Fatalf("cache len = %d, want 1", got)
+	}
+}
+
 func TestRequestCacheCanStoreErrorResponses(t *testing.T) {
 	cache := NewRequestCache(1)
 	domainErr := foundation.NewDomainError(foundation.CodeRateLimited, "Request rate limited.")

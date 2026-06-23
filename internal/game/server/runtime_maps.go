@@ -142,9 +142,14 @@ func (runtime *Runtime) attachSessionToInstanceLocked(instance *mapInstance, ses
 	}
 	instance.ActiveSessions[sessionID] = playerID
 	runtime.sessions[sessionID] = playerID
-	if runtime.sessionLocations[sessionID] != instance.Definition.InternalMapID || runtime.sessionEpochs[sessionID] == 0 {
+	previousMapID := runtime.sessionLocations[sessionID]
+	hadEpoch := runtime.sessionEpochs[sessionID] != 0
+	if previousMapID != instance.Definition.InternalMapID || runtime.sessionEpochs[sessionID] == 0 {
 		runtime.nextSessionEpoch++
 		runtime.sessionEpochs[sessionID] = runtime.nextSessionEpoch
+		if runtime.Gateway != nil && hadEpoch {
+			runtime.Gateway.ForgetSessionCache(realtime.SessionID(sessionID.String()))
+		}
 	}
 	runtime.sessionLocations[sessionID] = instance.Definition.InternalMapID
 }

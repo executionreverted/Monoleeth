@@ -68,7 +68,10 @@ for phase status; this file is a compact pending-work index.
   cooldown/pulse creation before moving scanner pulses beyond the in-process
   authenticated runtime. The runtime now debits live ship capacitor once per
   accepted pulse reference, and the domain service validates energy availability
-  and stationary movement through provider gates. Source:
+  and stationary movement through provider gates. Session map rebinding now
+  clears completed transport retry responses so a replayed `scan.pulse`
+  request cannot return a previous-map payload after portal/respawn transfer.
+  Source:
   `docs/roadmap/08-world-discovery-planets-intel.md`.
 - [ ] Replace Phase 08 in-memory discovery stores, idempotency maps, and local
   event/outbox slices with durable repositories/outbox records before
