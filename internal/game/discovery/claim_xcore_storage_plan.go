@@ -39,6 +39,9 @@ func NewClaimXCoreStorageMutationPlan(
 	}
 	if boundary != nil {
 		clonedBoundary := cloneClaimBoundaryRecord(*boundary)
+		if clonedBoundary.ClaimReference == "" {
+			return ClaimXCoreStorageMutationPlan{}, fmt.Errorf("x_core_storage.boundary: %w", ErrInvalidClaimDurableCommit)
+		}
 		if err := validateClaimXCoreStorageMutationBoundary(input, clonedBoundary); err != nil {
 			return ClaimXCoreStorageMutationPlan{}, err
 		}
@@ -46,6 +49,25 @@ func NewClaimXCoreStorageMutationPlan(
 		plan.HasBoundary = true
 	}
 	return plan, nil
+}
+
+func validateClaimXCoreStorageMutationPlan(plan ClaimXCoreStorageMutationPlan) error {
+	if err := validateClaimXCoreStorageMutationInput(plan.Input, plan.Consumption); err != nil {
+		return err
+	}
+	if err := validateClaimXCoreStorageMutationResult(plan.Input, plan.Consumption, plan.Result); err != nil {
+		return err
+	}
+	if plan.HasBoundary {
+		if plan.Boundary.ClaimReference == "" {
+			return fmt.Errorf("x_core_storage.boundary: %w", ErrInvalidClaimDurableCommit)
+		}
+		return validateClaimXCoreStorageMutationBoundary(plan.Input, plan.Boundary)
+	}
+	if plan.Boundary.ClaimReference != "" {
+		return fmt.Errorf("x_core_storage.boundary: %w", ErrInvalidClaimDurableCommit)
+	}
+	return nil
 }
 
 func validateClaimXCoreStorageMutationInput(input ClaimXCoreConsumeInput, consumption ClaimXCoreConsumptionRecord) error {
@@ -149,9 +171,6 @@ func validateClaimXCoreStorageMutationInstance(input ClaimXCoreConsumeInput, row
 }
 
 func validateClaimXCoreStorageMutationBoundary(input ClaimXCoreConsumeInput, boundary ClaimBoundaryRecord) error {
-	if boundary.ClaimReference == "" {
-		return nil
-	}
 	if err := validateClaimDurableBeginBoundary(boundary); err != nil {
 		return err
 	}
@@ -168,4 +187,11 @@ func cloneClaimXCoreConsumeResult(result ClaimXCoreConsumeResult) ClaimXCoreCons
 	result.StorageMutation.InstanceItems = append([]economy.InstanceItem(nil), result.StorageMutation.InstanceItems...)
 	result.StorageMutation.LedgerEntries = append([]economy.ItemLedgerEntry(nil), result.StorageMutation.LedgerEntries...)
 	return result
+}
+
+func cloneClaimXCoreStorageMutationPlan(plan ClaimXCoreStorageMutationPlan) ClaimXCoreStorageMutationPlan {
+	plan.Result = cloneClaimXCoreConsumeResult(plan.Result)
+	plan.Consumption = cloneClaimXCoreConsumptionRecord(plan.Consumption)
+	plan.Boundary = cloneClaimBoundaryRecord(plan.Boundary)
+	return plan
 }

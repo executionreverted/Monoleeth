@@ -26,6 +26,7 @@ type BeginPlanetClaimWithXCoreInput struct {
 // XCoreConsumption may be populated when the debit committed but the owner
 // boundary failed, letting retry paths avoid a second debit call.
 type BeginPlanetClaimWithXCoreResult struct {
+	XCoreInput       ClaimXCoreConsumeInput
 	XCoreResult      ClaimXCoreConsumeResult
 	XCoreConsumption ClaimXCoreConsumptionRecord
 	Boundary         BeginPlanetClaimBoundaryResult
@@ -53,6 +54,7 @@ func (boundary composedClaimXCoreOwnerBoundary) BeginPlanetClaimWithXCore(
 	consumption := newClaimXCoreConsumptionRecord(input.XCore, xcore, input.ConsumedAt)
 	claimBoundary, err := boundary.Boundaries.BeginPlanetClaimBoundary(input.Boundary)
 	return BeginPlanetClaimWithXCoreResult{
+		XCoreInput:       input.XCore,
 		XCoreResult:      xcore,
 		XCoreConsumption: consumption,
 		Boundary:         claimBoundary,

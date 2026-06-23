@@ -449,6 +449,15 @@ Current slice completed:
   touched item rows, and optional owner-boundary evidence describe the same
   debit. This directly narrows the claim/storage coupling gap; real durable DB
   rows, cross-service row locks/CAS, and recovery workers remain open.
+- Phase07AY durable begin storage-coupling follow-up:
+  `BeginPlanetClaimWithXCoreResult.DurableBeginPlan()` now builds its begin
+  plan from the validated X Core storage-mutation plan, and
+  `NewClaimDurableBeginPlan` rejects non-empty begin evidence that lacks the
+  inventory remove ledger/touched-row bundle. Full owner-begin plans require a
+  storage plan bound to the same pending boundary, while debit-only recovery
+  plans keep storage evidence without pretending owner-CAS committed. Real
+  durable DB rows, cross-service row locks/CAS, and recovery workers remain
+  open.
 
 ## Source Specs
 
@@ -586,8 +595,8 @@ Mockup areas covered:
 - [x] Add X Core claim consume storage-mutation evidence and durable-plan
       validation tying inventory remove ledger rows to claim debit evidence.
 - [x] Add claim durable begin-plan validation tying X Core debit evidence,
-      pending owner-CAS boundary rows, owned planet snapshots, and stale-intel
-      evidence together.
+      storage mutation evidence, pending owner-CAS boundary rows, owned planet
+      snapshots, and stale-intel evidence together.
 - [x] Add claim durable commit-plan validation tying completed owner-CAS
       boundary rows, claim references, events, pending outbox rows, and optional
       X Core debit evidence together.

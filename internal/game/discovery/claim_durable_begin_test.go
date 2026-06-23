@@ -13,9 +13,11 @@ func TestBeginPlanetClaimWithXCoreResultDurableBeginPlan(t *testing.T) {
 	materializeClaimTestPlanet(t, store, planet)
 	upsertClaimIntel(t, store, "player-old-scout", planet.ID, testTime(1))
 	upsertClaimIntel(t, store, "player-fresh-scout", planet.ID, testTime(20))
-	consumer := &recordingClaimXCoreConsumer{}
 	reference := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
 	input := beginClaimWithXCoreInputForTest(t, planet.ID, reference)
+	consumer := &recordingClaimXCoreConsumer{
+		result: claimXCoreConsumeResultForTest(t, input.XCore, false),
+	}
 
 	result, err := composedClaimXCoreOwnerBoundary{
 		Consumer:   consumer,
@@ -30,6 +32,8 @@ func TestBeginPlanetClaimWithXCoreResultDurableBeginPlan(t *testing.T) {
 		t.Fatalf("DurableBeginPlan() error = %v, want nil", err)
 	}
 	if plan.XCoreConsumption.ClaimReference != reference ||
+		!plan.HasXCoreStorageMutation ||
+		plan.XCoreStorageMutation.Result.StorageMutation.LedgerEntries[0].ReferenceKey != plan.XCoreConsumption.ReferenceKey ||
 		plan.Boundary.Status != ClaimBoundaryStatusPendingSideEffects ||
 		plan.Planet.OwnerPlayerID != claimTestPlayerID ||
 		len(plan.StaleIntel) != 1 ||
@@ -48,27 +52,28 @@ func TestClaimDurableBeginPlanNoOpAndInvalidRows(t *testing.T) {
 	materializeClaimTestPlanet(t, store, planet)
 	reference := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
 	result := beginClaimWithXCoreForDurableBeginTest(t, store, planet.ID, reference)
+	storagePlan := claimXCoreStoragePlanForDurableBeginTest(t, result, &result.Boundary.Boundary)
 
-	if _, err := NewClaimDurableBeginPlan(&result.XCoreConsumption, nil, &result.Boundary.Boundary, nil); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+	if _, err := NewClaimDurableBeginPlan(nil, nil, &result.Boundary.Boundary, nil); !errors.Is(err, ErrInvalidClaimDurableCommit) {
 		t.Fatalf("NewClaimDurableBeginPlan(partial) error = %v, want ErrInvalidClaimDurableCommit", err)
 	}
 
 	completedBoundary := result.Boundary.Boundary
 	completedBoundary.Status = ClaimBoundaryStatusComplete
 	completedBoundary.CompletedAt = testTime(12)
-	if _, err := NewClaimDurableBeginPlan(&result.XCoreConsumption, &result.Boundary.Planet, &completedBoundary, result.Boundary.StaleIntel); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+	if _, err := NewClaimDurableBeginPlan(&storagePlan, &result.Boundary.Planet, &completedBoundary, result.Boundary.StaleIntel); !errors.Is(err, ErrInvalidClaimDurableCommit) {
 		t.Fatalf("NewClaimDurableBeginPlan(completed boundary) error = %v, want ErrInvalidClaimDurableCommit", err)
 	}
 
-	wrongXCore := result.XCoreConsumption
-	wrongXCore.ReferenceKey = "planet_claim:player-other:planet-other"
-	if _, err := NewClaimDurableBeginPlan(&wrongXCore, &result.Boundary.Planet, &result.Boundary.Boundary, result.Boundary.StaleIntel); !errors.Is(err, ErrInvalidClaimDurableCommit) {
-		t.Fatalf("NewClaimDurableBeginPlan(wrong xcore) error = %v, want ErrInvalidClaimDurableCommit", err)
+	wrongStorage := storagePlan
+	wrongStorage.Consumption.ReferenceKey = "planet_claim:player-other:planet-other"
+	if _, err := NewClaimDurableBeginPlan(&wrongStorage, &result.Boundary.Planet, &result.Boundary.Boundary, result.Boundary.StaleIntel); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+		t.Fatalf("NewClaimDurableBeginPlan(wrong storage) error = %v, want ErrInvalidClaimDurableCommit", err)
 	}
 
 	wrongPlanet := result.Boundary.Planet
 	wrongPlanet.OwnerPlayerID = "player-other"
-	if _, err := NewClaimDurableBeginPlan(&result.XCoreConsumption, &wrongPlanet, &result.Boundary.Boundary, result.Boundary.StaleIntel); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+	if _, err := NewClaimDurableBeginPlan(&storagePlan, &wrongPlanet, &result.Boundary.Boundary, result.Boundary.StaleIntel); !errors.Is(err, ErrInvalidClaimDurableCommit) {
 		t.Fatalf("NewClaimDurableBeginPlan(wrong planet) error = %v, want ErrInvalidClaimDurableCommit", err)
 	}
 }
@@ -80,6 +85,7 @@ func TestClaimDurableBeginPlanValidatesStaleIntelEvidence(t *testing.T) {
 	upsertClaimIntel(t, store, "player-old-scout", planet.ID, testTime(1))
 	reference := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
 	result := beginClaimWithXCoreForDurableBeginTest(t, store, planet.ID, reference)
+	storagePlan := claimXCoreStoragePlanForDurableBeginTest(t, result, &result.Boundary.Boundary)
 
 	plan, err := result.DurableBeginPlan()
 	if err != nil {
@@ -91,11 +97,11 @@ func TestClaimDurableBeginPlanValidatesStaleIntelEvidence(t *testing.T) {
 
 	wrongRows := cloneClaimBoundaryStaleIntel(result.Boundary.StaleIntel)
 	wrongRows[0].SourceReference = "planet.claimed:event-other"
-	if _, err := NewClaimDurableBeginPlan(&result.XCoreConsumption, &result.Boundary.Planet, &result.Boundary.Boundary, wrongRows); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+	if _, err := NewClaimDurableBeginPlan(&storagePlan, &result.Boundary.Planet, &result.Boundary.Boundary, wrongRows); !errors.Is(err, ErrInvalidClaimDurableCommit) {
 		t.Fatalf("NewClaimDurableBeginPlan(wrong stale intel) error = %v, want ErrInvalidClaimDurableCommit", err)
 	}
 
-	if _, err := NewClaimDurableBeginPlan(&result.XCoreConsumption, &result.Boundary.Planet, &result.Boundary.Boundary, nil); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+	if _, err := NewClaimDurableBeginPlan(&storagePlan, &result.Boundary.Planet, &result.Boundary.Boundary, nil); !errors.Is(err, ErrInvalidClaimDurableCommit) {
 		t.Fatalf("NewClaimDurableBeginPlan(missing stale intel) error = %v, want ErrInvalidClaimDurableCommit", err)
 	}
 }
@@ -106,14 +112,17 @@ func TestClaimDurableBeginPlanAllowsDebitOnlyBeginFailureRecovery(t *testing.T) 
 	materializeClaimTestPlanet(t, store, planet)
 	reference := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
 	beginErr := errors.New("owner cas failed")
+	input := beginClaimWithXCoreInputForTest(t, planet.ID, reference)
 
 	result, err := composedClaimXCoreOwnerBoundary{
-		Consumer: &recordingClaimXCoreConsumer{},
+		Consumer: &recordingClaimXCoreConsumer{
+			result: claimXCoreConsumeResultForTest(t, input.XCore, false),
+		},
 		Boundaries: &recordingClaimBoundaryStore{
 			inner:    store,
 			beginErr: beginErr,
 		},
-	}.BeginPlanetClaimWithXCore(beginClaimWithXCoreInputForTest(t, planet.ID, reference))
+	}.BeginPlanetClaimWithXCore(input)
 	if !errors.Is(err, beginErr) {
 		t.Fatalf("BeginPlanetClaimWithXCore() error = %v, want begin failure", err)
 	}
@@ -124,14 +133,60 @@ func TestClaimDurableBeginPlanAllowsDebitOnlyBeginFailureRecovery(t *testing.T) 
 	if err != nil {
 		t.Fatalf("DurableBeginPlan(debit only) error = %v, want nil", err)
 	}
-	if plan.XCoreConsumption.ClaimReference != reference || plan.Boundary.ClaimReference != "" {
-		t.Fatalf("debit-only durable begin plan = %+v, want xcore recovery evidence only", plan)
+	if plan.XCoreConsumption.ClaimReference != reference ||
+		!plan.HasXCoreStorageMutation ||
+		plan.XCoreStorageMutation.HasBoundary ||
+		plan.Boundary.ClaimReference != "" {
+		t.Fatalf("debit-only durable begin plan = %+v, want xcore/storage recovery evidence only", plan)
 	}
 
 	wrongKey := result.XCoreConsumption
 	wrongKey.ReferenceKey = "planet_claim:player-other:planet-other"
-	if _, err := NewClaimDurableBeginPlan(&wrongKey, nil, nil, nil); !errors.Is(err, ErrInvalidClaimDurableCommit) {
-		t.Fatalf("NewClaimDurableBeginPlan(wrong debit-only key) error = %v, want ErrInvalidClaimDurableCommit", err)
+	wrongStorage := plan.XCoreStorageMutation
+	wrongStorage.Consumption = wrongKey
+	if _, err := NewClaimDurableBeginPlan(&wrongStorage, nil, nil, nil); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+		t.Fatalf("NewClaimDurableBeginPlan(wrong debit-only storage key) error = %v, want ErrInvalidClaimDurableCommit", err)
+	}
+}
+
+func TestClaimDurableBeginPlanWithStorageRejectsPartialOrMismatchedEvidence(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim-durable-begin-storage-invalid")
+	materializeClaimTestPlanet(t, store, planet)
+	reference := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
+	input := beginClaimWithXCoreInputForTest(t, planet.ID, reference)
+	result := beginClaimWithXCoreForDurableBeginTest(t, store, planet.ID, reference)
+	storageResult := claimXCoreConsumeResultForTest(t, input.XCore, false)
+	storagePlan := claimXCoreStoragePlanForDurableBeginTest(t, result, &result.Boundary.Boundary)
+
+	storagePlanWithoutBoundary := claimXCoreStoragePlanForDurableBeginTest(t, result, nil)
+	if _, err := NewClaimDurableBeginPlan(
+		&storagePlanWithoutBoundary,
+		&result.Boundary.Planet,
+		&result.Boundary.Boundary,
+		result.Boundary.StaleIntel,
+	); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+		t.Fatalf("NewClaimDurableBeginPlan(storage without boundary) error = %v, want ErrInvalidClaimDurableCommit", err)
+	}
+
+	wrongInput := input.XCore
+	wrongInput.PlanetID = "planet-other"
+	wrongStorage, err := NewClaimXCoreStorageMutationPlan(wrongInput, storageResult, result.XCoreConsumption, nil)
+	if err == nil {
+		t.Fatalf("NewClaimXCoreStorageMutationPlan(wrong input) error = nil, want ErrInvalidClaimDurableCommit")
+	}
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) {
+		t.Fatalf("NewClaimXCoreStorageMutationPlan(wrong input) error = %v, want ErrInvalidClaimDurableCommit", err)
+	}
+	wrongStorage = storagePlan
+	wrongStorage.Boundary.EventID = "event_other"
+	if _, err := NewClaimDurableBeginPlan(
+		&wrongStorage,
+		&result.Boundary.Planet,
+		&result.Boundary.Boundary,
+		result.Boundary.StaleIntel,
+	); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+		t.Fatalf("NewClaimDurableBeginPlan(wrong storage boundary) error = %v, want ErrInvalidClaimDurableCommit", err)
 	}
 }
 
@@ -141,13 +196,16 @@ func TestClaimDurableBeginPlanDuplicateReplaysOriginalBoundary(t *testing.T) {
 	materializeClaimTestPlanet(t, store, planet)
 	upsertClaimIntel(t, store, "player-old-scout", planet.ID, testTime(1))
 	reference := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
-	consumer := &recordingClaimXCoreConsumer{}
+	input := beginClaimWithXCoreInputForTest(t, planet.ID, reference)
+	consumer := &recordingClaimXCoreConsumer{
+		result: claimXCoreConsumeResultForTest(t, input.XCore, false),
+	}
 	boundary := composedClaimXCoreOwnerBoundary{
 		Consumer:   consumer,
 		Boundaries: store,
 	}
 
-	first, err := boundary.BeginPlanetClaimWithXCore(beginClaimWithXCoreInputForTest(t, planet.ID, reference))
+	first, err := boundary.BeginPlanetClaimWithXCore(input)
 	if err != nil {
 		t.Fatalf("first BeginPlanetClaimWithXCore() error = %v, want nil", err)
 	}
@@ -187,11 +245,31 @@ func beginClaimWithXCoreForDurableBeginTest(
 ) BeginPlanetClaimWithXCoreResult {
 	t.Helper()
 	result, err := composedClaimXCoreOwnerBoundary{
-		Consumer:   &recordingClaimXCoreConsumer{},
+		Consumer: &recordingClaimXCoreConsumer{
+			result: claimXCoreConsumeResultForTest(t, beginClaimWithXCoreInputForTest(t, planetID, reference).XCore, false),
+		},
 		Boundaries: store,
 	}.BeginPlanetClaimWithXCore(beginClaimWithXCoreInputForTest(t, planetID, reference))
 	if err != nil {
 		t.Fatalf("BeginPlanetClaimWithXCore() error = %v, want nil", err)
 	}
 	return result
+}
+
+func claimXCoreStoragePlanForDurableBeginTest(
+	t *testing.T,
+	result BeginPlanetClaimWithXCoreResult,
+	boundary *ClaimBoundaryRecord,
+) ClaimXCoreStorageMutationPlan {
+	t.Helper()
+	plan, err := NewClaimXCoreStorageMutationPlan(
+		result.XCoreInput,
+		result.XCoreResult,
+		result.XCoreConsumption,
+		boundary,
+	)
+	if err != nil {
+		t.Fatalf("NewClaimXCoreStorageMutationPlan() error = %v, want nil", err)
+	}
+	return plan
 }

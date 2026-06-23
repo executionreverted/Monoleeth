@@ -6,10 +6,12 @@ import "fmt"
 // transaction must commit when the dangerous begin step runs: X Core debit
 // evidence, and when owner-CAS succeeds, pending owner boundary rows.
 type ClaimDurableBeginPlan struct {
-	XCoreConsumption ClaimXCoreConsumptionRecord
-	Planet           Planet
-	Boundary         ClaimBoundaryRecord
-	StaleIntel       []PlayerPlanetIntel
+	XCoreConsumption        ClaimXCoreConsumptionRecord
+	XCoreStorageMutation    ClaimXCoreStorageMutationPlan
+	HasXCoreStorageMutation bool
+	Planet                  Planet
+	Boundary                ClaimBoundaryRecord
+	StaleIntel              []PlayerPlanetIntel
 }
 
 // DurableBeginPlan returns the validated row bundle this X Core + owner-CAS
@@ -17,38 +19,67 @@ type ClaimDurableBeginPlan struct {
 // evidence without pretending the owner transition committed.
 func (result BeginPlanetClaimWithXCoreResult) DurableBeginPlan() (ClaimDurableBeginPlan, error) {
 	if result.Boundary.Boundary.ClaimReference == "" && result.Boundary.Planet.ID == "" && len(result.Boundary.StaleIntel) == 0 {
-		return NewClaimDurableBeginPlan(&result.XCoreConsumption, nil, nil, nil)
+		storagePlan, err := NewClaimXCoreStorageMutationPlan(result.XCoreInput, result.XCoreResult, result.XCoreConsumption, nil)
+		if err != nil {
+			return ClaimDurableBeginPlan{}, err
+		}
+		return NewClaimDurableBeginPlan(&storagePlan, nil, nil, nil)
 	}
-	return NewClaimDurableBeginPlan(&result.XCoreConsumption, &result.Boundary.Planet, &result.Boundary.Boundary, result.Boundary.StaleIntel)
+	storagePlan, err := NewClaimXCoreStorageMutationPlan(
+		result.XCoreInput,
+		result.XCoreResult,
+		result.XCoreConsumption,
+		&result.Boundary.Boundary,
+	)
+	if err != nil {
+		return ClaimDurableBeginPlan{}, err
+	}
+	return NewClaimDurableBeginPlan(
+		&storagePlan,
+		&result.Boundary.Planet,
+		&result.Boundary.Boundary,
+		result.Boundary.StaleIntel,
+	)
 }
 
-// NewClaimDurableBeginPlan validates one claim-begin row bundle. Empty input is
-// a no-op plan; X-Core-only input is retry evidence for a failed owner-CAS
+// NewClaimDurableBeginPlan validates one claim-begin row bundle. Empty input
+// is a no-op plan; storage-only input is retry evidence for a failed owner-CAS
 // begin.
 func NewClaimDurableBeginPlan(
-	xcore *ClaimXCoreConsumptionRecord,
+	xcoreStorage *ClaimXCoreStorageMutationPlan,
 	planet *Planet,
 	boundary *ClaimBoundaryRecord,
 	staleIntel []PlayerPlanetIntel,
 ) (ClaimDurableBeginPlan, error) {
-	if xcore == nil {
+	if xcoreStorage == nil {
 		if planet == nil && boundary == nil && len(staleIntel) == 0 {
 			return ClaimDurableBeginPlan{}, nil
 		}
-		return ClaimDurableBeginPlan{}, fmt.Errorf("x_core: %w", ErrInvalidClaimDurableCommit)
+		return ClaimDurableBeginPlan{}, fmt.Errorf("x_core_storage: %w", ErrInvalidClaimDurableCommit)
 	}
-	clonedXCore := cloneClaimXCoreConsumptionRecord(*xcore)
-	if err := validateClaimDurableBeginXCore(clonedXCore); err != nil {
+	clonedStorage := cloneClaimXCoreStorageMutationPlan(*xcoreStorage)
+	if err := validateClaimXCoreStorageMutationPlan(clonedStorage); err != nil {
 		return ClaimDurableBeginPlan{}, err
 	}
+	clonedXCore := cloneClaimXCoreConsumptionRecord(clonedStorage.Consumption)
 	if planet == nil && boundary == nil {
 		if len(staleIntel) > 0 {
 			return ClaimDurableBeginPlan{}, fmt.Errorf("stale_intel: %w", ErrInvalidClaimDurableCommit)
 		}
-		return ClaimDurableBeginPlan{XCoreConsumption: clonedXCore}, nil
+		if clonedStorage.HasBoundary {
+			return ClaimDurableBeginPlan{}, fmt.Errorf("x_core_storage.boundary: %w", ErrInvalidClaimDurableCommit)
+		}
+		return ClaimDurableBeginPlan{
+			XCoreConsumption:        clonedXCore,
+			XCoreStorageMutation:    clonedStorage,
+			HasXCoreStorageMutation: true,
+		}, nil
 	}
 	if planet == nil || boundary == nil {
 		return ClaimDurableBeginPlan{}, fmt.Errorf("owner_boundary: %w", ErrInvalidClaimDurableCommit)
+	}
+	if !clonedStorage.HasBoundary {
+		return ClaimDurableBeginPlan{}, fmt.Errorf("x_core_storage.boundary: %w", ErrInvalidClaimDurableCommit)
 	}
 
 	clonedPlanet := clonePlanet(*planet)
@@ -67,12 +98,31 @@ func NewClaimDurableBeginPlan(
 	if err := validateClaimDurableBeginStaleIntel(clonedBoundary, clonedStaleIntel); err != nil {
 		return ClaimDurableBeginPlan{}, err
 	}
+	if !claimDurableBeginStorageBoundaryMatches(clonedStorage.Boundary, clonedBoundary) {
+		return ClaimDurableBeginPlan{}, fmt.Errorf("x_core_storage.boundary: %w", ErrInvalidClaimDurableCommit)
+	}
 	return ClaimDurableBeginPlan{
-		XCoreConsumption: clonedXCore,
-		Planet:           clonedPlanet,
-		Boundary:         clonedBoundary,
-		StaleIntel:       clonedStaleIntel,
+		XCoreConsumption:        clonedXCore,
+		XCoreStorageMutation:    clonedStorage,
+		HasXCoreStorageMutation: true,
+		Planet:                  clonedPlanet,
+		Boundary:                clonedBoundary,
+		StaleIntel:              clonedStaleIntel,
 	}, nil
+}
+
+func claimDurableBeginStorageBoundaryMatches(left ClaimBoundaryRecord, right ClaimBoundaryRecord) bool {
+	return left.ClaimReference == right.ClaimReference &&
+		left.ReferenceKey == right.ReferenceKey &&
+		left.PlayerID == right.PlayerID &&
+		left.PlanetID == right.PlanetID &&
+		left.Status == right.Status &&
+		left.EventID == right.EventID &&
+		left.ClaimedAt.Equal(right.ClaimedAt) &&
+		left.RecordedAt.Equal(right.RecordedAt) &&
+		left.CompletedAt.Equal(right.CompletedAt) &&
+		left.StaleIntelCount == right.StaleIntelCount &&
+		left.StaleListingCount == right.StaleListingCount
 }
 
 func validateClaimDurableBeginBoundary(record ClaimBoundaryRecord) error {

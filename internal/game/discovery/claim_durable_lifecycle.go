@@ -54,6 +54,9 @@ func validateClaimDurableLifecycleBeginCommit(begin ClaimDurableBeginPlan, commi
 	if begin.Boundary.Status != ClaimBoundaryStatusPendingSideEffects || begin.Boundary.ClaimReference == "" {
 		return fmt.Errorf("begin: %w", ErrInvalidClaimDurableCommit)
 	}
+	if !begin.HasXCoreStorageMutation {
+		return fmt.Errorf("begin.x_core_storage: %w", ErrInvalidClaimDurableCommit)
+	}
 	if commit.Boundary.Status != ClaimBoundaryStatusComplete {
 		return fmt.Errorf("commit: %w", ErrInvalidClaimDurableCommit)
 	}
@@ -138,6 +141,7 @@ func claimLifecycleXCoreMatches(left ClaimXCoreConsumptionRecord, right ClaimXCo
 
 func cloneClaimDurableBeginPlan(plan ClaimDurableBeginPlan) ClaimDurableBeginPlan {
 	plan.XCoreConsumption = cloneClaimXCoreConsumptionRecord(plan.XCoreConsumption)
+	plan.XCoreStorageMutation = cloneClaimXCoreStorageMutationPlan(plan.XCoreStorageMutation)
 	plan.Planet = clonePlanet(plan.Planet)
 	plan.Boundary = cloneClaimBoundaryRecord(plan.Boundary)
 	plan.StaleIntel = cloneClaimBoundaryStaleIntel(plan.StaleIntel)

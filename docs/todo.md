@@ -107,10 +107,12 @@ for phase status; this file is a compact pending-work index.
   rejected before another consume. Phase07AX carries the runtime inventory
   `RemoveItemResult` through `ClaimXCoreConsumeResult` and validates its
   decrease ledger/touched item rows against the claim X Core debit evidence.
-  Phase07AU adds claim durable begin-plan
-  validation for X Core debit evidence plus pending owner-CAS boundary, owned
-  planet, and stale-intel evidence, while allowing debit-only begin-failure
-  recovery evidence. Phase07AT adds claim durable commit-plan validation for
+  Phase07AY makes that storage mutation plan mandatory for non-empty durable
+  claim-begin plans, while preserving debit-only begin-failure recovery
+  evidence without pretending owner-CAS committed. Phase07AU adds claim durable
+  begin-plan validation for X Core debit evidence plus pending owner-CAS
+  boundary, owned planet, and stale-intel evidence. Phase07AT adds claim
+  durable commit-plan validation for
   the completed owner-CAS boundary, claim reference, event, pending outbox row,
   and optional X Core debit evidence. Phase07AV adds claim production-init
   durable-plan validation for production recovery evidence tied to
@@ -407,7 +409,9 @@ for phase status; this file is a compact pending-work index.
   debit-plus-owner-CAS begin contract for future durable claim/storage adapters.
   Phase07AX adds X Core storage-mutation durable-plan validation over the
   runtime inventory remove result, ledger entry, touched item rows, and claim
-  debit evidence.
+  debit evidence. Phase07AY wires that storage-mutation evidence into durable
+  claim-begin plans so raw X Core consumption alone no longer satisfies a
+  non-empty begin transaction contract.
   Phase07AQ adds after-commit settlement outbox dispatch-plan validation for
   future durable publisher scheduling. Phase07AR adds durable settlement
   commit-plan validation that ties settlement idempotency references, outbox
