@@ -31,6 +31,7 @@ type GameplayContent struct {
 	Recipes    crafting.RecipeCatalog
 	Production production.Catalog
 	Maps       *worldmaps.Catalog
+	Scanner    ScannerContent
 }
 
 // DefaultGameplayContent returns the current static playtest content bundle.
@@ -64,6 +65,7 @@ func DefaultGameplayContent(worldID world.WorldID) (GameplayContent, error) {
 		Recipes:    recipeCatalog,
 		Production: productionCatalog,
 		Maps:       mapCatalog,
+		Scanner:    DefaultScannerContent(),
 	}
 	if err := bundle.Validate(); err != nil {
 		return GameplayContent{}, err

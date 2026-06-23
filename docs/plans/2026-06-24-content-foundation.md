@@ -54,6 +54,7 @@ Add `GameplayContent` with:
 - `Recipes crafting.RecipeCatalog`
 - `Production production.Catalog`
 - `Maps *maps.Catalog`
+- `Scanner ScannerContent`
 
 Add `DefaultGameplayContent(worldID world.WorldID)` to assemble current static
 content.
@@ -67,6 +68,8 @@ Add `Validate() error` and helpers for:
 - known loot-table refs from map drop profiles
 - recipe item/ship refs
 - production item refs
+- server-only scanner seed, bounded candidate options, radar-level unit, and
+  discovery XP amount
 
 **Step 5: Run focused test**
 
@@ -94,11 +97,13 @@ git commit -m "game: add validated content bundle"
 
 **Step 1: Route runtime content through bundle**
 
-Replace scattered item/loot assembly call with `content.DefaultGameplayContent`.
+Replace scattered item/loot/scanner assembly calls with
+`content.DefaultGameplayContent`.
 
 **Step 2: Preserve existing runtime data**
 
-Keep returned item and loot tables identical to current playtest behavior.
+Keep returned item, loot tables, scanner seed, bounded candidate options,
+radar-level unit, and discovery XP identical to current playtest behavior.
 
 **Step 3: Run focused runtime tests**
 

@@ -10,9 +10,10 @@ for phase status; this file is a compact pending-work index.
 - [ ] Finish the DB/CMS content pipeline after the static gameplay content
   bundle stabilizes. The first content-foundation slice adds a server-side
   `GameplayContent` bundle for static items, loot tables, modules, ships,
-  recipes, production buildings, and DarkOrbit-like bounded maps/enemy pools,
-  plus cross-catalog validation before runtime uses item/loot catalogs. Next
-  work: add scanner/planet rarity config rows to the bundle, add a DB content
+  recipes, production buildings, DarkOrbit-like bounded maps/enemy pools, and
+  server-only scanner/planet discovery config, plus cross-catalog validation
+  before runtime uses item/loot/scanner catalogs. Next work: add map-specific
+  scanner rarity/profile rows instead of one global profile, add a DB content
   repository with empty-DB seeding and published revision loading, add draft /
   publish / rollback validation, then build the admin CMS UI for monsters,
   drop tables, item stats, recipes, map pools, and planet/scanner tuning.

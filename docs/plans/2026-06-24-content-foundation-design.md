@@ -45,6 +45,9 @@ proprietary labels or assets.
 - map enemy pools, spawn areas, portals, safe zones, bounds, PvP policy, and NPC
   stats keep using existing map catalog validation
 - loot table rows must reference known item definitions and have valid weights
+- scanner/planet discovery config is server-only content: static seed material,
+  bounded candidate options, scanner radar-level unit, and discovery XP
+  validate before runtime builds `ScannerService`
 
 ## Non-Goals
 
@@ -73,4 +76,7 @@ Use narrow tests:
 - recipe referencing unknown item fails
 - recipe ship unlock referencing unknown ship fails
 - production output referencing unknown item fails
+- scanner candidate options outside `0..10000`, invalid density, or missing seed
+  fail before runtime starts
 - runtime uses the validated content bundle for item/loot catalogs
+  and scanner/planet discovery config

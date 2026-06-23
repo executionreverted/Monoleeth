@@ -461,30 +461,11 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		scanCooldowns:                  make(map[scanCooldownKey]time.Time),
 		scanCapacitorSpends:            make(map[discovery.ScanPulseReference]scanCapacitorSpendRecord),
 	}
-	scannerSeed, err := discovery.NewWorldSeed(discovery.WorldSeedInput{
-		StaticSeed: []byte("phase07-static-seed"),
-	})
+	scannerSeed, err := contentBundle.Scanner.WorldSeed()
 	if err != nil {
 		return nil, err
 	}
-	scannerBounds := worldmaps.ExactPlayableBounds()
-	scannerCandidateOptions := discovery.CandidateGenerationOptions{
-		ProfileVersion: "runtime_phase06_bounded_v1",
-		MapBounds: discovery.CandidateMapBounds{
-			MinX: scannerBounds.MinX,
-			MinY: scannerBounds.MinY,
-			MaxX: scannerBounds.MaxX,
-			MaxY: scannerBounds.MaxY,
-		},
-		LevelMin:     1,
-		LevelMax:     4,
-		Density:      1,
-		SpawnBudget:  8,
-		ScanCellSize: discovery.DefaultScanCellSize,
-	}
-	if config.E2EScanNoPlanetSeed {
-		scannerCandidateOptions.AllowedBiomes = []discovery.Biome{"e2e_no_planet"}
-	}
+	scannerCandidateOptions := contentBundle.Scanner.CandidateOptionsForRuntime(config.E2EScanNoPlanetSeed)
 	scanner, err := discovery.NewScannerService(discovery.ScannerServiceConfig{
 		Store:             discoveryStore,
 		WorldSeed:         scannerSeed,
@@ -497,8 +478,8 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Reveals:           runtimeScannerPlayerRevealProvider{runtime: runtime},
 		XP:                runtimeScanXPProvider{progression: progressionService},
 		CandidateOptions:  scannerCandidateOptions,
-		RadarLevelUnit:    defaultRadarRange,
-		DiscoveryXPAmount: 25,
+		RadarLevelUnit:    contentBundle.Scanner.RadarLevelUnit,
+		DiscoveryXPAmount: contentBundle.Scanner.DiscoveryXPAmount,
 	})
 	if err != nil {
 		return nil, err

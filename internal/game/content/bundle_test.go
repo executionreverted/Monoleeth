@@ -6,6 +6,7 @@ import (
 
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/crafting"
+	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
 	"gameproject/internal/game/world"
@@ -29,6 +30,9 @@ func TestDefaultGameplayContentValidates(t *testing.T) {
 	}
 	if _, ok := bundle.Ships.Get("starter"); !ok {
 		t.Fatal("starter ship missing from ship catalog")
+	}
+	if got := bundle.Scanner.CandidateOptions.ProfileVersion; got != DefaultScannerProfileVersion {
+		t.Fatalf("scanner profile = %q, want %q", got, DefaultScannerProfileVersion)
 	}
 }
 
@@ -175,5 +179,47 @@ func TestGameplayContentRejectsModuleWithoutItemDefinition(t *testing.T) {
 	err := bundle.Validate()
 	if !errors.Is(err, ErrUnknownContentItem) {
 		t.Fatalf("Validate() error = %v, want %v", err, ErrUnknownContentItem)
+	}
+}
+
+func TestGameplayContentRejectsScannerOutOfBoundsProfile(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Scanner.CandidateOptions.MapBounds.MaxX = 9000
+
+	err := bundle.Validate()
+	if !errors.Is(err, discovery.ErrInvalidCandidateOptions) {
+		t.Fatalf("Validate() error = %v, want %v", err, discovery.ErrInvalidCandidateOptions)
+	}
+}
+
+func TestGameplayContentRejectsScannerInvalidDensity(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Scanner.CandidateOptions.Density = 1.5
+
+	err := bundle.Validate()
+	if !errors.Is(err, discovery.ErrInvalidCandidateOptions) {
+		t.Fatalf("Validate() error = %v, want %v", err, discovery.ErrInvalidCandidateOptions)
+	}
+}
+
+func TestGameplayContentRejectsScannerMissingSeed(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Scanner.StaticSeed = nil
+
+	err := bundle.Validate()
+	if !errors.Is(err, discovery.ErrInvalidWorldSeed) {
+		t.Fatalf("Validate() error = %v, want %v", err, discovery.ErrInvalidWorldSeed)
+	}
+}
+
+func TestScannerContentE2ENoPlanetOptionsDoNotMutateBundle(t *testing.T) {
+	bundle := validBundle(t)
+
+	options := bundle.Scanner.CandidateOptionsForRuntime(true)
+	if len(options.AllowedBiomes) != 1 || options.AllowedBiomes[0] != discovery.Biome("e2e_no_planet") {
+		t.Fatalf("e2e allowed biomes = %+v, want e2e_no_planet", options.AllowedBiomes)
+	}
+	if len(bundle.Scanner.CandidateOptions.AllowedBiomes) != 0 {
+		t.Fatalf("bundle allowed biomes mutated: %+v", bundle.Scanner.CandidateOptions.AllowedBiomes)
 	}
 }
