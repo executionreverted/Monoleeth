@@ -141,6 +141,7 @@ export function clearGameplay(state: ClientState): ClientState {
     scanMode: initialScanMode(),
     production: null,
     routes: null,
+    routeSettlements: {},
     shopCatalog: null,
     market: null,
     auction: null,

@@ -1,5 +1,5 @@
 import { OPERATIONS } from '../protocol/envelope';
-import type { ClientState, KnownPlanetSummary, RouteSummary } from '../state/types';
+import type { ClientState, KnownPlanetSummary, RouteSettlementSummary, RouteSummary } from '../state/types';
 import { escapeHTML, formatVec, hasPendingOpPayloadField, lockedValue, publicPlanetName, realtimeReady } from './hud-formatters';
 import { hudSelection } from './hud-selection';
 
@@ -402,6 +402,7 @@ function routeControlRow(
   const mergedResources = resources.includes(route.resource_item_id) ? resources : [route.resource_item_id, ...resources];
   const resourceSelect = resourceOptions(mergedResources, route.resource_item_id);
   const updateEnabled = controlsReady && endpoints.length > 0 && mergedResources.length > 0;
+  const settlement = state.routeSettlements?.[route.route_id];
   return `
     <div class="route-row" data-route-update-control="true" data-route-id="${escapeHTML(route.route_id)}" data-selected="${selected ? 'true' : 'false'}">
       <button type="button" data-action="route-select" data-route-id="${escapeHTML(route.route_id)}" title="Select route">${escapeHTML(route.resource_item_id)} ${route.enabled ? 'on' : 'off'}</button>
@@ -411,8 +412,33 @@ function routeControlRow(
       <button type="button" data-action="route-update" data-route-id="${escapeHTML(route.route_id)}" ${updateEnabled ? '' : 'disabled'} title="${escapeHTML(routePending ? 'Route mutation pending' : 'Update route terms')}">Update</button>
       <button type="button" data-action="${controlAction}" data-route-id="${escapeHTML(route.route_id)}" ${controlsReady ? '' : 'disabled'} title="${escapeHTML(routePending ? 'Route mutation pending' : `${controlLabel} route`)}">${controlLabel}</button>
       <button type="button" data-action="route-settle" data-route-id="${escapeHTML(route.route_id)}" ${realtimeReady(state) && !settlePending ? '' : 'disabled'} title="${escapeHTML(settlePending ? 'Route settlement pending' : 'Settle route')}">${settlePending ? 'Settling' : 'Settle'}</button>
+      ${routeSettlementSummary(settlement)}
     </div>
   `;
+}
+
+function routeSettlementSummary(settlement: RouteSettlementSummary | undefined): string {
+  if (!settlement) {
+    return '';
+  }
+  const status = settlement.source_empty
+      ? 'Source empty'
+      : settlement.destination_full
+        ? 'Destination full'
+        : settlement.loss_applied
+          ? 'Loss applied'
+          : settlement.no_op
+            ? 'No transfer'
+            : 'Settled';
+  const delivered = settlement.added_amount || settlement.delivered_amount;
+  const parts = [
+    `${status}`,
+    `${delivered}/${settlement.wanted_amount} ${settlement.resource_item_id || 'units'}`,
+  ];
+  if (settlement.lost_amount > 0) {
+    parts.push(`${settlement.lost_amount} lost`);
+  }
+  return `<small class="route-settlement" data-route-settlement-status="${escapeHTML(status.toLowerCase().replaceAll(' ', '_'))}">${escapeHTML(parts.join(' | '))}</small>`;
 }
 
 function selectedRouteFor(routes: RouteSummary[]): RouteSummary | null {

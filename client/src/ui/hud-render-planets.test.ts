@@ -490,6 +490,35 @@ describe('route controls', () => {
     expect(html).toContain('value="station:station-alpha"');
     expect(html).toContain('>Station</option>');
   });
+
+  test('route row renders last server settlement result flags', () => {
+    const state = planetRouteState();
+    state.routeSettlements = {
+      'route-1': {
+        route_id: 'route-1',
+        resource_item_id: 'refined_alloy',
+        settled_at: 1300,
+        elapsed_applied_ms: 300000,
+        wanted_amount: 40,
+        taken_amount: 0,
+        lost_amount: 0,
+        delivered_amount: 0,
+        added_amount: 0,
+        source_empty: false,
+        destination_full: true,
+        loss_applied: false,
+        no_op: true,
+      },
+    };
+
+    const html = planetDetailModal(state, 'planet-source');
+
+    expect(html).toContain('class="route-settlement"');
+    expect(html).toContain('data-route-settlement-status="destination_full"');
+    expect(html).toContain('Destination full | 0/40 refined_alloy');
+    expect(html).not.toContain('owner_player_id');
+    expect(html).not.toContain('destination_map_id');
+  });
 });
 
 describe('planet building controls', () => {

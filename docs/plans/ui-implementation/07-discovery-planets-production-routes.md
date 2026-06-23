@@ -92,6 +92,12 @@ Current slice completed:
   e2e:phase10-route` using a guarded `GAME_DEV_MODE=1` +
   `GAME_E2E_ROUTE_SEED=1` real-server seed. Durable production/route DB rows,
   outbox publishing, and durable settlement window idempotency remain open.
+- Phase07CQ browser route settlement follow-up: route settle responses and
+  `route.settled` events now persist the last safe settlement result in client
+  state by `route_id` and render it in the owned-route HUD row. The browser can
+  show settled, no-transfer, source-empty, destination-full, and loss-applied
+  outcomes without exposing owner ids, internal map ids, storage aggregate ids,
+  settlement references, or hidden route facts.
 - Phase07H backend query follow-up: authenticated
   `planet.production_summary` and `planet.storage_summary` now reconcile
   eligible owned active-map production through
@@ -1191,7 +1197,8 @@ Mockup areas covered:
 - [x] Browser claim reflects server state.
 - [x] Browser owned-planet building build/upgrade controls send server-authoritative
       intent payloads and reconcile from production summary events.
-- [x] Browser route create/update/control/settle reflects server state.
+- [x] Browser route create/update/control/settle reflects server state,
+      including last safe settlement outcome flags in route rows.
 
 ## Done Criteria
 

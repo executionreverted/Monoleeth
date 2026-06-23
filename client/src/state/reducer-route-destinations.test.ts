@@ -72,4 +72,66 @@ describe('route destination reducer behavior', () => {
       destination: { type: 'storage', id: '' },
     });
   });
+
+  test('route settled event stores server settlement result and clears matching pending settle command', () => {
+    const state = createInitialState();
+    state.pendingCommands = {
+      'route-settle-1': {
+        requestID: 'route-settle-1',
+        op: OPERATIONS.routeSettle,
+        queuedAt: 1,
+        payload: { route_id: 'route-storage' },
+      },
+    };
+
+    const next = reduceClientState(state, {
+      type: 'eventReceived',
+      envelope: event(
+        CLIENT_EVENTS.routeSettled,
+        {
+          route: {
+            route_id: 'route-storage',
+            source_planet_id: 'planet-source',
+            destination: { type: 'storage' },
+            resource_item_id: 'refined_alloy',
+            amount_per_hour: 40,
+            energy_cost_per_hour: 3,
+            enabled: true,
+            risk: { loss_chance: 0, min_loss_percent: 0, max_loss_percent: 0 },
+            last_calculated_at: 1000,
+            updated_at: 1000,
+          },
+          settlement: {
+            route_id: 'route-storage',
+            resource_item_id: 'refined_alloy',
+            settled_at: 1300,
+            elapsed_applied_ms: 300000,
+            wanted_amount: 40,
+            taken_amount: 0,
+            lost_amount: 0,
+            delivered_amount: 0,
+            added_amount: 0,
+            source_empty: true,
+            destination_full: false,
+            loss_applied: false,
+            no_op: true,
+          },
+        },
+        2,
+      ),
+    });
+
+    expect(next.pendingCommands['route-settle-1']).toBeUndefined();
+    expect(next.routeSettlements?.['route-storage']).toMatchObject({
+      route_id: 'route-storage',
+      resource_item_id: 'refined_alloy',
+      wanted_amount: 40,
+      source_empty: true,
+      no_op: true,
+    });
+    expect(next.routes?.routes[0]).toMatchObject({
+      route_id: 'route-storage',
+      destination: { type: 'storage', id: '' },
+    });
+  });
 });

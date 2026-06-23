@@ -65,6 +65,7 @@ export function createInitialState(): ClientState {
     scanMode: initialScanMode(),
     production: null,
     routes: null,
+    routeSettlements: {},
     shopCatalog: null,
     market: null,
     auction: null,

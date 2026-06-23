@@ -669,7 +669,10 @@ for phase status; this file is a compact pending-work index.
   durable bundles. Phase07CG makes settlement durable outbox worker paths
   revalidate committed settlement bundles before claim, publish/fail, lease
   release, or retry mutation so corrupt outbox evidence cannot be handed to
-  publishers; DB-backed storage/station endpoint rows and row locks remain open.
+  publishers. Phase07CQ stores the last browser-safe route settlement result in
+  client state and renders source-empty, destination-full, no-transfer,
+  settled, and loss-applied outcomes in route rows without leaking masked
+  storage/station aggregate ids; DB-backed storage/station endpoint rows and row locks remain open.
   Runtime/browser non-planet route create/update access policy and durable
   DB-backed storage/station endpoint rows remain open.
 - [ ] Replace Phase 09 in-memory production, storage, and route repositories with

@@ -640,6 +640,22 @@ export interface RouteEndpointSummary {
   label: string;
 }
 
+export interface RouteSettlementSummary {
+  route_id: string;
+  resource_item_id: string;
+  settled_at: number;
+  elapsed_applied_ms: number;
+  wanted_amount: number;
+  taken_amount: number;
+  lost_amount: number;
+  delivered_amount: number;
+  added_amount: number;
+  source_empty: boolean;
+  destination_full: boolean;
+  loss_applied: boolean;
+  no_op: boolean;
+}
+
 export interface PlanetDetailSummary extends KnownPlanetSummary {
   coordinates: Vec2 | null;
   production?: PlanetProductionSummary;
@@ -861,6 +877,7 @@ export interface ClientState {
   scanMode: ScanModeState;
   production: ProductionCollectionSummary | null;
   routes: RouteListSummary | null;
+  routeSettlements?: Record<string, RouteSettlementSummary>;
   shopCatalog: ShopCatalogSummary | null;
   market: MarketSummary | null;
   auction: AuctionSummary | null;

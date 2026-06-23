@@ -286,8 +286,10 @@ Deferred after Phase07F:
   disabled unless authenticated realtime state exposes an owned source planet,
   another owned known endpoint, and server-owned source storage resource state.
 - Client reducer/event handling now reconciles `route.updated` and
-  `route.settled`, clears pending route operations, and logs safe public route
-  status without an unhandled-event entry.
+  `route.settled`, clears pending route operations, logs safe public route
+  status without an unhandled-event entry, stores the latest safe settlement
+  result by route id, and renders settled/no-transfer/source-empty/
+  destination-full/loss-applied outcomes in the owned-route HUD row.
 - Added guarded dev-only `GAME_E2E_ROUTE_SEED`, accepted only with
   `GAME_DEV_MODE=1`, to seed two owned same-map production planets plus
   routeable source storage for the browser proof. The seed is session-time,
