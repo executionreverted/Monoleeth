@@ -341,7 +341,10 @@ for phase status; this file is a compact pending-work index.
   and durable route record; real DB row locks/CAS and durable idempotency-table
   enforcement remain open. Route create same-reference duplicate retries now
   replay the committed durable route row without reserving source energy again
-  or advancing the durable route revision.
+  or advancing the durable route revision. Route update same-reference
+  duplicate retries now replay the committed durable route row before live
+  policy lookup, while changed update intents using the same reference are
+  rejected instead of being treated as successful replays.
   Phase07BS wires enabled route upkeep into the source planet production energy
   budget in the in-memory store: create/enable reserve energy, disable releases
   after settlement, and update applies the enabled-route energy delta while

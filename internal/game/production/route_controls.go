@@ -360,6 +360,9 @@ func (store *InMemoryStore) UpdateRoute(
 			if record.Route.RouteID != input.RouteID {
 				return UpdateRouteResult{}, fmt.Errorf("route %q reference %q: %w", input.RouteID, referenceKey, ErrInvalidAutomationRouteDurableCommit)
 			}
+			if !routeUpdateReplayMatches(input, record.Route) {
+				return UpdateRouteResult{}, fmt.Errorf("route %q reference %q intent: %w", input.RouteID, referenceKey, ErrInvalidAutomationRouteDurableCommit)
+			}
 			return UpdateRouteResult{Route: cloneAutomationRoute(record.Route)}, nil
 		}
 	}
@@ -464,6 +467,14 @@ func (store *InMemoryStore) requireRouteOwnerLocked(
 		return fmt.Errorf("route %q owner %q: %w", routeID, ownerPlayerID, ErrRouteOwnerMismatch)
 	}
 	return nil
+}
+
+func routeUpdateReplayMatches(input UpdateRouteInput, route AutomationRoute) bool {
+	return input.RouteID == route.RouteID &&
+		input.OwnerPlayerID == route.OwnerPlayerID &&
+		input.Destination == route.Destination &&
+		input.ResourceItemID == route.ResourceItemID &&
+		input.AmountPerHour == route.AmountPerHour
 }
 
 func maxRouteTimestamp(left, right time.Time) time.Time {

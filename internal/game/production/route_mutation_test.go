@@ -493,10 +493,14 @@ func TestUpdateRouteDuplicateRequestDoesNotSettleTwice(t *testing.T) {
 		t.Fatalf("first settlement added = %d, want 40", first.Settlement.AddedAmount)
 	}
 
+	provider.policy.ResourceRouteable = false
 	duplicateService := newTestRouteService(t, store, provider, duplicateAt)
 	duplicate, err := duplicateService.UpdateRoute(input)
 	if err != nil {
 		t.Fatalf("UpdateRoute(duplicate) error = %v, want nil", err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("policy calls after duplicate replay = %d, want unchanged 1", provider.calls)
 	}
 	if duplicate.Updated || !duplicate.Settlement.RouteID.IsZero() {
 		t.Fatalf("duplicate Updated/settlement = %v/%+v, want replay without mutation", duplicate.Updated, duplicate.Settlement)
@@ -504,6 +508,42 @@ func TestUpdateRouteDuplicateRequestDoesNotSettleTwice(t *testing.T) {
 	if !duplicate.Route.UpdatedAt.Equal(first.Route.UpdatedAt) || duplicate.Route.AmountPerHour != first.Route.AmountPerHour {
 		t.Fatalf("duplicate route = %+v, want first durable route %+v", duplicate.Route, first.Route)
 	}
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 960, firstUpdateAt)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, firstUpdateAt)
+}
+
+func TestUpdateRouteDuplicateRequestRejectsChangedIntent(t *testing.T) {
+	last := testRouteNow()
+	firstUpdateAt := last.Add(time.Hour)
+	duplicateAt := firstUpdateAt.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		1_000,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 1_000}},
+		1_000,
+		nil,
+	)
+	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
+	provider.policy.DestinationMapID = "map_1_2"
+	input := validUpdateRouteInput()
+	input.AmountPerHour = 80
+	input.RequestID = "request-update-conflict"
+
+	firstService := newTestRouteService(t, store, provider, firstUpdateAt)
+	first, err := firstService.UpdateRoute(input)
+	if err != nil {
+		t.Fatalf("UpdateRoute(first) error = %v, want nil", err)
+	}
+	changed := input
+	changed.AmountPerHour = 90
+	duplicateService := newTestRouteService(t, store, provider, duplicateAt)
+	_, err = duplicateService.UpdateRoute(changed)
+	if !errors.Is(err, ErrInvalidAutomationRouteDurableCommit) {
+		t.Fatalf("UpdateRoute(changed duplicate) error = %v, want ErrInvalidAutomationRouteDurableCommit", err)
+	}
+	assertRouteAmountAndTime(t, store, route.RouteID, first.Route.AmountPerHour, first.Route.UpdatedAt)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 960, firstUpdateAt)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, firstUpdateAt)
 }

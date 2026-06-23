@@ -239,6 +239,12 @@ func (service *AutomationRouteService) UpdateRoute(input UpdateRouteInput) (Upda
 	if err := input.Validate(); err != nil {
 		return UpdateRouteResult{}, err
 	}
+	if replay, ok, err := service.committedRouteUpdateReplay(input); err != nil || ok {
+		if err != nil {
+			return UpdateRouteResult{}, err
+		}
+		return UpdateRouteResult{Route: replay}, nil
+	}
 
 	route, ok, err := service.store.AutomationRoute(input.RouteID)
 	if err != nil {
@@ -264,6 +270,27 @@ func (service *AutomationRouteService) UpdateRoute(input UpdateRouteInput) (Upda
 	}
 
 	return service.store.UpdateRoute(input, policy, service.clock.Now(), service.lossRoller)
+}
+
+func (service *AutomationRouteService) committedRouteUpdateReplay(input UpdateRouteInput) (AutomationRoute, bool, error) {
+	if input.RequestID.IsZero() {
+		return AutomationRoute{}, false, nil
+	}
+	if service.store == nil {
+		return AutomationRoute{}, false, nil
+	}
+	referenceKey, err := foundation.RouteUpdateIdempotencyKey(input.OwnerPlayerID, input.RouteID, input.RequestID)
+	if err != nil {
+		return AutomationRoute{}, false, err
+	}
+	record, ok, err := service.store.CommittedAutomationRouteDurableRecordByReference(referenceKey)
+	if err != nil || !ok {
+		return AutomationRoute{}, ok, err
+	}
+	if !routeUpdateReplayMatches(input, record.Route) {
+		return AutomationRoute{}, false, ErrInvalidAutomationRouteDurableCommit
+	}
+	return cloneAutomationRoute(record.Route), true, nil
 }
 
 // UpdateRouteForOwner updates a route using only the server-resolved player id
