@@ -200,6 +200,49 @@ func TestClaimProductionInitializationDurableStoreReadbackMissingAndInvalidRefer
 	}
 }
 
+func TestClaimProductionInitializationDurableStoreReadsPendingPlansForRecovery(t *testing.T) {
+	pendingB := claimProductionInitializationDurableStorePlanForTest(t, "pending-b", false)
+	pendingA := claimProductionInitializationDurableStorePlanForTest(t, "pending-a", false)
+	complete := claimProductionInitializationDurableStorePlanForTest(t, "complete-filter", true)
+	store := NewInMemoryClaimProductionInitializationDurableStore()
+	for _, plan := range []ClaimProductionInitializationDurablePlan{pendingB, complete, pendingA} {
+		if _, err := store.ApplyClaimProductionInitializationDurablePlan(plan); err != nil {
+			t.Fatalf("ApplyClaimProductionInitializationDurablePlan(%q) error = %v, want nil", plan.Initialization.ClaimReference, err)
+		}
+	}
+
+	pending, err := store.PendingClaimProductionInitializationDurablePlans(10)
+	if err != nil {
+		t.Fatalf("PendingClaimProductionInitializationDurablePlans() error = %v, want nil", err)
+	}
+	want := []PlanetClaimReference{pendingA.Initialization.ClaimReference, pendingB.Initialization.ClaimReference}
+	if want[1] < want[0] {
+		want[0], want[1] = want[1], want[0]
+	}
+	if len(pending) != len(want) {
+		t.Fatalf("pending plans = %+v, want %d pending rows", pending, len(want))
+	}
+	for index, plan := range pending {
+		if plan.Initialization.ClaimReference != want[index] ||
+			plan.Boundary.Status != ClaimBoundaryStatusPendingSideEffects {
+			t.Fatalf("pending[%d] = %+v, want reference %q pending boundary", index, plan, want[index])
+		}
+	}
+	if pending[0].Initialization.ClaimReference == complete.Initialization.ClaimReference ||
+		pending[1].Initialization.ClaimReference == complete.Initialization.ClaimReference {
+		t.Fatalf("pending plans included complete row %+v", complete.Initialization.ClaimReference)
+	}
+
+	pending[0].Boundary.Status = ClaimBoundaryStatusComplete
+	again, err := store.PendingClaimProductionInitializationDurablePlans(1)
+	if err != nil {
+		t.Fatalf("PendingClaimProductionInitializationDurablePlans(limit) error = %v, want nil", err)
+	}
+	if len(again) != 1 || again[0].Boundary.Status != ClaimBoundaryStatusPendingSideEffects {
+		t.Fatalf("limited pending plans = %+v, want one detached pending row", again)
+	}
+}
+
 func TestClaimProductionInitializationDurablePlanApplyDurableProductionInitialization(t *testing.T) {
 	plan := claimProductionInitializationDurableStorePlanForTest(t, "apply", false)
 	if result, err := plan.ApplyDurableProductionInitialization(nil); !errors.Is(err, ErrInvalidClaimDurableCommit) || result.Plan.Initialization.ClaimReference != "" {

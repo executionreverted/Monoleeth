@@ -157,7 +157,9 @@ for phase status; this file is a compact pending-work index.
   runtime/store readback proof that the completed retry evidence is also
   embedded in the committed claim lifecycle plan. These contracts preserve
   evidence by claim reference so later side-effect retries do not call the
-  initializer twice. Real durable claim/production DB rows,
+  initializer twice. Phase07CC adds deterministic pending production-init
+  readback so recovery workers can scan initialized-but-incomplete claim side
+  effects without replaying completed rows. Real durable claim/production DB rows,
   cross-service row locks/CAS, an atomic claim/production transaction, and
   scheduled recovery workers remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate

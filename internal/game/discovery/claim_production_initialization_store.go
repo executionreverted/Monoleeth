@@ -18,6 +18,7 @@ type ClaimProductionInitializationDurableStore interface {
 // the durable production-initialization adapter.
 type ClaimProductionInitializationDurableReader interface {
 	CommittedClaimProductionInitializationDurablePlan(PlanetClaimReference) (ClaimProductionInitializationDurablePlan, bool, error)
+	PendingClaimProductionInitializationDurablePlans(limit int) ([]ClaimProductionInitializationDurablePlan, error)
 }
 
 // ClaimProductionInitializationDurableResult reports the row accepted by the
@@ -113,6 +114,51 @@ func (store *InMemoryClaimProductionInitializationDurableStore) ClaimReferences(
 		return refs[i] < refs[j]
 	})
 	return refs
+}
+
+// PendingClaimProductionInitializationDurablePlans returns pending production
+// initialization rows in deterministic claim-reference order. Durable recovery
+// workers should use this shape to find claim side effects that were initialized
+// but not yet advanced into a completed claim lifecycle.
+func (store *InMemoryClaimProductionInitializationDurableStore) PendingClaimProductionInitializationDurablePlans(
+	limit int,
+) ([]ClaimProductionInitializationDurablePlan, error) {
+	if store == nil {
+		return nil, ErrInvalidClaimDurableCommit
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	refs := make([]PlanetClaimReference, 0, len(store.plans))
+	for ref, plan := range store.plans {
+		if plan.Boundary.Status == ClaimBoundaryStatusPendingSideEffects {
+			refs = append(refs, ref)
+		}
+	}
+	sort.Slice(refs, func(i, j int) bool {
+		return refs[i] < refs[j]
+	})
+
+	capacity := len(refs)
+	if limit < capacity {
+		capacity = limit
+	}
+	plans := make([]ClaimProductionInitializationDurablePlan, 0, capacity)
+	for _, ref := range refs {
+		if len(plans) >= limit {
+			break
+		}
+		cloned := cloneClaimProductionInitializationDurablePlan(store.plans[ref])
+		normalized, err := normalizeClaimProductionInitializationDurablePlan(cloned)
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, normalized)
+	}
+	return plans, nil
 }
 
 // CommittedClaimProductionInitializationDurablePlan returns the validated

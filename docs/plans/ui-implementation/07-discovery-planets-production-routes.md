@@ -482,6 +482,12 @@ Current slice completed:
   failure evidence, stamp `retried_at`, and can publish in the same drain tick.
   Durable DB row-lock/CAS implementation and retry scheduling policy remain
   open.
+- Phase07CC claim production-init recovery query follow-up:
+  The claim production-initialization durable-store adapter now exposes
+  deterministic pending-plan readback for recovery workers. DB adapters can use
+  the same shape to scan initialized-but-incomplete claim side effects, while
+  completed claim init rows stay filtered out and readback remains detached.
+  Durable DB rows and scheduled recovery workers remain open.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -843,6 +849,9 @@ Mockup areas covered:
 - [x] Apply pending production-init durable evidence when an authenticated
       claim command fails after production initialization, then advance the
       same durable row to complete evidence on successful retry.
+- [x] Add pending production-init durable readback for recovery workers so
+      initialized-but-incomplete claim side effects can be scanned without
+      replaying completed rows.
 - [x] Add claim outbox dispatch-plan validation and committed lifecycle-store
       readback for durable `planet.claimed` publisher scheduling.
 - [x] Let the claim durable lifecycle-store adapter satisfy the claim outbox
