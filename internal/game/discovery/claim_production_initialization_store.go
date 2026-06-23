@@ -1,0 +1,165 @@
+package discovery
+
+import (
+	"fmt"
+	"reflect"
+	"sort"
+	"sync"
+)
+
+// ClaimProductionInitializationDurableStore is the durable adapter contract for
+// committing one production-initialization row before the full claim lifecycle
+// has necessarily completed.
+type ClaimProductionInitializationDurableStore interface {
+	ApplyClaimProductionInitializationDurablePlan(ClaimProductionInitializationDurablePlan) (ClaimProductionInitializationDurableResult, error)
+}
+
+// ClaimProductionInitializationDurableReader is the recovery/readback side of
+// the durable production-initialization adapter.
+type ClaimProductionInitializationDurableReader interface {
+	CommittedClaimProductionInitializationDurablePlan(PlanetClaimReference) (ClaimProductionInitializationDurablePlan, bool, error)
+}
+
+// ClaimProductionInitializationDurableResult reports the row accepted by the
+// durable production-initialization boundary. Exact replays return the original
+// row with Duplicate set.
+type ClaimProductionInitializationDurableResult struct {
+	Plan      ClaimProductionInitializationDurablePlan
+	Duplicate bool
+}
+
+// ApplyDurableProductionInitialization validates and records this production
+// initialization plan through a durable adapter.
+func (plan ClaimProductionInitializationDurablePlan) ApplyDurableProductionInitialization(
+	store ClaimProductionInitializationDurableStore,
+) (ClaimProductionInitializationDurableResult, error) {
+	if store == nil {
+		return ClaimProductionInitializationDurableResult{}, ErrInvalidClaimDurableCommit
+	}
+	return store.ApplyClaimProductionInitializationDurablePlan(plan)
+}
+
+// InMemoryClaimProductionInitializationDurableStore is a process-local
+// durable-table contract used by tests and future DB adapters.
+type InMemoryClaimProductionInitializationDurableStore struct {
+	mu    sync.RWMutex
+	plans map[PlanetClaimReference]ClaimProductionInitializationDurablePlan
+}
+
+// NewInMemoryClaimProductionInitializationDurableStore returns an empty
+// production-initialization durable commit adapter contract.
+func NewInMemoryClaimProductionInitializationDurableStore() *InMemoryClaimProductionInitializationDurableStore {
+	return &InMemoryClaimProductionInitializationDurableStore{
+		plans: make(map[PlanetClaimReference]ClaimProductionInitializationDurablePlan),
+	}
+}
+
+// ApplyClaimProductionInitializationDurablePlan atomically records one
+// non-empty production-initialization row. Empty plans are no-ops; exact
+// reference replays are idempotent; conflicting reference reuse is rejected
+// before mutation.
+func (store *InMemoryClaimProductionInitializationDurableStore) ApplyClaimProductionInitializationDurablePlan(
+	plan ClaimProductionInitializationDurablePlan,
+) (ClaimProductionInitializationDurableResult, error) {
+	if store == nil {
+		return ClaimProductionInitializationDurableResult{}, ErrInvalidClaimDurableCommit
+	}
+	if claimProductionInitializationDurablePlanIsNoOp(plan) {
+		return ClaimProductionInitializationDurableResult{}, nil
+	}
+	normalized, err := normalizeClaimProductionInitializationDurablePlan(plan)
+	if err != nil {
+		return ClaimProductionInitializationDurableResult{}, err
+	}
+	reference := normalized.Initialization.ClaimReference
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.ensureMapsLocked()
+
+	if existing, ok := store.plans[reference]; ok {
+		if !claimProductionInitializationDurablePlansEqual(existing, normalized) {
+			return ClaimProductionInitializationDurableResult{}, fmt.Errorf("claim_reference_conflict: %w", ErrInvalidClaimDurableCommit)
+		}
+		return ClaimProductionInitializationDurableResult{Plan: cloneClaimProductionInitializationDurablePlan(existing), Duplicate: true}, nil
+	}
+	store.plans[reference] = cloneClaimProductionInitializationDurablePlan(normalized)
+	return ClaimProductionInitializationDurableResult{Plan: cloneClaimProductionInitializationDurablePlan(normalized)}, nil
+}
+
+// ClaimReferences returns committed claim references in deterministic order.
+func (store *InMemoryClaimProductionInitializationDurableStore) ClaimReferences() []PlanetClaimReference {
+	if store == nil {
+		return nil
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	if len(store.plans) == 0 {
+		return nil
+	}
+	refs := make([]PlanetClaimReference, 0, len(store.plans))
+	for ref := range store.plans {
+		refs = append(refs, ref)
+	}
+	sort.Slice(refs, func(i, j int) bool {
+		return refs[i] < refs[j]
+	})
+	return refs
+}
+
+// CommittedClaimProductionInitializationDurablePlan returns the validated
+// committed production-initialization plan for one claim reference.
+func (store *InMemoryClaimProductionInitializationDurableStore) CommittedClaimProductionInitializationDurablePlan(
+	reference PlanetClaimReference,
+) (ClaimProductionInitializationDurablePlan, bool, error) {
+	if store == nil {
+		return ClaimProductionInitializationDurablePlan{}, false, ErrInvalidClaimDurableCommit
+	}
+	if err := reference.Validate(); err != nil {
+		return ClaimProductionInitializationDurablePlan{}, false, err
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	plan, ok := store.plans[reference]
+	if !ok {
+		return ClaimProductionInitializationDurablePlan{}, false, nil
+	}
+	cloned := cloneClaimProductionInitializationDurablePlan(plan)
+	normalized, err := normalizeClaimProductionInitializationDurablePlan(cloned)
+	if err != nil {
+		return ClaimProductionInitializationDurablePlan{}, false, err
+	}
+	return normalized, true, nil
+}
+
+func (store *InMemoryClaimProductionInitializationDurableStore) ensureMapsLocked() {
+	if store.plans == nil {
+		store.plans = make(map[PlanetClaimReference]ClaimProductionInitializationDurablePlan)
+	}
+}
+
+func normalizeClaimProductionInitializationDurablePlan(
+	plan ClaimProductionInitializationDurablePlan,
+) (ClaimProductionInitializationDurablePlan, error) {
+	var boundary *ClaimBoundaryRecord
+	if !reflect.DeepEqual(plan.Boundary, ClaimBoundaryRecord{}) {
+		boundary = &plan.Boundary
+	}
+	return NewClaimProductionInitializationDurablePlan(&plan.Initialization, boundary)
+}
+
+func claimProductionInitializationDurablePlanIsNoOp(plan ClaimProductionInitializationDurablePlan) bool {
+	return reflect.DeepEqual(plan, ClaimProductionInitializationDurablePlan{})
+}
+
+func claimProductionInitializationDurablePlansEqual(
+	left ClaimProductionInitializationDurablePlan,
+	right ClaimProductionInitializationDurablePlan,
+) bool {
+	return reflect.DeepEqual(
+		cloneClaimProductionInitializationDurablePlan(left),
+		cloneClaimProductionInitializationDurablePlan(right),
+	)
+}

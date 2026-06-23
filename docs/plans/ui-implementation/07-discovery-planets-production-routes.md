@@ -444,6 +444,15 @@ Current slice completed:
   initialized outcomes, and optional pending/complete claim-boundary evidence.
   Real durable claim/production transaction rows and recovery workers remain
   open.
+- Phase07BE claim production-init durable-store follow-up:
+  `ClaimProductionInitializationDurablePlan` can now be handed to a
+  process-local durable-store adapter before the full claim lifecycle is
+  complete. The adapter validates pending or complete boundary evidence,
+  records one production-init row per claim reference, exact-replays duplicate
+  attempts, rejects conflicting reference reuse before mutation, and exposes
+  defensive committed-plan readback for future recovery workers. Real DB rows,
+  cross-service row locks/CAS, and production-init recovery workers remain
+  open.
 - Phase07AW claim durable lifecycle-plan follow-up:
   `NewClaimDurableLifecyclePlan` now validates that a completed claim lifecycle
   is one coherent row bundle across begin, optional production-init, and commit
@@ -642,6 +651,8 @@ Mockup areas covered:
       X Core debit evidence together.
 - [x] Add claim production-initialization durable-plan validation tying
       production recovery evidence to pending/complete claim boundaries.
+- [x] Add claim production-initialization durable-store adapter contract with
+      exact replay, conflict rejection, and committed-plan readback.
 - [x] Add claim durable lifecycle-plan validation tying begin, optional
       production-init, and completion/outbox evidence together.
 - [x] Re-validate claim lifecycle begin plans so missing or forged X Core

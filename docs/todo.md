@@ -133,9 +133,13 @@ for phase status; this file is a compact pending-work index.
   on retry, and Phase07W now records process-local claim recovery evidence
   when retries repair already-authoritative ownership after production-init or
   stale-listing failures. Phase07AE records successful production initialization
-  evidence by claim reference so later side-effect retries do not call the
-  initializer twice. Durable recovery rows and an atomic claim/production
-  transaction still remain open.
+  evidence, Phase07AV validates that evidence against pending/complete claim
+  boundaries, and Phase07BE adds a production-init durable-store adapter
+  contract with exact replay, conflict rejection, and committed-plan readback.
+  These contracts preserve evidence by claim reference so later side-effect
+  retries do not call the initializer twice. Real durable claim/production DB
+  rows, cross-service row locks/CAS, an atomic claim/production transaction,
+  and scheduled recovery workers remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory
@@ -447,7 +451,9 @@ for phase status; this file is a compact pending-work index.
   matching completed-claim durable commit-plan validation for claim
   boundary/reference/event/outbox/X Core evidence. Phase07AV adds claim
   production-init durable-plan validation for recovery rows tied to
-  pending/complete claim boundaries. Phase07AW ties those claim
+  pending/complete claim boundaries. Phase07BE adds the production-init
+  durable-store adapter contract for committing those recovery rows before the
+  full lifecycle is complete. Phase07AW ties those claim
   begin/init/commit plans into one completed lifecycle validation helper.
   Phase07BA adds a claim durable lifecycle-store adapter contract with
   idempotent exact replay, conflict rejection, claim-reference readback, and a
