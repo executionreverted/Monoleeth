@@ -1065,6 +1065,9 @@ Mockup areas covered:
 - [x] Claim gateway retry repairs owner/X Core committed but production-init
       missing attempts and returns initialized production/detail/inventory
       payloads without another X Core debit.
+- [x] Claim production-init recovery drain repairs missing live production and
+      storage read-model rows after advancing pending durable rows to complete,
+      preserving the original X Core debit.
 - [x] Claim lifecycle durable readback rebuilds a validated pending outbox
       dispatch plan for `planet.claimed` publisher scheduling.
 - [x] Claim lifecycle durable outbox rows can be claimed, published, failed, or

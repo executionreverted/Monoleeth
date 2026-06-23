@@ -135,6 +135,65 @@ func TestClaimPlanetDuplicateRetryRepairsMissingProductionLiveState(t *testing.T
 	}
 }
 
+func TestRuntimeDurableDrainRecoversPendingClaimProductionLiveStateLoss(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "claim-drain-live-state@example.com", "Claim Drain Live State")
+	planetID := foundation.PlanetID("claim-drain-live-state-planet")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 120, Y: 0}, 1)
+	grantClaimXCoreForTest(t, gameServer, owner.PlayerID, 1, "claim-drain-live-state-xcore")
+	staleMarker := &failingClaimListedIntelStaleMarker{err: errors.New("stale marker unavailable"), markedCount: 1}
+	installRuntimeClaimServiceForTest(t, gameServer, staleMarker)
+
+	failed := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-drain-live-state-fail", planetID)
+	if !failed.HasError {
+		t.Fatal("claim response error missing, want stale marker failure")
+	}
+	claimReference, err := planetClaimReference(owner.PlayerID, planetID)
+	if err != nil {
+		t.Fatalf("planetClaimReference: %v", err)
+	}
+	staleMarker.err = nil
+	if _, err := gameServer.runtime.Claim.ClaimPlanet(discovery.ClaimPlanetInput{
+		PlayerID:       owner.PlayerID,
+		PlanetID:       planetID,
+		ClaimReference: claimReference,
+	}); err != nil {
+		t.Fatalf("ClaimPlanet(domain retry) error = %v, want nil", err)
+	}
+	lifecycle, ok, err := gameServer.runtime.Claim.ClaimDurableLifecyclePlan(claimReference)
+	if err != nil || !ok {
+		t.Fatalf("ClaimDurableLifecyclePlan() = ok %v err %v, want true nil", ok, err)
+	}
+	if _, err := lifecycle.ApplyDurableLifecycle(gameServer.runtime.ClaimLifecycles); err != nil {
+		t.Fatalf("ApplyDurableLifecycle() error = %v, want nil", err)
+	}
+	gameServer.runtime.Production = production.NewInMemoryStore()
+	if _, ok, err := gameServer.runtime.Production.Snapshot(planetID); err != nil || ok {
+		t.Fatalf("production snapshot after live-state loss = ok %v err %v, want missing", ok, err)
+	}
+
+	drain, err := gameServer.runtime.DrainDurableOutboxes(RuntimeDurableOutboxDrainInput{
+		Limit:                                 10,
+		RecoverClaimProductionInitializations: true,
+	})
+	if err != nil {
+		t.Fatalf("DrainDurableOutboxes(recover init) error = %v, want nil", err)
+	}
+	if drain.RecoveredClaimProductionInitializations.Completed != 1 {
+		t.Fatalf("recovered production init = %+v, want one completed row", drain.RecoveredClaimProductionInitializations)
+	}
+	snapshot, ok, err := gameServer.runtime.Production.Snapshot(planetID)
+	if err != nil || !ok {
+		t.Fatalf("production snapshot after drain repair = ok %v err %v, want present", ok, err)
+	}
+	if snapshot.Storage.CapacityUnits == 0 || !snapshot.State.ProductionEnabled {
+		t.Fatalf("production snapshot after drain repair = %+v, want initialized storage and production", snapshot)
+	}
+	if got := claimXCoreDecreaseLedgerCountForTest(gameServer, owner.PlayerID); got != 1 {
+		t.Fatalf("x_core debit after drain repair = %d, want still one", got)
+	}
+}
+
 type flakyClaimProductionInitializerForTest struct {
 	inner *production.ClaimProductionInitializer
 	err   error

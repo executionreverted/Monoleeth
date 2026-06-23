@@ -604,9 +604,9 @@ contracts:
    outbox delivery state plus claim-token guards. Durable DB rows,
    cross-process recovery, durable outbox persistence, and idempotency-table
    enforcement remain open.
-5. Add recovery for production initialization after claim. A retry must repair
-   missing production rows without consuming a second X Core or changing owner
-   twice.
+5. Add recovery for production initialization after claim. A retry or bounded
+   production-init recovery drain must repair missing production/storage live
+   rows without consuming a second X Core or changing owner twice.
 6. Add public map key to production snapshots and storage/building read
    payloads, while keeping internal map id in server-side policy/event metadata.
 7. Add `planet.building_build` and `planet.building_upgrade` handlers only when

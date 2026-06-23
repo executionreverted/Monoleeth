@@ -141,11 +141,20 @@ func (runtime *Runtime) recoverPendingClaimProductionInitializations(
 	if runtime.ClaimProductionInitializations == nil || runtime.ClaimLifecycles == nil {
 		return discovery.ClaimProductionInitializationRecoveryResult{}, nil
 	}
-	return discovery.RecoverPendingClaimProductionInitializations(discovery.ClaimProductionInitializationRecoveryInput{
+	recovered, err := discovery.RecoverPendingClaimProductionInitializations(discovery.ClaimProductionInitializationRecoveryInput{
 		ProductionInitializations: runtime.ClaimProductionInitializations,
 		Lifecycles:                runtime.ClaimLifecycles,
 		Limit:                     limit,
 	})
+	if err != nil {
+		return recovered, err
+	}
+	for _, reference := range recovered.References {
+		if err := runtime.ensureClaimProductionLiveState(reference); err != nil {
+			return recovered, err
+		}
+	}
+	return recovered, nil
 }
 
 func (runtime *Runtime) retryFailedDurableOutboxes(

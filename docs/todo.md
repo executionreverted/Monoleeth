@@ -186,9 +186,12 @@ for phase status; this file is a compact pending-work index.
   production/storage read-model rows from committed claim production-init
   evidence during duplicate gateway retries, so a process-local production
   store loss still returns real production payloads without a second X Core
-  debit. Real durable claim/production DB rows, cross-service row locks/CAS, an
-  atomic claim/production transaction, and scheduled recovery workers remain
-  open.
+  debit. Phase07CY also rebuilds missing live production/storage read-model
+  rows during the bounded production-init recovery drain after pending durable
+  rows are advanced to complete, preserving the single X Core debit while
+  making worker recovery return initialized live state. Real durable
+  claim/production DB rows, cross-service row locks/CAS, an atomic
+  claim/production transaction, and scheduled recovery workers remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory
