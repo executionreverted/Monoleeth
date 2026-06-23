@@ -94,9 +94,10 @@ func (store *InMemoryStore) BeginPlanetClaimBoundary(input BeginPlanetClaimBound
 			return BeginPlanetClaimBoundaryResult{}, fmt.Errorf("planet %q: %w", input.PlanetID, ErrUnknownPlanet)
 		}
 		return BeginPlanetClaimBoundaryResult{
-			Planet:    clonePlanet(planet),
-			Boundary:  cloneClaimBoundaryRecord(existing),
-			Duplicate: true,
+			Planet:     clonePlanet(planet),
+			Boundary:   cloneClaimBoundaryRecord(existing),
+			StaleIntel: cloneClaimBoundaryStaleIntel(store.claimBoundaryStaleIntelLocked(existing)),
+			Duplicate:  true,
 		}, nil
 	}
 
@@ -301,6 +302,28 @@ func (store *InMemoryStore) claimBoundaryOutboxLocked(record ClaimBoundaryRecord
 		}
 	}
 	return ClaimOutboxRecord{}, false
+}
+
+func (store *InMemoryStore) claimBoundaryStaleIntelLocked(record ClaimBoundaryRecord) []PlayerPlanetIntel {
+	if record.StaleIntelCount == 0 {
+		return nil
+	}
+	sourceReference := "planet.claimed:" + record.EventID.String()
+	rows := make([]PlayerPlanetIntel, 0, record.StaleIntelCount)
+	for _, candidate := range store.intel {
+		if candidate.PlanetID != record.PlanetID ||
+			candidate.State != IntelStateStale ||
+			!candidate.LastSeenAt.Equal(record.ClaimedAt) ||
+			candidate.SourceType != IntelSourcePlanetOwnerChanged ||
+			candidate.SourceReference != sourceReference {
+			continue
+		}
+		rows = append(rows, clonePlayerPlanetIntel(candidate))
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].PlayerID < rows[j].PlayerID
+	})
+	return rows
 }
 
 func (store *InMemoryStore) recordClaimReferenceLocked(record ClaimBoundaryRecord, alreadyOwned bool) ClaimReferenceRecord {

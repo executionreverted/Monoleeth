@@ -3,6 +3,8 @@ package discovery
 import (
 	"errors"
 	"fmt"
+
+	"gameproject/internal/game/foundation"
 )
 
 var ErrInvalidClaimDurableCommit = errors.New("invalid claim durable commit")
@@ -103,6 +105,9 @@ func validateClaimDurableCommitBoundary(record ClaimBoundaryRecord) error {
 	if record.StaleIntelCount < 0 || record.StaleListingCount < 0 {
 		return fmt.Errorf("boundary.stale_counts: %w", ErrInvalidClaimDurableCommit)
 	}
+	if err := validateClaimDurableReferenceKey(record.ClaimReference, record.ReferenceKey, record.PlayerID, record.PlanetID); err != nil {
+		return fmt.Errorf("boundary.reference_key: %w", err)
+	}
 	return nil
 }
 
@@ -186,4 +191,17 @@ func claimDurableCommitEventsMatch(left ClaimEventRecord, right ClaimEventRecord
 		left.PlanetID == right.PlanetID &&
 		left.ClaimReference == right.ClaimReference &&
 		left.CreatedAt.Equal(right.CreatedAt)
+}
+
+func validateClaimDurableReferenceKey(
+	ref PlanetClaimReference,
+	key foundation.IdempotencyKey,
+	playerID foundation.PlayerID,
+	planetID foundation.PlanetID,
+) error {
+	expected, ok := ref.IdempotencyKey(playerID, planetID)
+	if !ok || key != expected {
+		return ErrInvalidClaimDurableCommit
+	}
+	return nil
 }

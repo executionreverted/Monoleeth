@@ -418,6 +418,14 @@ Current slice completed:
   claim outbox row, and optional X Core debit evidence. This is still a
   contract/helper layer; durable DB rows, cross-process locks/CAS, and durable
   publisher scheduling remain open.
+- Phase07AU claim durable begin-plan follow-up:
+  `NewClaimDurableBeginPlan` and
+  `BeginPlanetClaimWithXCoreResult.DurableBeginPlan()` now validate the claim
+  begin bundle: X Core debit evidence, pending owner-CAS boundary row, owned
+  planet snapshot, and stale-intel evidence when owner-CAS succeeds. Debit-only
+  begin failures produce X Core recovery evidence without pretending the owner
+  transition committed. Real DB idempotency rows, row locks/CAS, and recovery
+  workers remain open.
 
 ## Source Specs
 
@@ -552,6 +560,9 @@ Mockup areas covered:
 - [x] Add authenticated gateway transaction flows for build/upgrade mutations.
 - [x] Add explicit claim X Core debit plus owner-CAS begin boundary contract
       for future durable claim/storage adapters.
+- [x] Add claim durable begin-plan validation tying X Core debit evidence,
+      pending owner-CAS boundary rows, owned planet snapshots, and stale-intel
+      evidence together.
 - [x] Add claim durable commit-plan validation tying completed owner-CAS
       boundary rows, claim references, events, pending outbox rows, and optional
       X Core debit evidence together.
