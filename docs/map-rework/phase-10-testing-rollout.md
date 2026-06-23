@@ -96,11 +96,14 @@ marked `Open` are not implemented rollout controls yet.
   destination-map combat/drop/pickup in the same built-client package with
   DOM/state/storage, WebSocket, and process-log leak canaries. The focused
   built-client `e2e:phase10-pvp-map-drop` proof now registers a normal browser
-  player, travels `1-1` -> `1-2` -> `1-3`, resolves browser `scan.pulse`
-  successfully on public `1-2` and public `1-3`, kills a Border Skirmish NPC,
-  and picks up the server-created `carbon_shards` drop without leaking
-  map/scan/drop internals. Broader browser scanner/claim/drop matrix variants
-  remain open.
+  player, travels `1-1` -> `1-2`, resolves browser `scan.pulse` successfully
+  on public `1-2`, opens server-owned planet detail, claims that discovered
+  destination-map planet with the E2E X Core seed, verifies production
+  initialization and X Core consumption, then travels `1-2` -> `1-3`, resolves
+  browser `scan.pulse` successfully on public `1-3`, kills a Border Skirmish
+  NPC, and picks up the server-created `carbon_shards` drop without leaking
+  map/scan/claim/drop internals. Broader browser scanner/claim/drop matrix
+  variants remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone
   UI-click rejection proof exist in
   `client/tests/e2e/phase10-pvp-death-flow.mjs`. The same flow now also runs as
@@ -362,13 +365,16 @@ Last verified locally on 2026-06-23: the full gate passed, including
 `e2e:playtest-server`, `e2e:playtest-server-pvp`, and
 `e2e:phase10-pvp-map-drop`.
 
-The planet claim proof starts the local Go server with
+The focused browser planet claim proofs start the local Go server with
 `GAME_DEV_MODE=1` and `GAME_E2E_PLANET_CLAIM_SEED=1`, registers a real browser
-user, scans for a real server-discovered planet, uses the real planet-detail and
-Claim HUD controls, and verifies the server-owned claim response,
-`planet.claimed` event, production initialization, E2E-seeded X Core inventory
-consumption, Progression rank eligibility, pending-command clear, and leak
-canaries. It does not capture screenshots.
+user, scan for a real server-discovered planet, use real planet-detail and
+claim commands, and verify the server-owned claim response, `planet.claimed`
+event, production initialization, E2E-seeded X Core inventory consumption,
+Progression rank eligibility, pending-command clear, and leak canaries.
+`e2e:phase10-planet-claim` covers public `1-1` through the HUD controls.
+`e2e:phase10-pvp-map-drop` covers a public `1-2` destination-map claim before
+continuing through portal travel to the public `1-3` drop canary. These focused
+proofs do not capture screenshots.
 
 The route proof starts the local Go server with `GAME_DEV_MODE=1` and
 `GAME_E2E_ROUTE_SEED=1`, registers a real browser user, loads two owned
