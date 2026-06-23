@@ -9,6 +9,7 @@ import (
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
+	"gameproject/internal/game/world/aoi"
 )
 
 func TestPlayableVerticalServerAuthoritativeLoop(t *testing.T) {
@@ -31,6 +32,7 @@ func TestPlayableVerticalServerAuthoritativeLoop(t *testing.T) {
 		t.Fatalf("x_core quantity = %d, want one E2E claim core", got)
 	}
 
+	playableVerticalMove(t, gameServer, resolved)
 	dropID := playableVerticalCombatLoot(t, gameServer, resolved)
 	playableVerticalRouteSettle(t, gameServer, resolved, clock)
 	playableVerticalPortalToDestination(t, gameServer, resolved)
@@ -44,6 +46,49 @@ func TestPlayableVerticalServerAuthoritativeLoop(t *testing.T) {
 	}
 }
 
+func playableVerticalMove(t *testing.T, gameServer *Server, resolved auth.ResolvedSession) {
+	t.Helper()
+
+	move := gatewayJSON(t, gameServer, resolved, "vertical-move", realtime.OperationMoveTo, map[string]any{
+		"target": map[string]any{"x": 100, "y": 0},
+	}, 1)
+	assertPayloadOmitsInternalMapIdentity(t, "vertical move response", move)
+	var movePayload struct {
+		Accepted     bool   `json:"accepted"`
+		PublicMapKey string `json:"public_map_key"`
+		Map          struct {
+			PublicMapKey string `json:"public_map_key"`
+		} `json:"map"`
+		Entities []struct {
+			Type        world.EntityType        `json:"entity_type"`
+			StatusFlags []aoi.StatusFlag        `json:"status_flags"`
+			Movement    *movementPayloadForTest `json:"movement"`
+		} `json:"entities"`
+	}
+	if err := json.Unmarshal(move, &movePayload); err != nil {
+		t.Fatalf("decode vertical move payload: %v", err)
+	}
+	if !movePayload.Accepted || movePayload.PublicMapKey != "1-1" || movePayload.Map.PublicMapKey != "1-1" {
+		t.Fatalf("vertical move payload = %+v, want accepted public 1-1 movement", movePayload)
+	}
+	var selfMovement *movementPayloadForTest
+	for _, entity := range movePayload.Entities {
+		if entity.Type != world.EntityTypePlayer || !hasStatusFlag(entity.StatusFlags, "self") {
+			continue
+		}
+		selfMovement = entity.Movement
+		break
+	}
+	if selfMovement == nil || !selfMovement.Moving || selfMovement.Target != (world.Vec2{X: 100, Y: 0}) {
+		t.Fatalf("vertical self movement = %+v, want server-timed move_to target 100,0", selfMovement)
+	}
+	events, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationMoveTo, resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("post vertical move events: %v", err)
+	}
+	requireEventTypeForTest(t, events, realtime.EventPositionCorrected)
+}
+
 func playableVerticalCombatLoot(t *testing.T, gameServer *Server, resolved auth.ResolvedSession) string {
 	t.Helper()
 
@@ -51,7 +96,7 @@ func playableVerticalCombatLoot(t *testing.T, gameServer *Server, resolved auth.
 	combat := gatewayJSON(t, gameServer, resolved, "vertical-combat", realtime.OperationCombatUseSkill, map[string]any{
 		"skill_id":  "basic_laser",
 		"target_id": "entity_training_npc",
-	}, 1)
+	}, 2)
 	assertPayloadOmitsPlayerOwner(t, "vertical combat response", combat, resolved.PlayerID)
 	var combatPayload struct {
 		Accepted bool `json:"accepted"`
@@ -90,7 +135,7 @@ func playableVerticalCombatLoot(t *testing.T, gameServer *Server, resolved auth.
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, world.EntityID(dropID), world.Vec2{})
 	pickup := gatewayJSON(t, gameServer, resolved, "vertical-loot", realtime.OperationLootPickup, map[string]any{
 		"drop_id": dropID,
-	}, 2)
+	}, 3)
 	var pickupPayload struct {
 		Accepted bool                 `json:"accepted"`
 		Cargo    cargoSnapshotPayload `json:"cargo"`
@@ -117,7 +162,7 @@ func playableVerticalRouteSettle(t *testing.T, gameServer *Server, resolved auth
 		"destination_planet_id": destinationID.String(),
 		"resource_item_id":      "refined_alloy",
 		"amount_per_hour":       40,
-	}, 3)
+	}, 4)
 	assertPayloadOmitsInternalMapIdentity(t, "vertical route.create response", create)
 	var createPayload struct {
 		Route routePayload `json:"route"`
@@ -135,7 +180,7 @@ func playableVerticalRouteSettle(t *testing.T, gameServer *Server, resolved auth
 	clock.Advance(time.Hour)
 	settle := gatewayJSON(t, gameServer, resolved, "vertical-route-settle", realtime.OperationRouteSettle, map[string]any{
 		"route_id": createPayload.Route.RouteID,
-	}, 4)
+	}, 5)
 	assertPayloadOmitsInternalMapIdentity(t, "vertical route.settle response", settle)
 	var settlePayload struct {
 		Settlement routeSettlementPayload `json:"settlement"`
@@ -159,7 +204,7 @@ func playableVerticalPortalToDestination(t *testing.T, gameServer *Server, resol
 	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 9800, Y: 5000})
 	portal := gatewayJSON(t, gameServer, resolved, "vertical-portal", realtime.OperationPortalEnter, map[string]any{
 		"portal_id": "east_gate",
-	}, 5)
+	}, 6)
 	assertPayloadOmitsInternalMapIdentity(t, "vertical portal response", portal)
 	var payload struct {
 		Accepted       bool                 `json:"accepted"`
@@ -180,7 +225,7 @@ func playableVerticalPortalToDestination(t *testing.T, gameServer *Server, resol
 func playableVerticalScanClaim(t *testing.T, gameServer *Server, resolved auth.ResolvedSession) string {
 	t.Helper()
 
-	scan := gatewayJSON(t, gameServer, resolved, "vertical-scan", realtime.OperationScanPulse, map[string]any{}, 6)
+	scan := gatewayJSON(t, gameServer, resolved, "vertical-scan", realtime.OperationScanPulse, map[string]any{}, 7)
 	assertPayloadOmitsScannerNoFogTruth(t, "vertical scan response", scan)
 	assertPayloadOmitsActiveMapInternalTruth(t, "vertical scan response", scan)
 	var scanPayload struct {
@@ -198,7 +243,7 @@ func playableVerticalScanClaim(t *testing.T, gameServer *Server, resolved auth.R
 
 	detail := gatewayJSON(t, gameServer, resolved, "vertical-detail", realtime.OperationPlanetDetail, map[string]any{
 		"planet_id": scanPayload.Scan.PlanetID,
-	}, 7)
+	}, 8)
 	var detailPayload struct {
 		PlanetDetail planetDetailPayload `json:"planet_detail"`
 	}
@@ -212,7 +257,7 @@ func playableVerticalScanClaim(t *testing.T, gameServer *Server, resolved auth.R
 
 	claim := gatewayJSON(t, gameServer, resolved, "vertical-claim", realtime.OperationDiscoveryClaimPlanet, map[string]any{
 		"planet_id": scanPayload.Scan.PlanetID,
-	}, 8)
+	}, 9)
 	assertPayloadOmitsPlayerOwner(t, "vertical claim response", claim, resolved.PlayerID)
 	var claimPayload struct {
 		PlanetDetail planetDetailPayload               `json:"planet_detail"`
