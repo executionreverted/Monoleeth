@@ -61,6 +61,30 @@ describe('planet route HUD action dispatch', () => {
     });
   });
 
+  test('dispatches station route update with typed endpoint intent only', () => {
+    const handlers = testHandlers();
+    const control = routeControl({
+      '[data-route-update-destination]': 'station:route-station-endpoint',
+      '[data-route-update-resource]': 'raw_ore',
+      '[data-route-rate]': '25',
+    });
+    const button = {
+      dataset: { action: 'route-update', routeId: 'route-1' },
+      closest: vi.fn(() => control),
+    } as unknown as HTMLButtonElement;
+
+    const handled = dispatchPlanetRouteButtonAction(button, handlers, () => {});
+
+    expect(handled).toBe(true);
+    expect(handlers.onRouteUpdate).toHaveBeenCalledWith({
+      routeID: 'route-1',
+      destinationPlanetID: undefined,
+      destination: { type: 'station', id: 'route-station-endpoint' },
+      resourceItemID: 'raw_ore',
+      amountPerHour: 25,
+    });
+  });
+
   test('dispatches rendered building build with server-safe intent only', () => {
     const handlers = testHandlers();
     const control = routeControl({

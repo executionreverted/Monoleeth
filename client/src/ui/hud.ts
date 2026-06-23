@@ -11,6 +11,7 @@ import { topbarDangerText, topbarLocationText } from './hud-topbar';
 import { actionBar, baseWindowDefinitions, intelPanel, logPanel, modalDefinition, movementEtaPanel, opsPanel, quickActionStates, shipPanel, statusPanel, systemsPanel, targetPanel, windowDefinitions, windowLayout } from './hud-render-panels';
 import type { HUDDragState, HUDHandlers, HUDModalDragState, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, HUDWindowState } from './hud-types';
 import { clamp, escapeHTML, formatCompactNumber, formatPair, formatPercent, isControlElement, isInventoryTabID, isModuleFilterID, isQuickActionKey, isShopCategoryID, normalizeModalID, normalizePanelID, parseLoadoutDragPayload } from './hud-formatters';
+import { dispatchPlanetRouteButtonAction } from './hud-planet-route-actions';
 
 export type { HUDHandlers } from './hud-types';
 
@@ -115,6 +116,12 @@ export class HUD {
     }
     this.openModal('planet-detail', this.currentState, planetID);
     this.render(this.currentState, this.currentServerNow);
+  }
+
+  private rerenderCurrent(): void {
+    if (this.currentState) {
+      this.render(this.currentState, this.currentServerNow);
+    }
   }
 
   private bindEvents(): void {
@@ -439,6 +446,9 @@ export class HUD {
     if (this.dispatchAction(button.dataset.action)) {
       return;
     }
+    if (dispatchPlanetRouteButtonAction(button, this.handlers, () => this.rerenderCurrent())) {
+      return;
+    }
     switch (button.dataset.action) {
       case 'planet-detail':
         if (button.dataset.planetId) {
@@ -464,9 +474,7 @@ export class HUD {
           if (button.dataset.portalId && button.dataset.portalScope) {
             hudSelection.selectedPortalID = button.dataset.portalId;
             hudSelection.selectedPortalScope = button.dataset.portalScope;
-            if (this.currentState) {
-              this.render(this.currentState, this.currentServerNow);
-            }
+            this.rerenderCurrent();
           }
           break;
         case 'portal-enter':
@@ -479,93 +487,10 @@ export class HUD {
             this.handlers.onPortalEnter(button.dataset.portalId);
           }
           break;
-        case 'planet-select':
-          if (button.dataset.planetId) {
-            this.handlers.onPlanetDetail(button.dataset.planetId);
-          }
-          break;
-        case 'planet-navigate':
-          if (button.dataset.planetId) {
-            this.handlers.onPlanetNavigate(button.dataset.planetId);
-          }
-          break;
-        case 'planet-claim':
-          if (button.dataset.planetId) {
-            this.handlers.onPlanetClaim(button.dataset.planetId);
-          }
-          break;
-        case 'coordinate-item-create':
-          if (button.dataset.planetId) {
-            this.handlers.onCoordinateItemCreate(button.dataset.planetId);
-          }
-          break;
         case 'coordinate-item-use':
           if (button.dataset.itemInstanceId) {
             this.handlers.onCoordinateItemUse(button.dataset.itemInstanceId);
           }
-          break;
-        case 'intel-share': {
-          const control = button.closest<HTMLElement>('[data-intel-share-control]');
-          const planetID = button.dataset.planetId ?? control?.dataset.planetId ?? '';
-          const toPlayerID = routeControlValue(control, '[data-intel-share-target]');
-          this.handlers.onIntelShare({ planetID, toPlayerID });
-          break;
-        }
-        case 'planet-building-build': {
-          const control = button.closest<HTMLElement>('[data-building-build-control]');
-          const planetID = button.dataset.planetId ?? control?.dataset.planetId ?? '';
-          const buildingType = routeControlValue(control, '[data-building-build-type]');
-          const slot = routeControlValue(control, '[data-building-build-slot]');
-          this.handlers.onPlanetBuildingBuild({ planetID, buildingType, slot });
-          break;
-        }
-        case 'planet-building-upgrade':
-          if (button.dataset.planetId && button.dataset.buildingId) {
-            this.handlers.onPlanetBuildingUpgrade({
-              planetID: button.dataset.planetId,
-              buildingID: button.dataset.buildingId,
-              targetLevel: Number(button.dataset.targetLevel ?? '0'),
-            });
-          }
-          break;
-        case 'route-select':
-          if (button.dataset.routeId) {
-            hudSelection.selectedRouteID = button.dataset.routeId;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
-          }
-          break;
-        case 'route-create': {
-          const control = button.closest<HTMLElement>('[data-route-create-control]');
-          const sourcePlanetID = button.dataset.sourcePlanetId ?? control?.dataset.routeSourcePlanetId ?? '';
-          const destinationPlanetID = routeControlValue(control, '[data-route-create-destination]');
-          const resourceItemID = routeControlValue(control, '[data-route-create-resource]');
-          const amountPerHour = Number(routeControlValue(control, '[data-route-rate]'));
-          this.handlers.onRouteCreate({ sourcePlanetID, destinationPlanetID, resourceItemID, amountPerHour });
-          break;
-        }
-        case 'route-update': {
-          const control = button.closest<HTMLElement>('[data-route-update-control]');
-          const routeID = button.dataset.routeId ?? control?.dataset.routeId ?? '';
-          const destinationPlanetID = routeControlValue(control, '[data-route-update-destination]');
-          const resourceItemID = routeControlValue(control, '[data-route-update-resource]');
-          const amountPerHour = Number(routeControlValue(control, '[data-route-rate]'));
-          this.handlers.onRouteUpdate({ routeID, destinationPlanetID, resourceItemID, amountPerHour });
-          break;
-        }
-        case 'route-enable':
-          if (button.dataset.routeId) {
-            this.handlers.onRouteEnable(button.dataset.routeId);
-          }
-          break;
-        case 'route-disable':
-          if (button.dataset.routeId) {
-            this.handlers.onRouteDisable(button.dataset.routeId);
-          }
-          break;
-        case 'route-settle':
-          this.handlers.onRouteSettle(button.dataset.routeId || undefined);
           break;
         case 'hangar-activate':
           if (button.dataset.shipId) {
@@ -575,36 +500,28 @@ export class HUD {
         case 'hangar-select':
           if (button.dataset.shipId) {
             hudSelection.selectedHangarShipID = button.dataset.shipId;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
+            this.rerenderCurrent();
           }
           break;
         case 'open-window': {
           const panel = normalizePanelID(button.dataset.panelId);
           if (panel) {
             this.openWindow(panel);
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
+            this.rerenderCurrent();
           }
           break;
         }
         case 'inventory-tab':
           if (isInventoryTabID(button.dataset.inventoryTab)) {
             hudSelection.selectedInventoryTab = button.dataset.inventoryTab;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
+            this.rerenderCurrent();
           }
           break;
         case 'module-filter':
           if (isModuleFilterID(button.dataset.moduleFilter)) {
             hudSelection.selectedModuleFilter = button.dataset.moduleFilter;
             hudSelection.selectedModuleInstanceID = null;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
+            this.rerenderCurrent();
           }
           break;
         case 'loadout-equip':
@@ -617,35 +534,16 @@ export class HUD {
             this.handlers.onLoadoutUnequipModule(button.dataset.slotId);
           }
           break;
-        case 'crafting-start':
-          if (button.dataset.recipeId) {
-            this.handlers.onCraftingStart(button.dataset.recipeId, button.dataset.locationType || undefined);
-          }
-          break;
-        case 'crafting-complete':
-          if (button.dataset.jobId) {
-            this.handlers.onCraftingComplete(button.dataset.jobId);
-          }
-          break;
-        case 'crafting-cancel':
-          if (button.dataset.jobId) {
-            this.handlers.onCraftingCancel(button.dataset.jobId);
-          }
-          break;
         case 'module-select':
           if (button.dataset.moduleInstanceId) {
             hudSelection.selectedModuleInstanceID = button.dataset.moduleInstanceId;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
+            this.rerenderCurrent();
           }
           break;
         case 'quest-select':
           if (button.dataset.questKey) {
             hudSelection.selectedQuestKey = button.dataset.questKey;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
+            this.rerenderCurrent();
           }
           break;
         case 'shop-category':
@@ -653,18 +551,14 @@ export class HUD {
             hudSelection.selectedShopCategory = button.dataset.shopCategory;
             hudSelection.selectedShopKey = null;
             hudSelection.selectedShopQuantity = 1;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
+            this.rerenderCurrent();
           }
           break;
         case 'shop-select':
           if (button.dataset.shopKey) {
             hudSelection.selectedShopKey = button.dataset.shopKey;
             hudSelection.selectedShopQuantity = 1;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
+            this.rerenderCurrent();
           }
           break;
         case 'shop-qty': {
@@ -674,9 +568,7 @@ export class HUD {
               ? Number(button.dataset.quantity)
               : hudSelection.selectedShopQuantity + Number(button.dataset.quantityDelta ?? '0');
           hudSelection.selectedShopQuantity = Math.round(clamp(Number.isFinite(nextQuantity) ? nextQuantity : 1, 1, maxQuantity));
-          if (this.currentState) {
-            this.render(this.currentState);
-          }
+          this.rerenderCurrent();
           break;
         }
         case 'shop-buy-product':
@@ -1300,9 +1192,4 @@ export class HUD {
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
     }
   }
-}
-
-function routeControlValue(container: HTMLElement | null | undefined, selector: string): string {
-  const control = container?.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
-  return control?.value ?? '';
 }
