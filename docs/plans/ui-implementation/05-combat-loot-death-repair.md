@@ -51,6 +51,7 @@ Read before implementation:
 ```text
 combat.use_skill
 loot.pickup
+repair.shield_tick
 death.repair_quote
 death.repair_ship
 ```
@@ -65,12 +66,15 @@ wallet balance.
 | --- | --- | --- | --- |
 | `combat.use_skill` | `target_id`, `skill_id`, `request_id` | player/ship/loadout from session; target visible; range; cooldown; energy; ship not disabled | spend energy/start cooldown only on accepted use; emit combat result and snapshots after commit/tick |
 | `loot.pickup` | `drop_id`, optional amount, `request_id` | player from session; drop visible/owned/public; range; cargo capacity; duplicate pickup reference | lock drop and cargo, validate, move items/XP through inventory/progression services, write ledger/event with unique `loot_pickup:<drop_id>`, commit, then broadcast |
+| `repair.shield_tick` | empty payload only | player/ship/loadout from session; ship alive; shield below max; equipped shield repair module; combat lock expired; server tick cooldown elapsed | increase shield by server-calculated equipped-module regen only; never repair hull; emit `ship.snapshot` and `player.snapshot` after mutation |
 | `death.repair_quote` | ship id or empty active-ship intent | active/owned disabled ship; current repair policy; wallet visibility | no mutation; returns server-calculated quote id, cost, expiry, and quote version |
 | `death.repair_ship` | quote id or active-ship intent, `request_id` | re-resolve owned disabled ship; quote freshness or recalculated price; wallet balance | debit wallet through ledger, repair ship, emit `wallet.snapshot`, `ship.snapshot`, and `death.repaired` after commit; duplicate request returns cached/safe result |
 
 Repair commands must not trust client price totals. If a quote is stale, the
 server either rejects with a safe stale-quote error or recalculates and returns a
 fresh quote path.
+Shield repair ticks must not trust client-authored shield amount, elapsed time,
+combat state, or repair rate.
 
 ## Events
 
@@ -127,6 +131,7 @@ from server loadout data instead of firing fake effects.
 - [x] Add loot event mapper and AOI-visible drop updates.
 - [ ] Add death/disabled ship event mapper.
 - [x] Add repair quote and repair command handlers.
+- [x] Add DarkOrbit-style out-of-combat shield repair tick handler.
 - [x] Add wallet/cargo/progression snapshot broadcasts after committed
       loot/repair mutations.
 - [x] Update client command builders and reducer for combat/loot/death events.
@@ -158,6 +163,11 @@ from server loadout data instead of firing fake effects.
   price, wallet, or player identity. This runtime bridge currently supports the
   free starter repair path; durable non-zero wallet-ledger repair remains a
   hardening item tracked in `docs/todo.md`.
+- Shield repair exposes `repair.shield_tick` as a client intent with an empty
+  payload. The server validates alive ship state, equipped shield repair module,
+  combat lock expiry, elapsed tick time, and max shield before mutating shield
+  only. `combat.use_skill` refreshes the server-owned combat lock; hull/HP is
+  never restored by this path.
 - The client reducer stores ship, progression, repair quote, target combat
   status, cooldowns, cargo, wallet, and combat log entries only from snapshots,
   responses, and events. Default unauthenticated state remains empty.
@@ -177,6 +187,11 @@ from server loadout data instead of firing fake effects.
 - [x] Duplicate pickup does not duplicate cargo or XP.
 - [x] Disabled ship cannot attack.
 - [x] Repair checks wallet and ship ownership server-side.
+- [x] Shield repair rejects client-authored shield amount, elapsed time, combat
+      state, and repair rate.
+- [x] Shield repair requires an equipped shield repair module and expired
+      combat lock.
+- [x] Shield repair restores shield only, never hull.
 - [ ] Repair debit uses wallet ledger and server-calculated price.
 - [x] Non-server-backed action slots cannot execute fake effects.
 
@@ -196,6 +211,10 @@ from server loadout data instead of firing fake effects.
 - [ ] Repair quote rejects stale/tampered prices.
 - [ ] Repair rejects insufficient wallet without changing ship state.
 - [ ] Repair command debits wallet and re-enables ship.
+- [x] Out-of-combat shield repair tick rejects trusted payload fields.
+- [x] Out-of-combat shield repair tick rejects during combat lock.
+- [x] Out-of-combat shield repair tick repairs shield from equipped module rate
+      without repairing hull.
 - [x] Browser smoke covers fight -> loot -> cargo update.
 
 ## Done Criteria

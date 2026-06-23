@@ -13,6 +13,7 @@ import {
   SCAN_PAUSED_RECHECK_MS,
   SCAN_PENDING_RECHECK_MS,
   SCAN_STARTED_RECHECK_MS,
+  SHIELD_REPAIR_TICK_MS,
   DemoStateModule,
   TargetSelectionSource,
 } from './client-app-core';
@@ -808,6 +809,39 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
       return;
     }
     this.smokeStateTimer = window.setInterval(() => this.publishSmokeState(), 50);
+  }
+
+  protected startShieldRepairTicker(): void {
+    if (typeof window === 'undefined' || this.shieldRepairTimer !== null) {
+      return;
+    }
+    this.shieldRepairTimer = window.setInterval(() => this.sendShieldRepairTickIfNeeded(), SHIELD_REPAIR_TICK_MS);
+  }
+
+  protected sendShieldRepairTickIfNeeded(): void {
+    if (this.state.auth.mode !== 'real' || this.state.connectionStatus !== 'connected') {
+      return;
+    }
+    const ship = this.state.ship;
+    if (!ship || ship.disabled || ship.shield >= ship.max_shield || ship.max_shield <= 0) {
+      return;
+    }
+    if (!this.hasEquippedShieldRepairModule() || this.hasPendingOperation(OPERATIONS.shieldRepairTick)) {
+      return;
+    }
+    this.sendCommand(this.commandBuilder.shieldRepairTick());
+  }
+
+  protected hasEquippedShieldRepairModule(): boolean {
+    const slots = this.state.loadout?.slots ?? [];
+    return slots.some((slot) => {
+      const moduleID = slot.module_id || slot.module_item_id;
+      return (
+        moduleID === 'shield_generator_t1' &&
+        slot.module_state !== 'broken' &&
+        (slot.durability === undefined || slot.durability > 0)
+      );
+    });
   }
 
   protected recordSmokePendingHistory(action: ClientAction): void {

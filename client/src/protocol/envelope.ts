@@ -10,6 +10,7 @@ export const OPERATIONS = {
   debugSnapshot: 'debug_snapshot',
   combatUseSkill: 'combat.use_skill',
   lootPickup: 'loot.pickup',
+  shieldRepairTick: 'repair.shield_tick',
   deathRepairQuote: 'death.repair_quote',
   deathRepairShip: 'death.repair_ship',
   progressionSnapshot: 'progression.snapshot',

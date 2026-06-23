@@ -58,6 +58,10 @@ export class CommandBuilder {
     });
   }
 
+  shieldRepairTick(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.shieldRepairTick, {});
+  }
+
   deathRepairQuote(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.deathRepairQuote, {});
   }

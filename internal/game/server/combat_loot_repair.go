@@ -110,6 +110,9 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	if err != nil {
 		return nil, domainErrorForCombat(err)
 	}
+	combatLockedAt := runtime.clock.Now()
+	runtime.refreshCombatLockForActorLocked(ctx.PlayerID, combatLockedAt)
+	runtime.refreshCombatLockForActorLocked(result.Target.PlayerID, combatLockedAt)
 
 	var drops []loot.Drop
 	lethalPlayerDeath := isLethalPlayerCombatResult(targetBefore, result)

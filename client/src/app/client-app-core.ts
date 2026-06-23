@@ -19,6 +19,7 @@ export const MOVEMENT_ETA_RENDER_MS = 100;
 export const NAVIGATION_RECHECK_MS = 140;
 export const NAVIGATION_TARGET_TOLERANCE_UNITS = 24;
 export const ECONOMY_REFRESH_DEBOUNCE_MS = 50;
+export const SHIELD_REPAIR_TICK_MS = 1_000;
 
 export function isDemoModeEnabled(search: string, devBuild: boolean): boolean {
   return devBuild && new URLSearchParams(search).get('demo') === '1';
@@ -42,6 +43,7 @@ export abstract class ClientAppCore {
   protected hud: HUD | null = null;
   protected reconnectTimer: number | null = null;
   protected smokeStateTimer: number | null = null;
+  protected shieldRepairTimer: number | null = null;
   protected cooldownRenderTimer: number | null = null;
   protected cooldownRenderAt = 0;
   protected movementRenderTimer: number | null = null;

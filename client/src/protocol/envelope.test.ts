@@ -320,6 +320,7 @@ describe('default outbound operations', () => {
     expect(CLIENT_EVENTS.playerProtectionUpdated).toBe('player.protection_updated');
     expect(OPERATIONS.loadoutEquipModule).toBe('loadout.equip_module');
     expect(OPERATIONS.loadoutUnequipModule).toBe('loadout.unequip_module');
+    expect(OPERATIONS.shieldRepairTick).toBe('repair.shield_tick');
     expect(OPERATIONS.stealthToggle).toBe('stealth.toggle');
     expect(OPERATIONS.craftingStart).toBe('crafting.start');
     expect(OPERATIONS.craftingComplete).toBe('crafting.complete');
@@ -347,6 +348,10 @@ describe('default outbound operations', () => {
       item_instance_id: 'laser_alpha_t1-instance-2',
     });
     expect(builder.loadoutUnequipModule('offensive_1').payload).toEqual({ slot_id: 'offensive_1' });
+    const shieldRepair = builder.shieldRepairTick();
+    expect(shieldRepair.op).toBe(OPERATIONS.shieldRepairTick);
+    expect(shieldRepair.payload).toEqual({});
+    expect(Object.keys(shieldRepair.payload)).toEqual([]);
     expect(builder.stealthToggle(true).payload).toEqual({ enabled: true });
     const craftStart = builder.craftingStart({ recipeID: 'refined_alloy_batch' });
     expect(craftStart.op).toBe(OPERATIONS.craftingStart);

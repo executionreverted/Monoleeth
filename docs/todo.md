@@ -907,6 +907,11 @@ Task 001 release proof must be rebuilt through
   reconcile from server events/snapshots only. Covered by reducer, server, and
   browser smoke tests. Source:
   `docs/plans/2026-06-19-ui-rework-GOAL.md`.
+- [x] Add DarkOrbit-style out-of-combat shield repair intent.
+  `repair.shield_tick` accepts an empty client intent, requires an equipped
+  shield repair module, respects server-owned combat lock and tick cooldown,
+  restores shield only, and reconciles through real ship/player snapshots.
+  Covered by focused Go server tests and `client` check on 2026-06-24.
 - [x] Add server-authoritative continuous movement timing for browser movement.
   The client receives server-owned origin, destination, speed, start, and
   arrival timing; re-clicks while in transit start from the server-computed

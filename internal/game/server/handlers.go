@@ -153,6 +153,7 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationPortalEnter:           runtime.handlePortalEnter,
 		realtime.OperationCombatUseSkill:        runtime.handleCombatUseSkill,
 		realtime.OperationLootPickup:            runtime.handleLootPickup,
+		realtime.OperationShieldRepairTick:      runtime.handleShieldRepairTick,
 		realtime.OperationDeathRepairQuote:      runtime.handleDeathRepairQuote,
 		realtime.OperationDeathRepairShip:       runtime.handleDeathRepairShip,
 		realtime.OperationProgressionSnapshot:   runtime.handleProgressionSnapshot,

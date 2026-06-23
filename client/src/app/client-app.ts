@@ -26,6 +26,7 @@ export class ClientApp extends ClientAppHandlers {
 
     await this.renderer.mount(worldHost);
     this.startSmokeStatePublisher();
+    this.startShieldRepairTicker();
     this.authPanel = new AuthPanel(authHost, {
       onLogin: (email, password) => void this.login(email, password),
       onRegister: (email, password, callsign) => void this.register(email, password, callsign),

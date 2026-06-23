@@ -26,6 +26,7 @@ const (
 	OperationDebugSnapshot         Operation = "debug_snapshot"
 	OperationCombatUseSkill        Operation = "combat.use_skill"
 	OperationLootPickup            Operation = "loot.pickup"
+	OperationShieldRepairTick      Operation = "repair.shield_tick"
 	OperationDeathRepairQuote      Operation = "death.repair_quote"
 	OperationDeathRepairShip       Operation = "death.repair_ship"
 	OperationProgressionSnapshot   Operation = "progression.snapshot"
@@ -212,6 +213,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationLootPickup: {
 		Operation:        OperationLootPickup,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationShieldRepairTick: {
+		Operation:        OperationShieldRepairTick,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationDeathRepairQuote: {

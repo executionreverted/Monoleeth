@@ -108,14 +108,19 @@ built-client main playtest loop, the built-client PvP/death/repair loop, the
 built-client Border Skirmish enemy aggro/leash canary, the destination/PvP
 scanner-claim-drop canary, and the scanner no-signal canary.
 
-Focused deployable canary also verified standalone:
+Focused canaries and repair proof also verified standalone:
 
 ```text
 2026-06-24: PHASE10_BUILT_CLIENT=1 node client/tests/e2e/phase10-enemy-aggro-flow.mjs passed.
+2026-06-24: go test ./internal/game/server -run 'TestShieldRepairTick|TestCombatUseSkillRefreshesShieldRepairCombatLock|TestRealtimeOperationRegistry' -count=1 passed.
+2026-06-24: npm --cache /tmp/gameproject-npm-cache --prefix client run check passed after adding repair.shield_tick.
 ```
 
 That run used the built `client/dist` served by `cmd/game-server` and proved the
 public `1-3` Border Skirmish NPC aggro/leash behavior without Vite.
+The focused shield repair proof covers DarkOrbit-style out-of-combat shield
+repair from an equipped shield module, server-owned combat lock rejection,
+trusted-payload rejection, and shield-only mutation.
 
 The playtest asset screenshot proof writes:
 

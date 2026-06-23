@@ -122,6 +122,8 @@ type Runtime struct {
 	portalAttempts     map[portalRequestKey]portalTransferRecord
 	playerProtections  map[protectionKey]playerProtectionState
 	pendingRespawns    map[foundation.PlayerID]pendingRespawnTarget
+	combatLocks        map[foundation.PlayerID]time.Time
+	shieldRepairTicks  map[foundation.PlayerID]time.Time
 
 	nextPlayerEntity int
 
@@ -426,6 +428,8 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		portalAttempts:                 make(map[portalRequestKey]portalTransferRecord),
 		playerProtections:              make(map[protectionKey]playerProtectionState),
 		pendingRespawns:                make(map[foundation.PlayerID]pendingRespawnTarget),
+		combatLocks:                    make(map[foundation.PlayerID]time.Time),
+		shieldRepairTicks:              make(map[foundation.PlayerID]time.Time),
 		Combat:                         combatService,
 		Death:                          deathService,
 		Loot:                           lootService,

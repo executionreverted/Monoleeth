@@ -207,6 +207,7 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 		return map[auth.SessionID][]realtime.EventEnvelope{sessionID: events}, nil
 	case realtime.OperationCombatUseSkill,
 		realtime.OperationLootPickup,
+		realtime.OperationShieldRepairTick,
 		realtime.OperationPortalEnter,
 		realtime.OperationDeathRepairQuote,
 		realtime.OperationDeathRepairShip,
@@ -268,6 +269,7 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 func opEmitsPostCommandAOIDiff(op realtime.Operation) bool {
 	switch op {
 	case realtime.OperationMarketCreateListing,
+		realtime.OperationShieldRepairTick,
 		realtime.OperationPortalEnter,
 		realtime.OperationDiscoveryClaimPlanet,
 		realtime.OperationIntelShare,
