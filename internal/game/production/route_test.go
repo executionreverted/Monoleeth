@@ -385,3 +385,33 @@ func TestCreateRouteDuplicateRouteIDFailsWithoutOverwrite(t *testing.T) {
 		t.Fatalf("stored route = %+v, want original amount %d energy %d", stored, first.Route.AmountPerHour, first.Route.EnergyCostPerHour)
 	}
 }
+
+func TestCreateRouteRechecksCapacityInsideTransaction(t *testing.T) {
+	now := testRouteNow()
+	store := NewInMemoryStore()
+	ensureRouteProductionStateForTest(t, store, "planet-1", 100, now)
+	existing := validSettlementRoute(now)
+	existing.RouteID = "route-existing"
+	if _, err := store.insertAutomationRoute(existing); err != nil {
+		t.Fatalf("insertAutomationRoute(existing) error = %v, want nil", err)
+	}
+
+	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
+	provider.policy.CurrentRouteCount = 0
+	provider.policy.MaxRouteCount = 1
+	service := newTestRouteService(t, store, provider, now.Add(time.Minute))
+	input := validCreateRouteInput()
+	input.RouteID = "route-over-cap"
+
+	_, err := service.CreateRoute(input)
+	if !errors.Is(err, ErrRouteCapacityExceeded) {
+		t.Fatalf("CreateRoute(over cap) error = %v, want ErrRouteCapacityExceeded", err)
+	}
+	if _, ok, err := store.AutomationRoute(input.RouteID); err != nil || ok {
+		t.Fatalf("AutomationRoute(over cap) ok=%v err=%v, want missing nil", ok, err)
+	}
+	if _, ok, err := store.CommittedAutomationRouteDurableRecord(input.RouteID); err != nil || ok {
+		t.Fatalf("CommittedAutomationRouteDurableRecord(over cap) ok=%v err=%v, want missing nil", ok, err)
+	}
+	assertRouteEnergyReserved(t, store, existing.SourcePlanetID, existing.EnergyCostPerHour)
+}

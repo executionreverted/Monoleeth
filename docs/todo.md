@@ -312,8 +312,12 @@ for phase status; this file is a compact pending-work index.
   with settlement evidence, storage ledger rows, and outbox rows where
   mutations settle old terms. Phase07BR adds a server-owned per-player MVP
   route-slot cap to `route.create`, rejects client-authored route count/capacity
-  fields, and preserves existing-route updates at cap; durable race-proof quota
-  enforcement still needs the future route insert transaction/DB adapter.
+  fields, and preserves existing-route updates at cap. Phase07BU moves
+  `route.create` through an explicit route-create transaction boundary that
+  rechecks owner route-slot capacity under the insert lock before committing
+  the route row, route-create idempotency reference, source energy reservation,
+  and durable route record; real DB row locks/CAS and durable idempotency-table
+  enforcement remain open.
   Phase07BS wires enabled route upkeep into the source planet production energy
   budget in the in-memory store: create/enable reserve energy, disable releases
   after settlement, and update applies the enabled-route energy delta while

@@ -10,6 +10,7 @@ import (
 // clock, policy, and loss-roll dependencies.
 type AutomationRouteServiceConfig struct {
 	Store                 *InMemoryStore
+	CreateTransaction     RouteCreateTransactionStore
 	SettlementTransaction RouteSettlementTransactionStore
 	Clock                 foundation.Clock
 	Policy                RouteCreatePolicyProvider
@@ -19,6 +20,7 @@ type AutomationRouteServiceConfig struct {
 // AutomationRouteService owns the Phase 09 route creation and settlement boundary.
 type AutomationRouteService struct {
 	store                 *InMemoryStore
+	createTransaction     RouteCreateTransactionStore
 	settlementTransaction RouteSettlementTransactionStore
 	clock                 foundation.Clock
 	policy                RouteCreatePolicyProvider
@@ -30,6 +32,9 @@ type AutomationRouteService struct {
 func NewAutomationRouteService(config AutomationRouteServiceConfig) (*AutomationRouteService, error) {
 	if config.Store == nil {
 		config.Store = NewInMemoryStore()
+	}
+	if config.CreateTransaction == nil {
+		config.CreateTransaction = config.Store
 	}
 	if config.SettlementTransaction == nil {
 		config.SettlementTransaction = config.Store
@@ -45,6 +50,7 @@ func NewAutomationRouteService(config AutomationRouteServiceConfig) (*Automation
 	}
 	return &AutomationRouteService{
 		store:                 config.Store,
+		createTransaction:     config.CreateTransaction,
 		settlementTransaction: config.SettlementTransaction,
 		clock:                 config.Clock,
 		policy:                config.Policy,
@@ -55,7 +61,7 @@ func NewAutomationRouteService(config AutomationRouteServiceConfig) (*Automation
 // CreateRoute validates player intent against server-owned policy facts,
 // initializes timestamps from the server clock, and stores the route once.
 func (service *AutomationRouteService) CreateRoute(input CreateRouteInput) (CreateRouteResult, error) {
-	if service == nil || service.store == nil || service.clock == nil || service.policy == nil {
+	if service == nil || service.createTransaction == nil || service.clock == nil || service.policy == nil {
 		return CreateRouteResult{}, ErrInvalidRouteCreateConfig
 	}
 	if err := input.Validate(); err != nil {
@@ -79,13 +85,16 @@ func (service *AutomationRouteService) CreateRoute(input CreateRouteInput) (Crea
 	if err != nil {
 		return CreateRouteResult{}, err
 	}
-	stored, err := service.store.insertAutomationRoute(route)
+	stored, err := service.createTransaction.ApplyRouteCreateTransaction(RouteCreateTransactionInput{
+		Route:         route,
+		MaxRouteCount: policy.MaxRouteCount,
+	})
 	if err != nil {
 		return CreateRouteResult{}, err
 	}
 	return CreateRouteResult{
-		Route:   cloneAutomationRoute(stored),
-		Created: true,
+		Route:   cloneAutomationRoute(stored.Route),
+		Created: stored.Created,
 	}, nil
 }
 

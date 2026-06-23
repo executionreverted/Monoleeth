@@ -367,43 +367,13 @@ func (store *InMemoryStore) ensureMapsLocked() {
 }
 
 func (store *InMemoryStore) insertAutomationRoute(route AutomationRoute) (AutomationRoute, error) {
-	if err := route.Validate(); err != nil {
-		return AutomationRoute{}, err
-	}
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	store.ensureMapsLocked()
-
-	if _, ok := store.routes[route.RouteID]; ok {
-		return AutomationRoute{}, fmt.Errorf("route %q: %w", route.RouteID, ErrDuplicateRoute)
-	}
-	referenceKey, err := foundation.RouteCreateIdempotencyKey(route.OwnerPlayerID, route.RouteID)
+	result, err := store.ApplyRouteCreateTransaction(RouteCreateTransactionInput{
+		Route: route,
+	})
 	if err != nil {
 		return AutomationRoute{}, err
 	}
-	updatedSourceState, updateSourceState, err := store.prepareRouteEnergyReservationLocked(
-		route.SourcePlanetID,
-		0,
-		routeReservedEnergyCost(route),
-		route.CreatedAt,
-	)
-	if err != nil {
-		return AutomationRoute{}, err
-	}
-	if _, err := store.applyAutomationRouteDurableCommitPlanLocked(AutomationRouteDurableCommitPlan{
-		Route:                 route,
-		SourceProductionState: optionalRouteSourceProductionState(updatedSourceState, updateSourceState),
-		ReferenceKey:          referenceKey,
-		ExpectedRevision:      0,
-		RecordedAt:            route.CreatedAt,
-	}); err != nil {
-		return AutomationRoute{}, err
-	}
-	store.routes[route.RouteID] = cloneAutomationRoute(route)
-	if updateSourceState {
-		store.states[route.SourcePlanetID] = cloneProductionState(updatedSourceState)
-	}
-	return cloneAutomationRoute(route), nil
+	return cloneAutomationRoute(result.Route), nil
 }
 
 func (store *InMemoryStore) appendProductionEventLocked(eventType EventType, payload any, occurredAt time.Time) (gameevents.EventEnvelope, error) {

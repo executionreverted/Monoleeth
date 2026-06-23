@@ -408,8 +408,7 @@ Current slice completed:
   requirements error at capacity, and emits no route events on rejection.
   `route.update` still reuses route policy for endpoint/risk/energy facts but
   does not enforce create-slot capacity, so players at cap can edit existing
-  routes. Durable race-proof quota enforcement still belongs in the future
-  route insert transaction/DB adapter.
+  routes.
 - Phase07BS route energy-upkeep follow-up: enabled automation routes now reserve
   their server-derived `energy_cost_per_hour` against the source planet
   production state's `energy_reserved_per_hour`. `route.create` and
@@ -428,6 +427,14 @@ Current slice completed:
   detached evidence for future DB adapters. Pure route settlement cursor
   commits still omit source production state because they do not change route
   energy reservation.
+- Phase07BU route-create transaction follow-up:
+  `route.create` now goes through an explicit `RouteCreateTransactionStore`
+  boundary. The in-memory adapter rechecks the owner route cap against
+  authoritative route rows under the route insert lock, then commits the route
+  row, route-create idempotency reference, source energy reservation, and
+  durable route record together. This closes the process-local stale
+  `CurrentRouteCount` race class; real DB row locks/CAS and durable
+  idempotency-table enforcement remain future adapter work.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -982,6 +989,8 @@ Mockup areas covered:
 - [x] Runtime route create/update/enable/disable writes durable route-row
       snapshots with server-derived idempotency references and revision
       advancement.
+- [x] Runtime route.create uses a transaction boundary that rechecks owner
+      route-slot capacity under the insert lock before committing route rows.
 - [x] Pure route settlement writes durable route-row cursor snapshots with the
       server-derived route settlement idempotency reference.
 - [x] Route settlement durable commit bundles include the committed route-row
