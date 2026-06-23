@@ -180,9 +180,13 @@ for phase status; this file is a compact pending-work index.
   Phase07 now also proves the authenticated gateway retry path repairs a
   claim whose first attempt committed owner/X Core debit but failed before
   production initialization, returning initialized production/detail/inventory
-  payloads without a second X Core debit. Real durable claim/production DB
-  rows, cross-service row locks/CAS, an atomic claim/production transaction,
-  and scheduled recovery workers remain open.
+  payloads without a second X Core debit. Phase07CX repairs missing live
+  production/storage read-model rows from committed claim production-init
+  evidence during duplicate gateway retries, so a process-local production
+  store loss still returns real production payloads without a second X Core
+  debit. Real durable claim/production DB rows, cross-service row locks/CAS, an
+  atomic claim/production transaction, and scheduled recovery workers remain
+  open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory

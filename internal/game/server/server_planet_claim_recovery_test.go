@@ -89,6 +89,52 @@ func TestClaimPlanetGatewayRetryRepairsMissingProductionInitialization(t *testin
 	requireEventTypeForTest(t, events, realtime.EventInventorySnapshot)
 }
 
+func TestClaimPlanetDuplicateRetryRepairsMissingProductionLiveState(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "claim-live-state-repair@example.com", "Claim Live State Repair")
+	planetID := foundation.PlanetID("claim-live-state-repair-planet")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 120, Y: 0}, 1)
+	grantClaimXCoreForTest(t, gameServer, owner.PlayerID, 1, "claim-live-state-repair-xcore")
+
+	first := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-live-state-first", planetID)
+	if first.HasError {
+		t.Fatalf("first claim response error = %+v, want success", first.Error)
+	}
+	claimReference, err := planetClaimReference(owner.PlayerID, planetID)
+	if err != nil {
+		t.Fatalf("planetClaimReference: %v", err)
+	}
+
+	gameServer.runtime.Production = production.NewInMemoryStore()
+	if _, ok, err := gameServer.runtime.Production.Snapshot(planetID); err != nil || ok {
+		t.Fatalf("production snapshot after live-state loss = ok %v err %v, want missing", ok, err)
+	}
+
+	repaired := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-live-state-retry", planetID)
+	if repaired.HasError {
+		t.Fatalf("retry claim response error = %+v, want repaired success", repaired.Error)
+	}
+	payload := decodePlanetClaimResponseForTest(t, repaired.Response.Payload)
+	if !payload.Claim.Accepted || !payload.Claim.Duplicate || !payload.Claim.ProductionIncluded {
+		t.Fatalf("retry claim payload = %+v, want duplicate accepted with recovered production", payload.Claim)
+	}
+	if len(payload.Production.Planets) != 1 ||
+		payload.Production.Planets[0].PlanetID != planetID.String() ||
+		!payload.Production.Planets[0].ProductionEnabled ||
+		payload.Production.Planets[0].Storage.CapacityUnits == 0 {
+		t.Fatalf("retry production payload = %+v, want rebuilt live production", payload.Production)
+	}
+	if _, ok, err := gameServer.runtime.Production.Snapshot(planetID); err != nil || !ok {
+		t.Fatalf("production snapshot after repair = ok %v err %v, want present", ok, err)
+	}
+	if initPlan, ok, err := gameServer.runtime.ClaimProductionInitializations.CommittedClaimProductionInitializationDurablePlan(claimReference); err != nil || !ok || initPlan.Boundary.Status != discovery.ClaimBoundaryStatusComplete {
+		t.Fatalf("production init durable plan after live repair = %+v ok %v err %v, want complete", initPlan, ok, err)
+	}
+	if got := claimXCoreDecreaseLedgerCountForTest(gameServer, owner.PlayerID); got != 1 {
+		t.Fatalf("x_core debit after live repair = %d, want still one", got)
+	}
+}
+
 type flakyClaimProductionInitializerForTest struct {
 	inner *production.ClaimProductionInitializer
 	err   error
