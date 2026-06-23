@@ -833,6 +833,7 @@ type RoutePendingMatch = {
   route_id: string;
   source_planet_id: string;
   destination: {
+    type: string;
     id: string;
   };
   resource_item_id: string;
@@ -858,9 +859,13 @@ function pendingRouteUpdatedMatches(op: string, payload: EventEnvelope['payload'
   if (op !== OPERATIONS.routeCreate || !payload) {
     return false;
   }
+  const pendingDestinationType = stringField(payload, 'destination_type') ?? 'planet';
+  const pendingDestinationID = stringField(payload, 'destination_id') ?? stringField(payload, 'destination_planet_id') ?? '';
+  const routeDestinationIDMatches = route.destination.id === pendingDestinationID || (route.destination.type !== 'planet' && route.destination.id === '');
   return (
     stringField(payload, 'source_planet_id') === route.source_planet_id &&
-    stringField(payload, 'destination_planet_id') === route.destination.id &&
+    route.destination.type === pendingDestinationType &&
+    routeDestinationIDMatches &&
     stringField(payload, 'resource_item_id') === route.resource_item_id
   );
 }

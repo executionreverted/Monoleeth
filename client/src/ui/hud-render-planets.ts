@@ -1,4 +1,5 @@
 import { OPERATIONS } from '../protocol/envelope';
+import type { RouteDestinationInput } from '../protocol/commands';
 import type { ClientState, KnownPlanetSummary, RouteSummary } from '../state/types';
 import { escapeHTML, formatVec, hasPendingOpPayloadField, lockedValue, publicPlanetName, realtimeReady } from './hud-formatters';
 import { hudSelection } from './hud-selection';
@@ -280,7 +281,7 @@ function routeControlsPanel(
   routes: RouteSummary[],
 ): string {
   const ownedSource = isOwnedPlanet(source);
-  const endpoints = ownedRouteEndpoints(state, source.planet_id);
+  const endpoints = routeEndpointOptionsForState(state, source.planet_id, routes);
   const resources = routeableStorageResources(production, routes);
   const createPending = hasPendingOpPayloadField(state, OPERATIONS.routeCreate, 'source_planet_id', source.planet_id);
   const controlsReady = realtimeReady(state) && ownedSource;
@@ -310,7 +311,7 @@ function routeControlsPanel(
     <div class="route-controls">
       <div class="route-create" data-route-create-control="true" data-route-source-planet-id="${escapeHTML(source.planet_id)}">
         <select data-route-create-destination ${createEnabled ? '' : 'disabled'} aria-label="Route destination">
-          ${routeEndpointOptions(endpoints, endpoints[0]?.planet_id ?? '')}
+          ${routeEndpointOptions(endpoints, endpoints[0] ? routeEndpointValue(endpoints[0]) : '')}
         </select>
         <select data-route-create-resource ${createEnabled ? '' : 'disabled'} aria-label="Route resource">
           ${resourceOptions(resources, resources[0] ?? '')}
@@ -389,7 +390,7 @@ function buildingControlRow(
 function routeControlRow(
   state: ClientState,
   route: RouteSummary,
-  endpoints: KnownPlanetSummary[],
+  endpoints: RouteEndpointOption[],
   resources: string[],
   selected: boolean,
 ): string {
@@ -398,7 +399,7 @@ function routeControlRow(
   const controlsReady = realtimeReady(state) && !routePending;
   const controlAction = route.enabled ? 'route-disable' : 'route-enable';
   const controlLabel = route.enabled ? 'Disable' : 'Enable';
-  const endpointOptions = routeEndpointOptions(endpoints, route.destination.id);
+  const endpointOptions = routeEndpointOptions(endpoints, routeEndpointValue(route.destination));
   const mergedResources = resources.includes(route.resource_item_id) ? resources : [route.resource_item_id, ...resources];
   const resourceSelect = resourceOptions(mergedResources, route.resource_item_id);
   const updateEnabled = controlsReady && endpoints.length > 0 && mergedResources.length > 0;
@@ -422,8 +423,33 @@ function selectedRouteFor(routes: RouteSummary[]): RouteSummary | null {
   return routes[0] ?? null;
 }
 
-function ownedRouteEndpoints(state: ClientState, sourcePlanetID: string): KnownPlanetSummary[] {
-  return state.planetIntel?.planets.filter((planet) => planet.planet_id !== sourcePlanetID && isOwnedPlanet(planet)) ?? [];
+type RouteEndpointOption = RouteDestinationInput & { label: string };
+
+function routeEndpointOptionsForState(state: ClientState, sourcePlanetID: string, routes: RouteSummary[]): RouteEndpointOption[] {
+  const endpoints: RouteEndpointOption[] =
+    state.planetIntel?.planets
+      .filter((planet) => planet.planet_id !== sourcePlanetID && isOwnedPlanet(planet))
+      .map((planet) => ({
+        type: 'planet',
+        id: planet.planet_id,
+        label: publicPlanetName(planet),
+      })) ?? [];
+  const seen = new Set(endpoints.map(routeEndpointValue));
+  for (const route of routes) {
+    if ((route.destination.type === 'storage' || route.destination.type === 'station') && route.destination.id) {
+      const endpoint = {
+        type: route.destination.type,
+        id: route.destination.id,
+        label: route.destination.type,
+      } satisfies RouteEndpointOption;
+      const value = routeEndpointValue(endpoint);
+      if (!seen.has(value)) {
+        seen.add(value);
+        endpoints.push(endpoint);
+      }
+    }
+  }
+  return endpoints;
 }
 
 function routeableStorageResources(
@@ -447,16 +473,20 @@ function routeableStorageResources(
   return resources;
 }
 
-function routeEndpointOptions(planets: KnownPlanetSummary[], selectedPlanetID: string): string {
-  if (planets.length === 0) {
+function routeEndpointOptions(endpoints: RouteEndpointOption[], selectedValue: string): string {
+  if (endpoints.length === 0) {
     return '<option value="">No endpoint</option>';
   }
-  return planets
+  return endpoints
     .map(
-      (planet) =>
-        `<option value="${escapeHTML(planet.planet_id)}" ${planet.planet_id === selectedPlanetID ? 'selected' : ''}>${escapeHTML(publicPlanetName(planet))}</option>`,
+      (endpoint) =>
+        `<option value="${escapeHTML(routeEndpointValue(endpoint))}" ${routeEndpointValue(endpoint) === selectedValue ? 'selected' : ''}>${escapeHTML(endpoint.label)}</option>`,
     )
     .join('');
+}
+
+function routeEndpointValue(endpoint: { type: string; id: string }): string {
+  return endpoint.type === 'planet' ? endpoint.id : `${endpoint.type}:${endpoint.id}`;
 }
 
 function resourceOptions(resources: string[], selectedResource: string): string {

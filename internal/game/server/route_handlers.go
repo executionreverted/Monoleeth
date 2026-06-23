@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
@@ -14,10 +15,10 @@ import (
 const runtimeRouteCreateMaxRoutesPerPlayer = 3
 
 type routeCreateIntent struct {
-	SourcePlanetID      string `json:"source_planet_id"`
-	DestinationPlanetID string `json:"destination_planet_id"`
-	ResourceItemID      string `json:"resource_item_id"`
-	AmountPerHour       int64  `json:"amount_per_hour"`
+	SourcePlanetID string `json:"source_planet_id"`
+	routeDestinationIntent
+	ResourceItemID string `json:"resource_item_id"`
+	AmountPerHour  int64  `json:"amount_per_hour"`
 }
 
 func (runtime *Runtime) handleRouteCreate(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -33,8 +34,6 @@ func (runtime *Runtime) handleRouteCreate(ctx realtime.CommandContext, request r
 		"route_id",
 		"source_map_id",
 		"destination",
-		"destination_id",
-		"destination_type",
 		"destination_map_id",
 		"from_public_map_key",
 		"to_public_map_key",
@@ -74,17 +73,13 @@ func (runtime *Runtime) handleRouteCreate(ctx realtime.CommandContext, request r
 	if err != nil {
 		return nil, invalidPayload("Source planet is invalid.", err)
 	}
-	destinationPlanetID, err := foundation.ParsePlanetID(intent.DestinationPlanetID)
-	if err != nil {
-		return nil, invalidPayload("Destination planet is invalid.", err)
-	}
 	resourceItemID, err := foundation.ParseItemID(intent.ResourceItemID)
 	if err != nil {
 		return nil, invalidPayload("Route resource is invalid.", err)
 	}
-	destination, err := production.NewPlanetRouteDestination(destinationPlanetID)
+	destination, err := parseRouteDestinationIntent(intent.routeDestinationIntent)
 	if err != nil {
-		return nil, invalidPayload("Route destination is invalid.", err)
+		return nil, err
 	}
 	routeID, err := foundation.ParseRouteID("route-" + request.RequestID.String())
 	if err != nil {
@@ -150,29 +145,11 @@ func (provider runtimeRouteCreatePolicyProvider) RouteCreatePolicy(input product
 	if !ok || source.OwnerPlayerID != input.OwnerPlayerID {
 		return production.RouteCreatePolicy{}, production.ErrRouteSourceNotOwned
 	}
-	if input.Destination.Type != production.RouteDestinationTypePlanet {
-		return production.RouteCreatePolicy{}, production.ErrRouteDestinationNotAccessible
-	}
-	destinationPlanetID, err := foundation.ParsePlanetID(input.Destination.ID.String())
-	if err != nil {
-		return production.RouteCreatePolicy{}, production.ErrRouteDestinationNotAccessible
-	}
-	destination, ok, err := provider.runtime.Discovery.Planet(destinationPlanetID)
-	if err != nil {
-		return production.RouteCreatePolicy{}, err
-	}
-	if !ok || destination.OwnerPlayerID != input.OwnerPlayerID {
-		return production.RouteCreatePolicy{}, production.ErrRouteDestinationNotAccessible
-	}
-	if source.WorldID != destination.WorldID {
-		return production.RouteCreatePolicy{}, production.ErrRouteDestinationNotAccessible
-	}
-
 	sourceMapID, err := routeMapIDForPlanet(provider.runtime.mapCatalog, source.WorldID, source.ZoneID)
 	if err != nil {
 		return production.RouteCreatePolicy{}, err
 	}
-	destinationMapID, err := routeMapIDForPlanet(provider.runtime.mapCatalog, destination.WorldID, destination.ZoneID)
+	destinationMapID, distance, err := provider.routeDestinationPolicyFacts(input, source, sourceMapID)
 	if err != nil {
 		return production.RouteCreatePolicy{}, err
 	}
@@ -184,10 +161,6 @@ func (provider runtimeRouteCreatePolicyProvider) RouteCreatePolicy(input product
 		return production.RouteCreatePolicy{}, err
 	}
 
-	distance := source.Coordinates.Distance(destination.Coordinates)
-	if sourceMapID != destinationMapID {
-		distance += 1000
-	}
 	return production.RouteCreatePolicy{
 		SourcePlanetOwned:     true,
 		DestinationAccessible: true,
@@ -203,6 +176,49 @@ func (provider runtimeRouteCreatePolicyProvider) RouteCreatePolicy(input product
 		MinLossPercent:        0,
 		MaxLossPercent:        0,
 	}, nil
+}
+
+func (provider runtimeRouteCreatePolicyProvider) routeDestinationPolicyFacts(
+	input production.RouteCreatePolicyInput,
+	source discovery.Planet,
+	sourceMapID production.RouteMapID,
+) (production.RouteMapID, float64, error) {
+	if input.Destination.Type == production.RouteDestinationTypePlanet {
+		destinationPlanetID, err := foundation.ParsePlanetID(input.Destination.ID.String())
+		if err != nil {
+			return "", 0, production.ErrRouteDestinationNotAccessible
+		}
+		destination, ok, err := provider.runtime.Discovery.Planet(destinationPlanetID)
+		if err != nil {
+			return "", 0, err
+		}
+		if !ok || destination.OwnerPlayerID != input.OwnerPlayerID {
+			return "", 0, production.ErrRouteDestinationNotAccessible
+		}
+		if source.WorldID != destination.WorldID {
+			return "", 0, production.ErrRouteDestinationNotAccessible
+		}
+		destinationMapID, err := routeMapIDForPlanet(provider.runtime.mapCatalog, destination.WorldID, destination.ZoneID)
+		if err != nil {
+			return "", 0, err
+		}
+		distance := source.Coordinates.Distance(destination.Coordinates)
+		if sourceMapID != destinationMapID {
+			distance += 1000
+		}
+		return destinationMapID, distance, nil
+	}
+
+	destinationStorageID, err := production.RouteSettlementDestinationStorageID(input.Destination)
+	if err != nil {
+		return "", 0, err
+	}
+	if _, ok, err := provider.runtime.Production.PlanetStorage(destinationStorageID); err != nil {
+		return "", 0, err
+	} else if !ok {
+		return "", 0, production.ErrRouteDestinationStorageMissing
+	}
+	return sourceMapID, 0, nil
 }
 
 func routeMapIDForPlanet(catalog *worldmaps.Catalog, worldID foundation.WorldID, zoneID foundation.ZoneID) (production.RouteMapID, error) {

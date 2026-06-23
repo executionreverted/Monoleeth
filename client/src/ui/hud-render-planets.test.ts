@@ -462,6 +462,19 @@ describe('route controls', () => {
     expect(html).toContain('No resource');
     expect(html).toContain('No routes for this planet.');
   });
+
+  test('route destination controls preserve typed non-planet endpoint values when supplied by state', () => {
+    const state = planetRouteState();
+    state.routes!.routes[0].destination = { type: 'storage', id: 'storage-alpha' };
+    state.planetIntel!.selectedPlanet!.routes![0].destination = { type: 'storage', id: 'storage-alpha' };
+
+    const html = planetDetailModal(state, 'planet-source');
+
+    expect(html).toContain('value="storage:storage-alpha" selected');
+    expect(html).toContain('>storage</option>');
+    expect(html).not.toContain('destination_id');
+    expect(html).not.toContain('destination_map_id');
+  });
 });
 
 describe('planet building controls', () => {

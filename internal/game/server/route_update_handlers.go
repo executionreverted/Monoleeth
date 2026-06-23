@@ -11,10 +11,10 @@ import (
 )
 
 type routeUpdateIntent struct {
-	RouteID             string `json:"route_id"`
-	DestinationPlanetID string `json:"destination_planet_id"`
-	ResourceItemID      string `json:"resource_item_id"`
-	AmountPerHour       int64  `json:"amount_per_hour"`
+	RouteID string `json:"route_id"`
+	routeDestinationIntent
+	ResourceItemID string `json:"resource_item_id"`
+	AmountPerHour  int64  `json:"amount_per_hour"`
 }
 
 var routeUpdateServerOwnedPayloadKeys = []string{
@@ -34,8 +34,6 @@ var routeUpdateServerOwnedPayloadKeys = []string{
 	"source_public_map_key",
 	"from_public_map_key",
 	"destination",
-	"destination_id",
-	"destination_type",
 	"destination_map",
 	"destination_map_id",
 	"destination_map_key",
@@ -97,17 +95,13 @@ func (runtime *Runtime) handleRouteUpdate(ctx realtime.CommandContext, request r
 	if err != nil {
 		return nil, invalidPayload("Route id is invalid.", err)
 	}
-	destinationPlanetID, err := foundation.ParsePlanetID(intent.DestinationPlanetID)
-	if err != nil {
-		return nil, invalidPayload("Destination planet is invalid.", err)
-	}
 	resourceItemID, err := foundation.ParseItemID(intent.ResourceItemID)
 	if err != nil {
 		return nil, invalidPayload("Route resource is invalid.", err)
 	}
-	destination, err := production.NewPlanetRouteDestination(destinationPlanetID)
+	destination, err := parseRouteDestinationIntent(intent.routeDestinationIntent)
 	if err != nil {
-		return nil, invalidPayload("Route destination is invalid.", err)
+		return nil, err
 	}
 
 	service, err := production.NewAutomationRouteService(production.AutomationRouteServiceConfig{

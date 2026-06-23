@@ -546,6 +546,27 @@ describe('default outbound operations', () => {
       'amount_per_hour',
     ]);
 
+    const createStorage = builder.routeCreate({
+      sourcePlanetID: 'planet-source',
+      destination: { type: 'storage', id: 'storage-alpha' },
+      resourceItemID: 'refined_alloy',
+      amountPerHour: 12.8,
+    });
+    expect(createStorage.payload).toEqual({
+      source_planet_id: 'planet-source',
+      destination_type: 'storage',
+      destination_id: 'storage-alpha',
+      resource_item_id: 'refined_alloy',
+      amount_per_hour: 13,
+    });
+    expect(Object.keys(createStorage.payload)).toEqual([
+      'source_planet_id',
+      'destination_type',
+      'destination_id',
+      'resource_item_id',
+      'amount_per_hour',
+    ]);
+
     const update = builder.routeUpdate({
       routeID: 'route-alpha',
       destinationPlanetID: 'planet-new-destination',
@@ -562,6 +583,27 @@ describe('default outbound operations', () => {
     expect(Object.keys(update.payload)).toEqual([
       'route_id',
       'destination_planet_id',
+      'resource_item_id',
+      'amount_per_hour',
+    ]);
+
+    const updateStation = builder.routeUpdate({
+      routeID: 'route-alpha',
+      destination: { type: 'station', id: 'station-alpha' },
+      resourceItemID: 'raw_ore',
+      amountPerHour: 76.2,
+    });
+    expect(updateStation.payload).toEqual({
+      route_id: 'route-alpha',
+      destination_type: 'station',
+      destination_id: 'station-alpha',
+      resource_item_id: 'raw_ore',
+      amount_per_hour: 76,
+    });
+    expect(Object.keys(updateStation.payload)).toEqual([
+      'route_id',
+      'destination_type',
+      'destination_id',
       'resource_item_id',
       'amount_per_hour',
     ]);

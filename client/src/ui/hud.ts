@@ -1,4 +1,5 @@
 import type { ClientState } from '../state/types';
+import type { RouteDestinationInput } from '../protocol/commands';
 import { markHUDInputSuppressed, pointerTargetOwnsUI, worldKeyboardShortcutAllowed } from '../input/world-input-authority';
 import { renderToast } from './toast';
 import { hudSelection } from './hud-selection';
@@ -527,19 +528,31 @@ export class HUD {
         case 'route-create': {
           const control = button.closest<HTMLElement>('[data-route-create-control]');
           const sourcePlanetID = button.dataset.sourcePlanetId ?? control?.dataset.routeSourcePlanetId ?? '';
-          const destinationPlanetID = routeControlValue(control, '[data-route-create-destination]');
+          const destination = routeDestinationFromControlValue(routeControlValue(control, '[data-route-create-destination]'));
           const resourceItemID = routeControlValue(control, '[data-route-create-resource]');
           const amountPerHour = Number(routeControlValue(control, '[data-route-rate]'));
-          this.handlers.onRouteCreate({ sourcePlanetID, destinationPlanetID, resourceItemID, amountPerHour });
+          this.handlers.onRouteCreate({
+            sourcePlanetID,
+            destinationPlanetID: destination.type === 'planet' ? destination.id : undefined,
+            destination,
+            resourceItemID,
+            amountPerHour,
+          });
           break;
         }
         case 'route-update': {
           const control = button.closest<HTMLElement>('[data-route-update-control]');
           const routeID = button.dataset.routeId ?? control?.dataset.routeId ?? '';
-          const destinationPlanetID = routeControlValue(control, '[data-route-update-destination]');
+          const destination = routeDestinationFromControlValue(routeControlValue(control, '[data-route-update-destination]'));
           const resourceItemID = routeControlValue(control, '[data-route-update-resource]');
           const amountPerHour = Number(routeControlValue(control, '[data-route-rate]'));
-          this.handlers.onRouteUpdate({ routeID, destinationPlanetID, resourceItemID, amountPerHour });
+          this.handlers.onRouteUpdate({
+            routeID,
+            destinationPlanetID: destination.type === 'planet' ? destination.id : undefined,
+            destination,
+            resourceItemID,
+            amountPerHour,
+          });
           break;
         }
         case 'route-enable':
@@ -1278,4 +1291,16 @@ export class HUD {
 function routeControlValue(container: HTMLElement | null | undefined, selector: string): string {
   const control = container?.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
   return control?.value ?? '';
+}
+
+function routeDestinationFromControlValue(value: string): RouteDestinationInput {
+  const [rawType, ...rest] = value.split(':');
+  const typedID = rest.join(':');
+  if ((rawType === 'storage' || rawType === 'station') && typedID) {
+    return { type: rawType, id: typedID };
+  }
+  if (rawType === 'planet' && typedID) {
+    return { type: 'planet', id: typedID };
+  }
+  return { type: 'planet', id: value };
 }

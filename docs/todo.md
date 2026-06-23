@@ -645,8 +645,10 @@ for phase status; this file is a compact pending-work index.
   boundary, and route settlement transfers into the named storage aggregate
   with normal route ledger, durable route-row, reference/window, and outbox
   evidence. Phase07BY extends the same adapter contract to `station`
-  destinations while adding public gateway guardrails so browser route
-  create/update still cannot author non-planet endpoints. Phase07BZ proves
+  destinations. Phase07CG opens public route create/update for typed
+  storage/station intent when the named endpoint storage aggregate already
+  exists, keeps nested/server-owned destination facts rejected, and continues
+  masking non-planet destination ids from route payloads. Phase07BZ proves
   existing owner-scoped storage/station routes can settle through the
   authenticated `route.settle` gateway with safe payloads/events, masking
   storage/station aggregate IDs while preserving public destination type, and

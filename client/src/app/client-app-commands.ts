@@ -3,6 +3,7 @@ import { resolvePlanetNavigationTarget } from './planet-navigation';
 import { activeEntityMovement, boundedMovementTarget, currentEntityPosition, distanceBetween, LONG_RANGE_MOVE_STEP_UNITS } from '../state/movement';
 import { isAttackableVisibleTarget } from '../state/target-eligibility';
 import { CLIENT_EVENTS, EntityPayload, Operation, OPERATIONS, RequestEnvelope, Vec2 } from '../protocol/envelope';
+import type { RouteDestinationInput } from '../protocol/commands';
 import {
   ClientAppCore,
   DemoStateModule,
@@ -364,15 +365,17 @@ export abstract class ClientAppCommands extends ClientAppCore {
 
   protected sendRouteCreate(input: {
     sourcePlanetID: string;
-    destinationPlanetID: string;
+    destinationPlanetID?: string;
+    destination?: RouteDestinationInput;
     resourceItemID: string;
     amountPerHour: number;
   }): void {
-    if (!input.sourcePlanetID || !input.destinationPlanetID || !input.resourceItemID) {
+    const destinationKey = routeDestinationKey(input);
+    if (!input.sourcePlanetID || !destinationKey || !input.resourceItemID) {
       return;
     }
     this.sendGuardedGameplayCommand(
-      `route-create:${input.sourcePlanetID}:${input.destinationPlanetID}:${input.resourceItemID}`,
+      `route-create:${input.sourcePlanetID}:${destinationKey}:${input.resourceItemID}`,
       () => this.commandBuilder.routeCreate(input),
       'Route create already pending.',
     );
@@ -380,11 +383,12 @@ export abstract class ClientAppCommands extends ClientAppCore {
 
   protected sendRouteUpdate(input: {
     routeID: string;
-    destinationPlanetID: string;
+    destinationPlanetID?: string;
+    destination?: RouteDestinationInput;
     resourceItemID: string;
     amountPerHour: number;
   }): void {
-    if (!input.routeID || !input.destinationPlanetID || !input.resourceItemID) {
+    if (!input.routeID || !routeDestinationKey(input) || !input.resourceItemID) {
       return;
     }
     this.sendGuardedGameplayCommand(
@@ -608,6 +612,13 @@ export abstract class ClientAppCommands extends ClientAppCore {
     }
   }
 
+}
+
+function routeDestinationKey(input: { destinationPlanetID?: string; destination?: RouteDestinationInput }): string {
+  if (input.destination?.type && input.destination.id) {
+    return `${input.destination.type}:${input.destination.id}`;
+  }
+  return input.destinationPlanetID ? `planet:${input.destinationPlanetID}` : '';
 }
 
 function movementEtaFromStats(distance: number, speed: number | null): number | null {
