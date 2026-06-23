@@ -558,7 +558,8 @@ for phase status; this file is a compact pending-work index.
   `iron_extractor` with server-owned production reconciliation; the
   single-process built-client playtest proof now extends
   `GAME_PLAYTEST_SEED=true` through real browser starter combat, loot pickup,
-  HUD scan, HUD planet claim, production initialization, and route
+  HUD scan, HUD planet claim, production initialization, real HUD building
+  build, and route
   create/settle, then transfers through `east_gate` to public `1-2` and proves
   destination-map combat/drop/pickup with DOM/state/storage/WebSocket/log leak
   canaries. The focused built-client `e2e:phase10-pvp-map-drop` proof now

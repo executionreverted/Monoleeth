@@ -158,6 +158,28 @@ async function main() {
     );
     await assertNoLeak(client, claimed, 'playtest claim');
 
+    await resetWebSocketFrames(client);
+    await clickFirstEnabled(client, `button[data-action="planet-building-build"][data-planet-id=${cssString(planetID)}]`, 'Building build');
+    const buildingID = `${planetID}-building-iron_extractor-alpha`;
+    const buildingFrames = await waitForOperation(
+      client,
+      'planet.building_build',
+      (payload) => payload.planet_id === planetID && payload.building_type === 'iron_extractor' && payload.slot === 'alpha',
+      15000,
+    );
+    assertExactKeys(buildingFrames.request.payload, ['planet_id', 'building_type', 'slot'], 'planet.building_build request');
+    assertBuildingBuildResponsePayload(buildingFrames.response.payload, planetID, buildingID);
+    const withBuilding = await waitSmoke(
+      client,
+      (state) =>
+        productionBuilding(state, planetID, buildingID)?.level === 1 &&
+        !hasPendingOp(state, 'planet.building_build') &&
+        !hasUnhandledEventLog(state),
+      'playtest building build reconciliation',
+      15000,
+    );
+    await assertNoLeak(client, withBuilding, 'playtest building build');
+
     await closeModalIfOpen(client);
     await page.locator(`button[data-action="planet-detail"][data-planet-id=${cssString(sourceID)}]`).first().click();
     await waitSmoke(
@@ -217,7 +239,7 @@ async function main() {
     assertProcessLogCanary([goServer]);
 
     console.log(
-      `playtest-server smoke ok source=${sourceID} destination=${destinationID} route=${routeID} portal=1-2 destination_drop=ok screenshot=${assetScreenshotPath}`,
+      `playtest-server smoke ok source=${sourceID} destination=${destinationID} building=${buildingID} route=${routeID} portal=1-2 destination_drop=ok screenshot=${assetScreenshotPath}`,
     );
   } finally {
     if (context) await context.close().catch(() => {});
@@ -648,6 +670,16 @@ function assertClaimResponsePayload(payload, planetID) {
   assertNoPayloadLeak(payload, 'claim response');
 }
 
+function assertBuildingBuildResponsePayload(payload, planetID, buildingID) {
+  assert(payload?.building?.planet_id === planetID, `building planet mismatch ${compact(payload)}`);
+  assert(payload.building?.building_id === buildingID, `building id mismatch ${compact(payload.building)}`);
+  assert(payload.building?.building_type === 'iron_extractor', `building type mismatch ${compact(payload.building)}`);
+  assert(payload.building?.level === 1, `building level mismatch ${compact(payload.building)}`);
+  assert((payload.production?.planets ?? []).some((planet) => productionBuilding({ production: payload.production }, planetID, buildingID)), `building response missing production ${compact(payload.production)}`);
+  assert(payload.wallet && typeof payload.wallet.credits === 'number', `building response missing wallet ${compact(payload.wallet)}`);
+  assertNoPayloadLeak(payload, 'building build response');
+}
+
 function assertPortalResponsePayload(payload, expectedMapKey, expectedDisplay) {
   assert(payload.accepted === true, `portal accepted missing ${compact(payload)}`);
   assert(payload.to_public_map_key === expectedMapKey, `portal destination ${payload.to_public_map_key}, want ${expectedMapKey}`);
@@ -718,6 +750,12 @@ function productionInitialized(state, planetID) {
     state?.production?.planets?.some((planet) => planet.planet_id === planetID && planet.storage && planet.energy_capacity_per_hour > 0) ||
     state?.planetIntel?.selectedPlanet?.production?.planet_id === planetID
   );
+}
+
+function productionBuilding(state, planetID, buildingID) {
+  return state?.production?.planets
+    ?.find((planet) => planet.planet_id === planetID)
+    ?.buildings?.find((building) => building.building_id === buildingID) ?? null;
 }
 
 function selfEntity(state) {
