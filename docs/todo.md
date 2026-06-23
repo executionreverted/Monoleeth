@@ -427,6 +427,10 @@ for phase status; this file is a compact pending-work index.
   events, and snapshots reconcile the selected planet route cache from the same
   server-owned list as the global route cache, so durable route-list recovery
   cannot leave the owned-planet panel stale after live read-model loss.
+  Phase07CY adds focused domain proof that source-empty route settlements still
+  commit settlement reference/window evidence, advance the durable route row,
+  enqueue source-empty plus settled outbox rows, and avoid storage ledger rows
+  because no units moved.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10

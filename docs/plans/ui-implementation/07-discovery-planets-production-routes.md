@@ -553,8 +553,14 @@ Current slice completed:
   readback as route settlement when the live route read model is missing. After
   live row loss, the owner still receives a safe public-map route snapshot from
   committed durable evidence, while non-owners receive the same leak-safe
-  not-found response. Durable DB route rows and cross-process enforcement remain
-  open.
+  not-found response.
+- Phase07CY route source-empty settlement follow-up:
+  Source-empty route settlement now has focused durable-boundary regression
+  coverage: the zero-transfer settlement advances the route cursor, records
+  settlement reference/window evidence, commits the durable route row, enqueues
+  source-empty plus settled outbox rows, and writes no storage ledger rows
+  because no material moved. Durable DB rows and cross-process idempotency
+  enforcement remain open.
 - Phase07CB durable outbox retry follow-up:
   Claim, settlement/route, and building durable outbox publisher contracts now
   expose an explicit retry-failed boundary. Runtime drains do not auto-retry by
