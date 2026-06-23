@@ -154,6 +154,9 @@ trusted-payload rejection, and shield-only mutation.
 The bundle-scan proof rejects accidental inclusion of oversized source entity
 asset filenames such as `Nebula_Vanguard`/`spin_512` and enforces a default
 deploy artifact size ceiling.
+The release-package proof now scans the packaged `client-dist` directory as a
+final artifact root, so a copied release cannot bypass the bundle/leak/size
+guard.
 
 The playtest asset screenshot proof writes:
 

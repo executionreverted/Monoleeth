@@ -61,6 +61,9 @@ The package test is:
 scripts/test_playtest_release_package.sh
 ```
 
+This test builds a release, checks the required server/client/runbook files,
+and scans the packaged `client-dist` root with `client/tests/bundle-scan.mjs`.
+
 For source-tree runs without a package, run the server with an explicit static
 artifact directory and externally reachable bind address:
 

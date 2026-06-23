@@ -70,4 +70,9 @@ if ! grep -q 'GAME_ALLOWED_ORIGINS' "$release_dir/run.sh"; then
   exit 1
 fi
 
+(
+  cd client
+  GAME_ARTIFACT_SCAN_ROOTS="$release_dir/client-dist" node tests/bundle-scan.mjs >/dev/null
+)
+
 echo "playtest release package test passed"
