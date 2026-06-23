@@ -462,6 +462,33 @@ describe('route controls', () => {
     expect(html).toContain('No resource');
     expect(html).toContain('No routes for this planet.');
   });
+
+  test('route rows render server-owned settlement outcome flags', () => {
+    const state = planetRouteState();
+    state.planetIntel!.selectedPlanet!.routes[0].last_settlement = {
+      route_id: 'route-1',
+      resource_item_id: 'refined_alloy',
+      settled_at: 1800,
+      elapsed_applied_ms: 3_600_000,
+      wanted_amount: 40,
+      taken_amount: 10,
+      lost_amount: 3,
+      delivered_amount: 7,
+      added_amount: 0,
+      source_empty: true,
+      destination_full: true,
+      loss_applied: true,
+      no_op: true,
+    };
+
+    const html = planetDetailModal(state, 'planet-source');
+
+    expect(html).toContain('data-route-settlement-result="true"');
+    expect(html).toContain('No transfer / Source empty / Storage full / Loss applied');
+    expect(html).toContain('0/40 refined_alloy');
+    expect(html).not.toContain('owner_player_id');
+    expect(html).not.toContain('settlement_window');
+  });
 });
 
 describe('topbar map labels', () => {

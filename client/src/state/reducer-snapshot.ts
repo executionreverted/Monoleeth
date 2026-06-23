@@ -1,6 +1,6 @@
 import { JsonObject, rejectForbiddenPayloadKeys } from '../protocol/envelope';
 import type { ClientState } from './types';
-import { objectField } from './reducer-helpers';
+import { isJsonObject, objectField } from './reducer-helpers';
 import {
   applyScanPulse,
   applyPlanetDetail,
@@ -13,6 +13,7 @@ import {
   parseProductionCollection,
   parseRoute,
   parseRouteList,
+  parseRouteSettlement,
   parseScanPulse,
   parseSectorSummary,
   scanModeAfterPulseSummary,
@@ -210,6 +211,20 @@ export function applySnapshotPayload(state: ClientState, payload: JsonObject): C
     const parsedRoute = parseRoute(route);
     if (parsedRoute) {
       next = applyRouteSnapshot(next, parsedRoute);
+    }
+  }
+
+  const settlementPayloads = [
+    objectField(payload, 'settlement'),
+    ...(Array.isArray(payload.settlements) ? payload.settlements.filter(isJsonObject) : []),
+  ].filter((settlement): settlement is Record<string, unknown> => !!settlement);
+  for (const settlement of settlementPayloads) {
+    const parsedSettlement = parseRouteSettlement(settlement);
+    const currentRoute = parsedSettlement
+      ? next.routes?.routes.find((candidate) => candidate.route_id === parsedSettlement.route_id)
+      : null;
+    if (parsedSettlement && currentRoute) {
+      next = applyRouteSnapshot(next, { ...currentRoute, last_settlement: parsedSettlement });
     }
   }
 

@@ -340,6 +340,7 @@ function routeControlRow(
   const mergedResources = resources.includes(route.resource_item_id) ? resources : [route.resource_item_id, ...resources];
   const resourceSelect = resourceOptions(mergedResources, route.resource_item_id);
   const updateEnabled = controlsReady && endpoints.length > 0 && mergedResources.length > 0;
+  const settlementHTML = routeSettlementResult(route);
   return `
     <div class="route-row" data-route-update-control="true" data-route-id="${escapeHTML(route.route_id)}" data-selected="${selected ? 'true' : 'false'}">
       <button type="button" data-action="route-select" data-route-id="${escapeHTML(route.route_id)}" title="Select route">${escapeHTML(route.resource_item_id)} ${route.enabled ? 'on' : 'off'}</button>
@@ -349,6 +350,35 @@ function routeControlRow(
       <button type="button" data-action="route-update" data-route-id="${escapeHTML(route.route_id)}" ${updateEnabled ? '' : 'disabled'} title="${escapeHTML(routePending ? 'Route mutation pending' : 'Update route terms')}">Update</button>
       <button type="button" data-action="${controlAction}" data-route-id="${escapeHTML(route.route_id)}" ${controlsReady ? '' : 'disabled'} title="${escapeHTML(routePending ? 'Route mutation pending' : `${controlLabel} route`)}">${controlLabel}</button>
       <button type="button" data-action="route-settle" data-route-id="${escapeHTML(route.route_id)}" ${realtimeReady(state) && !settlePending ? '' : 'disabled'} title="${escapeHTML(settlePending ? 'Route settlement pending' : 'Settle route')}">${settlePending ? 'Settling' : 'Settle'}</button>
+      ${settlementHTML}
+    </div>
+  `;
+}
+
+function routeSettlementResult(route: RouteSummary): string {
+  const settlement = route.last_settlement;
+  if (!settlement) {
+    return '';
+  }
+  const flags: string[] = [];
+  if (settlement.no_op) {
+    flags.push('No transfer');
+  }
+  if (settlement.source_empty) {
+    flags.push('Source empty');
+  }
+  if (settlement.destination_full) {
+    flags.push('Storage full');
+  }
+  if (settlement.loss_applied) {
+    flags.push('Loss applied');
+  }
+  const flagText = flags.length > 0 ? flags.join(' / ') : 'Settled';
+  const transferText = `${settlement.added_amount}/${settlement.wanted_amount} ${settlement.resource_item_id}`;
+  return `
+    <div class="route-settlement" data-route-settlement-result="true" data-route-id="${escapeHTML(route.route_id)}">
+      <span>${escapeHTML(flagText)}</span>
+      <strong>${escapeHTML(transferText)}</strong>
     </div>
   `;
 }

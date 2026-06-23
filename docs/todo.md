@@ -375,13 +375,17 @@ for phase status; this file is a compact pending-work index.
   future-window attempts still fail closed. Authenticated `route.settle`
   route-id retries now also fall back to committed durable route rows before
   live read-model preflight, so the gateway reaches that exact replay/repair
-  path instead of returning not-found after a live route row loss.
+  path instead of returning not-found after a live route row loss. Phase07CQ
+  carries safe server settlement results into browser route rows so
+  source-empty, destination-full, no-op, and loss-applied outcomes are visible
+  after single-route settle events/responses and owner reconcile `settlements[]`
+  responses.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10
   audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
   Phase07K, Phase07AN, Phase07BN, Phase07BO, Phase07BP, Phase07BQ,
-  Phase07BR, Phase07BS, Phase07BT, Phase07BV, and Phase07CD.
+  Phase07BR, Phase07BS, Phase07BT, Phase07BV, Phase07CD, and Phase07CQ.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server

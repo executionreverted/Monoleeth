@@ -11,6 +11,7 @@ import type {
   PlanetStorageSummary,
   ProductionCollectionSummary,
   RouteListSummary,
+  RouteSettlementSummary,
   RouteSummary,
   ScanModeState,
   ScanPulseSummary,
@@ -360,6 +361,28 @@ export function parseRoute(payload: JsonObject): RouteSummary | null {
     route.to_public_map_key = toPublicMapKey;
   }
   return route;
+}
+
+export function parseRouteSettlement(payload: JsonObject): RouteSettlementSummary | null {
+  const routeID = stringField(payload, 'route_id') ?? '';
+  if (!routeID) {
+    return null;
+  }
+  return {
+    route_id: routeID,
+    resource_item_id: stringField(payload, 'resource_item_id') ?? '',
+    settled_at: Math.max(0, Math.round(numberField(payload, 'settled_at') ?? 0)),
+    elapsed_applied_ms: Math.max(0, Math.round(numberField(payload, 'elapsed_applied_ms') ?? 0)),
+    wanted_amount: Math.max(0, Math.round(numberField(payload, 'wanted_amount') ?? 0)),
+    taken_amount: Math.max(0, Math.round(numberField(payload, 'taken_amount') ?? 0)),
+    lost_amount: Math.max(0, Math.round(numberField(payload, 'lost_amount') ?? 0)),
+    delivered_amount: Math.max(0, Math.round(numberField(payload, 'delivered_amount') ?? 0)),
+    added_amount: Math.max(0, Math.round(numberField(payload, 'added_amount') ?? 0)),
+    source_empty: booleanField(payload, 'source_empty') ?? false,
+    destination_full: booleanField(payload, 'destination_full') ?? false,
+    loss_applied: booleanField(payload, 'loss_applied') ?? false,
+    no_op: booleanField(payload, 'no_op') ?? false,
+  };
 }
 
 export function applyRouteSnapshot(state: ClientState, route: RouteSummary): ClientState {
