@@ -466,8 +466,11 @@ for phase status; this file is a compact pending-work index.
   materialization/intel now covers seeded public maps `1-1`, `1-2`, and `1-3`,
   and server-only drop matrix coverage now includes public `1-1`, `1-2`, and
   medium PvP `1-3`. Phase10 now adds a focused browser claim proof for public
-  `1-1`; remaining work is browser drop flow plus broader browser claim/drop
-  and scan success/no-signal variants. Source:
+  `1-1`, and `TestPlayableVerticalServerAuthoritativeLoop` proves one
+  server-authoritative path through starter combat/loot, route create/settle,
+  portal, destination scan, Core claim, and production initialization; remaining
+  work is browser drop flow plus broader browser claim/drop and scan
+  success/no-signal variants. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete broader per-map/risk/rank drop balance matrix coverage across
   seeded maps. Current server tests cover starter selection, `map_1_2`
