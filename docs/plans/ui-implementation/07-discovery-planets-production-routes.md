@@ -514,6 +514,13 @@ Current slice completed:
   committed/pending recovery readback instead of being treated as valid claim
   recovery state. Real DB rows, cross-service row locks/CAS, an atomic
   claim/production transaction, and scheduled recovery workers remain open.
+- Phase07CG settlement outbox worker readback validation follow-up:
+  Settlement durable-store publisher, publish/fail callbacks, lease release,
+  and failed-row retry paths now revalidate the committed settlement bundle
+  before mutating outbox delivery state. Corrupt DB-style readbacks with
+  mismatched outbox evidence fail instead of being claimed, published,
+  released, or retried. Real DB rows, cross-process worker scheduling, and
+  durable idempotency enforcement remain open.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -1107,6 +1114,8 @@ Mockup areas covered:
 - [x] Durable claim, settlement/route, and building outbox stores expose an
       explicit failed-row retry boundary that preserves failure evidence before
       republishing.
+- [x] Settlement durable outbox worker paths revalidate committed settlement
+      bundles before claim, publish/fail, lease release, or retry mutation.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

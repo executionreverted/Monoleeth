@@ -550,7 +550,10 @@ for phase status; this file is a compact pending-work index.
   exact replay conflict validation. Phase07CE lets claim lifecycle,
   settlement/route, and building mutation durable-store readbacks rebuild
   committed plans after publisher delivery-state changes while returning the
-  current outbox evidence.
+  current outbox evidence. Phase07CG makes settlement durable outbox worker
+  paths revalidate committed settlement bundles before claim, publish/fail,
+  lease release, or retry mutation so corrupt outbox evidence cannot be handed
+  to publishers.
   Durable claim, production, route settlement, and building mutation tables
   plus publisher scheduling remain open.
   Those records are still not durable, cross-process, or delivered by a durable
@@ -584,8 +587,10 @@ for phase status; this file is a compact pending-work index.
   claim, settlement/route, and building durable outbox rows so transient
   publisher failures can be returned to pending without losing failure evidence.
   Phase07CD adds ledger-backed changed storage-row evidence to route settlement
-  durable bundles; DB-backed storage/station endpoint rows and row locks remain
-  open.
+  durable bundles. Phase07CG makes settlement durable outbox worker paths
+  revalidate committed settlement bundles before claim, publish/fail, lease
+  release, or retry mutation so corrupt outbox evidence cannot be handed to
+  publishers; DB-backed storage/station endpoint rows and row locks remain open.
   Runtime/browser non-planet route create/update access policy and durable
   DB-backed storage/station endpoint rows remain open.
 - [ ] Replace Phase 09 in-memory production, storage, and route repositories with

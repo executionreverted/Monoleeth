@@ -468,6 +468,135 @@ func TestSettlementDurableCommitStorePublisherRejectsStaleClaimTokens(t *testing
 	}
 }
 
+func TestSettlementDurableCommitStorePublisherRejectsCorruptPendingReadbackRows(t *testing.T) {
+	plan := routeDurableCommitPlanForStoreTest(t)
+	store := NewInMemorySettlementDurableCommitStore()
+	corrupt := cloneSettlementDurableCommitPlan(plan)
+	corrupt.Outbox.OutboxRecords[0].ReferenceKey = "route_settlement:wrong-route:wrong-window"
+	store.plans[plan.Reference.ReferenceKey] = corrupt
+	store.references = append(store.references, plan.Reference.ReferenceKey)
+
+	claimed, err := store.ClaimPendingProductionOutboxRecords(1, testTime(64))
+	if !errors.Is(err, ErrInvalidSettlementDurableCommit) || len(claimed) != 0 {
+		t.Fatalf("ClaimPendingProductionOutboxRecords(corrupt) = %+v/%v, want invalid durable commit", claimed, err)
+	}
+	rows := store.OutboxRecords()
+	if len(rows) != len(plan.Outbox.OutboxRecords) || rows[0].Status != ProductionOutboxStatusPending || rows[0].Attempts != 0 {
+		t.Fatalf("corrupt pending outbox mutated after claim error: %+v", rows)
+	}
+}
+
+func TestSettlementDurableCommitStorePublisherBatchValidationPreventsPartialClaim(t *testing.T) {
+	valid := productionDurableCommitPlanForStoreTest(t)
+	corrupt := routeDurableCommitPlanForStoreTest(t)
+	store := NewInMemorySettlementDurableCommitStore()
+	if _, err := store.ApplySettlementDurableCommitPlan(valid); err != nil {
+		t.Fatalf("ApplySettlementDurableCommitPlan(valid) error = %v, want nil", err)
+	}
+	corrupt.Outbox.Reference.SettlementWindow = "wrong-window"
+	store.plans[corrupt.Reference.ReferenceKey] = corrupt
+	store.references = append(store.references, corrupt.Reference.ReferenceKey)
+
+	claimed, err := store.ClaimPendingProductionOutboxRecords(1, testTime(64))
+	if !errors.Is(err, ErrInvalidSettlementDurableCommit) || len(claimed) != 0 {
+		t.Fatalf("ClaimPendingProductionOutboxRecords(valid before corrupt) = %+v/%v, want invalid durable commit", claimed, err)
+	}
+	rows := store.OutboxRecords()
+	if len(rows) == 0 || rows[0].Status != ProductionOutboxStatusPending || rows[0].Attempts != 0 {
+		t.Fatalf("valid pending outbox mutated before corrupt claim error: %+v", rows)
+	}
+}
+
+func TestSettlementDurableCommitStorePublisherMutationsRejectCorruptReadbackRows(t *testing.T) {
+	plan := routeDurableCommitPlanForStoreTest(t)
+	store := NewInMemorySettlementDurableCommitStore()
+	if _, err := store.ApplySettlementDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplySettlementDurableCommitPlan() error = %v, want nil", err)
+	}
+	claimed, err := store.ClaimPendingProductionOutboxRecords(1, testTime(65))
+	if err != nil {
+		t.Fatalf("ClaimPendingProductionOutboxRecords() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 || claimed[0].ClaimToken == "" {
+		t.Fatalf("claimed durable settlement outbox rows = %+v, want one in-flight row", claimed)
+	}
+
+	corruptInFlight := cloneSettlementDurableCommitPlan(store.plans[plan.Reference.ReferenceKey])
+	corruptInFlight.Outbox.OutboxRecords[0].ReferenceKey = "route_settlement:wrong-route:wrong-window"
+	store.plans[plan.Reference.ReferenceKey] = corruptInFlight
+
+	if record, ok, err := store.MarkProductionOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(66)); !errors.Is(err, ErrInvalidSettlementDurableCommit) || ok || record.OutboxID != "" {
+		t.Fatalf("MarkProductionOutboxPublished(corrupt) = %+v/%v/%v, want invalid durable commit", record, ok, err)
+	}
+	if record, ok, err := store.MarkProductionOutboxFailed(claimed[0].OutboxID, claimed[0].ClaimToken, "temporary", testTime(66)); !errors.Is(err, ErrInvalidSettlementDurableCommit) || ok || record.OutboxID != "" {
+		t.Fatalf("MarkProductionOutboxFailed(corrupt) = %+v/%v/%v, want invalid durable commit", record, ok, err)
+	}
+	released, err := store.ReleaseExpiredProductionOutboxRecords(1, testTime(66), testTime(67))
+	if !errors.Is(err, ErrInvalidSettlementDurableCommit) || len(released) != 0 {
+		t.Fatalf("ReleaseExpiredProductionOutboxRecords(corrupt) = %+v/%v, want invalid durable commit", released, err)
+	}
+
+	corruptFailed := corruptInFlight
+	corruptFailed.Outbox.OutboxRecords[0].Status = ProductionOutboxStatusFailed
+	corruptFailed.Outbox.OutboxRecords[0].FailedAt = testTime(68)
+	corruptFailed.Outbox.OutboxRecords[0].LastError = "temporary"
+	store.plans[plan.Reference.ReferenceKey] = corruptFailed
+	retried, err := store.RetryFailedProductionOutboxRecords(1, testTime(69))
+	if !errors.Is(err, ErrInvalidSettlementDurableCommit) || len(retried) != 0 {
+		t.Fatalf("RetryFailedProductionOutboxRecords(corrupt) = %+v/%v, want invalid durable commit", retried, err)
+	}
+
+	rows := store.OutboxRecords()
+	if len(rows) != len(plan.Outbox.OutboxRecords) || rows[0].Status != ProductionOutboxStatusFailed || rows[0].RetriedAt.Equal(testTime(69)) {
+		t.Fatalf("corrupt failed outbox mutated after retry error: %+v", rows)
+	}
+}
+
+func TestSettlementDurableCommitStorePublisherBatchValidationPreventsPartialReleaseAndRetry(t *testing.T) {
+	valid := productionDurableCommitPlanForStoreTest(t)
+	corrupt := routeDurableCommitPlanForStoreTest(t)
+	store := NewInMemorySettlementDurableCommitStore()
+	if _, err := store.ApplySettlementDurableCommitPlan(valid); err != nil {
+		t.Fatalf("ApplySettlementDurableCommitPlan(valid) error = %v, want nil", err)
+	}
+	claimed, err := store.ClaimPendingProductionOutboxRecords(1, testTime(70))
+	if err != nil {
+		t.Fatalf("ClaimPendingProductionOutboxRecords() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 || claimed[0].ClaimToken == "" {
+		t.Fatalf("claimed durable settlement outbox rows = %+v, want one in-flight row", claimed)
+	}
+	corrupt.Outbox.Reference.SettlementWindow = "wrong-window"
+	store.plans[corrupt.Reference.ReferenceKey] = corrupt
+	store.references = append(store.references, corrupt.Reference.ReferenceKey)
+
+	released, err := store.ReleaseExpiredProductionOutboxRecords(1, testTime(71), testTime(72))
+	if !errors.Is(err, ErrInvalidSettlementDurableCommit) || len(released) != 0 {
+		t.Fatalf("ReleaseExpiredProductionOutboxRecords(valid before corrupt) = %+v/%v, want invalid durable commit", released, err)
+	}
+	rows := store.OutboxRecords()
+	if len(rows) == 0 || rows[0].Status != ProductionOutboxStatusInFlight || rows[0].ClaimToken == "" {
+		t.Fatalf("valid in-flight outbox mutated before corrupt release error: %+v", rows)
+	}
+
+	delete(store.plans, corrupt.Reference.ReferenceKey)
+	store.references = store.references[:1]
+	if _, ok, err := store.MarkProductionOutboxFailed(claimed[0].OutboxID, claimed[0].ClaimToken, "temporary", testTime(73)); err != nil || !ok {
+		t.Fatalf("MarkProductionOutboxFailed(valid) = ok %v err %v, want true nil", ok, err)
+	}
+	store.plans[corrupt.Reference.ReferenceKey] = corrupt
+	store.references = append(store.references, corrupt.Reference.ReferenceKey)
+
+	retried, err := store.RetryFailedProductionOutboxRecords(1, testTime(74))
+	if !errors.Is(err, ErrInvalidSettlementDurableCommit) || len(retried) != 0 {
+		t.Fatalf("RetryFailedProductionOutboxRecords(valid before corrupt) = %+v/%v, want invalid durable commit", retried, err)
+	}
+	rows = store.OutboxRecords()
+	if len(rows) == 0 || rows[0].Status != ProductionOutboxStatusFailed || rows[0].RetriedAt.Equal(testTime(74)) {
+		t.Fatalf("valid failed outbox mutated before corrupt retry error: %+v", rows)
+	}
+}
+
 func TestSettlementDurableCommitStoreReadbackMissingAndInvalidReferences(t *testing.T) {
 	plan := routeDurableCommitPlanForStoreTest(t)
 	store := NewInMemorySettlementDurableCommitStore()
@@ -493,6 +622,13 @@ func TestSettlementDurableCommitStoreReadbackMissingAndInvalidReferences(t *test
 	store.references = append(store.references, plan.Reference.ReferenceKey)
 	if recovered, ok, err := store.CommittedSettlementDurableCommitPlan(plan.Reference.ReferenceKey); !errors.Is(err, ErrInvalidSettlementDurableCommit) || ok || !recovered.Reference.ReferenceKey.IsZero() {
 		t.Fatalf("CommittedSettlementDurableCommitPlan(corrupt published) = %+v/%v/%v, want invalid durable commit", recovered, ok, err)
+	}
+
+	corruptReference := cloneSettlementDurableCommitPlan(plan)
+	corruptReference.Outbox.Reference.SettlementWindow = "wrong-window"
+	store.plans[plan.Reference.ReferenceKey] = cloneSettlementDurableCommitPlan(corruptReference)
+	if recovered, ok, err := store.CommittedSettlementDurableCommitPlan(plan.Reference.ReferenceKey); !errors.Is(err, ErrInvalidSettlementDurableCommit) || ok || !recovered.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedSettlementDurableCommitPlan(corrupt outbox reference) = %+v/%v/%v, want invalid durable commit", recovered, ok, err)
 	}
 }
 

@@ -70,13 +70,7 @@ func (store *InMemorySettlementDurableCommitStore) ApplySettlementDurableCommitP
 	if settlementDurableCommitPlanIsNoOp(plan) {
 		return SettlementDurableCommitResult{}, nil
 	}
-	if plan.Outbox.Reference.ReferenceKey != plan.Reference.ReferenceKey ||
-		plan.Outbox.Reference.SettlementWindow != plan.Reference.SettlementWindow ||
-		plan.Outbox.Reference.Kind != plan.Reference.Kind ||
-		plan.Outbox.Reference.PlanetID != plan.Reference.PlanetID ||
-		plan.Outbox.Reference.RouteID != plan.Reference.RouteID ||
-		!plan.Outbox.Reference.AppliedAt.Equal(plan.Reference.AppliedAt) ||
-		!plan.Outbox.Reference.RecordedAt.Equal(plan.Reference.RecordedAt) {
+	if !settlementDurableCommitOutboxReferenceMatches(plan) {
 		return SettlementDurableCommitResult{}, fmt.Errorf("outbox.reference: %w", ErrInvalidSettlementDurableCommit)
 	}
 	normalized, err := NewSettlementDurableCommitPlanWithRows(
@@ -175,6 +169,9 @@ func (store *InMemorySettlementDurableCommitStore) ClaimPendingProductionOutboxR
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateSettlementDurableCommitReadbacksLocked(); err != nil {
+		return nil, err
+	}
 
 	records := make([]ProductionOutboxRecord, 0, limit)
 	for _, key := range store.references {
@@ -225,6 +222,9 @@ func (store *InMemorySettlementDurableCommitStore) MarkProductionOutboxPublished
 		return ProductionOutboxRecord{}, false, nil
 	}
 	plan := store.plans[key]
+	if err := validateSettlementDurableCommitReadbackPlan(plan); err != nil {
+		return ProductionOutboxRecord{}, false, err
+	}
 	if !settlementDurableOutboxClaimMatches(plan.Outbox.OutboxRecords[index], claimToken) {
 		return ProductionOutboxRecord{}, false, nil
 	}
@@ -253,6 +253,9 @@ func (store *InMemorySettlementDurableCommitStore) MarkProductionOutboxFailed(
 		return ProductionOutboxRecord{}, false, nil
 	}
 	plan := store.plans[key]
+	if err := validateSettlementDurableCommitReadbackPlan(plan); err != nil {
+		return ProductionOutboxRecord{}, false, err
+	}
 	if !settlementDurableOutboxClaimMatches(plan.Outbox.OutboxRecords[index], claimToken) {
 		return ProductionOutboxRecord{}, false, nil
 	}
@@ -281,6 +284,9 @@ func (store *InMemorySettlementDurableCommitStore) ReleaseExpiredProductionOutbo
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateSettlementDurableCommitReadbacksLocked(); err != nil {
+		return nil, err
+	}
 
 	records := make([]ProductionOutboxRecord, 0, limit)
 	for _, key := range store.references {
@@ -329,6 +335,9 @@ func (store *InMemorySettlementDurableCommitStore) RetryFailedProductionOutboxRe
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateSettlementDurableCommitReadbacksLocked(); err != nil {
+		return nil, err
+	}
 
 	records := make([]ProductionOutboxRecord, 0, limit)
 	for _, key := range store.references {
@@ -377,18 +386,7 @@ func (store *InMemorySettlementDurableCommitStore) CommittedSettlementDurableCom
 		return SettlementDurableCommitPlan{}, false, nil
 	}
 	cloned := cloneSettlementDurableCommitPlan(plan)
-	if err := validateProductionOutboxReadbackStates(cloned.Outbox.OutboxRecords, ErrInvalidSettlementDurableCommit); err != nil {
-		return SettlementDurableCommitPlan{}, false, err
-	}
-	pendingOutbox := pendingProductionOutboxRecordsForCommitValidation(cloned.Outbox.OutboxRecords)
-	if _, err := NewSettlementDurableCommitPlanWithRows(
-		&cloned.Reference,
-		pendingOutbox,
-		cloned.RouteStorageLedger,
-		cloned.RouteRow,
-		cloned.ProductionState,
-		cloned.StorageRows,
-	); err != nil {
+	if err := validateSettlementDurableCommitReadbackPlan(cloned); err != nil {
 		return SettlementDurableCommitPlan{}, false, err
 	}
 	return cloned, true, nil
@@ -498,6 +496,51 @@ func (store *InMemorySettlementDurableCommitStore) ensureMapsLocked() {
 
 func settlementDurableCommitPlanIsNoOp(plan SettlementDurableCommitPlan) bool {
 	return reflect.DeepEqual(plan, SettlementDurableCommitPlan{})
+}
+
+func settlementDurableCommitOutboxReferenceMatches(plan SettlementDurableCommitPlan) bool {
+	return plan.Outbox.Reference.ReferenceKey == plan.Reference.ReferenceKey &&
+		plan.Outbox.Reference.SettlementWindow == plan.Reference.SettlementWindow &&
+		plan.Outbox.Reference.Kind == plan.Reference.Kind &&
+		plan.Outbox.Reference.PlanetID == plan.Reference.PlanetID &&
+		plan.Outbox.Reference.RouteID == plan.Reference.RouteID &&
+		plan.Outbox.Reference.AppliedAt.Equal(plan.Reference.AppliedAt) &&
+		plan.Outbox.Reference.RecordedAt.Equal(plan.Reference.RecordedAt)
+}
+
+func (store *InMemorySettlementDurableCommitStore) validateSettlementDurableCommitReadbacksLocked() error {
+	for _, key := range store.references {
+		plan, ok := store.plans[key]
+		if !ok {
+			return ErrInvalidSettlementDurableCommit
+		}
+		if err := validateSettlementDurableCommitReadbackPlan(plan); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSettlementDurableCommitReadbackPlan(plan SettlementDurableCommitPlan) error {
+	cloned := cloneSettlementDurableCommitPlan(plan)
+	if !settlementDurableCommitOutboxReferenceMatches(cloned) {
+		return fmt.Errorf("outbox.reference: %w", ErrInvalidSettlementDurableCommit)
+	}
+	if err := validateProductionOutboxReadbackStates(cloned.Outbox.OutboxRecords, ErrInvalidSettlementDurableCommit); err != nil {
+		return err
+	}
+	pendingOutbox := pendingProductionOutboxRecordsForCommitValidation(cloned.Outbox.OutboxRecords)
+	if _, err := NewSettlementDurableCommitPlanWithRows(
+		&cloned.Reference,
+		pendingOutbox,
+		cloned.RouteStorageLedger,
+		cloned.RouteRow,
+		cloned.ProductionState,
+		cloned.StorageRows,
+	); err != nil {
+		return err
+	}
+	return nil
 }
 
 func settlementDurableCommitResultFromPlan(
