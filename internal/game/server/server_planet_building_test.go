@@ -357,6 +357,56 @@ func TestPlanetBuildingDurableCommitRequiresRecordedReference(t *testing.T) {
 	}
 }
 
+func TestPlanetBuildingDuplicateBuildRepairsMissingDurableCommit(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+	gameServer := newRouteControlTestServer(t, clock)
+	owner := createResolvedRuntimeSession(t, gameServer, "planet-building-repair-owner@example.com", "Building Repair Owner")
+	planetID := foundation.PlanetID("planet-building-repair")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, planetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-building-repair")
+	saveRouteControlStorage(t, gameServer, planetID, []production.StoredItem{{ItemID: "iron_ore", Quantity: 50}})
+	seedPlanetBuildingWalletCredits(t, gameServer, owner.PlayerID, 500, "quest_reward:planet-building-repair-seed")
+
+	first := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-planet-building-repair-first","op":"planet.building_build","payload":{"planet_id":"`+planetID.String()+`","building_type":"alloy_foundry","slot":"alpha"},"client_seq":1,"v":1}`),
+	)
+	if first.HasError {
+		t.Fatalf("first planet.building_build response error = %+v, want success", first.Error)
+	}
+	buildingID, err := deterministicPlanetBuildingID(planetID, production.BuildingTypeAlloyFoundry, "alpha")
+	if err != nil {
+		t.Fatalf("deterministicPlanetBuildingID: %v", err)
+	}
+	referenceKey, err := foundation.PlanetBuildingBuildIdempotencyKey(planetID, buildingID.String())
+	if err != nil {
+		t.Fatalf("PlanetBuildingBuildIdempotencyKey: %v", err)
+	}
+	gameServer.runtime.BuildingMutations = production.NewInMemoryBuildingMutationDurableCommitStore()
+	if got := len(gameServer.runtime.BuildingMutations.BuildingMutationReferences()); got != 0 {
+		t.Fatalf("reset durable building references = %d, want 0", got)
+	}
+
+	duplicate := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-planet-building-repair-duplicate","op":"planet.building_build","payload":{"planet_id":"`+planetID.String()+`","building_type":"alloy_foundry","slot":"alpha"},"client_seq":2,"v":1}`),
+	)
+	if duplicate.HasError {
+		t.Fatalf("duplicate planet.building_build response error = %+v, want durable repair success", duplicate.Error)
+	}
+	var duplicatePayload struct {
+		Duplicate bool `json:"duplicate"`
+	}
+	if err := json.Unmarshal(duplicate.Response.Payload, &duplicatePayload); err != nil {
+		t.Fatalf("decode duplicate planet.building_build payload: %v", err)
+	}
+	if !duplicatePayload.Duplicate {
+		t.Fatalf("duplicate build flag = false, want true")
+	}
+	assertPlanetBuildingDurableCommitCounts(t, gameServer, referenceKey, 1, 2, 1)
+	assertPlanetBuildingMutationBoundaryCounts(t, gameServer, owner.PlayerID, 1, 1, 2, 2, 4)
+}
+
 func TestPlanetBuildingUpgradeIronExtractorDebitsCostsOnceAndUpdatesLevel(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
 	gameServer := newRouteControlTestServer(t, clock)

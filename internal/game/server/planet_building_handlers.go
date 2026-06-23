@@ -210,7 +210,7 @@ func (runtime *Runtime) newPlanetBuildingMutationService(playerID foundation.Pla
 }
 
 func (runtime *Runtime) applyBuildingMutationDurableCommit(result production.BuildingMutationResult) error {
-	if runtime.Production == nil || runtime.BuildingMutations == nil || result.Duplicate || len(result.OutboxRecords) == 0 {
+	if runtime.Production == nil || runtime.BuildingMutations == nil || result.ReferenceKey.IsZero() {
 		return nil
 	}
 	reference, ok, err := runtime.Production.BuildingMutationReference(result.ReferenceKey)
@@ -220,7 +220,14 @@ func (runtime *Runtime) applyBuildingMutationDurableCommit(result production.Bui
 	if !ok {
 		return production.ErrInvalidBuildingMutationDurableCommit
 	}
-	plan, err := production.NewBuildingMutationDurableCommitPlan(&reference, result.OutboxRecords, result.MaterialLedger)
+	if len(reference.Result.OutboxRecords) == 0 {
+		return nil
+	}
+	plan, err := production.NewBuildingMutationDurableCommitPlan(
+		&reference,
+		reference.Result.OutboxRecords,
+		reference.Result.MaterialLedger,
+	)
 	if err != nil {
 		return err
 	}

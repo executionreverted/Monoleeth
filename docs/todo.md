@@ -244,7 +244,10 @@ for phase status; this file is a compact pending-work index.
   Phase07CO makes those building publisher/reaper mutations revalidate
   committed reference/outbox/material-ledger readbacks before claiming,
   publishing, failing, releasing, or retrying rows, so corrupt process-local
-  building durable rows fail closed without partial worker mutation.
+  building durable rows fail closed without partial worker mutation. Building
+  mutation duplicate retries now rebuild the durable commit plan from the
+  canonical production reference evidence, so a missing durable building commit
+  can be repaired without repeating material or wallet debits.
   Phase07R starts the
   server-authoritative intel/coordinate domain foundation for share,
   coordinate-item creation, coordinate-item use, canonical idempotency keys,
