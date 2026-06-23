@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,6 +95,9 @@ func (store *InMemoryAutomationRouteDurableStore) CommittedAutomationRouteDurabl
 	if !ok {
 		return AutomationRouteDurableRecord{}, false, nil
 	}
+	if err := validateAutomationRouteDurableRecordForRoute(record, routeID); err != nil {
+		return AutomationRouteDurableRecord{}, false, err
+	}
 	return cloneAutomationRouteDurableRecord(record), true, nil
 }
 
@@ -113,6 +117,9 @@ func (store *InMemoryAutomationRouteDurableStore) CommittedAutomationRouteDurabl
 	if !ok {
 		return AutomationRouteDurableRecord{}, false, nil
 	}
+	if err := validateAutomationRouteDurableRecordForReference(record, referenceKey, store.records); err != nil {
+		return AutomationRouteDurableRecord{}, false, err
+	}
 	return cloneAutomationRouteDurableRecord(record), true, nil
 }
 
@@ -128,6 +135,9 @@ func (store *InMemoryAutomationRouteDurableStore) CommittedAutomationRouteDurabl
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 
+	if err := validateAutomationRouteDurableRecordMap(store.records); err != nil {
+		return nil, err
+	}
 	routeIDs := make([]foundation.RouteID, 0, len(store.records))
 	for routeID, record := range store.records {
 		if record.Route.OwnerPlayerID == playerID {
@@ -228,6 +238,9 @@ func (store *InMemoryStore) CommittedAutomationRouteDurableRecord(
 	if !ok {
 		return AutomationRouteDurableRecord{}, false, nil
 	}
+	if err := validateAutomationRouteDurableRecordForRoute(record, routeID); err != nil {
+		return AutomationRouteDurableRecord{}, false, err
+	}
 	return cloneAutomationRouteDurableRecord(record), true, nil
 }
 
@@ -247,6 +260,9 @@ func (store *InMemoryStore) CommittedAutomationRouteDurableRecordByReference(
 	if !ok {
 		return AutomationRouteDurableRecord{}, false, nil
 	}
+	if err := validateAutomationRouteDurableRecordForReference(record, referenceKey, store.routeDurableRecords); err != nil {
+		return AutomationRouteDurableRecord{}, false, err
+	}
 	return cloneAutomationRouteDurableRecord(record), true, nil
 }
 
@@ -262,6 +278,9 @@ func (store *InMemoryStore) CommittedAutomationRouteDurableRecordsForOwner(
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 
+	if err := validateAutomationRouteDurableRecordMap(store.routeDurableRecords); err != nil {
+		return nil, err
+	}
 	return automationRouteDurableRecordsForOwner(store.routeDurableRecords, playerID), nil
 }
 
@@ -317,12 +336,15 @@ func (store *InMemoryStore) commitRouteDurableMutationLocked(
 
 func (store *InMemoryStore) committedAutomationRouteDurableRecordByReferenceLocked(
 	referenceKey foundation.IdempotencyKey,
-) (AutomationRouteDurableRecord, bool) {
+) (AutomationRouteDurableRecord, bool, error) {
 	record, ok := store.routeDurableReferences[referenceKey]
 	if !ok {
-		return AutomationRouteDurableRecord{}, false
+		return AutomationRouteDurableRecord{}, false, nil
 	}
-	return cloneAutomationRouteDurableRecord(record), true
+	if err := validateAutomationRouteDurableRecordForReference(record, referenceKey, store.routeDurableRecords); err != nil {
+		return AutomationRouteDurableRecord{}, false, err
+	}
+	return cloneAutomationRouteDurableRecord(record), true, nil
 }
 
 func ensureAutomationRouteDurableMaps(
@@ -414,6 +436,114 @@ func automationRouteDurableRecordsFromMap(
 		durableRecords = append(durableRecords, cloneAutomationRouteDurableRecord(records[routeID]))
 	}
 	return durableRecords
+}
+
+func validateAutomationRouteDurableRecordMap(records map[foundation.RouteID]AutomationRouteDurableRecord) error {
+	for routeID, record := range records {
+		if err := validateAutomationRouteDurableRecordForRoute(record, routeID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAutomationRouteDurableRecordForRoute(record AutomationRouteDurableRecord, routeID foundation.RouteID) error {
+	if record.Route.RouteID != routeID {
+		return fmt.Errorf("route_id: %w", ErrInvalidAutomationRouteDurableCommit)
+	}
+	return validateAutomationRouteDurableRecord(record)
+}
+
+func validateAutomationRouteDurableRecordForReference(
+	record AutomationRouteDurableRecord,
+	referenceKey foundation.IdempotencyKey,
+	records map[foundation.RouteID]AutomationRouteDurableRecord,
+) error {
+	if record.ReferenceKey != referenceKey {
+		return fmt.Errorf("reference_key: %w", ErrInvalidAutomationRouteDurableCommit)
+	}
+	if err := validateAutomationRouteDurableRecord(record); err != nil {
+		return err
+	}
+	if err := validateAutomationRouteDurableReferenceKeyMatchesRecord(referenceKey, record); err != nil {
+		return err
+	}
+	routeRecord, ok := records[record.Route.RouteID]
+	if !ok {
+		return fmt.Errorf("route_record: %w", ErrInvalidAutomationRouteDurableCommit)
+	}
+	if err := validateAutomationRouteDurableRecordForRoute(routeRecord, record.Route.RouteID); err != nil {
+		return err
+	}
+	if !automationRouteDurableImmutableIdentityMatches(routeRecord.Route, record.Route) {
+		return fmt.Errorf("route_record.identity: %w", ErrInvalidAutomationRouteDurableCommit)
+	}
+	return nil
+}
+
+func validateAutomationRouteDurableReferenceKeyMatchesRecord(
+	referenceKey foundation.IdempotencyKey,
+	record AutomationRouteDurableRecord,
+) error {
+	parts := strings.Split(referenceKey.String(), ":")
+	if len(parts) < 3 {
+		return fmt.Errorf("reference_key: %w", ErrInvalidAutomationRouteDurableCommit)
+	}
+	switch parts[0] {
+	case "route_create":
+		if len(parts) != 3 || parts[1] != record.Route.OwnerPlayerID.String() || parts[2] != record.Route.RouteID.String() {
+			return fmt.Errorf("reference_key: %w", ErrInvalidAutomationRouteDurableCommit)
+		}
+	case "route_update", "route_enable", "route_disable":
+		if len(parts) != 4 || parts[1] != record.Route.OwnerPlayerID.String() || parts[2] != record.Route.RouteID.String() {
+			return fmt.Errorf("reference_key: %w", ErrInvalidAutomationRouteDurableCommit)
+		}
+	case "route_settlement":
+		if len(parts) != 3 || parts[1] != record.Route.RouteID.String() {
+			return fmt.Errorf("reference_key: %w", ErrInvalidAutomationRouteDurableCommit)
+		}
+	default:
+		return fmt.Errorf("reference_key: %w", ErrInvalidAutomationRouteDurableCommit)
+	}
+	return nil
+}
+
+func validateAutomationRouteDurableRecord(record AutomationRouteDurableRecord) error {
+	if err := record.Route.Validate(); err != nil {
+		return fmt.Errorf("route: %w: %v", ErrInvalidAutomationRouteDurableCommit, err)
+	}
+	if err := record.ReferenceKey.Validate(); err != nil {
+		return fmt.Errorf("reference_key: %w: %v", ErrInvalidAutomationRouteDurableCommit, err)
+	}
+	if record.Revision == 0 {
+		return fmt.Errorf("revision: %w", ErrInvalidAutomationRouteDurableCommit)
+	}
+	if record.RecordedAt.IsZero() {
+		return fmt.Errorf("recorded_at: %w", ErrInvalidAutomationRouteDurableCommit)
+	}
+	if record.SourceProductionState != nil {
+		if err := record.SourceProductionState.Validate(); err != nil {
+			return fmt.Errorf("source_production_state: %w: %v", ErrInvalidAutomationRouteDurableCommit, err)
+		}
+		if record.SourceProductionState.PlanetID != record.Route.SourcePlanetID {
+			return fmt.Errorf("source_production_state: %w", ErrInvalidAutomationRouteDurableCommit)
+		}
+		if record.Route.Enabled && record.SourceProductionState.EnergyReservedPerHour < record.Route.EnergyCostPerHour {
+			return fmt.Errorf("source_production_state.energy: %w", ErrInvalidAutomationRouteDurableCommit)
+		}
+		if !record.SourceProductionState.UpdatedAt.Equal(record.RecordedAt) {
+			return fmt.Errorf("source_production_state.updated_at: %w", ErrInvalidAutomationRouteDurableCommit)
+		}
+	}
+	return nil
+}
+
+func automationRouteDurableImmutableIdentityMatches(current AutomationRoute, reference AutomationRoute) bool {
+	return current.RouteID == reference.RouteID &&
+		current.OwnerPlayerID == reference.OwnerPlayerID &&
+		current.SourcePlanetID == reference.SourcePlanetID &&
+		current.SourceMapID == reference.SourceMapID &&
+		current.CreatedAt.Equal(reference.CreatedAt)
 }
 
 func automationRouteDurableRecordFromPlan(

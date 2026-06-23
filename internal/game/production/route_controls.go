@@ -99,7 +99,9 @@ func (store *InMemoryStore) enableRouteLocked(
 		if err != nil {
 			return RouteControlResult{}, err
 		}
-		if record, ok := store.committedAutomationRouteDurableRecordByReferenceLocked(referenceKey); ok {
+		if record, ok, err := store.committedAutomationRouteDurableRecordByReferenceLocked(referenceKey); err != nil {
+			return RouteControlResult{}, err
+		} else if ok {
 			if record.Route.RouteID != routeID {
 				return RouteControlResult{}, fmt.Errorf("route %q reference %q: %w", routeID, referenceKey, ErrInvalidAutomationRouteDurableCommit)
 			}
@@ -248,7 +250,9 @@ func (store *InMemoryStore) disableRouteLocked(
 		if err != nil {
 			return RouteControlResult{}, err
 		}
-		if record, ok := store.committedAutomationRouteDurableRecordByReferenceLocked(referenceKey); ok {
+		if record, ok, err := store.committedAutomationRouteDurableRecordByReferenceLocked(referenceKey); err != nil {
+			return RouteControlResult{}, err
+		} else if ok {
 			if record.Route.RouteID != routeID {
 				return RouteControlResult{}, fmt.Errorf("route %q reference %q: %w", routeID, referenceKey, ErrInvalidAutomationRouteDurableCommit)
 			}
@@ -350,7 +354,9 @@ func (store *InMemoryStore) UpdateRoute(
 		if err != nil {
 			return UpdateRouteResult{}, err
 		}
-		if record, ok := store.committedAutomationRouteDurableRecordByReferenceLocked(referenceKey); ok {
+		if record, ok, err := store.committedAutomationRouteDurableRecordByReferenceLocked(referenceKey); err != nil {
+			return UpdateRouteResult{}, err
+		} else if ok {
 			if record.Route.RouteID != input.RouteID {
 				return UpdateRouteResult{}, fmt.Errorf("route %q reference %q: %w", input.RouteID, referenceKey, ErrInvalidAutomationRouteDurableCommit)
 			}

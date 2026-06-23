@@ -111,7 +111,9 @@ func (store *InMemoryStore) settleRouteLocked(
 		result.ElapsedApplied = 0
 		return result, nil
 	}
-	if record, ok := store.committedAutomationRouteDurableRecordByReferenceLocked(result.ReferenceKey); ok {
+	if record, ok, err := store.committedAutomationRouteDurableRecordByReferenceLocked(result.ReferenceKey); err != nil {
+		return RouteSettlementResult{}, err
+	} else if ok {
 		if record.Route.RouteID != routeID {
 			return RouteSettlementResult{}, fmt.Errorf("route %q reference %q: %w", routeID, result.ReferenceKey, ErrInvalidAutomationRouteDurableCommit)
 		}

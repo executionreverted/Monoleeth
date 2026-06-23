@@ -105,7 +105,11 @@ func (store *InMemoryStore) ApplyRouteSettlementTransaction(
 		}
 	}
 	if result.Reference != nil {
-		if routeRow, ok := store.committedAutomationRouteDurableRecordByReferenceLocked(result.Reference.ReferenceKey); ok {
+		routeRow, ok, err := store.committedAutomationRouteDurableRecordByReferenceLocked(result.Reference.ReferenceKey)
+		if err != nil {
+			return RouteSettlementTransactionResult{}, err
+		}
+		if ok {
 			result.RouteRow = cloneAutomationRouteDurableRecordPointer(&routeRow)
 		}
 		result.StorageRows = store.routeSettlementStorageRowsLocked(result.StorageLedger)

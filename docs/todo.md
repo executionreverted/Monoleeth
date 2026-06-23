@@ -333,6 +333,11 @@ for phase status; this file is a compact pending-work index.
   Phase07BT adds that source production-state row to route durable commit plans
   and records, and the in-memory production store applies it under the same lock
   as the durable route row; real DB row locks/CAS remain open.
+  Route durable recovery/idempotent readbacks now revalidate committed route
+  rows, reference rows, revision evidence, reference-to-route-row consistency,
+  and source production energy evidence before returning them to callers, so
+  corrupt in-memory durable rows fail closed instead of being used as recovery
+  truth.
   Phase07BV adds a focused runtime proof that a committed route settlement
   durable outbox row drains into owner-scoped realtime `route.settled`,
   route snapshot/list, production, and storage events without leaking to another
