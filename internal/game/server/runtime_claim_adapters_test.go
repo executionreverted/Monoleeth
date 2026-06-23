@@ -21,7 +21,7 @@ func TestRuntimeClaimXCoreConsumerCopiesStorageMutationEvidence(t *testing.T) {
 	if _, err := inventory.AddItem(economy.AddItemInput{
 		PlayerID:       playerID,
 		ItemDefinition: definition,
-		Quantity:       2,
+		Quantity:       1,
 		Location:       location,
 		Reason:         "test_seed",
 		ReferenceKey:   "loot_pickup:add-runtime-xcore",
@@ -64,9 +64,12 @@ func TestRuntimeClaimXCoreConsumerCopiesStorageMutationEvidence(t *testing.T) {
 		entry.Location != location {
 		t.Fatalf("ledger entry = %+v, want X Core decrease evidence for claim", entry)
 	}
-	if len(result.StorageMutation.StackableItems) != 1 ||
-		result.StorageMutation.StackableItems[0].Quantity.Int64() != 1 {
-		t.Fatalf("stackable evidence = %+v, want remaining X Core row", result.StorageMutation.StackableItems)
+	if len(result.StorageMutation.StackableItems) != 0 {
+		t.Fatalf("stackable evidence = %+v, want no remaining X Core row", result.StorageMutation.StackableItems)
+	}
+	if len(result.StorageMutation.DeletedStackableItems) != 1 ||
+		result.StorageMutation.DeletedStackableItems[0].Quantity.Int64() != 1 {
+		t.Fatalf("deleted stackable evidence = %+v, want consumed X Core row", result.StorageMutation.DeletedStackableItems)
 	}
 
 	duplicate, err := consumer.ConsumeClaimXCore(input)
@@ -79,6 +82,10 @@ func TestRuntimeClaimXCoreConsumerCopiesStorageMutationEvidence(t *testing.T) {
 	if len(duplicate.StorageMutation.LedgerEntries) != 1 ||
 		duplicate.StorageMutation.LedgerEntries[0].LedgerID != entry.LedgerID {
 		t.Fatalf("duplicate ledger evidence = %+v, want same ledger id %q", duplicate.StorageMutation.LedgerEntries, entry.LedgerID)
+	}
+	if len(duplicate.StorageMutation.DeletedStackableItems) != 1 ||
+		duplicate.StorageMutation.DeletedStackableItems[0].ItemInstanceID != result.StorageMutation.DeletedStackableItems[0].ItemInstanceID {
+		t.Fatalf("duplicate deleted stackable evidence = %+v, want same deleted row", duplicate.StorageMutation.DeletedStackableItems)
 	}
 }
 

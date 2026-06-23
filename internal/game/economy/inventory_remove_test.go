@@ -156,6 +156,53 @@ func TestRemoveItemDecreasesStackableQuantityAndWritesLedgerEntry(t *testing.T) 
 	}
 }
 
+func TestRemoveItemExactStackableQuantityReturnsDeletedRowEvidence(t *testing.T) {
+	service := newTestInventoryService()
+	definition := validStackableDefinition(t)
+	sourceLocation := validLocation(t)
+	added := addStackableItems(t, service, definition, 5, sourceLocation, "loot_pickup:drop-1")
+
+	input := validRemoveItemInput(t)
+	input.ItemRef.Definition = definition
+	input.SourceLocation = sourceLocation
+	input.Quantity = 5
+	input.ReferenceKey = validReferenceKey(t, "loot_pickup:remove-exact-stack")
+
+	result, err := service.RemoveItem(input)
+	if err != nil {
+		t.Fatalf("RemoveItem: %v", err)
+	}
+	if got := service.TotalItemQuantity(input.PlayerID, definition.ItemID, sourceLocation); got != 0 {
+		t.Fatalf("source TotalItemQuantity() = %d, want 0", got)
+	}
+	if len(result.StackableItems) != 0 {
+		t.Fatalf("remaining stackable items = %+v, want none", result.StackableItems)
+	}
+	if len(result.DeletedStackableItems) != 1 {
+		t.Fatalf("deleted stackable items = %+v, want one deleted row", result.DeletedStackableItems)
+	}
+	deleted := result.DeletedStackableItems[0]
+	if deleted.ItemInstanceID != added.StackableItems[0].ItemInstanceID ||
+		deleted.Quantity.Int64() != 5 ||
+		deleted.OwnerPlayerID != input.PlayerID ||
+		deleted.ItemID != definition.ItemID ||
+		deleted.Location != sourceLocation {
+		t.Fatalf("deleted stackable evidence = %+v, want original consumed row %+v", deleted, added.StackableItems[0])
+	}
+
+	duplicate, err := service.RemoveItem(input)
+	if err != nil {
+		t.Fatalf("duplicate RemoveItem: %v", err)
+	}
+	if !duplicate.Duplicate {
+		t.Fatal("duplicate RemoveItem Duplicate = false, want true")
+	}
+	if len(duplicate.DeletedStackableItems) != 1 ||
+		duplicate.DeletedStackableItems[0].ItemInstanceID != deleted.ItemInstanceID {
+		t.Fatalf("duplicate deleted stackable evidence = %+v, want same deleted row", duplicate.DeletedStackableItems)
+	}
+}
+
 func TestRemoveItemDuplicateReferenceDoesNotRemoveOrLedgerTwice(t *testing.T) {
 	service := newTestInventoryService()
 	definition := validStackableDefinition(t)

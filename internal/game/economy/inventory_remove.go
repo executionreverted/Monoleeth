@@ -32,10 +32,11 @@ type RemoveItemInput struct {
 
 // RemoveItemResult reports item rows touched and ledger rows written by RemoveItem.
 type RemoveItemResult struct {
-	StackableItems []StackableItem   `json:"stackable_items,omitempty"`
-	InstanceItems  []InstanceItem    `json:"instance_items,omitempty"`
-	LedgerEntries  []ItemLedgerEntry `json:"ledger_entries"`
-	Duplicate      bool              `json:"duplicate"`
+	StackableItems        []StackableItem   `json:"stackable_items,omitempty"`
+	DeletedStackableItems []StackableItem   `json:"deleted_stackable_items,omitempty"`
+	InstanceItems         []InstanceItem    `json:"instance_items,omitempty"`
+	LedgerEntries         []ItemLedgerEntry `json:"ledger_entries"`
+	Duplicate             bool              `json:"duplicate"`
 }
 
 // RemoveItem removes player-owned item quantity from one source location once for a player/reference pair.
@@ -173,14 +174,15 @@ func (service *InventoryService) removeStackableItemLocked(input RemoveItemInput
 		return RemoveItemResult{}, err
 	}
 
-	stackableItems, err := service.removedStackableRowsLocked(input, quantity, now)
+	stackableItems, deletedStackableItems, err := service.removedStackableRowsLocked(input, quantity, now)
 	if err != nil {
 		return RemoveItemResult{}, err
 	}
 
 	return RemoveItemResult{
-		StackableItems: stackableItems,
-		LedgerEntries:  []ItemLedgerEntry{ledgerEntry},
+		StackableItems:        stackableItems,
+		DeletedStackableItems: deletedStackableItems,
+		LedgerEntries:         []ItemLedgerEntry{ledgerEntry},
 	}, nil
 }
 
@@ -235,9 +237,10 @@ func (service *InventoryService) removedStackableRowsLocked(
 	input RemoveItemInput,
 	quantity foundation.Quantity,
 	now time.Time,
-) ([]StackableItem, error) {
+) ([]StackableItem, []StackableItem, error) {
 	remainingSource := quantity.Int64()
 	updatedItems := make([]StackableItem, 0, len(service.stackableItems))
+	deletedItems := make([]StackableItem, 0)
 	for _, item := range service.stackableItems {
 		if remainingSource > 0 && matchesStackableDefinitionLocation(item, input.PlayerID, input.ItemRef.Definition, input.SourceLocation) {
 			taken := item.Quantity.Int64()
@@ -247,11 +250,12 @@ func (service *InventoryService) removedStackableRowsLocked(
 			remainingSource -= taken
 			newAmount := item.Quantity.Int64() - taken
 			if newAmount == 0 {
+				deletedItems = append(deletedItems, item)
 				continue
 			}
 			quantity, err := foundation.NewQuantity(newAmount)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			item.Quantity = quantity
 			item.UpdatedAt = now
@@ -260,7 +264,7 @@ func (service *InventoryService) removedStackableRowsLocked(
 	}
 
 	service.stackableItems = updatedItems
-	return service.stackableItemsForRemoveLocked(input), nil
+	return service.stackableItemsForRemoveLocked(input), deletedItems, nil
 }
 
 func (service *InventoryService) removeInstanceItemIndexLocked(input RemoveItemInput) int {
@@ -296,6 +300,7 @@ func validateGenericRemoveSourceLocation(location ItemLocation) error {
 
 func cloneRemoveItemResult(result RemoveItemResult) RemoveItemResult {
 	result.StackableItems = append([]StackableItem(nil), result.StackableItems...)
+	result.DeletedStackableItems = append([]StackableItem(nil), result.DeletedStackableItems...)
 	result.InstanceItems = append([]InstanceItem(nil), result.InstanceItems...)
 	result.LedgerEntries = append([]ItemLedgerEntry(nil), result.LedgerEntries...)
 	return result

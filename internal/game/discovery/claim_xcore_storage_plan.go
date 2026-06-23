@@ -107,9 +107,17 @@ func validateClaimXCoreStorageMutationResult(
 	if err := validateClaimXCoreStorageMutationLedger(input, consumption, result.StorageMutation.LedgerEntries[0]); err != nil {
 		return err
 	}
+	if len(result.StorageMutation.StackableItems)+len(result.StorageMutation.DeletedStackableItems) == 0 {
+		return fmt.Errorf("x_core_storage.stackable_evidence: %w", ErrInvalidClaimDurableCommit)
+	}
 	for index, row := range result.StorageMutation.StackableItems {
 		if err := validateClaimXCoreStorageMutationStackable(input, row); err != nil {
 			return fmt.Errorf("x_core_storage.stackable[%d]: %w", index, err)
+		}
+	}
+	for index, row := range result.StorageMutation.DeletedStackableItems {
+		if err := validateClaimXCoreStorageMutationStackable(input, row); err != nil {
+			return fmt.Errorf("x_core_storage.deleted_stackable[%d]: %w", index, err)
 		}
 	}
 	for index, row := range result.StorageMutation.InstanceItems {
@@ -184,6 +192,7 @@ func validateClaimXCoreStorageMutationBoundary(input ClaimXCoreConsumeInput, bou
 
 func cloneClaimXCoreConsumeResult(result ClaimXCoreConsumeResult) ClaimXCoreConsumeResult {
 	result.StorageMutation.StackableItems = append([]economy.StackableItem(nil), result.StorageMutation.StackableItems...)
+	result.StorageMutation.DeletedStackableItems = append([]economy.StackableItem(nil), result.StorageMutation.DeletedStackableItems...)
 	result.StorageMutation.InstanceItems = append([]economy.InstanceItem(nil), result.StorageMutation.InstanceItems...)
 	result.StorageMutation.LedgerEntries = append([]economy.ItemLedgerEntry(nil), result.StorageMutation.LedgerEntries...)
 	return result

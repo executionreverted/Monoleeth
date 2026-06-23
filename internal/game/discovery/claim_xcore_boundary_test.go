@@ -162,9 +162,24 @@ func TestClaimXCoreStorageMutationPlanRejectsInvalidRows(t *testing.T) {
 			},
 		},
 		{
+			name: "missing stackable evidence",
+			mutate: func(result *ClaimXCoreConsumeResult) {
+				result.StorageMutation.StackableItems = nil
+				result.StorageMutation.DeletedStackableItems = nil
+			},
+		},
+		{
 			name: "wrong stackable owner",
 			mutate: func(result *ClaimXCoreConsumeResult) {
 				result.StorageMutation.StackableItems[0].OwnerPlayerID = "player-other"
+			},
+		},
+		{
+			name: "wrong deleted stackable owner",
+			mutate: func(result *ClaimXCoreConsumeResult) {
+				result.StorageMutation.DeletedStackableItems = append(result.StorageMutation.DeletedStackableItems, result.StorageMutation.StackableItems[0])
+				result.StorageMutation.StackableItems = nil
+				result.StorageMutation.DeletedStackableItems[0].OwnerPlayerID = "player-other"
 			},
 		},
 	}
@@ -177,6 +192,24 @@ func TestClaimXCoreStorageMutationPlanRejectsInvalidRows(t *testing.T) {
 				t.Fatalf("NewClaimXCoreStorageMutationPlan() error = %v, want ErrInvalidClaimDurableCommit", err)
 			}
 		})
+	}
+}
+
+func TestClaimXCoreStorageMutationPlanAcceptsDeletedStackEvidence(t *testing.T) {
+	planetID := foundation.PlanetID("planet-claim-xcore-storage-deleted")
+	ref := canonicalClaimReference(t, claimTestPlayerID, planetID)
+	input := beginClaimWithXCoreInputForTest(t, planetID, ref)
+	result := claimXCoreConsumeResultForTest(t, input.XCore, false)
+	result.StorageMutation.DeletedStackableItems = result.StorageMutation.StackableItems
+	result.StorageMutation.StackableItems = nil
+	consumption := newClaimXCoreConsumptionRecord(input.XCore, result, input.ConsumedAt)
+
+	plan, err := NewClaimXCoreStorageMutationPlan(input.XCore, result, consumption, nil)
+	if err != nil {
+		t.Fatalf("NewClaimXCoreStorageMutationPlan(deleted stack) error = %v, want nil", err)
+	}
+	if len(plan.Result.StorageMutation.DeletedStackableItems) != 1 || len(plan.Result.StorageMutation.StackableItems) != 0 {
+		t.Fatalf("storage mutation evidence = %+v, want deleted stack evidence only", plan.Result.StorageMutation)
 	}
 }
 

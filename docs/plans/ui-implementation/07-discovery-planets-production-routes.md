@@ -594,6 +594,8 @@ Mockup areas covered:
       for future durable claim/storage adapters.
 - [x] Add X Core claim consume storage-mutation evidence and durable-plan
       validation tying inventory remove ledger rows to claim debit evidence.
+- [x] Add X Core exact-stack deletion evidence so durable storage adapters can
+      recover both updated and deleted inventory rows for claim debits.
 - [x] Add claim durable begin-plan validation tying X Core debit evidence,
       storage mutation evidence, pending owner-CAS boundary rows, owned planet
       snapshots, and stale-intel evidence together.
@@ -604,6 +606,8 @@ Mockup areas covered:
       production recovery evidence to pending/complete claim boundaries.
 - [x] Add claim durable lifecycle-plan validation tying begin, optional
       production-init, and completion/outbox evidence together.
+- [x] Re-validate claim lifecycle begin plans so missing or forged X Core
+      storage-mutation evidence cannot satisfy durable claim/storage coupling.
 - [ ] Add durable authenticated transaction flows for claim/storage mutation
       coupling once DB/CAS storage boundaries replace process-local stores.
 - [x] Add offline settlement reconcile path that uses server-owned windows for

@@ -44,6 +44,13 @@ func TestClaimDurableLifecyclePlanWithoutProductionInitialization(t *testing.T) 
 	if plan.HasProductionInit || plan.ProductionInitialized.Initialization.ClaimReference != "" {
 		t.Fatalf("claim durable lifecycle no-init plan = %+v, want no production init evidence", plan)
 	}
+
+	deletedStackBegin := beginPlan
+	deletedStackBegin.XCoreStorageMutation.Result.StorageMutation.DeletedStackableItems = deletedStackBegin.XCoreStorageMutation.Result.StorageMutation.StackableItems
+	deletedStackBegin.XCoreStorageMutation.Result.StorageMutation.StackableItems = nil
+	if _, err := NewClaimDurableLifecyclePlan(&deletedStackBegin, nil, &commitPlan); err != nil {
+		t.Fatalf("NewClaimDurableLifecyclePlan(deleted stack storage evidence) error = %v, want nil", err)
+	}
 }
 
 func TestClaimDurableLifecyclePlanNoOpAndInvalidRows(t *testing.T) {
@@ -62,6 +69,24 @@ func TestClaimDurableLifecyclePlanNoOpAndInvalidRows(t *testing.T) {
 	debitOnlyBegin := ClaimDurableBeginPlan{XCoreConsumption: beginPlan.XCoreConsumption}
 	if _, err := NewClaimDurableLifecyclePlan(&debitOnlyBegin, nil, &commitPlan); !errors.Is(err, ErrInvalidClaimDurableCommit) {
 		t.Fatalf("NewClaimDurableLifecyclePlan(debit-only begin) error = %v, want ErrInvalidClaimDurableCommit", err)
+	}
+
+	missingStorageBegin := beginPlan
+	missingStorageBegin.XCoreStorageMutation = ClaimXCoreStorageMutationPlan{}
+	if _, err := NewClaimDurableLifecyclePlan(&missingStorageBegin, nil, &commitPlan); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+		t.Fatalf("NewClaimDurableLifecyclePlan(missing storage mutation) error = %v, want ErrInvalidClaimDurableCommit", err)
+	}
+
+	wrongStorageBegin := beginPlan
+	wrongStorageBegin.XCoreStorageMutation.Consumption.ConsumedAt = wrongStorageBegin.XCoreStorageMutation.Consumption.ConsumedAt.Add(1)
+	if _, err := NewClaimDurableLifecyclePlan(&wrongStorageBegin, nil, &commitPlan); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+		t.Fatalf("NewClaimDurableLifecyclePlan(wrong storage consumption) error = %v, want ErrInvalidClaimDurableCommit", err)
+	}
+
+	wrongStorageBegin = beginPlan
+	wrongStorageBegin.XCoreStorageMutation.Boundary.EventID = "event_other"
+	if _, err := NewClaimDurableLifecyclePlan(&wrongStorageBegin, nil, &commitPlan); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+		t.Fatalf("NewClaimDurableLifecyclePlan(wrong storage boundary) error = %v, want ErrInvalidClaimDurableCommit", err)
 	}
 
 	wrongCommit := commitPlan

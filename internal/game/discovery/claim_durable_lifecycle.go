@@ -31,6 +31,9 @@ func NewClaimDurableLifecyclePlan(
 	}
 	clonedBegin := cloneClaimDurableBeginPlan(*begin)
 	clonedCommit := cloneClaimDurableCommitPlan(*commit)
+	if err := validateClaimDurableBeginPlan(clonedBegin); err != nil {
+		return ClaimDurableLifecyclePlan{}, err
+	}
 	if err := validateClaimDurableLifecycleBeginCommit(clonedBegin, clonedCommit); err != nil {
 		return ClaimDurableLifecyclePlan{}, err
 	}

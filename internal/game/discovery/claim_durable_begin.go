@@ -125,6 +125,49 @@ func claimDurableBeginStorageBoundaryMatches(left ClaimBoundaryRecord, right Cla
 		left.StaleListingCount == right.StaleListingCount
 }
 
+func validateClaimDurableBeginPlan(plan ClaimDurableBeginPlan) error {
+	if !plan.HasXCoreStorageMutation {
+		return nil
+	}
+	if err := validateClaimXCoreStorageMutationPlan(plan.XCoreStorageMutation); err != nil {
+		return fmt.Errorf("x_core_storage: %w: %v", ErrInvalidClaimDurableCommit, err)
+	}
+	if !claimLifecycleXCoreMatches(plan.XCoreConsumption, plan.XCoreStorageMutation.Consumption) {
+		return fmt.Errorf("x_core_storage.consumption: %w", ErrInvalidClaimDurableCommit)
+	}
+	if plan.Planet.ID == "" && plan.Boundary.ClaimReference == "" {
+		if len(plan.StaleIntel) > 0 {
+			return fmt.Errorf("stale_intel: %w", ErrInvalidClaimDurableCommit)
+		}
+		if plan.XCoreStorageMutation.HasBoundary {
+			return fmt.Errorf("x_core_storage.boundary: %w", ErrInvalidClaimDurableCommit)
+		}
+		return nil
+	}
+	if plan.Planet.ID == "" || plan.Boundary.ClaimReference == "" {
+		return fmt.Errorf("owner_boundary: %w", ErrInvalidClaimDurableCommit)
+	}
+	if !plan.XCoreStorageMutation.HasBoundary {
+		return fmt.Errorf("x_core_storage.boundary: %w", ErrInvalidClaimDurableCommit)
+	}
+	if err := validateClaimDurableBeginBoundary(plan.Boundary); err != nil {
+		return err
+	}
+	if err := validateClaimDurableCommitXCore(plan.Boundary, plan.XCoreConsumption); err != nil {
+		return err
+	}
+	if err := validateClaimDurableBeginPlanet(plan.Boundary, plan.Planet); err != nil {
+		return err
+	}
+	if err := validateClaimDurableBeginStaleIntel(plan.Boundary, plan.StaleIntel); err != nil {
+		return err
+	}
+	if !claimDurableBeginStorageBoundaryMatches(plan.XCoreStorageMutation.Boundary, plan.Boundary) {
+		return fmt.Errorf("x_core_storage.boundary: %w", ErrInvalidClaimDurableCommit)
+	}
+	return nil
+}
+
 func validateClaimDurableBeginBoundary(record ClaimBoundaryRecord) error {
 	if err := record.ClaimReference.Validate(); err != nil {
 		return fmt.Errorf("boundary.claim_reference: %w", err)
