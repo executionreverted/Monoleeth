@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_PHYSICAL="$(cd "$ROOT_DIR" && pwd -P)"
 NPM_CACHE="${NPM_CACHE:-/tmp/gameproject-npm-cache}"
 
 env_bool() {
@@ -9,6 +10,42 @@ env_bool() {
     1 | true | TRUE | yes | YES | on | ON) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+publish_client_dist() {
+  local target_dir="$1"
+
+  mkdir -p "$target_dir"
+
+  local target_physical
+  target_physical="$(cd "$target_dir" && pwd -P)"
+
+  case "$target_physical" in
+    "/" | "/tmp" | "/private/tmp" | "$HOME" | "$ROOT_PHYSICAL" | "$ROOT_PHYSICAL/client")
+      echo "Refusing unsafe published artifact directory: $target_physical" >&2
+      exit 1
+      ;;
+  esac
+
+  case "$target_physical/" in
+    "$ROOT_PHYSICAL/client/dist/"*)
+      echo "Refusing to publish into client/dist or its children: $target_physical" >&2
+      exit 1
+      ;;
+  esac
+
+  if [[ -n "$(find "$target_physical" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+    if env_bool "${GAME_PLAYTEST_CLEAN_PUBLISHED_ARTIFACT_DIR:-false}"; then
+      find "$target_physical" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+    else
+      echo "Published artifact directory is not empty: $target_physical" >&2
+      echo "Set GAME_PLAYTEST_CLEAN_PUBLISHED_ARTIFACT_DIR=true to clean it before publishing." >&2
+      exit 1
+    fi
+  fi
+
+  cp -R "$ROOT_PHYSICAL/client/dist/." "$target_physical"/
+  published_artifact_dir="$target_physical"
 }
 
 cd "$ROOT_DIR"
@@ -24,8 +61,7 @@ if [[ -n "${GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR:-}" ]]; then
     /*) ;;
     *) published_artifact_dir="$ROOT_DIR/$published_artifact_dir" ;;
   esac
-  mkdir -p "$published_artifact_dir"
-  cp -R client/dist/. "$published_artifact_dir"/
+  publish_client_dist "$published_artifact_dir"
   artifact_scan_roots="${artifact_scan_roots:+${artifact_scan_roots}:}${published_artifact_dir}"
 fi
 

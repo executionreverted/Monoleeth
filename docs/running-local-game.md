@@ -90,6 +90,18 @@ GAME_ARTIFACT_SCAN_ROOTS="/path/to/published:/path/to/staging" \
   GAME_PLAYTEST_BUILD_ONLY=true scripts/run_playtest_server.sh
 ```
 
+To stage the built client into the exact directory a deploy job will publish,
+set `GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR`. The directory must be empty by
+default so stale files cannot survive into a test-server artifact. For a reused
+staging directory, opt in to cleaning it first:
+
+```bash
+GAME_PLAYTEST_BUILD_ONLY=true \
+GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR=/path/to/publish \
+GAME_PLAYTEST_CLEAN_PUBLISHED_ARTIFACT_DIR=true \
+scripts/run_playtest_server.sh
+```
+
 In this mode `/api`, `/ws`, and `/healthz` remain server routes. Other browser
 routes fall back to `index.html`, so reloading a client route works without
 Vite. Missing asset files and unknown `/api/*` paths still return `404`.
@@ -166,7 +178,12 @@ dependencies when needed, runs that extra-root scanner regression, and then
 runs the same build-only playtest artifact gate. This proves the checked-in
 deployable client package and default `client/dist` leak scan. A future
 external deploy job should still pass its final staging or published artifact
-directory through `GAME_ARTIFACT_SCAN_ROOTS`.
+directory through `GAME_ARTIFACT_SCAN_ROOTS`. The publish directory guard has a
+focused regression:
+
+```bash
+scripts/test_playtest_publish_dir_guard.sh
+```
 
 The ready GitHub Actions workflow template is checked in at
 `docs/ci/playtest-artifact-gate-github-actions.yml`. Copy it to

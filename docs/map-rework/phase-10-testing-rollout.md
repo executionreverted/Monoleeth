@@ -211,13 +211,16 @@ marked `Open` are not implemented rollout controls yet.
   of the deployable playtest package gate, and
   `GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR=/path/to/publish
   scripts/run_playtest_server.sh` stages and scans a published copy of
-  `client/dist`. The
-  `client/tests/bundle-scan-extra-root.test.mjs` proves clean extra roots pass
-  while both positional and `GAME_ARTIFACT_SCAN_ROOTS` roots fail on forbidden
-  fixture/server-only tokens. `scripts/ci_playtest_artifact_gate.sh` runs that
-  regression before a build-only gate with a temporary staged publish root and
-  is ready for CI/deploy jobs to call. External deploy pipelines still need to
-  call the gate before hosted rollout.
+  `client/dist`. Reused publish directories now fail fast when non-empty unless
+  `GAME_PLAYTEST_CLEAN_PUBLISHED_ARTIFACT_DIR=true` is set, and
+  `scripts/test_playtest_publish_dir_guard.sh` covers the rejection plus clean
+  publish path. The `client/tests/bundle-scan-extra-root.test.mjs` proves clean
+  extra roots pass while both positional and `GAME_ARTIFACT_SCAN_ROOTS` roots
+  fail on forbidden fixture/server-only tokens.
+  `scripts/ci_playtest_artifact_gate.sh` runs that regression before a
+  build-only gate with a temporary staged publish root and is ready for
+  CI/deploy jobs to call. External deploy pipelines still need to call the gate
+  before hosted rollout.
 - Broader PvP rollout canaries beyond the focused safe-zone UI click proof are
   still missing.
 - `client` `npm run check` does not run the Phase09 Playwright smoke.

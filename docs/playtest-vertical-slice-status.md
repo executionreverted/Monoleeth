@@ -63,6 +63,12 @@ Run the hosted-CI/deploy artifact gate locally:
 scripts/ci_playtest_artifact_gate.sh
 ```
 
+Verify the publish-directory guard for reused staging directories:
+
+```bash
+scripts/test_playtest_publish_dir_guard.sh
+```
+
 A ready GitHub Actions workflow template exists at:
 
 ```text
@@ -111,7 +117,8 @@ client/src/assets/world/
    persistence, or whether durable DB-backed claim/production/route/death rows
    must land first.
 5. Prepare test-server operations notes: seed policy, reset policy, port/origin
-   config, artifact location, and rollback steps.
+   config, artifact location, rollback steps, and whether the deploy job cleans
+   a reused `GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR` before publishing.
 
 ## Asset Needs
 
