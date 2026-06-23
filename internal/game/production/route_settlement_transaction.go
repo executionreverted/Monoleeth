@@ -89,6 +89,9 @@ func (store *InMemoryStore) ApplyRouteSettlementTransaction(
 			}
 			return replay, nil
 		}
+		if err := store.restoreAutomationRouteReadModelFromDurableLocked(input.OwnerPlayerID, input.RouteID); err != nil {
+			return RouteSettlementTransactionResult{}, err
+		}
 	}
 	if err := store.requireRouteOwnerLocked(input.OwnerPlayerID, input.RouteID); err != nil {
 		return RouteSettlementTransactionResult{}, err
@@ -175,6 +178,24 @@ func (store *InMemoryStore) routeSettlementTransactionReplayLocked(
 		return RouteSettlementTransactionResult{}, false, err
 	}
 	return result, true, nil
+}
+
+func (store *InMemoryStore) restoreAutomationRouteReadModelFromDurableLocked(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+) error {
+	record, ok := store.routeDurableRecords[routeID]
+	if !ok {
+		return nil
+	}
+	if err := validateAutomationRouteDurableRecordForRoute(record, routeID); err != nil {
+		return err
+	}
+	if record.Route.OwnerPlayerID != ownerPlayerID {
+		return fmt.Errorf("route %q owner %q: %w", routeID, ownerPlayerID, ErrRouteOwnerMismatch)
+	}
+	store.routes[routeID] = cloneAutomationRoute(record.Route)
+	return nil
 }
 
 func validateRouteSettlementTransactionReplayReference(

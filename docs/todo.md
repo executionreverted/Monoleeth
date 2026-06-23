@@ -442,7 +442,10 @@ for phase status; this file is a compact pending-work index.
   Phase07CY restores missing live source/destination storage rows from the
   latest committed route settlement durable storage evidence before gateway
   preflight, letting later `route.settle` retries continue with real storage
-  payloads after process-local storage read-model loss.
+  payloads after process-local storage read-model loss. Phase07DA restores the
+  live route read-model from the committed durable route row for future
+  settlement windows after live route-row loss, so a later `route.settle` can
+  advance storage again instead of returning not-found.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10

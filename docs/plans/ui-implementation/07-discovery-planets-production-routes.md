@@ -1191,6 +1191,9 @@ Mockup areas covered:
 - [x] Owner reconcile `route.settle {}` merges committed durable owner route
       rows after live read-model loss, preserving storage/station no-op
       settlements and masked destination payloads.
+- [x] Single-route `route.settle` restores the live route read model from the
+      committed durable route row for future settlement windows after route row
+      loss, then repairs missing storage rows from durable settlement evidence.
 - [x] Durable claim, settlement/route, and building outbox stores expose an
       explicit failed-row retry boundary that preserves failure evidence before
       republishing.

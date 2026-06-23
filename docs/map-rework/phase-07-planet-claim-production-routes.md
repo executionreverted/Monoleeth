@@ -691,6 +691,10 @@ contracts:
   settlements. Durable route settlement idempotency table enforcement must
   still respect source storage, destination capacity, loss rolls, and map-risk
   policy.
+- Future-window `route.settle` can recover from process-local live route-row
+  loss by restoring the committed durable route row, then repairing missing
+  source/destination storage rows from durable settlement evidence before
+  applying the next server-owned settlement window.
 - Realtime/event tests prove claim, production, and route events do not leak to
   other maps or unrelated sessions.
 - Browser/API tests prove mutation controls reconcile from server snapshots and

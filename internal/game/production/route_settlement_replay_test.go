@@ -120,7 +120,7 @@ func TestApplyRouteSettlementTransactionReplayRejectsWrongOwnerWithoutLiveRouteR
 	}
 }
 
-func TestApplyRouteSettlementTransactionReplayDoesNotMaskFutureSettlementWithoutLiveRouteRow(t *testing.T) {
+func TestApplyRouteSettlementTransactionFutureWindowRestoresDurableRouteWithoutLiveRouteRow(t *testing.T) {
 	last := testRouteNow()
 	now := last.Add(time.Hour)
 	future := now.Add(time.Hour)
@@ -143,14 +143,23 @@ func TestApplyRouteSettlementTransactionReplayDoesNotMaskFutureSettlementWithout
 	}
 	delete(store.routes, route.RouteID)
 
-	_, err := store.ApplyRouteSettlementTransaction(RouteSettlementTransactionInput{
+	result, err := store.ApplyRouteSettlementTransaction(RouteSettlementTransactionInput{
 		OwnerPlayerID: route.OwnerPlayerID,
 		RouteID:       route.RouteID,
 		SettledAt:     future,
 	})
-	if !errors.Is(err, ErrRouteNotFound) {
-		t.Fatalf("ApplyRouteSettlementTransaction(future) error = %v, want ErrRouteNotFound", err)
+	if err != nil {
+		t.Fatalf("ApplyRouteSettlementTransaction(future) error = %v, want durable route repair", err)
 	}
+	if result.Settlement.NoOp ||
+		result.Settlement.TakenAmount != 40 ||
+		result.Settlement.AddedAmount != 40 ||
+		result.Reference == nil ||
+		result.RouteRow == nil {
+		t.Fatalf("future settlement result = %+v, want applied settlement with durable rows", result)
+	}
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 20, future)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 80, future)
 }
 
 func TestApplyRouteSettlementTransactionReplayRejectsMissingHandoffRowsWithoutLiveRouteRow(t *testing.T) {
