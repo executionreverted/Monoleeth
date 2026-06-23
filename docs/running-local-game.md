@@ -165,6 +165,11 @@ deployable client package and default `client/dist` leak scan. A future
 external deploy job should still pass its final staging or published artifact
 directory through `GAME_ARTIFACT_SCAN_ROOTS`.
 
+The ready GitHub Actions workflow template is checked in at
+`docs/ci/playtest-artifact-gate-github-actions.yml`. Copy it to
+`.github/workflows/playtest-artifact-gate.yml` with a credential that has
+GitHub `workflow` scope to activate the hosted artifact gate.
+
 Run the full built-client playtest vertical-slice gate explicitly:
 
 ```bash

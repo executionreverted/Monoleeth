@@ -195,10 +195,14 @@ marked `Open` are not implemented rollout controls yet.
   `GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR` before scanning that published copy.
   `scripts/ci_playtest_artifact_gate.sh` now wraps dependency install, the
   extra-root regression, a temporary staged publish directory, and that
-  deployable client build/bundle leak scan for CI or deploy jobs. Production
+  deployable client build/bundle leak scan for CI or deploy jobs. A ready
+  GitHub Actions workflow template lives at
+  `docs/ci/playtest-artifact-gate-github-actions.yml`; it runs the same gate on
+  pull requests, pushes to `master`, and manual dispatch once installed under
+  `.github/workflows/` by a credential with GitHub `workflow` scope. Production
   logs beyond this harness, admin/debug responses outside this rejection path,
-  non-Phase09 WebSocket paths, and a hosted CI workflow or external deploy job
-  that calls the gate are still missing.
+  non-Phase09 WebSocket paths, and activating the hosted workflow or an external
+  deploy job are still missing.
 - Bundle hidden-token scan remains partial: `client/tests/bundle-scan.mjs`
   checks default `dist` text and source-map assets if present, and can now scan
   explicit extra artifact roots with the same forbidden snippet list through
