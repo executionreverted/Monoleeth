@@ -153,11 +153,17 @@ func (cache *RequestCache) GetOrRemember(sessionID SessionID, requestID foundati
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
-	cache.rememberLocked(key, response)
+	if cacheableResponse(response) {
+		cache.rememberLocked(key, response)
+	}
 	flight.response = response.clone()
 	delete(cache.inFlight, key)
 	close(flight.done)
 	return response.clone(), false
+}
+
+func cacheableResponse(response CachedResponse) bool {
+	return !response.HasError || !response.Error.Error.Retryable
 }
 
 func notifyRequestCacheInFlightWait(key requestCacheKey, phase requestCacheFlightWaitPhase) {

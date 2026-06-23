@@ -400,6 +400,39 @@ func TestRequestCacheCanStoreErrorResponses(t *testing.T) {
 	}
 }
 
+func TestRequestCacheDoesNotRememberRetryableErrors(t *testing.T) {
+	cache := NewRequestCache(1)
+	var builds int
+	requestID := foundation.RequestID("request-retryable-error")
+
+	first, duplicate := cache.GetOrRemember(SessionID("session-1"), requestID, func() CachedResponse {
+		builds++
+		return CachedError(NewErrorEnvelope(
+			requestID,
+			foundation.NewDomainError(foundation.CodeInternal, "Transient failure."),
+			true,
+			100,
+		))
+	})
+	if duplicate || !first.HasError {
+		t.Fatalf("first response duplicate=%v response=%+v, want uncached retryable error", duplicate, first)
+	}
+
+	second, duplicate := cache.GetOrRemember(SessionID("session-1"), requestID, func() CachedResponse {
+		builds++
+		return CachedSuccess(NewResponseEnvelope(requestID, json.RawMessage(`{"ok":true}`), 101))
+	})
+	if duplicate {
+		t.Fatal("retryable error was remembered as a duplicate")
+	}
+	if second.HasError {
+		t.Fatalf("second response = %+v, want rebuilt success", second)
+	}
+	if builds != 2 {
+		t.Fatalf("builds = %d, want 2", builds)
+	}
+}
+
 func cachedPayload(requestID foundation.RequestID, payload string) CachedResponse {
 	return CachedSuccess(NewResponseEnvelope(
 		requestID,

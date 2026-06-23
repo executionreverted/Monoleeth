@@ -199,7 +199,10 @@ for phase status; this file is a compact pending-work index.
   buyers can use bought coordinate scrolls once. Coordinate item use now allows
   same-reference domain replay after transport cache misses and restores the
   scroll if the command fails after inventory consume but before intel use; a
-  retry cleans up the restored scroll with repair ledger evidence. The
+  retry cleans up the restored scroll with repair ledger evidence. Phase07DA
+  keeps retryable internal gateway errors out of completed-request cache, so the
+  same coordinate use request id can re-execute after that compensated transient
+  failure instead of replaying a stale error. The
   authenticated create/share sync path now rejects known planet intel outside
   the player's active map before coordinate item mint or receiver intel writes.
   Phase07CZ makes `intel.share` reject unknown runtime receiver players before

@@ -120,7 +120,8 @@ func (gateway *Gateway) executeResolved(sessionID SessionID, request RequestEnve
 }
 
 func (gateway *Gateway) cachedError(requestID foundation.RequestID, err error) CachedResponse {
-	return CachedError(NewErrorEnvelope(requestID, domainErrorForGateway(err), false, gateway.serverTime()))
+	domainErr := domainErrorForGateway(err)
+	return CachedError(NewErrorEnvelope(requestID, domainErr, domainErr.Public().Code == foundation.CodeInternal, gateway.serverTime()))
 }
 
 func (gateway *Gateway) serverTime() int64 {

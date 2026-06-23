@@ -250,7 +250,10 @@ Current slice completed:
   active map before coordinate item mint or receiver intel writes; the use path
   also checks the stored scroll world/zone against the player's active map
   before inventory consume or intel mutation, returning safe not-found
-  semantics for wrong-map scrolls without leaking planet detail events. Daily
+  semantics for wrong-map scrolls without leaking planet detail events.
+  Phase07DA prevents retryable internal gateway errors from being cached, so a
+  compensated post-consume coordinate use failure can be retried with the same
+  request id and then clean up the repaired inventory scroll. Daily
   quotas, durable DB rows, cross-service transaction/compensation, and browser
   HUD controls remained open at this slice.
 - Phase07CV browser coordinate item follow-up: the browser now exposes
