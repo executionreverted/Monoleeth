@@ -321,6 +321,7 @@ func TestClaimPlanetSuccessInitializesProductionWithClaimContext(t *testing.T) {
 	if len(events) != 1 || !events[0].CreatedAt.Equal(call.ClaimedAt) {
 		t.Fatalf("claim events = %+v, want one event at initializer claimed_at", events)
 	}
+	assertClaimBoundaryStatus(t, store, "claim_init_success", planet.ID, ClaimBoundaryStatusComplete, 0)
 }
 
 func TestClaimPlanetDuplicateReferenceDoesNotConsumeEmitOrInitializeAgain(t *testing.T) {
@@ -441,6 +442,7 @@ func TestClaimPlanetProductionInitializerErrorReturnsBeforeEventOrClaimCache(t *
 	if got := len(service.ClaimOutboxRecords()); got != 0 {
 		t.Fatalf("claim outbox records after initializer failure = %d, want 0", got)
 	}
+	assertClaimBoundaryStatus(t, store, "claim_init_fail", planet.ID, ClaimBoundaryStatusPendingSideEffects, 0)
 	if got := len(consumer.calls); got != 1 {
 		t.Fatalf("x core consume calls after initializer failure = %d, want 1", got)
 	}
@@ -452,8 +454,8 @@ func TestClaimPlanetProductionInitializerErrorReturnsBeforeEventOrClaimCache(t *
 	if retry.Duplicate {
 		t.Fatalf("retry duplicate = true, want false because initializer failure was not cached")
 	}
-	if !retry.AlreadyOwned || !retry.Claimed {
-		t.Fatalf("retry result = %+v, want already-owned claimed result", retry)
+	if !retry.Claimed || retry.AlreadyOwned {
+		t.Fatalf("retry result = %+v, want original claim completion without already-owned flag", retry)
 	}
 	if got := len(initializer.calls); got != 2 {
 		t.Fatalf("production initializer calls after retry = %d, want 2", got)
@@ -462,19 +464,20 @@ func TestClaimPlanetProductionInitializerErrorReturnsBeforeEventOrClaimCache(t *
 		t.Fatalf("x core consume calls after retry = %d, want 1", got)
 	}
 	references := service.ClaimReferences()
-	if len(references) != 1 || references[0].ClaimReference != "claim_init_fail" || !references[0].AlreadyOwned {
-		t.Fatalf("claim references after repair = %+v, want one already-owned repair reference", references)
+	if len(references) != 1 || references[0].ClaimReference != "claim_init_fail" || references[0].AlreadyOwned || references[0].EventID == "" {
+		t.Fatalf("claim references after repair = %+v, want one completed claim reference with event", references)
 	}
 	recoveries := service.ClaimRecoveries()
-	if len(recoveries) != 1 || recoveries[0].ClaimReference != "claim_init_fail" || recoveries[0].Reason != ClaimRecoveryReasonAlreadyOwnedRepair {
-		t.Fatalf("claim recoveries after repair = %+v, want one already-owned repair recovery", recoveries)
+	if len(recoveries) != 0 {
+		t.Fatalf("claim recoveries after original claim completion = %+v, want none", recoveries)
 	}
-	if references[0].EventID != "" {
-		t.Fatalf("repair claim reference event id = %q, want empty because no repair event", references[0].EventID)
+	if got := len(service.Events()); got != 1 {
+		t.Fatalf("claim events after repair = %d, want 1", got)
 	}
-	if got := len(service.ClaimOutboxRecords()); got != 0 {
-		t.Fatalf("claim outbox records after repair = %d, want 0", got)
+	if got := len(service.ClaimOutboxRecords()); got != 1 {
+		t.Fatalf("claim outbox records after repair = %d, want 1", got)
 	}
+	assertClaimBoundaryStatus(t, store, "claim_init_fail", planet.ID, ClaimBoundaryStatusComplete, 0)
 }
 
 func TestClaimPlanetProductionInitializerErrorRetryCachesRepairWithoutDuplicateSideEffects(t *testing.T) {
@@ -516,6 +519,7 @@ func TestClaimPlanetProductionInitializerErrorRetryCachesRepairWithoutDuplicateS
 	if got := len(service.ClaimOutboxRecords()); got != 0 {
 		t.Fatalf("claim outbox records after initializer failure = %d, want 0", got)
 	}
+	assertClaimBoundaryStatus(t, store, "claim_init_retry_repair", planet.ID, ClaimBoundaryStatusPendingSideEffects, 0)
 	if got := len(staleMarker.calls); got != 0 {
 		t.Fatalf("stale marker calls after initializer failure = %d, want 0", got)
 	}
@@ -528,8 +532,8 @@ func TestClaimPlanetProductionInitializerErrorRetryCachesRepairWithoutDuplicateS
 	if repaired.Duplicate {
 		t.Fatalf("repair duplicate = true, want false because failed attempt was not cached")
 	}
-	if !repaired.Claimed || !repaired.AlreadyOwned {
-		t.Fatalf("repair result = %+v, want already-owned claimed repair", repaired)
+	if !repaired.Claimed || repaired.AlreadyOwned {
+		t.Fatalf("repair result = %+v, want original claim completion without already-owned flag", repaired)
 	}
 	if repaired.StaleListingCount != 4 {
 		t.Fatalf("repair stale listing count = %d, want 4", repaired.StaleListingCount)
@@ -540,8 +544,8 @@ func TestClaimPlanetProductionInitializerErrorRetryCachesRepairWithoutDuplicateS
 	if got := len(staleMarker.calls); got != 1 {
 		t.Fatalf("stale marker calls after repair = %d, want 1", got)
 	}
-	if got := len(service.Events()); got != 0 {
-		t.Fatalf("claim events after repair = %d, want 0", got)
+	if got := len(service.Events()); got != 1 {
+		t.Fatalf("claim events after repair = %d, want 1", got)
 	}
 	if got := len(consumer.calls); got != 1 {
 		t.Fatalf("x core consume calls after repair = %d, want 1", got)
@@ -551,8 +555,8 @@ func TestClaimPlanetProductionInitializerErrorRetryCachesRepairWithoutDuplicateS
 	if err != nil {
 		t.Fatalf("duplicate ClaimPlanet() error = %v, want nil cached result", err)
 	}
-	if !duplicate.Duplicate || !duplicate.Claimed || !duplicate.AlreadyOwned {
-		t.Fatalf("duplicate result = %+v, want cached duplicate already-owned claim", duplicate)
+	if !duplicate.Duplicate || !duplicate.Claimed || duplicate.AlreadyOwned {
+		t.Fatalf("duplicate result = %+v, want cached duplicate original claim completion", duplicate)
 	}
 	if duplicate.StaleListingCount != repaired.StaleListingCount {
 		t.Fatalf("duplicate stale listing count = %d, want %d", duplicate.StaleListingCount, repaired.StaleListingCount)
@@ -563,25 +567,76 @@ func TestClaimPlanetProductionInitializerErrorRetryCachesRepairWithoutDuplicateS
 	if got := len(staleMarker.calls); got != 1 {
 		t.Fatalf("stale marker calls after duplicate = %d, want 1", got)
 	}
-	if got := len(service.Events()); got != 0 {
-		t.Fatalf("claim events after duplicate = %d, want 0", got)
+	if got := len(service.Events()); got != 1 {
+		t.Fatalf("claim events after duplicate = %d, want 1", got)
 	}
 	references := service.ClaimReferences()
-	if len(references) != 1 || references[0].ClaimReference != "claim_init_retry_repair" || !references[0].AlreadyOwned {
-		t.Fatalf("claim references after duplicate repair = %+v, want one already-owned repair reference", references)
+	if len(references) != 1 || references[0].ClaimReference != "claim_init_retry_repair" || references[0].AlreadyOwned || references[0].EventID == "" {
+		t.Fatalf("claim references after duplicate repair = %+v, want one completed claim reference with event", references)
 	}
 	recoveries := service.ClaimRecoveries()
-	if len(recoveries) != 1 || recoveries[0].ClaimReference != "claim_init_retry_repair" || recoveries[0].Reason != ClaimRecoveryReasonAlreadyOwnedRepair {
-		t.Fatalf("claim recoveries after duplicate repair = %+v, want one already-owned repair recovery", recoveries)
+	if len(recoveries) != 0 {
+		t.Fatalf("claim recoveries after original claim completion = %+v, want none", recoveries)
 	}
-	if references[0].EventID != "" {
-		t.Fatalf("repair claim reference event id = %q, want empty because no repair event", references[0].EventID)
+	if got := len(service.ClaimOutboxRecords()); got != 1 {
+		t.Fatalf("claim outbox records after duplicate repair = %d, want 1", got)
 	}
-	if got := len(service.ClaimOutboxRecords()); got != 0 {
-		t.Fatalf("claim outbox records after duplicate repair = %d, want 0", got)
-	}
+	assertClaimBoundaryStatus(t, store, "claim_init_retry_repair", planet.ID, ClaimBoundaryStatusComplete, 4)
 	if got := len(consumer.calls); got != 1 {
 		t.Fatalf("x core consume calls after duplicate = %d, want 1", got)
+	}
+}
+
+func TestClaimPlanetPendingBoundaryConflictRejectsBeforeSecondXCoreConsume(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim")
+	otherPlanet := claimTestPlanet("planet-other")
+	ownedOtherPlanet := claimTestPlanet("planet-owned-other")
+	ownedChangedAt := testTime(5)
+	ownedOtherPlanet.OwnerPlayerID = claimTestPlayerID
+	ownedOtherPlanet.OwnerChangedAt = &ownedChangedAt
+	materializeClaimTestPlanet(t, store, planet)
+	materializeClaimTestPlanet(t, store, otherPlanet)
+	materializeClaimTestPlanet(t, store, ownedOtherPlanet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	upsertClaimIntel(t, store, claimTestPlayerID, otherPlanet.ID, testTime(1))
+	upsertClaimIntel(t, store, claimTestPlayerID, ownedOtherPlanet.ID, testTime(1))
+	initErr := errors.New("production init failed")
+	consumer := &recordingClaimXCoreConsumer{}
+	initializer := &recordingClaimProductionInitializer{err: initErr}
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    consumer,
+		initializer: initializer,
+	})
+
+	_, err := service.ClaimPlanet(claimInput("claim_pending_conflict", planet.ID))
+	if !errors.Is(err, initErr) {
+		t.Fatalf("ClaimPlanet() error = %v, want initErr", err)
+	}
+	assertClaimBoundaryStatus(t, store, "claim_pending_conflict", planet.ID, ClaimBoundaryStatusPendingSideEffects, 0)
+
+	_, err = service.ClaimPlanet(claimInput("claim_pending_conflict", otherPlanet.ID))
+	if !errors.Is(err, ErrPlanetClaimReferenceConflict) {
+		t.Fatalf("conflicting pending ClaimPlanet() error = %v, want ErrPlanetClaimReferenceConflict", err)
+	}
+	if got := len(consumer.calls); got != 1 {
+		t.Fatalf("x core consume calls after pending conflict = %d, want 1", got)
+	}
+	if got := len(service.Events()); got != 0 {
+		t.Fatalf("claim events after pending conflict = %d, want 0", got)
+	}
+	if got := len(service.ClaimOutboxRecords()); got != 0 {
+		t.Fatalf("claim outbox after pending conflict = %d, want 0", got)
+	}
+	_, err = service.ClaimPlanet(claimInput("claim_pending_conflict", ownedOtherPlanet.ID))
+	if !errors.Is(err, ErrPlanetClaimReferenceConflict) {
+		t.Fatalf("conflicting same-owner pending ClaimPlanet() error = %v, want ErrPlanetClaimReferenceConflict", err)
+	}
+	if got := len(initializer.calls); got != 1 {
+		t.Fatalf("production initializer calls after same-owner pending conflict = %d, want 1", got)
 	}
 }
 
@@ -625,14 +680,15 @@ func TestClaimPlanetListedIntelStaleMarkerFailureCanRepairOnRetry(t *testing.T) 
 	if got := len(service.ClaimOutboxRecords()); got != 0 {
 		t.Fatalf("claim outbox records after marker failure = %d, want 0", got)
 	}
+	assertClaimBoundaryStatus(t, store, "claim_stale_marker_retry", planet.ID, ClaimBoundaryStatusPendingSideEffects, 0)
 
 	staleMarker.err = nil
 	retry, err := service.ClaimPlanet(input)
 	if err != nil {
 		t.Fatalf("retry ClaimPlanet() error = %v, want nil already-owned repair", err)
 	}
-	if !retry.Claimed || !retry.AlreadyOwned || retry.StaleListingCount != 2 {
-		t.Fatalf("retry result = %+v, want already-owned claimed with 2 stale listings", retry)
+	if !retry.Claimed || retry.AlreadyOwned || retry.StaleListingCount != 2 {
+		t.Fatalf("retry result = %+v, want original claim completion with 2 stale listings", retry)
 	}
 	if got := len(consumer.calls); got != 1 {
 		t.Fatalf("x core consume calls after retry = %d, want still 1", got)
@@ -641,16 +697,20 @@ func TestClaimPlanetListedIntelStaleMarkerFailureCanRepairOnRetry(t *testing.T) 
 		t.Fatalf("stale marker calls after retry = %d, want 2", got)
 	}
 	references := service.ClaimReferences()
-	if len(references) != 1 || references[0].ClaimReference != "claim_stale_marker_retry" || !references[0].AlreadyOwned {
-		t.Fatalf("claim references after marker repair = %+v, want one already-owned repair reference", references)
+	if len(references) != 1 || references[0].ClaimReference != "claim_stale_marker_retry" || references[0].AlreadyOwned || references[0].EventID == "" {
+		t.Fatalf("claim references after marker repair = %+v, want one completed claim reference with event", references)
 	}
 	recoveries := service.ClaimRecoveries()
-	if len(recoveries) != 1 || recoveries[0].ClaimReference != "claim_stale_marker_retry" || recoveries[0].Reason != ClaimRecoveryReasonAlreadyOwnedRepair {
-		t.Fatalf("claim recoveries after marker repair = %+v, want one already-owned repair recovery", recoveries)
+	if len(recoveries) != 0 {
+		t.Fatalf("claim recoveries after marker repair = %+v, want none", recoveries)
 	}
-	if got := len(service.ClaimOutboxRecords()); got != 0 {
-		t.Fatalf("claim outbox records after marker repair = %d, want 0", got)
+	if got := len(service.Events()); got != 1 {
+		t.Fatalf("claim events after marker repair = %d, want 1", got)
 	}
+	if got := len(service.ClaimOutboxRecords()); got != 1 {
+		t.Fatalf("claim outbox records after marker repair = %d, want 1", got)
+	}
+	assertClaimBoundaryStatus(t, store, "claim_stale_marker_retry", planet.ID, ClaimBoundaryStatusComplete, 2)
 }
 
 func TestClaimPlanetAlreadyOwnedBySamePlayerInitializesWithoutConsumeOrEvent(t *testing.T) {
@@ -796,6 +856,33 @@ func upsertClaimIntel(t *testing.T, store *InMemoryStore, playerID foundation.Pl
 	t.Helper()
 	if _, _, err := store.UpsertPlayerPlanetIntel(testIntel(playerID, planetID, seenAt, IntelStateVerified, 100, "scan-"+playerID.String())); err != nil {
 		t.Fatalf("UpsertPlayerPlanetIntel(%q) error = %v, want nil", playerID, err)
+	}
+}
+
+func assertClaimBoundaryStatus(
+	t *testing.T,
+	store *InMemoryStore,
+	ref PlanetClaimReference,
+	planetID foundation.PlanetID,
+	status ClaimBoundaryStatus,
+	staleListingCount int,
+) {
+	t.Helper()
+	boundary, ok, err := store.ClaimBoundary(ref)
+	if err != nil || !ok {
+		t.Fatalf("ClaimBoundary(%q) ok = %v err = %v, want true nil", ref, ok, err)
+	}
+	if boundary.PlayerID != claimTestPlayerID || boundary.PlanetID != planetID {
+		t.Fatalf("claim boundary identity = %+v, want player %q planet %q", boundary, claimTestPlayerID, planetID)
+	}
+	if boundary.Status != status || boundary.StaleListingCount != staleListingCount {
+		t.Fatalf("claim boundary status/listings = %s/%d, want %s/%d; boundary=%+v", boundary.Status, boundary.StaleListingCount, status, staleListingCount, boundary)
+	}
+	if status == ClaimBoundaryStatusComplete && boundary.CompletedAt.IsZero() {
+		t.Fatalf("claim boundary completed_at is zero for complete boundary: %+v", boundary)
+	}
+	if status == ClaimBoundaryStatusPendingSideEffects && !boundary.CompletedAt.IsZero() {
+		t.Fatalf("claim boundary completed_at = %s, want zero for pending boundary", boundary.CompletedAt)
 	}
 }
 

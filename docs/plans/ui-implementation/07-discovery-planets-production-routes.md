@@ -268,6 +268,14 @@ Current slice completed:
   effects done without changing the original owner CAS evidence. Wiring
   `ClaimService` to this boundary, durable DB rows, cross-service transaction
   enforcement, recovery workers, and outbox/event completion remain open.
+- Phase07AA claim-service boundary wiring follow-up: `ClaimService.ClaimPlanet`
+  now routes new owner changes through the store-owned begin/complete claim
+  boundary. Failed production/listing side effects leave a
+  `pending_side_effects` boundary, retries repair through the same boundary
+  without another X Core consume, and claim-reference conflicts are rejected
+  before a second consume. Durable DB rows, cross-service transaction
+  enforcement, recovery workers, and durable event/outbox completion remain
+  open.
 
 ## Source Specs
 

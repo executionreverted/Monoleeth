@@ -280,12 +280,36 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 		if planet.OwnerChangedAt != nil {
 			claimedAt = planet.OwnerChangedAt.UTC()
 		}
+		boundary, hasBoundary, err := service.claimBoundaryForInput(input)
+		if err != nil {
+			return ClaimPlanetResult{}, err
+		}
 		if err := service.initializeProduction(input, planet, claimedAt); err != nil {
 			return ClaimPlanetResult{}, err
 		}
 		staleListings, err := service.markListedIntelStale(input, claimedAt)
 		if err != nil {
 			return ClaimPlanetResult{}, err
+		}
+		if err := service.completeClaimBoundary(input, claimedAt, staleListings.MarkedCount); err != nil {
+			return ClaimPlanetResult{}, err
+		}
+		if hasBoundary && boundary.Status == ClaimBoundaryStatusPendingSideEffects {
+			event := newClaimEvent(ClaimEventPlanetClaimed, input, boundary.ClaimedAt)
+			if !boundary.EventID.IsZero() {
+				event.EventID = boundary.EventID
+			}
+			service.events = append(service.events, event)
+			service.appendClaimOutboxRecordLocked(event)
+			result := ClaimPlanetResult{
+				Planet:            clonePlanet(planet),
+				Claimed:           true,
+				StaleIntelCount:   boundary.StaleIntelCount,
+				StaleListingCount: staleListings.MarkedCount,
+			}
+			service.claims[input.ClaimReference] = claimRecord{input: input, result: cloneClaimPlanetResult(result)}
+			service.recordClaimReferenceLocked(input, boundary.ClaimedAt, service.clock.Now().UTC(), false, event.EventID)
+			return result, nil
 		}
 		result := ClaimPlanetResult{
 			Planet:            clonePlanet(planet),
@@ -302,6 +326,9 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 	if !planet.OwnerPlayerID.IsZero() {
 		return ClaimPlanetResult{}, fmt.Errorf("planet %q: %w", planet.ID, ErrPlanetAlreadyOwned)
 	}
+	if err := service.validateClaimBoundaryPreflight(input); err != nil {
+		return ClaimPlanetResult{}, err
+	}
 
 	if err := service.validateProximity(input.PlayerID, planet); err != nil {
 		return ClaimPlanetResult{}, err
@@ -315,29 +342,34 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 
 	now := service.clock.Now().UTC()
 	event := newClaimEvent(ClaimEventPlanetClaimed, input, now)
-	ownerChange, err := service.store.RecordPlanetOwnerChange(PlanetOwnerChangeInput{
-		PlanetID:         planet.ID,
-		NewOwnerPlayerID: input.PlayerID,
-		ChangedAt:        now,
-		SourceReference:  claimOwnerChangeSourceReference(event),
+	claimBoundary, err := service.store.BeginPlanetClaimBoundary(BeginPlanetClaimBoundaryInput{
+		ClaimReference:  input.ClaimReference,
+		PlayerID:        input.PlayerID,
+		PlanetID:        planet.ID,
+		ClaimedAt:       now,
+		EventID:         event.EventID,
+		SourceReference: claimOwnerChangeSourceReference(event),
 	})
 	if err != nil {
 		return ClaimPlanetResult{}, err
 	}
-	if err := service.initializeProduction(input, ownerChange.Planet, now); err != nil {
+	if err := service.initializeProduction(input, claimBoundary.Planet, now); err != nil {
 		return ClaimPlanetResult{}, err
 	}
 	staleListings, err := service.markListedIntelStale(input, now)
 	if err != nil {
 		return ClaimPlanetResult{}, err
 	}
+	if err := service.completeClaimBoundary(input, now, staleListings.MarkedCount); err != nil {
+		return ClaimPlanetResult{}, err
+	}
 	service.events = append(service.events, event)
 	service.appendClaimOutboxRecordLocked(event)
 
 	result := ClaimPlanetResult{
-		Planet:            ownerChange.Planet,
-		Claimed:           ownerChange.Planet.OwnerPlayerID == input.PlayerID,
-		StaleIntelCount:   len(ownerChange.StaleIntel),
+		Planet:            claimBoundary.Planet,
+		Claimed:           claimBoundary.Planet.OwnerPlayerID == input.PlayerID,
+		StaleIntelCount:   len(claimBoundary.StaleIntel),
 		StaleListingCount: staleListings.MarkedCount,
 	}
 	service.claims[input.ClaimReference] = claimRecord{input: input, result: cloneClaimPlanetResult(result)}
@@ -599,6 +631,31 @@ func (service *ClaimService) validateRank(playerID foundation.PlayerID, planet P
 	return nil
 }
 
+func (service *ClaimService) validateClaimBoundaryPreflight(input ClaimPlanetInput) error {
+	boundary, ok, err := service.store.ClaimBoundary(input.ClaimReference)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	if boundary.PlayerID != input.PlayerID || boundary.PlanetID != input.PlanetID {
+		return ErrPlanetClaimReferenceConflict
+	}
+	return nil
+}
+
+func (service *ClaimService) claimBoundaryForInput(input ClaimPlanetInput) (ClaimBoundaryRecord, bool, error) {
+	boundary, ok, err := service.store.ClaimBoundary(input.ClaimReference)
+	if err != nil || !ok {
+		return ClaimBoundaryRecord{}, ok, err
+	}
+	if boundary.PlayerID != input.PlayerID || boundary.PlanetID != input.PlanetID {
+		return ClaimBoundaryRecord{}, false, ErrPlanetClaimReferenceConflict
+	}
+	return boundary, true, nil
+}
+
 func (service *ClaimService) consumeXCore(input ClaimPlanetInput, planet Planet) error {
 	sourceInput := ClaimXCoreSourceInput{
 		PlayerID: input.PlayerID,
@@ -630,6 +687,20 @@ func (service *ClaimService) consumeXCore(input ClaimPlanetInput, planet Planet)
 		return err
 	}
 	_, err = service.xCoreConsumer.ConsumeClaimXCore(consumeInput)
+	return err
+}
+
+func (service *ClaimService) completeClaimBoundary(input ClaimPlanetInput, completedAt time.Time, staleListingCount int) error {
+	_, err := service.store.CompletePlanetClaimBoundary(CompletePlanetClaimBoundaryInput{
+		ClaimReference:    input.ClaimReference,
+		PlayerID:          input.PlayerID,
+		PlanetID:          input.PlanetID,
+		CompletedAt:       completedAt,
+		StaleListingCount: staleListingCount,
+	})
+	if errors.Is(err, ErrClaimBoundaryNotFound) {
+		return nil
+	}
 	return err
 }
 
