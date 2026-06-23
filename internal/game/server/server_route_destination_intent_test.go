@@ -113,6 +113,70 @@ func TestRouteUpdateAcceptsNonPlanetDestinationIntentThroughGateway(t *testing.T
 	}
 }
 
+func TestRouteCreateRejectsOtherPlayerNonPlanetDestinationIntent(t *testing.T) {
+	for _, tc := range nonPlanetRouteDestinationCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			gameServer, _ := newTestServer(t, false)
+			owner := createResolvedRuntimeSession(t, gameServer, "route-create-other-endpoint-"+tc.name+"@example.com", "Route Create "+tc.name)
+			other := createResolvedRuntimeSession(t, gameServer, "route-create-other-endpoint-other-"+tc.name+"@example.com", "Other Create "+tc.name)
+			sourcePlanetID := foundation.PlanetID("planet-route-create-other-endpoint-" + tc.name + "-source")
+			otherEndpointID := foundation.PlanetID(runtimeRouteEndpointID(other.PlayerID, tc.destinationType))
+
+			seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, discovery.PlanetMaterializationKey("candidate-route-create-other-endpoint-"+tc.name+"-source"))
+
+			response := gameServer.runtime.Gateway.HandleRequest(
+				realtime.SessionID(owner.SessionID.String()),
+				[]byte(`{"request_id":"request-route-create-other-endpoint-`+tc.name+`","op":"route.create","payload":{"source_planet_id":"`+sourcePlanetID.String()+`","destination_type":"`+tc.destinationType.String()+`","destination_id":"`+otherEndpointID.String()+`","resource_item_id":"refined_alloy","amount_per_hour":40},"client_seq":1,"v":1}`),
+			)
+			if !response.HasError || response.Error.Error.Code != foundation.CodeNotFound {
+				t.Fatalf("other-player endpoint route.create %s response = %+v, want safe not-found", tc.name, response)
+			}
+			if routes := gameServer.runtime.Production.AutomationRoutes(); len(routes) != 0 {
+				t.Fatalf("routes after other-player endpoint route.create %s = %+v, want no mutation", tc.name, routes)
+			}
+			if _, ok, err := gameServer.runtime.Production.PlanetStorage(otherEndpointID); err != nil || ok {
+				t.Fatalf("other endpoint storage after rejected route.create %s ok=%v err=%v, want absent", tc.name, ok, err)
+			}
+		})
+	}
+}
+
+func TestRouteUpdateRejectsOtherPlayerNonPlanetDestinationIntent(t *testing.T) {
+	for _, tc := range nonPlanetRouteDestinationCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			gameServer, _ := newTestServer(t, false)
+			owner := createResolvedRuntimeSession(t, gameServer, "route-update-other-endpoint-"+tc.name+"@example.com", "Route Update "+tc.name)
+			other := createResolvedRuntimeSession(t, gameServer, "route-update-other-endpoint-other-"+tc.name+"@example.com", "Other Update "+tc.name)
+			sourcePlanetID := foundation.PlanetID("planet-route-update-other-endpoint-" + tc.name + "-source")
+			oldDestinationPlanetID := foundation.PlanetID("planet-route-update-other-endpoint-" + tc.name + "-old-destination")
+			otherEndpointID := foundation.PlanetID(runtimeRouteEndpointID(other.PlayerID, tc.destinationType))
+			routeID := foundation.RouteID("route-update-other-endpoint-" + tc.name)
+
+			seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, discovery.PlanetMaterializationKey("candidate-route-update-other-endpoint-"+tc.name+"-source"))
+			seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, oldDestinationPlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1700, Y: 1900}, discovery.PlanetMaterializationKey("candidate-route-update-other-endpoint-"+tc.name+"-old-destination"))
+			seedAutomationRouteForTest(t, gameServer, owner.PlayerID, routeID, sourcePlanetID, oldDestinationPlanetID, "map_1_1", "map_1_1")
+
+			response := gameServer.runtime.Gateway.HandleRequest(
+				realtime.SessionID(owner.SessionID.String()),
+				[]byte(`{"request_id":"request-route-update-other-endpoint-`+tc.name+`","op":"route.update","payload":{"route_id":"`+routeID.String()+`","destination_type":"`+tc.destinationType.String()+`","destination_id":"`+otherEndpointID.String()+`","resource_item_id":"refined_alloy","amount_per_hour":55},"client_seq":1,"v":1}`),
+			)
+			if !response.HasError || response.Error.Error.Code != foundation.CodeNotFound {
+				t.Fatalf("other-player endpoint route.update %s response = %+v, want safe not-found", tc.name, response)
+			}
+			stored, ok, err := gameServer.runtime.Production.AutomationRoute(routeID)
+			if err != nil || !ok {
+				t.Fatalf("AutomationRoute(%q) ok=%v err=%v, want original route", routeID, ok, err)
+			}
+			if stored.Destination.Type != production.RouteDestinationTypePlanet || stored.Destination.ID.String() != oldDestinationPlanetID.String() || stored.AmountPerHour != 40 {
+				t.Fatalf("stored route after rejected other endpoint update %s = %+v, want original planet destination/rate", tc.name, stored)
+			}
+			if _, ok, err := gameServer.runtime.Production.PlanetStorage(otherEndpointID); err != nil || ok {
+				t.Fatalf("other endpoint storage after rejected route.update %s ok=%v err=%v, want absent", tc.name, ok, err)
+			}
+		})
+	}
+}
+
 func TestPlanetDetailIncludesOwnerRouteEndpointCatalog(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "route-endpoint-catalog@example.com", "Route Endpoint Catalog")
