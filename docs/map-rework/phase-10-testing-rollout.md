@@ -187,17 +187,21 @@ marked `Open` are not implemented rollout controls yet.
   now covers fake/default fixture labels/ids and server-only content ids in
   `dist` plus explicit extra artifact roots. The single-process playtest runner
   now has a `GAME_PLAYTEST_BUILD_ONLY=true` build/artifact-scan gate before
-  server startup. Production logs beyond this harness, admin/debug responses
-  outside this rejection path, non-Phase09 WebSocket paths, and CI/deploy
-  wiring that passes the real deployed/published artifact set are still
+  server startup. `scripts/ci_playtest_artifact_gate.sh` now wraps dependency
+  install plus that deployable client build/bundle leak scan for CI or deploy
+  jobs. Production logs beyond this harness, admin/debug responses outside this
+  rejection path, non-Phase09 WebSocket paths, and a hosted CI workflow or
+  deploy job that passes final staged/published artifact roots are still
   missing.
 - Bundle hidden-token scan remains partial: `client/tests/bundle-scan.mjs`
   checks default `dist` text and source-map assets if present, and can now scan
   explicit extra artifact roots with the same forbidden snippet list through
   either CLI arguments or `GAME_ARTIFACT_SCAN_ROOTS`. The local
   `scripts/run_playtest_server.sh` build-only mode now runs this scan as part
-  of the deployable playtest package gate. CI/deploy still needs to pass the
-  real deployed or otherwise published artifact set.
+  of the deployable playtest package gate, and
+  `scripts/ci_playtest_artifact_gate.sh` is ready for CI/deploy jobs to call.
+  Deploy pipelines still need to pass the real deployed or otherwise published
+  artifact set.
 - Broader PvP rollout canaries beyond the focused safe-zone UI click proof are
   still missing.
 - `client` `npm run check` does not run the Phase09 Playwright smoke.
@@ -435,8 +439,10 @@ directories can be scanned with the same forbidden snippet list. It
 intentionally does not forbid generic protocol guard field names such as hidden
 scan or loot key strings. `GAME_PLAYTEST_BUILD_ONLY=true
 scripts/run_playtest_server.sh` now builds `client/dist` and runs the scan
-without starting the long-running server. CI/deploy still needs to pass the real
-deployed or otherwise published artifact set.
+without starting the long-running server. `scripts/ci_playtest_artifact_gate.sh`
+wraps dependency installation plus that build-only gate for hosted CI/deploy
+jobs. Deploy pipelines still need to pass the real deployed or otherwise
+published artifact set through the same scanner.
 
 The Phase09 smoke currently satisfies only a narrow server-side canary subset:
 captured local Go/Vite stdout/stderr lines from that harness and production

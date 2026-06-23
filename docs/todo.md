@@ -608,10 +608,12 @@ for phase status; this file is a compact pending-work index.
   has ImageMagick pixel proof plus Tesseract hidden-token OCR leak canary.
   `GAME_PLAYTEST_BUILD_ONLY=true
   scripts/run_playtest_server.sh` now runs the local deployable playtest build
-  plus artifact scan without starting the server. Production logs/admin
+  plus artifact scan without starting the server, and
+  `scripts/ci_playtest_artifact_gate.sh` now wraps dependency installation plus
+  that build-only gate for hosted CI/deploy jobs. Production logs/admin
   responses outside that path, non-Phase09 paths beyond the playtest asset
-  screenshot, and wiring the real deployed/published artifact set into
-  CI/deploy remain open.
+  screenshot, a hosted CI workflow, and wiring a real external
+  deployed/published artifact root into deploy jobs remain open.
   Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Clean up active legacy semantic contradictions in the scoped

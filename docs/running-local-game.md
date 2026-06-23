@@ -153,6 +153,12 @@ GAME_ARTIFACT_SCAN_ROOTS="/path/to/published:/path/to/staging" node tests/bundle
 
 Extra roots can also be passed as positional arguments after `bundle-scan.mjs`.
 
+The CI/deploy wrapper `scripts/ci_playtest_artifact_gate.sh` installs client
+dependencies when needed and runs the same build-only playtest artifact gate.
+This proves the checked-in deployable client package and default `client/dist`
+leak scan. A future external deploy job should still pass its final staging or
+published artifact directory through `GAME_ARTIFACT_SCAN_ROOTS`.
+
 Run the full built-client playtest vertical-slice gate explicitly:
 
 ```bash
@@ -171,7 +177,8 @@ GAME_PLAYTEST_VERIFY_DRY_RUN=true scripts/verify_playtest_vertical_slice.sh
 
 Each step can be skipped with `GAME_PLAYTEST_VERIFY_BUILD_GATE=false`,
 `GAME_PLAYTEST_VERIFY_MAIN_LOOP=false`, `GAME_PLAYTEST_VERIFY_PVP_LOOP=false`,
-or `GAME_PLAYTEST_VERIFY_PVP_MAP_DROP=false`.
+`GAME_PLAYTEST_VERIFY_PVP_MAP_DROP=false`, or
+`GAME_PLAYTEST_VERIFY_SCAN_NO_SIGNAL=false`.
 
 Run the focused Phase09 bounded-map/portal browser proof explicitly:
 
