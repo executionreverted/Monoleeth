@@ -51,5 +51,11 @@ if env_bool "${GAME_PLAYTEST_VERIFY_PVP_MAP_DROP:-true}"; then
     npm --cache "$NPM_CACHE" --prefix client run e2e:phase10-pvp-map-drop
 fi
 
+if env_bool "${GAME_PLAYTEST_VERIFY_SCAN_NO_SIGNAL:-true}"; then
+  run_step \
+    "Built-client hidden-player scanner no-signal canary" \
+    npm --cache "$NPM_CACHE" --prefix client run e2e:phase10-scan-no-signal
+fi
+
 echo
 echo "Playtest vertical slice verification complete."
