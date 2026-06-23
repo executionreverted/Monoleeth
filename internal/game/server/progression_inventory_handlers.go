@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"gameproject/internal/game/auth"
@@ -14,6 +15,7 @@ import (
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/market"
 	"gameproject/internal/game/modules"
+	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world/worker"
@@ -160,7 +162,10 @@ type craftingJobPayload struct {
 }
 
 type craftingStartPayload struct {
-	RecipeID string `json:"recipe_id"`
+	RecipeID     string `json:"recipe_id"`
+	LocationType string `json:"location_type,omitempty"`
+	LocationID   string `json:"location_id,omitempty"`
+	PlanetID     string `json:"planet_id,omitempty"`
 }
 
 type craftingCompletePayload struct {
@@ -351,7 +356,11 @@ func (runtime *Runtime) handleCraftingStart(ctx realtime.CommandContext, request
 	if err := decodeStrict(request.Payload, &payload); err != nil {
 		return nil, err
 	}
-	reference, err := runtime.craftStartReference(ctx.PlayerID, catalog.DefinitionID(payload.RecipeID), request.RequestID)
+	location, err := runtime.craftLocationFromStartPayload(payload)
+	if err != nil {
+		return nil, domainErrorForCrafting(err)
+	}
+	reference, err := runtime.craftStartReference(ctx.PlayerID, catalog.DefinitionID(payload.RecipeID), location, request.RequestID)
 	if err != nil {
 		return nil, domainErrorForCrafting(err)
 	}
@@ -365,7 +374,7 @@ func (runtime *Runtime) handleCraftingStart(ctx realtime.CommandContext, request
 	_, err = runtime.Crafting.StartCraft(crafting.StartCraftInput{
 		PlayerID:     ctx.PlayerID,
 		RecipeID:     catalog.DefinitionID(payload.RecipeID),
-		Location:     runtime.stationCraftLocation(),
+		Location:     location,
 		ReferenceKey: reference,
 	})
 	if err != nil {
@@ -703,17 +712,74 @@ func (runtime *Runtime) stationCraftLocation() crafting.CraftLocation {
 	return crafting.CraftLocation{Type: crafting.CraftLocationStation, ID: runtimeDefaultCraftStationID}
 }
 
-func (runtime *Runtime) craftStartReference(playerID foundation.PlayerID, recipeID catalog.DefinitionID, requestID foundation.RequestID) (foundation.IdempotencyKey, error) {
+func (runtime *Runtime) craftLocationFromStartPayload(payload craftingStartPayload) (crafting.CraftLocation, error) {
+	locationType := crafting.CraftLocationType(strings.ToLower(strings.TrimSpace(payload.LocationType)))
+	locationID := strings.TrimSpace(payload.LocationID)
+	planetIDValue := strings.TrimSpace(payload.PlanetID)
+	if locationType == "" && locationID == "" && planetIDValue == "" {
+		return runtime.stationCraftLocation(), nil
+	}
+	if locationType == "" {
+		return crafting.CraftLocation{}, invalidPayload("Crafting location type is required.", nil)
+	}
+
+	location := crafting.CraftLocation{Type: locationType, ID: locationID}
+	switch locationType {
+	case crafting.CraftLocationStation:
+		if location.ID == "" {
+			location.ID = runtimeDefaultCraftStationID
+		}
+		if planetIDValue != "" {
+			return crafting.CraftLocation{}, invalidPayload("Station crafting location cannot include planet_id.", nil)
+		}
+	case crafting.CraftLocationSpecialEventStation:
+		if planetIDValue != "" {
+			return crafting.CraftLocation{}, invalidPayload("Station crafting location cannot include planet_id.", nil)
+		}
+	case crafting.CraftLocationOwnedPlanet:
+		if location.ID == "" && planetIDValue != "" {
+			location.ID = planetIDValue
+		}
+		planetID, err := foundation.ParsePlanetID(location.ID)
+		if err != nil {
+			return crafting.CraftLocation{}, invalidPayload("Crafting planet location is invalid.", err)
+		}
+		location.ID = planetID.String()
+	case crafting.CraftLocationPlanetBuilding:
+		planetID, err := foundation.ParsePlanetID(planetIDValue)
+		if err != nil {
+			return crafting.CraftLocation{}, invalidPayload("Crafting planet_id is invalid.", err)
+		}
+		location.PlanetID = planetID
+	default:
+		if err := locationType.Validate(); err != nil {
+			return crafting.CraftLocation{}, err
+		}
+	}
+	if err := location.Validate(); err != nil {
+		return crafting.CraftLocation{}, err
+	}
+	return location, nil
+}
+
+func (runtime *Runtime) craftStartReference(playerID foundation.PlayerID, recipeID catalog.DefinitionID, location crafting.CraftLocation, requestID foundation.RequestID) (foundation.IdempotencyKey, error) {
 	if err := playerID.Validate(); err != nil {
 		return "", err
 	}
 	if err := recipeID.Validate(); err != nil {
 		return "", err
 	}
+	if err := location.Validate(); err != nil {
+		return "", err
+	}
 	if err := requestID.Validate(); err != nil {
 		return "", err
 	}
-	return foundation.CraftStartIdempotencyKey(fmt.Sprintf("%s-%s-%s-%s", playerID, recipeID, runtimeDefaultCraftStationID, requestID))
+	locationKey := fmt.Sprintf("%s-%s", location.Type, location.ID)
+	if !location.PlanetID.IsZero() {
+		locationKey = fmt.Sprintf("%s-%s", locationKey, location.PlanetID)
+	}
+	return foundation.CraftStartIdempotencyKey(fmt.Sprintf("%s-%s-%s-%s", playerID, recipeID, locationKey, requestID))
 }
 
 func (runtime *Runtime) equipModuleLocked(playerID foundation.PlayerID, slotID modules.ModuleSlotID, itemInstanceID foundation.ItemID, requestID foundation.RequestID) error {
@@ -1100,6 +1166,10 @@ func domainErrorForCrafting(err error) error {
 		errors.Is(err, crafting.ErrCraftOutputAlreadyOwned),
 		errors.Is(err, crafting.ErrLocationRequirementNotMet),
 		errors.Is(err, crafting.ErrMissingLocationAuthorizer),
+		errors.Is(err, production.ErrCraftPlanetNotOwned),
+		errors.Is(err, production.ErrCraftPlanetProductionMissing),
+		errors.Is(err, production.ErrCraftBuildingNotFound),
+		errors.Is(err, production.ErrCraftBuildingInactive),
 		errors.Is(err, ships.ErrShipRankRequirementNotMet):
 		return foundation.NewDomainError(foundation.CodeForbidden, "Crafting action is not allowed.", foundation.WithCause(err))
 	case errors.Is(err, crafting.ErrCraftStartReferenceMismatch),

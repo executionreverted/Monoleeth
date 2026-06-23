@@ -44,8 +44,12 @@ for phase status; this file is a compact pending-work index.
   but it does not reduce XP by itself.
 - [x] Wire `production.CraftLocationAuthorizer` into the concrete runtime craft
   service factory before exposing owned-planet or planet-building recipes.
-- [ ] Add station/special-event station providers and explicit location
-  selection for public craft start APIs before non-station recipes are exposed.
+- [ ] Add station/special-event station providers and finish location UX before
+  non-station recipes are exposed. Public `crafting.start` now accepts explicit
+  station location intent, parses validated non-station location intent for
+  recipe authorization, and derives the craft start idempotency reference from
+  the validated location. MVP station recipes reject owned-planet/building
+  location intent before wallet or inventory mutation.
 - [ ] Add gateway/security tests for craft start authorization using the
   authenticated server-side player id, including hidden or unowned planet and
   building ids with leak-safe errors.
@@ -248,10 +252,13 @@ for phase status; this file is a compact pending-work index.
   window drag/drop and button fallback.
 - [ ] Finish authenticated browser crafting mutation contracts. Phase06B adds
   server handlers and TypeScript command builders for `crafting.start` and
-  `crafting.complete`: start accepts only `recipe_id`, complete accepts only
-  `job_id`, and both reconcile safe crafting/inventory/wallet/progression
-  snapshots without client-authored material, wallet, output, owner, location,
-  or reference truth. Phase06C adds browser action controls/timers from the
+  `crafting.complete`: start accepts `recipe_id` plus optional server-validated
+  location intent, complete accepts only `job_id`, and both reconcile safe
+  crafting/inventory/wallet/progression snapshots without client-authored
+  material, wallet, output, owner, production state, or reference truth.
+  Explicit station location intent is accepted, while non-station intent for
+  current MVP station recipes is rejected without wallet or inventory mutation.
+  Phase06C adds browser action controls/timers from the
   real crafting snapshot and locks matching pending start/complete intents.
   Phase06D covers reconnect snapshots advancing the browser crafting timer from
   server time so ready jobs unlock without fake local truth. Phase06F adds
