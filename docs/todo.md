@@ -378,7 +378,13 @@ for phase status; this file is a compact pending-work index.
   future-window attempts still fail closed. Authenticated `route.settle`
   route-id retries now also fall back to committed durable route rows before
   live read-model preflight, so the gateway reaches that exact replay/repair
-  path instead of returning not-found after a live route row loss.
+  path instead of returning not-found after a live route row loss. Phase07CI
+  extends that durable owner-row recovery to empty-payload owner reconcile:
+  `route.settle {}` includes committed durable owner route rows after live
+  read-model loss, replays the existing settlement handoff without duplicate
+  storage/outbox rows, and route-create capacity policy counts committed
+  durable owner routes so live row loss cannot bypass the server-owned route
+  cap.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10

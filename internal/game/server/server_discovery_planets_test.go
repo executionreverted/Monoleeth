@@ -915,6 +915,13 @@ func TestRouteCreateRejectsRouteCapacityBeforeMutation(t *testing.T) {
 	if len(beforeRoutes) != runtimeRouteCreateMaxRoutesPerPlayer {
 		t.Fatalf("seeded routes = %+v, want %d", beforeRoutes, runtimeRouteCreateMaxRoutesPerPlayer)
 	}
+	if err := gameServer.runtime.Production.DropAutomationRouteReadModel(beforeRoutes[0].RouteID); err != nil {
+		t.Fatalf("DropAutomationRouteReadModel() error = %v, want nil", err)
+	}
+	beforeRoutes = gameServer.runtime.Production.AutomationRoutes()
+	if len(beforeRoutes) != runtimeRouteCreateMaxRoutesPerPlayer-1 {
+		t.Fatalf("live routes after read-model loss = %+v, want %d", beforeRoutes, runtimeRouteCreateMaxRoutesPerPlayer-1)
+	}
 	response := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(resolved.SessionID.String()),
 		[]byte(`{"request_id":"request-route-create-capacity-overflow","op":"route.create","payload":{"source_planet_id":"`+sourcePlanetID.String()+`","destination_planet_id":"`+destinationPlanetID.String()+`","resource_item_id":"refined_alloy","amount_per_hour":40},"client_seq":1,"v":1}`),

@@ -474,6 +474,15 @@ Current slice completed:
   keys, and mask non-planet aggregate destination IDs just like the live
   `route.settle` gateway path. Durable DB route rows, endpoint rows, and
   cross-process idempotency enforcement remain open.
+- Phase07CI durable owner-route reconcile follow-up:
+  Empty-payload authenticated `route.settle` now builds the owner route set
+  from live read-model rows plus committed durable route rows, matching
+  `route.list` recovery behavior. After a live route row loss, owner-wide
+  reconcile replays the durable handoff instead of silently skipping the
+  route, emits no duplicate storage/outbox rows, and returns the recovered
+  route in the settlement response. Route-create capacity policy uses the same
+  durable-aware owner route count so live read-model loss cannot bypass the
+  server-owned route-slot cap.
 - Phase07CB durable outbox retry follow-up:
   Claim, settlement/route, and building durable outbox publisher contracts now
   expose an explicit retry-failed boundary. Runtime drains do not auto-retry by
@@ -1110,6 +1119,11 @@ Mockup areas covered:
       storage row evidence alongside route-row and route-ledger evidence.
 - [x] Route settlement durable outbox realtime projection publishes owner-scoped
       route settled/snapshot/list plus production/storage reconciliation events.
+- [x] Empty-payload route.settle owner reconcile includes committed durable
+      owner route rows after live read-model loss and does not duplicate route
+      storage/outbox rows.
+- [x] Route.create capacity policy counts committed durable owner routes after
+      live read-model loss, preserving the server-owned route-slot cap.
 - [x] Route settlement supports named storage/station-destination aggregates with the
       same server-owned window/reference, ledger, durable route-row, and outbox
       evidence as planet destinations.

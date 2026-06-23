@@ -179,6 +179,10 @@ func (provider runtimeRouteCreatePolicyProvider) RouteCreatePolicy(input product
 	if !provider.runtime.routeResourceAvailable(input.ResourceItemID) {
 		return production.RouteCreatePolicy{}, production.ErrRouteResourceNotRouteable
 	}
+	ownerRoutes, err := provider.runtime.ownerAutomationRoutes(input.OwnerPlayerID)
+	if err != nil {
+		return production.RouteCreatePolicy{}, err
+	}
 
 	distance := source.Coordinates.Distance(destination.Coordinates)
 	if sourceMapID != destinationMapID {
@@ -193,7 +197,7 @@ func (provider runtimeRouteCreatePolicyProvider) RouteCreatePolicy(input product
 		DestinationMapID:      destinationMapID,
 		DistanceUnits:         distance,
 		MaxDistanceUnits:      25_000,
-		CurrentRouteCount:     len(provider.runtime.ownerAutomationRoutes(input.OwnerPlayerID)),
+		CurrentRouteCount:     len(ownerRoutes),
 		MaxRouteCount:         runtimeRouteCreateMaxRoutesPerPlayer,
 		EnergyCostPerHour:     1 + input.AmountPerHour/20,
 		MinLossPercent:        0,
