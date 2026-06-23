@@ -40,6 +40,7 @@ import {
   parseStatSummary,
   parseWalletSummary,
 } from './reducer-player-parsers';
+import { withoutPendingCoordinateItemUse } from './reducer-pending';
 import { applyMapSnapshotPayload } from './reducer-map';
 import {
   parseAbuseCoverageSummary,
@@ -131,9 +132,11 @@ export function applySnapshotPayload(state: ClientState, payload: JsonObject): C
 
   const inventory = objectField(payload, 'inventory') ?? objectField(payload, 'inventory_snapshot');
   if (inventory) {
+    const parsedInventory = parseInventorySummary(inventory, next.inventory);
+    next = withoutPendingCoordinateItemUse(next, parsedInventory, Array.isArray(inventory.instances));
     next = {
       ...next,
-      inventory: parseInventorySummary(inventory, next.inventory),
+      inventory: parsedInventory,
     };
   }
 

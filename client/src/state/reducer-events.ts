@@ -44,6 +44,7 @@ import {
   mapSubscriptionEpochFromPayload,
 } from './reducer-map';
 import { applySnapshotPayload } from './reducer-snapshot';
+import { withoutPendingCoordinateItemUse } from './reducer-pending';
 import {
   appendWorldEffect,
   applyCorrection,
@@ -795,32 +796,6 @@ function withoutPendingPlanetClaim(state: ClientState, payload: EventEnvelope['p
   let changed = false;
   for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
     if (pending.op === OPERATIONS.discoveryClaimPlanet && pending.payload?.planet_id === planetID) {
-      changed = true;
-      continue;
-    }
-    pendingCommands[requestID] = pending;
-  }
-  return changed ? { ...state, pendingCommands } : state;
-}
-
-function withoutPendingCoordinateItemUse(
-  state: ClientState,
-  inventory: NonNullable<ClientState['inventory']>,
-  hasAuthoritativeInstances: boolean,
-): ClientState {
-  if (!hasAuthoritativeInstances) {
-    return state;
-  }
-  const itemInstanceIDs = new Set(inventory.instances.map((item) => item.item_instance_id));
-  const pendingCommands: ClientState['pendingCommands'] = {};
-  let changed = false;
-  for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
-    const itemInstanceID = stringField(pending.payload ?? {}, 'item_instance_id');
-    if (
-      pending.op === OPERATIONS.intelCoordinateItemUse &&
-      itemInstanceID &&
-      !itemInstanceIDs.has(itemInstanceID)
-    ) {
       changed = true;
       continue;
     }

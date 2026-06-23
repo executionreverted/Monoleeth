@@ -284,10 +284,11 @@ Current slice completed:
   disable controls, and no coordinate/source/confidence truth is authored by
   the client. Phase07CX also aligns the split HUD action helpers with the
   rendered `coordinate-item-create`/`coordinate-item-use` action names so the
-  future HUD split keeps dispatching the same server-owned intents. Authoritative
-  inventory snapshots with full instance lists now also clear matching
-  coordinate-use pending state once the used scroll disappears, while partial
-  inventory payloads fail closed and keep the pending lock.
+  future HUD split keeps dispatching the same server-owned intents.
+  Authoritative inventory event/response snapshots with full instance lists now
+  also clear matching coordinate-use pending state once the used scroll
+  disappears, while partial inventory payloads fail closed and keep the pending
+  lock.
 - Phase07CW browser intel share follow-up: planet catalog/detail panels now
   expose `intel.share` through a recipient player-id input and Share control.
   The browser sends only `planet_id` and `to_player_id`, locks matching pending

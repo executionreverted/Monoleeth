@@ -289,7 +289,7 @@ describe('reduceClientState', () => {
     expect(state.inventory?.stackable.map((item) => item.list_eligible)).toEqual([true, false, undefined]);
   });
 
-  test('inventory snapshot clears consumed coordinate scroll pending only from authoritative instance lists', () => {
+  test('inventory snapshots clear consumed coordinate scroll pending only from authoritative instance lists', () => {
     const pending = {
       ...createInitialState(),
       pendingCommands: {
@@ -332,6 +332,41 @@ describe('reduceClientState', () => {
       }, 2),
     });
     expect(consumed.pendingCommands['coordinate-use-1']).toBeUndefined();
+
+    const responsePartial = reduceClientState(pending, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'inventory-refresh',
+        ok: true,
+        payload: {
+          inventory: {
+            stackable: [],
+            counts: { cargo_stacks: 0, storage_stacks: 0, equipped_instances: 0 },
+          },
+        },
+        server_time: 3,
+        v: 1,
+      },
+    });
+    expect(responsePartial.pendingCommands['coordinate-use-1']).toMatchObject({ op: OPERATIONS.intelCoordinateItemUse });
+
+    const responseConsumed = reduceClientState(pending, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'inventory-refresh',
+        ok: true,
+        payload: {
+          inventory: {
+            stackable: [],
+            instances: [],
+            counts: { cargo_stacks: 0, storage_stacks: 0, equipped_instances: 0 },
+          },
+        },
+        server_time: 4,
+        v: 1,
+      },
+    });
+    expect(responseConsumed.pendingCommands['coordinate-use-1']).toBeUndefined();
   });
 
   test('shop catalog response stores server-owned categories and products', () => {

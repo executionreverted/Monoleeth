@@ -326,9 +326,10 @@ for phase status; this file is a compact pending-work index.
   planet panels send only `planet_id`, inventory renders real
   `planet_coordinate_scroll` instances, Use sends only `item_instance_id`, and
   pending states lock matching commands without client-authored coordinates,
-  source, confidence, or owner truth. Authoritative full inventory snapshots now
-  clear coordinate-use pending locks after the server consumes the scroll,
-  while partial inventory payloads keep the lock. Phase07CW adds browser `intel.share`
+  source, confidence, or owner truth. Authoritative full inventory
+  event/response snapshots now clear coordinate-use pending locks after the
+  server consumes the scroll, while partial inventory payloads keep the lock.
+  Phase07CW adds browser `intel.share`
   controls that send only `planet_id` and `to_player_id` from a recipient
   player-id input, with pending state and no sender/source/coordinate payloads.
   Recipient roster/search UX remains open. Phase07CT adds browser command
