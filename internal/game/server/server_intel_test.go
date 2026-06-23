@@ -120,6 +120,28 @@ func TestIntelShareRejectsUnsafeSourceStateBeforeReceiverMutation(t *testing.T) 
 	}
 }
 
+func TestIntelShareRejectsUnknownReceiverBeforeMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	sender := createResolvedRuntimeSession(t, gameServer, "intel-share-unknown-receiver@example.com", "Intel Share Unknown")
+	planetID := foundation.PlanetID("planet-intel-share-unknown-receiver")
+	unknownReceiverID := foundation.PlayerID("player_unknown_receiver")
+	seedKnownClaimPlanetForTest(t, gameServer, sender.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1200, Y: 1300}, 2)
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(sender.SessionID.String()),
+		[]byte(`{"request_id":"request-intel-share-unknown-receiver","op":"intel.share","payload":{"planet_id":"`+planetID.String()+`","to_player_id":"`+unknownReceiverID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("unknown receiver intel.share response = %+v, want not found", response)
+	}
+	if _, ok, err := gameServer.runtime.Discovery.PlayerPlanetIntel(unknownReceiverID, planetID); err != nil || ok {
+		t.Fatalf("unknown receiver intel after rejected share ok=%v err=%v, want no mutation", ok, err)
+	}
+	if _, ok, err := gameServer.runtime.Intel.PlayerPlanetIntel(unknownReceiverID, planetID); err != nil || ok {
+		t.Fatalf("unknown receiver runtime intel after rejected share ok=%v err=%v, want no mutation", ok, err)
+	}
+}
+
 func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-owner@example.com", "Coordinate Owner")

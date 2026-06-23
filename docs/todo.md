@@ -200,6 +200,9 @@ for phase status; this file is a compact pending-work index.
   retry cleans up the restored scroll with repair ledger evidence. The
   authenticated create/share sync path now rejects known planet intel outside
   the player's active map before coordinate item mint or receiver intel writes.
+  Phase07CZ makes `intel.share` reject unknown runtime receiver players before
+  source sync or receiver intel writes, preventing ghost-player intel rows and
+  late internal errors.
   The authenticated use path rejects scrolls whose stored world/zone does not
   match the player's active map before inventory consume or intel mutation, so
   wrong-map retries keep the scroll and do not leak hidden detail events. The
@@ -213,7 +216,8 @@ for phase status; this file is a compact pending-work index.
   `intel.coordinate_item.create`, and `intel.coordinate_item.use` handlers
   that derive sender/source intel/item payloads server-side and reject
   client-authored coordinates, ownership, source, confidence, timestamp, and
-  inventory truth.
+  inventory truth. Phase07CZ also validates `intel.share` receiver player
+  existence before mutation.
 - [x] Add authenticated browser loadout mutation contracts for
   `loadout.equip_module` and `loadout.unequip_module`. Server handlers must
   resolve player, active ship, slot, owned module instance, rank, compatibility,

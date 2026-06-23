@@ -94,6 +94,9 @@ func (runtime *Runtime) handleIntelShare(ctx realtime.CommandContext, request re
 	if err := planetID.Validate(); err != nil {
 		return nil, invalidPayload("Planet id is invalid.", err)
 	}
+	if err := runtime.requireKnownIntelShareReceiver(toPlayerID); err != nil {
+		return nil, err
+	}
 	reference, err := foundation.IntelShareIdempotencyKey(ctx.PlayerID, toPlayerID, planetID, request.RequestID.String())
 	if err != nil {
 		return nil, invalidPayload("Intel share reference is invalid.", err)
@@ -134,6 +137,16 @@ func (runtime *Runtime) handleIntelShare(ctx realtime.CommandContext, request re
 		},
 	}
 	return marshalPayload(payload)
+}
+
+func (runtime *Runtime) requireKnownIntelShareReceiver(playerID foundation.PlayerID) error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	if _, ok := runtime.players[playerID]; ok {
+		return nil
+	}
+	return foundation.NewDomainError(foundation.CodeNotFound, "Intel share target was not found.")
 }
 
 func (runtime *Runtime) handleIntelCoordinateItemCreate(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
