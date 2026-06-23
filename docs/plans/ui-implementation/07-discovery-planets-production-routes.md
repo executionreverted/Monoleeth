@@ -526,6 +526,13 @@ Current slice completed:
   skips missing lifecycle bundles, and fails closed when a completed lifecycle
   lacks production-init evidence. Real DB rows, cross-process leases, and a
   scheduled worker loop remain open.
+- Phase07CS runtime claim production-init recovery follow-up:
+  `DrainDurableOutboxes` can now run the bounded claim production-init recovery
+  pass before publisher work. The runtime recovers pending init rows only when
+  the committed claim lifecycle store proves the matching completed bundle,
+  returns deterministic recovery counts/references, and leaves subsequent
+  passes empty. Real DB rows, cross-process leases, and automatic scheduling
+  remain open.
 - Phase07CG settlement outbox worker readback validation follow-up:
   Settlement durable-store publisher, publish/fail callbacks, lease release,
   and failed-row retry paths now revalidate the committed settlement bundle

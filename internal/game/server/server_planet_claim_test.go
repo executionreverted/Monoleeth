@@ -236,6 +236,82 @@ func TestClaimPlanetStaleMarkerFailureRecordsPendingProductionInitialization(t *
 	}
 }
 
+func TestRuntimeDurableDrainRecoversPendingClaimProductionInitialization(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "claim-runtime-init-recovery@example.com", "Claim Runtime Init Recovery")
+	planetID := foundation.PlanetID("claim-runtime-init-recovery-planet")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 120, Y: 0}, 1)
+	grantClaimXCoreForTest(t, gameServer, owner.PlayerID, 1, "claim-runtime-init-recovery-xcore")
+	staleMarker := &failingClaimListedIntelStaleMarker{err: errors.New("stale marker unavailable"), markedCount: 2}
+	installRuntimeClaimServiceForTest(t, gameServer, staleMarker)
+
+	failed := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-runtime-init-recovery-fail", planetID)
+	if !failed.HasError {
+		t.Fatal("claim response error missing, want stale marker failure")
+	}
+	claimReference, err := planetClaimReference(owner.PlayerID, planetID)
+	if err != nil {
+		t.Fatalf("planetClaimReference: %v", err)
+	}
+	pending, ok, err := gameServer.runtime.ClaimProductionInitializations.CommittedClaimProductionInitializationDurablePlan(claimReference)
+	if err != nil || !ok || pending.Boundary.Status != discovery.ClaimBoundaryStatusPendingSideEffects {
+		t.Fatalf("pending production init = %+v ok %v err %v, want pending row", pending, ok, err)
+	}
+
+	staleMarker.err = nil
+	if _, err := gameServer.runtime.Claim.ClaimPlanet(discovery.ClaimPlanetInput{
+		PlayerID:       owner.PlayerID,
+		PlanetID:       planetID,
+		ClaimReference: claimReference,
+	}); err != nil {
+		t.Fatalf("ClaimPlanet(domain retry) error = %v, want nil", err)
+	}
+	lifecycle, ok, err := gameServer.runtime.Claim.ClaimDurableLifecyclePlan(claimReference)
+	if err != nil || !ok {
+		t.Fatalf("ClaimDurableLifecyclePlan() = ok %v err %v, want true nil", ok, err)
+	}
+	if _, err := lifecycle.ApplyDurableLifecycle(gameServer.runtime.ClaimLifecycles); err != nil {
+		t.Fatalf("ApplyDurableLifecycle() error = %v, want nil", err)
+	}
+	stillPending, ok, err := gameServer.runtime.ClaimProductionInitializations.CommittedClaimProductionInitializationDurablePlan(claimReference)
+	if err != nil || !ok || stillPending.Boundary.Status != discovery.ClaimBoundaryStatusPendingSideEffects {
+		t.Fatalf("pre-recovery production init = %+v ok %v err %v, want still pending", stillPending, ok, err)
+	}
+
+	drain, err := gameServer.runtime.DrainDurableOutboxes(RuntimeDurableOutboxDrainInput{
+		Limit:                                 10,
+		RecoverClaimProductionInitializations: true,
+	})
+	if err != nil {
+		t.Fatalf("DrainDurableOutboxes(recover init) error = %v, want nil", err)
+	}
+	recovered := drain.RecoveredClaimProductionInitializations
+	if recovered.Scanned != 1 || recovered.Completed != 1 || recovered.SkippedMissingClaim != 0 ||
+		len(recovered.References) != 1 || recovered.References[0] != claimReference {
+		t.Fatalf("recovered production init = %+v, want one completed claim reference", recovered)
+	}
+	complete, ok, err := gameServer.runtime.ClaimProductionInitializations.CommittedClaimProductionInitializationDurablePlan(claimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimProductionInitializationDurablePlan(complete) = ok %v err %v, want true nil", ok, err)
+	}
+	if complete.Boundary.Status != discovery.ClaimBoundaryStatusComplete ||
+		complete.Boundary.StaleListingCount != lifecycle.Commit.Boundary.StaleListingCount {
+		t.Fatalf("complete production init = %+v, want completed lifecycle boundary", complete)
+	}
+
+	second, err := gameServer.runtime.DrainDurableOutboxes(RuntimeDurableOutboxDrainInput{
+		Limit:                                 10,
+		RecoverClaimProductionInitializations: true,
+	})
+	if err != nil {
+		t.Fatalf("second DrainDurableOutboxes(recover init) error = %v, want nil", err)
+	}
+	if second.RecoveredClaimProductionInitializations.Scanned != 0 ||
+		second.RecoveredClaimProductionInitializations.Completed != 0 {
+		t.Fatalf("second recovery = %+v, want no pending rows", second.RecoveredClaimProductionInitializations)
+	}
+}
+
 func TestClaimPlanetMarksCoordinateScrollMarketListingsStale(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "claim-coordinate-market@example.com", "Claim Coordinate Market")

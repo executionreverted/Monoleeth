@@ -14,10 +14,11 @@ type RuntimeDurableOutboxDrainInput struct {
 	// Limit is applied independently to each durable outbox store.
 	Limit int
 
-	Now                  time.Time
-	ReleaseExpiredLeases bool
-	LeaseTimeout         time.Duration
-	RetryFailedOutboxes  bool
+	Now                                   time.Time
+	ReleaseExpiredLeases                  bool
+	LeaseTimeout                          time.Duration
+	RetryFailedOutboxes                   bool
+	RecoverClaimProductionInitializations bool
 
 	PublishClaim            discovery.ClaimOutboxPublishFunc
 	PublishSettlement       production.ProductionOutboxPublishFunc
@@ -32,6 +33,8 @@ type RuntimeDurableOutboxDrainResult struct {
 	RetriedClaims            []discovery.ClaimOutboxRecord
 	RetriedSettlements       []production.ProductionOutboxRecord
 	RetriedBuildingMutations []production.ProductionOutboxRecord
+
+	RecoveredClaimProductionInitializations discovery.ClaimProductionInitializationRecoveryResult
 
 	Claims            []discovery.ClaimOutboxPublishResult
 	Settlements       []production.ProductionOutboxPublishResult
@@ -75,6 +78,13 @@ func (runtime *Runtime) DrainDurableOutboxes(
 	}
 
 	var result RuntimeDurableOutboxDrainResult
+	if input.RecoverClaimProductionInitializations {
+		recovered, err := runtime.recoverPendingClaimProductionInitializations(input.Limit)
+		if err != nil {
+			return result, err
+		}
+		result.RecoveredClaimProductionInitializations = recovered
+	}
 	if input.ReleaseExpiredLeases && input.LeaseTimeout > 0 {
 		released, err := runtime.releaseExpiredDurableOutboxLeases(runtimeDurableOutboxLeaseReleaseInput{
 			Limit:         input.Limit,
@@ -120,6 +130,22 @@ func (runtime *Runtime) DrainDurableOutboxes(
 		result.BuildingMutations = building
 	}
 	return result, nil
+}
+
+func (runtime *Runtime) recoverPendingClaimProductionInitializations(
+	limit int,
+) (discovery.ClaimProductionInitializationRecoveryResult, error) {
+	if runtime == nil {
+		return discovery.ClaimProductionInitializationRecoveryResult{}, errInvalidRuntimeDurableOutbox
+	}
+	if runtime.ClaimProductionInitializations == nil || runtime.ClaimLifecycles == nil {
+		return discovery.ClaimProductionInitializationRecoveryResult{}, nil
+	}
+	return discovery.RecoverPendingClaimProductionInitializations(discovery.ClaimProductionInitializationRecoveryInput{
+		ProductionInitializations: runtime.ClaimProductionInitializations,
+		Lifecycles:                runtime.ClaimLifecycles,
+		Limit:                     limit,
+	})
 }
 
 func (runtime *Runtime) retryFailedDurableOutboxes(
