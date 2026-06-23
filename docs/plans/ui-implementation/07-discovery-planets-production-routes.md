@@ -630,6 +630,9 @@ Mockup areas covered:
       ledger rows with idempotent exact replay and conflict rejection.
 - [x] Add production/route settlement transaction-result helpers that hand
       validated durable commit plans to the durable commit-store adapter.
+- [x] Add production/route settlement durable commit-plan handoff helper that
+      applies validated reference/outbox/route-ledger bundles through the
+      durable commit-store adapter.
 - [x] Add durable settlement commit readback helpers that recover committed
       durable commit and outbox dispatch plans by settlement reference key.
 - [x] Add process-local store-owned settlement reference records and pending
@@ -716,6 +719,8 @@ Mockup areas covered:
       plan with no route storage ledger rows.
 - [x] Production settlement transaction result exposes its durable commit plan
       directly for future DB/publisher adapters.
+- [x] Production settlement durable commit plans apply through the durable
+      commit-store adapter with exact replay and invalid-row rejection.
 - [ ] Durable production settlement is enforced by DB/idempotency rows and
       published through the durable outbox.
 - [x] Server route.settle transfers storage once, returns no-op on immediate
@@ -741,6 +746,8 @@ Mockup areas covered:
       tying route storage ledger rows to the settlement reference/window.
 - [x] Route settlement transaction result exposes its durable commit plan
       directly for future DB/publisher adapters.
+- [x] Route settlement durable commit plans apply through the durable
+      commit-store adapter with exact replay and invalid-row rejection.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

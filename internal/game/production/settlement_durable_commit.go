@@ -17,6 +17,17 @@ type SettlementDurableCommitPlan struct {
 	RouteStorageLedger []RouteStorageLedgerEntry
 }
 
+// ApplyDurableCommit validates and records this durable settlement plan through
+// a durable commit adapter.
+func (plan SettlementDurableCommitPlan) ApplyDurableCommit(
+	store SettlementDurableCommitStore,
+) (SettlementDurableCommitResult, error) {
+	if store == nil {
+		return SettlementDurableCommitResult{}, ErrInvalidSettlementDurableCommit
+	}
+	return store.ApplySettlementDurableCommitPlan(plan)
+}
+
 // NewSettlementDurableCommitPlan validates a settlement transaction result as a
 // durable row bundle. Empty reference/outbox/ledger input is a no-op plan.
 func NewSettlementDurableCommitPlan(

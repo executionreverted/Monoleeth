@@ -421,11 +421,12 @@ for phase status; this file is a compact pending-work index.
   dispatch rows, and route storage ledger rows together. Phase07AS exposes that
   validated plan directly from production and route settlement transaction
   results. Phase07AZ adds the durable settlement commit-store adapter contract
-  and transaction-result handoff helper so future DB adapters can accept the
-  validated reference/outbox/route-ledger bundle with idempotent exact replay
-  and conflict rejection, plus readback helpers so recovery/publisher workers
-  can rebuild committed durable commit and outbox dispatch plans by settlement
-  reference key. Phase07AU adds claim-begin durable plan validation for X Core
+  plus transaction-result and durable-plan handoff helpers so future DB
+  adapters can accept the validated reference/outbox/route-ledger bundle with
+  idempotent exact replay and conflict rejection, plus readback helpers so
+  recovery/publisher workers can rebuild committed durable commit and outbox
+  dispatch plans by settlement reference key. Phase07AU adds claim-begin
+  durable plan validation for X Core
   debit plus owner-CAS evidence. Phase07AT adds the matching
   completed-claim durable commit-plan validation for claim
   boundary/reference/event/outbox/X Core evidence. Phase07AV adds claim
