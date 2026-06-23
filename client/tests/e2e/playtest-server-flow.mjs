@@ -510,7 +510,7 @@ async function completeFightLootLoop(client, options = {}) {
   await moveToPosition(client, npc.position, Math.max(80, Math.min(220, (withNPC.stats?.weapon_range ?? 260) - 40)), `combat target ${killedNPCID}`, 30000);
   const combatPayload = await fightNPCUntilKilled(client, killedNPCID);
   const expectedDrop = responseDrop(combatPayload, `${label} combat response`);
-  const withDrop = await waitSmoke(client, (state) => state.currentMap?.public_map_key === mapKey && findKnownDrop(state, expectedDrop), `${label} server-created loot drop`, 15000);
+  const withDrop = await waitForKnownDrop(client, mapKey, expectedDrop, `${label} server-created loot drop`, 15000);
   const drop = findKnownDrop(withDrop, expectedDrop);
   assertDropMatches(drop, expectedDrop, `${label} loot drop`);
   assertNoPayloadLeak({ drop }, `${label} smoke loot drop`);
@@ -628,6 +628,57 @@ function findKnownDrop(state, expectedDrop) {
   return Object.values(state?.knownLoot ?? {}).find(
     (drop) => drop.item_id === expectedDrop.item_id && Number(drop.quantity) >= expectedDrop.quantity,
   );
+}
+
+async function waitForKnownDrop(client, mapKey, expectedDrop, description, timeoutMS) {
+  const started = Date.now();
+  let last = null;
+  while (Date.now() - started < timeoutMS) {
+    last = await smoke(client);
+    if (last?.currentMap?.public_map_key === mapKey && findKnownDrop(last, expectedDrop)) return last;
+    await delay(100);
+  }
+  throw new Error(
+    `Timed out waiting for ${description}. Expected: ${compact(expectedDrop)} Diagnostics: ${compact(await lootDropDiagnostics(client, expectedDrop))} Last state: ${compact(last)}`,
+  );
+}
+
+async function lootDropDiagnostics(client, expectedDrop) {
+  return client.page.evaluate((expected) => {
+    const frames = window.__playtestServerWebSocketFrames ?? [];
+    const parsedFrames = frames
+      .map((frame) => {
+        try {
+          return { direction: frame.direction, socket_id: frame.socket_id, parsed: JSON.parse(frame.text || '{}') };
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    const lootFrames = parsedFrames
+      .filter((entry) => entry.parsed?.type === 'loot.created' || entry.parsed?.payload?.drops)
+      .map((entry) => ({
+        direction: entry.direction,
+        socket_id: entry.socket_id,
+        type: entry.parsed.type || entry.parsed.op || '',
+        request_id: entry.parsed.request_id || '',
+        payload: entry.parsed.payload || {},
+      }));
+    const state = window.__SPACE_MORPG_SMOKE_STATE__ ?? {};
+    const expectedID = expected.drop_id || expected.entity_id || '';
+    return {
+      expected,
+      loot_frames: lootFrames.slice(-6),
+      known_loot_keys: Object.keys(state.knownLoot ?? {}),
+      expected_known_loot: expectedID ? state.knownLoot?.[expectedID] ?? null : null,
+      live_loot_entities: Object.values(state.visibleEntities ?? {})
+        .filter((entity) => entity?.entity_type === 'loot')
+        .map((entity) => ({ entity_id: entity.entity_id, position: entity.position })),
+      combat_log_tail: (state.combatLog ?? []).slice(-8),
+      last_sequence: state.lastSequence ?? null,
+      current_map: state.currentMap?.public_map_key ?? '',
+    };
+  }, expectedDrop);
 }
 
 function assertDropMatches(drop, expectedDrop, label) {
