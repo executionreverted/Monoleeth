@@ -291,9 +291,14 @@ Current backend foundation:
   ownership, non-invalidated visibility, server-created coordinate payloads,
   share/create/use idempotency, consume-once coordinate item state, reference
   mismatch rejection, and clone-on-read safety.
-- Realtime commands, inventory-backed coordinate item creation/consumption,
-  daily quotas, market listing staleness, and durable DB rows are still future
-  slices.
+- Phase07S wires the intel service into authenticated realtime commands:
+  `intel.share`, `intel.coordinate_item.create`, and
+  `intel.coordinate_item.use`. Gateway handlers reject client-authored
+  coordinate/source/ownership payloads, bridge discovery read-model intel into
+  the intel domain, update discovery after share/use, and queue safe
+  known-planets/detail refresh events.
+- Inventory-backed coordinate item creation/consumption, daily quotas, market
+  listing staleness, and durable DB rows are still future slices.
 
 ## Implementation Notes
 

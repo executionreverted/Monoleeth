@@ -119,6 +119,21 @@ export class CommandBuilder {
     return this.build(OPERATIONS.discoveryClaimPlanet, { planet_id: planetID });
   }
 
+  intelShare(planetID: string, toPlayerID: string): RequestEnvelope<{ planet_id: string; to_player_id: string }> {
+    return this.build(OPERATIONS.intelShare, {
+      planet_id: planetID,
+      to_player_id: toPlayerID,
+    });
+  }
+
+  intelCoordinateItemCreate(planetID: string): RequestEnvelope<{ planet_id: string }> {
+    return this.build(OPERATIONS.intelCoordinateItemCreate, { planet_id: planetID });
+  }
+
+  intelCoordinateItemUse(itemInstanceID: string): RequestEnvelope<{ item_instance_id: string }> {
+    return this.build(OPERATIONS.intelCoordinateItemUse, { item_instance_id: itemInstanceID });
+  }
+
   productionSummary(planetID?: string): RequestEnvelope<{ planet_id?: string }> {
     return this.build(OPERATIONS.productionSummary, planetID ? { planet_id: planetID } : {});
   }

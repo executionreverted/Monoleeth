@@ -92,12 +92,15 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage.
-- [ ] Finish gateway/session authorization for remaining discovery commands.
+- [x] Finish gateway/session authorization for remaining discovery commands.
   `scan.pulse` and the Phase07A backend `discovery.claim_planet` handler now
   resolve the authenticated player server-side and reject client-authored
   coordinates, planet candidates, XP, map/position truth, and X Core
-  consumption. Intel share and coordinate item create/use gateway intents still
-  need the same treatment before browser exposure.
+  consumption. Phase07S adds authenticated `intel.share`,
+  `intel.coordinate_item.create`, and `intel.coordinate_item.use` handlers
+  that derive sender/source intel/item payloads server-side and reject
+  client-authored coordinates, ownership, source, confidence, timestamp, and
+  inventory truth.
 - [x] Add authenticated browser loadout mutation contracts for
   `loadout.equip_module` and `loadout.unequip_module`. Server handlers must
   resolve player, active ship, slot, owned module instance, rank, compatibility,
@@ -141,12 +144,14 @@ for phase status; this file is a compact pending-work index.
   publisher state machine preserves that evidence. Phase07R starts the
   server-authoritative intel/coordinate domain foundation for share,
   coordinate-item creation, coordinate-item use, canonical idempotency keys,
-  and consume-once item state. Durable DB/outbox claim recovery, cross-process
+  and consume-once item state. Phase07S wires those intel operations into the
+  authenticated realtime gateway and TypeScript protocol with discovery
+  read-model/event reconciliation. Durable DB/outbox claim recovery, cross-process
   CAS/locks, idempotency-table enforcement, durable outbox persistence/
   publisher workers, broader building requirement/cost balancing, browser HUD
-  controls, realtime intel handlers, inventory-backed coordinate items, and
-  intel quotas remain open. Source: Phase 10 audit, Phase07A, Phase07O,
-  Phase07P, Phase07Q, Phase07R, and
+  controls, inventory-backed coordinate items, and intel quotas remain open.
+  Source: Phase 10 audit, Phase07A, Phase07O, Phase07P, Phase07Q, Phase07R,
+  Phase07S, and
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Finish durable authenticated automation route persistence and rollout
   hardening. Server/browser work now has a focused real-client

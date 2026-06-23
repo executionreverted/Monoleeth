@@ -42,6 +42,9 @@ const (
 	OperationKnownPlanets          Operation = "discovery.known_planets"
 	OperationPlanetDetail          Operation = "discovery.planet_detail"
 	OperationDiscoveryClaimPlanet  Operation = "discovery.claim_planet"
+	OperationIntelShare            Operation = "intel.share"
+	OperationIntelCoordinateCreate Operation = "intel.coordinate_item.create"
+	OperationIntelCoordinateUse    Operation = "intel.coordinate_item.use"
 	OperationProductionSummary     Operation = "planet.production_summary"
 	OperationPlanetStorage         Operation = "planet.storage_summary"
 	OperationPlanetBuildingBuild   Operation = "planet.building_build"
@@ -270,6 +273,18 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationDiscoveryClaimPlanet: {
 		Operation:        OperationDiscoveryClaimPlanet,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationIntelShare: {
+		Operation:        OperationIntelShare,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationIntelCoordinateCreate: {
+		Operation:        OperationIntelCoordinateCreate,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationIntelCoordinateUse: {
+		Operation:        OperationIntelCoordinateUse,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationProductionSummary: {

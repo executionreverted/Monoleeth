@@ -16,6 +16,7 @@ import (
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/intel"
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/market"
 	"gameproject/internal/game/modules"
@@ -141,6 +142,7 @@ type Runtime struct {
 	Discovery     *discovery.InMemoryStore
 	Scanner       *discovery.ScannerService
 	Claim         *discovery.ClaimService
+	Intel         *intel.Service
 	Production    *production.InMemoryStore
 	CommandLog    *observability.MemoryCommandLogger
 	Metrics       *observability.MetricRecorder
@@ -399,6 +401,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Loadout:             loadoutService,
 		Recipes:             recipeCatalog,
 		Discovery:           discoveryStore,
+		Intel:               intel.NewService(clock),
 		Production:          productionStore,
 		CommandLog:          commandLogger,
 		Metrics:             metricRecorder,

@@ -325,7 +325,6 @@ func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testin
 		Operation("inventory.move"),
 		Operation("progression.unlock_skill"),
 		Operation("progression.respec_skills"),
-		Operation("intel.share"),
 		Operation("intel.coordinate_item_create"),
 		Operation("intel.coordinate_item_use"),
 		Operation("coordinate_scroll.create"),
@@ -350,6 +349,49 @@ func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testin
 		)
 		_, err := DecodeRequestEnvelope([]byte(body))
 		requireInvalidPayload(t, err)
+	}
+}
+
+func TestOperationRegistryAcceptsIntelCoordinateContracts(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want Operation
+	}{
+		{
+			name: "share",
+			body: `{"request_id":"request-intel-share","op":"intel.share","payload":{"planet_id":"planet-1","to_player_id":"player-2"},"client_seq":1,"v":1}`,
+			want: OperationIntelShare,
+		},
+		{
+			name: "coordinate create",
+			body: `{"request_id":"request-coordinate-create","op":"intel.coordinate_item.create","payload":{"planet_id":"planet-1"},"client_seq":2,"v":1}`,
+			want: OperationIntelCoordinateCreate,
+		},
+		{
+			name: "coordinate use",
+			body: `{"request_id":"request-coordinate-use","op":"intel.coordinate_item.use","payload":{"item_instance_id":"coord-player-planet-request"},"client_seq":3,"v":1}`,
+			want: OperationIntelCoordinateUse,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			envelope, err := DecodeRequestEnvelope([]byte(tc.body))
+			if err != nil {
+				t.Fatalf("decode intel request envelope: %v", err)
+			}
+			if envelope.Op != tc.want {
+				t.Fatalf("op = %q, want %q", envelope.Op, tc.want)
+			}
+			spec, ok := LookupOperation(tc.want)
+			if !ok {
+				t.Fatalf("LookupOperation(%q) not registered", tc.want)
+			}
+			if spec.RateLimitPosture != RateLimitPostureIntentBurst {
+				t.Fatalf("intel op posture = %q, want %q", spec.RateLimitPosture, RateLimitPostureIntentBurst)
+			}
+		})
 	}
 }
 

@@ -199,6 +199,19 @@ Current slice completed:
   mismatched reference/entity attempts before mutation. Realtime handlers,
   economy inventory item movement, daily quotas, stale market listing hooks,
   and durable DB rows remain open.
+- Phase07S intel gateway follow-up: authenticated `intel.share`,
+  `intel.coordinate_item.create`, and `intel.coordinate_item.use` now exist in
+  the Go realtime gateway and TypeScript protocol surface. Share accepts only
+  `planet_id` and `to_player_id`, derives the sender and source intel
+  server-side, writes the receiver discovery read model, and queues a
+  receiver-scoped known-planets refresh. Coordinate create accepts only
+  `planet_id`, derives the server-owned temporary item instance from the
+  request id and stored intel, and omits hidden coordinates/source metadata
+  from the response. Coordinate use accepts only `item_instance_id`, checks
+  ownership/consume-once through the intel domain, writes the discovery read
+  model, and queues owner-scoped known-planets and planet-detail refreshes.
+  Inventory-backed coordinate item mint/consume, daily quotas, market/listing
+  staleness hooks, durable DB rows, and browser HUD controls remain open.
 
 ## Source Specs
 
@@ -324,7 +337,7 @@ Mockup areas covered:
       records for successful discovery claim owner changes.
 - [x] Add process-local claim outbox delivery state and claim-token guards for
       publisher-worker behavior.
-- [ ] Add intel share and coordinate item handlers with visibility-safe
+- [x] Add intel share and coordinate item handlers with visibility-safe
       recipient filtering.
 - [x] Add read-only production summary handler for owned planets.
 - [ ] Add production build/upgrade handlers.

@@ -12,7 +12,6 @@ const UNIMPLEMENTED_MUTATION_OPS = [
   'progression.respec_skills',
   'planet.building_build',
   'planet.building_upgrade',
-  'intel.share',
   'intel.coordinate_item_create',
   'intel.coordinate_item_use',
   'coordinate_scroll.create',
@@ -330,6 +329,9 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.shopCatalog).toBe('shop.catalog');
     expect(OPERATIONS.shopBuyProduct).toBe('shop.buy_product');
     expect(OPERATIONS.discoveryClaimPlanet).toBe('discovery.claim_planet');
+    expect(OPERATIONS.intelShare).toBe('intel.share');
+    expect(OPERATIONS.intelCoordinateItemCreate).toBe('intel.coordinate_item.create');
+    expect(OPERATIONS.intelCoordinateItemUse).toBe('intel.coordinate_item.use');
     expect(CLIENT_EVENTS.planetClaimed).toBe('planet.claimed');
     expect(OPERATIONS.routeCreate).toBe('route.create');
     expect(OPERATIONS.routeUpdate).toBe('route.update');
@@ -376,6 +378,52 @@ describe('default outbound operations', () => {
       'claim_reference',
     ]) {
       expect(claim.payload).not.toHaveProperty(forbidden);
+    }
+  });
+
+  test('intel commands send only client intent fields', () => {
+    const builder = new CommandBuilder();
+    const share = builder.intelShare('planet-eris', 'player-friend');
+    expect(share.op).toBe(OPERATIONS.intelShare);
+    expect(share.payload).toEqual({ planet_id: 'planet-eris', to_player_id: 'player-friend' });
+    expect(Object.keys(share.payload)).toEqual(['planet_id', 'to_player_id']);
+
+    const create = builder.intelCoordinateItemCreate('planet-eris');
+    expect(create.op).toBe(OPERATIONS.intelCoordinateItemCreate);
+    expect(create.payload).toEqual({ planet_id: 'planet-eris' });
+    expect(Object.keys(create.payload)).toEqual(['planet_id']);
+
+    const use = builder.intelCoordinateItemUse('coord-player-planet-request');
+    expect(use.op).toBe(OPERATIONS.intelCoordinateItemUse);
+    expect(use.payload).toEqual({ item_instance_id: 'coord-player-planet-request' });
+    expect(Object.keys(use.payload)).toEqual(['item_instance_id']);
+
+    for (const payload of [share.payload, create.payload, use.payload]) {
+      for (const forbidden of [
+        'from_player_id',
+        'player_id',
+        'owner_player_id',
+        'world_id',
+        'zone_id',
+        'map_id',
+        'coordinates',
+        'position',
+        'x',
+        'y',
+        'state',
+        'intel_state',
+        'confidence',
+        'source_type',
+        'source_reference',
+        'last_seen_at',
+        'last_verified_at',
+        'created_at',
+        'used_at',
+        'used_by',
+        'inventory',
+      ]) {
+        expect(payload).not.toHaveProperty(forbidden);
+      }
     }
   });
 
@@ -566,9 +614,6 @@ describe('default outbound operations', () => {
       'progressionRespecSkills',
       'planetBuildingBuild',
       'planetBuildingUpgrade',
-      'intelShare',
-      'intelCoordinateItemCreate',
-      'intelCoordinateItemUse',
       'coordinateScrollCreate',
       'coordinateScrollUse',
       'mailSend',
