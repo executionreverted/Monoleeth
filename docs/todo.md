@@ -368,6 +368,11 @@ for phase status; this file is a compact pending-work index.
   evidence to production settlement durable commit bundles, and ledger-backed
   changed storage-row evidence to route settlement durable commit bundles
   beside route-row, route-ledger, reference, and outbox evidence.
+  Route settlement duplicate retries for the same `settled_at` can now replay
+  the committed durable reference, route-row, pending outbox, ledger, and
+  storage-row handoff after live route-row loss without appending duplicate
+  process-local rows, while missing handoff evidence, wrong-owner, and
+  future-window attempts still fail closed.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10

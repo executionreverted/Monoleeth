@@ -1,6 +1,7 @@
 package production
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -81,6 +82,14 @@ func (store *InMemoryStore) ApplyRouteSettlementTransaction(
 	defer store.mu.Unlock()
 	store.ensureMapsLocked()
 
+	if _, routeExists := store.routes[input.RouteID]; !routeExists {
+		if replay, ok, err := store.routeSettlementTransactionReplayLocked(input, settledAt); err != nil || ok {
+			if err != nil {
+				return RouteSettlementTransactionResult{}, err
+			}
+			return replay, nil
+		}
+	}
 	if err := store.requireRouteOwnerLocked(input.OwnerPlayerID, input.RouteID); err != nil {
 		return RouteSettlementTransactionResult{}, err
 	}
@@ -115,6 +124,194 @@ func (store *InMemoryStore) ApplyRouteSettlementTransaction(
 		result.StorageRows = store.routeSettlementStorageRowsLocked(result.StorageLedger)
 	}
 	return result, nil
+}
+
+func (store *InMemoryStore) routeSettlementTransactionReplayLocked(
+	input RouteSettlementTransactionInput,
+	settledAt time.Time,
+) (RouteSettlementTransactionResult, bool, error) {
+	record, ok := store.routeDurableRecords[input.RouteID]
+	if !ok {
+		return RouteSettlementTransactionResult{}, false, nil
+	}
+	if err := validateAutomationRouteDurableRecordForRoute(record, input.RouteID); err != nil {
+		return RouteSettlementTransactionResult{}, false, err
+	}
+	if record.Route.OwnerPlayerID != input.OwnerPlayerID {
+		return RouteSettlementTransactionResult{}, false, fmt.Errorf("route %q owner %q: %w", input.RouteID, input.OwnerPlayerID, ErrRouteOwnerMismatch)
+	}
+	if !record.RecordedAt.Equal(settledAt) {
+		return RouteSettlementTransactionResult{}, false, nil
+	}
+	reference, ok := store.references[record.ReferenceKey]
+	if !ok {
+		return RouteSettlementTransactionResult{}, false, nil
+	}
+	if err := validateRouteSettlementTransactionReplayReference(input, settledAt, record, reference); err != nil {
+		return RouteSettlementTransactionResult{}, false, err
+	}
+
+	route := cloneAutomationRoute(record.Route)
+	settlement := newRouteSettlementResult(route, settledAt)
+	settlement.ReferenceKey = reference.ReferenceKey
+	settlement.SettlementWindow = reference.SettlementWindow
+	settlement.NoOp = true
+	outboxRecords := store.routeSettlementOutboxRecordsLocked(reference.ReferenceKey, reference.SettlementWindow)
+	ledgerRows := store.routeSettlementLedgerRowsLocked(input.RouteID, reference.ReferenceKey, reference.SettlementWindow)
+	routeRow := cloneAutomationRouteDurableRecordPointer(&record)
+	clonedReference := cloneSettlementReferenceRecord(reference)
+	result := RouteSettlementTransactionResult{
+		Settlement:    settlement,
+		Reference:     &clonedReference,
+		RouteRow:      routeRow,
+		OutboxRecords: outboxRecords,
+		StorageLedger: ledgerRows,
+		StorageRows:   store.routeSettlementStorageRowsLocked(ledgerRows),
+	}
+	if err := validateRouteSettlementTransactionReplayRows(result); err != nil {
+		return RouteSettlementTransactionResult{}, false, err
+	}
+	if _, err := result.DurableCommitPlan(); err != nil {
+		return RouteSettlementTransactionResult{}, false, err
+	}
+	return result, true, nil
+}
+
+func validateRouteSettlementTransactionReplayReference(
+	input RouteSettlementTransactionInput,
+	settledAt time.Time,
+	record AutomationRouteDurableRecord,
+	reference SettlementReferenceRecord,
+) error {
+	if err := validateSettlementReferenceRecord(reference); err != nil {
+		return fmt.Errorf("settlement_reference: %w: %v", ErrInvalidSettlementDurableCommit, err)
+	}
+	if reference.Kind != SettlementKindRoute ||
+		reference.RouteID != input.RouteID ||
+		reference.PlanetID != "" ||
+		reference.ReferenceKey != record.ReferenceKey ||
+		!reference.AppliedAt.Equal(settledAt) ||
+		!reference.RecordedAt.Equal(record.RecordedAt) {
+		return fmt.Errorf("settlement_reference: %w", ErrInvalidSettlementDurableCommit)
+	}
+	wantReference, err := routeSettlementReferenceKey(input.RouteID, reference.SettlementWindow)
+	if err != nil {
+		return fmt.Errorf("settlement_reference: %w: %v", ErrInvalidSettlementDurableCommit, err)
+	}
+	if reference.ReferenceKey != wantReference {
+		return fmt.Errorf("settlement_reference: %w", ErrInvalidSettlementDurableCommit)
+	}
+	return nil
+}
+
+func validateRouteSettlementTransactionReplayRows(result RouteSettlementTransactionResult) error {
+	payload, ok, err := routeSettlementPayloadFromReplayOutbox(result)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("route_settlement_outbox: %w", ErrInvalidSettlementDurableCommit)
+	}
+	if len(result.StorageLedger) == 0 {
+		if routeSettlementPayloadNeedsStorageLedger(payload) {
+			return fmt.Errorf("route_storage_ledger: %w", ErrInvalidSettlementDurableCommit)
+		}
+		return nil
+	}
+	if len(result.StorageRows) == 0 {
+		return fmt.Errorf("storage_rows: %w", ErrInvalidSettlementDurableCommit)
+	}
+	if err := validateRouteSettlementReplayLedgerMatchesPayload(payload, result.StorageLedger); err != nil {
+		return err
+	}
+	return nil
+}
+
+func routeSettlementPayloadFromReplayOutbox(
+	result RouteSettlementTransactionResult,
+) (RouteSettlementPayload, bool, error) {
+	for _, record := range result.OutboxRecords {
+		if record.Event.Type != EventRouteTransferSettled {
+			continue
+		}
+		var payload RouteSettlementPayload
+		if err := json.Unmarshal(record.Event.Payload, &payload); err != nil {
+			return RouteSettlementPayload{}, false, fmt.Errorf("route_settlement_outbox: %w: %v", ErrInvalidSettlementDurableCommit, err)
+		}
+		if payload.RouteID != result.Settlement.RouteID ||
+			payload.ReferenceKey != result.Settlement.ReferenceKey ||
+			payload.SettlementWindow != result.Settlement.SettlementWindow {
+			return RouteSettlementPayload{}, false, fmt.Errorf("route_settlement_outbox: %w", ErrInvalidSettlementDurableCommit)
+		}
+		return payload, true, nil
+	}
+	return RouteSettlementPayload{}, false, nil
+}
+
+func routeSettlementPayloadNeedsStorageLedger(payload RouteSettlementPayload) bool {
+	return payload.TakenAmount > 0 ||
+		payload.LostAmount > 0 ||
+		payload.AddedAmount > 0 ||
+		payload.DeliveredAmount > payload.AddedAmount
+}
+
+func validateRouteSettlementReplayLedgerMatchesPayload(
+	payload RouteSettlementPayload,
+	rows []RouteStorageLedgerEntry,
+) error {
+	quantitiesByOperation := make(map[RouteStorageLedgerOperation]int64, len(rows))
+	for _, row := range rows {
+		if row.ItemID != payload.ResourceItemID {
+			return fmt.Errorf("route_storage_ledger.item: %w", ErrInvalidSettlementDurableCommit)
+		}
+		quantitiesByOperation[row.Operation] += row.Quantity
+	}
+	expectedByOperation := map[RouteStorageLedgerOperation]int64{
+		RouteStorageLedgerSourceDebit:       payload.TakenAmount,
+		RouteStorageLedgerTransferLoss:      payload.LostAmount,
+		RouteStorageLedgerDestinationCredit: payload.AddedAmount,
+	}
+	if overflow := payload.DeliveredAmount - payload.AddedAmount; overflow > 0 {
+		expectedByOperation[RouteStorageLedgerDestinationOverflow] = overflow
+	}
+	for operation, got := range quantitiesByOperation {
+		if want := expectedByOperation[operation]; got != want {
+			return fmt.Errorf("route_storage_ledger.%s: %w", operation, ErrInvalidSettlementDurableCommit)
+		}
+	}
+	for operation, want := range expectedByOperation {
+		if want > 0 && quantitiesByOperation[operation] != want {
+			return fmt.Errorf("route_storage_ledger.%s: %w", operation, ErrInvalidSettlementDurableCommit)
+		}
+	}
+	return nil
+}
+
+func (store *InMemoryStore) routeSettlementOutboxRecordsLocked(
+	referenceKey foundation.IdempotencyKey,
+	settlementWindow string,
+) []ProductionOutboxRecord {
+	var records []ProductionOutboxRecord
+	for _, record := range store.outbox {
+		if record.ReferenceKey == referenceKey && record.SettlementWindow == settlementWindow {
+			records = append(records, cloneProductionOutboxRecord(record))
+		}
+	}
+	return records
+}
+
+func (store *InMemoryStore) routeSettlementLedgerRowsLocked(
+	routeID foundation.RouteID,
+	referenceKey foundation.IdempotencyKey,
+	settlementWindow string,
+) []RouteStorageLedgerEntry {
+	var rows []RouteStorageLedgerEntry
+	for _, row := range store.routeStorageLedger {
+		if row.RouteID == routeID && row.ReferenceKey == referenceKey && row.SettlementWindow == settlementWindow {
+			rows = append(rows, row)
+		}
+	}
+	return cloneRouteStorageLedgerEntries(rows)
 }
 
 // Validate reports whether the route transaction input has server-owned owner,
