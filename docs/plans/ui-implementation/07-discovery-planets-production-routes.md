@@ -395,6 +395,15 @@ Current slice completed:
   carries settlement evidence, and at least one settlement-evidenced outbox row.
   This is still a contract/helper layer; durable DB rows, scheduler wiring, and
   cross-process publisher ownership remain open.
+- Phase07AR durable settlement commit-plan follow-up:
+  `NewSettlementDurableCommitPlan` now validates the row bundle a future
+  production DB transaction must commit for one settlement window: the
+  idempotency reference, after-commit outbox dispatch plan, and matching route
+  storage ledger rows when route storage moves. It rejects route ledger rows
+  with mismatched reference/window/route evidence and rejects production
+  settlement commits that accidentally include route ledger rows. Concrete DB
+  adapters, unique constraints, row locks/CAS, and publisher workers remain
+  open.
 
 ## Source Specs
 
@@ -537,6 +546,8 @@ Mockup areas covered:
       with server-derived reference keys and deterministic settlement windows.
 - [x] Add settlement outbox dispatch-plan validation for after-commit
       production/route publisher scheduling.
+- [x] Add durable settlement commit-plan validation tying idempotency
+      reference, outbox dispatch rows, and route storage ledger rows together.
 - [x] Add process-local store-owned settlement reference records and pending
       outbox records for production and route settlements.
 - [x] Add process-local production outbox claim/publish/fail/retry delivery
@@ -617,6 +628,8 @@ Mockup areas covered:
       from the same store lock.
 - [x] Production settlement transaction outbox rows validate into an
       after-commit dispatch plan before durable publisher scheduling.
+- [x] Production settlement transaction rows validate as one durable commit
+      plan with no route storage ledger rows.
 - [ ] Durable production settlement is enforced by DB/idempotency rows and
       published through the durable outbox.
 - [x] Server route.settle transfers storage once, returns no-op on immediate
@@ -638,6 +651,8 @@ Mockup areas covered:
       reclaimed attempts.
 - [x] Route settlement transaction outbox rows validate into an after-commit
       dispatch plan before durable publisher scheduling.
+- [x] Route settlement transaction rows validate as one durable commit plan
+      tying route storage ledger rows to the settlement reference/window.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

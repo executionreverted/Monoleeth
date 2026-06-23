@@ -393,8 +393,10 @@ for phase status; this file is a compact pending-work index.
   planet production windows. Phase07AP adds the matching claim X Core
   debit-plus-owner-CAS begin contract for future durable claim/storage adapters.
   Phase07AQ adds after-commit settlement outbox dispatch-plan validation for
-  future durable publisher scheduling. Durable claim, production, and route
-  settlement tables plus publisher scheduling remain open.
+  future durable publisher scheduling. Phase07AR adds durable settlement
+  commit-plan validation that ties settlement idempotency references, outbox
+  dispatch rows, and route storage ledger rows together. Durable claim,
+  production, and route settlement tables plus publisher scheduling remain open.
   Those records are still not durable, cross-process, or delivered by a durable
   publisher process. Phase07L adds
   process-local claim tokens so publish/fail callbacks require the current
