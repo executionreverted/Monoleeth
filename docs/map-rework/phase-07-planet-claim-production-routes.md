@@ -603,7 +603,9 @@ contracts:
    successful cached claim results, and Phase07N added process-local claim
    outbox delivery state plus claim-token guards. Durable DB rows,
    cross-process recovery, durable outbox persistence, and idempotency-table
-   enforcement remain open.
+   enforcement remain open. The authenticated gateway rejects another player's
+   planet before X Core consumption, production initialization, lifecycle rows,
+   or owner-scoped claim events.
 5. Add recovery for production initialization after claim. A retry or bounded
    production-init recovery drain must repair missing production/storage live
    rows without consuming a second X Core or changing owner twice.

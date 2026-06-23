@@ -189,8 +189,10 @@ for phase status; this file is a compact pending-work index.
   debit. Phase07CY also rebuilds missing live production/storage read-model
   rows during the bounded production-init recovery drain after pending durable
   rows are advanced to complete, preserving the single X Core debit while
-  making worker recovery return initialized live state. Real durable
-  claim/production DB rows, cross-service row locks/CAS, an atomic
+  making worker recovery return initialized live state. Phase07CZ proves the
+  authenticated gateway rejects planets owned by another player before X Core
+  consume, production init, lifecycle rows, or owner-scoped claim events. Real
+  durable claim/production DB rows, cross-service row locks/CAS, an atomic
   claim/production transaction, and scheduled recovery workers remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable

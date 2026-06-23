@@ -1068,6 +1068,8 @@ Mockup areas covered:
 - [x] Claim production-init recovery drain repairs missing live production and
       storage read-model rows after advancing pending durable rows to complete,
       preserving the original X Core debit.
+- [x] Claim gateway rejects planets owned by another player before X Core
+      consume, production init, lifecycle rows, or owner-scoped claim events.
 - [x] Claim lifecycle durable readback rebuilds a validated pending outbox
       dispatch plan for `planet.claimed` publisher scheduling.
 - [x] Claim lifecycle durable outbox rows can be claimed, published, failed, or

@@ -597,6 +597,76 @@ func TestClaimPlanetRejectsMissingXCoreWithoutOwnerProductionOrEvents(t *testing
 	assertClaimDidNotMutateForTest(t, gameServer, owner.PlayerID, planetID, 0)
 }
 
+func TestClaimPlanetRejectsPlanetOwnedByAnotherPlayerWithoutCoreConsumeOrEvents(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	claimant := createResolvedRuntimeSession(t, gameServer, "claim-owned-other-claimant@example.com", "Claim Owned Other")
+	other := createResolvedRuntimeSession(t, gameServer, "claim-owned-other-owner@example.com", "Claim Owner Other")
+	planetID := foundation.PlanetID("claim-owned-other-planet")
+	coordinates := world.Vec2{X: 120, Y: 0}
+	seedKnownClaimPlanetForTest(t, gameServer, claimant.PlayerID, planetID, worldmaps.StarterMapID, coordinates, 1)
+	grantClaimXCoreForTest(t, gameServer, claimant.PlayerID, 1, "claim-owned-other-xcore")
+
+	now := gameServer.runtime.clock.Now().UTC()
+	if _, err := gameServer.runtime.Discovery.RecordPlanetOwnerChange(discovery.PlanetOwnerChangeInput{
+		PlanetID:         planetID,
+		NewOwnerPlayerID: other.PlayerID,
+		ChangedAt:        now,
+		SourceReference:  "claim-owned-other-seed",
+	}); err != nil {
+		t.Fatalf("RecordPlanetOwnerChange() error = %v, want nil", err)
+	}
+	definition, ok := gameServer.runtime.mapCatalog.Get(worldmaps.StarterMapID)
+	if !ok {
+		t.Fatalf("map %q missing", worldmaps.StarterMapID)
+	}
+	if _, _, err := gameServer.runtime.Discovery.UpsertPlayerPlanetIntel(discovery.PlayerPlanetIntel{
+		PlayerID:        claimant.PlayerID,
+		PlanetID:        planetID,
+		WorldID:         definition.WorldID,
+		ZoneID:          definition.ZoneID,
+		Coordinates:     coordinates,
+		State:           discovery.IntelStateVerified,
+		Confidence:      100,
+		LastSeenAt:      now,
+		SourceType:      discovery.IntelSourceScanSuccess,
+		SourceReference: "scan-owned-other-after-owner",
+	}); err != nil {
+		t.Fatalf("UpsertPlayerPlanetIntel() error = %v, want nil", err)
+	}
+
+	response := claimPlanetForTest(t, gameServer, claimant.SessionID, "request-claim-owned-other", planetID)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeForbidden {
+		t.Fatalf("owned-by-other claim response = %+v, want forbidden", response)
+	}
+	planet, ok, err := gameServer.runtime.Discovery.Planet(planetID)
+	if err != nil || !ok {
+		t.Fatalf("planet lookup = ok %v err %v, want ok nil", ok, err)
+	}
+	if planet.OwnerPlayerID != other.PlayerID {
+		t.Fatalf("planet owner = %q, want unchanged owner %q", planet.OwnerPlayerID, other.PlayerID)
+	}
+	if _, ok, err := gameServer.runtime.Production.Snapshot(planetID); err != nil || ok {
+		t.Fatalf("production snapshot = ok %v err %v, want absent", ok, err)
+	}
+	if got := inventoryStackQuantityForTest(gameServer, claimant.PlayerID, "x_core"); got != 1 {
+		t.Fatalf("x_core quantity = %d, want unchanged", got)
+	}
+	if got := claimXCoreDecreaseLedgerCountForTest(gameServer, claimant.PlayerID); got != 0 {
+		t.Fatalf("x_core decrease ledger entries = %d, want none", got)
+	}
+	if refs := gameServer.runtime.ClaimLifecycles.ClaimReferences(); len(refs) != 0 {
+		t.Fatalf("claim lifecycle references = %+v, want none", refs)
+	}
+	if refs := gameServer.runtime.ClaimProductionInitializations.ClaimReferences(); len(refs) != 0 {
+		t.Fatalf("claim production init references = %+v, want none", refs)
+	}
+	if events, err := gameServer.runtime.postCommandEvents(claimant.SessionID, realtime.OperationDiscoveryClaimPlanet, claimant.PlayerID); err != nil {
+		t.Fatalf("post failed claim events: %v", err)
+	} else if len(events) != 0 {
+		t.Fatalf("failed claim events = %+v, want none", events)
+	}
+}
+
 func TestClaimPlanetRejectsCrossMapKnownPlanet(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "claim-cross-map@example.com", "Claim Cross")
