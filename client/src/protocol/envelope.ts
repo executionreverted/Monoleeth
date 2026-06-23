@@ -24,6 +24,7 @@ export const OPERATIONS = {
   craftingRecipes: 'crafting.recipes',
   craftingStart: 'crafting.start',
   craftingComplete: 'crafting.complete',
+  craftingCancel: 'crafting.cancel',
   scanPulse: 'scan.pulse',
   knownPlanets: 'discovery.known_planets',
   planetDetail: 'discovery.planet_detail',

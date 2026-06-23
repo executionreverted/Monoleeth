@@ -25,6 +25,7 @@ export interface HUDHandlers {
   onPlanetBuildingUpgrade(input: { planetID: string; buildingID: string; targetLevel: number }): void;
   onCraftingStart(recipeID: string): void;
   onCraftingComplete(jobID: string): void;
+  onCraftingCancel(jobID: string): void;
   onRouteCreate(input: { sourcePlanetID: string; destinationPlanetID: string; resourceItemID: string; amountPerHour: number }): void;
   onRouteUpdate(input: { routeID: string; destinationPlanetID: string; resourceItemID: string; amountPerHour: number }): void;
   onRouteEnable(routeID: string): void;

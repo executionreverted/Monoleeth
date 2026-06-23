@@ -167,6 +167,10 @@ type craftingCompletePayload struct {
 	JobID string `json:"job_id"`
 }
 
+type craftingCancelPayload struct {
+	JobID string `json:"job_id"`
+}
+
 func (runtime *Runtime) handleProgressionSnapshot(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
 	if err := rejectTrustedPayload(request.Payload); err != nil {
 		return nil, err
@@ -393,6 +397,31 @@ func (runtime *Runtime) handleCraftingComplete(ctx realtime.CommandContext, requ
 		return nil, domainErrorForCrafting(err)
 	}
 	return runtime.craftingMutationResponseLocked(authSessionID(ctx.SessionID), ctx.PlayerID, result.ShipUnlock != nil)
+}
+
+func (runtime *Runtime) handleCraftingCancel(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	var payload craftingCancelPayload
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	if _, ok := runtime.players[ctx.PlayerID]; !ok {
+		return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
+	}
+	_, err := runtime.Crafting.CancelCraft(crafting.CancelCraftInput{
+		PlayerID: ctx.PlayerID,
+		JobID:    crafting.CraftJobID(payload.JobID),
+	})
+	if err != nil {
+		return nil, domainErrorForCrafting(err)
+	}
+	return runtime.craftingMutationResponseLocked(authSessionID(ctx.SessionID), ctx.PlayerID, false)
 }
 
 func (runtime *Runtime) inventorySnapshotLocked(playerID foundation.PlayerID) inventorySnapshotPayload {
@@ -1067,6 +1096,7 @@ func domainErrorForCrafting(err error) error {
 	case errors.Is(err, crafting.ErrCraftNotReady):
 		return foundation.NewDomainError(foundation.CodeCooldown, "Craft job is not ready.", foundation.WithCause(err))
 	case errors.Is(err, crafting.ErrCraftJobPlayerMismatch),
+		errors.Is(err, crafting.ErrCraftJobCancelled),
 		errors.Is(err, crafting.ErrCraftOutputAlreadyOwned),
 		errors.Is(err, crafting.ErrLocationRequirementNotMet),
 		errors.Is(err, crafting.ErrMissingLocationAuthorizer),

@@ -25,8 +25,13 @@ Current slice completed:
 - Phase06C exposes browser crafting start/complete controls from the real
   crafting snapshot. The Crafting tab renders server recipes and active jobs,
   disables matching pending commands, derives timers from server timestamps, and
-  sends only `recipe_id` or `job_id` intents. `crafting.cancel`, queue/location
-  UX balancing, and durable crash recovery after partial complete remain open.
+  sends only `recipe_id` or `job_id` intents. Phase06F adds authenticated
+  `crafting.cancel` server and browser controls: cancel accepts only `job_id`,
+  releases reserved materials, refunds the craft fee through ledger-backed
+  wallet credit, removes the active job, emits the internal
+  `craft.job_cancelled` event once, and reconciles crafting/inventory/wallet/
+  progression snapshots. Queue/location UX balancing and durable crash recovery
+  after partial complete or cancel remain open.
 - Remaining mutation commands must still use ledger/service-backed flows before
   any UI action is enabled.
 - Phase 10 records the remaining browser/server contracts for skill unlock,
@@ -153,7 +158,7 @@ Mockup areas covered:
 - [x] Add stat snapshot query handler.
 - [x] Add crafting recipe query handler.
 - [x] Add crafting start/complete handlers.
-- [ ] Add crafting cancel handler, refund/release behavior, and
+- [x] Add crafting cancel handler, refund/release behavior, and
       `crafting.job_cancelled` event.
 - [x] Map request ids to crafting domain idempotency references for station
       `crafting.start`.
@@ -177,7 +182,7 @@ Mockup areas covered:
 - [x] Client cannot fake stat totals through exposed snapshot operations.
 - [x] Craft start checks recipe, wallet, materials, location, rank, and idempotency.
 - [x] Craft completion is server-time/idempotency controlled.
-- [ ] Craft cancel releases only eligible reserved materials/wallet amounts once.
+- [x] Craft cancel releases only eligible reserved materials/wallet amounts once.
 - [x] Wallet/credits display is snapshot-driven, not locally calculated.
 
 ## Tests
@@ -193,7 +198,7 @@ Mockup areas covered:
 - [ ] Loadout equip updates stat snapshot.
 - [x] Craft start reserves materials and debits wallet once.
 - [x] Craft complete grants output once.
-- [ ] Craft cancel releases reservation/refund once and emits cancellation event.
+- [x] Craft cancel releases reservation/refund once and emits cancellation event.
 - [x] Server snapshot queries use authenticated session state and reject
       client-authored progression truth.
 - [x] Client reducer reconciles inventory, hangar, loadout, crafting, stats,
@@ -201,8 +206,8 @@ Mockup areas covered:
 - [x] Browser inventory panel uses server snapshot.
 - [x] Browser topbar credits uses server wallet snapshot.
 - [x] Browser equip action updates loadout/stats from server event.
-- [x] Browser crafting start/complete controls send only server-owned ids and
-      lock on matching pending commands.
+- [x] Browser crafting start/complete/cancel controls send only server-owned
+      ids and lock on matching pending commands.
 - [x] Browser crafting timer survives reconnect snapshot.
 
 ## Done Criteria

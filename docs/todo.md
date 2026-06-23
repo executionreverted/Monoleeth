@@ -254,12 +254,15 @@ for phase status; this file is a compact pending-work index.
   or reference truth. Phase06C adds browser action controls/timers from the
   real crafting snapshot and locks matching pending start/complete intents.
   Phase06D covers reconnect snapshots advancing the browser crafting timer from
-  server time so ready jobs unlock without fake local truth.
-  Remaining work is queue limit balancing, station/planet/building location UX,
-  durable completion
-  recovery after partial reservation/output/XP mutation, and `crafting.cancel`
-  with `craft_cancel:<job_id>` refund/release semantics. Source: Phase 10
-  audit.
+  server time so ready jobs unlock without fake local truth. Phase06F adds
+  authenticated `crafting.cancel` with `craft_cancel:<job_id>` refund/release
+  semantics and browser Cancel controls that send only `job_id`; reserved
+  materials return to account inventory, craft fees are ledger-refunded once,
+  active jobs disappear from the server snapshot, and duplicate cancel retries
+  do not double-refund. Remaining work is queue limit balancing,
+  station/planet/building location UX, durable completion recovery after
+  partial reservation/output/XP mutation, and durable cancel recovery after
+  partial reservation release or wallet refund. Source: Phase 10 audit.
 - [ ] Finish authenticated planet ownership/building mutation contracts.
   Phase07A landed the backend `discovery.claim_planet` handler with
   authenticated player resolution, active-map range checks, rank validation,

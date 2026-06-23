@@ -397,6 +397,17 @@ export abstract class ClientAppCommands extends ClientAppCore {
     );
   }
 
+  protected sendCraftingCancel(jobID: string): void {
+    if (!jobID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `crafting-cancel:${jobID}`,
+      () => this.commandBuilder.craftingCancel(jobID),
+      'Craft cancel already pending.',
+    );
+  }
+
   protected sendRouteCreate(input: {
     sourcePlanetID: string;
     destinationPlanetID: string;

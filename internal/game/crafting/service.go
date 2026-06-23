@@ -17,10 +17,12 @@ import (
 
 const (
 	EventCraftJobCompleted = "craft.job_completed"
+	EventCraftJobCancelled = "craft.job_cancelled"
 
 	craftStartReason    economy.LedgerReason = "craft_start"
 	craftFeeReason      economy.LedgerReason = "craft_fee"
 	craftCompleteReason economy.LedgerReason = "craft_complete"
+	craftCancelReason   economy.LedgerReason = "craft_cancel"
 
 	craftXPMainAmount int64 = 40
 	craftXPRoleAmount int64 = 100
@@ -58,6 +60,7 @@ type InventoryService interface {
 
 // WalletService is the economy wallet boundary used by crafting fees.
 type WalletService interface {
+	CreditWallet(input economy.CreditWalletInput) (economy.CreditWalletResult, error)
 	DebitWallet(input economy.DebitWalletInput) (economy.DebitWalletResult, error)
 }
 
@@ -131,11 +134,19 @@ type CraftingService struct {
 	startInFlight     map[craftStartReferenceKey]*startCraftInFlight
 	completions       map[CraftJobID]CompleteCraftResult
 	completing        map[CraftJobID]*completionInFlight
+	cancellations     map[CraftJobID]CancelCraftResult
+	canceling         map[CraftJobID]*cancelInFlight
 }
 
 type completionInFlight struct {
 	done   chan struct{}
 	result CompleteCraftResult
+	err    error
+}
+
+type cancelInFlight struct {
+	done   chan struct{}
+	result CancelCraftResult
 	err    error
 }
 
@@ -189,6 +200,22 @@ type CompleteCraftResult struct {
 	Duplicate         bool                            `json:"duplicate"`
 }
 
+// CancelCraftInput describes one server-authoritative craft cancellation.
+type CancelCraftInput struct {
+	PlayerID foundation.PlayerID `json:"player_id"`
+	JobID    CraftJobID          `json:"job_id"`
+}
+
+// CancelCraftResult reports the refunded reservation and fee mutation.
+type CancelCraftResult struct {
+	Job                CraftJob                         `json:"job"`
+	Recipe             RecipeDefinition                 `json:"recipe"`
+	ReservationRelease economy.ReleaseReservationResult `json:"reservation_release"`
+	WalletRefund       *economy.CreditWalletResult      `json:"wallet_refund,omitempty"`
+	ReferenceKey       foundation.IdempotencyKey        `json:"reference_id"`
+	Duplicate          bool                             `json:"duplicate"`
+}
+
 // NewCraftingService returns an in-memory crafting orchestrator.
 func NewCraftingService(config CraftingServiceConfig) (*CraftingService, error) {
 	if len(config.Recipes.Definitions()) == 0 {
@@ -234,6 +261,8 @@ func NewCraftingService(config CraftingServiceConfig) (*CraftingService, error) 
 		startInFlight:   make(map[craftStartReferenceKey]*startCraftInFlight),
 		completions:     make(map[CraftJobID]CompleteCraftResult),
 		completing:      make(map[CraftJobID]*completionInFlight),
+		cancellations:   make(map[CraftJobID]CancelCraftResult),
+		canceling:       make(map[CraftJobID]*cancelInFlight),
 	}, nil
 }
 
@@ -378,6 +407,10 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 	if job.PlayerID != input.PlayerID {
 		service.mu.Unlock()
 		return CompleteCraftResult{}, fmt.Errorf("craft job %q player %q want %q: %w", input.JobID, input.PlayerID, job.PlayerID, ErrCraftJobPlayerMismatch)
+	}
+	if job.State == CraftJobStateCancelled {
+		service.mu.Unlock()
+		return CompleteCraftResult{}, fmt.Errorf("craft job %q: %w", input.JobID, ErrCraftJobCancelled)
 	}
 	if job.State != CraftJobStateRunning {
 		service.mu.Unlock()
@@ -581,6 +614,13 @@ func (input StartCraftInput) validate() error {
 }
 
 func (input CompleteCraftInput) validate() error {
+	if err := input.PlayerID.Validate(); err != nil {
+		return err
+	}
+	return input.JobID.Validate()
+}
+
+func (input CancelCraftInput) validate() error {
 	if err := input.PlayerID.Validate(); err != nil {
 		return err
 	}
@@ -926,6 +966,17 @@ func cloneCompleteCraftResult(result CompleteCraftResult) CompleteCraftResult {
 	result.XPGrant.Snapshot = result.XPGrant.Snapshot.Clone()
 	result.XPGrant.RoleLevelUps = append([]progression.RoleLevelChange(nil), result.XPGrant.RoleLevelUps...)
 	result.XPGrant.StatInvalidationSignals = append([]progression.StatInvalidationSignal(nil), result.XPGrant.StatInvalidationSignals...)
+	return result
+}
+
+func cloneCancelCraftResult(result CancelCraftResult) CancelCraftResult {
+	result.Job = cloneCraftJob(result.Job)
+	result.Recipe = cloneRecipeDefinition(result.Recipe)
+	result.ReservationRelease.Moves = append([]economy.MoveItemResult(nil), result.ReservationRelease.Moves...)
+	if result.WalletRefund != nil {
+		walletRefund := *result.WalletRefund
+		result.WalletRefund = &walletRefund
+	}
 	return result
 }
 

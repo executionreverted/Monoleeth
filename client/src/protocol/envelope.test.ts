@@ -4,7 +4,6 @@ import { assertClientSafePayload, CommandBuilder } from './commands';
 import { CLIENT_EVENTS, OPERATIONS, parseServerMessage, rejectForbiddenPayloadKeys } from './envelope';
 
 const UNIMPLEMENTED_MUTATION_OPS = [
-  'crafting.cancel',
   'inventory.move',
   'progression.unlock_skill',
   'progression.respec_skills',
@@ -607,6 +606,7 @@ describe('default outbound operations', () => {
   test('crafting mutation commands send only client intent fields', () => {
     expect(OPERATIONS.craftingStart).toBe('crafting.start');
     expect(OPERATIONS.craftingComplete).toBe('crafting.complete');
+    expect(OPERATIONS.craftingCancel).toBe('crafting.cancel');
 
     const builder = new CommandBuilder();
     const start = builder.craftingStart('refined_alloy_batch');
@@ -619,7 +619,12 @@ describe('default outbound operations', () => {
     expect(complete.payload).toEqual({ job_id: 'craft-job-1' });
     expect(Object.keys(complete.payload)).toEqual(['job_id']);
 
-    for (const payload of [start.payload, complete.payload]) {
+    const cancel = builder.craftingCancel('craft-job-1');
+    expect(cancel.op).toBe(OPERATIONS.craftingCancel);
+    expect(cancel.payload).toEqual({ job_id: 'craft-job-1' });
+    expect(Object.keys(cancel.payload)).toEqual(['job_id']);
+
+    for (const payload of [start.payload, complete.payload, cancel.payload]) {
       for (const forbidden of [
         'owner',
         'owner_player_id',
@@ -699,7 +704,6 @@ describe('default outbound operations', () => {
   test('do not expose command-builder helpers for unimplemented browser mutations', () => {
     const builderMethods = new Set(Object.getOwnPropertyNames(CommandBuilder.prototype));
     const forbiddenMethodNames = [
-      'craftingCancel',
       'inventoryMove',
       'progressionUnlockSkill',
       'progressionRespecSkills',

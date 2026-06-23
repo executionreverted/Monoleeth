@@ -269,11 +269,13 @@ function craftingJobRow(
   state: ClientState,
   serverNow: number | null,
 ): string {
-  const pending = hasPendingOpPayloadField(state, OPERATIONS.craftingComplete, 'job_id', job.job_id);
+  const pendingComplete = hasPendingOpPayloadField(state, OPERATIONS.craftingComplete, 'job_id', job.job_id);
+  const pendingCancel = hasPendingOpPayloadField(state, OPERATIONS.craftingCancel, 'job_id', job.job_id);
   const status = craftingJobStatus(job, serverNow);
   const completed = job.state === 'completed' || job.state === 'complete';
-  const disabled = pending || !realtimeReady(state) || !status.ready || completed;
-  const label = pending ? 'Pending' : status.ready && !completed ? 'Complete' : status.label;
+  const completeDisabled = pendingComplete || pendingCancel || !realtimeReady(state) || !status.ready || completed;
+  const cancelDisabled = pendingComplete || pendingCancel || !realtimeReady(state) || completed;
+  const label = pendingComplete ? 'Pending' : status.ready && !completed ? 'Complete' : status.label;
   return `
     <li data-crafting-job-id="${escapeHTML(job.job_id)}">
       <span title="${escapeHTML(`Job ${job.job_id}`)}">${escapeHTML(recipe ? craftingOutputLabel(recipe) : job.recipe_id)}</span>
@@ -282,8 +284,14 @@ function craftingJobRow(
         type="button"
         data-action="crafting-complete"
         data-job-id="${escapeHTML(job.job_id)}"
-        ${disabled ? 'disabled' : ''}
+        ${completeDisabled ? 'disabled' : ''}
         title="${escapeHTML(status.title)}">${escapeHTML(label)}</button>
+      <button
+        type="button"
+        data-action="crafting-cancel"
+        data-job-id="${escapeHTML(job.job_id)}"
+        ${cancelDisabled ? 'disabled' : ''}
+        title="${escapeHTML(pendingCancel ? 'Craft cancel pending.' : 'Cancel and refund this craft job.')}">${pendingCancel ? 'Pending' : 'Cancel'}</button>
     </li>
   `;
 }

@@ -111,6 +111,10 @@ export class CommandBuilder {
     return this.build(OPERATIONS.craftingComplete, { job_id: jobID });
   }
 
+  craftingCancel(jobID: string): RequestEnvelope<{ job_id: string }> {
+    return this.build(OPERATIONS.craftingCancel, { job_id: jobID });
+  }
+
   scanPulse(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.scanPulse, {});
   }

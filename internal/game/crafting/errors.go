@@ -38,6 +38,7 @@ var (
 	ErrCraftJobNotFound            = errors.New("craft job not found")
 	ErrCraftJobPlayerMismatch      = errors.New("craft job player mismatch")
 	ErrCraftNotReady               = errors.New("craft job not ready")
+	ErrCraftJobCancelled           = errors.New("craft job cancelled")
 	ErrRecipeVersionMismatch       = errors.New("craft job recipe version mismatch")
 	ErrUnsupportedRecipeOutput     = errors.New("unsupported recipe output")
 	ErrCraftOutputAlreadyOwned     = errors.New("craft output already owned")

@@ -40,6 +40,7 @@ const (
 	OperationCraftingRecipes       Operation = "crafting.recipes"
 	OperationCraftingStart         Operation = "crafting.start"
 	OperationCraftingComplete      Operation = "crafting.complete"
+	OperationCraftingCancel        Operation = "crafting.cancel"
 	OperationScanPulse             Operation = "scan.pulse"
 	OperationKnownPlanets          Operation = "discovery.known_planets"
 	OperationPlanetDetail          Operation = "discovery.planet_detail"
@@ -267,6 +268,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationCraftingComplete: {
 		Operation:        OperationCraftingComplete,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationCraftingCancel: {
+		Operation:        OperationCraftingCancel,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationScanPulse: {

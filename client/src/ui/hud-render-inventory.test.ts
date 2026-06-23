@@ -22,6 +22,7 @@ describe('cargoPanel crafting tab', () => {
     expect(html).toContain('data-action="crafting-start"');
     expect(html).toContain('data-recipe-id="refined_alloy_batch"');
     expect(html).toContain('data-action="crafting-complete"');
+    expect(html).toContain('data-action="crafting-cancel"');
     expect(html).toContain('data-job-id="craft-job-1"');
     expect(html).not.toContain('data-required-credits');
     expect(html).not.toContain('data-inputs');
@@ -44,6 +45,12 @@ describe('cargoPanel crafting tab', () => {
         payload: { job_id: 'craft-job-1' },
         queuedAt: 1,
       },
+      'craft-cancel-1': {
+        requestID: 'craft-cancel-1',
+        op: OPERATIONS.craftingCancel,
+        payload: { job_id: 'craft-job-1' },
+        queuedAt: 1,
+      },
     };
     state.crafting!.active_jobs[0] = {
       ...state.crafting!.active_jobs[0],
@@ -57,6 +64,8 @@ describe('cargoPanel crafting tab', () => {
     expect(buttonHTML(html, 'crafting-start')).toContain('Pending');
     expect(buttonHTML(html, 'crafting-complete')).toContain('disabled');
     expect(buttonHTML(html, 'crafting-complete')).toContain('Pending');
+    expect(buttonHTML(html, 'crafting-cancel')).toContain('disabled');
+    expect(buttonHTML(html, 'crafting-cancel')).toContain('Pending');
   });
 
   test('renders loading copy instead of fake crafting data when server crafting summary is absent', () => {
@@ -69,6 +78,7 @@ describe('cargoPanel crafting tab', () => {
     expect(html).toContain('Awaiting crafting recipes from server.');
     expect(html).not.toContain('data-action="crafting-start"');
     expect(html).not.toContain('data-action="crafting-complete"');
+    expect(html).not.toContain('data-action="crafting-cancel"');
   });
 
   test('uses reconnect snapshot server time to unlock completed crafting jobs', () => {

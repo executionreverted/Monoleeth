@@ -627,6 +627,11 @@ export class HUD {
             this.handlers.onCraftingComplete(button.dataset.jobId);
           }
           break;
+        case 'crafting-cancel':
+          if (button.dataset.jobId) {
+            this.handlers.onCraftingCancel(button.dataset.jobId);
+          }
+          break;
         case 'module-select':
           if (button.dataset.moduleInstanceId) {
             hudSelection.selectedModuleInstanceID = button.dataset.moduleInstanceId;
