@@ -390,6 +390,9 @@ Current slice completed:
   shareable sender intel states (`fresh` and `verified`); stale,
   invalidated, missing, or colonized-by-other sender memory returns a safe
   not-found style error before receiver intel writes or receiver event fanout.
+  Duplicate share request ids replay the original safe gateway response when the
+  retry payload changes receiver or planet, without writing receiver intel or
+  known-planets events for the changed payload.
 - Phase07AJ hidden planet detail regression follow-up: `discovery.planet_detail`
   now has server test evidence that materialized planets without player intel
   return a safe not-found response without creating intel rows or queued events.
@@ -905,6 +908,8 @@ Mockup areas covered:
       publisher-worker behavior.
 - [x] Add intel share and coordinate item handlers with visibility-safe
       recipient filtering.
+- [x] Duplicate `intel.share` retries replay the original safe response without
+      mutating a changed receiver/planet payload.
 - [x] Add browser coordinate item create/use controls with pending states and
       server-owned id-only intents.
 - [x] Add browser intel share control with pending state and recipient-only

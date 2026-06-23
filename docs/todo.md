@@ -212,7 +212,10 @@ for phase status; this file is a compact pending-work index.
   the player's active map before coordinate item mint or receiver intel writes.
   Phase07CZ makes `intel.share` reject unknown runtime receiver players before
   source sync or receiver intel writes, preventing ghost-player intel rows and
-  late internal errors.
+  late internal errors. Duplicate `intel.share` request IDs now replay the
+  original safe gateway response when the retry payload changes receiver or
+  planet, without writing receiver intel or known-planets events for the changed
+  payload.
   The authenticated use path rejects scrolls whose stored world/zone does not
   match the player's active map before inventory consume or intel mutation, so
   wrong-map retries keep the scroll and do not leak hidden detail events. The
@@ -227,7 +230,8 @@ for phase status; this file is a compact pending-work index.
   that derive sender/source intel/item payloads server-side and reject
   client-authored coordinates, ownership, source, confidence, timestamp, and
   inventory truth. Phase07CZ also validates `intel.share` receiver player
-  existence before mutation.
+  existence before mutation, and duplicate share retries do not mutate a changed
+  receiver or planet payload.
 - [x] Add authenticated browser loadout mutation contracts for
   `loadout.equip_module` and `loadout.unequip_module`. Server handlers must
   resolve player, active ship, slot, owned module instance, rank, compatibility,
