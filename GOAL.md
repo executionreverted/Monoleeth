@@ -18,7 +18,7 @@ Bu projede `AGENTS.md` talimatlarına uyarak, `docs/plans/ui-implementation/` al
 - Mail/password auth gerçek olsun: password hash, session lifecycle, logout, session expiry, admin seed ve WebSocket session resolution server-owned olmalı.
 - Browser client default olarak fake/demo state göstermemeli. Demo veya fixture akışı sadece açıkça işaretlenmiş test/dev modunda olabilir.
 - Her UI değeri gerçek server snapshot/event/query’den gelmeli; server verisi yoksa panel boş, loading, locked veya disabled state göstermeli.
-- Client sadece intent gönderir. Player id, damage, XP, loot, wallet amount, craft completion, market totals, planet ownership, visibility/fog truth client payload’ından alınmaz.
+- Client sadece intent gönderir. Player id, damage, XP, loot, wallet amount, craft completion, market totals, planet ownership, current-map visibility, radar/stealth detection, or hidden-world truth client payload’ından alınmaz.
 - Kullanılan library/framework/SDK/API/CLI/cloud dokümantasyonu gerekiyorsa Context7 MCP ile güncel doküman oku.
 - Context compact olursa veya bağlam daralırsa işe devam etmeden önce tekrar `AGENTS.md`, UI implementation planları, `docs/todo.md`, `git status`, diff ve ilgili backend module docs oku.
 
@@ -53,7 +53,7 @@ Done criteria:
   - inventory/cargo/wallet/ledger
   - crafting
   - quest board/progress/rewards
-  - discovery/scanner/fog/intel/coordinate items
+  - discovery/scanner/radar-stealth visibility/intel/coordinate items
   - planet claim/production/buildings
   - automation routes
   - market/auction/premium

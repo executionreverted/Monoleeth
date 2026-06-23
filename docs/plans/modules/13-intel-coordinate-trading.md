@@ -28,7 +28,7 @@ ShareService
 - Scan roll
 - Planet claim
 - Market sale flow
-- Fog rendering
+- Live radar rendering
 
 ## Player Intel
 
@@ -117,7 +117,7 @@ Usage:
 ```text
 consume item or mark used
 write player_planet_intel
-show in fog/map memory
+  show in known-intel/map memory
 ```
 
 MVP can make scroll consumed on use.
@@ -262,11 +262,12 @@ Defense:
 - buyer UI shows last_verified_at/confidence
 - optional auto-unlist
 
-### Fog Reveal Abuse
+### Known-Intel Reveal Abuse
 
 Risk:
 
-- Player buys many cheap scrolls to reveal huge map instantly.
+- Player buys many cheap scrolls to reveal too many remote map memories
+  instantly.
 
 Defense:
 
@@ -278,7 +279,7 @@ Defense:
 
 - Share requires source intel.
 - Share quota enforced.
-- Receiver gets fog memory.
+- Receiver gets known-intel memory.
 - Intel item creation uses server data.
 - Intel item use writes player intel.
 - Planet claimed marks listed intel stale.

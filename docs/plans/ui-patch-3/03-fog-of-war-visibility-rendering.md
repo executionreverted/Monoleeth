@@ -1,17 +1,24 @@
-# Fog Of War And Remembered Map Rendering Implementation Plan
+# Radar, Stealth, And Known-Intel Map Rendering Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Unexplored space reads as dark/fogged, current radar area reads clear,
-and remembered discoveries render as safe fog memory without leaking hidden
-gameplay data.
+## 2026-06-23 Supersession Note
+
+This phase title is legacy. The current DarkOrbit-style map direction does not
+use a client-side fog-of-war wave or dark unexplored-space overlay. The desired
+behavior is bounded-map visibility: the server sends only current-map entities
+that pass AOI/radar/stealth checks, and the client renders live radar contacts
+plus server-owned known-intel memory.
+
+**Goal:** Nearby live entities and remembered discoveries render from
+server-safe radar and known-intel payloads without leaking hidden gameplay data.
 
 **Architecture:** Server decides what is visible and remembered. Client renders
-darkness, haze, and revealed zones only from server-safe AOI/minimap/fog memory
+contacts and remembered markers only from server-safe AOI/minimap/known-intel
 payloads.
 
 **Tech Stack:** Go visibility/AOI/minimap payloads, TypeScript state/reducer,
-Pixi renderer fog overlay, browser smoke screenshots.
+Pixi renderer radar/map markers, browser smoke screenshots.
 
 ---
 
@@ -33,21 +40,22 @@ output/mockups/final-mockup.png
 - `FogMemory` exists in `internal/game/world/visibility/fog.go`.
 - `minimapPayload` includes `Remembered []minimapMemoryPayload`.
 - `minimapFromAOI` always returns an empty `Remembered` slice.
-- Renderer shows starfield/grid/entities but no unexplored darkness.
+- Renderer shows starfield/grid/entities without unexplored darkness.
 - Known planet markers can render via `worldMapMemoryMarkers`, but this is not
-  the same as a fog layer.
+  the same as live radar visibility.
 
 ## Target UX
 
-- The world is dark and slightly hazy outside the player's safe visibility
-  region.
-- Radar range around the player has a clear circular/soft-edged reveal.
-- Previously discovered planets/points can create faint remembered reveal
-  pockets if the server sends safe memory.
+- The world shows nearby live contacts only when the server says they pass
+  current-map AOI/radar/stealth checks.
+- Radar range is a functional contact/interaction boundary, not a fog reveal
+  animation.
+- Previously discovered planets/points can render as remembered markers if the
+  server sends safe known-intel memory.
 - Hidden live entities are never sent and never inferable from fog shape.
 - Minimap shows live contacts and remembered markers separately.
-- Fog visually matches the mockup tone: space remains readable but exploration
-  has real darkness.
+- No visual fog overlay is required for the playtest; map readability and
+  hidden-data filtering matter more than darkness.
 
 ## Server Payload Tasks
 
@@ -62,39 +70,40 @@ output/mockups/final-mockup.png
    - Do not include current resources, hidden candidates, owner internals,
      procedural seeds, or future spawn data.
 
-2. Consider a dedicated `fog` or `remembered_map` field only if minimap
-   remembered data is too small for renderer needs.
+2. Consider a dedicated `remembered_map` field only if minimap remembered data
+   is too small for renderer needs.
    - Keep the payload coarse.
    - Avoid exact hidden entity shape.
 
 3. Add Go tests.
    - Known planet appears in remembered payload after discovery/detail.
    - Hidden live signal does not appear.
-   - Remembered payload does not grant interaction permission.
+   - Remembered payload does not grant live interaction permission.
    - Different players receive different remembered payloads.
 
 ## Client Rendering Tasks
 
 1. Extend client state types and reducer if needed.
    - Preserve `minimap.remembered`.
-   - Add a renderer-facing fog memory model derived from server payload.
+   - Add renderer-facing remembered marker state derived from server payload.
 
-2. Add fog overlay to `client/src/render/world-renderer.ts`.
-   - Use a dark full-screen layer.
-   - Cut/clear a soft circle around current player position using radar range.
-   - Add faint remembered pockets for server-provided memory markers.
-   - Keep entities and HUD readable.
+2. Render radar contacts and remembered markers in
+   `client/src/render/world-renderer.ts`.
+   - Keep live contacts visually distinct from remembered intel.
+   - Do not clamp far remembered planets into fake nearby radar contacts.
+   - Keep entities and HUD readable without a dark fog layer.
    - Recalculate while moving using the same server-time interpolation as the
      player position.
 
 3. Add debug/smoke hooks.
-   - Renderer `debugSnapshot` should expose fog active state, reveal center,
-     reveal radius, and remembered pocket count.
-   - Browser smoke should assert fog is non-empty and reveal follows movement.
+   - Renderer `debugSnapshot` should expose live contact count, remembered
+     marker count, and whether visual fog is inactive.
+   - Browser smoke should assert contacts/remembered markers come only from
+     server payloads and visual fog stays inactive.
 
 4. Add screenshot checks.
-   - Desktop, tablet, mobile screenshots must show visible dark/fogged
-     unexplored areas.
+   - Desktop, tablet, mobile screenshots must show the radar/map surface without
+     a fog-of-war wave.
 
 ## Files Likely Touched
 
@@ -114,14 +123,14 @@ client/src/styles.css
 
 ## Acceptance Checklist
 
-- [x] World view has visible fog/darkness outside current safe reveal.
-- [x] Fog reveal follows the interpolated server-owned player position.
-- [x] Known planets can appear as remembered fog memory when server-safe.
-- [x] Hidden planets/signals/entities are not serialized to produce fog.
-- [x] Minimap separates live contacts from remembered fog/intel.
-- [x] Browser smoke has a canvas-pixel or renderer-debug assertion for fog.
-- [x] Screenshots under `output/screenshots/ui-patch-3/` show fog on desktop,
-      tablet, and mobile.
+- [x] World view uses radar/known-intel payloads for gameplay truth.
+- [x] Radar/contact rendering follows server-owned player position and payloads.
+- [x] Known planets can appear as remembered intel when server-safe.
+- [x] Hidden planets/signals/entities are not serialized to power map visuals.
+- [x] Minimap separates live contacts from remembered known-intel markers.
+- [x] Browser smoke has a renderer-debug assertion that visual fog is inactive.
+- [x] Screenshots under `output/screenshots/ui-patch-3/` show the map/radar on
+      desktop, tablet, and mobile without a fog-of-war wave.
 
 ## Verification
 

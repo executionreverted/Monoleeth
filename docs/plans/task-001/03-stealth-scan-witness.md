@@ -264,10 +264,10 @@ client/src/ui/hud.ts
   absent before scan, scan response is `player_revealed` without
   `known_planets`/`progression`, AOI enters with `scan_revealed`, unrelated
   viewers still cannot see the target, and expiry removes visibility.
-- Scanner hidden-player reveal now also respects the current live projection
-  window. A hidden target inside scanner radius but outside the
-  `2000x2000` projection does not create a witness, does not return
-  `player_revealed`, and does not enter AOI.
+- Scanner hidden-player reveal respects server-owned live visibility
+  projection. Legacy Phase 02 tests used a `2000x2000` window; current bounded
+  map work should preserve the same no-leak rule across active `0..10000` map
+  membership plus AOI/radar/stealth filtering.
 - Client protocol/reducer tests reject hidden-player witness leak fields and
   sanitize public `status_flags` so `scan_revealed` can enter UI state while
   unsafe values such as `hidden` are dropped.

@@ -27,7 +27,8 @@ DropOwnershipService
 
 Drop:
 
-- Herkes tarafından görülebilir, eğer AOI/fog içinde ise.
+- Herkes tarafından görülebilir, eğer current-map AOI ve radar/visibility
+  kuralları izin verirse.
 - İlk X saniye owner-locked olur.
 - Sonra public olur.
 - Süresi dolunca silinir.
@@ -221,7 +222,7 @@ Player death loot may not grant XP to avoid abuse.
 
 ## Drop Visibility
 
-AOI/Fog rule:
+Current-map visibility rule:
 
 ```text
 Drop exists in world.

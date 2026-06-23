@@ -58,9 +58,9 @@ client/src/ui/hud.ts
 ## Subagent Review Additions - 2026-06-20
 
 - Make the projection implementation task exact: `Runtime.aoiSnapshotForPlayerLocked`
-  must not rely on the old radar-only feel or full-snapshot filtering. Expose a
-  worker-owned bounded spatial projection and document whether the playtest
-  policy is radius or square window.
+  must not rely on the old radar-only feel or client-selected full-snapshot
+  filtering. Current bounded-map follow-up should document server-owned active
+  `0..10000` map membership plus AOI/radar/stealth filtering.
 - Add minimap reconciliation from `aoi.entity_entered`,
   `aoi.entity_updated`, and `aoi.entity_left`. The HUD renders from minimap
   state, so visible entity changes must also update live contacts or trigger a
@@ -74,26 +74,27 @@ client/src/ui/hud.ts
 
 ## Second Subagent Review Additions - 2026-06-20
 
-- Define projection input sources, not just projection size. The widened view
-  must specify how worker-owned entities, DB overlay entities, procedural/cache
-  materialization, known planet intel, NPCs, loot, and player entities enter the
-  bounded projection before visibility filtering.
-- Add tests that prove the widened projection is not only showing current
-  in-memory seed fixtures. A live/procedural/DB-backed entity inside the policy
-  window must appear when visible, while a hidden entity from the same source
-  remains filtered.
+- Define active-map input sources, not a legacy projection size. The current
+  bounded-map model must specify how worker-owned entities, DB overlay entities,
+  procedural/cache materialization, known planet intel, NPCs, loot, and player
+  entities enter the `0..10000` map candidate set before AOI/radar/stealth
+  visibility filtering.
+- Add tests that prove current-map rendering is not only showing in-memory seed
+  fixtures. A live/procedural/DB-backed entity on the active map must appear
+  only when visible or remembered by server-owned intel, while a hidden entity
+  from the same source remains filtered.
 - Document refresh behavior when movement crosses materialization boundaries:
   old live contacts leave, newly materialized contacts enter, and minimap state
   reconciles through AOI diffs or a safe snapshot refresh.
 
 ## Third Subagent Review Additions - 2026-06-20
 
-- Current implementation evidence proves a larger worker snapshot, but not the
-  full projection source contract. Runtime still queries only
-  `Worker.EntitiesWithinWindow`, so Task 001 must document or implement how DB
-  overlays, procedural/live materialization, known intel, seeded NPCs, loot,
-  and player entities enter the `2000x2000` projection before visibility
-  filtering.
+- Current implementation evidence originally proved a larger worker snapshot,
+  but not the full projection source contract. Runtime still queries only
+  `Worker.EntitiesWithinWindow`, so future bounded-map work must document or
+  implement how DB overlays, procedural/live materialization, known intel,
+  seeded NPCs, loot, and player entities enter the active `0..10000` map before
+  AOI/radar/stealth visibility filtering.
 - Add a server test proving a non-fixture materialized or DB-backed visible
   entity enters the projection while a hidden entity from the same source stays
   filtered.
@@ -114,13 +115,15 @@ client/src/ui/hud.ts
 - Define stale/wrong-zone/invalidated remembered intel behavior before render:
   current world/zone filtering, stale styling, click behavior, and whether
   colonized/claimed memories remain visible.
-- Document square projection versus circular radar semantics. The server
-  `2000x2000` square gives corner contacts beyond a 1000-unit circular radius;
-  payload naming, radar scale, and contact rendering must make that policy
+- Document active-map projection versus circular radar/contact semantics.
+  Legacy Phase 02 used a `2000x2000` square proof; current bounded maps use
+  active `0..10000` map membership plus AOI/radar/stealth filtering. Payload
+  naming, radar scale, and contact rendering must make that policy
   deterministic.
 - Add browser/server tests for scan discovery without manual Sync, far memory,
-  invalidated or wrong-zone memory, and corner contacts inside the square
-  projection but outside a strict radar circle.
+  invalidated or wrong-map memory, and active-map contacts that are renderable
+  as map memory while still requiring radar/visibility checks for live
+  interaction.
 
 ## Fifth Subagent Review Additions - 2026-06-20
 
@@ -138,23 +141,27 @@ client/src/ui/hud.ts
 
 ## Implementation Plan
 
-1. Define the Task 001 live visibility window.
-   - Decide whether `2000x2000` means a square window centered on the player or
-     a 2000-unit radius.
+1. Define the Task 001 live visibility projection.
+   - Treat the old `2000x2000` window as historical Phase 02 proof, not the
+     target map size.
+   - Use bounded active-map membership for the `0..10000` local map, then apply
+     server-owned AOI/radar/stealth filtering.
    - Document the policy in code comments/tests.
-   - Keep it server-owned and capped; do not let the client decide the real
-     range.
-   - Prefer a separate server-owned `live_projection_range` or
-     `projection_window_size` over changing `stats.radar_range`.
-   - If radar stats are intentionally buffed instead, document the combat/loot
-     range impact and add regression tests proving interactions still re-check
-     their own ranges.
+   - Keep active-map projection server-owned and bounded; do not let the client
+     decide map membership, visibility, or radar range.
+   - Do not buff `stats.radar_range` to fake broader map knowledge. Radar stays
+     a ship/stat value used by visibility and interaction gates.
+   - Add regression tests proving interactions still re-check their own
+     visibility, radar, and range gates even when the map surface can render
+     remembered intel.
 
 2. Add safe map/radar projection.
-   - Add a worker-owned bounded spatial query API instead of scanning the full
-     worker snapshot for every projection.
-   - Use spatial index lookup for the widened window.
-   - Run all candidates through existing visibility/hidden filters.
+   - Add a worker-owned active-map projection API instead of scanning or
+     exposing an unfiltered full worker snapshot.
+   - Use the map's bounded `0..10000` membership as the coarse candidate set,
+     then apply AOI/radar/stealth and hidden-data filters before serialization.
+   - Treat spatial indexes as optimization only; they must not redefine the
+     visibility policy or leak out-of-map candidates.
    - Include live contacts by type: NPC, loot, hostile, player, planet signal,
      known planet memory.
    - Do not serialize internal hidden flags, seeds, future spawns, or scan rolls.
@@ -181,8 +188,10 @@ client/src/ui/hud.ts
      remembered/minimap markers still render, hidden fields remain absent.”
 
 5. Update tests and smoke.
-   - Assert visible edge contacts appear inside the policy window.
-   - Assert hidden contacts inside the same window do not appear.
+   - Assert current-map contacts can be represented as map memory or live
+     contacts only after the server-owned AOI/radar/stealth filters allow them.
+   - Assert hidden contacts on the same map do not appear unless visibility
+     rules explicitly reveal them.
    - Assert minimap clicks do not guess coordinates.
 
 ## Likely Files
@@ -206,12 +215,13 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
 
 ## Implementation Evidence - 2026-06-20
 
-- Live projection policy is a server-owned `2000x2000` square window:
-  `runtimeLiveProjectionDiameter = 2000`, half extent `1000`.
+- Phase 02 originally proved a server-owned `2000x2000` square projection
+  window with `runtimeLiveProjectionDiameter = 2000`, half extent `1000`.
+  That proof is now historical. The bounded multi-map direction supersedes it
+  with full active-map `0..10000` membership plus AOI/radar/stealth filtering.
 - Player `stats.radar_range` remains a ship/stat value; it is not mutated to
-  widen the playtest map projection.
-- Runtime projection uses worker `EntitiesWithinWindow`, backed by the spatial
-  index `QueryWindow`, before AOI/security filtering.
+  fake larger map knowledge.
+- Runtime projection must stay server-owned before AOI/security filtering.
 - Visibility still runs through `aoi.BuildVisibleSnapshot` and hidden entities
   inside the projection window remain absent from world entities and minimap
   contacts.
@@ -250,19 +260,19 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
   browser smoke so they cannot accidentally issue movement or pickup commands.
 - Visual fog overlay is disabled in the renderer while server-side visibility
   and hidden-data filtering remain active.
-- Square projection semantics are covered server-side: the worker/runtime query
-  admits visible contacts at the `1000,1000` square corner while excluding
-  `1001,0`, and it keeps the player `stats.radar_range` unchanged.
+- The old square-window regression (`1000,1000` admitted and `1001,0`
+  excluded) was a Phase 02 proof of server-owned projection boundaries, not the
+  target map size. Current follow-up work should preserve the same
+  server-owned filtering discipline over bounded `0..10000` maps.
 - Far remembered planets remain server-owned map memory, not fake live radar
   contacts. Backend regression covers a far materialized planet/intel row as
   `minimap.remembered` with unclipped coordinates and no matching
   `live_contacts` entry; the client filters remembered minimap points to the
   current projection window while preserving world-map memory markers.
-- Client projection helper coverage proves a contact at `+1000,+1000` is inside
-  the square `2000x2000` projection even though it is outside a strict
-  1000-unit circular radius. Fixture browser smoke renders that corner contact
-  as a deterministic radar point and continues to keep far remembered intel off
-  radar.
+- Client projection helper coverage preserved the legacy Phase 02 square-window
+  proof for `+1000,+1000`, but current follow-up work should validate bounded
+  `0..10000` active-map membership plus radar/stealth filtering. Fixture
+  browser smoke continues to keep far remembered intel off live radar.
 - Remembered intel policy is explicit client-side: stale known-planet memories
   remain renderable/clickable as detail links with stale styling and preserved
   `projection_source` evidence, while `invalidated`, wrong-zone, expired, or
@@ -296,12 +306,17 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
 
 ## Acceptance Criteria
 
-- [x] The live map/radar projection policy is documented and tested.
-- [x] Projection range/window is separate from player `stats.radar_range`, or
-      the intentional radar stat buff and its combat/loot impact are tested.
-- [x] Worker exposes a bounded spatial query used by runtime projection.
-- [x] The widened window includes allowed visible entities near the player.
-- [x] Hidden entities remain absent even inside the widened window.
+- [x] The live map/radar projection policy is documented and tested as
+      server-owned bounded active-map visibility plus AOI/radar/stealth
+      filtering.
+- [x] Active-map visibility does not buff player `stats.radar_range`; radar
+      remains a ship/stat value for visibility and interaction gates.
+- [x] Worker/runtime projection stays server-owned and uses bounded active-map
+      membership before client-safe serialization.
+- [x] Current-map contacts appear only when map memory or live visibility rules
+      allow them.
+- [x] Hidden same-map entities remain absent unless radar/stealth/visibility
+      rules explicitly reveal them.
 - [x] Known planets and safe remembered intel render in map/radar.
 - [x] The radar is a stable circular surface with clickable contacts.
 - [x] Live radar contacts include stable entity ids/types.
@@ -312,19 +327,20 @@ docs/plans/task-001/02-aoi-radar-map-visibility.md
       leaking movement.
 - [x] Navigate uses only server-returned coordinates.
 - [x] Client fog visual overlay is removed or disabled in real playtest mode.
-- [x] Server visibility/fog security tests still pass.
-- [x] Projection input sources for worker, DB overlay, procedural/live
+- [x] Server visibility/security tests still pass, including legacy fog-memory
+      primitives where they remain as known-intel memory helpers.
+- [x] Active-map input sources for worker, DB overlay, procedural/live
       materialization, known intel, NPCs, loot, and players are documented and
       tested.
-- [x] Projection smoke proves the widened view is not only direct worker
+- [x] Visibility smoke proves current-map rendering is not only direct worker
       fixture insertion and reconciles source changes after movement.
 - [x] Scan/known-planet updates refresh remembered minimap and world-map markers
       without requiring manual Sync.
 - [x] Far remembered planets do not clamp into fake nearby radar contacts.
 - [x] Stale, invalidated, and wrong-zone remembered intel have explicit render
       and click behavior.
-- [x] Square projection and circular radar semantics are documented and tested,
-      including corner contacts.
+- [x] Active-map membership and circular radar/contact semantics are documented
+      and tested, with legacy square-window proofs framed as historical.
 
 ## Verification
 

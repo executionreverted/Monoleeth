@@ -6,8 +6,8 @@ Date: 2026-06-19
 
 Patch the authenticated browser game so Inventory, Hangar, Planets, Quests, and
 Shop become real game systems instead of generic summary panels, while also
-fixing planet modal/navigation behavior, disconnect movement settlement, fog of
-war, and modal click safety during movement.
+fixing planet modal/navigation behavior, disconnect movement settlement,
+radar/known-intel map rendering, and modal click safety during movement.
 
 This goal is complete only when:
 
@@ -17,8 +17,8 @@ This goal is complete only when:
   server-returned coordinate
 - WebSocket disconnect settles active movement to the current server-computed
   position and reconnect reconciles there
-- fog of war visibly darkens unexplored space without leaking hidden entities or
-  procedural truth
+- radar/known-intel map rendering stays server-owned without visual fog-of-war
+  reveal, hidden entities, or procedural truth leaks
 - windows/modals remain clickable while the ship is moving
 - Inventory shows the active ship, loadout slots, module inventory, and
   drag/drop equip/unequip backed by real server contracts
@@ -113,13 +113,14 @@ features. Adapt the interaction pattern to this game's server-owned state.
   ownership, or hidden world truth.
 - UI-only state may track window positions, selected tabs, selected rows,
   drag/drop hover, focused panel, and pending presentation state.
-- Server state owns world position, active route, fog memory, visible entities,
-  combat, loot, inventory, wallet, active ship, loadout, quests, planets,
-  production, routes, market, auction, and premium.
+- Server state owns world position, active route, known-intel memory, visible
+  entities, combat, loot, inventory, wallet, active ship, loadout, quests,
+  planets, production, routes, market, auction, and premium.
 - Unsupported gameplay actions must remain disabled/locked unless real server
   contracts are implemented in the same slice.
-- Every mutation must validate auth, ownership, visibility/fog, range/capacity,
-  rank, cooldown/rate limit, idempotency, and ledger/transaction boundaries as
+- Every mutation must validate auth, ownership, current-map visibility,
+  radar/stealth detection, known-intel permission, range/capacity, rank,
+  cooldown/rate limit, idempotency, and ledger/transaction boundaries as
   applicable.
 
 ## Done Means
@@ -142,13 +143,13 @@ features. Adapt the interaction pattern to this game's server-owned state.
 - [x] HUD/modal clicks cannot leak into world movement/selection.
 - [x] Empty world clicks still move normally.
 
-### Fog Of War
+### Radar, Stealth, And Known Intel
 
-- [x] Unexplored space is visibly dark/fogged.
-- [x] Current radar reveal follows the interpolated server-owned player
-      position.
-- [x] Remembered discoveries render only from server-safe fog memory.
-- [x] Hidden gameplay data is never serialized to power the fog.
+- [x] Visual fog-of-war overlay is not required for the bounded-map playtest.
+- [x] Current radar/contact rendering follows the interpolated server-owned
+      player position and server payloads.
+- [x] Remembered discoveries render only from server-safe known-intel memory.
+- [x] Hidden gameplay data is never serialized to power map visuals.
 
 ### Inventory And Loadout
 
@@ -240,7 +241,7 @@ Also verify in browser:
 - authenticated real-server session
 - moving ship while clicking modals
 - planet modal and Navigate
-- fog of war visible
+- visual fog inactive while radar/known-intel map data remains server-owned
 - inventory drag/drop equip or locked server-contract blocker
 - hangar ship list/activation or locked server-contract blocker
 - planet catalog tabs/actions

@@ -51,7 +51,7 @@ client/tests/e2e/flows/release-artifacts.e2e.mjs
 | Phase | Flow | Must Prove |
 | --- | --- | --- |
 | 01 | `auth-session` | session ready, auth expiry, pending cleanup, debug ops denied, no fake enabled controls |
-| 02 | `world-radar` | widened projection, fog-off UI, hidden data absent, radar contacts clickable |
+| 02 | `world-radar` | bounded current-map membership, radar/stealth-filtered contacts, fog-off UI, hidden data absent, radar contacts clickable |
 | 03 | `stealth-witness` | three-session baseline, stealth disappearance, scanner reveal, unrelated viewer blind, expiry |
 | 04 | `hud-window-modal` | no `Inspect`, `?` help opens, content sizing, focus isolation, no internal copy |
 | 05 | `catalog-copy` | display metadata is server-owned, no raw ids/snake_case in normal UI |

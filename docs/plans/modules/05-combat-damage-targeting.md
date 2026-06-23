@@ -38,7 +38,7 @@ AggroService
 - XP table
 - Inventory mutation
 - Ship/module equip
-- AOI/fog truth
+- Current-map AOI and radar/stealth visibility truth
 - Death cargo drop
 
 Combat sonuç üretir; diğer modüller ödül ve state transferini yapar.
@@ -127,8 +127,8 @@ func ValidateTarget(ctx CombatContext, attacker Entity, target Entity, stats Eff
 Visibility burada kritik:
 
 ```text
-AOI içinde değilse attack yok.
-Fog/radar/sight detect etmemişse attack yok.
+Current map AOI içinde değilse attack yok.
+Radar/stealth/sight detection pass etmemişse attack yok.
 Client target id bilse bile server izin vermez.
 ```
 
@@ -423,7 +423,7 @@ combat.player_killed
 ## Edge Cases
 
 - Target leaves range between client click and server tick.
-- Target enters fog/stealth before attack resolves.
+- Target enters stealth or leaves radar/visibility before attack resolves.
 - Attacker dies before projectile lands.
 - Skill cooldown starts but damage fails; decide if cooldown consumed.
 - Energy exactly equals cost; allow.
@@ -449,7 +449,7 @@ Defense:
 
 Risk:
 
-- Client remembers entity id after it leaves radar/fog.
+- Client remembers entity id after it leaves radar/current-map visibility.
 
 Defense:
 

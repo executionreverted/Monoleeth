@@ -30,8 +30,9 @@ client/tests/browser-smoke.mjs
 - Top bar, left nav, right panels, bottom action bar, log, minimap, and modal
   windows visually follow the mockup density and placement.
 - Modals/windows feel like game cockpit surfaces.
-- Fog of war, parallax, markers, projectiles, scan waves, and movement ETA work
-  together without overlap.
+- Radar/known-intel markers, parallax, projectiles, scan waves, and movement
+  ETA work together without overlap. Visual fog-of-war remains inactive for the
+  bounded-map playtest.
 - Inventory, Hangar, Planets, Quests, and Shop can each be opened and used.
 - Moving does not break modal interaction.
 - No fake gameplay values appear in real mode.
@@ -69,7 +70,7 @@ output/screenshots/ui-patch-3/shop-mobile.png              390x844
    - action slot shape
    - right rail density
    - log/minimap placement
-   - background/fog readability
+   - background/radar readability
 6. Audit no-fake-state rules.
    - No fake HP/shield/energy/cargo/wallet/quest counts.
    - No fake planets/NPC/loot/market products.
@@ -95,7 +96,8 @@ output/screenshots/ui-patch-3/
       pre-patch state.
 - [x] Inventory, Hangar, Planets, Quests, and Shop are all usable surfaces.
 - [x] Movement plus modal interaction is verified.
-- [x] Fog is visible and does not leak hidden data.
+- [x] Visual fog is inactive; radar/known-intel rendering does not leak hidden
+      data.
 - [x] No fake gameplay data appears in real mode.
 - [x] Any remaining gaps are documented as explicit follow-up TODOs.
 
@@ -105,8 +107,8 @@ output/screenshots/ui-patch-3/
   `npm --cache /tmp/gameproject-npm-cache run check`, and `git diff --check`.
 - Browser smoke covers real authenticated desktop/tablet/mobile sessions,
   screenshots for Hangar, Planets, Quests, and Shop, movement interpolation,
-  modal/window interaction while moving, fog visibility, and no-fake-state
-  assertions.
+  modal/window interaction while moving, visual-fog inactivity, and
+  no-fake-state assertions.
 - Remaining non-goal polish is tracked in Phase 04: module category filtering
   and a browser invalid-equip fixture once seeded incompatible module data
   exists.

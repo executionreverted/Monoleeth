@@ -36,7 +36,8 @@ output/mockups/final-mockup.png
 The target interface is a dense operational space console:
 - top status bar: sector, danger, energy, cargo, credits, capacitor, mail/social/menu
 - left rail: ship status and primary navigation
-- center: full-bleed world map/canvas with AOI-visible entities only
+- center: full-bleed active local map/canvas with current-map AOI/radar-visible
+  entities only
 - bottom: combat/utility action bar and server event log
 - right rail: planets, selected object panel, sector map
 
@@ -154,8 +155,9 @@ real server path. Command names alone are not sufficient.
 For commands, document:
 - client payload and forbidden client-authored fields
 - server-resolved authority and ownership source
-- validation gates, including visibility/fog, range, role, capacity, wallet,
-  cooldown, energy, and item tradeability where applicable
+- validation gates, including current-map visibility, radar/stealth detection,
+  known-intel permission, range, role, capacity, wallet, cooldown, energy, and
+  item tradeability where applicable
 - mutation flow using `lock -> validate -> mutate -> ledger/event -> commit`
 - emitted response, snapshots, and events
 - idempotency key or duplicate handling

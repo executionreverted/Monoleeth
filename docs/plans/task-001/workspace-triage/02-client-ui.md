@@ -43,14 +43,16 @@ Dirty files:
 
 Patch intent:
 
-- Use `projection_window_size / 2` for minimap projection scale.
+- Historical Phase 02 patch used `projection_window_size / 2` for minimap
+  projection scale; bounded-map follow-up should use server-owned active-map
+  visibility plus radar/stealth filtering instead.
 - Keep far remembered intel off radar instead of edge-clamping it into a fake
   nearby contact.
 
 Main evidence:
 
-- `client/src/ui/hud.ts:3189` to `client/src/ui/hud.ts:3206` uses
-  `projection_window_size` and filters remembered points through
+- `client/src/ui/hud.ts:3189` to `client/src/ui/hud.ts:3206` used the legacy
+  projection window and filters remembered points through
   `shouldRenderRememberedMinimapMemory`.
 - `client/src/state/world-memory.ts:90` to `client/src/state/world-memory.ts:123`
   applies square projection filtering.

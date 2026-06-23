@@ -214,9 +214,10 @@ Third-pass findings to preserve:
 - Phase 01 still has protocol denylist drift between Go request rejection,
   TypeScript command rejection, and TypeScript server-message parsing. Admin
   exceptions such as `target_player_id` must be explicit and tested.
-- Phase 02's widened projection is still worker-memory only. Task 001 needs a
-  source contract and tests for worker entities, DB/procedural/live
-  materialization, known intel, NPCs, loot, and players.
+- Phase 02's active-map visibility source contract still needs tests for worker
+  entities, DB/procedural/live materialization, known intel, NPCs, loot, and
+  players entering the bounded `0..10000` map candidate set before
+  AOI/radar/stealth filtering.
 - Phase 03 still lacks browser-level two/three-session scanner witness smoke,
   visible `scan_revealed` treatment, and final stealth module/energy/cooldown/
   anti-spam rules.
@@ -291,7 +292,7 @@ Fourth-pass findings to preserve:
 | User issue | Covered by |
 | --- | --- |
 | Detect all missing UI/server gameplay links | Phase 01 |
-| Pull wider nearby objects, around `2000x2000` | Phase 02 |
+| Pull wider nearby objects, originally proven with a `2000x2000` window and now superseded by bounded active-map visibility | Phase 02 |
 | Revise menus from DarkOrbit examples and content-sized windows | Phase 04, 06, 07 |
 | Replace `Inspect` with `?` tutorial modal | Phase 04 |
 | Market catalog should be real game catalog, not raw ore | Phase 05, 07 |
@@ -325,7 +326,7 @@ Fourth-pass findings to preserve:
 ## Suggested Subagent Split
 
 - Contract agent: phase 01 protocol/reducer/server operation audit.
-- World agent: phases 02 and 03 AOI/radar/fog/stealth/witness.
+- World agent: phases 02 and 03 AOI/radar/known-intel/stealth/witness.
 - UX shell agent: phase 04 modal/window/tutorial/dead-control cleanup.
 - Content/catalog agent: phase 05 canonical content registry and seed data.
 - Systems UI agent: phase 06 inventory/cargo/loadout/hangar.

@@ -21,9 +21,9 @@
 - Bootstrap emits `session.ready`, `player.snapshot`, `ship.snapshot`,
   `stats.updated`, `wallet.snapshot`, `cargo.snapshot`, and `world.snapshot`
   from server-owned state with per-session monotonic `seq`.
-- World snapshots use AOI/fog filtering and do not serialize internal world
-  ids, zone ids, account ids, player ids, session ids, hidden entities,
-  procedural seeds, or future spawn candidates.
+- World snapshots use current-map AOI plus radar/stealth/known-intel filtering
+  and do not serialize internal world ids, zone ids, account ids, player ids,
+  session ids, hidden entities, procedural seeds, or future spawn candidates.
 - Vite proxies `/api` and `/ws` to the Go server for local browser work. The
   existing client smoke check still uses its test fixture until the browser auth
   and transport phases replace it.
@@ -165,7 +165,7 @@ the normal UI bootstrap path.
 | Operation | Client Payload | Server Authority | Response/Event |
 | --- | --- | --- | --- |
 | `session.snapshot` | empty | session cookie/resolver | safe account, player, roles, expiry, server time |
-| `world.snapshot` | optional client viewport hint | server player/ship position, AOI, fog | client-safe sector, AOI baseline, snapshot cursor |
+| `world.snapshot` | optional client viewport hint | server player/ship position, current-map AOI, radar/stealth/known-intel filtering | client-safe sector, AOI baseline, snapshot cursor |
 | `move_to` | finite target `{x,y}` | server player, active ship, stats, movement rules | response plus `position.corrected`/AOI events |
 | `stop` | optional request reason | server player active movement state | response plus `movement.stopped` or `position.corrected` |
 | `debug_snapshot` | dev-only, empty or explicit fixture id | dev-mode server config and admin/dev guard | never used by default UI bootstrap |

@@ -453,7 +453,10 @@ for phase status; this file is a compact pending-work index.
   now describe bounded maps, portals, known intel, and radar/stealth filtering
   instead of an infinite origin plane or client fog-of-war reveal. Remaining
   old-term search hits should be limited to superseded labels, legacy file
-  paths, or historical notes. Source:
+  paths, or historical notes. Phase07CP updates active UI Patch 3, Task 001,
+  UI implementation, combat, loot, intel/coordinate, and GOAL references so
+  visual fog is inactive and radar/stealth plus known-intel memory is the
+  current-map model. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Finalize production bounded multi-map rollout controls if DB persistence
   is introduced: implement or document the future

@@ -102,8 +102,9 @@ Observability/release:
   `ui-patch-2`, and `ui-patch-3` folders to
   `output/screenshots/task-001/` with the filenames in this gate.
 - Remove browser/e2e expectations that `radar_range === 420` or visual fog is
-  active. Passing Task 001 coverage must assert widened projection behavior,
-  fog-off visuals, and no hidden-data serialization.
+  active. Passing Task 001 coverage must assert bounded `0..10000` current-map
+  membership, radar/stealth-filtered contacts, fog-off visuals, and no
+  hidden-data serialization.
 - Expand forbidden-copy assertions to visible text, `title`, and `aria-label`
   for `server-owned`, `server policy`, `server recalculates`,
   `No server-owned routes`, `server-side`, and `server contract`.

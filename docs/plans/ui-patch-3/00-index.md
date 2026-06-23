@@ -2,6 +2,14 @@
 
 Date: 2026-06-19
 
+## 2026-06-23 Supersession Note
+
+The old visual fog-overlay goal in this patch is superseded by the bounded
+multi-map model. Current gameplay uses bounded `0..10000` maps, server-owned
+current-map membership, radar/stealth visibility, and known-intel memory.
+Hidden data is still filtered server-side, but the client should not render a
+fog-of-war wave or treat fog reveal as gameplay truth.
+
 ## Purpose
 
 UI Patch 3 turns the browser HUD from a collection of thin summary panels into
@@ -15,7 +23,8 @@ This patch fixes the next playtest issues:
 - planet quick navigation is missing
 - disconnect does not explicitly settle an active route to the current
   authoritative position
-- fog of war is not visible even though server visibility concepts exist
+- radar/stealth visibility and known-intel memory need to remain useful without
+  a visual fog-of-war overlay
 - inventory does not show a ship/loadout slot board or drag/drop equip flow
 - hangar does not expose a usable ship list and active ship selection
 - planet windows do not expose planet catalog/detail/action workflows
@@ -82,14 +91,15 @@ https://darkorbit.fandom.com/wiki/User_Interface
   modal interaction smoke test because the playtest reports modal clicks fail
   while moving.
 - `client/src/render/world-renderer.ts` has starfield, memory markers, scan
-  waves, and projectiles, but no fog/darkness overlay.
+  waves, and projectiles; this is now intentional unless a future map mode
+  explicitly reintroduces a purely cosmetic fog effect.
 - `client/src/state/types.ts` has `minimap.remembered`, but server runtime
   currently returns it empty.
 - `internal/game/server/runtime.go` `minimapFromAOI` returns
   `Remembered: []minimapMemoryPayload{}`.
-- `internal/game/world/visibility/fog.go` has fog memory primitives, but the
-  runtime does not project safe remembered cells/planets into minimap/world
-  rendering.
+- `internal/game/world/visibility/fog.go` has legacy fog-memory primitives, but
+  current UI work should treat remembered planets as known-intel/radar memory,
+  not as a client-side fog reveal system.
 - `internal/game/server/transport.go` unregisters the socket and detaches the
   session, but there is no explicit disconnect settlement that stops an active
   route at the current server-computed position.
@@ -111,7 +121,7 @@ https://darkorbit.fandom.com/wiki/User_Interface
 
 1. [Planet Detail Modal, Quick Navigation, And Disconnect Settlement](./01-planet-modal-navigation-disconnect-settlement.md)
 2. [Modal Interaction And Movement Input Isolation](./02-modal-input-during-movement.md)
-3. [Fog Of War And Remembered Map Rendering](./03-fog-of-war-visibility-rendering.md)
+3. [Radar, Stealth, And Known-Intel Map Rendering](./03-fog-of-war-visibility-rendering.md)
 4. [Inventory Loadout Slot Board And Drag Drop Equip](./04-inventory-loadout-drag-drop.md)
 5. [Hangar Ship List And Active Ship Management](./05-hangar-ship-management.md)
 6. [Planets Catalog Detail And Planet Actions](./06-planets-catalog-actions.md)
@@ -123,7 +133,8 @@ https://darkorbit.fandom.com/wiki/User_Interface
 
 - World/session worker: phase 01 disconnect settlement and planet navigation.
 - Input/window worker: phase 02 modal click safety while moving.
-- Fog/render worker: phase 03 server remembered map payload plus renderer fog.
+- Radar/intel worker: phase 03 server remembered map payload without renderer
+  fog-wave semantics.
 - Systems worker: phases 04 and 05 inventory/loadout/hangar contracts and UI.
 - Planet/quest/economy worker: phases 06, 07, and 08 domain windows.
 - QA worker: phase 09 screenshots, smoke tests, and no-fake-state audit.
@@ -175,11 +186,10 @@ output/screenshots/ui-patch-3/
   position.
 - Socket disconnect/reconnect leaves the player at the server-settled current
   position, not the old origin or full destination.
-- Fog of war visibly darkens unexplored space and uses only server-safe
-  visibility/fog memory payloads.
+- Radar/known-intel map rendering uses only server-safe visibility and memory
+  payloads, with visual fog-of-war inactive for the bounded-map playtest.
 - Inventory, hangar, planets, quests, and shop are real game surfaces with
   category/list/detail/action structure.
 - `final-mockup.png` remains the visual HUD target, and screenshots show the
   patch moving toward it.
 - Full verification passes.
-
