@@ -43,6 +43,10 @@ const (
 	idempotencyPlanetBuildingUpgrade = "planet_building_upgrade"
 	idempotencyOfflineSettlement     = "offline_settlement"
 	idempotencyRouteSettlement       = "route_settlement"
+	idempotencyRouteCreate           = "route_create"
+	idempotencyRouteUpdate           = "route_update"
+	idempotencyRouteEnable           = "route_enable"
+	idempotencyRouteDisable          = "route_disable"
 	idempotencyIntelShare            = "intel_share"
 	idempotencyCoordinateItemCreate  = "coordinate_item_create"
 	idempotencyCoordinateItemUse     = "coordinate_item_use"
@@ -173,6 +177,26 @@ func OfflineSettlementIdempotencyKey(planetID PlanetID, settlementWindow string)
 // RouteSettlementIdempotencyKey returns route_settlement:<route_id>:<settlement_window>.
 func RouteSettlementIdempotencyKey(routeID RouteID, settlementWindow string) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyRouteSettlement, routeID.String(), settlementWindow)
+}
+
+// RouteCreateIdempotencyKey returns route_create:<player_id>:<route_id>.
+func RouteCreateIdempotencyKey(playerID PlayerID, routeID RouteID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyRouteCreate, playerID.String(), routeID.String())
+}
+
+// RouteUpdateIdempotencyKey returns route_update:<player_id>:<route_id>:<request_id>.
+func RouteUpdateIdempotencyKey(playerID PlayerID, routeID RouteID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyRouteUpdate, playerID.String(), routeID.String(), requestID.String())
+}
+
+// RouteEnableIdempotencyKey returns route_enable:<player_id>:<route_id>:<request_id>.
+func RouteEnableIdempotencyKey(playerID PlayerID, routeID RouteID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyRouteEnable, playerID.String(), routeID.String(), requestID.String())
+}
+
+// RouteDisableIdempotencyKey returns route_disable:<player_id>:<route_id>:<request_id>.
+func RouteDisableIdempotencyKey(playerID PlayerID, routeID RouteID, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyRouteDisable, playerID.String(), routeID.String(), requestID.String())
 }
 
 // IntelShareIdempotencyKey returns intel_share:<from_player_id>:<to_player_id>:<planet_id>:<share_reference>.
@@ -394,6 +418,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 		return 2, true
 	case idempotencyRouteSettlement:
 		return 2, true
+	case idempotencyRouteCreate:
+		return 2, true
 	case idempotencyPlanetBuildingBuild:
 		return 2, true
 	case idempotencyQuestReroll:
@@ -410,6 +436,9 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyMarketFee,
 		idempotencyCoordinateItemCreate,
 		idempotencyCoordinateItemUse,
+		idempotencyRouteUpdate,
+		idempotencyRouteEnable,
+		idempotencyRouteDisable,
 		idempotencyPlanetBuildingUpgrade:
 		return 3, true
 	case idempotencyIntelShare:

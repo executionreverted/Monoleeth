@@ -296,10 +296,17 @@ for phase status; this file is a compact pending-work index.
   durable or cross-process. Phase07AN adds an explicit route settlement
   transaction boundary that future DB adapters can implement for owner-scoped
   settlement window idempotency, storage ledger writes, and pending outbox rows
-  under one commit. Durable DB rows, row locks/CAS, idempotency table
-  enforcement, and durable outbox publishing remain open. Source: Phase 10
+  under one commit. Phase07BN adds the separate automation route durable-row
+  contract with idempotency references, revision CAS, exact replay, stale
+  revision rejection, conflict rejection, detached readback, and owner-scoped
+  route recovery queries. Runtime route create/update/control still need to
+  write that durable route-row adapter, and DB adapters still need to co-commit
+  route rows with settlement evidence, storage ledger rows, and outbox rows
+  where mutations settle old terms. Durable DB rows, row locks/CAS,
+  idempotency table enforcement, and durable outbox publishing remain open.
+  Source: Phase 10
   audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
-  Phase07K, and Phase07AN.
+  Phase07K, Phase07AN, and Phase07BN.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server

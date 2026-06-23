@@ -381,6 +381,16 @@ Current slice completed:
   outbox rows are produced under one store lock and returned as newly committed
   rows. `SettleRouteForOwner` now goes through this boundary. Real DB row
   locks/CAS and durable outbox tables remain open.
+- Phase07BN automation route durable-row follow-up:
+  `InMemoryAutomationRouteDurableStore` now defines the DB-adapter-ready
+  route-row persistence contract separately from settlement evidence. It
+  records validated `AutomationRoute` snapshots with domain idempotency
+  references, revision CAS, exact replay, stale revision rejection, reference
+  conflict rejection, detached route/readback APIs, and deterministic owner
+  route reads. Runtime route create/update/control still write only to the
+  active production store, and the future DB adapter must co-commit route rows,
+  settlement evidence, storage ledger rows, and outbox rows where a route
+  mutation settles old terms.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -929,6 +939,9 @@ Mockup areas covered:
       server-owned read models and flushes queued owner events on tick.
 - [x] Runtime durable outbox drain-collect hands safe projected events to the
       active sink delivery path without leaving them queued after publish.
+- [x] Automation route durable-row contract records route snapshots with
+      idempotency references, revision CAS, detached readback, and owner route
+      recovery queries.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

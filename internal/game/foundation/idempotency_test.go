@@ -118,6 +118,34 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			want: "route_settlement:route-7:window-20260617-10",
 		},
 		{
+			name: "route create",
+			build: func() (IdempotencyKey, error) {
+				return RouteCreateIdempotencyKey(PlayerID("player-1"), RouteID("route-7"))
+			},
+			want: "route_create:player-1:route-7",
+		},
+		{
+			name: "route update",
+			build: func() (IdempotencyKey, error) {
+				return RouteUpdateIdempotencyKey(PlayerID("player-1"), RouteID("route-7"), RequestID("request-2"))
+			},
+			want: "route_update:player-1:route-7:request-2",
+		},
+		{
+			name: "route enable",
+			build: func() (IdempotencyKey, error) {
+				return RouteEnableIdempotencyKey(PlayerID("player-1"), RouteID("route-7"), RequestID("request-3"))
+			},
+			want: "route_enable:player-1:route-7:request-3",
+		},
+		{
+			name: "route disable",
+			build: func() (IdempotencyKey, error) {
+				return RouteDisableIdempotencyKey(PlayerID("player-1"), RouteID("route-7"), RequestID("request-4"))
+			},
+			want: "route_disable:player-1:route-7:request-4",
+		},
+		{
 			name: "intel share",
 			build: func() (IdempotencyKey, error) {
 				return IntelShareIdempotencyKey(PlayerID("player-1"), PlayerID("player-2"), PlanetID("planet-7"), "request-9")

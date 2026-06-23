@@ -60,6 +60,11 @@ var (
 )
 
 var (
+	ErrInvalidAutomationRouteDurableCommit = errors.New("invalid automation route durable commit")
+	ErrStaleAutomationRouteDurableCommit   = errors.New("stale automation route durable commit")
+)
+
+var (
 	ErrInvalidRouteSettlementConfig   = errors.New("invalid route settlement config")
 	ErrRouteNotFound                  = errors.New("automation route not found")
 	ErrUnsupportedRouteDestination    = errors.New("unsupported route settlement destination")
