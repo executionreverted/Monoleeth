@@ -804,18 +804,18 @@ function withoutPendingPlanetBuildingMutations(
   state: ClientState,
   production: NonNullable<ClientState['production']>,
 ): ClientState {
-  const planetIDs = new Set(production.planets.map((planet) => planet.planet_id));
   const buildingIDs = new Set(production.planets.flatMap((planet) => planet.buildings.map((building) => building.building_id)));
-  if (planetIDs.size === 0 && buildingIDs.size === 0) {
+  if (buildingIDs.size === 0) {
     return state;
   }
   const pendingCommands: ClientState['pendingCommands'] = {};
   let changed = false;
   for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
+    const pendingBuildID = pendingPlanetBuildingBuildID(pending.payload);
     if (
       pending.op === OPERATIONS.planetBuildingBuild &&
-      pending.payload?.planet_id &&
-      planetIDs.has(String(pending.payload.planet_id))
+      pendingBuildID &&
+      buildingIDs.has(pendingBuildID)
     ) {
       changed = true;
       continue;
@@ -831,6 +831,19 @@ function withoutPendingPlanetBuildingMutations(
     pendingCommands[requestID] = pending;
   }
   return changed ? { ...state, pendingCommands } : state;
+}
+
+function pendingPlanetBuildingBuildID(payload: ClientState['pendingCommands'][string]['payload']): string | null {
+  if (!payload) {
+    return null;
+  }
+  const planetID = stringField(payload, 'planet_id')?.trim();
+  const buildingType = stringField(payload, 'building_type')?.trim();
+  const slot = stringField(payload, 'slot')?.trim();
+  if (!planetID || !buildingType || !slot) {
+    return null;
+  }
+  return `${planetID}-building-${buildingType}-${slot}`;
 }
 
 function withoutPendingCraftingMutations(

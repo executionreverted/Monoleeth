@@ -1032,6 +1032,8 @@ Mockup areas covered:
 - [x] Add right rail known planet list.
 - [x] Add selected planet action panel.
 - [x] Add route UI and production/building UI.
+- [x] Keep browser building-build intents pending until the authoritative
+      production snapshot contains the matching deterministic building id.
 - [x] Add scanner action state and log events.
 
 ## Abuse And Safety Checklist
