@@ -491,6 +491,25 @@ describe('route controls', () => {
     expect(html).toContain('>Station</option>');
   });
 
+  test('route update destination select includes server-owned storage and station endpoint catalog options', () => {
+    const state = planetRouteState();
+    state.planetIntel!.selectedPlanet!.route_endpoints = [
+      { type: 'storage', id: 'storage-alpha', label: 'Storage' },
+      { type: 'station', id: 'station-alpha', label: 'Station' },
+    ];
+
+    const html = planetDetailModal(state, 'planet-source');
+    const updateSelect = html.match(/<select data-route-update-destination[^>]*>[\s\S]*?<\/select>/)?.[0] ?? '';
+
+    expect(updateSelect).toContain('value="planet-destination" selected');
+    expect(updateSelect).toContain('value="storage:storage-alpha"');
+    expect(updateSelect).toContain('>Storage</option>');
+    expect(updateSelect).toContain('value="station:station-alpha"');
+    expect(updateSelect).toContain('>Station</option>');
+    expect(updateSelect).not.toContain('owner_player_id');
+    expect(updateSelect).not.toContain('destination_map_id');
+  });
+
   test('route row renders last server settlement result flags', () => {
     const state = planetRouteState();
     state.routeSettlements = {

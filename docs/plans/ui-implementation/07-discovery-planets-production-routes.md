@@ -103,6 +103,10 @@ Current slice completed:
   updates the global route cache and the selected planet route cache from the
   same server-owned list. Durable `route.list` recovery can no longer leave the
   owned-planet panel showing stale or deleted routes after live read-model loss.
+- Phase07CT browser route destination follow-up: route create and update
+  controls render server-owned storage/station endpoint catalog options from
+  planet detail state alongside owned planet endpoints, while keeping endpoint
+  ids, map ids, and owner facts out of route rows and mutation buttons.
 - Phase07H backend query follow-up: authenticated
   `planet.production_summary` and `planet.storage_summary` now reconcile
   eligible owned active-map production through
@@ -1216,6 +1220,9 @@ Mockup areas covered:
       including last safe settlement outcome flags in route rows.
 - [x] Browser selected planet route list cannot remain stale after server
       route.list recovery or route removal events.
+- [x] Browser route create/update destination controls include server-owned
+      storage/station endpoint catalog options without exposing owner or map
+      internals.
 
 ## Done Criteria
 
