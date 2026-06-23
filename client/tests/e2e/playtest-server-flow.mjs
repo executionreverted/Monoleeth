@@ -12,6 +12,7 @@ const maxProcessLogLines = 3000;
 const viewport = { width: 1440, height: 900 };
 const starterNpcApproachTarget = { x: 800, y: 400 };
 const claimRangeArriveDistance = 220;
+const eastGateTarget = { x: 9800, y: 5000 };
 
 const leakTokens = [
   'map_1_1',
@@ -175,10 +176,24 @@ async function main() {
     assertNoPayloadLeak(settleFrames.response, 'route.settle response');
     const finalState = await waitSmoke(client, (state) => !hasPendingOp(state, 'route.settle') && !hasUnhandledEventLog(state), 'playtest route settle reconciliation', 15000);
     await assertNoLeak(client, finalState, 'playtest route final');
+
+    await closeModalIfOpen(client);
+    await moveToPosition(client, eastGateTarget, 120, 'east_gate portal', 90000);
+    await resetWebSocketFrames(client);
+    const portalResponse = payloadOf(await send(client, 'portal.enter', { portal_id: 'east_gate' }), 'portal.enter');
+    const portalFrames = await waitForOperation(client, 'portal.enter', (payload) => payload.portal_id === 'east_gate', 15000);
+    assertExactKeys(portalFrames.request.payload, ['portal_id'], 'portal.enter request');
+    assertPortalResponsePayload(portalResponse, '1-2', 'Outer Ring');
+    assertNoPayloadLeak(portalFrames.response, 'portal.enter response frame');
+    const outer = await waitSmoke(client, (state) => state.currentMap?.public_map_key === '1-2', 'playtest Outer Ring map state', 15000);
+    assertOuterMap(outer);
+    assertNoOriginMapLeakage(finalState, outer);
+    await assertNoLeak(client, outer, 'playtest outer ring');
+
     await assertWebSocketCanary(client, 'playtest');
     assertProcessLogCanary([goServer]);
 
-    console.log(`playtest-server smoke ok source=${sourceID} destination=${destinationID} route=${routeID}`);
+    console.log(`playtest-server smoke ok source=${sourceID} destination=${destinationID} route=${routeID} portal=1-2`);
   } finally {
     if (context) await context.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
@@ -507,6 +522,58 @@ function assertClaimResponsePayload(payload, planetID) {
   assert((payload.production?.planets ?? []).some((planet) => planet.planet_id === planetID), `claim response missing production ${compact(payload.production)}`);
   assert(inventoryQuantity(payload.inventory, 'x_core') === 0, `claim response inventory still has x_core ${compact(payload.inventory)}`);
   assertNoPayloadLeak(payload, 'claim response');
+}
+
+function assertPortalResponsePayload(payload, expectedMapKey, expectedDisplay) {
+  assert(payload.accepted === true, `portal accepted missing ${compact(payload)}`);
+  assert(payload.to_public_map_key === expectedMapKey, `portal destination ${payload.to_public_map_key}, want ${expectedMapKey}`);
+  assert(payload.snapshot?.map?.public_map_key === expectedMapKey, `portal snapshot map ${compact(payload.snapshot?.map)}`);
+  assert(new RegExp(expectedDisplay, 'i').test(payload.snapshot?.map?.display_name ?? ''), `portal snapshot display ${compact(payload.snapshot?.map)}`);
+  assertNoPayloadLeak(payload, 'portal response');
+}
+
+function assertOuterMap(state) {
+  const map = state?.currentMap;
+  assert(map?.public_map_key === '1-2', `outer map key ${map?.public_map_key}`);
+  assert(/Outer Ring/i.test(map.display_name ?? ''), `outer display ${map.display_name}`);
+  assertBounds(map.bounds);
+  const portals = new Set((map.visible_portals ?? []).map((portal) => portal.portal_id));
+  assert(portals.has('west_gate'), 'west_gate portal visible');
+  assert(!portals.has('east_gate'), 'east_gate portal absent after transfer');
+  const self = selfEntity(state);
+  assert(self?.entity_type === 'player', 'outer self entity visible');
+}
+
+function assertBounds(bounds) {
+  assert(bounds?.min_x === 0 && bounds?.min_y === 0 && bounds?.max_x === 10000 && bounds?.max_y === 10000, `bounds ${compact(bounds)}`);
+}
+
+function assertNoOriginMapLeakage(origin, outer) {
+  const originSelfID = selfEntity(origin)?.entity_id;
+  const originNonSelfIDs = entityIDs(origin).filter((id) => id !== originSelfID);
+  const outerEntityIDs = new Set(entityIDs(outer));
+  for (const id of originNonSelfIDs) {
+    assert(!outerEntityIDs.has(id), `origin entity leaked after transfer: ${id}`);
+  }
+
+  const outerContactIDs = new Set((outer.minimap?.live_contacts ?? []).map((contact) => contact.entity_id).filter(Boolean));
+  for (const id of originNonSelfIDs) {
+    assert(!outerContactIDs.has(id), `origin minimap contact leaked after transfer: ${id}`);
+  }
+
+  for (const id of Object.keys(origin.knownLoot ?? {})) {
+    assert(!(id in (outer.knownLoot ?? {})), `origin loot leaked after transfer: ${id}`);
+  }
+
+  const minimapPortalIDs = new Set((outer.minimap?.visible_portals ?? []).map((portal) => portal.portal_id));
+  assert(!minimapPortalIDs.has('east_gate'), 'origin east_gate leaked into destination minimap');
+  assert(outer.selectedTargetID === null || !originNonSelfIDs.includes(outer.selectedTargetID), 'origin selected target survived transfer');
+  assert(outer.movementTarget === null, 'origin movement target survived transfer');
+  assert((outer.mapSubscriptionEpoch ?? 0) > (origin.mapSubscriptionEpoch ?? 0), 'destination epoch did not advance');
+}
+
+function entityIDs(state) {
+  return Object.keys(state?.visibleEntities ?? {});
 }
 
 function discoveredPlanetID(state) {

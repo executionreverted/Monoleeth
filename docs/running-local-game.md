@@ -143,11 +143,12 @@ That proof builds `client/dist`, starts `cmd/game-server` with
 real browser user from the served app, verifies the playtest onboarding seed,
 completes a starter NPC fight and loot pickup, clicks the real HUD scanner and
 planet claim controls, verifies X Core consumption plus production
-initialization, and clicks real HUD route create/settle controls without Vite.
+initialization, clicks real HUD route create/settle controls, then transfers
+through `east_gate` to public `1-2` without Vite.
 
-That smoke starts its own real Go server and Vite dev server, then writes
-screenshots under `output/screenshots/ui-implementation/09/`, including the
-current desktop artifacts:
+The separate Phase09 map smoke starts its own real Go server and Vite dev
+server, then writes screenshots under `output/screenshots/ui-implementation/09/`,
+including the current desktop artifacts:
 
 ```text
 output/screenshots/ui-implementation/09/map-origin-desktop.png

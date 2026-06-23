@@ -92,8 +92,9 @@ marked `Open` are not implemented rollout controls yet.
   The single-process built-client `e2e:playtest-server` proof now exercises
   `GAME_PLAYTEST_SEED=true` through real browser starter combat/drop/pickup,
   HUD scan, HUD planet claim, production initialization, and route
-  create/settle with DOM/state/storage, WebSocket, and process-log leak
-  canaries. Broader browser scanner/claim/drop matrix variants remain open.
+  create/settle, then transfers through `east_gate` to public `1-2` with
+  DOM/state/storage, WebSocket, and process-log leak canaries. Broader browser
+  scanner/claim/drop matrix variants remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone
   UI-click rejection proof exist in
   `client/tests/e2e/phase10-pvp-death-flow.mjs`; remaining PvP browser gaps are
@@ -106,8 +107,8 @@ marked `Open` are not implemented rollout controls yet.
   Phase10 now has a focused browser claim proof, and the server playable
   vertical harness proves scan/detail/claim after a real portal transfer. The
   built-client playtest runner now adds one deployable-package browser scan,
-  claim, and starter drop canary. Browser drop matrix coverage and broader
-  browser scan variants remain missing.
+  claim, starter drop, and `1-1` -> `1-2` portal canary. Browser drop matrix
+  coverage and broader browser scan variants remain missing.
 - Authenticated `route.create`, `route.update`, `route.enable`, and
   `route.disable` now have server gateway slices for owned planet-to-planet MVP
   routes. `planet.production_summary` and `planet.storage_summary` now settle
