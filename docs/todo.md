@@ -174,8 +174,12 @@ for phase status; this file is a compact pending-work index.
   production-init. Phase07CS wires that primitive into the runtime durable
   drain path behind an explicit `RecoverClaimProductionInitializations` flag,
   returning deterministic recovery counts/references before publisher work.
-  Real durable claim/production DB rows, cross-service row locks/CAS, an atomic
-  claim/production transaction, and scheduled recovery workers remain open.
+  Phase07 now also proves the authenticated gateway retry path repairs a
+  claim whose first attempt committed owner/X Core debit but failed before
+  production initialization, returning initialized production/detail/inventory
+  payloads without a second X Core debit. Real durable claim/production DB
+  rows, cross-service row locks/CAS, an atomic claim/production transaction,
+  and scheduled recovery workers remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory
