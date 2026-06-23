@@ -1,0 +1,123 @@
+package production
+
+import (
+	"errors"
+	"time"
+)
+
+var ErrInvalidProductionOutboxPublisher = errors.New("invalid production outbox publisher")
+
+// ProductionOutboxPublisherStore is the durable publisher boundary required by
+// pending production/route settlement outbox delivery. DB-backed stores should
+// implement these methods with row-lock/CAS semantics around the claim token.
+type ProductionOutboxPublisherStore interface {
+	ClaimPendingProductionOutboxRecords(limit int, claimedAt time.Time) ([]ProductionOutboxRecord, error)
+	MarkProductionOutboxPublished(outboxID string, claimToken string, publishedAt time.Time) (ProductionOutboxRecord, bool, error)
+	MarkProductionOutboxFailed(outboxID string, claimToken string, reason string, failedAt time.Time) (ProductionOutboxRecord, bool, error)
+}
+
+type ProductionOutboxPublishFunc func(ProductionOutboxRecord) error
+
+type ProductionOutboxPublishInput struct {
+	Store       ProductionOutboxPublisherStore
+	Limit       int
+	ClaimedAt   time.Time
+	CompletedAt time.Time
+	Publish     ProductionOutboxPublishFunc
+}
+
+type ProductionOutboxPublishResult struct {
+	OutboxID   string
+	ClaimToken string
+	Record     ProductionOutboxRecord
+	Published  bool
+	Failed     bool
+	StaleClaim bool
+	StoreError bool
+	Error      string
+}
+
+// PublishPendingProductionOutbox claims pending records and records publish or
+// failure through the same claim token returned by the store.
+func PublishPendingProductionOutbox(input ProductionOutboxPublishInput) ([]ProductionOutboxPublishResult, error) {
+	if input.Store == nil || input.Publish == nil {
+		return nil, ErrInvalidProductionOutboxPublisher
+	}
+	if input.Limit <= 0 {
+		return nil, nil
+	}
+	claimedAt := input.ClaimedAt.UTC()
+	completedAt := input.CompletedAt.UTC()
+	if completedAt.IsZero() {
+		completedAt = claimedAt
+	}
+
+	claimed, err := input.Store.ClaimPendingProductionOutboxRecords(input.Limit, claimedAt)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]ProductionOutboxPublishResult, 0, len(claimed))
+	for _, record := range claimed {
+		result := ProductionOutboxPublishResult{
+			OutboxID:   record.OutboxID,
+			ClaimToken: record.ClaimToken,
+			Record:     record,
+		}
+		if err := input.Publish(record); err != nil {
+			result.Error = err.Error()
+			failed, ok, failErr := input.Store.MarkProductionOutboxFailed(record.OutboxID, record.ClaimToken, result.Error, completedAt)
+			if failErr != nil {
+				result.Error = failErr.Error()
+				result.StoreError = true
+				results = append(results, result)
+				return results, failErr
+			}
+			if ok {
+				result.Record = failed
+				result.Failed = true
+			} else {
+				result.StaleClaim = true
+			}
+			results = append(results, result)
+			continue
+		}
+		published, ok, publishErr := input.Store.MarkProductionOutboxPublished(record.OutboxID, record.ClaimToken, completedAt)
+		if publishErr != nil {
+			result.Error = publishErr.Error()
+			result.StoreError = true
+			results = append(results, result)
+			return results, publishErr
+		}
+		if ok {
+			result.Record = published
+			result.Published = true
+		} else {
+			result.StaleClaim = true
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func (store *InMemoryStore) ClaimPendingProductionOutboxRecords(limit int, claimedAt time.Time) ([]ProductionOutboxRecord, error) {
+	if store == nil {
+		return nil, ErrInvalidProductionOutboxPublisher
+	}
+	return store.ClaimPendingOutboxRecords(limit, claimedAt), nil
+}
+
+func (store *InMemoryStore) MarkProductionOutboxPublished(outboxID string, claimToken string, publishedAt time.Time) (ProductionOutboxRecord, bool, error) {
+	if store == nil {
+		return ProductionOutboxRecord{}, false, ErrInvalidProductionOutboxPublisher
+	}
+	record, ok := store.MarkClaimedOutboxPublished(outboxID, claimToken, publishedAt)
+	return record, ok, nil
+}
+
+func (store *InMemoryStore) MarkProductionOutboxFailed(outboxID string, claimToken string, reason string, failedAt time.Time) (ProductionOutboxRecord, bool, error) {
+	if store == nil {
+		return ProductionOutboxRecord{}, false, ErrInvalidProductionOutboxPublisher
+	}
+	record, ok := store.MarkClaimedOutboxFailed(outboxID, claimToken, reason, failedAt)
+	return record, ok, nil
+}

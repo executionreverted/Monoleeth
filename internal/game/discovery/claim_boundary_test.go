@@ -1,8 +1,10 @@
 package discovery
 
 import (
+	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"gameproject/internal/game/foundation"
 )
@@ -297,6 +299,130 @@ func TestClaimOutboxWrongTokenAndMissingIDDoNotMutateRecords(t *testing.T) {
 		t.Fatalf("MarkClaimedClaimOutboxFailed(missing) = %+v/%v, want zero/false", record, ok)
 	}
 	assertClaimOutboxUnchanged(t, service, beforeMissing, "missing outbox id")
+}
+
+func TestPublishPendingClaimOutboxPublishesAndFailsWithClaimTokens(t *testing.T) {
+	service := newClaimOutboxStateMachineService(t, 3)
+	claimAt := testTime(50)
+	completedAt := testTime(51)
+	temporaryErr := errors.New("temporary broker outage")
+	publishedIDs := make([]string, 0, 2)
+
+	results, err := PublishPendingClaimOutbox(ClaimOutboxPublishInput{
+		Store:       service,
+		Limit:       2,
+		ClaimedAt:   claimAt,
+		CompletedAt: completedAt,
+		Publish: func(record ClaimOutboxRecord) error {
+			publishedIDs = append(publishedIDs, record.OutboxID)
+			if len(publishedIDs) == 2 {
+				return temporaryErr
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingClaimOutbox() error = %v, want nil", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("PublishPendingClaimOutbox() len = %d, want 2; results = %+v", len(results), results)
+	}
+	if !results[0].Published || results[0].Failed || results[0].StaleClaim {
+		t.Fatalf("first publish result = %+v, want published only", results[0])
+	}
+	if !results[1].Failed || results[1].Published || results[1].StaleClaim || results[1].Error != temporaryErr.Error() {
+		t.Fatalf("second publish result = %+v, want failed with error", results[1])
+	}
+	if results[0].ClaimToken == "" || results[1].ClaimToken == "" {
+		t.Fatalf("publish claim tokens = %q/%q, want non-empty", results[0].ClaimToken, results[1].ClaimToken)
+	}
+
+	stored := service.ClaimOutboxRecords()
+	if stored[0].Status != ClaimOutboxStatusPublished || !stored[0].PublishedAt.Equal(completedAt) {
+		t.Fatalf("stored first claim outbox = %+v, want published at %s", stored[0], completedAt)
+	}
+	if stored[1].Status != ClaimOutboxStatusFailed || stored[1].LastError != temporaryErr.Error() || !stored[1].FailedAt.Equal(completedAt) {
+		t.Fatalf("stored second claim outbox = %+v, want failed with error at %s", stored[1], completedAt)
+	}
+	pending := service.PendingClaimOutboxRecords(10)
+	for _, record := range pending {
+		if record.OutboxID == stored[0].OutboxID || record.OutboxID == stored[1].OutboxID {
+			t.Fatalf("published/failed claim record appeared as pending: %+v", pending)
+		}
+	}
+}
+
+func TestPublishPendingClaimOutboxRejectsInvalidPublisher(t *testing.T) {
+	if results, err := PublishPendingClaimOutbox(ClaimOutboxPublishInput{}); !errors.Is(err, ErrInvalidClaimOutboxPublisher) || results != nil {
+		t.Fatalf("PublishPendingClaimOutbox(invalid) = %+v/%v, want invalid publisher error", results, err)
+	}
+	service := newClaimOutboxStateMachineService(t, 1)
+	if results, err := PublishPendingClaimOutbox(ClaimOutboxPublishInput{
+		Store: service,
+		Limit: 1,
+	}); !errors.Is(err, ErrInvalidClaimOutboxPublisher) || results != nil {
+		t.Fatalf("PublishPendingClaimOutbox(nil publish) = %+v/%v, want invalid publisher error", results, err)
+	}
+}
+
+func TestPublishPendingClaimOutboxReportsStaleClaimWhenMarkRejected(t *testing.T) {
+	temporaryErr := errors.New("temporary broker outage")
+
+	successStore := staleClaimOutboxPublisherStore{
+		ClaimService: newClaimOutboxStateMachineService(t, 1),
+		stalePublish: true,
+	}
+	successResults, err := PublishPendingClaimOutbox(ClaimOutboxPublishInput{
+		Store:       successStore,
+		Limit:       1,
+		ClaimedAt:   testTime(52),
+		CompletedAt: testTime(53),
+		Publish:     func(ClaimOutboxRecord) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingClaimOutbox(stale publish) error = %v, want nil", err)
+	}
+	if len(successResults) != 1 || !successResults[0].StaleClaim || successResults[0].Published || successResults[0].Failed || successResults[0].StoreError {
+		t.Fatalf("stale publish result = %+v, want stale claim only", successResults)
+	}
+
+	failStore := staleClaimOutboxPublisherStore{
+		ClaimService: newClaimOutboxStateMachineService(t, 1),
+		staleFail:    true,
+	}
+	failResults, err := PublishPendingClaimOutbox(ClaimOutboxPublishInput{
+		Store:       failStore,
+		Limit:       1,
+		ClaimedAt:   testTime(54),
+		CompletedAt: testTime(55),
+		Publish:     func(ClaimOutboxRecord) error { return temporaryErr },
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingClaimOutbox(stale fail) error = %v, want nil", err)
+	}
+	if len(failResults) != 1 || !failResults[0].StaleClaim || failResults[0].Published || failResults[0].Failed || failResults[0].StoreError || failResults[0].Error != temporaryErr.Error() {
+		t.Fatalf("stale fail result = %+v, want stale claim with publish error", failResults)
+	}
+}
+
+type staleClaimOutboxPublisherStore struct {
+	*ClaimService
+	stalePublish bool
+	staleFail    bool
+}
+
+func (store staleClaimOutboxPublisherStore) MarkClaimOutboxPublished(outboxID string, claimToken string, publishedAt time.Time) (ClaimOutboxRecord, bool, error) {
+	if store.stalePublish {
+		return ClaimOutboxRecord{}, false, nil
+	}
+	return store.ClaimService.MarkClaimOutboxPublished(outboxID, claimToken, publishedAt)
+}
+
+func (store staleClaimOutboxPublisherStore) MarkClaimOutboxFailed(outboxID string, claimToken string, reason string, failedAt time.Time) (ClaimOutboxRecord, bool, error) {
+	if store.staleFail {
+		return ClaimOutboxRecord{}, false, nil
+	}
+	return store.ClaimService.MarkClaimOutboxFailed(outboxID, claimToken, reason, failedAt)
 }
 
 func newClaimOutboxStateMachineService(t *testing.T, planetCount int) *ClaimService {

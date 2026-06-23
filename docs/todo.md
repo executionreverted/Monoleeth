@@ -347,8 +347,12 @@ for phase status; this file is a compact pending-work index.
   cross-process, or delivered by a durable publisher process. Phase07L adds
   process-local claim tokens so publish/fail callbacks require the current
   in-flight attempt and stale callbacks cannot mutate retried or reclaimed
-  attempts; durable DB rows, row locks/CAS, and a durable publisher still need
-  to preserve that semantic across processes.
+  attempts. Phase07U adds interface-backed publisher drain helpers for claim
+  and production/route settlement outbox records, preserving claim-token
+  publish/fail semantics behind a DB-adapter-ready contract. Durable DB rows,
+  row locks/CAS, cross-process leases, idempotency-table enforcement, and a
+  scheduled durable publisher still need to preserve that semantic across
+  processes.
 - [ ] Add station/storage destination settlement adapters for Phase 09
   automation routes. Current `SettleRoute` supports planet-to-planet storage and
   rejects generic `storage` or `station` destinations with an explicit error.
