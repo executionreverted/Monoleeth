@@ -350,6 +350,13 @@ Current slice completed:
   gateway-level test evidence that a full destination planet storage clamps
   delivered resources, flags `destination_full`, and leaves stored units within
   server-owned capacity without accepting client-authored storage facts.
+- Phase07AL building mutation rollback regression follow-up: authenticated
+  `planet.building_build` gateway tests now cover insufficient planet storage
+  materials and insufficient wallet credits before mutation; both paths reject
+  safely without building commits, building material debits, wallet debits,
+  building material ledger rows, building mutation reference rows, or queued
+  owner events in the no-pending-settlement gateway path. Pre-build production
+  settlement remains a separate reconciliation boundary.
 
 ## Source Specs
 
@@ -478,11 +485,12 @@ Mockup areas covered:
 - [x] Add intel share and coordinate item handlers with visibility-safe
       recipient filtering.
 - [x] Add read-only production summary handler for owned planets.
-- [ ] Add production build/upgrade handlers.
+- [x] Add production build/upgrade handlers.
 - [x] Add process-local production-domain build/upgrade material debit ledger,
       idempotency, and in-memory event/outbox foundation.
-- [ ] Add authenticated gateway transaction flows for claim/build/upgrade/storage
-      mutations.
+- [x] Add authenticated gateway transaction flows for build/upgrade mutations.
+- [ ] Add durable authenticated transaction flows for claim/storage mutation
+      coupling once DB/CAS storage boundaries replace process-local stores.
 - [x] Add offline settlement reconcile path that uses server-owned windows for
       production/storage summary queries.
 - [x] Add production/route settlement domain result and outbox payload evidence
@@ -521,7 +529,9 @@ Mockup areas covered:
 - [x] Route settlement timing is server-calculated in the backend gateway.
 - [ ] Durable route settlement windows are enforced by DB/idempotency rows and
       published through the durable outbox.
-- [ ] Building and route mutations use inventory/wallet/storage ledgers.
+- [x] Building mutations use production-local material ledger rows and wallet
+      debit ledger rows.
+- [ ] Define and enforce route storage ledger semantics for route mutations.
 - [x] Storage capacity cannot be exceeded.
 
 ## Tests
@@ -547,7 +557,7 @@ Mockup areas covered:
       authority to the buyer and can be used once by that buyer.
 - [x] Planet claim marks active coordinate-scroll market listings for the
       claimed planet stale and stale coordinate listings cannot be bought.
-- [ ] Building build/upgrade debits materials/currency once.
+- [x] Building build/upgrade debits materials/currency once.
 - [x] Production summary/storage duplicate and sub-unit polls no-op without
       advancing production time or queuing duplicate events.
 - [x] Production settlement stores an in-memory settlement reference and pending

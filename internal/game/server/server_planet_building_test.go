@@ -262,6 +262,72 @@ func TestPlanetBuildingBuildRejectsWrongOwnerAndOtherMapWithoutMutation(t *testi
 	}
 }
 
+func TestPlanetBuildingBuildRejectsInsufficientMaterialsBeforeMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "planet-building-materials@example.com", "Building Materials")
+	planetID := foundation.PlanetID("planet-building-materials")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, planetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-building-materials")
+	saveRouteControlStorage(t, gameServer, planetID, []production.StoredItem{{ItemID: "iron_ore", Quantity: 10}})
+	seedPlanetBuildingWalletCredits(t, gameServer, owner.PlayerID, 500, "quest_reward:planet-building-materials-seed")
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-planet-building-materials","op":"planet.building_build","payload":{"planet_id":"`+planetID.String()+`","building_type":"alloy_foundry","slot":"alpha"},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeForbidden {
+		t.Fatalf("insufficient materials build response = %+v, want forbidden", response)
+	}
+	if buildings, err := gameServer.runtime.Production.Buildings(planetID); err != nil || len(buildings) != 0 {
+		t.Fatalf("buildings after insufficient materials = %+v err=%v, want none", buildings, err)
+	}
+	assertStoredRouteStorageQuantity(t, gameServer, planetID, "iron_ore", 10)
+	if got := gameServer.runtime.Wallet.Balance(owner.PlayerID, economy.CurrencyBucketCredits); got != starterWalletCredits+500 {
+		t.Fatalf("wallet after insufficient materials = %d, want %d", got, starterWalletCredits+500)
+	}
+	assertPlanetBuildingMutationBoundaryCounts(t, gameServer, owner.PlayerID, 0, 0, 0, 0, 3)
+	assertNoQueuedEventsForSession(t, gameServer, owner.SessionID)
+}
+
+func TestPlanetBuildingBuildRejectsInsufficientWalletBeforeMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "planet-building-wallet@example.com", "Building Wallet")
+	planetID := foundation.PlanetID("planet-building-wallet")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, planetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-building-wallet")
+	saveRouteControlStorage(t, gameServer, planetID, []production.StoredItem{{ItemID: "iron_ore", Quantity: 50}})
+	if _, err := gameServer.runtime.Wallet.DebitWallet(economy.DebitWalletInput{
+		PlayerID:     owner.PlayerID,
+		Currency:     economy.CurrencyBucketCredits,
+		Amount:       starterWalletCredits,
+		Reason:       economy.LedgerReason("test_drain"),
+		ReferenceKey: foundation.IdempotencyKey("quest_reward:planet-building-wallet-drain"),
+	}); err != nil {
+		t.Fatalf("DebitWallet(drain) error = %v, want nil", err)
+	}
+	walletLedgerBefore := countPlanetBuildingWalletLedgerEntriesForPlayer(gameServer.runtime.Wallet.CurrencyLedgerEntries(), owner.PlayerID)
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-planet-building-wallet","op":"planet.building_build","payload":{"planet_id":"`+planetID.String()+`","building_type":"alloy_foundry","slot":"alpha"},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeNotEnoughFunds {
+		t.Fatalf("insufficient wallet build response = %+v, want not enough funds", response)
+	}
+	if buildings, err := gameServer.runtime.Production.Buildings(planetID); err != nil || len(buildings) != 0 {
+		t.Fatalf("buildings after insufficient wallet = %+v err=%v, want none", buildings, err)
+	}
+	assertStoredRouteStorageQuantity(t, gameServer, planetID, "iron_ore", 50)
+	if got := gameServer.runtime.Wallet.Balance(owner.PlayerID, economy.CurrencyBucketCredits); got != 0 {
+		t.Fatalf("wallet after insufficient wallet = %d, want unchanged 0", got)
+	}
+	if got := countPlanetBuildingWalletLedgerEntriesForPlayer(gameServer.runtime.Wallet.CurrencyLedgerEntries(), owner.PlayerID); got != walletLedgerBefore {
+		t.Fatalf("wallet ledger entries after insufficient wallet = %d, want unchanged %d", got, walletLedgerBefore)
+	}
+	assertPlanetBuildingMutationBoundaryCounts(t, gameServer, owner.PlayerID, 0, 0, 0, 0, walletLedgerBefore)
+	assertNoQueuedEventsForSession(t, gameServer, owner.SessionID)
+}
+
 func TestPlanetBuildingUpgradeIronExtractorDebitsCostsOnceAndUpdatesLevel(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
 	gameServer := newRouteControlTestServer(t, clock)
