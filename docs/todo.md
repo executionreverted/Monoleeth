@@ -460,9 +460,11 @@ for phase status; this file is a compact pending-work index.
   carries safe server settlement results into browser route rows so
   source-empty, destination-full, no-op, and loss-applied outcomes are visible
   after single-route settle events/responses and owner reconcile `settlements[]`
-  responses. Owner reconcile `{}` now also merges committed durable owner route
-  rows after live route read-model loss, so storage/station destination routes
-  still emit no-op settlement/list/update events and safe masked payloads.
+  responses, and route list durable-fallback responses preserve that feedback
+  when reconnect/read-model payloads omit settlement details. Owner reconcile
+  `{}` now also merges committed durable owner route rows after live route
+  read-model loss, so storage/station destination routes still emit no-op
+  settlement/list/update events and safe masked payloads.
   Phase07CY restores missing live source/destination storage rows from the
   latest committed route settlement durable storage evidence before gateway
   preflight, letting later `route.settle` retries continue with real storage

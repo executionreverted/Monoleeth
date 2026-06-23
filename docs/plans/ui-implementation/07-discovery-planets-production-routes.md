@@ -108,9 +108,10 @@ Current slice completed:
   responses can display source-empty, destination-full, no-op, and loss-applied
   outcomes without trusting client-authored route/storage/window facts. Route
   snapshot/list reconciliation now preserves the last server settlement result
-  when later route read-model events omit settlement details, so queued
-  `route.updated`, `route.snapshot`, or `route.list` events cannot erase the
-  player's settlement feedback.
+  when later route read-model events or durable-fallback `route.list` responses
+  omit settlement details, so queued `route.updated`, `route.snapshot`,
+  `route.list`, or reconnect query payloads cannot erase the player's
+  settlement feedback.
   Phase07DC locks matching route row mutation controls while a single-route
   settlement is pending and locks route create plus all row controls while
   owner-wide reconcile is pending, avoiding duplicate browser intents during
@@ -1272,6 +1273,9 @@ Mockup areas covered:
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.
+- [x] Browser route list durable-fallback responses preserve the last server
+      settlement feedback instead of clearing source-empty, destination-full,
+      no-op, or loss-applied UI state.
 - [x] Server route.create creates an owned planet route with server-derived
       owner, route id, map ids, safe response/events, and route list/snapshot
       reconciliation.
