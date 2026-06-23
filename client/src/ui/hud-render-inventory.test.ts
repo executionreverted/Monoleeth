@@ -6,6 +6,67 @@ import type { ClientState } from '../state/types';
 import { hudSelection } from './hud-selection';
 import { cargoPanel } from './hud-render-inventory';
 
+describe('cargoPanel inventory tab', () => {
+  beforeEach(() => {
+    hudSelection.selectedInventoryTab = 'inventory';
+  });
+
+  test('renders coordinate item instances with a server intent use control', () => {
+    const state = craftingState({
+      inventory: {
+        stackable: [],
+        instances: [
+          {
+            item_instance_id: 'coord-scroll-1',
+            item_id: 'planet_coordinate_scroll',
+            display_name: 'Planet Coordinate Scroll',
+            location: 'account_inventory',
+            item_type: 'intel',
+            rarity: 'rare',
+          },
+        ],
+        counts: { cargo_stacks: 0, storage_stacks: 0, equipped_instances: 0 },
+      },
+    });
+    const html = cargoPanel(state);
+
+    expect(html).toContain('data-inventory-instance-panel="true"');
+    expect(html).toContain('Planet Coordinate Scroll');
+    expect(html).toMatch(/data-action="intel-coordinate-use"[^>]*data-item-instance-id="coord-scroll-1"[^>]*>Use/);
+    expect(html).not.toContain('data-planet-id=');
+    expect(html).not.toContain('data-coordinate');
+  });
+
+  test('locks coordinate item use while the matching command is pending', () => {
+    const state = craftingState({
+      pendingCommands: {
+        'request-coordinate-use': {
+          requestID: 'request-coordinate-use',
+          op: OPERATIONS.intelCoordinateItemUse,
+          payload: { item_instance_id: 'coord-scroll-1' },
+          queuedAt: 1000,
+        },
+      },
+      inventory: {
+        stackable: [],
+        instances: [
+          {
+            item_instance_id: 'coord-scroll-1',
+            item_id: 'planet_coordinate_scroll',
+            display_name: 'Planet Coordinate Scroll',
+            location: 'account_inventory',
+          },
+        ],
+        counts: { cargo_stacks: 0, storage_stacks: 0, equipped_instances: 0 },
+      },
+    });
+    const html = cargoPanel(state);
+
+    expect(html).toMatch(/data-action="intel-coordinate-use"[^>]*disabled[^>]*>Using/);
+    expect(html).toContain('Coordinate item use pending.');
+  });
+});
+
 describe('cargoPanel crafting tab', () => {
   beforeEach(() => {
     hudSelection.selectedInventoryTab = 'crafting';

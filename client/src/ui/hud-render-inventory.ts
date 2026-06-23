@@ -117,6 +117,7 @@ export function equipmentPanel(context: InventoryTabContext): string {
 
 export function inventoryStoredPanel(context: InventoryTabContext): string {
   const { inventory, loadout, moduleItems, selectedModule } = context;
+  const nonModuleItems = inventory.instances.filter((item) => !item.module_slot_type);
   const stackRows = inventory.stackable
     .map(
       (item) => `
@@ -130,6 +131,7 @@ export function inventoryStoredPanel(context: InventoryTabContext): string {
   return `
     <section class="inventory-storage-console" data-inventory-storage="true">
       ${moduleBayPanel(moduleItems, loadout.slots, selectedModule, 'Account modules')}
+      ${inventoryInstancePanel(context, nonModuleItems)}
       <div class="inventory-stack-panel">
         <div class="module-bay__head">
           <strong>Stored cargo items</strong>
@@ -143,6 +145,57 @@ export function inventoryStoredPanel(context: InventoryTabContext): string {
       </div>
     </section>
   `;
+}
+
+function inventoryInstancePanel(context: InventoryTabContext, items: ModuleInventoryItem[]): string {
+  const rows = items
+    .map(
+      (item) => `
+        <li>
+          <span title="${escapeHTML(inventoryInstanceMeta(item))}">${escapeHTML(item.display_name || item.item_id)}</span>
+          <strong>${escapeHTML(publicInventoryStateLabel(item.location))}</strong>
+          ${coordinateItemUseButton(context, item)}
+        </li>
+      `,
+    )
+    .join('');
+  return `
+    <div class="inventory-stack-panel" data-inventory-instance-panel="true">
+      <div class="module-bay__head">
+        <strong>Stored account items</strong>
+        <span>${items.length} instances</span>
+      </div>
+      ${
+        items.length > 0
+          ? `<ul class="compact-list inventory-instance-list">${rows}</ul>`
+          : '<div class="empty-line">No account item instances.</div>'
+      }
+    </div>
+  `;
+}
+
+function coordinateItemUseButton(context: InventoryTabContext, item: ModuleInventoryItem): string {
+  if (item.item_id !== 'planet_coordinate_scroll') {
+    return '';
+  }
+  const pending = hasPendingOpPayloadField(context.state, OPERATIONS.intelCoordinateItemUse, 'item_instance_id', item.item_instance_id);
+  const enabled = realtimeReady(context.state) && !pending && item.location === 'account_inventory';
+  const label = pending ? 'Using' : 'Use';
+  const title = pending
+    ? 'Coordinate item use pending.'
+    : item.location !== 'account_inventory'
+      ? 'Coordinate item is not in account inventory.'
+      : 'Reveal this coordinate item through the server.';
+  return `<button type="button" data-action="intel-coordinate-use" data-item-instance-id="${escapeHTML(item.item_instance_id)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${label}</button>`;
+}
+
+function inventoryInstanceMeta(item: ModuleInventoryItem): string {
+  return [
+    publicInventoryStateLabel(item.location),
+    item.item_type,
+    item.rarity,
+    item.bound_state,
+  ].filter(Boolean).join(' · ');
 }
 
 export function cargoHoldPanel(context: InventoryTabContext): string {

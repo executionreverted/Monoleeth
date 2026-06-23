@@ -4,6 +4,8 @@ import { renderToast } from './toast';
 import { hudSelection } from './hud-selection';
 import { collectHUDPanels, hudShellHTML } from './hud-render-shell';
 import { cargoPanel } from './hud-render-inventory';
+import { dispatchCraftingButtonAction } from './hud-crafting-actions';
+import { dispatchInventoryButtonAction } from './hud-inventory-actions';
 import { dispatchPlanetRouteButtonAction } from './hud-planet-route-actions';
 import { economyPanel } from './hud-render-economy';
 import { questsPanel } from './hud-render-quests';
@@ -11,7 +13,7 @@ import { planetsPanel } from './hud-render-planets';
 import { topbarDangerText, topbarLocationText } from './hud-topbar';
 import { actionBar, baseWindowDefinitions, intelPanel, logPanel, modalDefinition, movementEtaPanel, opsPanel, quickActionStates, shipPanel, statusPanel, systemsPanel, targetPanel, windowDefinitions, windowLayout } from './hud-render-panels';
 import type { HUDDragState, HUDHandlers, HUDModalDragState, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, HUDWindowState } from './hud-types';
-import { clamp, escapeHTML, formatCompactNumber, formatPair, formatPercent, isControlElement, isInventoryTabID, isModuleFilterID, isQuickActionKey, isShopCategoryID, normalizeModalID, normalizePanelID, parseLoadoutDragPayload } from './hud-formatters';
+import { clamp, escapeHTML, formatCompactNumber, formatPair, formatPercent, isControlElement, isQuickActionKey, isShopCategoryID, normalizeModalID, normalizePanelID, parseLoadoutDragPayload } from './hud-formatters';
 
 export type { HUDHandlers } from './hud-types';
 
@@ -447,6 +449,16 @@ export class HUD {
     })) {
       return;
     }
+    if (dispatchInventoryButtonAction(button, this.handlers, () => {
+      if (this.currentState) {
+        this.render(this.currentState);
+      }
+    })) {
+      return;
+    }
+    if (dispatchCraftingButtonAction(button, this.handlers)) {
+      return;
+    }
     switch (button.dataset.action) {
       case 'planet-detail':
         if (button.dataset.planetId) {
@@ -510,41 +522,6 @@ export class HUD {
           }
           break;
         }
-        case 'inventory-tab':
-          if (isInventoryTabID(button.dataset.inventoryTab)) {
-            hudSelection.selectedInventoryTab = button.dataset.inventoryTab;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
-          }
-          break;
-        case 'module-filter':
-          if (isModuleFilterID(button.dataset.moduleFilter)) {
-            hudSelection.selectedModuleFilter = button.dataset.moduleFilter;
-            hudSelection.selectedModuleInstanceID = null;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
-          }
-          break;
-        case 'loadout-equip':
-          if (button.dataset.slotId && button.dataset.itemInstanceId) {
-            this.handlers.onLoadoutEquipModule(button.dataset.slotId, button.dataset.itemInstanceId);
-          }
-          break;
-        case 'loadout-unequip':
-          if (button.dataset.slotId) {
-            this.handlers.onLoadoutUnequipModule(button.dataset.slotId);
-          }
-          break;
-        case 'module-select':
-          if (button.dataset.moduleInstanceId) {
-            hudSelection.selectedModuleInstanceID = button.dataset.moduleInstanceId;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
-          }
-          break;
         case 'quest-select':
           if (button.dataset.questKey) {
             hudSelection.selectedQuestKey = button.dataset.questKey;

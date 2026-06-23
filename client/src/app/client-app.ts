@@ -49,6 +49,7 @@ export class ClientApp extends ClientAppHandlers {
       onPlanetNavigate: (planetID) => this.navigateToPlanet(planetID),
       onPlanetClaim: (planetID) => this.sendPlanetClaim(planetID),
       onIntelCoordinateItemCreate: (planetID) => this.sendIntelCoordinateItemCreate(planetID),
+      onIntelCoordinateItemUse: (itemInstanceID) => this.sendIntelCoordinateItemUse(itemInstanceID),
       onPlanetBuildingBuild: (input) => this.sendPlanetBuildingBuild(input),
       onPlanetBuildingUpgrade: (input) => this.sendPlanetBuildingUpgrade(input),
       onCraftingStart: (recipeID) => this.sendCraftingStart(recipeID),

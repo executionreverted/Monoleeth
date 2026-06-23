@@ -254,6 +254,12 @@ Current slice completed:
   sends only `planet_id`, shows pending state from real queued commands, and
   reconciles inventory through the server response snapshot. Coordinate item
   use/share browser controls remain tracked separately.
+- Phase07CV browser coordinate item use follow-up: inventory instance rows now
+  render owned `planet_coordinate_scroll` items and expose an authenticated
+  `intel.coordinate_item.use` action that sends only `item_instance_id`, locks
+  while the matching command is pending, and relies on server snapshots/events
+  to reconcile known planets and inventory. Coordinate item share browser
+  controls remain tracked separately.
 - Phase07U outbox publisher-boundary follow-up: discovery claim outbox and
   production-domain outbox records now have small interface-backed publisher
   drain helpers. The production helper covers production settlements, route
@@ -1231,6 +1237,9 @@ Mockup areas covered:
 - [x] Browser known-planet panels expose coordinate item creation through the
       authenticated `intel.coordinate_item.create` command with pending state
       and no coordinate/item-instance truth in the UI intent.
+- [x] Browser inventory exposes coordinate item use through the authenticated
+      `intel.coordinate_item.use` command with pending state and no planet or
+      coordinate truth in the UI intent.
 
 ## Done Criteria
 

@@ -330,6 +330,17 @@ export abstract class ClientAppCommands extends ClientAppCore {
     );
   }
 
+  protected sendIntelCoordinateItemUse(itemInstanceID: string): void {
+    if (!itemInstanceID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `intel-coordinate-use:${itemInstanceID}`,
+      () => this.commandBuilder.intelCoordinateItemUse(itemInstanceID),
+      'Coordinate item use already pending.',
+    );
+  }
+
   protected sendPlanetBuildingBuild(input: { planetID: string; buildingType: string; slot: string }): void {
     if (!input.planetID || !input.buildingType || !input.slot) {
       return;
