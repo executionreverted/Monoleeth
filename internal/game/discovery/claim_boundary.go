@@ -178,6 +178,8 @@ func (store *InMemoryStore) MarkClaimedClaimOutboxPublished(outboxID string, cla
 	}
 	store.claimOutbox[index].Status = ClaimOutboxStatusPublished
 	store.claimOutbox[index].PublishedAt = publishedAt.UTC()
+	store.claimOutbox[index].FailedAt = time.Time{}
+	store.claimOutbox[index].LastError = ""
 	return cloneClaimOutboxRecord(store.claimOutbox[index]), true
 }
 

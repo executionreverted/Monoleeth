@@ -381,6 +381,9 @@ func TestClaimOutboxFailRetryAndStaleClaimTokens(t *testing.T) {
 	if published.Status != ClaimOutboxStatusPublished {
 		t.Fatalf("published status = %q, want published", published.Status)
 	}
+	if !published.FailedAt.IsZero() || published.LastError != "" {
+		t.Fatalf("published failure evidence = %s/%q, want cleared", published.FailedAt, published.LastError)
+	}
 }
 
 func TestClaimOutboxExpiredInFlightReleaseReturnsRecordsToPending(t *testing.T) {

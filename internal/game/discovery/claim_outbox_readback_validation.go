@@ -19,7 +19,8 @@ func validateClaimOutboxReadbackState(record ClaimOutboxRecord) error {
 			return fmt.Errorf("delivery_state: %w", ErrInvalidClaimDurableCommit)
 		}
 	case ClaimOutboxStatusPublished:
-		if record.PublishedAt.IsZero() || record.ClaimedAt.IsZero() || record.ClaimToken == "" {
+		if record.PublishedAt.IsZero() || record.ClaimedAt.IsZero() || record.ClaimToken == "" ||
+			!record.FailedAt.IsZero() || record.LastError != "" {
 			return fmt.Errorf("delivery_state: %w", ErrInvalidClaimDurableCommit)
 		}
 	case ClaimOutboxStatusFailed:

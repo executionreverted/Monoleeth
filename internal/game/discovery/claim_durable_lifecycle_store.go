@@ -79,7 +79,11 @@ func (store *InMemoryClaimDurableLifecycleStore) ApplyClaimDurableLifecyclePlan(
 	store.ensureMapsLocked()
 
 	if existing, ok := store.plans[reference]; ok {
-		if !claimDurableLifecyclePlansEqual(existing, normalized) {
+		existingReplay, err := claimDurableLifecyclePlanForReplay(existing)
+		if err != nil {
+			return ClaimDurableLifecycleResult{}, err
+		}
+		if !claimDurableLifecyclePlansEqual(existingReplay, normalized) {
 			return ClaimDurableLifecycleResult{}, fmt.Errorf("claim_reference_conflict: %w", ErrInvalidClaimDurableCommit)
 		}
 		return ClaimDurableLifecycleResult{Plan: cloneClaimDurableLifecyclePlan(existing), Duplicate: true}, nil
@@ -186,6 +190,8 @@ func (store *InMemoryClaimDurableLifecycleStore) MarkClaimOutboxPublished(
 	}
 	plan.Commit.Outbox.Status = ClaimOutboxStatusPublished
 	plan.Commit.Outbox.PublishedAt = publishedAt.UTC()
+	plan.Commit.Outbox.FailedAt = time.Time{}
+	plan.Commit.Outbox.LastError = ""
 	store.plans[reference] = cloneClaimDurableLifecyclePlan(plan)
 	return cloneClaimOutboxRecord(plan.Commit.Outbox), true, nil
 }
@@ -411,6 +417,15 @@ func normalizeClaimDurableLifecyclePlan(plan ClaimDurableLifecyclePlan) (ClaimDu
 		productionInit = &normalizedInit
 	}
 	return NewClaimDurableLifecyclePlan(&begin, productionInit, &commit)
+}
+
+func claimDurableLifecyclePlanForReplay(plan ClaimDurableLifecyclePlan) (ClaimDurableLifecyclePlan, error) {
+	cloned := cloneClaimDurableLifecyclePlan(plan)
+	if err := validateClaimDurableLifecycleReadbackPlan(cloned); err != nil {
+		return ClaimDurableLifecyclePlan{}, err
+	}
+	cloned.Commit.Outbox = pendingClaimOutboxRecordForCommitValidation(cloned.Commit.Outbox)
+	return cloned, nil
 }
 
 func normalizeClaimDurableLifecycleBeginPlan(plan ClaimDurableBeginPlan) (ClaimDurableBeginPlan, error) {

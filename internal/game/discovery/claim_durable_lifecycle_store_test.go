@@ -64,6 +64,43 @@ func TestClaimDurableLifecycleStoreDuplicateReferenceReplaysWithoutDuplicateRows
 	}
 }
 
+func TestClaimDurableLifecycleStoreDuplicateReplayAfterOutboxDeliveryStateChange(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(plan); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan() error = %v, want nil", err)
+	}
+
+	if _, err := PublishPendingClaimOutbox(ClaimOutboxPublishInput{
+		Store:       store,
+		Limit:       1,
+		ClaimedAt:   testTime(41),
+		CompletedAt: testTime(42),
+		Publish: func(ClaimOutboxRecord) error {
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("PublishPendingClaimOutbox() error = %v, want nil", err)
+	}
+
+	duplicate, err := store.ApplyClaimDurableLifecyclePlan(plan)
+	if err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan(replay after publish) error = %v, want nil", err)
+	}
+	if !duplicate.Duplicate || duplicate.Plan.Commit.Boundary.ClaimReference != plan.Commit.Boundary.ClaimReference {
+		t.Fatalf("replay result = %+v, want duplicate with original lifecycle", duplicate)
+	}
+	if len(store.ClaimReferences()) != 1 || len(store.OutboxRecords()) != 1 {
+		t.Fatalf("durable lifecycle rows after replay refs=%d outbox=%d, want no duplicate append",
+			len(store.ClaimReferences()),
+			len(store.OutboxRecords()))
+	}
+	rows := store.OutboxRecords()
+	if rows[0].Status != ClaimOutboxStatusPublished || rows[0].PublishedAt.IsZero() {
+		t.Fatalf("outbox row after replay = %+v, want published delivery evidence preserved", rows[0])
+	}
+}
+
 func TestClaimDurableLifecycleStoreRejectsConflictingReferenceReuse(t *testing.T) {
 	plan := claimDurableLifecyclePlanForStoreTest(t)
 	store := NewInMemoryClaimDurableLifecycleStore()
@@ -314,6 +351,25 @@ func TestClaimDurableLifecycleStoreRecordsCommittedClaimOutboxPublishFailures(t 
 		recovered.Commit.Outbox.LastError != temporaryErr.Error() ||
 		!recovered.Commit.Outbox.FailedAt.Equal(testTime(53)) {
 		t.Fatalf("recovered lifecycle after retry = %+v, want pending row with preserved failure evidence", recovered.Commit.Outbox)
+	}
+
+	republished, err := PublishPendingClaimOutbox(ClaimOutboxPublishInput{
+		Store:       store,
+		Limit:       1,
+		ClaimedAt:   testTime(55),
+		CompletedAt: testTime(56),
+		Publish: func(ClaimOutboxRecord) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingClaimOutbox(retry) error = %v, want nil", err)
+	}
+	if len(republished) != 1 ||
+		republished[0].Record.Status != ClaimOutboxStatusPublished ||
+		!republished[0].Record.FailedAt.IsZero() ||
+		republished[0].Record.LastError != "" {
+		t.Fatalf("republished claim outbox row = %+v, want published without stale failure evidence", republished)
 	}
 }
 
@@ -646,6 +702,18 @@ func TestClaimDurableLifecycleStoreReadbackMissingAndInvalidReferences(t *testin
 	store.references = append(store.references, plan.Commit.Boundary.ClaimReference)
 	if recovered, ok, err := store.CommittedClaimDurableLifecyclePlan(plan.Commit.Boundary.ClaimReference); !errors.Is(err, ErrInvalidClaimDurableCommit) || ok || recovered.Commit.Boundary.ClaimReference != "" {
 		t.Fatalf("CommittedClaimDurableLifecyclePlan(corrupt published) = %+v/%v/%v, want invalid durable commit", recovered, ok, err)
+	}
+
+	corruptPublishedFailure := plan
+	corruptPublishedFailure.Commit.Outbox.Status = ClaimOutboxStatusPublished
+	corruptPublishedFailure.Commit.Outbox.ClaimedAt = testTime(91)
+	corruptPublishedFailure.Commit.Outbox.ClaimToken = "claim-token"
+	corruptPublishedFailure.Commit.Outbox.PublishedAt = testTime(92)
+	corruptPublishedFailure.Commit.Outbox.FailedAt = testTime(93)
+	corruptPublishedFailure.Commit.Outbox.LastError = "stale failure"
+	store.plans[plan.Commit.Boundary.ClaimReference] = cloneClaimDurableLifecyclePlan(corruptPublishedFailure)
+	if recovered, ok, err := store.CommittedClaimDurableLifecyclePlan(plan.Commit.Boundary.ClaimReference); !errors.Is(err, ErrInvalidClaimDurableCommit) || ok || recovered.Commit.Boundary.ClaimReference != "" {
+		t.Fatalf("CommittedClaimDurableLifecyclePlan(corrupt published failure evidence) = %+v/%v/%v, want invalid durable commit", recovered, ok, err)
 	}
 }
 
