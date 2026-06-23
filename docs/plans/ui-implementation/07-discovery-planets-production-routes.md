@@ -346,6 +346,10 @@ Current slice completed:
 - Phase07AJ hidden planet detail regression follow-up: `discovery.planet_detail`
   now has server test evidence that materialized planets without player intel
   return a safe not-found response without creating intel rows or queued events.
+- Phase07AK route storage capacity regression follow-up: `route.settle` now has
+  gateway-level test evidence that a full destination planet storage clamps
+  delivered resources, flags `destination_full`, and leaves stored units within
+  server-owned capacity without accepting client-authored storage facts.
 
 ## Source Specs
 
@@ -518,7 +522,7 @@ Mockup areas covered:
 - [ ] Durable route settlement windows are enforced by DB/idempotency rows and
       published through the durable outbox.
 - [ ] Building and route mutations use inventory/wallet/storage ledgers.
-- [ ] Storage capacity cannot be exceeded.
+- [x] Storage capacity cannot be exceeded.
 
 ## Tests
 

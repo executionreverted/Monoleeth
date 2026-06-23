@@ -82,6 +82,44 @@ func TestRouteSettleTransfersStorageAndQueuesSafeOwnerEvents(t *testing.T) {
 	assertRouteSettleEvents(t, eventsBySession[owner.SessionID], routeID, sourcePlanetID, "1-1", "1-2", owner.PlayerID, 60, 1)
 }
 
+func TestRouteSettleClampsDestinationStorageCapacity(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+	gameServer := newRouteControlTestServer(t, clock)
+	owner := createResolvedRuntimeSession(t, gameServer, "route-settle-capacity@example.com", "Route Settle Capacity")
+	sourcePlanetID := foundation.PlanetID("planet-route-settle-capacity-a")
+	destinationPlanetID := foundation.PlanetID("planet-route-settle-capacity-b")
+	routeID := foundation.RouteID("route-settle-capacity")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-route-settle-capacity-a")
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, destinationPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-route-settle-capacity-b")
+	saveRouteControlStorage(t, gameServer, sourcePlanetID, []production.StoredItem{{ItemID: "refined_alloy", Quantity: 100}})
+	saveRouteControlStorage(t, gameServer, destinationPlanetID, []production.StoredItem{{ItemID: "iron_ore", Quantity: 250}})
+	seedAutomationRouteForTest(t, gameServer, owner.PlayerID, routeID, sourcePlanetID, destinationPlanetID, "map_1_1", "map_1_2")
+	clock.Advance(time.Hour)
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-route-settle-capacity","op":"route.settle","payload":{"route_id":"`+routeID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("route.settle capacity response error = %+v, want success", response.Error)
+	}
+	var payload struct {
+		Settlement routeSettlementPayload `json:"settlement"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode route.settle capacity payload: %v", err)
+	}
+	assertRouteSettlementPayload(t, payload.Settlement, routeID, "refined_alloy", 3_600_000, 40, 40, 0, 40, 0, false, "capacity route.settle response")
+	if !payload.Settlement.DestinationFull {
+		t.Fatalf("capacity route.settle destination_full = false, want true")
+	}
+	assertStoredRouteStorageQuantity(t, gameServer, sourcePlanetID, "refined_alloy", 60)
+	assertStoredRouteStorageQuantity(t, gameServer, destinationPlanetID, "refined_alloy", 0)
+	assertStoredRouteStorageQuantity(t, gameServer, destinationPlanetID, "iron_ore", 250)
+	assertStoredPlanetStorageWithinCapacity(t, gameServer, destinationPlanetID)
+}
+
 func TestRouteSettleImmediateDuplicateReturnsNoOpWithoutDuplicateTransfer(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
 	gameServer := newRouteControlTestServer(t, clock)
@@ -584,6 +622,17 @@ func assertRouteSettlementPayload(
 	}
 	if payload.SettledAt <= 0 {
 		t.Fatalf("%s settled_at = %d, want server timestamp", label, payload.SettledAt)
+	}
+}
+
+func assertStoredPlanetStorageWithinCapacity(t *testing.T, gameServer *Server, planetID foundation.PlanetID) {
+	t.Helper()
+	storage, ok, err := gameServer.runtime.Production.PlanetStorage(planetID)
+	if err != nil || !ok {
+		t.Fatalf("PlanetStorage(%q) ok=%v err=%v, want stored", planetID, ok, err)
+	}
+	if used, capacity := storage.UsedUnits(), storage.CapacityUnits; used > capacity {
+		t.Fatalf("storage %q used/capacity = %d/%d, want within capacity", planetID, used, capacity)
 	}
 }
 
