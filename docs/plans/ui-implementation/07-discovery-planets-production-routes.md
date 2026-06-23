@@ -421,6 +421,15 @@ Current slice completed:
   consume a single validated row bundle directly from the transaction result,
   without callers manually matching references, outbox rows, and route storage
   ledger rows. Concrete durable stores and workers remain open.
+- Phase07BH settlement durable window readback/publisher follow-up:
+  the settlement durable commit-store adapter can now rebuild production and
+  route commit/dispatch plans by server-derived planet-or-route settlement
+  window, not only by a precomputed idempotency key. The same durable adapter
+  also implements the production-domain publisher and lease-reaper contracts,
+  so committed settlement outbox rows can be claimed, published, failed, or
+  released with claim-token guards while preserving settlement reference/window
+  evidence and route storage ledger rows. Real DB rows, row locks/CAS,
+  cross-process publisher workers, and scheduled reapers remain open.
 - Phase07AT claim durable commit-plan follow-up:
   `NewClaimDurableCommitPlan` and
   `CompletePlanetClaimBoundaryResult.DurableCommitPlan()` now validate the
@@ -710,6 +719,11 @@ Mockup areas covered:
       durable commit-store adapter.
 - [x] Add durable settlement commit readback helpers that recover committed
       durable commit and outbox dispatch plans by settlement reference key.
+- [x] Add durable settlement window readback helpers that recover production
+      and route commit/dispatch plans by server-derived planet-or-route window.
+- [x] Let the settlement durable commit-store adapter satisfy the production
+      outbox publisher and lease-reaper contracts for committed settlement
+      outbox rows.
 - [x] Add process-local store-owned settlement reference records and pending
       outbox records for production and route settlements.
 - [x] Add process-local production outbox claim/publish/fail/retry delivery
@@ -814,6 +828,8 @@ Mockup areas covered:
       commit-store adapter with exact replay and invalid-row rejection.
 - [x] Production/storage summary handlers hand server-owned production
       settlement transaction rows to the runtime durable commit-store adapter.
+- [x] Durable production settlement outbox rows can be claimed and published
+      through the production outbox publisher contract with claim-token guards.
 - [ ] Durable production settlement is enforced by DB/idempotency rows and
       published through the durable outbox.
 - [x] Server route.settle transfers storage once, returns no-op on immediate
@@ -844,6 +860,9 @@ Mockup areas covered:
 - [x] Route settlement handlers apply committed route references, pending
       outbox rows, and route storage ledger rows through the runtime durable
       commit-store adapter.
+- [x] Durable route settlement outbox rows can be claimed, published, failed,
+      and lease-released through the production outbox publisher contracts
+      without mutating committed route storage ledger rows.
 - [x] Building mutation durable readback rebuilds a validated pending outbox
       dispatch plan for `planet.building_updated` publisher scheduling.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published

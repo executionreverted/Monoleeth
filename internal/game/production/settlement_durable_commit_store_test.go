@@ -223,6 +223,180 @@ func TestSettlementDurableCommitStoreReadsCommittedDispatchPlanByReference(t *te
 	}
 }
 
+func TestSettlementDurableCommitStoreReadsCommittedProductionWindowPlans(t *testing.T) {
+	plan := productionDurableCommitPlanForStoreTest(t)
+	store := NewInMemorySettlementDurableCommitStore()
+	if _, err := store.ApplySettlementDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplySettlementDurableCommitPlan() error = %v, want nil", err)
+	}
+
+	recovered, ok, err := store.CommittedProductionSettlementDurableCommitPlan(plan.Reference.PlanetID, plan.Reference.SettlementWindow)
+	if err != nil || !ok {
+		t.Fatalf("CommittedProductionSettlementDurableCommitPlan() = ok %v err %v, want true nil", ok, err)
+	}
+	if recovered.Reference.ReferenceKey != plan.Reference.ReferenceKey ||
+		recovered.Reference.Kind != SettlementKindProduction ||
+		recovered.Reference.PlanetID != plan.Reference.PlanetID ||
+		recovered.Reference.SettlementWindow != plan.Reference.SettlementWindow {
+		t.Fatalf("production window durable plan = %+v, want committed production window %+v", recovered.Reference, plan.Reference)
+	}
+	dispatch, ok, err := store.CommittedProductionSettlementOutboxDispatchPlan(plan.Reference.PlanetID, plan.Reference.SettlementWindow)
+	if err != nil || !ok {
+		t.Fatalf("CommittedProductionSettlementOutboxDispatchPlan() = ok %v err %v, want true nil", ok, err)
+	}
+	assertOutboxRecordEvidence(t, dispatch.OutboxRecords, EventPlanetProductionSettled, plan.Reference.ReferenceKey, plan.Reference.SettlementWindow)
+
+	if recovered, ok, err := store.CommittedProductionSettlementDurableCommitPlan(plan.Reference.PlanetID, "missing-window"); err != nil || ok || !recovered.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedProductionSettlementDurableCommitPlan(missing) = %+v/%v/%v, want empty false nil", recovered, ok, err)
+	}
+	if dispatch, ok, err := store.CommittedProductionSettlementOutboxDispatchPlan("", plan.Reference.SettlementWindow); err == nil || ok || !dispatch.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedProductionSettlementOutboxDispatchPlan(invalid planet) = %+v/%v/%v, want error false empty", dispatch, ok, err)
+	}
+}
+
+func TestSettlementDurableCommitStoreReadsCommittedRouteWindowPlans(t *testing.T) {
+	plan := routeDurableCommitPlanForStoreTest(t)
+	store := NewInMemorySettlementDurableCommitStore()
+	if _, err := store.ApplySettlementDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplySettlementDurableCommitPlan() error = %v, want nil", err)
+	}
+
+	recovered, ok, err := store.CommittedRouteSettlementDurableCommitPlan(plan.Reference.RouteID, plan.Reference.SettlementWindow)
+	if err != nil || !ok {
+		t.Fatalf("CommittedRouteSettlementDurableCommitPlan() = ok %v err %v, want true nil", ok, err)
+	}
+	if recovered.Reference.ReferenceKey != plan.Reference.ReferenceKey ||
+		recovered.Reference.Kind != SettlementKindRoute ||
+		recovered.Reference.RouteID != plan.Reference.RouteID ||
+		recovered.Reference.SettlementWindow != plan.Reference.SettlementWindow ||
+		len(recovered.RouteStorageLedger) != len(plan.RouteStorageLedger) {
+		t.Fatalf("route window durable plan = %+v, want committed route window %+v", recovered, plan)
+	}
+	dispatch, ok, err := store.CommittedRouteSettlementOutboxDispatchPlan(plan.Reference.RouteID, plan.Reference.SettlementWindow)
+	if err != nil || !ok {
+		t.Fatalf("CommittedRouteSettlementOutboxDispatchPlan() = ok %v err %v, want true nil", ok, err)
+	}
+	assertOutboxRecordEvidence(t, dispatch.OutboxRecords, EventRouteTransferSettled, plan.Reference.ReferenceKey, plan.Reference.SettlementWindow)
+
+	if recovered, ok, err := store.CommittedRouteSettlementDurableCommitPlan(plan.Reference.RouteID, "missing-window"); err != nil || ok || !recovered.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedRouteSettlementDurableCommitPlan(missing) = %+v/%v/%v, want empty false nil", recovered, ok, err)
+	}
+	if dispatch, ok, err := store.CommittedRouteSettlementOutboxDispatchPlan("", plan.Reference.SettlementWindow); err == nil || ok || !dispatch.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedRouteSettlementOutboxDispatchPlan(invalid route) = %+v/%v/%v, want error false empty", dispatch, ok, err)
+	}
+}
+
+func TestSettlementDurableCommitStorePublishesCommittedSettlementOutboxRows(t *testing.T) {
+	cases := []struct {
+		name      string
+		plan      SettlementDurableCommitPlan
+		eventType string
+	}{
+		{
+			name:      "production",
+			plan:      productionDurableCommitPlanForStoreTest(t),
+			eventType: EventPlanetProductionSettled,
+		},
+		{
+			name:      "route",
+			plan:      routeDurableCommitPlanForStoreTest(t),
+			eventType: EventRouteTransferSettled,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewInMemorySettlementDurableCommitStore()
+			if _, err := store.ApplySettlementDurableCommitPlan(tc.plan); err != nil {
+				t.Fatalf("ApplySettlementDurableCommitPlan() error = %v, want nil", err)
+			}
+			ledgerBefore := store.RouteStorageLedgerEntries()
+
+			published, err := PublishPendingProductionOutbox(ProductionOutboxPublishInput{
+				Store:       store,
+				Limit:       10,
+				ClaimedAt:   testTime(50),
+				CompletedAt: testTime(51),
+				Publish: func(record ProductionOutboxRecord) error {
+					hasEvidence := !record.ReferenceKey.IsZero() || record.SettlementWindow != ""
+					if record.Status != ProductionOutboxStatusInFlight || record.ClaimToken == "" {
+						t.Fatalf("published settlement outbox row = %+v, want claimed row", record)
+					}
+					if hasEvidence &&
+						(record.ReferenceKey != tc.plan.Reference.ReferenceKey ||
+							record.SettlementWindow != tc.plan.Reference.SettlementWindow) {
+						t.Fatalf("published settlement outbox evidence = %+v, want committed reference/window", record)
+					}
+					return nil
+				},
+			})
+			if err != nil {
+				t.Fatalf("PublishPendingProductionOutbox() error = %v, want nil", err)
+			}
+			if len(published) != len(tc.plan.Outbox.OutboxRecords) {
+				t.Fatalf("published rows len = %d, want %d", len(published), len(tc.plan.Outbox.OutboxRecords))
+			}
+			for _, result := range published {
+				if !result.Published || result.Failed || result.StaleClaim {
+					t.Fatalf("publish result = %+v, want published", result)
+				}
+				hasEvidence := !result.Record.ReferenceKey.IsZero() || result.Record.SettlementWindow != ""
+				if result.Record.Status != ProductionOutboxStatusPublished {
+					t.Fatalf("published durable row = %+v, want published", result.Record)
+				}
+				if hasEvidence &&
+					(result.Record.ReferenceKey != tc.plan.Reference.ReferenceKey ||
+						result.Record.SettlementWindow != tc.plan.Reference.SettlementWindow) {
+					t.Fatalf("published durable row evidence = %+v, want committed evidence", result.Record)
+				}
+			}
+			assertOutboxRecordEvidence(t, store.OutboxRecords(), tc.eventType, tc.plan.Reference.ReferenceKey, tc.plan.Reference.SettlementWindow)
+			if got := store.RouteStorageLedgerEntries(); len(got) != len(ledgerBefore) {
+				t.Fatalf("route ledger rows after publish = %+v, want unchanged %+v", got, ledgerBefore)
+			}
+		})
+	}
+}
+
+func TestSettlementDurableCommitStorePublisherRejectsStaleClaimTokens(t *testing.T) {
+	plan := routeDurableCommitPlanForStoreTest(t)
+	store := NewInMemorySettlementDurableCommitStore()
+	if _, err := store.ApplySettlementDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplySettlementDurableCommitPlan() error = %v, want nil", err)
+	}
+	claimed, err := store.ClaimPendingProductionOutboxRecords(1, testTime(60))
+	if err != nil {
+		t.Fatalf("ClaimPendingProductionOutboxRecords() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 || claimed[0].ClaimToken == "" {
+		t.Fatalf("claimed durable settlement outbox rows = %+v, want one in-flight row", claimed)
+	}
+	if _, ok, err := store.MarkProductionOutboxPublished(claimed[0].OutboxID, "wrong-token", testTime(61)); err != nil || ok {
+		t.Fatalf("MarkProductionOutboxPublished(wrong token) = ok %v err %v, want false nil", ok, err)
+	}
+	if _, ok, err := store.MarkProductionOutboxFailed(claimed[0].OutboxID, "wrong-token", "wrong", testTime(61)); err != nil || ok {
+		t.Fatalf("MarkProductionOutboxFailed(wrong token) = ok %v err %v, want false nil", ok, err)
+	}
+	rows := store.OutboxRecords()
+	if rows[0].Status != ProductionOutboxStatusInFlight || rows[0].ClaimToken != claimed[0].ClaimToken {
+		t.Fatalf("durable outbox after stale token = %+v, want original in-flight row", rows[0])
+	}
+
+	released, err := store.ReleaseExpiredProductionOutboxRecords(1, testTime(61), testTime(62))
+	if err != nil {
+		t.Fatalf("ReleaseExpiredProductionOutboxRecords() error = %v, want nil", err)
+	}
+	if len(released) != 1 ||
+		released[0].Status != ProductionOutboxStatusPending ||
+		released[0].ClaimToken != "" ||
+		released[0].ReferenceKey != plan.Reference.ReferenceKey ||
+		released[0].SettlementWindow != plan.Reference.SettlementWindow {
+		t.Fatalf("released durable settlement outbox rows = %+v, want pending committed evidence", released)
+	}
+	if _, ok, err := store.MarkProductionOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(63)); err != nil || ok {
+		t.Fatalf("MarkProductionOutboxPublished(stale token after release) = ok %v err %v, want false nil", ok, err)
+	}
+}
+
 func TestSettlementDurableCommitStoreReadbackMissingAndInvalidReferences(t *testing.T) {
 	plan := routeDurableCommitPlanForStoreTest(t)
 	store := NewInMemorySettlementDurableCommitStore()
