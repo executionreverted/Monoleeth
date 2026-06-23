@@ -185,6 +185,9 @@ E2E:
 - loadout/crafting: equip/craft positive, duplicate/unowned/stale job negative
 - intel/coordinate items: visible/share positive, hidden/unowned negative
 - scan/planet/building/storage: visible positive, hidden/capacity/rank negative
+- per-map scanner/drop seed matrix: public `1-1`/`1-2`/`1-3` active-map
+  known/minimap memory scope plus NPC drop profile/table rows with internal
+  map/candidate/drop metadata leak canaries
 - routes/production settlement: eligible positive, duplicate/window/capacity negative
 - market/auction: buy/bid/claim positive, race/stale/tampered total negative
 - premium purchase/claim: eligible positive, replay/limit/stock negative

@@ -456,10 +456,12 @@ for phase status; this file is a compact pending-work index.
   `map_1_3` sessions keep `scan.pulse`
   response/event/read-model memory on public `1-2` and `1-3`. Domain scanner
   materialization/intel now covers seeded public maps `1-1`, `1-2`, and `1-3`,
-  and server-only drop matrix coverage now includes public `1-1`, `1-2`, and
-  medium PvP `1-3`. Phase10 now adds a focused browser claim proof for public
-  `1-1`; remaining work is browser drop flow plus broader browser claim/drop
-  and scan success/no-signal variants. Source:
+  server-only drop matrix coverage now includes public `1-1`, `1-2`, and
+  medium PvP `1-3`, and Phase10 now ties active-map known/minimap memory scope
+  to those seeded drop profile/table rows with an internal map/candidate/drop
+  metadata leak canary. Phase10 now adds a focused browser claim proof for
+  public `1-1`; remaining work is browser drop flow plus broader browser
+  claim/drop and scan success/no-signal variants. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete broader per-map/risk/rank drop balance matrix coverage across
   seeded maps. Current server tests cover starter selection, `map_1_2`
