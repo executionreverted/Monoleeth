@@ -333,13 +333,16 @@ for phase status; this file is a compact pending-work index.
   Phase07BV adds a focused runtime proof that a committed route settlement
   durable outbox row drains into owner-scoped realtime `route.settled`,
   route snapshot/list, production, and storage events without leaking to another
-  active session.
+  active session. Phase07CD adds committed production-state and storage-row
+  evidence to production settlement durable commit bundles, and ledger-backed
+  changed storage-row evidence to route settlement durable commit bundles
+  beside route-row, route-ledger, reference, and outbox evidence.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10
   audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
   Phase07K, Phase07AN, Phase07BN, Phase07BO, Phase07BP, Phase07BQ,
-  Phase07BR, Phase07BS, and Phase07BT.
+  Phase07BR, Phase07BS, Phase07BT, Phase07BV, and Phase07CD.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server
@@ -538,6 +541,10 @@ for phase status; this file is a compact pending-work index.
   client-safe realtime projections without exposing raw durable payloads.
   Phase07BM adds a drain-and-collect helper used by runtime sink delivery so
   those safe projections are flushed when the durable row is marked published.
+  Phase07CD adds committed production-state and storage-row evidence to
+  production settlement durable commit bundles, plus ledger-backed changed
+  storage-row evidence to route settlement bundles, with detached readback and
+  exact replay conflict validation.
   Durable claim, production, route settlement, and building mutation tables
   plus publisher scheduling remain open.
   Those records are still not durable, cross-process, or delivered by a durable
@@ -570,6 +577,9 @@ for phase status; this file is a compact pending-work index.
   aggregate IDs masked. Phase07CB adds explicit failed-row retry contracts for
   claim, settlement/route, and building durable outbox rows so transient
   publisher failures can be returned to pending without losing failure evidence.
+  Phase07CD adds ledger-backed changed storage-row evidence to route settlement
+  durable bundles; DB-backed storage/station endpoint rows and row locks remain
+  open.
   Runtime/browser non-planet route create/update access policy and durable
   DB-backed storage/station endpoint rows remain open.
 - [ ] Replace Phase 09 in-memory production, storage, and route repositories with

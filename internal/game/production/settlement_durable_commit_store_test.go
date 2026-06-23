@@ -20,6 +20,14 @@ func TestSettlementDurableCommitStoreCommitsProductionPlan(t *testing.T) {
 	if len(result.OutboxRecords) == 0 || len(result.RouteStorageLedger) != 0 {
 		t.Fatalf("production durable commit rows = outbox %+v ledger %+v, want outbox and no route ledger", result.OutboxRecords, result.RouteStorageLedger)
 	}
+	if result.ProductionState == nil ||
+		result.ProductionState.PlanetID != plan.Reference.PlanetID ||
+		!result.ProductionState.UpdatedAt.Equal(plan.Reference.AppliedAt) {
+		t.Fatalf("production durable state row = %+v, want committed production state", result.ProductionState)
+	}
+	if len(result.StorageRows) != len(plan.StorageRows) {
+		t.Fatalf("production durable storage rows = %+v, want %+v", result.StorageRows, plan.StorageRows)
+	}
 	if got := len(store.SettlementReferences()); got != 1 {
 		t.Fatalf("SettlementReferences() len = %d, want 1", got)
 	}
@@ -44,6 +52,9 @@ func TestSettlementDurableCommitStoreCommitsRoutePlanWithLedger(t *testing.T) {
 	}
 	if len(result.OutboxRecords) == 0 || len(result.RouteStorageLedger) != len(plan.RouteStorageLedger) {
 		t.Fatalf("route durable commit rows = outbox %+v ledger %+v, want outbox and route ledger", result.OutboxRecords, result.RouteStorageLedger)
+	}
+	if len(result.StorageRows) != len(plan.StorageRows) {
+		t.Fatalf("route durable storage rows = %+v, want %+v", result.StorageRows, plan.StorageRows)
 	}
 	for _, row := range result.RouteStorageLedger {
 		if row.ReferenceKey != plan.Reference.ReferenceKey || row.SettlementWindow != plan.Reference.SettlementWindow || row.RouteID != plan.Reference.RouteID {
@@ -98,6 +109,13 @@ func TestSettlementDurableCommitStoreRejectsConflictingReferenceReuse(t *testing
 	if !errors.Is(err, ErrInvalidSettlementDurableCommit) {
 		t.Fatalf("conflicting route row ApplySettlementDurableCommitPlan() error = %v, want ErrInvalidSettlementDurableCommit", err)
 	}
+	storageConflict := plan
+	storageConflict.StorageRows = clonePlanetStorageRows(plan.StorageRows)
+	storageConflict.StorageRows[0].Items[0].Quantity++
+	_, err = store.ApplySettlementDurableCommitPlan(storageConflict)
+	if !errors.Is(err, ErrInvalidSettlementDurableCommit) {
+		t.Fatalf("conflicting storage row ApplySettlementDurableCommitPlan() error = %v, want ErrInvalidSettlementDurableCommit", err)
+	}
 	if len(store.SettlementReferences()) != 1 ||
 		len(store.OutboxRecords()) != len(plan.Outbox.OutboxRecords) ||
 		len(store.RouteStorageLedgerEntries()) != len(plan.RouteStorageLedger) {
@@ -136,6 +154,20 @@ func TestSettlementDurableCommitStoreRejectsInvalidPlanWithoutMutation(t *testin
 	if !errors.Is(err, ErrInvalidSettlementDurableCommit) {
 		t.Fatalf("conflicting embedded reference ApplySettlementDurableCommitPlan() error = %v, want ErrInvalidSettlementDurableCommit", err)
 	}
+
+	legacyProductionPlan := productionDurableCommitPlanForStoreTest(t)
+	legacyProductionPlan.ProductionState = nil
+	_, err = store.ApplySettlementDurableCommitPlan(legacyProductionPlan)
+	if !errors.Is(err, ErrInvalidSettlementDurableCommit) {
+		t.Fatalf("missing production state ApplySettlementDurableCommitPlan() error = %v, want ErrInvalidSettlementDurableCommit", err)
+	}
+
+	legacyRoutePlan := routeDurableCommitPlanForStoreTest(t)
+	legacyRoutePlan.StorageRows = nil
+	_, err = store.ApplySettlementDurableCommitPlan(legacyRoutePlan)
+	if !errors.Is(err, ErrInvalidSettlementDurableCommit) {
+		t.Fatalf("missing route storage rows ApplySettlementDurableCommitPlan() error = %v, want ErrInvalidSettlementDurableCommit", err)
+	}
 	if len(store.SettlementReferences()) != 0 || len(store.OutboxRecords()) != 0 || len(store.RouteStorageLedgerEntries()) != 0 {
 		t.Fatalf("durable store rows after invalid plan refs=%d outbox=%d ledger=%d, want empty",
 			len(store.SettlementReferences()),
@@ -155,6 +187,7 @@ func TestSettlementDurableCommitStoreReturnsDetachedRows(t *testing.T) {
 	result.Reference.RouteID = "route-mutated"
 	result.OutboxRecords[0].OutboxID = "outbox-mutated"
 	result.RouteRow.Route.RouteID = "route-mutated"
+	result.StorageRows[0].Items[0].Quantity = 999
 	result.RouteStorageLedger[0].LedgerID = "ledger-mutated"
 
 	references := store.SettlementReferences()
@@ -167,8 +200,9 @@ func TestSettlementDurableCommitStoreReturnsDetachedRows(t *testing.T) {
 	if references[0].RouteID == "route-mutated" ||
 		outbox[0].OutboxID == "outbox-mutated" ||
 		recovered.RouteRow.Route.RouteID == "route-mutated" ||
+		recovered.StorageRows[0].Items[0].Quantity == 999 ||
 		ledger[0].LedgerID == "ledger-mutated" {
-		t.Fatalf("durable store returned live rows: refs=%+v outbox=%+v route=%+v ledger=%+v", references, outbox, recovered.RouteRow, ledger)
+		t.Fatalf("durable store returned live rows: refs=%+v outbox=%+v route=%+v storage=%+v ledger=%+v", references, outbox, recovered.RouteRow, recovered.StorageRows, ledger)
 	}
 }
 
@@ -187,6 +221,7 @@ func TestSettlementDurableCommitStoreReadsCommittedPlanByReference(t *testing.T)
 		recovered.RouteRow == nil ||
 		recovered.RouteRow.ReferenceKey != plan.Reference.ReferenceKey ||
 		len(recovered.Outbox.OutboxRecords) != len(plan.Outbox.OutboxRecords) ||
+		len(recovered.StorageRows) != len(plan.StorageRows) ||
 		len(recovered.RouteStorageLedger) != len(plan.RouteStorageLedger) {
 		t.Fatalf("recovered durable plan = %+v, want committed plan %+v", recovered, plan)
 	}
@@ -194,6 +229,7 @@ func TestSettlementDurableCommitStoreReadsCommittedPlanByReference(t *testing.T)
 	recovered.Reference.RouteID = "route-mutated"
 	recovered.Outbox.OutboxRecords[0].OutboxID = "outbox-mutated"
 	recovered.RouteRow.Route.RouteID = "route-mutated"
+	recovered.StorageRows[0].Items[0].Quantity = 999
 	recovered.RouteStorageLedger[0].LedgerID = "ledger-mutated"
 	again, ok, err := store.CommittedSettlementDurableCommitPlan(plan.Reference.ReferenceKey)
 	if err != nil || !ok {
@@ -202,6 +238,7 @@ func TestSettlementDurableCommitStoreReadsCommittedPlanByReference(t *testing.T)
 	if again.Reference.RouteID == "route-mutated" ||
 		again.Outbox.OutboxRecords[0].OutboxID == "outbox-mutated" ||
 		again.RouteRow.Route.RouteID == "route-mutated" ||
+		again.StorageRows[0].Items[0].Quantity == 999 ||
 		again.RouteStorageLedger[0].LedgerID == "ledger-mutated" {
 		t.Fatalf("recovered durable plan reused mutable rows: %+v", again)
 	}
@@ -259,7 +296,9 @@ func TestSettlementDurableCommitStoreReadsCommittedProductionWindowPlans(t *test
 	if recovered.Reference.ReferenceKey != plan.Reference.ReferenceKey ||
 		recovered.Reference.Kind != SettlementKindProduction ||
 		recovered.Reference.PlanetID != plan.Reference.PlanetID ||
-		recovered.Reference.SettlementWindow != plan.Reference.SettlementWindow {
+		recovered.Reference.SettlementWindow != plan.Reference.SettlementWindow ||
+		recovered.ProductionState == nil ||
+		len(recovered.StorageRows) != len(plan.StorageRows) {
 		t.Fatalf("production window durable plan = %+v, want committed production window %+v", recovered.Reference, plan.Reference)
 	}
 	dispatch, ok, err := store.CommittedProductionSettlementOutboxDispatchPlan(plan.Reference.PlanetID, plan.Reference.SettlementWindow)
@@ -291,6 +330,7 @@ func TestSettlementDurableCommitStoreReadsCommittedRouteWindowPlans(t *testing.T
 		recovered.Reference.Kind != SettlementKindRoute ||
 		recovered.Reference.RouteID != plan.Reference.RouteID ||
 		recovered.Reference.SettlementWindow != plan.Reference.SettlementWindow ||
+		len(recovered.StorageRows) != len(plan.StorageRows) ||
 		len(recovered.RouteStorageLedger) != len(plan.RouteStorageLedger) {
 		t.Fatalf("route window durable plan = %+v, want committed route window %+v", recovered, plan)
 	}
@@ -523,6 +563,9 @@ func TestProductionSettlementTransactionResultApplyDurableCommit(t *testing.T) {
 	if committed.Duplicate || committed.Reference == nil || committed.Reference.Kind != SettlementKindProduction {
 		t.Fatalf("production durable commit result = %+v, want first production commit", committed)
 	}
+	if committed.ProductionState == nil || len(committed.StorageRows) == 0 {
+		t.Fatalf("production durable row evidence = state %+v storage %+v, want committed rows", committed.ProductionState, committed.StorageRows)
+	}
 
 	duplicateTransaction, err := transactionStore.ApplyProductionSettlementTransaction(ProductionSettlementTransactionInput{
 		PlanetID:  "planet-durable-apply-production",
@@ -572,6 +615,9 @@ func TestRouteSettlementTransactionResultApplyDurableCommit(t *testing.T) {
 	}
 	if committed.Duplicate || committed.Reference == nil || committed.Reference.Kind != SettlementKindRoute {
 		t.Fatalf("route durable commit result = %+v, want first route commit", committed)
+	}
+	if len(committed.StorageRows) != len(result.StorageRows) {
+		t.Fatalf("route durable storage rows = %d, want %d", len(committed.StorageRows), len(result.StorageRows))
 	}
 	if len(committed.RouteStorageLedger) != len(result.StorageLedger) {
 		t.Fatalf("route durable ledger len = %d, want %d", len(committed.RouteStorageLedger), len(result.StorageLedger))

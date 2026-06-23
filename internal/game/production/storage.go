@@ -186,6 +186,20 @@ func clonePlanetStorage(storage PlanetStorage) PlanetStorage {
 	return storage
 }
 
+func clonePlanetStorageRows(rows []PlanetStorage) []PlanetStorage {
+	if len(rows) == 0 {
+		return nil
+	}
+	cloned := make([]PlanetStorage, 0, len(rows))
+	for _, row := range rows {
+		cloned = append(cloned, clonePlanetStorage(row))
+	}
+	sort.Slice(cloned, func(i, j int) bool {
+		return cloned[i].PlanetID < cloned[j].PlanetID
+	})
+	return cloned
+}
+
 func cloneStoredItems(items []StoredItem) []StoredItem {
 	if len(items) == 0 {
 		return nil

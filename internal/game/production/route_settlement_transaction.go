@@ -34,13 +34,14 @@ type RouteSettlementTransactionResult struct {
 	RouteRow      *AutomationRouteDurableRecord
 	OutboxRecords []ProductionOutboxRecord
 	StorageLedger []RouteStorageLedgerEntry
+	StorageRows   []PlanetStorage
 }
 
 // DurableCommitPlan returns the validated row bundle this transaction committed
 // for future durable DB/publisher adapters. Duplicate/no-op transactions return
 // an empty plan.
 func (result RouteSettlementTransactionResult) DurableCommitPlan() (SettlementDurableCommitPlan, error) {
-	return NewSettlementDurableCommitPlan(result.Reference, result.OutboxRecords, result.StorageLedger, result.RouteRow)
+	return NewSettlementDurableCommitPlanWithRows(result.Reference, result.OutboxRecords, result.StorageLedger, result.RouteRow, nil, result.StorageRows)
 }
 
 // ApplyDurableCommit validates and records the row bundle returned by this
@@ -107,6 +108,7 @@ func (store *InMemoryStore) ApplyRouteSettlementTransaction(
 		if routeRow, ok := store.committedAutomationRouteDurableRecordByReferenceLocked(result.Reference.ReferenceKey); ok {
 			result.RouteRow = cloneAutomationRouteDurableRecordPointer(&routeRow)
 		}
+		result.StorageRows = store.routeSettlementStorageRowsLocked(result.StorageLedger)
 	}
 	return result, nil
 }
@@ -124,4 +126,26 @@ func (input RouteSettlementTransactionInput) Validate() error {
 		return fmt.Errorf("settled_at: %w", ErrZeroProductionTimestamp)
 	}
 	return nil
+}
+
+func (store *InMemoryStore) routeSettlementStorageRowsLocked(
+	ledgerRows []RouteStorageLedgerEntry,
+) []PlanetStorage {
+	if len(ledgerRows) == 0 {
+		return nil
+	}
+	rowsByPlanet := make(map[foundation.PlanetID]PlanetStorage, len(ledgerRows))
+	for _, ledger := range ledgerRows {
+		if _, ok := rowsByPlanet[ledger.PlanetID]; ok {
+			continue
+		}
+		if row, ok := store.storage[ledger.PlanetID]; ok {
+			rowsByPlanet[ledger.PlanetID] = clonePlanetStorage(row)
+		}
+	}
+	rows := make([]PlanetStorage, 0, len(rowsByPlanet))
+	for _, row := range rowsByPlanet {
+		rows = append(rows, row)
+	}
+	return clonePlanetStorageRows(rows)
 }

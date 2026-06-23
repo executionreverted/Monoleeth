@@ -488,6 +488,17 @@ Current slice completed:
   the same shape to scan initialized-but-incomplete claim side effects, while
   completed claim init rows stay filtered out and readback remains detached.
   Durable DB rows and scheduled recovery workers remain open.
+- Phase07CD settlement durable row-evidence follow-up:
+  Production settlement durable commit plans now carry the committed
+  `PlanetProductionState` row and changed `PlanetStorage` row evidence beside
+  their settlement reference and pending outbox rows. Route settlement durable
+  commit plans now carry ledger-backed changed storage rows alongside the
+  committed route row, route storage ledger, settlement reference, and pending
+  outbox rows; timestamp-only route settlements without storage ledger rows
+  still carry no storage row evidence. Store readback and exact replay
+  validation return detached rows and reject conflicting row evidence. Durable
+  DB row locks/CAS, idempotency table enforcement, and scheduled durable
+  publisher/recovery workers remain open.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -992,6 +1003,8 @@ Mockup areas covered:
       plan with no route storage ledger rows.
 - [x] Production settlement transaction result exposes its durable commit plan
       directly for future DB/publisher adapters.
+- [x] Production settlement durable commit plans carry committed production
+      state and changed storage row evidence for future DB CAS writes.
 - [x] Production settlement durable commit plans apply through the durable
       commit-store adapter with exact replay and invalid-row rejection.
 - [x] Production/storage summary handlers hand server-owned production
@@ -1056,6 +1069,8 @@ Mockup areas covered:
       server-derived route settlement idempotency reference.
 - [x] Route settlement durable commit bundles include the committed route-row
       snapshot with settlement reference, outbox, and route ledger rows.
+- [x] Route settlement durable commit bundles include ledger-backed changed
+      storage row evidence alongside route-row and route-ledger evidence.
 - [x] Route settlement durable outbox realtime projection publishes owner-scoped
       route settled/snapshot/list plus production/storage reconciliation events.
 - [x] Route settlement supports named storage/station-destination aggregates with the

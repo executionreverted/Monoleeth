@@ -34,6 +34,8 @@ type SettlementDurableCommitReader interface {
 type SettlementDurableCommitResult struct {
 	Reference          *SettlementReferenceRecord
 	OutboxRecords      []ProductionOutboxRecord
+	ProductionState    *PlanetProductionState
+	StorageRows        []PlanetStorage
 	RouteRow           *AutomationRouteDurableRecord
 	RouteStorageLedger []RouteStorageLedgerEntry
 	Duplicate          bool
@@ -77,11 +79,13 @@ func (store *InMemorySettlementDurableCommitStore) ApplySettlementDurableCommitP
 		!plan.Outbox.Reference.RecordedAt.Equal(plan.Reference.RecordedAt) {
 		return SettlementDurableCommitResult{}, fmt.Errorf("outbox.reference: %w", ErrInvalidSettlementDurableCommit)
 	}
-	normalized, err := NewSettlementDurableCommitPlan(
+	normalized, err := NewSettlementDurableCommitPlanWithRows(
 		&plan.Reference,
 		plan.Outbox.OutboxRecords,
 		plan.RouteStorageLedger,
 		plan.RouteRow,
+		plan.ProductionState,
+		plan.StorageRows,
 	)
 	if err != nil {
 		return SettlementDurableCommitResult{}, err
@@ -373,7 +377,14 @@ func (store *InMemorySettlementDurableCommitStore) CommittedSettlementDurableCom
 		return SettlementDurableCommitPlan{}, false, nil
 	}
 	cloned := cloneSettlementDurableCommitPlan(plan)
-	if _, err := NewSettlementDurableCommitPlan(&cloned.Reference, cloned.Outbox.OutboxRecords, cloned.RouteStorageLedger, cloned.RouteRow); err != nil {
+	if _, err := NewSettlementDurableCommitPlanWithRows(
+		&cloned.Reference,
+		cloned.Outbox.OutboxRecords,
+		cloned.RouteStorageLedger,
+		cloned.RouteRow,
+		cloned.ProductionState,
+		cloned.StorageRows,
+	); err != nil {
 		return SettlementDurableCommitPlan{}, false, err
 	}
 	return cloned, true, nil
@@ -493,6 +504,8 @@ func settlementDurableCommitResultFromPlan(
 	return SettlementDurableCommitResult{
 		Reference:          &reference,
 		OutboxRecords:      cloneProductionOutboxRecords(plan.Outbox.OutboxRecords),
+		ProductionState:    cloneProductionStatePointer(plan.ProductionState),
+		StorageRows:        clonePlanetStorageRows(plan.StorageRows),
 		RouteRow:           cloneAutomationRouteDurableRecordPointer(plan.RouteRow),
 		RouteStorageLedger: cloneRouteStorageLedgerEntries(plan.RouteStorageLedger),
 		Duplicate:          duplicate,
@@ -503,6 +516,8 @@ func cloneSettlementDurableCommitPlan(plan SettlementDurableCommitPlan) Settleme
 	plan.Reference = cloneSettlementReferenceRecord(plan.Reference)
 	plan.Outbox.Reference = cloneSettlementReferenceRecord(plan.Outbox.Reference)
 	plan.Outbox.OutboxRecords = cloneProductionOutboxRecords(plan.Outbox.OutboxRecords)
+	plan.ProductionState = cloneProductionStatePointer(plan.ProductionState)
+	plan.StorageRows = clonePlanetStorageRows(plan.StorageRows)
 	plan.RouteRow = cloneAutomationRouteDurableRecordPointer(plan.RouteRow)
 	plan.RouteStorageLedger = cloneRouteStorageLedgerEntries(plan.RouteStorageLedger)
 	return plan

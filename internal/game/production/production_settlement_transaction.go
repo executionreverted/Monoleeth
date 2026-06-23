@@ -26,16 +26,18 @@ type ProductionSettlementTransactionInput struct {
 // ProductionSettlementTransactionResult returns the state and audit rows
 // committed by one production settlement transaction.
 type ProductionSettlementTransactionResult struct {
-	Settlement    PlanetProductionSettlementResult
-	Reference     *SettlementReferenceRecord
-	OutboxRecords []ProductionOutboxRecord
+	Settlement      PlanetProductionSettlementResult
+	Reference       *SettlementReferenceRecord
+	ProductionState *PlanetProductionState
+	StorageRows     []PlanetStorage
+	OutboxRecords   []ProductionOutboxRecord
 }
 
 // DurableCommitPlan returns the validated row bundle this transaction committed
 // for future durable DB/publisher adapters. Duplicate/no-op transactions return
 // an empty plan.
 func (result ProductionSettlementTransactionResult) DurableCommitPlan() (SettlementDurableCommitPlan, error) {
-	return NewSettlementDurableCommitPlan(result.Reference, result.OutboxRecords, nil)
+	return NewSettlementDurableCommitPlanWithRows(result.Reference, result.OutboxRecords, nil, nil, result.ProductionState, result.StorageRows)
 }
 
 // ApplyDurableCommit validates and records the row bundle returned by this
@@ -89,6 +91,13 @@ func (store *InMemoryStore) ApplyProductionSettlementTransaction(
 		if reference, ok := store.references[settlement.ReferenceKey]; ok {
 			cloned := cloneSettlementReferenceRecord(reference)
 			result.Reference = &cloned
+		}
+	}
+	if result.Reference != nil {
+		state := cloneProductionState(settlement.After.State)
+		result.ProductionState = &state
+		if settlement.After.Storage.UpdatedAt.Equal(settledAt) {
+			result.StorageRows = []PlanetStorage{clonePlanetStorage(settlement.After.Storage)}
 		}
 	}
 	return result, nil
