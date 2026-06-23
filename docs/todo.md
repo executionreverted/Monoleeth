@@ -355,7 +355,9 @@ for phase status; this file is a compact pending-work index.
   and production/route settlement outbox records, preserving claim-token
   publish/fail semantics behind a DB-adapter-ready contract. Phase07X adds
   process-local in-flight lease expiry release back to pending for claim and
-  production/route settlement outbox rows. Durable DB rows, row locks/CAS,
+  production/route settlement outbox rows. Phase07Y exposes that stale-lease
+  release through small interface-backed helper contracts for future DB
+  adapters and scheduled reaper workers. Durable DB rows, row locks/CAS,
   cross-process leases, idempotency-table enforcement, and a scheduled durable
   publisher still need to preserve that semantic across processes.
 - [ ] Add station/storage destination settlement adapters for Phase 09

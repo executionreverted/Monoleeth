@@ -16,6 +16,14 @@ type ClaimOutboxPublisherStore interface {
 	MarkClaimOutboxFailed(outboxID string, claimToken string, reason string, failedAt time.Time) (ClaimOutboxRecord, bool, error)
 }
 
+// ClaimOutboxLeaseReaperStore is the durable recovery boundary for stale
+// in-flight claim outbox leases. DB-backed stores should implement this with a
+// row-lock/CAS update that clears only rows whose claim lease is older than the
+// cutoff.
+type ClaimOutboxLeaseReaperStore interface {
+	ReleaseExpiredClaimOutboxRecordsForPublish(limit int, claimedBefore time.Time, releasedAt time.Time) ([]ClaimOutboxRecord, error)
+}
+
 type ClaimOutboxPublishFunc func(ClaimOutboxRecord) error
 
 type ClaimOutboxPublishInput struct {
@@ -35,6 +43,13 @@ type ClaimOutboxPublishResult struct {
 	StaleClaim bool
 	StoreError bool
 	Error      string
+}
+
+type ClaimOutboxLeaseReleaseInput struct {
+	Store         ClaimOutboxLeaseReaperStore
+	Limit         int
+	ClaimedBefore time.Time
+	ReleasedAt    time.Time
 }
 
 // PublishPendingClaimOutbox claims pending records and records publish or
@@ -99,6 +114,18 @@ func PublishPendingClaimOutbox(input ClaimOutboxPublishInput) ([]ClaimOutboxPubl
 	return results, nil
 }
 
+// ReleaseExpiredClaimOutboxLeases returns stale in-flight claim outbox rows to
+// pending through the same store boundary a durable lease reaper should use.
+func ReleaseExpiredClaimOutboxLeases(input ClaimOutboxLeaseReleaseInput) ([]ClaimOutboxRecord, error) {
+	if input.Store == nil {
+		return nil, ErrInvalidClaimOutboxPublisher
+	}
+	if input.Limit <= 0 || input.ClaimedBefore.IsZero() {
+		return nil, nil
+	}
+	return input.Store.ReleaseExpiredClaimOutboxRecordsForPublish(input.Limit, input.ClaimedBefore.UTC(), input.ReleasedAt.UTC())
+}
+
 func (service *ClaimService) ClaimPendingClaimOutboxRecordsForPublish(limit int, claimedAt time.Time) ([]ClaimOutboxRecord, error) {
 	if service == nil {
 		return nil, ErrInvalidClaimOutboxPublisher
@@ -120,4 +147,11 @@ func (service *ClaimService) MarkClaimOutboxFailed(outboxID string, claimToken s
 	}
 	record, ok := service.MarkClaimedClaimOutboxFailed(outboxID, claimToken, reason, failedAt)
 	return record, ok, nil
+}
+
+func (service *ClaimService) ReleaseExpiredClaimOutboxRecordsForPublish(limit int, claimedBefore time.Time, releasedAt time.Time) ([]ClaimOutboxRecord, error) {
+	if service == nil {
+		return nil, ErrInvalidClaimOutboxPublisher
+	}
+	return service.ReleaseExpiredClaimOutboxRecords(limit, claimedBefore, releasedAt), nil
 }

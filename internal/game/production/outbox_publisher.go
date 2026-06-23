@@ -16,6 +16,14 @@ type ProductionOutboxPublisherStore interface {
 	MarkProductionOutboxFailed(outboxID string, claimToken string, reason string, failedAt time.Time) (ProductionOutboxRecord, bool, error)
 }
 
+// ProductionOutboxLeaseReaperStore is the durable recovery boundary for stale
+// in-flight production/route outbox leases. DB-backed stores should implement
+// this with a row-lock/CAS update that clears only rows whose claim lease is
+// older than the cutoff.
+type ProductionOutboxLeaseReaperStore interface {
+	ReleaseExpiredProductionOutboxRecords(limit int, claimedBefore time.Time, releasedAt time.Time) ([]ProductionOutboxRecord, error)
+}
+
 type ProductionOutboxPublishFunc func(ProductionOutboxRecord) error
 
 type ProductionOutboxPublishInput struct {
@@ -35,6 +43,13 @@ type ProductionOutboxPublishResult struct {
 	StaleClaim bool
 	StoreError bool
 	Error      string
+}
+
+type ProductionOutboxLeaseReleaseInput struct {
+	Store         ProductionOutboxLeaseReaperStore
+	Limit         int
+	ClaimedBefore time.Time
+	ReleasedAt    time.Time
 }
 
 // PublishPendingProductionOutbox claims pending records and records publish or
@@ -99,6 +114,19 @@ func PublishPendingProductionOutbox(input ProductionOutboxPublishInput) ([]Produ
 	return results, nil
 }
 
+// ReleaseExpiredProductionOutboxLeases returns stale in-flight production/route
+// outbox rows to pending through the same store boundary a durable lease reaper
+// should use.
+func ReleaseExpiredProductionOutboxLeases(input ProductionOutboxLeaseReleaseInput) ([]ProductionOutboxRecord, error) {
+	if input.Store == nil {
+		return nil, ErrInvalidProductionOutboxPublisher
+	}
+	if input.Limit <= 0 || input.ClaimedBefore.IsZero() {
+		return nil, nil
+	}
+	return input.Store.ReleaseExpiredProductionOutboxRecords(input.Limit, input.ClaimedBefore.UTC(), input.ReleasedAt.UTC())
+}
+
 func (store *InMemoryStore) ClaimPendingProductionOutboxRecords(limit int, claimedAt time.Time) ([]ProductionOutboxRecord, error) {
 	if store == nil {
 		return nil, ErrInvalidProductionOutboxPublisher
@@ -120,4 +148,11 @@ func (store *InMemoryStore) MarkProductionOutboxFailed(outboxID string, claimTok
 	}
 	record, ok := store.MarkClaimedOutboxFailed(outboxID, claimToken, reason, failedAt)
 	return record, ok, nil
+}
+
+func (store *InMemoryStore) ReleaseExpiredProductionOutboxRecords(limit int, claimedBefore time.Time, releasedAt time.Time) ([]ProductionOutboxRecord, error) {
+	if store == nil {
+		return nil, ErrInvalidProductionOutboxPublisher
+	}
+	return store.ReleaseExpiredOutboxRecords(limit, claimedBefore, releasedAt), nil
 }

@@ -458,6 +458,84 @@ func TestOutboxClaimWithZeroTimeCanBeReleased(t *testing.T) {
 	}
 }
 
+func TestReleaseExpiredProductionOutboxLeasesUsesDurableBoundaryContract(t *testing.T) {
+	store := newOutboxStateMachineStore(t)
+	oldClaimedAt := testTime(95)
+	boundaryClaimedAt := testTime(96)
+	releasedAt := testTime(97)
+	claimed := store.ClaimPendingOutboxRecords(2, oldClaimedAt)
+	if len(claimed) != 2 {
+		t.Fatalf("claimed len = %d, want 2", len(claimed))
+	}
+
+	released, err := ReleaseExpiredProductionOutboxLeases(ProductionOutboxLeaseReleaseInput{
+		Store:         store,
+		Limit:         1,
+		ClaimedBefore: boundaryClaimedAt,
+		ReleasedAt:    releasedAt,
+	})
+	if err != nil {
+		t.Fatalf("ReleaseExpiredProductionOutboxLeases() error = %v, want nil", err)
+	}
+	assertOutboxSequences(t, released, 1)
+	if released[0].Status != ProductionOutboxStatusPending || !released[0].ClaimedAt.IsZero() || released[0].ClaimToken != "" {
+		t.Fatalf("released outbox = %+v, want pending with cleared claim", released[0])
+	}
+	if !released[0].RetriedAt.Equal(releasedAt) || released[0].Attempts != 1 {
+		t.Fatalf("released retry evidence = %+v, want retried_at %s and attempts preserved", released[0], releasedAt)
+	}
+	if record, ok := store.MarkClaimedOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(98)); ok || record.OutboxID != "" {
+		t.Fatalf("stale publish after lease release = %+v/%v, want zero/false", record, ok)
+	}
+	if record, ok := store.MarkClaimedOutboxFailed(claimed[0].OutboxID, claimed[0].ClaimToken, "stale", testTime(98)); ok || record.OutboxID != "" {
+		t.Fatalf("stale fail after lease release = %+v/%v, want zero/false", record, ok)
+	}
+
+	reclaimed := store.ClaimPendingOutboxRecords(1, testTime(99))
+	if len(reclaimed) != 1 || reclaimed[0].OutboxID != claimed[0].OutboxID || reclaimed[0].ClaimToken == claimed[0].ClaimToken {
+		t.Fatalf("reclaimed released lease = %+v, want first outbox with fresh token", reclaimed)
+	}
+}
+
+func TestReleaseExpiredProductionOutboxLeasesRejectsInvalidStoreAndIgnoresNoOpInputs(t *testing.T) {
+	if released, err := ReleaseExpiredProductionOutboxLeases(ProductionOutboxLeaseReleaseInput{}); !errors.Is(err, ErrInvalidProductionOutboxPublisher) || released != nil {
+		t.Fatalf("ReleaseExpiredProductionOutboxLeases(invalid) = %+v/%v, want invalid publisher error", released, err)
+	}
+
+	store := newOutboxStateMachineStore(t)
+	claimedAt := testTime(100)
+	claimed := store.ClaimPendingOutboxRecords(1, claimedAt)
+	if len(claimed) != 1 {
+		t.Fatalf("claimed len = %d, want 1", len(claimed))
+	}
+	if released, err := ReleaseExpiredProductionOutboxLeases(ProductionOutboxLeaseReleaseInput{
+		Store:         store,
+		Limit:         0,
+		ClaimedBefore: claimedAt.Add(time.Second),
+		ReleasedAt:    testTime(101),
+	}); err != nil || released != nil {
+		t.Fatalf("ReleaseExpiredProductionOutboxLeases(limit 0) = %+v/%v, want nil nil", released, err)
+	}
+	if released, err := ReleaseExpiredProductionOutboxLeases(ProductionOutboxLeaseReleaseInput{
+		Store:      store,
+		Limit:      1,
+		ReleasedAt: testTime(101),
+	}); err != nil || released != nil {
+		t.Fatalf("ReleaseExpiredProductionOutboxLeases(zero cutoff) = %+v/%v, want nil nil", released, err)
+	}
+	if released, err := ReleaseExpiredProductionOutboxLeases(ProductionOutboxLeaseReleaseInput{
+		Store:         store,
+		Limit:         1,
+		ClaimedBefore: claimedAt,
+		ReleasedAt:    testTime(101),
+	}); err != nil || len(released) != 0 {
+		t.Fatalf("ReleaseExpiredProductionOutboxLeases(boundary equal) = %+v/%v, want empty nil", released, err)
+	}
+	if record, ok := store.MarkClaimedOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(102)); !ok || record.Status != ProductionOutboxStatusPublished {
+		t.Fatalf("publish after no-op releases = %+v/%v, want published true", record, ok)
+	}
+}
+
 func TestOutboxUnknownClaimedMarkReturnsFalseWithoutMutation(t *testing.T) {
 	store := newOutboxStateMachineStore(t)
 	before := store.OutboxRecords()

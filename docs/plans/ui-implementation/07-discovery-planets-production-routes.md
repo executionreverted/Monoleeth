@@ -254,6 +254,12 @@ Current slice completed:
   `claimed_at < cutoff` semantics, and lets the next claim create a fresh
   token. Durable DB rows, cross-process leases, scheduled workers, and
   row-lock/CAS enforcement remain open.
+- Phase07Y outbox lease reaper contract follow-up: claim outbox and
+  production/route outbox stale-lease release now have small interface-backed
+  helper contracts matching the existing publisher drain helpers. Future DB
+  adapters can expose the same strict cutoff, token-clearing, retry-evidence
+  preserving semantics behind row-lock/CAS updates. Durable rows, scheduler
+  wiring, and cross-process idempotency enforcement remain open.
 
 ## Source Specs
 
