@@ -10,6 +10,8 @@ const clientDir = resolve(scriptDir, '../..');
 const repoRoot = resolve(clientDir, '..');
 const maxProcessLogLines = 3000;
 const viewport = { width: 1440, height: 900 };
+const starterNpcApproachTarget = { x: 800, y: 400 };
+const claimRangeArriveDistance = 220;
 
 const leakTokens = [
   'map_1_1',
@@ -79,7 +81,7 @@ async function main() {
     browser = await chromium.launch();
     context = await browser.newContext({ viewport });
     const page = await context.newPage();
-    const client = { page };
+    const client = { page, seq: 1 };
     await installWebSocketCanary(client);
 
     const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -99,6 +101,47 @@ async function main() {
     assertRouteSeedIDOpaque(sourceID, 'playtest source');
     assertRouteSeedIDOpaque(destinationID, 'playtest destination');
 
+    await openCommandSocket(client);
+    const afterLoot = await completeFightLootLoop(client);
+    await assertNoLeak(client, afterLoot, 'playtest combat loot');
+
+    await resetWebSocketFrames(client);
+    await clickFirstEnabled(client, 'button[data-action="scan"]', 'Scan');
+    const scanFrames = await waitForOperation(client, 'scan.pulse', (payload) => Object.keys(payload ?? {}).length === 0, 30000);
+    assertExactKeys(scanFrames.request.payload, [], 'scan.pulse request');
+    assertSafeScanPayload(scanFrames.response.payload, 'scan.pulse response');
+    const withPlanet = await waitSmoke(client, (state) => discoveredPlanetID(state) !== '', 'playtest scanned planet discovery', 30000);
+    const planetID = discoveredPlanetID(withPlanet);
+    await page.locator(`button[data-action="planet-detail"][data-planet-id=${cssString(planetID)}]`).first().click();
+    const withDetail = await waitSmoke(
+      client,
+      (state) => state.planetIntel?.selectedPlanet?.planet_id === planetID && state.planetIntel.selectedPlanet.coordinates,
+      'playtest discovered planet detail',
+      15000,
+    );
+    const claimCoordinates = withDetail.planetIntel.selectedPlanet.coordinates;
+    await moveToPosition(client, claimCoordinates, claimRangeArriveDistance, `claim planet ${planetID}`, 90000);
+
+    await resetWebSocketFrames(client);
+    await clickFirstEnabled(client, `button[data-action="planet-claim"][data-planet-id=${cssString(planetID)}]`, 'Claim');
+    const claimFrames = await waitForOperation(client, 'discovery.claim_planet', (payload) => payload.planet_id === planetID, 20000);
+    assertExactKeys(claimFrames.request.payload, ['planet_id'], 'discovery.claim_planet request');
+    assertClaimResponsePayload(claimFrames.response.payload, planetID);
+    const claimed = await waitSmoke(
+      client,
+      (state) =>
+        planetOwnerStatus(state, planetID) === 'owned_by_you' &&
+        selectedPlanetOwnerStatus(state, planetID) === 'owned_by_you' &&
+        productionInitialized(state, planetID) &&
+        inventoryQuantity(state.inventory, 'x_core') === 0 &&
+        !hasPendingOp(state, 'discovery.claim_planet') &&
+        !hasUnhandledEventLog(state),
+      'playtest claimed planet reconciliation',
+      20000,
+    );
+    await assertNoLeak(client, claimed, 'playtest claim');
+
+    await closeModalIfOpen(client);
     await page.locator(`button[data-action="planet-detail"][data-planet-id=${cssString(sourceID)}]`).first().click();
     await waitSmoke(
       client,
@@ -240,6 +283,289 @@ function inventoryQuantity(inventory, itemID) {
   return (inventory?.stackable ?? []).filter((item) => item.item_id === itemID).reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
 }
 
+async function openCommandSocket(client) {
+  await client.page.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        if (window.__playtestServerCommandSocket?.readyState === WebSocket.OPEN) return resolve(true);
+        const socket = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`);
+        window.__playtestServerCommandSocket = socket;
+        const timeout = window.setTimeout(() => reject(new Error('command WebSocket open timeout')), 10000);
+        socket.addEventListener('open', () => {
+          window.clearTimeout(timeout);
+          resolve(true);
+        });
+        socket.addEventListener('error', () => {
+          window.clearTimeout(timeout);
+          reject(new Error('command WebSocket error'));
+        });
+      }),
+  );
+}
+
+async function send(client, op, payload) {
+  const request = {
+    request_id: `playtest-${op.replace(/[^a-z0-9]+/gi, '-')}-${Date.now()}-${client.seq}`,
+    op,
+    payload,
+    client_seq: client.seq++,
+    v: 1,
+  };
+  return client.page.evaluate(
+    ({ message }) =>
+      new Promise((resolve, reject) => {
+        const socket = window.__playtestServerCommandSocket;
+        if (!socket || socket.readyState !== WebSocket.OPEN) return reject(new Error('command WebSocket is not open'));
+        const timeout = window.setTimeout(() => {
+          socket.removeEventListener('message', onMessage);
+          reject(new Error(`command response timeout: ${message.request_id}`));
+        }, 12000);
+        function onMessage(event) {
+          let data;
+          try {
+            data = JSON.parse(String(event.data));
+          } catch {
+            return;
+          }
+          if (data.request_id !== message.request_id) return;
+          window.clearTimeout(timeout);
+          socket.removeEventListener('message', onMessage);
+          resolve(data);
+        }
+        socket.addEventListener('message', onMessage);
+        socket.send(JSON.stringify(message));
+      }),
+    { message: request },
+  );
+}
+
+async function completeFightLootLoop(client) {
+  if (!findHostileNPC(await smoke(client))) {
+    await moveToPosition(client, starterNpcApproachTarget, 260, 'starter hostile radar approach', 30000);
+  }
+  const withNPC = await waitSmoke(client, (state) => state.currentMap?.public_map_key === '1-1' && findHostileNPC(state), 'playtest visible starter NPC', 15000);
+  const npc = findHostileNPC(withNPC);
+  const killedNPCID = npc.entity_id;
+  await moveToPosition(client, npc.position, Math.max(80, Math.min(220, (withNPC.stats?.weapon_range ?? 260) - 40)), `combat target ${killedNPCID}`, 30000);
+  const combatPayload = await fightNPCUntilKilled(client, killedNPCID);
+  const expectedDrop = responseDrop(combatPayload, 'playtest combat response');
+  const withDrop = await waitSmoke(client, (state) => findKnownDrop(state, expectedDrop), 'playtest server-created loot drop', 15000);
+  const drop = findKnownDrop(withDrop, expectedDrop);
+  assertDropMatches(drop, expectedDrop, 'playtest loot drop');
+  assertNoPayloadLeak({ drop }, 'playtest smoke loot drop');
+
+  const pickupDropID = drop.drop_id ?? expectedDrop.drop_id ?? expectedDrop.entity_id;
+  const beforeCargo = withDrop.cargo;
+  await moveToPosition(client, drop.position, Math.max(45, (withDrop.stats?.loot_pickup_range ?? 120) - 25), `loot drop ${pickupDropID}`, 30000);
+  const pickupPayload = payloadOf(await send(client, 'loot.pickup', { drop_id: pickupDropID }), 'loot.pickup');
+  assert(pickupPayload.accepted === true, `loot.pickup accepted ${compact(pickupPayload)}`);
+  assertCargoPickup(pickupPayload.cargo, beforeCargo, drop, 'loot.pickup response cargo');
+  assertNoPayloadLeak(pickupPayload, 'loot.pickup response');
+
+  const withCargo = await waitSmoke(
+    client,
+    (state) => cargoIncludesPickup(state.cargo, beforeCargo, drop) && !state.knownLoot?.[pickupDropID],
+    'playtest cargo reconciliation after loot pickup',
+    15000,
+  );
+  assertCargoPickup(withCargo.cargo, beforeCargo, drop, 'playtest smoke cargo');
+  return withCargo;
+}
+
+async function fightNPCUntilKilled(client, targetID) {
+  let lastPayload = null;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const combatPayload = payloadOf(await send(client, 'combat.use_skill', { skill_id: 'basic_laser', target_id: targetID }), 'combat.use_skill');
+    assert(combatPayload.accepted === true, `combat.use_skill accepted ${compact(combatPayload)}`);
+    assertNoPayloadLeak(combatPayload, `combat.use_skill response ${attempt}`);
+    lastPayload = combatPayload;
+    if (combatPayload.killed === true) return combatPayload;
+    await waitCombatCooldown(client, combatPayload);
+  }
+  throw new Error(`combat.use_skill did not kill target: ${compact(lastPayload)}`);
+}
+
+async function waitCombatCooldown(client, combatPayload) {
+  const readyAt = Number(combatPayload.cooldown_ready_at_ms ?? 0);
+  const delayMS = readyAt > Date.now() ? readyAt - Date.now() + 75 : 100;
+  await delay(Math.min(Math.max(delayMS, 100), 5000));
+  await waitSmoke(
+    client,
+    (state) => state.connectionStatus === 'connected' && (readyAt <= 0 || Date.now() >= readyAt || (state.serverNow ?? 0) >= readyAt),
+    'basic_laser cooldown',
+    Math.max(1500, Math.min(delayMS + 1500, 6500)),
+  );
+}
+
+async function moveToPosition(client, targetPosition, arriveDistance, label, timeoutMS) {
+  assert(targetPosition, `${label} target position present`);
+  const deadline = Date.now() + timeoutMS;
+  while (Date.now() < deadline) {
+    await waitSmoke(client, (state) => state.connectionStatus === 'connected' && Object.keys(state.pendingCommands ?? {}).length === 0, 'pending commands clear', 10000);
+    const state = await smoke(client);
+    const self = selfEntity(state);
+    const position = positionNow(self, state);
+    if (distance(position, targetPosition) <= arriveDistance) return state;
+
+    const target = step(position, targetPosition, 1100);
+    const response = await send(client, 'move_to', { target });
+    if (response.ok !== true && response.error?.code === 'ERR_RATE_LIMITED') {
+      await delay(125);
+      continue;
+    }
+    payloadOf(response, 'move_to');
+    const eta = Math.ceil((distance(position, target) / Math.max(1, self?.movement?.speed ?? 180)) * 1000);
+    await waitSmoke(
+      client,
+      (candidate) => {
+        const pos = positionNow(selfEntity(candidate), candidate);
+        return distance(pos, target) <= 35 || distance(pos, targetPosition) <= arriveDistance;
+      },
+      `movement to ${fmt(target)}`,
+      Math.max(5000, eta + 5000),
+    );
+  }
+  throw new Error(`Timed out before reaching ${label} at ${fmt(targetPosition)}`);
+}
+
+function payloadOf(response, label) {
+  assert(response?.ok === true, `${label} failed: ${compact(response)}`);
+  const payload = typeof response.payload === 'string' ? JSON.parse(response.payload) : response.payload;
+  assert(payload && typeof payload === 'object', `${label} payload missing`);
+  assertNoPayloadLeak(payload, `${label} payload`);
+  return payload;
+}
+
+function findHostileNPC(state) {
+  return Object.values(state?.visibleEntities ?? {}).find(isLiveNPC) ?? null;
+}
+
+function isLiveNPC(entity) {
+  if (entity?.entity_type !== 'npc' || !entity.position) return false;
+  if (!entity.combat) return true;
+  const hp = Number(entity.combat.hp ?? 0);
+  return hp > 0 && !['dead', 'destroyed', 'disabled'].includes(String(entity.combat.status ?? 'active').toLowerCase());
+}
+
+function responseDrop(combatPayload, label) {
+  const drop = Array.isArray(combatPayload.drops)
+    ? combatPayload.drops.find((entry) => entry?.item_id && Number(entry.quantity) > 0 && (entry.drop_id || entry.entity_id))
+    : null;
+  assert(drop, `${label} includes server loot drop ${compact(combatPayload)}`);
+  assertNoPayloadLeak({ drop }, `${label} drop`);
+  return {
+    drop_id: drop.drop_id,
+    entity_id: drop.entity_id,
+    item_id: drop.item_id,
+    quantity: Number(drop.quantity),
+  };
+}
+
+function findKnownDrop(state, expectedDrop) {
+  const dropID = expectedDrop.drop_id ?? expectedDrop.entity_id;
+  if (dropID && state?.knownLoot?.[dropID]) return state.knownLoot[dropID];
+  return Object.values(state?.knownLoot ?? {}).find(
+    (drop) => drop.item_id === expectedDrop.item_id && Number(drop.quantity) >= expectedDrop.quantity,
+  );
+}
+
+function assertDropMatches(drop, expectedDrop, label) {
+  assert(drop, `${label} present`);
+  assert(drop.drop_id ?? drop.entity_id, `${label} has public drop id`);
+  assert(drop.item_id === expectedDrop.item_id, `${label} item ${drop.item_id}, want ${expectedDrop.item_id}`);
+  assert(Number(drop.quantity) >= expectedDrop.quantity, `${label} quantity ${drop.quantity}, want ${expectedDrop.quantity}`);
+  assert(drop.position, `${label} position present`);
+}
+
+function assertCargoPickup(cargo, beforeCargo, drop, label) {
+  assert(cargoIncludesPickup(cargo, beforeCargo, drop), `${label} includes picked ${drop.item_id} x${drop.quantity}`);
+  assert((cargo.used ?? 0) > (beforeCargo?.used ?? 0), `${label} used cargo ${cargo.used}, before ${beforeCargo?.used ?? 0}`);
+}
+
+function cargoIncludesPickup(cargo, beforeCargo, drop) {
+  const itemID = drop.item_id;
+  const quantity = Number(drop.quantity);
+  if (!itemID || !(quantity > 0)) return false;
+  return cargoQuantity(cargo, itemID) >= cargoQuantity(beforeCargo, itemID) + quantity;
+}
+
+function cargoQuantity(cargo, itemID) {
+  return Number(cargo?.items?.find((item) => item.item_id === itemID)?.quantity ?? 0);
+}
+
+function assertSafeScanPayload(payload, label) {
+  assert(payload?.scan, `${label} missing scan payload ${compact(payload)}`);
+  assert(['started', 'no_signal', 'planet_discovered', 'player_revealed'].includes(payload.scan.status), `${label} scan status ${compact(payload.scan)}`);
+  assert(payload.scan.pulse_reference, `${label} missing pulse reference ${compact(payload.scan)}`);
+  assertNoPayloadLeak(payload, label);
+}
+
+function assertClaimResponsePayload(payload, planetID) {
+  assert(payload?.claim?.accepted === true, `claim accepted missing ${compact(payload)}`);
+  assert(payload.claim?.planet?.planet_id === planetID, `claim planet mismatch ${compact(payload.claim)}`);
+  assert(payload.claim?.planet?.owner_status === 'owned_by_you', `claim owner status ${compact(payload.claim?.planet)}`);
+  assert((payload.production?.planets ?? []).some((planet) => planet.planet_id === planetID), `claim response missing production ${compact(payload.production)}`);
+  assert(inventoryQuantity(payload.inventory, 'x_core') === 0, `claim response inventory still has x_core ${compact(payload.inventory)}`);
+  assertNoPayloadLeak(payload, 'claim response');
+}
+
+function discoveredPlanetID(state) {
+  return state?.planetIntel?.lastScan?.planet_id || state?.planetIntel?.planets?.find((planet) => planet.owner_status !== 'owned_by_you')?.planet_id || '';
+}
+
+function planetOwnerStatus(state, planetID) {
+  return state?.planetIntel?.planets?.find((planet) => planet.planet_id === planetID)?.owner_status ?? '';
+}
+
+function selectedPlanetOwnerStatus(state, planetID) {
+  const selected = state?.planetIntel?.selectedPlanet;
+  return selected?.planet_id === planetID ? selected.owner_status : '';
+}
+
+function productionInitialized(state, planetID) {
+  return (
+    state?.production?.planets?.some((planet) => planet.planet_id === planetID && planet.storage && planet.energy_capacity_per_hour > 0) ||
+    state?.planetIntel?.selectedPlanet?.production?.planet_id === planetID
+  );
+}
+
+function selfEntity(state) {
+  const entities = Object.values(state?.visibleEntities ?? {});
+  return entities.find((entity) => entity.status_flags?.includes('self')) ?? entities.find((entity) => entity.entity_type === 'player') ?? null;
+}
+
+function positionNow(entity, state) {
+  assert(entity?.position, 'self position present');
+  const movement = entity.movement;
+  if (!movement?.moving || !movement.origin || !movement.target || !state?.serverNow) return entity.position;
+  const duration = movement.arrive_at_ms - movement.started_at_ms;
+  if (duration <= 0) return movement.target;
+  const progress = Math.max(0, Math.min(1, (state.serverNow - movement.started_at_ms) / duration));
+  return {
+    x: movement.origin.x + (movement.target.x - movement.origin.x) * progress,
+    y: movement.origin.y + (movement.target.y - movement.origin.y) * progress,
+  };
+}
+
+function step(from, to, maxDistance) {
+  const total = distance(from, to);
+  if (total <= maxDistance) return round(to);
+  const scale = maxDistance / total;
+  return round({ x: from.x + (to.x - from.x) * scale, y: from.y + (to.y - from.y) * scale });
+}
+
+function round(vec) {
+  return { x: Math.round(vec.x), y: Math.round(vec.y) };
+}
+
+function distance(a, b) {
+  return !a || !b ? Number.POSITIVE_INFINITY : Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function fmt(vec) {
+  return `${Math.round(vec?.x ?? 0)},${Math.round(vec?.y ?? 0)}`;
+}
+
 async function setRouteCreateControls(client, destinationID, resourceItemID, amountPerHour) {
   await client.page.locator('[data-route-create-control="true"]').first().waitFor({ timeout: 10000 });
   await client.page.locator('[data-route-create-control="true"] [data-route-create-destination]').first().selectOption(destinationID);
@@ -258,6 +584,18 @@ async function clickFirstEnabled(client, selector, label) {
     await delay(100);
   }
   throw new Error(`${label} was not enabled for selector ${selector}`);
+}
+
+async function closeModalIfOpen(client) {
+  const backdrop = client.page.locator('[data-modal-close="backdrop"]').first();
+  if ((await backdrop.count()) > 0) {
+    await backdrop.click({ timeout: 1000 }).catch(() => client.page.keyboard.press('Escape'));
+  } else {
+    await client.page.keyboard.press('Escape');
+  }
+  await client.page
+    .waitForFunction(() => !document.querySelector('.hud__modal-layer[data-open="true"]'), null, { timeout: 5000 })
+    .catch(() => {});
 }
 
 async function waitForOperation(client, op, payloadPredicate, timeoutMS) {

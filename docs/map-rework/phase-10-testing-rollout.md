@@ -88,9 +88,12 @@ marked `Open` are not implemented rollout controls yet.
   freshly scanned-and-claimed planet can source an authenticated station route
   settlement through initialized production/storage, including safe
   `route.settled` event reconciliation without exposing the masked station
-  endpoint id. A focused browser claim proof now exists for public `1-1`, but
-  browser drop flow and broader browser scanner/claim/drop matrix variants
-  remain open.
+  endpoint id. A focused browser claim proof now exists for public `1-1`.
+  The single-process built-client `e2e:playtest-server` proof now exercises
+  `GAME_PLAYTEST_SEED=true` through real browser starter combat/drop/pickup,
+  HUD scan, HUD planet claim, production initialization, and route
+  create/settle with DOM/state/storage, WebSocket, and process-log leak
+  canaries. Broader browser scanner/claim/drop matrix variants remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone
   UI-click rejection proof exist in
   `client/tests/e2e/phase10-pvp-death-flow.mjs`; remaining PvP browser gaps are
@@ -101,9 +104,10 @@ marked `Open` are not implemented rollout controls yet.
   materialization/intel proof across public `1-1`/`1-2`/`1-3`, and Phase09
   now covers one browser scan pulse with DOM/state/storage/cookie leak checks,
   Phase10 now has a focused browser claim proof, and the server playable
-  vertical harness proves scan/detail/claim after a real portal transfer.
-  Browser drop matrix coverage and broader browser scan variants remain
-  missing.
+  vertical harness proves scan/detail/claim after a real portal transfer. The
+  built-client playtest runner now adds one deployable-package browser scan,
+  claim, and starter drop canary. Browser drop matrix coverage and broader
+  browser scan variants remain missing.
 - Authenticated `route.create`, `route.update`, `route.enable`, and
   `route.disable` now have server gateway slices for owned planet-to-planet MVP
   routes. `planet.production_summary` and `planet.storage_summary` now settle

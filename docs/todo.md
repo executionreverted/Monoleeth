@@ -547,8 +547,12 @@ for phase status; this file is a compact pending-work index.
   medium PvP `1-3`, and Phase10 now ties active-map known/minimap memory scope
   to those seeded drop profile/table rows with an internal map/candidate/drop
   metadata leak canary. Phase10 now adds a focused browser claim proof for
-  public `1-1`; remaining work is browser drop flow plus broader browser
-  claim/drop and scan success/no-signal variants. Source:
+  public `1-1`; the single-process built-client playtest proof now extends
+  `GAME_PLAYTEST_SEED=true` through real browser starter combat, loot pickup,
+  HUD scan, HUD planet claim, production initialization, and route
+  create/settle with DOM/state/storage/WebSocket/log leak canaries. Remaining
+  work is broader browser claim/drop and scan success/no-signal variants.
+  Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete broader per-map/risk/rank drop balance matrix coverage across
   seeded maps. Current server tests cover starter selection, `map_1_2`
@@ -559,8 +563,10 @@ for phase status; this file is a compact pending-work index.
   Phase10 now also rejects seeded destination/PvP level/risk/table-unavailable
   and table-source mismatches without falling back to starter loot, and
   domain-level hidden/far/cross-map pickup rejection remains covered. Phase09
-  now covers starter and destination browser fight/loot pickup; broader balance
-  tuning and additional rollout/browser proof remain open. Source:
+  now covers starter and destination browser fight/loot pickup; the
+  single-process built-client playtest proof also covers a starter fight/loot
+  pickup in the deployable playtest package. Broader balance tuning and
+  additional rollout/browser proof remain open. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Extend the Phase09 browser map smoke into a full real-server
   fight/loot/scan/portal loop with desktop, tablet, and mobile screenshots,
