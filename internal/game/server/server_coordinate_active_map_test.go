@@ -48,3 +48,27 @@ func TestCoordinateItemUseRejectsWrongActiveMapWithoutMutation(t *testing.T) {
 	}
 	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionDecrease, intelCoordinateItemUseLedgerReason, 0)
 }
+
+func TestCoordinateItemCreateRejectsWrongActiveMapWithoutMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-create-wrong-map@example.com", "Coordinate Create Wrong Map")
+	planetID := foundation.PlanetID("planet-coordinate-create-wrong-map")
+	requestID := foundation.RequestID("request-coordinate-create-wrong-map")
+	itemID := deterministicCoordinateItemID(owner.PlayerID, planetID, requestID)
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, "map_1_2", world.Vec2{X: 1500, Y: 1600}, 3)
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"`+requestID.String()+`","op":"intel.coordinate_item.create","payload":{"planet_id":"`+planetID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError {
+		t.Fatalf("coordinate create response = %+v, want wrong active-map rejection", response.Response)
+	}
+	if item, ok, err := gameServer.runtime.Intel.CoordinateItem(itemID); err != nil || ok {
+		t.Fatalf("CoordinateItem(%s) ok=%v item=%+v err=%v, want no item", itemID, ok, item, err)
+	}
+	if inventorySnapshotHasInstanceID(gameServer.runtime.inventorySnapshotForPlayer(owner.PlayerID), itemID.String(), coordinateScrollItemID.String(), economy.LocationKindAccountInventory.String()) {
+		t.Fatalf("inventory has coordinate scroll %s after wrong active-map create rejection", itemID)
+	}
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, itemID.String(), economy.LedgerActionIncrease, intelCoordinateItemCreateLedgerReason, 0)
+}

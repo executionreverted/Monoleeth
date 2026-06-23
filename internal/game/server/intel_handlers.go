@@ -464,10 +464,24 @@ func (runtime *Runtime) syncIntelFromDiscovery(playerID foundation.PlayerID, pla
 		return intel.PlayerPlanetIntel{}, intel.ErrPlanetIntelNotKnown
 	}
 	converted := intelFromDiscovery(row)
+	if err := runtime.requirePlanetIntelActiveMap(playerID, converted); err != nil {
+		return intel.PlayerPlanetIntel{}, err
+	}
 	if _, _, err := runtime.Intel.UpsertPlayerPlanetIntel(converted); err != nil {
 		return intel.PlayerPlanetIntel{}, err
 	}
 	return converted, nil
+}
+
+func (runtime *Runtime) requirePlanetIntelActiveMap(playerID foundation.PlayerID, row intel.PlayerPlanetIntel) error {
+	scope, err := runtime.knownPlanetMapScope(playerID)
+	if err != nil {
+		return err
+	}
+	if row.WorldID != scope.worldID || row.ZoneID != scope.zoneID {
+		return intel.ErrPlanetIntelNotKnown
+	}
+	return nil
 }
 
 func deterministicCoordinateItemID(playerID foundation.PlayerID, planetID foundation.PlanetID, requestID foundation.RequestID) foundation.ItemID {

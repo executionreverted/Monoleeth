@@ -243,8 +243,10 @@ Current slice completed:
   rows. Phase07AG transfers coordinate item intel ownership after market
   purchase with the same market-buy idempotency key, so duplicate buy retries
   can repair the transfer and the buyer can use the bought scroll once. The
-  use path also checks the stored scroll world/zone against the player's active
-  map before inventory consume or intel mutation, returning safe not-found
+  create/share sync path now rejects known planet intel outside the player's
+  active map before coordinate item mint or receiver intel writes; the use path
+  also checks the stored scroll world/zone against the player's active map
+  before inventory consume or intel mutation, returning safe not-found
   semantics for wrong-map scrolls without leaking planet detail events. Daily
   quotas, durable DB rows, cross-service transaction/compensation, and browser
   HUD controls remained open at this slice.
@@ -1060,8 +1062,8 @@ Mockup areas covered:
       lease-released through the claim outbox publisher contracts.
 - [x] Intel share rejects hidden/not-owned coordinate references.
 - [x] Coordinate item create/use consumes owned items once and filters results.
-- [x] Coordinate item use rejects wrong active-map scrolls before inventory or
-      intel mutation.
+- [x] Coordinate item create/share/use reject wrong active-map intel before
+      inventory, receiver-intel, or item-use mutation.
 - [x] Browser coordinate item create/use controls send only `planet_id` or
       `item_instance_id` and do not expose hidden coordinate payloads.
 - [x] Browser intel share sends only `planet_id` and `to_player_id` and does
