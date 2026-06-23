@@ -721,6 +721,8 @@ Mockup areas covered:
       directly for future DB/publisher adapters.
 - [x] Production settlement durable commit plans apply through the durable
       commit-store adapter with exact replay and invalid-row rejection.
+- [x] Production/storage summary handlers hand server-owned production
+      settlement transaction rows to the runtime durable commit-store adapter.
 - [ ] Durable production settlement is enforced by DB/idempotency rows and
       published through the durable outbox.
 - [x] Server route.settle transfers storage once, returns no-op on immediate

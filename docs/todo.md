@@ -425,8 +425,10 @@ for phase status; this file is a compact pending-work index.
   adapters can accept the validated reference/outbox/route-ledger bundle with
   idempotent exact replay and conflict rejection, plus readback helpers so
   recovery/publisher workers can rebuild committed durable commit and outbox
-  dispatch plans by settlement reference key. Phase07AU adds claim-begin
-  durable plan validation for X Core
+  dispatch plans by settlement reference key. The runtime production/storage
+  summary handlers now hand server-owned production settlement transaction rows
+  to the durable commit-store adapter while duplicate/sub-unit polls remain
+  no-op. Phase07AU adds claim-begin durable plan validation for X Core
   debit plus owner-CAS evidence. Phase07AT adds the matching
   completed-claim durable commit-plan validation for claim
   boundary/reference/event/outbox/X Core evidence. Phase07AV adds claim

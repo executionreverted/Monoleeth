@@ -145,6 +145,7 @@ type Runtime struct {
 	Claim         *discovery.ClaimService
 	Intel         *intel.Service
 	Production    *production.InMemoryStore
+	Settlements   *production.InMemorySettlementDurableCommitStore
 	CommandLog    *observability.MemoryCommandLogger
 	Metrics       *observability.MetricRecorder
 
@@ -345,6 +346,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	questService.SetRerollServices(quests.QuestRerollServices{Wallet: walletService})
 	discoveryStore := discovery.NewInMemoryStore()
 	productionStore := production.NewInMemoryStore()
+	settlementStore := production.NewInMemorySettlementDurableCommitStore()
 	intelService := intel.NewService(clock)
 	adminService := admin.NewService(admin.ServiceConfig{
 		Inventory:  inventory,
@@ -406,6 +408,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Discovery:           discoveryStore,
 		Intel:               intelService,
 		Production:          productionStore,
+		Settlements:         settlementStore,
 		CommandLog:          commandLogger,
 		Metrics:             metricRecorder,
 		combatXP:            combatXP,

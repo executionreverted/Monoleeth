@@ -52,6 +52,8 @@ func TestProductionSummarySettlesOwnedActiveMapProductionAndQueuesSafeEvents(t *
 	assertStoredProductionSnapshot(t, gameServer, activePlanetID, "iron_ore", 60, settledAt)
 	assertStoredProductionSnapshot(t, gameServer, otherMapPlanetID, "iron_ore", 0, base)
 	assertStoredProductionSnapshot(t, gameServer, otherOwnerPlanetID, "iron_ore", 0, base)
+	assertProductionDurableSettlementRows(t, gameServer, activePlanetID, 1)
+	durableOutboxAfterFirst := len(gameServer.runtime.Settlements.OutboxRecords())
 
 	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationProductionSummary, owner.PlayerID)
 	if err != nil {
@@ -73,6 +75,9 @@ func TestProductionSummarySettlesOwnedActiveMapProductionAndQueuesSafeEvents(t *
 	assertStoredProductionSnapshot(t, gameServer, activePlanetID, "iron_ore", 60, settledAt)
 	if got := len(gameServer.runtime.Production.Events()); got != eventCountAfterFirst {
 		t.Fatalf("duplicate production summary domain events = %d, want %d", got, eventCountAfterFirst)
+	}
+	if got := len(gameServer.runtime.Settlements.OutboxRecords()); got != durableOutboxAfterFirst {
+		t.Fatalf("duplicate production summary durable outbox rows = %d, want %d", got, durableOutboxAfterFirst)
 	}
 	duplicateEvents, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationProductionSummary, owner.PlayerID)
 	if err != nil {
@@ -129,6 +134,7 @@ func TestProductionSummarySkipsSubUnitPollWithoutLosingFractionalProgress(t *tes
 	}
 	assertProductionSummarySnapshot(t, summaryPayload.Production, planetID, "1-1", "iron_ore", 0)
 	assertStoredProductionSnapshot(t, gameServer, planetID, "iron_ore", 0, base)
+	assertNoProductionDurableSettlementRows(t, gameServer, "one-minute production summary")
 	assertNoProductionSummarySettlementEvents(t, gameServer, owner.SessionID, "one-minute production summary")
 	if got := len(gameServer.runtime.Production.Events()); got != 0 {
 		t.Fatalf("one-minute production domain events at %s = %d, want none", oneMinuteAt, got)
@@ -150,6 +156,7 @@ func TestProductionSummarySkipsSubUnitPollWithoutLosingFractionalProgress(t *tes
 	}
 	assertStorageSummarySnapshot(t, storagePayload.Storage, planetID, "1-1", "iron_ore", 0)
 	assertStoredProductionSnapshot(t, gameServer, planetID, "iron_ore", 0, base)
+	assertNoProductionDurableSettlementRows(t, gameServer, "ninety-second storage summary")
 	assertNoProductionSummarySettlementEvents(t, gameServer, owner.SessionID, "ninety-second storage summary")
 	if got := len(gameServer.runtime.Production.Events()); got != 0 {
 		t.Fatalf("ninety-second production domain events at %s = %d, want none", storageAt, got)
@@ -171,6 +178,7 @@ func TestProductionSummarySkipsSubUnitPollWithoutLosingFractionalProgress(t *tes
 	}
 	assertProductionSummarySnapshot(t, finalPayload.Production, planetID, "1-1", "iron_ore", 1)
 	assertStoredProductionSnapshot(t, gameServer, planetID, "iron_ore", 1, settledAt)
+	assertProductionDurableSettlementRows(t, gameServer, planetID, 1)
 	if got := len(gameServer.runtime.Production.Events()); got != 3 {
 		t.Fatalf("two-minute production domain events = %d, want one settlement worth of 3", got)
 	}
@@ -276,6 +284,59 @@ func assertNoProductionSummarySettlementEvents(t *testing.T, gameServer *Server,
 	events := gameServer.runtime.queuedEvents[sessionID]
 	if got := countEventType(events, realtime.EventProductionSummary) + countEventType(events, realtime.EventPlanetStorage); got != 0 {
 		t.Fatalf("%s queued production/storage events = %d in %+v, want none", label, got, events)
+	}
+}
+
+func assertProductionDurableSettlementRows(t *testing.T, gameServer *Server, planetID foundation.PlanetID, wantReferences int) {
+	t.Helper()
+
+	references := gameServer.runtime.Settlements.SettlementReferences()
+	if len(references) != wantReferences {
+		t.Fatalf("durable settlement references = %+v, want %d", references, wantReferences)
+	}
+	found := false
+	for _, reference := range references {
+		if reference.Kind != production.SettlementKindProduction {
+			t.Fatalf("durable settlement reference = %+v, want production kind", reference)
+		}
+		if !reference.RouteID.IsZero() {
+			t.Fatalf("durable production settlement reference route_id = %q, want empty", reference.RouteID)
+		}
+		found = found || reference.PlanetID == planetID
+	}
+	if !found {
+		t.Fatalf("durable settlement references = %+v, missing planet %q", references, planetID)
+	}
+
+	outbox := gameServer.runtime.Settlements.OutboxRecords()
+	if len(outbox) == 0 {
+		t.Fatal("durable production settlement outbox rows = 0, want pending rows")
+	}
+	hasReferenceEvidence := false
+	for _, record := range outbox {
+		if record.Status != production.ProductionOutboxStatusPending {
+			t.Fatalf("durable production settlement outbox row = %+v, want pending status", record)
+		}
+		hasReferenceEvidence = hasReferenceEvidence || (!record.ReferenceKey.IsZero() && record.SettlementWindow != "")
+	}
+	if !hasReferenceEvidence {
+		t.Fatalf("durable production settlement outbox rows = %+v, want settlement reference evidence", outbox)
+	}
+	if ledger := gameServer.runtime.Settlements.RouteStorageLedgerEntries(); len(ledger) != 0 {
+		t.Fatalf("durable production settlement route ledger = %+v, want empty", ledger)
+	}
+}
+
+func assertNoProductionDurableSettlementRows(t *testing.T, gameServer *Server, label string) {
+	t.Helper()
+	if refs := gameServer.runtime.Settlements.SettlementReferences(); len(refs) != 0 {
+		t.Fatalf("%s durable settlement references = %+v, want empty", label, refs)
+	}
+	if outbox := gameServer.runtime.Settlements.OutboxRecords(); len(outbox) != 0 {
+		t.Fatalf("%s durable settlement outbox rows = %+v, want empty", label, outbox)
+	}
+	if ledger := gameServer.runtime.Settlements.RouteStorageLedgerEntries(); len(ledger) != 0 {
+		t.Fatalf("%s durable route ledger rows = %+v, want empty", label, ledger)
 	}
 }
 

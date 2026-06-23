@@ -9,6 +9,7 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
 	worldmaps "gameproject/internal/game/world/maps"
 )
@@ -625,11 +626,11 @@ func (runtime *Runtime) settleOwnedProductionForSummary(
 	}
 	changed := false
 	for _, candidateID := range planetIDs {
-		result, err := runtime.Production.SettlePlanetProductionIfWholeOutputAvailable(candidateID, now)
+		result, err := runtime.applyProductionSummarySettlement(candidateID, now)
 		if err != nil {
 			return planetProductionCollectionPayload{}, planetStorageCollectionPayload{}, false, err
 		}
-		if !result.NoOp {
+		if !result.Settlement.NoOp {
 			changed = true
 		}
 	}
@@ -639,6 +640,24 @@ func (runtime *Runtime) settleOwnedProductionForSummary(
 		return planetProductionCollectionPayload{}, planetStorageCollectionPayload{}, false, err
 	}
 	return productionPayload, storageSummaryPayloadFromProduction(productionPayload), changed, nil
+}
+
+func (runtime *Runtime) applyProductionSummarySettlement(
+	planetID foundation.PlanetID,
+	now time.Time,
+) (production.ProductionSettlementTransactionResult, error) {
+	result, err := runtime.Production.ApplyProductionSettlementTransaction(production.ProductionSettlementTransactionInput{
+		PlanetID:           planetID,
+		SettledAt:          now,
+		RequireWholeOutput: true,
+	})
+	if err != nil {
+		return production.ProductionSettlementTransactionResult{}, err
+	}
+	if _, err := result.ApplyDurableCommit(runtime.Settlements); err != nil {
+		return production.ProductionSettlementTransactionResult{}, err
+	}
+	return result, nil
 }
 
 func (runtime *Runtime) ownedProductionPlanetIDsForScope(
