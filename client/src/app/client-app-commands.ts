@@ -340,6 +340,28 @@ export abstract class ClientAppCommands extends ClientAppCore {
     );
   }
 
+  protected sendCraftingStart(recipeID: string): void {
+    if (!recipeID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `crafting-start:${recipeID}`,
+      () => this.commandBuilder.craftingStart(recipeID),
+      'Craft start already pending.',
+    );
+  }
+
+  protected sendCraftingComplete(jobID: string): void {
+    if (!jobID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `crafting-complete:${jobID}`,
+      () => this.commandBuilder.craftingComplete(jobID),
+      'Craft completion already pending.',
+    );
+  }
+
   protected sendRouteCreate(input: {
     sourcePlanetID: string;
     destinationPlanetID: string;

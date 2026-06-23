@@ -212,8 +212,10 @@ for phase status; this file is a compact pending-work index.
   `crafting.complete`: start accepts only `recipe_id`, complete accepts only
   `job_id`, and both reconcile safe crafting/inventory/wallet/progression
   snapshots without client-authored material, wallet, output, owner, location,
-  or reference truth. Remaining work is browser action controls/timers, queue
-  limit balancing, station/planet/building location UX, durable completion
+  or reference truth. Phase06C adds browser action controls/timers from the
+  real crafting snapshot and locks matching pending start/complete intents.
+  Remaining work is queue limit balancing, station/planet/building location UX,
+  durable completion
   recovery after partial reservation/output/XP mutation, and `crafting.cancel`
   with `craft_cancel:<job_id>` refund/release semantics. Source: Phase 10
   audit.

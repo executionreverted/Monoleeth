@@ -21,14 +21,17 @@ Current slice completed:
   reconciles crafting/inventory/wallet/progression snapshots. Complete accepts
   only `job_id`, enforces server time and owner/state checks, commits the
   reservation, grants output and craft XP once, and reconciles the same safe
-  snapshots. `crafting.cancel`, durable crash recovery after partial complete,
-  and browser crafting action controls remain open.
-- Remaining mutation commands and browser crafting controls must still use
-  ledger/service-backed flows before any UI action is enabled.
+  snapshots.
+- Phase06C exposes browser crafting start/complete controls from the real
+  crafting snapshot. The Crafting tab renders server recipes and active jobs,
+  disables matching pending commands, derives timers from server timestamps, and
+  sends only `recipe_id` or `job_id` intents. `crafting.cancel`, queue/location
+  UX balancing, and durable crash recovery after partial complete remain open.
+- Remaining mutation commands must still use ledger/service-backed flows before
+  any UI action is enabled.
 - Phase 10 records the remaining browser/server contracts for skill unlock,
-  inventory move, crafting cancel, and browser crafting action controls. These
-  controls must stay absent, locked, or read-only until their contracts are
-  implemented and verified.
+  inventory move, and crafting cancel. These controls must stay absent, locked,
+  or read-only until their contracts are implemented and verified.
 
 ## Goal
 
@@ -158,7 +161,7 @@ Mockup areas covered:
       crafting recipe snapshots.
 - [ ] Add skill tree/progression panel and skill unlock action.
 - [ ] Add drag/click item movement with pending server state.
-- [ ] Add craft job timers from server timestamps.
+- [x] Add craft job timers from server timestamps.
 - [x] Update topbar and ship panel from real snapshots.
 
 ## Abuse And Safety Checklist
@@ -196,6 +199,8 @@ Mockup areas covered:
 - [x] Browser inventory panel uses server snapshot.
 - [x] Browser topbar credits uses server wallet snapshot.
 - [x] Browser equip action updates loadout/stats from server event.
+- [x] Browser crafting start/complete controls send only server-owned ids and
+      lock on matching pending commands.
 - [ ] Browser crafting timer survives reconnect snapshot.
 
 ## Done Criteria

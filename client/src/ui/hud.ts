@@ -89,7 +89,7 @@ export class HUD {
       cap.textContent = formatPercent(state.ship?.capacitor, state.ship?.max_capacitor);
     }
     this.panels.status.innerHTML = statusPanel(state);
-    this.panels.cargo.innerHTML = cargoPanel(state);
+    this.panels.cargo.innerHTML = cargoPanel(state, serverNow);
     this.panels.economy.innerHTML = economyPanel(state);
     this.panels.systems.innerHTML = systemsPanel(state);
     this.panels.quests.innerHTML = questsPanel(state);
@@ -598,6 +598,16 @@ export class HUD {
         case 'loadout-unequip':
           if (button.dataset.slotId) {
             this.handlers.onLoadoutUnequipModule(button.dataset.slotId);
+          }
+          break;
+        case 'crafting-start':
+          if (button.dataset.recipeId) {
+            this.handlers.onCraftingStart(button.dataset.recipeId);
+          }
+          break;
+        case 'crafting-complete':
+          if (button.dataset.jobId) {
+            this.handlers.onCraftingComplete(button.dataset.jobId);
           }
           break;
         case 'module-select':

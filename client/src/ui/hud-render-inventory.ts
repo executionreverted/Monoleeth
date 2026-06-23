@@ -1,9 +1,10 @@
 import type { ClientState } from '../state/types';
+import { OPERATIONS } from '../protocol/envelope';
 import { hudSelection } from './hud-selection';
 import type { InventoryTabID, ModuleFilterID, ModuleInventoryItem } from './hud-types';
-import { escapeHTML, formatDurability } from './hud-formatters';
+import { escapeHTML, formatDurability, formatDuration, hasPendingOpPayloadField, realtimeReady } from './hud-formatters';
 
-export function cargoPanel(state: ClientState): string {
+export function cargoPanel(state: ClientState, serverNow: number | null = state.lastServerTime): string {
   const inventory = state.inventory;
   const hangar = state.hangar;
   const loadout = state.loadout;
@@ -25,7 +26,7 @@ export function cargoPanel(state: ClientState): string {
   const moduleItems = inventory.instances.filter((item) => item.module_slot_type && item.location !== 'ship_equipped');
   const selectedModule = selectedModuleItem(filteredModuleItems(moduleItems, hudSelection.selectedModuleFilter));
   const equippedCount = loadout.slots.filter((slot) => slot.item_instance_id).length;
-  const tabContext = { inventory, hangar, loadout, cargo, wallet, activeShip, moduleItems, selectedModule, equippedCount };
+  const tabContext = { state, serverNow, inventory, hangar, loadout, cargo, wallet, crafting: state.crafting, activeShip, moduleItems, selectedModule, equippedCount };
   return `
     <h2>Inventory</h2>
     <section class="inventory-system" data-inventory-system="true" data-active-inventory-tab="${hudSelection.selectedInventoryTab}">
@@ -43,6 +44,9 @@ type InventoryTabContext = {
   loadout: NonNullable<ClientState['loadout']>;
   cargo: NonNullable<ClientState['cargo']>;
   wallet: NonNullable<ClientState['wallet']>;
+  crafting: ClientState['crafting'];
+  state: ClientState;
+  serverNow: number | null;
   activeShip: NonNullable<ClientState['hangar']>['ships'][number] | null;
   moduleItems: ModuleInventoryItem[];
   selectedModule: ModuleInventoryItem | null;
@@ -54,7 +58,7 @@ export function inventoryTabBar(activeTab: InventoryTabID, context: InventoryTab
     equipment: context ? `${context.equippedCount}/${context.loadout.slots.length}` : '--',
     inventory: context ? String(context.inventory.instances.length + context.inventory.stackable.length) : '--',
     cargo: context ? `${context.cargo.used}/${context.cargo.capacity}` : '--',
-    crafting: 'locked',
+    crafting: context?.crafting ? `${context.crafting.recipes.length}/${context.crafting.active_jobs.length}` : '--',
   };
   return `
     <div class="inventory-tabs" role="tablist" aria-label="Inventory systems">
@@ -89,7 +93,7 @@ export function inventoryTabPanel(tabID: InventoryTabID, context: InventoryTabCo
     case 'cargo':
       return cargoHoldPanel(context);
     case 'crafting':
-      return craftingBlockedPanel();
+      return craftingPanel(context);
     case 'equipment':
     default:
       return equipmentPanel(context);
@@ -171,12 +175,145 @@ export function cargoHoldPanel(context: InventoryTabContext): string {
   `;
 }
 
-export function craftingBlockedPanel(): string {
+export function craftingPanel(context: InventoryTabContext): string {
+  const { crafting, state, serverNow } = context;
+  if (!crafting) {
+    return `
+      <section class="crafting-locked-panel" data-crafting-tab="true" data-crafting-state="loading">
+        <div class="empty-line">Awaiting crafting recipes from server.</div>
+      </section>
+    `;
+  }
+
   return `
-    <section class="crafting-locked-panel" data-crafting-tab="true">
-      <div class="empty-line">Crafting station unavailable.</div>
+    <section class="crafting-locked-panel" data-crafting-tab="true" data-crafting-state="ready">
+      <div class="module-bay__head">
+        <strong>Crafting station</strong>
+        <span>${crafting.recipes.length} recipes · ${crafting.active_jobs.length} jobs</span>
+      </div>
+      ${craftingJobPanel(crafting.active_jobs, crafting.recipes, state, serverNow)}
+      ${craftingRecipePanel(crafting.recipes, state)}
     </section>
   `;
+}
+
+export function craftingBlockedPanel(): string {
+  return `
+    <section class="crafting-locked-panel" data-crafting-tab="true" data-crafting-state="loading">
+      <div class="empty-line">Awaiting crafting recipes from server.</div>
+    </section>
+  `;
+}
+
+function craftingJobPanel(
+  jobs: NonNullable<ClientState['crafting']>['active_jobs'],
+  recipes: NonNullable<ClientState['crafting']>['recipes'],
+  state: ClientState,
+  serverNow: number | null,
+): string {
+  if (jobs.length === 0) {
+    return '<div class="empty-line">No active craft jobs.</div>';
+  }
+  return `
+    <ul class="compact-list crafting-job-list" data-crafting-jobs="true">
+      ${jobs.map((job) => craftingJobRow(job, recipes.find((recipe) => recipe.recipe_id === job.recipe_id) ?? null, state, serverNow)).join('')}
+    </ul>
+  `;
+}
+
+function craftingJobRow(
+  job: NonNullable<ClientState['crafting']>['active_jobs'][number],
+  recipe: NonNullable<ClientState['crafting']>['recipes'][number] | null,
+  state: ClientState,
+  serverNow: number | null,
+): string {
+  const pending = hasPendingOpPayloadField(state, OPERATIONS.craftingComplete, 'job_id', job.job_id);
+  const status = craftingJobStatus(job, serverNow);
+  const completed = job.state === 'completed' || job.state === 'complete';
+  const disabled = pending || !realtimeReady(state) || !status.ready || completed;
+  const label = pending ? 'Pending' : status.ready && !completed ? 'Complete' : status.label;
+  return `
+    <li data-crafting-job-id="${escapeHTML(job.job_id)}">
+      <span title="${escapeHTML(`Job ${job.job_id}`)}">${escapeHTML(recipe ? craftingOutputLabel(recipe) : job.recipe_id)}</span>
+      <strong>${escapeHTML(status.detail)}</strong>
+      <button
+        type="button"
+        data-action="crafting-complete"
+        data-job-id="${escapeHTML(job.job_id)}"
+        ${disabled ? 'disabled' : ''}
+        title="${escapeHTML(status.title)}">${escapeHTML(label)}</button>
+    </li>
+  `;
+}
+
+function craftingRecipePanel(recipes: NonNullable<ClientState['crafting']>['recipes'], state: ClientState): string {
+  if (recipes.length === 0) {
+    return '<div class="empty-line">No known crafting recipes.</div>';
+  }
+  return `
+    <div class="module-grid crafting-recipe-grid" data-crafting-recipes="true">
+      ${recipes.map((recipe) => craftingRecipeCard(recipe, state)).join('')}
+    </div>
+  `;
+}
+
+function craftingRecipeCard(recipe: NonNullable<ClientState['crafting']>['recipes'][number], state: ClientState): string {
+  const pending = hasPendingOpPayloadField(state, OPERATIONS.craftingStart, 'recipe_id', recipe.recipe_id);
+  const disabled = pending || !realtimeReady(state);
+  return `
+    <article class="module-card" data-crafting-recipe-id="${escapeHTML(recipe.recipe_id)}">
+      <strong>${escapeHTML(craftingOutputLabel(recipe))}</strong>
+      <span>${escapeHTML(craftingRecipeMeta(recipe))}</span>
+      <small>${escapeHTML(craftingRecipeRequirements(recipe))}</small>
+      <button
+        type="button"
+        data-action="crafting-start"
+        data-recipe-id="${escapeHTML(recipe.recipe_id)}"
+        ${disabled ? 'disabled' : ''}
+        title="${escapeHTML(disabled ? 'Craft start unavailable.' : 'Start this craft job.')}">${pending ? 'Pending' : 'Start'}</button>
+    </article>
+  `;
+}
+
+function craftingJobStatus(job: NonNullable<ClientState['crafting']>['active_jobs'][number], serverNow: number | null): { ready: boolean; label: string; detail: string; title: string } {
+  if (job.state === 'completed' || job.state === 'complete') {
+    return { ready: false, label: 'Done', detail: 'Completed', title: 'Craft job already completed.' };
+  }
+  if (serverNow === null) {
+    return { ready: false, label: 'Clock', detail: 'Server clock pending', title: 'Waiting for server time.' };
+  }
+  const remaining = job.completes_at - serverNow;
+  if (remaining <= 0) {
+    return { ready: true, label: 'Ready', detail: 'Ready', title: 'Craft job is ready to complete.' };
+  }
+  return {
+    ready: false,
+    label: formatDuration(remaining),
+    detail: `${formatDuration(remaining)} remaining`,
+    title: 'Craft job is still running.',
+  };
+}
+
+function craftingOutputLabel(recipe: NonNullable<ClientState['crafting']>['recipes'][number]): string {
+  const outputID = recipe.output.item_id || recipe.output.ship_id || recipe.output.kind || recipe.recipe_id;
+  return `${outputID} x${recipe.output.quantity}`;
+}
+
+function craftingRecipeMeta(recipe: NonNullable<ClientState['crafting']>['recipes'][number]): string {
+  const inputs = recipe.inputs.length > 0
+    ? recipe.inputs.map((input) => `${input.item_id} x${input.quantity}`).join(', ')
+    : 'No material inputs';
+  return `${inputs} · ${formatDuration(recipe.craft_duration_ms)}`;
+}
+
+function craftingRecipeRequirements(recipe: NonNullable<ClientState['crafting']>['recipes'][number]): string {
+  const requirements = [
+    recipe.required_credits > 0 ? `${recipe.required_credits} credits` : null,
+    recipe.required_rank > 0 ? `rank ${recipe.required_rank}` : null,
+    recipe.required_location_type ? recipe.required_location_type.replace(/_/g, ' ') : null,
+    ...recipe.required_role_levels.map((requirement) => `${requirement.role} ${requirement.level}`),
+  ].filter(Boolean);
+  return requirements.length > 0 ? requirements.join(' · ') : 'No extra requirements';
 }
 
 export function moduleBayPanel(
