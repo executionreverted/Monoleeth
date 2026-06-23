@@ -134,4 +134,72 @@ describe('route destination reducer behavior', () => {
       destination: { type: 'storage', id: '' },
     });
   });
+
+  test('route settle all response stores each settlement result', () => {
+    const state = createInitialState();
+    state.pendingCommands = {
+      'route-settle-all': {
+        requestID: 'route-settle-all',
+        op: OPERATIONS.routeSettle,
+        queuedAt: 1,
+        payload: {},
+      },
+    };
+
+    const next = reduceClientState(state, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'route-settle-all',
+        ok: true,
+        server_time: 1400,
+        v: 1,
+        payload: {
+          settlements: [
+            {
+              route_id: 'route-a',
+              resource_item_id: 'raw_ore',
+              settled_at: 1400,
+              elapsed_applied_ms: 300000,
+              wanted_amount: 20,
+              taken_amount: 20,
+              lost_amount: 0,
+              delivered_amount: 20,
+              added_amount: 20,
+              source_empty: false,
+              destination_full: false,
+              loss_applied: false,
+              no_op: false,
+            },
+            {
+              route_id: 'route-b',
+              resource_item_id: 'refined_alloy',
+              settled_at: 1400,
+              elapsed_applied_ms: 300000,
+              wanted_amount: 40,
+              taken_amount: 15,
+              lost_amount: 0,
+              delivered_amount: 15,
+              added_amount: 10,
+              source_empty: false,
+              destination_full: true,
+              loss_applied: false,
+              no_op: false,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(next.pendingCommands['route-settle-all']).toBeUndefined();
+    expect(next.routeSettlements?.['route-a']).toMatchObject({
+      route_id: 'route-a',
+      added_amount: 20,
+      destination_full: false,
+    });
+    expect(next.routeSettlements?.['route-b']).toMatchObject({
+      route_id: 'route-b',
+      added_amount: 10,
+      destination_full: true,
+    });
+  });
 });
