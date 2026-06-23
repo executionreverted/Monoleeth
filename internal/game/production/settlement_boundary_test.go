@@ -323,6 +323,7 @@ func TestApplyRouteSettlementTransactionReturnsCommittedReferenceOutboxAndLedger
 		routeStorageLedgerWant{Operation: RouteStorageLedgerSourceDebit, PlanetID: "planet-1", CounterpartyPlanetID: "planet-2", Quantity: 40, BalanceAfter: 60, ReferenceKey: reference, SettlementWindow: window},
 		routeStorageLedgerWant{Operation: RouteStorageLedgerDestinationCredit, PlanetID: "planet-2", CounterpartyPlanetID: "planet-1", Quantity: 40, BalanceAfter: 40, ReferenceKey: reference, SettlementWindow: window},
 	)
+	assertRouteDurableRecord(t, store, route.RouteID, reference, 2, result.Settlement.AfterRoute)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, now)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, now)
 }

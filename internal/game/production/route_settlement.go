@@ -115,6 +115,14 @@ func (store *InMemoryStore) settleRouteLocked(
 		result.ElapsedApplied = 0
 		return result, nil
 	}
+	if record, ok := store.committedAutomationRouteDurableRecordByReferenceLocked(result.ReferenceKey); ok {
+		if record.Route.RouteID != routeID {
+			return RouteSettlementResult{}, fmt.Errorf("route %q reference %q: %w", routeID, result.ReferenceKey, ErrInvalidAutomationRouteDurableCommit)
+		}
+		result.NoOp = true
+		result.ElapsedApplied = 0
+		return result, nil
+	}
 	result.WantedAmount = wholeUnitsForElapsed(route.AmountPerHour, result.ElapsedApplied)
 	if result.WantedAmount < 1 {
 		route.LastCalculatedAt = now
@@ -124,6 +132,9 @@ func (store *InMemoryStore) settleRouteLocked(
 		}
 		store.routes[routeID] = cloneAutomationRoute(route)
 		result.AfterRoute = cloneAutomationRoute(route)
+		if err := store.commitRouteDurableMutationLocked(route, result.ReferenceKey, result.SettledAt); err != nil {
+			return RouteSettlementResult{}, err
+		}
 		store.recordSettlementReferenceLocked(routeSettlementReferenceRecord(result))
 		if err := store.appendRouteSettlementEventsLocked(result); err != nil {
 			return RouteSettlementResult{}, err
@@ -190,6 +201,9 @@ func (store *InMemoryStore) settleRouteLocked(
 	}
 	store.routes[routeID] = cloneAutomationRoute(route)
 	result.AfterRoute = cloneAutomationRoute(route)
+	if err := store.commitRouteDurableMutationLocked(route, result.ReferenceKey, result.SettledAt); err != nil {
+		return RouteSettlementResult{}, err
+	}
 	store.recordSettlementReferenceLocked(routeSettlementReferenceRecord(result))
 	if err := store.appendRouteSettlementEventsLocked(result); err != nil {
 		return RouteSettlementResult{}, err

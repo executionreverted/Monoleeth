@@ -798,6 +798,13 @@ func assertRouteDurableSettlementRows(t *testing.T, gameServer *Server, routeIDs
 		if _, ok := wantRoutes[reference.RouteID]; !ok {
 			t.Fatalf("durable route settlement reference = %+v, want one of %+v", reference, routeIDs)
 		}
+		routeRecord, ok, err := gameServer.runtime.Production.CommittedAutomationRouteDurableRecordByReference(reference.ReferenceKey)
+		if err != nil || !ok {
+			t.Fatalf("durable route row for settlement reference %q ok = %v err = %v, want true nil", reference.ReferenceKey, ok, err)
+		}
+		if routeRecord.Route.RouteID != reference.RouteID || routeRecord.ReferenceKey != reference.ReferenceKey {
+			t.Fatalf("durable route row = %+v, want route/reference %+v", routeRecord, reference)
+		}
 	}
 
 	outbox := gameServer.runtime.Settlements.OutboxRecords()

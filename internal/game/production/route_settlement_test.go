@@ -108,6 +108,7 @@ func TestSettleRouteEmitsSettlementAndConditionEvents(t *testing.T) {
 	assertRouteSettlementEventPayloadEvidence(t, store.Events()[0].Payload, wantReference, wantWindow)
 	assertRouteSettlementEventPayloadEvidence(t, store.Events()[1].Payload, wantReference, wantWindow)
 	assertSettlementReferenceRecord(t, store.SettlementReferences(), SettlementKindRoute, "", route.RouteID, wantReference, wantWindow, now)
+	assertRouteDurableRecord(t, store, route.RouteID, wantReference, 2, result.AfterRoute)
 	assertOutboxEventTypes(t, store.OutboxRecords(),
 		EventRouteDestinationFull,
 		EventRouteTransferSettled,
@@ -149,6 +150,7 @@ func TestSettleRouteEmitsSettlementAndConditionEvents(t *testing.T) {
 	if got := len(store.RouteStorageLedgerEntries()); got != firstLedgerCount {
 		t.Fatalf("route storage ledger rows after duplicate route settlement = %d, want unchanged %d", got, firstLedgerCount)
 	}
+	assertRouteDurableRecord(t, store, route.RouteID, wantReference, 2, result.AfterRoute)
 }
 
 func assertRouteSettlementEventPayloadEvidence(t *testing.T, eventPayload json.RawMessage, reference foundation.IdempotencyKey, window string) {
@@ -486,4 +488,7 @@ func TestSettleRouteSubUnitWantedAdvancesRouteTimestampWithoutTransfer(t *testin
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 10, last)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
 	assertNoRouteStorageLedger(t, store)
+	wantWindow := wantSettlementWindow(last, now)
+	wantReference := mustRouteSettlementKey(t, route.RouteID, wantWindow)
+	assertRouteDurableRecord(t, store, route.RouteID, wantReference, 2, result.AfterRoute)
 }

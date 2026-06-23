@@ -389,9 +389,12 @@ Current slice completed:
   conflict rejection, detached route/readback APIs, and deterministic owner
   route reads. Phase07BO wires runtime route create/update/enable/disable
   mutations to that durable row contract with server-derived references and
-  revision advancement under the production store lock. Pure route settlement
-  still needs a durable route-row co-commit with settlement evidence, storage
-  ledger rows, and outbox rows.
+  revision advancement under the production store lock. Phase07BP wires pure
+  route settlement cursor advancement to the same durable route-row contract
+  using the server-derived `route_settlement:<route_id>:<window>` reference
+  under the production store lock. Durable DB adapters still need to make route
+  rows, settlement evidence, storage ledger rows, and outbox rows one
+  row-locked/CAS commit.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -655,7 +658,7 @@ route.settle
 | `route.create/update` | endpoint/config intent; update accepts only `route_id`, `destination_planet_id`, `resource_item_id`, `amount_per_hour` | endpoint visibility/access, ownership, capacity, policy; mutate route terms server-side and settle old update terms before replacement |
 | `route.enable/disable` | route id | owner is resolved from the authenticated session; control accepts only `route_id`, rechecks route ownership, and returns safe route/list snapshots |
 | `route.list/snapshot` | filter or empty | owner/access; reconnect-safe route state, cursors, and public source/destination map keys |
-| `route.settle` | route id or empty reconcile intent | backend gateway derives owner from the authenticated session, settles one owned route or all authenticated-owner routes through owner wrappers, returns safe settlement payloads, and keeps durable idempotency key `route_settle:<route_id>:<window>` as future DB/outbox work |
+| `route.settle` | route id or empty reconcile intent | backend gateway derives owner from the authenticated session, settles one owned route or all authenticated-owner routes through owner wrappers, returns safe settlement payloads, and uses durable idempotency key `route_settlement:<route_id>:<window>` for server-owned settlement evidence |
 
 Offline production and route settlement are never client-timed truth. UI requests
 may ask the server to reconcile, but the server calculates eligible windows,
@@ -946,6 +949,8 @@ Mockup areas covered:
 - [x] Runtime route create/update/enable/disable writes durable route-row
       snapshots with server-derived idempotency references and revision
       advancement.
+- [x] Pure route settlement writes durable route-row cursor snapshots with the
+      server-derived route settlement idempotency reference.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

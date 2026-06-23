@@ -40,7 +40,7 @@ func TestDisableRouteSettlesOldRouteBeforeDisabling(t *testing.T) {
 	assertRouteEnabled(t, store, route.RouteID, false)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, now)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, now)
-	assertRouteDurableRecord(t, store, route.RouteID, "route_disable:player-1:route-1:request-disable-route-1", 2, result.Route)
+	assertRouteDurableRecord(t, store, route.RouteID, "route_disable:player-1:route-1:request-disable-route-1", 3, result.Route)
 }
 
 func TestDisableRouteForOwnerRejectsWrongOwnerWithoutMutation(t *testing.T) {
@@ -216,7 +216,7 @@ func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 		t.Fatalf("AutomationRoute(%q) ok = %v err = %v, want true nil", route.RouteID, ok, err)
 	}
 	assertRouteMapIdentity(t, storedAfterUpdate, route.SourceMapID, provider.policy.DestinationMapID)
-	assertRouteDurableRecord(t, store, route.RouteID, "route_update:player-1:route-1:request-update-route-1", 2, storedAfterUpdate)
+	assertRouteDurableRecord(t, store, route.RouteID, "route_update:player-1:route-1:request-update-route-1", 3, storedAfterUpdate)
 
 	settleService := newTestRouteSettlementService(t, store, settleAt, nil)
 	settleResult, err := settleService.SettleRoute(route.RouteID)
