@@ -82,6 +82,14 @@ Must avoid:
   movement, damage, and loot effects. This keeps the current canvas shapes
   real-state driven while giving the upcoming sprite/3D asset pass a single
   integration point.
+- 2026-06-23 follow-up: the renderer now loads the world asset registry into
+  Pixi textures and draws sprites for real server-visible players, NPCs, loot,
+  planet signals, movement markers, projectiles, damage/loot effects, portal
+  gates, and safe-zone/radar markers. Procedural `Graphics` remain as glow,
+  reticle, hitbox, and interaction affordance layers. The built-client
+  playtest-server flow now asserts that authenticated smoke state renders
+  player, hostile NPC, portal, and safe-zone sprite assets while completing the
+  real combat/loot/scan/claim/route/portal loop.
 - The default browser path remains real/authenticated only. Demo fixtures are
   still available for explicit dev/test fixture mode, but they are dev-only lazy
   imports and the production bundle scan fails on fixture labels.

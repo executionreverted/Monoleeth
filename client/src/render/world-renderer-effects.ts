@@ -1,4 +1,4 @@
-import { Graphics, Text } from 'pixi.js';
+import { Graphics, Sprite, Text } from 'pixi.js';
 
 import { Vec2 } from '../protocol/envelope';
 import { isSelfEntity } from '../state/movement';
@@ -19,6 +19,9 @@ import {
 export abstract class WorldRendererEffects extends WorldRendererStarfield {
   protected drawMapOverlay(state: WorldViewState): void {
     this.mapOverlayLayer.clear();
+    for (const child of this.mapOverlaySpriteLayer.removeChildren()) {
+      child.destroy();
+    }
     if (!this.app) {
       this.mapOverlayDebug = emptyMapOverlayDebug();
       return;
@@ -77,6 +80,15 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
     const radius = clamp(portal.screenRadius, 10, 30);
     const x = portal.screen.x;
     const y = portal.screen.y;
+    const sprite = this.spriteForAsset('portal.gate.visible');
+    if (sprite) {
+      sprite.label = `${asset.key}:sprite:${portal.portalID}`;
+      sprite.position.set(x, y);
+      sprite.scale.set((radius * 1.75) / Math.max(1, sprite.texture.width));
+      sprite.alpha = 0.66;
+      sprite.tint = asset.accentColor;
+      this.mapOverlaySpriteLayer.addChild(sprite);
+    }
     this.mapOverlayLayer.circle(x, y, radius + 10).stroke({ color: asset.glowColor, width: 1, alpha: 0.18 });
     this.mapOverlayLayer
       .moveTo(x, y - radius)
@@ -102,6 +114,15 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
     const asset = worldAssetForSafeZone(zone);
     const radius = clamp(zone.screenRadius, 12, 1600);
     const color = asset.accentColor;
+    const sprite = this.spriteForAsset(asset.key);
+    if (sprite) {
+      sprite.label = `${asset.key}:sprite:${zone.safeAreaID}`;
+      sprite.position.set(zone.screen.x, zone.screen.y);
+      sprite.scale.set(clamp(radius * 0.18, 18, 72) / Math.max(1, sprite.texture.width));
+      sprite.alpha = zone.blocksPVP ? 0.46 : 0.38;
+      sprite.tint = color;
+      this.mapOverlaySpriteLayer.addChild(sprite);
+    }
     this.mapOverlayLayer
       .circle(zone.screen.x, zone.screen.y, radius)
       .fill({ color, alpha: zone.blocksPVP ? 0.026 : 0.018 })
@@ -118,6 +139,14 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
     if (state.movementTarget) {
       const asset = WORLD_RENDER_ASSETS['marker.movement.target'];
       const target = this.worldToScreen(state.movementTarget);
+      const sprite = this.spriteForAsset('marker.movement.target');
+      if (sprite) {
+        sprite.label = `${asset.key}:sprite`;
+        sprite.position.set(target.x, target.y);
+        sprite.scale.set(0.42 * this.scale);
+        sprite.alpha = 0.74;
+        this.markerLayer.addChild(sprite);
+      }
       const marker = new Graphics();
       marker.label = asset.key;
       marker.circle(0, 0, 16).stroke({ color: asset.accentColor, width: 2, alpha: 0.7 });
@@ -210,6 +239,20 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
     if (source) {
       const head = lerpVec(source, target, progress);
       const tail = lerpVec(source, target, Math.max(0, progress - 0.2));
+      const sprite = this.spriteForAsset('projectile.laser.basic');
+      if (sprite) {
+        const dx = head.x - tail.x;
+        const dy = head.y - tail.y;
+        const length = Math.max(14, Math.hypot(dx, dy));
+        sprite.label = `${asset.key}:sprite`;
+        sprite.anchor.set(0.5);
+        sprite.position.set((head.x + tail.x) / 2, (head.y + tail.y) / 2);
+        sprite.rotation = Math.atan2(dy, dx);
+        sprite.scale.set(length / Math.max(1, sprite.texture.width), 0.62 * this.scale);
+        sprite.alpha = 0.72 * alpha;
+        sprite.tint = asset.glowColor;
+        this.markerLayer.addChild(sprite);
+      }
       marker
         .moveTo(source.x, source.y)
         .lineTo(target.x, target.y)
@@ -256,6 +299,14 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
     const alpha = this.effectAlpha(effect, now);
     const radius = 18 + progress * 30;
     const marker = new Graphics();
+    const sprite = this.spriteForAsset(color === WORLD_RENDER_ASSETS['effect.loot'].accentColor ? 'effect.loot' : 'effect.damage');
+    if (sprite) {
+      sprite.position.set(target.x, target.y);
+      sprite.scale.set((0.32 + progress * 0.25) * this.scale);
+      sprite.alpha = 0.62 * alpha;
+      sprite.tint = color;
+      this.markerLayer.addChild(sprite);
+    }
     marker.circle(target.x, target.y, radius).stroke({ color, width: 2, alpha: 0.64 * alpha });
     marker
       .moveTo(target.x - radius, target.y)
@@ -268,6 +319,16 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
       .lineTo(target.x, target.y + radius)
       .stroke({ color, width: 2, alpha: 0.48 * alpha });
     this.markerLayer.addChild(marker);
+  }
+
+  protected spriteForAsset(key: keyof typeof WORLD_RENDER_ASSETS): Sprite | null {
+    const texture = this.worldAssetTextures.get(key);
+    if (!texture) {
+      return null;
+    }
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    return sprite;
   }
 
   protected drawFloatingText(effect: WorldFeedbackEffect, now: number, text: string, color: number): void {

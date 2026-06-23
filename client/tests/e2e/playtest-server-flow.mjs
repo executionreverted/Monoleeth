@@ -90,11 +90,19 @@ async function main() {
     await page.goto(`${origin}/?smoke=1`, { waitUntil: 'domcontentloaded' });
     await register(client, `playtest-${nonce}@example.test`, 'correct-password', `PT-${nonce.slice(-8)}`);
 
-    const seeded = await waitSmoke(client, playtestSeedReady, 'playtest onboarding seed', 30000);
+    const seeded = await waitSmoke(
+      client,
+      (state) => playtestSeedReady(state) && hasRenderedEntityAsset(state, 'ship.player.self'),
+      'playtest onboarding seed with player sprite',
+      30000,
+    );
     assert(seeded.auth?.session?.authenticated === true, 'authenticated real session missing');
     assert(seeded.currentMap?.public_map_key === '1-1', `current map ${seeded.currentMap?.public_map_key}, want 1-1`);
     assert((seeded.currentMap?.visible_portals ?? []).some((portal) => portal.portal_id === 'east_gate'), 'east_gate portal missing');
     assert(inventoryQuantity(seeded.inventory, 'x_core') === 1, 'playtest X Core seed missing');
+    assertWorldAssetTexturesLoaded(seeded);
+    assert(hasRenderedOverlayAsset(seeded, 'portal.gate.visible'), 'portal gate overlay sprite missing');
+    assert(hasRenderedOverlayAsset(seeded, 'zone.safe.pvp-blocked'), 'safe-zone overlay sprite missing');
     await assertNoLeak(client, seeded, 'seeded playtest state');
 
     const sourceID = routeSourceID(seeded);
@@ -278,6 +286,19 @@ function playtestSeedReady(state) {
   );
 }
 
+function assertWorldAssetTexturesLoaded(state) {
+  const loaded = state?.worldView?.renderedAssets?.loadedTextures ?? 0;
+  assert(loaded >= 10, `world asset textures not loaded: ${loaded}`);
+}
+
+function hasRenderedEntityAsset(state, assetKey) {
+  return (state?.worldView?.renderedAssets?.entitySprites ?? []).some((sprite) => sprite.assetKey === assetKey && sprite.visible === true);
+}
+
+function hasRenderedOverlayAsset(state, assetKey) {
+  return (state?.worldView?.renderedAssets?.overlaySprites ?? []).some((sprite) => sprite.assetKey === assetKey && sprite.visible === true);
+}
+
 function routeSourceID(state) {
   return (
     state?.planetIntel?.planets?.find(
@@ -370,6 +391,7 @@ async function completeFightLootLoop(client, options = {}) {
     await moveToPosition(client, approachTarget, 260, `${label} hostile radar approach`, 30000);
   }
   const withNPC = await waitSmoke(client, (state) => state.currentMap?.public_map_key === mapKey && findHostileNPC(state), `${label} visible NPC`, 15000);
+  assert(hasRenderedEntityAsset(withNPC, 'npc.swarm.hostile'), `${label} hostile NPC sprite asset missing`);
   const npc = findHostileNPC(withNPC);
   const killedNPCID = npc.entity_id;
   await moveToPosition(client, npc.position, Math.max(80, Math.min(220, (withNPC.stats?.weapon_range ?? 260) - 40)), `combat target ${killedNPCID}`, 30000);

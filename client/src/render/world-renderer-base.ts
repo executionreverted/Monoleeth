@@ -1,10 +1,11 @@
-import { Application, Container, Graphics, Text, Texture } from 'pixi.js';
+import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 
 import { EntityPayload, Vec2 } from '../protocol/envelope';
 import { currentEntityPosition, estimateServerTime } from '../state/movement';
 import { WorldMapMemoryMarker } from '../state/types';
 import { emptyMapOverlayDebug, MapOverlayDebugState } from './map-overlay';
 import { WorldInputHandlers, WorldViewState } from './world-view';
+import type { WorldRenderAssetKey } from './world-renderer-assets';
 import { StarfieldDebugState, StarfieldTile } from './world-renderer-types';
 
 export abstract class WorldRendererBase {
@@ -12,6 +13,7 @@ export abstract class WorldRendererBase {
   protected readonly backgroundLayer = new Container();
   protected readonly starfieldLayer = new Container();
   protected readonly mapOverlayLayer = new Graphics();
+  protected readonly mapOverlaySpriteLayer = new Container();
   protected readonly scanLayer = new Graphics();
   protected readonly worldLayer = new Container();
   protected readonly memoryMarkerLayer = new Container();
@@ -19,6 +21,7 @@ export abstract class WorldRendererBase {
   protected readonly nebulaLayer = new Graphics();
   protected readonly gridLayer = new Graphics();
   protected readonly entityViews = new Map<string, Graphics>();
+  protected readonly entitySprites = new Map<string, Sprite>();
   protected readonly entityLabels = new Map<string, Text>();
   protected readonly entityTargets = new Map<string, EntityPayload>();
   protected readonly entityWorldPositions = new Map<string, Vec2>();
@@ -27,6 +30,7 @@ export abstract class WorldRendererBase {
   protected readonly memoryMarkerTargets = new Map<string, WorldMapMemoryMarker>();
   protected readonly starfieldTiles: StarfieldTile[] = [];
   protected readonly stars: Array<{ view: Graphics; base: Vec2; depth: number }> = [];
+  protected readonly worldAssetTextures = new Map<WorldRenderAssetKey, Texture>();
   protected starfieldTexture: Texture | null = null;
   protected starfieldDebug: StarfieldDebugState = {
     assetLoaded: false,

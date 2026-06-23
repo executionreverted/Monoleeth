@@ -7,11 +7,12 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
-- [ ] Render the first real world asset set as canvas sprites/meshes, then add
-  screenshot or pixel proof against the authenticated playtest server. The
-  current renderer registry maps every world surface role to concrete client
-  assets under `client/src/assets/world/`, but entity drawing still uses
-  procedural Pixi `Graphics` shapes while the sprite/3D pass is prepared.
+- [ ] Add screenshot or pixel proof for the first real world sprite set against
+  the authenticated playtest server, then tune the 2D/3D art pass. The current
+  renderer now loads concrete assets under `client/src/assets/world/` and uses
+  Pixi sprites for player, NPC, projectile, loot/effect, portal, safe-zone, and
+  radar/marker visuals, with procedural Pixi `Graphics` retained as glow and
+  interaction affordance layers.
 - [ ] Add owner-aware passive economy fanout for online market, auction, and
   premium viewers. The Task 001 Phase 01 client now refreshes `market.search`,
   `auction.search`, `premium.entitlements`, wallet, inventory, and admin economy
@@ -841,6 +842,14 @@ Task 001 release proof must be rebuilt through
   question/ring markers, per-kind labels, and minimap entity-type styling.
   Covered by fixture browser smoke and updated screenshots. Source:
   `docs/plans/2026-06-19-ui-rework-GOAL.md`.
+- [x] Use the first real world asset set in the authenticated browser canvas.
+  `client/src/assets/world/` now provides player ship, hostile NPC, projectile,
+  loot crate, planet/signal, portal, safe-zone, radar warning, marker, damage,
+  and loot effect assets. The Pixi renderer loads them through
+  `WORLD_RENDER_ASSETS`, renders entity/effect/portal/safe-zone sprites while
+  keeping procedural glow layers, and `client/tests/e2e/playtest-server-flow.mjs`
+  proves the built-client playtest loop renders player, hostile NPC, portal,
+  and safe-zone sprite assets from real authenticated server state.
 - [x] Finish entity selection, combat feedback, and loot pickup presentation in
   the mockup HUD. Visible objects select with reticles, target panels show
   server-safe HP/shield/status, firing produces laser/damage/miss reactions,

@@ -122,6 +122,7 @@ describe('map overlay projection', () => {
     const snapshot = renderer.debugSnapshot() as Record<string, unknown>;
 
     expect(snapshot.mapOverlay).toMatchObject({ active: false, source: null });
+    expect(snapshot.renderedAssets).toMatchObject({ loadedTextures: 0, entitySprites: [], overlaySprites: [] });
     expect(snapshot).not.toHaveProperty('fog');
   });
 });

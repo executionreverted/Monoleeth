@@ -31,12 +31,14 @@ export class WorldRenderer extends WorldRendererEntities {
     this.backgroundLayer.addChild(this.nebulaLayer);
     this.backgroundLayer.addChild(this.gridLayer);
     app.stage.addChild(this.mapOverlayLayer);
+    app.stage.addChild(this.mapOverlaySpriteLayer);
     app.stage.addChild(this.scanLayer);
     app.stage.addChild(this.worldLayer);
     app.stage.addChild(this.memoryMarkerLayer);
     app.stage.addChild(this.markerLayer);
 
-    this.starfieldTexture = await Assets.load<Texture>(WORLD_RENDER_ASSETS['background.starfield'].assetURL);
+    await this.loadWorldAssetTextures();
+    this.starfieldTexture = this.worldAssetTextures.get('background.starfield') ?? (await Assets.load<Texture>(WORLD_RENDER_ASSETS['background.starfield'].assetURL));
     this.createStarfield();
     this.emptyLabel = new Text({
       text: 'AWAITING SERVER SNAPSHOT',
@@ -93,6 +95,8 @@ export class WorldRenderer extends WorldRendererEntities {
       if (!activeIDs.has(entityID)) {
         view.destroy();
         this.entityViews.delete(entityID);
+        this.entitySprites.get(entityID)?.destroy();
+        this.entitySprites.delete(entityID);
         this.entityLabels.get(entityID)?.destroy();
         this.entityLabels.delete(entityID);
         this.entityTargets.delete(entityID);
@@ -107,6 +111,11 @@ export class WorldRenderer extends WorldRendererEntities {
         view = this.createEntityView(entity);
         this.entityViews.set(entity.entity_id, view);
         this.entityWorldPositions.set(entity.entity_id, { ...entity.position });
+        const sprite = this.createEntitySprite(entity);
+        if (sprite) {
+          this.entitySprites.set(entity.entity_id, sprite);
+          this.worldLayer.addChild(sprite);
+        }
         this.worldLayer.addChild(view);
       }
       let label = this.entityLabels.get(entity.entity_id);
@@ -135,12 +144,27 @@ export class WorldRenderer extends WorldRendererEntities {
     this.app = null;
   }
 
+  private async loadWorldAssetTextures(): Promise<void> {
+    const descriptors = Object.values(WORLD_RENDER_ASSETS);
+    await Promise.all(
+      descriptors.map(async (descriptor) => {
+        const texture = await Assets.load<Texture>(descriptor.assetURL);
+        this.worldAssetTextures.set(descriptor.key, texture);
+      }),
+    );
+  }
+
   debugSnapshot(): {
     center: Vec2;
     displayPositions: Record<string, Vec2>;
     memoryMarkers: Array<{ id: string; detailID: string; label: string; position: Vec2; screen: Vec2; state: string }>;
     scanWaves: { active: boolean; screen: Vec2 | null; rings: Array<{ radius: number; alpha: number }> };
     projectiles: Array<{ id: string; source: Vec2; target: Vec2; head: Vec2; progress: number; active: boolean; alpha: number }>;
+    renderedAssets: {
+      loadedTextures: number;
+      entitySprites: Array<{ entityID: string; assetKey: string; visible: boolean }>;
+      overlaySprites: Array<{ assetKey: string; visible: boolean }>;
+    };
     background: StarfieldDebugState;
     mapOverlay: MapOverlayDebugState;
   } {
@@ -166,6 +190,18 @@ export class WorldRenderer extends WorldRendererEntities {
         rings: this.scanDebug.rings.map((ring) => ({ ...ring })),
       },
       projectiles: (this.state?.worldEffects ?? []).flatMap((effect) => this.projectileDebugSnapshot(effect, now)),
+      renderedAssets: {
+        loadedTextures: this.worldAssetTextures.size,
+        entitySprites: [...this.entitySprites.entries()].map(([entityID, sprite]) => ({
+          entityID,
+          assetKey: String(sprite.label ?? '').split(':')[0] ?? '',
+          visible: sprite.visible && sprite.alpha > 0,
+        })),
+        overlaySprites: this.mapOverlaySpriteLayer.children.map((child) => ({
+          assetKey: String(child.label ?? '').split(':')[0] ?? '',
+          visible: child.visible && child.alpha > 0,
+        })),
+      },
       background: {
         assetLoaded: this.starfieldDebug.assetLoaded,
         tileCount: this.starfieldDebug.tileCount,

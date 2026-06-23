@@ -1,4 +1,4 @@
-import { Graphics, Text } from 'pixi.js';
+import { Graphics, Sprite, Text } from 'pixi.js';
 
 import { EntityPayload, Vec2 } from '../protocol/envelope';
 import {
@@ -12,6 +12,7 @@ import { WorldMapMemoryMarker } from '../state/types';
 import { WorldViewState } from './world-view';
 import { worldAssetForEntity, worldAssetForMemoryMarker } from './world-renderer-assets';
 import { WorldRendererEffects } from './world-renderer-effects';
+import { spriteAlphaForEntity, spriteScaleForEntity } from './world-renderer-sprites';
 import {
   clamp,
   drawAsteroidShard,
@@ -95,6 +96,21 @@ export abstract class WorldRendererEntities extends WorldRendererEffects {
     return view;
   }
 
+  protected createEntitySprite(entity: EntityPayload): Sprite | null {
+    const asset = worldAssetForEntity(entity, isSelfEntity(entity));
+    const texture = this.worldAssetTextures.get(asset.key);
+    if (!texture) {
+      return null;
+    }
+    const sprite = new Sprite(texture);
+    sprite.label = `${asset.key}:sprite:${entity.entity_id}`;
+    sprite.anchor.set(0.5);
+    sprite.tint = asset.accentColor;
+    sprite.alpha = spriteAlphaForEntity(entity);
+    sprite.scale.set(spriteScaleForEntity(entity, this.scale));
+    return sprite;
+  }
+
   protected createEntityLabel(entity: EntityPayload): Text {
     const label = new Text({
       text: labelForEntity(entity),
@@ -116,6 +132,7 @@ export abstract class WorldRendererEntities extends WorldRendererEffects {
     view.clear();
     const asset = worldAssetForEntity(entity, self);
     view.label = `${entity.entity_id}:${asset.key}`;
+    this.updateEntitySprite(entity, self);
 
     if (selected) {
       this.drawSelectedReticle(view, entity);
@@ -136,6 +153,22 @@ export abstract class WorldRendererEntities extends WorldRendererEffects {
         this.drawPlanetSignal(view, entity, asset.accentColor, asset.glowColor);
         break;
     }
+  }
+
+  protected updateEntitySprite(entity: EntityPayload, self: boolean): void {
+    const sprite = this.entitySprites.get(entity.entity_id);
+    if (!sprite) {
+      return;
+    }
+    const asset = worldAssetForEntity(entity, self);
+    const texture = this.worldAssetTextures.get(asset.key);
+    if (texture && sprite.texture !== texture) {
+      sprite.texture = texture;
+    }
+    sprite.label = `${asset.key}:sprite:${entity.entity_id}`;
+    sprite.tint = asset.accentColor;
+    sprite.alpha = spriteAlphaForEntity(entity);
+    sprite.scale.set(spriteScaleForEntity(entity, this.scale));
   }
 
   protected drawSelectedReticle(view: Graphics, entity: EntityPayload): void {
@@ -368,6 +401,10 @@ export abstract class WorldRendererEntities extends WorldRendererEffects {
     }
     const screen = this.worldToScreen(world);
     view.position.set(screen.x, screen.y);
+    const sprite = this.entitySprites.get(entityID);
+    if (sprite) {
+      sprite.position.set(screen.x, screen.y);
+    }
   }
 
   protected positionEntityLabel(entityID: string, label: Text): void {
