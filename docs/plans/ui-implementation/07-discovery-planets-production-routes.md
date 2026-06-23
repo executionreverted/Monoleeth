@@ -1036,6 +1036,8 @@ Mockup areas covered:
       of treating endpoint selector values as planet ids.
 - [x] Authenticated route create/update reject another player's storage/station
       endpoint ids without creating routes or endpoint storage rows.
+- [x] Server vertical proof now routes from a freshly scanned-and-claimed planet
+      to a station endpoint and settles storage through the authenticated gateway.
 - [x] Keep browser building-build intents pending until the authoritative
       production snapshot contains the matching deterministic building id.
 - [x] Add scanner action state and log events.

@@ -8,6 +8,7 @@ import (
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
@@ -46,6 +47,65 @@ func TestPlayableVerticalServerAuthoritativeLoop(t *testing.T) {
 	if dropID == "" || planetID == "" {
 		t.Fatalf("vertical loop identifiers drop=%q planet=%q, want both", dropID, planetID)
 	}
+}
+
+func TestPlayableVerticalClaimedPlanetCanSourceRouteSettlement(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC))
+	gameServer, err := New(Config{
+		AllowedOrigins:     []string{testOrigin},
+		DevMode:            true,
+		E2EPlanetClaimSeed: true,
+		SessionTTL:         24 * time.Hour,
+		TickDelta:          50 * time.Millisecond,
+		PasswordHasher:     auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		Clock:              clock,
+	})
+	if err != nil {
+		t.Fatalf("New(claimed route vertical) error = %v, want nil", err)
+	}
+	resolved := createResolvedRuntimeSession(t, gameServer, "claimed-route-vertical@example.com", "Claimed Route")
+	claimedPlanetID := foundation.PlanetID(playableVerticalScanClaim(t, gameServer, resolved))
+	saveRouteControlStorage(t, gameServer, claimedPlanetID, []production.StoredItem{{ItemID: "refined_alloy", Quantity: 100}})
+
+	stationEndpointID := runtimeRouteEndpointID(resolved.PlayerID, production.RouteDestinationTypeStation)
+	create := gatewayJSON(t, gameServer, resolved, "claimed-route-create", realtime.OperationRouteCreate, map[string]any{
+		"source_planet_id": claimedPlanetID.String(),
+		"destination_type": production.RouteDestinationTypeStation.String(),
+		"destination_id":   stationEndpointID.String(),
+		"resource_item_id": "refined_alloy",
+		"amount_per_hour":  40,
+	}, 11)
+	assertPayloadOmitsInternalMapIdentity(t, "claimed route.create response", create)
+	assertPayloadOmitsRouteEndpointID(t, "claimed route.create response", create, stationEndpointID.String())
+	var createPayload struct {
+		Route routePayload `json:"route"`
+	}
+	if err := json.Unmarshal(create, &createPayload); err != nil {
+		t.Fatalf("decode claimed route.create payload: %v", err)
+	}
+	if createPayload.Route.SourcePlanetID != claimedPlanetID.String() ||
+		createPayload.Route.Destination.Type != production.RouteDestinationTypeStation.String() ||
+		createPayload.Route.Destination.ID != "" {
+		t.Fatalf("claimed route.create payload = %+v, want claimed source and masked station destination", createPayload.Route)
+	}
+	if _, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationRouteCreate, resolved.PlayerID); err != nil {
+		t.Fatalf("post claimed route.create events: %v", err)
+	}
+
+	clock.Advance(time.Hour)
+	settle := gatewayJSON(t, gameServer, resolved, "claimed-route-settle", realtime.OperationRouteSettle, map[string]any{
+		"route_id": createPayload.Route.RouteID,
+	}, 12)
+	assertPayloadOmitsRouteEndpointID(t, "claimed route.settle response", settle, stationEndpointID.String())
+	var settlePayload struct {
+		Settlement routeSettlementPayload `json:"settlement"`
+	}
+	if err := json.Unmarshal(settle, &settlePayload); err != nil {
+		t.Fatalf("decode claimed route.settle payload: %v", err)
+	}
+	assertRouteSettlementPayload(t, settlePayload.Settlement, foundation.RouteID(createPayload.Route.RouteID), "refined_alloy", 3_600_000, 40, 40, 0, 40, 40, false, "claimed route.settle response")
+	assertStoredRouteStorageQuantity(t, gameServer, claimedPlanetID, "refined_alloy", 60)
+	assertStoredRouteStorageQuantity(t, gameServer, foundation.PlanetID(stationEndpointID), "refined_alloy", 40)
 }
 
 func playableVerticalMove(t *testing.T, gameServer *Server, resolved auth.ResolvedSession) {

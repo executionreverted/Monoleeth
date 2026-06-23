@@ -77,8 +77,10 @@ marked `Open` are not implemented rollout controls yet.
   `1-2`, and medium PvP `1-3`. `TestPlayableVerticalServerAuthoritativeLoop`
   now ties a single server-authoritative loop across authenticated `move_to`,
   portal handoff, destination combat/loot, destination scan, planet detail,
-  Core claim, production initialization, and route create/settle. A focused
-  browser claim proof now
+  Core claim, production initialization, and route create/settle.
+  `TestPlayableVerticalClaimedPlanetCanSourceRouteSettlement` now proves a
+  freshly scanned-and-claimed planet can source an authenticated station route
+  settlement through initialized production/storage. A focused browser claim proof now
   exists for public `1-1`, but browser drop flow and broader browser
   scanner/claim/drop matrix variants remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone
