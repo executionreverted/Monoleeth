@@ -228,8 +228,10 @@ Current slice completed:
   quotas, durable DB rows, cross-service transaction/compensation, and browser
   HUD controls remain open.
 - Phase07U outbox publisher-boundary follow-up: discovery claim outbox and
-  production/route settlement outbox records now have small interface-backed
-  publisher drain helpers. The helpers claim pending rows, call a publisher
+  production-domain outbox records now have small interface-backed publisher
+  drain helpers. The production helper covers production settlements, route
+  settlements, and building mutation rows because all three use
+  `ProductionOutboxRecord`. The helpers claim pending rows, call a publisher
   callback, and mark the same claim token published or failed, so future DB
   adapters can implement the same contract with row-lock/CAS semantics. Real
   durable DB rows, durable publisher process scheduling, cross-process leases,

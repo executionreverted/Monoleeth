@@ -465,7 +465,8 @@ for phase status; this file is a compact pending-work index.
   process-local claim tokens so publish/fail callbacks require the current
   in-flight attempt and stale callbacks cannot mutate retried or reclaimed
   attempts. Phase07U adds interface-backed publisher drain helpers for claim
-  and production/route settlement outbox records, preserving claim-token
+  and production-domain outbox records, covering production settlements, route
+  settlements, and building mutations while preserving claim-token
   publish/fail semantics behind a DB-adapter-ready contract. Phase07X adds
   process-local in-flight lease expiry release back to pending for claim and
   production/route settlement outbox rows. Phase07Y exposes that stale-lease

@@ -8,8 +8,9 @@ import (
 var ErrInvalidProductionOutboxPublisher = errors.New("invalid production outbox publisher")
 
 // ProductionOutboxPublisherStore is the durable publisher boundary required by
-// pending production/route settlement outbox delivery. DB-backed stores should
-// implement these methods with row-lock/CAS semantics around the claim token.
+// pending production-domain outbox delivery, including production settlements,
+// route settlements, and building mutations. DB-backed stores should implement
+// these methods with row-lock/CAS semantics around the claim token.
 type ProductionOutboxPublisherStore interface {
 	ClaimPendingProductionOutboxRecords(limit int, claimedAt time.Time) ([]ProductionOutboxRecord, error)
 	MarkProductionOutboxPublished(outboxID string, claimToken string, publishedAt time.Time) (ProductionOutboxRecord, bool, error)
@@ -17,7 +18,8 @@ type ProductionOutboxPublisherStore interface {
 }
 
 // ProductionOutboxLeaseReaperStore is the durable recovery boundary for stale
-// in-flight production/route outbox leases. DB-backed stores should implement
+// in-flight production-domain outbox leases, including production settlements,
+// route settlements, and building mutations. DB-backed stores should implement
 // this with a row-lock/CAS update that clears only rows whose claim lease is
 // older than the cutoff.
 type ProductionOutboxLeaseReaperStore interface {
@@ -114,7 +116,7 @@ func PublishPendingProductionOutbox(input ProductionOutboxPublishInput) ([]Produ
 	return results, nil
 }
 
-// ReleaseExpiredProductionOutboxLeases returns stale in-flight production/route
+// ReleaseExpiredProductionOutboxLeases returns stale in-flight production-domain
 // outbox rows to pending through the same store boundary a durable lease reaper
 // should use.
 func ReleaseExpiredProductionOutboxLeases(input ProductionOutboxLeaseReleaseInput) ([]ProductionOutboxRecord, error) {
