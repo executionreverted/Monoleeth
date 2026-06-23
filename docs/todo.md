@@ -238,10 +238,13 @@ for phase status; this file is a compact pending-work index.
   duplicate reference no-op guards and cloned read APIs. Phase07K narrows
   in-process publisher/retry behavior with pending, in-flight, published, and
   failed outbox states plus explicit retry, but does not make those records
-  durable or cross-process. Durable DB rows, row locks/CAS, idempotency table
+  durable or cross-process. Phase07AN adds an explicit route settlement
+  transaction boundary that future DB adapters can implement for owner-scoped
+  settlement window idempotency, storage ledger writes, and pending outbox rows
+  under one commit. Durable DB rows, row locks/CAS, idempotency table
   enforcement, and durable outbox publishing remain open. Source: Phase 10
   audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
-  and Phase07K.
+  Phase07K, and Phase07AN.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server
@@ -384,8 +387,12 @@ for phase status; this file is a compact pending-work index.
   process-local settlement references and pending outbox rows under the same
   store lock as state mutation/event append. Phase07K now narrows
   process-local publisher/retry behavior with pending, in-flight, published,
-  failed, and retry states, but those records are still not durable,
-  cross-process, or delivered by a durable publisher process. Phase07L adds
+  failed, retry, and lease release state. Phase07AN adds a DB-adapter-ready
+  route settlement transaction contract for owner-scoped route windows, but
+  durable production/route settlement tables and publisher scheduling remain
+  open.
+  Those records are still not durable, cross-process, or delivered by a durable
+  publisher process. Phase07L adds
   process-local claim tokens so publish/fail callbacks require the current
   in-flight attempt and stale callbacks cannot mutate retried or reclaimed
   attempts. Phase07U adds interface-backed publisher drain helpers for claim

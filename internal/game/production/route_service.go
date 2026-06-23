@@ -9,18 +9,20 @@ import (
 // AutomationRouteServiceConfig wires route operations to explicit storage,
 // clock, policy, and loss-roll dependencies.
 type AutomationRouteServiceConfig struct {
-	Store      *InMemoryStore
-	Clock      foundation.Clock
-	Policy     RouteCreatePolicyProvider
-	LossRoller RouteLossRoller
+	Store                 *InMemoryStore
+	SettlementTransaction RouteSettlementTransactionStore
+	Clock                 foundation.Clock
+	Policy                RouteCreatePolicyProvider
+	LossRoller            RouteLossRoller
 }
 
 // AutomationRouteService owns the Phase 09 route creation and settlement boundary.
 type AutomationRouteService struct {
-	store      *InMemoryStore
-	clock      foundation.Clock
-	policy     RouteCreatePolicyProvider
-	lossRoller RouteLossRoller
+	store                 *InMemoryStore
+	settlementTransaction RouteSettlementTransactionStore
+	clock                 foundation.Clock
+	policy                RouteCreatePolicyProvider
+	lossRoller            RouteLossRoller
 }
 
 // NewAutomationRouteService returns a route service backed by in-memory route
@@ -28,6 +30,9 @@ type AutomationRouteService struct {
 func NewAutomationRouteService(config AutomationRouteServiceConfig) (*AutomationRouteService, error) {
 	if config.Store == nil {
 		config.Store = NewInMemoryStore()
+	}
+	if config.SettlementTransaction == nil {
+		config.SettlementTransaction = config.Store
 	}
 	if config.Clock == nil {
 		config.Clock = foundation.RealClock{}
@@ -39,10 +44,11 @@ func NewAutomationRouteService(config AutomationRouteServiceConfig) (*Automation
 		config.LossRoller = defaultRouteLossRoller{}
 	}
 	return &AutomationRouteService{
-		store:      config.Store,
-		clock:      config.Clock,
-		policy:     config.Policy,
-		lossRoller: config.LossRoller,
+		store:                 config.Store,
+		settlementTransaction: config.SettlementTransaction,
+		clock:                 config.Clock,
+		policy:                config.Policy,
+		lossRoller:            config.LossRoller,
 	}, nil
 }
 
@@ -98,10 +104,19 @@ func (service *AutomationRouteService) SettleRouteForOwner(
 	ownerPlayerID foundation.PlayerID,
 	routeID foundation.RouteID,
 ) (RouteSettlementResult, error) {
-	if service == nil || service.store == nil || service.clock == nil || service.lossRoller == nil {
+	if service == nil || service.settlementTransaction == nil || service.clock == nil || service.lossRoller == nil {
 		return RouteSettlementResult{}, ErrInvalidRouteSettlementConfig
 	}
-	return service.store.SettleRouteForOwner(ownerPlayerID, routeID, service.clock.Now(), service.lossRoller)
+	result, err := service.settlementTransaction.ApplyRouteSettlementTransaction(RouteSettlementTransactionInput{
+		OwnerPlayerID: ownerPlayerID,
+		RouteID:       routeID,
+		SettledAt:     service.clock.Now(),
+		LossRoller:    service.lossRoller,
+	})
+	if err != nil {
+		return RouteSettlementResult{}, err
+	}
+	return result.Settlement, nil
 }
 
 // DisableRoute settles the currently enabled route period, then disables the

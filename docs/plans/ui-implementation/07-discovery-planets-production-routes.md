@@ -363,6 +363,13 @@ Current slice completed:
   overflow/discarded delivery. Rows carry route id, planet/counterparty ids,
   item, quantity, item balance after, reference key, settlement window, and
   created time; duplicate/no-op settlements do not append additional rows.
+- Phase07AN route settlement transaction-boundary follow-up:
+  `ApplyRouteSettlementTransaction` now gives route settlement an explicit
+  DB-adapter-ready contract: owner-scoped route validation, settlement window
+  idempotency reference, route storage ledger rows, and pending production
+  outbox rows are produced under one store lock and returned as newly committed
+  rows. `SettleRouteForOwner` now goes through this boundary. Real DB row
+  locks/CAS and durable outbox tables remain open.
 
 ## Source Specs
 
@@ -582,6 +589,9 @@ Mockup areas covered:
 - [x] Route settlement records production-local storage ledger rows for source
       debit, transfer loss, destination credit, and destination overflow
       partitions, and duplicate/no-op settlements do not append new ledger rows.
+- [x] Route settlement owner command path uses an explicit transaction boundary
+      that returns the committed route idempotency reference, route storage
+      ledger rows, and pending outbox rows from the same store lock.
 - [x] Route settlement stores an in-memory settlement reference and pending
       outbox records for route transfer events; duplicate reference reuse
       no-ops without transfer, duplicate events, or duplicate outbox records.

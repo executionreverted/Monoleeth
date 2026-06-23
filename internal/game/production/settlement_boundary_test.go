@@ -147,6 +147,203 @@ func TestSettleRouteRecordedReferenceReuseNoOpsBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestApplyRouteSettlementTransactionReturnsCommittedReferenceOutboxAndLedger(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	window := wantSettlementWindow(last, now)
+	reference := mustRouteSettlementKey(t, route.RouteID, window)
+
+	result, err := store.ApplyRouteSettlementTransaction(RouteSettlementTransactionInput{
+		OwnerPlayerID: route.OwnerPlayerID,
+		RouteID:       route.RouteID,
+		SettledAt:     now,
+	})
+	if err != nil {
+		t.Fatalf("ApplyRouteSettlementTransaction() error = %v, want nil", err)
+	}
+	if result.Settlement.ReferenceKey != reference || result.Settlement.SettlementWindow != window {
+		t.Fatalf("transaction settlement evidence = %q/%q, want %q/%q", result.Settlement.ReferenceKey, result.Settlement.SettlementWindow, reference, window)
+	}
+	if result.Reference == nil {
+		t.Fatal("transaction reference = nil, want committed route reference")
+	}
+	if result.Reference.Kind != SettlementKindRoute || result.Reference.RouteID != route.RouteID || result.Reference.ReferenceKey != reference {
+		t.Fatalf("transaction reference = %+v, want route reference %q", result.Reference, reference)
+	}
+	assertOutboxEventTypes(t, result.OutboxRecords, EventRouteTransferSettled)
+	assertOutboxRecordEvidence(t, result.OutboxRecords, EventRouteTransferSettled, reference, window)
+	assertRouteStorageLedgerEntries(t, result.StorageLedger,
+		routeStorageLedgerWant{Operation: RouteStorageLedgerSourceDebit, PlanetID: "planet-1", CounterpartyPlanetID: "planet-2", Quantity: 40, BalanceAfter: 60, ReferenceKey: reference, SettlementWindow: window},
+		routeStorageLedgerWant{Operation: RouteStorageLedgerDestinationCredit, PlanetID: "planet-2", CounterpartyPlanetID: "planet-1", Quantity: 40, BalanceAfter: 40, ReferenceKey: reference, SettlementWindow: window},
+	)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, now)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, now)
+}
+
+func TestApplyRouteSettlementTransactionReferenceReuseReturnsNoNewRows(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	window := wantSettlementWindow(last, now)
+	reference := mustRouteSettlementKey(t, route.RouteID, window)
+
+	store.mu.Lock()
+	store.ensureMapsLocked()
+	store.recordSettlementReferenceLocked(SettlementReferenceRecord{
+		ReferenceKey:     reference,
+		SettlementWindow: window,
+		Kind:             SettlementKindRoute,
+		RouteID:          route.RouteID,
+		AppliedAt:        now,
+		RecordedAt:       now,
+	})
+	store.mu.Unlock()
+
+	result, err := store.ApplyRouteSettlementTransaction(RouteSettlementTransactionInput{
+		OwnerPlayerID: route.OwnerPlayerID,
+		RouteID:       route.RouteID,
+		SettledAt:     now,
+	})
+	if err != nil {
+		t.Fatalf("ApplyRouteSettlementTransaction(reuse) error = %v, want nil", err)
+	}
+	if !result.Settlement.NoOp {
+		t.Fatal("transaction reuse NoOp = false, want true")
+	}
+	if result.Reference != nil {
+		t.Fatalf("transaction reuse reference = %+v, want nil for no new row", result.Reference)
+	}
+	if len(result.OutboxRecords) != 0 || len(result.StorageLedger) != 0 {
+		t.Fatalf("transaction reuse outbox/ledger = %+v/%+v, want no new rows", result.OutboxRecords, result.StorageLedger)
+	}
+	assertRouteSettlementRouteTime(t, store, route.RouteID, last)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
+}
+
+func TestApplyRouteSettlementTransactionRejectsInvalidInputWithoutMutation(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+
+	cases := map[string]RouteSettlementTransactionInput{
+		"missing owner": {RouteID: route.RouteID, SettledAt: now},
+		"missing route": {OwnerPlayerID: route.OwnerPlayerID, SettledAt: now},
+		"zero time":     {OwnerPlayerID: route.OwnerPlayerID, RouteID: route.RouteID},
+		"wrong owner":   {OwnerPlayerID: "player-2", RouteID: route.RouteID, SettledAt: now},
+	}
+	for name, input := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := store.ApplyRouteSettlementTransaction(input)
+			if err == nil {
+				t.Fatal("ApplyRouteSettlementTransaction() error = nil, want error")
+			}
+			assertRouteSettlementRouteTime(t, store, route.RouteID, last)
+			assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
+			assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
+			if got := len(store.SettlementReferences()); got != 0 {
+				t.Fatalf("references after invalid transaction = %d, want 0", got)
+			}
+			if got := len(store.OutboxRecords()); got != 0 {
+				t.Fatalf("outbox after invalid transaction = %d, want 0", got)
+			}
+			assertNoRouteStorageLedger(t, store)
+		})
+	}
+}
+
+func TestAutomationRouteServiceUsesSettlementTransactionBoundaryForOwnerSettle(t *testing.T) {
+	now := testRouteNow().Add(time.Hour)
+	boundary := &fakeRouteSettlementTransactionStore{
+		result: RouteSettlementTransactionResult{
+			Settlement: RouteSettlementResult{
+				RouteID:   "route-1",
+				SettledAt: now,
+				AfterRoute: AutomationRoute{
+					RouteID:       "route-1",
+					OwnerPlayerID: "player-1",
+				},
+			},
+		},
+	}
+	service, err := NewAutomationRouteService(AutomationRouteServiceConfig{
+		Store:                 NewInMemoryStore(),
+		SettlementTransaction: boundary,
+		Clock:                 fixedRouteClock{now: now},
+		Policy:                &fakeRoutePolicyProvider{policy: noLossRoutePolicy()},
+		LossRoller:            defaultRouteLossRoller{},
+	})
+	if err != nil {
+		t.Fatalf("NewAutomationRouteService() error = %v, want nil", err)
+	}
+
+	settlement, err := service.SettleRouteForOwner("player-1", "route-1")
+	if err != nil {
+		t.Fatalf("SettleRouteForOwner() error = %v, want nil", err)
+	}
+	if settlement.RouteID != "route-1" || boundary.calls != 1 {
+		t.Fatalf("settlement/boundary calls = %+v/%d, want route-1/1", settlement, boundary.calls)
+	}
+	if boundary.lastInput.OwnerPlayerID != "player-1" || boundary.lastInput.RouteID != "route-1" || !boundary.lastInput.SettledAt.Equal(now) || boundary.lastInput.LossRoller == nil {
+		t.Fatalf("boundary input = %+v, want owner/route/time/loss roller", boundary.lastInput)
+	}
+}
+
+func TestAutomationRouteServiceSettlementTransactionErrorStopsBeforeStoreMutation(t *testing.T) {
+	now := testRouteNow().Add(time.Hour)
+	store := NewInMemoryStore()
+	boundary := &fakeRouteSettlementTransactionStore{err: ErrRouteOwnerMismatch}
+	service, err := NewAutomationRouteService(AutomationRouteServiceConfig{
+		Store:                 store,
+		SettlementTransaction: boundary,
+		Clock:                 fixedRouteClock{now: now},
+		Policy:                &fakeRoutePolicyProvider{policy: noLossRoutePolicy()},
+		LossRoller:            defaultRouteLossRoller{},
+	})
+	if err != nil {
+		t.Fatalf("NewAutomationRouteService() error = %v, want nil", err)
+	}
+
+	if _, err := service.SettleRouteForOwner("player-1", "route-1"); !errors.Is(err, ErrRouteOwnerMismatch) {
+		t.Fatalf("SettleRouteForOwner(boundary error) = %v, want ErrRouteOwnerMismatch", err)
+	}
+	if boundary.calls != 1 {
+		t.Fatalf("boundary calls = %d, want 1", boundary.calls)
+	}
+	if got := len(store.SettlementReferences()); got != 0 {
+		t.Fatalf("store references after boundary error = %d, want 0", got)
+	}
+	if got := len(store.OutboxRecords()); got != 0 {
+		t.Fatalf("store outbox after boundary error = %d, want 0", got)
+	}
+	assertNoRouteStorageLedger(t, store)
+}
+
 func TestOutboxPendingRecordsFilterByStatusLimitAndAppendOrder(t *testing.T) {
 	store := newOutboxStateMachineStore(t)
 	all := store.OutboxRecords()
@@ -660,6 +857,22 @@ type staleProductionOutboxPublisherStore struct {
 	*InMemoryStore
 	stalePublish bool
 	staleFail    bool
+}
+
+type fakeRouteSettlementTransactionStore struct {
+	calls     int
+	lastInput RouteSettlementTransactionInput
+	result    RouteSettlementTransactionResult
+	err       error
+}
+
+func (store *fakeRouteSettlementTransactionStore) ApplyRouteSettlementTransaction(input RouteSettlementTransactionInput) (RouteSettlementTransactionResult, error) {
+	store.calls++
+	store.lastInput = input
+	if store.err != nil {
+		return RouteSettlementTransactionResult{}, store.err
+	}
+	return store.result, nil
 }
 
 func (store staleProductionOutboxPublisherStore) MarkProductionOutboxPublished(outboxID string, claimToken string, publishedAt time.Time) (ProductionOutboxRecord, bool, error) {

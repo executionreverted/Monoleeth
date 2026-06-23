@@ -262,28 +262,16 @@ func (store *InMemoryStore) SettleRouteForOwner(
 	now time.Time,
 	lossRoller RouteLossRoller,
 ) (RouteSettlementResult, error) {
-	if err := ownerPlayerID.Validate(); err != nil {
+	result, err := store.ApplyRouteSettlementTransaction(RouteSettlementTransactionInput{
+		OwnerPlayerID: ownerPlayerID,
+		RouteID:       routeID,
+		SettledAt:     now,
+		LossRoller:    lossRoller,
+	})
+	if err != nil {
 		return RouteSettlementResult{}, err
 	}
-	if err := routeID.Validate(); err != nil {
-		return RouteSettlementResult{}, err
-	}
-	if now.IsZero() {
-		return RouteSettlementResult{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
-	}
-	if lossRoller == nil {
-		lossRoller = defaultRouteLossRoller{}
-	}
-	now = now.UTC()
-
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	store.ensureMapsLocked()
-
-	if err := store.requireRouteOwnerLocked(ownerPlayerID, routeID); err != nil {
-		return RouteSettlementResult{}, err
-	}
-	return store.settleRouteLocked(routeID, now, lossRoller)
+	return result.Settlement, nil
 }
 
 func (store *InMemoryStore) requireRouteOwnerLocked(
