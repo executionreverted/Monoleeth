@@ -42,8 +42,8 @@ export function dispatchPlanetRouteButtonAction(
       const control = button.closest<HTMLElement>('[data-building-build-control]');
       handlers.onPlanetBuildingBuild({
         planetID: button.dataset.planetId ?? control?.dataset.planetId ?? '',
-        buildingType: routeControlValue(control, '[data-building-type]'),
-        slot: routeControlValue(control, '[data-building-slot]'),
+        buildingType: routeControlValue(control, '[data-building-build-type]'),
+        slot: routeControlValue(control, '[data-building-build-slot]'),
       });
       return true;
     }

@@ -59,6 +59,27 @@ describe('planet route HUD action dispatch', () => {
       amountPerHour: 40,
     });
   });
+
+  test('dispatches rendered building build with server-safe intent only', () => {
+    const handlers = testHandlers();
+    const control = routeControl({
+      '[data-building-build-type]': 'alloy_foundry',
+      '[data-building-build-slot]': 'beta',
+    });
+    const button = {
+      dataset: { action: 'planet-building-build', planetId: 'planet-source' },
+      closest: vi.fn(() => control),
+    } as unknown as HTMLButtonElement;
+
+    const handled = dispatchPlanetRouteButtonAction(button, handlers, () => {});
+
+    expect(handled).toBe(true);
+    expect(handlers.onPlanetBuildingBuild).toHaveBeenCalledWith({
+      planetID: 'planet-source',
+      buildingType: 'alloy_foundry',
+      slot: 'beta',
+    });
+  });
 });
 
 function routeControl(values: Record<string, string>): HTMLElement {

@@ -116,7 +116,10 @@ Current slice completed:
   `building_type`, and `slot`; upgrade sends only `planet_id`, `building_id`,
   and `target_level`. The HUD renders current buildings, next-slot build
   controls, pending states, and disabled states from authenticated realtime
-  state without inventing material, wallet, cost, owner, or map truth.
+  state without inventing material, wallet, cost, owner, or map truth. The
+  split route/action helper now reads the same rendered
+  `data-building-build-type` and `data-building-build-slot` selectors as the
+  main HUD dispatch path, so build clicks cannot silently drop type/slot intent.
 - Phase07H backend query follow-up: authenticated
   `planet.production_summary` and `planet.storage_summary` now reconcile
   eligible owned active-map production through
