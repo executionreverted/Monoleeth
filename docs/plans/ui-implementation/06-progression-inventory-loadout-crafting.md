@@ -21,11 +21,14 @@ Current slice completed:
 - `crafting.complete` now validates job owner/state and server time, commits
   reserved materials, grants output/XP once, and returns
   crafting/inventory/progression snapshots.
-- Remaining crafting cancel command and browser controls must still use
-  ledger/service-backed flows before any UI action is enabled.
+- Browser crafting tab now renders real recipes and active jobs, sends only
+  `crafting.start` recipe intent or `crafting.complete` job intent, and uses
+  pending/server snapshots to reconcile buttons and timers.
+- Remaining crafting cancel command must still use ledger/service-backed flows
+  before any UI action is enabled.
 - Phase 10 records the exact missing browser/server contracts for skill unlock,
   inventory move, hangar activation, loadout equip/unequip, and crafting
-  cancel/UI controls. These controls must stay absent, locked, or
+  cancel controls. These controls must stay absent, locked, or
   read-only until those contracts are implemented and verified.
 
 ## Goal
@@ -157,7 +160,7 @@ Mockup areas covered:
       crafting recipe snapshots.
 - [ ] Add skill tree/progression panel and skill unlock action.
 - [ ] Add drag/click item movement with pending server state.
-- [ ] Add craft job timers from server timestamps.
+- [x] Add craft job timers from server timestamps.
 - [x] Update topbar and ship panel from real snapshots.
 
 ## Abuse And Safety Checklist
@@ -195,7 +198,7 @@ Mockup areas covered:
 - [x] Browser inventory panel uses server snapshot.
 - [x] Browser topbar credits uses server wallet snapshot.
 - [x] Browser equip action updates loadout/stats from server event.
-- [ ] Browser crafting timer survives reconnect snapshot.
+- [x] Browser crafting timer survives reconnect snapshot.
 
 ## Done Criteria
 

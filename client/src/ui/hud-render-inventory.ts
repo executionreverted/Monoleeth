@@ -1,7 +1,8 @@
 import type { ClientState } from '../state/types';
+import { OPERATIONS } from '../protocol/envelope';
 import { hudSelection } from './hud-selection';
 import type { InventoryTabID, ModuleFilterID, ModuleInventoryItem } from './hud-types';
-import { escapeHTML, formatDurability } from './hud-formatters';
+import { escapeHTML, formatDurability, formatDuration, hasPendingOpPayloadField, realtimeReady } from './hud-formatters';
 
 export function cargoPanel(state: ClientState): string {
   const inventory = state.inventory;
@@ -25,7 +26,7 @@ export function cargoPanel(state: ClientState): string {
   const moduleItems = inventory.instances.filter((item) => item.module_slot_type && item.location !== 'ship_equipped');
   const selectedModule = selectedModuleItem(filteredModuleItems(moduleItems, hudSelection.selectedModuleFilter));
   const equippedCount = loadout.slots.filter((slot) => slot.item_instance_id).length;
-  const tabContext = { inventory, hangar, loadout, cargo, wallet, activeShip, moduleItems, selectedModule, equippedCount };
+  const tabContext = { state, inventory, hangar, loadout, cargo, wallet, activeShip, moduleItems, selectedModule, equippedCount };
   return `
     <h2>Inventory</h2>
     <section class="inventory-system" data-inventory-system="true" data-active-inventory-tab="${hudSelection.selectedInventoryTab}">
@@ -38,6 +39,7 @@ export function cargoPanel(state: ClientState): string {
 }
 
 type InventoryTabContext = {
+  state: ClientState;
   inventory: NonNullable<ClientState['inventory']>;
   hangar: NonNullable<ClientState['hangar']>;
   loadout: NonNullable<ClientState['loadout']>;
@@ -54,7 +56,7 @@ export function inventoryTabBar(activeTab: InventoryTabID, context: InventoryTab
     equipment: context ? `${context.equippedCount}/${context.loadout.slots.length}` : '--',
     inventory: context ? String(context.inventory.instances.length + context.inventory.stackable.length) : '--',
     cargo: context ? `${context.cargo.used}/${context.cargo.capacity}` : '--',
-    crafting: 'locked',
+    crafting: context ? `${context.state.crafting?.recipes.length ?? 0}/${context.state.crafting?.active_jobs.length ?? 0}` : '--',
   };
   return `
     <div class="inventory-tabs" role="tablist" aria-label="Inventory systems">
@@ -89,7 +91,7 @@ export function inventoryTabPanel(tabID: InventoryTabID, context: InventoryTabCo
     case 'cargo':
       return cargoHoldPanel(context);
     case 'crafting':
-      return craftingBlockedPanel();
+      return craftingPanel(context);
     case 'equipment':
     default:
       return equipmentPanel(context);
@@ -171,12 +173,107 @@ export function cargoHoldPanel(context: InventoryTabContext): string {
   `;
 }
 
-export function craftingBlockedPanel(): string {
+export function craftingPanel(context: InventoryTabContext): string {
+  const crafting = context.state.crafting;
+  if (!crafting) {
+    return `
+      <section class="crafting-locked-panel" data-crafting-tab="true">
+        <div class="empty-line">Awaiting crafting station.</div>
+      </section>
+    `;
+  }
+  const recipes = crafting.recipes.slice(0, 4);
+  const jobs = crafting.active_jobs.slice(0, 4);
   return `
-    <section class="crafting-locked-panel" data-crafting-tab="true">
-      <div class="empty-line">Crafting station unavailable.</div>
+    <section class="crafting-console" data-crafting-tab="true">
+      <div class="cargo-strip">
+        <div>
+          <span>Recipes</span>
+          <strong>${crafting.recipes.length}</strong>
+        </div>
+        <div>
+          <span>Jobs</span>
+          <strong>${crafting.active_jobs.length}</strong>
+        </div>
+        <div>
+          <span>Credits</span>
+          <strong>${context.wallet.credits}</strong>
+        </div>
+      </div>
+      ${
+        recipes.length > 0
+          ? `<ul class="compact-list crafting-recipes">
+              ${recipes.map((recipe) => craftingRecipeRow(context, recipe)).join('')}
+            </ul>`
+          : '<div class="empty-line">No recipes available.</div>'
+      }
+      ${
+        jobs.length > 0
+          ? `<ul class="compact-list crafting-jobs">
+              ${jobs.map((job) => craftingJobRow(context, job)).join('')}
+            </ul>`
+          : '<div class="empty-line">No active craft jobs.</div>'
+      }
     </section>
   `;
+}
+
+function craftingRecipeRow(context: InventoryTabContext, recipe: NonNullable<ClientState['crafting']>['recipes'][number]): string {
+  const pending = hasPendingOpPayloadField(context.state, OPERATIONS.craftingStart, 'recipe_id', recipe.recipe_id);
+  const missingInput = recipe.inputs.find((input) => craftingAccountQuantity(context, input.item_id) < input.quantity);
+  const hasCredits = context.wallet.credits >= recipe.required_credits;
+  const enabled = realtimeReady(context.state) && !pending && !missingInput && hasCredits;
+  const label = pending ? 'Starting' : 'Start';
+  const title = pending
+    ? 'Craft start pending.'
+    : missingInput
+      ? `${missingInput.item_id} missing.`
+      : !hasCredits
+        ? 'Not enough credits.'
+        : 'Start craft.';
+  return `
+    <li>
+      <span title="${escapeHTML(craftingRecipeMeta(recipe))}">
+        ${escapeHTML(craftingRecipeLabel(recipe))}
+      </span>
+      <strong>${escapeHTML(formatDuration(recipe.craft_duration_ms))}</strong>
+      <button type="button" data-action="crafting-start" data-recipe-id="${escapeHTML(recipe.recipe_id)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${escapeHTML(label)}</button>
+    </li>
+  `;
+}
+
+function craftingJobRow(context: InventoryTabContext, job: NonNullable<ClientState['crafting']>['active_jobs'][number]): string {
+  const recipe = context.state.crafting?.recipes.find((candidate) => candidate.recipe_id === job.recipe_id) ?? null;
+  const now = context.state.lastServerTime ?? Date.now();
+  const remaining = Math.max(0, job.completes_at - now);
+  const pending = hasPendingOpPayloadField(context.state, OPERATIONS.craftingComplete, 'job_id', job.job_id);
+  const completed = job.state === 'completed' || job.state === 'complete';
+  const ready = !completed && remaining <= 0;
+  const enabled = realtimeReady(context.state) && ready && !pending;
+  const label = completed ? 'Done' : pending ? 'Completing' : ready ? 'Complete' : formatDuration(remaining);
+  const title = completed ? 'Craft job completed.' : pending ? 'Craft completion pending.' : ready ? 'Complete craft.' : 'Craft job running.';
+  return `
+    <li>
+      <span>${escapeHTML(recipe ? craftingRecipeLabel(recipe) : job.recipe_id)}</span>
+      <strong>${escapeHTML(job.state)}</strong>
+      <button type="button" data-action="crafting-complete" data-job-id="${escapeHTML(job.job_id)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${escapeHTML(label)}</button>
+    </li>
+  `;
+}
+
+function craftingRecipeLabel(recipe: NonNullable<ClientState['crafting']>['recipes'][number]): string {
+  return recipe.output.item_id || recipe.output.ship_id || recipe.recipe_id;
+}
+
+function craftingRecipeMeta(recipe: NonNullable<ClientState['crafting']>['recipes'][number]): string {
+  const inputs = recipe.inputs.map((input) => `${input.item_id} x${input.quantity}`).join(', ');
+  return `${recipe.recipe_id}; ${inputs}; ${recipe.required_credits} credits`;
+}
+
+function craftingAccountQuantity(context: InventoryTabContext, itemID: string): number {
+  return context.inventory.stackable
+    .filter((item) => item.item_id === itemID && item.location === 'account_inventory')
+    .reduce((total, item) => total + item.quantity, 0);
 }
 
 export function moduleBayPanel(

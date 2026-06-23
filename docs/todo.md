@@ -214,6 +214,10 @@ for phase status; this file is a compact pending-work index.
   `crafting.complete`. The server resolves player identity from the session,
   validates job owner/state and server time, commits the reservation, grants
   output plus XP once, and the client command builder sends only `job_id`.
+- [x] Expose browser crafting start/complete controls from real server
+  snapshots. The crafting tab renders recipes, account-inventory material
+  availability, running jobs, ready-complete actions, and pending state without
+  fake crafting truth.
 - [ ] Add authenticated browser crafting mutation contracts for
   `crafting.cancel`. Server handlers must map request ids to stable domain
   references such as `craft_cancel:<job_id>`, validate job owner/state,

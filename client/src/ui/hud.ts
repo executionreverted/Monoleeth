@@ -4,6 +4,7 @@ import { renderToast } from './toast';
 import { hudSelection } from './hud-selection';
 import { collectHUDPanels, hudShellHTML } from './hud-render-shell';
 import { cargoPanel } from './hud-render-inventory';
+import { dispatchCraftingButtonAction } from './hud-crafting-actions';
 import { economyPanel } from './hud-render-economy';
 import { questsPanel } from './hud-render-quests';
 import { planetsPanel } from './hud-render-planets';
@@ -510,6 +511,10 @@ export class HUD {
               targetLevel: Number(button.dataset.targetLevel ?? '0'),
             });
           }
+          break;
+        case 'crafting-start':
+        case 'crafting-complete':
+          dispatchCraftingButtonAction(button, this.handlers);
           break;
         case 'route-select':
           if (button.dataset.routeId) {
