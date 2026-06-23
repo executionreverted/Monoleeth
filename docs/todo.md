@@ -406,7 +406,9 @@ for phase status; this file is a compact pending-work index.
   carries safe server settlement results into browser route rows so
   source-empty, destination-full, no-op, and loss-applied outcomes are visible
   after single-route settle events/responses and owner reconcile `settlements[]`
-  responses.
+  responses. Owner reconcile `{}` now also merges committed durable owner route
+  rows after live route read-model loss, so storage/station destination routes
+  still emit no-op settlement/list/update events and safe masked payloads.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10

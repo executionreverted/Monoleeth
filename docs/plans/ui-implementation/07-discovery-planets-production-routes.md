@@ -1167,6 +1167,9 @@ Mockup areas covered:
 - [x] Durable outbox replay of storage/station route settlements preserves
       owner-only safe route events and masks non-planet aggregate destination
       IDs.
+- [x] Owner reconcile `route.settle {}` merges committed durable owner route
+      rows after live read-model loss, preserving storage/station no-op
+      settlements and masked destination payloads.
 - [x] Durable claim, settlement/route, and building outbox stores expose an
       explicit failed-row retry boundary that preserves failure evidence before
       republishing.
