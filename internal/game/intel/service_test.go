@@ -234,6 +234,73 @@ func TestUseCoordinateItemWrongOwnerMissingAndConflictingReferenceFailSafely(t *
 	}
 }
 
+func TestTransferCoordinateItemOwnerMovesUseAuthorityAndIsIdempotent(t *testing.T) {
+	service := NewService(fixedClock{now: testTime(10)})
+	item := validCoordinateItem(t, testScout, "coordinate-item-transfer", testPlanet)
+	putCoordinateItem(t, service, item)
+
+	transfer := transferInput("market-buy-transfer", item.ItemInstanceID, testScout, testReceiver)
+	result, err := service.TransferCoordinateItemOwner(transfer)
+	if err != nil {
+		t.Fatalf("TransferCoordinateItemOwner error = %v, want nil", err)
+	}
+	if !result.Transferred || result.Item.OwnerPlayerID != testReceiver {
+		t.Fatalf("transfer result = %+v, want owner %q", result, testReceiver)
+	}
+	if _, err := service.UseCoordinateItem(useInput(t, "old-owner", item.ItemInstanceID, testScout)); !errors.Is(err, ErrCoordinateItemNotOwned) {
+		t.Fatalf("old owner use error = %v, want ErrCoordinateItemNotOwned", err)
+	}
+	use, err := service.UseCoordinateItem(useInput(t, "new-owner", item.ItemInstanceID, testReceiver))
+	if err != nil {
+		t.Fatalf("new owner UseCoordinateItem error = %v, want nil", err)
+	}
+	if !use.Used || use.Intel.PlayerID != testReceiver || use.Intel.PlanetID != testPlanet {
+		t.Fatalf("new owner use result = %+v, want receiver planet intel", use)
+	}
+
+	duplicate, err := service.TransferCoordinateItemOwner(transfer)
+	if err != nil {
+		t.Fatalf("duplicate TransferCoordinateItemOwner error = %v, want nil", err)
+	}
+	if !duplicate.Duplicate || duplicate.Item.OwnerPlayerID != testReceiver {
+		t.Fatalf("duplicate transfer = %+v, want cached receiver owner", duplicate)
+	}
+}
+
+func TestTransferCoordinateItemOwnerRejectsWrongOwnerUsedAndConflictingReference(t *testing.T) {
+	service := NewService(fixedClock{now: testTime(10)})
+	item := validCoordinateItem(t, testScout, "coordinate-item-transfer-fail", testPlanet)
+	putCoordinateItem(t, service, item)
+
+	_, err := service.TransferCoordinateItemOwner(transferInput("wrong-owner", item.ItemInstanceID, testReceiver, "player-other"))
+	if !errors.Is(err, ErrCoordinateItemNotOwned) {
+		t.Fatalf("wrong owner transfer error = %v, want ErrCoordinateItemNotOwned", err)
+	}
+
+	okTransfer := transferInput("conflict", item.ItemInstanceID, testScout, testReceiver)
+	if _, err := service.TransferCoordinateItemOwner(okTransfer); err != nil {
+		t.Fatalf("first transfer error = %v, want nil", err)
+	}
+	conflict := okTransfer
+	conflict.ToPlayerID = "player-other"
+	_, err = service.TransferCoordinateItemOwner(conflict)
+	if !errors.Is(err, ErrReferenceConflict) {
+		t.Fatalf("conflicting transfer error = %v, want ErrReferenceConflict", err)
+	}
+
+	usedService := NewService(fixedClock{now: testTime(10)})
+	used := validCoordinateItem(t, testScout, "coordinate-item-used-transfer", testPlanet)
+	usedAt := testTime(12)
+	used.UsedAt = &usedAt
+	used.UsedBy = testScout
+	used.UseReference = mustCoordinateItemUseKey(t, testScout, used.ItemInstanceID, "seeded-use")
+	putCoordinateItem(t, usedService, used)
+	_, err = usedService.TransferCoordinateItemOwner(transferInput("used", used.ItemInstanceID, testScout, testReceiver))
+	if !errors.Is(err, ErrCoordinateItemAlreadyUsed) {
+		t.Fatalf("used transfer error = %v, want ErrCoordinateItemAlreadyUsed", err)
+	}
+}
+
 func TestReturnedCoordinateItemDoesNotLeakUsedAtAlias(t *testing.T) {
 	service := NewService(fixedClock{now: testTime(10)})
 	upsertIntel(t, service, validIntel(testScout, testPlanet, testTime(1), "scan:alias"))
@@ -335,6 +402,20 @@ func useInput(t *testing.T, reference string, itemInstanceID foundation.ItemID, 
 		PlayerID:       playerID,
 		ItemInstanceID: itemInstanceID,
 		Reference:      mustCoordinateItemUseKey(t, playerID, itemInstanceID, reference),
+	}
+}
+
+func transferInput(
+	reference string,
+	itemInstanceID foundation.ItemID,
+	fromPlayerID foundation.PlayerID,
+	toPlayerID foundation.PlayerID,
+) TransferCoordinateItemOwnerInput {
+	return TransferCoordinateItemOwnerInput{
+		FromPlayerID:   fromPlayerID,
+		ToPlayerID:     toPlayerID,
+		ItemInstanceID: itemInstanceID,
+		Reference:      foundation.IdempotencyKey("market_buy:listing-coordinate:" + toPlayerID.String() + ":" + reference),
 	}
 }
 

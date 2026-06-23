@@ -114,6 +114,19 @@ type UseCoordinateItemResult struct {
 	Duplicate    bool              `json:"duplicate,omitempty"`
 }
 
+type TransferCoordinateItemOwnerInput struct {
+	FromPlayerID   foundation.PlayerID       `json:"from_player_id"`
+	ToPlayerID     foundation.PlayerID       `json:"to_player_id"`
+	ItemInstanceID foundation.ItemID         `json:"item_instance_id"`
+	Reference      foundation.IdempotencyKey `json:"reference"`
+}
+
+type TransferCoordinateItemOwnerResult struct {
+	Item        CoordinateItem `json:"item"`
+	Transferred bool           `json:"transferred"`
+	Duplicate   bool           `json:"duplicate,omitempty"`
+}
+
 func (state IntelState) Validate() error {
 	switch state {
 	case IntelStateFresh,
@@ -281,6 +294,25 @@ func (input UseCoordinateItemInput) Validate() error {
 	}
 	if err := foundation.ValidateCoordinateItemUseIdempotencyKey(input.Reference, input.PlayerID, input.ItemInstanceID); err != nil {
 		return fmt.Errorf("reference: %w", ErrInvalidReference)
+	}
+	return nil
+}
+
+func (input TransferCoordinateItemOwnerInput) Validate() error {
+	if err := input.FromPlayerID.Validate(); err != nil {
+		return fmt.Errorf("from_player_id: %w", err)
+	}
+	if err := input.ToPlayerID.Validate(); err != nil {
+		return fmt.Errorf("to_player_id: %w", err)
+	}
+	if input.FromPlayerID == input.ToPlayerID {
+		return fmt.Errorf("same owner %q: %w", input.FromPlayerID, ErrInvalidCoordinateItem)
+	}
+	if err := input.ItemInstanceID.Validate(); err != nil {
+		return fmt.Errorf("item_instance_id: %w", err)
+	}
+	if err := validateReference(input.Reference); err != nil {
+		return fmt.Errorf("reference: %w", err)
 	}
 	return nil
 }

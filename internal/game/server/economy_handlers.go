@@ -9,6 +9,7 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/intel"
 	"gameproject/internal/game/market"
 	"gameproject/internal/game/premium"
 	"gameproject/internal/game/realtime"
@@ -287,6 +288,9 @@ func (runtime *Runtime) handleMarketBuy(ctx realtime.CommandContext, request rea
 	if runtime.coordinateListingBuyBlockedByClaimLocked(listingID) {
 		return nil, domainErrorForEconomy(market.ErrListingNotActive)
 	}
+	if err := runtime.validateCoordinateListingBuyPreflightLocked(listingID); err != nil {
+		return nil, intelDomainError(err)
+	}
 	result, err := runtime.Market.BuyListing(market.BuyListingInput{
 		BuyerPlayerID: ctx.PlayerID,
 		ListingID:     listingID,
@@ -295,6 +299,9 @@ func (runtime *Runtime) handleMarketBuy(ctx realtime.CommandContext, request rea
 	})
 	if err != nil {
 		return nil, domainErrorForEconomy(err)
+	}
+	if err := runtime.transferBoughtCoordinateItemLocked(result, ctx.PlayerID); err != nil {
+		return nil, intelDomainError(err)
 	}
 	if !result.Duplicate && runtime.Metrics != nil {
 		_ = runtime.Metrics.RecordMarketSale(result.Listing.Currency.String(), result.Listing.ItemID, result.Quantity, result.TotalAmount)
@@ -680,6 +687,43 @@ func (runtime *Runtime) coordinateListingBuyBlockedByClaimLocked(listingID found
 		return false
 	}
 	return !planet.OwnerPlayerID.IsZero()
+}
+
+func (runtime *Runtime) validateCoordinateListingBuyPreflightLocked(listingID foundation.ListingID) error {
+	listing, ok := runtime.Market.Listing(listingID)
+	if !ok || listing.Status != market.ListingStatusActive {
+		return nil
+	}
+	if listing.ItemID != coordinateScrollItemID || listing.ItemInstanceID.IsZero() {
+		return nil
+	}
+	item, ok, err := runtime.Intel.CoordinateItem(listing.ItemInstanceID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return intel.ErrCoordinateItemNotFound
+	}
+	if item.UsedAt != nil {
+		return intel.ErrCoordinateItemAlreadyUsed
+	}
+	if item.OwnerPlayerID != listing.SellerPlayerID {
+		return intel.ErrCoordinateItemNotOwned
+	}
+	return nil
+}
+
+func (runtime *Runtime) transferBoughtCoordinateItemLocked(result market.BuyListingResult, buyerID foundation.PlayerID) error {
+	if result.Listing.ItemID != coordinateScrollItemID || result.Listing.ItemInstanceID.IsZero() {
+		return nil
+	}
+	_, err := runtime.Intel.TransferCoordinateItemOwner(intel.TransferCoordinateItemOwnerInput{
+		FromPlayerID:   result.Listing.SellerPlayerID,
+		ToPlayerID:     buyerID,
+		ItemInstanceID: result.Listing.ItemInstanceID,
+		Reference:      result.ReferenceKey,
+	})
+	return err
 }
 
 func (runtime *Runtime) marketListingMatchesCoordinatePlanetLocked(listing market.Listing, planetID foundation.PlanetID) bool {

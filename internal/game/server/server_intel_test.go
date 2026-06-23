@@ -172,6 +172,92 @@ func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) 
 	}
 }
 
+func TestCoordinateItemMarketPurchaseTransfersUseAuthority(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	seller := createResolvedRuntimeSession(t, gameServer, "coordinate-market-seller@example.com", "Coordinate Seller")
+	buyer := createResolvedRuntimeSession(t, gameServer, "coordinate-market-buyer@example.com", "Coordinate Buyer")
+	planetID := foundation.PlanetID("planet-coordinate-market-purchase")
+	seedKnownClaimPlanetForTest(t, gameServer, seller.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1500, Y: 1600}, 3)
+
+	create := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(seller.SessionID.String()),
+		[]byte(`{"request_id":"request-coordinate-market-create","op":"intel.coordinate_item.create","payload":{"planet_id":"`+planetID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if create.HasError {
+		t.Fatalf("coordinate create response error = %+v, want success", create.Error)
+	}
+	var createPayload struct {
+		CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
+	}
+	if err := json.Unmarshal(create.Response.Payload, &createPayload); err != nil {
+		t.Fatalf("decode coordinate create payload: %v", err)
+	}
+
+	list := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(seller.SessionID.String()),
+		[]byte(`{"request_id":"request-coordinate-market-list","op":"market.create_listing","payload":{"item_id":"planet_coordinate_scroll","item_instance_id":"`+createPayload.CoordinateItem.ItemInstanceID+`","quantity":1,"unit_price":75},"client_seq":2,"v":1}`),
+	)
+	if list.HasError {
+		t.Fatalf("market create listing response error = %+v, want success", list.Error)
+	}
+	var listPayload marketMutationPayload
+	if err := json.Unmarshal(list.Response.Payload, &listPayload); err != nil {
+		t.Fatalf("decode market create listing payload: %v", err)
+	}
+
+	buyRequest := `{"request_id":"request-coordinate-market-buy","op":"market.buy","payload":{"listing_id":"` + listPayload.Listing.ListingID + `","quantity":1},"client_seq":1,"v":1}`
+	buy := gameServer.runtime.Gateway.HandleRequest(realtime.SessionID(buyer.SessionID.String()), []byte(buyRequest))
+	if buy.HasError {
+		t.Fatalf("market buy response error = %+v, want success", buy.Error)
+	}
+	var buyPayload marketMutationPayload
+	if err := json.Unmarshal(buy.Response.Payload, &buyPayload); err != nil {
+		t.Fatalf("decode market buy payload: %v", err)
+	}
+	if !inventorySnapshotHasInstanceID(buyPayload.Inventory, createPayload.CoordinateItem.ItemInstanceID, coordinateScrollItemID.String(), economy.LocationKindAccountInventory.String()) {
+		t.Fatalf("buyer inventory = %+v, want bought coordinate scroll instance", buyPayload.Inventory)
+	}
+	duplicateBuy := gameServer.runtime.Gateway.HandleRequest(realtime.SessionID(buyer.SessionID.String()), []byte(buyRequest))
+	if duplicateBuy.HasError {
+		t.Fatalf("duplicate market buy response error = %+v, want cached success", duplicateBuy.Error)
+	}
+
+	item, ok, err := gameServer.runtime.Intel.CoordinateItem(foundation.ItemID(createPayload.CoordinateItem.ItemInstanceID))
+	if err != nil || !ok {
+		t.Fatalf("coordinate item lookup ok=%v err=%v, want item", ok, err)
+	}
+	if item.OwnerPlayerID != buyer.PlayerID {
+		t.Fatalf("coordinate item owner = %q, want buyer %q", item.OwnerPlayerID, buyer.PlayerID)
+	}
+
+	sellerUse := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(seller.SessionID.String()),
+		[]byte(`{"request_id":"request-coordinate-market-seller-use","op":"intel.coordinate_item.use","payload":{"item_instance_id":"`+createPayload.CoordinateItem.ItemInstanceID+`"},"client_seq":3,"v":1}`),
+	)
+	if !sellerUse.HasError || sellerUse.Error.Error.Code != foundation.CodeForbidden {
+		t.Fatalf("seller use after market buy = %+v, want forbidden", sellerUse)
+	}
+
+	use := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(buyer.SessionID.String()),
+		[]byte(`{"request_id":"request-coordinate-market-use","op":"intel.coordinate_item.use","payload":{"item_instance_id":"`+createPayload.CoordinateItem.ItemInstanceID+`"},"client_seq":2,"v":1}`),
+	)
+	if use.HasError {
+		t.Fatalf("buyer coordinate use response error = %+v, want success", use.Error)
+	}
+	var usePayload struct {
+		CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
+		KnownPlanets   knownPlanetsPayload        `json:"known_planets"`
+		PlanetDetail   planetDetailPayload        `json:"planet_detail"`
+	}
+	if err := json.Unmarshal(use.Response.Payload, &usePayload); err != nil {
+		t.Fatalf("decode coordinate use payload: %v", err)
+	}
+	if !usePayload.CoordinateItem.Used || usePayload.PlanetDetail.PlanetID != planetID.String() || len(usePayload.KnownPlanets.Planets) != 1 {
+		t.Fatalf("buyer use payload = %+v, want bought coordinate reveal", usePayload)
+	}
+}
+
 func TestCoordinateItemCreateRequiresKnownPlanet(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-missing@example.com", "Coordinate Missing")

@@ -117,8 +117,11 @@ for phase status; this file is a compact pending-work index.
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory
   `planet_coordinate_scroll` instance through the inventory service with item
-  ledger rows and snapshot fanout, but the intel/economy writes are still
-  process-local and not wrapped in a durable cross-service transaction.
+  ledger rows and snapshot fanout. Phase07AG now transfers the server-owned
+  intel coordinate payload owner after market purchase with the same market-buy
+  idempotency key, so duplicate buy retries can repair a missing transfer and
+  buyers can use bought coordinate scrolls once. The intel/economy writes are
+  still process-local and not wrapped in a durable cross-service transaction.
 - [x] Finish gateway/session authorization for remaining discovery commands.
   `scan.pulse` and the Phase07A backend `discovery.claim_planet` handler now
   resolve the authenticated player server-side and reject client-authored

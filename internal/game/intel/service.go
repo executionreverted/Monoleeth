@@ -15,9 +15,10 @@ type Service struct {
 	intel map[playerPlanetKey]PlayerPlanetIntel
 	items map[foundation.ItemID]CoordinateItem
 
-	shareReferences  map[foundation.IdempotencyKey]shareRecord
-	createReferences map[foundation.IdempotencyKey]createRecord
-	useReferences    map[foundation.IdempotencyKey]useRecord
+	shareReferences    map[foundation.IdempotencyKey]shareRecord
+	createReferences   map[foundation.IdempotencyKey]createRecord
+	useReferences      map[foundation.IdempotencyKey]useRecord
+	transferReferences map[foundation.IdempotencyKey]transferRecord
 }
 
 type playerPlanetKey struct {
@@ -40,18 +41,24 @@ type useRecord struct {
 	result UseCoordinateItemResult
 }
 
+type transferRecord struct {
+	input  TransferCoordinateItemOwnerInput
+	result TransferCoordinateItemOwnerResult
+}
+
 // NewService returns an empty in-memory intel service.
 func NewService(clock foundation.Clock) *Service {
 	if clock == nil {
 		clock = foundation.RealClock{}
 	}
 	return &Service{
-		clock:            clock,
-		intel:            make(map[playerPlanetKey]PlayerPlanetIntel),
-		items:            make(map[foundation.ItemID]CoordinateItem),
-		shareReferences:  make(map[foundation.IdempotencyKey]shareRecord),
-		createReferences: make(map[foundation.IdempotencyKey]createRecord),
-		useReferences:    make(map[foundation.IdempotencyKey]useRecord),
+		clock:              clock,
+		intel:              make(map[playerPlanetKey]PlayerPlanetIntel),
+		items:              make(map[foundation.ItemID]CoordinateItem),
+		shareReferences:    make(map[foundation.IdempotencyKey]shareRecord),
+		createReferences:   make(map[foundation.IdempotencyKey]createRecord),
+		useReferences:      make(map[foundation.IdempotencyKey]useRecord),
+		transferReferences: make(map[foundation.IdempotencyKey]transferRecord),
 	}
 }
 
@@ -260,6 +267,52 @@ func (service *Service) UseCoordinateItem(input UseCoordinateItemInput) (UseCoor
 	return cloneUseCoordinateItemResult(result), nil
 }
 
+// TransferCoordinateItemOwner moves a server-owned coordinate item payload after
+// its matching inventory instance changes owner.
+func (service *Service) TransferCoordinateItemOwner(input TransferCoordinateItemOwnerInput) (TransferCoordinateItemOwnerResult, error) {
+	if err := input.Validate(); err != nil {
+		return TransferCoordinateItemOwnerResult{}, err
+	}
+
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	if record, ok := service.transferReferences[input.Reference]; ok {
+		if !transferInputMatches(record.input, input) {
+			return TransferCoordinateItemOwnerResult{}, ErrReferenceConflict
+		}
+		result := cloneTransferCoordinateItemOwnerResult(record.result)
+		result.Duplicate = true
+		return result, nil
+	}
+
+	item, ok := service.items[input.ItemInstanceID]
+	if !ok {
+		return TransferCoordinateItemOwnerResult{}, fmt.Errorf("item %q: %w", input.ItemInstanceID, ErrCoordinateItemNotFound)
+	}
+	if item.UsedAt != nil {
+		return TransferCoordinateItemOwnerResult{}, fmt.Errorf("item %q: %w", input.ItemInstanceID, ErrCoordinateItemAlreadyUsed)
+	}
+	if item.OwnerPlayerID == input.ToPlayerID {
+		result := TransferCoordinateItemOwnerResult{Item: cloneCoordinateItem(item), Transferred: true}
+		service.transferReferences[input.Reference] = transferRecord{input: input, result: cloneTransferCoordinateItemOwnerResult(result)}
+		return cloneTransferCoordinateItemOwnerResult(result), nil
+	}
+	if item.OwnerPlayerID != input.FromPlayerID {
+		return TransferCoordinateItemOwnerResult{}, fmt.Errorf("item %q owner %q from %q: %w", input.ItemInstanceID, item.OwnerPlayerID, input.FromPlayerID, ErrCoordinateItemNotOwned)
+	}
+
+	item.OwnerPlayerID = input.ToPlayerID
+	if err := item.Validate(); err != nil {
+		return TransferCoordinateItemOwnerResult{}, err
+	}
+	service.items[input.ItemInstanceID] = cloneCoordinateItem(item)
+
+	result := TransferCoordinateItemOwnerResult{Item: cloneCoordinateItem(item), Transferred: true}
+	service.transferReferences[input.Reference] = transferRecord{input: input, result: cloneTransferCoordinateItemOwnerResult(result)}
+	return cloneTransferCoordinateItemOwnerResult(result), nil
+}
+
 func (service *Service) knownSourceIntelLocked(playerID foundation.PlayerID, planetID foundation.PlanetID) (PlayerPlanetIntel, error) {
 	source, ok := service.intel[newPlayerPlanetKey(playerID, planetID)]
 	if !ok {
@@ -342,6 +395,13 @@ func useInputMatches(a UseCoordinateItemInput, b UseCoordinateItemInput) bool {
 		a.Reference == b.Reference
 }
 
+func transferInputMatches(a TransferCoordinateItemOwnerInput, b TransferCoordinateItemOwnerInput) bool {
+	return a.FromPlayerID == b.FromPlayerID &&
+		a.ToPlayerID == b.ToPlayerID &&
+		a.ItemInstanceID == b.ItemInstanceID &&
+		a.Reference == b.Reference
+}
+
 func clonePlayerPlanetIntel(intel PlayerPlanetIntel) PlayerPlanetIntel {
 	return intel
 }
@@ -369,5 +429,10 @@ func cloneCreateCoordinateItemResult(result CreateCoordinateItemResult) CreateCo
 func cloneUseCoordinateItemResult(result UseCoordinateItemResult) UseCoordinateItemResult {
 	result.Item = cloneCoordinateItem(result.Item)
 	result.Intel = clonePlayerPlanetIntel(result.Intel)
+	return result
+}
+
+func cloneTransferCoordinateItemOwnerResult(result TransferCoordinateItemOwnerResult) TransferCoordinateItemOwnerResult {
+	result.Item = cloneCoordinateItem(result.Item)
 	return result
 }

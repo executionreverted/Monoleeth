@@ -222,8 +222,11 @@ Current slice completed:
   item used, writes an item ledger decrease, and reconciles known planets,
   planet detail, and inventory snapshots. Duplicate create/use requests replay
   through the existing idempotency paths without duplicate inventory or ledger
-  rows. Daily quotas, durable DB rows, cross-service
-  transaction/compensation, and browser HUD controls remain open.
+  rows. Phase07AG transfers coordinate item intel ownership after market
+  purchase with the same market-buy idempotency key, so duplicate buy retries
+  can repair the transfer and the buyer can use the bought scroll once. Daily
+  quotas, durable DB rows, cross-service transaction/compensation, and browser
+  HUD controls remain open.
 - Phase07U outbox publisher-boundary follow-up: discovery claim outbox and
   production/route settlement outbox records now have small interface-backed
   publisher drain helpers. The helpers claim pending rows, call a publisher
@@ -322,6 +325,15 @@ Current slice completed:
   can no longer be bought. Durable planet-to-listing DB indexes and
   cross-service transactions remain part of the broader durable persistence
   work.
+- Phase07AG coordinate market-purchase transfer follow-up: market purchases of
+  `planet_coordinate_scroll` instances now preflight that the matching
+  server-owned intel payload exists, is unused, and belongs to the listing
+  seller; after a successful or duplicate market buy, runtime transfers the
+  intel coordinate item owner to the buyer using the market-buy idempotency
+  key. Seller use is rejected after purchase, buyer use succeeds through the
+  normal `intel.coordinate_item.use` path, and duplicate buy retries do not
+  mint duplicate inventory or transfer state. Durable cross-service
+  transaction/compensation remains open.
 
 ## Source Specs
 
@@ -515,6 +527,8 @@ Mockup areas covered:
       callbacks mutate later attempts.
 - [ ] Intel share rejects hidden/not-owned coordinate references.
 - [x] Coordinate item create/use consumes owned items once and filters results.
+- [x] Market-bought coordinate scrolls transfer server-owned intel item
+      authority to the buyer and can be used once by that buyer.
 - [x] Planet claim marks active coordinate-scroll market listings for the
       claimed planet stale and stale coordinate listings cannot be bought.
 - [ ] Building build/upgrade debits materials/currency once.
