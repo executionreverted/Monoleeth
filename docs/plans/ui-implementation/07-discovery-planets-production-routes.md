@@ -521,6 +521,12 @@ Current slice completed:
   mismatched outbox evidence fail instead of being claimed, published,
   released, or retried. Real DB rows, cross-process worker scheduling, and
   durable idempotency enforcement remain open.
+- Phase07CH claim wrong-owner regression follow-up:
+  Authenticated `discovery.claim_planet` now has gateway-level coverage proving
+  another player cannot claim an already-owned planet even when they know the
+  planet and hold an X Core. The rejection leaves the original owner intact,
+  does not consume the second player's X Core, does not commit a lifecycle row,
+  and queues no failed-claim events.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -999,6 +1005,9 @@ Mockup areas covered:
 - [x] Claim handler applies pending production-init durable evidence for
       post-initialization side-effect failures; retry completion advances that
       row to complete evidence without another X Core debit or extra init row.
+- [x] Claim handler rejects another player's already-owned planet without
+      consuming X Core, committing claim lifecycle rows, changing ownership, or
+      queuing failed-claim events.
 - [x] Claim lifecycle durable readback rebuilds a validated pending outbox
       dispatch plan for `planet.claimed` publisher scheduling.
 - [x] Claim lifecycle durable outbox rows can be claimed, published, failed, or

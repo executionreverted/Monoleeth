@@ -141,7 +141,10 @@ for phase status; this file is a compact pending-work index.
   claim lifecycle-store publisher/reaper mutations revalidate committed
   lifecycle/outbox readbacks before claiming, publishing, failing, releasing,
   or retrying rows, so corrupt process-local rows fail closed without partial
-  worker mutation.
+  worker mutation. Phase07CH adds gateway-level wrong-owner claim regression
+  coverage: another player with known intel and an X Core is rejected from an
+  already-owned planet without ownership change, X Core debit, lifecycle row,
+  or failed-claim events.
   Durable DB rows, cross-process leases, scheduled publisher workers, and
   cross-process enforcement remain open.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
