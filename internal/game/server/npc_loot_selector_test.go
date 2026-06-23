@@ -438,6 +438,220 @@ func TestNPCLootSelectorRejectsMatrixMismatchesWithoutTrainingFallback(t *testin
 	}
 }
 
+func TestNPCLootSelectorRejectsSeededMapMatrixMismatchesWithoutStarterFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		mapID       worldmaps.MapID
+		npcType     string
+		wantMapKey  string
+		wantRisk    string
+		wantWorldID string
+		wantZoneID  string
+		arrange     func(*testing.T, *Runtime, *mapInstance, worker.EnemySpawnRecord)
+		want        error
+		wantStage   string
+		wantReason  string
+	}{
+		{
+			name:        "destination level band mismatch",
+			mapID:       "map_1_2",
+			npcType:     "outer_ring_scout_drone",
+			wantMapKey:  "1-2",
+			wantRisk:    "low",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_2",
+			arrange: func(_ *testing.T, _ *Runtime, instance *mapInstance, record worker.EnemySpawnRecord) {
+				for index := range instance.Definition.NPCDropProfiles {
+					if instance.Definition.NPCDropProfiles[index].DropProfileID == record.DropProfileID {
+						instance.Definition.NPCDropProfiles[index].MinLevel = record.Level + 1
+						instance.Definition.NPCDropProfiles[index].MaxLevel = record.Level + 1
+					}
+				}
+			},
+			want:       errNPCLootProfileMismatch,
+			wantStage:  npcLootSelectorStageDropProfile,
+			wantReason: npcLootSelectorReasonMismatch,
+		},
+		{
+			name:        "destination missing table",
+			mapID:       "map_1_2",
+			npcType:     "outer_ring_scout_drone",
+			wantMapKey:  "1-2",
+			wantRisk:    "low",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_2",
+			arrange: func(_ *testing.T, _ *Runtime, instance *mapInstance, record worker.EnemySpawnRecord) {
+				for index := range instance.Definition.NPCDropProfiles {
+					if instance.Definition.NPCDropProfiles[index].DropProfileID == record.DropProfileID {
+						instance.Definition.NPCDropProfiles[index].LootTableID = "missing_outer_ring_matrix_table"
+					}
+				}
+			},
+			want:       errNPCLootTableUnavailable,
+			wantStage:  npcLootSelectorStageLootTable,
+			wantReason: npcLootSelectorReasonUnavailable,
+		},
+		{
+			name:        "destination table source mismatch",
+			mapID:       "map_1_2",
+			npcType:     "outer_ring_scout_drone",
+			wantMapKey:  "1-2",
+			wantRisk:    "low",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_2",
+			arrange: func(t *testing.T, runtime *Runtime, instance *mapInstance, record worker.EnemySpawnRecord) {
+				tableKey := "outer_ring_wrong_source_matrix_table"
+				table := testRuntimeLootTable(t, "other_outer_ring_source", "outer_ring_wrong_source_item", "Outer Ring Wrong Source", 1)
+				runtime.lootTables[tableKey] = table
+				runtime.itemCatalog[table.Rows[0].ItemDefinition.ItemID] = table.Rows[0].ItemDefinition
+				for index := range instance.Definition.NPCDropProfiles {
+					if instance.Definition.NPCDropProfiles[index].DropProfileID == record.DropProfileID {
+						instance.Definition.NPCDropProfiles[index].LootTableID = tableKey
+					}
+				}
+			},
+			want:       errNPCLootTableUnavailable,
+			wantStage:  npcLootSelectorStageLootTable,
+			wantReason: npcLootSelectorReasonUnavailable,
+		},
+		{
+			name:        "destination risk band mismatch",
+			mapID:       "map_1_2",
+			npcType:     "outer_ring_scout_drone",
+			wantMapKey:  "1-2",
+			wantRisk:    "low",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_2",
+			arrange: func(_ *testing.T, _ *Runtime, instance *mapInstance, record worker.EnemySpawnRecord) {
+				for index := range instance.Definition.NPCDropProfiles {
+					if instance.Definition.NPCDropProfiles[index].DropProfileID == record.DropProfileID {
+						instance.Definition.NPCDropProfiles[index].RiskBand = "medium"
+					}
+				}
+			},
+			want:       errNPCLootProfileMismatch,
+			wantStage:  npcLootSelectorStageDropProfile,
+			wantReason: npcLootSelectorReasonMismatch,
+		},
+		{
+			name:        "pvp risk band mismatch",
+			mapID:       "map_1_3",
+			npcType:     "border_raider_drone",
+			wantMapKey:  "1-3",
+			wantRisk:    "medium",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_3",
+			arrange: func(_ *testing.T, _ *Runtime, instance *mapInstance, record worker.EnemySpawnRecord) {
+				for index := range instance.Definition.NPCDropProfiles {
+					if instance.Definition.NPCDropProfiles[index].DropProfileID == record.DropProfileID {
+						instance.Definition.NPCDropProfiles[index].RiskBand = "low"
+					}
+				}
+			},
+			want:       errNPCLootProfileMismatch,
+			wantStage:  npcLootSelectorStageDropProfile,
+			wantReason: npcLootSelectorReasonMismatch,
+		},
+		{
+			name:        "pvp level band mismatch",
+			mapID:       "map_1_3",
+			npcType:     "border_raider_drone",
+			wantMapKey:  "1-3",
+			wantRisk:    "medium",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_3",
+			arrange: func(_ *testing.T, _ *Runtime, instance *mapInstance, record worker.EnemySpawnRecord) {
+				for index := range instance.Definition.NPCDropProfiles {
+					if instance.Definition.NPCDropProfiles[index].DropProfileID == record.DropProfileID {
+						instance.Definition.NPCDropProfiles[index].MinLevel = record.Level + 1
+						instance.Definition.NPCDropProfiles[index].MaxLevel = record.Level + 1
+					}
+				}
+			},
+			want:       errNPCLootProfileMismatch,
+			wantStage:  npcLootSelectorStageDropProfile,
+			wantReason: npcLootSelectorReasonMismatch,
+		},
+		{
+			name:        "pvp missing table",
+			mapID:       "map_1_3",
+			npcType:     "border_raider_drone",
+			wantMapKey:  "1-3",
+			wantRisk:    "medium",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_3",
+			arrange: func(_ *testing.T, _ *Runtime, instance *mapInstance, record worker.EnemySpawnRecord) {
+				for index := range instance.Definition.NPCDropProfiles {
+					if instance.Definition.NPCDropProfiles[index].DropProfileID == record.DropProfileID {
+						instance.Definition.NPCDropProfiles[index].LootTableID = "missing_border_raider_matrix_table"
+					}
+				}
+			},
+			want:       errNPCLootTableUnavailable,
+			wantStage:  npcLootSelectorStageLootTable,
+			wantReason: npcLootSelectorReasonUnavailable,
+		},
+		{
+			name:        "pvp table source mismatch",
+			mapID:       "map_1_3",
+			npcType:     "border_raider_drone",
+			wantMapKey:  "1-3",
+			wantRisk:    "medium",
+			wantWorldID: "world-1",
+			wantZoneID:  "map_1_3",
+			arrange: func(t *testing.T, runtime *Runtime, instance *mapInstance, record worker.EnemySpawnRecord) {
+				tableKey := "border_raider_wrong_source_matrix_table"
+				table := testRuntimeLootTable(t, "other_border_raider_source", "border_raider_wrong_source_item", "Border Raider Wrong Source", 1)
+				runtime.lootTables[tableKey] = table
+				runtime.itemCatalog[table.Rows[0].ItemDefinition.ItemID] = table.Rows[0].ItemDefinition
+				for index := range instance.Definition.NPCDropProfiles {
+					if instance.Definition.NPCDropProfiles[index].DropProfileID == record.DropProfileID {
+						instance.Definition.NPCDropProfiles[index].LootTableID = tableKey
+					}
+				}
+			},
+			want:       errNPCLootTableUnavailable,
+			wantStage:  npcLootSelectorStageLootTable,
+			wantReason: npcLootSelectorReasonUnavailable,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gameServer, httpServer := newTestServer(t, false)
+			defer httpServer.Close()
+			resolved := createResolvedRuntimeSession(t, gameServer, "selector-seeded-matrix-rejected@example.com", "Selector Seeded Matrix Rejected")
+
+			gameServer.runtime.mu.Lock()
+			defer gameServer.runtime.mu.Unlock()
+
+			instance, err := gameServer.runtime.mapInstanceLocked(tc.mapID)
+			if err != nil {
+				t.Fatalf("map instance %q: %v", tc.mapID, err)
+			}
+			record := requireSpawnRecordByNPCType(t, instance, tc.npcType)
+			event := testNPCKilledEventForRecord(resolved.PlayerID, instance, record)
+			tc.arrange(t, gameServer.runtime, instance, record)
+
+			_, err = gameServer.runtime.selectNPCKillLootTableForInstanceLocked(instance, event)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("selectNPCKillLootTableForInstanceLocked() error = %v, want %v", err, tc.want)
+			}
+			requireMetricCounter(t, gameServer.runtime.Metrics.Snapshot(), observability.MetricNPCLootSelectorDecisions, 1, []observability.Label{
+				{Name: "map_key", Value: tc.wantMapKey},
+				{Name: "npc_type", Value: tc.npcType},
+				{Name: "reason", Value: tc.wantReason},
+				{Name: "result", Value: "rejected"},
+				{Name: "risk_band", Value: tc.wantRisk},
+				{Name: "stage", Value: tc.wantStage},
+				{Name: "world_id", Value: tc.wantWorldID},
+				{Name: "zone_id", Value: tc.wantZoneID},
+			})
+			if drop, ok := gameServer.runtime.Loot.Drop("drop_1"); ok {
+				t.Fatalf("seeded matrix mismatch created fallback drop %+v; want no starter fallback drop", drop)
+			}
+		})
+	}
+}
+
 func TestNPCLootSelectorRejectsMissingInputsWithoutTrainingFallback(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

@@ -403,10 +403,12 @@ for phase status; this file is a compact pending-work index.
   `outer_ring_scout_drone` spawn-record/drop-profile selection, accepted
   starter, destination, and medium PvP `1-3` matrix rows, full selector mismatch
   guards for wrong map/world-zone, NPC type, level/rank band, risk band,
-  missing inputs, and missing table cases without starter fallback, and domain-level
-  hidden/far/cross-map pickup rejection. Phase09 now covers starter and
-  destination browser fight/loot pickup; broader balance coverage and
-  additional rollout/browser proof remain open. Source:
+  missing inputs, and missing table cases without starter fallback.
+  Phase10 now also rejects seeded destination/PvP level/risk/table-unavailable
+  and table-source mismatches without falling back to starter loot, and
+  domain-level hidden/far/cross-map pickup rejection remains covered. Phase09
+  now covers starter and destination browser fight/loot pickup; broader balance
+  tuning and additional rollout/browser proof remain open. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Extend the Phase09 browser map smoke into a full real-server
   fight/loot/scan/portal loop with desktop, tablet, and mobile screenshots,
