@@ -146,6 +146,20 @@ planet claim controls, verifies X Core consumption plus production
 initialization, clicks real HUD route create/settle controls, then transfers
 through `east_gate` to public `1-2` without Vite.
 
+Run the single-process built-client PvP/death/repair proof explicitly:
+
+```bash
+npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server-pvp
+```
+
+That proof builds `client/dist`, serves it from `cmd/game-server` with
+`GAME_CLIENT_STATIC_DIR=client/dist`, opens two real browser sessions from the
+same served app, moves both through `1-1` -> `1-2` -> `1-3`, verifies protected
+PvP rejection, proves lethal PvP death cargo drop visibility for the attacker,
+then runs `death.repair_quote` and `death.repair_ship` to reconcile the target
+at the public `1-3` checkpoint with respawn protection and strict leak
+canaries, all without Vite.
+
 The separate Phase09 map smoke starts its own real Go server and Vite dev
 server, then writes screenshots under `output/screenshots/ui-implementation/09/`,
 including the current desktop artifacts:

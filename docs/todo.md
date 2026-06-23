@@ -616,7 +616,9 @@ for phase status; this file is a compact pending-work index.
   server-authoritative PvP combat without client-authored damage/death state,
   then uses `death.repair_quote` and `death.repair_ship` and reconciles
   repaired ship, checkpoint position, and respawn protection in browser smoke
-  state. Source: Phase 10 audit.
+  state. The `e2e:playtest-server-pvp` command now runs the same proof against
+  the built client served by the single Go server with no Vite. Source: Phase
+  10 audit.
 - [ ] Add server-backed mail/social/menu contracts before enabling those topbar
   affordances. The default browser smoke now guards against fake unread mail,
   friend, party, menu, or social notification counts; future contracts should

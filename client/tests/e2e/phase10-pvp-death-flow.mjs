@@ -10,6 +10,7 @@ const clientDir = resolve(scriptDir, '../..');
 const repoRoot = resolve(clientDir, '..');
 const maxProcessLogLines = 5000;
 const desktopViewport = { width: 1440, height: 900 };
+const useBuiltClientServer = process.env.PHASE10_BUILT_CLIENT === '1';
 const originNpcApproachTarget = { x: 800, y: 400 };
 const eastGateTarget = { x: 9800, y: 5000 };
 const skirmishGateTarget = { x: 9800, y: 5000 };
@@ -55,27 +56,35 @@ const broadLeakTokens = strictLeakTokens.filter((token) => token !== 'west_gate'
 
 async function main() {
   const serverPort = await freePort();
-  const clientPort = await freePort();
-  const clientOrigin = `http://127.0.0.1:${clientPort}`;
   const serverTarget = `http://127.0.0.1:${serverPort}`;
-  const goServer = child('go-server', 'go', ['run', './cmd/game-server'], repoRoot, {
+  const clientPort = useBuiltClientServer ? 0 : await freePort();
+  const clientOrigin = useBuiltClientServer ? serverTarget : `http://127.0.0.1:${clientPort}`;
+  const goEnv = {
     GAME_SERVER_ADDR: `127.0.0.1:${serverPort}`,
     GAME_ALLOWED_ORIGINS: clientOrigin,
-  });
+  };
+  if (useBuiltClientServer) {
+    goEnv.GAME_CLIENT_STATIC_DIR = 'client/dist';
+  }
+  const goServer = child('go-server', 'go', ['run', './cmd/game-server'], repoRoot, goEnv);
   let viteServer;
   let browser;
   const clients = [];
 
   try {
     await waitHTTP(`${serverTarget}/healthz`, 'Go server', goServer);
-    viteServer = child(
-      'vite',
-      'npm',
-      ['--cache', '/tmp/gameproject-npm-cache', 'run', 'dev', '--', '--port', String(clientPort), '--strictPort'],
-      clientDir,
-      { GAME_CLIENT_PROXY_TARGET: serverTarget },
-    );
-    await waitHTTP(`${clientOrigin}/?smoke=1`, 'Vite client', viteServer);
+    if (useBuiltClientServer) {
+      await waitHTTP(`${clientOrigin}/?smoke=1`, 'built client', goServer);
+    } else {
+      viteServer = child(
+        'vite',
+        'npm',
+        ['--cache', '/tmp/gameproject-npm-cache', 'run', 'dev', '--', '--port', String(clientPort), '--strictPort'],
+        clientDir,
+        { GAME_CLIENT_PROXY_TARGET: serverTarget },
+      );
+      await waitHTTP(`${clientOrigin}/?smoke=1`, 'Vite client', viteServer);
+    }
 
     browser = await chromium.launch();
     const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;

@@ -97,8 +97,10 @@ marked `Open` are not implemented rollout controls yet.
   scanner/claim/drop matrix variants remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone
   UI-click rejection proof exist in
-  `client/tests/e2e/phase10-pvp-death-flow.mjs`; remaining PvP browser gaps are
-  broader deployed artifact/log canaries.
+  `client/tests/e2e/phase10-pvp-death-flow.mjs`. The same flow now also runs as
+  the single-process built-client `e2e:playtest-server-pvp` proof against
+  `cmd/game-server` serving `client/dist` without Vite; remaining PvP browser
+  gaps are broader deployed artifact/log canaries.
 - Focused scanner rarity/hidden-scan-data regression exists in
   server/discovery tests, Phase10 now has destination/PvP-map server
   scan-scope proof for public `1-2` and `1-3`, domain scanner
@@ -251,6 +253,13 @@ Run the focused real-server Phase10 PvP death/repair browser proof explicitly:
 
 ```bash
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-pvp-death
+```
+
+That command uses the Vite client path. Run the built-client single-server
+variant explicitly when validating deploy-like local artifacts:
+
+```bash
+npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server-pvp
 ```
 
 Run the focused real-server Phase10 Border Skirmish enemy aggro/leash browser
@@ -427,6 +436,7 @@ proof until the project intentionally wires it into `npm run check`:
 
 ```bash
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-pvp-death
+npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server-pvp
 ```
 
 Planet claim rollout evidence should include the explicit focused Phase10
