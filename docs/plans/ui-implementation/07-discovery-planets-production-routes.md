@@ -433,6 +433,14 @@ Current slice completed:
   initialized outcomes, and optional pending/complete claim-boundary evidence.
   Real durable claim/production transaction rows and recovery workers remain
   open.
+- Phase07AW claim durable lifecycle-plan follow-up:
+  `NewClaimDurableLifecyclePlan` now validates that a completed claim lifecycle
+  is one coherent row bundle across begin, optional production-init, and commit
+  plans. It rejects debit-only begin evidence, mismatched claim identity,
+  stale-intel counts, completion timestamps before claim time, wrong production
+  planet levels, production boundary drift, and mixed X Core debit evidence.
+  This is still a contract/helper layer; durable claim/storage DB rows,
+  cross-service transaction ownership, and recovery workers remain open.
 
 ## Source Specs
 
@@ -575,6 +583,8 @@ Mockup areas covered:
       X Core debit evidence together.
 - [x] Add claim production-initialization durable-plan validation tying
       production recovery evidence to pending/complete claim boundaries.
+- [x] Add claim durable lifecycle-plan validation tying begin, optional
+      production-init, and completion/outbox evidence together.
 - [ ] Add durable authenticated transaction flows for claim/storage mutation
       coupling once DB/CAS storage boundaries replace process-local stores.
 - [x] Add offline settlement reconcile path that uses server-owned windows for
