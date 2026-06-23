@@ -222,8 +222,8 @@ Current slice completed:
   item used, writes an item ledger decrease, and reconciles known planets,
   planet detail, and inventory snapshots. Duplicate create/use requests replay
   through the existing idempotency paths without duplicate inventory or ledger
-  rows. Daily quotas, market/listing staleness hooks, durable DB rows,
-  cross-service transaction/compensation, and browser HUD controls remain open.
+  rows. Daily quotas, durable DB rows, cross-service
+  transaction/compensation, and browser HUD controls remain open.
 - Phase07U outbox publisher-boundary follow-up: discovery claim outbox and
   production/route settlement outbox records now have small interface-backed
   publisher drain helpers. The helpers claim pending rows, call a publisher
@@ -313,6 +313,15 @@ Current slice completed:
   initializer failures still leave no evidence and are retried. Durable
   production-init recovery rows, cross-service transactions, and recovery
   workers remain open.
+- Phase07AF claim-market stale listing adapter follow-up: runtime claim
+  side effects now wire `ClaimListedIntelStaleMarker` to the concrete market
+  and intel services. When a planet is claimed, active
+  `planet_coordinate_scroll` listings whose server-owned coordinate item points
+  at that planet are marked `stale` with reason `planet_claimed`, already-stale
+  matching listings count consistently on retry, and stale coordinate listings
+  can no longer be bought. Durable planet-to-listing DB indexes and
+  cross-service transactions remain part of the broader durable persistence
+  work.
 
 ## Source Specs
 
@@ -506,6 +515,8 @@ Mockup areas covered:
       callbacks mutate later attempts.
 - [ ] Intel share rejects hidden/not-owned coordinate references.
 - [x] Coordinate item create/use consumes owned items once and filters results.
+- [x] Planet claim marks active coordinate-scroll market listings for the
+      claimed planet stale and stale coordinate listings cannot be bought.
 - [ ] Building build/upgrade debits materials/currency once.
 - [x] Production summary/storage duplicate and sub-unit polls no-op without
       advancing production time or queuing duplicate events.

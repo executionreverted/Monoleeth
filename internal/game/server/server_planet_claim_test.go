@@ -11,6 +11,7 @@ import (
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/market"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
@@ -110,6 +111,121 @@ func TestClaimPlanetDuplicateRetryDoesNotConsumeSecondXCore(t *testing.T) {
 	}
 	if got := claimXCoreDecreaseLedgerCountForTest(gameServer, owner.PlayerID); got != 1 {
 		t.Fatalf("x_core decrease ledger entries = %d, want one", got)
+	}
+}
+
+func TestClaimPlanetMarksCoordinateScrollMarketListingsStale(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "claim-coordinate-market@example.com", "Claim Coordinate Market")
+	buyer := createResolvedRuntimeSession(t, gameServer, "claim-coordinate-buyer@example.com", "Claim Coordinate Buyer")
+	planetID := foundation.PlanetID("claim-coordinate-market-planet")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 120, Y: 0}, 1)
+
+	create := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-claim-coordinate-create","op":"intel.coordinate_item.create","payload":{"planet_id":"`+planetID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if create.HasError {
+		t.Fatalf("coordinate create response error = %+v, want success", create.Error)
+	}
+	var createPayload struct {
+		CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
+	}
+	if err := json.Unmarshal(create.Response.Payload, &createPayload); err != nil {
+		t.Fatalf("decode coordinate create payload: %v", err)
+	}
+
+	list := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-claim-coordinate-listing","op":"market.create_listing","payload":{"item_id":"planet_coordinate_scroll","item_instance_id":"`+createPayload.CoordinateItem.ItemInstanceID+`","quantity":1,"unit_price":75},"client_seq":2,"v":1}`),
+	)
+	if list.HasError {
+		t.Fatalf("market create listing response error = %+v, want success", list.Error)
+	}
+	var listPayload marketMutationPayload
+	if err := json.Unmarshal(list.Response.Payload, &listPayload); err != nil {
+		t.Fatalf("decode market create listing payload: %v", err)
+	}
+	listingID, err := foundation.ParseListingID(listPayload.Listing.ListingID)
+	if err != nil {
+		t.Fatalf("parse listing id: %v", err)
+	}
+	before, ok := gameServer.runtime.Market.Listing(listingID)
+	if !ok || before.Status != market.ListingStatusActive {
+		t.Fatalf("coordinate listing before claim = %+v ok=%v, want active", before, ok)
+	}
+	gameServer.runtime.beginPlanetClaimMarketGuard(planetID)
+	guardedBuy := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(buyer.SessionID.String()),
+		[]byte(`{"request_id":"request-claim-coordinate-buy-guarded","op":"market.buy","payload":{"listing_id":"`+listingID.String()+`","quantity":1},"client_seq":1,"v":1}`),
+	)
+	gameServer.runtime.endPlanetClaimMarketGuard(planetID)
+	if !guardedBuy.HasError || guardedBuy.Error.Error.Code != foundation.CodeForbidden {
+		t.Fatalf("buy guarded coordinate listing response = %+v, want forbidden", guardedBuy)
+	}
+	if guardedListing, ok := gameServer.runtime.Market.Listing(listingID); !ok || guardedListing.Status != market.ListingStatusActive {
+		t.Fatalf("coordinate listing after guarded buy = %+v ok=%v, want still active before claim", guardedListing, ok)
+	}
+	if _, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationMarketCreateListing, owner.PlayerID); err != nil {
+		t.Fatalf("drain pre-claim market events: %v", err)
+	}
+
+	grantClaimXCoreForTest(t, gameServer, owner.PlayerID, 1, "claim-coordinate-market-xcore")
+	claim := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-coordinate-market", planetID)
+	if claim.HasError {
+		t.Fatalf("claim response error = %+v, want success", claim.Error)
+	}
+	var claimPayload planetClaimResponsePayload
+	if err := json.Unmarshal(claim.Response.Payload, &claimPayload); err != nil {
+		t.Fatalf("decode claim payload: %v", err)
+	}
+	if claimPayload.Claim.StaleListingCount != 1 {
+		t.Fatalf("stale listing count = %d, want one coordinate listing marked stale", claimPayload.Claim.StaleListingCount)
+	}
+
+	after, ok := gameServer.runtime.Market.Listing(listingID)
+	if !ok {
+		t.Fatalf("coordinate listing %s missing after claim", listingID)
+	}
+	if after.Status != market.ListingStatusStale || after.StaleReason != "planet_claimed" || after.StaleAt == nil {
+		t.Fatalf("coordinate listing after claim = %+v, want stale planet_claimed", after)
+	}
+	staleRetry, err := (runtimeClaimListedIntelStaleMarker{
+		market: gameServer.runtime.Market,
+		intel:  gameServer.runtime.Intel,
+	}).MarkClaimedPlanetListingsStale(discovery.ClaimListedIntelStaleInput{
+		PlayerID:        owner.PlayerID,
+		PlanetID:        planetID,
+		ClaimReference:  "claim-coordinate-market-retry",
+		Reason:          "planet_claimed",
+		ClaimedAt:       gameServer.runtime.clock.Now().UTC(),
+		SourceReference: "planet.claimed:claim-coordinate-market-retry",
+	})
+	if err != nil {
+		t.Fatalf("stale marker retry error = %v, want nil", err)
+	}
+	if staleRetry.MarkedCount != 1 {
+		t.Fatalf("stale marker retry count = %d, want stable count for already-stale coordinate listing", staleRetry.MarkedCount)
+	}
+	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationDiscoveryClaimPlanet, owner.PlayerID)
+	if err != nil {
+		t.Fatalf("post claim events: %v", err)
+	}
+	updated := requireEventTypeForTest(t, eventsBySession[buyer.SessionID], realtime.EventMarketListingUpdated)
+	var updatedListing marketListingPayload
+	if err := json.Unmarshal(updated.Payload, &updatedListing); err != nil {
+		t.Fatalf("decode stale market listing update: %v", err)
+	}
+	if updatedListing.ListingID != listingID.String() || updatedListing.Status != market.ListingStatusStale.String() {
+		t.Fatalf("buyer stale market event = %+v, want listing %s stale", updatedListing, listingID)
+	}
+
+	buy := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(buyer.SessionID.String()),
+		[]byte(`{"request_id":"request-claim-coordinate-buy-stale","op":"market.buy","payload":{"listing_id":"`+listingID.String()+`","quantity":1},"client_seq":1,"v":1}`),
+	)
+	if !buy.HasError || buy.Error.Error.Code != foundation.CodeForbidden {
+		t.Fatalf("buy stale coordinate listing response = %+v, want forbidden", buy)
 	}
 }
 

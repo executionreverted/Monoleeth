@@ -6,6 +6,8 @@ import (
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/intel"
+	"gameproject/internal/game/market"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/world/worker"
 )
@@ -102,4 +104,57 @@ func (consumer runtimeClaimXCoreConsumer) ConsumeClaimXCore(input discovery.Clai
 		return discovery.ClaimXCoreConsumeResult{}, err
 	}
 	return discovery.ClaimXCoreConsumeResult{Duplicate: result.Duplicate}, nil
+}
+
+type runtimeClaimListedIntelStaleMarker struct {
+	market *market.MarketService
+	intel  *intel.Service
+}
+
+func (marker runtimeClaimListedIntelStaleMarker) MarkClaimedPlanetListingsStale(input discovery.ClaimListedIntelStaleInput) (discovery.ClaimListedIntelStaleResult, error) {
+	if err := input.Validate(); err != nil {
+		return discovery.ClaimListedIntelStaleResult{}, err
+	}
+	if marker.market == nil || marker.intel == nil {
+		return discovery.ClaimListedIntelStaleResult{}, errors.New("nil claim listed intel stale marker")
+	}
+
+	marked := 0
+	for _, listing := range marker.market.Listings() {
+		if listing.ItemID != coordinateScrollItemID ||
+			listing.ItemInstanceID.IsZero() {
+			continue
+		}
+		switch listing.Status {
+		case market.ListingStatusActive, market.ListingStatusStale:
+		default:
+			continue
+		}
+		item, ok, err := marker.intel.CoordinateItem(listing.ItemInstanceID)
+		if err != nil {
+			return discovery.ClaimListedIntelStaleResult{}, err
+		}
+		if !ok || item.PlanetID != input.PlanetID || item.UsedAt != nil {
+			continue
+		}
+		if listing.Status == market.ListingStatusStale {
+			if listing.StaleReason == input.Reason {
+				marked++
+			}
+			continue
+		}
+		if _, err := marker.market.MarkListingStale(market.MarkListingStaleInput{
+			ListingID: listing.ListingID,
+			Reason:    input.Reason,
+		}); err != nil {
+			if errors.Is(err, market.ErrListingNotFound) ||
+				errors.Is(err, market.ErrListingNotActive) ||
+				errors.Is(err, market.ErrListingExpired) {
+				continue
+			}
+			return discovery.ClaimListedIntelStaleResult{}, err
+		}
+		marked++
+	}
+	return discovery.ClaimListedIntelStaleResult{MarkedCount: marked}, nil
 }

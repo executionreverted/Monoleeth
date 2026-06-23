@@ -101,21 +101,22 @@ type Runtime struct {
 	mapRouter    *worldmaps.Router
 	mapInstances map[worldmaps.MapID]*mapInstance
 
-	players           map[foundation.PlayerID]playerRuntimeState
-	stealthBaseSpeeds map[foundation.PlayerID]float64
-	eventSeq          map[auth.SessionID]uint64
-	sessions          map[auth.SessionID]foundation.PlayerID
-	sessionLocations  map[auth.SessionID]worldmaps.MapID
-	sessionEpochs     map[auth.SessionID]uint64
-	nextSessionEpoch  uint64
-	lastMove          map[foundation.PlayerID]time.Time
-	queuedEvents      map[auth.SessionID][]realtime.EventEnvelope
-	activeTransfers   map[foundation.PlayerID]portalTransferState
-	activeScanPulses  map[foundation.PlayerID]scanPulseMapGuard
-	portalCooldowns   map[portalCooldownKey]time.Time
-	portalAttempts    map[portalRequestKey]portalTransferRecord
-	playerProtections map[protectionKey]playerProtectionState
-	pendingRespawns   map[foundation.PlayerID]pendingRespawnTarget
+	players            map[foundation.PlayerID]playerRuntimeState
+	stealthBaseSpeeds  map[foundation.PlayerID]float64
+	eventSeq           map[auth.SessionID]uint64
+	sessions           map[auth.SessionID]foundation.PlayerID
+	sessionLocations   map[auth.SessionID]worldmaps.MapID
+	sessionEpochs      map[auth.SessionID]uint64
+	nextSessionEpoch   uint64
+	lastMove           map[foundation.PlayerID]time.Time
+	queuedEvents       map[auth.SessionID][]realtime.EventEnvelope
+	activeTransfers    map[foundation.PlayerID]portalTransferState
+	activeScanPulses   map[foundation.PlayerID]scanPulseMapGuard
+	activePlanetClaims map[foundation.PlanetID]int
+	portalCooldowns    map[portalCooldownKey]time.Time
+	portalAttempts     map[portalRequestKey]portalTransferRecord
+	playerProtections  map[protectionKey]playerProtectionState
+	pendingRespawns    map[foundation.PlayerID]pendingRespawnTarget
 
 	nextPlayerEntity int
 
@@ -344,6 +345,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	questService.SetRerollServices(quests.QuestRerollServices{Wallet: walletService})
 	discoveryStore := discovery.NewInMemoryStore()
 	productionStore := production.NewInMemoryStore()
+	intelService := intel.NewService(clock)
 	adminService := admin.NewService(admin.ServiceConfig{
 		Inventory:  inventory,
 		Wallet:     walletService,
@@ -376,6 +378,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		queuedEvents:        make(map[auth.SessionID][]realtime.EventEnvelope),
 		activeTransfers:     make(map[foundation.PlayerID]portalTransferState),
 		activeScanPulses:    make(map[foundation.PlayerID]scanPulseMapGuard),
+		activePlanetClaims:  make(map[foundation.PlanetID]int),
 		portalCooldowns:     make(map[portalCooldownKey]time.Time),
 		portalAttempts:      make(map[portalRequestKey]portalTransferRecord),
 		playerProtections:   make(map[protectionKey]playerProtectionState),
@@ -401,7 +404,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Loadout:             loadoutService,
 		Recipes:             recipeCatalog,
 		Discovery:           discoveryStore,
-		Intel:               intel.NewService(clock),
+		Intel:               intelService,
 		Production:          productionStore,
 		CommandLog:          commandLogger,
 		Metrics:             metricRecorder,
@@ -473,7 +476,11 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Proximity:             runtimeClaimProximityProvider{runtime: runtime},
 		XCoreConsumer:         runtimeClaimXCoreConsumer{inventory: inventory},
 		ProductionInitializer: claimProductionInitializer,
-		XCoreItemDefinition:   xCoreDefinition,
+		ListedIntelStaleMarker: runtimeClaimListedIntelStaleMarker{
+			market: marketService,
+			intel:  intelService,
+		},
+		XCoreItemDefinition: xCoreDefinition,
 	})
 	if err != nil {
 		return nil, err

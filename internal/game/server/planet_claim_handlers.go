@@ -64,6 +64,8 @@ func (runtime *Runtime) handleClaimPlanet(ctx realtime.CommandContext, request r
 	if err != nil {
 		return nil, err
 	}
+	runtime.beginPlanetClaimMarketGuard(planetID)
+	defer runtime.endPlanetClaimMarketGuard(planetID)
 
 	result, err := runtime.Claim.ClaimPlanet(discovery.ClaimPlanetInput{
 		PlayerID:       ctx.PlayerID,
@@ -96,6 +98,9 @@ func (runtime *Runtime) handleClaimPlanet(ctx realtime.CommandContext, request r
 	if len(productionPayload.Planets) > 0 {
 		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventProductionSummary, productionPayload)
 	}
+	if result.StaleListingCount > 0 && !result.Duplicate {
+		runtime.queueClaimStaleMarketListingEventsLocked(planetID)
+	}
 	runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventInventorySnapshot, inventory)
 	runtime.mu.Unlock()
 
@@ -114,6 +119,24 @@ func planetClaimReference(playerID foundation.PlayerID, planetID foundation.Plan
 		return "", err
 	}
 	return discovery.PlanetClaimReference(key.String()), nil
+}
+
+func (runtime *Runtime) beginPlanetClaimMarketGuard(planetID foundation.PlanetID) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	runtime.activePlanetClaims[planetID]++
+}
+
+func (runtime *Runtime) endPlanetClaimMarketGuard(planetID foundation.PlanetID) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	if runtime.activePlanetClaims[planetID] <= 1 {
+		delete(runtime.activePlanetClaims, planetID)
+		return
+	}
+	runtime.activePlanetClaims[planetID]--
 }
 
 func planetClaimedPayloadFromResult(result discovery.ClaimPlanetResult, planet knownPlanetPayload, productionIncluded bool) planetClaimedPayload {

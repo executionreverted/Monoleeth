@@ -360,12 +360,15 @@ for phase status; this file is a compact pending-work index.
   optional metrics, and market, auction, premium, and quest reward runtime paths
   now record stable metric series. Source: Phase 12 Task 1 and core
   observability wiring.
-- [ ] Wire the concrete runtime adapter from discovery
+- [x] Wire the concrete runtime adapter from discovery
   `ClaimListedIntelStaleMarker` to market/intel listing indexes once coordinate
-  scroll listings leave the local domain MVP. Phase 10 now exposes the claim
-  hook and `MarketService.MarkListingStale`, but no durable adapter maps
-  claimed planets to active market listing IDs yet. Source: Symphony review
-  `local-0104`.
+  scroll listings leave the local domain MVP. Phase07AF now wires the runtime
+  claim hook to active/stale `planet_coordinate_scroll` market listings by
+  resolving the server-owned coordinate item instance through the intel service
+  and marking matching claimed-planet listings stale via
+  `MarketService.MarkListingStale`; stale listings are no longer buyable.
+  Durable planet-to-listing indexes remain tracked by the broader durable
+  persistence/outbox tasks. Source: Symphony review `local-0104`, Phase07AF.
 - [ ] Narrow lock scope or add per-player/per-planet coordination for Phase 08
   scan, claim, share, and coordinate-scroll services before high-concurrency
   runtime deployment; current MVP services use process-local mutexes.

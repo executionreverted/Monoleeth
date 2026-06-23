@@ -284,6 +284,9 @@ func (runtime *Runtime) handleMarketBuy(ctx realtime.CommandContext, request rea
 
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
+	if runtime.coordinateListingBuyBlockedByClaimLocked(listingID) {
+		return nil, domainErrorForEconomy(market.ErrListingNotActive)
+	}
 	result, err := runtime.Market.BuyListing(market.BuyListingInput{
 		BuyerPlayerID: ctx.PlayerID,
 		ListingID:     listingID,
@@ -647,6 +650,52 @@ func (runtime *Runtime) queuePassiveMarketListingEventLocked(eventType realtime.
 		}
 		runtime.queueEventLocked(sessionID, eventType, marketListingPayloadFromListing(listing, playerID))
 	}
+}
+
+func (runtime *Runtime) queueClaimStaleMarketListingEventsLocked(planetID foundation.PlanetID) {
+	for _, listing := range runtime.Market.Listings() {
+		if !runtime.marketListingMatchesCoordinatePlanetLocked(listing, planetID) ||
+			listing.Status != market.ListingStatusStale ||
+			listing.StaleReason != "planet_claimed" {
+			continue
+		}
+		runtime.queuePassiveMarketListingEventLocked(realtime.EventMarketListingUpdated, listing)
+	}
+}
+
+func (runtime *Runtime) coordinateListingBuyBlockedByClaimLocked(listingID foundation.ListingID) bool {
+	listing, ok := runtime.Market.Listing(listingID)
+	if !ok || listing.Status != market.ListingStatusActive {
+		return false
+	}
+	planetID, ok := runtime.coordinatePlanetForMarketListingLocked(listing)
+	if !ok {
+		return false
+	}
+	if runtime.activePlanetClaims[planetID] > 0 {
+		return true
+	}
+	planet, ok, err := runtime.Discovery.Planet(planetID)
+	if err != nil || !ok {
+		return false
+	}
+	return !planet.OwnerPlayerID.IsZero()
+}
+
+func (runtime *Runtime) marketListingMatchesCoordinatePlanetLocked(listing market.Listing, planetID foundation.PlanetID) bool {
+	listingPlanetID, ok := runtime.coordinatePlanetForMarketListingLocked(listing)
+	return ok && listingPlanetID == planetID
+}
+
+func (runtime *Runtime) coordinatePlanetForMarketListingLocked(listing market.Listing) (foundation.PlanetID, bool) {
+	if listing.ItemID != coordinateScrollItemID || listing.ItemInstanceID.IsZero() {
+		return "", false
+	}
+	item, ok, err := runtime.Intel.CoordinateItem(listing.ItemInstanceID)
+	if err != nil || !ok || item.UsedAt != nil {
+		return "", false
+	}
+	return item.PlanetID, true
 }
 
 func (runtime *Runtime) queuePassiveAuctionLotUpdatedLocked(lot auction.Lot, excludedPlayers ...foundation.PlayerID) {
