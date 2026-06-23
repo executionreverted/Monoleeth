@@ -175,9 +175,12 @@ for phase status; this file is a compact pending-work index.
   claim retries: if process-local production/storage rows are missing after an
   authoritative claim, the gateway restores them from server claim evidence
   before returning planet detail/production snapshots, without consuming a
-  second X Core. Real durable claim/production DB rows, cross-service row
-  locks/CAS, an atomic claim/production transaction, and scheduled recovery
-  workers remain open.
+  second X Core. Phase07CW adds the same server proof for pending
+  production-init recovery: if stale-marker failure leaves pending init evidence
+  and the live production read-model is lost before retry, the retry restores
+  production/detail payloads without a second X Core. Real durable
+  claim/production DB rows, cross-service row locks/CAS, an atomic
+  claim/production transaction, and scheduled recovery workers remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory

@@ -260,6 +260,11 @@ Current slice completed:
   while the matching command is pending, and relies on server snapshots/events
   to reconcile known planets and inventory. Coordinate item share browser
   controls remain tracked separately.
+- Phase07CW claim recovery follow-up: pending production-init evidence now has
+  focused server regression coverage for live read-model loss before retry. A
+  stale-marker failure can leave pending initialization evidence, drop the
+  process-local production/storage rows, and still recover planet detail plus
+  production snapshots on retry without consuming another X Core.
 - Phase07U outbox publisher-boundary follow-up: discovery claim outbox and
   production-domain outbox records now have small interface-backed publisher
   drain helpers. The production helper covers production settlements, route

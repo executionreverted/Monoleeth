@@ -255,11 +255,30 @@ func TestClaimPlanetStaleMarkerFailureRecordsPendingProductionInitialization(t *
 	if pending.Boundary.Status != discovery.ClaimBoundaryStatusPendingSideEffects {
 		t.Fatalf("pending production init plan = %+v, want pending boundary", pending)
 	}
+	if err := gameServer.runtime.Production.DropPlanetProductionReadModel(planetID); err != nil {
+		t.Fatalf("DropPlanetProductionReadModel(%q) error = %v, want nil", planetID, err)
+	}
+	if _, ok, err := gameServer.runtime.Production.Snapshot(planetID); err != nil || ok {
+		t.Fatalf("production snapshot after pending read-model loss = ok %v err %v, want absent", ok, err)
+	}
 
 	staleMarker.err = nil
 	retry := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-pending-init-retry", planetID)
 	if retry.HasError {
 		t.Fatalf("retry claim response error = %+v, want success", retry.Error)
+	}
+	var retryPayload planetClaimResponsePayload
+	if err := json.Unmarshal(retry.Response.Payload, &retryPayload); err != nil {
+		t.Fatalf("decode recovered claim payload: %v", err)
+	}
+	if !retryPayload.Claim.Accepted || !retryPayload.Claim.ProductionIncluded ||
+		len(retryPayload.Production.Planets) != 1 ||
+		retryPayload.Production.Planets[0].PlanetID != planetID.String() ||
+		retryPayload.PlanetDetail.Production == nil {
+		t.Fatalf("recovered claim payload = %+v, want production/detail repaired from pending init evidence", retryPayload)
+	}
+	if _, ok, err := gameServer.runtime.Production.Snapshot(planetID); err != nil || !ok {
+		t.Fatalf("production snapshot after pending retry = ok %v err %v, want restored", ok, err)
 	}
 	if references := gameServer.runtime.ClaimProductionInitializations.ClaimReferences(); len(references) != 1 || references[0] != claimReference {
 		t.Fatalf("claim production init references after retry = %+v, want one stable [%q]", references, claimReference)
