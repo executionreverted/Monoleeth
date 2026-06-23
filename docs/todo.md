@@ -89,8 +89,10 @@ for phase status; this file is a compact pending-work index.
   references, but it does not make those rows durable or transactional.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
   planet claim transaction. Current in-memory flow can repair production state
-  on retry, but initializer failure after owner mutation does not recover the
-  missing claim event/cache atomically.
+  on retry, and Phase07W now records process-local claim recovery evidence
+  when retries repair already-authoritative ownership after production-init or
+  stale-listing failures. Durable recovery rows and an atomic claim/production
+  transaction still remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory

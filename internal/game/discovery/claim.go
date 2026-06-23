@@ -210,6 +210,7 @@ type ClaimService struct {
 	claims             map[PlanetClaimReference]claimRecord
 	events             []ClaimEventRecord
 	references         map[PlanetClaimReference]ClaimReferenceRecord
+	recoveries         []ClaimRecoveryRecord
 	outbox             []ClaimOutboxRecord
 	nextOutboxSequence uint64
 }
@@ -293,7 +294,9 @@ func (service *ClaimService) ClaimPlanet(input ClaimPlanetInput) (ClaimPlanetRes
 			StaleListingCount: staleListings.MarkedCount,
 		}
 		service.claims[input.ClaimReference] = claimRecord{input: input, result: cloneClaimPlanetResult(result)}
-		service.recordClaimReferenceLocked(input, claimedAt, service.clock.Now().UTC(), true, "")
+		recordedAt := service.clock.Now().UTC()
+		service.recordClaimReferenceLocked(input, claimedAt, recordedAt, true, "")
+		service.appendClaimRecoveryLocked(input, claimedAt, recordedAt, ClaimRecoveryReasonAlreadyOwnedRepair)
 		return result, nil
 	}
 	if !planet.OwnerPlayerID.IsZero() {

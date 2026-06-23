@@ -17,6 +17,8 @@ const (
 	ClaimOutboxStatusInFlight  ClaimOutboxStatus = "in_flight"
 	ClaimOutboxStatusPublished ClaimOutboxStatus = "published"
 	ClaimOutboxStatusFailed    ClaimOutboxStatus = "failed"
+
+	ClaimRecoveryReasonAlreadyOwnedRepair = "already_owned_repair"
 )
 
 // ClaimReferenceRecord is the process-local durable-boundary marker for one
@@ -30,6 +32,18 @@ type ClaimReferenceRecord struct {
 	RecordedAt     time.Time
 	AlreadyOwned   bool
 	EventID        foundation.EventID
+}
+
+// ClaimRecoveryRecord marks a successful repair of a claim whose ownership was
+// already authoritative before this claim attempt completed all side effects.
+type ClaimRecoveryRecord struct {
+	ClaimReference    PlanetClaimReference
+	ReferenceKey      foundation.IdempotencyKey
+	PlayerID          foundation.PlayerID
+	PlanetID          foundation.PlanetID
+	RecoveredAt       time.Time
+	OriginalClaimedAt time.Time
+	Reason            string
 }
 
 // ClaimOutboxRecord is the process-local publisher boundary for a claim event.
@@ -87,6 +101,14 @@ func (service *ClaimService) ClaimReference(ref PlanetClaimReference) (ClaimRefe
 		return ClaimReferenceRecord{}, false, nil
 	}
 	return cloneClaimReferenceRecord(record), true, nil
+}
+
+// ClaimRecoveries returns successful same-owner claim repairs in append order.
+func (service *ClaimService) ClaimRecoveries() []ClaimRecoveryRecord {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	return cloneClaimRecoveryRecords(service.recoveries)
 }
 
 // ClaimOutboxRecords returns claim outbox records in append order.
@@ -213,6 +235,19 @@ func (service *ClaimService) recordClaimReferenceLocked(input ClaimPlanetInput, 
 	})
 }
 
+func (service *ClaimService) appendClaimRecoveryLocked(input ClaimPlanetInput, claimedAt time.Time, recoveredAt time.Time, reason string) {
+	referenceKey, _ := input.ClaimReference.IdempotencyKey(input.PlayerID, input.PlanetID)
+	service.recoveries = append(service.recoveries, ClaimRecoveryRecord{
+		ClaimReference:    input.ClaimReference,
+		ReferenceKey:      referenceKey,
+		PlayerID:          input.PlayerID,
+		PlanetID:          input.PlanetID,
+		RecoveredAt:       recoveredAt.UTC(),
+		OriginalClaimedAt: claimedAt.UTC(),
+		Reason:            reason,
+	})
+}
+
 func (service *ClaimService) appendClaimOutboxRecordLocked(event ClaimEventRecord) {
 	service.nextOutboxSequence++
 	sequence := service.nextOutboxSequence
@@ -265,6 +300,23 @@ func claimOutboxClaimToken(outboxID string, attempts int) string {
 func cloneClaimReferenceRecord(record ClaimReferenceRecord) ClaimReferenceRecord {
 	record.ClaimedAt = record.ClaimedAt.UTC()
 	record.RecordedAt = record.RecordedAt.UTC()
+	return record
+}
+
+func cloneClaimRecoveryRecords(records []ClaimRecoveryRecord) []ClaimRecoveryRecord {
+	if len(records) == 0 {
+		return nil
+	}
+	cloned := make([]ClaimRecoveryRecord, len(records))
+	for index, record := range records {
+		cloned[index] = cloneClaimRecoveryRecord(record)
+	}
+	return cloned
+}
+
+func cloneClaimRecoveryRecord(record ClaimRecoveryRecord) ClaimRecoveryRecord {
+	record.RecoveredAt = record.RecoveredAt.UTC()
+	record.OriginalClaimedAt = record.OriginalClaimedAt.UTC()
 	return record
 }
 

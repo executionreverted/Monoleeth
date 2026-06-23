@@ -465,6 +465,10 @@ func TestClaimPlanetProductionInitializerErrorReturnsBeforeEventOrClaimCache(t *
 	if len(references) != 1 || references[0].ClaimReference != "claim_init_fail" || !references[0].AlreadyOwned {
 		t.Fatalf("claim references after repair = %+v, want one already-owned repair reference", references)
 	}
+	recoveries := service.ClaimRecoveries()
+	if len(recoveries) != 1 || recoveries[0].ClaimReference != "claim_init_fail" || recoveries[0].Reason != ClaimRecoveryReasonAlreadyOwnedRepair {
+		t.Fatalf("claim recoveries after repair = %+v, want one already-owned repair recovery", recoveries)
+	}
 	if references[0].EventID != "" {
 		t.Fatalf("repair claim reference event id = %q, want empty because no repair event", references[0].EventID)
 	}
@@ -566,6 +570,10 @@ func TestClaimPlanetProductionInitializerErrorRetryCachesRepairWithoutDuplicateS
 	if len(references) != 1 || references[0].ClaimReference != "claim_init_retry_repair" || !references[0].AlreadyOwned {
 		t.Fatalf("claim references after duplicate repair = %+v, want one already-owned repair reference", references)
 	}
+	recoveries := service.ClaimRecoveries()
+	if len(recoveries) != 1 || recoveries[0].ClaimReference != "claim_init_retry_repair" || recoveries[0].Reason != ClaimRecoveryReasonAlreadyOwnedRepair {
+		t.Fatalf("claim recoveries after duplicate repair = %+v, want one already-owned repair recovery", recoveries)
+	}
 	if references[0].EventID != "" {
 		t.Fatalf("repair claim reference event id = %q, want empty because no repair event", references[0].EventID)
 	}
@@ -636,6 +644,10 @@ func TestClaimPlanetListedIntelStaleMarkerFailureCanRepairOnRetry(t *testing.T) 
 	if len(references) != 1 || references[0].ClaimReference != "claim_stale_marker_retry" || !references[0].AlreadyOwned {
 		t.Fatalf("claim references after marker repair = %+v, want one already-owned repair reference", references)
 	}
+	recoveries := service.ClaimRecoveries()
+	if len(recoveries) != 1 || recoveries[0].ClaimReference != "claim_stale_marker_retry" || recoveries[0].Reason != ClaimRecoveryReasonAlreadyOwnedRepair {
+		t.Fatalf("claim recoveries after marker repair = %+v, want one already-owned repair recovery", recoveries)
+	}
 	if got := len(service.ClaimOutboxRecords()); got != 0 {
 		t.Fatalf("claim outbox records after marker repair = %d, want 0", got)
 	}
@@ -685,6 +697,10 @@ func TestClaimPlanetAlreadyOwnedBySamePlayerInitializesWithoutConsumeOrEvent(t *
 	references := service.ClaimReferences()
 	if len(references) != 1 || references[0].ClaimReference != "claim_owned_same" || !references[0].AlreadyOwned {
 		t.Fatalf("claim references after same-owner repair = %+v, want one already-owned reference", references)
+	}
+	recoveries := service.ClaimRecoveries()
+	if len(recoveries) != 1 || recoveries[0].ClaimReference != "claim_owned_same" || recoveries[0].Reason != ClaimRecoveryReasonAlreadyOwnedRepair {
+		t.Fatalf("claim recoveries after same-owner repair = %+v, want one already-owned repair recovery", recoveries)
 	}
 	if !references[0].ClaimedAt.Equal(changedAt) {
 		t.Fatalf("same-owner reference claimed_at = %s, want owner changed at %s", references[0].ClaimedAt, changedAt)

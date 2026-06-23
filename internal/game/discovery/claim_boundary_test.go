@@ -140,6 +140,49 @@ func TestClaimBoundaryRecordsCanonicalIdempotencyKeyEvidence(t *testing.T) {
 	}
 }
 
+func TestClaimRecoveryRecordsReturnDetachedCanonicalEvidence(t *testing.T) {
+	store := NewInMemoryStore()
+	planet := claimTestPlanet("planet-claim-recovery-evidence")
+	changedAt := testTime(6)
+	planet.OwnerPlayerID = claimTestPlayerID
+	planet.OwnerChangedAt = &changedAt
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, claimTestPlayerID, planet.ID, testTime(1))
+	service := newClaimTestService(t, claimTestServiceOptions{
+		store:       store,
+		rank:        planet.Level,
+		inRange:     true,
+		consumer:    &recordingClaimXCoreConsumer{},
+		initializer: &recordingClaimProductionInitializer{},
+	})
+	key, err := foundation.PlanetClaimIdempotencyKey(claimTestPlayerID, planet.ID)
+	if err != nil {
+		t.Fatalf("PlanetClaimIdempotencyKey: %v", err)
+	}
+	ref := PlanetClaimReference(key.String())
+
+	if _, err := service.ClaimPlanet(claimInput(ref, planet.ID)); err != nil {
+		t.Fatalf("ClaimPlanet() error = %v, want nil", err)
+	}
+	recoveries := service.ClaimRecoveries()
+	if len(recoveries) != 1 {
+		t.Fatalf("ClaimRecoveries() len = %d, want 1; records = %+v", len(recoveries), recoveries)
+	}
+	if recoveries[0].ReferenceKey != key || recoveries[0].ClaimReference != ref || recoveries[0].Reason != ClaimRecoveryReasonAlreadyOwnedRepair {
+		t.Fatalf("recovery evidence = %+v, want reference %q key %q", recoveries[0], ref, key)
+	}
+	if !recoveries[0].OriginalClaimedAt.Equal(changedAt) || recoveries[0].RecoveredAt.IsZero() {
+		t.Fatalf("recovery timestamps = original %s recovered %s, want original %s and non-zero recovered", recoveries[0].OriginalClaimedAt, recoveries[0].RecoveredAt, changedAt)
+	}
+
+	recoveries[0].ReferenceKey = "mutated"
+	recoveries[0].Reason = "mutated"
+	stored := service.ClaimRecoveries()
+	if stored[0].ReferenceKey != key || stored[0].Reason != ClaimRecoveryReasonAlreadyOwnedRepair {
+		t.Fatalf("stored recovery mutated through returned record = %+v, want original key/reason", stored[0])
+	}
+}
+
 func TestPlanetClaimReferenceIdempotencyKeyRequiresExpectedClaimEntity(t *testing.T) {
 	planetID := foundation.PlanetID("planet-claim-expected")
 	key, err := foundation.PlanetClaimIdempotencyKey(claimTestPlayerID, planetID)

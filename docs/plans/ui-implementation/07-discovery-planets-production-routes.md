@@ -239,6 +239,14 @@ Current slice completed:
   DB-adapter-ready claim idempotency metadata. Durable claim DB rows,
   cross-service transaction/CAS, production-init recovery, and durable outbox
   publishing remain open.
+- Phase07W claim recovery evidence follow-up: successful same-owner claim
+  repairs now append process-local `ClaimRecoveryRecord` diagnostics with the
+  claim reference, optional typed idempotency key, player, planet, original
+  owner timestamp, recovery timestamp, and repair reason. This covers retries
+  after owner mutation but before production initialization or stale-listing
+  repair completed, without minting duplicate claim events/outbox rows. Durable
+  recovery rows, cross-service transaction/CAS, and recovery workers remain
+  open.
 
 ## Source Specs
 
