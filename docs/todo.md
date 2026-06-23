@@ -423,12 +423,17 @@ for phase status; this file is a compact pending-work index.
   responses. Owner reconcile `{}` now also merges committed durable owner route
   rows after live route read-model loss, so storage/station destination routes
   still emit no-op settlement/list/update events and safe masked payloads.
+  Phase07CY restores missing live source/destination storage rows from the
+  latest committed route settlement durable storage evidence before gateway
+  preflight, letting later `route.settle` retries continue with real storage
+  payloads after process-local storage read-model loss.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10
   audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
   Phase07K, Phase07AN, Phase07BN, Phase07BO, Phase07BP, Phase07BQ,
-  Phase07BR, Phase07BS, Phase07BT, Phase07BV, Phase07CD, and Phase07CQ.
+  Phase07BR, Phase07BS, Phase07BT, Phase07BV, Phase07CD, Phase07CQ, and
+  Phase07CY.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server

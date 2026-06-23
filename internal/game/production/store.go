@@ -197,6 +197,23 @@ func (store *InMemoryStore) PlanetStorage(planetID foundation.PlanetID) (PlanetS
 	return clonePlanetStorage(storage), true, nil
 }
 
+// DropPlanetStorageReadModel removes only the process-local live storage row.
+// Durable settlement bundles remain intact so recovery paths can rebuild from
+// committed storage evidence instead of trusting stale live state.
+func (store *InMemoryStore) DropPlanetStorageReadModel(planetID foundation.PlanetID) error {
+	if err := planetID.Validate(); err != nil {
+		return err
+	}
+	if store == nil {
+		return ErrInvalidSettlementDurableCommit
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.ensureMapsLocked()
+	delete(store.storage, planetID)
+	return nil
+}
+
 // UpsertBuilding validates and stores one planet building row.
 func (store *InMemoryStore) UpsertBuilding(building PlanetBuilding) (PlanetBuilding, bool, error) {
 	if err := building.Validate(); err != nil {
