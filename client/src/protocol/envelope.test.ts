@@ -10,8 +10,6 @@ const UNIMPLEMENTED_MUTATION_OPS = [
   'inventory.move',
   'progression.unlock_skill',
   'progression.respec_skills',
-  'planet.building_build',
-  'planet.building_upgrade',
   'intel.coordinate_item_create',
   'intel.coordinate_item_use',
   'coordinate_scroll.create',
@@ -358,6 +356,47 @@ describe('default outbound operations', () => {
     });
   });
 
+  test('planet building commands send only client intent fields', () => {
+    const builder = new CommandBuilder();
+    const build = builder.planetBuildingBuild({ planetID: 'planet-eris', buildingType: 'alloy_foundry', slot: 'alpha' });
+    expect(build.op).toBe(OPERATIONS.planetBuildingBuild);
+    expect(build.payload).toEqual({
+      planet_id: 'planet-eris',
+      building_type: 'alloy_foundry',
+      slot: 'alpha',
+    });
+    expect(Object.keys(build.payload)).toEqual(['planet_id', 'building_type', 'slot']);
+
+    const upgrade = builder.planetBuildingUpgrade({ planetID: 'planet-eris', buildingID: 'building-alpha', targetLevel: 2.4 });
+    expect(upgrade.op).toBe(OPERATIONS.planetBuildingUpgrade);
+    expect(upgrade.payload).toEqual({
+      planet_id: 'planet-eris',
+      building_id: 'building-alpha',
+      target_level: 2,
+    });
+    expect(Object.keys(upgrade.payload)).toEqual(['planet_id', 'building_id', 'target_level']);
+
+    for (const payload of [build.payload, upgrade.payload]) {
+      for (const forbidden of [
+        'owner',
+        'owner_player_id',
+        'player_id',
+        'wallet',
+        'cost',
+        'materials',
+        'storage',
+        'production',
+        'coordinates',
+        'position',
+        'public_map_key',
+        'level',
+        'definition_id',
+      ]) {
+        expect(payload).not.toHaveProperty(forbidden);
+      }
+    }
+  });
+
   test('claim planet command sends only planet id intent', () => {
     const claim = new CommandBuilder().claimPlanet('planet-eris');
 
@@ -612,8 +651,6 @@ describe('default outbound operations', () => {
       'inventoryMove',
       'progressionUnlockSkill',
       'progressionRespecSkills',
-      'planetBuildingBuild',
-      'planetBuildingUpgrade',
       'coordinateScrollCreate',
       'coordinateScrollUse',
       'mailSend',

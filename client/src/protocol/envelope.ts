@@ -31,6 +31,8 @@ export const OPERATIONS = {
   intelCoordinateItemUse: 'intel.coordinate_item.use',
   productionSummary: 'planet.production_summary',
   planetStorageSummary: 'planet.storage_summary',
+  planetBuildingBuild: 'planet.building_build',
+  planetBuildingUpgrade: 'planet.building_upgrade',
   routeCreate: 'route.create',
   routeUpdate: 'route.update',
   routeEnable: 'route.enable',

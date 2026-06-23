@@ -494,6 +494,23 @@ export class HUD {
             this.handlers.onPlanetClaim(button.dataset.planetId);
           }
           break;
+        case 'planet-building-build': {
+          const control = button.closest<HTMLElement>('[data-building-build-control]');
+          const planetID = button.dataset.planetId ?? control?.dataset.planetId ?? '';
+          const buildingType = routeControlValue(control, '[data-building-type]');
+          const slot = routeControlValue(control, '[data-building-slot]');
+          this.handlers.onPlanetBuildingBuild({ planetID, buildingType, slot });
+          break;
+        }
+        case 'planet-building-upgrade':
+          if (button.dataset.planetId && button.dataset.buildingId) {
+            this.handlers.onPlanetBuildingUpgrade({
+              planetID: button.dataset.planetId,
+              buildingID: button.dataset.buildingId,
+              targetLevel: Number(button.dataset.targetLevel ?? '0'),
+            });
+          }
+          break;
         case 'route-select':
           if (button.dataset.routeId) {
             hudSelection.selectedRouteID = button.dataset.routeId;

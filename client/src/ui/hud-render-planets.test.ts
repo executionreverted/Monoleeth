@@ -464,6 +464,83 @@ describe('route controls', () => {
   });
 });
 
+describe('planet building controls', () => {
+  test('owned production planet renders build and upgrade intents from server state', () => {
+    const state = planetRouteState();
+    state.planetIntel!.selectedPlanet!.production!.buildings = [
+      {
+        planet_id: 'planet-source',
+        public_map_key: '1-1',
+        building_id: 'planet-source-building-iron_extractor-alpha',
+        building_type: 'iron_extractor',
+        category: 'extractor',
+        level: 1,
+        state: 'active',
+        updated_at: 1000,
+      },
+    ];
+    state.production = { planets: [state.planetIntel!.selectedPlanet!.production!] };
+
+    const catalogHTML = planetCatalogPanel(state);
+    const modalHTML = planetDetailModal(state, 'planet-source');
+
+    for (const html of [catalogHTML, modalHTML]) {
+      expect(html).toContain('data-building-controls="true"');
+      expect(html).toContain('data-building-build-control="true"');
+      expect(html).toContain('data-action="planet-building-build"');
+      expect(html).toContain('data-building-type');
+      expect(html).toContain('value="iron_extractor"');
+      expect(html).toContain('value="alloy_foundry"');
+      expect(html).toContain('data-building-slot');
+      expect(html).toMatch(/data-action="planet-building-upgrade"[^>]*data-building-id="planet-source-building-iron_extractor-alpha"[^>]*data-target-level="2"[^>]*>Upgrade/);
+      expect(html).not.toContain('owner_player_id');
+      expect(html).not.toContain('materials');
+      expect(html).not.toContain('server_cost');
+    }
+  });
+
+  test('building controls reflect pending state without clearing unrelated route controls', () => {
+    const state = planetRouteState();
+    state.planetIntel!.selectedPlanet!.production!.buildings = [
+      {
+        planet_id: 'planet-source',
+        public_map_key: '1-1',
+        building_id: 'planet-source-building-iron_extractor-alpha',
+        building_type: 'iron_extractor',
+        category: 'extractor',
+        level: 1,
+        state: 'active',
+        updated_at: 1000,
+      },
+    ];
+    state.production = { planets: [state.planetIntel!.selectedPlanet!.production!] };
+    state.pendingCommands = {
+      'build-1': {
+        requestID: 'build-1',
+        op: OPERATIONS.planetBuildingBuild,
+        queuedAt: 1,
+        payload: { planet_id: 'planet-source', building_type: 'alloy_foundry', slot: 'slot_2' },
+      },
+      'upgrade-1': {
+        requestID: 'upgrade-1',
+        op: OPERATIONS.planetBuildingUpgrade,
+        queuedAt: 1,
+        payload: {
+          planet_id: 'planet-source',
+          building_id: 'planet-source-building-iron_extractor-alpha',
+          target_level: 2,
+        },
+      },
+    };
+
+    const html = planetCatalogPanel(state);
+
+    expect(html).toMatch(/data-action="planet-building-build"[^>]*disabled[^>]*>Building/);
+    expect(html).toMatch(/data-action="planet-building-upgrade"[^>]*disabled[^>]*>Upgrading/);
+    expect(html).toContain('data-route-create-control="true"');
+  });
+});
+
 describe('topbar map labels', () => {
   test('location prefers current map display, public key, map key, then sector', () => {
     expect(topbarLocationText(withCurrentMap(createInitialState(), { display_name: 'Veil-03' }))).toBe('Veil-03');

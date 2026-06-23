@@ -110,7 +110,8 @@ export function planetCatalogPanel(state: ClientState): string {
                      production
                        ? `<div class="meta-row"><span>State</span><strong>${production.production_enabled ? 'online' : 'offline'}</strong></div>
                           <div class="meta-row"><span>Energy</span><strong>${production.energy_reserved_per_hour}/${production.energy_capacity_per_hour}/h</strong></div>
-                          <div class="meta-row"><span>Buildings</span><strong>${production.buildings.length}</strong></div>`
+                          <div class="meta-row"><span>Buildings</span><strong>${production.buildings.length}</strong></div>
+                          ${buildingControlsPanel(state, selectedSummary, production)}`
                        : `<div class="empty-line">${selectedDetail?.production_locked ? 'Production locked.' : 'No production summary.'}</div>`
                    }
                  </section>
@@ -192,7 +193,7 @@ export function planetProductionFor(
   planetID: string,
   detailProduction?: NonNullable<ClientState['production']>['planets'][number],
 ): NonNullable<ClientState['production']>['planets'][number] | null {
-  return detailProduction ?? state.production?.planets.find((planet) => planet.planet_id === planetID) ?? null;
+  return state.production?.planets.find((planet) => planet.planet_id === planetID) ?? detailProduction ?? null;
 }
 
 export function planetRoutesFor(
@@ -252,6 +253,7 @@ export function planetDetailModal(state: ClientState, planetID?: string): string
                <div class="meta-row"><span>Energy</span><strong>${production.energy_reserved_per_hour}/${production.energy_capacity_per_hour}/h</strong></div>
                <div class="meta-row"><span>Storage</span><strong>${storage ? `${storage.used_units}/${storage.capacity_units}` : lockedValue()}</strong></div>
                <div class="meta-row"><span>Buildings</span><strong>${production.buildings.length}</strong></div>
+               ${buildingControlsPanel(state, summary, production)}
              </div>`
           : `<div class="empty-line">${detail?.production_locked ? 'Production locked.' : 'No production snapshot for this planet yet.'}</div>`
       }
@@ -320,6 +322,66 @@ function routeControlsPanel(
         ${routeRows}
       </div>
       <button type="button" data-action="route-settle" ${controlsReady && routes.length > 0 && !reconcilePending ? '' : 'disabled'} title="${escapeHTML(reconcilePending ? 'Route reconcile pending' : 'Reconcile all owned routes')}">${reconcilePending ? 'Reconciling' : 'Settle All'}</button>
+    </div>
+  `;
+}
+
+function buildingControlsPanel(
+  state: ClientState,
+  planet: KnownPlanetSummary,
+  production: NonNullable<ClientState['production']>['planets'][number],
+): string {
+  const owned = isOwnedPlanet(planet);
+  const controlsReady = realtimeReady(state) && owned;
+  const buildPending = hasPendingBuildingBuild(state, planet.planet_id);
+  const defaultSlot = nextBuildingSlot(production);
+  const buildEnabled = controlsReady && !buildPending;
+  const buildTitle = !owned
+    ? 'Own this planet before building'
+    : !realtimeReady(state)
+      ? 'Realtime connection required'
+      : buildPending
+        ? 'Building mutation pending'
+        : 'Send building build intent';
+  const buildingRows =
+    production.buildings.length > 0
+      ? production.buildings
+          .slice(0, 4)
+          .map((building) => buildingControlRow(state, planet.planet_id, building, controlsReady))
+          .join('')
+      : '<div class="empty-line">No buildings installed.</div>';
+
+  return `
+    <div class="building-controls" data-building-controls="true" data-planet-id="${escapeHTML(planet.planet_id)}">
+      <div class="building-build" data-building-build-control="true" data-planet-id="${escapeHTML(planet.planet_id)}">
+        <select data-building-type ${buildEnabled ? '' : 'disabled'} aria-label="Building type">
+          <option value="iron_extractor">iron_extractor</option>
+          <option value="alloy_foundry">alloy_foundry</option>
+        </select>
+        <input type="text" value="${escapeHTML(defaultSlot)}" data-building-slot ${buildEnabled ? '' : 'disabled'} aria-label="Building slot" />
+        <button type="button" data-action="planet-building-build" data-planet-id="${escapeHTML(planet.planet_id)}" ${buildEnabled ? '' : 'disabled'} title="${escapeHTML(buildTitle)}">${buildPending ? 'Building' : 'Build'}</button>
+      </div>
+      <div class="building-list">
+        ${buildingRows}
+      </div>
+    </div>
+  `;
+}
+
+function buildingControlRow(
+  state: ClientState,
+  planetID: string,
+  building: NonNullable<ClientState['production']>['planets'][number]['buildings'][number],
+  controlsReady: boolean,
+): string {
+  const targetLevel = Math.max(1, building.level + 1);
+  const pending = hasPendingBuildingUpgrade(state, planetID, building.building_id);
+  const enabled = controlsReady && !pending;
+  return `
+    <div class="building-row" data-building-id="${escapeHTML(building.building_id)}">
+      <span>${escapeHTML(building.building_type)}</span>
+      <strong>L${building.level}</strong>
+      <button type="button" data-action="planet-building-upgrade" data-planet-id="${escapeHTML(planetID)}" data-building-id="${escapeHTML(building.building_id)}" data-target-level="${targetLevel}" ${enabled ? '' : 'disabled'} title="${escapeHTML(pending ? 'Building upgrade pending' : 'Send building upgrade intent')}">${pending ? 'Upgrading' : 'Upgrade'}</button>
     </div>
   `;
 }
@@ -408,6 +470,23 @@ function resourceOptions(resources: string[], selectedResource: string): string 
 
 function defaultRouteRate(resource?: string): number {
   return resource ? 40 : 1;
+}
+
+function nextBuildingSlot(production: NonNullable<ClientState['production']>['planets'][number]): string {
+  return `slot_${Math.min(9, production.buildings.length + 1)}`;
+}
+
+function hasPendingBuildingBuild(state: ClientState, planetID: string): boolean {
+  return hasPendingOpPayloadField(state, OPERATIONS.planetBuildingBuild, 'planet_id', planetID);
+}
+
+function hasPendingBuildingUpgrade(state: ClientState, planetID: string, buildingID: string): boolean {
+  return Object.values(state.pendingCommands).some(
+    (command) =>
+      command.op === OPERATIONS.planetBuildingUpgrade &&
+      command.payload?.planet_id === planetID &&
+      command.payload?.building_id === buildingID,
+  );
 }
 
 function hasPendingRouteMutation(state: ClientState, routeID: string): boolean {

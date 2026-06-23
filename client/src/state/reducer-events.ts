@@ -320,13 +320,16 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
       };
     }
 
-    case CLIENT_EVENTS.productionSummary:
+    case CLIENT_EVENTS.productionSummary: {
+      const production = parseProductionCollection(envelope.payload, state.production);
+      const nextState = withoutPendingPlanetBuildingMutations(state, production);
       return {
-        ...state,
-        production: parseProductionCollection(envelope.payload, state.production),
+        ...nextState,
+        production,
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
+    }
 
     case CLIENT_EVENTS.planetStorageSummary: {
       const storagePayload = objectField(envelope.payload, 'planet_storage') ?? envelope.payload;
@@ -785,6 +788,39 @@ function withoutPendingPlanetClaim(state: ClientState, payload: EventEnvelope['p
   let changed = false;
   for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
     if (pending.op === OPERATIONS.discoveryClaimPlanet && pending.payload?.planet_id === planetID) {
+      changed = true;
+      continue;
+    }
+    pendingCommands[requestID] = pending;
+  }
+  return changed ? { ...state, pendingCommands } : state;
+}
+
+function withoutPendingPlanetBuildingMutations(
+  state: ClientState,
+  production: NonNullable<ClientState['production']>,
+): ClientState {
+  const planetIDs = new Set(production.planets.map((planet) => planet.planet_id));
+  const buildingIDs = new Set(production.planets.flatMap((planet) => planet.buildings.map((building) => building.building_id)));
+  if (planetIDs.size === 0 && buildingIDs.size === 0) {
+    return state;
+  }
+  const pendingCommands: ClientState['pendingCommands'] = {};
+  let changed = false;
+  for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
+    if (
+      pending.op === OPERATIONS.planetBuildingBuild &&
+      pending.payload?.planet_id &&
+      planetIDs.has(String(pending.payload.planet_id))
+    ) {
+      changed = true;
+      continue;
+    }
+    if (
+      pending.op === OPERATIONS.planetBuildingUpgrade &&
+      pending.payload?.building_id &&
+      buildingIDs.has(String(pending.payload.building_id))
+    ) {
       changed = true;
       continue;
     }

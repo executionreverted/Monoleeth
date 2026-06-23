@@ -181,8 +181,15 @@ Current slice completed:
   mutate through the production domain, and reconcile with owner-scoped
   production, storage, and wallet snapshots. Durable DB rows, cross-process
   locks/CAS, durable idempotency-table enforcement, durable material/outbox
-  persistence, broader cost/requirement balancing, and browser HUD controls
-  remain open.
+  persistence, and broader cost/requirement balancing remain open.
+- Phase07CK browser building control follow-up: planet production panels now
+  expose authenticated `planet.building_build` and `planet.building_upgrade`
+  intents for owned production planets. The command builder and HUD action
+  router send only `planet_id`/`building_type`/`slot` or
+  `planet_id`/`building_id`/`target_level`; wallet, material, production,
+  level, catalog, cost, and map truth remain server-owned. Production summary
+  events clear matching pending building mutations and refresh displayed
+  buildings from server state.
 - Phase07Q building outbox evidence follow-up: building mutation
   `planet.storage_updated` and `planet.building_updated` outbox rows now carry
   the same server-derived `planet_building_build` /
@@ -1166,6 +1173,8 @@ Mockup areas covered:
 - [x] Browser scan creates safe discovered intel.
 - [x] Browser selected planet panel uses server detail.
 - [x] Browser claim reflects server state.
+- [x] Browser owned-planet building build/upgrade controls send server-authoritative
+      intent payloads and reconcile from production summary events.
 - [x] Browser route create/update/control/settle reflects server state.
 
 ## Done Criteria

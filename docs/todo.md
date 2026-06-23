@@ -260,9 +260,12 @@ for phase status; this file is a compact pending-work index.
   create/use with real inventory instances, item ledger rows, and inventory
   snapshot fanout. Durable DB/outbox claim recovery, cross-process CAS/locks,
   idempotency-table enforcement, durable outbox persistence/publisher workers,
-  broader building requirement/cost balancing, browser HUD controls, coordinate
-  item durable transaction/compensation, market/listing staleness hooks, and
-  intel quotas remain open. Phase07Z adds a store-owned begin/complete claim
+  broader building requirement/cost balancing, coordinate item durable
+  transaction/compensation, market/listing staleness hooks, and intel quotas
+  remain open. Phase07CK adds browser HUD controls and command-builder wiring
+  for owned-planet building build/upgrade intents; the client sends only
+  planet/building/slot/target-level intent fields and reconciles from server
+  production summary events. Phase07Z adds a store-owned begin/complete claim
   boundary row that models the future owner-CAS plus pending-side-effects DB
   transaction; Phase07AA wires `ClaimService` through that boundary while
   Phase07AB records reference/event/outbox completion artifacts under the same
