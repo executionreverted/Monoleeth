@@ -35,6 +35,7 @@ func TestRouteControlDisableThenEnableThroughGatewayQueuesSafeOwnerEvents(t *tes
 	)
 	assertRouteControlResponse(t, disableResponse, routeID, "1-1", "1-2", false, "route.disable")
 	assertStoredRouteEnabled(t, gameServer, routeID, false)
+	assertStoredRouteEnergyReserved(t, gameServer, sourcePlanetID, 0)
 
 	disableEventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteDisable, owner.PlayerID)
 	if err != nil {
@@ -51,6 +52,7 @@ func TestRouteControlDisableThenEnableThroughGatewayQueuesSafeOwnerEvents(t *tes
 	)
 	assertRouteControlResponse(t, enableResponse, routeID, "1-1", "1-2", true, "route.enable")
 	assertStoredRouteEnabled(t, gameServer, routeID, true)
+	assertStoredRouteEnergyReserved(t, gameServer, sourcePlanetID, 4)
 
 	enableEventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteEnable, owner.PlayerID)
 	if err != nil {
@@ -100,6 +102,7 @@ func TestRouteDisableSettlesStorageAndQueuesSafeProductionStorageSnapshots(t *te
 	}
 	assertRouteControlActiveMapSnapshots(t, payload.Production, payload.Storage, sourcePlanetID, 60)
 	assertStoredRouteEnabled(t, gameServer, routeID, false)
+	assertStoredRouteEnergyReserved(t, gameServer, sourcePlanetID, 0)
 	assertStoredRouteStorageQuantity(t, gameServer, sourcePlanetID, "refined_alloy", 60)
 	assertStoredRouteStorageQuantity(t, gameServer, destinationPlanetID, "refined_alloy", 40)
 
@@ -396,6 +399,17 @@ func assertStoredRouteEnabled(t *testing.T, gameServer *Server, routeID foundati
 	}
 	if stored.Enabled != enabled {
 		t.Fatalf("stored route enabled = %v, want %v", stored.Enabled, enabled)
+	}
+}
+
+func assertStoredRouteEnergyReserved(t *testing.T, gameServer *Server, planetID foundation.PlanetID, want int64) {
+	t.Helper()
+	state, ok, err := gameServer.runtime.Production.ProductionState(planetID)
+	if err != nil || !ok {
+		t.Fatalf("ProductionState(%q) ok=%v err=%v, want stored state", planetID, ok, err)
+	}
+	if state.EnergyReservedPerHour != want {
+		t.Fatalf("ProductionState(%q) EnergyReservedPerHour = %d, want %d", planetID, state.EnergyReservedPerHour, want)
 	}
 }
 

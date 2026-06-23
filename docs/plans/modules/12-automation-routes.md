@@ -88,6 +88,7 @@ destination owned/accessible
 resource routeable
 amount_per_hour positive
 owned route count below server-owned route-slot capacity
+enabled route energy upkeep fits source planet energy budget
 player rank/building requirement met
 source has route building or automation unlocked
 distance within allowed range or wormhole link exists
@@ -112,6 +113,9 @@ func CanCreateRoute(player PlayerID, req CreateRouteRequest, state RouteCheckSta
 	if state.CurrentOwnedRouteCount() >= state.MaxOwnedRouteCount() {
 		return ErrRouteCapacityExceeded
 	}
+	if !state.SourcePlanetEnergyBudgetCanReserve(req.NewEnergyCostPerHour) {
+		return ErrRouteEnergyUnavailable
+	}
 	return nil
 }
 ```
@@ -120,6 +124,13 @@ Route capacity is server-owned. The browser may display returned route counts or
 locked states, but it must not send current/max route count as trusted truth.
 The current runtime MVP uses a fixed per-player route-slot cap; progression,
 buildings, modules, or premium bonuses can later feed the same policy boundary.
+
+Route upkeep is also server-owned. Enabled routes reserve their
+`energy_cost_per_hour` against the source planet production state, and
+production settlement treats `energy_reserved_per_hour` as already consumed
+before running buildings. Create/enable reserve energy, disable releases it
+after settlement, and update applies only the enabled-route energy delta so
+same-cost edits remain allowed at capacity.
 
 ## Risk Formula v0
 

@@ -381,6 +381,15 @@ func (store *InMemoryStore) insertAutomationRoute(route AutomationRoute) (Automa
 	if err != nil {
 		return AutomationRoute{}, err
 	}
+	updatedSourceState, updateSourceState, err := store.prepareRouteEnergyReservationLocked(
+		route.SourcePlanetID,
+		0,
+		routeReservedEnergyCost(route),
+		route.CreatedAt,
+	)
+	if err != nil {
+		return AutomationRoute{}, err
+	}
 	if _, err := store.applyAutomationRouteDurableCommitPlanLocked(AutomationRouteDurableCommitPlan{
 		Route:            route,
 		ReferenceKey:     referenceKey,
@@ -390,6 +399,9 @@ func (store *InMemoryStore) insertAutomationRoute(route AutomationRoute) (Automa
 		return AutomationRoute{}, err
 	}
 	store.routes[route.RouteID] = cloneAutomationRoute(route)
+	if updateSourceState {
+		store.states[route.SourcePlanetID] = cloneProductionState(updatedSourceState)
+	}
 	return cloneAutomationRoute(route), nil
 }
 

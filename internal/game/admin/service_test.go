@@ -633,6 +633,7 @@ func createProductionRoute(
 	destinationPlanetID foundation.PlanetID,
 ) {
 	t.Helper()
+	initializeProductionPlanet(t, store, sourcePlanetID, start)
 	saveProductionStorage(t, store, sourcePlanetID, 100, []production.StoredItem{{ItemID: "refined_alloy", Quantity: 100}}, start)
 	saveProductionStorage(t, store, destinationPlanetID, 100, nil, start)
 	clock := testutil.NewFakeClock(start)

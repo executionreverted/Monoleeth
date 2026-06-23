@@ -48,6 +48,8 @@ var (
 	ErrRouteResourceNotRouteable         = errors.New("route resource not routeable")
 	ErrRouteRequirementNotMet            = errors.New("route requirement not met")
 	ErrRouteCapacityExceeded             = errors.New("route capacity exceeded")
+	ErrRouteSourceProductionMissing      = errors.New("route source planet production missing")
+	ErrRouteEnergyUnavailable            = errors.New("route energy unavailable")
 	ErrInvalidRouteDistance              = errors.New("invalid route distance")
 	ErrRouteDistanceTooFar               = errors.New("route distance too far")
 	ErrInvalidRouteCreateConfig          = errors.New("invalid route create config")

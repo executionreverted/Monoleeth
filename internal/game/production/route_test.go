@@ -104,6 +104,77 @@ func TestCreateRouteCapacityExceededFailsBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestCreateRouteReservesSourceEnergy(t *testing.T) {
+	store := NewInMemoryStore()
+	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
+	provider.policy.EnergyCostPerHour = 12
+	service := newTestRouteService(t, store, provider, testRouteNow())
+
+	result, err := service.CreateRoute(validCreateRouteInput())
+	if err != nil {
+		t.Fatalf("CreateRoute() error = %v, want nil", err)
+	}
+	assertRouteEnergyReserved(t, store, result.Route.SourcePlanetID, 12)
+}
+
+func TestCreateRouteSettlesSourceProductionBeforeReservingEnergy(t *testing.T) {
+	store := NewInMemoryStore()
+	start := testTime(0)
+	now := start.Add(time.Hour)
+	if _, err := store.InitializePlanetProduction(InitializePlanetProductionInput{
+		PlanetID:              "planet-1",
+		LastCalculatedAt:      start,
+		StorageCapacityUnits:  100,
+		EnergyCapacityPerHour: 16,
+		UpdatedAt:             start,
+	}); err != nil {
+		t.Fatalf("InitializePlanetProduction() error = %v, want nil", err)
+	}
+	addSettlementBuilding(t, store, "planet-1", "building-1", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
+	provider.policy.EnergyCostPerHour = 12
+	service := newTestRouteService(t, store, provider, now)
+
+	result, err := service.CreateRoute(validCreateRouteInput())
+	if err != nil {
+		t.Fatalf("CreateRoute() error = %v, want nil", err)
+	}
+	snapshot, ok, err := store.Snapshot(result.Route.SourcePlanetID)
+	if err != nil || !ok {
+		t.Fatalf("Snapshot(%q) ok=%v err=%v, want true nil", result.Route.SourcePlanetID, ok, err)
+	}
+	if got := snapshot.Storage.QuantityOf("iron_ore"); got != 30 {
+		t.Fatalf("source iron_ore after route create = %d, want 30 from pre-route production window", got)
+	}
+	if !snapshot.State.LastCalculatedAt.Equal(now.UTC()) {
+		t.Fatalf("LastCalculatedAt = %s, want %s", snapshot.State.LastCalculatedAt, now.UTC())
+	}
+	if snapshot.State.EnergyReservedPerHour != result.Route.EnergyCostPerHour {
+		t.Fatalf("EnergyReservedPerHour = %d, want route cost %d", snapshot.State.EnergyReservedPerHour, result.Route.EnergyCostPerHour)
+	}
+}
+
+func TestCreateRouteRejectsEnergyReservationOverCapacityWithoutMutation(t *testing.T) {
+	store := NewInMemoryStore()
+	now := testRouteNow()
+	setRouteEnergyStateForTest(t, store, "planet-1", 40, 35, now)
+	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
+	provider.policy.EnergyCostPerHour = 12
+	service := newTestRouteService(t, store, provider, now)
+
+	_, err := service.CreateRoute(validCreateRouteInput())
+	if !errors.Is(err, ErrRouteEnergyUnavailable) {
+		t.Fatalf("CreateRoute() error = %v, want ErrRouteEnergyUnavailable", err)
+	}
+	if routes := store.AutomationRoutes(); len(routes) != 0 {
+		t.Fatalf("routes after energy failure = %+v, want none", routes)
+	}
+	if _, ok, readErr := store.CommittedAutomationRouteDurableRecord("route-1"); readErr != nil || ok {
+		t.Fatalf("CommittedAutomationRouteDurableRecord(route-1) ok=%v err=%v, want false nil", ok, readErr)
+	}
+	assertRouteEnergyReserved(t, store, "planet-1", 35)
+}
+
 func TestCreateRouteDistanceAndRiskCalculation(t *testing.T) {
 	t.Run("distance over max fails", func(t *testing.T) {
 		store := NewInMemoryStore()

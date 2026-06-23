@@ -414,6 +414,7 @@ func TestSettleRouteUnsupportedDestinationReturnsErrorWithoutMutation(t *testing
 	route := validSettlementRoute(last)
 	route.Destination = RouteDestination{Type: RouteDestinationTypeStorage, ID: "storage-1"}
 	store := NewInMemoryStore()
+	ensureRouteProductionStateForTest(t, store, route.SourcePlanetID, 100, last)
 	insertRouteSettlementRoute(t, store, route)
 	saveRouteSettlementStorage(t, store, "planet-1", 100, []StoredItem{{ItemID: "refined_alloy", Quantity: 100}}, last)
 	service := newTestRouteSettlementService(t, store, now, nil)

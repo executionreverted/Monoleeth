@@ -410,6 +410,16 @@ Current slice completed:
   does not enforce create-slot capacity, so players at cap can edit existing
   routes. Durable race-proof quota enforcement still belongs in the future
   route insert transaction/DB adapter.
+- Phase07BS route energy-upkeep follow-up: enabled automation routes now reserve
+  their server-derived `energy_cost_per_hour` against the source planet
+  production state's `energy_reserved_per_hour`. `route.create` and
+  `route.enable` reserve upkeep before committing the enabled route,
+  `route.disable` releases upkeep after successful settlement, and
+  `route.update` applies only the enabled-route energy delta so same-cost edits
+  still work at capacity. Production settlement already consumes reserved
+  energy before buildings, so route upkeep can now reduce building throughput
+  through real server state. Durable DB adapters still need to co-commit route
+  row mutations and source production-state reservation changes.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,

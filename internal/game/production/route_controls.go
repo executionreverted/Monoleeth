@@ -116,12 +116,24 @@ func (store *InMemoryStore) enableRouteLocked(
 	if err := route.Validate(); err != nil {
 		return RouteControlResult{}, err
 	}
+	updatedSourceState, updateSourceState, err := store.prepareRouteEnergyReservationLocked(
+		route.SourcePlanetID,
+		0,
+		routeReservedEnergyCost(route),
+		now,
+	)
+	if err != nil {
+		return RouteControlResult{}, err
+	}
 	if !referenceKey.IsZero() {
 		if err := store.commitRouteDurableMutationLocked(route, referenceKey, now); err != nil {
 			return RouteControlResult{}, err
 		}
 	}
 	store.routes[routeID] = cloneAutomationRoute(route)
+	if updateSourceState {
+		store.states[route.SourcePlanetID] = cloneProductionState(updatedSourceState)
+	}
 	return RouteControlResult{Route: cloneAutomationRoute(route), Changed: true}, nil
 }
 
@@ -248,6 +260,15 @@ func (store *InMemoryStore) disableRouteLocked(
 	if err := disabledRoute.Validate(); err != nil {
 		return RouteControlResult{}, err
 	}
+	updatedSourceState, updateSourceState, err := store.prepareRouteEnergyReservationLocked(
+		route.SourcePlanetID,
+		routeReservedEnergyCost(route),
+		routeReservedEnergyCost(disabledRoute),
+		now,
+	)
+	if err != nil {
+		return RouteControlResult{}, err
+	}
 
 	settlement, err := store.settleRouteLocked(routeID, now, lossRoller)
 	if err != nil {
@@ -266,6 +287,9 @@ func (store *InMemoryStore) disableRouteLocked(
 		}
 	}
 	store.routes[routeID] = cloneAutomationRoute(route)
+	if updateSourceState {
+		store.states[route.SourcePlanetID] = cloneProductionState(updatedSourceState)
+	}
 	return RouteControlResult{
 		Route:      cloneAutomationRoute(route),
 		Settlement: settlement,
@@ -341,6 +365,15 @@ func (store *InMemoryStore) UpdateRoute(
 	if err := updatedRoute.Validate(); err != nil {
 		return UpdateRouteResult{}, err
 	}
+	updatedSourceState, updateSourceState, err := store.prepareRouteEnergyReservationLocked(
+		route.SourcePlanetID,
+		routeReservedEnergyCost(route),
+		routeReservedEnergyCost(updatedRoute),
+		now,
+	)
+	if err != nil {
+		return UpdateRouteResult{}, err
+	}
 
 	settlement, err := store.settleRouteLocked(input.RouteID, now, lossRoller)
 	if err != nil {
@@ -365,6 +398,9 @@ func (store *InMemoryStore) UpdateRoute(
 		}
 	}
 	store.routes[input.RouteID] = cloneAutomationRoute(updatedRoute)
+	if updateSourceState {
+		store.states[updatedRoute.SourcePlanetID] = cloneProductionState(updatedSourceState)
+	}
 	return UpdateRouteResult{
 		Route:      cloneAutomationRoute(updatedRoute),
 		Settlement: settlement,

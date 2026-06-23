@@ -13,7 +13,7 @@ func TestDisableRouteSettlesOldRouteBeforeDisabling(t *testing.T) {
 	store := newRouteSettlementStore(
 		t,
 		route,
-		100,
+		200,
 		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
 		100,
 		nil,
@@ -38,9 +38,46 @@ func TestDisableRouteSettlesOldRouteBeforeDisabling(t *testing.T) {
 	}
 	assertRouteSettlementRouteTime(t, store, route.RouteID, now)
 	assertRouteEnabled(t, store, route.RouteID, false)
+	assertRouteEnergyReserved(t, store, route.SourcePlanetID, 0)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, now)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, now)
 	assertRouteDurableRecord(t, store, route.RouteID, "route_disable:player-1:route-1:request-disable-route-1", 3, result.Route)
+}
+
+func TestDisableRouteSettlesSourceProductionBeforeReleasingEnergy(t *testing.T) {
+	last := testTime(0)
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	setRouteEnergyStateForTest(t, store, route.SourcePlanetID, route.EnergyCostPerHour, route.EnergyCostPerHour, last)
+	addSettlementBuilding(t, store, route.SourcePlanetID.String(), "building-1", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+	service := newTestRouteSettlementService(t, store, now, nil)
+
+	result, err := service.DisableRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("DisableRoute() error = %v, want nil", err)
+	}
+	if !result.Changed {
+		t.Fatal("Changed = false, want true")
+	}
+	assertRouteEnergyReserved(t, store, route.SourcePlanetID, 0)
+	sourceSnapshot, ok, err := store.Snapshot(route.SourcePlanetID)
+	if err != nil || !ok {
+		t.Fatalf("Snapshot(%q) ok=%v err=%v, want true nil", route.SourcePlanetID, ok, err)
+	}
+	if got := sourceSnapshot.Storage.QuantityOf("iron_ore"); got != 0 {
+		t.Fatalf("source iron_ore after disable = %d, want 0 because route energy occupied the elapsed window", got)
+	}
+	if !sourceSnapshot.State.LastCalculatedAt.Equal(now.UTC()) {
+		t.Fatalf("source LastCalculatedAt = %s, want %s", sourceSnapshot.State.LastCalculatedAt, now.UTC())
+	}
 }
 
 func TestDisableRouteForOwnerRejectsWrongOwnerWithoutMutation(t *testing.T) {
@@ -63,6 +100,7 @@ func TestDisableRouteForOwnerRejectsWrongOwnerWithoutMutation(t *testing.T) {
 	}
 	assertRouteSettlementRouteTime(t, store, route.RouteID, last)
 	assertRouteEnabled(t, store, route.RouteID, true)
+	assertRouteEnergyReserved(t, store, route.SourcePlanetID, 12)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
 	assertNoRouteEvents(t, store)
@@ -92,6 +130,7 @@ func TestEnableRouteResetsLastCalculatedAtSoDisabledElapsedDoesNotTransfer(t *te
 		t.Fatalf("enable Changed/Enabled = %v/%v, want true/true", enableResult.Changed, enableResult.Route.Enabled)
 	}
 	assertRouteSettlementRouteTime(t, store, route.RouteID, enableAt)
+	assertRouteEnergyReserved(t, store, route.SourcePlanetID, 12)
 	assertRouteDurableRecord(t, store, route.RouteID, "route_enable:player-1:route-1:request-enable-route-1", 2, enableResult.Route)
 
 	settleService := newTestRouteSettlementService(t, store, settleAt, nil)
@@ -127,9 +166,37 @@ func TestEnableRouteForOwnerRejectsWrongOwnerWithoutMutation(t *testing.T) {
 	}
 	assertRouteSettlementRouteTime(t, store, route.RouteID, last)
 	assertRouteEnabled(t, store, route.RouteID, false)
+	assertRouteEnergyReserved(t, store, route.SourcePlanetID, 0)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
 	assertNoRouteEvents(t, store)
+}
+
+func TestEnableRouteRejectsEnergyReservationOverCapacityWithoutMutation(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	route.Enabled = false
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	setRouteEnergyStateForTest(t, store, route.SourcePlanetID, 10, 0, last)
+	service := newTestRouteSettlementService(t, store, now, nil)
+
+	_, err := service.EnableRoute(route.RouteID)
+	if !errors.Is(err, ErrRouteEnergyUnavailable) {
+		t.Fatalf("EnableRoute() error = %v, want ErrRouteEnergyUnavailable", err)
+	}
+	assertRouteSettlementRouteTime(t, store, route.RouteID, last)
+	assertRouteEnabled(t, store, route.RouteID, false)
+	assertRouteEnergyReserved(t, store, route.SourcePlanetID, 0)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
 }
 
 func TestEnableRouteDoesNotMoveFutureTimestampBackward(t *testing.T) {
@@ -209,6 +276,7 @@ func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 		t.Fatalf("policy calls/input = %d/%+v, want one call with source %q amount 80", provider.calls, provider.lastInput, route.SourcePlanetID)
 	}
 	assertRouteSettlementRouteTime(t, store, route.RouteID, updateAt)
+	assertRouteEnergyReserved(t, store, route.SourcePlanetID, provider.policy.EnergyCostPerHour)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 960, updateAt)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, updateAt)
 	storedAfterUpdate, ok, err := store.AutomationRoute(route.RouteID)
@@ -233,6 +301,66 @@ func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 		t.Fatalf("AutomationRoute(%q) ok = %v err = %v, want true nil", route.RouteID, ok, err)
 	}
 	assertRouteMapIdentity(t, settledRoute, route.SourceMapID, provider.policy.DestinationMapID)
+}
+
+func TestUpdateRouteAtExistingEnergyCapacitySucceedsWhenCostIsUnchanged(t *testing.T) {
+	last := testRouteNow()
+	updateAt := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		1_000,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 1_000}},
+		1_000,
+		nil,
+	)
+	setRouteEnergyStateForTest(t, store, route.SourcePlanetID, route.EnergyCostPerHour, route.EnergyCostPerHour, last)
+	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
+	provider.policy.DestinationMapID = "map_1_2"
+	provider.policy.EnergyCostPerHour = route.EnergyCostPerHour
+	service := newTestRouteService(t, store, provider, updateAt)
+	input := validUpdateRouteInput()
+	input.RequestID = "request-update-route-at-energy-cap"
+
+	result, err := service.UpdateRoute(input)
+	if err != nil {
+		t.Fatalf("UpdateRoute() error = %v, want nil", err)
+	}
+	if !result.Updated {
+		t.Fatal("Updated = false, want true")
+	}
+	assertRouteEnergyReserved(t, store, route.SourcePlanetID, route.EnergyCostPerHour)
+}
+
+func TestUpdateRouteRejectsEnergyReservationOverCapacityWithoutSettlement(t *testing.T) {
+	last := testRouteNow()
+	updateAt := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		1_000,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 1_000}},
+		1_000,
+		nil,
+	)
+	setRouteEnergyStateForTest(t, store, route.SourcePlanetID, 20, route.EnergyCostPerHour, last)
+	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
+	provider.policy.DestinationMapID = "map_1_2"
+	service := newTestRouteService(t, store, provider, updateAt)
+	input := validUpdateRouteInput()
+	input.AmountPerHour = 80
+	input.RequestID = "request-update-route-energy-overflow"
+
+	_, err := service.UpdateRoute(input)
+	if !errors.Is(err, ErrRouteEnergyUnavailable) {
+		t.Fatalf("UpdateRoute() error = %v, want ErrRouteEnergyUnavailable", err)
+	}
+	assertRouteSettlementRouteTime(t, store, route.RouteID, last)
+	assertRouteEnergyReserved(t, store, route.SourcePlanetID, route.EnergyCostPerHour)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 1_000, last)
+	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
 }
 
 func TestUpdateRouteDuplicateRequestDoesNotSettleTwice(t *testing.T) {

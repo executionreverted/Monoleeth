@@ -261,6 +261,7 @@ func domainErrorForRouteCreate(err error) error {
 		return foundation.NewDomainError(foundation.CodeForbidden, "Route resource is not routeable.", foundation.WithCause(err))
 	case errors.Is(err, production.ErrRouteRequirementNotMet),
 		errors.Is(err, production.ErrRouteCapacityExceeded),
+		errors.Is(err, production.ErrRouteEnergyUnavailable),
 		errors.Is(err, production.ErrRouteDistanceTooFar):
 		return foundation.NewDomainError(foundation.CodeForbidden, "Route requirements are not met.", foundation.WithCause(err))
 	case errors.Is(err, production.ErrDuplicateRoute):

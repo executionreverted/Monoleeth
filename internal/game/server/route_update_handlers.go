@@ -160,6 +160,7 @@ func domainErrorForRouteUpdate(err error) error {
 	case errors.Is(err, production.ErrRouteResourceNotRouteable):
 		return foundation.NewDomainError(foundation.CodeForbidden, "Route resource is not routeable.", foundation.WithCause(err))
 	case errors.Is(err, production.ErrRouteRequirementNotMet),
+		errors.Is(err, production.ErrRouteEnergyUnavailable),
 		errors.Is(err, production.ErrRouteDistanceTooFar):
 		return foundation.NewDomainError(foundation.CodeForbidden, "Route requirements are not met.", foundation.WithCause(err))
 	default:

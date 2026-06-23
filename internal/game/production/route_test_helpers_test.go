@@ -39,6 +39,7 @@ func newTestRouteService(
 	now time.Time,
 ) *AutomationRouteService {
 	t.Helper()
+	ensureRouteProductionStateForTest(t, store, "planet-1", 100, now)
 	service, err := NewAutomationRouteService(AutomationRouteServiceConfig{
 		Store:  store,
 		Clock:  fixedRouteClock{now: now},
@@ -246,12 +247,37 @@ func newRouteSettlementStore(
 ) *InMemoryStore {
 	t.Helper()
 	store := NewInMemoryStore()
+	ensureRouteProductionStateForTest(t, store, route.SourcePlanetID, 100, route.UpdatedAt)
 	insertRouteSettlementRoute(t, store, route)
 	saveRouteSettlementStorage(t, store, route.SourcePlanetID, sourceCapacity, sourceItems, route.UpdatedAt)
 	if route.Destination.Type == RouteDestinationTypePlanet {
 		saveRouteSettlementStorage(t, store, foundation.PlanetID(route.Destination.ID), destinationCapacity, destinationItems, route.UpdatedAt)
 	}
 	return store
+}
+
+func ensureRouteProductionStateForTest(
+	t *testing.T,
+	store *InMemoryStore,
+	planetID foundation.PlanetID,
+	energyCapacityPerHour int64,
+	updatedAt time.Time,
+) {
+	t.Helper()
+	if _, ok, err := store.Snapshot(planetID); err != nil {
+		t.Fatalf("Snapshot(%q) error = %v, want nil", planetID, err)
+	} else if ok {
+		return
+	}
+	if _, err := store.InitializePlanetProduction(InitializePlanetProductionInput{
+		PlanetID:              planetID,
+		LastCalculatedAt:      updatedAt,
+		StorageCapacityUnits:  1_000,
+		EnergyCapacityPerHour: energyCapacityPerHour,
+		UpdatedAt:             updatedAt,
+	}); err != nil {
+		t.Fatalf("InitializePlanetProduction(%q) error = %v, want nil", planetID, err)
+	}
 }
 
 func insertRouteSettlementRoute(t *testing.T, store *InMemoryStore, route AutomationRoute) {
@@ -313,6 +339,55 @@ func assertRouteSettlementStorage(
 	}
 	if !storage.UpdatedAt.Equal(updatedAt) {
 		t.Fatalf("storage %q UpdatedAt = %s, want %s", planetID, storage.UpdatedAt, updatedAt)
+	}
+}
+
+func assertRouteEnergyReserved(
+	t *testing.T,
+	store *InMemoryStore,
+	planetID foundation.PlanetID,
+	want int64,
+) {
+	t.Helper()
+	state, ok, err := store.ProductionState(planetID)
+	if err != nil || !ok {
+		t.Fatalf("ProductionState(%q) ok = %v err = %v, want true nil", planetID, ok, err)
+	}
+	if state.EnergyReservedPerHour != want {
+		t.Fatalf("ProductionState(%q) EnergyReservedPerHour = %d, want %d", planetID, state.EnergyReservedPerHour, want)
+	}
+}
+
+func setRouteEnergyStateForTest(
+	t *testing.T,
+	store *InMemoryStore,
+	planetID foundation.PlanetID,
+	capacity int64,
+	reserved int64,
+	updatedAt time.Time,
+) {
+	t.Helper()
+	state, err := NewPlanetProductionState(planetID, updatedAt, capacity, updatedAt)
+	if err != nil {
+		t.Fatalf("NewPlanetProductionState(%q) error = %v, want nil", planetID, err)
+	}
+	state.EnergyReservedPerHour = reserved
+	if err := state.Validate(); err != nil {
+		t.Fatalf("route energy test state Validate() error = %v, want nil", err)
+	}
+	if err := store.SaveProductionState(state); err != nil {
+		t.Fatalf("SaveProductionState(%q) error = %v, want nil", planetID, err)
+	}
+	if _, ok, err := store.PlanetStorage(planetID); err != nil {
+		t.Fatalf("PlanetStorage(%q) error = %v, want nil", planetID, err)
+	} else if !ok {
+		storage, err := NewPlanetStorage(planetID, 1_000, nil, updatedAt)
+		if err != nil {
+			t.Fatalf("NewPlanetStorage(%q) error = %v, want nil", planetID, err)
+		}
+		if err := store.SavePlanetStorage(storage); err != nil {
+			t.Fatalf("SavePlanetStorage(%q) error = %v, want nil", planetID, err)
+		}
 	}
 }
 

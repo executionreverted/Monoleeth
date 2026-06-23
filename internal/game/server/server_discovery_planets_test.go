@@ -756,6 +756,7 @@ func TestRouteCreateCreatesOwnedPlanetRouteThroughGateway(t *testing.T) {
 	if stored.SourceMapID != "map_1_1" || stored.DestinationMapID != "map_1_2" {
 		t.Fatalf("stored route map ids = %q/%q, want server-derived map_1_1/map_1_2", stored.SourceMapID, stored.DestinationMapID)
 	}
+	assertStoredRouteEnergyReserved(t, gameServer, sourcePlanetID, stored.EnergyCostPerHour)
 
 	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteCreate, owner.PlayerID)
 	if err != nil {

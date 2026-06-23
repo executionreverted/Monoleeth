@@ -48,6 +48,7 @@ func TestRouteUpdateChangesOwnedRouteTermsThroughGateway(t *testing.T) {
 		stored.DestinationMapID != "map_1_1" {
 		t.Fatalf("stored route after update = %+v, want server-owned updated terms", stored)
 	}
+	assertStoredRouteEnergyReserved(t, gameServer, sourcePlanetID, stored.EnergyCostPerHour)
 
 	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteUpdate, owner.PlayerID)
 	if err != nil {
@@ -99,6 +100,7 @@ func TestRouteUpdateSettlesElapsedStorageAndQueuesActiveMapSnapshots(t *testing.
 		t.Fatalf("route.update settlement route = %+v, want new destination/rate and enabled", payload.Route)
 	}
 	assertRouteUpdateActiveMapSnapshots(t, payload.Production, payload.Storage, sourcePlanetID, 60)
+	assertStoredRouteEnergyReserved(t, gameServer, sourcePlanetID, payload.Route.EnergyCostPerHour)
 	assertStoredRouteStorageQuantity(t, gameServer, sourcePlanetID, "refined_alloy", 60)
 	assertStoredRouteStorageQuantity(t, gameServer, oldDestinationPlanetID, "refined_alloy", 40)
 	assertStoredRouteStorageQuantity(t, gameServer, newDestinationPlanetID, "refined_alloy", 0)

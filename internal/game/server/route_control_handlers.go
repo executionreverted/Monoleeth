@@ -196,6 +196,8 @@ func domainErrorForRouteControl(err error) error {
 		errors.Is(err, production.ErrUnsupportedRouteDestination),
 		errors.Is(err, maps.ErrMapNotFound):
 		return foundation.NewDomainError(foundation.CodeNotFound, "Route endpoint was not found.", foundation.WithCause(err))
+	case errors.Is(err, production.ErrRouteEnergyUnavailable):
+		return foundation.NewDomainError(foundation.CodeForbidden, "Route requirements are not met.", foundation.WithCause(err))
 	default:
 		return foundation.NewDomainError(foundation.CodeInternal, "Route control failed.", foundation.WithCause(err))
 	}

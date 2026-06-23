@@ -185,6 +185,12 @@ func RunRouteSettlementSimulation(config RouteSettlementSimulationConfig) (Route
 	for index := 0; index < normalized.count; index++ {
 		sourcePlanetID := foundation.PlanetID(fmt.Sprintf("simulation_route_source_%d", index+1))
 		destinationPlanetID := foundation.PlanetID(fmt.Sprintf("simulation_route_destination_%d", index+1))
+		if err := initializeSimulationProductionPlanet(store, sourcePlanetID, normalized.start, 100, 100); err != nil {
+			return RouteSettlementSimulationSummary{}, err
+		}
+		if err := initializeSimulationProductionPlanet(store, destinationPlanetID, normalized.start, 100, 100); err != nil {
+			return RouteSettlementSimulationSummary{}, err
+		}
 		if err := saveSimulationPlanetStorage(store, sourcePlanetID, 100, []production.StoredItem{{ItemID: "refined_alloy", Quantity: 100}}, normalized.start); err != nil {
 			return RouteSettlementSimulationSummary{}, err
 		}
