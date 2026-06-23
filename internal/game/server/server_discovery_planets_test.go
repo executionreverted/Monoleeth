@@ -422,6 +422,55 @@ func TestScanPulseRejectsInsufficientCapacitorBeforeDiscoveryMutation(t *testing
 	}
 }
 
+func TestScanPulseRejectsMovingPlayerBeforeDiscoveryMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "scan-moving@example.com", "Scan Moving")
+	initialCapacitor := testShipCapacitor(gameServer, resolved.PlayerID)
+
+	move := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-scan-moving-move","op":"move_to","payload":{"target":{"x":100,"y":0}},"client_seq":1,"v":1}`),
+	)
+	if move.HasError {
+		t.Fatalf("move_to response error = %+v, want success", move.Error)
+	}
+	gameServer.runtime.mu.Lock()
+	instance, _, err := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("activeMapInstance() error = %v, want nil", err)
+	}
+	entity, ok := instance.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+	if !ok || !entity.Movement.Moving {
+		t.Fatalf("player entity = %+v ok=%v, want moving before scan", entity, ok)
+	}
+
+	scan := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-scan-moving","op":"scan.pulse","payload":{},"client_seq":2,"v":1}`),
+	)
+	if !scan.HasError || scan.Error.Error.Code != foundation.CodeForbidden {
+		t.Fatalf("moving scan response = %+v, want forbidden", scan)
+	}
+	if capacitor := testShipCapacitor(gameServer, resolved.PlayerID); capacitor != initialCapacitor {
+		t.Fatalf("moving scan capacitor = %d, want unchanged %d", capacitor, initialCapacitor)
+	}
+	if planets := gameServer.runtime.Discovery.Planets(); len(planets) != 0 {
+		t.Fatalf("moving scan planets = %d, want no discovery mutation", len(planets))
+	}
+	intel, err := gameServer.runtime.Discovery.PlayerPlanetIntelRecords(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("PlayerPlanetIntelRecords() error = %v, want nil", err)
+	}
+	if len(intel) != 0 {
+		t.Fatalf("moving scan intel records = %d, want none", len(intel))
+	}
+	if events := gameServer.runtime.Scanner.Events(); len(events) != 0 {
+		t.Fatalf("moving scan events = %d, want none", len(events))
+	}
+}
+
 func TestScanPulseRejectsTrustedClientScannerFields(t *testing.T) {
 	for _, fixture := range []struct {
 		name    string

@@ -334,6 +334,11 @@ Current slice completed:
   normal `intel.coordinate_item.use` path, and duplicate buy retries do not
   mint duplicate inventory or transfer state. Durable cross-service
   transaction/compensation remains open.
+- Phase07AH scanner movement regression follow-up: server tests now prove that
+  an authenticated `scan.pulse` while the player entity is moving returns a
+  safe forbidden error before capacitor spend, planet creation, intel writes, or
+  scanner events; this completes the movement half of the existing scanner
+  mutation guard evidence alongside the insufficient-capacitor regression.
 
 ## Source Specs
 
@@ -510,7 +515,7 @@ Mockup areas covered:
 
 ## Tests
 
-- [ ] Scan rejects moving/energy-insufficient player before mutation.
+- [x] Scan rejects moving/energy-insufficient player before mutation.
 - [x] Scan result does not leak seed or future candidates.
 - [ ] Hidden planet detail returns safe error.
 - [x] Claim consumes required item once and sets owner once.
