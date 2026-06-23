@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 
 	"gameproject/internal/game/foundation"
 )
@@ -130,6 +131,163 @@ func (store *InMemoryBuildingMutationDurableCommitStore) BuildingMaterialLedgerE
 	return cloneBuildingMaterialLedgerEntries(rows)
 }
 
+// ClaimPendingProductionOutboxRecords moves committed pending building
+// mutation outbox rows to in-flight in commit order.
+func (store *InMemoryBuildingMutationDurableCommitStore) ClaimPendingProductionOutboxRecords(
+	limit int,
+	claimedAt time.Time,
+) ([]ProductionOutboxRecord, error) {
+	if store == nil {
+		return nil, ErrInvalidProductionOutboxPublisher
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	claimedAt = claimedAt.UTC()
+	if claimedAt.IsZero() {
+		claimedAt = time.Unix(0, 0).UTC()
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	records := make([]ProductionOutboxRecord, 0, limit)
+	for _, key := range store.references {
+		plan := store.plans[key]
+		mutated := false
+		for index := range plan.OutboxRecords {
+			if len(records) >= limit {
+				break
+			}
+			if plan.OutboxRecords[index].Status != ProductionOutboxStatusPending {
+				continue
+			}
+			plan.OutboxRecords[index].Status = ProductionOutboxStatusInFlight
+			plan.OutboxRecords[index].ClaimedAt = claimedAt
+			plan.OutboxRecords[index].Attempts++
+			plan.OutboxRecords[index].ClaimToken = productionOutboxClaimToken(
+				plan.OutboxRecords[index].OutboxID,
+				plan.OutboxRecords[index].Attempts,
+			)
+			records = append(records, cloneProductionOutboxRecord(plan.OutboxRecords[index]))
+			mutated = true
+		}
+		if mutated {
+			store.plans[key] = cloneBuildingMutationDurableCommitPlan(plan)
+		}
+		if len(records) >= limit {
+			break
+		}
+	}
+	return records, nil
+}
+
+// MarkProductionOutboxPublished records successful delivery for the current
+// claim token on a committed building mutation outbox row.
+func (store *InMemoryBuildingMutationDurableCommitStore) MarkProductionOutboxPublished(
+	outboxID string,
+	claimToken string,
+	publishedAt time.Time,
+) (ProductionOutboxRecord, bool, error) {
+	if store == nil {
+		return ProductionOutboxRecord{}, false, ErrInvalidProductionOutboxPublisher
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	key, index, ok := store.outboxIndexLocked(outboxID)
+	if !ok {
+		return ProductionOutboxRecord{}, false, nil
+	}
+	plan := store.plans[key]
+	if !buildingMutationDurableOutboxClaimMatches(plan.OutboxRecords[index], claimToken) {
+		return ProductionOutboxRecord{}, false, nil
+	}
+	plan.OutboxRecords[index].Status = ProductionOutboxStatusPublished
+	plan.OutboxRecords[index].PublishedAt = publishedAt.UTC()
+	store.plans[key] = cloneBuildingMutationDurableCommitPlan(plan)
+	return cloneProductionOutboxRecord(plan.OutboxRecords[index]), true, nil
+}
+
+// MarkProductionOutboxFailed records failed delivery for the current claim
+// token on a committed building mutation outbox row.
+func (store *InMemoryBuildingMutationDurableCommitStore) MarkProductionOutboxFailed(
+	outboxID string,
+	claimToken string,
+	reason string,
+	failedAt time.Time,
+) (ProductionOutboxRecord, bool, error) {
+	if store == nil {
+		return ProductionOutboxRecord{}, false, ErrInvalidProductionOutboxPublisher
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	key, index, ok := store.outboxIndexLocked(outboxID)
+	if !ok {
+		return ProductionOutboxRecord{}, false, nil
+	}
+	plan := store.plans[key]
+	if !buildingMutationDurableOutboxClaimMatches(plan.OutboxRecords[index], claimToken) {
+		return ProductionOutboxRecord{}, false, nil
+	}
+	plan.OutboxRecords[index].Status = ProductionOutboxStatusFailed
+	plan.OutboxRecords[index].FailedAt = failedAt.UTC()
+	plan.OutboxRecords[index].LastError = reason
+	store.plans[key] = cloneBuildingMutationDurableCommitPlan(plan)
+	return cloneProductionOutboxRecord(plan.OutboxRecords[index]), true, nil
+}
+
+// ReleaseExpiredProductionOutboxRecords returns stale committed building
+// mutation outbox leases to pending.
+func (store *InMemoryBuildingMutationDurableCommitStore) ReleaseExpiredProductionOutboxRecords(
+	limit int,
+	claimedBefore time.Time,
+	releasedAt time.Time,
+) ([]ProductionOutboxRecord, error) {
+	if store == nil {
+		return nil, ErrInvalidProductionOutboxPublisher
+	}
+	if limit <= 0 || claimedBefore.IsZero() {
+		return nil, nil
+	}
+	claimedBefore = claimedBefore.UTC()
+	releasedAt = releasedAt.UTC()
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	records := make([]ProductionOutboxRecord, 0, limit)
+	for _, key := range store.references {
+		plan := store.plans[key]
+		mutated := false
+		for index := range plan.OutboxRecords {
+			if len(records) >= limit {
+				break
+			}
+			record := plan.OutboxRecords[index]
+			if record.Status != ProductionOutboxStatusInFlight ||
+				record.ClaimedAt.IsZero() ||
+				!record.ClaimedAt.Before(claimedBefore) {
+				continue
+			}
+			plan.OutboxRecords[index].Status = ProductionOutboxStatusPending
+			plan.OutboxRecords[index].ClaimedAt = time.Time{}
+			plan.OutboxRecords[index].ClaimToken = ""
+			plan.OutboxRecords[index].RetriedAt = releasedAt
+			records = append(records, cloneProductionOutboxRecord(plan.OutboxRecords[index]))
+			mutated = true
+		}
+		if mutated {
+			store.plans[key] = cloneBuildingMutationDurableCommitPlan(plan)
+		}
+		if len(records) >= limit {
+			break
+		}
+	}
+	return records, nil
+}
+
 // CommittedBuildingMutationDurableCommitPlan returns the validated committed
 // row bundle for one building mutation reference.
 func (store *InMemoryBuildingMutationDurableCommitStore) CommittedBuildingMutationDurableCommitPlan(
@@ -176,6 +334,24 @@ func (store *InMemoryBuildingMutationDurableCommitStore) ensureMapsLocked() {
 	if store.plans == nil {
 		store.plans = make(map[foundation.IdempotencyKey]BuildingMutationDurableCommitPlan)
 	}
+}
+
+func (store *InMemoryBuildingMutationDurableCommitStore) outboxIndexLocked(
+	outboxID string,
+) (foundation.IdempotencyKey, int, bool) {
+	for _, key := range store.references {
+		plan := store.plans[key]
+		for index, record := range plan.OutboxRecords {
+			if record.OutboxID == outboxID {
+				return key, index, true
+			}
+		}
+	}
+	return "", 0, false
+}
+
+func buildingMutationDurableOutboxClaimMatches(record ProductionOutboxRecord, claimToken string) bool {
+	return record.Status == ProductionOutboxStatusInFlight && record.ClaimToken != "" && record.ClaimToken == claimToken
 }
 
 func buildingMutationDurableCommitPlanIsNoOp(plan BuildingMutationDurableCommitPlan) bool {

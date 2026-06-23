@@ -539,6 +539,14 @@ Current slice completed:
   store can rebuild this dispatch plan by mutation reference after a restart.
   Real durable DB rows, wallet debit co-commit evidence, cross-process
   publisher leases, and scheduled publisher/recovery workers remain open.
+- Phase07BJ building durable publisher follow-up:
+  the building mutation durable commit-store adapter now implements the
+  production outbox publisher and lease-reaper contracts for committed
+  `planet.storage_updated` / `planet.building_updated` rows. Pending committed
+  building outbox rows can be claimed, published, failed, or released with
+  claim-token guards while preserving building mutation reference evidence and
+  material ledger rows. Real durable DB rows, wallet debit co-commit evidence,
+  cross-process publisher workers, and scheduled reapers remain open.
 
 ## Source Specs
 
@@ -777,6 +785,9 @@ Mockup areas covered:
       commit-store adapter.
 - [x] Building mutation durable commits can rebuild validated pending outbox
       dispatch plans for future publisher scheduling.
+- [x] Building mutation durable commits can claim, publish, fail, and
+      lease-release committed storage/building outbox rows through the
+      production outbox publisher contracts.
 - [x] Define and enforce route storage ledger semantics for route mutations.
 - [x] Storage capacity cannot be exceeded.
 
@@ -877,6 +888,9 @@ Mockup areas covered:
       without mutating committed route storage ledger rows.
 - [x] Building mutation durable readback rebuilds a validated pending outbox
       dispatch plan for `planet.building_updated` publisher scheduling.
+- [x] Building mutation durable outbox rows can be claimed, published, failed,
+      or lease-released through the production outbox publisher contracts
+      without mutating committed material ledger rows.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

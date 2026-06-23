@@ -3,6 +3,7 @@ package production
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestBuildingMutationDurableCommitPlanFromBuildMutation(t *testing.T) {
@@ -198,6 +199,195 @@ func TestBuildingMutationDurableCommitStoreDispatchReadbackRejectsInvalidCommitt
 	dispatch, ok, err := store.CommittedBuildingMutationOutboxDispatchPlan(plan.Reference.ReferenceKey)
 	if !errors.Is(err, ErrInvalidBuildingMutationDurableCommit) || ok || !dispatch.Reference.ReferenceKey.IsZero() {
 		t.Fatalf("CommittedBuildingMutationOutboxDispatchPlan(corrupt reference) = %+v/%v/%v, want durable commit error false empty", dispatch, ok, err)
+	}
+}
+
+func TestBuildingMutationDurableCommitStorePublishesCommittedOutboxRows(t *testing.T) {
+	plan := buildingDurableCommitPlanForStoreTest(t)
+	store := NewInMemoryBuildingMutationDurableCommitStore()
+	if _, err := store.ApplyBuildingMutationDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyBuildingMutationDurableCommitPlan() error = %v, want nil", err)
+	}
+	ledgerBefore := store.BuildingMaterialLedgerEntries()
+
+	results, err := PublishPendingProductionOutbox(ProductionOutboxPublishInput{
+		Store:       store,
+		Limit:       10,
+		ClaimedAt:   testTime(40),
+		CompletedAt: testTime(41),
+		Publish: func(record ProductionOutboxRecord) error {
+			if record.Status != ProductionOutboxStatusInFlight || record.ClaimToken == "" {
+				t.Fatalf("publish record = %+v, want in-flight claimed row", record)
+			}
+			if record.ReferenceKey != plan.Reference.ReferenceKey {
+				t.Fatalf("publish record reference = %+v, want %s", record, plan.Reference.ReferenceKey)
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingProductionOutbox() error = %v, want nil", err)
+	}
+	if len(results) != len(plan.OutboxRecords) {
+		t.Fatalf("published rows len = %d, want %d", len(results), len(plan.OutboxRecords))
+	}
+	for _, result := range results {
+		if !result.Published || result.Failed || result.StaleClaim {
+			t.Fatalf("publish result = %+v, want published", result)
+		}
+		if result.Record.Status != ProductionOutboxStatusPublished ||
+			!result.Record.PublishedAt.Equal(testTime(41)) ||
+			result.Record.ReferenceKey != plan.Reference.ReferenceKey {
+			t.Fatalf("published durable row = %+v, want committed building evidence", result.Record)
+		}
+	}
+	assertBuildingMutationOutboxReferences(t, store.OutboxRecords(), plan.Reference.ReferenceKey, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
+	if !buildingMutationMaterialLedgerEqual(store.BuildingMaterialLedgerEntries(), ledgerBefore) {
+		t.Fatalf("material ledger after publish = %+v, want unchanged %+v", store.BuildingMaterialLedgerEntries(), ledgerBefore)
+	}
+}
+
+func TestBuildingMutationDurableCommitStoreRecordsPublishFailures(t *testing.T) {
+	plan := buildingDurableCommitPlanForStoreTest(t)
+	store := NewInMemoryBuildingMutationDurableCommitStore()
+	if _, err := store.ApplyBuildingMutationDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyBuildingMutationDurableCommitPlan() error = %v, want nil", err)
+	}
+	temporaryErr := errors.New("publisher offline")
+	failedType := EventPlanetStorageUpdated
+
+	results, err := PublishPendingProductionOutbox(ProductionOutboxPublishInput{
+		Store:       store,
+		Limit:       10,
+		ClaimedAt:   testTime(42),
+		CompletedAt: testTime(43),
+		Publish: func(record ProductionOutboxRecord) error {
+			if record.Event.Type == failedType {
+				return temporaryErr
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingProductionOutbox(failure) error = %v, want nil", err)
+	}
+	if len(results) != len(plan.OutboxRecords) {
+		t.Fatalf("publish failure results len = %d, want %d", len(results), len(plan.OutboxRecords))
+	}
+	var failed ProductionOutboxRecord
+	for _, result := range results {
+		if result.Failed {
+			failed = result.Record
+			break
+		}
+	}
+	if failed.OutboxID == "" {
+		t.Fatalf("publish failure results = %+v, want one failed row", results)
+	}
+	if failed.Status != ProductionOutboxStatusFailed ||
+		failed.LastError != temporaryErr.Error() ||
+		!failed.FailedAt.Equal(testTime(43)) ||
+		failed.Event.Type != failedType ||
+		failed.ReferenceKey != plan.Reference.ReferenceKey {
+		t.Fatalf("failed durable building outbox row = %+v, want failed committed evidence", failed)
+	}
+}
+
+func TestBuildingMutationDurableCommitStorePublisherRejectsStaleClaimTokens(t *testing.T) {
+	plan := buildingDurableCommitPlanForStoreTest(t)
+	store := NewInMemoryBuildingMutationDurableCommitStore()
+	if _, err := store.ApplyBuildingMutationDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyBuildingMutationDurableCommitPlan() error = %v, want nil", err)
+	}
+	claimed, err := store.ClaimPendingProductionOutboxRecords(1, testTime(50))
+	if err != nil {
+		t.Fatalf("ClaimPendingProductionOutboxRecords() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 || claimed[0].ClaimToken == "" {
+		t.Fatalf("claimed durable building outbox rows = %+v, want one in-flight row", claimed)
+	}
+
+	if _, ok, err := store.MarkProductionOutboxPublished(claimed[0].OutboxID, "wrong-token", testTime(51)); err != nil || ok {
+		t.Fatalf("MarkProductionOutboxPublished(wrong token) = ok %v err %v, want false nil", ok, err)
+	}
+	if _, ok, err := store.MarkProductionOutboxFailed(claimed[0].OutboxID, "wrong-token", "wrong", testTime(51)); err != nil || ok {
+		t.Fatalf("MarkProductionOutboxFailed(wrong token) = ok %v err %v, want false nil", ok, err)
+	}
+	rows := store.OutboxRecords()
+	if rows[0].Status != ProductionOutboxStatusInFlight || rows[0].ClaimToken != claimed[0].ClaimToken {
+		t.Fatalf("durable building outbox after stale token = %+v, want original in-flight row", rows[0])
+	}
+}
+
+func TestBuildingMutationDurableCommitStoreReleasesExpiredOutboxLeases(t *testing.T) {
+	plan := buildingDurableCommitPlanForStoreTest(t)
+	store := NewInMemoryBuildingMutationDurableCommitStore()
+	if _, err := store.ApplyBuildingMutationDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyBuildingMutationDurableCommitPlan() error = %v, want nil", err)
+	}
+	claimed, err := store.ClaimPendingProductionOutboxRecords(1, testTime(60))
+	if err != nil {
+		t.Fatalf("ClaimPendingProductionOutboxRecords() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed durable building outbox rows = %+v, want one row", claimed)
+	}
+
+	released, err := store.ReleaseExpiredProductionOutboxRecords(1, testTime(61), testTime(62))
+	if err != nil {
+		t.Fatalf("ReleaseExpiredProductionOutboxRecords() error = %v, want nil", err)
+	}
+	if len(released) != 1 ||
+		released[0].Status != ProductionOutboxStatusPending ||
+		!released[0].ClaimedAt.IsZero() ||
+		released[0].ClaimToken != "" ||
+		released[0].Attempts != claimed[0].Attempts ||
+		!released[0].RetriedAt.Equal(testTime(62)) ||
+		released[0].ReferenceKey != plan.Reference.ReferenceKey {
+		t.Fatalf("released durable building outbox rows = %+v, want pending committed evidence", released)
+	}
+	if _, ok, err := store.MarkProductionOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(63)); err != nil || ok {
+		t.Fatalf("MarkProductionOutboxPublished(stale token after release) = ok %v err %v, want false nil", ok, err)
+	}
+
+	reclaimed, err := store.ClaimPendingProductionOutboxRecords(1, testTime(64))
+	if err != nil {
+		t.Fatalf("ClaimPendingProductionOutboxRecords(reclaim) error = %v, want nil", err)
+	}
+	if len(reclaimed) != 1 ||
+		reclaimed[0].Attempts != claimed[0].Attempts+1 ||
+		reclaimed[0].ClaimToken == "" ||
+		reclaimed[0].ClaimToken == claimed[0].ClaimToken {
+		t.Fatalf("reclaimed durable building outbox rows = %+v, want fresh claim token", reclaimed)
+	}
+}
+
+func TestBuildingMutationDurableCommitStoreLeaseReleaseNoOps(t *testing.T) {
+	plan := buildingDurableCommitPlanForStoreTest(t)
+	store := NewInMemoryBuildingMutationDurableCommitStore()
+	if _, err := store.ApplyBuildingMutationDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyBuildingMutationDurableCommitPlan() error = %v, want nil", err)
+	}
+	claimedAt := testTime(70)
+	claimed, err := store.ClaimPendingProductionOutboxRecords(1, claimedAt)
+	if err != nil {
+		t.Fatalf("ClaimPendingProductionOutboxRecords() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed durable building outbox rows = %+v, want one row", claimed)
+	}
+	if released, err := store.ReleaseExpiredProductionOutboxRecords(0, claimedAt.Add(time.Second), testTime(71)); err != nil || released != nil {
+		t.Fatalf("ReleaseExpiredProductionOutboxRecords(limit 0) = %+v/%v, want nil nil", released, err)
+	}
+	if released, err := store.ReleaseExpiredProductionOutboxRecords(1, time.Time{}, testTime(71)); err != nil || released != nil {
+		t.Fatalf("ReleaseExpiredProductionOutboxRecords(zero cutoff) = %+v/%v, want nil nil", released, err)
+	}
+	if released, err := store.ReleaseExpiredProductionOutboxRecords(1, claimedAt, testTime(71)); err != nil || len(released) != 0 {
+		t.Fatalf("ReleaseExpiredProductionOutboxRecords(boundary equal) = %+v/%v, want empty nil", released, err)
+	}
+	rows := store.OutboxRecords()
+	if rows[0].Status != ProductionOutboxStatusInFlight || rows[0].ClaimToken != claimed[0].ClaimToken {
+		t.Fatalf("durable building outbox after no-op releases = %+v, want original in-flight row", rows[0])
 	}
 }
 

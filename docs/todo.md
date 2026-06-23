@@ -214,7 +214,10 @@ for phase status; this file is a compact pending-work index.
   rejects missing references/conflicting replays, and keeps duplicate requests
   from appending durable rows. Phase07BD adds building mutation outbox
   dispatch-plan validation and committed durable-store readback for future
-  `planet.building_updated` publisher scheduling. Phase07R starts the
+  `planet.building_updated` publisher scheduling. Phase07BJ lets the building
+  mutation durable commit-store adapter satisfy the production outbox publisher
+  and lease-reaper contracts for committed storage/building outbox rows.
+  Phase07R starts the
   server-authoritative intel/coordinate domain foundation for share,
   coordinate-item creation, coordinate-item use, canonical idempotency keys,
   and consume-once item state. Phase07S wires those intel operations into the
