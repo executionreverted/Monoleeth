@@ -384,9 +384,10 @@ built-client PvP/death/repair loop, destination/PvP scanner, claim, plus Border
 Skirmish drop canary, and scanner no-signal canary. Use
 `GAME_PLAYTEST_VERIFY_DRY_RUN=true scripts/verify_playtest_vertical_slice.sh`
 to print the command sequence without launching the browser proofs.
-Last verified locally on 2026-06-23: the full gate passed, including
-`e2e:playtest-server`, `e2e:playtest-server-pvp`, and
-`e2e:phase10-pvp-map-drop`.
+Last verified locally on 2026-06-24: the full gate passed, including the
+deployable artifact build/staged-publish scan, `e2e:playtest-server`,
+`e2e:playtest-server-pvp`, `e2e:phase10-pvp-map-drop`, and
+`e2e:phase10-scan-no-signal`.
 
 The focused browser planet claim proofs start the local Go server with
 `GAME_DEV_MODE=1` and `GAME_E2E_PLANET_CLAIM_SEED=1`, registers a real browser

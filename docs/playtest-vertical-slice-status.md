@@ -96,6 +96,16 @@ npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-scan-no-s
 scripts/ci_playtest_artifact_gate.sh
 ```
 
+Full local vertical-slice gate:
+
+```text
+2026-06-24: scripts/verify_playtest_vertical_slice.sh passed.
+```
+
+That run passed the deployable artifact build/staged-publish scan, the
+built-client main playtest loop, the built-client PvP/death/repair loop, the
+destination/PvP scanner-claim-drop canary, and the scanner no-signal canary.
+
 The playtest asset screenshot proof writes:
 
 ```text
@@ -110,8 +120,8 @@ client/src/assets/world/
 
 ## Remaining Work Before A Public Test Server
 
-1. Run the full `scripts/verify_playtest_vertical_slice.sh` gate after the next
-   gameplay/content pass and record the exact date/result.
+1. Keep `scripts/verify_playtest_vertical_slice.sh` green after the next
+   gameplay/content pass and record each candidate date/result.
 2. Activate the hosted artifact workflow or wire the same
    `scripts/ci_playtest_artifact_gate.sh` into the external deploy pipeline.
 3. Finish broader Phase10 rollout canaries:
