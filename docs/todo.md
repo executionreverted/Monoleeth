@@ -104,7 +104,10 @@ for phase status; this file is a compact pending-work index.
   handling. Phase07AD adds process-local X Core consumption evidence so a
   transient begin failure after debit can retry without calling the X Core
   consumer again, while conflicting same-reference player/planet attempts are
-  rejected before another consume. Phase07AU adds claim durable begin-plan
+  rejected before another consume. Phase07AX carries the runtime inventory
+  `RemoveItemResult` through `ClaimXCoreConsumeResult` and validates its
+  decrease ledger/touched item rows against the claim X Core debit evidence.
+  Phase07AU adds claim durable begin-plan
   validation for X Core debit evidence plus pending owner-CAS boundary, owned
   planet, and stale-intel evidence, while allowing debit-only begin-failure
   recovery evidence. Phase07AT adds claim durable commit-plan validation for
@@ -402,6 +405,9 @@ for phase status; this file is a compact pending-work index.
   Phase07AO adds the matching production settlement transaction contract for
   planet production windows. Phase07AP adds the matching claim X Core
   debit-plus-owner-CAS begin contract for future durable claim/storage adapters.
+  Phase07AX adds X Core storage-mutation durable-plan validation over the
+  runtime inventory remove result, ledger entry, touched item rows, and claim
+  debit evidence.
   Phase07AQ adds after-commit settlement outbox dispatch-plan validation for
   future durable publisher scheduling. Phase07AR adds durable settlement
   commit-plan validation that ties settlement idempotency references, outbox

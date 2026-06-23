@@ -441,6 +441,14 @@ Current slice completed:
   planet levels, production boundary drift, and mixed X Core debit evidence.
   This is still a contract/helper layer; durable claim/storage DB rows,
   cross-service transaction ownership, and recovery workers remain open.
+- Phase07AX claim X Core storage evidence follow-up:
+  `ClaimXCoreConsumeResult` now carries the inventory `RemoveItemResult` from
+  the runtime adapter instead of discarding it, and
+  `NewClaimXCoreStorageMutationPlan` validates that the canonical claim
+  idempotency key, X Core consumption record, inventory decrease ledger row,
+  touched item rows, and optional owner-boundary evidence describe the same
+  debit. This directly narrows the claim/storage coupling gap; real durable DB
+  rows, cross-service row locks/CAS, and recovery workers remain open.
 
 ## Source Specs
 
@@ -575,6 +583,8 @@ Mockup areas covered:
 - [x] Add authenticated gateway transaction flows for build/upgrade mutations.
 - [x] Add explicit claim X Core debit plus owner-CAS begin boundary contract
       for future durable claim/storage adapters.
+- [x] Add X Core claim consume storage-mutation evidence and durable-plan
+      validation tying inventory remove ledger rows to claim debit evidence.
 - [x] Add claim durable begin-plan validation tying X Core debit evidence,
       pending owner-CAS boundary rows, owned planet snapshots, and stale-intel
       evidence together.

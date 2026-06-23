@@ -12,13 +12,15 @@ func TestBeginPlanetClaimWithXCoreReturnsDebitEvidenceAndOwnerBoundary(t *testin
 	store := NewInMemoryStore()
 	planet := claimTestPlanet("planet-claim-xcore-owner-boundary")
 	materializeClaimTestPlanet(t, store, planet)
-	consumer := &recordingClaimXCoreConsumer{}
 	ref := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
 	key, err := foundation.PlanetClaimIdempotencyKey(claimTestPlayerID, planet.ID)
 	if err != nil {
 		t.Fatalf("PlanetClaimIdempotencyKey() error = %v, want nil", err)
 	}
 	input := beginClaimWithXCoreInputForTest(t, planet.ID, ref)
+	consumer := &recordingClaimXCoreConsumer{
+		result: claimXCoreConsumeResultForTest(t, input.XCore, false),
+	}
 
 	result, err := composedClaimXCoreOwnerBoundary{
 		Consumer:   consumer,
@@ -37,6 +39,15 @@ func TestBeginPlanetClaimWithXCoreReturnsDebitEvidenceAndOwnerBoundary(t *testin
 		!result.XCoreConsumption.ConsumedAt.Equal(input.ConsumedAt) {
 		t.Fatalf("x core consumption evidence = %+v, want claim/player/planet/key evidence", result.XCoreConsumption)
 	}
+	plan, err := NewClaimXCoreStorageMutationPlan(input.XCore, result.XCoreResult, result.XCoreConsumption, &result.Boundary.Boundary)
+	if err != nil {
+		t.Fatalf("NewClaimXCoreStorageMutationPlan() error = %v, want nil", err)
+	}
+	if !plan.HasBoundary ||
+		len(plan.Result.StorageMutation.LedgerEntries) != 1 ||
+		plan.Result.StorageMutation.LedgerEntries[0].ReferenceKey != key {
+		t.Fatalf("x core storage plan = %+v, want boundary and canonical ledger evidence", plan)
+	}
 	if result.Boundary.Boundary.Status != ClaimBoundaryStatusPendingSideEffects ||
 		result.Boundary.Boundary.ClaimReference != ref ||
 		result.Boundary.Planet.OwnerPlayerID != claimTestPlayerID {
@@ -50,8 +61,11 @@ func TestBeginPlanetClaimWithXCoreBeginFailureReturnsDebitEvidence(t *testing.T)
 	planet := claimTestPlanet("planet-claim-xcore-owner-begin-failure")
 	materializeClaimTestPlanet(t, store, planet)
 	beginErr := errors.New("owner cas failed")
-	consumer := &recordingClaimXCoreConsumer{}
 	ref := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
+	input := beginClaimWithXCoreInputForTest(t, planet.ID, ref)
+	consumer := &recordingClaimXCoreConsumer{
+		result: claimXCoreConsumeResultForTest(t, input.XCore, false),
+	}
 
 	result, err := composedClaimXCoreOwnerBoundary{
 		Consumer: consumer,
@@ -59,7 +73,7 @@ func TestBeginPlanetClaimWithXCoreBeginFailureReturnsDebitEvidence(t *testing.T)
 			inner:    store,
 			beginErr: beginErr,
 		},
-	}.BeginPlanetClaimWithXCore(beginClaimWithXCoreInputForTest(t, planet.ID, ref))
+	}.BeginPlanetClaimWithXCore(input)
 	if !errors.Is(err, beginErr) {
 		t.Fatalf("BeginPlanetClaimWithXCore() error = %v, want begin error", err)
 	}
@@ -69,8 +83,100 @@ func TestBeginPlanetClaimWithXCoreBeginFailureReturnsDebitEvidence(t *testing.T)
 	if result.XCoreConsumption.ClaimReference != ref || result.XCoreConsumption.PlayerID != claimTestPlayerID || result.XCoreConsumption.PlanetID != planet.ID {
 		t.Fatalf("x core evidence after begin failure = %+v, want populated claim evidence", result.XCoreConsumption)
 	}
+	plan, planErr := NewClaimXCoreStorageMutationPlan(input.XCore, result.XCoreResult, result.XCoreConsumption, nil)
+	if planErr != nil {
+		t.Fatalf("NewClaimXCoreStorageMutationPlan(debit-only) error = %v, want nil", planErr)
+	}
+	if plan.HasBoundary {
+		t.Fatalf("x core debit-only storage plan HasBoundary = true, want false")
+	}
 	if _, ok, lookupErr := store.ClaimBoundary(ref); lookupErr != nil || ok {
 		t.Fatalf("ClaimBoundary() after failed begin ok = %v err = %v, want false nil", ok, lookupErr)
+	}
+}
+
+func TestClaimXCoreStorageMutationPlanRejectsInvalidRows(t *testing.T) {
+	planetID := foundation.PlanetID("planet-claim-xcore-storage-invalid")
+	ref := canonicalClaimReference(t, claimTestPlayerID, planetID)
+	input := beginClaimWithXCoreInputForTest(t, planetID, ref)
+	validResult := claimXCoreConsumeResultForTest(t, input.XCore, false)
+	consumption := newClaimXCoreConsumptionRecord(input.XCore, validResult, input.ConsumedAt)
+
+	cases := []struct {
+		name   string
+		mutate func(*ClaimXCoreConsumeResult)
+	}{
+		{
+			name: "missing ledger",
+			mutate: func(result *ClaimXCoreConsumeResult) {
+				result.StorageMutation.LedgerEntries = nil
+			},
+		},
+		{
+			name: "duplicate mismatch",
+			mutate: func(result *ClaimXCoreConsumeResult) {
+				result.StorageMutation.Duplicate = true
+			},
+		},
+		{
+			name: "wrong reference key",
+			mutate: func(result *ClaimXCoreConsumeResult) {
+				result.StorageMutation.LedgerEntries[0].ReferenceKey = "planet_claim:player-other:planet-other"
+			},
+		},
+		{
+			name: "wrong player",
+			mutate: func(result *ClaimXCoreConsumeResult) {
+				result.StorageMutation.LedgerEntries[0].PlayerID = "player-other"
+			},
+		},
+		{
+			name: "wrong item",
+			mutate: func(result *ClaimXCoreConsumeResult) {
+				result.StorageMutation.LedgerEntries[0].ItemID = "x_core_other"
+			},
+		},
+		{
+			name: "wrong location",
+			mutate: func(result *ClaimXCoreConsumeResult) {
+				result.StorageMutation.LedgerEntries[0].Location = economy.ItemLocation{
+					Kind: economy.LocationKindAccountInventory,
+					ID:   "player-other",
+				}
+			},
+		},
+		{
+			name: "wrong quantity",
+			mutate: func(result *ClaimXCoreConsumeResult) {
+				quantity, err := foundation.NewQuantity(2)
+				if err != nil {
+					t.Fatalf("NewQuantity: %v", err)
+				}
+				result.StorageMutation.LedgerEntries[0].Quantity = quantity
+			},
+		},
+		{
+			name: "increase action",
+			mutate: func(result *ClaimXCoreConsumeResult) {
+				result.StorageMutation.LedgerEntries[0].Action = economy.LedgerActionIncrease
+			},
+		},
+		{
+			name: "wrong stackable owner",
+			mutate: func(result *ClaimXCoreConsumeResult) {
+				result.StorageMutation.StackableItems[0].OwnerPlayerID = "player-other"
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := cloneClaimXCoreConsumeResult(validResult)
+			tc.mutate(&result)
+			if _, err := NewClaimXCoreStorageMutationPlan(input.XCore, result, consumption, nil); !errors.Is(err, ErrInvalidClaimDurableCommit) {
+				t.Fatalf("NewClaimXCoreStorageMutationPlan() error = %v, want ErrInvalidClaimDurableCommit", err)
+			}
+		})
 	}
 }
 
@@ -205,5 +311,51 @@ func beginClaimWithXCoreInputForTest(t *testing.T, planetID foundation.PlanetID,
 			SourceReference: "planet.claimed:event_xcore_owner_boundary",
 		},
 		ConsumedAt: testTime(11),
+	}
+}
+
+func claimXCoreConsumeResultForTest(t *testing.T, input ClaimXCoreConsumeInput, duplicate bool) ClaimXCoreConsumeResult {
+	t.Helper()
+	quantity, err := foundation.NewQuantity(input.Quantity)
+	if err != nil {
+		t.Fatalf("NewQuantity(%d): %v", input.Quantity, err)
+	}
+	key, ok := input.Reference.IdempotencyKey(input.PlayerID, input.PlanetID)
+	if !ok {
+		t.Fatalf("IdempotencyKey(%q): want canonical key", input.Reference)
+	}
+	entry, err := economy.NewItemLedgerEntry(
+		"ledger_claim_xcore_storage",
+		input.PlayerID,
+		input.ItemRef.Definition.ItemID,
+		input.ItemRef.ItemInstanceID,
+		quantity,
+		economy.LedgerActionDecrease,
+		4,
+		input.SourceLocation,
+		input.Reason,
+		key,
+	)
+	if err != nil {
+		t.Fatalf("NewItemLedgerEntry: %v", err)
+	}
+	item, err := economy.NewStackableItem(
+		input.ItemRef.Definition.Source,
+		"item_claim_xcore_storage",
+		input.ItemRef.Definition.ItemID,
+		input.PlayerID,
+		input.SourceLocation,
+		quantity,
+	)
+	if err != nil {
+		t.Fatalf("NewStackableItem: %v", err)
+	}
+	return ClaimXCoreConsumeResult{
+		StorageMutation: economy.RemoveItemResult{
+			StackableItems: []economy.StackableItem{item},
+			LedgerEntries:  []economy.ItemLedgerEntry{entry},
+			Duplicate:      duplicate,
+		},
+		Duplicate: duplicate,
 	}
 }

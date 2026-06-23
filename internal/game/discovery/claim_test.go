@@ -1018,8 +1018,9 @@ func (provider fixedClaimProximityProvider) PlayerCanClaimPlanet(input ClaimProx
 }
 
 type recordingClaimXCoreConsumer struct {
-	calls []ClaimXCoreConsumeInput
-	err   error
+	calls  []ClaimXCoreConsumeInput
+	result ClaimXCoreConsumeResult
+	err    error
 }
 
 func (consumer *recordingClaimXCoreConsumer) ConsumeClaimXCore(input ClaimXCoreConsumeInput) (ClaimXCoreConsumeResult, error) {
@@ -1030,7 +1031,7 @@ func (consumer *recordingClaimXCoreConsumer) ConsumeClaimXCore(input ClaimXCoreC
 		return ClaimXCoreConsumeResult{}, consumer.err
 	}
 	consumer.calls = append(consumer.calls, input)
-	return ClaimXCoreConsumeResult{}, nil
+	return cloneClaimXCoreConsumeResult(consumer.result), nil
 }
 
 type recordingClaimProductionInitializer struct {

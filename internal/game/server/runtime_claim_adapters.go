@@ -103,7 +103,10 @@ func (consumer runtimeClaimXCoreConsumer) ConsumeClaimXCore(input discovery.Clai
 	if err != nil {
 		return discovery.ClaimXCoreConsumeResult{}, err
 	}
-	return discovery.ClaimXCoreConsumeResult{Duplicate: result.Duplicate}, nil
+	return discovery.ClaimXCoreConsumeResult{
+		StorageMutation: result,
+		Duplicate:       result.Duplicate,
+	}, nil
 }
 
 type runtimeClaimListedIntelStaleMarker struct {

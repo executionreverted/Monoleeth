@@ -150,7 +150,8 @@ type ClaimXCoreConsumeInput struct {
 
 // ClaimXCoreConsumeResult reports duplicate-safe X Core consumption.
 type ClaimXCoreConsumeResult struct {
-	Duplicate bool `json:"duplicate"`
+	StorageMutation economy.RemoveItemResult `json:"storage_mutation"`
+	Duplicate       bool                     `json:"duplicate"`
 }
 
 type ClaimRankProvider interface {
