@@ -484,10 +484,12 @@ for phase status; this file is a compact pending-work index.
   guards for wrong map/world-zone, NPC type, level/rank band, risk band,
   missing inputs, and missing table cases without starter fallback.
   Phase10 now also rejects seeded destination/PvP level/risk/table-unavailable
-  and table-source mismatches without falling back to starter loot, and
-  domain-level hidden/far/cross-map pickup rejection remains covered. Phase09
-  now covers starter and destination browser fight/loot pickup; broader balance
-  tuning and additional rollout/browser proof remain open. Source:
+  and table-source mismatches without falling back to starter loot, rejects a
+  cross-map seeded spawn-record mismatch from public `1-2` into PvP `1-3`
+  without producing a fallback drop, and domain-level hidden/far/cross-map
+  pickup rejection remains covered. Phase09 now covers starter and destination
+  browser fight/loot pickup; broader balance tuning and additional
+  rollout/browser proof remain open. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Extend the Phase09 browser map smoke into a full real-server
   fight/loot/scan/portal loop with desktop, tablet, and mobile screenshots,

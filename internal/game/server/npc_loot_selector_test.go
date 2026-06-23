@@ -652,6 +652,46 @@ func TestNPCLootSelectorRejectsSeededMapMatrixMismatchesWithoutStarterFallback(t
 	}
 }
 
+func TestNPCLootSelectorRejectsCrossMapSeededSpawnRecordWithoutFallback(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSession(t, gameServer, "selector-cross-map-seed@example.com", "Selector Cross Map Seed")
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+
+	destination, err := gameServer.runtime.mapInstanceLocked("map_1_2")
+	if err != nil {
+		t.Fatalf("map_1_2 instance: %v", err)
+	}
+	pvpMap, err := gameServer.runtime.mapInstanceLocked("map_1_3")
+	if err != nil {
+		t.Fatalf("map_1_3 instance: %v", err)
+	}
+	destinationRecord := requireSpawnRecordByNPCType(t, destination, "outer_ring_scout_drone")
+	event := testNPCKilledEventForRecord(resolved.PlayerID, destination, destinationRecord)
+	event.WorldID = pvpMap.Definition.WorldID
+	event.ZoneID = pvpMap.Definition.ZoneID
+
+	_, err = gameServer.runtime.selectNPCKillLootTableForInstanceLocked(pvpMap, event)
+	if !errors.Is(err, errNPCLootSpawnUnavailable) {
+		t.Fatalf("selectNPCKillLootTableForInstanceLocked(cross-map spawn) error = %v, want %v", err, errNPCLootSpawnUnavailable)
+	}
+	requireMetricCounter(t, gameServer.runtime.Metrics.Snapshot(), observability.MetricNPCLootSelectorDecisions, 1, []observability.Label{
+		{Name: "map_key", Value: "1-3"},
+		{Name: "npc_type", Value: "outer_ring_scout_drone"},
+		{Name: "reason", Value: "unavailable"},
+		{Name: "result", Value: "rejected"},
+		{Name: "risk_band", Value: "medium"},
+		{Name: "stage", Value: "spawn_record"},
+		{Name: "world_id", Value: "world-1"},
+		{Name: "zone_id", Value: "map_1_3"},
+	})
+	if drop, ok := gameServer.runtime.Loot.Drop("drop_1"); ok {
+		t.Fatalf("cross-map spawn mismatch created fallback drop %+v; want no fallback drop", drop)
+	}
+}
+
 func TestNPCLootSelectorRejectsMissingInputsWithoutTrainingFallback(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

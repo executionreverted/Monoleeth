@@ -136,9 +136,12 @@ marked `Open` are not implemented rollout controls yet.
 - Full server-side selector mismatch guard is now covered for wrong kill-event
   map/world-zone, NPC type, starter level/rank band, starter risk band, missing
   inputs, missing table cases, and seeded destination/PvP level/risk/table
-  unavailable/table-source mismatch cases without starter fallback. Current
-  positive coverage includes seeded public `1-1`, `1-2`, and medium PvP `1-3`
-  matrix rows, domain-level cross-map pickup rejection, and
+  unavailable/table-source mismatch cases without starter fallback. Seeded
+  cross-map spawn-record mismatch coverage now proves a public `1-2` NPC kill
+  event cannot be resolved through the public `1-3` PvP map selector or fall
+  back to starter loot. Current positive coverage includes seeded public `1-1`,
+  `1-2`, and medium PvP `1-3` matrix rows, domain-level cross-map pickup
+  rejection, and
   starter/destination browser fight/loot pickup proof. Broader balance tuning
   and additional rollout/browser proof remain open.
 - Phase09 now covers inbound/outbound WebSocket text frames,
