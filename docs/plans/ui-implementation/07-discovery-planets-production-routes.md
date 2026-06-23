@@ -1091,6 +1091,9 @@ Mockup areas covered:
 - [x] Runtime route create/update/enable/disable writes durable route-row
       snapshots with server-derived idempotency references and revision
       advancement.
+- [x] Authenticated duplicate `route.disable` request IDs replay the original
+      safe gateway response when the retry route id changes, without mutating
+      the second route, energy reservation, or event batch.
 - [x] Runtime route.create uses a transaction boundary that rechecks owner
       route-slot capacity under the insert lock before committing route rows.
 - [x] Pure route settlement writes durable route-row cursor snapshots with the

@@ -347,7 +347,10 @@ for phase status; this file is a compact pending-work index.
   rejected instead of being treated as successful replays. Route enable/disable
   same-reference duplicate retries now also replay the committed durable route
   row before live owner/row preflight, preserving no-second-settlement and
-  no-second-energy-reservation behavior during recovery.
+  no-second-energy-reservation behavior during recovery. Authenticated duplicate
+  `route.disable` request IDs now also replay the original safe gateway response
+  when the retry payload names a different route, without mutating that second
+  route, changing its energy reservation, or queuing another route event batch.
   Phase07BS wires enabled route upkeep into the source planet production energy
   budget in the in-memory store: create/enable reserve energy, disable releases
   after settlement, and update applies the enabled-route energy delta while
@@ -381,7 +384,7 @@ for phase status; this file is a compact pending-work index.
   Source: Phase 10
   audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
   Phase07K, Phase07AN, Phase07BN, Phase07BO, Phase07BP, Phase07BQ,
-  Phase07BR, Phase07BS, Phase07BT, Phase07BV, and Phase07CD.
+  Phase07BR, Phase07BS, Phase07BT, Phase07BV, Phase07CD, and Phase07DF.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server
