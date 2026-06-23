@@ -42,9 +42,10 @@ for phase status; this file is a compact pending-work index.
   low-tier craft XP diminishing returns and daily soft caps before public
   economy balancing. The domain hook now records non-duplicate craft XP grants,
   but it does not reduce XP by itself.
-- [ ] Wire `production.CraftLocationAuthorizer` into the concrete runtime craft
-  service factory before exposing owned-planet or planet-building recipes, and
-  add station/special-event station providers for public craft start APIs.
+- [x] Wire `production.CraftLocationAuthorizer` into the concrete runtime craft
+  service factory before exposing owned-planet or planet-building recipes.
+- [ ] Add station/special-event station providers and explicit location
+  selection for public craft start APIs before non-station recipes are exposed.
 - [ ] Add gateway/security tests for craft start authorization using the
   authenticated server-side player id, including hidden or unowned planet and
   building ids with leak-safe errors.
