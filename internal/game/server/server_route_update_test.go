@@ -167,6 +167,7 @@ func TestRouteUpdateRejectsSpoofedServerOwnedFieldsBeforeMutation(t *testing.T) 
 		{name: "source map", field: `"source":{"source_map_id":"map_1_1"}`},
 		{name: "destination object", field: `"destination":{"type":"planet","id":"planet-spoofed"}`},
 		{name: "destination id alias", field: `"destination_id":"planet-spoofed"`},
+		{name: "destination type", field: `"destination_type":"station"`},
 		{name: "destination map", field: `"destination_map_id":"map_1_2"`},
 		{name: "public map key", field: `"config":{"destination":{"public_map_key":"1-2"}}`},
 		{name: "enabled", field: `"enabled":false`},

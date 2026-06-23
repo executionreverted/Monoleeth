@@ -442,20 +442,57 @@ func TestSettleRouteStorageDestinationTransfersToStorageAggregate(t *testing.T) 
 	assertRouteDurableRecord(t, store, route.RouteID, wantReference, 2, result.AfterRoute)
 }
 
-func TestSettleRouteUnsupportedDestinationReturnsErrorWithoutMutation(t *testing.T) {
+func TestSettleRouteStationDestinationTransfersToStationStorageAggregate(t *testing.T) {
 	last := testRouteNow()
 	now := last.Add(time.Hour)
 	route := validSettlementRoute(last)
 	route.Destination = RouteDestination{Type: RouteDestinationTypeStation, ID: "station-1"}
+	store := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	service := newTestRouteSettlementService(t, store, now, nil)
+
+	result, err := service.SettleRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("SettleRoute(station destination) error = %v, want nil", err)
+	}
+	if result.WantedAmount != 40 || result.TakenAmount != 40 || result.DeliveredAmount != 40 || result.AddedAmount != 40 {
+		t.Fatalf("station destination amounts = wanted %d taken %d delivered %d added %d, want 40/40/40/40",
+			result.WantedAmount, result.TakenAmount, result.DeliveredAmount, result.AddedAmount)
+	}
+	wantWindow := wantSettlementWindow(last, now)
+	wantReference := mustRouteSettlementKey(t, route.RouteID, wantWindow)
+	assertRouteStorageLedgerEntries(t, result.StorageLedger,
+		routeStorageLedgerWant{Operation: RouteStorageLedgerSourceDebit, PlanetID: "planet-1", CounterpartyPlanetID: "station-1", Quantity: 40, BalanceAfter: 60, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+		routeStorageLedgerWant{Operation: RouteStorageLedgerDestinationCredit, PlanetID: "station-1", CounterpartyPlanetID: "planet-1", Quantity: 40, BalanceAfter: 40, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+	)
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, now)
+	assertRouteSettlementStorage(t, store, "station-1", "refined_alloy", 40, now)
+	assertRouteDurableRecord(t, store, route.RouteID, wantReference, 2, result.AfterRoute)
+}
+
+func TestSettleRouteInvalidDestinationReturnsErrorWithoutMutation(t *testing.T) {
+	last := testRouteNow()
+	now := last.Add(time.Hour)
+	route := validSettlementRoute(last)
+	route.Destination = RouteDestination{Type: RouteDestinationType("wormhole"), ID: "wormhole-1"}
 	store := NewInMemoryStore()
 	ensureRouteProductionStateForTest(t, store, route.SourcePlanetID, 100, last)
-	insertRouteSettlementRoute(t, store, route)
+	store.mu.Lock()
+	store.ensureMapsLocked()
+	store.routes[route.RouteID] = cloneAutomationRoute(route)
+	store.mu.Unlock()
 	saveRouteSettlementStorage(t, store, "planet-1", 100, []StoredItem{{ItemID: "refined_alloy", Quantity: 100}}, last)
 	service := newTestRouteSettlementService(t, store, now, nil)
 
 	_, err := service.SettleRoute(route.RouteID)
-	if !errors.Is(err, ErrUnsupportedRouteDestination) {
-		t.Fatalf("SettleRoute() error = %v, want ErrUnsupportedRouteDestination", err)
+	if !errors.Is(err, ErrInvalidRouteDestinationType) {
+		t.Fatalf("SettleRoute() error = %v, want ErrInvalidRouteDestinationType", err)
 	}
 	assertRouteSettlementRouteTime(t, store, route.RouteID, last)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 100, last)

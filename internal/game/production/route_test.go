@@ -44,16 +44,16 @@ func TestCreateRouteNonRouteableResourceFails(t *testing.T) {
 	}
 }
 
-func TestCreateRouteUnsupportedDestinationFailsBeforePolicyLookup(t *testing.T) {
+func TestCreateRouteInvalidDestinationFailsBeforePolicyLookup(t *testing.T) {
 	store := NewInMemoryStore()
 	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
 	service := newTestRouteService(t, store, provider, testRouteNow())
 	input := validCreateRouteInput()
-	input.Destination = RouteDestination{Type: RouteDestinationTypeStation, ID: "station-1"}
+	input.Destination = RouteDestination{Type: RouteDestinationType("wormhole"), ID: "wormhole-1"}
 
 	_, err := service.CreateRoute(input)
-	if !errors.Is(err, ErrUnsupportedRouteDestination) {
-		t.Fatalf("CreateRoute() error = %v, want ErrUnsupportedRouteDestination", err)
+	if !errors.Is(err, ErrInvalidRouteDestinationType) {
+		t.Fatalf("CreateRoute() error = %v, want ErrInvalidRouteDestinationType", err)
 	}
 	if provider.calls != 0 {
 		t.Fatalf("policy calls = %d, want 0", provider.calls)
@@ -79,6 +79,27 @@ func TestCreateRouteStorageDestinationUsesPolicyAndPersistsRoute(t *testing.T) {
 		t.Fatalf("created route destination = %+v, want %+v", result.Route.Destination, input.Destination)
 	}
 	assertRouteMapIdentity(t, result.Route, "map_1_1", "map_storage")
+}
+
+func TestCreateRouteStationDestinationUsesPolicyAndPersistsRoute(t *testing.T) {
+	store := NewInMemoryStore()
+	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
+	provider.policy.DestinationMapID = "map_station"
+	service := newTestRouteService(t, store, provider, testRouteNow())
+	input := validCreateRouteInput()
+	input.Destination = RouteDestination{Type: RouteDestinationTypeStation, ID: "station-1"}
+
+	result, err := service.CreateRoute(input)
+	if err != nil {
+		t.Fatalf("CreateRoute(station destination) error = %v, want nil", err)
+	}
+	if provider.calls != 1 || provider.lastInput.Destination != input.Destination {
+		t.Fatalf("policy calls/input = %d/%+v, want station destination policy lookup", provider.calls, provider.lastInput)
+	}
+	if result.Route.Destination != input.Destination {
+		t.Fatalf("created route destination = %+v, want %+v", result.Route.Destination, input.Destination)
+	}
+	assertRouteMapIdentity(t, result.Route, "map_1_1", "map_station")
 }
 
 func TestCreateRouteNonPositiveRateFailsBeforePolicyLookup(t *testing.T) {

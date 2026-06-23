@@ -209,14 +209,14 @@ func (store *InMemoryStore) settleRouteLocked(
 
 // RouteSettlementDestinationStorageID resolves a route destination into the
 // storage aggregate id used by the MVP route settlement adapter. Planet
-// destinations use their planet-local storage; storage destinations name an
-// explicit storage aggregate. Station adapters remain intentionally unsupported.
+// destinations use their planet-local storage; storage and station destinations
+// name explicit storage aggregates.
 func RouteSettlementDestinationStorageID(destination RouteDestination) (foundation.PlanetID, error) {
 	if err := destination.Validate(); err != nil {
 		return "", err
 	}
 	switch destination.Type {
-	case RouteDestinationTypePlanet, RouteDestinationTypeStorage:
+	case RouteDestinationTypePlanet, RouteDestinationTypeStorage, RouteDestinationTypeStation:
 		storageID := foundation.PlanetID(destination.ID)
 		if err := storageID.Validate(); err != nil {
 			return "", err

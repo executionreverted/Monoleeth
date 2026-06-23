@@ -447,8 +447,17 @@ Current slice completed:
   storage aggregates. Storage-destination settlements use the same
   server-timed reference/window evidence, route storage ledger rows, durable
   route-row cursor snapshots, and outbox evidence as planet destinations.
-  Station destinations plus runtime/browser storage-route access policy remain
-  open.
+  Station destinations are covered by Phase07BY; runtime/browser non-planet
+  route access policy remains open.
+- Phase07BY station destination route adapter follow-up:
+  The same production-domain route adapter now accepts `station` destinations
+  behind the route policy boundary and settles them into named station storage
+  aggregates with normal route ledger, durable route-row, reference/window, and
+  outbox evidence. Public route create/update handlers still accept only
+  `destination_planet_id`; spoofed `destination`, `destination_id`, and
+  `destination_type: station` payloads are rejected before mutation.
+  Runtime/browser non-planet route access policy and durable DB endpoint rows
+  remain open.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -1016,7 +1025,7 @@ Mockup areas covered:
       snapshot with settlement reference, outbox, and route ledger rows.
 - [x] Route settlement durable outbox realtime projection publishes owner-scoped
       route settled/snapshot/list plus production/storage reconciliation events.
-- [x] Route settlement supports named storage-destination aggregates with the
+- [x] Route settlement supports named storage/station-destination aggregates with the
       same server-owned window/reference, ledger, durable route-row, and outbox
       evidence as planet destinations.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published

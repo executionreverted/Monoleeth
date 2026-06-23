@@ -819,6 +819,9 @@ func TestRouteCreateRejectsSpoofedServerOwnedFieldsBeforeMutation(t *testing.T) 
 	}{
 		{name: "owner player", field: `"owner_player_id":"spoofed-player"`},
 		{name: "source map", field: `"source_map_id":"map_1_1"`},
+		{name: "destination object", field: `"destination":{"type":"station","id":"station-1"}`},
+		{name: "destination id alias", field: `"destination_id":"station-1"`},
+		{name: "destination type", field: `"destination_type":"station"`},
 		{name: "destination map", field: `"destination_map_id":"map_1_2"`},
 		{name: "route id", field: `"route_id":"route-spoofed"`},
 		{name: "energy cost", field: `"energy_cost_per_hour":1`},

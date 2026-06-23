@@ -557,8 +557,11 @@ for phase status; this file is a compact pending-work index.
   domain route create/update can pass `storage` endpoints through the policy
   boundary, and route settlement transfers into the named storage aggregate
   with normal route ledger, durable route-row, reference/window, and outbox
-  evidence. Station destinations, runtime/browser storage-route access policy,
-  and durable DB-backed storage endpoint rows remain open.
+  evidence. Phase07BY extends the same adapter contract to `station`
+  destinations while adding public gateway guardrails so browser route
+  create/update still cannot author non-planet endpoints. Runtime/browser
+  non-planet route access policy and durable DB-backed storage/station endpoint
+  rows remain open.
 - [ ] Replace Phase 09 in-memory production, storage, and route repositories with
   durable per-planet/per-route transactions or row locks before multi-process
   runtime deployment.
