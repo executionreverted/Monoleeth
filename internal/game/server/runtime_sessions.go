@@ -213,6 +213,8 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 		realtime.OperationHangarActivateShip,
 		realtime.OperationLoadoutEquipModule,
 		realtime.OperationLoadoutUnequipModule,
+		realtime.OperationCraftingStart,
+		realtime.OperationCraftingComplete,
 		realtime.OperationStealthToggle,
 		realtime.OperationScanPulse,
 		realtime.OperationDiscoveryClaimPlanet,

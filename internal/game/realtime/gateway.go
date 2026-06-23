@@ -90,6 +90,14 @@ func (gateway *Gateway) HandleRequest(sessionID SessionID, data []byte) CachedRe
 	return response
 }
 
+// ForgetSessionCache drops completed retry responses for one transport session.
+func (gateway *Gateway) ForgetSessionCache(sessionID SessionID) {
+	if gateway == nil || gateway.cache == nil {
+		return
+	}
+	gateway.cache.ForgetSession(sessionID)
+}
+
 func (gateway *Gateway) executeResolved(sessionID SessionID, request RequestEnvelope) CachedResponse {
 	ctx, err := gateway.sessions.ResolveSession(sessionID)
 	if err != nil {
@@ -112,7 +120,8 @@ func (gateway *Gateway) executeResolved(sessionID SessionID, request RequestEnve
 }
 
 func (gateway *Gateway) cachedError(requestID foundation.RequestID, err error) CachedResponse {
-	return CachedError(NewErrorEnvelope(requestID, domainErrorForGateway(err), false, gateway.serverTime()))
+	domainErr := domainErrorForGateway(err)
+	return CachedError(NewErrorEnvelope(requestID, domainErr, domainErr.Public().Code == foundation.CodeInternal, gateway.serverTime()))
 }
 
 func (gateway *Gateway) serverTime() int64 {

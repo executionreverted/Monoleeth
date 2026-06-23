@@ -603,10 +603,12 @@ contracts:
    successful cached claim results, and Phase07N added process-local claim
    outbox delivery state plus claim-token guards. Durable DB rows,
    cross-process recovery, durable outbox persistence, and idempotency-table
-   enforcement remain open.
-5. Add recovery for production initialization after claim. A retry must repair
-   missing production rows without consuming a second X Core or changing owner
-   twice.
+   enforcement remain open. The authenticated gateway rejects another player's
+   planet before X Core consumption, production initialization, lifecycle rows,
+   or owner-scoped claim events.
+5. Add recovery for production initialization after claim. A retry or bounded
+   production-init recovery drain must repair missing production/storage live
+   rows without consuming a second X Core or changing owner twice.
 6. Add public map key to production snapshots and storage/building read
    payloads, while keeping internal map id in server-side policy/event metadata.
 7. Add `planet.building_build` and `planet.building_upgrade` handlers only when
@@ -691,6 +693,25 @@ contracts:
   settlements. Durable route settlement idempotency table enforcement must
   still respect source storage, destination capacity, loss rolls, and map-risk
   policy.
+- Future-window `route.settle` can recover from process-local live route-row
+  loss by restoring the committed durable route row, then repairing missing
+  source/destination storage rows from durable settlement evidence before
+  applying the next server-owned settlement window.
+- Future `route.enable`, `route.disable`, and `route.update` requests use the
+  same durable route-row restore after live route-row loss, while wrong-owner
+  attempts still fail before mutation.
+- Source-empty `route.settle` through the authenticated gateway now exposes a
+  safe `source_empty` response/event, advances the route cursor with zero
+  transfers, and records durable settlement reference/outbox evidence without
+  storage ledger rows.
+- Duplicate `route.update` request IDs through the authenticated gateway replay
+  the original safe route response even if the retry payload changes, and do
+  not append a second settlement ledger, outbox, storage mutation, or event
+  batch.
+- Duplicate `route.create` request IDs through the authenticated gateway replay
+  the original safe route response even if the retry payload changes, and do
+  not create a second route, durable route row, energy reservation, or event
+  batch.
 - Realtime/event tests prove claim, production, and route events do not leak to
   other maps or unrelated sessions.
 - Browser/API tests prove mutation controls reconcile from server snapshots and

@@ -94,6 +94,9 @@ func (runtime *Runtime) handleIntelShare(ctx realtime.CommandContext, request re
 	if err := planetID.Validate(); err != nil {
 		return nil, invalidPayload("Planet id is invalid.", err)
 	}
+	if err := runtime.requireKnownIntelShareReceiver(toPlayerID); err != nil {
+		return nil, err
+	}
 	reference, err := foundation.IntelShareIdempotencyKey(ctx.PlayerID, toPlayerID, planetID, request.RequestID.String())
 	if err != nil {
 		return nil, invalidPayload("Intel share reference is invalid.", err)
@@ -134,6 +137,16 @@ func (runtime *Runtime) handleIntelShare(ctx realtime.CommandContext, request re
 		},
 	}
 	return marshalPayload(payload)
+}
+
+func (runtime *Runtime) requireKnownIntelShareReceiver(playerID foundation.PlayerID) error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	if _, ok := runtime.players[playerID]; ok {
+		return nil
+	}
+	return foundation.NewDomainError(foundation.CodeNotFound, "Intel share target was not found.")
 }
 
 func (runtime *Runtime) handleIntelCoordinateItemCreate(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -345,11 +358,25 @@ func (runtime *Runtime) requireUsableCoordinateItem(playerID foundation.PlayerID
 	if item.OwnerPlayerID != playerID {
 		return intel.ErrCoordinateItemNotOwned
 	}
+	if err := runtime.requireCoordinateItemActiveMap(playerID, item); err != nil {
+		return err
+	}
 	if item.UsedAt != nil {
 		if item.UsedBy == playerID && item.UseReference == reference {
 			return nil
 		}
 		return intel.ErrCoordinateItemAlreadyUsed
+	}
+	return nil
+}
+
+func (runtime *Runtime) requireCoordinateItemActiveMap(playerID foundation.PlayerID, item intel.CoordinateItem) error {
+	scope, err := runtime.knownPlanetMapScope(playerID)
+	if err != nil {
+		return err
+	}
+	if item.WorldID != scope.worldID || item.ZoneID != scope.zoneID {
+		return intel.ErrCoordinateItemNotFound
 	}
 	return nil
 }
@@ -450,10 +477,24 @@ func (runtime *Runtime) syncIntelFromDiscovery(playerID foundation.PlayerID, pla
 		return intel.PlayerPlanetIntel{}, intel.ErrPlanetIntelNotKnown
 	}
 	converted := intelFromDiscovery(row)
+	if err := runtime.requirePlanetIntelActiveMap(playerID, converted); err != nil {
+		return intel.PlayerPlanetIntel{}, err
+	}
 	if _, _, err := runtime.Intel.UpsertPlayerPlanetIntel(converted); err != nil {
 		return intel.PlayerPlanetIntel{}, err
 	}
 	return converted, nil
+}
+
+func (runtime *Runtime) requirePlanetIntelActiveMap(playerID foundation.PlayerID, row intel.PlayerPlanetIntel) error {
+	scope, err := runtime.knownPlanetMapScope(playerID)
+	if err != nil {
+		return err
+	}
+	if row.WorldID != scope.worldID || row.ZoneID != scope.zoneID {
+		return intel.ErrPlanetIntelNotKnown
+	}
+	return nil
 }
 
 func deterministicCoordinateItemID(playerID foundation.PlayerID, planetID foundation.PlanetID, requestID foundation.RequestID) foundation.ItemID {

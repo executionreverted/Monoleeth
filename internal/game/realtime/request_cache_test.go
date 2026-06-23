@@ -355,6 +355,29 @@ func TestRequestCacheEvictsOldestResponseAtCapacity(t *testing.T) {
 	}
 }
 
+func TestRequestCacheForgetSessionRemovesOnlyThatSession(t *testing.T) {
+	cache := NewRequestCache(3)
+
+	cache.Remember(SessionID("session-1"), foundation.RequestID("request-1"), cachedPayload("request-1", `{"session":1}`))
+	cache.Remember(SessionID("session-1"), foundation.RequestID("request-2"), cachedPayload("request-2", `{"session":1}`))
+	cache.Remember(SessionID("session-2"), foundation.RequestID("request-1"), cachedPayload("request-1", `{"session":2}`))
+
+	cache.ForgetSession(SessionID("session-1"))
+
+	if _, ok := cache.Lookup(SessionID("session-1"), foundation.RequestID("request-1")); ok {
+		t.Fatal("session-1 request-1 remained cached")
+	}
+	if _, ok := cache.Lookup(SessionID("session-1"), foundation.RequestID("request-2")); ok {
+		t.Fatal("session-1 request-2 remained cached")
+	}
+	if _, ok := cache.Lookup(SessionID("session-2"), foundation.RequestID("request-1")); !ok {
+		t.Fatal("session-2 request should remain cached")
+	}
+	if got := cache.Len(); got != 1 {
+		t.Fatalf("cache len = %d, want 1", got)
+	}
+}
+
 func TestRequestCacheCanStoreErrorResponses(t *testing.T) {
 	cache := NewRequestCache(1)
 	domainErr := foundation.NewDomainError(foundation.CodeRateLimited, "Request rate limited.")
@@ -374,6 +397,39 @@ func TestRequestCacheCanStoreErrorResponses(t *testing.T) {
 	}
 	if response.Error.Error.Code != foundation.CodeRateLimited {
 		t.Fatalf("cached error code = %s, want %s", response.Error.Error.Code, foundation.CodeRateLimited)
+	}
+}
+
+func TestRequestCacheDoesNotRememberRetryableErrors(t *testing.T) {
+	cache := NewRequestCache(1)
+	var builds int
+	requestID := foundation.RequestID("request-retryable-error")
+
+	first, duplicate := cache.GetOrRemember(SessionID("session-1"), requestID, func() CachedResponse {
+		builds++
+		return CachedError(NewErrorEnvelope(
+			requestID,
+			foundation.NewDomainError(foundation.CodeInternal, "Transient failure."),
+			true,
+			100,
+		))
+	})
+	if duplicate || !first.HasError {
+		t.Fatalf("first response duplicate=%v response=%+v, want uncached retryable error", duplicate, first)
+	}
+
+	second, duplicate := cache.GetOrRemember(SessionID("session-1"), requestID, func() CachedResponse {
+		builds++
+		return CachedSuccess(NewResponseEnvelope(requestID, json.RawMessage(`{"ok":true}`), 101))
+	})
+	if duplicate {
+		t.Fatal("retryable error was remembered as a duplicate")
+	}
+	if second.HasError {
+		t.Fatalf("second response = %+v, want rebuilt success", second)
+	}
+	if builds != 2 {
+		t.Fatalf("builds = %d, want 2", builds)
 	}
 }
 

@@ -632,6 +632,23 @@ export interface RouteSummary {
   };
   last_calculated_at: number;
   updated_at: number;
+  last_settlement?: RouteSettlementSummary;
+}
+
+export interface RouteSettlementSummary {
+  route_id: string;
+  resource_item_id: string;
+  settled_at: number;
+  elapsed_applied_ms: number;
+  wanted_amount: number;
+  taken_amount: number;
+  lost_amount: number;
+  delivered_amount: number;
+  added_amount: number;
+  source_empty: boolean;
+  destination_full: boolean;
+  loss_applied: boolean;
+  no_op: boolean;
 }
 
 export interface PlanetDetailSummary extends KnownPlanetSummary {

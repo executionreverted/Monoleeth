@@ -140,6 +140,7 @@ type Runtime struct {
 	LoadoutStore                   *modules.InMemoryLoadoutStore
 	Loadout                        modules.LoadoutService
 	Recipes                        crafting.RecipeCatalog
+	Crafting                       *crafting.CraftingService
 	Discovery                      *discovery.InMemoryStore
 	Scanner                        *discovery.ScannerService
 	Claim                          *discovery.ClaimService
@@ -291,6 +292,16 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	reservationService := economy.NewReservationService(inventory)
+	discoveryStore := discovery.NewInMemoryStore()
+	productionStore := production.NewInMemoryStore()
+	craftLocationAuthorizer, err := production.NewCraftLocationAuthorizer(production.CraftLocationAuthorizerConfig{
+		Planets:    discoveryStore,
+		Production: productionStore,
+	})
+	if err != nil {
+		return nil, err
+	}
 	loadoutStore := modules.NewInMemoryLoadoutStoreWithItemMover(runtimeModuleItemMover{
 		inventory:   inventory,
 		itemCatalog: itemCatalog,
@@ -302,6 +313,21 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		runtimeLoadoutProgressionProvider{progression: progressionService},
 		clock,
 	)
+	if err != nil {
+		return nil, err
+	}
+	craftingService, err := crafting.NewCraftingService(crafting.CraftingServiceConfig{
+		Clock:              clock,
+		Recipes:            recipeCatalog,
+		ItemDefinitions:    crafting.ItemDefinitionMap(itemCatalog),
+		Reservations:       reservationService,
+		Inventory:          inventory,
+		Wallet:             walletService,
+		Progression:        progressionService,
+		Ships:              hangarService,
+		LocationAuthorizer: craftLocationAuthorizer,
+		XPTracker:          crafting.NewInMemoryCraftXPTracker(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -347,8 +373,6 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Progression: progressionService,
 	})
 	questService.SetRerollServices(quests.QuestRerollServices{Wallet: walletService})
-	discoveryStore := discovery.NewInMemoryStore()
-	productionStore := production.NewInMemoryStore()
 	claimLifecycleStore := discovery.NewInMemoryClaimDurableLifecycleStore()
 	claimProductionInitializationStore := discovery.NewInMemoryClaimProductionInitializationDurableStore()
 	settlementStore := production.NewInMemorySettlementDurableCommitStore()
@@ -359,6 +383,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Wallet:     walletService,
 		Market:     marketService,
 		Auction:    auctionService,
+		Crafting:   craftingService,
 		Production: productionStore,
 		Clock:      clock,
 	})
@@ -411,6 +436,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		LoadoutStore:                   loadoutStore,
 		Loadout:                        loadoutService,
 		Recipes:                        recipeCatalog,
+		Crafting:                       craftingService,
 		Discovery:                      discoveryStore,
 		Intel:                          intelService,
 		Production:                     productionStore,

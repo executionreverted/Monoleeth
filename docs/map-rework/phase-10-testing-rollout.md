@@ -199,6 +199,8 @@ local harness with `GAME_DEV_MODE=1`. Server startup rejects the seed outside
 dev mode. That E2E-only seed creates two owned same-map production planets and
 routeable source storage for each ensured player so the browser can prove the
 route create/update/control/settle HUD flow without exposing a setup endpoint.
+Server gateway coverage also proves that the seeded state supports authenticated
+`route.create` followed by elapsed `route.settle` storage transfer.
 Do not use or document this as a production feature flag.
 
 Production tuning must stay separate from dev/test seeds. Scanner rarity,

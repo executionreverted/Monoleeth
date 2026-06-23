@@ -421,6 +421,43 @@ describe('planet claim controls', () => {
 });
 
 describe('route controls', () => {
+  test('owned selected planet renders building build and upgrade actions from production state', () => {
+    const state = planetRouteState();
+    state.planetIntel!.selectedPlanet!.production!.buildings = [
+      {
+        planet_id: 'planet-source',
+        public_map_key: '1-1',
+        building_id: 'planet-source-building-iron_extractor-alpha',
+        building_type: 'iron_extractor',
+        category: 'extractor',
+        level: 1,
+        state: 'active',
+        updated_at: 1000,
+      },
+    ];
+    state.production = { planets: [state.planetIntel!.selectedPlanet!.production!] };
+
+    const catalogHTML = planetCatalogPanel(state);
+    const modalHTML = planetDetailModal(state, 'planet-source');
+
+    for (const html of [catalogHTML, modalHTML]) {
+      expect(html).toContain('data-building-build-control="true"');
+      expect(html).toContain('data-planet-id="planet-source"');
+      expect(html).toContain('data-building-build-type');
+      expect(html).toContain('value="iron_extractor"');
+      expect(html).toContain('value="alloy_foundry"');
+      expect(html).toContain('data-building-build-slot');
+      expect(html).toContain('value="beta"');
+      expect(html).toMatch(/data-action="planet-building-build"[^>]*data-planet-id="planet-source"[^>]*>Build/);
+      expect(html).toContain('data-action="planet-building-upgrade"');
+      expect(html).toContain('data-building-id="planet-source-building-iron_extractor-alpha"');
+      expect(html).toContain('data-target-level="2"');
+      expect(html).not.toContain('owner_player_id');
+      expect(html).not.toContain('materials');
+      expect(html).not.toContain('cost');
+    }
+  });
+
   test('owned selected planet renders route create, update, control, and settle actions from server state', () => {
     const state = planetRouteState();
 
@@ -446,6 +483,60 @@ describe('route controls', () => {
     }
   });
 
+  test('known planet renders coordinate item create action without coordinate truth payload', () => {
+    const state = planetRouteState();
+
+    const catalogHTML = planetCatalogPanel(state);
+    const modalHTML = planetDetailModal(state, 'planet-source');
+
+    for (const html of [catalogHTML, modalHTML]) {
+      expect(html).toMatch(/data-action="coordinate-item-create"[^>]*data-planet-id="planet-source"[^>]*>Coord/);
+      expect(html).not.toContain('data-coordinates');
+      expect(html).not.toContain('source_player_id');
+      expect(html).not.toContain('confidence_override');
+    }
+
+    state.pendingCommands = {
+      'coordinate-create-1': {
+        requestID: 'coordinate-create-1',
+        op: OPERATIONS.intelCoordinateItemCreate,
+        payload: { planet_id: 'planet-source' },
+        queuedAt: 1,
+      },
+    };
+
+    const pendingHTML = planetDetailModal(state, 'planet-source');
+    expect(pendingHTML).toMatch(/data-action="coordinate-item-create"[^>]*disabled[^>]*>Creating/);
+  });
+
+  test('known planet renders intel share control with recipient-only client input', () => {
+    const state = planetRouteState();
+
+    const catalogHTML = planetCatalogPanel(state);
+    const modalHTML = planetDetailModal(state, 'planet-source');
+
+    for (const html of [catalogHTML, modalHTML]) {
+      expect(html).toContain('data-intel-share-control="true"');
+      expect(html).toContain('data-intel-share-target');
+      expect(html).toMatch(/data-action="intel-share"[^>]*data-planet-id="planet-source"[^>]*>Share/);
+      expect(html).not.toContain('from_player_id');
+      expect(html).not.toContain('source_intel_id');
+      expect(html).not.toContain('data-coordinates');
+    }
+
+    state.pendingCommands = {
+      'intel-share-1': {
+        requestID: 'intel-share-1',
+        op: OPERATIONS.intelShare,
+        payload: { planet_id: 'planet-source', to_player_id: 'player-friend' },
+        queuedAt: 1,
+      },
+    };
+
+    const pendingHTML = planetDetailModal(state, 'planet-source');
+    expect(pendingHTML).toMatch(/data-action="intel-share"[^>]*disabled[^>]*>Sharing/);
+  });
+
   test('route create disables without another owned endpoint or source storage resource', () => {
     const state = planetRouteState();
     state.planetIntel!.planets = [state.planetIntel!.planets[0]];
@@ -461,6 +552,58 @@ describe('route controls', () => {
     expect(html).toContain('No endpoint');
     expect(html).toContain('No resource');
     expect(html).toContain('No routes for this planet.');
+  });
+
+  test('route rows render server-owned settlement outcome flags', () => {
+    const state = planetRouteState();
+    state.planetIntel!.selectedPlanet!.routes[0].last_settlement = {
+      route_id: 'route-1',
+      resource_item_id: 'refined_alloy',
+      settled_at: 1800,
+      elapsed_applied_ms: 3_600_000,
+      wanted_amount: 40,
+      taken_amount: 10,
+      lost_amount: 3,
+      delivered_amount: 7,
+      added_amount: 0,
+      source_empty: true,
+      destination_full: true,
+      loss_applied: true,
+      no_op: true,
+    };
+
+    const html = planetDetailModal(state, 'planet-source');
+
+    expect(html).toContain('data-route-settlement-result="true"');
+    expect(html).toContain('No transfer / Source empty / Storage full / Loss applied');
+    expect(html).toContain('0/40 refined_alloy');
+    expect(html).not.toContain('owner_player_id');
+    expect(html).not.toContain('settlement_window');
+  });
+
+  test('storage and station destination routes can settle without exposing internal endpoint ids or browser update', () => {
+    const cases = [
+      { type: 'storage', label: 'Storage (1-1)', internalID: 'storage-route-settle-destination' },
+      { type: 'station', label: 'Station (1-1)', internalID: 'station-route-settle-destination' },
+    ];
+
+    for (const item of cases) {
+      const state = planetRouteState();
+      state.planetIntel!.selectedPlanet!.routes[0] = {
+        ...state.planetIntel!.selectedPlanet!.routes[0],
+        route_id: `route-${item.type}`,
+        destination: { type: item.type, id: '' },
+      };
+
+      const html = planetDetailModal(state, 'planet-source');
+
+      expect(html).toContain(`data-route-destination-type="${item.type}"`);
+      expect(html).toContain(item.label);
+      expect(html).toMatch(new RegExp(`data-action="route-update"[^>]*data-route-id="route-${item.type}"[^>]*disabled`));
+      expect(html).toContain(`data-action="route-settle" data-route-id="route-${item.type}"`);
+      expect(html).not.toContain(item.internalID);
+      expect(html).not.toContain('destination_map_id');
+    }
   });
 });
 

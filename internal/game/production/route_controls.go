@@ -85,6 +85,9 @@ func (store *InMemoryStore) EnableRouteForOwnerWithRequest(
 		}
 		return RouteControlResult{Route: replay}, nil
 	}
+	if _, _, err := store.restoreAutomationRouteReadModelFromDurableLocked(ownerPlayerID, routeID); err != nil {
+		return RouteControlResult{}, err
+	}
 	if err := store.requireRouteOwnerLocked(ownerPlayerID, routeID); err != nil {
 		return RouteControlResult{}, err
 	}
@@ -246,6 +249,9 @@ func (store *InMemoryStore) DisableRouteForOwnerWithRequest(
 		}
 		return RouteControlResult{Route: replay}, nil
 	}
+	if _, _, err := store.restoreAutomationRouteReadModelFromDurableLocked(ownerPlayerID, routeID); err != nil {
+		return RouteControlResult{}, err
+	}
 	if err := store.requireRouteOwnerLocked(ownerPlayerID, routeID); err != nil {
 		return RouteControlResult{}, err
 	}
@@ -358,7 +364,14 @@ func (store *InMemoryStore) UpdateRoute(
 
 	route, ok := store.routes[input.RouteID]
 	if !ok {
-		return UpdateRouteResult{}, fmt.Errorf("route %q: %w", input.RouteID, ErrRouteNotFound)
+		restored, restoredOK, err := store.restoreAutomationRouteReadModelFromDurableLocked(input.OwnerPlayerID, input.RouteID)
+		if err != nil {
+			return UpdateRouteResult{}, err
+		}
+		if !restoredOK {
+			return UpdateRouteResult{}, fmt.Errorf("route %q: %w", input.RouteID, ErrRouteNotFound)
+		}
+		route = restored
 	}
 	if err := route.Validate(); err != nil {
 		return UpdateRouteResult{}, err

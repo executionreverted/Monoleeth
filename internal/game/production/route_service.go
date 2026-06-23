@@ -251,7 +251,13 @@ func (service *AutomationRouteService) UpdateRoute(input UpdateRouteInput) (Upda
 		return UpdateRouteResult{}, err
 	}
 	if !ok {
-		return UpdateRouteResult{}, fmt.Errorf("route %q: %w", input.RouteID, ErrRouteNotFound)
+		route, ok, err = service.store.restoreAutomationRouteReadModelFromDurable(input.OwnerPlayerID, input.RouteID)
+		if err != nil {
+			return UpdateRouteResult{}, err
+		}
+		if !ok {
+			return UpdateRouteResult{}, fmt.Errorf("route %q: %w", input.RouteID, ErrRouteNotFound)
+		}
 	}
 	if route.OwnerPlayerID != input.OwnerPlayerID {
 		return UpdateRouteResult{}, fmt.Errorf("route %q owner %q: %w", input.RouteID, input.OwnerPlayerID, ErrRouteOwnerMismatch)

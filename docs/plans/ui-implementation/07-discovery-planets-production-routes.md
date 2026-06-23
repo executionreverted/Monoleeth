@@ -90,8 +90,28 @@ Current slice completed:
   updated/settled payloads, clears pending route operations, and is covered by
   `npm --cache /tmp/gameproject-npm-cache --prefix client run
   e2e:phase10-route` using a guarded `GAME_DEV_MODE=1` +
-  `GAME_E2E_ROUTE_SEED=1` real-server seed. Durable production/route DB rows,
-  outbox publishing, and durable settlement window idempotency remain open.
+  `GAME_E2E_ROUTE_SEED=1` real-server seed. Server-side gateway coverage now
+  proves that the same E2E-seeded state supports authenticated `route.create`
+  followed by elapsed `route.settle` storage transfer. Durable production/route
+  DB rows, outbox publishing, and durable settlement window idempotency remain
+  open.
+- Phase07CQ browser route settlement-result follow-up: the client now carries
+  safe server `route.settle` result payloads onto the route read model and HUD
+  rows. Single-route responses/events and owner reconcile `settlements[]`
+  responses can display source-empty, destination-full, no-op, and loss-applied
+  outcomes without trusting client-authored route/storage/window facts.
+- Phase07CU browser non-planet route row follow-up: storage and station
+  destination routes rendered from server snapshots now show only public
+  destination type/map labels, keep enable/disable/settle controls available by
+  `route_id`, and keep browser route update disabled because create/update
+  intents are still planet-destination only.
+- Phase07CT browser building controls follow-up: the browser now exposes
+  `planet.building_build` and `planet.building_upgrade` command builders and
+  HUD controls from owned production snapshots. Build sends only `planet_id`,
+  `building_type`, and `slot`; upgrade sends only `planet_id`, `building_id`,
+  and `target_level`. The HUD renders current buildings, next-slot build
+  controls, pending states, and disabled states from authenticated realtime
+  state without inventing material, wallet, cost, owner, or map truth.
 - Phase07H backend query follow-up: authenticated
   `planet.production_summary` and `planet.storage_summary` now reconcile
   eligible owned active-map production through
@@ -211,7 +231,8 @@ Current slice completed:
   ownership/consume-once through the intel domain, writes the discovery read
   model, and queues owner-scoped known-planets and planet-detail refreshes.
   Inventory-backed coordinate item mint/consume, daily quotas, market/listing
-  staleness hooks, durable DB rows, and browser HUD controls remain open.
+  staleness hooks, durable DB rows, and browser HUD controls remained open at
+  this slice.
 - Phase07T inventory-backed coordinate item follow-up:
   `intel.coordinate_item.create` now mints a real
   `planet_coordinate_scroll` inventory instance with the same server-authored
@@ -224,9 +245,30 @@ Current slice completed:
   through the existing idempotency paths without duplicate inventory or ledger
   rows. Phase07AG transfers coordinate item intel ownership after market
   purchase with the same market-buy idempotency key, so duplicate buy retries
-  can repair the transfer and the buyer can use the bought scroll once. Daily
+  can repair the transfer and the buyer can use the bought scroll once. The
+  create/share sync path now rejects known planet intel outside the player's
+  active map before coordinate item mint or receiver intel writes; the use path
+  also checks the stored scroll world/zone against the player's active map
+  before inventory consume or intel mutation, returning safe not-found
+  semantics for wrong-map scrolls without leaking planet detail events.
+  Phase07DA prevents retryable internal gateway errors from being cached, so a
+  compensated post-consume coordinate use failure can be retried with the same
+  request id and then clean up the repaired inventory scroll. Daily
   quotas, durable DB rows, cross-service transaction/compensation, and browser
-  HUD controls remain open.
+  HUD controls remained open at this slice.
+- Phase07CV browser coordinate item follow-up: the browser now exposes
+  coordinate scroll create/use controls from real server state. Planet panels
+  send only `planet_id` for `intel.coordinate_item.create`, inventory renders
+  owned `planet_coordinate_scroll` instances, and Use sends only
+  `item_instance_id` for `intel.coordinate_item.use`. Matching pending commands
+  disable controls, and no coordinate/source/confidence truth is authored by
+  the client.
+- Phase07CW browser intel share follow-up: planet catalog/detail panels now
+  expose `intel.share` through a recipient player-id input and Share control.
+  The browser sends only `planet_id` and `to_player_id`, locks matching pending
+  shares, and never authors sender, source-intel, coordinate, or confidence
+  truth. Recipient roster/search UX, daily quotas, durable DB rows, and
+  cross-service transaction/compensation remain open.
 - Phase07U outbox publisher-boundary follow-up: discovery claim outbox and
   production-domain outbox records now have small interface-backed publisher
   drain helpers. The production helper covers production settlements, route
@@ -341,6 +383,9 @@ Current slice completed:
   safe forbidden error before capacitor spend, planet creation, intel writes, or
   scanner events; this completes the movement half of the existing scanner
   mutation guard evidence alongside the insufficient-capacitor regression.
+  Scanner retries after a map transfer now miss the old transport cache and
+  safely revalidate against the current map instead of replaying previous-map
+  known-planet payloads.
 - Phase07AI intel share safety follow-up: `intel.share` now only copies
   shareable sender intel states (`fresh` and `verified`); stale,
   invalidated, missing, or colonized-by-other sender memory returns a safe
@@ -514,6 +559,20 @@ Current slice completed:
   committed/pending recovery readback instead of being treated as valid claim
   recovery state. Real DB rows, cross-service row locks/CAS, an atomic
   claim/production transaction, and scheduled recovery workers remain open.
+- Phase07CR claim production-init recovery primitive follow-up:
+  Recovery workers now have a bounded deterministic helper that scans pending
+  claim production-initialization rows, proves each row against committed claim
+  lifecycle readback, advances matching rows with the completed claim boundary,
+  skips missing lifecycle bundles, and fails closed when a completed lifecycle
+  lacks production-init evidence. Real DB rows, cross-process leases, and a
+  scheduled worker loop remain open.
+- Phase07CS runtime claim production-init recovery follow-up:
+  `DrainDurableOutboxes` can now run the bounded claim production-init recovery
+  pass before publisher work. The runtime recovers pending init rows only when
+  the committed claim lifecycle store proves the matching completed bundle,
+  returns deterministic recovery counts/references, and leaves subsequent
+  passes empty. Real DB rows, cross-process leases, and automatic scheduling
+  remain open.
 - Phase07CG settlement outbox worker readback validation follow-up:
   Settlement durable-store publisher, publish/fail callbacks, lease release,
   and failed-row retry paths now revalidate the committed settlement bundle
@@ -846,6 +905,10 @@ Mockup areas covered:
       publisher-worker behavior.
 - [x] Add intel share and coordinate item handlers with visibility-safe
       recipient filtering.
+- [x] Add browser coordinate item create/use controls with pending states and
+      server-owned id-only intents.
+- [x] Add browser intel share control with pending state and recipient-only
+      client input.
 - [x] Add read-only production summary handler for owned planets.
 - [x] Add production build/upgrade handlers.
 - [x] Add process-local production-domain build/upgrade material debit ledger,
@@ -999,12 +1062,26 @@ Mockup areas covered:
 - [x] Claim handler applies pending production-init durable evidence for
       post-initialization side-effect failures; retry completion advances that
       row to complete evidence without another X Core debit or extra init row.
+- [x] Claim gateway retry repairs owner/X Core committed but production-init
+      missing attempts and returns initialized production/detail/inventory
+      payloads without another X Core debit.
+- [x] Claim production-init recovery drain repairs missing live production and
+      storage read-model rows after advancing pending durable rows to complete,
+      preserving the original X Core debit.
+- [x] Claim gateway rejects planets owned by another player before X Core
+      consume, production init, lifecycle rows, or owner-scoped claim events.
 - [x] Claim lifecycle durable readback rebuilds a validated pending outbox
       dispatch plan for `planet.claimed` publisher scheduling.
 - [x] Claim lifecycle durable outbox rows can be claimed, published, failed, or
       lease-released through the claim outbox publisher contracts.
 - [x] Intel share rejects hidden/not-owned coordinate references.
 - [x] Coordinate item create/use consumes owned items once and filters results.
+- [x] Coordinate item create/share/use reject wrong active-map intel before
+      inventory, receiver-intel, or item-use mutation.
+- [x] Browser coordinate item create/use controls send only `planet_id` or
+      `item_instance_id` and do not expose hidden coordinate payloads.
+- [x] Browser intel share sends only `planet_id` and `to_player_id` and does
+      not expose sender/source/coordinate payloads.
 - [x] Market-bought coordinate scrolls transfer server-owned intel item
       authority to the buyer and can be used once by that buyer.
 - [x] Planet claim marks active coordinate-scroll market listings for the
@@ -1114,6 +1191,25 @@ Mockup areas covered:
 - [x] Durable outbox replay of storage/station route settlements preserves
       owner-only safe route events and masks non-planet aggregate destination
       IDs.
+- [x] Owner reconcile `route.settle {}` merges committed durable owner route
+      rows after live read-model loss, preserving storage/station no-op
+      settlements and masked destination payloads.
+- [x] Single-route `route.settle` restores the live route read model from the
+      committed durable route row for future settlement windows after route row
+      loss, then repairs missing storage rows from durable settlement evidence.
+- [x] Future `route.enable`, `route.disable`, and `route.update` requests
+      restore the live route read model from committed durable route rows after
+      route row loss while preserving wrong-owner rejection.
+- [x] Authenticated source-empty `route.settle` returns safe
+      `source_empty` response/event payloads, advances the route cursor without
+      storage ledger rows, and keeps durable settlement reference/outbox
+      evidence.
+- [x] Authenticated duplicate `route.update` request IDs replay the original
+      safe route response even when the retry payload changes, without adding a
+      second settlement ledger, outbox, storage mutation, or event batch.
+- [x] Authenticated duplicate `route.create` request IDs replay the original
+      safe route response even when the retry payload changes, without creating
+      a second route, durable route row, energy reservation, or event batch.
 - [x] Durable claim, settlement/route, and building outbox stores expose an
       explicit failed-row retry boundary that preserves failure evidence before
       republishing.
@@ -1138,6 +1234,8 @@ Mockup areas covered:
 - [x] Browser selected planet panel uses server detail.
 - [x] Browser claim reflects server state.
 - [x] Browser route create/update/control/settle reflects server state.
+- [x] Browser route rows surface server-owned settlement outcomes for
+      source-empty, destination-full, no-op, and loss-applied route settles.
 
 ## Done Criteria
 

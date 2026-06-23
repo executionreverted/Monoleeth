@@ -7,6 +7,7 @@ import (
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
 )
 
@@ -81,6 +82,9 @@ func (runtime *Runtime) handleClaimPlanet(ctx realtime.CommandContext, request r
 	if err := runtime.applyClaimDurableLifecycle(claimReference); err != nil {
 		return nil, domainErrorForClaim(err)
 	}
+	if err := runtime.ensureClaimProductionLiveState(claimReference); err != nil {
+		return nil, domainErrorForClaim(err)
+	}
 
 	knownPlanets, err := runtime.knownPlanetsPayload(ctx.PlayerID)
 	if err != nil {
@@ -145,6 +149,30 @@ func (runtime *Runtime) applyClaimDurableLifecycle(reference discovery.PlanetCla
 		}
 	}
 	_, err = plan.ApplyDurableLifecycle(runtime.ClaimLifecycles)
+	return err
+}
+
+func (runtime *Runtime) ensureClaimProductionLiveState(reference discovery.PlanetClaimReference) error {
+	if runtime == nil || runtime.Production == nil || runtime.ClaimProductionInitializations == nil {
+		return nil
+	}
+	plan, ok, err := runtime.ClaimProductionInitializations.CommittedClaimProductionInitializationDurablePlan(reference)
+	if err != nil || !ok {
+		return err
+	}
+	if plan.Boundary.Status != discovery.ClaimBoundaryStatusComplete {
+		return nil
+	}
+	if _, ok, err := runtime.Production.Snapshot(plan.Initialization.PlanetID); err != nil || ok {
+		return err
+	}
+	_, err = runtime.Production.InitializePlanetProduction(production.InitializePlanetProductionInput{
+		PlanetID:              plan.Initialization.PlanetID,
+		LastCalculatedAt:      plan.Initialization.ClaimedAt,
+		StorageCapacityUnits:  runtimeClaimProductionStorageCapacity,
+		EnergyCapacityPerHour: runtimeClaimProductionEnergyCapacity,
+		UpdatedAt:             plan.Initialization.ClaimedAt,
+	})
 	return err
 }
 

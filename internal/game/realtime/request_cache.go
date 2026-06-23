@@ -98,6 +98,23 @@ func (cache *RequestCache) Remember(sessionID SessionID, requestID foundation.Re
 	cache.rememberLocked(newRequestCacheKey(sessionID, requestID), response)
 }
 
+// ForgetSession removes completed transport retry responses for one session.
+// In-flight requests are left intact so the active command can finish normally.
+func (cache *RequestCache) ForgetSession(sessionID SessionID) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	filtered := cache.order[:0]
+	for _, key := range cache.order {
+		if key.sessionID == sessionID {
+			delete(cache.entries, key)
+			continue
+		}
+		filtered = append(filtered, key)
+	}
+	cache.order = filtered
+}
+
 // GetOrRemember returns a cached duplicate response or stores the built response.
 func (cache *RequestCache) GetOrRemember(sessionID SessionID, requestID foundation.RequestID, build func() CachedResponse) (CachedResponse, bool) {
 	key := newRequestCacheKey(sessionID, requestID)
@@ -136,11 +153,17 @@ func (cache *RequestCache) GetOrRemember(sessionID SessionID, requestID foundati
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
-	cache.rememberLocked(key, response)
+	if cacheableResponse(response) {
+		cache.rememberLocked(key, response)
+	}
 	flight.response = response.clone()
 	delete(cache.inFlight, key)
 	close(flight.done)
 	return response.clone(), false
+}
+
+func cacheableResponse(response CachedResponse) bool {
+	return !response.HasError || !response.Error.Error.Retryable
 }
 
 func notifyRequestCacheInFlightWait(key requestCacheKey, phase requestCacheFlightWaitPhase) {

@@ -19,10 +19,11 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.
-- [ ] Map gateway/API request ids to the required
+- [x] Map gateway/API request ids to the required
   `CraftingService.StartCraft` domain `ReferenceKey` before exposing craft
-  start externally; the Phase 06 domain service is now idempotent when callers
-  provide a stable player-scoped `craft_start:*` reference.
+  start externally. Phase06B exposes authenticated `crafting.start` through the
+  realtime gateway with a server-derived player/request scoped `craft_start:*`
+  reference and no client-authored wallet/material/output facts.
 - [ ] Replace `RepairService` compensating wallet refunds with a durable
   transaction/outbox boundary when wallet and ship state move out of the
   in-memory Phase 06 slice. Restore failure after debit is currently net-zero
@@ -33,16 +34,18 @@ for phase status; this file is a compact pending-work index.
   drop-policy providers before exposing death processing through gateway/runtime
   callers. Equipped module ids are now read from server-owned loadout state.
 - [ ] Add durable completion/reconciliation for `CraftingService.CompleteCraft`
-  after reservation commit; current in-memory retry path is idempotent, but a
-  crash between reservation commit, output grant, XP grant, and job completion
-  still needs recovery.
+  after reservation commit. Phase06E now proves a retry can reconcile when
+  reservation commit, output grant, and XP grant already applied before job
+  completion is cached; the remaining gap is the durable job row/outbox boundary
+  needed across process restarts.
 - [ ] Use the Phase 06 `CraftXPObservation` stream to implement or tune
   low-tier craft XP diminishing returns and daily soft caps before public
   economy balancing. The domain hook now records non-duplicate craft XP grants,
   but it does not reduce XP by itself.
-- [ ] Wire `production.CraftLocationAuthorizer` into the concrete runtime craft
-  service factory before exposing owned-planet or planet-building recipes, and
-  add station/special-event station providers for public craft start APIs.
+- [x] Wire `production.CraftLocationAuthorizer` into the concrete runtime craft
+  service factory before exposing owned-planet or planet-building recipes.
+- [ ] Add station/special-event station providers and explicit location
+  selection for public craft start APIs before non-station recipes are exposed.
 - [ ] Add gateway/security tests for craft start authorization using the
   authenticated server-side player id, including hidden or unowned planet and
   building ids with leak-safe errors.
@@ -67,7 +70,10 @@ for phase status; this file is a compact pending-work index.
   cooldown/pulse creation before moving scanner pulses beyond the in-process
   authenticated runtime. The runtime now debits live ship capacitor once per
   accepted pulse reference, and the domain service validates energy availability
-  and stationary movement through provider gates. Source:
+  and stationary movement through provider gates. Session map rebinding now
+  clears completed transport retry responses so a replayed `scan.pulse`
+  request cannot return a previous-map payload after portal/respawn transfer.
+  Source:
   `docs/roadmap/08-world-discovery-planets-intel.md`.
 - [ ] Replace Phase 08 in-memory discovery stores, idempotency maps, and local
   event/outbox slices with durable repositories/outbox records before
@@ -166,9 +172,28 @@ for phase status; this file is a compact pending-work index.
   effects without replaying completed rows. Phase07CF tightens the durable
   store/readback contract so production-init rows without pending or complete
   claim-boundary evidence are rejected instead of becoming orphan recovery
-  state. Real durable claim/production DB rows, cross-service row locks/CAS, an
-  atomic claim/production transaction, and scheduled recovery workers remain
-  open.
+  state. Phase07CR adds the bounded recovery primitive that scans pending
+  production-init rows, proves them against committed claim lifecycle readback,
+  advances matching rows with the completed claim boundary, skips missing
+  lifecycle bundles, and fails closed when lifecycle evidence lacks
+  production-init. Phase07CS wires that primitive into the runtime durable
+  drain path behind an explicit `RecoverClaimProductionInitializations` flag,
+  returning deterministic recovery counts/references before publisher work.
+  Phase07 now also proves the authenticated gateway retry path repairs a
+  claim whose first attempt committed owner/X Core debit but failed before
+  production initialization, returning initialized production/detail/inventory
+  payloads without a second X Core debit. Phase07CX repairs missing live
+  production/storage read-model rows from committed claim production-init
+  evidence during duplicate gateway retries, so a process-local production
+  store loss still returns real production payloads without a second X Core
+  debit. Phase07CY also rebuilds missing live production/storage read-model
+  rows during the bounded production-init recovery drain after pending durable
+  rows are advanced to complete, preserving the single X Core debit while
+  making worker recovery return initialized live state. Phase07CZ proves the
+  authenticated gateway rejects planets owned by another player before X Core
+  consume, production init, lifecycle rows, or owner-scoped claim events. Real
+  durable claim/production DB rows, cross-service row locks/CAS, an atomic
+  claim/production transaction, and scheduled recovery workers remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory
@@ -179,7 +204,18 @@ for phase status; this file is a compact pending-work index.
   buyers can use bought coordinate scrolls once. Coordinate item use now allows
   same-reference domain replay after transport cache misses and restores the
   scroll if the command fails after inventory consume but before intel use; a
-  retry cleans up the restored scroll with repair ledger evidence. The
+  retry cleans up the restored scroll with repair ledger evidence. Phase07DA
+  keeps retryable internal gateway errors out of completed-request cache, so the
+  same coordinate use request id can re-execute after that compensated transient
+  failure instead of replaying a stale error. The
+  authenticated create/share sync path now rejects known planet intel outside
+  the player's active map before coordinate item mint or receiver intel writes.
+  Phase07CZ makes `intel.share` reject unknown runtime receiver players before
+  source sync or receiver intel writes, preventing ghost-player intel rows and
+  late internal errors.
+  The authenticated use path rejects scrolls whose stored world/zone does not
+  match the player's active map before inventory consume or intel mutation, so
+  wrong-map retries keep the scroll and do not leak hidden detail events. The
   intel/economy writes are still process-local and not wrapped in a durable
   cross-service transaction.
 - [x] Finish gateway/session authorization for remaining discovery commands.
@@ -190,7 +226,8 @@ for phase status; this file is a compact pending-work index.
   `intel.coordinate_item.create`, and `intel.coordinate_item.use` handlers
   that derive sender/source intel/item payloads server-side and reject
   client-authored coordinates, ownership, source, confidence, timestamp, and
-  inventory truth.
+  inventory truth. Phase07CZ also validates `intel.share` receiver player
+  existence before mutation.
 - [x] Add authenticated browser loadout mutation contracts for
   `loadout.equip_module` and `loadout.unequip_module`. Server handlers must
   resolve player, active ship, slot, owned module instance, rank, compatibility,
@@ -200,14 +237,20 @@ for phase status; this file is a compact pending-work index.
   `loadout.snapshot`, `inventory.snapshot`, and `stats.snapshot`. Source:
   Phase 10 audit. Implemented in UI Patch 3 Phase 04 with inventory/loadout
   window drag/drop and button fallback.
-- [ ] Add authenticated browser crafting mutation contracts for
-  `crafting.start`, `crafting.complete`, and `crafting.cancel`. Server handlers
-  must map request ids to stable domain references such as
-  `craft_start:<player_id>:<recipe_id>:<location_id>`,
-  `craft_complete:<job_id>`, and `craft_cancel:<job_id>`, validate materials,
-  wallet, rank, location authorization, queue limits, and output capacity, then
-  emit crafting/inventory/wallet/progression snapshots after commit. Source:
-  Phase 10 audit.
+- [ ] Finish authenticated browser crafting mutation contracts. Phase06B adds
+  server handlers and TypeScript command builders for `crafting.start` and
+  `crafting.complete`: start accepts only `recipe_id`, complete accepts only
+  `job_id`, and both reconcile safe crafting/inventory/wallet/progression
+  snapshots without client-authored material, wallet, output, owner, location,
+  or reference truth. Phase06C adds browser action controls/timers from the
+  real crafting snapshot and locks matching pending start/complete intents.
+  Phase06D covers reconnect snapshots advancing the browser crafting timer from
+  server time so ready jobs unlock without fake local truth.
+  Remaining work is queue limit balancing, station/planet/building location UX,
+  durable completion
+  recovery after partial reservation/output/XP mutation, and `crafting.cancel`
+  with `craft_cancel:<job_id>` refund/release semantics. Source: Phase 10
+  audit.
 - [ ] Finish authenticated planet ownership/building mutation contracts.
   Phase07A landed the backend `discovery.claim_planet` handler with
   authenticated player resolution, active-map range checks, rank validation,
@@ -257,9 +300,21 @@ for phase status; this file is a compact pending-work index.
   create/use with real inventory instances, item ledger rows, and inventory
   snapshot fanout. Durable DB/outbox claim recovery, cross-process CAS/locks,
   idempotency-table enforcement, durable outbox persistence/publisher workers,
-  broader building requirement/cost balancing, browser HUD controls, coordinate
-  item durable transaction/compensation, market/listing staleness hooks, and
-  intel quotas remain open. Phase07Z adds a store-owned begin/complete claim
+  broader building requirement/cost balancing, coordinate item durable
+  transaction/compensation, market/listing staleness hooks, and intel quotas
+  remain open. Phase07CV adds browser coordinate item create/use controls:
+  planet panels send only `planet_id`, inventory renders real
+  `planet_coordinate_scroll` instances, Use sends only `item_instance_id`, and
+  pending states lock matching commands without client-authored coordinates,
+  source, confidence, or owner truth. Phase07CW adds browser `intel.share`
+  controls that send only `planet_id` and `to_player_id` from a recipient
+  player-id input, with pending state and no sender/source/coordinate payloads.
+  Recipient roster/search UX remains open. Phase07CT adds browser command
+  builders and HUD controls for
+  `planet.building_build` / `planet.building_upgrade`; those controls send
+  only server-safe intent fields and render from owned production snapshots
+  without material, wallet, cost, owner, or map truth. Phase07Z adds a
+  store-owned begin/complete claim
   boundary row that models the future owner-CAS plus pending-side-effects DB
   transaction; Phase07AA wires `ClaimService` through that boundary while
   Phase07AB records reference/event/outbox completion artifacts under the same
@@ -308,7 +363,9 @@ for phase status; this file is a compact pending-work index.
   touches storage. Phase07G added browser protocol builders, HUD controls,
   reducer reconciliation, a dev-only guarded `GAME_E2E_ROUTE_SEED`, and the
   focused real-browser `e2e:phase10-route` proof for route
-  create/update/disable/enable/settle/reconcile. Phase07I added
+  create/update/disable/enable/settle/reconcile. The server route-seed gateway
+  proof now creates and settles a route from that same E2E-seeded state through
+  authenticated `route.create` and `route.settle` requests. Phase07I added
   server-derived route settlement reference/window evidence to domain results
   and outbox-safe domain payloads while leaving browser-safe realtime payloads
   unchanged. Phase07J added process-local store-owned settlement references
@@ -378,13 +435,40 @@ for phase status; this file is a compact pending-work index.
   future-window attempts still fail closed. Authenticated `route.settle`
   route-id retries now also fall back to committed durable route rows before
   live read-model preflight, so the gateway reaches that exact replay/repair
-  path instead of returning not-found after a live route row loss.
+  path instead of returning not-found after a live route row loss. Phase07CQ
+  carries safe server settlement results into browser route rows so
+  source-empty, destination-full, no-op, and loss-applied outcomes are visible
+  after single-route settle events/responses and owner reconcile `settlements[]`
+  responses. Owner reconcile `{}` now also merges committed durable owner route
+  rows after live route read-model loss, so storage/station destination routes
+  still emit no-op settlement/list/update events and safe masked payloads.
+  Phase07CY restores missing live source/destination storage rows from the
+  latest committed route settlement durable storage evidence before gateway
+  preflight, letting later `route.settle` retries continue with real storage
+  payloads after process-local storage read-model loss. Phase07DA restores the
+  live route read-model from the committed durable route row for future
+  settlement windows after live route-row loss, so a later `route.settle` can
+  advance storage again instead of returning not-found. Phase07DB applies the
+  same durable route-row restore to future `route.enable`, `route.disable`, and
+  `route.update` requests after live route-row loss while preserving wrong-owner
+  fail-closed behavior. Phase07DC proves authenticated source-empty
+  `route.settle` returns a safe `source_empty` settlement payload/event,
+  advances the route cursor without storage ledger rows, and still records
+  durable settlement reference/outbox evidence. Phase07DD proves authenticated
+  duplicate `route.update` request IDs ignore changed retry payloads, replay the
+  original safe route response, and do not append a second settlement ledger,
+  outbox, storage mutation, or route event batch. Phase07DE proves
+  authenticated duplicate `route.create` request IDs ignore changed retry
+  payloads, replay the original safe route response, and do not create a second
+  route, durable route row, energy reservation, or route event batch.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10
   audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
   Phase07K, Phase07AN, Phase07BN, Phase07BO, Phase07BP, Phase07BQ,
-  Phase07BR, Phase07BS, Phase07BT, Phase07BV, Phase07CD, and Phase07DF.
+  Phase07BR, Phase07BS, Phase07BT, Phase07BV, Phase07CD, Phase07CQ,
+  Phase07CY, Phase07DA, Phase07DB, Phase07DC, Phase07DD, Phase07DE, and
+  Phase07DF.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server
@@ -432,10 +516,12 @@ for phase status; this file is a compact pending-work index.
   `map_1_3` sessions keep `scan.pulse`
   response/event/read-model memory on public `1-2` and `1-3`. Domain scanner
   materialization/intel now covers seeded public maps `1-1`, `1-2`, and `1-3`,
-  and server-only drop matrix coverage now includes public `1-1`, `1-2`, and
-  medium PvP `1-3`. Phase10 now adds a focused browser claim proof for public
-  `1-1`; remaining work is browser drop flow plus broader browser claim/drop
-  and scan success/no-signal variants. Source:
+  server-only drop matrix coverage now includes public `1-1`, `1-2`, and
+  medium PvP `1-3`, and Phase10 now ties active-map known/minimap memory scope
+  to those seeded drop profile/table rows with an internal map/candidate/drop
+  metadata leak canary. Phase10 now adds a focused browser claim proof for
+  public `1-1`; remaining work is browser drop flow plus broader browser
+  claim/drop and scan success/no-signal variants. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete broader per-map/risk/rank drop balance matrix coverage across
   seeded maps. Current server tests cover starter selection, `map_1_2`
@@ -634,9 +720,11 @@ for phase status; this file is a compact pending-work index.
   durable bundles. Phase07CG makes settlement durable outbox worker paths
   revalidate committed settlement bundles before claim, publish/fail, lease
   release, or retry mutation so corrupt outbox evidence cannot be handed to
-  publishers; DB-backed storage/station endpoint rows and row locks remain open.
-  Runtime/browser non-planet route create/update access policy and durable
-  DB-backed storage/station endpoint rows remain open.
+  publishers. Phase07CU keeps existing storage/station destination routes
+  browser-settleable without exposing internal aggregate ids and disables
+  browser update for those rows because route create/update intents remain
+  planet-destination only. Runtime non-planet route create/update access policy
+  and durable DB-backed storage/station endpoint rows remain open.
 - [ ] Replace Phase 09 in-memory production, storage, and route repositories with
   durable per-planet/per-route transactions or row locks before multi-process
   runtime deployment.

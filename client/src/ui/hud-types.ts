@@ -18,6 +18,13 @@ export interface HUDHandlers {
   onPlanetDetail(planetID: string): void;
   onPlanetNavigate(planetID: string): void;
   onPlanetClaim(planetID: string): void;
+  onIntelShare(input: { planetID: string; toPlayerID: string }): void;
+  onCoordinateItemCreate(planetID: string): void;
+  onCoordinateItemUse(itemInstanceID: string): void;
+  onPlanetBuildingBuild(input: { planetID: string; buildingType: string; slot: string }): void;
+  onPlanetBuildingUpgrade(input: { planetID: string; buildingID: string; targetLevel: number }): void;
+  onCraftingStart(recipeID: string): void;
+  onCraftingComplete(jobID: string): void;
   onRouteCreate(input: { sourcePlanetID: string; destinationPlanetID: string; resourceItemID: string; amountPerHour: number }): void;
   onRouteUpdate(input: { routeID: string; destinationPlanetID: string; resourceItemID: string; amountPerHour: number }): void;
   onRouteEnable(routeID: string): void;

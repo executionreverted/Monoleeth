@@ -89,7 +89,7 @@ export class HUD {
       cap.textContent = formatPercent(state.ship?.capacitor, state.ship?.max_capacitor);
     }
     this.panels.status.innerHTML = statusPanel(state);
-    this.panels.cargo.innerHTML = cargoPanel(state);
+    this.panels.cargo.innerHTML = cargoPanel(state, serverNow);
     this.panels.economy.innerHTML = economyPanel(state);
     this.panels.systems.innerHTML = systemsPanel(state);
     this.panels.quests.innerHTML = questsPanel(state);
@@ -494,6 +494,40 @@ export class HUD {
             this.handlers.onPlanetClaim(button.dataset.planetId);
           }
           break;
+        case 'coordinate-item-create':
+          if (button.dataset.planetId) {
+            this.handlers.onCoordinateItemCreate(button.dataset.planetId);
+          }
+          break;
+        case 'coordinate-item-use':
+          if (button.dataset.itemInstanceId) {
+            this.handlers.onCoordinateItemUse(button.dataset.itemInstanceId);
+          }
+          break;
+        case 'intel-share': {
+          const control = button.closest<HTMLElement>('[data-intel-share-control]');
+          const planetID = button.dataset.planetId ?? control?.dataset.planetId ?? '';
+          const toPlayerID = routeControlValue(control, '[data-intel-share-target]');
+          this.handlers.onIntelShare({ planetID, toPlayerID });
+          break;
+        }
+        case 'planet-building-build': {
+          const control = button.closest<HTMLElement>('[data-building-build-control]');
+          const planetID = button.dataset.planetId ?? control?.dataset.planetId ?? '';
+          const buildingType = routeControlValue(control, '[data-building-build-type]');
+          const slot = routeControlValue(control, '[data-building-build-slot]');
+          this.handlers.onPlanetBuildingBuild({ planetID, buildingType, slot });
+          break;
+        }
+        case 'planet-building-upgrade':
+          if (button.dataset.planetId && button.dataset.buildingId) {
+            this.handlers.onPlanetBuildingUpgrade({
+              planetID: button.dataset.planetId,
+              buildingID: button.dataset.buildingId,
+              targetLevel: Number(button.dataset.targetLevel ?? '0'),
+            });
+          }
+          break;
         case 'route-select':
           if (button.dataset.routeId) {
             hudSelection.selectedRouteID = button.dataset.routeId;
@@ -581,6 +615,16 @@ export class HUD {
         case 'loadout-unequip':
           if (button.dataset.slotId) {
             this.handlers.onLoadoutUnequipModule(button.dataset.slotId);
+          }
+          break;
+        case 'crafting-start':
+          if (button.dataset.recipeId) {
+            this.handlers.onCraftingStart(button.dataset.recipeId);
+          }
+          break;
+        case 'crafting-complete':
+          if (button.dataset.jobId) {
+            this.handlers.onCraftingComplete(button.dataset.jobId);
           }
           break;
         case 'module-select':

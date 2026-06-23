@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"gameproject/internal/game/foundation"
@@ -151,7 +152,10 @@ func (runtime *Runtime) handleRouteSettle(ctx realtime.CommandContext, request r
 		return marshalPayload(responsePayload)
 	}
 
-	ownerRoutes := runtime.ownerAutomationRoutes(ctx.PlayerID)
+	ownerRoutes, err := runtime.ownerAutomationRoutes(ctx.PlayerID)
+	if err != nil {
+		return nil, domainErrorForRouteSettle(err)
+	}
 	if err := runtime.preflightRouteSettleReadModelsAndStorage(ctx.PlayerID, ownerRoutes, now); err != nil {
 		return nil, domainErrorForRouteSettle(err)
 	}
@@ -263,6 +267,14 @@ func (runtime *Runtime) preflightRouteSettlementPrerequisites(route production.A
 	}
 	wantedAmount := routeSettleWholeUnitsForElapsed(route.AmountPerHour, elapsedApplied)
 
+	destinationStorageID, err := production.RouteSettlementDestinationStorageID(route.Destination)
+	if err != nil {
+		return false, fmt.Errorf("route %q destination %q: %w", route.RouteID, route.Destination.Type, err)
+	}
+	if err := runtime.restoreMissingSettlementStorageRows(route.SourcePlanetID, destinationStorageID); err != nil {
+		return false, err
+	}
+
 	source, ok, err := runtime.Production.PlanetStorage(route.SourcePlanetID)
 	if err != nil {
 		return false, err
@@ -274,10 +286,6 @@ func (runtime *Runtime) preflightRouteSettlementPrerequisites(route production.A
 		return false, err
 	}
 
-	destinationStorageID, err := production.RouteSettlementDestinationStorageID(route.Destination)
-	if err != nil {
-		return false, fmt.Errorf("route %q destination %q: %w", route.RouteID, route.Destination.Type, err)
-	}
 	if route.SourcePlanetID == destinationStorageID {
 		return wantedAmount >= 1, nil
 	}
@@ -292,6 +300,56 @@ func (runtime *Runtime) preflightRouteSettlementPrerequisites(route production.A
 		return false, err
 	}
 	return wantedAmount >= 1, nil
+}
+
+func (runtime *Runtime) restoreMissingSettlementStorageRows(storageIDs ...foundation.PlanetID) error {
+	if runtime == nil || runtime.Production == nil || runtime.Settlements == nil {
+		return nil
+	}
+	missing := make(map[foundation.PlanetID]struct{}, len(storageIDs))
+	for _, storageID := range storageIDs {
+		if err := storageID.Validate(); err != nil {
+			return err
+		}
+		if _, ok := missing[storageID]; ok {
+			continue
+		}
+		_, ok, err := runtime.Production.PlanetStorage(storageID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			missing[storageID] = struct{}{}
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	references := runtime.Settlements.SettlementReferences()
+	for index := len(references) - 1; index >= 0 && len(missing) > 0; index-- {
+		reference := references[index]
+		if reference.Kind != production.SettlementKindRoute {
+			continue
+		}
+		plan, ok, err := runtime.Settlements.CommittedSettlementDurableCommitPlan(reference.ReferenceKey)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		for _, storage := range plan.StorageRows {
+			if _, ok := missing[storage.PlanetID]; !ok {
+				continue
+			}
+			if err := runtime.Production.SavePlanetStorage(storage); err != nil {
+				return err
+			}
+			delete(missing, storage.PlanetID)
+		}
+	}
+	return nil
 }
 
 func routeSettleWholeUnitsForElapsed(amountPerHour int64, elapsed time.Duration) int64 {
@@ -327,15 +385,33 @@ func routeSettleHasExactRouteID(payload json.RawMessage) (bool, error) {
 	return false, invalidPayload("Payload must be empty or contain only route_id.", nil)
 }
 
-func (runtime *Runtime) ownerAutomationRoutes(playerID foundation.PlayerID) []production.AutomationRoute {
-	routes := runtime.Production.AutomationRoutes()
-	owned := make([]production.AutomationRoute, 0, len(routes))
-	for _, route := range routes {
+func (runtime *Runtime) ownerAutomationRoutes(playerID foundation.PlayerID) ([]production.AutomationRoute, error) {
+	routesByID := make(map[foundation.RouteID]production.AutomationRoute)
+	for _, route := range runtime.Production.AutomationRoutes() {
 		if route.OwnerPlayerID == playerID {
-			owned = append(owned, route)
+			routesByID[route.RouteID] = route
 		}
 	}
-	return owned
+	durableRecords, err := runtime.Production.CommittedAutomationRouteDurableRecordsForOwner(playerID)
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range durableRecords {
+		if _, ok := routesByID[record.Route.RouteID]; !ok {
+			routesByID[record.Route.RouteID] = record.Route
+		}
+	}
+	routeIDs := make([]foundation.RouteID, 0, len(routesByID))
+	for routeID := range routesByID {
+		routeIDs = append(routeIDs, routeID)
+	}
+	sort.Slice(routeIDs, func(i, j int) bool { return routeIDs[i] < routeIDs[j] })
+
+	owned := make([]production.AutomationRoute, 0, len(routeIDs))
+	for _, routeID := range routeIDs {
+		owned = append(owned, routesByID[routeID])
+	}
+	return owned, nil
 }
 
 func (runtime *Runtime) routeSettleResponseAndEvents(

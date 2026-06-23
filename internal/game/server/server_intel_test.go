@@ -120,6 +120,28 @@ func TestIntelShareRejectsUnsafeSourceStateBeforeReceiverMutation(t *testing.T) 
 	}
 }
 
+func TestIntelShareRejectsUnknownReceiverBeforeMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	sender := createResolvedRuntimeSession(t, gameServer, "intel-share-unknown-receiver@example.com", "Intel Share Unknown")
+	planetID := foundation.PlanetID("planet-intel-share-unknown-receiver")
+	unknownReceiverID := foundation.PlayerID("player_unknown_receiver")
+	seedKnownClaimPlanetForTest(t, gameServer, sender.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1200, Y: 1300}, 2)
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(sender.SessionID.String()),
+		[]byte(`{"request_id":"request-intel-share-unknown-receiver","op":"intel.share","payload":{"planet_id":"`+planetID.String()+`","to_player_id":"`+unknownReceiverID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("unknown receiver intel.share response = %+v, want not found", response)
+	}
+	if _, ok, err := gameServer.runtime.Discovery.PlayerPlanetIntel(unknownReceiverID, planetID); err != nil || ok {
+		t.Fatalf("unknown receiver intel after rejected share ok=%v err=%v, want no mutation", ok, err)
+	}
+	if _, ok, err := gameServer.runtime.Intel.PlayerPlanetIntel(unknownReceiverID, planetID); err != nil || ok {
+		t.Fatalf("unknown receiver runtime intel after rejected share ok=%v err=%v, want no mutation", ok, err)
+	}
+}
+
 func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-owner@example.com", "Coordinate Owner")
@@ -321,6 +343,63 @@ func TestCoordinateItemUseRestoresInventoryAfterPostConsumeFailureAndRetryCleans
 	}
 	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionDecrease, intelCoordinateItemUseLedgerReason, 1)
 	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionDecrease, intelCoordinateItemUseRepairReason, 1)
+}
+
+func TestCoordinateItemUseGatewayRetryAfterPostConsumeFailureReexecutes(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-use-gateway-retry@example.com", "Coordinate Gateway Retry")
+	planetID := foundation.PlanetID("planet-coordinate-use-gateway-retry")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1500, Y: 1600}, 3)
+	createPayload := createCoordinateItemForTest(t, gameServer, owner, planetID, "request-coordinate-use-gateway-retry-create")
+	request := []byte(`{"request_id":"request-coordinate-use-gateway-retry","op":"intel.coordinate_item.use","payload":{"item_instance_id":"` + createPayload.CoordinateItem.ItemInstanceID + `"},"client_seq":2,"v":1}`)
+
+	forcedErr := errors.New("forced coordinate gateway retry failure")
+	previousHook := coordinateItemUseInterleaveTestHook
+	defer func() { coordinateItemUseInterleaveTestHook = previousHook }()
+	var hookCalls int
+	coordinateItemUseInterleaveTestHook = func(stage coordinateItemUseInterleaveStage, _ *Runtime, playerID foundation.PlayerID, itemID foundation.ItemID) error {
+		if stage != coordinateItemUseAfterInventoryConsume {
+			return nil
+		}
+		hookCalls++
+		if playerID != owner.PlayerID || itemID.String() != createPayload.CoordinateItem.ItemInstanceID {
+			t.Fatalf("hook player/item = %s/%s, want %s/%s", playerID, itemID, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID)
+		}
+		if hookCalls == 1 {
+			return forcedErr
+		}
+		return nil
+	}
+
+	first := gameServer.runtime.Gateway.HandleRequest(realtime.SessionID(owner.SessionID.String()), request)
+	if !first.HasError || first.Error.Error.Code != foundation.CodeInternal || !first.Error.Error.Retryable {
+		t.Fatalf("first gateway coordinate use response = %+v, want retryable internal error", first)
+	}
+	if !inventorySnapshotHasInstanceID(gameServer.runtime.inventorySnapshotForPlayer(owner.PlayerID), createPayload.CoordinateItem.ItemInstanceID, coordinateScrollItemID.String(), economy.LocationKindAccountInventory.String()) {
+		t.Fatalf("inventory after first gateway failure missing restored scroll %s", createPayload.CoordinateItem.ItemInstanceID)
+	}
+
+	retry := gameServer.runtime.Gateway.HandleRequest(realtime.SessionID(owner.SessionID.String()), request)
+	if retry.HasError {
+		t.Fatalf("retry gateway coordinate use response error = %+v, want success after re-execution", retry.Error)
+	}
+	var payload struct {
+		CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
+		Inventory      inventorySnapshotPayload   `json:"inventory"`
+		Duplicate      bool                       `json:"duplicate"`
+	}
+	if err := json.Unmarshal(retry.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode retry gateway coordinate use payload: %v", err)
+	}
+	if !payload.CoordinateItem.Used || payload.Duplicate {
+		t.Fatalf("retry payload = %+v, want fresh successful use", payload)
+	}
+	if inventorySnapshotHasInstanceID(payload.Inventory, createPayload.CoordinateItem.ItemInstanceID, coordinateScrollItemID.String(), economy.LocationKindAccountInventory.String()) {
+		t.Fatalf("retry inventory = %+v, want coordinate scroll consumed", payload.Inventory)
+	}
+	if hookCalls != 2 {
+		t.Fatalf("coordinate use hook calls = %d, want first failure plus retry execution", hookCalls)
+	}
 }
 
 func TestCoordinateItemMarketPurchaseTransfersUseAuthority(t *testing.T) {

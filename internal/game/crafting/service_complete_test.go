@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/ships"
 	"gameproject/internal/game/testutil"
@@ -68,6 +69,79 @@ func TestCompleteCraftAfterTimeCreatesItemOnceForDuplicateCompletion(t *testing.
 	job, ok := fixture.service.Job(started.Job.JobID)
 	if !ok {
 		t.Fatal("job missing after complete")
+	}
+	if job.State != CraftJobStateCompleted {
+		t.Fatalf("job state = %q, want %q", job.State, CraftJobStateCompleted)
+	}
+}
+
+func TestCompleteCraftReconcilesAfterReservationOutputAndXPAlreadyApplied(t *testing.T) {
+	fixture := newCraftingServiceFixture(t)
+	recipe := fixture.startReadyRecipe(t, RecipeIDRefinedAlloy, "complete-reconcile")
+	started := fixture.mustStartCraft(t, recipe.RecipeID)
+	fixture.clock.Advance(recipe.CraftDuration)
+
+	referenceKey, err := craftCompleteReferenceKey(started.Job.JobID)
+	if err != nil {
+		t.Fatalf("craftCompleteReferenceKey: %v", err)
+	}
+	outputLocation, err := craftItemLocation(fixture.playerID, started.Job.Location)
+	if err != nil {
+		t.Fatalf("craftItemLocation: %v", err)
+	}
+	outputDefinition, ok := fixture.itemDefinitions.ItemDefinition(recipe.Output.ItemID)
+	if !ok {
+		t.Fatalf("missing item definition for %q", recipe.Output.ItemID)
+	}
+
+	if _, err := fixture.reservations.CommitReservation(started.Job.ReservationID); err != nil {
+		t.Fatalf("pre-applied CommitReservation: %v", err)
+	}
+	if _, err := fixture.inventory.AddItem(economy.AddItemInput{
+		PlayerID:       fixture.playerID,
+		ItemDefinition: outputDefinition,
+		Quantity:       recipe.Output.Quantity.Int64(),
+		Location:       outputLocation,
+		Reason:         craftCompleteReason,
+		ReferenceKey:   referenceKey,
+	}); err != nil {
+		t.Fatalf("pre-applied AddItem: %v", err)
+	}
+	if _, err := fixture.progression.GrantXP(progression.GrantXPInput{
+		PlayerID:       fixture.playerID,
+		Amount:         craftXPMainAmount,
+		SourceType:     progression.XPSourceTypeCraft,
+		SourceID:       progression.XPSourceID(started.Job.JobID.String()),
+		IdempotencyKey: progression.XPIdempotencyKey(referenceKey.String()),
+		Authority:      progression.XPGrantAuthorityCraftingService,
+		RoleXP:         []progression.RoleXPGrant{{Role: progression.RoleTypeCrafting, Amount: craftXPRoleAmount}},
+	}); err != nil {
+		t.Fatalf("pre-applied GrantXP: %v", err)
+	}
+
+	reconciled, err := fixture.service.CompleteCraft(CompleteCraftInput{PlayerID: fixture.playerID, JobID: started.Job.JobID})
+	if err != nil {
+		t.Fatalf("CompleteCraft reconcile retry: %v", err)
+	}
+
+	if !reconciled.ReservationCommit.Duplicate {
+		t.Fatal("ReservationCommit Duplicate = false, want true")
+	}
+	if reconciled.ItemOutput == nil || !reconciled.ItemOutput.Duplicate {
+		t.Fatalf("ItemOutput = %#v, want duplicate output replay", reconciled.ItemOutput)
+	}
+	if !reconciled.XPGrant.Duplicate {
+		t.Fatal("XPGrant Duplicate = false, want true")
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.playerID, recipe.Output.ItemID, outputLocation); got != recipe.Output.Quantity.Int64() {
+		t.Fatalf("output quantity = %d, want %d", got, recipe.Output.Quantity.Int64())
+	}
+	if got := countCraftXPRecords(fixture.progressionStore, fixture.playerID); got != 1 {
+		t.Fatalf("craft XP records = %d, want 1", got)
+	}
+	job, ok := fixture.service.Job(started.Job.JobID)
+	if !ok {
+		t.Fatal("job missing after reconcile")
 	}
 	if job.State != CraftJobStateCompleted {
 		t.Fatalf("job state = %q, want %q", job.State, CraftJobStateCompleted)

@@ -318,6 +318,85 @@ export abstract class ClientAppCommands extends ClientAppCore {
     );
   }
 
+  protected sendIntelShare(input: { planetID: string; toPlayerID: string }): void {
+    const planetID = input.planetID.trim();
+    const toPlayerID = input.toPlayerID.trim();
+    if (!planetID || !toPlayerID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `intel-share:${planetID}:${toPlayerID}`,
+      () => this.commandBuilder.intelShare(planetID, toPlayerID),
+      'Intel share already pending.',
+    );
+  }
+
+  protected sendCoordinateItemCreate(planetID: string): void {
+    if (!planetID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `coordinate-create:${planetID}`,
+      () => this.commandBuilder.intelCoordinateItemCreate(planetID),
+      'Coordinate item creation already pending.',
+    );
+  }
+
+  protected sendCoordinateItemUse(itemInstanceID: string): void {
+    if (!itemInstanceID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `coordinate-use:${itemInstanceID}`,
+      () => this.commandBuilder.intelCoordinateItemUse(itemInstanceID),
+      'Coordinate item use already pending.',
+    );
+  }
+
+  protected sendPlanetBuildingBuild(input: { planetID: string; buildingType: string; slot: string }): void {
+    if (!input.planetID || !input.buildingType || !input.slot) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `planet-building-build:${input.planetID}:${input.buildingType}:${input.slot}`,
+      () => this.commandBuilder.planetBuildingBuild(input),
+      'Building build already pending.',
+    );
+  }
+
+  protected sendPlanetBuildingUpgrade(input: { planetID: string; buildingID: string; targetLevel: number }): void {
+    if (!input.planetID || !input.buildingID || input.targetLevel <= 0) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `planet-building-upgrade:${input.planetID}:${input.buildingID}:${input.targetLevel}`,
+      () => this.commandBuilder.planetBuildingUpgrade(input),
+      'Building upgrade already pending.',
+    );
+  }
+
+  protected sendCraftingStart(recipeID: string): void {
+    if (!recipeID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `crafting-start:${recipeID}`,
+      () => this.commandBuilder.craftingStart(recipeID),
+      'Craft start already pending.',
+    );
+  }
+
+  protected sendCraftingComplete(jobID: string): void {
+    if (!jobID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `crafting-complete:${jobID}`,
+      () => this.commandBuilder.craftingComplete(jobID),
+      'Craft completion already pending.',
+    );
+  }
+
   protected sendRouteCreate(input: {
     sourcePlanetID: string;
     destinationPlanetID: string;
