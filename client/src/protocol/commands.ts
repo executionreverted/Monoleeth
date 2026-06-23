@@ -142,6 +142,38 @@ export class CommandBuilder {
     return this.build(OPERATIONS.planetStorageSummary, planetID ? { planet_id: planetID } : {});
   }
 
+  planetBuildingBuild(input: {
+    planetID: string;
+    buildingType: string;
+    slot: string;
+  }): RequestEnvelope<{
+    planet_id: string;
+    building_type: string;
+    slot: string;
+  }> {
+    return this.build(OPERATIONS.planetBuildingBuild, {
+      planet_id: input.planetID,
+      building_type: input.buildingType,
+      slot: input.slot,
+    });
+  }
+
+  planetBuildingUpgrade(input: {
+    planetID: string;
+    buildingID: string;
+    targetLevel: number;
+  }): RequestEnvelope<{
+    planet_id: string;
+    building_id: string;
+    target_level: number;
+  }> {
+    return this.build(OPERATIONS.planetBuildingUpgrade, {
+      planet_id: input.planetID,
+      building_id: input.buildingID,
+      target_level: Math.max(1, Math.round(input.targetLevel)),
+    });
+  }
+
   routeCreate(input: {
     sourcePlanetID: string;
     destinationPlanetID: string;

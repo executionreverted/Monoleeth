@@ -421,6 +421,43 @@ describe('planet claim controls', () => {
 });
 
 describe('route controls', () => {
+  test('owned selected planet renders building build and upgrade actions from production state', () => {
+    const state = planetRouteState();
+    state.planetIntel!.selectedPlanet!.production!.buildings = [
+      {
+        planet_id: 'planet-source',
+        public_map_key: '1-1',
+        building_id: 'planet-source-building-iron_extractor-alpha',
+        building_type: 'iron_extractor',
+        category: 'extractor',
+        level: 1,
+        state: 'active',
+        updated_at: 1000,
+      },
+    ];
+    state.production = { planets: [state.planetIntel!.selectedPlanet!.production!] };
+
+    const catalogHTML = planetCatalogPanel(state);
+    const modalHTML = planetDetailModal(state, 'planet-source');
+
+    for (const html of [catalogHTML, modalHTML]) {
+      expect(html).toContain('data-building-build-control="true"');
+      expect(html).toContain('data-planet-id="planet-source"');
+      expect(html).toContain('data-building-build-type');
+      expect(html).toContain('value="iron_extractor"');
+      expect(html).toContain('value="alloy_foundry"');
+      expect(html).toContain('data-building-build-slot');
+      expect(html).toContain('value="beta"');
+      expect(html).toMatch(/data-action="planet-building-build"[^>]*data-planet-id="planet-source"[^>]*>Build/);
+      expect(html).toContain('data-action="planet-building-upgrade"');
+      expect(html).toContain('data-building-id="planet-source-building-iron_extractor-alpha"');
+      expect(html).toContain('data-target-level="2"');
+      expect(html).not.toContain('owner_player_id');
+      expect(html).not.toContain('materials');
+      expect(html).not.toContain('cost');
+    }
+  });
+
   test('owned selected planet renders route create, update, control, and settle actions from server state', () => {
     const state = planetRouteState();
 

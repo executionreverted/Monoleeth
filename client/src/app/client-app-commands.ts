@@ -318,6 +318,28 @@ export abstract class ClientAppCommands extends ClientAppCore {
     );
   }
 
+  protected sendPlanetBuildingBuild(input: { planetID: string; buildingType: string; slot: string }): void {
+    if (!input.planetID || !input.buildingType || !input.slot) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `planet-building-build:${input.planetID}:${input.buildingType}:${input.slot}`,
+      () => this.commandBuilder.planetBuildingBuild(input),
+      'Building build already pending.',
+    );
+  }
+
+  protected sendPlanetBuildingUpgrade(input: { planetID: string; buildingID: string; targetLevel: number }): void {
+    if (!input.planetID || !input.buildingID || input.targetLevel <= 0) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `planet-building-upgrade:${input.planetID}:${input.buildingID}:${input.targetLevel}`,
+      () => this.commandBuilder.planetBuildingUpgrade(input),
+      'Building upgrade already pending.',
+    );
+  }
+
   protected sendRouteCreate(input: {
     sourcePlanetID: string;
     destinationPlanetID: string;

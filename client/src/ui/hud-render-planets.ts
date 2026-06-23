@@ -58,6 +58,7 @@ export function planetCatalogPanel(state: ClientState): string {
   const storage = production?.storage ?? null;
   const routes = selectedSummary ? planetRoutesFor(state, selectedSummary.planet_id, selectedDetail?.routes) : [];
   const routeControls = selectedSummary ? routeControlsPanel(state, selectedSummary, production, routes) : '';
+  const buildingControls = selectedSummary ? buildingControlsPanel(state, selectedSummary, production) : '';
   const coordinates = selectedDetail?.coordinates ?? null;
   const canNavigate = Boolean(coordinates && Number.isFinite(coordinates.x) && Number.isFinite(coordinates.y));
   return `
@@ -110,7 +111,8 @@ export function planetCatalogPanel(state: ClientState): string {
                      production
                        ? `<div class="meta-row"><span>State</span><strong>${production.production_enabled ? 'online' : 'offline'}</strong></div>
                           <div class="meta-row"><span>Energy</span><strong>${production.energy_reserved_per_hour}/${production.energy_capacity_per_hour}/h</strong></div>
-                          <div class="meta-row"><span>Buildings</span><strong>${production.buildings.length}</strong></div>`
+                          <div class="meta-row"><span>Buildings</span><strong>${production.buildings.length}</strong></div>
+                          ${buildingControls}`
                        : `<div class="empty-line">${selectedDetail?.production_locked ? 'Production locked.' : 'No production summary.'}</div>`
                    }
                  </section>
@@ -223,6 +225,7 @@ export function planetDetailModal(state: ClientState, planetID?: string): string
   const storage = production?.storage;
   const routes = summary ? planetRoutesFor(state, summary.planet_id, detail?.routes) : [];
   const routeControls = routeControlsPanel(state, summary, production, routes);
+  const buildingControls = buildingControlsPanel(state, summary, production);
   return `
     <h2>Planet</h2>
     <div class="planet-detail planet-detail--modal" data-planet-detail="${escapeHTML(summary.planet_id)}">
@@ -252,6 +255,7 @@ export function planetDetailModal(state: ClientState, planetID?: string): string
                <div class="meta-row"><span>Energy</span><strong>${production.energy_reserved_per_hour}/${production.energy_capacity_per_hour}/h</strong></div>
                <div class="meta-row"><span>Storage</span><strong>${storage ? `${storage.used_units}/${storage.capacity_units}` : lockedValue()}</strong></div>
                <div class="meta-row"><span>Buildings</span><strong>${production.buildings.length}</strong></div>
+               ${buildingControls}
              </div>`
           : `<div class="empty-line">${detail?.production_locked ? 'Production locked.' : 'No production snapshot for this planet yet.'}</div>`
       }
@@ -269,6 +273,67 @@ export function planetModalTitle(state: ClientState, planetID?: string): string 
     intel?.planets.find((planet) => planet.planet_id === planetID) ??
     null;
   return summary ? `Planet: ${publicPlanetName(summary)}` : 'Planet Detail';
+}
+
+function buildingControlsPanel(
+  state: ClientState,
+  planet: KnownPlanetSummary,
+  production: NonNullable<ClientState['production']>['planets'][number] | null | undefined,
+): string {
+  if (!production) {
+    return '';
+  }
+  const owned = isOwnedPlanet(planet);
+  const buildPending = hasPendingOpPayloadField(state, OPERATIONS.planetBuildingBuild, 'planet_id', planet.planet_id);
+  const controlsReady = realtimeReady(state) && owned && !buildPending;
+  const slot = nextBuildingSlot(production);
+  const buildTitle = !owned
+    ? 'Own this planet before building'
+    : !realtimeReady(state)
+      ? 'Realtime connection required'
+      : buildPending
+        ? 'Building mutation pending'
+        : 'Build planet structure';
+  const buildingRows =
+    production.buildings.length > 0
+      ? `<ul class="compact-list">${production.buildings
+          .slice(0, 4)
+          .map((building) => {
+            const upgradePending = hasPendingOpPayloadField(state, OPERATIONS.planetBuildingUpgrade, 'building_id', building.building_id);
+            const upgradeEnabled = realtimeReady(state) && owned && !upgradePending;
+            return `<li data-building-id="${escapeHTML(building.building_id)}">
+              <span>${escapeHTML(building.building_type)} L${building.level}</span>
+              <button type="button" data-action="planet-building-upgrade" data-planet-id="${escapeHTML(planet.planet_id)}" data-building-id="${escapeHTML(building.building_id)}" data-target-level="${building.level + 1}" ${upgradeEnabled ? '' : 'disabled'} title="${escapeHTML(upgradePending ? 'Building upgrade pending' : 'Upgrade building')}">${upgradePending ? 'Upgrading' : 'Upgrade'}</button>
+            </li>`;
+          })
+          .join('')}</ul>`
+      : '<div class="empty-line">No buildings yet.</div>';
+  return `
+    <div class="building-controls" data-building-build-control="true" data-planet-id="${escapeHTML(planet.planet_id)}">
+      ${buildingRows}
+      <div class="route-create">
+        <select data-building-build-type ${controlsReady ? '' : 'disabled'} aria-label="Building type">
+          <option value="iron_extractor">iron_extractor</option>
+          <option value="alloy_foundry">alloy_foundry</option>
+        </select>
+        <input type="text" value="${escapeHTML(slot)}" data-building-build-slot ${controlsReady ? '' : 'disabled'} aria-label="Building slot" />
+        <button type="button" data-action="planet-building-build" data-planet-id="${escapeHTML(planet.planet_id)}" ${controlsReady ? '' : 'disabled'} title="${escapeHTML(buildTitle)}">${buildPending ? 'Building' : 'Build'}</button>
+      </div>
+    </div>
+  `;
+}
+
+function nextBuildingSlot(production: NonNullable<ClientState['production']>['planets'][number]): string {
+  const slots = ['alpha', 'beta', 'gamma', 'delta'];
+  const used = new Set<string>();
+  for (const building of production.buildings) {
+    for (const slot of slots) {
+      if (building.building_id.endsWith(`-${slot}`)) {
+        used.add(slot);
+      }
+    }
+  }
+  return slots.find((slot) => !used.has(slot)) ?? slots[0];
 }
 
 function routeControlsPanel(

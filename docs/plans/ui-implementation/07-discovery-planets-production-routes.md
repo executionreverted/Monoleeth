@@ -97,6 +97,13 @@ Current slice completed:
   rows. Single-route responses/events and owner reconcile `settlements[]`
   responses can display source-empty, destination-full, no-op, and loss-applied
   outcomes without trusting client-authored route/storage/window facts.
+- Phase07CT browser building controls follow-up: the browser now exposes
+  `planet.building_build` and `planet.building_upgrade` command builders and
+  HUD controls from owned production snapshots. Build sends only `planet_id`,
+  `building_type`, and `slot`; upgrade sends only `planet_id`, `building_id`,
+  and `target_level`. The HUD renders current buildings, next-slot build
+  controls, pending states, and disabled states from authenticated realtime
+  state without inventing material, wallet, cost, owner, or map truth.
 - Phase07H backend query follow-up: authenticated
   `planet.production_summary` and `planet.storage_summary` now reconcile
   eligible owned active-map production through

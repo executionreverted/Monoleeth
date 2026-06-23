@@ -10,8 +10,6 @@ const UNIMPLEMENTED_MUTATION_OPS = [
   'inventory.move',
   'progression.unlock_skill',
   'progression.respec_skills',
-  'planet.building_build',
-  'planet.building_upgrade',
   'intel.coordinate_item_create',
   'intel.coordinate_item_use',
   'coordinate_scroll.create',
@@ -554,6 +552,60 @@ describe('default outbound operations', () => {
     }
   });
 
+  test('building mutation commands send only client intent fields', () => {
+    expect(OPERATIONS.planetBuildingBuild).toBe('planet.building_build');
+    expect(OPERATIONS.planetBuildingUpgrade).toBe('planet.building_upgrade');
+
+    const builder = new CommandBuilder();
+    const build = builder.planetBuildingBuild({
+      planetID: 'planet-eris',
+      buildingType: 'alloy_foundry',
+      slot: 'alpha',
+    });
+    expect(build.op).toBe(OPERATIONS.planetBuildingBuild);
+    expect(build.payload).toEqual({
+      planet_id: 'planet-eris',
+      building_type: 'alloy_foundry',
+      slot: 'alpha',
+    });
+    expect(Object.keys(build.payload)).toEqual(['planet_id', 'building_type', 'slot']);
+
+    const upgrade = builder.planetBuildingUpgrade({
+      planetID: 'planet-eris',
+      buildingID: 'planet-eris-building-iron_extractor-alpha',
+      targetLevel: 2.4,
+    });
+    expect(upgrade.op).toBe(OPERATIONS.planetBuildingUpgrade);
+    expect(upgrade.payload).toEqual({
+      planet_id: 'planet-eris',
+      building_id: 'planet-eris-building-iron_extractor-alpha',
+      target_level: 2,
+    });
+    expect(Object.keys(upgrade.payload)).toEqual(['planet_id', 'building_id', 'target_level']);
+
+    for (const payload of [build.payload, upgrade.payload]) {
+      for (const forbidden of [
+        'owner',
+        'owner_player_id',
+        'player_id',
+        'session_id',
+        'map_id',
+        'public_map_key',
+        'production',
+        'storage',
+        'wallet',
+        'cost',
+        'materials',
+        'reference',
+        'reference_key',
+        'created_at',
+        'updated_at',
+      ]) {
+        expect(payload).not.toHaveProperty(forbidden);
+      }
+    }
+  });
+
   test.each([
     'map_id',
     'map_key',
@@ -612,8 +664,6 @@ describe('default outbound operations', () => {
       'inventoryMove',
       'progressionUnlockSkill',
       'progressionRespecSkills',
-      'planetBuildingBuild',
-      'planetBuildingUpgrade',
       'coordinateScrollCreate',
       'coordinateScrollUse',
       'mailSend',
