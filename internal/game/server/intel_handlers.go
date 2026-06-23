@@ -345,11 +345,25 @@ func (runtime *Runtime) requireUsableCoordinateItem(playerID foundation.PlayerID
 	if item.OwnerPlayerID != playerID {
 		return intel.ErrCoordinateItemNotOwned
 	}
+	if err := runtime.requireCoordinateItemActiveMap(playerID, item); err != nil {
+		return err
+	}
 	if item.UsedAt != nil {
 		if item.UsedBy == playerID && item.UseReference == reference {
 			return nil
 		}
 		return intel.ErrCoordinateItemAlreadyUsed
+	}
+	return nil
+}
+
+func (runtime *Runtime) requireCoordinateItemActiveMap(playerID foundation.PlayerID, item intel.CoordinateItem) error {
+	scope, err := runtime.knownPlanetMapScope(playerID)
+	if err != nil {
+		return err
+	}
+	if item.WorldID != scope.worldID || item.ZoneID != scope.zoneID {
+		return intel.ErrCoordinateItemNotFound
 	}
 	return nil
 }

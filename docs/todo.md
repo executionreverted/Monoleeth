@@ -191,6 +191,9 @@ for phase status; this file is a compact pending-work index.
   same-reference domain replay after transport cache misses and restores the
   scroll if the command fails after inventory consume but before intel use; a
   retry cleans up the restored scroll with repair ledger evidence. The
+  authenticated use path now rejects scrolls whose stored world/zone does not
+  match the player's active map before inventory consume or intel mutation, so
+  wrong-map retries keep the scroll and do not leak hidden detail events. The
   intel/economy writes are still process-local and not wrapped in a durable
   cross-service transaction.
 - [x] Finish gateway/session authorization for remaining discovery commands.
