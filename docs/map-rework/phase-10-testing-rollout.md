@@ -267,6 +267,19 @@ Run the focused real-server Phase10 automation route browser proof explicitly:
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-route
 ```
 
+Run the single-process built-client playtest proof explicitly:
+
+```bash
+npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server
+```
+
+That proof builds the production client bundle, serves it from `cmd/game-server`
+with `GAME_CLIENT_STATIC_DIR=client/dist` and `GAME_PLAYTEST_SEED=true`,
+registers a real browser user over the same origin, verifies the playtest X Core
+and route-production onboarding seed, then clicks real HUD route create/settle
+controls while scanning smoke state, WebSocket frames, browser storage/cookies,
+and local server logs for hidden/internal leak tokens.
+
 The planet claim proof starts the local Go server with
 `GAME_DEV_MODE=1` and `GAME_E2E_PLANET_CLAIM_SEED=1`, registers a real browser
 user, scans for a real server-discovered planet, uses the real planet-detail and

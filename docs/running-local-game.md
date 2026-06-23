@@ -132,6 +132,17 @@ Run the focused Phase09 bounded-map/portal browser proof explicitly:
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase09-map
 ```
 
+Run the single-process built-client playtest proof explicitly:
+
+```bash
+npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server
+```
+
+That proof builds `client/dist`, starts `cmd/game-server` with
+`GAME_CLIENT_STATIC_DIR=client/dist` and `GAME_PLAYTEST_SEED=true`, registers a
+real browser user from the served app, verifies the playtest onboarding seed,
+and clicks real HUD route create/settle controls without Vite.
+
 That smoke starts its own real Go server and Vite dev server, then writes
 screenshots under `output/screenshots/ui-implementation/09/`, including the
 current desktop artifacts:
