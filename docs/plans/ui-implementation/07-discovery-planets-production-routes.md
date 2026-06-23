@@ -1201,6 +1201,9 @@ Mockup areas covered:
       `source_empty` response/event payloads, advances the route cursor without
       storage ledger rows, and keeps durable settlement reference/outbox
       evidence.
+- [x] Authenticated duplicate `route.update` request IDs replay the original
+      safe route response even when the retry payload changes, without adding a
+      second settlement ledger, outbox, storage mutation, or event batch.
 - [x] Durable claim, settlement/route, and building outbox stores expose an
       explicit failed-row retry boundary that preserves failure evidence before
       republishing.

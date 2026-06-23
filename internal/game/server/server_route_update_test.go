@@ -115,6 +115,60 @@ func TestRouteUpdateSettlesElapsedStorageAndQueuesActiveMapSnapshots(t *testing.
 	assertRouteUpdateSettlementEvents(t, eventsBySession[owner.SessionID], routeID, newDestinationPlanetID, "1-1", "1-1", sourcePlanetID, 60)
 }
 
+func TestRouteUpdateDuplicateRequestIDIgnoresChangedPayloadWithoutSecondSettlement(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+	gameServer := newRouteControlTestServer(t, clock)
+	owner := createResolvedRuntimeSession(t, gameServer, "route-update-duplicate-owner@example.com", "Route Update Duplicate")
+	sourcePlanetID := foundation.PlanetID("planet-route-update-duplicate-source")
+	oldDestinationPlanetID := foundation.PlanetID("planet-route-update-duplicate-old-destination")
+	firstDestinationPlanetID := foundation.PlanetID("planet-route-update-duplicate-first-destination")
+	spoofedDestinationPlanetID := foundation.PlanetID("planet-route-update-duplicate-spoofed-destination")
+	routeID := foundation.RouteID("route-update-duplicate")
+	requestID := "request-route-update-duplicate"
+
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-route-update-duplicate-source")
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, oldDestinationPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-route-update-duplicate-old-destination")
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, firstDestinationPlanetID, gameServer.runtime.zoneID, world.Vec2{X: 2100, Y: 2400}, "candidate-route-update-duplicate-first-destination")
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, spoofedDestinationPlanetID, gameServer.runtime.zoneID, world.Vec2{X: 2300, Y: 2600}, "candidate-route-update-duplicate-spoofed-destination")
+	saveRouteControlStorage(t, gameServer, sourcePlanetID, []production.StoredItem{{ItemID: "refined_alloy", Quantity: 100}})
+	seedAutomationRouteForTest(t, gameServer, owner.PlayerID, routeID, sourcePlanetID, oldDestinationPlanetID, "map_1_1", "map_1_2")
+	clock.Advance(time.Hour)
+
+	first := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"`+requestID+`","op":"route.update","payload":{"route_id":"`+routeID.String()+`","destination_planet_id":"`+firstDestinationPlanetID.String()+`","resource_item_id":"refined_alloy","amount_per_hour":55},"client_seq":1,"v":1}`),
+	)
+	assertRouteUpdateResponse(t, first, routeID, sourcePlanetID, firstDestinationPlanetID, "1-1", "1-1", "refined_alloy", 55, true, "first duplicate route.update")
+	durableOutboxAfterFirst := len(gameServer.runtime.Settlements.OutboxRecords())
+	durableLedgerAfterFirst := len(gameServer.runtime.Settlements.RouteStorageLedgerEntries())
+	if _, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteUpdate, owner.PlayerID); err != nil {
+		t.Fatalf("drain first duplicate route.update events: %v", err)
+	}
+
+	duplicate := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"`+requestID+`","op":"route.update","payload":{"route_id":"`+routeID.String()+`","destination_planet_id":"`+spoofedDestinationPlanetID.String()+`","resource_item_id":"refined_alloy","amount_per_hour":90},"client_seq":2,"v":1}`),
+	)
+	assertRouteUpdateResponse(t, duplicate, routeID, sourcePlanetID, firstDestinationPlanetID, "1-1", "1-1", "refined_alloy", 55, true, "duplicate route.update")
+	assertStoredRouteStorageQuantity(t, gameServer, sourcePlanetID, "refined_alloy", 60)
+	assertStoredRouteStorageQuantity(t, gameServer, oldDestinationPlanetID, "refined_alloy", 40)
+	assertStoredRouteStorageQuantity(t, gameServer, firstDestinationPlanetID, "refined_alloy", 0)
+	assertStoredRouteStorageQuantity(t, gameServer, spoofedDestinationPlanetID, "refined_alloy", 0)
+	if got := len(gameServer.runtime.Settlements.OutboxRecords()); got != durableOutboxAfterFirst {
+		t.Fatalf("duplicate route.update durable outbox rows = %d, want %d", got, durableOutboxAfterFirst)
+	}
+	if got := len(gameServer.runtime.Settlements.RouteStorageLedgerEntries()); got != durableLedgerAfterFirst {
+		t.Fatalf("duplicate route.update durable ledger rows = %d, want %d", got, durableLedgerAfterFirst)
+	}
+	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteUpdate, owner.PlayerID)
+	if err != nil {
+		t.Fatalf("post duplicate route.update events: %v", err)
+	}
+	if events := eventsBySession[owner.SessionID]; len(events) != 0 {
+		t.Fatalf("duplicate route.update queued events = %+v, want none from cached replay", events)
+	}
+}
+
 func TestRouteUpdateRejectsWrongOwnerWithoutMutationOrEvents(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "route-update-owner-safe@example.com", "Route Owner")
