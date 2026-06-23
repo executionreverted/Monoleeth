@@ -48,8 +48,11 @@ Current slice completed:
   automation route rows store internal source/destination map ids for server
   policy/read grouping, while route list/detail/snapshot payloads expose only
   `from_public_map_key` and `to_public_map_key`. The browser reducer parses
-  route public map keys. Route mutation handlers, building mutation handlers,
-  durable DB/outbox, and route settlement idempotency remain open.
+  route public map keys. Known planet scan/claim read models now also preserve
+  server-provided `public_map_key`, so bounded multi-map planet intel does not
+  lose its public map context in browser state. Route mutation handlers,
+  building mutation handlers, durable DB/outbox, and route settlement
+  idempotency remain open.
 - Phase07C backend gateway follow-up: authenticated `route.create` now exists
   as the first route mutation slice. It accepts only planet-to-planet route
   intent fields, derives owner, route id, endpoint map ids, energy, and risk

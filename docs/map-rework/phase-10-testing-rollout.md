@@ -73,6 +73,9 @@ marked `Open` are not implemented rollout controls yet.
   `map_1_3` / public `1-3` for claim success,
   `scan.pulse` active-map scan scope/read-model isolation, and domain scanner
   materialization/intel across seeded public maps `1-1`, `1-2`, and `1-3`.
+  Browser reducer coverage now preserves server-provided known-planet
+  `public_map_key` through known-planets and claim events, keeping bounded
+  multi-map planet intel tied to its public map context.
   Server-side drop matrix coverage now includes seeded public maps `1-1`,
   `1-2`, and medium PvP `1-3`. `TestPlayableVerticalServerAuthoritativeLoop`
   now ties a single server-authoritative loop across authenticated `move_to`,

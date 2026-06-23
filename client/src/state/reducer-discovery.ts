@@ -110,6 +110,10 @@ export function parseKnownPlanet(payload: JsonObject): KnownPlanetSummary | null
   if (sectorKey) {
     planet.sector_key = sectorKey;
   }
+  const publicMapKey = stringField(payload, 'public_map_key');
+  if (publicMapKey) {
+    planet.public_map_key = publicMapKey;
+  }
   return planet;
 }
 

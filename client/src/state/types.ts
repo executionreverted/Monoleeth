@@ -572,6 +572,7 @@ export interface ScanModeState {
 export interface KnownPlanetSummary {
   planet_id: string;
   sector_key?: string;
+  public_map_key?: string;
   biome: string;
   planet_type: string;
   rarity: string;

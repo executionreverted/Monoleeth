@@ -151,6 +151,7 @@ describe('reduceClientState', () => {
               last_seen_at: 1500,
               owner_status: 'unclaimed',
               discovered_at: 1400,
+              public_map_key: '1-2',
             },
           ],
           counts: { known: 1, stale: 0, owned: 0 },
@@ -182,6 +183,7 @@ describe('reduceClientState', () => {
     );
 
     expect(state.planetIntel?.planets[0]?.planet_id).toBe('planet-eris');
+    expect(state.planetIntel?.planets[0]?.public_map_key).toBe('1-2');
     expect(state.minimap?.remembered).toEqual([
       {
         kind: 'known_planet',
@@ -712,6 +714,7 @@ describe('reduceClientState', () => {
             last_seen_at: 1200,
             owner_status: 'owned_by_you',
             discovered_at: 900,
+            public_map_key: '1-1',
           },
           production_included: true,
         }),
@@ -727,10 +730,12 @@ describe('reduceClientState', () => {
       planet_id: 'planet-eris',
       owner_status: 'owned_by_you',
       intel_state: 'verified',
+      public_map_key: '1-1',
     });
     expect(state.planetIntel?.selectedPlanet).toMatchObject({
       planet_id: 'planet-eris',
       owner_status: 'owned_by_you',
+      public_map_key: '1-1',
       coordinates: { x: 320, y: 140 },
     });
     expect(state.commandLog.some((line) => line.text.includes('Unhandled event'))).toBe(false);
