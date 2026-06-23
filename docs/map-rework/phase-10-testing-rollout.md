@@ -83,9 +83,11 @@ marked `Open` are not implemented rollout controls yet.
   Core claim, production initialization, and route create/settle.
   `TestPlayableVerticalClaimedPlanetCanSourceRouteSettlement` now proves a
   freshly scanned-and-claimed planet can source an authenticated station route
-  settlement through initialized production/storage. A focused browser claim proof now
-  exists for public `1-1`, but browser drop flow and broader browser
-  scanner/claim/drop matrix variants remain open.
+  settlement through initialized production/storage, including safe
+  `route.settled` event reconciliation without exposing the masked station
+  endpoint id. A focused browser claim proof now exists for public `1-1`, but
+  browser drop flow and broader browser scanner/claim/drop matrix variants
+  remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone
   UI-click rejection proof exist in
   `client/tests/e2e/phase10-pvp-death-flow.mjs`; remaining PvP browser gaps are

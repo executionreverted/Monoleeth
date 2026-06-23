@@ -84,6 +84,10 @@ Current slice completed:
   settlement payloads plus owner-scoped `route.settled`, `route.updated`,
   `route.snapshot`, and one `route.list` event. If settlement touches storage,
   it also returns and emits active-map filtered production/storage snapshots.
+  Focused playable-vertical coverage now proves a freshly claimed planet can
+  source a station route settlement and that both the response and queued
+  `route.settled` event preserve the same safe settlement payload without
+  exposing masked station endpoint ids.
   Durable DB/outbox and durable route settlement window idempotency remain
   open.
 - Phase07G browser route proof follow-up: the browser now exposes

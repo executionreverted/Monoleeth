@@ -106,6 +106,22 @@ func TestPlayableVerticalClaimedPlanetCanSourceRouteSettlement(t *testing.T) {
 	assertRouteSettlementPayload(t, settlePayload.Settlement, foundation.RouteID(createPayload.Route.RouteID), "refined_alloy", 3_600_000, 40, 40, 0, 40, 40, false, "claimed route.settle response")
 	assertStoredRouteStorageQuantity(t, gameServer, claimedPlanetID, "refined_alloy", 60)
 	assertStoredRouteStorageQuantity(t, gameServer, foundation.PlanetID(stationEndpointID), "refined_alloy", 40)
+
+	events, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationRouteSettle, resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("post claimed route.settle events: %v", err)
+	}
+	for _, event := range events {
+		assertPayloadOmitsRouteEndpointID(t, string(event.Type)+" claimed route.settle event", event.Payload, stationEndpointID.String())
+	}
+	settled := requireEventTypeForTest(t, events, realtime.EventRouteSettled)
+	var settledPayload struct {
+		Settlement routeSettlementPayload `json:"settlement"`
+	}
+	if err := json.Unmarshal(settled.Payload, &settledPayload); err != nil {
+		t.Fatalf("decode claimed route.settled event payload: %v", err)
+	}
+	assertRouteSettlementPayload(t, settledPayload.Settlement, foundation.RouteID(createPayload.Route.RouteID), "refined_alloy", 3_600_000, 40, 40, 0, 40, 40, false, "claimed route.settled event")
 }
 
 func playableVerticalMove(t *testing.T, gameServer *Server, resolved auth.ResolvedSession) {
