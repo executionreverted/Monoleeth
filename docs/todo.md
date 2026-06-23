@@ -7,12 +7,13 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
-- [ ] Add screenshot or pixel proof for the first real world sprite set against
-  the authenticated playtest server, then tune the 2D/3D art pass. The current
-  renderer now loads concrete assets under `client/src/assets/world/` and uses
-  Pixi sprites for player, NPC, projectile, loot/effect, portal, safe-zone, and
-  radar/marker visuals, with procedural Pixi `Graphics` retained as glow and
-  interaction affordance layers.
+- [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
+  current renderer now loads concrete assets under `client/src/assets/world/`
+  and uses Pixi sprites for player, NPC, projectile, loot/effect, portal,
+  safe-zone, and radar/marker visuals, with procedural Pixi `Graphics` retained
+  as glow and interaction affordance layers. Built-client playtest proof now
+  writes `output/screenshots/ui-implementation/playtest/asset-sprites-desktop.png`
+  and checks screenshot pixels before completing the server-owned loop.
 - [ ] Add owner-aware passive economy fanout for online market, auction, and
   premium viewers. The Task 001 Phase 01 client now refreshes `market.search`,
   `auction.search`, `premium.entitlements`, wallet, inventory, and admin economy
@@ -850,6 +851,12 @@ Task 001 release proof must be rebuilt through
   keeping procedural glow layers, and `client/tests/e2e/playtest-server-flow.mjs`
   proves the built-client playtest loop renders player, hostile NPC, portal,
   and safe-zone sprite assets from real authenticated server state.
+- [x] Add authenticated playtest screenshot/pixel proof for world sprites.
+  `client/tests/e2e/playtest-server-flow.mjs` captures the built-client canvas
+  to `output/screenshots/ui-implementation/playtest/asset-sprites-desktop.png`,
+  samples it with ImageMagick, and requires nonblank/diverse pixels before the
+  same script continues through combat, loot, scan, claim, route, portal, and
+  destination loot.
 - [x] Finish entity selection, combat feedback, and loot pickup presentation in
   the mockup HUD. Visible objects select with reticles, target panels show
   server-safe HP/shield/status, firing produces laser/damage/miss reactions,

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
 import net from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +9,8 @@ import { chromium } from 'playwright';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const clientDir = resolve(scriptDir, '../..');
 const repoRoot = resolve(clientDir, '..');
+const screenshotDir = resolve(repoRoot, 'output/screenshots/ui-implementation/playtest');
+const magickBin = process.env.PLAYTEST_MAGICK_BIN || 'magick';
 const maxProcessLogLines = 3000;
 const viewport = { width: 1440, height: 900 };
 const starterNpcApproachTarget = { x: 800, y: 400 };
@@ -68,6 +71,7 @@ const forbiddenFieldNames = new Set([
 async function main() {
   const serverPort = await freePort();
   const origin = `http://127.0.0.1:${serverPort}`;
+  await mkdir(screenshotDir, { recursive: true });
   const goServer = child('go-server', 'go', ['run', './cmd/game-server'], repoRoot, {
     GAME_SERVER_ADDR: `127.0.0.1:${serverPort}`,
     GAME_CLIENT_STATIC_DIR: 'client/dist',
@@ -103,6 +107,7 @@ async function main() {
     assertWorldAssetTexturesLoaded(seeded);
     assert(hasRenderedOverlayAsset(seeded, 'portal.gate.visible'), 'portal gate overlay sprite missing');
     assert(hasRenderedOverlayAsset(seeded, 'zone.safe.pvp-blocked'), 'safe-zone overlay sprite missing');
+    const assetScreenshotPath = await captureAssetSpriteProof(client, 'asset-sprites-desktop');
     await assertNoLeak(client, seeded, 'seeded playtest state');
 
     const sourceID = routeSourceID(seeded);
@@ -209,7 +214,9 @@ async function main() {
     await assertWebSocketCanary(client, 'playtest');
     assertProcessLogCanary([goServer]);
 
-    console.log(`playtest-server smoke ok source=${sourceID} destination=${destinationID} route=${routeID} portal=1-2 destination_drop=ok`);
+    console.log(
+      `playtest-server smoke ok source=${sourceID} destination=${destinationID} route=${routeID} portal=1-2 destination_drop=ok screenshot=${assetScreenshotPath}`,
+    );
   } finally {
     if (context) await context.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
@@ -297,6 +304,43 @@ function hasRenderedEntityAsset(state, assetKey) {
 
 function hasRenderedOverlayAsset(state, assetKey) {
   return (state?.worldView?.renderedAssets?.overlaySprites ?? []).some((sprite) => sprite.assetKey === assetKey && sprite.visible === true);
+}
+
+async function captureAssetSpriteProof(client, name) {
+  const screenshotPath = resolve(screenshotDir, `${name}.png`);
+  await client.page.locator('canvas.world-canvas').screenshot({ path: screenshotPath });
+  const pixelProof = await imagePixelProof(screenshotPath);
+  assert(pixelProof.ok, `asset canvas pixel proof failed ${compact(pixelProof)}`);
+  return screenshotPath;
+}
+
+async function imagePixelProof(screenshotPath) {
+  const proc = spawn(magickBin, [screenshotPath, '-resize', '96x96!', 'txt:-'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '';
+  let stderr = '';
+  proc.stdout.on('data', (chunk) => {
+    stdout += chunk.toString();
+  });
+  proc.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+  const code = await new Promise((resolve) => proc.on('exit', resolve));
+  assert(code === 0, `ImageMagick pixel proof failed (${magickBin}) code=${code} stderr=${stderr.trim()}`);
+
+  let brightPixels = 0;
+  const buckets = new Set();
+  for (const line of stdout.split('\n')) {
+    const match = line.match(/\((\d+(?:\.\d+)?),(\d+(?:\.\d+)?),(\d+(?:\.\d+)?)(?:,|\))/);
+    if (!match) continue;
+    const red = Number(match[1]);
+    const green = Number(match[2]);
+    const blue = Number(match[3]);
+    if (red + green + blue > 80) {
+      brightPixels += 1;
+      buckets.add(`${Math.floor(red) >> 5}:${Math.floor(green) >> 5}:${Math.floor(blue) >> 5}`);
+    }
+  }
+  return { ok: brightPixels > 120 && buckets.size >= 4, brightPixels, colorBuckets: buckets.size };
 }
 
 function routeSourceID(state) {

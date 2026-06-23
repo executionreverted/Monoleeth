@@ -90,6 +90,12 @@ Must avoid:
   playtest-server flow now asserts that authenticated smoke state renders
   player, hostile NPC, portal, and safe-zone sprite assets while completing the
   real combat/loot/scan/claim/route/portal loop.
+- 2026-06-23 sprite proof: the built-client playtest-server flow now captures
+  `output/screenshots/ui-implementation/playtest/asset-sprites-desktop.png`
+  from the real Pixi canvas, verifies nonblank/diverse screenshot pixels with
+  ImageMagick, and then continues the same authenticated server-owned loop.
+  This makes the first world asset set visually provable without adding fake
+  gameplay objects.
 - The default browser path remains real/authenticated only. Demo fixtures are
   still available for explicit dev/test fixture mode, but they are dev-only lazy
   imports and the production bundle scan fails on fixture labels.
