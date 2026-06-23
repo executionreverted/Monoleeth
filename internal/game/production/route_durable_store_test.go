@@ -235,6 +235,75 @@ func TestAutomationRouteDurableStoreRejectsConflictingSourceProductionReferenceR
 	}
 }
 
+func TestAutomationRouteDurableStoreDuplicateReplayRejectsCorruptReferenceRow(t *testing.T) {
+	route := validSettlementRoute(testTime(1))
+	store := NewInMemoryAutomationRouteDurableStore()
+	plan := automationRouteDurablePlanForTest(route, "route_create:player-1:route-1", 0, testTime(2))
+	if _, err := store.ApplyAutomationRouteDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyAutomationRouteDurableCommitPlan() error = %v, want nil", err)
+	}
+
+	corrupt := store.references[plan.ReferenceKey]
+	corrupt.Revision = 0
+	store.references[plan.ReferenceKey] = corrupt
+
+	duplicate, err := store.ApplyAutomationRouteDurableCommitPlan(plan)
+	if !errors.Is(err, ErrInvalidAutomationRouteDurableCommit) || duplicate.Record.Route.RouteID != "" {
+		t.Fatalf("ApplyAutomationRouteDurableCommitPlan(corrupt duplicate) = %+v/%v, want invalid durable commit", duplicate, err)
+	}
+	stored := store.references[plan.ReferenceKey]
+	if stored.Revision != 0 {
+		t.Fatalf("corrupt reference row mutated by failed duplicate replay: %+v", stored)
+	}
+	routeRecord := store.records[route.RouteID]
+	if routeRecord.Revision != 1 {
+		t.Fatalf("route record mutated by failed duplicate replay: %+v", routeRecord)
+	}
+}
+
+func TestAutomationRouteDurableStoreUpdateRejectsCorruptCurrentRow(t *testing.T) {
+	cases := map[string]func(*testing.T, *InMemoryAutomationRouteDurableStore, AutomationRouteDurableCommitPlan){
+		"identity drift": func(t *testing.T, store *InMemoryAutomationRouteDurableStore, createPlan AutomationRouteDurableCommitPlan) {
+			corrupt := store.records[createPlan.Route.RouteID]
+			corrupt.Route.OwnerPlayerID = "player-other"
+			store.records[createPlan.Route.RouteID] = corrupt
+		},
+		"reference key drift": func(t *testing.T, store *InMemoryAutomationRouteDurableStore, createPlan AutomationRouteDurableCommitPlan) {
+			corrupt := store.records[createPlan.Route.RouteID]
+			corrupt.ReferenceKey = "route_create:player-1:route-other"
+			store.records[createPlan.Route.RouteID] = corrupt
+		},
+	}
+	for name, corruptStore := range cases {
+		t.Run(name, func(t *testing.T) {
+			route := validSettlementRoute(testTime(1))
+			store := NewInMemoryAutomationRouteDurableStore()
+			createPlan := automationRouteDurablePlanForTest(route, "route_create:player-1:route-1", 0, testTime(2))
+			if _, err := store.ApplyAutomationRouteDurableCommitPlan(createPlan); err != nil {
+				t.Fatalf("ApplyAutomationRouteDurableCommitPlan(create) error = %v, want nil", err)
+			}
+			corruptStore(t, store, createPlan)
+			corruptBefore := store.records[route.RouteID]
+
+			updatedRoute := route
+			updatedRoute.AmountPerHour = 75
+			updatedRoute.UpdatedAt = testTime(3)
+			updatePlan := automationRouteDurablePlanForTest(updatedRoute, "route_update:player-1:route-1:request-2", 1, testTime(3))
+			result, err := store.ApplyAutomationRouteDurableCommitPlan(updatePlan)
+			if !errors.Is(err, ErrInvalidAutomationRouteDurableCommit) || result.Record.Route.RouteID != "" {
+				t.Fatalf("ApplyAutomationRouteDurableCommitPlan(corrupt current row) = %+v/%v, want invalid durable commit", result, err)
+			}
+			stored := store.records[route.RouteID]
+			if !automationRouteDurableRecordsEqual(stored, corruptBefore) {
+				t.Fatalf("corrupt route row mutated by failed update: before=%+v after=%+v", corruptBefore, stored)
+			}
+			if _, ok := store.references[updatePlan.ReferenceKey]; ok {
+				t.Fatalf("update reference row committed despite corrupt current row: %+v", store.references[updatePlan.ReferenceKey])
+			}
+		})
+	}
+}
+
 func TestAutomationRouteDurableStoreRejectsEnabledRouteWithoutReservedSourceEnergy(t *testing.T) {
 	route := validSettlementRoute(testTime(1))
 	state, err := NewPlanetProductionState(route.SourcePlanetID, testTime(1), 40, testTime(2))

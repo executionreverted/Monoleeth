@@ -377,6 +377,9 @@ func applyAutomationRouteDurableCommitPlanToMaps(
 	ensureAutomationRouteDurableMaps(records, references)
 
 	if record, ok := (*references)[normalized.ReferenceKey]; ok {
+		if err := validateAutomationRouteDurableRecordForReference(record, normalized.ReferenceKey, *records); err != nil {
+			return AutomationRouteDurableCommitResult{}, err
+		}
 		if record.Route.RouteID != normalized.Route.RouteID ||
 			!automationRouteDurableRecordsEqual(record, automationRouteDurableRecordFromPlan(normalized, record.Revision)) {
 			return AutomationRouteDurableCommitResult{}, fmt.Errorf("reference_conflict: %w", ErrInvalidAutomationRouteDurableCommit)
@@ -388,6 +391,14 @@ func applyAutomationRouteDurableCommitPlanToMaps(
 	}
 
 	existing, exists := (*records)[normalized.Route.RouteID]
+	if exists {
+		if err := validateAutomationRouteDurableRecordForRoute(existing, normalized.Route.RouteID); err != nil {
+			return AutomationRouteDurableCommitResult{}, err
+		}
+		if !automationRouteDurableImmutableIdentityMatches(existing.Route, normalized.Route) {
+			return AutomationRouteDurableCommitResult{}, fmt.Errorf("route_record.identity: %w", ErrInvalidAutomationRouteDurableCommit)
+		}
+	}
 	switch {
 	case !exists && normalized.ExpectedRevision != 0:
 		return AutomationRouteDurableCommitResult{}, fmt.Errorf("route %q expected revision %d: %w", normalized.Route.RouteID, normalized.ExpectedRevision, ErrStaleAutomationRouteDurableCommit)
@@ -514,6 +525,9 @@ func validateAutomationRouteDurableRecord(record AutomationRouteDurableRecord) e
 	}
 	if err := record.ReferenceKey.Validate(); err != nil {
 		return fmt.Errorf("reference_key: %w: %v", ErrInvalidAutomationRouteDurableCommit, err)
+	}
+	if err := validateAutomationRouteDurableReferenceKeyMatchesRecord(record.ReferenceKey, record); err != nil {
+		return err
 	}
 	if record.Revision == 0 {
 		return fmt.Errorf("revision: %w", ErrInvalidAutomationRouteDurableCommit)
