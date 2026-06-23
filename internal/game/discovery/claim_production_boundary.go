@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -20,6 +21,49 @@ type ClaimProductionInitializationRecord struct {
 	InitializedAt      time.Time
 	Created            bool
 	AlreadyInitialized bool
+}
+
+// ClaimProductionInitializationDurablePlan validates the production-init row a
+// future durable claim/production adapter must persist after owner-CAS.
+type ClaimProductionInitializationDurablePlan struct {
+	Initialization ClaimProductionInitializationRecord
+	Boundary       ClaimBoundaryRecord
+}
+
+// DurablePlan validates this production-init record against an optional claim
+// boundary. Boundary evidence may be pending or complete because retries can
+// read the initialization row before or after side-effect completion.
+func (record ClaimProductionInitializationRecord) DurablePlan(
+	boundary *ClaimBoundaryRecord,
+) (ClaimProductionInitializationDurablePlan, error) {
+	return NewClaimProductionInitializationDurablePlan(&record, boundary)
+}
+
+// NewClaimProductionInitializationDurablePlan validates one claim-production
+// initialization evidence row. Empty input is a no-op plan.
+func NewClaimProductionInitializationDurablePlan(
+	record *ClaimProductionInitializationRecord,
+	boundary *ClaimBoundaryRecord,
+) (ClaimProductionInitializationDurablePlan, error) {
+	if record == nil {
+		if boundary == nil {
+			return ClaimProductionInitializationDurablePlan{}, nil
+		}
+		return ClaimProductionInitializationDurablePlan{}, fmt.Errorf("production_initialization: %w", ErrInvalidClaimDurableCommit)
+	}
+	clonedRecord := cloneClaimProductionInitializationRecord(*record)
+	if err := validateClaimProductionInitializationDurableRecord(clonedRecord); err != nil {
+		return ClaimProductionInitializationDurablePlan{}, err
+	}
+	plan := ClaimProductionInitializationDurablePlan{Initialization: clonedRecord}
+	if boundary != nil {
+		clonedBoundary := cloneClaimBoundaryRecord(*boundary)
+		if err := validateClaimProductionInitializationDurableBoundary(clonedRecord, clonedBoundary); err != nil {
+			return ClaimProductionInitializationDurablePlan{}, err
+		}
+		plan.Boundary = clonedBoundary
+	}
+	return plan, nil
 }
 
 // ClaimProductionInitializations returns production-init evidence in
@@ -75,4 +119,64 @@ func cloneClaimProductionInitializationRecord(record ClaimProductionInitializati
 	record.ClaimedAt = record.ClaimedAt.UTC()
 	record.InitializedAt = record.InitializedAt.UTC()
 	return record
+}
+
+func validateClaimProductionInitializationDurableRecord(record ClaimProductionInitializationRecord) error {
+	if err := record.ClaimReference.Validate(); err != nil {
+		return fmt.Errorf("production_initialization.claim_reference: %w", err)
+	}
+	if err := record.ReferenceKey.Validate(); err != nil {
+		return fmt.Errorf("production_initialization.reference_key: %w", err)
+	}
+	if err := record.PlayerID.Validate(); err != nil {
+		return fmt.Errorf("production_initialization.player_id: %w", err)
+	}
+	if err := record.PlanetID.Validate(); err != nil {
+		return fmt.Errorf("production_initialization.planet_id: %w", err)
+	}
+	if record.PlanetLevel <= 0 {
+		return fmt.Errorf("production_initialization.planet_level %d: %w", record.PlanetLevel, ErrInvalidClaimDurableCommit)
+	}
+	if record.ClaimedAt.IsZero() || record.InitializedAt.IsZero() {
+		return fmt.Errorf("production_initialization.timestamps: %w", ErrInvalidClaimDurableCommit)
+	}
+	if record.Created == record.AlreadyInitialized {
+		return fmt.Errorf("production_initialization.result: %w", ErrInvalidClaimDurableCommit)
+	}
+	if record.InitializedAt.Before(record.ClaimedAt) {
+		return fmt.Errorf("production_initialization.initialized_at: %w", ErrInvalidClaimDurableCommit)
+	}
+	if err := validateClaimDurableReferenceKey(record.ClaimReference, record.ReferenceKey, record.PlayerID, record.PlanetID); err != nil {
+		return fmt.Errorf("production_initialization.reference_key: %w", err)
+	}
+	return nil
+}
+
+func validateClaimProductionInitializationDurableBoundary(
+	record ClaimProductionInitializationRecord,
+	boundary ClaimBoundaryRecord,
+) error {
+	switch boundary.Status {
+	case ClaimBoundaryStatusPendingSideEffects:
+		if err := validateClaimDurableBeginBoundary(boundary); err != nil {
+			return fmt.Errorf("boundary: %w", err)
+		}
+	case ClaimBoundaryStatusComplete:
+		if err := validateClaimDurableCommitBoundary(boundary); err != nil {
+			return fmt.Errorf("boundary: %w", err)
+		}
+	default:
+		return fmt.Errorf("boundary.status %q: %w", boundary.Status, ErrInvalidClaimDurableCommit)
+	}
+	if boundary.ClaimReference != record.ClaimReference ||
+		boundary.ReferenceKey != record.ReferenceKey ||
+		boundary.PlayerID != record.PlayerID ||
+		boundary.PlanetID != record.PlanetID ||
+		!boundary.ClaimedAt.Equal(record.ClaimedAt) {
+		return fmt.Errorf("boundary: %w", ErrInvalidClaimDurableCommit)
+	}
+	if err := validateClaimDurableReferenceKey(boundary.ClaimReference, boundary.ReferenceKey, boundary.PlayerID, boundary.PlanetID); err != nil {
+		return fmt.Errorf("boundary.reference_key: %w", err)
+	}
+	return nil
 }

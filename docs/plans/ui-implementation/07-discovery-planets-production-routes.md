@@ -426,6 +426,13 @@ Current slice completed:
   begin failures produce X Core recovery evidence without pretending the owner
   transition committed. Real DB idempotency rows, row locks/CAS, and recovery
   workers remain open.
+- Phase07AV claim production-init durable-plan follow-up:
+  `NewClaimProductionInitializationDurablePlan` now validates production-init
+  recovery evidence for claimed planets, including canonical claim reference
+  keys, positive planet level, init timing, mutually exclusive created/already
+  initialized outcomes, and optional pending/complete claim-boundary evidence.
+  Real durable claim/production transaction rows and recovery workers remain
+  open.
 
 ## Source Specs
 
@@ -566,6 +573,8 @@ Mockup areas covered:
 - [x] Add claim durable commit-plan validation tying completed owner-CAS
       boundary rows, claim references, events, pending outbox rows, and optional
       X Core debit evidence together.
+- [x] Add claim production-initialization durable-plan validation tying
+      production recovery evidence to pending/complete claim boundaries.
 - [ ] Add durable authenticated transaction flows for claim/storage mutation
       coupling once DB/CAS storage boundaries replace process-local stores.
 - [x] Add offline settlement reconcile path that uses server-owned windows for

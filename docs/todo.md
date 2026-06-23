@@ -109,7 +109,9 @@ for phase status; this file is a compact pending-work index.
   planet, and stale-intel evidence, while allowing debit-only begin-failure
   recovery evidence. Phase07AT adds claim durable commit-plan validation for
   the completed owner-CAS boundary, claim reference, event, pending outbox row,
-  and optional X Core debit evidence; durable DB rows and cross-process
+  and optional X Core debit evidence. Phase07AV adds claim production-init
+  durable-plan validation for production recovery evidence tied to
+  pending/complete claim boundaries; durable DB rows and cross-process
   enforcement remain open.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
   planet claim transaction. Current in-memory flow can repair production state
@@ -406,8 +408,9 @@ for phase status; this file is a compact pending-work index.
   results. Phase07AU adds claim-begin durable plan validation for X Core debit
   plus owner-CAS evidence. Phase07AT adds the matching completed-claim durable
   commit-plan validation for claim boundary/reference/event/outbox/X Core
-  evidence. Durable claim, production, and route settlement tables plus
-  publisher scheduling remain open.
+  evidence. Phase07AV adds claim production-init durable-plan validation for
+  recovery rows tied to pending/complete claim boundaries. Durable claim,
+  production, and route settlement tables plus publisher scheduling remain open.
   Those records are still not durable, cross-process, or delivered by a durable
   publisher process. Phase07L adds
   process-local claim tokens so publish/fail callbacks require the current
