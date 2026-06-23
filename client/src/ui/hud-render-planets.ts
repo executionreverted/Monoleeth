@@ -143,6 +143,7 @@ export function planetCatalogPanel(state: ClientState): string {
                    <div class="meta-row"><span>State</span><strong>${escapeHTML(selectedSummary.intel_state || 'known')}</strong></div>
                    <div class="meta-row"><span>Confidence</span><strong>${selectedSummary.confidence}%</strong></div>
                    <div class="meta-row"><span>Owner</span><strong>${escapeHTML(selectedSummary.owner_status || 'intel')}</strong></div>
+                   ${intelShareControl(state, selectedSummary)}
                  </section>
                </div>`
             : '<div class="empty-line">Select a discovered planet.</div>'
@@ -191,6 +192,28 @@ function coordinateItemCreateButton(
         ? 'Realtime connection required'
         : 'Create a server-owned coordinate scroll from known intel';
   return `<button type="button" data-action="coordinate-item-create" data-planet-id="${escapeHTML(planetID)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${pending ? 'Creating' : 'Coord'}</button>`;
+}
+
+function intelShareControl(
+  state: ClientState,
+  planet: NonNullable<ClientState['planetIntel']>['planets'][number] | NonNullable<ClientState['planetIntel']>['selectedPlanet'],
+): string {
+  const planetID = planet?.planet_id ?? '';
+  const pending = planetID ? hasPendingOpPayloadField(state, OPERATIONS.intelShare, 'planet_id', planetID) : false;
+  const enabled = Boolean(planetID && realtimeReady(state) && !pending);
+  const title = !planetID
+    ? 'Planet id unavailable'
+    : pending
+      ? 'Intel share pending'
+      : !realtimeReady(state)
+        ? 'Realtime connection required'
+        : 'Share known planet intel with a server-resolved player id';
+  return `
+    <div class="route-create" data-intel-share-control="true" data-planet-id="${escapeHTML(planetID)}">
+      <input type="text" value="" data-intel-share-target ${enabled ? '' : 'disabled'} aria-label="Recipient player id" placeholder="player id" />
+      <button type="button" data-action="intel-share" data-planet-id="${escapeHTML(planetID)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${pending ? 'Sharing' : 'Share'}</button>
+    </div>
+  `;
 }
 
 export function planetCatalogRow(planet: NonNullable<ClientState['planetIntel']>['planets'][number], selectedPlanetID: string): string {
@@ -260,6 +283,7 @@ export function planetDetailModal(state: ClientState, planetID?: string): string
         <div class="meta-row"><span>Owner</span><strong>${escapeHTML(summary.owner_status || 'intel')}</strong></div>
         <div class="meta-row"><span>Intel</span><strong>${escapeHTML(summary.intel_state || 'known')}</strong></div>
         <div class="meta-row"><span>Confidence</span><strong>${summary.confidence}%</strong></div>
+        ${intelShareControl(state, summary)}
       </div>
       <div class="segmented planet-actions">
         <button type="button" data-action="planet-navigate" data-planet-id="${escapeHTML(summary.planet_id)}" ${canNavigate ? '' : 'disabled'} title="${canNavigate ? 'Navigate to this known coordinate' : 'Request coordinates before navigating'}">Navigate</button>

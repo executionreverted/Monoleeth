@@ -509,6 +509,34 @@ describe('route controls', () => {
     expect(pendingHTML).toMatch(/data-action="coordinate-item-create"[^>]*disabled[^>]*>Creating/);
   });
 
+  test('known planet renders intel share control with recipient-only client input', () => {
+    const state = planetRouteState();
+
+    const catalogHTML = planetCatalogPanel(state);
+    const modalHTML = planetDetailModal(state, 'planet-source');
+
+    for (const html of [catalogHTML, modalHTML]) {
+      expect(html).toContain('data-intel-share-control="true"');
+      expect(html).toContain('data-intel-share-target');
+      expect(html).toMatch(/data-action="intel-share"[^>]*data-planet-id="planet-source"[^>]*>Share/);
+      expect(html).not.toContain('from_player_id');
+      expect(html).not.toContain('source_intel_id');
+      expect(html).not.toContain('data-coordinates');
+    }
+
+    state.pendingCommands = {
+      'intel-share-1': {
+        requestID: 'intel-share-1',
+        op: OPERATIONS.intelShare,
+        payload: { planet_id: 'planet-source', to_player_id: 'player-friend' },
+        queuedAt: 1,
+      },
+    };
+
+    const pendingHTML = planetDetailModal(state, 'planet-source');
+    expect(pendingHTML).toMatch(/data-action="intel-share"[^>]*disabled[^>]*>Sharing/);
+  });
+
   test('route create disables without another owned endpoint or source storage resource', () => {
     const state = planetRouteState();
     state.planetIntel!.planets = [state.planetIntel!.planets[0]];

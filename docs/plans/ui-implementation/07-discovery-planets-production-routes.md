@@ -251,7 +251,12 @@ Current slice completed:
   owned `planet_coordinate_scroll` instances, and Use sends only
   `item_instance_id` for `intel.coordinate_item.use`. Matching pending commands
   disable controls, and no coordinate/source/confidence truth is authored by
-  the client. Browser `intel.share`, daily quotas, durable DB rows, and
+  the client.
+- Phase07CW browser intel share follow-up: planet catalog/detail panels now
+  expose `intel.share` through a recipient player-id input and Share control.
+  The browser sends only `planet_id` and `to_player_id`, locks matching pending
+  shares, and never authors sender, source-intel, coordinate, or confidence
+  truth. Recipient roster/search UX, daily quotas, durable DB rows, and
   cross-service transaction/compensation remain open.
 - Phase07U outbox publisher-boundary follow-up: discovery claim outbox and
   production-domain outbox records now have small interface-backed publisher
@@ -888,6 +893,8 @@ Mockup areas covered:
       recipient filtering.
 - [x] Add browser coordinate item create/use controls with pending states and
       server-owned id-only intents.
+- [x] Add browser intel share control with pending state and recipient-only
+      client input.
 - [x] Add read-only production summary handler for owned planets.
 - [x] Add production build/upgrade handlers.
 - [x] Add process-local production-domain build/upgrade material debit ledger,
@@ -1049,6 +1056,8 @@ Mockup areas covered:
 - [x] Coordinate item create/use consumes owned items once and filters results.
 - [x] Browser coordinate item create/use controls send only `planet_id` or
       `item_instance_id` and do not expose hidden coordinate payloads.
+- [x] Browser intel share sends only `planet_id` and `to_player_id` and does
+      not expose sender/source/coordinate payloads.
 - [x] Market-bought coordinate scrolls transfer server-owned intel item
       authority to the buyer and can be used once by that buyer.
 - [x] Planet claim marks active coordinate-scroll market listings for the

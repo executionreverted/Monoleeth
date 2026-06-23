@@ -504,6 +504,13 @@ export class HUD {
             this.handlers.onCoordinateItemUse(button.dataset.itemInstanceId);
           }
           break;
+        case 'intel-share': {
+          const control = button.closest<HTMLElement>('[data-intel-share-control]');
+          const planetID = button.dataset.planetId ?? control?.dataset.planetId ?? '';
+          const toPlayerID = routeControlValue(control, '[data-intel-share-target]');
+          this.handlers.onIntelShare({ planetID, toPlayerID });
+          break;
+        }
         case 'planet-building-build': {
           const control = button.closest<HTMLElement>('[data-building-build-control]');
           const planetID = button.dataset.planetId ?? control?.dataset.planetId ?? '';

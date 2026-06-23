@@ -18,6 +18,7 @@ export interface HUDHandlers {
   onPlanetDetail(planetID: string): void;
   onPlanetNavigate(planetID: string): void;
   onPlanetClaim(planetID: string): void;
+  onIntelShare(input: { planetID: string; toPlayerID: string }): void;
   onCoordinateItemCreate(planetID: string): void;
   onCoordinateItemUse(itemInstanceID: string): void;
   onPlanetBuildingBuild(input: { planetID: string; buildingType: string; slot: string }): void;

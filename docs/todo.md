@@ -274,8 +274,11 @@ for phase status; this file is a compact pending-work index.
   planet panels send only `planet_id`, inventory renders real
   `planet_coordinate_scroll` instances, Use sends only `item_instance_id`, and
   pending states lock matching commands without client-authored coordinates,
-  source, confidence, or owner truth. Browser `intel.share` controls remain
-  open. Phase07CT adds browser command builders and HUD controls for
+  source, confidence, or owner truth. Phase07CW adds browser `intel.share`
+  controls that send only `planet_id` and `to_player_id` from a recipient
+  player-id input, with pending state and no sender/source/coordinate payloads.
+  Recipient roster/search UX remains open. Phase07CT adds browser command
+  builders and HUD controls for
   `planet.building_build` / `planet.building_upgrade`; those controls send
   only server-safe intent fields and render from owned production snapshots
   without material, wallet, cost, owner, or map truth. Phase07Z adds a

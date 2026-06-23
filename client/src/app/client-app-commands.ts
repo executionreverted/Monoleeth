@@ -318,6 +318,19 @@ export abstract class ClientAppCommands extends ClientAppCore {
     );
   }
 
+  protected sendIntelShare(input: { planetID: string; toPlayerID: string }): void {
+    const planetID = input.planetID.trim();
+    const toPlayerID = input.toPlayerID.trim();
+    if (!planetID || !toPlayerID) {
+      return;
+    }
+    this.sendGuardedGameplayCommand(
+      `intel-share:${planetID}:${toPlayerID}`,
+      () => this.commandBuilder.intelShare(planetID, toPlayerID),
+      'Intel share already pending.',
+    );
+  }
+
   protected sendCoordinateItemCreate(planetID: string): void {
     if (!planetID) {
       return;
