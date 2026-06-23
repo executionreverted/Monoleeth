@@ -390,6 +390,9 @@ Current slice completed:
   shareable sender intel states (`fresh` and `verified`); stale,
   invalidated, missing, or colonized-by-other sender memory returns a safe
   not-found style error before receiver intel writes or receiver event fanout.
+  A planet known only through another player's personal intel is also rejected
+  at the gateway without syncing sender intel, writing receiver intel, or
+  queueing receiver events.
   Duplicate share request ids replay the original safe gateway response when the
   retry payload changes receiver or planet, without writing receiver intel or
   known-planets events for the changed payload. Duplicate coordinate item create
@@ -912,6 +915,8 @@ Mockup areas covered:
       recipient filtering.
 - [x] Duplicate `intel.share` retries replay the original safe response without
       mutating a changed receiver/planet payload.
+- [x] Unauthorized `intel.share` attempts cannot use another player's personal
+      intel and do not mutate receiver memory or events.
 - [x] Duplicate `intel.coordinate_item.create` retries replay the original safe
       response without minting a changed-planet scroll.
 - [x] Add browser coordinate item create/use controls with pending states and

@@ -212,12 +212,15 @@ for phase status; this file is a compact pending-work index.
   the player's active map before coordinate item mint or receiver intel writes.
   Phase07CZ makes `intel.share` reject unknown runtime receiver players before
   source sync or receiver intel writes, preventing ghost-player intel rows and
-  late internal errors. Duplicate `intel.share` request IDs now replay the
-  original safe gateway response when the retry payload changes receiver or
-  planet, without writing receiver intel or known-planets events for the changed
-  payload. Duplicate `intel.coordinate_item.create` request IDs likewise replay
-  the original safe coordinate-item response when the retry changes planet,
-  without minting a second scroll, ledger row, or create event batch.
+  late internal errors. The gateway also rejects shares where the planet exists
+  only in another player's personal intel, returning safe not-found without
+  syncing sender intel, writing receiver intel, or queueing receiver events.
+  Duplicate `intel.share` request IDs now replay the original safe gateway
+  response when the retry payload changes receiver or planet, without writing
+  receiver intel or known-planets events for the changed payload. Duplicate
+  `intel.coordinate_item.create` request IDs likewise replay the original safe
+  coordinate-item response when the retry changes planet, without minting a
+  second scroll, ledger row, or create event batch.
   The authenticated use path rejects scrolls whose stored world/zone does not
   match the player's active map before inventory consume or intel mutation, so
   wrong-map retries keep the scroll and do not leak hidden detail events. The
