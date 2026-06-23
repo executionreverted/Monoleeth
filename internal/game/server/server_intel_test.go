@@ -178,6 +178,9 @@ func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) 
 		t.Fatalf("post coordinate create events: %v", err)
 	}
 	requireEventTypeForTest(t, createEventsBySession[owner.SessionID], realtime.EventInventorySnapshot)
+	for _, event := range createEventsBySession[owner.SessionID] {
+		assertIntelPayloadSafe(t, string(event.Type)+" coordinate create event", event.Payload)
+	}
 
 	duplicateCreate := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(owner.SessionID.String()),
@@ -224,6 +227,9 @@ func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) 
 	requireEventTypeForTest(t, eventsBySession[owner.SessionID], realtime.EventKnownPlanets)
 	requireEventTypeForTest(t, eventsBySession[owner.SessionID], realtime.EventPlanetDetail)
 	requireEventTypeForTest(t, eventsBySession[owner.SessionID], realtime.EventInventorySnapshot)
+	for _, event := range eventsBySession[owner.SessionID] {
+		assertIntelPayloadSafe(t, string(event.Type)+" coordinate use event", event.Payload)
+	}
 
 	secondUse := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(owner.SessionID.String()),

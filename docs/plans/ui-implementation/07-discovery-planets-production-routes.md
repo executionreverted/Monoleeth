@@ -249,7 +249,9 @@ Current slice completed:
   request id and stored intel, and omits hidden coordinates/source metadata
   from the response. Coordinate use accepts only `item_instance_id`, checks
   ownership/consume-once through the intel domain, writes the discovery read
-  model, and queues owner-scoped known-planets and planet-detail refreshes.
+  model, and queues owner-scoped known-planets and planet-detail refreshes
+  without internal owner/world/zone/source/reference metadata in queued event
+  payloads.
   Inventory-backed coordinate item mint/consume, daily quotas, market/listing
   staleness hooks, durable DB rows, and browser HUD controls remained open at
   this slice.
@@ -1135,6 +1137,8 @@ Mockup areas covered:
       lease-released through the claim outbox publisher contracts.
 - [x] Intel share rejects hidden/not-owned coordinate references.
 - [x] Coordinate item create/use consumes owned items once and filters results.
+- [x] Coordinate item create/use queued events omit internal owner, map, source,
+      and idempotency reference metadata.
 - [x] Coordinate item create/share/use reject wrong active-map intel before
       inventory, receiver-intel, or item-use mutation.
 - [x] Browser coordinate item create/use controls send only `planet_id` or

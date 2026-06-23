@@ -318,7 +318,8 @@ for phase status; this file is a compact pending-work index.
   authenticated realtime gateway and TypeScript protocol with discovery
   read-model/event reconciliation. Phase07T backs coordinate scroll
   create/use with real inventory instances, item ledger rows, and inventory
-  snapshot fanout. Durable DB/outbox claim recovery, cross-process CAS/locks,
+  snapshot fanout, and queued coordinate create/use events now omit internal
+  owner, map, source, and idempotency reference metadata. Durable DB/outbox claim recovery, cross-process CAS/locks,
   idempotency-table enforcement, durable outbox persistence/publisher workers,
   broader building requirement/cost balancing, coordinate item durable
   transaction/compensation, market/listing staleness hooks, and intel quotas
