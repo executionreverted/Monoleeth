@@ -42,6 +42,21 @@ func (result RouteSettlementTransactionResult) DurableCommitPlan() (SettlementDu
 	return NewSettlementDurableCommitPlan(result.Reference, result.OutboxRecords, result.StorageLedger)
 }
 
+// ApplyDurableCommit validates and records the row bundle returned by this
+// route settlement transaction through a durable commit adapter.
+func (result RouteSettlementTransactionResult) ApplyDurableCommit(
+	store SettlementDurableCommitStore,
+) (SettlementDurableCommitResult, error) {
+	if store == nil {
+		return SettlementDurableCommitResult{}, ErrInvalidSettlementDurableCommit
+	}
+	plan, err := result.DurableCommitPlan()
+	if err != nil {
+		return SettlementDurableCommitResult{}, err
+	}
+	return store.ApplySettlementDurableCommitPlan(plan)
+}
+
 // ApplyRouteSettlementTransaction settles one owner-scoped route under the
 // store lock, returning only the reference/outbox/ledger rows created by this
 // transaction. Duplicate/no-op settlements return no new audit rows.

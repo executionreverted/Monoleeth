@@ -154,6 +154,100 @@ func TestSettlementDurableCommitStoreReturnsDetachedRows(t *testing.T) {
 	}
 }
 
+func TestProductionSettlementTransactionResultApplyDurableCommit(t *testing.T) {
+	transactionStore := newSettlementStore(t, "planet-durable-apply-production", testTime(0), 100, 10)
+	addSettlementBuilding(t, transactionStore, "planet-durable-apply-production", "building-durable-apply", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)
+	settledAt := testTime(0).Add(time.Hour)
+	result, err := transactionStore.ApplyProductionSettlementTransaction(ProductionSettlementTransactionInput{
+		PlanetID:  "planet-durable-apply-production",
+		SettledAt: settledAt,
+	})
+	if err != nil {
+		t.Fatalf("ApplyProductionSettlementTransaction() error = %v, want nil", err)
+	}
+	durableStore := NewInMemorySettlementDurableCommitStore()
+
+	committed, err := result.ApplyDurableCommit(durableStore)
+	if err != nil {
+		t.Fatalf("ApplyDurableCommit(production) error = %v, want nil", err)
+	}
+	if committed.Duplicate || committed.Reference == nil || committed.Reference.Kind != SettlementKindProduction {
+		t.Fatalf("production durable commit result = %+v, want first production commit", committed)
+	}
+
+	duplicateTransaction, err := transactionStore.ApplyProductionSettlementTransaction(ProductionSettlementTransactionInput{
+		PlanetID:  "planet-durable-apply-production",
+		SettledAt: settledAt,
+	})
+	if err != nil {
+		t.Fatalf("duplicate ApplyProductionSettlementTransaction() error = %v, want nil", err)
+	}
+	duplicateCommit, err := duplicateTransaction.ApplyDurableCommit(durableStore)
+	if err != nil {
+		t.Fatalf("duplicate ApplyDurableCommit(production) error = %v, want nil", err)
+	}
+	if duplicateCommit.Reference != nil || duplicateCommit.Duplicate {
+		t.Fatalf("duplicate production durable commit = %+v, want no-op empty result", duplicateCommit)
+	}
+	if len(durableStore.SettlementReferences()) != 1 || len(durableStore.OutboxRecords()) != len(result.OutboxRecords) {
+		t.Fatalf("durable production rows refs=%d outbox=%d, want one transaction commit",
+			len(durableStore.SettlementReferences()),
+			len(durableStore.OutboxRecords()))
+	}
+}
+
+func TestRouteSettlementTransactionResultApplyDurableCommit(t *testing.T) {
+	last := testRouteNow()
+	route := validSettlementRoute(last)
+	transactionStore := newRouteSettlementStore(
+		t,
+		route,
+		100,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 100}},
+		100,
+		nil,
+	)
+	result, err := transactionStore.ApplyRouteSettlementTransaction(RouteSettlementTransactionInput{
+		OwnerPlayerID: route.OwnerPlayerID,
+		RouteID:       route.RouteID,
+		SettledAt:     last.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("ApplyRouteSettlementTransaction() error = %v, want nil", err)
+	}
+	durableStore := NewInMemorySettlementDurableCommitStore()
+
+	committed, err := result.ApplyDurableCommit(durableStore)
+	if err != nil {
+		t.Fatalf("ApplyDurableCommit(route) error = %v, want nil", err)
+	}
+	if committed.Duplicate || committed.Reference == nil || committed.Reference.Kind != SettlementKindRoute {
+		t.Fatalf("route durable commit result = %+v, want first route commit", committed)
+	}
+	if len(committed.RouteStorageLedger) != len(result.StorageLedger) {
+		t.Fatalf("route durable ledger len = %d, want %d", len(committed.RouteStorageLedger), len(result.StorageLedger))
+	}
+	if len(durableStore.RouteStorageLedgerEntries()) != len(result.StorageLedger) {
+		t.Fatalf("durable route ledger rows = %d, want %d", len(durableStore.RouteStorageLedgerEntries()), len(result.StorageLedger))
+	}
+}
+
+func TestSettlementTransactionResultApplyDurableCommitRejectsInvalidStoreAndRows(t *testing.T) {
+	routeResult := RouteSettlementTransactionResult{}
+	if committed, err := routeResult.ApplyDurableCommit(nil); !errors.Is(err, ErrInvalidSettlementDurableCommit) || committed.Reference != nil {
+		t.Fatalf("ApplyDurableCommit(nil store) = %+v/%v, want invalid durable commit", committed, err)
+	}
+
+	routeResult = RouteSettlementTransactionResult{
+		Reference:     &SettlementReferenceRecord{Kind: SettlementKindRoute},
+		OutboxRecords: nil,
+		StorageLedger: nil,
+	}
+	if committed, err := routeResult.ApplyDurableCommit(NewInMemorySettlementDurableCommitStore()); !errors.Is(err, ErrInvalidSettlementDurableCommit) || committed.Reference != nil {
+		t.Fatalf("ApplyDurableCommit(invalid rows) = %+v/%v, want invalid durable commit", committed, err)
+	}
+}
+
 func productionDurableCommitPlanForStoreTest(t *testing.T) SettlementDurableCommitPlan {
 	t.Helper()
 	store := newSettlementStore(t, "planet-durable-store-production", testTime(0), 100, 10)

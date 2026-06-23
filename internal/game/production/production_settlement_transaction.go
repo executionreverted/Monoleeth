@@ -38,6 +38,21 @@ func (result ProductionSettlementTransactionResult) DurableCommitPlan() (Settlem
 	return NewSettlementDurableCommitPlan(result.Reference, result.OutboxRecords, nil)
 }
 
+// ApplyDurableCommit validates and records the row bundle returned by this
+// production settlement transaction through a durable commit adapter.
+func (result ProductionSettlementTransactionResult) ApplyDurableCommit(
+	store SettlementDurableCommitStore,
+) (SettlementDurableCommitResult, error) {
+	if store == nil {
+		return SettlementDurableCommitResult{}, ErrInvalidSettlementDurableCommit
+	}
+	plan, err := result.DurableCommitPlan()
+	if err != nil {
+		return SettlementDurableCommitResult{}, err
+	}
+	return store.ApplySettlementDurableCommitPlan(plan)
+}
+
 // ApplyProductionSettlementTransaction settles one planet production window
 // under the store lock, returning only rows created by this transaction.
 // Duplicate/no-op settlements return no new audit rows.

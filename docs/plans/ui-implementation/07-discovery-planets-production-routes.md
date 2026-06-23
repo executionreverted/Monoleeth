@@ -623,6 +623,8 @@ Mockup areas covered:
 - [x] Add durable settlement commit-store adapter contract that atomically
       records settlement references, pending outbox rows, and route storage
       ledger rows with idempotent exact replay and conflict rejection.
+- [x] Add production/route settlement transaction-result helpers that hand
+      validated durable commit plans to the durable commit-store adapter.
 - [x] Add process-local store-owned settlement reference records and pending
       outbox records for production and route settlements.
 - [x] Add process-local production outbox claim/publish/fail/retry delivery
