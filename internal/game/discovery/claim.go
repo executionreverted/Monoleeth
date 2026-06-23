@@ -215,6 +215,7 @@ type ClaimService struct {
 	recoveries         []ClaimRecoveryRecord
 	outbox             []ClaimOutboxRecord
 	nextOutboxSequence uint64
+	xCoreConsumptions  map[PlanetClaimReference]ClaimXCoreConsumptionRecord
 }
 
 type claimRecord struct {
@@ -244,6 +245,7 @@ func NewClaimService(config ClaimServiceConfig) (*ClaimService, error) {
 		claimReason:            normalized.ClaimReason,
 		claims:                 make(map[PlanetClaimReference]claimRecord),
 		references:             make(map[PlanetClaimReference]ClaimReferenceRecord),
+		xCoreConsumptions:      make(map[PlanetClaimReference]ClaimXCoreConsumptionRecord),
 	}, nil
 }
 
@@ -670,6 +672,9 @@ func (service *ClaimService) claimBoundaryForInput(input ClaimPlanetInput) (Clai
 }
 
 func (service *ClaimService) consumeXCore(input ClaimPlanetInput, planet Planet) error {
+	if consumed, err := service.claimXCoreAlreadyConsumedLocked(input); err != nil || consumed {
+		return err
+	}
 	sourceInput := ClaimXCoreSourceInput{
 		PlayerID: input.PlayerID,
 		PlanetID: planet.ID,
@@ -699,8 +704,12 @@ func (service *ClaimService) consumeXCore(input ClaimPlanetInput, planet Planet)
 	if err := consumeInput.Validate(); err != nil {
 		return err
 	}
-	_, err = service.xCoreConsumer.ConsumeClaimXCore(consumeInput)
-	return err
+	result, err := service.xCoreConsumer.ConsumeClaimXCore(consumeInput)
+	if err != nil {
+		return err
+	}
+	service.recordClaimXCoreConsumptionLocked(consumeInput, result, service.clock.Now().UTC())
+	return nil
 }
 
 func (service *ClaimService) completeClaimBoundary(input ClaimPlanetInput, completedAt time.Time, staleListingCount int) error {

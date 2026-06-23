@@ -297,6 +297,14 @@ Current slice completed:
   future DB begin/row-lock failure after inventory debit still belongs to the
   open X Core/owner-CAS transaction-coupling work. Real durable rows,
   cross-service transaction coupling, and recovery workers remain open.
+- Phase07AD X Core consumption evidence follow-up: `ClaimService` now records
+  process-local X Core debit evidence by claim reference before owner-CAS begin.
+  If a transient begin/row-lock failure happens after the debit, retrying the
+  same claim reference reuses that evidence and does not call the X Core
+  consumer a second time; a conflicting player/planet for the same reference is
+  rejected before another consume. This is still not a durable rollback or
+  atomic cross-service transaction; the DB-backed X Core debit plus owner-CAS
+  coupling remains open.
 
 ## Source Specs
 

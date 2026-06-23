@@ -101,7 +101,10 @@ for phase status; this file is a compact pending-work index.
   adapters can own begin/complete/read claim boundary operations behind
   row-lock/CAS semantics; the default implementation remains in-memory. X Core
   consumption is still not atomically coupled to DB begin/owner-CAS failure
-  handling.
+  handling. Phase07AD adds process-local X Core consumption evidence so a
+  transient begin failure after debit can retry without calling the X Core
+  consumer again, while conflicting same-reference player/planet attempts are
+  rejected before another consume.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
   planet claim transaction. Current in-memory flow can repair production state
   on retry, and Phase07W now records process-local claim recovery evidence
@@ -181,8 +184,9 @@ for phase status; this file is a compact pending-work index.
   store lock and replays completed boundaries without duplicate repair side
   effects. Phase07AC adds the claim boundary adapter contract and retry/error
   coverage around repository read/complete failures, but not yet X Core debit
-  rollback/recovery for begin failures. Durable DB rows and recovery workers
-  remain open.
+  rollback/recovery for begin failures. Phase07AD records process-local X Core
+  consumption evidence for begin-failure retries, but durable DB rows, rollback
+  or compensation, and recovery workers remain open.
   Source: Phase 10 audit, Phase07A, Phase07O, Phase07P, Phase07Q, Phase07R,
   Phase07S, and
   `docs/map-rework/phase-10-testing-rollout.md`.

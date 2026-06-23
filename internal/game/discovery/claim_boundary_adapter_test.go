@@ -105,10 +105,14 @@ func newClaimBoundaryAdapterTestService(
 type recordingClaimBoundaryStore struct {
 	inner            *InMemoryStore
 	claimBoundaryErr error
+	beginErr         error
 	completeErr      error
 }
 
 func (store *recordingClaimBoundaryStore) BeginPlanetClaimBoundary(input BeginPlanetClaimBoundaryInput) (BeginPlanetClaimBoundaryResult, error) {
+	if store.beginErr != nil {
+		return BeginPlanetClaimBoundaryResult{}, store.beginErr
+	}
 	return store.inner.BeginPlanetClaimBoundary(input)
 }
 
