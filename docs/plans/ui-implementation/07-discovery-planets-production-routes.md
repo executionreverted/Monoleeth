@@ -722,6 +722,12 @@ Current slice completed:
   committed as pending after a later side-effect failure advances to completed
   evidence on retry, and the committed claim lifecycle readback embeds the same
   completed production-init evidence instead of only relying on the sidecar row.
+- Phase07BX claim live-state recovery event follow-up: duplicate authenticated
+  claim retries after process-local production live-state loss now rebuild the
+  production/storage read model from committed production-init evidence and
+  queue fresh `planet.claimed` plus `planet.production_summary` events carrying
+  the recovered snapshot. This keeps browser recovery event-driven instead of
+  relying only on the immediate claim response.
 - Phase07AW claim durable lifecycle-plan follow-up:
   `NewClaimDurableLifecyclePlan` now validates that a completed claim lifecycle
   is one coherent row bundle across begin, optional production-init, and commit
@@ -1113,6 +1119,9 @@ Mockup areas covered:
 - [x] Claim production-init recovery drain repairs missing live production and
       storage read-model rows after advancing pending durable rows to complete,
       preserving the original X Core debit.
+- [x] Duplicate claim retry after production live-state loss queues fresh
+      claim and production summary events with the recovered server-owned
+      production/storage snapshot.
 - [x] Claim gateway rejects planets owned by another player before X Core
       consume, production init, lifecycle rows, or owner-scoped claim events.
 - [x] Claim lifecycle durable readback rebuilds a validated pending outbox

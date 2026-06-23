@@ -100,6 +100,9 @@ func TestClaimPlanetDuplicateRetryRepairsMissingProductionLiveState(t *testing.T
 	if first.HasError {
 		t.Fatalf("first claim response error = %+v, want success", first.Error)
 	}
+	if _, err := gameServer.runtime.postCommandEvents(owner.SessionID, realtime.OperationDiscoveryClaimPlanet, owner.PlayerID); err != nil {
+		t.Fatalf("post first claim events: %v", err)
+	}
 	claimReference, err := planetClaimReference(owner.PlayerID, planetID)
 	if err != nil {
 		t.Fatalf("planetClaimReference: %v", err)
@@ -132,6 +135,30 @@ func TestClaimPlanetDuplicateRetryRepairsMissingProductionLiveState(t *testing.T
 	}
 	if got := claimXCoreDecreaseLedgerCountForTest(gameServer, owner.PlayerID); got != 1 {
 		t.Fatalf("x_core debit after live repair = %d, want still one", got)
+	}
+
+	events, err := gameServer.runtime.postCommandEvents(owner.SessionID, realtime.OperationDiscoveryClaimPlanet, owner.PlayerID)
+	if err != nil {
+		t.Fatalf("post repaired duplicate claim events: %v", err)
+	}
+	claimed := requireEventTypeForTest(t, events, realtime.EventPlanetClaimed)
+	var claimedPayload planetClaimedPayload
+	if err := json.Unmarshal(claimed.Payload, &claimedPayload); err != nil {
+		t.Fatalf("decode repaired duplicate claim event: %v", err)
+	}
+	if !claimedPayload.Accepted || !claimedPayload.Duplicate || !claimedPayload.ProductionIncluded {
+		t.Fatalf("repaired duplicate claim event = %+v, want duplicate accepted with production", claimedPayload)
+	}
+	productionEvent := requireEventTypeForTest(t, events, realtime.EventProductionSummary)
+	var productionPayload planetProductionCollectionPayload
+	if err := json.Unmarshal(productionEvent.Payload, &productionPayload); err != nil {
+		t.Fatalf("decode repaired duplicate production event: %v", err)
+	}
+	if len(productionPayload.Planets) != 1 ||
+		productionPayload.Planets[0].PlanetID != planetID.String() ||
+		!productionPayload.Planets[0].ProductionEnabled ||
+		productionPayload.Planets[0].Storage.CapacityUnits == 0 {
+		t.Fatalf("repaired duplicate production event = %+v, want recovered production snapshot", productionPayload)
 	}
 }
 

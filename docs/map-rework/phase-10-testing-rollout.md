@@ -81,6 +81,9 @@ marked `Open` are not implemented rollout controls yet.
   now ties a single server-authoritative loop across authenticated `move_to`,
   portal handoff, destination combat/loot, destination scan, planet detail,
   Core claim, production initialization, and route create/settle.
+  Claim recovery coverage now also proves duplicate retries after production
+  live-state loss queue fresh claim and production summary events carrying the
+  recovered server-owned production/storage snapshot.
   `TestPlayableVerticalClaimedPlanetCanSourceRouteSettlement` now proves a
   freshly scanned-and-claimed planet can source an authenticated station route
   settlement through initialized production/storage, including safe
