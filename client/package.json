@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "e2e:phase09-map": "node tests/e2e/phase09-map-flow.mjs",
     "e2e:phase10-enemy-aggro": "node tests/e2e/phase10-enemy-aggro-flow.mjs",
+    "e2e:phase10-enemy-aggro-built": "npm run build && PHASE10_BUILT_CLIENT=1 node tests/e2e/phase10-enemy-aggro-flow.mjs",
     "e2e:phase10-planet-claim": "node tests/e2e/phase10-planet-claim-flow.mjs",
     "e2e:phase10-route": "node tests/e2e/phase10-route-flow.mjs",
     "e2e:phase10-pvp-death": "node tests/e2e/phase10-pvp-death-flow.mjs",

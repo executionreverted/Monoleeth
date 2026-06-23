@@ -61,6 +61,13 @@ if env_bool "${GAME_PLAYTEST_VERIFY_PVP_LOOP:-true}"; then
     env PHASE10_BUILT_CLIENT=1 node client/tests/e2e/phase10-pvp-death-flow.mjs
 fi
 
+if env_bool "${GAME_PLAYTEST_VERIFY_ENEMY_AGGRO:-true}"; then
+  run_client_canary \
+    "Built-client Border Skirmish enemy aggro/leash canary" \
+    e2e:phase10-enemy-aggro-built \
+    env PHASE10_BUILT_CLIENT=1 node client/tests/e2e/phase10-enemy-aggro-flow.mjs
+fi
+
 if env_bool "${GAME_PLAYTEST_VERIFY_PVP_MAP_DROP:-true}"; then
   run_client_canary \
     "Built-client destination/PvP scanner, claim, and Border Skirmish drop canary" \

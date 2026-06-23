@@ -91,6 +91,7 @@ Current focused proof commands:
 ```bash
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server-pvp
+npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-enemy-aggro-built
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-pvp-map-drop
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-scan-no-signal
 scripts/ci_playtest_artifact_gate.sh
@@ -105,6 +106,15 @@ Full local vertical-slice gate:
 That run passed the deployable artifact build/staged-publish scan, the
 built-client main playtest loop, the built-client PvP/death/repair loop, the
 destination/PvP scanner-claim-drop canary, and the scanner no-signal canary.
+
+Additional focused deployable canary:
+
+```text
+2026-06-24: PHASE10_BUILT_CLIENT=1 node client/tests/e2e/phase10-enemy-aggro-flow.mjs passed.
+```
+
+That run used the built `client/dist` served by `cmd/game-server` and proved the
+public `1-3` Border Skirmish NPC aggro/leash behavior without Vite.
 
 The playtest asset screenshot proof writes:
 
