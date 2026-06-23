@@ -152,12 +152,18 @@ GAME_ARTIFACT_SCAN_ROOTS="/path/to/published:/path/to/staging" node tests/bundle
 ```
 
 Extra roots can also be passed as positional arguments after `bundle-scan.mjs`.
+The extra-root scanner behavior has a focused regression:
+
+```bash
+npm --cache /tmp/gameproject-npm-cache --prefix client run test:bundle-scan-extra-root
+```
 
 The CI/deploy wrapper `scripts/ci_playtest_artifact_gate.sh` installs client
-dependencies when needed and runs the same build-only playtest artifact gate.
-This proves the checked-in deployable client package and default `client/dist`
-leak scan. A future external deploy job should still pass its final staging or
-published artifact directory through `GAME_ARTIFACT_SCAN_ROOTS`.
+dependencies when needed, runs that extra-root scanner regression, and then
+runs the same build-only playtest artifact gate. This proves the checked-in
+deployable client package and default `client/dist` leak scan. A future
+external deploy job should still pass its final staging or published artifact
+directory through `GAME_ARTIFACT_SCAN_ROOTS`.
 
 Run the full built-client playtest vertical-slice gate explicitly:
 

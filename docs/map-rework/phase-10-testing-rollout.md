@@ -199,9 +199,12 @@ marked `Open` are not implemented rollout controls yet.
   either CLI arguments or `GAME_ARTIFACT_SCAN_ROOTS`. The local
   `scripts/run_playtest_server.sh` build-only mode now runs this scan as part
   of the deployable playtest package gate, and
-  `scripts/ci_playtest_artifact_gate.sh` is ready for CI/deploy jobs to call.
-  Deploy pipelines still need to pass the real deployed or otherwise published
-  artifact set.
+  `client/tests/bundle-scan-extra-root.test.mjs` proves clean extra roots pass
+  while both positional and `GAME_ARTIFACT_SCAN_ROOTS` roots fail on forbidden
+  fixture/server-only tokens. `scripts/ci_playtest_artifact_gate.sh` runs that
+  regression before the build-only gate and is ready for CI/deploy jobs to
+  call. Deploy pipelines still need to pass the real deployed or otherwise
+  published artifact set.
 - Broader PvP rollout canaries beyond the focused safe-zone UI click proof are
   still missing.
 - `client` `npm run check` does not run the Phase09 Playwright smoke.
@@ -435,14 +438,17 @@ The default client bundle scan in `client/tests/bundle-scan.mjs` checks built
 and concrete server-only map/content ids. It also accepts explicit extra
 artifact roots as CLI arguments or through the path-delimited
 `GAME_ARTIFACT_SCAN_ROOTS` environment variable, so staging or publish
-directories can be scanned with the same forbidden snippet list. It
+directories can be scanned with the same forbidden snippet list. The focused
+`client/tests/bundle-scan-extra-root.test.mjs` regression proves clean extra
+roots pass, positional extra roots fail on server-only map ids, and
+`GAME_ARTIFACT_SCAN_ROOTS` fails on fixture labels. It
 intentionally does not forbid generic protocol guard field names such as hidden
 scan or loot key strings. `GAME_PLAYTEST_BUILD_ONLY=true
 scripts/run_playtest_server.sh` now builds `client/dist` and runs the scan
 without starting the long-running server. `scripts/ci_playtest_artifact_gate.sh`
-wraps dependency installation plus that build-only gate for hosted CI/deploy
-jobs. Deploy pipelines still need to pass the real deployed or otherwise
-published artifact set through the same scanner.
+wraps dependency installation, the extra-root scanner regression, and that
+build-only gate for hosted CI/deploy jobs. Deploy pipelines still need to pass
+the real deployed or otherwise published artifact set through the same scanner.
 
 The Phase09 smoke currently satisfies only a narrow server-side canary subset:
 captured local Go/Vite stdout/stderr lines from that harness and production

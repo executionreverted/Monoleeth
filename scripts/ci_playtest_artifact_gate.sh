@@ -10,4 +10,5 @@ if [[ ! -d client/node_modules ]]; then
   npm --cache "$NPM_CACHE" --prefix client ci
 fi
 
+npm --cache "$NPM_CACHE" --prefix client run test:bundle-scan-extra-root
 GAME_PLAYTEST_BUILD_ONLY=true scripts/run_playtest_server.sh

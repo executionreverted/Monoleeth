@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "lint": "node tests/client-lint.mjs",
+    "test:bundle-scan-extra-root": "node tests/bundle-scan-extra-root.test.mjs",
     "bundle-scan": "npm run build && node tests/bundle-scan.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

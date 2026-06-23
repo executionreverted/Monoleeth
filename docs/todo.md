@@ -610,10 +610,13 @@ for phase status; this file is a compact pending-work index.
   scripts/run_playtest_server.sh` now runs the local deployable playtest build
   plus artifact scan without starting the server, and
   `scripts/ci_playtest_artifact_gate.sh` now wraps dependency installation plus
-  that build-only gate for hosted CI/deploy jobs. Production logs/admin
-  responses outside that path, non-Phase09 paths beyond the playtest asset
-  screenshot, a hosted CI workflow, and wiring a real external
-  deployed/published artifact root into deploy jobs remain open.
+  an extra-root bundle-scan regression plus that build-only gate for hosted
+  CI/deploy jobs. `client/tests/bundle-scan-extra-root.test.mjs` proves clean
+  extra roots pass while both positional and `GAME_ARTIFACT_SCAN_ROOTS` roots
+  fail on forbidden fixture/server-only tokens. Production logs/admin responses
+  outside that path, non-Phase09 paths beyond the playtest asset screenshot, a
+  hosted CI workflow, and wiring a real external deployed/published artifact
+  root into deploy jobs remain open.
   Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Clean up active legacy semantic contradictions in the scoped
