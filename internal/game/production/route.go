@@ -333,7 +333,7 @@ func (input UpdateRouteInput) policyInput(sourcePlanetID foundation.PlanetID) Ro
 }
 
 func validateSupportedRouteSettlementDestination(destination RouteDestination) error {
-	if destination.Type != RouteDestinationTypePlanet {
+	if destination.Type != RouteDestinationTypePlanet && destination.Type != RouteDestinationTypeStorage {
 		return fmt.Errorf("route destination %q: %w", destination.Type, ErrUnsupportedRouteDestination)
 	}
 	return nil

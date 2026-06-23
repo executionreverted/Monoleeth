@@ -553,8 +553,12 @@ for phase status; this file is a compact pending-work index.
   cross-process leases, idempotency-table enforcement, and a scheduled durable
   publisher still need to preserve that semantic across processes.
 - [ ] Add station/storage destination settlement adapters for Phase 09
-  automation routes. Current `SettleRoute` supports planet-to-planet storage and
-  rejects generic `storage` or `station` destinations with an explicit error.
+  automation routes. Phase07BX adds the storage-destination MVP adapter:
+  domain route create/update can pass `storage` endpoints through the policy
+  boundary, and route settlement transfers into the named storage aggregate
+  with normal route ledger, durable route-row, reference/window, and outbox
+  evidence. Station destinations, runtime/browser storage-route access policy,
+  and durable DB-backed storage endpoint rows remain open.
 - [ ] Replace Phase 09 in-memory production, storage, and route repositories with
   durable per-planet/per-route transactions or row locks before multi-process
   runtime deployment.

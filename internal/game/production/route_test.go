@@ -60,6 +60,27 @@ func TestCreateRouteUnsupportedDestinationFailsBeforePolicyLookup(t *testing.T) 
 	}
 }
 
+func TestCreateRouteStorageDestinationUsesPolicyAndPersistsRoute(t *testing.T) {
+	store := NewInMemoryStore()
+	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
+	provider.policy.DestinationMapID = "map_storage"
+	service := newTestRouteService(t, store, provider, testRouteNow())
+	input := validCreateRouteInput()
+	input.Destination = RouteDestination{Type: RouteDestinationTypeStorage, ID: "storage-1"}
+
+	result, err := service.CreateRoute(input)
+	if err != nil {
+		t.Fatalf("CreateRoute(storage destination) error = %v, want nil", err)
+	}
+	if provider.calls != 1 || provider.lastInput.Destination != input.Destination {
+		t.Fatalf("policy calls/input = %d/%+v, want storage destination policy lookup", provider.calls, provider.lastInput)
+	}
+	if result.Route.Destination != input.Destination {
+		t.Fatalf("created route destination = %+v, want %+v", result.Route.Destination, input.Destination)
+	}
+	assertRouteMapIdentity(t, result.Route, "map_1_1", "map_storage")
+}
+
 func TestCreateRouteNonPositiveRateFailsBeforePolicyLookup(t *testing.T) {
 	store := NewInMemoryStore()
 	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}

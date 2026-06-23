@@ -306,6 +306,52 @@ func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 	assertRouteMapIdentity(t, settledRoute, route.SourceMapID, provider.policy.DestinationMapID)
 }
 
+func TestUpdateRouteStorageDestinationUsesPolicyAndSettlesIntoStorageAggregate(t *testing.T) {
+	last := testRouteNow()
+	updateAt := last.Add(time.Hour)
+	settleAt := updateAt.Add(time.Hour)
+	route := validSettlementRoute(last)
+	store := newRouteSettlementStore(
+		t,
+		route,
+		1_000,
+		[]StoredItem{{ItemID: "refined_alloy", Quantity: 1_000}},
+		1_000,
+		nil,
+	)
+	saveRouteSettlementStorage(t, store, "storage-1", 1_000, nil, updateAt)
+	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
+	provider.policy.DestinationMapID = "map_storage"
+	service := newTestRouteService(t, store, provider, updateAt)
+	input := validUpdateRouteInput()
+	input.Destination = RouteDestination{Type: RouteDestinationTypeStorage, ID: "storage-1"}
+	input.AmountPerHour = 80
+	input.RequestID = "request-update-route-storage"
+
+	result, err := service.UpdateRoute(input)
+	if err != nil {
+		t.Fatalf("UpdateRoute(storage destination) error = %v, want nil", err)
+	}
+	if provider.calls != 1 || provider.lastInput.Destination != input.Destination {
+		t.Fatalf("policy calls/input = %d/%+v, want storage destination policy lookup", provider.calls, provider.lastInput)
+	}
+	if result.Route.Destination != input.Destination {
+		t.Fatalf("updated route destination = %+v, want %+v", result.Route.Destination, input.Destination)
+	}
+	assertRouteMapIdentity(t, result.Route, route.SourceMapID, "map_storage")
+
+	settleService := newTestRouteSettlementService(t, store, settleAt, nil)
+	settleResult, err := settleService.SettleRoute(route.RouteID)
+	if err != nil {
+		t.Fatalf("SettleRoute(storage destination after update) error = %v, want nil", err)
+	}
+	if settleResult.WantedAmount != 80 || settleResult.AddedAmount != 80 {
+		t.Fatalf("storage post-update settlement wanted/added = %d/%d, want 80/80", settleResult.WantedAmount, settleResult.AddedAmount)
+	}
+	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 880, settleAt)
+	assertRouteSettlementStorage(t, store, "storage-1", "refined_alloy", 80, settleAt)
+}
+
 func TestUpdateRouteAtExistingEnergyCapacitySucceedsWhenCostIsUnchanged(t *testing.T) {
 	last := testRouteNow()
 	updateAt := last.Add(time.Hour)
@@ -523,7 +569,7 @@ func TestUpdateRouteUnsupportedDestinationFailsBeforePolicyLookup(t *testing.T) 
 	provider := &fakeRoutePolicyProvider{policy: noLossRoutePolicy()}
 	service := newTestRouteService(t, store, provider, now)
 	input := validUpdateRouteInput()
-	input.Destination = RouteDestination{Type: RouteDestinationTypeStorage, ID: "storage-1"}
+	input.Destination = RouteDestination{Type: RouteDestinationTypeStation, ID: "station-1"}
 
 	_, err := service.UpdateRoute(input)
 	if !errors.Is(err, ErrUnsupportedRouteDestination) {

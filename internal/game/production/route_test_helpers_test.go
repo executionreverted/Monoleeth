@@ -279,7 +279,7 @@ func newRouteSettlementStore(
 	ensureRouteProductionStateForTest(t, store, route.SourcePlanetID, 100, route.UpdatedAt)
 	insertRouteSettlementRoute(t, store, route)
 	saveRouteSettlementStorage(t, store, route.SourcePlanetID, sourceCapacity, sourceItems, route.UpdatedAt)
-	if route.Destination.Type == RouteDestinationTypePlanet {
+	if route.Destination.Type == RouteDestinationTypePlanet || route.Destination.Type == RouteDestinationTypeStorage {
 		saveRouteSettlementStorage(t, store, foundation.PlanetID(route.Destination.ID), destinationCapacity, destinationItems, route.UpdatedAt)
 	}
 	return store

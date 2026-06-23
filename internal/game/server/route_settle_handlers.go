@@ -250,9 +250,6 @@ func (runtime *Runtime) preflightRouteSettlementPrerequisites(route production.A
 	if elapsedRequested <= 0 || !route.Enabled {
 		return false, nil
 	}
-	if route.Destination.Type != production.RouteDestinationTypePlanet {
-		return false, fmt.Errorf("route %q destination %q: %w", route.RouteID, route.Destination.Type, production.ErrUnsupportedRouteDestination)
-	}
 	elapsedApplied := elapsedRequested
 	if elapsedApplied > production.DefaultMaxRouteOfflineSettlementDuration {
 		elapsedApplied = production.DefaultMaxRouteOfflineSettlementDuration
@@ -270,19 +267,19 @@ func (runtime *Runtime) preflightRouteSettlementPrerequisites(route production.A
 		return false, err
 	}
 
-	destinationPlanetID := foundation.PlanetID(route.Destination.ID)
-	if err := destinationPlanetID.Validate(); err != nil {
-		return false, fmt.Errorf("route %q destination planet %q: %w", route.RouteID, route.Destination.ID, err)
+	destinationStorageID, err := production.RouteSettlementDestinationStorageID(route.Destination)
+	if err != nil {
+		return false, fmt.Errorf("route %q destination %q: %w", route.RouteID, route.Destination.Type, err)
 	}
-	if route.SourcePlanetID == destinationPlanetID {
+	if route.SourcePlanetID == destinationStorageID {
 		return wantedAmount >= 1, nil
 	}
-	destination, ok, err := runtime.Production.PlanetStorage(destinationPlanetID)
+	destination, ok, err := runtime.Production.PlanetStorage(destinationStorageID)
 	if err != nil {
 		return false, err
 	}
 	if !ok {
-		return false, fmt.Errorf("route %q destination planet %q: %w", route.RouteID, destinationPlanetID, production.ErrRouteDestinationStorageMissing)
+		return false, fmt.Errorf("route %q destination storage %q: %w", route.RouteID, destinationStorageID, production.ErrRouteDestinationStorageMissing)
 	}
 	if err := destination.Validate(); err != nil {
 		return false, err

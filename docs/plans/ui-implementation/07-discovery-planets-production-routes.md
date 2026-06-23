@@ -441,6 +441,14 @@ Current slice completed:
   drains the durable settlement outbox into realtime and verifies owner-scoped
   `route.settled`, route snapshot/list, production, and storage events without
   leaking to another active session.
+- Phase07BX storage destination route adapter follow-up:
+  The production route domain now accepts `storage` destinations behind the
+  route policy boundary and `SettleRoute` resolves those destinations to named
+  storage aggregates. Storage-destination settlements use the same
+  server-timed reference/window evidence, route storage ledger rows, durable
+  route-row cursor snapshots, and outbox evidence as planet destinations.
+  Station destinations plus runtime/browser storage-route access policy remain
+  open.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -1008,6 +1016,9 @@ Mockup areas covered:
       snapshot with settlement reference, outbox, and route ledger rows.
 - [x] Route settlement durable outbox realtime projection publishes owner-scoped
       route settled/snapshot/list plus production/storage reconciliation events.
+- [x] Route settlement supports named storage-destination aggregates with the
+      same server-owned window/reference, ledger, durable route-row, and outbox
+      evidence as planet destinations.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

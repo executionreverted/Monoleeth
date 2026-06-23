@@ -102,10 +102,6 @@ func (store *InMemoryStore) settleRouteLocked(
 		result.NoOp = true
 		return result, nil
 	}
-	if route.Destination.Type != RouteDestinationTypePlanet {
-		return RouteSettlementResult{}, fmt.Errorf("route %q destination %q: %w", routeID, route.Destination.Type, ErrUnsupportedRouteDestination)
-	}
-
 	result.ElapsedApplied = minDuration(result.ElapsedRequested, DefaultMaxRouteOfflineSettlementDuration)
 	if err := attachRouteSettlementEvidence(&result, route.LastCalculatedAt, route.LastCalculatedAt.Add(result.ElapsedApplied)); err != nil {
 		return RouteSettlementResult{}, err
@@ -143,9 +139,9 @@ func (store *InMemoryStore) settleRouteLocked(
 	}
 
 	sourcePlanetID := route.SourcePlanetID
-	destinationPlanetID := foundation.PlanetID(route.Destination.ID)
-	if err := destinationPlanetID.Validate(); err != nil {
-		return RouteSettlementResult{}, fmt.Errorf("route %q destination planet %q: %w", routeID, route.Destination.ID, err)
+	destinationStorageID, err := RouteSettlementDestinationStorageID(route.Destination)
+	if err != nil {
+		return RouteSettlementResult{}, fmt.Errorf("route %q destination %q: %w", routeID, route.Destination.Type, err)
 	}
 
 	source, ok := store.storage[sourcePlanetID]
@@ -157,7 +153,7 @@ func (store *InMemoryStore) settleRouteLocked(
 	}
 	source = clonePlanetStorage(source)
 
-	if sourcePlanetID == destinationPlanetID {
+	if sourcePlanetID == destinationStorageID {
 		ledgerDrafts, err := settleRouteWithinSinglePlanetStorage(&source, route, now, lossRoller, &result)
 		if err != nil {
 			return RouteSettlementResult{}, err
@@ -171,9 +167,9 @@ func (store *InMemoryStore) settleRouteLocked(
 		store.routeStorageLedger = append(store.routeStorageLedger, cloneRouteStorageLedgerEntries(ledger)...)
 		store.nextRouteLedgerSequence = nextLedgerSequence
 	} else {
-		destination, ok := store.storage[destinationPlanetID]
+		destination, ok := store.storage[destinationStorageID]
 		if !ok {
-			return RouteSettlementResult{}, fmt.Errorf("route %q destination planet %q: %w", routeID, destinationPlanetID, ErrRouteDestinationStorageMissing)
+			return RouteSettlementResult{}, fmt.Errorf("route %q destination storage %q: %w", routeID, destinationStorageID, ErrRouteDestinationStorageMissing)
 		}
 		if err := destination.Validate(); err != nil {
 			return RouteSettlementResult{}, err
@@ -189,7 +185,7 @@ func (store *InMemoryStore) settleRouteLocked(
 		}
 		result.StorageLedger = ledger
 		store.storage[sourcePlanetID] = clonePlanetStorage(source)
-		store.storage[destinationPlanetID] = clonePlanetStorage(destination)
+		store.storage[destinationStorageID] = clonePlanetStorage(destination)
 		store.routeStorageLedger = append(store.routeStorageLedger, cloneRouteStorageLedgerEntries(ledger)...)
 		store.nextRouteLedgerSequence = nextLedgerSequence
 	}
@@ -209,6 +205,26 @@ func (store *InMemoryStore) settleRouteLocked(
 		return RouteSettlementResult{}, err
 	}
 	return result, nil
+}
+
+// RouteSettlementDestinationStorageID resolves a route destination into the
+// storage aggregate id used by the MVP route settlement adapter. Planet
+// destinations use their planet-local storage; storage destinations name an
+// explicit storage aggregate. Station adapters remain intentionally unsupported.
+func RouteSettlementDestinationStorageID(destination RouteDestination) (foundation.PlanetID, error) {
+	if err := destination.Validate(); err != nil {
+		return "", err
+	}
+	switch destination.Type {
+	case RouteDestinationTypePlanet, RouteDestinationTypeStorage:
+		storageID := foundation.PlanetID(destination.ID)
+		if err := storageID.Validate(); err != nil {
+			return "", err
+		}
+		return storageID, nil
+	default:
+		return "", ErrUnsupportedRouteDestination
+	}
 }
 
 func (store *InMemoryStore) appendRouteSettlementEventsLocked(result RouteSettlementResult) error {
