@@ -365,9 +365,10 @@ Run the full built-client playtest vertical-slice gate explicitly:
 scripts/verify_playtest_vertical_slice.sh
 ```
 
-This chains the playtest build/staged-publish artifact scan gate, built-client
-main playtest loop, built-client PvP/death/repair loop, and destination/PvP
-scanner, claim, plus Border Skirmish drop canary. Use
+This chains the playtest build/staged-publish artifact scan gate, then reuses
+that scanned `client/dist` artifact for the built-client main playtest loop,
+built-client PvP/death/repair loop, destination/PvP scanner, claim, plus Border
+Skirmish drop canary, and scanner no-signal canary. Use
 `GAME_PLAYTEST_VERIFY_DRY_RUN=true scripts/verify_playtest_vertical_slice.sh`
 to print the command sequence without launching the browser proofs.
 Last verified locally on 2026-06-23: the full gate passed, including

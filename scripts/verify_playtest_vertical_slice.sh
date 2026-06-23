@@ -25,6 +25,20 @@ run_step() {
   "$@"
 }
 
+run_client_canary() {
+  local label="$1"
+  shift
+  local npm_script="$1"
+  shift
+
+  if env_bool "${GAME_PLAYTEST_VERIFY_BUILD_GATE:-true}"; then
+    run_step "$label" "$@"
+    return 0
+  fi
+
+  run_step "$label" npm --cache "$NPM_CACHE" --prefix client run "$npm_script"
+}
+
 cd "$ROOT_DIR"
 
 if env_bool "${GAME_PLAYTEST_VERIFY_BUILD_GATE:-true}"; then
@@ -34,27 +48,31 @@ if env_bool "${GAME_PLAYTEST_VERIFY_BUILD_GATE:-true}"; then
 fi
 
 if env_bool "${GAME_PLAYTEST_VERIFY_MAIN_LOOP:-true}"; then
-  run_step \
-    "Built-client playtest loop: auth, combat, loot, scan, claim, production, route, portal, destination loot" \
-    npm --cache "$NPM_CACHE" --prefix client run e2e:playtest-server
+  run_client_canary \
+    "Built-client playtest loop: auth, combat, loot, scan, claim, production/building, route, portal, destination loot" \
+    e2e:playtest-server \
+    node client/tests/e2e/playtest-server-flow.mjs
 fi
 
 if env_bool "${GAME_PLAYTEST_VERIFY_PVP_LOOP:-true}"; then
-  run_step \
+  run_client_canary \
     "Built-client PvP/death/repair loop" \
-    npm --cache "$NPM_CACHE" --prefix client run e2e:playtest-server-pvp
+    e2e:playtest-server-pvp \
+    env PHASE10_BUILT_CLIENT=1 node client/tests/e2e/phase10-pvp-death-flow.mjs
 fi
 
 if env_bool "${GAME_PLAYTEST_VERIFY_PVP_MAP_DROP:-true}"; then
-  run_step \
+  run_client_canary \
     "Built-client destination/PvP scanner, claim, and Border Skirmish drop canary" \
-    npm --cache "$NPM_CACHE" --prefix client run e2e:phase10-pvp-map-drop
+    e2e:phase10-pvp-map-drop \
+    node client/tests/e2e/phase10-pvp-map-drop-flow.mjs
 fi
 
 if env_bool "${GAME_PLAYTEST_VERIFY_SCAN_NO_SIGNAL:-true}"; then
-  run_step \
+  run_client_canary \
     "Built-client hidden-player scanner no-signal canary" \
-    npm --cache "$NPM_CACHE" --prefix client run e2e:phase10-scan-no-signal
+    e2e:phase10-scan-no-signal \
+    node client/tests/e2e/phase10-scan-no-signal-flow.mjs
 fi
 
 echo

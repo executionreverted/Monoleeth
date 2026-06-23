@@ -172,10 +172,12 @@ scripts/verify_playtest_vertical_slice.sh
 ```
 
 This is intentionally not part of the routine `npm run check`. It runs the
-playtest build/artifact scan gate, the single-process browser playtest loop,
-the single-process PvP/death/repair proof, and the destination/PvP scanner plus
-Border Skirmish drop canary. To inspect the command list without launching the
-browser proofs:
+playtest build/artifact scan gate once, then reuses that scanned `client/dist`
+artifact for the single-process browser playtest loop, the single-process
+PvP/death/repair proof, the destination/PvP scanner plus Border Skirmish drop
+canary, and the scanner no-signal canary. If the build gate is disabled, the
+wrapper falls back to the npm E2E scripts that build before running. To inspect
+the command list without launching the browser proofs:
 
 ```bash
 GAME_PLAYTEST_VERIFY_DRY_RUN=true scripts/verify_playtest_vertical_slice.sh
