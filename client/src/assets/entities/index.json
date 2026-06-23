@@ -1,188 +1,242 @@
-{
-  "pipeline": "isometric_sprite_pipeline",
-  "assetCount": 36,
-  "size": 512,
-  "angles": 16,
-  "assets": [
-    {
-      "name": "Crescent_Ring_Voyager",
-      "manifest": "Crescent_Ring_Voyager/manifest.json",
-      "tris": 20800
-    },
-    {
-      "name": "Crimson_Serpent_Interceptor",
-      "manifest": "Crimson_Serpent_Interceptor/manifest.json",
-      "tris": 9484
-    },
-    {
-      "name": "Crimson_Vortex",
-      "manifest": "Crimson_Vortex/manifest.json",
-      "tris": 8769
-    },
-    {
-      "name": "Crimson_Dreadnought",
-      "manifest": "Crimson_Dreadnought/manifest.json",
-      "tris": 8166
-    },
-    {
-      "name": "Crimson_Heart_Dreadnought",
-      "manifest": "Crimson_Heart_Dreadnought/manifest.json",
-      "tris": 10214
-    },
-    {
-      "name": "Crimson_Scythe_Serpent",
-      "manifest": "Crimson_Scythe_Serpent/manifest.json",
-      "tris": 11386
-    },
-    {
-      "name": "Crimson_Void_Dreadnought",
-      "manifest": "Crimson_Void_Dreadnought/manifest.json",
-      "tris": 11220
-    },
-    {
-      "name": "Obsidian_Dreadnought",
-      "manifest": "Obsidian_Dreadnought/manifest.json",
-      "tris": 10419
-    },
-    {
-      "name": "Obsidian_Leviathan",
-      "manifest": "Obsidian_Leviathan/manifest.json",
-      "tris": 18912
-    },
-    {
-      "name": "Crimson_Vortex_2",
-      "manifest": "Crimson_Vortex_2/manifest.json",
-      "tris": 8557
-    },
-    {
-      "name": "Nightshard_Leviathan",
-      "manifest": "Nightshard_Leviathan/manifest.json",
-      "tris": 10279
-    },
-    {
-      "name": "Crimson_Vortex_3",
-      "manifest": "Crimson_Vortex_3/manifest.json",
-      "tris": 10067
-    },
-    {
-      "name": "Crimson_Obsidian_Raid",
-      "manifest": "Crimson_Obsidian_Raid/manifest.json",
-      "tris": 7852
-    },
-    {
-      "name": "Crimson_Void_Interceptor",
-      "manifest": "Crimson_Void_Interceptor/manifest.json",
-      "tris": 3913
-    },
-    {
-      "name": "Crimson_Tempest",
-      "manifest": "Crimson_Tempest/manifest.json",
-      "tris": 8459
-    },
-    {
-      "name": "Azure_Nebula_Vanguard",
-      "manifest": "Azure_Nebula_Vanguard/manifest.json",
-      "tris": 14827
-    },
-    {
-      "name": "Nebula_Vanguard",
-      "manifest": "Nebula_Vanguard/manifest.json",
-      "tris": 10723
-    },
-    {
-      "name": "Nebula_Vanguard_2",
-      "manifest": "Nebula_Vanguard_2/manifest.json",
-      "tris": 10413
-    },
-    {
-      "name": "Azure_Ringstar_Cruise",
-      "manifest": "Azure_Ringstar_Cruise/manifest.json",
-      "tris": 13798
-    },
-    {
-      "name": "Azure_Serpent_Interceptor",
-      "manifest": "Azure_Serpent_Interceptor/manifest.json",
-      "tris": 7357
-    },
-    {
-      "name": "Violet_Nebula_Vanguard",
-      "manifest": "Violet_Nebula_Vanguard/manifest.json",
-      "tris": 9816
-    },
-    {
-      "name": "Void_Scythe",
-      "manifest": "Void_Scythe/manifest.json",
-      "tris": 11258
-    },
-    {
-      "name": "Emerald_Hex_Carrier",
-      "manifest": "Emerald_Hex_Carrier/manifest.json",
-      "tris": 12020
-    },
-    {
-      "name": "Emerald_Void_Reaver",
-      "manifest": "Emerald_Void_Reaver/manifest.json",
-      "tris": 9808
-    },
-    {
-      "name": "Blue_Crystal_Starblade",
-      "manifest": "Blue_Crystal_Starblade/manifest.json",
-      "tris": 6024
-    },
-    {
-      "name": "Neon_Dagger_Starfight",
-      "manifest": "Neon_Dagger_Starfight/manifest.json",
-      "tris": 9706
-    },
-    {
-      "name": "Azure_Dreadnought",
-      "manifest": "Azure_Dreadnought/manifest.json",
-      "tris": 8837
-    },
-    {
-      "name": "Azure_Nebula_Voyager",
-      "manifest": "Azure_Nebula_Voyager/manifest.json",
-      "tris": 10506
-    },
-    {
-      "name": "Azure_Crescent_Armada",
-      "manifest": "Azure_Crescent_Armada/manifest.json",
-      "tris": 7660
-    },
-    {
-      "name": "Azure_Tempest_Interceptor",
-      "manifest": "Azure_Tempest_Interceptor/manifest.json",
-      "tris": 8025
-    },
-    {
-      "name": "Azure_Leviathan",
-      "manifest": "Azure_Leviathan/manifest.json",
-      "tris": 13852
-    },
-    {
-      "name": "Azure_Leviathan_2",
-      "manifest": "Azure_Leviathan_2/manifest.json",
-      "tris": 21996
-    },
-    {
-      "name": "Azure_Talon",
-      "manifest": "Azure_Talon/manifest.json",
-      "tris": 11291
-    },
-    {
-      "name": "Neon_Abyssal_Eye",
-      "manifest": "Neon_Abyssal_Eye/manifest.json",
-      "tris": 16461
-    },
-    {
-      "name": "Nebula_War_Crab",
-      "manifest": "Nebula_War_Crab/manifest.json",
-      "tris": 18148
-    },
-    {
-      "name": "Azure_Fang_Dreadnought",
-      "manifest": "Azure_Fang_Dreadnought/manifest.json",
-      "tris": 24471
-    }
-  ]
+﻿{
+    "pipeline":  "isometric_sprite_pipeline",
+    "assetCount":  39,
+    "size":  512,
+    "angles":  16,
+    "assets":  [
+                   {
+                       "name":  "Azure_Crescent_Armada",
+                       "manifest":  "Azure_Crescent_Armada/manifest.json",
+                       "tris":  7660,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Azure_Dreadnought",
+                       "manifest":  "Azure_Dreadnought/manifest.json",
+                       "tris":  8837,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Azure_Fang_Dreadnought",
+                       "manifest":  "Azure_Fang_Dreadnought/manifest.json",
+                       "tris":  24471,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Azure_Leviathan",
+                       "manifest":  "Azure_Leviathan/manifest.json",
+                       "tris":  13852,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Azure_Leviathan_2",
+                       "manifest":  "Azure_Leviathan_2/manifest.json",
+                       "tris":  21996,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Azure_Nebula_Vanguard",
+                       "manifest":  "Azure_Nebula_Vanguard/manifest.json",
+                       "tris":  14827,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Azure_Nebula_Voyager",
+                       "manifest":  "Azure_Nebula_Voyager/manifest.json",
+                       "tris":  10506,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Azure_Ringstar_Cruise",
+                       "manifest":  "Azure_Ringstar_Cruise/manifest.json",
+                       "tris":  13798,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Azure_Serpent_Interceptor",
+                       "manifest":  "Azure_Serpent_Interceptor/manifest.json",
+                       "tris":  7357,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Azure_Talon",
+                       "manifest":  "Azure_Talon/manifest.json",
+                       "tris":  11291,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Azure_Tempest_Interceptor",
+                       "manifest":  "Azure_Tempest_Interceptor/manifest.json",
+                       "tris":  8025,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Blue_Crystal_Starblade",
+                       "manifest":  "Blue_Crystal_Starblade/manifest.json",
+                       "tris":  6024,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crescent_Ring_Voyager",
+                       "manifest":  "Crescent_Ring_Voyager/manifest.json",
+                       "tris":  20800,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crimson_Dreadnought",
+                       "manifest":  "Crimson_Dreadnought/manifest.json",
+                       "tris":  8166,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crimson_Heart_Dreadnought",
+                       "manifest":  "Crimson_Heart_Dreadnought/manifest.json",
+                       "tris":  10214,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crimson_Obsidian_Raid",
+                       "manifest":  "Crimson_Obsidian_Raid/manifest.json",
+                       "tris":  7852,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crimson_Scythe_Serpent",
+                       "manifest":  "Crimson_Scythe_Serpent/manifest.json",
+                       "tris":  11386,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crimson_Serpent_Interceptor",
+                       "manifest":  "Crimson_Serpent_Interceptor/manifest.json",
+                       "tris":  9484,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crimson_Tempest",
+                       "manifest":  "Crimson_Tempest/manifest.json",
+                       "tris":  8459,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crimson_Void_Dreadnought",
+                       "manifest":  "Crimson_Void_Dreadnought/manifest.json",
+                       "tris":  11220,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crimson_Void_Interceptor",
+                       "manifest":  "Crimson_Void_Interceptor/manifest.json",
+                       "tris":  3913,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crimson_Vortex",
+                       "manifest":  "Crimson_Vortex/manifest.json",
+                       "tris":  8769,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crimson_Vortex_2",
+                       "manifest":  "Crimson_Vortex_2/manifest.json",
+                       "tris":  8557,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Crimson_Vortex_3",
+                       "manifest":  "Crimson_Vortex_3/manifest.json",
+                       "tris":  10067,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Emerald_Hex_Carrier",
+                       "manifest":  "Emerald_Hex_Carrier/manifest.json",
+                       "tris":  12020,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Emerald_Void_Reaver",
+                       "manifest":  "Emerald_Void_Reaver/manifest.json",
+                       "tris":  9808,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Nebula_Crystal_Crown",
+                       "manifest":  "Nebula_Crystal_Crown/manifest.json",
+                       "tris":  5584,
+                       "kind":  "lootable"
+                   },
+                   {
+                       "name":  "Nebula_Hypercube",
+                       "manifest":  "Nebula_Hypercube/manifest.json",
+                       "tris":  8116,
+                       "kind":  "lootable"
+                   },
+                   {
+                       "name":  "Nebula_Vanguard",
+                       "manifest":  "Nebula_Vanguard/manifest.json",
+                       "tris":  10723,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Nebula_Vanguard_2",
+                       "manifest":  "Nebula_Vanguard_2/manifest.json",
+                       "tris":  10413,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Nebula_War_Crab",
+                       "manifest":  "Nebula_War_Crab/manifest.json",
+                       "tris":  18148,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Neon_Abyssal_Eye",
+                       "manifest":  "Neon_Abyssal_Eye/manifest.json",
+                       "tris":  16461,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Neon_Dagger_Starfight",
+                       "manifest":  "Neon_Dagger_Starfight/manifest.json",
+                       "tris":  9706,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Neon_Hypercube",
+                       "manifest":  "Neon_Hypercube/manifest.json",
+                       "tris":  7983,
+                       "kind":  "lootable"
+                   },
+                   {
+                       "name":  "Nightshard_Leviathan",
+                       "manifest":  "Nightshard_Leviathan/manifest.json",
+                       "tris":  10279,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Obsidian_Dreadnought",
+                       "manifest":  "Obsidian_Dreadnought/manifest.json",
+                       "tris":  10419,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Obsidian_Leviathan",
+                       "manifest":  "Obsidian_Leviathan/manifest.json",
+                       "tris":  18912,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Violet_Nebula_Vanguard",
+                       "manifest":  "Violet_Nebula_Vanguard/manifest.json",
+                       "tris":  9816,
+                       "kind":  "ship"
+                   },
+                   {
+                       "name":  "Void_Scythe",
+                       "manifest":  "Void_Scythe/manifest.json",
+                       "tris":  11258,
+                       "kind":  "ship"
+                   }
+               ]
 }
