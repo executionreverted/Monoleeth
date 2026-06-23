@@ -176,8 +176,12 @@ for phase status; this file is a compact pending-work index.
   ledger rows and snapshot fanout. Phase07AG now transfers the server-owned
   intel coordinate payload owner after market purchase with the same market-buy
   idempotency key, so duplicate buy retries can repair a missing transfer and
-  buyers can use bought coordinate scrolls once. The intel/economy writes are
-  still process-local and not wrapped in a durable cross-service transaction.
+  buyers can use bought coordinate scrolls once. Coordinate item use now allows
+  same-reference domain replay after transport cache misses and restores the
+  scroll if the command fails after inventory consume but before intel use; a
+  retry cleans up the restored scroll with repair ledger evidence. The
+  intel/economy writes are still process-local and not wrapped in a durable
+  cross-service transaction.
 - [x] Finish gateway/session authorization for remaining discovery commands.
   `scan.pulse` and the Phase07A backend `discovery.claim_planet` handler now
   resolve the authenticated player server-side and reject client-authored

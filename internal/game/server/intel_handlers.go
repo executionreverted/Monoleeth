@@ -16,7 +16,18 @@ import (
 const (
 	intelCoordinateItemCreateLedgerReason = economy.LedgerReason("coordinate_item_create")
 	intelCoordinateItemUseLedgerReason    = economy.LedgerReason("coordinate_item_use")
+	intelCoordinateItemUseRepairReason    = economy.LedgerReason("coordinate_item_use_repair")
 )
+
+type coordinateItemUseInterleaveStage string
+
+const (
+	coordinateItemUseAfterInventoryConsume coordinateItemUseInterleaveStage = "after_inventory_consume"
+)
+
+// coordinateItemUseInterleaveTestHook is nil in production. Same-package tests
+// install it to force coordinate item compensation paths at deterministic boundaries.
+var coordinateItemUseInterleaveTestHook func(coordinateItemUseInterleaveStage, *Runtime, foundation.PlayerID, foundation.ItemID) error
 
 type intelShareRequest struct {
 	ToPlayerID string `json:"to_player_id"`
@@ -227,10 +238,20 @@ func (runtime *Runtime) handleIntelCoordinateItemUse(ctx realtime.CommandContext
 	if err != nil {
 		return nil, invalidPayload("Coordinate item use reference is invalid.", err)
 	}
-	if err := runtime.requireUsableCoordinateItem(ctx.PlayerID, itemID); err != nil {
+	if err := runtime.requireUsableCoordinateItem(ctx.PlayerID, itemID, reference); err != nil {
 		return nil, intelDomainError(err)
 	}
 	if err := runtime.consumeCoordinateItemFromInventory(ctx.PlayerID, itemID, reference); err != nil {
+		return nil, err
+	}
+	if err := notifyCoordinateItemUseInterleaveTestHook(coordinateItemUseAfterInventoryConsume, runtime, ctx.PlayerID, itemID); err != nil {
+		compensationReference, referenceErr := coordinateItemUseCompensationReference(reference)
+		if referenceErr != nil {
+			return nil, referenceErr
+		}
+		if compensateErr := runtime.restoreCoordinateItemToInventory(ctx.PlayerID, itemID, compensationReference); compensateErr != nil {
+			return nil, compensateErr
+		}
 		return nil, err
 	}
 
@@ -240,7 +261,21 @@ func (runtime *Runtime) handleIntelCoordinateItemUse(ctx realtime.CommandContext
 		Reference:      reference,
 	})
 	if err != nil {
+		compensationReference, referenceErr := coordinateItemUseCompensationReference(reference)
+		if referenceErr != nil {
+			return nil, referenceErr
+		}
+		if compensateErr := runtime.restoreCoordinateItemToInventory(ctx.PlayerID, itemID, compensationReference); compensateErr != nil {
+			return nil, compensateErr
+		}
 		return nil, intelDomainError(err)
+	}
+	repairReference, err := coordinateItemUseRepairReference(reference)
+	if err != nil {
+		return nil, err
+	}
+	if err := runtime.removeRestoredCoordinateItemFromInventory(ctx.PlayerID, itemID, repairReference); err != nil {
+		return nil, err
 	}
 	if _, _, err := runtime.Discovery.UpsertPlayerPlanetIntel(discoveryIntelFromIntel(result.Intel)); err != nil {
 		return nil, err
@@ -299,7 +334,7 @@ func (runtime *Runtime) grantCoordinateItemToInventory(playerID foundation.Playe
 	return nil
 }
 
-func (runtime *Runtime) requireUsableCoordinateItem(playerID foundation.PlayerID, itemInstanceID foundation.ItemID) error {
+func (runtime *Runtime) requireUsableCoordinateItem(playerID foundation.PlayerID, itemInstanceID foundation.ItemID, reference foundation.IdempotencyKey) error {
 	item, ok, err := runtime.Intel.CoordinateItem(itemInstanceID)
 	if err != nil {
 		return err
@@ -311,12 +346,24 @@ func (runtime *Runtime) requireUsableCoordinateItem(playerID foundation.PlayerID
 		return intel.ErrCoordinateItemNotOwned
 	}
 	if item.UsedAt != nil {
+		if item.UsedBy == playerID && item.UseReference == reference {
+			return nil
+		}
 		return intel.ErrCoordinateItemAlreadyUsed
 	}
 	return nil
 }
 
 func (runtime *Runtime) consumeCoordinateItemFromInventory(playerID foundation.PlayerID, itemInstanceID foundation.ItemID, reference foundation.IdempotencyKey) error {
+	return runtime.removeCoordinateItemFromInventory(playerID, itemInstanceID, reference, intelCoordinateItemUseLedgerReason)
+}
+
+func (runtime *Runtime) removeCoordinateItemFromInventory(
+	playerID foundation.PlayerID,
+	itemInstanceID foundation.ItemID,
+	reference foundation.IdempotencyKey,
+	reason economy.LedgerReason,
+) error {
 	definition, ok := runtime.itemCatalog[coordinateScrollItemID]
 	if !ok {
 		return foundation.NewDomainError(foundation.CodeNotFound, "Coordinate item definition was not found.")
@@ -333,7 +380,7 @@ func (runtime *Runtime) consumeCoordinateItemFromInventory(playerID foundation.P
 		},
 		SourceLocation: location,
 		Quantity:       1,
-		Reason:         intelCoordinateItemUseLedgerReason,
+		Reason:         reason,
 		ReferenceKey:   reference,
 	})
 	if err != nil {
@@ -343,6 +390,49 @@ func (runtime *Runtime) consumeCoordinateItemFromInventory(playerID foundation.P
 		runtime.recordItemLedgerMetrics(result.LedgerEntries)
 	}
 	return nil
+}
+
+func (runtime *Runtime) restoreCoordinateItemToInventory(playerID foundation.PlayerID, itemInstanceID foundation.ItemID, reference foundation.IdempotencyKey) error {
+	definition, ok := runtime.itemCatalog[coordinateScrollItemID]
+	if !ok {
+		return foundation.NewDomainError(foundation.CodeNotFound, "Coordinate item definition was not found.")
+	}
+	location, err := economy.NewItemLocation(economy.LocationKindAccountInventory, playerID.String())
+	if err != nil {
+		return invalidPayload("Coordinate item location is invalid.", err)
+	}
+	result, err := runtime.Inventory.AddItem(economy.AddItemInput{
+		PlayerID:       playerID,
+		ItemDefinition: definition,
+		ItemInstanceID: itemInstanceID,
+		Quantity:       1,
+		Location:       location,
+		Reason:         intelCoordinateItemUseRepairReason,
+		ReferenceKey:   reference,
+	})
+	if err != nil {
+		return domainErrorForEconomy(err)
+	}
+	if !result.Duplicate {
+		runtime.recordItemLedgerMetrics([]economy.ItemLedgerEntry{result.LedgerEntry})
+	}
+	return nil
+}
+
+func (runtime *Runtime) removeRestoredCoordinateItemFromInventory(playerID foundation.PlayerID, itemInstanceID foundation.ItemID, reference foundation.IdempotencyKey) error {
+	if !runtime.playerHasCoordinateItemInstance(playerID, itemInstanceID) {
+		return nil
+	}
+	return runtime.removeCoordinateItemFromInventory(playerID, itemInstanceID, reference, intelCoordinateItemUseRepairReason)
+}
+
+func (runtime *Runtime) playerHasCoordinateItemInstance(playerID foundation.PlayerID, itemInstanceID foundation.ItemID) bool {
+	for _, item := range runtime.Inventory.InstanceItems() {
+		if item.OwnerPlayerID == playerID && item.ItemID == coordinateScrollItemID && item.ItemInstanceID == itemInstanceID {
+			return true
+		}
+	}
+	return false
 }
 
 func (runtime *Runtime) inventorySnapshotForPlayer(playerID foundation.PlayerID) inventorySnapshotPayload {
@@ -368,6 +458,25 @@ func (runtime *Runtime) syncIntelFromDiscovery(playerID foundation.PlayerID, pla
 
 func deterministicCoordinateItemID(playerID foundation.PlayerID, planetID foundation.PlanetID, requestID foundation.RequestID) foundation.ItemID {
 	return foundation.ItemID(fmt.Sprintf("coord_%s_%s_%s", playerID, planetID, requestID))
+}
+
+func coordinateItemUseCompensationReference(reference foundation.IdempotencyKey) (foundation.IdempotencyKey, error) {
+	return foundation.AdminCompensationIdempotencyKey("coordinate_item_use_restore", safeCoordinateUseReferencePart(reference))
+}
+
+func coordinateItemUseRepairReference(reference foundation.IdempotencyKey) (foundation.IdempotencyKey, error) {
+	return foundation.AdminCompensationIdempotencyKey("coordinate_item_use_cleanup", safeCoordinateUseReferencePart(reference))
+}
+
+func safeCoordinateUseReferencePart(reference foundation.IdempotencyKey) string {
+	return strings.ReplaceAll(reference.String(), ":", "_")
+}
+
+func notifyCoordinateItemUseInterleaveTestHook(stage coordinateItemUseInterleaveStage, runtime *Runtime, playerID foundation.PlayerID, itemID foundation.ItemID) error {
+	if coordinateItemUseInterleaveTestHook == nil {
+		return nil
+	}
+	return coordinateItemUseInterleaveTestHook(stage, runtime, playerID, itemID)
 }
 
 func intelCoordinateItemPayloadFromDomain(item intel.CoordinateItem) intelCoordinateItemPayload {

@@ -2,9 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"gameproject/internal/game/auth"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
@@ -208,6 +210,117 @@ func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) 
 	if !secondUse.HasError || secondUse.Error.Error.Code != foundation.CodeForbidden {
 		t.Fatalf("second coordinate use response = %+v, want forbidden", secondUse)
 	}
+}
+
+func TestCoordinateItemUseDuplicateReplayBypassesTransportCache(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-use-replay@example.com", "Coordinate Use Replay")
+	planetID := foundation.PlanetID("planet-coordinate-use-replay")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1500, Y: 1600}, 3)
+
+	createPayload := createCoordinateItemForTest(t, gameServer, owner, planetID, "request-coordinate-use-replay-create")
+	request := coordinateItemUseRequestForTest("request-coordinate-use-replay", createPayload.CoordinateItem.ItemInstanceID, 2)
+	ctx := commandContextForResolvedSessionForTest(gameServer, owner)
+
+	firstRaw, err := gameServer.runtime.handleIntelCoordinateItemUse(ctx, request)
+	if err != nil {
+		t.Fatalf("first direct coordinate use error = %v, want nil", err)
+	}
+	var first struct {
+		Duplicate bool `json:"duplicate"`
+	}
+	if err := json.Unmarshal(firstRaw, &first); err != nil {
+		t.Fatalf("decode first direct coordinate use payload: %v", err)
+	}
+	if first.Duplicate {
+		t.Fatalf("first direct coordinate use duplicate = true, want false")
+	}
+
+	replayRaw, err := gameServer.runtime.handleIntelCoordinateItemUse(ctx, request)
+	if err != nil {
+		t.Fatalf("replayed direct coordinate use error = %v, want cached domain success", err)
+	}
+	var replay struct {
+		CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
+		Inventory      inventorySnapshotPayload   `json:"inventory"`
+		Duplicate      bool                       `json:"duplicate"`
+	}
+	if err := json.Unmarshal(replayRaw, &replay); err != nil {
+		t.Fatalf("decode replay coordinate use payload: %v", err)
+	}
+	if !replay.Duplicate || !replay.CoordinateItem.Used {
+		t.Fatalf("replay payload = %+v, want duplicate used coordinate item", replay)
+	}
+	if inventorySnapshotHasInstanceID(replay.Inventory, createPayload.CoordinateItem.ItemInstanceID, coordinateScrollItemID.String(), economy.LocationKindAccountInventory.String()) {
+		t.Fatalf("replay inventory = %+v, want coordinate scroll still consumed", replay.Inventory)
+	}
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionDecrease, intelCoordinateItemUseLedgerReason, 1)
+}
+
+func TestCoordinateItemUseRestoresInventoryAfterPostConsumeFailureAndRetryCleansRepair(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-use-compensation@example.com", "Coordinate Use Compensation")
+	planetID := foundation.PlanetID("planet-coordinate-use-compensation")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1500, Y: 1600}, 3)
+	createPayload := createCoordinateItemForTest(t, gameServer, owner, planetID, "request-coordinate-use-compensation-create")
+	request := coordinateItemUseRequestForTest("request-coordinate-use-compensation", createPayload.CoordinateItem.ItemInstanceID, 2)
+	ctx := commandContextForResolvedSessionForTest(gameServer, owner)
+
+	forcedErr := errors.New("forced coordinate use failure")
+	previousHook := coordinateItemUseInterleaveTestHook
+	defer func() { coordinateItemUseInterleaveTestHook = previousHook }()
+	var hookRan bool
+	coordinateItemUseInterleaveTestHook = func(stage coordinateItemUseInterleaveStage, _ *Runtime, playerID foundation.PlayerID, itemID foundation.ItemID) error {
+		if stage != coordinateItemUseAfterInventoryConsume || hookRan {
+			return nil
+		}
+		hookRan = true
+		if playerID != owner.PlayerID || itemID.String() != createPayload.CoordinateItem.ItemInstanceID {
+			t.Fatalf("hook player/item = %s/%s, want %s/%s", playerID, itemID, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID)
+		}
+		return forcedErr
+	}
+
+	_, err := gameServer.runtime.handleIntelCoordinateItemUse(ctx, request)
+	if !errors.Is(err, forcedErr) {
+		t.Fatalf("forced coordinate use error = %v, want forcedErr", err)
+	}
+	if !hookRan {
+		t.Fatalf("coordinate use interleave hook did not run")
+	}
+	itemID := foundation.ItemID(createPayload.CoordinateItem.ItemInstanceID)
+	item, ok, lookupErr := gameServer.runtime.Intel.CoordinateItem(itemID)
+	if lookupErr != nil || !ok {
+		t.Fatalf("CoordinateItem after failed use ok=%v err=%v, want item", ok, lookupErr)
+	}
+	if item.UsedAt != nil {
+		t.Fatalf("coordinate item used_at after failed use = %v, want unconsumed", item.UsedAt)
+	}
+	if !inventorySnapshotHasInstanceID(gameServer.runtime.inventorySnapshotForPlayer(owner.PlayerID), createPayload.CoordinateItem.ItemInstanceID, coordinateScrollItemID.String(), economy.LocationKindAccountInventory.String()) {
+		t.Fatalf("inventory after failed coordinate use missing restored scroll %s", createPayload.CoordinateItem.ItemInstanceID)
+	}
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionDecrease, intelCoordinateItemUseLedgerReason, 1)
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionIncrease, intelCoordinateItemUseRepairReason, 1)
+
+	retryRaw, err := gameServer.runtime.handleIntelCoordinateItemUse(ctx, request)
+	if err != nil {
+		t.Fatalf("retry coordinate use error = %v, want repaired success", err)
+	}
+	var retry struct {
+		CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
+		Inventory      inventorySnapshotPayload   `json:"inventory"`
+	}
+	if err := json.Unmarshal(retryRaw, &retry); err != nil {
+		t.Fatalf("decode retry coordinate use payload: %v", err)
+	}
+	if !retry.CoordinateItem.Used {
+		t.Fatalf("retry coordinate item = %+v, want used", retry.CoordinateItem)
+	}
+	if inventorySnapshotHasInstanceID(retry.Inventory, createPayload.CoordinateItem.ItemInstanceID, coordinateScrollItemID.String(), economy.LocationKindAccountInventory.String()) {
+		t.Fatalf("retry inventory = %+v, want restored scroll cleaned up", retry.Inventory)
+	}
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionDecrease, intelCoordinateItemUseLedgerReason, 1)
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionDecrease, intelCoordinateItemUseRepairReason, 1)
 }
 
 func TestCoordinateItemMarketPurchaseTransfersUseAuthority(t *testing.T) {
@@ -441,6 +554,54 @@ func inventorySnapshotHasInstanceID(snapshot inventorySnapshotPayload, itemInsta
 		}
 	}
 	return false
+}
+
+func createCoordinateItemForTest(t *testing.T, gameServer *Server, owner auth.ResolvedSession, planetID foundation.PlanetID, requestID string) struct {
+	CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
+	Inventory      inventorySnapshotPayload   `json:"inventory"`
+	Created        bool                       `json:"created"`
+	Duplicate      bool                       `json:"duplicate"`
+} {
+	t.Helper()
+	create := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"`+requestID+`","op":"intel.coordinate_item.create","payload":{"planet_id":"`+planetID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if create.HasError {
+		t.Fatalf("coordinate create response error = %+v, want success", create.Error)
+	}
+	var payload struct {
+		CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
+		Inventory      inventorySnapshotPayload   `json:"inventory"`
+		Created        bool                       `json:"created"`
+		Duplicate      bool                       `json:"duplicate"`
+	}
+	if err := json.Unmarshal(create.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode coordinate create payload: %v", err)
+	}
+	if !payload.Created || payload.CoordinateItem.ItemInstanceID == "" {
+		t.Fatalf("coordinate create payload = %+v, want created item", payload)
+	}
+	return payload
+}
+
+func coordinateItemUseRequestForTest(requestID string, itemInstanceID string, clientSeq uint64) realtime.RequestEnvelope {
+	return realtime.RequestEnvelope{
+		RequestID: foundation.RequestID(requestID),
+		Op:        realtime.OperationIntelCoordinateUse,
+		Payload:   json.RawMessage(`{"item_instance_id":"` + itemInstanceID + `"}`),
+		ClientSeq: clientSeq,
+		Version:   1,
+	}
+}
+
+func commandContextForResolvedSessionForTest(gameServer *Server, resolved auth.ResolvedSession) realtime.CommandContext {
+	return realtime.CommandContext{
+		SessionID: realtime.SessionID(resolved.SessionID.String()),
+		PlayerID:  resolved.PlayerID,
+		WorldID:   gameServer.runtime.worldID,
+		ZoneID:    gameServer.runtime.zoneID,
+	}
 }
 
 func assertCoordinateItemLedgerCount(t *testing.T, gameServer *Server, playerID foundation.PlayerID, itemInstanceID string, action economy.LedgerAction, reason economy.LedgerReason, want int) {
