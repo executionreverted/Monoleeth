@@ -484,6 +484,16 @@ Current slice completed:
   durable store can now rebuild this dispatch plan by claim reference after a
   restart. Real durable DB rows, cross-process publisher leases, and scheduled
   publisher/recovery workers remain open.
+- Phase07BD building outbox dispatch-readback follow-up:
+  `NewBuildingMutationOutboxDispatchPlan` now validates the after-commit
+  handoff from a committed planet building mutation to a durable publisher
+  scheduler: committed building mutation reference evidence, pending
+  storage/building outbox rows, matching building mutation reference keys,
+  empty settlement windows, empty delivery lease state, payload presence, and
+  at least one `planet.building_updated` event. The building mutation durable
+  store can rebuild this dispatch plan by mutation reference after a restart.
+  Real durable DB rows, wallet debit co-commit evidence, cross-process
+  publisher leases, and scheduled publisher/recovery workers remain open.
 
 ## Source Specs
 
@@ -707,6 +717,8 @@ Mockup areas covered:
 - [x] Authenticated building mutation handlers hand idempotency reference,
       material ledger rows, and pending outbox rows to the runtime durable
       commit-store adapter.
+- [x] Building mutation durable commits can rebuild validated pending outbox
+      dispatch plans for future publisher scheduling.
 - [x] Define and enforce route storage ledger semantics for route mutations.
 - [x] Storage capacity cannot be exceeded.
 
@@ -794,6 +806,8 @@ Mockup areas covered:
 - [x] Route settlement handlers apply committed route references, pending
       outbox rows, and route storage ledger rows through the runtime durable
       commit-store adapter.
+- [x] Building mutation durable readback rebuilds a validated pending outbox
+      dispatch plan for `planet.building_updated` publisher scheduling.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

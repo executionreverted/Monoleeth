@@ -199,8 +199,10 @@ for phase status; this file is a compact pending-work index.
   building mutations; the gateway now hands the mutation reference, pending
   outbox rows, and production-local material ledger rows to that boundary,
   rejects missing references/conflicting replays, and keeps duplicate requests
-  from appending durable rows. Phase07R starts the server-authoritative
-  intel/coordinate domain foundation for share,
+  from appending durable rows. Phase07BD adds building mutation outbox
+  dispatch-plan validation and committed durable-store readback for future
+  `planet.building_updated` publisher scheduling. Phase07R starts the
+  server-authoritative intel/coordinate domain foundation for share,
   coordinate-item creation, coordinate-item use, canonical idempotency keys,
   and consume-once item state. Phase07S wires those intel operations into the
   authenticated realtime gateway and TypeScript protocol with discovery
@@ -456,8 +458,8 @@ for phase status; this file is a compact pending-work index.
   Phase07BC adds claim outbox dispatch-plan validation and committed
   lifecycle-store readback for future durable `planet.claimed` publisher
   scheduling.
-  Durable claim, production, and route settlement tables plus publisher
-  scheduling remain open.
+  Durable claim, production, route settlement, and building mutation tables
+  plus publisher scheduling remain open.
   Those records are still not durable, cross-process, or delivered by a durable
   publisher process. Phase07L adds
   process-local claim tokens so publish/fail callbacks require the current

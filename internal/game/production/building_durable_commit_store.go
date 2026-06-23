@@ -19,6 +19,7 @@ type BuildingMutationDurableCommitStore interface {
 // durable building mutation commit adapter.
 type BuildingMutationDurableCommitReader interface {
 	CommittedBuildingMutationDurableCommitPlan(foundation.IdempotencyKey) (BuildingMutationDurableCommitPlan, bool, error)
+	CommittedBuildingMutationOutboxDispatchPlan(foundation.IdempotencyKey) (BuildingMutationOutboxDispatchPlan, bool, error)
 }
 
 // BuildingMutationDurableCommitResult reports the rows accepted by the durable
@@ -153,6 +154,22 @@ func (store *InMemoryBuildingMutationDurableCommitStore) CommittedBuildingMutati
 		return BuildingMutationDurableCommitPlan{}, false, err
 	}
 	return normalized, true, nil
+}
+
+// CommittedBuildingMutationOutboxDispatchPlan returns the validated publisher
+// dispatch handoff for one committed building mutation reference.
+func (store *InMemoryBuildingMutationDurableCommitStore) CommittedBuildingMutationOutboxDispatchPlan(
+	referenceKey foundation.IdempotencyKey,
+) (BuildingMutationOutboxDispatchPlan, bool, error) {
+	plan, ok, err := store.CommittedBuildingMutationDurableCommitPlan(referenceKey)
+	if err != nil || !ok {
+		return BuildingMutationOutboxDispatchPlan{}, ok, err
+	}
+	dispatch, err := NewBuildingMutationOutboxDispatchPlan(&plan.Reference, plan.OutboxRecords)
+	if err != nil {
+		return BuildingMutationOutboxDispatchPlan{}, false, err
+	}
+	return dispatch, true, nil
 }
 
 func (store *InMemoryBuildingMutationDurableCommitStore) ensureMapsLocked() {

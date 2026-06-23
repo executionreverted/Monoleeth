@@ -124,6 +124,27 @@ func TestBuildingMutationDurableCommitStoreExactReplayConflictAndReadback(t *tes
 		again.MaterialLedger[0].LedgerID == "ledger-mutated" {
 		t.Fatalf("readback reused mutable rows: %+v", again)
 	}
+
+	dispatch, ok, err := store.CommittedBuildingMutationOutboxDispatchPlan(plan.Reference.ReferenceKey)
+	if err != nil || !ok {
+		t.Fatalf("CommittedBuildingMutationOutboxDispatchPlan() = ok %v err %v, want true nil", ok, err)
+	}
+	if dispatch.Reference.ReferenceKey != plan.Reference.ReferenceKey ||
+		len(dispatch.OutboxRecords) != len(plan.OutboxRecords) {
+		t.Fatalf("dispatch readback = %+v, want committed build mutation dispatch", dispatch)
+	}
+	assertBuildingMutationOutboxReferences(t, dispatch.OutboxRecords, plan.Reference.ReferenceKey, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
+
+	dispatch.Reference.BuildingID = "building-mutated"
+	dispatch.OutboxRecords[0].OutboxID = "outbox-mutated"
+	againDispatch, ok, err := store.CommittedBuildingMutationOutboxDispatchPlan(plan.Reference.ReferenceKey)
+	if err != nil || !ok {
+		t.Fatalf("CommittedBuildingMutationOutboxDispatchPlan(second) = ok %v err %v, want true nil", ok, err)
+	}
+	if againDispatch.Reference.BuildingID == "building-mutated" ||
+		againDispatch.OutboxRecords[0].OutboxID == "outbox-mutated" {
+		t.Fatalf("dispatch readback reused mutable rows: %+v", againDispatch)
+	}
 }
 
 func TestBuildingMutationDurableCommitStoreRejectsInvalidPlanAndMissingReadback(t *testing.T) {
@@ -150,8 +171,33 @@ func TestBuildingMutationDurableCommitStoreRejectsInvalidPlanAndMissingReadback(
 	if recovered, ok, err := store.CommittedBuildingMutationDurableCommitPlan(plan.Reference.ReferenceKey); err != nil || ok || !recovered.Reference.ReferenceKey.IsZero() {
 		t.Fatalf("CommittedBuildingMutationDurableCommitPlan(missing) = %+v/%v/%v, want empty false nil", recovered, ok, err)
 	}
+	if dispatch, ok, err := store.CommittedBuildingMutationOutboxDispatchPlan(plan.Reference.ReferenceKey); err != nil || ok || !dispatch.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedBuildingMutationOutboxDispatchPlan(missing) = %+v/%v/%v, want empty false nil", dispatch, ok, err)
+	}
 	if recovered, ok, err := store.CommittedBuildingMutationDurableCommitPlan(""); err == nil || ok || !recovered.Reference.ReferenceKey.IsZero() {
 		t.Fatalf("CommittedBuildingMutationDurableCommitPlan(invalid) = %+v/%v/%v, want error false empty", recovered, ok, err)
+	}
+	if dispatch, ok, err := store.CommittedBuildingMutationOutboxDispatchPlan(""); err == nil || ok || !dispatch.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedBuildingMutationOutboxDispatchPlan(invalid) = %+v/%v/%v, want error false empty", dispatch, ok, err)
+	}
+}
+
+func TestBuildingMutationDurableCommitStoreDispatchReadbackRejectsInvalidCommittedReference(t *testing.T) {
+	plan := buildingDurableCommitPlanForStoreTest(t)
+	store := NewInMemoryBuildingMutationDurableCommitStore()
+	if _, err := store.ApplyBuildingMutationDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyBuildingMutationDurableCommitPlan() error = %v, want nil", err)
+	}
+
+	store.mu.Lock()
+	corrupted := cloneBuildingMutationDurableCommitPlan(store.plans[plan.Reference.ReferenceKey])
+	corrupted.Reference.Result.ReferenceKey = mustBuildingBuildKey(t, "planet-other", "building-1")
+	store.plans[plan.Reference.ReferenceKey] = corrupted
+	store.mu.Unlock()
+
+	dispatch, ok, err := store.CommittedBuildingMutationOutboxDispatchPlan(plan.Reference.ReferenceKey)
+	if !errors.Is(err, ErrInvalidBuildingMutationDurableCommit) || ok || !dispatch.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedBuildingMutationOutboxDispatchPlan(corrupt reference) = %+v/%v/%v, want durable commit error false empty", dispatch, ok, err)
 	}
 }
 
