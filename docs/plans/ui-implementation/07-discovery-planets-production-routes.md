@@ -430,6 +430,13 @@ Current slice completed:
   released with claim-token guards while preserving settlement reference/window
   evidence and route storage ledger rows. Real DB rows, row locks/CAS,
   cross-process publisher workers, and scheduled reapers remain open.
+- Phase07BI claim durable lifecycle publisher follow-up:
+  the claim durable lifecycle-store adapter now implements the claim outbox
+  publisher and lease-reaper contracts for committed `planet.claimed` rows.
+  Pending committed claim outbox rows can be claimed, published, failed, or
+  released with claim-token guards while preserving claim reference, event, X
+  Core debit, and production-init evidence. Real DB rows, row locks/CAS,
+  cross-process publisher workers, and scheduled reapers remain open.
 - Phase07AT claim durable commit-plan follow-up:
   `NewClaimDurableCommitPlan` and
   `CompletePlanetClaimBoundaryResult.DurableCommitPlan()` now validate the
@@ -697,6 +704,9 @@ Mockup areas covered:
       same durable row to complete evidence on successful retry.
 - [x] Add claim outbox dispatch-plan validation and committed lifecycle-store
       readback for durable `planet.claimed` publisher scheduling.
+- [x] Let the claim durable lifecycle-store adapter satisfy the claim outbox
+      publisher and lease-reaper contracts for committed `planet.claimed`
+      rows.
 - [ ] Add durable authenticated transaction flows for claim/storage mutation
       coupling once DB/CAS storage boundaries replace process-local stores.
 - [x] Add offline settlement reconcile path that uses server-owned windows for
@@ -799,6 +809,8 @@ Mockup areas covered:
       row to complete evidence without another X Core debit or extra init row.
 - [x] Claim lifecycle durable readback rebuilds a validated pending outbox
       dispatch plan for `planet.claimed` publisher scheduling.
+- [x] Claim lifecycle durable outbox rows can be claimed, published, failed, or
+      lease-released through the claim outbox publisher contracts.
 - [x] Intel share rejects hidden/not-owned coordinate references.
 - [x] Coordinate item create/use consumes owned items once and filters results.
 - [x] Market-bought coordinate scrolls transfer server-owned intel item

@@ -3,6 +3,7 @@ package discovery
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestClaimDurableLifecycleStoreCommitsLifecyclePlan(t *testing.T) {
@@ -156,6 +157,178 @@ func TestClaimDurableLifecycleStoreReadsCommittedDispatchPlanByReference(t *test
 	}
 	if again.Outbox.OutboxID == "mutated-outbox" {
 		t.Fatalf("recovered dispatch plan reused mutable rows: %+v", again)
+	}
+}
+
+func TestClaimDurableLifecycleStorePublishesCommittedClaimOutboxRows(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(plan); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan() error = %v, want nil", err)
+	}
+
+	results, err := PublishPendingClaimOutbox(ClaimOutboxPublishInput{
+		Store:       store,
+		Limit:       10,
+		ClaimedAt:   testTime(50),
+		CompletedAt: testTime(51),
+		Publish: func(record ClaimOutboxRecord) error {
+			if record.Status != ClaimOutboxStatusInFlight || record.ClaimToken == "" {
+				t.Fatalf("publish record = %+v, want in-flight claimed row", record)
+			}
+			if record.ClaimReference != plan.Commit.Boundary.ClaimReference ||
+				record.ReferenceKey != plan.Commit.Boundary.ReferenceKey ||
+				record.Event.Type != ClaimEventPlanetClaimed {
+				t.Fatalf("publish record evidence = %+v, want committed claim evidence", record)
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingClaimOutbox() error = %v, want nil", err)
+	}
+	if len(results) != 1 || !results[0].Published || results[0].Failed || results[0].StaleClaim {
+		t.Fatalf("publish results = %+v, want one published result", results)
+	}
+	if results[0].Record.Status != ClaimOutboxStatusPublished ||
+		!results[0].Record.PublishedAt.Equal(testTime(51)) ||
+		results[0].Record.ClaimReference != plan.Commit.Boundary.ClaimReference ||
+		results[0].Record.ReferenceKey != plan.Commit.Boundary.ReferenceKey {
+		t.Fatalf("published durable claim outbox row = %+v, want committed published evidence", results[0].Record)
+	}
+	rows := store.OutboxRecords()
+	if len(rows) != 1 || rows[0].Status != ClaimOutboxStatusPublished {
+		t.Fatalf("OutboxRecords() = %+v, want published committed row", rows)
+	}
+}
+
+func TestClaimDurableLifecycleStoreRecordsCommittedClaimOutboxPublishFailures(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(plan); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan() error = %v, want nil", err)
+	}
+	temporaryErr := errors.New("publisher offline")
+
+	results, err := PublishPendingClaimOutbox(ClaimOutboxPublishInput{
+		Store:       store,
+		Limit:       1,
+		ClaimedAt:   testTime(52),
+		CompletedAt: testTime(53),
+		Publish: func(ClaimOutboxRecord) error {
+			return temporaryErr
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingClaimOutbox(failure) error = %v, want nil", err)
+	}
+	if len(results) != 1 || !results[0].Failed || results[0].Published || results[0].StaleClaim {
+		t.Fatalf("publish failure results = %+v, want one failed result", results)
+	}
+	if results[0].Record.Status != ClaimOutboxStatusFailed ||
+		results[0].Record.LastError != temporaryErr.Error() ||
+		!results[0].Record.FailedAt.Equal(testTime(53)) ||
+		results[0].Record.ClaimReference != plan.Commit.Boundary.ClaimReference {
+		t.Fatalf("failed durable claim outbox row = %+v, want failed committed evidence", results[0].Record)
+	}
+}
+
+func TestClaimDurableLifecycleStorePublisherRejectsStaleClaimTokens(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(plan); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan() error = %v, want nil", err)
+	}
+	claimed, err := store.ClaimPendingClaimOutboxRecordsForPublish(1, testTime(60))
+	if err != nil {
+		t.Fatalf("ClaimPendingClaimOutboxRecordsForPublish() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 || claimed[0].ClaimToken == "" {
+		t.Fatalf("claimed durable claim outbox rows = %+v, want one in-flight row", claimed)
+	}
+
+	if _, ok, err := store.MarkClaimOutboxPublished(claimed[0].OutboxID, "wrong-token", testTime(61)); err != nil || ok {
+		t.Fatalf("MarkClaimOutboxPublished(wrong token) = ok %v err %v, want false nil", ok, err)
+	}
+	if _, ok, err := store.MarkClaimOutboxFailed(claimed[0].OutboxID, "wrong-token", "wrong", testTime(61)); err != nil || ok {
+		t.Fatalf("MarkClaimOutboxFailed(wrong token) = ok %v err %v, want false nil", ok, err)
+	}
+	rows := store.OutboxRecords()
+	if len(rows) != 1 || rows[0].Status != ClaimOutboxStatusInFlight || rows[0].ClaimToken != claimed[0].ClaimToken {
+		t.Fatalf("durable claim outbox after stale token = %+v, want original in-flight row", rows)
+	}
+}
+
+func TestClaimDurableLifecycleStoreReleasesExpiredClaimOutboxLeases(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(plan); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan() error = %v, want nil", err)
+	}
+	claimed, err := store.ClaimPendingClaimOutboxRecordsForPublish(1, testTime(70))
+	if err != nil {
+		t.Fatalf("ClaimPendingClaimOutboxRecordsForPublish() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed durable claim outbox rows = %+v, want one row", claimed)
+	}
+
+	released, err := store.ReleaseExpiredClaimOutboxRecordsForPublish(1, testTime(71), testTime(72))
+	if err != nil {
+		t.Fatalf("ReleaseExpiredClaimOutboxRecordsForPublish() error = %v, want nil", err)
+	}
+	if len(released) != 1 ||
+		released[0].Status != ClaimOutboxStatusPending ||
+		!released[0].ClaimedAt.IsZero() ||
+		released[0].ClaimToken != "" ||
+		released[0].Attempts != claimed[0].Attempts ||
+		!released[0].RetriedAt.Equal(testTime(72)) ||
+		released[0].ClaimReference != plan.Commit.Boundary.ClaimReference ||
+		released[0].ReferenceKey != plan.Commit.Boundary.ReferenceKey {
+		t.Fatalf("released durable claim outbox rows = %+v, want pending committed evidence", released)
+	}
+	if _, ok, err := store.MarkClaimOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(73)); err != nil || ok {
+		t.Fatalf("MarkClaimOutboxPublished(stale token after release) = ok %v err %v, want false nil", ok, err)
+	}
+
+	reclaimed, err := store.ClaimPendingClaimOutboxRecordsForPublish(1, testTime(74))
+	if err != nil {
+		t.Fatalf("ClaimPendingClaimOutboxRecordsForPublish(reclaim) error = %v, want nil", err)
+	}
+	if len(reclaimed) != 1 ||
+		reclaimed[0].Attempts != claimed[0].Attempts+1 ||
+		reclaimed[0].ClaimToken == "" ||
+		reclaimed[0].ClaimToken == claimed[0].ClaimToken {
+		t.Fatalf("reclaimed durable claim outbox rows = %+v, want fresh claim token", reclaimed)
+	}
+}
+
+func TestClaimDurableLifecycleStoreLeaseReleaseNoOps(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(plan); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan() error = %v, want nil", err)
+	}
+	claimedAt := testTime(80)
+	claimed, err := store.ClaimPendingClaimOutboxRecordsForPublish(1, claimedAt)
+	if err != nil {
+		t.Fatalf("ClaimPendingClaimOutboxRecordsForPublish() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed durable claim outbox rows = %+v, want one row", claimed)
+	}
+	if released, err := store.ReleaseExpiredClaimOutboxRecordsForPublish(0, claimedAt.Add(time.Second), testTime(81)); err != nil || released != nil {
+		t.Fatalf("ReleaseExpiredClaimOutboxRecordsForPublish(limit 0) = %+v/%v, want nil nil", released, err)
+	}
+	if released, err := store.ReleaseExpiredClaimOutboxRecordsForPublish(1, time.Time{}, testTime(81)); err != nil || released != nil {
+		t.Fatalf("ReleaseExpiredClaimOutboxRecordsForPublish(zero cutoff) = %+v/%v, want nil nil", released, err)
+	}
+	if released, err := store.ReleaseExpiredClaimOutboxRecordsForPublish(1, claimedAt, testTime(81)); err != nil || len(released) != 0 {
+		t.Fatalf("ReleaseExpiredClaimOutboxRecordsForPublish(boundary equal) = %+v/%v, want empty nil", released, err)
+	}
+	rows := store.OutboxRecords()
+	if len(rows) != 1 || rows[0].Status != ClaimOutboxStatusInFlight || rows[0].ClaimToken != claimed[0].ClaimToken {
+		t.Fatalf("durable claim outbox after no-op releases = %+v, want original in-flight row", rows)
 	}
 }
 

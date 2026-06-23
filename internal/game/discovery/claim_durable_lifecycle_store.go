@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 )
 
 // ClaimDurableLifecycleStore is the durable adapter contract for committing one
@@ -99,6 +100,160 @@ func (store *InMemoryClaimDurableLifecycleStore) ClaimReferences() []PlanetClaim
 	return append([]PlanetClaimReference(nil), store.references...)
 }
 
+// OutboxRecords returns committed claim lifecycle outbox rows in commit order.
+func (store *InMemoryClaimDurableLifecycleStore) OutboxRecords() []ClaimOutboxRecord {
+	if store == nil {
+		return nil
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	records := make([]ClaimOutboxRecord, 0, len(store.references))
+	for _, reference := range store.references {
+		records = append(records, store.plans[reference].Commit.Outbox)
+	}
+	return cloneClaimOutboxRecords(records)
+}
+
+// ClaimPendingClaimOutboxRecordsForPublish moves committed pending claim
+// outbox rows to in-flight in commit order.
+func (store *InMemoryClaimDurableLifecycleStore) ClaimPendingClaimOutboxRecordsForPublish(
+	limit int,
+	claimedAt time.Time,
+) ([]ClaimOutboxRecord, error) {
+	if store == nil {
+		return nil, ErrInvalidClaimOutboxPublisher
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	claimedAt = claimedAt.UTC()
+	if claimedAt.IsZero() {
+		claimedAt = time.Unix(0, 0).UTC()
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	records := make([]ClaimOutboxRecord, 0, limit)
+	for _, reference := range store.references {
+		if len(records) >= limit {
+			break
+		}
+		plan := store.plans[reference]
+		if plan.Commit.Outbox.Status != ClaimOutboxStatusPending {
+			continue
+		}
+		plan.Commit.Outbox.Status = ClaimOutboxStatusInFlight
+		plan.Commit.Outbox.ClaimedAt = claimedAt
+		plan.Commit.Outbox.Attempts++
+		plan.Commit.Outbox.ClaimToken = claimOutboxClaimToken(
+			plan.Commit.Outbox.OutboxID,
+			plan.Commit.Outbox.Attempts,
+		)
+		store.plans[reference] = cloneClaimDurableLifecyclePlan(plan)
+		records = append(records, cloneClaimOutboxRecord(plan.Commit.Outbox))
+	}
+	return records, nil
+}
+
+// MarkClaimOutboxPublished records successful delivery for the current claim
+// token on a committed claim lifecycle outbox row.
+func (store *InMemoryClaimDurableLifecycleStore) MarkClaimOutboxPublished(
+	outboxID string,
+	claimToken string,
+	publishedAt time.Time,
+) (ClaimOutboxRecord, bool, error) {
+	if store == nil {
+		return ClaimOutboxRecord{}, false, ErrInvalidClaimOutboxPublisher
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	reference, ok := store.outboxReferenceLocked(outboxID)
+	if !ok {
+		return ClaimOutboxRecord{}, false, nil
+	}
+	plan := store.plans[reference]
+	if !claimDurableLifecycleOutboxClaimMatches(plan.Commit.Outbox, claimToken) {
+		return ClaimOutboxRecord{}, false, nil
+	}
+	plan.Commit.Outbox.Status = ClaimOutboxStatusPublished
+	plan.Commit.Outbox.PublishedAt = publishedAt.UTC()
+	store.plans[reference] = cloneClaimDurableLifecyclePlan(plan)
+	return cloneClaimOutboxRecord(plan.Commit.Outbox), true, nil
+}
+
+// MarkClaimOutboxFailed records failed delivery for the current claim token on
+// a committed claim lifecycle outbox row.
+func (store *InMemoryClaimDurableLifecycleStore) MarkClaimOutboxFailed(
+	outboxID string,
+	claimToken string,
+	reason string,
+	failedAt time.Time,
+) (ClaimOutboxRecord, bool, error) {
+	if store == nil {
+		return ClaimOutboxRecord{}, false, ErrInvalidClaimOutboxPublisher
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	reference, ok := store.outboxReferenceLocked(outboxID)
+	if !ok {
+		return ClaimOutboxRecord{}, false, nil
+	}
+	plan := store.plans[reference]
+	if !claimDurableLifecycleOutboxClaimMatches(plan.Commit.Outbox, claimToken) {
+		return ClaimOutboxRecord{}, false, nil
+	}
+	plan.Commit.Outbox.Status = ClaimOutboxStatusFailed
+	plan.Commit.Outbox.FailedAt = failedAt.UTC()
+	plan.Commit.Outbox.LastError = reason
+	store.plans[reference] = cloneClaimDurableLifecyclePlan(plan)
+	return cloneClaimOutboxRecord(plan.Commit.Outbox), true, nil
+}
+
+// ReleaseExpiredClaimOutboxRecordsForPublish returns stale committed claim
+// outbox leases to pending.
+func (store *InMemoryClaimDurableLifecycleStore) ReleaseExpiredClaimOutboxRecordsForPublish(
+	limit int,
+	claimedBefore time.Time,
+	releasedAt time.Time,
+) ([]ClaimOutboxRecord, error) {
+	if store == nil {
+		return nil, ErrInvalidClaimOutboxPublisher
+	}
+	if limit <= 0 || claimedBefore.IsZero() {
+		return nil, nil
+	}
+	claimedBefore = claimedBefore.UTC()
+	releasedAt = releasedAt.UTC()
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	records := make([]ClaimOutboxRecord, 0, limit)
+	for _, reference := range store.references {
+		if len(records) >= limit {
+			break
+		}
+		plan := store.plans[reference]
+		record := plan.Commit.Outbox
+		if record.Status != ClaimOutboxStatusInFlight ||
+			record.ClaimedAt.IsZero() ||
+			!record.ClaimedAt.Before(claimedBefore) {
+			continue
+		}
+		plan.Commit.Outbox.Status = ClaimOutboxStatusPending
+		plan.Commit.Outbox.ClaimedAt = time.Time{}
+		plan.Commit.Outbox.ClaimToken = ""
+		plan.Commit.Outbox.RetriedAt = releasedAt
+		store.plans[reference] = cloneClaimDurableLifecyclePlan(plan)
+		records = append(records, cloneClaimOutboxRecord(plan.Commit.Outbox))
+	}
+	return records, nil
+}
+
 // CommittedClaimDurableLifecyclePlan returns the validated committed lifecycle
 // plan for one claim reference.
 func (store *InMemoryClaimDurableLifecycleStore) CommittedClaimDurableLifecyclePlan(
@@ -145,6 +300,19 @@ func (store *InMemoryClaimDurableLifecycleStore) ensureMapsLocked() {
 	if store.plans == nil {
 		store.plans = make(map[PlanetClaimReference]ClaimDurableLifecyclePlan)
 	}
+}
+
+func (store *InMemoryClaimDurableLifecycleStore) outboxReferenceLocked(outboxID string) (PlanetClaimReference, bool) {
+	for _, reference := range store.references {
+		if store.plans[reference].Commit.Outbox.OutboxID == outboxID {
+			return reference, true
+		}
+	}
+	return "", false
+}
+
+func claimDurableLifecycleOutboxClaimMatches(record ClaimOutboxRecord, claimToken string) bool {
+	return record.Status == ClaimOutboxStatusInFlight && record.ClaimToken != "" && record.ClaimToken == claimToken
 }
 
 func normalizeClaimDurableLifecyclePlan(plan ClaimDurableLifecyclePlan) (ClaimDurableLifecyclePlan, error) {
