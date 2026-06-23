@@ -679,9 +679,9 @@ contracts:
   server-side, reject wrong-owner and spoofed server-owned fields without
   mutation/events, emit only owner-scoped safe route events, and reconcile
   active-map production/storage snapshots when disable settlement touches
-  storage. Duplicate `route.disable` request IDs replay the original safe
-  gateway response when the retry route id changes without mutating the second
-  route, energy reservation, or event batch.
+  storage. Duplicate `route.enable`/`route.disable` request IDs replay the
+  original safe gateway response when the retry route id changes without
+  mutating the second route, energy reservation, or event batch.
 - Route settle gateway accepts only `route_id` or `{}` owner reconcile intent,
   derives owner server-side, rejects wrong-owner and spoofed server-owned
   settlement fields without mutation/events, emits owner-scoped safe

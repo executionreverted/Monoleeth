@@ -405,9 +405,10 @@ for phase status; this file is a compact pending-work index.
   same-reference duplicate retries now also replay the committed durable route
   row before live owner/row preflight, preserving no-second-settlement and
   no-second-energy-reservation behavior during recovery. Authenticated duplicate
-  `route.disable` request IDs now also replay the original safe gateway response
-  when the retry payload names a different route, without mutating that second
-  route, changing its energy reservation, or queuing another route event batch.
+  `route.enable` and `route.disable` request IDs now also replay the original
+  safe gateway response when the retry payload names a different route, without
+  mutating that second route, changing its energy reservation, or queuing
+  another route event batch.
   Phase07BS wires enabled route upkeep into the source planet production energy
   budget in the in-memory store: create/enable reserve energy, disable releases
   after settlement, and update applies the enabled-route energy delta while
