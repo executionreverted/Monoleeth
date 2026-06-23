@@ -74,6 +74,17 @@ func (store *InMemoryStore) EnableRouteForOwnerWithRequest(
 	defer store.mu.Unlock()
 	store.ensureMapsLocked()
 
+	if replay, ok, err := store.routeControlReplayLocked(
+		ownerPlayerID,
+		routeID,
+		requestID,
+		foundation.RouteEnableIdempotencyKey,
+	); err != nil || ok {
+		if err != nil {
+			return RouteControlResult{}, err
+		}
+		return RouteControlResult{Route: replay}, nil
+	}
 	if err := store.requireRouteOwnerLocked(ownerPlayerID, routeID); err != nil {
 		return RouteControlResult{}, err
 	}
@@ -224,6 +235,17 @@ func (store *InMemoryStore) DisableRouteForOwnerWithRequest(
 	defer store.mu.Unlock()
 	store.ensureMapsLocked()
 
+	if replay, ok, err := store.routeControlReplayLocked(
+		ownerPlayerID,
+		routeID,
+		requestID,
+		foundation.RouteDisableIdempotencyKey,
+	); err != nil || ok {
+		if err != nil {
+			return RouteControlResult{}, err
+		}
+		return RouteControlResult{Route: replay}, nil
+	}
 	if err := store.requireRouteOwnerLocked(ownerPlayerID, routeID); err != nil {
 		return RouteControlResult{}, err
 	}
@@ -467,6 +489,31 @@ func (store *InMemoryStore) requireRouteOwnerLocked(
 		return fmt.Errorf("route %q owner %q: %w", routeID, ownerPlayerID, ErrRouteOwnerMismatch)
 	}
 	return nil
+}
+
+type routeControlReferenceBuilder func(foundation.PlayerID, foundation.RouteID, foundation.RequestID) (foundation.IdempotencyKey, error)
+
+func (store *InMemoryStore) routeControlReplayLocked(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+	requestID foundation.RequestID,
+	buildReference routeControlReferenceBuilder,
+) (AutomationRoute, bool, error) {
+	if requestID.IsZero() {
+		return AutomationRoute{}, false, nil
+	}
+	referenceKey, err := buildReference(ownerPlayerID, routeID, requestID)
+	if err != nil {
+		return AutomationRoute{}, false, err
+	}
+	record, ok, err := store.committedAutomationRouteDurableRecordByReferenceLocked(referenceKey)
+	if err != nil || !ok {
+		return AutomationRoute{}, ok, err
+	}
+	if record.Route.RouteID != routeID || record.Route.OwnerPlayerID != ownerPlayerID {
+		return AutomationRoute{}, false, fmt.Errorf("route %q reference %q: %w", routeID, referenceKey, ErrInvalidAutomationRouteDurableCommit)
+	}
+	return cloneAutomationRoute(record.Route), true, nil
 }
 
 func routeUpdateReplayMatches(input UpdateRouteInput, route AutomationRoute) bool {

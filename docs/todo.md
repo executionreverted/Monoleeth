@@ -344,7 +344,10 @@ for phase status; this file is a compact pending-work index.
   or advancing the durable route revision. Route update same-reference
   duplicate retries now replay the committed durable route row before live
   policy lookup, while changed update intents using the same reference are
-  rejected instead of being treated as successful replays.
+  rejected instead of being treated as successful replays. Route enable/disable
+  same-reference duplicate retries now also replay the committed durable route
+  row before live owner/row preflight, preserving no-second-settlement and
+  no-second-energy-reservation behavior during recovery.
   Phase07BS wires enabled route upkeep into the source planet production energy
   budget in the in-memory store: create/enable reserve energy, disable releases
   after settlement, and update applies the enabled-route energy delta while
