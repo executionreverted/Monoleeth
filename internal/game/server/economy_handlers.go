@@ -573,7 +573,7 @@ func (runtime *Runtime) handlePremiumWeeklyXCore(ctx realtime.CommandContext, re
 		PeriodKey:         payload.PeriodKey,
 		PurchaseReference: request.RequestID.String(),
 		PaymentCurrency:   economy.CurrencyBucketPremiumPaid,
-		PriceAmount:       weeklyXCorePremiumPrice,
+		PriceAmount:       runtime.starterContent.WeeklyXCore.PremiumPrice,
 	})
 	if err != nil {
 		return nil, domainErrorForEconomy(err)
@@ -584,7 +584,7 @@ func (runtime *Runtime) handlePremiumWeeklyXCore(ctx realtime.CommandContext, re
 	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
 	runtime.updatePlayerWalletCacheLocked(ctx.PlayerID, wallet)
 	if !result.Duplicate {
-		stockPayload := premiumStockPayloadFromRecord(result.Stock)
+		stockPayload := runtime.premiumStockPayloadFromRecord(result.Stock)
 		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventPremiumStockConsumed, stockPayload)
 		runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventWalletSnapshot, wallet)
 		runtime.queuePassivePremiumStockConsumedLocked(ctx.PlayerID, stockPayload)
@@ -896,7 +896,7 @@ func (runtime *Runtime) premiumSummaryPayload(playerID foundation.PlayerID) prem
 	stockRecords := runtime.Premium.WeeklyXCoreStockRecords()
 	stocks := make([]premiumStockPayload, 0, len(stockRecords))
 	for _, record := range stockRecords {
-		stocks = append(stocks, premiumStockPayloadFromRecord(record))
+		stocks = append(stocks, runtime.premiumStockPayloadFromRecord(record))
 	}
 	purchases := runtime.Premium.WeeklyXCorePurchases()
 	purchasePayloads := make([]premiumPurchasePayload, 0)
@@ -939,12 +939,12 @@ func premiumEntitlementPayloadFromEntitlement(entitlement premium.Entitlement) p
 	return payload
 }
 
-func premiumStockPayloadFromRecord(record premium.WeeklyXCoreStockRecord) premiumStockPayload {
+func (runtime *Runtime) premiumStockPayloadFromRecord(record premium.WeeklyXCoreStockRecord) premiumStockPayload {
 	return premiumStockPayload{
 		PeriodKey:       record.PeriodKey,
 		StockTotal:      record.StockTotal,
 		StockRemaining:  record.StockRemaining,
-		PriceAmount:     weeklyXCorePremiumPrice,
+		PriceAmount:     runtime.starterContent.WeeklyXCore.PremiumPrice,
 		PaymentCurrency: economy.CurrencyBucketPremiumPaid.String(),
 	}
 }

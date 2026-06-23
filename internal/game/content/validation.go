@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"gameproject/internal/game/crafting"
+	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/production"
 )
@@ -18,6 +19,7 @@ var (
 	ErrInvalidContentLootRow = errors.New("invalid content loot row")
 	ErrMissingContentCatalog = errors.New("missing content catalog")
 	ErrInvalidScannerContent = errors.New("invalid scanner content")
+	ErrInvalidStarterContent = errors.New("invalid starter content")
 )
 
 // Validate proves the static gameplay bundle is internally consistent before
@@ -52,6 +54,16 @@ func (bundle GameplayContent) Validate() error {
 	}
 	if err := bundle.Scanner.Validate(bundle.Maps); err != nil {
 		return err
+	}
+	if err := bundle.Starter.Validate(bundle); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateKnownItem(bundle GameplayContent, kind string, itemID foundation.ItemID) error {
+	if _, ok := bundle.Items[itemID]; !ok {
+		return fmt.Errorf("%s item %q: %w", kind, itemID, ErrUnknownContentItem)
 	}
 	return nil
 }
@@ -153,8 +165,8 @@ func validateProductionReferences(bundle GameplayContent) error {
 
 func validateItemRates(bundle GameplayContent, kind string, definitionID string, rates []production.ItemRate) error {
 	for _, rate := range rates {
-		if _, ok := bundle.Items[rate.ItemID]; !ok {
-			return fmt.Errorf("%s %q item %q: %w", kind, definitionID, rate.ItemID, ErrUnknownContentItem)
+		if err := validateKnownItem(bundle, kind+" "+definitionID, rate.ItemID); err != nil {
+			return err
 		}
 	}
 	return nil

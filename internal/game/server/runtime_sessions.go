@@ -24,7 +24,7 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 	if !ok {
 		runtime.nextPlayerEntity++
 		entityID := foundation.EntityID(fmt.Sprintf("entity_pilot_%d", runtime.nextPlayerEntity))
-		state = newPlayerRuntimeState(resolved.Callsign, entityID)
+		state = runtime.newPlayerRuntimeState(resolved.Callsign, entityID)
 		runtime.players[resolved.PlayerID] = state
 	} else if resolved.Callsign != "" && state.Callsign != resolved.Callsign {
 		state.Callsign = resolved.Callsign

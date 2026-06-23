@@ -245,6 +245,46 @@ func TestGameplayContentRejectsScannerMissingSeed(t *testing.T) {
 	}
 }
 
+func TestGameplayContentRejectsStarterUnknownModuleItem(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Starter.ModuleItemIDs[0] = "missing_module"
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrUnknownContentItem) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrUnknownContentItem)
+	}
+}
+
+func TestGameplayContentRejectsStarterDuplicateModuleItem(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Starter.ModuleItemIDs[1] = bundle.Starter.ModuleItemIDs[0]
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrInvalidStarterContent) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidStarterContent)
+	}
+}
+
+func TestGameplayContentRejectsStarterUnknownWorldSeedPool(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Starter.WorldSeeds[0].EnemyPoolID = "missing_pool"
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrInvalidStarterContent) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidStarterContent)
+	}
+}
+
+func TestGameplayContentRejectsStarterRouteSeedUnknownItem(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Starter.RouteSeed.SourceStoredItems[0].ItemID = "missing_item"
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrUnknownContentItem) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrUnknownContentItem)
+	}
+}
+
 func TestScannerContentE2ENoPlanetOptionsDoNotMutateBundle(t *testing.T) {
 	bundle := validBundle(t)
 

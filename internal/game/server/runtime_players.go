@@ -40,8 +40,8 @@ func (runtime *Runtime) applyActiveShipLocked(playerID foundation.PlayerID, ship
 
 	previousShipID := state.Ship.ActiveShipID
 	state.Ship.ActiveShipID = shipID.String()
-	if shipID == starterShipID {
-		state.Ship.DisplayName = starterShipDisplayName
+	if shipID == runtime.starterContent.ShipID {
+		state.Ship.DisplayName = runtime.starterContent.ShipDisplayName
 	} else {
 		state.Ship.DisplayName = definition.Name
 	}
@@ -151,17 +151,18 @@ func runtimePlayerSpeedForStealth(baseSpeed float64, enabled bool) float64 {
 	return baseSpeed
 }
 
-func newPlayerRuntimeState(callsign string, entityID world.EntityID) playerRuntimeState {
+func (runtime *Runtime) newPlayerRuntimeState(callsign string, entityID world.EntityID) playerRuntimeState {
 	if callsign == "" {
 		callsign = "Pilot"
 	}
+	starter := runtime.starterContent
 	return playerRuntimeState{
 		EntityID: entityID,
 		Callsign: callsign,
 		Rank:     1,
 		Ship: shipSnapshotPayload{
-			ActiveShipID: starterShipID.String(),
-			DisplayName:  starterShipDisplayName,
+			ActiveShipID: starter.ShipID.String(),
+			DisplayName:  starter.ShipDisplayName,
 			Hull:         100,
 			MaxHull:      100,
 			Shield:       100,

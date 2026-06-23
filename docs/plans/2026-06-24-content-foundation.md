@@ -55,6 +55,7 @@ Add `GameplayContent` with:
 - `Production production.Catalog`
 - `Maps *maps.Catalog`
 - `Scanner ScannerContent`
+- `Starter StarterContent`
 
 Add `DefaultGameplayContent(worldID world.WorldID)` to assemble current static
 content.
@@ -72,6 +73,9 @@ Add `Validate() error` and helpers for:
   discovery XP amount
 - per-map scanner profile refs, duplicate profile rejection, and candidate
   option validation per bounded map
+- server-only starter/playtest content refs: starter ship, starter module item
+  grants, scanner module, weekly X Core stock, first-NPC seed overrides, claim
+  core, and route seed stored items
 
 **Step 5: Run focused test**
 
@@ -153,6 +157,59 @@ Run:
 
 ```bash
 go test ./internal/game/discovery ./internal/game/content ./internal/game/server -run 'TestDefaultGameplayContent|TestGameplayContent|TestScannerContent|TestResolveScanPulseMaterializationAndIntelAreSeededMapScoped|TestE2EScanNoPlanetSeedReturnsNoSignalWithoutPlanetMutation|TestScanPulseUsesActiveSeededMapScope' -count=1
+git diff --check
+```
+
+Expected: pass.
+
+### Task 2C: Starter And Playtest Seed Content
+
+**Files:**
+- Create: `internal/game/content/starter.go`
+- Modify: `internal/game/content/bundle.go`
+- Modify: `internal/game/content/validation.go`
+- Modify: `internal/game/server/runtime.go`
+- Modify: `internal/game/server/economy_seed.go`
+- Modify: `internal/game/server/e2e_seed.go`
+- Modify: `internal/game/server/scanner_providers.go`
+- Modify: `internal/game/server/runtime_players.go`
+- Modify: `internal/game/server/runtime_sessions.go`
+- Modify: `internal/game/server/economy_handlers.go`
+- Test: `internal/game/content/bundle_test.go`
+
+**Step 1: Add starter content catalog**
+
+Add `StarterContent` under `GameplayContent` for values currently scattered in
+runtime seed code:
+
+- starter ship id/display
+- starter wallet credits/premium
+- starter module item grants and scanner module
+- scanner power/radius/interval/energy cost
+- weekly X Core price/stock
+- first-NPC entity id overrides by map enemy pool
+- playtest claim core item/quantity
+- route seed storage capacity, energy, and stored starter material
+
+**Step 2: Validate references**
+
+Starter content validates against existing catalogs before runtime starts. It
+must reject missing item/module/ship/map/pool references, duplicate starter
+module grants, invalid scanner values, invalid wallet amounts, and invalid route
+seed quantities.
+
+**Step 3: Runtime wiring**
+
+Runtime stores the validated `StarterContent` from the bundle and uses it for
+server-owned seed mutations. Client payloads continue to receive only snapshots,
+events, and query results; no client-authored content truth is introduced.
+
+**Step 4: Validate**
+
+Run:
+
+```bash
+go test ./internal/game/content ./internal/game/server -run 'TestDefaultGameplayContent|TestGameplayContent|TestScannerContent|TestPlaytestSeed|TestE2EPlanetClaimSeed|TestScanPulse|TestPremium|TestMarketStateMutationFanout|TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner' -count=1
 git diff --check
 ```
 

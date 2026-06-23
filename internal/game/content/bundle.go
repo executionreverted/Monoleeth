@@ -32,6 +32,7 @@ type GameplayContent struct {
 	Production production.Catalog
 	Maps       *worldmaps.Catalog
 	Scanner    ScannerContent
+	Starter    StarterContent
 }
 
 // DefaultGameplayContent returns the current static playtest content bundle.
@@ -66,6 +67,7 @@ func DefaultGameplayContent(worldID world.WorldID) (GameplayContent, error) {
 		Production: productionCatalog,
 		Maps:       mapCatalog,
 		Scanner:    DefaultScannerContent(),
+		Starter:    DefaultStarterContent(),
 	}
 	if err := bundle.Validate(); err != nil {
 		return GameplayContent{}, err

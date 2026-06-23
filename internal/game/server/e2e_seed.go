@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
@@ -19,8 +20,8 @@ const (
 	runtimePlaytestSeedLedgerReason       economy.LedgerReason = "playtest_seed"
 	e2ePlanetClaimSeedReason                                   = "e2e_planet_claim_seed"
 	playtestSeedReason                                         = "playtest_seed"
-	e2eRouteSeedSourceStorageUnits                             = 500
-	e2eRouteSeedEnergyPerHour                                  = 80
+	e2eRouteSeedSourceStorageUnits                             = gamecontent.DefaultRouteSeedStorageUnits
+	e2eRouteSeedEnergyPerHour                                  = gamecontent.DefaultRouteSeedEnergyPerHour
 )
 
 func (runtime *Runtime) seedE2EPlanetClaimProof(playerID foundation.PlayerID) error {
@@ -35,9 +36,9 @@ func (runtime *Runtime) seedE2EPlanetClaimProof(playerID foundation.PlayerID) er
 }
 
 func (runtime *Runtime) seedE2EPlanetClaimXCore(playerID foundation.PlayerID, seedPrefix string) error {
-	definition, ok := runtime.itemCatalog["x_core"]
+	definition, ok := runtime.itemCatalog[runtime.starterContent.ClaimSeed.CoreItemID]
 	if !ok {
-		return fmt.Errorf("x_core definition missing")
+		return fmt.Errorf("%s definition missing", runtime.starterContent.ClaimSeed.CoreItemID)
 	}
 	location, err := economy.NewItemLocation(economy.LocationKindAccountInventory, playerID.String())
 	if err != nil {
@@ -140,9 +141,7 @@ func (runtime *Runtime) seedE2ERouteProof(playerID foundation.PlayerID) error {
 			return nil
 		}
 	}
-	sourceStorage, err := production.NewPlanetStorage(sourceID, e2eRouteSeedSourceStorageUnits, []production.StoredItem{
-		{ItemID: "refined_alloy", Quantity: 160},
-	}, now)
+	sourceStorage, err := production.NewPlanetStorage(sourceID, runtime.starterContent.RouteSeed.SourceStorageUnits, runtime.starterContent.RouteSeed.SourceStoredItems, now)
 	if err != nil {
 		return err
 	}
@@ -194,8 +193,8 @@ func (runtime *Runtime) seedE2EOwnedRoutePlanet(
 	result, err := runtime.Production.InitializePlanetProduction(production.InitializePlanetProductionInput{
 		PlanetID:              planetID,
 		LastCalculatedAt:      now,
-		StorageCapacityUnits:  e2eRouteSeedSourceStorageUnits,
-		EnergyCapacityPerHour: e2eRouteSeedEnergyPerHour,
+		StorageCapacityUnits:  runtime.starterContent.RouteSeed.SourceStorageUnits,
+		EnergyCapacityPerHour: runtime.starterContent.RouteSeed.EnergyPerHour,
 		UpdatedAt:             now,
 	})
 	return result.Created, err
@@ -254,7 +253,7 @@ func (runtime *Runtime) claimSeedReason(seedPrefix string) string {
 
 func (runtime *Runtime) e2ePlanetClaimCoreQuantity() int {
 	if runtime.playtestSeed {
-		return defaultE2EClaimCores
+		return runtime.starterContent.ClaimSeed.Quantity
 	}
 	return e2ePlanetClaimCoreQuantity(runtime.e2ePlanetClaimCores)
 }

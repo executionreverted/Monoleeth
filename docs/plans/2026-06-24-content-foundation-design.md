@@ -52,6 +52,11 @@ proprietary labels or assets.
   discovery stable for the current vertical slice while still letting each map
   own its level band and spawn budget. Later CMS tuning can lower density and
   add rare planet pacing once cooldowns and live balancing tools exist.
+- starter/playtest seed config is server-only content: starter ship/display,
+  starter wallet, starter module grants/loadout scanner, weekly X Core stock,
+  fixed first-NPC entity overrides, playtest claim core quantity, and route
+  seed storage. Runtime still performs all authoritative mutations; the content
+  bundle only owns validated constants.
 
 ## Non-Goals
 
@@ -84,5 +89,7 @@ Use narrow tests:
   fail before runtime starts
 - scanner map profiles must reference known maps and reject duplicate profile
   rows
+- starter content must reference known ship/item/module/map/enemy-pool rows and
+  reject duplicate starter modules or invalid wallet/scanner/route quantities
 - runtime uses the validated content bundle for item/loot catalogs
-  and scanner/planet discovery config
+  and scanner/planet/starter seed config

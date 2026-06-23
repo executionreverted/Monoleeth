@@ -14,12 +14,14 @@ for phase status; this file is a compact pending-work index.
   server-only scanner/planet discovery config, plus cross-catalog validation
   before runtime uses item/loot/scanner catalogs. Map-specific scanner profile
   rows now resolve by server-owned active map while preserving the demo scanner
-  canary loop. Next work: add the starter/playtest content seed for first NPC,
-  starter loadout, loot, X Core, claim/production/route unlocks, then add a DB
-  content repository with empty-DB seeding and published revision loading, add
-  draft / publish / rollback validation, then build the admin CMS UI for
-  monsters, drop tables, item stats, recipes, map pools, and planet/scanner
-  tuning.
+  canary loop. Starter/playtest seed content now owns starter ship/display,
+  starter wallet, starter module grants/loadout scanner, weekly X Core stock,
+  first-NPC entity overrides, playtest claim core quantity, and route seed
+  storage while runtime keeps all server-authoritative mutations. Next work:
+  add a DB content repository with empty-DB seeding and published revision
+  loading, add draft / publish / rollback validation, then build the admin CMS
+  UI for monsters, drop tables, item stats, recipes, map pools, and
+  planet/scanner tuning.
   Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`

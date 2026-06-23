@@ -35,8 +35,8 @@ import (
 )
 
 const (
-	starterShipID                      foundation.ShipID = ships.ShipIDStarter
-	starterShipDisplayName                               = "Sparrow"
+	starterShipID                      foundation.ShipID = gamecontent.DefaultStarterShipID
+	starterShipDisplayName                               = gamecontent.DefaultStarterShipDisplayName
 	defaultPlayerSpeed                                   = 180
 	defaultRadarRange                                    = 420
 	defaultMaxMoveDistance                               = 1200
@@ -45,19 +45,19 @@ const (
 	runtimeBasicLaserCooldownMS                          = 350
 	minMoveCommandInterval                               = 75 * time.Millisecond
 	runtimeStealthSpeedMultiplier                        = 0.70
-	starterScannerItemID                                 = "scanner_t1"
-	starterScannerModuleID                               = "scanner_t1"
-	starterScannerScanPower                              = 500
-	starterScannerScanRadius                             = 2000
-	starterScannerScanInterval                           = time.Second
-	starterScannerEnergyCost                             = 8
+	starterScannerItemID                                 = gamecontent.DefaultStarterScannerItemID
+	starterScannerModuleID                               = gamecontent.DefaultStarterScannerModuleID
+	starterScannerScanPower                              = gamecontent.DefaultStarterScannerScanPower
+	starterScannerScanRadius                             = gamecontent.DefaultStarterScannerScanRadius
+	starterScannerScanInterval                           = gamecontent.DefaultStarterScannerScanInterval
+	starterScannerEnergyCost                             = gamecontent.DefaultStarterScannerEnergyCost
 	runtimeHiddenPlayerWitnessDuration                   = 15 * time.Minute
 	runtimePortalCooldown                                = 30 * time.Second
 	runtimePortalProtectionDuration                      = 10 * time.Second
-	starterWalletCredits                                 = 1200
-	starterWalletPremiumPaid                             = 300
-	weeklyXCorePremiumPrice                              = 100
-	weeklyXCoreStockTotal                                = 5
+	starterWalletCredits                                 = gamecontent.DefaultStarterWalletCredits
+	starterWalletPremiumPaid                             = gamecontent.DefaultStarterWalletPremiumPaid
+	weeklyXCorePremiumPrice                              = gamecontent.DefaultWeeklyXCorePremiumPrice
+	weeklyXCoreStockTotal                                = gamecontent.DefaultWeeklyXCoreStockTotal
 	runtimeQuestRewardLedgerReason                       = economy.LedgerReason("quest_reward")
 	runtimeSectorKey                                     = "origin-fringe"
 	runtimeProjectionSourceWorker                        = "worker_projection"
@@ -164,6 +164,7 @@ type Runtime struct {
 	combatXP            *combat.NPCKillXPHandler
 	lootTables          map[string]loot.LootTable
 	itemCatalog         map[foundation.ItemID]economy.ItemDefinition
+	starterContent      gamecontent.StarterContent
 	repairAttempts      map[foundation.IdempotencyKey]repairAttemptRecord
 	shopPurchases       map[foundation.IdempotencyKey]shopPurchaseRecord
 	scanCooldowns       map[scanCooldownKey]time.Time
@@ -456,6 +457,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		combatXP:                       combatXP,
 		lootTables:                     lootTables,
 		itemCatalog:                    itemCatalog,
+		starterContent:                 contentBundle.Starter,
 		repairAttempts:                 make(map[foundation.IdempotencyKey]repairAttemptRecord),
 		shopPurchases:                  make(map[foundation.IdempotencyKey]shopPurchaseRecord),
 		scanCooldowns:                  make(map[scanCooldownKey]time.Time),
@@ -604,12 +606,7 @@ func (runtime *Runtime) seedWorld() error {
 		if instance == nil || instance.Worker == nil {
 			return fmt.Errorf("map %q: %w", mapID, errMapInstanceNotFound)
 		}
-		overrides := map[worldmaps.EnemyPoolID][]world.EntityID(nil)
-		if mapID == worldmaps.StarterMapID {
-			overrides = map[worldmaps.EnemyPoolID][]world.EntityID{
-				"starter_training_drone_pool": {"entity_training_npc"},
-			}
-		}
+		overrides := runtime.starterWorldSeedOverrides(mapID)
 		if err := runtime.submitWorkerCommandAndRecordMetricsLocked(instance, worker.InitializeEnemyPoolsCommand{
 			Definition:        instance.Definition,
 			EntityIDOverrides: overrides,
@@ -648,6 +645,20 @@ func (runtime *Runtime) seedWorld() error {
 		instance.HiddenEntities[hidden.ID] = true
 	}
 	return nil
+}
+
+func (runtime *Runtime) starterWorldSeedOverrides(mapID worldmaps.MapID) map[worldmaps.EnemyPoolID][]world.EntityID {
+	overrides := make(map[worldmaps.EnemyPoolID][]world.EntityID)
+	for _, seed := range runtime.starterContent.WorldSeeds {
+		if seed.MapID != mapID || len(seed.EntityIDOverrides) == 0 {
+			continue
+		}
+		overrides[seed.EnemyPoolID] = append([]world.EntityID(nil), seed.EntityIDOverrides...)
+	}
+	if len(overrides) == 0 {
+		return nil
+	}
+	return overrides
 }
 
 func boundedOffset(bounds worldmaps.Bounds, origin world.Vec2, offset world.Vec2) world.Vec2 {
