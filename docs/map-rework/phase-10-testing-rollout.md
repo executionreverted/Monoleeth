@@ -94,8 +94,11 @@ marked `Open` are not implemented rollout controls yet.
   HUD scan, HUD planet claim, production initialization, and route
   create/settle, then transfers through `east_gate` to public `1-2` and proves
   destination-map combat/drop/pickup in the same built-client package with
-  DOM/state/storage, WebSocket, and process-log leak canaries. Broader browser
-  scanner/claim/drop matrix variants remain open.
+  DOM/state/storage, WebSocket, and process-log leak canaries. The focused
+  built-client `e2e:phase10-pvp-map-drop` proof now registers a normal browser
+  player, travels `1-1` -> `1-2` -> `1-3`, kills a Border Skirmish NPC, and
+  picks up the server-created `carbon_shards` drop without leaking map/drop
+  internals. Broader browser scanner/claim/drop matrix variants remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone
   UI-click rejection proof exist in
   `client/tests/e2e/phase10-pvp-death-flow.mjs`. The same flow now also runs as
@@ -111,8 +114,9 @@ marked `Open` are not implemented rollout controls yet.
   vertical harness proves scan/detail/claim after a real portal transfer. The
   built-client playtest runner now adds one deployable-package browser scan,
   claim, starter drop, `1-1` -> `1-2` portal canary, and destination-map drop
-  pickup proof. Broader browser scan variants and PvP-map browser drop variants
-  remain missing.
+  pickup proof. The focused built-client PvP-map drop proof now covers one
+  `1-3` browser combat/drop/pickup path. Broader browser scan variants and full
+  per-map drop matrix variants remain missing.
 - Authenticated `route.create`, `route.update`, `route.enable`, and
   `route.disable` now have server gateway slices for owned planet-to-planet MVP
   routes. `planet.production_summary` and `planet.storage_summary` now settle
@@ -163,8 +167,10 @@ marked `Open` are not implemented rollout controls yet.
   `1-2`, and medium PvP `1-3` matrix rows, domain-level cross-map pickup
   rejection, and
   starter/destination browser fight/loot pickup proof, including the
-  single-process built-client playtest package. Broader balance tuning and
-  additional rollout/browser proof remain open.
+  single-process built-client playtest package. A focused built-client
+  PvP-map browser proof now kills a public `1-3` Border Skirmish NPC and picks
+  up `carbon_shards` through the real loot path. Broader balance tuning and
+  full matrix rollout proof remain open.
 - Phase09 now covers inbound/outbound WebSocket text frames,
   DOM/smoke-state/localStorage/sessionStorage/cookie canaries, production
   `debug_snapshot`/`debug_spawn_npc` rejection responses, captured Go/Vite
@@ -271,6 +277,13 @@ proof explicitly:
 
 ```bash
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-enemy-aggro
+```
+
+Run the focused built-client Phase10 Border Skirmish NPC drop browser proof
+explicitly:
+
+```bash
+npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-pvp-map-drop
 ```
 
 Run the focused real-server Phase10 planet claim browser proof explicitly:

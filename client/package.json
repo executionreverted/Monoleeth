@@ -17,6 +17,7 @@
     "e2e:phase10-planet-claim": "node tests/e2e/phase10-planet-claim-flow.mjs",
     "e2e:phase10-route": "node tests/e2e/phase10-route-flow.mjs",
     "e2e:phase10-pvp-death": "node tests/e2e/phase10-pvp-death-flow.mjs",
+    "e2e:phase10-pvp-map-drop": "npm run build && node tests/e2e/phase10-pvp-map-drop-flow.mjs",
     "e2e:playtest-server-pvp": "npm run build && PHASE10_BUILT_CLIENT=1 node tests/e2e/phase10-pvp-death-flow.mjs",
     "e2e:playtest-server": "npm run build && node tests/e2e/playtest-server-flow.mjs",
     "check": "npm run lint && npm run typecheck && npm run test && npm run bundle-scan"
