@@ -81,6 +81,8 @@ async function main() {
   const goServer = child('go-server', 'go', ['run', './cmd/game-server'], repoRoot, {
     GAME_SERVER_ADDR: `127.0.0.1:${serverPort}`,
     GAME_CLIENT_STATIC_DIR: 'client/dist',
+    GAME_DEV_MODE: '1',
+    GAME_E2E_PLANET_CLAIM_SEED: '1',
   });
   let browser;
   let context;
@@ -101,11 +103,13 @@ async function main() {
     const originState = await waitSmoke(client, originReady, 'authenticated Origin state', 30000);
     assert(originState.auth?.session?.authenticated === true, 'real authenticated session missing');
     assertMap(originState, '1-1', 'Origin', 'origin');
+    await waitSmoke(client, (state) => inventoryQuantity(state.inventory, 'x_core') === 1, 'E2E X Core inventory seed', 20000);
     await assertNoLeak(client, originState, 'origin');
 
     await openCommandSocket(client);
     await enterPortalViaPosition(client, 'east_gate', eastGateTarget, '1-2', 'Outer Ring');
-    await proveCurrentMapScan(client, '1-2', 'destination-map');
+    const destinationScan = await proveCurrentMapScan(client, '1-2', 'destination-map');
+    await claimScannedPlanet(client, destinationScan.scan.planet_id, 'destination-map');
     await enterPortalViaPosition(client, 'skirmish_gate', skirmishGateTarget, '1-3', 'Border Skirmish');
     await proveCurrentMapScan(client, '1-3', 'pvp-map');
 
@@ -159,7 +163,9 @@ async function main() {
     await assertWebSocketCanary(client, 'pvp-map drop');
     assertProcessLogCanary([goServer]);
 
-    console.log(`phase10-pvp-map-drop smoke ok scan=1-2,1-3 npc=${npc.entity_id} drop=${pickupDropID} item=${drop.item_id}x${drop.quantity}`);
+    console.log(
+      `phase10-pvp-map-drop smoke ok scan=1-2,1-3 claim=${destinationScan.scan.planet_id} npc=${npc.entity_id} drop=${pickupDropID} item=${drop.item_id}x${drop.quantity}`,
+    );
   } finally {
     if (context) await context.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
@@ -316,6 +322,50 @@ async function proveCurrentMapScan(client, expectedMapKey, label) {
     15000,
   );
   await assertNoLeak(client, state, `${label} scan`);
+  return { scan: payload.scan, planet, state };
+}
+
+async function claimScannedPlanet(client, planetID, label) {
+  assert(planetID, `${label} claim planet id present`);
+  await resetWebSocketFrames(client);
+  const detailPayload = payloadOf(await send(client, 'discovery.planet_detail', { planet_id: planetID }), `${label} discovery.planet_detail`);
+  const detail = detailPayload.planet_detail;
+  assert(detail?.planet_id === planetID, `${label} detail planet mismatch ${compact(detail)}`);
+  assert(detail?.public_map_key === '1-2', `${label} detail public map ${compact(detail)}`);
+  assert(detail?.coordinates, `${label} detail missing coordinates ${compact(detail)}`);
+  assertNoPayloadLeak(detailPayload, `${label} detail response`);
+
+  await moveToPosition(client, detail.coordinates, 220, `${label} claim planet ${planetID}`, 90000);
+  await waitSmoke(
+    client,
+    (state) => distance(positionNow(selfEntity(state), state), detail.coordinates) <= 220,
+    `${label} ship near claim planet`,
+    10000,
+  );
+
+  const requestPayload = { planet_id: planetID };
+  assert(Object.keys(requestPayload).join(',') === 'planet_id', `${label} claim request keys`);
+  const claimPayload = payloadOf(await send(client, 'discovery.claim_planet', requestPayload), `${label} discovery.claim_planet`);
+  assert(claimPayload.claim?.accepted === true, `${label} claim accepted ${compact(claimPayload)}`);
+  assert(claimPayload.claim?.planet?.planet_id === planetID, `${label} claim planet mismatch ${compact(claimPayload.claim)}`);
+  assert(claimPayload.claim?.planet?.owner_status === 'owned_by_you', `${label} claim owner ${compact(claimPayload.claim?.planet)}`);
+  assert((claimPayload.production?.planets ?? []).some((planet) => planet.planet_id === planetID), `${label} claim missing production`);
+  assert(inventoryQuantity(claimPayload.inventory, 'x_core') === 0, `${label} claim did not consume x_core ${compact(claimPayload.inventory)}`);
+  assertNoPayloadLeak(claimPayload, `${label} claim response`);
+
+  const claimed = await waitSmoke(
+    client,
+    (state) =>
+      state.currentMap?.public_map_key === '1-2' &&
+      planetOwnerStatus(state, planetID) === 'owned_by_you' &&
+      productionInitialized(state, planetID) &&
+      inventoryQuantity(state.inventory, 'x_core') === 0 &&
+      !hasPendingOp(state, 'discovery.claim_planet') &&
+      !hasUnhandledEventLog(state),
+    `${label} claim reconciliation`,
+    15000,
+  );
+  await assertNoLeak(client, claimed, `${label} claimed`);
 }
 
 async function moveToPosition(client, targetPosition, arriveDistance, label, timeoutMS) {
@@ -431,6 +481,27 @@ function cargoIncludesPickup(cargo, beforeCargo, drop) {
 
 function cargoQuantity(cargo, itemID) {
   return Number(cargo?.items?.find((item) => item.item_id === itemID)?.quantity ?? 0);
+}
+
+function inventoryQuantity(inventory, itemID) {
+  return (inventory?.stackable ?? [])
+    .filter((item) => item.item_id === itemID)
+    .reduce((total, item) => total + Number(item.quantity ?? 0), 0);
+}
+
+function planetOwnerStatus(state, planetID) {
+  return state?.planetIntel?.planets?.find((planet) => planet.planet_id === planetID)?.owner_status ?? '';
+}
+
+function productionInitialized(state, planetID) {
+  return (
+    state?.production?.planets?.some((planet) => planet.planet_id === planetID && planet.storage && planet.energy_capacity_per_hour > 0) ||
+    state?.planetIntel?.selectedPlanet?.production?.planet_id === planetID
+  );
+}
+
+function hasPendingOp(state, op) {
+  return Object.values(state?.pendingCommands ?? {}).some((command) => command.op === op);
 }
 
 function hasUnhandledEventLog(state) {

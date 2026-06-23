@@ -144,6 +144,7 @@ Default client behavior:
 - no fake NPCs
 - no fake loot
 - no fake market/auction/premium data
+- no fake!
 
 + EVERYTHING MUST BE REAL - SERVER AUTHORITATIVE - REAL GAME STATE !
 
@@ -397,6 +398,7 @@ Avoid duplicate business rules. Good candidates for shared helpers:
 - rate-limit middleware
 - visibility/range validation primitives
 - client-safe snapshot filtering
+- no monolith - spaghetti code! small chunks of code for each module, readable good code!
 
 Do not abstract too early. Small local duplication is acceptable while a rule is
 still changing, but once it becomes a gameplay or economy invariant, centralize
