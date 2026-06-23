@@ -547,6 +547,14 @@ Current slice completed:
   claim-token guards while preserving building mutation reference evidence and
   material ledger rows. Real durable DB rows, wallet debit co-commit evidence,
   cross-process publisher workers, and scheduled reapers remain open.
+- Phase07BK runtime durable outbox drain follow-up:
+  `Runtime.DrainDurableOutboxes` now provides a single server-owned handoff for
+  committed claim lifecycle, production/route settlement, and building mutation
+  durable outbox rows. It optionally releases expired leases first, then drains
+  each durable store through the existing claim/production publisher contracts
+  with per-store limits and caller-provided publish callbacks. Real durable DB
+  rows, cross-process row locks/CAS, scheduled workers, and client-safe
+  projection callbacks remain open.
 
 ## Source Specs
 
@@ -715,6 +723,9 @@ Mockup areas covered:
 - [x] Let the claim durable lifecycle-store adapter satisfy the claim outbox
       publisher and lease-reaper contracts for committed `planet.claimed`
       rows.
+- [x] Add a runtime durable outbox drain handoff for committed claim,
+      settlement, and building durable stores using the existing publisher and
+      lease-reaper contracts.
 - [ ] Add durable authenticated transaction flows for claim/storage mutation
       coupling once DB/CAS storage boundaries replace process-local stores.
 - [x] Add offline settlement reconcile path that uses server-owned windows for
@@ -891,6 +902,9 @@ Mockup areas covered:
 - [x] Building mutation durable outbox rows can be claimed, published, failed,
       or lease-released through the production outbox publisher contracts
       without mutating committed material ledger rows.
+- [x] Runtime durable outbox drain publishes and lease-releases committed
+      claim, settlement, and building rows through server-owned callbacks
+      without reading from process-local non-durable outbox queues.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.
