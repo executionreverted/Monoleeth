@@ -161,6 +161,8 @@ func (store *InMemoryStore) MarkClaimedOutboxPublished(outboxID string, claimTok
 	}
 	store.outbox[index].Status = ProductionOutboxStatusPublished
 	store.outbox[index].PublishedAt = publishedAt.UTC()
+	store.outbox[index].FailedAt = time.Time{}
+	store.outbox[index].LastError = ""
 	return cloneProductionOutboxRecord(store.outbox[index]), true
 }
 

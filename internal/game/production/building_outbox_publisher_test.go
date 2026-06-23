@@ -95,6 +95,25 @@ func TestPublishPendingProductionOutboxPreservesBuildingMutationEvidenceOnFailur
 	if retried[0].LastError != temporaryErr.Error() || retried[0].FailedAt.IsZero() {
 		t.Fatalf("retried failure evidence = %+v, want preserved error and failure time", retried[0])
 	}
+
+	republished, err := PublishPendingProductionOutbox(ProductionOutboxPublishInput{
+		Store:       store,
+		Limit:       1,
+		ClaimedAt:   testTime(33),
+		CompletedAt: testTime(34),
+		Publish: func(ProductionOutboxRecord) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingProductionOutbox(retry) error = %v, want nil", err)
+	}
+	if len(republished) != 1 ||
+		republished[0].Record.Status != ProductionOutboxStatusPublished ||
+		!republished[0].Record.FailedAt.IsZero() ||
+		republished[0].Record.LastError != "" {
+		t.Fatalf("republished building mutation row = %+v, want published without stale failure evidence", republished)
+	}
 }
 
 func queueBuildingMutationOutboxForPublisherTest(t *testing.T) (*InMemoryStore, foundation.IdempotencyKey) {

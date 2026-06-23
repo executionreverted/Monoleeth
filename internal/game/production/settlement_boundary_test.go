@@ -701,6 +701,15 @@ func TestOutboxWrongAndStaleClaimTokensDoNotMutateRecords(t *testing.T) {
 	if published.Status != ProductionOutboxStatusPublished {
 		t.Fatalf("published status = %q, want published", published.Status)
 	}
+	if !published.FailedAt.IsZero() || published.LastError != "" {
+		t.Fatalf("published failure evidence = %s/%q, want cleared", published.FailedAt, published.LastError)
+	}
+	storedPublished := store.OutboxRecords()[0]
+	if storedPublished.Status != ProductionOutboxStatusPublished ||
+		!storedPublished.FailedAt.IsZero() ||
+		storedPublished.LastError != "" {
+		t.Fatalf("stored published record = %+v, want published without failure evidence", storedPublished)
+	}
 }
 
 func TestOutboxExpiredInFlightReleaseReturnsRecordsToPending(t *testing.T) {
