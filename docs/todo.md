@@ -343,7 +343,9 @@ for phase status; this file is a compact pending-work index.
   touches storage. Phase07G added browser protocol builders, HUD controls,
   reducer reconciliation, a dev-only guarded `GAME_E2E_ROUTE_SEED`, and the
   focused real-browser `e2e:phase10-route` proof for route
-  create/update/disable/enable/settle/reconcile. Phase07I added
+  create/update/disable/enable/settle/reconcile. The server route-seed gateway
+  proof now creates and settles a route from that same E2E-seeded state through
+  authenticated `route.create` and `route.settle` requests. Phase07I added
   server-derived route settlement reference/window evidence to domain results
   and outbox-safe domain payloads while leaving browser-safe realtime payloads
   unchanged. Phase07J added process-local store-owned settlement references

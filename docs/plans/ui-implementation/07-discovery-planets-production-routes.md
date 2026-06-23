@@ -90,8 +90,11 @@ Current slice completed:
   updated/settled payloads, clears pending route operations, and is covered by
   `npm --cache /tmp/gameproject-npm-cache --prefix client run
   e2e:phase10-route` using a guarded `GAME_DEV_MODE=1` +
-  `GAME_E2E_ROUTE_SEED=1` real-server seed. Durable production/route DB rows,
-  outbox publishing, and durable settlement window idempotency remain open.
+  `GAME_E2E_ROUTE_SEED=1` real-server seed. Server-side gateway coverage now
+  proves that the same E2E-seeded state supports authenticated `route.create`
+  followed by elapsed `route.settle` storage transfer. Durable production/route
+  DB rows, outbox publishing, and durable settlement window idempotency remain
+  open.
 - Phase07CQ browser route settlement-result follow-up: the client now carries
   safe server `route.settle` result payloads onto the route read model and HUD
   rows. Single-route responses/events and owner reconcile `settlements[]`
