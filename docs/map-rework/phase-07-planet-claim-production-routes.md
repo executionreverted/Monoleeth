@@ -658,6 +658,8 @@ contracts:
 - Claim marks stale intel/listings without revealing hidden coordinates.
 - Intel share duplicate retries replay the original safe response and do not
   mutate changed receiver/planet payloads or fan out changed receiver events.
+- Coordinate item create duplicate retries replay the original safe response and
+  do not mint changed-planet scrolls, ledger rows, or create events.
 - Building build/upgrade handlers reject unowned planets, wrong-map access, bad
   requirements, insufficient materials/wallet, capacity overflow, and duplicate
   references.

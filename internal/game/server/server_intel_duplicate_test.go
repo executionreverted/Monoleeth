@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
@@ -63,6 +64,53 @@ func TestIntelShareDuplicateRequestIDIgnoresChangedPayloadWithoutSecondReceiverM
 	}
 }
 
+func TestCoordinateItemCreateDuplicateRequestIDIgnoresChangedPlanetWithoutSecondScroll(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-create-duplicate@example.com", "Coordinate Create Duplicate")
+	planetOneID := foundation.PlanetID("planet-coordinate-create-duplicate-one")
+	planetTwoID := foundation.PlanetID("planet-coordinate-create-duplicate-two")
+	requestID := "request-coordinate-create-duplicate"
+
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetOneID, worldmaps.StarterMapID, world.Vec2{X: 1500, Y: 1600}, 3)
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetTwoID, worldmaps.StarterMapID, world.Vec2{X: 1700, Y: 1800}, 3)
+
+	first := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"`+requestID+`","op":"intel.coordinate_item.create","payload":{"planet_id":"`+planetOneID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	firstPayload := assertCoordinateItemCreateDuplicateResponse(t, first, planetOneID, "first coordinate create")
+	if !inventorySnapshotHasInstanceID(firstPayload.Inventory, firstPayload.CoordinateItem.ItemInstanceID, coordinateScrollItemID.String(), economy.LocationKindAccountInventory.String()) {
+		t.Fatalf("first coordinate create inventory = %+v, want coordinate scroll %s", firstPayload.Inventory, firstPayload.CoordinateItem.ItemInstanceID)
+	}
+	if got := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), coordinateScrollItemID.String()); got != 1 {
+		t.Fatalf("coordinate scroll count after first create = %d, want 1", got)
+	}
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, firstPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionIncrease, intelCoordinateItemCreateLedgerReason, 1)
+	if _, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationIntelCoordinateCreate, owner.PlayerID); err != nil {
+		t.Fatalf("drain first coordinate create events: %v", err)
+	}
+
+	duplicate := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"`+requestID+`","op":"intel.coordinate_item.create","payload":{"planet_id":"`+planetTwoID.String()+`"},"client_seq":2,"v":1}`),
+	)
+	duplicatePayload := assertCoordinateItemCreateDuplicateResponse(t, duplicate, planetOneID, "duplicate coordinate create")
+	if duplicatePayload.CoordinateItem.ItemInstanceID != firstPayload.CoordinateItem.ItemInstanceID {
+		t.Fatalf("duplicate coordinate item id = %q, want original %q", duplicatePayload.CoordinateItem.ItemInstanceID, firstPayload.CoordinateItem.ItemInstanceID)
+	}
+	if got := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), coordinateScrollItemID.String()); got != 1 {
+		t.Fatalf("coordinate scroll count after duplicate changed-planet create = %d, want 1", got)
+	}
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, firstPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionIncrease, intelCoordinateItemCreateLedgerReason, 1)
+	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationIntelCoordinateCreate, owner.PlayerID)
+	if err != nil {
+		t.Fatalf("post duplicate coordinate create events: %v", err)
+	}
+	if events := eventsBySession[owner.SessionID]; len(events) != 0 {
+		t.Fatalf("duplicate coordinate create events = %+v, want cached replay without events", events)
+	}
+}
+
 func assertIntelShareDuplicateResponse(
 	t *testing.T,
 	response realtime.CachedResponse,
@@ -89,4 +137,40 @@ func assertIntelShareDuplicateResponse(
 		payload.Share.ReceiverUpdated != receiverUpdated {
 		t.Fatalf("%s share payload = %+v, want planet %q receiver %q updated %v", label, payload.Share, planetID, toPlayerID, receiverUpdated)
 	}
+}
+
+func assertCoordinateItemCreateDuplicateResponse(
+	t *testing.T,
+	response realtime.CachedResponse,
+	planetID foundation.PlanetID,
+	label string,
+) struct {
+	CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
+	Inventory      inventorySnapshotPayload   `json:"inventory"`
+	Created        bool                       `json:"created"`
+	Duplicate      bool                       `json:"duplicate"`
+} {
+	t.Helper()
+	if response.HasError {
+		t.Fatalf("%s response error = %+v, want success", label, response.Error)
+	}
+	assertIntelPayloadSafe(t, label+" response", response.Response.Payload)
+	assertIntelPayloadOmitsCoordinates(t, label+" response", response.Response.Payload)
+	var payload struct {
+		CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
+		Inventory      inventorySnapshotPayload   `json:"inventory"`
+		Created        bool                       `json:"created"`
+		Duplicate      bool                       `json:"duplicate"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode %s payload: %v", label, err)
+	}
+	if !payload.Created ||
+		payload.Duplicate ||
+		payload.CoordinateItem.PlanetID != planetID.String() ||
+		payload.CoordinateItem.ItemInstanceID == "" ||
+		payload.CoordinateItem.Used {
+		t.Fatalf("%s coordinate item payload = %+v, want created unused item for planet %q", label, payload, planetID)
+	}
+	return payload
 }

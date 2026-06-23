@@ -215,7 +215,9 @@ for phase status; this file is a compact pending-work index.
   late internal errors. Duplicate `intel.share` request IDs now replay the
   original safe gateway response when the retry payload changes receiver or
   planet, without writing receiver intel or known-planets events for the changed
-  payload.
+  payload. Duplicate `intel.coordinate_item.create` request IDs likewise replay
+  the original safe coordinate-item response when the retry changes planet,
+  without minting a second scroll, ledger row, or create event batch.
   The authenticated use path rejects scrolls whose stored world/zone does not
   match the player's active map before inventory consume or intel mutation, so
   wrong-map retries keep the scroll and do not leak hidden detail events. The

@@ -392,7 +392,9 @@ Current slice completed:
   not-found style error before receiver intel writes or receiver event fanout.
   Duplicate share request ids replay the original safe gateway response when the
   retry payload changes receiver or planet, without writing receiver intel or
-  known-planets events for the changed payload.
+  known-planets events for the changed payload. Duplicate coordinate item create
+  request ids also replay the original safe response when the retry changes
+  planet, without minting a second scroll, ledger row, or create event batch.
 - Phase07AJ hidden planet detail regression follow-up: `discovery.planet_detail`
   now has server test evidence that materialized planets without player intel
   return a safe not-found response without creating intel rows or queued events.
@@ -910,6 +912,8 @@ Mockup areas covered:
       recipient filtering.
 - [x] Duplicate `intel.share` retries replay the original safe response without
       mutating a changed receiver/planet payload.
+- [x] Duplicate `intel.coordinate_item.create` retries replay the original safe
+      response without minting a changed-planet scroll.
 - [x] Add browser coordinate item create/use controls with pending states and
       server-owned id-only intents.
 - [x] Add browser intel share control with pending state and recipient-only
