@@ -237,6 +237,10 @@ for phase status; this file is a compact pending-work index.
   `planet.building_updated` publisher scheduling. Phase07BJ lets the building
   mutation durable commit-store adapter satisfy the production outbox publisher
   and lease-reaper contracts for committed storage/building outbox rows.
+  Phase07CO makes those building publisher/reaper mutations revalidate
+  committed reference/outbox/material-ledger readbacks before claiming,
+  publishing, failing, releasing, or retrying rows, so corrupt process-local
+  building durable rows fail closed without partial worker mutation.
   Phase07R starts the
   server-authoritative intel/coordinate domain foundation for share,
   coordinate-item creation, coordinate-item use, canonical idempotency keys,

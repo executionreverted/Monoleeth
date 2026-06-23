@@ -150,6 +150,9 @@ func (store *InMemoryBuildingMutationDurableCommitStore) ClaimPendingProductionO
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateBuildingMutationDurableCommitReadbacksLocked(); err != nil {
+		return nil, err
+	}
 
 	records := make([]ProductionOutboxRecord, 0, limit)
 	for _, key := range store.references {
@@ -194,6 +197,9 @@ func (store *InMemoryBuildingMutationDurableCommitStore) MarkProductionOutboxPub
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateBuildingMutationDurableCommitReadbacksLocked(); err != nil {
+		return ProductionOutboxRecord{}, false, err
+	}
 
 	key, index, ok := store.outboxIndexLocked(outboxID)
 	if !ok {
@@ -222,6 +228,9 @@ func (store *InMemoryBuildingMutationDurableCommitStore) MarkProductionOutboxFai
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateBuildingMutationDurableCommitReadbacksLocked(); err != nil {
+		return ProductionOutboxRecord{}, false, err
+	}
 
 	key, index, ok := store.outboxIndexLocked(outboxID)
 	if !ok {
@@ -256,6 +265,9 @@ func (store *InMemoryBuildingMutationDurableCommitStore) ReleaseExpiredProductio
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateBuildingMutationDurableCommitReadbacksLocked(); err != nil {
+		return nil, err
+	}
 
 	records := make([]ProductionOutboxRecord, 0, limit)
 	for _, key := range store.references {
@@ -304,6 +316,9 @@ func (store *InMemoryBuildingMutationDurableCommitStore) RetryFailedProductionOu
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateBuildingMutationDurableCommitReadbacksLocked(); err != nil {
+		return nil, err
+	}
 
 	records := make([]ProductionOutboxRecord, 0, limit)
 	for _, key := range store.references {
@@ -352,18 +367,8 @@ func (store *InMemoryBuildingMutationDurableCommitStore) CommittedBuildingMutati
 		return BuildingMutationDurableCommitPlan{}, false, nil
 	}
 	cloned := cloneBuildingMutationDurableCommitPlan(plan)
-	if err := validateProductionOutboxReadbackStates(cloned.OutboxRecords, ErrInvalidBuildingMutationDurableCommit); err != nil {
+	if err := validateBuildingMutationDurableCommitReadbackPlan(cloned); err != nil {
 		return BuildingMutationDurableCommitPlan{}, false, err
-	}
-	pendingOutbox := pendingProductionOutboxRecordsForCommitValidation(cloned.OutboxRecords)
-	if _, err := NewBuildingMutationDurableCommitPlan(&cloned.Reference, pendingOutbox, cloned.MaterialLedger); err != nil {
-		return BuildingMutationDurableCommitPlan{}, false, err
-	}
-	if !buildingMutationOutboxRecordsEqual(cloned.Reference.Result.OutboxRecords, pendingOutbox) {
-		return BuildingMutationDurableCommitPlan{}, false, fmt.Errorf("outbox.result: %w", ErrInvalidBuildingMutationDurableCommit)
-	}
-	if !buildingMutationMaterialLedgerEqual(cloned.Reference.Result.MaterialLedger, cloned.MaterialLedger) {
-		return BuildingMutationDurableCommitPlan{}, false, fmt.Errorf("material_ledger.result: %w", ErrInvalidBuildingMutationDurableCommit)
 	}
 	return cloned, true, nil
 }
@@ -406,6 +411,37 @@ func (store *InMemoryBuildingMutationDurableCommitStore) outboxIndexLocked(
 
 func buildingMutationDurableOutboxClaimMatches(record ProductionOutboxRecord, claimToken string) bool {
 	return record.Status == ProductionOutboxStatusInFlight && record.ClaimToken != "" && record.ClaimToken == claimToken
+}
+
+func (store *InMemoryBuildingMutationDurableCommitStore) validateBuildingMutationDurableCommitReadbacksLocked() error {
+	for _, key := range store.references {
+		plan, ok := store.plans[key]
+		if !ok {
+			return ErrInvalidBuildingMutationDurableCommit
+		}
+		if err := validateBuildingMutationDurableCommitReadbackPlan(plan); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateBuildingMutationDurableCommitReadbackPlan(plan BuildingMutationDurableCommitPlan) error {
+	cloned := cloneBuildingMutationDurableCommitPlan(plan)
+	if err := validateProductionOutboxReadbackStates(cloned.OutboxRecords, ErrInvalidBuildingMutationDurableCommit); err != nil {
+		return err
+	}
+	pendingOutbox := pendingProductionOutboxRecordsForCommitValidation(cloned.OutboxRecords)
+	if _, err := NewBuildingMutationDurableCommitPlan(&cloned.Reference, pendingOutbox, cloned.MaterialLedger); err != nil {
+		return err
+	}
+	if !buildingMutationOutboxRecordsEqual(cloned.Reference.Result.OutboxRecords, pendingOutbox) {
+		return fmt.Errorf("outbox.result: %w", ErrInvalidBuildingMutationDurableCommit)
+	}
+	if !buildingMutationMaterialLedgerEqual(cloned.Reference.Result.MaterialLedger, cloned.MaterialLedger) {
+		return fmt.Errorf("material_ledger.result: %w", ErrInvalidBuildingMutationDurableCommit)
+	}
+	return nil
 }
 
 func buildingMutationDurableCommitPlanIsNoOp(plan BuildingMutationDurableCommitPlan) bool {
