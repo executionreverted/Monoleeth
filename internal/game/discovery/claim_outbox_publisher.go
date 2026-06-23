@@ -24,6 +24,13 @@ type ClaimOutboxLeaseReaperStore interface {
 	ReleaseExpiredClaimOutboxRecordsForPublish(limit int, claimedBefore time.Time, releasedAt time.Time) ([]ClaimOutboxRecord, error)
 }
 
+// ClaimOutboxRetryStore is the durable recovery boundary for explicitly
+// retrying failed claim outbox rows after an operator or scheduled retry policy
+// decides the failure is safe to replay.
+type ClaimOutboxRetryStore interface {
+	RetryFailedClaimOutboxRecordsForPublish(limit int, retriedAt time.Time) ([]ClaimOutboxRecord, error)
+}
+
 type ClaimOutboxPublishFunc func(ClaimOutboxRecord) error
 
 type ClaimOutboxPublishInput struct {
@@ -50,6 +57,12 @@ type ClaimOutboxLeaseReleaseInput struct {
 	Limit         int
 	ClaimedBefore time.Time
 	ReleasedAt    time.Time
+}
+
+type ClaimOutboxRetryInput struct {
+	Store     ClaimOutboxRetryStore
+	Limit     int
+	RetriedAt time.Time
 }
 
 // PublishPendingClaimOutbox claims pending records and records publish or
@@ -126,6 +139,19 @@ func ReleaseExpiredClaimOutboxLeases(input ClaimOutboxLeaseReleaseInput) ([]Clai
 	return input.Store.ReleaseExpiredClaimOutboxRecordsForPublish(input.Limit, input.ClaimedBefore.UTC(), input.ReleasedAt.UTC())
 }
 
+// RetryFailedClaimOutboxRows returns failed claim outbox rows to pending through
+// the explicit durable retry boundary. It preserves failure evidence while
+// clearing stale claim lease fields.
+func RetryFailedClaimOutboxRows(input ClaimOutboxRetryInput) ([]ClaimOutboxRecord, error) {
+	if input.Store == nil {
+		return nil, ErrInvalidClaimOutboxPublisher
+	}
+	if input.Limit <= 0 {
+		return nil, nil
+	}
+	return input.Store.RetryFailedClaimOutboxRecordsForPublish(input.Limit, input.RetriedAt.UTC())
+}
+
 func (service *ClaimService) ClaimPendingClaimOutboxRecordsForPublish(limit int, claimedAt time.Time) ([]ClaimOutboxRecord, error) {
 	if service == nil {
 		return nil, ErrInvalidClaimOutboxPublisher
@@ -154,4 +180,11 @@ func (service *ClaimService) ReleaseExpiredClaimOutboxRecordsForPublish(limit in
 		return nil, ErrInvalidClaimOutboxPublisher
 	}
 	return service.ReleaseExpiredClaimOutboxRecords(limit, claimedBefore, releasedAt), nil
+}
+
+func (service *ClaimService) RetryFailedClaimOutboxRecordsForPublish(limit int, retriedAt time.Time) ([]ClaimOutboxRecord, error) {
+	if service == nil {
+		return nil, ErrInvalidClaimOutboxPublisher
+	}
+	return service.RetryFailedClaimOutboxRecords(limit, retriedAt), nil
 }

@@ -17,6 +17,7 @@ type RuntimeDurableOutboxDrainInput struct {
 	Now                  time.Time
 	ReleaseExpiredLeases bool
 	LeaseTimeout         time.Duration
+	RetryFailedOutboxes  bool
 
 	PublishClaim            discovery.ClaimOutboxPublishFunc
 	PublishSettlement       production.ProductionOutboxPublishFunc
@@ -27,6 +28,10 @@ type RuntimeDurableOutboxDrainResult struct {
 	ReleasedClaims            []discovery.ClaimOutboxRecord
 	ReleasedSettlements       []production.ProductionOutboxRecord
 	ReleasedBuildingMutations []production.ProductionOutboxRecord
+
+	RetriedClaims            []discovery.ClaimOutboxRecord
+	RetriedSettlements       []production.ProductionOutboxRecord
+	RetriedBuildingMutations []production.ProductionOutboxRecord
 
 	Claims            []discovery.ClaimOutboxPublishResult
 	Settlements       []production.ProductionOutboxPublishResult
@@ -40,6 +45,12 @@ type runtimeDurableOutboxLeaseReleaseInput struct {
 }
 
 type runtimeDurableOutboxLeaseReleaseResult struct {
+	Claim            []discovery.ClaimOutboxRecord
+	Settlement       []production.ProductionOutboxRecord
+	BuildingMutation []production.ProductionOutboxRecord
+}
+
+type runtimeDurableOutboxRetryResult struct {
 	Claim            []discovery.ClaimOutboxRecord
 	Settlement       []production.ProductionOutboxRecord
 	BuildingMutation []production.ProductionOutboxRecord
@@ -77,6 +88,15 @@ func (runtime *Runtime) DrainDurableOutboxes(
 		result.ReleasedSettlements = released.Settlement
 		result.ReleasedBuildingMutations = released.BuildingMutation
 	}
+	if input.RetryFailedOutboxes {
+		retried, err := runtime.retryFailedDurableOutboxes(input.Limit, now)
+		if err != nil {
+			return result, err
+		}
+		result.RetriedClaims = retried.Claim
+		result.RetriedSettlements = retried.Settlement
+		result.RetriedBuildingMutations = retried.BuildingMutation
+	}
 
 	if input.PublishClaim != nil {
 		claim, err := runtime.publishPendingClaimDurableOutbox(input.Limit, now, now, input.PublishClaim)
@@ -100,6 +120,32 @@ func (runtime *Runtime) DrainDurableOutboxes(
 		result.BuildingMutations = building
 	}
 	return result, nil
+}
+
+func (runtime *Runtime) retryFailedDurableOutboxes(
+	limit int,
+	retriedAt time.Time,
+) (runtimeDurableOutboxRetryResult, error) {
+	if runtime == nil {
+		return runtimeDurableOutboxRetryResult{}, errInvalidRuntimeDurableOutbox
+	}
+	claim, err := runtime.retryFailedClaimDurableOutbox(limit, retriedAt)
+	if err != nil {
+		return runtimeDurableOutboxRetryResult{}, err
+	}
+	settlement, err := runtime.retryFailedSettlementDurableOutbox(limit, retriedAt)
+	if err != nil {
+		return runtimeDurableOutboxRetryResult{Claim: claim}, err
+	}
+	building, err := runtime.retryFailedBuildingMutationDurableOutbox(limit, retriedAt)
+	if err != nil {
+		return runtimeDurableOutboxRetryResult{Claim: claim, Settlement: settlement}, err
+	}
+	return runtimeDurableOutboxRetryResult{
+		Claim:            claim,
+		Settlement:       settlement,
+		BuildingMutation: building,
+	}, nil
 }
 
 func (runtime *Runtime) publishPendingClaimDurableOutbox(
@@ -244,5 +290,56 @@ func (runtime *Runtime) releaseExpiredBuildingMutationDurableOutboxLeases(
 		Limit:         limit,
 		ClaimedBefore: claimedBefore,
 		ReleasedAt:    releasedAt,
+	})
+}
+
+func (runtime *Runtime) retryFailedClaimDurableOutbox(
+	limit int,
+	retriedAt time.Time,
+) ([]discovery.ClaimOutboxRecord, error) {
+	if runtime == nil {
+		return nil, errInvalidRuntimeDurableOutbox
+	}
+	if runtime.ClaimLifecycles == nil {
+		return nil, nil
+	}
+	return discovery.RetryFailedClaimOutboxRows(discovery.ClaimOutboxRetryInput{
+		Store:     runtime.ClaimLifecycles,
+		Limit:     limit,
+		RetriedAt: retriedAt,
+	})
+}
+
+func (runtime *Runtime) retryFailedSettlementDurableOutbox(
+	limit int,
+	retriedAt time.Time,
+) ([]production.ProductionOutboxRecord, error) {
+	if runtime == nil {
+		return nil, errInvalidRuntimeDurableOutbox
+	}
+	if runtime.Settlements == nil {
+		return nil, nil
+	}
+	return production.RetryFailedProductionOutboxRows(production.ProductionOutboxRetryInput{
+		Store:     runtime.Settlements,
+		Limit:     limit,
+		RetriedAt: retriedAt,
+	})
+}
+
+func (runtime *Runtime) retryFailedBuildingMutationDurableOutbox(
+	limit int,
+	retriedAt time.Time,
+) ([]production.ProductionOutboxRecord, error) {
+	if runtime == nil {
+		return nil, errInvalidRuntimeDurableOutbox
+	}
+	if runtime.BuildingMutations == nil {
+		return nil, nil
+	}
+	return production.RetryFailedProductionOutboxRows(production.ProductionOutboxRetryInput{
+		Store:     runtime.BuildingMutations,
+		Limit:     limit,
+		RetriedAt: retriedAt,
 	})
 }

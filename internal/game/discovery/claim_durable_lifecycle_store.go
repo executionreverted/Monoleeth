@@ -254,6 +254,42 @@ func (store *InMemoryClaimDurableLifecycleStore) ReleaseExpiredClaimOutboxRecord
 	return records, nil
 }
 
+// RetryFailedClaimOutboxRecordsForPublish returns failed committed claim
+// outbox rows to pending in commit order while preserving failure evidence.
+func (store *InMemoryClaimDurableLifecycleStore) RetryFailedClaimOutboxRecordsForPublish(
+	limit int,
+	retriedAt time.Time,
+) ([]ClaimOutboxRecord, error) {
+	if store == nil {
+		return nil, ErrInvalidClaimOutboxPublisher
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	retriedAt = retriedAt.UTC()
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	records := make([]ClaimOutboxRecord, 0, limit)
+	for _, reference := range store.references {
+		if len(records) >= limit {
+			break
+		}
+		plan := store.plans[reference]
+		if plan.Commit.Outbox.Status != ClaimOutboxStatusFailed {
+			continue
+		}
+		plan.Commit.Outbox.Status = ClaimOutboxStatusPending
+		plan.Commit.Outbox.ClaimedAt = time.Time{}
+		plan.Commit.Outbox.ClaimToken = ""
+		plan.Commit.Outbox.RetriedAt = retriedAt
+		store.plans[reference] = cloneClaimDurableLifecyclePlan(plan)
+		records = append(records, cloneClaimOutboxRecord(plan.Commit.Outbox))
+	}
+	return records, nil
+}
+
 // CommittedClaimDurableLifecyclePlan returns the validated committed lifecycle
 // plan for one claim reference.
 func (store *InMemoryClaimDurableLifecycleStore) CommittedClaimDurableLifecyclePlan(

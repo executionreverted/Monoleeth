@@ -26,6 +26,13 @@ type ProductionOutboxLeaseReaperStore interface {
 	ReleaseExpiredProductionOutboxRecords(limit int, claimedBefore time.Time, releasedAt time.Time) ([]ProductionOutboxRecord, error)
 }
 
+// ProductionOutboxRetryStore is the durable recovery boundary for explicitly
+// retrying failed production-domain outbox rows after a retry policy decides
+// the failure is safe to replay.
+type ProductionOutboxRetryStore interface {
+	RetryFailedProductionOutboxRecords(limit int, retriedAt time.Time) ([]ProductionOutboxRecord, error)
+}
+
 type ProductionOutboxPublishFunc func(ProductionOutboxRecord) error
 
 type ProductionOutboxPublishInput struct {
@@ -52,6 +59,12 @@ type ProductionOutboxLeaseReleaseInput struct {
 	Limit         int
 	ClaimedBefore time.Time
 	ReleasedAt    time.Time
+}
+
+type ProductionOutboxRetryInput struct {
+	Store     ProductionOutboxRetryStore
+	Limit     int
+	RetriedAt time.Time
 }
 
 // PublishPendingProductionOutbox claims pending records and records publish or
@@ -129,6 +142,19 @@ func ReleaseExpiredProductionOutboxLeases(input ProductionOutboxLeaseReleaseInpu
 	return input.Store.ReleaseExpiredProductionOutboxRecords(input.Limit, input.ClaimedBefore.UTC(), input.ReleasedAt.UTC())
 }
 
+// RetryFailedProductionOutboxRows returns failed production-domain outbox rows
+// to pending through the explicit durable retry boundary. It preserves failure
+// evidence while clearing stale claim lease fields.
+func RetryFailedProductionOutboxRows(input ProductionOutboxRetryInput) ([]ProductionOutboxRecord, error) {
+	if input.Store == nil {
+		return nil, ErrInvalidProductionOutboxPublisher
+	}
+	if input.Limit <= 0 {
+		return nil, nil
+	}
+	return input.Store.RetryFailedProductionOutboxRecords(input.Limit, input.RetriedAt.UTC())
+}
+
 func (store *InMemoryStore) ClaimPendingProductionOutboxRecords(limit int, claimedAt time.Time) ([]ProductionOutboxRecord, error) {
 	if store == nil {
 		return nil, ErrInvalidProductionOutboxPublisher
@@ -157,4 +183,11 @@ func (store *InMemoryStore) ReleaseExpiredProductionOutboxRecords(limit int, cla
 		return nil, ErrInvalidProductionOutboxPublisher
 	}
 	return store.ReleaseExpiredOutboxRecords(limit, claimedBefore, releasedAt), nil
+}
+
+func (store *InMemoryStore) RetryFailedProductionOutboxRecords(limit int, retriedAt time.Time) ([]ProductionOutboxRecord, error) {
+	if store == nil {
+		return nil, ErrInvalidProductionOutboxPublisher
+	}
+	return store.RetryFailedOutboxRecords(limit, retriedAt), nil
 }

@@ -309,6 +309,51 @@ func (store *InMemorySettlementDurableCommitStore) ReleaseExpiredProductionOutbo
 	return records, nil
 }
 
+// RetryFailedProductionOutboxRecords returns failed committed settlement
+// outbox rows to pending in commit order while preserving failure evidence.
+func (store *InMemorySettlementDurableCommitStore) RetryFailedProductionOutboxRecords(
+	limit int,
+	retriedAt time.Time,
+) ([]ProductionOutboxRecord, error) {
+	if store == nil {
+		return nil, ErrInvalidProductionOutboxPublisher
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	retriedAt = retriedAt.UTC()
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	records := make([]ProductionOutboxRecord, 0, limit)
+	for _, key := range store.references {
+		plan := store.plans[key]
+		mutated := false
+		for index := range plan.Outbox.OutboxRecords {
+			if len(records) >= limit {
+				break
+			}
+			if plan.Outbox.OutboxRecords[index].Status != ProductionOutboxStatusFailed {
+				continue
+			}
+			plan.Outbox.OutboxRecords[index].Status = ProductionOutboxStatusPending
+			plan.Outbox.OutboxRecords[index].ClaimedAt = time.Time{}
+			plan.Outbox.OutboxRecords[index].ClaimToken = ""
+			plan.Outbox.OutboxRecords[index].RetriedAt = retriedAt
+			records = append(records, cloneProductionOutboxRecord(plan.Outbox.OutboxRecords[index]))
+			mutated = true
+		}
+		if mutated {
+			store.plans[key] = cloneSettlementDurableCommitPlan(plan)
+		}
+		if len(records) >= limit {
+			break
+		}
+	}
+	return records, nil
+}
+
 // CommittedSettlementDurableCommitPlan returns the validated committed row
 // bundle for one settlement reference.
 func (store *InMemorySettlementDurableCommitStore) CommittedSettlementDurableCommitPlan(

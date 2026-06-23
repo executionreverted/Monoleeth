@@ -467,6 +467,21 @@ Current slice completed:
   settlement reference/window, route ledger, route-row, and outbox evidence.
   Public non-planet route create/update policy and durable DB endpoint rows
   remain open.
+- Phase07CA durable route replay safety follow-up:
+  Durable outbox realtime replay now has focused storage/station route
+  settlement coverage. Replayed `route.settled`, `route.updated`,
+  `route.snapshot`, and `route.list` events remain owner-only, use public map
+  keys, and mask non-planet aggregate destination IDs just like the live
+  `route.settle` gateway path. Durable DB route rows, endpoint rows, and
+  cross-process idempotency enforcement remain open.
+- Phase07CB durable outbox retry follow-up:
+  Claim, settlement/route, and building durable outbox publisher contracts now
+  expose an explicit retry-failed boundary. Runtime drains do not auto-retry by
+  default; callers must set `RetryFailedOutboxes`. Retried rows move from
+  failed back to pending, clear stale claim lease fields, preserve attempts and
+  failure evidence, stamp `retried_at`, and can publish in the same drain tick.
+  Durable DB row-lock/CAS implementation and retry scheduling policy remain
+  open.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -1041,6 +1056,12 @@ Mockup areas covered:
       authenticated gateway with safe payloads/events, masked aggregate IDs,
       and durable settlement evidence while public create/update remains
       planet-only.
+- [x] Durable outbox replay of storage/station route settlements preserves
+      owner-only safe route events and masks non-planet aggregate destination
+      IDs.
+- [x] Durable claim, settlement/route, and building outbox stores expose an
+      explicit failed-row retry boundary that preserves failure evidence before
+      republishing.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

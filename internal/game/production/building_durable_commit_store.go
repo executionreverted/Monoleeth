@@ -288,6 +288,51 @@ func (store *InMemoryBuildingMutationDurableCommitStore) ReleaseExpiredProductio
 	return records, nil
 }
 
+// RetryFailedProductionOutboxRecords returns failed committed building mutation
+// outbox rows to pending in commit order while preserving failure evidence.
+func (store *InMemoryBuildingMutationDurableCommitStore) RetryFailedProductionOutboxRecords(
+	limit int,
+	retriedAt time.Time,
+) ([]ProductionOutboxRecord, error) {
+	if store == nil {
+		return nil, ErrInvalidProductionOutboxPublisher
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	retriedAt = retriedAt.UTC()
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	records := make([]ProductionOutboxRecord, 0, limit)
+	for _, key := range store.references {
+		plan := store.plans[key]
+		mutated := false
+		for index := range plan.OutboxRecords {
+			if len(records) >= limit {
+				break
+			}
+			if plan.OutboxRecords[index].Status != ProductionOutboxStatusFailed {
+				continue
+			}
+			plan.OutboxRecords[index].Status = ProductionOutboxStatusPending
+			plan.OutboxRecords[index].ClaimedAt = time.Time{}
+			plan.OutboxRecords[index].ClaimToken = ""
+			plan.OutboxRecords[index].RetriedAt = retriedAt
+			records = append(records, cloneProductionOutboxRecord(plan.OutboxRecords[index]))
+			mutated = true
+		}
+		if mutated {
+			store.plans[key] = cloneBuildingMutationDurableCommitPlan(plan)
+		}
+		if len(records) >= limit {
+			break
+		}
+	}
+	return records, nil
+}
+
 // CommittedBuildingMutationDurableCommitPlan returns the validated committed
 // row bundle for one building mutation reference.
 func (store *InMemoryBuildingMutationDurableCommitStore) CommittedBuildingMutationDurableCommitPlan(

@@ -142,6 +142,64 @@ func TestRuntimeDurableOutboxRecordsPublishFailures(t *testing.T) {
 	}
 }
 
+func TestRuntimeDurableOutboxRetriesFailedRowsExplicitly(t *testing.T) {
+	gameServer, _ := newRuntimeDurableOutboxTestServer(t)
+	temporaryErr := errors.New("broker unavailable")
+	failedAt := durableOutboxTestTime(112)
+	retriedAt := durableOutboxTestTime(113)
+
+	failed, err := gameServer.runtime.DrainDurableOutboxes(RuntimeDurableOutboxDrainInput{
+		Limit: 1,
+		Now:   failedAt,
+		PublishClaim: func(discovery.ClaimOutboxRecord) error {
+			return temporaryErr
+		},
+		PublishSettlement: func(production.ProductionOutboxRecord) error {
+			return temporaryErr
+		},
+		PublishBuildingMutation: func(production.ProductionOutboxRecord) error {
+			return temporaryErr
+		},
+	})
+	if err != nil {
+		t.Fatalf("first DrainDurableOutboxes(failures) error = %v, want nil", err)
+	}
+	if len(failed.Claims) != 1 || len(failed.Settlements) != 1 || len(failed.BuildingMutations) != 1 {
+		t.Fatalf("failed drain = %+v, want one failed row per store", failed)
+	}
+
+	result, err := gameServer.runtime.DrainDurableOutboxes(RuntimeDurableOutboxDrainInput{
+		Limit:               10,
+		Now:                 retriedAt,
+		RetryFailedOutboxes: true,
+		PublishClaim: func(discovery.ClaimOutboxRecord) error {
+			return nil
+		},
+		PublishSettlement: func(production.ProductionOutboxRecord) error {
+			return nil
+		},
+		PublishBuildingMutation: func(production.ProductionOutboxRecord) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("retry DrainDurableOutboxes() error = %v, want nil", err)
+	}
+	if len(result.RetriedClaims) != 1 || len(result.RetriedSettlements) != 1 || len(result.RetriedBuildingMutations) != 1 {
+		t.Fatalf("retried rows = claim %d settlement %d building %d, want 1/1/1", len(result.RetriedClaims), len(result.RetriedSettlements), len(result.RetriedBuildingMutations))
+	}
+	assertRetriedClaimOutboxRecordForTest(t, result.RetriedClaims[0], temporaryErr.Error(), failedAt, retriedAt)
+	assertRetriedProductionOutboxRecordForTest(t, "settlement", result.RetriedSettlements[0], temporaryErr.Error(), failedAt, retriedAt)
+	assertRetriedProductionOutboxRecordForTest(t, "building", result.RetriedBuildingMutations[0], temporaryErr.Error(), failedAt, retriedAt)
+	for _, publish := range result.Claims {
+		if !publish.Published || publish.Record.Status != discovery.ClaimOutboxStatusPublished {
+			t.Fatalf("claim retry publish result = %+v, want published", publish)
+		}
+	}
+	assertProductionPublishResultsForTest(t, "settlement retry", result.Settlements)
+	assertProductionPublishResultsForTest(t, "building retry", result.BuildingMutations)
+}
+
 func TestRuntimeDurableOutboxRealtimeProjectionQueuesSafeOwnerEvents(t *testing.T) {
 	gameServer, owner := newRuntimeDurableOutboxTestServer(t)
 	other := createResolvedRuntimeSession(t, gameServer, "runtime-durable-outbox-other@example.com", "Other Pilot")
@@ -233,6 +291,82 @@ func TestRuntimeDurableOutboxRealtimeProjectionQueuesRouteSettlementEvents(t *te
 	}
 	assertRouteSettleEvents(t, ownerEvents, routeID, sourcePlanetID, "1-1", "1-2", owner.PlayerID, 60, 1)
 	assertProductionDurableOutboxStatusForTest(t, "route settlement realtime", gameServer.runtime.Settlements.OutboxRecords(), production.ProductionOutboxStatusPublished)
+}
+
+func TestRuntimeDurableOutboxRealtimeProjectionMasksNonPlanetRouteDestinationIDs(t *testing.T) {
+	cases := []struct {
+		name        string
+		destination production.RouteDestination
+	}{
+		{
+			name: "storage",
+			destination: production.RouteDestination{
+				Type: production.RouteDestinationTypeStorage,
+				ID:   "runtime-durable-route-storage-destination",
+			},
+		},
+		{
+			name: "station",
+			destination: production.RouteDestination{
+				Type: production.RouteDestinationTypeStation,
+				ID:   "runtime-durable-route-station-destination",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+			gameServer := newRouteControlTestServer(t, clock)
+			owner := createResolvedRuntimeSession(t, gameServer, "runtime-durable-route-"+tc.name+"@example.com", "Durable Route "+tc.name)
+			other := createResolvedRuntimeSession(t, gameServer, "runtime-durable-route-"+tc.name+"-other@example.com", "Other Pilot")
+			sourcePlanetID := foundation.PlanetID("runtime-durable-route-" + tc.name + "-source")
+			destinationStorageID := foundation.PlanetID(tc.destination.ID)
+			routeID := foundation.RouteID("runtime-durable-route-" + tc.name)
+
+			seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, discovery.PlanetMaterializationKey("candidate-runtime-durable-route-"+tc.name+"-source"))
+			saveRouteControlStorage(t, gameServer, sourcePlanetID, []production.StoredItem{{ItemID: "refined_alloy", Quantity: 100}})
+			saveRouteControlStorage(t, gameServer, destinationStorageID, nil)
+			seedAutomationRouteToDestinationForTest(t, gameServer, owner.PlayerID, routeID, sourcePlanetID, tc.destination, "map_1_1", "map_1_1")
+			clock.Advance(time.Hour)
+
+			response := gameServer.runtime.Gateway.HandleRequest(
+				realtime.SessionID(owner.SessionID.String()),
+				[]byte(`{"request_id":"request-runtime-durable-route-`+tc.name+`-settle","op":"route.settle","payload":{"route_id":"`+routeID.String()+`"},"client_seq":1,"v":1}`),
+			)
+			if response.HasError {
+				t.Fatalf("route.settle %s setup response error = %+v, want success", tc.name, response.Error)
+			}
+			clearQueuedRuntimeEventsForTest(t, gameServer.runtime)
+
+			result, err := gameServer.runtime.DrainDurableOutboxesToRealtime(RuntimeDurableOutboxRealtimeInput{
+				Limit: 10,
+				Now:   clock.Now().UTC(),
+			})
+			if err != nil {
+				t.Fatalf("DrainDurableOutboxesToRealtime(%s route settlement) error = %v, want nil", tc.name, err)
+			}
+			if len(result.Settlements) == 0 {
+				t.Fatalf("%s route durable realtime settlement results = %+v, want published rows", tc.name, result.Settlements)
+			}
+			assertProductionPublishResultsForTest(t, tc.name+" route settlement realtime", result.Settlements)
+
+			gameServer.runtime.mu.Lock()
+			eventsBySession := gameServer.runtime.drainQueuedEventsBySessionLocked()
+			gameServer.runtime.mu.Unlock()
+			if events := eventsBySession[other.SessionID]; len(events) != 0 {
+				t.Fatalf("%s route durable realtime leaked to other session: %+v", tc.name, events)
+			}
+			ownerEvents := eventsBySession[owner.SessionID]
+			if len(ownerEvents) == 0 {
+				t.Fatalf("%s route durable realtime owner events = 0, want route settlement projection", tc.name)
+			}
+			for _, event := range ownerEvents {
+				assertPayloadOmitsRouteEndpointID(t, string(event.Type)+" durable "+tc.name+" event", event.Payload, tc.destination.ID.String())
+			}
+			assertRouteSettleEvents(t, ownerEvents, routeID, sourcePlanetID, "1-1", "1-1", owner.PlayerID, 60, 1)
+			assertProductionDurableOutboxStatusForTest(t, tc.name+" route settlement realtime", gameServer.runtime.Settlements.OutboxRecords(), production.ProductionOutboxStatusPublished)
+		})
+	}
 }
 
 func TestRuntimeDurableOutboxRealtimeProjectionNoActiveSessionPublishesNoOp(t *testing.T) {
@@ -380,6 +514,32 @@ func assertClaimDurableOutboxStatusForTest(t *testing.T, records []discovery.Cla
 		if record.Status != status {
 			t.Fatalf("claim durable outbox row = %+v, want status %q", record, status)
 		}
+	}
+}
+
+func assertRetriedClaimOutboxRecordForTest(t *testing.T, record discovery.ClaimOutboxRecord, wantError string, failedAt time.Time, retriedAt time.Time) {
+	t.Helper()
+	if record.Status != discovery.ClaimOutboxStatusPending ||
+		!record.ClaimedAt.IsZero() ||
+		record.ClaimToken != "" ||
+		record.Attempts != 1 ||
+		record.LastError != wantError ||
+		!record.FailedAt.Equal(failedAt) ||
+		!record.RetriedAt.Equal(retriedAt) {
+		t.Fatalf("retried claim row = %+v, want pending retry preserving failure evidence", record)
+	}
+}
+
+func assertRetriedProductionOutboxRecordForTest(t *testing.T, label string, record production.ProductionOutboxRecord, wantError string, failedAt time.Time, retriedAt time.Time) {
+	t.Helper()
+	if record.Status != production.ProductionOutboxStatusPending ||
+		!record.ClaimedAt.IsZero() ||
+		record.ClaimToken != "" ||
+		record.Attempts != 1 ||
+		record.LastError != wantError ||
+		!record.FailedAt.Equal(failedAt) ||
+		!record.RetriedAt.Equal(retriedAt) {
+		t.Fatalf("retried %s row = %+v, want pending retry preserving failure evidence", label, record)
 	}
 }
 

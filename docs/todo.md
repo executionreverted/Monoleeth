@@ -563,8 +563,13 @@ for phase status; this file is a compact pending-work index.
   existing owner-scoped storage/station routes can settle through the
   authenticated `route.settle` gateway with safe payloads/events, masking
   storage/station aggregate IDs while preserving public destination type, and
-  durable settlement evidence. Runtime/browser non-planet route create/update
-  access policy and durable DB-backed storage/station endpoint rows remain open.
+  durable settlement evidence. Phase07CA extends that safety proof through
+  durable outbox realtime replay so replayed route events keep non-planet
+  aggregate IDs masked. Phase07CB adds explicit failed-row retry contracts for
+  claim, settlement/route, and building durable outbox rows so transient
+  publisher failures can be returned to pending without losing failure evidence.
+  Runtime/browser non-planet route create/update access policy and durable
+  DB-backed storage/station endpoint rows remain open.
 - [ ] Replace Phase 09 in-memory production, storage, and route repositories with
   durable per-planet/per-route transactions or row locks before multi-process
   runtime deployment.
