@@ -154,7 +154,8 @@ real browser user from the served app, verifies the playtest onboarding seed,
 completes a starter NPC fight and loot pickup, clicks the real HUD scanner and
 planet claim controls, verifies X Core consumption plus production
 initialization, clicks real HUD route create/settle controls, then transfers
-through `east_gate` to public `1-2` without Vite.
+through `east_gate` to public `1-2` and completes a destination-map NPC fight
+and loot pickup without Vite.
 
 Run the single-process built-client PvP/death/repair proof explicitly:
 

@@ -92,7 +92,8 @@ marked `Open` are not implemented rollout controls yet.
   The single-process built-client `e2e:playtest-server` proof now exercises
   `GAME_PLAYTEST_SEED=true` through real browser starter combat/drop/pickup,
   HUD scan, HUD planet claim, production initialization, and route
-  create/settle, then transfers through `east_gate` to public `1-2` with
+  create/settle, then transfers through `east_gate` to public `1-2` and proves
+  destination-map combat/drop/pickup in the same built-client package with
   DOM/state/storage, WebSocket, and process-log leak canaries. Broader browser
   scanner/claim/drop matrix variants remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone
@@ -109,8 +110,9 @@ marked `Open` are not implemented rollout controls yet.
   Phase10 now has a focused browser claim proof, and the server playable
   vertical harness proves scan/detail/claim after a real portal transfer. The
   built-client playtest runner now adds one deployable-package browser scan,
-  claim, starter drop, and `1-1` -> `1-2` portal canary. Browser drop matrix
-  coverage and broader browser scan variants remain missing.
+  claim, starter drop, `1-1` -> `1-2` portal canary, and destination-map drop
+  pickup proof. Broader browser scan variants and PvP-map browser drop variants
+  remain missing.
 - Authenticated `route.create`, `route.update`, `route.enable`, and
   `route.disable` now have server gateway slices for owned planet-to-planet MVP
   routes. `planet.production_summary` and `planet.storage_summary` now settle
@@ -160,8 +162,9 @@ marked `Open` are not implemented rollout controls yet.
   back to starter loot. Current positive coverage includes seeded public `1-1`,
   `1-2`, and medium PvP `1-3` matrix rows, domain-level cross-map pickup
   rejection, and
-  starter/destination browser fight/loot pickup proof. Broader balance tuning
-  and additional rollout/browser proof remain open.
+  starter/destination browser fight/loot pickup proof, including the
+  single-process built-client playtest package. Broader balance tuning and
+  additional rollout/browser proof remain open.
 - Phase09 now covers inbound/outbound WebSocket text frames,
   DOM/smoke-state/localStorage/sessionStorage/cookie canaries, production
   `debug_snapshot`/`debug_spawn_npc` rejection responses, captured Go/Vite

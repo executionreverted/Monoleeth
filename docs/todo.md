@@ -550,9 +550,10 @@ for phase status; this file is a compact pending-work index.
   public `1-1`; the single-process built-client playtest proof now extends
   `GAME_PLAYTEST_SEED=true` through real browser starter combat, loot pickup,
   HUD scan, HUD planet claim, production initialization, and route
-  create/settle, then transfers through `east_gate` to public `1-2` with
-  DOM/state/storage/WebSocket/log leak canaries. Remaining work is broader
-  browser claim/drop and scan success/no-signal variants.
+  create/settle, then transfers through `east_gate` to public `1-2` and proves
+  destination-map combat/drop/pickup with DOM/state/storage/WebSocket/log leak
+  canaries. Remaining work is broader browser claim/drop and scan
+  success/no-signal variants.
   Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [ ] Complete broader per-map/risk/rank drop balance matrix coverage across
@@ -565,9 +566,9 @@ for phase status; this file is a compact pending-work index.
   and table-source mismatches without falling back to starter loot, and
   domain-level hidden/far/cross-map pickup rejection remains covered. Phase09
   now covers starter and destination browser fight/loot pickup; the
-  single-process built-client playtest proof also covers a starter fight/loot
-  pickup in the deployable playtest package. Broader balance tuning and
-  additional rollout/browser proof remain open. Source:
+  single-process built-client playtest proof also covers starter and
+  destination fight/loot pickup in the deployable playtest package. Broader
+  balance tuning and additional rollout/browser proof remain open. Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Extend the Phase09 browser map smoke into a full real-server
   fight/loot/scan/portal loop with desktop, tablet, and mobile screenshots,

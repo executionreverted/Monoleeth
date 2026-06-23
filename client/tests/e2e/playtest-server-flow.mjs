@@ -11,6 +11,7 @@ const repoRoot = resolve(clientDir, '..');
 const maxProcessLogLines = 3000;
 const viewport = { width: 1440, height: 900 };
 const starterNpcApproachTarget = { x: 800, y: 400 };
+const outerNpcApproachTarget = { x: 1800, y: 5400 };
 const claimRangeArriveDistance = 220;
 const eastGateTarget = { x: 9800, y: 5000 };
 
@@ -189,11 +190,18 @@ async function main() {
     assertOuterMap(outer);
     assertNoOriginMapLeakage(finalState, outer);
     await assertNoLeak(client, outer, 'playtest outer ring');
+    await resetWebSocketFrames(client);
+    const outerAfterLoot = await completeFightLootLoop(client, {
+      mapKey: '1-2',
+      approachTarget: outerNpcApproachTarget,
+      label: 'playtest outer ring',
+    });
+    await assertNoLeak(client, outerAfterLoot, 'playtest outer ring combat loot');
 
     await assertWebSocketCanary(client, 'playtest');
     assertProcessLogCanary([goServer]);
 
-    console.log(`playtest-server smoke ok source=${sourceID} destination=${destinationID} route=${routeID} portal=1-2`);
+    console.log(`playtest-server smoke ok source=${sourceID} destination=${destinationID} route=${routeID} portal=1-2 destination_drop=ok`);
   } finally {
     if (context) await context.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
@@ -354,20 +362,23 @@ async function send(client, op, payload) {
   );
 }
 
-async function completeFightLootLoop(client) {
+async function completeFightLootLoop(client, options = {}) {
+  const mapKey = options.mapKey ?? '1-1';
+  const approachTarget = options.approachTarget ?? starterNpcApproachTarget;
+  const label = options.label ?? 'playtest';
   if (!findHostileNPC(await smoke(client))) {
-    await moveToPosition(client, starterNpcApproachTarget, 260, 'starter hostile radar approach', 30000);
+    await moveToPosition(client, approachTarget, 260, `${label} hostile radar approach`, 30000);
   }
-  const withNPC = await waitSmoke(client, (state) => state.currentMap?.public_map_key === '1-1' && findHostileNPC(state), 'playtest visible starter NPC', 15000);
+  const withNPC = await waitSmoke(client, (state) => state.currentMap?.public_map_key === mapKey && findHostileNPC(state), `${label} visible NPC`, 15000);
   const npc = findHostileNPC(withNPC);
   const killedNPCID = npc.entity_id;
   await moveToPosition(client, npc.position, Math.max(80, Math.min(220, (withNPC.stats?.weapon_range ?? 260) - 40)), `combat target ${killedNPCID}`, 30000);
   const combatPayload = await fightNPCUntilKilled(client, killedNPCID);
-  const expectedDrop = responseDrop(combatPayload, 'playtest combat response');
-  const withDrop = await waitSmoke(client, (state) => findKnownDrop(state, expectedDrop), 'playtest server-created loot drop', 15000);
+  const expectedDrop = responseDrop(combatPayload, `${label} combat response`);
+  const withDrop = await waitSmoke(client, (state) => state.currentMap?.public_map_key === mapKey && findKnownDrop(state, expectedDrop), `${label} server-created loot drop`, 15000);
   const drop = findKnownDrop(withDrop, expectedDrop);
-  assertDropMatches(drop, expectedDrop, 'playtest loot drop');
-  assertNoPayloadLeak({ drop }, 'playtest smoke loot drop');
+  assertDropMatches(drop, expectedDrop, `${label} loot drop`);
+  assertNoPayloadLeak({ drop }, `${label} smoke loot drop`);
 
   const pickupDropID = drop.drop_id ?? expectedDrop.drop_id ?? expectedDrop.entity_id;
   const beforeCargo = withDrop.cargo;
@@ -379,11 +390,11 @@ async function completeFightLootLoop(client) {
 
   const withCargo = await waitSmoke(
     client,
-    (state) => cargoIncludesPickup(state.cargo, beforeCargo, drop) && !state.knownLoot?.[pickupDropID],
-    'playtest cargo reconciliation after loot pickup',
+    (state) => state.currentMap?.public_map_key === mapKey && cargoIncludesPickup(state.cargo, beforeCargo, drop) && !state.knownLoot?.[pickupDropID],
+    `${label} cargo reconciliation after loot pickup`,
     15000,
   );
-  assertCargoPickup(withCargo.cargo, beforeCargo, drop, 'playtest smoke cargo');
+  assertCargoPickup(withCargo.cargo, beforeCargo, drop, `${label} smoke cargo`);
   return withCargo;
 }
 
