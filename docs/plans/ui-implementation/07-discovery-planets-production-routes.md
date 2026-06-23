@@ -249,6 +249,11 @@ Current slice completed:
   can repair the transfer and the buyer can use the bought scroll once. Daily
   quotas, durable DB rows, cross-service transaction/compensation, and browser
   HUD controls remain open.
+- Phase07CU browser coordinate item follow-up: known-planet catalog and detail
+  panels now expose an authenticated `intel.coordinate_item.create` action that
+  sends only `planet_id`, shows pending state from real queued commands, and
+  reconciles inventory through the server response snapshot. Coordinate item
+  use/share browser controls remain tracked separately.
 - Phase07U outbox publisher-boundary follow-up: discovery claim outbox and
   production-domain outbox records now have small interface-backed publisher
   drain helpers. The production helper covers production settlements, route
@@ -1223,6 +1228,9 @@ Mockup areas covered:
 - [x] Browser route create/update destination controls include server-owned
       storage/station endpoint catalog options without exposing owner or map
       internals.
+- [x] Browser known-planet panels expose coordinate item creation through the
+      authenticated `intel.coordinate_item.create` command with pending state
+      and no coordinate/item-instance truth in the UI intent.
 
 ## Done Criteria
 

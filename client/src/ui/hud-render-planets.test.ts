@@ -418,6 +418,38 @@ describe('planet claim controls', () => {
     expect(otherPendingHTML).toMatch(/data-action="planet-claim"[^>]*data-planet-id="planet-eris"[^>]*>Claim/);
     expect(otherPendingHTML).not.toMatch(/data-action="planet-claim"[^>]*disabled/);
   });
+
+  test('coordinate item create action sends only planet intent from known planet UI state', () => {
+    const state = planetClaimState('owned_by_you');
+
+    const catalogHTML = planetCatalogPanel(state);
+    const modalHTML = planetDetailModal(state, 'planet-eris');
+
+    for (const html of [catalogHTML, modalHTML]) {
+      expect(html).toMatch(/data-action="intel-coordinate-create"[^>]*data-planet-id="planet-eris"[^>]*>Coordinate/);
+      expect(html).not.toMatch(/data-action="intel-coordinate-create"[^>]*disabled/);
+      expect(html).not.toContain('coordinates');
+      expect(html).not.toContain('item_instance_id');
+      expect(html).not.toContain('owner_player_id');
+    }
+  });
+
+  test('coordinate item create action disables while same planet creation is pending', () => {
+    const state = planetClaimState('owned_by_you');
+    state.pendingCommands = {
+      'coordinate-create-1': {
+        requestID: 'coordinate-create-1',
+        op: OPERATIONS.intelCoordinateItemCreate,
+        queuedAt: 1,
+        payload: { planet_id: 'planet-eris' },
+      },
+    };
+
+    const html = planetCatalogPanel(state);
+
+    expect(html).toMatch(/data-action="intel-coordinate-create"[^>]*disabled[^>]*>Creating/);
+    expect(html).toContain('Coordinate item creation pending');
+  });
 });
 
 describe('route controls', () => {

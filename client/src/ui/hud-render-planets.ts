@@ -88,6 +88,7 @@ export function planetCatalogPanel(state: ClientState): string {
                <div class="planet-catalog__actions">
                  <button type="button" data-action="planet-navigate" data-planet-id="${escapeHTML(selectedSummary.planet_id)}" ${canNavigate ? '' : 'disabled'} title="${canNavigate ? 'Navigate to this known coordinate' : 'Select planet coordinates first'}">Navigate</button>
                  ${planetClaimButton(state, selectedSummary)}
+                 ${coordinateItemCreateButton(state, selectedSummary)}
                </div>
                <div class="planet-tabs" aria-label="Planet detail sections">
                  <span>Overview</span>
@@ -174,6 +175,23 @@ function planetClaimButton(
   return `<button type="button" data-action="planet-claim" data-planet-id="${escapeHTML(planetID)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${pending ? 'Claiming' : 'Claim'}</button>`;
 }
 
+function coordinateItemCreateButton(
+  state: ClientState,
+  planet: NonNullable<ClientState['planetIntel']>['planets'][number] | NonNullable<ClientState['planetIntel']>['selectedPlanet'],
+): string {
+  const planetID = planet?.planet_id ?? '';
+  const pending = planetID ? hasPendingOpPayloadField(state, OPERATIONS.intelCoordinateItemCreate, 'planet_id', planetID) : false;
+  const enabled = Boolean(planetID && realtimeReady(state) && !pending);
+  const title = !planetID
+    ? 'Planet id unavailable'
+    : pending
+      ? 'Coordinate item creation pending'
+      : !realtimeReady(state)
+        ? 'Realtime connection required'
+        : 'Create coordinate item from server intel';
+  return `<button type="button" data-action="intel-coordinate-create" data-planet-id="${escapeHTML(planetID)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${pending ? 'Creating' : 'Coordinate'}</button>`;
+}
+
 export function planetCatalogRow(planet: NonNullable<ClientState['planetIntel']>['planets'][number], selectedPlanetID: string): string {
   const selected = planet.planet_id === selectedPlanetID;
   return `
@@ -244,6 +262,7 @@ export function planetDetailModal(state: ClientState, planetID?: string): string
       <div class="segmented planet-actions">
         <button type="button" data-action="planet-navigate" data-planet-id="${escapeHTML(summary.planet_id)}" ${canNavigate ? '' : 'disabled'} title="${canNavigate ? 'Navigate to this known coordinate' : 'Request coordinates before navigating'}">Navigate</button>
         ${planetClaimButton(state, summary)}
+        ${coordinateItemCreateButton(state, summary)}
       </div>
       <div class="systems-subhead">Production</div>
       ${

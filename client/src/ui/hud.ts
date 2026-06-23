@@ -1,11 +1,10 @@
 import type { ClientState } from '../state/types';
-import type { RouteDestinationInput } from '../protocol/commands';
 import { markHUDInputSuppressed, pointerTargetOwnsUI, worldKeyboardShortcutAllowed } from '../input/world-input-authority';
 import { renderToast } from './toast';
 import { hudSelection } from './hud-selection';
 import { collectHUDPanels, hudShellHTML } from './hud-render-shell';
 import { cargoPanel } from './hud-render-inventory';
-import { dispatchCraftingButtonAction } from './hud-crafting-actions';
+import { dispatchPlanetRouteButtonAction } from './hud-planet-route-actions';
 import { economyPanel } from './hud-render-economy';
 import { questsPanel } from './hud-render-quests';
 import { planetsPanel } from './hud-render-planets';
@@ -441,6 +440,13 @@ export class HUD {
     if (this.dispatchAction(button.dataset.action)) {
       return;
     }
+    if (dispatchPlanetRouteButtonAction(button, this.handlers, () => {
+      if (this.currentState) {
+        this.render(this.currentState);
+      }
+    })) {
+      return;
+    }
     switch (button.dataset.action) {
       case 'planet-detail':
         if (button.dataset.planetId) {
@@ -480,94 +486,6 @@ export class HUD {
           ) {
             this.handlers.onPortalEnter(button.dataset.portalId);
           }
-          break;
-        case 'planet-select':
-          if (button.dataset.planetId) {
-            this.handlers.onPlanetDetail(button.dataset.planetId);
-          }
-          break;
-        case 'planet-navigate':
-          if (button.dataset.planetId) {
-            this.handlers.onPlanetNavigate(button.dataset.planetId);
-          }
-          break;
-        case 'planet-claim':
-          if (button.dataset.planetId) {
-            this.handlers.onPlanetClaim(button.dataset.planetId);
-          }
-          break;
-        case 'planet-building-build': {
-          const control = button.closest<HTMLElement>('[data-building-build-control]');
-          const planetID = button.dataset.planetId ?? control?.dataset.planetId ?? '';
-          const buildingType = routeControlValue(control, '[data-building-type]');
-          const slot = routeControlValue(control, '[data-building-slot]');
-          this.handlers.onPlanetBuildingBuild({ planetID, buildingType, slot });
-          break;
-        }
-        case 'planet-building-upgrade':
-          if (button.dataset.planetId && button.dataset.buildingId) {
-            this.handlers.onPlanetBuildingUpgrade({
-              planetID: button.dataset.planetId,
-              buildingID: button.dataset.buildingId,
-              targetLevel: Number(button.dataset.targetLevel ?? '0'),
-            });
-          }
-          break;
-        case 'crafting-start':
-        case 'crafting-complete':
-        case 'crafting-cancel':
-          dispatchCraftingButtonAction(button, this.handlers);
-          break;
-        case 'route-select':
-          if (button.dataset.routeId) {
-            hudSelection.selectedRouteID = button.dataset.routeId;
-            if (this.currentState) {
-              this.render(this.currentState);
-            }
-          }
-          break;
-        case 'route-create': {
-          const control = button.closest<HTMLElement>('[data-route-create-control]');
-          const sourcePlanetID = button.dataset.sourcePlanetId ?? control?.dataset.routeSourcePlanetId ?? '';
-          const destination = routeDestinationFromControlValue(routeControlValue(control, '[data-route-create-destination]'));
-          const resourceItemID = routeControlValue(control, '[data-route-create-resource]');
-          const amountPerHour = Number(routeControlValue(control, '[data-route-rate]'));
-          this.handlers.onRouteCreate({
-            sourcePlanetID,
-            destinationPlanetID: destination.type === 'planet' ? destination.id : undefined,
-            destination,
-            resourceItemID,
-            amountPerHour,
-          });
-          break;
-        }
-        case 'route-update': {
-          const control = button.closest<HTMLElement>('[data-route-update-control]');
-          const routeID = button.dataset.routeId ?? control?.dataset.routeId ?? '';
-          const destination = routeDestinationFromControlValue(routeControlValue(control, '[data-route-update-destination]'));
-          const resourceItemID = routeControlValue(control, '[data-route-update-resource]');
-          const amountPerHour = Number(routeControlValue(control, '[data-route-rate]'));
-          this.handlers.onRouteUpdate({
-            routeID,
-            destinationPlanetID: destination.type === 'planet' ? destination.id : undefined,
-            destination,
-            resourceItemID,
-            amountPerHour,
-          });
-          break;
-        }
-        case 'route-enable':
-          if (button.dataset.routeId) {
-            this.handlers.onRouteEnable(button.dataset.routeId);
-          }
-          break;
-        case 'route-disable':
-          if (button.dataset.routeId) {
-            this.handlers.onRouteDisable(button.dataset.routeId);
-          }
-          break;
-        case 'route-settle':
-          this.handlers.onRouteSettle(button.dataset.routeId || undefined);
           break;
         case 'hangar-activate':
           if (button.dataset.shipId) {
@@ -998,7 +916,6 @@ export class HUD {
     }
     this.openWindow(panel);
   }
-
   private closeWindow(panel: HUDWindowID): void {
     const state = this.windowStates.get(panel);
     if (state) {
@@ -1008,14 +925,12 @@ export class HUD {
       this.focusedWindow = this.openWindowStates().at(-1)?.id ?? null;
     }
   }
-
   private closeFocusedWindow(): void {
     if (!this.focusedWindow) {
       return;
     }
     this.closeWindow(this.focusedWindow);
   }
-
   private openWindow(panel: HUDWindowID): void {
     let state = this.windowStates.get(panel);
     if (!state) {
@@ -1025,7 +940,6 @@ export class HUD {
     state.open = true;
     this.raiseWindow(panel);
   }
-
   private raiseWindow(panel: HUDWindowID): void {
     const state = this.windowStates.get(panel);
     if (!state?.open) {
@@ -1036,7 +950,6 @@ export class HUD {
     this.root.dataset.activePanel = panel;
     this.applyWindowFocus();
   }
-
   private openModal(id: HUDModalID, state: ClientState, detailID?: string, returnFocus?: HTMLElement | null): void {
     const modal = modalDefinition(id, state, detailID);
     if (!modal) {
@@ -1046,13 +959,11 @@ export class HUD {
     this.modalReturnFocus = this.captureModalReturnFocus(returnFocus);
     this.modalPosition = this.defaultModalPosition();
   }
-
   private closeModal(): void {
     this.modal = null;
     this.modalPosition = null;
     this.modalRenderSignature = null;
   }
-
   private restoreModalFocus(): void {
     const returnFocus = this.modalReturnFocus;
     this.modalReturnFocus = null;
@@ -1069,7 +980,6 @@ export class HUD {
       target.focus();
     }
   }
-
   private captureModalReturnFocus(returnFocus?: HTMLElement | null): { element: HTMLElement | null; selector: string | null } | null {
     if (!returnFocus) {
       return null;
@@ -1287,21 +1197,4 @@ export class HUD {
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
     }
   }
-}
-
-function routeControlValue(container: HTMLElement | null | undefined, selector: string): string {
-  const control = container?.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
-  return control?.value ?? '';
-}
-
-function routeDestinationFromControlValue(value: string): RouteDestinationInput {
-  const [rawType, ...rest] = value.split(':');
-  const typedID = rest.join(':');
-  if ((rawType === 'storage' || rawType === 'station') && typedID) {
-    return { type: rawType, id: typedID };
-  }
-  if (rawType === 'planet' && typedID) {
-    return { type: 'planet', id: typedID };
-  }
-  return { type: 'planet', id: value };
 }

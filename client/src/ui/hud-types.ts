@@ -19,6 +19,7 @@ export interface HUDHandlers {
   onPlanetDetail(planetID: string): void;
   onPlanetNavigate(planetID: string): void;
   onPlanetClaim(planetID: string): void;
+  onIntelCoordinateItemCreate(planetID: string): void;
   onPlanetBuildingBuild(input: { planetID: string; buildingType: string; slot: string }): void;
   onPlanetBuildingUpgrade(input: { planetID: string; buildingID: string; targetLevel: number }): void;
   onCraftingStart(recipeID: string): void;

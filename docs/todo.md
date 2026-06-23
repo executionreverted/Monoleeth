@@ -188,7 +188,10 @@ for phase status; this file is a compact pending-work index.
   buyers can use bought coordinate scrolls once. Coordinate item use now allows
   same-reference domain replay after transport cache misses and restores the
   scroll if the command fails after inventory consume but before intel use; a
-  retry cleans up the restored scroll with repair ledger evidence. The
+  retry cleans up the restored scroll with repair ledger evidence. Phase07CU
+  exposes browser coordinate item creation from known-planet panels through the
+  authenticated `intel.coordinate_item.create` command, but browser coordinate
+  item use/share controls remain open. The
   intel/economy writes are still process-local and not wrapped in a durable
   cross-service transaction.
 - [x] Finish gateway/session authorization for remaining discovery commands.
