@@ -214,9 +214,10 @@ marked `Open` are not implemented rollout controls yet.
   `client/dist`. Reused publish directories now fail fast when non-empty unless
   `GAME_PLAYTEST_CLEAN_PUBLISHED_ARTIFACT_DIR=true` is set, and
   `scripts/test_playtest_publish_dir_guard.sh` covers the rejection plus clean
-  publish path. The `client/tests/bundle-scan-extra-root.test.mjs` proves clean
-  extra roots pass while both positional and `GAME_ARTIFACT_SCAN_ROOTS` roots
-  fail on forbidden fixture/server-only tokens.
+  publish path. The `client/tests/bundle-scan-extra-root-regression.mjs`
+  proves clean extra roots pass while both positional and
+  `GAME_ARTIFACT_SCAN_ROOTS` roots fail on forbidden fixture/server-only
+  tokens.
   `scripts/ci_playtest_artifact_gate.sh` runs that regression before a
   build-only gate with a temporary staged publish root and is ready for
   CI/deploy jobs to call. External deploy pipelines still need to call the gate
@@ -481,7 +482,7 @@ and concrete server-only map/content ids. It also accepts explicit extra
 artifact roots as CLI arguments or through the path-delimited
 `GAME_ARTIFACT_SCAN_ROOTS` environment variable, so staging or publish
 directories can be scanned with the same forbidden snippet list. The focused
-`client/tests/bundle-scan-extra-root.test.mjs` regression proves clean extra
+`client/tests/bundle-scan-extra-root-regression.mjs` regression proves clean extra
 roots pass, positional extra roots fail on server-only map ids, and
 `GAME_ARTIFACT_SCAN_ROOTS` fails on fixture labels. It
 intentionally does not forbid generic protocol guard field names such as hidden

@@ -623,7 +623,7 @@ for phase status; this file is a compact pending-work index.
   template lives at `docs/ci/playtest-artifact-gate-github-actions.yml`; it
   runs the same gate on pull requests, pushes to `master`, and manual dispatch,
   but activating it under `.github/workflows/` requires a credential with
-  GitHub `workflow` scope. `client/tests/bundle-scan-extra-root.test.mjs`
+  GitHub `workflow` scope. `client/tests/bundle-scan-extra-root-regression.mjs`
   proves clean extra roots pass while both positional and
   `GAME_ARTIFACT_SCAN_ROOTS` roots fail on forbidden fixture/server-only
   tokens. Production logs/admin responses outside that path, non-Phase09 paths
