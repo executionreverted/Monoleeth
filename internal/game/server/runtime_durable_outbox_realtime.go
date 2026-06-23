@@ -13,6 +13,11 @@ import (
 	"gameproject/internal/game/realtime"
 )
 
+const (
+	runtimeDurableOutboxRealtimePumpLimit        = 100
+	runtimeDurableOutboxRealtimePumpLeaseTimeout = 30 * time.Second
+)
+
 type RuntimeDurableOutboxRealtimeInput struct {
 	// Limit is applied independently to each durable outbox store.
 	Limit int
@@ -20,6 +25,11 @@ type RuntimeDurableOutboxRealtimeInput struct {
 	Now                  time.Time
 	ReleaseExpiredLeases bool
 	LeaseTimeout         time.Duration
+}
+
+type RuntimeDurableOutboxRealtimeDrainResult struct {
+	Drain           RuntimeDurableOutboxDrainResult
+	EventsBySession map[auth.SessionID][]realtime.EventEnvelope
 }
 
 // DrainDurableOutboxesToRealtime drains committed durable outbox rows into the
@@ -42,23 +52,38 @@ func (runtime *Runtime) DrainDurableOutboxesToRealtime(
 	})
 }
 
-func (runtime *Runtime) drainDurableOutboxesToRealtimeTick() {
+// DrainDurableOutboxesToRealtimeAndCollectEvents drains committed durable
+// outbox rows, then collects the owner-scoped realtime events queued by those
+// projections so callers can deliver them through their current event sink.
+func (runtime *Runtime) DrainDurableOutboxesToRealtimeAndCollectEvents(
+	input RuntimeDurableOutboxRealtimeInput,
+) (RuntimeDurableOutboxRealtimeDrainResult, error) {
+	drain, err := runtime.DrainDurableOutboxesToRealtime(input)
+	eventsBySession := runtime.drainQueuedRealtimeEvents()
+	return RuntimeDurableOutboxRealtimeDrainResult{
+		Drain:           drain,
+		EventsBySession: eventsBySession,
+	}, err
+}
+
+func (runtime *Runtime) runDurableOutboxRealtimePumpTick() map[auth.SessionID][]realtime.EventEnvelope {
 	if runtime == nil {
-		return
+		return nil
 	}
 	now := time.Now().UTC()
 	if runtime.clock != nil {
 		now = runtime.clock.Now().UTC()
 	}
-	_, err := runtime.DrainDurableOutboxesToRealtime(RuntimeDurableOutboxRealtimeInput{
-		Limit:                100,
+	result, err := runtime.DrainDurableOutboxesToRealtimeAndCollectEvents(RuntimeDurableOutboxRealtimeInput{
+		Limit:                runtimeDurableOutboxRealtimePumpLimit,
 		Now:                  now,
 		ReleaseExpiredLeases: true,
-		LeaseTimeout:         30 * time.Second,
+		LeaseTimeout:         runtimeDurableOutboxRealtimePumpLeaseTimeout,
 	})
 	if err != nil {
 		runtime.recordDurableOutboxRealtimeError(err)
 	}
+	return result.EventsBySession
 }
 
 func (runtime *Runtime) drainQueuedRealtimeEvents() map[auth.SessionID][]realtime.EventEnvelope {

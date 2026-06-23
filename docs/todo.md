@@ -135,6 +135,9 @@ for phase status; this file is a compact pending-work index.
   client-safe claim, known-planets, detail, production/storage, route, and
   inventory snapshots from committed durable rows and flush queued owner events
   during runtime ticks with an event sink.
+  Phase07BM couples that drain with filtered per-session event collection so
+  committed realtime projections are handed to the sink delivery path instead
+  of remaining in the command-event queue after publish.
   Durable DB rows, cross-process leases, scheduled publisher workers, and
   cross-process enforcement remain open.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
@@ -490,6 +493,8 @@ for phase status; this file is a compact pending-work index.
   runtime durable outbox drain handoff for committed claim, settlement, and
   building mutation rows. Phase07BL wires those committed rows to server-owned
   client-safe realtime projections without exposing raw durable payloads.
+  Phase07BM adds a drain-and-collect helper used by runtime sink delivery so
+  those safe projections are flushed when the durable row is marked published.
   Durable claim, production, route settlement, and building mutation tables
   plus publisher scheduling remain open.
   Those records are still not durable, cross-process, or delivered by a durable

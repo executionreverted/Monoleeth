@@ -540,12 +540,13 @@ func (runtime *Runtime) StartWithEventSink(ctx context.Context, sink func(auth.S
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				var durableEvents map[auth.SessionID][]realtime.EventEnvelope
 				if sink != nil {
-					runtime.drainDurableOutboxesToRealtimeTick()
+					durableEvents = runtime.runDurableOutboxRealtimePumpTick()
 				}
 				eventsBySession := runtime.tickAndCollectAOIEvents()
 				if sink != nil {
-					mergeRuntimeRealtimeEvents(eventsBySession, runtime.drainQueuedRealtimeEvents())
+					mergeRuntimeRealtimeEvents(eventsBySession, durableEvents)
 				}
 				if sink == nil {
 					continue

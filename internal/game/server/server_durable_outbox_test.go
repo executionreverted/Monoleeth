@@ -212,6 +212,64 @@ func TestRuntimeDurableOutboxRealtimeProjectionNoActiveSessionPublishesNoOp(t *t
 	}
 }
 
+func TestRuntimeDurableOutboxRealtimeDrainCollectsSinkEvents(t *testing.T) {
+	gameServer, owner := newRuntimeDurableOutboxTestServer(t)
+	clearQueuedRuntimeEventsForTest(t, gameServer.runtime)
+
+	result, err := gameServer.runtime.DrainDurableOutboxesToRealtimeAndCollectEvents(RuntimeDurableOutboxRealtimeInput{
+		Limit: 10,
+		Now:   durableOutboxTestTime(123),
+	})
+	if err != nil {
+		t.Fatalf("DrainDurableOutboxesToRealtimeAndCollectEvents() error = %v, want nil", err)
+	}
+	if len(result.Drain.Claims) != 1 || len(result.Drain.Settlements) == 0 || len(result.Drain.BuildingMutations) != 2 {
+		t.Fatalf("collected realtime durable drain = %+v, want published rows", result.Drain)
+	}
+	ownerEvents := result.EventsBySession[owner.SessionID]
+	if len(ownerEvents) == 0 {
+		t.Fatalf("collected owner events = 0, want events for sink delivery")
+	}
+	requireEventTypeForTest(t, ownerEvents, realtime.EventPlanetClaimed)
+	requireEventTypeForTest(t, ownerEvents, realtime.EventProductionSummary)
+	requireEventTypeForTest(t, ownerEvents, realtime.EventPlanetStorage)
+	requireEventTypeForTest(t, ownerEvents, realtime.EventWalletSnapshot)
+
+	gameServer.runtime.mu.Lock()
+	queuedEvents := len(gameServer.runtime.queuedEvents)
+	gameServer.runtime.mu.Unlock()
+	if queuedEvents != 0 {
+		t.Fatalf("queued realtime events after collect = %d, want flushed for sink delivery", queuedEvents)
+	}
+}
+
+func TestRuntimeDurableOutboxRealtimePumpTickReleasesExpiredLeasesAndFlushesEvents(t *testing.T) {
+	gameServer, owner := newRuntimeDurableOutboxTestServer(t)
+	clearQueuedRuntimeEventsForTest(t, gameServer.runtime)
+	oldClaimedAt := gameServer.runtime.clock.Now().UTC().Add(-2 * runtimeDurableOutboxRealtimePumpLeaseTimeout)
+	if claimed, err := gameServer.runtime.ClaimLifecycles.ClaimPendingClaimOutboxRecordsForPublish(10, oldClaimedAt); err != nil || len(claimed) != 1 {
+		t.Fatalf("claim durable outbox setup claim = %+v/%v, want one row", claimed, err)
+	}
+	if claimed, err := gameServer.runtime.Settlements.ClaimPendingProductionOutboxRecords(10, oldClaimedAt); err != nil || len(claimed) == 0 {
+		t.Fatalf("settlement durable outbox setup claim = %+v/%v, want rows", claimed, err)
+	}
+	if claimed, err := gameServer.runtime.BuildingMutations.ClaimPendingProductionOutboxRecords(10, oldClaimedAt); err != nil || len(claimed) != 2 {
+		t.Fatalf("building durable outbox setup claim = %+v/%v, want two rows", claimed, err)
+	}
+
+	eventsBySession := gameServer.runtime.runDurableOutboxRealtimePumpTick()
+	ownerEvents := eventsBySession[owner.SessionID]
+	if len(ownerEvents) == 0 {
+		t.Fatalf("pump owner events = 0, want released rows published to sink")
+	}
+	requireEventTypeForTest(t, ownerEvents, realtime.EventPlanetClaimed)
+	requireEventTypeForTest(t, ownerEvents, realtime.EventProductionSummary)
+	requireEventTypeForTest(t, ownerEvents, realtime.EventPlanetStorage)
+	assertClaimDurableOutboxStatusForTest(t, gameServer.runtime.ClaimLifecycles.OutboxRecords(), discovery.ClaimOutboxStatusPublished)
+	assertProductionDurableOutboxStatusForTest(t, "settlement pump", gameServer.runtime.Settlements.OutboxRecords(), production.ProductionOutboxStatusPublished)
+	assertProductionDurableOutboxStatusForTest(t, "building pump", gameServer.runtime.BuildingMutations.OutboxRecords(), production.ProductionOutboxStatusPublished)
+}
+
 func newRuntimeDurableOutboxTestServer(t *testing.T) (*Server, auth.ResolvedSession) {
 	t.Helper()
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))

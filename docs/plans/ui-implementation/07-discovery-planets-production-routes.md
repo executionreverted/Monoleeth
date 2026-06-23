@@ -566,6 +566,14 @@ Current slice completed:
   Real durable DB rows, cross-process row locks/CAS, external publisher
   workers, durable delivery acknowledgements, and scheduled worker ownership
   remain open.
+- Phase07BM durable realtime drain-collect follow-up:
+  `Runtime.DrainDurableOutboxesToRealtimeAndCollectEvents` now couples durable
+  outbox draining with the filtered per-session realtime events queued by the
+  safe projections, so runtime sink delivery does not leave committed outbox
+  projections stranded in the command-event queue. `StartWithEventSink` uses
+  this collect result and merges it with the same tick's AOI events before
+  writing to sessions. Real DB row locks/CAS, external durable publisher
+  processes, and delivery acknowledgements remain open.
 
 ## Source Specs
 
@@ -919,6 +927,8 @@ Mockup areas covered:
 - [x] Runtime durable outbox realtime projection recomputes client-safe
       claim, production/storage, route, inventory, and wallet snapshots from
       server-owned read models and flushes queued owner events on tick.
+- [x] Runtime durable outbox drain-collect hands safe projected events to the
+      active sink delivery path without leaving them queued after publish.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.
