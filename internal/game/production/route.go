@@ -137,6 +137,9 @@ type RouteCreatePolicy struct {
 	DistanceUnits    float64
 	MaxDistanceUnits float64
 
+	CurrentRouteCount int
+	MaxRouteCount     int
+
 	BaseLossChance            float64
 	DistanceLossChancePerUnit float64
 	SourceRegionRisk          float64
@@ -370,6 +373,9 @@ func (policy RouteCreatePolicy) Validate() error {
 	if err := validateRouteDistance(policy.DistanceUnits, policy.MaxDistanceUnits); err != nil {
 		return err
 	}
+	if policy.CurrentRouteCount < 0 || policy.MaxRouteCount < 0 {
+		return ErrInvalidRouteCreateConfig
+	}
 	if err := validateNonNegativeBoundedAmount("route energy cost per hour", policy.EnergyCostPerHour, ErrInvalidRouteEnergyCost); err != nil {
 		return err
 	}
@@ -480,6 +486,9 @@ func newAutomationRoute(input CreateRouteInput, policy RouteCreatePolicy, now ti
 	if now.IsZero() {
 		return AutomationRoute{}, fmt.Errorf("now: %w", ErrZeroProductionTimestamp)
 	}
+	if err := validateRouteCreateCapacity(policy); err != nil {
+		return AutomationRoute{}, err
+	}
 	risk, err := policy.CalculateRisk()
 	if err != nil {
 		return AutomationRoute{}, err
@@ -505,6 +514,16 @@ func newAutomationRoute(input CreateRouteInput, policy RouteCreatePolicy, now ti
 		return AutomationRoute{}, err
 	}
 	return cloneAutomationRoute(route), nil
+}
+
+func validateRouteCreateCapacity(policy RouteCreatePolicy) error {
+	if policy.CurrentRouteCount < 0 || policy.MaxRouteCount < 0 {
+		return ErrInvalidRouteCreateConfig
+	}
+	if policy.MaxRouteCount > 0 && policy.CurrentRouteCount >= policy.MaxRouteCount {
+		return ErrRouteCapacityExceeded
+	}
+	return nil
 }
 
 func cloneAutomationRoute(route AutomationRoute) AutomationRoute {

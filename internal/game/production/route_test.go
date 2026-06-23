@@ -88,6 +88,22 @@ func TestCreateRouteRequirementFailureFails(t *testing.T) {
 	}
 }
 
+func TestCreateRouteCapacityExceededFailsBeforeMutation(t *testing.T) {
+	store := NewInMemoryStore()
+	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
+	provider.policy.CurrentRouteCount = 3
+	provider.policy.MaxRouteCount = 3
+	service := newTestRouteService(t, store, provider, testRouteNow())
+
+	_, err := service.CreateRoute(validCreateRouteInput())
+	if !errors.Is(err, ErrRouteCapacityExceeded) {
+		t.Fatalf("CreateRoute() error = %v, want ErrRouteCapacityExceeded", err)
+	}
+	if routes := store.AutomationRoutes(); len(routes) != 0 {
+		t.Fatalf("routes after capacity failure = %+v, want none", routes)
+	}
+}
+
 func TestCreateRouteDistanceAndRiskCalculation(t *testing.T) {
 	t.Run("distance over max fails", func(t *testing.T) {
 		store := NewInMemoryStore()

@@ -256,9 +256,10 @@ for phase status; this file is a compact pending-work index.
   hardening. Server/browser work now has a focused real-client
   create/update/control/settle proof; remaining work is durable route rows,
   endpoint visibility/access policy beyond the owned same-map MVP, route
-  capacity, energy/upkeep policy, durable settlement idempotency table
-  enforcement, storage capacity persistence, and outbox reconciliation through
-  `route.list`, `route.snapshot`, and `route.updated`/`route.settled` events.
+  capacity progression/balancing, energy/upkeep policy, durable settlement
+  idempotency table enforcement, storage capacity persistence, and outbox
+  reconciliation through `route.list`, `route.snapshot`, and
+  `route.updated`/`route.settled` events.
   Phase07B map-tagged the route domain rows and read payloads for
   `route.list`/`route.snapshot`; Phase07C landed authenticated `route.create`
   as an owned planet-to-planet gateway slice that rejects client-authored
@@ -309,11 +310,16 @@ for phase status; this file is a compact pending-work index.
   route ledger rows, and pending outbox rows, while production settlement
   bundles reject route rows. DB adapters still need to co-commit route rows
   with settlement evidence, storage ledger rows, and outbox rows where
-  mutations settle old terms. Durable DB rows, row locks/CAS, idempotency table
-  enforcement, and durable outbox publishing remain open.
+  mutations settle old terms. Phase07BR adds a server-owned per-player MVP
+  route-slot cap to `route.create`, rejects client-authored route count/capacity
+  fields, and preserves existing-route updates at cap; durable race-proof quota
+  enforcement still needs the future route insert transaction/DB adapter.
+  Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
+  outbox publishing remain open.
   Source: Phase 10
   audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
-  Phase07K, Phase07AN, Phase07BN, Phase07BO, Phase07BP, and Phase07BQ.
+  Phase07K, Phase07AN, Phase07BN, Phase07BO, Phase07BP, Phase07BQ, and
+  Phase07BR.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server

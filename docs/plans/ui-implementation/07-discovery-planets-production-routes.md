@@ -401,6 +401,15 @@ Current slice completed:
   pending outbox rows, and route storage ledger rows. Production settlement
   bundles still reject route rows. This makes the future DB adapter contract
   explicit without moving to a real durable DB implementation yet.
+- Phase07BR route-capacity follow-up: authenticated `route.create` now enforces
+  a server-owned per-player MVP route-slot cap before inserting a new route.
+  The gateway rejects client-authored route count/capacity fields, counts all
+  existing owned routes server-side, returns a leak-safe forbidden route
+  requirements error at capacity, and emits no route events on rejection.
+  `route.update` still reuses route policy for endpoint/risk/energy facts but
+  does not enforce create-slot capacity, so players at cap can edit existing
+  routes. Durable race-proof quota enforcement still belongs in the future
+  route insert transaction/DB adapter.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,

@@ -87,6 +87,7 @@ source planet owned by player
 destination owned/accessible
 resource routeable
 amount_per_hour positive
+owned route count below server-owned route-slot capacity
 player rank/building requirement met
 source has route building or automation unlocked
 distance within allowed range or wormhole link exists
@@ -108,9 +109,17 @@ func CanCreateRoute(player PlayerID, req CreateRouteRequest, state RouteCheckSta
 	if !state.ResourceRouteable(req.ResourceID) {
 		return ErrResourceNotRouteable
 	}
+	if state.CurrentOwnedRouteCount() >= state.MaxOwnedRouteCount() {
+		return ErrRouteCapacityExceeded
+	}
 	return nil
 }
 ```
+
+Route capacity is server-owned. The browser may display returned route counts or
+locked states, but it must not send current/max route count as trusted truth.
+The current runtime MVP uses a fixed per-player route-slot cap; progression,
+buildings, modules, or premium bonuses can later feed the same policy boundary.
 
 ## Risk Formula v0
 

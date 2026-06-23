@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -871,6 +872,44 @@ func TestRouteCreateRejectsXCoreResourceBeforeMutation(t *testing.T) {
 	if queuedEvents != 0 {
 		t.Fatalf("x_core route.create queued events = %d, want none", queuedEvents)
 	}
+}
+
+func TestRouteCreateRejectsRouteCapacityBeforeMutation(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "route-create-capacity@example.com", "Route Create Capacity")
+	sourcePlanetID := foundation.PlanetID("planet-route-create-capacity-source")
+	destinationPlanetID := foundation.PlanetID("planet-route-create-capacity-destination")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-route-create-capacity-source")
+	seedOwnedProductionPlanetForTest(t, gameServer, resolved.PlayerID, destinationPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-route-create-capacity-destination")
+
+	for index := 0; index < runtimeRouteCreateMaxRoutesPerPlayer; index++ {
+		requestID := foundation.RequestID("request-route-create-capacity-" + strconv.Itoa(index))
+		response := gameServer.runtime.Gateway.HandleRequest(
+			realtime.SessionID(resolved.SessionID.String()),
+			[]byte(`{"request_id":"`+requestID.String()+`","op":"route.create","payload":{"source_planet_id":"`+sourcePlanetID.String()+`","destination_planet_id":"`+destinationPlanetID.String()+`","resource_item_id":"refined_alloy","amount_per_hour":40},"client_seq":1,"v":1}`),
+		)
+		if response.HasError {
+			t.Fatalf("route.create capacity seed %d response error = %+v, want success", index, response.Error)
+		}
+		if _, err := gameServer.runtime.postCommandEventsBySession(resolved.SessionID, realtime.OperationRouteCreate, resolved.PlayerID); err != nil {
+			t.Fatalf("post route.create capacity seed %d events: %v", index, err)
+		}
+	}
+
+	beforeRoutes := gameServer.runtime.Production.AutomationRoutes()
+	if len(beforeRoutes) != runtimeRouteCreateMaxRoutesPerPlayer {
+		t.Fatalf("seeded routes = %+v, want %d", beforeRoutes, runtimeRouteCreateMaxRoutesPerPlayer)
+	}
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-route-create-capacity-overflow","op":"route.create","payload":{"source_planet_id":"`+sourcePlanetID.String()+`","destination_planet_id":"`+destinationPlanetID.String()+`","resource_item_id":"refined_alloy","amount_per_hour":40},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeForbidden {
+		t.Fatalf("route.create capacity overflow response = %+v, want forbidden", response)
+	}
+	assertRoutesUnchanged(t, gameServer, beforeRoutes, "route.create capacity overflow")
+	assertNoQueuedEventsForSessions(t, gameServer, resolved.SessionID)
 }
 
 func assertProductionAndStorageMapKeys(t *testing.T, gameServer *Server, playerID foundation.PlayerID, planetID foundation.PlanetID, publicMapKey string) {

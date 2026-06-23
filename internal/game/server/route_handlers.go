@@ -11,6 +11,8 @@ import (
 	worldmaps "gameproject/internal/game/world/maps"
 )
 
+const runtimeRouteCreateMaxRoutesPerPlayer = 3
+
 type routeCreateIntent struct {
 	SourcePlanetID      string `json:"source_planet_id"`
 	DestinationPlanetID string `json:"destination_planet_id"`
@@ -50,6 +52,11 @@ func (runtime *Runtime) handleRouteCreate(ctx realtime.CommandContext, request r
 		"position",
 		"coordinates",
 		"cooldown",
+		"capacity",
+		"route_capacity",
+		"route_count",
+		"current_route_count",
+		"max_route_count",
 		"storage",
 		"storage_truth",
 	); err != nil {
@@ -130,7 +137,7 @@ func (provider runtimeRouteCreatePolicyProvider) RouteCreatePolicy(input product
 	if err := input.Validate(); err != nil {
 		return production.RouteCreatePolicy{}, err
 	}
-	if provider.runtime == nil || provider.runtime.Discovery == nil || provider.runtime.mapCatalog == nil {
+	if provider.runtime == nil || provider.runtime.Discovery == nil || provider.runtime.Production == nil || provider.runtime.mapCatalog == nil {
 		return production.RouteCreatePolicy{}, production.ErrInvalidRouteCreateConfig
 	}
 	source, ok, err := provider.runtime.Discovery.Planet(input.SourcePlanetID)
@@ -183,6 +190,8 @@ func (provider runtimeRouteCreatePolicyProvider) RouteCreatePolicy(input product
 		DestinationMapID:      destinationMapID,
 		DistanceUnits:         distance,
 		MaxDistanceUnits:      25_000,
+		CurrentRouteCount:     len(provider.runtime.ownerAutomationRoutes(input.OwnerPlayerID)),
+		MaxRouteCount:         runtimeRouteCreateMaxRoutesPerPlayer,
 		EnergyCostPerHour:     1 + input.AmountPerHour/20,
 		MinLossPercent:        0,
 		MaxLossPercent:        0,
@@ -251,6 +260,7 @@ func domainErrorForRouteCreate(err error) error {
 	case errors.Is(err, production.ErrRouteResourceNotRouteable):
 		return foundation.NewDomainError(foundation.CodeForbidden, "Route resource is not routeable.", foundation.WithCause(err))
 	case errors.Is(err, production.ErrRouteRequirementNotMet),
+		errors.Is(err, production.ErrRouteCapacityExceeded),
 		errors.Is(err, production.ErrRouteDistanceTooFar):
 		return foundation.NewDomainError(foundation.CodeForbidden, "Route requirements are not met.", foundation.WithCause(err))
 	case errors.Is(err, production.ErrDuplicateRoute):
