@@ -1194,6 +1194,9 @@ Mockup areas covered:
 - [x] Single-route `route.settle` restores the live route read model from the
       committed durable route row for future settlement windows after route row
       loss, then repairs missing storage rows from durable settlement evidence.
+- [x] Future `route.enable`, `route.disable`, and `route.update` requests
+      restore the live route read model from committed durable route rows after
+      route row loss while preserving wrong-owner rejection.
 - [x] Durable claim, settlement/route, and building outbox stores expose an
       explicit failed-row retry boundary that preserves failure evidence before
       republishing.

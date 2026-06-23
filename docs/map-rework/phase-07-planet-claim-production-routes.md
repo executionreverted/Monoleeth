@@ -695,6 +695,9 @@ contracts:
   loss by restoring the committed durable route row, then repairing missing
   source/destination storage rows from durable settlement evidence before
   applying the next server-owned settlement window.
+- Future `route.enable`, `route.disable`, and `route.update` requests use the
+  same durable route-row restore after live route-row loss, while wrong-owner
+  attempts still fail before mutation.
 - Realtime/event tests prove claim, production, and route events do not leak to
   other maps or unrelated sessions.
 - Browser/API tests prove mutation controls reconcile from server snapshots and

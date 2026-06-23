@@ -89,7 +89,7 @@ func (store *InMemoryStore) ApplyRouteSettlementTransaction(
 			}
 			return replay, nil
 		}
-		if err := store.restoreAutomationRouteReadModelFromDurableLocked(input.OwnerPlayerID, input.RouteID); err != nil {
+		if _, _, err := store.restoreAutomationRouteReadModelFromDurableLocked(input.OwnerPlayerID, input.RouteID); err != nil {
 			return RouteSettlementTransactionResult{}, err
 		}
 	}
@@ -183,19 +183,45 @@ func (store *InMemoryStore) routeSettlementTransactionReplayLocked(
 func (store *InMemoryStore) restoreAutomationRouteReadModelFromDurableLocked(
 	ownerPlayerID foundation.PlayerID,
 	routeID foundation.RouteID,
-) error {
+) (AutomationRoute, bool, error) {
+	if route, ok := store.routes[routeID]; ok {
+		if err := route.Validate(); err != nil {
+			return AutomationRoute{}, false, err
+		}
+		if route.OwnerPlayerID != ownerPlayerID {
+			return AutomationRoute{}, false, fmt.Errorf("route %q owner %q: %w", routeID, ownerPlayerID, ErrRouteOwnerMismatch)
+		}
+		return cloneAutomationRoute(route), true, nil
+	}
 	record, ok := store.routeDurableRecords[routeID]
 	if !ok {
-		return nil
+		return AutomationRoute{}, false, nil
 	}
 	if err := validateAutomationRouteDurableRecordForRoute(record, routeID); err != nil {
-		return err
+		return AutomationRoute{}, false, err
 	}
 	if record.Route.OwnerPlayerID != ownerPlayerID {
-		return fmt.Errorf("route %q owner %q: %w", routeID, ownerPlayerID, ErrRouteOwnerMismatch)
+		return AutomationRoute{}, false, fmt.Errorf("route %q owner %q: %w", routeID, ownerPlayerID, ErrRouteOwnerMismatch)
 	}
 	store.routes[routeID] = cloneAutomationRoute(record.Route)
-	return nil
+	return cloneAutomationRoute(record.Route), true, nil
+}
+
+func (store *InMemoryStore) restoreAutomationRouteReadModelFromDurable(
+	ownerPlayerID foundation.PlayerID,
+	routeID foundation.RouteID,
+) (AutomationRoute, bool, error) {
+	if err := ownerPlayerID.Validate(); err != nil {
+		return AutomationRoute{}, false, err
+	}
+	if err := routeID.Validate(); err != nil {
+		return AutomationRoute{}, false, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.ensureMapsLocked()
+
+	return store.restoreAutomationRouteReadModelFromDurableLocked(ownerPlayerID, routeID)
 }
 
 func validateRouteSettlementTransactionReplayReference(

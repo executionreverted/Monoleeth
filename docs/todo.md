@@ -445,7 +445,10 @@ for phase status; this file is a compact pending-work index.
   payloads after process-local storage read-model loss. Phase07DA restores the
   live route read-model from the committed durable route row for future
   settlement windows after live route-row loss, so a later `route.settle` can
-  advance storage again instead of returning not-found.
+  advance storage again instead of returning not-found. Phase07DB applies the
+  same durable route-row restore to future `route.enable`, `route.disable`, and
+  `route.update` requests after live route-row loss while preserving wrong-owner
+  fail-closed behavior.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10
