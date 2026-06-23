@@ -153,6 +153,26 @@ GAME_ARTIFACT_SCAN_ROOTS="/path/to/published:/path/to/staging" node tests/bundle
 
 Extra roots can also be passed as positional arguments after `bundle-scan.mjs`.
 
+Run the full built-client playtest vertical-slice gate explicitly:
+
+```bash
+scripts/verify_playtest_vertical_slice.sh
+```
+
+This is intentionally not part of the routine `npm run check`. It runs the
+playtest build/artifact scan gate, the single-process browser playtest loop,
+the single-process PvP/death/repair proof, and the destination/PvP scanner plus
+Border Skirmish drop canary. To inspect the command list without launching the
+browser proofs:
+
+```bash
+GAME_PLAYTEST_VERIFY_DRY_RUN=true scripts/verify_playtest_vertical_slice.sh
+```
+
+Each step can be skipped with `GAME_PLAYTEST_VERIFY_BUILD_GATE=false`,
+`GAME_PLAYTEST_VERIFY_MAIN_LOOP=false`, `GAME_PLAYTEST_VERIFY_PVP_LOOP=false`,
+or `GAME_PLAYTEST_VERIFY_PVP_MAP_DROP=false`.
+
 Run the focused Phase09 bounded-map/portal browser proof explicitly:
 
 ```bash
@@ -195,10 +215,10 @@ npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-pvp-map-d
 ```
 
 That proof registers a normal browser player, travels through `1-1` -> `1-2` ->
-`1-3`, resolves a PvP-map `scan.pulse` into a public `1-3` known planet, kills
-a public Border Skirmish NPC, picks up the server-created `carbon_shards` drop,
-and scans DOM/state/storage/WebSocket/process-log surfaces for hidden
-map/scan/drop internals without Vite.
+`1-3`, resolves browser `scan.pulse` successfully on public `1-2` and public
+`1-3`, kills a public Border Skirmish NPC, picks up the server-created
+`carbon_shards` drop, and scans DOM/state/storage/WebSocket/process-log
+surfaces for hidden map/scan/drop internals without Vite.
 
 The separate Phase09 map smoke starts its own real Go server and Vite dev
 server, then writes screenshots under `output/screenshots/ui-implementation/09/`,

@@ -858,6 +858,11 @@ Task 001 release proof must be rebuilt through
   samples it with ImageMagick, and requires nonblank/diverse pixels before the
   same script continues through combat, loot, scan, claim, route, portal, and
   destination loot.
+- [x] Add a single-command built-client vertical-slice verification gate.
+  `scripts/verify_playtest_vertical_slice.sh` chains the playtest build/artifact
+  scan gate, built-client main playtest loop, built-client PvP/death/repair
+  loop, and destination/PvP scanner plus Border Skirmish drop canary. Dry-run
+  mode prints the command sequence without launching browser proofs.
 - [x] Finish entity selection, combat feedback, and loot pickup presentation in
   the mockup HUD. Visible objects select with reticles, target panels show
   server-safe HP/shield/status, firing produces laser/damage/miss reactions,

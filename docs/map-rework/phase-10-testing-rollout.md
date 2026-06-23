@@ -293,6 +293,12 @@ explicitly:
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-pvp-map-drop
 ```
 
+That proof travels through `1-1` -> `1-2` -> `1-3`, proves browser
+`scan.pulse` success on public `1-2` and public `1-3`, kills a public Border
+Skirmish NPC, picks up the server-created `carbon_shards` drop, and scans
+DOM/state/storage/WebSocket/process-log surfaces for hidden map/scan/drop
+internals without Vite.
+
 Run the focused real-server Phase10 planet claim browser proof explicitly:
 
 ```bash
@@ -317,6 +323,18 @@ registers a real browser user over the same origin, verifies the playtest X Core
 and route-production onboarding seed, then clicks real HUD route create/settle
 controls while scanning smoke state, WebSocket frames, browser storage/cookies,
 and local server logs for hidden/internal leak tokens.
+
+Run the full built-client playtest vertical-slice gate explicitly:
+
+```bash
+scripts/verify_playtest_vertical_slice.sh
+```
+
+This chains the playtest build/artifact scan gate, built-client main playtest
+loop, built-client PvP/death/repair loop, and destination/PvP scanner plus
+Border Skirmish drop canary. Use
+`GAME_PLAYTEST_VERIFY_DRY_RUN=true scripts/verify_playtest_vertical_slice.sh`
+to print the command sequence without launching the browser proofs.
 
 The planet claim proof starts the local Go server with
 `GAME_DEV_MODE=1` and `GAME_E2E_PLANET_CLAIM_SEED=1`, registers a real browser
