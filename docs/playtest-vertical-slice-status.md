@@ -105,9 +105,10 @@ Full local vertical-slice gate:
 
 That run passed the deployable artifact build/staged-publish scan, the
 built-client main playtest loop, the built-client PvP/death/repair loop, the
-destination/PvP scanner-claim-drop canary, and the scanner no-signal canary.
+built-client Border Skirmish enemy aggro/leash canary, the destination/PvP
+scanner-claim-drop canary, and the scanner no-signal canary.
 
-Additional focused deployable canary:
+Focused deployable canary also verified standalone:
 
 ```text
 2026-06-24: PHASE10_BUILT_CLIENT=1 node client/tests/e2e/phase10-enemy-aggro-flow.mjs passed.

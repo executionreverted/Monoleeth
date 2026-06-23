@@ -896,11 +896,9 @@ Task 001 release proof must be rebuilt through
   while falling back to npm build-and-run scripts when the build gate is
   disabled. Dry-run mode prints the command sequence without launching browser
   proofs. The full gate passed locally on 2026-06-24, including the deployable
-  artifact build/staged-publish scan and all four built-client browser
-  canaries. The gate now also includes the built-client Border Skirmish enemy
-  aggro/leash canary; the focused `PHASE10_BUILT_CLIENT=1 node
-  client/tests/e2e/phase10-enemy-aggro-flow.mjs` command passed locally on
-  2026-06-24.
+  artifact build/staged-publish scan and all five built-client browser
+  canaries: main loop, PvP/death/repair, Border Skirmish enemy aggro/leash,
+  destination/PvP scanner-claim-drop, and scanner no-signal.
 - [x] Finish entity selection, combat feedback, and loot pickup presentation in
   the mockup HUD. Visible objects select with reticles, target panels show
   server-safe HP/shield/status, firing produces laser/damage/miss reactions,

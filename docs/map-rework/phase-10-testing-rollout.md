@@ -394,11 +394,8 @@ no-signal canary. Use
 to print the command sequence without launching the browser proofs.
 Last verified locally on 2026-06-24: the full gate passed, including the
 deployable artifact build/staged-publish scan, `e2e:playtest-server`,
-`e2e:playtest-server-pvp`, `e2e:phase10-pvp-map-drop`, and
-`e2e:phase10-scan-no-signal`.
-After the enemy-aggro verifier step was added, the focused built-client command
-`PHASE10_BUILT_CLIENT=1 node client/tests/e2e/phase10-enemy-aggro-flow.mjs`
-also passed locally on 2026-06-24.
+`e2e:playtest-server-pvp`, `e2e:phase10-enemy-aggro-built`,
+`e2e:phase10-pvp-map-drop`, and `e2e:phase10-scan-no-signal`.
 
 The focused browser planet claim proofs start the local Go server with
 `GAME_DEV_MODE=1` and `GAME_E2E_PLANET_CLAIM_SEED=1`, registers a real browser
