@@ -78,6 +78,13 @@ func (store *InMemoryClaimProductionInitializationDurableStore) ApplyClaimProduc
 	store.ensureMapsLocked()
 
 	if existing, ok := store.plans[reference]; ok {
+		if advanced, ok := advanceClaimProductionInitializationDurablePlan(existing, normalized); ok {
+			store.plans[reference] = cloneClaimProductionInitializationDurablePlan(advanced)
+			return ClaimProductionInitializationDurableResult{Plan: cloneClaimProductionInitializationDurablePlan(advanced)}, nil
+		}
+		if claimProductionInitializationDurablePlanIsStalePendingReplay(existing, normalized) {
+			return ClaimProductionInitializationDurableResult{Plan: cloneClaimProductionInitializationDurablePlan(existing), Duplicate: true}, nil
+		}
 		if !claimProductionInitializationDurablePlansEqual(existing, normalized) {
 			return ClaimProductionInitializationDurableResult{}, fmt.Errorf("claim_reference_conflict: %w", ErrInvalidClaimDurableCommit)
 		}
@@ -162,4 +169,52 @@ func claimProductionInitializationDurablePlansEqual(
 		cloneClaimProductionInitializationDurablePlan(left),
 		cloneClaimProductionInitializationDurablePlan(right),
 	)
+}
+
+func advanceClaimProductionInitializationDurablePlan(
+	existing ClaimProductionInitializationDurablePlan,
+	next ClaimProductionInitializationDurablePlan,
+) (ClaimProductionInitializationDurablePlan, bool) {
+	if !reflect.DeepEqual(existing.Initialization, next.Initialization) {
+		return ClaimProductionInitializationDurablePlan{}, false
+	}
+	if existing.Boundary.Status != ClaimBoundaryStatusPendingSideEffects ||
+		next.Boundary.Status != ClaimBoundaryStatusComplete {
+		return ClaimProductionInitializationDurablePlan{}, false
+	}
+	if existing.Boundary.ClaimReference != next.Boundary.ClaimReference ||
+		existing.Boundary.ReferenceKey != next.Boundary.ReferenceKey ||
+		existing.Boundary.PlayerID != next.Boundary.PlayerID ||
+		existing.Boundary.PlanetID != next.Boundary.PlanetID ||
+		existing.Boundary.EventID != next.Boundary.EventID ||
+		existing.Boundary.StaleIntelCount != next.Boundary.StaleIntelCount ||
+		!existing.Boundary.ClaimedAt.Equal(next.Boundary.ClaimedAt) ||
+		!existing.Boundary.RecordedAt.Equal(next.Boundary.RecordedAt) {
+		return ClaimProductionInitializationDurablePlan{}, false
+	}
+	if next.Boundary.CompletedAt.Before(existing.Boundary.ClaimedAt) {
+		return ClaimProductionInitializationDurablePlan{}, false
+	}
+	return cloneClaimProductionInitializationDurablePlan(next), true
+}
+
+func claimProductionInitializationDurablePlanIsStalePendingReplay(
+	existing ClaimProductionInitializationDurablePlan,
+	next ClaimProductionInitializationDurablePlan,
+) bool {
+	if !reflect.DeepEqual(existing.Initialization, next.Initialization) {
+		return false
+	}
+	if existing.Boundary.Status != ClaimBoundaryStatusComplete ||
+		next.Boundary.Status != ClaimBoundaryStatusPendingSideEffects {
+		return false
+	}
+	return next.Boundary.ClaimReference == existing.Boundary.ClaimReference &&
+		next.Boundary.ReferenceKey == existing.Boundary.ReferenceKey &&
+		next.Boundary.PlayerID == existing.Boundary.PlayerID &&
+		next.Boundary.PlanetID == existing.Boundary.PlanetID &&
+		next.Boundary.EventID == existing.Boundary.EventID &&
+		next.Boundary.StaleIntelCount == existing.Boundary.StaleIntelCount &&
+		next.Boundary.ClaimedAt.Equal(existing.Boundary.ClaimedAt) &&
+		next.Boundary.RecordedAt.Equal(existing.Boundary.RecordedAt)
 }

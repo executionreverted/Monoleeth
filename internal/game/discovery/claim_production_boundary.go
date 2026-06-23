@@ -89,6 +89,40 @@ func (service *ClaimService) ClaimProductionInitializations() []ClaimProductionI
 	return records
 }
 
+// ClaimProductionInitializationDurablePlan returns one validated
+// production-initialization durable row for recovery workers. Boundary evidence
+// is included when available and may still be pending if later claim
+// side-effects failed.
+func (service *ClaimService) ClaimProductionInitializationDurablePlan(
+	reference PlanetClaimReference,
+) (ClaimProductionInitializationDurablePlan, bool, error) {
+	if service == nil {
+		return ClaimProductionInitializationDurablePlan{}, false, ErrInvalidClaimConfig
+	}
+	if err := reference.Validate(); err != nil {
+		return ClaimProductionInitializationDurablePlan{}, false, err
+	}
+	record, ok, err := service.claimProductionInitialization(reference)
+	if err != nil || !ok {
+		return ClaimProductionInitializationDurablePlan{}, ok, err
+	}
+	var boundary *ClaimBoundaryRecord
+	if service.claimBoundaries != nil {
+		claimBoundary, hasBoundary, err := service.claimBoundaries.ClaimBoundary(reference)
+		if err != nil {
+			return ClaimProductionInitializationDurablePlan{}, false, err
+		}
+		if hasBoundary {
+			boundary = &claimBoundary
+		}
+	}
+	plan, err := record.DurablePlan(boundary)
+	if err != nil {
+		return ClaimProductionInitializationDurablePlan{}, false, err
+	}
+	return plan, true, nil
+}
+
 func (service *ClaimService) claimProductionAlreadyInitializedLocked(input ClaimPlanetInput) (bool, error) {
 	record, ok := service.productionInitializations[input.ClaimReference]
 	if !ok {

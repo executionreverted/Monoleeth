@@ -125,6 +125,14 @@ func TestClaimProductionInitializationRecordDurablePlan(t *testing.T) {
 		plan.Boundary.Status != ClaimBoundaryStatusPendingSideEffects {
 		t.Fatalf("production init durable plan = %+v, want pending claim-production evidence", plan)
 	}
+	queryPlan, ok, err := service.ClaimProductionInitializationDurablePlan(input.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("ClaimProductionInitializationDurablePlan(pending) = ok %v err %v, want true nil", ok, err)
+	}
+	if queryPlan.Boundary.Status != ClaimBoundaryStatusPendingSideEffects ||
+		queryPlan.Initialization.ClaimReference != input.ClaimReference {
+		t.Fatalf("queried pending production init plan = %+v, want pending evidence", queryPlan)
+	}
 
 	completed, err := store.CompletePlanetClaimBoundary(CompletePlanetClaimBoundaryInput{
 		ClaimReference:    input.ClaimReference,
@@ -138,6 +146,16 @@ func TestClaimProductionInitializationRecordDurablePlan(t *testing.T) {
 	}
 	if _, err := records[0].DurablePlan(&completed.Boundary); err != nil {
 		t.Fatalf("DurablePlan(complete boundary) error = %v, want nil", err)
+	}
+	queryComplete, ok, err := service.ClaimProductionInitializationDurablePlan(input.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("ClaimProductionInitializationDurablePlan(complete) = ok %v err %v, want true nil", ok, err)
+	}
+	if queryComplete.Boundary.Status != ClaimBoundaryStatusComplete {
+		t.Fatalf("queried complete production init plan = %+v, want complete evidence", queryComplete)
+	}
+	if missing, ok, err := service.ClaimProductionInitializationDurablePlan("claim_missing_production_init"); err != nil || ok || missing.Initialization.ClaimReference != "" {
+		t.Fatalf("ClaimProductionInitializationDurablePlan(missing) = %+v/%v/%v, want empty false nil", missing, ok, err)
 	}
 }
 

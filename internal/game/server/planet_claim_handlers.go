@@ -73,6 +73,9 @@ func (runtime *Runtime) handleClaimPlanet(ctx realtime.CommandContext, request r
 		ClaimReference: claimReference,
 	})
 	if err != nil {
+		if applyErr := runtime.applyClaimProductionInitializationDurablePlan(claimReference); applyErr != nil {
+			return nil, domainErrorForClaim(applyErr)
+		}
 		return nil, domainErrorForClaim(err)
 	}
 	if err := runtime.applyClaimDurableLifecycle(claimReference); err != nil {
@@ -116,6 +119,18 @@ func (runtime *Runtime) handleClaimPlanet(ctx realtime.CommandContext, request r
 	})
 }
 
+func (runtime *Runtime) applyClaimProductionInitializationDurablePlan(reference discovery.PlanetClaimReference) error {
+	if runtime.Claim == nil || runtime.ClaimProductionInitializations == nil {
+		return nil
+	}
+	plan, ok, err := runtime.Claim.ClaimProductionInitializationDurablePlan(reference)
+	if err != nil || !ok {
+		return err
+	}
+	_, err = plan.ApplyDurableProductionInitialization(runtime.ClaimProductionInitializations)
+	return err
+}
+
 func (runtime *Runtime) applyClaimDurableLifecycle(reference discovery.PlanetClaimReference) error {
 	if runtime.Claim == nil || runtime.ClaimLifecycles == nil {
 		return nil
@@ -124,8 +139,8 @@ func (runtime *Runtime) applyClaimDurableLifecycle(reference discovery.PlanetCla
 	if err != nil || !ok {
 		return err
 	}
-	if plan.HasProductionInit && runtime.ClaimProductionInitializations != nil {
-		if _, err := plan.ProductionInitialized.ApplyDurableProductionInitialization(runtime.ClaimProductionInitializations); err != nil {
+	if plan.HasProductionInit {
+		if err := runtime.applyClaimProductionInitializationDurablePlan(reference); err != nil {
 			return err
 		}
 	}

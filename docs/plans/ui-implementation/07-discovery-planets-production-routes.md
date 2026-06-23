@@ -457,9 +457,19 @@ Current slice completed:
   successful authenticated `discovery.claim_planet` commands now apply the
   validated production-init plan to the runtime production-init durable adapter
   before committing the completed claim lifecycle bundle. Duplicate claim
-  retries exact-replay through the adapter without appending new rows, and
-  failed claim commands leave both lifecycle and production-init durable stores
-  empty. Real DB rows, cross-service row locks/CAS, pending-side-effect
+  retries exact-replay through the adapter without appending new rows. Failed
+  pre-initialization claim commands leave both lifecycle and production-init
+  durable stores empty. Real DB rows, cross-service row locks/CAS,
+  pending-side-effect recovery workers, and an atomic claim/production
+  transaction remain open.
+- Phase07BG runtime pending claim production-init recovery follow-up:
+  `ClaimService` now exposes a validated production-init durable-plan query for
+  pending or complete claim boundaries, and the runtime claim handler applies
+  that plan even when `discovery.claim_planet` returns an error after
+  production initialization but before later side effects. The production-init
+  durable-store adapter can advance the same claim reference from pending
+  boundary evidence to complete boundary evidence on a successful retry without
+  appending a second row. Real DB rows, cross-service row locks/CAS, scheduled
   recovery workers, and an atomic claim/production transaction remain open.
 - Phase07AW claim durable lifecycle-plan follow-up:
   `NewClaimDurableLifecyclePlan` now validates that a completed claim lifecycle
@@ -673,6 +683,9 @@ Mockup areas covered:
 - [x] Apply completed claim durable lifecycle bundles through the runtime
       claim lifecycle-store adapter after authenticated
       `discovery.claim_planet` success.
+- [x] Apply pending production-init durable evidence when an authenticated
+      claim command fails after production initialization, then advance the
+      same durable row to complete evidence on successful retry.
 - [x] Add claim outbox dispatch-plan validation and committed lifecycle-store
       readback for durable `planet.claimed` publisher scheduling.
 - [ ] Add durable authenticated transaction flows for claim/storage mutation
@@ -765,7 +778,11 @@ Mockup areas covered:
       the X Core consumer a second time.
 - [x] Claim handler applies completed claim lifecycle evidence through the
       runtime claim lifecycle-store adapter; duplicate retries exact-replay
-      without another lifecycle row, and failed claims record none.
+      without another lifecycle row, and pre-initialization failed claims record
+      none.
+- [x] Claim handler applies pending production-init durable evidence for
+      post-initialization side-effect failures; retry completion advances that
+      row to complete evidence without another X Core debit or extra init row.
 - [x] Claim lifecycle durable readback rebuilds a validated pending outbox
       dispatch plan for `planet.claimed` publisher scheduling.
 - [x] Intel share rejects hidden/not-owned coordinate references.

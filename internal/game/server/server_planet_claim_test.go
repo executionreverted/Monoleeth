@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/market"
+	"gameproject/internal/game/production"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
@@ -164,6 +166,62 @@ func TestClaimPlanetFailureDoesNotRecordDurableLifecycle(t *testing.T) {
 	}
 	if references := gameServer.runtime.ClaimProductionInitializations.ClaimReferences(); len(references) != 0 {
 		t.Fatalf("claim production init references after failed claim = %+v, want none", references)
+	}
+}
+
+func TestClaimPlanetStaleMarkerFailureRecordsPendingProductionInitialization(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "claim-pending-init@example.com", "Claim Pending Init")
+	planetID := foundation.PlanetID("claim-pending-init-planet")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 120, Y: 0}, 1)
+	grantClaimXCoreForTest(t, gameServer, owner.PlayerID, 1, "claim-pending-init-xcore")
+	markerErr := errors.New("stale marker unavailable")
+	staleMarker := &failingClaimListedIntelStaleMarker{err: markerErr, markedCount: 2}
+	installRuntimeClaimServiceForTest(t, gameServer, staleMarker)
+
+	failed := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-pending-init-fail", planetID)
+	if !failed.HasError {
+		t.Fatal("claim response error missing, want stale marker failure")
+	}
+	claimReference, err := planetClaimReference(owner.PlayerID, planetID)
+	if err != nil {
+		t.Fatalf("planetClaimReference: %v", err)
+	}
+	if references := gameServer.runtime.ClaimLifecycles.ClaimReferences(); len(references) != 0 {
+		t.Fatalf("claim lifecycle references after stale marker failure = %+v, want none", references)
+	}
+	initReferences := gameServer.runtime.ClaimProductionInitializations.ClaimReferences()
+	if len(initReferences) != 1 || initReferences[0] != claimReference {
+		t.Fatalf("claim production init references after stale marker failure = %+v, want pending [%q]", initReferences, claimReference)
+	}
+	pending, ok, err := gameServer.runtime.ClaimProductionInitializations.CommittedClaimProductionInitializationDurablePlan(claimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimProductionInitializationDurablePlan(pending) = ok %v err %v, want true nil", ok, err)
+	}
+	if pending.Boundary.Status != discovery.ClaimBoundaryStatusPendingSideEffects {
+		t.Fatalf("pending production init plan = %+v, want pending boundary", pending)
+	}
+
+	staleMarker.err = nil
+	retry := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-pending-init-retry", planetID)
+	if retry.HasError {
+		t.Fatalf("retry claim response error = %+v, want success", retry.Error)
+	}
+	if references := gameServer.runtime.ClaimProductionInitializations.ClaimReferences(); len(references) != 1 || references[0] != claimReference {
+		t.Fatalf("claim production init references after retry = %+v, want one stable [%q]", references, claimReference)
+	}
+	complete, ok, err := gameServer.runtime.ClaimProductionInitializations.CommittedClaimProductionInitializationDurablePlan(claimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimProductionInitializationDurablePlan(complete) = ok %v err %v, want true nil", ok, err)
+	}
+	if complete.Boundary.Status != discovery.ClaimBoundaryStatusComplete || complete.Boundary.StaleListingCount != 2 {
+		t.Fatalf("complete production init plan = %+v, want completed boundary with stale listings", complete)
+	}
+	if references := gameServer.runtime.ClaimLifecycles.ClaimReferences(); len(references) != 1 || references[0] != claimReference {
+		t.Fatalf("claim lifecycle references after retry = %+v, want completed [%q]", references, claimReference)
+	}
+	if got := claimXCoreDecreaseLedgerCountForTest(gameServer, owner.PlayerID); got != 1 {
+		t.Fatalf("x_core decrease ledger entries = %d, want one", got)
 	}
 }
 
@@ -557,6 +615,53 @@ func grantClaimXCoreForTest(t *testing.T, gameServer *Server, playerID foundatio
 		t.Fatalf("x_core location: %v", err)
 	}
 	addTestInventoryStack(t, gameServer, playerID, definition, quantity, location, referenceSuffix)
+}
+
+func installRuntimeClaimServiceForTest(t *testing.T, gameServer *Server, staleMarker discovery.ClaimListedIntelStaleMarker) {
+	t.Helper()
+	xCoreDefinition, ok := gameServer.runtime.itemCatalog["x_core"]
+	if !ok {
+		t.Fatal("runtime x_core definition missing")
+	}
+	claimProductionInitializer, err := production.NewClaimProductionInitializer(production.ClaimProductionInitializerConfig{
+		Store: gameServer.runtime.Production,
+		Defaults: production.ClaimProductionInitializationDefaults{
+			StorageCapacityUnits:  runtimeClaimProductionStorageCapacity,
+			EnergyCapacityPerHour: runtimeClaimProductionEnergyCapacity,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewClaimProductionInitializer() error = %v, want nil", err)
+	}
+	claimService, err := discovery.NewClaimService(discovery.ClaimServiceConfig{
+		Store:                  gameServer.runtime.Discovery,
+		Clock:                  gameServer.runtime.clock,
+		Ranks:                  runtimeClaimRankProvider{progression: gameServer.runtime.Progression},
+		Proximity:              runtimeClaimProximityProvider{runtime: gameServer.runtime},
+		XCoreConsumer:          runtimeClaimXCoreConsumer{inventory: gameServer.runtime.Inventory},
+		ProductionInitializer:  claimProductionInitializer,
+		ListedIntelStaleMarker: staleMarker,
+		XCoreItemDefinition:    xCoreDefinition,
+	})
+	if err != nil {
+		t.Fatalf("NewClaimService() error = %v, want nil", err)
+	}
+	gameServer.runtime.Claim = claimService
+}
+
+type failingClaimListedIntelStaleMarker struct {
+	err         error
+	markedCount int
+}
+
+func (marker *failingClaimListedIntelStaleMarker) MarkClaimedPlanetListingsStale(input discovery.ClaimListedIntelStaleInput) (discovery.ClaimListedIntelStaleResult, error) {
+	if err := input.Validate(); err != nil {
+		return discovery.ClaimListedIntelStaleResult{}, err
+	}
+	if marker.err != nil {
+		return discovery.ClaimListedIntelStaleResult{}, marker.err
+	}
+	return discovery.ClaimListedIntelStaleResult{MarkedCount: marker.markedCount}, nil
 }
 
 func assertClaimDidNotMutateForTest(t *testing.T, gameServer *Server, playerID foundation.PlayerID, planetID foundation.PlanetID, wantXCore int64) {

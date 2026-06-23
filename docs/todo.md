@@ -138,9 +138,12 @@ for phase status; this file is a compact pending-work index.
   contract with exact replay, conflict rejection, and committed-plan readback.
   Phase07BF wires successful runtime claim commands to that adapter so
   production-init recovery evidence is committed beside the completed claim
-  lifecycle and duplicate retries exact-replay without extra rows. These
-  contracts preserve evidence by claim reference so later side-effect retries
-  do not call the initializer twice. Real durable claim/production DB rows,
+  lifecycle and duplicate retries exact-replay without extra rows. Phase07BG
+  also persists pending production-init durable evidence when a claim command
+  fails after production initialization but before later side effects, then
+  advances that row to complete evidence on successful retry. These contracts
+  preserve evidence by claim reference so later side-effect retries do not
+  call the initializer twice. Real durable claim/production DB rows,
   cross-service row locks/CAS, an atomic claim/production transaction, and
   scheduled recovery workers remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate

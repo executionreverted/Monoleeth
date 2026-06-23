@@ -64,6 +64,60 @@ func TestClaimProductionInitializationDurableStoreDuplicateReferenceReplaysWitho
 	}
 }
 
+func TestClaimProductionInitializationDurableStoreAdvancesPendingBoundaryToComplete(t *testing.T) {
+	pending := claimProductionInitializationDurableStorePlanForTest(t, "advance", false)
+	complete := claimProductionInitializationDurableStoreCompletePlanFromPendingForTest(t, pending, 3)
+	store := NewInMemoryClaimProductionInitializationDurableStore()
+
+	if _, err := store.ApplyClaimProductionInitializationDurablePlan(pending); err != nil {
+		t.Fatalf("ApplyClaimProductionInitializationDurablePlan(pending) error = %v, want nil", err)
+	}
+	advanced, err := store.ApplyClaimProductionInitializationDurablePlan(complete)
+	if err != nil {
+		t.Fatalf("ApplyClaimProductionInitializationDurablePlan(complete) error = %v, want nil", err)
+	}
+	if advanced.Duplicate || advanced.Plan.Boundary.Status != ClaimBoundaryStatusComplete || advanced.Plan.Boundary.StaleListingCount != 3 {
+		t.Fatalf("advanced production init result = %+v, want complete non-duplicate row", advanced)
+	}
+	if refs := store.ClaimReferences(); !reflect.DeepEqual(refs, []PlanetClaimReference{pending.Initialization.ClaimReference}) {
+		t.Fatalf("ClaimReferences() = %+v, want one advanced reference", refs)
+	}
+	recovered, ok, err := store.CommittedClaimProductionInitializationDurablePlan(pending.Initialization.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimProductionInitializationDurablePlan() = ok %v err %v, want true nil", ok, err)
+	}
+	if recovered.Boundary.Status != ClaimBoundaryStatusComplete || recovered.Boundary.StaleListingCount != 3 {
+		t.Fatalf("recovered advanced plan = %+v, want complete boundary", recovered)
+	}
+}
+
+func TestClaimProductionInitializationDurableStoreCompleteThenPendingReplayKeepsComplete(t *testing.T) {
+	pending := claimProductionInitializationDurableStorePlanForTest(t, "stale-pending", false)
+	complete := claimProductionInitializationDurableStoreCompletePlanFromPendingForTest(t, pending, 2)
+	store := NewInMemoryClaimProductionInitializationDurableStore()
+
+	if _, err := store.ApplyClaimProductionInitializationDurablePlan(pending); err != nil {
+		t.Fatalf("ApplyClaimProductionInitializationDurablePlan(pending) error = %v, want nil", err)
+	}
+	if _, err := store.ApplyClaimProductionInitializationDurablePlan(complete); err != nil {
+		t.Fatalf("ApplyClaimProductionInitializationDurablePlan(complete) error = %v, want nil", err)
+	}
+	replay, err := store.ApplyClaimProductionInitializationDurablePlan(pending)
+	if err != nil {
+		t.Fatalf("stale pending ApplyClaimProductionInitializationDurablePlan() error = %v, want nil", err)
+	}
+	if !replay.Duplicate || replay.Plan.Boundary.Status != ClaimBoundaryStatusComplete {
+		t.Fatalf("stale pending replay result = %+v, want duplicate complete row", replay)
+	}
+	recovered, ok, err := store.CommittedClaimProductionInitializationDurablePlan(pending.Initialization.ClaimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimProductionInitializationDurablePlan() = ok %v err %v, want true nil", ok, err)
+	}
+	if recovered.Boundary.Status != ClaimBoundaryStatusComplete {
+		t.Fatalf("recovered stale pending plan = %+v, want complete boundary preserved", recovered)
+	}
+}
+
 func TestClaimProductionInitializationDurableStoreRejectsConflictingReferenceReuse(t *testing.T) {
 	plan := claimProductionInitializationDurableStorePlanForTest(t, "conflict", false)
 	store := NewInMemoryClaimProductionInitializationDurableStore()
@@ -225,6 +279,23 @@ func claimProductionInitializationDurableStorePlanForTest(
 	plan, err := record.DurablePlan(&boundary)
 	if err != nil {
 		t.Fatalf("DurablePlan() error = %v, want nil", err)
+	}
+	return plan
+}
+
+func claimProductionInitializationDurableStoreCompletePlanFromPendingForTest(
+	t *testing.T,
+	pending ClaimProductionInitializationDurablePlan,
+	staleListingCount int,
+) ClaimProductionInitializationDurablePlan {
+	t.Helper()
+	complete := pending.Boundary
+	complete.Status = ClaimBoundaryStatusComplete
+	complete.CompletedAt = complete.ClaimedAt.Add(testTime(40).Sub(testTime(1)))
+	complete.StaleListingCount = staleListingCount
+	plan, err := pending.Initialization.DurablePlan(&complete)
+	if err != nil {
+		t.Fatalf("DurablePlan(complete from pending) error = %v, want nil", err)
 	}
 	return plan
 }
