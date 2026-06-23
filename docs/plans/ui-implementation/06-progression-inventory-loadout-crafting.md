@@ -14,12 +14,21 @@ Current slice completed:
 - The browser client requests these snapshots after the authenticated world
   bootstrap and renders them in the real HUD without demo values.
 - Loot pickup now reconciles a real inventory snapshot alongside cargo.
-- Mutation commands remain future work and must still use ledger/service-backed
-  flows before any UI action is enabled.
-- Phase 10 records the exact missing browser/server contracts for skill unlock,
-  inventory move, hangar activation, loadout equip/unequip, and crafting
-  start/complete/cancel. These controls must stay absent, locked, or read-only
-  until those contracts are implemented and verified.
+- Phase06B wires authenticated `crafting.start` and `crafting.complete` through
+  the realtime gateway for station/account-inventory recipes. Start accepts
+  only `recipe_id`, derives player, station location, material reservation,
+  wallet debit, server job id, and `craft_start:*` reference server-side, then
+  reconciles crafting/inventory/wallet/progression snapshots. Complete accepts
+  only `job_id`, enforces server time and owner/state checks, commits the
+  reservation, grants output and craft XP once, and reconciles the same safe
+  snapshots. `crafting.cancel`, durable crash recovery after partial complete,
+  and browser crafting action controls remain open.
+- Remaining mutation commands and browser crafting controls must still use
+  ledger/service-backed flows before any UI action is enabled.
+- Phase 10 records the remaining browser/server contracts for skill unlock,
+  inventory move, crafting cancel, and browser crafting action controls. These
+  controls must stay absent, locked, or read-only until their contracts are
+  implemented and verified.
 
 ## Goal
 
@@ -140,10 +149,11 @@ Mockup areas covered:
       changes.
 - [x] Add stat snapshot query handler.
 - [x] Add crafting recipe query handler.
-- [ ] Add crafting start/complete handlers.
+- [x] Add crafting start/complete handlers.
 - [ ] Add crafting cancel handler, refund/release behavior, and
       `crafting.job_cancelled` event.
-- [ ] Map request ids to crafting domain idempotency references.
+- [x] Map request ids to crafting domain idempotency references for station
+      `crafting.start`.
 - [x] Add read-only client systems panel for inventory, hangar, loadout, and
       crafting recipe snapshots.
 - [ ] Add skill tree/progression panel and skill unlock action.
@@ -160,8 +170,8 @@ Mockup areas covered:
 - [x] Client cannot equip unowned or invalid modules.
 - [x] Client cannot activate unowned or disabled ships.
 - [x] Client cannot fake stat totals through exposed snapshot operations.
-- [ ] Craft start checks recipe, wallet, materials, location, rank, and idempotency.
-- [ ] Craft completion is server-time/idempotency controlled.
+- [x] Craft start checks recipe, wallet, materials, location, rank, and idempotency.
+- [x] Craft completion is server-time/idempotency controlled.
 - [ ] Craft cancel releases only eligible reserved materials/wallet amounts once.
 - [x] Wallet/credits display is snapshot-driven, not locally calculated.
 
@@ -176,8 +186,8 @@ Mockup areas covered:
 - [ ] Loadout equip rejects unowned item.
 - [ ] Duplicate equip/unequip does not duplicate modules.
 - [ ] Loadout equip updates stat snapshot.
-- [ ] Craft start reserves materials and debits wallet once.
-- [ ] Craft complete grants output once.
+- [x] Craft start reserves materials and debits wallet once.
+- [x] Craft complete grants output once.
 - [ ] Craft cancel releases reservation/refund once and emits cancellation event.
 - [x] Server snapshot queries use authenticated session state and reject
       client-authored progression truth.

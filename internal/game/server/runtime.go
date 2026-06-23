@@ -140,6 +140,7 @@ type Runtime struct {
 	LoadoutStore                   *modules.InMemoryLoadoutStore
 	Loadout                        modules.LoadoutService
 	Recipes                        crafting.RecipeCatalog
+	Crafting                       *crafting.CraftingService
 	Discovery                      *discovery.InMemoryStore
 	Scanner                        *discovery.ScannerService
 	Claim                          *discovery.ClaimService
@@ -291,6 +292,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	reservationService := economy.NewReservationService(inventory)
 	loadoutStore := modules.NewInMemoryLoadoutStoreWithItemMover(runtimeModuleItemMover{
 		inventory:   inventory,
 		itemCatalog: itemCatalog,
@@ -302,6 +304,20 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		runtimeLoadoutProgressionProvider{progression: progressionService},
 		clock,
 	)
+	if err != nil {
+		return nil, err
+	}
+	craftingService, err := crafting.NewCraftingService(crafting.CraftingServiceConfig{
+		Clock:           clock,
+		Recipes:         recipeCatalog,
+		ItemDefinitions: crafting.ItemDefinitionMap(itemCatalog),
+		Reservations:    reservationService,
+		Inventory:       inventory,
+		Wallet:          walletService,
+		Progression:     progressionService,
+		Ships:           hangarService,
+		XPTracker:       crafting.NewInMemoryCraftXPTracker(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -359,6 +375,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Wallet:     walletService,
 		Market:     marketService,
 		Auction:    auctionService,
+		Crafting:   craftingService,
 		Production: productionStore,
 		Clock:      clock,
 	})
@@ -411,6 +428,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		LoadoutStore:                   loadoutStore,
 		Loadout:                        loadoutService,
 		Recipes:                        recipeCatalog,
+		Crafting:                       craftingService,
 		Discovery:                      discoveryStore,
 		Intel:                          intelService,
 		Production:                     productionStore,

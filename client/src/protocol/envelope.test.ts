@@ -4,8 +4,6 @@ import { assertClientSafePayload, CommandBuilder } from './commands';
 import { CLIENT_EVENTS, OPERATIONS, parseServerMessage, rejectForbiddenPayloadKeys } from './envelope';
 
 const UNIMPLEMENTED_MUTATION_OPS = [
-  'crafting.start',
-  'crafting.complete',
   'crafting.cancel',
   'inventory.move',
   'progression.unlock_skill',
@@ -606,6 +604,49 @@ describe('default outbound operations', () => {
     }
   });
 
+  test('crafting mutation commands send only client intent fields', () => {
+    expect(OPERATIONS.craftingStart).toBe('crafting.start');
+    expect(OPERATIONS.craftingComplete).toBe('crafting.complete');
+
+    const builder = new CommandBuilder();
+    const start = builder.craftingStart('refined_alloy_batch');
+    expect(start.op).toBe(OPERATIONS.craftingStart);
+    expect(start.payload).toEqual({ recipe_id: 'refined_alloy_batch' });
+    expect(Object.keys(start.payload)).toEqual(['recipe_id']);
+
+    const complete = builder.craftingComplete('craft-job-1');
+    expect(complete.op).toBe(OPERATIONS.craftingComplete);
+    expect(complete.payload).toEqual({ job_id: 'craft-job-1' });
+    expect(Object.keys(complete.payload)).toEqual(['job_id']);
+
+    for (const payload of [start.payload, complete.payload]) {
+      for (const forbidden of [
+        'owner',
+        'owner_player_id',
+        'player_id',
+        'session_id',
+        'location',
+        'location_id',
+        'location_type',
+        'materials',
+        'inputs',
+        'output',
+        'wallet',
+        'wallet_amount',
+        'required_credits',
+        'cost',
+        'reference',
+        'reference_key',
+        'reservation_id',
+        'started_at',
+        'completes_at',
+        'completed_at',
+      ]) {
+        expect(payload).not.toHaveProperty(forbidden);
+      }
+    }
+  });
+
   test.each([
     'map_id',
     'map_key',
@@ -658,8 +699,6 @@ describe('default outbound operations', () => {
   test('do not expose command-builder helpers for unimplemented browser mutations', () => {
     const builderMethods = new Set(Object.getOwnPropertyNames(CommandBuilder.prototype));
     const forbiddenMethodNames = [
-      'craftingStart',
-      'craftingComplete',
       'craftingCancel',
       'inventoryMove',
       'progressionUnlockSkill',

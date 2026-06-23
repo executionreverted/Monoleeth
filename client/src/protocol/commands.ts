@@ -103,6 +103,14 @@ export class CommandBuilder {
     return this.build(OPERATIONS.craftingRecipes, {});
   }
 
+  craftingStart(recipeID: string): RequestEnvelope<{ recipe_id: string }> {
+    return this.build(OPERATIONS.craftingStart, { recipe_id: recipeID });
+  }
+
+  craftingComplete(jobID: string): RequestEnvelope<{ job_id: string }> {
+    return this.build(OPERATIONS.craftingComplete, { job_id: jobID });
+  }
+
   scanPulse(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.scanPulse, {});
   }

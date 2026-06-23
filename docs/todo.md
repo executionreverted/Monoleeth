@@ -19,10 +19,11 @@ for phase status; this file is a compact pending-work index.
 - [ ] Add a durable reward/outbox reconciliation path for Phase 05 loot XP
   grants; current pickup records in-memory `LootXPReconciliation` metadata but
   there is no durable repair worker or cross-service transaction yet.
-- [ ] Map gateway/API request ids to the required
+- [x] Map gateway/API request ids to the required
   `CraftingService.StartCraft` domain `ReferenceKey` before exposing craft
-  start externally; the Phase 06 domain service is now idempotent when callers
-  provide a stable player-scoped `craft_start:*` reference.
+  start externally. Phase06B exposes authenticated `crafting.start` through the
+  realtime gateway with a server-derived player/request scoped `craft_start:*`
+  reference and no client-authored wallet/material/output facts.
 - [ ] Replace `RepairService` compensating wallet refunds with a durable
   transaction/outbox boundary when wallet and ship state move out of the
   in-memory Phase 06 slice. Restore failure after debit is currently net-zero
@@ -206,14 +207,16 @@ for phase status; this file is a compact pending-work index.
   `loadout.snapshot`, `inventory.snapshot`, and `stats.snapshot`. Source:
   Phase 10 audit. Implemented in UI Patch 3 Phase 04 with inventory/loadout
   window drag/drop and button fallback.
-- [ ] Add authenticated browser crafting mutation contracts for
-  `crafting.start`, `crafting.complete`, and `crafting.cancel`. Server handlers
-  must map request ids to stable domain references such as
-  `craft_start:<player_id>:<recipe_id>:<location_id>`,
-  `craft_complete:<job_id>`, and `craft_cancel:<job_id>`, validate materials,
-  wallet, rank, location authorization, queue limits, and output capacity, then
-  emit crafting/inventory/wallet/progression snapshots after commit. Source:
-  Phase 10 audit.
+- [ ] Finish authenticated browser crafting mutation contracts. Phase06B adds
+  server handlers and TypeScript command builders for `crafting.start` and
+  `crafting.complete`: start accepts only `recipe_id`, complete accepts only
+  `job_id`, and both reconcile safe crafting/inventory/wallet/progression
+  snapshots without client-authored material, wallet, output, owner, location,
+  or reference truth. Remaining work is browser action controls/timers, queue
+  limit balancing, station/planet/building location UX, durable completion
+  recovery after partial reservation/output/XP mutation, and `crafting.cancel`
+  with `craft_cancel:<job_id>` refund/release semantics. Source: Phase 10
+  audit.
 - [ ] Finish authenticated planet ownership/building mutation contracts.
   Phase07A landed the backend `discovery.claim_planet` handler with
   authenticated player resolution, active-map range checks, rank validation,

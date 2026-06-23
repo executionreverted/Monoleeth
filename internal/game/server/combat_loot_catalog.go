@@ -52,9 +52,11 @@ func runtimeLootCatalog() (map[string]loot.LootTable, map[foundation.ItemID]econ
 	itemCatalog[carbonShards.ItemID] = carbonShards
 	for _, itemID := range []foundation.ItemID{
 		"iron_ore",
+		"laser_lens",
 		"energy_cell",
 		"scanner_circuit",
 		"refined_alloy",
+		"warp_coil",
 		"helium_dust",
 	} {
 		definition, err := runtimeStackableDefinition(itemID, itemID.String())

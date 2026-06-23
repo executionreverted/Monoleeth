@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
 )
 
@@ -167,6 +169,140 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 		t.Fatalf("pickup inventory = %+v, want real raw ore in ship cargo", pickupPayload.Inventory)
 	}
 }
+
+func TestCraftingStartAndCompleteUseServerOwnedEconomyState(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC))
+	gameServer := newRouteControlTestServer(t, clock)
+	resolved := createResolvedRuntimeSession(t, gameServer, "crafting-owner@example.com", "Crafting Owner")
+	accountLocation, err := economy.NewItemLocation(economy.LocationKindAccountInventory, resolved.PlayerID.String())
+	if err != nil {
+		t.Fatalf("account location: %v", err)
+	}
+	for _, seed := range []struct {
+		itemID   foundation.ItemID
+		quantity int64
+	}{
+		{itemID: "iron_ore", quantity: 20},
+		{itemID: "carbon_shards", quantity: 5},
+	} {
+		definition, ok := gameServer.runtime.itemCatalog[seed.itemID]
+		if !ok {
+			t.Fatalf("runtime item %q missing", seed.itemID)
+		}
+		addTestInventoryStack(t, gameServer, resolved.PlayerID, definition, seed.quantity, accountLocation, "crafting-"+seed.itemID.String())
+	}
+
+	spoof := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-crafting-spoof","op":"crafting.start","payload":{"recipe_id":"refined_alloy_batch","player_id":"spoof","materials":{"iron_ore":999},"wallet":{"credits":999999}},"client_seq":1,"v":1}`),
+	)
+	if !spoof.HasError || spoof.Error.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("spoofed crafting.start = %+v, want invalid payload", spoof)
+	}
+	if jobs := gameServer.runtime.Crafting.Jobs(); len(jobs) != 0 {
+		t.Fatalf("jobs after spoofed crafting.start = %+v, want none", jobs)
+	}
+
+	start := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-crafting-start","op":"crafting.start","payload":{"recipe_id":"refined_alloy_batch"},"client_seq":2,"v":1}`),
+	)
+	if start.HasError {
+		t.Fatalf("crafting.start response error = %+v, want success", start.Error)
+	}
+	assertCraftingPayloadOmitsInternals(t, "crafting.start response", start.Response.Payload)
+	var startPayload struct {
+		Crafting  craftingSnapshotPayload  `json:"crafting"`
+		Inventory inventorySnapshotPayload `json:"inventory"`
+		Wallet    walletSnapshotPayload    `json:"wallet"`
+	}
+	if err := json.Unmarshal(start.Response.Payload, &startPayload); err != nil {
+		t.Fatalf("decode crafting.start payload: %v", err)
+	}
+	if len(startPayload.Crafting.ActiveJobs) != 1 {
+		t.Fatalf("active jobs after start = %+v, want one running job", startPayload.Crafting.ActiveJobs)
+	}
+	jobID := startPayload.Crafting.ActiveJobs[0].JobID
+	if startPayload.Crafting.ActiveJobs[0].RecipeID != "refined_alloy_batch" ||
+		startPayload.Crafting.ActiveJobs[0].State != "running" ||
+		startPayload.Crafting.ActiveJobs[0].CompletesAt <= startPayload.Crafting.ActiveJobs[0].StartedAt {
+		t.Fatalf("started craft job = %+v, want server-timed refined alloy job", startPayload.Crafting.ActiveJobs[0])
+	}
+	if startPayload.Wallet.Credits != starterWalletCredits-100 {
+		t.Fatalf("wallet credits after craft start = %d, want %d", startPayload.Wallet.Credits, starterWalletCredits-100)
+	}
+	if got := inventoryStackQuantity(startPayload.Inventory, "iron_ore", economy.LocationKindCraftingReserved.String()); got != 20 {
+		t.Fatalf("reserved iron_ore = %d, want 20", got)
+	}
+	if got := inventoryStackQuantity(startPayload.Inventory, "carbon_shards", economy.LocationKindCraftingReserved.String()); got != 5 {
+		t.Fatalf("reserved carbon_shards = %d, want 5", got)
+	}
+
+	duplicateStart := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-crafting-start","op":"crafting.start","payload":{"recipe_id":"refined_alloy_batch"},"client_seq":3,"v":1}`),
+	)
+	if duplicateStart.HasError || !bytes.Equal(start.Response.Payload, duplicateStart.Response.Payload) {
+		t.Fatalf("duplicate crafting.start = %+v, want cached identical success", duplicateStart)
+	}
+
+	early := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-crafting-complete-early","op":"crafting.complete","payload":{"job_id":"`+jobID+`"},"client_seq":4,"v":1}`),
+	)
+	if !early.HasError || early.Error.Error.Code != foundation.CodeCooldown {
+		t.Fatalf("early crafting.complete = %+v, want cooldown", early)
+	}
+
+	clock.Advance(5*time.Minute + time.Millisecond)
+	complete := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-crafting-complete","op":"crafting.complete","payload":{"job_id":"`+jobID+`"},"client_seq":5,"v":1}`),
+	)
+	if complete.HasError {
+		t.Fatalf("crafting.complete response error = %+v, want success", complete.Error)
+	}
+	assertCraftingPayloadOmitsInternals(t, "crafting.complete response", complete.Response.Payload)
+	var completePayload struct {
+		Crafting    craftingSnapshotPayload    `json:"crafting"`
+		Inventory   inventorySnapshotPayload   `json:"inventory"`
+		Wallet      walletSnapshotPayload      `json:"wallet"`
+		Progression progressionSnapshotPayload `json:"progression"`
+	}
+	if err := json.Unmarshal(complete.Response.Payload, &completePayload); err != nil {
+		t.Fatalf("decode crafting.complete payload: %v", err)
+	}
+	if len(completePayload.Crafting.ActiveJobs) != 0 {
+		t.Fatalf("active jobs after complete = %+v, want none", completePayload.Crafting.ActiveJobs)
+	}
+	if got := inventoryStackQuantity(completePayload.Inventory, "refined_alloy", economy.LocationKindAccountInventory.String()); got != 5 {
+		t.Fatalf("refined_alloy output = %d, want 5", got)
+	}
+	if completePayload.Wallet.Credits != starterWalletCredits-100 {
+		t.Fatalf("wallet credits after complete = %d, want unchanged %d", completePayload.Wallet.Credits, starterWalletCredits-100)
+	}
+	if completePayload.Progression.MainXP != 40 {
+		t.Fatalf("main XP after craft complete = %d, want 40", completePayload.Progression.MainXP)
+	}
+
+	duplicateComplete := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-crafting-complete-duplicate","op":"crafting.complete","payload":{"job_id":"`+jobID+`"},"client_seq":6,"v":1}`),
+	)
+	if duplicateComplete.HasError {
+		t.Fatalf("duplicate crafting.complete response error = %+v, want success", duplicateComplete.Error)
+	}
+	var duplicatePayload struct {
+		Inventory inventorySnapshotPayload `json:"inventory"`
+	}
+	if err := json.Unmarshal(duplicateComplete.Response.Payload, &duplicatePayload); err != nil {
+		t.Fatalf("decode duplicate crafting.complete payload: %v", err)
+	}
+	if got := inventoryStackQuantity(duplicatePayload.Inventory, "refined_alloy", economy.LocationKindAccountInventory.String()); got != 5 {
+		t.Fatalf("duplicate refined_alloy output = %d, want unchanged 5", got)
+	}
+}
+
 func TestLoadoutEquipAndUnequipMutateServerOwnedInventory(t *testing.T) {
 	_, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
@@ -526,5 +662,37 @@ func TestShopBuyProductRejectsInsufficientFundsBeforeGrant(t *testing.T) {
 	}
 	if credits := runtimeWalletCredits(t, gameServer.runtime); credits != 300 {
 		t.Fatalf("wallet credits after failed buy = %d, want 300", credits)
+	}
+}
+
+func inventoryStackQuantity(inventory inventorySnapshotPayload, itemID string, location string) int64 {
+	for _, stack := range inventory.Stackable {
+		if stack.ItemID == itemID && stack.Location == location {
+			return stack.Quantity
+		}
+	}
+	return 0
+}
+
+func assertCraftingPayloadOmitsInternals(t *testing.T, label string, payload []byte) {
+	t.Helper()
+	raw := string(payload)
+	for _, forbidden := range []string{
+		"account_id",
+		"player_id",
+		"session_id",
+		"reference_id",
+		"reservation_id",
+		"source_location",
+		"wallet_debit",
+		"reservation_commit",
+		"ledger_id",
+		"materials",
+		"wallet_amount",
+		"balance_after",
+	} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("%s leaked %q in %s", label, forbidden, raw)
+		}
 	}
 }

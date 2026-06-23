@@ -317,10 +317,46 @@ func TestDecodeRequestEnvelopeAcceptsPlanetBuildingMutationOperations(t *testing
 	}
 }
 
+func TestDecodeRequestEnvelopeAcceptsCraftingMutationOperations(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want Operation
+	}{
+		{
+			name: "start",
+			body: `{"request_id":"request-crafting-start","op":"crafting.start","payload":{"recipe_id":"refined_alloy_batch"},"client_seq":17,"v":1}`,
+			want: OperationCraftingStart,
+		},
+		{
+			name: "complete",
+			body: `{"request_id":"request-crafting-complete","op":"crafting.complete","payload":{"job_id":"craft-job-1"},"client_seq":18,"v":1}`,
+			want: OperationCraftingComplete,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			envelope, err := DecodeRequestEnvelope([]byte(tc.body))
+			if err != nil {
+				t.Fatalf("decode crafting mutation request envelope: %v", err)
+			}
+			if envelope.Op != tc.want {
+				t.Fatalf("op = %q, want %q", envelope.Op, tc.want)
+			}
+			spec, ok := LookupOperation(tc.want)
+			if !ok {
+				t.Fatalf("LookupOperation(%q) not registered", tc.want)
+			}
+			if spec.RateLimitPosture != RateLimitPostureIntentBurst {
+				t.Fatalf("crafting mutation posture = %q, want %q", spec.RateLimitPosture, RateLimitPostureIntentBurst)
+			}
+		})
+	}
+}
+
 func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testing.T) {
 	disallowed := []Operation{
-		Operation("crafting.start"),
-		Operation("crafting.complete"),
 		Operation("crafting.cancel"),
 		Operation("inventory.move"),
 		Operation("progression.unlock_skill"),

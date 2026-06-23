@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/crafting"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
@@ -17,6 +18,8 @@ import (
 	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world/worker"
 )
+
+const runtimeDefaultCraftStationID = "origin-station"
 
 type inventorySnapshotPayload struct {
 	Stackable []inventoryStackPayload    `json:"stackable"`
@@ -154,6 +157,14 @@ type craftingJobPayload struct {
 	State       string `json:"state"`
 	StartedAt   int64  `json:"started_at"`
 	CompletesAt int64  `json:"completes_at"`
+}
+
+type craftingStartPayload struct {
+	RecipeID string `json:"recipe_id"`
+}
+
+type craftingCompletePayload struct {
+	JobID string `json:"job_id"`
 }
 
 func (runtime *Runtime) handleProgressionSnapshot(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -324,8 +335,64 @@ func (runtime *Runtime) handleCraftingRecipes(ctx realtime.CommandContext, reque
 		return nil, err
 	}
 	return marshalPayload(map[string]any{
-		"crafting": runtime.craftingSnapshot(),
+		"crafting": runtime.craftingSnapshot(ctx.PlayerID),
 	})
+}
+
+func (runtime *Runtime) handleCraftingStart(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	var payload craftingStartPayload
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	reference, err := runtime.craftStartReference(ctx.PlayerID, catalog.DefinitionID(payload.RecipeID), request.RequestID)
+	if err != nil {
+		return nil, domainErrorForCrafting(err)
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	if _, ok := runtime.players[ctx.PlayerID]; !ok {
+		return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
+	}
+	_, err = runtime.Crafting.StartCraft(crafting.StartCraftInput{
+		PlayerID:     ctx.PlayerID,
+		RecipeID:     catalog.DefinitionID(payload.RecipeID),
+		Location:     runtime.stationCraftLocation(),
+		ReferenceKey: reference,
+	})
+	if err != nil {
+		return nil, domainErrorForCrafting(err)
+	}
+	return runtime.craftingMutationResponseLocked(authSessionID(ctx.SessionID), ctx.PlayerID, false)
+}
+
+func (runtime *Runtime) handleCraftingComplete(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	var payload craftingCompletePayload
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	if _, ok := runtime.players[ctx.PlayerID]; !ok {
+		return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
+	}
+	result, err := runtime.Crafting.CompleteCraft(crafting.CompleteCraftInput{
+		PlayerID: ctx.PlayerID,
+		JobID:    crafting.CraftJobID(payload.JobID),
+	})
+	if err != nil {
+		return nil, domainErrorForCrafting(err)
+	}
+	return runtime.craftingMutationResponseLocked(authSessionID(ctx.SessionID), ctx.PlayerID, result.ShipUnlock != nil)
 }
 
 func (runtime *Runtime) inventorySnapshotLocked(playerID foundation.PlayerID) inventorySnapshotPayload {
@@ -572,16 +639,52 @@ func (runtime *Runtime) loadoutSnapshotLocked(playerID foundation.PlayerID) (loa
 	}, nil
 }
 
-func (runtime *Runtime) craftingSnapshot() craftingSnapshotPayload {
+func (runtime *Runtime) craftingSnapshot(playerID foundation.PlayerID) craftingSnapshotPayload {
 	definitions := runtime.Recipes.Definitions()
 	recipes := make([]craftingRecipePayload, 0, len(definitions))
 	for _, definition := range definitions {
 		recipes = append(recipes, craftingRecipe(definition))
 	}
+	jobs := make([]craftingJobPayload, 0)
+	if runtime.Crafting != nil {
+		for _, job := range runtime.Crafting.Jobs() {
+			if job.PlayerID != playerID || job.State != crafting.CraftJobStateRunning {
+				continue
+			}
+			jobs = append(jobs, craftingJob(job))
+		}
+	}
 	return craftingSnapshotPayload{
 		Recipes:    recipes,
-		ActiveJobs: []craftingJobPayload{},
+		ActiveJobs: jobs,
 	}
+}
+
+func craftingJob(job crafting.CraftJob) craftingJobPayload {
+	return craftingJobPayload{
+		JobID:       job.JobID.String(),
+		RecipeID:    job.RecipeSource.DefinitionID.String(),
+		State:       job.State.String(),
+		StartedAt:   job.StartedAt.UnixMilli(),
+		CompletesAt: job.CompletesAt.UnixMilli(),
+	}
+}
+
+func (runtime *Runtime) stationCraftLocation() crafting.CraftLocation {
+	return crafting.CraftLocation{Type: crafting.CraftLocationStation, ID: runtimeDefaultCraftStationID}
+}
+
+func (runtime *Runtime) craftStartReference(playerID foundation.PlayerID, recipeID catalog.DefinitionID, requestID foundation.RequestID) (foundation.IdempotencyKey, error) {
+	if err := playerID.Validate(); err != nil {
+		return "", err
+	}
+	if err := recipeID.Validate(); err != nil {
+		return "", err
+	}
+	if err := requestID.Validate(); err != nil {
+		return "", err
+	}
+	return foundation.CraftStartIdempotencyKey(fmt.Sprintf("%s-%s-%s-%s", playerID, recipeID, runtimeDefaultCraftStationID, requestID))
 }
 
 func (runtime *Runtime) equipModuleLocked(playerID foundation.PlayerID, slotID modules.ModuleSlotID, itemInstanceID foundation.ItemID, requestID foundation.RequestID) error {
@@ -706,6 +809,36 @@ func (runtime *Runtime) hangarMutationResponseLocked(sessionID auth.SessionID, p
 		"cargo":   cargo,
 		"loadout": loadout,
 	})
+}
+
+func (runtime *Runtime) craftingMutationResponseLocked(sessionID auth.SessionID, playerID foundation.PlayerID, includeHangar bool) (json.RawMessage, error) {
+	craftingPayload := runtime.craftingSnapshot(playerID)
+	inventory := runtime.inventorySnapshotLocked(playerID)
+	wallet := runtime.walletSnapshotLocked(playerID)
+	progressionSnapshot, err := runtime.Progression.GetProgressionSnapshot(playerID)
+	if err != nil {
+		return nil, domainErrorForCrafting(err)
+	}
+	progressionPayload := progressionPayload(progressionSnapshot)
+	payload := map[string]any{
+		"crafting":    craftingPayload,
+		"inventory":   inventory,
+		"wallet":      wallet,
+		"progression": progressionPayload,
+	}
+	runtime.queueEventLocked(sessionID, realtime.EventCraftingRecipes, craftingPayload)
+	runtime.queueEventLocked(sessionID, realtime.EventInventorySnapshot, inventory)
+	runtime.queueEventLocked(sessionID, realtime.EventWalletSnapshot, wallet)
+	runtime.queueEventLocked(sessionID, realtime.EventProgressionSnapshot, progressionPayload)
+	if includeHangar {
+		hangar, err := runtime.hangarSnapshotLocked(playerID)
+		if err != nil {
+			return nil, domainErrorForHangar(err)
+		}
+		payload["hangar"] = hangar
+		runtime.queueEventLocked(sessionID, realtime.EventHangarSnapshot, hangar)
+	}
+	return marshalPayload(payload)
 }
 
 func (runtime *Runtime) syncLoadoutModuleItemsLocked(playerID foundation.PlayerID) error {
@@ -911,5 +1044,44 @@ func domainErrorForHangar(err error) error {
 		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Hangar request is not valid.", foundation.WithCause(err))
 	default:
 		return foundation.NewDomainError(foundation.CodeInternal, "Hangar command failed.", foundation.WithCause(err))
+	}
+}
+
+func domainErrorForCrafting(err error) error {
+	if err == nil {
+		return nil
+	}
+	var domainErr *foundation.DomainError
+	if errors.As(err, &domainErr) {
+		return domainErr
+	}
+	switch {
+	case errors.Is(err, crafting.ErrUnknownRecipeDefinition), errors.Is(err, crafting.ErrCraftJobNotFound):
+		return foundation.NewDomainError(foundation.CodeNotFound, "Crafting record was not found.", foundation.WithCause(err))
+	case errors.Is(err, crafting.ErrRankRequirementNotMet), errors.Is(err, crafting.ErrRoleRequirementNotMet):
+		return foundation.NewDomainError(foundation.CodeRankTooLow, "Crafting requirements are not met.", foundation.WithCause(err))
+	case errors.Is(err, economy.ErrInsufficientWalletFunds):
+		return foundation.NewDomainError(foundation.CodeNotEnoughFunds, "Not enough funds.", foundation.WithCause(err))
+	case errors.Is(err, economy.ErrInsufficientItemQuantity):
+		return foundation.NewDomainError(foundation.CodeNotEnoughCargo, "Not enough crafting materials.", foundation.WithCause(err))
+	case errors.Is(err, crafting.ErrCraftNotReady):
+		return foundation.NewDomainError(foundation.CodeCooldown, "Craft job is not ready.", foundation.WithCause(err))
+	case errors.Is(err, crafting.ErrCraftJobPlayerMismatch),
+		errors.Is(err, crafting.ErrCraftOutputAlreadyOwned),
+		errors.Is(err, crafting.ErrLocationRequirementNotMet),
+		errors.Is(err, crafting.ErrMissingLocationAuthorizer),
+		errors.Is(err, ships.ErrShipRankRequirementNotMet):
+		return foundation.NewDomainError(foundation.CodeForbidden, "Crafting action is not allowed.", foundation.WithCause(err))
+	case errors.Is(err, crafting.ErrCraftStartReferenceMismatch),
+		errors.Is(err, crafting.ErrInvalidCraftLocationType),
+		errors.Is(err, crafting.ErrEmptyCraftLocationID),
+		errors.Is(err, crafting.ErrInvalidCraftJobState),
+		errors.Is(err, foundation.ErrEmptyID),
+		errors.Is(err, foundation.ErrInvalidID),
+		errors.Is(err, foundation.ErrEmptyIdempotencyKey),
+		errors.Is(err, foundation.ErrInvalidIdempotencyKey):
+		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Crafting request is not valid.", foundation.WithCause(err))
+	default:
+		return foundation.NewDomainError(foundation.CodeInternal, "Crafting command failed.", foundation.WithCause(err))
 	}
 }
