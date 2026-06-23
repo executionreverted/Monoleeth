@@ -178,16 +178,20 @@ marked `Open` are not implemented rollout controls yet.
   stdout/stderr lines from its own harness, and Tesseract OCR/text scans over
   its six generated real-server screenshot PNGs only. Default production bundle
   text/source-map scan now covers fake/default fixture labels/ids and
-  server-only content ids in `dist` plus explicit extra artifact roots.
-  Production logs beyond this harness, admin/debug responses outside this
-  rejection path, non-Phase09 WebSocket paths, CI/deploy wiring for the real
-  deployed/published artifact set, and screenshot paths outside the Phase09
-  smoke are still missing.
+  server-only content ids in `dist` plus explicit extra artifact roots. The
+  single-process playtest runner now has a `GAME_PLAYTEST_BUILD_ONLY=true`
+  build/artifact-scan gate before server startup. Production logs beyond this
+  harness, admin/debug responses outside this rejection path, non-Phase09
+  WebSocket paths, CI/deploy wiring that passes the real deployed/published
+  artifact set, and screenshot paths outside the Phase09 smoke are still
+  missing.
 - Bundle hidden-token scan remains partial: `client/tests/bundle-scan.mjs`
   checks default `dist` text and source-map assets if present, and can now scan
   explicit extra artifact roots with the same forbidden snippet list through
-  either CLI arguments or `GAME_ARTIFACT_SCAN_ROOTS`. CI/deploy still needs to
-  pass the real deployed or otherwise published artifact set.
+  either CLI arguments or `GAME_ARTIFACT_SCAN_ROOTS`. The local
+  `scripts/run_playtest_server.sh` build-only mode now runs this scan as part
+  of the deployable playtest package gate. CI/deploy still needs to pass the
+  real deployed or otherwise published artifact set.
 - Broader PvP rollout canaries beyond the focused safe-zone UI click proof are
   still missing.
 - `client` `npm run check` does not run the Phase09 Playwright smoke.
@@ -390,8 +394,10 @@ artifact roots as CLI arguments or through the path-delimited
 `GAME_ARTIFACT_SCAN_ROOTS` environment variable, so staging or publish
 directories can be scanned with the same forbidden snippet list. It
 intentionally does not forbid generic protocol guard field names such as hidden
-scan or loot key strings. CI/deploy still needs to pass the real deployed or
-otherwise published artifact set.
+scan or loot key strings. `GAME_PLAYTEST_BUILD_ONLY=true
+scripts/run_playtest_server.sh` now builds `client/dist` and runs the scan
+without starting the long-running server. CI/deploy still needs to pass the real
+deployed or otherwise published artifact set.
 
 The Phase09 smoke currently satisfies only a narrow server-side canary subset:
 captured local Go/Vite stdout/stderr lines from that harness and production

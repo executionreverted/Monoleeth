@@ -50,7 +50,8 @@ http://127.0.0.1:8080
 ```
 
 The script runs `npm --prefix client run build`, sets
-`GAME_CLIENT_STATIC_DIR=client/dist` and `GAME_PLAYTEST_SEED=true`, then starts
+`GAME_CLIENT_STATIC_DIR=client/dist` and `GAME_PLAYTEST_SEED=true`, scans the
+built bundle for fixture/server-only leak tokens, then starts
 `go run ./cmd/game-server`.
 Override the bind address or static dir when needed:
 
@@ -68,6 +69,22 @@ setup. Disable it with:
 
 ```bash
 GAME_PLAYTEST_SEED=false scripts/run_playtest_server.sh
+```
+
+For CI or deploy artifact preparation, run the same build and artifact scan
+without starting the long-running server:
+
+```bash
+GAME_PLAYTEST_BUILD_ONLY=true scripts/run_playtest_server.sh
+```
+
+Useful build/scan toggles:
+
+```bash
+GAME_SKIP_CLIENT_BUILD=true scripts/run_playtest_server.sh
+GAME_RUN_BUNDLE_SCAN=false scripts/run_playtest_server.sh
+GAME_ARTIFACT_SCAN_ROOTS="/path/to/published:/path/to/staging" \
+  GAME_PLAYTEST_BUILD_ONLY=true scripts/run_playtest_server.sh
 ```
 
 In this mode `/api`, `/ws`, and `/healthz` remain server routes. Other browser

@@ -592,9 +592,12 @@ for phase status; this file is a compact pending-work index.
   generated real-server screenshot PNGs, and the bundle scan covers
   fake/default fixture labels/ids plus server-only content ids in default
   `dist` and extra artifact roots passed by CLI argument or
-  `GAME_ARTIFACT_SCAN_ROOTS`. Production logs/admin responses outside that
-  path, non-Phase09 paths, wiring the real deployed/published artifact set into
-  CI/deploy, and screenshots outside Phase09 remain open.
+  `GAME_ARTIFACT_SCAN_ROOTS`. `GAME_PLAYTEST_BUILD_ONLY=true
+  scripts/run_playtest_server.sh` now runs the local deployable playtest build
+  plus artifact scan without starting the server. Production logs/admin
+  responses outside that path, non-Phase09 paths, wiring the real
+  deployed/published artifact set into CI/deploy, and screenshots outside
+  Phase09 remain open.
   Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Clean up active legacy semantic contradictions in the scoped
