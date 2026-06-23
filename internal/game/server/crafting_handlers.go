@@ -21,6 +21,10 @@ type craftingCompleteIntent struct {
 	JobID string `json:"job_id"`
 }
 
+type craftingCancelIntent struct {
+	JobID string `json:"job_id"`
+}
+
 func (runtime *Runtime) handleCraftingStart(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
 	if err := rejectTrustedPayloadWithAdditional(
 		request.Payload,
@@ -122,6 +126,67 @@ func (runtime *Runtime) handleCraftingComplete(ctx realtime.CommandContext, requ
 	})
 }
 
+func (runtime *Runtime) handleCraftingCancel(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if runtime == nil || runtime.Crafting == nil {
+		return nil, domainErrorForRuntime(crafting.ErrMissingRecipeCatalog)
+	}
+	if err := rejectTrustedPayloadWithAdditional(
+		request.Payload,
+		"player_id",
+		"recipe_id",
+		"reservation_id",
+		"reservation",
+		"reservation_release",
+		"wallet",
+		"wallet_refund",
+		"reference_id",
+		"source_location",
+		"output_location",
+		"started_at",
+		"completes_at",
+		"cancelled_at",
+		"state",
+		"inputs",
+		"materials",
+		"cost",
+		"credits",
+		"quantity",
+		"duplicate",
+	); err != nil {
+		return nil, err
+	}
+	var intent craftingCancelIntent
+	if err := decodeStrict(request.Payload, &intent); err != nil {
+		return nil, err
+	}
+	jobID := crafting.CraftJobID(intent.JobID)
+	if err := jobID.Validate(); err != nil {
+		return nil, invalidPayload("Craft job is invalid.", err)
+	}
+	referenceKey, err := crafting.CraftCancelReferenceKey(jobID)
+	if err != nil {
+		return nil, invalidPayload("Craft job is invalid.", err)
+	}
+	result, err := runtime.Crafting.CancelCraft(crafting.CancelCraftInput{
+		PlayerID:     ctx.PlayerID,
+		JobID:        jobID,
+		ReferenceKey: referenceKey,
+	})
+	if err != nil {
+		return nil, domainErrorForCrafting(err)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	return marshalPayload(map[string]any{
+		"crafting":  runtime.craftingSnapshot(ctx.PlayerID),
+		"job":       craftingJob(result.Job),
+		"inventory": runtime.inventorySnapshotLocked(ctx.PlayerID),
+		"wallet":    runtime.walletSnapshotLocked(ctx.PlayerID),
+		"duplicate": result.Duplicate,
+	})
+}
+
 func (runtime *Runtime) craftingStartInput(playerID foundation.PlayerID, requestID foundation.RequestID, intent craftingStartIntent) (crafting.StartCraftInput, error) {
 	if runtime == nil || runtime.Crafting == nil {
 		return crafting.StartCraftInput{}, domainErrorForRuntime(crafting.ErrMissingRecipeCatalog)
@@ -184,7 +249,7 @@ func domainErrorForCrafting(err error) error {
 		return foundation.NewDomainError(foundation.CodeNotEnoughFunds, "Not enough funds.", foundation.WithCause(err))
 	case errors.Is(err, economy.ErrInsufficientItemQuantity), errors.Is(err, economy.ErrItemNotOwned):
 		return foundation.NewDomainError(foundation.CodeNotEnoughCargo, "Not enough item quantity.", foundation.WithCause(err))
-	case errors.Is(err, crafting.ErrUnknownRecipeDefinition), errors.Is(err, crafting.ErrLocationRequirementNotMet), errors.Is(err, crafting.ErrRankRequirementNotMet), errors.Is(err, crafting.ErrRoleRequirementNotMet), errors.Is(err, crafting.ErrCraftStartReferenceMismatch), errors.Is(err, crafting.ErrMissingLocationAuthorizer):
+	case errors.Is(err, crafting.ErrUnknownRecipeDefinition), errors.Is(err, crafting.ErrLocationRequirementNotMet), errors.Is(err, crafting.ErrRankRequirementNotMet), errors.Is(err, crafting.ErrRoleRequirementNotMet), errors.Is(err, crafting.ErrCraftStartReferenceMismatch), errors.Is(err, crafting.ErrCraftCancelReferenceMismatch), errors.Is(err, crafting.ErrMissingLocationAuthorizer):
 		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Craft request is invalid.", foundation.WithCause(err))
 	case errors.Is(err, crafting.ErrCraftNotReady):
 		return foundation.NewDomainError(foundation.CodeCooldown, "Craft job is not ready.", foundation.WithCause(err))

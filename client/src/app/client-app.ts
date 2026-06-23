@@ -52,6 +52,7 @@ export class ClientApp extends ClientAppHandlers {
       onPlanetBuildingUpgrade: (input) => this.sendPlanetBuildingUpgrade(input),
       onCraftingStart: (recipeID) => this.sendCraftingStart(recipeID),
       onCraftingComplete: (jobID) => this.sendCraftingComplete(jobID),
+      onCraftingCancel: (jobID) => this.sendCraftingCancel(jobID),
       onRouteCreate: (input) => this.sendRouteCreate(input),
       onRouteUpdate: (input) => this.sendRouteUpdate(input),
       onRouteEnable: (routeID) => this.sendRouteEnable(routeID),

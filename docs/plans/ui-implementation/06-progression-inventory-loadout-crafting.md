@@ -2,9 +2,9 @@
 
 ## Status
 
-- State: Authenticated read-model MVP plus server-owned `crafting.start` and
-  `crafting.complete` contracts completed; remaining crafting/UI mutations are tracked in
-  `docs/todo.md`
+- State: Authenticated read-model MVP plus server-owned `crafting.start`,
+  `crafting.complete`, and `crafting.cancel` contracts completed; remaining
+  progression/inventory UI mutations are tracked in `docs/todo.md`
 - Owner: Player growth and item management UI
 - Depends on: Phase 05
 - Unlocks: persistent character loop and equipment/craft loop
@@ -22,14 +22,17 @@ Current slice completed:
   reserved materials, grants output/XP once, and returns
   crafting/inventory/progression snapshots.
 - Browser crafting tab now renders real recipes and active jobs, sends only
-  `crafting.start` recipe intent or `crafting.complete` job intent, and uses
-  pending/server snapshots to reconcile buttons and timers.
-- Remaining crafting cancel command must still use ledger/service-backed flows
-  before any UI action is enabled.
+  `crafting.start` recipe intent, `crafting.complete` job intent, or
+  `crafting.cancel` job intent, and uses pending/server snapshots to reconcile
+  buttons, timers, and cancelled terminal state.
+- `crafting.cancel` releases the active reservation once through the economy
+  reservation service, marks the job cancelled, returns crafting/inventory/
+  wallet snapshots, emits one internal `craft.job_cancelled` domain event, and
+  keeps the Phase 06 MVP no-fee-refund policy.
 - Phase 10 records the exact missing browser/server contracts for skill unlock,
-  inventory move, hangar activation, loadout equip/unequip, and crafting
-  cancel controls. These controls must stay absent, locked, or
-  read-only until those contracts are implemented and verified.
+  inventory move, hangar activation, and loadout equip/unequip controls. These
+  controls must stay absent, locked, or read-only until those contracts are
+  implemented and verified.
 
 ## Goal
 
@@ -102,7 +105,7 @@ crafting.cancel
 | `loadout.unequip_module` | unequip reference per slot transition | owned active ship, destination capacity, module exists in slot |
 | `crafting.start` | `craft_start:<job_or_request_id>` and wallet/item ledger refs | recipe, materials, wallet, location, rank, queue limits |
 | `crafting.complete` | `craft_complete:<job_id>` unique reference | server time, job owner/state, output capacity |
-| `crafting.cancel` | `craft_cancel:<job_id>` unique reference | job owner/state, cancellation window, refund/release policy |
+| `crafting.cancel` | `craft_cancel:<job_id>` unique reference | job owner/state, running-only state, material release, no fee refund |
 
 Every item or currency mutation must use the existing inventory/wallet services
 and ledger/event references, never direct balance or stack edits.
@@ -152,8 +155,8 @@ Mockup areas covered:
 - [x] Add crafting recipe query handler.
 - [x] Add `crafting.start` handler backed by `CraftingService.StartCraft`.
 - [x] Add `crafting.complete` handler backed by `CraftingService.CompleteCraft`.
-- [ ] Add crafting cancel handler, refund/release behavior, and
-      `crafting.job_cancelled` event.
+- [x] Add crafting cancel handler with reservation release, no-fee-refund
+      policy, internal cancellation event, and server snapshot reconciliation.
 - [x] Map `crafting.start` request ids to crafting domain idempotency
       references.
 - [x] Add read-only client systems panel for inventory, hangar, loadout, and
@@ -174,7 +177,8 @@ Mockup areas covered:
 - [x] Client cannot fake stat totals through exposed snapshot operations.
 - [x] Craft start checks recipe, wallet, materials, location, rank, and idempotency.
 - [x] Craft completion is server-time/idempotency controlled.
-- [ ] Craft cancel releases only eligible reserved materials/wallet amounts once.
+- [x] Craft cancel releases only eligible reserved materials once and does not
+      refund the craft fee in the MVP policy.
 - [x] Wallet/credits display is snapshot-driven, not locally calculated.
 
 ## Tests
@@ -190,7 +194,9 @@ Mockup areas covered:
 - [ ] Loadout equip updates stat snapshot.
 - [x] Craft start reserves materials and debits wallet once.
 - [x] Craft complete grants output once.
-- [ ] Craft cancel releases reservation/refund once and emits cancellation event.
+- [x] Craft cancel releases reservation once, emits cancellation event once,
+      does not refund the craft fee, rejects wrong-owner/completed jobs, and
+      reconciles browser state.
 - [x] Server snapshot queries use authenticated session state and reject
       client-authored progression truth.
 - [x] Client reducer reconciles inventory, hangar, loadout, crafting, stats,

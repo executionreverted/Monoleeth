@@ -225,12 +225,14 @@ for phase status; this file is a compact pending-work index.
   snapshots. The crafting tab renders recipes, account-inventory material
   availability, running jobs, ready-complete actions, and pending state without
   fake crafting truth.
-- [ ] Add authenticated browser crafting mutation contracts for
-  `crafting.cancel`. Server handlers must map request ids to stable domain
-  references such as `craft_cancel:<job_id>`, validate job owner/state,
-  cancellation window, refund/release policy, and emit
-  crafting/inventory/wallet/progression snapshots after commit. Source: Phase
-  10 audit.
+- [x] Add authenticated browser crafting mutation contracts for
+  `crafting.cancel`. The server resolves player identity from the session,
+  derives the stable `craft_cancel:<job_id>` domain reference, validates job
+  owner/running state, releases reserved materials once through the economy
+  reservation service, emits one internal `craft.job_cancelled` event, keeps
+  the MVP no-fee-refund policy, and returns crafting/inventory/wallet
+  snapshots. The browser crafting tab sends only `job_id`, shows cancel
+  pending state, and treats cancelled jobs as terminal server state.
 - [ ] Finish authenticated planet ownership/building mutation contracts.
   Phase07A landed the backend `discovery.claim_planet` handler with
   authenticated player resolution, active-map range checks, rank validation,

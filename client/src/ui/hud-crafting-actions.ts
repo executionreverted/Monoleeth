@@ -12,6 +12,11 @@ export function dispatchCraftingButtonAction(button: HTMLButtonElement, handlers
         handlers.onCraftingComplete(button.dataset.jobId);
       }
       return true;
+    case 'crafting-cancel':
+      if (button.dataset.jobId) {
+        handlers.onCraftingCancel(button.dataset.jobId);
+      }
+      return true;
     default:
       return false;
   }

@@ -167,6 +167,7 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationCraftingRecipes:       runtime.handleCraftingRecipes,
 		realtime.OperationCraftingStart:         runtime.handleCraftingStart,
 		realtime.OperationCraftingComplete:      runtime.handleCraftingComplete,
+		realtime.OperationCraftingCancel:        runtime.handleCraftingCancel,
 		realtime.OperationScanPulse:             runtime.handleScanPulse,
 		realtime.OperationKnownPlanets:          runtime.handleKnownPlanets,
 		realtime.OperationPlanetDetail:          runtime.handlePlanetDetail,

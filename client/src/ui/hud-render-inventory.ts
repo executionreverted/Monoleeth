@@ -247,16 +247,24 @@ function craftingJobRow(context: InventoryTabContext, job: NonNullable<ClientSta
   const now = context.state.lastServerTime ?? Date.now();
   const remaining = Math.max(0, job.completes_at - now);
   const pending = hasPendingOpPayloadField(context.state, OPERATIONS.craftingComplete, 'job_id', job.job_id);
+  const cancelPending = hasPendingOpPayloadField(context.state, OPERATIONS.craftingCancel, 'job_id', job.job_id);
   const completed = job.state === 'completed' || job.state === 'complete';
-  const ready = !completed && remaining <= 0;
-  const enabled = realtimeReady(context.state) && ready && !pending;
-  const label = completed ? 'Done' : pending ? 'Completing' : ready ? 'Complete' : formatDuration(remaining);
-  const title = completed ? 'Craft job completed.' : pending ? 'Craft completion pending.' : ready ? 'Complete craft.' : 'Craft job running.';
+  const cancelled = job.state === 'cancelled' || job.state === 'canceled';
+  const terminal = completed || cancelled;
+  const ready = !terminal && remaining <= 0;
+  const enabled = realtimeReady(context.state) && ready && !pending && !cancelPending;
+  const cancelEnabled = realtimeReady(context.state) && !terminal && !pending && !cancelPending;
+  const label = completed ? 'Done' : cancelled ? 'Canceled' : pending ? 'Completing' : ready ? 'Complete' : formatDuration(remaining);
+  const title = completed ? 'Craft job completed.' : cancelled ? 'Craft job cancelled.' : cancelPending ? 'Craft cancellation pending.' : pending ? 'Craft completion pending.' : ready ? 'Complete craft.' : 'Craft job running.';
+  const cancelButton = terminal
+    ? ''
+    : `<button type="button" data-action="crafting-cancel" data-job-id="${escapeHTML(job.job_id)}" ${cancelEnabled ? '' : 'disabled'} title="${escapeHTML(cancelPending ? 'Craft cancellation pending.' : 'Cancel craft job.')}">${cancelPending ? 'Canceling' : 'Cancel'}</button>`;
   return `
     <li>
       <span>${escapeHTML(recipe ? craftingRecipeLabel(recipe) : job.recipe_id)}</span>
       <strong>${escapeHTML(job.state)}</strong>
       <button type="button" data-action="crafting-complete" data-job-id="${escapeHTML(job.job_id)}" ${enabled ? '' : 'disabled'} title="${escapeHTML(title)}">${escapeHTML(label)}</button>
+      ${cancelButton}
     </li>
   `;
 }

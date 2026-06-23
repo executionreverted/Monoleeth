@@ -89,6 +89,7 @@ type CraftJobState string
 const (
 	CraftJobStateRunning   CraftJobState = "running"
 	CraftJobStateCompleted CraftJobState = "completed"
+	CraftJobStateCancelled CraftJobState = "cancelled"
 )
 
 // CraftJob records durable state for a recipe that has been started.
@@ -105,6 +106,7 @@ type CraftJob struct {
 	OutputGrantedAt        *time.Time                  `json:"output_granted_at,omitempty"`
 	XPGrantedAt            *time.Time                  `json:"xp_granted_at,omitempty"`
 	CompletedAt            *time.Time                  `json:"completed_at,omitempty"`
+	CancelledAt            *time.Time                  `json:"cancelled_at,omitempty"`
 }
 
 // JobCompletedEvent is the internal post-commit craft completion payload
@@ -118,6 +120,15 @@ type JobCompletedEvent struct {
 	ShipID      foundation.ShipID    `json:"ship_id,omitempty"`
 	Quantity    int64                `json:"quantity"`
 	CompletedAt time.Time            `json:"completed_at"`
+}
+
+// JobCancelledEvent is the internal post-cancel payload consumed by audit and
+// future durable reconciliation workers.
+type JobCancelledEvent struct {
+	JobID       CraftJobID           `json:"job_id"`
+	PlayerID    foundation.PlayerID  `json:"player_id"`
+	RecipeID    catalog.DefinitionID `json:"recipe_id"`
+	CancelledAt time.Time            `json:"cancelled_at"`
 }
 
 // String returns the stable category representation.

@@ -333,6 +333,11 @@ func TestDecodeRequestEnvelopeAcceptsCraftingStartContract(t *testing.T) {
 			body: `{"request_id":"request-craft-complete","op":"crafting.complete","payload":{"job_id":"craft-job-1"},"client_seq":20,"v":1}`,
 			want: OperationCraftingComplete,
 		},
+		{
+			name: "cancel",
+			body: `{"request_id":"request-craft-cancel","op":"crafting.cancel","payload":{"job_id":"craft-job-1"},"client_seq":21,"v":1}`,
+			want: OperationCraftingCancel,
+		},
 	}
 
 	for _, tc := range cases {
@@ -357,7 +362,6 @@ func TestDecodeRequestEnvelopeAcceptsCraftingStartContract(t *testing.T) {
 
 func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testing.T) {
 	disallowed := []Operation{
-		Operation("crafting.cancel"),
 		Operation("inventory.move"),
 		Operation("progression.unlock_skill"),
 		Operation("progression.respec_skills"),

@@ -53,7 +53,7 @@ func (id CraftJobID) Validate() error {
 // Validate reports whether state is supported by this model slice.
 func (state CraftJobState) Validate() error {
 	switch state {
-	case CraftJobStateRunning, CraftJobStateCompleted:
+	case CraftJobStateRunning, CraftJobStateCompleted, CraftJobStateCancelled:
 		return nil
 	default:
 		return fmt.Errorf("craft job state %q: %w", state, ErrInvalidCraftJobState)
@@ -107,6 +107,14 @@ func (job CraftJob) Validate() error {
 			}
 		}
 	}
+	if job.State == CraftJobStateCancelled {
+		if job.CancelledAt == nil || job.CancelledAt.IsZero() {
+			return fmt.Errorf("cancelled_at: %w", ErrZeroCraftJobTime)
+		}
+		if job.CancelledAt.Before(job.StartedAt) {
+			return fmt.Errorf("cancelled_at %s before started_at %s: %w", *job.CancelledAt, job.StartedAt, ErrInvalidCraftJobTime)
+		}
+	}
 	return nil
 }
 
@@ -127,6 +135,10 @@ func cloneCraftJob(job CraftJob) CraftJob {
 	if job.CompletedAt != nil {
 		completedAt := *job.CompletedAt
 		cloned.CompletedAt = &completedAt
+	}
+	if job.CancelledAt != nil {
+		cancelledAt := *job.CancelledAt
+		cloned.CancelledAt = &cancelledAt
 	}
 	return cloned
 }

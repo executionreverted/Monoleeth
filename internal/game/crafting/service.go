@@ -17,6 +17,7 @@ import (
 
 const (
 	EventCraftJobCompleted = "craft.job_completed"
+	EventCraftJobCancelled = "craft.job_cancelled"
 
 	craftStartReason    economy.LedgerReason = "craft_start"
 	craftFeeReason      economy.LedgerReason = "craft_fee"
@@ -131,6 +132,7 @@ type CraftingService struct {
 	startInFlight     map[craftStartReferenceKey]*startCraftInFlight
 	completions       map[CraftJobID]CompleteCraftResult
 	completing        map[CraftJobID]*completionInFlight
+	cancellations     map[CraftJobID]CancelCraftResult
 }
 
 type completionInFlight struct {
@@ -189,6 +191,21 @@ type CompleteCraftResult struct {
 	Duplicate         bool                            `json:"duplicate"`
 }
 
+// CancelCraftInput describes one server-authoritative craft cancellation.
+type CancelCraftInput struct {
+	PlayerID     foundation.PlayerID       `json:"player_id"`
+	JobID        CraftJobID                `json:"job_id"`
+	ReferenceKey foundation.IdempotencyKey `json:"reference_id"`
+}
+
+// CancelCraftResult reports the reservation release applied by cancellation.
+type CancelCraftResult struct {
+	Job                CraftJob                         `json:"job"`
+	ReservationRelease economy.ReleaseReservationResult `json:"reservation_release"`
+	ReferenceKey       foundation.IdempotencyKey        `json:"reference_id"`
+	Duplicate          bool                             `json:"duplicate"`
+}
+
 // NewCraftingService returns an in-memory crafting orchestrator.
 func NewCraftingService(config CraftingServiceConfig) (*CraftingService, error) {
 	if len(config.Recipes.Definitions()) == 0 {
@@ -234,6 +251,7 @@ func NewCraftingService(config CraftingServiceConfig) (*CraftingService, error) 
 		startInFlight:   make(map[craftStartReferenceKey]*startCraftInFlight),
 		completions:     make(map[CraftJobID]CompleteCraftResult),
 		completing:      make(map[CraftJobID]*completionInFlight),
+		cancellations:   make(map[CraftJobID]CancelCraftResult),
 	}, nil
 }
 
@@ -241,7 +259,6 @@ func NewCraftingService(config CraftingServiceConfig) (*CraftingService, error) 
 func (service *CraftingService) SetEventEmitter(emitter EventEmitter) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
-
 	service.emitter = emitter
 }
 
@@ -534,6 +551,72 @@ func (service *CraftingService) CompleteCraft(input CompleteCraftInput) (Complet
 	return cloneCompleteCraftResult(result), nil
 }
 
+// CancelCraft releases reserved materials for a still-running job and marks
+// the job cancelled. Craft fees are not refunded in the MVP economy policy.
+func (service *CraftingService) CancelCraft(input CancelCraftInput) (CancelCraftResult, error) {
+	if service == nil {
+		return CancelCraftResult{}, ErrMissingRecipeCatalog
+	}
+	if err := input.validate(); err != nil {
+		return CancelCraftResult{}, err
+	}
+
+	service.mu.Lock()
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
+	defer func() {
+		service.mu.Unlock()
+		emitEvents(emitter, emitted)
+	}()
+
+	if previous, ok := service.cancellations[input.JobID]; ok {
+		if previous.Job.PlayerID != input.PlayerID {
+			return CancelCraftResult{}, fmt.Errorf("craft job %q player %q want %q: %w", input.JobID, input.PlayerID, previous.Job.PlayerID, ErrCraftJobPlayerMismatch)
+		}
+		if previous.ReferenceKey != input.ReferenceKey {
+			return CancelCraftResult{}, fmt.Errorf("craft job %q cancel reference %q: %w", input.JobID, input.ReferenceKey, ErrCraftCancelReferenceMismatch)
+		}
+		result := cloneCancelCraftResult(previous)
+		result.Duplicate = true
+		return result, nil
+	}
+	job, ok := service.jobs[input.JobID]
+	if !ok {
+		return CancelCraftResult{}, fmt.Errorf("craft job %q: %w", input.JobID, ErrCraftJobNotFound)
+	}
+	job = cloneCraftJob(job)
+	if job.PlayerID != input.PlayerID {
+		return CancelCraftResult{}, fmt.Errorf("craft job %q player %q want %q: %w", input.JobID, input.PlayerID, job.PlayerID, ErrCraftJobPlayerMismatch)
+	}
+	if job.State != CraftJobStateRunning {
+		return CancelCraftResult{}, fmt.Errorf("craft job %q state %q: %w", input.JobID, job.State, ErrInvalidCraftJobState)
+	}
+
+	releaseResult, err := service.reservations.ReleaseReservation(job.ReservationID)
+	if err != nil {
+		return CancelCraftResult{}, err
+	}
+	cancelledAt := service.clock.Now()
+	job.State = CraftJobStateCancelled
+	job.CancelledAt = &cancelledAt
+	if err := job.Validate(); err != nil {
+		return CancelCraftResult{}, err
+	}
+
+	result := CancelCraftResult{
+		Job:                job,
+		ReservationRelease: releaseResult,
+		ReferenceKey:       input.ReferenceKey,
+	}
+	service.jobs[input.JobID] = cloneCraftJob(job)
+	service.cancellations[input.JobID] = cloneCancelCraftResult(result)
+	emitter = service.emitter
+	if emitter != nil {
+		emitted = append(emitted, service.newEventLocked(EventCraftJobCancelled, jobCancelledEvent(job), cancelledAt))
+	}
+	return cloneCancelCraftResult(result), nil
+}
+
 // Job returns a craft job snapshot.
 func (service *CraftingService) Job(jobID CraftJobID) (CraftJob, bool) {
 	if service == nil {
@@ -585,6 +668,16 @@ func (input CompleteCraftInput) validate() error {
 		return err
 	}
 	return input.JobID.Validate()
+}
+
+func (input CancelCraftInput) validate() error {
+	if err := input.PlayerID.Validate(); err != nil {
+		return err
+	}
+	if err := input.JobID.Validate(); err != nil {
+		return err
+	}
+	return input.ReferenceKey.Validate()
 }
 
 func (service *CraftingService) reserveRequirements(
@@ -743,6 +836,19 @@ func jobCompletedEvent(result CompleteCraftResult) JobCompletedEvent {
 	return event
 }
 
+func jobCancelledEvent(job CraftJob) JobCancelledEvent {
+	cancelledAt := job.CancelledAt
+	event := JobCancelledEvent{
+		JobID:    job.JobID,
+		PlayerID: job.PlayerID,
+		RecipeID: job.RecipeSource.DefinitionID,
+	}
+	if cancelledAt != nil {
+		event.CancelledAt = *cancelledAt
+	}
+	return event
+}
+
 func (service *CraftingService) newEventLocked(eventType string, payload any, now time.Time) events.EventEnvelope {
 	service.nextEventSequence++
 	rawPayload, err := json.Marshal(payload)
@@ -778,6 +884,10 @@ func reservationIDForJob(jobID CraftJobID) economy.ReservationID {
 
 func craftCompleteReferenceKey(jobID CraftJobID) (foundation.IdempotencyKey, error) {
 	return foundation.CraftCompleteIdempotencyKey(jobID.String())
+}
+
+func CraftCancelReferenceKey(jobID CraftJobID) (foundation.IdempotencyKey, error) {
+	return foundation.CraftCancelIdempotencyKey(jobID.String())
 }
 
 func craftItemLocation(playerID foundation.PlayerID, location CraftLocation) (economy.ItemLocation, error) {
@@ -926,6 +1036,12 @@ func cloneCompleteCraftResult(result CompleteCraftResult) CompleteCraftResult {
 	result.XPGrant.Snapshot = result.XPGrant.Snapshot.Clone()
 	result.XPGrant.RoleLevelUps = append([]progression.RoleLevelChange(nil), result.XPGrant.RoleLevelUps...)
 	result.XPGrant.StatInvalidationSignals = append([]progression.StatInvalidationSignal(nil), result.XPGrant.StatInvalidationSignals...)
+	return result
+}
+
+func cloneCancelCraftResult(result CancelCraftResult) CancelCraftResult {
+	result.Job = cloneCraftJob(result.Job)
+	result.ReservationRelease.Moves = append([]economy.MoveItemResult(nil), result.ReservationRelease.Moves...)
 	return result
 }
 

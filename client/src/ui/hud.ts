@@ -515,6 +515,7 @@ export class HUD {
           break;
         case 'crafting-start':
         case 'crafting-complete':
+        case 'crafting-cancel':
           dispatchCraftingButtonAction(button, this.handlers);
           break;
         case 'route-select':

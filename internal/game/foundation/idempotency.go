@@ -29,6 +29,7 @@ const (
 	idempotencyQuestReroll           = "quest_reroll"
 	idempotencyCraftStart            = "craft_start"
 	idempotencyCraftComplete         = "craft_complete"
+	idempotencyCraftCancel           = "craft_cancel"
 	idempotencyDeathCargoDrop        = "death_cargo_drop"
 	idempotencyLootPickup            = "loot_pickup"
 	idempotencyAuctionBid            = "auction_bid"
@@ -89,6 +90,11 @@ func CraftStartIdempotencyKey(startReference string) (IdempotencyKey, error) {
 // CraftCompleteIdempotencyKey returns craft_complete:<job_id>.
 func CraftCompleteIdempotencyKey(jobID string) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyCraftComplete, jobID)
+}
+
+// CraftCancelIdempotencyKey returns craft_cancel:<job_id>.
+func CraftCancelIdempotencyKey(jobID string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyCraftCancel, jobID)
 }
 
 // DeathCargoDropIdempotencyKey returns death_cargo_drop:<death_id>:<stack_id>.
@@ -407,6 +413,7 @@ func idempotencyPartCount(operation string) (int, bool) {
 	case idempotencyQuestReward,
 		idempotencyCraftStart,
 		idempotencyCraftComplete,
+		idempotencyCraftCancel,
 		idempotencyLootPickup,
 		idempotencyAuctionClose,
 		idempotencyPremiumWebhook,

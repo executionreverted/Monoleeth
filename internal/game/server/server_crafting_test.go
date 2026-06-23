@@ -212,6 +212,98 @@ func TestCraftingCompleteGrantsOutputAndDuplicateDoesNotGrantTwice(t *testing.T)
 	}
 }
 
+func TestCraftingCancelReleasesReservationAndDuplicateDoesNotReleaseTwice(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSession(t, gameServer, "craft-cancel@example.com", "Craft Cancel")
+	seedCraftingStartInputs(t, gameServer, resolved.PlayerID, 40, 10)
+	job := startRefinedAlloyCraftForTest(t, gameServer, realtime.SessionID(resolved.SessionID.String()), "request-craft-cancel-start")
+
+	first := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-craft-cancel","op":"crafting.cancel","payload":{"job_id":"`+job.JobID+`"},"client_seq":2,"v":1}`),
+	)
+	if first.HasError {
+		t.Fatalf("crafting.cancel response error = %+v, want success", first.Error)
+	}
+	assertCraftingPayloadIsClientSafe(t, first.Response.Payload)
+	var payload struct {
+		Crafting  craftingSnapshotPayload  `json:"crafting"`
+		Job       craftingJobPayload       `json:"job"`
+		Inventory inventorySnapshotPayload `json:"inventory"`
+		Wallet    walletSnapshotPayload    `json:"wallet"`
+		Duplicate bool                     `json:"duplicate"`
+	}
+	if err := json.Unmarshal(first.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode crafting.cancel payload: %v", err)
+	}
+	if payload.Duplicate || payload.Job.JobID != job.JobID || payload.Job.State != "cancelled" {
+		t.Fatalf("cancel payload = %+v, want first cancelled job", payload)
+	}
+	if got := craftingStackQuantity(t, gameServer, resolved.PlayerID, economy.LocationKindAccountInventory, "iron_ore"); got != 40 {
+		t.Fatalf("account iron_ore after cancel = %d, want released 40", got)
+	}
+	if got := craftingStackQuantity(t, gameServer, resolved.PlayerID, economy.LocationKindCraftingReserved, "iron_ore"); got != 0 {
+		t.Fatalf("reserved iron_ore after cancel = %d, want 0", got)
+	}
+	cancelledCredits := payload.Wallet.Credits
+
+	duplicate := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-craft-cancel-retry","op":"crafting.cancel","payload":{"job_id":"`+job.JobID+`"},"client_seq":3,"v":1}`),
+	)
+	if duplicate.HasError {
+		t.Fatalf("duplicate crafting.cancel response error = %+v, want success", duplicate.Error)
+	}
+	var duplicatePayload struct {
+		Wallet    walletSnapshotPayload `json:"wallet"`
+		Duplicate bool                  `json:"duplicate"`
+	}
+	if err := json.Unmarshal(duplicate.Response.Payload, &duplicatePayload); err != nil {
+		t.Fatalf("decode duplicate crafting.cancel payload: %v", err)
+	}
+	if !duplicatePayload.Duplicate {
+		t.Fatal("duplicate = false, want true for second cancel request")
+	}
+	if duplicatePayload.Wallet.Credits != cancelledCredits {
+		t.Fatalf("duplicate cancel credits = %d, want %d", duplicatePayload.Wallet.Credits, cancelledCredits)
+	}
+	if got := craftingStackQuantity(t, gameServer, resolved.PlayerID, economy.LocationKindAccountInventory, "iron_ore"); got != 40 {
+		t.Fatalf("account iron_ore after duplicate cancel = %d, want still 40", got)
+	}
+}
+
+func TestCraftingCancelRejectsSpoofedFieldsAndWrongOwner(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	owner := createResolvedRuntimeSession(t, gameServer, "craft-cancel-owner@example.com", "Craft Cancel Owner")
+	other := createResolvedRuntimeSession(t, gameServer, "craft-cancel-other@example.com", "Craft Cancel Other")
+	seedCraftingStartInputs(t, gameServer, owner.PlayerID, 40, 10)
+	job := startRefinedAlloyCraftForTest(t, gameServer, realtime.SessionID(owner.SessionID.String()), "request-craft-cancel-sec-start")
+
+	spoof := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-craft-cancel-spoof","op":"crafting.cancel","payload":{"job_id":"`+job.JobID+`","reservation_release":{"state":"released"}},"client_seq":2,"v":1}`),
+	)
+	if !spoof.HasError || spoof.Error.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("spoof crafting.cancel response = %+v, want invalid payload", spoof)
+	}
+	if got := craftingStackQuantity(t, gameServer, owner.PlayerID, economy.LocationKindCraftingReserved, "iron_ore"); got != 20 {
+		t.Fatalf("reserved iron_ore after spoof = %d, want still 20", got)
+	}
+
+	wrongOwner := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(other.SessionID.String()),
+		[]byte(`{"request_id":"request-craft-cancel-wrong-owner","op":"crafting.cancel","payload":{"job_id":"`+job.JobID+`"},"client_seq":2,"v":1}`),
+	)
+	if !wrongOwner.HasError || wrongOwner.Error.Error.Code != foundation.CodeForbidden {
+		t.Fatalf("wrong-owner crafting.cancel response = %+v, want forbidden", wrongOwner)
+	}
+	if got := craftingStackQuantity(t, gameServer, owner.PlayerID, economy.LocationKindCraftingReserved, "iron_ore"); got != 20 {
+		t.Fatalf("reserved iron_ore after wrong owner = %d, want still 20", got)
+	}
+}
+
 func seedCraftingStartInputs(t *testing.T, gameServer *Server, playerID foundation.PlayerID, ore int64, carbon int64) {
 	t.Helper()
 	location, err := economy.NewItemLocation(economy.LocationKindAccountInventory, playerID.String())

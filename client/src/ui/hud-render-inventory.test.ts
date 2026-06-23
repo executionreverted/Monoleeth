@@ -51,6 +51,61 @@ describe('cargoPanel crafting tab', () => {
     expect(html).toMatch(/data-action="crafting-start"[^>]*disabled[^>]*>Starting/);
     expect(html).toMatch(/data-action="crafting-complete"[^>]*data-job-id="craft-job-ready"[^>]*>Complete/);
     expect(html).not.toMatch(/data-action="crafting-complete"[^>]*disabled[^>]*>Complete/);
+    expect(html).toMatch(/data-action="crafting-cancel"[^>]*data-job-id="craft-job-ready"[^>]*>Cancel/);
+    expect(html).not.toMatch(/data-action="crafting-cancel"[^>]*disabled[^>]*>Cancel/);
+  });
+
+  test('renders pending cancellation as a locked craft action', () => {
+    const state = craftingState({
+      pendingCommands: {
+        'request-craft-cancel': {
+          requestID: 'request-craft-cancel',
+          op: OPERATIONS.craftingCancel,
+          payload: { job_id: 'craft-job-running' },
+          queuedAt: 1000,
+        },
+      },
+      crafting: {
+        recipes: [craftingRecipe()],
+        active_jobs: [
+          {
+            job_id: 'craft-job-running',
+            recipe_id: 'refined_alloy_batch',
+            state: 'running',
+            started_at: 1000,
+            completes_at: 1500,
+          },
+        ],
+      },
+      lastServerTime: 1200,
+    });
+    const html = cargoPanel(state);
+
+    expect(html).toMatch(/data-action="crafting-cancel"[^>]*data-job-id="craft-job-running"[^>]*disabled[^>]*>Canceling/);
+    expect(html).toContain('Craft cancellation pending.');
+  });
+
+  test('renders cancelled craft jobs as terminal server state', () => {
+    const state = craftingState({
+      crafting: {
+        recipes: [craftingRecipe()],
+        active_jobs: [
+          {
+            job_id: 'craft-job-cancelled',
+            recipe_id: 'refined_alloy_batch',
+            state: 'cancelled',
+            started_at: 1000,
+            completes_at: 1500,
+          },
+        ],
+      },
+      lastServerTime: 2000,
+    });
+    const html = cargoPanel(state);
+
+    expect(html).toMatch(/data-action="crafting-complete"[^>]*data-job-id="craft-job-cancelled"[^>]*disabled[^>]*>Canceled/);
+    expect(html).not.toContain('data-action="crafting-cancel"');
+    expect(html).toContain('Craft job cancelled.');
   });
 });
 
