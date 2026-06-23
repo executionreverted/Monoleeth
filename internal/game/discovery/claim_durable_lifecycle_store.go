@@ -134,6 +134,9 @@ func (store *InMemoryClaimDurableLifecycleStore) ClaimPendingClaimOutboxRecordsF
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateClaimDurableLifecycleReadbacksLocked(); err != nil {
+		return nil, err
+	}
 
 	records := make([]ClaimOutboxRecord, 0, limit)
 	for _, reference := range store.references {
@@ -169,6 +172,9 @@ func (store *InMemoryClaimDurableLifecycleStore) MarkClaimOutboxPublished(
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateClaimDurableLifecycleReadbacksLocked(); err != nil {
+		return ClaimOutboxRecord{}, false, err
+	}
 
 	reference, ok := store.outboxReferenceLocked(outboxID)
 	if !ok {
@@ -197,6 +203,9 @@ func (store *InMemoryClaimDurableLifecycleStore) MarkClaimOutboxFailed(
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateClaimDurableLifecycleReadbacksLocked(); err != nil {
+		return ClaimOutboxRecord{}, false, err
+	}
 
 	reference, ok := store.outboxReferenceLocked(outboxID)
 	if !ok {
@@ -231,6 +240,9 @@ func (store *InMemoryClaimDurableLifecycleStore) ReleaseExpiredClaimOutboxRecord
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateClaimDurableLifecycleReadbacksLocked(); err != nil {
+		return nil, err
+	}
 
 	records := make([]ClaimOutboxRecord, 0, limit)
 	for _, reference := range store.references {
@@ -270,6 +282,9 @@ func (store *InMemoryClaimDurableLifecycleStore) RetryFailedClaimOutboxRecordsFo
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if err := store.validateClaimDurableLifecycleReadbacksLocked(); err != nil {
+		return nil, err
+	}
 
 	records := make([]ClaimOutboxRecord, 0, limit)
 	for _, reference := range store.references {
@@ -309,12 +324,7 @@ func (store *InMemoryClaimDurableLifecycleStore) CommittedClaimDurableLifecycleP
 		return ClaimDurableLifecyclePlan{}, false, nil
 	}
 	cloned := cloneClaimDurableLifecyclePlan(plan)
-	if err := validateClaimOutboxReadbackState(cloned.Commit.Outbox); err != nil {
-		return ClaimDurableLifecyclePlan{}, false, err
-	}
-	validationPlan := cloneClaimDurableLifecyclePlan(cloned)
-	validationPlan.Commit.Outbox = pendingClaimOutboxRecordForCommitValidation(validationPlan.Commit.Outbox)
-	if _, err := normalizeClaimDurableLifecyclePlan(validationPlan); err != nil {
+	if err := validateClaimDurableLifecycleReadbackPlan(cloned); err != nil {
 		return ClaimDurableLifecyclePlan{}, false, err
 	}
 	return cloned, true, nil
@@ -353,6 +363,31 @@ func (store *InMemoryClaimDurableLifecycleStore) outboxReferenceLocked(outboxID 
 
 func claimDurableLifecycleOutboxClaimMatches(record ClaimOutboxRecord, claimToken string) bool {
 	return record.Status == ClaimOutboxStatusInFlight && record.ClaimToken != "" && record.ClaimToken == claimToken
+}
+
+func (store *InMemoryClaimDurableLifecycleStore) validateClaimDurableLifecycleReadbacksLocked() error {
+	for _, reference := range store.references {
+		plan, ok := store.plans[reference]
+		if !ok {
+			return ErrInvalidClaimDurableCommit
+		}
+		if err := validateClaimDurableLifecycleReadbackPlan(plan); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateClaimDurableLifecycleReadbackPlan(plan ClaimDurableLifecyclePlan) error {
+	cloned := cloneClaimDurableLifecyclePlan(plan)
+	if err := validateClaimOutboxReadbackState(cloned.Commit.Outbox); err != nil {
+		return err
+	}
+	cloned.Commit.Outbox = pendingClaimOutboxRecordForCommitValidation(cloned.Commit.Outbox)
+	if _, err := normalizeClaimDurableLifecyclePlan(cloned); err != nil {
+		return err
+	}
+	return nil
 }
 
 func normalizeClaimDurableLifecyclePlan(plan ClaimDurableLifecyclePlan) (ClaimDurableLifecyclePlan, error) {

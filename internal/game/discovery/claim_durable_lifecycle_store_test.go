@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"gameproject/internal/game/foundation"
 )
 
 func TestClaimDurableLifecycleStoreCommitsLifecyclePlan(t *testing.T) {
@@ -431,6 +433,195 @@ func TestClaimDurableLifecycleStoreLeaseReleaseNoOps(t *testing.T) {
 	}
 }
 
+func TestClaimDurableLifecycleStorePublisherRejectsCorruptPendingReadbackRows(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	store := NewInMemoryClaimDurableLifecycleStore()
+	corrupt := cloneClaimDurableLifecyclePlan(plan)
+	corrupt.Commit.Outbox.ReferenceKey = "claim_planet:wrong-player:wrong-planet"
+	store.plans[plan.Commit.Boundary.ClaimReference] = corrupt
+	store.references = append(store.references, plan.Commit.Boundary.ClaimReference)
+
+	claimed, err := store.ClaimPendingClaimOutboxRecordsForPublish(1, testTime(82))
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) || len(claimed) != 0 {
+		t.Fatalf("ClaimPendingClaimOutboxRecordsForPublish(corrupt) = %+v/%v, want invalid durable commit", claimed, err)
+	}
+	rows := store.OutboxRecords()
+	if len(rows) != 1 || rows[0].Status != ClaimOutboxStatusPending || rows[0].Attempts != 0 {
+		t.Fatalf("corrupt pending outbox mutated after claim error: %+v", rows)
+	}
+}
+
+func TestClaimDurableLifecycleStorePublisherBatchValidationPreventsPartialClaim(t *testing.T) {
+	valid := claimDurableLifecyclePlanForStoreTestWithSuffix(t, "valid")
+	corrupt := claimDurableLifecyclePlanForStoreTestWithSuffix(t, "corrupt")
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(valid); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan(valid) error = %v, want nil", err)
+	}
+	corrupt.Commit.Outbox.ReferenceKey = valid.Commit.Boundary.ReferenceKey
+	store.plans[corrupt.Commit.Boundary.ClaimReference] = corrupt
+	store.references = append(store.references, corrupt.Commit.Boundary.ClaimReference)
+
+	claimed, err := store.ClaimPendingClaimOutboxRecordsForPublish(1, testTime(83))
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) || len(claimed) != 0 {
+		t.Fatalf("ClaimPendingClaimOutboxRecordsForPublish(valid before corrupt) = %+v/%v, want invalid durable commit", claimed, err)
+	}
+	rows := store.OutboxRecords()
+	if len(rows) == 0 || rows[0].Status != ClaimOutboxStatusPending || rows[0].Attempts != 0 {
+		t.Fatalf("valid pending outbox mutated before corrupt claim error: %+v", rows)
+	}
+}
+
+func TestClaimDurableLifecycleStorePublisherMutationsRejectCorruptReadbackRows(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(plan); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan() error = %v, want nil", err)
+	}
+	claimed, err := store.ClaimPendingClaimOutboxRecordsForPublish(1, testTime(84))
+	if err != nil {
+		t.Fatalf("ClaimPendingClaimOutboxRecordsForPublish() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 || claimed[0].ClaimToken == "" {
+		t.Fatalf("claimed durable claim outbox rows = %+v, want one in-flight row", claimed)
+	}
+
+	corruptInFlight := cloneClaimDurableLifecyclePlan(store.plans[plan.Commit.Boundary.ClaimReference])
+	corruptInFlight.Commit.Outbox.ReferenceKey = "claim_planet:wrong-player:wrong-planet"
+	store.plans[plan.Commit.Boundary.ClaimReference] = corruptInFlight
+
+	if record, ok, err := store.MarkClaimOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(85)); !errors.Is(err, ErrInvalidClaimDurableCommit) || ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimOutboxPublished(corrupt) = %+v/%v/%v, want invalid durable commit", record, ok, err)
+	}
+	if record, ok, err := store.MarkClaimOutboxFailed(claimed[0].OutboxID, claimed[0].ClaimToken, "temporary", testTime(85)); !errors.Is(err, ErrInvalidClaimDurableCommit) || ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimOutboxFailed(corrupt) = %+v/%v/%v, want invalid durable commit", record, ok, err)
+	}
+	released, err := store.ReleaseExpiredClaimOutboxRecordsForPublish(1, testTime(85), testTime(86))
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) || len(released) != 0 {
+		t.Fatalf("ReleaseExpiredClaimOutboxRecordsForPublish(corrupt) = %+v/%v, want invalid durable commit", released, err)
+	}
+
+	corruptFailed := corruptInFlight
+	corruptFailed.Commit.Outbox.Status = ClaimOutboxStatusFailed
+	corruptFailed.Commit.Outbox.FailedAt = testTime(87)
+	corruptFailed.Commit.Outbox.LastError = "temporary"
+	store.plans[plan.Commit.Boundary.ClaimReference] = corruptFailed
+	retried, err := store.RetryFailedClaimOutboxRecordsForPublish(1, testTime(88))
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) || len(retried) != 0 {
+		t.Fatalf("RetryFailedClaimOutboxRecordsForPublish(corrupt) = %+v/%v, want invalid durable commit", retried, err)
+	}
+
+	rows := store.OutboxRecords()
+	if len(rows) != 1 || rows[0].Status != ClaimOutboxStatusFailed || rows[0].RetriedAt.Equal(testTime(88)) {
+		t.Fatalf("corrupt failed outbox mutated after retry error: %+v", rows)
+	}
+}
+
+func TestClaimDurableLifecycleStorePublisherMutationsValidateAllReadbackRows(t *testing.T) {
+	valid := claimDurableLifecyclePlanForStoreTestWithSuffix(t, "publish-valid")
+	corrupt := claimDurableLifecyclePlanForStoreTestWithSuffix(t, "publish-corrupt")
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(valid); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan(valid) error = %v, want nil", err)
+	}
+	claimed, err := store.ClaimPendingClaimOutboxRecordsForPublish(1, testTime(88))
+	if err != nil {
+		t.Fatalf("ClaimPendingClaimOutboxRecordsForPublish(valid) error = %v, want nil", err)
+	}
+	if len(claimed) != 1 || claimed[0].ClaimToken == "" {
+		t.Fatalf("claimed durable claim outbox rows = %+v, want one in-flight row", claimed)
+	}
+	corrupt.Commit.Outbox.ReferenceKey = valid.Commit.Boundary.ReferenceKey
+	store.plans[corrupt.Commit.Boundary.ClaimReference] = corrupt
+	store.references = append(store.references, corrupt.Commit.Boundary.ClaimReference)
+
+	if record, ok, err := store.MarkClaimOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(89)); !errors.Is(err, ErrInvalidClaimDurableCommit) || ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimOutboxPublished(valid before corrupt) = %+v/%v/%v, want invalid durable commit", record, ok, err)
+	}
+	if record, ok, err := store.MarkClaimOutboxFailed(claimed[0].OutboxID, claimed[0].ClaimToken, "temporary", testTime(89)); !errors.Is(err, ErrInvalidClaimDurableCommit) || ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimOutboxFailed(valid before corrupt) = %+v/%v/%v, want invalid durable commit", record, ok, err)
+	}
+	rows := store.OutboxRecords()
+	if len(rows) == 0 || rows[0].Status != ClaimOutboxStatusInFlight || rows[0].PublishedAt.Equal(testTime(89)) || rows[0].FailedAt.Equal(testTime(89)) {
+		t.Fatalf("valid in-flight outbox mutated before corrupt publish/fail error: %+v", rows)
+	}
+}
+
+func TestClaimDurableLifecycleStorePublisherMutationsRejectCorruptLookupRows(t *testing.T) {
+	plan := claimDurableLifecyclePlanForStoreTest(t)
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(plan); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan() error = %v, want nil", err)
+	}
+	claimed, err := store.ClaimPendingClaimOutboxRecordsForPublish(1, testTime(90))
+	if err != nil {
+		t.Fatalf("ClaimPendingClaimOutboxRecordsForPublish() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 || claimed[0].ClaimToken == "" || claimed[0].OutboxID == "" {
+		t.Fatalf("claimed durable claim outbox rows = %+v, want one in-flight row", claimed)
+	}
+
+	corrupt := cloneClaimDurableLifecyclePlan(store.plans[plan.Commit.Boundary.ClaimReference])
+	corrupt.Commit.Outbox.OutboxID = ""
+	store.plans[plan.Commit.Boundary.ClaimReference] = corrupt
+
+	if record, ok, err := store.MarkClaimOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, testTime(91)); !errors.Is(err, ErrInvalidClaimDurableCommit) || ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimOutboxPublished(corrupt lookup) = %+v/%v/%v, want invalid durable commit", record, ok, err)
+	}
+	if record, ok, err := store.MarkClaimOutboxFailed(claimed[0].OutboxID, claimed[0].ClaimToken, "temporary", testTime(91)); !errors.Is(err, ErrInvalidClaimDurableCommit) || ok || record.OutboxID != "" {
+		t.Fatalf("MarkClaimOutboxFailed(corrupt lookup) = %+v/%v/%v, want invalid durable commit", record, ok, err)
+	}
+	rows := store.OutboxRecords()
+	if len(rows) != 1 || rows[0].Status != ClaimOutboxStatusInFlight || rows[0].OutboxID != "" {
+		t.Fatalf("corrupt lookup outbox mutated after publish/fail error: %+v", rows)
+	}
+}
+
+func TestClaimDurableLifecycleStorePublisherBatchValidationPreventsPartialReleaseAndRetry(t *testing.T) {
+	valid := claimDurableLifecyclePlanForStoreTestWithSuffix(t, "release-valid")
+	corrupt := claimDurableLifecyclePlanForStoreTestWithSuffix(t, "release-corrupt")
+	store := NewInMemoryClaimDurableLifecycleStore()
+	if _, err := store.ApplyClaimDurableLifecyclePlan(valid); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan(valid) error = %v, want nil", err)
+	}
+	claimed, err := store.ClaimPendingClaimOutboxRecordsForPublish(1, testTime(89))
+	if err != nil {
+		t.Fatalf("ClaimPendingClaimOutboxRecordsForPublish() error = %v, want nil", err)
+	}
+	if len(claimed) != 1 || claimed[0].ClaimToken == "" {
+		t.Fatalf("claimed durable claim outbox rows = %+v, want one in-flight row", claimed)
+	}
+	corrupt.Commit.Outbox.ReferenceKey = valid.Commit.Boundary.ReferenceKey
+	store.plans[corrupt.Commit.Boundary.ClaimReference] = corrupt
+	store.references = append(store.references, corrupt.Commit.Boundary.ClaimReference)
+
+	released, err := store.ReleaseExpiredClaimOutboxRecordsForPublish(1, testTime(90), testTime(91))
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) || len(released) != 0 {
+		t.Fatalf("ReleaseExpiredClaimOutboxRecordsForPublish(valid before corrupt) = %+v/%v, want invalid durable commit", released, err)
+	}
+	rows := store.OutboxRecords()
+	if len(rows) == 0 || rows[0].Status != ClaimOutboxStatusInFlight || rows[0].ClaimToken == "" {
+		t.Fatalf("valid in-flight outbox mutated before corrupt release error: %+v", rows)
+	}
+
+	delete(store.plans, corrupt.Commit.Boundary.ClaimReference)
+	store.references = store.references[:1]
+	if _, ok, err := store.MarkClaimOutboxFailed(claimed[0].OutboxID, claimed[0].ClaimToken, "temporary", testTime(92)); err != nil || !ok {
+		t.Fatalf("MarkClaimOutboxFailed(valid) = ok %v err %v, want true nil", ok, err)
+	}
+	store.plans[corrupt.Commit.Boundary.ClaimReference] = corrupt
+	store.references = append(store.references, corrupt.Commit.Boundary.ClaimReference)
+
+	retried, err := store.RetryFailedClaimOutboxRecordsForPublish(1, testTime(93))
+	if !errors.Is(err, ErrInvalidClaimDurableCommit) || len(retried) != 0 {
+		t.Fatalf("RetryFailedClaimOutboxRecordsForPublish(valid before corrupt) = %+v/%v, want invalid durable commit", retried, err)
+	}
+	rows = store.OutboxRecords()
+	if len(rows) == 0 || rows[0].Status != ClaimOutboxStatusFailed || rows[0].RetriedAt.Equal(testTime(93)) {
+		t.Fatalf("valid failed outbox mutated before corrupt retry error: %+v", rows)
+	}
+}
+
 func TestClaimDurableLifecycleStoreReadbackMissingAndInvalidReferences(t *testing.T) {
 	plan := claimDurableLifecyclePlanForStoreTest(t)
 	store := NewInMemoryClaimDurableLifecycleStore()
@@ -512,7 +703,49 @@ func TestClaimDurableLifecyclePlanApplyDurableLifecycleRejectsInvalidInputs(t *t
 
 func claimDurableLifecyclePlanForStoreTest(t *testing.T) ClaimDurableLifecyclePlan {
 	t.Helper()
-	beginPlan, initPlan, commitPlan := claimDurableLifecyclePlansForTest(t)
+	return claimDurableLifecyclePlanForStoreTestWithSuffix(t, "store")
+}
+
+func claimDurableLifecyclePlanForStoreTestWithSuffix(t *testing.T, suffix string) ClaimDurableLifecyclePlan {
+	t.Helper()
+	store := NewInMemoryStore()
+	planet := claimTestPlanet(foundation.PlanetID("planet-claim-durable-lifecycle-" + suffix))
+	materializeClaimTestPlanet(t, store, planet)
+	upsertClaimIntel(t, store, "player-old-scout", planet.ID, testTime(1))
+	reference := canonicalClaimReference(t, claimTestPlayerID, planet.ID)
+
+	beginResult := beginClaimWithXCoreForDurableBeginTest(t, store, planet.ID, reference)
+	beginPlan, err := beginResult.DurableBeginPlan()
+	if err != nil {
+		t.Fatalf("DurableBeginPlan() error = %v, want nil", err)
+	}
+
+	initRecord := claimProductionInitializationRecordForTest(
+		t,
+		reference,
+		planet.ID,
+		planet.Level,
+		beginResult.Boundary.Boundary.ClaimedAt,
+	)
+	initPlan, err := initRecord.DurablePlan(&beginResult.Boundary.Boundary)
+	if err != nil {
+		t.Fatalf("production init DurablePlan() error = %v, want nil", err)
+	}
+
+	completed, err := store.CompletePlanetClaimBoundary(CompletePlanetClaimBoundaryInput{
+		ClaimReference:    reference,
+		PlayerID:          claimTestPlayerID,
+		PlanetID:          planet.ID,
+		CompletedAt:       testTime(40),
+		StaleListingCount: 1,
+	})
+	if err != nil {
+		t.Fatalf("CompletePlanetClaimBoundary() error = %v, want nil", err)
+	}
+	commitPlan, err := completed.DurableCommitPlan()
+	if err != nil {
+		t.Fatalf("DurableCommitPlan() error = %v, want nil", err)
+	}
 	commitPlanWithXCore, err := NewClaimDurableCommitPlan(
 		&commitPlan.Boundary,
 		&commitPlan.Reference,

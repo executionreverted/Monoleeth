@@ -137,7 +137,11 @@ for phase status; this file is a compact pending-work index.
   during runtime ticks with an event sink.
   Phase07BM couples that drain with filtered per-session event collection so
   committed realtime projections are handed to the sink delivery path instead
-  of remaining in the command-event queue after publish.
+  of remaining in the command-event queue after publish. Phase07CN makes the
+  claim lifecycle-store publisher/reaper mutations revalidate committed
+  lifecycle/outbox readbacks before claiming, publishing, failing, releasing,
+  or retrying rows, so corrupt process-local rows fail closed without partial
+  worker mutation.
   Durable DB rows, cross-process leases, scheduled publisher workers, and
   cross-process enforcement remain open.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
