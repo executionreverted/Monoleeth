@@ -34,6 +34,10 @@ Current slice completed:
   `craft.job_cancelled` event once, and reconciles crafting/inventory/wallet/
   progression snapshots. Queue/location UX balancing and durable crash recovery
   after partial complete or cancel remain open.
+- Phase06G crafting event recovery follow-up: client reducer now uses
+  authoritative `crafting.recipes` events to clear matching pending
+  `crafting.start`, `crafting.complete`, and `crafting.cancel` commands when a
+  mutation response is lost but the server crafting snapshot arrives.
 - Remaining mutation commands must still use ledger/service-backed flows before
   any UI action is enabled.
 - Phase 10 records the remaining browser/server contracts for skill unlock,
@@ -211,6 +215,8 @@ Mockup areas covered:
 - [x] Browser crafting start/complete/cancel controls send only server-safe
       recipe/job ids plus station location intent where required, and lock on
       matching pending commands.
+- [x] Crafting snapshot events recover lost mutation responses and unblock
+      matching browser controls from server job state.
 - [x] Browser crafting timer survives reconnect snapshot.
 
 ## Done Criteria

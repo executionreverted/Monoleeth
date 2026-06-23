@@ -257,12 +257,16 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
       };
 
     case CLIENT_EVENTS.craftingRecipes:
+    {
+      const crafting = parseCraftingSummary(envelope.payload, state.crafting);
+      const nextState = withoutPendingCraftingMutations(state, crafting);
       return {
-        ...state,
-        crafting: parseCraftingSummary(envelope.payload, state.crafting),
+        ...nextState,
+        crafting,
         lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
       };
+    }
 
     case CLIENT_EVENTS.scanPulseStarted:
     {
@@ -820,6 +824,36 @@ function withoutPendingPlanetBuildingMutations(
       pending.op === OPERATIONS.planetBuildingUpgrade &&
       pending.payload?.building_id &&
       buildingIDs.has(String(pending.payload.building_id))
+    ) {
+      changed = true;
+      continue;
+    }
+    pendingCommands[requestID] = pending;
+  }
+  return changed ? { ...state, pendingCommands } : state;
+}
+
+function withoutPendingCraftingMutations(
+  state: ClientState,
+  crafting: NonNullable<ClientState['crafting']>,
+): ClientState {
+  const activeJobIDs = new Set(crafting.active_jobs.map((job) => job.job_id));
+  const activeRecipeIDs = new Set(crafting.active_jobs.map((job) => job.recipe_id));
+  const pendingCommands: ClientState['pendingCommands'] = {};
+  let changed = false;
+  for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
+    if (
+      pending.op === OPERATIONS.craftingStart &&
+      pending.payload?.recipe_id &&
+      activeRecipeIDs.has(String(pending.payload.recipe_id))
+    ) {
+      changed = true;
+      continue;
+    }
+    if (
+      (pending.op === OPERATIONS.craftingComplete || pending.op === OPERATIONS.craftingCancel) &&
+      pending.payload?.job_id &&
+      !activeJobIDs.has(String(pending.payload.job_id))
     ) {
       changed = true;
       continue;
