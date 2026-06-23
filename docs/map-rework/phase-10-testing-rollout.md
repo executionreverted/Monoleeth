@@ -76,9 +76,9 @@ marked `Open` are not implemented rollout controls yet.
   Server-side drop matrix coverage now includes seeded public maps `1-1`,
   `1-2`, and medium PvP `1-3`. `TestPlayableVerticalServerAuthoritativeLoop`
   now ties a single server-authoritative loop across authenticated `move_to`,
-  starter combat/loot, route create/settle, portal handoff, destination scan,
-  planet detail, Core claim, and production initialization. A focused browser
-  claim proof now
+  portal handoff, destination combat/loot, destination scan, planet detail,
+  Core claim, production initialization, and route create/settle. A focused
+  browser claim proof now
   exists for public `1-1`, but browser drop flow and broader browser
   scanner/claim/drop matrix variants remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone

@@ -2,10 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
@@ -33,10 +35,10 @@ func TestPlayableVerticalServerAuthoritativeLoop(t *testing.T) {
 	}
 
 	playableVerticalMove(t, gameServer, resolved)
-	dropID := playableVerticalCombatLoot(t, gameServer, resolved)
-	playableVerticalRouteSettle(t, gameServer, resolved, clock)
 	playableVerticalPortalToDestination(t, gameServer, resolved)
+	dropID := playableVerticalCombatLoot(t, gameServer, resolved, "outer_ring_scout_drone", clock)
 	planetID := playableVerticalScanClaim(t, gameServer, resolved)
+	playableVerticalRouteSettle(t, gameServer, resolved, clock)
 
 	if got := inventoryStackQuantityForTest(gameServer, resolved.PlayerID, "x_core"); got != 0 {
 		t.Fatalf("x_core quantity after claim = %d, want consumed", got)
@@ -89,53 +91,53 @@ func playableVerticalMove(t *testing.T, gameServer *Server, resolved auth.Resolv
 	requireEventTypeForTest(t, events, realtime.EventPositionCorrected)
 }
 
-func playableVerticalCombatLoot(t *testing.T, gameServer *Server, resolved auth.ResolvedSession) string {
+func playableVerticalCombatLoot(
+	t *testing.T,
+	gameServer *Server,
+	resolved auth.ResolvedSession,
+	npcType string,
+	clock *testutil.FakeClock,
+) string {
 	t.Helper()
 
-	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
-	combat := gatewayJSON(t, gameServer, resolved, "vertical-combat", realtime.OperationCombatUseSkill, map[string]any{
-		"skill_id":  "basic_laser",
-		"target_id": "entity_training_npc",
-	}, 2)
-	assertPayloadOmitsPlayerOwner(t, "vertical combat response", combat, resolved.PlayerID)
-	var combatPayload struct {
-		Accepted bool `json:"accepted"`
-		Killed   bool `json:"killed"`
-	}
-	if err := json.Unmarshal(combat, &combatPayload); err != nil {
-		t.Fatalf("decode vertical combat payload: %v", err)
-	}
-	if !combatPayload.Accepted || !combatPayload.Killed {
-		t.Fatalf("vertical combat payload = %+v, want accepted kill", combatPayload)
-	}
-	events, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationCombatUseSkill, resolved.PlayerID)
-	if err != nil {
-		t.Fatalf("post vertical combat events: %v", err)
-	}
+	targetID := playableVerticalNPCEntityID(t, gameServer, resolved.PlayerID, npcType)
+	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, targetID, world.Vec2{})
+
 	var dropID string
-	for _, event := range events {
-		if event.Type != realtime.EventLootCreated {
-			continue
+	for attempt := 1; attempt <= 4; attempt++ {
+		combat := gatewayJSON(t, gameServer, resolved, fmt.Sprintf("vertical-combat-%d", attempt), realtime.OperationCombatUseSkill, map[string]any{
+			"skill_id":  "basic_laser",
+			"target_id": targetID.String(),
+		}, uint64(2+attempt))
+		assertPayloadOmitsPlayerOwner(t, "vertical combat response", combat, resolved.PlayerID)
+		var combatPayload struct {
+			Accepted bool `json:"accepted"`
+			Killed   bool `json:"killed"`
 		}
-		var payload struct {
-			DropID string `json:"drop_id"`
-			ItemID string `json:"item_id"`
+		if err := json.Unmarshal(combat, &combatPayload); err != nil {
+			t.Fatalf("decode vertical combat payload: %v", err)
 		}
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			t.Fatalf("decode vertical loot.created: %v", err)
+		if !combatPayload.Accepted {
+			t.Fatalf("vertical combat attempt %d payload = %+v, want accepted", attempt, combatPayload)
 		}
-		if payload.ItemID == "raw_ore" {
-			dropID = payload.DropID
+		events, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationCombatUseSkill, resolved.PlayerID)
+		if err != nil {
+			t.Fatalf("post vertical combat events: %v", err)
 		}
+		if combatPayload.Killed {
+			dropID = verticalRawOreDropID(t, events)
+			break
+		}
+		clock.Advance(time.Duration(runtimeBasicLaserCooldownMS+50) * time.Millisecond)
 	}
 	if dropID == "" {
-		t.Fatalf("vertical combat events = %+v, want raw_ore loot.created", events)
+		t.Fatalf("vertical combat did not create raw_ore drop for npc_type %q", npcType)
 	}
 
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, world.EntityID(dropID), world.Vec2{})
 	pickup := gatewayJSON(t, gameServer, resolved, "vertical-loot", realtime.OperationLootPickup, map[string]any{
 		"drop_id": dropID,
-	}, 3)
+	}, 7)
 	var pickupPayload struct {
 		Accepted bool                 `json:"accepted"`
 		Cargo    cargoSnapshotPayload `json:"cargo"`
@@ -152,6 +154,44 @@ func playableVerticalCombatLoot(t *testing.T, gameServer *Server, resolved auth.
 	return dropID
 }
 
+func playableVerticalNPCEntityID(t *testing.T, gameServer *Server, playerID foundation.PlayerID, npcType string) world.EntityID {
+	t.Helper()
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	instance, _, err := gameServer.runtime.activeMapInstanceLocked(playerID)
+	if err != nil {
+		t.Fatalf("active map for vertical combat: %v", err)
+	}
+	record := requireSpawnRecordByNPCType(t, instance, npcType)
+	if !record.Alive {
+		t.Fatalf("vertical combat spawn record = %+v, want live %q", record, npcType)
+	}
+	return record.EntityID
+}
+
+func verticalRawOreDropID(t *testing.T, events []realtime.EventEnvelope) string {
+	t.Helper()
+
+	for _, event := range events {
+		if event.Type != realtime.EventLootCreated {
+			continue
+		}
+		var payload struct {
+			DropID string `json:"drop_id"`
+			ItemID string `json:"item_id"`
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatalf("decode vertical loot.created: %v", err)
+		}
+		if payload.ItemID == "raw_ore" {
+			return payload.DropID
+		}
+	}
+	t.Fatalf("vertical combat events = %+v, want raw_ore loot.created", events)
+	return ""
+}
+
 func playableVerticalRouteSettle(t *testing.T, gameServer *Server, resolved auth.ResolvedSession, clock *testutil.FakeClock) {
 	t.Helper()
 
@@ -162,7 +202,7 @@ func playableVerticalRouteSettle(t *testing.T, gameServer *Server, resolved auth
 		"destination_planet_id": destinationID.String(),
 		"resource_item_id":      "refined_alloy",
 		"amount_per_hour":       40,
-	}, 4)
+	}, 11)
 	assertPayloadOmitsInternalMapIdentity(t, "vertical route.create response", create)
 	var createPayload struct {
 		Route routePayload `json:"route"`
@@ -180,7 +220,7 @@ func playableVerticalRouteSettle(t *testing.T, gameServer *Server, resolved auth
 	clock.Advance(time.Hour)
 	settle := gatewayJSON(t, gameServer, resolved, "vertical-route-settle", realtime.OperationRouteSettle, map[string]any{
 		"route_id": createPayload.Route.RouteID,
-	}, 5)
+	}, 12)
 	assertPayloadOmitsInternalMapIdentity(t, "vertical route.settle response", settle)
 	var settlePayload struct {
 		Settlement routeSettlementPayload `json:"settlement"`
@@ -204,7 +244,7 @@ func playableVerticalPortalToDestination(t *testing.T, gameServer *Server, resol
 	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 9800, Y: 5000})
 	portal := gatewayJSON(t, gameServer, resolved, "vertical-portal", realtime.OperationPortalEnter, map[string]any{
 		"portal_id": "east_gate",
-	}, 6)
+	}, 2)
 	assertPayloadOmitsInternalMapIdentity(t, "vertical portal response", portal)
 	var payload struct {
 		Accepted       bool                 `json:"accepted"`
@@ -225,7 +265,7 @@ func playableVerticalPortalToDestination(t *testing.T, gameServer *Server, resol
 func playableVerticalScanClaim(t *testing.T, gameServer *Server, resolved auth.ResolvedSession) string {
 	t.Helper()
 
-	scan := gatewayJSON(t, gameServer, resolved, "vertical-scan", realtime.OperationScanPulse, map[string]any{}, 7)
+	scan := gatewayJSON(t, gameServer, resolved, "vertical-scan", realtime.OperationScanPulse, map[string]any{}, 8)
 	assertPayloadOmitsScannerNoFogTruth(t, "vertical scan response", scan)
 	assertPayloadOmitsActiveMapInternalTruth(t, "vertical scan response", scan)
 	var scanPayload struct {
@@ -243,7 +283,7 @@ func playableVerticalScanClaim(t *testing.T, gameServer *Server, resolved auth.R
 
 	detail := gatewayJSON(t, gameServer, resolved, "vertical-detail", realtime.OperationPlanetDetail, map[string]any{
 		"planet_id": scanPayload.Scan.PlanetID,
-	}, 8)
+	}, 9)
 	var detailPayload struct {
 		PlanetDetail planetDetailPayload `json:"planet_detail"`
 	}
@@ -257,7 +297,7 @@ func playableVerticalScanClaim(t *testing.T, gameServer *Server, resolved auth.R
 
 	claim := gatewayJSON(t, gameServer, resolved, "vertical-claim", realtime.OperationDiscoveryClaimPlanet, map[string]any{
 		"planet_id": scanPayload.Scan.PlanetID,
-	}, 9)
+	}, 10)
 	assertPayloadOmitsPlayerOwner(t, "vertical claim response", claim, resolved.PlayerID)
 	var claimPayload struct {
 		PlanetDetail planetDetailPayload               `json:"planet_detail"`
