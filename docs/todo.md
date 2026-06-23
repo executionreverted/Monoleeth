@@ -118,7 +118,9 @@ for phase status; this file is a compact pending-work index.
   durable-plan validation for production recovery evidence tied to
   pending/complete claim boundaries. Phase07AW adds claim durable lifecycle-plan
   validation tying begin, optional production-init, and completion/outbox
-  evidence into one coherent completed claim bundle; durable DB rows and
+  evidence into one coherent completed claim bundle. Phase07BA adds a claim
+  durable lifecycle-store adapter contract with idempotent exact replay,
+  conflict rejection, and claim-reference readback; durable DB rows and
   cross-process enforcement remain open.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
   planet claim transaction. Current in-memory flow can repair production state
@@ -429,6 +431,8 @@ for phase status; this file is a compact pending-work index.
   production-init durable-plan validation for recovery rows tied to
   pending/complete claim boundaries. Phase07AW ties those claim
   begin/init/commit plans into one completed lifecycle validation helper.
+  Phase07BA adds a claim durable lifecycle-store adapter contract with
+  idempotent exact replay, conflict rejection, and claim-reference readback.
   Durable claim, production, and route settlement tables plus publisher
   scheduling remain open.
   Those records are still not durable, cross-process, or delivered by a durable
