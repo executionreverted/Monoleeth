@@ -63,6 +63,19 @@ Run the hosted-CI/deploy artifact gate locally:
 scripts/ci_playtest_artifact_gate.sh
 ```
 
+Package the scanned browser client and Go server binary into one release
+directory:
+
+```bash
+scripts/package_playtest_release.sh
+```
+
+Verify the release package shape:
+
+```bash
+scripts/test_playtest_release_package.sh
+```
+
 Verify the publish-directory guard for reused staging directories:
 
 ```bash
@@ -95,6 +108,7 @@ npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-enemy-agg
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-pvp-map-drop
 npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-scan-no-signal
 scripts/ci_playtest_artifact_gate.sh
+scripts/test_playtest_release_package.sh
 ```
 
 Full local vertical-slice gate:
@@ -114,6 +128,7 @@ Focused canaries and repair proof also verified standalone:
 2026-06-24: PHASE10_BUILT_CLIENT=1 node client/tests/e2e/phase10-enemy-aggro-flow.mjs passed.
 2026-06-24: go test ./internal/game/server -run 'TestShieldRepairTick|TestCombatUseSkillRefreshesShieldRepairCombatLock|TestRealtimeOperationRegistry' -count=1 passed.
 2026-06-24: npm --cache /tmp/gameproject-npm-cache --prefix client run check passed after adding repair.shield_tick.
+2026-06-24: scripts/test_playtest_release_package.sh passed.
 ```
 
 That run used the built `client/dist` served by `cmd/game-server` and proved the
@@ -140,6 +155,8 @@ client/src/assets/world/
    gameplay/content pass and record each candidate date/result.
 2. Activate the hosted artifact workflow or wire the same
    `scripts/ci_playtest_artifact_gate.sh` into the external deploy pipeline.
+   The repo now also has `scripts/package_playtest_release.sh` for producing a
+   host-copyable server+client release directory with a manifest and run script.
 3. Finish broader Phase10 rollout canaries:
    - additional PvP rollout canaries beyond the focused `1-3` death/repair proof
    - fuller browser scanner/claim/drop matrix variants

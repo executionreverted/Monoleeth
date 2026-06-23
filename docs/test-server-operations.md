@@ -20,8 +20,41 @@ Build and scan the candidate artifact first:
 scripts/ci_playtest_artifact_gate.sh
 ```
 
-Then run the server with an explicit static artifact directory and externally
-reachable bind address:
+To create a self-contained release directory with the built client, Go server
+binary, manifest, README, and guarded `run.sh`, use:
+
+```bash
+scripts/package_playtest_release.sh
+```
+
+By default this writes under:
+
+```text
+output/playtest-release/<utc-timestamp>-<git-revision>/
+```
+
+To choose the directory explicitly:
+
+```bash
+GAME_PLAYTEST_RELEASE_DIR=/srv/gameproject/releases/2026-06-24-de64311 \
+scripts/package_playtest_release.sh
+```
+
+Then run the packaged server with the real browser origin:
+
+```bash
+GAME_ALLOWED_ORIGINS=https://playtest.example.com \
+/srv/gameproject/releases/2026-06-24-de64311/run.sh
+```
+
+The package test is:
+
+```bash
+scripts/test_playtest_release_package.sh
+```
+
+For source-tree runs without a package, run the server with an explicit static
+artifact directory and externally reachable bind address:
 
 ```bash
 GAME_SERVER_ADDR=0.0.0.0:8080 \
@@ -43,6 +76,12 @@ Before publishing an artifact, run:
 
 ```bash
 GAME_PLAYTEST_BUILD_ONLY=true scripts/run_playtest_server.sh
+```
+
+For a complete server+client release directory, prefer:
+
+```bash
+scripts/package_playtest_release.sh
 ```
 
 For the exact staging directory that the deploy job will serve, use:
@@ -156,11 +195,15 @@ Before sharing the test link:
 
 - `scripts/ci_playtest_artifact_gate.sh` passes.
 - `scripts/test_playtest_publish_dir_guard.sh` passes.
+- `scripts/test_playtest_release_package.sh` passes if using a packaged
+  server+client release directory.
 - `scripts/verify_playtest_vertical_slice.sh` has passed for the candidate
   build, or the exact skipped canaries are recorded in the status report.
 - `GAME_ALLOWED_ORIGINS` matches the public URL.
 - `GAME_CLIENT_STATIC_DIR` points at the scanned artifact.
 - `GAME_PLAYTEST_SEED=true` is set.
 - Dev-only E2E seed flags are absent.
+- The packaged `manifest.json` revision matches the intended server revision
+  if using `scripts/package_playtest_release.sh`.
 - The current asset needs and known rollout gaps are copied from
   `docs/playtest-vertical-slice-status.md` into the playtest announcement.

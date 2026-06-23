@@ -912,6 +912,11 @@ Task 001 release proof must be rebuilt through
   shield repair module, respects server-owned combat lock and tick cooldown,
   restores shield only, and reconciles through real ship/player snapshots.
   Covered by focused Go server tests and `client` check on 2026-06-24.
+- [x] Add a packaged playtest release command.
+  `scripts/package_playtest_release.sh` builds and scans the browser client,
+  builds the Go server binary, and writes a host-copyable release directory with
+  `client-dist`, `bin/game-server`, `manifest.json`, README, and guarded
+  `run.sh`. Covered by `scripts/test_playtest_release_package.sh`.
 - [x] Add server-authoritative continuous movement timing for browser movement.
   The client receives server-owned origin, destination, speed, start, and
   arrival timing; re-clicks while in transit start from the server-computed
