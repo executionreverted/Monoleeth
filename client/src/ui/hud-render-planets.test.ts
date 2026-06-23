@@ -584,6 +584,47 @@ describe('route controls', () => {
     expect(html).not.toContain('settlement_window');
   });
 
+  test('route settle pending locks the matching route row controls', () => {
+    const state = planetRouteState();
+    state.pendingCommands = {
+      'route-settle-1': {
+        requestID: 'route-settle-1',
+        op: OPERATIONS.routeSettle,
+        payload: { route_id: 'route-1' },
+        queuedAt: 1,
+      },
+    };
+
+    const html = planetDetailModal(state, 'planet-source');
+
+    expect(actionButtonHTML(html, 'route-update', 'route-1')).toContain('disabled');
+    expect(actionButtonHTML(html, 'route-disable', 'route-1')).toContain('disabled');
+    expect(actionButtonHTML(html, 'route-settle', 'route-1')).toContain('disabled');
+    expect(actionButtonHTML(html, 'route-settle', 'route-1')).toContain('Settling');
+    expect(actionButtonHTML(html, 'route-create')).not.toContain('disabled');
+  });
+
+  test('route reconcile pending locks create and every route row control', () => {
+    const state = planetRouteState();
+    state.pendingCommands = {
+      'route-settle-all': {
+        requestID: 'route-settle-all',
+        op: OPERATIONS.routeSettle,
+        payload: {},
+        queuedAt: 1,
+      },
+    };
+
+    const html = planetDetailModal(state, 'planet-source');
+
+    expect(actionButtonHTML(html, 'route-create')).toContain('disabled');
+    expect(actionButtonHTML(html, 'route-update', 'route-1')).toContain('disabled');
+    expect(actionButtonHTML(html, 'route-disable', 'route-1')).toContain('disabled');
+    expect(actionButtonHTML(html, 'route-settle', 'route-1')).toContain('disabled');
+    expect(actionButtonHTML(html, 'route-settle', 'route-1')).toContain('Settling');
+    expect(html).toMatch(/data-action="route-settle" disabled[^>]*>Reconciling/);
+  });
+
   test('storage and station destination routes can update or settle without exposing internal endpoint ids', () => {
     const cases = [
       { type: 'storage', label: 'Storage (1-1)', internalID: 'storage-route-settle-destination', endpointID: 'route-storage-endpoint' },
@@ -860,6 +901,12 @@ function minimap(overrides: Partial<MinimapSummary>): MinimapSummary {
     remembered: [],
     ...overrides,
   };
+}
+
+function actionButtonHTML(html: string, action: string, routeID?: string): string {
+  const routeMatcher = routeID ? `(?=[^>]*data-route-id="${routeID}")` : '';
+  const match = html.match(new RegExp(`<button(?=[^>]*data-action="${action}")${routeMatcher}[^>]*>[^<]*</button>`));
+  return match?.[0] ?? '';
 }
 
 function count(value: string, needle: string): number {

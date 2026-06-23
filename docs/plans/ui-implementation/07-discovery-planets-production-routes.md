@@ -100,6 +100,10 @@ Current slice completed:
   rows. Single-route responses/events and owner reconcile `settlements[]`
   responses can display source-empty, destination-full, no-op, and loss-applied
   outcomes without trusting client-authored route/storage/window facts.
+  Phase07DC locks matching route row mutation controls while a single-route
+  settlement is pending and locks route create plus all row controls while
+  owner-wide reconcile is pending, avoiding duplicate browser intents during
+  server-owned settlement windows.
 - Phase07CU browser non-planet route row follow-up: storage and station
   destination routes rendered from server snapshots now show only public
   destination type/map labels, keep enable/disable/settle controls available by

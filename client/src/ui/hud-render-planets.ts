@@ -393,8 +393,9 @@ function routeControlsPanel(
   const endpoints = routeEndpointOptionsForSource(state, source.planet_id);
   const resources = routeableStorageResources(production, routes);
   const createPending = hasPendingOpPayloadField(state, OPERATIONS.routeCreate, 'source_planet_id', source.planet_id);
+  const reconcilePending = hasPendingRouteSettle(state, undefined);
   const controlsReady = realtimeReady(state) && ownedSource;
-  const createEnabled = controlsReady && endpoints.length > 0 && resources.length > 0 && !createPending;
+  const createEnabled = controlsReady && endpoints.length > 0 && resources.length > 0 && !createPending && !reconcilePending;
   const createTitle = !ownedSource
     ? 'Own this planet before creating routes'
     : !realtimeReady(state)
@@ -405,7 +406,9 @@ function routeControlsPanel(
           ? 'No server-owned storage resource available'
           : createPending
             ? 'Route create pending'
-            : 'Create owned planet route';
+            : reconcilePending
+              ? 'Route reconcile pending'
+              : 'Create owned planet route';
   const selectedRoute = selectedRouteFor(routes);
   const routeRows =
     routes.length > 0
@@ -414,8 +417,6 @@ function routeControlsPanel(
           .map((route) => routeControlRow(state, route, endpoints, resources, route.route_id === selectedRoute?.route_id))
           .join('')
       : '<div class="empty-line">No routes for this planet.</div>';
-  const reconcilePending = hasPendingRouteSettle(state, undefined);
-
   return `
     <div class="route-controls">
       <div class="route-create" data-route-create-control="true" data-route-source-planet-id="${escapeHTML(source.planet_id)}">
@@ -445,7 +446,7 @@ function routeControlRow(
 ): string {
   const routePending = hasPendingRouteMutation(state, route.route_id);
   const settlePending = hasPendingRouteSettle(state, route.route_id);
-  const controlsReady = realtimeReady(state) && !routePending;
+  const controlsReady = realtimeReady(state) && !routePending && !settlePending;
   const controlAction = route.enabled ? 'route-disable' : 'route-enable';
   const controlLabel = route.enabled ? 'Disable' : 'Enable';
   const endpointOptions = routeEndpointSelectOptions(endpoints, routeDestinationSelectValue(route.destination, endpoints));
@@ -624,7 +625,7 @@ function hasPendingRouteSettle(state: ClientState, routeID: string | undefined):
     if (!routeID) {
       return !command.payload || typeof command.payload.route_id !== 'string';
     }
-    return command.payload?.route_id === routeID;
+    return !command.payload || typeof command.payload.route_id !== 'string' || command.payload.route_id === routeID;
   });
 }
 
