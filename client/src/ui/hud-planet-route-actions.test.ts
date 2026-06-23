@@ -4,11 +4,11 @@ import { dispatchPlanetRouteButtonAction } from './hud-planet-route-actions';
 import type { HUDHandlers } from './hud-types';
 
 describe('planet route HUD action dispatch', () => {
-  test('dispatches intel share with planet id and visible entity id only', () => {
+  test('dispatches rendered intel share with planet id and recipient player id only', () => {
     const handlers = testHandlers();
     const control = {
       dataset: { planetId: 'planet-eris' },
-      querySelector: vi.fn(() => ({ value: 'entity_pilot_2' })),
+      querySelector: vi.fn(() => ({ value: 'player-2' })),
     };
     const button = {
       dataset: { action: 'intel-share', planetId: 'planet-eris' },
@@ -18,8 +18,9 @@ describe('planet route HUD action dispatch', () => {
     const handled = dispatchPlanetRouteButtonAction(button, handlers, () => {});
 
     expect(handled).toBe(true);
-    expect(handlers.onIntelShareToEntity).toHaveBeenCalledWith('planet-eris', 'entity_pilot_2');
-    expect(handlers.onIntelShareToEntity).toHaveBeenCalledTimes(1);
+    expect(handlers.onIntelShare).toHaveBeenCalledWith({ planetID: 'planet-eris', toPlayerID: 'player-2' });
+    expect(handlers.onIntelShare).toHaveBeenCalledTimes(1);
+    expect(handlers.onIntelShareToEntity).not.toHaveBeenCalled();
   });
 
   test('dispatches rendered coordinate item create with only planet id', () => {

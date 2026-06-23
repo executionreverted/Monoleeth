@@ -281,8 +281,10 @@ Current slice completed:
   expose `intel.share` through a recipient player-id input and Share control.
   The browser sends only `planet_id` and `to_player_id`, locks matching pending
   shares, and never authors sender, source-intel, coordinate, or confidence
-  truth. Recipient roster/search UX, daily quotas, durable DB rows, and
-  cross-service transaction/compensation remain open.
+  truth. The split HUD action helper now follows the same rendered player-id
+  control contract instead of treating the value as a visible entity id.
+  Recipient roster/search UX, daily quotas, durable DB rows, and cross-service
+  transaction/compensation remain open.
 - Phase07U outbox publisher-boundary follow-up: discovery claim outbox and
   production-domain outbox records now have small interface-backed publisher
   drain helpers. The production helper covers production settlements, route

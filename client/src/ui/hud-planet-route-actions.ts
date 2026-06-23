@@ -26,10 +26,10 @@ export function dispatchPlanetRouteButtonAction(
       return true;
     case 'intel-share': {
       const control = button.closest<HTMLElement>('[data-intel-share-control]');
-      handlers.onIntelShareToEntity(
-        button.dataset.planetId ?? control?.dataset.planetId ?? '',
-        routeControlValue(control, '[data-intel-share-target]'),
-      );
+      handlers.onIntelShare({
+        planetID: button.dataset.planetId ?? control?.dataset.planetId ?? '',
+        toPlayerID: routeControlValue(control, '[data-intel-share-target]'),
+      });
       return true;
     }
     case 'coordinate-item-create':
