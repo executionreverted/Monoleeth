@@ -136,10 +136,13 @@ for phase status; this file is a compact pending-work index.
   evidence, Phase07AV validates that evidence against pending/complete claim
   boundaries, and Phase07BE adds a production-init durable-store adapter
   contract with exact replay, conflict rejection, and committed-plan readback.
-  These contracts preserve evidence by claim reference so later side-effect
-  retries do not call the initializer twice. Real durable claim/production DB
-  rows, cross-service row locks/CAS, an atomic claim/production transaction,
-  and scheduled recovery workers remain open.
+  Phase07BF wires successful runtime claim commands to that adapter so
+  production-init recovery evidence is committed beside the completed claim
+  lifecycle and duplicate retries exact-replay without extra rows. These
+  contracts preserve evidence by claim reference so later side-effect retries
+  do not call the initializer twice. Real durable claim/production DB rows,
+  cross-service row locks/CAS, an atomic claim/production transaction, and
+  scheduled recovery workers remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory

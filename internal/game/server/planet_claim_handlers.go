@@ -124,6 +124,11 @@ func (runtime *Runtime) applyClaimDurableLifecycle(reference discovery.PlanetCla
 	if err != nil || !ok {
 		return err
 	}
+	if plan.HasProductionInit && runtime.ClaimProductionInitializations != nil {
+		if _, err := plan.ProductionInitialized.ApplyDurableProductionInitialization(runtime.ClaimProductionInitializations); err != nil {
+			return err
+		}
+	}
 	_, err = plan.ApplyDurableLifecycle(runtime.ClaimLifecycles)
 	return err
 }

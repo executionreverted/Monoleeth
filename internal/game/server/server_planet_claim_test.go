@@ -110,6 +110,17 @@ func TestClaimPlanetDuplicateRetryDoesNotConsumeSecondXCore(t *testing.T) {
 		plan.ProductionInitialized.Initialization.ClaimReference != claimReference {
 		t.Fatalf("claim lifecycle plan = %+v, want begin/production/commit evidence", plan)
 	}
+	initReferences := gameServer.runtime.ClaimProductionInitializations.ClaimReferences()
+	if len(initReferences) != 1 || initReferences[0] != claimReference {
+		t.Fatalf("claim production init references after first claim = %+v, want [%q]", initReferences, claimReference)
+	}
+	initPlan, ok, err := gameServer.runtime.ClaimProductionInitializations.CommittedClaimProductionInitializationDurablePlan(claimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimProductionInitializationDurablePlan() = ok %v err %v, want ok nil", ok, err)
+	}
+	if initPlan.Initialization.ClaimReference != claimReference || initPlan.Boundary.Status != discovery.ClaimBoundaryStatusComplete {
+		t.Fatalf("claim production init durable plan = %+v, want complete boundary evidence", initPlan)
+	}
 	if events, err := gameServer.runtime.postCommandEvents(owner.SessionID, realtime.OperationDiscoveryClaimPlanet, owner.PlayerID); err != nil {
 		t.Fatalf("post first claim events: %v", err)
 	} else if len(events) == 0 {
@@ -133,6 +144,9 @@ func TestClaimPlanetDuplicateRetryDoesNotConsumeSecondXCore(t *testing.T) {
 	if references := gameServer.runtime.ClaimLifecycles.ClaimReferences(); len(references) != 1 || references[0] != claimReference {
 		t.Fatalf("claim lifecycle references after duplicate = %+v, want stable [%q]", references, claimReference)
 	}
+	if references := gameServer.runtime.ClaimProductionInitializations.ClaimReferences(); len(references) != 1 || references[0] != claimReference {
+		t.Fatalf("claim production init references after duplicate = %+v, want stable [%q]", references, claimReference)
+	}
 }
 
 func TestClaimPlanetFailureDoesNotRecordDurableLifecycle(t *testing.T) {
@@ -147,6 +161,9 @@ func TestClaimPlanetFailureDoesNotRecordDurableLifecycle(t *testing.T) {
 	}
 	if references := gameServer.runtime.ClaimLifecycles.ClaimReferences(); len(references) != 0 {
 		t.Fatalf("claim lifecycle references after failed claim = %+v, want none", references)
+	}
+	if references := gameServer.runtime.ClaimProductionInitializations.ClaimReferences(); len(references) != 0 {
+		t.Fatalf("claim production init references after failed claim = %+v, want none", references)
 	}
 }
 

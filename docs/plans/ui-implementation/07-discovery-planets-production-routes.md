@@ -453,6 +453,14 @@ Current slice completed:
   defensive committed-plan readback for future recovery workers. Real DB rows,
   cross-service row locks/CAS, and production-init recovery workers remain
   open.
+- Phase07BF runtime claim production-init durable-store follow-up:
+  successful authenticated `discovery.claim_planet` commands now apply the
+  validated production-init plan to the runtime production-init durable adapter
+  before committing the completed claim lifecycle bundle. Duplicate claim
+  retries exact-replay through the adapter without appending new rows, and
+  failed claim commands leave both lifecycle and production-init durable stores
+  empty. Real DB rows, cross-service row locks/CAS, pending-side-effect
+  recovery workers, and an atomic claim/production transaction remain open.
 - Phase07AW claim durable lifecycle-plan follow-up:
   `NewClaimDurableLifecyclePlan` now validates that a completed claim lifecycle
   is one coherent row bundle across begin, optional production-init, and commit
