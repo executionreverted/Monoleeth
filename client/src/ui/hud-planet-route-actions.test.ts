@@ -21,7 +21,37 @@ describe('planet route HUD action dispatch', () => {
     expect(handlers.onIntelShareToEntity).toHaveBeenCalledWith('planet-eris', 'entity_pilot_2');
     expect(handlers.onIntelShareToEntity).toHaveBeenCalledTimes(1);
   });
+
+  test('dispatches storage route create with typed endpoint intent only', () => {
+    const handlers = testHandlers();
+    const control = routeControl({
+      '[data-route-create-destination]': 'storage:route-storage-endpoint',
+      '[data-route-create-resource]': 'refined_alloy',
+      '[data-route-rate]': '40',
+    });
+    const button = {
+      dataset: { action: 'route-create', sourcePlanetId: 'planet-source' },
+      closest: vi.fn(() => control),
+    } as unknown as HTMLButtonElement;
+
+    const handled = dispatchPlanetRouteButtonAction(button, handlers, () => {});
+
+    expect(handled).toBe(true);
+    expect(handlers.onRouteCreate).toHaveBeenCalledWith({
+      sourcePlanetID: 'planet-source',
+      destinationPlanetID: undefined,
+      destination: { type: 'storage', id: 'route-storage-endpoint' },
+      resourceItemID: 'refined_alloy',
+      amountPerHour: 40,
+    });
+  });
 });
+
+function routeControl(values: Record<string, string>): HTMLElement {
+  return {
+    querySelector: vi.fn((selector: string) => ({ value: values[selector] ?? '' })),
+  } as unknown as HTMLElement;
+}
 
 function testHandlers(): HUDHandlers {
   return {

@@ -1,9 +1,13 @@
 import { OPERATIONS } from '../protocol/envelope';
-import type { ClientState, KnownPlanetSummary, RouteSummary } from '../state/types';
+import type { ClientState, KnownPlanetSummary, RouteEndpointSummary, RouteSummary } from '../state/types';
 import { escapeHTML, formatVec, hasPendingOpPayloadField, lockedValue, publicPlanetName, realtimeReady } from './hud-formatters';
 import { hudSelection } from './hud-selection';
 
 export { minimapPanel } from './hud-render-minimap';
+
+type RouteEndpointOption =
+  | { type: 'planet'; id: string; label: string }
+  | { type: 'storage' | 'station'; id: string; label: string };
 
 export function planetsPanel(state: ClientState): string {
   const intel = state.planetIntel;
@@ -386,7 +390,7 @@ function routeControlsPanel(
   routes: RouteSummary[],
 ): string {
   const ownedSource = isOwnedPlanet(source);
-  const endpoints = ownedRouteEndpoints(state, source.planet_id);
+  const endpoints = routeEndpointOptionsForSource(state, source.planet_id);
   const resources = routeableStorageResources(production, routes);
   const createPending = hasPendingOpPayloadField(state, OPERATIONS.routeCreate, 'source_planet_id', source.planet_id);
   const controlsReady = realtimeReady(state) && ownedSource;
@@ -396,7 +400,7 @@ function routeControlsPanel(
     : !realtimeReady(state)
       ? 'Realtime connection required'
       : endpoints.length === 0
-        ? 'No other owned known endpoint available'
+        ? 'No route endpoint available'
         : resources.length === 0
           ? 'No server-owned storage resource available'
           : createPending
@@ -416,7 +420,7 @@ function routeControlsPanel(
     <div class="route-controls">
       <div class="route-create" data-route-create-control="true" data-route-source-planet-id="${escapeHTML(source.planet_id)}">
         <select data-route-create-destination ${createEnabled ? '' : 'disabled'} aria-label="Route destination">
-          ${routeEndpointOptions(endpoints, endpoints[0]?.planet_id ?? '')}
+          ${routeEndpointSelectOptions(endpoints, endpoints[0] ? routeEndpointValue(endpoints[0]) : '')}
         </select>
         <select data-route-create-resource ${createEnabled ? '' : 'disabled'} aria-label="Route resource">
           ${resourceOptions(resources, resources[0] ?? '')}
@@ -435,7 +439,7 @@ function routeControlsPanel(
 function routeControlRow(
   state: ClientState,
   route: RouteSummary,
-  endpoints: KnownPlanetSummary[],
+  endpoints: RouteEndpointOption[],
   resources: string[],
   selected: boolean,
 ): string {
@@ -444,14 +448,11 @@ function routeControlRow(
   const controlsReady = realtimeReady(state) && !routePending;
   const controlAction = route.enabled ? 'route-disable' : 'route-enable';
   const controlLabel = route.enabled ? 'Disable' : 'Enable';
-  const planetDestination = route.destination.type === 'planet' && route.destination.id !== '';
-  const endpointOptions = routeEndpointOptions(endpoints, route.destination.id);
+  const endpointOptions = routeEndpointSelectOptions(endpoints, routeDestinationSelectValue(route.destination, endpoints));
   const mergedResources = resources.includes(route.resource_item_id) ? resources : [route.resource_item_id, ...resources];
   const resourceSelect = resourceOptions(mergedResources, route.resource_item_id);
-  const updateEnabled = controlsReady && planetDestination && endpoints.length > 0 && mergedResources.length > 0;
-  const updateTitle = !planetDestination
-    ? `${publicRouteDestinationLabel(route, endpoints)} routes can settle here, but browser update is planet-only.`
-    : routePending
+  const updateEnabled = controlsReady && endpoints.length > 0 && mergedResources.length > 0;
+  const updateTitle = routePending
       ? 'Route mutation pending'
       : 'Update route terms';
   const settlementHTML = routeSettlementResult(route);
@@ -470,13 +471,14 @@ function routeControlRow(
   `;
 }
 
-function publicRouteDestinationLabel(route: RouteSummary, endpoints: KnownPlanetSummary[]): string {
+function publicRouteDestinationLabel(route: RouteSummary, endpoints: RouteEndpointOption[]): string {
   if (route.destination.type === 'planet') {
-    const endpoint = endpoints.find((planet) => planet.planet_id === route.destination.id);
-    const planetLabel = endpoint ? publicPlanetName(endpoint) : 'Planet route';
+    const endpoint = endpoints.find((candidate) => candidate.type === 'planet' && candidate.id === route.destination.id);
+    const planetLabel = endpoint?.label ?? 'Planet route';
     return route.to_public_map_key ? `${planetLabel} (${route.to_public_map_key})` : planetLabel;
   }
-  const type = route.destination.type === 'station' ? 'Station' : route.destination.type === 'storage' ? 'Storage' : 'Route endpoint';
+  const endpoint = endpoints.find((candidate) => candidate.type === route.destination.type && candidate.id === route.destination.id);
+  const type = endpoint?.label ?? (route.destination.type === 'station' ? 'Station' : route.destination.type === 'storage' ? 'Storage' : 'Route endpoint');
   return route.to_public_map_key ? `${type} (${route.to_public_map_key})` : type;
 }
 
@@ -515,8 +517,23 @@ function selectedRouteFor(routes: RouteSummary[]): RouteSummary | null {
   return routes[0] ?? null;
 }
 
-function ownedRouteEndpoints(state: ClientState, sourcePlanetID: string): KnownPlanetSummary[] {
-  return state.planetIntel?.planets.filter((planet) => planet.planet_id !== sourcePlanetID && isOwnedPlanet(planet)) ?? [];
+function routeEndpointOptionsForSource(state: ClientState, sourcePlanetID: string): RouteEndpointOption[] {
+  const endpoints: RouteEndpointOption[] = [];
+  for (const planet of state.planetIntel?.planets ?? []) {
+    if (planet.planet_id !== sourcePlanetID && isOwnedPlanet(planet)) {
+      endpoints.push({ type: 'planet', id: planet.planet_id, label: publicPlanetName(planet) });
+    }
+  }
+  const selected = state.planetIntel?.selectedPlanet;
+  if (selected?.planet_id === sourcePlanetID) {
+    for (const endpoint of selected.route_endpoints ?? []) {
+      const option = nonPlanetRouteEndpointOption(endpoint);
+      if (option) {
+        endpoints.push(option);
+      }
+    }
+  }
+  return endpoints;
 }
 
 function routeableStorageResources(
@@ -540,16 +557,42 @@ function routeableStorageResources(
   return resources;
 }
 
-function routeEndpointOptions(planets: KnownPlanetSummary[], selectedPlanetID: string): string {
-  if (planets.length === 0) {
+function routeEndpointSelectOptions(endpoints: RouteEndpointOption[], selectedValue: string): string {
+  if (endpoints.length === 0) {
     return '<option value="">No endpoint</option>';
   }
-  return planets
+  return endpoints
     .map(
-      (planet) =>
-        `<option value="${escapeHTML(planet.planet_id)}" ${planet.planet_id === selectedPlanetID ? 'selected' : ''}>${escapeHTML(publicPlanetName(planet))}</option>`,
+      (endpoint) =>
+        `<option value="${escapeHTML(routeEndpointValue(endpoint))}" ${routeEndpointValue(endpoint) === selectedValue ? 'selected' : ''}>${escapeHTML(endpoint.label)}</option>`,
     )
     .join('');
+}
+
+function nonPlanetRouteEndpointOption(endpoint: RouteEndpointSummary): RouteEndpointOption | null {
+  if ((endpoint.type !== 'storage' && endpoint.type !== 'station') || !endpoint.id) {
+    return null;
+  }
+  return {
+    type: endpoint.type,
+    id: endpoint.id,
+    label: endpoint.label || (endpoint.type === 'storage' ? 'Storage' : 'Station'),
+  };
+}
+
+function routeEndpointValue(endpoint: RouteEndpointOption): string {
+  return endpoint.type === 'planet' ? endpoint.id : `${endpoint.type}:${endpoint.id}`;
+}
+
+function routeDestinationSelectValue(destination: RouteSummary['destination'], endpoints: RouteEndpointOption[]): string {
+  if (destination.type === 'storage' || destination.type === 'station') {
+    if (destination.id) {
+      return `${destination.type}:${destination.id}`;
+    }
+    const matchingEndpoint = endpoints.find((endpoint) => endpoint.type === destination.type);
+    return matchingEndpoint ? routeEndpointValue(matchingEndpoint) : '';
+  }
+  return destination.id;
 }
 
 function resourceOptions(resources: string[], selectedResource: string): string {

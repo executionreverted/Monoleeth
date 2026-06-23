@@ -742,10 +742,10 @@ for phase status; this file is a compact pending-work index.
   revalidate committed settlement bundles before claim, publish/fail, lease
   release, or retry mutation so corrupt outbox evidence cannot be handed to
   publishers. Phase07CU keeps existing storage/station destination routes
-  browser-settleable without exposing internal aggregate ids and disables
-  browser update for those rows because route create/update intents remain
-  planet-destination only. Runtime non-planet route create/update access policy
-  and durable DB-backed storage/station endpoint rows remain open.
+  browser-settleable without exposing internal aggregate ids. A follow-up now
+  lets the browser use the server-provided route endpoint catalog for typed
+  storage/station create and update intents while route row payloads remain
+  masked. Durable DB-backed storage/station endpoint rows remain open.
 - [ ] Replace Phase 09 in-memory production, storage, and route repositories with
   durable per-planet/per-route transactions or row locks before multi-process
   runtime deployment.

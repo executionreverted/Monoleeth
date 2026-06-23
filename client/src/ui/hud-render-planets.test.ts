@@ -470,6 +470,8 @@ describe('route controls', () => {
       expect(html).toMatch(/data-action="route-create"[^>]*data-source-planet-id="planet-source"[^>]*>Create/);
       expect(html).toContain('data-route-create-destination');
       expect(html).toContain('value="planet-destination"');
+      expect(html).toContain('value="storage:route-storage-endpoint"');
+      expect(html).toContain('value="station:route-station-endpoint"');
       expect(html).toContain('data-route-create-resource');
       expect(html).toContain('value="refined_alloy"');
       expect(html).toContain('data-route-rate');
@@ -540,6 +542,7 @@ describe('route controls', () => {
   test('route create disables without another owned endpoint or source storage resource', () => {
     const state = planetRouteState();
     state.planetIntel!.planets = [state.planetIntel!.planets[0]];
+    state.planetIntel!.selectedPlanet!.route_endpoints = [];
     state.planetIntel!.selectedPlanet!.production!.storage.items = [];
     state.production = { planets: [state.planetIntel!.selectedPlanet!.production!] };
     state.routes = { routes: [] };
@@ -581,10 +584,10 @@ describe('route controls', () => {
     expect(html).not.toContain('settlement_window');
   });
 
-  test('storage and station destination routes can settle without exposing internal endpoint ids or browser update', () => {
+  test('storage and station destination routes can update or settle without exposing internal endpoint ids', () => {
     const cases = [
-      { type: 'storage', label: 'Storage (1-1)', internalID: 'storage-route-settle-destination' },
-      { type: 'station', label: 'Station (1-1)', internalID: 'station-route-settle-destination' },
+      { type: 'storage', label: 'Storage (1-1)', internalID: 'storage-route-settle-destination', endpointID: 'route-storage-endpoint' },
+      { type: 'station', label: 'Station (1-1)', internalID: 'station-route-settle-destination', endpointID: 'route-station-endpoint' },
     ];
 
     for (const item of cases) {
@@ -599,7 +602,8 @@ describe('route controls', () => {
 
       expect(html).toContain(`data-route-destination-type="${item.type}"`);
       expect(html).toContain(item.label);
-      expect(html).toMatch(new RegExp(`data-action="route-update"[^>]*data-route-id="route-${item.type}"[^>]*disabled`));
+      expect(html).toMatch(new RegExp(`<option value="${item.type}:${item.endpointID}" selected>`));
+      expect(html).toMatch(new RegExp(`data-action="route-update"[^>]*data-route-id="route-${item.type}"[^>]*>Update`));
       expect(html).toContain(`data-action="route-settle" data-route-id="route-${item.type}"`);
       expect(html).not.toContain(item.internalID);
       expect(html).not.toContain('destination_map_id');
@@ -817,6 +821,10 @@ function planetRouteState(): ClientState {
       coordinates: { x: 2400, y: 2600 },
       production_locked: false,
       available_commands: ['route.list'],
+      route_endpoints: [
+        { type: 'storage', id: 'route-storage-endpoint', label: 'Storage' },
+        { type: 'station', id: 'route-station-endpoint', label: 'Station' },
+      ],
       routes: [route],
       production: {
         planet_id: 'planet-source',

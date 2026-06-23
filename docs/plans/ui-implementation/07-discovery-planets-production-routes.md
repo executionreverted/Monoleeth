@@ -103,8 +103,9 @@ Current slice completed:
 - Phase07CU browser non-planet route row follow-up: storage and station
   destination routes rendered from server snapshots now show only public
   destination type/map labels, keep enable/disable/settle controls available by
-  `route_id`, and keep browser route update disabled because create/update
-  intents are still planet-destination only.
+  `route_id`, and can use the server-provided route endpoint catalog to send
+  typed storage/station create or update intent without exposing masked
+  aggregate ids in route row payloads.
 - Phase07CT browser building controls follow-up: the browser now exposes
   `planet.building_build` and `planet.building_upgrade` command builders and
   HUD controls from owned production snapshots. Build sends only `planet_id`,
