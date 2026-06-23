@@ -5,6 +5,7 @@ import {
   applyScanPulse,
   applyPlanetDetail,
   applyPlanetStorageSummary,
+  applyRouteList,
   applyRouteSettlementSnapshot,
   applyRouteSnapshot,
   parseKnownPlanets,
@@ -201,10 +202,7 @@ export function applySnapshotPayload(state: ClientState, payload: JsonObject): C
 
   const routes = objectField(payload, 'routes') ?? objectField(payload, 'route_list');
   if (routes) {
-    next = {
-      ...next,
-      routes: parseRouteList(routes, next.routes),
-    };
+    next = applyRouteList(next, parseRouteList(routes, next.routes));
   }
 
   const route = objectField(payload, 'route');

@@ -338,6 +338,26 @@ export function parseRouteList(payload: JsonObject, fallback: RouteListSummary |
   return { routes };
 }
 
+export function applyRouteList(state: ClientState, routes: RouteListSummary): ClientState {
+  const planetIntel = state.planetIntel;
+  const selectedPlanet = planetIntel?.selectedPlanet;
+  if (!selectedPlanet) {
+    return { ...state, routes };
+  }
+  const selectedRoutes = routes.routes.filter((route) => route.source_planet_id === selectedPlanet.planet_id);
+  return {
+    ...state,
+    routes,
+    planetIntel: {
+      ...planetIntel,
+      selectedPlanet: {
+        ...selectedPlanet,
+        routes: selectedRoutes,
+      },
+    },
+  };
+}
+
 export function parseRoute(payload: JsonObject): RouteSummary | null {
   const routeID = stringField(payload, 'route_id') ?? '';
   const destination = objectField(payload, 'destination');

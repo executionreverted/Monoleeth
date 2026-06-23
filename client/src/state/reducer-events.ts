@@ -5,6 +5,7 @@ import {
   applyPlanetDetail,
   applyPlanetClaimed,
   applyPlanetStorageSummary,
+  applyRouteList,
   applyRouteSnapshot,
   applyScanPulse,
   countPlanetSignals,
@@ -342,8 +343,7 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
 
     case CLIENT_EVENTS.routeList:
       return {
-        ...state,
-        routes: parseRouteList(envelope.payload, state.routes),
+        ...applyRouteList(state, parseRouteList(envelope.payload, state.routes)),
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };

@@ -98,6 +98,11 @@ Current slice completed:
   show settled, no-transfer, source-empty, destination-full, and loss-applied
   outcomes without exposing owner ids, internal map ids, storage aggregate ids,
   settlement references, or hidden route facts.
+- Phase07CS browser route-list reconciliation follow-up: `route.list` responses,
+  events, and snapshot payloads now flow through one client reducer path that
+  updates the global route cache and the selected planet route cache from the
+  same server-owned list. Durable `route.list` recovery can no longer leave the
+  owned-planet panel showing stale or deleted routes after live read-model loss.
 - Phase07H backend query follow-up: authenticated
   `planet.production_summary` and `planet.storage_summary` now reconcile
   eligible owned active-map production through
@@ -1169,6 +1174,9 @@ Mockup areas covered:
       live read-model loss, preserving the server-owned route-slot cap.
 - [x] Route.snapshot falls back to committed durable route rows after live
       read-model loss while preserving owner checks and public map-key payloads.
+- [x] Browser route.list responses/events/snapshots reconcile the selected
+      planet route cache from the same server-owned route list as the global
+      route cache.
 - [x] Route settlement supports named storage/station-destination aggregates with the
       same server-owned window/reference, ledger, durable route-row, and outbox
       evidence as planet destinations.
@@ -1206,6 +1214,8 @@ Mockup areas covered:
       intent payloads and reconcile from production summary events.
 - [x] Browser route create/update/control/settle reflects server state,
       including last safe settlement outcome flags in route rows.
+- [x] Browser selected planet route list cannot remain stale after server
+      route.list recovery or route removal events.
 
 ## Done Criteria
 
