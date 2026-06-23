@@ -96,10 +96,11 @@ marked `Open` are not implemented rollout controls yet.
   destination-map combat/drop/pickup in the same built-client package with
   DOM/state/storage, WebSocket, and process-log leak canaries. The focused
   built-client `e2e:phase10-pvp-map-drop` proof now registers a normal browser
-  player, travels `1-1` -> `1-2` -> `1-3`, resolves a PvP-map `scan.pulse`
-  into a public `1-3` known planet, kills a Border Skirmish NPC, and picks up
-  the server-created `carbon_shards` drop without leaking map/scan/drop
-  internals. Broader browser scanner/claim/drop matrix variants remain open.
+  player, travels `1-1` -> `1-2` -> `1-3`, resolves browser `scan.pulse`
+  successfully on public `1-2` and public `1-3`, kills a Border Skirmish NPC,
+  and picks up the server-created `carbon_shards` drop without leaking
+  map/scan/drop internals. Broader browser scanner/claim/drop matrix variants
+  remain open.
 - Browser PvP death/cargo/checkpoint command-socket proof and safe-zone
   UI-click rejection proof exist in
   `client/tests/e2e/phase10-pvp-death-flow.mjs`. The same flow now also runs as
@@ -115,9 +116,10 @@ marked `Open` are not implemented rollout controls yet.
   vertical harness proves scan/detail/claim after a real portal transfer. The
   built-client playtest runner now adds one deployable-package browser scan,
   claim, starter drop, `1-1` -> `1-2` portal canary, and destination-map drop
-  pickup proof. The focused built-client PvP-map drop proof now covers one
-  `1-3` browser scan plus combat/drop/pickup path. Broader no-signal browser
-  scan variants and full per-map drop matrix variants remain missing.
+  pickup proof. The focused built-client PvP-map drop proof now covers
+  browser scan success on public `1-2` and `1-3` plus the public `1-3`
+  combat/drop/pickup path. Broader no-signal browser scan variants and full
+  per-map drop matrix variants remain missing.
 - Authenticated `route.create`, `route.update`, `route.enable`, and
   `route.disable` now have server gateway slices for owned planet-to-planet MVP
   routes. `planet.production_summary` and `planet.storage_summary` now settle
