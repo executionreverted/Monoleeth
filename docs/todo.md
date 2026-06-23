@@ -7,6 +7,16 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [ ] Finish the DB/CMS content pipeline after the static gameplay content
+  bundle stabilizes. The first content-foundation slice adds a server-side
+  `GameplayContent` bundle for static items, loot tables, modules, ships,
+  recipes, production buildings, and DarkOrbit-like bounded maps/enemy pools,
+  plus cross-catalog validation before runtime uses item/loot catalogs. Next
+  work: add scanner/planet rarity config rows to the bundle, add a DB content
+  repository with empty-DB seeding and published revision loading, add draft /
+  publish / rollback validation, then build the admin CMS UI for monsters,
+  drop tables, item stats, recipes, map pools, and planet/scanner tuning.
+  Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`
   and uses Pixi sprites for player, NPC, projectile, loot/effect, portal,

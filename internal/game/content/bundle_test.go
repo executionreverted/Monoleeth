@@ -1,0 +1,179 @@
+package content
+
+import (
+	"errors"
+	"testing"
+
+	"gameproject/internal/game/catalog"
+	"gameproject/internal/game/crafting"
+	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/production"
+	"gameproject/internal/game/world"
+	worldmaps "gameproject/internal/game/world/maps"
+)
+
+func TestDefaultGameplayContentValidates(t *testing.T) {
+	bundle := validBundle(t)
+
+	if err := bundle.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+	if _, ok := bundle.Items["raw_ore"]; !ok {
+		t.Fatal("raw_ore missing from content items")
+	}
+	if _, ok := bundle.LootTables[TrainingDroneSalvageLootTableID]; !ok {
+		t.Fatalf("%s missing from loot tables", TrainingDroneSalvageLootTableID)
+	}
+	if _, ok := bundle.Modules.Lookup("laser_alpha_t1"); !ok {
+		t.Fatal("laser_alpha_t1 missing from module catalog")
+	}
+	if _, ok := bundle.Ships.Get("starter"); !ok {
+		t.Fatal("starter ship missing from ship catalog")
+	}
+}
+
+func TestGameplayContentRejectsLootRowUnknownItem(t *testing.T) {
+	bundle := validBundle(t)
+	delete(bundle.Items, "raw_ore")
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrUnknownContentItem) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrUnknownContentItem)
+	}
+}
+
+func TestGameplayContentRejectsMapDropProfileUnknownLootTable(t *testing.T) {
+	bundle := validBundle(t)
+	definitions := bundle.Maps.Definitions()
+	definitions[0].NPCDropProfiles[0].LootTableID = "missing_salvage"
+	mapCatalog, err := worldmaps.NewCatalog(definitions, worldmaps.StarterMapID, worldmaps.StarterSpawnID)
+	if err != nil {
+		t.Fatalf("NewCatalog() error = %v, want nil before cross-catalog validation", err)
+	}
+	bundle.Maps = mapCatalog
+
+	err = bundle.Validate()
+	if !errors.Is(err, ErrUnknownContentLoot) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrUnknownContentLoot)
+	}
+}
+
+func TestGameplayContentRejectsRecipeUnknownInputItem(t *testing.T) {
+	bundle := validBundle(t)
+	definitions := bundle.Recipes.Definitions()
+	definitions[0].Inputs[0].ItemID = "missing_ore"
+	recipeCatalog, err := crafting.NewRecipeCatalog(definitions)
+	if err != nil {
+		t.Fatalf("NewRecipeCatalog() error = %v, want nil before cross-catalog validation", err)
+	}
+	bundle.Recipes = recipeCatalog
+
+	err = bundle.Validate()
+	if !errors.Is(err, ErrUnknownContentItem) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrUnknownContentItem)
+	}
+}
+
+func TestGameplayContentRejectsRecipeUnknownShipUnlock(t *testing.T) {
+	bundle := validBundle(t)
+	definitions := bundle.Recipes.Definitions()
+	for index := range definitions {
+		if definitions[index].Output.Kind == crafting.RecipeOutputKindShipUnlock {
+			definitions[index].Output.ShipID = "missing_ship"
+			break
+		}
+	}
+	recipeCatalog, err := crafting.NewRecipeCatalog(definitions)
+	if err != nil {
+		t.Fatalf("NewRecipeCatalog() error = %v, want nil before cross-catalog validation", err)
+	}
+	bundle.Recipes = recipeCatalog
+
+	err = bundle.Validate()
+	if !errors.Is(err, ErrUnknownContentShip) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrUnknownContentShip)
+	}
+}
+
+func TestGameplayContentRejectsProductionUnknownOutputItem(t *testing.T) {
+	bundle := validBundle(t)
+	definitions := bundle.Production.Definitions()
+	definitions[0].Outputs[0].ItemID = "missing_output"
+	productionCatalog, err := production.NewCatalog(definitions)
+	if err != nil {
+		t.Fatalf("NewCatalog() error = %v, want nil before cross-catalog validation", err)
+	}
+	bundle.Production = productionCatalog
+
+	err = bundle.Validate()
+	if !errors.Is(err, ErrUnknownContentItem) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrUnknownContentItem)
+	}
+}
+
+func TestGameplayContentRuntimeItemsAndLootTablesAreCloned(t *testing.T) {
+	bundle := validBundle(t)
+
+	items, lootTables, err := bundle.RuntimeItemsAndLootTables()
+	if err != nil {
+		t.Fatalf("RuntimeItemsAndLootTables() error = %v, want nil", err)
+	}
+	delete(items, "raw_ore")
+	table := lootTables[TrainingDroneSalvageLootTableID]
+	table.Rows[0].MinQuantity = 99
+	lootTables[TrainingDroneSalvageLootTableID] = table
+
+	if _, ok := bundle.Items["raw_ore"]; !ok {
+		t.Fatal("mutating returned items changed bundle")
+	}
+	if got := bundle.LootTables[TrainingDroneSalvageLootTableID].Rows[0].MinQuantity; got != 3 {
+		t.Fatalf("bundle loot row min quantity = %d, want 3", got)
+	}
+}
+
+func validBundle(t *testing.T) GameplayContent {
+	t.Helper()
+	bundle, err := DefaultGameplayContent(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("DefaultGameplayContent() error = %v", err)
+	}
+	return bundle
+}
+
+func TestGameplayContentRejectsLootTableSourceMismatch(t *testing.T) {
+	bundle := validBundle(t)
+	table := bundle.LootTables[TrainingDroneSalvageLootTableID]
+	source, err := catalog.NewLootTableSource("other_table", "v1")
+	if err != nil {
+		t.Fatalf("NewLootTableSource() error = %v", err)
+	}
+	table.Source = source
+	bundle.LootTables[TrainingDroneSalvageLootTableID] = table
+
+	err = bundle.Validate()
+	if !errors.Is(err, ErrInvalidContentBundle) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidContentBundle)
+	}
+}
+
+func TestGameplayContentRejectsInvalidLootChance(t *testing.T) {
+	bundle := validBundle(t)
+	table := bundle.LootTables[TrainingDroneSalvageLootTableID]
+	table.Rows[0].Chance = 1.1
+	bundle.LootTables[TrainingDroneSalvageLootTableID] = table
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrInvalidContentLootRow) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidContentLootRow)
+	}
+}
+
+func TestGameplayContentRejectsModuleWithoutItemDefinition(t *testing.T) {
+	bundle := validBundle(t)
+	delete(bundle.Items, foundation.ItemID("scanner_t1"))
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrUnknownContentItem) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrUnknownContentItem)
+	}
+}

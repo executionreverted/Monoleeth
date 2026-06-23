@@ -11,6 +11,7 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/combat"
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/crafting"
 	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/discovery"
@@ -210,10 +211,11 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	mapCatalog, err := worldmaps.StarterCatalog(config.WorldID)
+	contentBundle, err := gamecontent.DefaultGameplayContent(config.WorldID)
 	if err != nil {
 		return nil, err
 	}
+	mapCatalog := contentBundle.Maps
 	mapRouter, err := worldmaps.NewRouter(mapCatalog)
 	if err != nil {
 		return nil, err
@@ -257,10 +259,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	cargoService := economy.NewCargoService(inventory)
 	walletService := economy.NewWalletService(clock)
 	progressionService := progression.NewProgressionService(clock, nil)
-	shipCatalog, err := ships.MVPShipCatalog()
-	if err != nil {
-		return nil, err
-	}
+	shipCatalog := contentBundle.Ships
 	hangarStore := ships.NewInMemoryHangarStore()
 	hangarService, err := ships.NewHangarService(
 		shipCatalog,
@@ -286,22 +285,16 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	moduleCatalog := modules.MustMVPCatalog()
-	lootTables, itemCatalog, err := runtimeLootCatalog()
+	moduleCatalog := contentBundle.Modules
+	itemCatalog, lootTables, err := contentBundle.RuntimeItemsAndLootTables()
 	if err != nil {
-		return nil, err
-	}
-	if err := appendRuntimeModuleItems(itemCatalog, moduleCatalog); err != nil {
 		return nil, err
 	}
 	contentRegistry, err := buildRuntimeContentRegistry(itemCatalog, moduleCatalog, shipCatalog)
 	if err != nil {
 		return nil, err
 	}
-	recipeCatalog, err := crafting.MVPRecipeCatalog()
-	if err != nil {
-		return nil, err
-	}
+	recipeCatalog := contentBundle.Recipes
 	reservationService := economy.NewReservationService(inventory)
 	discoveryStore := discovery.NewInMemoryStore()
 	productionStore := production.NewInMemoryStore()
