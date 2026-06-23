@@ -132,6 +132,10 @@ Current slice completed:
   split route/action helper now reads the same rendered
   `data-building-build-type` and `data-building-build-slot` selectors as the
   main HUD dispatch path, so build clicks cannot silently drop type/slot intent.
+  Phase10 now drives the real browser scan/detail/claim path and then clicks
+  the rendered `planet.building_build` HUD control for an `iron_extractor`
+  slot `alpha`, verifying the outbound intent fields and authoritative
+  production snapshot reconciliation.
 - Phase07H backend query follow-up: authenticated
   `planet.production_summary` and `planet.storage_summary` now reconcile
   eligible owned active-map production through

@@ -153,11 +153,38 @@ async function main() {
     );
     assert(productionInitialized(claimed, planetID), `production missing for ${planetID}`);
     assert(inventoryQuantity(claimed.inventory, 'x_core') === 0, `x_core still present ${compact(claimed.inventory)}`);
+
+    await resetWebSocketFrames(client);
+    await clickFirstEnabled(
+      client,
+      `button[data-action="planet-building-build"][data-planet-id=${cssString(planetID)}]`,
+      'Building build button',
+    );
+    const buildingID = `${planetID}-building-iron_extractor-alpha`;
+    const buildingFrames = await waitForUIBuildingBuildResponse(client, planetID, 'iron_extractor', 'alpha', 15000);
+    assertBuildingBuildRequestPayload(buildingFrames.request, planetID, 'iron_extractor', 'alpha');
+    assertBuildingBuildResponsePayload(buildingFrames.response, planetID, buildingID);
+    assertNoPayloadLeak(buildingFrames.response, 'building build response frame');
+    const withBuilding = await waitSmoke(
+      client,
+      (state) =>
+        productionBuilding(state, planetID, buildingID)?.level === 1 &&
+        !hasPendingOp(state, 'planet.building_build') &&
+        !hasUnhandledEventLog(state),
+      'building build reconciliation',
+      15000,
+    );
+    assert(productionBuilding(withBuilding, planetID, buildingID)?.building_type === 'iron_extractor', 'built building type mismatch');
+    assert((withBuilding.wallet?.credits ?? -1) >= 0, `wallet snapshot missing after build ${compact(withBuilding.wallet)}`);
+
     await assertNoLeak(client, claimed, 'claimed');
+    await assertNoLeak(client, withBuilding, 'building-build');
     await assertWebSocketCanary(client, 'claim');
     assertProcessLogCanary([goServer, viteServer]);
 
-    console.log(`phase10-planet-claim smoke ok planet=${planetID} owner=${planetOwnerStatus(claimed, planetID)}`);
+    console.log(
+      `phase10-planet-claim smoke ok planet=${planetID} owner=${planetOwnerStatus(claimed, planetID)} building=${buildingID}`,
+    );
   } finally {
     if (client) {
       await client.page.evaluate(() => window.__phase10ClaimCommandSocket?.close()).catch(() => {});
@@ -411,6 +438,44 @@ async function waitForUIClaimResponse(client, planetID, timeoutMS) {
   );
 }
 
+async function waitForUIBuildingBuildResponse(client, planetID, buildingType, slot, timeoutMS) {
+  const started = Date.now();
+  let lastFrames = [];
+  while (Date.now() - started < timeoutMS) {
+    lastFrames = await webSocketFrames(client);
+    const parsedFrames = lastFrames
+      .map((frame) => ({ frame, parsed: parseFrameJSON(frame.text) }))
+      .filter((entry) => entry.parsed);
+    const requestEntry = parsedFrames.find(
+      (entry) =>
+        entry.frame.direction === 'out' &&
+        entry.parsed.op === 'planet.building_build' &&
+        entry.parsed.payload?.planet_id === planetID &&
+        entry.parsed.payload?.building_type === buildingType &&
+        entry.parsed.payload?.slot === slot,
+    );
+    if (requestEntry) {
+      const responseEntry = parsedFrames.find(
+        (entry) => entry.frame.direction === 'in' && entry.parsed.request_id === requestEntry.parsed.request_id,
+      );
+      if (responseEntry?.parsed?.ok === false) {
+        throw new Error(
+          `Building build response rejected. Request: ${compact(requestEntry.parsed)} Response: ${compact(responseEntry.parsed)}`,
+        );
+      }
+      if (responseEntry?.parsed?.ok === true) {
+        return {
+          request: requestEntry.parsed,
+          response: responseEntry.parsed,
+        };
+      }
+    }
+    await delay(100);
+  }
+  const state = await smoke(client);
+  throw new Error(`Timed out waiting for UI building build response. State: ${compact(state)} Frames: ${compact(lastFrames)}`);
+}
+
 async function claimDiagnostics(client, planetID) {
   return client.page.evaluate((id) => {
     const buttons = [...document.querySelectorAll(`button[data-action="planet-claim"][data-planet-id="${CSS.escape(id)}"]`)].map(
@@ -455,6 +520,31 @@ function assertClaimResponsePayload(response, planetID) {
   assert(payload.claim?.planet?.owner_status === 'owned_by_you', `claim owner status ${compact(payload.claim?.planet)}`);
   assert((payload.production?.planets ?? []).some((planet) => planet.planet_id === planetID), 'claim response missing production');
   assert(inventoryQuantity(payload.inventory, 'x_core') === 0, `claim response inventory still has x_core ${compact(payload.inventory)}`);
+}
+
+function assertBuildingBuildRequestPayload(request, planetID, buildingType, slot) {
+  assert(request.op === 'planet.building_build', `building build op = ${request.op}`);
+  assert(request.payload?.planet_id === planetID, `building build planet_id = ${compact(request.payload)}`);
+  assert(request.payload?.building_type === buildingType, `building build type = ${compact(request.payload)}`);
+  assert(request.payload?.slot === slot, `building build slot = ${compact(request.payload)}`);
+  assert(
+    Object.keys(request.payload ?? {}).sort().join(',') === 'building_type,planet_id,slot',
+    `building build payload keys = ${Object.keys(request.payload ?? {})}`,
+  );
+  for (const field of ['owner', 'owner_player_id', 'building_id', 'level', 'cost', 'wallet', 'storage', 'materials', 'position']) {
+    assert(!(field in request.payload), `building build request leaked trusted field ${field}`);
+  }
+}
+
+function assertBuildingBuildResponsePayload(response, planetID, buildingID) {
+  assert(response.ok === true, `building build response not ok ${compact(response)}`);
+  const payload = response.payload ?? {};
+  assert(payload.building?.planet_id === planetID, `building response planet mismatch ${compact(payload.building)}`);
+  assert(payload.building?.building_id === buildingID, `building response id mismatch ${compact(payload.building)}`);
+  assert(payload.building?.building_type === 'iron_extractor', `building response type mismatch ${compact(payload.building)}`);
+  assert(payload.building?.level === 1, `building response level mismatch ${compact(payload.building)}`);
+  assert((payload.production?.planets ?? []).some((planet) => productionBuilding({ production: payload.production }, planetID, buildingID)), 'building response missing production snapshot');
+  assert(payload.wallet && typeof payload.wallet.credits === 'number', `building response missing wallet snapshot ${compact(payload.wallet)}`);
 }
 
 async function assertNoLeak(client, state, label) {
@@ -575,6 +665,12 @@ function productionInitialized(state, planetID) {
     state?.production?.planets?.some((planet) => planet.planet_id === planetID && planet.storage && planet.energy_capacity_per_hour > 0) ||
     state?.planetIntel?.selectedPlanet?.production?.planet_id === planetID
   );
+}
+
+function productionBuilding(state, planetID, buildingID) {
+  return state?.production?.planets
+    ?.find((planet) => planet.planet_id === planetID)
+    ?.buildings?.find((building) => building.building_id === buildingID) ?? null;
 }
 
 function inventoryQuantity(inventory, itemID) {

@@ -553,8 +553,10 @@ for phase status; this file is a compact pending-work index.
   server-only drop matrix coverage now includes public `1-1`, `1-2`, and
   medium PvP `1-3`, and Phase10 now ties active-map known/minimap memory scope
   to those seeded drop profile/table rows with an internal map/candidate/drop
-  metadata leak canary. Phase10 now adds a focused browser claim proof for
-  public `1-1`; the single-process built-client playtest proof now extends
+  metadata leak canary. Phase10 now adds a focused browser claim/build proof
+  for public `1-1`, including real HUD `planet.building_build` for an
+  `iron_extractor` with server-owned production reconciliation; the
+  single-process built-client playtest proof now extends
   `GAME_PLAYTEST_SEED=true` through real browser starter combat, loot pickup,
   HUD scan, HUD planet claim, production initialization, and route
   create/settle, then transfers through `east_gate` to public `1-2` and proves
