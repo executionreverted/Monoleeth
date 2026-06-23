@@ -318,25 +318,45 @@ func TestDecodeRequestEnvelopeAcceptsPlanetBuildingMutationOperations(t *testing
 }
 
 func TestDecodeRequestEnvelopeAcceptsCraftingStartContract(t *testing.T) {
-	envelope, err := DecodeRequestEnvelope([]byte(`{"request_id":"request-craft-start","op":"crafting.start","payload":{"recipe_id":"refined_alloy_batch"},"client_seq":19,"v":1}`))
-	if err != nil {
-		t.Fatalf("decode crafting.start request envelope: %v", err)
+	cases := []struct {
+		name string
+		body string
+		want Operation
+	}{
+		{
+			name: "start",
+			body: `{"request_id":"request-craft-start","op":"crafting.start","payload":{"recipe_id":"refined_alloy_batch"},"client_seq":19,"v":1}`,
+			want: OperationCraftingStart,
+		},
+		{
+			name: "complete",
+			body: `{"request_id":"request-craft-complete","op":"crafting.complete","payload":{"job_id":"craft-job-1"},"client_seq":20,"v":1}`,
+			want: OperationCraftingComplete,
+		},
 	}
-	if envelope.Op != OperationCraftingStart {
-		t.Fatalf("op = %q, want %q", envelope.Op, OperationCraftingStart)
-	}
-	spec, ok := LookupOperation(OperationCraftingStart)
-	if !ok {
-		t.Fatalf("LookupOperation(%q) not registered", OperationCraftingStart)
-	}
-	if spec.RateLimitPosture != RateLimitPostureIntentBurst {
-		t.Fatalf("crafting.start posture = %q, want %q", spec.RateLimitPosture, RateLimitPostureIntentBurst)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			envelope, err := DecodeRequestEnvelope([]byte(tc.body))
+			if err != nil {
+				t.Fatalf("decode crafting request envelope: %v", err)
+			}
+			if envelope.Op != tc.want {
+				t.Fatalf("op = %q, want %q", envelope.Op, tc.want)
+			}
+			spec, ok := LookupOperation(tc.want)
+			if !ok {
+				t.Fatalf("LookupOperation(%q) not registered", tc.want)
+			}
+			if spec.RateLimitPosture != RateLimitPostureIntentBurst {
+				t.Fatalf("crafting posture = %q, want %q", spec.RateLimitPosture, RateLimitPostureIntentBurst)
+			}
+		})
 	}
 }
 
 func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testing.T) {
 	disallowed := []Operation{
-		Operation("crafting.complete"),
 		Operation("crafting.cancel"),
 		Operation("inventory.move"),
 		Operation("progression.unlock_skill"),

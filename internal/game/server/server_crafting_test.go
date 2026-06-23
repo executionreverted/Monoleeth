@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/testutil"
 )
 
 func TestCraftingStartCreatesServerOwnedJobAndSnapshots(t *testing.T) {
@@ -134,6 +136,82 @@ func TestCraftingStartDuplicateRequestDoesNotReserveTwice(t *testing.T) {
 	}
 }
 
+func TestCraftingCompleteRejectsEarlyCompletionWithoutOutput(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC))
+	gameServer := newRouteControlTestServer(t, clock)
+	resolved := createResolvedRuntimeSession(t, gameServer, "craft-complete-early@example.com", "Craft Early")
+	seedCraftingStartInputs(t, gameServer, resolved.PlayerID, 40, 10)
+	job := startRefinedAlloyCraftForTest(t, gameServer, realtime.SessionID(resolved.SessionID.String()), "request-craft-early-start")
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-craft-early-complete","op":"crafting.complete","payload":{"job_id":"`+job.JobID+`"},"client_seq":2,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeCooldown {
+		t.Fatalf("early crafting.complete response = %+v, want cooldown", response)
+	}
+	if got := craftingStackQuantity(t, gameServer, resolved.PlayerID, economy.LocationKindAccountInventory, "refined_alloy"); got != 0 {
+		t.Fatalf("refined_alloy output = %d, want 0 before craft is ready", got)
+	}
+}
+
+func TestCraftingCompleteGrantsOutputAndDuplicateDoesNotGrantTwice(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC))
+	gameServer := newRouteControlTestServer(t, clock)
+	resolved := createResolvedRuntimeSession(t, gameServer, "craft-complete-ready@example.com", "Craft Ready")
+	seedCraftingStartInputs(t, gameServer, resolved.PlayerID, 40, 10)
+	job := startRefinedAlloyCraftForTest(t, gameServer, realtime.SessionID(resolved.SessionID.String()), "request-craft-ready-start")
+	clock.Advance(5 * time.Minute)
+
+	first := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-craft-ready-complete","op":"crafting.complete","payload":{"job_id":"`+job.JobID+`"},"client_seq":2,"v":1}`),
+	)
+	if first.HasError {
+		t.Fatalf("crafting.complete response error = %+v, want success", first.Error)
+	}
+	assertCraftingPayloadIsClientSafe(t, first.Response.Payload)
+	var payload struct {
+		Crafting    craftingSnapshotPayload    `json:"crafting"`
+		Job         craftingJobPayload         `json:"job"`
+		Inventory   inventorySnapshotPayload   `json:"inventory"`
+		Progression progressionSnapshotPayload `json:"progression"`
+		Duplicate   bool                       `json:"duplicate"`
+	}
+	if err := json.Unmarshal(first.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode crafting.complete payload: %v", err)
+	}
+	if payload.Duplicate || payload.Job.JobID != job.JobID || payload.Job.State != "completed" {
+		t.Fatalf("complete payload = %+v, want first completed job", payload)
+	}
+	if payload.Progression.MainXP <= 0 {
+		t.Fatalf("progression payload = %+v, want XP snapshot after craft completion", payload.Progression)
+	}
+	if got := craftingStackQuantity(t, gameServer, resolved.PlayerID, economy.LocationKindAccountInventory, "refined_alloy"); got != 5 {
+		t.Fatalf("refined_alloy output = %d, want 5 after completion", got)
+	}
+
+	duplicate := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-craft-ready-complete-retry","op":"crafting.complete","payload":{"job_id":"`+job.JobID+`"},"client_seq":3,"v":1}`),
+	)
+	if duplicate.HasError {
+		t.Fatalf("duplicate crafting.complete response error = %+v, want success", duplicate.Error)
+	}
+	var duplicatePayload struct {
+		Duplicate bool `json:"duplicate"`
+	}
+	if err := json.Unmarshal(duplicate.Response.Payload, &duplicatePayload); err != nil {
+		t.Fatalf("decode duplicate crafting.complete payload: %v", err)
+	}
+	if !duplicatePayload.Duplicate {
+		t.Fatalf("duplicate = false, want true for second complete request")
+	}
+	if got := craftingStackQuantity(t, gameServer, resolved.PlayerID, economy.LocationKindAccountInventory, "refined_alloy"); got != 5 {
+		t.Fatalf("refined_alloy output after duplicate = %d, want still 5", got)
+	}
+}
+
 func seedCraftingStartInputs(t *testing.T, gameServer *Server, playerID foundation.PlayerID, ore int64, carbon int64) {
 	t.Helper()
 	location, err := economy.NewItemLocation(economy.LocationKindAccountInventory, playerID.String())
@@ -143,6 +221,27 @@ func seedCraftingStartInputs(t *testing.T, gameServer *Server, playerID foundati
 	seedCraftingItem(t, gameServer, playerID, location, "iron_ore", ore, "ore")
 	seedCraftingItem(t, gameServer, playerID, location, "carbon_shards", carbon, "carbon")
 	seedCraftingCredits(t, gameServer, playerID, 500)
+}
+
+func startRefinedAlloyCraftForTest(t *testing.T, gameServer *Server, sessionID realtime.SessionID, requestID string) craftingJobPayload {
+	t.Helper()
+	response := gameServer.runtime.Gateway.HandleRequest(
+		sessionID,
+		[]byte(`{"request_id":"`+requestID+`","op":"crafting.start","payload":{"recipe_id":"refined_alloy_batch"},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("crafting.start response error = %+v, want success", response.Error)
+	}
+	var payload struct {
+		Job craftingJobPayload `json:"job"`
+	}
+	if err := json.Unmarshal(response.Response.Payload, &payload); err != nil {
+		t.Fatalf("decode crafting.start helper payload: %v", err)
+	}
+	if payload.Job.JobID == "" {
+		t.Fatalf("crafting.start helper job is empty")
+	}
+	return payload.Job
 }
 
 func seedCraftingItem(t *testing.T, gameServer *Server, playerID foundation.PlayerID, location economy.ItemLocation, itemID foundation.ItemID, quantity int64, suffix string) {

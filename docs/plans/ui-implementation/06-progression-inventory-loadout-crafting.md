@@ -2,8 +2,8 @@
 
 ## Status
 
-- State: Authenticated read-model MVP plus server-owned `crafting.start`
-  contract completed; remaining crafting/UI mutations are tracked in
+- State: Authenticated read-model MVP plus server-owned `crafting.start` and
+  `crafting.complete` contracts completed; remaining crafting/UI mutations are tracked in
   `docs/todo.md`
 - Owner: Player growth and item management UI
 - Depends on: Phase 05
@@ -18,11 +18,14 @@ Current slice completed:
 - `crafting.start` now maps gateway request ids to a server-owned
   `craft_start:*` domain reference, reserves materials, debits wallet, and
   returns crafting/inventory/wallet snapshots from authenticated player state.
-- Remaining crafting completion/cancel commands and browser controls must still
-  use ledger/service-backed flows before any UI action is enabled.
+- `crafting.complete` now validates job owner/state and server time, commits
+  reserved materials, grants output/XP once, and returns
+  crafting/inventory/progression snapshots.
+- Remaining crafting cancel command and browser controls must still use
+  ledger/service-backed flows before any UI action is enabled.
 - Phase 10 records the exact missing browser/server contracts for skill unlock,
   inventory move, hangar activation, loadout equip/unequip, and crafting
-  complete/cancel/UI controls. These controls must stay absent, locked, or
+  cancel/UI controls. These controls must stay absent, locked, or
   read-only until those contracts are implemented and verified.
 
 ## Goal
@@ -145,7 +148,7 @@ Mockup areas covered:
 - [x] Add stat snapshot query handler.
 - [x] Add crafting recipe query handler.
 - [x] Add `crafting.start` handler backed by `CraftingService.StartCraft`.
-- [ ] Add crafting complete handler.
+- [x] Add `crafting.complete` handler backed by `CraftingService.CompleteCraft`.
 - [ ] Add crafting cancel handler, refund/release behavior, and
       `crafting.job_cancelled` event.
 - [x] Map `crafting.start` request ids to crafting domain idempotency
@@ -167,7 +170,7 @@ Mockup areas covered:
 - [x] Client cannot activate unowned or disabled ships.
 - [x] Client cannot fake stat totals through exposed snapshot operations.
 - [x] Craft start checks recipe, wallet, materials, location, rank, and idempotency.
-- [ ] Craft completion is server-time/idempotency controlled.
+- [x] Craft completion is server-time/idempotency controlled.
 - [ ] Craft cancel releases only eligible reserved materials/wallet amounts once.
 - [x] Wallet/credits display is snapshot-driven, not locally calculated.
 
@@ -183,7 +186,7 @@ Mockup areas covered:
 - [ ] Duplicate equip/unequip does not duplicate modules.
 - [ ] Loadout equip updates stat snapshot.
 - [x] Craft start reserves materials and debits wallet once.
-- [ ] Craft complete grants output once.
+- [x] Craft complete grants output once.
 - [ ] Craft cancel releases reservation/refund once and emits cancellation event.
 - [x] Server snapshot queries use authenticated session state and reject
       client-authored progression truth.

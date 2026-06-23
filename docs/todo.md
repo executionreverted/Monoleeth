@@ -210,11 +210,14 @@ for phase status; this file is a compact pending-work index.
   wallet, materials, station location, rank, and idempotency, and the client
   command builder sends only recipe/location intent fields. Browser UI controls
   remain locked until the crafting panel slice.
+- [x] Add authenticated server/browser protocol contract for
+  `crafting.complete`. The server resolves player identity from the session,
+  validates job owner/state and server time, commits the reservation, grants
+  output plus XP once, and the client command builder sends only `job_id`.
 - [ ] Add authenticated browser crafting mutation contracts for
-  `crafting.complete` and `crafting.cancel`. Server handlers must map request
-  ids to stable domain references such as `craft_complete:<job_id>` and
-  `craft_cancel:<job_id>`, validate job owner/state, server time, cancellation
-  window, refund/release policy, output capacity, and emit
+  `crafting.cancel`. Server handlers must map request ids to stable domain
+  references such as `craft_cancel:<job_id>`, validate job owner/state,
+  cancellation window, refund/release policy, and emit
   crafting/inventory/wallet/progression snapshots after commit. Source: Phase
   10 audit.
 - [ ] Finish authenticated planet ownership/building mutation contracts.

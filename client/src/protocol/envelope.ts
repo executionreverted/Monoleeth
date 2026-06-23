@@ -23,6 +23,7 @@ export const OPERATIONS = {
   stealthToggle: 'stealth.toggle',
   craftingRecipes: 'crafting.recipes',
   craftingStart: 'crafting.start',
+  craftingComplete: 'crafting.complete',
   scanPulse: 'scan.pulse',
   knownPlanets: 'discovery.known_planets',
   planetDetail: 'discovery.planet_detail',

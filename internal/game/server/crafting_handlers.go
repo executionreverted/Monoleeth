@@ -17,6 +17,10 @@ type craftingStartIntent struct {
 	LocationID   string `json:"location_id,omitempty"`
 }
 
+type craftingCompleteIntent struct {
+	JobID string `json:"job_id"`
+}
+
 func (runtime *Runtime) handleCraftingStart(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
 	if err := rejectTrustedPayloadWithAdditional(
 		request.Payload,
@@ -62,6 +66,59 @@ func (runtime *Runtime) handleCraftingStart(ctx realtime.CommandContext, request
 		"wallet":    runtime.walletSnapshotLocked(ctx.PlayerID),
 		"inventory": runtime.inventorySnapshotLocked(ctx.PlayerID),
 		"duplicate": result.Duplicate,
+	})
+}
+
+func (runtime *Runtime) handleCraftingComplete(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if runtime == nil || runtime.Crafting == nil {
+		return nil, domainErrorForRuntime(crafting.ErrMissingRecipeCatalog)
+	}
+	if err := rejectTrustedPayloadWithAdditional(
+		request.Payload,
+		"player_id",
+		"recipe_id",
+		"reservation_id",
+		"reservation",
+		"reservation_commit",
+		"item_output",
+		"ship_unlock",
+		"xp_grant",
+		"reference_id",
+		"output_location",
+		"started_at",
+		"completes_at",
+		"completed_at",
+		"state",
+		"output",
+		"quantity",
+		"duplicate",
+	); err != nil {
+		return nil, err
+	}
+	var intent craftingCompleteIntent
+	if err := decodeStrict(request.Payload, &intent); err != nil {
+		return nil, err
+	}
+	jobID := crafting.CraftJobID(intent.JobID)
+	if err := jobID.Validate(); err != nil {
+		return nil, invalidPayload("Craft job is invalid.", err)
+	}
+	result, err := runtime.Crafting.CompleteCraft(crafting.CompleteCraftInput{
+		PlayerID: ctx.PlayerID,
+		JobID:    jobID,
+	})
+	if err != nil {
+		return nil, domainErrorForCrafting(err)
+	}
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	return marshalPayload(map[string]any{
+		"crafting":    runtime.craftingSnapshot(ctx.PlayerID),
+		"job":         craftingJob(result.Job),
+		"inventory":   runtime.inventorySnapshotLocked(ctx.PlayerID),
+		"progression": progressionPayload(result.XPGrant.Snapshot),
+		"duplicate":   result.Duplicate,
 	})
 }
 
@@ -129,6 +186,14 @@ func domainErrorForCrafting(err error) error {
 		return foundation.NewDomainError(foundation.CodeNotEnoughCargo, "Not enough item quantity.", foundation.WithCause(err))
 	case errors.Is(err, crafting.ErrUnknownRecipeDefinition), errors.Is(err, crafting.ErrLocationRequirementNotMet), errors.Is(err, crafting.ErrRankRequirementNotMet), errors.Is(err, crafting.ErrRoleRequirementNotMet), errors.Is(err, crafting.ErrCraftStartReferenceMismatch), errors.Is(err, crafting.ErrMissingLocationAuthorizer):
 		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Craft request is invalid.", foundation.WithCause(err))
+	case errors.Is(err, crafting.ErrCraftNotReady):
+		return foundation.NewDomainError(foundation.CodeCooldown, "Craft job is not ready.", foundation.WithCause(err))
+	case errors.Is(err, crafting.ErrCraftJobNotFound):
+		return foundation.NewDomainError(foundation.CodeNotFound, "Craft job was not found.", foundation.WithCause(err))
+	case errors.Is(err, crafting.ErrCraftJobPlayerMismatch):
+		return foundation.NewDomainError(foundation.CodeForbidden, "Craft job is not owned by this player.", foundation.WithCause(err))
+	case errors.Is(err, crafting.ErrInvalidCraftJobState):
+		return foundation.NewDomainError(foundation.CodeForbidden, "Craft job is not active.", foundation.WithCause(err))
 	default:
 		return foundation.NewDomainError(foundation.CodeInternal, "Crafting command failed.", foundation.WithCause(err))
 	}
