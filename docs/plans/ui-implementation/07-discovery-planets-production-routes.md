@@ -667,6 +667,8 @@ Mockup areas covered:
       server-owned source truth.
 - [x] Offline settlement duration is server-calculated.
 - [x] Route settlement timing is server-calculated in the backend gateway.
+- [x] Route settlement handlers hand server-owned route settlement transaction
+      rows to the runtime durable commit-store adapter.
 - [ ] Durable route settlement windows are enforced by DB/idempotency rows and
       published through the durable outbox.
 - [x] Building mutations use production-local material ledger rows and wallet
@@ -750,6 +752,9 @@ Mockup areas covered:
       directly for future DB/publisher adapters.
 - [x] Route settlement durable commit plans apply through the durable
       commit-store adapter with exact replay and invalid-row rejection.
+- [x] Route settlement handlers apply committed route references, pending
+      outbox rows, and route storage ledger rows through the runtime durable
+      commit-store adapter.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

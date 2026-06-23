@@ -428,9 +428,11 @@ for phase status; this file is a compact pending-work index.
   dispatch plans by settlement reference key. The runtime production/storage
   summary handlers now hand server-owned production settlement transaction rows
   to the durable commit-store adapter while duplicate/sub-unit polls remain
-  no-op. Phase07AU adds claim-begin durable plan validation for X Core
-  debit plus owner-CAS evidence. Phase07AT adds the matching
-  completed-claim durable commit-plan validation for claim
+  no-op, and route settlement handlers now hand server-owned route settlement
+  references, pending outbox rows, and route storage ledger rows to the same
+  durable commit-store adapter. Phase07AU adds claim-begin durable plan
+  validation for X Core debit plus owner-CAS evidence. Phase07AT adds the
+  matching completed-claim durable commit-plan validation for claim
   boundary/reference/event/outbox/X Core evidence. Phase07AV adds claim
   production-init durable-plan validation for recovery rows tied to
   pending/complete claim boundaries. Phase07AW ties those claim

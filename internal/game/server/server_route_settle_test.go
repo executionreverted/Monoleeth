@@ -71,6 +71,7 @@ func TestRouteSettleTransfersStorageAndQueuesSafeOwnerEvents(t *testing.T) {
 	assertStoredRouteStorageQuantity(t, gameServer, sourcePlanetID, "refined_alloy", 60)
 	assertStoredRouteStorageQuantity(t, gameServer, destinationPlanetID, "refined_alloy", 40)
 	assertStoredRouteCursor(t, gameServer, routeID, clock.Now())
+	assertRouteDurableSettlementRows(t, gameServer, []foundation.RouteID{routeID}, 2)
 
 	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteSettle, owner.PlayerID)
 	if err != nil {
@@ -141,6 +142,8 @@ func TestRouteSettleImmediateDuplicateReturnsNoOpWithoutDuplicateTransfer(t *tes
 	if first.HasError {
 		t.Fatalf("first route.settle response error = %+v, want success", first.Error)
 	}
+	durableOutboxAfterFirst := len(gameServer.runtime.Settlements.OutboxRecords())
+	durableLedgerAfterFirst := len(gameServer.runtime.Settlements.RouteStorageLedgerEntries())
 	if _, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteSettle, owner.PlayerID); err != nil {
 		t.Fatalf("drain first route.settle events: %v", err)
 	}
@@ -161,6 +164,10 @@ func TestRouteSettleImmediateDuplicateReturnsNoOpWithoutDuplicateTransfer(t *tes
 	assertRouteSettlementPayload(t, payload.Settlement, routeID, "refined_alloy", 0, 0, 0, 0, 0, 0, true, "duplicate route.settle response")
 	assertStoredRouteStorageQuantity(t, gameServer, sourcePlanetID, "refined_alloy", 60)
 	assertStoredRouteStorageQuantity(t, gameServer, destinationPlanetID, "refined_alloy", 40)
+	assertRouteDurableSettlementRows(t, gameServer, []foundation.RouteID{routeID}, durableLedgerAfterFirst)
+	if got := len(gameServer.runtime.Settlements.OutboxRecords()); got != durableOutboxAfterFirst {
+		t.Fatalf("duplicate route.settle durable outbox rows = %d, want %d", got, durableOutboxAfterFirst)
+	}
 
 	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteSettle, owner.PlayerID)
 	if err != nil {
@@ -235,6 +242,7 @@ func TestRouteSettleEmptyPayloadReconcilesOwnedRoutesOnly(t *testing.T) {
 	assertStoredRouteStorageQuantity(t, gameServer, destinationTwoID, "refined_alloy", 40)
 	assertStoredRouteStorageQuantity(t, gameServer, otherSourceID, "refined_alloy", 50)
 	assertStoredRouteStorageQuantity(t, gameServer, otherDestinationID, "refined_alloy", 0)
+	assertRouteDurableSettlementRows(t, gameServer, []foundation.RouteID{routeOneID, routeTwoID}, 4)
 
 	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationRouteSettle, owner.PlayerID)
 	if err != nil {
@@ -765,6 +773,58 @@ func assertRouteSettleReconcileEvents(t *testing.T, events []realtime.EventEnvel
 	for _, routeID := range routeIDs {
 		if _, ok := seenSettlements[routeID.String()]; !ok {
 			t.Fatalf("route.settle reconcile events missing settlement for %q in %+v", routeID, seenSettlements)
+		}
+	}
+}
+
+func assertRouteDurableSettlementRows(t *testing.T, gameServer *Server, routeIDs []foundation.RouteID, wantLedgerRows int) {
+	t.Helper()
+
+	references := gameServer.runtime.Settlements.SettlementReferences()
+	if len(references) != len(routeIDs) {
+		t.Fatalf("durable route settlement references = %+v, want %d", references, len(routeIDs))
+	}
+	wantRoutes := make(map[foundation.RouteID]struct{}, len(routeIDs))
+	for _, routeID := range routeIDs {
+		wantRoutes[routeID] = struct{}{}
+	}
+	for _, reference := range references {
+		if reference.Kind != production.SettlementKindRoute {
+			t.Fatalf("durable route settlement reference = %+v, want route kind", reference)
+		}
+		if !reference.PlanetID.IsZero() {
+			t.Fatalf("durable route settlement reference planet_id = %q, want empty", reference.PlanetID)
+		}
+		if _, ok := wantRoutes[reference.RouteID]; !ok {
+			t.Fatalf("durable route settlement reference = %+v, want one of %+v", reference, routeIDs)
+		}
+	}
+
+	outbox := gameServer.runtime.Settlements.OutboxRecords()
+	if len(outbox) == 0 {
+		t.Fatal("durable route settlement outbox rows = 0, want pending rows")
+	}
+	hasReferenceEvidence := false
+	for _, record := range outbox {
+		if record.Status != production.ProductionOutboxStatusPending {
+			t.Fatalf("durable route settlement outbox row = %+v, want pending status", record)
+		}
+		hasReferenceEvidence = hasReferenceEvidence || (!record.ReferenceKey.IsZero() && record.SettlementWindow != "")
+	}
+	if !hasReferenceEvidence {
+		t.Fatalf("durable route settlement outbox rows = %+v, want settlement reference evidence", outbox)
+	}
+
+	ledger := gameServer.runtime.Settlements.RouteStorageLedgerEntries()
+	if len(ledger) != wantLedgerRows {
+		t.Fatalf("durable route settlement ledger rows = %+v, want %d", ledger, wantLedgerRows)
+	}
+	for _, row := range ledger {
+		if _, ok := wantRoutes[row.RouteID]; !ok {
+			t.Fatalf("durable route settlement ledger row = %+v, want route in %+v", row, routeIDs)
+		}
+		if row.ReferenceKey.IsZero() || row.SettlementWindow == "" {
+			t.Fatalf("durable route settlement ledger row missing reference evidence: %+v", row)
 		}
 	}
 }

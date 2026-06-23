@@ -125,15 +125,6 @@ func (runtime *Runtime) handleRouteSettle(ctx realtime.CommandContext, request r
 	}
 	now := runtime.clock.Now().UTC()
 
-	service, err := production.NewAutomationRouteService(production.AutomationRouteServiceConfig{
-		Store:  runtime.Production,
-		Clock:  fixedRouteSettleClock{now: now},
-		Policy: runtimeRouteCreatePolicyProvider{runtime: runtime},
-	})
-	if err != nil {
-		return nil, domainErrorForRouteSettle(err)
-	}
-
 	if hasRouteID {
 		routeID, err := foundation.ParseRouteID(intent.RouteID)
 		if err != nil {
@@ -149,11 +140,11 @@ func (runtime *Runtime) handleRouteSettle(ctx realtime.CommandContext, request r
 		if err := runtime.preflightRouteSettleReadModelsAndStorage(ctx.PlayerID, []production.AutomationRoute{route}, now); err != nil {
 			return nil, domainErrorForRouteSettle(err)
 		}
-		settlement, err := service.SettleRouteForOwner(ctx.PlayerID, routeID)
+		result, err := runtime.applyRouteSettlement(ctx.PlayerID, routeID, now)
 		if err != nil {
 			return nil, domainErrorForRouteSettle(err)
 		}
-		responsePayload, err := runtime.routeSettleResponseAndEvents(ctx.PlayerID, []production.RouteSettlementResult{settlement}, true)
+		responsePayload, err := runtime.routeSettleResponseAndEvents(ctx.PlayerID, []production.RouteSettlementResult{result.Settlement}, true)
 		if err != nil {
 			return nil, domainErrorForRouteSettle(err)
 		}
@@ -166,25 +157,17 @@ func (runtime *Runtime) handleRouteSettle(ctx realtime.CommandContext, request r
 	}
 	settlements := make([]production.RouteSettlementResult, 0, len(ownerRoutes))
 	for _, route := range ownerRoutes {
-		settlement, err := service.SettleRouteForOwner(ctx.PlayerID, route.RouteID)
+		result, err := runtime.applyRouteSettlement(ctx.PlayerID, route.RouteID, now)
 		if err != nil {
 			return nil, domainErrorForRouteSettle(err)
 		}
-		settlements = append(settlements, settlement)
+		settlements = append(settlements, result.Settlement)
 	}
 	responsePayload, err := runtime.routeSettleResponseAndEvents(ctx.PlayerID, settlements, false)
 	if err != nil {
 		return nil, domainErrorForRouteSettle(err)
 	}
 	return marshalPayload(responsePayload)
-}
-
-type fixedRouteSettleClock struct {
-	now time.Time
-}
-
-func (clock fixedRouteSettleClock) Now() time.Time {
-	return clock.now
 }
 
 func (runtime *Runtime) routeSettleRouteForOwner(
@@ -205,6 +188,25 @@ func (runtime *Runtime) routeSettleRouteForOwner(
 		return production.AutomationRoute{}, fmt.Errorf("route %q owner %q: %w", routeID, playerID, production.ErrRouteOwnerMismatch)
 	}
 	return route, nil
+}
+
+func (runtime *Runtime) applyRouteSettlement(
+	playerID foundation.PlayerID,
+	routeID foundation.RouteID,
+	now time.Time,
+) (production.RouteSettlementTransactionResult, error) {
+	result, err := runtime.Production.ApplyRouteSettlementTransaction(production.RouteSettlementTransactionInput{
+		OwnerPlayerID: playerID,
+		RouteID:       routeID,
+		SettledAt:     now,
+	})
+	if err != nil {
+		return production.RouteSettlementTransactionResult{}, err
+	}
+	if _, err := result.ApplyDurableCommit(runtime.Settlements); err != nil {
+		return production.RouteSettlementTransactionResult{}, err
+	}
+	return result, nil
 }
 
 func (runtime *Runtime) preflightRouteSettleReadModelsAndStorage(
