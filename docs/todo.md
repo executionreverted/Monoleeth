@@ -649,6 +649,12 @@ for phase status; this file is a compact pending-work index.
   `GAME_FEATURE_BOUNDED_MULTI_MAP` flag, deterministic seed selection,
   backfill/quarantine commands, rollback order, and no-silent-clamp migration
   checks. Source: `docs/map-rework/phase-10-testing-rollout.md`.
+- [x] Prepare the private test-server operations runbook for the current
+  process-local vertical slice. `docs/test-server-operations.md` now records
+  seed policy, reset policy, port/origin config, artifact staging, published
+  artifact cleaning, rollback steps, and the pre-open checklist. Production
+  durable rollout controls remain tracked separately above. Source:
+  `docs/test-server-operations.md`.
 - [x] Add a real browser death/respawn E2E scenario. The explicit
   `e2e:phase10-pvp-death` command starts the real Go server and Vite client,
   registers two isolated real browser sessions, moves both through public

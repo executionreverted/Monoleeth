@@ -69,6 +69,12 @@ Verify the publish-directory guard for reused staging directories:
 scripts/test_playtest_publish_dir_guard.sh
 ```
 
+Read the private test-server operations runbook:
+
+```text
+docs/test-server-operations.md
+```
+
 A ready GitHub Actions workflow template exists at:
 
 ```text
@@ -116,9 +122,10 @@ client/src/assets/world/
 4. Decide whether the first public test server accepts process-local in-memory
    persistence, or whether durable DB-backed claim/production/route/death rows
    must land first.
-5. Prepare test-server operations notes: seed policy, reset policy, port/origin
-   config, artifact location, rollback steps, and whether the deploy job cleans
-   a reused `GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR` before publishing.
+5. Run the private test-server operations checklist in
+   `docs/test-server-operations.md` against the target host, then record the
+   exact artifact path, server revision, env vars, reset expectation, and
+   rollback artifact in the playtest announcement.
 
 ## Asset Needs
 

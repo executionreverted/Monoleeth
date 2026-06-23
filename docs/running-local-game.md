@@ -5,7 +5,8 @@ cookie sessions, and the Go WebSocket gateway. Do not use `?demo=1` unless you
 are explicitly testing the isolated fixture/demo path.
 
 For the current playable-build status, remaining rollout tasks, test-server
-commands, and asset needs, see `docs/playtest-vertical-slice-status.md`.
+commands, and asset needs, see `docs/playtest-vertical-slice-status.md`. For
+private test-server operations, see `docs/test-server-operations.md`.
 
 ## Start The Server
 
