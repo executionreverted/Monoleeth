@@ -76,6 +76,7 @@ type RuntimeConfig struct {
 	E2EPlanetClaimSeed  bool
 	E2EPlanetClaimCores int
 	E2ERouteSeed        bool
+	E2EScanNoPlanetSeed bool
 	AdminSeed           auth.AdminSeedInput
 	Passwords           auth.PasswordHasher
 }
@@ -180,6 +181,9 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	}
 	if config.E2ERouteSeed && !config.DevMode {
 		return nil, fmt.Errorf("%s requires %s=true", EnvE2ERouteSeed, EnvDevMode)
+	}
+	if config.E2EScanNoPlanetSeed && !config.DevMode {
+		return nil, fmt.Errorf("%s requires %s=true", EnvE2EScanNoPlanetSeed, EnvDevMode)
 	}
 	clock := config.Clock
 	if clock == nil {
@@ -467,31 +471,35 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, err
 	}
 	scannerBounds := worldmaps.ExactPlayableBounds()
-	scanner, err := discovery.NewScannerService(discovery.ScannerServiceConfig{
-		Store:     discoveryStore,
-		WorldSeed: scannerSeed,
-		Clock:     clock,
-		Modules:   runtimeScannerModuleProvider{runtime: runtime},
-		Stats:     runtimeScannerStatsProvider{runtime: runtime},
-		Positions: runtimeScannerPositionProvider{runtime: runtime},
-		Cooldowns: runtimeScannerCooldownProvider{runtime: runtime},
-		Energy:    runtimeScannerEnergyProvider{runtime: runtime},
-		Reveals:   runtimeScannerPlayerRevealProvider{runtime: runtime},
-		XP:        runtimeScanXPProvider{progression: progressionService},
-		CandidateOptions: discovery.CandidateGenerationOptions{
-			ProfileVersion: "runtime_phase06_bounded_v1",
-			MapBounds: discovery.CandidateMapBounds{
-				MinX: scannerBounds.MinX,
-				MinY: scannerBounds.MinY,
-				MaxX: scannerBounds.MaxX,
-				MaxY: scannerBounds.MaxY,
-			},
-			LevelMin:     1,
-			LevelMax:     4,
-			Density:      1,
-			SpawnBudget:  8,
-			ScanCellSize: discovery.DefaultScanCellSize,
+	scannerCandidateOptions := discovery.CandidateGenerationOptions{
+		ProfileVersion: "runtime_phase06_bounded_v1",
+		MapBounds: discovery.CandidateMapBounds{
+			MinX: scannerBounds.MinX,
+			MinY: scannerBounds.MinY,
+			MaxX: scannerBounds.MaxX,
+			MaxY: scannerBounds.MaxY,
 		},
+		LevelMin:     1,
+		LevelMax:     4,
+		Density:      1,
+		SpawnBudget:  8,
+		ScanCellSize: discovery.DefaultScanCellSize,
+	}
+	if config.E2EScanNoPlanetSeed {
+		scannerCandidateOptions.AllowedBiomes = []discovery.Biome{"e2e_no_planet"}
+	}
+	scanner, err := discovery.NewScannerService(discovery.ScannerServiceConfig{
+		Store:             discoveryStore,
+		WorldSeed:         scannerSeed,
+		Clock:             clock,
+		Modules:           runtimeScannerModuleProvider{runtime: runtime},
+		Stats:             runtimeScannerStatsProvider{runtime: runtime},
+		Positions:         runtimeScannerPositionProvider{runtime: runtime},
+		Cooldowns:         runtimeScannerCooldownProvider{runtime: runtime},
+		Energy:            runtimeScannerEnergyProvider{runtime: runtime},
+		Reveals:           runtimeScannerPlayerRevealProvider{runtime: runtime},
+		XP:                runtimeScanXPProvider{progression: progressionService},
+		CandidateOptions:  scannerCandidateOptions,
 		RadarLevelUnit:    defaultRadarRange,
 		DiscoveryXPAmount: 25,
 	})

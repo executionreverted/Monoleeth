@@ -23,6 +23,7 @@ const (
 	EnvE2EPlanetClaimSeed  = "GAME_E2E_PLANET_CLAIM_SEED"
 	EnvE2EPlanetClaimCores = "GAME_E2E_PLANET_CLAIM_X_CORES"
 	EnvE2ERouteSeed        = "GAME_E2E_ROUTE_SEED"
+	EnvE2EScanNoPlanetSeed = "GAME_E2E_SCAN_NO_PLANET_SEED"
 	defaultServerAddr      = ":8080"
 	defaultSocketReadLimit = 64 * 1024
 	defaultE2EClaimCores   = 1
@@ -40,6 +41,7 @@ type Config struct {
 	E2EPlanetClaimSeed  bool
 	E2EPlanetClaimCores int
 	E2ERouteSeed        bool
+	E2EScanNoPlanetSeed bool
 	SessionTTL          time.Duration
 	SocketReadTimeout   time.Duration
 	SocketWriteTimeout  time.Duration
@@ -84,6 +86,7 @@ func ConfigFromEnv() Config {
 	config.E2EPlanetClaimSeed = envBool(EnvE2EPlanetClaimSeed, config.E2EPlanetClaimSeed)
 	config.E2EPlanetClaimCores = envPositiveInt(EnvE2EPlanetClaimCores, config.E2EPlanetClaimCores)
 	config.E2ERouteSeed = envBool(EnvE2ERouteSeed, config.E2ERouteSeed)
+	config.E2EScanNoPlanetSeed = envBool(EnvE2EScanNoPlanetSeed, config.E2EScanNoPlanetSeed)
 	config.AdminSeed = auth.AdminSeedInput{
 		Enabled:  os.Getenv(auth.EnvAdminEmail) != "" || os.Getenv(auth.EnvAdminPassword) != "",
 		Email:    os.Getenv(auth.EnvAdminEmail),

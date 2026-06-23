@@ -11,6 +11,7 @@ const repoRoot = resolve(clientDir, '..');
 const viewport = { width: 1440, height: 900 };
 const commandTimeoutMS = 12000;
 const maxProcessLogLines = 3000;
+const planetScannerPoint = { x: 0, y: 0 };
 const scannerPoint = { x: 0, y: 0 };
 const hiddenTargetPoint = { x: 1400, y: 0 };
 
@@ -60,6 +61,8 @@ async function main() {
   const goServer = child('go-server', 'go', ['run', './cmd/game-server'], repoRoot, {
     GAME_SERVER_ADDR: `127.0.0.1:${serverPort}`,
     GAME_CLIENT_STATIC_DIR: 'client/dist',
+    GAME_DEV_MODE: '1',
+    GAME_E2E_SCAN_NO_PLANET_SEED: '1',
   });
   let browser;
   const clients = [];
@@ -70,6 +73,12 @@ async function main() {
 
     browser = await chromium.launch();
     const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const planetScanner = await newClient(browser, origin, {
+      label: 'planet-scanner',
+      email: `phase10-nosignal-planet-${nonce}@example.test`,
+      callsign: `P10NP-${nonce.slice(-6)}`,
+    });
+    clients.push(planetScanner);
     const scanner = await newClient(browser, origin, {
       label: 'scanner',
       email: `phase10-nosignal-scanner-${nonce}@example.test`,
@@ -84,6 +93,17 @@ async function main() {
     clients.push(target);
 
     await Promise.all(clients.map(openCommandSocket));
+    await moveToPosition(planetScanner, planetScannerPoint, 35, 'planet-candidate no-signal point', 60000);
+    const planetNoSignal = await pulseNoSignal(planetScanner, 'planet-candidate');
+    const planetScannerState = await waitSmoke(
+      planetScanner,
+      (state) => state.currentMap?.public_map_key === '1-1' && state.planetIntel?.lastScan?.status === 'no_signal' && (state.planetIntel?.planets ?? []).length === 0,
+      'planet-candidate no-signal reconciliation',
+      10000,
+    );
+    await assertNoLeak(planetScanner, planetScannerState, 'planet-candidate no-signal state');
+    await assertWebSocketCanary(planetScanner, 'planet-candidate no-signal');
+
     await Promise.all([
       moveToPosition(scanner, scannerPoint, 35, 'scanner no-signal point', 60000),
       moveToPosition(target, hiddenTargetPoint, 35, 'hidden target no-signal point', 60000),
@@ -102,14 +122,7 @@ async function main() {
     const targetState = await smoke(target);
     assert(selfEntity(targetState)?.status_flags?.includes('stealthed'), 'target stealth flag missing before scan');
 
-    await resetWebSocketFrames(scanner);
-    const scanResponse = await send(scanner, 'scan.pulse', {});
-    const scanPayload = payloadOf(scanResponse, 'scan.pulse');
-    assert(scanPayload.scan?.status === 'no_signal', `scan status ${compact(scanPayload.scan)}, want no_signal`);
-    assert(scanPayload.scan?.pulse_reference, `scan pulse reference missing ${compact(scanPayload.scan)}`);
-    assert(!scanPayload.scan?.planet_id, `no_signal leaked planet id ${compact(scanPayload.scan)}`);
-    assert(!scanPayload.scan?.signal, `no_signal leaked planet signal ${compact(scanPayload.scan)}`);
-    assertNoLeakPayload(scanPayload, 'scan no-signal response');
+    const hiddenNoSignal = await pulseNoSignal(scanner, 'hidden-player');
 
     const scannerState = await waitSmoke(
       scanner,
@@ -124,7 +137,9 @@ async function main() {
     await assertStorageCanary(clients);
     assertProcessLogCanary([goServer]);
 
-    console.log(`phase10-scan-no-signal smoke ok map=1-1 status=${scanPayload.scan.status} distance=${Math.round(distance(scannerPoint, hiddenTargetPoint))}`);
+    console.log(
+      `phase10-scan-no-signal smoke ok map=1-1 planet=${planetNoSignal.scan.status} hidden=${hiddenNoSignal.scan.status} distance=${Math.round(distance(scannerPoint, hiddenTargetPoint))}`,
+    );
   } finally {
     for (const client of clients) {
       await client.page.evaluate(() => window.__phase10NoSignalCommandSocket?.close()).catch(() => {});
@@ -306,6 +321,19 @@ async function toggleStealth(client, enabled) {
   assert(payload.accepted === true, `${client.label} stealth accepted ${compact(payload)}`);
   assert(payload.stealth?.enabled === enabled, `${client.label} stealth enabled ${compact(payload)}`);
   await waitSmoke(client, (state) => selfEntity(state)?.status_flags?.includes('stealthed') === enabled, `${client.label} stealth ${enabled}`, 10000);
+}
+
+async function pulseNoSignal(client, label) {
+  await resetWebSocketFrames(client);
+  const scanResponse = await send(client, 'scan.pulse', {});
+  const scanPayload = payloadOf(scanResponse, `${label} scan.pulse`);
+  assert(scanPayload.scan?.status === 'no_signal', `${label} scan status ${compact(scanPayload.scan)}, want no_signal`);
+  assert(scanPayload.scan?.pulse_reference, `${label} scan pulse reference missing ${compact(scanPayload.scan)}`);
+  assert(!scanPayload.scan?.planet_id, `${label} no_signal leaked planet id ${compact(scanPayload.scan)}`);
+  assert(!scanPayload.scan?.signal, `${label} no_signal leaked planet signal ${compact(scanPayload.scan)}`);
+  assert((scanPayload.known_planets?.planets ?? []).length === 0, `${label} no_signal leaked known planets ${compact(scanPayload.known_planets)}`);
+  assertNoLeakPayload(scanPayload, `${label} scan no-signal response`);
+  return scanPayload;
 }
 
 async function smoke(client) {
