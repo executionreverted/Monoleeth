@@ -157,6 +157,8 @@ Mockup areas covered:
       `crafting.job_cancelled` event.
 - [x] Map request ids to crafting domain idempotency references for station
       `crafting.start`.
+- [x] Reconcile `crafting.complete` retries when reservation commit, output
+      grant, and XP grant already applied before job completion is cached.
 - [x] Add read-only client systems panel for inventory, hangar, loadout, and
       crafting recipe snapshots.
 - [ ] Add skill tree/progression panel and skill unlock action.

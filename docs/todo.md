@@ -34,9 +34,10 @@ for phase status; this file is a compact pending-work index.
   drop-policy providers before exposing death processing through gateway/runtime
   callers. Equipped module ids are now read from server-owned loadout state.
 - [ ] Add durable completion/reconciliation for `CraftingService.CompleteCraft`
-  after reservation commit; current in-memory retry path is idempotent, but a
-  crash between reservation commit, output grant, XP grant, and job completion
-  still needs recovery.
+  after reservation commit. Phase06E now proves a retry can reconcile when
+  reservation commit, output grant, and XP grant already applied before job
+  completion is cached; the remaining gap is the durable job row/outbox boundary
+  needed across process restarts.
 - [ ] Use the Phase 06 `CraftXPObservation` stream to implement or tune
   low-tier craft XP diminishing returns and daily soft caps before public
   economy balancing. The domain hook now records non-duplicate craft XP grants,
