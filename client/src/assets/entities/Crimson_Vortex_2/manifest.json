@@ -1,0 +1,94 @@
+{
+  "name": "Crimson_Vortex_2",
+  "sourceFbx": "C:\\Users\\Cnr\\Desktop\\3dassets\\darkorbit\\Assets\\019ef611-a05b-7181-b51f-ab88aa3fdb56\\Meshy_AI_model.fbx",
+  "size": 512,
+  "angles": 16,
+  "elevationDegrees": 55.0,
+  "azimuthOffsetDegrees": -45.0,
+  "filterSize": 0.35,
+  "normalizedMaxDimension": 1.0,
+  "verts": 4263,
+  "tris": 8557,
+  "frames": [
+    {
+      "index": 0,
+      "yawDegrees": 315.0,
+      "file": "frames/Crimson_Vortex_2_00.png"
+    },
+    {
+      "index": 1,
+      "yawDegrees": 337.5,
+      "file": "frames/Crimson_Vortex_2_01.png"
+    },
+    {
+      "index": 2,
+      "yawDegrees": 0.0,
+      "file": "frames/Crimson_Vortex_2_02.png"
+    },
+    {
+      "index": 3,
+      "yawDegrees": 22.5,
+      "file": "frames/Crimson_Vortex_2_03.png"
+    },
+    {
+      "index": 4,
+      "yawDegrees": 45.0,
+      "file": "frames/Crimson_Vortex_2_04.png"
+    },
+    {
+      "index": 5,
+      "yawDegrees": 67.5,
+      "file": "frames/Crimson_Vortex_2_05.png"
+    },
+    {
+      "index": 6,
+      "yawDegrees": 90.0,
+      "file": "frames/Crimson_Vortex_2_06.png"
+    },
+    {
+      "index": 7,
+      "yawDegrees": 112.5,
+      "file": "frames/Crimson_Vortex_2_07.png"
+    },
+    {
+      "index": 8,
+      "yawDegrees": 135.0,
+      "file": "frames/Crimson_Vortex_2_08.png"
+    },
+    {
+      "index": 9,
+      "yawDegrees": 157.5,
+      "file": "frames/Crimson_Vortex_2_09.png"
+    },
+    {
+      "index": 10,
+      "yawDegrees": 180.0,
+      "file": "frames/Crimson_Vortex_2_10.png"
+    },
+    {
+      "index": 11,
+      "yawDegrees": 202.5,
+      "file": "frames/Crimson_Vortex_2_11.png"
+    },
+    {
+      "index": 12,
+      "yawDegrees": 225.0,
+      "file": "frames/Crimson_Vortex_2_12.png"
+    },
+    {
+      "index": 13,
+      "yawDegrees": 247.5,
+      "file": "frames/Crimson_Vortex_2_13.png"
+    },
+    {
+      "index": 14,
+      "yawDegrees": 270.0,
+      "file": "frames/Crimson_Vortex_2_14.png"
+    },
+    {
+      "index": 15,
+      "yawDegrees": 292.5,
+      "file": "frames/Crimson_Vortex_2_15.png"
+    }
+  ]
+}

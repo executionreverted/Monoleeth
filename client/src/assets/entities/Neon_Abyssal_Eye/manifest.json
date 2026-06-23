@@ -1,0 +1,94 @@
+{
+  "name": "Neon_Abyssal_Eye",
+  "sourceFbx": "C:\\Users\\Cnr\\Desktop\\3dassets\\darkorbit\\Assets\\019ef66a-54cc-758d-970a-fece97a0f043\\Meshy_AI_model.fbx",
+  "size": 512,
+  "angles": 16,
+  "elevationDegrees": 55.0,
+  "azimuthOffsetDegrees": -45.0,
+  "filterSize": 0.35,
+  "normalizedMaxDimension": 1.0,
+  "verts": 8233,
+  "tris": 16461,
+  "frames": [
+    {
+      "index": 0,
+      "yawDegrees": 315.0,
+      "file": "frames/Neon_Abyssal_Eye_00.png"
+    },
+    {
+      "index": 1,
+      "yawDegrees": 337.5,
+      "file": "frames/Neon_Abyssal_Eye_01.png"
+    },
+    {
+      "index": 2,
+      "yawDegrees": 0.0,
+      "file": "frames/Neon_Abyssal_Eye_02.png"
+    },
+    {
+      "index": 3,
+      "yawDegrees": 22.5,
+      "file": "frames/Neon_Abyssal_Eye_03.png"
+    },
+    {
+      "index": 4,
+      "yawDegrees": 45.0,
+      "file": "frames/Neon_Abyssal_Eye_04.png"
+    },
+    {
+      "index": 5,
+      "yawDegrees": 67.5,
+      "file": "frames/Neon_Abyssal_Eye_05.png"
+    },
+    {
+      "index": 6,
+      "yawDegrees": 90.0,
+      "file": "frames/Neon_Abyssal_Eye_06.png"
+    },
+    {
+      "index": 7,
+      "yawDegrees": 112.5,
+      "file": "frames/Neon_Abyssal_Eye_07.png"
+    },
+    {
+      "index": 8,
+      "yawDegrees": 135.0,
+      "file": "frames/Neon_Abyssal_Eye_08.png"
+    },
+    {
+      "index": 9,
+      "yawDegrees": 157.5,
+      "file": "frames/Neon_Abyssal_Eye_09.png"
+    },
+    {
+      "index": 10,
+      "yawDegrees": 180.0,
+      "file": "frames/Neon_Abyssal_Eye_10.png"
+    },
+    {
+      "index": 11,
+      "yawDegrees": 202.5,
+      "file": "frames/Neon_Abyssal_Eye_11.png"
+    },
+    {
+      "index": 12,
+      "yawDegrees": 225.0,
+      "file": "frames/Neon_Abyssal_Eye_12.png"
+    },
+    {
+      "index": 13,
+      "yawDegrees": 247.5,
+      "file": "frames/Neon_Abyssal_Eye_13.png"
+    },
+    {
+      "index": 14,
+      "yawDegrees": 270.0,
+      "file": "frames/Neon_Abyssal_Eye_14.png"
+    },
+    {
+      "index": 15,
+      "yawDegrees": 292.5,
+      "file": "frames/Neon_Abyssal_Eye_15.png"
+    }
+  ]
+}

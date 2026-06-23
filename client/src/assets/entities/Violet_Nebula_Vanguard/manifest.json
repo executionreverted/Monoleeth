@@ -1,0 +1,94 @@
+{
+  "name": "Violet_Nebula_Vanguard",
+  "sourceFbx": "C:\\Users\\Cnr\\Desktop\\3dassets\\darkorbit\\Assets\\019ef649-860b-7d12-9366-64007830d7ad\\Meshy_AI_model.fbx",
+  "size": 512,
+  "angles": 16,
+  "elevationDegrees": 55.0,
+  "azimuthOffsetDegrees": -45.0,
+  "filterSize": 0.35,
+  "normalizedMaxDimension": 1.0,
+  "verts": 4898,
+  "tris": 9816,
+  "frames": [
+    {
+      "index": 0,
+      "yawDegrees": 315.0,
+      "file": "frames/Violet_Nebula_Vanguard_00.png"
+    },
+    {
+      "index": 1,
+      "yawDegrees": 337.5,
+      "file": "frames/Violet_Nebula_Vanguard_01.png"
+    },
+    {
+      "index": 2,
+      "yawDegrees": 0.0,
+      "file": "frames/Violet_Nebula_Vanguard_02.png"
+    },
+    {
+      "index": 3,
+      "yawDegrees": 22.5,
+      "file": "frames/Violet_Nebula_Vanguard_03.png"
+    },
+    {
+      "index": 4,
+      "yawDegrees": 45.0,
+      "file": "frames/Violet_Nebula_Vanguard_04.png"
+    },
+    {
+      "index": 5,
+      "yawDegrees": 67.5,
+      "file": "frames/Violet_Nebula_Vanguard_05.png"
+    },
+    {
+      "index": 6,
+      "yawDegrees": 90.0,
+      "file": "frames/Violet_Nebula_Vanguard_06.png"
+    },
+    {
+      "index": 7,
+      "yawDegrees": 112.5,
+      "file": "frames/Violet_Nebula_Vanguard_07.png"
+    },
+    {
+      "index": 8,
+      "yawDegrees": 135.0,
+      "file": "frames/Violet_Nebula_Vanguard_08.png"
+    },
+    {
+      "index": 9,
+      "yawDegrees": 157.5,
+      "file": "frames/Violet_Nebula_Vanguard_09.png"
+    },
+    {
+      "index": 10,
+      "yawDegrees": 180.0,
+      "file": "frames/Violet_Nebula_Vanguard_10.png"
+    },
+    {
+      "index": 11,
+      "yawDegrees": 202.5,
+      "file": "frames/Violet_Nebula_Vanguard_11.png"
+    },
+    {
+      "index": 12,
+      "yawDegrees": 225.0,
+      "file": "frames/Violet_Nebula_Vanguard_12.png"
+    },
+    {
+      "index": 13,
+      "yawDegrees": 247.5,
+      "file": "frames/Violet_Nebula_Vanguard_13.png"
+    },
+    {
+      "index": 14,
+      "yawDegrees": 270.0,
+      "file": "frames/Violet_Nebula_Vanguard_14.png"
+    },
+    {
+      "index": 15,
+      "yawDegrees": 292.5,
+      "file": "frames/Violet_Nebula_Vanguard_15.png"
+    }
+  ]
+}

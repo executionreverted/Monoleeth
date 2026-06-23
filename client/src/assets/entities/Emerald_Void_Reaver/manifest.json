@@ -1,0 +1,94 @@
+{
+  "name": "Emerald_Void_Reaver",
+  "sourceFbx": "C:\\Users\\Cnr\\Desktop\\3dassets\\darkorbit\\Assets\\019ef658-0540-707f-9e0d-c4563f2471d0\\Meshy_AI_model.fbx",
+  "size": 512,
+  "angles": 16,
+  "elevationDegrees": 55.0,
+  "azimuthOffsetDegrees": -45.0,
+  "filterSize": 0.35,
+  "normalizedMaxDimension": 1.0,
+  "verts": 4889,
+  "tris": 9808,
+  "frames": [
+    {
+      "index": 0,
+      "yawDegrees": 315.0,
+      "file": "frames/Emerald_Void_Reaver_00.png"
+    },
+    {
+      "index": 1,
+      "yawDegrees": 337.5,
+      "file": "frames/Emerald_Void_Reaver_01.png"
+    },
+    {
+      "index": 2,
+      "yawDegrees": 0.0,
+      "file": "frames/Emerald_Void_Reaver_02.png"
+    },
+    {
+      "index": 3,
+      "yawDegrees": 22.5,
+      "file": "frames/Emerald_Void_Reaver_03.png"
+    },
+    {
+      "index": 4,
+      "yawDegrees": 45.0,
+      "file": "frames/Emerald_Void_Reaver_04.png"
+    },
+    {
+      "index": 5,
+      "yawDegrees": 67.5,
+      "file": "frames/Emerald_Void_Reaver_05.png"
+    },
+    {
+      "index": 6,
+      "yawDegrees": 90.0,
+      "file": "frames/Emerald_Void_Reaver_06.png"
+    },
+    {
+      "index": 7,
+      "yawDegrees": 112.5,
+      "file": "frames/Emerald_Void_Reaver_07.png"
+    },
+    {
+      "index": 8,
+      "yawDegrees": 135.0,
+      "file": "frames/Emerald_Void_Reaver_08.png"
+    },
+    {
+      "index": 9,
+      "yawDegrees": 157.5,
+      "file": "frames/Emerald_Void_Reaver_09.png"
+    },
+    {
+      "index": 10,
+      "yawDegrees": 180.0,
+      "file": "frames/Emerald_Void_Reaver_10.png"
+    },
+    {
+      "index": 11,
+      "yawDegrees": 202.5,
+      "file": "frames/Emerald_Void_Reaver_11.png"
+    },
+    {
+      "index": 12,
+      "yawDegrees": 225.0,
+      "file": "frames/Emerald_Void_Reaver_12.png"
+    },
+    {
+      "index": 13,
+      "yawDegrees": 247.5,
+      "file": "frames/Emerald_Void_Reaver_13.png"
+    },
+    {
+      "index": 14,
+      "yawDegrees": 270.0,
+      "file": "frames/Emerald_Void_Reaver_14.png"
+    },
+    {
+      "index": 15,
+      "yawDegrees": 292.5,
+      "file": "frames/Emerald_Void_Reaver_15.png"
+    }
+  ]
+}

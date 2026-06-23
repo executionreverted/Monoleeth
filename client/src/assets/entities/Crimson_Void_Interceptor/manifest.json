@@ -1,0 +1,94 @@
+{
+  "name": "Crimson_Void_Interceptor",
+  "sourceFbx": "C:\\Users\\Cnr\\Desktop\\3dassets\\darkorbit\\Assets\\019ef625-7994-75ea-a1cd-231b7de01448\\Meshy_AI_model.fbx",
+  "size": 512,
+  "angles": 16,
+  "elevationDegrees": 55.0,
+  "azimuthOffsetDegrees": -45.0,
+  "filterSize": 0.35,
+  "normalizedMaxDimension": 1.0,
+  "verts": 1960,
+  "tris": 3913,
+  "frames": [
+    {
+      "index": 0,
+      "yawDegrees": 315.0,
+      "file": "frames/Crimson_Void_Interceptor_00.png"
+    },
+    {
+      "index": 1,
+      "yawDegrees": 337.5,
+      "file": "frames/Crimson_Void_Interceptor_01.png"
+    },
+    {
+      "index": 2,
+      "yawDegrees": 0.0,
+      "file": "frames/Crimson_Void_Interceptor_02.png"
+    },
+    {
+      "index": 3,
+      "yawDegrees": 22.5,
+      "file": "frames/Crimson_Void_Interceptor_03.png"
+    },
+    {
+      "index": 4,
+      "yawDegrees": 45.0,
+      "file": "frames/Crimson_Void_Interceptor_04.png"
+    },
+    {
+      "index": 5,
+      "yawDegrees": 67.5,
+      "file": "frames/Crimson_Void_Interceptor_05.png"
+    },
+    {
+      "index": 6,
+      "yawDegrees": 90.0,
+      "file": "frames/Crimson_Void_Interceptor_06.png"
+    },
+    {
+      "index": 7,
+      "yawDegrees": 112.5,
+      "file": "frames/Crimson_Void_Interceptor_07.png"
+    },
+    {
+      "index": 8,
+      "yawDegrees": 135.0,
+      "file": "frames/Crimson_Void_Interceptor_08.png"
+    },
+    {
+      "index": 9,
+      "yawDegrees": 157.5,
+      "file": "frames/Crimson_Void_Interceptor_09.png"
+    },
+    {
+      "index": 10,
+      "yawDegrees": 180.0,
+      "file": "frames/Crimson_Void_Interceptor_10.png"
+    },
+    {
+      "index": 11,
+      "yawDegrees": 202.5,
+      "file": "frames/Crimson_Void_Interceptor_11.png"
+    },
+    {
+      "index": 12,
+      "yawDegrees": 225.0,
+      "file": "frames/Crimson_Void_Interceptor_12.png"
+    },
+    {
+      "index": 13,
+      "yawDegrees": 247.5,
+      "file": "frames/Crimson_Void_Interceptor_13.png"
+    },
+    {
+      "index": 14,
+      "yawDegrees": 270.0,
+      "file": "frames/Crimson_Void_Interceptor_14.png"
+    },
+    {
+      "index": 15,
+      "yawDegrees": 292.5,
+      "file": "frames/Crimson_Void_Interceptor_15.png"
+    }
+  ]
+}
