@@ -219,6 +219,7 @@ type ClaimService struct {
 	outbox                    []ClaimOutboxRecord
 	nextOutboxSequence        uint64
 	xCoreConsumptions         map[PlanetClaimReference]ClaimXCoreConsumptionRecord
+	claimDurableBegins        map[PlanetClaimReference]ClaimDurableBeginPlan
 	productionInitializations map[PlanetClaimReference]ClaimProductionInitializationRecord
 }
 
@@ -251,6 +252,7 @@ func NewClaimService(config ClaimServiceConfig) (*ClaimService, error) {
 		claims:                    make(map[PlanetClaimReference]claimRecord),
 		references:                make(map[PlanetClaimReference]ClaimReferenceRecord),
 		xCoreConsumptions:         make(map[PlanetClaimReference]ClaimXCoreConsumptionRecord),
+		claimDurableBegins:        make(map[PlanetClaimReference]ClaimDurableBeginPlan),
 		productionInitializations: make(map[PlanetClaimReference]ClaimProductionInitializationRecord),
 	}, nil
 }
@@ -711,6 +713,9 @@ func (service *ClaimService) beginClaimWithXCore(
 	}
 	if err != nil {
 		return BeginPlanetClaimBoundaryResult{}, err
+	}
+	if beginPlan, err := result.DurableBeginPlan(); err == nil {
+		service.recordClaimDurableBeginPlanLocked(input.ClaimReference, beginPlan)
 	}
 	return result.Boundary, nil
 }

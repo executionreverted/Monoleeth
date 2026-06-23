@@ -75,6 +75,9 @@ func (runtime *Runtime) handleClaimPlanet(ctx realtime.CommandContext, request r
 	if err != nil {
 		return nil, domainErrorForClaim(err)
 	}
+	if err := runtime.applyClaimDurableLifecycle(claimReference); err != nil {
+		return nil, domainErrorForClaim(err)
+	}
 
 	knownPlanets, err := runtime.knownPlanetsPayload(ctx.PlayerID)
 	if err != nil {
@@ -111,6 +114,18 @@ func (runtime *Runtime) handleClaimPlanet(ctx realtime.CommandContext, request r
 		Production:   productionPayload,
 		Inventory:    inventory,
 	})
+}
+
+func (runtime *Runtime) applyClaimDurableLifecycle(reference discovery.PlanetClaimReference) error {
+	if runtime.Claim == nil || runtime.ClaimLifecycles == nil {
+		return nil
+	}
+	plan, ok, err := runtime.Claim.ClaimDurableLifecyclePlan(reference)
+	if err != nil || !ok {
+		return err
+	}
+	_, err = plan.ApplyDurableLifecycle(runtime.ClaimLifecycles)
+	return err
 }
 
 func planetClaimReference(playerID foundation.PlayerID, planetID foundation.PlanetID) (discovery.PlanetClaimReference, error) {

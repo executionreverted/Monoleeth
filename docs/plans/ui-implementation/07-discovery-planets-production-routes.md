@@ -458,6 +458,15 @@ Current slice completed:
   plans keep storage evidence without pretending owner-CAS committed. Real
   durable DB rows, cross-service row locks/CAS, and recovery workers remain
   open.
+- Phase07BB runtime claim lifecycle handoff follow-up:
+  `ClaimService` now keeps the validated claim-begin durable plan for completed
+  owner changes, exposes a `ClaimDurableLifecyclePlan` readback for completed
+  claim references, and the `discovery.claim_planet` handler applies that
+  server-owned begin/production-init/commit bundle through the runtime claim
+  lifecycle-store adapter. Duplicate claim retries exact-replay through the
+  adapter without appending another lifecycle row, and failed claims do not
+  record lifecycle evidence. Real durable DB rows, cross-service row locks/CAS,
+  durable outbox persistence, and recovery workers remain open.
 
 ## Source Specs
 
@@ -613,6 +622,9 @@ Mockup areas covered:
 - [x] Add claim durable lifecycle plan handoff helper that revalidates nested
       begin/commit/production-init rows and applies completed claim bundles
       through the lifecycle-store adapter.
+- [x] Apply completed claim durable lifecycle bundles through the runtime
+      claim lifecycle-store adapter after authenticated
+      `discovery.claim_planet` success.
 - [ ] Add durable authenticated transaction flows for claim/storage mutation
       coupling once DB/CAS storage boundaries replace process-local stores.
 - [x] Add offline settlement reconcile path that uses server-owned windows for
@@ -696,6 +708,9 @@ Mockup areas covered:
 - [x] Claim X Core debit and owner-CAS begin use a single boundary contract
       that returns debit evidence on owner-begin failure so retries do not call
       the X Core consumer a second time.
+- [x] Claim handler applies completed claim lifecycle evidence through the
+      runtime claim lifecycle-store adapter; duplicate retries exact-replay
+      without another lifecycle row, and failed claims record none.
 - [x] Intel share rejects hidden/not-owned coordinate references.
 - [x] Coordinate item create/use consumes owned items once and filters results.
 - [x] Market-bought coordinate scrolls transfer server-owned intel item

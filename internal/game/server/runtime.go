@@ -120,34 +120,35 @@ type Runtime struct {
 
 	nextPlayerEntity int
 
-	Combat        *combat.Service
-	Death         *deathdomain.DeathService
-	Loot          *loot.Service
-	Inventory     *economy.InventoryService
-	CargoService  *economy.CargoService
-	Wallet        *economy.WalletService
-	Market        *market.MarketService
-	Auction       *auction.Service
-	Premium       *premium.PremiumEntitlementService
-	Quest         *quests.QuestService
-	Admin         *admin.Service
-	Progression   *progression.ProgressionService
-	ShipCatalog   ships.Catalog
-	HangarStore   *ships.InMemoryHangarStore
-	Hangar        *ships.HangarService
-	ModuleCatalog modules.Catalog
-	Content       catalog.ContentRegistry
-	LoadoutStore  *modules.InMemoryLoadoutStore
-	Loadout       modules.LoadoutService
-	Recipes       crafting.RecipeCatalog
-	Discovery     *discovery.InMemoryStore
-	Scanner       *discovery.ScannerService
-	Claim         *discovery.ClaimService
-	Intel         *intel.Service
-	Production    *production.InMemoryStore
-	Settlements   *production.InMemorySettlementDurableCommitStore
-	CommandLog    *observability.MemoryCommandLogger
-	Metrics       *observability.MetricRecorder
+	Combat          *combat.Service
+	Death           *deathdomain.DeathService
+	Loot            *loot.Service
+	Inventory       *economy.InventoryService
+	CargoService    *economy.CargoService
+	Wallet          *economy.WalletService
+	Market          *market.MarketService
+	Auction         *auction.Service
+	Premium         *premium.PremiumEntitlementService
+	Quest           *quests.QuestService
+	Admin           *admin.Service
+	Progression     *progression.ProgressionService
+	ShipCatalog     ships.Catalog
+	HangarStore     *ships.InMemoryHangarStore
+	Hangar          *ships.HangarService
+	ModuleCatalog   modules.Catalog
+	Content         catalog.ContentRegistry
+	LoadoutStore    *modules.InMemoryLoadoutStore
+	Loadout         modules.LoadoutService
+	Recipes         crafting.RecipeCatalog
+	Discovery       *discovery.InMemoryStore
+	Scanner         *discovery.ScannerService
+	Claim           *discovery.ClaimService
+	ClaimLifecycles *discovery.InMemoryClaimDurableLifecycleStore
+	Intel           *intel.Service
+	Production      *production.InMemoryStore
+	Settlements     *production.InMemorySettlementDurableCommitStore
+	CommandLog      *observability.MemoryCommandLogger
+	Metrics         *observability.MetricRecorder
 
 	combatXP            *combat.NPCKillXPHandler
 	lootTables          map[string]loot.LootTable
@@ -346,6 +347,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	questService.SetRerollServices(quests.QuestRerollServices{Wallet: walletService})
 	discoveryStore := discovery.NewInMemoryStore()
 	productionStore := production.NewInMemoryStore()
+	claimLifecycleStore := discovery.NewInMemoryClaimDurableLifecycleStore()
 	settlementStore := production.NewInMemorySettlementDurableCommitStore()
 	intelService := intel.NewService(clock)
 	adminService := admin.NewService(admin.ServiceConfig{
@@ -408,6 +410,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Discovery:           discoveryStore,
 		Intel:               intelService,
 		Production:          productionStore,
+		ClaimLifecycles:     claimLifecycleStore,
 		Settlements:         settlementStore,
 		CommandLog:          commandLogger,
 		Metrics:             metricRecorder,

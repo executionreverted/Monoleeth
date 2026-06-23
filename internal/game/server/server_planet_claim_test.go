@@ -92,6 +92,24 @@ func TestClaimPlanetDuplicateRetryDoesNotConsumeSecondXCore(t *testing.T) {
 	if first.HasError {
 		t.Fatalf("first claim error = %+v, want success", first.Error)
 	}
+	claimReference, err := planetClaimReference(owner.PlayerID, planetID)
+	if err != nil {
+		t.Fatalf("planetClaimReference: %v", err)
+	}
+	references := gameServer.runtime.ClaimLifecycles.ClaimReferences()
+	if len(references) != 1 || references[0] != claimReference {
+		t.Fatalf("claim lifecycle references after first claim = %+v, want [%q]", references, claimReference)
+	}
+	plan, ok, err := gameServer.runtime.ClaimLifecycles.CommittedClaimDurableLifecyclePlan(claimReference)
+	if err != nil || !ok {
+		t.Fatalf("CommittedClaimDurableLifecyclePlan() = ok %v err %v, want ok nil", ok, err)
+	}
+	if !plan.HasProductionInit ||
+		plan.Begin.Boundary.ClaimReference != claimReference ||
+		plan.Commit.Boundary.ClaimReference != claimReference ||
+		plan.ProductionInitialized.Initialization.ClaimReference != claimReference {
+		t.Fatalf("claim lifecycle plan = %+v, want begin/production/commit evidence", plan)
+	}
 	if events, err := gameServer.runtime.postCommandEvents(owner.SessionID, realtime.OperationDiscoveryClaimPlanet, owner.PlayerID); err != nil {
 		t.Fatalf("post first claim events: %v", err)
 	} else if len(events) == 0 {
@@ -111,6 +129,24 @@ func TestClaimPlanetDuplicateRetryDoesNotConsumeSecondXCore(t *testing.T) {
 	}
 	if got := claimXCoreDecreaseLedgerCountForTest(gameServer, owner.PlayerID); got != 1 {
 		t.Fatalf("x_core decrease ledger entries = %d, want one", got)
+	}
+	if references := gameServer.runtime.ClaimLifecycles.ClaimReferences(); len(references) != 1 || references[0] != claimReference {
+		t.Fatalf("claim lifecycle references after duplicate = %+v, want stable [%q]", references, claimReference)
+	}
+}
+
+func TestClaimPlanetFailureDoesNotRecordDurableLifecycle(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "claim-failed-lifecycle@example.com", "Claim Failed Lifecycle")
+	planetID := foundation.PlanetID("claim-failed-lifecycle-planet")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 120, Y: 0}, 1)
+
+	response := claimPlanetForTest(t, gameServer, owner.SessionID, "request-claim-failed-lifecycle", planetID)
+	if !response.HasError {
+		t.Fatalf("claim response error missing, want X Core failure")
+	}
+	if references := gameServer.runtime.ClaimLifecycles.ClaimReferences(); len(references) != 0 {
+		t.Fatalf("claim lifecycle references after failed claim = %+v, want none", references)
 	}
 }
 
