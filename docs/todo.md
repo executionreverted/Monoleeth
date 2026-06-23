@@ -586,9 +586,10 @@ for phase status; this file is a compact pending-work index.
   stdout/stderr lines from its own harness, and Tesseract OCR over its six
   generated real-server screenshot PNGs, and the bundle scan covers
   fake/default fixture labels/ids plus server-only content ids in default
-  `dist` and explicit extra artifact roots. Production logs/admin responses
-  outside that path, non-Phase09 paths, wiring the real deployed/published
-  artifact set into CI/deploy, and screenshots outside Phase09 remain open.
+  `dist` and extra artifact roots passed by CLI argument or
+  `GAME_ARTIFACT_SCAN_ROOTS`. Production logs/admin responses outside that
+  path, non-Phase09 paths, wiring the real deployed/published artifact set into
+  CI/deploy, and screenshots outside Phase09 remain open.
   Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Clean up active legacy semantic contradictions in the scoped

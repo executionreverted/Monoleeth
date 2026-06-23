@@ -175,8 +175,9 @@ marked `Open` are not implemented rollout controls yet.
   smoke are still missing.
 - Bundle hidden-token scan remains partial: `client/tests/bundle-scan.mjs`
   checks default `dist` text and source-map assets if present, and can now scan
-  explicit extra artifact roots with the same forbidden snippet list. CI/deploy
-  still needs to pass the real deployed or otherwise published artifact set.
+  explicit extra artifact roots with the same forbidden snippet list through
+  either CLI arguments or `GAME_ARTIFACT_SCAN_ROOTS`. CI/deploy still needs to
+  pass the real deployed or otherwise published artifact set.
 - Broader PvP rollout canaries beyond the focused safe-zone UI click proof are
   still missing.
 - `client` `npm run check` does not run the Phase09 Playwright smoke.
@@ -368,10 +369,12 @@ passwords, password hashes, reset secrets, and fake/default fixture labels.
 The default client bundle scan in `client/tests/bundle-scan.mjs` checks built
 `dist` text and source-map assets, when present, for fake/default fixture labels
 and concrete server-only map/content ids. It also accepts explicit extra
-artifact roots, so staging or publish directories can be scanned with the same
-forbidden snippet list. It intentionally does not forbid generic protocol guard
-field names such as hidden scan or loot key strings. CI/deploy still needs to
-pass the real deployed or otherwise published artifact set.
+artifact roots as CLI arguments or through the path-delimited
+`GAME_ARTIFACT_SCAN_ROOTS` environment variable, so staging or publish
+directories can be scanned with the same forbidden snippet list. It
+intentionally does not forbid generic protocol guard field names such as hidden
+scan or loot key strings. CI/deploy still needs to pass the real deployed or
+otherwise published artifact set.
 
 The Phase09 smoke currently satisfies only a narrow server-side canary subset:
 captured local Go/Vite stdout/stderr lines from that harness and production

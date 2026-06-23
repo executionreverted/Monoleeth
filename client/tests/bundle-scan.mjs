@@ -2,9 +2,13 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 
+const envScanRoots = (process.env.GAME_ARTIFACT_SCAN_ROOTS ?? '')
+  .split(path.delimiter)
+  .map((entry) => entry.trim())
+  .filter(Boolean);
 const scanRoots = [
   { label: 'dist', root: path.resolve('dist') },
-  ...process.argv.slice(2).map((arg) => ({ label: arg, root: path.resolve(arg) })),
+  ...[...envScanRoots, ...process.argv.slice(2)].map((arg) => ({ label: arg, root: path.resolve(arg) })),
 ];
 const fakeFixtureSnippets = [
   'Demo Fringe',

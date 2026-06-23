@@ -126,6 +126,16 @@ git diff --check
 The client check runs lint, typecheck, unit tests, and bundle scan. It does not
 run Playwright smoke.
 
+The bundle scan always checks `client/dist`. To also scan deployed, staging, or
+published artifact directories, pass them as path-delimited roots:
+
+```bash
+cd client
+GAME_ARTIFACT_SCAN_ROOTS="/path/to/published:/path/to/staging" node tests/bundle-scan.mjs
+```
+
+Extra roots can also be passed as positional arguments after `bundle-scan.mjs`.
+
 Run the focused Phase09 bounded-map/portal browser proof explicitly:
 
 ```bash
