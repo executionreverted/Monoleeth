@@ -71,6 +71,13 @@ func New(config Config) (*Server, error) {
 	authHandler.RegisterRoutes(mux)
 	mux.HandleFunc("/ws", gameServer.serveWebSocket)
 	mux.HandleFunc("/healthz", gameServer.serveHealth)
+	if config.ClientStaticDir != "" {
+		staticHandler, err := newClientStaticHandler(config.ClientStaticDir)
+		if err != nil {
+			return nil, err
+		}
+		mux.Handle("/", staticHandler)
+	}
 	gameServer.handler = mux
 	gameServer.server = &http.Server{
 		Addr:              config.Addr,

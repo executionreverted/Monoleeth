@@ -45,6 +45,16 @@ func TestConfigFromEnvE2ERouteSeedOptIn(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvClientStaticDir(t *testing.T) {
+	t.Setenv(EnvClientStaticDir, " client/dist ")
+
+	config := ConfigFromEnv()
+
+	if config.ClientStaticDir != "client/dist" {
+		t.Fatalf("ClientStaticDir = %q, want client/dist", config.ClientStaticDir)
+	}
+}
+
 func TestNewRejectsE2EPlanetClaimSeedOutsideDevMode(t *testing.T) {
 	_, err := New(Config{
 		AllowedOrigins:     []string{testOrigin},

@@ -35,6 +35,34 @@ go run ./cmd/game-server
 The admin seed is for reproducible local/dev setup only. Never use a shared or
 production password here.
 
+## Start A Single-Process Playtest Server
+
+To build the browser client and serve the built app from the same Go process:
+
+```bash
+scripts/run_playtest_server.sh
+```
+
+Open:
+
+```text
+http://127.0.0.1:8080
+```
+
+The script runs `npm --prefix client run build`, sets
+`GAME_CLIENT_STATIC_DIR=client/dist`, and then starts `go run ./cmd/game-server`.
+Override the bind address or static dir when needed:
+
+```bash
+GAME_SERVER_ADDR=127.0.0.1:8081 \
+GAME_CLIENT_STATIC_DIR=/absolute/path/to/dist \
+scripts/run_playtest_server.sh
+```
+
+In this mode `/api`, `/ws`, and `/healthz` remain server routes. Other browser
+routes fall back to `index.html`, so reloading a client route works without
+Vite. Missing asset files and unknown `/api/*` paths still return `404`.
+
 ## Start The Client
 
 In another terminal:
