@@ -7,9 +7,15 @@ import (
 	"strings"
 
 	"gameproject/internal/game/discovery"
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/intel"
 	"gameproject/internal/game/realtime"
+)
+
+const (
+	intelCoordinateItemCreateLedgerReason = economy.LedgerReason("coordinate_item_create")
+	intelCoordinateItemUseLedgerReason    = economy.LedgerReason("coordinate_item_use")
 )
 
 type intelShareRequest struct {
@@ -169,8 +175,16 @@ func (runtime *Runtime) handleIntelCoordinateItemCreate(ctx realtime.CommandCont
 	if err != nil {
 		return nil, intelDomainError(err)
 	}
+	if err := runtime.grantCoordinateItemToInventory(ctx.PlayerID, result.Item.ItemInstanceID, reference); err != nil {
+		return nil, err
+	}
+	inventory := runtime.inventorySnapshotForPlayer(ctx.PlayerID)
+	runtime.mu.Lock()
+	runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventInventorySnapshot, inventory)
+	runtime.mu.Unlock()
 	payload := map[string]any{
 		"coordinate_item": intelCoordinateItemPayloadFromDomain(result.Item),
+		"inventory":       inventory,
 		"created":         result.Created,
 		"duplicate":       result.Duplicate,
 	}
@@ -213,6 +227,12 @@ func (runtime *Runtime) handleIntelCoordinateItemUse(ctx realtime.CommandContext
 	if err != nil {
 		return nil, invalidPayload("Coordinate item use reference is invalid.", err)
 	}
+	if err := runtime.requireUsableCoordinateItem(ctx.PlayerID, itemID); err != nil {
+		return nil, intelDomainError(err)
+	}
+	if err := runtime.consumeCoordinateItemFromInventory(ctx.PlayerID, itemID, reference); err != nil {
+		return nil, err
+	}
 
 	result, err := runtime.Intel.UseCoordinateItem(intel.UseCoordinateItemInput{
 		PlayerID:       ctx.PlayerID,
@@ -236,17 +256,99 @@ func (runtime *Runtime) handleIntelCoordinateItemUse(ctx realtime.CommandContext
 	runtime.mu.Lock()
 	runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventKnownPlanets, known)
 	runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventPlanetDetail, detail)
+	inventory := runtime.inventorySnapshotLocked(ctx.PlayerID)
+	runtime.queueEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventInventorySnapshot, inventory)
 	runtime.mu.Unlock()
 
 	payload := map[string]any{
 		"coordinate_item": intelCoordinateItemPayloadFromDomain(result.Item),
 		"known_planets":   known,
 		"planet_detail":   detail,
+		"inventory":       inventory,
 		"used":            result.Used,
 		"intel_updated":   result.IntelUpdated,
 		"duplicate":       result.Duplicate,
 	}
 	return marshalPayload(payload)
+}
+
+func (runtime *Runtime) grantCoordinateItemToInventory(playerID foundation.PlayerID, itemInstanceID foundation.ItemID, reference foundation.IdempotencyKey) error {
+	definition, ok := runtime.itemCatalog[coordinateScrollItemID]
+	if !ok {
+		return foundation.NewDomainError(foundation.CodeNotFound, "Coordinate item definition was not found.")
+	}
+	location, err := economy.NewItemLocation(economy.LocationKindAccountInventory, playerID.String())
+	if err != nil {
+		return invalidPayload("Coordinate item location is invalid.", err)
+	}
+	result, err := runtime.Inventory.AddItem(economy.AddItemInput{
+		PlayerID:       playerID,
+		ItemDefinition: definition,
+		ItemInstanceID: itemInstanceID,
+		Quantity:       1,
+		Location:       location,
+		Reason:         intelCoordinateItemCreateLedgerReason,
+		ReferenceKey:   reference,
+	})
+	if err != nil {
+		return domainErrorForEconomy(err)
+	}
+	if !result.Duplicate {
+		runtime.recordItemLedgerMetrics([]economy.ItemLedgerEntry{result.LedgerEntry})
+	}
+	return nil
+}
+
+func (runtime *Runtime) requireUsableCoordinateItem(playerID foundation.PlayerID, itemInstanceID foundation.ItemID) error {
+	item, ok, err := runtime.Intel.CoordinateItem(itemInstanceID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return intel.ErrCoordinateItemNotFound
+	}
+	if item.OwnerPlayerID != playerID {
+		return intel.ErrCoordinateItemNotOwned
+	}
+	if item.UsedAt != nil {
+		return intel.ErrCoordinateItemAlreadyUsed
+	}
+	return nil
+}
+
+func (runtime *Runtime) consumeCoordinateItemFromInventory(playerID foundation.PlayerID, itemInstanceID foundation.ItemID, reference foundation.IdempotencyKey) error {
+	definition, ok := runtime.itemCatalog[coordinateScrollItemID]
+	if !ok {
+		return foundation.NewDomainError(foundation.CodeNotFound, "Coordinate item definition was not found.")
+	}
+	location, err := economy.NewItemLocation(economy.LocationKindAccountInventory, playerID.String())
+	if err != nil {
+		return invalidPayload("Coordinate item location is invalid.", err)
+	}
+	result, err := runtime.Inventory.SystemRemoveItem(economy.RemoveItemInput{
+		PlayerID: playerID,
+		ItemRef: economy.RemoveItemRef{
+			Definition:     definition,
+			ItemInstanceID: itemInstanceID,
+		},
+		SourceLocation: location,
+		Quantity:       1,
+		Reason:         intelCoordinateItemUseLedgerReason,
+		ReferenceKey:   reference,
+	})
+	if err != nil {
+		return domainErrorForEconomy(err)
+	}
+	if !result.Duplicate {
+		runtime.recordItemLedgerMetrics(result.LedgerEntries)
+	}
+	return nil
+}
+
+func (runtime *Runtime) inventorySnapshotForPlayer(playerID foundation.PlayerID) inventorySnapshotPayload {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.inventorySnapshotLocked(playerID)
 }
 
 func (runtime *Runtime) syncIntelFromDiscovery(playerID foundation.PlayerID, planetID foundation.PlanetID) (intel.PlayerPlanetIntel, error) {

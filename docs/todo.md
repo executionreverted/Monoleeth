@@ -91,7 +91,10 @@ for phase status; this file is a compact pending-work index.
   missing claim event/cache atomically.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
-  economy storage.
+  economy storage. Phase07T now mints and consumes the real account-inventory
+  `planet_coordinate_scroll` instance through the inventory service with item
+  ledger rows and snapshot fanout, but the intel/economy writes are still
+  process-local and not wrapped in a durable cross-service transaction.
 - [x] Finish gateway/session authorization for remaining discovery commands.
   `scan.pulse` and the Phase07A backend `discovery.claim_planet` handler now
   resolve the authenticated player server-side and reject client-authored
@@ -146,10 +149,13 @@ for phase status; this file is a compact pending-work index.
   coordinate-item creation, coordinate-item use, canonical idempotency keys,
   and consume-once item state. Phase07S wires those intel operations into the
   authenticated realtime gateway and TypeScript protocol with discovery
-  read-model/event reconciliation. Durable DB/outbox claim recovery, cross-process
-  CAS/locks, idempotency-table enforcement, durable outbox persistence/
-  publisher workers, broader building requirement/cost balancing, browser HUD
-  controls, inventory-backed coordinate items, and intel quotas remain open.
+  read-model/event reconciliation. Phase07T backs coordinate scroll
+  create/use with real inventory instances, item ledger rows, and inventory
+  snapshot fanout. Durable DB/outbox claim recovery, cross-process CAS/locks,
+  idempotency-table enforcement, durable outbox persistence/publisher workers,
+  broader building requirement/cost balancing, browser HUD controls, coordinate
+  item durable transaction/compensation, market/listing staleness hooks, and
+  intel quotas remain open.
   Source: Phase 10 audit, Phase07A, Phase07O, Phase07P, Phase07Q, Phase07R,
   Phase07S, and
   `docs/map-rework/phase-10-testing-rollout.md`.

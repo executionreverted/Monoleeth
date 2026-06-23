@@ -11,6 +11,7 @@ import (
 const (
 	trainingDroneSalvageLootTableID = "training_drone_salvage"
 	borderRaiderSalvageLootTableID  = "border_raider_salvage"
+	coordinateScrollItemID          = foundation.ItemID("planet_coordinate_scroll")
 )
 
 func runtimeLootCatalog() (map[string]loot.LootTable, map[foundation.ItemID]economy.ItemDefinition, error) {
@@ -39,6 +40,11 @@ func runtimeLootCatalog() (map[string]loot.LootTable, map[foundation.ItemID]econ
 		return nil, nil, err
 	}
 	itemCatalog[xCore.ItemID] = xCore
+	coordinateScroll, err := runtimeCoordinateScrollDefinition()
+	if err != nil {
+		return nil, nil, err
+	}
+	itemCatalog[coordinateScroll.ItemID] = coordinateScroll
 	carbonShards, err := runtimeStackableDefinition("carbon_shards", "carbon_shards")
 	if err != nil {
 		return nil, nil, err
@@ -74,6 +80,33 @@ func runtimeLootCatalog() (map[string]loot.LootTable, map[foundation.ItemID]econ
 		trainingDroneSalvageLootTableID: trainingTable,
 		borderRaiderSalvageLootTableID:  borderTable,
 	}, itemCatalog, nil
+}
+
+func runtimeCoordinateScrollDefinition() (economy.ItemDefinition, error) {
+	source, err := catalog.NewVersionedDefinitionFromStrings(coordinateScrollItemID.String(), "v1")
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	maxStack, err := foundation.NewQuantity(1)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	weight, err := foundation.NewQuantity(1)
+	if err != nil {
+		return economy.ItemDefinition{}, err
+	}
+	return economy.NewItemDefinition(
+		source,
+		coordinateScrollItemID,
+		"Planet Coordinate Scroll",
+		economy.ItemTypeInstance,
+		economy.ItemRarityRare,
+		maxStack,
+		weight,
+		[]economy.TradeFlag{economy.TradeFlagTradeable, economy.TradeFlagMarketTradeable},
+		[]economy.BindRule{economy.BindRuleNone},
+		nil,
+	)
 }
 
 func runtimeRawOreDefinition() (economy.ItemDefinition, error) {

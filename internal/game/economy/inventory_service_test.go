@@ -162,6 +162,91 @@ func TestAddItemDuplicateReferenceDoesNotDuplicateGrant(t *testing.T) {
 	}
 }
 
+func TestAddItemInstanceAcceptsServerAuthoredItemInstanceID(t *testing.T) {
+	service := newTestInventoryService()
+	input := validAddItemInput(t)
+	input.ItemDefinition = validInstanceDefinition(t)
+	input.ItemInstanceID = "coordinate-scroll-instance-1"
+	input.Quantity = 1
+
+	result, err := service.AddItem(input)
+	if err != nil {
+		t.Fatalf("AddItem explicit instance: %v", err)
+	}
+	if len(result.InstanceItems) != 1 || result.InstanceItems[0].ItemInstanceID != input.ItemInstanceID {
+		t.Fatalf("instance items = %+v, want explicit id %s", result.InstanceItems, input.ItemInstanceID)
+	}
+	instances := service.InstanceItems()
+	if len(instances) != 1 || instances[0].ItemInstanceID != input.ItemInstanceID {
+		t.Fatalf("stored instances = %+v, want explicit id %s", instances, input.ItemInstanceID)
+	}
+	if result.LedgerEntry.ItemInstanceID != input.ItemInstanceID {
+		t.Fatalf("ledger item instance = %q, want %q", result.LedgerEntry.ItemInstanceID, input.ItemInstanceID)
+	}
+}
+
+func TestAddItemRejectsExplicitItemInstanceIDForStackableOrMultiInstanceGrant(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*AddItemInput)
+	}{
+		{
+			name: "stackable",
+			mutate: func(input *AddItemInput) {
+				input.ItemInstanceID = "explicit-stack"
+			},
+		},
+		{
+			name: "multi instance",
+			mutate: func(input *AddItemInput) {
+				input.ItemDefinition = validInstanceDefinition(t)
+				input.ItemInstanceID = "explicit-instance"
+				input.Quantity = 2
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service := newTestInventoryService()
+			input := validAddItemInput(t)
+			tc.mutate(&input)
+
+			_, err := service.AddItem(input)
+			if !errors.Is(err, ErrInvalidInstanceQuantity) {
+				t.Fatalf("AddItem error = %v, want ErrInvalidInstanceQuantity", err)
+			}
+			if got := len(service.ItemLedgerEntries()); got != 0 {
+				t.Fatalf("ledger entries len = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestAddItemRejectsExplicitItemInstanceIDCollisionAcrossReferences(t *testing.T) {
+	service := newTestInventoryService()
+	input := validAddItemInput(t)
+	input.ItemDefinition = validInstanceDefinition(t)
+	input.ItemInstanceID = "coordinate-scroll-instance-1"
+	input.Quantity = 1
+
+	if _, err := service.AddItem(input); err != nil {
+		t.Fatalf("first AddItem: %v", err)
+	}
+	conflict := input
+	conflict.ReferenceKey = "shop_purchase:player-1:request-conflict"
+	_, err := service.AddItem(conflict)
+	if !errors.Is(err, ErrItemInstanceAlreadyExists) {
+		t.Fatalf("conflicting AddItem error = %v, want ErrItemInstanceAlreadyExists", err)
+	}
+	if got := len(service.InstanceItems()); got != 1 {
+		t.Fatalf("instance items len = %d, want 1", got)
+	}
+	if got := len(service.ItemLedgerEntries()); got != 1 {
+		t.Fatalf("ledger entries len = %d, want 1", got)
+	}
+}
+
 func TestAddItemWritesItemLedgerEntryWithReasonAndReference(t *testing.T) {
 	service := newTestInventoryService()
 	input := validAddItemInput(t)

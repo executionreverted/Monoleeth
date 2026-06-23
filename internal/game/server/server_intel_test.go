@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"gameproject/internal/game/discovery"
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/intel"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
@@ -95,6 +97,7 @@ func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) 
 	assertIntelPayloadOmitsCoordinates(t, "coordinate create response", create.Response.Payload)
 	var createPayload struct {
 		CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
+		Inventory      inventorySnapshotPayload   `json:"inventory"`
 		Created        bool                       `json:"created"`
 		Duplicate      bool                       `json:"duplicate"`
 	}
@@ -104,6 +107,27 @@ func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) 
 	if !createPayload.Created || createPayload.CoordinateItem.ItemInstanceID == "" || createPayload.CoordinateItem.Used {
 		t.Fatalf("create payload = %+v, want fresh server-owned coordinate item", createPayload)
 	}
+	if !inventorySnapshotHasInstanceID(createPayload.Inventory, createPayload.CoordinateItem.ItemInstanceID, coordinateScrollItemID.String(), economy.LocationKindAccountInventory.String()) {
+		t.Fatalf("create inventory = %+v, want coordinate scroll instance %s", createPayload.Inventory, createPayload.CoordinateItem.ItemInstanceID)
+	}
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionIncrease, intelCoordinateItemCreateLedgerReason, 1)
+	createEventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationIntelCoordinateCreate, owner.PlayerID)
+	if err != nil {
+		t.Fatalf("post coordinate create events: %v", err)
+	}
+	requireEventTypeForTest(t, createEventsBySession[owner.SessionID], realtime.EventInventorySnapshot)
+
+	duplicateCreate := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-coordinate-create","op":"intel.coordinate_item.create","payload":{"planet_id":"`+planetID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if duplicateCreate.HasError {
+		t.Fatalf("duplicate coordinate create response error = %+v, want cached success", duplicateCreate.Error)
+	}
+	if got := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), coordinateScrollItemID.String()); got != 1 {
+		t.Fatalf("coordinate scroll inventory instances = %d, want one after duplicate create", got)
+	}
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionIncrease, intelCoordinateItemCreateLedgerReason, 1)
 
 	use := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(owner.SessionID.String()),
@@ -117,6 +141,7 @@ func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) 
 		CoordinateItem intelCoordinateItemPayload `json:"coordinate_item"`
 		KnownPlanets   knownPlanetsPayload        `json:"known_planets"`
 		PlanetDetail   planetDetailPayload        `json:"planet_detail"`
+		Inventory      inventorySnapshotPayload   `json:"inventory"`
 		Used           bool                       `json:"used"`
 	}
 	if err := json.Unmarshal(use.Response.Payload, &usePayload); err != nil {
@@ -125,6 +150,10 @@ func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) 
 	if !usePayload.Used || !usePayload.CoordinateItem.Used || usePayload.PlanetDetail.PlanetID != planetID.String() || len(usePayload.KnownPlanets.Planets) != 1 {
 		t.Fatalf("use payload = %+v, want consumed item and refreshed discovery", usePayload)
 	}
+	if inventorySnapshotHasInstanceID(usePayload.Inventory, createPayload.CoordinateItem.ItemInstanceID, coordinateScrollItemID.String(), economy.LocationKindAccountInventory.String()) {
+		t.Fatalf("use inventory = %+v, want coordinate scroll consumed", usePayload.Inventory)
+	}
+	assertCoordinateItemLedgerCount(t, gameServer, owner.PlayerID, createPayload.CoordinateItem.ItemInstanceID, economy.LedgerActionDecrease, intelCoordinateItemUseLedgerReason, 1)
 
 	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationIntelCoordinateUse, owner.PlayerID)
 	if err != nil {
@@ -132,6 +161,7 @@ func TestCoordinateItemCreateAndUseConsumeOnceAndRefreshDiscovery(t *testing.T) 
 	}
 	requireEventTypeForTest(t, eventsBySession[owner.SessionID], realtime.EventKnownPlanets)
 	requireEventTypeForTest(t, eventsBySession[owner.SessionID], realtime.EventPlanetDetail)
+	requireEventTypeForTest(t, eventsBySession[owner.SessionID], realtime.EventInventorySnapshot)
 
 	secondUse := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(owner.SessionID.String()),
@@ -213,6 +243,45 @@ func TestCoordinateItemUseRejectsWrongOwner(t *testing.T) {
 	}
 }
 
+func TestCoordinateItemUseRequiresMatchingInventoryInstance(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-no-inventory@example.com", "Coordinate No Inventory")
+	planetID := foundation.PlanetID("planet-coordinate-no-inventory")
+	seedKnownClaimPlanetForTest(t, gameServer, owner.PlayerID, planetID, worldmaps.StarterMapID, world.Vec2{X: 1500, Y: 1600}, 3)
+
+	if _, err := gameServer.runtime.syncIntelFromDiscovery(owner.PlayerID, planetID); err != nil {
+		t.Fatalf("syncIntelFromDiscovery: %v", err)
+	}
+	itemID := foundation.ItemID("coord-missing-inventory")
+	reference, err := foundation.CoordinateItemCreateIdempotencyKey(owner.PlayerID, planetID, itemID)
+	if err != nil {
+		t.Fatalf("CoordinateItemCreateIdempotencyKey: %v", err)
+	}
+	if _, err := gameServer.runtime.Intel.CreateCoordinateItem(intel.CreateCoordinateItemInput{
+		PlayerID:       owner.PlayerID,
+		PlanetID:       planetID,
+		ItemInstanceID: itemID,
+		Reference:      reference,
+	}); err != nil {
+		t.Fatalf("CreateCoordinateItem without inventory: %v", err)
+	}
+
+	use := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-coordinate-no-inventory-use","op":"intel.coordinate_item.use","payload":{"item_instance_id":"`+itemID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if !use.HasError || use.Error.Error.Code != foundation.CodeNotEnoughCargo {
+		t.Fatalf("missing inventory coordinate use response = %+v, want not enough cargo", use)
+	}
+	item, ok, err := gameServer.runtime.Intel.CoordinateItem(itemID)
+	if err != nil || !ok {
+		t.Fatalf("CoordinateItem ok=%v err=%v, want item still present", ok, err)
+	}
+	if item.UsedAt != nil {
+		t.Fatalf("coordinate item used_at = %v, want unconsumed after missing inventory", item.UsedAt)
+	}
+}
+
 func assertIntelPayloadSafe(t *testing.T, label string, payload json.RawMessage) {
 	t.Helper()
 	raw := string(payload)
@@ -238,5 +307,31 @@ func assertIntelPayloadOmitsCoordinates(t *testing.T, label string, payload json
 	raw := string(payload)
 	if strings.Contains(raw, `"coordinates"`) {
 		t.Fatalf("%s leaked coordinates: %s", label, raw)
+	}
+}
+
+func inventorySnapshotHasInstanceID(snapshot inventorySnapshotPayload, itemInstanceID string, itemID string, location string) bool {
+	for _, item := range snapshot.Instances {
+		if item.ItemInstanceID == itemInstanceID && item.ItemID == itemID && item.Location == location {
+			return true
+		}
+	}
+	return false
+}
+
+func assertCoordinateItemLedgerCount(t *testing.T, gameServer *Server, playerID foundation.PlayerID, itemInstanceID string, action economy.LedgerAction, reason economy.LedgerReason, want int) {
+	t.Helper()
+	got := 0
+	for _, entry := range gameServer.runtime.Inventory.ItemLedgerEntries() {
+		if entry.PlayerID == playerID &&
+			entry.ItemID == coordinateScrollItemID &&
+			entry.ItemInstanceID.String() == itemInstanceID &&
+			entry.Action == action &&
+			entry.Reason == reason {
+			got++
+		}
+	}
+	if got != want {
+		t.Fatalf("coordinate item %s ledger %s count = %d, want %d", itemInstanceID, action, got, want)
 	}
 }

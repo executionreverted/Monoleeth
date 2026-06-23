@@ -933,7 +933,7 @@ func domainErrorForEconomy(err error) error {
 	switch {
 	case errors.Is(err, economy.ErrInsufficientWalletFunds):
 		return foundation.NewDomainError(foundation.CodeNotEnoughFunds, "Not enough funds.", foundation.WithCause(err))
-	case errors.Is(err, economy.ErrInsufficientItemQuantity), errors.Is(err, market.ErrMarketEscrowQuantityMissing):
+	case errors.Is(err, economy.ErrInsufficientItemQuantity), errors.Is(err, economy.ErrItemNotOwned), errors.Is(err, market.ErrMarketEscrowQuantityMissing):
 		return foundation.NewDomainError(foundation.CodeNotEnoughCargo, "Not enough item quantity.", foundation.WithCause(err))
 	case errors.Is(err, economy.ErrBlockedGenericMoveSource), errors.Is(err, market.ErrListingSourceLocation):
 		return foundation.NewDomainError(foundation.CodeForbidden, "Item cannot be listed from that location.", foundation.WithCause(err))

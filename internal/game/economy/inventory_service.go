@@ -1,6 +1,7 @@
 package economy
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -11,10 +12,14 @@ import (
 
 const addItemOperation = "add_item"
 
+// ErrItemInstanceAlreadyExists reports an explicit instance id collision.
+var ErrItemInstanceAlreadyExists = errors.New("item instance already exists")
+
 // AddItemInput describes one authoritative item grant/add mutation.
 type AddItemInput struct {
 	PlayerID       foundation.PlayerID       `json:"player_id"`
 	ItemDefinition ItemDefinition            `json:"item_definition"`
+	ItemInstanceID foundation.ItemID         `json:"item_instance_id,omitempty"`
 	Quantity       int64                     `json:"quantity"`
 	Location       ItemLocation              `json:"location"`
 	Reason         LedgerReason              `json:"reason"`
@@ -114,6 +119,9 @@ func (service *InventoryService) addItemValidatedLocked(input AddItemInput, quan
 		result.Duplicate = true
 		return result, nil
 	}
+	if !input.ItemInstanceID.IsZero() && service.itemInstanceExistsLocked(input.ItemInstanceID) {
+		return AddItemResult{}, fmt.Errorf("item instance %q: %w", input.ItemInstanceID, ErrItemInstanceAlreadyExists)
+	}
 
 	stackableItems, instanceItems, err := service.buildAddedItems(input, quantity, now)
 	if err != nil {
@@ -202,6 +210,14 @@ func (input AddItemInput) validateWithCargoTargetPolicy(blockCargoTarget bool) (
 	if err != nil {
 		return foundation.Quantity{}, err
 	}
+	if !input.ItemInstanceID.IsZero() {
+		if err := input.ItemInstanceID.Validate(); err != nil {
+			return foundation.Quantity{}, err
+		}
+		if input.ItemDefinition.Type != ItemTypeInstance || quantity.Int64() != 1 {
+			return foundation.Quantity{}, fmt.Errorf("explicit item instance id %q: %w", input.ItemInstanceID, ErrInvalidInstanceQuantity)
+		}
+	}
 	if err := input.Location.Validate(); err != nil {
 		return foundation.Quantity{}, err
 	}
@@ -274,9 +290,13 @@ func (service *InventoryService) buildInstanceAddItems(input AddItemInput, quant
 	}
 
 	for range quantity.Int64() {
+		itemInstanceID := input.ItemInstanceID
+		if input.ItemInstanceID.IsZero() {
+			itemInstanceID = service.nextItemInstanceID(input.ItemDefinition.ItemID, "instance")
+		}
 		item, err := NewInstanceItem(
 			input.ItemDefinition.Source,
-			service.nextItemInstanceID(input.ItemDefinition.ItemID, "instance"),
+			itemInstanceID,
 			input.ItemDefinition.ItemID,
 			input.PlayerID,
 			input.Location,
@@ -316,6 +336,15 @@ func (service *InventoryService) totalItemQuantityLocked(playerID foundation.Pla
 		}
 	}
 	return total
+}
+
+func (service *InventoryService) itemInstanceExistsLocked(itemInstanceID foundation.ItemID) bool {
+	for _, item := range service.instanceItems {
+		if item.ItemInstanceID == itemInstanceID {
+			return true
+		}
+	}
+	return false
 }
 
 func singleAddedItemInstanceID(stackableItems []StackableItem, instanceItems []InstanceItem) foundation.ItemID {

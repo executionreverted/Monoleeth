@@ -212,6 +212,18 @@ Current slice completed:
   model, and queues owner-scoped known-planets and planet-detail refreshes.
   Inventory-backed coordinate item mint/consume, daily quotas, market/listing
   staleness hooks, durable DB rows, and browser HUD controls remain open.
+- Phase07T inventory-backed coordinate item follow-up:
+  `intel.coordinate_item.create` now mints a real
+  `planet_coordinate_scroll` inventory instance with the same server-authored
+  item instance id as the intel record, writes an item ledger increase, returns
+  a reconciled inventory snapshot, and emits `inventory.snapshot`.
+  `intel.coordinate_item.use` now requires the matching owned inventory
+  instance, removes it through the inventory service before marking the intel
+  item used, writes an item ledger decrease, and reconciles known planets,
+  planet detail, and inventory snapshots. Duplicate create/use requests replay
+  through the existing idempotency paths without duplicate inventory or ledger
+  rows. Daily quotas, market/listing staleness hooks, durable DB rows,
+  cross-service transaction/compensation, and browser HUD controls remain open.
 
 ## Source Specs
 
@@ -374,7 +386,7 @@ Mockup areas covered:
 - [x] Client cannot claim hidden/unowned-invalid planet.
 - [x] Client cannot fake X Core consumption.
 - [ ] Intel sharing cannot reveal a coordinate the sender cannot safely expose.
-- [ ] Coordinate item use consumes an owned item once.
+- [x] Coordinate item use consumes an owned item once.
 - [x] Planet panel open rechecks visibility/ownership.
 - [x] Route creation rechecks both endpoints and ownership/access.
 - [x] Route update rechecks destination ownership/access and preserves
@@ -404,7 +416,7 @@ Mockup areas covered:
       without exposing mutable event aliases or letting stale publisher
       callbacks mutate later attempts.
 - [ ] Intel share rejects hidden/not-owned coordinate references.
-- [ ] Coordinate item create/use consumes owned items once and filters results.
+- [x] Coordinate item create/use consumes owned items once and filters results.
 - [ ] Building build/upgrade debits materials/currency once.
 - [x] Production summary/storage duplicate and sub-unit polls no-op without
       advancing production time or queuing duplicate events.

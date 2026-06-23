@@ -297,8 +297,15 @@ Current backend foundation:
   coordinate/source/ownership payloads, bridge discovery read-model intel into
   the intel domain, update discovery after share/use, and queue safe
   known-planets/detail refresh events.
-- Inventory-backed coordinate item creation/consumption, daily quotas, market
-  listing staleness, and durable DB rows are still future slices.
+- Phase07T backs coordinate items with the economy inventory service:
+  coordinate item creation grants an exact server-authored
+  `planet_coordinate_scroll` instance into the player's account inventory,
+  records an item ledger increase, and emits an inventory snapshot; coordinate
+  item use requires and removes that exact owned instance before committing the
+  intel use, records an item ledger decrease, and emits inventory plus
+  intel/discovery reconciliation events.
+- Daily quotas, market listing staleness, durable DB rows, and cross-service
+  transaction/compensation boundaries are still future slices.
 
 ## Implementation Notes
 
