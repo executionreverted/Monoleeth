@@ -234,6 +234,8 @@ for phase status; this file is a compact pending-work index.
   snapshots without client-authored material, wallet, output, owner, location,
   or reference truth. Phase06C adds browser action controls/timers from the
   real crafting snapshot and locks matching pending start/complete intents.
+  Phase06D covers reconnect snapshots advancing the browser crafting timer from
+  server time so ready jobs unlock without fake local truth.
   Remaining work is queue limit balancing, station/planet/building location UX,
   durable completion
   recovery after partial reservation/output/XP mutation, and `crafting.cancel`

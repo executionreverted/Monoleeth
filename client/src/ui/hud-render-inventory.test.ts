@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 
 import { OPERATIONS } from '../protocol/envelope';
-import { createInitialState } from '../state/reducer';
+import { createInitialState, reduceClientState } from '../state/reducer';
 import type { ClientState } from '../state/types';
 import { cargoPanel } from './hud-render-inventory';
 import { hudSelection } from './hud-selection';
@@ -69,6 +69,41 @@ describe('cargoPanel crafting tab', () => {
     expect(html).toContain('Awaiting crafting recipes from server.');
     expect(html).not.toContain('data-action="crafting-start"');
     expect(html).not.toContain('data-action="crafting-complete"');
+  });
+
+  test('uses reconnect snapshot server time to unlock completed crafting jobs', () => {
+    const state = craftingState();
+    state.lastServerTime = 2_000;
+    state.crafting!.active_jobs[0] = {
+      ...state.crafting!.active_jobs[0],
+      completes_at: 5_000,
+    };
+
+    const runningHTML = cargoPanel(state);
+    expect(runningHTML).toContain('3.0s remaining');
+    expect(buttonHTML(runningHTML, 'crafting-complete')).toContain('disabled');
+
+    const reconnected = reduceClientState(state, {
+      type: 'responseReceived',
+      envelope: {
+        request_id: 'crafting-reconnect',
+        ok: true,
+        payload: {
+          crafting: {
+            recipes: state.crafting!.recipes,
+            active_jobs: state.crafting!.active_jobs,
+          },
+        },
+        server_time: 6_000,
+        v: 1,
+      },
+    });
+
+    const readyHTML = cargoPanel(reconnected);
+    expect(reconnected.lastServerTime).toBe(6_000);
+    expect(readyHTML).toContain('Ready');
+    expect(buttonHTML(readyHTML, 'crafting-complete')).toContain('Complete');
+    expect(buttonHTML(readyHTML, 'crafting-complete')).not.toContain('disabled');
   });
 
   test('renders owned coordinate scroll item use intent without hidden coordinate payload', () => {

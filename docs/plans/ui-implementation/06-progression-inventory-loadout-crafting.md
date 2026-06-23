@@ -201,7 +201,7 @@ Mockup areas covered:
 - [x] Browser equip action updates loadout/stats from server event.
 - [x] Browser crafting start/complete controls send only server-owned ids and
       lock on matching pending commands.
-- [ ] Browser crafting timer survives reconnect snapshot.
+- [x] Browser crafting timer survives reconnect snapshot.
 
 ## Done Criteria
 
