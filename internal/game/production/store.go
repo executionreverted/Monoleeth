@@ -391,10 +391,11 @@ func (store *InMemoryStore) insertAutomationRoute(route AutomationRoute) (Automa
 		return AutomationRoute{}, err
 	}
 	if _, err := store.applyAutomationRouteDurableCommitPlanLocked(AutomationRouteDurableCommitPlan{
-		Route:            route,
-		ReferenceKey:     referenceKey,
-		ExpectedRevision: 0,
-		RecordedAt:       route.CreatedAt,
+		Route:                 route,
+		SourceProductionState: optionalRouteSourceProductionState(updatedSourceState, updateSourceState),
+		ReferenceKey:          referenceKey,
+		ExpectedRevision:      0,
+		RecordedAt:            route.CreatedAt,
 	}); err != nil {
 		return AutomationRoute{}, err
 	}

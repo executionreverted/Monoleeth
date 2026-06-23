@@ -42,6 +42,7 @@ func TestDisableRouteSettlesOldRouteBeforeDisabling(t *testing.T) {
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, now)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, now)
 	assertRouteDurableRecord(t, store, route.RouteID, "route_disable:player-1:route-1:request-disable-route-1", 3, result.Route)
+	assertRouteDurableRecordSourceEnergy(t, store, route.RouteID, route.SourcePlanetID, 0)
 }
 
 func TestDisableRouteSettlesSourceProductionBeforeReleasingEnergy(t *testing.T) {
@@ -132,6 +133,7 @@ func TestEnableRouteResetsLastCalculatedAtSoDisabledElapsedDoesNotTransfer(t *te
 	assertRouteSettlementRouteTime(t, store, route.RouteID, enableAt)
 	assertRouteEnergyReserved(t, store, route.SourcePlanetID, 12)
 	assertRouteDurableRecord(t, store, route.RouteID, "route_enable:player-1:route-1:request-enable-route-1", 2, enableResult.Route)
+	assertRouteDurableRecordSourceEnergy(t, store, route.RouteID, route.SourcePlanetID, enableResult.Route.EnergyCostPerHour)
 
 	settleService := newTestRouteSettlementService(t, store, settleAt, nil)
 	settleResult, err := settleService.SettleRoute(route.RouteID)
@@ -285,6 +287,7 @@ func TestUpdateRouteSettlesOldAmountBeforeApplyingNewAmount(t *testing.T) {
 	}
 	assertRouteMapIdentity(t, storedAfterUpdate, route.SourceMapID, provider.policy.DestinationMapID)
 	assertRouteDurableRecord(t, store, route.RouteID, "route_update:player-1:route-1:request-update-route-1", 3, storedAfterUpdate)
+	assertRouteDurableRecordSourceEnergy(t, store, route.RouteID, route.SourcePlanetID, storedAfterUpdate.EnergyCostPerHour)
 
 	settleService := newTestRouteSettlementService(t, store, settleAt, nil)
 	settleResult, err := settleService.SettleRoute(route.RouteID)
@@ -331,6 +334,13 @@ func TestUpdateRouteAtExistingEnergyCapacitySucceedsWhenCostIsUnchanged(t *testi
 		t.Fatal("Updated = false, want true")
 	}
 	assertRouteEnergyReserved(t, store, route.SourcePlanetID, route.EnergyCostPerHour)
+	record, ok, err := store.CommittedAutomationRouteDurableRecord(route.RouteID)
+	if err != nil || !ok {
+		t.Fatalf("CommittedAutomationRouteDurableRecord(%q) ok=%v err=%v, want true nil", route.RouteID, ok, err)
+	}
+	if record.SourceProductionState != nil {
+		t.Fatalf("same-cost update durable source production state = %+v, want nil", record.SourceProductionState)
+	}
 }
 
 func TestUpdateRouteRejectsEnergyReservationOverCapacityWithoutSettlement(t *testing.T) {

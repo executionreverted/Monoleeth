@@ -34,6 +34,37 @@ func TestAutomationRouteDurableStoreCommitsAndReadsRouteRecord(t *testing.T) {
 	}
 }
 
+func TestAutomationRouteDurableStoreCommitsSourceProductionStateEvidence(t *testing.T) {
+	route := validSettlementRoute(testTime(1))
+	store := NewInMemoryAutomationRouteDurableStore()
+	state, err := NewPlanetProductionState(route.SourcePlanetID, testTime(1), 40, testTime(2))
+	if err != nil {
+		t.Fatalf("NewPlanetProductionState() error = %v, want nil", err)
+	}
+	state.EnergyReservedPerHour = route.EnergyCostPerHour
+	plan := automationRouteDurablePlanForTest(route, "route_create:player-1:route-1", 0, testTime(2))
+	plan.SourceProductionState = &state
+
+	result, err := store.ApplyAutomationRouteDurableCommitPlan(plan)
+	if err != nil {
+		t.Fatalf("ApplyAutomationRouteDurableCommitPlan() error = %v, want nil", err)
+	}
+	if result.Record.SourceProductionState == nil ||
+		result.Record.SourceProductionState.PlanetID != route.SourcePlanetID ||
+		result.Record.SourceProductionState.EnergyReservedPerHour != route.EnergyCostPerHour {
+		t.Fatalf("source production evidence = %+v, want route source reserved %d", result.Record.SourceProductionState, route.EnergyCostPerHour)
+	}
+
+	result.Record.SourceProductionState.EnergyReservedPerHour = 999
+	recovered, ok, err := store.CommittedAutomationRouteDurableRecord(route.RouteID)
+	if err != nil || !ok {
+		t.Fatalf("CommittedAutomationRouteDurableRecord() ok=%v err=%v, want true nil", ok, err)
+	}
+	if recovered.SourceProductionState == nil || recovered.SourceProductionState.EnergyReservedPerHour != route.EnergyCostPerHour {
+		t.Fatalf("recovered source production evidence = %+v, want detached reserved %d", recovered.SourceProductionState, route.EnergyCostPerHour)
+	}
+}
+
 func TestAutomationRouteDurableStoreDuplicateReferenceReplaysWithoutRevisionAdvance(t *testing.T) {
 	route := validSettlementRoute(testTime(1))
 	store := NewInMemoryAutomationRouteDurableStore()
@@ -92,6 +123,51 @@ func TestAutomationRouteDurableStoreUpdatesWithExpectedRevisionCAS(t *testing.T)
 	}
 }
 
+func TestAutomationRouteDurableStoreRejectsInvalidSourceProductionStateEvidence(t *testing.T) {
+	route := validSettlementRoute(testTime(1))
+	state, err := NewPlanetProductionState("planet-other", testTime(1), 40, testTime(2))
+	if err != nil {
+		t.Fatalf("NewPlanetProductionState() error = %v, want nil", err)
+	}
+	plan := automationRouteDurablePlanForTest(route, "route_create:player-1:route-1", 0, testTime(2))
+	plan.SourceProductionState = &state
+
+	_, err = NewInMemoryAutomationRouteDurableStore().ApplyAutomationRouteDurableCommitPlan(plan)
+	if !errors.Is(err, ErrInvalidAutomationRouteDurableCommit) {
+		t.Fatalf("mismatched source production state error = %v, want ErrInvalidAutomationRouteDurableCommit", err)
+	}
+
+	state.PlanetID = route.SourcePlanetID
+	state.UpdatedAt = testTime(3)
+	_, err = NewInMemoryAutomationRouteDurableStore().ApplyAutomationRouteDurableCommitPlan(plan)
+	if !errors.Is(err, ErrInvalidAutomationRouteDurableCommit) {
+		t.Fatalf("stale source production state timestamp error = %v, want ErrInvalidAutomationRouteDurableCommit", err)
+	}
+}
+
+func TestInMemoryStoreAppliesRouteDurableSourceProductionStateUnderCommit(t *testing.T) {
+	route := validSettlementRoute(testTime(1))
+	state, err := NewPlanetProductionState(route.SourcePlanetID, testTime(1), 40, testTime(2))
+	if err != nil {
+		t.Fatalf("NewPlanetProductionState() error = %v, want nil", err)
+	}
+	state.EnergyReservedPerHour = route.EnergyCostPerHour
+	plan := automationRouteDurablePlanForTest(route, "route_create:player-1:route-1", 0, testTime(2))
+	plan.SourceProductionState = &state
+	store := NewInMemoryStore()
+
+	if _, err := store.ApplyAutomationRouteDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyAutomationRouteDurableCommitPlan() error = %v, want nil", err)
+	}
+	stored, ok, err := store.ProductionState(route.SourcePlanetID)
+	if err != nil || !ok {
+		t.Fatalf("ProductionState(%q) ok=%v err=%v, want true nil", route.SourcePlanetID, ok, err)
+	}
+	if stored.EnergyReservedPerHour != route.EnergyCostPerHour {
+		t.Fatalf("stored source production reserved = %d, want %d", stored.EnergyReservedPerHour, route.EnergyCostPerHour)
+	}
+}
+
 func TestAutomationRouteDurableStoreRejectsStaleRevisionWithoutMutation(t *testing.T) {
 	route := validSettlementRoute(testTime(1))
 	store := NewInMemoryAutomationRouteDurableStore()
@@ -133,6 +209,45 @@ func TestAutomationRouteDurableStoreRejectsConflictingReferenceReuse(t *testing.
 	}
 	if records := store.AutomationRouteDurableRecords(); len(records) != 1 || records[0].Route.AmountPerHour != route.AmountPerHour {
 		t.Fatalf("route durable records after conflict = %+v, want original row only", records)
+	}
+}
+
+func TestAutomationRouteDurableStoreRejectsConflictingSourceProductionReferenceReuse(t *testing.T) {
+	route := validSettlementRoute(testTime(1))
+	store := NewInMemoryAutomationRouteDurableStore()
+	state, err := NewPlanetProductionState(route.SourcePlanetID, testTime(1), 40, testTime(2))
+	if err != nil {
+		t.Fatalf("NewPlanetProductionState() error = %v, want nil", err)
+	}
+	state.EnergyReservedPerHour = route.EnergyCostPerHour
+	plan := automationRouteDurablePlanForTest(route, "route_create:player-1:route-1", 0, testTime(2))
+	plan.SourceProductionState = &state
+	if _, err := store.ApplyAutomationRouteDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyAutomationRouteDurableCommitPlan() error = %v, want nil", err)
+	}
+
+	conflict := plan
+	conflict.SourceProductionState = cloneProductionStatePointer(plan.SourceProductionState)
+	conflict.SourceProductionState.EnergyReservedPerHour++
+	_, err = store.ApplyAutomationRouteDurableCommitPlan(conflict)
+	if !errors.Is(err, ErrInvalidAutomationRouteDurableCommit) {
+		t.Fatalf("conflicting source state ApplyAutomationRouteDurableCommitPlan() error = %v, want ErrInvalidAutomationRouteDurableCommit", err)
+	}
+}
+
+func TestAutomationRouteDurableStoreRejectsEnabledRouteWithoutReservedSourceEnergy(t *testing.T) {
+	route := validSettlementRoute(testTime(1))
+	state, err := NewPlanetProductionState(route.SourcePlanetID, testTime(1), 40, testTime(2))
+	if err != nil {
+		t.Fatalf("NewPlanetProductionState() error = %v, want nil", err)
+	}
+	state.EnergyReservedPerHour = route.EnergyCostPerHour - 1
+	plan := automationRouteDurablePlanForTest(route, "route_create:player-1:route-1", 0, testTime(2))
+	plan.SourceProductionState = &state
+
+	_, err = NewInMemoryAutomationRouteDurableStore().ApplyAutomationRouteDurableCommitPlan(plan)
+	if !errors.Is(err, ErrInvalidAutomationRouteDurableCommit) {
+		t.Fatalf("insufficient source energy evidence error = %v, want ErrInvalidAutomationRouteDurableCommit", err)
 	}
 }
 

@@ -73,3 +73,10 @@ func routeReservedEnergyCost(route AutomationRoute) int64 {
 	}
 	return route.EnergyCostPerHour
 }
+
+func optionalRouteSourceProductionState(state PlanetProductionState, ok bool) *PlanetProductionState {
+	if !ok {
+		return nil
+	}
+	return cloneProductionStatePointer(&state)
+}

@@ -126,7 +126,12 @@ func (store *InMemoryStore) enableRouteLocked(
 		return RouteControlResult{}, err
 	}
 	if !referenceKey.IsZero() {
-		if err := store.commitRouteDurableMutationLocked(route, referenceKey, now); err != nil {
+		if err := store.commitRouteDurableMutationLocked(
+			route,
+			optionalRouteSourceProductionState(updatedSourceState, updateSourceState),
+			referenceKey,
+			now,
+		); err != nil {
 			return RouteControlResult{}, err
 		}
 	}
@@ -282,7 +287,12 @@ func (store *InMemoryStore) disableRouteLocked(
 		return RouteControlResult{}, err
 	}
 	if !referenceKey.IsZero() {
-		if err := store.commitRouteDurableMutationLocked(route, referenceKey, now); err != nil {
+		if err := store.commitRouteDurableMutationLocked(
+			route,
+			optionalRouteSourceProductionState(updatedSourceState, updateSourceState),
+			referenceKey,
+			now,
+		); err != nil {
 			return RouteControlResult{}, err
 		}
 	}
@@ -393,7 +403,12 @@ func (store *InMemoryStore) UpdateRoute(
 		return UpdateRouteResult{}, err
 	}
 	if !referenceKey.IsZero() {
-		if err := store.commitRouteDurableMutationLocked(updatedRoute, referenceKey, now); err != nil {
+		if err := store.commitRouteDurableMutationLocked(
+			updatedRoute,
+			optionalRouteSourceProductionState(updatedSourceState, updateSourceState),
+			referenceKey,
+			now,
+		); err != nil {
 			return UpdateRouteResult{}, err
 		}
 	}

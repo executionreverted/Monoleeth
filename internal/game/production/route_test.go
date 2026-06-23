@@ -357,6 +357,7 @@ func TestCreateRouteStoresDetachedEnabledRoute(t *testing.T) {
 	}
 	assertRouteMapIdentity(t, storedAgain, provider.policy.SourceMapID, provider.policy.DestinationMapID)
 	assertRouteDurableRecord(t, store, input.RouteID, foundation.IdempotencyKey("route_create:player-1:route-1"), 1, storedAgain)
+	assertRouteDurableRecordSourceEnergy(t, store, input.RouteID, input.SourcePlanetID, storedAgain.EnergyCostPerHour)
 }
 
 func TestCreateRouteDuplicateRouteIDFailsWithoutOverwrite(t *testing.T) {

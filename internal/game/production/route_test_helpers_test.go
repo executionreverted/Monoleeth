@@ -237,6 +237,35 @@ func assertRouteDurableRecord(
 	}
 }
 
+func assertRouteDurableRecordSourceEnergy(
+	t *testing.T,
+	store *InMemoryStore,
+	routeID foundation.RouteID,
+	wantPlanetID foundation.PlanetID,
+	wantReserved int64,
+) {
+	t.Helper()
+	record, ok, err := store.CommittedAutomationRouteDurableRecord(routeID)
+	if err != nil || !ok {
+		t.Fatalf("CommittedAutomationRouteDurableRecord(%q) ok = %v err = %v, want true nil", routeID, ok, err)
+	}
+	if record.SourceProductionState == nil {
+		t.Fatalf("durable route record source production state = nil, want planet %q reserved %d", wantPlanetID, wantReserved)
+	}
+	if record.SourceProductionState.PlanetID != wantPlanetID || record.SourceProductionState.EnergyReservedPerHour != wantReserved {
+		t.Fatalf("durable route source production state = %+v, want planet %q reserved %d", record.SourceProductionState, wantPlanetID, wantReserved)
+	}
+	byReference, ok, err := store.CommittedAutomationRouteDurableRecordByReference(record.ReferenceKey)
+	if err != nil || !ok {
+		t.Fatalf("CommittedAutomationRouteDurableRecordByReference(%q) ok = %v err = %v, want true nil", record.ReferenceKey, ok, err)
+	}
+	if byReference.SourceProductionState == nil ||
+		byReference.SourceProductionState.PlanetID != wantPlanetID ||
+		byReference.SourceProductionState.EnergyReservedPerHour != wantReserved {
+		t.Fatalf("durable route by reference source production state = %+v, want planet %q reserved %d", byReference.SourceProductionState, wantPlanetID, wantReserved)
+	}
+}
+
 func newRouteSettlementStore(
 	t *testing.T,
 	route AutomationRoute,

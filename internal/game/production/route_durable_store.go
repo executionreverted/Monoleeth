@@ -21,17 +21,19 @@ type AutomationRouteDurableReader interface {
 }
 
 type AutomationRouteDurableCommitPlan struct {
-	Route            AutomationRoute           `json:"route"`
-	ReferenceKey     foundation.IdempotencyKey `json:"reference_key"`
-	ExpectedRevision uint64                    `json:"expected_revision"`
-	RecordedAt       time.Time                 `json:"recorded_at"`
+	Route                 AutomationRoute           `json:"route"`
+	SourceProductionState *PlanetProductionState    `json:"source_production_state,omitempty"`
+	ReferenceKey          foundation.IdempotencyKey `json:"reference_key"`
+	ExpectedRevision      uint64                    `json:"expected_revision"`
+	RecordedAt            time.Time                 `json:"recorded_at"`
 }
 
 type AutomationRouteDurableRecord struct {
-	Route        AutomationRoute           `json:"route"`
-	ReferenceKey foundation.IdempotencyKey `json:"reference_key"`
-	Revision     uint64                    `json:"revision"`
-	RecordedAt   time.Time                 `json:"recorded_at"`
+	Route                 AutomationRoute           `json:"route"`
+	SourceProductionState *PlanetProductionState    `json:"source_production_state,omitempty"`
+	ReferenceKey          foundation.IdempotencyKey `json:"reference_key"`
+	Revision              uint64                    `json:"revision"`
+	RecordedAt            time.Time                 `json:"recorded_at"`
 }
 
 type AutomationRouteDurableCommitResult struct {
@@ -173,6 +175,20 @@ func (input AutomationRouteDurableCommitPlan) Validate() error {
 	if input.RecordedAt.IsZero() {
 		return fmt.Errorf("recorded_at: %w", ErrZeroProductionTimestamp)
 	}
+	if input.SourceProductionState != nil {
+		if err := input.SourceProductionState.Validate(); err != nil {
+			return err
+		}
+		if input.SourceProductionState.PlanetID != input.Route.SourcePlanetID {
+			return fmt.Errorf("route source %q production state %q: %w", input.Route.SourcePlanetID, input.SourceProductionState.PlanetID, ErrInvalidAutomationRouteDurableCommit)
+		}
+		if input.Route.Enabled && input.SourceProductionState.EnergyReservedPerHour < input.Route.EnergyCostPerHour {
+			return fmt.Errorf("route energy %d source reserved %d: %w", input.Route.EnergyCostPerHour, input.SourceProductionState.EnergyReservedPerHour, ErrInvalidAutomationRouteDurableCommit)
+		}
+		if !input.SourceProductionState.UpdatedAt.Equal(input.RecordedAt) {
+			return fmt.Errorf("source production updated_at %s recorded_at %s: %w", input.SourceProductionState.UpdatedAt, input.RecordedAt, ErrInvalidAutomationRouteDurableCommit)
+		}
+	}
 	return nil
 }
 
@@ -262,15 +278,23 @@ func (store *InMemoryStore) AutomationRouteDurableRecords() []AutomationRouteDur
 func (store *InMemoryStore) applyAutomationRouteDurableCommitPlanLocked(
 	plan AutomationRouteDurableCommitPlan,
 ) (AutomationRouteDurableCommitResult, error) {
-	return applyAutomationRouteDurableCommitPlanToMaps(
+	result, err := applyAutomationRouteDurableCommitPlanToMaps(
 		&store.routeDurableRecords,
 		&store.routeDurableReferences,
 		plan,
 	)
+	if err != nil {
+		return AutomationRouteDurableCommitResult{}, err
+	}
+	if !result.Duplicate && plan.SourceProductionState != nil {
+		store.states[plan.SourceProductionState.PlanetID] = cloneProductionState(*plan.SourceProductionState)
+	}
+	return result, nil
 }
 
 func (store *InMemoryStore) commitRouteDurableMutationLocked(
 	route AutomationRoute,
+	sourceProductionState *PlanetProductionState,
 	referenceKey foundation.IdempotencyKey,
 	recordedAt time.Time,
 ) error {
@@ -282,10 +306,11 @@ func (store *InMemoryStore) commitRouteDurableMutationLocked(
 		expectedRevision = record.Revision
 	}
 	_, err := store.applyAutomationRouteDurableCommitPlanLocked(AutomationRouteDurableCommitPlan{
-		Route:            route,
-		ReferenceKey:     referenceKey,
-		ExpectedRevision: expectedRevision,
-		RecordedAt:       recordedAt,
+		Route:                 route,
+		SourceProductionState: sourceProductionState,
+		ReferenceKey:          referenceKey,
+		ExpectedRevision:      expectedRevision,
+		RecordedAt:            recordedAt,
 	})
 	return err
 }
@@ -396,10 +421,11 @@ func automationRouteDurableRecordFromPlan(
 	revision uint64,
 ) AutomationRouteDurableRecord {
 	return AutomationRouteDurableRecord{
-		Route:        cloneAutomationRoute(plan.Route),
-		ReferenceKey: plan.ReferenceKey,
-		Revision:     revision,
-		RecordedAt:   plan.RecordedAt.UTC(),
+		Route:                 cloneAutomationRoute(plan.Route),
+		SourceProductionState: cloneProductionStatePointer(plan.SourceProductionState),
+		ReferenceKey:          plan.ReferenceKey,
+		Revision:              revision,
+		RecordedAt:            plan.RecordedAt.UTC(),
 	}
 }
 
@@ -409,6 +435,7 @@ func automationRouteDurableCommitPlanIsNoOp(plan AutomationRouteDurableCommitPla
 
 func normalizeAutomationRouteDurableCommitPlan(plan AutomationRouteDurableCommitPlan) AutomationRouteDurableCommitPlan {
 	plan.Route = cloneAutomationRoute(plan.Route)
+	plan.SourceProductionState = cloneProductionStatePointer(plan.SourceProductionState)
 	plan.RecordedAt = plan.RecordedAt.UTC()
 	return plan
 }
@@ -419,6 +446,7 @@ func automationRouteDurableRecordsEqual(left AutomationRouteDurableRecord, right
 
 func cloneAutomationRouteDurableRecord(record AutomationRouteDurableRecord) AutomationRouteDurableRecord {
 	record.Route = cloneAutomationRoute(record.Route)
+	record.SourceProductionState = cloneProductionStatePointer(record.SourceProductionState)
 	record.RecordedAt = record.RecordedAt.UTC()
 	return record
 }

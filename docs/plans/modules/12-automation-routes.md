@@ -132,6 +132,10 @@ before running buildings. Create/enable reserve energy, disable releases it
 after settlement, and update applies only the enabled-route energy delta so
 same-cost edits remain allowed at capacity.
 
+Durable route mutation plans carry the changed source production state whenever
+route energy reservation changes. Pure settlement cursor commits omit it because
+they do not change route upkeep reservation.
+
 ## Risk Formula v0
 
 Inputs:

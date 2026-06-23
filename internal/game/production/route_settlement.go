@@ -132,7 +132,7 @@ func (store *InMemoryStore) settleRouteLocked(
 		}
 		store.routes[routeID] = cloneAutomationRoute(route)
 		result.AfterRoute = cloneAutomationRoute(route)
-		if err := store.commitRouteDurableMutationLocked(route, result.ReferenceKey, result.SettledAt); err != nil {
+		if err := store.commitRouteDurableMutationLocked(route, nil, result.ReferenceKey, result.SettledAt); err != nil {
 			return RouteSettlementResult{}, err
 		}
 		store.recordSettlementReferenceLocked(routeSettlementReferenceRecord(result))
@@ -201,7 +201,7 @@ func (store *InMemoryStore) settleRouteLocked(
 	}
 	store.routes[routeID] = cloneAutomationRoute(route)
 	result.AfterRoute = cloneAutomationRoute(route)
-	if err := store.commitRouteDurableMutationLocked(route, result.ReferenceKey, result.SettledAt); err != nil {
+	if err := store.commitRouteDurableMutationLocked(route, nil, result.ReferenceKey, result.SettledAt); err != nil {
 		return RouteSettlementResult{}, err
 	}
 	store.recordSettlementReferenceLocked(routeSettlementReferenceRecord(result))

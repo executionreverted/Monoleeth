@@ -420,6 +420,14 @@ Current slice completed:
   energy before buildings, so route upkeep can now reduce building throughput
   through real server state. Durable DB adapters still need to co-commit route
   row mutations and source production-state reservation changes.
+- Phase07BT durable route-energy evidence follow-up:
+  `AutomationRouteDurableCommitPlan` and committed route records can now carry
+  the source `PlanetProductionState` row changed by route energy reservation.
+  The in-memory production store applies that source state under the same lock
+  as the route durable row, while standalone durable-route stores retain
+  detached evidence for future DB adapters. Pure route settlement cursor
+  commits still omit source production state because they do not change route
+  energy reservation.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,

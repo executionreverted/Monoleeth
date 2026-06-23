@@ -122,6 +122,14 @@ func cloneProductionState(state PlanetProductionState) PlanetProductionState {
 	return state
 }
 
+func cloneProductionStatePointer(state *PlanetProductionState) *PlanetProductionState {
+	if state == nil {
+		return nil
+	}
+	cloned := cloneProductionState(*state)
+	return &cloned
+}
+
 func cloneProductionSnapshot(snapshot PlanetProductionSnapshot) PlanetProductionSnapshot {
 	snapshot.State = cloneProductionState(snapshot.State)
 	snapshot.Storage = clonePlanetStorage(snapshot.Storage)

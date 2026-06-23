@@ -256,10 +256,10 @@ for phase status; this file is a compact pending-work index.
   hardening. Server/browser work now has a focused real-client
   create/update/control/settle proof; remaining work is durable route rows,
   endpoint visibility/access policy beyond the owned same-map MVP, route
-  capacity progression/balancing, durable route energy/upkeep co-commit in DB
-  adapters, durable settlement idempotency table enforcement, storage capacity
-  persistence, and outbox reconciliation through `route.list`, `route.snapshot`, and
-  `route.updated`/`route.settled` events.
+  capacity progression/balancing, durable route energy/upkeep DB adapter
+  rollout, durable settlement idempotency table enforcement, storage capacity
+  persistence, and outbox reconciliation through `route.list`,
+  `route.snapshot`, and `route.updated`/`route.settled` events.
   Phase07B map-tagged the route domain rows and read payloads for
   `route.list`/`route.snapshot`; Phase07C landed authenticated `route.create`
   as an owned planet-to-planet gateway slice that rejects client-authored
@@ -319,12 +319,15 @@ for phase status; this file is a compact pending-work index.
   after settlement, and update applies the enabled-route energy delta while
   preserving same-cost edits at capacity. Durable DB adapters still need to
   co-commit route rows with source production-state energy reservations.
+  Phase07BT adds that source production-state row to route durable commit plans
+  and records, and the in-memory production store applies it under the same lock
+  as the durable route row; real DB row locks/CAS remain open.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10
   audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
-  Phase07K, Phase07AN, Phase07BN, Phase07BO, Phase07BP, Phase07BQ, and
-  Phase07BR/Phase07BS.
+  Phase07K, Phase07AN, Phase07BN, Phase07BO, Phase07BP, Phase07BQ,
+  Phase07BR, Phase07BS, and Phase07BT.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server
@@ -544,10 +547,10 @@ for phase status; this file is a compact pending-work index.
   runtime deployment.
 - [ ] Carry route energy upkeep reservations into the future durable route DB
   adapter transaction. Phase07BS wires enabled route upkeep into the in-memory
-  source planet production energy budget, and production settlement consumes
-  `energy_reserved_per_hour` before buildings, but DB adapters still need to
-  co-commit route row mutations with source production-state reservation
-  changes under row locks/CAS.
+  source planet production energy budget, and Phase07BT records the changed
+  source production state in route durable commit plans/records, but DB
+  adapters still need real row locks/CAS for route rows plus source
+  production-state reservation changes.
 - [ ] Add an authenticated owner/access wrapper before exposing Phase 09
   `SettlePlanetProduction` through gateway/API callers. Route settle, enable,
   disable, and update wrappers now check the server-resolved owner before
