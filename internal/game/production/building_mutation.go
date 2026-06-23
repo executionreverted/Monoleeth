@@ -120,6 +120,7 @@ type BuildingMutationResult struct {
 	MaterialLedger []BuildingMaterialLedgerEntry `json:"material_ledger,omitempty"`
 	WalletDebit    *economy.DebitWalletResult    `json:"wallet_debit,omitempty"`
 	Events         []gameevents.EventEnvelope    `json:"events,omitempty"`
+	OutboxRecords  []ProductionOutboxRecord      `json:"-"`
 	ReferenceKey   foundation.IdempotencyKey     `json:"reference_key"`
 	Duplicate      bool                          `json:"duplicate"`
 }
@@ -273,6 +274,23 @@ func (store *InMemoryStore) BuildingMutationReferences() []BuildingMutationRefer
 		records = append(records, cloneBuildingMutationReferenceRecord(store.buildingReferences[referenceKey]))
 	}
 	return records
+}
+
+// BuildingMutationReference returns one recorded building mutation reference.
+func (store *InMemoryStore) BuildingMutationReference(
+	referenceKey foundation.IdempotencyKey,
+) (BuildingMutationReferenceRecord, bool, error) {
+	if err := referenceKey.Validate(); err != nil {
+		return BuildingMutationReferenceRecord{}, false, err
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	record, ok := store.buildingReferences[referenceKey]
+	if !ok {
+		return BuildingMutationReferenceRecord{}, false, nil
+	}
+	return cloneBuildingMutationReferenceRecord(record), true, nil
 }
 
 // BuildingMaterialLedgerEntries returns building material ledger rows in append order.
@@ -445,6 +463,7 @@ func (store *InMemoryStore) replayBuildMutationLocked(
 	}
 	result := cloneBuildingMutationResult(previous.Result)
 	result.Duplicate = true
+	result.OutboxRecords = nil
 	return result, true, nil
 }
 
@@ -458,6 +477,7 @@ func (store *InMemoryStore) replayUpgradeMutationLocked(input UpgradePlanetBuild
 	}
 	result := cloneBuildingMutationResult(previous.Result)
 	result.Duplicate = true
+	result.OutboxRecords = nil
 	return result, true, nil
 }
 
@@ -498,6 +518,7 @@ func (store *InMemoryStore) applyBuildingMutationLocked(
 	if err := cost.Validate(); err != nil {
 		return BuildingMutationResult{}, err
 	}
+	outboxCountBefore := len(store.outbox)
 	storage, ok := store.storage[building.PlanetID]
 	if !ok {
 		return BuildingMutationResult{}, fmt.Errorf("planet %q storage: %w", building.PlanetID, ErrProductionSnapshotIncomplete)
@@ -552,6 +573,7 @@ func (store *InMemoryStore) applyBuildingMutationLocked(
 		MaterialLedger: cloneBuildingMaterialLedgerEntries(materialLedger),
 		WalletDebit:    cloneDebitWalletResultPtr(walletDebit),
 		Events:         cloneProductionEventEnvelopes(events),
+		OutboxRecords:  cloneProductionOutboxRecords(store.outbox[outboxCountBefore:]),
 		ReferenceKey:   referenceKey,
 	}
 	store.buildingReferences[referenceKey] = BuildingMutationReferenceRecord{
@@ -894,6 +916,7 @@ func cloneBuildingMutationResult(result BuildingMutationResult) BuildingMutation
 	result.MaterialLedger = cloneBuildingMaterialLedgerEntries(result.MaterialLedger)
 	result.WalletDebit = cloneDebitWalletResultPtr(result.WalletDebit)
 	result.Events = cloneProductionEventEnvelopes(result.Events)
+	result.OutboxRecords = cloneProductionOutboxRecords(result.OutboxRecords)
 	return result
 }
 

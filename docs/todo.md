@@ -194,8 +194,13 @@ for phase status; this file is a compact pending-work index.
   spoof-field rejection, duplicate replay, and owner-scoped production/storage/
   wallet reconciliation. Phase07Q tags building storage/building outbox rows
   with the committed building mutation idempotency reference and proves the
-  publisher state machine preserves that evidence. Phase07R starts the
-  server-authoritative intel/coordinate domain foundation for share,
+  publisher state machine preserves that evidence. Phase07AN adds a
+  process-local durable commit-store adapter for successful authenticated
+  building mutations; the gateway now hands the mutation reference, pending
+  outbox rows, and production-local material ledger rows to that boundary,
+  rejects missing references/conflicting replays, and keeps duplicate requests
+  from appending durable rows. Phase07R starts the server-authoritative
+  intel/coordinate domain foundation for share,
   coordinate-item creation, coordinate-item use, canonical idempotency keys,
   and consume-once item state. Phase07S wires those intel operations into the
   authenticated realtime gateway and TypeScript protocol with discovery

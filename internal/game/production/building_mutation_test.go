@@ -44,9 +44,14 @@ func TestBuildingMutationBuildDebitsMaterialsRecordsLedgerAndEmitsEvents(t *test
 	assertBuildingMutationStorage(t, store, "iron_ore", 30)
 	assertBuildingMaterialLedger(t, store, reference, "iron_ore", 20, 30)
 	assertBuildingMutationEvents(t, store, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
+	assertBuildingMutationOutboxReferences(t, result.OutboxRecords, reference, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
 	assertBuildingMutationOutboxReferences(t, store.OutboxRecords(), reference, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
 	if wallet.calls != 1 || wallet.last.ReferenceKey != reference || wallet.last.Amount != 100 {
 		t.Fatalf("wallet calls/input = %d/%+v, want one debit amount 100 ref %q", wallet.calls, wallet.last, reference)
+	}
+	result.OutboxRecords[0].OutboxID = "mutated-outbox"
+	if store.OutboxRecords()[0].OutboxID == "mutated-outbox" {
+		t.Fatal("BuildPlanetBuilding() returned live outbox rows, want detached evidence")
 	}
 
 	duplicate, err := service.BuildPlanetBuilding(BuildPlanetBuildingInput{
@@ -61,6 +66,9 @@ func TestBuildingMutationBuildDebitsMaterialsRecordsLedgerAndEmitsEvents(t *test
 	}
 	if !duplicate.Duplicate {
 		t.Fatal("duplicate Duplicate = false, want true")
+	}
+	if len(duplicate.OutboxRecords) != 0 {
+		t.Fatalf("duplicate outbox records = %+v, want no newly committed rows", duplicate.OutboxRecords)
 	}
 	assertBuildingMutationStorage(t, store, "iron_ore", 30)
 	if got := len(store.BuildingMaterialLedgerEntries()); got != 1 {
@@ -374,6 +382,7 @@ func TestBuildingMutationUpgradeUsesNextCatalogLevelAndDuplicateIsSafe(t *testin
 	assertBuildingMutationStorage(t, store, "iron_ore", 70)
 	assertBuildingMaterialLedger(t, store, reference, "iron_ore", 30, 70)
 	assertBuildingMutationEvents(t, store, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
+	assertBuildingMutationOutboxReferences(t, result.OutboxRecords, reference, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
 	assertBuildingMutationOutboxReferences(t, store.OutboxRecords(), reference, EventPlanetStorageUpdated, EventPlanetBuildingUpdated)
 
 	duplicate, err := service.UpgradePlanetBuilding(UpgradePlanetBuildingInput{
@@ -387,6 +396,9 @@ func TestBuildingMutationUpgradeUsesNextCatalogLevelAndDuplicateIsSafe(t *testin
 	}
 	if !duplicate.Duplicate {
 		t.Fatal("duplicate Duplicate = false, want true")
+	}
+	if len(duplicate.OutboxRecords) != 0 {
+		t.Fatalf("duplicate outbox records = %+v, want no newly committed rows", duplicate.OutboxRecords)
 	}
 	assertBuildingMutationStorage(t, store, "iron_ore", 70)
 	if got := len(store.BuildingMaterialLedgerEntries()); got != 1 {

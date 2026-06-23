@@ -363,6 +363,15 @@ Current slice completed:
   overflow/discarded delivery. Rows carry route id, planet/counterparty ids,
   item, quantity, item balance after, reference key, settlement window, and
   created time; duplicate/no-op settlements do not append additional rows.
+- Phase07AN building mutation durable commit follow-up: successful authenticated
+  building build/upgrade handlers now hand the server-derived building mutation
+  idempotency reference, pending production outbox rows, and production-local
+  material ledger rows to a process-local durable commit-store adapter. The
+  adapter validates the row bundle against the cached mutation result, rejects
+  missing references and conflicting replay attempts before mutation, supports
+  exact idempotent replay/readback, and keeps duplicate gateway requests from
+  appending new durable rows. Real DB rows, cross-process CAS/locks, wallet
+  debit co-commit evidence, and durable publisher workers remain open.
 - Phase07AN route settlement transaction-boundary follow-up:
   `ApplyRouteSettlementTransaction` now gives route settlement an explicit
   DB-adapter-ready contract: owner-scoped route validation, settlement window
@@ -695,6 +704,9 @@ Mockup areas covered:
       published through the durable outbox.
 - [x] Building mutations use production-local material ledger rows and wallet
       debit ledger rows.
+- [x] Authenticated building mutation handlers hand idempotency reference,
+      material ledger rows, and pending outbox rows to the runtime durable
+      commit-store adapter.
 - [x] Define and enforce route storage ledger semantics for route mutations.
 - [x] Storage capacity cannot be exceeded.
 

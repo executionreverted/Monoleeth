@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -44,6 +45,10 @@ func TestPlanetBuildingBuildAlloyFoundryDebitsServerOwnedCostsAndQueuesOwnerEven
 	if err != nil {
 		t.Fatalf("deterministicPlanetBuildingID: %v", err)
 	}
+	referenceKey, err := foundation.PlanetBuildingBuildIdempotencyKey(planetID, wantBuildingID.String())
+	if err != nil {
+		t.Fatalf("PlanetBuildingBuildIdempotencyKey: %v", err)
+	}
 	var payload struct {
 		Building      planetBuildingPayload             `json:"building"`
 		Production    planetProductionCollectionPayload `json:"production"`
@@ -72,6 +77,7 @@ func TestPlanetBuildingBuildAlloyFoundryDebitsServerOwnedCostsAndQueuesOwnerEven
 	assertStoredRouteStorageQuantity(t, gameServer, planetID, "iron_ore", 20)
 	assertStoredPlanetBuildingLevel(t, gameServer, planetID, wantBuildingID, 1)
 	assertPlanetBuildingMutationBoundaryCounts(t, gameServer, owner.PlayerID, 1, 1, 2, 2, 4)
+	assertPlanetBuildingDurableCommitCounts(t, gameServer, referenceKey, 1, 2, 1)
 
 	eventsBySession, err := gameServer.runtime.postCommandEventsBySession(owner.SessionID, realtime.OperationPlanetBuildingBuild, owner.PlayerID)
 	if err != nil {
@@ -110,6 +116,7 @@ func TestPlanetBuildingBuildAlloyFoundryDebitsServerOwnedCostsAndQueuesOwnerEven
 	}
 	assertStoredRouteStorageQuantity(t, gameServer, planetID, "iron_ore", 20)
 	assertPlanetBuildingMutationBoundaryCounts(t, gameServer, owner.PlayerID, 1, 1, 2, 2, 4)
+	assertPlanetBuildingDurableCommitCounts(t, gameServer, referenceKey, 1, 2, 1)
 }
 
 func TestPlanetBuildingConcurrentBuildsSerializeBeforeWalletDebit(t *testing.T) {
@@ -328,6 +335,28 @@ func TestPlanetBuildingBuildRejectsInsufficientWalletBeforeMutation(t *testing.T
 	assertNoQueuedEventsForSession(t, gameServer, owner.SessionID)
 }
 
+func TestPlanetBuildingDurableCommitRequiresRecordedReference(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+	gameServer := newRouteControlTestServer(t, clock)
+	referenceKey, err := foundation.PlanetBuildingBuildIdempotencyKey("planet-missing", "building-missing")
+	if err != nil {
+		t.Fatalf("PlanetBuildingBuildIdempotencyKey: %v", err)
+	}
+
+	err = gameServer.runtime.applyBuildingMutationDurableCommit(production.BuildingMutationResult{
+		ReferenceKey: referenceKey,
+		OutboxRecords: []production.ProductionOutboxRecord{
+			{ReferenceKey: referenceKey},
+		},
+	})
+	if !errors.Is(err, production.ErrInvalidBuildingMutationDurableCommit) {
+		t.Fatalf("applyBuildingMutationDurableCommit(missing reference) error = %v, want ErrInvalidBuildingMutationDurableCommit", err)
+	}
+	if got := len(gameServer.runtime.BuildingMutations.BuildingMutationReferences()); got != 0 {
+		t.Fatalf("durable building references after missing reference = %d, want 0", got)
+	}
+}
+
 func TestPlanetBuildingUpgradeIronExtractorDebitsCostsOnceAndUpdatesLevel(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
 	gameServer := newRouteControlTestServer(t, clock)
@@ -371,6 +400,11 @@ func TestPlanetBuildingUpgradeIronExtractorDebitsCostsOnceAndUpdatesLevel(t *tes
 	assertStoredRouteStorageQuantity(t, gameServer, planetID, "iron_ore", 20)
 	assertStoredPlanetBuildingLevel(t, gameServer, planetID, buildingID, 2)
 	assertPlanetBuildingMutationBoundaryCounts(t, gameServer, owner.PlayerID, 1, 1, 2, 2, 4)
+	upgradeReference, err := foundation.PlanetBuildingUpgradeIdempotencyKey(planetID, buildingID.String(), 2)
+	if err != nil {
+		t.Fatalf("PlanetBuildingUpgradeIdempotencyKey: %v", err)
+	}
+	assertPlanetBuildingDurableCommitCounts(t, gameServer, upgradeReference, 1, 2, 1)
 
 	events, err := gameServer.runtime.postCommandEvents(owner.SessionID, realtime.OperationPlanetBuildingUpgrade, owner.PlayerID)
 	if err != nil {
@@ -403,6 +437,7 @@ func TestPlanetBuildingUpgradeIronExtractorDebitsCostsOnceAndUpdatesLevel(t *tes
 	assertStoredRouteStorageQuantity(t, gameServer, planetID, "iron_ore", 20)
 	assertStoredPlanetBuildingLevel(t, gameServer, planetID, buildingID, 2)
 	assertPlanetBuildingMutationBoundaryCounts(t, gameServer, owner.PlayerID, 1, 1, 2, 2, 4)
+	assertPlanetBuildingDurableCommitCounts(t, gameServer, upgradeReference, 1, 2, 1)
 
 	conflict := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(owner.SessionID.String()),
@@ -482,6 +517,26 @@ func assertPlanetBuildingMutationBoundaryCounts(t *testing.T, gameServer *Server
 	}
 	if got := countPlanetBuildingWalletLedgerEntriesForPlayer(gameServer.runtime.Wallet.CurrencyLedgerEntries(), playerID); got != walletLedger {
 		t.Fatalf("wallet ledger entries for %q = %d, want %d", playerID, got, walletLedger)
+	}
+}
+
+func assertPlanetBuildingDurableCommitCounts(t *testing.T, gameServer *Server, referenceKey foundation.IdempotencyKey, references int, outbox int, materialLedger int) {
+	t.Helper()
+	if got := len(gameServer.runtime.BuildingMutations.BuildingMutationReferences()); got != references {
+		t.Fatalf("durable building references = %d, want %d", got, references)
+	}
+	if got := len(gameServer.runtime.BuildingMutations.OutboxRecords()); got != outbox {
+		t.Fatalf("durable building outbox records = %d, want %d", got, outbox)
+	}
+	if got := len(gameServer.runtime.BuildingMutations.BuildingMaterialLedgerEntries()); got != materialLedger {
+		t.Fatalf("durable building material ledger entries = %d, want %d", got, materialLedger)
+	}
+	plan, ok, err := gameServer.runtime.BuildingMutations.CommittedBuildingMutationDurableCommitPlan(referenceKey)
+	if err != nil || !ok {
+		t.Fatalf("CommittedBuildingMutationDurableCommitPlan(%q) = ok %v err %v, want true nil", referenceKey, ok, err)
+	}
+	if plan.Reference.ReferenceKey != referenceKey || len(plan.OutboxRecords) != outbox || len(plan.MaterialLedger) != materialLedger {
+		t.Fatalf("durable building plan = %+v, want ref %q outbox %d ledger %d", plan, referenceKey, outbox, materialLedger)
 	}
 }
 

@@ -111,6 +111,9 @@ func (runtime *Runtime) handlePlanetBuildingBuild(ctx realtime.CommandContext, r
 	if err != nil {
 		return nil, domainErrorForBuildingMutation(err)
 	}
+	if err := runtime.applyBuildingMutationDurableCommit(result); err != nil {
+		return nil, domainErrorForBuildingMutation(err)
+	}
 	return runtime.planetBuildingMutationResponse(ctx.PlayerID, planetID, result)
 }
 
@@ -191,6 +194,9 @@ func (runtime *Runtime) handlePlanetBuildingUpgrade(ctx realtime.CommandContext,
 	if err != nil {
 		return nil, domainErrorForBuildingMutation(err)
 	}
+	if err := runtime.applyBuildingMutationDurableCommit(result); err != nil {
+		return nil, domainErrorForBuildingMutation(err)
+	}
 	return runtime.planetBuildingMutationResponse(ctx.PlayerID, planetID, result)
 }
 
@@ -201,6 +207,25 @@ func (runtime *Runtime) newPlanetBuildingMutationService(playerID foundation.Pla
 		Costs:   runtimePlanetBuildingCostProvider{playerID: playerID},
 		Wallet:  runtime.Wallet,
 	})
+}
+
+func (runtime *Runtime) applyBuildingMutationDurableCommit(result production.BuildingMutationResult) error {
+	if runtime.Production == nil || runtime.BuildingMutations == nil || result.Duplicate || len(result.OutboxRecords) == 0 {
+		return nil
+	}
+	reference, ok, err := runtime.Production.BuildingMutationReference(result.ReferenceKey)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return production.ErrInvalidBuildingMutationDurableCommit
+	}
+	plan, err := production.NewBuildingMutationDurableCommitPlan(&reference, result.OutboxRecords, result.MaterialLedger)
+	if err != nil {
+		return err
+	}
+	_, err = plan.ApplyDurableCommit(runtime.BuildingMutations)
+	return err
 }
 
 func (runtime *Runtime) validateOwnedActiveProductionPlanet(playerID foundation.PlayerID, planetID foundation.PlanetID) error {
@@ -412,7 +437,8 @@ func domainErrorForBuildingMutation(err error) error {
 		errors.Is(err, foundation.ErrEmptyIdempotencyPart),
 		errors.Is(err, foundation.ErrInvalidIdempotencyPart):
 		return invalidPayload("Planet building payload is invalid.", err)
-	case errors.Is(err, production.ErrInvalidBuildingMutationConfig):
+	case errors.Is(err, production.ErrInvalidBuildingMutationConfig),
+		errors.Is(err, production.ErrInvalidBuildingMutationDurableCommit):
 		return foundation.NewDomainError(foundation.CodeInternal, "Planet building service is unavailable.", foundation.WithCause(err))
 	default:
 		return foundation.NewDomainError(foundation.CodeInternal, "Planet building mutation failed.", foundation.WithCause(err))
