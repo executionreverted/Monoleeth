@@ -16,22 +16,25 @@ import (
 
 const (
 	runtimeE2EPlanetClaimSeedLedgerReason economy.LedgerReason = "e2e_planet_claim_seed"
+	runtimePlaytestSeedLedgerReason       economy.LedgerReason = "playtest_seed"
 	e2ePlanetClaimSeedReason                                   = "e2e_planet_claim_seed"
+	playtestSeedReason                                         = "playtest_seed"
 	e2eRouteSeedSourceStorageUnits                             = 500
 	e2eRouteSeedEnergyPerHour                                  = 80
 )
 
 func (runtime *Runtime) seedE2EPlanetClaimProof(playerID foundation.PlayerID) error {
-	if !runtime.e2ePlanetClaimSeed {
+	seedPrefix, ok := runtime.claimSeedPrefix()
+	if !ok {
 		return nil
 	}
-	if err := runtime.seedE2EPlanetClaimXCore(playerID); err != nil {
+	if err := runtime.seedE2EPlanetClaimXCore(playerID, seedPrefix); err != nil {
 		return err
 	}
-	return runtime.seedE2EPlanetClaimProgression(playerID)
+	return runtime.seedE2EPlanetClaimProgression(playerID, seedPrefix)
 }
 
-func (runtime *Runtime) seedE2EPlanetClaimXCore(playerID foundation.PlayerID) error {
+func (runtime *Runtime) seedE2EPlanetClaimXCore(playerID foundation.PlayerID, seedPrefix string) error {
 	definition, ok := runtime.itemCatalog["x_core"]
 	if !ok {
 		return fmt.Errorf("x_core definition missing")
@@ -40,7 +43,7 @@ func (runtime *Runtime) seedE2EPlanetClaimXCore(playerID foundation.PlayerID) er
 	if err != nil {
 		return err
 	}
-	referenceKey, err := foundation.AdminCompensationIdempotencyKey(playerID.String(), "e2e-planet-claim-x-core")
+	referenceKey, err := foundation.AdminCompensationIdempotencyKey(playerID.String(), seedPrefix+"-planet-claim-x-core")
 	if err != nil {
 		return err
 	}
@@ -49,13 +52,13 @@ func (runtime *Runtime) seedE2EPlanetClaimXCore(playerID foundation.PlayerID) er
 		ItemDefinition: definition,
 		Quantity:       1,
 		Location:       location,
-		Reason:         runtimeE2EPlanetClaimSeedLedgerReason,
+		Reason:         runtime.claimSeedLedgerReason(seedPrefix),
 		ReferenceKey:   referenceKey,
 	})
 	return err
 }
 
-func (runtime *Runtime) seedE2EPlanetClaimProgression(playerID foundation.PlayerID) error {
+func (runtime *Runtime) seedE2EPlanetClaimProgression(playerID foundation.PlayerID, seedPrefix string) error {
 	mainXP, err := progression.MainXPTable().RequiredXPForLevel(progression.MaxMVPLevel)
 	if err != nil {
 		return err
@@ -68,8 +71,8 @@ func (runtime *Runtime) seedE2EPlanetClaimProgression(playerID foundation.Player
 		PlayerID:       playerID,
 		Amount:         mainXP,
 		SourceType:     progression.XPSourceTypeAdminAdjustment,
-		SourceID:       progression.XPSourceID("e2e-planet-claim-progression"),
-		IdempotencyKey: progression.XPIdempotencyKey("e2e_planet_claim:progression"),
+		SourceID:       progression.XPSourceID(seedPrefix + "-planet-claim-progression"),
+		IdempotencyKey: progression.XPIdempotencyKey(seedPrefix + "_planet_claim:progression"),
 		Authority:      progression.XPGrantAuthorityAdminService,
 		RoleXP: []progression.RoleXPGrant{
 			{Role: progression.RoleTypeScout, Amount: scoutXP},
@@ -78,7 +81,7 @@ func (runtime *Runtime) seedE2EPlanetClaimProgression(playerID foundation.Player
 		return err
 	}
 
-	questSourceID := progression.XPSourceID("e2e-planet-claim-quest")
+	questSourceID := progression.XPSourceID(seedPrefix + "-planet-claim-quest")
 	if _, err := runtime.Progression.GrantXP(progression.GrantXPInput{
 		PlayerID:       playerID,
 		Amount:         1,
@@ -94,8 +97,8 @@ func (runtime *Runtime) seedE2EPlanetClaimProgression(playerID foundation.Player
 		result, err := runtime.Progression.TryRankUp(progression.TryRankUpInput{
 			PlayerID:       playerID,
 			TargetRank:     rank,
-			Reason:         e2ePlanetClaimSeedReason,
-			IdempotencyKey: progression.XPIdempotencyKey(fmt.Sprintf("e2e_planet_claim:rank:%d", rank)),
+			Reason:         runtime.claimSeedReason(seedPrefix),
+			IdempotencyKey: progression.XPIdempotencyKey(fmt.Sprintf("%s_planet_claim:rank:%d", seedPrefix, rank)),
 		})
 		if err != nil {
 			return err
@@ -116,17 +119,18 @@ func (runtime *Runtime) seedE2EPlanetClaimProgression(playerID foundation.Player
 }
 
 func (runtime *Runtime) seedE2ERouteProof(playerID foundation.PlayerID) error {
-	if !runtime.e2eRouteSeed {
+	seedPrefix, ok := runtime.routeSeedPrefix()
+	if !ok {
 		return nil
 	}
-	sourceID := e2eRoutePlanetID(playerID, "source")
-	destinationID := e2eRoutePlanetID(playerID, "destination")
+	sourceID := routeSeedPlanetID(playerID, "source", seedPrefix)
+	destinationID := routeSeedPlanetID(playerID, "destination", seedPrefix)
 	now := runtime.clock.Now().UTC()
-	sourceProductionCreated, err := runtime.seedE2EOwnedRoutePlanet(playerID, sourceID, world.Vec2{X: 2400, Y: 2600}, "source", now)
+	sourceProductionCreated, err := runtime.seedE2EOwnedRoutePlanet(playerID, sourceID, world.Vec2{X: 2400, Y: 2600}, "source", seedPrefix, now)
 	if err != nil {
 		return err
 	}
-	if _, err := runtime.seedE2EOwnedRoutePlanet(playerID, destinationID, world.Vec2{X: 3300, Y: 2850}, "destination", now); err != nil {
+	if _, err := runtime.seedE2EOwnedRoutePlanet(playerID, destinationID, world.Vec2{X: 3300, Y: 2850}, "destination", seedPrefix, now); err != nil {
 		return err
 	}
 	if !sourceProductionCreated {
@@ -150,11 +154,12 @@ func (runtime *Runtime) seedE2EOwnedRoutePlanet(
 	planetID foundation.PlanetID,
 	coordinates world.Vec2,
 	label string,
+	seedPrefix string,
 	now time.Time,
 ) (bool, error) {
 	ownerChangedAt := now
 	if _, err := runtime.Discovery.MaterializePlanet(discovery.MaterializePlanetInput{
-		CandidateKey: discovery.PlanetMaterializationKey("e2e-route-" + label + "-" + e2eRoutePlayerSuffix(playerID)),
+		CandidateKey: discovery.PlanetMaterializationKey(seedPrefix + "-route-" + label + "-" + routeSeedPlayerSuffix(playerID, seedPrefix)),
 		Planet: discovery.Planet{
 			ID:             planetID,
 			WorldID:        runtime.worldID,
@@ -182,7 +187,7 @@ func (runtime *Runtime) seedE2EOwnedRoutePlanet(
 		Confidence:      100,
 		LastSeenAt:      now,
 		SourceType:      discovery.IntelSourceAdmin,
-		SourceReference: "e2e-route-" + label,
+		SourceReference: seedPrefix + "-route-" + label,
 	}); err != nil {
 		return false, err
 	}
@@ -197,10 +202,52 @@ func (runtime *Runtime) seedE2EOwnedRoutePlanet(
 }
 
 func e2eRoutePlanetID(playerID foundation.PlayerID, label string) foundation.PlanetID {
-	return foundation.PlanetID(fmt.Sprintf("planet-e2e-route-%s-%s", label, e2eRoutePlayerSuffix(playerID)))
+	return routeSeedPlanetID(playerID, label, "e2e")
 }
 
-func e2eRoutePlayerSuffix(playerID foundation.PlayerID) string {
-	sum := sha256.Sum256([]byte("e2e-route:" + playerID.String()))
+func playtestRoutePlanetID(playerID foundation.PlayerID, label string) foundation.PlanetID {
+	return routeSeedPlanetID(playerID, label, "playtest")
+}
+
+func routeSeedPlanetID(playerID foundation.PlayerID, label string, seedPrefix string) foundation.PlanetID {
+	return foundation.PlanetID(fmt.Sprintf("planet-%s-route-%s-%s", seedPrefix, label, routeSeedPlayerSuffix(playerID, seedPrefix)))
+}
+
+func routeSeedPlayerSuffix(playerID foundation.PlayerID, seedPrefix string) string {
+	sum := sha256.Sum256([]byte(seedPrefix + "-route:" + playerID.String()))
 	return hex.EncodeToString(sum[:])[:16]
+}
+
+func (runtime *Runtime) claimSeedPrefix() (string, bool) {
+	if runtime.playtestSeed {
+		return "playtest", true
+	}
+	if runtime.e2ePlanetClaimSeed {
+		return "e2e", true
+	}
+	return "", false
+}
+
+func (runtime *Runtime) routeSeedPrefix() (string, bool) {
+	if runtime.playtestSeed {
+		return "playtest", true
+	}
+	if runtime.e2eRouteSeed {
+		return "e2e", true
+	}
+	return "", false
+}
+
+func (runtime *Runtime) claimSeedLedgerReason(seedPrefix string) economy.LedgerReason {
+	if seedPrefix == "playtest" {
+		return runtimePlaytestSeedLedgerReason
+	}
+	return runtimeE2EPlanetClaimSeedLedgerReason
+}
+
+func (runtime *Runtime) claimSeedReason(seedPrefix string) string {
+	if seedPrefix == "playtest" {
+		return playtestSeedReason
+	}
+	return e2ePlanetClaimSeedReason
 }

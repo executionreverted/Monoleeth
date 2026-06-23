@@ -50,13 +50,24 @@ http://127.0.0.1:8080
 ```
 
 The script runs `npm --prefix client run build`, sets
-`GAME_CLIENT_STATIC_DIR=client/dist`, and then starts `go run ./cmd/game-server`.
+`GAME_CLIENT_STATIC_DIR=client/dist` and `GAME_PLAYTEST_SEED=true`, then starts
+`go run ./cmd/game-server`.
 Override the bind address or static dir when needed:
 
 ```bash
 GAME_SERVER_ADDR=127.0.0.1:8081 \
 GAME_CLIENT_STATIC_DIR=/absolute/path/to/dist \
 scripts/run_playtest_server.sh
+```
+
+The playtest seed is an explicit test-server onboarding aid. It keeps the
+normal server-authoritative flow, but gives each new player one X Core, claim
+rank eligibility, and two owned route-test production planets with source
+storage so the browser loop can reach claim and route actions without admin
+setup. Disable it with:
+
+```bash
+GAME_PLAYTEST_SEED=false scripts/run_playtest_server.sh
 ```
 
 In this mode `/api`, `/ws`, and `/healthz` remain server routes. Other browser

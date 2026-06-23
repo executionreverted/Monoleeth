@@ -71,6 +71,7 @@ type RuntimeConfig struct {
 	TickDelta          time.Duration
 	WorldID            foundation.WorldID
 	ZoneID             foundation.ZoneID
+	PlaytestSeed       bool
 	DevMode            bool
 	E2EPlanetClaimSeed bool
 	E2ERouteSeed       bool
@@ -88,6 +89,7 @@ type Runtime struct {
 
 	clock              foundation.Clock
 	devMode            bool
+	playtestSeed       bool
 	e2ePlanetClaimSeed bool
 	e2eRouteSeed       bool
 
@@ -392,6 +394,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	runtime := &Runtime{
 		clock:                          clock,
 		devMode:                        config.DevMode,
+		playtestSeed:                   config.PlaytestSeed,
 		e2ePlanetClaimSeed:             config.E2EPlanetClaimSeed,
 		e2eRouteSeed:                   config.E2ERouteSeed,
 		Auth:                           authService,

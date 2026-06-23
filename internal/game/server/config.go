@@ -18,6 +18,7 @@ const (
 	EnvAllowMissingOrigin  = "GAME_ALLOW_MISSING_ORIGIN"
 	EnvCookieSecure        = "GAME_COOKIE_SECURE"
 	EnvClientStaticDir     = "GAME_CLIENT_STATIC_DIR"
+	EnvPlaytestSeed        = "GAME_PLAYTEST_SEED"
 	EnvDevMode             = "GAME_DEV_MODE"
 	EnvE2EPlanetClaimSeed  = "GAME_E2E_PLANET_CLAIM_SEED"
 	EnvE2ERouteSeed        = "GAME_E2E_ROUTE_SEED"
@@ -32,6 +33,7 @@ type Config struct {
 	AllowMissingOrigin bool
 	CookieSecure       bool
 	ClientStaticDir    string
+	PlaytestSeed       bool
 	DevMode            bool
 	E2EPlanetClaimSeed bool
 	E2ERouteSeed       bool
@@ -74,6 +76,7 @@ func ConfigFromEnv() Config {
 	config.AllowMissingOrigin = envBool(EnvAllowMissingOrigin, config.AllowMissingOrigin)
 	config.CookieSecure = envBool(EnvCookieSecure, config.CookieSecure)
 	config.ClientStaticDir = strings.TrimSpace(os.Getenv(EnvClientStaticDir))
+	config.PlaytestSeed = envBool(EnvPlaytestSeed, config.PlaytestSeed)
 	config.DevMode = envBool(EnvDevMode, config.DevMode)
 	config.E2EPlanetClaimSeed = envBool(EnvE2EPlanetClaimSeed, config.E2EPlanetClaimSeed)
 	config.E2ERouteSeed = envBool(EnvE2ERouteSeed, config.E2ERouteSeed)

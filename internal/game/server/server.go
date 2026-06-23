@@ -46,6 +46,7 @@ func New(config Config) (*Server, error) {
 		TickDelta:          config.TickDelta,
 		WorldID:            config.WorldID,
 		ZoneID:             config.ZoneID,
+		PlaytestSeed:       config.PlaytestSeed,
 		DevMode:            config.DevMode,
 		E2EPlanetClaimSeed: config.E2EPlanetClaimSeed,
 		E2ERouteSeed:       config.E2ERouteSeed,

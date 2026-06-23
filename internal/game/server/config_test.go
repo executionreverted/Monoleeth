@@ -55,6 +55,16 @@ func TestConfigFromEnvClientStaticDir(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvPlaytestSeedOptIn(t *testing.T) {
+	t.Setenv(EnvPlaytestSeed, "true")
+
+	config := ConfigFromEnv()
+
+	if !config.PlaytestSeed {
+		t.Fatal("PlaytestSeed = false, want true when env is true")
+	}
+}
+
 func TestNewRejectsE2EPlanetClaimSeedOutsideDevMode(t *testing.T) {
 	_, err := New(Config{
 		AllowedOrigins:     []string{testOrigin},

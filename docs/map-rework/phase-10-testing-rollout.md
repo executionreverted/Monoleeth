@@ -222,6 +222,14 @@ Server gateway coverage also proves that the seeded state supports authenticated
 `route.create` followed by elapsed `route.settle` storage transfer.
 Do not use or document this as a production feature flag.
 
+The single-process local playtest runner sets `GAME_PLAYTEST_SEED=true`. This
+is a test-server onboarding seed, not a production feature flag: each new player
+receives one real Inventory X Core, Progression claim eligibility, and two
+owned route-test production planets with source storage through the same
+server-owned services used by the E2E proofs. It exists so the deployed
+playtest loop can reach planet claim and route actions without manual admin
+setup.
+
 Production tuning must stay separate from dev/test seeds. Scanner rarity,
 enemy spawn density, drop rates, route risk, and PvP rewards should not inherit
 forced deterministic smoke values.
