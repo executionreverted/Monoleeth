@@ -326,6 +326,10 @@ for phase status; this file is a compact pending-work index.
   Phase07BT adds that source production-state row to route durable commit plans
   and records, and the in-memory production store applies it under the same lock
   as the durable route row; real DB row locks/CAS remain open.
+  Phase07BV adds a focused runtime proof that a committed route settlement
+  durable outbox row drains into owner-scoped realtime `route.settled`,
+  route snapshot/list, production, and storage events without leaking to another
+  active session.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10

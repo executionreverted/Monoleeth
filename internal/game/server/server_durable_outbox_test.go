@@ -185,6 +185,56 @@ func TestRuntimeDurableOutboxRealtimeProjectionQueuesSafeOwnerEvents(t *testing.
 	assertSafeProductionRealtimePayload(t, "durable storage summary event", requireEventTypeForTest(t, ownerEvents, realtime.EventPlanetStorage).Payload, owner.PlayerID)
 }
 
+func TestRuntimeDurableOutboxRealtimeProjectionQueuesRouteSettlementEvents(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+	gameServer := newRouteControlTestServer(t, clock)
+	owner := createResolvedRuntimeSession(t, gameServer, "runtime-durable-route-outbox@example.com", "Route Outbox")
+	other := createResolvedRuntimeSession(t, gameServer, "runtime-durable-route-outbox-other@example.com", "Other Pilot")
+	sourcePlanetID := foundation.PlanetID("runtime-durable-route-outbox-source")
+	destinationPlanetID := foundation.PlanetID("runtime-durable-route-outbox-destination")
+	routeID := foundation.RouteID("runtime-durable-route-outbox")
+
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, sourcePlanetID, gameServer.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-runtime-durable-route-source")
+	seedOwnedProductionPlanetForTest(t, gameServer, owner.PlayerID, destinationPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-runtime-durable-route-destination")
+	saveRouteControlStorage(t, gameServer, sourcePlanetID, []production.StoredItem{{ItemID: "refined_alloy", Quantity: 100}})
+	seedAutomationRouteForTest(t, gameServer, owner.PlayerID, routeID, sourcePlanetID, destinationPlanetID, "map_1_1", "map_1_2")
+	clock.Advance(time.Hour)
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(owner.SessionID.String()),
+		[]byte(`{"request_id":"request-runtime-durable-route-settle","op":"route.settle","payload":{"route_id":"`+routeID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("route.settle setup response error = %+v, want success", response.Error)
+	}
+	clearQueuedRuntimeEventsForTest(t, gameServer.runtime)
+
+	result, err := gameServer.runtime.DrainDurableOutboxesToRealtime(RuntimeDurableOutboxRealtimeInput{
+		Limit: 10,
+		Now:   clock.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("DrainDurableOutboxesToRealtime(route settlement) error = %v, want nil", err)
+	}
+	if len(result.Settlements) == 0 {
+		t.Fatalf("route durable realtime settlement results = %+v, want published rows", result.Settlements)
+	}
+	assertProductionPublishResultsForTest(t, "route settlement realtime", result.Settlements)
+
+	gameServer.runtime.mu.Lock()
+	eventsBySession := gameServer.runtime.drainQueuedEventsBySessionLocked()
+	gameServer.runtime.mu.Unlock()
+	ownerEvents := eventsBySession[owner.SessionID]
+	if len(ownerEvents) == 0 {
+		t.Fatalf("route durable realtime owner events = 0, want route settlement projection")
+	}
+	if events := eventsBySession[other.SessionID]; len(events) != 0 {
+		t.Fatalf("route durable realtime leaked to other session: %+v", events)
+	}
+	assertRouteSettleEvents(t, ownerEvents, routeID, sourcePlanetID, "1-1", "1-2", owner.PlayerID, 60, 1)
+	assertProductionDurableOutboxStatusForTest(t, "route settlement realtime", gameServer.runtime.Settlements.OutboxRecords(), production.ProductionOutboxStatusPublished)
+}
+
 func TestRuntimeDurableOutboxRealtimeProjectionNoActiveSessionPublishesNoOp(t *testing.T) {
 	gameServer, owner := newRuntimeDurableOutboxTestServer(t)
 	clearQueuedRuntimeEventsForTest(t, gameServer.runtime)

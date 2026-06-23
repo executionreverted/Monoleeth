@@ -435,6 +435,12 @@ Current slice completed:
   durable route record together. This closes the process-local stale
   `CurrentRouteCount` race class; real DB row locks/CAS and durable
   idempotency-table enforcement remain future adapter work.
+- Phase07BV route settlement durable realtime follow-up:
+  Route settlement durable outbox rows now have a focused runtime projection
+  proof. The test settles a real owned route, clears command-queued events, then
+  drains the durable settlement outbox into realtime and verifies owner-scoped
+  `route.settled`, route snapshot/list, production, and storage events without
+  leaking to another active session.
 - Phase07AO production settlement transaction-boundary follow-up:
   `ApplyProductionSettlementTransaction` now gives offline planet production
   settlement the matching DB-adapter-ready contract: planet validation,
@@ -995,6 +1001,8 @@ Mockup areas covered:
       server-derived route settlement idempotency reference.
 - [x] Route settlement durable commit bundles include the committed route-row
       snapshot with settlement reference, outbox, and route ledger rows.
+- [x] Route settlement durable outbox realtime projection publishes owner-scoped
+      route settled/snapshot/list plus production/storage reconciliation events.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.
