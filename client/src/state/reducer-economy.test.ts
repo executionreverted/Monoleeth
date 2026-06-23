@@ -289,6 +289,51 @@ describe('reduceClientState', () => {
     expect(state.inventory?.stackable.map((item) => item.list_eligible)).toEqual([true, false, undefined]);
   });
 
+  test('inventory snapshot clears consumed coordinate scroll pending only from authoritative instance lists', () => {
+    const pending = {
+      ...createInitialState(),
+      pendingCommands: {
+        'coordinate-use-1': {
+          requestID: 'coordinate-use-1',
+          op: OPERATIONS.intelCoordinateItemUse,
+          queuedAt: 1,
+          payload: { item_instance_id: 'coord-scroll-1' },
+        },
+      },
+      inventory: {
+        stackable: [],
+        instances: [
+          {
+            item_instance_id: 'coord-scroll-1',
+            item_id: 'planet_coordinate_scroll',
+            display_name: 'Planet Coordinate Scroll',
+            location: 'account_inventory',
+          },
+        ],
+        counts: { cargo_stacks: 0, storage_stacks: 0, equipped_instances: 0 },
+      },
+    };
+
+    const partial = reduceClientState(pending, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.inventorySnapshot, {
+        stackable: [],
+        counts: { cargo_stacks: 0, storage_stacks: 0, equipped_instances: 0 },
+      }),
+    });
+    expect(partial.pendingCommands['coordinate-use-1']).toMatchObject({ op: OPERATIONS.intelCoordinateItemUse });
+
+    const consumed = reduceClientState(pending, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.inventorySnapshot, {
+        stackable: [],
+        instances: [],
+        counts: { cargo_stacks: 0, storage_stacks: 0, equipped_instances: 0 },
+      }, 2),
+    });
+    expect(consumed.pendingCommands['coordinate-use-1']).toBeUndefined();
+  });
+
   test('shop catalog response stores server-owned categories and products', () => {
     const state = reduceClientState(createInitialState(), {
       type: 'responseReceived',

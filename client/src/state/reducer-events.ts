@@ -232,13 +232,16 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
 
-    case CLIENT_EVENTS.inventorySnapshot:
+    case CLIENT_EVENTS.inventorySnapshot: {
+      const inventory = parseInventorySummary(envelope.payload, state.inventory);
+      const nextState = withoutPendingCoordinateItemUse(state, inventory, Array.isArray(envelope.payload.instances));
       return {
-        ...state,
-        inventory: parseInventorySummary(envelope.payload, state.inventory),
+        ...nextState,
+        inventory,
         lastServerTime: envelope.server_time,
-        lastSequence: Math.max(state.lastSequence, envelope.seq),
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
       };
+    }
 
     case CLIENT_EVENTS.hangarSnapshot:
       return {
@@ -792,6 +795,32 @@ function withoutPendingPlanetClaim(state: ClientState, payload: EventEnvelope['p
   let changed = false;
   for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
     if (pending.op === OPERATIONS.discoveryClaimPlanet && pending.payload?.planet_id === planetID) {
+      changed = true;
+      continue;
+    }
+    pendingCommands[requestID] = pending;
+  }
+  return changed ? { ...state, pendingCommands } : state;
+}
+
+function withoutPendingCoordinateItemUse(
+  state: ClientState,
+  inventory: NonNullable<ClientState['inventory']>,
+  hasAuthoritativeInstances: boolean,
+): ClientState {
+  if (!hasAuthoritativeInstances) {
+    return state;
+  }
+  const itemInstanceIDs = new Set(inventory.instances.map((item) => item.item_instance_id));
+  const pendingCommands: ClientState['pendingCommands'] = {};
+  let changed = false;
+  for (const [requestID, pending] of Object.entries(state.pendingCommands)) {
+    const itemInstanceID = stringField(pending.payload ?? {}, 'item_instance_id');
+    if (
+      pending.op === OPERATIONS.intelCoordinateItemUse &&
+      itemInstanceID &&
+      !itemInstanceIDs.has(itemInstanceID)
+    ) {
       changed = true;
       continue;
     }
