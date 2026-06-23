@@ -20,6 +20,14 @@ Build and scan the candidate artifact first:
 scripts/ci_playtest_artifact_gate.sh
 ```
 
+The same gate is installed for hosted CI at:
+
+```text
+.github/workflows/playtest-artifact-gate.yml
+```
+
+It runs on pull requests, pushes to `master`, and manual dispatch.
+
 To create a self-contained release directory with the built client, Go server
 binary, manifest, README, and guarded `run.sh`, use:
 
@@ -194,6 +202,8 @@ by restarting the process and tell testers the shard was reset.
 Before sharing the test link:
 
 - `scripts/ci_playtest_artifact_gate.sh` passes.
+- The hosted `Playtest Artifact Gate` workflow has passed for the deployed
+  commit, or the missing hosted run is recorded in the playtest status report.
 - `scripts/test_playtest_publish_dir_guard.sh` passes.
 - `scripts/test_playtest_release_package.sh` passes if using a packaged
   server+client release directory.

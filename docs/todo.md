@@ -619,16 +619,17 @@ for phase status; this file is a compact pending-work index.
   stage `client/dist` into a published artifact directory and scan that copy.
   `scripts/ci_playtest_artifact_gate.sh` now wraps dependency installation, an
   extra-root bundle-scan regression, a temporary staged publish root, and that
-  build-only gate for hosted CI/deploy jobs. A ready GitHub Actions workflow
-  template lives at `docs/ci/playtest-artifact-gate-github-actions.yml`; it
-  runs the same gate on pull requests, pushes to `master`, and manual dispatch,
-  but activating it under `.github/workflows/` requires a credential with
-  GitHub `workflow` scope. `client/tests/bundle-scan-extra-root-regression.mjs`
+  build-only gate for hosted CI/deploy jobs. The GitHub Actions workflow is
+  active at `.github/workflows/playtest-artifact-gate.yml` and uses the template
+  in `docs/ci/playtest-artifact-gate-github-actions.yml`; it runs the same gate
+  on pull requests, pushes to `master`, and manual dispatch. The first hosted
+  run URL/status still needs to be recorded.
+  `client/tests/bundle-scan-extra-root-regression.mjs`
   proves clean extra roots pass while both positional and
   `GAME_ARTIFACT_SCAN_ROOTS` roots fail on forbidden fixture/server-only
   tokens. Production logs/admin responses outside that path, non-Phase09 paths
-  beyond the playtest asset screenshot, and installing the hosted workflow or
-  an external deploy job remain open.
+  beyond the playtest asset screenshot, and external deploy-job integration
+  remain open.
   Source:
   `docs/map-rework/phase-10-testing-rollout.md`.
 - [x] Clean up active legacy semantic contradictions in the scoped

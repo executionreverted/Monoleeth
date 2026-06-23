@@ -91,14 +91,20 @@ Read the private test-server operations runbook:
 docs/test-server-operations.md
 ```
 
-A ready GitHub Actions workflow template exists at:
+A hosted GitHub Actions artifact gate is active at:
+
+```text
+.github/workflows/playtest-artifact-gate.yml
+```
+
+It runs the same artifact gate on pull requests, pushes to `master`, and manual
+dispatch.
+
+The workflow template source remains at:
 
 ```text
 docs/ci/playtest-artifact-gate-github-actions.yml
 ```
-
-Activating it under `.github/workflows/` requires a GitHub credential with
-`workflow` scope.
 
 ## Evidence
 
@@ -113,6 +119,7 @@ npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:phase10-scan-no-s
 scripts/ci_playtest_artifact_gate.sh
 scripts/test_playtest_release_package.sh
 npm --cache /tmp/gameproject-npm-cache --prefix client run test:bundle-scan-extra-root
+diff -u docs/ci/playtest-artifact-gate-github-actions.yml .github/workflows/playtest-artifact-gate.yml
 ```
 
 Full local vertical-slice gate:
@@ -168,8 +175,8 @@ client/src/assets/entities/
 
 ## Remaining Work Before A Public Test Server
 
-1. Activate the hosted artifact workflow or wire the same
-   `scripts/ci_playtest_artifact_gate.sh` into the external deploy pipeline.
+1. Confirm the first hosted GitHub Actions run for
+   `.github/workflows/playtest-artifact-gate.yml` and record the run URL/status.
    The repo now also has `scripts/package_playtest_release.sh` for producing a
    host-copyable server+client release directory with a manifest and run script.
 2. Run `scripts/verify_playtest_vertical_slice.sh` again after the next
