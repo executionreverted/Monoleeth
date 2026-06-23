@@ -32,9 +32,10 @@ export function dispatchPlanetRouteButtonAction(
       );
       return true;
     }
+    case 'coordinate-item-create':
     case 'intel-coordinate-create':
       if (button.dataset.planetId) {
-        handlers.onIntelCoordinateItemCreate(button.dataset.planetId);
+        handlers.onCoordinateItemCreate(button.dataset.planetId);
       }
       return true;
     case 'planet-building-build': {

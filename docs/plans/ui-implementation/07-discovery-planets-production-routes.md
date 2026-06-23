@@ -263,7 +263,9 @@ Current slice completed:
   owned `planet_coordinate_scroll` instances, and Use sends only
   `item_instance_id` for `intel.coordinate_item.use`. Matching pending commands
   disable controls, and no coordinate/source/confidence truth is authored by
-  the client.
+  the client. Phase07CX also aligns the split HUD action helpers with the
+  rendered `coordinate-item-create`/`coordinate-item-use` action names so the
+  future HUD split keeps dispatching the same server-owned intents.
 - Phase07CW browser intel share follow-up: planet catalog/detail panels now
   expose `intel.share` through a recipient player-id input and Share control.
   The browser sends only `planet_id` and `to_player_id`, locks matching pending

@@ -22,6 +22,20 @@ describe('planet route HUD action dispatch', () => {
     expect(handlers.onIntelShareToEntity).toHaveBeenCalledTimes(1);
   });
 
+  test('dispatches rendered coordinate item create with only planet id', () => {
+    const handlers = testHandlers();
+    const button = {
+      dataset: { action: 'coordinate-item-create', planetId: 'planet-eris' },
+    } as unknown as HTMLButtonElement;
+
+    const handled = dispatchPlanetRouteButtonAction(button, handlers, () => {});
+
+    expect(handled).toBe(true);
+    expect(handlers.onCoordinateItemCreate).toHaveBeenCalledWith('planet-eris');
+    expect(handlers.onCoordinateItemCreate).toHaveBeenCalledTimes(1);
+    expect(handlers.onIntelCoordinateItemCreate).not.toHaveBeenCalled();
+  });
+
   test('dispatches storage route create with typed endpoint intent only', () => {
     const handlers = testHandlers();
     const control = routeControl({

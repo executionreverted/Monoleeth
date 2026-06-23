@@ -5,15 +5,16 @@ import { dispatchInventoryButtonAction } from './hud-inventory-actions';
 import type { HUDHandlers } from './hud-types';
 
 describe('inventory and crafting HUD action dispatch', () => {
-  test('dispatches coordinate item use with only the item instance id', () => {
+  test('dispatches rendered coordinate item use with only the item instance id', () => {
     const handlers = testHandlers();
-    const button = testButton('intel-coordinate-use', { itemInstanceId: 'coord-scroll-1' });
+    const button = testButton('coordinate-item-use', { itemInstanceId: 'coord-scroll-1' });
 
     const handled = dispatchInventoryButtonAction(button, handlers, () => {});
 
     expect(handled).toBe(true);
-    expect(handlers.onIntelCoordinateItemUse).toHaveBeenCalledWith('coord-scroll-1');
-    expect(handlers.onIntelCoordinateItemUse).toHaveBeenCalledTimes(1);
+    expect(handlers.onCoordinateItemUse).toHaveBeenCalledWith('coord-scroll-1');
+    expect(handlers.onCoordinateItemUse).toHaveBeenCalledTimes(1);
+    expect(handlers.onIntelCoordinateItemUse).not.toHaveBeenCalled();
   });
 
   test('dispatches crafting controls through the existing helper', () => {

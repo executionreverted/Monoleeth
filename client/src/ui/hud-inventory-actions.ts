@@ -37,9 +37,10 @@ export function dispatchInventoryButtonAction(
         renderCurrentState();
       }
       return true;
+    case 'coordinate-item-use':
     case 'intel-coordinate-use':
       if (button.dataset.itemInstanceId) {
-        handlers.onIntelCoordinateItemUse(button.dataset.itemInstanceId);
+        handlers.onCoordinateItemUse(button.dataset.itemInstanceId);
       }
       return true;
     default:
