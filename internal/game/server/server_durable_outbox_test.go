@@ -142,6 +142,76 @@ func TestRuntimeDurableOutboxRecordsPublishFailures(t *testing.T) {
 	}
 }
 
+func TestRuntimeDurableOutboxRealtimeProjectionQueuesSafeOwnerEvents(t *testing.T) {
+	gameServer, owner := newRuntimeDurableOutboxTestServer(t)
+	other := createResolvedRuntimeSession(t, gameServer, "runtime-durable-outbox-other@example.com", "Other Pilot")
+	clearQueuedRuntimeEventsForTest(t, gameServer.runtime)
+
+	result, err := gameServer.runtime.DrainDurableOutboxesToRealtime(RuntimeDurableOutboxRealtimeInput{
+		Limit: 10,
+		Now:   durableOutboxTestTime(121),
+	})
+	if err != nil {
+		t.Fatalf("DrainDurableOutboxesToRealtime() error = %v, want nil", err)
+	}
+	if len(result.Claims) != 1 || len(result.Settlements) == 0 || len(result.BuildingMutations) != 2 {
+		t.Fatalf("realtime durable drain result = %+v, want claim, settlement, and building rows", result)
+	}
+	assertProductionPublishResultsForTest(t, "settlement realtime", result.Settlements)
+	assertProductionPublishResultsForTest(t, "building realtime", result.BuildingMutations)
+	for _, publish := range result.Claims {
+		if !publish.Published || publish.Record.Status != discovery.ClaimOutboxStatusPublished {
+			t.Fatalf("claim realtime publish result = %+v, want published", publish)
+		}
+	}
+
+	gameServer.runtime.mu.Lock()
+	eventsBySession := gameServer.runtime.drainQueuedEventsBySessionLocked()
+	gameServer.runtime.mu.Unlock()
+	ownerEvents := eventsBySession[owner.SessionID]
+	if len(ownerEvents) == 0 {
+		t.Fatalf("owner realtime events = 0, want durable projection events")
+	}
+	if events := eventsBySession[other.SessionID]; len(events) != 0 {
+		t.Fatalf("other realtime events = %+v, want none", events)
+	}
+
+	assertClaimedEventSafeForTest(t, requireEventTypeForTest(t, ownerEvents, realtime.EventPlanetClaimed), owner.PlayerID)
+	requireEventTypeForTest(t, ownerEvents, realtime.EventKnownPlanets)
+	requireEventTypeForTest(t, ownerEvents, realtime.EventPlanetDetail)
+	requireEventTypeForTest(t, ownerEvents, realtime.EventInventorySnapshot)
+	requireEventTypeForTest(t, ownerEvents, realtime.EventWalletSnapshot)
+	assertSafeProductionRealtimePayload(t, "durable production summary event", requireEventTypeForTest(t, ownerEvents, realtime.EventProductionSummary).Payload, owner.PlayerID)
+	assertSafeProductionRealtimePayload(t, "durable storage summary event", requireEventTypeForTest(t, ownerEvents, realtime.EventPlanetStorage).Payload, owner.PlayerID)
+}
+
+func TestRuntimeDurableOutboxRealtimeProjectionNoActiveSessionPublishesNoOp(t *testing.T) {
+	gameServer, owner := newRuntimeDurableOutboxTestServer(t)
+	clearQueuedRuntimeEventsForTest(t, gameServer.runtime)
+	gameServer.runtime.mu.Lock()
+	delete(gameServer.runtime.sessions, owner.SessionID)
+	delete(gameServer.runtime.sessionLocations, owner.SessionID)
+	delete(gameServer.runtime.sessionEpochs, owner.SessionID)
+	gameServer.runtime.mu.Unlock()
+
+	result, err := gameServer.runtime.DrainDurableOutboxesToRealtime(RuntimeDurableOutboxRealtimeInput{
+		Limit: 10,
+		Now:   durableOutboxTestTime(122),
+	})
+	if err != nil {
+		t.Fatalf("DrainDurableOutboxesToRealtime(no active session) error = %v, want nil", err)
+	}
+	if len(result.Claims) != 1 || len(result.Settlements) == 0 || len(result.BuildingMutations) != 2 {
+		t.Fatalf("no-session realtime durable drain result = %+v, want published rows", result)
+	}
+	gameServer.runtime.mu.Lock()
+	queuedEvents := len(gameServer.runtime.queuedEvents)
+	gameServer.runtime.mu.Unlock()
+	if queuedEvents != 0 {
+		t.Fatalf("queued realtime events = %d, want none for no active session", queuedEvents)
+	}
+}
+
 func newRuntimeDurableOutboxTestServer(t *testing.T) (*Server, auth.ResolvedSession) {
 	t.Helper()
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
@@ -174,6 +244,14 @@ func newRuntimeDurableOutboxTestServer(t *testing.T) (*Server, auth.ResolvedSess
 		t.Fatalf("building setup response error = %+v, want success", response.Error)
 	}
 	return gameServer, owner
+}
+
+func clearQueuedRuntimeEventsForTest(t *testing.T, runtime *Runtime) {
+	t.Helper()
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	runtime.queuedEvents = make(map[auth.SessionID][]realtime.EventEnvelope)
 }
 
 func assertProductionPublishResultsForTest(t *testing.T, label string, results []production.ProductionOutboxPublishResult) {

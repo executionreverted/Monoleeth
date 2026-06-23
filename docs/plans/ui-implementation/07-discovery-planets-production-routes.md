@@ -553,8 +553,19 @@ Current slice completed:
   durable outbox rows. It optionally releases expired leases first, then drains
   each durable store through the existing claim/production publisher contracts
   with per-store limits and caller-provided publish callbacks. Real durable DB
-  rows, cross-process row locks/CAS, scheduled workers, and client-safe
-  projection callbacks remain open.
+  rows, cross-process row locks/CAS, and scheduled workers remain open;
+  client-safe projection wiring is covered by Phase07BL.
+- Phase07BL runtime durable realtime projection follow-up:
+  `Runtime.DrainDurableOutboxesToRealtime` now wires committed claim,
+  settlement, route, and building outbox rows into existing server-owned
+  client-safe realtime projections instead of forwarding raw durable payloads.
+  Runtime ticks with an event sink release expired leases, drain durable rows,
+  queue owner-scoped safe snapshots, and flush those queued events through the
+  sink in the same tick. Offline/no-active-session owners are treated as a
+  safe no-op publish because reconnect snapshots reconcile current state.
+  Real durable DB rows, cross-process row locks/CAS, external publisher
+  workers, durable delivery acknowledgements, and scheduled worker ownership
+  remain open.
 
 ## Source Specs
 
@@ -905,6 +916,9 @@ Mockup areas covered:
 - [x] Runtime durable outbox drain publishes and lease-releases committed
       claim, settlement, and building rows through server-owned callbacks
       without reading from process-local non-durable outbox queues.
+- [x] Runtime durable outbox realtime projection recomputes client-safe
+      claim, production/storage, route, inventory, and wallet snapshots from
+      server-owned read models and flushes queued owner events on tick.
 - [ ] Durable route settlement is enforced by DB/idempotency rows and published
       through the durable outbox.
 - [x] Route list/snapshot restores route read model after reconnect.

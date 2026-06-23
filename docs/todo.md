@@ -131,6 +131,10 @@ for phase status; this file is a compact pending-work index.
   `planet.claimed` rows with claim-token guards. Phase07BK adds a runtime
   durable outbox drain handoff that can release stale leases and publish
   committed claim lifecycle rows through caller-provided server callbacks.
+  Phase07BL adds runtime-owned realtime projection callbacks that recompute
+  client-safe claim, known-planets, detail, production/storage, route, and
+  inventory snapshots from committed durable rows and flush queued owner events
+  during runtime ticks with an event sink.
   Durable DB rows, cross-process leases, scheduled publisher workers, and
   cross-process enforcement remain open.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
@@ -484,7 +488,8 @@ for phase status; this file is a compact pending-work index.
   scheduling. Phase07BI adds claim lifecycle-store publisher and lease-reaper
   contract support for committed `planet.claimed` outbox rows. Phase07BK adds a
   runtime durable outbox drain handoff for committed claim, settlement, and
-  building mutation rows.
+  building mutation rows. Phase07BL wires those committed rows to server-owned
+  client-safe realtime projections without exposing raw durable payloads.
   Durable claim, production, route settlement, and building mutation tables
   plus publisher scheduling remain open.
   Those records are still not durable, cross-process, or delivered by a durable
