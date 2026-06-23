@@ -154,6 +154,94 @@ func TestSettlementDurableCommitStoreReturnsDetachedRows(t *testing.T) {
 	}
 }
 
+func TestSettlementDurableCommitStoreReadsCommittedPlanByReference(t *testing.T) {
+	plan := routeDurableCommitPlanForStoreTest(t)
+	store := NewInMemorySettlementDurableCommitStore()
+	if _, err := store.ApplySettlementDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplySettlementDurableCommitPlan() error = %v, want nil", err)
+	}
+
+	recovered, ok, err := store.CommittedSettlementDurableCommitPlan(plan.Reference.ReferenceKey)
+	if err != nil || !ok {
+		t.Fatalf("CommittedSettlementDurableCommitPlan() = ok %v err %v, want true nil", ok, err)
+	}
+	if recovered.Reference.ReferenceKey != plan.Reference.ReferenceKey ||
+		len(recovered.Outbox.OutboxRecords) != len(plan.Outbox.OutboxRecords) ||
+		len(recovered.RouteStorageLedger) != len(plan.RouteStorageLedger) {
+		t.Fatalf("recovered durable plan = %+v, want committed plan %+v", recovered, plan)
+	}
+
+	recovered.Reference.RouteID = "route-mutated"
+	recovered.Outbox.OutboxRecords[0].OutboxID = "outbox-mutated"
+	recovered.RouteStorageLedger[0].LedgerID = "ledger-mutated"
+	again, ok, err := store.CommittedSettlementDurableCommitPlan(plan.Reference.ReferenceKey)
+	if err != nil || !ok {
+		t.Fatalf("CommittedSettlementDurableCommitPlan(second) = ok %v err %v, want true nil", ok, err)
+	}
+	if again.Reference.RouteID == "route-mutated" ||
+		again.Outbox.OutboxRecords[0].OutboxID == "outbox-mutated" ||
+		again.RouteStorageLedger[0].LedgerID == "ledger-mutated" {
+		t.Fatalf("recovered durable plan reused mutable rows: %+v", again)
+	}
+}
+
+func TestSettlementDurableCommitStoreReadsCommittedDispatchPlanByReference(t *testing.T) {
+	cases := []struct {
+		name      string
+		plan      SettlementDurableCommitPlan
+		eventType string
+	}{
+		{
+			name:      "production",
+			plan:      productionDurableCommitPlanForStoreTest(t),
+			eventType: EventPlanetProductionSettled,
+		},
+		{
+			name:      "route",
+			plan:      routeDurableCommitPlanForStoreTest(t),
+			eventType: EventRouteTransferSettled,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewInMemorySettlementDurableCommitStore()
+			if _, err := store.ApplySettlementDurableCommitPlan(tc.plan); err != nil {
+				t.Fatalf("ApplySettlementDurableCommitPlan() error = %v, want nil", err)
+			}
+
+			dispatch, ok, err := store.CommittedSettlementOutboxDispatchPlan(tc.plan.Reference.ReferenceKey)
+			if err != nil || !ok {
+				t.Fatalf("CommittedSettlementOutboxDispatchPlan() = ok %v err %v, want true nil", ok, err)
+			}
+			if dispatch.Reference.ReferenceKey != tc.plan.Reference.ReferenceKey ||
+				dispatch.Reference.SettlementWindow != tc.plan.Reference.SettlementWindow ||
+				len(dispatch.OutboxRecords) != len(tc.plan.Outbox.OutboxRecords) {
+				t.Fatalf("dispatch plan = %+v, want committed outbox dispatch for %+v", dispatch, tc.plan.Reference)
+			}
+			assertOutboxRecordEvidence(t, dispatch.OutboxRecords, tc.eventType, tc.plan.Reference.ReferenceKey, tc.plan.Reference.SettlementWindow)
+		})
+	}
+}
+
+func TestSettlementDurableCommitStoreReadbackMissingAndInvalidReferences(t *testing.T) {
+	plan := routeDurableCommitPlanForStoreTest(t)
+	store := NewInMemorySettlementDurableCommitStore()
+
+	if recovered, ok, err := store.CommittedSettlementDurableCommitPlan(plan.Reference.ReferenceKey); err != nil || ok || !recovered.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedSettlementDurableCommitPlan(missing) = %+v/%v/%v, want empty false nil", recovered, ok, err)
+	}
+	if dispatch, ok, err := store.CommittedSettlementOutboxDispatchPlan(plan.Reference.ReferenceKey); err != nil || ok || !dispatch.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedSettlementOutboxDispatchPlan(missing) = %+v/%v/%v, want empty false nil", dispatch, ok, err)
+	}
+
+	if recovered, ok, err := store.CommittedSettlementDurableCommitPlan(""); err == nil || ok || !recovered.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedSettlementDurableCommitPlan(invalid) = %+v/%v/%v, want error false empty", recovered, ok, err)
+	}
+	if dispatch, ok, err := store.CommittedSettlementOutboxDispatchPlan(""); err == nil || ok || !dispatch.Reference.ReferenceKey.IsZero() {
+		t.Fatalf("CommittedSettlementOutboxDispatchPlan(invalid) = %+v/%v/%v, want error false empty", dispatch, ok, err)
+	}
+}
+
 func TestProductionSettlementTransactionResultApplyDurableCommit(t *testing.T) {
 	transactionStore := newSettlementStore(t, "planet-durable-apply-production", testTime(0), 100, 10)
 	addSettlementBuilding(t, transactionStore, "planet-durable-apply-production", "building-durable-apply", ProductionDefinitionIDIronExtractorL1, BuildingStateActive)

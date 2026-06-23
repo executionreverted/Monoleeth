@@ -625,6 +625,8 @@ Mockup areas covered:
       ledger rows with idempotent exact replay and conflict rejection.
 - [x] Add production/route settlement transaction-result helpers that hand
       validated durable commit plans to the durable commit-store adapter.
+- [x] Add durable settlement commit readback helpers that recover committed
+      durable commit and outbox dispatch plans by settlement reference key.
 - [x] Add process-local store-owned settlement reference records and pending
       outbox records for production and route settlements.
 - [x] Add process-local production outbox claim/publish/fail/retry delivery

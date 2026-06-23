@@ -15,6 +15,14 @@ type SettlementDurableCommitStore interface {
 	ApplySettlementDurableCommitPlan(SettlementDurableCommitPlan) (SettlementDurableCommitResult, error)
 }
 
+// SettlementDurableCommitReader is the recovery/readback side of the durable
+// settlement commit adapter. DB-backed workers should use this shape to rebuild
+// validated commit and dispatch plans from committed rows after a restart.
+type SettlementDurableCommitReader interface {
+	CommittedSettlementDurableCommitPlan(foundation.IdempotencyKey) (SettlementDurableCommitPlan, bool, error)
+	CommittedSettlementOutboxDispatchPlan(foundation.IdempotencyKey) (SettlementOutboxDispatchPlan, bool, error)
+}
+
 // SettlementDurableCommitResult reports the rows accepted by the durable
 // settlement commit boundary. Duplicate exact replays return the original rows
 // with Duplicate set instead of appending new rows.
@@ -135,6 +143,47 @@ func (store *InMemorySettlementDurableCommitStore) RouteStorageLedgerEntries() [
 		rows = append(rows, store.plans[key].RouteStorageLedger...)
 	}
 	return cloneRouteStorageLedgerEntries(rows)
+}
+
+// CommittedSettlementDurableCommitPlan returns the validated committed row
+// bundle for one settlement reference.
+func (store *InMemorySettlementDurableCommitStore) CommittedSettlementDurableCommitPlan(
+	referenceKey foundation.IdempotencyKey,
+) (SettlementDurableCommitPlan, bool, error) {
+	if store == nil {
+		return SettlementDurableCommitPlan{}, false, ErrInvalidSettlementDurableCommit
+	}
+	if err := referenceKey.Validate(); err != nil {
+		return SettlementDurableCommitPlan{}, false, err
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	plan, ok := store.plans[referenceKey]
+	if !ok {
+		return SettlementDurableCommitPlan{}, false, nil
+	}
+	cloned := cloneSettlementDurableCommitPlan(plan)
+	if _, err := NewSettlementDurableCommitPlan(&cloned.Reference, cloned.Outbox.OutboxRecords, cloned.RouteStorageLedger); err != nil {
+		return SettlementDurableCommitPlan{}, false, err
+	}
+	return cloned, true, nil
+}
+
+// CommittedSettlementOutboxDispatchPlan returns the validated publisher
+// dispatch handoff for one committed settlement reference.
+func (store *InMemorySettlementDurableCommitStore) CommittedSettlementOutboxDispatchPlan(
+	referenceKey foundation.IdempotencyKey,
+) (SettlementOutboxDispatchPlan, bool, error) {
+	plan, ok, err := store.CommittedSettlementDurableCommitPlan(referenceKey)
+	if err != nil || !ok {
+		return SettlementOutboxDispatchPlan{}, ok, err
+	}
+	dispatch, err := NewSettlementOutboxDispatchPlan(&plan.Reference, plan.Outbox.OutboxRecords)
+	if err != nil {
+		return SettlementOutboxDispatchPlan{}, false, err
+	}
+	return dispatch, true, nil
 }
 
 func (store *InMemorySettlementDurableCommitStore) ensureMapsLocked() {
