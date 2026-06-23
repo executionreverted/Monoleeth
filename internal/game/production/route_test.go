@@ -428,6 +428,39 @@ func TestCreateRouteDuplicateRouteIDFailsWithoutOverwrite(t *testing.T) {
 	}
 }
 
+func TestCreateRouteDuplicateReferenceReplaysCommittedRouteWithoutNewReservation(t *testing.T) {
+	store := NewInMemoryStore()
+	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
+	now := testRouteNow()
+	service := newTestRouteService(t, store, provider, now)
+	input := validCreateRouteInput()
+
+	first, err := service.CreateRoute(input)
+	if err != nil {
+		t.Fatalf("CreateRoute(first) error = %v, want nil", err)
+	}
+	provider.policy.SourcePlanetOwned = false
+	provider.policy.MaxRouteCount = 1
+	provider.policy.CurrentRouteCount = 1
+	replayService := newTestRouteService(t, store, provider, now.Add(5*time.Minute))
+	replay, err := replayService.CreateRoute(input)
+	if err != nil {
+		t.Fatalf("CreateRoute(replay) error = %v, want nil", err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("policy calls after replay = %d, want unchanged 1", provider.calls)
+	}
+	if !first.Created || replay.Created {
+		t.Fatalf("Created flags first=%v replay=%v, want true/false", first.Created, replay.Created)
+	}
+	if replay.Route != first.Route {
+		t.Fatalf("replayed route = %+v, want first %+v", replay.Route, first.Route)
+	}
+	assertRouteEnergyReserved(t, store, input.SourcePlanetID, first.Route.EnergyCostPerHour)
+	assertRouteDurableRecord(t, store, input.RouteID, foundation.IdempotencyKey("route_create:player-1:route-1"), 1, first.Route)
+	assertRouteDurableRecordSourceEnergy(t, store, input.RouteID, input.SourcePlanetID, first.Route.EnergyCostPerHour)
+}
+
 func TestCreateRouteRechecksCapacityInsideTransaction(t *testing.T) {
 	now := testRouteNow()
 	store := NewInMemoryStore()

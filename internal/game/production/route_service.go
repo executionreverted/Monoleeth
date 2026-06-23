@@ -67,6 +67,12 @@ func (service *AutomationRouteService) CreateRoute(input CreateRouteInput) (Crea
 	if err := input.Validate(); err != nil {
 		return CreateRouteResult{}, err
 	}
+	if replay, ok, err := service.committedRouteCreateReplay(input); err != nil || ok {
+		if err != nil {
+			return CreateRouteResult{}, err
+		}
+		return CreateRouteResult{Route: replay, Created: false}, nil
+	}
 	policyInput := RouteCreatePolicyInput{
 		OwnerPlayerID:  input.OwnerPlayerID,
 		SourcePlanetID: input.SourcePlanetID,
@@ -96,6 +102,44 @@ func (service *AutomationRouteService) CreateRoute(input CreateRouteInput) (Crea
 		Route:   cloneAutomationRoute(stored.Route),
 		Created: stored.Created,
 	}, nil
+}
+
+func (service *AutomationRouteService) committedRouteCreateReplay(input CreateRouteInput) (AutomationRoute, bool, error) {
+	referenceKey, err := foundation.RouteCreateIdempotencyKey(input.OwnerPlayerID, input.RouteID)
+	if err != nil {
+		return AutomationRoute{}, false, err
+	}
+	reader := service.routeCreateReplayReader()
+	if reader == nil {
+		return AutomationRoute{}, false, nil
+	}
+	record, ok, err := reader.CommittedAutomationRouteDurableRecordByReference(referenceKey)
+	if err != nil || !ok {
+		return AutomationRoute{}, ok, err
+	}
+	if !routeCreateInputMatchesCommittedRoute(input, record.Route) {
+		return AutomationRoute{}, false, nil
+	}
+	return cloneAutomationRoute(record.Route), true, nil
+}
+
+func (service *AutomationRouteService) routeCreateReplayReader() AutomationRouteDurableReader {
+	if reader, ok := service.createTransaction.(AutomationRouteDurableReader); ok {
+		return reader
+	}
+	if service.store != nil {
+		return service.store
+	}
+	return nil
+}
+
+func routeCreateInputMatchesCommittedRoute(input CreateRouteInput, route AutomationRoute) bool {
+	return input.RouteID == route.RouteID &&
+		input.OwnerPlayerID == route.OwnerPlayerID &&
+		input.SourcePlanetID == route.SourcePlanetID &&
+		input.Destination == route.Destination &&
+		input.ResourceItemID == route.ResourceItemID &&
+		input.AmountPerHour == route.AmountPerHour
 }
 
 // SettleRoute settles one route using server-owned time and deterministic

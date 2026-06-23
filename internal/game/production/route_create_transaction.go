@@ -46,15 +46,28 @@ func (store *InMemoryStore) ApplyRouteCreateTransaction(
 	defer store.mu.Unlock()
 	store.ensureMapsLocked()
 
+	referenceKey, err := foundation.RouteCreateIdempotencyKey(input.Route.OwnerPlayerID, input.Route.RouteID)
+	if err != nil {
+		return RouteCreateTransactionResult{}, err
+	}
 	if _, ok := store.routes[input.Route.RouteID]; ok {
+		record, replay, err := store.committedAutomationRouteDurableRecordByReferenceLocked(referenceKey)
+		if err != nil {
+			return RouteCreateTransactionResult{}, err
+		}
+		if replay && routeCreateReplayMatches(record.Route, input.Route) {
+			clonedRecord := cloneAutomationRouteDurableRecord(record)
+			return RouteCreateTransactionResult{
+				Route:        cloneAutomationRoute(record.Route),
+				ReferenceKey: referenceKey,
+				RouteRow:     &clonedRecord,
+				Created:      false,
+			}, nil
+		}
 		return RouteCreateTransactionResult{}, fmt.Errorf("route %q: %w", input.Route.RouteID, ErrDuplicateRoute)
 	}
 	if input.MaxRouteCount > 0 && store.countOwnerRoutesLocked(input.Route.OwnerPlayerID) >= input.MaxRouteCount {
 		return RouteCreateTransactionResult{}, ErrRouteCapacityExceeded
-	}
-	referenceKey, err := foundation.RouteCreateIdempotencyKey(input.Route.OwnerPlayerID, input.Route.RouteID)
-	if err != nil {
-		return RouteCreateTransactionResult{}, err
 	}
 	updatedSourceState, updateSourceState, err := store.prepareRouteEnergyReservationLocked(
 		input.Route.SourcePlanetID,
@@ -96,6 +109,20 @@ func (input RouteCreateTransactionInput) Validate() error {
 		return ErrInvalidRouteCreateConfig
 	}
 	return nil
+}
+
+func routeCreateReplayMatches(committed AutomationRoute, incoming AutomationRoute) bool {
+	return committed.RouteID == incoming.RouteID &&
+		committed.OwnerPlayerID == incoming.OwnerPlayerID &&
+		committed.SourcePlanetID == incoming.SourcePlanetID &&
+		committed.SourceMapID == incoming.SourceMapID &&
+		committed.Destination == incoming.Destination &&
+		committed.DestinationMapID == incoming.DestinationMapID &&
+		committed.ResourceItemID == incoming.ResourceItemID &&
+		committed.AmountPerHour == incoming.AmountPerHour &&
+		committed.EnergyCostPerHour == incoming.EnergyCostPerHour &&
+		committed.Risk == incoming.Risk &&
+		committed.Enabled == incoming.Enabled
 }
 
 func (store *InMemoryStore) countOwnerRoutesLocked(playerID foundation.PlayerID) int {
