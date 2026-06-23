@@ -343,6 +343,9 @@ Current slice completed:
   shareable sender intel states (`fresh` and `verified`); stale,
   invalidated, missing, or colonized-by-other sender memory returns a safe
   not-found style error before receiver intel writes or receiver event fanout.
+- Phase07AJ hidden planet detail regression follow-up: `discovery.planet_detail`
+  now has server test evidence that materialized planets without player intel
+  return a safe not-found response without creating intel rows or queued events.
 
 ## Source Specs
 
@@ -521,7 +524,7 @@ Mockup areas covered:
 
 - [x] Scan rejects moving/energy-insufficient player before mutation.
 - [x] Scan result does not leak seed or future candidates.
-- [ ] Hidden planet detail returns safe error.
+- [x] Hidden planet detail returns safe error.
 - [x] Claim consumes required item once and sets owner once.
 - [x] Browser claim sends only `planet_id`, consumes the server-owned E2E X Core
       seed through Inventory, uses server-owned E2E Progression rank eligibility,

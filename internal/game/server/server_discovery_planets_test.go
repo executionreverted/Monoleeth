@@ -262,6 +262,50 @@ func TestScanPulseUsesActiveDestinationMapScope(t *testing.T) {
 	}
 }
 
+func TestPlanetDetailRejectsHiddenPlanetWithSafeError(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "hidden-detail@example.com", "Hidden Detail")
+	planetID := foundation.PlanetID("planet-hidden-detail")
+	if _, err := gameServer.runtime.Discovery.MaterializePlanet(discovery.MaterializePlanetInput{
+		CandidateKey: "candidate-hidden-detail",
+		Planet: discovery.Planet{
+			ID:           planetID,
+			WorldID:      gameServer.runtime.worldID,
+			ZoneID:       gameServer.runtime.zoneID,
+			Coordinates:  world.Vec2{X: 1400, Y: 1500},
+			Biome:        discovery.PlanetBiomeOriginBelt,
+			Type:         discovery.PlanetTypeTerrestrial,
+			Rarity:       discovery.PlanetRarityCommon,
+			Level:        1,
+			DiscoveredAt: gameServer.runtime.clock.Now().UTC(),
+			DiscoveredBy: "player-other",
+		},
+	}); err != nil {
+		t.Fatalf("MaterializePlanet(hidden): %v", err)
+	}
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-hidden-planet-detail","op":"discovery.planet_detail","payload":{"planet_id":"`+planetID.String()+`"},"client_seq":1,"v":1}`),
+	)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("hidden planet detail response = %+v, want safe not found", response)
+	}
+	intelRows, err := gameServer.runtime.Discovery.PlayerPlanetIntelRecords(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("PlayerPlanetIntelRecords() error = %v, want nil", err)
+	}
+	if len(intelRows) != 0 {
+		t.Fatalf("hidden detail intel rows = %+v, want no mutation", intelRows)
+	}
+	gameServer.runtime.mu.Lock()
+	queuedEvents := len(gameServer.runtime.queuedEvents[resolved.SessionID])
+	gameServer.runtime.mu.Unlock()
+	if queuedEvents != 0 {
+		t.Fatalf("hidden detail queued events = %d, want none", queuedEvents)
+	}
+}
+
 func assertScanMapTwoKnownEvent(t *testing.T, events []realtime.EventEnvelope, planetID string) {
 	t.Helper()
 	for _, event := range events {
