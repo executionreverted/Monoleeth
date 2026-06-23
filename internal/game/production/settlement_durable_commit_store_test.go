@@ -88,6 +88,47 @@ func TestSettlementDurableCommitStoreDuplicateReferenceReplaysWithoutDuplicateRo
 	}
 }
 
+func TestSettlementDurableCommitStoreDuplicateReplayAfterOutboxDeliveryStateChange(t *testing.T) {
+	plan := routeDurableCommitPlanForStoreTest(t)
+	store := NewInMemorySettlementDurableCommitStore()
+	if _, err := store.ApplySettlementDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplySettlementDurableCommitPlan() error = %v, want nil", err)
+	}
+
+	if _, err := PublishPendingProductionOutbox(ProductionOutboxPublishInput{
+		Store:       store,
+		Limit:       10,
+		ClaimedAt:   testTime(24),
+		CompletedAt: testTime(25),
+		Publish: func(ProductionOutboxRecord) error {
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("PublishPendingProductionOutbox() error = %v, want nil", err)
+	}
+
+	duplicate, err := store.ApplySettlementDurableCommitPlan(plan)
+	if err != nil {
+		t.Fatalf("ApplySettlementDurableCommitPlan(replay after publish) error = %v, want nil", err)
+	}
+	if !duplicate.Duplicate || duplicate.Reference == nil {
+		t.Fatalf("replay result = %+v, want duplicate with original reference", duplicate)
+	}
+	if len(store.SettlementReferences()) != 1 ||
+		len(store.OutboxRecords()) != len(plan.Outbox.OutboxRecords) ||
+		len(store.RouteStorageLedgerEntries()) != len(plan.RouteStorageLedger) {
+		t.Fatalf("durable store rows after replay refs=%d outbox=%d ledger=%d, want no duplicate append",
+			len(store.SettlementReferences()),
+			len(store.OutboxRecords()),
+			len(store.RouteStorageLedgerEntries()))
+	}
+	for _, row := range store.OutboxRecords() {
+		if row.Status != ProductionOutboxStatusPublished || row.PublishedAt.IsZero() {
+			t.Fatalf("outbox row after replay = %+v, want published delivery evidence preserved", row)
+		}
+	}
+}
+
 func TestSettlementDurableCommitStoreRejectsConflictingReferenceReuse(t *testing.T) {
 	plan := routeDurableCommitPlanForStoreTest(t)
 	store := NewInMemorySettlementDurableCommitStore()
@@ -425,6 +466,56 @@ func TestSettlementDurableCommitStorePublishesCommittedSettlementOutboxRows(t *t
 				}
 			}
 		})
+	}
+}
+
+func TestSettlementDurableCommitStoreRetryPublishClearsFailureEvidence(t *testing.T) {
+	plan := routeDurableCommitPlanForStoreTest(t)
+	store := NewInMemorySettlementDurableCommitStore()
+	if _, err := store.ApplySettlementDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplySettlementDurableCommitPlan() error = %v, want nil", err)
+	}
+	temporaryErr := errors.New("temporary broker outage")
+	failed, err := PublishPendingProductionOutbox(ProductionOutboxPublishInput{
+		Store:       store,
+		Limit:       1,
+		ClaimedAt:   testTime(55),
+		CompletedAt: testTime(56),
+		Publish: func(ProductionOutboxRecord) error {
+			return temporaryErr
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingProductionOutbox(failure) error = %v, want nil", err)
+	}
+	if len(failed) != 1 || !failed[0].Failed || failed[0].Record.LastError != temporaryErr.Error() {
+		t.Fatalf("failed settlement outbox row = %+v, want failed evidence", failed)
+	}
+
+	retried, err := store.RetryFailedProductionOutboxRecords(1, testTime(57))
+	if err != nil {
+		t.Fatalf("RetryFailedProductionOutboxRecords() error = %v, want nil", err)
+	}
+	if len(retried) != 1 || retried[0].LastError != temporaryErr.Error() || retried[0].FailedAt.IsZero() {
+		t.Fatalf("retried settlement outbox row = %+v, want preserved failure evidence while pending", retried)
+	}
+	republished, err := PublishPendingProductionOutbox(ProductionOutboxPublishInput{
+		Store:       store,
+		Limit:       1,
+		ClaimedAt:   testTime(58),
+		CompletedAt: testTime(59),
+		Publish: func(ProductionOutboxRecord) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingProductionOutbox(retry) error = %v, want nil", err)
+	}
+	if len(republished) != 1 ||
+		republished[0].Record.Status != ProductionOutboxStatusPublished ||
+		!republished[0].Record.FailedAt.IsZero() ||
+		republished[0].Record.LastError != "" {
+		t.Fatalf("republished settlement outbox row = %+v, want published without stale failure evidence", republished)
 	}
 }
 

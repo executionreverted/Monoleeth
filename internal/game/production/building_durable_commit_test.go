@@ -258,6 +258,47 @@ func TestBuildingMutationDurableCommitStorePublishesCommittedOutboxRows(t *testi
 	}
 }
 
+func TestBuildingMutationDurableCommitStoreExactReplayAfterOutboxDeliveryStateChange(t *testing.T) {
+	plan := buildingDurableCommitPlanForStoreTest(t)
+	store := NewInMemoryBuildingMutationDurableCommitStore()
+	if _, err := store.ApplyBuildingMutationDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyBuildingMutationDurableCommitPlan() error = %v, want nil", err)
+	}
+
+	if _, err := PublishPendingProductionOutbox(ProductionOutboxPublishInput{
+		Store:       store,
+		Limit:       10,
+		ClaimedAt:   testTime(41),
+		CompletedAt: testTime(42),
+		Publish: func(ProductionOutboxRecord) error {
+			return nil
+		},
+	}); err != nil {
+		t.Fatalf("PublishPendingProductionOutbox() error = %v, want nil", err)
+	}
+
+	duplicate, err := store.ApplyBuildingMutationDurableCommitPlan(plan)
+	if err != nil {
+		t.Fatalf("ApplyBuildingMutationDurableCommitPlan(replay after publish) error = %v, want nil", err)
+	}
+	if !duplicate.Duplicate || duplicate.Reference == nil {
+		t.Fatalf("replay result = %+v, want duplicate with original reference", duplicate)
+	}
+	if len(store.BuildingMutationReferences()) != 1 ||
+		len(store.OutboxRecords()) != len(plan.OutboxRecords) ||
+		len(store.BuildingMaterialLedgerEntries()) != len(plan.MaterialLedger) {
+		t.Fatalf("durable store rows after replay refs=%d outbox=%d ledger=%d, want no duplicate append",
+			len(store.BuildingMutationReferences()),
+			len(store.OutboxRecords()),
+			len(store.BuildingMaterialLedgerEntries()))
+	}
+	for _, row := range store.OutboxRecords() {
+		if row.Status != ProductionOutboxStatusPublished || row.PublishedAt.IsZero() {
+			t.Fatalf("outbox row after replay = %+v, want published delivery evidence preserved", row)
+		}
+	}
+}
+
 func TestBuildingMutationDurableCommitStoreRecordsPublishFailures(t *testing.T) {
 	plan := buildingDurableCommitPlanForStoreTest(t)
 	store := NewInMemoryBuildingMutationDurableCommitStore()
@@ -317,6 +358,32 @@ func TestBuildingMutationDurableCommitStoreRecordsPublishFailures(t *testing.T) 
 		recoveredFailed.LastError != temporaryErr.Error() ||
 		!recoveredFailed.FailedAt.Equal(testTime(43)) {
 		t.Fatalf("recovered building outbox row after failure = %+v, want failed delivery evidence", recoveredFailed)
+	}
+
+	retried, err := store.RetryFailedProductionOutboxRecords(1, testTime(44))
+	if err != nil {
+		t.Fatalf("RetryFailedProductionOutboxRecords() error = %v, want nil", err)
+	}
+	if len(retried) != 1 || retried[0].LastError != temporaryErr.Error() || retried[0].FailedAt.IsZero() {
+		t.Fatalf("retried building outbox row = %+v, want preserved failure evidence while pending", retried)
+	}
+	republished, err := PublishPendingProductionOutbox(ProductionOutboxPublishInput{
+		Store:       store,
+		Limit:       1,
+		ClaimedAt:   testTime(45),
+		CompletedAt: testTime(46),
+		Publish: func(ProductionOutboxRecord) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishPendingProductionOutbox(retry) error = %v, want nil", err)
+	}
+	if len(republished) != 1 ||
+		republished[0].Record.Status != ProductionOutboxStatusPublished ||
+		!republished[0].Record.FailedAt.IsZero() ||
+		republished[0].Record.LastError != "" {
+		t.Fatalf("republished building outbox row = %+v, want published without stale failure evidence", republished)
 	}
 }
 

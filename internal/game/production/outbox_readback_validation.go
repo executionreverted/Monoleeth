@@ -19,7 +19,8 @@ func validateProductionOutboxReadbackState(record ProductionOutboxRecord, invali
 			return fmt.Errorf("delivery_state: %w", invalid)
 		}
 	case ProductionOutboxStatusPublished:
-		if record.PublishedAt.IsZero() || record.ClaimedAt.IsZero() || record.ClaimToken == "" {
+		if record.PublishedAt.IsZero() || record.ClaimedAt.IsZero() || record.ClaimToken == "" ||
+			!record.FailedAt.IsZero() || record.LastError != "" {
 			return fmt.Errorf("delivery_state: %w", invalid)
 		}
 	case ProductionOutboxStatusFailed:

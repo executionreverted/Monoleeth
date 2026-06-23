@@ -93,7 +93,11 @@ func (store *InMemorySettlementDurableCommitStore) ApplySettlementDurableCommitP
 	defer store.mu.Unlock()
 
 	if existing, ok := store.plans[key]; ok {
-		if !settlementDurableCommitPlansEqual(existing, normalized) {
+		existingReplay, err := settlementDurableCommitPlanForReplay(existing)
+		if err != nil {
+			return SettlementDurableCommitResult{}, err
+		}
+		if !settlementDurableCommitPlansEqual(existingReplay, normalized) {
 			return SettlementDurableCommitResult{}, fmt.Errorf("reference_conflict: %w", ErrInvalidSettlementDurableCommit)
 		}
 		return settlementDurableCommitResultFromPlan(existing, true), nil
@@ -230,6 +234,8 @@ func (store *InMemorySettlementDurableCommitStore) MarkProductionOutboxPublished
 	}
 	plan.Outbox.OutboxRecords[index].Status = ProductionOutboxStatusPublished
 	plan.Outbox.OutboxRecords[index].PublishedAt = publishedAt.UTC()
+	plan.Outbox.OutboxRecords[index].FailedAt = time.Time{}
+	plan.Outbox.OutboxRecords[index].LastError = ""
 	store.plans[key] = cloneSettlementDurableCommitPlan(plan)
 	return cloneProductionOutboxRecord(plan.Outbox.OutboxRecords[index]), true, nil
 }
@@ -541,6 +547,15 @@ func validateSettlementDurableCommitReadbackPlan(plan SettlementDurableCommitPla
 		return err
 	}
 	return nil
+}
+
+func settlementDurableCommitPlanForReplay(plan SettlementDurableCommitPlan) (SettlementDurableCommitPlan, error) {
+	cloned := cloneSettlementDurableCommitPlan(plan)
+	if err := validateSettlementDurableCommitReadbackPlan(cloned); err != nil {
+		return SettlementDurableCommitPlan{}, err
+	}
+	cloned.Outbox.OutboxRecords = pendingProductionOutboxRecordsForCommitValidation(cloned.Outbox.OutboxRecords)
+	return cloned, nil
 }
 
 func settlementDurableCommitResultFromPlan(
