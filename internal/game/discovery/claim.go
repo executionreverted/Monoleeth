@@ -209,13 +209,14 @@ type ClaimService struct {
 	xCoreItemDefinition    economy.ItemDefinition
 	claimReason            economy.LedgerReason
 
-	claims             map[PlanetClaimReference]claimRecord
-	events             []ClaimEventRecord
-	references         map[PlanetClaimReference]ClaimReferenceRecord
-	recoveries         []ClaimRecoveryRecord
-	outbox             []ClaimOutboxRecord
-	nextOutboxSequence uint64
-	xCoreConsumptions  map[PlanetClaimReference]ClaimXCoreConsumptionRecord
+	claims                    map[PlanetClaimReference]claimRecord
+	events                    []ClaimEventRecord
+	references                map[PlanetClaimReference]ClaimReferenceRecord
+	recoveries                []ClaimRecoveryRecord
+	outbox                    []ClaimOutboxRecord
+	nextOutboxSequence        uint64
+	xCoreConsumptions         map[PlanetClaimReference]ClaimXCoreConsumptionRecord
+	productionInitializations map[PlanetClaimReference]ClaimProductionInitializationRecord
 }
 
 type claimRecord struct {
@@ -232,20 +233,21 @@ func NewClaimService(config ClaimServiceConfig) (*ClaimService, error) {
 		return nil, err
 	}
 	return &ClaimService{
-		store:                  normalized.Store,
-		claimBoundaries:        normalized.ClaimBoundaries,
-		clock:                  normalized.Clock,
-		ranks:                  normalized.Ranks,
-		proximity:              normalized.Proximity,
-		xCoreSources:           normalized.XCoreSources,
-		xCoreConsumer:          normalized.XCoreConsumer,
-		productionInitializer:  normalized.ProductionInitializer,
-		listedIntelStaleMarker: normalized.ListedIntelStaleMarker,
-		xCoreItemDefinition:    normalized.XCoreItemDefinition,
-		claimReason:            normalized.ClaimReason,
-		claims:                 make(map[PlanetClaimReference]claimRecord),
-		references:             make(map[PlanetClaimReference]ClaimReferenceRecord),
-		xCoreConsumptions:      make(map[PlanetClaimReference]ClaimXCoreConsumptionRecord),
+		store:                     normalized.Store,
+		claimBoundaries:           normalized.ClaimBoundaries,
+		clock:                     normalized.Clock,
+		ranks:                     normalized.Ranks,
+		proximity:                 normalized.Proximity,
+		xCoreSources:              normalized.XCoreSources,
+		xCoreConsumer:             normalized.XCoreConsumer,
+		productionInitializer:     normalized.ProductionInitializer,
+		listedIntelStaleMarker:    normalized.ListedIntelStaleMarker,
+		xCoreItemDefinition:       normalized.XCoreItemDefinition,
+		claimReason:               normalized.ClaimReason,
+		claims:                    make(map[PlanetClaimReference]claimRecord),
+		references:                make(map[PlanetClaimReference]ClaimReferenceRecord),
+		xCoreConsumptions:         make(map[PlanetClaimReference]ClaimXCoreConsumptionRecord),
+		productionInitializations: make(map[PlanetClaimReference]ClaimProductionInitializationRecord),
 	}, nil
 }
 
@@ -727,6 +729,9 @@ func (service *ClaimService) initializeProduction(input ClaimPlanetInput, planet
 	if service.productionInitializer == nil {
 		return nil
 	}
+	if initialized, err := service.claimProductionAlreadyInitializedLocked(input); err != nil || initialized {
+		return err
+	}
 	initInput := ClaimProductionInitializeInput{
 		PlayerID:       input.PlayerID,
 		PlanetID:       planet.ID,
@@ -737,8 +742,12 @@ func (service *ClaimService) initializeProduction(input ClaimPlanetInput, planet
 	if err := initInput.Validate(); err != nil {
 		return err
 	}
-	_, err := service.productionInitializer.InitializeClaimProduction(initInput)
-	return err
+	result, err := service.productionInitializer.InitializeClaimProduction(initInput)
+	if err != nil {
+		return err
+	}
+	service.recordClaimProductionInitializationLocked(initInput, result, service.clock.Now().UTC())
+	return nil
 }
 
 func (service *ClaimService) markListedIntelStale(input ClaimPlanetInput, claimedAt time.Time) (ClaimListedIntelStaleResult, error) {

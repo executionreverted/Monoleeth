@@ -305,6 +305,14 @@ Current slice completed:
   rejected before another consume. This is still not a durable rollback or
   atomic cross-service transaction; the DB-backed X Core debit plus owner-CAS
   coupling remains open.
+- Phase07AE claim-production initialization evidence follow-up: successful
+  production initialization is now recorded by claim reference before later
+  claim side effects complete. If stale listing or boundary completion fails
+  after production rows are initialized, retrying the same claim reference
+  reuses that evidence and does not call the production initializer again;
+  initializer failures still leave no evidence and are retried. Durable
+  production-init recovery rows, cross-service transactions, and recovery
+  workers remain open.
 
 ## Source Specs
 

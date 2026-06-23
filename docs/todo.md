@@ -109,7 +109,9 @@ for phase status; this file is a compact pending-work index.
   planet claim transaction. Current in-memory flow can repair production state
   on retry, and Phase07W now records process-local claim recovery evidence
   when retries repair already-authoritative ownership after production-init or
-  stale-listing failures. Durable recovery rows and an atomic claim/production
+  stale-listing failures. Phase07AE records successful production initialization
+  evidence by claim reference so later side-effect retries do not call the
+  initializer twice. Durable recovery rows and an atomic claim/production
   transaction still remain open.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
@@ -186,7 +188,9 @@ for phase status; this file is a compact pending-work index.
   coverage around repository read/complete failures, but not yet X Core debit
   rollback/recovery for begin failures. Phase07AD records process-local X Core
   consumption evidence for begin-failure retries, but durable DB rows, rollback
-  or compensation, and recovery workers remain open.
+  or compensation, and recovery workers remain open. Phase07AE adds
+  process-local production-init evidence for later side-effect retries, while
+  durable production recovery rows remain open.
   Source: Phase 10 audit, Phase07A, Phase07O, Phase07P, Phase07Q, Phase07R,
   Phase07S, and
   `docs/map-rework/phase-10-testing-rollout.md`.
