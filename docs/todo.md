@@ -384,13 +384,16 @@ for phase status; this file is a compact pending-work index.
   read-model loss, replays the existing settlement handoff without duplicate
   storage/outbox rows, and route-create capacity policy counts committed
   durable owner routes so live row loss cannot bypass the server-owned route
-  cap.
+  cap. Phase07CJ also makes `route.snapshot` recover the committed durable
+  route row after live read-model loss while preserving owner checks and
+  public map-key payloads.
   Durable DB rows, row locks/CAS, idempotency table enforcement, and durable
   outbox publishing remain open.
   Source: Phase 10
   audit, Phase07C, Phase07D, Phase07E, Phase07F, Phase07G, Phase07I, Phase07J,
   Phase07K, Phase07AN, Phase07BN, Phase07BO, Phase07BP, Phase07BQ,
-  Phase07BR, Phase07BS, Phase07BT, Phase07BV, and Phase07CD.
+  Phase07BR, Phase07BS, Phase07BT, Phase07BV, Phase07CD, Phase07CI, and
+  Phase07CJ.
 - [ ] Complete the remaining Phase10 PvP rollout matrix. The deterministic
   catalog now includes public `1-3` / Border Skirmish as a PvP-enabled seed,
   reachable through the server-owned `1-2` `skirmish_gate` portal, and server

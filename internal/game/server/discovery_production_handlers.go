@@ -346,16 +346,13 @@ func (runtime *Runtime) handleRouteSnapshot(ctx realtime.CommandContext, request
 	if err != nil {
 		return nil, invalidPayload("Route is invalid.", err)
 	}
-	route, ok, err := runtime.Production.AutomationRoute(routeID)
+	route, err := runtime.routeSettleRouteForOwner(ctx.PlayerID, routeID)
 	if err != nil {
-		return nil, err
-	}
-	if !ok || route.OwnerPlayerID != ctx.PlayerID {
-		return nil, foundation.NewDomainError(foundation.CodeNotFound, "Route was not found.")
+		return nil, domainErrorForRouteSettle(err)
 	}
 	routePayload, err := runtime.routePayloadFromRoute(route)
 	if err != nil {
-		return nil, domainErrorForRuntime(err)
+		return nil, domainErrorForRouteSettle(err)
 	}
 	return marshalPayload(map[string]any{"route": routePayload})
 }

@@ -483,6 +483,13 @@ Current slice completed:
   route in the settlement response. Route-create capacity policy uses the same
   durable-aware owner route count so live read-model loss cannot bypass the
   server-owned route-slot cap.
+- Phase07CJ durable route snapshot reconcile follow-up:
+  Authenticated `route.snapshot` now uses the same owner-checked durable route
+  readback as route settlement when the live route read model is missing. After
+  live row loss, the owner still receives a safe public-map route snapshot from
+  committed durable evidence, while non-owners receive the same leak-safe
+  not-found response. Durable DB route rows and cross-process enforcement remain
+  open.
 - Phase07CB durable outbox retry follow-up:
   Claim, settlement/route, and building durable outbox publisher contracts now
   expose an explicit retry-failed boundary. Runtime drains do not auto-retry by
@@ -1124,6 +1131,8 @@ Mockup areas covered:
       storage/outbox rows.
 - [x] Route.create capacity policy counts committed durable owner routes after
       live read-model loss, preserving the server-owned route-slot cap.
+- [x] Route.snapshot falls back to committed durable route rows after live
+      read-model loss while preserving owner checks and public map-key payloads.
 - [x] Route settlement supports named storage/station-destination aggregates with the
       same server-owned window/reference, ledger, durable route-row, and outbox
       evidence as planet destinations.
