@@ -65,6 +65,7 @@ var (
 	ErrRouteSourceStorageMissing      = errors.New("route source planet storage missing")
 	ErrRouteDestinationStorageMissing = errors.New("route destination planet storage missing")
 	ErrInvalidRouteLossRoll           = errors.New("invalid route loss roll")
+	ErrInvalidRouteStorageLedger      = errors.New("invalid route storage ledger")
 )
 
 var ErrInvalidClaimProductionInitializerConfig = errors.New("invalid claim production initializer config")

@@ -40,6 +40,8 @@ type InMemoryStore struct {
 	buildingReferences         map[foundation.IdempotencyKey]BuildingMutationReferenceRecord
 	buildingMaterialLedger     []BuildingMaterialLedgerEntry
 	nextBuildingLedgerSequence uint64
+	routeStorageLedger         []RouteStorageLedgerEntry
+	nextRouteLedgerSequence    uint64
 	outbox                     []ProductionOutboxRecord
 	nextOutboxSequence         uint64
 }
@@ -95,6 +97,8 @@ func (store *InMemoryStore) Clone() *InMemoryStore {
 	}
 	cloned.buildingMaterialLedger = cloneBuildingMaterialLedgerEntries(store.buildingMaterialLedger)
 	cloned.nextBuildingLedgerSequence = store.nextBuildingLedgerSequence
+	cloned.routeStorageLedger = cloneRouteStorageLedgerEntries(store.routeStorageLedger)
+	cloned.nextRouteLedgerSequence = store.nextRouteLedgerSequence
 	cloned.outbox = cloneProductionOutboxRecords(store.outbox)
 	cloned.nextOutboxSequence = store.nextOutboxSequence
 	return cloned

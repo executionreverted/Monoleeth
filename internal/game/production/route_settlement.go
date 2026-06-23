@@ -51,6 +51,7 @@ type RouteSettlementResult struct {
 	DestinationFull                   bool                      `json:"destination_full"`
 	LossApplied                       bool                      `json:"loss_applied"`
 	NoOp                              bool                      `json:"no_op"`
+	StorageLedger                     []RouteStorageLedgerEntry `json:"storage_ledger,omitempty"`
 }
 
 // SettleRoute applies one atomic virtual transfer for an automation route using
@@ -146,10 +147,18 @@ func (store *InMemoryStore) settleRouteLocked(
 	source = clonePlanetStorage(source)
 
 	if sourcePlanetID == destinationPlanetID {
-		if err := settleRouteWithinSinglePlanetStorage(&source, route, now, lossRoller, &result); err != nil {
+		ledgerDrafts, err := settleRouteWithinSinglePlanetStorage(&source, route, now, lossRoller, &result)
+		if err != nil {
 			return RouteSettlementResult{}, err
 		}
+		ledger, nextLedgerSequence, err := store.previewRouteStorageLedgerLocked(result, ledgerDrafts)
+		if err != nil {
+			return RouteSettlementResult{}, err
+		}
+		result.StorageLedger = ledger
 		store.storage[sourcePlanetID] = clonePlanetStorage(source)
+		store.routeStorageLedger = append(store.routeStorageLedger, cloneRouteStorageLedgerEntries(ledger)...)
+		store.nextRouteLedgerSequence = nextLedgerSequence
 	} else {
 		destination, ok := store.storage[destinationPlanetID]
 		if !ok {
@@ -159,11 +168,19 @@ func (store *InMemoryStore) settleRouteLocked(
 			return RouteSettlementResult{}, err
 		}
 		destination = clonePlanetStorage(destination)
-		if err := settleRouteBetweenPlanetStorage(&source, &destination, route, now, lossRoller, &result); err != nil {
+		ledgerDrafts, err := settleRouteBetweenPlanetStorage(&source, &destination, route, now, lossRoller, &result)
+		if err != nil {
 			return RouteSettlementResult{}, err
 		}
+		ledger, nextLedgerSequence, err := store.previewRouteStorageLedgerLocked(result, ledgerDrafts)
+		if err != nil {
+			return RouteSettlementResult{}, err
+		}
+		result.StorageLedger = ledger
 		store.storage[sourcePlanetID] = clonePlanetStorage(source)
 		store.storage[destinationPlanetID] = clonePlanetStorage(destination)
+		store.routeStorageLedger = append(store.routeStorageLedger, cloneRouteStorageLedgerEntries(ledger)...)
+		store.nextRouteLedgerSequence = nextLedgerSequence
 	}
 
 	route.LastCalculatedAt = now
@@ -236,35 +253,36 @@ func settleRouteBetweenPlanetStorage(
 	now time.Time,
 	lossRoller RouteLossRoller,
 	result *RouteSettlementResult,
-) error {
+) ([]routeStorageLedgerDraft, error) {
 	taken, err := source.RemoveUpTo(route.ResourceItemID, result.WantedAmount, now)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	result.TakenAmount = taken
+	sourceBalanceAfterDebit := source.QuantityOf(route.ResourceItemID)
 	loss, err := rollRouteLoss(taken, route.Risk, lossRoller)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	applyRouteLossResult(loss, result)
 	if result.DeliveredAmount > 0 {
 		added, err := destination.AddUpToCapacity(route.ResourceItemID, result.DeliveredAmount, now)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		result.AddedAmount = added
 	}
 	source.UpdatedAt = now
 	destination.UpdatedAt = now
 	if err := source.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := destination.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 	result.SourceEmpty = source.QuantityOf(route.ResourceItemID) == 0
 	result.DestinationFull = result.DeliveredAmount > result.AddedAmount
-	return nil
+	return routeStorageLedgerDraftsForSettlement(source.PlanetID, destination.PlanetID, route.ResourceItemID, sourceBalanceAfterDebit, destination.QuantityOf(route.ResourceItemID), *result), nil
 }
 
 func settleRouteWithinSinglePlanetStorage(
@@ -273,31 +291,32 @@ func settleRouteWithinSinglePlanetStorage(
 	now time.Time,
 	lossRoller RouteLossRoller,
 	result *RouteSettlementResult,
-) error {
+) ([]routeStorageLedgerDraft, error) {
 	taken, err := storage.RemoveUpTo(route.ResourceItemID, result.WantedAmount, now)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	result.TakenAmount = taken
+	sourceBalanceAfterDebit := storage.QuantityOf(route.ResourceItemID)
 	loss, err := rollRouteLoss(taken, route.Risk, lossRoller)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	applyRouteLossResult(loss, result)
 	if result.DeliveredAmount > 0 {
 		added, err := storage.AddUpToCapacity(route.ResourceItemID, result.DeliveredAmount, now)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		result.AddedAmount = added
 	}
 	storage.UpdatedAt = now
 	if err := storage.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 	result.SourceEmpty = storage.QuantityOf(route.ResourceItemID) == 0
 	result.DestinationFull = result.DeliveredAmount > result.AddedAmount
-	return nil
+	return routeStorageLedgerDraftsForSettlement(storage.PlanetID, storage.PlanetID, route.ResourceItemID, sourceBalanceAfterDebit, storage.QuantityOf(route.ResourceItemID), *result), nil
 }
 
 func applyRouteLossResult(loss routeLossResult, result *RouteSettlementResult) {

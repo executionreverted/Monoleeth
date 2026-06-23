@@ -357,6 +357,12 @@ Current slice completed:
   building material ledger rows, building mutation reference rows, or queued
   owner events in the no-pending-settlement gateway path. Pre-build production
   settlement remains a separate reconciliation boundary.
+- Phase07AM route storage ledger semantics follow-up: route settlements now
+  append production-local route storage ledger rows under the settlement store
+  lock for source debits, transfer losses, destination credits, and destination
+  overflow/discarded delivery. Rows carry route id, planet/counterparty ids,
+  item, quantity, item balance after, reference key, settlement window, and
+  created time; duplicate/no-op settlements do not append additional rows.
 
 ## Source Specs
 
@@ -531,7 +537,7 @@ Mockup areas covered:
       published through the durable outbox.
 - [x] Building mutations use production-local material ledger rows and wallet
       debit ledger rows.
-- [ ] Define and enforce route storage ledger semantics for route mutations.
+- [x] Define and enforce route storage ledger semantics for route mutations.
 - [x] Storage capacity cannot be exceeded.
 
 ## Tests
@@ -573,6 +579,9 @@ Mockup areas covered:
       duplicate reconcile, rejects spoofed settlement facts and wrong-owner
       attempts without mutation/events, emits owner-scoped `route.settled`
       plus route reconciliation events, and avoids AOI diffs.
+- [x] Route settlement records production-local storage ledger rows for source
+      debit, transfer loss, destination credit, and destination overflow
+      partitions, and duplicate/no-op settlements do not append new ledger rows.
 - [x] Route settlement stores an in-memory settlement reference and pending
       outbox records for route transfer events; duplicate reference reuse
       no-ops without transfer, duplicate events, or duplicate outbox records.

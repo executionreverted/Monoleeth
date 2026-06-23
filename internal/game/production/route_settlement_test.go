@@ -72,6 +72,7 @@ func TestSettleRouteEmptySourceTransfersZeroAndUpdatesTimestamps(t *testing.T) {
 	assertRouteSettlementRouteTime(t, store, route.RouteID, now)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 0, now)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, now)
+	assertNoRouteStorageLedger(t, store)
 }
 
 func TestSettleRouteEmitsSettlementAndConditionEvents(t *testing.T) {
@@ -113,9 +114,18 @@ func TestSettleRouteEmitsSettlementAndConditionEvents(t *testing.T) {
 	)
 	assertOutboxRecordEvidence(t, store.OutboxRecords(), EventRouteDestinationFull, wantReference, wantWindow)
 	assertOutboxRecordEvidence(t, store.OutboxRecords(), EventRouteTransferSettled, wantReference, wantWindow)
+	assertRouteStorageLedgerEntries(t, result.StorageLedger,
+		routeStorageLedgerWant{Operation: RouteStorageLedgerSourceDebit, PlanetID: "planet-1", CounterpartyPlanetID: "planet-2", Quantity: 40, BalanceAfter: 60, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+		routeStorageLedgerWant{Operation: RouteStorageLedgerDestinationOverflow, PlanetID: "planet-2", CounterpartyPlanetID: "planet-1", Quantity: 40, BalanceAfter: 0, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+	)
+	assertRouteStorageLedgerEntries(t, store.RouteStorageLedgerEntries(),
+		routeStorageLedgerWant{Operation: RouteStorageLedgerSourceDebit, PlanetID: "planet-1", CounterpartyPlanetID: "planet-2", Quantity: 40, BalanceAfter: 60, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+		routeStorageLedgerWant{Operation: RouteStorageLedgerDestinationOverflow, PlanetID: "planet-2", CounterpartyPlanetID: "planet-1", Quantity: 40, BalanceAfter: 0, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+	)
 	firstEventCount := len(store.Events())
 	firstOutboxCount := len(store.OutboxRecords())
 	firstReferenceCount := len(store.SettlementReferences())
+	firstLedgerCount := len(store.RouteStorageLedgerEntries())
 
 	duplicate, err := service.SettleRoute(route.RouteID)
 	if err != nil {
@@ -135,6 +145,9 @@ func TestSettleRouteEmitsSettlementAndConditionEvents(t *testing.T) {
 	}
 	if got := len(store.SettlementReferences()); got != firstReferenceCount {
 		t.Fatalf("reference count after duplicate route settlement = %d, want unchanged %d", got, firstReferenceCount)
+	}
+	if got := len(store.RouteStorageLedgerEntries()); got != firstLedgerCount {
+		t.Fatalf("route storage ledger rows after duplicate route settlement = %d, want unchanged %d", got, firstLedgerCount)
 	}
 }
 
@@ -181,6 +194,13 @@ func TestSettleRouteEmitsLossAndSourceEmptyEvents(t *testing.T) {
 		EventRouteSourceEmpty,
 		EventRouteTransferSettled,
 	)
+	wantWindow := wantSettlementWindow(last, now)
+	wantReference := mustRouteSettlementKey(t, route.RouteID, wantWindow)
+	assertRouteStorageLedgerEntries(t, result.StorageLedger,
+		routeStorageLedgerWant{Operation: RouteStorageLedgerSourceDebit, PlanetID: "planet-1", CounterpartyPlanetID: "planet-2", Quantity: 40, BalanceAfter: 0, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+		routeStorageLedgerWant{Operation: RouteStorageLedgerTransferLoss, PlanetID: "planet-1", CounterpartyPlanetID: "planet-2", Quantity: 20, BalanceAfter: 0, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+		routeStorageLedgerWant{Operation: RouteStorageLedgerDestinationCredit, PlanetID: "planet-2", CounterpartyPlanetID: "planet-1", Quantity: 20, BalanceAfter: 20, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+	)
 }
 
 func TestSettleRouteFullDestinationClampsDelivery(t *testing.T) {
@@ -208,6 +228,12 @@ func TestSettleRouteFullDestinationClampsDelivery(t *testing.T) {
 	if !result.DestinationFull {
 		t.Fatal("DestinationFull = false, want true")
 	}
+	wantWindow := wantSettlementWindow(last, now)
+	wantReference := mustRouteSettlementKey(t, route.RouteID, wantWindow)
+	assertRouteStorageLedgerEntries(t, result.StorageLedger,
+		routeStorageLedgerWant{Operation: RouteStorageLedgerSourceDebit, PlanetID: "planet-1", CounterpartyPlanetID: "planet-2", Quantity: 40, BalanceAfter: 60, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+		routeStorageLedgerWant{Operation: RouteStorageLedgerDestinationOverflow, PlanetID: "planet-2", CounterpartyPlanetID: "planet-1", Quantity: 40, BalanceAfter: 0, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+	)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, now)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, now)
 }
@@ -306,11 +332,21 @@ func TestSettleRouteDoubleSettlementDoesNotDuplicateTransfer(t *testing.T) {
 	if first.AddedAmount != 40 {
 		t.Fatalf("first AddedAmount = %d, want 40", first.AddedAmount)
 	}
+	wantWindow := wantSettlementWindow(last, now)
+	wantReference := mustRouteSettlementKey(t, route.RouteID, wantWindow)
+	assertRouteStorageLedgerEntries(t, first.StorageLedger,
+		routeStorageLedgerWant{Operation: RouteStorageLedgerSourceDebit, PlanetID: "planet-1", CounterpartyPlanetID: "planet-2", Quantity: 40, BalanceAfter: 60, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+		routeStorageLedgerWant{Operation: RouteStorageLedgerDestinationCredit, PlanetID: "planet-2", CounterpartyPlanetID: "planet-1", Quantity: 40, BalanceAfter: 40, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+	)
 	assertRouteMapIdentity(t, first.BeforeRoute, route.SourceMapID, route.DestinationMapID)
 	assertRouteMapIdentity(t, first.AfterRoute, route.SourceMapID, route.DestinationMapID)
 	if !second.NoOp || second.AddedAmount != 0 || second.ElapsedApplied != 0 {
 		t.Fatalf("second NoOp/added/applied = %v/%d/%s, want true/0/0", second.NoOp, second.AddedAmount, second.ElapsedApplied)
 	}
+	assertRouteStorageLedgerEntries(t, store.RouteStorageLedgerEntries(),
+		routeStorageLedgerWant{Operation: RouteStorageLedgerSourceDebit, PlanetID: "planet-1", CounterpartyPlanetID: "planet-2", Quantity: 40, BalanceAfter: 60, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+		routeStorageLedgerWant{Operation: RouteStorageLedgerDestinationCredit, PlanetID: "planet-2", CounterpartyPlanetID: "planet-1", Quantity: 40, BalanceAfter: 40, ReferenceKey: wantReference, SettlementWindow: wantWindow},
+	)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 60, now)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 40, now)
 }
@@ -449,4 +485,5 @@ func TestSettleRouteSubUnitWantedAdvancesRouteTimestampWithoutTransfer(t *testin
 	assertRouteSettlementRouteTime(t, store, route.RouteID, now)
 	assertRouteSettlementStorage(t, store, "planet-1", "refined_alloy", 10, last)
 	assertRouteSettlementStorage(t, store, "planet-2", "refined_alloy", 0, last)
+	assertNoRouteStorageLedger(t, store)
 }

@@ -1,6 +1,7 @@
 package production
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -284,6 +285,55 @@ func assertRouteSettlementStorage(
 	}
 	if !storage.UpdatedAt.Equal(updatedAt) {
 		t.Fatalf("storage %q UpdatedAt = %s, want %s", planetID, storage.UpdatedAt, updatedAt)
+	}
+}
+
+type routeStorageLedgerWant struct {
+	Operation            RouteStorageLedgerOperation
+	PlanetID             foundation.PlanetID
+	CounterpartyPlanetID foundation.PlanetID
+	Quantity             int64
+	BalanceAfter         int64
+	ReferenceKey         foundation.IdempotencyKey
+	SettlementWindow     string
+}
+
+func assertRouteStorageLedgerEntries(t *testing.T, entries []RouteStorageLedgerEntry, wants ...routeStorageLedgerWant) {
+	t.Helper()
+	if len(entries) != len(wants) {
+		t.Fatalf("route storage ledger rows = %d, want %d; entries = %+v", len(entries), len(wants), entries)
+	}
+	for index, want := range wants {
+		entry := entries[index]
+		if err := entry.Validate(); err != nil {
+			t.Fatalf("route storage ledger[%d] validation error = %v; entry = %+v", index, err, entry)
+		}
+		wantLedgerID := fmt.Sprintf("route-storage-ledger-%d", index+1)
+		if entry.LedgerID != wantLedgerID {
+			t.Fatalf("route storage ledger[%d] id = %q, want %q", index, entry.LedgerID, wantLedgerID)
+		}
+		if entry.Operation != want.Operation ||
+			entry.RouteID != "route-1" ||
+			entry.PlanetID != want.PlanetID ||
+			entry.CounterpartyPlanetID != want.CounterpartyPlanetID ||
+			entry.ItemID != "refined_alloy" ||
+			entry.Quantity != want.Quantity ||
+			entry.BalanceAfter != want.BalanceAfter ||
+			entry.ReferenceKey != want.ReferenceKey ||
+			entry.SettlementWindow != want.SettlementWindow {
+			t.Fatalf("route storage ledger[%d] = %+v, want op=%q planet=%q counterparty=%q qty=%d balance=%d ref=%q window=%q",
+				index, entry, want.Operation, want.PlanetID, want.CounterpartyPlanetID, want.Quantity, want.BalanceAfter, want.ReferenceKey, want.SettlementWindow)
+		}
+		if entry.CreatedAt.IsZero() {
+			t.Fatalf("route storage ledger[%d] CreatedAt is zero", index)
+		}
+	}
+}
+
+func assertNoRouteStorageLedger(t *testing.T, store *InMemoryStore) {
+	t.Helper()
+	if got := len(store.RouteStorageLedgerEntries()); got != 0 {
+		t.Fatalf("route storage ledger rows = %d, want 0", got)
 	}
 }
 
