@@ -519,6 +519,9 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	if contentAdmin != nil {
+		contentAdmin.SetPublishSafetyReaders(craftingService, productionStore)
+	}
 	deathService, err := deathdomain.NewDeathService(deathdomain.Config{
 		Clock:           clock,
 		RNG:             rng,

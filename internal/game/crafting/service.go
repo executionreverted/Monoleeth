@@ -1,6 +1,7 @@
 package crafting
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -598,6 +599,18 @@ func (service *CraftingService) Jobs() []CraftJob {
 		return jobs[i].JobID < jobs[j].JobID
 	})
 	return jobs
+}
+
+// ActiveCraftJobs returns running jobs for publish safety checks.
+func (service *CraftingService) ActiveCraftJobs(_ context.Context) ([]CraftJob, error) {
+	jobs := service.Jobs()
+	active := make([]CraftJob, 0, len(jobs))
+	for _, job := range jobs {
+		if job.State == CraftJobStateRunning {
+			active = append(active, cloneCraftJob(job))
+		}
+	}
+	return active, nil
 }
 
 func (input StartCraftInput) validate() error {

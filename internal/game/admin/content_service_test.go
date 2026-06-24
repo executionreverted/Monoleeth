@@ -9,7 +9,11 @@ import (
 	"time"
 
 	"gameproject/internal/game/admin"
+	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/content"
+	"gameproject/internal/game/crafting"
+	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/production"
 	"gameproject/internal/game/testutil"
 )
 
@@ -390,6 +394,112 @@ func TestContentServicePublishDraftScrubsAuditJSON(t *testing.T) {
 	}
 }
 
+func TestContentServicePublishDraftBlocksChangedCraftRecipeWithActiveJob(t *testing.T) {
+	current := content.Snapshot{
+		Version: "content_v1",
+		CraftRecipes: []content.SnapshotRow{{
+			ContentID:   "refined_alloy",
+			Enabled:     true,
+			DisplayJSON: []byte(`{}`),
+			DataJSON:    []byte(`{"recipe_id":"refined_alloy","input_quantity":10}`),
+		}},
+	}
+	store := &fakeContentDraftStore{
+		currentSnapshot: snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_v1", current, time.Now().UTC()),
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeCraftRecipe: {
+				{
+					ContentID:   "refined_alloy",
+					Enabled:     true,
+					DisplayJSON: []byte(`{}`),
+					DataJSON:    []byte(`{"recipe_id":"refined_alloy","input_quantity":12}`),
+				},
+			},
+		},
+	}
+	source, err := catalog.NewRecipeSource("refined_alloy", "content_v1")
+	if err != nil {
+		t.Fatalf("NewRecipeSource() error = %v, want nil", err)
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{},
+		ActiveCraft: &fakeActiveCraftReader{jobs: []crafting.CraftJob{{
+			JobID:        "craft-job-1",
+			PlayerID:     "player-1",
+			RecipeSource: source,
+			State:        crafting.CraftJobStateRunning,
+		}}},
+	})
+
+	_, err = service.PublishDraft(context.Background(), content.PublishDraftInput{
+		Version: "content_v2",
+		Notes:   "change recipe input",
+	})
+	if !errors.Is(err, admin.ErrContentPublishActiveCraftDefinition) {
+		t.Fatalf("PublishDraft() error = %v, want ErrContentPublishActiveCraftDefinition", err)
+	}
+	if store.publishCalled {
+		t.Fatal("PublishDraft() wrote version despite active craft conflict")
+	}
+}
+
+func TestContentServicePublishDraftBlocksChangedProductionDefinitionWithActiveBuilding(t *testing.T) {
+	current := content.Snapshot{
+		Version: "content_v1",
+		ProductionBuildings: []content.SnapshotRow{{
+			ContentID:   "iron_extractor_l1",
+			Enabled:     true,
+			DisplayJSON: []byte(`{}`),
+			DataJSON:    []byte(`{"definition_id":"iron_extractor_l1","rate":20}`),
+		}},
+	}
+	store := &fakeContentDraftStore{
+		currentSnapshot: snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_v1", current, time.Now().UTC()),
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeProductionBuilding: {
+				{
+					ContentID:   "iron_extractor_l1",
+					Enabled:     true,
+					DisplayJSON: []byte(`{}`),
+					DataJSON:    []byte(`{"definition_id":"iron_extractor_l1","rate":25}`),
+				},
+			},
+		},
+	}
+	source, err := catalog.NewVersionedDefinitionFromStrings("iron_extractor_l1", "content_v1")
+	if err != nil {
+		t.Fatalf("NewVersionedDefinitionFromStrings() error = %v, want nil", err)
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{},
+		ActiveProduction: &fakeActiveProductionReader{buildings: []production.PlanetBuilding{{
+			BuildingID:   "building-1",
+			PlanetID:     foundation.PlanetID("planet-1"),
+			Source:       source,
+			BuildingType: production.BuildingTypeIronExtractor,
+			Level:        1,
+			State:        production.BuildingStateActive,
+		}}},
+	})
+
+	_, err = service.PublishDraft(context.Background(), content.PublishDraftInput{
+		Version: "content_v2",
+		Notes:   "change production rate",
+	})
+	if !errors.Is(err, admin.ErrContentPublishActiveProductionDefinition) {
+		t.Fatalf("PublishDraft() error = %v, want ErrContentPublishActiveProductionDefinition", err)
+	}
+	if store.publishCalled {
+		t.Fatal("PublishDraft() wrote version despite active production conflict")
+	}
+}
+
 func TestContentServiceRollbackPublishesTargetSnapshotAsNewVersion(t *testing.T) {
 	now := time.Date(2026, 6, 25, 9, 30, 0, 0, time.UTC)
 	target := snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_mvp_seed_v1", moduleSnapshotForAdminTest(8), now.Add(-2*time.Hour))
@@ -557,6 +667,24 @@ type fakeContentDraftValidator struct {
 	called   bool
 	snapshot content.Snapshot
 	err      error
+}
+
+type fakeActiveCraftReader struct {
+	jobs []crafting.CraftJob
+	err  error
+}
+
+func (reader *fakeActiveCraftReader) ActiveCraftJobs(context.Context) ([]crafting.CraftJob, error) {
+	return append([]crafting.CraftJob(nil), reader.jobs...), reader.err
+}
+
+type fakeActiveProductionReader struct {
+	buildings []production.PlanetBuilding
+	err       error
+}
+
+func (reader *fakeActiveProductionReader) ActiveProductionBuildings(context.Context) ([]production.PlanetBuilding, error) {
+	return append([]production.PlanetBuilding(nil), reader.buildings...), reader.err
 }
 
 func (validator *fakeContentDraftValidator) ValidateContentSnapshot(_ context.Context, snapshot content.Snapshot) error {

@@ -1,6 +1,7 @@
 package production
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"sync"
@@ -316,6 +317,24 @@ func (store *InMemoryStore) ActiveBuildings(planetID foundation.PlanetID) ([]Pla
 	return buildingsFromMap(store.buildings[planetID], func(building PlanetBuilding) bool {
 		return building.State == BuildingStateActive
 	}), nil
+}
+
+// ActiveProductionBuildings returns all active buildings for publish safety checks.
+func (store *InMemoryStore) ActiveProductionBuildings(_ context.Context) ([]PlanetBuilding, error) {
+	if store == nil {
+		return nil, nil
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	var buildings []PlanetBuilding
+	for _, planetBuildings := range store.buildings {
+		buildings = append(buildings, buildingsFromMap(planetBuildings, func(building PlanetBuilding) bool {
+			return building.State == BuildingStateActive
+		})...)
+	}
+	sortPlanetBuildings(buildings)
+	return buildings, nil
 }
 
 // AutomationRoute returns one route by id.

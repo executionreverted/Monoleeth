@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,7 +12,9 @@ import (
 	"strings"
 
 	"gameproject/internal/game/content"
+	"gameproject/internal/game/crafting"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/production"
 )
 
 var ErrMissingContentVersionStore = errors.New("missing admin content version store")
@@ -24,6 +27,8 @@ var ErrMissingContentAuditStore = errors.New("missing admin content audit store"
 var ErrContentDraftNotFound = errors.New("content draft row not found")
 var ErrMissingContentPublishNotes = errors.New("missing content publish notes")
 var ErrInvalidContentBalanceTag = errors.New("invalid content balance tag")
+var ErrContentPublishActiveCraftDefinition = errors.New("content publish blocked by active craft recipe definition")
+var ErrContentPublishActiveProductionDefinition = errors.New("content publish blocked by active production building definition")
 
 const (
 	maxAuditRowJSONBytes = 32 * 1024
@@ -59,26 +64,38 @@ type ContentAuditStore interface {
 	ListContentAudit(context.Context, content.AuditLogInput) (content.AuditLog, error)
 }
 
+type ActiveCraftJobReader interface {
+	ActiveCraftJobs(context.Context) ([]crafting.CraftJob, error)
+}
+
+type ActiveProductionBuildingReader interface {
+	ActiveProductionBuildings(context.Context) ([]production.PlanetBuilding, error)
+}
+
 type ContentServiceConfig struct {
-	Versions  ContentVersionStore
-	Drafts    ContentDraftStore
-	Writer    ContentDraftWriter
-	Validator ContentDraftValidator
-	Publisher ContentPublisher
-	Snapshots ContentSnapshotReader
-	Audit     ContentAuditStore
-	Clock     foundation.Clock
+	Versions         ContentVersionStore
+	Drafts           ContentDraftStore
+	Writer           ContentDraftWriter
+	Validator        ContentDraftValidator
+	Publisher        ContentPublisher
+	Snapshots        ContentSnapshotReader
+	Audit            ContentAuditStore
+	ActiveCraft      ActiveCraftJobReader
+	ActiveProduction ActiveProductionBuildingReader
+	Clock            foundation.Clock
 }
 
 type ContentService struct {
-	versions  ContentVersionStore
-	drafts    ContentDraftStore
-	writer    ContentDraftWriter
-	validator ContentDraftValidator
-	publisher ContentPublisher
-	snapshots ContentSnapshotReader
-	audit     ContentAuditStore
-	clock     foundation.Clock
+	versions         ContentVersionStore
+	drafts           ContentDraftStore
+	writer           ContentDraftWriter
+	validator        ContentDraftValidator
+	publisher        ContentPublisher
+	snapshots        ContentSnapshotReader
+	audit            ContentAuditStore
+	activeCraft      ActiveCraftJobReader
+	activeProduction ActiveProductionBuildingReader
+	clock            foundation.Clock
 }
 
 func NewContentService(config ContentServiceConfig) *ContentService {
@@ -111,15 +128,25 @@ func NewContentService(config ContentServiceConfig) *ContentService {
 		}
 	}
 	return &ContentService{
-		versions:  config.Versions,
-		drafts:    config.Drafts,
-		writer:    writer,
-		validator: config.Validator,
-		publisher: publisher,
-		snapshots: snapshots,
-		audit:     audit,
-		clock:     clock,
+		versions:         config.Versions,
+		drafts:           config.Drafts,
+		writer:           writer,
+		validator:        config.Validator,
+		publisher:        publisher,
+		snapshots:        snapshots,
+		audit:            audit,
+		activeCraft:      config.ActiveCraft,
+		activeProduction: config.ActiveProduction,
+		clock:            clock,
 	}
+}
+
+func (service *ContentService) SetPublishSafetyReaders(craft ActiveCraftJobReader, production ActiveProductionBuildingReader) {
+	if service == nil {
+		return
+	}
+	service.activeCraft = craft
+	service.activeProduction = production
 }
 
 func (service *ContentService) ListVersions(ctx context.Context, input content.VersionListInput) (content.VersionList, error) {
@@ -261,6 +288,9 @@ func (service *ContentService) PublishDraft(ctx context.Context, input content.P
 	}
 	current, err := service.snapshots.LoadCurrentContentSnapshot(ctx)
 	if err != nil {
+		return content.PublishDraftResult{}, err
+	}
+	if err := service.validatePublishSafety(ctx, current.Snapshot, snapshot); err != nil {
 		return content.PublishDraftResult{}, err
 	}
 	validationJSON, err := json.Marshal(report)
@@ -440,6 +470,96 @@ func (service *ContentService) validateSnapshot(ctx context.Context, snapshot co
 		return report, nil
 	}
 	return report, nil
+}
+
+func (service *ContentService) validatePublishSafety(ctx context.Context, current content.Snapshot, next content.Snapshot) error {
+	if service == nil {
+		return nil
+	}
+	changedRecipes := changedContentIDs(current.CraftRecipes, next.CraftRecipes)
+	if len(changedRecipes) > 0 && service.activeCraft != nil {
+		jobs, err := service.activeCraft.ActiveCraftJobs(ctx)
+		if err != nil {
+			return err
+		}
+		for _, job := range jobs {
+			if job.State != crafting.CraftJobStateRunning {
+				continue
+			}
+			if changedRecipes[content.ContentID(string(job.RecipeSource.DefinitionID))] {
+				return fmt.Errorf("recipe %q job %q version %q: %w",
+					job.RecipeSource.DefinitionID, job.JobID, job.RecipeSource.Version, ErrContentPublishActiveCraftDefinition)
+			}
+		}
+	}
+
+	changedProduction := changedContentIDs(current.ProductionBuildings, next.ProductionBuildings)
+	if len(changedProduction) > 0 && service.activeProduction != nil {
+		buildings, err := service.activeProduction.ActiveProductionBuildings(ctx)
+		if err != nil {
+			return err
+		}
+		for _, building := range buildings {
+			if building.State != production.BuildingStateActive {
+				continue
+			}
+			if changedProduction[content.ContentID(string(building.Source.DefinitionID))] {
+				return fmt.Errorf("production definition %q building %q planet %q version %q: %w",
+					building.Source.DefinitionID, building.BuildingID, building.PlanetID, building.Source.Version,
+					ErrContentPublishActiveProductionDefinition)
+			}
+		}
+	}
+	return nil
+}
+
+func changedContentIDs(current []content.SnapshotRow, next []content.SnapshotRow) map[content.ContentID]bool {
+	currentRows := snapshotRowsByID(current)
+	nextRows := snapshotRowsByID(next)
+	changed := make(map[content.ContentID]bool)
+	for contentID, currentRow := range currentRows {
+		nextRow, ok := nextRows[contentID]
+		if !ok || !snapshotRowsEquivalent(currentRow, nextRow) {
+			changed[contentID] = true
+		}
+	}
+	for contentID := range nextRows {
+		if _, ok := currentRows[contentID]; !ok {
+			changed[contentID] = true
+		}
+	}
+	return changed
+}
+
+func snapshotRowsByID(rows []content.SnapshotRow) map[content.ContentID]content.SnapshotRow {
+	out := make(map[content.ContentID]content.SnapshotRow, len(rows))
+	for _, row := range rows {
+		out[row.ContentID] = row
+	}
+	return out
+}
+
+func snapshotRowsEquivalent(left content.SnapshotRow, right content.SnapshotRow) bool {
+	if left.Enabled != right.Enabled {
+		return false
+	}
+	leftData, leftDataOK := compactJSON(left.DataJSON)
+	rightData, rightDataOK := compactJSON(right.DataJSON)
+	leftDisplay, leftDisplayOK := compactJSON(left.DisplayJSON)
+	rightDisplay, rightDisplayOK := compactJSON(right.DisplayJSON)
+	return leftDataOK && rightDataOK && leftDisplayOK && rightDisplayOK &&
+		bytes.Equal(leftData, rightData) && bytes.Equal(leftDisplay, rightDisplay)
+}
+
+func compactJSON(raw json.RawMessage) ([]byte, bool) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, true
+	}
+	var buffer bytes.Buffer
+	if err := json.Compact(&buffer, raw); err != nil {
+		return nil, false
+	}
+	return buffer.Bytes(), true
 }
 
 func normalizePublishMetadata(notes string, balanceTag string) (string, string, error) {
