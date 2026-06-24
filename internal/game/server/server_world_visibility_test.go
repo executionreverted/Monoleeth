@@ -107,11 +107,12 @@ func TestAOIDiffSkipsFailedWorkerTickInstance(t *testing.T) {
 func TestHiddenPlayerWitnessVisibilityIsViewerSpecificAndExpires(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		Clock:          clock,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		AllowedOrigins:    []string{testOrigin},
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		Clock:             clock,
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)
@@ -192,11 +193,12 @@ func TestHiddenPlayerWitnessVisibilityIsViewerSpecificAndExpires(t *testing.T) {
 func TestScanPulseRevealsHiddenPlayerWithoutPlanetIntelOrXP(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		Clock:          clock,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		AllowedOrigins:    []string{testOrigin},
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		Clock:             clock,
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)
@@ -311,11 +313,12 @@ func TestScanPulseRevealsHiddenPlayerWithoutPlanetIntelOrXP(t *testing.T) {
 func TestScanPulseDoesNotRevealHiddenPlayerOutsideEffectiveRadarRange(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		Clock:          clock,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		AllowedOrigins:    []string{testOrigin},
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		Clock:             clock,
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)
@@ -394,11 +397,12 @@ func TestScanPulseDoesNotRevealHiddenPlayerOutsideEffectiveRadarRange(t *testing
 func TestScanPulseRevealsHiddenPlayerInsideEffectiveRadarRangeBeyondOldProjectionWindow(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		Clock:          clock,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		AllowedOrigins:    []string{testOrigin},
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		Clock:             clock,
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)
@@ -461,11 +465,12 @@ func TestScanPulseRevealsHiddenPlayerInsideEffectiveRadarRangeBeyondOldProjectio
 func TestRuntimePlayerStealthAppliesSpeedPenaltyWithoutStackingAndRecalculatesRoute(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		Clock:          clock,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		AllowedOrigins:    []string{testOrigin},
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		Clock:             clock,
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)
@@ -586,11 +591,12 @@ func TestRuntimePlayerStealthRestoresServerEffectiveSpeed(t *testing.T) {
 func TestStealthToggleCommandUsesServerOwnedStateAndSafePayload(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		Clock:          clock,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		AllowedOrigins:    []string{testOrigin},
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		Clock:             clock,
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)

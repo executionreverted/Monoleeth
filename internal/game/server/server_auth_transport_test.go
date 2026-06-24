@@ -22,12 +22,13 @@ import (
 
 func TestServerRejectsNonStarterRuntimeZone(t *testing.T) {
 	_, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		WorldID:        "world-1",
-		ZoneID:         "zone-1",
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		AllowedOrigins:    []string{testOrigin},
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		WorldID:           "world-1",
+		ZoneID:            "zone-1",
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 	})
 	if err == nil || !strings.Contains(err.Error(), string(worldmaps.StarterMapID)) {
 		t.Fatalf("New(non-starter zone) error = %v, want starter map zone validation", err)
@@ -364,11 +365,12 @@ func TestReconnectBootstrapCarriesSnapshotCursor(t *testing.T) {
 func TestRuntimeDetachSettlesMovementBeforeReconnectSnapshot(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
-		Clock:          clock,
+		AllowedOrigins:    []string{testOrigin},
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		Clock:             clock,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)

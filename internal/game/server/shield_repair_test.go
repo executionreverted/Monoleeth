@@ -140,12 +140,13 @@ func newTestServerWithFakeClock(t *testing.T) (*Server, *httptest.Server, *testu
 	t.Helper()
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		DevMode:        false,
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		Clock:          clock,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		AllowedOrigins:    []string{testOrigin},
+		DevMode:           false,
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		Clock:             clock,
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gameproject/internal/game/auth"
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/contentdb"
 	"gameproject/internal/game/foundation"
 	worldmaps "gameproject/internal/game/world/maps"
@@ -52,6 +53,7 @@ type Config struct {
 	ZoneID              foundation.ZoneID
 	AdminSeed           auth.AdminSeedInput
 	ContentDB           contentdb.Config
+	ContentRepository   gamecontent.Repository
 	PasswordHasher      auth.PasswordHasher
 	Clock               foundation.Clock
 }

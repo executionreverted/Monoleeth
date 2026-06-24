@@ -252,11 +252,12 @@ func TestPortalEnterTransfersToSeededPVPMap(t *testing.T) {
 func TestPortalDestinationAttachRecordsEnemyTelemetryMetrics(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
-		Clock:          clock,
+		AllowedOrigins:    []string{testOrigin},
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		Clock:             clock,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)

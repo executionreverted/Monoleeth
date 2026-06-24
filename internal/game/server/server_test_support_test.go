@@ -14,6 +14,7 @@ import (
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/catalog"
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
@@ -30,17 +31,22 @@ const testOrigin = "http://example.com"
 func newTestServer(t *testing.T, devMode bool) (*Server, *httptest.Server) {
 	t.Helper()
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		DevMode:        devMode,
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		AllowedOrigins:    []string{testOrigin},
+		DevMode:           devMode,
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		ContentRepository: gamecontent.NewStaticRepository(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)
 	}
 	httpServer := httptest.NewServer(gameServer.Handler())
 	return gameServer, httpServer
+}
+
+func staticContentRepositoryForTest() gamecontent.Repository {
+	return gamecontent.NewStaticRepository()
 }
 func registerPilot(t *testing.T, httpServer *httptest.Server) *http.Cookie {
 	t.Helper()

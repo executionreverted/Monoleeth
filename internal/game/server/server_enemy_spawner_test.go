@@ -185,11 +185,12 @@ func TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner(t *testing.T)
 func TestRuntimeMapTwoEnemyLifecycleRespawnsThroughMapInstance(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		SessionTTL:     time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		Clock:          clock,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		AllowedOrigins:    []string{testOrigin},
+		SessionTTL:        time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		Clock:             clock,
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)

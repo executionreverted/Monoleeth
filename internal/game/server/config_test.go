@@ -126,6 +126,16 @@ func TestNewRejectsRequiredContentDBWithoutURL(t *testing.T) {
 	}
 }
 
+func TestNewRejectsStaticContentFallbackOutsideDevMode(t *testing.T) {
+	_, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		ContentDB:      contentdb.Config{Mode: contentdb.ContentModeOff},
+	})
+	if !errors.Is(err, contentdb.ErrContentDatabaseDisabled) {
+		t.Fatalf("New() error = %v, want ErrContentDatabaseDisabled", err)
+	}
+}
+
 func TestNewRejectsE2EPlanetClaimSeedOutsideDevMode(t *testing.T) {
 	_, err := New(Config{
 		AllowedOrigins:     []string{testOrigin},

@@ -9,8 +9,9 @@ import (
 
 func TestPlaytestSeedGrantsClaimAndRouteOnboardingState(t *testing.T) {
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		PlaytestSeed:   true,
+		AllowedOrigins:    []string{testOrigin},
+		PlaytestSeed:      true,
+		ContentRepository: staticContentRepositoryForTest(),
 	})
 	if err != nil {
 		t.Fatalf("New(playtest seed) error = %v, want nil", err)
@@ -36,6 +37,7 @@ func TestPlaytestSeedIgnoresE2EClaimCoreMatrixQuantity(t *testing.T) {
 		AllowedOrigins:      []string{testOrigin},
 		PlaytestSeed:        true,
 		E2EPlanetClaimCores: 2,
+		ContentRepository:   staticContentRepositoryForTest(),
 	})
 	if err != nil {
 		t.Fatalf("New(playtest seed) error = %v, want nil", err)

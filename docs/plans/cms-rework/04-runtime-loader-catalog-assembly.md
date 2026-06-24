@@ -80,6 +80,7 @@ safe server payloads.
 - Invalid snapshot -> boot fails.
 - Dev/test may use explicit fallback flag only.
 - DB disabled while `GAME_CONTENT_MODE=required` -> boot fails.
+- DB disabled outside dev mode or an injected test repository -> boot fails.
 
 No silent fallback from invalid DB content to hard-coded catalogs.
 
@@ -144,6 +145,8 @@ git diff --check
 
 - runtime content boot can load current published DB content or explicit
   static dev/test fallback
+- real/non-dev runtime fails closed instead of silently falling back to static
+  content when content DB is disabled
 - DB-published core content controls runtime definitions
 - tests prove changed DB value affects gameplay catalog
 - production store, route energy, settlement, and planet building mutation paths

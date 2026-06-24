@@ -16,8 +16,9 @@ func TestClientStaticHandlerServesBuiltClientAndSPAFallback(t *testing.T) {
 	writeStaticTestFile(t, filepath.Join(staticDir, "assets", "app.js"), "console.log('client')")
 
 	gameServer, err := New(Config{
-		AllowedOrigins:  []string{testOrigin},
-		ClientStaticDir: staticDir,
+		AllowedOrigins:    []string{testOrigin},
+		ClientStaticDir:   staticDir,
+		ContentRepository: staticContentRepositoryForTest(),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)
@@ -54,8 +55,9 @@ func TestClientStaticHandlerDoesNotMaskAPIRoutesOrMissingAssets(t *testing.T) {
 	writeStaticTestFile(t, filepath.Join(staticDir, "index.html"), "<!doctype html>")
 
 	gameServer, err := New(Config{
-		AllowedOrigins:  []string{testOrigin},
-		ClientStaticDir: staticDir,
+		AllowedOrigins:    []string{testOrigin},
+		ClientStaticDir:   staticDir,
+		ContentRepository: staticContentRepositoryForTest(),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)
@@ -80,8 +82,9 @@ func TestClientStaticHandlerDoesNotMaskAPIRoutesOrMissingAssets(t *testing.T) {
 
 func TestNewRejectsInvalidClientStaticDir(t *testing.T) {
 	_, err := New(Config{
-		AllowedOrigins:  []string{testOrigin},
-		ClientStaticDir: filepath.Join(t.TempDir(), "missing"),
+		AllowedOrigins:    []string{testOrigin},
+		ClientStaticDir:   filepath.Join(t.TempDir(), "missing"),
+		ContentRepository: staticContentRepositoryForTest(),
 	})
 	if err == nil {
 		t.Fatal("New() error = nil, want missing static dir error")

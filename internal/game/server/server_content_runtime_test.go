@@ -43,9 +43,20 @@ func TestNewRuntimeInjectedRepositoryErrorDoesNotFallBackToStatic(t *testing.T) 
 	}
 }
 
-func TestNewRuntimeContentDBOffUsesStaticRepository(t *testing.T) {
+func TestNewRuntimeContentDBOffRejectsRealMode(t *testing.T) {
+	_, err := NewRuntime(RuntimeConfig{
+		WorldID:   foundation.WorldID("world-1"),
+		ContentDB: contentdb.Config{Mode: contentdb.ContentModeOff},
+	})
+	if !errors.Is(err, contentdb.ErrContentDatabaseDisabled) {
+		t.Fatalf("NewRuntime() error = %v, want ErrContentDatabaseDisabled", err)
+	}
+}
+
+func TestNewRuntimeContentDBOffUsesStaticRepositoryInDevMode(t *testing.T) {
 	runtime, err := NewRuntime(RuntimeConfig{
 		WorldID:   foundation.WorldID("world-1"),
+		DevMode:   true,
 		ContentDB: contentdb.Config{Mode: contentdb.ContentModeOff},
 	})
 	if err != nil {
@@ -55,9 +66,22 @@ func TestNewRuntimeContentDBOffUsesStaticRepository(t *testing.T) {
 	assertRuntimeLaserDamage(t, runtime, 12)
 }
 
-func TestNewRuntimeContentDBDevFallbackWithoutURLUsesStaticRepository(t *testing.T) {
+func TestNewRuntimeContentDBDevFallbackWithoutURLRejectsRealMode(t *testing.T) {
+	_, err := NewRuntime(RuntimeConfig{
+		WorldID: foundation.WorldID("world-1"),
+		ContentDB: contentdb.Config{
+			Mode: contentdb.ContentModeDevFallback,
+		},
+	})
+	if !errors.Is(err, contentdb.ErrContentDatabaseDisabled) {
+		t.Fatalf("NewRuntime() error = %v, want ErrContentDatabaseDisabled", err)
+	}
+}
+
+func TestNewRuntimeContentDBDevFallbackWithoutURLUsesStaticRepositoryInDevMode(t *testing.T) {
 	runtime, err := NewRuntime(RuntimeConfig{
 		WorldID: foundation.WorldID("world-1"),
+		DevMode: true,
 		ContentDB: contentdb.Config{
 			Mode: contentdb.ContentModeDevFallback,
 		},

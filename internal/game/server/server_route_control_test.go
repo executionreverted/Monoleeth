@@ -484,11 +484,12 @@ func routeServiceForTest(t *testing.T, gameServer *Server) *production.Automatio
 func newRouteControlTestServer(t *testing.T, clock foundation.Clock) *Server {
 	t.Helper()
 	gameServer, err := New(Config{
-		AllowedOrigins: []string{testOrigin},
-		SessionTTL:     24 * time.Hour,
-		TickDelta:      50 * time.Millisecond,
-		PasswordHasher: auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
-		Clock:          clock,
+		AllowedOrigins:    []string{testOrigin},
+		SessionTTL:        24 * time.Hour,
+		TickDelta:         50 * time.Millisecond,
+		ContentRepository: staticContentRepositoryForTest(),
+		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		Clock:             clock,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v, want nil", err)

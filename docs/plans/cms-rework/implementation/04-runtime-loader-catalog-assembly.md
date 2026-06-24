@@ -14,6 +14,8 @@
 - [x] Verify published map/NPC rows against `worldmaps.StarterCatalog(worldID)` with no silent fallback.
 - [x] Wire runtime/config to use `contentdb.Repository`.
 - [x] Add server fail-closed runtime/config tests.
+- [x] Reject static content fallback in non-dev runtime unless an explicit test
+  repository is injected.
 
 ---
 

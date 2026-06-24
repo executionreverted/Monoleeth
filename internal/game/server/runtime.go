@@ -210,6 +210,9 @@ func loadRuntimeContent(ctx context.Context, config RuntimeConfig) (gamecontent.
 	if contentConfig.Enabled() {
 		return loadRuntimeContentFromDB(ctx, contentConfig, config)
 	}
+	if !config.DevMode {
+		return gamecontent.GameplayContent{}, fmt.Errorf("content db: %w", contentdb.ErrContentDatabaseDisabled)
+	}
 	return gamecontent.LoadPublishedContent(ctx, gamecontent.NewStaticRepository(), config.WorldID)
 }
 
