@@ -192,6 +192,113 @@ describe('parseServerMessage', () => {
     ).toThrow(/Forbidden server payload rejected/);
   });
 
+  test('accepts player content catalog safe projection only for content catalog request', () => {
+    const raw = JSON.stringify({
+      request_id: 'request-content-catalog',
+      ok: true,
+      payload: {
+        content_catalog: {
+          version: 'content_projection_v1',
+          modules: [
+            {
+              item_id: 'laser_alpha_t1',
+              display: { display_name: 'Prism Lance I', rarity: 'common', tier: 1 },
+              stat_modifiers: [{ stat: 'weapon_damage', kind: 'flat', value: 12 }],
+              stock_policy: { kind: 'limited', total: 5 },
+            },
+          ],
+        },
+      },
+      server_time: 182736126,
+      v: 1,
+    });
+
+    const message = parseServerMessage(raw, {
+      operationForRequestID: () => OPERATIONS.contentCatalog,
+    });
+    expect(message).toMatchObject({
+      request_id: 'request-content-catalog',
+      ok: true,
+      payload: {
+        content_catalog: {
+          version: 'content_projection_v1',
+          modules: [{ item_id: 'laser_alpha_t1' }],
+        },
+      },
+    });
+  });
+
+  test('rejects player content catalog projection for non-content catalog responses', () => {
+    const raw = JSON.stringify({
+      request_id: 'request-crafting-recipes',
+      ok: true,
+      payload: {
+        content_catalog: {
+          version: 'content_projection_v1',
+          modules: [{ item_id: 'laser_alpha_t1', display: { display_name: 'Prism Lance I' } }],
+        },
+      },
+      server_time: 182736126,
+      v: 1,
+    });
+
+    expect(() =>
+      parseServerMessage(raw, {
+        operationForRequestID: () => OPERATIONS.craftingRecipes,
+      }),
+    ).toThrow(/content_catalog payload rejected for non-content\.catalog response/);
+
+    expect(() => parseServerMessage(raw)).toThrow(/content_catalog payload rejected for non-content\.catalog response/);
+  });
+
+  test('rejects hidden player content catalog keys and sentinels', () => {
+    expect(() =>
+      parseServerMessage(
+        JSON.stringify({
+          request_id: 'request-content-catalog',
+          ok: true,
+          payload: {
+            content_catalog: {
+              version: 'content_projection_v1',
+              modules: [{ item_id: 'laser_alpha_t1', display: { display_name: 'Prism Lance I' }, damage: 99 }],
+            },
+          },
+          server_time: 182736126,
+          v: 1,
+        }),
+        {
+          operationForRequestID: () => OPERATIONS.contentCatalog,
+        },
+      ),
+    ).toThrow(/Forbidden server payload rejected/);
+
+    expect(() =>
+      parseServerMessage(
+        JSON.stringify({
+          request_id: 'request-content-catalog',
+          ok: true,
+          payload: {
+            content_catalog: {
+              version: 'content_projection_v1',
+              items: [
+                {
+                  item_id: 'raw_ore',
+                  display: { display_name: 'Raw Ore' },
+                  server_only: 'HIDDEN_PROJECTION_SENTINEL',
+                },
+              ],
+            },
+          },
+          server_time: 182736126,
+          v: 1,
+        }),
+        {
+          operationForRequestID: () => OPERATIONS.contentCatalog,
+        },
+      ),
+    ).toThrow(/Forbidden player content catalog payload rejected/);
+  });
+
   test('accepts public progression fields from server payloads', () => {
     const message = parseServerMessage(
       JSON.stringify({
@@ -384,6 +491,7 @@ describe('default outbound operations', () => {
     expect(OPERATIONS.craftingStart).toBe('crafting.start');
     expect(OPERATIONS.craftingComplete).toBe('crafting.complete');
     expect(OPERATIONS.craftingCancel).toBe('crafting.cancel');
+    expect(OPERATIONS.contentCatalog).toBe('content.catalog');
     expect(OPERATIONS.shopCatalog).toBe('shop.catalog');
     expect(OPERATIONS.shopBuyProduct).toBe('shop.buy_product');
     expect(OPERATIONS.discoveryClaimPlanet).toBe('discovery.claim_planet');
@@ -424,6 +532,8 @@ describe('default outbound operations', () => {
     expect(craftCancel.op).toBe(OPERATIONS.craftingCancel);
     expect(craftCancel.payload).toEqual({ job_id: 'craft-job-1' });
     expect(Object.keys(craftCancel.payload)).toEqual(['job_id']);
+    expect(builder.contentCatalog().op).toBe(OPERATIONS.contentCatalog);
+    expect(builder.contentCatalog().payload).toEqual({});
     expect(builder.shopCatalog().payload).toEqual({});
     expect(builder.shopCatalog('weapons').payload).toEqual({ category_id: 'weapons' });
     expect(builder.shopBuyProduct('product_module_laser_alpha_t1', 1).payload).toEqual({

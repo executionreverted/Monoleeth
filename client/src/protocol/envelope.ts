@@ -45,6 +45,7 @@ export const OPERATIONS = {
   routeSnapshot: 'route.snapshot',
   routeSettle: 'route.settle',
   walletSnapshot: 'wallet.snapshot',
+  contentCatalog: 'content.catalog',
   shopCatalog: 'shop.catalog',
   shopBuyProduct: 'shop.buy_product',
   marketSearch: 'market.search',
@@ -347,6 +348,32 @@ export const adminContentResponseAllowedPayloadKeys = new Set([
   'loot_table',
 ]);
 
+export const playerContentCatalogResponseAllowedPayloadKeys = new Set([
+  'total',
+]);
+
+const playerContentCatalogForbiddenKeys = new Set([
+  'audit_note',
+  'content_id',
+  'content_type',
+  'data_json',
+  'display_json',
+  'draft_version',
+  'enabled',
+  'enemy_pool_caps',
+  'enemy_pools',
+  'loot_chance',
+  'loot_table',
+  'loot_tables',
+  'metadata_schema',
+  'npc_drop_profiles',
+  'procedural_seed',
+  'server_only',
+  'spawn_areas',
+  'spawn_timer_ms',
+  'updated_by',
+]);
+
 export interface ServerParseOptions {
   operationForRequestID?(requestID: string): string | null;
 }
@@ -360,11 +387,12 @@ export function parseServerMessage(raw: string, options: ServerParseOptions = {}
     const requestID = requireString(parsed.request_id, 'request_id');
     if (parsed.ok === true) {
       const payload = requireObject(parsed.payload, 'response payload');
+      const operation = options.operationForRequestID?.(requestID) ?? null;
+      assertPlayerContentCatalogResponseAllowed(payload, operation);
       rejectForbiddenPayloadKeys(payload, {
-        allowedKeys: isAdminContentOperation(options.operationForRequestID?.(requestID))
-          ? adminContentResponseAllowedPayloadKeys
-          : undefined,
+        allowedKeys: allowedResponsePayloadKeys(operation),
       });
+      assertPlayerContentCatalogPayloadSafe(payload);
       return {
         request_id: requestID,
         ok: true,
@@ -391,6 +419,7 @@ export function parseServerMessage(raw: string, options: ServerParseOptions = {}
   }
 
   const payload = requireObject(parsed.payload, 'event payload');
+  assertPlayerContentCatalogResponseAllowed(payload, null);
   rejectForbiddenPayloadKeys(payload);
 
   return {
@@ -414,6 +443,16 @@ export function isAdminContentOperation(operation: string | null | undefined): b
     operation === OPERATIONS.adminContentRollback ||
     operation === OPERATIONS.adminContentAuditLog
   );
+}
+
+function allowedResponsePayloadKeys(operation: string | null | undefined): ReadonlySet<string> | undefined {
+  if (isAdminContentOperation(operation)) {
+    return adminContentResponseAllowedPayloadKeys;
+  }
+  if (operation === OPERATIONS.contentCatalog) {
+    return playerContentCatalogResponseAllowedPayloadKeys;
+  }
+  return undefined;
 }
 
 export interface ForbiddenPayloadOptions {
@@ -458,6 +497,87 @@ export function findForbiddenPayloadKey(value: JsonValue, allowedKeys?: Readonly
 
 export function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function assertPlayerContentCatalogPayloadSafe(payload: JsonObject): void {
+  const catalog = payload.content_catalog;
+  if (!isJsonObject(catalog)) {
+    return;
+  }
+  const found = findForbiddenPlayerContentCatalogEntry(catalog);
+  if (found) {
+    throw new Error('Forbidden player content catalog payload rejected.');
+  }
+}
+
+export function assertPlayerContentCatalogObjectSafe(catalog: JsonObject): void {
+  const found = findForbiddenPlayerContentCatalogEntry(catalog);
+  if (found) {
+    throw new Error('Forbidden player content catalog payload rejected.');
+  }
+}
+
+function findForbiddenPlayerContentCatalogEntry(value: JsonValue): string | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findForbiddenPlayerContentCatalogEntry(item);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    return /(?:HIDDEN|SERVER_ONLY)_[A-Z0-9_]*SENTINEL/i.test(value) ? value : null;
+  }
+
+  if (!isJsonObject(value)) {
+    return null;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    const normalized = key.toLowerCase();
+    if (isForbiddenPlayerContentCatalogKey(normalized)) {
+      return key;
+    }
+    const childFound = findForbiddenPlayerContentCatalogEntry(child);
+    if (childFound) {
+      return childFound;
+    }
+  }
+
+  return null;
+}
+
+function assertPlayerContentCatalogResponseAllowed(
+  payload: JsonObject,
+  operation: string | null | undefined,
+): void {
+  if (!Object.prototype.hasOwnProperty.call(payload, 'content_catalog')) {
+    return;
+  }
+  if (operation !== OPERATIONS.contentCatalog) {
+    throw new Error('content_catalog payload rejected for non-content.catalog response.');
+  }
+  if (!isJsonObject(payload.content_catalog)) {
+    throw new Error('content_catalog payload must be a JSON object.');
+  }
+}
+
+function isForbiddenPlayerContentCatalogKey(normalized: string): boolean {
+  return (
+    playerContentCatalogForbiddenKeys.has(normalized) ||
+    normalized.includes('hidden') ||
+    normalized.includes('server_only') ||
+    normalized.includes('secret') ||
+    normalized.includes('audit') ||
+    normalized.includes('spawn') ||
+    normalized.includes('loot') ||
+    normalized.includes('chance') ||
+    normalized.includes('seed') ||
+    normalized.startsWith('internal')
+  );
 }
 
 function parseJson(raw: string): unknown {

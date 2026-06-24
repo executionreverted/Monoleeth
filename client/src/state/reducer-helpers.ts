@@ -142,6 +142,7 @@ export function clearGameplay(state: ClientState): ClientState {
     production: null,
     routes: null,
     routeSettlements: {},
+    contentCatalog: null,
     shopCatalog: null,
     market: null,
     auction: null,

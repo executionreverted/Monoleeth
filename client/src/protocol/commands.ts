@@ -299,6 +299,10 @@ export class CommandBuilder {
     return this.build(OPERATIONS.walletSnapshot, {});
   }
 
+  contentCatalog(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.contentCatalog, {});
+  }
+
   shopCatalog(categoryID?: string): RequestEnvelope<{ category_id?: string }> {
     return this.build(OPERATIONS.shopCatalog, categoryID ? { category_id: categoryID } : {});
   }

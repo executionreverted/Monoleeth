@@ -1,6 +1,12 @@
-import { adminContentResponseAllowedPayloadKeys, JsonObject, rejectForbiddenPayloadKeys } from '../protocol/envelope';
+import {
+  adminContentResponseAllowedPayloadKeys,
+  JsonObject,
+  playerContentCatalogResponseAllowedPayloadKeys,
+  rejectForbiddenPayloadKeys,
+} from '../protocol/envelope';
 import type { ClientState } from './types';
 import { isJsonObject, objectField } from './reducer-helpers';
+import { hasPlayerContentCatalogPayload, parseContentCatalogSummary } from './reducer-content';
 import {
   applyScanPulse,
   applyPlanetDetail,
@@ -56,8 +62,13 @@ import { applyAdminContentPayload, hasAdminContentPayload } from './reducer-cont
 
 export function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientState {
   const adminContentPayload = hasAdminContentPayload(payload);
+  const playerContentCatalogPayload = hasPlayerContentCatalogPayload(payload);
   rejectForbiddenPayloadKeys(payload, {
-    allowedKeys: adminContentPayload ? adminContentResponseAllowedPayloadKeys : undefined,
+    allowedKeys: adminContentPayload
+      ? adminContentResponseAllowedPayloadKeys
+      : playerContentCatalogPayload
+        ? playerContentCatalogResponseAllowedPayloadKeys
+        : undefined,
   });
 
   let next = adminContentPayload
@@ -252,6 +263,14 @@ export function applySnapshotPayload(state: ClientState, payload: JsonObject): C
     next = {
       ...next,
       shopCatalog: parseShopCatalogSummary(shop, next.shopCatalog),
+    };
+  }
+
+  const contentCatalog = objectField(payload, 'content_catalog');
+  if (contentCatalog) {
+    next = {
+      ...next,
+      contentCatalog: parseContentCatalogSummary(contentCatalog, next.contentCatalog),
     };
   }
 

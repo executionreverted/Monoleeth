@@ -54,6 +54,7 @@ export function expectServerOwnedGameplayCleared(state: ClientState): void {
   });
   expect(state.production).toBeNull();
   expect(state.routes).toBeNull();
+  expect(state.contentCatalog).toBeNull();
   expect(state.shopCatalog).toBeNull();
   expect(state.market).toBeNull();
   expect(state.auction).toBeNull();
@@ -146,6 +147,7 @@ export function stateWithServerOwnedGameplay(): ClientState {
     },
     production: serverOwnedStub<ClientState['production']>(),
     routes: serverOwnedStub<ClientState['routes']>(),
+    contentCatalog: serverOwnedStub<ClientState['contentCatalog']>(),
     shopCatalog: serverOwnedStub<ClientState['shopCatalog']>(),
     market: serverOwnedStub<ClientState['market']>(),
     auction: serverOwnedStub<ClientState['auction']>(),

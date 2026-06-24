@@ -125,6 +125,91 @@ export interface ShopCatalogSummary {
   products: ShopProductSummary[];
 }
 
+export interface ContentDisplayMetadata {
+  display_name: string;
+  description?: string;
+  category?: string;
+  subcategory?: string;
+  art_key?: string;
+  rarity?: string;
+  tier?: number;
+  sort_order?: number;
+}
+
+export interface ContentCategorySummary {
+  category_id: string;
+  display_name: string;
+  sort_order: number;
+}
+
+export interface ContentItemSummary {
+  item_id: string;
+  display: ContentDisplayMetadata;
+  item_type?: string;
+  rarity?: string;
+  max_stack?: number;
+  weight_units?: number;
+  trade_flags: string[];
+  bind_rules: string[];
+}
+
+export interface ContentModuleSummary {
+  item_id: string;
+  display: ContentDisplayMetadata;
+  name?: string;
+  module_category?: string;
+  slot_type?: string;
+  tier?: number;
+  rarity?: string;
+  required_rank?: number;
+  required_role_levels: Array<{ role: string; level: number }>;
+  stat_modifiers: Array<{ stat: string; kind: string; value: number }>;
+  energy: {
+    activation_cost?: number;
+    upkeep?: number;
+  };
+  cooldowns: Array<{ key: string; duration_ms: number }>;
+  durability_max?: number;
+  trade_flags: string[];
+  bind_rules: string[];
+  compatible_slot_types: string[];
+  compatible_categories: string[];
+}
+
+export interface ContentShopProductSummary {
+  product_id: string;
+  product_type?: string;
+  display: ContentDisplayMetadata;
+  grant_target: {
+    kind?: string;
+    ref_id?: string;
+    quantity?: number;
+  };
+  price_policy: {
+    currency_type?: string;
+    amount?: number;
+    fixed?: boolean;
+  };
+  stock_policy: {
+    kind?: string;
+    remaining?: number;
+    total?: number;
+  };
+  availability: {
+    available: boolean;
+    locked_reason?: string;
+    required_rank?: number;
+  };
+}
+
+export interface ContentCatalogSummary {
+  version: string;
+  categories: ContentCategorySummary[];
+  items: ContentItemSummary[];
+  modules: ContentModuleSummary[];
+  shop_products: ContentShopProductSummary[];
+}
+
 export interface MarketListingSummary {
   listing_id: string;
   item_id: string;
@@ -996,6 +1081,7 @@ export interface ClientState {
   production: ProductionCollectionSummary | null;
   routes: RouteListSummary | null;
   routeSettlements?: Record<string, RouteSettlementSummary>;
+  contentCatalog: ContentCatalogSummary | null;
   shopCatalog: ShopCatalogSummary | null;
   market: MarketSummary | null;
   auction: AuctionSummary | null;

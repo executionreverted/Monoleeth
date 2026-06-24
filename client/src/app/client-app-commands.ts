@@ -539,6 +539,7 @@ export abstract class ClientAppCommands extends ClientAppCore {
     this.sendCommand(this.commandBuilder.productionSummary());
     this.sendCommand(this.commandBuilder.planetStorageSummary());
     this.sendCommand(this.commandBuilder.routeList());
+    this.sendCommand(this.commandBuilder.contentCatalog());
     this.sendCommand(this.commandBuilder.shopCatalog());
     this.sendCommand(this.commandBuilder.marketSearch());
     this.sendCommand(this.commandBuilder.auctionSearch());

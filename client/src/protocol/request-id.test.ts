@@ -153,6 +153,7 @@ test('phase 09 command builders send selectors without trusted quest or admin tr
 test('economy, premium, and quest command builders omit trusted result fields', () => {
   const builder = new CommandBuilder();
   const commands = [
+    builder.contentCatalog(),
     builder.marketSearch('raw_ore'),
     builder.marketCreateListing({
       itemID: 'raw_ore',
@@ -178,16 +179,17 @@ test('economy, premium, and quest command builders omit trusted result fields', 
   ];
   const serializedPayloads = JSON.stringify(commands.map((command) => command.payload));
 
-  expect(commands[1].payload).toEqual({
+  expect(commands[0].payload).toEqual({});
+  expect(commands[2].payload).toEqual({
     item_id: 'raw_ore',
     quantity: 2,
     unit_price: 15,
     source_location: 'ship_cargo',
     item_instance_id: 'instance-1',
   });
-  expect(commands[5].payload).toEqual({ auction_id: 'auction-1', amount: 50 });
-  expect(commands[14].payload).toEqual({ quest_id: 'quest-1' });
-  expect(commands[10].payload).toEqual({ product_id: 'weekly_xcore', period_key: '2026-W25' });
+  expect(commands[6].payload).toEqual({ auction_id: 'auction-1', amount: 50 });
+  expect(commands[15].payload).toEqual({ quest_id: 'quest-1' });
+  expect(commands[11].payload).toEqual({ product_id: 'weekly_xcore', period_key: '2026-W25' });
 
   for (const forbidden of [
     'player_id',
