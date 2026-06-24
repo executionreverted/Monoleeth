@@ -150,3 +150,21 @@ Admin content writes need abuse posture:
 - admin can mutate drafts through server API
 - publish/rollback/audit exist
 - runtime still restart-loads current published version
+
+## Implemented Slice
+
+- Added first `admin.content.*` operation: `admin.content.versions`.
+- Operation is admin-only via server-resolved session role.
+- Runtime can keep a DB-backed content admin version store open separately from
+  boot-time published snapshot loading.
+- Response returns version metadata only; no snapshot JSON, loot rows, spawn
+  internals, procedural seeds, or audit payloads.
+
+Remaining:
+
+- draft list/get/update
+- draft validation response
+- publish transaction and DB idempotency
+- rollback transaction and DB idempotency
+- diff and audit-log query with scrubber/pagination
+- admin-only publish event fanout

@@ -43,6 +43,70 @@ type PublishedSnapshot struct {
 	PublishedAt          time.Time
 }
 
+func (store *Store) ListContentVersions(ctx context.Context, input content.VersionListInput) (content.VersionList, error) {
+	if store == nil || store.db == nil {
+		return content.VersionList{}, ErrNilDatabase
+	}
+	input = content.NormalizeVersionListInput(input)
+	var total int
+	if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM content_versions`).Scan(&total); err != nil {
+		return content.VersionList{}, err
+	}
+	rows, err := store.db.QueryContext(ctx, `
+		SELECT
+			id::text,
+			version,
+			status,
+			is_current,
+			notes,
+			balance_tag,
+			COALESCE(created_by, ''),
+			created_at,
+			COALESCE(published_by, ''),
+			published_at,
+			COALESCE(rolled_back_from::text, '')
+		FROM content_versions
+		ORDER BY is_current DESC, published_at DESC NULLS LAST, created_at DESC, version DESC
+		LIMIT $1 OFFSET $2
+	`, input.Limit, input.Offset)
+	if err != nil {
+		return content.VersionList{}, err
+	}
+	defer rows.Close()
+	out := content.VersionList{
+		Total:  total,
+		Limit:  input.Limit,
+		Offset: input.Offset,
+	}
+	for rows.Next() {
+		var version content.VersionSummary
+		var publishedAt sql.NullTime
+		if err := rows.Scan(
+			&version.ID,
+			&version.Version,
+			&version.Status,
+			&version.Current,
+			&version.Notes,
+			&version.BalanceTag,
+			&version.CreatedBy,
+			&version.CreatedAt,
+			&version.PublishedBy,
+			&publishedAt,
+			&version.RolledBackFrom,
+		); err != nil {
+			return content.VersionList{}, err
+		}
+		if publishedAt.Valid {
+			version.PublishedAt = publishedAt.Time
+		}
+		out.Versions = append(out.Versions, version)
+	}
+	if err := rows.Err(); err != nil {
+		return content.VersionList{}, err
+	}
+	return out, nil
+}
+
 type DraftContentRow struct {
 	ContentID    content.ContentID
 	DraftVersion string

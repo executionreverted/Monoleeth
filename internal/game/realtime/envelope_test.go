@@ -435,6 +435,19 @@ func TestOperationRegistryAcceptsIntelCoordinateContracts(t *testing.T) {
 	}
 }
 
+func TestOperationRegistryAcceptsAdminContentVersions(t *testing.T) {
+	envelope, err := DecodeRequestEnvelope([]byte(`{"request_id":"request-admin-content-versions","op":"admin.content.versions","payload":{"limit":10},"client_seq":1,"v":1}`))
+	if err != nil {
+		t.Fatalf("DecodeRequestEnvelope(admin.content.versions) error = %v, want nil", err)
+	}
+	if envelope.Op != OperationAdminContentVersions {
+		t.Fatalf("op = %q, want %q", envelope.Op, OperationAdminContentVersions)
+	}
+	if _, ok := LookupOperation(OperationAdminContentVersions); !ok {
+		t.Fatalf("LookupOperation(%q) not registered", OperationAdminContentVersions)
+	}
+}
+
 func TestOperationRegistryRejectsClientAuthoredQuestProgressOperations(t *testing.T) {
 	allowedQuestClientOperations := map[Operation]struct{}{
 		Operation("quest.board"):        {},

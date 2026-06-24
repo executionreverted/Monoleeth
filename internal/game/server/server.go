@@ -147,9 +147,16 @@ func (server *Server) Shutdown(ctx context.Context) error {
 		return true
 	})
 	if server.server == nil {
+		if server.runtime != nil {
+			return server.runtime.Close()
+		}
 		return nil
 	}
-	return server.server.Shutdown(ctx)
+	var runtimeErr error
+	if server.runtime != nil {
+		runtimeErr = server.runtime.Close()
+	}
+	return errors.Join(server.server.Shutdown(ctx), runtimeErr)
 }
 
 func (server *Server) serveHealth(w http.ResponseWriter, _ *http.Request) {

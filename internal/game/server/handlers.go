@@ -20,8 +20,14 @@ import (
 
 var trustedClientPayloadKeys = map[string]struct{}{
 	"account_id":              {},
+	"actor_account_id":        {},
+	"admin":                   {},
+	"admin_role":              {},
 	"client_player_id":        {},
 	"player_id":               {},
+	"published_by":            {},
+	"roles":                   {},
+	"server_time":             {},
 	"session_id":              {},
 	"world_id":                {},
 	"zone_id":                 {},
@@ -209,6 +215,7 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationAdminInspectPlayer:    runtime.handleAdminInspectPlayer,
 		realtime.OperationAdminRepairCraftJob:   runtime.handleAdminRepairCraftJob,
 		realtime.OperationAdminEconomyDash:      runtime.handleAdminEconomyDashboard,
+		realtime.OperationAdminContentVersions:  runtime.handleAdminContentVersions,
 		realtime.OperationObservabilityLog:      runtime.handleObservabilityCommandLog,
 		realtime.OperationObservabilityMetric:   runtime.handleObservabilityMetrics,
 		realtime.OperationObservabilityGate:     runtime.handleObservabilityReleaseGate,

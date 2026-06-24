@@ -27,6 +27,10 @@
    - `AuditLog`
 3. Unit-test missing deps and invalid draft.
 
+**Status:** Started with `ListVersions` only. Service normalizes pagination and
+uses server clock for generated metadata. Draft validation/publish/rollback
+methods remain open.
+
 ### Task 2: Add Draft Store Methods
 
 **Files:**
@@ -39,6 +43,9 @@
 2. Add publish transaction method with DB idempotency key.
 3. Add rollback transaction method with DB idempotency key.
 4. Add audit query method with pagination and scrubbed payloads.
+
+**Status:** Started with `ListContentVersions` read method. Draft get/update,
+publish, rollback, and audit query remain open.
 
 ### Task 3: Add Realtime Ops
 
@@ -63,6 +70,9 @@
 3. Reject non-admin.
 4. Never trust actor/session/player/server fields from payload.
 5. Add explicit admin content DTO gate so stat fields like damage/rank/cooldown are accepted only for `admin.content.*`.
+
+**Status:** `admin.content.versions` is registered and admin-gated. Other
+`admin.content.*` ops remain open.
 
 ### Task 4: Idempotency And Rate Posture
 

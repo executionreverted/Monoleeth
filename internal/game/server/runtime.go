@@ -78,6 +78,7 @@ type RuntimeConfig struct {
 	DevMode             bool
 	ContentDB           contentdb.Config
 	ContentRepository   gamecontent.Repository
+	ContentAdmin        *admin.ContentService
 	E2EPlanetClaimSeed  bool
 	E2EPlanetClaimCores int
 	E2ERouteSeed        bool
@@ -147,6 +148,7 @@ type Runtime struct {
 	Premium                        *premium.PremiumEntitlementService
 	Quest                          *quests.QuestService
 	Admin                          *admin.Service
+	ContentAdmin                   *admin.ContentService
 	Progression                    *progression.ProgressionService
 	ShipCatalog                    ships.Catalog
 	HangarStore                    *ships.InMemoryHangarStore
@@ -169,6 +171,7 @@ type Runtime struct {
 	BuildingMutations              *production.InMemoryBuildingMutationDurableCommitStore
 	CommandLog                     *observability.MemoryCommandLogger
 	Metrics                        *observability.MetricRecorder
+	contentAdminCloser             func() error
 
 	combatXP            *combat.NPCKillXPHandler
 	lootTables          map[string]loot.LootTable
@@ -194,6 +197,11 @@ type runtimeContentStore interface {
 	contentseed.SeedStore
 	Migrate(context.Context, contentdb.MigrationMode) error
 	Close() error
+}
+
+type runtimeContentVersionStore interface {
+	runtimeContentStore
+	admin.ContentVersionStore
 }
 
 func loadRuntimeContent(ctx context.Context, config RuntimeConfig) (gamecontent.GameplayContent, error) {
@@ -283,6 +291,47 @@ func defaultRuntimeContentRepositoryStore(store runtimeContentStore) (gameconten
 	return contentdb.NewRepository(contentStore)
 }
 
+func (runtime *Runtime) Close() error {
+	if runtime == nil || runtime.contentAdminCloser == nil {
+		return nil
+	}
+	closeContentAdmin := runtime.contentAdminCloser
+	runtime.contentAdminCloser = nil
+	return closeContentAdmin()
+}
+
+func loadRuntimeContentAdmin(ctx context.Context, config RuntimeConfig, clock foundation.Clock) (*admin.ContentService, func() error, error) {
+	if config.ContentAdmin != nil {
+		return config.ContentAdmin, nil, nil
+	}
+	contentConfig := config.ContentDB.WithDefaults()
+	if !contentConfig.Enabled() {
+		return nil, nil, nil
+	}
+	openStore := config.contentDBOpen
+	if openStore == nil {
+		openStore = defaultRuntimeContentDBOpen
+	}
+	store, err := openStore(ctx, contentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if store == nil {
+		return nil, nil, contentdb.ErrNilDatabase
+	}
+	closeStore := func() error { return store.Close() }
+	if err := store.Migrate(ctx, contentConfig.Migrations); err != nil {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("migrate content admin db: %w", err)
+	}
+	versionStore, ok := store.(runtimeContentVersionStore)
+	if !ok {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("content admin store %T: %w", store, contentdb.ErrNilDatabase)
+	}
+	return admin.NewContentService(admin.ContentServiceConfig{Versions: versionStore, Clock: clock}), closeStore, nil
+}
+
 // NewRuntime creates the single-process runtime.
 func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if config.E2EPlanetClaimSeed && !config.DevMode {
@@ -318,6 +367,10 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		}
 	}
 	contentBundle, err := loadRuntimeContent(context.Background(), config)
+	if err != nil {
+		return nil, err
+	}
+	contentAdmin, contentAdminCloser, err := loadRuntimeContentAdmin(context.Background(), config, clock)
 	if err != nil {
 		return nil, err
 	}
@@ -540,6 +593,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Premium:                        premiumService,
 		Quest:                          questService,
 		Admin:                          adminService,
+		ContentAdmin:                   contentAdmin,
 		Progression:                    progressionService,
 		ShipCatalog:                    shipCatalog,
 		HangarStore:                    hangarStore,
@@ -560,6 +614,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		BuildingMutations:              buildingMutationStore,
 		CommandLog:                     commandLogger,
 		Metrics:                        metricRecorder,
+		contentAdminCloser:             contentAdminCloser,
 		combatXP:                       combatXP,
 		lootTables:                     lootTables,
 		itemCatalog:                    itemCatalog,
