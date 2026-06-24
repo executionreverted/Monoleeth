@@ -503,6 +503,47 @@
   gap: 0.3rem;
 }
 
+.cms-type-filter {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.cms-type-filter button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  min-width: 0;
+  min-height: 2rem;
+  border: 1px solid rgba(215, 247, 255, 0.16);
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(245, 247, 248, 0.86);
+  font: inherit;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+}
+
+.cms-type-filter button[data-selected='true'] {
+  border-color: rgba(244, 201, 93, 0.58);
+  background: rgba(244, 201, 93, 0.09);
+  color: #f4c95d;
+}
+
+.cms-type-filter span,
+.cms-type-filter em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cms-type-filter em {
+  color: rgba(215, 247, 255, 0.58);
+  font-style: normal;
+}
+
 .cms-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -806,6 +847,16 @@
   padding: 0 0.45rem;
 }
 
+.cms-edit-control--toggle {
+  align-content: end;
+}
+
+.cms-edit-control--toggle input {
+  width: 2.1rem;
+  justify-self: start;
+  accent-color: #f4c95d;
+}
+
 .cms-edit-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -830,6 +881,7 @@
 
 @media (max-width: 720px) {
   .cms-toolbar,
+  .cms-type-filter,
   .cms-metrics,
   .cms-grid,
   .cms-stat-grid,

@@ -10,6 +10,7 @@ import {
   NAVIGATION_TARGET_TOLERANCE_UNITS,
 } from './client-app-core';
 import type { AdminContentDraftUpdateInput } from '../ui/hud-types';
+import { ADMIN_CONTENT_EDITOR_TYPES } from '../ui/hud-render-admin-content';
 
 export const ADMIN_CONTENT_DEFAULT_BALANCE_TAG = 'client_cms_lc1';
 export const ADMIN_CONTENT_DEFAULT_PUBLISH_NOTES = 'Client CMS publish from admin panel.';
@@ -569,8 +570,10 @@ export abstract class ClientAppCommands extends ClientAppCore {
       return;
     }
     this.sendCommand(this.commandBuilder.adminContentVersions());
-    this.sendCommand(this.commandBuilder.adminContentList('module'));
-    this.sendCommand(this.commandBuilder.adminContentAuditLog({ contentType: 'module', limit: 12 }));
+    for (const type of ADMIN_CONTENT_EDITOR_TYPES) {
+      this.sendCommand(this.commandBuilder.adminContentList(type.id));
+    }
+    this.sendCommand(this.commandBuilder.adminContentAuditLog({ limit: 12 }));
   }
 
   protected sendAdminContentPublish(): void {

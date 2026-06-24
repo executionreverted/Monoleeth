@@ -9,7 +9,7 @@ import { questsPanel } from './hud-render-quests';
 import { planetsPanel } from './hud-render-planets';
 import { topbarDangerText, topbarLocationText } from './hud-topbar';
 import { actionBar, baseWindowDefinitions, intelPanel, logPanel, modalDefinition, movementEtaPanel, opsPanel, quickActionStates, shipPanel, statusPanel, systemsPanel, targetPanel, windowDefinitions, windowLayout } from './hud-render-panels';
-import { adminModuleEditPatchFromForm, buildAdminModuleDraftUpdate, findAdminModuleDraftRow } from './hud-render-admin-content';
+import { adminContentEditPatchFromForm, buildAdminContentDraftUpdate, findAdminContentDraftRow } from './hud-render-admin-content';
 import type { HUDDragState, HUDHandlers, HUDModalDragState, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, HUDWindowState } from './hud-types';
 import { clamp, escapeHTML, formatCompactNumber, formatPair, formatPercent, isControlElement, isInventoryTabID, isModuleFilterID, isQuickActionKey, isShopCategoryID, normalizeModalID, normalizePanelID, parseLoadoutDragPayload } from './hud-formatters';
 import { dispatchPlanetRouteButtonAction } from './hud-planet-route-actions';
@@ -522,14 +522,32 @@ export class HUD {
             this.rerenderCurrent();
           }
           break;
-        case 'admin-content-module-edit':
+        case 'admin-content-type-select':
+          if (button.dataset.contentType) {
+            hudSelection.selectedAdminContentType = button.dataset.contentType;
+            hudSelection.selectedAdminContentID = null;
+            this.rerenderCurrent();
+          }
+          break;
+        case 'admin-content-edit':
           if (button.dataset.contentId && this.currentState) {
+            hudSelection.selectedAdminContentType = button.dataset.contentType ?? hudSelection.selectedAdminContentType;
+            hudSelection.selectedAdminContentID = button.dataset.contentId;
             this.openModal('admin-content-module-edit', this.currentState, button.dataset.contentId, button);
             this.render(this.currentState);
           }
           break;
+        case 'admin-content-module-edit':
+          if (button.dataset.contentId && this.currentState) {
+            hudSelection.selectedAdminContentType = button.dataset.contentType ?? 'module';
+            hudSelection.selectedAdminContentID = button.dataset.contentId;
+            this.openModal('admin-content-module-edit', this.currentState, button.dataset.contentId, button);
+            this.render(this.currentState);
+          }
+          break;
+        case 'admin-content-save':
         case 'admin-content-module-save':
-          this.handleAdminContentModuleSave(button);
+          this.handleAdminContentSave(button);
           break;
         case 'admin-content-rollback':
           if (button.dataset.versionId) {
@@ -670,22 +688,22 @@ export class HUD {
       }
   }
 
-  private handleAdminContentModuleSave(button: HTMLButtonElement): void {
+  private handleAdminContentSave(button: HTMLButtonElement): void {
     if (!this.currentState?.auth.session?.account?.admin) {
       return;
     }
-    const form = button.closest<HTMLFormElement>('form[data-admin-content-module-form="true"]');
+    const form = button.closest<HTMLFormElement>('form[data-admin-content-form="true"], form[data-admin-content-module-form="true"]');
     if (!form) {
       return;
     }
     if (!form.reportValidity()) {
       return;
     }
-    const row = findAdminModuleDraftRow(this.currentState, form.dataset.contentId ?? null);
+    const row = findAdminContentDraftRow(this.currentState, form.dataset.contentType ?? hudSelection.selectedAdminContentType, form.dataset.contentId ?? null);
     if (!row) {
       return;
     }
-    this.handlers.onAdminContentUpdateDraft(buildAdminModuleDraftUpdate(row, adminModuleEditPatchFromForm(form)));
+    this.handlers.onAdminContentUpdateDraft(buildAdminContentDraftUpdate(row, adminContentEditPatchFromForm(form)));
     this.closeModal();
     if (this.currentState) {
       this.render(this.currentState);

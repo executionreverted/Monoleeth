@@ -84,7 +84,7 @@ export class ClientApp extends ClientAppHandlers {
       onAdminContentValidate: () => this.sendCommand(this.commandBuilder.adminContentValidateDraft()),
       onAdminContentPublish: () => this.sendAdminContentPublish(),
       onAdminContentRollback: (versionID) => this.sendAdminContentRollback(versionID),
-      onAdminContentAudit: () => this.sendCommand(this.commandBuilder.adminContentAuditLog({ contentType: 'module', limit: 12 })),
+      onAdminContentAudit: () => this.sendCommand(this.commandBuilder.adminContentAuditLog({ limit: 12 })),
       onAdminContentUpdateDraft: (input) => this.sendAdminContentUpdateDraft(input),
     });
 

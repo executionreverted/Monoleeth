@@ -4,9 +4,13 @@ import { createInitialState } from '../state/reducer';
 import type { AdminContentState, ClientState } from '../state/types';
 import { HUD } from './hud';
 import {
+  ADMIN_CONTENT_EDITOR_TYPES,
   adminContentBlock,
+  adminContentEditFields,
+  adminContentEditModal,
   adminModuleEditFields,
   adminModuleEditModal,
+  buildAdminContentDraftUpdate,
   buildAdminModuleDraftUpdate,
 } from './hud-render-admin-content';
 import { opsPanel } from './hud-render-panels';
@@ -72,11 +76,13 @@ describe('admin content HUD render', () => {
 
     const html = adminContentBlock(state);
 
+    expect(ADMIN_CONTENT_EDITOR_TYPES).toHaveLength(8);
     expect(html).toContain('data-action="admin-content-refresh"');
     expect(html).toContain('data-action="admin-content-validate"');
     expect(html).toContain('data-action="admin-content-publish"');
     expect(html).toContain('data-action="admin-content-audit"');
     expect(html).toContain('data-action="admin-content-rollback"');
+    expect(html).toContain('data-action="admin-content-type-select"');
     expect(html).toContain('content_balance_v2');
     expect(html).toContain('Laser Alpha T1');
     expect(html).toContain('laser_alpha_t1');
@@ -89,6 +95,21 @@ describe('admin content HUD render', () => {
     expect(html).toContain('data-action="admin-content-module-edit"');
   });
 
+  test('selects non-module CMS type rows and renders reusable editor modal', () => {
+    hudSelection.selectedAdminContentType = 'ship';
+    hudSelection.selectedAdminContentID = 'starter_ship';
+
+    const html = adminContentBlock(adminState());
+    const modal = adminContentEditModal(adminState(), 'starter_ship');
+
+    expect(html).toContain('Ships');
+    expect(html).toContain('Starter Ship');
+    expect(html).toContain('data-action="admin-content-edit"');
+    expect(modal).toContain('data-admin-content-form="true"');
+    expect(modal).toContain('data-admin-content-field="ship_hp"');
+    expect(modal).toContain('data-action="admin-content-save"');
+  });
+
   test('selects module draft rows without rendering hidden loot internals', () => {
     hudSelection.selectedAdminContentID = 'shield_alpha_t1';
 
@@ -96,7 +117,6 @@ describe('admin content HUD render', () => {
 
     expect(html).toContain('Shield Alpha T1');
     expect(html).toContain('data-selected="true"');
-    expect(html).not.toContain('loot_table');
     expect(html).not.toContain('spawn_candidates');
     expect(html).not.toContain('rare_drop_sentinel');
     expect(html).not.toContain('spawn_sentinel');
@@ -151,6 +171,45 @@ describe('admin content HUD render', () => {
     expect(data.loot_table).toBe('rare_drop_sentinel');
     expect(data.spawn_candidates).toEqual(['spawn_sentinel']);
     expect(row!.data_json.required_rank).toBe(1);
+  });
+
+  test.each([
+    ['item', 'iron_ore', { display_name: 'Iron Ore II', max_stack: 250, rarity: 'uncommon' }, { displayName: 'Iron Ore II', dataKey: 'max_stack', value: 250 }],
+    ['ship', 'starter_ship', { ship_hp: 170, rank: 2 }, { dataKey: 'rank_requirement', value: 2, nestedKey: 'hp', nestedValue: 170 }],
+    ['shop_product', 'laser_alpha_shop', { shop_price: 3200 }, { nestedParent: 'price_policy', dataKey: 'amount', value: 3200 }],
+    ['npc_template', 'training_drone', { npc_hp: 90 }, { nestedParent: 'combat_stats', dataKey: 'max_hp', value: 90 }],
+    ['loot_table', 'training_drone_salvage', { loot_chance: 0.42 }, { arrayKey: 'rows', dataKey: 'chance', value: 0.42 }],
+    ['craft_recipe', 'laser_alpha_recipe', { craft_required_rank: 3 }, { dataKey: 'required_rank', value: 3 }],
+    ['production_building', 'crystal_extractor_l1', { production_rate: 55 }, { arrayKey: 'outputs', dataKey: 'amount_per_hour', value: 55 }],
+  ])('builds reusable %s draft payload while preserving unrelated JSON', (contentType, contentID, patch, expectation) => {
+    const row = adminState().adminContent?.rowsByType[contentType]?.rows.find((item) => item.content_id === contentID);
+    expect(row).toBeTruthy();
+
+    const fields = adminContentEditFields(row!);
+    const update = buildAdminContentDraftUpdate(row!, { enabled: false, ...patch });
+    const data = update.dataJSON;
+
+    expect(fields.length).toBeGreaterThanOrEqual(2);
+    expect(update).toMatchObject({
+      contentType,
+      contentID,
+      enabled: false,
+    });
+    if ('displayName' in expectation) {
+      expect(update.displayJSON.display_name ?? update.displayJSON.name).toBe(expectation.displayName);
+    }
+    if ('nestedParent' in expectation) {
+      expect((data[expectation.nestedParent] as Record<string, unknown>)[expectation.dataKey]).toBe(expectation.value);
+    } else if ('arrayKey' in expectation) {
+      expect(((data[expectation.arrayKey] as Array<Record<string, unknown>>)[0])[expectation.dataKey]).toBe(expectation.value);
+    } else {
+      expect(data[expectation.dataKey]).toBe(expectation.value);
+    }
+    if ('nestedKey' in expectation) {
+      expect((data.base_stats as Record<string, unknown>)[expectation.nestedKey]).toBe(expectation.nestedValue);
+    }
+    expect(data.admin_notes).toBe('preserve-admin-note');
+    expect(row!.enabled).toBe(true);
   });
 
   test('does not add module edit fields that are absent from draft data', () => {
@@ -216,6 +275,13 @@ describe('admin content HUD render', () => {
     expect(hudSelection.selectedAdminContentID).toBe('shield_alpha_t1');
     expect(rollback.rerenderCurrent).not.toHaveBeenCalled();
     expect(select.rerenderCurrent).toHaveBeenCalledTimes(1);
+
+    const typeSelect = dispatchHUDButton('admin-content-type-select', handlers, {
+      contentType: 'ship',
+    });
+    expect(typeSelect.rerenderCurrent).toHaveBeenCalledTimes(1);
+    expect(hudSelection.selectedAdminContentType).toBe('ship');
+    expect(hudSelection.selectedAdminContentID).toBeNull();
   });
 });
 
@@ -300,6 +366,148 @@ function adminState(contentOverride: Partial<AdminContentState> = {}): ClientSta
             },
           ],
           total: 2,
+          limit: 50,
+          offset: 0,
+          generated_at: 1551,
+        },
+        item: {
+          content_type: 'item',
+          rows: [
+            {
+              content_type: 'item',
+              content_id: 'iron_ore',
+              enabled: true,
+              display_json: { display_name: 'Iron Ore' },
+              data_json: {
+                item_type: 'material',
+                rarity: 'common',
+                max_stack: 100,
+                admin_notes: 'preserve-admin-note',
+              },
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+          generated_at: 1551,
+        },
+        ship: {
+          content_type: 'ship',
+          rows: [
+            {
+              content_type: 'ship',
+              content_id: 'starter_ship',
+              enabled: true,
+              display_json: { display_name: 'Starter Ship' },
+              data_json: {
+                rank_requirement: 1,
+                role_tag: 'fighter',
+                base_stats: { hp: 140, shield: 80 },
+                admin_notes: 'preserve-admin-note',
+              },
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+          generated_at: 1551,
+        },
+        shop_product: {
+          content_type: 'shop_product',
+          rows: [
+            {
+              content_type: 'shop_product',
+              content_id: 'laser_alpha_shop',
+              enabled: true,
+              display_json: { display_name: 'LC1 Shop' },
+              data_json: {
+                product_type: 'module',
+                price_policy: { currency_type: 'credits', amount: 2500 },
+                admin_notes: 'preserve-admin-note',
+              },
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+          generated_at: 1551,
+        },
+        npc_template: {
+          content_type: 'npc_template',
+          rows: [
+            {
+              content_type: 'npc_template',
+              content_id: 'training_drone',
+              enabled: true,
+              display_json: { display_name: 'Training Drone' },
+              data_json: {
+                combat_stats: { max_hp: 75, damage: 4 },
+                loot_table_id: 'training_drone_salvage',
+                admin_notes: 'preserve-admin-note',
+              },
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+          generated_at: 1551,
+        },
+        loot_table: {
+          content_type: 'loot_table',
+          rows: [
+            {
+              content_type: 'loot_table',
+              content_id: 'training_drone_salvage',
+              enabled: true,
+              display_json: { display_name: 'Training Drone Salvage' },
+              data_json: {
+                rows: [{ item_id: 'iron_ore', chance: 0.25, min_qty: 1, max_qty: 3 }],
+                admin_notes: 'preserve-admin-note',
+              },
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+          generated_at: 1551,
+        },
+        craft_recipe: {
+          content_type: 'craft_recipe',
+          rows: [
+            {
+              content_type: 'craft_recipe',
+              content_id: 'laser_alpha_recipe',
+              enabled: true,
+              display_json: { display_name: 'Craft LC1' },
+              data_json: {
+                output_item_id: 'laser_alpha_t1',
+                output_amount: 1,
+                required_rank: 1,
+                admin_notes: 'preserve-admin-note',
+              },
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+          generated_at: 1551,
+        },
+        production_building: {
+          content_type: 'production_building',
+          rows: [
+            {
+              content_type: 'production_building',
+              content_id: 'crystal_extractor_l1',
+              enabled: true,
+              display_json: { display_name: 'Crystal Extractor I' },
+              data_json: {
+                outputs: [{ item_id: 'crystal_fragment', amount_per_hour: 30 }],
+                energy_cost_per_hour: 4,
+                admin_notes: 'preserve-admin-note',
+              },
+            },
+          ],
+          total: 1,
           limit: 50,
           offset: 0,
           generated_at: 1551,

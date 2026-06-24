@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { OPERATIONS, type EntityPayload, type RequestEnvelope, type ServerMessage, type Vec2 } from '../protocol/envelope';
+import { OPERATIONS, parseServerMessage, type EntityPayload, type RequestEnvelope, type ServerMessage, type Vec2 } from '../protocol/envelope';
 import { createInitialState } from '../state/reducer';
 import type { ClientAction, ClientState, WorldMapMemoryMarker } from '../state/types';
+import { ADMIN_CONTENT_EDITOR_TYPES } from '../ui/hud-render-admin-content';
 import {
   ADMIN_CONTENT_DEFAULT_BALANCE_TAG,
   ADMIN_CONTENT_DEFAULT_PUBLISH_NOTES,
@@ -41,6 +42,50 @@ describe('ClientApp admin content commands', () => {
       },
     });
   });
+
+  test('refreshes every supported admin CMS type with real admin ops', () => {
+    const app = new AdminContentCommandHarness();
+
+    app.refresh();
+
+    expect(app.sent[0]?.op).toBe(OPERATIONS.adminContentVersions);
+    expect(app.sent.filter((envelope) => envelope.op === OPERATIONS.adminContentList).map((envelope) => envelope.payload.content_type)).toEqual(
+      ADMIN_CONTENT_EDITOR_TYPES.map((type) => type.id),
+    );
+    expect(app.sent.at(-1)).toMatchObject({
+      op: OPERATIONS.adminContentAuditLog,
+      payload: { limit: 12 },
+    });
+  });
+
+  test('keeps admin CMS payload rejected from player parser paths', () => {
+    const raw = JSON.stringify({
+      request_id: 'request-admin-content-list',
+      ok: true,
+      payload: {
+        content: {
+          content_type: 'loot_table',
+          rows: [
+            {
+              content_id: 'training_drone_salvage',
+              enabled: true,
+              display_json: {},
+              data_json: { rows: [{ item_id: 'iron_ore', chance: 0.25 }], loot_table: 'admin-only' },
+            },
+          ],
+        },
+      },
+      server_time: 1,
+      v: 1,
+    });
+
+    expect(() => parseServerMessage(raw)).toThrow(/Forbidden server payload rejected/);
+    expect(parseServerMessage(raw, { operationForRequestID: () => OPERATIONS.adminContentList })).toMatchObject({
+      request_id: 'request-admin-content-list',
+      ok: true,
+      payload: { content: { content_type: 'loot_table' } },
+    });
+  });
 });
 
 class AdminContentCommandHarness extends ClientAppCommands {
@@ -71,6 +116,10 @@ class AdminContentCommandHarness extends ClientAppCommands {
 
   rollback(versionID: string): void {
     this.sendAdminContentRollback(versionID);
+  }
+
+  refresh(): void {
+    this.refreshAdminContent();
   }
 
   protected sendCommand(envelope: RequestEnvelope): boolean {
