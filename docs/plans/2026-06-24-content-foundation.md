@@ -59,6 +59,7 @@ Add `GameplayContent` with:
 - `Shop catalog.ContentRegistry`
 - `Route RouteContent`
 - `Rules ProductionRulesContent`
+- `Combat CombatRulesContent`
 
 Add `DefaultGameplayContent(worldID world.WorldID)` to assemble current static
 content.
@@ -85,6 +86,9 @@ Add `Validate() error` and helpers for:
   cross-map penalty, endpoint storage capacity, energy formula, and loss band
 - production rule refs and caps: claim range, claim production storage/energy
   defaults, and building build/upgrade material+credit costs
+- combat rule refs and caps: DarkOrbit-like demo player speed, radar range,
+  loot pickup range, basic laser cost/cooldown, training NPC type, repair
+  quote currency/cost, NPC kill XP, and PvP cargo-drop policy by zone
 
 **Step 5: Run focused test**
 

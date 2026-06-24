@@ -37,12 +37,12 @@ import (
 const (
 	starterShipID                      foundation.ShipID = gamecontent.DefaultStarterShipID
 	starterShipDisplayName                               = gamecontent.DefaultStarterShipDisplayName
-	defaultPlayerSpeed                                   = 180
-	defaultRadarRange                                    = 420
+	defaultPlayerSpeed                                   = gamecontent.DefaultPlayerSpeed
+	defaultRadarRange                                    = gamecontent.DefaultRadarRange
 	defaultMaxMoveDistance                               = 1200
-	runtimeLootPickupRange                               = 120.0
-	runtimeBasicLaserEnergyCost                          = 10
-	runtimeBasicLaserCooldownMS                          = 350
+	runtimeLootPickupRange                               = gamecontent.DefaultLootPickupRange
+	runtimeBasicLaserEnergyCost                          = gamecontent.DefaultBasicLaserEnergyCost
+	runtimeBasicLaserCooldownMS                          = gamecontent.DefaultBasicLaserCooldownMS
 	minMoveCommandInterval                               = 75 * time.Millisecond
 	runtimeStealthSpeedMultiplier                        = 0.70
 	starterScannerItemID                                 = gamecontent.DefaultStarterScannerItemID
@@ -167,6 +167,7 @@ type Runtime struct {
 	starterContent      gamecontent.StarterContent
 	routeContent        gamecontent.RouteContent
 	productionRules     gamecontent.ProductionRulesContent
+	combatRules         gamecontent.CombatRulesContent
 	repairAttempts      map[foundation.IdempotencyKey]repairAttemptRecord
 	shopPurchases       map[foundation.IdempotencyKey]shopPurchaseRecord
 	scanCooldowns       map[scanCooldownKey]time.Time
@@ -278,13 +279,13 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Clock:       clock,
 		Cargo:       cargoService,
 		Progression: progressionService,
-		PickupRange: runtimeLootPickupRange,
+		PickupRange: contentBundle.Combat.LootPickupRange,
 	})
 	if err != nil {
 		return nil, err
 	}
 	combatService := combat.NewService(clock, nil)
-	combatXP, err := combat.NewNPCKillXPHandler(progressionService, combat.DefaultNPCKillXPReward())
+	combatXP, err := combat.NewNPCKillXPHandler(progressionService, contentBundle.Combat.NPCKillXPReward())
 	if err != nil {
 		return nil, err
 	}
@@ -459,6 +460,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		starterContent:                 contentBundle.Starter,
 		routeContent:                   contentBundle.Route,
 		productionRules:                contentBundle.Rules,
+		combatRules:                    contentBundle.Combat,
 		repairAttempts:                 make(map[foundation.IdempotencyKey]repairAttemptRecord),
 		shopPurchases:                  make(map[foundation.IdempotencyKey]shopPurchaseRecord),
 		scanCooldowns:                  make(map[scanCooldownKey]time.Time),

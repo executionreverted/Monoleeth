@@ -22,6 +22,7 @@ var (
 	ErrInvalidStarterContent         = errors.New("invalid starter content")
 	ErrInvalidRouteContent           = errors.New("invalid route content")
 	ErrInvalidProductionRulesContent = errors.New("invalid production rules content")
+	ErrInvalidCombatRulesContent     = errors.New("invalid combat rules content")
 )
 
 // Validate proves the static gameplay bundle is internally consistent before
@@ -61,6 +62,9 @@ func (bundle GameplayContent) Validate() error {
 		return err
 	}
 	if err := bundle.Rules.Validate(bundle); err != nil {
+		return err
+	}
+	if err := bundle.Combat.Validate(); err != nil {
 		return err
 	}
 	if err := bundle.Scanner.Validate(bundle.Maps); err != nil {

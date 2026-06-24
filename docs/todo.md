@@ -25,10 +25,13 @@ for phase status; this file is a compact pending-work index.
   endpoint storage capacity while runtime keeps ownership/distance/storage
   truth. Production rules now own claim range, claim production defaults, and
   building build/upgrade costs while runtime keeps proximity, ownership, wallet,
-  and planet-storage mutation truth. Next work: add DB-backed empty-DB seeding
-  and published revision loading, add draft / publish / rollback validation,
-  then build the admin CMS UI for monsters, drop tables, item stats, recipes,
-  map pools, and planet/scanner tuning.
+  and planet-storage mutation truth. Combat rules now own DarkOrbit-like demo
+  speed/radar/pickup range, basic laser cost/cooldown, training NPC identity,
+  repair quote values, NPC kill XP, and PvP cargo-drop percentages while runtime
+  keeps visibility, cooldown, damage, death, repair, and snapshot truth. Next
+  work: add DB-backed empty-DB seeding and published revision loading, add draft
+  / publish / rollback validation, then build the admin CMS UI for monsters,
+  drop tables, item stats, recipes, map pools, and planet/scanner tuning.
   Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`

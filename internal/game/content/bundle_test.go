@@ -47,6 +47,9 @@ func TestDefaultGameplayContentValidates(t *testing.T) {
 	if bundle.Rules.ClaimRange <= 0 || len(bundle.Rules.BuildingCosts) == 0 {
 		t.Fatalf("production rules incomplete: %+v", bundle.Rules)
 	}
+	if bundle.Combat.BasicLaserSkillID == "" || bundle.Combat.LootPickupRange <= 0 {
+		t.Fatalf("combat rules incomplete: %+v", bundle.Combat)
+	}
 }
 
 func TestStaticRepositoryLoadsValidatedPublishedContent(t *testing.T) {
@@ -145,6 +148,26 @@ func TestGameplayContentRejectsInvalidProductionClaimDefaults(t *testing.T) {
 	err := bundle.Validate()
 	if !errors.Is(err, ErrInvalidProductionRulesContent) {
 		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidProductionRulesContent)
+	}
+}
+
+func TestGameplayContentRejectsInvalidCombatRules(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Combat.BasicLaserCooldownMS = 0
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrInvalidCombatRulesContent) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidCombatRulesContent)
+	}
+}
+
+func TestGameplayContentRejectsInvalidCombatDeathZone(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Combat.PVPDeathCargoDropByZone[""] = 0.5
+
+	err := bundle.Validate()
+	if !errors.Is(err, foundation.ErrEmptyID) {
+		t.Fatalf("Validate() error = %v, want %v", err, foundation.ErrEmptyID)
 	}
 }
 

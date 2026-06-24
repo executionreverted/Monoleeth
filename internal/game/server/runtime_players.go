@@ -156,6 +156,7 @@ func (runtime *Runtime) newPlayerRuntimeState(callsign string, entityID world.En
 		callsign = "Pilot"
 	}
 	starter := runtime.starterContent
+	combatRules := runtime.combatRules
 	return playerRuntimeState{
 		EntityID: entityID,
 		Callsign: callsign,
@@ -172,13 +173,13 @@ func (runtime *Runtime) newPlayerRuntimeState(callsign string, entityID world.En
 			RepairState:  "ready",
 		},
 		Stats: statSnapshotPayload{
-			Speed:                defaultPlayerSpeed,
-			RadarRange:           defaultRadarRange,
+			Speed:                combatRules.PlayerSpeed,
+			RadarRange:           combatRules.RadarRange,
 			WeaponRange:          260,
 			CargoCapacity:        60,
-			LootPickupRange:      runtimeLootPickupRange,
-			BasicLaserEnergyCost: runtimeBasicLaserEnergyCost,
-			BasicLaserCooldownMS: runtimeBasicLaserCooldownMS,
+			LootPickupRange:      combatRules.LootPickupRange,
+			BasicLaserEnergyCost: combatRules.BasicLaserEnergyCost,
+			BasicLaserCooldownMS: combatRules.BasicLaserCooldownMS,
 		},
 		Wallet: walletSnapshotPayload{},
 		Cargo: cargoSnapshotPayload{

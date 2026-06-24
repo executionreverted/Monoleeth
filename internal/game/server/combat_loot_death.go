@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"gameproject/internal/game/combat"
+	gamecontent "gameproject/internal/game/content"
 	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
@@ -17,8 +18,8 @@ import (
 )
 
 const (
-	runtimeDefaultPVPDeathCargoDropPercent = 0.50
-	runtimeSeededPVPDeathCargoDropPercent  = 1.00
+	runtimeDefaultPVPDeathCargoDropPercent = gamecontent.DefaultPVPDeathCargoDrop
+	runtimeSeededPVPDeathCargoDropPercent  = gamecontent.DefaultSeededPVPDeathCargoDrop
 )
 
 func isLethalPlayerCombatResult(before combat.ActorState, result combat.BasicAttackResult) bool {
@@ -133,11 +134,7 @@ func eventIDComponent(label, value string) string {
 }
 
 func (runtime *Runtime) pvpDeathCargoDropPolicyLocked(zoneID foundation.ZoneID) (deathdomain.ZoneCargoDropPolicy, error) {
-	percent := runtimeDefaultPVPDeathCargoDropPercent
-	if zoneID == worldmaps.MapID("map_1_3").ZoneID() {
-		percent = runtimeSeededPVPDeathCargoDropPercent
-	}
-	return deathdomain.NewZoneCargoDropPolicy(zoneID, percent, percent)
+	return runtime.combatRules.PVPDeathCargoDropPolicy(zoneID)
 }
 
 func (runtime *Runtime) respawnLocationIDForDeathLocked(playerID foundation.PlayerID, zoneID foundation.ZoneID) (deathdomain.RespawnLocationID, error) {

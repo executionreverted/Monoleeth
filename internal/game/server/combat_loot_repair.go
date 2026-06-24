@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"gameproject/internal/game/combat"
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
@@ -16,9 +17,9 @@ import (
 )
 
 const (
-	basicLaserSkillID = "basic_laser"
-	trainingNPCType   = "training_drone"
-	repairCurrency    = "credits"
+	basicLaserSkillID = gamecontent.DefaultBasicLaserSkillID
+	trainingNPCType   = gamecontent.DefaultTrainingNPCType
+	repairCurrency    = string(gamecontent.DefaultRepairCurrency)
 )
 
 type combatUseSkillIntent struct {
@@ -67,7 +68,7 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	if err != nil {
 		return nil, err
 	}
-	if intent.SkillID != basicLaserSkillID {
+	if intent.SkillID != runtime.combatRules.BasicLaserSkillID {
 		return nil, foundation.NewDomainError(foundation.CodeInvalidPayload, "Unsupported combat skill.")
 	}
 

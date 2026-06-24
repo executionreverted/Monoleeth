@@ -68,6 +68,11 @@ proprietary labels or assets.
   production storage/energy defaults, and planet-building build/upgrade costs
   are validated in the bundle, while runtime still owns proximity, ownership,
   wallet debit, and planet-storage mutation.
+- combat rule content is server-only content: DarkOrbit-like demo movement,
+  radar, loot pickup range, basic laser cost/cooldown, training NPC identity,
+  repair quote currency/cost, NPC kill XP, and PvP cargo-drop percentages are
+  validated in the bundle. Runtime still owns target visibility, PvP policy,
+  cooldown checks, damage, death processing, repair mutation, and snapshots.
 
 ## Non-Goals
 
@@ -111,5 +116,8 @@ Use narrow tests:
   endpoint capacity, energy formula values, or duplicate routeable resources
 - production rules must reference known building material items and reject
   duplicate building-cost rows or invalid claim/default numeric values
+- combat rules must reject invalid movement/radar/pickup ranges, laser
+  cost/cooldown, XP, repair currency, repair fee, NPC ids, and PvP death cargo
+  percentages
 - runtime uses the validated content bundle for item/loot catalogs
-  and scanner/planet/starter/shop/route/production-rule config
+  and scanner/planet/starter/shop/route/production/combat-rule config
