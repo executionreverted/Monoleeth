@@ -196,6 +196,54 @@ func TestCreateRouteSettlesSourceProductionBeforeReservingEnergy(t *testing.T) {
 	}
 }
 
+func TestCreateRouteSettlesSourceProductionWithRuntimeCatalog(t *testing.T) {
+	catalogRows := testProductionCatalogWithExtractorRate(t, 120)
+	store, err := NewInMemoryStoreWithCatalog(catalogRows)
+	if err != nil {
+		t.Fatalf("NewInMemoryStoreWithCatalog() error = %v, want nil", err)
+	}
+	start := testTime(0)
+	now := start.Add(time.Hour)
+	if _, err := store.InitializePlanetProduction(InitializePlanetProductionInput{
+		PlanetID:              "planet-1",
+		LastCalculatedAt:      start,
+		StorageCapacityUnits:  200,
+		EnergyCapacityPerHour: 16,
+		UpdatedAt:             start,
+	}); err != nil {
+		t.Fatalf("InitializePlanetProduction() error = %v, want nil", err)
+	}
+	definition, err := catalogRows.MustGet(ProductionDefinitionIDIronExtractorL1)
+	if err != nil {
+		t.Fatalf("MustGet(%q) error = %v, want nil", ProductionDefinitionIDIronExtractorL1, err)
+	}
+	building, err := NewPlanetBuilding("building-runtime-catalog", "planet-1", definition, BuildingStateActive, start, start)
+	if err != nil {
+		t.Fatalf("NewPlanetBuilding() error = %v, want nil", err)
+	}
+	if _, _, err := store.UpsertBuilding(building); err != nil {
+		t.Fatalf("UpsertBuilding() error = %v, want nil", err)
+	}
+	provider := &fakeRoutePolicyProvider{policy: validRoutePolicy()}
+	provider.policy.EnergyCostPerHour = 12
+	service := newTestRouteService(t, store, provider, now)
+
+	result, err := service.CreateRoute(validCreateRouteInput())
+	if err != nil {
+		t.Fatalf("CreateRoute() error = %v, want nil", err)
+	}
+	snapshot, ok, err := store.Snapshot(result.Route.SourcePlanetID)
+	if err != nil || !ok {
+		t.Fatalf("Snapshot(%q) ok=%v err=%v, want true nil", result.Route.SourcePlanetID, ok, err)
+	}
+	if got := snapshot.Storage.QuantityOf("iron_ore"); got != 120 {
+		t.Fatalf("source iron_ore after route create = %d, want runtime catalog rate 120", got)
+	}
+	if snapshot.State.EnergyReservedPerHour != result.Route.EnergyCostPerHour {
+		t.Fatalf("EnergyReservedPerHour = %d, want route cost %d", snapshot.State.EnergyReservedPerHour, result.Route.EnergyCostPerHour)
+	}
+}
+
 func TestCreateRouteRejectsEnergyReservationOverCapacityWithoutMutation(t *testing.T) {
 	store := NewInMemoryStore()
 	now := testRouteNow()

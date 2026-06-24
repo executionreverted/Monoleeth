@@ -73,6 +73,14 @@ func MustMVPCatalog() Catalog {
 	return catalogRows
 }
 
+func cloneProductionCatalog(catalogRows Catalog) Catalog {
+	cloned, err := NewCatalog(catalogRows.Definitions())
+	if err != nil {
+		return Catalog{}
+	}
+	return cloned
+}
+
 // Definitions returns all definitions in deterministic catalog order.
 func (catalogRows Catalog) Definitions() []BuildingProductionDefinition {
 	definitions := make([]BuildingProductionDefinition, 0, len(catalogRows.definitions))

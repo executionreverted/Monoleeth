@@ -67,15 +67,15 @@ func (store *InMemoryStore) ApplyProductionSettlementTransaction(
 	if err := input.Validate(); err != nil {
 		return ProductionSettlementTransactionResult{}, err
 	}
-	catalogRows, err := MVPCatalog()
-	if err != nil {
-		return ProductionSettlementTransactionResult{}, err
-	}
 	settledAt := input.SettledAt.UTC()
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
+	catalogRows, err := store.catalogLocked()
+	if err != nil {
+		return ProductionSettlementTransactionResult{}, err
+	}
 	referenceCountBefore := len(store.references)
 	outboxCountBefore := len(store.outbox)
 	settlement, err := store.settlePlanetProductionLocked(input.PlanetID, settledAt, catalogRows, input.RequireWholeOutput)

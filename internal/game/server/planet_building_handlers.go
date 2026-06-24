@@ -202,9 +202,15 @@ func (runtime *Runtime) handlePlanetBuildingUpgrade(ctx realtime.CommandContext,
 }
 
 func (runtime *Runtime) newPlanetBuildingMutationService(playerID foundation.PlayerID) (*production.BuildingMutationService, error) {
+	if runtime == nil || runtime.Production == nil {
+		return nil, production.ErrInvalidBuildingMutationConfig
+	}
+	if len(runtime.ProductionCatalog.Definitions()) == 0 {
+		return nil, production.ErrInvalidProductionCatalog
+	}
 	return production.NewBuildingMutationService(production.BuildingMutationServiceConfig{
 		Store:   runtime.Production,
-		Catalog: production.MustMVPCatalog(),
+		Catalog: runtime.ProductionCatalog,
 		Costs:   runtimePlanetBuildingCostProvider{playerID: playerID, rules: runtime.productionRules},
 		Wallet:  runtime.Wallet,
 	})

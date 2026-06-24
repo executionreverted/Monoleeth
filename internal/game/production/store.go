@@ -30,6 +30,7 @@ type InitializePlanetProductionResult struct {
 type InMemoryStore struct {
 	mu sync.RWMutex
 
+	catalog                    Catalog
 	states                     map[foundation.PlanetID]PlanetProductionState
 	storage                    map[foundation.PlanetID]PlanetStorage
 	buildings                  map[foundation.PlanetID]map[BuildingID]PlanetBuilding
@@ -50,7 +51,21 @@ type InMemoryStore struct {
 
 // NewInMemoryStore returns an empty production repository.
 func NewInMemoryStore() *InMemoryStore {
+	return newInMemoryStore(MustMVPCatalog())
+}
+
+// NewInMemoryStoreWithCatalog returns an empty production repository backed by
+// the provided runtime production catalog.
+func NewInMemoryStoreWithCatalog(catalogRows Catalog) (*InMemoryStore, error) {
+	if len(catalogRows.Definitions()) == 0 {
+		return nil, ErrInvalidProductionCatalog
+	}
+	return newInMemoryStore(catalogRows), nil
+}
+
+func newInMemoryStore(catalogRows Catalog) *InMemoryStore {
 	return &InMemoryStore{
+		catalog:                cloneProductionCatalog(catalogRows),
 		states:                 make(map[foundation.PlanetID]PlanetProductionState),
 		storage:                make(map[foundation.PlanetID]PlanetStorage),
 		buildings:              make(map[foundation.PlanetID]map[BuildingID]PlanetBuilding),
@@ -73,6 +88,7 @@ func (store *InMemoryStore) Clone() *InMemoryStore {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 
+	cloned.catalog = cloneProductionCatalog(store.catalog)
 	for planetID, state := range store.states {
 		cloned.states[planetID] = cloneProductionState(state)
 	}
@@ -112,6 +128,16 @@ func (store *InMemoryStore) Clone() *InMemoryStore {
 	cloned.outbox = cloneProductionOutboxRecords(store.outbox)
 	cloned.nextOutboxSequence = store.nextOutboxSequence
 	return cloned
+}
+
+// Catalog returns the runtime production catalog installed on this store.
+func (store *InMemoryStore) Catalog() (Catalog, error) {
+	if store == nil {
+		return Catalog{}, ErrInvalidProductionStore
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	return store.catalogLocked()
 }
 
 // InitializePlanetProduction stores default state and empty storage once.
@@ -400,6 +426,13 @@ func (store *InMemoryStore) ensureMapsLocked() {
 	if store.buildingReferences == nil {
 		store.buildingReferences = make(map[foundation.IdempotencyKey]BuildingMutationReferenceRecord)
 	}
+}
+
+func (store *InMemoryStore) catalogLocked() (Catalog, error) {
+	if len(store.catalog.Definitions()) == 0 {
+		return Catalog{}, ErrInvalidProductionCatalog
+	}
+	return cloneProductionCatalog(store.catalog), nil
 }
 
 func (store *InMemoryStore) insertAutomationRoute(route AutomationRoute) (AutomationRoute, error) {

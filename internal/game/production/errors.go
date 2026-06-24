@@ -5,6 +5,7 @@ import "errors"
 var (
 	ErrDuplicateProductionDefinition     = errors.New("duplicate production definition")
 	ErrDuplicateBuildingDefinition       = errors.New("duplicate building production definition")
+	ErrInvalidProductionCatalog          = errors.New("invalid production catalog")
 	ErrUnknownProductionDefinition       = errors.New("unknown production definition")
 	ErrProductionSourceMismatch          = errors.New("production source definition mismatch")
 	ErrUnknownBuildingDefinition         = errors.New("unknown planet building definition")

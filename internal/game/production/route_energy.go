@@ -43,7 +43,7 @@ func (store *InMemoryStore) prepareRouteEnergyReservationLocked(
 		return PlanetProductionState{}, false, fmt.Errorf("reserved %d route %d capacity %d: %w", availableReserved, newEnergyCostPerHour, updated.EnergyCapacityPerHour, ErrRouteEnergyUnavailable)
 	}
 
-	catalogRows, err := MVPCatalog()
+	catalogRows, err := store.catalogLocked()
 	if err != nil {
 		return PlanetProductionState{}, false, err
 	}

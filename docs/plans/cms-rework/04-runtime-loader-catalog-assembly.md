@@ -94,13 +94,16 @@ Known direct-call targets to replace with injected catalogs/providers:
 ```text
 modules.MustMVPCatalog()
 crafting.MVPRecipeCatalog()
-production.MustMVPCatalog()
-production.MVPCatalog()
 runtimeLootCatalog()
 worldmaps.StarterCatalog() enemy-only parts
 ```
 
 Test helpers may keep MVP helpers.
+
+Production `MustMVPCatalog()`/`MVPCatalog()` calls are now allowed only in seed
+fixtures, default content assembly, and tests. Normal production settlement,
+route energy, and planet building mutation paths use the runtime
+`production.Catalog` loaded through `GameplayContent`.
 
 ## Client Safe Projection
 
@@ -139,7 +142,15 @@ git diff --check
 
 ## Done
 
-- runtime no longer directly calls old MVP catalog functions outside
-  `content.StaticRepository` in normal boot path
-- DB-published content controls runtime definitions
+- runtime content boot can load current published DB content or explicit
+  static dev/test fallback
+- DB-published core content controls runtime definitions
 - tests prove changed DB value affects gameplay catalog
+- production store, route energy, settlement, and planet building mutation paths
+  use the runtime production catalog
+
+Remaining known normal-runtime static catalog call:
+
+```text
+quests.MustMVPQuestCatalog()
+```

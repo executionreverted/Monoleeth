@@ -156,6 +156,7 @@ type Runtime struct {
 	LoadoutStore                   *modules.InMemoryLoadoutStore
 	Loadout                        modules.LoadoutService
 	Recipes                        crafting.RecipeCatalog
+	ProductionCatalog              production.Catalog
 	Crafting                       *crafting.CraftingService
 	Discovery                      *discovery.InMemoryStore
 	Scanner                        *discovery.ScannerService
@@ -396,7 +397,10 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	recipeCatalog := contentBundle.Recipes
 	reservationService := economy.NewReservationService(inventory)
 	discoveryStore := discovery.NewInMemoryStore()
-	productionStore := production.NewInMemoryStore()
+	productionStore, err := production.NewInMemoryStoreWithCatalog(contentBundle.Production)
+	if err != nil {
+		return nil, err
+	}
 	craftLocationAuthorizer, err := production.NewCraftLocationAuthorizer(production.CraftLocationAuthorizerConfig{
 		Planets:    discoveryStore,
 		Production: productionStore,
@@ -542,6 +546,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		LoadoutStore:                   loadoutStore,
 		Loadout:                        loadoutService,
 		Recipes:                        recipeCatalog,
+		ProductionCatalog:              contentBundle.Production,
 		Crafting:                       craftingService,
 		Discovery:                      discoveryStore,
 		Intel:                          intelService,

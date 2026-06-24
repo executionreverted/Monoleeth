@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	gamecatalog "gameproject/internal/game/catalog"
 	"gameproject/internal/game/foundation"
 )
 
@@ -110,6 +111,44 @@ func TestInMemoryStoreSnapshotAndBuildingListsAreDetachedAndSorted(t *testing.T)
 	}
 }
 
+func TestInMemoryStoreWithCatalogUsesRuntimeCatalogForSettlement(t *testing.T) {
+	catalogRows := testProductionCatalogWithExtractorRate(t, 120)
+	store, err := NewInMemoryStoreWithCatalog(catalogRows)
+	if err != nil {
+		t.Fatalf("NewInMemoryStoreWithCatalog() error = %v, want nil", err)
+	}
+	if _, err := store.InitializePlanetProduction(InitializePlanetProductionInput{
+		PlanetID:              "planet-runtime-catalog",
+		LastCalculatedAt:      testTime(0),
+		StorageCapacityUnits:  500,
+		EnergyCapacityPerHour: 25,
+		UpdatedAt:             testTime(0),
+	}); err != nil {
+		t.Fatalf("InitializePlanetProduction() error = %v, want nil", err)
+	}
+	definition, err := catalogRows.MustGet(ProductionDefinitionIDIronExtractorL1)
+	if err != nil {
+		t.Fatalf("MustGet(%q) error = %v, want nil", ProductionDefinitionIDIronExtractorL1, err)
+	}
+	building, err := NewPlanetBuilding("building-runtime-catalog", "planet-runtime-catalog", definition, BuildingStateActive, testTime(0), testTime(0))
+	if err != nil {
+		t.Fatalf("NewPlanetBuilding() error = %v, want nil", err)
+	}
+	if _, _, err := store.UpsertBuilding(building); err != nil {
+		t.Fatalf("UpsertBuilding() error = %v, want nil", err)
+	}
+
+	result, err := store.SettlePlanetProduction("planet-runtime-catalog", testTime(0).Add(time.Hour))
+	if err != nil {
+		t.Fatalf("SettlePlanetProduction() error = %v, want nil", err)
+	}
+
+	assertSettlementDelta(t, result.ProducedItems, "iron_ore", 120)
+	if len(result.BuildingResults) != 1 || result.BuildingResults[0].EnergyCostPerHour != definition.EnergyCostPerHour {
+		t.Fatalf("BuildingResults = %+v, want runtime catalog definition", result.BuildingResults)
+	}
+}
+
 func TestInMemoryStoreSnapshotsArePlanetIDOrdered(t *testing.T) {
 	store := NewInMemoryStore()
 	for _, planetID := range []foundation.PlanetID{"planet-b", "planet-a"} {
@@ -128,4 +167,27 @@ func TestInMemoryStoreSnapshotsArePlanetIDOrdered(t *testing.T) {
 	if len(snapshots) != 2 || snapshots[0].State.PlanetID != "planet-a" || snapshots[1].State.PlanetID != "planet-b" {
 		t.Fatalf("Snapshots() = %+v, want planet-a then planet-b", snapshots)
 	}
+}
+
+func testProductionCatalogWithExtractorRate(t *testing.T, amountPerHour int64) Catalog {
+	t.Helper()
+	definitions := MustMVPCatalog().Definitions()
+	for index := range definitions {
+		if definitions[index].DefinitionID != ProductionDefinitionIDIronExtractorL1 {
+			continue
+		}
+		source, err := gamecatalog.NewVersionedDefinitionFromStrings(ProductionDefinitionIDIronExtractorL1.String(), "production_runtime_test_v2")
+		if err != nil {
+			t.Fatalf("NewVersionedDefinitionFromStrings() error = %v, want nil", err)
+		}
+		definitions[index].Source = source
+		definitions[index].Outputs = []ItemRate{{ItemID: "iron_ore", AmountPerHour: amountPerHour}}
+		catalogRows, err := NewCatalog(definitions)
+		if err != nil {
+			t.Fatalf("NewCatalog(custom production) error = %v, want nil", err)
+		}
+		return catalogRows
+	}
+	t.Fatalf("definition %q missing", ProductionDefinitionIDIronExtractorL1)
+	return Catalog{}
 }
