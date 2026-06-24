@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"gameproject/internal/game/admin"
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/content"
 	"gameproject/internal/game/crafting"
@@ -17,6 +18,8 @@ import (
 	"gameproject/internal/game/modules"
 	"gameproject/internal/game/production"
 	"gameproject/internal/game/quests"
+	"gameproject/internal/game/ships"
+	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 )
@@ -98,6 +101,110 @@ func TestRepositoryChangedDBModuleStatAndItemFieldSurviveAssembly(t *testing.T) 
 	}
 	if got := statValue(t, module, modules.StatWeaponDamage); got != 99 {
 		t.Fatalf("laser_alpha_t1 damage = %d, want 99", got)
+	}
+}
+
+func TestRepositoryAdminPublishItemShipShopDraftSurvivesRuntimeReload(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 6, 25, 14, 0, 0, 0, time.UTC)
+	store := newAdminPublishRuntimeProofStore(t, seedSnapshot(t))
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Writer:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: SnapshotValidator{WorldID: repositoryTestWorldID},
+		Clock:     testutil.NewFakeClock(now),
+	})
+
+	updateDraftRowFromSeed(t, ctx, service, content.ContentTypeItem, store.current.Snapshot.Items, "raw_ore", json.RawMessage(`{"display_name":"Auric Ore","category":"resources","rarity":"uncommon"}`), func(row *itemRowData) {
+		row.Name = "Auric Ore"
+		row.Rarity = "uncommon"
+		row.WeightUnits = 6
+	})
+	updateDraftRowFromSeed(t, ctx, service, content.ContentTypeShip, store.current.Snapshot.Ships, "starter", nil, func(row *ships.ShipDefinition) {
+		row.Name = "Proof Skiff"
+		row.BaseStats.HP = 321
+		row.BaseStats.CargoCapacity = 88
+		row.Slots.Offensive = 2
+	})
+	updateDraftRowFromSeed(t, ctx, service, content.ContentTypeShopProduct, store.current.Snapshot.ShopProducts, "product_ferrite_ore", nil, func(row *catalog.ShopProductDefinition) {
+		row.Display.DisplayName = "Auric Ore Bundle"
+		row.Display.Description = "Published runtime proof ore pack."
+		row.Display.Rarity = "uncommon"
+		row.GrantTarget.RefID = "raw_ore"
+		row.GrantTarget.Quantity = 7
+		row.Price.Amount = 123
+		row.Availability = catalog.AvailabilityRule{Available: true}
+	})
+
+	published, err := service.PublishDraft(ctx, content.PublishDraftInput{
+		Version:        "content_admin_runtime_proof_v1",
+		Notes:          "item ship shop runtime proof",
+		BalanceTag:     "runtime_proof",
+		ActorAccountID: "admin-runtime-proof",
+	})
+	if err != nil {
+		t.Fatalf("PublishDraft() error = %v, want nil", err)
+	}
+	if !published.Published || !published.Validation.Valid {
+		t.Fatalf("PublishDraft() = %+v, want published valid", published)
+	}
+	if store.publishInput.ExpectedCurrentID != "11111111-1111-5111-8111-111111111111" ||
+		store.publishInput.PublishedBy != "admin-runtime-proof" {
+		t.Fatalf("publish input = %+v, want current guard and server actor", store.publishInput)
+	}
+
+	repository, err := newRepository(store)
+	if err != nil {
+		t.Fatalf("newRepository(admin store) error = %v, want nil", err)
+	}
+	bundle, err := content.LoadPublishedContent(ctx, repository, repositoryTestWorldID)
+	if err != nil {
+		t.Fatalf("LoadPublishedContent(after admin publish) error = %v, want nil", err)
+	}
+
+	item := bundle.Items["raw_ore"]
+	if item.Name != "Auric Ore" || item.WeightUnits.Int64() != 6 || item.Rarity != "uncommon" {
+		t.Fatalf("runtime item = %+v, want published name/weight/rarity", item)
+	}
+	ship, ok := bundle.Ships.Get("starter")
+	if !ok {
+		t.Fatal("starter ship missing after runtime reload")
+	}
+	if ship.Name != "Proof Skiff" || ship.BaseStats.HP != 321 || ship.BaseStats.CargoCapacity != 88 || ship.Slots.Offensive != 2 {
+		t.Fatalf("runtime ship = %+v, want published hull/cargo/slot values", ship)
+	}
+	product, ok := bundle.Shop.ShopProduct("product_ferrite_ore")
+	if !ok {
+		t.Fatal("product_ferrite_ore missing after runtime reload")
+	}
+	if product.Price.Amount != 123 || product.Price.Amount == 40 ||
+		product.GrantTarget.RefID != "raw_ore" || product.GrantTarget.Quantity != 7 || product.GrantTarget.Quantity == 10 ||
+		!product.Availability.Available {
+		t.Fatalf("runtime shop product = %+v, want published price/grant/enabled values", product)
+	}
+
+	projection, err := content.ProjectSnapshotForPlayers(store.current.Snapshot)
+	if err != nil {
+		t.Fatalf("ProjectSnapshotForPlayers() error = %v, want nil", err)
+	}
+	projectedItem := requireProjectedItem(t, projection, "raw_ore")
+	if projectedItem.Display.DisplayName != "Auric Ore" || projectedItem.WeightUnits != 6 || projectedItem.Display.Category != "resources" {
+		t.Fatalf("projected item = %+v, want client-safe published display/weight/category", projectedItem)
+	}
+	projectedProduct := requireProjectedShopProduct(t, projection, "product_ferrite_ore")
+	if projectedProduct.Price.Amount != 123 || projectedProduct.GrantTarget.Quantity != 7 || !projectedProduct.Availability.Available {
+		t.Fatalf("projected product = %+v, want client-safe published shop fields", projectedProduct)
+	}
+	rawProjection, err := json.Marshal(projection)
+	if err != nil {
+		t.Fatalf("marshal projection: %v", err)
+	}
+	for _, forbidden := range []string{`"metadata_schema"`, `"source"`, `"loot_table"`, `"spawn_area"`, `"enemy_pool"`, `"procedural_seed"`, `"snapshot_json"`} {
+		if strings.Contains(string(rawProjection), forbidden) {
+			t.Fatalf("content.catalog projection leaked %q in %s", forbidden, rawProjection)
+		}
 	}
 }
 
@@ -850,4 +957,177 @@ func statValue(t *testing.T, definition modules.ModuleDefinition, stat modules.S
 	}
 	t.Fatalf("stat %q missing from %q", stat, definition.ItemID)
 	return 0
+}
+
+type adminPublishRuntimeProofStore struct {
+	drafts       map[content.ContentType][]content.DraftRow
+	current      content.SnapshotVersionRecord
+	publishInput content.PublishSnapshotInput
+}
+
+func newAdminPublishRuntimeProofStore(t *testing.T, snapshot content.Snapshot) *adminPublishRuntimeProofStore {
+	t.Helper()
+	return &adminPublishRuntimeProofStore{
+		drafts: draftRowsFromSnapshot(snapshot),
+		current: content.SnapshotVersionRecord{
+			ID:          "11111111-1111-5111-8111-111111111111",
+			Version:     snapshot.Version,
+			Status:      "published",
+			Current:     true,
+			Snapshot:    snapshot,
+			CreatedAt:   time.Date(2026, 6, 25, 13, 0, 0, 0, time.UTC),
+			PublishedAt: time.Date(2026, 6, 25, 13, 0, 0, 0, time.UTC),
+		},
+	}
+}
+
+func (store *adminPublishRuntimeProofStore) LoadDraftRows(_ context.Context, contentType content.ContentType) ([]content.DraftRow, error) {
+	return cloneDraftProofRows(store.drafts[contentType]), nil
+}
+
+func (store *adminPublishRuntimeProofStore) UpsertDraftRow(_ context.Context, contentType content.ContentType, row content.DraftRow) error {
+	rows := cloneDraftProofRows(store.drafts[contentType])
+	replaced := false
+	for index := range rows {
+		if rows[index].ContentID == row.ContentID {
+			rows[index] = cloneDraftProofRow(row)
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		rows = append(rows, cloneDraftProofRow(row))
+	}
+	store.drafts[contentType] = rows
+	return nil
+}
+
+func (store *adminPublishRuntimeProofStore) LoadCurrentContentSnapshot(context.Context) (content.SnapshotVersionRecord, error) {
+	return store.current, nil
+}
+
+func (store *adminPublishRuntimeProofStore) LoadContentSnapshotByID(_ context.Context, id string) (content.SnapshotVersionRecord, error) {
+	if store.current.ID == id {
+		return store.current, nil
+	}
+	return content.SnapshotVersionRecord{}, ErrCurrentContentNotFound
+}
+
+func (store *adminPublishRuntimeProofStore) PublishContentSnapshot(_ context.Context, input content.PublishSnapshotInput) (content.PublishSnapshotResult, error) {
+	store.publishInput = input
+	store.current = content.SnapshotVersionRecord{
+		ID:             input.ID,
+		Version:        input.Version,
+		Status:         "published",
+		Current:        true,
+		Notes:          input.Notes,
+		BalanceTag:     input.BalanceTag,
+		CreatedBy:      input.CreatedBy,
+		CreatedAt:      input.PublishedAt,
+		PublishedBy:    input.PublishedBy,
+		PublishedAt:    input.PublishedAt,
+		RolledBackFrom: input.RolledBackFrom,
+		Snapshot:       input.Snapshot,
+	}
+	return content.PublishSnapshotResult{Record: store.current}, nil
+}
+
+func (store *adminPublishRuntimeProofStore) LoadCurrentPublishedSnapshot(ctx context.Context) (PublishedSnapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return PublishedSnapshot{}, err
+	}
+	return PublishedSnapshot{
+		ID:          store.current.ID,
+		Version:     store.current.Version,
+		Snapshot:    store.current.Snapshot,
+		Notes:       store.current.Notes,
+		BalanceTag:  store.current.BalanceTag,
+		PublishedAt: store.current.PublishedAt,
+	}, nil
+}
+
+func draftRowsFromSnapshot(snapshot content.Snapshot) map[content.ContentType][]content.DraftRow {
+	out := make(map[content.ContentType][]content.DraftRow)
+	for _, group := range snapshot.Groups() {
+		for _, row := range group.Rows {
+			out[group.Type] = append(out[group.Type], content.DraftRow{
+				ContentID:    row.ContentID,
+				DraftVersion: snapshot.Version,
+				Enabled:      row.Enabled,
+				DisplayJSON:  append(json.RawMessage(nil), row.DisplayJSON...),
+				DataJSON:     append(json.RawMessage(nil), row.DataJSON...),
+				UpdatedBy:    "seed",
+			})
+		}
+	}
+	return out
+}
+
+func updateDraftRowFromSeed[T any](t *testing.T, ctx context.Context, service *admin.ContentService, contentType content.ContentType, rows []content.SnapshotRow, contentID string, displayJSON json.RawMessage, mutate func(*T)) {
+	t.Helper()
+	for _, row := range rows {
+		if string(row.ContentID) != contentID {
+			continue
+		}
+		var decoded T
+		if err := json.Unmarshal(row.DataJSON, &decoded); err != nil {
+			t.Fatalf("decode seed row %q: %v", contentID, err)
+		}
+		mutate(&decoded)
+		dataJSON, err := json.Marshal(decoded)
+		if err != nil {
+			t.Fatalf("encode seed row %q: %v", contentID, err)
+		}
+		if displayJSON == nil {
+			displayJSON = row.DisplayJSON
+		}
+		if _, err := service.UpdateDraftRow(ctx, content.DraftUpdateInput{
+			ContentType: contentType,
+			ContentID:   content.ContentID(contentID),
+			Enabled:     row.Enabled,
+			DisplayJSON: displayJSON,
+			DataJSON:    dataJSON,
+			UpdatedBy:   "admin-runtime-proof",
+		}); err != nil {
+			t.Fatalf("UpdateDraftRow(%s %q) error = %v, want nil", contentType, contentID, err)
+		}
+		return
+	}
+	t.Fatalf("seed row %q missing", contentID)
+}
+
+func requireProjectedItem(t *testing.T, projection content.PlayerContentProjection, itemID string) content.PlayerItemProjection {
+	t.Helper()
+	for _, item := range projection.Items {
+		if item.ItemID == itemID {
+			return item
+		}
+	}
+	t.Fatalf("projected item %q missing", itemID)
+	return content.PlayerItemProjection{}
+}
+
+func requireProjectedShopProduct(t *testing.T, projection content.PlayerContentProjection, productID string) content.PlayerShopProductProjection {
+	t.Helper()
+	for _, product := range projection.ShopProducts {
+		if product.ProductID == productID {
+			return product
+		}
+	}
+	t.Fatalf("projected shop product %q missing", productID)
+	return content.PlayerShopProductProjection{}
+}
+
+func cloneDraftProofRows(rows []content.DraftRow) []content.DraftRow {
+	out := make([]content.DraftRow, len(rows))
+	for index := range rows {
+		out[index] = cloneDraftProofRow(rows[index])
+	}
+	return out
+}
+
+func cloneDraftProofRow(row content.DraftRow) content.DraftRow {
+	row.DisplayJSON = append(json.RawMessage(nil), row.DisplayJSON...)
+	row.DataJSON = append(json.RawMessage(nil), row.DataJSON...)
+	return row
 }

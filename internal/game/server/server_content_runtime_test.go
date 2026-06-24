@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/catalog"
 	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/contentdb"
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/modules"
 	"gameproject/internal/game/realtime"
@@ -80,6 +83,125 @@ func TestNewRuntimeUsesContentShipSlotsForLoadout(t *testing.T) {
 	}
 	if len(loadout.Slots) != 4 || !loadoutSnapshotHasSlot(loadout, modules.ModuleSlotOffensive2) {
 		t.Fatalf("loadout slots = %+v, want CMS starter layout with offensive_2", loadout.Slots)
+	}
+}
+
+func TestNewRuntimeUsesPublishedItemShipShopRuntimeContent(t *testing.T) {
+	bundle := runtimeTestBundleWithItemShipShopProof(t)
+	runtime, err := NewRuntime(RuntimeConfig{
+		WorldID:           foundation.WorldID("world-1"),
+		ContentRepository: &fakeRuntimeRepository{bundle: bundle},
+		Passwords:         auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v, want nil", err)
+	}
+
+	result, err := runtime.Auth.Register(context.Background(), auth.RegisterInput{
+		Email:    "cms-item-ship-shop-runtime@example.com",
+		Password: "correct-password",
+		Callsign: "CMS Item Ship Shop",
+	})
+	if err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	if err := runtime.ensurePlayerSession(result.Session); err != nil {
+		t.Fatalf("ensurePlayerSession() error = %v, want nil", err)
+	}
+
+	catalogRaw, err := runtime.handleContentCatalog(realtime.CommandContext{}, realtime.RequestEnvelope{Payload: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatalf("handleContentCatalog() error = %v, want nil", err)
+	}
+	var catalogPayload contentCatalogResponsePayload
+	if err := json.Unmarshal(catalogRaw, &catalogPayload); err != nil {
+		t.Fatalf("decode content catalog: %v", err)
+	}
+	projectedItem := requireRuntimeProjectedItem(t, catalogPayload.ContentCatalog, "raw_ore")
+	if projectedItem.Display.DisplayName != "Auric Ore Bundle" || projectedItem.WeightUnits != 6 || projectedItem.Display.Category != gamecontent.ShopCategoryResources {
+		t.Fatalf("content.catalog item = %+v, want published item display/weight/category", projectedItem)
+	}
+	if raw := string(catalogRaw); strings.Contains(raw, "metadata_schema") || strings.Contains(raw, "loot_table") || strings.Contains(raw, "spawn_area") {
+		t.Fatalf("content.catalog leaked hidden fields: %s", raw)
+	}
+
+	ctx := realtime.CommandContext{
+		SessionID: realtime.SessionID(result.Session.SessionID.String()),
+		PlayerID:  result.Session.PlayerID,
+		WorldID:   runtime.worldID,
+		ZoneID:    runtime.zoneID,
+	}
+	itemBuyRaw, err := runtime.handleShopBuyProduct(ctx, realtime.NewRequestEnvelope(
+		"request-cms-runtime-shop-buy",
+		realtime.OperationShopBuyProduct,
+		json.RawMessage(`{"product_id":"product_ferrite_ore","quantity":2}`),
+		1,
+	))
+	if err != nil {
+		t.Fatalf("handleShopBuyProduct() error = %v, want nil", err)
+	}
+	var itemBuyPayload shopBuyProductResponsePayload
+	if err := json.Unmarshal(itemBuyRaw, &itemBuyPayload); err != nil {
+		t.Fatalf("decode shop buy: %v", err)
+	}
+	if !itemBuyPayload.Accepted || itemBuyPayload.ServerTotal != 246 || itemBuyPayload.ServerTotal == 80 ||
+		itemBuyPayload.Product.Price.Amount != 123 || itemBuyPayload.Product.GrantTarget.Quantity != 7 ||
+		itemBuyPayload.Inventory == nil {
+		t.Fatalf("item shop buy = %+v, want published price/grant values and inventory", itemBuyPayload)
+	}
+	if got := inventoryStackQuantity(*itemBuyPayload.Inventory, "raw_ore", economy.LocationKindAccountInventory.String()); got != 14 {
+		t.Fatalf("raw_ore purchased quantity = %d, want CMS grant quantity 14", got)
+	}
+
+	shipBuyRaw, err := runtime.handleShopBuyProduct(ctx, realtime.NewRequestEnvelope(
+		"request-cms-runtime-shop-buy-fighter",
+		realtime.OperationShopBuyProduct,
+		json.RawMessage(`{"product_id":"product_ship_fighter_t1","quantity":1}`),
+		2,
+	))
+	if err != nil {
+		t.Fatalf("handleShopBuyProduct(fighter) error = %v, want nil", err)
+	}
+	var shipBuyPayload shopBuyProductResponsePayload
+	if err := json.Unmarshal(shipBuyRaw, &shipBuyPayload); err != nil {
+		t.Fatalf("decode fighter shop buy: %v", err)
+	}
+	if !shipBuyPayload.Accepted || shipBuyPayload.ServerTotal != 222 || shipBuyPayload.Hangar == nil {
+		t.Fatalf("fighter shop buy = %+v, want published ship product unlock", shipBuyPayload)
+	}
+
+	activateRaw, err := runtime.handleHangarActivateShip(ctx, realtime.NewRequestEnvelope(
+		"request-cms-runtime-activate-fighter",
+		realtime.OperationHangarActivateShip,
+		json.RawMessage(`{"ship_id":"fighter_t1"}`),
+		3,
+	))
+	if err != nil {
+		t.Fatalf("handleHangarActivateShip() error = %v, want nil", err)
+	}
+	var activatePayload struct {
+		Hangar hangarSnapshotPayload `json:"hangar"`
+	}
+	if err := json.Unmarshal(activateRaw, &activatePayload); err != nil {
+		t.Fatalf("decode activate payload: %v", err)
+	}
+	fighter := requireHangarShip(t, activatePayload.Hangar, ships.ShipIDFighterT1.String())
+	if !fighter.Active || fighter.DisplayName != "Proof Fighter" || fighter.MaxHull != 321 || fighter.CargoCapacity != 88 || fighter.SlotOffensive != 3 {
+		t.Fatalf("active fighter = %+v, want CMS ship hull/cargo/slot values", fighter)
+	}
+
+	statsRaw, err := runtime.handleStatsSnapshot(realtime.CommandContext{PlayerID: result.Session.PlayerID}, realtime.RequestEnvelope{Payload: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatalf("handleStatsSnapshot() error = %v, want nil", err)
+	}
+	var statsPayload struct {
+		Stats statSnapshotPayload `json:"stats"`
+	}
+	if err := json.Unmarshal(statsRaw, &statsPayload); err != nil {
+		t.Fatalf("decode stats payload: %v", err)
+	}
+	if statsPayload.Stats.CargoCapacity != 88 {
+		t.Fatalf("stats cargo capacity = %d, want CMS active fighter cargo 88", statsPayload.Stats.CargoCapacity)
 	}
 }
 
@@ -777,6 +899,96 @@ func runtimeTestBundleWithStarterSlots(t *testing.T, slots ships.SlotLayout) gam
 	return bundle
 }
 
+func runtimeTestBundleWithItemShipShopProof(t *testing.T) gamecontent.GameplayContent {
+	t.Helper()
+	bundle := runtimeTestBundle(t)
+	rawOre := bundle.Items["raw_ore"]
+	maxStack, err := foundation.NewQuantity(rawOre.MaxStack.Int64())
+	if err != nil {
+		t.Fatalf("NewQuantity(max stack) error = %v, want nil", err)
+	}
+	weight, err := foundation.NewQuantity(6)
+	if err != nil {
+		t.Fatalf("NewQuantity(weight) error = %v, want nil", err)
+	}
+	updatedItem, err := economy.NewItemDefinition(
+		rawOre.Source,
+		rawOre.ItemID,
+		"Auric Ore",
+		rawOre.Type,
+		economy.ItemRarityUncommon,
+		maxStack,
+		weight,
+		rawOre.TradeFlags,
+		rawOre.BindRules,
+		rawOre.MetadataSchema,
+	)
+	if err != nil {
+		t.Fatalf("NewItemDefinition(mutated raw_ore) error = %v, want nil", err)
+	}
+	bundle.Items["raw_ore"] = updatedItem
+
+	shipsRows := bundle.Ships.All()
+	for index := range shipsRows {
+		if shipsRows[index].ShipID != ships.ShipIDFighterT1 {
+			continue
+		}
+		shipsRows[index].Name = "Proof Fighter"
+		shipsRows[index].RankRequirement = 1
+		shipsRows[index].BaseStats.HP = 321
+		shipsRows[index].BaseStats.CargoCapacity = 88
+		shipsRows[index].Slots.Offensive = 3
+	}
+	shipCatalog, err := ships.NewCatalog(shipsRows)
+	if err != nil {
+		t.Fatalf("NewCatalog(mutated ships) error = %v, want nil", err)
+	}
+	bundle.Ships = shipCatalog
+
+	products := bundle.Shop.SortedShopProducts()
+	foundProduct := false
+	for index := range products {
+		if products[index].ProductID != "product_ferrite_ore" {
+			continue
+		}
+		products[index].Display.DisplayName = "Auric Ore Bundle"
+		products[index].Display.Description = "Published runtime proof ore pack."
+		products[index].Display.Rarity = economy.ItemRarityUncommon.String()
+		products[index].GrantTarget.RefID = "raw_ore"
+		products[index].GrantTarget.Quantity = 7
+		products[index].Price.Amount = 123
+		products[index].Availability = catalog.AvailabilityRule{Available: true}
+		foundProduct = true
+	}
+	if !foundProduct {
+		t.Fatal("product_ferrite_ore missing")
+	}
+	foundShipProduct := false
+	for index := range products {
+		if products[index].ProductID != "product_ship_fighter_t1" {
+			continue
+		}
+		products[index].Display.DisplayName = "Proof Fighter"
+		products[index].Display.Description = "Published runtime proof fighter."
+		products[index].GrantTarget.RefID = ships.ShipIDFighterT1.String()
+		products[index].Price.Amount = 222
+		products[index].Availability = catalog.AvailabilityRule{Available: true, RequiredRank: 1}
+		foundShipProduct = true
+	}
+	if !foundShipProduct {
+		t.Fatal("product_ship_fighter_t1 missing")
+	}
+	registry, err := catalog.NewContentRegistry(bundle.Shop.Version, bundle.Shop.Categories, products)
+	if err != nil {
+		t.Fatalf("NewContentRegistry(mutated shop) error = %v, want nil", err)
+	}
+	bundle.Shop = registry
+	if err := bundle.Validate(); err != nil {
+		t.Fatalf("mutated bundle Validate() error = %v, want nil", err)
+	}
+	return bundle
+}
+
 func runtimeTestSeedSnapshot() gamecontent.Snapshot {
 	return gamecontent.Snapshot{
 		Version: "runtime_seed_test_v1",
@@ -851,4 +1063,26 @@ func equalMigrationModes(left, right []contentdb.MigrationMode) bool {
 		}
 	}
 	return true
+}
+
+func requireHangarShip(t *testing.T, hangar hangarSnapshotPayload, shipID string) hangarShipPayload {
+	t.Helper()
+	for _, ship := range hangar.Ships {
+		if ship.ShipID == shipID {
+			return ship
+		}
+	}
+	t.Fatalf("hangar ship %q missing in %+v", shipID, hangar.Ships)
+	return hangarShipPayload{}
+}
+
+func requireRuntimeProjectedItem(t *testing.T, projection gamecontent.PlayerContentProjection, itemID string) gamecontent.PlayerItemProjection {
+	t.Helper()
+	for _, item := range projection.Items {
+		if item.ItemID == itemID {
+			return item
+		}
+	}
+	t.Fatalf("content.catalog item %q missing", itemID)
+	return gamecontent.PlayerItemProjection{}
 }
