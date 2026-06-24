@@ -435,16 +435,41 @@ func TestOperationRegistryAcceptsIntelCoordinateContracts(t *testing.T) {
 	}
 }
 
-func TestOperationRegistryAcceptsAdminContentVersions(t *testing.T) {
-	envelope, err := DecodeRequestEnvelope([]byte(`{"request_id":"request-admin-content-versions","op":"admin.content.versions","payload":{"limit":10},"client_seq":1,"v":1}`))
-	if err != nil {
-		t.Fatalf("DecodeRequestEnvelope(admin.content.versions) error = %v, want nil", err)
+func TestOperationRegistryAcceptsAdminContentOperations(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want Operation
+	}{
+		{
+			name: "versions",
+			body: `{"request_id":"request-admin-content-versions","op":"admin.content.versions","payload":{"limit":10},"client_seq":1,"v":1}`,
+			want: OperationAdminContentVersions,
+		},
+		{
+			name: "list",
+			body: `{"request_id":"request-admin-content-list","op":"admin.content.list","payload":{"content_type":"module","limit":10},"client_seq":2,"v":1}`,
+			want: OperationAdminContentList,
+		},
+		{
+			name: "get",
+			body: `{"request_id":"request-admin-content-get","op":"admin.content.get","payload":{"content_type":"module","content_id":"laser_alpha_t1"},"client_seq":3,"v":1}`,
+			want: OperationAdminContentGet,
+		},
 	}
-	if envelope.Op != OperationAdminContentVersions {
-		t.Fatalf("op = %q, want %q", envelope.Op, OperationAdminContentVersions)
-	}
-	if _, ok := LookupOperation(OperationAdminContentVersions); !ok {
-		t.Fatalf("LookupOperation(%q) not registered", OperationAdminContentVersions)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			envelope, err := DecodeRequestEnvelope([]byte(tc.body))
+			if err != nil {
+				t.Fatalf("DecodeRequestEnvelope(%s) error = %v, want nil", tc.name, err)
+			}
+			if envelope.Op != tc.want {
+				t.Fatalf("op = %q, want %q", envelope.Op, tc.want)
+			}
+			if _, ok := LookupOperation(tc.want); !ok {
+				t.Fatalf("LookupOperation(%q) not registered", tc.want)
+			}
+		})
 	}
 }
 

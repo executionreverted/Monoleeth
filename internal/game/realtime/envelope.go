@@ -82,6 +82,8 @@ const (
 	OperationAdminInspectPlayer    Operation = "admin.inspect_player"
 	OperationAdminRepairCraftJob   Operation = "admin.repair_craft_job"
 	OperationAdminEconomyDash      Operation = "admin.economy_dashboard"
+	OperationAdminContentList      Operation = "admin.content.list"
+	OperationAdminContentGet       Operation = "admin.content.get"
 	OperationAdminContentVersions  Operation = "admin.content.versions"
 	OperationObservabilityLog      Operation = "observability.command_log"
 	OperationObservabilityMetric   Operation = "observability.metrics"
@@ -438,6 +440,14 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationAdminEconomyDash: {
 		Operation:        OperationAdminEconomyDash,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAdminContentList: {
+		Operation:        OperationAdminContentList,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAdminContentGet: {
+		Operation:        OperationAdminContentGet,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationAdminContentVersions: {

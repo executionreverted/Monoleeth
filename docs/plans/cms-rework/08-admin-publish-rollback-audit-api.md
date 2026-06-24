@@ -153,16 +153,21 @@ Admin content writes need abuse posture:
 
 ## Implemented Slice
 
-- Added first `admin.content.*` operation: `admin.content.versions`.
+- Added first read-only `admin.content.*` operations:
+  - `admin.content.versions`
+  - `admin.content.list`
+  - `admin.content.get`
 - Operation is admin-only via server-resolved session role.
 - Runtime can keep a DB-backed content admin version store open separately from
   boot-time published snapshot loading.
 - Response returns version metadata only; no snapshot JSON, loot rows, spawn
   internals, procedural seeds, or audit payloads.
+- Draft row list/get responses are admin-only and return real CMS row JSON from
+  DB-backed store.
 
 Remaining:
 
-- draft list/get/update
+- draft update
 - draft validation response
 - publish transaction and DB idempotency
 - rollback transaction and DB idempotency

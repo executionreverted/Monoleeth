@@ -215,6 +215,8 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationAdminInspectPlayer:    runtime.handleAdminInspectPlayer,
 		realtime.OperationAdminRepairCraftJob:   runtime.handleAdminRepairCraftJob,
 		realtime.OperationAdminEconomyDash:      runtime.handleAdminEconomyDashboard,
+		realtime.OperationAdminContentList:      runtime.handleAdminContentList,
+		realtime.OperationAdminContentGet:       runtime.handleAdminContentGet,
 		realtime.OperationAdminContentVersions:  runtime.handleAdminContentVersions,
 		realtime.OperationObservabilityLog:      runtime.handleObservabilityCommandLog,
 		realtime.OperationObservabilityMetric:   runtime.handleObservabilityMetrics,

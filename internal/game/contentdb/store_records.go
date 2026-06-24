@@ -107,14 +107,7 @@ func (store *Store) ListContentVersions(ctx context.Context, input content.Versi
 	return out, nil
 }
 
-type DraftContentRow struct {
-	ContentID    content.ContentID
-	DraftVersion string
-	Enabled      bool
-	DisplayJSON  json.RawMessage
-	DataJSON     json.RawMessage
-	UpdatedBy    string
-}
+type DraftContentRow = content.DraftRow
 
 type AuditEntry struct {
 	ID               string

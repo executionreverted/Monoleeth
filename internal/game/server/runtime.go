@@ -202,6 +202,7 @@ type runtimeContentStore interface {
 type runtimeContentVersionStore interface {
 	runtimeContentStore
 	admin.ContentVersionStore
+	admin.ContentDraftStore
 }
 
 func loadRuntimeContent(ctx context.Context, config RuntimeConfig) (gamecontent.GameplayContent, error) {
@@ -329,7 +330,11 @@ func loadRuntimeContentAdmin(ctx context.Context, config RuntimeConfig, clock fo
 		_ = closeStore()
 		return nil, nil, fmt.Errorf("content admin store %T: %w", store, contentdb.ErrNilDatabase)
 	}
-	return admin.NewContentService(admin.ContentServiceConfig{Versions: versionStore, Clock: clock}), closeStore, nil
+	return admin.NewContentService(admin.ContentServiceConfig{
+		Versions: versionStore,
+		Drafts:   versionStore,
+		Clock:    clock,
+	}), closeStore, nil
 }
 
 // NewRuntime creates the single-process runtime.
