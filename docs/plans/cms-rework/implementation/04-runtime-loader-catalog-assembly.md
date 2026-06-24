@@ -12,8 +12,8 @@
 - [x] Add DB-backed `content.Repository` adapter in `internal/game/contentdb`.
 - [x] Map enabled item, module, ship, loot, craft, production, and shop snapshot rows into `content.GameplayContent`.
 - [x] Verify published map/NPC rows against `worldmaps.StarterCatalog(worldID)` with no silent fallback.
-- [ ] Wire runtime/config to use `contentdb.Repository`.
-- [ ] Add server fail-closed runtime/config tests.
+- [x] Wire runtime/config to use `contentdb.Repository`.
+- [x] Add server fail-closed runtime/config tests.
 
 ---
 

@@ -13,6 +13,7 @@ import (
 	"gameproject/internal/game/combat"
 	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/contentdb"
+	"gameproject/internal/game/contentseed"
 	"gameproject/internal/game/crafting"
 	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/discovery"
@@ -76,12 +77,17 @@ type RuntimeConfig struct {
 	PlaytestSeed        bool
 	DevMode             bool
 	ContentDB           contentdb.Config
+	ContentRepository   gamecontent.Repository
 	E2EPlanetClaimSeed  bool
 	E2EPlanetClaimCores int
 	E2ERouteSeed        bool
 	E2EScanNoPlanetSeed bool
 	AdminSeed           auth.AdminSeedInput
 	Passwords           auth.PasswordHasher
+
+	contentDBOpen          func(context.Context, contentdb.Config) (runtimeContentStore, error)
+	contentRepositoryStore func(runtimeContentStore) (gamecontent.Repository, error)
+	contentSeedSnapshot    func(world.WorldID) (gamecontent.Snapshot, error)
 }
 
 // Runtime composes auth, realtime gateway, and the Phase 02 world worker.
@@ -183,6 +189,96 @@ type scanCooldownKey struct {
 	ZoneID   foundation.ZoneID
 }
 
+type runtimeContentStore interface {
+	contentseed.SeedStore
+	Migrate(context.Context, contentdb.MigrationMode) error
+	Close() error
+}
+
+func loadRuntimeContent(ctx context.Context, config RuntimeConfig) (gamecontent.GameplayContent, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	contentConfig := config.ContentDB.WithDefaults()
+	if err := contentConfig.Validate(); err != nil {
+		return gamecontent.GameplayContent{}, err
+	}
+	if config.ContentRepository != nil {
+		return gamecontent.LoadPublishedContent(ctx, config.ContentRepository, config.WorldID)
+	}
+	if contentConfig.Enabled() {
+		return loadRuntimeContentFromDB(ctx, contentConfig, config)
+	}
+	return gamecontent.LoadPublishedContent(ctx, gamecontent.NewStaticRepository(), config.WorldID)
+}
+
+func loadRuntimeContentFromDB(ctx context.Context, contentConfig contentdb.Config, config RuntimeConfig) (gamecontent.GameplayContent, error) {
+	openStore := config.contentDBOpen
+	if openStore == nil {
+		openStore = defaultRuntimeContentDBOpen
+	}
+	store, err := openStore(ctx, contentConfig)
+	if err != nil {
+		return gamecontent.GameplayContent{}, err
+	}
+	if store == nil {
+		return gamecontent.GameplayContent{}, contentdb.ErrNilDatabase
+	}
+	defer store.Close()
+
+	if err := store.Migrate(ctx, contentConfig.Migrations); err != nil {
+		return gamecontent.GameplayContent{}, fmt.Errorf("migrate content db: %w", err)
+	}
+	hasContent, err := store.HasAnyContent(ctx)
+	if err != nil {
+		return gamecontent.GameplayContent{}, fmt.Errorf("check content db seed state: %w", err)
+	}
+	if !hasContent {
+		buildSnapshot := config.contentSeedSnapshot
+		if buildSnapshot == nil {
+			buildSnapshot = contentseed.BuildMVPSnapshot
+		}
+		snapshot, err := buildSnapshot(config.WorldID)
+		if err != nil {
+			return gamecontent.GameplayContent{}, fmt.Errorf("build content seed snapshot: %w", err)
+		}
+		if _, err := contentseed.EnsurePublishedSeed(ctx, store, snapshot, contentseed.SeedOptions{}); err != nil {
+			return gamecontent.GameplayContent{}, err
+		}
+	}
+
+	newRepository := config.contentRepositoryStore
+	if newRepository == nil {
+		newRepository = defaultRuntimeContentRepositoryStore
+	}
+	repository, err := newRepository(store)
+	if err != nil {
+		return gamecontent.GameplayContent{}, err
+	}
+	return gamecontent.LoadPublishedContent(ctx, repository, config.WorldID)
+}
+
+func defaultRuntimeContentDBOpen(ctx context.Context, config contentdb.Config) (runtimeContentStore, error) {
+	db, err := contentdb.Open(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	store, err := contentdb.NewStore(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+func defaultRuntimeContentRepositoryStore(store runtimeContentStore) (gamecontent.Repository, error) {
+	contentStore, ok := store.(*contentdb.Store)
+	if !ok {
+		return nil, fmt.Errorf("content db store %T: %w", store, contentdb.ErrNilDatabase)
+	}
+	return contentdb.NewRepository(contentStore)
+}
+
 // NewRuntime creates the single-process runtime.
 func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if config.E2EPlanetClaimSeed && !config.DevMode {
@@ -193,9 +289,6 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	}
 	if config.E2EScanNoPlanetSeed && !config.DevMode {
 		return nil, fmt.Errorf("%s requires %s=true", EnvE2EScanNoPlanetSeed, EnvDevMode)
-	}
-	if err := config.ContentDB.Validate(); err != nil {
-		return nil, err
 	}
 	clock := config.Clock
 	if clock == nil {
@@ -220,7 +313,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	contentBundle, err := gamecontent.LoadPublishedContent(context.Background(), gamecontent.NewStaticRepository(), config.WorldID)
+	contentBundle, err := loadRuntimeContent(context.Background(), config)
 	if err != nil {
 		return nil, err
 	}
