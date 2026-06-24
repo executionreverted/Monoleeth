@@ -35,7 +35,7 @@ func LoadPublishedContent(ctx context.Context, repository Repository, worldID wo
 	}
 	content, err := repository.LoadPublishedContent(ctx, worldID)
 	if err != nil {
-		return GameplayContent{}, err
+		return GameplayContent{}, fmt.Errorf("published content: %w", err)
 	}
 	if err := content.Validate(); err != nil {
 		return GameplayContent{}, fmt.Errorf("published content: %w", err)

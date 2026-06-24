@@ -100,6 +100,10 @@ func shopReferenceResolver(
 	}
 }
 
+func DefaultShopCategories() []catalog.ContentCategory {
+	return runtimeShopCategories()
+}
+
 func runtimeShopCategories() []catalog.ContentCategory {
 	return []catalog.ContentCategory{
 		{ID: ShopCategoryShips, DisplayName: "Ships", SortOrder: 10},

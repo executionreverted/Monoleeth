@@ -8,6 +8,13 @@
 
 **Tech Stack:** Go domain constructors, existing `internal/game/content` validation, contentdb snapshot loader.
 
+**Progress (TASK-0454):**
+- [x] Add DB-backed `content.Repository` adapter in `internal/game/contentdb`.
+- [x] Map enabled item, module, ship, loot, craft, production, and shop snapshot rows into `content.GameplayContent`.
+- [x] Verify published map/NPC rows against `worldmaps.StarterCatalog(worldID)` with no silent fallback.
+- [ ] Wire runtime/config to use `contentdb.Repository`.
+- [ ] Add server fail-closed runtime/config tests.
+
 ---
 
 ### Task 1: Add DB Repository Adapter
