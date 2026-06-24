@@ -26,6 +26,10 @@ func mapQuestRows(
 	if err := content.ValidateQuestContentRows(snapshot.QuestTemplates, snapshot.QuestRewardTables, resolver); err != nil {
 		return quests.QuestCatalog{}, err
 	}
+	rewardPayloads, err := mapQuestRewardPayloadRows(snapshot)
+	if err != nil {
+		return quests.QuestCatalog{}, err
+	}
 	version := publishedVersion(snapshot)
 	templates := make([]quests.QuestTemplate, 0, len(snapshot.QuestTemplates))
 	for _, row := range snapshot.QuestTemplates {
@@ -44,6 +48,11 @@ func mapQuestRows(
 		if err != nil {
 			return quests.QuestCatalog{}, fmt.Errorf("quest template %q: %w", row.ContentID, err)
 		}
+		rewardPayload, ok := rewardPayloads[template.TemplateID]
+		if !ok {
+			return quests.QuestCatalog{}, fmt.Errorf("quest template %q reward table: %w", template.TemplateID, content.ErrInvalidQuestRewardTable)
+		}
+		template.RewardPayload = &rewardPayload
 		templates = append(templates, template)
 	}
 	questCatalog, err := quests.NewQuestCatalog(templates)
@@ -51,6 +60,27 @@ func mapQuestRows(
 		return quests.QuestCatalog{}, fmt.Errorf("quests: %w", err)
 	}
 	return questCatalog, nil
+}
+
+func mapQuestRewardPayloadRows(snapshot content.Snapshot) (map[catalog.DefinitionID]quests.RewardPayload, error) {
+	rewards := make(map[catalog.DefinitionID]quests.RewardPayload, len(snapshot.QuestRewardTables))
+	for _, row := range snapshot.QuestRewardTables {
+		if !row.Enabled {
+			continue
+		}
+		var data content.QuestRewardTableRow
+		if err := decodeSnapshotRow(content.ContentTypeQuestRewardTable, row, &data); err != nil {
+			return nil, err
+		}
+		if err := requireRowID(content.ContentTypeQuestRewardTable, row, data.RewardTableID.String()); err != nil {
+			return nil, err
+		}
+		if _, exists := rewards[data.TemplateID]; exists {
+			return nil, fmt.Errorf("quest template %q reward table: %w", data.TemplateID, content.ErrDuplicateQuestRewardTable)
+		}
+		rewards[data.TemplateID] = data.RewardPayload
+	}
+	return rewards, nil
 }
 
 func questReferenceResolver(

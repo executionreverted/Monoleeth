@@ -50,6 +50,10 @@ against mapped item/ship/recipe/production/map content. Old accepted quest
 compatibility remains a follow-up because accepted quest payload/source is
 player state, not CMS content.
 
+Reward table mapping now attaches one enabled CMS reward payload to each enabled
+template and fails load if a template has zero or multiple enabled reward rows.
+Weighted/multiple reward-table selection remains deferred.
+
 ### Task 4: Wire Runtime
 
 **Files:**
@@ -69,10 +73,11 @@ objectives.
 
 ### Remaining Reward Work
 
-Reward table rows are present in seed snapshots and validation. Runtime reward
-claim still uses accepted/generated quest payloads from the existing quest board
-flow. Do not claim reward-table-driven runtime rewards until admin publish and
-accepted quest version tests cover that policy.
+Generated board offers now use CMS reward payloads when present on the mapped
+template, then copy that payload into accepted quest state. Claim still uses the
+accepted/generated quest payload, not current draft/published rows. Admin
+publish and accepted quest version tests still need to cover rollback/restart
+policy before calling the whole quest reward CMS phase complete.
 
 ### Verify
 

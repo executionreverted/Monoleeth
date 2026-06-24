@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/content"
@@ -59,8 +61,12 @@ func TestRepositoryMapsSeedSnapshotToValidGameplayContent(t *testing.T) {
 	if _, ok := bundle.LootTables[content.TrainingDroneSalvageLootTableID]; !ok {
 		t.Fatalf("%s missing from mapped loot tables", content.TrainingDroneSalvageLootTableID)
 	}
-	if _, ok := bundle.Quests.Lookup("quest_test_collect_raw_ore"); !ok {
+	template, ok := bundle.Quests.Lookup("quest_test_collect_raw_ore")
+	if !ok {
 		t.Fatal("quest_test_collect_raw_ore missing from mapped quests")
+	}
+	if template.RewardPayload == nil || len(template.RewardPayload.Grants) != 1 || template.RewardPayload.Grants[0].Amount != 250 {
+		t.Fatalf("quest reward payload = %#v, want mapped reward table amount 250", template.RewardPayload)
 	}
 }
 
@@ -93,6 +99,53 @@ func TestRepositoryChangedDBModuleStatAndItemFieldSurviveAssembly(t *testing.T) 
 	if got := statValue(t, module, modules.StatWeaponDamage); got != 99 {
 		t.Fatalf("laser_alpha_t1 damage = %d, want 99", got)
 	}
+}
+
+func TestRepositoryMappedQuestRewardTableControlsGeneratedBoardReward(t *testing.T) {
+	snapshot := seedSnapshot(t)
+	targetTemplateID := catalog.DefinitionID("quest_test_collect_raw_ore")
+	mutateSnapshotRow[content.QuestRewardTableRow](t, snapshot.QuestRewardTables, "quest_rewards."+targetTemplateID.String(), func(row *content.QuestRewardTableRow) {
+		row.RewardPayload = quests.RewardPayload{Grants: []quests.RewardGrant{{
+			Kind:     quests.RewardKindCredits,
+			Currency: "credits",
+			Amount:   4321,
+		}}}
+	})
+
+	bundle, err := loadSnapshotThroughContent(t, snapshot)
+	if err != nil {
+		t.Fatalf("LoadPublishedContent(quest rewards) error = %v, want nil", err)
+	}
+	input := quests.BoardGenerationInput{
+		Player: quests.PlayerQuestBoardSnapshot{
+			PlayerID:  "player_quest_reward_cms",
+			Rank:      1,
+			MainLevel: 1,
+		},
+		Seed:      42,
+		Catalog:   bundle.Quests,
+		CreatedAt: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		WeightHook: func(_ quests.PlayerQuestBoardSnapshot, template quests.QuestTemplate) int {
+			if template.TemplateID == targetTemplateID {
+				return 1 << 60
+			}
+			return 1
+		},
+	}
+	offers, err := quests.GenerateBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateBoard() error = %v, want nil", err)
+	}
+	for _, offer := range offers {
+		if offer.TemplateID != targetTemplateID {
+			continue
+		}
+		if len(offer.RewardPayload.Grants) != 1 || offer.RewardPayload.Grants[0].Amount != 4321 {
+			t.Fatalf("offer reward payload = %#v, want CMS amount 4321", offer.RewardPayload)
+		}
+		return
+	}
+	t.Fatalf("target template %q not generated in offers %#v", targetTemplateID, offers)
 }
 
 func TestRepositoryForcesPublishedVersionOntoMappedDefinitions(t *testing.T) {
@@ -351,7 +404,17 @@ func appendSeedCoreRows(t *testing.T, snapshot *content.Snapshot, bundle content
 
 func appendSeedQuestRows(t *testing.T, snapshot *content.Snapshot) {
 	t.Helper()
-	templateID := catalog.DefinitionID("quest_test_collect_raw_ore")
+	templateIDs := []catalog.DefinitionID{"quest_test_collect_raw_ore"}
+	for index := 1; index < quests.BoardOfferCount; index++ {
+		templateIDs = append(templateIDs, catalog.DefinitionID(fmt.Sprintf("quest_test_collect_raw_ore_%02d", index)))
+	}
+	for index, templateID := range templateIDs {
+		appendSeedQuestRow(t, snapshot, templateID, int64(250+index))
+	}
+}
+
+func appendSeedQuestRow(t *testing.T, snapshot *content.Snapshot, templateID catalog.DefinitionID, rewardAmount int64) {
+	t.Helper()
 	source, err := catalog.NewQuestSource(templateID.String(), "quest_seed_test_v1")
 	if err != nil {
 		t.Fatalf("NewQuestSource() error = %v, want nil", err)
@@ -360,8 +423,8 @@ func appendSeedQuestRows(t *testing.T, snapshot *content.Snapshot) {
 		Source:         source,
 		TemplateID:     templateID,
 		Type:           quests.QuestTypeCollect,
-		TitleKey:       "quest.test_collect_raw_ore.title",
-		DescriptionKey: "quest.test_collect_raw_ore.description",
+		TitleKey:       "quest." + templateID.String() + ".title",
+		DescriptionKey: "quest." + templateID.String() + ".description",
 		ObjectiveSchema: content.QuestObjectiveSchemaRow{Objectives: []content.QuestObjectiveRow{{
 			ID:   "collect_raw_ore",
 			Kind: quests.ObjectiveKindCollect,
@@ -373,6 +436,24 @@ func appendSeedQuestRows(t *testing.T, snapshot *content.Snapshot) {
 		BoardWeight: 100,
 	}
 	snapshot.QuestTemplates = append(snapshot.QuestTemplates, testSnapshotRow(t, templateID.String(), row))
+	rewardTableID := catalog.DefinitionID("quest_rewards." + templateID.String())
+	rewardSource, err := catalog.NewQuestSource(rewardTableID.String(), "quest_seed_test_v1")
+	if err != nil {
+		t.Fatalf("NewQuestSource(reward) error = %v, want nil", err)
+	}
+	reward := content.QuestRewardTableRow{
+		Source:        rewardSource,
+		RewardTableID: rewardTableID,
+		TemplateID:    templateID,
+		RewardPayload: quests.RewardPayload{Grants: []quests.RewardGrant{{
+			Kind:     quests.RewardKindCredits,
+			Currency: "credits",
+			Amount:   rewardAmount,
+		}}},
+		Weight:      100,
+		Probability: 1,
+	}
+	snapshot.QuestRewardTables = append(snapshot.QuestRewardTables, testSnapshotRow(t, rewardTableID.String(), reward))
 }
 
 func appendSeedMapRows(t *testing.T, snapshot *content.Snapshot, definition worldmaps.MapDefinition) {

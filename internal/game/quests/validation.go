@@ -118,6 +118,14 @@ func (template QuestTemplate) Validate() error {
 	if err := template.ObjectiveSchema.Validate(); err != nil {
 		return err
 	}
+	if template.BoardWeight < 0 {
+		return fmt.Errorf("board weight %d: %w", template.BoardWeight, ErrInvalidQuestRequirement)
+	}
+	if template.RewardPayload != nil {
+		if err := template.RewardPayload.Validate(); err != nil {
+			return err
+		}
+	}
 	for _, requirement := range template.Requirements {
 		if err := requirement.Validate(); err != nil {
 			return err

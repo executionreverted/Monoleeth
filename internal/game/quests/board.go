@@ -290,7 +290,10 @@ func (activity QuestRecentActivity) DominantQuestType() (QuestType, bool) {
 // it does not read wall clock, RNG, or hidden world data, so selection remains
 // deterministic for the same snapshot, seed, and catalog.
 func DefaultQuestWeightHook(snapshot PlayerQuestBoardSnapshot, template QuestTemplate) int {
-	weight := 100
+	weight := template.BoardWeight
+	if weight <= 0 {
+		weight = 100
+	}
 
 	switch template.Type {
 	case QuestTypeKill:
@@ -409,6 +412,10 @@ func generatePayload(snapshot PlayerQuestBoardSnapshot, template QuestTemplate, 
 }
 
 func generateRewardPayload(snapshot PlayerQuestBoardSnapshot, template QuestTemplate, offerSeed int64) RewardPayload {
+	if template.RewardPayload != nil {
+		payload := cloneRewardPayload(*template.RewardPayload)
+		return withGeneratedRareCapHooks(payload, snapshot)
+	}
 	difficulty := int64(questDifficulty(snapshot))
 	variation := int64(stableUint64("quest-board-reward", strconv.FormatInt(offerSeed, 10), template.TemplateID.String()) % 25)
 	grants := []RewardGrant{
@@ -438,6 +445,21 @@ func generateRewardPayload(snapshot PlayerQuestBoardSnapshot, template QuestTemp
 		Grants:       grants,
 		RareCapHooks: rareCapHooksForGeneratedRewards(snapshot),
 	}
+}
+
+func withGeneratedRareCapHooks(payload RewardPayload, snapshot PlayerQuestBoardSnapshot) RewardPayload {
+	seen := make(map[RewardHook]struct{})
+	for _, hook := range payload.rewardHooks() {
+		seen[hook] = struct{}{}
+	}
+	for _, hook := range rareCapHooksForGeneratedRewards(snapshot) {
+		if _, ok := seen[hook]; ok {
+			continue
+		}
+		payload.RareCapHooks = append(payload.RareCapHooks, hook)
+		seen[hook] = struct{}{}
+	}
+	return payload
 }
 
 func stableOfferID(input BoardGenerationInput, template QuestTemplate, slot int, catalogFingerprint string) foundation.QuestID {

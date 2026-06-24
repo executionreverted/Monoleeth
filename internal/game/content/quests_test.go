@@ -24,6 +24,35 @@ func TestQuestContentRowsValidateTemplateAndRewardTable(t *testing.T) {
 	}
 }
 
+func TestQuestContentRowsRequireOneRewardTablePerEnabledTemplate(t *testing.T) {
+	template := validQuestTemplateSnapshotRow(t)
+
+	err := ValidateQuestContentRows(
+		[]SnapshotRow{template},
+		nil,
+		validQuestReferenceResolver(),
+	)
+	if !errors.Is(err, ErrInvalidQuestRewardTable) {
+		t.Fatalf("ValidateQuestContentRows(missing reward) error = %v, want %v", err, ErrInvalidQuestRewardTable)
+	}
+
+	first := validQuestRewardTableRow(t)
+	second := validQuestRewardTableRow(t)
+	second.RewardTableID = "quest_rewards_collect_iron_ore_r1_rare"
+	second.Source = mustQuestContentSource(t, second.RewardTableID)
+	err = ValidateQuestContentRows(
+		[]SnapshotRow{template},
+		[]SnapshotRow{
+			questRewardTableSnapshotRow(t, first.RewardTableID, first),
+			questRewardTableSnapshotRow(t, second.RewardTableID, second),
+		},
+		validQuestReferenceResolver(),
+	)
+	if !errors.Is(err, ErrDuplicateQuestRewardTable) {
+		t.Fatalf("ValidateQuestContentRows(duplicate reward) error = %v, want %v", err, ErrDuplicateQuestRewardTable)
+	}
+}
+
 func TestQuestTemplateRowsRejectUnknownObjectiveReferences(t *testing.T) {
 	tests := []struct {
 		name    string

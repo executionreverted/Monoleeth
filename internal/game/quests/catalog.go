@@ -359,9 +359,18 @@ func cloneQuestTemplate(template QuestTemplate) QuestTemplate {
 	template.DifficultyRules = cloneRawMessage(template.DifficultyRules)
 	template.ObjectiveSchema = cloneObjectiveSchema(template.ObjectiveSchema)
 	template.RewardRules = cloneRawMessage(template.RewardRules)
+	template.RewardPayload = cloneRewardPayloadPtr(template.RewardPayload)
 	template.ExpirationRules = cloneRawMessage(template.ExpirationRules)
 	template.Requirements = append([]QuestRequirement(nil), template.Requirements...)
 	return template
+}
+
+func cloneRewardPayloadPtr(payload *RewardPayload) *RewardPayload {
+	if payload == nil {
+		return nil
+	}
+	cloned := cloneRewardPayload(*payload)
+	return &cloned
 }
 
 func cloneObjectiveSchema(schema ObjectiveSchema) ObjectiveSchema {

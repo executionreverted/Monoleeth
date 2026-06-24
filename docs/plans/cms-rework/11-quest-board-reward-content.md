@@ -90,8 +90,13 @@ Reward claim uses accepted quest payload/source, not current draft.
 - quest templates and reward tables exist in snapshot schema
 - seed compiler writes quest template/reward rows into published seed snapshots
 - DB repository maps enabled quest template rows into `quests.QuestCatalog`
+- DB repository attaches exactly one enabled reward table payload to each
+  enabled quest template for the current MVP slice
 - runtime quest service receives `contentBundle.Quests`
 - real runtime no longer calls `quests.MustMVPQuestCatalog()`
+- generated board offers use CMS reward payloads when loaded from DB content,
+  while accepted quests still store the generated payload at offer/accept time
+- CMS reward payloads keep runtime rare-cap hooks during generation
 - static MVP quest catalog uses current content refs for NPC, recipe, and
   production/building objective targets
 - quest objective refs validate against item, ship, recipe, production/building,
@@ -99,8 +104,9 @@ Reward claim uses accepted quest payload/source, not current draft.
 
 ## Remaining
 
-- reward table rows are seeded and validated, but runtime reward generation still
-  uses accepted quest payloads from existing quest board/service flow
+- weighted/multiple reward-table selection per template is deferred; current
+  publish/load validation requires exactly one enabled reward row per enabled
+  template
 - admin publish/rollback API must include quest rows before claiming full CMS
   publish coverage
 - accepted old-version quest compatibility needs explicit publish/restart test

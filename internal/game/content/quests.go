@@ -73,7 +73,10 @@ func ValidateQuestContentRows(templateRows []SnapshotRow, rewardRows []SnapshotR
 		}
 		return baseHasTemplate != nil && baseHasTemplate(templateID)
 	}
-	return ValidateQuestRewardTableRows(rewardRows, resolver)
+	if err := ValidateQuestRewardTableRows(rewardRows, resolver); err != nil {
+		return err
+	}
+	return validateQuestRewardCoverage(templates, rewardRows)
 }
 
 // ValidateQuestTemplateRows validates enabled CMS quest template rows.
@@ -107,6 +110,32 @@ func ValidateQuestRewardTableRows(rows []SnapshotRow, resolver QuestReferenceRes
 	return nil
 }
 
+func validateQuestRewardCoverage(templates map[catalog.DefinitionID]struct{}, rows []SnapshotRow) error {
+	counts := make(map[catalog.DefinitionID]int, len(templates))
+	for _, row := range rows {
+		if !row.Enabled {
+			continue
+		}
+		var data QuestRewardTableRow
+		if err := decodeQuestRowData(ContentTypeQuestRewardTable, row, &data); err != nil {
+			return err
+		}
+		if _, ok := templates[data.TemplateID]; !ok {
+			continue
+		}
+		counts[data.TemplateID]++
+		if counts[data.TemplateID] > 1 {
+			return fmt.Errorf("quest template %q reward table: %w", data.TemplateID, ErrDuplicateQuestRewardTable)
+		}
+	}
+	for templateID := range templates {
+		if counts[templateID] == 0 {
+			return fmt.Errorf("quest template %q reward table: %w", templateID, ErrInvalidQuestRewardTable)
+		}
+	}
+	return nil
+}
+
 // Template converts a CMS row into the runtime quest domain template.
 func (row QuestTemplateRow) Template() (quests.QuestTemplate, error) {
 	objectiveSchema, err := row.ObjectiveSchema.ObjectiveSchema()
@@ -124,6 +153,7 @@ func (row QuestTemplateRow) Template() (quests.QuestTemplate, error) {
 		RewardRules:     cloneRawMessage(row.RewardRules),
 		ExpirationRules: cloneRawMessage(row.ExpirationRules),
 		Requirements:    append([]quests.QuestRequirement(nil), row.Requirements...),
+		BoardWeight:     row.BoardWeight,
 	}, nil
 }
 

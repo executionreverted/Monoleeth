@@ -149,6 +149,60 @@ func TestGenerateBoardStoresRewardPayloadAtOfferTime(t *testing.T) {
 	}
 }
 
+func TestGenerateBoardUsesTemplateRewardPayloadWhenPresent(t *testing.T) {
+	targetTemplateID := catalog.DefinitionID("quest_collect_carbon_shards_r1")
+	templates := MustMVPQuestCatalog().Templates()
+	for index := range templates {
+		if templates[index].TemplateID == targetTemplateID {
+			templates[index].RewardPayload = &RewardPayload{Grants: []RewardGrant{{
+				Kind:     RewardKindCredits,
+				Currency: "credits",
+				Amount:   9876,
+			}}}
+			break
+		}
+	}
+	questCatalog, err := NewQuestCatalog(templates)
+	if err != nil {
+		t.Fatalf("NewQuestCatalog() error = %v, want nil", err)
+	}
+	input := validBoardGenerationInput(t, questCatalog)
+	input.WeightHook = func(_ PlayerQuestBoardSnapshot, template QuestTemplate) int {
+		if template.TemplateID == targetTemplateID {
+			return 1 << 60
+		}
+		return 1
+	}
+
+	offers, err := GenerateBoard(input)
+	if err != nil {
+		t.Fatalf("GenerateBoard() error = %v, want nil", err)
+	}
+	for _, offer := range offers {
+		if offer.TemplateID != targetTemplateID {
+			continue
+		}
+		if len(offer.RewardPayload.Grants) != 1 || offer.RewardPayload.Grants[0].Amount != 9876 {
+			t.Fatalf("offer reward payload = %#v, want template reward amount 9876", offer.RewardPayload)
+		}
+		if len(rareCapHooksForRewardPayload(offer.RewardPayload)) == 0 {
+			t.Fatalf("offer reward payload = %#v, want generated rare cap hook", offer.RewardPayload)
+		}
+		return
+	}
+	t.Fatalf("target template %q not generated in offers %#v", targetTemplateID, offers)
+}
+
+func TestDefaultQuestWeightHookUsesTemplateBoardWeight(t *testing.T) {
+	input := validBoardGenerationInput(t, MustMVPQuestCatalog())
+	template := mustLookupQuestTemplate(t, input.Catalog, "quest_collect_carbon_shards_r1")
+	template.BoardWeight = 275
+
+	if got := DefaultQuestWeightHook(input.Player, template); got < 275 {
+		t.Fatalf("DefaultQuestWeightHook() = %d, want at least board weight 275", got)
+	}
+}
+
 func TestGenerateBoardRareRewardCapHookCanBlockExcessiveRareOffers(t *testing.T) {
 	blockedTemplateID := catalog.DefinitionID("quest_kill_pirates_r1")
 	input := validBoardGenerationInput(t, MustMVPQuestCatalog())

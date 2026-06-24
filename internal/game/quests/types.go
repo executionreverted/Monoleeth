@@ -105,8 +105,10 @@ type QuestTemplate struct {
 	DifficultyRules json.RawMessage             `json:"difficulty_rules_json,omitempty"`
 	ObjectiveSchema ObjectiveSchema             `json:"objective_schema_json"`
 	RewardRules     json.RawMessage             `json:"reward_rules_json,omitempty"`
+	RewardPayload   *RewardPayload              `json:"reward_payload_json,omitempty"`
 	ExpirationRules json.RawMessage             `json:"expiration_rules_json,omitempty"`
 	Requirements    []QuestRequirement          `json:"requirements_json,omitempty"`
+	BoardWeight     int                         `json:"board_weight,omitempty"`
 }
 
 // GeneratedPayload stores server-generated target metadata for one board offer.
