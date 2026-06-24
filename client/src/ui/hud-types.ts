@@ -2,8 +2,6 @@ import type { ClientState } from '../state/types';
 import type { RouteDestinationInput } from '../protocol/commands';
 
 export interface HUDHandlers {
-  onConnect(url: string): void;
-  onDisconnect(): void;
   onLogout(): void;
   onStop(): void;
   onSync(): void;

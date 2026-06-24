@@ -17,14 +17,9 @@ describe('canSendRealtimeCommand', () => {
     ];
 
     for (const status of blockedStatuses) {
-      expect(canSendRealtimeCommand('real', status)).toBe(false);
+      expect(canSendRealtimeCommand(status)).toBe(false);
     }
 
-    expect(canSendRealtimeCommand('real', 'connected')).toBe(true);
-  });
-
-  test('keeps demo mode able to exercise local offline intents explicitly', () => {
-    expect(canSendRealtimeCommand('demo', 'offline')).toBe(true);
-    expect(canSendRealtimeCommand('demo', 'connected')).toBe(true);
+    expect(canSendRealtimeCommand('connected')).toBe(true);
   });
 });

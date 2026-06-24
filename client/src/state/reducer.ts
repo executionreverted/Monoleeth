@@ -83,19 +83,6 @@ export function createInitialState(): ClientState {
 
 export function reduceClientState(state: ClientState, action: ClientAction): ClientState {
   switch (action.type) {
-    case 'demoModeStarted':
-      return {
-        ...clearGameplay(state),
-        auth: {
-          mode: 'demo',
-          session: null,
-          submitting: false,
-          error: null,
-        },
-        connectionStatus: 'offline',
-        commandLog: [newLog('warn', 'Demo mode is using local fixture data.')],
-      };
-
     case 'authRestoreStarted':
       return {
         ...clearGameplay(state),

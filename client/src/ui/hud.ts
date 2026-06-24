@@ -22,7 +22,6 @@ export class HUD {
   private readonly modalLayer: HTMLElement;
   private readonly moduleTooltip: HTMLElement;
   private readonly movementEta: HTMLElement;
-  private readonly socketInput: HTMLInputElement;
   private readonly panels: Record<string, HTMLElement>;
   private readonly toast: HTMLElement;
   private readonly windowStates = new Map<HUDWindowID, HUDWindowState>();
@@ -51,7 +50,6 @@ export class HUD {
     this.modalLayer = this.root.querySelector<HTMLElement>('[data-modal-layer]')!;
     this.moduleTooltip = this.root.querySelector<HTMLElement>('[data-module-tooltip-layer]')!;
     this.movementEta = this.root.querySelector<HTMLElement>('[data-movement-eta]')!;
-    this.socketInput = this.root.querySelector<HTMLInputElement>('.socket-field__input')!;
     this.toast = this.root.querySelector<HTMLElement>('.toast')!;
     this.panels = collectHUDPanels(this.root);
 
@@ -61,7 +59,6 @@ export class HUD {
   render(state: ClientState, serverNow: number | null = Date.now()): void {
     this.currentState = state;
     this.currentServerNow = serverNow;
-    this.socketInput.value = state.socketURL;
     this.root.dataset.connection = state.connectionStatus;
     this.root.dataset.mode = state.auth.mode;
     this.root.dataset.activePanel = this.focusedWindow ?? 'none';
@@ -395,12 +392,6 @@ export class HUD {
 
   private dispatchAction(action: string | undefined): boolean {
     switch (action) {
-      case 'connect':
-        this.handlers.onConnect(this.socketInput.value);
-        return true;
-      case 'disconnect':
-        this.handlers.onDisconnect();
-        return true;
       case 'stop':
         this.handlers.onStop();
         return true;

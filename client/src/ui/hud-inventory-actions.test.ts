@@ -38,8 +38,6 @@ function testButton(action: string, dataset: Record<string, string>): HTMLButton
 
 function testHandlers(): HUDHandlers {
   return {
-    onConnect: vi.fn(),
-    onDisconnect: vi.fn(),
     onLogout: vi.fn(),
     onStop: vi.fn(),
     onSync: vi.fn(),

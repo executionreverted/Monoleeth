@@ -58,14 +58,4 @@ describe('reduceClientState', () => {
     expect(ready.connectionStatus).toBe('connected');
     expect(ready.auth.session?.authenticated).toBe(true);
   });
-
-  test('demo mode is explicit and isolated from real auth session state', () => {
-    const demo = reduceClientState(stateWithServerOwnedGameplay(), { type: 'demoModeStarted' });
-
-    expect(demo.auth.mode).toBe('demo');
-    expect(demo.auth.session).toBeNull();
-    expect(demo.connectionStatus).toBe('offline');
-    expectServerOwnedGameplayCleared(demo);
-    expect(demo.commandLog.some((line) => line.text.includes('Demo mode'))).toBe(true);
-  });
 });

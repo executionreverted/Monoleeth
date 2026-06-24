@@ -39,7 +39,7 @@ export function hasPendingOpPayloadField(state: ClientState, op: string, field: 
 }
 
 export function realtimeReady(state: ClientState): boolean {
-  return state.auth.mode === 'demo' || state.connectionStatus === 'connected';
+  return state.connectionStatus === 'connected';
 }
 
 export function formatCooldown(milliseconds: number): string {

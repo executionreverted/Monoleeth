@@ -19,13 +19,7 @@ export function hudShellHTML(): string {
           <div class="top-status__cell" data-icon="credits"><img class="top-status__icon" src="${escapeHTML(creditsIconURL)}" alt="" aria-hidden="true" draggable="false" /><span>Credits</span><strong data-top-credits>${lockedValue()}</strong></div>
           <div class="top-status__cell" data-icon="cap"><img class="top-status__icon" src="${escapeHTML(capacityIconURL)}" alt="" aria-hidden="true" draggable="false" /><span>Cap</span><strong data-top-cap>${lockedValue()}</strong></div>
         </div>
-        <label class="socket-field demo-only">
-          <span>WS</span>
-          <input class="socket-field__input" type="url" value="" aria-label="WebSocket URL" />
-        </label>
         <div class="toolbar" aria-label="Connection and intent controls">
-          <button class="tool-button demo-only" data-action="connect" type="button" title="Connect fixture">Link</button>
-          <button class="tool-button demo-only" data-action="disconnect" type="button" title="Disconnect fixture">Cut</button>
           <button class="tool-button" data-action="stop" type="button" title="Stop">Stop</button>
           <button class="tool-button" data-action="sync" type="button" title="Request snapshot">Sync</button>
           <button class="tool-button tool-button--locked" type="button" disabled title="Mail link unavailable">Mail</button>

@@ -177,15 +177,6 @@
   transform: rotate(45deg);
 }
 
-.socket-field {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.5rem;
-  align-items: center;
-  min-width: 0;
-  color: rgba(215, 247, 255, 0.74);
-}
-
 .top-status {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -249,17 +240,6 @@
   text-transform: uppercase;
 }
 
-.socket-field__input {
-  width: 100%;
-  min-width: 0;
-  min-height: 44px;
-  border: 1px solid rgba(215, 247, 255, 0.2);
-  border-radius: 0;
-  padding: 0 0.75rem;
-  color: #d7f7ff;
-  background: rgba(255, 255, 255, 0.05);
-}
-
 .toolbar,
 .segmented {
   display: grid;
@@ -295,11 +275,7 @@ button:disabled {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.hud[data-mode="real"] .demo-only {
-  display: none;
-}
-
-.hud[data-mode="real"] .toolbar {
+.hud .toolbar {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 

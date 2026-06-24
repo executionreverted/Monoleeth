@@ -43,15 +43,6 @@
     font-size: 0.72rem;
   }
 
-  .socket-field {
-    grid-template-columns: 1fr;
-    gap: 0.25rem;
-  }
-
-  .socket-field span {
-    display: none;
-  }
-
   .toolbar {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }

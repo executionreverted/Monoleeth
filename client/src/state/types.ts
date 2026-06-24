@@ -11,8 +11,6 @@ export type ConnectionStatus =
   | 'offline'
   | 'error';
 
-export type ClientMode = 'real' | 'demo';
-
 export interface PublicAccount {
   email: string;
   admin: boolean;
@@ -32,7 +30,7 @@ export interface PublicSession extends JsonObject {
 }
 
 export interface ClientAuthState {
-  mode: ClientMode;
+  mode: 'real';
   session: PublicSession | null;
   submitting: boolean;
   error: string | null;
@@ -911,7 +909,6 @@ export interface ClientState {
 }
 
 export type ClientAction =
-  | { type: 'demoModeStarted' }
   | { type: 'authRestoreStarted' }
   | { type: 'authSubmitStarted' }
   | { type: 'authSessionLoaded'; session: PublicSession }

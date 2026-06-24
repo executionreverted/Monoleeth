@@ -14,7 +14,6 @@ import {
   SCAN_PENDING_RECHECK_MS,
   SCAN_STARTED_RECHECK_MS,
   SHIELD_REPAIR_TICK_MS,
-  DemoStateModule,
   TargetSelectionSource,
 } from './client-app-core';
 import { ClientAppCommands, formatDuration, formatVec } from './client-app-commands';
@@ -60,7 +59,7 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
     if (status === 'connected') {
       this.dispatch({
         type: 'connectionChanged',
-        status: this.state.auth.mode === 'real' ? 'authenticated_pending_socket' : 'connected',
+        status: 'authenticated_pending_socket',
       });
     } else if (status === 'auth_expired') {
       this.handleAuthExpired('Session expired. Please log in again.');
@@ -77,9 +76,6 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
       this.dispatch({ type: 'connectionChanged', status });
     }
 
-    if (this.demoMode && this.state.auth.mode === 'demo' && status === 'connected') {
-      this.sendCommand(this.commandBuilder.debugSnapshot());
-    }
   }
 
   protected async restoreSession(): Promise<void> {
@@ -714,7 +710,7 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
   }
 
   protected scanRuntimeReady(): boolean {
-    return this.state.auth.mode === 'demo' || this.state.connectionStatus === 'connected';
+    return this.state.connectionStatus === 'connected';
   }
 
   protected hasPendingOperation(op: string): boolean {
@@ -723,14 +719,6 @@ export abstract class ClientAppHandlers extends ClientAppCommands {
 
   protected scanPulseInProgress(): boolean {
     return this.state.planetIntel?.lastScan?.status === 'started';
-  }
-
-  protected async loadDemoState(): Promise<DemoStateModule> {
-    if (import.meta.env.DEV) {
-      this.demoState ??= await import('./demo-state');
-      return this.demoState;
-    }
-    throw new Error('Demo fixture mode is available only in development builds.');
   }
 
   protected publishSmokeState(serverNow: number | null = this.estimatedServerTime()): void {

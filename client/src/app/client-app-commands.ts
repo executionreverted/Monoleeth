@@ -6,7 +6,6 @@ import { CLIENT_EVENTS, EntityPayload, Operation, OPERATIONS, RequestEnvelope, V
 import type { RouteDestinationInput } from '../protocol/commands';
 import {
   ClientAppCore,
-  DemoStateModule,
   ECONOMY_REFRESH_DEBOUNCE_MS,
   NAVIGATION_TARGET_TOLERANCE_UNITS,
 } from './client-app-core';
@@ -17,7 +16,6 @@ export abstract class ClientAppCommands extends ClientAppCore {
   protected abstract estimatedServerTime(): number | null;
   protected abstract findLocalPlayerID(): string | null;
   protected abstract hasPendingOperation(op: string): boolean;
-  protected abstract loadDemoState(): Promise<DemoStateModule>;
   protected abstract scheduleNavigationLoop(serverNow?: number | null): void;
   protected abstract selectedTarget(): EntityPayload | null;
   protected abstract selfEntity(): EntityPayload | null;
@@ -89,17 +87,6 @@ export abstract class ClientAppCommands extends ClientAppCore {
     const command = this.commandBuilder.moveTo(moveTarget);
     this.sendCommand(command);
 
-    if (this.state.auth.mode === 'demo' && !this.realtime.isConnected()) {
-      const localID = this.findLocalPlayerID();
-      if (!localID) {
-        return;
-      }
-      window.setTimeout(() => {
-        void this.loadDemoState().then(({ correctionEvent }) => {
-          this.dispatch({ type: 'eventReceived', envelope: correctionEvent(localID, moveTarget) });
-        });
-      }, 120);
-    }
   }
 
   protected stopMovement(): void {
@@ -503,36 +490,20 @@ export abstract class ClientAppCommands extends ClientAppCore {
   }
 
   protected sendCommand(envelope: RequestEnvelope): boolean {
-    if (!canSendRealtimeCommand(this.state.auth.mode, this.state.connectionStatus)) {
+    if (!canSendRealtimeCommand(this.state.connectionStatus)) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'Waiting for authenticated realtime link.' });
       return false;
     }
 
     this.dispatch({ type: 'requestQueued', envelope });
     if (!this.realtime.send(envelope)) {
-      this.dispatch(
-        this.state.auth.mode === 'demo'
-          ? {
-              type: 'appendLog',
-              level: 'warn',
-              text: 'Offline demo accepted local intent.',
-            }
-          : {
-              type: 'appendLog',
-              level: 'warn',
-              text: 'Intent queued while realtime link is unavailable.',
-            },
-      );
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Intent queued while realtime link is unavailable.' });
     }
     return true;
   }
 
 
   protected syncSnapshot(): void {
-    if (this.demoMode && this.state.auth.mode === 'demo') {
-      this.sendCommand(this.commandBuilder.debugSnapshot());
-      return;
-    }
     this.sendCommand(this.commandBuilder.worldSnapshot());
     this.requestSystemsSnapshot(true);
   }

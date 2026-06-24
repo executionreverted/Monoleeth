@@ -8,7 +8,6 @@ import { HUD } from '../ui/hud';
 import { createInitialState } from '../state/reducer';
 import { ClientAction, ClientState, WorldMapMemoryMarker } from '../state/types';
 
-export type DemoStateModule = typeof import('./demo-state');
 export type TargetSelectionSource = 'world' | 'hud' | 'radar';
 
 export const SCAN_PENDING_RECHECK_MS = 500;
@@ -20,10 +19,6 @@ export const NAVIGATION_RECHECK_MS = 140;
 export const NAVIGATION_TARGET_TOLERANCE_UNITS = 24;
 export const ECONOMY_REFRESH_DEBOUNCE_MS = 50;
 export const SHIELD_REPAIR_TICK_MS = 1_000;
-
-export function isDemoModeEnabled(search: string, devBuild: boolean): boolean {
-  return devBuild && new URLSearchParams(search).get('demo') === '1';
-}
 
 export abstract class ClientAppCore {
   protected state: ClientState = createInitialState();
@@ -71,9 +66,6 @@ export abstract class ClientAppCore {
     pendingCount: number;
     at: number;
   }> = [];
-  protected demoState: DemoStateModule | null = null;
-  protected readonly demoMode = typeof window !== 'undefined' && isDemoModeEnabled(window.location.search, import.meta.env.DEV);
-
   protected constructor(protected readonly root: HTMLElement) {}
 
   protected abstract applyServerMessage(message: ServerMessage): void;

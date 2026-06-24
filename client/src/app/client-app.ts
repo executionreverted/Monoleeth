@@ -32,8 +32,6 @@ export class ClientApp extends ClientAppHandlers {
       onRegister: (email, password, callsign) => void this.register(email, password, callsign),
     });
     this.hud = new HUD(hudHost, {
-      onConnect: (url) => this.connect(url),
-      onDisconnect: () => this.disconnect(),
       onLogout: () => void this.logout(),
       onStop: () => this.stopMovement(),
       onSync: () => this.syncSnapshot(),
@@ -84,49 +82,7 @@ export class ClientApp extends ClientAppHandlers {
       onAdminRepairCraftJob: (jobID) => this.sendCommand(this.commandBuilder.adminRepairCraftJob(jobID)),
     });
 
-    if (this.demoMode) {
-      this.dispatch({ type: 'demoModeStarted' });
-      await this.seedDemoState();
-      this.render();
-      return;
-    }
-
     this.render();
     await this.restoreSession();
   }
-
-  protected connect(url: string): void {
-    this.intentionalDisconnect = false;
-    this.cancelNavigation();
-    this.clearEconomyRefreshTimer();
-    this.clearPendingGameplayActionKeys();
-    this.pendingLootPickupID = null;
-    this.pendingLootApproachID = null;
-    this.dispatch({ type: 'replaceVisibleEntities', entities: [], serverTime: null });
-    this.realtime.connect(url);
-  }
-
-  protected disconnect(): void {
-    this.intentionalDisconnect = true;
-    this.cancelNavigation();
-    this.clearEconomyRefreshTimer();
-    this.clearPendingGameplayActionKeys();
-    this.systemsSnapshotRequested = false;
-    this.pendingLootPickupID = null;
-    this.pendingLootApproachID = null;
-    this.clearReconnectTimer();
-    this.realtime.disconnect();
-    if (this.state.auth.mode === 'demo') {
-      void this.seedDemoState();
-    }
-  }
-
-  protected async seedDemoState(): Promise<void> {
-    const { demoEvents } = await this.loadDemoState();
-    this.dispatch({ type: 'replaceVisibleEntities', entities: [], serverTime: null });
-    for (const envelope of demoEvents()) {
-      this.dispatch({ type: 'eventReceived', envelope });
-    }
-  }
-
 }

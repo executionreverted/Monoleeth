@@ -115,8 +115,6 @@ function routeControl(values: Record<string, string>): HTMLElement {
 
 function testHandlers(): HUDHandlers {
   return {
-    onConnect: vi.fn(),
-    onDisconnect: vi.fn(),
     onLogout: vi.fn(),
     onStop: vi.fn(),
     onSync: vi.fn(),
