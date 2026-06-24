@@ -50,24 +50,31 @@ func (mover runtimeModuleItemMover) MoveModuleItemLocations(moves []modules.Modu
 	return payloads, nil
 }
 
-type runtimeShipSlotLayoutProvider struct{}
+type runtimeShipSlotLayoutProvider struct {
+	shipCatalog ships.Catalog
+}
 
-func (runtimeShipSlotLayoutProvider) SlotLayoutForShip(shipID foundation.ShipID) (modules.ShipSlotLayout, error) {
+func (provider runtimeShipSlotLayoutProvider) SlotLayoutForShip(shipID foundation.ShipID) (modules.ShipSlotLayout, error) {
 	if err := shipID.Validate(); err != nil {
 		return modules.ShipSlotLayout{}, err
 	}
-	switch shipID {
-	case ships.ShipIDStarter:
-		return modules.ShipSlotLayout{Offensive: 1, Defensive: 1, Utility: 1}, nil
-	case ships.ShipIDFighterT1:
-		return modules.ShipSlotLayout{Offensive: 4, Defensive: 2, Utility: 1}, nil
-	case ships.ShipIDScoutT1:
-		return modules.ShipSlotLayout{Offensive: 1, Defensive: 1, Utility: 4}, nil
-	case ships.ShipIDHaulerT1:
-		return modules.ShipSlotLayout{Offensive: 1, Defensive: 3, Utility: 2}, nil
-	default:
+	definition, ok := provider.shipCatalog.Get(shipID)
+	if !ok {
 		return modules.ShipSlotLayout{}, fmt.Errorf("ship %q: %w", shipID, modules.ErrUnknownShipSlotLayout)
 	}
+	layout := modules.ShipSlotLayout{
+		Offensive: definition.Slots.Offensive,
+		Defensive: definition.Slots.Defensive,
+		Utility:   definition.Slots.Utility,
+	}
+	if err := layout.Validate(); err != nil {
+		return modules.ShipSlotLayout{}, err
+	}
+	return layout, nil
+}
+
+func (runtime *Runtime) shipSlotLayoutForLoadout(shipID foundation.ShipID) (modules.ShipSlotLayout, error) {
+	return runtimeShipSlotLayoutProvider{shipCatalog: runtime.ShipCatalog}.SlotLayoutForShip(shipID)
 }
 
 type runtimeShipRankProvider struct {

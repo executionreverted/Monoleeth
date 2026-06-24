@@ -491,7 +491,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	loadoutService, err := modules.NewLoadoutService(
 		moduleCatalog,
 		loadoutStore,
-		runtimeShipSlotLayoutProvider{},
+		runtimeShipSlotLayoutProvider{shipCatalog: shipCatalog},
 		runtimeLoadoutProgressionProvider{progression: progressionService},
 		clock,
 	)

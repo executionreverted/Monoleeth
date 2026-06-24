@@ -630,7 +630,7 @@ func hangarShipLockedReason(playerShip ships.PlayerShipState, definition ships.S
 func (runtime *Runtime) loadoutSnapshotLocked(playerID foundation.PlayerID) (loadoutSnapshotPayload, error) {
 	state := runtime.players[playerID]
 	shipID := foundation.ShipID(state.Ship.ActiveShipID)
-	layout, err := (runtimeShipSlotLayoutProvider{}).SlotLayoutForShip(shipID)
+	layout, err := runtime.shipSlotLayoutForLoadout(shipID)
 	if err != nil {
 		return loadoutSnapshotPayload{}, err
 	}
@@ -952,7 +952,7 @@ func (runtime *Runtime) syncLoadoutModuleItemsLocked(playerID foundation.PlayerI
 }
 
 func (runtime *Runtime) loadoutValidationContextLocked(playerID foundation.PlayerID, shipID foundation.ShipID) (modules.LoadoutValidationContext, error) {
-	shipSlots, err := (runtimeShipSlotLayoutProvider{}).SlotLayoutForShip(shipID)
+	shipSlots, err := runtime.shipSlotLayoutForLoadout(shipID)
 	if err != nil {
 		return modules.LoadoutValidationContext{}, err
 	}

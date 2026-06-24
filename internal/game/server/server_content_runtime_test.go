@@ -6,10 +6,12 @@ import (
 	"errors"
 	"testing"
 
+	"gameproject/internal/game/auth"
 	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/contentdb"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/modules"
+	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world"
 )
 
@@ -28,6 +30,55 @@ func TestNewRuntimeUsesInjectedContentRepository(t *testing.T) {
 	assertRuntimeLaserDamage(t, runtime, 77)
 	if repository.calls != 1 {
 		t.Fatalf("repository calls = %d, want 1", repository.calls)
+	}
+}
+
+func TestNewRuntimeUsesContentShipSlotsForLoadout(t *testing.T) {
+	bundle := runtimeTestBundleWithStarterSlots(t, ships.SlotLayout{Offensive: 2, Defensive: 1, Utility: 1})
+	repository := &fakeRuntimeRepository{bundle: bundle}
+
+	runtime, err := NewRuntime(RuntimeConfig{
+		WorldID:           foundation.WorldID("world-1"),
+		ContentRepository: repository,
+		Passwords:         auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v, want nil", err)
+	}
+
+	result, err := runtime.Auth.Register(context.Background(), auth.RegisterInput{
+		Email:    "cms-loadout-slots@example.com",
+		Password: "correct-password",
+		Callsign: "CMS Slots",
+	})
+	if err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	if err := runtime.ensurePlayerSession(result.Session); err != nil {
+		t.Fatalf("ensurePlayerSession() error = %v, want nil", err)
+	}
+
+	laserInstanceID := starterModuleInstanceID(t, runtime, result.Session.PlayerID, "laser_alpha_t1")
+	if _, err := runtime.Loadout.SaveLoadout(modules.SaveLoadoutInput{
+		LoadoutID: "cms-starter-offensive-2",
+		PlayerID:  result.Session.PlayerID,
+		ShipID:    gamecontent.DefaultStarterShipID,
+		Name:      "CMS Starter Offensive 2",
+		SlotAssignments: modules.SlotAssignments{
+			modules.ModuleSlotOffensive2: laserInstanceID,
+		},
+	}); err != nil {
+		t.Fatalf("SaveLoadout(offensive_2) error = %v, want nil from CMS ship slots", err)
+	}
+
+	runtime.mu.Lock()
+	loadout, err := runtime.loadoutSnapshotLocked(result.Session.PlayerID)
+	runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("loadoutSnapshotLocked() error = %v, want nil", err)
+	}
+	if len(loadout.Slots) != 4 || !loadoutSnapshotHasSlot(loadout, modules.ModuleSlotOffensive2) {
+		t.Fatalf("loadout slots = %+v, want CMS starter layout with offensive_2", loadout.Slots)
 	}
 }
 
@@ -319,6 +370,32 @@ func runtimeTestBundleWithLaserDamage(t *testing.T, damage int64) gamecontent.Ga
 	return bundle
 }
 
+func runtimeTestBundleWithStarterSlots(t *testing.T, slots ships.SlotLayout) gamecontent.GameplayContent {
+	t.Helper()
+	bundle := runtimeTestBundle(t)
+	definitions := bundle.Ships.All()
+	found := false
+	for index := range definitions {
+		if definitions[index].ShipID != gamecontent.DefaultStarterShipID {
+			continue
+		}
+		definitions[index].Slots = slots
+		found = true
+	}
+	if !found {
+		t.Fatal("starter ship missing")
+	}
+	shipCatalog, err := ships.NewCatalog(definitions)
+	if err != nil {
+		t.Fatalf("NewCatalog(mutated ships) error = %v, want nil", err)
+	}
+	bundle.Ships = shipCatalog
+	if err := bundle.Validate(); err != nil {
+		t.Fatalf("mutated bundle Validate() error = %v, want nil", err)
+	}
+	return bundle
+}
+
 func runtimeTestSeedSnapshot() gamecontent.Snapshot {
 	return gamecontent.Snapshot{
 		Version: "runtime_seed_test_v1",
@@ -353,6 +430,26 @@ func assertBundleLaserDamage(t *testing.T, bundle gamecontent.GameplayContent, w
 		}
 	}
 	t.Fatal("laser weapon damage stat missing")
+}
+
+func starterModuleInstanceID(t *testing.T, runtime *Runtime, playerID foundation.PlayerID, itemID foundation.ItemID) foundation.ItemID {
+	t.Helper()
+	for _, item := range runtime.Inventory.InstanceItems() {
+		if item.OwnerPlayerID == playerID && item.ItemID == itemID {
+			return item.ItemInstanceID
+		}
+	}
+	t.Fatalf("starter module instance %q missing for player %q", itemID, playerID)
+	return ""
+}
+
+func loadoutSnapshotHasSlot(loadout loadoutSnapshotPayload, slotID modules.ModuleSlotID) bool {
+	for _, slot := range loadout.Slots {
+		if slot.SlotID == slotID.String() {
+			return true
+		}
+	}
+	return false
 }
 
 func countRuntimeSeedRows(upserts []runtimeSeedUpsert) int {
