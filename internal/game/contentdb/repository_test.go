@@ -148,6 +148,40 @@ func TestRepositoryMappedQuestRewardTableControlsGeneratedBoardReward(t *testing
 	t.Fatalf("target template %q not generated in offers %#v", targetTemplateID, offers)
 }
 
+func TestRepositoryMapNPCSnapshotRowsControlRuntimeCatalog(t *testing.T) {
+	snapshot := seedSnapshot(t)
+	mutateSnapshotRow[npcTemplateMapRow](t, snapshot.NPCTemplates, "training_drone_level_1", func(row *npcTemplateMapRow) {
+		row.HPMax = 77
+	})
+	mutateSnapshotRow[enemyPoolMapRow](t, snapshot.EnemyPools, "map_1_1.starter_training_drone_pool", func(row *enemyPoolMapRow) {
+		row.InitialAlive = 0
+	})
+	mutateSnapshotRow[spawnAreaMapRow](t, snapshot.SpawnAreas, "map_1_1.starter_training_drone_area", func(row *spawnAreaMapRow) {
+		row.Radius = 190
+	})
+
+	bundle, err := loadSnapshotThroughContent(t, snapshot)
+	if err != nil {
+		t.Fatalf("LoadPublishedContent(map npc mutation) error = %v, want nil", err)
+	}
+	definition, ok := bundle.Maps.Get(worldmaps.StarterMapID)
+	if !ok {
+		t.Fatal("starter map missing from mapped catalog")
+	}
+	template := findNPCStatTemplate(t, definition, "training_drone_level_1")
+	if template.HPMax != 77 {
+		t.Fatalf("training drone hp = %v, want CMS value 77", template.HPMax)
+	}
+	pool := findEnemyPool(t, definition, "starter_training_drone_pool")
+	if pool.InitialAlive != 0 {
+		t.Fatalf("training drone initial alive = %d, want CMS value 0", pool.InitialAlive)
+	}
+	area := findSpawnArea(t, definition, "starter_training_drone_area")
+	if area.Radius != 190 {
+		t.Fatalf("training drone spawn radius = %v, want CMS value 190", area.Radius)
+	}
+}
+
 func TestRepositoryForcesPublishedVersionOntoMappedDefinitions(t *testing.T) {
 	snapshot := seedSnapshot(t)
 	snapshot.Version = "stale_snapshot_v1"
@@ -197,7 +231,7 @@ func TestRepositoryMissingItemReferencesFail(t *testing.T) {
 		{
 			name: "loot",
 			mutate: func(snapshot *content.Snapshot) {
-				mutateSnapshotRow[lootTableRowData](t, snapshot.LootTables, content.TrainingDroneSalvageLootTableID, func(row *lootTableRowData) {
+				mutateSnapshotRow[content.LootTableSnapshotData](t, snapshot.LootTables, content.TrainingDroneSalvageLootTableID, func(row *content.LootTableSnapshotData) {
 					row.Rows[0].ItemDefinition.ItemID = "missing_item"
 				})
 			},
@@ -236,6 +270,103 @@ func TestRepositoryMissingItemReferencesFail(t *testing.T) {
 			_, err := loadSnapshotThroughContent(t, snapshot)
 			if err == nil {
 				t.Fatal("LoadPublishedContent() error = nil, want missing reference error")
+			}
+		})
+	}
+}
+
+func TestRepositoryLootTableRowsRejectLegacyWeightedShape(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*content.Snapshot)
+	}{
+		{
+			name: "row weight",
+			mutate: func(snapshot *content.Snapshot) {
+				mutateSnapshotRowData(t, snapshot.LootTables, content.TrainingDroneSalvageLootTableID, func(data map[string]any) {
+					rows := data["Rows"].([]any)
+					row := rows[0].(map[string]any)
+					row["Weight"] = 100
+				})
+			},
+		},
+		{
+			name: "top level weighted pool",
+			mutate: func(snapshot *content.Snapshot) {
+				mutateSnapshotRowData(t, snapshot.LootTables, content.TrainingDroneSalvageLootTableID, func(data map[string]any) {
+					data["WeightedRows"] = []any{map[string]any{"item_id": "raw_ore", "weight": 100}}
+				})
+			},
+		},
+		{
+			name: "expanded item definition",
+			mutate: func(snapshot *content.Snapshot) {
+				mutateSnapshotRowData(t, snapshot.LootTables, content.TrainingDroneSalvageLootTableID, func(data map[string]any) {
+					rows := data["Rows"].([]any)
+					row := rows[0].(map[string]any)
+					item := row["ItemDefinition"].(map[string]any)
+					item["name"] = "Raw Ore"
+				})
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := seedSnapshot(t)
+			test.mutate(&snapshot)
+
+			_, err := loadSnapshotThroughContent(t, snapshot)
+			if err == nil {
+				t.Fatal("LoadPublishedContent() error = nil, want strict loot DTO rejection")
+			}
+			if !strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("LoadPublishedContent() error = %v, want unknown field rejection", err)
+			}
+		})
+	}
+}
+
+func TestRepositoryLootTableRowsValidateChanceAndQuantity(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*content.LootTableSnapshotData)
+	}{
+		{
+			name: "chance below zero",
+			mutate: func(row *content.LootTableSnapshotData) {
+				row.Rows[0].Chance = -0.01
+			},
+		},
+		{
+			name: "chance above one",
+			mutate: func(row *content.LootTableSnapshotData) {
+				row.Rows[0].Chance = 1.01
+			},
+		},
+		{
+			name: "zero min quantity",
+			mutate: func(row *content.LootTableSnapshotData) {
+				row.Rows[0].MinQuantity = 0
+			},
+		},
+		{
+			name: "max below min quantity",
+			mutate: func(row *content.LootTableSnapshotData) {
+				row.Rows[0].MinQuantity = 3
+				row.Rows[0].MaxQuantity = 2
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := seedSnapshot(t)
+			mutateSnapshotRow[content.LootTableSnapshotData](t, snapshot.LootTables, content.TrainingDroneSalvageLootTableID, test.mutate)
+
+			_, err := loadSnapshotThroughContent(t, snapshot)
+			if !errors.Is(err, content.ErrInvalidContentLootRow) {
+				t.Fatalf("LoadPublishedContent() error = %v, want %v", err, content.ErrInvalidContentLootRow)
 			}
 		})
 	}
@@ -294,9 +425,9 @@ func TestRepositoryMapNPCRowsRejectDrift(t *testing.T) {
 			name: "extra",
 			mutate: func(snapshot *content.Snapshot) {
 				snapshot.SpawnAreas = append(snapshot.SpawnAreas, content.SnapshotRow{
-					ContentID: "map_1_1.extra_spawn_area",
+					ContentID: "missing_map.extra_spawn_area",
 					Enabled:   true,
-					DataJSON:  json.RawMessage(`{"map_id":"map_1_1","spawn_area_id":"extra_spawn_area"}`),
+					DataJSON:  json.RawMessage(`{"map_id":"missing_map","spawn_area_id":"extra_spawn_area","shape":"circle","center":{"x":100,"y":100},"radius":50}`),
 				})
 			},
 		},
@@ -304,7 +435,7 @@ func TestRepositoryMapNPCRowsRejectDrift(t *testing.T) {
 			name: "mismatch",
 			mutate: func(snapshot *content.Snapshot) {
 				mutateSnapshotRow[npcDropProfileMapRow](t, snapshot.NPCDropProfiles, string(snapshot.NPCDropProfiles[0].ContentID), func(row *npcDropProfileMapRow) {
-					row.LootTableID = "wrong_loot_table"
+					row.NPCType = "wrong_npc_type"
 				})
 			},
 		},
@@ -388,7 +519,7 @@ func appendSeedCoreRows(t *testing.T, snapshot *content.Snapshot, bundle content
 	}
 	sort.Strings(tableIDs)
 	for _, tableID := range tableIDs {
-		snapshot.LootTables = append(snapshot.LootTables, testSnapshotRow(t, tableID, bundle.LootTables[tableID]))
+		snapshot.LootTables = append(snapshot.LootTables, testSnapshotRow(t, tableID, content.SnapshotDataForLootTable(bundle.LootTables[tableID])))
 	}
 	for _, definition := range bundle.Recipes.Definitions() {
 		snapshot.CraftRecipes = append(snapshot.CraftRecipes, testSnapshotRow(t, definition.RecipeID.String(), definition))
@@ -459,50 +590,160 @@ func appendSeedQuestRow(t *testing.T, snapshot *content.Snapshot, templateID cat
 func appendSeedMapRows(t *testing.T, snapshot *content.Snapshot, definition worldmaps.MapDefinition) {
 	t.Helper()
 	for _, template := range definition.NPCStatTemplates {
-		snapshot.NPCTemplates = append(snapshot.NPCTemplates, testSnapshotRow(t, template.StatTemplateID.String(), npcTemplateMapRow{
-			MapID:   definition.InternalMapID,
-			NPCType: template.NPCType,
-		}))
+		snapshot.NPCTemplates = append(snapshot.NPCTemplates, testSnapshotRow(t, template.StatTemplateID.String(), npcTemplateMapRowFromDefinition(definition.InternalMapID, template)))
 	}
 	for _, area := range definition.SpawnAreas {
-		snapshot.SpawnAreas = append(snapshot.SpawnAreas, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, area.SpawnAreaID.String()), spawnAreaMapRow{
-			MapID:       definition.InternalMapID,
-			SpawnAreaID: area.SpawnAreaID,
-		}))
+		snapshot.SpawnAreas = append(snapshot.SpawnAreas, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, area.SpawnAreaID.String()), spawnAreaMapRowFromDefinition(definition.InternalMapID, area)))
 	}
 	for _, pool := range definition.EnemyPools {
-		snapshot.EnemyPools = append(snapshot.EnemyPools, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, pool.EnemyPoolID.String()), enemyPoolMapRow{
-			MapID:       definition.InternalMapID,
-			EnemyPoolID: pool.EnemyPoolID,
-			NPCType:     pool.NPCType,
-		}))
+		snapshot.EnemyPools = append(snapshot.EnemyPools, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, pool.EnemyPoolID.String()), enemyPoolMapRowFromDefinition(definition.InternalMapID, pool)))
 	}
 	for _, profile := range definition.NPCDropProfiles {
-		snapshot.NPCDropProfiles = append(snapshot.NPCDropProfiles, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, profile.DropProfileID.String()), npcDropProfileMapRow{
-			MapID:         definition.InternalMapID,
-			DropProfileID: profile.DropProfileID,
-			NPCType:       profile.NPCType,
-			LootTableID:   profile.LootTableID,
-		}))
+		snapshot.NPCDropProfiles = append(snapshot.NPCDropProfiles, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, profile.DropProfileID.String()), npcDropProfileMapRowFromDefinition(definition.InternalMapID, profile)))
 	}
 	for _, profile := range definition.NPCAggroProfiles {
-		snapshot.NPCAggroProfiles = append(snapshot.NPCAggroProfiles, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, profile.AggroProfileID.String()), npcAggroProfileMapRow{
-			MapID:          definition.InternalMapID,
-			AggroProfileID: profile.AggroProfileID,
-		}))
+		snapshot.NPCAggroProfiles = append(snapshot.NPCAggroProfiles, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, profile.AggroProfileID.String()), npcAggroProfileMapRowFromDefinition(definition.InternalMapID, profile)))
 	}
 	for _, profile := range definition.NPCLeashProfiles {
-		snapshot.NPCLeashProfiles = append(snapshot.NPCLeashProfiles, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, profile.LeashProfileID.String()), npcLeashProfileMapRow{
-			MapID:          definition.InternalMapID,
-			LeashProfileID: profile.LeashProfileID,
-		}))
+		snapshot.NPCLeashProfiles = append(snapshot.NPCLeashProfiles, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, profile.LeashProfileID.String()), npcLeashProfileMapRowFromDefinition(definition.InternalMapID, profile)))
 	}
 	for _, eventSpawn := range definition.NPCEventSpawns {
-		snapshot.NPCEventSpawns = append(snapshot.NPCEventSpawns, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, eventSpawn.EventSpawnID.String()), npcEventSpawnMapRow{
-			MapID:        definition.InternalMapID,
-			EventSpawnID: eventSpawn.EventSpawnID,
-		}))
+		snapshot.NPCEventSpawns = append(snapshot.NPCEventSpawns, testSnapshotRow(t, qualifiedMapContentID(definition.InternalMapID, eventSpawn.EventSpawnID.String()), npcEventSpawnMapRowFromDefinition(definition.InternalMapID, eventSpawn)))
 	}
+}
+
+func npcTemplateMapRowFromDefinition(mapID worldmaps.MapID, template worldmaps.NPCStatTemplate) npcTemplateMapRow {
+	return npcTemplateMapRow{
+		MapID:          mapID,
+		StatTemplateID: template.StatTemplateID,
+		NPCType:        template.NPCType,
+		MinLevel:       template.MinLevel,
+		MaxLevel:       template.MaxLevel,
+		LabelKey:       template.LabelKey,
+		HPMax:          template.HPMax,
+		ShieldMax:      template.ShieldMax,
+		EnergyMax:      template.EnergyMax,
+		WeaponRange:    template.WeaponRange,
+		WeaponDamage:   template.WeaponDamage,
+		WeaponCooldown: template.WeaponCooldown,
+		Accuracy:       template.Accuracy,
+		RadarSignature: template.RadarSignature,
+		Speed:          template.Speed,
+		XPValue:        template.XPValue,
+	}
+}
+
+func spawnAreaMapRowFromDefinition(mapID worldmaps.MapID, area worldmaps.MapSpawnAreaDefinition) spawnAreaMapRow {
+	return spawnAreaMapRow{
+		MapID:                 mapID,
+		SpawnAreaID:           area.SpawnAreaID,
+		Shape:                 area.Shape,
+		Center:                area.Center,
+		Radius:                area.Radius,
+		SafeZoneExcluded:      area.SafeZoneExcluded,
+		PortalExclusionRadius: area.PortalExclusionRadius,
+	}
+}
+
+func enemyPoolMapRowFromDefinition(mapID worldmaps.MapID, pool worldmaps.MapEnemyPoolDefinition) enemyPoolMapRow {
+	return enemyPoolMapRow{
+		MapID:            mapID,
+		EnemyPoolID:      pool.EnemyPoolID,
+		NPCType:          pool.NPCType,
+		MinLevel:         pool.MinLevel,
+		MaxLevel:         pool.MaxLevel,
+		SpawnAreaIDs:     append([]worldmaps.SpawnAreaID(nil), pool.SpawnAreaIDs...),
+		MapMaxAlive:      pool.MapMaxAlive,
+		PoolMaxAlive:     pool.PoolMaxAlive,
+		InitialAlive:     pool.InitialAlive,
+		SpawnInterval:    pool.SpawnInterval,
+		KillRespawnDelay: pool.KillRespawnDelay,
+		SpawnJitter:      pool.SpawnJitter,
+		SpawnMode:        pool.SpawnMode,
+		StatTemplateID:   pool.StatTemplateID,
+		DropProfileID:    pool.DropProfileID,
+		AggroProfileID:   pool.AggroProfileID,
+		LeashProfileID:   pool.LeashProfileID,
+		Enabled:          pool.Enabled,
+	}
+}
+
+func npcDropProfileMapRowFromDefinition(mapID worldmaps.MapID, profile worldmaps.NPCDropProfile) npcDropProfileMapRow {
+	return npcDropProfileMapRow{
+		MapID:         mapID,
+		DropProfileID: profile.DropProfileID,
+		NPCType:       profile.NPCType,
+		MinLevel:      profile.MinLevel,
+		MaxLevel:      profile.MaxLevel,
+		RiskBand:      profile.RiskBand,
+		LootTableID:   profile.LootTableID,
+	}
+}
+
+func npcAggroProfileMapRowFromDefinition(mapID worldmaps.MapID, profile worldmaps.NPCAggroProfile) npcAggroProfileMapRow {
+	return npcAggroProfileMapRow{
+		MapID:                mapID,
+		AggroProfileID:       profile.AggroProfileID,
+		AggroRadius:          profile.AggroRadius,
+		AssistRadius:         profile.AssistRadius,
+		TargetMemory:         profile.TargetMemory,
+		SafeZoneAttackPolicy: profile.SafeZoneAttackPolicy,
+	}
+}
+
+func npcLeashProfileMapRowFromDefinition(mapID worldmaps.MapID, profile worldmaps.NPCLeashProfile) npcLeashProfileMapRow {
+	return npcLeashProfileMapRow{
+		MapID:          mapID,
+		LeashProfileID: profile.LeashProfileID,
+		LeashDistance:  profile.LeashDistance,
+		ResetOnBreak:   profile.ResetOnBreak,
+	}
+}
+
+func npcEventSpawnMapRowFromDefinition(mapID worldmaps.MapID, eventSpawn worldmaps.NPCEventSpawnDefinition) npcEventSpawnMapRow {
+	return npcEventSpawnMapRow{
+		MapID:         mapID,
+		EventSpawnID:  eventSpawn.EventSpawnID,
+		EnemyPoolID:   eventSpawn.EnemyPoolID,
+		DropProfileID: eventSpawn.DropProfileID,
+		Enabled:       eventSpawn.Enabled,
+		StartsAfter:   eventSpawn.StartsAfter,
+		MaxAlive:      eventSpawn.MaxAlive,
+		MapPolicy:     eventSpawn.MapPolicy,
+	}
+}
+
+func findNPCStatTemplate(t *testing.T, definition worldmaps.MapDefinition, templateID worldmaps.NPCStatTemplateID) worldmaps.NPCStatTemplate {
+	t.Helper()
+	for _, template := range definition.NPCStatTemplates {
+		if template.StatTemplateID == templateID {
+			return template
+		}
+	}
+	t.Fatalf("npc stat template %q missing", templateID)
+	return worldmaps.NPCStatTemplate{}
+}
+
+func findEnemyPool(t *testing.T, definition worldmaps.MapDefinition, poolID worldmaps.EnemyPoolID) worldmaps.MapEnemyPoolDefinition {
+	t.Helper()
+	for _, pool := range definition.EnemyPools {
+		if pool.EnemyPoolID == poolID {
+			return pool
+		}
+	}
+	t.Fatalf("enemy pool %q missing", poolID)
+	return worldmaps.MapEnemyPoolDefinition{}
+}
+
+func findSpawnArea(t *testing.T, definition worldmaps.MapDefinition, areaID worldmaps.SpawnAreaID) worldmaps.MapSpawnAreaDefinition {
+	t.Helper()
+	for _, area := range definition.SpawnAreas {
+		if area.SpawnAreaID == areaID {
+			return area
+		}
+	}
+	t.Fatalf("spawn area %q missing", areaID)
+	return worldmaps.MapSpawnAreaDefinition{}
 }
 
 func testSnapshotRow(t *testing.T, contentID string, data any) content.SnapshotRow {
@@ -549,6 +790,27 @@ func mutateSnapshotRow[T any](t *testing.T, rows []content.SnapshotRow, contentI
 			t.Fatalf("decode row %q: %v", contentID, err)
 		}
 		mutate(&decoded)
+		raw, err := json.Marshal(decoded)
+		if err != nil {
+			t.Fatalf("encode row %q: %v", contentID, err)
+		}
+		rows[index].DataJSON = raw
+		return
+	}
+	t.Fatalf("row %q missing", contentID)
+}
+
+func mutateSnapshotRowData(t *testing.T, rows []content.SnapshotRow, contentID string, mutate func(map[string]any)) {
+	t.Helper()
+	for index := range rows {
+		if string(rows[index].ContentID) != contentID {
+			continue
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(rows[index].DataJSON, &decoded); err != nil {
+			t.Fatalf("decode row %q: %v", contentID, err)
+		}
+		mutate(decoded)
 		raw, err := json.Marshal(decoded)
 		if err != nil {
 			t.Fatalf("encode row %q: %v", contentID, err)

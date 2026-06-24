@@ -1,17 +1,21 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"gameproject/internal/game/auth"
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/combat"
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/observability"
+	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
 )
@@ -155,6 +159,94 @@ func TestNPCLootSelectorUsesOuterRingSpawnRecordDropProfileLootTable(t *testing.
 		created.Drops[0].ItemDefinition.ItemID != "raw_ore" ||
 		created.Drops[0].Quantity != 3 {
 		t.Fatalf("map_1_2 created drops = %+v, want raw_ore x3 in destination map", created.Drops)
+	}
+}
+
+func TestNPCLootSelectorUsesLatestPublishedDBSnapshotLootTable(t *testing.T) {
+	snapshot, err := serverPublishedLootSnapshot(t, "runtime_loot_published_v2")
+	if err != nil {
+		t.Fatalf("serverPublishedLootSnapshot() error = %v, want nil", err)
+	}
+	mutateServerLootSnapshotRow(t, snapshot.LootTables, trainingDroneSalvageLootTableID, func(row *gamecontent.LootTableSnapshotData) {
+		row.Rows = []gamecontent.LootRowSnapshotData{{
+			ItemDefinition: gamecontent.LootItemSnapshotReference{ItemID: "carbon_shards"},
+			MinQuantity:    9,
+			MaxQuantity:    9,
+			Chance:         1,
+		}}
+	})
+	runtime, err := NewRuntime(RuntimeConfig{
+		WorldID:           "world-1",
+		ContentRepository: serverPublishedLootSnapshotRepository{snapshot: snapshot},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime(published snapshot) error = %v, want nil", err)
+	}
+
+	result, err := runtime.Auth.Register(context.Background(), auth.RegisterInput{
+		Email:    "published-loot@example.com",
+		Password: "correct-password",
+		Callsign: "Published Loot",
+	})
+	if err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	if err := runtime.ensurePlayerSession(result.Session); err != nil {
+		t.Fatalf("ensurePlayerSession() error = %v, want nil", err)
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	starter, err := runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		t.Fatalf("starter map instance: %v", err)
+	}
+	record := requireSpawnRecordByNPCType(t, starter, "training_drone")
+	event := testNPCKilledEventForRecord(result.Session.PlayerID, starter, record)
+	if err := runtime.submitWorkerCommandAndRecordMetricsLocked(starter, worker.MarkEnemyKilledCommand{
+		Definition:  starter.Definition,
+		NPCEntityID: event.NPCEntityID,
+		KilledAt:    event.KilledAt,
+	}); err != nil {
+		t.Fatalf("MarkEnemyKilledCommand() error = %v, want nil", err)
+	}
+
+	selected, err := runtime.selectNPCKillLootTableForInstanceLocked(starter, event)
+	if err != nil {
+		t.Fatalf("selectNPCKillLootTableForInstanceLocked() error = %v, want nil", err)
+	}
+	if got := selected.Source.Version.String(); got != "runtime_loot_published_v2" {
+		t.Fatalf("selected loot table version = %q, want latest published version", got)
+	}
+	created, err := runtime.Loot.CreateDropsForNPCKill(event, selected)
+	if err != nil {
+		t.Fatalf("CreateDropsForNPCKill() error = %v, want nil", err)
+	}
+	if len(created.Drops) != 1 ||
+		created.Drops[0].ItemDefinition.ItemID != "carbon_shards" ||
+		created.Drops[0].Quantity != 9 {
+		t.Fatalf("created drops = %+v, want latest published carbon_shards x9", created.Drops)
+	}
+
+	rawPayload, err := json.Marshal(lootDropPayload(created.Drops[0], runtime.clock.Now()))
+	if err != nil {
+		t.Fatalf("marshal loot payload: %v", err)
+	}
+	for _, forbidden := range []string{
+		trainingDroneSalvageLootTableID,
+		"runtime_loot_published_v2",
+		"loot_table",
+		"drop_profile",
+		"Chance",
+		"Rows",
+		"SourceID",
+		"spawn",
+		"procedural",
+	} {
+		if strings.Contains(string(rawPayload), forbidden) {
+			t.Fatalf("loot payload leaked %q in %s", forbidden, rawPayload)
+		}
 	}
 }
 
@@ -795,4 +887,93 @@ func testRuntimeLootTable(t *testing.T, tableID string, itemID foundation.ItemID
 			Chance:         1,
 		}},
 	}
+}
+
+func mutateServerLootSnapshotRow(t *testing.T, rows []gamecontent.SnapshotRow, contentID string, mutate func(*gamecontent.LootTableSnapshotData)) {
+	t.Helper()
+	for index := range rows {
+		if string(rows[index].ContentID) != contentID {
+			continue
+		}
+		data, err := gamecontent.DecodeLootTableSnapshotData(rows[index].DataJSON)
+		if err != nil {
+			t.Fatalf("decode loot row %q: %v", contentID, err)
+		}
+		mutate(&data)
+		raw, err := json.Marshal(data)
+		if err != nil {
+			t.Fatalf("encode loot row %q: %v", contentID, err)
+		}
+		rows[index].DataJSON = raw
+		return
+	}
+	t.Fatalf("loot row %q missing", contentID)
+}
+
+type serverPublishedLootSnapshotRepository struct {
+	snapshot gamecontent.Snapshot
+}
+
+func (repository serverPublishedLootSnapshotRepository) LoadPublishedContent(ctx context.Context, worldID world.WorldID) (gamecontent.GameplayContent, error) {
+	if err := ctx.Err(); err != nil {
+		return gamecontent.GameplayContent{}, err
+	}
+	bundle, err := gamecontent.DefaultGameplayContent(worldID)
+	if err != nil {
+		return gamecontent.GameplayContent{}, err
+	}
+	if repository.snapshot.Version == "" {
+		return gamecontent.GameplayContent{}, gamecontent.ErrInvalidContentSnapshot
+	}
+	for _, row := range repository.snapshot.LootTables {
+		if !row.Enabled {
+			continue
+		}
+		data, err := gamecontent.DecodeLootTableSnapshotData(row.DataJSON)
+		if err != nil {
+			return gamecontent.GameplayContent{}, err
+		}
+		tableID := data.Source.DefinitionID.String()
+		rows := make([]loot.LootRow, 0, len(data.Rows))
+		for _, lootRow := range data.Rows {
+			item, ok := bundle.Items[lootRow.ItemDefinition.ItemID]
+			if !ok {
+				return gamecontent.GameplayContent{}, gamecontent.ErrUnknownContentItem
+			}
+			rows = append(rows, loot.LootRow{
+				ItemDefinition: item,
+				MinQuantity:    lootRow.MinQuantity,
+				MaxQuantity:    lootRow.MaxQuantity,
+				Chance:         lootRow.Chance,
+			})
+		}
+		source := data.Source
+		source.Version = catalog.Version(repository.snapshot.Version)
+		bundle.LootTables[tableID] = loot.LootTable{
+			Source: source,
+			Rows:   rows,
+		}
+	}
+	return bundle, nil
+}
+
+func serverPublishedLootSnapshot(t *testing.T, version string) (gamecontent.Snapshot, error) {
+	t.Helper()
+	bundle := runtimeTestBundle(t)
+	table, ok := bundle.LootTables[trainingDroneSalvageLootTableID]
+	if !ok {
+		t.Fatalf("runtime bundle missing loot table %q", trainingDroneSalvageLootTableID)
+	}
+	raw, err := json.Marshal(gamecontent.SnapshotDataForLootTable(table))
+	if err != nil {
+		return gamecontent.Snapshot{}, err
+	}
+	return gamecontent.Snapshot{
+		Version: version,
+		LootTables: []gamecontent.SnapshotRow{{
+			ContentID: gamecontent.ContentID(trainingDroneSalvageLootTableID),
+			Enabled:   true,
+			DataJSON:  raw,
+		}},
+	}, nil
 }

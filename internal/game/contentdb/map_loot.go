@@ -3,28 +3,11 @@ package contentdb
 import (
 	"fmt"
 
-	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/content"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
 )
-
-type lootTableRowData struct {
-	Source catalog.VersionedDefinition `json:"Source"`
-	Rows   []lootRowData               `json:"Rows"`
-}
-
-type lootRowData struct {
-	ItemDefinition lootItemReference `json:"ItemDefinition"`
-	MinQuantity    int64             `json:"MinQuantity"`
-	MaxQuantity    int64             `json:"MaxQuantity"`
-	Chance         float64           `json:"Chance"`
-}
-
-type lootItemReference struct {
-	ItemID foundation.ItemID `json:"item_id"`
-}
 
 func mapLootTableRows(
 	snapshot content.Snapshot,
@@ -36,9 +19,9 @@ func mapLootTableRows(
 		if !row.Enabled {
 			continue
 		}
-		var data lootTableRowData
-		if err := decodeSnapshotRow(content.ContentTypeLootTable, row, &data); err != nil {
-			return nil, err
+		data, err := content.DecodeLootTableSnapshotData(row.DataJSON)
+		if err != nil {
+			return nil, fmt.Errorf("%s %q data_json: %w", content.ContentTypeLootTable, row.ContentID, err)
 		}
 		tableID := data.Source.DefinitionID.String()
 		if err := requireRowID(content.ContentTypeLootTable, row, tableID); err != nil {

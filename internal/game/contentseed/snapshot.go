@@ -135,7 +135,7 @@ func lootTableRows(bundle content.GameplayContent) ([]content.SnapshotRow, error
 
 	rows := make([]content.SnapshotRow, 0, len(tableIDs))
 	for _, tableID := range tableIDs {
-		row, err := newSnapshotRow(tableID, bundle.LootTables[tableID])
+		row, err := newSnapshotRow(tableID, content.SnapshotDataForLootTable(bundle.LootTables[tableID]))
 		if err != nil {
 			return nil, err
 		}
@@ -188,70 +188,49 @@ func appendMapNPCRows(snapshot *content.Snapshot, bundle content.GameplayContent
 
 func appendMapDefinitionNPCRows(snapshot *content.Snapshot, definition worldmaps.MapDefinition) error {
 	for _, template := range definition.NPCStatTemplates {
-		row, err := newSnapshotRow(template.StatTemplateID.String(), npcTemplateRowData(definition.InternalMapID, template.NPCType))
+		row, err := newSnapshotRow(template.StatTemplateID.String(), npcTemplateRowData(definition.InternalMapID, template))
 		if err != nil {
 			return err
 		}
 		snapshot.NPCTemplates = append(snapshot.NPCTemplates, row)
 	}
 	for _, area := range definition.SpawnAreas {
-		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, area.SpawnAreaID.String()), map[string]any{
-			"map_id":        definition.InternalMapID,
-			"spawn_area_id": area.SpawnAreaID,
-		})
+		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, area.SpawnAreaID.String()), spawnAreaRowData(definition.InternalMapID, area))
 		if err != nil {
 			return err
 		}
 		snapshot.SpawnAreas = append(snapshot.SpawnAreas, row)
 	}
 	for _, pool := range definition.EnemyPools {
-		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, pool.EnemyPoolID.String()), map[string]any{
-			"map_id":        definition.InternalMapID,
-			"enemy_pool_id": pool.EnemyPoolID,
-			"npc_type":      pool.NPCType,
-		})
+		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, pool.EnemyPoolID.String()), enemyPoolRowData(definition.InternalMapID, pool))
 		if err != nil {
 			return err
 		}
 		snapshot.EnemyPools = append(snapshot.EnemyPools, row)
 	}
 	for _, profile := range definition.NPCDropProfiles {
-		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, profile.DropProfileID.String()), map[string]any{
-			"map_id":          definition.InternalMapID,
-			"drop_profile_id": profile.DropProfileID,
-			"npc_type":        profile.NPCType,
-			"loot_table_id":   profile.LootTableID,
-		})
+		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, profile.DropProfileID.String()), npcDropProfileRowData(definition.InternalMapID, profile))
 		if err != nil {
 			return err
 		}
 		snapshot.NPCDropProfiles = append(snapshot.NPCDropProfiles, row)
 	}
 	for _, profile := range definition.NPCAggroProfiles {
-		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, profile.AggroProfileID.String()), map[string]any{
-			"map_id":           definition.InternalMapID,
-			"aggro_profile_id": profile.AggroProfileID,
-		})
+		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, profile.AggroProfileID.String()), npcAggroProfileRowData(definition.InternalMapID, profile))
 		if err != nil {
 			return err
 		}
 		snapshot.NPCAggroProfiles = append(snapshot.NPCAggroProfiles, row)
 	}
 	for _, profile := range definition.NPCLeashProfiles {
-		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, profile.LeashProfileID.String()), map[string]any{
-			"map_id":           definition.InternalMapID,
-			"leash_profile_id": profile.LeashProfileID,
-		})
+		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, profile.LeashProfileID.String()), npcLeashProfileRowData(definition.InternalMapID, profile))
 		if err != nil {
 			return err
 		}
 		snapshot.NPCLeashProfiles = append(snapshot.NPCLeashProfiles, row)
 	}
 	for _, eventSpawn := range definition.NPCEventSpawns {
-		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, eventSpawn.EventSpawnID.String()), map[string]any{
-			"map_id":         definition.InternalMapID,
-			"event_spawn_id": eventSpawn.EventSpawnID,
-		})
+		row, err := newSnapshotRow(qualifiedMapContentID(definition.InternalMapID, eventSpawn.EventSpawnID.String()), npcEventSpawnRowData(definition.InternalMapID, eventSpawn))
 		if err != nil {
 			return err
 		}
@@ -260,14 +239,105 @@ func appendMapDefinitionNPCRows(snapshot *content.Snapshot, definition worldmaps
 	return nil
 }
 
-func npcTemplateRowData(mapID worldmaps.MapID, npcType string) map[string]any {
-	data := map[string]any{
-		"npc_type": npcType,
+func npcTemplateRowData(mapID worldmaps.MapID, template worldmaps.NPCStatTemplate) map[string]any {
+	return map[string]any{
+		"map_id":           mapID,
+		"stat_template_id": template.StatTemplateID,
+		"npc_type":         template.NPCType,
+		"min_level":        template.MinLevel,
+		"max_level":        template.MaxLevel,
+		"label_key":        template.LabelKey,
+		"hp_max":           template.HPMax,
+		"shield_max":       template.ShieldMax,
+		"energy_max":       template.EnergyMax,
+		"weapon_range":     template.WeaponRange,
+		"weapon_damage":    template.WeaponDamage,
+		"weapon_cooldown":  template.WeaponCooldown,
+		"accuracy":         template.Accuracy,
+		"radar_signature":  template.RadarSignature,
+		"speed":            template.Speed,
+		"xp_value":         template.XPValue,
 	}
-	if mapID != "" {
-		data["map_id"] = mapID
+}
+
+func spawnAreaRowData(mapID worldmaps.MapID, area worldmaps.MapSpawnAreaDefinition) map[string]any {
+	return map[string]any{
+		"map_id":                  mapID,
+		"spawn_area_id":           area.SpawnAreaID,
+		"shape":                   area.Shape,
+		"center":                  area.Center,
+		"radius":                  area.Radius,
+		"safe_zone_excluded":      area.SafeZoneExcluded,
+		"portal_exclusion_radius": area.PortalExclusionRadius,
 	}
-	return data
+}
+
+func enemyPoolRowData(mapID worldmaps.MapID, pool worldmaps.MapEnemyPoolDefinition) map[string]any {
+	return map[string]any{
+		"map_id":             mapID,
+		"enemy_pool_id":      pool.EnemyPoolID,
+		"npc_type":           pool.NPCType,
+		"min_level":          pool.MinLevel,
+		"max_level":          pool.MaxLevel,
+		"spawn_area_ids":     pool.SpawnAreaIDs,
+		"map_max_alive":      pool.MapMaxAlive,
+		"pool_max_alive":     pool.PoolMaxAlive,
+		"initial_alive":      pool.InitialAlive,
+		"spawn_interval":     pool.SpawnInterval,
+		"kill_respawn_delay": pool.KillRespawnDelay,
+		"spawn_jitter":       pool.SpawnJitter,
+		"spawn_mode":         pool.SpawnMode,
+		"stat_template_id":   pool.StatTemplateID,
+		"drop_profile_id":    pool.DropProfileID,
+		"aggro_profile_id":   pool.AggroProfileID,
+		"leash_profile_id":   pool.LeashProfileID,
+		"enabled":            pool.Enabled,
+	}
+}
+
+func npcDropProfileRowData(mapID worldmaps.MapID, profile worldmaps.NPCDropProfile) map[string]any {
+	return map[string]any{
+		"map_id":          mapID,
+		"drop_profile_id": profile.DropProfileID,
+		"npc_type":        profile.NPCType,
+		"min_level":       profile.MinLevel,
+		"max_level":       profile.MaxLevel,
+		"risk_band":       profile.RiskBand,
+		"loot_table_id":   profile.LootTableID,
+	}
+}
+
+func npcAggroProfileRowData(mapID worldmaps.MapID, profile worldmaps.NPCAggroProfile) map[string]any {
+	return map[string]any{
+		"map_id":                  mapID,
+		"aggro_profile_id":        profile.AggroProfileID,
+		"aggro_radius":            profile.AggroRadius,
+		"assist_radius":           profile.AssistRadius,
+		"target_memory":           profile.TargetMemory,
+		"safe_zone_attack_policy": profile.SafeZoneAttackPolicy,
+	}
+}
+
+func npcLeashProfileRowData(mapID worldmaps.MapID, profile worldmaps.NPCLeashProfile) map[string]any {
+	return map[string]any{
+		"map_id":           mapID,
+		"leash_profile_id": profile.LeashProfileID,
+		"leash_distance":   profile.LeashDistance,
+		"reset_on_break":   profile.ResetOnBreak,
+	}
+}
+
+func npcEventSpawnRowData(mapID worldmaps.MapID, eventSpawn worldmaps.NPCEventSpawnDefinition) map[string]any {
+	return map[string]any{
+		"map_id":          mapID,
+		"event_spawn_id":  eventSpawn.EventSpawnID,
+		"enemy_pool_id":   eventSpawn.EnemyPoolID,
+		"drop_profile_id": eventSpawn.DropProfileID,
+		"enabled":         eventSpawn.Enabled,
+		"starts_after":    eventSpawn.StartsAfter,
+		"max_alive":       eventSpawn.MaxAlive,
+		"map_policy":      eventSpawn.MapPolicy,
+	}
 }
 
 func qualifiedMapContentID(mapID worldmaps.MapID, id string) string {
