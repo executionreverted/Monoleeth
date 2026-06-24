@@ -150,7 +150,7 @@ func craftRecipeRows(bundle content.GameplayContent) ([]content.SnapshotRow, err
 
 	rows := make([]content.SnapshotRow, 0, len(definitions))
 	for _, definition := range definitions {
-		row, err := newSnapshotRow(definition.RecipeID.String(), definition)
+		row, err := newSnapshotRow(definition.RecipeID.String(), craftRecipeSnapshotData(definition))
 		if err != nil {
 			return nil, err
 		}

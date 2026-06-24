@@ -1,6 +1,7 @@
 package contentdb
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -20,7 +21,7 @@ type recipeRowData struct {
 	RequiredRank         int                         `json:"required_rank"`
 	RequiredRoleLevels   []crafting.RoleRequirement  `json:"required_role_levels,omitempty"`
 	RequiredLocationType crafting.CraftLocationType  `json:"required_location_type"`
-	CraftDuration        time.Duration               `json:"craft_duration"`
+	CraftDurationMS      int64                       `json:"craft_duration_ms"`
 	Repeatable           bool                        `json:"repeatable"`
 }
 
@@ -35,6 +36,29 @@ type recipeOutputRowData struct {
 	ShipID    foundation.ShipID         `json:"ship_id,omitempty"`
 	Quantity  int64                     `json:"quantity"`
 	Tradeable bool                      `json:"tradeable"`
+}
+
+func (data *recipeRowData) UnmarshalJSON(raw []byte) error {
+	type rowAlias recipeRowData
+	var decoded rowAlias
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	if _, ok := fields["craft_duration_ms"]; !ok {
+		if rawDuration, ok := fields["craft_duration"]; ok {
+			var legacyDuration time.Duration
+			if err := json.Unmarshal(rawDuration, &legacyDuration); err != nil {
+				return fmt.Errorf("craft_duration: %w", err)
+			}
+			decoded.CraftDurationMS = legacyDuration.Milliseconds()
+		}
+	}
+	*data = recipeRowData(decoded)
+	return nil
 }
 
 func mapCraftRecipeRows(snapshot content.Snapshot) (crafting.RecipeCatalog, error) {
@@ -65,6 +89,10 @@ func mapCraftRecipeRows(snapshot content.Snapshot) (crafting.RecipeCatalog, erro
 }
 
 func (data recipeRowData) toDefinition(version catalog.Version) (crafting.RecipeDefinition, error) {
+	craftDuration, err := data.craftDuration()
+	if err != nil {
+		return crafting.RecipeDefinition{}, err
+	}
 	outputQuantity, err := foundation.NewQuantity(data.Output.Quantity)
 	if err != nil {
 		return crafting.RecipeDefinition{}, fmt.Errorf("output quantity: %w", err)
@@ -100,7 +128,18 @@ func (data recipeRowData) toDefinition(version catalog.Version) (crafting.Recipe
 		RequiredRank:         data.RequiredRank,
 		RequiredRoleLevels:   append([]crafting.RoleRequirement(nil), data.RequiredRoleLevels...),
 		RequiredLocationType: data.RequiredLocationType,
-		CraftDuration:        data.CraftDuration,
+		CraftDuration:        craftDuration,
 		Repeatable:           data.Repeatable,
 	}, nil
+}
+
+func (data recipeRowData) craftDuration() (time.Duration, error) {
+	if data.CraftDurationMS <= 0 {
+		return 0, fmt.Errorf("craft_duration_ms %d: %w", data.CraftDurationMS, crafting.ErrInvalidCraftDuration)
+	}
+	const maxDurationMilliseconds = int64(1<<63-1) / int64(time.Millisecond)
+	if data.CraftDurationMS > maxDurationMilliseconds {
+		return 0, fmt.Errorf("craft_duration_ms %d: %w", data.CraftDurationMS, crafting.ErrInvalidCraftDuration)
+	}
+	return time.Duration(data.CraftDurationMS) * time.Millisecond, nil
 }
