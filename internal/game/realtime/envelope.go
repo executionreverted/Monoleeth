@@ -86,6 +86,9 @@ const (
 	OperationAdminContentGet           Operation = "admin.content.get"
 	OperationAdminContentUpdateDraft   Operation = "admin.content.update_draft"
 	OperationAdminContentValidateDraft Operation = "admin.content.validate_draft"
+	OperationAdminContentPublish       Operation = "admin.content.publish"
+	OperationAdminContentRollback      Operation = "admin.content.rollback"
+	OperationAdminContentAuditLog      Operation = "admin.content.audit_log"
 	OperationAdminContentVersions      Operation = "admin.content.versions"
 	OperationObservabilityLog          Operation = "observability.command_log"
 	OperationObservabilityMetric       Operation = "observability.metrics"
@@ -458,6 +461,18 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationAdminContentValidateDraft: {
 		Operation:        OperationAdminContentValidateDraft,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAdminContentPublish: {
+		Operation:        OperationAdminContentPublish,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAdminContentRollback: {
+		Operation:        OperationAdminContentRollback,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAdminContentAuditLog: {
+		Operation:        OperationAdminContentAuditLog,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationAdminContentVersions: {

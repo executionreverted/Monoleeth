@@ -20,18 +20,7 @@ const (
 	VersionStatusRolledBack VersionStatus = "rolled_back"
 )
 
-type PublishedSnapshotInput struct {
-	ID                   string
-	Version              string
-	Snapshot             content.Snapshot
-	ValidationReportJSON json.RawMessage
-	IdempotencyKey       string
-	Notes                string
-	BalanceTag           string
-	CreatedBy            string
-	PublishedBy          string
-	PublishedAt          time.Time
-}
+type PublishedSnapshotInput = content.PublishSnapshotInput
 
 type PublishedSnapshot struct {
 	ID                   string
@@ -134,48 +123,103 @@ func (store *Store) HasAnyContent(ctx context.Context) (bool, error) {
 }
 
 func (store *Store) LoadCurrentPublishedSnapshot(ctx context.Context) (PublishedSnapshot, error) {
-	if store == nil || store.db == nil {
-		return PublishedSnapshot{}, ErrNilDatabase
-	}
-	var record PublishedSnapshot
-	var snapshotJSON []byte
-	var validationJSON []byte
-	err := store.db.QueryRowContext(ctx, `
-		SELECT id::text, version, snapshot_json, validation_report_json, notes, balance_tag, published_at
-		FROM content_versions
-		WHERE is_current = true AND status = 'published'
-	`).Scan(&record.ID, &record.Version, &snapshotJSON, &validationJSON, &record.Notes, &record.BalanceTag, &record.PublishedAt)
-	if err == sql.ErrNoRows {
-		return PublishedSnapshot{}, ErrCurrentContentNotFound
-	}
+	record, err := store.LoadCurrentContentSnapshot(ctx)
 	if err != nil {
 		return PublishedSnapshot{}, err
 	}
-	if err := json.Unmarshal(snapshotJSON, &record.Snapshot); err != nil {
-		return PublishedSnapshot{}, err
+	return PublishedSnapshot{
+		ID:                   record.ID,
+		Version:              record.Version,
+		Snapshot:             record.Snapshot,
+		ValidationReportJSON: record.ValidationReportJSON,
+		Notes:                record.Notes,
+		BalanceTag:           record.BalanceTag,
+		PublishedAt:          record.PublishedAt,
+	}, nil
+}
+
+func (store *Store) LoadCurrentContentSnapshot(ctx context.Context) (content.SnapshotVersionRecord, error) {
+	if store == nil || store.db == nil {
+		return content.SnapshotVersionRecord{}, ErrNilDatabase
 	}
-	if err := record.Snapshot.Validate(); err != nil {
-		return PublishedSnapshot{}, err
+	record, err := scanSnapshotVersionRecord(store.db.QueryRowContext(ctx, `
+		SELECT
+			id::text,
+			version,
+			status,
+			is_current,
+			snapshot_json,
+			validation_report_json,
+			notes,
+			balance_tag,
+			COALESCE(created_by, ''),
+			created_at,
+			COALESCE(published_by, ''),
+			published_at,
+			COALESCE(rolled_back_from::text, '')
+		FROM content_versions
+		WHERE is_current = true AND status = 'published'
+	`))
+	if err == sql.ErrNoRows {
+		return content.SnapshotVersionRecord{}, ErrCurrentContentNotFound
 	}
-	record.ValidationReportJSON = append(json.RawMessage(nil), validationJSON...)
+	if err != nil {
+		return content.SnapshotVersionRecord{}, err
+	}
 	return record, nil
 }
 
-func (store *Store) InsertPublishedSnapshot(ctx context.Context, input PublishedSnapshotInput) error {
+func (store *Store) LoadContentSnapshotByID(ctx context.Context, id string) (content.SnapshotVersionRecord, error) {
 	if store == nil || store.db == nil {
-		return ErrNilDatabase
+		return content.SnapshotVersionRecord{}, ErrNilDatabase
+	}
+	if err := content.ValidateContentID("content version", id); err != nil {
+		return content.SnapshotVersionRecord{}, err
+	}
+	record, err := scanSnapshotVersionRecord(store.db.QueryRowContext(ctx, `
+		SELECT
+			id::text,
+			version,
+			status,
+			is_current,
+			snapshot_json,
+			validation_report_json,
+			notes,
+			balance_tag,
+			COALESCE(created_by, ''),
+			created_at,
+			COALESCE(published_by, ''),
+			published_at,
+			COALESCE(rolled_back_from::text, '')
+		FROM content_versions
+		WHERE id = $1::uuid
+	`, id))
+	if err == sql.ErrNoRows {
+		return content.SnapshotVersionRecord{}, ErrCurrentContentNotFound
+	}
+	return record, err
+}
+
+func (store *Store) InsertPublishedSnapshot(ctx context.Context, input PublishedSnapshotInput) error {
+	_, err := store.PublishContentSnapshot(ctx, content.PublishSnapshotInput(input))
+	return err
+}
+
+func (store *Store) PublishContentSnapshot(ctx context.Context, input content.PublishSnapshotInput) (result content.PublishSnapshotResult, err error) {
+	if store == nil || store.db == nil {
+		return content.PublishSnapshotResult{}, ErrNilDatabase
 	}
 	if err := content.ValidateContentID("content version row", input.ID); err != nil {
-		return err
+		return content.PublishSnapshotResult{}, err
 	}
 	if err := input.Snapshot.Validate(); err != nil {
-		return err
+		return content.PublishSnapshotResult{}, err
 	}
 	if input.Version == "" {
 		input.Version = input.Snapshot.Version
 	}
 	if err := content.ValidateContentID("content version", input.Version); err != nil {
-		return err
+		return content.PublishSnapshotResult{}, err
 	}
 	if len(input.ValidationReportJSON) == 0 {
 		input.ValidationReportJSON = json.RawMessage(`{}`)
@@ -185,27 +229,96 @@ func (store *Store) InsertPublishedSnapshot(ctx context.Context, input Published
 	}
 	snapshotJSON, err := json.Marshal(input.Snapshot)
 	if err != nil {
-		return err
+		return content.PublishSnapshotResult{}, err
 	}
-	tx, err := store.db.BeginTx(ctx, nil)
+	tx, err := store.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
-		return err
+		return content.PublishSnapshotResult{}, err
 	}
 	defer rollbackUnlessCommitted(tx, &err)
-	if _, err = tx.ExecContext(ctx, `UPDATE content_versions SET is_current = false WHERE is_current = true`); err != nil {
-		return err
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext('content_publish_current'))`); err != nil {
+		return content.PublishSnapshotResult{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `
+	if input.IdempotencyKey != "" {
+		existing, ok, loadErr := loadSnapshotVersionByIdempotencyTx(ctx, tx, input.IdempotencyKey)
+		if loadErr != nil {
+			err = loadErr
+			return content.PublishSnapshotResult{}, err
+		}
+		if ok {
+			if commitErr := tx.Commit(); commitErr != nil {
+				err = commitErr
+				return content.PublishSnapshotResult{}, err
+			}
+			return content.PublishSnapshotResult{Record: existing, Idempotent: true}, nil
+		}
+	}
+	if input.ExpectedCurrentID != "" {
+		current, loadErr := loadCurrentSnapshotVersionTx(ctx, tx)
+		if loadErr != nil {
+			err = loadErr
+			return content.PublishSnapshotResult{}, err
+		}
+		if current.ID != input.ExpectedCurrentID {
+			err = ErrContentPublishConflict
+			return content.PublishSnapshotResult{}, err
+		}
+	}
+	insertResult, err := tx.ExecContext(ctx, `
 		INSERT INTO content_versions(
 			id, version, status, is_current, idempotency_key, snapshot_json,
-			validation_report_json, notes, balance_tag, created_by, published_by, published_at
+			validation_report_json, notes, balance_tag, created_by, published_by, published_at,
+			rolled_back_from
 		)
-		VALUES ($1::uuid, $2, 'published', true, NULLIF($3, ''), $4::jsonb, $5::jsonb, $6, $7, NULLIF($8, ''), NULLIF($9, ''), $10)
-	`, input.ID, input.Version, input.IdempotencyKey, snapshotJSON, input.ValidationReportJSON, input.Notes, input.BalanceTag, input.CreatedBy, input.PublishedBy, input.PublishedAt); err != nil {
-		return err
+		VALUES ($1::uuid, $2, 'published', false, NULLIF($3, ''), $4::jsonb, $5::jsonb, $6, $7, NULLIF($8, ''), NULLIF($9, ''), $10, NULLIF($11, '')::uuid)
+		ON CONFLICT (idempotency_key) DO NOTHING
+	`, input.ID, input.Version, input.IdempotencyKey, snapshotJSON, input.ValidationReportJSON, input.Notes, input.BalanceTag, input.CreatedBy, input.PublishedBy, input.PublishedAt, input.RolledBackFrom)
+	if err != nil {
+		return content.PublishSnapshotResult{}, err
+	}
+	affected, err := insertResult.RowsAffected()
+	if err != nil {
+		return content.PublishSnapshotResult{}, err
+	}
+	if affected == 0 {
+		existing, ok, loadErr := loadSnapshotVersionByIdempotencyTx(ctx, tx, input.IdempotencyKey)
+		if loadErr != nil {
+			err = loadErr
+			return content.PublishSnapshotResult{}, err
+		}
+		if !ok {
+			err = sql.ErrNoRows
+			return content.PublishSnapshotResult{}, err
+		}
+		if err = tx.Commit(); err != nil {
+			return content.PublishSnapshotResult{}, err
+		}
+		return content.PublishSnapshotResult{Record: existing, Idempotent: true}, nil
+	}
+	previousStatus := string(VersionStatusArchived)
+	if input.RolledBackFrom != "" {
+		previousStatus = string(VersionStatusRolledBack)
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE content_versions SET is_current = false, status = $1 WHERE is_current = true`, previousStatus); err != nil {
+		return content.PublishSnapshotResult{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE content_versions SET is_current = true WHERE id = $1::uuid`, input.ID); err != nil {
+		return content.PublishSnapshotResult{}, err
+	}
+	for _, entry := range input.AuditEntries {
+		if err = insertAuditTx(ctx, tx, entry); err != nil {
+			return content.PublishSnapshotResult{}, err
+		}
+	}
+	record, err := loadSnapshotVersionByIDTx(ctx, tx, input.ID)
+	if err != nil {
+		return content.PublishSnapshotResult{}, err
 	}
 	err = tx.Commit()
-	return err
+	if err != nil {
+		return content.PublishSnapshotResult{}, err
+	}
+	return content.PublishSnapshotResult{Record: record}, nil
 }
 
 func (store *Store) UpsertDraftRow(ctx context.Context, contentType content.ContentType, row DraftContentRow) error {
@@ -300,6 +413,111 @@ func (store *Store) InsertAudit(ctx context.Context, entry AuditEntry) error {
 	if store == nil || store.db == nil {
 		return ErrNilDatabase
 	}
+	return insertAuditExec(ctx, store.db, content.AuditLogEntryInput{
+		ID:               entry.ID,
+		ContentVersionID: entry.ContentVersionID,
+		ContentType:      entry.ContentType,
+		ContentID:        entry.ContentID,
+		FieldPath:        entry.FieldPath,
+		OldValueJSON:     entry.OldValueJSON,
+		NewValueJSON:     entry.NewValueJSON,
+		ActorAccountID:   entry.ActorAccountID,
+		Note:             entry.Note,
+		BalanceTag:       entry.BalanceTag,
+	})
+}
+
+func (store *Store) ListContentAudit(ctx context.Context, input content.AuditLogInput) (content.AuditLog, error) {
+	if store == nil || store.db == nil {
+		return content.AuditLog{}, ErrNilDatabase
+	}
+	input = content.NormalizeAuditLogInput(input)
+	if input.ContentType != "" {
+		if _, err := ContentTableName(input.ContentType); err != nil {
+			return content.AuditLog{}, err
+		}
+	}
+	var total int
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM content_audit_log
+		WHERE ($1 = '' OR COALESCE(content_version_id::text, '') = $1)
+			AND ($2 = '' OR content_type = $2)
+			AND ($3 = '' OR content_id = $3)
+	`, input.VersionID, input.ContentType, input.ContentID).Scan(&total); err != nil {
+		return content.AuditLog{}, err
+	}
+	rows, err := store.db.QueryContext(ctx, `
+		SELECT
+			id::text,
+			COALESCE(content_version_id::text, ''),
+			content_type,
+			content_id,
+			field_path,
+			old_value_json,
+			new_value_json,
+			COALESCE(actor_account_id, ''),
+			note,
+			balance_tag,
+			created_at
+		FROM content_audit_log
+		WHERE ($1 = '' OR COALESCE(content_version_id::text, '') = $1)
+			AND ($2 = '' OR content_type = $2)
+			AND ($3 = '' OR content_id = $3)
+		ORDER BY created_at DESC, id DESC
+		LIMIT $4 OFFSET $5
+	`, input.VersionID, input.ContentType, input.ContentID, input.Limit, input.Offset)
+	if err != nil {
+		return content.AuditLog{}, err
+	}
+	defer rows.Close()
+	out := content.AuditLog{
+		Total:  total,
+		Limit:  input.Limit,
+		Offset: input.Offset,
+	}
+	for rows.Next() {
+		var entry content.AuditLogEntry
+		var contentType string
+		var contentID string
+		var oldValue []byte
+		var newValue []byte
+		if err := rows.Scan(
+			&entry.ID,
+			&entry.ContentVersionID,
+			&contentType,
+			&contentID,
+			&entry.FieldPath,
+			&oldValue,
+			&newValue,
+			&entry.ActorAccountID,
+			&entry.Note,
+			&entry.BalanceTag,
+			&entry.CreatedAt,
+		); err != nil {
+			return content.AuditLog{}, err
+		}
+		entry.ContentType = content.ContentType(contentType)
+		entry.ContentID = content.ContentID(contentID)
+		entry.OldValueJSON = append(json.RawMessage(nil), oldValue...)
+		entry.NewValueJSON = append(json.RawMessage(nil), newValue...)
+		out.Entries = append(out.Entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return content.AuditLog{}, err
+	}
+	return out, nil
+}
+
+type auditExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func insertAuditTx(ctx context.Context, tx *sql.Tx, entry content.AuditLogEntryInput) error {
+	return insertAuditExec(ctx, tx, entry)
+}
+
+func insertAuditExec(ctx context.Context, execer auditExecer, entry content.AuditLogEntryInput) error {
 	if err := content.ValidateContentID("content audit", entry.ID); err != nil {
 		return err
 	}
@@ -317,7 +535,7 @@ func (store *Store) InsertAudit(ctx context.Context, entry AuditEntry) error {
 	if err != nil {
 		return err
 	}
-	_, err = store.db.ExecContext(ctx, `
+	_, err = execer.ExecContext(ctx, `
 		INSERT INTO content_audit_log(
 			id, content_version_id, content_type, content_id, field_path, old_value_json,
 			new_value_json, actor_account_id, note, balance_tag
@@ -325,6 +543,88 @@ func (store *Store) InsertAudit(ctx context.Context, entry AuditEntry) error {
 		VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, $4, $5, $6::jsonb, $7::jsonb, NULLIF($8, ''), $9, $10)
 	`, entry.ID, entry.ContentVersionID, entry.ContentType, entry.ContentID, entry.FieldPath, oldValue, newValue, entry.ActorAccountID, entry.Note, entry.BalanceTag)
 	return err
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanSnapshotVersionRecord(row rowScanner) (content.SnapshotVersionRecord, error) {
+	var record content.SnapshotVersionRecord
+	var snapshotJSON []byte
+	var validationJSON []byte
+	var publishedAt sql.NullTime
+	if err := row.Scan(
+		&record.ID,
+		&record.Version,
+		&record.Status,
+		&record.Current,
+		&snapshotJSON,
+		&validationJSON,
+		&record.Notes,
+		&record.BalanceTag,
+		&record.CreatedBy,
+		&record.CreatedAt,
+		&record.PublishedBy,
+		&publishedAt,
+		&record.RolledBackFrom,
+	); err != nil {
+		return content.SnapshotVersionRecord{}, err
+	}
+	if publishedAt.Valid {
+		record.PublishedAt = publishedAt.Time
+	}
+	if err := json.Unmarshal(snapshotJSON, &record.Snapshot); err != nil {
+		return content.SnapshotVersionRecord{}, err
+	}
+	if err := record.Snapshot.Validate(); err != nil {
+		return content.SnapshotVersionRecord{}, err
+	}
+	record.ValidationReportJSON = append(json.RawMessage(nil), validationJSON...)
+	return record, nil
+}
+
+func loadSnapshotVersionByIDTx(ctx context.Context, tx *sql.Tx, id string) (content.SnapshotVersionRecord, error) {
+	return scanSnapshotVersionRecord(tx.QueryRowContext(ctx, snapshotVersionSelectSQL()+` WHERE id = $1::uuid`, id))
+}
+
+func loadCurrentSnapshotVersionTx(ctx context.Context, tx *sql.Tx) (content.SnapshotVersionRecord, error) {
+	record, err := scanSnapshotVersionRecord(tx.QueryRowContext(ctx, snapshotVersionSelectSQL()+` WHERE is_current = true AND status = 'published' FOR UPDATE`))
+	if err == sql.ErrNoRows {
+		return content.SnapshotVersionRecord{}, ErrCurrentContentNotFound
+	}
+	return record, err
+}
+
+func loadSnapshotVersionByIdempotencyTx(ctx context.Context, tx *sql.Tx, idempotencyKey string) (content.SnapshotVersionRecord, bool, error) {
+	record, err := scanSnapshotVersionRecord(tx.QueryRowContext(ctx, snapshotVersionSelectSQL()+` WHERE idempotency_key = $1`, idempotencyKey))
+	if err == sql.ErrNoRows {
+		return content.SnapshotVersionRecord{}, false, nil
+	}
+	if err != nil {
+		return content.SnapshotVersionRecord{}, false, err
+	}
+	return record, true, nil
+}
+
+func snapshotVersionSelectSQL() string {
+	return `
+		SELECT
+			id::text,
+			version,
+			status,
+			is_current,
+			snapshot_json,
+			validation_report_json,
+			notes,
+			balance_tag,
+			COALESCE(created_by, ''),
+			created_at,
+			COALESCE(published_by, ''),
+			published_at,
+			COALESCE(rolled_back_from::text, '')
+		FROM content_versions
+	`
 }
 
 func ContentTableName(contentType content.ContentType) (string, error) {

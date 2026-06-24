@@ -2,7 +2,9 @@ package admin_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -230,6 +232,204 @@ func TestContentServiceValidateDraftReportsSnapshotErrorsWithoutValidator(t *tes
 	}
 }
 
+func TestContentServicePublishDraftValidatesAndWritesImmutableVersion(t *testing.T) {
+	now := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
+	current := snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_mvp_seed_v1", moduleSnapshotForAdminTest(8), now.Add(-time.Hour))
+	store := &fakeContentDraftStore{
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeModule: {
+				{ContentID: "laser_alpha_t1", Enabled: true, DataJSON: []byte(`{"attack_damage":9}`), DisplayJSON: []byte(`{"display_name":"Prism Lance II"}`)},
+			},
+		},
+		currentSnapshot: current,
+		publishResult: content.PublishSnapshotResult{
+			Record: snapshotVersionRecordForAdminTest("22222222-2222-5222-8222-222222222222", "content_balance_v2", moduleSnapshotForAdminTest(9), now),
+		},
+	}
+	validator := &fakeContentDraftValidator{}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: validator,
+		Clock:     testutil.NewFakeClock(now),
+	})
+
+	result, err := service.PublishDraft(context.Background(), content.PublishDraftInput{
+		Version:        "content_balance_v2",
+		Notes:          "LC1 buff",
+		BalanceTag:     "starter_balance",
+		ActorAccountID: "account-admin",
+	})
+	if err != nil {
+		t.Fatalf("PublishDraft() error = %v, want nil", err)
+	}
+	if !result.Published || !result.Validation.Valid || result.RowCount != 1 || result.Version.ID != "22222222-2222-5222-8222-222222222222" {
+		t.Fatalf("result = %+v, want published v2", result)
+	}
+	if store.publishedInput.Version != "content_balance_v2" ||
+		store.publishedInput.PublishedBy != "account-admin" ||
+		store.publishedInput.CreatedBy != "account-admin" ||
+		store.publishedInput.ExpectedCurrentID != current.ID ||
+		store.publishedInput.BalanceTag != "starter_balance" ||
+		store.publishedInput.IdempotencyKey == "" {
+		t.Fatalf("publish input = %+v, want server actor/idempotency/metadata", store.publishedInput)
+	}
+	if len(store.publishedInput.AuditEntries) != 1 || store.publishedInput.AuditEntries[0].ActorAccountID != "account-admin" ||
+		store.publishedInput.AuditEntries[0].ContentType != content.ContentTypeModule {
+		t.Fatalf("audit entries = %+v, want module change by admin", store.publishedInput.AuditEntries)
+	}
+	if !validator.called || validator.snapshot.Version != "content_balance_v2" {
+		t.Fatalf("validator = called %v snapshot %+v, want draft snapshot v2", validator.called, validator.snapshot)
+	}
+}
+
+func TestContentServicePublishDraftInvalidReportDoesNotWrite(t *testing.T) {
+	store := &fakeContentDraftStore{
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeModule: {
+				{ContentID: "laser_alpha_t1", Enabled: true, DataJSON: []byte(`{"attack_damage":9}`), DisplayJSON: []byte(`{}`)},
+			},
+		},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{err: errors.New("bad runtime content")},
+	})
+
+	result, err := service.PublishDraft(context.Background(), content.PublishDraftInput{Version: "content_bad_v2"})
+	if err != nil {
+		t.Fatalf("PublishDraft(invalid) error = %v, want nil report", err)
+	}
+	if result.Published || result.Validation.Valid || store.publishCalled {
+		t.Fatalf("result = %+v publishCalled=%v, want invalid no-write", result, store.publishCalled)
+	}
+}
+
+func TestContentServicePublishDraftScrubsAuditJSON(t *testing.T) {
+	now := time.Date(2026, 6, 25, 9, 15, 0, 0, time.UTC)
+	current := snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_mvp_seed_v1", moduleSnapshotForAdminTest(8), now.Add(-time.Hour))
+	store := &fakeContentDraftStore{
+		currentSnapshot: current,
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeModule: {
+				{
+					ContentID:   "laser_alpha_t1",
+					Enabled:     true,
+					DisplayJSON: []byte(`{"name":"Laser Alpha","session_token":"display-secret"}`),
+					DataJSON:    []byte(`{"attack_damage":9,"api_token":"super-secret","nested":{"procedural_seed":"seed-secret"}}`),
+				},
+			},
+		},
+		publishResult: content.PublishSnapshotResult{
+			Record: snapshotVersionRecordForAdminTest("22222222-2222-5222-8222-222222222222", "content_balance_v2", moduleSnapshotForAdminTest(9), now),
+		},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{},
+		Clock:     testutil.NewFakeClock(now),
+	})
+
+	if _, err := service.PublishDraft(context.Background(), content.PublishDraftInput{Version: "content_balance_v2"}); err != nil {
+		t.Fatalf("PublishDraft() error = %v, want nil", err)
+	}
+	if len(store.publishedInput.AuditEntries) != 1 {
+		t.Fatalf("audit entries = %+v, want one scrubbed entry", store.publishedInput.AuditEntries)
+	}
+	encoded := string(store.publishedInput.AuditEntries[0].NewValueJSON)
+	if strings.Contains(encoded, "super-secret") || strings.Contains(encoded, "seed-secret") || strings.Contains(encoded, "display-secret") {
+		t.Fatalf("audit JSON leaked secret values: %s", encoded)
+	}
+	if !strings.Contains(encoded, "[redacted]") {
+		t.Fatalf("audit JSON = %s, want redacted markers", encoded)
+	}
+}
+
+func TestContentServiceRollbackPublishesTargetSnapshotAsNewVersion(t *testing.T) {
+	now := time.Date(2026, 6, 25, 9, 30, 0, 0, time.UTC)
+	target := snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_mvp_seed_v1", moduleSnapshotForAdminTest(8), now.Add(-2*time.Hour))
+	current := snapshotVersionRecordForAdminTest("22222222-2222-5222-8222-222222222222", "content_balance_v2", moduleSnapshotForAdminTest(9), now.Add(-time.Hour))
+	store := &fakeContentDraftStore{
+		currentSnapshot: current,
+		targetSnapshots: map[string]content.SnapshotVersionRecord{target.ID: target},
+		publishResult: content.PublishSnapshotResult{
+			Record: snapshotVersionRecordForAdminTest("33333333-3333-5333-8333-333333333333", "content_rollback_v3", moduleSnapshotForAdminTest(8), now),
+		},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{},
+		Clock:     testutil.NewFakeClock(now),
+	})
+
+	result, err := service.Rollback(context.Background(), content.RollbackInput{
+		TargetVersionID: target.ID,
+		Version:         "content_rollback_v3",
+		Notes:           "restore starter",
+		ActorAccountID:  "account-admin",
+		IdempotencyKey:  "content_rollback:target:req-1",
+	})
+	if err != nil {
+		t.Fatalf("Rollback() error = %v, want nil", err)
+	}
+	if !result.Published || !result.Validation.Valid || result.Version.ID != "33333333-3333-5333-8333-333333333333" {
+		t.Fatalf("rollback result = %+v, want published rollback", result)
+	}
+	if store.publishedInput.RolledBackFrom != target.ID ||
+		store.publishedInput.IdempotencyKey != "content_rollback:target:req-1" ||
+		store.publishedInput.ExpectedCurrentID != current.ID ||
+		store.publishedInput.PublishedBy != "account-admin" ||
+		store.publishedInput.Snapshot.Version != "content_rollback_v3" {
+		t.Fatalf("rollback publish input = %+v, want immutable rollback copy", store.publishedInput)
+	}
+}
+
+func TestContentServiceAuditLogNormalizesAndUsesStore(t *testing.T) {
+	now := time.Date(2026, 6, 25, 10, 0, 0, 0, time.UTC)
+	store := &fakeContentDraftStore{
+		auditLog: content.AuditLog{
+			Total: 1,
+			Entries: []content.AuditLogEntry{{
+				ID:               "44444444-4444-5444-8444-444444444444",
+				ContentVersionID: "22222222-2222-5222-8222-222222222222",
+				ContentType:      content.ContentTypeModule,
+				ContentID:        "laser_alpha_t1",
+				FieldPath:        "$",
+				NewValueJSON:     []byte(`{"content_id":"laser_alpha_t1"}`),
+				ActorAccountID:   "account-admin",
+				CreatedAt:        now,
+			}},
+		},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts: store,
+		Audit:  store,
+		Clock:  testutil.NewFakeClock(now),
+	})
+
+	log, err := service.AuditLog(context.Background(), content.AuditLogInput{
+		ContentType: content.ContentTypeModule,
+		Limit:       999,
+		Offset:      -5,
+	})
+	if err != nil {
+		t.Fatalf("AuditLog() error = %v, want nil", err)
+	}
+	if store.auditInput.Limit != content.MaxAuditLogLimit || store.auditInput.Offset != 0 {
+		t.Fatalf("audit input = %+v, want normalized", store.auditInput)
+	}
+	if log.Total != 1 || log.Limit != content.MaxAuditLogLimit || !log.GeneratedAt.Equal(now) {
+		t.Fatalf("audit log = %+v, want generated metadata", log)
+	}
+}
+
 type fakeContentVersionStore struct {
 	input content.VersionListInput
 	list  content.VersionList
@@ -253,6 +453,13 @@ type fakeContentDraftStore struct {
 	upsertContentType content.ContentType
 	upsertRow         content.DraftRow
 	loadCalls         map[content.ContentType]int
+	currentSnapshot   content.SnapshotVersionRecord
+	targetSnapshots   map[string]content.SnapshotVersionRecord
+	publishCalled     bool
+	publishedInput    content.PublishSnapshotInput
+	publishResult     content.PublishSnapshotResult
+	auditInput        content.AuditLogInput
+	auditLog          content.AuditLog
 }
 
 func (store *fakeContentDraftStore) LoadDraftRows(_ context.Context, contentType content.ContentType) ([]content.DraftRow, error) {
@@ -287,6 +494,77 @@ func (validator *fakeContentDraftValidator) ValidateContentSnapshot(_ context.Co
 	validator.called = true
 	validator.snapshot = snapshot
 	return validator.err
+}
+
+func (store *fakeContentDraftStore) LoadCurrentContentSnapshot(context.Context) (content.SnapshotVersionRecord, error) {
+	if store.currentSnapshot.ID == "" {
+		return content.SnapshotVersionRecord{}, errors.New("missing current snapshot")
+	}
+	return store.currentSnapshot, nil
+}
+
+func (store *fakeContentDraftStore) LoadContentSnapshotByID(_ context.Context, id string) (content.SnapshotVersionRecord, error) {
+	record, ok := store.targetSnapshots[id]
+	if !ok {
+		return content.SnapshotVersionRecord{}, errors.New("missing target snapshot")
+	}
+	return record, nil
+}
+
+func (store *fakeContentDraftStore) PublishContentSnapshot(_ context.Context, input content.PublishSnapshotInput) (content.PublishSnapshotResult, error) {
+	store.publishCalled = true
+	store.publishedInput = input
+	if store.publishResult.Record.ID == "" {
+		store.publishResult.Record = content.SnapshotVersionRecord{
+			ID:             input.ID,
+			Version:        input.Version,
+			Status:         "published",
+			Current:        true,
+			Notes:          input.Notes,
+			BalanceTag:     input.BalanceTag,
+			CreatedBy:      input.CreatedBy,
+			CreatedAt:      input.PublishedAt,
+			PublishedBy:    input.PublishedBy,
+			PublishedAt:    input.PublishedAt,
+			RolledBackFrom: input.RolledBackFrom,
+			Snapshot:       input.Snapshot,
+		}
+	}
+	return store.publishResult, store.err
+}
+
+func (store *fakeContentDraftStore) ListContentAudit(_ context.Context, input content.AuditLogInput) (content.AuditLog, error) {
+	store.auditInput = input
+	return store.auditLog, store.err
+}
+
+func snapshotVersionRecordForAdminTest(id string, version string, snapshot content.Snapshot, publishedAt time.Time) content.SnapshotVersionRecord {
+	return content.SnapshotVersionRecord{
+		ID:          id,
+		Version:     version,
+		Status:      "published",
+		Current:     true,
+		Snapshot:    snapshot,
+		PublishedBy: "seed",
+		PublishedAt: publishedAt,
+		CreatedAt:   publishedAt,
+	}
+}
+
+func moduleSnapshotForAdminTest(damage int) content.Snapshot {
+	data, err := json.Marshal(map[string]any{"attack_damage": damage})
+	if err != nil {
+		panic(err)
+	}
+	return content.Snapshot{
+		Version: "content_test",
+		Modules: []content.SnapshotRow{{
+			ContentID:   "laser_alpha_t1",
+			Enabled:     true,
+			DisplayJSON: []byte(`{}`),
+			DataJSON:    data,
+		}},
+	}
 }
 
 func cloneTestDraftRows(rows []content.DraftRow) []content.DraftRow {

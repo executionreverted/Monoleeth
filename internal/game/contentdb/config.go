@@ -39,6 +39,7 @@ var (
 	ErrMigrationChecksumMismatch = errors.New("migration checksum mismatch")
 	ErrPendingMigrations         = errors.New("pending content migrations")
 	ErrCurrentContentNotFound    = errors.New("current published content not found")
+	ErrContentPublishConflict    = errors.New("content publish conflict")
 	ErrUnknownContentType        = errors.New("unknown content type")
 )
 

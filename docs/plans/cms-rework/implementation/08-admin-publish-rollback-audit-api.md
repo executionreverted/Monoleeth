@@ -28,11 +28,15 @@
 3. Unit-test missing deps and invalid draft.
 
 **Status:** `ListVersions`, `ListDraftRows`, `GetDraftRow`,
-`UpdateDraftRow`, and `ValidateDraft` are implemented. Service normalizes
-pagination, stamps generated metadata from the server clock, validates draft
-row JSON before write, assembles all draft tables into a snapshot, and runs
-that snapshot through the same `contentdb` runtime mapper validator used for
-published content. Publish, rollback, diff, and audit-log methods remain open.
+`UpdateDraftRow`, `ValidateDraft`, `PublishDraft`, `Rollback`, and `AuditLog`
+are implemented. Service normalizes pagination, stamps generated metadata from
+the server clock, validates draft row JSON before write, assembles all draft
+tables into a snapshot, and runs that snapshot through the same `contentdb`
+runtime mapper validator used for published content. Publish validates the
+draft snapshot before inserting a new immutable version. Rollback copies an old
+snapshot into a new published version rather than mutating the old row. Audit
+entries are generated from scrubbed old/new snapshot row JSON. `Diff` remains
+open.
 
 ### Task 2: Add Draft Store Methods
 
@@ -47,10 +51,15 @@ published content. Publish, rollback, diff, and audit-log methods remain open.
 3. Add rollback transaction method with DB idempotency key.
 4. Add audit query method with pagination and scrubbed payloads.
 
-**Status:** `ListContentVersions`, `LoadDraftRows`, and existing
-`UpsertDraftRow`/`UpsertDraftRows` now back the admin read/update API.
-`contentdb.ValidateSnapshot` exposes the runtime published-content mapper for
-draft validation. Publish, rollback, and audit query remain open.
+**Status:** `ListContentVersions`, `LoadDraftRows`, existing
+`UpsertDraftRow`/`UpsertDraftRows`, `LoadCurrentContentSnapshot`,
+`LoadContentSnapshotByID`, `PublishContentSnapshot`, and `ListContentAudit`
+now back the admin API. `contentdb.ValidateSnapshot` exposes the runtime
+published-content mapper for draft validation. Publish uses DB idempotency keys,
+a serializable transaction, an advisory publish lock, and an expected-current
+version guard before writing version/audit rows. Rollback is modeled as a new
+published snapshot with `rolled_back_from`. Live Postgres duplicate/concurrent
+coverage still remains for hardening.
 
 ### Task 3: Add Realtime Ops
 
@@ -77,12 +86,15 @@ draft validation. Publish, rollback, and audit query remain open.
 5. Add explicit admin content DTO gate so stat fields like damage/rank/cooldown are accepted only for `admin.content.*`.
 
 **Status:** `admin.content.versions`, `admin.content.list`,
-`admin.content.get`, `admin.content.update_draft`, and
-`admin.content.validate_draft` are registered and admin-gated. Draft update
-uses a CMS-specific payload gate so nested stat keys such as `damage`,
-`cooldown_ms`, and map/content fields can live inside `data_json`, while
-top-level actor/session/admin spoof fields still fail before mutation.
-Publish/diff/audit ops remain open.
+`admin.content.get`, `admin.content.update_draft`,
+`admin.content.validate_draft`, `admin.content.publish`,
+`admin.content.rollback`, and `admin.content.audit_log` are registered and
+admin-gated. Draft update uses a CMS-specific payload gate so nested stat keys
+such as `damage`, `cooldown_ms`, and map/content fields can live inside
+`data_json`, while top-level actor/session/admin spoof fields still fail before
+mutation. Publish/rollback/audit use the server-resolved admin actor. Rollback
+idempotency is derived from `target_version_id` plus realtime `request_id`;
+clients cannot provide an idempotency key. `admin.content.diff` remains open.
 
 ### Task 4: Idempotency And Rate Posture
 
@@ -96,6 +108,17 @@ Publish/diff/audit ops remain open.
 3. Duplicate publish/rollback after reconnect/cache clear returns same version.
 4. Failed publish or rate-limit rejection must not partially mutate.
 5. Concurrent publish/rollback conflict test required.
+
+**Status:** Publish idempotency key is derived from the validated snapshot hash
+plus notes/tag. Rollback idempotency key is server-derived from target version
+and request id. Both go through DB-backed `PublishContentSnapshot`; realtime
+request cache is not the source of truth. Store publish uses an expected-current
+guard so stale concurrent publish attempts fail without mutating. Audit row JSON
+is scrubbed for obvious secret/token/cookie/seed keys and size-bounded before
+storage. Operation registry now marks publish/rollback/audit as stricter admin
+write/read postures. Remaining hardening: live Postgres duplicate
+retry/concurrent publish tests, explicit rate-limit zero-mutation tests, and
+an audit `action` field/migration.
 
 ### Verify
 

@@ -164,12 +164,24 @@ Admin content writes need abuse posture:
   internals, procedural seeds, or audit payloads.
 - Draft row list/get responses are admin-only and return real CMS row JSON from
   DB-backed store.
+- Draft update and draft validation are implemented through admin-only
+  operations. Nested content stat fields are allowed only inside CMS draft
+  payloads after admin auth.
+- Publish validates the complete draft snapshot, writes a new immutable
+  published version, and creates scrubbed audit rows through DB-backed
+  idempotency plus an expected-current guard.
+- Rollback publishes a new version copied from an older snapshot and records
+  `rolled_back_from`; old version rows are not mutated.
+- Audit log query is admin-only, paginated, and returns `actor_ref` rather than
+  accepting or exposing client-provided actor fields. Audit row JSON redacts
+  obvious secret/token/cookie/seed keys and caps oversized row payloads.
 
 Remaining:
 
-- draft update
-- draft validation response
-- publish transaction and DB idempotency
-- rollback transaction and DB idempotency
-- diff and audit-log query with scrubber/pagination
+- diff API/view
+- audit `action` field/migration so publish and rollback rows are explicit
+- broader audit scrubber policy for future sensitive CMS fields beyond current
+  row JSON allowlists
+- live Postgres duplicate retry and concurrent publish coverage
+- explicit rate-limit zero-mutation coverage
 - admin-only publish event fanout

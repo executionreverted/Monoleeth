@@ -466,6 +466,21 @@ func TestOperationRegistryAcceptsAdminContentOperations(t *testing.T) {
 			body: `{"request_id":"request-admin-content-validate-draft","op":"admin.content.validate_draft","payload":{},"client_seq":5,"v":1}`,
 			want: OperationAdminContentValidateDraft,
 		},
+		{
+			name: "publish",
+			body: `{"request_id":"request-admin-content-publish","op":"admin.content.publish","payload":{"version":"content_balance_v2","notes":"LC1 buff","balance_tag":"starter_balance"},"client_seq":6,"v":1}`,
+			want: OperationAdminContentPublish,
+		},
+		{
+			name: "rollback",
+			body: `{"request_id":"request-admin-content-rollback","op":"admin.content.rollback","payload":{"target_version_id":"11111111-1111-5111-8111-111111111111","version":"content_rollback_v3"},"client_seq":7,"v":1}`,
+			want: OperationAdminContentRollback,
+		},
+		{
+			name: "audit log",
+			body: `{"request_id":"request-admin-content-audit-log","op":"admin.content.audit_log","payload":{"content_type":"module","limit":10},"client_seq":8,"v":1}`,
+			want: OperationAdminContentAuditLog,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

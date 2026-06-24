@@ -68,6 +68,44 @@ type adminContentDraftValidationIssuePayload struct {
 	Message string `json:"message"`
 }
 
+type adminContentPublishPayload struct {
+	Published  bool                               `json:"published"`
+	Idempotent bool                               `json:"idempotent"`
+	RowCount   int                                `json:"row_count"`
+	Version    adminContentVersionPayload         `json:"version"`
+	Validation adminContentDraftValidationPayload `json:"validation"`
+}
+
+type adminContentRollbackPayload struct {
+	RolledBack      bool                               `json:"rolled_back"`
+	Idempotent      bool                               `json:"idempotent"`
+	TargetVersionID string                             `json:"target_version_id"`
+	Version         adminContentVersionPayload         `json:"version"`
+	Validation      adminContentDraftValidationPayload `json:"validation"`
+}
+
+type adminContentAuditLogPayload struct {
+	Entries     []adminContentAuditEntryPayload `json:"entries"`
+	Total       int                             `json:"total"`
+	Limit       int                             `json:"limit"`
+	Offset      int                             `json:"offset"`
+	GeneratedAt int64                           `json:"generated_at"`
+}
+
+type adminContentAuditEntryPayload struct {
+	ID               string          `json:"id"`
+	ContentVersionID string          `json:"content_version_id,omitempty"`
+	ContentType      string          `json:"content_type"`
+	ContentID        string          `json:"content_id"`
+	FieldPath        string          `json:"field_path"`
+	OldValueJSON     json.RawMessage `json:"old_value_json,omitempty"`
+	NewValueJSON     json.RawMessage `json:"new_value_json,omitempty"`
+	ActorRef         string          `json:"actor_ref,omitempty"`
+	Note             string          `json:"note,omitempty"`
+	BalanceTag       string          `json:"balance_tag,omitempty"`
+	CreatedAt        int64           `json:"created_at"`
+}
+
 func (runtime *Runtime) handleAdminContentList(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
 	if err := rejectTrustedPayload(request.Payload); err != nil {
 		return nil, err
@@ -185,6 +223,104 @@ func (runtime *Runtime) handleAdminContentValidateDraft(ctx realtime.CommandCont
 	return marshalPayload(map[string]any{"validation": adminContentDraftValidationPayloadFromReport(report)})
 }
 
+func (runtime *Runtime) handleAdminContentPublish(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	resolved, err := runtime.requireAdmin(ctx, "Content publish is restricted.")
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Version    string `json:"version,omitempty"`
+		Notes      string `json:"notes,omitempty"`
+		BalanceTag string `json:"balance_tag,omitempty"`
+	}
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	if runtime.ContentAdmin == nil {
+		return nil, foundation.NewDomainError(foundation.CodeInternal, "Content admin service unavailable.")
+	}
+	result, err := runtime.ContentAdmin.PublishDraft(context.Background(), content.PublishDraftInput{
+		Version:        payload.Version,
+		Notes:          payload.Notes,
+		BalanceTag:     payload.BalanceTag,
+		ActorAccountID: string(resolved.AccountID),
+	})
+	if err != nil {
+		return nil, domainErrorForContentAdmin(err, "Content publish failed.")
+	}
+	return marshalPayload(map[string]any{"content_publish": adminContentPublishPayloadFromResult(result)})
+}
+
+func (runtime *Runtime) handleAdminContentRollback(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	resolved, err := runtime.requireAdmin(ctx, "Content rollback is restricted.")
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		TargetVersionID string `json:"target_version_id"`
+		Version         string `json:"version,omitempty"`
+		Notes           string `json:"notes,omitempty"`
+		BalanceTag      string `json:"balance_tag,omitempty"`
+	}
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	if runtime.ContentAdmin == nil {
+		return nil, foundation.NewDomainError(foundation.CodeInternal, "Content admin service unavailable.")
+	}
+	result, err := runtime.ContentAdmin.Rollback(context.Background(), content.RollbackInput{
+		TargetVersionID: payload.TargetVersionID,
+		Version:         payload.Version,
+		Notes:           payload.Notes,
+		BalanceTag:      payload.BalanceTag,
+		ActorAccountID:  string(resolved.AccountID),
+		IdempotencyKey:  fmt.Sprintf("content_rollback:%s:%s", strings.TrimSpace(payload.TargetVersionID), request.RequestID),
+	})
+	if err != nil {
+		return nil, domainErrorForContentAdmin(err, "Content rollback failed.")
+	}
+	return marshalPayload(map[string]any{"content_rollback": adminContentRollbackPayloadFromResult(payload.TargetVersionID, result)})
+}
+
+func (runtime *Runtime) handleAdminContentAuditLog(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	if _, err := runtime.requireAdmin(ctx, "Content audit log is restricted."); err != nil {
+		return nil, err
+	}
+	var payload struct {
+		VersionID   string `json:"version_id,omitempty"`
+		ContentType string `json:"content_type,omitempty"`
+		ContentID   string `json:"content_id,omitempty"`
+		Limit       int    `json:"limit,omitempty"`
+		Offset      int    `json:"offset,omitempty"`
+	}
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	if runtime.ContentAdmin == nil {
+		return nil, foundation.NewDomainError(foundation.CodeInternal, "Content admin service unavailable.")
+	}
+	log, err := runtime.ContentAdmin.AuditLog(context.Background(), content.AuditLogInput{
+		VersionID:   payload.VersionID,
+		ContentType: content.ContentType(payload.ContentType),
+		ContentID:   content.ContentID(payload.ContentID),
+		Limit:       payload.Limit,
+		Offset:      payload.Offset,
+	})
+	if err != nil {
+		return nil, domainErrorForContentAdmin(err, "Content audit log unavailable.")
+	}
+	return marshalPayload(map[string]any{"content_audit_log": adminContentAuditLogPayloadFromLog(log)})
+}
+
 func (runtime *Runtime) handleAdminContentVersions(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
 	if err := rejectTrustedPayload(request.Payload); err != nil {
 		return nil, err
@@ -244,9 +380,61 @@ func adminContentDraftValidationPayloadFromReport(report content.DraftValidation
 	return payload
 }
 
+func adminContentPublishPayloadFromResult(result content.PublishDraftResult) adminContentPublishPayload {
+	return adminContentPublishPayload{
+		Published:  result.Published,
+		Idempotent: result.Idempotent,
+		RowCount:   result.RowCount,
+		Version:    adminContentVersionPayloadFromSummary(result.Version),
+		Validation: adminContentDraftValidationPayloadFromReport(result.Validation),
+	}
+}
+
+func adminContentRollbackPayloadFromResult(targetVersionID string, result content.PublishDraftResult) adminContentRollbackPayload {
+	return adminContentRollbackPayload{
+		RolledBack:      result.Published,
+		Idempotent:      result.Idempotent,
+		TargetVersionID: targetVersionID,
+		Version:         adminContentVersionPayloadFromSummary(result.Version),
+		Validation:      adminContentDraftValidationPayloadFromReport(result.Validation),
+	}
+}
+
+func adminContentAuditLogPayloadFromLog(log content.AuditLog) adminContentAuditLogPayload {
+	payload := adminContentAuditLogPayload{
+		Total:       log.Total,
+		Limit:       log.Limit,
+		Offset:      log.Offset,
+		GeneratedAt: log.GeneratedAt.UTC().UnixMilli(),
+		Entries:     make([]adminContentAuditEntryPayload, 0, len(log.Entries)),
+	}
+	for _, entry := range log.Entries {
+		payload.Entries = append(payload.Entries, adminContentAuditEntryPayload{
+			ID:               entry.ID,
+			ContentVersionID: entry.ContentVersionID,
+			ContentType:      string(entry.ContentType),
+			ContentID:        string(entry.ContentID),
+			FieldPath:        entry.FieldPath,
+			OldValueJSON:     append(json.RawMessage(nil), entry.OldValueJSON...),
+			NewValueJSON:     append(json.RawMessage(nil), entry.NewValueJSON...),
+			ActorRef:         entry.ActorAccountID,
+			Note:             entry.Note,
+			BalanceTag:       entry.BalanceTag,
+			CreatedAt:        entry.CreatedAt.UTC().UnixMilli(),
+		})
+	}
+	return payload
+}
+
 func domainErrorForContentAdmin(err error, fallback string) error {
 	if errors.Is(err, admin.ErrContentDraftNotFound) {
 		return foundation.NewDomainError(foundation.CodeNotFound, "Content row was not found.", foundation.WithCause(err))
+	}
+	if errors.Is(err, contentdb.ErrCurrentContentNotFound) {
+		return foundation.NewDomainError(foundation.CodeNotFound, "Content version was not found.", foundation.WithCause(err))
+	}
+	if errors.Is(err, contentdb.ErrContentPublishConflict) {
+		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Content version changed. Reload and retry.", foundation.WithCause(err))
 	}
 	if errors.Is(err, contentdb.ErrUnknownContentType) || errors.Is(err, content.ErrUnknownContentType) {
 		return invalidPayload("Content type is invalid.", err)
@@ -321,6 +509,25 @@ func adminContentDraftRowPayloadFromRow(contentType content.ContentType, row con
 	}
 }
 
+func adminContentVersionPayloadFromSummary(version content.VersionSummary) adminContentVersionPayload {
+	item := adminContentVersionPayload{
+		ID:             version.ID,
+		Version:        version.Version,
+		Status:         version.Status,
+		Current:        version.Current,
+		Notes:          version.Notes,
+		BalanceTag:     version.BalanceTag,
+		CreatedBy:      version.CreatedBy,
+		CreatedAt:      version.CreatedAt.UTC().UnixMilli(),
+		PublishedBy:    version.PublishedBy,
+		RolledBackFrom: version.RolledBackFrom,
+	}
+	if !version.PublishedAt.IsZero() {
+		item.PublishedAt = version.PublishedAt.UTC().UnixMilli()
+	}
+	return item
+}
+
 func adminContentVersionsPayloadFromList(list content.VersionList) adminContentVersionsPayload {
 	payload := adminContentVersionsPayload{
 		Total:       list.Total,
@@ -330,22 +537,7 @@ func adminContentVersionsPayloadFromList(list content.VersionList) adminContentV
 		Versions:    make([]adminContentVersionPayload, 0, len(list.Versions)),
 	}
 	for _, version := range list.Versions {
-		item := adminContentVersionPayload{
-			ID:             version.ID,
-			Version:        version.Version,
-			Status:         version.Status,
-			Current:        version.Current,
-			Notes:          version.Notes,
-			BalanceTag:     version.BalanceTag,
-			CreatedBy:      version.CreatedBy,
-			CreatedAt:      version.CreatedAt.UTC().UnixMilli(),
-			PublishedBy:    version.PublishedBy,
-			RolledBackFrom: version.RolledBackFrom,
-		}
-		if !version.PublishedAt.IsZero() {
-			item.PublishedAt = version.PublishedAt.UTC().UnixMilli()
-		}
-		payload.Versions = append(payload.Versions, item)
+		payload.Versions = append(payload.Versions, adminContentVersionPayloadFromSummary(version))
 	}
 	return payload
 }

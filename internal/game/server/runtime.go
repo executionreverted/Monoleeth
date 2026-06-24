@@ -204,6 +204,9 @@ type runtimeContentVersionStore interface {
 	admin.ContentVersionStore
 	admin.ContentDraftStore
 	admin.ContentDraftWriter
+	admin.ContentPublisher
+	admin.ContentSnapshotReader
+	admin.ContentAuditStore
 }
 
 func loadRuntimeContent(ctx context.Context, config RuntimeConfig) (gamecontent.GameplayContent, error) {
@@ -335,6 +338,9 @@ func loadRuntimeContentAdmin(ctx context.Context, config RuntimeConfig, clock fo
 		Versions:  versionStore,
 		Drafts:    versionStore,
 		Writer:    versionStore,
+		Publisher: versionStore,
+		Snapshots: versionStore,
+		Audit:     versionStore,
 		Validator: contentdb.NewSnapshotValidator(config.WorldID),
 		Clock:     clock,
 	}), closeStore, nil
