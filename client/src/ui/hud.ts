@@ -9,6 +9,7 @@ import { questsPanel } from './hud-render-quests';
 import { planetsPanel } from './hud-render-planets';
 import { topbarDangerText, topbarLocationText } from './hud-topbar';
 import { actionBar, baseWindowDefinitions, intelPanel, logPanel, modalDefinition, movementEtaPanel, opsPanel, quickActionStates, shipPanel, statusPanel, systemsPanel, targetPanel, windowDefinitions, windowLayout } from './hud-render-panels';
+import { adminModuleEditPatchFromForm, buildAdminModuleDraftUpdate, findAdminModuleDraftRow } from './hud-render-admin-content';
 import type { HUDDragState, HUDHandlers, HUDModalDragState, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, HUDWindowState } from './hud-types';
 import { clamp, escapeHTML, formatCompactNumber, formatPair, formatPercent, isControlElement, isInventoryTabID, isModuleFilterID, isQuickActionKey, isShopCategoryID, normalizeModalID, normalizePanelID, parseLoadoutDragPayload } from './hud-formatters';
 import { dispatchPlanetRouteButtonAction } from './hud-planet-route-actions';
@@ -521,6 +522,15 @@ export class HUD {
             this.rerenderCurrent();
           }
           break;
+        case 'admin-content-module-edit':
+          if (button.dataset.contentId && this.currentState) {
+            this.openModal('admin-content-module-edit', this.currentState, button.dataset.contentId, button);
+            this.render(this.currentState);
+          }
+          break;
+        case 'admin-content-module-save':
+          this.handleAdminContentModuleSave(button);
+          break;
         case 'admin-content-rollback':
           if (button.dataset.versionId) {
             this.handlers.onAdminContentRollback(button.dataset.versionId);
@@ -658,6 +668,28 @@ export class HUD {
           }
           break;
       }
+  }
+
+  private handleAdminContentModuleSave(button: HTMLButtonElement): void {
+    if (!this.currentState?.auth.session?.account?.admin) {
+      return;
+    }
+    const form = button.closest<HTMLFormElement>('form[data-admin-content-module-form="true"]');
+    if (!form) {
+      return;
+    }
+    if (!form.reportValidity()) {
+      return;
+    }
+    const row = findAdminModuleDraftRow(this.currentState, form.dataset.contentId ?? null);
+    if (!row) {
+      return;
+    }
+    this.handlers.onAdminContentUpdateDraft(buildAdminModuleDraftUpdate(row, adminModuleEditPatchFromForm(form)));
+    this.closeModal();
+    if (this.currentState) {
+      this.render(this.currentState);
+    }
   }
 
   private handleLoadoutDragStart(event: DragEvent): void {

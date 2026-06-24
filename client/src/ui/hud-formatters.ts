@@ -128,7 +128,14 @@ export function isModuleFilterID(value: string | undefined): value is ModuleFilt
 }
 
 export function normalizeModalID(value: string | undefined): HUDModalID | null {
-  if (value === 'target' || value === 'planets' || value === 'ship' || value === 'planet-detail' || value === 'tutorial') {
+  if (
+    value === 'target' ||
+    value === 'planets' ||
+    value === 'ship' ||
+    value === 'planet-detail' ||
+    value === 'tutorial' ||
+    value === 'admin-content-module-edit'
+  ) {
     return value;
   }
   return null;

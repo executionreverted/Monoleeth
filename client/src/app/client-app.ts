@@ -82,10 +82,10 @@ export class ClientApp extends ClientAppHandlers {
       onAdminRepairCraftJob: (jobID) => this.sendCommand(this.commandBuilder.adminRepairCraftJob(jobID)),
       onAdminContentRefresh: () => this.refreshAdminContent(),
       onAdminContentValidate: () => this.sendCommand(this.commandBuilder.adminContentValidateDraft()),
-      onAdminContentPublish: () => this.sendCommand(this.commandBuilder.adminContentPublish()),
-      onAdminContentRollback: (versionID) =>
-        this.sendCommand(this.commandBuilder.adminContentRollback({ targetVersionID: versionID })),
+      onAdminContentPublish: () => this.sendAdminContentPublish(),
+      onAdminContentRollback: (versionID) => this.sendAdminContentRollback(versionID),
       onAdminContentAudit: () => this.sendCommand(this.commandBuilder.adminContentAuditLog({ contentType: 'module', limit: 12 })),
+      onAdminContentUpdateDraft: (input) => this.sendAdminContentUpdateDraft(input),
     });
 
     this.render();

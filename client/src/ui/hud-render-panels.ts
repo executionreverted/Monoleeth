@@ -7,7 +7,7 @@ import { economyPanel } from './hud-render-economy';
 import { cargoPanel } from './hud-render-inventory';
 import { planetCatalogPanel, planetDetailModal, planetModalTitle, planetsPanel, minimapPanel } from './hud-render-planets';
 import { questsPanel } from './hud-render-quests';
-import { adminContentBlock } from './hud-render-admin-content';
+import { adminContentBlock, adminModuleEditModal } from './hud-render-admin-content';
 import type { ActionState, EntityCombatStatus, HUDHelpTopicID, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, KnownLootDropStatus, QuickActionCommand, QuickActionID, QuickActionState, VisibleEntity } from './hud-types';
 import { actionScanLabel, clamp, escapeHTML, formatCooldown, formatDuration, formatPair, formatVec, hasPendingOp, isHelpTopicID, lockedValue, publicEntityType, publicPlanetName, realtimeReady, scanModeTimeDetail, scanStatusLabel } from './hud-formatters';
 
@@ -79,6 +79,8 @@ export function modalDefinition(id: HUDModalID, state: ClientState, detailID?: s
       const title = planetModalTitle(state, detailID);
       return { id, detailID, title, body: planetDetailModal(state, detailID) };
     }
+    case 'admin-content-module-edit':
+      return { id, detailID, title: 'Module Draft', body: adminModuleEditModal(state, detailID) };
     case 'planets':
       return { id, title: 'Planet Intel', body: planetsPanel(state) };
     case 'ship':

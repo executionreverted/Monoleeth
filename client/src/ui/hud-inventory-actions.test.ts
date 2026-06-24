@@ -91,5 +91,6 @@ function testHandlers(): HUDHandlers {
     onAdminContentPublish: vi.fn(),
     onAdminContentRollback: vi.fn(),
     onAdminContentAudit: vi.fn(),
+    onAdminContentUpdateDraft: vi.fn(),
   };
 }

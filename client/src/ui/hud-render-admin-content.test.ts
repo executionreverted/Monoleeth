@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createInitialState } from '../state/reducer';
 import type { AdminContentState, ClientState } from '../state/types';
 import { HUD } from './hud';
-import { adminContentBlock } from './hud-render-admin-content';
+import {
+  adminContentBlock,
+  adminModuleEditFields,
+  adminModuleEditModal,
+  buildAdminModuleDraftUpdate,
+} from './hud-render-admin-content';
 import { opsPanel } from './hud-render-panels';
 import { hudSelection } from './hud-selection';
 import type { HUDHandlers } from './hud-types';
@@ -81,6 +86,7 @@ describe('admin content HUD render', () => {
     expect(html).toContain('1200ms');
     expect(html).toContain('Energy');
     expect(html).toContain('4');
+    expect(html).toContain('data-action="admin-content-module-edit"');
   });
 
   test('selects module draft rows without rendering hidden loot internals', () => {
@@ -92,6 +98,79 @@ describe('admin content HUD render', () => {
     expect(html).toContain('data-selected="true"');
     expect(html).not.toContain('loot_table');
     expect(html).not.toContain('spawn_candidates');
+    expect(html).not.toContain('rare_drop_sentinel');
+    expect(html).not.toContain('spawn_sentinel');
+  });
+
+  test('renders compact module edit modal with only allowlisted editable fields', () => {
+    const html = adminModuleEditModal(adminState(), 'laser_alpha_t1');
+
+    expect(html).toContain('data-admin-content-module-form="true"');
+    expect(html).toContain('data-admin-module-field="weapon_damage"');
+    expect(html).toContain('data-admin-module-field="shield_damage"');
+    expect(html).toContain('data-admin-module-field="range"');
+    expect(html).toContain('data-admin-module-field="cooldown"');
+    expect(html).toContain('data-admin-module-field="energy"');
+    expect(html).toContain('data-admin-module-field="rank"');
+    expect(html).toContain('data-admin-module-field="rarity"');
+    expect(html).not.toContain('loot_table');
+    expect(html).not.toContain('spawn_candidates');
+    expect(html).not.toContain('rare_drop_sentinel');
+    expect(html).not.toContain('spawn_sentinel');
+  });
+
+  test('builds update draft payload by preserving row identity and patching module stats', () => {
+    const row = adminState().adminContent?.rowsByType.module.rows.find((item) => item.content_id === 'laser_alpha_t1');
+    expect(row).toBeTruthy();
+
+    const update = buildAdminModuleDraftUpdate(row!, {
+      weapon_damage: 11,
+      shield_damage: 7,
+      range: 520,
+      cooldown: 900,
+      energy: 6,
+      rank: 2,
+      rarity: 'rare',
+    });
+    const data = update.dataJSON;
+    const modifiers = data.stat_modifiers as Array<{ stat: string; value: number }>;
+
+    expect(update).toMatchObject({
+      contentType: 'module',
+      contentID: 'laser_alpha_t1',
+      enabled: true,
+      displayJSON: { name: 'Laser Alpha T1' },
+    });
+    expect(modifiers.find((modifier) => modifier.stat === 'weapon_damage')?.value).toBe(11);
+    expect(modifiers.find((modifier) => modifier.stat === 'shield_damage')?.value).toBe(7);
+    expect(modifiers.find((modifier) => modifier.stat === 'range')?.value).toBe(520);
+    expect((data.cooldowns as Array<{ duration_ms: number }>)[0].duration_ms).toBe(900);
+    expect((data.energy as { activation_cost: number }).activation_cost).toBe(6);
+    expect(data.required_rank).toBe(2);
+    expect(data.rarity).toBe('rare');
+    expect(data.loot_table).toBe('rare_drop_sentinel');
+    expect(data.spawn_candidates).toEqual(['spawn_sentinel']);
+    expect(row!.data_json.required_rank).toBe(1);
+  });
+
+  test('does not add module edit fields that are absent from draft data', () => {
+    const row = adminState().adminContent?.rowsByType.module.rows.find((item) => item.content_id === 'shield_alpha_t1');
+    expect(row).toBeTruthy();
+
+    const fields = adminModuleEditFields(row!);
+    const update = buildAdminModuleDraftUpdate(row!, {
+      weapon_damage: 99,
+      cooldown: 500,
+      energy: 2,
+      rank: 3,
+    });
+    const data = update.dataJSON;
+
+    expect(fields.map((field) => field.id)).toEqual(['rank', 'rarity']);
+    expect(data.required_rank).toBe(3);
+    expect(data.stat_modifiers).toEqual([{ stat: 'shield_capacity', value: 40 }]);
+    expect(data.cooldowns).toBeUndefined();
+    expect(data.energy).toBeUndefined();
   });
 
   test('disables publish when validation has issues', () => {
@@ -196,9 +275,12 @@ function adminState(contentOverride: Partial<AdminContentState> = {}): ClientSta
                 stat_modifiers: [
                   { stat: 'weapon_damage', value: 8 },
                   { stat: 'shield_damage', value: 5 },
+                  { stat: 'range', value: 420 },
                 ],
                 cooldowns: [{ duration_ms: 1200 }],
                 energy: { activation_cost: 4 },
+                loot_table: 'rare_drop_sentinel',
+                spawn_candidates: ['spawn_sentinel'],
               },
             },
             {
@@ -212,6 +294,8 @@ function adminState(contentOverride: Partial<AdminContentState> = {}): ClientSta
                 tier: 1,
                 slot_type: 'shield',
                 stat_modifiers: [{ stat: 'shield_capacity', value: 40 }],
+                loot_table: 'rare_drop_sentinel',
+                spawn_candidates: ['spawn_sentinel'],
               },
             },
           ],
@@ -296,5 +380,6 @@ function adminContentHandlers() {
     onAdminContentPublish: vi.fn(),
     onAdminContentRollback: vi.fn(),
     onAdminContentAudit: vi.fn(),
+    onAdminContentUpdateDraft: vi.fn(),
   };
 }

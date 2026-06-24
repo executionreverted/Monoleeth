@@ -574,6 +574,12 @@
   border-bottom: 1px solid rgba(215, 247, 255, 0.12);
 }
 
+.cms-detail__heading {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
 .cms-panel header strong,
 .cms-detail header strong,
 .cms-row strong,
@@ -680,6 +686,23 @@
   color: #f4c95d;
 }
 
+.cms-detail__edit {
+  min-width: 3.8rem;
+  min-height: 1.8rem;
+  border: 1px solid rgba(244, 201, 93, 0.38);
+  background: rgba(244, 201, 93, 0.08);
+  color: rgba(245, 247, 248, 0.9);
+  font: inherit;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cms-detail__edit:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .cms-detail {
   display: grid;
   gap: 0.45rem;
@@ -732,11 +755,86 @@
   overflow-wrap: anywhere;
 }
 
+.cms-edit-form {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.cms-edit-summary {
+  display: grid;
+  gap: 0.12rem;
+  border-bottom: 1px solid rgba(215, 247, 255, 0.12);
+  padding-bottom: 0.45rem;
+}
+
+.cms-edit-summary strong {
+  color: rgba(245, 247, 248, 0.94);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.cms-edit-summary span,
+.cms-edit-control span {
+  color: rgba(215, 247, 255, 0.58);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+}
+
+.cms-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.cms-edit-control {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.cms-edit-control input,
+.cms-edit-control select {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.1rem;
+  border: 1px solid rgba(215, 247, 255, 0.18);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.045);
+  color: #f4c95d;
+  font: inherit;
+  padding: 0 0.45rem;
+}
+
+.cms-edit-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.cms-edit-actions button {
+  min-height: 2.25rem;
+  border: 1px solid rgba(215, 247, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(245, 247, 248, 0.9);
+  font: inherit;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cms-edit-actions button[data-action] {
+  border-color: rgba(244, 201, 93, 0.52);
+  background: rgba(244, 201, 93, 0.1);
+}
+
 @media (max-width: 720px) {
   .cms-toolbar,
   .cms-metrics,
   .cms-grid,
-  .cms-stat-grid {
+  .cms-stat-grid,
+  .cms-edit-grid,
+  .cms-edit-actions {
     grid-template-columns: minmax(0, 1fr);
   }
 }

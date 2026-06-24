@@ -9,6 +9,11 @@ import {
   ECONOMY_REFRESH_DEBOUNCE_MS,
   NAVIGATION_TARGET_TOLERANCE_UNITS,
 } from './client-app-core';
+import type { AdminContentDraftUpdateInput } from '../ui/hud-types';
+
+export const ADMIN_CONTENT_DEFAULT_BALANCE_TAG = 'client_cms_lc1';
+export const ADMIN_CONTENT_DEFAULT_PUBLISH_NOTES = 'Client CMS publish from admin panel.';
+export const ADMIN_CONTENT_DEFAULT_ROLLBACK_NOTES = 'Client CMS rollback from admin panel.';
 
 export abstract class ClientAppCommands extends ClientAppCore {
   protected abstract activateLootTarget(target: EntityPayload, source: 'click' | 'action'): void;
@@ -565,6 +570,44 @@ export abstract class ClientAppCommands extends ClientAppCore {
     this.sendCommand(this.commandBuilder.adminContentVersions());
     this.sendCommand(this.commandBuilder.adminContentList('module'));
     this.sendCommand(this.commandBuilder.adminContentAuditLog({ contentType: 'module', limit: 12 }));
+  }
+
+  protected sendAdminContentPublish(): void {
+    if (!this.state.auth.session?.account?.admin) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Admin content publish rejected: admin session required.' });
+      return;
+    }
+    this.sendCommand(
+      this.commandBuilder.adminContentPublish({
+        notes: ADMIN_CONTENT_DEFAULT_PUBLISH_NOTES,
+        balanceTag: ADMIN_CONTENT_DEFAULT_BALANCE_TAG,
+      }),
+    );
+  }
+
+  protected sendAdminContentRollback(versionID: string): void {
+    if (!versionID) {
+      return;
+    }
+    if (!this.state.auth.session?.account?.admin) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Admin content rollback rejected: admin session required.' });
+      return;
+    }
+    this.sendCommand(
+      this.commandBuilder.adminContentRollback({
+        targetVersionID: versionID,
+        notes: ADMIN_CONTENT_DEFAULT_ROLLBACK_NOTES,
+        balanceTag: ADMIN_CONTENT_DEFAULT_BALANCE_TAG,
+      }),
+    );
+  }
+
+  protected sendAdminContentUpdateDraft(input: AdminContentDraftUpdateInput): void {
+    if (!this.state.auth.session?.account?.admin) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: 'Admin content update rejected: admin session required.' });
+      return;
+    }
+    this.sendCommand(this.commandBuilder.adminContentUpdateDraft(input));
   }
 
   protected handleEconomyRefreshForEvent(eventType: string): void {

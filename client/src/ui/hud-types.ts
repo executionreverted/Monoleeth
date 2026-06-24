@@ -1,5 +1,14 @@
 import type { ClientState } from '../state/types';
 import type { RouteDestinationInput } from '../protocol/commands';
+import type { JsonObject } from '../protocol/envelope';
+
+export interface AdminContentDraftUpdateInput {
+  contentType: string;
+  contentID: string;
+  enabled: boolean;
+  displayJSON: JsonObject;
+  dataJSON: JsonObject;
+}
 
 export interface HUDHandlers {
   onLogout(): void;
@@ -61,13 +70,14 @@ export interface HUDHandlers {
   onAdminContentPublish(): void;
   onAdminContentRollback(versionID: string): void;
   onAdminContentAudit(): void;
+  onAdminContentUpdateDraft(input: AdminContentDraftUpdateInput): void;
 }
 
 export type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['combat']>;
 export type KnownLootDropStatus = ClientState['knownLoot'][string];
 export type VisibleEntity = ClientState['visibleEntities'][string];
 export type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' | 'ops';
-export type HUDModalID = 'target' | 'planets' | 'ship' | 'planet-detail' | 'tutorial';
+export type HUDModalID = 'target' | 'planets' | 'ship' | 'planet-detail' | 'tutorial' | 'admin-content-module-edit';
 export type HUDHelpTopicID = 'inventory' | 'shop' | 'quests' | 'planets' | 'hangar' | 'ops';
 export type QuickActionID = 'laser' | 'rocket' | 'scan' | 'stealth' | 'warp' | 'gather';
 export type QuickActionCommand = 'fire' | 'rocket' | 'scan' | 'stealth' | 'warp' | 'loot';
