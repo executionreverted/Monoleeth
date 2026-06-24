@@ -35,6 +35,7 @@ type GameplayContent struct {
 	Starter    StarterContent
 	Shop       catalog.ContentRegistry
 	Route      RouteContent
+	Rules      ProductionRulesContent
 }
 
 // DefaultGameplayContent returns the current static playtest content bundle.
@@ -76,6 +77,7 @@ func DefaultGameplayContent(worldID world.WorldID) (GameplayContent, error) {
 		Starter:    DefaultStarterContent(),
 		Shop:       shop,
 		Route:      DefaultRouteContent(),
+		Rules:      DefaultProductionRulesContent(),
 	}
 	if err := bundle.Validate(); err != nil {
 		return GameplayContent{}, err

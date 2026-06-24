@@ -12,15 +12,16 @@ import (
 )
 
 var (
-	ErrInvalidContentBundle  = errors.New("invalid gameplay content bundle")
-	ErrUnknownContentItem    = errors.New("unknown content item")
-	ErrUnknownContentLoot    = errors.New("unknown content loot table")
-	ErrUnknownContentShip    = errors.New("unknown content ship")
-	ErrInvalidContentLootRow = errors.New("invalid content loot row")
-	ErrMissingContentCatalog = errors.New("missing content catalog")
-	ErrInvalidScannerContent = errors.New("invalid scanner content")
-	ErrInvalidStarterContent = errors.New("invalid starter content")
-	ErrInvalidRouteContent   = errors.New("invalid route content")
+	ErrInvalidContentBundle          = errors.New("invalid gameplay content bundle")
+	ErrUnknownContentItem            = errors.New("unknown content item")
+	ErrUnknownContentLoot            = errors.New("unknown content loot table")
+	ErrUnknownContentShip            = errors.New("unknown content ship")
+	ErrInvalidContentLootRow         = errors.New("invalid content loot row")
+	ErrMissingContentCatalog         = errors.New("missing content catalog")
+	ErrInvalidScannerContent         = errors.New("invalid scanner content")
+	ErrInvalidStarterContent         = errors.New("invalid starter content")
+	ErrInvalidRouteContent           = errors.New("invalid route content")
+	ErrInvalidProductionRulesContent = errors.New("invalid production rules content")
 )
 
 // Validate proves the static gameplay bundle is internally consistent before
@@ -57,6 +58,9 @@ func (bundle GameplayContent) Validate() error {
 		return err
 	}
 	if err := bundle.Route.Validate(bundle); err != nil {
+		return err
+	}
+	if err := bundle.Rules.Validate(bundle); err != nil {
 		return err
 	}
 	if err := bundle.Scanner.Validate(bundle.Maps); err != nil {

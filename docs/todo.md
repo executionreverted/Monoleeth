@@ -23,10 +23,12 @@ for phase status; this file is a compact pending-work index.
   reference-validated before runtime serves shop payloads. Route policy content
   now owns routeable resources, caps, energy formula values, loss band, and
   endpoint storage capacity while runtime keeps ownership/distance/storage
-  truth. Next work: add DB-backed empty-DB seeding and published revision
-  loading, add draft / publish / rollback validation, then build the admin CMS
-  UI for monsters, drop tables, item stats, recipes, map pools, and
-  planet/scanner tuning.
+  truth. Production rules now own claim range, claim production defaults, and
+  building build/upgrade costs while runtime keeps proximity, ownership, wallet,
+  and planet-storage mutation truth. Next work: add DB-backed empty-DB seeding
+  and published revision loading, add draft / publish / rollback validation,
+  then build the admin CMS UI for monsters, drop tables, item stats, recipes,
+  map pools, and planet/scanner tuning.
   Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`

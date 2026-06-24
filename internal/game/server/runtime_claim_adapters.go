@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
@@ -13,9 +14,9 @@ import (
 )
 
 const (
-	runtimePlanetClaimRange               = 300.0
-	runtimeClaimProductionStorageCapacity = 250
-	runtimeClaimProductionEnergyCapacity  = 40
+	runtimePlanetClaimRange               = gamecontent.DefaultPlanetClaimRange
+	runtimeClaimProductionStorageCapacity = gamecontent.DefaultClaimProductionStorageCapacity
+	runtimeClaimProductionEnergyCapacity  = gamecontent.DefaultClaimProductionEnergyCapacity
 )
 
 type runtimeClaimRankProvider struct {
@@ -73,7 +74,7 @@ func (provider runtimeClaimProximityProvider) PlayerCanClaimPlanet(input discove
 		return discovery.ClaimProximityResult{WithinRange: false}, nil
 	}
 	return discovery.ClaimProximityResult{
-		WithinRange: entity.Position.Distance(input.PlanetCoordinates) <= runtimePlanetClaimRange,
+		WithinRange: entity.Position.Distance(input.PlanetCoordinates) <= provider.runtime.productionRules.ClaimRange,
 	}, nil
 }
 

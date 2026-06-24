@@ -169,8 +169,8 @@ func (runtime *Runtime) ensureClaimProductionLiveState(reference discovery.Plane
 	_, err = runtime.Production.InitializePlanetProduction(production.InitializePlanetProductionInput{
 		PlanetID:              plan.Initialization.PlanetID,
 		LastCalculatedAt:      plan.Initialization.ClaimedAt,
-		StorageCapacityUnits:  runtimeClaimProductionStorageCapacity,
-		EnergyCapacityPerHour: runtimeClaimProductionEnergyCapacity,
+		StorageCapacityUnits:  runtime.productionRules.ClaimStorageCapacityUnits,
+		EnergyCapacityPerHour: runtime.productionRules.ClaimEnergyCapacityPerHour,
 		UpdatedAt:             plan.Initialization.ClaimedAt,
 	})
 	return err

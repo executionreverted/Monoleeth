@@ -44,6 +44,9 @@ func TestDefaultGameplayContentValidates(t *testing.T) {
 	if !bundle.Route.ResourceRouteable("refined_alloy") {
 		t.Fatal("refined_alloy missing from routeable content")
 	}
+	if bundle.Rules.ClaimRange <= 0 || len(bundle.Rules.BuildingCosts) == 0 {
+		t.Fatalf("production rules incomplete: %+v", bundle.Rules)
+	}
 }
 
 func TestStaticRepositoryLoadsValidatedPublishedContent(t *testing.T) {
@@ -112,6 +115,36 @@ func TestGameplayContentRejectsInvalidRouteEndpointCapacity(t *testing.T) {
 	err := bundle.Validate()
 	if !errors.Is(err, ErrInvalidRouteContent) {
 		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidRouteContent)
+	}
+}
+
+func TestGameplayContentRejectsProductionRuleUnknownMaterial(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Rules.BuildingCosts[1].Materials[0].ItemID = "missing_item"
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrUnknownContentItem) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrUnknownContentItem)
+	}
+}
+
+func TestGameplayContentRejectsProductionRuleDuplicateCost(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Rules.BuildingCosts = append(bundle.Rules.BuildingCosts, bundle.Rules.BuildingCosts[0])
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrInvalidProductionRulesContent) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidProductionRulesContent)
+	}
+}
+
+func TestGameplayContentRejectsInvalidProductionClaimDefaults(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Rules.ClaimStorageCapacityUnits = 0
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrInvalidProductionRulesContent) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidProductionRulesContent)
 	}
 }
 

@@ -166,6 +166,7 @@ type Runtime struct {
 	itemCatalog         map[foundation.ItemID]economy.ItemDefinition
 	starterContent      gamecontent.StarterContent
 	routeContent        gamecontent.RouteContent
+	productionRules     gamecontent.ProductionRulesContent
 	repairAttempts      map[foundation.IdempotencyKey]repairAttemptRecord
 	shopPurchases       map[foundation.IdempotencyKey]shopPurchaseRecord
 	scanCooldowns       map[scanCooldownKey]time.Time
@@ -457,6 +458,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		itemCatalog:                    itemCatalog,
 		starterContent:                 contentBundle.Starter,
 		routeContent:                   contentBundle.Route,
+		productionRules:                contentBundle.Rules,
 		repairAttempts:                 make(map[foundation.IdempotencyKey]repairAttemptRecord),
 		shopPurchases:                  make(map[foundation.IdempotencyKey]shopPurchaseRecord),
 		scanCooldowns:                  make(map[scanCooldownKey]time.Time),
@@ -498,8 +500,8 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	claimProductionInitializer, err := production.NewClaimProductionInitializer(production.ClaimProductionInitializerConfig{
 		Store: productionStore,
 		Defaults: production.ClaimProductionInitializationDefaults{
-			StorageCapacityUnits:  runtimeClaimProductionStorageCapacity,
-			EnergyCapacityPerHour: runtimeClaimProductionEnergyCapacity,
+			StorageCapacityUnits:  contentBundle.Rules.ClaimStorageCapacityUnits,
+			EnergyCapacityPerHour: contentBundle.Rules.ClaimEnergyCapacityPerHour,
 		},
 	})
 	if err != nil {

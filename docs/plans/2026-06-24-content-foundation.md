@@ -58,6 +58,7 @@ Add `GameplayContent` with:
 - `Starter StarterContent`
 - `Shop catalog.ContentRegistry`
 - `Route RouteContent`
+- `Rules ProductionRulesContent`
 
 Add `DefaultGameplayContent(worldID world.WorldID)` to assemble current static
 content.
@@ -82,6 +83,8 @@ Add `Validate() error` and helpers for:
   `catalog.ContentRegistry`
 - route content refs and caps: routeable resources, route count, max distance,
   cross-map penalty, endpoint storage capacity, energy formula, and loss band
+- production rule refs and caps: claim range, claim production storage/energy
+  defaults, and building build/upgrade material+credit costs
 
 **Step 5: Run focused test**
 
@@ -329,6 +332,46 @@ Run:
 
 ```bash
 go test ./internal/game/content ./internal/game/server -run 'TestDefaultGameplayContent|TestGameplayContent|TestRoute|TestRouteCreate|TestRouteEndpoint|TestRouteSettle|TestRouteControl|TestE2ERoute|TestPlaytestSeed' -count=1
+git diff --check
+```
+
+Expected: pass.
+
+### Task 2G: Production Rule Content
+
+**Files:**
+- Create: `internal/game/content/production_rules.go`
+- Modify: `internal/game/content/bundle.go`
+- Modify: `internal/game/content/validation.go`
+- Modify: `internal/game/content/bundle_test.go`
+- Modify: `internal/game/server/runtime.go`
+- Modify: `internal/game/server/runtime_claim_adapters.go`
+- Modify: `internal/game/server/planet_claim_handlers.go`
+- Modify: `internal/game/server/planet_building_handlers.go`
+
+**Step 1: Add production rule content**
+
+Add `ProductionRulesContent` for claim range, claim production storage/energy
+defaults, and planet-building build/upgrade material+credit costs.
+
+**Step 2: Validate references**
+
+Production rules validate building material items against content item
+definitions and reject duplicate building-cost rows or invalid claim/default
+numeric values.
+
+**Step 3: Runtime wiring**
+
+Runtime claim proximity, claim production initialization, claim recovery, and
+building cost provider read the validated content values. Runtime still owns
+proximity state, ownership checks, wallet debits, and planet-storage mutations.
+
+**Step 4: Validate**
+
+Run:
+
+```bash
+go test ./internal/game/content ./internal/game/server -run 'TestDefaultGameplayContent|TestGameplayContent|TestPlanetClaim|TestPlaytestSeed|TestE2EPlanetClaimSeed|TestPlanetBuilding|TestClaim' -count=1
 git diff --check
 ```
 

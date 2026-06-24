@@ -64,6 +64,10 @@ proprietary labels or assets.
   cap, max distance, cross-map distance penalty, energy formula values, loss
   band, and endpoint storage capacity are validated in the bundle, while
   runtime still derives ownership, distance, storage, and access facts.
+- production rule content is server-only content: planet claim range, claim
+  production storage/energy defaults, and planet-building build/upgrade costs
+  are validated in the bundle, while runtime still owns proximity, ownership,
+  wallet debit, and planet-storage mutation.
 
 ## Non-Goals
 
@@ -105,5 +109,7 @@ Use narrow tests:
   display/category metadata valid before runtime serves shop payloads
 - route content must reference known routeable items and reject invalid caps,
   endpoint capacity, energy formula values, or duplicate routeable resources
+- production rules must reference known building material items and reject
+  duplicate building-cost rows or invalid claim/default numeric values
 - runtime uses the validated content bundle for item/loot catalogs
-  and scanner/planet/starter/shop/route config
+  and scanner/planet/starter/shop/route/production-rule config
