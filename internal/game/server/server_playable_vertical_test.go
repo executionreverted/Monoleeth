@@ -179,8 +179,8 @@ func playableVerticalCombatLoot(
 	targetID := playableVerticalNPCEntityID(t, gameServer, resolved.PlayerID, npcType)
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, targetID, world.Vec2{})
 
-	var dropID string
-	for attempt := 1; attempt <= 4; attempt++ {
+	var drop verticalCreatedDrop
+	for attempt := 1; attempt <= 12; attempt++ {
 		combat := gatewayJSON(t, gameServer, resolved, fmt.Sprintf("vertical-combat-%d", attempt), realtime.OperationCombatUseSkill, map[string]any{
 			"skill_id":  "basic_laser",
 			"target_id": targetID.String(),
@@ -201,18 +201,18 @@ func playableVerticalCombatLoot(
 			t.Fatalf("post vertical combat events: %v", err)
 		}
 		if combatPayload.Killed {
-			dropID = verticalRawOreDropID(t, events)
+			drop = verticalCreatedDropFromEvents(t, events)
 			break
 		}
 		clock.Advance(time.Duration(1200+50) * time.Millisecond)
 	}
-	if dropID == "" {
-		t.Fatalf("vertical combat did not create raw_ore drop for npc_type %q", npcType)
+	if drop.DropID == "" {
+		t.Fatalf("vertical combat did not create loot drop for npc_type %q", npcType)
 	}
 
-	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, world.EntityID(dropID), world.Vec2{})
+	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, world.EntityID(drop.DropID), world.Vec2{})
 	pickup := gatewayJSON(t, gameServer, resolved, "vertical-loot", realtime.OperationLootPickup, map[string]any{
-		"drop_id": dropID,
+		"drop_id": drop.DropID,
 	}, 7)
 	var pickupPayload struct {
 		Accepted bool                 `json:"accepted"`
@@ -221,13 +221,13 @@ func playableVerticalCombatLoot(
 	if err := json.Unmarshal(pickup, &pickupPayload); err != nil {
 		t.Fatalf("decode vertical pickup payload: %v", err)
 	}
-	if !pickupPayload.Accepted || !cargoPayloadHasItem(pickupPayload.Cargo, "raw_ore", 3) {
-		t.Fatalf("vertical pickup payload = %+v, want raw_ore cargo", pickupPayload)
+	if !pickupPayload.Accepted || !cargoPayloadHasItem(pickupPayload.Cargo, drop.ItemID, drop.Quantity) {
+		t.Fatalf("vertical pickup payload = %+v, want %s x%d cargo", pickupPayload, drop.ItemID, drop.Quantity)
 	}
 	if _, err := gameServer.runtime.postCommandEvents(resolved.SessionID, realtime.OperationLootPickup, resolved.PlayerID); err != nil {
 		t.Fatalf("post vertical loot events: %v", err)
 	}
-	return dropID
+	return drop.DropID
 }
 
 func playableVerticalNPCEntityID(t *testing.T, gameServer *Server, playerID foundation.PlayerID, npcType string) world.EntityID {
@@ -246,7 +246,13 @@ func playableVerticalNPCEntityID(t *testing.T, gameServer *Server, playerID foun
 	return record.EntityID
 }
 
-func verticalRawOreDropID(t *testing.T, events []realtime.EventEnvelope) string {
+type verticalCreatedDrop struct {
+	DropID   string
+	ItemID   string
+	Quantity int64
+}
+
+func verticalCreatedDropFromEvents(t *testing.T, events []realtime.EventEnvelope) verticalCreatedDrop {
 	t.Helper()
 
 	for _, event := range events {
@@ -254,18 +260,19 @@ func verticalRawOreDropID(t *testing.T, events []realtime.EventEnvelope) string 
 			continue
 		}
 		var payload struct {
-			DropID string `json:"drop_id"`
-			ItemID string `json:"item_id"`
+			DropID   string `json:"drop_id"`
+			ItemID   string `json:"item_id"`
+			Quantity int64  `json:"quantity"`
 		}
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			t.Fatalf("decode vertical loot.created: %v", err)
 		}
-		if payload.ItemID == "raw_ore" {
-			return payload.DropID
+		if payload.DropID != "" && payload.ItemID != "" && payload.Quantity > 0 {
+			return verticalCreatedDrop(payload)
 		}
 	}
-	t.Fatalf("vertical combat events = %+v, want raw_ore loot.created", events)
-	return ""
+	t.Fatalf("vertical combat events = %+v, want loot.created", events)
+	return verticalCreatedDrop{}
 }
 
 func playableVerticalRouteSettle(t *testing.T, gameServer *Server, resolved auth.ResolvedSession, clock *testutil.FakeClock) {

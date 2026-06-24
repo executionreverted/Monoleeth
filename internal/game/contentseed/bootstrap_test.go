@@ -51,6 +51,12 @@ func TestEnsurePublishedSeedSeedsEmptyStoreOnceAndWritesAllGroups(t *testing.T) 
 	if got, want := store.published[0].IdempotencyKey, "contentseed:"+snapshot.Version; got != want {
 		t.Fatalf("idempotency key = %q, want %q", got, want)
 	}
+	if got, want := store.published[0].Notes, content.DefaultStarterBalanceProfileNote; got != want {
+		t.Fatalf("default notes = %q, want %q", got, want)
+	}
+	if got, want := store.published[0].BalanceTag, content.DefaultStarterBalanceProfileID; got != want {
+		t.Fatalf("default balance tag = %q, want %q", got, want)
+	}
 
 	second, err := EnsurePublishedSeed(context.Background(), store, snapshot, SeedOptions{})
 	if err != nil {

@@ -132,6 +132,12 @@ func normalizeSeedOptions(snapshot content.Snapshot, options SeedOptions) (SeedO
 	if options.IdempotencyKey == "" {
 		options.IdempotencyKey = "contentseed:" + snapshot.Version
 	}
+	if options.Notes == "" {
+		options.Notes = content.DefaultStarterBalanceProfileNote
+	}
+	if options.BalanceTag == "" {
+		options.BalanceTag = content.DefaultStarterBalanceProfileID
+	}
 	if len(options.ValidationReportJSON) == 0 {
 		report, err := json.Marshal(map[string]string{
 			"snapshot_version": snapshot.Version,

@@ -436,7 +436,7 @@ func (definition MapDefinition) PVPBlockingSafeZoneAt(position world.Vec2) (Safe
 	return safeZone, ok && safeZone.BlocksPVP
 }
 
-// StarterCatalog returns the first DarkOrbit-style bounded map set.
+// StarterCatalog returns the first bounded starter map set.
 func StarterCatalog(worldID world.WorldID) (*Catalog, error) {
 	bounds := ExactPlayableBounds()
 	definitions := []MapDefinition{

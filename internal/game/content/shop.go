@@ -30,7 +30,7 @@ func DefaultShopContent(
 	moduleCatalog modules.Catalog,
 	shipCatalog ships.Catalog,
 ) (catalog.ContentRegistry, error) {
-	products := make([]catalog.ShopProductDefinition, 0, 10)
+	products := make([]catalog.ShopProductDefinition, 0, 16)
 	for _, definition := range shipCatalog.All() {
 		product, ok := runtimeShipShopProduct(definition)
 		if ok {
@@ -45,26 +45,25 @@ func DefaultShopContent(
 		products = append(products, product)
 	}
 	if _, ok := items["raw_ore"]; ok {
-		products = append(products, catalog.ShopProductDefinition{
-			ProductID:   "product_ferrite_ore",
-			ProductType: catalog.ShopProductTypeItem,
-			Display: catalog.DisplayMetadata{
-				DisplayName: "Ferrite Ore",
-				Description: "Dense starter ore used for ship repairs, starter crafting, and early trade loops.",
-				Category:    ShopCategoryResources,
-				Subcategory: "Material",
-				ArtKey:      "item.ferrite_ore",
-				Rarity:      economy.ItemRarityCommon.String(),
-				Tier:        1,
-				SortOrder:   900,
-			},
-			GrantTarget: catalog.GrantTarget{Kind: catalog.GrantTargetKindItem, RefID: "raw_ore", Quantity: 10},
-			Price:       catalog.PricePolicy{Currency: catalog.PriceCurrencyCredits, Amount: 40, Fixed: true},
-			Stock:       catalog.StockPolicy{Kind: catalog.StockPolicyUnlimited},
-			Availability: catalog.AvailabilityRule{
-				Available: true,
-			},
-		})
+		products = append(products, materialShopProduct("product_ferrite_ore", "raw_ore", "Ferrite Ore", "Dense starter ore used for ship repairs, starter crafting, and early trade loops.", "item.ferrite_ore", 10, 40, 900))
+	}
+	if _, ok := items["iron_ore"]; ok {
+		products = append(products, materialShopProduct("product_iron_ore", "iron_ore", "Iron Ore", "Common ore used in early alloy batches and repair stockpiles.", "item.iron_ore", 10, 60, 910))
+	}
+	if _, ok := items["carbon_shards"]; ok {
+		products = append(products, materialShopProduct("product_carbon_shards", "carbon_shards", "Carbon Shards", "Conductive fragments used by starter alloy and module recipes.", "item.carbon_shards", 5, 90, 920))
+	}
+	if _, ok := items["laser_lens"]; ok {
+		products = append(products, materialShopProduct("product_laser_lens", "laser_lens", "Laser Lens", "Focusing glass for entry weapon fabrication.", "item.laser_lens", 2, 160, 930))
+	}
+	if _, ok := items["energy_cell"]; ok {
+		products = append(products, materialShopProduct("product_energy_cell", "energy_cell", "Energy Cell", "Starter power cell used in weapon and utility module recipes.", "item.energy_cell", 2, 130, 940))
+	}
+	if _, ok := items["scanner_circuit"]; ok {
+		products = append(products, materialShopProduct("product_scanner_circuit", "scanner_circuit", "Scanner Circuit", "Low-tier circuit board for scout hull and scanner fabrication.", "item.scanner_circuit", 2, 180, 950))
+	}
+	if _, ok := items["warp_coil"]; ok {
+		products = append(products, materialShopProduct("product_warp_coil", "warp_coil", "Warp Coil", "Compact navigation coil for early scout hull unlocks.", "item.warp_coil", 1, 220, 960))
 	}
 	registry, err := catalog.NewContentRegistry(catalog.ContentRegistryVersion, runtimeShopCategories(), products)
 	if err != nil {
@@ -74,6 +73,38 @@ func DefaultShopContent(
 		return catalog.ContentRegistry{}, err
 	}
 	return registry, nil
+}
+
+func materialShopProduct(
+	productID catalog.ShopProductID,
+	itemID foundation.ItemID,
+	displayName string,
+	description string,
+	artKey string,
+	quantity int64,
+	price int64,
+	sortOrder int,
+) catalog.ShopProductDefinition {
+	return catalog.ShopProductDefinition{
+		ProductID:   productID,
+		ProductType: catalog.ShopProductTypeItem,
+		Display: catalog.DisplayMetadata{
+			DisplayName: displayName,
+			Description: description,
+			Category:    ShopCategoryResources,
+			Subcategory: "Material",
+			ArtKey:      artKey,
+			Rarity:      economy.ItemRarityCommon.String(),
+			Tier:        1,
+			SortOrder:   sortOrder,
+		},
+		GrantTarget: catalog.GrantTarget{Kind: catalog.GrantTargetKindItem, RefID: itemID.String(), Quantity: quantity},
+		Price:       catalog.PricePolicy{Currency: catalog.PriceCurrencyCredits, Amount: price, Fixed: true},
+		Stock:       catalog.StockPolicy{Kind: catalog.StockPolicyUnlimited},
+		Availability: catalog.AvailabilityRule{
+			Available: true,
+		},
+	}
 }
 
 func shopReferenceResolver(
@@ -147,11 +178,11 @@ func runtimeShipShopProduct(definition ships.ShipDefinition) (catalog.ShopProduc
 			SortOrder:   110,
 		},
 		ships.ShipIDHaulerT1: {
-			DisplayName: "Aegis Courier",
+			DisplayName: "Atlas Courier",
 			Description: "Cargo-heavy hull with stronger plating for resource runs and route staging.",
 			Category:    ShopCategoryShips,
 			Subcategory: "Hauler",
-			ArtKey:      "ship.aegis_courier",
+			ArtKey:      "ship.atlas_courier",
 			Rarity:      economy.ItemRarityUncommon.String(),
 			Tier:        definition.Tier,
 			SortOrder:   120,

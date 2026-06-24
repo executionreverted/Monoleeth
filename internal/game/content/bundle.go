@@ -43,12 +43,15 @@ type GameplayContent struct {
 
 // DefaultGameplayContent returns the current static playtest content bundle.
 func DefaultGameplayContent(worldID world.WorldID) (GameplayContent, error) {
-	moduleCatalog := modules.MustMVPCatalog()
-	shipCatalog, err := ships.MVPShipCatalog()
+	moduleCatalog, err := defaultStarterBalanceModuleCatalog()
 	if err != nil {
 		return GameplayContent{}, err
 	}
-	recipeCatalog, err := crafting.MVPRecipeCatalog()
+	shipCatalog, err := defaultStarterBalanceShipCatalog()
+	if err != nil {
+		return GameplayContent{}, err
+	}
+	recipeCatalog, err := defaultStarterBalanceRecipeCatalog()
 	if err != nil {
 		return GameplayContent{}, err
 	}
@@ -57,7 +60,7 @@ func DefaultGameplayContent(worldID world.WorldID) (GameplayContent, error) {
 		return GameplayContent{}, err
 	}
 	questCatalog := quests.MustMVPQuestCatalog()
-	mapCatalog, err := worldmaps.StarterCatalog(worldID)
+	mapCatalog, err := defaultStarterBalanceMapCatalog(worldID)
 	if err != nil {
 		return GameplayContent{}, err
 	}
@@ -114,6 +117,15 @@ func defaultItemAndLootContent(moduleCatalog modules.Catalog) (map[foundation.It
 		coordinateScroll.ItemID: coordinateScroll,
 		carbonShards.ItemID:     carbonShards,
 	}
+	materialNames := map[foundation.ItemID]string{
+		"iron_ore":        "Iron Ore",
+		"laser_lens":      "Laser Lens",
+		"energy_cell":     "Energy Cell",
+		"scanner_circuit": "Scanner Circuit",
+		"refined_alloy":   "Refined Alloy",
+		"warp_coil":       "Warp Coil",
+		"helium_dust":     "Helium Dust",
+	}
 	for _, itemID := range []foundation.ItemID{
 		"iron_ore",
 		"laser_lens",
@@ -123,7 +135,7 @@ func defaultItemAndLootContent(moduleCatalog modules.Catalog) (map[foundation.It
 		"warp_coil",
 		"helium_dust",
 	} {
-		definition, err := StackableItemDefinition(itemID, itemID.String())
+		definition, err := StackableItemDefinition(itemID, materialNames[itemID])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -153,15 +165,40 @@ func defaultItemAndLootContent(moduleCatalog modules.Catalog) (map[foundation.It
 				MinQuantity:    3,
 				MaxQuantity:    3,
 				Chance:         1,
+			}, {
+				ItemDefinition: items["iron_ore"],
+				MinQuantity:    2,
+				MaxQuantity:    4,
+				Chance:         0.7,
+			}, {
+				ItemDefinition: carbonShards,
+				MinQuantity:    1,
+				MaxQuantity:    2,
+				Chance:         0.35,
 			}},
 		},
 		BorderRaiderSalvageLootTableID: {
 			Source: borderSource,
 			Rows: []loot.LootRow{{
 				ItemDefinition: carbonShards,
-				MinQuantity:    2,
-				MaxQuantity:    2,
+				MinQuantity:    3,
+				MaxQuantity:    5,
 				Chance:         1,
+			}, {
+				ItemDefinition: items["iron_ore"],
+				MinQuantity:    4,
+				MaxQuantity:    7,
+				Chance:         0.8,
+			}, {
+				ItemDefinition: items["laser_lens"],
+				MinQuantity:    1,
+				MaxQuantity:    1,
+				Chance:         0.25,
+			}, {
+				ItemDefinition: items["energy_cell"],
+				MinQuantity:    1,
+				MaxQuantity:    1,
+				Chance:         0.2,
 			}},
 		},
 	}

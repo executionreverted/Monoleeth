@@ -80,6 +80,27 @@ npc_risk_low
 production_alpha
 ```
 
+## Balance Source Notes
+
+The static fallback seed now carries `renamed_starter_balance_v1` as local
+dev/test starter balance reference data. It is a renamed, non-infringing
+DarkOrbit-inspired tuning reference only; it is not a runtime dependency on any
+external game data, brand, asset, or naming.
+
+Current seed posture:
+
+- Starter ship uses the generic player-facing name `Sparrow`.
+- Starter weapon/shop metadata uses generic names such as `Prism Lance I`.
+- Starter NPC label keys use renamed generic concepts such as Warden/Scout/Raider drones.
+- Starter loot keeps the existing `raw_ore` smoke-test drop and adds low-tier craft inputs.
+- Starter shop prices expose purchasable low-tier material bundles for local balance smoke.
+- Starter craft tuning keeps `refined_alloy_batch` affordable and short, while lowering
+  early module/ship craft inputs so local playtest progression is reachable.
+
+Runtime content and CMS snapshots must not include original game/brand names.
+Docs and tests may mention the inspiration source only to explain why the seed
+exists and what is forbidden.
+
 ## Observability
 
 Metrics/logs should include content version for:

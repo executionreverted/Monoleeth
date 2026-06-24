@@ -26,6 +26,7 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 	resolved := resolvedSessionForCookie(t, gameServer, cookie)
 	equipStarterLaserForTest(t, gameServer, resolved.PlayerID)
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
+	primeTrainingNPCForOneShot(t, gameServer)
 	gameServer.runtime.tickAndCollectAOIEvents()
 
 	writeText(t, conn, `{"request_id":"request-combat-1","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"entity_training_npc"},"client_seq":1,"v":1}`)
@@ -270,7 +271,7 @@ func TestLootPickupRejectsOutOfRangeDropWithoutCargoMutation(t *testing.T) {
 	equipStarterLaserForTest(t, gameServer, resolved.PlayerID)
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
 	gameServer.runtime.tickAndCollectAOIEvents()
-	dropID := killTrainingNPCForDrop(t, conn)
+	dropID := killTrainingNPCForDrop(t, gameServer, conn)
 	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 1000, Y: 0})
 	setTestRadarRange(gameServer, resolved.PlayerID, 2000)
 

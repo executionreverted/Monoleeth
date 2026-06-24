@@ -152,12 +152,14 @@ func TestNPCLootSelectorUsesOuterRingSpawnRecordDropProfileLootTable(t *testing.
 	if err != nil {
 		t.Fatalf("CreateDropsForNPCKill(map_1_2) error = %v, want nil", err)
 	}
-	if len(created.Drops) != 1 ||
-		created.Drops[0].WorldID != mapTwo.Definition.WorldID ||
-		created.Drops[0].ZoneID != mapTwo.Definition.ZoneID ||
-		created.Drops[0].SourceID != record.EntityID ||
-		created.Drops[0].ItemDefinition.ItemID != "raw_ore" ||
-		created.Drops[0].Quantity != 3 {
+	if !createdDropsIncludeSeededMatrixDrop(
+		created.Drops,
+		mapTwo.Definition.WorldID,
+		mapTwo.Definition.ZoneID,
+		record.EntityID,
+		"raw_ore",
+		3,
+	) {
 		t.Fatalf("map_1_2 created drops = %+v, want raw_ore x3 in destination map", created.Drops)
 	}
 }
@@ -297,7 +299,7 @@ func TestNPCLootSelectorAcceptsSeededMapMatrixRows(t *testing.T) {
 			wantProfileID:    "border_raider_drone_salvage",
 			wantTableID:      borderRaiderSalvageLootTableID,
 			wantItemID:       "carbon_shards",
-			wantQuantity:     2,
+			wantQuantity:     5,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -348,16 +350,38 @@ func TestNPCLootSelectorAcceptsSeededMapMatrixRows(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CreateDropsForNPCKill() error = %v, want nil", err)
 			}
-			if len(created.Drops) != 1 ||
-				created.Drops[0].WorldID != instance.Definition.WorldID ||
-				created.Drops[0].ZoneID != instance.Definition.ZoneID ||
-				created.Drops[0].SourceID != record.EntityID ||
-				created.Drops[0].ItemDefinition.ItemID != tc.wantItemID ||
-				created.Drops[0].Quantity != tc.wantQuantity {
+			if !createdDropsIncludeSeededMatrixDrop(
+				created.Drops,
+				instance.Definition.WorldID,
+				instance.Definition.ZoneID,
+				record.EntityID,
+				tc.wantItemID,
+				tc.wantQuantity,
+			) {
 				t.Fatalf("created drops = %+v, want %s x%d in %s", created.Drops, tc.wantItemID, tc.wantQuantity, tc.wantPublicMapKey)
 			}
 		})
 	}
+}
+
+func createdDropsIncludeSeededMatrixDrop(
+	drops []loot.Drop,
+	worldID world.WorldID,
+	zoneID foundation.ZoneID,
+	sourceID world.EntityID,
+	itemID foundation.ItemID,
+	quantity int64,
+) bool {
+	for _, drop := range drops {
+		if drop.WorldID == worldID &&
+			drop.ZoneID == zoneID &&
+			drop.SourceID == sourceID &&
+			drop.ItemDefinition.ItemID == itemID &&
+			drop.Quantity == quantity {
+			return true
+		}
+	}
+	return false
 }
 
 func requireSpawnRecordByNPCType(t *testing.T, instance *mapInstance, npcType string) worker.EnemySpawnRecord {

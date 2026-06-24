@@ -2,6 +2,7 @@ package contentseed
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"gameproject/internal/game/world"
@@ -34,5 +35,58 @@ func TestSeedCraftRecipeRowsEmitCraftDurationMSOnly(t *testing.T) {
 		if durationMS <= 0 {
 			t.Fatalf("craft row %q craft_duration_ms = %d, want positive", row.ContentID, durationMS)
 		}
+	}
+}
+
+func TestBuildMVPSnapshotRuntimeRowsAvoidOriginalReferenceTerms(t *testing.T) {
+	snapshot, err := BuildMVPSnapshot(world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("BuildMVPSnapshot() error = %v, want nil", err)
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	text := strings.ToLower(string(raw))
+	for _, forbidden := range forbiddenSnapshotReferenceTerms() {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("snapshot contains forbidden reference term %q", forbidden)
+		}
+	}
+}
+
+func forbiddenSnapshotReferenceTerms() []string {
+	return []string{
+		"darkorbit",
+		"dark orbit",
+		"streuner",
+		"lordakia",
+		"mordon",
+		"saimon",
+		"devolarium",
+		"sibelon",
+		"kristallon",
+		"cubikon",
+		"protegit",
+		"phoenix",
+		"yamato",
+		"nostromo",
+		"leonov",
+		"piranha",
+		"goliath",
+		"vengeance",
+		"bigboy",
+		"citadel",
+		"aegis",
+		"iris",
+		"flax",
+		"lf-1",
+		"lf-2",
+		"lf-3",
+		"lf-4",
+		"mp-1",
+		"bo-1",
+		"bo-2",
+		"g3n",
 	}
 }

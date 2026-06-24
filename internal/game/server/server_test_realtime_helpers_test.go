@@ -530,7 +530,7 @@ func readResponse(t *testing.T, conn *websocket.Conn) realtime.ResponseEnvelope 
 }
 func readResponseSkippingEvents(t *testing.T, conn *websocket.Conn) realtime.ResponseEnvelope {
 	t.Helper()
-	for range 8 {
+	for range 32 {
 		data := readRawText(t, conn)
 		if !rawRealtimeMessageIsResponse(data) {
 			continue

@@ -35,6 +35,8 @@ const (
 // StarterContent owns new-player and playtest seed values. Runtime consumes
 // this server-only content; clients only see derived server snapshots/events.
 type StarterContent struct {
+	BalanceProfileID    string
+	BalanceProfileNote  string
 	ShipID              foundation.ShipID
 	ShipDisplayName     string
 	WalletCredits       int64
@@ -76,10 +78,12 @@ type RouteSeedContent struct {
 
 func DefaultStarterContent() StarterContent {
 	return StarterContent{
-		ShipID:            DefaultStarterShipID,
-		ShipDisplayName:   DefaultStarterShipDisplayName,
-		WalletCredits:     DefaultStarterWalletCredits,
-		WalletPremiumPaid: DefaultStarterWalletPremiumPaid,
+		BalanceProfileID:   DefaultStarterBalanceProfileID,
+		BalanceProfileNote: DefaultStarterBalanceProfileNote,
+		ShipID:             DefaultStarterShipID,
+		ShipDisplayName:    DefaultStarterShipDisplayName,
+		WalletCredits:      DefaultStarterWalletCredits,
+		WalletPremiumPaid:  DefaultStarterWalletPremiumPaid,
 		ModuleItemIDs: []foundation.ItemID{
 			"scanner_t1",
 			"laser_alpha_t1",
@@ -115,6 +119,9 @@ func DefaultStarterContent() StarterContent {
 }
 
 func (content StarterContent) Validate(bundle GameplayContent) error {
+	if strings.TrimSpace(content.BalanceProfileID) == "" || strings.TrimSpace(content.BalanceProfileNote) == "" {
+		return fmt.Errorf("starter balance profile: %w", ErrInvalidStarterContent)
+	}
 	if strings.TrimSpace(content.ShipDisplayName) == "" {
 		return fmt.Errorf("starter ship display name: %w", ErrInvalidStarterContent)
 	}

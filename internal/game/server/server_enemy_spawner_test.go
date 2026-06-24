@@ -51,14 +51,14 @@ func TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner(t *testing.T)
 	wantSignature := visibility.SignatureForEntityType(world.EntityTypeNPC)
 	if actor.Type != world.EntityTypeNPC ||
 		actor.NPCType != trainingNPCType ||
-		actor.HP != 30 ||
-		actor.Stats.Stats.Core.HPMax != 30 ||
-		actor.Shield != 0 ||
-		actor.Stats.Stats.Core.ShieldMax != 0 ||
-		actor.Energy != 1 ||
-		actor.Stats.Stats.Core.EnergyMax != 1 ||
-		actor.Stats.Stats.Combat.WeaponRange != 1 ||
-		actor.Stats.Stats.Combat.Accuracy != 1 ||
+		actor.HP != 34 ||
+		actor.Stats.Stats.Core.HPMax != 34 ||
+		actor.Shield != 4 ||
+		actor.Stats.Stats.Core.ShieldMax != 4 ||
+		actor.Energy != 6 ||
+		actor.Stats.Stats.Core.EnergyMax != 6 ||
+		actor.Stats.Stats.Combat.WeaponRange != 120 ||
+		actor.Stats.Stats.Combat.Accuracy != 0.7 ||
 		actor.Signature != wantSignature ||
 		actor.Stats.Stats.Exploration.SignatureRadius != wantSignature.Units() {
 		t.Fatalf("starter combat actor = %+v, want starter template projection with signature %v", actor, wantSignature)
@@ -108,14 +108,14 @@ func TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner(t *testing.T)
 		mapTwoActor.NPCType != "outer_ring_scout_drone" ||
 		mapTwoActor.WorldID != mapTwo.Definition.WorldID ||
 		mapTwoActor.ZoneID != mapTwo.Definition.ZoneID ||
-		mapTwoActor.HP != 36 ||
-		mapTwoActor.Stats.Stats.Core.HPMax != 36 ||
-		mapTwoActor.Shield != 4 ||
-		mapTwoActor.Stats.Stats.Core.ShieldMax != 4 ||
-		mapTwoActor.Energy != 2 ||
-		mapTwoActor.Stats.Stats.Core.EnergyMax != 2 ||
-		mapTwoActor.Stats.Stats.Combat.WeaponRange != 1 ||
-		mapTwoActor.Stats.Stats.Combat.Accuracy != 1 ||
+		mapTwoActor.HP != 44 ||
+		mapTwoActor.Stats.Stats.Core.HPMax != 44 ||
+		mapTwoActor.Shield != 8 ||
+		mapTwoActor.Stats.Stats.Core.ShieldMax != 8 ||
+		mapTwoActor.Energy != 4 ||
+		mapTwoActor.Stats.Stats.Core.EnergyMax != 4 ||
+		mapTwoActor.Stats.Stats.Combat.WeaponRange != 140 ||
+		mapTwoActor.Stats.Stats.Combat.Accuracy != 0.72 ||
 		mapTwoActor.Signature != wantSignature ||
 		mapTwoActor.Stats.Stats.Exploration.SignatureRadius != wantSignature.Units() {
 		t.Fatalf("map_1_2 combat actor = %+v, want outer ring scout template projection", mapTwoActor)
@@ -168,13 +168,13 @@ func TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner(t *testing.T)
 		mapThreeActor.NPCType != "border_raider_drone" ||
 		mapThreeActor.WorldID != mapThree.Definition.WorldID ||
 		mapThreeActor.ZoneID != mapThree.Definition.ZoneID ||
-		mapThreeActor.HP != 58 ||
-		mapThreeActor.Stats.Stats.Core.HPMax != 58 ||
-		mapThreeActor.Shield != 14 ||
-		mapThreeActor.Stats.Stats.Core.ShieldMax != 14 ||
-		mapThreeActor.Energy != 4 ||
-		mapThreeActor.Stats.Stats.Core.EnergyMax != 4 ||
-		mapThreeActor.Stats.Stats.Combat.WeaponRange != 120 ||
+		mapThreeActor.HP != 72 ||
+		mapThreeActor.Stats.Stats.Core.HPMax != 72 ||
+		mapThreeActor.Shield != 22 ||
+		mapThreeActor.Stats.Stats.Core.ShieldMax != 22 ||
+		mapThreeActor.Energy != 8 ||
+		mapThreeActor.Stats.Stats.Core.EnergyMax != 8 ||
+		mapThreeActor.Stats.Stats.Combat.WeaponRange != 180 ||
 		mapThreeActor.Stats.Stats.Combat.Accuracy != 0.82 ||
 		mapThreeActor.Signature != wantSignature ||
 		mapThreeActor.Stats.Stats.Exploration.SignatureRadius != wantSignature.Units() {
@@ -233,8 +233,8 @@ func TestRuntimeMapTwoEnemyLifecycleRespawnsThroughMapInstance(t *testing.T) {
 	if actor, ok := gameServer.runtime.Combat.Actor(record.EntityID); !ok ||
 		actor.Type != world.EntityTypeNPC ||
 		actor.NPCType != record.NPCType ||
-		actor.HP != 36 ||
-		actor.Shield != 4 {
+		actor.HP != 44 ||
+		actor.Shield != 8 {
 		t.Fatalf("initial map_1_2 combat actor = %+v ok=%v, want live destination projection", actor, ok)
 	}
 
@@ -338,8 +338,8 @@ func TestRuntimeMapTwoEnemyLifecycleRespawnsThroughMapInstance(t *testing.T) {
 	if !ok ||
 		restoredActor.Dead ||
 		restoredActor.DiedAt != nil ||
-		restoredActor.HP != 36 ||
-		restoredActor.Shield != 4 ||
+		restoredActor.HP != 44 ||
+		restoredActor.Shield != 8 ||
 		restoredActor.NPCType != record.NPCType ||
 		restoredActor.Position != respawned.Position ||
 		restoredActor.Hidden {

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"gameproject/internal/game/combat"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/world"
@@ -18,6 +19,7 @@ func TestCombatUseSkillSelectorFailureDoesNotLeakQueuedEventsOrKillSpawner(t *te
 	readBootstrapEvents(t, conn)
 	resolved := resolvedSessionForCookie(t, gameServer, cookie)
 	equipStarterLaserForTest(t, gameServer, resolved.PlayerID)
+	attackerEntityID := testPlayerEntityID(t, gameServer, resolved.PlayerID)
 
 	targetID := world.EntityID("entity_training_npc")
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, targetID, world.Vec2{})
@@ -44,18 +46,47 @@ func TestCombatUseSkillSelectorFailureDoesNotLeakQueuedEventsOrKillSpawner(t *te
 		gameServer.runtime.mu.Unlock()
 		t.Fatalf("combat actor %q missing before command", targetID)
 	}
+	gameServer.runtime.mu.Unlock()
+
+	writeText(t, conn, `{"request_id":"request-combat-selector-prime","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"entity_training_npc"},"client_seq":1,"v":1}`)
+	prime := readResponseSkippingEvents(t, conn)
+	if !prime.OK {
+		t.Fatalf("selector prime response = %+v, want success", prime)
+	}
+
+	gameServer.runtime.mu.Lock()
+	starter, _, err = gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active map instance after prime: %v", err)
+	}
+	actorBefore, ok = gameServer.runtime.Combat.Actor(targetID)
+	if !ok {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("combat actor %q missing after prime", targetID)
+	}
 	hpBefore = actorBefore.HP
 	shieldBefore = actorBefore.Shield
+	attacker, ok := gameServer.runtime.Combat.Actor(attackerEntityID)
+	if !ok {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("combat actor %q missing after prime", attackerEntityID)
+	}
+	delete(attacker.Cooldowns, combat.BasicLaserCooldownKey)
+	if err := gameServer.runtime.Combat.UpsertActor(attacker); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("clear selector prime cooldown: %v", err)
+	}
 	starter.Definition.NPCDropProfiles[0].LootTableID = "missing_selector_table"
 	gameServer.runtime.mu.Unlock()
 
-	writeText(t, conn, `{"request_id":"request-combat-selector-fail","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"entity_training_npc"},"client_seq":1,"v":1}`)
+	writeText(t, conn, `{"request_id":"request-combat-selector-fail","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"entity_training_npc"},"client_seq":2,"v":1}`)
 	got := readErrorSkippingEvents(t, conn)
 	if got.Error.Code != foundation.CodeInternal {
 		t.Fatalf("selector failure error = %+v, want %s", got.Error, foundation.CodeInternal)
 	}
 
-	writeText(t, conn, `{"request_id":"request-selector-fail-drain","op":"death.repair_quote","payload":{},"client_seq":2,"v":1}`)
+	writeText(t, conn, `{"request_id":"request-selector-fail-drain","op":"death.repair_quote","payload":{},"client_seq":3,"v":1}`)
 	drainResponse := readResponse(t, conn)
 	if !drainResponse.OK {
 		t.Fatalf("drain command response = %+v, want success", drainResponse)

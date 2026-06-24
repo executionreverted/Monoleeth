@@ -3,12 +3,16 @@ package content
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/crafting"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/loot"
+	"gameproject/internal/game/modules"
 	"gameproject/internal/game/production"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
@@ -59,6 +63,95 @@ func TestStaticRepositoryLoadsValidatedPublishedContent(t *testing.T) {
 	}
 	if bundle.Maps == nil || len(bundle.Items) == 0 || len(bundle.Starter.ModuleItemIDs) == 0 {
 		t.Fatalf("published content incomplete: maps=%v items=%d starter=%+v", bundle.Maps != nil, len(bundle.Items), bundle.Starter)
+	}
+}
+
+func TestDefaultGameplayContentStarterBalanceProfileIsCoherent(t *testing.T) {
+	bundle := validBundle(t)
+
+	if bundle.Starter.BalanceProfileID != DefaultStarterBalanceProfileID ||
+		bundle.Starter.BalanceProfileNote != DefaultStarterBalanceProfileNote {
+		t.Fatalf("starter balance profile = %q/%q, want default profile metadata", bundle.Starter.BalanceProfileID, bundle.Starter.BalanceProfileNote)
+	}
+	if bundle.Starter.ShipDisplayName != "Sparrow" {
+		t.Fatalf("starter ship display = %q, want Sparrow", bundle.Starter.ShipDisplayName)
+	}
+	laser, ok := bundle.Modules.Lookup("laser_alpha_t1")
+	if !ok {
+		t.Fatal("laser_alpha_t1 missing")
+	}
+	if laser.Name != "Prism Lance I" ||
+		moduleStatValue(t, laser, modules.StatWeaponDamage) != 12 ||
+		moduleStatValue(t, laser, modules.StatWeaponRange) != 650 ||
+		laser.Energy.ActivationCost != 8 ||
+		len(laser.Cooldowns) != 1 ||
+		laser.Cooldowns[0].DurationMS != 1200 {
+		t.Fatalf("starter laser = %+v, want coherent Prism Lance I baseline", laser)
+	}
+
+	starterMap, ok := bundle.Maps.Get(worldmaps.StarterMapID)
+	if !ok {
+		t.Fatal("starter map missing")
+	}
+	warden := findContentNPCStatTemplate(t, starterMap, "training_drone")
+	if warden.LabelKey != "npc.warden_drone" ||
+		warden.HPMax != 34 ||
+		warden.ShieldMax != 4 ||
+		warden.WeaponDamage != 1 ||
+		warden.WeaponRange != 120 {
+		t.Fatalf("starter NPC = %+v, want renamed low-risk Warden tuning", warden)
+	}
+	raiderMap, ok := bundle.Maps.ByPublicKey("1-3")
+	if !ok {
+		t.Fatal("map 1-3 missing")
+	}
+	raider := findContentNPCStatTemplate(t, raiderMap, "border_raider_drone")
+	if raider.LabelKey != "npc.raider_drone" ||
+		raider.HPMax != 72 ||
+		raider.ShieldMax != 22 ||
+		raider.WeaponDamage != 7 ||
+		raider.WeaponCooldown != 1800*time.Millisecond {
+		t.Fatalf("raider NPC = %+v, want renamed medium-risk Raider tuning", raider)
+	}
+
+	trainingLoot := bundle.LootTables[TrainingDroneSalvageLootTableID]
+	if !lootTableHasRow(trainingLoot, "raw_ore", 3, 3, 1) ||
+		!lootTableHasRow(trainingLoot, "iron_ore", 2, 4, 0.7) ||
+		!lootTableHasRow(trainingLoot, "carbon_shards", 1, 2, 0.35) {
+		t.Fatalf("training loot rows = %+v, want smoke drop plus starter craft inputs", trainingLoot.Rows)
+	}
+	for _, productID := range []catalog.ShopProductID{
+		"product_ferrite_ore",
+		"product_iron_ore",
+		"product_carbon_shards",
+		"product_laser_lens",
+		"product_energy_cell",
+		"product_scanner_circuit",
+		"product_warp_coil",
+	} {
+		if !shopHasProduct(bundle.Shop, productID) {
+			t.Fatalf("shop missing %q", productID)
+		}
+	}
+	laserRecipe, ok := bundle.Recipes.Get(crafting.RecipeIDLaserAlphaT1)
+	if !ok {
+		t.Fatal("laser recipe missing")
+	}
+	if laserRecipe.RequiredCredits.Int64() != 650 ||
+		laserRecipe.CraftDuration != 20*time.Minute ||
+		!recipeHasInput(laserRecipe, "refined_alloy", 18) ||
+		!recipeHasInput(laserRecipe, "laser_lens", 3) ||
+		!recipeHasInput(laserRecipe, "energy_cell", 2) {
+		t.Fatalf("laser recipe = %+v, want starter balance inputs/fee/timing", laserRecipe)
+	}
+}
+
+func TestDefaultGameplayContentRuntimeSeedNamesAvoidOriginalReferenceTerms(t *testing.T) {
+	text := strings.ToLower(runtimeSeedSearchText(validBundle(t)))
+	for _, forbidden := range forbiddenOriginalReferenceTerms() {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("runtime seed contains forbidden reference term %q in %q", forbidden, text)
+		}
 	}
 }
 
@@ -277,6 +370,176 @@ func validBundle(t *testing.T) GameplayContent {
 		t.Fatalf("DefaultGameplayContent() error = %v", err)
 	}
 	return bundle
+}
+
+func moduleStatValue(t *testing.T, definition modules.ModuleDefinition, stat modules.StatKey) int64 {
+	t.Helper()
+	for _, modifier := range definition.StatModifiers {
+		if modifier.Stat == stat {
+			return modifier.Value
+		}
+	}
+	t.Fatalf("module %q stat %q missing", definition.ItemID, stat)
+	return 0
+}
+
+func findContentNPCStatTemplate(t *testing.T, definition worldmaps.MapDefinition, npcType string) worldmaps.NPCStatTemplate {
+	t.Helper()
+	for _, template := range definition.NPCStatTemplates {
+		if template.NPCType == npcType {
+			return template
+		}
+	}
+	t.Fatalf("npc type %q missing from map %q", npcType, definition.InternalMapID)
+	return worldmaps.NPCStatTemplate{}
+}
+
+func lootTableHasRow(table loot.LootTable, itemID foundation.ItemID, min int64, max int64, chance float64) bool {
+	for _, row := range table.Rows {
+		if row.ItemDefinition.ItemID == itemID &&
+			row.MinQuantity == min &&
+			row.MaxQuantity == max &&
+			row.Chance == chance {
+			return true
+		}
+	}
+	return false
+}
+
+func shopHasProduct(registry catalog.ContentRegistry, productID catalog.ShopProductID) bool {
+	for _, product := range registry.ShopProducts {
+		if product.ProductID == productID {
+			return true
+		}
+	}
+	return false
+}
+
+func recipeHasInput(definition crafting.RecipeDefinition, itemID foundation.ItemID, quantity int64) bool {
+	for _, input := range definition.Inputs {
+		if input.ItemID == itemID && input.Quantity.Int64() == quantity {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeSeedSearchText(bundle GameplayContent) string {
+	var builder strings.Builder
+	builder.WriteString(bundle.Starter.BalanceProfileID)
+	builder.WriteString(" ")
+	builder.WriteString(bundle.Starter.ShipDisplayName)
+	for itemID, definition := range bundle.Items {
+		builder.WriteString(" ")
+		builder.WriteString(itemID.String())
+		builder.WriteString(" ")
+		builder.WriteString(definition.Name)
+	}
+	for tableID, table := range bundle.LootTables {
+		builder.WriteString(" ")
+		builder.WriteString(tableID)
+		for _, row := range table.Rows {
+			builder.WriteString(" ")
+			builder.WriteString(row.ItemDefinition.ItemID.String())
+		}
+	}
+	for _, definition := range bundle.Modules.Definitions() {
+		builder.WriteString(" ")
+		builder.WriteString(definition.ItemID.String())
+		builder.WriteString(" ")
+		builder.WriteString(definition.Name)
+	}
+	for _, definition := range bundle.Ships.All() {
+		builder.WriteString(" ")
+		builder.WriteString(definition.ShipID.String())
+		builder.WriteString(" ")
+		builder.WriteString(definition.Name)
+	}
+	for _, definition := range bundle.Recipes.Definitions() {
+		builder.WriteString(" ")
+		builder.WriteString(definition.RecipeID.String())
+		for _, input := range definition.Inputs {
+			builder.WriteString(" ")
+			builder.WriteString(input.ItemID.String())
+		}
+	}
+	for _, product := range bundle.Shop.ShopProducts {
+		builder.WriteString(" ")
+		builder.WriteString(string(product.ProductID))
+		builder.WriteString(" ")
+		builder.WriteString(product.Display.DisplayName)
+		builder.WriteString(" ")
+		builder.WriteString(product.Display.ArtKey)
+		builder.WriteString(" ")
+		builder.WriteString(product.GrantTarget.RefID)
+	}
+	if bundle.Maps != nil {
+		for _, definition := range bundle.Maps.Definitions() {
+			builder.WriteString(" ")
+			builder.WriteString(definition.InternalMapID.String())
+			builder.WriteString(" ")
+			builder.WriteString(definition.DisplayName)
+			for _, pool := range definition.EnemyPools {
+				builder.WriteString(" ")
+				builder.WriteString(pool.EnemyPoolID.String())
+				builder.WriteString(" ")
+				builder.WriteString(pool.NPCType)
+			}
+			for _, template := range definition.NPCStatTemplates {
+				builder.WriteString(" ")
+				builder.WriteString(template.StatTemplateID.String())
+				builder.WriteString(" ")
+				builder.WriteString(template.NPCType)
+				builder.WriteString(" ")
+				builder.WriteString(template.LabelKey)
+			}
+			for _, profile := range definition.NPCDropProfiles {
+				builder.WriteString(" ")
+				builder.WriteString(profile.DropProfileID.String())
+				builder.WriteString(" ")
+				builder.WriteString(profile.NPCType)
+				builder.WriteString(" ")
+				builder.WriteString(profile.LootTableID)
+			}
+		}
+	}
+	return builder.String()
+}
+
+func forbiddenOriginalReferenceTerms() []string {
+	return []string{
+		"darkorbit",
+		"dark orbit",
+		"streuner",
+		"lordakia",
+		"mordon",
+		"saimon",
+		"devolarium",
+		"sibelon",
+		"kristallon",
+		"cubikon",
+		"protegit",
+		"phoenix",
+		"yamato",
+		"nostromo",
+		"leonov",
+		"piranha",
+		"goliath",
+		"vengeance",
+		"bigboy",
+		"citadel",
+		"aegis",
+		"iris",
+		"flax",
+		"lf-1",
+		"lf-2",
+		"lf-3",
+		"lf-4",
+		"mp-1",
+		"bo-1",
+		"bo-2",
+		"g3n",
+	}
 }
 
 func TestGameplayContentRejectsLootTableSourceMismatch(t *testing.T) {

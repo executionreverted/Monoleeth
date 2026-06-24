@@ -8,6 +8,7 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/loot"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 )
@@ -93,7 +94,7 @@ func TestPhase10SeededMapScannerMemoryAndDropMatrix(t *testing.T) {
 			dropProfileID: "border_raider_drone_salvage",
 			lootTableID:   borderRaiderSalvageLootTableID,
 			itemID:        "carbon_shards",
-			quantity:      2,
+			quantity:      5,
 			forbiddenPayload: []string{
 				"map_1_", "phase10-candidate", "drop_profile", "loot_table",
 			},
@@ -199,17 +200,40 @@ func TestPhase10SeededMapScannerMemoryAndDropMatrix(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CreateDropsForNPCKill(%s) error = %v, want nil", tc.mapID, err)
 			}
-			if len(created.Drops) != 1 ||
-				created.Drops[0].WorldID != instance.Definition.WorldID ||
-				created.Drops[0].ZoneID != instance.Definition.ZoneID ||
-				created.Drops[0].SourceID != record.EntityID ||
-				created.Drops[0].ItemDefinition.ItemID != tc.itemID ||
-				created.Drops[0].Quantity != tc.quantity {
+			matrixDrop, ok := seededPhase10MatrixDrop(
+				created.Drops,
+				instance.Definition.WorldID,
+				instance.Definition.ZoneID,
+				record.EntityID,
+				tc.itemID,
+				tc.quantity,
+			)
+			if !ok {
 				t.Fatalf("created drops = %+v, want %s x%d on public map %s", created.Drops, tc.itemID, tc.quantity, tc.publicMapKey)
 			}
-			assertPhase10MapPayloadDoesNotLeak(t, tc.forbiddenPayload, lootDropPayload(created.Drops[0], gameServer.runtime.clock.Now()))
+			assertPhase10MapPayloadDoesNotLeak(t, tc.forbiddenPayload, lootDropPayload(matrixDrop, gameServer.runtime.clock.Now()))
 		})
 	}
+}
+
+func seededPhase10MatrixDrop(
+	drops []loot.Drop,
+	worldID world.WorldID,
+	zoneID foundation.ZoneID,
+	sourceID world.EntityID,
+	itemID foundation.ItemID,
+	quantity int64,
+) (loot.Drop, bool) {
+	for _, drop := range drops {
+		if drop.WorldID == worldID &&
+			drop.ZoneID == zoneID &&
+			drop.SourceID == sourceID &&
+			drop.ItemDefinition.ItemID == itemID &&
+			drop.Quantity == quantity {
+			return drop, true
+		}
+	}
+	return loot.Drop{}, false
 }
 
 func setActiveMapForPhase10Matrix(

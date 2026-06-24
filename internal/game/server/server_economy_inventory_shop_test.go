@@ -156,7 +156,7 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 	equipStarterLaserForTest(t, gameServer, resolved.PlayerID)
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
 	gameServer.runtime.tickAndCollectAOIEvents()
-	dropID := killTrainingNPCForDrop(t, conn)
+	dropID := killTrainingNPCForDrop(t, gameServer, conn)
 	writeText(t, conn, `{"request_id":"request-phase06-loot","op":"loot.pickup","payload":{"drop_id":"`+dropID+`"},"client_seq":8,"v":1}`)
 	pickup := readResponseSkippingEvents(t, conn)
 	if !pickup.OK {

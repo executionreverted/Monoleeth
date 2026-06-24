@@ -644,8 +644,10 @@ func completeQuestWithServerEvents(t *testing.T, gameServer *Server, playerID fo
 		}
 	}
 }
-func killTrainingNPCForDrop(t *testing.T, conn *websocket.Conn) string {
+func killTrainingNPCForDrop(t *testing.T, gameServer *Server, conn *websocket.Conn) string {
 	t.Helper()
+	primeTrainingNPCForOneShot(t, gameServer)
+
 	writeText(t, conn, `{"request_id":"request-combat-drop","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"entity_training_npc"},"client_seq":1,"v":1}`)
 	response := readResponseSkippingEvents(t, conn)
 	if !response.OK {
@@ -668,7 +670,9 @@ func killTrainingNPCForDrop(t *testing.T, conn *websocket.Conn) string {
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				t.Fatalf("decode loot.created: %v", err)
 			}
-			dropID = payload.DropID
+			if dropID == "" {
+				dropID = payload.DropID
+			}
 			if _, ok := enteredIDs[dropID]; ok {
 				sawDropEntered = true
 			}
@@ -699,4 +703,21 @@ func killTrainingNPCForDrop(t *testing.T, conn *websocket.Conn) string {
 		t.Fatalf("combat-for-drop events seen = %#v dropID=%q dropEntered=%v trainingLeft=%v", seen, dropID, sawDropEntered, sawTrainingLeft)
 	}
 	return dropID
+}
+
+func primeTrainingNPCForOneShot(t *testing.T, gameServer *Server) {
+	t.Helper()
+	gameServer.runtime.mu.Lock()
+	actor, ok := gameServer.runtime.Combat.Actor("entity_training_npc")
+	if !ok {
+		gameServer.runtime.mu.Unlock()
+		t.Fatal("combat-for-drop missing entity_training_npc actor")
+	}
+	actor.HP = 1
+	actor.Shield = 0
+	if err := gameServer.runtime.Combat.UpsertActor(actor); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("combat-for-drop prime npc actor: %v", err)
+	}
+	gameServer.runtime.mu.Unlock()
 }
