@@ -109,6 +109,11 @@ func TestDecodeRequestEnvelopeAcceptsShopCatalogOperation(t *testing.T) {
 		want Operation
 	}{
 		{
+			name: "content catalog",
+			body: `{"request_id":"request-content-catalog","op":"content.catalog","payload":{},"client_seq":10,"v":1}`,
+			want: OperationContentCatalog,
+		},
+		{
 			name: "catalog",
 			body: `{"request_id":"request-shop-catalog","op":"shop.catalog","payload":{},"client_seq":11,"v":1}`,
 			want: OperationShopCatalog,

@@ -173,17 +173,19 @@ type Runtime struct {
 	Metrics                        *observability.MetricRecorder
 	contentAdminCloser             func() error
 
-	combatXP            *combat.NPCKillXPHandler
-	lootTables          map[string]loot.LootTable
-	itemCatalog         map[foundation.ItemID]economy.ItemDefinition
-	starterContent      gamecontent.StarterContent
-	routeContent        gamecontent.RouteContent
-	productionRules     gamecontent.ProductionRulesContent
-	combatRules         gamecontent.CombatRulesContent
-	repairAttempts      map[foundation.IdempotencyKey]repairAttemptRecord
-	shopPurchases       map[foundation.IdempotencyKey]shopPurchaseRecord
-	scanCooldowns       map[scanCooldownKey]time.Time
-	scanCapacitorSpends map[discovery.ScanPulseReference]scanCapacitorSpendRecord
+	combatXP                 *combat.NPCKillXPHandler
+	lootTables               map[string]loot.LootTable
+	itemCatalog              map[foundation.ItemID]economy.ItemDefinition
+	starterContent           gamecontent.StarterContent
+	routeContent             gamecontent.RouteContent
+	productionRules          gamecontent.ProductionRulesContent
+	combatRules              gamecontent.CombatRulesContent
+	contentCatalogProjection gamecontent.PlayerContentProjection
+	contentCatalogVersion    string
+	repairAttempts           map[foundation.IdempotencyKey]repairAttemptRecord
+	shopPurchases            map[foundation.IdempotencyKey]shopPurchaseRecord
+	scanCooldowns            map[scanCooldownKey]time.Time
+	scanCapacitorSpends      map[discovery.ScanPulseReference]scanCapacitorSpendRecord
 }
 
 type scanCooldownKey struct {
@@ -383,6 +385,10 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	contentBundle, err := loadRuntimeContent(context.Background(), config)
 	if err != nil {
 		return nil, err
+	}
+	contentCatalogProjection, err := gamecontent.ProjectGameplayContentForPlayers(contentBundle)
+	if err != nil {
+		return nil, fmt.Errorf("project player content catalog: %w", err)
 	}
 	contentAdmin, contentAdminCloser, err := loadRuntimeContentAdmin(context.Background(), config, clock)
 	if err != nil {
@@ -636,6 +642,8 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		routeContent:                   contentBundle.Route,
 		productionRules:                contentBundle.Rules,
 		combatRules:                    contentBundle.Combat,
+		contentCatalogProjection:       contentCatalogProjection,
+		contentCatalogVersion:          contentCatalogProjection.Version,
 		repairAttempts:                 make(map[foundation.IdempotencyKey]repairAttemptRecord),
 		shopPurchases:                  make(map[foundation.IdempotencyKey]shopPurchaseRecord),
 		scanCooldowns:                  make(map[scanCooldownKey]time.Time),
