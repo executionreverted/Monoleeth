@@ -12,6 +12,7 @@ import (
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/combat"
 	gamecontent "gameproject/internal/game/content"
+	"gameproject/internal/game/contentdb"
 	"gameproject/internal/game/crafting"
 	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/discovery"
@@ -74,6 +75,7 @@ type RuntimeConfig struct {
 	ZoneID              foundation.ZoneID
 	PlaytestSeed        bool
 	DevMode             bool
+	ContentDB           contentdb.Config
 	E2EPlanetClaimSeed  bool
 	E2EPlanetClaimCores int
 	E2ERouteSeed        bool
@@ -191,6 +193,9 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	}
 	if config.E2EScanNoPlanetSeed && !config.DevMode {
 		return nil, fmt.Errorf("%s requires %s=true", EnvE2EScanNoPlanetSeed, EnvDevMode)
+	}
+	if err := config.ContentDB.Validate(); err != nil {
+		return nil, err
 	}
 	clock := config.Clock
 	if clock == nil {

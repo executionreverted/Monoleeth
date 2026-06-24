@@ -1,0 +1,86 @@
+package contentdb
+
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	if len(migrations) != 1 {
+		t.Fatalf("len(migrations) = %d, want 1", len(migrations))
+	}
+	if migrations[0].Version != "0001_schema_migrations" {
+		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
+	}
+	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
+		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestPendingMigrationsRejectsChecksumMismatch(t *testing.T) {
+	migration := Migration{Version: "0001_schema_migrations", SQL: "select 1", Checksum: "abc"}
+
+	_, err := PendingMigrations(map[string]string{"0001_schema_migrations": "def"}, []Migration{migration})
+
+	if !errors.Is(err, ErrMigrationChecksumMismatch) {
+		t.Fatalf("PendingMigrations() error = %v, want ErrMigrationChecksumMismatch", err)
+	}
+}
+
+func TestApplyMigrationsAutoAppliesPendingInOrder(t *testing.T) {
+	store := &fakeMigrationStore{}
+	migrations := []Migration{
+		{Version: "0001_schema_migrations", SQL: "select 1", Checksum: "a"},
+		{Version: "0002_content_schema", SQL: "select 2", Checksum: "b"},
+	}
+
+	err := ApplyMigrations(context.Background(), store, migrations, MigrationModeAuto)
+
+	if err != nil {
+		t.Fatalf("ApplyMigrations() error = %v, want nil", err)
+	}
+	if got := store.appliedOrder; len(got) != 2 || got[0] != "0001_schema_migrations" || got[1] != "0002_content_schema" {
+		t.Fatalf("appliedOrder = %+v, want both migrations in order", got)
+	}
+}
+
+func TestApplyMigrationsVerifyRejectsPending(t *testing.T) {
+	store := &fakeMigrationStore{}
+	migrations := []Migration{{Version: "0001_schema_migrations", SQL: "select 1", Checksum: "a"}}
+
+	err := ApplyMigrations(context.Background(), store, migrations, MigrationModeVerify)
+
+	if !errors.Is(err, ErrPendingMigrations) {
+		t.Fatalf("ApplyMigrations(verify) error = %v, want ErrPendingMigrations", err)
+	}
+	if len(store.appliedOrder) != 0 {
+		t.Fatalf("appliedOrder = %+v, want none in verify mode", store.appliedOrder)
+	}
+}
+
+type fakeMigrationStore struct {
+	applied      map[string]string
+	appliedOrder []string
+}
+
+func (store *fakeMigrationStore) AppliedMigrations(context.Context) (map[string]string, error) {
+	out := make(map[string]string, len(store.applied))
+	for key, value := range store.applied {
+		out[key] = value
+	}
+	return out, nil
+}
+
+func (store *fakeMigrationStore) ApplyMigration(_ context.Context, migration Migration) error {
+	if store.applied == nil {
+		store.applied = make(map[string]string)
+	}
+	store.applied[migration.Version] = migration.Checksum
+	store.appliedOrder = append(store.appliedOrder, migration.Version)
+	return nil
+}

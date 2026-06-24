@@ -113,3 +113,25 @@ git diff --check
 - migrations apply once, skip on repeat.
 - server/test can open content DB connection.
 - no gameplay runtime behavior changed.
+
+## Implemented Slice
+
+- Added `docker-compose.yml` Postgres service with named volume and
+  `pg_isready` healthcheck.
+- Added `.env.example` content DB vars:
+  `GAME_CONTENT_DATABASE_URL`, `GAME_CONTENT_MODE`, and
+  `GAME_CONTENT_MIGRATIONS`.
+- Added `internal/game/contentdb` config parsing, pgx `database/sql` opener,
+  migration runner, embedded `0001_schema_migrations.sql`, and small store
+  boundary.
+- Wired server/runtime config validation only. `NewRuntime` still loads
+  `content.StaticRepository`; no runtime catalog source changed in Phase 01.
+
+Verified:
+
+```bash
+docker compose config
+go test ./internal/game/contentdb -count=1
+go test ./internal/game/server -run 'Config|ContentDB' -count=1
+git diff --check
+```

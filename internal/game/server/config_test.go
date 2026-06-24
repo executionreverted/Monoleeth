@@ -1,8 +1,11 @@
 package server
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"gameproject/internal/game/contentdb"
 )
 
 func TestConfigFromEnvE2EPlanetClaimSeedDefaultsOff(t *testing.T) {
@@ -92,6 +95,34 @@ func TestConfigFromEnvPlaytestSeedOptIn(t *testing.T) {
 
 	if !config.PlaytestSeed {
 		t.Fatal("PlaytestSeed = false, want true when env is true")
+	}
+}
+
+func TestConfigFromEnvContentDB(t *testing.T) {
+	t.Setenv(contentdb.EnvDatabaseURL, " postgres://gameproject:pw@localhost:5432/gameproject?sslmode=disable ")
+	t.Setenv(contentdb.EnvMode, string(contentdb.ContentModeRequired))
+	t.Setenv(contentdb.EnvMigrations, string(contentdb.MigrationModeVerify))
+
+	config := ConfigFromEnv()
+
+	if config.ContentDB.DatabaseURL != "postgres://gameproject:pw@localhost:5432/gameproject?sslmode=disable" {
+		t.Fatalf("ContentDB.DatabaseURL = %q, want trimmed URL", config.ContentDB.DatabaseURL)
+	}
+	if config.ContentDB.Mode != contentdb.ContentModeRequired {
+		t.Fatalf("ContentDB.Mode = %q, want required", config.ContentDB.Mode)
+	}
+	if config.ContentDB.Migrations != contentdb.MigrationModeVerify {
+		t.Fatalf("ContentDB.Migrations = %q, want verify", config.ContentDB.Migrations)
+	}
+}
+
+func TestNewRejectsRequiredContentDBWithoutURL(t *testing.T) {
+	_, err := New(Config{
+		AllowedOrigins: []string{testOrigin},
+		ContentDB:      contentdb.Config{Mode: contentdb.ContentModeRequired},
+	})
+	if !errors.Is(err, contentdb.ErrMissingDatabaseURL) {
+		t.Fatalf("New() error = %v, want ErrMissingDatabaseURL", err)
 	}
 }
 
@@ -191,5 +222,12 @@ func TestNewRuntimeRejectsE2EScanNoPlanetSeedOutsideDevMode(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), EnvE2EScanNoPlanetSeed) || !strings.Contains(err.Error(), EnvDevMode) {
 		t.Fatalf("NewRuntime() error = %q, want scan seed/dev-mode guard", err)
+	}
+}
+
+func TestNewRuntimeRejectsRequiredContentDBWithoutURL(t *testing.T) {
+	_, err := NewRuntime(RuntimeConfig{ContentDB: contentdb.Config{Mode: contentdb.ContentModeRequired}})
+	if !errors.Is(err, contentdb.ErrMissingDatabaseURL) {
+		t.Fatalf("NewRuntime() error = %v, want ErrMissingDatabaseURL", err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/contentdb"
 	"gameproject/internal/game/foundation"
 	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
@@ -50,6 +51,7 @@ type Config struct {
 	WorldID             foundation.WorldID
 	ZoneID              foundation.ZoneID
 	AdminSeed           auth.AdminSeedInput
+	ContentDB           contentdb.Config
 	PasswordHasher      auth.PasswordHasher
 	Clock               foundation.Clock
 }
@@ -87,6 +89,7 @@ func ConfigFromEnv() Config {
 	config.E2EPlanetClaimCores = envPositiveInt(EnvE2EPlanetClaimCores, config.E2EPlanetClaimCores)
 	config.E2ERouteSeed = envBool(EnvE2ERouteSeed, config.E2ERouteSeed)
 	config.E2EScanNoPlanetSeed = envBool(EnvE2EScanNoPlanetSeed, config.E2EScanNoPlanetSeed)
+	config.ContentDB = contentdb.FromEnv()
 	config.AdminSeed = auth.AdminSeedInput{
 		Enabled:  os.Getenv(auth.EnvAdminEmail) != "" || os.Getenv(auth.EnvAdminPassword) != "",
 		Email:    os.Getenv(auth.EnvAdminEmail),
@@ -132,6 +135,7 @@ func (config Config) withDefaults() Config {
 	if config.ZoneID == "" {
 		config.ZoneID = defaults.ZoneID
 	}
+	config.ContentDB = config.ContentDB.WithDefaults()
 	return config
 }
 

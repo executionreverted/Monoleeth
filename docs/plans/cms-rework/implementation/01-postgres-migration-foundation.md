@@ -106,6 +106,27 @@
 3. Do not alter runtime catalogs.
 4. Add boot log/error path only.
 
+### Status
+
+Implemented:
+
+- Dockerized local Postgres service and `.env.example` content DB vars.
+- `contentdb.Config`, `Open`, migration runner, embedded
+  `schema_migrations` bootstrap, and `Store` wrapper.
+- `server.Config` and `RuntimeConfig` carry `ContentDB`.
+- `NewRuntime` validates required content DB config early.
+- Runtime content still uses `content.StaticRepository`; DB loading waits for
+  Phase 04.
+
+Verified:
+
+```bash
+docker compose config
+go test ./internal/game/contentdb -count=1
+go test ./internal/game/server -run 'Config|ContentDB' -count=1
+git diff --check
+```
+
 ### Commit
 
 ```bash
