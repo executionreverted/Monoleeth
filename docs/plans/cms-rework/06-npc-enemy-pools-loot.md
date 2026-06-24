@@ -102,6 +102,8 @@ separate safety review.
 ```text
 internal/game/world/maps/enemy_catalog.go
 internal/game/world/maps/catalog.go
+internal/game/content/bundle.go
+internal/game/content/validation.go
 internal/game/server/combat_loot_catalog.go
 internal/game/server/npc_loot_selector.go
 internal/game/loot

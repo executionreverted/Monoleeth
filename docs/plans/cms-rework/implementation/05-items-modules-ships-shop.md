@@ -4,7 +4,7 @@
 
 **Goal:** Complete DB-backed item/module/ship/shop definitions and prove LC1-style stat edits affect runtime.
 
-**Architecture:** Content DTOs stay CMS-facing. Assembly produces existing economy/module/ship/shop catalogs. Tests cover behavior, not old exact catalog counts.
+**Architecture:** Content DTOs stay CMS-facing. DB mapping produces the existing `GameplayContent` bundle fields. Tests cover behavior, not old exact catalog counts.
 
 **Tech Stack:** Go content validators, existing economy/modules/ships/catalog packages.
 
@@ -65,7 +65,7 @@
 
 **Steps:**
 1. Build published snapshot where `laser_alpha_t1` damage differs from seed.
-2. Start runtime with fake/DB content store seam.
+2. Start runtime with fake/DB `content.Repository` seam.
 3. Assert module catalog returns changed stat.
 4. Assert documented equipped-module version behavior after stat/slot change.
 5. Assert shop payload version matches content version.
@@ -73,13 +73,13 @@
 ### Verify
 
 ```bash
-go test ./internal/game/content ./internal/game/contentassembly ./internal/game/server -run 'Item|Module|Ship|Shop|Content' -count=1
+go test ./internal/game/content ./internal/game/contentdb ./internal/game/server -run 'Item|Module|Ship|Shop|Content' -count=1
 git diff --check
 ```
 
 ### Commit
 
 ```bash
-git add internal/game/content internal/game/contentassembly internal/game/server
+git add internal/game/content internal/game/contentdb internal/game/server
 git commit -m "game: move core catalog content to cms"
 ```

@@ -2,24 +2,29 @@
 
 ## Goal
 
-Use current code catalogs as default DB seed source.
+Use the current validated `internal/game/content.GameplayContent` bundle as
+default DB seed source.
 
 If content DB empty, write MVP content and publish first version.
 If DB has content, never overwrite it silently.
 
-## Existing Seed Sources
+## Existing Seed Source
 
 ```text
-internal/game/modules/catalog.go
-internal/game/ships/catalog.go
-internal/game/crafting/catalog.go
-internal/game/production/catalog.go
-internal/game/server/combat_loot_catalog.go
-internal/game/server/content_registry.go
+internal/game/content/bundle.go
+internal/game/content/repository.go
+internal/game/content/shop.go
+internal/game/content/scanner.go
+internal/game/content/starter.go
+internal/game/content/route.go
+internal/game/content/production_rules.go
+internal/game/content/combat_rules.go
 internal/game/world/maps/enemy_catalog.go
 ```
 
-These become seed compilers, not runtime truth.
+`DefaultGameplayContent(worldID)` may still call older MVP helpers internally,
+but CMS seeding should consume the validated bundle shape. Do not re-copy
+scattered server runtime constants into a second seed path.
 
 ## Boot Seed Flow
 
@@ -29,7 +34,8 @@ lock content bootstrap key
 if any content_versions exists:
   COMMIT no-op
 else:
-  compile built-in MVP content
+  load validated static GameplayContent
+  flatten bundle into typed draft rows and snapshot
   validate snapshot
   insert typed draft rows
   insert content_versions(status=published, is_current=true, snapshot_json=...)
@@ -62,7 +68,7 @@ source versions inside migrated rows for traceability.
 
 ## Seed Compiler Rule
 
-Each domain gets its own compiler file:
+Each domain gets its own flattener file:
 
 ```text
 internal/game/contentseed/items.go
@@ -76,8 +82,9 @@ internal/game/contentseed/production.go
 ```
 
 No monolithic `seed.go`.
-`contentseed` must not import `internal/game/server`; server imports seed during
-boot. Extract pure seed helpers out of server package where needed.
+`contentseed` must not import `internal/game/server`. Prefer reading from
+`content.DefaultGameplayContent`/`content.StaticRepository`; extract pure seed
+helpers only if the bundle lacks a field.
 
 ## Validation
 
@@ -122,4 +129,4 @@ git diff --check
 - empty DB gets first published version
 - non-empty DB unchanged
 - audit log records seed
-- old catalogs still available but no longer only source for future phases
+- static `GameplayContent` remains available only as seed/fallback/test fixture

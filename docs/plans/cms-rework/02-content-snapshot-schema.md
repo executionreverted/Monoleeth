@@ -4,8 +4,8 @@
 
 Define DB schema for draft content rows and immutable published snapshots.
 
-This phase designs data ownership. Runtime still may use old catalogs until
-Phase 04.
+This phase designs data ownership. Runtime may still use
+`content.StaticRepository` until Phase 04 wires the DB-backed repository.
 
 ## Core Tables
 
@@ -156,7 +156,7 @@ Checksum mismatch must fail. Dirty/partial migration state must fail closed.
 
 ## Code Shape
 
-New package:
+Extend existing package:
 
 ```text
 internal/game/content/
@@ -166,7 +166,8 @@ internal/game/content/
   projection.go
 ```
 
-Keep DB code in `contentdb`. Keep gameplay catalog assembly outside DB package.
+Keep DB code in `contentdb`. Do not duplicate the existing
+`GameplayContent` runtime bundle; schema DTOs must map into it.
 
 ## Validation
 

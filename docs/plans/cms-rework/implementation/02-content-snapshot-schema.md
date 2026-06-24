@@ -4,7 +4,7 @@
 
 **Goal:** Add CMS snapshot domain model and Postgres schema tables.
 
-**Architecture:** `internal/game/content` validates snapshot structs. `internal/game/contentdb` persists typed rows and immutable published versions.
+**Architecture:** Extend existing `internal/game/content` with CMS snapshot DTOs while preserving `GameplayContent` as the runtime bundle. `internal/game/contentdb` persists typed rows and immutable published versions.
 
 **Tech Stack:** Go structs, JSON validation, Postgres `jsonb`, SQL migrations.
 
@@ -21,8 +21,9 @@
 1. Define `Snapshot` with version and slices for items/modules/ships/shop/NPC/pools/loot/recipes/production.
 2. Include spawn areas, NPC drop profiles, aggro profiles, leash profiles, and event spawns.
 3. Define ID aliases and `ValidateID`.
-4. Write tests for empty version, duplicate IDs, valid minimal snapshot.
-4. Run:
+4. Keep DTO validation separate from existing `GameplayContent.Validate()`.
+5. Write tests for empty version, duplicate IDs, valid minimal snapshot.
+6. Run:
    ```bash
    go test ./internal/game/content -run Snapshot -count=1
    ```
@@ -30,15 +31,10 @@
 ### Task 2: Add Definition DTOs
 
 **Files:**
-- Create: `internal/game/content/items.go`
-- Create: `internal/game/content/modules.go`
-- Create: `internal/game/content/ships.go`
-- Create: `internal/game/content/shop.go`
-- Create: `internal/game/content/npc.go`
-- Create: `internal/game/content/loot.go`
-- Create: `internal/game/content/crafting.go`
-- Create: `internal/game/content/production.go`
-- Create: `internal/game/content/quests.go`
+- Create/Modify: `internal/game/content/*_snapshot.go` or small type-specific DTO files.
+- Do not overwrite existing bundle files such as `shop.go`, `scanner.go`,
+  `starter.go`, `route.go`, `production_rules.go`, or `combat_rules.go`
+  unless the change belongs to their current runtime content responsibility.
 
 **Steps:**
 1. Keep DTOs flat enough for JSON.
@@ -49,11 +45,11 @@
 ### Task 3: Add Validator
 
 **Files:**
-- Create: `internal/game/content/validation.go`
+- Modify: `internal/game/content/validation.go`
 - Test: `internal/game/content/validation_test.go`
 
 **Steps:**
-1. Validate unique IDs per type.
+1. Validate unique IDs per type without weakening existing bundle validation.
 2. Validate positive durations/amounts.
 3. Validate chance `0..1`.
 4. Validate finite non-negative stats.

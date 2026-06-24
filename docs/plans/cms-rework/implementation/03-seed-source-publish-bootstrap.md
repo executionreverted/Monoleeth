@@ -2,11 +2,11 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Seed empty content DB from existing code catalogs and create first published snapshot.
+**Goal:** Seed empty content DB from the validated `GameplayContent` bundle and create first published snapshot.
 
-**Architecture:** `contentseed` compiles current MVP catalogs into CMS snapshot. `contentdb` transaction inserts rows/version/audit only when DB empty.
+**Architecture:** `contentseed` flattens `content.DefaultGameplayContent` into CMS rows/snapshot. `contentdb` transaction inserts rows/version/audit only when DB empty.
 
-**Tech Stack:** Go, existing catalog packages, content snapshot validators, Postgres transaction.
+**Tech Stack:** Go, `internal/game/content`, content snapshot validators, Postgres transaction.
 
 ---
 
@@ -20,7 +20,8 @@
 **Steps:**
 1. Add `BuildMVPSnapshot(worldID world.WorldID) (content.Snapshot, error)`.
 2. Initially return empty groups with version `content_mvp_seed_v1`.
-3. Test validates version and fails until required groups added.
+3. Call `content.LoadPublishedContent(ctx, content.NewStaticRepository(), worldID)` once the row flatteners exist.
+4. Test validates version and fails until required groups added.
 
 ### Task 2: Compile Items And Modules
 
@@ -30,9 +31,9 @@
 - Test: `internal/game/contentseed/items_modules_test.go`
 
 **Steps:**
-1. Pull module rows from `modules.MVPModuleDefinitions()`.
-2. Pull item rows from `runtimeLootCatalog` logic by moving pure item seed code if needed.
-3. Do not import `server` from seed package. Extract pure seed helpers into contentseed.
+1. Pull item/module rows from the static `GameplayContent` bundle.
+2. Preserve source IDs and source versions from domain definitions.
+3. Do not import `server` from seed package.
 4. Test every module has item row.
 
 ### Task 3: Compile Ships Shop Loot Craft Production NPC
@@ -46,7 +47,7 @@
 - Create: `internal/game/contentseed/npc.go`
 
 **Steps:**
-1. Map existing MVP definitions into content DTOs.
+1. Map existing `GameplayContent` definitions into content DTOs.
 2. Keep old display names/art keys where present.
 3. Preserve old IDs in first migration.
 4. Test `BuildMVPSnapshot` passes full content validation.

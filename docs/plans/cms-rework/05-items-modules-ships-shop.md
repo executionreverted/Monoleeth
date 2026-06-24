@@ -137,7 +137,8 @@ internal/game/economy
 internal/game/modules
 internal/game/ships
 internal/game/catalog
-internal/game/server/content_registry.go
+internal/game/content/bundle.go
+internal/game/content/shop.go
 internal/game/server/economy_seed.go
 internal/game/server/runtime.go
 ```

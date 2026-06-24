@@ -2,8 +2,8 @@
 
 ## Goal
 
-Runtime loads current published CMS snapshot and assembles existing domain
-catalogs from it.
+Runtime loads current published CMS snapshot through a DB-backed
+`content.Repository` and installs validated `GameplayContent`.
 
 No admin editing yet. Server start/restart picks up published content.
 
@@ -13,10 +13,9 @@ No admin editing yet. Server start/restart picks up published content.
 contentdb.Open
 contentdb.Migrate/Verify
 contentseed.EnsurePublishedSeed
-contentdb.LoadCurrentPublishedSnapshot
-content.ValidateSnapshot
-contentassembly.BuildRuntimeCatalogs
-runtime installs catalogs/services
+contentdb.NewRepository
+content.LoadPublishedContent(ctx, repository, worldID)
+runtime installs catalogs/services from GameplayContent
 ```
 
 Load/assemble must happen before:
@@ -27,24 +26,17 @@ Load/assemble must happen before:
 - production settlement/building services
 - NPC loot selector
 
-## Assembly Boundary
+## Repository Boundary
 
-New package:
+Existing boundary:
 
 ```text
-internal/game/contentassembly/
-  catalogs.go
-  items.go
-  modules.go
-  ships.go
-  shop.go
-  loot.go
-  crafting.go
-  production.go
-  maps_npc.go
+internal/game/content/repository.go
+internal/game/content/bundle.go
+internal/game/contentdb/
 ```
 
-Assembly maps CMS definitions into existing domain structs:
+The DB repository maps CMS rows/snapshots into the existing bundle fields:
 
 ```text
 economy.ItemDefinition
@@ -57,8 +49,8 @@ production.BuildingProductionDefinition
 world/maps enemy definitions
 ```
 
-Domain packages keep validation ownership. Assembly must call existing
-constructors/validators, not bypass them.
+Domain packages keep validation ownership. DB mapping must call existing
+constructors/validators and then `GameplayContent.Validate()`.
 
 ## Runtime Struct
 
@@ -66,7 +58,7 @@ Runtime should hold:
 
 ```text
 ContentVersion catalog.Version
-ContentSnapshot content.Snapshot
+ContentRepository content.Repository
 ItemCatalog map[foundation.ItemID]economy.ItemDefinition
 ModuleCatalog modules.Catalog
 ShipCatalog ships.Catalog
@@ -93,8 +85,9 @@ No silent fallback from invalid DB content to hard-coded catalogs.
 
 ## Hardcoded Catalog Removal Rule
 
-Normal runtime paths must not call migrated `MustMVP...` or `MVPCatalog()`
-helpers after their phase completes.
+Normal runtime paths outside `internal/game/content.DefaultGameplayContent`
+must not call migrated `MustMVP...` or `MVPCatalog()` helpers after their phase
+completes.
 
 Known direct-call targets to replace with injected catalogs/providers:
 
@@ -104,7 +97,6 @@ crafting.MVPRecipeCatalog()
 production.MustMVPCatalog()
 production.MVPCatalog()
 runtimeLootCatalog()
-buildRuntimeContentRegistry()
 worldmaps.StarterCatalog() enemy-only parts
 ```
 
@@ -131,7 +123,7 @@ Never expose:
 
 ## Tests
 
-- loader uses DB-published module stat in runtime module catalog
+- DB repository uses DB-published module stat in runtime module catalog
 - loader uses DB-published loot table in NPC loot selector
 - invalid published content prevents runtime creation
 - safe projection omits hidden fields
@@ -141,13 +133,13 @@ Never expose:
 Commands:
 
 ```bash
-go test ./internal/game/contentassembly ./internal/game/server -run 'Content|Catalog|Loot|Runtime' -count=1
+go test ./internal/game/content ./internal/game/contentdb ./internal/game/server -run 'Content|Catalog|Loot|Runtime' -count=1
 git diff --check
 ```
 
 ## Done
 
-- runtime no longer directly calls old MVP catalog functions for migrated
-  content in normal boot path
+- runtime no longer directly calls old MVP catalog functions outside
+  `content.StaticRepository` in normal boot path
 - DB-published content controls runtime definitions
 - tests prove changed DB value affects gameplay catalog

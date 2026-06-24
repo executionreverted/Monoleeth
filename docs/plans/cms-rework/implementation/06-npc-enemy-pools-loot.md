@@ -4,7 +4,7 @@
 
 **Goal:** Load NPC templates, enemy pools, and loot tables from CMS snapshot.
 
-**Architecture:** CMS owns definitions. World/map projection remains server-safe. Loot selector consumes assembled loot tables; client never receives chances/pool internals.
+**Architecture:** CMS owns definitions. World/map projection remains server-safe. Loot selector consumes loot tables from `GameplayContent`; client never receives chances/pool internals.
 
 **Tech Stack:** Go content validators, `internal/game/world/maps`, `internal/game/loot`, server NPC loot selector.
 
@@ -47,12 +47,12 @@
 5. Validate spawn area radius, map bounds, safe-zone exclusion, portal exclusion.
 6. Validate event spawn pool/drop refs and caps.
 
-### Task 4: Assemble Loot And NPC Maps
+### Task 4: Map Loot And NPC Maps
 
 **Files:**
-- Modify: `internal/game/contentassembly/loot.go`
-- Modify: `internal/game/contentassembly/maps_npc.go`
-- Test: `internal/game/contentassembly/npc_loot_test.go`
+- Modify: `internal/game/contentdb/map_loot.go`
+- Modify: `internal/game/contentdb/map_maps_npc.go`
+- Test: `internal/game/contentdb/map_npc_loot_test.go`
 
 **Steps:**
 1. Convert CMS loot rows to `loot.LootTable`.
@@ -75,13 +75,13 @@
 ### Verify
 
 ```bash
-go test ./internal/game/content ./internal/game/contentassembly ./internal/game/server -run 'NPC|Enemy|Loot|Content' -count=1
+go test ./internal/game/content ./internal/game/contentdb ./internal/game/server -run 'NPC|Enemy|Loot|Content' -count=1
 git diff --check
 ```
 
 ### Commit
 
 ```bash
-git add internal/game/content internal/game/contentassembly internal/game/server
+git add internal/game/content internal/game/contentdb internal/game/server
 git commit -m "game: move npc and loot content to cms"
 ```

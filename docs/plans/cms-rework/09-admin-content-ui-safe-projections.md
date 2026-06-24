@@ -25,6 +25,10 @@ Later slices:
 - Craft Recipes
 - Production Buildings
 
+Craft recipe UI starts read-only for identity/inputs/outputs plus safe rank
+editing. Credits, inputs/outputs, duration, enabled state, and
+location/building gates wait for Phase 07 active-job/version policy.
+
 ## UX Contract
 
 Admin UI edits draft rows. Normal player UI only sees safe published
@@ -32,6 +36,15 @@ projections.
 
 No fake gameplay values. Empty/missing content renders locked/loading/error
 states.
+
+Recent client work removed browser demo runtime mode. CMS panels must use real
+authenticated admin requests/responses. Test fixtures may exist only in unit or
+explicit smoke harness code, not in default client runtime.
+
+Admin CMS views depend on the Phase 08 `admin.content.*` backend/API contract.
+Do not add client-only draft editors that mutate local fake rows before those
+ops exist. Client parsers must accept content stat payloads only for
+admin-content operations.
 
 ## LC1 Edit Surface
 

@@ -37,6 +37,22 @@ repeatable
 enabled
 ```
 
+Admin JSON must use CMS DTO names. Example: recipe duration is
+`craft_duration_ms`, not raw Go `time.Duration` field names from
+`crafting.RecipeDefinition`.
+
+Admin edit rollout for recipes is staged:
+
+- first safe numeric edit: `required_rank`
+- optional later: existing `required_role_levels[].level` without add/remove or
+  reorder
+- defer `required_credits` until cancel/refund uses the job's stored recipe
+  value, not the current catalog value
+- defer input/output refs and quantities until active jobs complete from stored
+  recipe snapshots or publish blocks incompatible changes
+- defer `craft_duration_ms`, `enabled`, `recipe_id`, output kind, and
+  location/building gates until active-job version policy is implemented
+
 Production building:
 
 ```text
@@ -92,6 +108,9 @@ MVP behavior:
 - implementation must not let `CompleteCraft` reject old jobs only because
   current catalog changed
 - no hot reload in this phase
+- publish must validate that fields affecting reservation, debit/refund,
+  completion mint, duration, output kind, or location gate are compatible with
+  active jobs before those fields become admin-editable
 
 Later:
 

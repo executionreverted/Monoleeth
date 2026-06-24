@@ -4,7 +4,7 @@
 
 **Goal:** Add admin CMS UI and ensure normal players receive safe published projections only.
 
-**Architecture:** Client admin UI calls admin content ops. Player UI reads safe catalog projection; no hidden loot/spawn/admin fields in normal payloads.
+**Architecture:** Client admin UI calls real authenticated admin content ops. Player UI reads safe catalog projection; no hidden loot/spawn/admin fields in normal payloads. Default browser runtime has no demo content fallback.
 
 **Tech Stack:** Existing client state/UI/net code, realtime commands, Go safe projection helpers.
 
@@ -59,6 +59,10 @@
 3. Add LC1 edit form with validation errors.
 4. Add Publish/Rollback/Diff controls.
 5. Defer Items/Ships/Shop/NPC/Loot/Craft/Production full editors to later UI slices.
+6. Do not add any editor until the matching `admin.content.*` operation exists.
+7. Craft recipe slice starts read-only for IDs/inputs/outputs and editable only
+   for `required_rank`; broader fields wait for Phase 07 active-job/version
+   policy.
 
 ### Task 5: Browser Smoke
 
@@ -71,6 +75,9 @@
 3. Player shop/inventory uses display metadata.
 4. Admin CMS payload accepted only for admin op; player payload guard still rejects trusted fields.
 5. Screenshot admin CMS desktop/tablet/mobile if UI phase requires.
+6. Do not rely on removed demo runtime mode for CMS state.
+7. Assert client cannot populate admin CMS from player `crafting.recipes`
+   gameplay payload.
 
 ### Verify
 

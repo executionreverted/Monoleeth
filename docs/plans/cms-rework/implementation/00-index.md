@@ -4,7 +4,7 @@
 
 **Goal:** Implement DB-backed CMS in small, reviewable phases.
 
-**Architecture:** Postgres stores draft rows and immutable published snapshots. Runtime loads current published snapshot, validates it, assembles existing Go domain catalogs, then serves only safe projections.
+**Architecture:** Postgres stores draft rows and immutable published snapshots. Runtime already depends on `content.Repository`; CMS adds a DB-backed repository that loads current published content, maps it into `content.GameplayContent`, validates it, then serves only safe projections.
 
 **Tech Stack:** Go, `database/sql`, `github.com/jackc/pgx/v5/stdlib`, Postgres, Docker Compose, custom SQL migration runner, existing realtime/admin handlers.
 

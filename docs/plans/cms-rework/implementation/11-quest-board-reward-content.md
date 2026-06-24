@@ -6,7 +6,7 @@
 
 **Architecture:** Quest definitions move to CMS. Accepted quest progress remains player state and keeps generated payload/source version.
 
-**Tech Stack:** Go content validators, `internal/game/quests`, runtime assembly.
+**Tech Stack:** Go content validators, `internal/game/quests`, `contentdb` mapping into `GameplayContent`.
 
 ---
 
@@ -33,14 +33,14 @@
 2. Preserve existing IDs in first migration.
 3. Test seed quest refs resolve against seed item/NPC/recipe content.
 
-### Task 3: Add Assembly
+### Task 3: Add DB Mapping
 
 **Files:**
-- Create: `internal/game/contentassembly/quests.go`
-- Test: `internal/game/contentassembly/quests_test.go`
+- Create: `internal/game/contentdb/map_quests.go`
+- Test: `internal/game/contentdb/map_quests_test.go`
 
 **Steps:**
-1. Convert CMS quest rows into existing quest catalog structs.
+1. Convert CMS quest rows into existing quest catalog structs inside the DB repository mapping.
 2. Set source version to CMS content version.
 3. Test old accepted quest source remains usable or publish blocks incompatible change.
 
@@ -58,13 +58,13 @@
 ### Verify
 
 ```bash
-go test ./internal/game/content ./internal/game/contentseed ./internal/game/contentassembly ./internal/game/quests ./internal/game/server -run 'Quest|Content' -count=1
+go test ./internal/game/content ./internal/game/contentseed ./internal/game/contentdb ./internal/game/quests ./internal/game/server -run 'Quest|Content' -count=1
 git diff --check
 ```
 
 ### Commit
 
 ```bash
-git add internal/game/content internal/game/contentseed internal/game/contentassembly internal/game/server internal/game/quests
+git add internal/game/content internal/game/contentseed internal/game/contentdb internal/game/server internal/game/quests
 git commit -m "game: move quest content to cms"
 ```

@@ -4,19 +4,39 @@ Date: 2026-06-24
 
 ## Purpose
 
-Move dynamic game content out of hard-coded runtime catalogs into Postgres.
+Move dynamic game content out of static runtime content into Postgres.
 
 Runtime still stays server-authoritative. CMS owns definitions, not player
 state.
+
+## Current Baseline From Recent Commits
+
+The content-foundation work changed the CMS starting point:
+
+- `internal/game/content.GameplayContent` is now the canonical server-side
+  content bundle.
+- Runtime already loads validated content through `content.Repository`.
+- `content.StaticRepository` is the current dev/test/static implementation.
+- Scanner profiles, starter/playtest seed constants, shop registry content,
+  route policy, production rules, combat rules, and map enemy completeness
+  validation now live in `internal/game/content`.
+- `internal/game/server/content_registry.go` was removed; shop content is built
+  by `internal/game/content/shop.go`.
+- Browser demo runtime mode was removed. CMS UI work must use real
+  authenticated admin/server flows.
+
+CMS work should extend this boundary instead of creating a second runtime
+catalog path.
 
 ## Non-Negotiable Outcome
 
 - Items, modules/equipment, ships, shop products, NPC templates, enemy pools,
   loot tables, craft recipes, and production/building definitions load from DB.
-- Code catalogs become seed/fallback/test fixture sources only.
+- Static `GameplayContent` becomes seed/fallback/test fixture source only.
 - Server boot seeds default MVP content only when content DB is empty.
-- Runtime reads current published content snapshot, validates it, then builds
-  existing domain catalogs from it.
+- Runtime reads current published content snapshot through a DB-backed
+  `content.Repository`, validates it, then installs the resulting
+  `GameplayContent`.
 - Client receives only safe projections. Hidden drop tables, spawn internals,
   procedural seeds, and server-only map fields never leak.
 - Admin edits draft content. Gameplay reads published content.
@@ -63,9 +83,11 @@ Each worker task must touch one domain slice only.
 ## Existing Code Anchors
 
 ```text
+internal/game/content/
+internal/game/content/repository.go
+internal/game/content/bundle.go
 internal/game/catalog/
 internal/game/server/runtime.go
-internal/game/server/content_registry.go
 internal/game/server/combat_loot_catalog.go
 internal/game/modules/catalog.go
 internal/game/ships/catalog.go
@@ -161,22 +183,24 @@ Allowed modes:
 
 ```text
 required     DB required; boot fails if DB/content invalid
-dev_fallback DB optional; old code catalogs allowed only for local tests/dev
+dev_fallback DB optional; content.StaticRepository allowed only for local tests/dev
 off          tests only; not valid for real server run
 ```
 
 Missing DB URL in non-dev real mode must fail boot. No silent fallback.
+`dev_fallback` means explicitly using `content.StaticRepository`; it is not
+client demo mode and must not fabricate browser gameplay state.
 
 ## Runtime Boot Contract
 
 ```text
 connect DB
 run/verify migrations
-if no content rows -> seed built-in MVP content
-load current published content version
-validate full snapshot
-assemble domain catalogs
-install runtime catalogs
+if no content rows -> seed from validated static GameplayContent
+build DB-backed content.Repository
+load current published content through repository
+validate resulting GameplayContent
+install runtime catalogs/services from GameplayContent
 serve safe projections only
 ```
 
