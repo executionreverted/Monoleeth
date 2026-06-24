@@ -203,6 +203,7 @@ type runtimeContentVersionStore interface {
 	runtimeContentStore
 	admin.ContentVersionStore
 	admin.ContentDraftStore
+	admin.ContentDraftWriter
 }
 
 func loadRuntimeContent(ctx context.Context, config RuntimeConfig) (gamecontent.GameplayContent, error) {
@@ -331,9 +332,11 @@ func loadRuntimeContentAdmin(ctx context.Context, config RuntimeConfig, clock fo
 		return nil, nil, fmt.Errorf("content admin store %T: %w", store, contentdb.ErrNilDatabase)
 	}
 	return admin.NewContentService(admin.ContentServiceConfig{
-		Versions: versionStore,
-		Drafts:   versionStore,
-		Clock:    clock,
+		Versions:  versionStore,
+		Drafts:    versionStore,
+		Writer:    versionStore,
+		Validator: contentdb.NewSnapshotValidator(config.WorldID),
+		Clock:     clock,
 	}), closeStore, nil
 }
 

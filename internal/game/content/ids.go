@@ -1,6 +1,7 @@
 package content
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
@@ -11,6 +12,8 @@ import (
 type ContentID string
 
 type ContentType string
+
+var ErrUnknownContentType = errors.New("unknown content type")
 
 const (
 	ContentTypeItem               ContentType = "item"
@@ -30,6 +33,36 @@ const (
 	ContentTypeQuestTemplate      ContentType = "quest_template"
 	ContentTypeQuestRewardTable   ContentType = "quest_reward_table"
 )
+
+func AllContentTypes() []ContentType {
+	return []ContentType{
+		ContentTypeItem,
+		ContentTypeModule,
+		ContentTypeShip,
+		ContentTypeShopProduct,
+		ContentTypeNPCTemplate,
+		ContentTypeSpawnArea,
+		ContentTypeEnemyPool,
+		ContentTypeNPCDropProfile,
+		ContentTypeNPCAggroProfile,
+		ContentTypeNPCLeashProfile,
+		ContentTypeNPCEventSpawn,
+		ContentTypeLootTable,
+		ContentTypeCraftRecipe,
+		ContentTypeProductionBuilding,
+		ContentTypeQuestTemplate,
+		ContentTypeQuestRewardTable,
+	}
+}
+
+func IsKnownContentType(contentType ContentType) bool {
+	for _, known := range AllContentTypes() {
+		if contentType == known {
+			return true
+		}
+	}
+	return false
+}
 
 func ValidateContentID(kind string, value string) error {
 	if strings.TrimSpace(value) == "" {

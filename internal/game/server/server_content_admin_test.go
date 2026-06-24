@@ -69,6 +69,8 @@ func TestAdminContentVersionsRequiresAdminAndReturnsSafeVersionList(t *testing.T
 		`{"request_id":"request-content-versions-non-admin","op":"admin.content.versions","payload":{},"client_seq":1,"v":1}`,
 		`{"request_id":"request-content-list-non-admin","op":"admin.content.list","payload":{"content_type":"module"},"client_seq":2,"v":1}`,
 		`{"request_id":"request-content-get-non-admin","op":"admin.content.get","payload":{"content_type":"module","content_id":"laser_alpha_t1"},"client_seq":3,"v":1}`,
+		`{"request_id":"request-content-update-non-admin","op":"admin.content.update_draft","payload":{"content_type":"module","content_id":"laser_alpha_t1","enabled":true,"data_json":{"damage":9}},"client_seq":4,"v":1}`,
+		`{"request_id":"request-content-validate-non-admin","op":"admin.content.validate_draft","payload":{},"client_seq":5,"v":1}`,
 	}
 	for _, body := range nonAdminRequests {
 		writeText(t, userConn, body)
@@ -153,9 +155,104 @@ func TestAdminContentVersionsRequiresAdminAndReturnsSafeVersionList(t *testing.T
 	}
 }
 
+func TestAdminContentUpdateDraftAndValidateUseServerActor(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+
+	now := time.Date(2026, 6, 24, 16, 0, 0, 0, time.UTC)
+	contentStore := &fakeServerContentStore{
+		draftRows: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeModule: {
+				{
+					ContentID:   "laser_alpha_t1",
+					Enabled:     true,
+					DisplayJSON: json.RawMessage(`{"display_name":"Prism Lance I"}`),
+					DataJSON:    json.RawMessage(`{"attack_damage":8}`),
+				},
+			},
+		},
+	}
+	gameServer.runtime.ContentAdmin = admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    contentStore,
+		Writer:    contentStore,
+		Validator: contentStore,
+		Clock:     testutil.NewFakeClock(now),
+	})
+	seeded, err := gameServer.runtime.Auth.SeedAdmin(context.Background(), auth.AdminSeedInput{
+		Enabled:  true,
+		Email:    "cms-editor@example.com",
+		Password: "admin-password",
+		Callsign: "CMS-Editor",
+	})
+	if err != nil {
+		t.Fatalf("seed admin: %v", err)
+	}
+
+	adminConn := dialWebSocket(t, httpServer, loginPilot(t, httpServer, "cms-editor@example.com", "admin-password"))
+	defer adminConn.CloseNow()
+	readBootstrapEvents(t, adminConn)
+
+	writeText(t, adminConn, `{"request_id":"request-content-update-updated-by","op":"admin.content.update_draft","payload":{"content_type":"module","content_id":"laser_alpha_t1","enabled":true,"updated_by":"spoof","data_json":{"attack_damage":9}},"client_seq":1,"v":1}`)
+	spoof := readError(t, adminConn)
+	if spoof.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("updated_by spoof error = %+v, want %s", spoof.Error, foundation.CodeInvalidPayload)
+	}
+
+	writeText(t, adminConn, `{"request_id":"request-content-update-admin","op":"admin.content.update_draft","payload":{"content_type":"module","content_id":"laser_alpha_t1","enabled":true,"display_json":{"display_name":"Prism Lance II"},"data_json":{"attack_damage":9,"damage":9,"cooldown_ms":1100,"map_id":"cms-visible-content-field"}},"client_seq":2,"v":1}`)
+	response := readResponse(t, adminConn)
+	if !response.OK {
+		t.Fatalf("admin.content.update_draft response = %+v, want success", response)
+	}
+	var updatePayload struct {
+		ContentRow adminContentDraftRowPayload `json:"content_row"`
+	}
+	if err := json.Unmarshal(response.Payload, &updatePayload); err != nil {
+		t.Fatalf("decode update response: %v", err)
+	}
+	if updatePayload.ContentRow.ContentID != "laser_alpha_t1" ||
+		updatePayload.ContentRow.UpdatedBy != string(seeded.AccountID) ||
+		!strings.Contains(string(updatePayload.ContentRow.DataJSON), `"damage":9`) {
+		t.Fatalf("updated row = %+v, want server actor and accepted nested stat fields", updatePayload.ContentRow)
+	}
+	if !contentStore.upsertCalled || contentStore.upsertRow.UpdatedBy != string(seeded.AccountID) {
+		t.Fatalf("store upsert = called %v row %+v, want server actor", contentStore.upsertCalled, contentStore.upsertRow)
+	}
+
+	writeText(t, adminConn, `{"request_id":"request-content-validate-admin","op":"admin.content.validate_draft","payload":{"version":"draft_candidate_v1"},"client_seq":3,"v":1}`)
+	validateResponse := readResponse(t, adminConn)
+	if !validateResponse.OK {
+		t.Fatalf("admin.content.validate_draft response = %+v, want success", validateResponse)
+	}
+	var validatePayload struct {
+		Validation adminContentDraftValidationPayload `json:"validation"`
+	}
+	if err := json.Unmarshal(validateResponse.Payload, &validatePayload); err != nil {
+		t.Fatalf("decode validate response: %v", err)
+	}
+	if !validatePayload.Validation.Valid || validatePayload.Validation.Version != "draft_candidate_v1" ||
+		validatePayload.Validation.CheckedAt != now.UnixMilli() {
+		t.Fatalf("validation = %+v, want valid report at fake now", validatePayload.Validation)
+	}
+	if !contentStore.validateCalled || len(contentStore.validatedSnapshot.Modules) != 1 {
+		t.Fatalf("validated snapshot = called %v snapshot %+v, want one module", contentStore.validateCalled, contentStore.validatedSnapshot)
+	}
+
+	writeText(t, adminConn, `{"request_id":"request-content-update-invalid-script","op":"admin.content.update_draft","payload":{"content_type":"module","content_id":"laser_alpha_t1","enabled":true,"data_json":{"script":"bad"}},"client_seq":4,"v":1}`)
+	invalid := readError(t, adminConn)
+	if invalid.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("invalid content field error = %+v, want %s", invalid.Error, foundation.CodeInvalidPayload)
+	}
+}
+
 type fakeServerContentStore struct {
-	versionList content.VersionList
-	draftRows   map[content.ContentType][]content.DraftRow
+	versionList       content.VersionList
+	draftRows         map[content.ContentType][]content.DraftRow
+	upsertCalled      bool
+	upsertContentType content.ContentType
+	upsertRow         content.DraftRow
+	validateCalled    bool
+	validatedSnapshot content.Snapshot
+	validateErr       error
 }
 
 func (store *fakeServerContentStore) ListContentVersions(_ context.Context, input content.VersionListInput) (content.VersionList, error) {
@@ -167,4 +264,39 @@ func (store *fakeServerContentStore) ListContentVersions(_ context.Context, inpu
 
 func (store *fakeServerContentStore) LoadDraftRows(_ context.Context, contentType content.ContentType) ([]content.DraftRow, error) {
 	return append([]content.DraftRow(nil), store.draftRows[contentType]...), nil
+}
+
+func (store *fakeServerContentStore) UpsertDraftRow(_ context.Context, contentType content.ContentType, row content.DraftRow) error {
+	store.upsertCalled = true
+	store.upsertContentType = contentType
+	store.upsertRow = cloneServerContentDraftRow(row)
+	rows := store.draftRows[contentType]
+	replaced := false
+	for index, existing := range rows {
+		if existing.ContentID == row.ContentID {
+			rows[index] = cloneServerContentDraftRow(row)
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		rows = append(rows, cloneServerContentDraftRow(row))
+	}
+	if store.draftRows == nil {
+		store.draftRows = make(map[content.ContentType][]content.DraftRow)
+	}
+	store.draftRows[contentType] = rows
+	return nil
+}
+
+func (store *fakeServerContentStore) ValidateContentSnapshot(_ context.Context, snapshot content.Snapshot) error {
+	store.validateCalled = true
+	store.validatedSnapshot = snapshot
+	return store.validateErr
+}
+
+func cloneServerContentDraftRow(row content.DraftRow) content.DraftRow {
+	row.DisplayJSON = append([]byte(nil), row.DisplayJSON...)
+	row.DataJSON = append([]byte(nil), row.DataJSON...)
+	return row
 }

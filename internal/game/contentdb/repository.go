@@ -19,11 +19,31 @@ type Repository struct {
 
 var _ content.Repository = (*Repository)(nil)
 
+type SnapshotValidator struct {
+	WorldID world.WorldID
+}
+
 func NewRepository(store *Store) (*Repository, error) {
 	if store == nil {
 		return nil, ErrNilDatabase
 	}
 	return newRepository(store)
+}
+
+func NewSnapshotValidator(worldID world.WorldID) SnapshotValidator {
+	return SnapshotValidator{WorldID: worldID}
+}
+
+func (validator SnapshotValidator) ValidateContentSnapshot(ctx context.Context, snapshot content.Snapshot) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return ValidateSnapshot(snapshot, validator.WorldID)
+}
+
+func ValidateSnapshot(snapshot content.Snapshot, worldID world.WorldID) error {
+	_, err := mapPublishedSnapshot(snapshot, worldID)
+	return err
 }
 
 func newRepository(loader publishedSnapshotLoader) (*Repository, error) {

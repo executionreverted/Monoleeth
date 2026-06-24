@@ -80,6 +80,57 @@ func (snapshot Snapshot) Groups() []SnapshotGroup {
 	}
 }
 
+func (snapshot *Snapshot) SetRows(contentType ContentType, rows []SnapshotRow) error {
+	if snapshot == nil {
+		return ErrInvalidContentSnapshot
+	}
+	cloned := cloneSnapshotRows(rows)
+	switch contentType {
+	case ContentTypeItem:
+		snapshot.Items = cloned
+	case ContentTypeModule:
+		snapshot.Modules = cloned
+	case ContentTypeShip:
+		snapshot.Ships = cloned
+	case ContentTypeShopProduct:
+		snapshot.ShopProducts = cloned
+	case ContentTypeNPCTemplate:
+		snapshot.NPCTemplates = cloned
+	case ContentTypeSpawnArea:
+		snapshot.SpawnAreas = cloned
+	case ContentTypeEnemyPool:
+		snapshot.EnemyPools = cloned
+	case ContentTypeNPCDropProfile:
+		snapshot.NPCDropProfiles = cloned
+	case ContentTypeNPCAggroProfile:
+		snapshot.NPCAggroProfiles = cloned
+	case ContentTypeNPCLeashProfile:
+		snapshot.NPCLeashProfiles = cloned
+	case ContentTypeNPCEventSpawn:
+		snapshot.NPCEventSpawns = cloned
+	case ContentTypeLootTable:
+		snapshot.LootTables = cloned
+	case ContentTypeCraftRecipe:
+		snapshot.CraftRecipes = cloned
+	case ContentTypeProductionBuilding:
+		snapshot.ProductionBuildings = cloned
+	case ContentTypeQuestTemplate:
+		snapshot.QuestTemplates = cloned
+	case ContentTypeQuestRewardTable:
+		snapshot.QuestRewardTables = cloned
+	default:
+		return fmt.Errorf("%s: %w", contentType, ErrUnknownContentType)
+	}
+	return nil
+}
+
+func ValidateSnapshotRow(contentType ContentType, row SnapshotRow) error {
+	if !IsKnownContentType(contentType) {
+		return fmt.Errorf("%s: %w", contentType, ErrUnknownContentType)
+	}
+	return validateSnapshotRows(contentType, []SnapshotRow{row})
+}
+
 func validateSnapshotRows(contentType ContentType, rows []SnapshotRow) error {
 	seen := make(map[ContentID]struct{}, len(rows))
 	for index, row := range rows {
@@ -99,6 +150,22 @@ func validateSnapshotRows(contentType ContentType, rows []SnapshotRow) error {
 		}
 	}
 	return nil
+}
+
+func cloneSnapshotRows(rows []SnapshotRow) []SnapshotRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	cloned := make([]SnapshotRow, len(rows))
+	for index, row := range rows {
+		cloned[index] = SnapshotRow{
+			ContentID:   row.ContentID,
+			Enabled:     row.Enabled,
+			DisplayJSON: append(json.RawMessage(nil), row.DisplayJSON...),
+			DataJSON:    append(json.RawMessage(nil), row.DataJSON...),
+		}
+	}
+	return cloned
 }
 
 func validateRawJSON(path string, raw json.RawMessage, required bool) error {

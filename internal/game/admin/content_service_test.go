@@ -121,6 +121,115 @@ func TestContentServiceGetDraftRowFindsRowAndRejectsMissing(t *testing.T) {
 	}
 }
 
+func TestContentServiceUpdateDraftRowValidatesAndWritesServerActor(t *testing.T) {
+	store := &fakeContentDraftStore{}
+	service := admin.NewContentService(admin.ContentServiceConfig{Drafts: store, Writer: store})
+
+	row, err := service.UpdateDraftRow(context.Background(), content.DraftUpdateInput{
+		ContentType: content.ContentTypeModule,
+		ContentID:   "laser_alpha_t1",
+		Enabled:     true,
+		DisplayJSON: []byte(`{"display_name":"Prism Lance I"}`),
+		DataJSON:    []byte(`{"attack_damage":8,"cooldown_ms":1200,"range":650}`),
+		UpdatedBy:   "account-admin",
+	})
+	if err != nil {
+		t.Fatalf("UpdateDraftRow() error = %v, want nil", err)
+	}
+	if store.upsertContentType != content.ContentTypeModule || store.upsertRow.ContentID != "laser_alpha_t1" ||
+		store.upsertRow.UpdatedBy != "account-admin" || !store.upsertRow.Enabled {
+		t.Fatalf("upsert = type %q row %+v, want module laser row by admin", store.upsertContentType, store.upsertRow)
+	}
+	if row.UpdatedBy != "account-admin" || string(row.DataJSON) != `{"attack_damage":8,"cooldown_ms":1200,"range":650}` {
+		t.Fatalf("row = %+v, want updated server actor and stats", row)
+	}
+	row.DataJSON[0] = '!'
+	if string(store.upsertRow.DataJSON) != `{"attack_damage":8,"cooldown_ms":1200,"range":650}` {
+		t.Fatalf("caller mutated stored upsert row: %s", store.upsertRow.DataJSON)
+	}
+}
+
+func TestContentServiceUpdateDraftRowRejectsInvalidContentJSON(t *testing.T) {
+	store := &fakeContentDraftStore{}
+	service := admin.NewContentService(admin.ContentServiceConfig{Drafts: store, Writer: store})
+
+	_, err := service.UpdateDraftRow(context.Background(), content.DraftUpdateInput{
+		ContentType: content.ContentTypeModule,
+		ContentID:   "laser_alpha_t1",
+		Enabled:     true,
+		DataJSON:    []byte(`{"script":"bad"}`),
+		UpdatedBy:   "account-admin",
+	})
+	if !errors.Is(err, content.ErrForbiddenContentField) {
+		t.Fatalf("UpdateDraftRow(script) error = %v, want ErrForbiddenContentField", err)
+	}
+	if store.upsertCalled {
+		t.Fatal("UpdateDraftRow(script) wrote invalid draft row")
+	}
+}
+
+func TestContentServiceValidateDraftBuildsSnapshotAndReportsRuntimeErrors(t *testing.T) {
+	now := time.Date(2026, 6, 24, 14, 0, 0, 0, time.UTC)
+	validatorErr := errors.New("module laser_alpha_t1: missing item")
+	store := &fakeContentDraftStore{
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeModule: {
+				{ContentID: "laser_alpha_t1", Enabled: true, DataJSON: []byte(`{"item_id":"laser_alpha_t1"}`), DisplayJSON: []byte(`{}`)},
+			},
+		},
+	}
+	validator := &fakeContentDraftValidator{err: validatorErr}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Validator: validator,
+		Clock:     testutil.NewFakeClock(now),
+	})
+
+	report, err := service.ValidateDraft(context.Background(), content.DraftValidationInput{Version: "draft_candidate_v1"})
+	if err != nil {
+		t.Fatalf("ValidateDraft() error = %v, want nil", err)
+	}
+	if report.Valid || report.Version != "draft_candidate_v1" || !report.CheckedAt.Equal(now) {
+		t.Fatalf("report = %+v, want invalid report for requested version at fake now", report)
+	}
+	if len(report.Issues) != 1 || report.Issues[0].Code != "invalid_runtime_catalog" {
+		t.Fatalf("issues = %+v, want runtime catalog issue", report.Issues)
+	}
+	if validator.snapshot.Version != "draft_candidate_v1" || len(validator.snapshot.Modules) != 1 {
+		t.Fatalf("validated snapshot = %+v, want one module row", validator.snapshot)
+	}
+	if got := store.loadCalls[content.ContentTypeModule]; got != 1 {
+		t.Fatalf("module load calls = %d, want 1", got)
+	}
+}
+
+func TestContentServiceValidateDraftReportsSnapshotErrorsWithoutValidator(t *testing.T) {
+	store := &fakeContentDraftStore{
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeModule: {
+				{ContentID: "laser_alpha_t1", Enabled: true, DataJSON: []byte(``)},
+			},
+		},
+	}
+	validator := &fakeContentDraftValidator{}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Validator: validator,
+	})
+
+	report, err := service.ValidateDraft(context.Background(), content.DraftValidationInput{})
+	if err != nil {
+		t.Fatalf("ValidateDraft(invalid snapshot) error = %v, want nil", err)
+	}
+	if report.Valid || report.Version != "draft_validation" || len(report.Issues) != 1 ||
+		report.Issues[0].Code != "invalid_snapshot" {
+		t.Fatalf("report = %+v, want invalid snapshot report", report)
+	}
+	if validator.called {
+		t.Fatal("validator called after structural snapshot error")
+	}
+}
+
 type fakeContentVersionStore struct {
 	input content.VersionListInput
 	list  content.VersionList
@@ -136,15 +245,63 @@ func (store *fakeContentVersionStore) ListContentVersions(_ context.Context, inp
 }
 
 type fakeContentDraftStore struct {
-	contentType content.ContentType
-	rows        []content.DraftRow
-	err         error
+	contentType       content.ContentType
+	rows              []content.DraftRow
+	rowsByType        map[content.ContentType][]content.DraftRow
+	err               error
+	upsertCalled      bool
+	upsertContentType content.ContentType
+	upsertRow         content.DraftRow
+	loadCalls         map[content.ContentType]int
 }
 
 func (store *fakeContentDraftStore) LoadDraftRows(_ context.Context, contentType content.ContentType) ([]content.DraftRow, error) {
 	store.contentType = contentType
+	if store.loadCalls == nil {
+		store.loadCalls = make(map[content.ContentType]int)
+	}
+	store.loadCalls[contentType]++
 	if store.err != nil {
 		return nil, store.err
 	}
+	if store.rowsByType != nil {
+		return cloneTestDraftRows(store.rowsByType[contentType]), nil
+	}
 	return store.rows, nil
+}
+
+func (store *fakeContentDraftStore) UpsertDraftRow(_ context.Context, contentType content.ContentType, row content.DraftRow) error {
+	store.upsertCalled = true
+	store.upsertContentType = contentType
+	store.upsertRow = cloneTestDraftRow(row)
+	return store.err
+}
+
+type fakeContentDraftValidator struct {
+	called   bool
+	snapshot content.Snapshot
+	err      error
+}
+
+func (validator *fakeContentDraftValidator) ValidateContentSnapshot(_ context.Context, snapshot content.Snapshot) error {
+	validator.called = true
+	validator.snapshot = snapshot
+	return validator.err
+}
+
+func cloneTestDraftRows(rows []content.DraftRow) []content.DraftRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	cloned := make([]content.DraftRow, len(rows))
+	for index, row := range rows {
+		cloned[index] = cloneTestDraftRow(row)
+	}
+	return cloned
+}
+
+func cloneTestDraftRow(row content.DraftRow) content.DraftRow {
+	row.DisplayJSON = append([]byte(nil), row.DisplayJSON...)
+	row.DataJSON = append([]byte(nil), row.DataJSON...)
+	return row
 }

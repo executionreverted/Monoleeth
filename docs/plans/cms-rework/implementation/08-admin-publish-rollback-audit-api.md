@@ -27,9 +27,12 @@
    - `AuditLog`
 3. Unit-test missing deps and invalid draft.
 
-**Status:** Started with `ListVersions`, `ListDraftRows`, and `GetDraftRow`.
-Service normalizes pagination and uses server clock for generated metadata.
-Draft validation/publish/rollback methods remain open.
+**Status:** `ListVersions`, `ListDraftRows`, `GetDraftRow`,
+`UpdateDraftRow`, and `ValidateDraft` are implemented. Service normalizes
+pagination, stamps generated metadata from the server clock, validates draft
+row JSON before write, assembles all draft tables into a snapshot, and runs
+that snapshot through the same `contentdb` runtime mapper validator used for
+published content. Publish, rollback, diff, and audit-log methods remain open.
 
 ### Task 2: Add Draft Store Methods
 
@@ -44,9 +47,10 @@ Draft validation/publish/rollback methods remain open.
 3. Add rollback transaction method with DB idempotency key.
 4. Add audit query method with pagination and scrubbed payloads.
 
-**Status:** Started with `ListContentVersions` read method plus existing
-`LoadDraftRows` read path. Draft update, publish, rollback, and audit query
-remain open.
+**Status:** `ListContentVersions`, `LoadDraftRows`, and existing
+`UpsertDraftRow`/`UpsertDraftRows` now back the admin read/update API.
+`contentdb.ValidateSnapshot` exposes the runtime published-content mapper for
+draft validation. Publish, rollback, and audit query remain open.
 
 ### Task 3: Add Realtime Ops
 
@@ -72,9 +76,13 @@ remain open.
 4. Never trust actor/session/player/server fields from payload.
 5. Add explicit admin content DTO gate so stat fields like damage/rank/cooldown are accepted only for `admin.content.*`.
 
-**Status:** `admin.content.versions`, `admin.content.list`, and
-`admin.content.get` are registered and admin-gated. Write/publish/diff/audit
-ops remain open.
+**Status:** `admin.content.versions`, `admin.content.list`,
+`admin.content.get`, `admin.content.update_draft`, and
+`admin.content.validate_draft` are registered and admin-gated. Draft update
+uses a CMS-specific payload gate so nested stat keys such as `damage`,
+`cooldown_ms`, and map/content fields can live inside `data_json`, while
+top-level actor/session/admin spoof fields still fail before mutation.
+Publish/diff/audit ops remain open.
 
 ### Task 4: Idempotency And Rate Posture
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 
 	"gameproject/internal/game/admin"
 	"gameproject/internal/game/content"
@@ -51,6 +53,19 @@ type adminContentDraftRowPayload struct {
 	DisplayJSON  json.RawMessage `json:"display_json"`
 	DataJSON     json.RawMessage `json:"data_json"`
 	UpdatedBy    string          `json:"updated_by,omitempty"`
+}
+
+type adminContentDraftValidationPayload struct {
+	Valid     bool                                      `json:"valid"`
+	Version   string                                    `json:"version"`
+	CheckedAt int64                                     `json:"checked_at"`
+	Issues    []adminContentDraftValidationIssuePayload `json:"issues"`
+}
+
+type adminContentDraftValidationIssuePayload struct {
+	Path    string `json:"path"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 func (runtime *Runtime) handleAdminContentList(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -108,6 +123,68 @@ func (runtime *Runtime) handleAdminContentGet(ctx realtime.CommandContext, reque
 	return marshalPayload(map[string]any{"content_row": adminContentDraftRowPayloadFromRow(contentType, row)})
 }
 
+func (runtime *Runtime) handleAdminContentUpdateDraft(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectAdminContentControlPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	resolved, err := runtime.requireAdmin(ctx, "Content draft edits are restricted.")
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		ContentType string          `json:"content_type"`
+		ContentID   string          `json:"content_id"`
+		Enabled     *bool           `json:"enabled"`
+		DisplayJSON json.RawMessage `json:"display_json,omitempty"`
+		DataJSON    json.RawMessage `json:"data_json"`
+	}
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	if payload.Enabled == nil {
+		return nil, invalidPayload("Content enabled flag is required.", nil)
+	}
+	if runtime.ContentAdmin == nil {
+		return nil, foundation.NewDomainError(foundation.CodeInternal, "Content admin service unavailable.")
+	}
+	contentType := content.ContentType(payload.ContentType)
+	row, err := runtime.ContentAdmin.UpdateDraftRow(context.Background(), content.DraftUpdateInput{
+		ContentType: contentType,
+		ContentID:   content.ContentID(payload.ContentID),
+		Enabled:     *payload.Enabled,
+		DisplayJSON: payload.DisplayJSON,
+		DataJSON:    payload.DataJSON,
+		UpdatedBy:   string(resolved.AccountID),
+	})
+	if err != nil {
+		return nil, domainErrorForContentAdmin(err, "Content draft update failed.")
+	}
+	return marshalPayload(map[string]any{"content_row": adminContentDraftRowPayloadFromRow(contentType, row)})
+}
+
+func (runtime *Runtime) handleAdminContentValidateDraft(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectAdminContentControlPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	if _, err := runtime.requireAdmin(ctx, "Content draft validation is restricted."); err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Version string `json:"version,omitempty"`
+	}
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	if runtime.ContentAdmin == nil {
+		return nil, foundation.NewDomainError(foundation.CodeInternal, "Content admin service unavailable.")
+	}
+	report, err := runtime.ContentAdmin.ValidateDraft(context.Background(), content.DraftValidationInput{Version: payload.Version})
+	if err != nil {
+		return nil, domainErrorForContentAdmin(err, "Content draft validation failed.")
+	}
+	return marshalPayload(map[string]any{"validation": adminContentDraftValidationPayloadFromReport(report)})
+}
+
 func (runtime *Runtime) handleAdminContentVersions(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
 	if err := rejectTrustedPayload(request.Payload); err != nil {
 		return nil, err
@@ -150,14 +227,78 @@ func adminContentDraftListPayloadFromList(list content.DraftList) adminContentDr
 	return payload
 }
 
+func adminContentDraftValidationPayloadFromReport(report content.DraftValidationReport) adminContentDraftValidationPayload {
+	payload := adminContentDraftValidationPayload{
+		Valid:     report.Valid,
+		Version:   report.Version,
+		CheckedAt: report.CheckedAt.UTC().UnixMilli(),
+		Issues:    make([]adminContentDraftValidationIssuePayload, 0, len(report.Issues)),
+	}
+	for _, issue := range report.Issues {
+		payload.Issues = append(payload.Issues, adminContentDraftValidationIssuePayload{
+			Path:    issue.Path,
+			Code:    issue.Code,
+			Message: issue.Message,
+		})
+	}
+	return payload
+}
+
 func domainErrorForContentAdmin(err error, fallback string) error {
 	if errors.Is(err, admin.ErrContentDraftNotFound) {
 		return foundation.NewDomainError(foundation.CodeNotFound, "Content row was not found.", foundation.WithCause(err))
 	}
-	if errors.Is(err, contentdb.ErrUnknownContentType) {
+	if errors.Is(err, contentdb.ErrUnknownContentType) || errors.Is(err, content.ErrUnknownContentType) {
 		return invalidPayload("Content type is invalid.", err)
 	}
+	if errors.Is(err, content.ErrInvalidContentJSON) ||
+		errors.Is(err, content.ErrForbiddenContentField) ||
+		errors.Is(err, content.ErrInvalidContentSnapshot) ||
+		errors.Is(err, content.ErrDuplicateContentID) ||
+		errors.Is(err, foundation.ErrEmptyID) ||
+		errors.Is(err, foundation.ErrInvalidID) {
+		return invalidPayload("Content draft payload is invalid.", err)
+	}
 	return foundation.NewDomainError(foundation.CodeInternal, fallback, foundation.WithCause(err))
+}
+
+func rejectAdminContentControlPayload(payload json.RawMessage) error {
+	var value any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		return invalidPayload("Invalid payload.", err)
+	}
+	if found := findAdminContentTrustedPayloadKey(value, 0); found != "" {
+		return invalidPayload(fmt.Sprintf("Payload field %q is server-owned.", found), nil)
+	}
+	return nil
+}
+
+func findAdminContentTrustedPayloadKey(value any, depth int) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			normalized := strings.ToLower(key)
+			if normalized == "display_json" || normalized == "data_json" {
+				continue
+			}
+			if _, forbidden := trustedClientPayloadKeys[normalized]; forbidden {
+				return key
+			}
+			if normalized == "updated_by" {
+				return key
+			}
+			if found := findAdminContentTrustedPayloadKey(child, depth+1); found != "" {
+				return found
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if found := findAdminContentTrustedPayloadKey(child, depth+1); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
 }
 
 func adminContentDraftRowPayloadFromRow(contentType content.ContentType, row content.DraftRow) adminContentDraftRowPayload {

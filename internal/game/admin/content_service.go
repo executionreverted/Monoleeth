@@ -3,6 +3,8 @@ package admin
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"gameproject/internal/game/content"
 	"gameproject/internal/game/foundation"
@@ -10,6 +12,8 @@ import (
 
 var ErrMissingContentVersionStore = errors.New("missing admin content version store")
 var ErrMissingContentDraftStore = errors.New("missing admin content draft store")
+var ErrMissingContentDraftWriter = errors.New("missing admin content draft writer")
+var ErrMissingContentDraftValidator = errors.New("missing admin content draft validator")
 var ErrContentDraftNotFound = errors.New("content draft row not found")
 
 type ContentVersionStore interface {
@@ -20,16 +24,28 @@ type ContentDraftStore interface {
 	LoadDraftRows(context.Context, content.ContentType) ([]content.DraftRow, error)
 }
 
+type ContentDraftWriter interface {
+	UpsertDraftRow(context.Context, content.ContentType, content.DraftRow) error
+}
+
+type ContentDraftValidator interface {
+	ValidateContentSnapshot(context.Context, content.Snapshot) error
+}
+
 type ContentServiceConfig struct {
-	Versions ContentVersionStore
-	Drafts   ContentDraftStore
-	Clock    foundation.Clock
+	Versions  ContentVersionStore
+	Drafts    ContentDraftStore
+	Writer    ContentDraftWriter
+	Validator ContentDraftValidator
+	Clock     foundation.Clock
 }
 
 type ContentService struct {
-	versions ContentVersionStore
-	drafts   ContentDraftStore
-	clock    foundation.Clock
+	versions  ContentVersionStore
+	drafts    ContentDraftStore
+	writer    ContentDraftWriter
+	validator ContentDraftValidator
+	clock     foundation.Clock
 }
 
 func NewContentService(config ContentServiceConfig) *ContentService {
@@ -37,7 +53,19 @@ func NewContentService(config ContentServiceConfig) *ContentService {
 	if clock == nil {
 		clock = foundation.RealClock{}
 	}
-	return &ContentService{versions: config.Versions, drafts: config.Drafts, clock: clock}
+	writer := config.Writer
+	if writer == nil {
+		if draftWriter, ok := config.Drafts.(ContentDraftWriter); ok {
+			writer = draftWriter
+		}
+	}
+	return &ContentService{
+		versions:  config.Versions,
+		drafts:    config.Drafts,
+		writer:    writer,
+		validator: config.Validator,
+		clock:     clock,
+	}
 }
 
 func (service *ContentService) ListVersions(ctx context.Context, input content.VersionListInput) (content.VersionList, error) {
@@ -94,6 +122,89 @@ func (service *ContentService) GetDraftRow(ctx context.Context, contentType cont
 		}
 	}
 	return content.DraftRow{}, ErrContentDraftNotFound
+}
+
+func (service *ContentService) UpdateDraftRow(ctx context.Context, input content.DraftUpdateInput) (content.DraftRow, error) {
+	if service == nil || service.writer == nil {
+		return content.DraftRow{}, ErrMissingContentDraftWriter
+	}
+	if !content.IsKnownContentType(input.ContentType) {
+		return content.DraftRow{}, fmt.Errorf("%s: %w", input.ContentType, content.ErrUnknownContentType)
+	}
+	if err := content.ValidateContentID(string(input.ContentType), string(input.ContentID)); err != nil {
+		return content.DraftRow{}, err
+	}
+	displayJSON := input.DisplayJSON
+	if len(displayJSON) == 0 {
+		displayJSON = []byte(`{}`)
+	}
+	row := content.DraftRow{
+		ContentID:    input.ContentID,
+		DraftVersion: strings.TrimSpace(input.DraftVersion),
+		Enabled:      input.Enabled,
+		DisplayJSON:  append([]byte(nil), displayJSON...),
+		DataJSON:     append([]byte(nil), input.DataJSON...),
+		UpdatedBy:    strings.TrimSpace(input.UpdatedBy),
+	}
+	if err := content.ValidateSnapshotRow(input.ContentType, content.SnapshotRow{
+		ContentID:   row.ContentID,
+		Enabled:     row.Enabled,
+		DisplayJSON: row.DisplayJSON,
+		DataJSON:    row.DataJSON,
+	}); err != nil {
+		return content.DraftRow{}, err
+	}
+	if err := service.writer.UpsertDraftRow(ctx, input.ContentType, row); err != nil {
+		return content.DraftRow{}, err
+	}
+	return cloneDraftRow(row), nil
+}
+
+func (service *ContentService) ValidateDraft(ctx context.Context, input content.DraftValidationInput) (content.DraftValidationReport, error) {
+	if service == nil || service.drafts == nil {
+		return content.DraftValidationReport{}, ErrMissingContentDraftStore
+	}
+	if service.validator == nil {
+		return content.DraftValidationReport{}, ErrMissingContentDraftValidator
+	}
+	version := strings.TrimSpace(input.Version)
+	if version == "" {
+		version = "draft_validation"
+	}
+	report := content.DraftValidationReport{
+		Valid:     true,
+		Version:   version,
+		CheckedAt: service.clock.Now().UTC(),
+	}
+	snapshot := content.Snapshot{Version: version}
+	for _, contentType := range content.AllContentTypes() {
+		rows, err := service.drafts.LoadDraftRows(ctx, contentType)
+		if err != nil {
+			return content.DraftValidationReport{}, err
+		}
+		if err := snapshot.SetRows(contentType, content.SnapshotRowsFromDraftRows(rows)); err != nil {
+			return content.DraftValidationReport{}, err
+		}
+	}
+	if err := snapshot.Validate(); err != nil {
+		report.Valid = false
+		report.Issues = append(report.Issues, validationIssue("snapshot", "invalid_snapshot", err))
+		return report, nil
+	}
+	if err := service.validator.ValidateContentSnapshot(ctx, snapshot); err != nil {
+		report.Valid = false
+		report.Issues = append(report.Issues, validationIssue("runtime_catalog", "invalid_runtime_catalog", err))
+		return report, nil
+	}
+	return report, nil
+}
+
+func validationIssue(path string, code string, err error) content.DraftValidationIssue {
+	return content.DraftValidationIssue{
+		Path:    path,
+		Code:    code,
+		Message: err.Error(),
+	}
 }
 
 func cloneDraftRows(rows []content.DraftRow) []content.DraftRow {

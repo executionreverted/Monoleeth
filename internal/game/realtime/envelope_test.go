@@ -456,6 +456,16 @@ func TestOperationRegistryAcceptsAdminContentOperations(t *testing.T) {
 			body: `{"request_id":"request-admin-content-get","op":"admin.content.get","payload":{"content_type":"module","content_id":"laser_alpha_t1"},"client_seq":3,"v":1}`,
 			want: OperationAdminContentGet,
 		},
+		{
+			name: "update draft",
+			body: `{"request_id":"request-admin-content-update-draft","op":"admin.content.update_draft","payload":{"content_type":"module","content_id":"laser_alpha_t1","enabled":true,"display_json":{},"data_json":{"attack_damage":9}},"client_seq":4,"v":1}`,
+			want: OperationAdminContentUpdateDraft,
+		},
+		{
+			name: "validate draft",
+			body: `{"request_id":"request-admin-content-validate-draft","op":"admin.content.validate_draft","payload":{},"client_seq":5,"v":1}`,
+			want: OperationAdminContentValidateDraft,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
