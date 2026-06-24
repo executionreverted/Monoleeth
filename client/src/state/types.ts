@@ -355,6 +355,108 @@ export interface AdminRepairCraftJobSummary {
   message?: string;
 }
 
+export interface AdminContentVersionSummary {
+  id: string;
+  version: string;
+  status: string;
+  current: boolean;
+  notes?: string;
+  balance_tag?: string;
+  created_by?: string;
+  created_at: number;
+  published_by?: string;
+  published_at?: number;
+  rolled_back_from?: string;
+}
+
+export interface AdminContentVersionsSummary {
+  versions: AdminContentVersionSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+  generated_at: number;
+}
+
+export interface AdminContentDraftRow {
+  content_type?: string;
+  content_id: string;
+  draft_version?: string;
+  enabled: boolean;
+  display_json: JsonObject;
+  data_json: JsonObject;
+  updated_by?: string;
+}
+
+export interface AdminContentDraftList {
+  content_type: string;
+  rows: AdminContentDraftRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  generated_at: number;
+}
+
+export interface AdminContentValidationIssue {
+  path: string;
+  code: string;
+  message: string;
+}
+
+export interface AdminContentValidation {
+  valid: boolean;
+  version: string;
+  checked_at: number;
+  issues: AdminContentValidationIssue[];
+}
+
+export interface AdminContentPublishSummary {
+  published: boolean;
+  idempotent: boolean;
+  row_count: number;
+  version: AdminContentVersionSummary | null;
+  validation: AdminContentValidation | null;
+}
+
+export interface AdminContentRollbackSummary {
+  rolled_back: boolean;
+  idempotent: boolean;
+  target_version_id: string;
+  version: AdminContentVersionSummary | null;
+  validation: AdminContentValidation | null;
+}
+
+export interface AdminContentAuditEntry {
+  id: string;
+  content_version_id?: string;
+  content_type: string;
+  content_id: string;
+  field_path: string;
+  old_value_json?: JsonObject;
+  new_value_json?: JsonObject;
+  actor_ref?: string;
+  note?: string;
+  balance_tag?: string;
+  created_at: number;
+}
+
+export interface AdminContentAuditLog {
+  entries: AdminContentAuditEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+  generated_at: number;
+}
+
+export interface AdminContentState {
+  versions: AdminContentVersionsSummary | null;
+  rowsByType: Record<string, AdminContentDraftList>;
+  selectedRow: AdminContentDraftRow | null;
+  validation: AdminContentValidation | null;
+  publish: AdminContentPublishSummary | null;
+  rollback: AdminContentRollbackSummary | null;
+  auditLog: AdminContentAuditLog | null;
+}
+
 export interface CommandLogSummary {
   entries: Array<{
     request_id: string;
@@ -901,6 +1003,7 @@ export interface ClientState {
   economyDashboard: EconomyDashboardSummary | null;
   adminInspection: AdminInspectionSummary | null;
   adminRepair: AdminRepairCraftJobSummary | null;
+  adminContent: AdminContentState | null;
   commandLogSummary: CommandLogSummary | null;
   metrics: MetricsSummary | null;
   releaseGate: ReleaseGateSummary | null;

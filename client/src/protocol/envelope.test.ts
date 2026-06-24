@@ -133,6 +133,65 @@ describe('parseServerMessage', () => {
     ).toThrow(/Forbidden server payload rejected/);
   });
 
+  test('accepts admin content response internals only for matching admin content request', () => {
+    const raw = JSON.stringify({
+      request_id: 'request-admin-content-list',
+      ok: true,
+      payload: {
+        content: {
+          content_type: 'module',
+          rows: [
+            {
+              content_id: 'laser_alpha_t1',
+              enabled: true,
+              display_json: {},
+              data_json: {
+                damage: 9,
+                cooldown: { duration_ms: 1200 },
+                map_id: 'internal-map-for-admin-only',
+              },
+            },
+          ],
+          total: 1,
+        },
+      },
+      server_time: 182736126,
+      v: 1,
+    });
+
+    expect(() => parseServerMessage(raw)).toThrow(/Forbidden server payload rejected/);
+    const message = parseServerMessage(raw, {
+      operationForRequestID: () => OPERATIONS.adminContentList,
+    });
+    expect(message).toMatchObject({
+      request_id: 'request-admin-content-list',
+      ok: true,
+      payload: { content: { rows: [{ content_id: 'laser_alpha_t1' }] } },
+    });
+  });
+
+  test('still rejects secrets inside admin content responses', () => {
+    expect(() =>
+      parseServerMessage(
+        JSON.stringify({
+          request_id: 'request-admin-content-secret',
+          ok: true,
+          payload: {
+            content: {
+              content_type: 'module',
+              rows: [{ content_id: 'laser_alpha_t1', enabled: true, display_json: {}, data_json: { token: 'nope' } }],
+            },
+          },
+          server_time: 182736126,
+          v: 1,
+        }),
+        {
+          operationForRequestID: () => OPERATIONS.adminContentList,
+        },
+      ),
+    ).toThrow(/Forbidden server payload rejected/);
+  });
+
   test('accepts public progression fields from server payloads', () => {
     const message = parseServerMessage(
       JSON.stringify({
@@ -803,6 +862,29 @@ describe('default outbound operations', () => {
     expect(() => assertClientSafePayload({ portal_id: 'east_gate', spawn: { position: { x: 1, y: 2 } } })).toThrow(
       /trusted field: spawn/,
     );
+  });
+
+  test('allows CMS stat fields only through admin content draft command builder', () => {
+    const builder = new CommandBuilder();
+    const command = builder.adminContentUpdateDraft({
+      contentType: 'module',
+      contentID: 'laser_alpha_t1',
+      enabled: true,
+      displayJSON: { name: 'LC1' },
+      dataJSON: { damage: 9, cooldown: { duration_ms: 1200 }, map_id: 'admin-map' },
+    });
+
+    expect(command.op).toBe(OPERATIONS.adminContentUpdateDraft);
+    expect(command.payload.data_json).toMatchObject({ damage: 9, map_id: 'admin-map' });
+    expect(() => assertClientSafePayload({ data_json: { damage: 9 } })).toThrow(/trusted field/);
+    expect(() =>
+      builder.adminContentUpdateDraft({
+        contentType: 'module',
+        contentID: 'laser_alpha_t1',
+        enabled: true,
+        dataJSON: { token: 'still-server-owned' },
+      }),
+    ).toThrow(/trusted field/);
   });
 
   test('exclude unimplemented browser mutation contracts', () => {

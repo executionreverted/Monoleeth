@@ -66,6 +66,14 @@ export const OPERATIONS = {
   adminInspectPlayer: 'admin.inspect_player',
   adminRepairCraftJob: 'admin.repair_craft_job',
   adminEconomyDashboard: 'admin.economy_dashboard',
+  adminContentVersions: 'admin.content.versions',
+  adminContentList: 'admin.content.list',
+  adminContentGet: 'admin.content.get',
+  adminContentUpdateDraft: 'admin.content.update_draft',
+  adminContentValidateDraft: 'admin.content.validate_draft',
+  adminContentPublish: 'admin.content.publish',
+  adminContentRollback: 'admin.content.rollback',
+  adminContentAuditLog: 'admin.content.audit_log',
   observabilityCommandLog: 'observability.command_log',
   observabilityMetrics: 'observability.metrics',
   observabilityReleaseGate: 'observability.release_gate',
@@ -301,17 +309,64 @@ const forbiddenPayloadKeys = new Set([
   'cookie',
 ]);
 
-export function parseServerMessage(raw: string): ServerMessage {
+export const adminContentResponseAllowedPayloadKeys = new Set([
+  'map_id',
+  'map_key',
+  'public_map_key',
+  'damage',
+  'speed',
+  'rank',
+  'loot',
+  'cooldown',
+  'expires_at',
+  'hidden',
+  'internal',
+  'internal_metadata',
+  'total',
+  'stock_total',
+  'stock_remaining',
+  'spawn',
+  'spawn_point',
+  'spawn_position',
+  'destination',
+  'destination_id',
+  'destination_map_id',
+  'destination_map_key',
+  'destination_public_key',
+  'destination_public_map_key',
+  'to_map_key',
+  'to_public_map_key',
+  'gameplay_seed',
+  'procedural_seed',
+  'future_spawn',
+  'future_spawn_data',
+  'spawn_candidates',
+  'candidate',
+  'candidate_key',
+  'candidate_data',
+  'loot_table',
+]);
+
+export interface ServerParseOptions {
+  operationForRequestID?(requestID: string): string | null;
+}
+
+export function parseServerMessage(raw: string, options: ServerParseOptions = {}): ServerMessage {
   const parsed = parseJson(raw);
   assertJsonObject(parsed, 'server message');
   assertVersion(parsed);
 
   if ('ok' in parsed) {
+    const requestID = requireString(parsed.request_id, 'request_id');
     if (parsed.ok === true) {
       const payload = requireObject(parsed.payload, 'response payload');
-      rejectForbiddenPayloadKeys(payload);
+      rejectForbiddenPayloadKeys(payload, {
+        allowedKeys: isAdminContentOperation(options.operationForRequestID?.(requestID))
+          ? adminContentResponseAllowedPayloadKeys
+          : undefined,
+      });
       return {
-        request_id: requireString(parsed.request_id, 'request_id'),
+        request_id: requestID,
         ok: true,
         payload,
         server_time: requireNumber(parsed.server_time, 'server_time'),
@@ -322,7 +377,7 @@ export function parseServerMessage(raw: string): ServerMessage {
     if (parsed.ok === false) {
       const error = requireObject(parsed.error, 'error');
       return {
-        request_id: requireString(parsed.request_id, 'request_id'),
+        request_id: requestID,
         ok: false,
         error: {
           code: requireString(error.code, 'error.code'),
@@ -348,17 +403,34 @@ export function parseServerMessage(raw: string): ServerMessage {
   };
 }
 
-export function rejectForbiddenPayloadKeys(value: JsonValue): void {
-  const found = findForbiddenPayloadKey(value);
+export function isAdminContentOperation(operation: string | null | undefined): boolean {
+  return (
+    operation === OPERATIONS.adminContentVersions ||
+    operation === OPERATIONS.adminContentList ||
+    operation === OPERATIONS.adminContentGet ||
+    operation === OPERATIONS.adminContentUpdateDraft ||
+    operation === OPERATIONS.adminContentValidateDraft ||
+    operation === OPERATIONS.adminContentPublish ||
+    operation === OPERATIONS.adminContentRollback ||
+    operation === OPERATIONS.adminContentAuditLog
+  );
+}
+
+export interface ForbiddenPayloadOptions {
+  allowedKeys?: ReadonlySet<string>;
+}
+
+export function rejectForbiddenPayloadKeys(value: JsonValue, options: ForbiddenPayloadOptions = {}): void {
+  const found = findForbiddenPayloadKey(value, options.allowedKeys);
   if (found) {
     throw new Error('Forbidden server payload rejected.');
   }
 }
 
-export function findForbiddenPayloadKey(value: JsonValue): string | null {
+export function findForbiddenPayloadKey(value: JsonValue, allowedKeys?: ReadonlySet<string>): string | null {
   if (Array.isArray(value)) {
     for (const item of value) {
-      const found = findForbiddenPayloadKey(item);
+      const found = findForbiddenPayloadKey(item, allowedKeys);
       if (found) {
         return found;
       }
@@ -372,10 +444,10 @@ export function findForbiddenPayloadKey(value: JsonValue): string | null {
 
   for (const [key, child] of Object.entries(value)) {
     const normalized = key.toLowerCase();
-    if (forbiddenPayloadKeys.has(normalized)) {
+    if (forbiddenPayloadKeys.has(normalized) && !allowedKeys?.has(normalized)) {
       return key;
     }
-    const childFound = findForbiddenPayloadKey(child);
+    const childFound = findForbiddenPayloadKey(child, allowedKeys);
     if (childFound) {
       return childFound;
     }

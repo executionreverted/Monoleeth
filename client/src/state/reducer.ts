@@ -73,6 +73,7 @@ export function createInitialState(): ClientState {
     economyDashboard: null,
     adminInspection: null,
     adminRepair: null,
+    adminContent: null,
     commandLogSummary: null,
     metrics: null,
     releaseGate: null,

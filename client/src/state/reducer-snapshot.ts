@@ -1,4 +1,4 @@
-import { JsonObject, rejectForbiddenPayloadKeys } from '../protocol/envelope';
+import { adminContentResponseAllowedPayloadKeys, JsonObject, rejectForbiddenPayloadKeys } from '../protocol/envelope';
 import type { ClientState } from './types';
 import { isJsonObject, objectField } from './reducer-helpers';
 import {
@@ -52,13 +52,19 @@ import {
   parseReleaseGateSummary,
 } from './reducer-quests-admin';
 import { clearOriginMapLiveState } from './reducer-world';
+import { applyAdminContentPayload, hasAdminContentPayload } from './reducer-content-admin';
 
 export function applySnapshotPayload(state: ClientState, payload: JsonObject): ClientState {
-  rejectForbiddenPayloadKeys(payload);
-
-  let next = applyMapSnapshotPayload(state, payload, {
-    clearMapScopedState: clearOriginMapLiveState,
+  const adminContentPayload = hasAdminContentPayload(payload);
+  rejectForbiddenPayloadKeys(payload, {
+    allowedKeys: adminContentPayload ? adminContentResponseAllowedPayloadKeys : undefined,
   });
+
+  let next = adminContentPayload
+    ? state
+    : applyMapSnapshotPayload(state, payload, {
+        clearMapScopedState: clearOriginMapLiveState,
+      });
 
   if (typeof payload.authenticated === 'boolean') {
     next = {
@@ -328,6 +334,8 @@ export function applySnapshotPayload(state: ClientState, payload: JsonObject): C
       abuseCoverage: parseAbuseCoverageSummary(abuseCoverage, next.abuseCoverage),
     };
   }
+
+  next = applyAdminContentPayload(next, payload);
 
   const quote = objectField(payload, 'repair_quote') ?? (typeof payload.cost === 'number' && typeof payload.ship_id === 'string' ? payload : null);
   if (quote) {

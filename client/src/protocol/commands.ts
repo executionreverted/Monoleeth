@@ -2,6 +2,7 @@ import { createRequestId } from './request-id';
 import { JsonObject, OPERATIONS, Operation, PROTOCOL_VERSION, RequestEnvelope, Vec2 } from './envelope';
 
 type CommandPayload = JsonObject;
+type AdminContentJSON = JsonObject;
 
 export type RouteDestinationType = 'planet' | 'storage' | 'station';
 
@@ -420,6 +421,101 @@ export class CommandBuilder {
     return this.build(OPERATIONS.adminEconomyDashboard, {});
   }
 
+  adminContentVersions(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.adminContentVersions, {});
+  }
+
+  adminContentList(contentType = 'module'): RequestEnvelope<{ content_type: string }> {
+    return this.build(OPERATIONS.adminContentList, { content_type: contentType });
+  }
+
+  adminContentGet(contentType: string, contentID: string): RequestEnvelope<{ content_type: string; content_id: string }> {
+    return this.build(OPERATIONS.adminContentGet, { content_type: contentType, content_id: contentID });
+  }
+
+  adminContentUpdateDraft(input: {
+    contentType: string;
+    contentID: string;
+    enabled: boolean;
+    displayJSON?: AdminContentJSON;
+    dataJSON: AdminContentJSON;
+  }): RequestEnvelope<{
+    content_type: string;
+    content_id: string;
+    enabled: boolean;
+    display_json?: AdminContentJSON;
+    data_json: AdminContentJSON;
+  }> {
+    const payload: {
+      content_type: string;
+      content_id: string;
+      enabled: boolean;
+      display_json?: AdminContentJSON;
+      data_json: AdminContentJSON;
+    } = {
+      content_type: input.contentType,
+      content_id: input.contentID,
+      enabled: input.enabled,
+      data_json: input.dataJSON,
+    };
+    if (input.displayJSON) {
+      payload.display_json = input.displayJSON;
+    }
+    return this.build(OPERATIONS.adminContentUpdateDraft, payload, [], true);
+  }
+
+  adminContentValidateDraft(version?: string): RequestEnvelope<{ version?: string }> {
+    return this.build(OPERATIONS.adminContentValidateDraft, version ? { version } : {});
+  }
+
+  adminContentPublish(input: {
+    version?: string;
+    notes?: string;
+    balanceTag?: string;
+  } = {}): RequestEnvelope<{ version?: string; notes?: string; balance_tag?: string }> {
+    return this.build(OPERATIONS.adminContentPublish, {
+      ...(input.version ? { version: input.version } : {}),
+      ...(input.notes ? { notes: input.notes } : {}),
+      ...(input.balanceTag ? { balance_tag: input.balanceTag } : {}),
+    });
+  }
+
+  adminContentRollback(input: {
+    targetVersionID: string;
+    version?: string;
+    notes?: string;
+    balanceTag?: string;
+  }): RequestEnvelope<{ target_version_id: string; version?: string; notes?: string; balance_tag?: string }> {
+    return this.build(OPERATIONS.adminContentRollback, {
+      target_version_id: input.targetVersionID,
+      ...(input.version ? { version: input.version } : {}),
+      ...(input.notes ? { notes: input.notes } : {}),
+      ...(input.balanceTag ? { balance_tag: input.balanceTag } : {}),
+    });
+  }
+
+  adminContentAuditLog(input: {
+    versionID?: string;
+    contentType?: string;
+    contentID?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): RequestEnvelope<{
+    version_id?: string;
+    content_type?: string;
+    content_id?: string;
+    limit?: number;
+    offset?: number;
+  }> {
+    return this.build(OPERATIONS.adminContentAuditLog, {
+      ...(input.versionID ? { version_id: input.versionID } : {}),
+      ...(input.contentType ? { content_type: input.contentType } : {}),
+      ...(input.contentID ? { content_id: input.contentID } : {}),
+      ...(input.limit ? { limit: input.limit } : {}),
+      ...(input.offset ? { offset: input.offset } : {}),
+    });
+  }
+
   observabilityCommandLog(): RequestEnvelope<Record<string, never>> {
     return this.build(OPERATIONS.observabilityCommandLog, {});
   }
@@ -447,8 +543,9 @@ export class CommandBuilder {
     op: Operation,
     payload: TPayload,
     trustedTopLevelFieldAllowlist: readonly string[] = [],
+    allowAdminContentFields = false,
   ): RequestEnvelope<TPayload> {
-    assertClientSafePayloadInternal(payload, trustedTopLevelFieldAllowlist);
+    assertClientSafePayloadInternal(payload, trustedTopLevelFieldAllowlist, allowAdminContentFields);
     this.clientSeq += 1;
     return {
       request_id: createRequestId(),
@@ -483,20 +580,65 @@ function routeDestinationPayload(input: {
 function assertClientSafePayloadInternal(
   payload: CommandPayload,
   trustedTopLevelFieldAllowlist: readonly string[] = [],
+  allowAdminContentFields = false,
 ): void {
   const forbidden = findTrustedClientField(
     payload,
     new Set(trustedTopLevelFieldAllowlist.map((field) => field.toLowerCase())),
+    allowAdminContentFields,
   );
   if (forbidden) {
     throw new Error(`Command payload must not include trusted field: ${forbidden}`);
   }
 }
 
-function findTrustedClientField(value: unknown, trustedTopLevelFieldAllowlist: ReadonlySet<string>, depth = 0): string | null {
+const adminContentTrustedFieldAllowlist = new Set([
+  'map_id',
+  'map_key',
+  'public_map_key',
+  'damage',
+  'speed',
+  'rank',
+  'loot',
+  'cooldown',
+  'expires_at',
+  'hidden',
+  'internal',
+  'internal_metadata',
+  'total',
+  'stock_total',
+  'stock_remaining',
+  'spawn',
+  'spawn_point',
+  'spawn_position',
+  'destination',
+  'destination_id',
+  'destination_map_id',
+  'destination_map_key',
+  'destination_public_key',
+  'destination_public_map_key',
+  'to_map_key',
+  'to_public_map_key',
+  'gameplay_seed',
+  'procedural_seed',
+  'future_spawn',
+  'future_spawn_data',
+  'spawn_candidates',
+  'candidate',
+  'candidate_key',
+  'candidate_data',
+  'loot_table',
+]);
+
+function findTrustedClientField(
+  value: unknown,
+  trustedTopLevelFieldAllowlist: ReadonlySet<string>,
+  allowAdminContentFields: boolean,
+  depth = 0,
+): string | null {
   if (Array.isArray(value)) {
     for (const item of value) {
-      const found = findTrustedClientField(item, trustedTopLevelFieldAllowlist, depth + 1);
+      const found = findTrustedClientField(item, trustedTopLevelFieldAllowlist, allowAdminContentFields, depth + 1);
       if (found) {
         return found;
       }
@@ -511,7 +653,7 @@ function findTrustedClientField(value: unknown, trustedTopLevelFieldAllowlist: R
   for (const [key, child] of Object.entries(value)) {
     const normalized = key.toLowerCase();
     if (depth === 0 && trustedTopLevelFieldAllowlist.has(normalized)) {
-      const childFound = findTrustedClientField(child, new Set(), depth + 1);
+      const childFound = findTrustedClientField(child, new Set(), allowAdminContentFields, depth + 1);
       if (childFound) {
         return childFound;
       }
@@ -631,10 +773,17 @@ function findTrustedClientField(value: unknown, trustedTopLevelFieldAllowlist: R
       normalized === 'password_hash' ||
       normalized === 'cookie'
     ) {
+      if (allowAdminContentFields && adminContentTrustedFieldAllowlist.has(normalized)) {
+        const childFound = findTrustedClientField(child, trustedTopLevelFieldAllowlist, allowAdminContentFields, depth + 1);
+        if (childFound) {
+          return childFound;
+        }
+        continue;
+      }
       return key;
     }
 
-    const childFound = findTrustedClientField(child, trustedTopLevelFieldAllowlist, depth + 1);
+    const childFound = findTrustedClientField(child, trustedTopLevelFieldAllowlist, allowAdminContentFields, depth + 1);
     if (childFound) {
       return childFound;
     }

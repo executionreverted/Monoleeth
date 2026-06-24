@@ -10,6 +10,7 @@ export interface RealtimeClientOptions {
 export class RealtimeClient {
   private socket: WebSocket | null = null;
   private generation = 0;
+  private readonly requestOperations = new Map<string, string>();
 
   constructor(private readonly options: RealtimeClientOptions) {}
 
@@ -68,7 +69,13 @@ export class RealtimeClient {
       }
 
       try {
-        this.options.onMessage(parseServerMessage(event.data));
+        const message = parseServerMessage(event.data, {
+          operationForRequestID: (requestID) => this.requestOperations.get(requestID) ?? null,
+        });
+        if ('ok' in message) {
+          this.requestOperations.delete(message.request_id);
+        }
+        this.options.onMessage(message);
       } catch (error) {
         this.options.onError(error instanceof Error ? error.message : String(error));
       }
@@ -83,6 +90,7 @@ export class RealtimeClient {
     const socket = this.socket;
     this.socket = null;
     this.generation += 1;
+    this.requestOperations.clear();
     socket.close();
     this.options.onStatus('offline');
   }
@@ -93,6 +101,7 @@ export class RealtimeClient {
     }
 
     this.socket.send(JSON.stringify(envelope));
+    this.requestOperations.set(envelope.request_id, envelope.op);
     return true;
   }
 
