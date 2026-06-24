@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createInitialState } from '../state/reducer';
 import type { AdminContentState, ClientState } from '../state/types';
+import { HUD } from './hud';
 import { adminContentBlock } from './hud-render-admin-content';
 import { opsPanel } from './hud-render-panels';
 import { hudSelection } from './hud-selection';
+import type { HUDHandlers } from './hud-types';
 
 describe('admin content HUD render', () => {
   beforeEach(() => {
@@ -31,6 +33,33 @@ describe('admin content HUD render', () => {
     expect(adminContentBlock(state)).toBe('');
     expect(opsPanel(state)).toContain('Admin session required.');
     expect(opsPanel(state)).not.toContain('admin-content-publish');
+  });
+
+  test('keeps stale admin content hidden from non-admin render paths', () => {
+    const state = adminState();
+    state.auth = {
+      ...state.auth,
+      session: {
+        ...state.auth.session!,
+        account: { email: 'pilot@example.com', admin: false },
+      },
+    };
+    const staleRow = state.adminContent!.rowsByType.module.rows[0];
+    staleRow.data_json = {
+      ...staleRow.data_json,
+      loot_table: 'hidden_drop_rate_sentinel',
+      spawn_candidates: ['hidden_spawn_window_sentinel'],
+      admin_notes: 'hidden_admin_note_sentinel',
+    };
+
+    const html = opsPanel(state);
+
+    expect(adminContentBlock(state)).toBe('');
+    expect(html).toContain('Admin session required.');
+    expect(html).not.toContain('admin-content-refresh');
+    expect(html).not.toContain('hidden_drop_rate_sentinel');
+    expect(html).not.toContain('hidden_spawn_window_sentinel');
+    expect(html).not.toContain('hidden_admin_note_sentinel');
   });
 
   test('renders admin CMS actions, versions, module rows, and selected stats', () => {
@@ -80,6 +109,34 @@ describe('admin content HUD render', () => {
     expect(html).toContain('data-action="admin-content-publish" disabled');
     expect(html).toContain('negative_damage');
     expect(html).toContain('damage must be positive');
+  });
+
+  test('dispatches admin CMS refresh, validate, publish, audit, rollback, and select actions', () => {
+    const handlers = adminContentHandlers();
+
+    dispatchHUDButton('admin-content-refresh', handlers);
+    dispatchHUDButton('admin-content-validate', handlers);
+    dispatchHUDButton('admin-content-publish', handlers);
+    dispatchHUDButton('admin-content-audit', handlers);
+
+    const rollback = dispatchHUDButton('admin-content-rollback', handlers, {
+      versionId: '11111111-1111-5111-8111-111111111111',
+    });
+    const select = dispatchHUDButton('admin-content-select', handlers, {
+      contentType: 'module',
+      contentId: 'shield_alpha_t1',
+    });
+
+    expect(handlers.onAdminContentRefresh).toHaveBeenCalledTimes(1);
+    expect(handlers.onAdminContentValidate).toHaveBeenCalledTimes(1);
+    expect(handlers.onAdminContentPublish).toHaveBeenCalledTimes(1);
+    expect(handlers.onAdminContentAudit).toHaveBeenCalledTimes(1);
+    expect(handlers.onAdminContentRollback).toHaveBeenCalledWith('11111111-1111-5111-8111-111111111111');
+    expect(handlers.onAdminContentRollback).toHaveBeenCalledTimes(1);
+    expect(hudSelection.selectedAdminContentType).toBe('module');
+    expect(hudSelection.selectedAdminContentID).toBe('shield_alpha_t1');
+    expect(rollback.rerenderCurrent).not.toHaveBeenCalled();
+    expect(select.rerenderCurrent).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -190,5 +247,54 @@ function adminState(contentOverride: Partial<AdminContentState> = {}): ClientSta
       },
       ...contentOverride,
     },
+  };
+}
+
+type AdminContentHandlerSpies = ReturnType<typeof adminContentHandlers>;
+
+type HUDDispatchHarness = {
+  handlers: HUDHandlers;
+  currentState: ClientState | null;
+  dispatchAction(action: string | undefined): boolean;
+  rerenderCurrent(): void;
+};
+
+type HUDDispatchPrototype = {
+  dispatchAction(this: HUDDispatchHarness, action: string | undefined): boolean;
+  dispatchButtonAction(this: HUDDispatchHarness, button: HTMLButtonElement): void;
+};
+
+function dispatchHUDButton(
+  action: string,
+  handlers: AdminContentHandlerSpies,
+  dataset: Record<string, string> = {},
+): { rerenderCurrent: ReturnType<typeof vi.fn> } {
+  const hudDispatch = HUD.prototype as unknown as HUDDispatchPrototype;
+  const rerenderCurrent = vi.fn();
+  const harness: HUDDispatchHarness = {
+    handlers: handlers as unknown as HUDHandlers,
+    currentState: null,
+    dispatchAction: hudDispatch.dispatchAction,
+    rerenderCurrent,
+  };
+
+  hudDispatch.dispatchButtonAction.call(harness, testButton(action, dataset));
+
+  return { rerenderCurrent };
+}
+
+function testButton(action: string, dataset: Record<string, string>): HTMLButtonElement {
+  return {
+    dataset: { action, ...dataset },
+  } as unknown as HTMLButtonElement;
+}
+
+function adminContentHandlers() {
+  return {
+    onAdminContentRefresh: vi.fn(),
+    onAdminContentValidate: vi.fn(),
+    onAdminContentPublish: vi.fn(),
+    onAdminContentRollback: vi.fn(),
+    onAdminContentAudit: vi.fn(),
   };
 }
