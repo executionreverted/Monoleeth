@@ -90,7 +90,7 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 				}
 				if len(payload.Inventory.Stackable) != 0 ||
 					len(payload.Inventory.Instances) != 3 ||
-					payload.Inventory.Counts.EquippedInstances != 1 ||
+					payload.Inventory.Counts.EquippedInstances != 2 ||
 					payload.Cargo.Capacity != 60 {
 					t.Fatalf("inventory payload = %+v cargo=%+v, want starter modules and cargo capacity", payload.Inventory, payload.Cargo)
 				}
@@ -114,6 +114,10 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 				if payload.Loadout.ActiveShipID != starterShipID.String() || len(payload.Loadout.Slots) != 3 {
 					t.Fatalf("loadout payload = %+v, want starter slot snapshot", payload.Loadout)
 				}
+				if requireLoadoutSlot(t, payload.Loadout, "offensive_1").ModuleItemID != "laser_alpha_t1" ||
+					requireLoadoutSlot(t, payload.Loadout, "utility_1").ModuleItemID != "scanner_t1" {
+					t.Fatalf("loadout payload = %+v, want starter laser and scanner equipped", payload.Loadout)
+				}
 			case "stats":
 				var payload struct {
 					Stats statSnapshotPayload `json:"stats"`
@@ -124,8 +128,8 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 				if payload.Stats.RadarRange != defaultRadarRange ||
 					payload.Stats.CargoCapacity != 60 ||
 					payload.Stats.LootPickupRange != runtimeLootPickupRange ||
-					payload.Stats.BasicLaserEnergyCost != runtimeBasicLaserEnergyCost ||
-					payload.Stats.BasicLaserCooldownMS != runtimeBasicLaserCooldownMS {
+					payload.Stats.BasicLaserEnergyCost != 8 ||
+					payload.Stats.BasicLaserCooldownMS != 1200 {
 					t.Fatalf("stats payload = %+v, want starter effective stats", payload.Stats)
 				}
 			case "crafting":
@@ -149,6 +153,7 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 	}
 
 	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	equipStarterLaserForTest(t, gameServer, resolved.PlayerID)
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
 	gameServer.runtime.tickAndCollectAOIEvents()
 	dropID := killTrainingNPCForDrop(t, conn)
@@ -322,7 +327,7 @@ func TestLoadoutEquipAndUnequipMutateServerOwnedInventory(t *testing.T) {
 	if err := json.Unmarshal(inventoryResponse.Payload, &inventoryPayload); err != nil {
 		t.Fatalf("decode inventory snapshot: %v", err)
 	}
-	laserID := requireInventoryInstance(t, inventoryPayload.Inventory, "laser_alpha_t1", economy.LocationKindAccountInventory.String())
+	laserID := requireInventoryInstance(t, inventoryPayload.Inventory, "laser_alpha_t1", economy.LocationKindShipEquipped.String())
 	shieldID := requireInventoryInstance(t, inventoryPayload.Inventory, "shield_generator_t1", economy.LocationKindAccountInventory.String())
 
 	equipRequest := `{"request_id":"request-loadout-equip-laser","op":"loadout.equip_module","payload":{"slot_id":"offensive_1","item_instance_id":"` + laserID + `"},"client_seq":2,"v":1}`

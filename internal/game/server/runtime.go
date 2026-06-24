@@ -29,6 +29,7 @@ import (
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
+	gameruntime "gameproject/internal/game/runtime"
 	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
@@ -157,6 +158,7 @@ type Runtime struct {
 	Content                        catalog.ContentRegistry
 	LoadoutStore                   *modules.InMemoryLoadoutStore
 	Loadout                        modules.LoadoutService
+	StatInputs                     *gameruntime.StatInputProvider
 	Recipes                        crafting.RecipeCatalog
 	ProductionCatalog              production.Catalog
 	Crafting                       *crafting.CraftingService
@@ -498,6 +500,10 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	statInputs, err := gameruntime.NewStatInputProviderWithProgression(shipCatalog, moduleCatalog, loadoutStore, progressionService)
+	if err != nil {
+		return nil, err
+	}
 	craftingService, err := crafting.NewCraftingService(crafting.CraftingServiceConfig{
 		Clock:              clock,
 		Recipes:            recipeCatalog,
@@ -622,6 +628,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Content:                        contentRegistry,
 		LoadoutStore:                   loadoutStore,
 		Loadout:                        loadoutService,
+		StatInputs:                     statInputs,
 		Recipes:                        recipeCatalog,
 		ProductionCatalog:              contentBundle.Production,
 		Crafting:                       craftingService,

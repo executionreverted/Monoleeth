@@ -357,13 +357,25 @@ func moduleDefinitionModifier(definition modules.ModuleDefinition) stats.ModuleM
 	for _, statModifier := range definition.StatModifiers {
 		applyModuleStat(&modifier, statModifier)
 	}
-	if definition.Energy.ActivationCost > 0 {
+	if definition.Energy.ActivationCost > 0 && moduleUsesBasicAttackEnergy(definition) {
 		modifier.Flat.Combat.WeaponEnergyCost += float64(definition.Energy.ActivationCost)
 	}
 	for _, cooldown := range definition.Cooldowns {
 		applyModuleCooldown(&modifier.Flat, cooldown)
 	}
 	return modifier
+}
+
+func moduleUsesBasicAttackEnergy(definition modules.ModuleDefinition) bool {
+	if definition.SlotType == modules.ModuleSlotTypeOffensive {
+		return true
+	}
+	for _, cooldown := range definition.Cooldowns {
+		if cooldown.Key == modules.CooldownBasicAttack {
+			return true
+		}
+	}
+	return false
 }
 
 func applyModuleCooldown(flat *stats.FlatStats, cooldown modules.Cooldown) {

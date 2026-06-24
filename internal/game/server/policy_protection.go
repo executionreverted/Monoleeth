@@ -235,6 +235,10 @@ func (runtime *Runtime) syncPlayerTargetCombatActorLocked(entity world.Entity) e
 		hidden = instance.HiddenPlayers[targetPlayerID] || instance.HiddenEntities[entity.ID]
 	}
 	signature, stealthScore, jammerStrength := runtime.visibilityInputsForEntityLocked(entity, targetPlayerID, hidden)
+	statSnapshot, err := runtime.playerCombatStatsLocked(targetPlayerID, state)
+	if err != nil {
+		return err
+	}
 	actor := combat.ActorState{
 		EntityID:       entity.ID,
 		Type:           world.EntityTypePlayer,
@@ -246,7 +250,7 @@ func (runtime *Runtime) syncPlayerTargetCombatActorLocked(entity world.Entity) e
 		StealthScore:   stealthScore,
 		JammerStrength: jammerStrength,
 		Hidden:         hidden,
-		Stats:          runtime.playerCombatStatsLocked(targetPlayerID, state),
+		Stats:          statSnapshot,
 		HP:             float64(state.Ship.Hull),
 		Shield:         float64(state.Ship.Shield),
 		Energy:         float64(state.Ship.Capacitor),

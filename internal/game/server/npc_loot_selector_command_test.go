@@ -17,6 +17,7 @@ func TestCombatUseSkillSelectorFailureDoesNotLeakQueuedEventsOrKillSpawner(t *te
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
 	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	equipStarterLaserForTest(t, gameServer, resolved.PlayerID)
 
 	targetID := world.EntityID("entity_training_npc")
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, targetID, world.Vec2{})

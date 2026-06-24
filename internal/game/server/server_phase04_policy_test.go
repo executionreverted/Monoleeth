@@ -282,8 +282,8 @@ func TestPvEAllowedInSafeAndPVEMap(t *testing.T) {
 	if response.HasError {
 		t.Fatalf("pve response error = %+v, want success", response.Error)
 	}
-	if capacitor := testShipCapacitor(gameServer, resolved.PlayerID); capacitor != 100-runtimeBasicLaserEnergyCost {
-		t.Fatalf("pve capacitor = %d, want %d", capacitor, 100-runtimeBasicLaserEnergyCost)
+	if capacitor := testShipCapacitor(gameServer, resolved.PlayerID); capacitor != 100-8 {
+		t.Fatalf("pve capacitor = %d, want %d", capacitor, 100-8)
 	}
 }
 

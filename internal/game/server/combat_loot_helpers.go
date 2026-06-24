@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"time"
@@ -66,6 +67,10 @@ func (runtime *Runtime) syncPlayerCombatActorLocked(playerID foundation.PlayerID
 	}
 	hidden := instance.HiddenPlayers[playerID] || instance.HiddenEntities[entity.ID]
 	signature, stealthScore, jammerStrength := runtime.visibilityInputsForEntityLocked(entity, playerID, hidden)
+	statSnapshot, err := runtime.playerCombatStatsLocked(playerID, state)
+	if err != nil {
+		return combat.ActorState{}, err
+	}
 	actor := combat.ActorState{
 		EntityID:       entity.ID,
 		Type:           world.EntityTypePlayer,
@@ -77,7 +82,7 @@ func (runtime *Runtime) syncPlayerCombatActorLocked(playerID foundation.PlayerID
 		StealthScore:   stealthScore,
 		JammerStrength: jammerStrength,
 		Hidden:         hidden,
-		Stats:          runtime.playerCombatStatsLocked(playerID, state),
+		Stats:          statSnapshot,
 		HP:             float64(state.Ship.Hull),
 		Shield:         float64(state.Ship.Shield),
 		Energy:         float64(state.Ship.Capacitor),
@@ -119,9 +124,19 @@ func (runtime *Runtime) syncWorldCombatActorLocked(playerID foundation.PlayerID,
 	return err
 }
 
-func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, state playerRuntimeState) stats.StatSnapshot {
+func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, state playerRuntimeState) (stats.StatSnapshot, error) {
+	shipID, combatStats, err := runtime.effectivePlayerCombatStatsLocked(playerID, state)
+	if err != nil {
+		return stats.StatSnapshot{}, err
+	}
+	if combatStats.WeaponCooldown <= 0 {
+		return stats.StatSnapshot{}, fmt.Errorf("effective basic attack cooldown missing for player %q", playerID)
+	}
+	if combatStats.WeaponEnergyCost <= 0 {
+		return stats.StatSnapshot{}, fmt.Errorf("effective basic attack energy cost missing for player %q", playerID)
+	}
 	exploration := runtime.explorationStatsForPlayerStateLocked(state)
-	return stats.NewStatSnapshot(playerID, starterShipID, 1, stats.EffectiveStats{
+	return stats.NewStatSnapshot(playerID, shipID, 1, stats.EffectiveStats{
 		Core: stats.CoreStats{
 			HPMax:         float64(state.Ship.MaxHull),
 			ShieldMax:     float64(state.Ship.MaxShield),
@@ -130,15 +145,51 @@ func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, st
 			Speed:         state.Stats.Speed,
 			CargoCapacity: float64(state.Stats.CargoCapacity),
 		},
-		Combat: stats.CombatStats{
-			WeaponDamage:     35,
-			WeaponRange:      state.Stats.WeaponRange,
-			WeaponCooldown:   float64(runtime.combatRules.BasicLaserCooldownMS) / 1000,
-			WeaponEnergyCost: float64(runtime.combatRules.BasicLaserEnergyCost),
-			Accuracy:         1,
-		},
+		Combat:      combatStats,
 		Exploration: exploration,
-	}, runtime.clock.Now())
+	}, runtime.clock.Now()), nil
+}
+
+func (runtime *Runtime) effectivePlayerCombatStatsLocked(playerID foundation.PlayerID, state playerRuntimeState) (foundation.ShipID, stats.CombatStats, error) {
+	if runtime.StatInputs == nil {
+		return "", stats.CombatStats{}, fmt.Errorf("stat input provider missing")
+	}
+	shipID := foundation.ShipID(state.Ship.ActiveShipID)
+	if shipID == "" {
+		shipID = runtime.starterContent.ShipID
+	}
+	input, err := runtime.StatInputs.BuildStatsInput(stats.NewStatSubject(playerID, shipID))
+	if err != nil {
+		return "", stats.CombatStats{}, err
+	}
+	effective := stats.AggregateStats(input.AggregationInput())
+	weaponRange := effective.Combat.WeaponRange
+	if weaponRange <= 0 {
+		weaponRange = state.Stats.WeaponRange
+	}
+	return shipID, stats.CombatStats{
+		WeaponDamage:     effective.Combat.WeaponDamage,
+		WeaponRange:      weaponRange,
+		WeaponCooldown:   effective.Combat.WeaponCooldown,
+		WeaponEnergyCost: effective.Combat.WeaponEnergyCost,
+		Accuracy:         1,
+	}, nil
+}
+
+func (runtime *Runtime) refreshPlayerCombatStatsPayloadLocked(playerID foundation.PlayerID) error {
+	state, ok := runtime.players[playerID]
+	if !ok {
+		return worker.ErrUnknownPlayer
+	}
+	_, combatStats, err := runtime.effectivePlayerCombatStatsLocked(playerID, state)
+	if err != nil {
+		return err
+	}
+	state.Stats.WeaponRange = combatStats.WeaponRange
+	state.Stats.BasicLaserEnergyCost = roundCombatValue(combatStats.WeaponEnergyCost)
+	state.Stats.BasicLaserCooldownMS = roundCombatValue(combatStats.WeaponCooldown * 1000)
+	runtime.players[playerID] = state
+	return nil
 }
 
 func (runtime *Runtime) viewerForPlayerLocked(playerID foundation.PlayerID) (visibility.Viewer, error) {

@@ -18,6 +18,7 @@ import (
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/modules"
 	"gameproject/internal/game/observability"
 	"gameproject/internal/game/production"
 	"gameproject/internal/game/quests"
@@ -35,7 +36,7 @@ func newTestServer(t *testing.T, devMode bool) (*Server, *httptest.Server) {
 		DevMode:           devMode,
 		SessionTTL:        time.Hour,
 		TickDelta:         50 * time.Millisecond,
-		ContentRepository: gamecontent.NewStaticRepository(),
+		ContentRepository: &fakeRuntimeRepository{bundle: runtimeTestBundleWithLaserDamage(t, 35)},
 		PasswordHasher:    auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
 	})
 	if err != nil {
@@ -131,6 +132,26 @@ func createResolvedRuntimeSession(t *testing.T, gameServer *Server, email string
 	}
 	return result.Session
 }
+
+func equipStarterLaserForTest(t *testing.T, gameServer *Server, playerID foundation.PlayerID) {
+	t.Helper()
+	laserInstanceID := starterModuleInstanceID(t, gameServer.runtime, playerID, "laser_alpha_t1")
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	if err := gameServer.runtime.equipModuleLocked(playerID, modules.ModuleSlotOffensive1, laserInstanceID, foundation.RequestID("test-equip-laser-"+playerID.String())); err != nil {
+		t.Fatalf("equip starter laser for %q: %v", playerID, err)
+	}
+}
+
+func unequipStarterLaserForTest(t *testing.T, gameServer *Server, playerID foundation.PlayerID) {
+	t.Helper()
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	if err := gameServer.runtime.unequipModuleLocked(playerID, modules.ModuleSlotOffensive1, foundation.RequestID("test-unequip-laser-"+playerID.String())); err != nil {
+		t.Fatalf("unequip starter laser for %q: %v", playerID, err)
+	}
+}
+
 func createResolvedRuntimeSessionOnMap(t *testing.T, gameServer *Server, email string, callsign string, mapID worldmaps.MapID, spawnID worldmaps.SpawnID) auth.ResolvedSession {
 	t.Helper()
 	resolved := createResolvedRuntimeSession(t, gameServer, email, callsign)

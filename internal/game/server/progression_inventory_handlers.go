@@ -331,6 +331,10 @@ func (runtime *Runtime) handleStatsSnapshot(ctx realtime.CommandContext, request
 	if !ok {
 		return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
 	}
+	if err := runtime.refreshPlayerCombatStatsPayloadLocked(ctx.PlayerID); err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	state = runtime.players[ctx.PlayerID]
 	return marshalPayload(map[string]any{
 		"stats": state.Stats,
 	})
@@ -865,6 +869,9 @@ func (runtime *Runtime) unequipModuleLocked(playerID foundation.PlayerID, slotID
 }
 
 func (runtime *Runtime) loadoutMutationResponseLocked(sessionID auth.SessionID, playerID foundation.PlayerID) (json.RawMessage, error) {
+	if err := runtime.refreshPlayerCombatStatsPayloadLocked(playerID); err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
 	loadout, err := runtime.loadoutSnapshotLocked(playerID)
 	if err != nil {
 		return nil, domainErrorForLoadout(err)
@@ -882,6 +889,9 @@ func (runtime *Runtime) loadoutMutationResponseLocked(sessionID auth.SessionID, 
 }
 
 func (runtime *Runtime) hangarMutationResponseLocked(sessionID auth.SessionID, playerID foundation.PlayerID) (json.RawMessage, error) {
+	if err := runtime.refreshPlayerCombatStatsPayloadLocked(playerID); err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
 	hangar, err := runtime.hangarSnapshotLocked(playerID)
 	if err != nil {
 		return nil, domainErrorForHangar(err)

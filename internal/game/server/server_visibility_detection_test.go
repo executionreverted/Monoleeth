@@ -175,6 +175,7 @@ func TestScanWitnessAllowsCombatAgainstHiddenPlayerWhileActive(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	attacker := createResolvedRuntimeSessionOnMap(t, gameServer, "witness-combat-attacker@example.com", "Witness Attacker", seededPVPMapID, "west_gate")
 	target := createResolvedRuntimeSessionOnMap(t, gameServer, "witness-combat-target@example.com", "Witness Target", seededPVPMapID, "west_gate")
+	equipStarterLaserForTest(t, gameServer, attacker.PlayerID)
 	targetEntityID := testPlayerEntityID(t, gameServer, target.PlayerID)
 	moveTestPlayerEntity(gameServer, attacker.PlayerID, world.Vec2{X: 500, Y: 500})
 	moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: 520, Y: 500})

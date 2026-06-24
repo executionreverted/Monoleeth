@@ -204,7 +204,7 @@ func playableVerticalCombatLoot(
 			dropID = verticalRawOreDropID(t, events)
 			break
 		}
-		clock.Advance(time.Duration(runtimeBasicLaserCooldownMS+50) * time.Millisecond)
+		clock.Advance(time.Duration(1200+50) * time.Millisecond)
 	}
 	if dropID == "" {
 		t.Fatalf("vertical combat did not create raw_ore drop for npc_type %q", npcType)

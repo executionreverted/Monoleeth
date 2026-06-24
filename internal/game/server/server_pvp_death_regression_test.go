@@ -450,6 +450,7 @@ func performLethalPVPAttackForTest(
 	requestID foundation.RequestID,
 ) lethalPVPPayloadForTest {
 	t.Helper()
+	equipStarterLaserForTest(t, gameServer, attacker.PlayerID)
 	targetEntityID := testPlayerEntityID(t, gameServer, target.PlayerID)
 	response := gameServer.runtime.Gateway.HandleRequest(
 		realtime.SessionID(attacker.SessionID.String()),

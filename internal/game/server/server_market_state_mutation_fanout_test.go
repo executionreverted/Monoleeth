@@ -387,9 +387,11 @@ func TestPhase07EconomyTrustedPayloadsRejectedBeforeMarketMutation(t *testing.T)
 func TestMarketCreateListingDuplicateRequestIDReturnsCachedResponse(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
-	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
+	unequipStarterLaserForTest(t, gameServer, resolvedSessionForCookie(t, gameServer, cookie).PlayerID)
 
 	writeText(t, conn, `{"request_id":"request-market-create-inventory","op":"inventory.snapshot","payload":{},"client_seq":1,"v":1}`)
 	inventoryResponse := readResponse(t, conn)
@@ -445,10 +447,11 @@ func TestMarketCreateListingDuplicateRequestIDReturnsCachedResponse(t *testing.T
 	}
 }
 func TestMarketPassiveFanoutNotifiesSellerBuyerAndViewer(t *testing.T) {
-	_, httpServer := newTestServer(t, false)
+	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
 
-	sellerConn := dialWebSocket(t, httpServer, registerPilotWithIdentity(t, httpServer, "seller@example.com", "Seller-01"))
+	sellerCookie := registerPilotWithIdentity(t, httpServer, "seller@example.com", "Seller-01")
+	sellerConn := dialWebSocket(t, httpServer, sellerCookie)
 	defer sellerConn.CloseNow()
 	buyerConn := dialWebSocket(t, httpServer, registerPilotWithIdentity(t, httpServer, "buyer@example.com", "Buyer-01"))
 	defer buyerConn.CloseNow()
@@ -457,6 +460,7 @@ func TestMarketPassiveFanoutNotifiesSellerBuyerAndViewer(t *testing.T) {
 	readBootstrapEvents(t, sellerConn)
 	readBootstrapEvents(t, buyerConn)
 	readBootstrapEvents(t, passiveConn)
+	unequipStarterLaserForTest(t, gameServer, resolvedSessionForCookie(t, gameServer, sellerCookie).PlayerID)
 
 	writeText(t, sellerConn, `{"request_id":"request-market-fanout-seller-inventory","op":"inventory.snapshot","payload":{},"client_seq":1,"v":1}`)
 	inventoryResponse := readResponse(t, sellerConn)
@@ -554,7 +558,7 @@ func TestMarketPassiveFanoutNotifiesSellerBuyerAndViewer(t *testing.T) {
 	}
 }
 func TestMarketPassiveFanoutUsesOwnerAwarePrivateAndPublicEvents(t *testing.T) {
-	_, httpServer := newTestServer(t, false)
+	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
 	sellerCookie := registerPilotWithIdentity(t, httpServer, "seller@example.com", "Seller")
 	buyerCookie := registerPilotWithIdentity(t, httpServer, "buyer@example.com", "Buyer")
@@ -572,6 +576,7 @@ func TestMarketPassiveFanoutUsesOwnerAwarePrivateAndPublicEvents(t *testing.T) {
 	sellerSeq := sellerBootstrap[len(sellerBootstrap)-1].Sequence
 	buyerSeq := buyerBootstrap[len(buyerBootstrap)-1].Sequence
 	passiveSeq := passiveBootstrap[len(passiveBootstrap)-1].Sequence
+	unequipStarterLaserForTest(t, gameServer, resolvedSessionForCookie(t, gameServer, sellerCookie).PlayerID)
 
 	writeText(t, sellerConn, `{"request_id":"request-market-passive-inventory","op":"inventory.snapshot","payload":{},"client_seq":1,"v":1}`)
 	inventoryResponse := readResponse(t, sellerConn)

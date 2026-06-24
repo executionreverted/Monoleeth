@@ -11,6 +11,7 @@ import (
 	"gameproject/internal/game/contentdb"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/modules"
+	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world"
 )
@@ -79,6 +80,307 @@ func TestNewRuntimeUsesContentShipSlotsForLoadout(t *testing.T) {
 	}
 	if len(loadout.Slots) != 4 || !loadoutSnapshotHasSlot(loadout, modules.ModuleSlotOffensive2) {
 		t.Fatalf("loadout slots = %+v, want CMS starter layout with offensive_2", loadout.Slots)
+	}
+}
+
+func TestNewRuntimeSeedsStarterLaserAndScannerLoadout(t *testing.T) {
+	runtime, err := NewRuntime(RuntimeConfig{
+		WorldID:           foundation.WorldID("world-1"),
+		ContentRepository: &fakeRuntimeRepository{bundle: runtimeTestBundle(t)},
+		Passwords:         auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v, want nil", err)
+	}
+
+	result, err := runtime.Auth.Register(context.Background(), auth.RegisterInput{
+		Email:    "cms-starter-loadout@example.com",
+		Password: "correct-password",
+		Callsign: "CMS Starter Loadout",
+	})
+	if err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	if err := runtime.ensurePlayerSession(result.Session); err != nil {
+		t.Fatalf("ensurePlayerSession() error = %v, want nil", err)
+	}
+
+	runtime.mu.Lock()
+	loadout, err := runtime.loadoutSnapshotLocked(result.Session.PlayerID)
+	runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("loadoutSnapshotLocked() error = %v, want nil", err)
+	}
+	offensive := requireLoadoutSlot(t, loadout, modules.ModuleSlotOffensive1.String())
+	if offensive.ModuleItemID != "laser_alpha_t1" || offensive.ItemInstanceID == "" {
+		t.Fatalf("starter offensive_1 = %+v, want laser_alpha_t1 equipped", offensive)
+	}
+	utility := requireLoadoutSlot(t, loadout, modules.ModuleSlotUtility1.String())
+	if utility.ModuleItemID != "scanner_t1" || utility.ItemInstanceID == "" {
+		t.Fatalf("starter utility_1 = %+v, want scanner_t1 equipped", utility)
+	}
+
+	if err := runtime.ensurePlayerSession(result.Session); err != nil {
+		t.Fatalf("second ensurePlayerSession() error = %v, want nil", err)
+	}
+	runtime.mu.Lock()
+	second, err := runtime.loadoutSnapshotLocked(result.Session.PlayerID)
+	runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("second loadoutSnapshotLocked() error = %v, want nil", err)
+	}
+	if requireLoadoutSlot(t, second, modules.ModuleSlotOffensive1.String()).ItemInstanceID != offensive.ItemInstanceID ||
+		requireLoadoutSlot(t, second, modules.ModuleSlotUtility1.String()).ItemInstanceID != utility.ItemInstanceID {
+		t.Fatalf("starter loadout changed after second ensure: before=%+v after=%+v", loadout.Slots, second.Slots)
+	}
+}
+
+func TestNewRuntimeRepairsScannerOnlyStarterLoadout(t *testing.T) {
+	runtime, err := NewRuntime(RuntimeConfig{
+		WorldID:           foundation.WorldID("world-1"),
+		ContentRepository: &fakeRuntimeRepository{bundle: runtimeTestBundle(t)},
+		Passwords:         auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v, want nil", err)
+	}
+
+	result, err := runtime.Auth.Register(context.Background(), auth.RegisterInput{
+		Email:    "cms-starter-loadout-repair@example.com",
+		Password: "correct-password",
+		Callsign: "CMS Starter Repair",
+	})
+	if err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	if err := runtime.ensurePlayerSession(result.Session); err != nil {
+		t.Fatalf("ensurePlayerSession() error = %v, want nil", err)
+	}
+
+	scannerInstanceID := starterModuleInstanceID(t, runtime, result.Session.PlayerID, "scanner_t1")
+	runtime.mu.Lock()
+	if err := runtime.LoadoutStore.ReplaceEquippedModules(modules.ReplaceEquippedModulesInput{
+		PlayerID:  result.Session.PlayerID,
+		ShipID:    gamecontent.DefaultStarterShipID,
+		RequestID: "test-scanner-only-starter-loadout",
+		Equipped: []modules.EquippedModule{{
+			PlayerID:       result.Session.PlayerID,
+			ShipID:         gamecontent.DefaultStarterShipID,
+			SlotID:         modules.ModuleSlotUtility1,
+			ItemInstanceID: scannerInstanceID,
+			EquippedAt:     runtime.clock.Now(),
+		}},
+	}); err != nil {
+		runtime.mu.Unlock()
+		t.Fatalf("ReplaceEquippedModules(scanner-only) error = %v, want nil", err)
+	}
+	runtime.mu.Unlock()
+
+	if err := runtime.ensurePlayerSession(result.Session); err != nil {
+		t.Fatalf("repair ensurePlayerSession() error = %v, want nil", err)
+	}
+
+	runtime.mu.Lock()
+	loadout, err := runtime.loadoutSnapshotLocked(result.Session.PlayerID)
+	runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("loadoutSnapshotLocked() error = %v, want nil", err)
+	}
+	offensive := requireLoadoutSlot(t, loadout, modules.ModuleSlotOffensive1.String())
+	if offensive.ModuleItemID != "laser_alpha_t1" || offensive.ItemInstanceID == "" {
+		t.Fatalf("repaired offensive_1 = %+v, want laser_alpha_t1 equipped", offensive)
+	}
+	utility := requireLoadoutSlot(t, loadout, modules.ModuleSlotUtility1.String())
+	if utility.ModuleItemID != "scanner_t1" || utility.ItemInstanceID != scannerInstanceID.String() {
+		t.Fatalf("repaired utility_1 = %+v, want original scanner %s equipped", utility, scannerInstanceID)
+	}
+	if offensive.ItemInstanceID == utility.ItemInstanceID {
+		t.Fatalf("repaired loadout duplicates item instance %s", offensive.ItemInstanceID)
+	}
+}
+
+func TestPlayerCombatActorUsesCMSLaserDamageFromEquippedModule(t *testing.T) {
+	bundle := runtimeTestBundleWithLaserDamage(t, 99)
+	repository := &fakeRuntimeRepository{bundle: bundle}
+
+	runtime, err := NewRuntime(RuntimeConfig{
+		WorldID:           foundation.WorldID("world-1"),
+		ContentRepository: repository,
+		Passwords:         auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v, want nil", err)
+	}
+
+	result, err := runtime.Auth.Register(context.Background(), auth.RegisterInput{
+		Email:    "cms-combat-damage@example.com",
+		Password: "correct-password",
+		Callsign: "CMS Combat",
+	})
+	if err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	if err := runtime.ensurePlayerSession(result.Session); err != nil {
+		t.Fatalf("ensurePlayerSession() error = %v, want nil", err)
+	}
+	assertRuntimeLaserDamage(t, runtime, 99)
+
+	runtime.mu.Lock()
+	actor, err := runtime.syncPlayerCombatActorLocked(result.Session.PlayerID)
+	runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("syncPlayerCombatActorLocked() error = %v, want nil", err)
+	}
+	if got := actor.Stats.Stats.Combat.WeaponDamage; got != 99 {
+		t.Fatalf("combat actor weapon damage = %v, want CMS module stat 99", got)
+	}
+}
+
+func TestPlayerCombatActorUsesCMSLaserCooldownAndEnergyCost(t *testing.T) {
+	bundle := runtimeTestBundleWithLaserCombatStats(t, 99, 13, 4321)
+	runtime, err := NewRuntime(RuntimeConfig{
+		WorldID:           foundation.WorldID("world-1"),
+		ContentRepository: &fakeRuntimeRepository{bundle: bundle},
+		Passwords:         auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v, want nil", err)
+	}
+
+	result, err := runtime.Auth.Register(context.Background(), auth.RegisterInput{
+		Email:    "cms-combat-cooldown-energy@example.com",
+		Password: "correct-password",
+		Callsign: "CMS Combat Timing",
+	})
+	if err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	if err := runtime.ensurePlayerSession(result.Session); err != nil {
+		t.Fatalf("ensurePlayerSession() error = %v, want nil", err)
+	}
+
+	runtime.mu.Lock()
+	actor, err := runtime.syncPlayerCombatActorLocked(result.Session.PlayerID)
+	runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("syncPlayerCombatActorLocked() error = %v, want nil", err)
+	}
+	if got, want := actor.Stats.Stats.Combat.WeaponCooldown, float64(4321)/1000; got != want {
+		t.Fatalf("combat actor weapon cooldown = %v, want CMS module cooldown 4.321", got)
+	}
+	if got := actor.Stats.Stats.Combat.WeaponEnergyCost; got != 13 {
+		t.Fatalf("combat actor weapon energy cost = %v, want CMS module energy cost 13", got)
+	}
+}
+
+func TestPlayerCombatActorSyncFailsClosedWhenCMSLaserTimingMissing(t *testing.T) {
+	tests := []struct {
+		name   string
+		email  string
+		bundle gamecontent.GameplayContent
+	}{
+		{
+			name:   "zero energy",
+			email:  "cms-combat-zero-energy@example.com",
+			bundle: runtimeTestBundleWithLaserCombatStats(t, 99, 0, 4321),
+		},
+		{
+			name:   "missing cooldown",
+			email:  "cms-combat-missing-cooldown@example.com",
+			bundle: runtimeTestBundleWithoutLaserBasicAttackCooldown(t),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			runtime, err := NewRuntime(RuntimeConfig{
+				WorldID:           foundation.WorldID("world-1"),
+				ContentRepository: &fakeRuntimeRepository{bundle: tc.bundle},
+				Passwords:         auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+			})
+			if err != nil {
+				t.Fatalf("NewRuntime() error = %v, want nil", err)
+			}
+			result, err := runtime.Auth.Register(context.Background(), auth.RegisterInput{
+				Email:    tc.email,
+				Password: "correct-password",
+				Callsign: "CMS Timing Fail",
+			})
+			if err != nil {
+				t.Fatalf("Register() error = %v, want nil", err)
+			}
+			if err := runtime.ensurePlayerSession(result.Session); err == nil {
+				t.Fatal("ensurePlayerSession() error = nil, want fail-closed combat stat error")
+			}
+		})
+	}
+}
+
+func TestStatsSnapshotUsesCMSLaserCooldownAndEnergyCost(t *testing.T) {
+	bundle := runtimeTestBundleWithLaserCombatStats(t, 99, 13, 4321)
+	runtime, err := NewRuntime(RuntimeConfig{
+		WorldID:           foundation.WorldID("world-1"),
+		ContentRepository: &fakeRuntimeRepository{bundle: bundle},
+		Passwords:         auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v, want nil", err)
+	}
+
+	result, err := runtime.Auth.Register(context.Background(), auth.RegisterInput{
+		Email:    "cms-stats-cooldown-energy@example.com",
+		Password: "correct-password",
+		Callsign: "CMS Stats Timing",
+	})
+	if err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	if err := runtime.ensurePlayerSession(result.Session); err != nil {
+		t.Fatalf("ensurePlayerSession() error = %v, want nil", err)
+	}
+
+	raw, err := runtime.handleStatsSnapshot(realtime.CommandContext{PlayerID: result.Session.PlayerID}, realtime.RequestEnvelope{Payload: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatalf("handleStatsSnapshot() error = %v, want nil", err)
+	}
+	var payload struct {
+		Stats statSnapshotPayload `json:"stats"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode stats payload: %v", err)
+	}
+	if payload.Stats.BasicLaserEnergyCost != 13 || payload.Stats.BasicLaserCooldownMS != 4321 {
+		t.Fatalf("stats payload = %+v, want CMS laser energy 13 cooldown 4321", payload.Stats)
+	}
+}
+
+func TestPlayerCombatActorSyncFailsClosedWhenStatBuildUnavailable(t *testing.T) {
+	runtime, err := NewRuntime(RuntimeConfig{
+		WorldID:           foundation.WorldID("world-1"),
+		ContentRepository: &fakeRuntimeRepository{bundle: runtimeTestBundle(t)},
+		Passwords:         auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v, want nil", err)
+	}
+	result, err := runtime.Auth.Register(context.Background(), auth.RegisterInput{
+		Email:    "cms-combat-stat-fail@example.com",
+		Password: "correct-password",
+		Callsign: "CMS Stat Fail",
+	})
+	if err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	if err := runtime.ensurePlayerSession(result.Session); err != nil {
+		t.Fatalf("ensurePlayerSession() error = %v, want nil", err)
+	}
+
+	runtime.mu.Lock()
+	runtime.StatInputs = nil
+	_, err = runtime.syncPlayerCombatActorLocked(result.Session.PlayerID)
+	runtime.mu.Unlock()
+	if err == nil {
+		t.Fatal("syncPlayerCombatActorLocked() error = nil, want stat build failure")
 	}
 }
 
@@ -362,6 +664,85 @@ func runtimeTestBundleWithLaserDamage(t *testing.T, damage int64) gamecontent.Ga
 	moduleCatalog, err := modules.NewCatalog(definitions)
 	if err != nil {
 		t.Fatalf("NewCatalog(mutated modules) error = %v, want nil", err)
+	}
+	bundle.Modules = moduleCatalog
+	if err := bundle.Validate(); err != nil {
+		t.Fatalf("mutated bundle Validate() error = %v, want nil", err)
+	}
+	return bundle
+}
+
+func runtimeTestBundleWithLaserCombatStats(t *testing.T, damage int64, energyCost int64, cooldownMS int64) gamecontent.GameplayContent {
+	t.Helper()
+	bundle := runtimeTestBundle(t)
+	definitions := bundle.Modules.Definitions()
+	foundDamage := false
+	foundEnergy := false
+	foundCooldown := false
+	for defIndex := range definitions {
+		if definitions[defIndex].ItemID != foundation.ItemID("laser_alpha_t1") {
+			continue
+		}
+		definitions[defIndex].Energy.ActivationCost = energyCost
+		foundEnergy = true
+		for statIndex := range definitions[defIndex].StatModifiers {
+			if definitions[defIndex].StatModifiers[statIndex].Stat == modules.StatWeaponDamage {
+				definitions[defIndex].StatModifiers[statIndex].Value = damage
+				foundDamage = true
+			}
+		}
+		for cooldownIndex := range definitions[defIndex].Cooldowns {
+			if definitions[defIndex].Cooldowns[cooldownIndex].Key == modules.CooldownBasicAttack {
+				definitions[defIndex].Cooldowns[cooldownIndex].DurationMS = cooldownMS
+				foundCooldown = true
+			}
+		}
+	}
+	if !foundDamage {
+		t.Fatal("laser_alpha_t1 weapon damage stat missing")
+	}
+	if !foundEnergy {
+		t.Fatal("laser_alpha_t1 energy profile missing")
+	}
+	if !foundCooldown {
+		t.Fatal("laser_alpha_t1 basic attack cooldown missing")
+	}
+	moduleCatalog, err := modules.NewCatalog(definitions)
+	if err != nil {
+		t.Fatalf("NewCatalog(mutated laser combat stats) error = %v, want nil", err)
+	}
+	bundle.Modules = moduleCatalog
+	if err := bundle.Validate(); err != nil {
+		t.Fatalf("mutated bundle Validate() error = %v, want nil", err)
+	}
+	return bundle
+}
+
+func runtimeTestBundleWithoutLaserBasicAttackCooldown(t *testing.T) gamecontent.GameplayContent {
+	t.Helper()
+	bundle := runtimeTestBundle(t)
+	definitions := bundle.Modules.Definitions()
+	found := false
+	for defIndex := range definitions {
+		if definitions[defIndex].ItemID != foundation.ItemID("laser_alpha_t1") {
+			continue
+		}
+		cooldowns := make([]modules.Cooldown, 0, len(definitions[defIndex].Cooldowns))
+		for _, cooldown := range definitions[defIndex].Cooldowns {
+			if cooldown.Key == modules.CooldownBasicAttack {
+				found = true
+				continue
+			}
+			cooldowns = append(cooldowns, cooldown)
+		}
+		definitions[defIndex].Cooldowns = cooldowns
+	}
+	if !found {
+		t.Fatal("laser_alpha_t1 basic attack cooldown missing before mutation")
+	}
+	moduleCatalog, err := modules.NewCatalog(definitions)
+	if err != nil {
+		t.Fatalf("NewCatalog(no laser basic attack cooldown) error = %v, want nil", err)
 	}
 	bundle.Modules = moduleCatalog
 	if err := bundle.Validate(); err != nil {

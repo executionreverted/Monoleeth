@@ -24,6 +24,7 @@ func TestCombatKillCreatesLootAndPickupUpdatesCargo(t *testing.T) {
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
 	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	equipStarterLaserForTest(t, gameServer, resolved.PlayerID)
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
 	gameServer.runtime.tickAndCollectAOIEvents()
 
@@ -225,8 +226,8 @@ func TestCombatRejectsHiddenOutOfRangeAndDisabledWithoutEnergySpend(t *testing.T
 		defer conn.CloseNow()
 		readBootstrapEvents(t, conn)
 		resolved := resolvedSessionForCookie(t, gameServer, cookie)
-		moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{X: -20})
-		setTestWeaponRange(gameServer, resolved.PlayerID, 10)
+		moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{X: -700})
+		setTestRadarRange(gameServer, resolved.PlayerID, 1000)
 
 		writeText(t, conn, `{"request_id":"request-combat-range","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"entity_training_npc"},"client_seq":1,"v":1}`)
 		got := readErrorSkippingEvents(t, conn)
@@ -266,6 +267,7 @@ func TestLootPickupRejectsOutOfRangeDropWithoutCargoMutation(t *testing.T) {
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
 	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	equipStarterLaserForTest(t, gameServer, resolved.PlayerID)
 	moveTestPlayerNearEntity(t, gameServer, resolved.PlayerID, "entity_training_npc", world.Vec2{})
 	gameServer.runtime.tickAndCollectAOIEvents()
 	dropID := killTrainingNPCForDrop(t, conn)
