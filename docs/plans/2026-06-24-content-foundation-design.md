@@ -44,6 +44,10 @@ proprietary labels or assets.
 - map enemy drop profiles must reference known loot tables
 - map enemy pools, spawn areas, portals, safe zones, bounds, PvP policy, and NPC
   stats keep using existing map catalog validation
+- every playable map must own complete enemy content: spawn areas, pools, stat
+  templates, drop profiles, aggro profiles, and leash profiles. Unreferenced
+  NPC stat/drop/aggro/leash rows fail validation so future CMS drafts cannot
+  publish dead or stale monster content.
 - loot table rows must reference known item definitions and have valid weights
 - scanner/planet discovery config is server-only content: static seed material,
   bounded candidate options, per-map scanner profiles, scanner radar-level
@@ -119,5 +123,8 @@ Use narrow tests:
 - combat rules must reject invalid movement/radar/pickup ranges, laser
   cost/cooldown, XP, repair currency, repair fee, NPC ids, and PvP death cargo
   percentages
+- map enemy validation must reject incomplete per-map enemy content,
+  unreferenced NPC stat/drop/aggro/leash rows, missing pool refs, and invalid
+  monster stats
 - runtime uses the validated content bundle for item/loot catalogs
   and scanner/planet/starter/shop/route/production/combat-rule config

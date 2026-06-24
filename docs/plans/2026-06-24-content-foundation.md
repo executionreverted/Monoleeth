@@ -89,6 +89,9 @@ Add `Validate() error` and helpers for:
 - combat rule refs and caps: DarkOrbit-like demo player speed, radar range,
   loot pickup range, basic laser cost/cooldown, training NPC type, repair
   quote currency/cost, NPC kill XP, and PvP cargo-drop policy by zone
+- map enemy completeness: every playable map must own spawn areas, enemy pools,
+  stat templates, drop profiles, aggro profiles, and leash profiles; unreferenced
+  rows and missing pool refs fail before runtime starts
 
 **Step 5: Run focused test**
 
@@ -376,6 +379,45 @@ Run:
 
 ```bash
 go test ./internal/game/content ./internal/game/server -run 'TestDefaultGameplayContent|TestGameplayContent|TestPlanetClaim|TestPlaytestSeed|TestE2EPlanetClaimSeed|TestPlanetBuilding|TestClaim' -count=1
+git diff --check
+```
+
+Expected: pass.
+
+### Task 2H: Combat And Enemy Rule Hardening
+
+**Files:**
+- Create: `internal/game/content/combat_rules.go`
+- Modify: `internal/game/content/bundle.go`
+- Modify: `internal/game/content/validation.go`
+- Modify: `internal/game/content/bundle_test.go`
+- Modify: `internal/game/server/runtime.go`
+- Modify: `internal/game/server/combat_loot_repair.go`
+- Modify: `internal/game/server/combat_loot_helpers.go`
+- Modify: `internal/game/server/combat_loot_death.go`
+- Modify: `internal/game/server/runtime_players.go`
+- Modify: `internal/game/world/maps/enemy_catalog.go`
+- Modify: `internal/game/world/maps/enemy_catalog_test.go`
+
+**Step 1: Add combat rule content**
+
+Move DarkOrbit-like demo balance constants for speed, radar, pickup range,
+basic laser cost/cooldown, training NPC type, repair quote values, NPC kill XP,
+and PvP cargo-drop percentages into validated content.
+
+**Step 2: Harden per-map enemy validation**
+
+Require every playable map to have enemy pools plus referenced spawn/stat/drop/
+aggro/leash content. Reject unreferenced NPC stat/drop/aggro/leash rows, missing
+pool refs, invalid monster stat values, and incomplete enemy content before
+runtime starts.
+
+**Step 3: Validate**
+
+Run:
+
+```bash
+go test ./internal/game/world/maps ./internal/game/content ./internal/game/server -run 'TestEnemyCatalog|TestCatalogValidation|TestDefaultGameplayContent|TestGameplayContent|TestNPCLootSelector|TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner' -count=1
 git diff --check
 ```
 
