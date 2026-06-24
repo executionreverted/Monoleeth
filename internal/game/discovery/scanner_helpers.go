@@ -323,6 +323,14 @@ func scannerDetectionChance(effective stats.EffectiveStats, candidate PlanetCand
 }
 
 func (service *ScannerService) candidateOptionsForPulse(pulse scanPulse) CandidateGenerationOptions {
+	if service.profiles != nil {
+		if options, ok := service.profiles.CandidateOptionsForZone(pulse.zoneID); ok {
+			if options.MapID == "" {
+				options.MapID = pulse.zoneID.String()
+			}
+			return options
+		}
+	}
 	options := service.candidateOptions
 	options.MapID = pulse.zoneID.String()
 	return options

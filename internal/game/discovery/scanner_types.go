@@ -234,6 +234,10 @@ type ScannerPlayerRevealProvider interface {
 	RevealHiddenPlayer(input ScannerPlayerRevealInput) (ScannerPlayerRevealResult, error)
 }
 
+type ScannerCandidateOptionsProvider interface {
+	CandidateOptionsForZone(zoneID foundation.ZoneID) (CandidateGenerationOptions, bool)
+}
+
 type ScanXPGrantProvider interface {
 	GrantScanXP(input ScanXPGrantInput) (ScanXPGrantResult, error)
 }
@@ -250,6 +254,7 @@ type ScannerServiceConfig struct {
 	Cooldowns ScannerCooldownProvider
 	Energy    ScannerEnergyProvider
 	Reveals   ScannerPlayerRevealProvider
+	Profiles  ScannerCandidateOptionsProvider
 	XP        ScanXPGrantProvider
 
 	CandidateOptions  CandidateGenerationOptions
@@ -272,6 +277,7 @@ type ScannerService struct {
 	cooldowns ScannerCooldownProvider
 	energy    ScannerEnergyProvider
 	reveals   ScannerPlayerRevealProvider
+	profiles  ScannerCandidateOptionsProvider
 	xp        ScanXPGrantProvider
 
 	candidateOptions  CandidateGenerationOptions

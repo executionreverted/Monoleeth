@@ -25,6 +25,7 @@ func (provider runtimeScannerModuleProvider) HasEquippedScannerModule(input disc
 	if !ok {
 		return false, worker.ErrUnknownPlayer
 	}
+	starterShipID := provider.runtime.starterContent.ShipID
 	return input.ShipID == starterShipID && state.Ship.ActiveShipID == starterShipID.String(), nil
 }
 
@@ -40,13 +41,13 @@ func (provider runtimeScannerStatsProvider) ScanStats(input discovery.ScannerSta
 	if !ok {
 		return stats.StatSnapshot{}, worker.ErrUnknownPlayer
 	}
-	if input.ShipID != starterShipID {
+	if input.ShipID != provider.runtime.starterContent.ShipID {
 		return stats.StatSnapshot{}, worker.ErrUnknownPlayer
 	}
 	exploration := provider.runtime.explorationStatsForPlayerStateLocked(state)
-	exploration.ScanPower = starterScannerScanPower
-	exploration.ScanRadius = starterScannerScanRadius
-	exploration.ScanInterval = starterScannerScanInterval.Seconds()
+	exploration.ScanPower = provider.runtime.starterContent.ScannerScanPower
+	exploration.ScanRadius = provider.runtime.starterContent.ScannerScanRadius
+	exploration.ScanInterval = provider.runtime.starterContent.ScannerScanInterval.Seconds()
 	if exploration.DetectionPower <= 0 {
 		exploration.DetectionPower = exploration.ScanPower
 	}
@@ -125,7 +126,7 @@ func (provider runtimeScannerCooldownProvider) StartScanCooldown(input discovery
 
 func (runtime *Runtime) spendScannerCapacitorLocked(input discovery.ScannerCooldownInput) error {
 	if spent, ok := runtime.scanCapacitorSpends[input.PulseReference]; ok {
-		if !spent.matches(input) {
+		if !spent.matches(input, runtime.starterContent.ScannerEnergyCost) {
 			return discovery.ErrScanPulseNotFound
 		}
 		return nil
@@ -135,31 +136,33 @@ func (runtime *Runtime) spendScannerCapacitorLocked(input discovery.ScannerCoold
 	if !ok {
 		return worker.ErrUnknownPlayer
 	}
+	starterShipID := runtime.starterContent.ShipID
 	if input.ShipID != starterShipID || state.Ship.ActiveShipID != starterShipID.String() {
 		return worker.ErrUnknownPlayer
 	}
-	if state.Ship.Disabled || state.Ship.Capacitor < starterScannerEnergyCost {
+	energyCost := runtime.starterContent.ScannerEnergyCost
+	if state.Ship.Disabled || state.Ship.Capacitor < energyCost {
 		return discovery.ErrScannerEnergyUnavailable
 	}
 
-	state.Ship.Capacitor -= starterScannerEnergyCost
+	state.Ship.Capacitor -= energyCost
 	runtime.players[input.PlayerID] = state
 	runtime.scanCapacitorSpends[input.PulseReference] = scanCapacitorSpendRecord{
 		PlayerID: input.PlayerID,
 		ShipID:   input.ShipID,
 		WorldID:  input.WorldID,
 		ZoneID:   input.ZoneID,
-		Amount:   starterScannerEnergyCost,
+		Amount:   energyCost,
 	}
 	return nil
 }
 
-func (record scanCapacitorSpendRecord) matches(input discovery.ScannerCooldownInput) bool {
+func (record scanCapacitorSpendRecord) matches(input discovery.ScannerCooldownInput, energyCost int) bool {
 	return record.PlayerID == input.PlayerID &&
 		record.ShipID == input.ShipID &&
 		record.WorldID == input.WorldID &&
 		record.ZoneID == input.ZoneID &&
-		record.Amount == starterScannerEnergyCost
+		record.Amount == energyCost
 }
 
 type runtimeScannerEnergyProvider struct {
@@ -178,7 +181,7 @@ func (provider runtimeScannerEnergyProvider) CheckScanEnergy(input discovery.Sca
 	if !ok {
 		return discovery.ScannerEnergyResult{}, worker.ErrUnknownPlayer
 	}
-	accepted := !state.Ship.Disabled && state.Ship.Capacitor >= starterScannerEnergyCost
+	accepted := !state.Ship.Disabled && state.Ship.Capacitor >= provider.runtime.starterContent.ScannerEnergyCost
 	return discovery.ScannerEnergyResult{Accepted: accepted}, nil
 }
 

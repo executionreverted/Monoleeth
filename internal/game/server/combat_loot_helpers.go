@@ -133,8 +133,8 @@ func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, st
 		Combat: stats.CombatStats{
 			WeaponDamage:     35,
 			WeaponRange:      state.Stats.WeaponRange,
-			WeaponCooldown:   float64(runtimeBasicLaserCooldownMS) / 1000,
-			WeaponEnergyCost: float64(runtimeBasicLaserEnergyCost),
+			WeaponCooldown:   float64(runtime.combatRules.BasicLaserCooldownMS) / 1000,
+			WeaponEnergyCost: float64(runtime.combatRules.BasicLaserEnergyCost),
 			Accuracy:         1,
 		},
 		Exploration: exploration,
@@ -321,11 +321,11 @@ func cargoItemCategory(definition economy.ItemDefinition) string {
 func (runtime *Runtime) repairQuoteLocked(state playerRuntimeState) repairQuotePayload {
 	cost := int64(0)
 	if state.Ship.ActiveShipID != starterShipID.String() {
-		cost = 25
+		cost = runtime.combatRules.NonStarterShipRepairFee
 	}
 	return repairQuotePayload{
 		ShipID:   state.Ship.ActiveShipID,
-		Currency: repairCurrency,
+		Currency: runtime.combatRules.RepairCurrency.String(),
 		Cost:     cost,
 		Disabled: state.Ship.Disabled,
 	}

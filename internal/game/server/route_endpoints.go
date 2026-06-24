@@ -5,11 +5,12 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
 )
 
-const runtimeRouteEndpointStorageCapacityUnits int64 = 1_000
+const runtimeRouteEndpointStorageCapacityUnits int64 = gamecontent.DefaultRouteEndpointStorageUnits
 
 type routeEndpointPayload struct {
 	Type  string `json:"type"`
@@ -68,7 +69,7 @@ func (runtime *Runtime) ensurePlayerRouteEndpointStorage(playerID foundation.Pla
 	if _, ok, err := runtime.Production.PlanetStorage(storageID); err != nil || ok {
 		return err
 	}
-	storage, err := production.NewPlanetStorage(storageID, runtimeRouteEndpointStorageCapacityUnits, nil, runtime.clock.Now().UTC())
+	storage, err := production.NewPlanetStorage(storageID, runtime.routeContent.EndpointStorageCapacityUnits, nil, runtime.clock.Now().UTC())
 	if err != nil {
 		return err
 	}

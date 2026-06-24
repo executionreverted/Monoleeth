@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
@@ -13,11 +14,11 @@ import (
 )
 
 const (
-	buildingBuildIronExtractorCredits   int64 = 50
-	buildingBuildAlloyFoundryIronOre    int64 = 30
-	buildingBuildAlloyFoundryCredits    int64 = 75
-	buildingUpgradeIronExtractorIronOre int64 = 20
-	buildingUpgradeIronExtractorCredits int64 = 100
+	buildingBuildIronExtractorCredits   int64 = gamecontent.DefaultBuildingBuildIronExtractorCredits
+	buildingBuildAlloyFoundryIronOre    int64 = gamecontent.DefaultBuildingBuildAlloyFoundryIronOre
+	buildingBuildAlloyFoundryCredits    int64 = gamecontent.DefaultBuildingBuildAlloyFoundryCredits
+	buildingUpgradeIronExtractorIronOre int64 = gamecontent.DefaultBuildingUpgradeIronExtractorIronOre
+	buildingUpgradeIronExtractorCredits int64 = gamecontent.DefaultBuildingUpgradeIronExtractorCredits
 )
 
 type planetBuildingBuildIntent struct {
@@ -204,7 +205,7 @@ func (runtime *Runtime) newPlanetBuildingMutationService(playerID foundation.Pla
 	return production.NewBuildingMutationService(production.BuildingMutationServiceConfig{
 		Store:   runtime.Production,
 		Catalog: production.MustMVPCatalog(),
-		Costs:   runtimePlanetBuildingCostProvider{playerID: playerID},
+		Costs:   runtimePlanetBuildingCostProvider{playerID: playerID, rules: runtime.productionRules},
 		Wallet:  runtime.Wallet,
 	})
 }
@@ -292,6 +293,7 @@ func (runtime *Runtime) planetBuildingMutationResponse(
 
 type runtimePlanetBuildingCostProvider struct {
 	playerID foundation.PlayerID
+	rules    gamecontent.ProductionRulesContent
 }
 
 func (provider runtimePlanetBuildingCostProvider) BuildingMutationCost(input production.BuildingMutationCostInput) (production.BuildingMutationCost, error) {
@@ -310,54 +312,20 @@ func (provider runtimePlanetBuildingCostProvider) BuildingMutationCost(input pro
 
 	switch input.Operation {
 	case production.BuildingMutationBuild:
-		return provider.buildCost(input.Definition)
+		return provider.mutationCost(input)
 	case production.BuildingMutationUpgrade:
-		return provider.upgradeCost(input.Definition)
+		return provider.mutationCost(input)
 	default:
 		return production.BuildingMutationCost{}, production.ErrInvalidBuildingMutationCost
 	}
 }
 
-func (provider runtimePlanetBuildingCostProvider) buildCost(definition production.BuildingProductionDefinition) (production.BuildingMutationCost, error) {
-	switch {
-	case definition.BuildingType == production.BuildingTypeIronExtractor && definition.Level == 1:
-		return provider.creditsOnly(buildingBuildIronExtractorCredits), nil
-	case definition.BuildingType == production.BuildingTypeAlloyFoundry && definition.Level == 1:
-		return production.BuildingMutationCost{
-			Materials: []production.BuildingMaterialCost{
-				{ItemID: "iron_ore", Quantity: buildingBuildAlloyFoundryIronOre},
-			},
-			Wallet: provider.credits(buildingBuildAlloyFoundryCredits),
-		}, nil
-	default:
+func (provider runtimePlanetBuildingCostProvider) mutationCost(input production.BuildingMutationCostInput) (production.BuildingMutationCost, error) {
+	cost, ok := provider.rules.BuildingMutationCost(provider.playerID, input)
+	if !ok {
 		return production.BuildingMutationCost{}, production.ErrInvalidBuildingMutationCost
 	}
-}
-
-func (provider runtimePlanetBuildingCostProvider) upgradeCost(definition production.BuildingProductionDefinition) (production.BuildingMutationCost, error) {
-	switch {
-	case definition.BuildingType == production.BuildingTypeIronExtractor && definition.Level == 2:
-		return production.BuildingMutationCost{
-			Materials: []production.BuildingMaterialCost{
-				{ItemID: "iron_ore", Quantity: buildingUpgradeIronExtractorIronOre},
-			},
-			Wallet: provider.credits(buildingUpgradeIronExtractorCredits),
-		}, nil
-	default:
-		return production.BuildingMutationCost{}, production.ErrInvalidBuildingMutationCost
-	}
-}
-
-func (provider runtimePlanetBuildingCostProvider) creditsOnly(amount int64) production.BuildingMutationCost {
-	return production.BuildingMutationCost{Wallet: provider.credits(amount)}
-}
-
-func (provider runtimePlanetBuildingCostProvider) credits(amount int64) *production.BuildingWalletCost {
-	return &production.BuildingWalletCost{
-		PlayerID: provider.playerID,
-		Currency: economy.CurrencyBucketCredits,
-		Amount:   amount,
-	}
+	return cost, nil
 }
 
 func validatePlanetBuildingSlot(value string) (string, error) {

@@ -7,6 +7,35 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [ ] Finish the DB/CMS content pipeline after the static gameplay content
+  bundle stabilizes. The first content-foundation slice adds a server-side
+  `GameplayContent` bundle for static items, loot tables, modules, ships,
+  recipes, production buildings, DarkOrbit-like bounded maps/enemy pools, and
+  server-only scanner/planet discovery config, plus cross-catalog validation
+  before runtime uses item/loot/scanner catalogs. Map-specific scanner profile
+  rows now resolve by server-owned active map while preserving the demo scanner
+  canary loop. Starter/playtest seed content now owns starter ship/display,
+  starter wallet, starter module grants/loadout scanner, weekly X Core stock,
+  first-NPC entity overrides, playtest claim core quantity, and route seed
+  storage while runtime keeps all server-authoritative mutations. Runtime now
+  loads through a `content.Repository` boundary backed by `StaticRepository`.
+  Shop/category/product registry content now lives in the content bundle and is
+  reference-validated before runtime serves shop payloads. Route policy content
+  now owns routeable resources, caps, energy formula values, loss band, and
+  endpoint storage capacity while runtime keeps ownership/distance/storage
+  truth. Production rules now own claim range, claim production defaults, and
+  building build/upgrade costs while runtime keeps proximity, ownership, wallet,
+  and planet-storage mutation truth. Combat rules now own DarkOrbit-like demo
+  speed/radar/pickup range, basic laser cost/cooldown, training NPC identity,
+  repair quote values, NPC kill XP, and PvP cargo-drop percentages while runtime
+  keeps visibility, cooldown, damage, death, repair, and snapshot truth. Map
+  enemy content now rejects incomplete per-map pools/profiles, unreferenced
+  NPC stat/drop/aggro/leash rows, missing pool refs, and invalid monster stat
+  values before runtime starts. Next work: add DB-backed empty-DB seeding and
+  published revision loading, add draft / publish / rollback validation, then
+  build the admin CMS UI for monsters, drop tables, item stats, recipes, map
+  pools, and planet/scanner tuning.
+  Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`
   and uses Pixi sprites for player, NPC, projectile, loot/effect, portal,

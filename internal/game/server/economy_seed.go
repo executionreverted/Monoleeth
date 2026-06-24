@@ -96,7 +96,7 @@ func (runtime *Runtime) seedPremiumStock() error {
 	_, err := runtime.Premium.ConfigureWeeklyXCoreStock(premium.ConfigureWeeklyXCoreStockInput{
 		WorldID:    runtime.worldID,
 		PeriodKey:  runtime.currentPremiumPeriodKey(),
-		StockTotal: weeklyXCoreStockTotal,
+		StockTotal: runtime.starterContent.WeeklyXCore.StockTotal,
 	})
 	return err
 }
@@ -125,26 +125,26 @@ func (runtime *Runtime) ensurePlayerEconomyLocked(playerID foundation.PlayerID) 
 }
 
 func (runtime *Runtime) seedStarterModulesAndLoadout(playerID foundation.PlayerID) error {
-	if err := runtime.LoadoutStore.SetActiveShip(playerID, starterShipID); err != nil {
+	if err := runtime.LoadoutStore.SetActiveShip(playerID, runtime.starterContent.ShipID); err != nil {
 		return err
 	}
 	items, scannerCreated, err := runtime.seedStarterModuleInventory(playerID)
 	if err != nil {
 		return err
 	}
-	current, err := runtime.LoadoutStore.EquippedModules(playerID, starterShipID)
+	current, err := runtime.LoadoutStore.EquippedModules(playerID, runtime.starterContent.ShipID)
 	if err != nil {
 		return err
 	}
-	scanner := items[foundation.ItemID(starterScannerItemID)]
+	scanner := items[runtime.starterContent.ScannerItemID]
 	if scannerCreated && len(current) == 0 {
 		return runtime.LoadoutStore.ReplaceEquippedModules(modules.ReplaceEquippedModulesInput{
 			PlayerID:  playerID,
-			ShipID:    starterShipID,
+			ShipID:    runtime.starterContent.ShipID,
 			RequestID: foundation.RequestID("starter-loadout-" + playerID.String()),
 			Equipped: []modules.EquippedModule{{
 				PlayerID:       playerID,
-				ShipID:         starterShipID,
+				ShipID:         runtime.starterContent.ShipID,
 				SlotID:         modules.ModuleSlotUtility1,
 				ItemInstanceID: scanner.ItemInstanceID,
 				EquippedAt:     runtime.clock.Now(),
@@ -159,11 +159,7 @@ func (runtime *Runtime) seedStarterModuleInventory(playerID foundation.PlayerID)
 	if err != nil {
 		return nil, false, err
 	}
-	itemIDs := []foundation.ItemID{
-		"scanner_t1",
-		"laser_alpha_t1",
-		"shield_generator_t1",
-	}
+	itemIDs := runtime.starterContent.ModuleItemIDs
 	items := make(map[foundation.ItemID]economy.InstanceItem, len(itemIDs))
 	scannerCreated := false
 	for _, itemID := range itemIDs {
@@ -202,7 +198,7 @@ func (runtime *Runtime) seedStarterModuleInventory(playerID foundation.PlayerID)
 			return nil, false, err
 		}
 		items[itemID] = item
-		if itemID == foundation.ItemID(starterScannerItemID) && !result.Duplicate {
+		if itemID == runtime.starterContent.ScannerItemID && !result.Duplicate {
 			scannerCreated = true
 		}
 	}
@@ -217,7 +213,7 @@ func (runtime *Runtime) seedStarterWallet(playerID foundation.PlayerID) error {
 	if _, err := runtime.Wallet.CreditWallet(economy.CreditWalletInput{
 		PlayerID:     playerID,
 		Currency:     economy.CurrencyBucketCredits,
-		Amount:       starterWalletCredits,
+		Amount:       runtime.starterContent.WalletCredits,
 		Reason:       runtimeSeedLedgerReason,
 		ReferenceKey: creditsRef,
 	}); err != nil {
@@ -230,7 +226,7 @@ func (runtime *Runtime) seedStarterWallet(playerID foundation.PlayerID) error {
 	_, err = runtime.Wallet.CreditWallet(economy.CreditWalletInput{
 		PlayerID:     playerID,
 		Currency:     economy.CurrencyBucketPremiumPaid,
-		Amount:       starterWalletPremiumPaid,
+		Amount:       runtime.starterContent.WalletPremiumPaid,
 		Reason:       runtimeSeedLedgerReason,
 		ReferenceKey: premiumRef,
 	})

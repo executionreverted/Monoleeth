@@ -11,6 +11,7 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/combat"
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/crafting"
 	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/discovery"
@@ -34,29 +35,29 @@ import (
 )
 
 const (
-	starterShipID                      foundation.ShipID = ships.ShipIDStarter
-	starterShipDisplayName                               = "Sparrow"
-	defaultPlayerSpeed                                   = 180
-	defaultRadarRange                                    = 420
+	starterShipID                      foundation.ShipID = gamecontent.DefaultStarterShipID
+	starterShipDisplayName                               = gamecontent.DefaultStarterShipDisplayName
+	defaultPlayerSpeed                                   = gamecontent.DefaultPlayerSpeed
+	defaultRadarRange                                    = gamecontent.DefaultRadarRange
 	defaultMaxMoveDistance                               = 1200
-	runtimeLootPickupRange                               = 120.0
-	runtimeBasicLaserEnergyCost                          = 10
-	runtimeBasicLaserCooldownMS                          = 350
+	runtimeLootPickupRange                               = gamecontent.DefaultLootPickupRange
+	runtimeBasicLaserEnergyCost                          = gamecontent.DefaultBasicLaserEnergyCost
+	runtimeBasicLaserCooldownMS                          = gamecontent.DefaultBasicLaserCooldownMS
 	minMoveCommandInterval                               = 75 * time.Millisecond
 	runtimeStealthSpeedMultiplier                        = 0.70
-	starterScannerItemID                                 = "scanner_t1"
-	starterScannerModuleID                               = "scanner_t1"
-	starterScannerScanPower                              = 500
-	starterScannerScanRadius                             = 2000
-	starterScannerScanInterval                           = time.Second
-	starterScannerEnergyCost                             = 8
+	starterScannerItemID                                 = gamecontent.DefaultStarterScannerItemID
+	starterScannerModuleID                               = gamecontent.DefaultStarterScannerModuleID
+	starterScannerScanPower                              = gamecontent.DefaultStarterScannerScanPower
+	starterScannerScanRadius                             = gamecontent.DefaultStarterScannerScanRadius
+	starterScannerScanInterval                           = gamecontent.DefaultStarterScannerScanInterval
+	starterScannerEnergyCost                             = gamecontent.DefaultStarterScannerEnergyCost
 	runtimeHiddenPlayerWitnessDuration                   = 15 * time.Minute
 	runtimePortalCooldown                                = 30 * time.Second
 	runtimePortalProtectionDuration                      = 10 * time.Second
-	starterWalletCredits                                 = 1200
-	starterWalletPremiumPaid                             = 300
-	weeklyXCorePremiumPrice                              = 100
-	weeklyXCoreStockTotal                                = 5
+	starterWalletCredits                                 = gamecontent.DefaultStarterWalletCredits
+	starterWalletPremiumPaid                             = gamecontent.DefaultStarterWalletPremiumPaid
+	weeklyXCorePremiumPrice                              = gamecontent.DefaultWeeklyXCorePremiumPrice
+	weeklyXCoreStockTotal                                = gamecontent.DefaultWeeklyXCoreStockTotal
 	runtimeQuestRewardLedgerReason                       = economy.LedgerReason("quest_reward")
 	runtimeSectorKey                                     = "origin-fringe"
 	runtimeProjectionSourceWorker                        = "worker_projection"
@@ -163,6 +164,10 @@ type Runtime struct {
 	combatXP            *combat.NPCKillXPHandler
 	lootTables          map[string]loot.LootTable
 	itemCatalog         map[foundation.ItemID]economy.ItemDefinition
+	starterContent      gamecontent.StarterContent
+	routeContent        gamecontent.RouteContent
+	productionRules     gamecontent.ProductionRulesContent
+	combatRules         gamecontent.CombatRulesContent
 	repairAttempts      map[foundation.IdempotencyKey]repairAttemptRecord
 	shopPurchases       map[foundation.IdempotencyKey]shopPurchaseRecord
 	scanCooldowns       map[scanCooldownKey]time.Time
@@ -210,10 +215,11 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	mapCatalog, err := worldmaps.StarterCatalog(config.WorldID)
+	contentBundle, err := gamecontent.LoadPublishedContent(context.Background(), gamecontent.NewStaticRepository(), config.WorldID)
 	if err != nil {
 		return nil, err
 	}
+	mapCatalog := contentBundle.Maps
 	mapRouter, err := worldmaps.NewRouter(mapCatalog)
 	if err != nil {
 		return nil, err
@@ -257,10 +263,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	cargoService := economy.NewCargoService(inventory)
 	walletService := economy.NewWalletService(clock)
 	progressionService := progression.NewProgressionService(clock, nil)
-	shipCatalog, err := ships.MVPShipCatalog()
-	if err != nil {
-		return nil, err
-	}
+	shipCatalog := contentBundle.Ships
 	hangarStore := ships.NewInMemoryHangarStore()
 	hangarService, err := ships.NewHangarService(
 		shipCatalog,
@@ -276,32 +279,23 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Clock:       clock,
 		Cargo:       cargoService,
 		Progression: progressionService,
-		PickupRange: runtimeLootPickupRange,
+		PickupRange: contentBundle.Combat.LootPickupRange,
 	})
 	if err != nil {
 		return nil, err
 	}
 	combatService := combat.NewService(clock, nil)
-	combatXP, err := combat.NewNPCKillXPHandler(progressionService, combat.DefaultNPCKillXPReward())
+	combatXP, err := combat.NewNPCKillXPHandler(progressionService, contentBundle.Combat.NPCKillXPReward())
 	if err != nil {
 		return nil, err
 	}
-	moduleCatalog := modules.MustMVPCatalog()
-	lootTables, itemCatalog, err := runtimeLootCatalog()
+	moduleCatalog := contentBundle.Modules
+	itemCatalog, lootTables, err := contentBundle.RuntimeItemsAndLootTables()
 	if err != nil {
 		return nil, err
 	}
-	if err := appendRuntimeModuleItems(itemCatalog, moduleCatalog); err != nil {
-		return nil, err
-	}
-	contentRegistry, err := buildRuntimeContentRegistry(itemCatalog, moduleCatalog, shipCatalog)
-	if err != nil {
-		return nil, err
-	}
-	recipeCatalog, err := crafting.MVPRecipeCatalog()
-	if err != nil {
-		return nil, err
-	}
+	contentRegistry := contentBundle.Shop
+	recipeCatalog := contentBundle.Recipes
 	reservationService := economy.NewReservationService(inventory)
 	discoveryStore := discovery.NewInMemoryStore()
 	productionStore := production.NewInMemoryStore()
@@ -463,34 +457,23 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		combatXP:                       combatXP,
 		lootTables:                     lootTables,
 		itemCatalog:                    itemCatalog,
+		starterContent:                 contentBundle.Starter,
+		routeContent:                   contentBundle.Route,
+		productionRules:                contentBundle.Rules,
+		combatRules:                    contentBundle.Combat,
 		repairAttempts:                 make(map[foundation.IdempotencyKey]repairAttemptRecord),
 		shopPurchases:                  make(map[foundation.IdempotencyKey]shopPurchaseRecord),
 		scanCooldowns:                  make(map[scanCooldownKey]time.Time),
 		scanCapacitorSpends:            make(map[discovery.ScanPulseReference]scanCapacitorSpendRecord),
 	}
-	scannerSeed, err := discovery.NewWorldSeed(discovery.WorldSeedInput{
-		StaticSeed: []byte("phase07-static-seed"),
-	})
+	scannerSeed, err := contentBundle.Scanner.WorldSeed()
 	if err != nil {
 		return nil, err
 	}
-	scannerBounds := worldmaps.ExactPlayableBounds()
-	scannerCandidateOptions := discovery.CandidateGenerationOptions{
-		ProfileVersion: "runtime_phase06_bounded_v1",
-		MapBounds: discovery.CandidateMapBounds{
-			MinX: scannerBounds.MinX,
-			MinY: scannerBounds.MinY,
-			MaxX: scannerBounds.MaxX,
-			MaxY: scannerBounds.MaxY,
-		},
-		LevelMin:     1,
-		LevelMax:     4,
-		Density:      1,
-		SpawnBudget:  8,
-		ScanCellSize: discovery.DefaultScanCellSize,
-	}
-	if config.E2EScanNoPlanetSeed {
-		scannerCandidateOptions.AllowedBiomes = []discovery.Biome{"e2e_no_planet"}
+	scannerCandidateOptions := contentBundle.Scanner.CandidateOptionsForRuntime(config.E2EScanNoPlanetSeed)
+	var scannerProfiles discovery.ScannerCandidateOptionsProvider
+	if !config.E2EScanNoPlanetSeed {
+		scannerProfiles = contentBundle.Scanner
 	}
 	scanner, err := discovery.NewScannerService(discovery.ScannerServiceConfig{
 		Store:             discoveryStore,
@@ -502,10 +485,11 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Cooldowns:         runtimeScannerCooldownProvider{runtime: runtime},
 		Energy:            runtimeScannerEnergyProvider{runtime: runtime},
 		Reveals:           runtimeScannerPlayerRevealProvider{runtime: runtime},
+		Profiles:          scannerProfiles,
 		XP:                runtimeScanXPProvider{progression: progressionService},
 		CandidateOptions:  scannerCandidateOptions,
-		RadarLevelUnit:    defaultRadarRange,
-		DiscoveryXPAmount: 25,
+		RadarLevelUnit:    contentBundle.Scanner.RadarLevelUnit,
+		DiscoveryXPAmount: contentBundle.Scanner.DiscoveryXPAmount,
 	})
 	if err != nil {
 		return nil, err
@@ -518,8 +502,8 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	claimProductionInitializer, err := production.NewClaimProductionInitializer(production.ClaimProductionInitializerConfig{
 		Store: productionStore,
 		Defaults: production.ClaimProductionInitializationDefaults{
-			StorageCapacityUnits:  runtimeClaimProductionStorageCapacity,
-			EnergyCapacityPerHour: runtimeClaimProductionEnergyCapacity,
+			StorageCapacityUnits:  contentBundle.Rules.ClaimStorageCapacityUnits,
+			EnergyCapacityPerHour: contentBundle.Rules.ClaimEnergyCapacityPerHour,
 		},
 	})
 	if err != nil {
@@ -625,12 +609,7 @@ func (runtime *Runtime) seedWorld() error {
 		if instance == nil || instance.Worker == nil {
 			return fmt.Errorf("map %q: %w", mapID, errMapInstanceNotFound)
 		}
-		overrides := map[worldmaps.EnemyPoolID][]world.EntityID(nil)
-		if mapID == worldmaps.StarterMapID {
-			overrides = map[worldmaps.EnemyPoolID][]world.EntityID{
-				"starter_training_drone_pool": {"entity_training_npc"},
-			}
-		}
+		overrides := runtime.starterWorldSeedOverrides(mapID)
 		if err := runtime.submitWorkerCommandAndRecordMetricsLocked(instance, worker.InitializeEnemyPoolsCommand{
 			Definition:        instance.Definition,
 			EntityIDOverrides: overrides,
@@ -669,6 +648,20 @@ func (runtime *Runtime) seedWorld() error {
 		instance.HiddenEntities[hidden.ID] = true
 	}
 	return nil
+}
+
+func (runtime *Runtime) starterWorldSeedOverrides(mapID worldmaps.MapID) map[worldmaps.EnemyPoolID][]world.EntityID {
+	overrides := make(map[worldmaps.EnemyPoolID][]world.EntityID)
+	for _, seed := range runtime.starterContent.WorldSeeds {
+		if seed.MapID != mapID || len(seed.EntityIDOverrides) == 0 {
+			continue
+		}
+		overrides[seed.EnemyPoolID] = append([]world.EntityID(nil), seed.EntityIDOverrides...)
+	}
+	if len(overrides) == 0 {
+		return nil
+	}
+	return overrides
 }
 
 func boundedOffset(bounds worldmaps.Bounds, origin world.Vec2, offset world.Vec2) world.Vec2 {

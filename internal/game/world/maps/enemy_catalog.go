@@ -195,6 +195,15 @@ type NPCLeashProfile struct {
 }
 
 func validateEnemyContent(definition MapDefinition) error {
+	if len(definition.SpawnAreas) == 0 ||
+		len(definition.EnemyPools) == 0 ||
+		len(definition.NPCStatTemplates) == 0 ||
+		len(definition.NPCDropProfiles) == 0 ||
+		len(definition.NPCAggroProfiles) == 0 ||
+		len(definition.NPCLeashProfiles) == 0 {
+		return fmt.Errorf("map %q enemy content incomplete: %w", definition.InternalMapID, ErrInvalidMapDefinition)
+	}
+
 	spawnAreas := make(map[SpawnAreaID]struct{}, len(definition.SpawnAreas))
 	for _, area := range definition.SpawnAreas {
 		if err := area.SpawnAreaID.Validate(); err != nil {
@@ -267,6 +276,10 @@ func validateEnemyContent(definition MapDefinition) error {
 
 	poolIDs := make(map[EnemyPoolID]struct{}, len(definition.EnemyPools))
 	pools := make(map[EnemyPoolID]MapEnemyPoolDefinition, len(definition.EnemyPools))
+	referencedStatTemplates := make(map[NPCStatTemplateID]struct{}, len(definition.EnemyPools))
+	referencedDropProfiles := make(map[NPCDropProfileID]struct{}, len(definition.EnemyPools)+len(definition.NPCEventSpawns))
+	referencedAggroProfiles := make(map[NPCAggroProfileID]struct{}, len(definition.EnemyPools))
+	referencedLeashProfiles := make(map[NPCLeashProfileID]struct{}, len(definition.EnemyPools))
 	for _, pool := range definition.EnemyPools {
 		if err := pool.EnemyPoolID.Validate(); err != nil {
 			return fmt.Errorf("map %q enemy pool: %w", definition.InternalMapID, err)
@@ -279,6 +292,10 @@ func validateEnemyContent(definition MapDefinition) error {
 		if err := validateEnemyPoolDefinition(pool, definition.RiskBand, spawnAreas, statTemplates, dropProfiles, aggroProfiles, leashProfiles); err != nil {
 			return fmt.Errorf("map %q enemy pool %q: %w", definition.InternalMapID, pool.EnemyPoolID, err)
 		}
+		referencedStatTemplates[pool.StatTemplateID] = struct{}{}
+		referencedDropProfiles[pool.DropProfileID] = struct{}{}
+		referencedAggroProfiles[pool.AggroProfileID] = struct{}{}
+		referencedLeashProfiles[pool.LeashProfileID] = struct{}{}
 	}
 
 	eventSpawnIDs := make(map[NPCEventSpawnID]struct{}, len(definition.NPCEventSpawns))
@@ -292,6 +309,27 @@ func validateEnemyContent(definition MapDefinition) error {
 		eventSpawnIDs[eventSpawn.EventSpawnID] = struct{}{}
 		if err := validateNPCEventSpawnDefinition(eventSpawn, definition.RiskBand, pools, dropProfiles); err != nil {
 			return fmt.Errorf("map %q npc event spawn %q: %w", definition.InternalMapID, eventSpawn.EventSpawnID, err)
+		}
+		referencedDropProfiles[eventSpawn.DropProfileID] = struct{}{}
+	}
+	for templateID := range statTemplates {
+		if _, ok := referencedStatTemplates[templateID]; !ok {
+			return fmt.Errorf("map %q unreferenced npc stat template %q: %w", definition.InternalMapID, templateID, ErrInvalidCatalog)
+		}
+	}
+	for profileID := range dropProfiles {
+		if _, ok := referencedDropProfiles[profileID]; !ok {
+			return fmt.Errorf("map %q unreferenced npc drop profile %q: %w", definition.InternalMapID, profileID, ErrInvalidCatalog)
+		}
+	}
+	for profileID := range aggroProfiles {
+		if _, ok := referencedAggroProfiles[profileID]; !ok {
+			return fmt.Errorf("map %q unreferenced npc aggro profile %q: %w", definition.InternalMapID, profileID, ErrInvalidCatalog)
+		}
+	}
+	for profileID := range leashProfiles {
+		if _, ok := referencedLeashProfiles[profileID]; !ok {
+			return fmt.Errorf("map %q unreferenced npc leash profile %q: %w", definition.InternalMapID, profileID, ErrInvalidCatalog)
 		}
 	}
 	return nil

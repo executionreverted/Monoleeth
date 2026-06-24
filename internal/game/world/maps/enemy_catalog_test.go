@@ -287,6 +287,14 @@ func TestEnemyCatalogValidationRejectsInvalidDefinitions(t *testing.T) {
 		want error
 	}{
 		{
+			name: "missing enemy pools",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].EnemyPools = nil
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
 			name: "duplicate enemy pool id",
 			edit: func(definitions []MapDefinition) []MapDefinition {
 				definitions[0].EnemyPools = append(definitions[0].EnemyPools, definitions[0].EnemyPools[0])
@@ -354,6 +362,22 @@ func TestEnemyCatalogValidationRejectsInvalidDefinitions(t *testing.T) {
 			want: ErrInvalidCatalog,
 		},
 		{
+			name: "unknown stat template ref",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].EnemyPools[0].StatTemplateID = "missing_stat_template"
+				return definitions
+			},
+			want: ErrInvalidCatalog,
+		},
+		{
+			name: "unknown drop profile ref",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].EnemyPools[0].DropProfileID = "missing_drop_profile"
+				return definitions
+			},
+			want: ErrInvalidCatalog,
+		},
+		{
 			name: "stat template npc type mismatch",
 			edit: func(definitions []MapDefinition) []MapDefinition {
 				definitions[0].NPCStatTemplates[0].NPCType = "raider_drone"
@@ -406,6 +430,70 @@ func TestEnemyCatalogValidationRejectsInvalidDefinitions(t *testing.T) {
 			name: "invalid stat template cooldown",
 			edit: func(definitions []MapDefinition) []MapDefinition {
 				definitions[0].NPCStatTemplates[0].WeaponCooldown = 0
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "invalid stat template hp",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCStatTemplates[0].HPMax = 0
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "invalid stat template shield",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCStatTemplates[0].ShieldMax = -1
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "invalid stat template weapon range",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCStatTemplates[0].WeaponRange = 0
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "invalid stat template damage",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCStatTemplates[0].WeaponDamage = -1
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "invalid stat template radar signature",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCStatTemplates[0].RadarSignature = -1
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "invalid stat template speed",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCStatTemplates[0].Speed = -1
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "invalid stat template xp",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCStatTemplates[0].XPValue = -1
+				return definitions
+			},
+			want: ErrInvalidMapDefinition,
+		},
+		{
+			name: "invalid stat template label",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].NPCStatTemplates[0].LabelKey = ""
 				return definitions
 			},
 			want: ErrInvalidMapDefinition,
@@ -478,6 +566,54 @@ func TestEnemyCatalogValidationRejectsInvalidDefinitions(t *testing.T) {
 			name: "event spawn drop profile mismatch",
 			edit: func(definitions []MapDefinition) []MapDefinition {
 				definitions[0].NPCEventSpawns[0].DropProfileID = definitions[0].NPCDropProfiles[0].DropProfileID
+				return definitions
+			},
+			want: ErrInvalidCatalog,
+		},
+		{
+			name: "unknown leash profile ref",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				definitions[0].EnemyPools[0].LeashProfileID = "missing_leash_profile"
+				return definitions
+			},
+			want: ErrInvalidCatalog,
+		},
+		{
+			name: "unreferenced stat template",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				orphan := definitions[0].NPCStatTemplates[0]
+				orphan.StatTemplateID = "orphan_training_drone_level_1"
+				definitions[0].NPCStatTemplates = append(definitions[0].NPCStatTemplates, orphan)
+				return definitions
+			},
+			want: ErrInvalidCatalog,
+		},
+		{
+			name: "unreferenced drop profile",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				orphan := definitions[0].NPCDropProfiles[0]
+				orphan.DropProfileID = "orphan_training_drone_salvage"
+				definitions[0].NPCDropProfiles = append(definitions[0].NPCDropProfiles, orphan)
+				return definitions
+			},
+			want: ErrInvalidCatalog,
+		},
+		{
+			name: "unreferenced aggro profile",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				orphan := definitions[0].NPCAggroProfiles[0]
+				orphan.AggroProfileID = "orphan_training_drone_passive"
+				definitions[0].NPCAggroProfiles = append(definitions[0].NPCAggroProfiles, orphan)
+				return definitions
+			},
+			want: ErrInvalidCatalog,
+		},
+		{
+			name: "unreferenced leash profile",
+			edit: func(definitions []MapDefinition) []MapDefinition {
+				orphan := definitions[0].NPCLeashProfiles[0]
+				orphan.LeashProfileID = "orphan_training_drone_stationary"
+				definitions[0].NPCLeashProfiles = append(definitions[0].NPCLeashProfiles, orphan)
 				return definitions
 			},
 			want: ErrInvalidCatalog,
