@@ -38,6 +38,9 @@ func TestDefaultGameplayContentValidates(t *testing.T) {
 	if got, want := len(bundle.Scanner.MapProfiles), 3; got != want {
 		t.Fatalf("scanner map profile count = %d, want %d", got, want)
 	}
+	if len(bundle.Shop.ShopProducts) == 0 || len(bundle.Shop.Categories) == 0 {
+		t.Fatalf("shop content incomplete: categories=%d products=%d", len(bundle.Shop.Categories), len(bundle.Shop.ShopProducts))
+	}
 }
 
 func TestStaticRepositoryLoadsValidatedPublishedContent(t *testing.T) {
@@ -54,6 +57,28 @@ func TestLoadPublishedContentRejectsMissingRepository(t *testing.T) {
 	_, err := LoadPublishedContent(context.Background(), nil, world.WorldID("world-1"))
 	if !errors.Is(err, ErrMissingContentRepository) {
 		t.Fatalf("LoadPublishedContent() error = %v, want %v", err, ErrMissingContentRepository)
+	}
+}
+
+func TestGameplayContentRejectsShopUnknownItemReference(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Shop.ShopProducts = append([]catalog.ShopProductDefinition(nil), bundle.Shop.ShopProducts...)
+	found := false
+	for index, product := range bundle.Shop.ShopProducts {
+		if product.GrantTarget.Kind == catalog.GrantTargetKindItem {
+			product.GrantTarget.RefID = "missing_item"
+			bundle.Shop.ShopProducts[index] = product
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("default shop item product missing")
+	}
+
+	err := bundle.Validate()
+	if !errors.Is(err, catalog.ErrMissingContentReference) {
+		t.Fatalf("Validate() error = %v, want %v", err, catalog.ErrMissingContentReference)
 	}
 }
 

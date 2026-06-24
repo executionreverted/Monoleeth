@@ -52,6 +52,9 @@ func (bundle GameplayContent) Validate() error {
 	if err := validateMapLootReferences(bundle); err != nil {
 		return err
 	}
+	if err := validateShopReferences(bundle); err != nil {
+		return err
+	}
 	if err := bundle.Scanner.Validate(bundle.Maps); err != nil {
 		return err
 	}
@@ -59,6 +62,10 @@ func (bundle GameplayContent) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func validateShopReferences(bundle GameplayContent) error {
+	return bundle.Shop.ValidateReferences(shopReferenceResolver(bundle.Items, bundle.Modules, bundle.Ships))
 }
 
 func validateKnownItem(bundle GameplayContent, kind string, itemID foundation.ItemID) error {

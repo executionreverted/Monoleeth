@@ -56,6 +56,7 @@ Add `GameplayContent` with:
 - `Maps *maps.Catalog`
 - `Scanner ScannerContent`
 - `Starter StarterContent`
+- `Shop catalog.ContentRegistry`
 
 Add `DefaultGameplayContent(worldID world.WorldID)` to assemble current static
 content.
@@ -76,6 +77,8 @@ Add `Validate() error` and helpers for:
 - server-only starter/playtest content refs: starter ship, starter module item
   grants, scanner module, weekly X Core stock, first-NPC seed overrides, claim
   core, and route seed stored items
+- shop content refs and display/category metadata through
+  `catalog.ContentRegistry`
 
 **Step 5: Run focused test**
 
@@ -240,6 +243,50 @@ Run:
 
 ```bash
 go test ./internal/game/content ./internal/game/server -run 'TestStaticRepository|TestLoadPublishedContent|TestDefaultGameplayContent|TestGameplayContent|TestPlaytestSeed|TestE2EPlanetClaimSeed|TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner' -count=1
+git diff --check
+```
+
+Expected: pass.
+
+### Task 2E: Shop Registry Ownership
+
+**Files:**
+- Create: `internal/game/content/shop.go`
+- Delete: `internal/game/server/content_registry.go`
+- Modify: `internal/game/content/bundle.go`
+- Modify: `internal/game/content/validation.go`
+- Modify: `internal/game/content/bundle_test.go`
+- Modify: `internal/game/server/runtime.go`
+- Modify: `internal/game/server/server_economy_inventory_shop_test.go`
+
+**Step 1: Move concrete shop content**
+
+Move static shop categories, products, display metadata, module product prices,
+ship product metadata, and starter resource product out of the server package
+and into the content package.
+
+**Step 2: Store in `GameplayContent`**
+
+Add `Shop catalog.ContentRegistry` to the content bundle. Build it during
+`DefaultGameplayContent` after item/module/ship catalogs exist.
+
+**Step 3: Validate references**
+
+Bundle validation calls `Shop.ValidateReferences` with content-owned item,
+module, ship, and premium resolvers. Invalid products fail before runtime
+serves shop payloads.
+
+**Step 4: Runtime wiring**
+
+Runtime receives `contentBundle.Shop` directly. Shop handlers keep using
+server-owned runtime state for purchases and grants.
+
+**Step 5: Validate**
+
+Run:
+
+```bash
+go test ./internal/game/content ./internal/game/server -run 'TestDefaultGameplayContent|TestGameplayContent|TestStaticRepository|TestLoadPublishedContent|TestShop|TestEconomyInventoryShop|TestMarketStateMutationFanout' -count=1
 git diff --check
 ```
 

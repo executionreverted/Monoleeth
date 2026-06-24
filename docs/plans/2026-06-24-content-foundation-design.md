@@ -57,6 +57,9 @@ proprietary labels or assets.
   fixed first-NPC entity overrides, playtest claim core quantity, and route
   seed storage. Runtime still performs all authoritative mutations; the content
   bundle only owns validated constants.
+- shop/category/product registry content is built in the content package from
+  static items, modules, and ships, then validated with `catalog.ContentRegistry`
+  reference checks before runtime exposes shop catalog/query handlers.
 
 ## Non-Goals
 
@@ -94,5 +97,7 @@ Use narrow tests:
   reject duplicate starter modules or invalid wallet/scanner/route quantities
 - published content loading must reject missing repositories and revalidate the
   loaded bundle before runtime uses it
+- shop registry products must reference known items/modules/ships and keep
+  display/category metadata valid before runtime serves shop payloads
 - runtime uses the validated content bundle for item/loot catalogs
-  and scanner/planet/starter seed config
+  and scanner/planet/starter/shop config

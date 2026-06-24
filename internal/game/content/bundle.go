@@ -33,6 +33,7 @@ type GameplayContent struct {
 	Maps       *worldmaps.Catalog
 	Scanner    ScannerContent
 	Starter    StarterContent
+	Shop       catalog.ContentRegistry
 }
 
 // DefaultGameplayContent returns the current static playtest content bundle.
@@ -58,6 +59,10 @@ func DefaultGameplayContent(worldID world.WorldID) (GameplayContent, error) {
 	if err != nil {
 		return GameplayContent{}, err
 	}
+	shop, err := DefaultShopContent(items, moduleCatalog, shipCatalog)
+	if err != nil {
+		return GameplayContent{}, err
+	}
 	bundle := GameplayContent{
 		Items:      items,
 		LootTables: lootTables,
@@ -68,6 +73,7 @@ func DefaultGameplayContent(worldID world.WorldID) (GameplayContent, error) {
 		Maps:       mapCatalog,
 		Scanner:    DefaultScannerContent(),
 		Starter:    DefaultStarterContent(),
+		Shop:       shop,
 	}
 	if err := bundle.Validate(); err != nil {
 		return GameplayContent{}, err

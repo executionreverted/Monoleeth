@@ -19,10 +19,11 @@ for phase status; this file is a compact pending-work index.
   first-NPC entity overrides, playtest claim core quantity, and route seed
   storage while runtime keeps all server-authoritative mutations. Runtime now
   loads through a `content.Repository` boundary backed by `StaticRepository`.
-  Next work: add DB-backed empty-DB seeding and published revision loading, add
-  draft / publish / rollback validation, then build the admin CMS UI for
-  monsters, drop tables, item stats, recipes, map pools, and planet/scanner
-  tuning.
+  Shop/category/product registry content now lives in the content bundle and is
+  reference-validated before runtime serves shop payloads. Next work: add
+  DB-backed empty-DB seeding and published revision loading, add draft /
+  publish / rollback validation, then build the admin CMS UI for monsters, drop
+  tables, item stats, recipes, map pools, and planet/scanner tuning.
   Source: `docs/plans/2026-06-24-content-foundation-design.md`.
 - [ ] Tune the first real world sprite set into the final 2D/3D art pass. The
   current renderer now loads concrete assets under `client/src/assets/world/`

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gameproject/internal/game/catalog"
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
@@ -558,12 +559,12 @@ func TestShopCatalogUsesServerOwnedGameCatalog(t *testing.T) {
 		categoryNames[category.CategoryID] = category.DisplayName
 	}
 	for id, displayName := range map[string]string{
-		shopCategoryShips:            "Ships",
-		shopCategoryWeapons:          "Weapons",
-		shopCategoryShieldGenerators: "Shield Generators",
-		shopCategoryScannerRadar:     "Scanner/Radar",
-		shopCategoryCargoUtility:     "Cargo/Utility",
-		shopCategoryResources:        "Resources",
+		gamecontent.ShopCategoryShips:            "Ships",
+		gamecontent.ShopCategoryWeapons:          "Weapons",
+		gamecontent.ShopCategoryShieldGenerators: "Shield Generators",
+		gamecontent.ShopCategoryScannerRadar:     "Scanner/Radar",
+		gamecontent.ShopCategoryCargoUtility:     "Cargo/Utility",
+		gamecontent.ShopCategoryResources:        "Resources",
 	} {
 		if categoryNames[id] != displayName {
 			t.Fatalf("category %q = %q, want %q in %+v", id, categoryNames[id], displayName, payload.Shop.Categories)

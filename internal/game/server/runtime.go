@@ -291,10 +291,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	contentRegistry, err := buildRuntimeContentRegistry(itemCatalog, moduleCatalog, shipCatalog)
-	if err != nil {
-		return nil, err
-	}
+	contentRegistry := contentBundle.Shop
 	recipeCatalog := contentBundle.Recipes
 	reservationService := economy.NewReservationService(inventory)
 	discoveryStore := discovery.NewInMemoryStore()

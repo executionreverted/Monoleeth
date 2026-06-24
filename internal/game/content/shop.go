@@ -1,4 +1,4 @@
-package server
+package content
 
 import (
 	"fmt"
@@ -11,22 +11,22 @@ import (
 )
 
 const (
-	shopCategoryShips            = "ships"
-	shopCategoryWeapons          = "weapons"
-	shopCategoryAmmo             = "ammo"
-	shopCategoryLaunchers        = "launchers"
-	shopCategoryShieldGenerators = "shield_generators"
-	shopCategorySpeedGenerators  = "speed_generators"
-	shopCategoryExtrasModules    = "extras_modules"
-	shopCategoryScannerRadar     = "scanner_radar"
-	shopCategoryStealth          = "stealth"
-	shopCategoryCargoUtility     = "cargo_utility"
-	shopCategoryBoosters         = "boosters"
-	shopCategoryResources        = "resources"
+	ShopCategoryShips            = "ships"
+	ShopCategoryWeapons          = "weapons"
+	ShopCategoryAmmo             = "ammo"
+	ShopCategoryLaunchers        = "launchers"
+	ShopCategoryShieldGenerators = "shield_generators"
+	ShopCategorySpeedGenerators  = "speed_generators"
+	ShopCategoryExtrasModules    = "extras_modules"
+	ShopCategoryScannerRadar     = "scanner_radar"
+	ShopCategoryStealth          = "stealth"
+	ShopCategoryCargoUtility     = "cargo_utility"
+	ShopCategoryBoosters         = "boosters"
+	ShopCategoryResources        = "resources"
 )
 
-func buildRuntimeContentRegistry(
-	itemCatalog map[foundation.ItemID]economy.ItemDefinition,
+func DefaultShopContent(
+	items map[foundation.ItemID]economy.ItemDefinition,
 	moduleCatalog modules.Catalog,
 	shipCatalog ships.Catalog,
 ) (catalog.ContentRegistry, error) {
@@ -44,14 +44,14 @@ func buildRuntimeContentRegistry(
 		}
 		products = append(products, product)
 	}
-	if _, ok := itemCatalog["raw_ore"]; ok {
+	if _, ok := items["raw_ore"]; ok {
 		products = append(products, catalog.ShopProductDefinition{
 			ProductID:   "product_ferrite_ore",
 			ProductType: catalog.ShopProductTypeItem,
 			Display: catalog.DisplayMetadata{
 				DisplayName: "Ferrite Ore",
 				Description: "Dense starter ore used for ship repairs, starter crafting, and early trade loops.",
-				Category:    shopCategoryResources,
+				Category:    ShopCategoryResources,
 				Subcategory: "Material",
 				ArtKey:      "item.ferrite_ore",
 				Rarity:      economy.ItemRarityCommon.String(),
@@ -70,9 +70,20 @@ func buildRuntimeContentRegistry(
 	if err != nil {
 		return catalog.ContentRegistry{}, err
 	}
-	if err := registry.ValidateReferences(catalog.ReferenceResolver{
+	if err := registry.ValidateReferences(shopReferenceResolver(items, moduleCatalog, shipCatalog)); err != nil {
+		return catalog.ContentRegistry{}, err
+	}
+	return registry, nil
+}
+
+func shopReferenceResolver(
+	items map[foundation.ItemID]economy.ItemDefinition,
+	moduleCatalog modules.Catalog,
+	shipCatalog ships.Catalog,
+) catalog.ReferenceResolver {
+	return catalog.ReferenceResolver{
 		HasItem: func(id string) bool {
-			_, ok := itemCatalog[foundation.ItemID(id)]
+			_, ok := items[foundation.ItemID(id)]
 			return ok
 		},
 		HasModule: func(id string) bool {
@@ -86,26 +97,23 @@ func buildRuntimeContentRegistry(
 		HasPremium: func(id string) bool {
 			return id == "weekly_xcore_stock"
 		},
-	}); err != nil {
-		return catalog.ContentRegistry{}, err
 	}
-	return registry, nil
 }
 
 func runtimeShopCategories() []catalog.ContentCategory {
 	return []catalog.ContentCategory{
-		{ID: shopCategoryShips, DisplayName: "Ships", SortOrder: 10},
-		{ID: shopCategoryWeapons, DisplayName: "Weapons", SortOrder: 20},
-		{ID: shopCategoryAmmo, DisplayName: "Ammo", SortOrder: 30},
-		{ID: shopCategoryLaunchers, DisplayName: "Launchers", SortOrder: 40},
-		{ID: shopCategoryShieldGenerators, DisplayName: "Shield Generators", SortOrder: 50},
-		{ID: shopCategorySpeedGenerators, DisplayName: "Speed Generators", SortOrder: 60},
-		{ID: shopCategoryExtrasModules, DisplayName: "Extras/Modules", SortOrder: 70},
-		{ID: shopCategoryScannerRadar, DisplayName: "Scanner/Radar", SortOrder: 80},
-		{ID: shopCategoryStealth, DisplayName: "Stealth", SortOrder: 90},
-		{ID: shopCategoryCargoUtility, DisplayName: "Cargo/Utility", SortOrder: 100},
-		{ID: shopCategoryBoosters, DisplayName: "Boosters", SortOrder: 110},
-		{ID: shopCategoryResources, DisplayName: "Resources", SortOrder: 120},
+		{ID: ShopCategoryShips, DisplayName: "Ships", SortOrder: 10},
+		{ID: ShopCategoryWeapons, DisplayName: "Weapons", SortOrder: 20},
+		{ID: ShopCategoryAmmo, DisplayName: "Ammo", SortOrder: 30},
+		{ID: ShopCategoryLaunchers, DisplayName: "Launchers", SortOrder: 40},
+		{ID: ShopCategoryShieldGenerators, DisplayName: "Shield Generators", SortOrder: 50},
+		{ID: ShopCategorySpeedGenerators, DisplayName: "Speed Generators", SortOrder: 60},
+		{ID: ShopCategoryExtrasModules, DisplayName: "Extras/Modules", SortOrder: 70},
+		{ID: ShopCategoryScannerRadar, DisplayName: "Scanner/Radar", SortOrder: 80},
+		{ID: ShopCategoryStealth, DisplayName: "Stealth", SortOrder: 90},
+		{ID: ShopCategoryCargoUtility, DisplayName: "Cargo/Utility", SortOrder: 100},
+		{ID: ShopCategoryBoosters, DisplayName: "Boosters", SortOrder: 110},
+		{ID: ShopCategoryResources, DisplayName: "Resources", SortOrder: 120},
 	}
 }
 
@@ -117,7 +125,7 @@ func runtimeShipShopProduct(definition ships.ShipDefinition) (catalog.ShopProduc
 		ships.ShipIDFighterT1: {
 			DisplayName: "Helion Lance",
 			Description: "Combat chassis with extra weapon slots and balanced shield reserves.",
-			Category:    shopCategoryShips,
+			Category:    ShopCategoryShips,
 			Subcategory: "Fighter",
 			ArtKey:      "ship.helion_lance",
 			Rarity:      economy.ItemRarityUncommon.String(),
@@ -127,7 +135,7 @@ func runtimeShipShopProduct(definition ships.ShipDefinition) (catalog.ShopProduc
 		ships.ShipIDScoutT1: {
 			DisplayName: "Vesper Dart",
 			Description: "Fast scout hull built for radar coverage, scanner duty, and quick escapes.",
-			Category:    shopCategoryShips,
+			Category:    ShopCategoryShips,
 			Subcategory: "Scout",
 			ArtKey:      "ship.vesper_dart",
 			Rarity:      economy.ItemRarityUncommon.String(),
@@ -137,7 +145,7 @@ func runtimeShipShopProduct(definition ships.ShipDefinition) (catalog.ShopProduc
 		ships.ShipIDHaulerT1: {
 			DisplayName: "Aegis Courier",
 			Description: "Cargo-heavy hull with stronger plating for resource runs and route staging.",
-			Category:    shopCategoryShips,
+			Category:    ShopCategoryShips,
 			Subcategory: "Hauler",
 			ArtKey:      "ship.aegis_courier",
 			Rarity:      economy.ItemRarityUncommon.String(),
@@ -193,7 +201,7 @@ func runtimeModuleShopDisplay(definition modules.ModuleDefinition) (catalog.Disp
 		return catalog.DisplayMetadata{
 			DisplayName: "Prism Lance I",
 			Description: "Entry laser array for reliable basic-fire pressure against small hostiles.",
-			Category:    shopCategoryWeapons,
+			Category:    ShopCategoryWeapons,
 			Subcategory: "Laser",
 			ArtKey:      "module.prism_lance_1",
 			Rarity:      definition.Rarity.String(),
@@ -204,7 +212,7 @@ func runtimeModuleShopDisplay(definition modules.ModuleDefinition) (catalog.Disp
 		return catalog.DisplayMetadata{
 			DisplayName: "Aurora Shield Cell",
 			Description: "Compact shield generator that increases maximum shield and passive recovery.",
-			Category:    shopCategoryShieldGenerators,
+			Category:    ShopCategoryShieldGenerators,
 			Subcategory: "Shield",
 			ArtKey:      "module.aurora_shield_cell",
 			Rarity:      definition.Rarity.String(),
@@ -215,7 +223,7 @@ func runtimeModuleShopDisplay(definition modules.ModuleDefinition) (catalog.Disp
 		return catalog.DisplayMetadata{
 			DisplayName: "Horizon Scanner",
 			Description: "Utility scanner for planet discovery, hidden-signal sweeps, and playtest intel.",
-			Category:    shopCategoryScannerRadar,
+			Category:    ShopCategoryScannerRadar,
 			Subcategory: "Scanner",
 			ArtKey:      "module.horizon_scanner",
 			Rarity:      definition.Rarity.String(),
@@ -226,7 +234,7 @@ func runtimeModuleShopDisplay(definition modules.ModuleDefinition) (catalog.Disp
 		return catalog.DisplayMetadata{
 			DisplayName: "Warden Radar I",
 			Description: "Radar extender that improves sector awareness and contact projection.",
-			Category:    shopCategoryScannerRadar,
+			Category:    ShopCategoryScannerRadar,
 			Subcategory: "Radar",
 			ArtKey:      "module.warden_radar_1",
 			Rarity:      definition.Rarity.String(),
@@ -237,7 +245,7 @@ func runtimeModuleShopDisplay(definition modules.ModuleDefinition) (catalog.Disp
 		return catalog.DisplayMetadata{
 			DisplayName: "Cargo Spine I",
 			Description: "Utility frame that expands cargo capacity for longer salvage routes.",
-			Category:    shopCategoryCargoUtility,
+			Category:    ShopCategoryCargoUtility,
 			Subcategory: "Cargo",
 			ArtKey:      "module.cargo_spine_1",
 			Rarity:      definition.Rarity.String(),
