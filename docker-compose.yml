@@ -1,15 +1,16 @@
 services:
   postgres:
-    image: postgres:18-alpine
+    image: postgres:16-alpine
     container_name: gameproject-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gameproject}
       POSTGRES_USER: ${POSTGRES_USER:-gameproject}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gameproject_dev_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - gameproject-postgres-data:/var/lib/postgresql
+      - gameproject-postgres-data-v2:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
@@ -18,4 +19,4 @@ services:
       start_period: 10s
 
 volumes:
-  gameproject-postgres-data:
+  gameproject-postgres-data-v2:

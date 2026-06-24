@@ -107,6 +107,28 @@ Before public test:
 - safe projection leak tests pass
 - full verification passes
 
+## Local Postgres Smoke
+
+The CMS Postgres smoke harness is opt-in. Without `GAME_CONTENT_DATABASE_URL`,
+the tests skip cleanly. To run against local Docker Postgres:
+
+```bash
+docker compose up -d postgres
+GAME_CONTENT_DATABASE_URL=postgres://gameproject:gameproject_dev_password@localhost:5432/gameproject?sslmode=disable \
+  go test ./internal/game/contentdb ./internal/game/server -run 'Postgres|ContentDB|Seed|Published|Invalid' -count=1
+```
+
+If local port `5432` is busy, start with `POSTGRES_PORT=55432 docker compose up
+-d postgres` and use port `55432` in `GAME_CONTENT_DATABASE_URL`.
+
+The harness creates an isolated temporary schema inside the configured DB, runs
+CMS migrations, and drops the schema after the test. It verifies:
+
+- empty DB seeds one published MVP snapshot
+- repeated seed on existing DB is a no-op
+- later published snapshot becomes current and loads through the DB repository
+- invalid published content fails closed during runtime boot
+
 ## Tests
 
 - published version ID appears in runtime/server snapshot where safe
