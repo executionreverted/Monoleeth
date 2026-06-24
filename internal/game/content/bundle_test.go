@@ -1,6 +1,7 @@
 package content
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -36,6 +37,23 @@ func TestDefaultGameplayContentValidates(t *testing.T) {
 	}
 	if got, want := len(bundle.Scanner.MapProfiles), 3; got != want {
 		t.Fatalf("scanner map profile count = %d, want %d", got, want)
+	}
+}
+
+func TestStaticRepositoryLoadsValidatedPublishedContent(t *testing.T) {
+	bundle, err := LoadPublishedContent(context.Background(), NewStaticRepository(), world.WorldID("world-1"))
+	if err != nil {
+		t.Fatalf("LoadPublishedContent() error = %v, want nil", err)
+	}
+	if bundle.Maps == nil || len(bundle.Items) == 0 || len(bundle.Starter.ModuleItemIDs) == 0 {
+		t.Fatalf("published content incomplete: maps=%v items=%d starter=%+v", bundle.Maps != nil, len(bundle.Items), bundle.Starter)
+	}
+}
+
+func TestLoadPublishedContentRejectsMissingRepository(t *testing.T) {
+	_, err := LoadPublishedContent(context.Background(), nil, world.WorldID("world-1"))
+	if !errors.Is(err, ErrMissingContentRepository) {
+		t.Fatalf("LoadPublishedContent() error = %v, want %v", err, ErrMissingContentRepository)
 	}
 }
 

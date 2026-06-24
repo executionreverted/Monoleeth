@@ -212,7 +212,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	contentBundle, err := gamecontent.DefaultGameplayContent(config.WorldID)
+	contentBundle, err := gamecontent.LoadPublishedContent(context.Background(), gamecontent.NewStaticRepository(), config.WorldID)
 	if err != nil {
 		return nil, err
 	}

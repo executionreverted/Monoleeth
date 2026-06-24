@@ -69,9 +69,10 @@ proprietary labels or assets.
 ## Future CMS Path
 
 1. Keep static bundle as seed content.
-2. Add content repository interface:
-   - DB empty: seed static bundle
-   - DB has published revision: load DB content
+2. Load runtime through a `content.Repository` boundary. The current
+   implementation is `StaticRepository`; a DB-backed implementation can later
+   seed an empty DB from the static bundle or load the latest published
+   revision.
 3. Reuse the same validator before accepting a published revision.
 4. Add admin draft/publish/rollback workflows once schemas are stable.
 
@@ -91,5 +92,7 @@ Use narrow tests:
   rows
 - starter content must reference known ship/item/module/map/enemy-pool rows and
   reject duplicate starter modules or invalid wallet/scanner/route quantities
+- published content loading must reject missing repositories and revalidate the
+  loaded bundle before runtime uses it
 - runtime uses the validated content bundle for item/loot catalogs
   and scanner/planet/starter seed config

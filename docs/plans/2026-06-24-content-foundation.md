@@ -215,6 +215,36 @@ git diff --check
 
 Expected: pass.
 
+### Task 2D: Content Repository Boundary
+
+**Files:**
+- Create: `internal/game/content/repository.go`
+- Modify: `internal/game/content/bundle_test.go`
+- Modify: `internal/game/server/runtime.go`
+
+**Step 1: Add repository interface**
+
+Add a `content.Repository` interface for loading published gameplay content.
+The current implementation is `StaticRepository`, which returns the validated
+static bundle.
+
+**Step 2: Runtime wiring**
+
+Runtime loads content through `LoadPublishedContent` instead of calling
+`DefaultGameplayContent` directly. This keeps DB/CMS loading as a future
+adapter without changing server-authoritative mutation paths.
+
+**Step 3: Validate**
+
+Run:
+
+```bash
+go test ./internal/game/content ./internal/game/server -run 'TestStaticRepository|TestLoadPublishedContent|TestDefaultGameplayContent|TestGameplayContent|TestPlaytestSeed|TestE2EPlanetClaimSeed|TestRuntimeSeedWorldInitializesStarterEnemyPoolThroughSpawner' -count=1
+git diff --check
+```
+
+Expected: pass.
+
 ### Task 3: Docs And Final Checks
 
 **Files:**
