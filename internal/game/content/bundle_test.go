@@ -41,6 +41,9 @@ func TestDefaultGameplayContentValidates(t *testing.T) {
 	if len(bundle.Shop.ShopProducts) == 0 || len(bundle.Shop.Categories) == 0 {
 		t.Fatalf("shop content incomplete: categories=%d products=%d", len(bundle.Shop.Categories), len(bundle.Shop.ShopProducts))
 	}
+	if !bundle.Route.ResourceRouteable("refined_alloy") {
+		t.Fatal("refined_alloy missing from routeable content")
+	}
 }
 
 func TestStaticRepositoryLoadsValidatedPublishedContent(t *testing.T) {
@@ -79,6 +82,36 @@ func TestGameplayContentRejectsShopUnknownItemReference(t *testing.T) {
 	err := bundle.Validate()
 	if !errors.Is(err, catalog.ErrMissingContentReference) {
 		t.Fatalf("Validate() error = %v, want %v", err, catalog.ErrMissingContentReference)
+	}
+}
+
+func TestGameplayContentRejectsRouteUnknownItem(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Route.RouteableItemIDs[0] = "missing_item"
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrUnknownContentItem) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrUnknownContentItem)
+	}
+}
+
+func TestGameplayContentRejectsRouteDuplicateItem(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Route.RouteableItemIDs = append(bundle.Route.RouteableItemIDs, bundle.Route.RouteableItemIDs[0])
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrInvalidRouteContent) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidRouteContent)
+	}
+}
+
+func TestGameplayContentRejectsInvalidRouteEndpointCapacity(t *testing.T) {
+	bundle := validBundle(t)
+	bundle.Route.EndpointStorageCapacityUnits = 0
+
+	err := bundle.Validate()
+	if !errors.Is(err, ErrInvalidRouteContent) {
+		t.Fatalf("Validate() error = %v, want %v", err, ErrInvalidRouteContent)
 	}
 }
 

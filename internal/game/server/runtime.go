@@ -165,6 +165,7 @@ type Runtime struct {
 	lootTables          map[string]loot.LootTable
 	itemCatalog         map[foundation.ItemID]economy.ItemDefinition
 	starterContent      gamecontent.StarterContent
+	routeContent        gamecontent.RouteContent
 	repairAttempts      map[foundation.IdempotencyKey]repairAttemptRecord
 	shopPurchases       map[foundation.IdempotencyKey]shopPurchaseRecord
 	scanCooldowns       map[scanCooldownKey]time.Time
@@ -455,6 +456,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		lootTables:                     lootTables,
 		itemCatalog:                    itemCatalog,
 		starterContent:                 contentBundle.Starter,
+		routeContent:                   contentBundle.Route,
 		repairAttempts:                 make(map[foundation.IdempotencyKey]repairAttemptRecord),
 		shopPurchases:                  make(map[foundation.IdempotencyKey]shopPurchaseRecord),
 		scanCooldowns:                  make(map[scanCooldownKey]time.Time),

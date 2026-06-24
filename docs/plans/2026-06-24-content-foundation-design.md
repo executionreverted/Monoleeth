@@ -60,6 +60,10 @@ proprietary labels or assets.
 - shop/category/product registry content is built in the content package from
   static items, modules, and ships, then validated with `catalog.ContentRegistry`
   reference checks before runtime exposes shop catalog/query handlers.
+- route policy content is server-only content: routeable resources, route count
+  cap, max distance, cross-map distance penalty, energy formula values, loss
+  band, and endpoint storage capacity are validated in the bundle, while
+  runtime still derives ownership, distance, storage, and access facts.
 
 ## Non-Goals
 
@@ -99,5 +103,7 @@ Use narrow tests:
   loaded bundle before runtime uses it
 - shop registry products must reference known items/modules/ships and keep
   display/category metadata valid before runtime serves shop payloads
+- route content must reference known routeable items and reject invalid caps,
+  endpoint capacity, energy formula values, or duplicate routeable resources
 - runtime uses the validated content bundle for item/loot catalogs
-  and scanner/planet/starter/shop config
+  and scanner/planet/starter/shop/route config

@@ -57,6 +57,7 @@ Add `GameplayContent` with:
 - `Scanner ScannerContent`
 - `Starter StarterContent`
 - `Shop catalog.ContentRegistry`
+- `Route RouteContent`
 
 Add `DefaultGameplayContent(worldID world.WorldID)` to assemble current static
 content.
@@ -79,6 +80,8 @@ Add `Validate() error` and helpers for:
   core, and route seed stored items
 - shop content refs and display/category metadata through
   `catalog.ContentRegistry`
+- route content refs and caps: routeable resources, route count, max distance,
+  cross-map penalty, endpoint storage capacity, energy formula, and loss band
 
 **Step 5: Run focused test**
 
@@ -287,6 +290,45 @@ Run:
 
 ```bash
 go test ./internal/game/content ./internal/game/server -run 'TestDefaultGameplayContent|TestGameplayContent|TestStaticRepository|TestLoadPublishedContent|TestShop|TestEconomyInventoryShop|TestMarketStateMutationFanout' -count=1
+git diff --check
+```
+
+Expected: pass.
+
+### Task 2F: Route Policy Content
+
+**Files:**
+- Create: `internal/game/content/route.go`
+- Modify: `internal/game/content/bundle.go`
+- Modify: `internal/game/content/validation.go`
+- Modify: `internal/game/content/bundle_test.go`
+- Modify: `internal/game/server/runtime.go`
+- Modify: `internal/game/server/route_handlers.go`
+- Modify: `internal/game/server/route_endpoints.go`
+
+**Step 1: Add route content**
+
+Add `RouteContent` for routeable item IDs, max routes, max distance, cross-map
+distance penalty, route energy formula, loss band, and endpoint storage
+capacity.
+
+**Step 2: Validate references**
+
+Route content validates routeable items against content item definitions and
+rejects duplicate item IDs or invalid numeric caps.
+
+**Step 3: Runtime wiring**
+
+Runtime route creation and endpoint storage use validated `RouteContent`. The
+runtime still owns source/destination ownership checks, map distance facts,
+route count facts, and storage mutation.
+
+**Step 4: Validate**
+
+Run:
+
+```bash
+go test ./internal/game/content ./internal/game/server -run 'TestDefaultGameplayContent|TestGameplayContent|TestRoute|TestRouteCreate|TestRouteEndpoint|TestRouteSettle|TestRouteControl|TestE2ERoute|TestPlaytestSeed' -count=1
 git diff --check
 ```
 

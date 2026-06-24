@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/discovery"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/production"
@@ -12,7 +13,7 @@ import (
 	worldmaps "gameproject/internal/game/world/maps"
 )
 
-const runtimeRouteCreateMaxRoutesPerPlayer = 3
+const runtimeRouteCreateMaxRoutesPerPlayer = gamecontent.DefaultRouteCreateMaxRoutesPerPlayer
 
 type routeCreateIntent struct {
 	SourcePlanetID string `json:"source_planet_id"`
@@ -172,12 +173,12 @@ func (provider runtimeRouteCreatePolicyProvider) RouteCreatePolicy(input product
 		SourceMapID:           sourceMapID,
 		DestinationMapID:      destinationMapID,
 		DistanceUnits:         distance,
-		MaxDistanceUnits:      25_000,
+		MaxDistanceUnits:      provider.runtime.routeContent.MaxDistanceUnits,
 		CurrentRouteCount:     len(ownerRoutes),
-		MaxRouteCount:         runtimeRouteCreateMaxRoutesPerPlayer,
-		EnergyCostPerHour:     1 + input.AmountPerHour/20,
-		MinLossPercent:        0,
-		MaxLossPercent:        0,
+		MaxRouteCount:         provider.runtime.routeContent.MaxRoutesPerPlayer,
+		EnergyCostPerHour:     provider.runtime.routeContent.EnergyCostPerHour(input.AmountPerHour),
+		MinLossPercent:        provider.runtime.routeContent.MinLossPercent,
+		MaxLossPercent:        provider.runtime.routeContent.MaxLossPercent,
 	}, nil
 }
 
@@ -207,7 +208,7 @@ func (provider runtimeRouteCreatePolicyProvider) routeDestinationPolicyFacts(
 		}
 		distance := source.Coordinates.Distance(destination.Coordinates)
 		if sourceMapID != destinationMapID {
-			distance += 1000
+			distance += provider.runtime.routeContent.CrossMapDistancePenalty
 		}
 		return destinationMapID, distance, nil
 	}
@@ -247,20 +248,11 @@ func (runtime *Runtime) routeResourceAvailable(itemID foundation.ItemID) bool {
 	if runtime == nil {
 		return false
 	}
-	if !isRouteCreateMVPRouteableResource(itemID) {
+	if !runtime.routeContent.ResourceRouteable(itemID) {
 		return false
 	}
 	_, ok := runtime.itemCatalog[itemID]
 	return ok
-}
-
-func isRouteCreateMVPRouteableResource(itemID foundation.ItemID) bool {
-	switch itemID {
-	case "refined_alloy":
-		return true
-	default:
-		return false
-	}
 }
 
 func domainErrorForRouteCreate(err error) error {

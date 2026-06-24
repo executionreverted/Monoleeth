@@ -20,6 +20,7 @@ var (
 	ErrMissingContentCatalog = errors.New("missing content catalog")
 	ErrInvalidScannerContent = errors.New("invalid scanner content")
 	ErrInvalidStarterContent = errors.New("invalid starter content")
+	ErrInvalidRouteContent   = errors.New("invalid route content")
 )
 
 // Validate proves the static gameplay bundle is internally consistent before
@@ -53,6 +54,9 @@ func (bundle GameplayContent) Validate() error {
 		return err
 	}
 	if err := validateShopReferences(bundle); err != nil {
+		return err
+	}
+	if err := bundle.Route.Validate(bundle); err != nil {
 		return err
 	}
 	if err := bundle.Scanner.Validate(bundle.Maps); err != nil {

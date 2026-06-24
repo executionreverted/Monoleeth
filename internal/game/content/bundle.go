@@ -34,6 +34,7 @@ type GameplayContent struct {
 	Scanner    ScannerContent
 	Starter    StarterContent
 	Shop       catalog.ContentRegistry
+	Route      RouteContent
 }
 
 // DefaultGameplayContent returns the current static playtest content bundle.
@@ -74,6 +75,7 @@ func DefaultGameplayContent(worldID world.WorldID) (GameplayContent, error) {
 		Scanner:    DefaultScannerContent(),
 		Starter:    DefaultStarterContent(),
 		Shop:       shop,
+		Route:      DefaultRouteContent(),
 	}
 	if err := bundle.Validate(); err != nil {
 		return GameplayContent{}, err
