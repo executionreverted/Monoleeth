@@ -12,4 +12,6 @@ export const hudSelection = {
   selectedPortalID: null as string | null,
   selectedPortalScope: null as string | null,
   selectedRouteID: null as string | null,
+  selectedAdminContentType: 'module' as string,
+  selectedAdminContentID: null as string | null,
 };

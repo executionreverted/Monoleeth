@@ -80,6 +80,12 @@ export class ClientApp extends ClientAppHandlers {
       onQuestReroll: () => this.sendCommand(this.commandBuilder.questReroll()),
       onAdminRefresh: () => this.refreshAdminOps(),
       onAdminRepairCraftJob: (jobID) => this.sendCommand(this.commandBuilder.adminRepairCraftJob(jobID)),
+      onAdminContentRefresh: () => this.refreshAdminContent(),
+      onAdminContentValidate: () => this.sendCommand(this.commandBuilder.adminContentValidateDraft()),
+      onAdminContentPublish: () => this.sendCommand(this.commandBuilder.adminContentPublish()),
+      onAdminContentRollback: (versionID) =>
+        this.sendCommand(this.commandBuilder.adminContentRollback({ targetVersionID: versionID })),
+      onAdminContentAudit: () => this.sendCommand(this.commandBuilder.adminContentAuditLog({ contentType: 'module', limit: 12 })),
     });
 
     this.render();

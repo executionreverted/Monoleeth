@@ -428,6 +428,18 @@ export class HUD {
       case 'admin-refresh':
         this.handlers.onAdminRefresh();
         return true;
+      case 'admin-content-refresh':
+        this.handlers.onAdminContentRefresh();
+        return true;
+      case 'admin-content-validate':
+        this.handlers.onAdminContentValidate();
+        return true;
+      case 'admin-content-publish':
+        this.handlers.onAdminContentPublish();
+        return true;
+      case 'admin-content-audit':
+        this.handlers.onAdminContentAudit();
+        return true;
       default:
         return false;
     }
@@ -502,6 +514,18 @@ export class HUD {
           }
           break;
         }
+        case 'admin-content-select':
+          if (button.dataset.contentType && button.dataset.contentId) {
+            hudSelection.selectedAdminContentType = button.dataset.contentType;
+            hudSelection.selectedAdminContentID = button.dataset.contentId;
+            this.rerenderCurrent();
+          }
+          break;
+        case 'admin-content-rollback':
+          if (button.dataset.versionId) {
+            this.handlers.onAdminContentRollback(button.dataset.versionId);
+          }
+          break;
         case 'inventory-tab':
           if (isInventoryTabID(button.dataset.inventoryTab)) {
             hudSelection.selectedInventoryTab = button.dataset.inventoryTab;

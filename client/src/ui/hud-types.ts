@@ -56,6 +56,11 @@ export interface HUDHandlers {
   onQuestReroll(): void;
   onAdminRefresh(): void;
   onAdminRepairCraftJob(jobID: string): void;
+  onAdminContentRefresh(): void;
+  onAdminContentValidate(): void;
+  onAdminContentPublish(): void;
+  onAdminContentRollback(versionID: string): void;
+  onAdminContentAudit(): void;
 }
 
 export type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['combat']>;

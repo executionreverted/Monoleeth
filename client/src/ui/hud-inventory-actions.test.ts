@@ -86,5 +86,10 @@ function testHandlers(): HUDHandlers {
     onQuestReroll: vi.fn(),
     onAdminRefresh: vi.fn(),
     onAdminRepairCraftJob: vi.fn(),
+    onAdminContentRefresh: vi.fn(),
+    onAdminContentValidate: vi.fn(),
+    onAdminContentPublish: vi.fn(),
+    onAdminContentRollback: vi.fn(),
+    onAdminContentAudit: vi.fn(),
   };
 }

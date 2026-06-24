@@ -555,6 +555,16 @@ export abstract class ClientAppCommands extends ClientAppCore {
     this.sendCommand(this.commandBuilder.observabilityMetrics());
     this.sendCommand(this.commandBuilder.observabilityReleaseGate());
     this.sendCommand(this.commandBuilder.observabilityAbuseCoverage());
+    this.refreshAdminContent();
+  }
+
+  protected refreshAdminContent(): void {
+    if (!this.state.auth.session?.account?.admin) {
+      return;
+    }
+    this.sendCommand(this.commandBuilder.adminContentVersions());
+    this.sendCommand(this.commandBuilder.adminContentList('module'));
+    this.sendCommand(this.commandBuilder.adminContentAuditLog({ contentType: 'module', limit: 12 }));
   }
 
   protected handleEconomyRefreshForEvent(eventType: string): void {

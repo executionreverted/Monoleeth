@@ -7,6 +7,7 @@ import { economyPanel } from './hud-render-economy';
 import { cargoPanel } from './hud-render-inventory';
 import { planetCatalogPanel, planetDetailModal, planetModalTitle, planetsPanel, minimapPanel } from './hud-render-planets';
 import { questsPanel } from './hud-render-quests';
+import { adminContentBlock } from './hud-render-admin-content';
 import type { ActionState, EntityCombatStatus, HUDHelpTopicID, HUDModalID, HUDModalState, HUDPanelDefinition, HUDWindowID, KnownLootDropStatus, QuickActionCommand, QuickActionID, QuickActionState, VisibleEntity } from './hud-types';
 import { actionScanLabel, clamp, escapeHTML, formatCooldown, formatDuration, formatPair, formatVec, hasPendingOp, isHelpTopicID, lockedValue, publicEntityType, publicPlanetName, realtimeReady, scanModeTimeDetail, scanStatusLabel } from './hud-formatters';
 
@@ -30,7 +31,7 @@ export function windowLayout(id: HUDWindowID): { width: number; preferredHeight:
     case 'systems':
       return { width: 540, preferredHeight: 470, size: 'system' };
     case 'ops':
-      return { width: 450, preferredHeight: 520, size: 'compact' };
+      return { width: 640, preferredHeight: 700, size: 'dual-pane' };
     case 'cargo':
     default:
       return { width: 760, preferredHeight: 610, size: 'triple-pane' };
@@ -359,6 +360,7 @@ export function opsPanel(state: ClientState): string {
   return `
     <h2>Ops</h2>
     ${adminOpsBlock(state)}
+    ${adminContentBlock(state)}
   `;
 }
 
