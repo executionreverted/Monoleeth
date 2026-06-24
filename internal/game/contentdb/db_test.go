@@ -44,3 +44,25 @@ func TestOpenLivePostgresWhenEnvPresent(t *testing.T) {
 	}
 	defer db.Close()
 }
+
+func TestRunMigrationsLivePostgresWhenEnvPresent(t *testing.T) {
+	databaseURL := os.Getenv(EnvDatabaseURL)
+	if databaseURL == "" {
+		t.Skipf("%s unset; skipping live Postgres migration test", EnvDatabaseURL)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	db, err := Open(ctx, Config{DatabaseURL: databaseURL, Mode: ContentModeRequired, Migrations: MigrationModeVerify})
+	if err != nil {
+		t.Fatalf("Open(live) error = %v, want nil", err)
+	}
+	defer db.Close()
+
+	if err := RunMigrations(ctx, db, MigrationModeAuto); err != nil {
+		t.Fatalf("RunMigrations(auto) error = %v, want nil", err)
+	}
+	if err := RunMigrations(ctx, db, MigrationModeVerify); err != nil {
+		t.Fatalf("RunMigrations(verify) error = %v, want nil", err)
+	}
+}

@@ -128,19 +128,22 @@ Snapshot is immutable after publish.
 
 ## Validation Rules
 
-Phase 02 adds validator skeleton only:
+Phase 02 adds storage-safe validator skeleton only:
 
 - required IDs
 - duplicate IDs
+- JSON parseable
+- `data_json` and `display_json` are JSON objects
+- no arbitrary expression DSL in content rows
+
+Publish validation deepens in domain phases:
+
 - positive amounts/durations
 - drop chance `0..1`
 - stat bounds finite/non-negative
 - known enum values
-- JSON parseable
 - duplicate stats/cooldowns/inputs/outputs rejected
-- no arbitrary expression DSL in content rows
-
-Cross-table validation deepens in domain phases.
+- cross-table references exist
 
 ## Migration Runner Rules
 
@@ -182,3 +185,32 @@ git diff --check
 - snapshot model validates basics
 - content store can read/write draft rows and version rows
 - no runtime catalog replacement yet
+
+## Implemented Slice
+
+- Added generic CMS `Snapshot` / `SnapshotRow` model with stable JSON keys for
+  all planned content groups.
+- Added content ID validation, duplicate-ID checks per group, and required
+  `data_json` JSON object checks.
+- Added basic forbidden-field guard for `script`, `eval`, `formula`, and
+  `expression` fields inside content JSON.
+- Added `0002_content_schema.sql` with `content_versions`,
+  `content_audit_log`, and typed draft tables for items/modules/ships/shop,
+  NPC/pool/loot, craft, production, and quest reward content.
+- Added store methods for current published snapshot load, published snapshot
+  insert, draft-row upsert/load, audit insert, content existence check, and
+  content-type table allowlist.
+
+Remaining for domain phases:
+
+- Add type-specific DTO validation per domain phase.
+- Map published snapshots into `GameplayContent` through the DB repository in
+  Phase 04.
+
+Verified:
+
+```bash
+go test ./internal/game/content -run Snapshot -count=1
+go test ./internal/game/contentdb -count=1
+git diff --check
+```

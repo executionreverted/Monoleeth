@@ -3,6 +3,7 @@ package contentdb
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -11,14 +12,39 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 1 {
-		t.Fatalf("len(migrations) = %d, want 1", len(migrations))
+	if len(migrations) != 2 {
+		t.Fatalf("len(migrations) = %d, want 2", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
 	}
+	if migrations[1].Version != "0002_content_schema" {
+		t.Fatalf("Version = %q, want 0002_content_schema", migrations[1].Version)
+	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestContentSchemaMigrationHasDraftTablesAndCurrentIndex(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[1].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS content_versions",
+		"CREATE TABLE IF NOT EXISTS content_audit_log",
+		"CREATE TABLE IF NOT EXISTS content_items",
+		"CREATE TABLE IF NOT EXISTS content_craft_recipes",
+		"CREATE UNIQUE INDEX IF NOT EXISTS content_versions_one_current",
+		"WHERE is_current",
+		"jsonb_typeof(data_json) = 'object'",
+		"jsonb_typeof(display_json) = 'object'",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("content schema migration missing %q", fragment)
+		}
 	}
 }
 

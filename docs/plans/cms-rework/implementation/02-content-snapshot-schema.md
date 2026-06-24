@@ -41,6 +41,8 @@
 2. Use nested structs for repeated lists: stats, cooldowns, inputs, rows.
 3. Add `ValidateBasic` per type only for local constraints.
 4. No cross-domain validation yet.
+5. Keep this out of Phase 02 unless a domain phase owns the specific content
+   family.
 
 ### Task 3: Add Validator
 
@@ -86,6 +88,39 @@
 2. Runtime must use only `LoadCurrentPublishedSnapshot` backed by `is_current=true`.
 3. Postgres implementation uses `database/sql`.
 4. Tests use small fake store unless live DB env set.
+
+### Status
+
+Implemented:
+
+- Generic `Snapshot` / `SnapshotRow` DTOs with stable group JSON keys.
+- Basic snapshot validation for version ID, duplicate IDs, JSON object shape,
+  colon/control ID rejection, and forbidden DSL-like fields.
+- `0002_content_schema.sql` for `content_versions`, audit log, and typed
+  draft tables, including JSONB object constraints.
+- `Store` methods:
+  - `HasAnyContent`
+  - `LoadCurrentPublishedSnapshot`
+  - `InsertPublishedSnapshot`
+  - `UpsertDraftRows`
+  - `UpsertDraftRow`
+  - `LoadDraftRows`
+  - `InsertAudit`
+- Content-type table allowlist to avoid dynamic SQL injection.
+
+Deferred:
+
+- Deep item/module/NPC/loot/craft/production DTO validators. These belong to
+  domain phases 05, 06, and 07.
+- Runtime DB repository mapping to `GameplayContent`. This belongs to Phase 04.
+
+Verified:
+
+```bash
+go test ./internal/game/content -run Snapshot -count=1
+go test ./internal/game/contentdb -count=1
+git diff --check
+```
 
 ### Verify
 

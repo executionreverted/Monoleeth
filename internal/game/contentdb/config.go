@@ -38,6 +38,8 @@ var (
 	ErrMissingMigrationChecksum  = errors.New("missing migration checksum")
 	ErrMigrationChecksumMismatch = errors.New("migration checksum mismatch")
 	ErrPendingMigrations         = errors.New("pending content migrations")
+	ErrCurrentContentNotFound    = errors.New("current published content not found")
+	ErrUnknownContentType        = errors.New("unknown content type")
 )
 
 type Config struct {
