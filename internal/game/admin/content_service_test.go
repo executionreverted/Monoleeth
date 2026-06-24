@@ -271,16 +271,56 @@ func TestContentServicePublishDraftValidatesAndWritesImmutableVersion(t *testing
 		store.publishedInput.PublishedBy != "account-admin" ||
 		store.publishedInput.CreatedBy != "account-admin" ||
 		store.publishedInput.ExpectedCurrentID != current.ID ||
+		store.publishedInput.Notes != "LC1 buff" ||
 		store.publishedInput.BalanceTag != "starter_balance" ||
 		store.publishedInput.IdempotencyKey == "" {
 		t.Fatalf("publish input = %+v, want server actor/idempotency/metadata", store.publishedInput)
 	}
 	if len(store.publishedInput.AuditEntries) != 1 || store.publishedInput.AuditEntries[0].ActorAccountID != "account-admin" ||
-		store.publishedInput.AuditEntries[0].ContentType != content.ContentTypeModule {
-		t.Fatalf("audit entries = %+v, want module change by admin", store.publishedInput.AuditEntries)
+		store.publishedInput.AuditEntries[0].ContentType != content.ContentTypeModule ||
+		store.publishedInput.AuditEntries[0].Note != "LC1 buff" ||
+		store.publishedInput.AuditEntries[0].BalanceTag != "starter_balance" {
+		t.Fatalf("audit entries = %+v, want module change with publish metadata by admin", store.publishedInput.AuditEntries)
 	}
 	if !validator.called || validator.snapshot.Version != "content_balance_v2" {
 		t.Fatalf("validator = called %v snapshot %+v, want draft snapshot v2", validator.called, validator.snapshot)
+	}
+}
+
+func TestContentServicePublishDraftRequiresNotesAndValidatesBalanceTag(t *testing.T) {
+	tests := []struct {
+		name       string
+		notes      string
+		balanceTag string
+		wantErr    error
+	}{
+		{name: "empty notes", notes: "  ", balanceTag: "starter_balance", wantErr: admin.ErrMissingContentPublishNotes},
+		{name: "uppercase tag", notes: "LC1 buff", balanceTag: "Starter_Balance", wantErr: admin.ErrInvalidContentBalanceTag},
+		{name: "space tag", notes: "LC1 buff", balanceTag: "starter balance", wantErr: admin.ErrInvalidContentBalanceTag},
+		{name: "long tag", notes: "LC1 buff", balanceTag: strings.Repeat("a", 65), wantErr: admin.ErrInvalidContentBalanceTag},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeContentDraftStore{}
+			service := admin.NewContentService(admin.ContentServiceConfig{
+				Drafts:    store,
+				Publisher: store,
+				Snapshots: store,
+				Validator: &fakeContentDraftValidator{},
+			})
+
+			_, err := service.PublishDraft(context.Background(), content.PublishDraftInput{
+				Version:    "content_balance_v2",
+				Notes:      tt.notes,
+				BalanceTag: tt.balanceTag,
+			})
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("PublishDraft() error = %v, want %v", err, tt.wantErr)
+			}
+			if store.publishCalled || len(store.loadCalls) != 0 {
+				t.Fatalf("PublishDraft() touched store for invalid metadata: publish=%v loads=%v", store.publishCalled, store.loadCalls)
+			}
+		})
 	}
 }
 
@@ -299,7 +339,7 @@ func TestContentServicePublishDraftInvalidReportDoesNotWrite(t *testing.T) {
 		Validator: &fakeContentDraftValidator{err: errors.New("bad runtime content")},
 	})
 
-	result, err := service.PublishDraft(context.Background(), content.PublishDraftInput{Version: "content_bad_v2"})
+	result, err := service.PublishDraft(context.Background(), content.PublishDraftInput{Version: "content_bad_v2", Notes: "try bad runtime content"})
 	if err != nil {
 		t.Fatalf("PublishDraft(invalid) error = %v, want nil report", err)
 	}
@@ -335,7 +375,7 @@ func TestContentServicePublishDraftScrubsAuditJSON(t *testing.T) {
 		Clock:     testutil.NewFakeClock(now),
 	})
 
-	if _, err := service.PublishDraft(context.Background(), content.PublishDraftInput{Version: "content_balance_v2"}); err != nil {
+	if _, err := service.PublishDraft(context.Background(), content.PublishDraftInput{Version: "content_balance_v2", Notes: "scrub audit payload"}); err != nil {
 		t.Fatalf("PublishDraft() error = %v, want nil", err)
 	}
 	if len(store.publishedInput.AuditEntries) != 1 {
@@ -373,6 +413,7 @@ func TestContentServiceRollbackPublishesTargetSnapshotAsNewVersion(t *testing.T)
 		TargetVersionID: target.ID,
 		Version:         "content_rollback_v3",
 		Notes:           "restore starter",
+		BalanceTag:      "rollback_starter",
 		ActorAccountID:  "account-admin",
 		IdempotencyKey:  "content_rollback:target:req-1",
 	})
@@ -386,8 +427,36 @@ func TestContentServiceRollbackPublishesTargetSnapshotAsNewVersion(t *testing.T)
 		store.publishedInput.IdempotencyKey != "content_rollback:target:req-1" ||
 		store.publishedInput.ExpectedCurrentID != current.ID ||
 		store.publishedInput.PublishedBy != "account-admin" ||
+		store.publishedInput.Notes != "restore starter" ||
+		store.publishedInput.BalanceTag != "rollback_starter" ||
 		store.publishedInput.Snapshot.Version != "content_rollback_v3" {
 		t.Fatalf("rollback publish input = %+v, want immutable rollback copy", store.publishedInput)
+	}
+	if len(store.publishedInput.AuditEntries) != 1 ||
+		store.publishedInput.AuditEntries[0].Note != "restore starter" ||
+		store.publishedInput.AuditEntries[0].BalanceTag != "rollback_starter" {
+		t.Fatalf("rollback audit entries = %+v, want rollback metadata", store.publishedInput.AuditEntries)
+	}
+}
+
+func TestContentServiceRollbackRequiresNotes(t *testing.T) {
+	store := &fakeContentDraftStore{}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{},
+	})
+
+	_, err := service.Rollback(context.Background(), content.RollbackInput{
+		TargetVersionID: "11111111-1111-5111-8111-111111111111",
+		Notes:           " ",
+	})
+	if !errors.Is(err, admin.ErrMissingContentPublishNotes) {
+		t.Fatalf("Rollback() error = %v, want ErrMissingContentPublishNotes", err)
+	}
+	if store.publishCalled {
+		t.Fatal("Rollback() published with missing notes")
 	}
 }
 

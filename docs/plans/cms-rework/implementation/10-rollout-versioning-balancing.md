@@ -34,6 +34,12 @@
 2. Validate tag format.
 3. Audit log stores notes/tag.
 
+**Status:** Publish and rollback metadata is hardened in the admin content
+service. Notes are required before validation or storage work starts, optional
+`balance_tag` values must be lowercase letters, digits, `_`, or `-` and fit a
+64-character limit, and publish/rollback audit rows preserve the normalized
+notes/tag metadata.
+
 ### Task 3: Add Release Gate Checks
 
 **Files:**

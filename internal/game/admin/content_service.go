@@ -22,8 +22,13 @@ var ErrMissingContentPublisher = errors.New("missing admin content publisher")
 var ErrMissingContentSnapshotReader = errors.New("missing admin content snapshot reader")
 var ErrMissingContentAuditStore = errors.New("missing admin content audit store")
 var ErrContentDraftNotFound = errors.New("content draft row not found")
+var ErrMissingContentPublishNotes = errors.New("missing content publish notes")
+var ErrInvalidContentBalanceTag = errors.New("invalid content balance tag")
 
-const maxAuditRowJSONBytes = 32 * 1024
+const (
+	maxAuditRowJSONBytes = 32 * 1024
+	maxBalanceTagLength  = 64
+)
 
 type ContentVersionStore interface {
 	ListContentVersions(context.Context, content.VersionListInput) (content.VersionList, error)
@@ -234,6 +239,10 @@ func (service *ContentService) PublishDraft(ctx context.Context, input content.P
 	if service.snapshots == nil {
 		return content.PublishDraftResult{}, ErrMissingContentSnapshotReader
 	}
+	notes, balanceTag, err := normalizePublishMetadata(input.Notes, input.BalanceTag)
+	if err != nil {
+		return content.PublishDraftResult{}, err
+	}
 	version := strings.TrimSpace(input.Version)
 	if version == "" {
 		version = fmt.Sprintf("content_publish_%d", service.clock.Now().UTC().UnixMilli())
@@ -258,12 +267,12 @@ func (service *ContentService) PublishDraft(ctx context.Context, input content.P
 	if err != nil {
 		return content.PublishDraftResult{}, err
 	}
-	idempotencyKey, err := publishIdempotencyKey(snapshot, input.Notes, input.BalanceTag)
+	idempotencyKey, err := publishIdempotencyKey(snapshot, notes, balanceTag)
 	if err != nil {
 		return content.PublishDraftResult{}, err
 	}
 	versionID := deterministicContentUUID("content_publish", idempotencyKey)
-	auditEntries, err := buildAuditEntries(versionID, current.Snapshot, snapshot, input.ActorAccountID, input.Notes, input.BalanceTag)
+	auditEntries, err := buildAuditEntries(versionID, current.Snapshot, snapshot, input.ActorAccountID, notes, balanceTag)
 	if err != nil {
 		return content.PublishDraftResult{}, err
 	}
@@ -274,8 +283,8 @@ func (service *ContentService) PublishDraft(ctx context.Context, input content.P
 		ValidationReportJSON: validationJSON,
 		IdempotencyKey:       idempotencyKey,
 		ExpectedCurrentID:    current.ID,
-		Notes:                strings.TrimSpace(input.Notes),
-		BalanceTag:           strings.TrimSpace(input.BalanceTag),
+		Notes:                notes,
+		BalanceTag:           balanceTag,
 		CreatedBy:            strings.TrimSpace(input.ActorAccountID),
 		PublishedBy:          strings.TrimSpace(input.ActorAccountID),
 		PublishedAt:          service.clock.Now().UTC(),
@@ -299,6 +308,10 @@ func (service *ContentService) Rollback(ctx context.Context, input content.Rollb
 	}
 	targetID := strings.TrimSpace(input.TargetVersionID)
 	if err := content.ValidateContentID("content rollback target", targetID); err != nil {
+		return content.PublishDraftResult{}, err
+	}
+	notes, balanceTag, err := normalizePublishMetadata(input.Notes, input.BalanceTag)
+	if err != nil {
 		return content.PublishDraftResult{}, err
 	}
 	target, err := service.snapshots.LoadContentSnapshotByID(ctx, targetID)
@@ -332,7 +345,7 @@ func (service *ContentService) Rollback(ctx context.Context, input content.Rollb
 		idempotencyKey = fmt.Sprintf("content_rollback:%s:%s", targetID, version)
 	}
 	versionID := deterministicContentUUID("content_rollback", idempotencyKey)
-	auditEntries, err := buildAuditEntries(versionID, current.Snapshot, snapshot, input.ActorAccountID, input.Notes, input.BalanceTag)
+	auditEntries, err := buildAuditEntries(versionID, current.Snapshot, snapshot, input.ActorAccountID, notes, balanceTag)
 	if err != nil {
 		return content.PublishDraftResult{}, err
 	}
@@ -343,8 +356,8 @@ func (service *ContentService) Rollback(ctx context.Context, input content.Rollb
 		ValidationReportJSON: validationJSON,
 		IdempotencyKey:       idempotencyKey,
 		ExpectedCurrentID:    current.ID,
-		Notes:                strings.TrimSpace(input.Notes),
-		BalanceTag:           strings.TrimSpace(input.BalanceTag),
+		Notes:                notes,
+		BalanceTag:           balanceTag,
 		CreatedBy:            strings.TrimSpace(input.ActorAccountID),
 		PublishedBy:          strings.TrimSpace(input.ActorAccountID),
 		PublishedAt:          service.clock.Now().UTC(),
@@ -427,6 +440,27 @@ func (service *ContentService) validateSnapshot(ctx context.Context, snapshot co
 		return report, nil
 	}
 	return report, nil
+}
+
+func normalizePublishMetadata(notes string, balanceTag string) (string, string, error) {
+	notes = strings.TrimSpace(notes)
+	if notes == "" {
+		return "", "", ErrMissingContentPublishNotes
+	}
+	balanceTag = strings.TrimSpace(balanceTag)
+	if balanceTag == "" {
+		return notes, "", nil
+	}
+	if len(balanceTag) > maxBalanceTagLength {
+		return "", "", fmt.Errorf("balance_tag %q: %w", balanceTag, ErrInvalidContentBalanceTag)
+	}
+	for _, r := range balanceTag {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return "", "", fmt.Errorf("balance_tag %q: %w", balanceTag, ErrInvalidContentBalanceTag)
+	}
+	return notes, balanceTag, nil
 }
 
 func publishIdempotencyKey(snapshot content.Snapshot, notes string, balanceTag string) (string, error) {
