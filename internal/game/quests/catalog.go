@@ -131,7 +131,7 @@ func MVPQuestTemplates() []QuestTemplate {
 			QuestTypeBuild,
 			"quest.build_extractor.title",
 			"quest.build_extractor.description",
-			buildObjective("build_1", "extractor_t1", 1),
+			buildObjective("build_1", "iron_extractor", 1),
 			nil,
 		),
 		newMVPQuestTemplate(
@@ -139,7 +139,7 @@ func MVPQuestTemplates() []QuestTemplate {
 			QuestTypeBuild,
 			"quest.build_storage.title",
 			"quest.build_storage.description",
-			buildObjective("build_1", "storage_t1", 1),
+			buildObjective("build_1", "alloy_foundry", 1),
 			nil,
 		),
 		newMVPQuestTemplate(
@@ -163,7 +163,7 @@ func MVPQuestTemplates() []QuestTemplate {
 			QuestTypeCraft,
 			"quest.craft_energy_cells.title",
 			"quest.craft_energy_cells.description",
-			craftObjective("craft_1", "energy_cell_batch", "", 1),
+			craftObjective("craft_1", "refined_alloy_batch", "", 1),
 			nil,
 		),
 		newMVPQuestTemplate(
@@ -195,7 +195,7 @@ func MVPQuestTemplates() []QuestTemplate {
 			QuestTypeKill,
 			"quest.kill_pirates.title",
 			"quest.kill_pirates.description",
-			killObjective("kill_1", "pirate", 5),
+			killObjective("kill_1", "training_drone", 5),
 			nil,
 		),
 		newMVPQuestTemplate(
@@ -203,7 +203,7 @@ func MVPQuestTemplates() []QuestTemplate {
 			QuestTypeKill,
 			"quest.kill_raiders.title",
 			"quest.kill_raiders.description",
-			killObjective("kill_1", "raider", 4),
+			killObjective("kill_1", "border_raider_drone", 4),
 			nil,
 		),
 		newMVPQuestTemplate(
@@ -235,7 +235,7 @@ func MVPQuestTemplates() []QuestTemplate {
 			QuestTypeKill,
 			"quest.kill_void_raiders.title",
 			"quest.kill_void_raiders.description",
-			killObjective("kill_1", "void_raider", 8),
+			killObjective("kill_1", "outer_ring_scout_drone", 8),
 			[]QuestRequirement{{MinRank: 3, Role: progression.RoleTypeCombat, RoleLevel: 2}},
 		),
 	}

@@ -44,6 +44,12 @@
 2. Set source version to CMS content version.
 3. Test old accepted quest source remains usable or publish blocks incompatible change.
 
+**Status:** DB repository mapping landed for enabled quest templates. Mapped
+templates force source version to published snapshot version and validate refs
+against mapped item/ship/recipe/production/map content. Old accepted quest
+compatibility remains a follow-up because accepted quest payload/source is
+player state, not CMS content.
+
 ### Task 4: Wire Runtime
 
 **Files:**
@@ -54,6 +60,19 @@
 1. Runtime quest service receives assembled quest catalog in CMS mode.
 2. Replace real-mode `quests.MustMVPQuestCatalog()` call.
 3. Test DB quest offer appears on board.
+
+**Status:** Runtime quest service now receives `contentBundle.Quests`.
+`runtime.go` no longer calls `quests.MustMVPQuestCatalog()` in real runtime
+composition. Static MVP quest catalog remains seed/dev/test fallback only and
+now uses current content refs for NPC, recipe, and production/building
+objectives.
+
+### Remaining Reward Work
+
+Reward table rows are present in seed snapshots and validation. Runtime reward
+claim still uses accepted/generated quest payloads from the existing quest board
+flow. Do not claim reward-table-driven runtime rewards until admin publish and
+accepted quest version tests cover that policy.
 
 ### Verify
 

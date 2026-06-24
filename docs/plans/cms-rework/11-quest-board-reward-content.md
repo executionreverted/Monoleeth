@@ -85,8 +85,23 @@ Reward claim uses accepted quest payload/source, not current draft.
 - duplicate reward claim remains idempotent
 - client quest payload uses safe display metadata only
 
-## Done
+## Current Progress
 
-- runtime no longer calls `quests.MustMVPQuestCatalog()` in real CMS mode
-- old quest catalog is seed/fallback/test fixture only
-- quest content participates in publish validation and rollback
+- quest templates and reward tables exist in snapshot schema
+- seed compiler writes quest template/reward rows into published seed snapshots
+- DB repository maps enabled quest template rows into `quests.QuestCatalog`
+- runtime quest service receives `contentBundle.Quests`
+- real runtime no longer calls `quests.MustMVPQuestCatalog()`
+- static MVP quest catalog uses current content refs for NPC, recipe, and
+  production/building objective targets
+- quest objective refs validate against item, ship, recipe, production/building,
+  and NPC content during bundle/snapshot load
+
+## Remaining
+
+- reward table rows are seeded and validated, but runtime reward generation still
+  uses accepted quest payloads from existing quest board/service flow
+- admin publish/rollback API must include quest rows before claiming full CMS
+  publish coverage
+- accepted old-version quest compatibility needs explicit publish/restart test
+- client/admin safe projection for quest content still belongs to Admin UI phase

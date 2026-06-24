@@ -14,6 +14,7 @@ import (
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/modules"
 	"gameproject/internal/game/production"
+	"gameproject/internal/game/quests"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 )
@@ -57,6 +58,9 @@ func TestRepositoryMapsSeedSnapshotToValidGameplayContent(t *testing.T) {
 	}
 	if _, ok := bundle.LootTables[content.TrainingDroneSalvageLootTableID]; !ok {
 		t.Fatalf("%s missing from mapped loot tables", content.TrainingDroneSalvageLootTableID)
+	}
+	if _, ok := bundle.Quests.Lookup("quest_test_collect_raw_ore"); !ok {
+		t.Fatal("quest_test_collect_raw_ore missing from mapped quests")
 	}
 }
 
@@ -122,6 +126,10 @@ func TestRepositoryForcesPublishedVersionOntoMappedDefinitions(t *testing.T) {
 	productionDefinition, _ := bundle.Production.Get(production.ProductionDefinitionIDIronExtractorL1)
 	if got := productionDefinition.Source.Version; got != want {
 		t.Fatalf("production source version = %q, want %q", got, want)
+	}
+	questTemplate, _ := bundle.Quests.Lookup("quest_test_collect_raw_ore")
+	if got := questTemplate.Source.Version; got != want {
+		t.Fatalf("quest source version = %q, want %q", got, want)
 	}
 	if got := bundle.Shop.Version; got != want {
 		t.Fatalf("shop version = %q, want %q", got, want)
@@ -338,6 +346,33 @@ func appendSeedCoreRows(t *testing.T, snapshot *content.Snapshot, bundle content
 	for _, definition := range bundle.Maps.Definitions() {
 		appendSeedMapRows(t, snapshot, definition)
 	}
+	appendSeedQuestRows(t, snapshot)
+}
+
+func appendSeedQuestRows(t *testing.T, snapshot *content.Snapshot) {
+	t.Helper()
+	templateID := catalog.DefinitionID("quest_test_collect_raw_ore")
+	source, err := catalog.NewQuestSource(templateID.String(), "quest_seed_test_v1")
+	if err != nil {
+		t.Fatalf("NewQuestSource() error = %v, want nil", err)
+	}
+	row := content.QuestTemplateRow{
+		Source:         source,
+		TemplateID:     templateID,
+		Type:           quests.QuestTypeCollect,
+		TitleKey:       "quest.test_collect_raw_ore.title",
+		DescriptionKey: "quest.test_collect_raw_ore.description",
+		ObjectiveSchema: content.QuestObjectiveSchemaRow{Objectives: []content.QuestObjectiveRow{{
+			ID:   "collect_raw_ore",
+			Kind: quests.ObjectiveKindCollect,
+			Collect: &content.QuestCollectObjectiveRow{
+				ItemID:   "raw_ore",
+				Quantity: 1,
+			},
+		}}},
+		BoardWeight: 100,
+	}
+	snapshot.QuestTemplates = append(snapshot.QuestTemplates, testSnapshotRow(t, templateID.String(), row))
 }
 
 func appendSeedMapRows(t *testing.T, snapshot *content.Snapshot, definition worldmaps.MapDefinition) {

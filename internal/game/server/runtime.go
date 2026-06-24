@@ -469,7 +469,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	questService, err := quests.NewQuestService(clock, quests.MustMVPQuestCatalog(), quests.NewInMemoryQuestStore())
+	questService, err := quests.NewQuestService(clock, contentBundle.Quests, quests.NewInMemoryQuestStore())
 	if err != nil {
 		return nil, err
 	}

@@ -92,6 +92,10 @@ func mapPublishedSnapshot(snapshot content.Snapshot, worldID world.WorldID) (con
 	if err != nil {
 		return content.GameplayContent{}, err
 	}
+	questCatalog, err := mapQuestRows(snapshot, items, shipCatalog, recipeCatalog, productionCatalog, mapCatalog)
+	if err != nil {
+		return content.GameplayContent{}, err
+	}
 
 	return content.GameplayContent{
 		Items:      items,
@@ -100,6 +104,7 @@ func mapPublishedSnapshot(snapshot content.Snapshot, worldID world.WorldID) (con
 		Ships:      shipCatalog,
 		Recipes:    recipeCatalog,
 		Production: productionCatalog,
+		Quests:     questCatalog,
 		Maps:       mapCatalog,
 		Scanner:    content.DefaultScannerContent(),
 		Starter:    content.DefaultStarterContent(),

@@ -10,6 +10,7 @@ import (
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/modules"
 	"gameproject/internal/game/production"
+	"gameproject/internal/game/quests"
 	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
@@ -30,6 +31,7 @@ type GameplayContent struct {
 	Ships      ships.Catalog
 	Recipes    crafting.RecipeCatalog
 	Production production.Catalog
+	Quests     quests.QuestCatalog
 	Maps       *worldmaps.Catalog
 	Scanner    ScannerContent
 	Starter    StarterContent
@@ -54,6 +56,7 @@ func DefaultGameplayContent(worldID world.WorldID) (GameplayContent, error) {
 	if err != nil {
 		return GameplayContent{}, err
 	}
+	questCatalog := quests.MustMVPQuestCatalog()
 	mapCatalog, err := worldmaps.StarterCatalog(worldID)
 	if err != nil {
 		return GameplayContent{}, err
@@ -73,6 +76,7 @@ func DefaultGameplayContent(worldID world.WorldID) (GameplayContent, error) {
 		Ships:      shipCatalog,
 		Recipes:    recipeCatalog,
 		Production: productionCatalog,
+		Quests:     questCatalog,
 		Maps:       mapCatalog,
 		Scanner:    DefaultScannerContent(),
 		Starter:    DefaultStarterContent(),

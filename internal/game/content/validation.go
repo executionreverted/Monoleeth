@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 
+	"gameproject/internal/game/catalog"
 	"gameproject/internal/game/crafting"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
@@ -52,6 +53,9 @@ func (bundle GameplayContent) Validate() error {
 	if err := validateProductionReferences(bundle); err != nil {
 		return err
 	}
+	if err := validateQuestReferences(bundle); err != nil {
+		return err
+	}
 	if err := validateMapLootReferences(bundle); err != nil {
 		return err
 	}
@@ -74,6 +78,61 @@ func (bundle GameplayContent) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func validateQuestReferences(bundle GameplayContent) error {
+	if err := bundle.Quests.Validate(); err != nil {
+		return fmt.Errorf("quests: %w", err)
+	}
+	resolver := bundleQuestReferenceResolver(bundle)
+	for _, template := range bundle.Quests.Templates() {
+		if err := validateQuestObjectiveReferences("quest "+template.TemplateID.String(), template.ObjectiveSchema, resolver); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func bundleQuestReferenceResolver(bundle GameplayContent) QuestReferenceResolver {
+	return QuestReferenceResolver{
+		HasItem: func(itemID foundation.ItemID) bool {
+			_, ok := bundle.Items[itemID]
+			return ok
+		},
+		HasShip: func(shipID foundation.ShipID) bool {
+			_, ok := bundle.Ships.Get(shipID)
+			return ok
+		},
+		HasRecipe: func(recipeID catalog.DefinitionID) bool {
+			_, ok := bundle.Recipes.Get(recipeID)
+			return ok
+		},
+		HasProduction: func(definitionID catalog.DefinitionID) bool {
+			_, ok := bundle.Production.Get(definitionID)
+			return ok
+		},
+		HasBuilding: func(buildingID string) bool {
+			for _, definition := range bundle.Production.Definitions() {
+				if definition.BuildingType.String() == buildingID {
+					return true
+				}
+			}
+			return false
+		},
+		HasNPC: func(npcType string) bool {
+			if bundle.Maps == nil {
+				return false
+			}
+			for _, definition := range bundle.Maps.Definitions() {
+				for _, template := range definition.NPCStatTemplates {
+					if template.NPCType == npcType {
+						return true
+					}
+				}
+			}
+			return false
+		},
+	}
 }
 
 func validateShopReferences(bundle GameplayContent) error {
