@@ -63,6 +63,79 @@ func TestObservedCommandExecutorRecordsSafeLogAndCommandMetric(t *testing.T) {
 	assertRealtimeLabels(t, counter.Labels, []observability.Label{{Name: "op", Value: string(OperationMoveTo)}})
 }
 
+func TestObservedCommandExecutorStructuredLogForLootPickupIncludesIdempotencyRequestFieldsNoSecrets(t *testing.T) {
+	logger := observability.NewMemoryCommandLogger()
+	clock := &steppingClock{now: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC), step: 17 * time.Millisecond}
+	executor := ObservedCommandExecutor{Clock: clock, Logger: logger}
+	request := NewRequestEnvelope(
+		"request-loot-pickup-structured-log",
+		OperationLootPickup,
+		json.RawMessage(`{"drop_id":"drop-structured-log","password":"redacted","token":"redacted","cookie":"redacted","hash":"redacted"}`),
+		10,
+	)
+	ctx := validCommandContext()
+	wantReferenceID, err := foundation.LootPickupIdempotencyKey("drop-structured-log")
+	if err != nil {
+		t.Fatalf("LootPickupIdempotencyKey() error = %v", err)
+	}
+	ctx.ReferenceID = wantReferenceID
+
+	_, err = executor.Execute(ctx, request, func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+		return json.RawMessage(`{"accepted":true,"token":"not_logged"}`), nil
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+
+	entries := logger.Snapshot()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want 1", len(entries))
+	}
+	entry := entries[0]
+	if entry.ReferenceID != wantReferenceID {
+		t.Fatalf("reference id = %q, want %q", entry.ReferenceID, wantReferenceID)
+	}
+
+	rawLog, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal log: %v", err)
+	}
+	var public map[string]any
+	if err := json.Unmarshal(rawLog, &public); err != nil {
+		t.Fatalf("decode public command log: %v", err)
+	}
+
+	want := map[string]string{
+		"player_id":       ctx.PlayerID.String(),
+		"session_id":      ctx.SessionID.String(),
+		"request_id":      request.RequestID.String(),
+		"op":              string(OperationLootPickup),
+		"result":          observability.CommandStatusOK.String(),
+		"error_code":      "",
+		"idempotency_key": wantReferenceID.String(),
+	}
+	for field, value := range want {
+		if public[field] != value {
+			t.Fatalf("command log field %s = %#v, want %q in %s", field, public[field], value, rawLog)
+		}
+	}
+	if public["duration_ms"] != float64(17) {
+		t.Fatalf("duration_ms = %#v, want 17 in %s", public["duration_ms"], rawLog)
+	}
+	refIDs, ok := public["ref_ids"].([]any)
+	if !ok || len(refIDs) != 1 || refIDs[0] != wantReferenceID.String() {
+		t.Fatalf("ref_ids = %#v, want [%q] in %s", public["ref_ids"], wantReferenceID, rawLog)
+	}
+	for _, field := range []string{"password", "token", "cookie", "hash", "payload"} {
+		if _, ok := public[field]; ok {
+			t.Fatalf("command log exposed secret/payload field %q in %s", field, rawLog)
+		}
+		if strings.Contains(string(rawLog), field) {
+			t.Fatalf("command log leaked secret/payload marker %q in %s", field, rawLog)
+		}
+	}
+}
+
 func TestObservedCommandExecutorRecordsErrorCodeMetricWithoutLeakingDetails(t *testing.T) {
 	logger := observability.NewMemoryCommandLogger()
 	metrics := observability.NewMetricRecorder()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"gameproject/internal/game/auth"
@@ -328,7 +329,11 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 			if !response.OK {
 				t.Fatalf("%s response = %+v, want success", request.name, response)
 			}
-			assertNoPhase09Leak(t, request.name, response.Payload)
+			if request.name == "command log" {
+				assertCommandLogHasOperationalFieldsNoSecrets(t, request.name, response.Payload)
+			} else {
+				assertNoPhase09Leak(t, request.name, response.Payload)
+			}
 			if request.name != "metrics" {
 				assertNoForbiddenLeakCanary(t, request.name, response.Payload)
 			}
@@ -401,5 +406,46 @@ func TestCommandLogLeakCanaryOmitsRejectedPayloadInternals(t *testing.T) {
 	}
 	if !foundRejectedCommand {
 		t.Fatalf("command log entries = %+v, want rejected canary command", payload.CommandLog.Entries)
+	}
+}
+
+func assertCommandLogHasOperationalFieldsNoSecrets(t *testing.T, label string, payload json.RawMessage) {
+	t.Helper()
+	raw := string(payload)
+	for _, forbidden := range []string{
+		"account_id",
+		"password",
+		"password_hash",
+		"session_token",
+		"token",
+		"cookie",
+		"hash",
+		"provider_reference",
+		"reference_id",
+		"generated_payload",
+		"generated_seed",
+		"reward_payload",
+		"rare_cap",
+		"world_seed",
+		"gameplay_seed",
+	} {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("%s leaked %q in %s", label, forbidden, raw)
+		}
+	}
+
+	var decoded struct {
+		CommandLog commandLogSummaryPayload `json:"command_log"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode %s command log: %v", label, err)
+	}
+	for _, entry := range decoded.CommandLog.Entries {
+		if entry.PlayerID == "" || entry.SessionID == "" || entry.RequestID == "" || entry.Operation == "" || entry.Result == "" {
+			t.Fatalf("%s command log entry missing operational identity/result fields: %+v", label, entry)
+		}
+		if entry.DurationMS < 0 {
+			t.Fatalf("%s command log entry duration_ms = %d, want non-negative", label, entry.DurationMS)
+		}
 	}
 }

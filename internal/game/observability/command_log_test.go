@@ -84,7 +84,7 @@ func TestCommandLogEntryValidateRejectsRequiredFields(t *testing.T) {
 	}
 }
 
-func TestCommandLogEntryJSONContainsSafeFieldsOnly(t *testing.T) {
+func TestCommandLogEntryJSONContainsOperationalFieldsAndNoSecrets(t *testing.T) {
 	entry := validCommandLogEntry()
 	entry.ErrorCode = foundation.CodeOutOfRange
 	entry.ReferenceID = foundation.IdempotencyKey("loot_pickup:drop-1")
@@ -94,25 +94,33 @@ func TestCommandLogEntryJSONContainsSafeFieldsOnly(t *testing.T) {
 		t.Fatalf("marshal command log entry: %v", err)
 	}
 
-	got := string(payload)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.Fatalf("decode command log JSON: %v", err)
+	}
 	for _, want := range []string{
 		"request_id",
 		"player_id",
 		"session_id",
-		"world_id",
-		"zone_id",
-		"operation",
+		"op",
+		"result",
 		"error_code",
-		"reference_id",
-		"duration",
-		"status",
+		"idempotency_key",
+		"ref_ids",
+		"duration_ms",
 		"timestamp",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("command log JSON %s missing safe field %q", got, want)
+		if _, ok := fields[want]; !ok {
+			t.Fatalf("command log JSON %s missing safe field %q", payload, want)
+		}
+	}
+	for _, legacy := range []string{"world_id", "zone_id", "operation", "reference_id", "duration", "status"} {
+		if _, ok := fields[legacy]; ok {
+			t.Fatalf("command log JSON %s included legacy field %q", payload, legacy)
 		}
 	}
 
+	got := string(payload)
 	for _, leaked := range []string{
 		"message",
 		"detail",
@@ -120,6 +128,10 @@ func TestCommandLogEntryJSONContainsSafeFieldsOnly(t *testing.T) {
 		"internal",
 		"Target is out of range",
 		"hidden planet",
+		"password",
+		"token",
+		"cookie",
+		"hash",
 	} {
 		if strings.Contains(got, leaked) {
 			t.Fatalf("command log JSON leaked %q in %s", leaked, got)
@@ -190,15 +202,32 @@ func TestJSONCommandLoggerWritesSafeStructuredLine(t *testing.T) {
 		`"request_id":"request-1"`,
 		`"player_id":"player-1"`,
 		`"session_id":"session-1"`,
-		`"operation":"combat.use_skill"`,
+		`"op":"combat.use_skill"`,
 		`"error_code":"ERR_NOT_VISIBLE"`,
-		`"reference_id":"loot_pickup:drop-1"`,
+		`"idempotency_key":"loot_pickup:drop-1"`,
+		`"ref_ids":["loot_pickup:drop-1"]`,
+		`"duration_ms":15`,
+		`"result":"ok"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("JSON log %s missing %s", got, want)
 		}
 	}
-	for _, leaked := range []string{"payload", "message", "detail", "hidden planet", "Target is out of range"} {
+	for _, leaked := range []string{
+		`"operation":`,
+		`"reference_id":`,
+		`"duration":`,
+		`"status":`,
+		"payload",
+		"message",
+		"detail",
+		"hidden planet",
+		"Target is out of range",
+		"password",
+		"token",
+		"cookie",
+		"hash",
+	} {
 		if strings.Contains(got, leaked) {
 			t.Fatalf("JSON log leaked %q in %s", leaked, got)
 		}

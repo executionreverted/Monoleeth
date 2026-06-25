@@ -34,13 +34,13 @@ type CommandLogEntry struct {
 	RequestID   foundation.RequestID      `json:"request_id"`
 	PlayerID    foundation.PlayerID       `json:"player_id"`
 	SessionID   SessionID                 `json:"session_id"`
-	WorldID     foundation.WorldID        `json:"world_id,omitempty"`
-	ZoneID      foundation.ZoneID         `json:"zone_id,omitempty"`
-	Operation   Operation                 `json:"operation"`
-	ErrorCode   foundation.Code           `json:"error_code,omitempty"`
-	ReferenceID foundation.IdempotencyKey `json:"reference_id,omitempty"`
-	Duration    time.Duration             `json:"duration"`
-	Status      CommandStatus             `json:"status"`
+	WorldID     foundation.WorldID        `json:"-"`
+	ZoneID      foundation.ZoneID         `json:"-"`
+	Operation   Operation                 `json:"op"`
+	ErrorCode   foundation.Code           `json:"error_code"`
+	ReferenceID foundation.IdempotencyKey `json:"idempotency_key,omitempty"`
+	Duration    time.Duration             `json:"-"`
+	Status      CommandStatus             `json:"result"`
 	Timestamp   time.Time                 `json:"timestamp"`
 }
 
@@ -148,32 +148,37 @@ func (entry CommandLogEntry) Validate() error {
 // MarshalJSON encodes only the safe public command log fields.
 func (entry CommandLogEntry) MarshalJSON() ([]byte, error) {
 	type commandLogJSON struct {
-		RequestID   foundation.RequestID      `json:"request_id"`
-		PlayerID    foundation.PlayerID       `json:"player_id"`
-		SessionID   SessionID                 `json:"session_id"`
-		WorldID     foundation.WorldID        `json:"world_id,omitempty"`
-		ZoneID      foundation.ZoneID         `json:"zone_id,omitempty"`
-		Operation   Operation                 `json:"operation"`
-		ErrorCode   foundation.Code           `json:"error_code,omitempty"`
-		ReferenceID foundation.IdempotencyKey `json:"reference_id,omitempty"`
-		Duration    time.Duration             `json:"duration"`
-		Status      CommandStatus             `json:"status"`
-		Timestamp   time.Time                 `json:"timestamp"`
+		RequestID   foundation.RequestID        `json:"request_id"`
+		PlayerID    foundation.PlayerID         `json:"player_id"`
+		SessionID   SessionID                   `json:"session_id"`
+		Operation   Operation                   `json:"op"`
+		Result      CommandStatus               `json:"result"`
+		ErrorCode   foundation.Code             `json:"error_code"`
+		Idempotency foundation.IdempotencyKey   `json:"idempotency_key,omitempty"`
+		RefIDs      []foundation.IdempotencyKey `json:"ref_ids,omitempty"`
+		DurationMS  int64                       `json:"duration_ms"`
+		Timestamp   time.Time                   `json:"timestamp"`
 	}
 
 	return json.Marshal(commandLogJSON{
 		RequestID:   entry.RequestID,
 		PlayerID:    entry.PlayerID,
 		SessionID:   entry.SessionID,
-		WorldID:     entry.WorldID,
-		ZoneID:      entry.ZoneID,
 		Operation:   entry.Operation,
+		Result:      entry.Status,
 		ErrorCode:   entry.ErrorCode,
-		ReferenceID: entry.ReferenceID,
-		Duration:    entry.Duration,
-		Status:      entry.Status,
+		Idempotency: entry.ReferenceID,
+		RefIDs:      commandLogReferenceIDs(entry.ReferenceID),
+		DurationMS:  entry.Duration.Milliseconds(),
 		Timestamp:   entry.Timestamp,
 	})
+}
+
+func commandLogReferenceIDs(referenceID foundation.IdempotencyKey) []foundation.IdempotencyKey {
+	if referenceID.IsZero() {
+		return nil
+	}
+	return []foundation.IdempotencyKey{referenceID}
 }
 
 // MemoryCommandLogger stores validated command log entries in memory.

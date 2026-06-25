@@ -165,12 +165,16 @@ type commandLogSummaryPayload struct {
 }
 
 type commandLogEntryPayload struct {
-	RequestID  string `json:"request_id"`
-	Operation  string `json:"operation"`
-	Status     string `json:"status"`
-	ErrorCode  string `json:"error_code,omitempty"`
-	DurationMS int64  `json:"duration_ms"`
-	Timestamp  int64  `json:"timestamp"`
+	RequestID      string   `json:"request_id"`
+	PlayerID       string   `json:"player_id"`
+	SessionID      string   `json:"session_id"`
+	Operation      string   `json:"op"`
+	Result         string   `json:"result"`
+	ErrorCode      string   `json:"error_code"`
+	IdempotencyKey string   `json:"idempotency_key,omitempty"`
+	RefIDs         []string `json:"ref_ids,omitempty"`
+	DurationMS     int64    `json:"duration_ms"`
+	Timestamp      int64    `json:"timestamp"`
 }
 
 type metricsSummaryPayload struct {
@@ -1002,15 +1006,26 @@ func commandLogEntriesPayload(entries []observability.CommandLogEntry) []command
 	payload := make([]commandLogEntryPayload, 0, len(entries))
 	for _, entry := range entries {
 		payload = append(payload, commandLogEntryPayload{
-			RequestID:  entry.RequestID.String(),
-			Operation:  entry.Operation.String(),
-			Status:     entry.Status.String(),
-			ErrorCode:  entry.ErrorCode.String(),
-			DurationMS: entry.Duration.Milliseconds(),
-			Timestamp:  entry.Timestamp.UTC().UnixMilli(),
+			RequestID:      entry.RequestID.String(),
+			PlayerID:       entry.PlayerID.String(),
+			SessionID:      entry.SessionID.String(),
+			Operation:      entry.Operation.String(),
+			Result:         entry.Status.String(),
+			ErrorCode:      entry.ErrorCode.String(),
+			IdempotencyKey: entry.ReferenceID.String(),
+			RefIDs:         commandLogReferenceIDsPayload(entry.ReferenceID),
+			DurationMS:     entry.Duration.Milliseconds(),
+			Timestamp:      entry.Timestamp.UTC().UnixMilli(),
 		})
 	}
 	return payload
+}
+
+func commandLogReferenceIDsPayload(referenceID foundation.IdempotencyKey) []string {
+	if referenceID.IsZero() {
+		return nil
+	}
+	return []string{referenceID.String()}
 }
 
 func releaseGateCoveragePayload(coverage []observability.ReleaseGateCoverage) ([]releaseGateModuleCoveragePayload, int) {

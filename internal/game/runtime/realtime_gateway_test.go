@@ -53,17 +53,28 @@ func TestRealtimeCommandGatewayWritesStructuredJSONCommandLog(t *testing.T) {
 		`"request_id":"request-1"`,
 		`"player_id":"player-1"`,
 		`"session_id":"session-1"`,
-		`"world_id":"world-1"`,
-		`"zone_id":"zone-1"`,
-		`"operation":"move_to"`,
-		`"reference_id":"loot_pickup:drop-1"`,
-		`"status":"ok"`,
+		`"op":"move_to"`,
+		`"idempotency_key":"loot_pickup:drop-1"`,
+		`"ref_ids":["loot_pickup:drop-1"]`,
+		`"result":"ok"`,
+		`"duration_ms":13`,
 	} {
 		if !strings.Contains(logLine, want) {
 			t.Fatalf("log line %s missing %s", logLine, want)
 		}
 	}
-	for _, leaked := range []string{"client_secret", "accepted", "server_debug", "not logged"} {
+	for _, leaked := range []string{
+		`"world_id":`,
+		`"zone_id":`,
+		`"operation":`,
+		`"reference_id":`,
+		`"status":`,
+		`"duration":`,
+		"client_secret",
+		"accepted",
+		"server_debug",
+		"not logged",
+	} {
 		if strings.Contains(logLine, leaked) {
 			t.Fatalf("log line leaked %q in %s", leaked, logLine)
 		}

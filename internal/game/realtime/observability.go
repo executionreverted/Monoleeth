@@ -77,6 +77,7 @@ func (executor ObservedCommandExecutor) Execute(ctx CommandContext, request Requ
 	}
 
 	op := observability.Operation(request.Op)
+	referenceID := commandLogReferenceID(ctx, request)
 	recordCommandMetric(executor.Metrics, op, code)
 	recordCommandLog(executor.Logger, observability.CommandLogEntry{
 		RequestID:   request.RequestID,
@@ -86,7 +87,7 @@ func (executor ObservedCommandExecutor) Execute(ctx CommandContext, request Requ
 		ZoneID:      ctx.ZoneID,
 		Operation:   op,
 		ErrorCode:   code,
-		ReferenceID: ctx.ReferenceID,
+		ReferenceID: referenceID,
 		Duration:    duration,
 		Status:      status,
 		Timestamp:   startedAt,
@@ -157,4 +158,19 @@ func recordCommandLog(logger CommandLogger, entry observability.CommandLogEntry)
 		return
 	}
 	_ = logger.Record(entry)
+}
+
+func commandLogReferenceID(ctx CommandContext, request RequestEnvelope) foundation.IdempotencyKey {
+	if !ctx.ReferenceID.IsZero() {
+		return ctx.ReferenceID
+	}
+
+	switch request.Op {
+	case OperationShopBuyProduct:
+		referenceID, err := foundation.ShopPurchaseIdempotencyKey(ctx.PlayerID, request.RequestID)
+		if err == nil {
+			return referenceID
+		}
+	}
+	return ""
 }
