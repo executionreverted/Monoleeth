@@ -14,6 +14,7 @@ import (
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/testutil"
 	"gameproject/internal/game/world/aoi"
@@ -157,7 +158,48 @@ func TestDebugSpawnNPCRejectsOutOfBoundsPosition(t *testing.T) {
 	}
 }
 
-func TestProductionWebSocketForbidsDebugOperationsAndKeepsSessionSnapshotPublic(t *testing.T) {
+func TestProductionRuntimeOmitsDebugCommandHandlers(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	handlers := gameServer.runtime.commandHandlers()
+
+	for _, op := range []realtime.Operation{realtime.OperationDebugSnapshot, realtime.OperationDebugSpawnNPC} {
+		if _, ok := handlers[op]; ok {
+			t.Fatalf("production handler %s registered, want omitted", op)
+		}
+	}
+}
+
+func TestDevModeRuntimeRegistersDebugCommandHandlers(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, true)
+	defer httpServer.Close()
+	handlers := gameServer.runtime.commandHandlers()
+
+	for _, op := range []realtime.Operation{realtime.OperationDebugSnapshot, realtime.OperationDebugSpawnNPC} {
+		if handlers[op] == nil {
+			t.Fatalf("dev mode handler %s missing, want registered", op)
+		}
+	}
+}
+
+func TestDevModeRuntimeRecordsDevModeMetric(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, true)
+	defer httpServer.Close()
+
+	snapshot := gameServer.runtime.Metrics.Snapshot()
+	for _, gauge := range snapshot.Gauges {
+		if gauge.Name != observability.MetricDevModeEnabled || len(gauge.Labels) != 0 {
+			continue
+		}
+		if gauge.Value != 1 {
+			t.Fatalf("dev mode metric value = %d, want 1", gauge.Value)
+		}
+		return
+	}
+	t.Fatalf("missing dev mode metric %s in %+v", observability.MetricDevModeEnabled, snapshot.Gauges)
+}
+
+func TestProductionWebSocketRejectsUnavailableDebugOperationsAndKeepsSessionSnapshotPublic(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
 	cookie := registerPilot(t, httpServer)
@@ -198,8 +240,8 @@ func TestProductionWebSocketForbidsDebugOperationsAndKeepsSessionSnapshotPublic(
 	} {
 		writeText(t, conn, body)
 		response := readError(t, conn)
-		if response.Error.Code != foundation.CodeForbidden {
-			t.Fatalf("debug response %d = %+v, want %s", index, response.Error, foundation.CodeForbidden)
+		if response.Error.Code != foundation.CodeNotFound {
+			t.Fatalf("debug response %d = %+v, want %s", index, response.Error, foundation.CodeNotFound)
 		}
 		if response.Error.Retryable {
 			t.Fatalf("debug response %d retryable = true, want false", index)

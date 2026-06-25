@@ -476,3 +476,52 @@ func TestStopSettlesMovementToServerComputedPosition(t *testing.T) {
 		t.Fatalf("movement state = %+v, want stopped", entity.Movement)
 	}
 }
+
+func TestDisconnectReconnectSnapshotHasSettledNonMovingPlayer(t *testing.T) {
+	gameServer, httpServer, clock := newTestServerWithFakeClock(t)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	if err := gameServer.runtime.ensurePlayerSession(resolved); err != nil {
+		t.Fatalf("ensurePlayerSession(initial) error = %v, want nil", err)
+	}
+
+	move := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-disconnect-settle-move","op":"move_to","payload":{"target":{"x":1000,"y":0}},"client_seq":1,"v":1}`),
+	)
+	if move.HasError {
+		t.Fatalf("move response error = %+v, want success", move.Error)
+	}
+
+	clock.Advance(250 * time.Millisecond)
+	gameServer.runtime.detachSession(resolved.SessionID)
+	if err := gameServer.runtime.ensurePlayerSession(resolved); err != nil {
+		t.Fatalf("ensurePlayerSession(reconnect) error = %v, want nil", err)
+	}
+	events, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("bootstrapEvents(reconnect) error = %v, want nil", err)
+	}
+
+	snapshot := decodeWorldSnapshotForTest(t, events)
+	var self aoi.EntityPayload
+	selfSeen := false
+	for _, entity := range snapshot.Entities {
+		if hasStatusFlag(entity.StatusFlags, "self") {
+			self = entity
+			selfSeen = true
+			break
+		}
+	}
+	if !selfSeen {
+		t.Fatalf("reconnect snapshot entities = %+v, want self player", snapshot.Entities)
+	}
+	assertServerVecNear(t, self.Position, world.Vec2{X: defaultPlayerSpeed * 0.25, Y: 0})
+	if self.Position == (world.Vec2{X: 1000, Y: 0}) {
+		t.Fatalf("reconnect position = target %+v, want server-time settled position", self.Position)
+	}
+	if self.Movement != nil {
+		t.Fatalf("reconnect movement = %+v, want nil stale route", self.Movement)
+	}
+}

@@ -34,7 +34,7 @@ events, and repair, so the combat loop is durable and UX-complete.
 
 ## Smoke Tests (one assertion each)
 - [x] Stop during movement settles to server-computed position, not last click target.
-- [ ] Disconnect during movement settles position (no stale active route on reconnect).
+- [x] Disconnect during movement settles position (no stale active route on reconnect).
 - [ ] NPC/PvP death emits a client-safe disabled event.
 - [ ] Stale/tampered repair quote is rejected.
 - [ ] Repair with insufficient wallet leaves ship disabled.

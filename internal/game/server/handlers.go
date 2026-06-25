@@ -151,7 +151,7 @@ var trustedClientPayloadKeys = map[string]struct{}{
 }
 
 func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.CommandHandler {
-	return map[realtime.Operation]realtime.CommandHandler{
+	handlers := map[realtime.Operation]realtime.CommandHandler{
 		realtime.OperationSessionSnapshot:           runtime.handleSessionSnapshot,
 		realtime.OperationWorldSnapshot:             runtime.handleWorldSnapshot,
 		realtime.OperationMoveTo:                    runtime.handleMoveTo,
@@ -228,9 +228,12 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationObservabilityMetric:       runtime.handleObservabilityMetrics,
 		realtime.OperationObservabilityGate:         runtime.handleObservabilityReleaseGate,
 		realtime.OperationObservabilityAbuse:        runtime.handleObservabilityAbuseCoverage,
-		realtime.OperationDebugSnapshot:             runtime.handleDebugSnapshot,
-		realtime.OperationDebugSpawnNPC:             runtime.handleDebugSpawnNPC,
 	}
+	if runtime.devMode {
+		handlers[realtime.OperationDebugSnapshot] = runtime.handleDebugSnapshot
+		handlers[realtime.OperationDebugSpawnNPC] = runtime.handleDebugSpawnNPC
+	}
+	return handlers
 }
 
 func (runtime *Runtime) handleSessionSnapshot(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {

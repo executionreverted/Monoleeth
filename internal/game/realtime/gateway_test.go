@@ -148,6 +148,22 @@ func TestGatewayWithoutLimiterExecutesHandler(t *testing.T) {
 	}
 }
 
+func TestProtocolGatewayMissingHandlerReturnsNotFound(t *testing.T) {
+	gateway := newTestGateway(t, validSessionResolver(), nil)
+
+	response := gateway.HandleRequest("session-1", []byte(`{"request_id":"request-missing-handler","op":"world.snapshot","payload":{},"client_seq":1,"v":1}`))
+
+	if !response.HasError {
+		t.Fatalf("HandleRequest() = %+v, want missing handler error", response)
+	}
+	if response.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("missing handler code = %s, want %s", response.Error.Error.Code, foundation.CodeNotFound)
+	}
+	if response.Error.Error.Retryable {
+		t.Fatal("missing handler error was retryable")
+	}
+}
+
 func TestGatewayLimiterDeniedRetryCanExecuteAfterAllow(t *testing.T) {
 	calls := 0
 	limiter := &recordingRateLimiter{deny: true}

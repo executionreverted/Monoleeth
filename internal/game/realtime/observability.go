@@ -123,7 +123,7 @@ func (ctx CommandContext) Validate() error {
 }
 
 func unavailableCommandHandler(CommandContext, RequestEnvelope) (json.RawMessage, error) {
-	return nil, foundation.NewDomainError(foundation.CodeInternal, "Command handler unavailable.")
+	return nil, foundation.NewDomainError(foundation.CodeNotFound, "Command is unavailable.")
 }
 
 func recordCommandMetric(recorder CommandMetricRecorder, op observability.Operation, code foundation.Code) {

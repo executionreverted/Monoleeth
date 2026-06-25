@@ -40,6 +40,7 @@ const (
 	MetricEnemyAggroDecisions           = "enemy_aggro_decisions"
 	MetricEnemySpawnerCommandRejections = "enemy_spawner_command_rejections"
 	MetricEnemySpawnerRejections        = MetricEnemySpawnerCommandRejections
+	MetricDevModeEnabled                = "dev_mode_enabled"
 )
 
 // Labels is a caller-supplied metric label set.

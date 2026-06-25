@@ -24,6 +24,7 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 
 ## Tasks
 - [x] `[P:wave2/lane-A]` TASK-0481 foundation slice: add `idempotency_keys` + `outbox` contentdb schema skeleton and economy helper row contracts/tests.
+- [x] `[P:wave2/lane-A]` TASK-0483 contentdb store adapter for economy idempotency/outbox row contracts.
 - [ ] `[P:wave2/lane-A]` Add `idempotency_keys` table + helper; enforce on every mutating economy op.
 - [ ] `[P:wave2/lane-A]` Add `outbox` table + after-commit publisher + replay worker.
 - [ ] `[P:wave2/lane-B]` Wrap market buy/cancel in single DB transaction (escrow move + wallet + ledger).

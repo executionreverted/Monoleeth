@@ -1182,6 +1182,9 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err := runtime.seedSharedEconomy(); err != nil {
 		return nil, err
 	}
+	if runtime.devMode {
+		_ = metricRecorder.SetGauge(observability.MetricDevModeEnabled, nil, 1)
+	}
 	gateway, err := realtime.NewGateway(realtime.GatewayOptions{
 		Clock:    clock,
 		Sessions: runtimeSessionResolver{runtime: runtime},
