@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/observability"
@@ -189,6 +190,15 @@ func commandLogReferenceID(ctx CommandContext, request RequestEnvelope) foundati
 		if err == nil {
 			return referenceID
 		}
+	case OperationDeathRepairShip:
+		shipID, ok := commandLogRepairShipID(request.Payload)
+		if !ok {
+			return ""
+		}
+		referenceID, err := commandLogShipRepairID(ctx.PlayerID, shipID, request.RequestID)
+		if err == nil {
+			return referenceID
+		}
 	}
 	return ""
 }
@@ -205,4 +215,39 @@ func commandLogListingID(payload json.RawMessage) (foundation.ListingID, bool) {
 		return "", false
 	}
 	return listingID, true
+}
+
+func commandLogRepairShipID(payload json.RawMessage) (foundation.ShipID, bool) {
+	var body struct {
+		ShipID string `json:"ship_id"`
+	}
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return "", false
+	}
+	shipID, err := foundation.ParseShipID(body.ShipID)
+	if err != nil {
+		return "", false
+	}
+	return shipID, true
+}
+
+func commandLogShipRepairID(
+	playerID foundation.PlayerID,
+	shipID foundation.ShipID,
+	requestID foundation.RequestID,
+) (foundation.IdempotencyKey, error) {
+	if err := playerID.Validate(); err != nil {
+		return "", err
+	}
+	if err := requestID.Validate(); err != nil {
+		return "", err
+	}
+	reference := fmt.Sprintf(
+		"player%d.%s.request%d.%s",
+		len(playerID.String()),
+		playerID.String(),
+		len(requestID.String()),
+		requestID.String(),
+	)
+	return foundation.ShipRepairIdempotencyKey(shipID, reference)
 }

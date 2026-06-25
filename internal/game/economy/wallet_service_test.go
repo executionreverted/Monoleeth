@@ -602,25 +602,167 @@ func TestCreditWalletPersistsBalanceThroughRepository(t *testing.T) {
 	}
 }
 
+func TestWalletServiceRepositoryReloadsLedgerReferenceState(t *testing.T) {
+	repository := &fakeWalletRepository{}
+	service, err := NewWalletServiceWithRepository(testutil.NewFakeClock(testWalletNow), repository)
+	if err != nil {
+		t.Fatalf("NewWalletServiceWithRepository() error = %v, want nil", err)
+	}
+	input := validCreditWalletInput(t, "quest_reward:wallet-reload-ledger-reference")
+	first, err := service.CreditWallet(input)
+	if err != nil {
+		t.Fatalf("CreditWallet() error = %v, want nil", err)
+	}
+
+	reloaded, err := NewWalletServiceWithRepository(testutil.NewFakeClock(testWalletNow), repository)
+	if err != nil {
+		t.Fatalf("NewWalletServiceWithRepository(reload) error = %v, want nil", err)
+	}
+
+	entries := reloaded.CurrencyLedgerEntries()
+	if len(entries) != 1 || entries[0].LedgerID != first.LedgerEntry.LedgerID {
+		t.Fatalf("reloaded ledger entries = %+v, want first ledger %q", entries, first.LedgerEntry.LedgerID)
+	}
+	entry, ok := reloaded.FindCurrencyLedgerEntry(CurrencyLedgerReferenceLookup{
+		PlayerID:     input.PlayerID,
+		Currency:     input.Currency,
+		Action:       LedgerActionIncrease,
+		Reason:       input.Reason,
+		ReferenceKey: input.ReferenceKey,
+	})
+	if !ok || entry.LedgerID != first.LedgerEntry.LedgerID {
+		t.Fatalf("FindCurrencyLedgerEntry() = %+v ok %v, want reloaded ledger %q", entry, ok, first.LedgerEntry.LedgerID)
+	}
+}
+
+func TestCreditWalletDuplicateReferenceAfterRepositoryReloadDoesNotMutateBalance(t *testing.T) {
+	repository := &fakeWalletRepository{}
+	service, err := NewWalletServiceWithRepository(testutil.NewFakeClock(testWalletNow), repository)
+	if err != nil {
+		t.Fatalf("NewWalletServiceWithRepository() error = %v, want nil", err)
+	}
+	input := validCreditWalletInput(t, "quest_reward:wallet-reload-duplicate-credit")
+	first, err := service.CreditWallet(input)
+	if err != nil {
+		t.Fatalf("CreditWallet() error = %v, want nil", err)
+	}
+
+	reloaded, err := NewWalletServiceWithRepository(testutil.NewFakeClock(testWalletNow), repository)
+	if err != nil {
+		t.Fatalf("NewWalletServiceWithRepository(reload) error = %v, want nil", err)
+	}
+	second, err := reloaded.CreditWallet(input)
+	if err != nil {
+		t.Fatalf("duplicate CreditWallet after reload error = %v, want nil", err)
+	}
+
+	if !second.Duplicate {
+		t.Fatal("duplicate CreditWallet after reload Duplicate = false, want true")
+	}
+	if got := reloaded.Balance(input.PlayerID, input.Currency); got != input.Amount {
+		t.Fatalf("Balance() after duplicate reload credit = %d, want %d", got, input.Amount)
+	}
+	if got := len(reloaded.CurrencyLedgerEntries()); got != 1 {
+		t.Fatalf("ledger entries after duplicate reload credit = %d, want 1", got)
+	}
+	if second.LedgerEntry.LedgerID != first.LedgerEntry.LedgerID {
+		t.Fatalf("duplicate reload credit ledger = %q, want %q", second.LedgerEntry.LedgerID, first.LedgerEntry.LedgerID)
+	}
+}
+
+func TestDebitWalletDuplicateReferenceAfterRepositoryReloadDoesNotMutateBalance(t *testing.T) {
+	repository := &fakeWalletRepository{}
+	service, err := NewWalletServiceWithRepository(testutil.NewFakeClock(testWalletNow), repository)
+	if err != nil {
+		t.Fatalf("NewWalletServiceWithRepository() error = %v, want nil", err)
+	}
+	creditWalletForTest(t, service, "player-1", CurrencyBucketCredits, 250, "quest_reward:wallet-reload-duplicate-debit-seed")
+	input := validDebitWalletInput(t, "quest_reward:wallet-reload-duplicate-debit")
+	first, err := service.DebitWallet(input)
+	if err != nil {
+		t.Fatalf("DebitWallet() error = %v, want nil", err)
+	}
+
+	reloaded, err := NewWalletServiceWithRepository(testutil.NewFakeClock(testWalletNow), repository)
+	if err != nil {
+		t.Fatalf("NewWalletServiceWithRepository(reload) error = %v, want nil", err)
+	}
+	second, err := reloaded.DebitWallet(input)
+	if err != nil {
+		t.Fatalf("duplicate DebitWallet after reload error = %v, want nil", err)
+	}
+
+	if !second.Duplicate {
+		t.Fatal("duplicate DebitWallet after reload Duplicate = false, want true")
+	}
+	if got := reloaded.Balance(input.PlayerID, input.Currency); got != 100 {
+		t.Fatalf("Balance() after duplicate reload debit = %d, want 100", got)
+	}
+	if got := len(reloaded.CurrencyLedgerEntries()); got != 2 {
+		t.Fatalf("ledger entries after duplicate reload debit = %d, want 2", got)
+	}
+	if second.LedgerEntry.LedgerID != first.LedgerEntry.LedgerID {
+		t.Fatalf("duplicate reload debit ledger = %q, want %q", second.LedgerEntry.LedgerID, first.LedgerEntry.LedgerID)
+	}
+}
+
 type fakeWalletRepository struct {
-	balances []WalletBalance
-	upserts  []WalletBalance
+	balances      []WalletBalance
+	ledgerEntries []CurrencyLedgerEntry
+	references    []WalletMutationReference
+	counters      WalletCounters
+	upserts       []WalletBalance
+	commits       []WalletMutationCommit
 }
 
 func (repository *fakeWalletRepository) LoadWalletBalances(context.Context) ([]WalletBalance, error) {
 	return append([]WalletBalance(nil), repository.balances...), nil
 }
 
+func (repository *fakeWalletRepository) LoadCurrencyLedgerEntries(context.Context) ([]CurrencyLedgerEntry, error) {
+	return append([]CurrencyLedgerEntry(nil), repository.ledgerEntries...), nil
+}
+
+func (repository *fakeWalletRepository) LoadWalletMutationReferences(context.Context) ([]WalletMutationReference, error) {
+	references := make([]WalletMutationReference, 0, len(repository.references))
+	for _, reference := range repository.references {
+		references = append(references, cloneWalletMutationReferenceForTest(reference))
+	}
+	return references, nil
+}
+
+func (repository *fakeWalletRepository) LoadWalletCounters(context.Context) (WalletCounters, error) {
+	return repository.counters, nil
+}
+
 func (repository *fakeWalletRepository) UpsertWalletBalance(_ context.Context, balance WalletBalance) error {
 	repository.upserts = append(repository.upserts, balance)
+	repository.upsertBalance(balance)
+	return nil
+}
+
+func (repository *fakeWalletRepository) CommitWalletMutation(_ context.Context, commit WalletMutationCommit) error {
+	repository.commits = append(repository.commits, cloneWalletMutationCommitForTest(commit))
+	for _, balance := range commit.Balances {
+		repository.upserts = append(repository.upserts, balance)
+		repository.upsertBalance(balance)
+	}
+	repository.ledgerEntries = append(repository.ledgerEntries, commit.LedgerEntries...)
+	repository.references = append(repository.references, cloneWalletMutationReferenceForTest(commit.Reference))
+	if commit.Counters.LedgerSequence > repository.counters.LedgerSequence {
+		repository.counters.LedgerSequence = commit.Counters.LedgerSequence
+	}
+	return nil
+}
+
+func (repository *fakeWalletRepository) upsertBalance(balance WalletBalance) {
 	for index := range repository.balances {
 		if repository.balances[index].PlayerID == balance.PlayerID && repository.balances[index].Currency == balance.Currency {
 			repository.balances[index] = balance
-			return nil
+			return
 		}
 	}
 	repository.balances = append(repository.balances, balance)
-	return nil
 }
 
 func (repository *fakeWalletRepository) saved(playerID foundation.PlayerID, currency CurrencyBucket) (WalletBalance, bool) {
@@ -630,6 +772,18 @@ func (repository *fakeWalletRepository) saved(playerID foundation.PlayerID, curr
 		}
 	}
 	return WalletBalance{}, false
+}
+
+func cloneWalletMutationCommitForTest(commit WalletMutationCommit) WalletMutationCommit {
+	commit.Balances = append([]WalletBalance(nil), commit.Balances...)
+	commit.LedgerEntries = append([]CurrencyLedgerEntry(nil), commit.LedgerEntries...)
+	commit.Reference = cloneWalletMutationReferenceForTest(commit.Reference)
+	return commit
+}
+
+func cloneWalletMutationReferenceForTest(reference WalletMutationReference) WalletMutationReference {
+	reference.LedgerEntries = append([]CurrencyLedgerEntry(nil), reference.LedgerEntries...)
+	return reference
 }
 
 func newTestWalletService() *WalletService {

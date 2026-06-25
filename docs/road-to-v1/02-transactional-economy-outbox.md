@@ -33,6 +33,13 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0507: contentdb wallet repository mode now persists and
+  reloads currency ledger rows, wallet mutation reference rows, and wallet
+  ledger counters. `WalletService` hydrates credit/debit/transfer reference
+  maps from repository state, and same-reference credit/debit retries after a
+  service reload return duplicate without changing balance or adding ledger
+  rows. Focused economy and contentdb tests cover ledger/reference reload and
+  reload duplicate no-double-credit/debit.
 - 2026-06-25 TASK-0501: loot pickup XP now writes a stable `loot_xp:*`
   economy outbox row and reuses an `OutboxReplayWorker` publisher hook to replay
   the XP grant through progression's canonical `loot_pickup:<drop_id>`

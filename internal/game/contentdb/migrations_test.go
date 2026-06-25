@@ -12,8 +12,8 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 11 {
-		t.Fatalf("len(migrations) = %d, want 11", len(migrations))
+	if len(migrations) != 12 {
+		t.Fatalf("len(migrations) = %d, want 12", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
@@ -48,8 +48,36 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if migrations[10].Version != "0011_economy_idempotency_outbox" {
 		t.Fatalf("Version = %q, want 0011_economy_idempotency_outbox", migrations[10].Version)
 	}
+	if migrations[11].Version != "0012_wallet_ledger_references" {
+		t.Fatalf("Version = %q, want 0012_wallet_ledger_references", migrations[11].Version)
+	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestWalletLedgerReferencesMigrationHasDurableEvidenceTables(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[11].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS player_wallet_ledger",
+		"ledger_id text PRIMARY KEY",
+		"currency_type text NOT NULL",
+		"reference_key text NOT NULL",
+		"CREATE TABLE IF NOT EXISTS player_wallet_references",
+		"operation text NOT NULL CHECK (operation IN ('credit_wallet', 'debit_wallet', 'transfer_currency'))",
+		"primary_ledger_id text NOT NULL REFERENCES player_wallet_ledger(ledger_id)",
+		"ledger_ids jsonb NOT NULL DEFAULT '[]'::jsonb",
+		"PRIMARY KEY (player_id, operation, reference_key)",
+		"CREATE TABLE IF NOT EXISTS player_wallet_counters",
+		"ledger_sequence bigint NOT NULL DEFAULT 0 CHECK (ledger_sequence >= 0)",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("wallet ledger/ref migration missing %q", fragment)
+		}
 	}
 }
 

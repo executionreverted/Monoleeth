@@ -15,6 +15,7 @@ import (
 	"gameproject/internal/game/economy"
 	gameevents "gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 	"gameproject/internal/game/progression"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/ships"
@@ -335,6 +336,83 @@ func TestRepairQuoteAndRepairUseServerOwnedActiveShip(t *testing.T) {
 	for _, want := range []realtime.ClientEventType{realtime.EventDeathRepaired, realtime.EventShipSnapshot, realtime.EventPlayerSnapshot, realtime.EventWalletSnapshot} {
 		if !seen[want] {
 			t.Fatalf("repair events seen = %#v, missing %s", seen, want)
+		}
+	}
+}
+
+func TestDeathRepairShipStructuredLogIncludesTransitionFieldsNoSecrets(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	disableActiveShipForRepairTest(t, gameServer, resolved.PlayerID)
+
+	quote := requestRepairQuoteForTest(t, conn, "request-repair-log-quote", 1)
+	requestID := foundation.RequestID("request-repair-structured-log")
+	writeDeathRepairShipForTest(t, conn, requestID.String(), 2, quote)
+	repairResponse := readResponse(t, conn)
+	if !repairResponse.OK {
+		t.Fatalf("repair response = %+v, want success", repairResponse)
+	}
+
+	expectedReference := repairReferenceForTest(t, resolved.PlayerID, quote, requestID)
+	entry := requireCommandLogEntryForTest(t, gameServer, requestID, observability.Operation(realtime.OperationDeathRepairShip))
+	if entry.PlayerID != resolved.PlayerID ||
+		entry.SessionID != observability.SessionID(resolved.SessionID) ||
+		entry.Status != observability.CommandStatusOK ||
+		!entry.ErrorCode.IsZero() ||
+		entry.ReferenceID != expectedReference ||
+		entry.Duration < 0 {
+		t.Fatalf("repair command log entry = %+v, want player/session/ok/ref/duration", entry)
+	}
+
+	rawLog, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal repair command log: %v", err)
+	}
+	var public map[string]any
+	if err := json.Unmarshal(rawLog, &public); err != nil {
+		t.Fatalf("decode repair command log: %v", err)
+	}
+	for field, want := range map[string]string{
+		"player_id":       resolved.PlayerID.String(),
+		"session_id":      resolved.SessionID.String(),
+		"request_id":      requestID.String(),
+		"op":              string(realtime.OperationDeathRepairShip),
+		"result":          observability.CommandStatusOK.String(),
+		"error_code":      "",
+		"idempotency_key": expectedReference.String(),
+	} {
+		if public[field] != want {
+			t.Fatalf("repair command log field %s = %#v, want %q in %s", field, public[field], want, rawLog)
+		}
+	}
+	if public["duration_ms"].(float64) < 0 {
+		t.Fatalf("repair command log duration_ms = %#v, want non-negative in %s", public["duration_ms"], rawLog)
+	}
+	refIDs, ok := public["ref_ids"].([]any)
+	if !ok || len(refIDs) != 1 || refIDs[0] != expectedReference.String() {
+		t.Fatalf("repair command log ref_ids = %#v, want [%q] in %s", public["ref_ids"], expectedReference, rawLog)
+	}
+	for _, leaked := range []string{
+		"password",
+		"password_hash",
+		"token",
+		"cookie",
+		"hash",
+		"payload",
+		"quote_id",
+		"wallet",
+		"cargo",
+		"drop_id",
+		"drop_profile",
+		"loot_table",
+	} {
+		if strings.Contains(string(rawLog), leaked) {
+			t.Fatalf("repair command log leaked %q in %s", leaked, rawLog)
 		}
 	}
 }
@@ -685,6 +763,22 @@ func repairReferenceForTest(
 		t.Fatalf("runtimeShipRepairIdempotencyKey() error = %v, want nil", err)
 	}
 	return referenceKey
+}
+
+func requireCommandLogEntryForTest(
+	t *testing.T,
+	gameServer *Server,
+	requestID foundation.RequestID,
+	op observability.Operation,
+) observability.CommandLogEntry {
+	t.Helper()
+	for _, entry := range gameServer.runtime.CommandLog.Snapshot() {
+		if entry.RequestID == requestID && entry.Operation == op {
+			return entry
+		}
+	}
+	t.Fatalf("missing command log entry request=%q op=%q", requestID, op)
+	return observability.CommandLogEntry{}
 }
 
 func assertRepairTestHangarShipState(

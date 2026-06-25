@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	creditWalletOperation     = "credit_wallet"
-	debitWalletOperation      = "debit_wallet"
-	transferCurrencyOperation = "transfer_currency"
+	creditWalletOperation     = WalletMutationOperationCredit
+	debitWalletOperation      = WalletMutationOperationDebit
+	transferCurrencyOperation = WalletMutationOperationTransfer
 )
 
 var (
@@ -87,7 +87,11 @@ type CurrencyLedgerReferenceLookup struct {
 // WalletRepository is the durable persistence boundary for wallet balances.
 type WalletRepository interface {
 	LoadWalletBalances(ctx context.Context) ([]WalletBalance, error)
+	LoadCurrencyLedgerEntries(ctx context.Context) ([]CurrencyLedgerEntry, error)
+	LoadWalletMutationReferences(ctx context.Context) ([]WalletMutationReference, error)
+	LoadWalletCounters(ctx context.Context) (WalletCounters, error)
 	UpsertWalletBalance(ctx context.Context, balance WalletBalance) error
+	CommitWalletMutation(ctx context.Context, commit WalletMutationCommit) error
 }
 
 // WalletService is an in-memory Phase 02 currency mutation service.
@@ -117,7 +121,7 @@ type walletBalanceKey struct {
 
 type walletReferenceKey struct {
 	playerID     foundation.PlayerID
-	operation    string
+	operation    WalletMutationOperation
 	referenceKey foundation.IdempotencyKey
 }
 
@@ -154,6 +158,35 @@ func NewWalletServiceWithRepository(clock foundation.Clock, repository WalletRep
 			}
 			service.balances[walletBalanceKey{playerID: balance.PlayerID, currency: balance.Currency}] = balance
 		}
+		ledgerEntries, err := repository.LoadCurrencyLedgerEntries(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range ledgerEntries {
+			if err := entry.Validate(); err != nil {
+				return nil, err
+			}
+			service.currencyLedgerEntries = append(service.currencyLedgerEntries, entry)
+			service.indexCurrencyLedgerEntryLocked(entry)
+		}
+		references, err := repository.LoadWalletMutationReferences(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		for _, reference := range references {
+			if err := reference.Validate(); err != nil {
+				return nil, err
+			}
+			service.indexWalletMutationReferenceLocked(reference)
+		}
+		counters, err := repository.LoadWalletCounters(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		if err := counters.Validate(); err != nil {
+			return nil, err
+		}
+		service.nextLedgerSequence = safeWalletLedgerSequence(counters.LedgerSequence, service.currencyLedgerEntries)
 	}
 	return service, nil
 }
@@ -207,17 +240,27 @@ func (service *WalletService) CreditWallet(input CreditWalletInput) (CreditWalle
 	}
 	ledgerEntry.CreatedAt = now
 
-	if err := service.persistWalletBalanceLocked(balance); err != nil {
+	result := CreditWalletResult{
+		Balance:     balance,
+		LedgerEntry: ledgerEntry,
+	}
+	if err := service.persistWalletMutationLocked(WalletMutationCommit{
+		Balances:      []WalletBalance{balance},
+		LedgerEntries: []CurrencyLedgerEntry{ledgerEntry},
+		Reference: WalletMutationReference{
+			PlayerID:      input.PlayerID,
+			Operation:     creditWalletOperation,
+			ReferenceKey:  input.ReferenceKey,
+			LedgerEntries: []CurrencyLedgerEntry{ledgerEntry},
+		},
+		Counters: WalletCounters{LedgerSequence: service.nextLedgerSequence},
+	}); err != nil {
 		return CreditWalletResult{}, err
 	}
 	service.balances[walletBalanceKey{playerID: input.PlayerID, currency: input.Currency}] = balance
 	service.currencyLedgerEntries = append(service.currencyLedgerEntries, ledgerEntry)
 	service.indexCurrencyLedgerEntryLocked(ledgerEntry)
 
-	result := CreditWalletResult{
-		Balance:     balance,
-		LedgerEntry: ledgerEntry,
-	}
 	service.creditReferences[reference] = result
 	if emitter != nil {
 		emitted = []events.EventEnvelope{
@@ -285,17 +328,27 @@ func (service *WalletService) DebitWallet(input DebitWalletInput) (DebitWalletRe
 	}
 	ledgerEntry.CreatedAt = now
 
-	if err := service.persistWalletBalanceLocked(balance); err != nil {
+	result := DebitWalletResult{
+		Balance:     balance,
+		LedgerEntry: ledgerEntry,
+	}
+	if err := service.persistWalletMutationLocked(WalletMutationCommit{
+		Balances:      []WalletBalance{balance},
+		LedgerEntries: []CurrencyLedgerEntry{ledgerEntry},
+		Reference: WalletMutationReference{
+			PlayerID:      input.PlayerID,
+			Operation:     debitWalletOperation,
+			ReferenceKey:  input.ReferenceKey,
+			LedgerEntries: []CurrencyLedgerEntry{ledgerEntry},
+		},
+		Counters: WalletCounters{LedgerSequence: service.nextLedgerSequence},
+	}); err != nil {
 		return DebitWalletResult{}, err
 	}
 	service.balances[walletBalanceKey{playerID: input.PlayerID, currency: input.Currency}] = balance
 	service.currencyLedgerEntries = append(service.currencyLedgerEntries, ledgerEntry)
 	service.indexCurrencyLedgerEntryLocked(ledgerEntry)
 
-	result := DebitWalletResult{
-		Balance:     balance,
-		LedgerEntry: ledgerEntry,
-	}
 	service.debitReferences[reference] = result
 	if emitter != nil {
 		emitted = []events.EventEnvelope{
@@ -387,10 +440,22 @@ func (service *WalletService) TransferCurrency(input TransferCurrencyInput) (Tra
 		return TransferCurrencyResult{}, err
 	}
 
-	if err := service.persistWalletBalanceLocked(fromBalance); err != nil {
-		return TransferCurrencyResult{}, err
+	result := TransferCurrencyResult{
+		FromBalance:   fromBalance,
+		ToBalance:     toBalance,
+		LedgerEntries: []CurrencyLedgerEntry{debitEntry, creditEntry},
 	}
-	if err := service.persistWalletBalanceLocked(toBalance); err != nil {
+	if err := service.persistWalletMutationLocked(WalletMutationCommit{
+		Balances:      []WalletBalance{fromBalance, toBalance},
+		LedgerEntries: result.LedgerEntries,
+		Reference: WalletMutationReference{
+			PlayerID:      input.FromPlayerID,
+			Operation:     transferCurrencyOperation,
+			ReferenceKey:  input.ReferenceKey,
+			LedgerEntries: result.LedgerEntries,
+		},
+		Counters: WalletCounters{LedgerSequence: service.nextLedgerSequence},
+	}); err != nil {
 		return TransferCurrencyResult{}, err
 	}
 	service.balances[walletBalanceKey{playerID: input.FromPlayerID, currency: input.Currency}] = fromBalance
@@ -399,11 +464,6 @@ func (service *WalletService) TransferCurrency(input TransferCurrencyInput) (Tra
 	service.indexCurrencyLedgerEntryLocked(debitEntry)
 	service.indexCurrencyLedgerEntryLocked(creditEntry)
 
-	result := TransferCurrencyResult{
-		FromBalance:   fromBalance,
-		ToBalance:     toBalance,
-		LedgerEntries: []CurrencyLedgerEntry{debitEntry, creditEntry},
-	}
 	service.transferReferences[reference] = cloneTransferCurrencyResult(result)
 	if emitter != nil {
 		emitted = []events.EventEnvelope{
@@ -552,6 +612,13 @@ func (service *WalletService) persistWalletBalanceLocked(balance WalletBalance) 
 	return service.repository.UpsertWalletBalance(context.Background(), balance)
 }
 
+func (service *WalletService) persistWalletMutationLocked(commit WalletMutationCommit) error {
+	if service.repository == nil {
+		return nil
+	}
+	return service.repository.CommitWalletMutation(context.Background(), commit)
+}
+
 func (service *WalletService) indexCurrencyLedgerEntryLocked(entry CurrencyLedgerEntry) {
 	lookup := CurrencyLedgerReferenceLookup{
 		PlayerID:     entry.PlayerID,
@@ -588,6 +655,43 @@ func (service *WalletService) newCurrencyLedgerEntryLocked(
 		return CurrencyLedgerEntry{}, err
 	}
 	return entry, nil
+}
+
+func (service *WalletService) indexWalletMutationReferenceLocked(reference WalletMutationReference) {
+	key := walletReferenceKey{
+		playerID:     reference.PlayerID,
+		operation:    reference.Operation,
+		referenceKey: reference.ReferenceKey,
+	}
+	switch reference.Operation {
+	case creditWalletOperation:
+		entry := reference.LedgerEntries[0]
+		service.creditReferences[key] = CreditWalletResult{
+			Balance:     walletBalanceFromLedgerEntry(entry),
+			LedgerEntry: entry,
+		}
+	case debitWalletOperation:
+		entry := reference.LedgerEntries[0]
+		service.debitReferences[key] = DebitWalletResult{
+			Balance:     walletBalanceFromLedgerEntry(entry),
+			LedgerEntry: entry,
+		}
+	case transferCurrencyOperation:
+		service.transferReferences[key] = TransferCurrencyResult{
+			FromBalance:   walletBalanceFromLedgerEntry(reference.LedgerEntries[0]),
+			ToBalance:     walletBalanceFromLedgerEntry(reference.LedgerEntries[1]),
+			LedgerEntries: append([]CurrencyLedgerEntry(nil), reference.LedgerEntries...),
+		}
+	}
+}
+
+func walletBalanceFromLedgerEntry(entry CurrencyLedgerEntry) WalletBalance {
+	return WalletBalance{
+		PlayerID:  entry.PlayerID,
+		Currency:  entry.Currency,
+		Balance:   entry.BalanceAfter,
+		UpdatedAt: entry.CreatedAt,
+	}
 }
 
 func (service *WalletService) nextLedgerID() LedgerID {

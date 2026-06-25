@@ -307,6 +307,132 @@ func TestReconnectMovesAllPlayerSessionsToActiveMap(t *testing.T) {
 		t.Fatalf("map_1_2 worker missing player %q after multi-session map switch", resolved.PlayerID)
 	}
 }
+
+func TestConcurrentAttachDetachSerializesSessionMapsAndWorkerAttachment(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	starter := createResolvedRuntimeSession(t, gameServer, "attach-detach-starter@example.com", "Attach Detach Starter")
+	secondLogin, err := gameServer.runtime.Auth.Login(context.Background(), auth.LoginInput{
+		Email:    "attach-detach-starter@example.com",
+		Password: "correct-password",
+	})
+	if err != nil {
+		t.Fatalf("second login error = %v, want nil", err)
+	}
+	secondStarterSession := secondLogin.Session
+	if err := gameServer.runtime.ensurePlayerSession(secondStarterSession); err != nil {
+		t.Fatalf("ensure second starter session: %v", err)
+	}
+	mapTwo := createResolvedRuntimeSessionOnMap(t, gameServer, "attach-detach-map-two@example.com", "Attach Detach Two", "map_1_2", "west_gate")
+
+	type attachError struct {
+		sessionID auth.SessionID
+		err       error
+	}
+	workloads := []auth.ResolvedSession{starter, starter, secondStarterSession, mapTwo}
+	start := make(chan struct{})
+	errCh := make(chan attachError, len(workloads))
+	var wg sync.WaitGroup
+	for _, resolved := range workloads {
+		resolved := resolved
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for iteration := 0; iteration < 25; iteration++ {
+				gameServer.runtime.detachSession(resolved.SessionID)
+				if err := gameServer.runtime.ensurePlayerSession(resolved); err != nil {
+					errCh <- attachError{sessionID: resolved.SessionID, err: err}
+					return
+				}
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+	for problem := range errCh {
+		t.Errorf("ensurePlayerSession(%q) after concurrent detach: %v", problem.sessionID, problem.err)
+	}
+	if t.Failed() {
+		return
+	}
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	if len(gameServer.runtime.sessions) != 3 {
+		t.Fatalf("runtime sessions = %+v, want exactly three attached sessions", gameServer.runtime.sessions)
+	}
+	if len(gameServer.runtime.sessionLocations) != 3 {
+		t.Fatalf("runtime session locations = %+v, want exactly three attached sessions", gameServer.runtime.sessionLocations)
+	}
+	assertRuntimeSessionAttachedToMapLocked(t, gameServer.runtime, worldmaps.StarterMapID, starter)
+	assertRuntimeSessionAttachedToMapLocked(t, gameServer.runtime, worldmaps.StarterMapID, secondStarterSession)
+	assertRuntimeSessionAttachedToMapLocked(t, gameServer.runtime, "map_1_2", mapTwo)
+
+	starterInstance, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		t.Fatalf("starter map instance: %v", err)
+	}
+	mapTwoInstance, err := gameServer.runtime.mapInstanceLocked("map_1_2")
+	if err != nil {
+		t.Fatalf("map_1_2 instance: %v", err)
+	}
+	assertWorkerSessions(t, starterInstance.Worker, starter.PlayerID, starter.SessionID, secondStarterSession.SessionID)
+	assertWorkerSessions(t, mapTwoInstance.Worker, mapTwo.PlayerID, mapTwo.SessionID)
+}
+
+func assertRuntimeSessionAttachedToMapLocked(t *testing.T, runtime *Runtime, mapID worldmaps.MapID, resolved auth.ResolvedSession) {
+	t.Helper()
+	if runtime.sessions[resolved.SessionID] != resolved.PlayerID {
+		t.Fatalf("runtime session %q player = %q, want %q", resolved.SessionID, runtime.sessions[resolved.SessionID], resolved.PlayerID)
+	}
+	if runtime.sessionLocations[resolved.SessionID] != mapID {
+		t.Fatalf("runtime session %q location = %q, want %q", resolved.SessionID, runtime.sessionLocations[resolved.SessionID], mapID)
+	}
+	if runtime.sessionEpochs[resolved.SessionID] == 0 {
+		t.Fatalf("runtime session %q epoch = 0, want active map subscription epoch", resolved.SessionID)
+	}
+	wantRealtimeSessionID := realtime.SessionID(resolved.SessionID.String())
+	for instanceMapID, instance := range runtime.mapInstances {
+		if instance == nil || instance.Worker == nil {
+			continue
+		}
+		attachedPlayerID, attached := instance.Worker.AttachedPlayer(wantRealtimeSessionID)
+		if instanceMapID == mapID {
+			if instance.ActiveSessions[resolved.SessionID] != resolved.PlayerID {
+				t.Fatalf("map %q active session %q = %q, want %q", instanceMapID, resolved.SessionID, instance.ActiveSessions[resolved.SessionID], resolved.PlayerID)
+			}
+			if !attached || attachedPlayerID != resolved.PlayerID {
+				t.Fatalf("map %q worker attached session %q = %q, %t; want %q, true", instanceMapID, resolved.SessionID, attachedPlayerID, attached, resolved.PlayerID)
+			}
+			continue
+		}
+		if _, ok := instance.ActiveSessions[resolved.SessionID]; ok {
+			t.Fatalf("inactive map %q still has active session %q", instanceMapID, resolved.SessionID)
+		}
+		if attached {
+			t.Fatalf("inactive map %q worker still has session %q attached to player %q", instanceMapID, resolved.SessionID, attachedPlayerID)
+		}
+	}
+}
+
+func assertWorkerSessions(t *testing.T, zoneWorker *worker.Worker, playerID foundation.PlayerID, want ...auth.SessionID) {
+	t.Helper()
+	gotSessions := zoneWorker.PlayerSessions(playerID)
+	if len(gotSessions) != len(want) {
+		t.Fatalf("worker sessions for player %q = %+v, want %d sessions", playerID, gotSessions, len(want))
+	}
+	seen := make(map[realtime.SessionID]struct{}, len(gotSessions))
+	for _, sessionID := range gotSessions {
+		seen[sessionID] = struct{}{}
+	}
+	for _, sessionID := range want {
+		realtimeSessionID := realtime.SessionID(sessionID.String())
+		if _, ok := seen[realtimeSessionID]; !ok {
+			t.Fatalf("worker sessions for player %q = %+v, missing %q", playerID, gotSessions, sessionID)
+		}
+	}
+}
 func TestActiveMapSnapshotUsesActiveMapWorker(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "router-snapshot@example.com", "Router Snapshot")
