@@ -30,7 +30,7 @@ for critical state transitions.
 - [x] `[P:wave2/lane-F]` Add `GAME_ENV` mode; production requires `CookieSecure=true` or fail startup.
 - [x] `[P:wave2/lane-F]` Production mode requires durable auth/economy/progression/world stores or fail startup.
 - [x] `[P:wave2/lane-G]` Register debug ops only in dev config; log/metric a warning when dev mode is enabled.
-- [ ] `[P:wave2/lane-H]` Add telemetry-error counters: metric write errors, event encode errors, queue drops, slow-client disconnects, tick overruns.
+- [x] `[P:wave2/lane-H]` Add telemetry-error counters: metric write errors, event encode errors, queue drops, slow-client disconnects, tick overruns.
 - [ ] `[P:wave2/lane-H]` Add structured logs with `player_id/session_id/request_id/op/idempotency_key/ref_ids/result/error_code/duration_ms` for critical transitions (no secrets/tokens).
 
 ## Server Ownership

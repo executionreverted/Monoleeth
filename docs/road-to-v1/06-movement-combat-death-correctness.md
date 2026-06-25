@@ -23,8 +23,8 @@ events, and repair, so the combat loop is durable and UX-complete.
 - Ammo/rockets/new weapons (P12).
 
 ## Tasks
-- [ ] `[P:wave2/lane-E]` Add worker helper to settle position to current server time on stop/detach/interact.
-- [ ] `[P:wave2/lane-E]` Add `death.ship_disabled` event mapper (server-safe fields only).
+- [x] `[P:wave2/lane-E]` Add worker helper to settle position to current server time on stop/detach/interact.
+- [x] `[P:wave2/lane-E]` Add `death.ship_disabled` event mapper (server-safe fields only).
 - [ ] `[P:wave2/lane-E]` Make repair quote server-time bound; reject stale/tampered quotes.
 - [ ] `[P:wave2/lane-E]` Debit repair via wallet ledger; re-enable ship after commit.
 - [ ] `[P:wave2/lane-E]` Disable combat buttons from server death state in client.
