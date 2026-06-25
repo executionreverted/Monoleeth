@@ -72,6 +72,15 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 - Client sadece intent gönderir; player id/damage/loot/wallet/ownership dahil hiçbir trust gerektiren değişken client'tan alınmaz.
 - DB/pgx/Redis/NATS/library syntax gerekiyorsa Context7 MCP kullan.
 - Symphony/orchestration kodunu gameplay domain kodundan ayrı tut, symphony kodlarına dokunma.
+- Symphony worker taskları gerektiğinde farklı agent backend/model ile çalışabilir:
+  - default `codex`;
+  - `crush` backend ile z.ai GLM, örn. `agent_model: "zai/glm-5.2"` ve
+    `agent_endpoint: "https://api.z.ai/api/coding/paas/v4"`;
+  - `crush` backend ile Sakana/OpenRouter, örn.
+    `agent_model: "openrouter/sakana/fugu-ultra"`.
+- Agent backend/model seçimi sadece orchestration ayarıdır; gameplay domain kodu
+  buna göre davranış değiştirmez. API key/env değerleri dokümana, loga veya
+  commite yazılmaz.
 
 ## Smoke Test Kuralı
 
@@ -81,7 +90,9 @@ N davranış için N kısa test yaz.
 ## Paralel Çalışma (Symphony)
 
 - `[P:wave-N/lane-X]` etiketli tasklar aynı wave içinde paralel Symphony agent'larına dağıtılabilir.
-- Symphony kullanacaksan
+- Symphony kullanacaksan uygun tasklarda `agent_backend`, `agent_model`,
+  `agent_endpoint` override verilebilir. GLM/z.ai veya Sakana kullanılsa bile
+  agent promptları İngilizce olsun.
 - Aynı wave'deki lane'ler disjoint write set'e sahip olmalı (iki agent aynı dosyayı düzenlemez).
 - Agent'lar codebase'de yalnız değil: başkasının edit'ini geri alma, uyumlan.
 

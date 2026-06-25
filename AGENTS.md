@@ -5,20 +5,15 @@
 This repo is a browser-first 2D space MORPG project.
 
 Current active run:
-- Build the real authenticated browser game client.
-- Replace mock/demo UI truth with server-owned state.
-- Expose all implemented backend gameplay features through real commands,
-  queries, snapshots, and events.
-- Use `output/mockups/final-mockup.png` as the visual target for the playable
-  game surface.
+
+-docs/road-to-v1/GOAL.md
 
 Core direction:
+
 - Go-first backend/server tooling.
 - Server-authoritative game architecture.
 - Browser-first client.
-- Mail/password account system with server-owned sessions.
-- Keep OpenAI/agent orchestration code separate from gameplay domain logic.
-
+- Keep OpenAI/sakana/agent orchestration code separate from gameplay domain logic.
 
 ## Active Planning Docs
 
@@ -81,7 +76,7 @@ read the relevant backend module spec under:
 docs/plans/modules/
 ```
 
-Start module lookup with:
+If you need information about core modules lookup with:
 
 ```text
 docs/plans/modules/00-index.md
@@ -100,11 +95,11 @@ premium, death, quests, and production, also read:
 docs/2026-06-17-progression-economy-systems-design.md
 ```
 
-For stack and architecture context, read:
+For stack and architecture context, read this old mmd:
 
-```text
+````text
 docs/2026-06-16-space-morpg-architecture-notes.md
-```
+``` .
 
 ## Workflow
 
@@ -135,6 +130,7 @@ docs/2026-06-16-space-morpg-architecture-notes.md
 The browser client must not present fake gameplay as real gameplay.
 
 Default client behavior:
+
 - no fake HP/shield/energy
 - no fake cargo
 - no fake wallet
@@ -146,13 +142,14 @@ Default client behavior:
 - no fake market/auction/premium data
 - no fake!
 
-+ EVERYTHING MUST BE REAL - SERVER AUTHORITATIVE - REAL GAME STATE !
+* EVERYTHING MUST BE REAL - SERVER AUTHORITATIVE - REAL GAME STATE !
 
 If the client is offline or unauthenticated, show login, disconnected, empty,
 locked, or loading states. Demo fixtures may exist only behind explicit dev/test
 switches such as `?demo=1` or a test-only harness.
 
 Every visible gameplay value must come from:
+
 - authenticated server snapshot
 - server event
 - server query response
@@ -164,6 +161,7 @@ Every visible gameplay value must come from:
 Mail/password auth is required for the real client run.
 
 Server must own:
+
 - account id
 - player id
 - session id
@@ -187,6 +185,7 @@ The client must not send trusted player identity in command payloads.
 Client requests are intents, not facts.
 
 Never trust the client for:
+
 - player id
 - position
 - speed
@@ -205,6 +204,7 @@ Never trust the client for:
 - visibility/fog state
 
 The server must validate:
+
 - authentication
 - ownership
 - range
@@ -233,9 +233,10 @@ mutate
 write ledger/event
 commit
 broadcast after commit
-```
+````
 
 Protect against:
+
 - duplicate reward claims
 - double craft completion
 - double loot pickup
@@ -251,6 +252,7 @@ Cooldowns are gameplay rules. Rate limits are abuse and infrastructure
 protection. Use both where needed.
 
 Every client operation should have an explicit rate-limit posture, especially:
+
 - `auth.login`
 - `combat.use_skill`
 - `loot.pickup`
@@ -285,6 +287,7 @@ offline_settlement:<planet_id>:<settlement_window>
 ```
 
 Do not rely on "this should only happen once." Enforce it with:
+
 - state machines
 - row locks or ownership locks
 - unique constraints
@@ -299,6 +302,7 @@ mutates state must tolerate duplicate events.
 Gameplay write paths must go through the authoritative owner for that state.
 
 Examples:
+
 - active combat and movement through the zone/world worker
 - wallet and inventory through their transaction services
 - planet production through planet/production settlement ownership
@@ -308,6 +312,7 @@ Redis and other caches are acceleration layers, not truth.
 
 Read replicas may be used for non-critical queries, but critical state changes
 must use authoritative storage or the owning worker:
+
 - combat
 - loot pickup
 - wallet
@@ -330,6 +335,7 @@ duplicate live entity ownership across workers without a handoff protocol.
 Hidden gameplay data must not be sent to the client.
 
 Never leak:
+
 - hidden planets
 - hidden loot
 - hidden NPC/player coordinates
@@ -341,6 +347,7 @@ Never leak:
 Every interaction must re-check visibility server-side.
 
 This includes:
+
 - attack
 - pickup
 - scan
@@ -354,6 +361,7 @@ This includes:
 Use the UI implementation phase files as ownership boundaries.
 
 Examples:
+
 - Auth phase may add account/session infrastructure, but should not also build
   market UI.
 - Gateway phase may wire transport and session resolution, but should not fake
@@ -376,6 +384,34 @@ Symphony code should stay separate from game server domain code. Do not mix
 issue orchestration, OpenAI client logic, or workflow runner concerns into
 gameplay modules.
 
+### Symphony Agent Backends
+
+Symphony can run worker tasks on more than one agent backend:
+
+- `codex` (default): the Codex app-server backend (`codex` config).
+- `crush`: the `crush` CLI backend (`crush` config), which can target external
+  model providers, including:
+  - GLM models on z.ai, e.g. model `zai/glm-5.2` with endpoint
+    `https://api.z.ai/api/coding/paas/v4`.
+  - Sakana models via provider, e.g. `sakana/fugu-ultra` with the
+    matching compatible endpoint. ~/.config/crush/crush.json has it.
+
+Selecting a backend/model:
+
+- Global default: `agent.backend` plus `crush.{command,model,endpoint}` in the
+  Symphony config.
+- Per-task override: `agent_backend`, `agent_model`, `agent_endpoint` on
+  `POST /api/v1/tasks` (also exposed in the `/tasks` dashboard form).
+- The crush backend forwards the endpoint via `CRUSH_BASE_URL` /
+  `OPENAI_BASE_URL`; provider API keys come from the environment and must never
+  be committed or logged. Crush config already has required api key and data, just spawn it, you dont need to give custom urls.
+- You are a sakana instance so you are smart manager, you will spawn glm 5.2 for implementing code, but for planning and creating snippets, doing research and complex jobs, you will use Sakana agents. Just let dirty work to be done by GLM 5.2 z.ai and review his work.
+- Always use Caveman skill for saving tokens.
+
+This is orchestration-only configuration. It does not change any
+server-authoritative gameplay rule, and gameplay domain code must not depend on
+which agent backend or model produced a change. Coding rules applies for everyone.
+
 ## Code Shape
 
 Prefer small, readable files with clear ownership.
@@ -384,12 +420,14 @@ Avoid large files. As a soft rule, when production code grows beyond 300-500
 lines, consider splitting by responsibility.
 
 Use domain-specific names instead of vague names:
+
 - prefer `auth_session.go` over `utils.go`
 - prefer `wallet_ledger.go` over `helpers.go`
 - prefer `loot_pickup_handler.go` over `manager.go`
 - prefer `route_settlement.go` over `common.go`
 
 Avoid duplicate business rules. Good candidates for shared helpers:
+
 - positive amount validation
 - ownership checks
 - idempotency checks
@@ -405,6 +443,7 @@ still changing, but once it becomes a gameplay or economy invariant, centralize
 it.
 
 Keep functions focused:
+
 - validation should be easy to find
 - mutation should be transaction-scoped
 - event publishing should happen after commit
@@ -413,6 +452,7 @@ Keep functions focused:
 ## Documentation Rules
 
 When exposing a backend system through the UI:
+
 - update the matching UI implementation phase file first or in the same change
 - document server ownership
 - document command/query/event contracts
@@ -444,6 +484,7 @@ Do not revert, overwrite, or reformat unrelated files.
 Keep commits minimal and clean.
 
 Good commits have one reason to exist:
+
 - one feature slice
 - one bug fix
 - one refactor
@@ -454,12 +495,14 @@ Avoid mixed commits such as feature + refactor + formatting + docs unless the
 pieces are inseparable.
 
 Before committing:
+
 - inspect `git status --short`
 - inspect the staged diff
 - stage only files related to the task
 - use a clear commit message
 
 Prefer commit prefixes that describe intent:
+
 - `docs:`
 - `test:`
 - `client:`
@@ -469,6 +512,7 @@ Prefer commit prefixes that describe intent:
 - `refactor:`
 
 Do not commit:
+
 - secrets
 - `.env`
 - local logs
