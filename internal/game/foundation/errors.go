@@ -9,16 +9,17 @@ import (
 type Code string
 
 const (
-	CodeUnauthenticated Code = "ERR_UNAUTHENTICATED"
-	CodeForbidden       Code = "ERR_FORBIDDEN"
-	CodeNotFound        Code = "ERR_NOT_FOUND"
-	CodeInvalidPayload  Code = "ERR_INVALID_PAYLOAD"
-	CodeRateLimited     Code = "ERR_RATE_LIMITED"
-	CodeInternal        Code = "ERR_INTERNAL"
-	CodeAuthRequired    Code = "ERR_AUTH_REQUIRED"
-	CodeSessionExpired  Code = "ERR_SESSION_EXPIRED"
-	CodeSessionRevoked  Code = "ERR_SESSION_REVOKED"
-	CodeOriginDenied    Code = "ERR_ORIGIN_DENIED"
+	CodeUnauthenticated       Code = "ERR_UNAUTHENTICATED"
+	CodeForbidden             Code = "ERR_FORBIDDEN"
+	CodeNotFound              Code = "ERR_NOT_FOUND"
+	CodeInvalidPayload        Code = "ERR_INVALID_PAYLOAD"
+	CodeRateLimited           Code = "ERR_RATE_LIMITED"
+	CodeInternal              Code = "ERR_INTERNAL"
+	CodeRequestReplayMismatch Code = "ERR_REQUEST_REPLAY_MISMATCH"
+	CodeAuthRequired          Code = "ERR_AUTH_REQUIRED"
+	CodeSessionExpired        Code = "ERR_SESSION_EXPIRED"
+	CodeSessionRevoked        Code = "ERR_SESSION_REVOKED"
+	CodeOriginDenied          Code = "ERR_ORIGIN_DENIED"
 
 	CodeOutOfRange       Code = "ERR_OUT_OF_RANGE"
 	CodeNotVisible       Code = "ERR_NOT_VISIBLE"

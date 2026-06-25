@@ -29,7 +29,7 @@ PostgreSQL behind repository interfaces, with restart recovery. Reuse the existi
 - [ ] `[P:wave1/lane-A]` Define repository interfaces in `auth`, `economy`, `progression`, `ships`, `modules` (no pgx imports in domain).
 - [x] `[P:wave1/lane-A]` Implement pgx-backed repos in the db adapter package for auth account/player/session, wallet balance, and stackable inventory state.
 - [x] `[P:wave1/lane-A]` Wire runtime to load durable auth, wallet, and stackable inventory state on boot; fail closed in real mode if DB unavailable.
-- [ ] `[P:wave1/lane-A]` Add `config` flag: real mode = DB, dev/test = in-memory fallback (mirror CMS policy).
+- [x] `[P:wave1/lane-A]` Add `config` flag: real mode = DB, dev/test = in-memory fallback (mirror CMS policy).
 - [ ] `[P:wave1/lane-A]` Keep in-memory store as explicit dev/test implementation only.
 
 ## Server Ownership
@@ -41,8 +41,8 @@ PostgreSQL behind repository interfaces, with restart recovery. Reuse the existi
 - [x] `login` persists exactly one active session row.
 - [x] wallet credit persists and reloads with same balance after restart.
 - [x] inventory item persists and reloads with same quantity after restart.
-- [ ] progression XP persists and reloads after restart.
-- [ ] real mode with DB down fails boot (no silent in-memory fallback).
+- [x] progression XP persists and reloads after restart.
+- [x] real mode with DB down fails boot (no silent in-memory fallback).
 
 ## Done Criteria
 - [ ] Account/session/player/wallet/inventory/progression survive restart.

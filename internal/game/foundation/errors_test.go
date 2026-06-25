@@ -20,6 +20,7 @@ func TestErrorCodesStringifyAndSerializePredictably(t *testing.T) {
 		{name: "invalid payload", code: CodeInvalidPayload, want: "ERR_INVALID_PAYLOAD"},
 		{name: "rate limited", code: CodeRateLimited, want: "ERR_RATE_LIMITED"},
 		{name: "internal", code: CodeInternal, want: "ERR_INTERNAL"},
+		{name: "request replay mismatch", code: CodeRequestReplayMismatch, want: "ERR_REQUEST_REPLAY_MISMATCH"},
 		{name: "out of range", code: CodeOutOfRange, want: "ERR_OUT_OF_RANGE"},
 		{name: "not visible", code: CodeNotVisible, want: "ERR_NOT_VISIBLE"},
 		{name: "cooldown", code: CodeCooldown, want: "ERR_COOLDOWN"},

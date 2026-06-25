@@ -1,6 +1,8 @@
 package realtime
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"sync"
 
 	"gameproject/internal/game/foundation"
@@ -38,7 +40,7 @@ func CachedError(response ErrorEnvelope) CachedResponse {
 type RequestCache struct {
 	mu       sync.Mutex
 	capacity int
-	entries  map[requestCacheKey]CachedResponse
+	entries  map[requestCacheKey]requestCacheEntry
 	inFlight map[requestCacheKey]*requestCacheFlight
 	order    []requestCacheKey
 }
@@ -48,11 +50,32 @@ type requestCacheKey struct {
 	requestID foundation.RequestID
 }
 
-type requestCacheFlight struct {
-	done       chan struct{}
-	response   CachedResponse
-	panicValue any
+type requestCacheFingerprint struct {
+	op          Operation
+	payloadHash [sha256.Size]byte
+	version     int
 }
+
+type requestCacheEntry struct {
+	fingerprint requestCacheFingerprint
+	response    CachedResponse
+}
+
+type requestCacheFlight struct {
+	fingerprint requestCacheFingerprint
+	done        chan struct{}
+	response    CachedResponse
+	panicValue  any
+}
+
+type requestCacheResult string
+
+const (
+	requestCacheResultStored    requestCacheResult = "stored"
+	requestCacheResultMiss      requestCacheResult = "miss"
+	requestCacheResultDuplicate requestCacheResult = "duplicate"
+	requestCacheResultMismatch  requestCacheResult = "mismatch"
+)
 
 type requestCacheFlightWaitPhase string
 
@@ -72,30 +95,33 @@ func NewRequestCache(capacity int) *RequestCache {
 	}
 	return &RequestCache{
 		capacity: capacity,
-		entries:  make(map[requestCacheKey]CachedResponse, capacity),
+		entries:  make(map[requestCacheKey]requestCacheEntry, capacity),
 		inFlight: make(map[requestCacheKey]*requestCacheFlight),
 		order:    make([]requestCacheKey, 0, capacity),
 	}
 }
 
-// Lookup returns the cached completed response for sessionID/requestID.
-func (cache *RequestCache) Lookup(sessionID SessionID, requestID foundation.RequestID) (CachedResponse, bool) {
+// Lookup returns the cached completed response for an exact request replay.
+func (cache *RequestCache) Lookup(sessionID SessionID, request RequestEnvelope) (CachedResponse, requestCacheResult) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
-	response, ok := cache.entries[newRequestCacheKey(sessionID, requestID)]
+	entry, ok := cache.entries[newRequestCacheKey(sessionID, request.RequestID)]
 	if !ok {
-		return CachedResponse{}, false
+		return CachedResponse{}, requestCacheResultMiss
 	}
-	return response.clone(), true
+	if entry.fingerprint != newRequestCacheFingerprint(request) {
+		return CachedResponse{}, requestCacheResultMismatch
+	}
+	return entry.response.clone(), requestCacheResultDuplicate
 }
 
-// Remember stores a completed response for sessionID/requestID.
-func (cache *RequestCache) Remember(sessionID SessionID, requestID foundation.RequestID, response CachedResponse) {
+// Remember stores a completed response for an exact request replay.
+func (cache *RequestCache) Remember(sessionID SessionID, request RequestEnvelope, response CachedResponse) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
-	cache.rememberLocked(newRequestCacheKey(sessionID, requestID), response)
+	cache.rememberLocked(newRequestCacheKey(sessionID, request.RequestID), newRequestCacheFingerprint(request), response)
 }
 
 // ForgetSession removes completed transport retry responses for one session.
@@ -116,14 +142,22 @@ func (cache *RequestCache) ForgetSession(sessionID SessionID) {
 }
 
 // GetOrRemember returns a cached duplicate response or stores the built response.
-func (cache *RequestCache) GetOrRemember(sessionID SessionID, requestID foundation.RequestID, build func() CachedResponse) (CachedResponse, bool) {
-	key := newRequestCacheKey(sessionID, requestID)
+func (cache *RequestCache) GetOrRemember(sessionID SessionID, request RequestEnvelope, build func() CachedResponse) (CachedResponse, requestCacheResult) {
+	key := newRequestCacheKey(sessionID, request.RequestID)
+	fingerprint := newRequestCacheFingerprint(request)
 	cache.mu.Lock()
 	if cached, ok := cache.entries[key]; ok {
 		cache.mu.Unlock()
-		return cached.clone(), true
+		if cached.fingerprint != fingerprint {
+			return CachedResponse{}, requestCacheResultMismatch
+		}
+		return cached.response.clone(), requestCacheResultDuplicate
 	}
 	if flight, ok := cache.inFlight[key]; ok {
+		if flight.fingerprint != fingerprint {
+			cache.mu.Unlock()
+			return CachedResponse{}, requestCacheResultMismatch
+		}
 		cache.mu.Unlock()
 		notifyRequestCacheInFlightWait(key, requestCacheFlightWaitBefore)
 		<-flight.done
@@ -131,9 +165,9 @@ func (cache *RequestCache) GetOrRemember(sessionID SessionID, requestID foundati
 		if flight.panicValue != nil {
 			panic(flight.panicValue)
 		}
-		return flight.response.clone(), true
+		return flight.response.clone(), requestCacheResultDuplicate
 	}
-	flight := &requestCacheFlight{done: make(chan struct{})}
+	flight := &requestCacheFlight{fingerprint: fingerprint, done: make(chan struct{})}
 	cache.inFlight[key] = flight
 	cache.mu.Unlock()
 
@@ -154,12 +188,12 @@ func (cache *RequestCache) GetOrRemember(sessionID SessionID, requestID foundati
 	defer cache.mu.Unlock()
 
 	if cacheableResponse(response) {
-		cache.rememberLocked(key, response)
+		cache.rememberLocked(key, fingerprint, response)
 	}
 	flight.response = response.clone()
 	delete(cache.inFlight, key)
 	close(flight.done)
-	return response.clone(), false
+	return response.clone(), requestCacheResultStored
 }
 
 func cacheableResponse(response CachedResponse) bool {
@@ -179,18 +213,29 @@ func (cache *RequestCache) Len() int {
 	return len(cache.entries)
 }
 
-func (cache *RequestCache) rememberLocked(key requestCacheKey, response CachedResponse) {
+func (cache *RequestCache) rememberLocked(key requestCacheKey, fingerprint requestCacheFingerprint, response CachedResponse) {
 	if _, exists := cache.entries[key]; !exists {
 		cache.order = append(cache.order, key)
 	}
 
-	cache.entries[key] = response.clone()
+	cache.entries[key] = requestCacheEntry{
+		fingerprint: fingerprint,
+		response:    response.clone(),
+	}
 
 	for len(cache.order) > cache.capacity {
 		evicted := cache.order[0]
 		copy(cache.order, cache.order[1:])
 		cache.order = cache.order[:len(cache.order)-1]
 		delete(cache.entries, evicted)
+	}
+}
+
+func newRequestCacheFingerprint(request RequestEnvelope) requestCacheFingerprint {
+	return requestCacheFingerprint{
+		op:          request.Op,
+		payloadHash: sha256.Sum256(bytes.TrimSpace(request.Payload)),
+		version:     request.Version,
 	}
 }
 

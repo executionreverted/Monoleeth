@@ -99,6 +99,9 @@ func (service *ProgressionService) GrantXP(input GrantXPInput) (GrantXPResult, e
 		GrantedAt:      now,
 	})
 	service.store.appendStatInvalidationSignalsLocked(input.PlayerID, signals)
+	if err := service.store.persistSnapshotLocked(input.PlayerID); err != nil {
+		return GrantXPResult{}, err
+	}
 
 	snapshot, err := service.store.snapshotLocked(input.PlayerID)
 	if err != nil {
@@ -232,6 +235,9 @@ func (service *ProgressionService) TryRankUp(input TryRankUpInput) (TryRankUpRes
 		CreatedAt: now,
 	}
 	service.store.appendStatInvalidationSignalsLocked(input.PlayerID, []StatInvalidationSignal{signal})
+	if err := service.store.persistSnapshotLocked(input.PlayerID); err != nil {
+		return TryRankUpResult{}, err
+	}
 
 	snapshot, err = service.store.snapshotLocked(input.PlayerID)
 	if err != nil {
@@ -304,6 +310,9 @@ func (service *ProgressionService) UnlockPilotSkill(input UnlockPilotSkillInput)
 		CreatedAt: now,
 	}
 	service.store.appendStatInvalidationSignalsLocked(input.PlayerID, []StatInvalidationSignal{signal})
+	if err := service.store.persistSnapshotLocked(input.PlayerID); err != nil {
+		return UnlockPilotSkillResult{}, err
+	}
 
 	snapshot, err = service.store.snapshotLocked(input.PlayerID)
 	if err != nil {
@@ -363,6 +372,9 @@ func (service *ProgressionService) RespecPilotSkills(input RespecPilotSkillsInpu
 		CreatedAt:             now,
 	}
 	service.store.appendStatInvalidationSignalsLocked(input.PlayerID, []StatInvalidationSignal{signal})
+	if err := service.store.persistSnapshotLocked(input.PlayerID); err != nil {
+		return RespecPilotSkillsResult{}, err
+	}
 
 	snapshot, err := service.store.snapshotLocked(input.PlayerID)
 	if err != nil {
@@ -388,6 +400,9 @@ func (service *ProgressionService) GetProgressionSnapshot(playerID foundation.Pl
 
 	now := service.clock.Now()
 	if err := service.store.ensurePlayerLocked(playerID, now); err != nil {
+		return ProgressionSnapshot{}, err
+	}
+	if err := service.store.persistSnapshotLocked(playerID); err != nil {
 		return ProgressionSnapshot{}, err
 	}
 	return service.store.snapshotLocked(playerID)

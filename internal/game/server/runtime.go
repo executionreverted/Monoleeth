@@ -79,6 +79,7 @@ type RuntimeConfig struct {
 	PlaytestSeed        bool
 	DevMode             bool
 	ContentDB           contentdb.Config
+	CoreStoreMode       contentdb.ContentMode
 	ContentRepository   gamecontent.Repository
 	ContentAdmin        *admin.ContentService
 	E2EPlanetClaimSeed  bool
@@ -178,6 +179,7 @@ type Runtime struct {
 	authStoreCloser                func() error
 	walletStoreCloser              func() error
 	inventoryStoreCloser           func() error
+	progressionStoreCloser         func() error
 
 	combatXP                 *combat.NPCKillXPHandler
 	lootTables               map[string]loot.LootTable
@@ -329,11 +331,16 @@ func (runtime *Runtime) Close() error {
 		runtime.inventoryStoreCloser = nil
 		errs = append(errs, closeInventoryStore())
 	}
+	if runtime.progressionStoreCloser != nil {
+		closeProgressionStore := runtime.progressionStoreCloser
+		runtime.progressionStoreCloser = nil
+		errs = append(errs, closeProgressionStore())
+	}
 	return errors.Join(errs...)
 }
 
 func loadRuntimeAuthStore(ctx context.Context, config RuntimeConfig) (auth.Store, func() error, error) {
-	contentConfig := config.ContentDB.WithDefaults()
+	contentConfig := runtimeCoreStoreDBConfig(config)
 	if err := contentConfig.Validate(); err != nil {
 		return nil, nil, err
 	}
@@ -370,7 +377,7 @@ func loadRuntimeAuthStore(ctx context.Context, config RuntimeConfig) (auth.Store
 }
 
 func loadRuntimeWalletStore(ctx context.Context, config RuntimeConfig) (economy.WalletRepository, func() error, error) {
-	contentConfig := config.ContentDB.WithDefaults()
+	contentConfig := runtimeCoreStoreDBConfig(config)
 	if err := contentConfig.Validate(); err != nil {
 		return nil, nil, err
 	}
@@ -407,7 +414,7 @@ func loadRuntimeWalletStore(ctx context.Context, config RuntimeConfig) (economy.
 }
 
 func loadRuntimeInventoryStore(ctx context.Context, config RuntimeConfig) (economy.InventoryRepository, func() error, error) {
-	contentConfig := config.ContentDB.WithDefaults()
+	contentConfig := runtimeCoreStoreDBConfig(config)
 	if err := contentConfig.Validate(); err != nil {
 		return nil, nil, err
 	}
@@ -441,6 +448,62 @@ func loadRuntimeInventoryStore(ctx context.Context, config RuntimeConfig) (econo
 		return nil, nil, err
 	}
 	return inventoryStore, closeStore, nil
+}
+
+func loadRuntimeProgressionStore(ctx context.Context, config RuntimeConfig) (progression.Repository, func() error, error) {
+	contentConfig := runtimeCoreStoreDBConfig(config)
+	if err := contentConfig.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if !contentConfig.Enabled() {
+		return nil, nil, nil
+	}
+	openStore := config.contentDBOpen
+	if openStore == nil {
+		openStore = defaultRuntimeContentDBOpen
+	}
+	store, err := openStore(ctx, contentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if store == nil {
+		return nil, nil, contentdb.ErrNilDatabase
+	}
+	closeStore := func() error { return store.Close() }
+	if err := store.Migrate(ctx, contentConfig.Migrations); err != nil {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("migrate progression db: %w", err)
+	}
+	contentStore, ok := store.(*contentdb.Store)
+	if !ok {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("progression db store %T: %w", store, contentdb.ErrNilDatabase)
+	}
+	progressionStore, err := contentdb.NewProgressionStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return nil, nil, err
+	}
+	return progressionStore, closeStore, nil
+}
+
+func runtimeCoreStoreDBConfig(config RuntimeConfig) contentdb.Config {
+	contentConfig := config.ContentDB.WithDefaults()
+	mode := config.CoreStoreMode
+	if mode == "" {
+		if contentConfig.Enabled() {
+			mode = contentdb.ContentModeRequired
+		} else if config.DevMode {
+			mode = contentdb.ContentModeDevFallback
+		} else {
+			mode = contentdb.ContentModeOff
+		}
+	}
+	contentConfig.Mode = mode
+	if mode == contentdb.ContentModeOff {
+		contentConfig.DatabaseURL = ""
+	}
+	return contentConfig.WithDefaults()
 }
 
 func loadRuntimeContentAdmin(ctx context.Context, config RuntimeConfig, clock foundation.Clock) (*admin.ContentService, func() error, error) {
@@ -571,6 +634,22 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		}
 		return nil, err
 	}
+	progressionStore, progressionStoreCloser, err := loadRuntimeProgressionStore(context.Background(), config)
+	if err != nil {
+		if inventoryStoreCloser != nil {
+			_ = inventoryStoreCloser()
+		}
+		if walletStoreCloser != nil {
+			_ = walletStoreCloser()
+		}
+		if authStoreCloser != nil {
+			_ = authStoreCloser()
+		}
+		if contentAdminCloser != nil {
+			_ = contentAdminCloser()
+		}
+		return nil, err
+	}
 	mapCatalog := contentBundle.Maps
 	mapRouter, err := worldmaps.NewRouter(mapCatalog)
 	if err != nil {
@@ -618,6 +697,9 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 			if inventoryStoreCloser != nil {
 				_ = inventoryStoreCloser()
 			}
+			if progressionStoreCloser != nil {
+				_ = progressionStoreCloser()
+			}
 			if walletStoreCloser != nil {
 				_ = walletStoreCloser()
 			}
@@ -651,7 +733,26 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	} else {
 		walletService = economy.NewWalletService(clock)
 	}
-	progressionService := progression.NewProgressionService(clock, nil)
+	progressionMemoryStore, err := progression.NewInMemoryProgressionStoreWithRepository(context.Background(), progressionStore)
+	if err != nil {
+		if progressionStoreCloser != nil {
+			_ = progressionStoreCloser()
+		}
+		if inventoryStoreCloser != nil {
+			_ = inventoryStoreCloser()
+		}
+		if walletStoreCloser != nil {
+			_ = walletStoreCloser()
+		}
+		if authStoreCloser != nil {
+			_ = authStoreCloser()
+		}
+		if contentAdminCloser != nil {
+			_ = contentAdminCloser()
+		}
+		return nil, err
+	}
+	progressionService := progression.NewProgressionService(clock, progressionMemoryStore)
 	shipCatalog := contentBundle.Ships
 	hangarStore := ships.NewInMemoryHangarStore()
 	hangarService, err := ships.NewHangarService(
@@ -860,6 +961,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		authStoreCloser:                authStoreCloser,
 		walletStoreCloser:              walletStoreCloser,
 		inventoryStoreCloser:           inventoryStoreCloser,
+		progressionStoreCloser:         progressionStoreCloser,
 		combatXP:                       combatXP,
 		lootTables:                     lootTables,
 		itemCatalog:                    itemCatalog,

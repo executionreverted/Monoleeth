@@ -1,7 +1,7 @@
 # Phase 03 — Realtime Hardening
 
 ## Status
-- State: Not started
+- State: In progress
 - Wave: 1
 - Depends on: none
 - Unlocks: scale for all later phases
@@ -26,7 +26,7 @@ reconnect, and make the request cache key safe against replay mismatch.
 - [ ] `[P:wave1/lane-B]` Add per-session outbound write queue in `transport.go`; tick path enqueues, never blocks.
 - [ ] `[P:wave1/lane-B]` Add bounded buffer policy: slow client gets disconnected, not the whole loop.
 - [ ] `[P:wave1/lane-B]` Add bounded per-session event ring keyed by `seq`; replay missed events on reconnect before latest snapshot.
-- [ ] `[P:wave1/lane-C]` Extend request cache key with op + payload hash + version; mismatch returns `ERR_REQUEST_REPLAY_MISMATCH`.
+- [x] `[P:wave1/lane-C]` Extend request cache key with op + payload hash + version; mismatch returns `ERR_REQUEST_REPLAY_MISMATCH`.
 
 ## Server Ownership
 - Events still publish after commit; writer queue is delivery only.
@@ -35,7 +35,7 @@ reconnect, and make the request cache key safe against replay mismatch.
 - [ ] A blocked/slow socket does not delay another session's tick events.
 - [ ] Overflowing client buffer disconnects only that session.
 - [ ] Reconnect with last `seq` replays missed events in order.
-- [ ] Same request_id + different op returns replay-mismatch error, not stale cached payload.
+- [x] Same request_id + different op returns replay-mismatch error, not stale cached payload.
 
 ## Done Criteria
 - [ ] Tick/event loop never blocks on a single client write.

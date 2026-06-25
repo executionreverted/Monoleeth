@@ -14,7 +14,7 @@ func TestRequestCacheDuplicateRequestIDReturnsCachedResponse(t *testing.T) {
 	cache := NewRequestCache(2)
 	var builds int
 
-	first, duplicate := cache.GetOrRemember(
+	first, duplicate := getOrRememberForTest(cache,
 		SessionID("session-1"),
 		foundation.RequestID("request-1"),
 		func() CachedResponse {
@@ -33,7 +33,7 @@ func TestRequestCacheDuplicateRequestIDReturnsCachedResponse(t *testing.T) {
 		t.Fatalf("builds = %d, want 1", builds)
 	}
 
-	second, duplicate := cache.GetOrRemember(
+	second, duplicate := getOrRememberForTest(cache,
 		SessionID("session-1"),
 		foundation.RequestID("request-1"),
 		func() CachedResponse {
@@ -77,7 +77,7 @@ func TestRequestCacheCoordinatesInFlightDuplicateRequestID(t *testing.T) {
 	var builds int32
 
 	go func() {
-		response, duplicate := cache.GetOrRemember(
+		response, duplicate := getOrRememberForTest(cache,
 			SessionID("session-1"),
 			foundation.RequestID("request-1"),
 			func() CachedResponse {
@@ -99,7 +99,7 @@ func TestRequestCacheCoordinatesInFlightDuplicateRequestID(t *testing.T) {
 
 	<-firstStarted
 	go func() {
-		response, duplicate := cache.GetOrRemember(
+		response, duplicate := getOrRememberForTest(cache,
 			SessionID("session-1"),
 			foundation.RequestID("request-1"),
 			func() CachedResponse {
@@ -142,6 +142,58 @@ func TestRequestCacheCoordinatesInFlightDuplicateRequestID(t *testing.T) {
 	}
 }
 
+func TestRequestCacheRejectsMismatchedInFlightDuplicateRequestID(t *testing.T) {
+	cache := NewRequestCache(2)
+	sessionID := SessionID("session-1")
+	firstRequest := requestCacheRequestWith(foundation.RequestID("request-1"), OperationDebugSnapshot, `{"n":1}`, CurrentVersion)
+	mismatchedRequest := requestCacheRequestWith(foundation.RequestID("request-1"), OperationDebugSnapshot, `{"n":2}`, CurrentVersion)
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	ownerResult := make(chan requestCacheResult, 1)
+	mismatchResult := make(chan requestCacheResult, 1)
+	var builds int32
+
+	go func() {
+		_, result := cache.GetOrRemember(sessionID, firstRequest, func() CachedResponse {
+			atomic.AddInt32(&builds, 1)
+			close(firstStarted)
+			<-releaseFirst
+			return CachedSuccess(NewResponseEnvelope(
+				firstRequest.RequestID,
+				json.RawMessage(`{"status":"accepted"}`),
+				100,
+			))
+		})
+		ownerResult <- result
+	}()
+
+	<-firstStarted
+	go func() {
+		_, result := cache.GetOrRemember(sessionID, mismatchedRequest, func() CachedResponse {
+			panic("mismatched in-flight duplicate built its own response")
+		})
+		mismatchResult <- result
+	}()
+
+	select {
+	case result := <-mismatchResult:
+		if result != requestCacheResultMismatch {
+			t.Fatalf("mismatched in-flight result = %s, want %s", result, requestCacheResultMismatch)
+		}
+	case <-time.After(time.Second):
+		close(releaseFirst)
+		t.Fatal("mismatched in-flight duplicate waited for first response")
+	}
+
+	close(releaseFirst)
+	if result := <-ownerResult; result != requestCacheResultStored {
+		t.Fatalf("owner result = %s, want %s", result, requestCacheResultStored)
+	}
+	if got := atomic.LoadInt32(&builds); got != 1 {
+		t.Fatalf("builds = %d, want 1", got)
+	}
+}
+
 func TestRequestCacheReleasesInFlightWhenBuildPanics(t *testing.T) {
 	cache := NewRequestCache(2)
 	firstStarted := make(chan struct{})
@@ -151,7 +203,7 @@ func TestRequestCacheReleasesInFlightWhenBuildPanics(t *testing.T) {
 
 	go func() {
 		defer func() { result <- recover() }()
-		_, _ = cache.GetOrRemember(
+		_, _ = getOrRememberForTest(cache,
 			SessionID("session-1"),
 			foundation.RequestID("request-1"),
 			func() CachedResponse {
@@ -202,7 +254,7 @@ func TestRequestCacheReleasesInFlightWhenBuildPanics(t *testing.T) {
 		t.Fatalf("builds after panic = %d, want 1", builds)
 	}
 
-	retry, duplicate := cache.GetOrRemember(
+	retry, duplicate := getOrRememberForTest(cache,
 		SessionID("session-1"),
 		foundation.RequestID("request-1"),
 		func() CachedResponse {
@@ -236,7 +288,7 @@ func TestRequestCacheInFlightWaiterReceivesPanic(t *testing.T) {
 
 	go func() {
 		defer func() { ownerResult <- recover() }()
-		_, _ = cache.GetOrRemember(
+		_, _ = getOrRememberForTest(cache,
 			SessionID("session-1"),
 			foundation.RequestID("request-1"),
 			func() CachedResponse {
@@ -251,7 +303,7 @@ func TestRequestCacheInFlightWaiterReceivesPanic(t *testing.T) {
 	<-firstStarted
 	go func() {
 		defer func() { waiterResult <- recover() }()
-		_, _ = cache.GetOrRemember(
+		_, _ = getOrRememberForTest(cache,
 			SessionID("session-1"),
 			foundation.RequestID("request-1"),
 			func() CachedResponse {
@@ -305,7 +357,7 @@ func observeRequestCacheInFlightWait(t *testing.T) (<-chan struct{}, <-chan stru
 
 func TestRequestCacheKeysDuplicatesBySessionAndRequestID(t *testing.T) {
 	cache := NewRequestCache(2)
-	cache.Remember(
+	rememberForTest(cache,
 		SessionID("session-1"),
 		foundation.RequestID("request-1"),
 		CachedSuccess(NewResponseEnvelope(
@@ -315,7 +367,7 @@ func TestRequestCacheKeysDuplicatesBySessionAndRequestID(t *testing.T) {
 		)),
 	)
 
-	response, duplicate := cache.GetOrRemember(
+	response, duplicate := getOrRememberForTest(cache,
 		SessionID("session-2"),
 		foundation.RequestID("request-1"),
 		func() CachedResponse {
@@ -337,17 +389,17 @@ func TestRequestCacheKeysDuplicatesBySessionAndRequestID(t *testing.T) {
 func TestRequestCacheEvictsOldestResponseAtCapacity(t *testing.T) {
 	cache := NewRequestCache(2)
 
-	cache.Remember(SessionID("session-1"), foundation.RequestID("request-1"), cachedPayload("request-1", `{"n":1}`))
-	cache.Remember(SessionID("session-1"), foundation.RequestID("request-2"), cachedPayload("request-2", `{"n":2}`))
-	cache.Remember(SessionID("session-1"), foundation.RequestID("request-3"), cachedPayload("request-3", `{"n":3}`))
+	rememberForTest(cache, SessionID("session-1"), foundation.RequestID("request-1"), cachedPayload("request-1", `{"n":1}`))
+	rememberForTest(cache, SessionID("session-1"), foundation.RequestID("request-2"), cachedPayload("request-2", `{"n":2}`))
+	rememberForTest(cache, SessionID("session-1"), foundation.RequestID("request-3"), cachedPayload("request-3", `{"n":3}`))
 
-	if _, ok := cache.Lookup(SessionID("session-1"), foundation.RequestID("request-1")); ok {
+	if _, ok := lookupForTest(cache, SessionID("session-1"), foundation.RequestID("request-1")); ok {
 		t.Fatal("oldest response was not evicted")
 	}
-	if _, ok := cache.Lookup(SessionID("session-1"), foundation.RequestID("request-2")); !ok {
+	if _, ok := lookupForTest(cache, SessionID("session-1"), foundation.RequestID("request-2")); !ok {
 		t.Fatal("request-2 should remain cached")
 	}
-	if _, ok := cache.Lookup(SessionID("session-1"), foundation.RequestID("request-3")); !ok {
+	if _, ok := lookupForTest(cache, SessionID("session-1"), foundation.RequestID("request-3")); !ok {
 		t.Fatal("request-3 should remain cached")
 	}
 	if got := cache.Len(); got != 2 {
@@ -358,19 +410,19 @@ func TestRequestCacheEvictsOldestResponseAtCapacity(t *testing.T) {
 func TestRequestCacheForgetSessionRemovesOnlyThatSession(t *testing.T) {
 	cache := NewRequestCache(3)
 
-	cache.Remember(SessionID("session-1"), foundation.RequestID("request-1"), cachedPayload("request-1", `{"session":1}`))
-	cache.Remember(SessionID("session-1"), foundation.RequestID("request-2"), cachedPayload("request-2", `{"session":1}`))
-	cache.Remember(SessionID("session-2"), foundation.RequestID("request-1"), cachedPayload("request-1", `{"session":2}`))
+	rememberForTest(cache, SessionID("session-1"), foundation.RequestID("request-1"), cachedPayload("request-1", `{"session":1}`))
+	rememberForTest(cache, SessionID("session-1"), foundation.RequestID("request-2"), cachedPayload("request-2", `{"session":1}`))
+	rememberForTest(cache, SessionID("session-2"), foundation.RequestID("request-1"), cachedPayload("request-1", `{"session":2}`))
 
 	cache.ForgetSession(SessionID("session-1"))
 
-	if _, ok := cache.Lookup(SessionID("session-1"), foundation.RequestID("request-1")); ok {
+	if _, ok := lookupForTest(cache, SessionID("session-1"), foundation.RequestID("request-1")); ok {
 		t.Fatal("session-1 request-1 remained cached")
 	}
-	if _, ok := cache.Lookup(SessionID("session-1"), foundation.RequestID("request-2")); ok {
+	if _, ok := lookupForTest(cache, SessionID("session-1"), foundation.RequestID("request-2")); ok {
 		t.Fatal("session-1 request-2 remained cached")
 	}
-	if _, ok := cache.Lookup(SessionID("session-2"), foundation.RequestID("request-1")); !ok {
+	if _, ok := lookupForTest(cache, SessionID("session-2"), foundation.RequestID("request-1")); !ok {
 		t.Fatal("session-2 request should remain cached")
 	}
 	if got := cache.Len(); got != 1 {
@@ -382,13 +434,13 @@ func TestRequestCacheCanStoreErrorResponses(t *testing.T) {
 	cache := NewRequestCache(1)
 	domainErr := foundation.NewDomainError(foundation.CodeRateLimited, "Request rate limited.")
 
-	cache.Remember(
+	rememberForTest(cache,
 		SessionID("session-1"),
 		foundation.RequestID("request-1"),
 		CachedError(NewErrorEnvelope(foundation.RequestID("request-1"), domainErr, true, 100)),
 	)
 
-	response, ok := cache.Lookup(SessionID("session-1"), foundation.RequestID("request-1"))
+	response, ok := lookupForTest(cache, SessionID("session-1"), foundation.RequestID("request-1"))
 	if !ok {
 		t.Fatal("cached error response not found")
 	}
@@ -405,7 +457,7 @@ func TestRequestCacheDoesNotRememberRetryableErrors(t *testing.T) {
 	var builds int
 	requestID := foundation.RequestID("request-retryable-error")
 
-	first, duplicate := cache.GetOrRemember(SessionID("session-1"), requestID, func() CachedResponse {
+	first, duplicate := getOrRememberForTest(cache, SessionID("session-1"), requestID, func() CachedResponse {
 		builds++
 		return CachedError(NewErrorEnvelope(
 			requestID,
@@ -418,7 +470,7 @@ func TestRequestCacheDoesNotRememberRetryableErrors(t *testing.T) {
 		t.Fatalf("first response duplicate=%v response=%+v, want uncached retryable error", duplicate, first)
 	}
 
-	second, duplicate := cache.GetOrRemember(SessionID("session-1"), requestID, func() CachedResponse {
+	second, duplicate := getOrRememberForTest(cache, SessionID("session-1"), requestID, func() CachedResponse {
 		builds++
 		return CachedSuccess(NewResponseEnvelope(requestID, json.RawMessage(`{"ok":true}`), 101))
 	})
@@ -439,4 +491,33 @@ func cachedPayload(requestID foundation.RequestID, payload string) CachedRespons
 		json.RawMessage(payload),
 		100,
 	))
+}
+
+func getOrRememberForTest(
+	cache *RequestCache,
+	sessionID SessionID,
+	requestID foundation.RequestID,
+	build func() CachedResponse,
+) (CachedResponse, bool) {
+	response, result := cache.GetOrRemember(sessionID, requestCacheRequest(requestID), build)
+	return response, result == requestCacheResultDuplicate
+}
+
+func rememberForTest(cache *RequestCache, sessionID SessionID, requestID foundation.RequestID, response CachedResponse) {
+	cache.Remember(sessionID, requestCacheRequest(requestID), response)
+}
+
+func lookupForTest(cache *RequestCache, sessionID SessionID, requestID foundation.RequestID) (CachedResponse, bool) {
+	response, result := cache.Lookup(sessionID, requestCacheRequest(requestID))
+	return response, result == requestCacheResultDuplicate
+}
+
+func requestCacheRequest(requestID foundation.RequestID) RequestEnvelope {
+	return requestCacheRequestWith(requestID, OperationDebugSnapshot, `{}`, CurrentVersion)
+}
+
+func requestCacheRequestWith(requestID foundation.RequestID, op Operation, payload string, version int) RequestEnvelope {
+	request := NewRequestEnvelope(requestID, op, json.RawMessage(payload), 1)
+	request.Version = version
+	return request
 }

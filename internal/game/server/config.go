@@ -22,6 +22,7 @@ const (
 	EnvClientStaticDir     = "GAME_CLIENT_STATIC_DIR"
 	EnvPlaytestSeed        = "GAME_PLAYTEST_SEED"
 	EnvDevMode             = "GAME_DEV_MODE"
+	EnvCoreStoreMode       = "GAME_CORE_STORE_MODE"
 	EnvE2EPlanetClaimSeed  = "GAME_E2E_PLANET_CLAIM_SEED"
 	EnvE2EPlanetClaimCores = "GAME_E2E_PLANET_CLAIM_X_CORES"
 	EnvE2ERouteSeed        = "GAME_E2E_ROUTE_SEED"
@@ -53,6 +54,7 @@ type Config struct {
 	ZoneID              foundation.ZoneID
 	AdminSeed           auth.AdminSeedInput
 	ContentDB           contentdb.Config
+	CoreStoreMode       contentdb.ContentMode
 	ContentRepository   gamecontent.Repository
 	PasswordHasher      auth.PasswordHasher
 	Clock               foundation.Clock
@@ -92,6 +94,7 @@ func ConfigFromEnv() Config {
 	config.E2ERouteSeed = envBool(EnvE2ERouteSeed, config.E2ERouteSeed)
 	config.E2EScanNoPlanetSeed = envBool(EnvE2EScanNoPlanetSeed, config.E2EScanNoPlanetSeed)
 	config.ContentDB = contentdb.FromEnv()
+	config.CoreStoreMode = contentdb.ContentMode(strings.TrimSpace(os.Getenv(EnvCoreStoreMode)))
 	config.AdminSeed = auth.AdminSeedInput{
 		Enabled:  os.Getenv(auth.EnvAdminEmail) != "" || os.Getenv(auth.EnvAdminPassword) != "",
 		Email:    os.Getenv(auth.EnvAdminEmail),
@@ -138,7 +141,22 @@ func (config Config) withDefaults() Config {
 		config.ZoneID = defaults.ZoneID
 	}
 	config.ContentDB = config.ContentDB.WithDefaults()
+	config.CoreStoreMode = config.coreStoreModeWithDefault()
 	return config
+}
+
+func (config Config) coreStoreModeWithDefault() contentdb.ContentMode {
+	if config.CoreStoreMode != "" {
+		return config.CoreStoreMode
+	}
+	contentConfig := config.ContentDB.WithDefaults()
+	if contentConfig.Enabled() {
+		return contentdb.ContentModeRequired
+	}
+	if config.DevMode {
+		return contentdb.ContentModeDevFallback
+	}
+	return contentdb.ContentModeOff
 }
 
 func splitCSV(value string) []string {

@@ -84,9 +84,12 @@ func (gateway *Gateway) HandleRequest(sessionID SessionID, data []byte) CachedRe
 			foundation.WithCause(err),
 		))
 	}
-	response, _ := gateway.cache.GetOrRemember(sessionID, request.RequestID, func() CachedResponse {
+	response, result := gateway.cache.GetOrRemember(sessionID, request, func() CachedResponse {
 		return gateway.executeResolved(sessionID, request)
 	})
+	if result == requestCacheResultMismatch {
+		return gateway.cachedError(request.RequestID, requestReplayMismatchError())
+	}
 	return response
 }
 
@@ -137,6 +140,10 @@ func domainErrorForGateway(err error) *foundation.DomainError {
 		return domainErr
 	}
 	return foundation.NewDomainError(foundation.CodeInternal, "Request failed.", foundation.WithCause(err))
+}
+
+func requestReplayMismatchError() *foundation.DomainError {
+	return foundation.NewDomainError(foundation.CodeRequestReplayMismatch, "Request replay does not match original request.")
 }
 
 func normalizeResponsePayload(payload json.RawMessage) json.RawMessage {

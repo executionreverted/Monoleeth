@@ -11,7 +11,7 @@ import (
 	worldmaps "gameproject/internal/game/world/maps"
 )
 
-func TestIntelShareDuplicateRequestIDIgnoresChangedPayloadWithoutSecondReceiverMutation(t *testing.T) {
+func TestIntelShareDuplicateRequestIDRejectsChangedPayloadWithoutSecondReceiverMutation(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	sender := createResolvedRuntimeSession(t, gameServer, "intel-share-duplicate-sender@example.com", "Intel Duplicate Sender")
 	receiverOne := createResolvedRuntimeSession(t, gameServer, "intel-share-duplicate-one@example.com", "Intel Duplicate One")
@@ -42,7 +42,7 @@ func TestIntelShareDuplicateRequestIDIgnoresChangedPayloadWithoutSecondReceiverM
 		realtime.SessionID(sender.SessionID.String()),
 		[]byte(`{"request_id":"`+requestID+`","op":"intel.share","payload":{"planet_id":"`+planetTwoID.String()+`","to_player_id":"`+receiverTwo.PlayerID.String()+`"},"client_seq":2,"v":1}`),
 	)
-	assertIntelShareDuplicateResponse(t, duplicate, planetOneID, receiverOne.PlayerID, true, "duplicate intel.share")
+	assertGatewayReplayMismatchForTest(t, duplicate, "duplicate changed-payload intel.share")
 	if _, ok, err := gameServer.runtime.Discovery.PlayerPlanetIntel(receiverTwo.PlayerID, planetTwoID); err != nil || ok {
 		t.Fatalf("receiver two discovery intel after duplicate ok=%v err=%v, want no changed-payload mutation", ok, err)
 	}
@@ -64,7 +64,7 @@ func TestIntelShareDuplicateRequestIDIgnoresChangedPayloadWithoutSecondReceiverM
 	}
 }
 
-func TestCoordinateItemCreateDuplicateRequestIDIgnoresChangedPlanetWithoutSecondScroll(t *testing.T) {
+func TestCoordinateItemCreateDuplicateRequestIDRejectsChangedPlanetWithoutSecondScroll(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "coordinate-create-duplicate@example.com", "Coordinate Create Duplicate")
 	planetOneID := foundation.PlanetID("planet-coordinate-create-duplicate-one")
@@ -94,10 +94,7 @@ func TestCoordinateItemCreateDuplicateRequestIDIgnoresChangedPlanetWithoutSecond
 		realtime.SessionID(owner.SessionID.String()),
 		[]byte(`{"request_id":"`+requestID+`","op":"intel.coordinate_item.create","payload":{"planet_id":"`+planetTwoID.String()+`"},"client_seq":2,"v":1}`),
 	)
-	duplicatePayload := assertCoordinateItemCreateDuplicateResponse(t, duplicate, planetOneID, "duplicate coordinate create")
-	if duplicatePayload.CoordinateItem.ItemInstanceID != firstPayload.CoordinateItem.ItemInstanceID {
-		t.Fatalf("duplicate coordinate item id = %q, want original %q", duplicatePayload.CoordinateItem.ItemInstanceID, firstPayload.CoordinateItem.ItemInstanceID)
-	}
+	assertGatewayReplayMismatchForTest(t, duplicate, "duplicate changed-planet coordinate create")
 	if got := countInventoryInstances(gameServer.runtime.Inventory.InstanceItems(), coordinateScrollItemID.String()); got != 1 {
 		t.Fatalf("coordinate scroll count after duplicate changed-planet create = %d, want 1", got)
 	}

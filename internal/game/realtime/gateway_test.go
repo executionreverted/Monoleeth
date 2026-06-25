@@ -105,6 +105,54 @@ func TestGatewayCachesDuplicateRequestPerSession(t *testing.T) {
 	}
 }
 
+func TestGatewaySameRequestIDDifferentOpReturnsReplayMismatch(t *testing.T) {
+	var calls int
+	gateway := newReplayMismatchGateway(t, &calls)
+
+	first := gateway.HandleRequest("session-1", []byte(`{"request_id":"request-replay-op","op":"debug_snapshot","payload":{},"client_seq":1,"v":1}`))
+	mismatch := gateway.HandleRequest("session-1", []byte(`{"request_id":"request-replay-op","op":"world.snapshot","payload":{},"client_seq":2,"v":1}`))
+
+	if first.HasError {
+		t.Fatalf("first response = %+v, want success", first)
+	}
+	requireReplayMismatch(t, mismatch)
+	if calls != 1 {
+		t.Fatalf("handler calls = %d, want 1", calls)
+	}
+}
+
+func TestGatewaySameRequestIDDifferentPayloadReturnsReplayMismatch(t *testing.T) {
+	var calls int
+	gateway := newReplayMismatchGateway(t, &calls)
+
+	first := gateway.HandleRequest("session-1", []byte(`{"request_id":"request-replay-payload","op":"debug_snapshot","payload":{"page":1},"client_seq":1,"v":1}`))
+	mismatch := gateway.HandleRequest("session-1", []byte(`{"request_id":"request-replay-payload","op":"debug_snapshot","payload":{"page":2},"client_seq":2,"v":1}`))
+
+	if first.HasError {
+		t.Fatalf("first response = %+v, want success", first)
+	}
+	requireReplayMismatch(t, mismatch)
+	if calls != 1 {
+		t.Fatalf("handler calls = %d, want 1", calls)
+	}
+}
+
+func TestGatewaySameRequestIDDifferentVersionReturnsReplayMismatch(t *testing.T) {
+	var calls int
+	gateway := newReplayMismatchGateway(t, &calls)
+
+	first := gateway.HandleRequest("session-1", []byte(`{"request_id":"request-replay-version","op":"debug_snapshot","payload":{},"client_seq":1}`))
+	mismatch := gateway.HandleRequest("session-1", []byte(`{"request_id":"request-replay-version","op":"debug_snapshot","payload":{},"client_seq":2,"v":1}`))
+
+	if first.HasError {
+		t.Fatalf("first response = %+v, want success", first)
+	}
+	requireReplayMismatch(t, mismatch)
+	if calls != 1 {
+		t.Fatalf("handler calls = %d, want 1", calls)
+	}
+}
+
 func TestGatewayRejectsMissingWorldOrZoneBeforeHandler(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -179,6 +227,34 @@ func newTestGateway(t *testing.T, resolver SessionResolver, handlers map[Operati
 		t.Fatalf("NewGateway() error = %v, want nil", err)
 	}
 	return gateway
+}
+
+func newReplayMismatchGateway(t *testing.T, calls *int) *Gateway {
+	t.Helper()
+	resolver := staticSessionResolver{
+		"session-1": {PlayerID: "player-1", WorldID: "world-1", ZoneID: "zone-1"},
+	}
+	handler := func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+		*calls = *calls + 1
+		return json.RawMessage(`{"snapshot":1}`), nil
+	}
+	return newTestGateway(t, resolver, map[Operation]CommandHandler{
+		OperationDebugSnapshot: handler,
+		OperationWorldSnapshot: handler,
+	})
+}
+
+func requireReplayMismatch(t *testing.T, response CachedResponse) {
+	t.Helper()
+	if !response.HasError {
+		t.Fatalf("response = %+v, want replay mismatch error", response)
+	}
+	if response.Error.Error.Code != foundation.CodeRequestReplayMismatch {
+		t.Fatalf("error code = %s, want %s", response.Error.Error.Code, foundation.CodeRequestReplayMismatch)
+	}
+	if response.Error.Error.Retryable {
+		t.Fatal("replay mismatch error was retryable")
+	}
 }
 
 type staticSessionResolver map[SessionID]CommandContext

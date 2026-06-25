@@ -1,12 +1,20 @@
 package progression
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"gameproject/internal/game/foundation"
 )
+
+// Repository is the durable persistence boundary for player progression state.
+// SQL/pgx adapters must live outside this domain package.
+type Repository interface {
+	LoadProgressionSnapshots(ctx context.Context) ([]ProgressionSnapshot, error)
+	SaveProgressionSnapshot(ctx context.Context, snapshot ProgressionSnapshot) error
+}
 
 // InMemoryProgressionStore is a mutex-protected Phase 03 store suitable for
 // service tests and later repository replacement.
@@ -25,6 +33,8 @@ type InMemoryProgressionStore struct {
 	rankHistory        map[foundation.PlayerID][]RankHistoryEntry
 	statInvalidations  map[foundation.PlayerID][]StatInvalidationSignal
 	nextRankHistorySeq int64
+
+	repository Repository
 }
 
 type xpSourceKey struct {
@@ -56,6 +66,30 @@ func NewInMemoryProgressionStore() *InMemoryProgressionStore {
 		rankHistory:       make(map[foundation.PlayerID][]RankHistoryEntry),
 		statInvalidations: make(map[foundation.PlayerID][]StatInvalidationSignal),
 	}
+}
+
+// NewInMemoryProgressionStoreWithRepository loads durable progression rows into
+// the in-process mutation store. The in-memory store remains the explicit
+// dev/test implementation; repository-backed stores are the real-mode path.
+func NewInMemoryProgressionStoreWithRepository(ctx context.Context, repository Repository) (*InMemoryProgressionStore, error) {
+	store := NewInMemoryProgressionStore()
+	store.repository = repository
+	if repository == nil {
+		return store, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	snapshots, err := repository.LoadProgressionSnapshots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, snapshot := range snapshots {
+		if err := store.loadSnapshot(snapshot); err != nil {
+			return nil, err
+		}
+	}
+	return store, nil
 }
 
 // XPGrantRecords returns accepted XP grant records in insertion order.
@@ -191,6 +225,35 @@ func (store *InMemoryProgressionStore) snapshotLocked(playerID foundation.Player
 		store.skillPoints[playerID],
 		unlockedNodes,
 	)
+}
+
+func (store *InMemoryProgressionStore) persistSnapshotLocked(playerID foundation.PlayerID) error {
+	if store.repository == nil {
+		return nil
+	}
+	snapshot, err := store.snapshotLocked(playerID)
+	if err != nil {
+		return err
+	}
+	return store.repository.SaveProgressionSnapshot(context.Background(), snapshot)
+}
+
+func (store *InMemoryProgressionStore) loadSnapshot(snapshot ProgressionSnapshot) error {
+	if err := snapshot.Validate(); err != nil {
+		return err
+	}
+	playerID := snapshot.Player.PlayerID
+	store.players[playerID] = snapshot.Player
+	store.skillPoints[playerID] = snapshot.SkillPoints
+	store.roleLevels[playerID] = make(map[RoleType]RoleLevelState)
+	for _, roleLevel := range snapshot.RoleLevels() {
+		store.roleLevels[playerID][roleLevel.Role] = roleLevel
+	}
+	store.unlockedNodes[playerID] = make(map[SkillNodeID]UnlockedSkillNodeState)
+	for _, node := range snapshot.UnlockedSkillNodes() {
+		store.unlockedNodes[playerID][node.NodeID] = node
+	}
+	return nil
 }
 
 func (store *InMemoryProgressionStore) appendStatInvalidationSignalsLocked(playerID foundation.PlayerID, signals []StatInvalidationSignal) {

@@ -115,7 +115,7 @@ func TestRouteUpdateSettlesElapsedStorageAndQueuesActiveMapSnapshots(t *testing.
 	assertRouteUpdateSettlementEvents(t, eventsBySession[owner.SessionID], routeID, newDestinationPlanetID, "1-1", "1-1", sourcePlanetID, 60)
 }
 
-func TestRouteUpdateDuplicateRequestIDIgnoresChangedPayloadWithoutSecondSettlement(t *testing.T) {
+func TestRouteUpdateDuplicateRequestIDRejectsChangedPayloadWithoutSecondSettlement(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
 	gameServer := newRouteControlTestServer(t, clock)
 	owner := createResolvedRuntimeSession(t, gameServer, "route-update-duplicate-owner@example.com", "Route Update Duplicate")
@@ -149,7 +149,7 @@ func TestRouteUpdateDuplicateRequestIDIgnoresChangedPayloadWithoutSecondSettleme
 		realtime.SessionID(owner.SessionID.String()),
 		[]byte(`{"request_id":"`+requestID+`","op":"route.update","payload":{"route_id":"`+routeID.String()+`","destination_planet_id":"`+spoofedDestinationPlanetID.String()+`","resource_item_id":"refined_alloy","amount_per_hour":90},"client_seq":2,"v":1}`),
 	)
-	assertRouteUpdateResponse(t, duplicate, routeID, sourcePlanetID, firstDestinationPlanetID, "1-1", "1-1", "refined_alloy", 55, true, "duplicate route.update")
+	assertGatewayReplayMismatchForTest(t, duplicate, "duplicate changed-payload route.update")
 	assertStoredRouteStorageQuantity(t, gameServer, sourcePlanetID, "refined_alloy", 60)
 	assertStoredRouteStorageQuantity(t, gameServer, oldDestinationPlanetID, "refined_alloy", 40)
 	assertStoredRouteStorageQuantity(t, gameServer, firstDestinationPlanetID, "refined_alloy", 0)

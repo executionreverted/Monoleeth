@@ -11,7 +11,7 @@ import (
 	worldmaps "gameproject/internal/game/world/maps"
 )
 
-func TestRouteCreateDuplicateRequestIDIgnoresChangedPayloadWithoutSecondRoute(t *testing.T) {
+func TestRouteCreateDuplicateRequestIDRejectsChangedPayloadWithoutSecondRoute(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "route-create-duplicate-owner@example.com", "Route Create Duplicate")
 	sourcePlanetID := foundation.PlanetID("planet-route-create-duplicate-source")
@@ -48,7 +48,7 @@ func TestRouteCreateDuplicateRequestIDIgnoresChangedPayloadWithoutSecondRoute(t 
 		realtime.SessionID(owner.SessionID.String()),
 		[]byte(`{"request_id":"`+requestID.String()+`","op":"route.create","payload":{"source_planet_id":"`+sourcePlanetID.String()+`","destination_planet_id":"`+spoofedDestinationPlanetID.String()+`","resource_item_id":"refined_alloy","amount_per_hour":90},"client_seq":2,"v":1}`),
 	)
-	assertRouteCreateDuplicateResponse(t, duplicate, routeID, sourcePlanetID, firstDestinationPlanetID, "1-1", "1-2", 40, "duplicate route.create")
+	assertGatewayReplayMismatchForTest(t, duplicate, "duplicate changed-payload route.create")
 	assertStoredRouteEnergyReserved(t, gameServer, sourcePlanetID, stored.EnergyCostPerHour)
 	routes := gameServer.runtime.Production.AutomationRoutes()
 	if len(routes) != 1 {

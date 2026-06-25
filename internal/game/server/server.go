@@ -52,6 +52,7 @@ func New(config Config) (*Server, error) {
 		PlaytestSeed:        config.PlaytestSeed,
 		DevMode:             config.DevMode,
 		ContentDB:           config.ContentDB,
+		CoreStoreMode:       config.CoreStoreMode,
 		ContentRepository:   config.ContentRepository,
 		E2EPlanetClaimSeed:  config.E2EPlanetClaimSeed,
 		E2EPlanetClaimCores: config.E2EPlanetClaimCores,

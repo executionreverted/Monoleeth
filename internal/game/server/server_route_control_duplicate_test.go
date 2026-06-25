@@ -11,7 +11,7 @@ import (
 	worldmaps "gameproject/internal/game/world/maps"
 )
 
-func TestRouteDisableDuplicateRequestIDIgnoresChangedRouteWithoutSecondMutation(t *testing.T) {
+func TestRouteDisableDuplicateRequestIDRejectsChangedRouteWithoutSecondMutation(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "route-control-duplicate-owner@example.com", "Route Control Duplicate")
 	sourceOneID := foundation.PlanetID("planet-route-control-duplicate-source-one")
@@ -47,7 +47,7 @@ func TestRouteDisableDuplicateRequestIDIgnoresChangedRouteWithoutSecondMutation(
 		realtime.SessionID(owner.SessionID.String()),
 		[]byte(`{"request_id":"`+requestID+`","op":"route.disable","payload":{"route_id":"`+routeTwoID.String()+`"},"client_seq":2,"v":1}`),
 	)
-	assertRouteControlDuplicateResponse(t, duplicate, routeOneID, "1-1", "1-2", false, "duplicate route.disable")
+	assertGatewayReplayMismatchForTest(t, duplicate, "duplicate changed-route route.disable")
 	assertStoredRouteEnabled(t, gameServer, routeOneID, false)
 	assertStoredRouteEnergyReserved(t, gameServer, sourceOneID, 0)
 	assertStoredRouteEnabled(t, gameServer, routeTwoID, true)
@@ -65,7 +65,7 @@ func TestRouteDisableDuplicateRequestIDIgnoresChangedRouteWithoutSecondMutation(
 	}
 }
 
-func TestRouteEnableDuplicateRequestIDIgnoresChangedRouteWithoutSecondMutation(t *testing.T) {
+func TestRouteEnableDuplicateRequestIDRejectsChangedRouteWithoutSecondMutation(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	owner := createResolvedRuntimeSession(t, gameServer, "route-enable-duplicate-owner@example.com", "Route Enable Duplicate")
 	sourceOneID := foundation.PlanetID("planet-route-enable-duplicate-source-one")
@@ -104,7 +104,7 @@ func TestRouteEnableDuplicateRequestIDIgnoresChangedRouteWithoutSecondMutation(t
 		realtime.SessionID(owner.SessionID.String()),
 		[]byte(`{"request_id":"`+requestID+`","op":"route.enable","payload":{"route_id":"`+routeTwoID.String()+`"},"client_seq":2,"v":1}`),
 	)
-	assertRouteControlDuplicateResponse(t, duplicate, routeOneID, "1-1", "1-2", true, "duplicate route.enable")
+	assertGatewayReplayMismatchForTest(t, duplicate, "duplicate changed-route route.enable")
 	assertStoredRouteEnabled(t, gameServer, routeOneID, true)
 	assertStoredRouteEnergyReserved(t, gameServer, sourceOneID, routeOneBefore.EnergyCostPerHour)
 	assertStoredRouteEnabled(t, gameServer, routeTwoID, false)

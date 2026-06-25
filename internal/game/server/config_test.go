@@ -4,8 +4,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"gameproject/internal/game/auth"
 	"gameproject/internal/game/contentdb"
+	"gameproject/internal/game/foundation"
 )
 
 func TestConfigFromEnvE2EPlanetClaimSeedDefaultsOff(t *testing.T) {
@@ -116,6 +119,16 @@ func TestConfigFromEnvContentDB(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvCoreStoreMode(t *testing.T) {
+	t.Setenv(EnvCoreStoreMode, string(contentdb.ContentModeRequired))
+
+	config := ConfigFromEnv()
+
+	if config.CoreStoreMode != contentdb.ContentModeRequired {
+		t.Fatalf("CoreStoreMode = %q, want required", config.CoreStoreMode)
+	}
+}
+
 func TestNewRejectsRequiredContentDBWithoutURL(t *testing.T) {
 	_, err := New(Config{
 		AllowedOrigins: []string{testOrigin},
@@ -124,6 +137,36 @@ func TestNewRejectsRequiredContentDBWithoutURL(t *testing.T) {
 	if !errors.Is(err, contentdb.ErrMissingDatabaseURL) {
 		t.Fatalf("New() error = %v, want ErrMissingDatabaseURL", err)
 	}
+}
+
+func TestNewRuntimeRejectsRequiredCoreStoreWithoutURL(t *testing.T) {
+	_, err := NewRuntime(RuntimeConfig{
+		SessionTTL:        time.Hour,
+		WorldID:           foundation.WorldID("world-1"),
+		ContentRepository: &fakeRuntimeRepository{bundle: runtimeTestBundleWithLaserDamage(t, 35)},
+		ContentDB:         contentdb.Config{Mode: contentdb.ContentModeOff},
+		CoreStoreMode:     contentdb.ContentModeRequired,
+		Passwords:         auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if !errors.Is(err, contentdb.ErrMissingDatabaseURL) {
+		t.Fatalf("NewRuntime() error = %v, want ErrMissingDatabaseURL", err)
+	}
+}
+
+func TestNewRuntimeCoreStoreDevFallbackWithoutURLUsesMemory(t *testing.T) {
+	runtime, err := NewRuntime(RuntimeConfig{
+		SessionTTL:        time.Hour,
+		WorldID:           foundation.WorldID("world-1"),
+		ContentRepository: &fakeRuntimeRepository{bundle: runtimeTestBundleWithLaserDamage(t, 35)},
+		ContentDB:         contentdb.Config{Mode: contentdb.ContentModeOff},
+		CoreStoreMode:     contentdb.ContentModeDevFallback,
+		DevMode:           true,
+		Passwords:         auth.PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v, want nil", err)
+	}
+	defer runtime.Close()
 }
 
 func TestNewRejectsStaticContentFallbackOutsideDevMode(t *testing.T) {
