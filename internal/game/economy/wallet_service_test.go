@@ -1,6 +1,7 @@
 package economy
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -566,6 +567,70 @@ func TestWalletSnapshotHelpersReturnCopies(t *testing.T) {
 }
 
 var testWalletNow = time.Date(2026, 6, 17, 16, 0, 0, 0, time.UTC)
+
+func TestNewWalletServiceWithRepositoryLoadsPersistedBalances(t *testing.T) {
+	repository := &fakeWalletRepository{
+		balances: []WalletBalance{
+			{PlayerID: "player-1", Currency: CurrencyBucketCredits, Balance: 500, UpdatedAt: testWalletNow},
+		},
+	}
+
+	service, err := NewWalletServiceWithRepository(testutil.NewFakeClock(testWalletNow), repository)
+	if err != nil {
+		t.Fatalf("NewWalletServiceWithRepository() error = %v, want nil", err)
+	}
+
+	if got := service.Balance("player-1", CurrencyBucketCredits); got != 500 {
+		t.Fatalf("Balance() = %d, want loaded 500", got)
+	}
+}
+
+func TestCreditWalletPersistsBalanceThroughRepository(t *testing.T) {
+	repository := &fakeWalletRepository{}
+	service, err := NewWalletServiceWithRepository(testutil.NewFakeClock(testWalletNow), repository)
+	if err != nil {
+		t.Fatalf("NewWalletServiceWithRepository() error = %v, want nil", err)
+	}
+
+	if _, err := service.CreditWallet(validCreditWalletInput(t, "quest_reward:wallet-persist-1")); err != nil {
+		t.Fatalf("CreditWallet() error = %v, want nil", err)
+	}
+
+	saved, ok := repository.saved(foundation.PlayerID("player-1"), CurrencyBucketCredits)
+	if !ok || saved.Balance != 250 {
+		t.Fatalf("persisted balance = %+v ok=%v, want balance 250", saved, ok)
+	}
+}
+
+type fakeWalletRepository struct {
+	balances []WalletBalance
+	upserts  []WalletBalance
+}
+
+func (repository *fakeWalletRepository) LoadWalletBalances(context.Context) ([]WalletBalance, error) {
+	return append([]WalletBalance(nil), repository.balances...), nil
+}
+
+func (repository *fakeWalletRepository) UpsertWalletBalance(_ context.Context, balance WalletBalance) error {
+	repository.upserts = append(repository.upserts, balance)
+	for index := range repository.balances {
+		if repository.balances[index].PlayerID == balance.PlayerID && repository.balances[index].Currency == balance.Currency {
+			repository.balances[index] = balance
+			return nil
+		}
+	}
+	repository.balances = append(repository.balances, balance)
+	return nil
+}
+
+func (repository *fakeWalletRepository) saved(playerID foundation.PlayerID, currency CurrencyBucket) (WalletBalance, bool) {
+	for index := len(repository.upserts) - 1; index >= 0; index-- {
+		if repository.upserts[index].PlayerID == playerID && repository.upserts[index].Currency == currency {
+			return repository.upserts[index], true
+		}
+	}
+	return WalletBalance{}, false
+}
 
 func newTestWalletService() *WalletService {
 	return NewWalletService(testutil.NewFakeClock(testWalletNow))

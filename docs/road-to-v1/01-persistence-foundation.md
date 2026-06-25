@@ -27,8 +27,8 @@ PostgreSQL behind repository interfaces, with restart recovery. Reuse the existi
 ## Tasks
 - [x] `[P:wave1/lane-A]` Add `internal/game/persistence` (or reuse `contentdb` pattern) migration set for player-state tables.
 - [ ] `[P:wave1/lane-A]` Define repository interfaces in `auth`, `economy`, `progression`, `ships`, `modules` (no pgx imports in domain).
-- [x] `[P:wave1/lane-A]` Implement pgx-backed repos in the db adapter package for auth account/player/session state.
-- [x] `[P:wave1/lane-A]` Wire runtime to load durable auth state on boot; fail closed in real mode if DB unavailable.
+- [x] `[P:wave1/lane-A]` Implement pgx-backed repos in the db adapter package for auth account/player/session and wallet balance state.
+- [x] `[P:wave1/lane-A]` Wire runtime to load durable auth and wallet state on boot; fail closed in real mode if DB unavailable.
 - [ ] `[P:wave1/lane-A]` Add `config` flag: real mode = DB, dev/test = in-memory fallback (mirror CMS policy).
 - [ ] `[P:wave1/lane-A]` Keep in-memory store as explicit dev/test implementation only.
 
@@ -39,7 +39,7 @@ PostgreSQL behind repository interfaces, with restart recovery. Reuse the existi
 ## Smoke Tests (one assertion each)
 - [x] `register` persists exactly one account row.
 - [x] `login` persists exactly one active session row.
-- [ ] wallet credit persists and reloads with same balance after restart.
+- [x] wallet credit persists and reloads with same balance after restart.
 - [ ] inventory item persists and reloads with same quantity after restart.
 - [ ] progression XP persists and reloads after restart.
 - [ ] real mode with DB down fails boot (no silent in-memory fallback).

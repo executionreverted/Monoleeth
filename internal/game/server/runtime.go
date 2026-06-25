@@ -176,6 +176,7 @@ type Runtime struct {
 	Metrics                        *observability.MetricRecorder
 	contentAdminCloser             func() error
 	authStoreCloser                func() error
+	walletStoreCloser              func() error
 
 	combatXP                 *combat.NPCKillXPHandler
 	lootTables               map[string]loot.LootTable
@@ -317,6 +318,11 @@ func (runtime *Runtime) Close() error {
 		runtime.authStoreCloser = nil
 		errs = append(errs, closeAuthStore())
 	}
+	if runtime.walletStoreCloser != nil {
+		closeWalletStore := runtime.walletStoreCloser
+		runtime.walletStoreCloser = nil
+		errs = append(errs, closeWalletStore())
+	}
 	return errors.Join(errs...)
 }
 
@@ -355,6 +361,43 @@ func loadRuntimeAuthStore(ctx context.Context, config RuntimeConfig) (auth.Store
 		return nil, nil, err
 	}
 	return authStore, closeStore, nil
+}
+
+func loadRuntimeWalletStore(ctx context.Context, config RuntimeConfig) (economy.WalletRepository, func() error, error) {
+	contentConfig := config.ContentDB.WithDefaults()
+	if err := contentConfig.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if !contentConfig.Enabled() {
+		return nil, nil, nil
+	}
+	openStore := config.contentDBOpen
+	if openStore == nil {
+		openStore = defaultRuntimeContentDBOpen
+	}
+	store, err := openStore(ctx, contentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if store == nil {
+		return nil, nil, contentdb.ErrNilDatabase
+	}
+	closeStore := func() error { return store.Close() }
+	if err := store.Migrate(ctx, contentConfig.Migrations); err != nil {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("migrate wallet db: %w", err)
+	}
+	contentStore, ok := store.(*contentdb.Store)
+	if !ok {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("wallet db store %T: %w", store, contentdb.ErrNilDatabase)
+	}
+	walletStore, err := contentdb.NewWalletStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return nil, nil, err
+	}
+	return walletStore, closeStore, nil
 }
 
 func loadRuntimeContentAdmin(ctx context.Context, config RuntimeConfig, clock foundation.Clock) (*admin.ContentService, func() error, error) {
@@ -462,6 +505,16 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 			return nil, err
 		}
 	}
+	walletStore, walletStoreCloser, err := loadRuntimeWalletStore(context.Background(), config)
+	if err != nil {
+		if authStoreCloser != nil {
+			_ = authStoreCloser()
+		}
+		if contentAdminCloser != nil {
+			_ = contentAdminCloser()
+		}
+		return nil, err
+	}
 	mapCatalog := contentBundle.Maps
 	mapRouter, err := worldmaps.NewRouter(mapCatalog)
 	if err != nil {
@@ -504,7 +557,24 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	}
 	inventory := economy.NewInventoryService(clock)
 	cargoService := economy.NewCargoService(inventory)
-	walletService := economy.NewWalletService(clock)
+	var walletService *economy.WalletService
+	if walletStore != nil {
+		walletService, err = economy.NewWalletServiceWithRepository(clock, walletStore)
+		if err != nil {
+			if walletStoreCloser != nil {
+				_ = walletStoreCloser()
+			}
+			if authStoreCloser != nil {
+				_ = authStoreCloser()
+			}
+			if contentAdminCloser != nil {
+				_ = contentAdminCloser()
+			}
+			return nil, err
+		}
+	} else {
+		walletService = economy.NewWalletService(clock)
+	}
 	progressionService := progression.NewProgressionService(clock, nil)
 	shipCatalog := contentBundle.Ships
 	hangarStore := ships.NewInMemoryHangarStore()
@@ -712,6 +782,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Metrics:                        metricRecorder,
 		contentAdminCloser:             contentAdminCloser,
 		authStoreCloser:                authStoreCloser,
+		walletStoreCloser:              walletStoreCloser,
 		combatXP:                       combatXP,
 		lootTables:                     lootTables,
 		itemCatalog:                    itemCatalog,
