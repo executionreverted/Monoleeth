@@ -219,6 +219,51 @@ func TestPortalEnterTransfersPlayerAndAllActiveSessions(t *testing.T) {
 	}
 }
 
+func TestPortalEnterStructuredLogIncludesTransferIdempotencyNoSecrets(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "portal-transfer-log@example.com", "Portal Transfer Log")
+	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 9800, Y: 5000})
+
+	requestID := foundation.RequestID("request-portal-transfer-structured-log")
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-portal-transfer-structured-log","op":"portal.enter","payload":{"portal_id":"east_gate"},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("portal transfer response error = %+v, want success", response.Error)
+	}
+	expectedReference, err := foundation.PortalTransferIdempotencyKey(resolved.PlayerID, "east_gate", requestID)
+	if err != nil {
+		t.Fatalf("PortalTransferIdempotencyKey() error = %v", err)
+	}
+	entry := requireCommandLogEntryForTest(t, gameServer, requestID, observability.Operation(realtime.OperationPortalEnter))
+	if entry.PlayerID != resolved.PlayerID ||
+		entry.SessionID != observability.SessionID(resolved.SessionID) ||
+		entry.Status != observability.CommandStatusOK ||
+		!entry.ErrorCode.IsZero() ||
+		entry.ReferenceID != expectedReference ||
+		entry.Duration < 0 {
+		t.Fatalf("portal command log entry = %+v, want player/session/ok/ref/duration", entry)
+	}
+	assertStructuredCommandLogFieldsForTest(t, "portal transfer", entry, map[string]string{
+		"player_id":       resolved.PlayerID.String(),
+		"session_id":      resolved.SessionID.String(),
+		"request_id":      requestID.String(),
+		"op":              string(realtime.OperationPortalEnter),
+		"result":          observability.CommandStatusOK.String(),
+		"error_code":      "",
+		"idempotency_key": expectedReference.String(),
+	}, expectedReference, []string{
+		"transfer_token",
+		"destination_worker",
+		"origin_worker",
+		"internal_map_id",
+		"map_1_2",
+		"spawn",
+		"worker",
+	})
+}
+
 func TestPortalEnterTransfersToSeededPVPMap(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSessionOnMap(t, gameServer, "portal-pvp-map@example.com", "Portal PvP", "map_1_2", "west_gate")

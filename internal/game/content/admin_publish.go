@@ -27,11 +27,12 @@ type RollbackInput struct {
 }
 
 type PublishDraftResult struct {
-	Published  bool
-	Version    VersionSummary
-	Validation DraftValidationReport
-	RowCount   int
-	Idempotent bool
+	Published      bool
+	Version        VersionSummary
+	Validation     DraftValidationReport
+	RowCount       int
+	Idempotent     bool
+	IdempotencyKey string
 }
 
 type SnapshotVersionRecord struct {

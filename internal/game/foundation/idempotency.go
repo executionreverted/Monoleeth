@@ -62,6 +62,9 @@ const (
 	idempotencyModuleEquip           = "module_equip"
 	idempotencyModuleUnequip         = "module_unequip"
 	idempotencyAdminCompensation     = "admin_compensation"
+	idempotencyPortalTransfer        = "portal_transfer"
+	idempotencyContentPublish        = "content_publish"
+	idempotencyContentRollback       = "content_rollback"
 )
 
 // ParseIdempotencyKey validates value and returns an IdempotencyKey.
@@ -313,6 +316,21 @@ func AdminCompensationIdempotencyKey(subjectID string, repairReference string) (
 	return buildIdempotencyKey(idempotencyAdminCompensation, subjectID, repairReference)
 }
 
+// PortalTransferIdempotencyKey returns portal_transfer:<player_id>:<portal_id>:<request_id>.
+func PortalTransferIdempotencyKey(playerID PlayerID, portalID string, requestID RequestID) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyPortalTransfer, playerID.String(), portalID, requestID.String())
+}
+
+// ContentPublishIdempotencyKey returns content_publish:<publish_reference>.
+func ContentPublishIdempotencyKey(publishReference string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyContentPublish, publishReference)
+}
+
+// ContentRollbackIdempotencyKey returns content_rollback:<target_version_id>:<rollback_reference>.
+func ContentRollbackIdempotencyKey(targetVersionID string, rollbackReference string) (IdempotencyKey, error) {
+	return buildIdempotencyKey(idempotencyContentRollback, targetVersionID, rollbackReference)
+}
+
 // ShopPurchaseIdempotencyKey returns shop_purchase:<player_id>:<request_id>.
 func ShopPurchaseIdempotencyKey(playerID PlayerID, requestID RequestID) (IdempotencyKey, error) {
 	return buildIdempotencyKey(idempotencyShopPurchase, playerID.String(), requestID.String())
@@ -419,7 +437,8 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyPremiumWebhook,
 		idempotencyMarketListing,
 		idempotencyMarketCancel,
-		idempotencyMarketExpire:
+		idempotencyMarketExpire,
+		idempotencyContentPublish:
 		return 1, true
 	case idempotencyOfflineSettlement:
 		return 2, true
@@ -446,13 +465,15 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyRouteUpdate,
 		idempotencyRouteEnable,
 		idempotencyRouteDisable,
-		idempotencyPlanetBuildingUpgrade:
+		idempotencyPlanetBuildingUpgrade,
+		idempotencyPortalTransfer:
 		return 3, true
 	case idempotencyIntelShare:
 		return 4, true
 	case idempotencyShipRepair,
 		idempotencyAdminCompensation,
-		idempotencyShopPurchase:
+		idempotencyShopPurchase,
+		idempotencyContentRollback:
 		return 2, true
 	case idempotencyDeathCargoDrop:
 		return 2, true

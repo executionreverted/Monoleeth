@@ -69,16 +69,18 @@ type adminContentDraftValidationIssuePayload struct {
 }
 
 type adminContentPublishPayload struct {
-	Published  bool                               `json:"published"`
-	Idempotent bool                               `json:"idempotent"`
-	RowCount   int                                `json:"row_count"`
-	Version    adminContentVersionPayload         `json:"version"`
-	Validation adminContentDraftValidationPayload `json:"validation"`
+	Published      bool                               `json:"published"`
+	Idempotent     bool                               `json:"idempotent"`
+	IdempotencyKey string                             `json:"idempotency_key,omitempty"`
+	RowCount       int                                `json:"row_count"`
+	Version        adminContentVersionPayload         `json:"version"`
+	Validation     adminContentDraftValidationPayload `json:"validation"`
 }
 
 type adminContentRollbackPayload struct {
 	RolledBack      bool                               `json:"rolled_back"`
 	Idempotent      bool                               `json:"idempotent"`
+	IdempotencyKey  string                             `json:"idempotency_key,omitempty"`
 	TargetVersionID string                             `json:"target_version_id"`
 	Version         adminContentVersionPayload         `json:"version"`
 	Validation      adminContentDraftValidationPayload `json:"validation"`
@@ -274,13 +276,17 @@ func (runtime *Runtime) handleAdminContentRollback(ctx realtime.CommandContext, 
 	if runtime.ContentAdmin == nil {
 		return nil, foundation.NewDomainError(foundation.CodeInternal, "Content admin service unavailable.")
 	}
+	idempotencyKey, err := foundation.ContentRollbackIdempotencyKey(strings.TrimSpace(payload.TargetVersionID), request.RequestID.String())
+	if err != nil {
+		return nil, invalidPayload("Content rollback target is invalid.", err)
+	}
 	result, err := runtime.ContentAdmin.Rollback(context.Background(), content.RollbackInput{
 		TargetVersionID: payload.TargetVersionID,
 		Version:         payload.Version,
 		Notes:           payload.Notes,
 		BalanceTag:      payload.BalanceTag,
 		ActorAccountID:  string(resolved.AccountID),
-		IdempotencyKey:  fmt.Sprintf("content_rollback:%s:%s", strings.TrimSpace(payload.TargetVersionID), request.RequestID),
+		IdempotencyKey:  idempotencyKey.String(),
 	})
 	if err != nil {
 		return nil, domainErrorForContentAdmin(err, "Content rollback failed.")
@@ -382,11 +388,12 @@ func adminContentDraftValidationPayloadFromReport(report content.DraftValidation
 
 func adminContentPublishPayloadFromResult(result content.PublishDraftResult) adminContentPublishPayload {
 	return adminContentPublishPayload{
-		Published:  result.Published,
-		Idempotent: result.Idempotent,
-		RowCount:   result.RowCount,
-		Version:    adminContentVersionPayloadFromSummary(result.Version),
-		Validation: adminContentDraftValidationPayloadFromReport(result.Validation),
+		Published:      result.Published,
+		Idempotent:     result.Idempotent,
+		IdempotencyKey: result.IdempotencyKey,
+		RowCount:       result.RowCount,
+		Version:        adminContentVersionPayloadFromSummary(result.Version),
+		Validation:     adminContentDraftValidationPayloadFromReport(result.Validation),
 	}
 }
 
@@ -394,6 +401,7 @@ func adminContentRollbackPayloadFromResult(targetVersionID string, result conten
 	return adminContentRollbackPayload{
 		RolledBack:      result.Published,
 		Idempotent:      result.Idempotent,
+		IdempotencyKey:  result.IdempotencyKey,
 		TargetVersionID: targetVersionID,
 		Version:         adminContentVersionPayloadFromSummary(result.Version),
 		Validation:      adminContentDraftValidationPayloadFromReport(result.Validation),

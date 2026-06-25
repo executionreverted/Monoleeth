@@ -334,6 +334,9 @@ func TestConcurrentAttachDetachSerializesSessionMapsAndWorkerAttachment(t *testi
 	start := make(chan struct{})
 	errCh := make(chan attachError, len(workloads))
 	var wg sync.WaitGroup
+	// P05 mutex contract: gateway-level attach/detach races must serialize
+	// runtime session maps, per-map session cursors, and worker session
+	// attachments into one coherent final state.
 	for _, resolved := range workloads {
 		resolved := resolved
 		wg.Add(1)
@@ -366,6 +369,9 @@ func TestConcurrentAttachDetachSerializesSessionMapsAndWorkerAttachment(t *testi
 	}
 	if len(gameServer.runtime.sessionLocations) != 3 {
 		t.Fatalf("runtime session locations = %+v, want exactly three attached sessions", gameServer.runtime.sessionLocations)
+	}
+	if len(gameServer.runtime.sessionEpochs) != 3 {
+		t.Fatalf("runtime session epochs = %+v, want exactly three attached sessions", gameServer.runtime.sessionEpochs)
 	}
 	assertRuntimeSessionAttachedToMapLocked(t, gameServer.runtime, worldmaps.StarterMapID, starter)
 	assertRuntimeSessionAttachedToMapLocked(t, gameServer.runtime, worldmaps.StarterMapID, secondStarterSession)

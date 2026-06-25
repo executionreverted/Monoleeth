@@ -19,6 +19,19 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 - Runtime lock narrowed to session map + global routing metadata.
 - Race tests proving no data race without relying on the global lock.
 
+## Runtime Mutex Contract
+- `Runtime.mu` is the runtime-coordinator lock, not the per-map command/tick
+  gate. Map workers own per-map live entity mutation.
+- `Runtime.mu` protects runtime-owned cross-worker metadata: session/player and
+  session/map routing, session map epochs, replay/queued-event maps, player
+  runtime bookkeeping, per-instance `ActiveSessions`/`LastAOI` cursors, and
+  transitional command guards/cooldowns still held on `Runtime`.
+- `TestConcurrentAttachDetachSerializesSessionMapsAndWorkerAttachment` proves
+  concurrent session attach/detach serializes `sessions`, `sessionLocations`,
+  `sessionEpochs`, per-map session cursors, and worker session attachment.
+- Broader P05 narrowing remains open while non-session transient guards still
+  live on `Runtime`.
+
 ## Out Of Scope
 - Multi-process workers / cross-host handoff (post-v1).
 
@@ -36,7 +49,8 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 - [x] Concurrent move + tick on one map passes `-race`.
 - [x] Map B worker tick collection reaches the worker while `Runtime.mu` is held by unrelated runtime activity (`TestRuntimeTickCollectionReachesOtherMapWhileRuntimeMutexHeld`).
 - [x] AOI read projection never observes a torn entity state.
-- [x] Narrowed lock still serializes session attach/detach safely.
+- [x] Narrowed lock still serializes session attach/detach safely
+  (`TestConcurrentAttachDetachSerializesSessionMapsAndWorkerAttachment`).
 
 ## Done Criteria
 - [ ] Map A activity no longer serializes behind map B.

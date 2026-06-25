@@ -11,6 +11,8 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/content"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
+	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/testutil"
 )
 
@@ -339,9 +341,11 @@ func TestAdminContentPublishRollbackAndAuditUseServerActor(t *testing.T) {
 		t.Fatalf("seed admin: %v", err)
 	}
 
-	adminConn := dialWebSocket(t, httpServer, loginPilot(t, httpServer, "cms-publisher@example.com", "admin-password"))
+	adminCookie := loginPilot(t, httpServer, "cms-publisher@example.com", "admin-password")
+	adminConn := dialWebSocket(t, httpServer, adminCookie)
 	defer adminConn.CloseNow()
 	readBootstrapEvents(t, adminConn)
+	adminResolved := resolvedSessionForCookie(t, gameServer, adminCookie)
 
 	writeText(t, adminConn, `{"request_id":"request-content-publish-spoof","op":"admin.content.publish","payload":{"version":"content_balance_v2","published_by":"spoof"},"client_seq":1,"v":1}`)
 	spoof := readError(t, adminConn)
@@ -373,6 +377,32 @@ func TestAdminContentPublishRollbackAndAuditUseServerActor(t *testing.T) {
 		contentStore.publishedInput.BalanceTag != "starter_balance" {
 		t.Fatalf("publish input = called %v input %+v, want server actor", contentStore.publishCalled, contentStore.publishedInput)
 	}
+	if publishPayload.ContentPublish.IdempotencyKey == "" ||
+		publishPayload.ContentPublish.IdempotencyKey != contentStore.publishedInput.IdempotencyKey {
+		t.Fatalf("publish idempotency payload=%q input=%q, want service key surfaced", publishPayload.ContentPublish.IdempotencyKey, contentStore.publishedInput.IdempotencyKey)
+	}
+	publishReference, err := foundation.ParseIdempotencyKey(publishPayload.ContentPublish.IdempotencyKey)
+	if err != nil {
+		t.Fatalf("ParseIdempotencyKey(publish) error = %v", err)
+	}
+	publishLog := requireCommandLogEntryForTest(t, gameServer, "request-content-publish-admin", observability.Operation(realtime.OperationAdminContentPublish))
+	if publishLog.PlayerID != adminResolved.PlayerID ||
+		publishLog.SessionID != observability.SessionID(adminResolved.SessionID) ||
+		publishLog.Status != observability.CommandStatusOK ||
+		!publishLog.ErrorCode.IsZero() ||
+		publishLog.ReferenceID != publishReference ||
+		publishLog.Duration < 0 {
+		t.Fatalf("publish command log entry = %+v, want admin player/session/ok/ref/duration", publishLog)
+	}
+	assertStructuredCommandLogFieldsForTest(t, "admin content publish", publishLog, map[string]string{
+		"player_id":       adminResolved.PlayerID.String(),
+		"session_id":      adminResolved.SessionID.String(),
+		"request_id":      "request-content-publish-admin",
+		"op":              string(realtime.OperationAdminContentPublish),
+		"result":          observability.CommandStatusOK.String(),
+		"error_code":      "",
+		"idempotency_key": publishReference.String(),
+	}, publishReference, []string{"LC1 buff", "starter_balance", "snapshot_json", "actor_account_id"})
 
 	writeText(t, adminConn, `{"request_id":"request-content-rollback-spoof","op":"admin.content.rollback","payload":{"target_version_id":"00000000-0000-5000-8000-000000000001","idempotency_key":"client-picked"},"client_seq":3,"v":1}`)
 	rollbackSpoof := readError(t, adminConn)
@@ -398,6 +428,32 @@ func TestAdminContentPublishRollbackAndAuditUseServerActor(t *testing.T) {
 		contentStore.publishedInput.IdempotencyKey != "content_rollback:00000000-0000-5000-8000-000000000001:request-content-rollback-admin" {
 		t.Fatalf("rollback payload = %+v input %+v, want immutable rollback", rollbackPayload.ContentRollback, contentStore.publishedInput)
 	}
+	if rollbackPayload.ContentRollback.IdempotencyKey == "" ||
+		rollbackPayload.ContentRollback.IdempotencyKey != contentStore.publishedInput.IdempotencyKey {
+		t.Fatalf("rollback idempotency payload=%q input=%q, want service key surfaced", rollbackPayload.ContentRollback.IdempotencyKey, contentStore.publishedInput.IdempotencyKey)
+	}
+	rollbackReference, err := foundation.ParseIdempotencyKey(rollbackPayload.ContentRollback.IdempotencyKey)
+	if err != nil {
+		t.Fatalf("ParseIdempotencyKey(rollback) error = %v", err)
+	}
+	rollbackLog := requireCommandLogEntryForTest(t, gameServer, "request-content-rollback-admin", observability.Operation(realtime.OperationAdminContentRollback))
+	if rollbackLog.PlayerID != adminResolved.PlayerID ||
+		rollbackLog.SessionID != observability.SessionID(adminResolved.SessionID) ||
+		rollbackLog.Status != observability.CommandStatusOK ||
+		!rollbackLog.ErrorCode.IsZero() ||
+		rollbackLog.ReferenceID != rollbackReference ||
+		rollbackLog.Duration < 0 {
+		t.Fatalf("rollback command log entry = %+v, want admin player/session/ok/ref/duration", rollbackLog)
+	}
+	assertStructuredCommandLogFieldsForTest(t, "admin content rollback", rollbackLog, map[string]string{
+		"player_id":       adminResolved.PlayerID.String(),
+		"session_id":      adminResolved.SessionID.String(),
+		"request_id":      "request-content-rollback-admin",
+		"op":              string(realtime.OperationAdminContentRollback),
+		"result":          observability.CommandStatusOK.String(),
+		"error_code":      "",
+		"idempotency_key": rollbackReference.String(),
+	}, rollbackReference, []string{"restore starter", "snapshot_json", "actor_account_id"})
 
 	writeText(t, adminConn, `{"request_id":"request-content-audit-admin","op":"admin.content.audit_log","payload":{"content_type":"module","limit":1},"client_seq":5,"v":1}`)
 	auditResponse := readResponse(t, adminConn)

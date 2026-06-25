@@ -223,6 +223,131 @@ func TestObservedCommandExecutorMarketCancelStructuredLogIncludesSettlementIdemp
 	}
 }
 
+func TestObservedCommandExecutorPortalTransferStructuredLogIncludesIdempotencyAndNoSecrets(t *testing.T) {
+	logger := observability.NewMemoryCommandLogger()
+	clock := &steppingClock{now: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC), step: 29 * time.Millisecond}
+	executor := ObservedCommandExecutor{Clock: clock, Logger: logger}
+	request := NewRequestEnvelope(
+		"request-portal-transfer-structured-log",
+		OperationPortalEnter,
+		json.RawMessage(`{"portal_id":"east_gate","password":"redacted","token":"redacted","cookie":"redacted","hash":"redacted"}`),
+		13,
+	)
+	ctx := validCommandContext()
+	ctx.ReferenceID = ""
+	wantReferenceID, err := foundation.PortalTransferIdempotencyKey(ctx.PlayerID, "east_gate", request.RequestID)
+	if err != nil {
+		t.Fatalf("PortalTransferIdempotencyKey() error = %v", err)
+	}
+
+	_, err = executor.Execute(ctx, request, func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+		return json.RawMessage(`{"accepted":true,"payload":"not_logged"}`), nil
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+
+	entry := requireSingleCommandLogEntry(t, logger)
+	rawLog, public := decodePublicCommandLog(t, entry)
+	want := map[string]string{
+		"player_id":       ctx.PlayerID.String(),
+		"session_id":      ctx.SessionID.String(),
+		"request_id":      request.RequestID.String(),
+		"op":              string(OperationPortalEnter),
+		"result":          observability.CommandStatusOK.String(),
+		"error_code":      "",
+		"idempotency_key": wantReferenceID.String(),
+	}
+	assertPublicCommandLogStringFields(t, public, want, rawLog)
+	assertPublicCommandLogDuration(t, public, 29, rawLog)
+	assertPublicCommandLogRefIDs(t, public, wantReferenceID, rawLog)
+	assertPublicCommandLogNoSecrets(t, public, rawLog)
+}
+
+func TestObservedCommandExecutorContentPublishRollbackStructuredLogIncludesIdempotencyAndNoSecrets(t *testing.T) {
+	tests := []struct {
+		name          string
+		op            Operation
+		responseKey   string
+		requestID     foundation.RequestID
+		payload       json.RawMessage
+		wantReference foundation.IdempotencyKey
+	}{
+		{
+			name:        "publish",
+			op:          OperationAdminContentPublish,
+			responseKey: "content_publish",
+			requestID:   "request-content-publish-structured-log",
+			payload:     json.RawMessage(`{"version":"content_balance_v2","notes":"LC1 buff","password":"redacted","token":"redacted"}`),
+		},
+		{
+			name:        "rollback",
+			op:          OperationAdminContentRollback,
+			responseKey: "content_rollback",
+			requestID:   "request-content-rollback-structured-log",
+			payload:     json.RawMessage(`{"target_version_id":"11111111-1111-5111-8111-111111111111","notes":"restore starter","cookie":"redacted","hash":"redacted"}`),
+		},
+	}
+	var err error
+	tests[0].wantReference, err = foundation.ContentPublishIdempotencyKey(tests[0].requestID.String())
+	if err != nil {
+		t.Fatalf("ContentPublishIdempotencyKey() error = %v", err)
+	}
+	tests[1].wantReference, err = foundation.ContentRollbackIdempotencyKey(
+		"11111111-1111-5111-8111-111111111111",
+		tests[1].requestID.String(),
+	)
+	if err != nil {
+		t.Fatalf("ContentRollbackIdempotencyKey() error = %v", err)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := observability.NewMemoryCommandLogger()
+			clock := &steppingClock{now: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC), step: 31 * time.Millisecond}
+			executor := ObservedCommandExecutor{Clock: clock, Logger: logger}
+			request := NewRequestEnvelope(tt.requestID, tt.op, tt.payload, 14)
+			ctx := validCommandContext()
+			ctx.ReferenceID = ""
+
+			_, err := executor.Execute(ctx, request, func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+				response := map[string]any{
+					tt.responseKey: map[string]any{
+						"published":       true,
+						"idempotency_key": tt.wantReference.String(),
+					},
+					"payload":       "not_logged",
+					"session_token": "not_logged",
+				}
+				encoded, err := json.Marshal(response)
+				if err != nil {
+					t.Fatalf("marshal fake CMS response: %v", err)
+				}
+				return encoded, nil
+			})
+			if err != nil {
+				t.Fatalf("Execute() error = %v, want nil", err)
+			}
+
+			entry := requireSingleCommandLogEntry(t, logger)
+			rawLog, public := decodePublicCommandLog(t, entry)
+			want := map[string]string{
+				"player_id":       ctx.PlayerID.String(),
+				"session_id":      ctx.SessionID.String(),
+				"request_id":      request.RequestID.String(),
+				"op":              string(tt.op),
+				"result":          observability.CommandStatusOK.String(),
+				"error_code":      "",
+				"idempotency_key": tt.wantReference.String(),
+			}
+			assertPublicCommandLogStringFields(t, public, want, rawLog)
+			assertPublicCommandLogDuration(t, public, 31, rawLog)
+			assertPublicCommandLogRefIDs(t, public, tt.wantReference, rawLog)
+			assertPublicCommandLogNoSecrets(t, public, rawLog)
+		})
+	}
+}
+
 func TestObservedCommandExecutorRecordsErrorCodeMetricWithoutLeakingDetails(t *testing.T) {
 	logger := observability.NewMemoryCommandLogger()
 	metrics := observability.NewMetricRecorder()

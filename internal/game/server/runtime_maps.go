@@ -27,8 +27,10 @@ type hiddenPlayerWitnessKey struct {
 }
 
 type mapInstance struct {
-	Definition            worldmaps.MapDefinition
-	Worker                *worker.Worker
+	Definition worldmaps.MapDefinition
+	Worker     *worker.Worker
+	// ActiveSessions and LastAOI are Runtime.mu-protected routing/projection
+	// cursors. The worker remains the owner of live entities for this map.
 	ActiveSessions        map[auth.SessionID]foundation.PlayerID
 	LastAOI               map[auth.SessionID]aoi.Snapshot
 	HiddenEntities        map[world.EntityID]bool
@@ -138,6 +140,10 @@ func (runtime *Runtime) detachSessionFromAllInstancesLocked(sessionID auth.Sessi
 	}
 }
 
+// attachSessionToInstanceLocked must be called with Runtime.mu held. It updates
+// runtime session maps and the per-instance session cursor in one critical
+// section, while worker session ownership is changed through the worker command
+// queue before this helper records the runtime-side attachment.
 func (runtime *Runtime) attachSessionToInstanceLocked(instance *mapInstance, sessionID auth.SessionID, playerID foundation.PlayerID) {
 	if instance == nil {
 		return
@@ -162,6 +168,9 @@ func (runtime *Runtime) attachSessionToInstanceLocked(instance *mapInstance, ses
 	runtime.sessionLocations[sessionID] = instance.Definition.InternalMapID
 }
 
+// detachSessionFromInstanceLocked must be called with Runtime.mu held. It
+// settles/detaches the worker session first, then clears runtime-side session
+// cursors under the same serialized attach/detach contract.
 func (runtime *Runtime) detachSessionFromInstanceLocked(instance *mapInstance, sessionID auth.SessionID, settle bool) {
 	if instance == nil || instance.Worker == nil {
 		return

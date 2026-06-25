@@ -301,6 +301,7 @@ func (service *ContentService) PublishDraft(ctx context.Context, input content.P
 	if err != nil {
 		return content.PublishDraftResult{}, err
 	}
+	result.IdempotencyKey = idempotencyKey
 	versionID := deterministicContentUUID("content_publish", idempotencyKey)
 	auditEntries, err := buildAuditEntries(versionID, current.Snapshot, snapshot, input.ActorAccountID, notes, balanceTag)
 	if err != nil {
@@ -374,6 +375,7 @@ func (service *ContentService) Rollback(ctx context.Context, input content.Rollb
 	if idempotencyKey == "" {
 		idempotencyKey = fmt.Sprintf("content_rollback:%s:%s", targetID, version)
 	}
+	result.IdempotencyKey = idempotencyKey
 	versionID := deterministicContentUUID("content_rollback", idempotencyKey)
 	auditEntries, err := buildAuditEntries(versionID, current.Snapshot, snapshot, input.ActorAccountID, notes, balanceTag)
 	if err != nil {

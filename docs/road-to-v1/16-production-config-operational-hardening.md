@@ -1,7 +1,7 @@
 # Phase 16 — Production Config & Operational Hardening
 
 ## Status
-- State: In progress
+- State: Done
 - Wave: 2
 - Depends on: P01 (env/mode), can start early
 - Unlocks: safe production deploy
@@ -31,12 +31,14 @@ for critical state transitions.
 - [x] `[P:wave2/lane-F]` Production mode requires durable auth/economy/progression/world stores or fail startup.
 - [x] `[P:wave2/lane-G]` Register debug ops only in dev config; log/metric a warning when dev mode is enabled.
 - [x] `[P:wave2/lane-H]` Add telemetry-error counters: metric write errors, event encode errors, queue drops, slow-client disconnects, tick overruns.
-- [ ] `[P:wave2/lane-H]` Add structured logs with `player_id/session_id/request_id/op/idempotency_key/ref_ids/result/error_code/duration_ms` for critical transitions (no secrets/tokens).
+- [x] `[P:wave2/lane-H]` Add structured logs with `player_id/session_id/request_id/op/idempotency_key/ref_ids/result/error_code/duration_ms` for critical transitions (no secrets/tokens).
   - Verified slice: `shop.buy_product` command logs now include request/player/session/op/result/error/duration/idempotency fields and reject secret payload leakage in focused tests.
   - Verified slice: `auth.register` and `auth.login` transition logs now include a safe request summary, player/session identity on success, result, error code, duration, and reject password/token/hash/cookie leakage in focused tests.
   - Verified slice: `market.buy` and `market.cancel` command logs now include request/player/session/op/result/error/duration/idempotency/ref fields and reject secret payload leakage in focused tests.
   - Verified slice: `death.repair_ship` command logs now include request/player/session/op/result/error/duration/idempotency/ref fields and reject password/token/cookie/hash/cargo/drop payload leakage in focused tests.
   - Verified slice: premium provider entitlement and claim transition logs now include player/request/op/result/error/duration/idempotency/provider-ref fields where safe and reject password/token/secret/hash/cookie leakage in focused tests.
+  - Verified slice: `portal.enter` transfer command logs now include request/player/session/op/result/error/duration/idempotency/ref fields and reject payload/secret/internal transfer leakage in focused tests.
+  - Verified slice: `admin.content.publish` and `admin.content.rollback` command logs now include request/player/session/op/result/error/duration/idempotency/ref fields and reject notes/snapshot/actor/secret leakage in focused tests.
 
 ## Server Ownership
 - Never log passwords, hashes, tokens, cookies, reset secrets (AGENTS.md).
@@ -51,7 +53,7 @@ for critical state transitions.
 
 ## Done Criteria
 - [x] Unsafe production config cannot boot.
-- [ ] Critical transitions are traceable; code review MD-02/MD-04/MD-05/§15.2 closed.
+- [x] Critical transitions are traceable; code review MD-02/MD-04/MD-05/§15.2 closed.
 
 ## Verification
 ```bash

@@ -78,7 +78,7 @@ func (executor ObservedCommandExecutor) Execute(ctx CommandContext, request Requ
 	}
 
 	op := observability.Operation(request.Op)
-	referenceID := commandLogReferenceID(ctx, request)
+	referenceID := commandLogReferenceID(ctx, request, payload)
 	recordCommandMetric(executor.Metrics, op, code)
 	recordCommandLog(executor.Logger, observability.CommandLogEntry{
 		RequestID:   request.RequestID,
@@ -161,7 +161,7 @@ func recordCommandLog(logger CommandLogger, entry observability.CommandLogEntry)
 	_ = logger.Record(entry)
 }
 
-func commandLogReferenceID(ctx CommandContext, request RequestEnvelope) foundation.IdempotencyKey {
+func commandLogReferenceID(ctx CommandContext, request RequestEnvelope, response json.RawMessage) foundation.IdempotencyKey {
 	if !ctx.ReferenceID.IsZero() {
 		return ctx.ReferenceID
 	}
@@ -199,6 +199,35 @@ func commandLogReferenceID(ctx CommandContext, request RequestEnvelope) foundati
 		if err == nil {
 			return referenceID
 		}
+	case OperationPortalEnter:
+		portalID, ok := commandLogPortalID(request.Payload)
+		if !ok {
+			return ""
+		}
+		referenceID, err := foundation.PortalTransferIdempotencyKey(ctx.PlayerID, portalID, request.RequestID)
+		if err == nil {
+			return referenceID
+		}
+	case OperationAdminContentPublish:
+		if referenceID, ok := commandLogContentResponseReferenceID(response, "content_publish"); ok {
+			return referenceID
+		}
+		referenceID, err := foundation.ContentPublishIdempotencyKey(request.RequestID.String())
+		if err == nil {
+			return referenceID
+		}
+	case OperationAdminContentRollback:
+		if referenceID, ok := commandLogContentResponseReferenceID(response, "content_rollback"); ok {
+			return referenceID
+		}
+		targetVersionID, ok := commandLogTargetVersionID(request.Payload)
+		if !ok {
+			return ""
+		}
+		referenceID, err := foundation.ContentRollbackIdempotencyKey(targetVersionID, request.RequestID.String())
+		if err == nil {
+			return referenceID
+		}
 	}
 	return ""
 }
@@ -229,6 +258,53 @@ func commandLogRepairShipID(payload json.RawMessage) (foundation.ShipID, bool) {
 		return "", false
 	}
 	return shipID, true
+}
+
+func commandLogPortalID(payload json.RawMessage) (string, bool) {
+	var body struct {
+		PortalID string `json:"portal_id"`
+	}
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return "", false
+	}
+	if body.PortalID == "" {
+		return "", false
+	}
+	return body.PortalID, true
+}
+
+func commandLogTargetVersionID(payload json.RawMessage) (string, bool) {
+	var body struct {
+		TargetVersionID string `json:"target_version_id"`
+	}
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return "", false
+	}
+	if body.TargetVersionID == "" {
+		return "", false
+	}
+	return body.TargetVersionID, true
+}
+
+func commandLogContentResponseReferenceID(response json.RawMessage, key string) (foundation.IdempotencyKey, bool) {
+	if len(response) == 0 {
+		return "", false
+	}
+	var body map[string]struct {
+		IdempotencyKey string `json:"idempotency_key"`
+	}
+	if err := json.Unmarshal(response, &body); err != nil {
+		return "", false
+	}
+	section, ok := body[key]
+	if !ok || section.IdempotencyKey == "" {
+		return "", false
+	}
+	referenceID, err := foundation.ParseIdempotencyKey(section.IdempotencyKey)
+	if err != nil {
+		return "", false
+	}
+	return referenceID, true
 }
 
 func commandLogShipRepairID(

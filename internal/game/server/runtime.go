@@ -98,6 +98,12 @@ type RuntimeConfig struct {
 
 // Runtime composes auth, realtime gateway, and the Phase 02 world worker.
 type Runtime struct {
+	// mu is the runtime-coordinator lock. Map workers own per-map live entity
+	// mutation; Runtime.mu is not the per-map command/tick gate. It serializes
+	// runtime-owned cross-worker metadata: session/player and session/map routing,
+	// replay/queued-event maps, player runtime bookkeeping, per-instance
+	// session/AOI cursors, and transitional command guards/cooldowns still held
+	// on Runtime until decomposition.
 	mu sync.Mutex
 
 	// buildingMutationMu serializes in-process building build/upgrade commands
@@ -121,7 +127,8 @@ type Runtime struct {
 	mapCatalog *worldmaps.Catalog
 	mapRouter  *worldmaps.Router
 	// mapInstances is populated at boot and treated as immutable. Runtime.mu
-	// still protects session/routing maps and per-instance AOI/session cursors.
+	// protects mutable per-instance routing/projection cursors such as
+	// ActiveSessions, LastAOI, and hidden-visibility overlays.
 	mapInstances     map[worldmaps.MapID]*mapInstance
 	mapTickInstances []*mapInstance
 

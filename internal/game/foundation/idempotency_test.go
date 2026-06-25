@@ -206,6 +206,25 @@ func TestIdempotencyKeyHelpersProduceStableKeys(t *testing.T) {
 			},
 			want: "admin_compensation:currency-ledger-9:ticket-42",
 		},
+		{
+			name: "portal transfer",
+			build: func() (IdempotencyKey, error) {
+				return PortalTransferIdempotencyKey(PlayerID("player-1"), "east_gate", RequestID("request-portal-1"))
+			},
+			want: "portal_transfer:player-1:east_gate:request-portal-1",
+		},
+		{
+			name:  "content publish",
+			build: func() (IdempotencyKey, error) { return ContentPublishIdempotencyKey("request-content-publish-1") },
+			want:  "content_publish:request-content-publish-1",
+		},
+		{
+			name: "content rollback",
+			build: func() (IdempotencyKey, error) {
+				return ContentRollbackIdempotencyKey("11111111-1111-5111-8111-111111111111", "request-content-rollback-1")
+			},
+			want: "content_rollback:11111111-1111-5111-8111-111111111111:request-content-rollback-1",
+		},
 	}
 
 	for _, tc := range cases {

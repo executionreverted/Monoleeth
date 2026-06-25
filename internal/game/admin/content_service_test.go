@@ -280,6 +280,9 @@ func TestContentServicePublishDraftValidatesAndWritesImmutableVersion(t *testing
 		store.publishedInput.IdempotencyKey == "" {
 		t.Fatalf("publish input = %+v, want server actor/idempotency/metadata", store.publishedInput)
 	}
+	if result.IdempotencyKey != store.publishedInput.IdempotencyKey {
+		t.Fatalf("result idempotency = %q, want published input key %q", result.IdempotencyKey, store.publishedInput.IdempotencyKey)
+	}
 	if len(store.publishedInput.AuditEntries) != 1 || store.publishedInput.AuditEntries[0].ActorAccountID != "account-admin" ||
 		store.publishedInput.AuditEntries[0].ContentType != content.ContentTypeModule ||
 		store.publishedInput.AuditEntries[0].Note != "LC1 buff" ||
@@ -541,6 +544,9 @@ func TestContentServiceRollbackPublishesTargetSnapshotAsNewVersion(t *testing.T)
 		store.publishedInput.BalanceTag != "rollback_starter" ||
 		store.publishedInput.Snapshot.Version != "content_rollback_v3" {
 		t.Fatalf("rollback publish input = %+v, want immutable rollback copy", store.publishedInput)
+	}
+	if result.IdempotencyKey != store.publishedInput.IdempotencyKey {
+		t.Fatalf("rollback result idempotency = %q, want published input key %q", result.IdempotencyKey, store.publishedInput.IdempotencyKey)
 	}
 	if len(store.publishedInput.AuditEntries) != 1 ||
 		store.publishedInput.AuditEntries[0].Note != "restore starter" ||
