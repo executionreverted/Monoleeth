@@ -170,7 +170,11 @@ func (runtime *Runtime) transferThroughPortalLocked(sessionID auth.SessionID, pl
 	for _, playerSessionID := range sessionIDs {
 		runtime.detachSessionFromInstanceLocked(source, playerSessionID, true)
 	}
-	source.Worker.RemoveEntity(sourceEntity.ID)
+	if err := runtime.submitWorkerCommandAndRecordMetricsLocked(source, worker.RemoveEntityCommand{EntityID: sourceEntity.ID}); err != nil {
+		runtime.restoreSourceAfterFailedTransferLocked(source, sourceLocation, sourceEntity, sourceSpeed, sessionIDs, playerID)
+		runtime.queueTransferFailedLocked(sessionIDs, portal, source, "Portal transfer failed.")
+		return nil, domainErrorForRuntime(err)
+	}
 	delete(source.HiddenPlayers, playerID)
 	runtime.deleteHiddenPlayerWitnessesLocked(source, playerID)
 
@@ -277,7 +281,7 @@ func (runtime *Runtime) attachPlayerToDestinationLocked(instance *mapInstance, p
 	if entity, ok := instance.Worker.PlayerEntity(playerID); ok {
 		entity.Position = position
 		entity.Movement = world.MovementState{}
-		return instance.Worker.UpdateEntity(entity)
+		return runtime.submitWorkerCommandAndRecordMetricsLocked(instance, worker.UpdateEntityCommand{Entity: entity})
 	}
 	return runtime.submitWorkerCommandAndRecordMetricsLocked(instance, worker.SpawnPlayerCommand{
 		PlayerID: playerID,
@@ -301,10 +305,10 @@ func (runtime *Runtime) cleanupDestinationAfterFailedTransferLocked(destination 
 	for _, sessionID := range sessionIDs {
 		_ = destination.Worker.Submit(worker.DetachSessionCommand{SessionID: realtime.SessionID(sessionID.String())})
 	}
+	_ = destination.Worker.Submit(worker.RemoveEntityCommand{EntityID: entityID})
 	result := destination.Worker.Tick()
 	runtime.recordEnemyTelemetryLocked(destination, result)
 	_ = commandErrors(result)
-	destination.Worker.RemoveEntity(entityID)
 	delete(destination.HiddenPlayers, playerID)
 	runtime.deleteHiddenPlayerWitnessesLocked(destination, playerID)
 	for _, sessionID := range sessionIDs {
@@ -320,7 +324,7 @@ func (runtime *Runtime) restoreSourceAfterFailedTransferLocked(source *mapInstan
 	_, _ = runtime.mapRouter.SetActiveLocationFromSpawn(playerID, sourceLocation.InternalMapID, sourceLocation.SpawnID)
 	if _, ok := source.Worker.PlayerEntity(playerID); !ok {
 		if _, exists := source.Worker.Entity(sourceEntity.ID); exists {
-			source.Worker.RemoveEntity(sourceEntity.ID)
+			_ = runtime.submitWorkerCommandAndRecordMetricsLocked(source, worker.RemoveEntityCommand{EntityID: sourceEntity.ID})
 		}
 		if err := runtime.submitWorkerCommandAndRecordMetricsLocked(source, worker.SpawnPlayerCommand{
 			PlayerID: playerID,

@@ -219,6 +219,61 @@ func TestPortalEnterTransfersPlayerAndAllActiveSessions(t *testing.T) {
 	}
 }
 
+func TestPortalEnterRemovesSourcePlayerThroughWorkerCommandQueue(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "portal-source-command@example.com", "Portal Source Command")
+	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 9800, Y: 5000})
+
+	var sourceEntityID world.EntityID
+	var mailbox *recordingWorkerMailbox
+	func() {
+		gameServer.runtime.mu.Lock()
+		defer gameServer.runtime.mu.Unlock()
+
+		source, _, err := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+		if err != nil {
+			t.Fatalf("active source map instance: %v", err)
+		}
+		sourceEntity, ok := source.Worker.PlayerEntity(resolved.PlayerID)
+		if !ok {
+			t.Fatalf("source player entity for %q missing", resolved.PlayerID)
+		}
+		sourceEntityID = sourceEntity.ID
+		mailbox = replaceActiveMapWorkerWithRecordingMailboxLocked(t, gameServer, source, resolved.PlayerID, resolved.SessionID)
+	}()
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-portal-source-remove-command","op":"portal.enter","payload":{"portal_id":"east_gate"},"client_seq":1,"v":1}`),
+	)
+	if response.HasError {
+		t.Fatalf("portal transfer response error = %+v, want success", response.Error)
+	}
+
+	submitted := mailbox.Submitted()
+	var foundRemove bool
+	for _, command := range submitted {
+		remove, ok := command.(worker.RemoveEntityCommand)
+		if ok && remove.EntityID == sourceEntityID {
+			foundRemove = true
+			break
+		}
+	}
+	if !foundRemove {
+		t.Fatalf("submitted worker commands = %#v, want RemoveEntityCommand for source entity %q", submitted, sourceEntityID)
+	}
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	source, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		t.Fatalf("starter map after portal transfer: %v", err)
+	}
+	if _, ok := source.Worker.PlayerEntity(resolved.PlayerID); ok {
+		t.Fatalf("source worker retained player %q after queued remove command", resolved.PlayerID)
+	}
+}
+
 func TestPortalEnterStructuredLogIncludesTransferIdempotencyNoSecrets(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "portal-transfer-log@example.com", "Portal Transfer Log")

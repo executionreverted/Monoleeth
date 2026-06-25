@@ -46,6 +46,10 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 - Progress: loot pickup drop removal now submits `worker.RemoveEntityCommand`
   through the owning worker queue instead of calling `Worker.RemoveEntity`
   directly. Covered by `TestLootPickupRemovesDropThroughWorkerCommandQueue`.
+- Progress: portal transfer source-player removal now submits
+  `worker.RemoveEntityCommand` through the source worker queue instead of
+  calling `Worker.RemoveEntity` directly. Covered by
+  `TestPortalEnterRemovesSourcePlayerThroughWorkerCommandQueue`.
 
 ## Smoke Tests (one assertion each)
 - [x] Command on map A does not block a command on map B (timing assertion).
