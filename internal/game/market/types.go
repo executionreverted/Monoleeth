@@ -101,6 +101,7 @@ type BuyListingResult struct {
 type CancelListingInput struct {
 	SellerPlayerID foundation.PlayerID  `json:"seller_player_id"`
 	ListingID      foundation.ListingID `json:"listing_id"`
+	RequestID      foundation.RequestID `json:"request_id"`
 }
 
 // ExpireListingInput describes a server expiration command for one listing.

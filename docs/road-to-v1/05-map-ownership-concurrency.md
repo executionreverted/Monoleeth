@@ -32,7 +32,7 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 - Each map worker is the single owner of its zone's authoritative live state.
 
 ## Smoke Tests (one assertion each)
-- [ ] Command on map A does not block a command on map B (timing assertion).
+- [x] Command on map A does not block a command on map B (timing assertion).
 - [x] Concurrent move + tick on one map passes `-race`.
 - [x] Map B worker tick collection reaches the worker while `Runtime.mu` is held by unrelated runtime activity (`TestRuntimeTickCollectionReachesOtherMapWhileRuntimeMutexHeld`).
 - [ ] AOI read projection never observes a torn entity state.

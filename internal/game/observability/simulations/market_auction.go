@@ -390,6 +390,7 @@ func marketCancelOperation(
 		_, err := service.CancelListing(market.CancelListingInput{
 			SellerPlayerID: sellerID,
 			ListingID:      listingID,
+			RequestID:      foundation.RequestID("cancel-" + listingID.String()),
 		})
 		return raceOutcome{operation: "cancel", err: err}
 	}

@@ -48,6 +48,15 @@ var (
 	// ErrMissingAuthTransitionLogWriter reports a nil structured auth transition log sink.
 	ErrMissingAuthTransitionLogWriter = errors.New("missing auth transition log writer")
 
+	// ErrMissingSettlementLogIdentity reports a missing required settlement log identity field.
+	ErrMissingSettlementLogIdentity = errors.New("missing settlement log identity field")
+
+	// ErrMissingSettlementLogTimestamp reports a missing settlement log timestamp.
+	ErrMissingSettlementLogTimestamp = errors.New("missing settlement log timestamp")
+
+	// ErrMissingSettlementLogWriter reports a nil structured settlement log sink.
+	ErrMissingSettlementLogWriter = errors.New("missing settlement log writer")
+
 	// ErrInvalidValueFlowDirection reports an unsupported economy flow direction.
 	ErrInvalidValueFlowDirection = errors.New("invalid value flow direction")
 

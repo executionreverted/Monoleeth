@@ -429,6 +429,7 @@ func (service *Service) DisableSuspiciousMarketListing(input DisableMarketListin
 	cancel, err := service.market.CancelListing(market.CancelListingInput{
 		SellerPlayerID: listing.SellerPlayerID,
 		ListingID:      input.ListingID,
+		RequestID:      foundation.RequestID("admin-disable-" + input.ListingID.String()),
 	})
 	if err != nil {
 		return DisableMarketListingResult{}, err

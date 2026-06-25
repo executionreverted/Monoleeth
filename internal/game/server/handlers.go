@@ -291,21 +291,33 @@ func (runtime *Runtime) handleMoveTo(ctx realtime.CommandContext, request realti
 		return nil, err
 	}
 	runtime.mu.Lock()
-	defer runtime.mu.Unlock()
 	if err := runtime.validateMoveIntentLocked(ctx.PlayerID, intent); err != nil {
+		runtime.mu.Unlock()
 		return nil, err
 	}
 	instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
 	if err != nil {
+		runtime.mu.Unlock()
 		return nil, domainErrorForRuntime(err)
 	}
+	runtime.mu.Unlock()
 	if err := instance.Worker.Submit(worker.MoveToCommand{PlayerID: ctx.PlayerID, Intent: intent}); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
 	result := instance.Worker.Tick()
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
 	runtime.recordEnemyTelemetryLocked(instance, result)
 	if err := commandErrors(result); err != nil {
 		return nil, domainErrorForRuntime(err)
+	}
+	current, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
+	if err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	if current != instance {
+		return nil, foundation.NewDomainError(foundation.CodeForbidden, "Map subscription changed during movement command.", foundation.WithCause(errMapEpochChanged))
 	}
 	snapshot, err := runtime.worldSnapshotForSessionLocked(ctx.PlayerID, authSessionID(ctx.SessionID))
 	if err != nil {
@@ -333,21 +345,33 @@ func (runtime *Runtime) handleStop(ctx realtime.CommandContext, request realtime
 		return nil, err
 	}
 	runtime.mu.Lock()
-	defer runtime.mu.Unlock()
 	if err := runtime.validateShipCanMoveLocked(ctx.PlayerID); err != nil {
+		runtime.mu.Unlock()
 		return nil, err
 	}
 	instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
 	if err != nil {
+		runtime.mu.Unlock()
 		return nil, domainErrorForRuntime(err)
 	}
+	runtime.mu.Unlock()
 	if err := instance.Worker.Submit(worker.StopCommand{PlayerID: ctx.PlayerID}); err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
 	result := instance.Worker.Tick()
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
 	runtime.recordEnemyTelemetryLocked(instance, result)
 	if err := commandErrors(result); err != nil {
 		return nil, domainErrorForRuntime(err)
+	}
+	current, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
+	if err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
+	if current != instance {
+		return nil, foundation.NewDomainError(foundation.CodeForbidden, "Map subscription changed during movement command.", foundation.WithCause(errMapEpochChanged))
 	}
 	snapshot, err := runtime.worldSnapshotForSessionLocked(ctx.PlayerID, authSessionID(ctx.SessionID))
 	if err != nil {

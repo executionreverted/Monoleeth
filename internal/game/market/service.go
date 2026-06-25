@@ -14,6 +14,7 @@ import (
 
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 )
 
 const (
@@ -26,6 +27,8 @@ const (
 
 	marketBuyOperation          = "market_buy"
 	marketCancelOperation       = "market_cancel"
+	marketBuySettlementOp       = "market.buy"
+	marketCancelSettlementOp    = "market.cancel"
 	marketBuyOutboxTopic        = "economy"
 	marketBuyCompletedEventType = "market.buy_completed"
 	marketBuyAggregateType      = "market_listing"
@@ -58,6 +61,7 @@ type MarketServiceConfig struct {
 	Wallet            WalletService
 	IdempotencyStore  economy.IdempotencyStore
 	OutboxStore       economy.OutboxStore
+	SettlementLogger  observability.SettlementLogger
 	FeePolicy         FeePolicy
 	SuspiciousPolicy  SuspiciousTradePolicy
 	SystemFeePlayerID foundation.PlayerID
@@ -72,6 +76,7 @@ type MarketService struct {
 	wallet            WalletService
 	idempotencyStore  economy.IdempotencyStore
 	outboxStore       economy.OutboxStore
+	settlementLogger  observability.SettlementLogger
 	feePolicy         FeePolicy
 	suspiciousPolicy  SuspiciousTradePolicy
 	systemFeePlayerID foundation.PlayerID
@@ -130,6 +135,7 @@ func NewMarketService(config MarketServiceConfig) (*MarketService, error) {
 		wallet:                config.Wallet,
 		idempotencyStore:      config.IdempotencyStore,
 		outboxStore:           config.OutboxStore,
+		settlementLogger:      config.SettlementLogger,
 		feePolicy:             feePolicy,
 		suspiciousPolicy:      suspiciousPolicy,
 		systemFeePlayerID:     systemFeePlayerID,
@@ -220,7 +226,7 @@ func (service *MarketService) CreateListing(input CreateListingInput) (CreateLis
 }
 
 // BuyListing settles a buyer purchase against active escrowed listing quantity.
-func (service *MarketService) BuyListing(input BuyListingInput) (BuyListingResult, error) {
+func (service *MarketService) BuyListing(input BuyListingInput) (result BuyListingResult, err error) {
 	if err := input.validate(); err != nil {
 		return BuyListingResult{}, err
 	}
@@ -236,6 +242,18 @@ func (service *MarketService) BuyListing(input BuyListingInput) (BuyListingResul
 	if err != nil {
 		return BuyListingResult{}, err
 	}
+	startedAt := service.nowUTC()
+	defer func() {
+		service.recordSettlementLog(
+			observability.Operation(marketBuySettlementOp),
+			input.RequestID,
+			input.BuyerPlayerID,
+			referenceKey,
+			[]foundation.IdempotencyKey{referenceKey, saleReference, feeReference},
+			startedAt,
+			err,
+		)
+	}()
 	requestHash := marketBuyRequestHash(input)
 
 	service.mu.Lock()
@@ -361,7 +379,7 @@ func (service *MarketService) BuyListing(input BuyListingInput) (BuyListingResul
 	}
 	listing.UpdatedAt = service.clock.Now()
 
-	result := BuyListingResult{
+	result = BuyListingResult{
 		Listing:        cloneListing(listing),
 		Quantity:       input.Quantity,
 		TotalAmount:    total,
@@ -388,7 +406,7 @@ func (service *MarketService) BuyListing(input BuyListingInput) (BuyListingResul
 }
 
 // CancelListing returns remaining active escrow to the seller's recorded source location.
-func (service *MarketService) CancelListing(input CancelListingInput) (CancelListingResult, error) {
+func (service *MarketService) CancelListing(input CancelListingInput) (result CancelListingResult, err error) {
 	if err := input.validate(); err != nil {
 		return CancelListingResult{}, err
 	}
@@ -396,6 +414,18 @@ func (service *MarketService) CancelListing(input CancelListingInput) (CancelLis
 	if err != nil {
 		return CancelListingResult{}, err
 	}
+	startedAt := service.nowUTC()
+	defer func() {
+		service.recordSettlementLog(
+			observability.Operation(marketCancelSettlementOp),
+			input.RequestID,
+			input.SellerPlayerID,
+			referenceKey,
+			[]foundation.IdempotencyKey{referenceKey},
+			startedAt,
+			err,
+		)
+	}()
 	requestHash := marketCancelRequestHash(input)
 
 	service.mu.Lock()
@@ -459,7 +489,7 @@ func (service *MarketService) CancelListing(input CancelListingInput) (CancelLis
 	}
 	listing.UpdatedAt = service.clock.Now()
 
-	result := CancelListingResult{
+	result = CancelListingResult{
 		Listing:          cloneListing(listing),
 		ReturnedQuantity: returnedQuantity,
 		ReturnMove:       returnMove,
@@ -635,6 +665,54 @@ func (service *MarketService) MarketBuyOutboxRows() []economy.OutboxRow {
 	return rows
 }
 
+func (service *MarketService) recordSettlementLog(
+	operation observability.Operation,
+	requestID foundation.RequestID,
+	playerID foundation.PlayerID,
+	idempotencyKey foundation.IdempotencyKey,
+	referenceIDs []foundation.IdempotencyKey,
+	startedAt time.Time,
+	transitionErr error,
+) {
+	if service == nil || service.settlementLogger == nil {
+		return
+	}
+	finishedAt := service.nowUTC()
+	duration := finishedAt.Sub(startedAt)
+	if duration < 0 {
+		duration = 0
+	}
+
+	status := observability.CommandStatusOK
+	var code foundation.Code
+	if transitionErr != nil {
+		status = observability.CommandStatusError
+		code = foundation.CodeInternal
+		if domainCode, ok := foundation.CodeOf(transitionErr); ok {
+			code = domainCode
+		}
+	}
+
+	_ = service.settlementLogger.RecordSettlement(observability.SettlementLogEntry{
+		RequestID:      requestID,
+		PlayerID:       playerID,
+		Operation:      operation,
+		ErrorCode:      code,
+		IdempotencyKey: idempotencyKey,
+		ReferenceIDs:   referenceIDs,
+		Duration:       duration,
+		Status:         status,
+		Timestamp:      startedAt,
+	})
+}
+
+func (service *MarketService) nowUTC() time.Time {
+	if service == nil || service.clock == nil {
+		return foundation.RealClock{}.Now().UTC()
+	}
+	return service.clock.Now().UTC()
+}
+
 func (input CreateListingInput) validate(now time.Time) error {
 	if err := input.SellerPlayerID.Validate(); err != nil {
 		return err
@@ -690,6 +768,9 @@ func (input CancelListingInput) validate() error {
 		return err
 	}
 	if err := input.ListingID.Validate(); err != nil {
+		return err
+	}
+	if err := input.RequestID.Validate(); err != nil {
 		return err
 	}
 	return nil

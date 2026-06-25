@@ -482,6 +482,7 @@ func TestCancelListingReturnsRemainingEscrowAndDuplicateDoesNotReturnTwice(t *te
 	first, err := fixture.service.CancelListing(CancelListingInput{
 		SellerPlayerID: fixture.sellerID,
 		ListingID:      create.Listing.ListingID,
+		RequestID:      "cancel-1",
 	})
 	if err != nil {
 		t.Fatalf("CancelListing: %v", err)
@@ -490,6 +491,7 @@ func TestCancelListingReturnsRemainingEscrowAndDuplicateDoesNotReturnTwice(t *te
 	second, err := fixture.service.CancelListing(CancelListingInput{
 		SellerPlayerID: fixture.sellerID,
 		ListingID:      create.Listing.ListingID,
+		RequestID:      "cancel-2",
 	})
 	if err != nil {
 		t.Fatalf("duplicate CancelListing: %v", err)
@@ -531,6 +533,7 @@ func TestCancelListingIdempotencyCompletionFailureRollsBackReturnMove(t *testing
 	_, err := fixture.service.CancelListing(CancelListingInput{
 		SellerPlayerID: fixture.sellerID,
 		ListingID:      create.Listing.ListingID,
+		RequestID:      "cancel-rollback",
 	})
 	if !errors.Is(err, injectedErr) {
 		t.Fatalf("CancelListing error = %v, want injected idempotency failure", err)
@@ -561,6 +564,7 @@ func TestCancelListingIdempotencyRetryDoesNotReturnEscrowTwice(t *testing.T) {
 	first, err := fixture.service.CancelListing(CancelListingInput{
 		SellerPlayerID: fixture.sellerID,
 		ListingID:      create.Listing.ListingID,
+		RequestID:      "cancel-idempotency-1",
 	})
 	if err != nil {
 		t.Fatalf("CancelListing first: %v", err)
@@ -574,6 +578,7 @@ func TestCancelListingIdempotencyRetryDoesNotReturnEscrowTwice(t *testing.T) {
 	second, err := fixture.service.CancelListing(CancelListingInput{
 		SellerPlayerID: fixture.sellerID,
 		ListingID:      create.Listing.ListingID,
+		RequestID:      "cancel-idempotency-2",
 	})
 	if err != nil {
 		t.Fatalf("CancelListing idempotency retry: %v", err)
@@ -757,6 +762,7 @@ func TestMarkListingStaleBlocksBuyAndAllowsCancel(t *testing.T) {
 	cancel, err := fixture.service.CancelListing(CancelListingInput{
 		SellerPlayerID: fixture.sellerID,
 		ListingID:      create.Listing.ListingID,
+		RequestID:      "cancel-stale",
 	})
 	if err != nil {
 		t.Fatalf("CancelListing stale: %v", err)
@@ -874,6 +880,7 @@ func TestBuyRacingCancelCannotDuplicateItems(t *testing.T) {
 		_, err := fixture.service.CancelListing(CancelListingInput{
 			SellerPlayerID: fixture.sellerID,
 			ListingID:      create.Listing.ListingID,
+			RequestID:      "cancel-race",
 		})
 		errs <- err
 	}()

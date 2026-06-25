@@ -136,6 +136,93 @@ func TestObservedCommandExecutorStructuredLogForLootPickupIncludesIdempotencyReq
 	}
 }
 
+func TestObservedCommandExecutorMarketBuyStructuredLogIncludesSettlementIdempotencyAndNoSecrets(t *testing.T) {
+	logger := observability.NewMemoryCommandLogger()
+	clock := &steppingClock{now: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC), step: 19 * time.Millisecond}
+	executor := ObservedCommandExecutor{Clock: clock, Logger: logger}
+	request := NewRequestEnvelope(
+		"request-market-buy-structured-log",
+		OperationMarketBuy,
+		json.RawMessage(`{"listing_id":"listing-structured-log","quantity":1,"password":"redacted","token":"redacted","cookie":"redacted","hash":"redacted"}`),
+		11,
+	)
+	ctx := validCommandContext()
+	ctx.ReferenceID = ""
+	wantReferenceID, err := foundation.MarketBuyIdempotencyKey("listing-structured-log", ctx.PlayerID, request.RequestID)
+	if err != nil {
+		t.Fatalf("MarketBuyIdempotencyKey() error = %v", err)
+	}
+
+	_, err = executor.Execute(ctx, request, func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+		return json.RawMessage(`{"settled":true,"session_token":"not_logged"}`), nil
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+
+	entry := requireSingleCommandLogEntry(t, logger)
+	rawLog, public := decodePublicCommandLog(t, entry)
+	want := map[string]string{
+		"player_id":       ctx.PlayerID.String(),
+		"session_id":      ctx.SessionID.String(),
+		"request_id":      request.RequestID.String(),
+		"op":              string(OperationMarketBuy),
+		"result":          observability.CommandStatusOK.String(),
+		"error_code":      "",
+		"idempotency_key": wantReferenceID.String(),
+	}
+	assertPublicCommandLogStringFields(t, public, want, rawLog)
+	assertPublicCommandLogDuration(t, public, 19, rawLog)
+	assertPublicCommandLogRefIDs(t, public, wantReferenceID, rawLog)
+	assertPublicCommandLogNoSecrets(t, public, rawLog)
+}
+
+func TestObservedCommandExecutorMarketCancelStructuredLogIncludesSettlementIdempotencyAndNoSecrets(t *testing.T) {
+	logger := observability.NewMemoryCommandLogger()
+	clock := &steppingClock{now: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC), step: 23 * time.Millisecond}
+	executor := ObservedCommandExecutor{Clock: clock, Logger: logger}
+	request := NewRequestEnvelope(
+		"request-market-cancel-structured-log",
+		OperationMarketCancel,
+		json.RawMessage(`{"listing_id":"listing-cancel-structured-log","password":"redacted","token":"redacted","cookie":"redacted","hash":"redacted"}`),
+		12,
+	)
+	ctx := validCommandContext()
+	ctx.ReferenceID = ""
+	wantReferenceID, err := foundation.MarketCancelIdempotencyKey("listing-cancel-structured-log")
+	if err != nil {
+		t.Fatalf("MarketCancelIdempotencyKey() error = %v", err)
+	}
+
+	_, err = executor.Execute(ctx, request, func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+		return nil, foundation.NewDomainError(foundation.CodeNotFound, "Market listing was not found.", foundation.WithDetail("listing internal detail"))
+	})
+	if !foundation.IsCode(err, foundation.CodeNotFound) {
+		t.Fatalf("Execute() error = %v, want %s", err, foundation.CodeNotFound)
+	}
+
+	entry := requireSingleCommandLogEntry(t, logger)
+	rawLog, public := decodePublicCommandLog(t, entry)
+	want := map[string]string{
+		"player_id":       ctx.PlayerID.String(),
+		"session_id":      ctx.SessionID.String(),
+		"request_id":      request.RequestID.String(),
+		"op":              string(OperationMarketCancel),
+		"result":          observability.CommandStatusError.String(),
+		"error_code":      foundation.CodeNotFound.String(),
+		"idempotency_key": wantReferenceID.String(),
+	}
+	assertPublicCommandLogStringFields(t, public, want, rawLog)
+	assertPublicCommandLogDuration(t, public, 23, rawLog)
+	assertPublicCommandLogRefIDs(t, public, wantReferenceID, rawLog)
+	assertPublicCommandLogNoSecrets(t, public, rawLog)
+	for _, leaked := range []string{"Market listing was not found.", "listing internal detail"} {
+		if strings.Contains(string(rawLog), leaked) {
+			t.Fatalf("command log leaked error detail %q in %s", leaked, rawLog)
+		}
+	}
+}
+
 func TestObservedCommandExecutorRecordsErrorCodeMetricWithoutLeakingDetails(t *testing.T) {
 	logger := observability.NewMemoryCommandLogger()
 	metrics := observability.NewMetricRecorder()
@@ -268,6 +355,64 @@ func validCommandContext() CommandContext {
 		WorldID:     foundation.WorldID("world-1"),
 		ZoneID:      foundation.ZoneID("zone-1"),
 		ReferenceID: foundation.IdempotencyKey("loot_pickup:drop-1"),
+	}
+}
+
+func requireSingleCommandLogEntry(t *testing.T, logger *observability.MemoryCommandLogger) observability.CommandLogEntry {
+	t.Helper()
+	entries := logger.Snapshot()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want 1", len(entries))
+	}
+	return entries[0]
+}
+
+func decodePublicCommandLog(t *testing.T, entry observability.CommandLogEntry) ([]byte, map[string]any) {
+	t.Helper()
+	rawLog, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal log: %v", err)
+	}
+	var public map[string]any
+	if err := json.Unmarshal(rawLog, &public); err != nil {
+		t.Fatalf("decode public command log: %v", err)
+	}
+	return rawLog, public
+}
+
+func assertPublicCommandLogStringFields(t *testing.T, public map[string]any, want map[string]string, rawLog []byte) {
+	t.Helper()
+	for field, value := range want {
+		if public[field] != value {
+			t.Fatalf("command log field %s = %#v, want %q in %s", field, public[field], value, rawLog)
+		}
+	}
+}
+
+func assertPublicCommandLogDuration(t *testing.T, public map[string]any, want int64, rawLog []byte) {
+	t.Helper()
+	if public["duration_ms"] != float64(want) {
+		t.Fatalf("duration_ms = %#v, want %d in %s", public["duration_ms"], want, rawLog)
+	}
+}
+
+func assertPublicCommandLogRefIDs(t *testing.T, public map[string]any, wantReferenceID foundation.IdempotencyKey, rawLog []byte) {
+	t.Helper()
+	refIDs, ok := public["ref_ids"].([]any)
+	if !ok || len(refIDs) != 1 || refIDs[0] != wantReferenceID.String() {
+		t.Fatalf("ref_ids = %#v, want [%q] in %s", public["ref_ids"], wantReferenceID, rawLog)
+	}
+}
+
+func assertPublicCommandLogNoSecrets(t *testing.T, public map[string]any, rawLog []byte) {
+	t.Helper()
+	for _, field := range []string{"password", "password_hash", "session_token", "token", "cookie", "hash", "payload"} {
+		if _, ok := public[field]; ok {
+			t.Fatalf("command log exposed secret/payload field %q in %s", field, rawLog)
+		}
+		if strings.Contains(string(rawLog), field) {
+			t.Fatalf("command log leaked secret/payload marker %q in %s", field, rawLog)
+		}
 	}
 }
 

@@ -34,6 +34,7 @@ for critical state transitions.
 - [ ] `[P:wave2/lane-H]` Add structured logs with `player_id/session_id/request_id/op/idempotency_key/ref_ids/result/error_code/duration_ms` for critical transitions (no secrets/tokens).
   - Verified slice: `shop.buy_product` command logs now include request/player/session/op/result/error/duration/idempotency fields and reject secret payload leakage in focused tests.
   - Verified slice: `auth.register` and `auth.login` transition logs now include a safe request summary, player/session identity on success, result, error code, duration, and reject password/token/hash/cookie leakage in focused tests.
+  - Verified slice: `market.buy` and `market.cancel` command logs now include request/player/session/op/result/error/duration/idempotency/ref fields and reject secret payload leakage in focused tests.
 
 ## Server Ownership
 - Never log passwords, hashes, tokens, cookies, reset secrets (AGENTS.md).
@@ -44,7 +45,7 @@ for critical state transitions.
 - [x] Debug op is not registered in production protocol.
 - [x] A simulated telemetry write failure increments the telemetry-error counter.
 - [x] A `loot.pickup` command log entry includes request/idempotency fields, result, error code, duration, and no password/token/cookie/hash payload fields.
-- [ ] A market settlement emits one structured log with an idempotency key and no secrets.
+- [x] A market settlement emits one structured log with an idempotency key and no secrets.
 
 ## Done Criteria
 - [x] Unsafe production config cannot boot.

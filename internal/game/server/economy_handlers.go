@@ -354,6 +354,7 @@ func (runtime *Runtime) handleMarketCancel(ctx realtime.CommandContext, request 
 	result, err := runtime.Market.CancelListing(market.CancelListingInput{
 		SellerPlayerID: ctx.PlayerID,
 		ListingID:      listingID,
+		RequestID:      request.RequestID,
 	})
 	if err != nil {
 		return nil, domainErrorForEconomy(err)

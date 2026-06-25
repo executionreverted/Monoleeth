@@ -467,6 +467,92 @@ func TestRuntimeTickCollectionReachesOtherMapWhileRuntimeMutexHeld(t *testing.T)
 	<-holderDone
 }
 
+func TestCommandOnMapADoesNotBlockCommandOnMapBTiming(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	mapAPlayer := createResolvedRuntimeSession(t, gameServer, "command-map-a@example.com", "Command Map A")
+	mapBPlayer := createResolvedRuntimeSessionOnMap(t, gameServer, "command-map-b@example.com", "Command Map B", "map_1_2", "west_gate")
+
+	blockingMailbox := newBlockingRuntimeCommandMailbox()
+	gameServer.runtime.mu.Lock()
+	starter, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("starter instance: %v", err)
+	}
+	mapAEntity, ok := starter.Worker.PlayerEntity(mapAPlayer.PlayerID)
+	if !ok {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("starter worker missing player %q", mapAPlayer.PlayerID)
+	}
+	blockingWorker := newRuntimeBlockingCommandWorker(t, starter.Definition, blockingMailbox)
+	gameServer.runtime.mu.Unlock()
+
+	if err := blockingWorker.Submit(worker.SpawnPlayerCommand{
+		PlayerID:  mapAPlayer.PlayerID,
+		EntityID:  mapAEntity.ID,
+		Position:  mapAEntity.Position,
+		Speed:     defaultPlayerSpeed,
+		SessionID: realtime.SessionID(mapAPlayer.SessionID.String()),
+	}); err != nil {
+		t.Fatalf("Submit(spawn map A player) error = %v, want nil", err)
+	}
+	if result := blockingWorker.Tick(); len(result.CommandErrors) != 0 {
+		t.Fatalf("seed blocking worker command errors = %+v, want none", result.CommandErrors)
+	}
+
+	blockingMailbox.EnableBlock()
+	gameServer.runtime.mu.Lock()
+	starter, err = gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("starter instance after seed: %v", err)
+	}
+	starter.Worker = blockingWorker
+	gameServer.runtime.Worker = blockingWorker
+	gameServer.runtime.mu.Unlock()
+
+	mapADone := make(chan realtime.CachedResponse, 1)
+	go func() {
+		mapADone <- gameServer.runtime.Gateway.HandleRequest(
+			realtime.SessionID(mapAPlayer.SessionID.String()),
+			[]byte(`{"request_id":"request-map-a-blocking-stop","op":"stop","payload":{},"client_seq":1,"v":1}`),
+		)
+	}()
+
+	select {
+	case <-blockingMailbox.DrainEntered():
+	case <-time.After(time.Second):
+		t.Fatal("map A command did not reach blocking worker tick")
+	}
+
+	mapBDone := make(chan realtime.CachedResponse, 1)
+	go func() {
+		mapBDone <- gameServer.runtime.Gateway.HandleRequest(
+			realtime.SessionID(mapBPlayer.SessionID.String()),
+			[]byte(`{"request_id":"request-map-b-independent-stop","op":"stop","payload":{},"client_seq":1,"v":1}`),
+		)
+	}()
+
+	select {
+	case response := <-mapBDone:
+		if response.HasError {
+			t.Fatalf("map B stop response error = %+v, want success", response.Error)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("map B command waited behind blocked map A worker command")
+	}
+
+	blockingMailbox.Release()
+	select {
+	case response := <-mapADone:
+		if response.HasError {
+			t.Fatalf("map A stop response error = %+v, want success", response.Error)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("map A command did not finish after blocking worker release")
+	}
+}
+
 type runtimeTickProbeMailbox struct {
 	ticked chan struct{}
 	once   sync.Once
@@ -495,6 +581,81 @@ func newRuntimeTickProbeWorker(t *testing.T, definition worldmaps.MapDefinition,
 	})
 	if err != nil {
 		t.Fatalf("new tick probe worker for %q: %v", definition.InternalMapID, err)
+	}
+	return zoneWorker
+}
+
+type blockingRuntimeCommandMailbox struct {
+	mu           sync.Mutex
+	commands     []worker.Command
+	block        bool
+	drainEntered chan struct{}
+	release      chan struct{}
+	enterOnce    sync.Once
+	releaseOnce  sync.Once
+}
+
+func newBlockingRuntimeCommandMailbox() *blockingRuntimeCommandMailbox {
+	return &blockingRuntimeCommandMailbox{
+		commands:     make([]worker.Command, 0),
+		drainEntered: make(chan struct{}),
+		release:      make(chan struct{}),
+	}
+}
+
+func (mailbox *blockingRuntimeCommandMailbox) Submit(command worker.Command) error {
+	if command == nil {
+		return worker.ErrNilCommand
+	}
+	mailbox.mu.Lock()
+	defer mailbox.mu.Unlock()
+	mailbox.commands = append(mailbox.commands, command)
+	return nil
+}
+
+func (mailbox *blockingRuntimeCommandMailbox) Drain() []worker.Command {
+	mailbox.mu.Lock()
+	commands := append([]worker.Command(nil), mailbox.commands...)
+	clear(mailbox.commands)
+	mailbox.commands = mailbox.commands[:0]
+	shouldBlock := mailbox.block
+	mailbox.mu.Unlock()
+
+	if shouldBlock {
+		mailbox.enterOnce.Do(func() {
+			close(mailbox.drainEntered)
+		})
+		<-mailbox.release
+	}
+	return commands
+}
+
+func (mailbox *blockingRuntimeCommandMailbox) EnableBlock() {
+	mailbox.mu.Lock()
+	defer mailbox.mu.Unlock()
+	mailbox.block = true
+}
+
+func (mailbox *blockingRuntimeCommandMailbox) DrainEntered() <-chan struct{} {
+	return mailbox.drainEntered
+}
+
+func (mailbox *blockingRuntimeCommandMailbox) Release() {
+	mailbox.releaseOnce.Do(func() {
+		close(mailbox.release)
+	})
+}
+
+func newRuntimeBlockingCommandWorker(t *testing.T, definition worldmaps.MapDefinition, mailbox worker.Mailbox) *worker.Worker {
+	t.Helper()
+	zoneWorker, err := worker.NewWorker(worker.Config{
+		WorldID:   definition.WorldID,
+		ZoneID:    definition.ZoneID,
+		TickDelta: 50 * time.Millisecond,
+		Mailbox:   mailbox,
+	})
+	if err != nil {
+		t.Fatalf("new blocking command worker for %q: %v", definition.InternalMapID, err)
 	}
 	return zoneWorker
 }

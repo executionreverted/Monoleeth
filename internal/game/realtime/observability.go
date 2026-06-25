@@ -171,6 +171,38 @@ func commandLogReferenceID(ctx CommandContext, request RequestEnvelope) foundati
 		if err == nil {
 			return referenceID
 		}
+	case OperationMarketBuy:
+		listingID, ok := commandLogListingID(request.Payload)
+		if !ok {
+			return ""
+		}
+		referenceID, err := foundation.MarketBuyIdempotencyKey(listingID, ctx.PlayerID, request.RequestID)
+		if err == nil {
+			return referenceID
+		}
+	case OperationMarketCancel:
+		listingID, ok := commandLogListingID(request.Payload)
+		if !ok {
+			return ""
+		}
+		referenceID, err := foundation.MarketCancelIdempotencyKey(listingID)
+		if err == nil {
+			return referenceID
+		}
 	}
 	return ""
+}
+
+func commandLogListingID(payload json.RawMessage) (foundation.ListingID, bool) {
+	var body struct {
+		ListingID string `json:"listing_id"`
+	}
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return "", false
+	}
+	listingID, err := foundation.ParseListingID(body.ListingID)
+	if err != nil {
+		return "", false
+	}
+	return listingID, true
 }
