@@ -3,6 +3,7 @@ package worker
 import (
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -240,6 +241,87 @@ func TestStopCommandSettlesMovementAtServerTimedPosition(t *testing.T) {
 	}
 }
 
+func TestRefreshPlayerMovementPositionUsesCommandQueueWithoutStoppingRoute(t *testing.T) {
+	mailbox := &recordingCommandMailbox{}
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC))
+	zoneWorker, err := NewWorker(Config{
+		WorldID:   "world-1",
+		ZoneID:    "zone-1",
+		TickDelta: time.Second,
+		Clock:     clock,
+		Mailbox:   mailbox,
+	})
+	if err != nil {
+		t.Fatalf("NewWorker() error = %v", err)
+	}
+	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{}, 10)
+	target := world.Vec2{X: 100, Y: 0}
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, target),
+	}))
+	tickBefore := zoneWorker.Snapshot().Tick
+	mailbox.Reset()
+
+	clock.Advance(4 * time.Second)
+	if err := zoneWorker.RefreshPlayerMovementPosition("player-1"); err != nil {
+		t.Fatalf("RefreshPlayerMovementPosition() error = %v, want nil", err)
+	}
+
+	submitted := mailbox.Submitted()
+	if len(submitted) != 1 {
+		t.Fatalf("submitted commands = %#v, want one refresh command", submitted)
+	}
+	if _, ok := submitted[0].(RefreshPlayerMovementPositionCommand); !ok {
+		t.Fatalf("submitted command type = %T, want RefreshPlayerMovementPositionCommand", submitted[0])
+	}
+	entity, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() ok = false, want true")
+	}
+	assertVecNear(t, entity.Position, world.Vec2{X: 40, Y: 0})
+	if !entity.Movement.Moving {
+		t.Fatalf("movement = %+v, want route still active", entity.Movement)
+	}
+	if entity.Movement.Target != target {
+		t.Fatalf("movement target = %+v, want %+v", entity.Movement.Target, target)
+	}
+	if tickAfter := zoneWorker.Snapshot().Tick; tickAfter != tickBefore {
+		t.Fatalf("worker tick = %d, want unchanged %d", tickAfter, tickBefore)
+	}
+
+	assertNoCommandErrors(t, zoneWorker.Tick())
+	advanced, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() after tick ok = false, want true")
+	}
+	assertVecNear(t, advanced.Position, world.Vec2{X: 50, Y: 0})
+}
+
+func TestRefreshPlayerMovementPositionCommandDrainedByTickDoesNotDoubleAdvance(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+	clock := zoneWorker.clock.(*testutil.FakeClock)
+	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{}, 10)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, world.Vec2{X: 100, Y: 0}),
+	}))
+
+	clock.Advance(4 * time.Second)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, RefreshPlayerMovementPositionCommand{
+		PlayerID: "player-1",
+	}))
+
+	entity, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() ok = false, want true")
+	}
+	assertVecNear(t, entity.Position, world.Vec2{X: 40, Y: 0})
+	if !entity.Movement.Moving {
+		t.Fatalf("movement = %+v, want route still active", entity.Movement)
+	}
+}
+
 func TestSettleAndDetachSessionStopsMovementAtServerTimedPosition(t *testing.T) {
 	zoneWorker := newTestWorker(t, time.Second)
 	clock := zoneWorker.clock.(*testutil.FakeClock)
@@ -418,4 +500,52 @@ func TestTickReportsSpatialUpdateFailureDuringMovement(t *testing.T) {
 	if after.Position != before.Position {
 		t.Fatalf("position mutated after failed spatial update: got %+v, want %+v", after.Position, before.Position)
 	}
+}
+
+type recordingCommandMailbox struct {
+	mu        sync.Mutex
+	commands  []Command
+	submitted []Command
+}
+
+func (mailbox *recordingCommandMailbox) Submit(command Command) error {
+	if command == nil {
+		return ErrNilCommand
+	}
+	mailbox.mu.Lock()
+	defer mailbox.mu.Unlock()
+
+	mailbox.commands = append(mailbox.commands, command)
+	mailbox.submitted = append(mailbox.submitted, command)
+	return nil
+}
+
+func (mailbox *recordingCommandMailbox) Drain() []Command {
+	mailbox.mu.Lock()
+	defer mailbox.mu.Unlock()
+
+	if len(mailbox.commands) == 0 {
+		return nil
+	}
+	commands := append([]Command(nil), mailbox.commands...)
+	clear(mailbox.commands)
+	mailbox.commands = mailbox.commands[:0]
+	return commands
+}
+
+func (mailbox *recordingCommandMailbox) Reset() {
+	mailbox.mu.Lock()
+	defer mailbox.mu.Unlock()
+
+	clear(mailbox.commands)
+	mailbox.commands = mailbox.commands[:0]
+	clear(mailbox.submitted)
+	mailbox.submitted = mailbox.submitted[:0]
+}
+
+func (mailbox *recordingCommandMailbox) Submitted() []Command {
+	mailbox.mu.Lock()
+	defer mailbox.mu.Unlock()
+
+	return append([]Command(nil), mailbox.submitted...)
 }

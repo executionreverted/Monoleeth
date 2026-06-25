@@ -172,6 +172,16 @@ func (command StopCommand) apply(worker *Worker) error {
 	return worker.stopPlayer(command.PlayerID)
 }
 
+// RefreshPlayerMovementPositionCommand settles one moving player to the
+// worker-owned clock while preserving the active movement route.
+type RefreshPlayerMovementPositionCommand struct {
+	PlayerID foundation.PlayerID
+}
+
+func (command RefreshPlayerMovementPositionCommand) apply(worker *Worker) error {
+	return worker.refreshPlayerMovementPositionFromCommand(command.PlayerID)
+}
+
 // SetPlayerSpeedCommand changes a player's authoritative movement speed.
 type SetPlayerSpeedCommand struct {
 	PlayerID foundation.PlayerID

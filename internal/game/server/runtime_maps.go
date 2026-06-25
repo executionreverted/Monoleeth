@@ -74,7 +74,10 @@ func (runtime *Runtime) refreshPlayerMovementPositionLocked(playerID foundation.
 	if err != nil {
 		return err
 	}
-	return instance.Worker.RefreshPlayerMovementPosition(playerID)
+	if err := instance.Worker.Submit(worker.RefreshPlayerMovementPositionCommand{PlayerID: playerID}); err != nil {
+		return err
+	}
+	return commandErrors(instance.Worker.FlushCommands())
 }
 
 func (runtime *Runtime) mapInstanceForLocationLocked(location worldmaps.PlayerMapLocation) (*mapInstance, error) {

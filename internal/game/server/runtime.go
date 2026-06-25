@@ -194,6 +194,7 @@ type Runtime struct {
 	walletStoreCloser              func() error
 	inventoryStoreCloser           func() error
 	progressionStoreCloser         func() error
+	economyStoreCloser             func() error
 	hangarStoreCloser              func() error
 	loadoutStoreCloser             func() error
 
@@ -235,6 +236,12 @@ type runtimeContentVersionStore interface {
 	admin.ContentPublisher
 	admin.ContentSnapshotReader
 	admin.ContentAuditStore
+}
+
+type runtimeEconomyStores struct {
+	idempotency      economy.IdempotencyStore
+	outbox           economy.OutboxStore
+	marketRepository market.MarketListingRepository
 }
 
 func loadRuntimeContent(ctx context.Context, config RuntimeConfig) (gamecontent.GameplayContent, error) {
@@ -353,6 +360,11 @@ func (runtime *Runtime) Close() error {
 		closeProgressionStore := runtime.progressionStoreCloser
 		runtime.progressionStoreCloser = nil
 		errs = append(errs, closeProgressionStore())
+	}
+	if runtime.economyStoreCloser != nil {
+		closeEconomyStore := runtime.economyStoreCloser
+		runtime.economyStoreCloser = nil
+		errs = append(errs, closeEconomyStore())
 	}
 	if runtime.hangarStoreCloser != nil {
 		closeHangarStore := runtime.hangarStoreCloser
@@ -607,6 +619,47 @@ func loadRuntimeLoadoutStore(
 	return runtimeDurableLoadoutStore{LoadoutStore: loadoutStore}, closeStore, nil
 }
 
+func loadRuntimeEconomyStores(ctx context.Context, config RuntimeConfig) (runtimeEconomyStores, func() error, error) {
+	contentConfig := runtimeCoreStoreDBConfig(config)
+	if err := contentConfig.Validate(); err != nil {
+		return runtimeEconomyStores{}, nil, err
+	}
+	if !contentConfig.Enabled() {
+		return runtimeEconomyStores{}, nil, nil
+	}
+	openStore := config.contentDBOpen
+	if openStore == nil {
+		openStore = defaultRuntimeContentDBOpen
+	}
+	store, err := openStore(ctx, contentConfig)
+	if err != nil {
+		return runtimeEconomyStores{}, nil, err
+	}
+	if store == nil {
+		return runtimeEconomyStores{}, nil, contentdb.ErrNilDatabase
+	}
+	closeStore := func() error { return store.Close() }
+	if err := store.Migrate(ctx, contentConfig.Migrations); err != nil {
+		_ = closeStore()
+		return runtimeEconomyStores{}, nil, fmt.Errorf("migrate economy db: %w", err)
+	}
+	contentStore, ok := store.(*contentdb.Store)
+	if !ok {
+		_ = closeStore()
+		return runtimeEconomyStores{}, nil, fmt.Errorf("economy db store %T: %w", store, contentdb.ErrNilDatabase)
+	}
+	marketRepository, err := contentdb.NewMarketListingStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return runtimeEconomyStores{}, nil, err
+	}
+	return runtimeEconomyStores{
+		idempotency:      contentStore,
+		outbox:           contentStore,
+		marketRepository: marketRepository,
+	}, closeStore, nil
+}
+
 func runtimeCoreStoreDBConfig(config RuntimeConfig) contentdb.Config {
 	contentConfig := config.ContentDB.WithDefaults()
 	mode := config.CoreStoreMode
@@ -770,6 +823,31 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		}
 		return nil, err
 	}
+	economyStores, economyStoreCloser, err := loadRuntimeEconomyStores(context.Background(), config)
+	if err != nil {
+		if progressionStoreCloser != nil {
+			_ = progressionStoreCloser()
+		}
+		if inventoryStoreCloser != nil {
+			_ = inventoryStoreCloser()
+		}
+		if walletStoreCloser != nil {
+			_ = walletStoreCloser()
+		}
+		if authStoreCloser != nil {
+			_ = authStoreCloser()
+		}
+		if contentAdminCloser != nil {
+			_ = contentAdminCloser()
+		}
+		return nil, err
+	}
+	closeEconomyStoreOnError := true
+	defer func() {
+		if closeEconomyStoreOnError && economyStoreCloser != nil {
+			_ = economyStoreCloser()
+		}
+	}()
 	mapCatalog := contentBundle.Maps
 	mapRouter, err := worldmaps.NewRouter(mapCatalog)
 	if err != nil {
@@ -913,6 +991,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Clock:       clock,
 		Cargo:       cargoService,
 		Progression: progressionService,
+		XPOutbox:    economyStores.outbox,
 		PickupRange: contentBundle.Combat.LootPickupRange,
 	})
 	if err != nil {
@@ -999,21 +1078,29 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	inventory.SetCargoTransferGuard(deathService)
 	cargoService.SetCargoTransferGuard(deathService)
 	marketService, err := market.NewMarketService(market.MarketServiceConfig{
-		Clock:     clock,
-		Inventory: inventory,
-		Wallet:    walletService,
+		Clock:             clock,
+		Inventory:         inventory,
+		Wallet:            walletService,
+		ListingRepository: economyStores.marketRepository,
+		IdempotencyStore:  economyStores.idempotency,
+		OutboxStore:       economyStores.outbox,
 	})
 	if err != nil {
 		return nil, err
 	}
 	auctionService, err := auction.NewService(auction.ServiceConfig{
-		Clock:  clock,
-		Wallet: walletService,
+		Clock:            clock,
+		Wallet:           walletService,
+		IdempotencyStore: economyStores.idempotency,
 	})
 	if err != nil {
 		return nil, err
 	}
-	premiumService, err := premium.NewPremiumEntitlementService(walletService, clock)
+	premiumService, err := premium.NewPremiumEntitlementServiceWithConfig(premium.PremiumEntitlementServiceConfig{
+		Wallet:           walletService,
+		Clock:            clock,
+		IdempotencyStore: economyStores.idempotency,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1114,6 +1201,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		walletStoreCloser:              walletStoreCloser,
 		inventoryStoreCloser:           inventoryStoreCloser,
 		progressionStoreCloser:         progressionStoreCloser,
+		economyStoreCloser:             economyStoreCloser,
 		hangarStoreCloser:              hangarStoreCloser,
 		loadoutStoreCloser:             loadoutStoreCloser,
 		combatXP:                       combatXP,
@@ -1217,6 +1305,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	runtime.Gateway = gateway
 	closeHangarStoreOnError = false
 	closeLoadoutStoreOnError = false
+	closeEconomyStoreOnError = false
 	return runtime, nil
 }
 

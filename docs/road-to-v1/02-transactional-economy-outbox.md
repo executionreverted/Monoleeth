@@ -33,6 +33,14 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0527: runtime core-store mode now opens a contentdb-backed
+  economy store and injects it into market listing snapshots,
+  market idempotency/outbox, auction idempotency, premium idempotency, and loot
+  XP outbox wiring. Dev fallback/no core DB keeps the prior nil-store behavior.
+  Focused runtime smoke asserts nil stores in dev fallback and concrete
+  contentdb store injection in Postgres core-store mode when
+  `GAME_CONTENT_DATABASE_URL` is available. Full single-transaction settlement
+  and after-commit publisher coverage remain open under the broader P02 tasks.
 - 2026-06-25 TASK-0522: `MarketService` now accepts an optional
   `MarketListingRepository` snapshot seam, and contentdb `MarketListingStore`
   satisfies it. `CreateListing` saves the active listing snapshot, while

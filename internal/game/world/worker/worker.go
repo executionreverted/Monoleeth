@@ -78,6 +78,9 @@ type Worker struct {
 	sessionPlayers        map[realtime.SessionID]foundation.PlayerID
 	playerSessions        map[foundation.PlayerID]map[realtime.SessionID]struct{}
 	enemyTelemetry        []EnemyLifecycleTelemetry
+	// movementAdvanceSuppressed is a per-tick guard for commands that already
+	// settle an entity to the authoritative clock.
+	movementAdvanceSuppressed map[world.EntityID]struct{}
 
 	scheduler             delayedScheduler
 	scheduledTaskHandlers []ScheduledTaskHandler
@@ -224,6 +227,9 @@ func (worker *Worker) Tick() TickResult {
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
 
+	worker.resetMovementAdvanceSuppression()
+	defer worker.clearMovementAdvanceSuppression()
+
 	worker.resetEnemyLifecycleTelemetry()
 	result := TickResult{
 		Tick:            worker.tick + 1,
@@ -231,15 +237,7 @@ func (worker *Worker) Tick() TickResult {
 		CommandErrors:   make([]CommandError, 0),
 	}
 
-	for index, command := range commands {
-		if command == nil {
-			result.CommandErrors = append(result.CommandErrors, CommandError{Index: index, Err: ErrNilCommand})
-			continue
-		}
-		if err := command.apply(worker); err != nil {
-			result.CommandErrors = append(result.CommandErrors, CommandError{Index: index, Err: err})
-		}
-	}
+	worker.applyCommandsLocked(&result, commands)
 
 	result.CommandErrors = append(result.CommandErrors, worker.advanceMovement()...)
 	result.CommandErrors = append(result.CommandErrors, worker.tickEnemySpawner()...)
@@ -264,6 +262,26 @@ func (worker *Worker) Run(ctx context.Context) error {
 			worker.Tick()
 		}
 	}
+}
+
+// FlushCommands drains queued commands through the worker-owned mailbox without
+// advancing simulation movement, enemy AI, scheduled tasks, or the tick number.
+func (worker *Worker) FlushCommands() TickResult {
+	commands := worker.mailbox.Drain()
+
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+
+	worker.resetMovementAdvanceSuppression()
+	defer worker.clearMovementAdvanceSuppression()
+
+	result := TickResult{
+		Tick:            worker.tick,
+		DrainedCommands: len(commands),
+		CommandErrors:   make([]CommandError, 0),
+	}
+	worker.applyCommandsLocked(&result, commands)
+	return result
 }
 
 // Entity returns a copy of the server-owned entity state.
@@ -325,12 +343,16 @@ func (worker *Worker) PlayerEntity(playerID foundation.PlayerID) (world.Entity, 
 }
 
 // RefreshPlayerMovementPosition advances a moving player's stored position to
-// the worker clock without clearing an in-flight route.
+// the worker clock through the command queue without clearing an in-flight route.
 func (worker *Worker) RefreshPlayerMovementPosition(playerID foundation.PlayerID) error {
-	worker.mu.Lock()
-	defer worker.mu.Unlock()
-
-	return worker.refreshPlayerMovementPosition(playerID, false)
+	if err := worker.Submit(RefreshPlayerMovementPositionCommand{PlayerID: playerID}); err != nil {
+		return err
+	}
+	result := worker.FlushCommands()
+	if len(result.CommandErrors) > 0 {
+		return result.CommandErrors[0].Err
+	}
+	return nil
 }
 
 // AttachedPlayer returns the player currently associated with sessionID.
@@ -499,6 +521,18 @@ func (worker *Worker) scheduledTaskHandler(kind string) (ScheduledTaskHandler, b
 		}
 	}
 	return nil, false
+}
+
+func (worker *Worker) applyCommandsLocked(result *TickResult, commands []Command) {
+	for index, command := range commands {
+		if command == nil {
+			result.CommandErrors = append(result.CommandErrors, CommandError{Index: index, Err: ErrNilCommand})
+			continue
+		}
+		if err := command.apply(worker); err != nil {
+			result.CommandErrors = append(result.CommandErrors, CommandError{Index: index, Err: err})
+		}
+	}
 }
 
 func (worker *Worker) insertEntity(entity world.Entity, serverSpeed float64) error {
@@ -676,6 +710,14 @@ func (worker *Worker) settlePlayerMovement(playerID foundation.PlayerID) error {
 }
 
 func (worker *Worker) refreshPlayerMovementPosition(playerID foundation.PlayerID, stop bool) error {
+	return worker.refreshPlayerMovementPositionWithOptions(playerID, stop, false)
+}
+
+func (worker *Worker) refreshPlayerMovementPositionFromCommand(playerID foundation.PlayerID) error {
+	return worker.refreshPlayerMovementPositionWithOptions(playerID, false, true)
+}
+
+func (worker *Worker) refreshPlayerMovementPositionWithOptions(playerID foundation.PlayerID, stop bool, suppressTickAdvance bool) error {
 	entity, err := worker.playerEntityForMutation(playerID)
 	if err != nil {
 		return err
@@ -693,6 +735,9 @@ func (worker *Worker) refreshPlayerMovementPosition(playerID foundation.PlayerID
 		return err
 	}
 	worker.entities[entity.ID] = entity
+	if suppressTickAdvance {
+		worker.suppressMovementAdvance(entity.ID)
+	}
 	return nil
 }
 
@@ -777,6 +822,9 @@ func (worker *Worker) advanceMovement() []CommandError {
 	})
 
 	for _, entityID := range entityIDs {
+		if worker.isMovementAdvanceSuppressed(entityID) {
+			continue
+		}
 		entity := worker.entities[entityID]
 		if !entity.Movement.Moving {
 			continue
@@ -797,6 +845,30 @@ func (worker *Worker) advanceMovement() []CommandError {
 		worker.entities[entityID] = entity
 	}
 	return movementErrors
+}
+
+func (worker *Worker) resetMovementAdvanceSuppression() {
+	if worker.movementAdvanceSuppressed == nil {
+		worker.movementAdvanceSuppressed = make(map[world.EntityID]struct{})
+		return
+	}
+	clear(worker.movementAdvanceSuppressed)
+}
+
+func (worker *Worker) clearMovementAdvanceSuppression() {
+	clear(worker.movementAdvanceSuppressed)
+}
+
+func (worker *Worker) suppressMovementAdvance(entityID world.EntityID) {
+	if worker.movementAdvanceSuppressed == nil {
+		worker.movementAdvanceSuppressed = make(map[world.EntityID]struct{})
+	}
+	worker.movementAdvanceSuppressed[entityID] = struct{}{}
+}
+
+func (worker *Worker) isMovementAdvanceSuppressed(entityID world.EntityID) bool {
+	_, ok := worker.movementAdvanceSuppressed[entityID]
+	return ok
 }
 
 func (worker *Worker) validateOwnedEntity(entity world.Entity) error {

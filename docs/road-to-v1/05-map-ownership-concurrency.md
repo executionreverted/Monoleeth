@@ -50,6 +50,10 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
   `worker.RemoveEntityCommand` through the source worker queue instead of
   calling `Worker.RemoveEntity` directly. Covered by
   `TestPortalEnterRemovesSourcePlayerThroughWorkerCommandQueue`.
+- Progress: runtime movement refresh now submits
+  `worker.RefreshPlayerMovementPositionCommand` through the owning worker queue
+  and flushes queued commands without running a full simulation tick. Covered by
+  `TestRefreshPlayerMovementPositionUsesCommandQueueWithoutStoppingRoute`.
 
 ## Smoke Tests (one assertion each)
 - [x] Command on map A does not block a command on map B (timing assertion).

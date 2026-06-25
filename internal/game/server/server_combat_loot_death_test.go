@@ -277,15 +277,16 @@ func TestLootPickupRemovesDropThroughWorkerCommandQueue(t *testing.T) {
 	}
 
 	submitted := mailbox.Submitted()
-	if len(submitted) != 1 {
-		t.Fatalf("submitted worker commands = %#v, want one remove command", submitted)
+	var foundRemove bool
+	for _, command := range submitted {
+		remove, ok := command.(worker.RemoveEntityCommand)
+		if ok && remove.EntityID == drop.ID {
+			foundRemove = true
+			break
+		}
 	}
-	remove, ok := submitted[0].(worker.RemoveEntityCommand)
-	if !ok {
-		t.Fatalf("submitted command type = %T, want worker.RemoveEntityCommand", submitted[0])
-	}
-	if remove.EntityID != drop.ID {
-		t.Fatalf("remove command entity = %q, want %q", remove.EntityID, drop.ID)
+	if !foundRemove {
+		t.Fatalf("submitted worker commands = %#v, want remove command for %q", submitted, drop.ID)
 	}
 
 	gameServer.runtime.mu.Lock()
@@ -299,6 +300,66 @@ func TestLootPickupRemovesDropThroughWorkerCommandQueue(t *testing.T) {
 	}
 	if !instance.HiddenEntities[drop.ID] {
 		t.Fatalf("drop entity %q not hidden after pickup", drop.ID)
+	}
+}
+
+func TestRuntimeRefreshPlayerMovementPositionUsesWorkerCommandQueue(t *testing.T) {
+	gameServer, httpServer, clock := newTestServerWithFakeClock(t)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSession(t, gameServer, "refresh-command@example.com", "Refresh Command")
+
+	var mailbox *recordingWorkerMailbox
+	var expectedPosition world.Vec2
+	var refreshed world.Entity
+	func() {
+		gameServer.runtime.mu.Lock()
+		defer gameServer.runtime.mu.Unlock()
+
+		instance, _, err := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+		if err != nil {
+			t.Fatalf("active map instance: %v", err)
+		}
+		mailbox = replaceActiveMapWorkerWithRecordingMailboxLocked(t, gameServer, instance, resolved.PlayerID, resolved.SessionID)
+		if err := instance.Worker.Submit(worker.MoveToCommand{
+			PlayerID: resolved.PlayerID,
+			Intent:   mustMovementIntentForServerTest(t, world.Vec2{X: 10_000, Y: 0}),
+		}); err != nil {
+			t.Fatalf("Submit(move) error = %v, want nil", err)
+		}
+		if err := commandErrors(instance.Worker.Tick()); err != nil {
+			t.Fatalf("move tick error = %v, want nil", err)
+		}
+		moving, ok := instance.Worker.PlayerEntity(resolved.PlayerID)
+		if !ok {
+			t.Fatalf("player entity for %q missing", resolved.PlayerID)
+		}
+		observedAt := clock.Advance(250 * time.Millisecond)
+		expectedPosition, _ = world.MovementPositionAt(moving.Movement, observedAt)
+		mailbox.Reset()
+
+		if err := gameServer.runtime.refreshPlayerMovementPositionLocked(resolved.PlayerID); err != nil {
+			t.Fatalf("refreshPlayerMovementPositionLocked() error = %v, want nil", err)
+		}
+		refreshed, ok = instance.Worker.PlayerEntity(resolved.PlayerID)
+		if !ok {
+			t.Fatalf("refreshed player entity for %q missing", resolved.PlayerID)
+		}
+	}()
+
+	submitted := mailbox.Submitted()
+	if len(submitted) != 1 {
+		t.Fatalf("submitted worker commands = %#v, want one refresh command", submitted)
+	}
+	refresh, ok := submitted[0].(worker.RefreshPlayerMovementPositionCommand)
+	if !ok {
+		t.Fatalf("submitted command type = %T, want worker.RefreshPlayerMovementPositionCommand", submitted[0])
+	}
+	if refresh.PlayerID != resolved.PlayerID {
+		t.Fatalf("refresh command player = %q, want %q", refresh.PlayerID, resolved.PlayerID)
+	}
+	assertServerVecNear(t, refreshed.Position, expectedPosition)
+	if !refreshed.Movement.Moving {
+		t.Fatalf("refreshed movement = %+v, want route still active", refreshed.Movement)
 	}
 }
 
