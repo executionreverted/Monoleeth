@@ -3,17 +3,21 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
 
+	"gameproject/internal/game/auth"
 	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/economy"
 	gameevents "gameproject/internal/game/events"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/progression"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/worker"
 )
@@ -294,7 +298,7 @@ func TestRepairQuoteAndRepairUseServerOwnedActiveShip(t *testing.T) {
 	defer conn.CloseNow()
 	readBootstrapEvents(t, conn)
 	resolved := resolvedSessionForCookie(t, gameServer, cookie)
-	setTestShipDisabled(gameServer, resolved.PlayerID, true)
+	disableActiveShipForRepairTest(t, gameServer, resolved.PlayerID)
 
 	quote := requestRepairQuoteForTest(t, conn, "request-repair-quote", 1)
 	if !quote.Disabled || quote.ShipID != starterShipID.String() || quote.Cost != 0 {
@@ -381,6 +385,98 @@ func TestDeathRepairShipRejectsTamperedRepairQuote(t *testing.T) {
 	}
 }
 
+func TestDeathRepairShipInsufficientWalletLeavesShipDisabled(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "paid-repair-insufficient@example.com", "Paid Repair Insufficient")
+	activateRepairTestShip(t, gameServer, resolved.PlayerID, ships.ShipIDFighterT1)
+	disableActiveShipForRepairTest(t, gameServer, resolved.PlayerID)
+	quote := issueRepairQuoteForTest(t, gameServer, resolved.PlayerID)
+	drainRepairTestWalletBelowCost(t, gameServer, resolved.PlayerID, quote.Cost)
+	requestID := foundation.RequestID("request-paid-repair-insufficient")
+	referenceKey := repairReferenceForTest(t, resolved.PlayerID, quote, requestID)
+
+	_, err := handleDeathRepairShipForTest(t, gameServer, resolved, requestID, quote)
+	var domainErr *foundation.DomainError
+	if !errors.As(err, &domainErr) || domainErr.Code != foundation.CodeNotEnoughFunds {
+		t.Fatalf("insufficient repair error = %v, want %s", err, foundation.CodeNotEnoughFunds)
+	}
+	state := testPlayerState(t, gameServer, resolved.PlayerID)
+	if !state.Ship.Disabled || state.Ship.RepairState != "disabled" {
+		t.Fatalf("runtime ship after insufficient repair = %+v, want disabled", state.Ship)
+	}
+	assertRepairTestHangarShipState(t, gameServer, resolved.PlayerID, ships.ShipIDFighterT1, ships.ShipStateDisabled)
+	if got := countRepairDebitLedgerEntriesForTest(gameServer, resolved.PlayerID, referenceKey); got != 0 {
+		t.Fatalf("repair debit ledger entries = %d, want 0", got)
+	}
+}
+
+func TestDeathRepairShipDebitsWalletAndReenablesHangarShip(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "paid-repair-success@example.com", "Paid Repair Success")
+	activateRepairTestShip(t, gameServer, resolved.PlayerID, ships.ShipIDFighterT1)
+	disableActiveShipForRepairTest(t, gameServer, resolved.PlayerID)
+	quote := issueRepairQuoteForTest(t, gameServer, resolved.PlayerID)
+	requestID := foundation.RequestID("request-paid-repair-success")
+	referenceKey := repairReferenceForTest(t, resolved.PlayerID, quote, requestID)
+	beforeCredits := gameServer.runtime.Wallet.Balance(resolved.PlayerID, economy.CurrencyBucketCredits)
+
+	raw, err := handleDeathRepairShipForTest(t, gameServer, resolved, requestID, quote)
+	if err != nil {
+		t.Fatalf("paid repair error = %v cause %v, want nil", err, errors.Unwrap(err))
+	}
+	var payload repairShipResponseForTest
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode paid repair payload: %v", err)
+	}
+	if !payload.Accepted || !payload.Repaired || payload.Ship.Disabled || payload.Ship.RepairState != "ready" {
+		t.Fatalf("paid repair payload = %+v, want repaired ready ship", payload)
+	}
+	if payload.Wallet.Credits != beforeCredits-quote.Cost {
+		t.Fatalf("paid repair wallet credits = %d, want %d", payload.Wallet.Credits, beforeCredits-quote.Cost)
+	}
+	assertRepairTestHangarShipState(t, gameServer, resolved.PlayerID, ships.ShipIDFighterT1, ships.ShipStateActive)
+	if got := countRepairDebitLedgerEntriesForTest(gameServer, resolved.PlayerID, referenceKey); got != 1 {
+		t.Fatalf("repair debit ledger entries = %d, want 1", got)
+	}
+}
+
+func TestDeathRepairShipDuplicateReferenceDoesNotDoubleDebitWallet(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "paid-repair-duplicate@example.com", "Paid Repair Duplicate")
+	activateRepairTestShip(t, gameServer, resolved.PlayerID, ships.ShipIDFighterT1)
+	disableActiveShipForRepairTest(t, gameServer, resolved.PlayerID)
+	quote := issueRepairQuoteForTest(t, gameServer, resolved.PlayerID)
+	requestID := foundation.RequestID("request-paid-repair-duplicate")
+	referenceKey := repairReferenceForTest(t, resolved.PlayerID, quote, requestID)
+
+	if _, err := handleDeathRepairShipForTest(t, gameServer, resolved, requestID, quote); err != nil {
+		t.Fatalf("first paid repair error = %v cause %v, want nil", err, errors.Unwrap(err))
+	}
+	creditsAfterFirst := gameServer.runtime.Wallet.Balance(resolved.PlayerID, economy.CurrencyBucketCredits)
+	rawDuplicate, err := handleDeathRepairShipForTest(t, gameServer, resolved, requestID, quote)
+	if err != nil {
+		t.Fatalf("duplicate paid repair error = %v, want nil", err)
+	}
+	var duplicate struct {
+		Accepted  bool `json:"accepted"`
+		Duplicate bool `json:"duplicate"`
+		Repaired  bool `json:"repaired"`
+		Wallet    walletSnapshotPayload
+	}
+	if err := json.Unmarshal(rawDuplicate, &duplicate); err != nil {
+		t.Fatalf("decode duplicate paid repair payload: %v", err)
+	}
+	if !duplicate.Accepted || !duplicate.Duplicate || !duplicate.Repaired {
+		t.Fatalf("duplicate paid repair payload = %+v, want cached repaired duplicate", duplicate)
+	}
+	if duplicate.Wallet.Credits != creditsAfterFirst {
+		t.Fatalf("duplicate paid repair wallet credits = %d, want unchanged %d", duplicate.Wallet.Credits, creditsAfterFirst)
+	}
+	if got := countRepairDebitLedgerEntriesForTest(gameServer, resolved.PlayerID, referenceKey); got != 1 {
+		t.Fatalf("repair debit ledger entries after duplicate = %d, want 1", got)
+	}
+}
+
 func requestRepairQuoteForTest(t *testing.T, conn *websocket.Conn, requestID string, clientSeq int) repairQuotePayload {
 	t.Helper()
 	envelope := map[string]any{
@@ -450,6 +546,186 @@ func assertRepairQuoteBoundForTest(t *testing.T, quote repairQuotePayload) {
 	if quote.QuoteID == "" || quote.IssuedAtMS <= 0 || quote.ExpiresAtMS <= quote.IssuedAtMS {
 		t.Fatalf("repair quote = %+v, want token and server expiry", quote)
 	}
+}
+
+func activateRepairTestShip(t *testing.T, gameServer *Server, playerID foundation.PlayerID, shipID foundation.ShipID) {
+	t.Helper()
+	rankRepairTestPlayerForShipActivation(t, gameServer, playerID)
+	unequipStarterLaserForTest(t, gameServer, playerID)
+
+	func() {
+		gameServer.runtime.mu.Lock()
+		defer gameServer.runtime.mu.Unlock()
+		if _, err := gameServer.runtime.Hangar.UnlockShip(ships.UnlockShipInput{PlayerID: playerID, ShipID: shipID}); err != nil {
+			t.Fatalf("UnlockShip(%q) error = %v, want nil", shipID, err)
+		}
+		if _, err := gameServer.runtime.Hangar.SetActiveShip(ships.SetActiveShipInput{
+			PlayerID: playerID,
+			ShipID:   shipID,
+			Context:  gameServer.runtime.shipSwapContextLocked(playerID),
+		}); err != nil {
+			t.Fatalf("SetActiveShip(%q) error = %v, want nil", shipID, err)
+		}
+		if err := gameServer.runtime.applyActiveShipLocked(playerID, shipID); err != nil {
+			t.Fatalf("applyActiveShipLocked(%q) error = %v, want nil", shipID, err)
+		}
+	}()
+	equipStarterLaserForTest(t, gameServer, playerID)
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	if err := gameServer.runtime.refreshPlayerCombatStatsPayloadLocked(playerID); err != nil {
+		equipped, _ := gameServer.runtime.LoadoutStore.EquippedModules(playerID, shipID)
+		t.Fatalf("refresh combat stats after repair test equip = %v, equipped=%+v", err, equipped)
+	}
+}
+
+func rankRepairTestPlayerForShipActivation(t *testing.T, gameServer *Server, playerID foundation.PlayerID) {
+	t.Helper()
+	questSourceID := progression.XPSourceID("player_quest_starter_1")
+	if _, err := gameServer.runtime.Progression.GrantXP(progression.GrantXPInput{
+		PlayerID:       playerID,
+		Amount:         100,
+		SourceType:     progression.XPSourceTypeQuest,
+		SourceID:       questSourceID,
+		IdempotencyKey: progression.XPIdempotencyKey("quest_reward:" + questSourceID.String()),
+		Authority:      progression.XPGrantAuthorityQuestService,
+	}); err != nil {
+		t.Fatalf("GrantXP(rank repair test) error = %v, want nil", err)
+	}
+	result, err := gameServer.runtime.Progression.TryRankUp(progression.TryRankUpInput{
+		PlayerID:       playerID,
+		TargetRank:     2,
+		Reason:         "repair_test_rank_2",
+		IdempotencyKey: progression.XPIdempotencyKey("repair_test_rank_up_" + playerID.String()),
+	})
+	if err != nil {
+		t.Fatalf("TryRankUp(rank repair test) error = %v, want nil", err)
+	}
+	if !result.RankedUp && !result.AlreadyAtRank && !result.Duplicate {
+		t.Fatalf("TryRankUp(rank repair test) missing = %+v, want rank 2", result.MissingRequirements)
+	}
+
+	gameServer.runtime.mu.Lock()
+	state := gameServer.runtime.players[playerID]
+	state.Rank = 2
+	gameServer.runtime.players[playerID] = state
+	gameServer.runtime.mu.Unlock()
+}
+
+func disableActiveShipForRepairTest(t *testing.T, gameServer *Server, playerID foundation.PlayerID) {
+	t.Helper()
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	if _, err := gameServer.runtime.Hangar.DisableActiveShipForDeath(ships.DisableActiveShipForDeathInput{PlayerID: playerID}); err != nil {
+		t.Fatalf("DisableActiveShipForDeath() error = %v, want nil", err)
+	}
+	state := gameServer.runtime.players[playerID]
+	state.Ship.Disabled = true
+	state.Ship.RepairState = "disabled"
+	state.Ship.Hull = 0
+	state.Ship.Shield = 0
+	state.Ship.Capacitor = 0
+	gameServer.runtime.players[playerID] = state
+}
+
+func drainRepairTestWalletBelowCost(t *testing.T, gameServer *Server, playerID foundation.PlayerID, cost int64) {
+	t.Helper()
+	if cost <= 0 {
+		t.Fatalf("repair cost = %d, want paid repair cost", cost)
+	}
+	current := gameServer.runtime.Wallet.Balance(playerID, economy.CurrencyBucketCredits)
+	target := cost - 1
+	debit := current - target
+	if debit <= 0 {
+		t.Fatalf("wallet credits = %d, repair cost = %d, cannot drain below cost", current, cost)
+	}
+	referenceKey, err := foundation.QuestRewardIdempotencyKey(foundation.QuestID("repair_test_wallet_drain"))
+	if err != nil {
+		t.Fatalf("QuestRewardIdempotencyKey(repair drain) error = %v", err)
+	}
+	if _, err := gameServer.runtime.Wallet.DebitWallet(economy.DebitWalletInput{
+		PlayerID:     playerID,
+		Currency:     economy.CurrencyBucketCredits,
+		Amount:       debit,
+		Reason:       economy.LedgerReason("repair_test_wallet_drain"),
+		ReferenceKey: referenceKey,
+	}); err != nil {
+		t.Fatalf("DebitWallet(repair drain) error = %v, want nil", err)
+	}
+}
+
+func handleDeathRepairShipForTest(
+	t *testing.T,
+	gameServer *Server,
+	resolved auth.ResolvedSession,
+	requestID foundation.RequestID,
+	quote repairQuotePayload,
+) ([]byte, error) {
+	t.Helper()
+	return gameServer.runtime.handleDeathRepairShip(realtime.CommandContext{
+		SessionID: realtime.SessionID(resolved.SessionID.String()),
+		PlayerID:  resolved.PlayerID,
+	}, realtime.RequestEnvelope{
+		RequestID: requestID,
+		Op:        realtime.OperationDeathRepairShip,
+		Payload:   repairShipPayloadForTest(t, quote),
+		Version:   realtime.CurrentVersion,
+	})
+}
+
+func repairReferenceForTest(
+	t *testing.T,
+	playerID foundation.PlayerID,
+	quote repairQuotePayload,
+	requestID foundation.RequestID,
+) foundation.IdempotencyKey {
+	t.Helper()
+	referenceKey, err := runtimeShipRepairIdempotencyKey(playerID, foundation.ShipID(quote.ShipID), requestID)
+	if err != nil {
+		t.Fatalf("runtimeShipRepairIdempotencyKey() error = %v, want nil", err)
+	}
+	return referenceKey
+}
+
+func assertRepairTestHangarShipState(
+	t *testing.T,
+	gameServer *Server,
+	playerID foundation.PlayerID,
+	shipID foundation.ShipID,
+	want ships.ShipState,
+) {
+	t.Helper()
+	hangar, err := gameServer.runtime.Hangar.GetHangar(playerID)
+	if err != nil {
+		t.Fatalf("GetHangar() error = %v, want nil", err)
+	}
+	for _, playerShip := range hangar.Ships {
+		if playerShip.ShipID == shipID {
+			if playerShip.State != want {
+				t.Fatalf("hangar ship %q state = %q, want %q", shipID, playerShip.State, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("hangar ship %q missing from %+v", shipID, hangar)
+}
+
+func countRepairDebitLedgerEntriesForTest(
+	gameServer *Server,
+	playerID foundation.PlayerID,
+	referenceKey foundation.IdempotencyKey,
+) int {
+	count := 0
+	for _, entry := range gameServer.runtime.Wallet.CurrencyLedgerEntries() {
+		if entry.PlayerID == playerID &&
+			entry.Currency == economy.CurrencyBucketCredits &&
+			entry.Action == economy.LedgerActionDecrease &&
+			entry.Reason == deathdomain.LedgerReasonShipRepair &&
+			entry.ReferenceKey == referenceKey {
+			count++
+		}
+	}
+	return count
 }
 func TestShipDisabledDomainEventQueuesClientSafeRealtimeEvents(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)

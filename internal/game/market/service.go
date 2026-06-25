@@ -25,6 +25,7 @@ const (
 	marketExpireReason  economy.LedgerReason = "market_expire"
 
 	marketBuyOperation          = "market_buy"
+	marketCancelOperation       = "market_cancel"
 	marketBuyOutboxTopic        = "economy"
 	marketBuyCompletedEventType = "market.buy_completed"
 	marketBuyAggregateType      = "market_listing"
@@ -75,14 +76,15 @@ type MarketService struct {
 	suspiciousPolicy  SuspiciousTradePolicy
 	systemFeePlayerID foundation.PlayerID
 
-	listings           map[foundation.ListingID]Listing
-	createResults      map[foundation.IdempotencyKey]CreateListingResult
-	buyResults         map[foundation.IdempotencyKey]BuyListingResult
-	cancelResults      map[foundation.ListingID]CancelListingResult
-	expireResults      map[foundation.ListingID]ExpireListingResult
-	staleResults       map[foundation.ListingID]MarkListingStaleResult
-	buyIdempotencyRows map[foundation.IdempotencyKey]economy.IdempotencyKeyRow
-	buyOutboxRows      map[string]economy.OutboxRow
+	listings              map[foundation.ListingID]Listing
+	createResults         map[foundation.IdempotencyKey]CreateListingResult
+	buyResults            map[foundation.IdempotencyKey]BuyListingResult
+	cancelResults         map[foundation.ListingID]CancelListingResult
+	expireResults         map[foundation.ListingID]ExpireListingResult
+	staleResults          map[foundation.ListingID]MarkListingStaleResult
+	buyIdempotencyRows    map[foundation.IdempotencyKey]economy.IdempotencyKeyRow
+	cancelIdempotencyRows map[foundation.IdempotencyKey]economy.IdempotencyKeyRow
+	buyOutboxRows         map[string]economy.OutboxRow
 
 	suspiciousTradeLogs []SuspiciousTradeLog
 	nextSuspiciousLogID int64
@@ -123,22 +125,23 @@ func NewMarketService(config MarketServiceConfig) (*MarketService, error) {
 	}
 
 	return &MarketService{
-		clock:              clock,
-		inventory:          config.Inventory,
-		wallet:             config.Wallet,
-		idempotencyStore:   config.IdempotencyStore,
-		outboxStore:        config.OutboxStore,
-		feePolicy:          feePolicy,
-		suspiciousPolicy:   suspiciousPolicy,
-		systemFeePlayerID:  systemFeePlayerID,
-		listings:           make(map[foundation.ListingID]Listing),
-		createResults:      make(map[foundation.IdempotencyKey]CreateListingResult),
-		buyResults:         make(map[foundation.IdempotencyKey]BuyListingResult),
-		cancelResults:      make(map[foundation.ListingID]CancelListingResult),
-		expireResults:      make(map[foundation.ListingID]ExpireListingResult),
-		staleResults:       make(map[foundation.ListingID]MarkListingStaleResult),
-		buyIdempotencyRows: make(map[foundation.IdempotencyKey]economy.IdempotencyKeyRow),
-		buyOutboxRows:      make(map[string]economy.OutboxRow),
+		clock:                 clock,
+		inventory:             config.Inventory,
+		wallet:                config.Wallet,
+		idempotencyStore:      config.IdempotencyStore,
+		outboxStore:           config.OutboxStore,
+		feePolicy:             feePolicy,
+		suspiciousPolicy:      suspiciousPolicy,
+		systemFeePlayerID:     systemFeePlayerID,
+		listings:              make(map[foundation.ListingID]Listing),
+		createResults:         make(map[foundation.IdempotencyKey]CreateListingResult),
+		buyResults:            make(map[foundation.IdempotencyKey]BuyListingResult),
+		cancelResults:         make(map[foundation.ListingID]CancelListingResult),
+		expireResults:         make(map[foundation.ListingID]ExpireListingResult),
+		staleResults:          make(map[foundation.ListingID]MarkListingStaleResult),
+		buyIdempotencyRows:    make(map[foundation.IdempotencyKey]economy.IdempotencyKeyRow),
+		cancelIdempotencyRows: make(map[foundation.IdempotencyKey]economy.IdempotencyKeyRow),
+		buyOutboxRows:         make(map[string]economy.OutboxRow),
 	}, nil
 }
 
@@ -393,6 +396,7 @@ func (service *MarketService) CancelListing(input CancelListingInput) (CancelLis
 	if err != nil {
 		return CancelListingResult{}, err
 	}
+	requestHash := marketCancelRequestHash(input)
 
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -413,14 +417,27 @@ func (service *MarketService) CancelListing(input CancelListingInput) (CancelLis
 	if listing.SellerPlayerID != input.SellerPlayerID {
 		return CancelListingResult{}, ErrListingOwnership
 	}
+	idempotencyRow, duplicateResult, duplicate, err := service.claimMarketCancelIdempotency(input, referenceKey, requestHash)
+	if err != nil {
+		return CancelListingResult{}, err
+	}
+	if duplicate {
+		return duplicateResult, nil
+	}
+	snapshot := service.snapshotMarketCancelMutationLocked()
+	rollback := func(cause error) (CancelListingResult, error) {
+		service.restoreMarketCancelMutationLocked(snapshot)
+		return CancelListingResult{}, service.failMarketCancelIdempotency(idempotencyRow, cause)
+	}
+
 	if listing.Status != ListingStatusActive && listing.Status != ListingStatusStale {
-		return CancelListingResult{}, fmt.Errorf("listing %q status %q: %w", input.ListingID, listing.Status, ErrListingNotActive)
+		return rollback(fmt.Errorf("listing %q status %q: %w", input.ListingID, listing.Status, ErrListingNotActive))
 	}
 	if listing.RemainingQuantity <= 0 {
-		return CancelListingResult{}, fmt.Errorf("listing remaining %d: %w", listing.RemainingQuantity, ErrListingNotActive)
+		return rollback(fmt.Errorf("listing remaining %d: %w", listing.RemainingQuantity, ErrListingNotActive))
 	}
 	if err := service.validateEscrowQuantity(listing, listing.RemainingQuantity); err != nil {
-		return CancelListingResult{}, err
+		return rollback(err)
 	}
 
 	returnMove, err := service.inventory.SystemMoveItem(economy.MoveItemInput{
@@ -433,15 +450,14 @@ func (service *MarketService) CancelListing(input CancelListingInput) (CancelLis
 		ReferenceKey: referenceKey,
 	})
 	if err != nil {
-		return CancelListingResult{}, err
+		return rollback(err)
 	}
 
 	returnedQuantity := listing.RemainingQuantity
 	if err := listing.transitionTo(ListingStatusCancelled); err != nil {
-		return CancelListingResult{}, err
+		return rollback(err)
 	}
 	listing.UpdatedAt = service.clock.Now()
-	service.listings[input.ListingID] = cloneListing(listing)
 
 	result := CancelListingResult{
 		Listing:          cloneListing(listing),
@@ -449,6 +465,10 @@ func (service *MarketService) CancelListing(input CancelListingInput) (CancelLis
 		ReturnMove:       returnMove,
 		ReferenceKey:     referenceKey,
 	}
+	if err := service.completeMarketCancelIdempotency(idempotencyRow, result, input); err != nil {
+		return rollback(err)
+	}
+	service.listings[input.ListingID] = cloneListing(listing)
 	service.cancelResults[input.ListingID] = cloneCancelListingResult(result)
 	return result, nil
 }
@@ -806,6 +826,44 @@ func (service *MarketService) ensureMarketBuyDurabilityMapsLocked() {
 	}
 }
 
+type marketCancelMutationSnapshot struct {
+	listings              map[foundation.ListingID]Listing
+	cancelResults         map[foundation.ListingID]CancelListingResult
+	cancelIdempotencyRows map[foundation.IdempotencyKey]economy.IdempotencyKeyRow
+	inventory             economy.InventoryMutationSnapshot
+}
+
+func (service *MarketService) snapshotMarketCancelMutationLocked() marketCancelMutationSnapshot {
+	return marketCancelMutationSnapshot{
+		listings:              cloneListingMap(service.listings),
+		cancelResults:         cloneCancelListingResultMap(service.cancelResults),
+		cancelIdempotencyRows: cloneIdempotencyKeyRowMap(service.cancelIdempotencyRows),
+		inventory:             service.inventory.SnapshotMutationState(),
+	}
+}
+
+func (service *MarketService) restoreMarketCancelMutationLocked(snapshot marketCancelMutationSnapshot) {
+	service.listings = cloneListingMap(snapshot.listings)
+	service.cancelResults = cloneCancelListingResultMap(snapshot.cancelResults)
+	service.cancelIdempotencyRows = cloneIdempotencyKeyRowMap(snapshot.cancelIdempotencyRows)
+	service.inventory.RestoreMutationState(snapshot.inventory)
+}
+
+func (service *MarketService) ensureMarketCancelDurabilityMapsLocked() {
+	if service.cancelIdempotencyRows == nil {
+		service.cancelIdempotencyRows = make(map[foundation.IdempotencyKey]economy.IdempotencyKeyRow)
+	}
+}
+
+type marketCancelIdempotencyResult struct {
+	ListingID         foundation.ListingID      `json:"listing_id"`
+	SellerPlayerID    foundation.PlayerID       `json:"seller_player_id"`
+	ReturnedQuantity  int64                     `json:"returned_quantity"`
+	RemainingQuantity int64                     `json:"remaining_quantity"`
+	ListingStatus     ListingStatus             `json:"listing_status"`
+	ReferenceKey      foundation.IdempotencyKey `json:"reference_id"`
+}
+
 type marketBuyIdempotencyResult struct {
 	ListingID         foundation.ListingID      `json:"listing_id"`
 	SellerPlayerID    foundation.PlayerID       `json:"seller_player_id"`
@@ -898,6 +956,71 @@ func marketBuyResultFromClaim(claim economy.IdempotencyClaimResult) (economy.Ide
 	}
 }
 
+func (service *MarketService) claimMarketCancelIdempotency(
+	input CancelListingInput,
+	referenceKey foundation.IdempotencyKey,
+	requestHash string,
+) (economy.IdempotencyKeyRow, CancelListingResult, bool, error) {
+	now := service.clock.Now()
+	candidate := economy.IdempotencyKeyRow{
+		Scope:       economy.IdempotencyScopeEconomy,
+		Key:         referenceKey,
+		Operation:   marketCancelOperation,
+		PlayerID:    input.SellerPlayerID,
+		RequestHash: requestHash,
+		Status:      economy.IdempotencyStatusInProgress,
+		ResultJSON:  json.RawMessage(`{}`),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if service.idempotencyStore == nil {
+		service.ensureMarketCancelDurabilityMapsLocked()
+		existing, ok := service.cancelIdempotencyRows[referenceKey]
+		if !ok {
+			if err := candidate.Validate(); err != nil {
+				return economy.IdempotencyKeyRow{}, CancelListingResult{}, false, err
+			}
+			service.cancelIdempotencyRows[referenceKey] = candidate.Clone()
+			return candidate.Clone(), CancelListingResult{}, false, nil
+		}
+		return resolveMarketCancelIdempotencyClaim(existing, candidate)
+	}
+	claim, err := service.idempotencyStore.ClaimIdempotencyKey(context.Background(), candidate)
+	if err != nil {
+		return economy.IdempotencyKeyRow{}, CancelListingResult{}, false, err
+	}
+	return marketCancelResultFromClaim(claim)
+}
+
+func resolveMarketCancelIdempotencyClaim(
+	existing economy.IdempotencyKeyRow,
+	candidate economy.IdempotencyKeyRow,
+) (economy.IdempotencyKeyRow, CancelListingResult, bool, error) {
+	claim, err := economy.ResolveIdempotencyClaim(&existing, candidate)
+	if err != nil {
+		return economy.IdempotencyKeyRow{}, CancelListingResult{}, false, err
+	}
+	return marketCancelResultFromClaim(claim)
+}
+
+func marketCancelResultFromClaim(claim economy.IdempotencyClaimResult) (economy.IdempotencyKeyRow, CancelListingResult, bool, error) {
+	if !claim.Duplicate {
+		return claim.Row, CancelListingResult{}, false, nil
+	}
+	switch claim.Row.Status {
+	case economy.IdempotencyStatusCompleted:
+		result, err := marketCancelResultFromIdempotencyRow(claim.Row)
+		if err != nil {
+			return claim.Row, CancelListingResult{}, false, err
+		}
+		return claim.Row, result, true, nil
+	case economy.IdempotencyStatusFailed:
+		return claim.Row, CancelListingResult{}, false, nil
+	default:
+		return claim.Row, CancelListingResult{}, false, ErrMarketCancelInProgress
+	}
+}
+
 func (service *MarketService) completeMarketBuyIdempotency(row economy.IdempotencyKeyRow, result BuyListingResult, input BuyListingInput) error {
 	if row.Key.IsZero() {
 		return nil
@@ -954,6 +1077,62 @@ func (service *MarketService) failMarketBuyIdempotency(row economy.IdempotencyKe
 	return cause
 }
 
+func (service *MarketService) completeMarketCancelIdempotency(row economy.IdempotencyKeyRow, result CancelListingResult, input CancelListingInput) error {
+	if row.Key.IsZero() {
+		return nil
+	}
+	payload, err := marketCancelIdempotencyResultJSON(result, input)
+	if err != nil {
+		return err
+	}
+	now := service.clock.Now()
+	row.Status = economy.IdempotencyStatusCompleted
+	row.ResultJSON = payload
+	row.UpdatedAt = now
+	row.CompletedAt = now
+	if service.idempotencyStore != nil {
+		_, err = service.idempotencyStore.CompleteIdempotencyKey(context.Background(), row)
+		if err != nil {
+			return err
+		}
+	}
+	service.ensureMarketCancelDurabilityMapsLocked()
+	if existing, ok := service.cancelIdempotencyRows[row.Key]; ok {
+		if _, err := economy.ResolveIdempotencyClaim(&existing, row); err != nil {
+			return err
+		}
+	}
+	service.cancelIdempotencyRows[row.Key] = row.Clone()
+	return nil
+}
+
+func (service *MarketService) failMarketCancelIdempotency(row economy.IdempotencyKeyRow, cause error) error {
+	if row.Key.IsZero() {
+		return cause
+	}
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	payload, err := json.Marshal(map[string]string{"error": message})
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	row.Status = economy.IdempotencyStatusFailed
+	row.ResultJSON = payload
+	row.UpdatedAt = service.clock.Now()
+	row.CompletedAt = time.Time{}
+	if service.idempotencyStore != nil {
+		_, err = service.idempotencyStore.CompleteIdempotencyKey(context.Background(), row)
+		if err != nil {
+			return errors.Join(cause, err)
+		}
+	}
+	service.ensureMarketCancelDurabilityMapsLocked()
+	service.cancelIdempotencyRows[row.Key] = row.Clone()
+	return cause
+}
+
 func (service *MarketService) insertMarketBuyOutbox(result BuyListingResult, input BuyListingInput) error {
 	payload, err := json.Marshal(marketBuyOutboxPayload{
 		ListingID:      result.Listing.ListingID,
@@ -1005,6 +1184,15 @@ func marketBuyRequestHash(input BuyListingInput) string {
 	return fmt.Sprintf("sha256:%x", hash[:])
 }
 
+func marketCancelRequestHash(input CancelListingInput) string {
+	hash := sha256.Sum256([]byte(fmt.Sprintf(
+		"market_cancel|listing=%s|seller=%s",
+		input.ListingID,
+		input.SellerPlayerID,
+	)))
+	return fmt.Sprintf("sha256:%x", hash[:])
+}
+
 func marketBuyIdempotencyResultJSON(result BuyListingResult, input BuyListingInput) (json.RawMessage, error) {
 	payload, err := json.Marshal(marketBuyIdempotencyResult{
 		ListingID:         result.Listing.ListingID,
@@ -1020,6 +1208,21 @@ func marketBuyIdempotencyResultJSON(result BuyListingResult, input BuyListingInp
 		ReferenceKey:      result.ReferenceKey,
 		SaleReference:     result.SaleReference,
 		FeeReference:      result.FeeReference,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(payload), nil
+}
+
+func marketCancelIdempotencyResultJSON(result CancelListingResult, input CancelListingInput) (json.RawMessage, error) {
+	payload, err := json.Marshal(marketCancelIdempotencyResult{
+		ListingID:         result.Listing.ListingID,
+		SellerPlayerID:    input.SellerPlayerID,
+		ReturnedQuantity:  result.ReturnedQuantity,
+		RemainingQuantity: result.Listing.RemainingQuantity,
+		ListingStatus:     result.Listing.Status,
+		ReferenceKey:      result.ReferenceKey,
 	})
 	if err != nil {
 		return nil, err
@@ -1051,6 +1254,27 @@ func marketBuyResultFromIdempotencyRow(row economy.IdempotencyKeyRow) (BuyListin
 		SaleReference:  payload.SaleReference,
 		FeeReference:   payload.FeeReference,
 		Duplicate:      true,
+	}, nil
+}
+
+func marketCancelResultFromIdempotencyRow(row economy.IdempotencyKeyRow) (CancelListingResult, error) {
+	var payload marketCancelIdempotencyResult
+	if err := json.Unmarshal(row.ResultJSON, &payload); err != nil {
+		return CancelListingResult{}, err
+	}
+	if payload.ReferenceKey.IsZero() {
+		return CancelListingResult{}, ErrMarketCancelIdempotencyResult
+	}
+	return CancelListingResult{
+		Listing: Listing{
+			ListingID:         payload.ListingID,
+			SellerPlayerID:    payload.SellerPlayerID,
+			RemainingQuantity: payload.RemainingQuantity,
+			Status:            payload.ListingStatus,
+		},
+		ReturnedQuantity: payload.ReturnedQuantity,
+		ReferenceKey:     payload.ReferenceKey,
+		Duplicate:        true,
 	}, nil
 }
 
@@ -1201,6 +1425,17 @@ func cloneBuyListingResultMap(results map[foundation.IdempotencyKey]BuyListingRe
 	cloned := make(map[foundation.IdempotencyKey]BuyListingResult, len(results))
 	for referenceKey, result := range results {
 		cloned[referenceKey] = cloneBuyListingResult(result)
+	}
+	return cloned
+}
+
+func cloneCancelListingResultMap(results map[foundation.ListingID]CancelListingResult) map[foundation.ListingID]CancelListingResult {
+	if results == nil {
+		return nil
+	}
+	cloned := make(map[foundation.ListingID]CancelListingResult, len(results))
+	for listingID, result := range results {
+		cloned[listingID] = cloneCancelListingResult(result)
 	}
 	return cloned
 }

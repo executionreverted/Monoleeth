@@ -7,11 +7,13 @@ import (
 
 	"gameproject/internal/game/combat"
 	gamecontent "gameproject/internal/game/content"
+	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/loot"
 	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
@@ -415,20 +417,29 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 	if err != nil {
 		return nil, err
 	}
-	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
-	if wallet.Credits < quote.Cost {
-		return nil, foundation.NewDomainError(foundation.CodeNotEnoughFunds, "Not enough credits.")
+	shipID := foundation.ShipID(state.Ship.ActiveShipID)
+	if err := runtime.requireHangarShipDisabledForRepairLocked(ctx.PlayerID, shipID); err != nil {
+		return nil, err
 	}
 	if quote.Cost > 0 {
 		if _, err := runtime.Wallet.DebitWallet(economy.DebitWalletInput{
 			PlayerID:     ctx.PlayerID,
 			Currency:     economy.CurrencyBucketCredits,
 			Amount:       quote.Cost,
-			Reason:       "ship_repair",
+			Reason:       deathdomain.LedgerReasonShipRepair,
 			ReferenceKey: referenceKey,
 		}); err != nil {
+			state.Wallet = runtime.walletSnapshotLocked(ctx.PlayerID)
+			runtime.players[ctx.PlayerID] = state
 			return nil, domainErrorForEconomy(err)
 		}
+		state.Wallet = runtime.walletSnapshotLocked(ctx.PlayerID)
+		runtime.players[ctx.PlayerID] = state
+	}
+	if err := runtime.repairHangarShipAfterDebitLocked(ctx.PlayerID, shipID, quote.Cost, referenceKey); err != nil {
+		state.Wallet = runtime.walletSnapshotLocked(ctx.PlayerID)
+		runtime.players[ctx.PlayerID] = state
+		return nil, err
 	}
 	state.Wallet = runtime.walletSnapshotLocked(ctx.PlayerID)
 	state.Ship.Disabled = false
@@ -476,6 +487,53 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 		"position":       respawn.Position,
 		"protection":     respawn.Protection,
 	})
+}
+
+func (runtime *Runtime) requireHangarShipDisabledForRepairLocked(playerID foundation.PlayerID, shipID foundation.ShipID) error {
+	hangar, err := runtime.Hangar.GetHangar(playerID)
+	if err != nil {
+		return domainErrorForHangar(err)
+	}
+	for _, playerShip := range hangar.Ships {
+		if playerShip.ShipID != shipID {
+			continue
+		}
+		if playerShip.State != ships.ShipStateDisabled {
+			return foundation.NewDomainError(foundation.CodeShipDisabled, "Ship is not disabled.", foundation.WithCause(ships.ErrShipNotDisabled))
+		}
+		return nil
+	}
+	return domainErrorForHangar(fmt.Errorf("ship %q: %w", shipID, ships.ErrShipNotUnlocked))
+}
+
+func (runtime *Runtime) repairHangarShipAfterDebitLocked(
+	playerID foundation.PlayerID,
+	shipID foundation.ShipID,
+	repairCost int64,
+	referenceKey foundation.IdempotencyKey,
+) error {
+	if _, err := runtime.Hangar.RepairShip(ships.RepairShipInput{
+		PlayerID: playerID,
+		ShipID:   shipID,
+	}); err != nil {
+		if repairCost > 0 {
+			if _, refundErr := runtime.Wallet.CreditWallet(economy.CreditWalletInput{
+				PlayerID:     playerID,
+				Currency:     economy.CurrencyBucketCredits,
+				Amount:       repairCost,
+				Reason:       deathdomain.LedgerReasonShipRepairRefund,
+				ReferenceKey: referenceKey,
+			}); refundErr != nil {
+				return foundation.NewDomainError(
+					foundation.CodeInternal,
+					"Ship repair failed after wallet debit.",
+					foundation.WithCause(fmt.Errorf("%w; repair refund failed: %v", err, refundErr)),
+				)
+			}
+		}
+		return domainErrorForHangar(err)
+	}
+	return nil
 }
 
 func decodeDeathRepairShipIntent(raw json.RawMessage) (deathRepairShipIntent, error) {

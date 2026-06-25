@@ -515,6 +515,90 @@ func TestCancelListingReturnsRemainingEscrowAndDuplicateDoesNotReturnTwice(t *te
 	}
 }
 
+func TestCancelListingIdempotencyCompletionFailureRollsBackReturnMove(t *testing.T) {
+	fixture := newMarketFixture(t)
+	fixture.seedSellerItems(t, 5, "seed-cancel-rollback")
+	create := fixture.createListing(t, "listing-cancel-rollback", 5, 10)
+	injectedErr := errors.New("injected market cancel idempotency completion failure")
+	fixture.service.idempotencyStore = failingCompleteMarketEconomyStore{
+		delegate:  fixture.economyStore,
+		operation: marketCancelOperation,
+		status:    economy.IdempotencyStatusCompleted,
+		err:       injectedErr,
+	}
+	itemLedgerBefore := len(fixture.inventory.ItemLedgerEntries())
+
+	_, err := fixture.service.CancelListing(CancelListingInput{
+		SellerPlayerID: fixture.sellerID,
+		ListingID:      create.Listing.ListingID,
+	})
+	if !errors.Is(err, injectedErr) {
+		t.Fatalf("CancelListing error = %v, want injected idempotency failure", err)
+	}
+	listing, ok := fixture.service.Listing(create.Listing.ListingID)
+	if !ok {
+		t.Fatal("listing missing")
+	}
+	if listing.RemainingQuantity != 5 || listing.Status != ListingStatusActive {
+		t.Fatalf("listing after failed cancel = remaining %d status %q, want 5 active", listing.RemainingQuantity, listing.Status)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, fixture.sourceLocation); got != 0 {
+		t.Fatalf("source quantity after failed cancel = %d, want 0", got)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, create.Listing.EscrowLocation); got != 5 {
+		t.Fatalf("escrow quantity after failed cancel = %d, want 5", got)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != itemLedgerBefore {
+		t.Fatalf("item ledger entries after failed cancel = %d, want %d", got, itemLedgerBefore)
+	}
+}
+
+func TestCancelListingIdempotencyRetryDoesNotReturnEscrowTwice(t *testing.T) {
+	fixture := newMarketFixture(t)
+	fixture.seedSellerItems(t, 5, "seed-cancel-idempotency")
+	create := fixture.createListing(t, "listing-cancel-idempotency", 5, 10)
+
+	first, err := fixture.service.CancelListing(CancelListingInput{
+		SellerPlayerID: fixture.sellerID,
+		ListingID:      create.Listing.ListingID,
+	})
+	if err != nil {
+		t.Fatalf("CancelListing first: %v", err)
+	}
+	itemLedgerAfterFirst := len(fixture.inventory.ItemLedgerEntries())
+	sourceAfterFirst := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, fixture.sourceLocation)
+	fixture.service.mu.Lock()
+	delete(fixture.service.cancelResults, create.Listing.ListingID)
+	fixture.service.mu.Unlock()
+
+	second, err := fixture.service.CancelListing(CancelListingInput{
+		SellerPlayerID: fixture.sellerID,
+		ListingID:      create.Listing.ListingID,
+	})
+	if err != nil {
+		t.Fatalf("CancelListing idempotency retry: %v", err)
+	}
+
+	if first.Duplicate {
+		t.Fatal("first Duplicate = true, want false")
+	}
+	if !second.Duplicate {
+		t.Fatal("idempotency retry Duplicate = false, want true")
+	}
+	if second.ReferenceKey != first.ReferenceKey {
+		t.Fatalf("retry reference = %q, want %q", second.ReferenceKey, first.ReferenceKey)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != itemLedgerAfterFirst {
+		t.Fatalf("item ledger entries after retry = %d, want %d", got, itemLedgerAfterFirst)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, fixture.sourceLocation); got != sourceAfterFirst {
+		t.Fatalf("seller source quantity after retry = %d, want %d", got, sourceAfterFirst)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, create.Listing.EscrowLocation); got != 0 {
+		t.Fatalf("escrow quantity after retry = %d, want 0", got)
+	}
+}
+
 func TestBuyListingRejectsSellerSelfBuy(t *testing.T) {
 	fixture := newMarketFixture(t)
 	fixture.seedSellerItems(t, 5, "seed-self-buy")
@@ -886,6 +970,30 @@ func (inventory failingMarketBuyInventory) SnapshotMutationState() economy.Inven
 
 func (inventory failingMarketBuyInventory) RestoreMutationState(snapshot economy.InventoryMutationSnapshot) {
 	inventory.delegate.RestoreMutationState(snapshot)
+}
+
+type failingCompleteMarketEconomyStore struct {
+	delegate  *memoryMarketEconomyStore
+	operation string
+	status    economy.IdempotencyStatus
+	err       error
+}
+
+func (store failingCompleteMarketEconomyStore) ClaimIdempotencyKey(
+	ctx context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyClaimResult, error) {
+	return store.delegate.ClaimIdempotencyKey(ctx, row)
+}
+
+func (store failingCompleteMarketEconomyStore) CompleteIdempotencyKey(
+	ctx context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyKeyRow, error) {
+	if row.Operation == store.operation && row.Status == store.status {
+		return economy.IdempotencyKeyRow{}, store.err
+	}
+	return store.delegate.CompleteIdempotencyKey(ctx, row)
 }
 
 type memoryMarketEconomyStore struct {

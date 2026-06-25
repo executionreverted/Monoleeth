@@ -26,7 +26,7 @@ events, and repair, so the combat loop is durable and UX-complete.
 - [x] `[P:wave2/lane-E]` Add worker helper to settle position to current server time on stop/detach/interact.
 - [x] `[P:wave2/lane-E]` Add `death.ship_disabled` event mapper (server-safe fields only).
 - [x] `[P:wave2/lane-E]` Make repair quote server-time bound; reject stale/tampered quotes.
-- [ ] `[P:wave2/lane-E]` Debit repair via wallet ledger; re-enable ship after commit.
+- [x] `[P:wave2/lane-E]` Debit repair via wallet ledger; re-enable ship after commit.
 - [ ] `[P:wave2/lane-E]` Disable combat buttons from server death state in client.
 
 ## Server Ownership
@@ -37,8 +37,8 @@ events, and repair, so the combat loop is durable and UX-complete.
 - [x] Disconnect during movement settles position (no stale active route on reconnect).
 - [x] NPC/PvP death emits a client-safe disabled event.
 - [x] Stale/tampered repair quote is rejected.
-- [ ] Repair with insufficient wallet leaves ship disabled.
-- [ ] Successful repair debits wallet once and re-enables the ship.
+- [x] Repair with insufficient wallet leaves ship disabled.
+- [x] Successful repair debits wallet once and re-enables the ship.
 
 ## Done Criteria
 - [ ] Phase 05 open death/repair checklist items closed.

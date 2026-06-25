@@ -21,6 +21,8 @@ var (
 	ErrBuyReferenceMismatch           = errors.New("market buy reference mismatch")
 	ErrMarketBuyInProgress            = errors.New("market buy idempotency key in progress")
 	ErrMarketBuyIdempotencyResult     = errors.New("market buy idempotency result unavailable")
+	ErrMarketCancelInProgress         = errors.New("market cancel idempotency key in progress")
+	ErrMarketCancelIdempotencyResult  = errors.New("market cancel idempotency result unavailable")
 	ErrMarketAmountOverflow           = errors.New("market amount overflow")
 	ErrMarketEscrowQuantityMissing    = errors.New("market escrow quantity missing")
 )

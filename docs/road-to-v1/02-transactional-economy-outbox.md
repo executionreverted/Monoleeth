@@ -42,6 +42,11 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
   failure rollback are covered. Full contentdb transaction across listing,
   wallet, inventory, idempotency, and outbox remains open; market cancel was not
   touched.
+- 2026-06-25 TASK-0492: market cancel now claims/completes economy
+  idempotency rows and restores the in-memory listing/inventory snapshot on the
+  tested post-return failure path. Duplicate same-key cancel returns the cached
+  result without moving escrow twice. Full contentdb transaction across listing,
+  escrow, idempotency, and outbox remains open.
 
 ## Server Ownership
 - Use canonical idempotency keys: `loot_pickup:<drop_id>`, `auction_close:<auction_id>`,
@@ -50,7 +55,7 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 
 ## Smoke Tests (one assertion each)
 - [x] Duplicate market buy (same key) does not double-charge.
-- [ ] Market cancel returns escrow exactly once.
+- [x] Market cancel returns escrow exactly once.
 - [ ] Concurrent auction buy-now closes the lot exactly once.
 - [ ] Replayed premium webhook grants entitlement exactly once.
 - [ ] Outbox replay re-delivers a missed economy event without duplicating state.
