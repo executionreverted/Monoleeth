@@ -40,10 +40,15 @@ protection and broader hidden-data leak canaries.
   documented absent.
 - Realtime `ERR_RATE_LIMITED` responses are retryable and are not stored in the
   request cache; retry after refill can execute the same request id.
+- TASK-0469 wires `NewRuntime` and concrete `server.New` gateway construction
+  to an `InMemoryRealtimeLimiter` by default. Server tests keep an unexported
+  seam to disable or replace the limiter explicitly.
 
 ## Smoke Tests (one assertion each)
 - [x] Burst over limit on one op returns throttle error.
 - [x] Throttled mutation op leaves state unchanged.
+- [x] Default runtime/server WebSocket burst returns `ERR_RATE_LIMITED` and
+  skips the throttled `debug_spawn_npc` mutation.
 - [x] Repeated failed logins trigger backoff/lockout.
 - [x] Throttle errors do not reveal whether an email exists.
 - [x] Leak canary finds no hidden seed/internal id in admin/debug responses.

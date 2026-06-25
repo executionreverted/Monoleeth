@@ -89,6 +89,8 @@ type RuntimeConfig struct {
 	AdminSeed           auth.AdminSeedInput
 	Passwords           auth.PasswordHasher
 
+	realtimeLimiter        realtime.RateLimiter
+	disableRealtimeLimiter bool
 	contentDBOpen          func(context.Context, contentdb.Config) (runtimeContentStore, error)
 	contentRepositoryStore func(runtimeContentStore) (gamecontent.Repository, error)
 	contentSeedSnapshot    func(world.WorldID) (gamecontent.Snapshot, error)
@@ -1052,6 +1054,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 			Logger:  commandLogger,
 			Metrics: metricRecorder,
 		},
+		Limiter:  runtimeRealtimeLimiter(config, clock),
 		Handlers: runtime.commandHandlers(),
 	})
 	if err != nil {
@@ -1059,6 +1062,18 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	}
 	runtime.Gateway = gateway
 	return runtime, nil
+}
+
+func runtimeRealtimeLimiter(config RuntimeConfig, clock foundation.Clock) realtime.RateLimiter {
+	if config.disableRealtimeLimiter {
+		return nil
+	}
+	if config.realtimeLimiter != nil {
+		return config.realtimeLimiter
+	}
+	return realtime.NewInMemoryRealtimeLimiter(realtime.InMemoryRealtimeLimiterOptions{
+		Clock: clock,
+	})
 }
 
 // Start runs the worker tick lifecycle until ctx is canceled.

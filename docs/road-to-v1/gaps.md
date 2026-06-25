@@ -22,13 +22,21 @@ phase or moved above with a concrete deferral reason.
 - Realtime gateway limiter hook fixed by TASK-0461; remaining P04 audit items below.
 - Auth login/register backoff and duplicate-register generic response fixed by TASK-0464.
 - Auth attempt backoff is process-local for this slice; durable/cross-process attempt storage remains future P16/P02-style operational hardening unless P04 later adds it. Ref: `internal/game/auth/attempts.go`, `docs/road-to-v1/04-rate-limiting-abuse.md:28`.
-- Realtime bucket implementation is process-local and not yet wired into concrete server runtime construction. Ref: `internal/game/realtime/rate_limiter.go`, `internal/game/server/runtime.go`, `docs/road-to-v1/04-rate-limiting-abuse.md:27`.
+- Realtime bucket runtime wiring fixed by TASK-0469; `NewRuntime` and
+  concrete `server.New` gateways now install the process-local limiter by
+  default, with tests covering replacement/disable seams and WebSocket
+  `ERR_RATE_LIMITED` without mutation. No accepted P04 runtime-wiring deferral.
 
 ### P01 Persistence Foundation Audit — TASK-0462
 
-- Hangar/loadout durability still needs repository interfaces and DB adapters. Ref:
+- Loadout durability still needs DB adapters and durable instance-item rows; hangar
+  `contentdb` migration/adapter exists but is not runtime-wired in this slice. Ref:
   `internal/game/ships/store.go`, `internal/game/modules/loadout_store.go`,
   `docs/road-to-v1/01-persistence-foundation.md:29`.
 - Durable loadout/equipped-module restart proof depends on durable instance-item
   rows, not stackable-only inventory rows. Ref:
   `internal/game/economy/inventory_service.go`, `docs/road-to-v1/01-persistence-foundation.md:19`.
+
+### P01 Inventory Instance Durability Audit — TASK-0471
+
+- Inventory instance rows, item-ledger rows, mutation-reference rows, and durable ID counters remain required before loadout/equipped modules can prove restart durability. Ref: `internal/game/economy/inventory_service.go`, `internal/game/contentdb/inventory_store.go`, `docs/road-to-v1/01-persistence-foundation.md:19`.

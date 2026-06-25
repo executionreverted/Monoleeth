@@ -12,8 +12,8 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 6 {
-		t.Fatalf("len(migrations) = %d, want 6", len(migrations))
+	if len(migrations) != 7 {
+		t.Fatalf("len(migrations) = %d, want 7", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
@@ -33,8 +33,31 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if migrations[5].Version != "0006_progression_state_columns" {
 		t.Fatalf("Version = %q, want 0006_progression_state_columns", migrations[5].Version)
 	}
+	if migrations[6].Version != "0007_hangar_state_schema" {
+		t.Fatalf("Version = %q, want 0007_hangar_state_schema", migrations[6].Version)
+	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestHangarStateSchemaMigrationHasShipTables(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[6].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS player_ships",
+		"CREATE TABLE IF NOT EXISTS player_active_ships",
+		"state text NOT NULL CHECK (state IN ('available', 'active', 'disabled', 'repairing', 'locked'))",
+		"metadata_json jsonb",
+		"PRIMARY KEY (player_id, ship_id)",
+		"FOREIGN KEY (player_id, ship_id) REFERENCES player_ships(player_id, ship_id)",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("hangar state schema migration missing %q", fragment)
+		}
 	}
 }
 

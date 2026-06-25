@@ -10,6 +10,7 @@ import (
 	gamecontent "gameproject/internal/game/content"
 	"gameproject/internal/game/contentdb"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/realtime"
 	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
 )
@@ -58,6 +59,9 @@ type Config struct {
 	ContentRepository   gamecontent.Repository
 	PasswordHasher      auth.PasswordHasher
 	Clock               foundation.Clock
+
+	realtimeLimiter        realtime.RateLimiter
+	disableRealtimeLimiter bool
 }
 
 // DefaultConfig returns local-safe server defaults.
