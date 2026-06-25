@@ -1,7 +1,7 @@
 # Phase 02 — Transactional Economy & Outbox
 
 ## Status
-- State: In progress
+- State: Done
 - Wave: 2
 - Depends on: P01
 - Unlocks: P07, P08, P13
@@ -25,14 +25,28 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 ## Tasks
 - [x] `[P:wave2/lane-A]` TASK-0481 foundation slice: add `idempotency_keys` + `outbox` contentdb schema skeleton and economy helper row contracts/tests.
 - [x] `[P:wave2/lane-A]` TASK-0483 contentdb store adapter for economy idempotency/outbox row contracts.
-- [ ] `[P:wave2/lane-A]` Add `idempotency_keys` table + helper; enforce on every mutating economy op.
-- [ ] `[P:wave2/lane-A]` Add `outbox` table + after-commit publisher + replay worker.
+- [x] `[P:wave2/lane-A]` Add `idempotency_keys` table + helper; enforce on every mutating economy op.
+- [x] `[P:wave2/lane-A]` Add `outbox` table + after-commit publisher + replay worker.
 - [x] `[P:wave2/lane-B]` Wrap market buy/cancel in single DB transaction (escrow move + wallet + ledger).
 - [x] `[P:wave2/lane-B]` Wrap auction bid/buy-now in single transaction (refund-replace, close-once).
 - [x] `[P:wave2/lane-C]` Make premium claim + provider-event ingest idempotent and durable (replay-safe).
 - [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-26: wired the economy outbox after-commit publisher into the runtime
+  tick. The runtime now retains the economy `OutboxStore` and runs the shared
+  `economy.OutboxReplayWorker` each durable-outbox pump tick
+  (`drainEconomyOutboxToRealtime`). Committed market buy/cancel, auction
+  bid/buy-now, and premium created/claimed rows project a client-safe
+  wallet+inventory snapshot refresh to the affected player sessions (no
+  re-mutation; the value change already committed inside the originating
+  transaction), and loot XP rows replay the idempotent XP grant via
+  `loot.NewLootXPOutboxPublisher`. The worker marks each row published after a
+  successful projection, so a missed synchronous broadcast is redelivered
+  exactly once and never double-applied. Covered by
+  `TestRuntimeEconomyOutboxReplayRedeliversOnceWithoutDuplicatingState` and
+  `TestEconomyOutboxAffectedPlayersDecodesEachEventType`. The dev/no-store path
+  stays a no-op drain (rows are only inserted in contentdb-store mode).
 - 2026-06-25 TASK-0542: `PremiumEntitlementService` now accepts an optional
   premium entitlement transaction repository and uses the `contentdb`
   `PremiumEntitlementStore` seam when configured. Provider entitlement ingest
@@ -182,14 +196,14 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [x] Successful losing auction bids receive one matching refund.
 - [x] Concurrent auction buy-now closes the lot exactly once.
 - [x] Replayed premium webhook grants entitlement exactly once.
-- [ ] Outbox replay re-delivers a missed economy event without duplicating state.
+- [x] Outbox replay re-delivers a missed economy event without duplicating state.
 - [x] Failed auction bid debit leaves no partial in-memory bid state.
 - [x] Failed auction bid refund leaves no partial in-memory bid state.
 - [x] Failed mid-transaction leaves no partial wallet/inventory mutation.
 
 ## Done Criteria
-- [ ] No economy mutation can double-apply under retry/concurrency.
-- [ ] Every economy event publishes after commit via outbox.
+- [x] No economy mutation can double-apply under retry/concurrency.
+- [x] Every economy event publishes after commit via outbox.
 
 ## Verification
 ```bash

@@ -74,16 +74,18 @@ func (runtime *Runtime) runDurableOutboxRealtimePumpTick() map[auth.SessionID][]
 	if runtime.clock != nil {
 		now = runtime.clock.Now().UTC()
 	}
-	result, err := runtime.DrainDurableOutboxesToRealtimeAndCollectEvents(RuntimeDurableOutboxRealtimeInput{
+	if _, err := runtime.DrainDurableOutboxesToRealtime(RuntimeDurableOutboxRealtimeInput{
 		Limit:                runtimeDurableOutboxRealtimePumpLimit,
 		Now:                  now,
 		ReleaseExpiredLeases: true,
 		LeaseTimeout:         runtimeDurableOutboxRealtimePumpLeaseTimeout,
-	})
-	if err != nil {
+	}); err != nil {
 		runtime.recordDurableOutboxRealtimeError(err)
 	}
-	return result.EventsBySession
+	if _, err := runtime.drainEconomyOutboxToRealtime(now); err != nil {
+		runtime.recordDurableOutboxRealtimeError(err)
+	}
+	return runtime.drainQueuedRealtimeEvents()
 }
 
 func (runtime *Runtime) drainQueuedRealtimeEvents() map[auth.SessionID][]realtime.EventEnvelope {

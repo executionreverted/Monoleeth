@@ -112,6 +112,7 @@ type Runtime struct {
 	tickMu             sync.Mutex
 
 	clock               foundation.Clock
+	economyOutbox       economy.OutboxStore
 	devMode             bool
 	playtestSeed        bool
 	e2ePlanetClaimSeed  bool
@@ -1156,6 +1157,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	metricRecorder := observability.NewMetricRecorder()
 	runtime := &Runtime{
 		clock:                          clock,
+		economyOutbox:                  economyStores.outbox,
 		devMode:                        config.DevMode,
 		playtestSeed:                   config.PlaytestSeed,
 		e2ePlanetClaimSeed:             config.E2EPlanetClaimSeed,
