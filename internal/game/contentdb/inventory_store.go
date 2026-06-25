@@ -464,42 +464,52 @@ func (store *InventoryStore) CommitMoveItem(ctx context.Context, commit economy.
 	if store == nil || store.store == nil || store.store.db == nil {
 		return ErrNilDatabase
 	}
-	if err := commit.Validate(); err != nil {
-		return err
-	}
 	tx, err := store.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
+	if err := commitInventoryMoveItem(ctx, tx, commit); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func commitInventoryMoveItem(ctx context.Context, execer inventorySQLExecer, commit economy.InventoryMoveItemCommit) error {
+	if execer == nil {
+		return ErrNilDatabase
+	}
+	if err := commit.Validate(); err != nil {
+		return err
+	}
 	for _, item := range commit.DeletedStackableItems {
-		if err := deleteInventoryStackableItem(ctx, tx, item); err != nil {
+		if err := deleteInventoryStackableItem(ctx, execer, item); err != nil {
 			return err
 		}
 	}
 	for _, item := range commit.StackableItems {
-		if err := upsertInventoryStackableItem(ctx, tx, item); err != nil {
+		if err := upsertInventoryStackableItem(ctx, execer, item); err != nil {
 			return err
 		}
 	}
 	for _, item := range commit.InstanceItems {
-		if err := upsertInventoryInstanceItem(ctx, tx, item); err != nil {
+		if err := upsertInventoryInstanceItem(ctx, execer, item); err != nil {
 			return err
 		}
 	}
 	for _, entry := range commit.LedgerEntries {
-		if err := insertInventoryItemLedgerEntry(ctx, tx, entry); err != nil {
+		if err := insertInventoryItemLedgerEntry(ctx, execer, entry); err != nil {
 			return err
 		}
 	}
-	if err := insertInventoryMoveItemReference(ctx, tx, commit.Reference); err != nil {
+	if err := insertInventoryMoveItemReference(ctx, execer, commit.Reference); err != nil {
 		return err
 	}
-	if err := upsertInventoryCounters(ctx, tx, commit.Counters); err != nil {
+	if err := upsertInventoryCounters(ctx, execer, commit.Counters); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (store *InventoryStore) CommitRemoveItem(ctx context.Context, commit economy.InventoryRemoveItemCommit) error {

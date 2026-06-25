@@ -33,6 +33,15 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0533: contentdb `MarketListingTx` now exposes the market
+  settlement transaction seam for locked listing reads plus listing, wallet,
+  inventory move, idempotency, and outbox row writes through one SQL
+  transaction. The existing wallet, inventory move, idempotency, and outbox
+  store paths now share tx-safe helpers. A focused Postgres smoke covers rollback
+  across the full market buy row family when `GAME_CONTENT_DATABASE_URL` is
+  available; the required narrow contentdb/market/economy validation passed.
+  Market service buy/cancel wiring into this seam remains open, so no broad
+  transaction checkbox was closed.
 - 2026-06-25 TASK-0527: runtime core-store mode now opens a contentdb-backed
   economy store and injects it into market listing snapshots,
   market idempotency/outbox, auction idempotency, premium idempotency, and loot

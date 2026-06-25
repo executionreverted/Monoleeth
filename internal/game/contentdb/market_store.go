@@ -27,6 +27,8 @@ type MarketListingTx struct {
 	tx *sql.Tx
 }
 
+var _ economy.IdempotencyStore = (*MarketListingTx)(nil)
+
 type marketListingSQLExecer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
@@ -82,6 +84,41 @@ func (tx *MarketListingTx) UpsertMarketListing(ctx context.Context, listing mark
 		return ErrNilDatabase
 	}
 	return upsertMarketListing(ctx, tx.tx, listing)
+}
+
+func (tx *MarketListingTx) CommitWalletMutation(ctx context.Context, commit economy.WalletMutationCommit) error {
+	if tx == nil || tx.tx == nil {
+		return ErrNilDatabase
+	}
+	return commitWalletMutation(ctx, tx.tx, commit)
+}
+
+func (tx *MarketListingTx) CommitInventoryMoveItem(ctx context.Context, commit economy.InventoryMoveItemCommit) error {
+	if tx == nil || tx.tx == nil {
+		return ErrNilDatabase
+	}
+	return commitInventoryMoveItem(ctx, tx.tx, commit)
+}
+
+func (tx *MarketListingTx) ClaimIdempotencyKey(ctx context.Context, row economy.IdempotencyKeyRow) (economy.IdempotencyClaimResult, error) {
+	if tx == nil || tx.tx == nil {
+		return economy.IdempotencyClaimResult{}, ErrNilDatabase
+	}
+	return claimIdempotencyKey(ctx, tx.tx, row)
+}
+
+func (tx *MarketListingTx) CompleteIdempotencyKey(ctx context.Context, row economy.IdempotencyKeyRow) (economy.IdempotencyKeyRow, error) {
+	if tx == nil || tx.tx == nil {
+		return economy.IdempotencyKeyRow{}, ErrNilDatabase
+	}
+	return completeIdempotencyKey(ctx, tx.tx, row)
+}
+
+func (tx *MarketListingTx) InsertOutboxRow(ctx context.Context, row economy.OutboxRow) error {
+	if tx == nil || tx.tx == nil {
+		return ErrNilDatabase
+	}
+	return insertOutboxRow(ctx, tx.tx, row)
 }
 
 func (store *MarketListingStore) LoadMarketListing(ctx context.Context, listingID foundation.ListingID) (market.Listing, bool, error) {

@@ -18,8 +18,24 @@ var (
 	_ economy.OutboxStore      = (*Store)(nil)
 )
 
+type idempotencySQLRunner interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+type outboxSQLExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 func (store *Store) ClaimIdempotencyKey(ctx context.Context, row economy.IdempotencyKeyRow) (economy.IdempotencyClaimResult, error) {
 	if store == nil || store.db == nil {
+		return economy.IdempotencyClaimResult{}, ErrNilDatabase
+	}
+	return claimIdempotencyKey(ctx, store.db, row)
+}
+
+func claimIdempotencyKey(ctx context.Context, runner idempotencySQLRunner, row economy.IdempotencyKeyRow) (economy.IdempotencyClaimResult, error) {
+	if runner == nil {
 		return economy.IdempotencyClaimResult{}, ErrNilDatabase
 	}
 	row = normalizeIdempotencyKeyRow(row)
@@ -27,7 +43,7 @@ func (store *Store) ClaimIdempotencyKey(ctx context.Context, row economy.Idempot
 		return economy.IdempotencyClaimResult{}, err
 	}
 
-	result, err := store.db.ExecContext(ctx, `
+	result, err := runner.ExecContext(ctx, `
 		INSERT INTO idempotency_keys(
 			scope, idempotency_key, operation, player_id, request_hash, status,
 			result_json, created_at, updated_at, completed_at
@@ -44,7 +60,7 @@ func (store *Store) ClaimIdempotencyKey(ctx context.Context, row economy.Idempot
 	if err != nil {
 		return economy.IdempotencyClaimResult{}, err
 	}
-	stored, ok, err := store.loadIdempotencyKeyRow(ctx, row.Scope, row.Key)
+	stored, ok, err := loadIdempotencyKeyRow(ctx, runner, row.Scope, row.Key)
 	if err != nil {
 		return economy.IdempotencyClaimResult{}, err
 	}
@@ -61,12 +77,19 @@ func (store *Store) CompleteIdempotencyKey(ctx context.Context, row economy.Idem
 	if store == nil || store.db == nil {
 		return economy.IdempotencyKeyRow{}, ErrNilDatabase
 	}
+	return completeIdempotencyKey(ctx, store.db, row)
+}
+
+func completeIdempotencyKey(ctx context.Context, runner idempotencySQLRunner, row economy.IdempotencyKeyRow) (economy.IdempotencyKeyRow, error) {
+	if runner == nil {
+		return economy.IdempotencyKeyRow{}, ErrNilDatabase
+	}
 	row = normalizeIdempotencyKeyRow(row)
 	if err := row.Validate(); err != nil {
 		return economy.IdempotencyKeyRow{}, err
 	}
 
-	stored, err := scanIdempotencyKeyRow(store.db.QueryRowContext(ctx, `
+	stored, err := scanIdempotencyKeyRow(runner.QueryRowContext(ctx, `
 		INSERT INTO idempotency_keys(
 			scope, idempotency_key, operation, player_id, request_hash, status,
 			result_json, created_at, updated_at, completed_at
@@ -93,7 +116,7 @@ func (store *Store) CompleteIdempotencyKey(ctx context.Context, row economy.Idem
 		return economy.IdempotencyKeyRow{}, err
 	}
 
-	existing, ok, loadErr := store.loadIdempotencyKeyRow(ctx, row.Scope, row.Key)
+	existing, ok, loadErr := loadIdempotencyKeyRow(ctx, runner, row.Scope, row.Key)
 	if loadErr != nil {
 		return economy.IdempotencyKeyRow{}, loadErr
 	}
@@ -114,6 +137,13 @@ func (store *Store) InsertOutboxRow(ctx context.Context, row economy.OutboxRow) 
 	if store == nil || store.db == nil {
 		return ErrNilDatabase
 	}
+	return insertOutboxRow(ctx, store.db, row)
+}
+
+func insertOutboxRow(ctx context.Context, execer outboxSQLExecer, row economy.OutboxRow) error {
+	if execer == nil {
+		return ErrNilDatabase
+	}
 	row = normalizeOutboxRowTimes(row)
 	row, err := economy.NewOutboxRow(row)
 	if err != nil {
@@ -124,7 +154,7 @@ func (store *Store) InsertOutboxRow(ctx context.Context, row economy.OutboxRow) 
 		return err
 	}
 
-	_, err = store.db.ExecContext(ctx, `
+	_, err = execer.ExecContext(ctx, `
 		INSERT INTO outbox(
 			outbox_id, topic, event_type, aggregate_type, aggregate_id,
 			idempotency_scope, idempotency_key, payload_json, status, available_at,
@@ -294,7 +324,17 @@ func (store *Store) MarkOutboxFailed(ctx context.Context, input economy.OutboxFa
 }
 
 func (store *Store) loadIdempotencyKeyRow(ctx context.Context, scope string, key foundation.IdempotencyKey) (economy.IdempotencyKeyRow, bool, error) {
-	row, err := scanIdempotencyKeyRow(store.db.QueryRowContext(ctx, idempotencyKeySelectSQL()+`
+	if store == nil || store.db == nil {
+		return economy.IdempotencyKeyRow{}, false, ErrNilDatabase
+	}
+	return loadIdempotencyKeyRow(ctx, store.db, scope, key)
+}
+
+func loadIdempotencyKeyRow(ctx context.Context, runner idempotencySQLRunner, scope string, key foundation.IdempotencyKey) (economy.IdempotencyKeyRow, bool, error) {
+	if runner == nil {
+		return economy.IdempotencyKeyRow{}, false, ErrNilDatabase
+	}
+	row, err := scanIdempotencyKeyRow(runner.QueryRowContext(ctx, idempotencyKeySelectSQL()+`
 		FROM idempotency_keys
 		WHERE scope = $1 AND idempotency_key = $2
 	`, scope, key.String()))

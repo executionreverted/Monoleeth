@@ -221,32 +221,42 @@ func (store *WalletStore) CommitWalletMutation(ctx context.Context, commit econo
 	if store == nil || store.store == nil || store.store.db == nil {
 		return ErrNilDatabase
 	}
-	if err := commit.Validate(); err != nil {
-		return err
-	}
 	tx, err := store.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
+	if err := commitWalletMutation(ctx, tx, commit); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func commitWalletMutation(ctx context.Context, execer walletSQLExecer, commit economy.WalletMutationCommit) error {
+	if execer == nil {
+		return ErrNilDatabase
+	}
+	if err := commit.Validate(); err != nil {
+		return err
+	}
 	for _, balance := range commit.Balances {
-		if err := upsertWalletBalance(ctx, tx, balance); err != nil {
+		if err := upsertWalletBalance(ctx, execer, balance); err != nil {
 			return err
 		}
 	}
 	for _, entry := range commit.LedgerEntries {
-		if err := insertWalletCurrencyLedgerEntry(ctx, tx, entry); err != nil {
+		if err := insertWalletCurrencyLedgerEntry(ctx, execer, entry); err != nil {
 			return err
 		}
 	}
-	if err := insertWalletMutationReference(ctx, tx, commit.Reference); err != nil {
+	if err := insertWalletMutationReference(ctx, execer, commit.Reference); err != nil {
 		return err
 	}
-	if err := upsertWalletCounters(ctx, tx, commit.Counters); err != nil {
+	if err := upsertWalletCounters(ctx, execer, commit.Counters); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (store *WalletStore) WalletBalance(ctx context.Context, playerID foundation.PlayerID, currency economy.CurrencyBucket) (economy.WalletBalance, error) {
