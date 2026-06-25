@@ -124,6 +124,7 @@ func TestNewRuntimeUsesPublishedItemShipShopRuntimeContent(t *testing.T) {
 	if raw := string(catalogRaw); strings.Contains(raw, "metadata_schema") || strings.Contains(raw, "loot_table") || strings.Contains(raw, "spawn_area") {
 		t.Fatalf("content.catalog leaked hidden fields: %s", raw)
 	}
+	assertNoForbiddenLeakCanary(t, "runtime content catalog", catalogRaw)
 
 	ctx := realtime.CommandContext{
 		SessionID: realtime.SessionID(result.Session.SessionID.String()),

@@ -28,6 +28,7 @@ PostgreSQL behind repository interfaces, with restart recovery. Reuse the existi
 - [x] `[P:wave1/lane-A]` Add `internal/game/persistence` (or reuse `contentdb` pattern) migration set for player-state tables.
 - [ ] `[P:wave1/lane-A]` Define repository interfaces in `auth`, `economy`, `progression`, `ships`, `modules` (no pgx imports in domain).
   - [x] `ships`: `HangarService` depends on `HangarStore`; in-memory store implements the interface.
+  - [x] `modules`: `LoadoutService` depends on split loadout repository, active ship reader, module item reader, equipped module reader, and module item mutator interfaces; in-memory store implements them.
 - [x] `[P:wave1/lane-A]` Implement pgx-backed repos in the db adapter package for auth account/player/session, wallet balance, and stackable inventory state.
 - [x] `[P:wave1/lane-A]` Wire runtime to load durable auth, wallet, and stackable inventory state on boot; fail closed in real mode if DB unavailable.
 - [x] `[P:wave1/lane-A]` Add `config` flag: real mode = DB, dev/test = in-memory fallback (mirror CMS policy).

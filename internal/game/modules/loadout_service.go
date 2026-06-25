@@ -10,26 +10,55 @@ import (
 	"gameproject/internal/game/foundation"
 )
 
-// LoadoutStore is the storage boundary LoadoutService needs for this Phase 03
-// slice. It is intentionally small and can be backed by memory in tests.
-type LoadoutStore interface {
+// LoadoutRepository stores saved loadout definitions.
+type LoadoutRepository interface {
 	SaveLoadout(loadout Loadout) error
 	Loadout(playerID foundation.PlayerID, loadoutID LoadoutID) (Loadout, error)
+}
+
+// ActiveShipReader returns the server-owned active ship pointer.
+type ActiveShipReader interface {
 	ActiveShipID(playerID foundation.PlayerID) (foundation.ShipID, error)
+}
+
+// ModuleItemReader reads authoritative module item snapshots.
+type ModuleItemReader interface {
 	ModuleItem(itemInstanceID foundation.ItemID) (economy.InstanceItem, error)
+}
+
+// EquippedModuleReader reads server-owned equipped module state.
+type EquippedModuleReader interface {
 	EquippedModules(playerID foundation.PlayerID, shipID foundation.ShipID) ([]EquippedModule, error)
 	EquippedModuleByItem(itemInstanceID foundation.ItemID) (EquippedModule, bool, error)
+}
+
+// ModuleItemMutator records equipped-module and durability transitions.
+type ModuleItemMutator interface {
 	ReplaceEquippedModules(input ReplaceEquippedModulesInput) error
 	MarkEquippedModuleBroken(playerID foundation.PlayerID, shipID foundation.ShipID, itemInstanceID foundation.ItemID) (EquippedModule, bool, error)
 }
 
+// LoadoutStore keeps the original constructor boundary while composing the
+// smaller repository interfaces expected from durable adapters.
+type LoadoutStore interface {
+	LoadoutRepository
+	ActiveShipReader
+	ModuleItemReader
+	EquippedModuleReader
+	ModuleItemMutator
+}
+
 // LoadoutService validates saved loadouts and applies them to the active ship.
 type LoadoutService struct {
-	catalog     Catalog
-	store       LoadoutStore
-	ships       ShipSlotLayoutProvider
-	progression PilotProgressionProvider
-	clock       foundation.Clock
+	catalog       Catalog
+	loadouts      LoadoutRepository
+	activeShips   ActiveShipReader
+	moduleItems   ModuleItemReader
+	equipped      EquippedModuleReader
+	moduleMutator ModuleItemMutator
+	ships         ShipSlotLayoutProvider
+	progression   PilotProgressionProvider
+	clock         foundation.Clock
 }
 
 // NewLoadoutService returns a loadout service over explicit storage.
@@ -43,6 +72,26 @@ func NewLoadoutService(
 	if store == nil {
 		return LoadoutService{}, ErrNilLoadoutStore
 	}
+	return NewLoadoutServiceWithRepositories(moduleCatalog, store, store, store, store, store, ships, progression, clock)
+}
+
+// NewLoadoutServiceWithRepositories returns a loadout service over split
+// storage interfaces. It lets future durable adapters provide independent
+// repositories without forcing one monolithic store type.
+func NewLoadoutServiceWithRepositories(
+	moduleCatalog Catalog,
+	loadouts LoadoutRepository,
+	activeShips ActiveShipReader,
+	moduleItems ModuleItemReader,
+	equipped EquippedModuleReader,
+	moduleMutator ModuleItemMutator,
+	ships ShipSlotLayoutProvider,
+	progression PilotProgressionProvider,
+	clock foundation.Clock,
+) (LoadoutService, error) {
+	if loadouts == nil || activeShips == nil || moduleItems == nil || equipped == nil || moduleMutator == nil {
+		return LoadoutService{}, ErrNilLoadoutStore
+	}
 	if ships == nil {
 		return LoadoutService{}, ErrNilShipSlotLayoutProvider
 	}
@@ -53,11 +102,15 @@ func NewLoadoutService(
 		clock = foundation.RealClock{}
 	}
 	return LoadoutService{
-		catalog:     moduleCatalog,
-		store:       store,
-		ships:       ships,
-		progression: progression,
-		clock:       clock,
+		catalog:       moduleCatalog,
+		loadouts:      loadouts,
+		activeShips:   activeShips,
+		moduleItems:   moduleItems,
+		equipped:      equipped,
+		moduleMutator: moduleMutator,
+		ships:         ships,
+		progression:   progression,
+		clock:         clock,
 	}, nil
 }
 
@@ -86,7 +139,7 @@ func (service LoadoutService) SaveLoadout(input SaveLoadoutInput) (Loadout, erro
 
 	now := service.clock.Now()
 	createdAt := now
-	if existing, err := service.store.Loadout(input.PlayerID, input.LoadoutID); err == nil {
+	if existing, err := service.loadouts.Loadout(input.PlayerID, input.LoadoutID); err == nil {
 		createdAt = existing.CreatedAt
 	} else if !errors.Is(err, ErrUnknownLoadout) {
 		return Loadout{}, err
@@ -104,7 +157,7 @@ func (service LoadoutService) SaveLoadout(input SaveLoadoutInput) (Loadout, erro
 	if err := loadout.Validate(); err != nil {
 		return Loadout{}, err
 	}
-	if err := service.store.SaveLoadout(loadout); err != nil {
+	if err := service.loadouts.SaveLoadout(loadout); err != nil {
 		return Loadout{}, err
 	}
 	return cloneLoadout(loadout), nil
@@ -120,11 +173,11 @@ func (service LoadoutService) ApplyLoadout(input ApplyLoadoutInput) (ApplyLoadou
 		return ApplyLoadoutResult{}, err
 	}
 
-	loadout, err := service.store.Loadout(input.PlayerID, input.LoadoutID)
+	loadout, err := service.loadouts.Loadout(input.PlayerID, input.LoadoutID)
 	if err != nil {
 		return ApplyLoadoutResult{}, err
 	}
-	activeShipID, err := service.store.ActiveShipID(input.PlayerID)
+	activeShipID, err := service.activeShips.ActiveShipID(input.PlayerID)
 	if err != nil {
 		return ApplyLoadoutResult{}, err
 	}
@@ -144,14 +197,14 @@ func (service LoadoutService) ApplyLoadout(input ApplyLoadoutInput) (ApplyLoadou
 		return ApplyLoadoutResult{}, err
 	}
 
-	current, err := service.store.EquippedModules(input.PlayerID, activeShipID)
+	current, err := service.equipped.EquippedModules(input.PlayerID, activeShipID)
 	if err != nil {
 		return ApplyLoadoutResult{}, err
 	}
 	now := service.clock.Now()
 	target := buildTargetEquipped(input.PlayerID, activeShipID, loadout.SlotAssignments, current, now)
 	equipped, unequipped := diffEquippedModules(current, target)
-	if err := service.store.ReplaceEquippedModules(ReplaceEquippedModulesInput{
+	if err := service.moduleMutator.ReplaceEquippedModules(ReplaceEquippedModulesInput{
 		PlayerID:  input.PlayerID,
 		ShipID:    activeShipID,
 		Equipped:  target,
@@ -184,7 +237,7 @@ func (service LoadoutService) EquippedItemIDs(playerID foundation.PlayerID, ship
 	if err := shipID.Validate(); err != nil {
 		return nil, err
 	}
-	equipped, err := service.store.EquippedModules(playerID, shipID)
+	equipped, err := service.equipped.EquippedModules(playerID, shipID)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +264,7 @@ func (service LoadoutService) BreakEquippedModule(input BreakEquippedModuleInput
 		return BreakEquippedModuleResult{}, err
 	}
 
-	item, err := service.store.ModuleItem(input.ItemInstanceID)
+	item, err := service.moduleItems.ModuleItem(input.ItemInstanceID)
 	if err != nil {
 		return BreakEquippedModuleResult{}, err
 	}
@@ -228,7 +281,7 @@ func (service LoadoutService) BreakEquippedModule(input BreakEquippedModuleInput
 		return BreakEquippedModuleResult{}, fmt.Errorf("item %q definition %q: %w", item.ItemInstanceID, item.ItemID, ErrUnknownModuleDefinition)
 	}
 
-	broken, changed, err := service.store.MarkEquippedModuleBroken(input.PlayerID, input.ShipID, input.ItemInstanceID)
+	broken, changed, err := service.moduleMutator.MarkEquippedModuleBroken(input.PlayerID, input.ShipID, input.ItemInstanceID)
 	if err != nil {
 		return BreakEquippedModuleResult{}, err
 	}
@@ -264,7 +317,7 @@ func (service LoadoutService) ValidateModuleAssignments(
 		if err := ctx.ShipSlots.ValidateSlot(assignment.slotID); err != nil {
 			return nil, err
 		}
-		item, err := service.store.ModuleItem(assignment.itemInstanceID)
+		item, err := service.moduleItems.ModuleItem(assignment.itemInstanceID)
 		if err != nil {
 			return nil, err
 		}
@@ -295,7 +348,7 @@ func (service LoadoutService) ValidateModuleAssignments(
 			return nil, fmt.Errorf("item %q durability %d: %w", item.ItemInstanceID, item.DurabilityCurrent, ErrModuleBroken)
 		}
 
-		equipped, isEquipped, err := service.store.EquippedModuleByItem(item.ItemInstanceID)
+		equipped, isEquipped, err := service.equipped.EquippedModuleByItem(item.ItemInstanceID)
 		if err != nil {
 			return nil, err
 		}

@@ -524,6 +524,58 @@ func assertNoPhase09Leak(t *testing.T, label string, payload json.RawMessage) {
 		}
 	}
 }
+
+var forbiddenLeakCanaryTokens = []string{
+	"internal_map_id",
+	"source_map_id",
+	"destination_map_id",
+	"map_1_",
+	"worker_id",
+	"map_worker_id",
+	"worker_topology",
+	"entity_hidden_planet_signal",
+	"HIDDEN_RUNTIME_METADATA_SENTINEL",
+	"HIDDEN_PROJECTION_SENTINEL",
+	"phase07-static-seed",
+	`"hidden":`,
+	"hidden_target_metadata",
+	"target_player_id",
+	"witness_expires_at",
+	"stealth_score",
+	"jammer_strength",
+	"detection_roll",
+	"scan_roll",
+	"scan_candidates",
+	"candidate_key",
+	"procedural_seed",
+	"gameplay_seed",
+	"world_seed",
+	"generated_seed",
+	"generated_payload",
+	"loot_roll",
+	"future_spawn",
+	"spawn_candidates",
+	"spawn_areas",
+	"enemy_pools",
+	"npc_drop_profiles",
+	"loot_table",
+	"drop_profile",
+	"server_only",
+	"password",
+	"password_hash",
+	"session_token",
+	"reset_secret",
+}
+
+func assertNoForbiddenLeakCanary(t *testing.T, label string, payload []byte) {
+	t.Helper()
+	raw := string(payload)
+	for _, forbidden := range forbiddenLeakCanaryTokens {
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("%s leaked forbidden canary token %q in %s", label, forbidden, raw)
+		}
+	}
+}
 func readResponse(t *testing.T, conn *websocket.Conn) realtime.ResponseEnvelope {
 	t.Helper()
 	return decodeRawResponse(t, readRawText(t, conn))

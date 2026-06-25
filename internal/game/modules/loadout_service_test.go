@@ -699,6 +699,37 @@ func TestApplyLoadoutRejectsActiveShipMismatch(t *testing.T) {
 	}
 }
 
+func TestNewLoadoutServiceWithRepositoriesAcceptsSplitInterfaces(t *testing.T) {
+	store := NewInMemoryLoadoutStore()
+	service, err := NewLoadoutServiceWithRepositories(
+		MustMVPCatalog(),
+		loadoutRepositoryOnly{store},
+		activeShipReaderOnly{store},
+		moduleItemReaderOnly{store},
+		equippedModuleReaderOnly{store},
+		moduleItemMutatorOnly{store},
+		StaticShipSlotLayoutProvider{"ship-1": {Offensive: 1, Defensive: 1, Utility: 1}},
+		StaticPilotProgressionProvider{"player-1": {Rank: 1}},
+		fixedLoadoutClock{now: time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)},
+	)
+	if err != nil {
+		t.Fatalf("NewLoadoutServiceWithRepositories() error = %v, want nil", err)
+	}
+	if _, err := service.EquippedItemIDs("player-1", "ship-1"); err != nil {
+		t.Fatalf("EquippedItemIDs() error = %v, want nil", err)
+	}
+}
+
+type loadoutRepositoryOnly struct{ LoadoutRepository }
+
+type activeShipReaderOnly struct{ ActiveShipReader }
+
+type moduleItemReaderOnly struct{ ModuleItemReader }
+
+type equippedModuleReaderOnly struct{ EquippedModuleReader }
+
+type moduleItemMutatorOnly struct{ ModuleItemMutator }
+
 type fixedLoadoutClock struct {
 	now time.Time
 }

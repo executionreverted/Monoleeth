@@ -98,6 +98,7 @@ func TestAdminContentVersionsRequiresAdminAndReturnsSafeVersionList(t *testing.T
 		t.Fatalf("admin.content.versions response = %+v, want success", response)
 	}
 	assertNoPhase09Leak(t, "admin content versions", response.Payload)
+	assertNoForbiddenLeakCanary(t, "admin content versions", response.Payload)
 	for _, forbidden := range []string{"snapshot_json", "loot_table", "spawn_candidates", "procedural_seed"} {
 		if raw := string(response.Payload); strings.Contains(raw, forbidden) {
 			t.Fatalf("admin content versions leaked %q in %s", forbidden, raw)
@@ -123,6 +124,7 @@ func TestAdminContentVersionsRequiresAdminAndReturnsSafeVersionList(t *testing.T
 		t.Fatalf("admin.content.list response = %+v, want success", listResponse)
 	}
 	assertNoPhase09Leak(t, "admin content list", listResponse.Payload)
+	assertNoForbiddenLeakCanary(t, "admin content list", listResponse.Payload)
 	var listPayload struct {
 		Content adminContentDraftListPayload `json:"content"`
 	}
@@ -141,6 +143,7 @@ func TestAdminContentVersionsRequiresAdminAndReturnsSafeVersionList(t *testing.T
 	if !getResponse.OK {
 		t.Fatalf("admin.content.get response = %+v, want success", getResponse)
 	}
+	assertNoForbiddenLeakCanary(t, "admin content get", getResponse.Payload)
 	var getPayload struct {
 		ContentRow adminContentDraftRowPayload `json:"content_row"`
 	}
@@ -206,6 +209,7 @@ func TestAdminContentUpdateDraftAndValidateUseServerActor(t *testing.T) {
 	if !response.OK {
 		t.Fatalf("admin.content.update_draft response = %+v, want success", response)
 	}
+	assertNoForbiddenLeakCanary(t, "admin content update draft", response.Payload)
 	var updatePayload struct {
 		ContentRow adminContentDraftRowPayload `json:"content_row"`
 	}
@@ -226,6 +230,7 @@ func TestAdminContentUpdateDraftAndValidateUseServerActor(t *testing.T) {
 	if !validateResponse.OK {
 		t.Fatalf("admin.content.validate_draft response = %+v, want success", validateResponse)
 	}
+	assertNoForbiddenLeakCanary(t, "admin content validate draft", validateResponse.Payload)
 	var validatePayload struct {
 		Validation adminContentDraftValidationPayload `json:"validation"`
 	}
@@ -349,6 +354,7 @@ func TestAdminContentPublishRollbackAndAuditUseServerActor(t *testing.T) {
 	if !publishResponse.OK {
 		t.Fatalf("admin.content.publish response = %+v, want success", publishResponse)
 	}
+	assertNoForbiddenLeakCanary(t, "admin content publish", publishResponse.Payload)
 	if strings.Contains(string(publishResponse.Payload), "actor_account_id") || strings.Contains(string(publishResponse.Payload), "snapshot_json") {
 		t.Fatalf("publish payload leaked forbidden fields: %s", publishResponse.Payload)
 	}
@@ -379,6 +385,7 @@ func TestAdminContentPublishRollbackAndAuditUseServerActor(t *testing.T) {
 	if !rollbackResponse.OK {
 		t.Fatalf("admin.content.rollback response = %+v, want success", rollbackResponse)
 	}
+	assertNoForbiddenLeakCanary(t, "admin content rollback", rollbackResponse.Payload)
 	var rollbackPayload struct {
 		ContentRollback adminContentRollbackPayload `json:"content_rollback"`
 	}
@@ -397,6 +404,7 @@ func TestAdminContentPublishRollbackAndAuditUseServerActor(t *testing.T) {
 	if !auditResponse.OK {
 		t.Fatalf("admin.content.audit_log response = %+v, want success", auditResponse)
 	}
+	assertNoForbiddenLeakCanary(t, "admin content audit log", auditResponse.Payload)
 	if strings.Contains(string(auditResponse.Payload), "actor_account_id") {
 		t.Fatalf("audit payload leaked actor_account_id key: %s", auditResponse.Payload)
 	}

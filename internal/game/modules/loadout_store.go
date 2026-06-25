@@ -21,6 +21,15 @@ type InMemoryLoadoutStore struct {
 	itemMover      ModuleItemLocationMover
 }
 
+var (
+	_ LoadoutStore         = (*InMemoryLoadoutStore)(nil)
+	_ LoadoutRepository    = (*InMemoryLoadoutStore)(nil)
+	_ ActiveShipReader     = (*InMemoryLoadoutStore)(nil)
+	_ ModuleItemReader     = (*InMemoryLoadoutStore)(nil)
+	_ EquippedModuleReader = (*InMemoryLoadoutStore)(nil)
+	_ ModuleItemMutator    = (*InMemoryLoadoutStore)(nil)
+)
+
 // NewInMemoryLoadoutStore returns an empty in-memory loadout store.
 func NewInMemoryLoadoutStore() *InMemoryLoadoutStore {
 	return &InMemoryLoadoutStore{

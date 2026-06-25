@@ -27,17 +27,26 @@ protection and broader hidden-data leak canaries.
 - [ ] `[P:wave1/lane-D]` Define buckets for `auth.login`, `combat.use_skill`, `loot.pickup`, `scan.pulse`, `market.search`, `chat.send` (when added), `quest.reroll`, `inventory.move`.
 - [x] `[P:wave1/lane-D]` Add login/register failure backoff + temporary lockout (no user-existence leak).
 - [x] `[P:wave1/lane-D]` Guarantee throttled requests perform zero mutation.
-- [ ] `[P:wave1/lane-E]` Expand leak canaries to admin/debug/CMS-projection/log surfaces.
+- [x] `[P:wave1/lane-E]` Expand leak canaries to admin/debug/CMS-projection/log surfaces.
 
 ## Server Ownership
 - Rate limits are abuse protection, not gameplay cooldowns; never alter gameplay truth (AGENTS.md).
+- TASK-0466 added process-local realtime token buckets keyed by
+  session/player/op/posture for registered realtime ops. Concrete buckets exist
+  for `combat.use_skill`, `loot.pickup`, `scan.pulse`, `market.search`, and
+  `quest.reroll`; `inventory.move` has a predeclared bucket but remains absent
+  from the realtime operation registry in this slice, so it has no active
+  gateway traffic yet. `chat.send` is not registered yet, so it remains
+  documented absent.
+- Realtime `ERR_RATE_LIMITED` responses are retryable and are not stored in the
+  request cache; retry after refill can execute the same request id.
 
 ## Smoke Tests (one assertion each)
-- [ ] Burst over limit on one op returns throttle error.
+- [x] Burst over limit on one op returns throttle error.
 - [x] Throttled mutation op leaves state unchanged.
 - [x] Repeated failed logins trigger backoff/lockout.
 - [x] Throttle errors do not reveal whether an email exists.
-- [ ] Leak canary finds no hidden seed/internal id in admin/debug responses.
+- [x] Leak canary finds no hidden seed/internal id in admin/debug responses.
 
 ## Done Criteria
 - [ ] Every registered op has an enforced limit.

@@ -329,6 +329,9 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 				t.Fatalf("%s response = %+v, want success", request.name, response)
 			}
 			assertNoPhase09Leak(t, request.name, response.Payload)
+			if request.name != "metrics" {
+				assertNoForbiddenLeakCanary(t, request.name, response.Payload)
+			}
 			request.decode(t, response.Payload)
 			if len(request.eventTypes) > 0 {
 				drainEventTypes(t, adminConn, request.eventTypes...)
@@ -351,4 +354,52 @@ func TestPhase09QuestAdminObservabilityUseServerState(t *testing.T) {
 		{Name: "currency_type", Value: economy.CurrencyBucketCredits.String()},
 		{Name: "reason", Value: runtimeQuestRewardLedgerReason.String()},
 	})
+}
+
+func TestCommandLogLeakCanaryOmitsRejectedPayloadInternals(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+
+	if _, err := gameServer.runtime.Auth.SeedAdmin(context.Background(), auth.AdminSeedInput{
+		Enabled:  true,
+		Email:    "log-admin@example.com",
+		Password: "admin-password",
+		Callsign: "Log-Admin",
+	}); err != nil {
+		t.Fatalf("seed admin: %v", err)
+	}
+
+	adminConn := dialWebSocket(t, httpServer, loginPilot(t, httpServer, "log-admin@example.com", "admin-password"))
+	defer adminConn.CloseNow()
+	readBootstrapEvents(t, adminConn)
+
+	writeText(t, adminConn, `{"request_id":"request-log-canary-source","op":"move_to","payload":{"target":{"x":10,"y":20},"canary_note":"HIDDEN_RUNTIME_METADATA_SENTINEL map_1_2 procedural_seed loot_roll"},"client_seq":1,"v":1}`)
+	rejected := readError(t, adminConn)
+	if rejected.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("canary command error = %+v, want %s", rejected.Error, foundation.CodeInvalidPayload)
+	}
+
+	writeText(t, adminConn, `{"request_id":"request-command-log-canary","op":"observability.command_log","payload":{},"client_seq":2,"v":1}`)
+	response := readResponse(t, adminConn)
+	if !response.OK {
+		t.Fatalf("command log response = %+v, want success", response)
+	}
+	assertNoForbiddenLeakCanary(t, "command log", response.Payload)
+
+	var payload struct {
+		CommandLog commandLogSummaryPayload `json:"command_log"`
+	}
+	if err := json.Unmarshal(response.Payload, &payload); err != nil {
+		t.Fatalf("decode command log: %v", err)
+	}
+	foundRejectedCommand := false
+	for _, entry := range payload.CommandLog.Entries {
+		if entry.RequestID == "request-log-canary-source" {
+			foundRejectedCommand = true
+			break
+		}
+	}
+	if !foundRejectedCommand {
+		t.Fatalf("command log entries = %+v, want rejected canary command", payload.CommandLog.Entries)
+	}
 }

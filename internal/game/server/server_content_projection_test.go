@@ -24,6 +24,7 @@ func TestContentCatalogReturnsSafePlayerProjection(t *testing.T) {
 		t.Fatalf("content.catalog response = %+v, want success", response)
 	}
 	assertNoPhase09Leak(t, "content catalog", response.Payload)
+	assertNoForbiddenLeakCanary(t, "content catalog", response.Payload)
 	assertNoContentCatalogLeak(t, response.Payload)
 
 	var payload contentCatalogResponsePayload

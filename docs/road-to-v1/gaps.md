@@ -22,6 +22,7 @@ phase or moved above with a concrete deferral reason.
 - Realtime gateway limiter hook fixed by TASK-0461; remaining P04 audit items below.
 - Auth login/register backoff and duplicate-register generic response fixed by TASK-0464.
 - Auth attempt backoff is process-local for this slice; durable/cross-process attempt storage remains future P16/P02-style operational hardening unless P04 later adds it. Ref: `internal/game/auth/attempts.go`, `docs/road-to-v1/04-rate-limiting-abuse.md:28`.
+- Realtime bucket implementation is process-local and not yet wired into concrete server runtime construction. Ref: `internal/game/realtime/rate_limiter.go`, `internal/game/server/runtime.go`, `docs/road-to-v1/04-rate-limiting-abuse.md:27`.
 
 ### P01 Persistence Foundation Audit — TASK-0462
 

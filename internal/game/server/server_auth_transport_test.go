@@ -156,6 +156,7 @@ func TestDebugSpawnNPCRejectsOutOfBoundsPosition(t *testing.T) {
 		t.Fatalf("debug spawn out-of-bounds error = %+v, want %s", got.Error, foundation.CodeOutOfRange)
 	}
 }
+
 func TestProductionWebSocketForbidsDebugOperationsAndKeepsSessionSnapshotPublic(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()
@@ -188,6 +189,7 @@ func TestProductionWebSocketForbidsDebugOperationsAndKeepsSessionSnapshotPublic(
 			t.Fatalf("session snapshot leaked %q in %s", forbidden, rawSession)
 		}
 	}
+	assertNoForbiddenLeakCanary(t, "session snapshot", session.Payload)
 
 	for index, body := range []string{
 		`{"request_id":"request-debug-snapshot","op":"debug_snapshot","payload":{},"client_seq":2,"v":1}`,
@@ -202,6 +204,7 @@ func TestProductionWebSocketForbidsDebugOperationsAndKeepsSessionSnapshotPublic(
 		if response.Error.Retryable {
 			t.Fatalf("debug response %d retryable = true, want false", index)
 		}
+		assertNoForbiddenLeakCanary(t, fmt.Sprintf("debug response %d", index), mustJSON(t, response))
 		message := strings.ToLower(response.Error.Message)
 		if strings.Contains(message, "dev") || strings.Contains(message, "internal") {
 			t.Fatalf("debug response leaked internal mode copy: %+v", response.Error)
@@ -236,6 +239,29 @@ func TestProductionWebSocketForbidsDebugOperationsAndKeepsSessionSnapshotPublic(
 		if hasEntityID(worldPayload.Entities, forbiddenEntity) {
 			t.Fatalf("world snapshot after debug forbids includes %q: %+v", forbiddenEntity, worldPayload.Entities)
 		}
+	}
+}
+
+func TestDebugSnapshotLeakCanaryKeepsWorldProjectionSafe(t *testing.T) {
+	_, httpServer := newTestServer(t, true)
+	defer httpServer.Close()
+	conn := dialWebSocket(t, httpServer, registerPilot(t, httpServer))
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+
+	writeText(t, conn, `{"request_id":"request-debug-snapshot-canary","op":"debug_snapshot","payload":{},"client_seq":1,"v":1}`)
+	response := readResponse(t, conn)
+	if !response.OK {
+		t.Fatalf("debug snapshot response = %+v, want success", response)
+	}
+	assertNoForbiddenLeakCanary(t, "debug snapshot", response.Payload)
+
+	var snapshot worldSnapshotPayload
+	if err := json.Unmarshal(response.Payload, &snapshot); err != nil {
+		t.Fatalf("decode debug snapshot: %v", err)
+	}
+	if snapshot.Map.MapKey == "" || snapshot.Sector.Name == "" {
+		t.Fatalf("debug snapshot = %+v, want public world projection", snapshot)
 	}
 }
 func TestRejectTrustedPayloadSharedSensitiveFieldsAndAdminException(t *testing.T) {
