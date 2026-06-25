@@ -18,17 +18,22 @@ phase or moved above with a concrete deferral reason.
 - Request replay mismatch fixed by TASK-0459; remaining P03 audit items below.
 - Reconnect has cursor evidence but no bounded replay ring yet. Ref:
   `internal/game/server/runtime_sessions.go`, `docs/road-to-v1/03-realtime-hardening.md:28`.
-- WebSocket write path writes inline under `client.mu`, so slow clients can stall
-  event delivery until write timeout. Ref: `internal/game/server/transport.go`,
-  `docs/road-to-v1/03-realtime-hardening.md:26`.
+- WebSocket writer queue fixed by TASK-0460; remaining P03 audit item below.
 
 ### P04 Rate Limiting Audit — TASK-0458
 
-- `RateLimitPosture` is metadata only; gateway has no limiter hook before command
-  handler execution. Ref: `internal/game/realtime/envelope.go`,
-  `internal/game/realtime/gateway.go`, `docs/road-to-v1/04-rate-limiting-abuse.md:26`.
+- Realtime gateway limiter hook fixed by TASK-0461; remaining P04 audit items below.
 - Auth login/register route specs expose rate-limit metadata but no throttle,
   backoff, or lockout. Ref: `internal/game/auth/http.go`,
   `docs/road-to-v1/04-rate-limiting-abuse.md:28`.
 - Register duplicate-email response remains an existence leak candidate. Ref:
   `internal/game/auth/service.go`, `docs/road-to-v1/04-rate-limiting-abuse.md:39`.
+
+### P01 Persistence Foundation Audit — TASK-0462
+
+- Hangar/loadout durability still needs repository interfaces and DB adapters. Ref:
+  `internal/game/ships/store.go`, `internal/game/modules/loadout_store.go`,
+  `docs/road-to-v1/01-persistence-foundation.md:29`.
+- Durable loadout/equipped-module restart proof depends on durable instance-item
+  rows, not stackable-only inventory rows. Ref:
+  `internal/game/economy/inventory_service.go`, `docs/road-to-v1/01-persistence-foundation.md:19`.

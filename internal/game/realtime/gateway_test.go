@@ -78,6 +78,96 @@ func TestGatewayRejectsUnknownSessionBeforeHandler(t *testing.T) {
 	}
 }
 
+func TestGatewayLimiterDenialReturnsRateLimited(t *testing.T) {
+	gateway := newTestGatewayWithLimiter(t, validSessionResolver(), &recordingRateLimiter{deny: true}, map[Operation]CommandHandler{
+		OperationCombatUseSkill: func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+			return json.RawMessage(`{"accepted":true}`), nil
+		},
+	})
+
+	response := gateway.HandleRequest("session-1", combatUseSkillRequest("request-limiter-denied"))
+
+	if !response.HasError || response.Error.Error.Code != foundation.CodeRateLimited {
+		t.Fatalf("HandleRequest() = %+v, want %s", response, foundation.CodeRateLimited)
+	}
+}
+
+func TestGatewayLimiterDenialSkipsHandler(t *testing.T) {
+	calls := 0
+	gateway := newTestGatewayWithLimiter(t, validSessionResolver(), &recordingRateLimiter{deny: true}, map[Operation]CommandHandler{
+		OperationCombatUseSkill: func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+			calls++
+			return json.RawMessage(`{"accepted":true}`), nil
+		},
+	})
+
+	_ = gateway.HandleRequest("session-1", combatUseSkillRequest("request-limiter-skip-handler"))
+
+	if calls != 0 {
+		t.Fatalf("handler calls = %d, want 0", calls)
+	}
+}
+
+func TestGatewayLimiterReceivesResolvedRequestContextAndMutationPosture(t *testing.T) {
+	limiter := &recordingRateLimiter{}
+	gateway := newTestGatewayWithLimiter(t, validSessionResolver(), limiter, map[Operation]CommandHandler{
+		OperationCombatUseSkill: func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+			return json.RawMessage(`{"accepted":true}`), nil
+		},
+	})
+
+	_ = gateway.HandleRequest("session-1", combatUseSkillRequest("request-limiter-posture"))
+
+	want := RateLimitRequest{
+		SessionID:        "session-1",
+		PlayerID:         "player-1",
+		WorldID:          "world-1",
+		ZoneID:           "zone-1",
+		Operation:        OperationCombatUseSkill,
+		RequestID:        "request-limiter-posture",
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	}
+	if len(limiter.requests) != 1 || limiter.requests[0] != want {
+		t.Fatalf("limiter requests = %+v, want [%+v]", limiter.requests, want)
+	}
+}
+
+func TestGatewayWithoutLimiterExecutesHandler(t *testing.T) {
+	calls := 0
+	gateway := newTestGateway(t, validSessionResolver(), map[Operation]CommandHandler{
+		OperationCombatUseSkill: func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+			calls++
+			return json.RawMessage(`{"accepted":true}`), nil
+		},
+	})
+
+	_ = gateway.HandleRequest("session-1", combatUseSkillRequest("request-no-limiter"))
+
+	if calls != 1 {
+		t.Fatalf("handler calls = %d, want 1", calls)
+	}
+}
+
+func TestGatewayLimiterDeniedRetryCanExecuteAfterAllow(t *testing.T) {
+	calls := 0
+	limiter := &recordingRateLimiter{deny: true}
+	gateway := newTestGatewayWithLimiter(t, validSessionResolver(), limiter, map[Operation]CommandHandler{
+		OperationCombatUseSkill: func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+			calls++
+			return json.RawMessage(`{"accepted":true}`), nil
+		},
+	})
+	request := combatUseSkillRequest("request-limiter-retry")
+
+	denied := gateway.HandleRequest("session-1", request)
+	limiter.deny = false
+	allowed := gateway.HandleRequest("session-1", request)
+
+	if !denied.HasError || allowed.HasError || calls != 1 {
+		t.Fatalf("denied/allowed/calls = %+v / %+v / %d, want retry execute once after allow", denied, allowed, calls)
+	}
+}
+
 func TestGatewayCachesDuplicateRequestPerSession(t *testing.T) {
 	resolver := staticSessionResolver{
 		"session-1": {PlayerID: "player-1", WorldID: "world-1", ZoneID: "zone-1"},
@@ -214,6 +304,11 @@ func TestGatewayConstructorsRejectNilDependencies(t *testing.T) {
 
 func newTestGateway(t *testing.T, resolver SessionResolver, handlers map[Operation]CommandHandler) *Gateway {
 	t.Helper()
+	return newTestGatewayWithLimiter(t, resolver, nil, handlers)
+}
+
+func newTestGatewayWithLimiter(t *testing.T, resolver SessionResolver, limiter RateLimiter, handlers map[Operation]CommandHandler) *Gateway {
+	t.Helper()
 	gateway, err := NewGateway(GatewayOptions{
 		Clock:    &steppingClock{now: time.Date(2026, 6, 18, 18, 0, 0, 0, time.UTC), step: time.Millisecond},
 		Sessions: resolver,
@@ -221,6 +316,7 @@ func newTestGateway(t *testing.T, resolver SessionResolver, handlers map[Operati
 			Logger:  observability.NewMemoryCommandLogger(),
 			Metrics: observability.NewMetricRecorder(),
 		},
+		Limiter:  limiter,
 		Handlers: handlers,
 	})
 	if err != nil {
@@ -265,4 +361,31 @@ func (resolver staticSessionResolver) ResolveSession(sessionID SessionID) (Comma
 		return CommandContext{}, foundation.NewDomainError(foundation.CodeUnauthenticated, "Authenticated session is required.")
 	}
 	return ctx, nil
+}
+
+type recordingRateLimiter struct {
+	deny     bool
+	requests []RateLimitRequest
+}
+
+func (limiter *recordingRateLimiter) AllowRealtimeRequest(request RateLimitRequest) error {
+	limiter.requests = append(limiter.requests, request)
+	if limiter.deny {
+		return errors.New("rate limit exceeded")
+	}
+	return nil
+}
+
+func validSessionResolver() staticSessionResolver {
+	return staticSessionResolver{
+		"session-1": {
+			PlayerID: "player-1",
+			WorldID:  "world-1",
+			ZoneID:   "zone-1",
+		},
+	}
+}
+
+func combatUseSkillRequest(requestID foundation.RequestID) []byte {
+	return []byte(`{"request_id":"` + string(requestID) + `","op":"combat.use_skill","payload":{"skill_id":"basic_laser","target_id":"npc-1"},"client_seq":11,"v":1}`)
 }

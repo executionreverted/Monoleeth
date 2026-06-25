@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -12,6 +13,21 @@ import (
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
 )
+
+const outboundQueueSize = 64
+
+type outboundMessage struct {
+	payload     []byte
+	closeAfter  bool
+	closeStatus websocket.StatusCode
+	closeReason string
+}
+
+type websocketWriter interface {
+	Write(context.Context, websocket.MessageType, []byte) error
+	Close(websocket.StatusCode, string) error
+	CloseNow() error
+}
 
 func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 	resolved, err := auth.ResolveCookie(r.Context(), server.runtime.Auth, auth.DefaultSessionCookieName, server.config.originPolicy(), r)
@@ -32,17 +48,19 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	client := &clientConnection{conn: conn, sessionID: resolved.SessionID}
+	client := newClientConnection(conn, resolved.SessionID)
+	client.startWriter(server.config.SocketWriteTimeout)
 	server.registerConnection(client)
 	defer func() {
+		client.closeNow()
+		client.waitForWriter(server.config.SocketWriteTimeout + time.Second)
 		server.unregisterConnection(client)
-		_ = conn.CloseNow()
 	}()
 	conn.SetReadLimit(server.config.SocketReadLimit)
 
 	events, err := server.runtime.bootstrapEvents(resolved)
 	if err != nil {
-		_ = conn.Close(websocket.StatusInternalError, "bootstrap failed")
+		client.close(websocket.StatusInternalError, "bootstrap failed")
 		return
 	}
 	if !server.writeEvents(client, events) {
@@ -55,22 +73,22 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if messageType != websocket.MessageText {
-			_ = conn.Close(websocket.StatusUnsupportedData, "text messages only")
+			client.close(websocket.StatusUnsupportedData, "text messages only")
 			return
 		}
 		request, requestErr := realtime.DecodeRequestEnvelope(data)
 		response := server.runtime.Gateway.HandleRequest(realtime.SessionID(resolved.SessionID.String()), data)
-		if !server.writeResponse(client, response) {
+		if response.HasError && isTerminalAuthError(response.Error.Error.Code) {
+			_ = server.writeResponseAndClose(client, response, websocket.StatusPolicyViolation, "session invalid")
 			return
 		}
-		if response.HasError && isTerminalAuthError(response.Error.Error.Code) {
-			_ = conn.Close(websocket.StatusPolicyViolation, "session invalid")
+		if !server.writeResponse(client, response) {
 			return
 		}
 		if response.HasError && response.Error.Error.Code == foundation.CodeShipDisabled {
 			events, err := server.runtime.shipDisabledRefreshEvents(resolved.SessionID, resolved.PlayerID)
 			if err != nil {
-				_ = conn.Close(websocket.StatusInternalError, "event publish failed")
+				client.close(websocket.StatusInternalError, "event publish failed")
 				return
 			}
 			if !server.writeEvents(client, events) {
@@ -82,14 +100,113 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		eventsBySession, err := server.runtime.postCommandEventsBySession(resolved.SessionID, request.Op, resolved.PlayerID)
 		if err != nil {
-			_ = conn.Close(websocket.StatusInternalError, "event publish failed")
+			client.close(websocket.StatusInternalError, "event publish failed")
 			return
 		}
 		for sessionID, events := range eventsBySession {
-			if !server.writeEventsToSession(sessionID, events) && sessionID == resolved.SessionID {
+			server.writeEventsToSession(sessionID, events)
+		}
+	}
+}
+
+func newClientConnection(conn websocketWriter, sessionID auth.SessionID, queueSizeOverride ...int) *clientConnection {
+	queueSize := outboundQueueSize
+	if len(queueSizeOverride) > 0 && queueSizeOverride[0] > 0 {
+		queueSize = queueSizeOverride[0]
+	}
+	return &clientConnection{
+		conn:       conn,
+		sessionID:  sessionID,
+		outbound:   make(chan outboundMessage, queueSize),
+		done:       make(chan struct{}),
+		writerDone: make(chan struct{}),
+	}
+}
+
+func (client *clientConnection) startWriter(writeTimeout time.Duration) {
+	go client.writeLoop(writeTimeout)
+}
+
+func (client *clientConnection) writeLoop(writeTimeout time.Duration) {
+	defer close(client.writerDone)
+	for {
+		select {
+		case <-client.done:
+			return
+		case message := <-client.outbound:
+			if !client.writeOutboundMessage(writeTimeout, message.payload) {
+				client.close(websocket.StatusInternalError, "write failed")
+				return
+			}
+			if message.closeAfter {
+				client.close(message.closeStatus, message.closeReason)
 				return
 			}
 		}
+	}
+}
+
+func (client *clientConnection) writeOutboundMessage(writeTimeout time.Duration, payload []byte) bool {
+	if client.conn == nil {
+		return false
+	}
+	if writeTimeout <= 0 {
+		writeTimeout = DefaultConfig().SocketWriteTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
+	defer cancel()
+	if err := client.conn.Write(ctx, websocket.MessageText, payload); err != nil {
+		return false
+	}
+	return true
+}
+
+func (client *clientConnection) enqueue(message outboundMessage) bool {
+	select {
+	case <-client.done:
+		return false
+	default:
+	}
+	select {
+	case <-client.done:
+		return false
+	case client.outbound <- message:
+		return true
+	default:
+		client.close(websocket.StatusPolicyViolation, "client too slow")
+		return false
+	}
+}
+
+func (client *clientConnection) close(status websocket.StatusCode, reason string) {
+	client.closeOnce.Do(func() {
+		close(client.done)
+		if client.conn != nil {
+			_ = client.conn.Close(status, reason)
+		}
+	})
+}
+
+func (client *clientConnection) closeNow() {
+	client.closeOnce.Do(func() {
+		close(client.done)
+		if client.conn != nil {
+			_ = client.conn.CloseNow()
+		}
+	})
+}
+
+func (client *clientConnection) waitForWriter(timeout time.Duration) bool {
+	if timeout <= 0 {
+		timeout = time.Second
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-client.writerDone:
+		return true
+	case <-timer.C:
+		return false
 	}
 }
 
@@ -100,6 +217,32 @@ func (server *Server) readMessage(conn *websocket.Conn) (websocket.MessageType, 
 }
 
 func (server *Server) writeResponse(client *clientConnection, response realtime.CachedResponse) bool {
+	payload, err := responsePayload(response)
+	if err != nil {
+		client.close(websocket.StatusInternalError, "response encode failed")
+		return false
+	}
+	return server.writeText(client, payload)
+}
+
+func (server *Server) writeResponseAndClose(client *clientConnection, response realtime.CachedResponse, status websocket.StatusCode, reason string) bool {
+	payload, err := responsePayload(response)
+	if err != nil {
+		client.close(websocket.StatusInternalError, "response encode failed")
+		return false
+	}
+	if !server.writeTextMessage(client, outboundMessage{
+		payload:     payload,
+		closeAfter:  true,
+		closeStatus: status,
+		closeReason: reason,
+	}) {
+		return false
+	}
+	return client.waitForWriter(server.config.SocketWriteTimeout + time.Second)
+}
+
+func responsePayload(response realtime.CachedResponse) ([]byte, error) {
 	var payload []byte
 	var err error
 	if response.HasError {
@@ -108,17 +251,16 @@ func (server *Server) writeResponse(client *clientConnection, response realtime.
 		payload, err = json.Marshal(response.Response)
 	}
 	if err != nil {
-		_ = client.conn.Close(websocket.StatusInternalError, "response encode failed")
-		return false
+		return nil, err
 	}
-	return server.writeText(client, payload)
+	return payload, nil
 }
 
 func (server *Server) writeEvents(client *clientConnection, events []realtime.EventEnvelope) bool {
 	for _, event := range events {
 		payload, err := json.Marshal(event)
 		if err != nil {
-			_ = client.conn.Close(websocket.StatusInternalError, "event encode failed")
+			client.close(websocket.StatusInternalError, "event encode failed")
 			return false
 		}
 		if !server.writeText(client, payload) {
@@ -129,14 +271,14 @@ func (server *Server) writeEvents(client *clientConnection, events []realtime.Ev
 }
 
 func (server *Server) writeText(client *clientConnection, payload []byte) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), server.config.SocketWriteTimeout)
-	defer cancel()
-	client.mu.Lock()
-	defer client.mu.Unlock()
-	if err := client.conn.Write(ctx, websocket.MessageText, payload); err != nil {
-		return false
+	return server.writeTextMessage(client, outboundMessage{payload: append([]byte(nil), payload...)})
+}
+
+func (server *Server) writeTextMessage(client *clientConnection, message outboundMessage) bool {
+	if len(message.payload) > 0 {
+		message.payload = append([]byte(nil), message.payload...)
 	}
-	return true
+	return client.enqueue(message)
 }
 
 func (server *Server) registerConnection(client *clientConnection) {
@@ -171,7 +313,6 @@ func (server *Server) writeEventsToSession(sessionID auth.SessionID, events []re
 			return true
 		}
 		if !server.writeEvents(client, events) {
-			_ = client.conn.Close(websocket.StatusInternalError, "event publish failed")
 			allWritten = false
 		}
 		return true

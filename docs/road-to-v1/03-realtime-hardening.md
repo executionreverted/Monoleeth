@@ -23,8 +23,8 @@ reconnect, and make the request cache key safe against replay mismatch.
 - Binary protocol (later).
 
 ## Tasks
-- [ ] `[P:wave1/lane-B]` Add per-session outbound write queue in `transport.go`; tick path enqueues, never blocks.
-- [ ] `[P:wave1/lane-B]` Add bounded buffer policy: slow client gets disconnected, not the whole loop.
+- [x] `[P:wave1/lane-B]` Add per-session outbound write queue in `transport.go`; tick path enqueues, never blocks.
+- [x] `[P:wave1/lane-B]` Add bounded buffer policy: slow client gets disconnected, not the whole loop.
 - [ ] `[P:wave1/lane-B]` Add bounded per-session event ring keyed by `seq`; replay missed events on reconnect before latest snapshot.
 - [x] `[P:wave1/lane-C]` Extend request cache key with op + payload hash + version; mismatch returns `ERR_REQUEST_REPLAY_MISMATCH`.
 
@@ -32,13 +32,13 @@ reconnect, and make the request cache key safe against replay mismatch.
 - Events still publish after commit; writer queue is delivery only.
 
 ## Smoke Tests (one assertion each)
-- [ ] A blocked/slow socket does not delay another session's tick events.
-- [ ] Overflowing client buffer disconnects only that session.
+- [x] A blocked/slow socket does not delay another session's tick events.
+- [x] Overflowing client buffer disconnects only that session.
 - [ ] Reconnect with last `seq` replays missed events in order.
 - [x] Same request_id + different op returns replay-mismatch error, not stale cached payload.
 
 ## Done Criteria
-- [ ] Tick/event loop never blocks on a single client write.
+- [x] Tick/event loop never blocks on a single client write.
 - [ ] Reconnect recovers missed bounded events deterministically.
 
 ## Verification

@@ -29,6 +29,7 @@ type GatewayOptions struct {
 	Sessions SessionResolver
 	Cache    *RequestCache
 	Executor ObservedCommandExecutor
+	Limiter  RateLimiter
 	Handlers map[Operation]CommandHandler
 }
 
@@ -40,6 +41,7 @@ type Gateway struct {
 	sessions SessionResolver
 	cache    *RequestCache
 	executor ObservedCommandExecutor
+	limiter  RateLimiter
 	handlers map[Operation]CommandHandler
 }
 
@@ -65,6 +67,7 @@ func NewGateway(options GatewayOptions) (*Gateway, error) {
 		sessions: options.Sessions,
 		cache:    cache,
 		executor: executor,
+		limiter:  options.Limiter,
 		handlers: cloneCommandHandlers(options.Handlers),
 	}, nil
 }
@@ -115,6 +118,13 @@ func (gateway *Gateway) executeResolved(sessionID SessionID, request RequestEnve
 	}
 	ctx.SessionID = sessionID
 
+	if err := ctx.Validate(); err != nil {
+		return gateway.cachedError(request.RequestID, err)
+	}
+	if err := gateway.checkRateLimit(ctx, request); err != nil {
+		return gateway.cachedRateLimitedError(request.RequestID, err)
+	}
+
 	payload, err := gateway.executor.Execute(ctx, request, gateway.handlers[request.Op])
 	if err != nil {
 		return gateway.cachedError(request.RequestID, err)
@@ -122,9 +132,33 @@ func (gateway *Gateway) executeResolved(sessionID SessionID, request RequestEnve
 	return CachedSuccess(NewResponseEnvelope(request.RequestID, normalizeResponsePayload(payload), gateway.serverTime()))
 }
 
+func (gateway *Gateway) checkRateLimit(ctx CommandContext, request RequestEnvelope) error {
+	if gateway == nil || gateway.limiter == nil {
+		return nil
+	}
+	spec, ok := LookupOperation(request.Op)
+	posture := RateLimitPostureUnspecified
+	if ok {
+		posture = spec.RateLimitPosture
+	}
+	return gateway.limiter.AllowRealtimeRequest(RateLimitRequest{
+		SessionID:        ctx.SessionID,
+		PlayerID:         ctx.PlayerID,
+		WorldID:          ctx.WorldID,
+		ZoneID:           ctx.ZoneID,
+		Operation:        request.Op,
+		RequestID:        request.RequestID,
+		RateLimitPosture: posture,
+	})
+}
+
 func (gateway *Gateway) cachedError(requestID foundation.RequestID, err error) CachedResponse {
 	domainErr := domainErrorForGateway(err)
 	return CachedError(NewErrorEnvelope(requestID, domainErr, domainErr.Public().Code == foundation.CodeInternal, gateway.serverTime()))
+}
+
+func (gateway *Gateway) cachedRateLimitedError(requestID foundation.RequestID, err error) CachedResponse {
+	return CachedError(NewErrorEnvelope(requestID, rateLimitedError(err), true, gateway.serverTime()))
 }
 
 func (gateway *Gateway) serverTime() int64 {

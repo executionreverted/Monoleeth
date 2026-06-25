@@ -26,9 +26,12 @@ type Server struct {
 }
 
 type clientConnection struct {
-	conn      *websocket.Conn
-	sessionID auth.SessionID
-	mu        sync.Mutex
+	conn       websocketWriter
+	sessionID  auth.SessionID
+	outbound   chan outboundMessage
+	done       chan struct{}
+	writerDone chan struct{}
+	closeOnce  sync.Once
 }
 
 // New returns a concrete game server.
@@ -143,7 +146,13 @@ func (server *Server) Shutdown(ctx context.Context) error {
 	}
 	server.conns.Range(func(key, _ any) bool {
 		if client, ok := key.(*clientConnection); ok {
-			_ = client.conn.Close(websocket.StatusGoingAway, "server shutdown")
+			client.close(websocket.StatusGoingAway, "server shutdown")
+		}
+		return true
+	})
+	server.conns.Range(func(key, _ any) bool {
+		if client, ok := key.(*clientConnection); ok {
+			client.waitForWriter(time.Second)
 		}
 		return true
 	})
