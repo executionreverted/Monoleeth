@@ -26,7 +26,7 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 - [ ] `[P:wave2/lane-D]` Move per-map live state mutation behind each worker's command queue.
 - [ ] `[P:wave2/lane-D]` Narrow `Runtime.mu` to session/routing only; document what it still protects.
 - [ ] `[P:wave2/lane-D]` Use immutable snapshots/copy-on-write for read projections (AOI, minimap).
-- [ ] `[P:wave2/lane-D]` Add `-race` tests: concurrent commands + tick on the same and on different maps.
+- [x] `[P:wave2/lane-D]` Add `-race` tests: concurrent commands + tick on the same and on different maps.
 
 ## Server Ownership
 - Each map worker is the single owner of its zone's authoritative live state.
@@ -40,7 +40,7 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 
 ## Done Criteria
 - [ ] Map A activity no longer serializes behind map B.
-- [ ] `-race` tests green for concurrent command/tick.
+- [x] `-race` tests green for concurrent command/tick.
 
 ## Verification
 ```bash

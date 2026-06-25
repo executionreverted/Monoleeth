@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -727,6 +729,62 @@ func TestCommandOnMapADoesNotBlockCommandOnMapBTiming(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("map A command did not finish after blocking worker release")
+	}
+}
+
+func TestRuntimeConcurrentCommandTickSameAndDifferentMapsRace(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+
+	starterOne := createResolvedRuntimeSession(t, gameServer, "race-starter-one@example.com", "Race Starter One")
+	starterTwo := createResolvedRuntimeSession(t, gameServer, "race-starter-two@example.com", "Race Starter Two")
+	mapTwo := createResolvedRuntimeSessionOnMap(t, gameServer, "race-map-two@example.com", "Race Map Two", "map_1_2", "west_gate")
+
+	start := make(chan struct{})
+	errs := make(chan error, 4)
+	var wg sync.WaitGroup
+
+	runStopCommands := func(label string, resolved auth.ResolvedSession) {
+		defer wg.Done()
+		<-start
+		ctx := realtime.CommandContext{
+			SessionID: realtime.SessionID(resolved.SessionID.String()),
+			PlayerID:  resolved.PlayerID,
+		}
+		request := realtime.RequestEnvelope{Payload: json.RawMessage(`{}`)}
+		for index := 0; index < 75; index++ {
+			if _, err := gameServer.runtime.handleStop(ctx, request); err != nil {
+				errs <- fmt.Errorf("%s stop %d: %w", label, index, err)
+				return
+			}
+			goruntime.Gosched()
+		}
+	}
+
+	wg.Add(1)
+	go runStopCommands("starter-one", starterOne)
+	wg.Add(1)
+	go runStopCommands("starter-two", starterTwo)
+	wg.Add(1)
+	go runStopCommands("map-two", mapTwo)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		for index := 0; index < 75; index++ {
+			_ = gameServer.runtime.tickAndCollectAOIEvents()
+			goruntime.Gosched()
+		}
+	}()
+
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
