@@ -464,13 +464,14 @@ export function shipPanel(state: ClientState): string {
   const ship = state.ship;
   const quote = state.repairQuote && state.repairQuote.ship_id === ship.active_ship_id ? state.repairQuote : null;
   const repairDisabled = !ship.disabled || !quote;
+  const repairState = ship.repair_state || (ship.disabled ? 'disabled' : lockedValue());
   return `
     <h2>Ship</h2>
     <div class="target-name">${escapeHTML(ship.display_name || ship.active_ship_id)}</div>
     ${meter('Hull', ship.hull, ship.max_hull)}
     ${meter('SHD', ship.shield, ship.max_shield)}
     ${meter('Cap', ship.capacitor, ship.max_capacitor)}
-    <div class="meta-row"><span>State</span><strong>${escapeHTML(ship.repair_state || (ship.disabled ? 'disabled' : 'active'))}</strong></div>
+    <div class="meta-row"><span>State</span><strong>${escapeHTML(repairState)}</strong></div>
     ${
       ship.disabled
         ? `<div class="repair-box">

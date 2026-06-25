@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { OPERATIONS } from '../protocol/envelope';
-import { createInitialState } from '../state/reducer';
+import { CLIENT_EVENTS, OPERATIONS } from '../protocol/envelope';
+import { createInitialState, reduceClientState } from '../state/reducer';
 import type { ClientState, MapSummary, MinimapSummary } from '../state/types';
 import { hudSelection } from './hud-selection';
 import { minimapPanel, planetCatalogPanel, planetDetailModal } from './hud-render-planets';
-import { actionBar, targetPanel } from './hud-render-panels';
+import { actionBar, shipPanel, targetPanel } from './hud-render-panels';
 import { topbarDangerText, topbarLocationText } from './hud-topbar';
 
 describe('minimapPanel', () => {
@@ -719,6 +719,77 @@ describe('actionBar', () => {
     expect(targetHTML).toContain('data-target-kind="player"');
     expect(targetHTML).toMatch(/data-action="fire"[^>]*>Fire/);
     expect(targetHTML).not.toMatch(/data-action="fire"[^>]*disabled/);
+  });
+
+  test('death disabled event disables laser controls and renders server repair state', () => {
+    const base = combatReadyState();
+    const state = reduceClientState(base, {
+      type: 'eventReceived',
+      envelope: {
+        event_id: 'death-1',
+        type: CLIENT_EVENTS.deathShipDisabled,
+        payload: {
+          ship_id: 'starter',
+          disabled_reason: 'combat',
+          ship: {
+            active_ship_id: 'starter',
+            display_name: 'Starter',
+            hull: 0,
+            max_hull: 100,
+            shield: 0,
+            max_shield: 50,
+            capacitor: 0,
+            max_capacitor: 20,
+            disabled: true,
+            repair_state: 'disabled',
+          },
+          repair_quote: { ship_id: 'starter', cost: 15, currency: 'credits', disabled: true },
+        },
+        server_time: 20_000,
+        seq: 10,
+        v: 1,
+      },
+    });
+
+    const barHTML = actionBar(state, 20_000);
+    const laserSlot = actionSlot(barHTML, 'laser');
+    const targetHTML = targetPanel(state, 20_000);
+    const shipHTML = shipPanel(state);
+
+    expect(laserSlot).toContain('data-state="blocked"');
+    expect(laserSlot).toMatch(/data-action="fire"[^>]*disabled/);
+    expect(laserSlot).toContain('Repair the ship before firing.');
+    expect(targetHTML).toMatch(/data-action="fire"[^>]*disabled[^>]*>Fire/);
+    expect(shipHTML).toContain('<div class="meta-row"><span>State</span><strong>disabled</strong></div>');
+    expect(shipHTML).toContain('<div class="meta-row"><span>Quote</span><strong>15 credits</strong></div>');
+    expect(shipHTML).not.toContain('<strong>active</strong>');
+  });
+
+  test('disabled ship snapshot blocks combat fire controls and renders server repair state', () => {
+    const state = combatReadyState();
+    state.ship = {
+      ...state.ship!,
+      hull: 0,
+      shield: 0,
+      capacitor: 0,
+      disabled: true,
+      repair_state: 'repair_pending',
+    };
+    state.repairQuote = { ship_id: 'starter', cost: 15, currency: 'credits', disabled: true };
+
+    const barHTML = actionBar(state, 20_000);
+    const laserSlot = actionSlot(barHTML, 'laser');
+    const targetHTML = targetPanel(state, 20_000);
+    const shipHTML = shipPanel(state);
+
+    expect(laserSlot).toContain('data-state="blocked"');
+    expect(laserSlot).toContain('Disabled');
+    expect(laserSlot).toMatch(/data-action="fire"[^>]*disabled/);
+    expect(laserSlot).toContain('Repair the ship before firing.');
+    expect(targetHTML).toMatch(/data-action="fire"[^>]*disabled[^>]*>Fire/);
+    expect(shipHTML).toContain('<div class="meta-row"><span>State</span><strong>repair_pending</strong></div>');
+    expect(shipHTML).toContain('<div class="meta-row"><span>Quote</span><strong>15 credits</strong></div>');
+    expect(shipHTML).not.toContain('<strong>active</strong>');
   });
 
   test('self player target keeps laser blocked and hides target Fire control', () => {

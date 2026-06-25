@@ -368,7 +368,7 @@ describe('reduceClientState', () => {
     expect(disabled.ship).toMatchObject({
       active_ship_id: 'starter',
       disabled: true,
-      repair_state: 'combat',
+      repair_state: 'disabled',
       hull: 0,
     });
     expect(disabled.repairQuote).toEqual({ ship_id: 'starter', cost: 15, currency: 'credits', disabled: true });

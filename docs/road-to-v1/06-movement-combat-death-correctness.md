@@ -1,7 +1,7 @@
 # Phase 06 — Movement, Combat & Death Correctness
 
 ## Status
-- State: In progress
+- State: Done
 - Wave: 2
 - Depends on: none (integrates better after P01)
 - Unlocks: P11
@@ -27,7 +27,7 @@ events, and repair, so the combat loop is durable and UX-complete.
 - [x] `[P:wave2/lane-E]` Add `death.ship_disabled` event mapper (server-safe fields only).
 - [x] `[P:wave2/lane-E]` Make repair quote server-time bound; reject stale/tampered quotes.
 - [x] `[P:wave2/lane-E]` Debit repair via wallet ledger; re-enable ship after commit.
-- [ ] `[P:wave2/lane-E]` Disable combat buttons from server death state in client.
+- [x] `[P:wave2/lane-E]` Disable combat buttons from server death state in client.
 
 ## Server Ownership
 - Position, hit, damage, cooldown, repair price, ship state are server-owned.
@@ -41,8 +41,8 @@ events, and repair, so the combat loop is durable and UX-complete.
 - [x] Successful repair debits wallet once and re-enables the ship.
 
 ## Done Criteria
-- [ ] Phase 05 open death/repair checklist items closed.
-- [ ] No stale-position desync on stop/disconnect.
+- [x] Phase 05 open death/repair checklist items closed.
+- [x] No stale-position desync on stop/disconnect.
 
 ## Verification
 ```bash

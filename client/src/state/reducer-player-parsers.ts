@@ -130,7 +130,14 @@ export function applyDeathShipDisabled(state: ClientState, payload: JsonObject):
   const shipID = stringField(payload, 'ship_id') ?? stringField(shipPayload ?? {}, 'active_ship_id') ?? '';
   const disabledReason = stringField(payload, 'disabled_reason') ?? 'disabled';
   const ship = shipPayload
-    ? parseShipSummary({ ...shipPayload, disabled: true, repair_state: disabledReason }, state.ship)
+    ? parseShipSummary(
+        {
+          ...shipPayload,
+          disabled: true,
+          repair_state: stringField(shipPayload, 'repair_state') ?? disabledReason,
+        },
+        state.ship,
+      )
     : state.ship && (!shipID || state.ship.active_ship_id === shipID)
       ? {
           ...state.ship,

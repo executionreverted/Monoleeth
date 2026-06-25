@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -389,6 +390,56 @@ func TestWorldSnapshotUsesActiveMapEntitiesAndStoresInstanceAOI(t *testing.T) {
 		t.Fatalf("map_1_2 LastAOI missing active session")
 	}
 }
+
+func TestWorldSnapshotStoresImmutableAOICursorProjectionCopy(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "snapshot-immutable@example.com", "Snapshot Immutable")
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+
+	payload, err := gameServer.runtime.worldSnapshotForSessionLocked(resolved.PlayerID, resolved.SessionID)
+	if err != nil {
+		t.Fatalf("worldSnapshotForSessionLocked() error = %v, want nil", err)
+	}
+	instance, _, err := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("activeMapInstanceLocked() error = %v, want nil", err)
+	}
+	instance.LastAOI[resolved.SessionID] = aoi.Snapshot{Entities: cloneAOIEntities(payload.Entities)}
+
+	playerEntityID := gameServer.runtime.players[resolved.PlayerID].EntityID.String()
+	before, ok := entityPayloadByID(instance.LastAOI[resolved.SessionID].Entities, playerEntityID)
+	if !ok {
+		t.Fatalf("LastAOI missing player entity %q", playerEntityID)
+	}
+	payloadIndex := -1
+	for index := range payload.Entities {
+		if payload.Entities[index].ID.String() == playerEntityID {
+			payloadIndex = index
+			break
+		}
+	}
+	if payloadIndex == -1 {
+		t.Fatalf("world snapshot payload missing player entity %q", playerEntityID)
+	}
+	if len(payload.Entities[payloadIndex].StatusFlags) == 0 || payload.Entities[payloadIndex].Display == nil {
+		t.Fatalf("world snapshot payload entity missing cloneable public fields: %+v", payload.Entities[payloadIndex])
+	}
+
+	payload.Entities[payloadIndex].Position = world.Vec2{X: 900, Y: 900}
+	payload.Entities[payloadIndex].StatusFlags[0] = "torn_payload"
+	payload.Entities[payloadIndex].Display.Label = "torn payload"
+
+	after, ok := entityPayloadByID(instance.LastAOI[resolved.SessionID].Entities, playerEntityID)
+	if !ok {
+		t.Fatalf("LastAOI missing player entity %q after payload mutation", playerEntityID)
+	}
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("LastAOI entity mutated through world snapshot payload: before=%+v after=%+v", before, after)
+	}
+}
+
 func TestTickLoopEmitsAOIOnlyToSessionsAttachedToSameMap(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	starterPlayer := createResolvedRuntimeSession(t, gameServer, "tick-map-one@example.com", "Tick One")

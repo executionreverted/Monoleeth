@@ -213,6 +213,63 @@ func TestSnapshotPayloadIncludesExplicitPublicMovementTiming(t *testing.T) {
 	}
 }
 
+func TestBuildVisibleSnapshotImmutableProjectionPreventsTornEntityState(t *testing.T) {
+	beforePosition := world.Vec2{X: 20, Y: 20}
+	beforeFlags := []aoi.StatusFlag{"moving", "neutral"}
+	beforeDisplay := aoi.EntityDisplay{Label: "Before", Disposition: "neutral"}
+	beforeCombat := aoi.EntityCombatStatus{HP: 75, MaxHP: 100, Shield: 30, MaxShield: 50, Status: "moving"}
+	beforeMovement := aoi.EntityMovementStatus{
+		Moving:      true,
+		Origin:      world.Vec2{X: 10, Y: 20},
+		Target:      world.Vec2{X: 110, Y: 20},
+		Speed:       50,
+		StartedAtMS: 1000,
+		ArriveAtMS:  3000,
+	}
+	state := testState("entity-immutable", world.EntityTypeNPC, beforePosition, false)
+	state.PublicStatusFlags = []aoi.StatusFlag{"neutral", "moving"}
+	state.PublicDisplay = &beforeDisplay
+	state.PublicCombat = &beforeCombat
+	state.PublicMovement = &beforeMovement
+	state.ProjectionSource = "worker"
+
+	snapshot := aoi.BuildVisibleSnapshot(testViewer(500), []aoi.EntityState{state})
+	if len(snapshot.Entities) != 1 {
+		t.Fatalf("snapshot entities = %d, want 1", len(snapshot.Entities))
+	}
+
+	state.Entity.Position = world.Vec2{X: 500, Y: 500}
+	state.PublicStatusFlags[0] = "after"
+	state.PublicDisplay.Label = "After"
+	state.PublicCombat.HP = 1
+	state.PublicMovement.Origin = world.Vec2{X: 500, Y: 500}
+	state.PublicMovement.Target = world.Vec2{X: 600, Y: 500}
+
+	got := snapshot.Entities[0]
+	if got.Position != beforePosition {
+		t.Fatalf("snapshot position = %+v, want immutable %+v", got.Position, beforePosition)
+	}
+	if !reflect.DeepEqual(got.StatusFlags, beforeFlags) {
+		t.Fatalf("snapshot flags = %+v, want immutable %+v", got.StatusFlags, beforeFlags)
+	}
+	if !reflect.DeepEqual(got.Display, &aoi.EntityDisplay{Label: "Before", Disposition: "neutral"}) {
+		t.Fatalf("snapshot display = %+v, want immutable before display", got.Display)
+	}
+	if !reflect.DeepEqual(got.Combat, &aoi.EntityCombatStatus{HP: 75, MaxHP: 100, Shield: 30, MaxShield: 50, Status: "moving"}) {
+		t.Fatalf("snapshot combat = %+v, want immutable before combat", got.Combat)
+	}
+	if !reflect.DeepEqual(got.Movement, &aoi.EntityMovementStatus{
+		Moving:      true,
+		Origin:      world.Vec2{X: 10, Y: 20},
+		Target:      world.Vec2{X: 110, Y: 20},
+		Speed:       50,
+		StartedAtMS: 1000,
+		ArriveAtMS:  3000,
+	}) {
+		t.Fatalf("snapshot movement = %+v, want immutable before movement", got.Movement)
+	}
+}
+
 func TestBuildVisibleSnapshotStressDeterministic(t *testing.T) {
 	viewer := testViewer(250)
 	entities := make([]aoi.EntityState, 0, 500)

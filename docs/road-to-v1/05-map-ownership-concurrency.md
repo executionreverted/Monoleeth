@@ -35,7 +35,7 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 - [x] Command on map A does not block a command on map B (timing assertion).
 - [x] Concurrent move + tick on one map passes `-race`.
 - [x] Map B worker tick collection reaches the worker while `Runtime.mu` is held by unrelated runtime activity (`TestRuntimeTickCollectionReachesOtherMapWhileRuntimeMutexHeld`).
-- [ ] AOI read projection never observes a torn entity state.
+- [x] AOI read projection never observes a torn entity state.
 - [ ] Narrowed lock still serializes session attach/detach safely.
 
 ## Done Criteria

@@ -1,4 +1,5 @@
 import { canSendRealtimeCommand } from './command-gate';
+import { combatCommandsDisabled, SHIP_DISABLED_COMBAT_MESSAGE } from './combat-command-guard';
 import { resolvePlanetNavigationTarget } from './planet-navigation';
 import { activeEntityMovement, boundedMovementTarget, currentEntityPosition, distanceBetween, LONG_RANGE_MOVE_STEP_UNITS } from '../state/movement';
 import { isAttackableVisibleTarget } from '../state/target-eligibility';
@@ -101,6 +102,11 @@ export abstract class ClientAppCommands extends ClientAppCore {
   }
 
   protected sendBasicSkill(): void {
+    if (combatCommandsDisabled(this.state)) {
+      this.dispatch({ type: 'appendLog', level: 'warn', text: SHIP_DISABLED_COMBAT_MESSAGE });
+      return;
+    }
+
     const target = this.selectedTarget();
     if (!target || !isAttackableVisibleTarget(target, this.selfEntity())) {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'No attackable target selected.' });
