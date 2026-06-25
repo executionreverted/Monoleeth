@@ -165,6 +165,7 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationProgressionSnapshot:       runtime.handleProgressionSnapshot,
 		realtime.OperationProgressionUnlockSkill:    runtime.handleProgressionUnlockSkill,
 		realtime.OperationInventorySnapshot:         runtime.handleInventorySnapshot,
+		realtime.OperationInventoryMove:             runtime.handleInventoryMove,
 		realtime.OperationHangarSnapshot:            runtime.handleHangarSnapshot,
 		realtime.OperationHangarActivateShip:        runtime.handleHangarActivateShip,
 		realtime.OperationLoadoutSnapshot:           runtime.handleLoadoutSnapshot,

@@ -24,7 +24,7 @@ cargo recalculation after equipment changes, and a real first non-starter ship p
 - Drones/P.E.T./two-config loadouts (P12).
 
 ## Tasks
-- [ ] `[P:wave3/lane-A]` Add `inventory.move` (ownership/amount/capacity checks, idempotent).
+- [x] `[P:wave3/lane-A]` Add `inventory.move` (ownership/amount/capacity checks, idempotent). Cargo-into-cargo capacity authority is wired under lane-B; the generic move blocks ship-cargo targets so capacity cannot be exceeded through this path.
 - [x] `[P:wave3/lane-A]` Add `progression.unlock_skill` (point check, prereqs, consume once).
 - [ ] `[P:wave3/lane-B]` Wire `StatService` into runtime; recalc on equip/unequip/ship activate.
 - [ ] `[P:wave3/lane-B]` Make effective cargo capacity authoritative; emit `stats.updated` + cargo/inventory/hangar/loadout snapshots together.
@@ -35,8 +35,8 @@ cargo recalculation after equipment changes, and a real first non-starter ship p
 - XP, points, stats, cargo capacity, ownership are server-owned; client sends intent only.
 
 ## Smoke Tests (one assertion each)
-- [ ] `inventory.move` rejects unowned/negative/over-capacity amount.
-- [ ] Duplicate `inventory.move` cannot duplicate a stack.
+- [ ] `inventory.move` rejects unowned/negative/over-capacity amount. (Unowned/negative/blocked-target covered by `TestInventoryMoveRejectsUnownedNegativeAndBlockedLocations`; over-capacity is enforced by the lane-B cargo capacity authority on the ship-cargo path.)
+- [x] Duplicate `inventory.move` cannot duplicate a stack.
 - [x] Skill unlock consumes exactly one point.
 - [x] Duplicate skill unlock does not double-spend.
 - [ ] Equipping a cargo module increases server + visible cargo capacity.

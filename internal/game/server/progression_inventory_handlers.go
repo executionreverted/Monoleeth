@@ -122,6 +122,19 @@ type progressionUnlockSkillPayload struct {
 	NodeID string `json:"node_id"`
 }
 
+type inventoryMovePayload struct {
+	ItemID         string                       `json:"item_id"`
+	ItemInstanceID string                       `json:"item_instance_id,omitempty"`
+	FromLocation   inventoryMoveLocationPayload `json:"from_location"`
+	ToLocation     inventoryMoveLocationPayload `json:"to_location"`
+	Quantity       int64                        `json:"quantity"`
+}
+
+type inventoryMoveLocationPayload struct {
+	LocationType string `json:"location_type"`
+	LocationID   string `json:"location_id"`
+}
+
 type craftingSnapshotPayload struct {
 	Recipes    []craftingRecipePayload `json:"recipes"`
 	ActiveJobs []craftingJobPayload    `json:"active_jobs"`
@@ -244,6 +257,61 @@ func (runtime *Runtime) handleInventorySnapshot(ctx realtime.CommandContext, req
 	return marshalPayload(map[string]any{
 		"inventory": runtime.inventorySnapshotLocked(ctx.PlayerID),
 		"cargo":     runtime.cargoSnapshotFromInventoryLocked(ctx.PlayerID),
+	})
+}
+
+func (runtime *Runtime) handleInventoryMove(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	var payload inventoryMovePayload
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	definition, ok := runtime.itemCatalog[foundation.ItemID(payload.ItemID)]
+	if !ok {
+		return nil, foundation.NewDomainError(foundation.CodeNotFound, "Item was not found.")
+	}
+	fromLocation, err := economy.NewItemLocation(economy.LocationKind(payload.FromLocation.LocationType), payload.FromLocation.LocationID)
+	if err != nil {
+		return nil, domainErrorForEconomy(err)
+	}
+	toLocation, err := economy.NewItemLocation(economy.LocationKind(payload.ToLocation.LocationType), payload.ToLocation.LocationID)
+	if err != nil {
+		return nil, domainErrorForEconomy(err)
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	if _, ok := runtime.players[ctx.PlayerID]; !ok {
+		return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
+	}
+	result, err := runtime.Inventory.MoveItem(economy.MoveItemInput{
+		PlayerID: ctx.PlayerID,
+		ItemRef: economy.MoveItemRef{
+			Definition:     definition,
+			ItemInstanceID: foundation.ItemID(payload.ItemInstanceID),
+		},
+		FromLocation: fromLocation,
+		ToLocation:   toLocation,
+		Quantity:     payload.Quantity,
+		Reason:       economy.LedgerReason("inventory_move"),
+		ReferenceKey: foundation.IdempotencyKey("inventory_move:" + request.RequestID.String()),
+	})
+	if err != nil {
+		return nil, domainErrorForEconomy(err)
+	}
+	sessionID := authSessionID(ctx.SessionID)
+	inventory := runtime.inventorySnapshotLocked(ctx.PlayerID)
+	cargo := runtime.cargoSnapshotFromInventoryLocked(ctx.PlayerID)
+	runtime.queueEventLocked(sessionID, realtime.EventInventorySnapshot, inventory)
+	runtime.queueEventLocked(sessionID, realtime.EventCargoSnapshot, cargo)
+	return marshalPayload(map[string]any{
+		"accepted":  true,
+		"duplicate": result.Duplicate,
+		"inventory": inventory,
+		"cargo":     cargo,
 	})
 }
 

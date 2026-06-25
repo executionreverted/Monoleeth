@@ -1029,8 +1029,8 @@ func domainErrorForEconomy(err error) error {
 		return foundation.NewDomainError(foundation.CodeNotEnoughFunds, "Not enough funds.", foundation.WithCause(err))
 	case errors.Is(err, economy.ErrInsufficientItemQuantity), errors.Is(err, economy.ErrItemNotOwned), errors.Is(err, market.ErrMarketEscrowQuantityMissing):
 		return foundation.NewDomainError(foundation.CodeNotEnoughCargo, "Not enough item quantity.", foundation.WithCause(err))
-	case errors.Is(err, economy.ErrBlockedGenericMoveSource), errors.Is(err, market.ErrListingSourceLocation):
-		return foundation.NewDomainError(foundation.CodeForbidden, "Item cannot be listed from that location.", foundation.WithCause(err))
+	case errors.Is(err, economy.ErrBlockedGenericMoveSource), errors.Is(err, economy.ErrBlockedGenericMoveTarget), errors.Is(err, economy.ErrBlockedGenericOwnerTransfer), errors.Is(err, market.ErrListingSourceLocation):
+		return foundation.NewDomainError(foundation.CodeForbidden, "Item cannot be moved from or to that location.", foundation.WithCause(err))
 	case errors.Is(err, market.ErrListingOwnership), errors.Is(err, premium.ErrEntitlementWrongPlayer):
 		return foundation.NewDomainError(foundation.CodeForbidden, "Economy record is not owned by this player.", foundation.WithCause(err))
 	case errors.Is(err, market.ErrListingNotFound), errors.Is(err, auction.ErrLotNotFound), errors.Is(err, premium.ErrEntitlementNotFound):
@@ -1041,6 +1041,8 @@ func domainErrorForEconomy(err error) error {
 		return foundation.NewDomainError(foundation.CodeForbidden, "Economy action is not allowed.", foundation.WithCause(err))
 	case errors.Is(err, market.ErrCreateListingReferenceMismatch):
 		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Economy request was already used with different details.", foundation.WithCause(err))
+	case errors.Is(err, economy.ErrMoveItemSameSourceAndTarget), errors.Is(err, economy.ErrInvalidLocationKind), errors.Is(err, foundation.ErrEmptyID), errors.Is(err, foundation.ErrInvalidID):
+		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Inventory move request is not valid.", foundation.WithCause(err))
 	case errors.Is(err, foundation.ErrNonPositiveAmount), errors.Is(err, auction.ErrBidTooLow), errors.Is(err, auction.ErrBidReachesBuyNow), errors.Is(err, auction.ErrBuyNowUnavailable), errors.Is(err, premium.ErrWeeklyStockSoldOut), errors.Is(err, premium.ErrWeeklyStockNotSet):
 		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Economy amount is not valid.", foundation.WithCause(err))
 	case errors.Is(err, economy.ErrInvalidTradeFlag):

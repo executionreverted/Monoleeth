@@ -144,7 +144,7 @@ func TestDefaultOperationBucketsCoverPhase04NamedRealtimeOperations(t *testing.T
 	}
 
 	registry := OperationRegistry()
-	for _, absent := range []Operation{Operation("chat.send"), Operation("inventory.move")} {
+	for _, absent := range []Operation{Operation("chat.send")} {
 		if _, ok := registry[absent]; ok {
 			t.Fatalf("operation %q registered, want absent until server-owned contract exists", absent)
 		}

@@ -32,6 +32,7 @@ const (
 	idempotencyCraftCancel           = "craft_cancel"
 	idempotencyDeathCargoDrop        = "death_cargo_drop"
 	idempotencyLootPickup            = "loot_pickup"
+	idempotencyInventoryMove         = "inventory_move"
 	idempotencyAuctionBid            = "auction_bid"
 	idempotencyAuctionRefund         = "auction_refund"
 	idempotencyAuctionBuyNow         = "auction_buy_now"
@@ -433,6 +434,7 @@ func idempotencyPartCount(operation string) (int, bool) {
 		idempotencyCraftComplete,
 		idempotencyCraftCancel,
 		idempotencyLootPickup,
+		idempotencyInventoryMove,
 		idempotencyAuctionClose,
 		idempotencyPremiumWebhook,
 		idempotencyMarketListing,

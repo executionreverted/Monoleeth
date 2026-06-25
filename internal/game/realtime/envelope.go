@@ -250,6 +250,10 @@ var registeredOperations = map[Operation]OperationSpec{
 		Operation:        OperationInventorySnapshot,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
+	OperationInventoryMove: {
+		Operation:        OperationInventoryMove,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
 	OperationHangarSnapshot: {
 		Operation:        OperationHangarSnapshot,
 		RateLimitPosture: RateLimitPostureIntentBurst,
