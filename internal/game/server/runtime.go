@@ -1414,7 +1414,10 @@ func (runtime *Runtime) seedWorld() error {
 		if err != nil {
 			return err
 		}
-		if err := instance.Worker.InsertEntity(hidden, 0); err != nil {
+		if err := instance.Worker.Submit(worker.InsertEntityCommand{Entity: hidden, Speed: 0}); err != nil {
+			return err
+		}
+		if err := commandErrors(instance.Worker.FlushCommands()); err != nil {
 			return err
 		}
 		instance.HiddenEntities[hidden.ID] = true

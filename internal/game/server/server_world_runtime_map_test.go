@@ -83,6 +83,79 @@ func TestWorldProjectionSourcesReconcileAfterServerOwnedMovement(t *testing.T) {
 		t.Fatalf("movement projection events = %+v, want arriving entered and departing left", sessionEvents)
 	}
 }
+
+func TestSeedWorldInsertsHiddenPlanetSignalThroughWorkerCommandQueue(t *testing.T) {
+	definition := worldmaps.MapDefinition{
+		InternalMapID: worldmaps.StarterMapID,
+		PublicMapKey:  "1-1",
+		WorldID:       world.WorldID("world-1"),
+		ZoneID:        worldmaps.StarterMapID.ZoneID(),
+		Bounds:        worldmaps.ExactPlayableBounds(),
+		SpawnPoints: []worldmaps.SpawnPointDefinition{{
+			SpawnID:  worldmaps.StarterSpawnID,
+			Position: world.Vec2{X: 50, Y: 60},
+			Label:    "Starter",
+		}},
+	}
+	mailbox := &recordingWorkerMailbox{}
+	zoneWorker, err := worker.NewWorker(worker.Config{
+		WorldID:   definition.WorldID,
+		ZoneID:    definition.ZoneID,
+		TickDelta: time.Second,
+		Mailbox:   mailbox,
+	})
+	if err != nil {
+		t.Fatalf("NewWorker() error = %v, want nil", err)
+	}
+	instance := &mapInstance{
+		Definition:     definition,
+		Worker:         zoneWorker,
+		HiddenEntities: make(map[world.EntityID]bool),
+	}
+	runtime := &Runtime{
+		mapInstances: map[worldmaps.MapID]*mapInstance{
+			worldmaps.StarterMapID: instance,
+		},
+	}
+	beforeTick := zoneWorker.Snapshot().Tick
+
+	if err := runtime.seedWorld(); err != nil {
+		t.Fatalf("seedWorld() error = %v, want nil", err)
+	}
+
+	var inserted worker.InsertEntityCommand
+	foundInsert := false
+	for _, command := range mailbox.Submitted() {
+		insert, ok := command.(worker.InsertEntityCommand)
+		if ok && insert.Entity.ID == world.EntityID("entity_hidden_planet_signal") {
+			inserted = insert
+			foundInsert = true
+			break
+		}
+	}
+	if !foundInsert {
+		t.Fatalf("submitted worker commands = %#v, want hidden signal InsertEntityCommand", mailbox.Submitted())
+	}
+	expectedPosition := boundedOffset(definition.Bounds, definition.SpawnPoints[0].Position, world.Vec2{X: 120, Y: 0})
+	if inserted.Entity.Type != world.EntityTypePlanetSignalPlaceholder ||
+		inserted.Entity.WorldID != definition.WorldID ||
+		inserted.Entity.ZoneID != definition.ZoneID ||
+		inserted.Entity.Position != expectedPosition ||
+		inserted.Speed != 0 {
+		t.Fatalf("insert command = %+v, want hidden planet signal at %+v with speed 0", inserted, expectedPosition)
+	}
+	entity, ok := zoneWorker.Entity(inserted.Entity.ID)
+	if !ok || entity != inserted.Entity {
+		t.Fatalf("worker entity = %+v ok=%v, want inserted hidden signal %+v", entity, ok, inserted.Entity)
+	}
+	if !instance.HiddenEntities[inserted.Entity.ID] {
+		t.Fatalf("hidden marker for %q missing after successful command insertion", inserted.Entity.ID)
+	}
+	if afterTick := zoneWorker.Snapshot().Tick; afterTick != beforeTick+1 {
+		t.Fatalf("worker tick = %d, want only initialization tick %d", afterTick, beforeTick+1)
+	}
+}
+
 func TestMultiTabAttachDoesNotDuplicatePlayerEntity(t *testing.T) {
 	_, httpServer := newTestServer(t, false)
 	defer httpServer.Close()

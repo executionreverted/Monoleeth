@@ -65,6 +65,11 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
   `worker.RemoveEntityCommand` through each inactive map's owning worker queue
   and flushes queued commands without running a full simulation tick. Covered by
   `TestInactiveCleanupRemovesPlayerThroughWorkerCommandQueue`.
+- Progress: seed-world hidden planet signal insertion now submits
+  `worker.InsertEntityCommand` through the owning worker queue and flushes queued
+  commands without running a full simulation tick before recording
+  `HiddenEntities`. Covered by
+  `TestSeedWorldInsertsHiddenPlanetSignalThroughWorkerCommandQueue`.
 
 ## Smoke Tests (one assertion each)
 - [x] Command on map A does not block a command on map B (timing assertion).
