@@ -12,8 +12,8 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 9 {
-		t.Fatalf("len(migrations) = %d, want 9", len(migrations))
+	if len(migrations) != 10 {
+		t.Fatalf("len(migrations) = %d, want 10", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
@@ -42,8 +42,33 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if migrations[8].Version != "0009_inventory_ledger_references_counters" {
 		t.Fatalf("Version = %q, want 0009_inventory_ledger_references_counters", migrations[8].Version)
 	}
+	if migrations[9].Version != "0010_loadout_state_schema" {
+		t.Fatalf("Version = %q, want 0010_loadout_state_schema", migrations[9].Version)
+	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestLoadoutStateSchemaMigrationHasLoadoutAndEquippedTables(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[9].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS player_loadouts",
+		"slot_assignments_json jsonb NOT NULL DEFAULT '{}'::jsonb",
+		"PRIMARY KEY (player_id, loadout_id)",
+		"FOREIGN KEY (player_id, ship_id) REFERENCES player_ships(player_id, ship_id)",
+		"CREATE TABLE IF NOT EXISTS player_equipped_modules",
+		"PRIMARY KEY (player_id, ship_id, slot_id)",
+		"UNIQUE (item_instance_id)",
+		"REFERENCES player_inventory_instance_items(item_instance_id)",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("loadout state schema migration missing %q", fragment)
+		}
 	}
 }
 

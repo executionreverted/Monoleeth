@@ -110,7 +110,7 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 
 | # | Phase | Wave | Status | Progress |
 | --- | --- | :---: | --- | --- |
-| 01 | Persistence Foundation | 1 | In progress | `█████████░` 97% |
+| 01 | Persistence Foundation | 1 | In progress | `█████████░` 99% |
 | 02 | Transactional Economy & Outbox | 2 | Not started | `░░░░░░░░░░` 0% |
 | 03 | Realtime Hardening | 1 | Done | `██████████` 100% |
 | 04 | Rate Limiting & Abuse Posture | 1 | Done | `██████████` 100% |

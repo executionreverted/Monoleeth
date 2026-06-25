@@ -23,6 +23,14 @@ type inventorySQLExecer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
+type inventoryInstanceItemQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+type inventoryInstanceItemScanner interface {
+	Scan(dest ...any) error
+}
+
 func NewInventoryStore(store *Store) (*InventoryStore, error) {
 	if store == nil || store.db == nil {
 		return nil, ErrNilDatabase
@@ -117,45 +125,8 @@ func (store *InventoryStore) LoadInstanceItems(ctx context.Context) ([]economy.I
 	defer rows.Close()
 	items := make([]economy.InstanceItem, 0)
 	for rows.Next() {
-		var itemInstanceID string
-		var itemID string
-		var playerID string
-		var locationKind string
-		var locationID string
-		var quantityAmount int64
-		var durabilityCurrent int64
-		var boundState string
-		var sourceDefinitionID string
-		var sourceVersion string
-		var metadataJSON sql.NullString
-		var createdAt time.Time
-		var updatedAt time.Time
-		if err := rows.Scan(&itemInstanceID, &itemID, &playerID, &locationKind, &locationID, &quantityAmount, &durabilityCurrent, &boundState, &sourceDefinitionID, &sourceVersion, &metadataJSON, &createdAt, &updatedAt); err != nil {
-			return nil, err
-		}
-		quantity, err := foundation.NewQuantity(quantityAmount)
+		item, err := scanInventoryInstanceItem(rows)
 		if err != nil {
-			return nil, err
-		}
-		item, err := economy.NewInstanceItem(
-			catalog.VersionedDefinition{DefinitionID: catalog.DefinitionID(sourceDefinitionID), Version: catalog.Version(sourceVersion)},
-			foundation.ItemID(itemInstanceID),
-			foundation.ItemID(itemID),
-			foundation.PlayerID(playerID),
-			economy.ItemLocation{Kind: economy.LocationKind(locationKind), ID: economy.LocationID(locationID)},
-			quantity,
-		)
-		if err != nil {
-			return nil, err
-		}
-		item.DurabilityCurrent = durabilityCurrent
-		item.BoundState = economy.BoundState(boundState)
-		if metadataJSON.Valid && metadataJSON.String != "" {
-			item.MetadataJSON = json.RawMessage(metadataJSON.String)
-		}
-		item.CreatedAt = createdAt.UTC()
-		item.UpdatedAt = updatedAt.UTC()
-		if err := item.Validate(); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -176,6 +147,13 @@ func (store *InventoryStore) LoadInstanceItems(ctx context.Context) ([]economy.I
 		return items[i].ItemInstanceID < items[j].ItemInstanceID
 	})
 	return items, nil
+}
+
+func (store *InventoryStore) LoadInstanceItem(ctx context.Context, itemInstanceID foundation.ItemID) (economy.InstanceItem, bool, error) {
+	if store == nil || store.store == nil || store.store.db == nil {
+		return economy.InstanceItem{}, false, ErrNilDatabase
+	}
+	return loadInventoryInstanceItem(ctx, store.store.db, itemInstanceID)
 }
 
 func (store *InventoryStore) UpsertStackableItem(ctx context.Context, item economy.StackableItem) error {
@@ -434,6 +412,73 @@ func upsertInventoryInstanceItem(ctx context.Context, execer inventorySQLExecer,
 			updated_at = EXCLUDED.updated_at
 	`, item.ItemInstanceID.String(), item.OwnerPlayerID.String(), item.ItemID.String(), item.Location.String(), item.Location.Kind.String(), item.Location.ID.String(), item.Quantity.Int64(), item.DurabilityCurrent, item.BoundState.String(), item.Source.DefinitionID.String(), item.Source.Version.String(), nullableRawJSON(item.MetadataJSON), item.CreatedAt.UTC(), item.UpdatedAt.UTC())
 	return err
+}
+
+func loadInventoryInstanceItem(ctx context.Context, querier inventoryInstanceItemQuerier, itemInstanceID foundation.ItemID) (economy.InstanceItem, bool, error) {
+	if querier == nil {
+		return economy.InstanceItem{}, false, ErrNilDatabase
+	}
+	if err := itemInstanceID.Validate(); err != nil {
+		return economy.InstanceItem{}, false, err
+	}
+	item, err := scanInventoryInstanceItem(querier.QueryRowContext(ctx, `
+		SELECT item_instance_id, item_id, player_id, location_kind, location_id, quantity, durability_current, bound_state, source_definition_id, source_version, metadata_json, created_at, updated_at
+		FROM player_inventory_instance_items
+		WHERE item_instance_id = $1
+			AND quantity > 0
+	`, itemInstanceID.String()))
+	if errors.Is(err, sql.ErrNoRows) {
+		return economy.InstanceItem{}, false, nil
+	}
+	if err != nil {
+		return economy.InstanceItem{}, false, err
+	}
+	return item, true, nil
+}
+
+func scanInventoryInstanceItem(scanner inventoryInstanceItemScanner) (economy.InstanceItem, error) {
+	var itemInstanceID string
+	var itemID string
+	var playerID string
+	var locationKind string
+	var locationID string
+	var quantityAmount int64
+	var durabilityCurrent int64
+	var boundState string
+	var sourceDefinitionID string
+	var sourceVersion string
+	var metadataJSON sql.NullString
+	var createdAt time.Time
+	var updatedAt time.Time
+	if err := scanner.Scan(&itemInstanceID, &itemID, &playerID, &locationKind, &locationID, &quantityAmount, &durabilityCurrent, &boundState, &sourceDefinitionID, &sourceVersion, &metadataJSON, &createdAt, &updatedAt); err != nil {
+		return economy.InstanceItem{}, err
+	}
+	quantity, err := foundation.NewQuantity(quantityAmount)
+	if err != nil {
+		return economy.InstanceItem{}, err
+	}
+	item, err := economy.NewInstanceItem(
+		catalog.VersionedDefinition{DefinitionID: catalog.DefinitionID(sourceDefinitionID), Version: catalog.Version(sourceVersion)},
+		foundation.ItemID(itemInstanceID),
+		foundation.ItemID(itemID),
+		foundation.PlayerID(playerID),
+		economy.ItemLocation{Kind: economy.LocationKind(locationKind), ID: economy.LocationID(locationID)},
+		quantity,
+	)
+	if err != nil {
+		return economy.InstanceItem{}, err
+	}
+	item.DurabilityCurrent = durabilityCurrent
+	item.BoundState = economy.BoundState(boundState)
+	if metadataJSON.Valid && metadataJSON.String != "" {
+		item.MetadataJSON = json.RawMessage(metadataJSON.String)
+	}
+	item.CreatedAt = createdAt.UTC()
+	item.UpdatedAt = updatedAt.UTC()
+	if err := item.Validate(); err != nil {
+		return economy.InstanceItem{}, err
+	}
+	return item, nil
 }
 
 func insertInventoryItemLedgerEntry(ctx context.Context, execer inventorySQLExecer, entry economy.ItemLedgerEntry) error {

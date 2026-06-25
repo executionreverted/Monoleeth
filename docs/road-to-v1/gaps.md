@@ -14,6 +14,19 @@ or unsafe for the current wave slice. Keep line/file references concrete.
   `internal/game/economy/inventory_service.go`,
   `internal/game/contentdb/inventory_store.go`.
 
+### P01 Loadout Runtime Wiring And Move Ledger References — TASK-0478
+
+- Loadout contentdb adapter now persists saved loadouts, equipped-module rows,
+  durable module item lookups, and instance item location changes when a
+  `ModuleItemLocationMover` is configured; location-changing replacement fails
+  closed without one. Server runtime still constructs
+  `modules.InMemoryLoadoutStore`, so real-mode loadout wiring remains deferred.
+  Equip/unequip durable item move ledger/reference storage also remains deferred
+  with the inventory MoveItem durable-reference gap. Ref:
+  `internal/game/contentdb/loadout_store.go`,
+  `internal/game/server/runtime.go`,
+  `internal/game/economy/inventory_move.go`.
+
 ## Pre-Wave Audit Findings Not Yet Accepted As Deferrals
 
 These came from Symphony read-only audits and must be resolved during the owning
@@ -41,14 +54,12 @@ phase or moved above with a concrete deferral reason.
 
 ### P01 Persistence Foundation Audit — TASK-0462
 
-- Loadout durability still needs DB adapters and runtime wiring; durable inventory
-  instance rows and hangar `contentdb` migration/runtime core-store wiring are
-  covered by P01. Ref:
-  `internal/game/ships/store.go`, `internal/game/modules/loadout_store.go`,
-  `docs/road-to-v1/01-persistence-foundation.md:29`.
-- Durable loadout/equipped-module restart proof still needs module/loadout durable
-  repos and wiring on top of the now-durable inventory instance rows. Ref:
-  `internal/game/economy/inventory_service.go`, `docs/road-to-v1/01-persistence-foundation.md:19`.
+- Loadout contentdb migration, adapter, active-ship reader composition, durable
+  inventory instance lookup, and adapter-level restart proof are covered by
+  TASK-0478. Runtime wiring remains deferred above. Ref:
+  `internal/game/contentdb/loadout_store.go`,
+  `internal/game/contentdb/loadout_postgres_smoke_test.go`,
+  `internal/game/server/runtime.go`.
 
 ### P01 Inventory Instance Durability Audit — TASK-0471
 
