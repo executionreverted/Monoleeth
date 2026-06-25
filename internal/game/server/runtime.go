@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -174,6 +175,7 @@ type Runtime struct {
 	CommandLog                     *observability.MemoryCommandLogger
 	Metrics                        *observability.MetricRecorder
 	contentAdminCloser             func() error
+	authStoreCloser                func() error
 
 	combatXP                 *combat.NPCKillXPHandler
 	lootTables               map[string]loot.LootTable
@@ -301,12 +303,58 @@ func defaultRuntimeContentRepositoryStore(store runtimeContentStore) (gameconten
 }
 
 func (runtime *Runtime) Close() error {
-	if runtime == nil || runtime.contentAdminCloser == nil {
+	if runtime == nil {
 		return nil
 	}
-	closeContentAdmin := runtime.contentAdminCloser
-	runtime.contentAdminCloser = nil
-	return closeContentAdmin()
+	var errs []error
+	if runtime.contentAdminCloser != nil {
+		closeContentAdmin := runtime.contentAdminCloser
+		runtime.contentAdminCloser = nil
+		errs = append(errs, closeContentAdmin())
+	}
+	if runtime.authStoreCloser != nil {
+		closeAuthStore := runtime.authStoreCloser
+		runtime.authStoreCloser = nil
+		errs = append(errs, closeAuthStore())
+	}
+	return errors.Join(errs...)
+}
+
+func loadRuntimeAuthStore(ctx context.Context, config RuntimeConfig) (auth.Store, func() error, error) {
+	contentConfig := config.ContentDB.WithDefaults()
+	if err := contentConfig.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if !contentConfig.Enabled() {
+		return auth.NewInMemoryStore(), nil, nil
+	}
+	openStore := config.contentDBOpen
+	if openStore == nil {
+		openStore = defaultRuntimeContentDBOpen
+	}
+	store, err := openStore(ctx, contentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if store == nil {
+		return nil, nil, contentdb.ErrNilDatabase
+	}
+	closeStore := func() error { return store.Close() }
+	if err := store.Migrate(ctx, contentConfig.Migrations); err != nil {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("migrate auth db: %w", err)
+	}
+	contentStore, ok := store.(*contentdb.Store)
+	if !ok {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("auth db store %T: %w", store, contentdb.ErrNilDatabase)
+	}
+	authStore, err := contentdb.NewAuthStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return nil, nil, err
+	}
+	return authStore, closeStore, nil
 }
 
 func loadRuntimeContentAdmin(ctx context.Context, config RuntimeConfig, clock foundation.Clock) (*admin.ContentService, func() error, error) {
@@ -369,21 +417,6 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if rng == nil {
 		rng = newRuntimeRNG(clock.Now().UnixNano())
 	}
-	authStore := auth.NewInMemoryStore()
-	authService, err := auth.NewService(auth.ServiceConfig{
-		Store:          authStore,
-		Clock:          clock,
-		PasswordHasher: config.Passwords,
-		SessionTTL:     config.SessionTTL,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if config.AdminSeed.Enabled {
-		if _, err := authService.SeedAdmin(context.Background(), config.AdminSeed); err != nil {
-			return nil, err
-		}
-	}
 	contentBundle, err := loadRuntimeContent(context.Background(), config)
 	if err != nil {
 		return nil, err
@@ -395,6 +428,39 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	contentAdmin, contentAdminCloser, err := loadRuntimeContentAdmin(context.Background(), config, clock)
 	if err != nil {
 		return nil, err
+	}
+	authStore, authStoreCloser, err := loadRuntimeAuthStore(context.Background(), config)
+	if err != nil {
+		if contentAdminCloser != nil {
+			_ = contentAdminCloser()
+		}
+		return nil, err
+	}
+	authService, err := auth.NewService(auth.ServiceConfig{
+		Store:          authStore,
+		Clock:          clock,
+		PasswordHasher: config.Passwords,
+		SessionTTL:     config.SessionTTL,
+	})
+	if err != nil {
+		if authStoreCloser != nil {
+			_ = authStoreCloser()
+		}
+		if contentAdminCloser != nil {
+			_ = contentAdminCloser()
+		}
+		return nil, err
+	}
+	if config.AdminSeed.Enabled {
+		if _, err := authService.SeedAdmin(context.Background(), config.AdminSeed); err != nil {
+			if authStoreCloser != nil {
+				_ = authStoreCloser()
+			}
+			if contentAdminCloser != nil {
+				_ = contentAdminCloser()
+			}
+			return nil, err
+		}
 	}
 	mapCatalog := contentBundle.Maps
 	mapRouter, err := worldmaps.NewRouter(mapCatalog)
@@ -645,6 +711,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		CommandLog:                     commandLogger,
 		Metrics:                        metricRecorder,
 		contentAdminCloser:             contentAdminCloser,
+		authStoreCloser:                authStoreCloser,
 		combatXP:                       combatXP,
 		lootTables:                     lootTables,
 		itemCatalog:                    itemCatalog,

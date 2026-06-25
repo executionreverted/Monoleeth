@@ -12,8 +12,8 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 2 {
-		t.Fatalf("len(migrations) = %d, want 2", len(migrations))
+	if len(migrations) != 3 {
+		t.Fatalf("len(migrations) = %d, want 3", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
@@ -21,8 +21,32 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if migrations[1].Version != "0002_content_schema" {
 		t.Fatalf("Version = %q, want 0002_content_schema", migrations[1].Version)
 	}
+	if migrations[2].Version != "0003_player_state_schema" {
+		t.Fatalf("Version = %q, want 0003_player_state_schema", migrations[2].Version)
+	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestPlayerStateSchemaMigrationHasAuthTables(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[2].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS accounts",
+		"CREATE TABLE IF NOT EXISTS players",
+		"CREATE TABLE IF NOT EXISTS auth_sessions",
+		"UNIQUE (email)",
+		"UNIQUE (token_hash)",
+		"REFERENCES accounts(id)",
+		"REFERENCES players(id)",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("player state schema migration missing %q", fragment)
+		}
 	}
 }
 
