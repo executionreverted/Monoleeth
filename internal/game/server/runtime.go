@@ -239,9 +239,10 @@ type runtimeContentVersionStore interface {
 }
 
 type runtimeEconomyStores struct {
-	idempotency      economy.IdempotencyStore
-	outbox           economy.OutboxStore
-	marketRepository market.MarketListingRepository
+	idempotency       economy.IdempotencyStore
+	outbox            economy.OutboxStore
+	marketRepository  market.MarketListingRepository
+	auctionRepository auction.AuctionLotRepository
 }
 
 func loadRuntimeContent(ctx context.Context, config RuntimeConfig) (gamecontent.GameplayContent, error) {
@@ -653,10 +654,16 @@ func loadRuntimeEconomyStores(ctx context.Context, config RuntimeConfig) (runtim
 		_ = closeStore()
 		return runtimeEconomyStores{}, nil, err
 	}
+	auctionRepository, err := contentdb.NewAuctionLotStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return runtimeEconomyStores{}, nil, err
+	}
 	return runtimeEconomyStores{
-		idempotency:      contentStore,
-		outbox:           contentStore,
-		marketRepository: marketRepository,
+		idempotency:       contentStore,
+		outbox:            contentStore,
+		marketRepository:  marketRepository,
+		auctionRepository: auctionRepository,
 	}, closeStore, nil
 }
 
@@ -1091,6 +1098,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	auctionService, err := auction.NewService(auction.ServiceConfig{
 		Clock:            clock,
 		Wallet:           walletService,
+		LotRepository:    economyStores.auctionRepository,
 		IdempotencyStore: economyStores.idempotency,
 	})
 	if err != nil {

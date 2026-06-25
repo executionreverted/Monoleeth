@@ -12,8 +12,8 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 14 {
-		t.Fatalf("len(migrations) = %d, want 14", len(migrations))
+	if len(migrations) != 15 {
+		t.Fatalf("len(migrations) = %d, want 15", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
@@ -57,8 +57,35 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if migrations[13].Version != "0014_market_listing_state_schema" {
 		t.Fatalf("Version = %q, want 0014_market_listing_state_schema", migrations[13].Version)
 	}
+	if migrations[14].Version != "0015_auction_lot_state_schema" {
+		t.Fatalf("Version = %q, want 0015_auction_lot_state_schema", migrations[14].Version)
+	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestAuctionLotSchemaMigrationHasDurableLotTable(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[14].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS auction_lots",
+		"auction_id text PRIMARY KEY",
+		"payload_json jsonb NOT NULL",
+		"buy_now_price bigint CHECK (buy_now_price IS NULL OR buy_now_price > 0)",
+		"current_bid bigint NOT NULL DEFAULT 0 CHECK (current_bid >= 0)",
+		"status text NOT NULL CHECK (status IN ('upcoming', 'active', 'closed', 'expired'))",
+		"CHECK (buy_now_price IS NULL OR buy_now_price >= start_price)",
+		"CHECK ((current_bid = 0 AND current_bidder_id = '') OR (current_bid > 0 AND btrim(current_bidder_id) <> ''))",
+		"CREATE INDEX IF NOT EXISTS auction_lots_status_ends_idx",
+		"CREATE INDEX IF NOT EXISTS auction_lots_world_status_idx",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("auction lot schema migration missing %q", fragment)
+		}
 	}
 }
 

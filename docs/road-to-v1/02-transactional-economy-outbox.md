@@ -28,11 +28,21 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [ ] `[P:wave2/lane-A]` Add `idempotency_keys` table + helper; enforce on every mutating economy op.
 - [ ] `[P:wave2/lane-A]` Add `outbox` table + after-commit publisher + replay worker.
 - [x] `[P:wave2/lane-B]` Wrap market buy/cancel in single DB transaction (escrow move + wallet + ledger).
-- [ ] `[P:wave2/lane-B]` Wrap auction bid/buy-now in single transaction (refund-replace, close-once).
+- [x] `[P:wave2/lane-B]` Wrap auction bid/buy-now in single transaction (refund-replace, close-once).
 - [ ] `[P:wave2/lane-C]` Make premium claim + provider-event ingest idempotent and durable (replay-safe).
 - [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0541: `AuctionService` now accepts an optional auction lot
+  transaction repository and uses the `contentdb.AuctionLotStore` seam when
+  configured. Bid and buy-now settlement lock/load the durable lot row, save
+  lot state, commit bidder/buyer debits and current/previous bidder refunds,
+  complete auction idempotency, and insert auction outbox rows inside one
+  transaction. The no-repository path keeps the existing in-memory/dev
+  behavior. Focused auction tests cover bid commit, buy-now commit, and
+  rollback on injected outbox failure restoring repository rows and in-memory
+  wallet/lot state; contentdb smoke coverage verifies auction lot persistence
+  and transaction rollback when `GAME_CONTENT_DATABASE_URL` is available.
 - 2026-06-25 TASK-0536: `MarketService` buy/cancel now uses the
   `contentdb.MarketListingTx` seam when a market transaction repository is
   configured. Buy/cancel settlement locks the listing row, writes listing

@@ -196,6 +196,128 @@ func TestPlaceBidRefundsPreviousBidder(t *testing.T) {
 	}
 }
 
+func TestPlaceBidTransactionRepositoryCommitsBidRows(t *testing.T) {
+	fixture, repository := newAuctionFixtureWithLotTransactionRepository(t)
+	fixture.seedCredits(t, fixture.bidderID, 500, "seed-tx-bidder")
+	created := fixture.createLot(t, "auction-tx-bid", 100, int64Pointer(500))
+
+	result, err := fixture.service.PlaceBid(PlaceBidInput{
+		AuctionID:      created.Lot.AuctionID,
+		BidderPlayerID: fixture.bidderID,
+		Amount:         120,
+		RequestID:      "bid-tx-1",
+	})
+	if err != nil {
+		t.Fatalf("PlaceBid() error = %v, want nil", err)
+	}
+
+	if got := repository.transactionCount(); got != 1 {
+		t.Fatalf("transaction count = %d, want 1", got)
+	}
+	if got := repository.lockedLotCount(); got != 1 {
+		t.Fatalf("locked lot count = %d, want 1", got)
+	}
+	saved, ok := repository.saved(created.Lot.AuctionID)
+	if !ok || saved.CurrentBid != 120 || saved.CurrentBidderID != fixture.bidderID {
+		t.Fatalf("saved lot = %+v ok %v, want current bid 120 by %q", saved, ok, fixture.bidderID)
+	}
+	walletCommits := repository.walletCommitsSnapshot()
+	if len(walletCommits) != 1 || walletCommits[0].Reference.Operation != economy.WalletMutationOperationDebit || walletCommits[0].Reference.ReferenceKey != result.ReferenceKey {
+		t.Fatalf("wallet commits = %+v, want one bidder debit for %q", walletCommits, result.ReferenceKey)
+	}
+	row, ok := repository.idempotencyRow(economy.IdempotencyScopeEconomy, result.ReferenceKey)
+	if !ok || row.Status != economy.IdempotencyStatusCompleted {
+		t.Fatalf("idempotency row = %+v ok %v, want completed", row, ok)
+	}
+	outbox, ok := repository.outboxRow(auctionBidOutboxPrefix + result.ReferenceKey.String())
+	if !ok || outbox.EventType != auctionBidPlacedEvent || outbox.AggregateID != result.Lot.AuctionID.String() {
+		t.Fatalf("outbox row = %+v ok %v, want auction bid outbox", outbox, ok)
+	}
+}
+
+func TestBuyNowTransactionRepositoryCommitsSettlementRows(t *testing.T) {
+	fixture, repository := newAuctionFixtureWithLotTransactionRepository(t)
+	fixture.seedCredits(t, fixture.bidderID, 500, "seed-tx-buy-now-bidder")
+	fixture.seedCredits(t, fixture.buyerID, 1_000, "seed-tx-buy-now-buyer")
+	created := fixture.createLot(t, "auction-tx-buy-now", 100, int64Pointer(300))
+	fixture.placeBid(t, created.Lot.AuctionID, fixture.bidderID, 120, "bid-before-tx-buy-now")
+	walletCommitsBefore := len(repository.walletCommitsSnapshot())
+
+	result, err := fixture.service.BuyNow(BuyNowInput{
+		AuctionID:     created.Lot.AuctionID,
+		BuyerPlayerID: fixture.buyerID,
+		RequestID:     "buy-now-tx-1",
+	})
+	if err != nil {
+		t.Fatalf("BuyNow() error = %v, want nil", err)
+	}
+
+	saved, ok := repository.saved(created.Lot.AuctionID)
+	if !ok || saved.Status != LotStatusClosed || saved.WinningPlayerID != fixture.buyerID {
+		t.Fatalf("saved lot = %+v ok %v, want closed winner %q", saved, ok, fixture.buyerID)
+	}
+	walletCommits := repository.walletCommitsSnapshot()
+	if got := len(walletCommits) - walletCommitsBefore; got != 2 {
+		t.Fatalf("buy-now wallet commit delta = %d, want buyer debit and current-bid refund", got)
+	}
+	row, ok := repository.idempotencyRow(economy.IdempotencyScopeEconomy, result.ReferenceKey)
+	if !ok || row.Status != economy.IdempotencyStatusCompleted {
+		t.Fatalf("idempotency row = %+v ok %v, want completed", row, ok)
+	}
+	outbox, ok := repository.outboxRow(auctionBuyNowOutboxPrefix + result.ReferenceKey.String())
+	if !ok || outbox.EventType != auctionBuyNowEvent || outbox.AggregateID != result.Lot.AuctionID.String() {
+		t.Fatalf("outbox row = %+v ok %v, want auction buy-now outbox", outbox, ok)
+	}
+	if grants := fixture.service.Grants(); len(grants) != 1 || grants[0].PlayerID != fixture.buyerID {
+		t.Fatalf("grants = %+v, want one buyer grant", grants)
+	}
+}
+
+func TestAuctionTransactionOutboxFailureRollsBackRepositoryAndWalletState(t *testing.T) {
+	fixture, repository := newAuctionFixtureWithLotTransactionRepository(t)
+	fixture.seedCredits(t, fixture.bidderID, 500, "seed-tx-rollback-bidder")
+	created := fixture.createLot(t, "auction-tx-rollback", 100, nil)
+	repository.failOutboxWith = errors.New("injected auction outbox failure")
+	ledgerBefore := len(fixture.wallet.CurrencyLedgerEntries())
+
+	_, err := fixture.service.PlaceBid(PlaceBidInput{
+		AuctionID:      created.Lot.AuctionID,
+		BidderPlayerID: fixture.bidderID,
+		Amount:         120,
+		RequestID:      "bid-tx-rollback",
+	})
+	if !errors.Is(err, repository.failOutboxWith) {
+		t.Fatalf("PlaceBid() error = %v, want injected outbox failure", err)
+	}
+
+	saved, ok := repository.saved(created.Lot.AuctionID)
+	if !ok || saved.CurrentBid != 0 || !saved.CurrentBidderID.IsZero() {
+		t.Fatalf("saved lot after rollback = %+v ok %v, want original no-bid lot", saved, ok)
+	}
+	if got := len(repository.walletCommitsSnapshot()); got != 0 {
+		t.Fatalf("repository wallet commits after rollback = %d, want 0", got)
+	}
+	referenceKey, keyErr := foundation.AuctionBidIdempotencyKey(created.Lot.AuctionID, fixture.bidderID, "bid-tx-rollback")
+	if keyErr != nil {
+		t.Fatalf("AuctionBidIdempotencyKey() error = %v, want nil", keyErr)
+	}
+	if row, ok := repository.idempotencyRow(economy.IdempotencyScopeEconomy, referenceKey); ok {
+		t.Fatalf("idempotency row after rollback = %+v, want none", row)
+	}
+	if outbox, ok := repository.outboxRow(auctionBidOutboxPrefix + referenceKey.String()); ok {
+		t.Fatalf("outbox row after rollback = %+v, want none", outbox)
+	}
+	if got := fixture.wallet.Balance(fixture.bidderID, economy.CurrencyBucketCredits); got != 500 {
+		t.Fatalf("bidder balance after rollback = %d, want 500", got)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != ledgerBefore {
+		t.Fatalf("wallet ledger len after rollback = %d, want %d", got, ledgerBefore)
+	}
+	if lot, ok := fixture.service.Lot(created.Lot.AuctionID); !ok || lot.CurrentBid != 0 || !lot.CurrentBidderID.IsZero() {
+		t.Fatalf("service lot after rollback = %+v ok %v, want original no-bid lot", lot, ok)
+	}
+}
+
 func TestPlaceBidDuplicateRetryDoesNotDebitOrRefundTwice(t *testing.T) {
 	fixture := newAuctionFixture(t)
 	fixture.seedCredits(t, fixture.bidderID, 500, "seed-duplicate")
@@ -832,6 +954,23 @@ func newAuctionFixture(t *testing.T) *auctionFixture {
 	}
 }
 
+func newAuctionFixtureWithLotTransactionRepository(t *testing.T) (*auctionFixture, *fakeAuctionLotTransactionRepository) {
+	t.Helper()
+
+	fixture := newAuctionFixture(t)
+	repository := newFakeAuctionLotTransactionRepository()
+	service, err := NewService(ServiceConfig{
+		Clock:         fixture.clock,
+		Wallet:        fixture.wallet,
+		LotRepository: repository,
+	})
+	if err != nil {
+		t.Fatalf("NewService(transaction repository): %v", err)
+	}
+	fixture.service = service
+	return fixture, repository
+}
+
 func (fixture *auctionFixture) createLotInput(auctionID string, startPrice int64, buyNowPrice *int64) CreateLotInput {
 	return CreateLotInput{
 		AuctionID:   foundation.AuctionID(auctionID),
@@ -960,6 +1099,197 @@ func (store *memoryAuctionIdempotencyStore) CompleteIdempotencyKey(_ context.Con
 
 func auctionMemoryIdempotencyKey(row economy.IdempotencyKeyRow) string {
 	return row.Scope + ":" + row.Key.String()
+}
+
+type fakeAuctionLotTransactionRepository struct {
+	mu               sync.Mutex
+	lots             map[foundation.AuctionID]Lot
+	transactionTotal int
+	lockedLotTotal   int
+	walletCommits    []economy.WalletMutationCommit
+	idempotencyRows  map[string]economy.IdempotencyKeyRow
+	outboxRows       map[string]economy.OutboxRow
+	failOutboxWith   error
+}
+
+func newFakeAuctionLotTransactionRepository() *fakeAuctionLotTransactionRepository {
+	return &fakeAuctionLotTransactionRepository{
+		lots:            make(map[foundation.AuctionID]Lot),
+		idempotencyRows: make(map[string]economy.IdempotencyKeyRow),
+		outboxRows:      make(map[string]economy.OutboxRow),
+	}
+}
+
+func (repository *fakeAuctionLotTransactionRepository) SaveAuctionLot(_ context.Context, lot Lot) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	repository.lots[lot.AuctionID] = cloneLot(lot)
+	return nil
+}
+
+func (repository *fakeAuctionLotTransactionRepository) WithAuctionLotTransaction(
+	_ context.Context,
+	fn func(AuctionLotTransaction) error,
+) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	repository.transactionTotal++
+	lotsSnapshot := cloneAuctionLotMap(repository.lots)
+	walletSnapshot := append([]economy.WalletMutationCommit(nil), repository.walletCommits...)
+	idempotencySnapshot := cloneAuctionIdempotencyRows(repository.idempotencyRows)
+	outboxSnapshot := cloneAuctionOutboxRows(repository.outboxRows)
+
+	tx := &fakeAuctionLotTransaction{repository: repository}
+	if err := fn(tx); err != nil {
+		repository.lots = lotsSnapshot
+		repository.walletCommits = walletSnapshot
+		repository.idempotencyRows = idempotencySnapshot
+		repository.outboxRows = outboxSnapshot
+		return err
+	}
+	return nil
+}
+
+func (repository *fakeAuctionLotTransactionRepository) saved(auctionID foundation.AuctionID) (Lot, bool) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	lot, ok := repository.lots[auctionID]
+	return cloneLot(lot), ok
+}
+
+func (repository *fakeAuctionLotTransactionRepository) transactionCount() int {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	return repository.transactionTotal
+}
+
+func (repository *fakeAuctionLotTransactionRepository) lockedLotCount() int {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	return repository.lockedLotTotal
+}
+
+func (repository *fakeAuctionLotTransactionRepository) walletCommitsSnapshot() []economy.WalletMutationCommit {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	return append([]economy.WalletMutationCommit(nil), repository.walletCommits...)
+}
+
+func (repository *fakeAuctionLotTransactionRepository) idempotencyRow(scope string, key foundation.IdempotencyKey) (economy.IdempotencyKeyRow, bool) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	row, ok := repository.idempotencyRows[auctionFakeIdempotencyKey(scope, key)]
+	return row.Clone(), ok
+}
+
+func (repository *fakeAuctionLotTransactionRepository) outboxRow(outboxID string) (economy.OutboxRow, bool) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	row, ok := repository.outboxRows[outboxID]
+	return row.Clone(), ok
+}
+
+type fakeAuctionLotTransaction struct {
+	repository *fakeAuctionLotTransactionRepository
+}
+
+func (tx *fakeAuctionLotTransaction) LoadAuctionLotForUpdate(_ context.Context, auctionID foundation.AuctionID) (Lot, bool, error) {
+	tx.repository.lockedLotTotal++
+	lot, ok := tx.repository.lots[auctionID]
+	return cloneLot(lot), ok, nil
+}
+
+func (tx *fakeAuctionLotTransaction) SaveAuctionLot(_ context.Context, lot Lot) error {
+	tx.repository.lots[lot.AuctionID] = cloneLot(lot)
+	return nil
+}
+
+func (tx *fakeAuctionLotTransaction) CommitWalletMutation(_ context.Context, commit economy.WalletMutationCommit) error {
+	if err := commit.Validate(); err != nil {
+		return err
+	}
+	tx.repository.walletCommits = append(tx.repository.walletCommits, commit)
+	return nil
+}
+
+func (tx *fakeAuctionLotTransaction) ClaimIdempotencyKey(
+	_ context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyClaimResult, error) {
+	key := auctionFakeIdempotencyKey(row.Scope, row.Key)
+	existing, ok := tx.repository.idempotencyRows[key]
+	if !ok {
+		if err := row.Validate(); err != nil {
+			return economy.IdempotencyClaimResult{}, err
+		}
+		tx.repository.idempotencyRows[key] = row.Clone()
+		return economy.IdempotencyClaimResult{Row: row.Clone()}, nil
+	}
+	return economy.ResolveIdempotencyClaim(&existing, row)
+}
+
+func (tx *fakeAuctionLotTransaction) CompleteIdempotencyKey(
+	_ context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyKeyRow, error) {
+	if err := row.Validate(); err != nil {
+		return economy.IdempotencyKeyRow{}, err
+	}
+	key := auctionFakeIdempotencyKey(row.Scope, row.Key)
+	if existing, ok := tx.repository.idempotencyRows[key]; ok {
+		if _, err := economy.ResolveIdempotencyClaim(&existing, row); err != nil {
+			return economy.IdempotencyKeyRow{}, err
+		}
+	}
+	tx.repository.idempotencyRows[key] = row.Clone()
+	return row.Clone(), nil
+}
+
+func (tx *fakeAuctionLotTransaction) InsertOutboxRow(_ context.Context, row economy.OutboxRow) error {
+	if tx.repository.failOutboxWith != nil {
+		return tx.repository.failOutboxWith
+	}
+	if err := row.Validate(); err != nil {
+		return err
+	}
+	tx.repository.outboxRows[row.OutboxID] = row.Clone()
+	return nil
+}
+
+func auctionFakeIdempotencyKey(scope string, key foundation.IdempotencyKey) string {
+	return scope + ":" + key.String()
+}
+
+func cloneAuctionLotMap(input map[foundation.AuctionID]Lot) map[foundation.AuctionID]Lot {
+	out := make(map[foundation.AuctionID]Lot, len(input))
+	for key, value := range input {
+		out[key] = cloneLot(value)
+	}
+	return out
+}
+
+func cloneAuctionIdempotencyRows(input map[string]economy.IdempotencyKeyRow) map[string]economy.IdempotencyKeyRow {
+	out := make(map[string]economy.IdempotencyKeyRow, len(input))
+	for key, value := range input {
+		out[key] = value.Clone()
+	}
+	return out
+}
+
+func cloneAuctionOutboxRows(input map[string]economy.OutboxRow) map[string]economy.OutboxRow {
+	out := make(map[string]economy.OutboxRow, len(input))
+	for key, value := range input {
+		out[key] = value.Clone()
+	}
+	return out
 }
 
 type failingAuctionWallet struct {
