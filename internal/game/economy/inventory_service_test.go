@@ -1,6 +1,7 @@
 package economy
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -324,6 +325,85 @@ func TestAddItemSplitsStackableRowsByDefinitionMaxStack(t *testing.T) {
 }
 
 var testInventoryNow = time.Date(2026, 6, 17, 15, 0, 0, 0, time.UTC)
+
+func TestNewInventoryServiceWithRepositoryLoadsPersistedStackableItems(t *testing.T) {
+	stack := stackableItemForTest(t)
+	repository := &fakeInventoryRepository{stackables: []StackableItem{stack}}
+
+	service, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository() error = %v, want nil", err)
+	}
+
+	if got := service.TotalItemQuantity(stack.OwnerPlayerID, stack.ItemID, stack.Location); got != stack.Quantity.Int64() {
+		t.Fatalf("TotalItemQuantity() = %d, want loaded %d", got, stack.Quantity.Int64())
+	}
+}
+
+func TestAddItemPersistsStackableThroughRepository(t *testing.T) {
+	repository := &fakeInventoryRepository{}
+	service, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository() error = %v, want nil", err)
+	}
+
+	if _, err := service.AddItem(validAddItemInput(t)); err != nil {
+		t.Fatalf("AddItem() error = %v, want nil", err)
+	}
+
+	if len(repository.upserts) == 0 {
+		t.Fatal("AddItem did not persist any stackable rows through repository")
+	}
+}
+
+func stackableItemForTest(t *testing.T) StackableItem {
+	t.Helper()
+	definition := validStackableDefinition(t)
+	stack, err := NewStackableItem(
+		definition.Source,
+		foundation.ItemID("stack-instance-load-1"),
+		definition.ItemID,
+		foundation.PlayerID("player-1"),
+		validLocation(t),
+		mustQuantity(t, 7),
+	)
+	if err != nil {
+		t.Fatalf("NewStackableItem() error = %v, want nil", err)
+	}
+	stack.CreatedAt = testInventoryNow
+	stack.UpdatedAt = testInventoryNow
+	return stack
+}
+
+func mustQuantity(t *testing.T, amount int64) foundation.Quantity {
+	t.Helper()
+	quantity, err := foundation.NewQuantity(amount)
+	if err != nil {
+		t.Fatalf("NewQuantity(%d) error = %v, want nil", amount, err)
+	}
+	return quantity
+}
+
+type fakeInventoryRepository struct {
+	stackables []StackableItem
+	upserts    []StackableItem
+}
+
+func (repository *fakeInventoryRepository) LoadStackableItems(context.Context) ([]StackableItem, error) {
+	return append([]StackableItem(nil), repository.stackables...), nil
+}
+
+func (repository *fakeInventoryRepository) UpsertStackableItem(_ context.Context, item StackableItem) error {
+	repository.upserts = append(repository.upserts, item)
+	for index := range repository.stackables {
+		if repository.stackables[index].ItemInstanceID == item.ItemInstanceID {
+			repository.stackables[index] = item
+			return nil
+		}
+	}
+	repository.stackables = append(repository.stackables, item)
+	return nil
+}
 
 func newTestInventoryService() *InventoryService {
 	return NewInventoryService(testutil.NewFakeClock(testInventoryNow))

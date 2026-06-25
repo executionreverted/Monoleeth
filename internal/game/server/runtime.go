@@ -177,6 +177,7 @@ type Runtime struct {
 	contentAdminCloser             func() error
 	authStoreCloser                func() error
 	walletStoreCloser              func() error
+	inventoryStoreCloser           func() error
 
 	combatXP                 *combat.NPCKillXPHandler
 	lootTables               map[string]loot.LootTable
@@ -323,6 +324,11 @@ func (runtime *Runtime) Close() error {
 		runtime.walletStoreCloser = nil
 		errs = append(errs, closeWalletStore())
 	}
+	if runtime.inventoryStoreCloser != nil {
+		closeInventoryStore := runtime.inventoryStoreCloser
+		runtime.inventoryStoreCloser = nil
+		errs = append(errs, closeInventoryStore())
+	}
 	return errors.Join(errs...)
 }
 
@@ -398,6 +404,43 @@ func loadRuntimeWalletStore(ctx context.Context, config RuntimeConfig) (economy.
 		return nil, nil, err
 	}
 	return walletStore, closeStore, nil
+}
+
+func loadRuntimeInventoryStore(ctx context.Context, config RuntimeConfig) (economy.InventoryRepository, func() error, error) {
+	contentConfig := config.ContentDB.WithDefaults()
+	if err := contentConfig.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if !contentConfig.Enabled() {
+		return nil, nil, nil
+	}
+	openStore := config.contentDBOpen
+	if openStore == nil {
+		openStore = defaultRuntimeContentDBOpen
+	}
+	store, err := openStore(ctx, contentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if store == nil {
+		return nil, nil, contentdb.ErrNilDatabase
+	}
+	closeStore := func() error { return store.Close() }
+	if err := store.Migrate(ctx, contentConfig.Migrations); err != nil {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("migrate inventory db: %w", err)
+	}
+	contentStore, ok := store.(*contentdb.Store)
+	if !ok {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("inventory db store %T: %w", store, contentdb.ErrNilDatabase)
+	}
+	inventoryStore, err := contentdb.NewInventoryStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return nil, nil, err
+	}
+	return inventoryStore, closeStore, nil
 }
 
 func loadRuntimeContentAdmin(ctx context.Context, config RuntimeConfig, clock foundation.Clock) (*admin.ContentService, func() error, error) {
@@ -515,6 +558,19 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		}
 		return nil, err
 	}
+	inventoryStore, inventoryStoreCloser, err := loadRuntimeInventoryStore(context.Background(), config)
+	if err != nil {
+		if walletStoreCloser != nil {
+			_ = walletStoreCloser()
+		}
+		if authStoreCloser != nil {
+			_ = authStoreCloser()
+		}
+		if contentAdminCloser != nil {
+			_ = contentAdminCloser()
+		}
+		return nil, err
+	}
 	mapCatalog := contentBundle.Maps
 	mapRouter, err := worldmaps.NewRouter(mapCatalog)
 	if err != nil {
@@ -555,7 +611,27 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if zoneWorker == nil {
 		return nil, fmt.Errorf("starter map instance: %w", errMapInstanceNotFound)
 	}
-	inventory := economy.NewInventoryService(clock)
+	var inventory *economy.InventoryService
+	if inventoryStore != nil {
+		inventory, err = economy.NewInventoryServiceWithRepository(clock, inventoryStore)
+		if err != nil {
+			if inventoryStoreCloser != nil {
+				_ = inventoryStoreCloser()
+			}
+			if walletStoreCloser != nil {
+				_ = walletStoreCloser()
+			}
+			if authStoreCloser != nil {
+				_ = authStoreCloser()
+			}
+			if contentAdminCloser != nil {
+				_ = contentAdminCloser()
+			}
+			return nil, err
+		}
+	} else {
+		inventory = economy.NewInventoryService(clock)
+	}
 	cargoService := economy.NewCargoService(inventory)
 	var walletService *economy.WalletService
 	if walletStore != nil {
@@ -783,6 +859,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		contentAdminCloser:             contentAdminCloser,
 		authStoreCloser:                authStoreCloser,
 		walletStoreCloser:              walletStoreCloser,
+		inventoryStoreCloser:           inventoryStoreCloser,
 		combatXP:                       combatXP,
 		lootTables:                     lootTables,
 		itemCatalog:                    itemCatalog,

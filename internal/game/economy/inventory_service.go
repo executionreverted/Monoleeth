@@ -1,6 +1,7 @@
 package economy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -34,6 +35,12 @@ type AddItemResult struct {
 	Duplicate      bool            `json:"duplicate"`
 }
 
+// InventoryRepository is the durable persistence boundary for stackable items.
+type InventoryRepository interface {
+	LoadStackableItems(ctx context.Context) ([]StackableItem, error)
+	UpsertStackableItem(ctx context.Context, item StackableItem) error
+}
+
 // InventoryService is an in-memory Phase 02 mutation service.
 type InventoryService struct {
 	mu    sync.Mutex
@@ -49,6 +56,8 @@ type InventoryService struct {
 	moveItemReferences   map[inventoryReferenceKey]MoveItemResult
 	removeItemReferences map[inventoryReferenceKey]RemoveItemResult
 
+	repository InventoryRepository
+
 	emitter           EventEmitter
 	cargoGuard        CargoTransferGuard
 	nextEventSequence uint64
@@ -62,15 +71,37 @@ type inventoryReferenceKey struct {
 
 // NewInventoryService returns an in-memory inventory mutation service.
 func NewInventoryService(clock foundation.Clock) *InventoryService {
+	service, err := NewInventoryServiceWithRepository(clock, nil)
+	if err != nil {
+		panic(err)
+	}
+	return service
+}
+
+func NewInventoryServiceWithRepository(clock foundation.Clock, repository InventoryRepository) (*InventoryService, error) {
 	if clock == nil {
 		clock = foundation.RealClock{}
 	}
-	return &InventoryService{
+	service := &InventoryService{
 		clock:                clock,
 		addItemReferences:    make(map[inventoryReferenceKey]AddItemResult),
 		moveItemReferences:   make(map[inventoryReferenceKey]MoveItemResult),
 		removeItemReferences: make(map[inventoryReferenceKey]RemoveItemResult),
+		repository:           repository,
 	}
+	if repository != nil {
+		stackables, err := repository.LoadStackableItems(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range stackables {
+			if err := item.Validate(); err != nil {
+				return nil, err
+			}
+			service.stackableItems = append(service.stackableItems, item)
+		}
+	}
+	return service, nil
 }
 
 // SetCargoTransferGuard configures an optional guard for player-facing cargo moves.
@@ -146,6 +177,11 @@ func (service *InventoryService) addItemValidatedLocked(input AddItemInput, quan
 	}
 	ledgerEntry.CreatedAt = now
 
+	for _, item := range stackableItems {
+		if err := service.persistStackableItemLocked(item); err != nil {
+			return AddItemResult{}, err
+		}
+	}
 	service.stackableItems = append(service.stackableItems, stackableItems...)
 	service.instanceItems = append(service.instanceItems, instanceItems...)
 	service.itemLedgerEntries = append(service.itemLedgerEntries, ledgerEntry)
@@ -311,6 +347,13 @@ func (service *InventoryService) buildInstanceAddItems(input AddItemInput, quant
 	}
 
 	return items, nil
+}
+
+func (service *InventoryService) persistStackableItemLocked(item StackableItem) error {
+	if service.repository == nil {
+		return nil
+	}
+	return service.repository.UpsertStackableItem(context.Background(), item)
 }
 
 func (service *InventoryService) nextItemInstanceID(itemID foundation.ItemID, kind string) foundation.ItemID {
