@@ -157,7 +157,7 @@ type Runtime struct {
 	ContentAdmin                   *admin.ContentService
 	Progression                    *progression.ProgressionService
 	ShipCatalog                    ships.Catalog
-	HangarStore                    *ships.InMemoryHangarStore
+	HangarStore                    ships.HangarStore
 	Hangar                         *ships.HangarService
 	ModuleCatalog                  modules.Catalog
 	Content                        catalog.ContentRegistry
@@ -183,6 +183,7 @@ type Runtime struct {
 	walletStoreCloser              func() error
 	inventoryStoreCloser           func() error
 	progressionStoreCloser         func() error
+	hangarStoreCloser              func() error
 
 	combatXP                 *combat.NPCKillXPHandler
 	lootTables               map[string]loot.LootTable
@@ -339,6 +340,11 @@ func (runtime *Runtime) Close() error {
 		runtime.progressionStoreCloser = nil
 		errs = append(errs, closeProgressionStore())
 	}
+	if runtime.hangarStoreCloser != nil {
+		closeHangarStore := runtime.hangarStoreCloser
+		runtime.hangarStoreCloser = nil
+		errs = append(errs, closeHangarStore())
+	}
 	return errors.Join(errs...)
 }
 
@@ -488,6 +494,43 @@ func loadRuntimeProgressionStore(ctx context.Context, config RuntimeConfig) (pro
 		return nil, nil, err
 	}
 	return progressionStore, closeStore, nil
+}
+
+func loadRuntimeHangarStore(ctx context.Context, config RuntimeConfig) (ships.HangarStore, func() error, error) {
+	contentConfig := runtimeCoreStoreDBConfig(config)
+	if err := contentConfig.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if !contentConfig.Enabled() {
+		return ships.NewInMemoryHangarStore(), nil, nil
+	}
+	openStore := config.contentDBOpen
+	if openStore == nil {
+		openStore = defaultRuntimeContentDBOpen
+	}
+	store, err := openStore(ctx, contentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if store == nil {
+		return nil, nil, contentdb.ErrNilDatabase
+	}
+	closeStore := func() error { return store.Close() }
+	if err := store.Migrate(ctx, contentConfig.Migrations); err != nil {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("migrate hangar db: %w", err)
+	}
+	contentStore, ok := store.(*contentdb.Store)
+	if !ok {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("hangar db store %T: %w", store, contentdb.ErrNilDatabase)
+	}
+	hangarStore, err := contentdb.NewHangarStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return nil, nil, err
+	}
+	return hangarStore, closeStore, nil
 }
 
 func runtimeCoreStoreDBConfig(config RuntimeConfig) contentdb.Config {
@@ -757,7 +800,31 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	}
 	progressionService := progression.NewProgressionService(clock, progressionMemoryStore)
 	shipCatalog := contentBundle.Ships
-	hangarStore := ships.NewInMemoryHangarStore()
+	hangarStore, hangarStoreCloser, err := loadRuntimeHangarStore(context.Background(), config)
+	if err != nil {
+		if progressionStoreCloser != nil {
+			_ = progressionStoreCloser()
+		}
+		if inventoryStoreCloser != nil {
+			_ = inventoryStoreCloser()
+		}
+		if walletStoreCloser != nil {
+			_ = walletStoreCloser()
+		}
+		if authStoreCloser != nil {
+			_ = authStoreCloser()
+		}
+		if contentAdminCloser != nil {
+			_ = contentAdminCloser()
+		}
+		return nil, err
+	}
+	closeHangarStoreOnError := true
+	defer func() {
+		if closeHangarStoreOnError && hangarStoreCloser != nil {
+			_ = hangarStoreCloser()
+		}
+	}()
 	hangarService, err := ships.NewHangarService(
 		shipCatalog,
 		hangarStore,
@@ -966,6 +1033,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		walletStoreCloser:              walletStoreCloser,
 		inventoryStoreCloser:           inventoryStoreCloser,
 		progressionStoreCloser:         progressionStoreCloser,
+		hangarStoreCloser:              hangarStoreCloser,
 		combatXP:                       combatXP,
 		lootTables:                     lootTables,
 		itemCatalog:                    itemCatalog,
@@ -1061,6 +1129,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, err
 	}
 	runtime.Gateway = gateway
+	closeHangarStoreOnError = false
 	return runtime, nil
 }
 

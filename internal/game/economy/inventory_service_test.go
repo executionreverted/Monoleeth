@@ -340,6 +340,21 @@ func TestNewInventoryServiceWithRepositoryLoadsPersistedStackableItems(t *testin
 	}
 }
 
+func TestNewInventoryServiceWithRepositoryLoadsPersistedInstanceItems(t *testing.T) {
+	instance := instanceItemForTest(t)
+	repository := &fakeInventoryRepository{instances: []InstanceItem{instance}}
+
+	service, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository() error = %v, want nil", err)
+	}
+
+	instances := service.InstanceItems()
+	if len(instances) != 1 || instances[0].ItemInstanceID != instance.ItemInstanceID {
+		t.Fatalf("InstanceItems() = %+v, want loaded instance %+v", instances, instance)
+	}
+}
+
 func TestAddItemPersistsStackableThroughRepository(t *testing.T) {
 	repository := &fakeInventoryRepository{}
 	service, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
@@ -353,6 +368,47 @@ func TestAddItemPersistsStackableThroughRepository(t *testing.T) {
 
 	if len(repository.upserts) == 0 {
 		t.Fatal("AddItem did not persist any stackable rows through repository")
+	}
+}
+
+func TestAddItemPersistsInstanceThroughRepository(t *testing.T) {
+	repository := &fakeInventoryRepository{}
+	service, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository() error = %v, want nil", err)
+	}
+	input := validAddItemInput(t)
+	input.ItemDefinition = validInstanceDefinition(t)
+	input.ItemInstanceID = "coordinate-scroll-instance-persisted"
+	input.Quantity = 1
+
+	if _, err := service.AddItem(input); err != nil {
+		t.Fatalf("AddItem() error = %v, want nil", err)
+	}
+
+	if len(repository.instanceUpserts) != 1 || repository.instanceUpserts[0].ItemInstanceID != input.ItemInstanceID {
+		t.Fatalf("instance upserts = %+v, want one persisted instance %s", repository.instanceUpserts, input.ItemInstanceID)
+	}
+}
+
+func TestSystemSetInstanceDurabilityPersistsInstanceThroughRepository(t *testing.T) {
+	instance := instanceItemForTest(t)
+	repository := &fakeInventoryRepository{instances: []InstanceItem{instance}}
+	service, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository() error = %v, want nil", err)
+	}
+
+	updated, err := service.SystemSetInstanceDurability(instance.OwnerPlayerID, instance.ItemInstanceID, 33)
+	if err != nil {
+		t.Fatalf("SystemSetInstanceDurability() error = %v, want nil", err)
+	}
+
+	if updated.DurabilityCurrent != 33 {
+		t.Fatalf("DurabilityCurrent = %d, want 33", updated.DurabilityCurrent)
+	}
+	if len(repository.instanceUpserts) != 1 || repository.instanceUpserts[0].DurabilityCurrent != 33 {
+		t.Fatalf("instance upserts = %+v, want durability 33", repository.instanceUpserts)
 	}
 }
 
@@ -375,6 +431,27 @@ func stackableItemForTest(t *testing.T) StackableItem {
 	return stack
 }
 
+func instanceItemForTest(t *testing.T) InstanceItem {
+	t.Helper()
+	definition := validInstanceDefinition(t)
+	instance, err := NewInstanceItem(
+		definition.Source,
+		foundation.ItemID("coordinate-scroll-instance-load-1"),
+		definition.ItemID,
+		foundation.PlayerID("player-1"),
+		validLocation(t),
+		mustQuantity(t, 1),
+	)
+	if err != nil {
+		t.Fatalf("NewInstanceItem() error = %v, want nil", err)
+	}
+	instance.DurabilityCurrent = 77
+	instance.BoundState = BoundStateAccountBound
+	instance.CreatedAt = testInventoryNow
+	instance.UpdatedAt = testInventoryNow
+	return instance
+}
+
 func mustQuantity(t *testing.T, amount int64) foundation.Quantity {
 	t.Helper()
 	quantity, err := foundation.NewQuantity(amount)
@@ -385,12 +462,18 @@ func mustQuantity(t *testing.T, amount int64) foundation.Quantity {
 }
 
 type fakeInventoryRepository struct {
-	stackables []StackableItem
-	upserts    []StackableItem
+	stackables      []StackableItem
+	instances       []InstanceItem
+	upserts         []StackableItem
+	instanceUpserts []InstanceItem
 }
 
 func (repository *fakeInventoryRepository) LoadStackableItems(context.Context) ([]StackableItem, error) {
 	return append([]StackableItem(nil), repository.stackables...), nil
+}
+
+func (repository *fakeInventoryRepository) LoadInstanceItems(context.Context) ([]InstanceItem, error) {
+	return append([]InstanceItem(nil), repository.instances...), nil
 }
 
 func (repository *fakeInventoryRepository) UpsertStackableItem(_ context.Context, item StackableItem) error {
@@ -402,6 +485,18 @@ func (repository *fakeInventoryRepository) UpsertStackableItem(_ context.Context
 		}
 	}
 	repository.stackables = append(repository.stackables, item)
+	return nil
+}
+
+func (repository *fakeInventoryRepository) UpsertInstanceItem(_ context.Context, item InstanceItem) error {
+	repository.instanceUpserts = append(repository.instanceUpserts, item)
+	for index := range repository.instances {
+		if repository.instances[index].ItemInstanceID == item.ItemInstanceID {
+			repository.instances[index] = item
+			return nil
+		}
+	}
+	repository.instances = append(repository.instances, item)
 	return nil
 }
 

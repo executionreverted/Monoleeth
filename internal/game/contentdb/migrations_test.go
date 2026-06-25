@@ -12,8 +12,8 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 7 {
-		t.Fatalf("len(migrations) = %d, want 7", len(migrations))
+	if len(migrations) != 8 {
+		t.Fatalf("len(migrations) = %d, want 8", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
@@ -36,8 +36,32 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if migrations[6].Version != "0007_hangar_state_schema" {
 		t.Fatalf("Version = %q, want 0007_hangar_state_schema", migrations[6].Version)
 	}
+	if migrations[7].Version != "0008_inventory_instance_items" {
+		t.Fatalf("Version = %q, want 0008_inventory_instance_items", migrations[7].Version)
+	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestInventoryInstanceItemsMigrationHasInstanceTable(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[7].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS player_inventory_instance_items",
+		"item_instance_id text PRIMARY KEY",
+		"quantity bigint NOT NULL DEFAULT 1 CHECK (quantity = 1)",
+		"durability_current bigint NOT NULL DEFAULT 0 CHECK (durability_current >= 0)",
+		"bound_state text NOT NULL DEFAULT 'unbound'",
+		"metadata_json jsonb",
+		"player_inventory_instance_items_player_idx",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("inventory instance migration missing %q", fragment)
+		}
 	}
 }
 

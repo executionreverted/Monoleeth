@@ -35,14 +35,21 @@ phase or moved above with a concrete deferral reason.
 
 ### P01 Persistence Foundation Audit — TASK-0462
 
-- Loadout durability still needs DB adapters and durable instance-item rows; hangar
-  `contentdb` migration/adapter exists but is not runtime-wired in this slice. Ref:
+- Loadout durability still needs DB adapters and runtime wiring; durable inventory
+  instance rows and hangar `contentdb` migration/runtime core-store wiring are
+  covered by P01. Ref:
   `internal/game/ships/store.go`, `internal/game/modules/loadout_store.go`,
   `docs/road-to-v1/01-persistence-foundation.md:29`.
-- Durable loadout/equipped-module restart proof depends on durable instance-item
-  rows, not stackable-only inventory rows. Ref:
+- Durable loadout/equipped-module restart proof still needs module/loadout durable
+  repos and wiring on top of the now-durable inventory instance rows. Ref:
   `internal/game/economy/inventory_service.go`, `docs/road-to-v1/01-persistence-foundation.md:19`.
 
 ### P01 Inventory Instance Durability Audit — TASK-0471
 
-- Inventory instance rows, item-ledger rows, mutation-reference rows, and durable ID counters remain required before loadout/equipped modules can prove restart durability. Ref: `internal/game/economy/inventory_service.go`, `internal/game/contentdb/inventory_store.go`, `docs/road-to-v1/01-persistence-foundation.md:19`.
+- Inventory instance rows are now durable via `contentdb` load/upsert and
+  `InventoryService` boot hydration/AddItem persistence. Item-ledger rows,
+  mutation-reference rows, and durable ID counters remain required before
+  loadout/equipped modules can prove restart durability. Ref:
+  `internal/game/economy/inventory_service.go`,
+  `internal/game/contentdb/inventory_store.go`,
+  `docs/road-to-v1/01-persistence-foundation.md:19`.

@@ -280,7 +280,11 @@ func (runtime *Runtime) validateShopProductPurchaseLocked(playerID foundation.Pl
 		if err != nil {
 			return 0, invalidPayload("Shop product is invalid.", err)
 		}
-		if _, ok := runtime.HangarStore.PlayerShip(playerID, shipID); ok {
+		hasShip, err := runtime.playerHasShipLocked(playerID, shipID)
+		if err != nil {
+			return 0, err
+		}
+		if hasShip {
 			return 0, foundation.NewDomainError(foundation.CodeForbidden, "Ship is already unlocked.")
 		}
 	case catalog.GrantTargetKindPremium, catalog.GrantTargetKindBlocker:
@@ -289,6 +293,15 @@ func (runtime *Runtime) validateShopProductPurchaseLocked(playerID foundation.Pl
 		return 0, foundation.NewDomainError(foundation.CodeForbidden, "Shop product is unavailable.")
 	}
 	return unitQuantity, nil
+}
+
+func (runtime *Runtime) playerHasShipLocked(playerID foundation.PlayerID, shipID foundation.ShipID) (bool, error) {
+	hasShip := false
+	err := runtime.HangarStore.ViewPlayerHangar(playerID, func(record ships.HangarRecord) error {
+		_, hasShip = record.PlayerShip(shipID)
+		return nil
+	})
+	return hasShip, err
 }
 
 func (runtime *Runtime) grantShopProductLocked(playerID foundation.PlayerID, product catalog.ShopProductDefinition, totalQuantity int64, referenceKey foundation.IdempotencyKey) error {

@@ -35,10 +35,12 @@ type AddItemResult struct {
 	Duplicate      bool            `json:"duplicate"`
 }
 
-// InventoryRepository is the durable persistence boundary for stackable items.
+// InventoryRepository is the durable persistence boundary for inventory items.
 type InventoryRepository interface {
 	LoadStackableItems(ctx context.Context) ([]StackableItem, error)
+	LoadInstanceItems(ctx context.Context) ([]InstanceItem, error)
 	UpsertStackableItem(ctx context.Context, item StackableItem) error
+	UpsertInstanceItem(ctx context.Context, item InstanceItem) error
 }
 
 // InventoryService is an in-memory Phase 02 mutation service.
@@ -99,6 +101,16 @@ func NewInventoryServiceWithRepository(clock foundation.Clock, repository Invent
 				return nil, err
 			}
 			service.stackableItems = append(service.stackableItems, item)
+		}
+		instances, err := repository.LoadInstanceItems(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range instances {
+			if err := item.Validate(); err != nil {
+				return nil, err
+			}
+			service.instanceItems = append(service.instanceItems, item)
 		}
 	}
 	return service, nil
@@ -179,6 +191,11 @@ func (service *InventoryService) addItemValidatedLocked(input AddItemInput, quan
 
 	for _, item := range stackableItems {
 		if err := service.persistStackableItemLocked(item); err != nil {
+			return AddItemResult{}, err
+		}
+	}
+	for _, item := range instanceItems {
+		if err := service.persistInstanceItemLocked(item); err != nil {
 			return AddItemResult{}, err
 		}
 	}
@@ -356,9 +373,21 @@ func (service *InventoryService) persistStackableItemLocked(item StackableItem) 
 	return service.repository.UpsertStackableItem(context.Background(), item)
 }
 
+func (service *InventoryService) persistInstanceItemLocked(item InstanceItem) error {
+	if service.repository == nil {
+		return nil
+	}
+	return service.repository.UpsertInstanceItem(context.Background(), item)
+}
+
 func (service *InventoryService) nextItemInstanceID(itemID foundation.ItemID, kind string) foundation.ItemID {
-	service.nextItemSequence++
-	return foundation.ItemID(fmt.Sprintf("%s-%s-%d", itemID, kind, service.nextItemSequence))
+	for {
+		service.nextItemSequence++
+		candidate := foundation.ItemID(fmt.Sprintf("%s-%s-%d", itemID, kind, service.nextItemSequence))
+		if !service.itemInstanceExistsLocked(candidate) {
+			return candidate
+		}
+	}
 }
 
 func (service *InventoryService) nextLedgerID() LedgerID {

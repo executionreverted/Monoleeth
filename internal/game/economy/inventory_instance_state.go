@@ -31,6 +31,9 @@ func (service *InventoryService) SystemSetInstanceDurability(playerID foundation
 		}
 		item.DurabilityCurrent = durability
 		item.UpdatedAt = service.clock.Now()
+		if err := service.persistInstanceItemLocked(item); err != nil {
+			return InstanceItem{}, err
+		}
 		service.instanceItems[index] = item
 		return item, nil
 	}

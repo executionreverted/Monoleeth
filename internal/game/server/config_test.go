@@ -9,6 +9,7 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/contentdb"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/ships"
 )
 
 func TestConfigFromEnvE2EPlanetClaimSeedDefaultsOff(t *testing.T) {
@@ -167,6 +168,9 @@ func TestNewRuntimeCoreStoreDevFallbackWithoutURLUsesMemory(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v, want nil", err)
 	}
 	defer runtime.Close()
+	if _, ok := runtime.HangarStore.(*ships.InMemoryHangarStore); !ok {
+		t.Fatalf("HangarStore = %T, want *ships.InMemoryHangarStore", runtime.HangarStore)
+	}
 }
 
 func TestNewRejectsStaticContentFallbackOutsideDevMode(t *testing.T) {
