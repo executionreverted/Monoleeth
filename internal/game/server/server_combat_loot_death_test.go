@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
 
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/combat"
 	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/economy"
 	gameevents "gameproject/internal/game/events"
@@ -191,6 +193,220 @@ func pickupEventsComplete(seen map[realtime.ClientEventType]bool) bool {
 		seen[realtime.EventCargoSnapshot] &&
 		seen[realtime.EventInventorySnapshot] &&
 		seen[realtime.EventProgressionSnapshot]
+}
+func TestLootPickupRemovesDropThroughWorkerCommandQueue(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSession(t, gameServer, "loot-command@example.com", "Loot Command")
+
+	gameServer.runtime.mu.Lock()
+	instance, _, err := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active map instance: %v", err)
+	}
+	playerEntity, ok := instance.Worker.PlayerEntity(resolved.PlayerID)
+	if !ok {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("player entity for %q missing", resolved.PlayerID)
+	}
+	definition := instance.Definition
+	gameServer.runtime.mu.Unlock()
+
+	created, err := gameServer.runtime.Loot.CreateDropsForNPCKill(combat.NPCKilledEvent{
+		SourceID:      "npc_loot_command",
+		NPCEntityID:   "npc_loot_command",
+		NPCType:       trainingNPCType,
+		WorldID:       definition.WorldID,
+		ZoneID:        definition.ZoneID,
+		Position:      playerEntity.Position,
+		OwnerPlayerID: resolved.PlayerID,
+		KilledAt:      gameServer.runtime.clock.Now(),
+	}, testRuntimeLootTable(t, "loot_command_table", "raw_ore", "Raw Ore", 3))
+	if err != nil {
+		t.Fatalf("CreateDropsForNPCKill() error = %v, want nil", err)
+	}
+	if len(created.Drops) != 1 {
+		t.Fatalf("drops len = %d, want 1", len(created.Drops))
+	}
+	drop := created.Drops[0]
+
+	gameServer.runtime.mu.Lock()
+	if err := gameServer.runtime.insertLootDropEntityLocked(drop); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("insert loot drop entity: %v", err)
+	}
+	instance, _, err = gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active map instance after drop: %v", err)
+	}
+	mailbox := replaceActiveMapWorkerWithRecordingMailboxLocked(t, gameServer, instance, resolved.PlayerID, resolved.SessionID)
+	gameServer.runtime.mu.Unlock()
+
+	payload, err := gameServer.runtime.handleLootPickup(
+		realtime.CommandContext{
+			SessionID: realtime.SessionID(resolved.SessionID.String()),
+			PlayerID:  resolved.PlayerID,
+			WorldID:   definition.WorldID,
+			ZoneID:    definition.ZoneID,
+		},
+		realtime.NewRequestEnvelope(
+			"request-loot-command-remove",
+			realtime.OperationLootPickup,
+			json.RawMessage(`{"drop_id":"`+drop.ID.String()+`"}`),
+			1,
+		),
+	)
+	if err != nil {
+		t.Fatalf("handleLootPickup() error = %v, want nil", err)
+	}
+
+	var response struct {
+		Accepted bool   `json:"accepted"`
+		DropID   string `json:"drop_id"`
+		Cargo    struct {
+			Used int64 `json:"used"`
+		} `json:"cargo"`
+	}
+	if err := json.Unmarshal(payload, &response); err != nil {
+		t.Fatalf("decode loot pickup response: %v", err)
+	}
+	if !response.Accepted || response.DropID != drop.ID.String() || response.Cargo.Used != 6 {
+		t.Fatalf("pickup response = %+v, want accepted drop with cargo used 6", response)
+	}
+
+	submitted := mailbox.Submitted()
+	if len(submitted) != 1 {
+		t.Fatalf("submitted worker commands = %#v, want one remove command", submitted)
+	}
+	remove, ok := submitted[0].(worker.RemoveEntityCommand)
+	if !ok {
+		t.Fatalf("submitted command type = %T, want worker.RemoveEntityCommand", submitted[0])
+	}
+	if remove.EntityID != drop.ID {
+		t.Fatalf("remove command entity = %q, want %q", remove.EntityID, drop.ID)
+	}
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	instance, _, err = gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if err != nil {
+		t.Fatalf("active map instance after pickup: %v", err)
+	}
+	if _, ok := instance.Worker.Entity(drop.ID); ok {
+		t.Fatalf("drop entity %q still present after queued remove command", drop.ID)
+	}
+	if !instance.HiddenEntities[drop.ID] {
+		t.Fatalf("drop entity %q not hidden after pickup", drop.ID)
+	}
+}
+
+type recordingWorkerMailbox struct {
+	mu        sync.Mutex
+	commands  []worker.Command
+	submitted []worker.Command
+}
+
+func (mailbox *recordingWorkerMailbox) Submit(command worker.Command) error {
+	if command == nil {
+		return worker.ErrNilCommand
+	}
+	mailbox.mu.Lock()
+	defer mailbox.mu.Unlock()
+
+	mailbox.commands = append(mailbox.commands, command)
+	mailbox.submitted = append(mailbox.submitted, command)
+	return nil
+}
+
+func (mailbox *recordingWorkerMailbox) Drain() []worker.Command {
+	mailbox.mu.Lock()
+	defer mailbox.mu.Unlock()
+
+	if len(mailbox.commands) == 0 {
+		return nil
+	}
+	commands := append([]worker.Command(nil), mailbox.commands...)
+	clear(mailbox.commands)
+	mailbox.commands = mailbox.commands[:0]
+	return commands
+}
+
+func (mailbox *recordingWorkerMailbox) Reset() {
+	mailbox.mu.Lock()
+	defer mailbox.mu.Unlock()
+
+	clear(mailbox.commands)
+	mailbox.commands = mailbox.commands[:0]
+	clear(mailbox.submitted)
+	mailbox.submitted = mailbox.submitted[:0]
+}
+
+func (mailbox *recordingWorkerMailbox) Submitted() []worker.Command {
+	mailbox.mu.Lock()
+	defer mailbox.mu.Unlock()
+
+	return append([]worker.Command(nil), mailbox.submitted...)
+}
+
+func replaceActiveMapWorkerWithRecordingMailboxLocked(t *testing.T, gameServer *Server, instance *mapInstance, playerID foundation.PlayerID, sessionID auth.SessionID) *recordingWorkerMailbox {
+	t.Helper()
+	original := instance.Worker
+	playerEntity, ok := original.PlayerEntity(playerID)
+	if !ok {
+		t.Fatalf("player entity for %q missing", playerID)
+	}
+	playerSpeed, ok := original.EntitySpeed(playerEntity.ID)
+	if !ok {
+		playerSpeed = defaultPlayerSpeed
+	}
+	mailbox := &recordingWorkerMailbox{}
+	replacement, err := worker.NewWorker(worker.Config{
+		WorldID:   instance.Definition.WorldID,
+		ZoneID:    instance.Definition.ZoneID,
+		TickDelta: original.TickDelta(),
+		Clock:     gameServer.runtime.clock,
+		Mailbox:   mailbox,
+	})
+	if err != nil {
+		t.Fatalf("NewWorker(recording mailbox) error = %v, want nil", err)
+	}
+	for _, entity := range original.Snapshot().Entities {
+		if entity.ID == playerEntity.ID {
+			continue
+		}
+		speed, _ := original.EntitySpeed(entity.ID)
+		if err := replacement.InsertEntity(entity, speed); err != nil {
+			t.Fatalf("copy entity %q into recording worker: %v", entity.ID, err)
+		}
+	}
+	if err := replacement.Submit(worker.SpawnPlayerCommand{
+		PlayerID: playerID,
+		EntityID: playerEntity.ID,
+		Position: playerEntity.Position,
+		Speed:    playerSpeed,
+	}); err != nil {
+		t.Fatalf("Submit(spawn player recording worker) error = %v, want nil", err)
+	}
+	if err := commandErrors(replacement.Tick()); err != nil {
+		t.Fatalf("recording worker spawn tick error = %v, want nil", err)
+	}
+	if err := replacement.Submit(worker.AttachSessionCommand{
+		SessionID: realtime.SessionID(sessionID.String()),
+		PlayerID:  playerID,
+	}); err != nil {
+		t.Fatalf("Submit(attach session recording worker) error = %v, want nil", err)
+	}
+	if err := commandErrors(replacement.Tick()); err != nil {
+		t.Fatalf("recording worker attach tick error = %v, want nil", err)
+	}
+	mailbox.Reset()
+	instance.Worker = replacement
+	if gameServer.runtime.Worker == original {
+		gameServer.runtime.Worker = replacement
+	}
+	return mailbox
 }
 func TestCombatRejectsClientAuthoredGameplayTruth(t *testing.T) {
 	_, httpServer := newTestServer(t, false)

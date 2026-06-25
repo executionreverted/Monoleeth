@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -317,7 +318,9 @@ func (runtime *Runtime) handleLootPickup(ctx realtime.CommandContext, request re
 	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
-	instance.Worker.RemoveEntity(intent.DropID)
+	if err := runtime.submitWorkerCommandAndRecordMetricsLocked(instance, worker.RemoveEntityCommand{EntityID: intent.DropID}); err != nil && !errors.Is(err, worker.ErrUnknownEntity) {
+		return nil, domainErrorForRuntime(err)
+	}
 	instance.HiddenEntities[intent.DropID] = true
 
 	state := runtime.players[ctx.PlayerID]

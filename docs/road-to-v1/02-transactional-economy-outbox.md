@@ -33,6 +33,17 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0520: contentdb now has durable `market_listings`
+  schema plus a `MarketListingStore` adapter for saving/loading fixed-price
+  listing snapshots, including source return and market escrow locations. The
+  adapter also exposes a transaction seam with `LoadMarketListingForUpdate` so
+  later buy/cancel code can lock the listing row before escrow/wallet/idempotency
+  mutation. Focused contentdb migration/unit coverage validates the durable
+  schema and listing snapshot restore with escrow/source/status/quantity intact;
+  a DB-backed Postgres smoke covers the same reload path when
+  `GAME_CONTENT_DATABASE_URL` is available. Full market buy/cancel wiring into
+  one DB transaction across listing, wallet, inventory, idempotency, and outbox
+  remains open.
 - 2026-06-25 TASK-0513: auction `PlaceBid` now claims/completes economy
   idempotency rows with an amount-bound request hash before wallet mutation.
   Replayed same-key bid rows return duplicate without a second debit, concurrent

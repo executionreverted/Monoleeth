@@ -12,8 +12,8 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 13 {
-		t.Fatalf("len(migrations) = %d, want 13", len(migrations))
+	if len(migrations) != 14 {
+		t.Fatalf("len(migrations) = %d, want 14", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
@@ -54,8 +54,35 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if migrations[12].Version != "0013_inventory_move_remove_references" {
 		t.Fatalf("Version = %q, want 0013_inventory_move_remove_references", migrations[12].Version)
 	}
+	if migrations[13].Version != "0014_market_listing_state_schema" {
+		t.Fatalf("Version = %q, want 0014_market_listing_state_schema", migrations[13].Version)
+	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestMarketListingSchemaMigrationHasDurableListingTables(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[13].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS market_listings",
+		"listing_id text PRIMARY KEY",
+		"seller_player_id text NOT NULL CHECK (btrim(seller_player_id) <> '')",
+		"item_definition_json jsonb NOT NULL",
+		"remaining_quantity bigint NOT NULL CHECK (remaining_quantity >= 0)",
+		"escrow_location_kind text NOT NULL CHECK (escrow_location_kind = 'market_escrow')",
+		"CHECK (remaining_quantity <= original_quantity)",
+		"CHECK (status <> 'stale' OR stale_at IS NOT NULL)",
+		"CREATE INDEX IF NOT EXISTS market_listings_seller_status_idx",
+		"CREATE INDEX IF NOT EXISTS market_listings_active_expiry_idx",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("market listing schema migration missing %q", fragment)
+		}
 	}
 }
 

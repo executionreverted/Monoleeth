@@ -43,6 +43,9 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 
 ## Server Ownership
 - Each map worker is the single owner of its zone's authoritative live state.
+- Progress: loot pickup drop removal now submits `worker.RemoveEntityCommand`
+  through the owning worker queue instead of calling `Worker.RemoveEntity`
+  directly. Covered by `TestLootPickupRemovesDropThroughWorkerCommandQueue`.
 
 ## Smoke Tests (one assertion each)
 - [x] Command on map A does not block a command on map B (timing assertion).
