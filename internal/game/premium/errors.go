@@ -12,6 +12,10 @@ var (
 	ErrEntitlementWrongPlayer    = errors.New("entitlement belongs to another player")
 	ErrEntitlementAlreadyClaimed = errors.New("entitlement already claimed")
 	ErrEntitlementNotPending     = errors.New("entitlement not pending")
+	ErrPremiumProviderInProgress = errors.New("premium provider idempotency key in progress")
+	ErrPremiumProviderResult     = errors.New("premium provider idempotency result unavailable")
+	ErrPremiumClaimInProgress    = errors.New("premium claim idempotency key in progress")
+	ErrPremiumClaimResult        = errors.New("premium claim idempotency result unavailable")
 
 	ErrInvalidEntitlementType  = errors.New("invalid entitlement type")
 	ErrInvalidEntitlementState = errors.New("invalid entitlement state")

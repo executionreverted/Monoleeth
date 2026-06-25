@@ -13,6 +13,9 @@ import (
 const (
 	LedgerReasonPremiumEntitlementClaim economy.LedgerReason = "premium_entitlement_claim"
 	LedgerReasonPremiumWeeklyXCore      economy.LedgerReason = "premium_weekly_xcore_purchase"
+
+	premiumProviderOperation = "premium_provider_entitlement"
+	premiumClaimOperation    = "premium_claim"
 )
 
 // CreateEntitlementInput describes one provider-confirmed entitlement.
@@ -67,6 +70,13 @@ type ApplyProviderRiskLockInput struct {
 	Reference string
 }
 
+// PremiumEntitlementServiceConfig wires premium grants to economy primitives.
+type PremiumEntitlementServiceConfig struct {
+	Wallet           *economy.WalletService
+	Clock            foundation.Clock
+	IdempotencyStore economy.IdempotencyStore
+}
+
 // CreateEntitlementResult reports the stored entitlement.
 type CreateEntitlementResult struct {
 	Entitlement Entitlement
@@ -101,13 +111,16 @@ type ApplyProviderRiskLockResult struct {
 
 // PremiumEntitlementService is an in-memory premium entitlement MVP.
 type PremiumEntitlementService struct {
-	mu     sync.Mutex
-	clock  foundation.Clock
-	wallet *economy.WalletService
+	mu               sync.Mutex
+	clock            foundation.Clock
+	wallet           *economy.WalletService
+	idempotencyStore economy.IdempotencyStore
 
-	entitlements       map[EntitlementID]Entitlement
-	providerReferences map[providerReferenceKey]EntitlementID
-	claimResults       map[claimReferenceKey]ClaimEntitlementResult
+	entitlements            map[EntitlementID]Entitlement
+	providerReferences      map[providerReferenceKey]EntitlementID
+	claimResults            map[claimReferenceKey]ClaimEntitlementResult
+	providerIdempotencyRows map[foundation.IdempotencyKey]economy.IdempotencyKeyRow
+	claimIdempotencyRows    map[foundation.IdempotencyKey]economy.IdempotencyKeyRow
 
 	loadoutSlotGrants              []LoadoutSlotGrant
 	weeklyXCorePurchaseRightGrants []WeeklyXCorePurchaseRightGrant
@@ -150,18 +163,31 @@ type playerPeriodKey struct {
 
 // NewPremiumEntitlementService returns a concurrency-safe in-memory service.
 func NewPremiumEntitlementService(wallet *economy.WalletService, clock foundation.Clock) (*PremiumEntitlementService, error) {
-	if wallet == nil {
+	return NewPremiumEntitlementServiceWithConfig(PremiumEntitlementServiceConfig{
+		Wallet: wallet,
+		Clock:  clock,
+	})
+}
+
+// NewPremiumEntitlementServiceWithConfig returns a premium service with optional
+// durable economy idempotency rows.
+func NewPremiumEntitlementServiceWithConfig(config PremiumEntitlementServiceConfig) (*PremiumEntitlementService, error) {
+	if config.Wallet == nil {
 		return nil, ErrNilWalletService
 	}
+	clock := config.Clock
 	if clock == nil {
 		clock = foundation.RealClock{}
 	}
 	return &PremiumEntitlementService{
 		clock:                        clock,
-		wallet:                       wallet,
+		wallet:                       config.Wallet,
+		idempotencyStore:             config.IdempotencyStore,
 		entitlements:                 make(map[EntitlementID]Entitlement),
 		providerReferences:           make(map[providerReferenceKey]EntitlementID),
 		claimResults:                 make(map[claimReferenceKey]ClaimEntitlementResult),
+		providerIdempotencyRows:      make(map[foundation.IdempotencyKey]economy.IdempotencyKeyRow),
+		claimIdempotencyRows:         make(map[foundation.IdempotencyKey]economy.IdempotencyKeyRow),
 		weeklyStock:                  make(map[weeklyStockKey]WeeklyXCoreStockRecord),
 		weeklyPurchaseByReference:    make(map[string]PurchaseWeeklyXCoreResult),
 		weeklyPurchaseByPlayerPeriod: make(map[playerPeriodKey]WeeklyXCorePurchase),
@@ -185,24 +211,56 @@ func (service *PremiumEntitlementService) CreateEntitlement(input CreateEntitlem
 	if err := entitlement.validateCreate(); err != nil {
 		return CreateEntitlementResult{}, err
 	}
+	referenceKey, err := premiumProviderIdempotencyKey(entitlement.Provider)
+	if err != nil {
+		return CreateEntitlementResult{}, err
+	}
+	requestHash, err := premiumProviderRequestHash(input)
+	if err != nil {
+		return CreateEntitlementResult{}, err
+	}
 
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
-	providerKey := providerKey(entitlement.Provider)
-	if existingID, ok := service.providerReferences[providerKey]; ok {
-		return CreateEntitlementResult{
-			Entitlement: service.entitlements[existingID],
-			Duplicate:   true,
-		}, nil
+	idempotencyRow, duplicateResult, duplicate, err := service.claimPremiumProviderIdempotency(entitlement, referenceKey, requestHash)
+	if err != nil {
+		return CreateEntitlementResult{}, err
 	}
-	if _, exists := service.entitlements[entitlement.ID]; exists {
-		return CreateEntitlementResult{}, fmt.Errorf("entitlement id %q: %w", entitlement.ID, ErrDuplicateEntitlementID)
+	if duplicate {
+		if err := service.replayProviderEntitlementLocked(duplicateResult.Entitlement); err != nil {
+			return CreateEntitlementResult{}, err
+		}
+		return duplicateResult, nil
 	}
 
+	providerKey := providerKey(entitlement.Provider)
+	if existingID, ok := service.providerReferences[providerKey]; ok {
+		result := CreateEntitlementResult{
+			Entitlement: service.entitlements[existingID],
+			Duplicate:   true,
+		}
+		if err := service.completePremiumProviderIdempotency(idempotencyRow, result); err != nil {
+			return CreateEntitlementResult{}, service.failPremiumProviderIdempotency(idempotencyRow, err)
+		}
+		return result, nil
+	}
+	if _, exists := service.entitlements[entitlement.ID]; exists {
+		return CreateEntitlementResult{}, service.failPremiumProviderIdempotency(
+			idempotencyRow,
+			fmt.Errorf("entitlement id %q: %w", entitlement.ID, ErrDuplicateEntitlementID),
+		)
+	}
+
+	snapshot := service.snapshotPremiumProviderMutationLocked()
 	service.entitlements[entitlement.ID] = entitlement
 	service.providerReferences[providerKey] = entitlement.ID
-	return CreateEntitlementResult{Entitlement: entitlement}, nil
+	result := CreateEntitlementResult{Entitlement: entitlement}
+	if err := service.completePremiumProviderIdempotency(idempotencyRow, result); err != nil {
+		service.restorePremiumProviderMutationLocked(snapshot)
+		return CreateEntitlementResult{}, service.failPremiumProviderIdempotency(idempotencyRow, err)
+	}
+	return result, nil
 }
 
 // ClaimEntitlement grants a pending entitlement once. Retries with the same
@@ -218,9 +276,41 @@ func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlemen
 	if err := validateRequestReference(input.RequestReference); err != nil {
 		return ClaimEntitlementResult{}, err
 	}
+	referenceKey, err := premiumClaimIdempotencyKey(input)
+	if err != nil {
+		return ClaimEntitlementResult{}, err
+	}
+	requestHash, err := premiumClaimRequestHash(input)
+	if err != nil {
+		return ClaimEntitlementResult{}, err
+	}
 
 	service.mu.Lock()
 	defer service.mu.Unlock()
+
+	if service.idempotencyStore == nil {
+		entitlement, ok := service.entitlements[input.EntitlementID]
+		if !ok {
+			return ClaimEntitlementResult{}, ErrEntitlementNotFound
+		}
+		if entitlement.PlayerID != input.PlayerID {
+			return ClaimEntitlementResult{}, ErrEntitlementWrongPlayer
+		}
+		if entitlement.State == EntitlementStateClaimed && entitlement.ClaimRequestRef != input.RequestReference {
+			return ClaimEntitlementResult{}, ErrEntitlementAlreadyClaimed
+		}
+	}
+
+	idempotencyRow, duplicateResult, duplicate, err := service.claimPremiumClaimIdempotency(input, referenceKey, requestHash)
+	if err != nil {
+		return ClaimEntitlementResult{}, err
+	}
+	if duplicate {
+		if entitlement, ok := service.entitlements[input.EntitlementID]; ok && entitlement.PlayerID == input.PlayerID {
+			duplicateResult.Entitlement = entitlement
+		}
+		return duplicateResult, nil
+	}
 
 	claimKey := claimReferenceKey{
 		entitlementID: input.EntitlementID,
@@ -229,22 +319,34 @@ func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlemen
 	}
 	entitlement, ok := service.entitlements[input.EntitlementID]
 	if !ok {
-		return ClaimEntitlementResult{}, ErrEntitlementNotFound
+		return ClaimEntitlementResult{}, service.failPremiumClaimIdempotency(idempotencyRow, ErrEntitlementNotFound)
 	}
 	if entitlement.PlayerID != input.PlayerID {
-		return ClaimEntitlementResult{}, ErrEntitlementWrongPlayer
+		return ClaimEntitlementResult{}, service.failPremiumClaimIdempotency(idempotencyRow, ErrEntitlementWrongPlayer)
 	}
 	if previous, ok := service.claimResults[claimKey]; ok {
 		result := cloneClaimEntitlementResult(previous)
 		result.Entitlement = entitlement
 		result.Duplicate = true
+		if err := service.completePremiumClaimIdempotency(idempotencyRow, result); err != nil {
+			return ClaimEntitlementResult{}, service.failPremiumClaimIdempotency(idempotencyRow, err)
+		}
 		return result, nil
 	}
 	if entitlement.State == EntitlementStateClaimed {
-		return ClaimEntitlementResult{}, ErrEntitlementAlreadyClaimed
+		return ClaimEntitlementResult{}, service.failPremiumClaimIdempotency(idempotencyRow, ErrEntitlementAlreadyClaimed)
 	}
 	if entitlement.State != EntitlementStatePending {
-		return ClaimEntitlementResult{}, fmt.Errorf("state %q: %w", entitlement.State, ErrEntitlementNotPending)
+		return ClaimEntitlementResult{}, service.failPremiumClaimIdempotency(
+			idempotencyRow,
+			fmt.Errorf("state %q: %w", entitlement.State, ErrEntitlementNotPending),
+		)
+	}
+
+	snapshot := service.snapshotPremiumClaimMutationLocked()
+	rollback := func(cause error) (ClaimEntitlementResult, error) {
+		service.restorePremiumClaimMutationLocked(snapshot)
+		return ClaimEntitlementResult{}, service.failPremiumClaimIdempotency(idempotencyRow, cause)
 	}
 
 	now := service.clock.Now()
@@ -253,7 +355,7 @@ func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlemen
 	case EntitlementTypePremiumCurrencyPack:
 		creditResult, err := service.creditPremiumCurrencyPackLocked(entitlement)
 		if err != nil {
-			return ClaimEntitlementResult{}, err
+			return rollback(err)
 		}
 		result.WalletCredit = &creditResult
 	case EntitlementTypeLoadoutSlot:
@@ -295,7 +397,7 @@ func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlemen
 		service.badgeGrants = append(service.badgeGrants, grant)
 		result.BadgeGrant = &grant
 	default:
-		return ClaimEntitlementResult{}, fmt.Errorf("entitlement type %q: %w", entitlement.Type, ErrInvalidEntitlementType)
+		return rollback(fmt.Errorf("entitlement type %q: %w", entitlement.Type, ErrInvalidEntitlementType))
 	}
 
 	entitlement.State = EntitlementStateClaimed
@@ -304,6 +406,9 @@ func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlemen
 	service.entitlements[entitlement.ID] = entitlement
 
 	result.Entitlement = entitlement
+	if err := service.completePremiumClaimIdempotency(idempotencyRow, result); err != nil {
+		return rollback(err)
+	}
 	service.claimResults[claimKey] = cloneClaimEntitlementResult(result)
 	return cloneClaimEntitlementResult(result), nil
 }

@@ -52,6 +52,12 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
   and one terminal lot close. Auction remains in-memory; full durable DB
   transaction plus outbox persistence is still open under the broader auction
   transaction task.
+- 2026-06-25 TASK-0496: premium claim/provider entitlement ingest now accepts
+  an optional economy idempotency store. Replayed claim rows return the cached
+  claim result without crediting the wallet again, and conflicting duplicate
+  provider-event rows are rejected when the store is injected. Runtime webhook
+  wiring and a durable entitlement repository remain gaps; the no-store path is
+  still in-memory.
 
 ## Server Ownership
 - Use canonical idempotency keys: `loot_pickup:<drop_id>`, `auction_close:<auction_id>`,
@@ -62,7 +68,7 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [x] Duplicate market buy (same key) does not double-charge.
 - [x] Market cancel returns escrow exactly once.
 - [x] Concurrent auction buy-now closes the lot exactly once.
-- [ ] Replayed premium webhook grants entitlement exactly once.
+- [x] Replayed premium webhook grants entitlement exactly once.
 - [ ] Outbox replay re-delivers a missed economy event without duplicating state.
 - [x] Failed mid-transaction leaves no partial wallet/inventory mutation.
 

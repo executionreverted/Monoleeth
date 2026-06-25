@@ -1,6 +1,7 @@
 package premium
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -27,7 +28,7 @@ func TestCreateEntitlementStoresPendingAndProviderReplayReturnsOriginal(t *testi
 		t.Fatalf("state = %q, want %q", result.Entitlement.State, EntitlementStatePending)
 	}
 
-	replay := validCurrencyPackCreateInput("entitlement-2", "player-2", "event-1", 900)
+	replay := validCurrencyPackCreateInput("entitlement-2", "player-1", "event-1", 500)
 	duplicate, err := service.CreateEntitlement(replay)
 	if err != nil {
 		t.Fatalf("CreateEntitlement() replay error = %v", err)
@@ -101,6 +102,80 @@ func TestClaimPremiumCurrencyPackCreditsPremiumPaidOnce(t *testing.T) {
 	}
 	if ledger.Reason != LedgerReasonPremiumEntitlementClaim {
 		t.Fatalf("ledger reason = %q, want %q", ledger.Reason, LedgerReasonPremiumEntitlementClaim)
+	}
+}
+
+func TestClaimReplayThroughIdempotencyStoreDoesNotCreditTwiceAfterServiceRebuild(t *testing.T) {
+	store := newMemoryPremiumIdempotencyStore()
+	service, wallet, clock := newTestPremiumServiceWithIdempotencyStore(t, store)
+	input := validCurrencyPackCreateInput("entitlement-replay", "player-replay", "event-replay", 750)
+	if _, err := service.CreateEntitlement(input); err != nil {
+		t.Fatalf("CreateEntitlement() error = %v", err)
+	}
+	if _, err := service.ClaimEntitlement(ClaimEntitlementInput{
+		EntitlementID:    input.EntitlementID,
+		PlayerID:         input.PlayerID,
+		RequestReference: "claim-replay",
+	}); err != nil {
+		t.Fatalf("ClaimEntitlement() error = %v", err)
+	}
+
+	rebuilt, err := NewPremiumEntitlementServiceWithConfig(PremiumEntitlementServiceConfig{
+		Wallet:           wallet,
+		Clock:            clock,
+		IdempotencyStore: store,
+	})
+	if err != nil {
+		t.Fatalf("NewPremiumEntitlementServiceWithConfig() error = %v", err)
+	}
+	replayed, err := rebuilt.ClaimEntitlement(ClaimEntitlementInput{
+		EntitlementID:    input.EntitlementID,
+		PlayerID:         input.PlayerID,
+		RequestReference: "claim-replay",
+	})
+	if err != nil {
+		t.Fatalf("replayed ClaimEntitlement() error = %v", err)
+	}
+
+	if !replayed.Duplicate {
+		t.Fatal("replayed claim Duplicate = false, want true")
+	}
+	if got := wallet.Balance(input.PlayerID, economy.CurrencyBucketPremiumPaid); got != 750 {
+		t.Fatalf("premium_paid balance after replay = %d, want 750", got)
+	}
+	if got := len(wallet.CurrencyLedgerEntries()); got != 1 {
+		t.Fatalf("ledger entries len after replay = %d, want 1", got)
+	}
+}
+
+func TestClaimDifferentRequestAfterDurableClaimConflictsBeforeGrant(t *testing.T) {
+	store := newMemoryPremiumIdempotencyStore()
+	service, wallet, _ := newTestPremiumServiceWithIdempotencyStore(t, store)
+	input := validCurrencyPackCreateInput("entitlement-conflict", "player-conflict", "event-conflict", 300)
+	if _, err := service.CreateEntitlement(input); err != nil {
+		t.Fatalf("CreateEntitlement() error = %v", err)
+	}
+	if _, err := service.ClaimEntitlement(ClaimEntitlementInput{
+		EntitlementID:    input.EntitlementID,
+		PlayerID:         input.PlayerID,
+		RequestReference: "claim-1",
+	}); err != nil {
+		t.Fatalf("ClaimEntitlement() error = %v", err)
+	}
+
+	_, err := service.ClaimEntitlement(ClaimEntitlementInput{
+		EntitlementID:    input.EntitlementID,
+		PlayerID:         input.PlayerID,
+		RequestReference: "claim-2",
+	})
+	if !errors.Is(err, economy.ErrIdempotencyKeyConflict) {
+		t.Fatalf("second claim error = %v, want ErrIdempotencyKeyConflict", err)
+	}
+	if got := wallet.Balance(input.PlayerID, economy.CurrencyBucketPremiumPaid); got != 300 {
+		t.Fatalf("premium_paid balance after conflict = %d, want 300", got)
+	}
+	if got := len(wallet.CurrencyLedgerEntries()); got != 1 {
+		t.Fatalf("ledger entries len after conflict = %d, want 1", got)
 	}
 }
 
@@ -194,6 +269,31 @@ func TestClaimRecordsLoadoutSlotAndWeeklyXCorePurchaseRightSkeletons(t *testing.
 	}
 	if rightGrants[0].WorldID != "world-1" || rightGrants[0].PeriodKey != "2026-W25" {
 		t.Fatalf("weekly x core right grant = %+v, want world-1 2026-W25", rightGrants[0])
+	}
+}
+
+func TestProviderWebhookDuplicateKeyCannotCreateConflictingEntitlement(t *testing.T) {
+	store := newMemoryPremiumIdempotencyStore()
+	service, _, _ := newTestPremiumServiceWithIdempotencyStore(t, store)
+	input := validCurrencyPackCreateInput("entitlement-provider", "player-provider", "event-provider", 500)
+	if _, err := service.CreateEntitlement(input); err != nil {
+		t.Fatalf("CreateEntitlement() error = %v", err)
+	}
+	duplicate, err := service.CreateEntitlement(input)
+	if err != nil {
+		t.Fatalf("duplicate CreateEntitlement() error = %v", err)
+	}
+	if !duplicate.Duplicate {
+		t.Fatal("duplicate provider event Duplicate = false, want true")
+	}
+
+	conflicting := validCurrencyPackCreateInput("entitlement-provider-2", "player-provider-2", "event-provider", 900)
+	_, err = service.CreateEntitlement(conflicting)
+	if !errors.Is(err, economy.ErrIdempotencyKeyConflict) {
+		t.Fatalf("conflicting CreateEntitlement() error = %v, want ErrIdempotencyKeyConflict", err)
+	}
+	if got := len(service.Entitlements()); got != 1 {
+		t.Fatalf("entitlements len after conflicting webhook = %d, want 1", got)
 	}
 }
 
@@ -438,6 +538,79 @@ func newTestPremiumService(t *testing.T) (*PremiumEntitlementService, *economy.W
 		t.Fatalf("NewPremiumEntitlementService() error = %v", err)
 	}
 	return service, wallet, clock
+}
+
+func newTestPremiumServiceWithIdempotencyStore(
+	t *testing.T,
+	store economy.IdempotencyStore,
+) (*PremiumEntitlementService, *economy.WalletService, *testutil.FakeClock) {
+	t.Helper()
+
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC))
+	wallet := economy.NewWalletService(clock)
+	service, err := NewPremiumEntitlementServiceWithConfig(PremiumEntitlementServiceConfig{
+		Wallet:           wallet,
+		Clock:            clock,
+		IdempotencyStore: store,
+	})
+	if err != nil {
+		t.Fatalf("NewPremiumEntitlementServiceWithConfig() error = %v", err)
+	}
+	return service, wallet, clock
+}
+
+type memoryPremiumIdempotencyStore struct {
+	mu   sync.Mutex
+	rows map[string]economy.IdempotencyKeyRow
+}
+
+func newMemoryPremiumIdempotencyStore() *memoryPremiumIdempotencyStore {
+	return &memoryPremiumIdempotencyStore{
+		rows: make(map[string]economy.IdempotencyKeyRow),
+	}
+}
+
+func (store *memoryPremiumIdempotencyStore) ClaimIdempotencyKey(
+	ctx context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyClaimResult, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	key := memoryPremiumIdempotencyKey(row.Scope, row.Key)
+	if existing, ok := store.rows[key]; ok {
+		return economy.ResolveIdempotencyClaim(&existing, row)
+	}
+	result, err := economy.ResolveIdempotencyClaim(nil, row)
+	if err != nil {
+		return economy.IdempotencyClaimResult{}, err
+	}
+	store.rows[key] = result.Row.Clone()
+	return result, nil
+}
+
+func (store *memoryPremiumIdempotencyStore) CompleteIdempotencyKey(
+	ctx context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyKeyRow, error) {
+	if err := row.Validate(); err != nil {
+		return economy.IdempotencyKeyRow{}, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	key := memoryPremiumIdempotencyKey(row.Scope, row.Key)
+	if existing, ok := store.rows[key]; ok {
+		if _, err := economy.ResolveIdempotencyClaim(&existing, row); err != nil {
+			return economy.IdempotencyKeyRow{}, err
+		}
+	}
+	store.rows[key] = row.Clone()
+	return row.Clone(), nil
+}
+
+func memoryPremiumIdempotencyKey(scope string, key foundation.IdempotencyKey) string {
+	return scope + "\x00" + key.String()
 }
 
 func validCurrencyPackCreateInput(entitlementID EntitlementID, playerID foundation.PlayerID, providerReference string, amount int64) CreateEntitlementInput {
