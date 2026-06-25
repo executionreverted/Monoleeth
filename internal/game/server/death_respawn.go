@@ -83,7 +83,9 @@ func (runtime *Runtime) repairRespawnPlayerLocked(playerID foundation.PlayerID, 
 	for _, sessionID := range sessionIDs {
 		runtime.detachSessionFromInactiveInstancesLocked(sessionID, location.InternalMapID)
 	}
-	runtime.removePlayerFromInactiveInstancesLocked(playerID, location.InternalMapID)
+	if err := runtime.removePlayerFromInactiveInstancesLocked(playerID, location.InternalMapID); err != nil {
+		return repairRespawnResult{}, err
+	}
 	if err := runtime.attachPlayerToDestinationLocked(instance, playerID, state.EntityID, destination.Position); err != nil {
 		return repairRespawnResult{}, err
 	}

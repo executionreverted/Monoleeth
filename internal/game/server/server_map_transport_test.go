@@ -274,6 +274,83 @@ func TestPortalEnterRemovesSourcePlayerThroughWorkerCommandQueue(t *testing.T) {
 	}
 }
 
+func TestInactiveCleanupRemovesPlayerThroughWorkerCommandQueue(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSessionOnMap(t, gameServer, "inactive-cleanup-command@example.com", "Inactive Cleanup", "map_1_2", "west_gate")
+
+	var mailbox *recordingWorkerMailbox
+	var inactiveEntityID world.EntityID
+	var beforeTick uint64
+	var afterTick uint64
+	var stillPresent bool
+	var stillHidden bool
+	func() {
+		gameServer.runtime.mu.Lock()
+		defer gameServer.runtime.mu.Unlock()
+
+		location, err := gameServer.runtime.mapRouter.ActiveLocation(resolved.PlayerID)
+		if err != nil {
+			t.Fatalf("active location: %v", err)
+		}
+		if location.InternalMapID != "map_1_2" {
+			t.Fatalf("active map = %q, want map_1_2", location.InternalMapID)
+		}
+		starter, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+		if err != nil {
+			t.Fatalf("starter map instance: %v", err)
+		}
+		state := gameServer.runtime.players[resolved.PlayerID]
+		if err := starter.Worker.Submit(worker.SpawnPlayerCommand{
+			PlayerID: resolved.PlayerID,
+			EntityID: state.EntityID,
+			Position: world.Vec2{X: 500, Y: 500},
+			Speed:    defaultPlayerSpeed,
+		}); err != nil {
+			t.Fatalf("Submit(stale starter spawn) error = %v, want nil", err)
+		}
+		if err := commandErrors(starter.Worker.Tick()); err != nil {
+			t.Fatalf("stale starter spawn tick error = %v, want nil", err)
+		}
+		inactiveEntity, ok := starter.Worker.PlayerEntity(resolved.PlayerID)
+		if !ok {
+			t.Fatalf("starter stale player entity missing")
+		}
+		inactiveEntityID = inactiveEntity.ID
+		starter.HiddenPlayers[resolved.PlayerID] = true
+		mailbox = replaceActiveMapWorkerWithRecordingMailboxLocked(t, gameServer, starter, resolved.PlayerID, resolved.SessionID)
+		beforeTick = starter.Worker.Snapshot().Tick
+
+		if err := gameServer.runtime.removePlayerFromInactiveInstancesLocked(resolved.PlayerID, "map_1_2"); err != nil {
+			t.Fatalf("removePlayerFromInactiveInstancesLocked() error = %v, want nil", err)
+		}
+		afterTick = starter.Worker.Snapshot().Tick
+		_, stillPresent = starter.Worker.PlayerEntity(resolved.PlayerID)
+		stillHidden = starter.HiddenPlayers[resolved.PlayerID]
+	}()
+
+	submitted := mailbox.Submitted()
+	var foundRemove bool
+	for _, command := range submitted {
+		remove, ok := command.(worker.RemoveEntityCommand)
+		if ok && remove.EntityID == inactiveEntityID {
+			foundRemove = true
+			break
+		}
+	}
+	if !foundRemove {
+		t.Fatalf("submitted worker commands = %#v, want RemoveEntityCommand for inactive entity %q", submitted, inactiveEntityID)
+	}
+	if stillPresent {
+		t.Fatalf("inactive worker retained player %q after queued cleanup", resolved.PlayerID)
+	}
+	if stillHidden {
+		t.Fatalf("inactive hidden player marker remained for %q", resolved.PlayerID)
+	}
+	if afterTick != beforeTick {
+		t.Fatalf("inactive cleanup tick = %d, want unchanged %d", afterTick, beforeTick)
+	}
+}
+
 func TestPortalEnterFailedTransferRestoresSourcePlayerThroughWorkerCommandQueue(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "portal-restore-command@example.com", "Portal Restore Command")

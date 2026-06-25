@@ -108,21 +108,28 @@ func (runtime *Runtime) mapInstanceLocked(mapID worldmaps.MapID) (*mapInstance, 
 	return instance, nil
 }
 
-func (runtime *Runtime) removePlayerFromInactiveInstancesLocked(playerID foundation.PlayerID, activeMapID worldmaps.MapID) {
-	state, ok := runtime.players[playerID]
-	if !ok {
-		return
+func (runtime *Runtime) removePlayerFromInactiveInstancesLocked(playerID foundation.PlayerID, activeMapID worldmaps.MapID) error {
+	if _, ok := runtime.players[playerID]; !ok {
+		return nil
 	}
 	for mapID, instance := range runtime.mapInstances {
 		if mapID == activeMapID || instance == nil || instance.Worker == nil {
 			continue
 		}
-		if _, ok := instance.Worker.PlayerEntity(playerID); ok {
-			instance.Worker.RemoveEntity(state.EntityID)
+		entity, ok := instance.Worker.PlayerEntity(playerID)
+		if ok {
+			entityID := entity.ID
+			if err := instance.Worker.Submit(worker.RemoveEntityCommand{EntityID: entityID}); err != nil {
+				return fmt.Errorf("remove inactive player %q from map %q: %w", playerID, mapID, err)
+			}
+			if err := commandErrors(instance.Worker.FlushCommands()); err != nil && !errors.Is(err, worker.ErrUnknownEntity) {
+				return fmt.Errorf("remove inactive player %q from map %q: %w", playerID, mapID, err)
+			}
 		}
 		delete(instance.HiddenPlayers, playerID)
 		runtime.deleteHiddenPlayerWitnessesLocked(instance, playerID)
 	}
+	return nil
 }
 
 func (runtime *Runtime) detachSessionFromInactiveInstancesLocked(sessionID auth.SessionID, activeMapID worldmaps.MapID) {

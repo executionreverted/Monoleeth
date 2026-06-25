@@ -42,7 +42,9 @@ func (runtime *Runtime) ensurePlayerSession(resolved auth.ResolvedSession) error
 	for _, sessionID := range sessionIDs {
 		runtime.detachSessionFromInactiveInstancesLocked(sessionID, location.InternalMapID)
 	}
-	runtime.removePlayerFromInactiveInstancesLocked(resolved.PlayerID, location.InternalMapID)
+	if err := runtime.removePlayerFromInactiveInstancesLocked(resolved.PlayerID, location.InternalMapID); err != nil {
+		return err
+	}
 	if _, ok := instance.Worker.PlayerEntity(resolved.PlayerID); !ok {
 		if err = instance.Worker.Submit(worker.SpawnPlayerCommand{
 			PlayerID: resolved.PlayerID,

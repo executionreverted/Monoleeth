@@ -61,6 +61,10 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
   `worker.RefreshPlayerMovementPositionCommand` through the owning worker queue
   and flushes queued commands without running a full simulation tick. Covered by
   `TestRefreshPlayerMovementPositionUsesCommandQueueWithoutStoppingRoute`.
+- Progress: login/portal/respawn inactive map cleanup now submits
+  `worker.RemoveEntityCommand` through each inactive map's owning worker queue
+  and flushes queued commands without running a full simulation tick. Covered by
+  `TestInactiveCleanupRemovesPlayerThroughWorkerCommandQueue`.
 
 ## Smoke Tests (one assertion each)
 - [x] Command on map A does not block a command on map B (timing assertion).

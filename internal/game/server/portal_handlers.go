@@ -236,7 +236,12 @@ func (runtime *Runtime) transferThroughPortalLocked(sessionID auth.SessionID, pl
 		return nil, domainErrorForRuntime(err)
 	}
 
-	runtime.removePlayerFromInactiveInstancesLocked(playerID, destination.Definition.InternalMapID)
+	if err := runtime.removePlayerFromInactiveInstancesLocked(playerID, destination.Definition.InternalMapID); err != nil {
+		runtime.cleanupDestinationAfterFailedTransferLocked(destination, sessionIDs, playerID, sourceEntity.ID)
+		runtime.restoreSourceAfterFailedTransferLocked(source, sourceLocation, sourceEntity, sourceSpeed, sessionIDs, playerID)
+		runtime.queueTransferFailedLocked(sessionIDs, portal, source, "Portal transfer failed.")
+		return nil, domainErrorForRuntime(err)
+	}
 	for _, playerSessionID := range sessionIDs {
 		runtime.attachSessionToInstanceLocked(destination, playerSessionID, playerID)
 	}
