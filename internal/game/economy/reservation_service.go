@@ -668,7 +668,7 @@ func (service *InventoryService) moveReservationItemsWithRollbackLocked(
 	snapshot := service.snapshotReservationMutationLocked()
 	moves := make([]MoveItemResult, 0, len(moveInputs))
 	for index, moveInput := range moveInputs {
-		moveResult, err := service.moveItemValidatedLocked(moveInput, quantities[index], now)
+		moveResult, err := service.moveItemValidatedLocked(moveInput, quantities[index], now, true)
 		if err != nil {
 			service.restoreReservationMutationLocked(snapshot)
 			return nil, err

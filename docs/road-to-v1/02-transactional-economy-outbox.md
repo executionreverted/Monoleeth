@@ -27,12 +27,25 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [x] `[P:wave2/lane-A]` TASK-0483 contentdb store adapter for economy idempotency/outbox row contracts.
 - [ ] `[P:wave2/lane-A]` Add `idempotency_keys` table + helper; enforce on every mutating economy op.
 - [ ] `[P:wave2/lane-A]` Add `outbox` table + after-commit publisher + replay worker.
-- [ ] `[P:wave2/lane-B]` Wrap market buy/cancel in single DB transaction (escrow move + wallet + ledger).
+- [x] `[P:wave2/lane-B]` Wrap market buy/cancel in single DB transaction (escrow move + wallet + ledger).
 - [ ] `[P:wave2/lane-B]` Wrap auction bid/buy-now in single transaction (refund-replace, close-once).
 - [ ] `[P:wave2/lane-C]` Make premium claim + provider-event ingest idempotent and durable (replay-safe).
 - [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0536: `MarketService` buy/cancel now uses the
+  `contentdb.MarketListingTx` seam when a market transaction repository is
+  configured. Buy/cancel settlement locks the listing row, writes listing
+  status/quantity, wallet commits, inventory move commits, economy
+  idempotency completion, and market outbox rows inside one transaction.
+  Repository-backed wallet/inventory services now expose no-repository
+  mutation methods so market settlement does not pre-commit partial rows before
+  the contentdb transaction.
+  The in-memory path remains available for tests/dev. Focused market tests
+  prove buy/cancel transaction seam invocation and rollback on injected outbox
+  failure leaves no repository rows or in-memory partial state; contentdb
+  rollback smoke now exercises the market-facing transaction interface.
+  Required market/contentdb/economy validation passed.
 - 2026-06-25 TASK-0533: contentdb `MarketListingTx` now exposes the market
   settlement transaction seam for locked listing reads plus listing, wallet,
   inventory move, idempotency, and outbox row writes through one SQL

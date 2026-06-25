@@ -252,7 +252,7 @@ func (service *CargoService) MoveItem(input CargoMoveItemInput) (MoveItemResult,
 	}
 
 	now := inventory.clock.Now()
-	result, err := inventory.moveItemValidatedLocked(moveInput, quantity, now)
+	result, err := inventory.moveItemValidatedLocked(moveInput, quantity, now, true)
 	if err != nil {
 		inventory.mu.Unlock()
 		service.mu.Unlock()

@@ -62,19 +62,31 @@ func (service *InventoryService) MoveItem(input MoveItemInput) (MoveItemResult, 
 	}
 	defer releaseCargoTransferLease(lease)
 
-	return service.moveItemWithValidatedQuantity(input, quantity)
+	return service.moveItemWithValidatedQuantity(input, quantity, true)
 }
 
 // SystemMoveItem moves player-owned items for trusted server-side economy flows.
 // It bypasses generic player-facing source/target location blocking while
 // preserving all other validation, idempotency, ledger writes, and events.
 func (service *InventoryService) SystemMoveItem(input MoveItemInput) (MoveItemResult, error) {
+	return service.systemMoveItem(input, true)
+}
+
+// SystemMoveItemWithoutRepository moves trusted server-side economy items in
+// memory without committing through the configured repository. Higher-level
+// transaction owners use this to gather write sets before committing them
+// atomically.
+func (service *InventoryService) SystemMoveItemWithoutRepository(input MoveItemInput) (MoveItemResult, error) {
+	return service.systemMoveItem(input, false)
+}
+
+func (service *InventoryService) systemMoveItem(input MoveItemInput, persistRepository bool) (MoveItemResult, error) {
 	quantity, err := input.validateSystemMove()
 	if err != nil {
 		return MoveItemResult{}, err
 	}
 
-	return service.moveItemWithValidatedQuantity(input, quantity)
+	return service.moveItemWithValidatedQuantity(input, quantity, persistRepository)
 }
 
 // SystemMoveItems moves several player-owned items as one in-memory
@@ -123,7 +135,7 @@ func (service *InventoryService) systemMoveItems(inputs []MoveItemInput, emit bo
 	now := service.clock.Now()
 	results := make([]MoveItemResult, 0, len(inputs))
 	for index, input := range inputs {
-		result, err := service.moveItemValidatedLocked(input, quantities[index], now)
+		result, err := service.moveItemValidatedLocked(input, quantities[index], now, true)
 		if err != nil {
 			return nil, err
 		}
@@ -135,7 +147,7 @@ func (service *InventoryService) systemMoveItems(inputs []MoveItemInput, emit bo
 	return cloneMoveItemResults(results), nil
 }
 
-func (service *InventoryService) moveItemWithValidatedQuantity(input MoveItemInput, quantity foundation.Quantity) (MoveItemResult, error) {
+func (service *InventoryService) moveItemWithValidatedQuantity(input MoveItemInput, quantity foundation.Quantity, persistRepository bool) (MoveItemResult, error) {
 	var emitted []events.EventEnvelope
 	var emitter EventEmitter
 	service.mu.Lock()
@@ -146,7 +158,7 @@ func (service *InventoryService) moveItemWithValidatedQuantity(input MoveItemInp
 	emitter = service.emitter
 
 	now := service.clock.Now()
-	result, err := service.moveItemValidatedLocked(input, quantity, now)
+	result, err := service.moveItemValidatedLocked(input, quantity, now, persistRepository)
 	if err != nil {
 		return MoveItemResult{}, err
 	}
@@ -156,7 +168,7 @@ func (service *InventoryService) moveItemWithValidatedQuantity(input MoveItemInp
 	return result, nil
 }
 
-func (service *InventoryService) moveItemValidatedLocked(input MoveItemInput, quantity foundation.Quantity, now time.Time) (MoveItemResult, error) {
+func (service *InventoryService) moveItemValidatedLocked(input MoveItemInput, quantity foundation.Quantity, now time.Time, persistRepository bool) (MoveItemResult, error) {
 	reference := inventoryReferenceKey{
 		playerID:     input.PlayerID,
 		operation:    moveItemOperation,
@@ -186,7 +198,7 @@ func (service *InventoryService) moveItemValidatedLocked(input MoveItemInput, qu
 	if err != nil {
 		return MoveItemResult{}, err
 	}
-	if err := service.persistMoveItemCommitLocked(input, result); err != nil {
+	if err := service.persistMoveItemCommitLocked(input, result, persistRepository); err != nil {
 		service.nextItemSequence = previousItemSequence
 		service.nextLedgerSequence = previousLedgerSequence
 		service.stackableItems = previousStackableItems

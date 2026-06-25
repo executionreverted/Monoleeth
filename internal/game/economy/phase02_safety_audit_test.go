@@ -229,7 +229,7 @@ func TestPhase02RollbackSnapshotRestoresReservationReleaseAndCommitMutations(t *
 			inventory.mu.Lock()
 			snapshot := inventory.snapshotReservationMutationLocked()
 			now := inventory.clock.Now()
-			firstMove, err := inventory.moveItemValidatedLocked(moveInputs[0], quantities[0], now)
+			firstMove, err := inventory.moveItemValidatedLocked(moveInputs[0], quantities[0], now, true)
 			if err != nil {
 				inventory.mu.Unlock()
 				t.Fatalf("first simulated %s move: %v", tc.name, err)

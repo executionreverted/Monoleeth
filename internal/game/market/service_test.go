@@ -287,6 +287,47 @@ func TestBuyListingPersistsRepositorySnapshotWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestBuyListingRepositoryTransactionSeamCommitsSettlementRows(t *testing.T) {
+	fixture, listingStore := newMarketFixtureWithListingTransactionRepository(t)
+	fixture.seedSellerItems(t, 5, "seed-transaction-buy")
+	fixture.seedCredits(t, fixture.buyerID, 1_000, "buyer-transaction-buy")
+	create := fixture.createListing(t, "listing-transaction-buy", 5, 10)
+
+	result, err := fixture.service.BuyListing(BuyListingInput{
+		BuyerPlayerID: fixture.buyerID,
+		ListingID:     create.Listing.ListingID,
+		Quantity:      2,
+		RequestID:     "buy-transaction",
+	})
+	if err != nil {
+		t.Fatalf("BuyListing: %v", err)
+	}
+
+	if got := listingStore.transactionCount(); got != 1 {
+		t.Fatalf("market transaction count = %d, want 1", got)
+	}
+	if got := listingStore.lockedListingCount(); got != 1 {
+		t.Fatal("market transaction did not lock listing")
+	}
+	if got := len(listingStore.walletCommitsSnapshot()); got != 3 {
+		t.Fatalf("wallet commits = %d, want buyer debit, seller credit, fee credit", got)
+	}
+	if got := len(listingStore.inventoryCommitsSnapshot()); got != 1 {
+		t.Fatalf("inventory commits = %d, want 1 escrow-to-buyer move", got)
+	}
+	row, ok := listingStore.idempotencyRow(economy.IdempotencyScopeEconomy, result.ReferenceKey)
+	if !ok || row.Status != economy.IdempotencyStatusCompleted {
+		t.Fatalf("buy idempotency row = %+v ok %v, want completed", row, ok)
+	}
+	if _, ok := listingStore.outboxRow("market_buy:" + result.ReferenceKey.String()); !ok {
+		t.Fatalf("buy outbox row missing for reference %q", result.ReferenceKey)
+	}
+	saved, ok := listingStore.saved(create.Listing.ListingID)
+	if !ok || saved.RemainingQuantity != 3 || saved.Status != ListingStatusActive {
+		t.Fatalf("saved listing after buy = %+v ok %v, want active remaining 3", saved, ok)
+	}
+}
+
 func TestBuyListingTransfersItemsCurrencyAndRecordsTotals(t *testing.T) {
 	fixture := newMarketFixture(t)
 	fixture.seedSellerItems(t, 10, "seed-buy")
@@ -498,6 +539,58 @@ func TestBuyListingItemMoveFailureRollsBackWalletMutations(t *testing.T) {
 	}
 }
 
+func TestBuyListingRepositoryTransactionRollbackLeavesNoPartialRows(t *testing.T) {
+	fixture, listingStore := newMarketFixtureWithListingTransactionRepository(t)
+	fixture.seedSellerItems(t, 5, "seed-transaction-rollback")
+	fixture.seedCredits(t, fixture.buyerID, 1_000, "buyer-transaction-rollback")
+	create := fixture.createListing(t, "listing-transaction-rollback", 5, 10)
+	injectedErr := errors.New("injected market transaction outbox failure")
+	listingStore.failInsertOutbox = injectedErr
+
+	_, err := fixture.service.BuyListing(BuyListingInput{
+		BuyerPlayerID: fixture.buyerID,
+		ListingID:     create.Listing.ListingID,
+		Quantity:      2,
+		RequestID:     "buy-transaction-rollback",
+	})
+	if !errors.Is(err, injectedErr) {
+		t.Fatalf("BuyListing error = %v, want injected transaction failure", err)
+	}
+	saved, ok := listingStore.saved(create.Listing.ListingID)
+	if !ok || saved.RemainingQuantity != 5 || saved.Status != ListingStatusActive {
+		t.Fatalf("repository listing after rollback = %+v ok %v, want original active remaining 5", saved, ok)
+	}
+	if got := len(listingStore.walletCommitsSnapshot()); got != 0 {
+		t.Fatalf("wallet commits after rollback = %d, want 0", got)
+	}
+	if got := len(listingStore.inventoryCommitsSnapshot()); got != 0 {
+		t.Fatalf("inventory commits after rollback = %d, want 0", got)
+	}
+	referenceKey, keyErr := foundation.MarketBuyIdempotencyKey(create.Listing.ListingID, fixture.buyerID, "buy-transaction-rollback")
+	if keyErr != nil {
+		t.Fatalf("MarketBuyIdempotencyKey: %v", keyErr)
+	}
+	if row, ok := listingStore.idempotencyRow(economy.IdempotencyScopeEconomy, referenceKey); ok {
+		t.Fatalf("idempotency row after rollback = %+v, want none", row)
+	}
+	if _, ok := listingStore.outboxRow("market_buy:" + referenceKey.String()); ok {
+		t.Fatalf("outbox row after rollback exists for reference %q, want none", referenceKey)
+	}
+	listing, ok := fixture.service.Listing(create.Listing.ListingID)
+	if !ok || listing.RemainingQuantity != 5 || listing.Status != ListingStatusActive {
+		t.Fatalf("service listing after rollback = %+v ok %v, want original active remaining 5", listing, ok)
+	}
+	if got := fixture.wallet.Balance(fixture.buyerID, economy.CurrencyBucketCredits); got != 1_000 {
+		t.Fatalf("buyer balance after rollback = %d, want 1000", got)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.buyerID, fixture.definition.ItemID, fixture.buyerLocation); got != 0 {
+		t.Fatalf("buyer item quantity after rollback = %d, want 0", got)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, create.Listing.EscrowLocation); got != 5 {
+		t.Fatalf("escrow quantity after rollback = %d, want 5", got)
+	}
+}
+
 func TestBuyListingInsufficientFundsLeavesListingAndEscrowUnchanged(t *testing.T) {
 	fixture := newMarketFixture(t)
 	fixture.seedSellerItems(t, 5, "seed-insufficient")
@@ -600,6 +693,45 @@ func TestCancelListingPersistsRepositorySnapshotWhenConfigured(t *testing.T) {
 	}
 	if saved.Status != ListingStatusCancelled || saved.RemainingQuantity != 5 || result.ReturnedQuantity != 5 {
 		t.Fatalf("saved cancel listing = status %q remaining %d returned %d, want cancelled/5/5", saved.Status, saved.RemainingQuantity, result.ReturnedQuantity)
+	}
+}
+
+func TestCancelListingRepositoryTransactionSeamCommitsSettlementRows(t *testing.T) {
+	fixture, listingStore := newMarketFixtureWithListingTransactionRepository(t)
+	fixture.seedSellerItems(t, 5, "seed-transaction-cancel")
+	create := fixture.createListing(t, "listing-transaction-cancel", 5, 10)
+
+	result, err := fixture.service.CancelListing(CancelListingInput{
+		SellerPlayerID: fixture.sellerID,
+		ListingID:      create.Listing.ListingID,
+		RequestID:      "cancel-transaction",
+	})
+	if err != nil {
+		t.Fatalf("CancelListing: %v", err)
+	}
+
+	if got := listingStore.transactionCount(); got != 1 {
+		t.Fatalf("market transaction count = %d, want 1", got)
+	}
+	if got := listingStore.lockedListingCount(); got != 1 {
+		t.Fatal("market transaction did not lock listing")
+	}
+	if got := len(listingStore.walletCommitsSnapshot()); got != 0 {
+		t.Fatalf("wallet commits = %d, want 0 for cancel", got)
+	}
+	if got := len(listingStore.inventoryCommitsSnapshot()); got != 1 {
+		t.Fatalf("inventory commits = %d, want 1 escrow return move", got)
+	}
+	row, ok := listingStore.idempotencyRow(economy.IdempotencyScopeEconomy, result.ReferenceKey)
+	if !ok || row.Status != economy.IdempotencyStatusCompleted {
+		t.Fatalf("cancel idempotency row = %+v ok %v, want completed", row, ok)
+	}
+	if _, ok := listingStore.outboxRow("market_cancel:" + result.ReferenceKey.String()); !ok {
+		t.Fatalf("cancel outbox row missing for reference %q", result.ReferenceKey)
+	}
+	saved, ok := listingStore.saved(create.Listing.ListingID)
+	if !ok || saved.Status != ListingStatusCancelled {
+		t.Fatalf("saved listing after cancel = %+v ok %v, want cancelled", saved, ok)
 	}
 }
 
@@ -1006,6 +1138,46 @@ func newMarketFixtureWithListingRepository(t *testing.T) *marketFixture {
 	return newMarketFixtureWithListingStore(t, newFakeMarketListingRepository())
 }
 
+func newMarketFixtureWithListingTransactionRepository(t *testing.T) (*marketFixture, *fakeMarketListingTransactionRepository) {
+	t.Helper()
+
+	clock := testutil.NewFakeClock(marketTestNow)
+	inventory := economy.NewInventoryService(clock)
+	wallet := economy.NewWalletService(clock)
+	economyStore := newMemoryMarketEconomyStore()
+	listingRepository := newFakeMarketListingTransactionRepository()
+	service, err := NewMarketService(MarketServiceConfig{
+		Clock:             clock,
+		Inventory:         inventory,
+		Wallet:            wallet,
+		ListingRepository: listingRepository,
+		IdempotencyStore:  economyStore,
+		OutboxStore:       economyStore,
+	})
+	if err != nil {
+		t.Fatalf("NewMarketService(transaction repository): %v", err)
+	}
+
+	sellerID := foundation.PlayerID("seller-1")
+	buyerID := foundation.PlayerID("buyer-1")
+	sourceLocation := mustLocation(t, economy.LocationKindAccountInventory, sellerID.String())
+	buyerLocation := mustLocation(t, economy.LocationKindAccountInventory, buyerID.String())
+
+	return &marketFixture{
+		clock:          clock,
+		inventory:      inventory,
+		wallet:         wallet,
+		service:        service,
+		sellerID:       sellerID,
+		buyerID:        buyerID,
+		otherBuyerID:   "buyer-2",
+		sourceLocation: sourceLocation,
+		buyerLocation:  buyerLocation,
+		definition:     marketStackableDefinition(t, "raw-ore", []economy.TradeFlag{economy.TradeFlagMarketTradeable}),
+		economyStore:   economyStore,
+	}, listingRepository
+}
+
 func newMarketFixtureWithListingStore(t *testing.T, listingStore *fakeMarketListingRepository) *marketFixture {
 	t.Helper()
 
@@ -1079,6 +1251,245 @@ func (repository *fakeMarketListingRepository) saved(listingID foundation.Listin
 		return Listing{}, false
 	}
 	return cloneListing(listing), true
+}
+
+type fakeMarketListingTransactionRepository struct {
+	mu               sync.Mutex
+	listings         map[foundation.ListingID]Listing
+	txCount          int
+	lockedListings   []foundation.ListingID
+	walletCommits    []economy.WalletMutationCommit
+	inventoryCommits []economy.InventoryMoveItemCommit
+	idempotency      map[string]economy.IdempotencyKeyRow
+	outbox           map[string]economy.OutboxRow
+	failInsertOutbox error
+}
+
+func newFakeMarketListingTransactionRepository() *fakeMarketListingTransactionRepository {
+	return &fakeMarketListingTransactionRepository{
+		listings:    make(map[foundation.ListingID]Listing),
+		idempotency: make(map[string]economy.IdempotencyKeyRow),
+		outbox:      make(map[string]economy.OutboxRow),
+	}
+}
+
+func (repository *fakeMarketListingTransactionRepository) SaveMarketListing(ctx context.Context, listing Listing) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	repository.listings[listing.ListingID] = cloneListing(listing)
+	return nil
+}
+
+func (repository *fakeMarketListingTransactionRepository) WithMarketListingTransaction(
+	ctx context.Context,
+	fn func(MarketListingTransaction) error,
+) error {
+	repository.mu.Lock()
+	tx := &fakeMarketListingTransaction{
+		repository:       repository,
+		listings:         cloneListingMap(repository.listings),
+		walletCommits:    cloneWalletMutationCommits(repository.walletCommits),
+		inventoryCommits: cloneInventoryMoveItemCommits(repository.inventoryCommits),
+		idempotency:      cloneIdempotencyKeyRowStringMap(repository.idempotency),
+		outbox:           cloneOutboxRowMap(repository.outbox),
+		failInsertOutbox: repository.failInsertOutbox,
+	}
+	repository.mu.Unlock()
+
+	err := fn(tx)
+
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	repository.txCount++
+	repository.lockedListings = append(repository.lockedListings, tx.lockedListings...)
+	if err != nil {
+		return err
+	}
+	repository.listings = cloneListingMap(tx.listings)
+	repository.walletCommits = cloneWalletMutationCommits(tx.walletCommits)
+	repository.inventoryCommits = cloneInventoryMoveItemCommits(tx.inventoryCommits)
+	repository.idempotency = cloneIdempotencyKeyRowStringMap(tx.idempotency)
+	repository.outbox = cloneOutboxRowMap(tx.outbox)
+	return nil
+}
+
+func (repository *fakeMarketListingTransactionRepository) saved(listingID foundation.ListingID) (Listing, bool) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	listing, ok := repository.listings[listingID]
+	if !ok {
+		return Listing{}, false
+	}
+	return cloneListing(listing), true
+}
+
+func (repository *fakeMarketListingTransactionRepository) transactionCount() int {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	return repository.txCount
+}
+
+func (repository *fakeMarketListingTransactionRepository) lockedListingCount() int {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	return len(repository.lockedListings)
+}
+
+func (repository *fakeMarketListingTransactionRepository) walletCommitsSnapshot() []economy.WalletMutationCommit {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	return cloneWalletMutationCommits(repository.walletCommits)
+}
+
+func (repository *fakeMarketListingTransactionRepository) inventoryCommitsSnapshot() []economy.InventoryMoveItemCommit {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	return cloneInventoryMoveItemCommits(repository.inventoryCommits)
+}
+
+func (repository *fakeMarketListingTransactionRepository) idempotencyRow(scope string, key foundation.IdempotencyKey) (economy.IdempotencyKeyRow, bool) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	row, ok := repository.idempotency[memoryMarketIdempotencyKey(scope, key)]
+	return row.Clone(), ok
+}
+
+func (repository *fakeMarketListingTransactionRepository) outboxRow(outboxID string) (economy.OutboxRow, bool) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	row, ok := repository.outbox[outboxID]
+	return row.Clone(), ok
+}
+
+type fakeMarketListingTransaction struct {
+	repository       *fakeMarketListingTransactionRepository
+	listings         map[foundation.ListingID]Listing
+	lockedListings   []foundation.ListingID
+	walletCommits    []economy.WalletMutationCommit
+	inventoryCommits []economy.InventoryMoveItemCommit
+	idempotency      map[string]economy.IdempotencyKeyRow
+	outbox           map[string]economy.OutboxRow
+	failInsertOutbox error
+}
+
+func (tx *fakeMarketListingTransaction) LoadMarketListingForUpdate(ctx context.Context, listingID foundation.ListingID) (Listing, bool, error) {
+	tx.lockedListings = append(tx.lockedListings, listingID)
+	listing, ok := tx.listings[listingID]
+	if !ok {
+		return Listing{}, false, nil
+	}
+	return cloneListing(listing), true, nil
+}
+
+func (tx *fakeMarketListingTransaction) SaveMarketListing(ctx context.Context, listing Listing) error {
+	tx.listings[listing.ListingID] = cloneListing(listing)
+	return nil
+}
+
+func (tx *fakeMarketListingTransaction) CommitWalletMutation(ctx context.Context, commit economy.WalletMutationCommit) error {
+	if err := commit.Validate(); err != nil {
+		return err
+	}
+	tx.walletCommits = append(tx.walletCommits, cloneWalletMutationCommit(commit))
+	return nil
+}
+
+func (tx *fakeMarketListingTransaction) CommitInventoryMoveItem(ctx context.Context, commit economy.InventoryMoveItemCommit) error {
+	if err := commit.Validate(); err != nil {
+		return err
+	}
+	tx.inventoryCommits = append(tx.inventoryCommits, cloneInventoryMoveItemCommit(commit))
+	return nil
+}
+
+func (tx *fakeMarketListingTransaction) ClaimIdempotencyKey(
+	ctx context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyClaimResult, error) {
+	key := memoryMarketIdempotencyKey(row.Scope, row.Key)
+	if existing, ok := tx.idempotency[key]; ok {
+		return economy.ResolveIdempotencyClaim(&existing, row)
+	}
+	claim, err := economy.ResolveIdempotencyClaim(nil, row)
+	if err != nil {
+		return economy.IdempotencyClaimResult{}, err
+	}
+	tx.idempotency[key] = claim.Row.Clone()
+	return claim, nil
+}
+
+func (tx *fakeMarketListingTransaction) CompleteIdempotencyKey(
+	ctx context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyKeyRow, error) {
+	if err := row.Validate(); err != nil {
+		return economy.IdempotencyKeyRow{}, err
+	}
+	tx.idempotency[memoryMarketIdempotencyKey(row.Scope, row.Key)] = row.Clone()
+	return row.Clone(), nil
+}
+
+func (tx *fakeMarketListingTransaction) InsertOutboxRow(ctx context.Context, row economy.OutboxRow) error {
+	if tx.failInsertOutbox != nil {
+		return tx.failInsertOutbox
+	}
+	inserted, err := economy.NewOutboxRow(row)
+	if err != nil {
+		return err
+	}
+	if _, exists := tx.outbox[inserted.OutboxID]; exists {
+		return fmt.Errorf("outbox %q: %w", inserted.OutboxID, economy.ErrInvalidOutboxRow)
+	}
+	tx.outbox[inserted.OutboxID] = inserted.Clone()
+	return nil
+}
+
+func cloneWalletMutationCommits(commits []economy.WalletMutationCommit) []economy.WalletMutationCommit {
+	cloned := make([]economy.WalletMutationCommit, 0, len(commits))
+	for _, commit := range commits {
+		cloned = append(cloned, cloneWalletMutationCommit(commit))
+	}
+	return cloned
+}
+
+func cloneWalletMutationCommit(commit economy.WalletMutationCommit) economy.WalletMutationCommit {
+	commit.Balances = append([]economy.WalletBalance(nil), commit.Balances...)
+	commit.LedgerEntries = append([]economy.CurrencyLedgerEntry(nil), commit.LedgerEntries...)
+	commit.Reference.LedgerEntries = append([]economy.CurrencyLedgerEntry(nil), commit.Reference.LedgerEntries...)
+	return commit
+}
+
+func cloneInventoryMoveItemCommits(commits []economy.InventoryMoveItemCommit) []economy.InventoryMoveItemCommit {
+	cloned := make([]economy.InventoryMoveItemCommit, 0, len(commits))
+	for _, commit := range commits {
+		cloned = append(cloned, cloneInventoryMoveItemCommit(commit))
+	}
+	return cloned
+}
+
+func cloneInventoryMoveItemCommit(commit economy.InventoryMoveItemCommit) economy.InventoryMoveItemCommit {
+	commit.StackableItems = append([]economy.StackableItem(nil), commit.StackableItems...)
+	commit.DeletedStackableItems = append([]economy.StackableItem(nil), commit.DeletedStackableItems...)
+	commit.InstanceItems = append([]economy.InstanceItem(nil), commit.InstanceItems...)
+	commit.LedgerEntries = append([]economy.ItemLedgerEntry(nil), commit.LedgerEntries...)
+	commit.Reference.Result = cloneMoveItemResult(commit.Reference.Result)
+	return commit
+}
+
+func cloneIdempotencyKeyRowStringMap(rows map[string]economy.IdempotencyKeyRow) map[string]economy.IdempotencyKeyRow {
+	cloned := make(map[string]economy.IdempotencyKeyRow, len(rows))
+	for key, row := range rows {
+		cloned[key] = row.Clone()
+	}
+	return cloned
 }
 
 type failingMarketBuyInventory struct {

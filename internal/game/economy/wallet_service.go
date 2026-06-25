@@ -193,6 +193,17 @@ func NewWalletServiceWithRepository(clock foundation.Clock, repository WalletRep
 
 // CreditWallet credits currency once for a player/reference pair and writes a currency ledger row.
 func (service *WalletService) CreditWallet(input CreditWalletInput) (CreditWalletResult, error) {
+	return service.creditWallet(input, true)
+}
+
+// CreditWalletWithoutRepository credits currency in memory without committing
+// through the configured repository. Higher-level transaction owners use this
+// to gather write sets before committing them atomically.
+func (service *WalletService) CreditWalletWithoutRepository(input CreditWalletInput) (CreditWalletResult, error) {
+	return service.creditWallet(input, false)
+}
+
+func (service *WalletService) creditWallet(input CreditWalletInput, persistRepository bool) (CreditWalletResult, error) {
 	amount, err := input.validate()
 	if err != nil {
 		return CreditWalletResult{}, err
@@ -254,7 +265,7 @@ func (service *WalletService) CreditWallet(input CreditWalletInput) (CreditWalle
 			LedgerEntries: []CurrencyLedgerEntry{ledgerEntry},
 		},
 		Counters: WalletCounters{LedgerSequence: service.nextLedgerSequence},
-	}); err != nil {
+	}, persistRepository); err != nil {
 		return CreditWalletResult{}, err
 	}
 	service.balances[walletBalanceKey{playerID: input.PlayerID, currency: input.Currency}] = balance
@@ -281,6 +292,17 @@ func (service *WalletService) CreditWallet(input CreditWalletInput) (CreditWalle
 
 // DebitWallet debits currency once for a player/reference pair and writes a currency ledger row.
 func (service *WalletService) DebitWallet(input DebitWalletInput) (DebitWalletResult, error) {
+	return service.debitWallet(input, true)
+}
+
+// DebitWalletWithoutRepository debits currency in memory without committing
+// through the configured repository. Higher-level transaction owners use this
+// to gather write sets before committing them atomically.
+func (service *WalletService) DebitWalletWithoutRepository(input DebitWalletInput) (DebitWalletResult, error) {
+	return service.debitWallet(input, false)
+}
+
+func (service *WalletService) debitWallet(input DebitWalletInput, persistRepository bool) (DebitWalletResult, error) {
 	amount, err := input.validate()
 	if err != nil {
 		return DebitWalletResult{}, err
@@ -342,7 +364,7 @@ func (service *WalletService) DebitWallet(input DebitWalletInput) (DebitWalletRe
 			LedgerEntries: []CurrencyLedgerEntry{ledgerEntry},
 		},
 		Counters: WalletCounters{LedgerSequence: service.nextLedgerSequence},
-	}); err != nil {
+	}, persistRepository); err != nil {
 		return DebitWalletResult{}, err
 	}
 	service.balances[walletBalanceKey{playerID: input.PlayerID, currency: input.Currency}] = balance
@@ -455,7 +477,7 @@ func (service *WalletService) TransferCurrency(input TransferCurrencyInput) (Tra
 			LedgerEntries: result.LedgerEntries,
 		},
 		Counters: WalletCounters{LedgerSequence: service.nextLedgerSequence},
-	}); err != nil {
+	}, true); err != nil {
 		return TransferCurrencyResult{}, err
 	}
 	service.balances[walletBalanceKey{playerID: input.FromPlayerID, currency: input.Currency}] = fromBalance
@@ -612,8 +634,8 @@ func (service *WalletService) persistWalletBalanceLocked(balance WalletBalance) 
 	return service.repository.UpsertWalletBalance(context.Background(), balance)
 }
 
-func (service *WalletService) persistWalletMutationLocked(commit WalletMutationCommit) error {
-	if service.repository == nil {
+func (service *WalletService) persistWalletMutationLocked(commit WalletMutationCommit, persistRepository bool) error {
+	if !persistRepository || service.repository == nil {
 		return nil
 	}
 	return service.repository.CommitWalletMutation(context.Background(), commit)

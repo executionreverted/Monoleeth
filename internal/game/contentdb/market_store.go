@@ -20,6 +20,7 @@ type MarketListingStore struct {
 }
 
 var _ market.MarketListingRepository = (*MarketListingStore)(nil)
+var _ market.MarketListingTransactionRepository = (*MarketListingStore)(nil)
 
 type MarketStore = MarketListingStore
 
@@ -28,6 +29,7 @@ type MarketListingTx struct {
 }
 
 var _ economy.IdempotencyStore = (*MarketListingTx)(nil)
+var _ market.MarketListingTransaction = (*MarketListingTx)(nil)
 
 type marketListingSQLExecer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
@@ -68,6 +70,15 @@ func (store *MarketListingStore) WithTransaction(ctx context.Context, fn func(*M
 	return err
 }
 
+func (store *MarketListingStore) WithMarketListingTransaction(ctx context.Context, fn func(market.MarketListingTransaction) error) error {
+	if fn == nil {
+		return errors.New("nil market listing transaction function")
+	}
+	return store.WithTransaction(ctx, func(tx *MarketListingTx) error {
+		return fn(tx)
+	})
+}
+
 func (store *MarketListingStore) UpsertMarketListing(ctx context.Context, listing market.Listing) error {
 	if store == nil || store.store == nil || store.store.db == nil {
 		return ErrNilDatabase
@@ -84,6 +95,10 @@ func (tx *MarketListingTx) UpsertMarketListing(ctx context.Context, listing mark
 		return ErrNilDatabase
 	}
 	return upsertMarketListing(ctx, tx.tx, listing)
+}
+
+func (tx *MarketListingTx) SaveMarketListing(ctx context.Context, listing market.Listing) error {
+	return tx.UpsertMarketListing(ctx, listing)
 }
 
 func (tx *MarketListingTx) CommitWalletMutation(ctx context.Context, commit economy.WalletMutationCommit) error {

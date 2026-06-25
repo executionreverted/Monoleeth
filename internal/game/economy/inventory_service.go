@@ -521,8 +521,8 @@ func (service *InventoryService) persistAddItemCommitLocked(input AddItemInput, 
 	})
 }
 
-func (service *InventoryService) persistMoveItemCommitLocked(input MoveItemInput, result MoveItemResult) error {
-	if service.repository == nil {
+func (service *InventoryService) persistMoveItemCommitLocked(input MoveItemInput, result MoveItemResult, persistRepository bool) error {
+	if !persistRepository || service.repository == nil {
 		return nil
 	}
 	return service.repository.CommitMoveItem(context.Background(), InventoryMoveItemCommit{

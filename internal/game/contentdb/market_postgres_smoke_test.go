@@ -10,6 +10,7 @@ import (
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/market"
+	"gameproject/internal/game/testutil"
 )
 
 func TestPostgresMarketStorePersistsListingEscrowAcrossStoreReopen(t *testing.T) {
@@ -220,7 +221,7 @@ func TestPostgresMarketStoreTransactionRollsBackSettlementRows(t *testing.T) {
 	}
 	rollbackErr := errors.New("injected market transaction rollback")
 
-	err = marketStore.WithTransaction(ctx, func(tx *contentdb.MarketListingTx) error {
+	err = marketStore.WithMarketListingTransaction(ctx, func(tx market.MarketListingTransaction) error {
 		locked, ok, err := tx.LoadMarketListingForUpdate(ctx, listingID)
 		if err != nil {
 			return err
@@ -230,7 +231,7 @@ func TestPostgresMarketStoreTransactionRollsBackSettlementRows(t *testing.T) {
 		}
 		locked.RemainingQuantity = 2
 		locked.UpdatedAt = now.Add(time.Minute)
-		if err := tx.UpsertMarketListing(ctx, locked); err != nil {
+		if err := tx.SaveMarketListing(ctx, locked); err != nil {
 			return err
 		}
 		if err := tx.CommitWalletMutation(ctx, postgresMarketWalletCommit(t, buyerID, 900, 100, economy.LedgerActionDecrease, buyReference, economy.LedgerID("currency-ledger-market-tx-buy"), now)); err != nil {
@@ -320,6 +321,205 @@ func TestPostgresMarketStoreTransactionRollsBackSettlementRows(t *testing.T) {
 	if claim.Duplicate {
 		t.Fatal("ClaimIdempotencyKey(after rollback) Duplicate = true, want false")
 	}
+}
+
+func TestPostgresMarketServiceBuyTransactionRollbackLeavesNoPartialRows(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+	sellerID := foundation.PlayerID("player-postgres-market-service-seller")
+	buyerID := foundation.PlayerID("player-postgres-market-service-buyer")
+	feeID := foundation.PlayerID("market-fee-sink")
+	seedPostgresWalletPlayer(t, ctx, store, sellerID)
+	seedPostgresWalletPlayer(t, ctx, store, buyerID)
+	seedPostgresWalletPlayer(t, ctx, store, feeID)
+
+	marketStore, err := contentdb.NewMarketStore(store)
+	if err != nil {
+		t.Fatalf("NewMarketStore() error = %v, want nil", err)
+	}
+	walletStore, err := contentdb.NewWalletStore(store)
+	if err != nil {
+		t.Fatalf("NewWalletStore() error = %v, want nil", err)
+	}
+	inventoryStore, err := contentdb.NewInventoryStore(store)
+	if err != nil {
+		t.Fatalf("NewInventoryStore() error = %v, want nil", err)
+	}
+
+	now := time.Date(2026, 6, 25, 23, 0, 0, 0, time.UTC)
+	clock := testutil.NewFakeClock(now)
+	inventoryService := economy.NewInventoryService(clock)
+	walletService := economy.NewWalletService(clock)
+	failingRepository := failingOutboxMarketTransactionRepository{
+		delegate: marketStore,
+		err:      errors.New("injected contentdb market outbox failure"),
+	}
+	service, err := market.NewMarketService(market.MarketServiceConfig{
+		Clock:             clock,
+		Inventory:         inventoryService,
+		Wallet:            walletService,
+		ListingRepository: failingRepository,
+	})
+	if err != nil {
+		t.Fatalf("NewMarketService() error = %v, want nil", err)
+	}
+
+	definition := postgresStackableDefinitionForTest(t)
+	definition.TradeFlags = []economy.TradeFlag{economy.TradeFlagMarketTradeable}
+	source := economy.ItemLocation{Kind: economy.LocationKindAccountInventory, ID: economy.LocationID(sellerID.String())}
+	if _, err := inventoryService.AddItem(economy.AddItemInput{
+		PlayerID:       sellerID,
+		ItemDefinition: definition,
+		Quantity:       5,
+		Location:       source,
+		Reason:         economy.LedgerReason("market_service_seed"),
+		ReferenceKey:   postgresInventoryReferenceKey(t, "loot_pickup:postgres-market-service-seed"),
+	}); err != nil {
+		t.Fatalf("AddItem(seed service inventory) error = %v, want nil", err)
+	}
+	if _, err := walletService.CreditWallet(economy.CreditWalletInput{
+		PlayerID:     buyerID,
+		Currency:     economy.CurrencyBucketCredits,
+		Amount:       1000,
+		Reason:       economy.LedgerReason("market_service_seed"),
+		ReferenceKey: postgresWalletReferenceKey(t, "quest_reward:postgres-market-service-wallet"),
+	}); err != nil {
+		t.Fatalf("CreditWallet(seed service wallet) error = %v, want nil", err)
+	}
+
+	listingID := foundation.ListingID("listing-postgres-market-service-rollback")
+	create, err := service.CreateListing(market.CreateListingInput{
+		ListingID:      listingID,
+		SellerPlayerID: sellerID,
+		ItemRef:        economy.MoveItemRef{Definition: definition},
+		SourceLocation: source,
+		Quantity:       5,
+		UnitPrice:      20,
+		Currency:       economy.CurrencyBucketCredits,
+	})
+	if err != nil {
+		t.Fatalf("CreateListing() error = %v, want nil", err)
+	}
+	if err := walletStore.UpsertWalletBalance(ctx, economy.WalletBalance{PlayerID: buyerID, Currency: economy.CurrencyBucketCredits, Balance: 1000, UpdatedAt: now}); err != nil {
+		t.Fatalf("UpsertWalletBalance(buyer) error = %v, want nil", err)
+	}
+	if err := walletStore.UpsertWalletBalance(ctx, economy.WalletBalance{PlayerID: sellerID, Currency: economy.CurrencyBucketCredits, Balance: 0, UpdatedAt: now}); err != nil {
+		t.Fatalf("UpsertWalletBalance(seller) error = %v, want nil", err)
+	}
+	if err := walletStore.UpsertWalletBalance(ctx, economy.WalletBalance{PlayerID: feeID, Currency: economy.CurrencyBucketCredits, Balance: 0, UpdatedAt: now}); err != nil {
+		t.Fatalf("UpsertWalletBalance(fee) error = %v, want nil", err)
+	}
+	escrowItem := postgresMarketStackableItemForTest(t, definition, sellerID, foundation.ItemID("raw_ore-market-service-escrow"), create.Listing.EscrowLocation, 5, now)
+	if err := inventoryStore.UpsertStackableItem(ctx, escrowItem); err != nil {
+		t.Fatalf("UpsertStackableItem(escrow) error = %v, want nil", err)
+	}
+
+	requestID := foundation.RequestID("request-postgres-market-service-rollback")
+	buyReference, err := foundation.MarketBuyIdempotencyKey(listingID, buyerID, requestID)
+	if err != nil {
+		t.Fatalf("MarketBuyIdempotencyKey() error = %v, want nil", err)
+	}
+	_, err = service.BuyListing(market.BuyListingInput{
+		BuyerPlayerID: buyerID,
+		ListingID:     listingID,
+		Quantity:      2,
+		RequestID:     requestID,
+	})
+	if !errors.Is(err, failingRepository.err) {
+		t.Fatalf("BuyListing() error = %v, want injected outbox failure", err)
+	}
+
+	loaded, ok, err := marketStore.LoadMarketListing(ctx, listingID)
+	if err != nil {
+		t.Fatalf("LoadMarketListing(after rollback) error = %v, want nil", err)
+	}
+	if !ok || loaded.Status != market.ListingStatusActive || loaded.RemainingQuantity != 5 {
+		t.Fatalf("listing after rollback = %+v ok %v, want active remaining 5", loaded, ok)
+	}
+	buyerBalance, err := walletStore.WalletBalance(ctx, buyerID, economy.CurrencyBucketCredits)
+	if err != nil {
+		t.Fatalf("WalletBalance(buyer after rollback) error = %v, want nil", err)
+	}
+	sellerBalance, err := walletStore.WalletBalance(ctx, sellerID, economy.CurrencyBucketCredits)
+	if err != nil {
+		t.Fatalf("WalletBalance(seller after rollback) error = %v, want nil", err)
+	}
+	feeBalance, err := walletStore.WalletBalance(ctx, feeID, economy.CurrencyBucketCredits)
+	if err != nil {
+		t.Fatalf("WalletBalance(fee after rollback) error = %v, want nil", err)
+	}
+	if buyerBalance.Balance != 1000 || sellerBalance.Balance != 0 || feeBalance.Balance != 0 {
+		t.Fatalf("wallet balances after rollback = buyer %d seller %d fee %d, want 1000/0/0", buyerBalance.Balance, sellerBalance.Balance, feeBalance.Balance)
+	}
+	ledgerEntries, err := walletStore.LoadCurrencyLedgerEntries(ctx)
+	if err != nil {
+		t.Fatalf("LoadCurrencyLedgerEntries(after rollback) error = %v, want nil", err)
+	}
+	if len(ledgerEntries) != 0 {
+		t.Fatalf("wallet ledger entries after rollback = %+v, want none", ledgerEntries)
+	}
+	items, err := inventoryStore.LoadStackableItems(ctx)
+	if err != nil {
+		t.Fatalf("LoadStackableItems(after rollback) error = %v, want nil", err)
+	}
+	if len(items) != 1 || items[0].OwnerPlayerID != sellerID || items[0].Location != create.Listing.EscrowLocation || items[0].Quantity.Int64() != 5 {
+		t.Fatalf("inventory after rollback = %+v, want original seller escrow stack", items)
+	}
+	if _, ok, err := store.LoadOutboxRow(ctx, "market_buy:"+buyReference.String()); err != nil || ok {
+		t.Fatalf("LoadOutboxRow(after rollback) = ok %v err %v, want false nil", ok, err)
+	}
+	claim, err := store.ClaimIdempotencyKey(ctx, economy.IdempotencyKeyRow{
+		Scope:       economy.IdempotencyScopeEconomy,
+		Key:         buyReference,
+		Operation:   "market_buy",
+		PlayerID:    buyerID,
+		RequestHash: "postgres-market-service-after-rollback",
+		Status:      economy.IdempotencyStatusInProgress,
+		ResultJSON:  []byte(`{}`),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("ClaimIdempotencyKey(after rollback) error = %v, want nil", err)
+	}
+	if claim.Duplicate {
+		t.Fatal("ClaimIdempotencyKey(after rollback) Duplicate = true, want false")
+	}
+}
+
+type failingOutboxMarketTransactionRepository struct {
+	delegate *contentdb.MarketListingStore
+	err      error
+}
+
+func (repository failingOutboxMarketTransactionRepository) SaveMarketListing(ctx context.Context, listing market.Listing) error {
+	return repository.delegate.SaveMarketListing(ctx, listing)
+}
+
+func (repository failingOutboxMarketTransactionRepository) WithMarketListingTransaction(
+	ctx context.Context,
+	fn func(market.MarketListingTransaction) error,
+) error {
+	return repository.delegate.WithMarketListingTransaction(ctx, func(tx market.MarketListingTransaction) error {
+		return fn(failingOutboxMarketTransaction{MarketListingTransaction: tx, err: repository.err})
+	})
+}
+
+type failingOutboxMarketTransaction struct {
+	market.MarketListingTransaction
+	err error
+}
+
+func (tx failingOutboxMarketTransaction) InsertOutboxRow(ctx context.Context, row economy.OutboxRow) error {
+	if tx.err != nil {
+		return tx.err
+	}
+	return tx.MarketListingTransaction.InsertOutboxRow(ctx, row)
 }
 
 func postgresMarketWalletCommit(
