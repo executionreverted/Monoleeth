@@ -19,13 +19,19 @@ phase or moved above with a concrete deferral reason.
 
 ### P04 Rate Limiting Audit — TASK-0458
 
-- Realtime gateway limiter hook fixed by TASK-0461; remaining P04 audit items below.
+- Realtime gateway limiter hook fixed by TASK-0461.
 - Auth login/register backoff and duplicate-register generic response fixed by TASK-0464.
 - Auth attempt backoff is process-local for this slice; durable/cross-process attempt storage remains future P16/P02-style operational hardening unless P04 later adds it. Ref: `internal/game/auth/attempts.go`, `docs/road-to-v1/04-rate-limiting-abuse.md:28`.
 - Realtime bucket runtime wiring fixed by TASK-0469; `NewRuntime` and
   concrete `server.New` gateways now install the process-local limiter by
   default, with tests covering replacement/disable seams and WebSocket
   `ERR_RATE_LIMITED` without mutation. No accepted P04 runtime-wiring deferral.
+- Registered realtime op bucket coverage fixed by TASK-0474; every registered op
+  exhausts an enforced default limiter bucket, auth login/register routes have
+  direct backoff proof, and `chat.send`/`inventory.move` remain absent from the
+  realtime operation registry. Ref: `internal/game/realtime/rate_limiter_test.go`,
+  `internal/game/auth/http_test.go`, `internal/game/auth/service_test.go`,
+  `docs/road-to-v1/04-rate-limiting-abuse.md:27`.
 
 ### P01 Persistence Foundation Audit — TASK-0462
 

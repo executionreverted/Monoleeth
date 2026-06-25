@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -88,6 +89,65 @@ func TestInMemoryRateLimiterIsolatesSessionBuckets(t *testing.T) {
 	}
 	if err := limiter.AllowRealtimeRequest(rateLimitRequest(OperationCombatUseSkill, "session-2", "player-1")); err != nil {
 		t.Fatalf("session-2 request error = %v, want isolated session bucket", err)
+	}
+}
+
+func TestInMemoryRateLimiterThrottlesEveryRegisteredOperation(t *testing.T) {
+	clock := newManualRateLimitClock()
+	limiter := NewInMemoryRealtimeLimiter(InMemoryRealtimeLimiterOptions{
+		Clock: clock,
+	})
+
+	for operation, spec := range OperationRegistry() {
+		t.Run(string(operation), func(t *testing.T) {
+			if spec.Operation != operation {
+				t.Fatalf("registry spec operation = %q, want %q", spec.Operation, operation)
+			}
+			if spec.RateLimitPosture == "" {
+				t.Fatal("registry spec posture is empty")
+			}
+			request := rateLimitRequest(operation, "session-registered", "player-registered")
+			request.RateLimitPosture = spec.RateLimitPosture
+			limit := limiter.bucketFor(request)
+
+			for attempt := 0; attempt < limit.Burst; attempt++ {
+				if err := limiter.AllowRealtimeRequest(request); err != nil {
+					t.Fatalf("allowed request %d/%d error = %v, want nil", attempt+1, limit.Burst, err)
+				}
+			}
+			if err := limiter.AllowRealtimeRequest(request); !errors.Is(err, ErrRealtimeRateLimitExceeded) {
+				t.Fatalf("over-limit request error = %v, want %v", err, ErrRealtimeRateLimitExceeded)
+			}
+		})
+	}
+}
+
+func TestDefaultOperationBucketsCoverPhase04NamedRealtimeOperations(t *testing.T) {
+	buckets := defaultRealtimeOperationBuckets()
+	for _, operation := range []Operation{
+		OperationCombatUseSkill,
+		OperationLootPickup,
+		OperationScanPulse,
+		OperationMarketSearch,
+		OperationQuestReroll,
+	} {
+		bucket, ok := buckets[operation]
+		if !ok {
+			t.Fatalf("default operation bucket missing for %q", operation)
+		}
+		if bucket.Burst < 1 || bucket.RefillEvery <= 0 {
+			t.Fatalf("default operation bucket for %q = %+v, want positive burst/refill", operation, bucket)
+		}
+	}
+	if bucket, ok := buckets[Operation("inventory.move")]; !ok || bucket.Burst < 1 || bucket.RefillEvery <= 0 {
+		t.Fatalf("default operation bucket for inventory.move = %+v, present %v; want predeclared positive bucket", bucket, ok)
+	}
+
+	registry := OperationRegistry()
+	for _, absent := range []Operation{Operation("chat.send"), Operation("inventory.move")} {
+		if _, ok := registry[absent]; ok {
+			t.Fatalf("operation %q registered, want absent until server-owned contract exists", absent)
+		}
 	}
 }
 

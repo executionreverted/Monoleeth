@@ -111,6 +111,46 @@ func TestHTTPCredentialFailuresSharePublicShape(t *testing.T) {
 	}
 }
 
+func TestHTTPLoginRouteBackoffReturnsRateLimited(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	register := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{"email":"pilot@example.com","password":"correct-password","callsign":"Frontier-01"}`))
+	register.Header.Set("Origin", "http://example.com")
+	handler.ServeHTTP(httptest.NewRecorder(), register)
+
+	for attempt := 1; attempt < defaultAuthAttemptMaxFailures; attempt++ {
+		status, publicErr := authHTTPLoginError(t, handler, `{"email":"pilot@example.com","password":"wrong-password"}`)
+		if status != http.StatusUnauthorized || publicErr.Code != foundation.CodeUnauthenticated {
+			t.Fatalf("login failure %d status/error = %d/%+v, want 401 %s", attempt, status, publicErr, foundation.CodeUnauthenticated)
+		}
+	}
+	status, publicErr := authHTTPLoginError(t, handler, `{"email":"pilot@example.com","password":"wrong-password"}`)
+	if status != http.StatusTooManyRequests || publicErr.Code != foundation.CodeRateLimited {
+		t.Fatalf("login backoff status/error = %d/%+v, want 429 %s", status, publicErr, foundation.CodeRateLimited)
+	}
+}
+
+func TestHTTPRegisterRouteBackoffReturnsRateLimitedWithoutAccountLeak(t *testing.T) {
+	handler, _ := newTestHTTPHandler(t)
+	register := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{"email":"pilot@example.com","password":"correct-password","callsign":"Frontier-01"}`))
+	register.Header.Set("Origin", "http://example.com")
+	handler.ServeHTTP(httptest.NewRecorder(), register)
+
+	for attempt := 1; attempt < defaultAuthAttemptMaxFailures; attempt++ {
+		status, publicErr := authHTTPRegisterError(t, handler, `{"email":"pilot@example.com","password":"correct-password","callsign":"Frontier-01"}`)
+		if status != http.StatusBadRequest || publicErr.Code != foundation.CodeInvalidPayload {
+			t.Fatalf("register failure %d status/error = %d/%+v, want 400 %s", attempt, status, publicErr, foundation.CodeInvalidPayload)
+		}
+	}
+	status, publicErr := authHTTPRegisterError(t, handler, `{"email":"pilot@example.com","password":"correct-password","callsign":"Frontier-01"}`)
+	if status != http.StatusTooManyRequests || publicErr.Code != foundation.CodeRateLimited {
+		t.Fatalf("register backoff status/error = %d/%+v, want 429 %s", status, publicErr, foundation.CodeRateLimited)
+	}
+	message := strings.ToLower(publicErr.Message)
+	if strings.Contains(message, "registered") || strings.Contains(message, "exists") || strings.Contains(message, "pilot@example.com") {
+		t.Fatalf("register backoff public error leaked account existence: %+v", publicErr)
+	}
+}
+
 func TestHTTPRegisterRejectsClientAuthoredAdminRole(t *testing.T) {
 	handler, _ := newTestHTTPHandler(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{"email":"pilot@example.com","password":"correct-password","callsign":"Frontier-01","admin":true}`))
@@ -148,7 +188,23 @@ func TestHTTPAllowedOriginCORSIsCredentialedAndNotWildcard(t *testing.T) {
 
 func authHTTPError(t *testing.T, handler http.Handler, payload string) foundation.PublicError {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(payload))
+	_, publicErr := authHTTPLoginError(t, handler, payload)
+	return publicErr
+}
+
+func authHTTPLoginError(t *testing.T, handler http.Handler, payload string) (int, foundation.PublicError) {
+	t.Helper()
+	return authHTTPRouteError(t, handler, http.MethodPost, "/api/auth/login", payload)
+}
+
+func authHTTPRegisterError(t *testing.T, handler http.Handler, payload string) (int, foundation.PublicError) {
+	t.Helper()
+	return authHTTPRouteError(t, handler, http.MethodPost, "/api/auth/register", payload)
+}
+
+func authHTTPRouteError(t *testing.T, handler http.Handler, method string, path string, payload string) (int, foundation.PublicError) {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(payload))
 	req.Header.Set("Origin", "http://example.com")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, req)
@@ -158,7 +214,7 @@ func authHTTPError(t *testing.T, handler http.Handler, payload string) foundatio
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode auth error response: %v", err)
 	}
-	return body.Error
+	return recorder.Code, body.Error
 }
 
 func newTestHTTPHandler(t *testing.T) (http.Handler, *Service) {

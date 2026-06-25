@@ -90,6 +90,26 @@ func TestRepeatedDuplicateRegisterDoesNotRevealAccountExistence(t *testing.T) {
 	}
 }
 
+func TestRegisterBackoffRepeatedDuplicateRegisterTriggersLockout(t *testing.T) {
+	service, _, _ := newTestAuthService(t)
+	input := RegisterInput{Email: "pilot@example.com", Password: "correct-password", Callsign: "Frontier-01"}
+	if _, err := service.Register(context.Background(), input); err != nil {
+		t.Fatalf("first Register() error = %v, want nil", err)
+	}
+
+	for attempt := 1; attempt < defaultAuthAttemptMaxFailures; attempt++ {
+		_, err := service.Register(context.Background(), input)
+		if !foundation.IsCode(err, foundation.CodeInvalidPayload) {
+			t.Fatalf("duplicate Register() attempt %d error = %v, want %s", attempt, err, foundation.CodeInvalidPayload)
+		}
+	}
+	_, err := service.Register(context.Background(), input)
+
+	if !foundation.IsCode(err, foundation.CodeRateLimited) {
+		t.Fatalf("duplicate Register() lockout error = %v, want %s", err, foundation.CodeRateLimited)
+	}
+}
+
 func TestLoginCreatesFreshSession(t *testing.T) {
 	service, _, _ := newTestAuthService(t)
 	registered, err := service.Register(context.Background(), RegisterInput{

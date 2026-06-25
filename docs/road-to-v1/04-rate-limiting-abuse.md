@@ -1,7 +1,7 @@
 # Phase 04 — Rate Limiting & Abuse Posture
 
 ## Status
-- State: In progress
+- State: Done
 - Wave: 1
 - Depends on: none
 - Unlocks: safe public playtest
@@ -24,7 +24,7 @@ protection and broader hidden-data leak canaries.
 
 ## Tasks
 - [x] `[P:wave1/lane-D]` Add rate-limit middleware in the gateway keyed by op `RateLimitPosture` class.
-- [ ] `[P:wave1/lane-D]` Define buckets for `auth.login`, `combat.use_skill`, `loot.pickup`, `scan.pulse`, `market.search`, `chat.send` (when added), `quest.reroll`, `inventory.move`.
+- [x] `[P:wave1/lane-D]` Define buckets for `auth.login`, `combat.use_skill`, `loot.pickup`, `scan.pulse`, `market.search`, `chat.send` (when added), `quest.reroll`, `inventory.move`.
 - [x] `[P:wave1/lane-D]` Add login/register failure backoff + temporary lockout (no user-existence leak).
 - [x] `[P:wave1/lane-D]` Guarantee throttled requests perform zero mutation.
 - [x] `[P:wave1/lane-E]` Expand leak canaries to admin/debug/CMS-projection/log surfaces.
@@ -43,6 +43,12 @@ protection and broader hidden-data leak canaries.
 - TASK-0469 wires `NewRuntime` and concrete `server.New` gateway construction
   to an `InMemoryRealtimeLimiter` by default. Server tests keep an unexported
   seam to disable or replace the limiter explicitly.
+- TASK-0474 audited the full realtime operation registry against the default
+  limiter: every registered op exhausts an enforced bucket through either a
+  concrete operation bucket or its posture bucket. It also added direct HTTP
+  route backoff coverage for `auth.login` and `auth.register`. `chat.send` and
+  `inventory.move` remain absent from the realtime operation registry;
+  `inventory.move` retains a predeclared default bucket for the future contract.
 
 ## Smoke Tests (one assertion each)
 - [x] Burst over limit on one op returns throttle error.
@@ -50,12 +56,14 @@ protection and broader hidden-data leak canaries.
 - [x] Default runtime/server WebSocket burst returns `ERR_RATE_LIMITED` and
   skips the throttled `debug_spawn_npc` mutation.
 - [x] Repeated failed logins trigger backoff/lockout.
+- [x] Repeated duplicate registrations trigger backoff/lockout.
+- [x] Default limiter throttles every registered realtime operation.
 - [x] Throttle errors do not reveal whether an email exists.
 - [x] Leak canary finds no hidden seed/internal id in admin/debug responses.
 
 ## Done Criteria
-- [ ] Every registered op has an enforced limit.
-- [ ] Throttling never partially mutates state.
+- [x] Every registered op has an enforced limit.
+- [x] Throttling never partially mutates state.
 
 ## Verification
 ```bash

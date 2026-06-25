@@ -113,7 +113,7 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 | 01 | Persistence Foundation | 1 | In progress | `█████████░` 92% |
 | 02 | Transactional Economy & Outbox | 2 | Not started | `░░░░░░░░░░` 0% |
 | 03 | Realtime Hardening | 1 | Done | `██████████` 100% |
-| 04 | Rate Limiting & Abuse Posture | 1 | In progress | `█████████░` 90% |
+| 04 | Rate Limiting & Abuse Posture | 1 | Done | `██████████` 100% |
 | 05 | Map Worker Ownership & Concurrency | 2 | Not started | `░░░░░░░░░░` 0% |
 | 06 | Movement, Combat & Death Correctness | 2 | Not started | `░░░░░░░░░░` 0% |
 | 07 | Equipment & Progression Closure | 3 | Not started | `░░░░░░░░░░` 0% |
@@ -127,7 +127,7 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 | 15 | World Performance & AOI/Aggro Optimization | 4 | Not started | `░░░░░░░░░░` 0% |
 | 16 | Production Config & Operational Hardening | 2 | Not started | `░░░░░░░░░░` 0% |
 | 17 | Runtime Decomposition & Maintainability | 6 | Not started | `░░░░░░░░░░` 0% |
-| — | **Overall v1** | — | In progress | `█░░░░░░░░░` 13% |
+| — | **Overall v1** | — | In progress | `██░░░░░░░░` 17% |
 
 ### Progress bar legend
 
