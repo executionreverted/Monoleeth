@@ -404,8 +404,30 @@ Selecting a backend/model:
   `POST /api/v1/tasks` (also exposed in the `/tasks` dashboard form).
 - The crush backend forwards the endpoint via `CRUSH_BASE_URL` /
   `OPENAI_BASE_URL`; provider API keys come from the environment and must never
-  be committed or logged. Crush config already has required api key and data, just spawn it, you dont need to give custom urls.
-- You are a sakana instance so you are smart manager, you will spawn glm 5.2 for implementing code, but for planning and creating snippets, doing research and complex jobs, you will use Sakana agents. Just let dirty work to be done by GLM 5.2 z.ai and review his work.
+  be committed or logged. Crush config already has required API keys and data;
+  spawn tasks through Symphony without hard-coding secrets or custom provider
+  URLs unless a task explicitly needs an endpoint override.
+
+Agent selection guide:
+
+- Use GLM 5.2 (`agent_backend: "crush"`, `agent_model: "zai/glm-5.2"`) for
+  easy, mechanical, repetitive, or output-heavy implementation work.
+- Use Sakana Fugu through Crush for serious reasoning, architecture decisions,
+  planning, code plan review, research, snippet design, and complex debugging.
+  Keep Fugu reasoning at `high` by default unless the task requires deeper
+  analysis.
+- For code plans and snippets, prefer Fugu first. Use its output as the task
+  contract for worker agents.
+- For pure execution or bulk file work, delegate to GLM 5.2, then have Fugu or
+  the manager review the diff, tests, and assumptions before merging or
+  claiming completion.
+- For mixed work, split the job: Fugu plans and reviews; GLM 5.2 implements the
+  narrow slices; Codex can still be used for baseline/default local tasks.
+- Keep task prompts explicit about scope, files, tests, and "Do not commit".
+  Provider choice does not relax any project rule.
+- If a Sakana model override fails because Crush reports duplicate provider
+  names, use the configured Crush default Sakana model for Fugu tasks instead
+  of editing secrets or provider config during gameplay work.
 - Always use Caveman skill for saving tokens.
 
 This is orchestration-only configuration. It does not change any
