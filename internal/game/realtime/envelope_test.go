@@ -368,7 +368,6 @@ func TestDecodeRequestEnvelopeAcceptsCraftingMutationOperations(t *testing.T) {
 func TestOperationRegistryRejectsUnimplementedBrowserMutationContracts(t *testing.T) {
 	disallowed := []Operation{
 		Operation("inventory.move"),
-		Operation("progression.unlock_skill"),
 		Operation("progression.respec_skills"),
 		Operation("intel.coordinate_item_create"),
 		Operation("intel.coordinate_item_use"),

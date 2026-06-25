@@ -217,6 +217,10 @@ func defaultRealtimeOperationBuckets() map[Operation]RealtimeRateLimitBucket {
 			Burst:       6,
 			RefillEvery: time.Second,
 		},
+		OperationProgressionUnlockSkill: {
+			Burst:       4,
+			RefillEvery: 2 * time.Second,
+		},
 	}
 }
 

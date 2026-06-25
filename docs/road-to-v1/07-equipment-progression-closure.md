@@ -1,7 +1,7 @@
 # Phase 07 — Equipment & Progression Closure
 
 ## Status
-- State: Not started
+- State: In progress
 - Wave: 3
 - Depends on: P01, P02
 - Unlocks: P11, P12
@@ -25,7 +25,7 @@ cargo recalculation after equipment changes, and a real first non-starter ship p
 
 ## Tasks
 - [ ] `[P:wave3/lane-A]` Add `inventory.move` (ownership/amount/capacity checks, idempotent).
-- [ ] `[P:wave3/lane-A]` Add `progression.unlock_skill` (point check, prereqs, consume once).
+- [x] `[P:wave3/lane-A]` Add `progression.unlock_skill` (point check, prereqs, consume once).
 - [ ] `[P:wave3/lane-B]` Wire `StatService` into runtime; recalc on equip/unequip/ship activate.
 - [ ] `[P:wave3/lane-B]` Make effective cargo capacity authoritative; emit `stats.updated` + cargo/inventory/hangar/loadout snapshots together.
 - [ ] `[P:wave3/lane-C]` Define first buyable/craftable non-starter ship with server price/rank; grant to hangar with events.
@@ -37,8 +37,8 @@ cargo recalculation after equipment changes, and a real first non-starter ship p
 ## Smoke Tests (one assertion each)
 - [ ] `inventory.move` rejects unowned/negative/over-capacity amount.
 - [ ] Duplicate `inventory.move` cannot duplicate a stack.
-- [ ] Skill unlock consumes exactly one point.
-- [ ] Duplicate skill unlock does not double-spend.
+- [x] Skill unlock consumes exactly one point.
+- [x] Duplicate skill unlock does not double-spend.
 - [ ] Equipping a cargo module increases server + visible cargo capacity.
 - [ ] Buying/crafting the first non-starter ship adds it to hangar once.
 

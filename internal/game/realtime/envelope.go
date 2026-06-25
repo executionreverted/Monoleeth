@@ -30,7 +30,9 @@ const (
 	OperationDeathRepairQuote          Operation = "death.repair_quote"
 	OperationDeathRepairShip           Operation = "death.repair_ship"
 	OperationProgressionSnapshot       Operation = "progression.snapshot"
+	OperationProgressionUnlockSkill    Operation = "progression.unlock_skill"
 	OperationInventorySnapshot         Operation = "inventory.snapshot"
+	OperationInventoryMove             Operation = "inventory.move"
 	OperationHangarSnapshot            Operation = "hangar.snapshot"
 	OperationHangarActivateShip        Operation = "hangar.activate_ship"
 	OperationLoadoutSnapshot           Operation = "loadout.snapshot"
@@ -238,6 +240,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationProgressionSnapshot: {
 		Operation:        OperationProgressionSnapshot,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationProgressionUnlockSkill: {
+		Operation:        OperationProgressionUnlockSkill,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationInventorySnapshot: {

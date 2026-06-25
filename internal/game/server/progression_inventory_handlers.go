@@ -16,6 +16,7 @@ import (
 	"gameproject/internal/game/market"
 	"gameproject/internal/game/modules"
 	"gameproject/internal/game/production"
+	"gameproject/internal/game/progression"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/ships"
 	"gameproject/internal/game/world/worker"
@@ -117,6 +118,10 @@ type loadoutUnequipModulePayload struct {
 	SlotID string `json:"slot_id"`
 }
 
+type progressionUnlockSkillPayload struct {
+	NodeID string `json:"node_id"`
+}
+
 type craftingSnapshotPayload struct {
 	Recipes    []craftingRecipePayload `json:"recipes"`
 	ActiveJobs []craftingJobPayload    `json:"active_jobs"`
@@ -186,6 +191,43 @@ func (runtime *Runtime) handleProgressionSnapshot(ctx realtime.CommandContext, r
 	}
 	return marshalPayload(map[string]any{
 		"progression": progressionPayload(snapshot),
+	})
+}
+
+func (runtime *Runtime) handleProgressionUnlockSkill(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	var payload progressionUnlockSkillPayload
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	nodeID := progression.SkillNodeID(payload.NodeID)
+	if err := nodeID.Validate(); err != nil {
+		return nil, domainErrorForProgression(err)
+	}
+
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+
+	if _, ok := runtime.players[ctx.PlayerID]; !ok {
+		return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
+	}
+	result, err := runtime.Progression.UnlockPilotSkill(progression.UnlockPilotSkillInput{
+		PlayerID: ctx.PlayerID,
+		NodeID:   nodeID,
+	})
+	if err != nil {
+		return nil, domainErrorForProgression(err)
+	}
+	snapshotPayload := progressionPayload(result.Snapshot)
+	runtime.queueEventLocked(authSessionID(ctx.SessionID), realtime.EventProgressionSnapshot, snapshotPayload)
+	return marshalPayload(map[string]any{
+		"accepted":    true,
+		"unlocked":    result.Unlocked,
+		"duplicate":   result.Duplicate,
+		"node_id":     result.Node.NodeID.String(),
+		"progression": snapshotPayload,
 	})
 }
 
@@ -1118,6 +1160,32 @@ func domainErrorForLoadout(err error) error {
 		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Loadout request is not valid.", foundation.WithCause(err))
 	default:
 		return foundation.NewDomainError(foundation.CodeInternal, "Loadout command failed.", foundation.WithCause(err))
+	}
+}
+
+func domainErrorForProgression(err error) error {
+	if err == nil {
+		return nil
+	}
+	var domainErr *foundation.DomainError
+	if errors.As(err, &domainErr) {
+		return domainErr
+	}
+	switch {
+	case errors.Is(err, progression.ErrUnknownSkillNode):
+		return foundation.NewDomainError(foundation.CodeNotFound, "Skill node was not found.", foundation.WithCause(err))
+	case errors.Is(err, progression.ErrNotEnoughSkillPoints),
+		errors.Is(err, progression.ErrMissingSkillPrerequisite),
+		errors.Is(err, progression.ErrRankRequirementNotMet),
+		errors.Is(err, progression.ErrRoleRequirementNotMet):
+		return foundation.NewDomainError(foundation.CodeForbidden, "Skill requirements are not met.", foundation.WithCause(err))
+	case errors.Is(err, progression.ErrEmptySkillNodeID),
+		errors.Is(err, progression.ErrInvalidSkillNodeDefinition),
+		errors.Is(err, foundation.ErrEmptyID),
+		errors.Is(err, foundation.ErrInvalidID):
+		return foundation.NewDomainError(foundation.CodeInvalidPayload, "Skill unlock request is not valid.", foundation.WithCause(err))
+	default:
+		return foundation.NewDomainError(foundation.CodeInternal, "Skill unlock command failed.", foundation.WithCause(err))
 	}
 }
 

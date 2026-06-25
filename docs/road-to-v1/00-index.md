@@ -116,7 +116,7 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 | 04 | Rate Limiting & Abuse Posture | 1 | Done | `██████████` 100% |
 | 05 | Map Worker Ownership & Concurrency | 2 | In progress | `█████████░` 90% |
 | 06 | Movement, Combat & Death Correctness | 2 | Done | `██████████` 100% |
-| 07 | Equipment & Progression Closure | 3 | Not started | `░░░░░░░░░░` 0% |
+| 07 | Equipment & Progression Closure | 3 | In progress | `█░░░░░░░░░` 15% |
 | 08 | Durable Planet, Production & Routes | 3 | Not started | `░░░░░░░░░░` 0% |
 | 09 | CMS Completion & Balance Telemetry | 3 | Not started | `░░░░░░░░░░` 0% |
 | 10 | Social MVP | 4 | Not started | `░░░░░░░░░░` 0% |
