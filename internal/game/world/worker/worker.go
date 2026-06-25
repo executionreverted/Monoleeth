@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gameproject/internal/game/foundation"
@@ -62,6 +63,7 @@ type Worker struct {
 	clock     foundation.Clock
 	index     *spatial.Index
 
+	mu   sync.RWMutex
 	tick uint64
 
 	entities     map[world.EntityID]world.Entity
@@ -218,6 +220,10 @@ func (worker *Worker) Submit(command Command) error {
 // Tick drains queued commands, advances movement, and drains due local tasks.
 func (worker *Worker) Tick() TickResult {
 	commands := worker.mailbox.Drain()
+
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+
 	worker.resetEnemyLifecycleTelemetry()
 	result := TickResult{
 		Tick:            worker.tick + 1,
@@ -262,12 +268,18 @@ func (worker *Worker) Run(ctx context.Context) error {
 
 // Entity returns a copy of the server-owned entity state.
 func (worker *Worker) Entity(entityID world.EntityID) (world.Entity, bool) {
+	worker.mu.RLock()
+	defer worker.mu.RUnlock()
+
 	entity, ok := worker.entities[entityID]
 	return entity, ok
 }
 
 // EntitySpeed returns the server-owned movement speed for entityID.
 func (worker *Worker) EntitySpeed(entityID world.EntityID) (float64, bool) {
+	worker.mu.RLock()
+	defer worker.mu.RUnlock()
+
 	speed, ok := worker.entitySpeeds[entityID]
 	return speed, ok
 }
@@ -277,42 +289,64 @@ func (worker *Worker) EntitySpeed(entityID world.EntityID) (float64, bool) {
 // Client-originated gameplay changes should enter through mailbox intent
 // commands. This helper is for server harness setup and authoritative systems.
 func (worker *Worker) InsertEntity(entity world.Entity, serverSpeed float64) error {
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+
 	return worker.insertEntity(entity, serverSpeed)
 }
 
 // UpdateEntity replaces server-owned entity state directly in the worker.
 func (worker *Worker) UpdateEntity(entity world.Entity) error {
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+
 	return worker.updateEntity(entity)
 }
 
 // RemoveEntity removes server-owned entity state directly from the worker.
 func (worker *Worker) RemoveEntity(entityID world.EntityID) bool {
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+
 	return worker.removeEntity(entityID)
 }
 
 // PlayerEntity returns the server-owned entity for playerID.
 func (worker *Worker) PlayerEntity(playerID foundation.PlayerID) (world.Entity, bool) {
+	worker.mu.RLock()
+	defer worker.mu.RUnlock()
+
 	entityID, ok := worker.playerEntities[playerID]
 	if !ok {
 		return world.Entity{}, false
 	}
-	return worker.Entity(entityID)
+	entity, ok := worker.entities[entityID]
+	return entity, ok
 }
 
 // RefreshPlayerMovementPosition advances a moving player's stored position to
 // the worker clock without clearing an in-flight route.
 func (worker *Worker) RefreshPlayerMovementPosition(playerID foundation.PlayerID) error {
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+
 	return worker.refreshPlayerMovementPosition(playerID, false)
 }
 
 // AttachedPlayer returns the player currently associated with sessionID.
 func (worker *Worker) AttachedPlayer(sessionID realtime.SessionID) (foundation.PlayerID, bool) {
+	worker.mu.RLock()
+	defer worker.mu.RUnlock()
+
 	playerID, ok := worker.sessionPlayers[sessionID]
 	return playerID, ok
 }
 
 // PlayerSessions returns attached session ids for playerID in deterministic order.
 func (worker *Worker) PlayerSessions(playerID foundation.PlayerID) []realtime.SessionID {
+	worker.mu.RLock()
+	defer worker.mu.RUnlock()
+
 	sessionsByPlayer := worker.playerSessions[playerID]
 	if len(sessionsByPlayer) == 0 {
 		return nil
@@ -330,6 +364,9 @@ func (worker *Worker) PlayerSessions(playerID foundation.PlayerID) []realtime.Se
 
 // Snapshot returns a deterministic copy of entities owned by the worker.
 func (worker *Worker) Snapshot() Snapshot {
+	worker.mu.RLock()
+	defer worker.mu.RUnlock()
+
 	entities := make([]world.Entity, 0, len(worker.entities))
 	for _, entity := range worker.entities {
 		entities = append(entities, entity)
@@ -350,6 +387,9 @@ func (worker *Worker) Snapshot() Snapshot {
 // entities near center. It uses the worker spatial index as the first filter;
 // callers must still apply gameplay visibility rules before serializing.
 func (worker *Worker) EntitiesWithinRadius(center world.Vec2, radius float64) (Snapshot, error) {
+	worker.mu.RLock()
+	defer worker.mu.RUnlock()
+
 	results, err := worker.index.QueryRadius(spatialPosition(center), radius)
 	if err != nil {
 		return Snapshot{}, err
@@ -380,6 +420,9 @@ func (worker *Worker) EntitiesWithinRadius(center world.Vec2, radius float64) (S
 // spatial index as the first filter; callers must still apply gameplay
 // visibility rules before serializing.
 func (worker *Worker) EntitiesWithinWindow(center world.Vec2, halfExtent float64) (Snapshot, error) {
+	worker.mu.RLock()
+	defer worker.mu.RUnlock()
+
 	results, err := worker.index.QueryWindow(spatialPosition(center), halfExtent)
 	if err != nil {
 		return Snapshot{}, err
@@ -407,6 +450,13 @@ func (worker *Worker) EntitiesWithinWindow(center world.Vec2, halfExtent float64
 
 // ScheduleTask adds a map-local delayed task and returns the accepted copy.
 func (worker *Worker) ScheduleTask(task ScheduledTask) (ScheduledTask, error) {
+	worker.mu.Lock()
+	defer worker.mu.Unlock()
+
+	return worker.scheduleTask(task)
+}
+
+func (worker *Worker) scheduleTask(task ScheduledTask) (ScheduledTask, error) {
 	if strings.TrimSpace(task.ID) == "" || strings.TrimSpace(task.Kind) == "" {
 		return ScheduledTask{}, fmt.Errorf("scheduled task: %w", ErrInvalidWorkerConfig)
 	}

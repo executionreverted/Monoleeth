@@ -33,7 +33,7 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 
 ## Smoke Tests (one assertion each)
 - [ ] Command on map A does not block a command on map B (timing assertion).
-- [ ] Concurrent move + tick on one map passes `-race`.
+- [x] Concurrent move + tick on one map passes `-race`.
 - [ ] AOI read projection never observes a torn entity state.
 - [ ] Narrowed lock still serializes session attach/detach safely.
 

@@ -97,6 +97,9 @@ func (command TriggerEnemyEventSpawnCommand) apply(worker *Worker) error {
 
 // EnemySpawnSnapshot returns clone-safe server-only spawner state.
 func (worker *Worker) EnemySpawnSnapshot() EnemySpawnSnapshot {
+	worker.mu.RLock()
+	defer worker.mu.RUnlock()
+
 	if worker.enemySpawner == nil {
 		return EnemySpawnSnapshot{
 			Records:          nil,
@@ -110,6 +113,9 @@ func (worker *Worker) EnemySpawnSnapshot() EnemySpawnSnapshot {
 
 // EnemySpawnRecord returns a clone-safe server-only copy for entityID.
 func (worker *Worker) EnemySpawnRecord(entityID world.EntityID) (EnemySpawnRecord, bool) {
+	worker.mu.RLock()
+	defer worker.mu.RUnlock()
+
 	if worker.enemySpawner == nil {
 		return EnemySpawnRecord{}, false
 	}
