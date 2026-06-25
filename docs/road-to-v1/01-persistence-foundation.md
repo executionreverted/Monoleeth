@@ -32,7 +32,7 @@ PostgreSQL behind repository interfaces, with restart recovery. Reuse the existi
 - [x] `[P:wave1/lane-A]` Implement pgx-backed repos in the db adapter package for auth account/player/session, wallet balance, and stackable inventory state.
   - [x] `ships`: contentdb migration + `HangarStore` adapter persists `player_ships` and `player_active_ships`; runtime uses it when core DB is enabled and reloads starter/active ship through `HangarService` after restart.
   - [x] `economy`: contentdb migration + `InventoryStore` adapter loads/upserts inventory instance item rows, item ledger rows, `AddItem` mutation references, and inventory counters; `InventoryService` persists `AddItem` as one durable commit and reloads safe counters after restart. Move/remove durable refs remain gaps.
-  - [x] `modules`: contentdb migration + `LoadoutStore` adapter persists `player_loadouts` and `player_equipped_modules`, composes `HangarStore` for active ship reads, reads module items from durable inventory instance rows, and requires a module item mover before replacement changes item locations. Runtime wiring and durable move ledger/reference storage remain gaps.
+  - [x] `modules`: contentdb migration + `LoadoutStore` adapter persists `player_loadouts` and `player_equipped_modules`, composes `HangarStore` for active ship reads, reads module items from durable inventory instance rows, and runtime uses it when core DB is enabled. Instance item location rows persist when a module item mover is configured; durable move ledger/reference storage remains a gap.
 - [x] `[P:wave1/lane-A]` Wire runtime to load durable auth, wallet, and stackable inventory state on boot; fail closed in real mode if DB unavailable.
 - [x] `[P:wave1/lane-A]` Add `config` flag: real mode = DB, dev/test = in-memory fallback (mirror CMS policy).
 - [ ] `[P:wave1/lane-A]` Keep in-memory store as explicit dev/test implementation only.
@@ -57,6 +57,7 @@ PostgreSQL behind repository interfaces, with restart recovery. Reuse the existi
 - [x] loadout module item lookup reads the durable inventory instance row.
 - [x] missing or invalid durable module item rows fail closed.
 - [x] location-changing equipped-module replacement fails closed when no item mover is attached.
+- [x] runtime saved loadout and equipped module persist and reload through `LoadoutService` after restart.
 - [x] real mode with DB down fails boot (no silent in-memory fallback).
 
 ## Done Criteria

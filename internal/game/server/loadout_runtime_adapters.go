@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"fmt"
 
+	"gameproject/internal/game/contentdb"
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/modules"
@@ -10,15 +12,99 @@ import (
 	"gameproject/internal/game/ships"
 )
 
+type runtimeLoadoutStore interface {
+	modules.LoadoutStore
+	SetActiveShip(foundation.PlayerID, foundation.ShipID) error
+	PutModuleItem(economy.InstanceItem) error
+}
+
+type runtimeDurableLoadoutStore struct {
+	modules.LoadoutStore
+}
+
+func (store runtimeDurableLoadoutStore) SetActiveShip(playerID foundation.PlayerID, shipID foundation.ShipID) error {
+	if err := playerID.Validate(); err != nil {
+		return err
+	}
+	if err := shipID.Validate(); err != nil {
+		return err
+	}
+	activeShipID, err := store.ActiveShipID(playerID)
+	if err != nil {
+		return err
+	}
+	if activeShipID != shipID {
+		return fmt.Errorf("active ship %q target %q: %w", activeShipID, shipID, modules.ErrLoadoutShipMismatch)
+	}
+	return nil
+}
+
+func (store runtimeDurableLoadoutStore) PutModuleItem(item economy.InstanceItem) error {
+	if err := item.Validate(); err != nil {
+		return err
+	}
+	stored, err := store.ModuleItem(item.ItemInstanceID)
+	if err != nil {
+		return err
+	}
+	if stored.OwnerPlayerID != item.OwnerPlayerID || stored.ItemID != item.ItemID {
+		return fmt.Errorf("module item %q durable row mismatch: %w", item.ItemInstanceID, modules.ErrModuleItemInstanceMismatch)
+	}
+	return nil
+}
+
 type runtimeModuleItemMover struct {
 	inventory   *economy.InventoryService
 	itemCatalog map[foundation.ItemID]economy.ItemDefinition
 }
 
 func (mover runtimeModuleItemMover) MoveModuleItemLocations(moves []modules.ModuleItemLocationMove) ([]modules.ModuleItemLocationMoveResult, error) {
+	inputs, err := runtimeModuleMoveInputs(moves, mover.itemCatalog)
+	if err != nil {
+		return nil, err
+	}
+	results, err := mover.inventory.SystemMoveItemsWithoutEvents(inputs)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeModuleMoveResults(results), nil
+}
+
+type runtimeDurableModuleItemMover struct {
+	inventory   *economy.InventoryService
+	itemCatalog map[foundation.ItemID]economy.ItemDefinition
+	repository  *contentdb.InventoryStore
+}
+
+func (mover runtimeDurableModuleItemMover) MoveModuleItemLocations(moves []modules.ModuleItemLocationMove) ([]modules.ModuleItemLocationMoveResult, error) {
+	if mover.inventory == nil || mover.repository == nil {
+		return nil, contentdb.ErrNilDatabase
+	}
+	inputs, err := runtimeModuleMoveInputs(moves, mover.itemCatalog)
+	if err != nil {
+		return nil, err
+	}
+	results, err := mover.inventory.SystemMoveItemsWithoutEvents(inputs)
+	if err != nil {
+		return nil, err
+	}
+	for _, result := range results {
+		for _, item := range result.InstanceItems {
+			if err := mover.repository.UpsertInstanceItem(context.Background(), item); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return runtimeModuleMoveResults(results), nil
+}
+
+func runtimeModuleMoveInputs(
+	moves []modules.ModuleItemLocationMove,
+	itemCatalog map[foundation.ItemID]economy.ItemDefinition,
+) ([]economy.MoveItemInput, error) {
 	inputs := make([]economy.MoveItemInput, 0, len(moves))
 	for _, move := range moves {
-		definition, ok := mover.itemCatalog[move.ItemID]
+		definition, ok := itemCatalog[move.ItemID]
 		if !ok {
 			return nil, fmt.Errorf("module item %q: %w", move.ItemID, modules.ErrUnknownModuleItem)
 		}
@@ -35,11 +121,10 @@ func (mover runtimeModuleItemMover) MoveModuleItemLocations(moves []modules.Modu
 			ReferenceKey: move.ReferenceKey,
 		})
 	}
+	return inputs, nil
+}
 
-	results, err := mover.inventory.SystemMoveItemsWithoutEvents(inputs)
-	if err != nil {
-		return nil, err
-	}
+func runtimeModuleMoveResults(results []economy.MoveItemResult) []modules.ModuleItemLocationMoveResult {
 	payloads := make([]modules.ModuleItemLocationMoveResult, 0, len(results))
 	for _, result := range results {
 		payloads = append(payloads, modules.ModuleItemLocationMoveResult{
@@ -47,7 +132,7 @@ func (mover runtimeModuleItemMover) MoveModuleItemLocations(moves []modules.Modu
 			Duplicate:     result.Duplicate,
 		})
 	}
-	return payloads, nil
+	return payloads
 }
 
 type runtimeShipSlotLayoutProvider struct {

@@ -9,6 +9,7 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/contentdb"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/modules"
 	"gameproject/internal/game/ships"
 )
 
@@ -170,6 +171,9 @@ func TestNewRuntimeCoreStoreDevFallbackWithoutURLUsesMemory(t *testing.T) {
 	defer runtime.Close()
 	if _, ok := runtime.HangarStore.(*ships.InMemoryHangarStore); !ok {
 		t.Fatalf("HangarStore = %T, want *ships.InMemoryHangarStore", runtime.HangarStore)
+	}
+	if _, ok := runtime.LoadoutStore.(*modules.InMemoryLoadoutStore); !ok {
+		t.Fatalf("LoadoutStore = %T, want *modules.InMemoryLoadoutStore", runtime.LoadoutStore)
 	}
 }
 

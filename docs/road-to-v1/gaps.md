@@ -14,17 +14,15 @@ or unsafe for the current wave slice. Keep line/file references concrete.
   `internal/game/economy/inventory_service.go`,
   `internal/game/contentdb/inventory_store.go`.
 
-### P01 Loadout Runtime Wiring And Move Ledger References — TASK-0478
+### P01 Loadout Move Ledger References — TASK-0479
 
-- Loadout contentdb adapter now persists saved loadouts, equipped-module rows,
-  durable module item lookups, and instance item location changes when a
-  `ModuleItemLocationMover` is configured; location-changing replacement fails
-  closed without one. Server runtime still constructs
-  `modules.InMemoryLoadoutStore`, so real-mode loadout wiring remains deferred.
-  Equip/unequip durable item move ledger/reference storage also remains deferred
-  with the inventory MoveItem durable-reference gap. Ref:
-  `internal/game/contentdb/loadout_store.go`,
-  `internal/game/server/runtime.go`,
+- Runtime now uses `contentdb.LoadoutStore` when core DB is enabled, and
+  equipped rows plus moved instance item locations reload after restart through
+  `LoadoutService`. Equip/unequip durable item move ledger/reference storage
+  remains deferred with the inventory MoveItem durable-reference gap; runtime
+  still records those move ledgers in the in-process `InventoryService` only.
+  Ref: `internal/game/server/runtime.go`,
+  `internal/game/server/loadout_runtime_adapters.go`,
   `internal/game/economy/inventory_move.go`.
 
 ## Pre-Wave Audit Findings Not Yet Accepted As Deferrals
@@ -56,7 +54,7 @@ phase or moved above with a concrete deferral reason.
 
 - Loadout contentdb migration, adapter, active-ship reader composition, durable
   inventory instance lookup, and adapter-level restart proof are covered by
-  TASK-0478. Runtime wiring remains deferred above. Ref:
+  TASK-0478. Runtime loadout wiring is covered by TASK-0479. Ref:
   `internal/game/contentdb/loadout_store.go`,
   `internal/game/contentdb/loadout_postgres_smoke_test.go`,
   `internal/game/server/runtime.go`.

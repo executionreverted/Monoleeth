@@ -161,7 +161,7 @@ type Runtime struct {
 	Hangar                         *ships.HangarService
 	ModuleCatalog                  modules.Catalog
 	Content                        catalog.ContentRegistry
-	LoadoutStore                   *modules.InMemoryLoadoutStore
+	LoadoutStore                   runtimeLoadoutStore
 	Loadout                        modules.LoadoutService
 	StatInputs                     *gameruntime.StatInputProvider
 	Recipes                        crafting.RecipeCatalog
@@ -184,6 +184,7 @@ type Runtime struct {
 	inventoryStoreCloser           func() error
 	progressionStoreCloser         func() error
 	hangarStoreCloser              func() error
+	loadoutStoreCloser             func() error
 
 	combatXP                 *combat.NPCKillXPHandler
 	lootTables               map[string]loot.LootTable
@@ -344,6 +345,11 @@ func (runtime *Runtime) Close() error {
 		closeHangarStore := runtime.hangarStoreCloser
 		runtime.hangarStoreCloser = nil
 		errs = append(errs, closeHangarStore())
+	}
+	if runtime.loadoutStoreCloser != nil {
+		closeLoadoutStore := runtime.loadoutStoreCloser
+		runtime.loadoutStoreCloser = nil
+		errs = append(errs, closeLoadoutStore())
 	}
 	return errors.Join(errs...)
 }
@@ -531,6 +537,61 @@ func loadRuntimeHangarStore(ctx context.Context, config RuntimeConfig) (ships.Ha
 		return nil, nil, err
 	}
 	return hangarStore, closeStore, nil
+}
+
+func loadRuntimeLoadoutStore(
+	ctx context.Context,
+	config RuntimeConfig,
+	inventory *economy.InventoryService,
+	itemCatalog map[foundation.ItemID]economy.ItemDefinition,
+) (runtimeLoadoutStore, func() error, error) {
+	mover := runtimeModuleItemMover{
+		inventory:   inventory,
+		itemCatalog: itemCatalog,
+	}
+	contentConfig := runtimeCoreStoreDBConfig(config)
+	if err := contentConfig.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if !contentConfig.Enabled() {
+		return modules.NewInMemoryLoadoutStoreWithItemMover(mover), nil, nil
+	}
+	openStore := config.contentDBOpen
+	if openStore == nil {
+		openStore = defaultRuntimeContentDBOpen
+	}
+	store, err := openStore(ctx, contentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if store == nil {
+		return nil, nil, contentdb.ErrNilDatabase
+	}
+	closeStore := func() error { return store.Close() }
+	if err := store.Migrate(ctx, contentConfig.Migrations); err != nil {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("migrate loadout db: %w", err)
+	}
+	contentStore, ok := store.(*contentdb.Store)
+	if !ok {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("loadout db store %T: %w", store, contentdb.ErrNilDatabase)
+	}
+	inventoryStore, err := contentdb.NewInventoryStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return nil, nil, err
+	}
+	loadoutStore, err := contentdb.NewLoadoutStoreWithItemMover(contentStore, runtimeDurableModuleItemMover{
+		inventory:   inventory,
+		itemCatalog: itemCatalog,
+		repository:  inventoryStore,
+	})
+	if err != nil {
+		_ = closeStore()
+		return nil, nil, err
+	}
+	return runtimeDurableLoadoutStore{LoadoutStore: loadoutStore}, closeStore, nil
 }
 
 func runtimeCoreStoreDBConfig(config RuntimeConfig) contentdb.Config {
@@ -869,10 +930,16 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	loadoutStore := modules.NewInMemoryLoadoutStoreWithItemMover(runtimeModuleItemMover{
-		inventory:   inventory,
-		itemCatalog: itemCatalog,
-	})
+	loadoutStore, loadoutStoreCloser, err := loadRuntimeLoadoutStore(context.Background(), config, inventory, itemCatalog)
+	if err != nil {
+		return nil, err
+	}
+	closeLoadoutStoreOnError := true
+	defer func() {
+		if closeLoadoutStoreOnError && loadoutStoreCloser != nil {
+			_ = loadoutStoreCloser()
+		}
+	}()
 	loadoutService, err := modules.NewLoadoutService(
 		moduleCatalog,
 		loadoutStore,
@@ -1034,6 +1101,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		inventoryStoreCloser:           inventoryStoreCloser,
 		progressionStoreCloser:         progressionStoreCloser,
 		hangarStoreCloser:              hangarStoreCloser,
+		loadoutStoreCloser:             loadoutStoreCloser,
 		combatXP:                       combatXP,
 		lootTables:                     lootTables,
 		itemCatalog:                    itemCatalog,
@@ -1130,6 +1198,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	}
 	runtime.Gateway = gateway
 	closeHangarStoreOnError = false
+	closeLoadoutStoreOnError = false
 	return runtime, nil
 }
 
