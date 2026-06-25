@@ -13,4 +13,5 @@ symphony-workspaces/
 log/
 output/screenshots
 .crush
+.crush-old
 game-server
