@@ -31,7 +31,7 @@ PostgreSQL behind repository interfaces, with restart recovery. Reuse the existi
   - [x] `modules`: `LoadoutService` depends on split loadout repository, active ship reader, module item reader, equipped module reader, and module item mutator interfaces; in-memory store implements them.
 - [x] `[P:wave1/lane-A]` Implement pgx-backed repos in the db adapter package for auth account/player/session, wallet balance, and stackable inventory state.
   - [x] `ships`: contentdb migration + `HangarStore` adapter persists `player_ships` and `player_active_ships`; runtime uses it when core DB is enabled and reloads starter/active ship through `HangarService` after restart.
-  - [x] `economy`: contentdb migration + `InventoryStore` adapter loads/upserts inventory instance item rows and `InventoryService` persists new instance items on `AddItem`; item ledger rows, mutation references, and durable counters remain gaps.
+  - [x] `economy`: contentdb migration + `InventoryStore` adapter loads/upserts inventory instance item rows, item ledger rows, `AddItem` mutation references, and inventory counters; `InventoryService` persists `AddItem` as one durable commit and reloads safe counters after restart. Move/remove durable refs remain gaps.
 - [x] `[P:wave1/lane-A]` Wire runtime to load durable auth, wallet, and stackable inventory state on boot; fail closed in real mode if DB unavailable.
 - [x] `[P:wave1/lane-A]` Add `config` flag: real mode = DB, dev/test = in-memory fallback (mirror CMS policy).
 - [ ] `[P:wave1/lane-A]` Keep in-memory store as explicit dev/test implementation only.
@@ -46,6 +46,8 @@ PostgreSQL behind repository interfaces, with restart recovery. Reuse the existi
 - [x] wallet credit persists and reloads with same balance after restart.
 - [x] inventory item persists and reloads with same quantity after restart.
 - [x] inventory instance item persists and reloads from contentdb after service `AddItem`.
+- [x] inventory instance `AddItem` duplicate same ref after service reload returns duplicate and does not insert a second instance row.
+- [x] inventory generated instance id after service reload does not collide with loaded generated ids.
 - [x] progression XP persists and reloads after restart.
 - [x] hangar starter/active ship persists and reloads with valid metadata JSON after store reopen.
 - [x] runtime hangar starter/active ship persists and reloads through `HangarService` after restart.

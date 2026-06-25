@@ -391,6 +391,81 @@ func TestAddItemPersistsInstanceThroughRepository(t *testing.T) {
 	}
 }
 
+func TestInventoryRepositoryAddItemReferenceSurvivesServiceReload(t *testing.T) {
+	repository := &fakeInventoryRepository{}
+	service, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository() error = %v, want nil", err)
+	}
+	input := validAddItemInput(t)
+	input.ItemDefinition = validInstanceDefinition(t)
+	input.ItemInstanceID = "coordinate-scroll-instance-reload-ref"
+	input.Quantity = 1
+
+	first, err := service.AddItem(input)
+	if err != nil {
+		t.Fatalf("first AddItem() error = %v, want nil", err)
+	}
+	reloaded, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository(reload) error = %v, want nil", err)
+	}
+
+	second, err := reloaded.AddItem(input)
+	if err != nil {
+		t.Fatalf("duplicate AddItem() after reload error = %v, want nil", err)
+	}
+
+	if !second.Duplicate {
+		t.Fatal("duplicate AddItem after reload Duplicate = false, want true")
+	}
+	if second.LedgerEntry.LedgerID != first.LedgerEntry.LedgerID {
+		t.Fatalf("duplicate ledger = %q, want %q", second.LedgerEntry.LedgerID, first.LedgerEntry.LedgerID)
+	}
+	if got := len(repository.instances); got != 1 {
+		t.Fatalf("repository instances len = %d, want 1", got)
+	}
+	if got := len(repository.commits); got != 1 {
+		t.Fatalf("repository commits len = %d, want 1", got)
+	}
+}
+
+func TestInventoryRepositoryCountersAvoidGeneratedInstanceIDCollisionAfterReload(t *testing.T) {
+	repository := &fakeInventoryRepository{}
+	service, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository() error = %v, want nil", err)
+	}
+	input := validAddItemInput(t)
+	input.ItemDefinition = validInstanceDefinition(t)
+	input.Quantity = 1
+
+	first, err := service.AddItem(input)
+	if err != nil {
+		t.Fatalf("first AddItem() error = %v, want nil", err)
+	}
+	reloaded, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository(reload) error = %v, want nil", err)
+	}
+	next := input
+	next.ReferenceKey = validReferenceKey(t, "loot_pickup:drop-after-reload")
+
+	second, err := reloaded.AddItem(next)
+	if err != nil {
+		t.Fatalf("second AddItem() after reload error = %v, want nil", err)
+	}
+
+	firstID := first.InstanceItems[0].ItemInstanceID
+	secondID := second.InstanceItems[0].ItemInstanceID
+	if secondID == firstID {
+		t.Fatalf("generated instance id after reload = %q, want non-colliding id", secondID)
+	}
+	if got := len(repository.instances); got != 2 {
+		t.Fatalf("repository instances len = %d, want 2", got)
+	}
+}
+
 func TestSystemSetInstanceDurabilityPersistsInstanceThroughRepository(t *testing.T) {
 	instance := instanceItemForTest(t)
 	repository := &fakeInventoryRepository{instances: []InstanceItem{instance}}
@@ -464,6 +539,10 @@ func mustQuantity(t *testing.T, amount int64) foundation.Quantity {
 type fakeInventoryRepository struct {
 	stackables      []StackableItem
 	instances       []InstanceItem
+	ledgerEntries   []ItemLedgerEntry
+	references      []AddItemReference
+	counters        InventoryCounters
+	commits         []InventoryAddItemCommit
 	upserts         []StackableItem
 	instanceUpserts []InstanceItem
 }
@@ -474,6 +553,23 @@ func (repository *fakeInventoryRepository) LoadStackableItems(context.Context) (
 
 func (repository *fakeInventoryRepository) LoadInstanceItems(context.Context) ([]InstanceItem, error) {
 	return append([]InstanceItem(nil), repository.instances...), nil
+}
+
+func (repository *fakeInventoryRepository) LoadItemLedgerEntries(context.Context) ([]ItemLedgerEntry, error) {
+	return append([]ItemLedgerEntry(nil), repository.ledgerEntries...), nil
+}
+
+func (repository *fakeInventoryRepository) LoadAddItemReferences(context.Context) ([]AddItemReference, error) {
+	references := make([]AddItemReference, 0, len(repository.references))
+	for _, reference := range repository.references {
+		reference.Result = cloneAddItemResult(reference.Result)
+		references = append(references, reference)
+	}
+	return references, nil
+}
+
+func (repository *fakeInventoryRepository) LoadInventoryCounters(context.Context) (InventoryCounters, error) {
+	return repository.counters, nil
 }
 
 func (repository *fakeInventoryRepository) UpsertStackableItem(_ context.Context, item StackableItem) error {
@@ -498,6 +594,67 @@ func (repository *fakeInventoryRepository) UpsertInstanceItem(_ context.Context,
 	}
 	repository.instances = append(repository.instances, item)
 	return nil
+}
+
+func (repository *fakeInventoryRepository) CommitAddItem(ctx context.Context, commit InventoryAddItemCommit) error {
+	if err := commit.Validate(); err != nil {
+		return err
+	}
+	repository.commits = append(repository.commits, cloneInventoryAddItemCommit(commit))
+	for _, item := range commit.StackableItems {
+		if err := repository.UpsertStackableItem(ctx, item); err != nil {
+			return err
+		}
+	}
+	for _, item := range commit.InstanceItems {
+		if err := repository.UpsertInstanceItem(ctx, item); err != nil {
+			return err
+		}
+	}
+	repository.upsertItemLedgerEntry(commit.LedgerEntry)
+	repository.upsertAddItemReference(commit.Reference)
+	if commit.Counters.ItemSequence > repository.counters.ItemSequence {
+		repository.counters.ItemSequence = commit.Counters.ItemSequence
+	}
+	if commit.Counters.LedgerSequence > repository.counters.LedgerSequence {
+		repository.counters.LedgerSequence = commit.Counters.LedgerSequence
+	}
+	return nil
+}
+
+func (repository *fakeInventoryRepository) upsertItemLedgerEntry(entry ItemLedgerEntry) {
+	for index := range repository.ledgerEntries {
+		if repository.ledgerEntries[index].LedgerID == entry.LedgerID {
+			repository.ledgerEntries[index] = entry
+			return
+		}
+	}
+	repository.ledgerEntries = append(repository.ledgerEntries, entry)
+}
+
+func (repository *fakeInventoryRepository) upsertAddItemReference(reference AddItemReference) {
+	for index := range repository.references {
+		if repository.references[index].PlayerID == reference.PlayerID && repository.references[index].ReferenceKey == reference.ReferenceKey {
+			repository.references[index] = AddItemReference{
+				PlayerID:     reference.PlayerID,
+				ReferenceKey: reference.ReferenceKey,
+				Result:       cloneAddItemResult(reference.Result),
+			}
+			return
+		}
+	}
+	repository.references = append(repository.references, AddItemReference{
+		PlayerID:     reference.PlayerID,
+		ReferenceKey: reference.ReferenceKey,
+		Result:       cloneAddItemResult(reference.Result),
+	})
+}
+
+func cloneInventoryAddItemCommit(commit InventoryAddItemCommit) InventoryAddItemCommit {
+	commit.StackableItems = append([]StackableItem(nil), commit.StackableItems...)
+	commit.InstanceItems = append([]InstanceItem(nil), commit.InstanceItems...)
+	commit.Reference.Result = cloneAddItemResult(commit.Reference.Result)
+	return commit
 }
 
 func newTestInventoryService() *InventoryService {

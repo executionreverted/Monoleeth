@@ -16,6 +16,9 @@ const addItemOperation = "add_item"
 // ErrItemInstanceAlreadyExists reports an explicit instance id collision.
 var ErrItemInstanceAlreadyExists = errors.New("item instance already exists")
 
+// ErrInvalidInventoryCounter reports a negative durable inventory sequence.
+var ErrInvalidInventoryCounter = errors.New("invalid inventory counter")
+
 // AddItemInput describes one authoritative item grant/add mutation.
 type AddItemInput struct {
 	PlayerID       foundation.PlayerID       `json:"player_id"`
@@ -39,8 +42,34 @@ type AddItemResult struct {
 type InventoryRepository interface {
 	LoadStackableItems(ctx context.Context) ([]StackableItem, error)
 	LoadInstanceItems(ctx context.Context) ([]InstanceItem, error)
+	LoadItemLedgerEntries(ctx context.Context) ([]ItemLedgerEntry, error)
+	LoadAddItemReferences(ctx context.Context) ([]AddItemReference, error)
+	LoadInventoryCounters(ctx context.Context) (InventoryCounters, error)
 	UpsertStackableItem(ctx context.Context, item StackableItem) error
 	UpsertInstanceItem(ctx context.Context, item InstanceItem) error
+	CommitAddItem(ctx context.Context, commit InventoryAddItemCommit) error
+}
+
+// InventoryCounters records the last allocated inventory service sequences.
+type InventoryCounters struct {
+	ItemSequence   int64
+	LedgerSequence int64
+}
+
+// AddItemReference records the durable duplicate result for an AddItem mutation.
+type AddItemReference struct {
+	PlayerID     foundation.PlayerID
+	ReferenceKey foundation.IdempotencyKey
+	Result       AddItemResult
+}
+
+// InventoryAddItemCommit is the durable write set for one AddItem mutation.
+type InventoryAddItemCommit struct {
+	StackableItems []StackableItem
+	InstanceItems  []InstanceItem
+	LedgerEntry    ItemLedgerEntry
+	Reference      AddItemReference
+	Counters       InventoryCounters
 }
 
 // InventoryService is an in-memory Phase 02 mutation service.
@@ -112,6 +141,40 @@ func NewInventoryServiceWithRepository(clock foundation.Clock, repository Invent
 			}
 			service.instanceItems = append(service.instanceItems, item)
 		}
+		ledgerEntries, err := repository.LoadItemLedgerEntries(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range ledgerEntries {
+			if err := entry.Validate(); err != nil {
+				return nil, err
+			}
+			service.itemLedgerEntries = append(service.itemLedgerEntries, entry)
+		}
+		references, err := repository.LoadAddItemReferences(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		for _, reference := range references {
+			if err := reference.Validate(); err != nil {
+				return nil, err
+			}
+			key := inventoryReferenceKey{
+				playerID:     reference.PlayerID,
+				operation:    addItemOperation,
+				referenceKey: reference.ReferenceKey,
+			}
+			service.addItemReferences[key] = cloneAddItemResult(reference.Result)
+		}
+		counters, err := repository.LoadInventoryCounters(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		if err := counters.Validate(); err != nil {
+			return nil, err
+		}
+		service.nextItemSequence = safeInventoryItemSequence(counters.ItemSequence, service.stackableItems, service.instanceItems)
+		service.nextLedgerSequence = safeInventoryLedgerSequence(counters.LedgerSequence, service.itemLedgerEntries)
 	}
 	return service, nil
 }
@@ -189,25 +252,18 @@ func (service *InventoryService) addItemValidatedLocked(input AddItemInput, quan
 	}
 	ledgerEntry.CreatedAt = now
 
-	for _, item := range stackableItems {
-		if err := service.persistStackableItemLocked(item); err != nil {
-			return AddItemResult{}, err
-		}
-	}
-	for _, item := range instanceItems {
-		if err := service.persistInstanceItemLocked(item); err != nil {
-			return AddItemResult{}, err
-		}
-	}
-	service.stackableItems = append(service.stackableItems, stackableItems...)
-	service.instanceItems = append(service.instanceItems, instanceItems...)
-	service.itemLedgerEntries = append(service.itemLedgerEntries, ledgerEntry)
-
 	result := AddItemResult{
 		StackableItems: stackableItems,
 		InstanceItems:  instanceItems,
 		LedgerEntry:    ledgerEntry,
 	}
+	if err := service.persistAddItemCommitLocked(input, result); err != nil {
+		return AddItemResult{}, err
+	}
+
+	service.stackableItems = append(service.stackableItems, stackableItems...)
+	service.instanceItems = append(service.instanceItems, instanceItems...)
+	service.itemLedgerEntries = append(service.itemLedgerEntries, ledgerEntry)
 	service.addItemReferences[reference] = cloneAddItemResult(result)
 	return cloneAddItemResult(result), nil
 }
@@ -380,6 +436,23 @@ func (service *InventoryService) persistInstanceItemLocked(item InstanceItem) er
 	return service.repository.UpsertInstanceItem(context.Background(), item)
 }
 
+func (service *InventoryService) persistAddItemCommitLocked(input AddItemInput, result AddItemResult) error {
+	if service.repository == nil {
+		return nil
+	}
+	return service.repository.CommitAddItem(context.Background(), InventoryAddItemCommit{
+		StackableItems: append([]StackableItem(nil), result.StackableItems...),
+		InstanceItems:  append([]InstanceItem(nil), result.InstanceItems...),
+		LedgerEntry:    result.LedgerEntry,
+		Reference: AddItemReference{
+			PlayerID:     input.PlayerID,
+			ReferenceKey: input.ReferenceKey,
+			Result:       cloneAddItemResult(result),
+		},
+		Counters: service.inventoryCountersLocked(),
+	})
+}
+
 func (service *InventoryService) nextItemInstanceID(itemID foundation.ItemID, kind string) foundation.ItemID {
 	for {
 		service.nextItemSequence++
@@ -393,6 +466,13 @@ func (service *InventoryService) nextItemInstanceID(itemID foundation.ItemID, ki
 func (service *InventoryService) nextLedgerID() LedgerID {
 	service.nextLedgerSequence++
 	return LedgerID(fmt.Sprintf("item-ledger-%d", service.nextLedgerSequence))
+}
+
+func (service *InventoryService) inventoryCountersLocked() InventoryCounters {
+	return InventoryCounters{
+		ItemSequence:   service.nextItemSequence,
+		LedgerSequence: service.nextLedgerSequence,
+	}
 }
 
 func (service *InventoryService) totalItemQuantityLocked(playerID foundation.PlayerID, itemID foundation.ItemID, location ItemLocation) int64 {

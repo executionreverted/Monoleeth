@@ -5,8 +5,14 @@ or unsafe for the current wave slice. Keep line/file references concrete.
 
 ## Forced Deferred Gaps
 
-None yet. Current P01 work leaves unfinished P01 checklist items unchecked rather
-than accepted as deferrals.
+### P01 Inventory Move/Remove Durable References — TASK-0475
+
+- MoveItem/RemoveItem durable mutation references and item-row durability remain
+  deferred; this slice persists `AddItem` ledger rows, mutation references, and
+  item/ledger counters only. Ref: `internal/game/economy/inventory_move.go`,
+  `internal/game/economy/inventory_remove.go`,
+  `internal/game/economy/inventory_service.go`,
+  `internal/game/contentdb/inventory_store.go`.
 
 ## Pre-Wave Audit Findings Not Yet Accepted As Deferrals
 
@@ -48,8 +54,9 @@ phase or moved above with a concrete deferral reason.
 
 - Inventory instance rows are now durable via `contentdb` load/upsert and
   `InventoryService` boot hydration/AddItem persistence. Item-ledger rows,
-  mutation-reference rows, and durable ID counters remain required before
-  loadout/equipped modules can prove restart durability. Ref:
+  `AddItem` mutation-reference rows, and durable item/ledger counters are now
+  covered by TASK-0475; move/remove durable references remain a forced deferral
+  above before full transactional inventory proof. Ref:
   `internal/game/economy/inventory_service.go`,
   `internal/game/contentdb/inventory_store.go`,
   `docs/road-to-v1/01-persistence-foundation.md:19`.

@@ -12,8 +12,8 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 8 {
-		t.Fatalf("len(migrations) = %d, want 8", len(migrations))
+	if len(migrations) != 9 {
+		t.Fatalf("len(migrations) = %d, want 9", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
@@ -39,8 +39,34 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if migrations[7].Version != "0008_inventory_instance_items" {
 		t.Fatalf("Version = %q, want 0008_inventory_instance_items", migrations[7].Version)
 	}
+	if migrations[8].Version != "0009_inventory_ledger_references_counters" {
+		t.Fatalf("Version = %q, want 0009_inventory_ledger_references_counters", migrations[8].Version)
+	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestInventoryLedgerRefsCountersMigrationHasDurableEvidenceTables(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[8].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS player_inventory_item_ledger",
+		"ledger_id text PRIMARY KEY",
+		"reference_key text NOT NULL",
+		"CREATE TABLE IF NOT EXISTS player_inventory_add_item_references",
+		"item_instance_ids jsonb NOT NULL DEFAULT '[]'::jsonb",
+		"PRIMARY KEY (player_id, reference_key)",
+		"CREATE TABLE IF NOT EXISTS player_inventory_counters",
+		"item_sequence bigint NOT NULL DEFAULT 0 CHECK (item_sequence >= 0)",
+		"ledger_sequence bigint NOT NULL DEFAULT 0 CHECK (ledger_sequence >= 0)",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("inventory ledger/ref/counter migration missing %q", fragment)
+		}
 	}
 }
 
