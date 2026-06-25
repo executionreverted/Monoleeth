@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/foundation"
@@ -12,6 +14,7 @@ import (
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
 	worldmaps "gameproject/internal/game/world/maps"
+	"gameproject/internal/game/world/worker"
 )
 
 func TestWorldProjectionSourcesReconcileAfterServerOwnedMovement(t *testing.T) {
@@ -409,6 +412,93 @@ func TestTickLoopEmitsAOIOnlyToSessionsAttachedToSameMap(t *testing.T) {
 	assertEventsContainEntityOnly(t, eventsBySession[starterPlayer.SessionID], "entity_tick_map_one", "entity_tick_map_two")
 	assertEventsContainEntityOnly(t, eventsBySession[mapTwoPlayer.SessionID], "entity_tick_map_two", "entity_tick_map_one")
 }
+
+func TestRuntimeTickCollectionReachesOtherMapWhileRuntimeMutexHeld(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	mapTwoTicked := make(chan struct{})
+
+	gameServer.runtime.mu.Lock()
+	starter, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("starter instance: %v", err)
+	}
+	mapTwo, err := gameServer.runtime.mapInstanceLocked("map_1_2")
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("map_1_2 instance: %v", err)
+	}
+	starter.Worker = newRuntimeTickProbeWorker(t, starter.Definition, nil)
+	mapTwo.Worker = newRuntimeTickProbeWorker(t, mapTwo.Definition, mapTwoTicked)
+	gameServer.runtime.Worker = starter.Worker
+	gameServer.runtime.mu.Unlock()
+
+	runtimeMuHeld := make(chan struct{})
+	releaseRuntimeMu := make(chan struct{})
+	holderDone := make(chan struct{})
+	go func() {
+		gameServer.runtime.mu.Lock()
+		close(runtimeMuHeld)
+		<-releaseRuntimeMu
+		gameServer.runtime.mu.Unlock()
+		close(holderDone)
+	}()
+	<-runtimeMuHeld
+
+	tickDone := make(chan map[auth.SessionID][]realtime.EventEnvelope, 1)
+	go func() {
+		tickDone <- gameServer.runtime.tickAndCollectAOIEvents()
+	}()
+
+	select {
+	case <-mapTwoTicked:
+	case <-tickDone:
+		t.Fatal("tickAndCollectAOIEvents completed while Runtime.mu was held; want worker tick collection before Runtime-owned AOI phase")
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("map_1_2 worker tick waited for Runtime.mu")
+	}
+
+	close(releaseRuntimeMu)
+	select {
+	case <-tickDone:
+	case <-time.After(time.Second):
+		t.Fatal("tickAndCollectAOIEvents did not finish after Runtime.mu release")
+	}
+	<-holderDone
+}
+
+type runtimeTickProbeMailbox struct {
+	ticked chan struct{}
+	once   sync.Once
+}
+
+func (mailbox *runtimeTickProbeMailbox) Submit(command worker.Command) error {
+	return nil
+}
+
+func (mailbox *runtimeTickProbeMailbox) Drain() []worker.Command {
+	if mailbox.ticked != nil {
+		mailbox.once.Do(func() {
+			close(mailbox.ticked)
+		})
+	}
+	return nil
+}
+
+func newRuntimeTickProbeWorker(t *testing.T, definition worldmaps.MapDefinition, ticked chan struct{}) *worker.Worker {
+	t.Helper()
+	zoneWorker, err := worker.NewWorker(worker.Config{
+		WorldID:   definition.WorldID,
+		ZoneID:    definition.ZoneID,
+		TickDelta: 50 * time.Millisecond,
+		Mailbox:   &runtimeTickProbeMailbox{ticked: ticked},
+	})
+	if err != nil {
+		t.Fatalf("new tick probe worker for %q: %v", definition.InternalMapID, err)
+	}
+	return zoneWorker
+}
+
 func TestMoveToAndStopMutateOnlyActiveMapWorker(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSessionOnMap(t, gameServer, "move-active-map@example.com", "Move Active", "map_1_2", "west_gate")

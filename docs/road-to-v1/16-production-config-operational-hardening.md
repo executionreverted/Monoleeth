@@ -33,6 +33,7 @@ for critical state transitions.
 - [x] `[P:wave2/lane-H]` Add telemetry-error counters: metric write errors, event encode errors, queue drops, slow-client disconnects, tick overruns.
 - [ ] `[P:wave2/lane-H]` Add structured logs with `player_id/session_id/request_id/op/idempotency_key/ref_ids/result/error_code/duration_ms` for critical transitions (no secrets/tokens).
   - Verified slice: `shop.buy_product` command logs now include request/player/session/op/result/error/duration/idempotency fields and reject secret payload leakage in focused tests.
+  - Verified slice: `auth.register` and `auth.login` transition logs now include a safe request summary, player/session identity on success, result, error code, duration, and reject password/token/hash/cookie leakage in focused tests.
 
 ## Server Ownership
 - Never log passwords, hashes, tokens, cookies, reset secrets (AGENTS.md).

@@ -103,6 +103,7 @@ type Runtime struct {
 	// buildingMutationMu serializes in-process building build/upgrade commands
 	// so wallet debit cannot outrun production commit.
 	buildingMutationMu sync.Mutex
+	tickMu             sync.Mutex
 
 	clock               foundation.Clock
 	devMode             bool
@@ -115,11 +116,14 @@ type Runtime struct {
 	Gateway *realtime.Gateway
 	Worker  *worker.Worker
 
-	worldID      foundation.WorldID
-	zoneID       foundation.ZoneID
-	mapCatalog   *worldmaps.Catalog
-	mapRouter    *worldmaps.Router
-	mapInstances map[worldmaps.MapID]*mapInstance
+	worldID    foundation.WorldID
+	zoneID     foundation.ZoneID
+	mapCatalog *worldmaps.Catalog
+	mapRouter  *worldmaps.Router
+	// mapInstances is populated at boot and treated as immutable. Runtime.mu
+	// still protects session/routing maps and per-instance AOI/session cursors.
+	mapInstances     map[worldmaps.MapID]*mapInstance
+	mapTickInstances []*mapInstance
 
 	players            map[foundation.PlayerID]playerRuntimeState
 	stealthBaseSpeeds  map[foundation.PlayerID]float64
@@ -1046,6 +1050,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		mapCatalog:                     mapCatalog,
 		mapRouter:                      mapRouter,
 		mapInstances:                   mapInstances,
+		mapTickInstances:               sortedMapInstances(mapInstances),
 		players:                        make(map[foundation.PlayerID]playerRuntimeState),
 		stealthBaseSpeeds:              make(map[foundation.PlayerID]float64),
 		eventSeq:                       make(map[auth.SessionID]uint64),

@@ -6,42 +6,47 @@ import (
 	"time"
 
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 )
 
 const defaultSessionTTL = 24 * time.Hour
 
 // ServiceConfig wires the auth service.
 type ServiceConfig struct {
-	Store          Store
-	Clock          foundation.Clock
-	PasswordHasher PasswordHasher
-	TokenGenerator TokenGenerator
-	SessionTTL     time.Duration
-	AttemptTracker AuthAttemptTracker
-	AttemptPolicy  AuthAttemptPolicy
+	Store            Store
+	Clock            foundation.Clock
+	PasswordHasher   PasswordHasher
+	TokenGenerator   TokenGenerator
+	SessionTTL       time.Duration
+	AttemptTracker   AuthAttemptTracker
+	AttemptPolicy    AuthAttemptPolicy
+	TransitionLogger observability.AuthTransitionLogger
 }
 
 // Service owns account, password, and session lifecycle rules.
 type Service struct {
-	store      Store
-	clock      foundation.Clock
-	passwords  PasswordHasher
-	tokens     TokenGenerator
-	sessionTTL time.Duration
-	attempts   AuthAttemptTracker
+	store            Store
+	clock            foundation.Clock
+	passwords        PasswordHasher
+	tokens           TokenGenerator
+	sessionTTL       time.Duration
+	attempts         AuthAttemptTracker
+	transitionLogger observability.AuthTransitionLogger
 }
 
 // RegisterInput is the browser-supplied registration payload.
 type RegisterInput struct {
-	Email    string
-	Password string
-	Callsign string
+	Email     string               `json:"email"`
+	Password  string               `json:"password"`
+	Callsign  string               `json:"callsign"`
+	RequestID foundation.RequestID `json:"request_id,omitempty"`
 }
 
 // LoginInput is the browser-supplied login payload.
 type LoginInput struct {
-	Email    string
-	Password string
+	Email     string               `json:"email"`
+	Password  string               `json:"password"`
+	RequestID foundation.RequestID `json:"request_id,omitempty"`
 }
 
 // AuthResult contains a newly-created raw cookie token plus public session
@@ -79,20 +84,26 @@ func NewService(config ServiceConfig) (*Service, error) {
 		attempts = NewInMemoryAuthAttemptTracker(config.AttemptPolicy)
 	}
 	return &Service{
-		store:      config.Store,
-		clock:      clock,
-		passwords:  passwords,
-		tokens:     tokens,
-		sessionTTL: ttl,
-		attempts:   attempts,
+		store:            config.Store,
+		clock:            clock,
+		passwords:        passwords,
+		tokens:           tokens,
+		sessionTTL:       ttl,
+		attempts:         attempts,
+		transitionLogger: config.TransitionLogger,
 	}, nil
 }
 
 // Register creates an account, player profile, and first login session.
-func (service *Service) Register(ctx context.Context, input RegisterInput) (AuthResult, error) {
+func (service *Service) Register(ctx context.Context, input RegisterInput) (result AuthResult, err error) {
 	if service == nil {
 		return AuthResult{}, ErrNilAuthService
 	}
+	startedAt := service.now()
+	defer func() {
+		service.recordAuthTransition(AuthAttemptRegister, input.RequestID, startedAt, result, err)
+	}()
+
 	attemptSubject := authAttemptSubject(input.Email)
 	if err := service.requireAuthAttemptAllowed(AuthAttemptRegister, attemptSubject); err != nil {
 		return AuthResult{}, err
@@ -141,10 +152,15 @@ func (service *Service) Register(ctx context.Context, input RegisterInput) (Auth
 }
 
 // Login verifies a password and creates a fresh session token.
-func (service *Service) Login(ctx context.Context, input LoginInput) (AuthResult, error) {
+func (service *Service) Login(ctx context.Context, input LoginInput) (result AuthResult, err error) {
 	if service == nil {
 		return AuthResult{}, ErrNilAuthService
 	}
+	startedAt := service.now()
+	defer func() {
+		service.recordAuthTransition(AuthAttemptLogin, input.RequestID, startedAt, result, err)
+	}()
+
 	attemptSubject := authAttemptSubject(input.Email)
 	if err := service.requireAuthAttemptAllowed(AuthAttemptLogin, attemptSubject); err != nil {
 		return AuthResult{}, err
@@ -171,6 +187,47 @@ func (service *Service) Login(ctx context.Context, input LoginInput) (AuthResult
 		return AuthResult{}, err
 	}
 	return service.createSession(ctx, account, player)
+}
+
+func (service *Service) recordAuthTransition(
+	operation AuthAttemptOperation,
+	requestID foundation.RequestID,
+	startedAt time.Time,
+	result AuthResult,
+	transitionErr error,
+) {
+	if service == nil || service.transitionLogger == nil {
+		return
+	}
+	finishedAt := service.now()
+	duration := finishedAt.Sub(startedAt)
+	if duration < 0 {
+		duration = 0
+	}
+
+	status := observability.CommandStatusOK
+	var code foundation.Code
+	if transitionErr != nil {
+		status = observability.CommandStatusError
+		code = foundation.CodeInternal
+		if domainCode, ok := foundation.CodeOf(transitionErr); ok {
+			code = domainCode
+		}
+	}
+
+	entry := observability.AuthTransitionLogEntry{
+		RequestID: requestID,
+		Request: observability.AuthTransitionRequest{
+			Operation: observability.Operation(operation),
+		},
+		PlayerID:  result.Session.PlayerID,
+		SessionID: observability.SessionID(result.Session.SessionID.String()),
+		ErrorCode: code,
+		Duration:  duration,
+		Status:    status,
+		Timestamp: startedAt,
+	}
+	_ = service.transitionLogger.RecordAuthTransition(entry)
 }
 
 func (service *Service) newAccountIDs() (foundation.AccountID, foundation.PlayerID, error) {

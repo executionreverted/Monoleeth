@@ -1,7 +1,7 @@
 # Phase 05 — Map Worker Ownership & Concurrency
 
 ## Status
-- State: Not started
+- State: In progress
 - Wave: 2
 - Depends on: P01
 - Unlocks: P11, scale
@@ -34,6 +34,7 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 ## Smoke Tests (one assertion each)
 - [ ] Command on map A does not block a command on map B (timing assertion).
 - [x] Concurrent move + tick on one map passes `-race`.
+- [x] Map B worker tick collection reaches the worker while `Runtime.mu` is held by unrelated runtime activity (`TestRuntimeTickCollectionReachesOtherMapWhileRuntimeMutexHeld`).
 - [ ] AOI read projection never observes a torn entity state.
 - [ ] Narrowed lock still serializes session attach/detach safely.
 

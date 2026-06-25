@@ -2,12 +2,14 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 )
 
 func TestRegisterCreatesAccountPlayerAndHashedSessionToken(t *testing.T) {
@@ -128,6 +130,94 @@ func TestLoginCreatesFreshSession(t *testing.T) {
 	if loggedIn.Token == registered.Token || loggedIn.Session.SessionID == registered.Session.SessionID {
 		t.Fatalf("login reused session token/id, want rotation")
 	}
+}
+
+func TestAuthRegisterLoginStructuredLogSuccessNoSecrets(t *testing.T) {
+	logger := observability.NewMemoryAuthTransitionLogger()
+	service, _, _ := newTestAuthServiceWithTransitionLogger(t, logger)
+
+	registered, err := service.Register(context.Background(), RegisterInput{
+		Email:    "pilot@example.com",
+		Password: "register-secret-password",
+		Callsign: "Frontier-01",
+	})
+	if err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	loggedIn, err := service.Login(context.Background(), LoginInput{
+		Email:    "pilot@example.com",
+		Password: "register-secret-password",
+	})
+	if err != nil {
+		t.Fatalf("Login() error = %v, want nil", err)
+	}
+
+	entries := logger.Snapshot()
+	if len(entries) != 2 {
+		t.Fatalf("auth transition log entries = %d, want 2", len(entries))
+	}
+	assertAuthTransitionSuccess(t, requireAuthTransitionEntry(t, entries, AuthAttemptRegister), AuthAttemptRegister, registered)
+	assertAuthTransitionSuccess(t, requireAuthTransitionEntry(t, entries, AuthAttemptLogin), AuthAttemptLogin, loggedIn)
+	assertAuthTransitionLogsNoSecrets(t, entries,
+		"register-secret-password",
+		"pilot@example.com",
+		registered.Token,
+		loggedIn.Token,
+		"password",
+		"password_hash",
+		"raw_token",
+		"session_token",
+		"cookie",
+		"hash",
+	)
+}
+
+func TestAuthRegisterLoginStructuredLogFailureNoSecrets(t *testing.T) {
+	service, _, _ := newTestAuthService(t)
+	if _, err := service.Register(context.Background(), RegisterInput{
+		Email:    "pilot@example.com",
+		Password: "initial-secret-password",
+		Callsign: "Frontier-01",
+	}); err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	logger := observability.NewMemoryAuthTransitionLogger()
+	service.transitionLogger = logger
+
+	_, registerErr := service.Register(context.Background(), RegisterInput{
+		Email:    "pilot@example.com",
+		Password: "duplicate-secret-password",
+		Callsign: "Frontier-02",
+	})
+	if !foundation.IsCode(registerErr, foundation.CodeInvalidPayload) {
+		t.Fatalf("duplicate Register() error = %v, want %s", registerErr, foundation.CodeInvalidPayload)
+	}
+	_, loginErr := service.Login(context.Background(), LoginInput{
+		Email:    "pilot@example.com",
+		Password: "wrong-secret-password",
+	})
+	if !foundation.IsCode(loginErr, foundation.CodeUnauthenticated) {
+		t.Fatalf("Login(wrong password) error = %v, want %s", loginErr, foundation.CodeUnauthenticated)
+	}
+
+	entries := logger.Snapshot()
+	if len(entries) != 2 {
+		t.Fatalf("auth transition log entries = %d, want 2", len(entries))
+	}
+	assertAuthTransitionFailure(t, requireAuthTransitionEntry(t, entries, AuthAttemptRegister), AuthAttemptRegister, foundation.CodeInvalidPayload)
+	assertAuthTransitionFailure(t, requireAuthTransitionEntry(t, entries, AuthAttemptLogin), AuthAttemptLogin, foundation.CodeUnauthenticated)
+	assertAuthTransitionLogsNoSecrets(t, entries,
+		"initial-secret-password",
+		"duplicate-secret-password",
+		"wrong-secret-password",
+		"pilot@example.com",
+		"password",
+		"password_hash",
+		"raw_token",
+		"session_token",
+		"cookie",
+		"hash",
+	)
 }
 
 func TestFailedLoginExistingAndMissingEmailSharePublicCodeMessage(t *testing.T) {
@@ -363,19 +453,100 @@ func lockedLoginPublicError(t *testing.T, service *Service, email string) founda
 
 func newTestAuthService(t *testing.T) (*Service, *InMemoryStore, *testClock) {
 	t.Helper()
+	return newTestAuthServiceWithTransitionLogger(t, nil)
+}
+
+func newTestAuthServiceWithTransitionLogger(t *testing.T, logger observability.AuthTransitionLogger) (*Service, *InMemoryStore, *testClock) {
+	t.Helper()
 	store := NewInMemoryStore()
 	clock := &testClock{now: time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)}
 	service, err := NewService(ServiceConfig{
-		Store:          store,
-		Clock:          clock,
-		PasswordHasher: PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
-		TokenGenerator: &testTokenGenerator{},
-		SessionTTL:     time.Hour,
+		Store:            store,
+		Clock:            clock,
+		PasswordHasher:   PBKDF2PasswordHasher{Iterations: 2, SaltBytes: 8, KeyBytes: 16},
+		TokenGenerator:   &testTokenGenerator{},
+		SessionTTL:       time.Hour,
+		TransitionLogger: logger,
 	})
 	if err != nil {
 		t.Fatalf("NewService() error = %v, want nil", err)
 	}
 	return service, store, clock
+}
+
+func requireAuthTransitionEntry(t *testing.T, entries []observability.AuthTransitionLogEntry, operation AuthAttemptOperation) observability.AuthTransitionLogEntry {
+	t.Helper()
+	for _, entry := range entries {
+		if entry.Request.Operation == observability.Operation(operation) {
+			return entry
+		}
+	}
+	t.Fatalf("auth transition log missing operation %q in %+v", operation, entries)
+	return observability.AuthTransitionLogEntry{}
+}
+
+func assertAuthTransitionSuccess(t *testing.T, entry observability.AuthTransitionLogEntry, operation AuthAttemptOperation, result AuthResult) {
+	t.Helper()
+	if entry.Request.Operation != observability.Operation(operation) || entry.Status != observability.CommandStatusOK || !entry.ErrorCode.IsZero() {
+		t.Fatalf("auth transition entry = %+v, want %s ok without error code", entry, operation)
+	}
+	if entry.PlayerID != result.Session.PlayerID || entry.SessionID != observability.SessionID(result.Session.SessionID.String()) {
+		t.Fatalf("auth transition identity = %+v, want player/session from result %+v", entry, result.Session)
+	}
+	assertAuthTransitionPublicFields(t, entry, operation)
+}
+
+func assertAuthTransitionFailure(t *testing.T, entry observability.AuthTransitionLogEntry, operation AuthAttemptOperation, code foundation.Code) {
+	t.Helper()
+	if entry.Request.Operation != observability.Operation(operation) || entry.Status != observability.CommandStatusError || entry.ErrorCode != code {
+		t.Fatalf("auth transition entry = %+v, want %s error %s", entry, operation, code)
+	}
+	if !entry.PlayerID.IsZero() || !entry.SessionID.IsZero() {
+		t.Fatalf("auth failure transition identity = %+v, want no player/session enumeration", entry)
+	}
+	assertAuthTransitionPublicFields(t, entry, operation)
+}
+
+func assertAuthTransitionPublicFields(t *testing.T, entry observability.AuthTransitionLogEntry, operation AuthAttemptOperation) {
+	t.Helper()
+	payload, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal auth transition log: %v", err)
+	}
+	var public map[string]any
+	if err := json.Unmarshal(payload, &public); err != nil {
+		t.Fatalf("decode auth transition log: %v", err)
+	}
+	request, ok := public["request"].(map[string]any)
+	if !ok || request["op"] != string(operation) {
+		t.Fatalf("auth transition request = %#v, want op %q in %s", public["request"], operation, payload)
+	}
+	for _, field := range []string{"request", "op", "result", "error_code", "duration_ms", "timestamp"} {
+		if _, ok := public[field]; !ok {
+			t.Fatalf("auth transition log missing field %q in %s", field, payload)
+		}
+	}
+	if got, ok := public["duration_ms"].(float64); !ok || got < 0 {
+		t.Fatalf("auth transition duration_ms = %#v, want non-negative number in %s", public["duration_ms"], payload)
+	}
+}
+
+func assertAuthTransitionLogsNoSecrets(t *testing.T, entries []observability.AuthTransitionLogEntry, forbidden ...string) {
+	t.Helper()
+	for _, entry := range entries {
+		payload, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatalf("marshal auth transition log: %v", err)
+		}
+		for _, leaked := range forbidden {
+			if leaked == "" {
+				continue
+			}
+			if strings.Contains(string(payload), leaked) {
+				t.Fatalf("auth transition log leaked %q in %s", leaked, payload)
+			}
+		}
+	}
 }
 
 func sessionCount(store *InMemoryStore) int {

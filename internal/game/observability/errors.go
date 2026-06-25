@@ -39,6 +39,15 @@ var (
 	// ErrMissingCommandLogWriter reports a nil structured command log sink.
 	ErrMissingCommandLogWriter = errors.New("missing command log writer")
 
+	// ErrMissingAuthTransitionLogIdentity reports a missing success auth log identity field.
+	ErrMissingAuthTransitionLogIdentity = errors.New("missing auth transition log identity field")
+
+	// ErrMissingAuthTransitionLogTimestamp reports a missing auth transition log timestamp.
+	ErrMissingAuthTransitionLogTimestamp = errors.New("missing auth transition log timestamp")
+
+	// ErrMissingAuthTransitionLogWriter reports a nil structured auth transition log sink.
+	ErrMissingAuthTransitionLogWriter = errors.New("missing auth transition log writer")
+
 	// ErrInvalidValueFlowDirection reports an unsupported economy flow direction.
 	ErrInvalidValueFlowDirection = errors.New("invalid value flow direction")
 

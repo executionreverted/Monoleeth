@@ -33,6 +33,11 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [ ] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (close `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0498: added a domain-neutral economy outbox replay worker
+  helper over the existing `OutboxStore` lease/publish/fail contract. Fake-store
+  tests cover publish-once success, publisher failure recorded as retryable
+  outbox failure, and failed-row retry to published. Broad after-commit service
+  wiring remains open.
 - 2026-06-25 TASK-0486: contentdb outbox pending/failed due-load,
   guarded lease, publish, failure/dead transitions, and replay helper skeleton
   tests landed. Broad after-commit publisher/replay worker task remains open.

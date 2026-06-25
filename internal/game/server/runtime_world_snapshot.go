@@ -183,12 +183,18 @@ func (runtime *Runtime) deleteHiddenPlayerWitnessesLocked(instance *mapInstance,
 }
 
 func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.EventEnvelope {
+	runtime.tickMu.Lock()
+	defer runtime.tickMu.Unlock()
+
+	tickedInstances := runtime.tickMapInstances()
+
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 
 	failedInstances := make(map[*mapInstance]struct{})
-	for _, instance := range runtime.sortedMapInstancesLocked() {
-		result := instance.Worker.Tick()
+	for _, ticked := range tickedInstances {
+		instance := ticked.instance
+		result := ticked.result
 		runtime.recordEnemyTelemetryLocked(instance, result)
 		if err := commandErrors(result); err != nil {
 			runtime.recordAOITickErrorLocked(instance, "worker_tick", err)
@@ -216,6 +222,28 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 	}
 	runtime.recordReplayEventsBySessionLocked(eventsBySession)
 	return eventsBySession
+}
+
+type tickedMapInstance struct {
+	instance *mapInstance
+	result   worker.TickResult
+}
+
+func (runtime *Runtime) tickMapInstances() []tickedMapInstance {
+	if runtime == nil || len(runtime.mapTickInstances) == 0 {
+		return nil
+	}
+	results := make([]tickedMapInstance, 0, len(runtime.mapTickInstances))
+	for _, instance := range runtime.mapTickInstances {
+		if instance == nil || instance.Worker == nil {
+			continue
+		}
+		results = append(results, tickedMapInstance{
+			instance: instance,
+			result:   instance.Worker.Tick(),
+		})
+	}
+	return results
 }
 
 func (runtime *Runtime) recordAOITickErrorLocked(instance *mapInstance, stage string, err error) {
@@ -282,11 +310,15 @@ func (runtime *Runtime) aoiDiffEventsForInstanceLocked(instance *mapInstance, se
 }
 
 func (runtime *Runtime) sortedMapInstancesLocked() []*mapInstance {
-	if len(runtime.mapInstances) == 0 {
+	return sortedMapInstances(runtime.mapInstances)
+}
+
+func sortedMapInstances(mapInstances map[worldmaps.MapID]*mapInstance) []*mapInstance {
+	if len(mapInstances) == 0 {
 		return nil
 	}
-	mapIDs := make([]worldmaps.MapID, 0, len(runtime.mapInstances))
-	for mapID := range runtime.mapInstances {
+	mapIDs := make([]worldmaps.MapID, 0, len(mapInstances))
+	for mapID := range mapInstances {
 		mapIDs = append(mapIDs, mapID)
 	}
 	sort.Slice(mapIDs, func(i, j int) bool {
@@ -294,7 +326,7 @@ func (runtime *Runtime) sortedMapInstancesLocked() []*mapInstance {
 	})
 	instances := make([]*mapInstance, 0, len(mapIDs))
 	for _, mapID := range mapIDs {
-		if instance := runtime.mapInstances[mapID]; instance != nil && instance.Worker != nil {
+		if instance := mapInstances[mapID]; instance != nil && instance.Worker != nil {
 			instances = append(instances, instance)
 		}
 	}
