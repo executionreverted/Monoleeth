@@ -67,6 +67,14 @@ func (runtime *Runtime) activeMapInstanceLocked(playerID foundation.PlayerID) (*
 	return instance, location, nil
 }
 
+func (runtime *Runtime) refreshPlayerMovementPositionLocked(playerID foundation.PlayerID) error {
+	instance, _, err := runtime.activeMapInstanceLocked(playerID)
+	if err != nil {
+		return err
+	}
+	return instance.Worker.RefreshPlayerMovementPosition(playerID)
+}
+
 func (runtime *Runtime) mapInstanceForLocationLocked(location worldmaps.PlayerMapLocation) (*mapInstance, error) {
 	instance, err := runtime.mapInstanceLocked(location.InternalMapID)
 	if err != nil {

@@ -57,6 +57,9 @@ func (runtime *Runtime) syncPlayerCombatActorLocked(playerID foundation.PlayerID
 	if !ok {
 		return combat.ActorState{}, worker.ErrUnknownPlayer
 	}
+	if err := runtime.refreshPlayerMovementPositionLocked(playerID); err != nil {
+		return combat.ActorState{}, err
+	}
 	instance, _, err := runtime.activeMapInstanceLocked(playerID)
 	if err != nil {
 		return combat.ActorState{}, err
@@ -115,6 +118,18 @@ func (runtime *Runtime) syncWorldCombatActorLocked(playerID foundation.PlayerID,
 		return worker.ErrUnknownEntity
 	}
 	if entity.Type == world.EntityTypePlayer {
+		targetPlayerID, _, ok := runtime.playerByEntityLocked(entity.ID)
+		if !ok {
+			return worker.ErrUnknownPlayer
+		}
+		if err := runtime.refreshPlayerMovementPositionLocked(targetPlayerID); err != nil {
+			return err
+		}
+		refreshed, ok := instance.Worker.Entity(entityID)
+		if !ok {
+			return worker.ErrUnknownEntity
+		}
+		entity = refreshed
 		return runtime.syncPlayerTargetCombatActorLocked(entity)
 	}
 	if entity.Type != world.EntityTypeNPC {
@@ -193,6 +208,9 @@ func (runtime *Runtime) refreshPlayerCombatStatsPayloadLocked(playerID foundatio
 }
 
 func (runtime *Runtime) viewerForPlayerLocked(playerID foundation.PlayerID) (visibility.Viewer, error) {
+	if err := runtime.refreshPlayerMovementPositionLocked(playerID); err != nil {
+		return visibility.Viewer{}, err
+	}
 	instance, location, err := runtime.activeMapInstanceLocked(playerID)
 	if err != nil {
 		return visibility.Viewer{}, err

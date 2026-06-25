@@ -131,6 +131,39 @@ func TestConfigFromEnvCoreStoreMode(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvGAMEEnvProduction(t *testing.T) {
+	t.Setenv(EnvGameEnv, string(GameEnvProduction))
+
+	config := ConfigFromEnv()
+
+	if config.GameEnv != GameEnvProduction {
+		t.Fatalf("GameEnv = %q, want production", config.GameEnv)
+	}
+}
+
+func TestConfigFromEnvGAMEEnvDevEnablesDevMode(t *testing.T) {
+	t.Setenv(EnvGameEnv, string(GameEnvDev))
+
+	config := ConfigFromEnv()
+
+	if config.GameEnv != GameEnvDev {
+		t.Fatalf("GameEnv = %q, want dev", config.GameEnv)
+	}
+	if !config.DevMode {
+		t.Fatal("DevMode = false, want true when GAME_ENV=dev")
+	}
+}
+
+func TestConfigFromEnvDevModeUsesGAMEEnvDevDefault(t *testing.T) {
+	t.Setenv(EnvDevMode, "true")
+
+	config := ConfigFromEnv()
+
+	if config.GameEnv != GameEnvDev {
+		t.Fatalf("GameEnv = %q, want dev when GAME_DEV_MODE=true", config.GameEnv)
+	}
+}
+
 func TestNewRejectsRequiredContentDBWithoutURL(t *testing.T) {
 	_, err := New(Config{
 		AllowedOrigins: []string{testOrigin},
@@ -138,6 +171,54 @@ func TestNewRejectsRequiredContentDBWithoutURL(t *testing.T) {
 	})
 	if !errors.Is(err, contentdb.ErrMissingDatabaseURL) {
 		t.Fatalf("New() error = %v, want ErrMissingDatabaseURL", err)
+	}
+}
+
+func TestNewProductionRejectsInsecureCookieBeforeRuntime(t *testing.T) {
+	_, err := New(productionGuardTestConfig(func(config *Config) {
+		config.CookieSecure = false
+	}))
+	if err == nil {
+		t.Fatal("New() error = nil, want production secure-cookie guard")
+	}
+	if !strings.Contains(err.Error(), EnvGameEnv) || !strings.Contains(err.Error(), EnvCookieSecure) {
+		t.Fatalf("New() error = %q, want GAME_ENV/CookieSecure guard", err)
+	}
+}
+
+func TestNewProductionRejectsCoreStoreOffBeforeRuntime(t *testing.T) {
+	_, err := New(productionGuardTestConfig(func(config *Config) {
+		config.CoreStoreMode = contentdb.ContentModeOff
+	}))
+	if err == nil {
+		t.Fatal("New() error = nil, want production core-store guard")
+	}
+	if !strings.Contains(err.Error(), EnvCoreStoreMode) || !strings.Contains(err.Error(), string(contentdb.ContentModeRequired)) {
+		t.Fatalf("New() error = %q, want required core-store guard", err)
+	}
+}
+
+func TestNewProductionRejectsCoreStoreDevFallbackBeforeRuntime(t *testing.T) {
+	_, err := New(productionGuardTestConfig(func(config *Config) {
+		config.CoreStoreMode = contentdb.ContentModeDevFallback
+	}))
+	if err == nil {
+		t.Fatal("New() error = nil, want production core-store guard")
+	}
+	if !strings.Contains(err.Error(), EnvCoreStoreMode) || !strings.Contains(err.Error(), string(contentdb.ContentModeRequired)) {
+		t.Fatalf("New() error = %q, want required core-store guard", err)
+	}
+}
+
+func TestNewProductionRejectsContentDBDevFallbackBeforeRuntime(t *testing.T) {
+	_, err := New(productionGuardTestConfig(func(config *Config) {
+		config.ContentDB.Mode = contentdb.ContentModeDevFallback
+	}))
+	if err == nil {
+		t.Fatal("New() error = nil, want production content-db guard")
+	}
+	if !strings.Contains(err.Error(), contentdb.EnvMode) || !strings.Contains(err.Error(), string(contentdb.ContentModeRequired)) {
+		t.Fatalf("New() error = %q, want required content-db guard", err)
 	}
 }
 
@@ -152,6 +233,27 @@ func TestNewRuntimeRejectsRequiredCoreStoreWithoutURL(t *testing.T) {
 	})
 	if !errors.Is(err, contentdb.ErrMissingDatabaseURL) {
 		t.Fatalf("NewRuntime() error = %v, want ErrMissingDatabaseURL", err)
+	}
+}
+
+func productionGuardTestConfig(mutate func(*Config)) Config {
+	config := Config{
+		GameEnv:       GameEnvProduction,
+		CookieSecure:  true,
+		ContentDB:     productionGuardContentDBConfig(),
+		CoreStoreMode: contentdb.ContentModeRequired,
+	}
+	if mutate != nil {
+		mutate(&config)
+	}
+	return config
+}
+
+func productionGuardContentDBConfig() contentdb.Config {
+	return contentdb.Config{
+		DatabaseURL: "postgres://gameproject:pw@127.0.0.1:5432/gameproject?sslmode=disable",
+		Mode:        contentdb.ContentModeRequired,
+		Migrations:  contentdb.MigrationModeVerify,
 	}
 }
 

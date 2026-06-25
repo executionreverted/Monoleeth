@@ -37,6 +37,9 @@ type clientConnection struct {
 // New returns a concrete game server.
 func New(config Config) (*Server, error) {
 	config = config.withDefaults()
+	if err := config.validateStartup(); err != nil {
+		return nil, err
+	}
 	if config.E2EPlanetClaimSeed && !config.DevMode {
 		return nil, fmt.Errorf("%s requires %s=true", EnvE2EPlanetClaimSeed, EnvDevMode)
 	}

@@ -214,6 +214,32 @@ func TestStopCommandClearsMovementTarget(t *testing.T) {
 	assertVecNear(t, entity.Position, world.Vec2{X: 10, Y: 0})
 }
 
+func TestStopCommandSettlesMovementAtServerTimedPosition(t *testing.T) {
+	zoneWorker := newTestWorker(t, time.Second)
+	clock := zoneWorker.clock.(*testutil.FakeClock)
+	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{}, 10)
+	target := world.Vec2{X: 100, Y: 0}
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, target),
+	}))
+	clock.Advance(4 * time.Second)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, StopCommand{PlayerID: "player-1"}))
+
+	entity, ok := zoneWorker.PlayerEntity("player-1")
+	if !ok {
+		t.Fatal("PlayerEntity() ok = false, want true")
+	}
+	assertVecNear(t, entity.Position, world.Vec2{X: 40, Y: 0})
+	if entity.Position == target {
+		t.Fatalf("settled position = target %+v, want in-flight server position", entity.Position)
+	}
+	if entity.Movement != (world.MovementState{}) {
+		t.Fatalf("movement state = %+v, want zero value", entity.Movement)
+	}
+}
+
 func TestSettleAndDetachSessionStopsMovementAtServerTimedPosition(t *testing.T) {
 	zoneWorker := newTestWorker(t, time.Second)
 	clock := zoneWorker.clock.(*testutil.FakeClock)

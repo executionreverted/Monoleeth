@@ -66,6 +66,9 @@ func (provider runtimeClaimProximityProvider) PlayerCanClaimPlanet(input discove
 	if err != nil {
 		return discovery.ClaimProximityResult{}, err
 	}
+	if err := provider.runtime.refreshPlayerMovementPositionLocked(input.PlayerID); err != nil {
+		return discovery.ClaimProximityResult{}, err
+	}
 	entity, ok := instance.Worker.PlayerEntity(input.PlayerID)
 	if !ok {
 		return discovery.ClaimProximityResult{}, worker.ErrUnknownPlayer

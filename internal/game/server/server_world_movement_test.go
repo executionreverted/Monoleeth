@@ -440,3 +440,39 @@ func TestStopClearsMovementTargetServerSide(t *testing.T) {
 		t.Fatalf("movement state = %+v, want stopped", entity.Movement)
 	}
 }
+
+func TestStopSettlesMovementToServerComputedPosition(t *testing.T) {
+	gameServer, httpServer, clock := newTestServerWithFakeClock(t)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+
+	writeText(t, conn, `{"request_id":"request-stop-settle-move","op":"move_to","payload":{"target":{"x":1000,"y":0}},"client_seq":1,"v":1}`)
+	if response := readResponse(t, conn); !response.OK {
+		t.Fatalf("move response = %+v, want success", response)
+	}
+
+	clock.Advance(250 * time.Millisecond)
+	writeText(t, conn, `{"request_id":"request-stop-settle","op":"stop","payload":{},"client_seq":2,"v":1}`)
+	response := readResponseSkippingEvents(t, conn)
+	if !response.OK {
+		t.Fatalf("stop response = %+v, want success", response)
+	}
+
+	gameServer.runtime.mu.Lock()
+	entity, ok := gameServer.runtime.Worker.PlayerEntity(resolved.PlayerID)
+	gameServer.runtime.mu.Unlock()
+	if !ok {
+		t.Fatal("player entity missing after stop")
+	}
+	assertServerVecNear(t, entity.Position, world.Vec2{X: defaultPlayerSpeed * 0.25, Y: 0})
+	if entity.Position == (world.Vec2{X: 1000, Y: 0}) {
+		t.Fatalf("settled position = target %+v, want in-flight server position", entity.Position)
+	}
+	if entity.Movement.Moving {
+		t.Fatalf("movement state = %+v, want stopped", entity.Movement)
+	}
+}

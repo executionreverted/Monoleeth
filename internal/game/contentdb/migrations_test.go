@@ -12,8 +12,8 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 10 {
-		t.Fatalf("len(migrations) = %d, want 10", len(migrations))
+	if len(migrations) != 11 {
+		t.Fatalf("len(migrations) = %d, want 11", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
@@ -45,8 +45,40 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if migrations[9].Version != "0010_loadout_state_schema" {
 		t.Fatalf("Version = %q, want 0010_loadout_state_schema", migrations[9].Version)
 	}
+	if migrations[10].Version != "0011_economy_idempotency_outbox" {
+		t.Fatalf("Version = %q, want 0011_economy_idempotency_outbox", migrations[10].Version)
+	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestEconomyIdempotencyOutboxMigrationHasDurableTables(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[10].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS idempotency_keys",
+		"PRIMARY KEY (scope, idempotency_key)",
+		"status text NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress', 'completed', 'failed'))",
+		"result_json jsonb NOT NULL DEFAULT '{}'::jsonb",
+		"CREATE INDEX IF NOT EXISTS idempotency_keys_operation_player_idx",
+		"CREATE TABLE IF NOT EXISTS outbox",
+		"payload_json jsonb NOT NULL CHECK (jsonb_typeof(payload_json) = 'object')",
+		"status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'leased', 'published', 'failed', 'dead'))",
+		"lease_owner text NOT NULL DEFAULT ''",
+		"leased_until timestamptz",
+		"attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0)",
+		"max_attempts integer NOT NULL DEFAULT 20 CHECK (max_attempts > 0)",
+		"CREATE INDEX IF NOT EXISTS outbox_status_available_idx",
+		"WHERE status IN ('pending', 'failed')",
+		"CREATE INDEX IF NOT EXISTS outbox_lease_idx",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("economy idempotency/outbox migration missing %q", fragment)
+		}
 	}
 }
 

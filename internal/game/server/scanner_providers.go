@@ -68,6 +68,9 @@ func (provider runtimeScannerPositionProvider) PlayerScanPosition(input discover
 	provider.runtime.mu.Lock()
 	defer provider.runtime.mu.Unlock()
 
+	if err := provider.runtime.refreshPlayerMovementPositionLocked(input.PlayerID); err != nil {
+		return discovery.ScannerPosition{}, err
+	}
 	instance, _, err := provider.runtime.activeMapInstanceLocked(input.PlayerID)
 	if err != nil {
 		return discovery.ScannerPosition{}, err

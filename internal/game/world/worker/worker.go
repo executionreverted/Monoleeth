@@ -299,6 +299,12 @@ func (worker *Worker) PlayerEntity(playerID foundation.PlayerID) (world.Entity, 
 	return worker.Entity(entityID)
 }
 
+// RefreshPlayerMovementPosition advances a moving player's stored position to
+// the worker clock without clearing an in-flight route.
+func (worker *Worker) RefreshPlayerMovementPosition(playerID foundation.PlayerID) error {
+	return worker.refreshPlayerMovementPosition(playerID, false)
+}
+
 // AttachedPlayer returns the player currently associated with sessionID.
 func (worker *Worker) AttachedPlayer(sessionID realtime.SessionID) (foundation.PlayerID, bool) {
 	playerID, ok := worker.sessionPlayers[sessionID]
@@ -616,6 +622,10 @@ func (worker *Worker) movePlayerTo(playerID foundation.PlayerID, intent world.Mo
 }
 
 func (worker *Worker) settlePlayerMovement(playerID foundation.PlayerID) error {
+	return worker.refreshPlayerMovementPosition(playerID, true)
+}
+
+func (worker *Worker) refreshPlayerMovementPosition(playerID foundation.PlayerID, stop bool) error {
 	entity, err := worker.playerEntityForMutation(playerID)
 	if err != nil {
 		return err
@@ -624,8 +634,11 @@ func (worker *Worker) settlePlayerMovement(playerID foundation.PlayerID) error {
 		return nil
 	}
 
-	entity.Position = worker.settledMovementPosition(entity, worker.clock.Now())
-	entity.Movement = world.MovementState{}
+	position, done := worker.settledMovementPositionAt(entity, worker.clock.Now())
+	entity.Position = position
+	if stop || done {
+		entity.Movement = world.MovementState{}
+	}
 	if err := worker.index.Update(spatial.EntityID(entity.ID.String()), spatialPosition(entity.Position)); err != nil {
 		return err
 	}
@@ -666,13 +679,7 @@ func (worker *Worker) setPlayerSpeed(playerID foundation.PlayerID, speed float64
 }
 
 func (worker *Worker) stopPlayer(playerID foundation.PlayerID) error {
-	entity, err := worker.playerEntityForMutation(playerID)
-	if err != nil {
-		return err
-	}
-	entity.Movement = world.MovementState{}
-	worker.entities[entity.ID] = entity
-	return nil
+	return worker.settlePlayerMovement(playerID)
 }
 
 func (worker *Worker) playerEntityForMutation(playerID foundation.PlayerID) (world.Entity, error) {
@@ -691,17 +698,22 @@ func (worker *Worker) playerEntityForMutation(playerID foundation.PlayerID) (wor
 }
 
 func (worker *Worker) settledMovementPosition(entity world.Entity, at time.Time) world.Vec2 {
+	settled, _ := worker.settledMovementPositionAt(entity, at)
+	return settled
+}
+
+func (worker *Worker) settledMovementPositionAt(entity world.Entity, at time.Time) (world.Vec2, bool) {
 	if !entity.Movement.Moving {
-		return entity.Position
+		return entity.Position, false
 	}
 	settled, done := world.MovementPositionAt(entity.Movement, at)
 	if done {
-		return settled
+		return settled, true
 	}
 	if entity.Position.DistanceSquared(entity.Movement.Target) <= settled.DistanceSquared(entity.Movement.Target) {
-		return entity.Position
+		return entity.Position, false
 	}
-	return settled
+	return settled, false
 }
 
 func (worker *Worker) advanceMovement() []CommandError {

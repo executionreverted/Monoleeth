@@ -111,11 +111,11 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 | # | Phase | Wave | Status | Progress |
 | --- | --- | :---: | --- | --- |
 | 01 | Persistence Foundation | 1 | Done | `██████████` 100% |
-| 02 | Transactional Economy & Outbox | 2 | Not started | `░░░░░░░░░░` 0% |
+| 02 | Transactional Economy & Outbox | 2 | In progress | `█░░░░░░░░░` 10% |
 | 03 | Realtime Hardening | 1 | Done | `██████████` 100% |
 | 04 | Rate Limiting & Abuse Posture | 1 | Done | `██████████` 100% |
 | 05 | Map Worker Ownership & Concurrency | 2 | Not started | `░░░░░░░░░░` 0% |
-| 06 | Movement, Combat & Death Correctness | 2 | Not started | `░░░░░░░░░░` 0% |
+| 06 | Movement, Combat & Death Correctness | 2 | In progress | `█░░░░░░░░░` 10% |
 | 07 | Equipment & Progression Closure | 3 | Not started | `░░░░░░░░░░` 0% |
 | 08 | Durable Planet, Production & Routes | 3 | Not started | `░░░░░░░░░░` 0% |
 | 09 | CMS Completion & Balance Telemetry | 3 | Not started | `░░░░░░░░░░` 0% |
@@ -125,9 +125,9 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 | 13 | Observability, Simulation & Release Gate | 4 | Not started | `░░░░░░░░░░` 0% |
 | 14 | CMS Runtime Application & Content Safety | 3 | Not started | `░░░░░░░░░░` 0% |
 | 15 | World Performance & AOI/Aggro Optimization | 4 | Not started | `░░░░░░░░░░` 0% |
-| 16 | Production Config & Operational Hardening | 2 | Not started | `░░░░░░░░░░` 0% |
+| 16 | Production Config & Operational Hardening | 2 | In progress | `████░░░░░░` 40% |
 | 17 | Runtime Decomposition & Maintainability | 6 | Not started | `░░░░░░░░░░` 0% |
-| — | **Overall v1** | — | In progress | `██░░░░░░░░` 19% |
+| — | **Overall v1** | — | In progress | `██░░░░░░░░` 21% |
 
 ### Progress bar legend
 

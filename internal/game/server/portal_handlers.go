@@ -126,6 +126,9 @@ func (runtime *Runtime) transferThroughPortalLocked(sessionID auth.SessionID, pl
 	if err != nil {
 		return nil, domainErrorForRuntime(err)
 	}
+	if err := runtime.refreshPlayerMovementPositionLocked(playerID); err != nil {
+		return nil, domainErrorForRuntime(err)
+	}
 	playerEntity, ok := source.Worker.PlayerEntity(playerID)
 	if !ok {
 		return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)

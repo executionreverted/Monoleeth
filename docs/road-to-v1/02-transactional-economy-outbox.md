@@ -1,7 +1,7 @@
 # Phase 02 — Transactional Economy & Outbox
 
 ## Status
-- State: Not started
+- State: In progress
 - Wave: 2
 - Depends on: P01
 - Unlocks: P07, P08, P13
@@ -23,6 +23,7 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - New economy features; only durability/correctness of existing flows.
 
 ## Tasks
+- [x] `[P:wave2/lane-A]` TASK-0481 foundation slice: add `idempotency_keys` + `outbox` contentdb schema skeleton and economy helper row contracts/tests.
 - [ ] `[P:wave2/lane-A]` Add `idempotency_keys` table + helper; enforce on every mutating economy op.
 - [ ] `[P:wave2/lane-A]` Add `outbox` table + after-commit publisher + replay worker.
 - [ ] `[P:wave2/lane-B]` Wrap market buy/cancel in single DB transaction (escrow move + wallet + ledger).

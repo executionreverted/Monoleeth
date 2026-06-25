@@ -1,7 +1,7 @@
 # Phase 16 — Production Config & Operational Hardening
 
 ## Status
-- State: Not started
+- State: In progress
 - Wave: 2
 - Depends on: P01 (env/mode), can start early
 - Unlocks: safe production deploy
@@ -27,8 +27,8 @@ for critical state transitions.
 - External dashboards/alerts (P13).
 
 ## Tasks
-- [ ] `[P:wave2/lane-F]` Add `GAME_ENV` mode; production requires `CookieSecure=true` or fail startup.
-- [ ] `[P:wave2/lane-F]` Production mode requires durable auth/economy/progression/world stores or fail startup.
+- [x] `[P:wave2/lane-F]` Add `GAME_ENV` mode; production requires `CookieSecure=true` or fail startup.
+- [x] `[P:wave2/lane-F]` Production mode requires durable auth/economy/progression/world stores or fail startup.
 - [ ] `[P:wave2/lane-G]` Register debug ops only in dev config; log/metric a warning when dev mode is enabled.
 - [ ] `[P:wave2/lane-H]` Add telemetry-error counters: metric write errors, event encode errors, queue drops, slow-client disconnects, tick overruns.
 - [ ] `[P:wave2/lane-H]` Add structured logs with `player_id/session_id/request_id/op/idempotency_key/ref_ids/result/error_code/duration_ms` for critical transitions (no secrets/tokens).
@@ -37,14 +37,14 @@ for critical state transitions.
 - Never log passwords, hashes, tokens, cookies, reset secrets (AGENTS.md).
 
 ## Smoke Tests (one assertion each)
-- [ ] Production mode with insecure cookie fails startup.
-- [ ] Production mode with an in-memory core store fails startup.
+- [x] Production mode with insecure cookie fails startup.
+- [x] Production mode with an in-memory core store fails startup.
 - [ ] Debug op is not registered in production protocol.
 - [ ] A simulated telemetry write failure increments the telemetry-error counter.
 - [ ] A market settlement emits one structured log with an idempotency key and no secrets.
 
 ## Done Criteria
-- [ ] Unsafe production config cannot boot.
+- [x] Unsafe production config cannot boot.
 - [ ] Critical transitions are traceable; code review MD-02/MD-04/MD-05/§15.2 closed.
 
 ## Verification

@@ -1,7 +1,7 @@
 # Phase 06 — Movement, Combat & Death Correctness
 
 ## Status
-- State: Not started
+- State: In progress
 - Wave: 2
 - Depends on: none (integrates better after P01)
 - Unlocks: P11
@@ -33,7 +33,7 @@ events, and repair, so the combat loop is durable and UX-complete.
 - Position, hit, damage, cooldown, repair price, ship state are server-owned.
 
 ## Smoke Tests (one assertion each)
-- [ ] Stop during movement settles to server-computed position, not last click target.
+- [x] Stop during movement settles to server-computed position, not last click target.
 - [ ] Disconnect during movement settles position (no stale active route on reconnect).
 - [ ] NPC/PvP death emits a client-safe disabled event.
 - [ ] Stale/tampered repair quote is rejected.

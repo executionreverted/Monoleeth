@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 )
 
 const (
+	EnvGameEnv             = "GAME_ENV"
 	EnvServerAddr          = "GAME_SERVER_ADDR"
 	EnvAllowedOrigins      = "GAME_ALLOWED_ORIGINS"
 	EnvAllowMissingOrigin  = "GAME_ALLOW_MISSING_ORIGIN"
@@ -33,8 +35,17 @@ const (
 	defaultE2EClaimCores   = 1
 )
 
+type GameEnv string
+
+const (
+	GameEnvLocal      GameEnv = "local"
+	GameEnvDev        GameEnv = "dev"
+	GameEnvProduction GameEnv = "production"
+)
+
 // Config controls the concrete single-process game server.
 type Config struct {
+	GameEnv             GameEnv
 	Addr                string
 	AllowedOrigins      []string
 	AllowMissingOrigin  bool
@@ -67,6 +78,7 @@ type Config struct {
 // DefaultConfig returns local-safe server defaults.
 func DefaultConfig() Config {
 	return Config{
+		GameEnv:            GameEnvLocal,
 		Addr:               defaultServerAddr,
 		AllowedOrigins:     []string{"http://localhost:5173", "http://127.0.0.1:5173"},
 		SessionTTL:         24 * time.Hour,
@@ -82,6 +94,11 @@ func DefaultConfig() Config {
 // ConfigFromEnv returns Config with GAME_* environment overrides.
 func ConfigFromEnv() Config {
 	config := DefaultConfig()
+	gameEnvSet := false
+	if value := strings.TrimSpace(os.Getenv(EnvGameEnv)); value != "" {
+		config.GameEnv = GameEnv(value)
+		gameEnvSet = true
+	}
 	if value := strings.TrimSpace(os.Getenv(EnvServerAddr)); value != "" {
 		config.Addr = value
 	}
@@ -93,6 +110,12 @@ func ConfigFromEnv() Config {
 	config.ClientStaticDir = strings.TrimSpace(os.Getenv(EnvClientStaticDir))
 	config.PlaytestSeed = envBool(EnvPlaytestSeed, config.PlaytestSeed)
 	config.DevMode = envBool(EnvDevMode, config.DevMode)
+	if config.GameEnv == GameEnvDev {
+		config.DevMode = true
+	}
+	if !gameEnvSet && config.DevMode {
+		config.GameEnv = GameEnvDev
+	}
 	config.E2EPlanetClaimSeed = envBool(EnvE2EPlanetClaimSeed, config.E2EPlanetClaimSeed)
 	config.E2EPlanetClaimCores = envPositiveInt(EnvE2EPlanetClaimCores, config.E2EPlanetClaimCores)
 	config.E2ERouteSeed = envBool(EnvE2ERouteSeed, config.E2ERouteSeed)
@@ -117,6 +140,16 @@ func (config Config) originPolicy() auth.OriginPolicy {
 
 func (config Config) withDefaults() Config {
 	defaults := DefaultConfig()
+	if config.GameEnv == "" {
+		if config.DevMode {
+			config.GameEnv = GameEnvDev
+		} else {
+			config.GameEnv = defaults.GameEnv
+		}
+	}
+	if config.GameEnv == GameEnvDev {
+		config.DevMode = true
+	}
 	if config.Addr == "" {
 		config.Addr = defaults.Addr
 	}
@@ -161,6 +194,38 @@ func (config Config) coreStoreModeWithDefault() contentdb.ContentMode {
 		return contentdb.ContentModeDevFallback
 	}
 	return contentdb.ContentModeOff
+}
+
+func (config Config) validateStartup() error {
+	switch config.GameEnv {
+	case GameEnvLocal, GameEnvDev, GameEnvProduction:
+	default:
+		return fmt.Errorf("invalid %s: %q", EnvGameEnv, config.GameEnv)
+	}
+	if err := config.ContentDB.Validate(); err != nil {
+		return err
+	}
+	switch config.CoreStoreMode {
+	case contentdb.ContentModeOff, contentdb.ContentModeRequired, contentdb.ContentModeDevFallback:
+	default:
+		return fmt.Errorf("%w: %s=%q", contentdb.ErrInvalidContentMode, EnvCoreStoreMode, config.CoreStoreMode)
+	}
+	if config.GameEnv != GameEnvProduction {
+		return nil
+	}
+	if config.DevMode {
+		return fmt.Errorf("%s=%s requires %s=false", EnvGameEnv, GameEnvProduction, EnvDevMode)
+	}
+	if !config.CookieSecure {
+		return fmt.Errorf("%s=%s requires %s=true", EnvGameEnv, GameEnvProduction, EnvCookieSecure)
+	}
+	if config.ContentDB.Mode != contentdb.ContentModeRequired || config.ContentDB.DatabaseURL == "" {
+		return fmt.Errorf("%s=%s requires %s=%s and %s to use durable core stores", EnvGameEnv, GameEnvProduction, contentdb.EnvMode, contentdb.ContentModeRequired, contentdb.EnvDatabaseURL)
+	}
+	if config.CoreStoreMode != contentdb.ContentModeRequired {
+		return fmt.Errorf("%s=%s requires %s=%s for durable core stores", EnvGameEnv, GameEnvProduction, EnvCoreStoreMode, contentdb.ContentModeRequired)
+	}
+	return nil
 }
 
 func splitCSV(value string) []string {
