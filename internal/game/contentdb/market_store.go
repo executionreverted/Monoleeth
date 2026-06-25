@@ -19,6 +19,8 @@ type MarketListingStore struct {
 	store *Store
 }
 
+var _ market.MarketListingRepository = (*MarketListingStore)(nil)
+
 type MarketStore = MarketListingStore
 
 type MarketListingTx struct {

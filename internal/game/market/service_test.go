@@ -22,6 +22,7 @@ type marketFixture struct {
 	inventory      *economy.InventoryService
 	wallet         *economy.WalletService
 	service        *MarketService
+	listingStore   *fakeMarketListingRepository
 	sellerID       foundation.PlayerID
 	buyerID        foundation.PlayerID
 	otherBuyerID   foundation.PlayerID
@@ -206,6 +207,24 @@ func TestCreateListingDuplicateReferenceReturnsCachedResultWithoutMutation(t *te
 	}
 }
 
+func TestCreateListingPersistsRepositorySnapshotWhenConfigured(t *testing.T) {
+	fixture := newMarketFixtureWithListingRepository(t)
+	fixture.seedSellerItems(t, 20, "seed-repository-create")
+
+	result := fixture.createListing(t, "listing-repository-create", 8, 25)
+
+	saved, ok := fixture.listingStore.saved(result.Listing.ListingID)
+	if !ok {
+		t.Fatalf("saved listing %q ok = false, want true", result.Listing.ListingID)
+	}
+	if saved.Status != ListingStatusActive || saved.OriginalQuantity != 8 || saved.RemainingQuantity != 8 {
+		t.Fatalf("saved listing = status %q original %d remaining %d, want active 8/8", saved.Status, saved.OriginalQuantity, saved.RemainingQuantity)
+	}
+	if saved.SourceReturnLocation != fixture.sourceLocation || saved.EscrowLocation != result.Listing.EscrowLocation {
+		t.Fatalf("saved locations = source %v escrow %v, want source %v escrow %v", saved.SourceReturnLocation, saved.EscrowLocation, fixture.sourceLocation, result.Listing.EscrowLocation)
+	}
+}
+
 func TestCreateListingNewReferenceForSameItemValidatesCurrentSourceQuantity(t *testing.T) {
 	fixture := newMarketFixture(t)
 	fixture.seedSellerItems(t, 20, "seed-new-reference")
@@ -221,6 +240,50 @@ func TestCreateListingNewReferenceForSameItemValidatesCurrentSourceQuantity(t *t
 	}
 	if got := len(fixture.inventory.ItemLedgerEntries()); got != ledgerCount {
 		t.Fatalf("item ledger entries after failed new reference = %d, want %d", got, ledgerCount)
+	}
+}
+
+func TestBuyListingPersistsRepositorySnapshotWhenConfigured(t *testing.T) {
+	fixture := newMarketFixtureWithListingRepository(t)
+	fixture.seedSellerItems(t, 5, "seed-repository-buy")
+	fixture.seedCredits(t, fixture.buyerID, 1_000, "buyer-repository-buy")
+	create := fixture.createListing(t, "listing-repository-buy", 5, 10)
+
+	partial, err := fixture.service.BuyListing(BuyListingInput{
+		BuyerPlayerID: fixture.buyerID,
+		ListingID:     create.Listing.ListingID,
+		Quantity:      2,
+		RequestID:     "buy-repository-partial",
+	})
+	if err != nil {
+		t.Fatalf("partial BuyListing: %v", err)
+	}
+	saved, ok := fixture.listingStore.saved(create.Listing.ListingID)
+	if !ok {
+		t.Fatalf("saved listing %q ok = false, want true", create.Listing.ListingID)
+	}
+	if saved.Status != ListingStatusActive || saved.RemainingQuantity != 3 {
+		t.Fatalf("partial saved listing status/remaining = %q/%d, want active/3", saved.Status, saved.RemainingQuantity)
+	}
+	if saved.UpdatedAt != partial.Listing.UpdatedAt {
+		t.Fatalf("partial saved updated_at = %s, want %s", saved.UpdatedAt, partial.Listing.UpdatedAt)
+	}
+
+	final, err := fixture.service.BuyListing(BuyListingInput{
+		BuyerPlayerID: fixture.buyerID,
+		ListingID:     create.Listing.ListingID,
+		Quantity:      3,
+		RequestID:     "buy-repository-final",
+	})
+	if err != nil {
+		t.Fatalf("final BuyListing: %v", err)
+	}
+	saved, ok = fixture.listingStore.saved(create.Listing.ListingID)
+	if !ok {
+		t.Fatalf("saved listing %q after final ok = false, want true", create.Listing.ListingID)
+	}
+	if saved.Status != ListingStatusSold || saved.RemainingQuantity != 0 || final.Listing.Status != ListingStatusSold {
+		t.Fatalf("final saved listing = status %q remaining %d, result status %q, want sold/0/sold", saved.Status, saved.RemainingQuantity, final.Listing.Status)
 	}
 }
 
@@ -514,6 +577,29 @@ func TestCancelListingReturnsRemainingEscrowAndDuplicateDoesNotReturnTwice(t *te
 	}
 	if got := len(fixture.inventory.ItemLedgerEntries()); got != itemLedgerAfterFirst {
 		t.Fatalf("item ledger entries len = %d, want %d", got, itemLedgerAfterFirst)
+	}
+}
+
+func TestCancelListingPersistsRepositorySnapshotWhenConfigured(t *testing.T) {
+	fixture := newMarketFixtureWithListingRepository(t)
+	fixture.seedSellerItems(t, 5, "seed-repository-cancel")
+	create := fixture.createListing(t, "listing-repository-cancel", 5, 10)
+
+	result, err := fixture.service.CancelListing(CancelListingInput{
+		SellerPlayerID: fixture.sellerID,
+		ListingID:      create.Listing.ListingID,
+		RequestID:      "cancel-repository",
+	})
+	if err != nil {
+		t.Fatalf("CancelListing: %v", err)
+	}
+
+	saved, ok := fixture.listingStore.saved(create.Listing.ListingID)
+	if !ok {
+		t.Fatalf("saved listing %q ok = false, want true", create.Listing.ListingID)
+	}
+	if saved.Status != ListingStatusCancelled || saved.RemainingQuantity != 5 || result.ReturnedQuantity != 5 {
+		t.Fatalf("saved cancel listing = status %q remaining %d returned %d, want cancelled/5/5", saved.Status, saved.RemainingQuantity, result.ReturnedQuantity)
 	}
 }
 
@@ -913,18 +999,31 @@ func TestBuyRacingCancelCannotDuplicateItems(t *testing.T) {
 }
 
 func newMarketFixture(t *testing.T) *marketFixture {
+	return newMarketFixtureWithListingStore(t, nil)
+}
+
+func newMarketFixtureWithListingRepository(t *testing.T) *marketFixture {
+	return newMarketFixtureWithListingStore(t, newFakeMarketListingRepository())
+}
+
+func newMarketFixtureWithListingStore(t *testing.T, listingStore *fakeMarketListingRepository) *marketFixture {
 	t.Helper()
 
 	clock := testutil.NewFakeClock(marketTestNow)
 	inventory := economy.NewInventoryService(clock)
 	wallet := economy.NewWalletService(clock)
 	economyStore := newMemoryMarketEconomyStore()
+	var listingRepository MarketListingRepository
+	if listingStore != nil {
+		listingRepository = listingStore
+	}
 	service, err := NewMarketService(MarketServiceConfig{
-		Clock:            clock,
-		Inventory:        inventory,
-		Wallet:           wallet,
-		IdempotencyStore: economyStore,
-		OutboxStore:      economyStore,
+		Clock:             clock,
+		Inventory:         inventory,
+		Wallet:            wallet,
+		ListingRepository: listingRepository,
+		IdempotencyStore:  economyStore,
+		OutboxStore:       economyStore,
 	})
 	if err != nil {
 		t.Fatalf("NewMarketService: %v", err)
@@ -940,6 +1039,7 @@ func newMarketFixture(t *testing.T) *marketFixture {
 		inventory:      inventory,
 		wallet:         wallet,
 		service:        service,
+		listingStore:   listingStore,
 		sellerID:       sellerID,
 		buyerID:        buyerID,
 		otherBuyerID:   "buyer-2",
@@ -948,6 +1048,37 @@ func newMarketFixture(t *testing.T) *marketFixture {
 		definition:     marketStackableDefinition(t, "raw-ore", []economy.TradeFlag{economy.TradeFlagMarketTradeable}),
 		economyStore:   economyStore,
 	}
+}
+
+type fakeMarketListingRepository struct {
+	mu       sync.Mutex
+	listings map[foundation.ListingID]Listing
+}
+
+func newFakeMarketListingRepository() *fakeMarketListingRepository {
+	return &fakeMarketListingRepository{listings: make(map[foundation.ListingID]Listing)}
+}
+
+func (repository *fakeMarketListingRepository) SaveMarketListing(ctx context.Context, listing Listing) error {
+	if repository == nil {
+		return errors.New("nil fake market listing repository")
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	repository.listings[listing.ListingID] = cloneListing(listing)
+	return nil
+}
+
+func (repository *fakeMarketListingRepository) saved(listingID foundation.ListingID) (Listing, bool) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	listing, ok := repository.listings[listingID]
+	if !ok {
+		return Listing{}, false
+	}
+	return cloneListing(listing), true
 }
 
 type failingMarketBuyInventory struct {

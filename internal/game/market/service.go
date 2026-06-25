@@ -54,11 +54,17 @@ type WalletService interface {
 	RestoreMutationState(snapshot economy.WalletMutationSnapshot)
 }
 
+// MarketListingRepository persists listing snapshots when durable storage is wired.
+type MarketListingRepository interface {
+	SaveMarketListing(ctx context.Context, listing Listing) error
+}
+
 // MarketServiceConfig wires MarketService to economy primitives.
 type MarketServiceConfig struct {
 	Clock             foundation.Clock
 	Inventory         InventoryService
 	Wallet            WalletService
+	ListingRepository MarketListingRepository
 	IdempotencyStore  economy.IdempotencyStore
 	OutboxStore       economy.OutboxStore
 	SettlementLogger  observability.SettlementLogger
@@ -74,6 +80,7 @@ type MarketService struct {
 
 	inventory         InventoryService
 	wallet            WalletService
+	listingRepository MarketListingRepository
 	idempotencyStore  economy.IdempotencyStore
 	outboxStore       economy.OutboxStore
 	settlementLogger  observability.SettlementLogger
@@ -133,6 +140,7 @@ func NewMarketService(config MarketServiceConfig) (*MarketService, error) {
 		clock:                 clock,
 		inventory:             config.Inventory,
 		wallet:                config.Wallet,
+		listingRepository:     config.ListingRepository,
 		idempotencyStore:      config.IdempotencyStore,
 		outboxStore:           config.OutboxStore,
 		settlementLogger:      config.SettlementLogger,
@@ -183,6 +191,10 @@ func (service *MarketService) CreateListing(input CreateListingInput) (CreateLis
 		return CreateListingResult{}, err
 	}
 
+	var inventorySnapshot economy.InventoryMutationSnapshot
+	if service.listingRepository != nil {
+		inventorySnapshot = service.inventory.SnapshotMutationState()
+	}
 	escrowMove, err := service.inventory.SystemMoveItem(economy.MoveItemInput{
 		PlayerID:     input.SellerPlayerID,
 		ItemRef:      input.ItemRef,
@@ -213,6 +225,12 @@ func (service *MarketService) CreateListing(input CreateListingInput) (CreateLis
 		CreatedAt:            now,
 		UpdatedAt:            now,
 		ExpiresAt:            cloneTimePointer(input.ExpiresAt),
+	}
+	if err := service.saveListingSnapshot(listing); err != nil {
+		if service.listingRepository != nil {
+			service.inventory.RestoreMutationState(inventorySnapshot)
+		}
+		return CreateListingResult{}, err
 	}
 	service.listings[input.ListingID] = cloneListing(listing)
 
@@ -393,6 +411,9 @@ func (service *MarketService) BuyListing(input BuyListingInput) (result BuyListi
 		SaleReference:  saleReference,
 		FeeReference:   feeReference,
 	}
+	if err := service.saveListingSnapshot(listing); err != nil {
+		return rollback(err)
+	}
 	if err := service.insertMarketBuyOutbox(result, input); err != nil {
 		return rollback(err)
 	}
@@ -494,6 +515,9 @@ func (service *MarketService) CancelListing(input CancelListingInput) (result Ca
 		ReturnedQuantity: returnedQuantity,
 		ReturnMove:       returnMove,
 		ReferenceKey:     referenceKey,
+	}
+	if err := service.saveListingSnapshot(listing); err != nil {
+		return rollback(err)
 	}
 	if err := service.completeMarketCancelIdempotency(idempotencyRow, result, input); err != nil {
 		return rollback(err)
@@ -711,6 +735,13 @@ func (service *MarketService) nowUTC() time.Time {
 		return foundation.RealClock{}.Now().UTC()
 	}
 	return service.clock.Now().UTC()
+}
+
+func (service *MarketService) saveListingSnapshot(listing Listing) error {
+	if service == nil || service.listingRepository == nil {
+		return nil
+	}
+	return service.listingRepository.SaveMarketListing(context.Background(), cloneListing(listing))
 }
 
 func (input CreateListingInput) validate(now time.Time) error {

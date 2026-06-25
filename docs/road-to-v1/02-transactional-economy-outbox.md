@@ -33,6 +33,15 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0522: `MarketService` now accepts an optional
+  `MarketListingRepository` snapshot seam, and contentdb `MarketListingStore`
+  satisfies it. `CreateListing` saves the active listing snapshot, while
+  `BuyListing` and `CancelListing` save updated status/remaining-quantity
+  snapshots through the seam when configured. Focused market tests use a fake
+  repository to prove active, partial-buy, sold, and cancelled listing
+  snapshots persist.
+  Full DB transaction coverage across listing, wallet, inventory, idempotency,
+  and outbox is still open; no broad market transaction checkbox was closed.
 - 2026-06-25 TASK-0520: contentdb now has durable `market_listings`
   schema plus a `MarketListingStore` adapter for saving/loading fixed-price
   listing snapshots, including source return and market escrow locations. The
