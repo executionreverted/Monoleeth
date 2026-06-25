@@ -44,10 +44,14 @@ type InventoryRepository interface {
 	LoadInstanceItems(ctx context.Context) ([]InstanceItem, error)
 	LoadItemLedgerEntries(ctx context.Context) ([]ItemLedgerEntry, error)
 	LoadAddItemReferences(ctx context.Context) ([]AddItemReference, error)
+	LoadMoveItemReferences(ctx context.Context) ([]MoveItemReference, error)
+	LoadRemoveItemReferences(ctx context.Context) ([]RemoveItemReference, error)
 	LoadInventoryCounters(ctx context.Context) (InventoryCounters, error)
 	UpsertStackableItem(ctx context.Context, item StackableItem) error
 	UpsertInstanceItem(ctx context.Context, item InstanceItem) error
 	CommitAddItem(ctx context.Context, commit InventoryAddItemCommit) error
+	CommitMoveItem(ctx context.Context, commit InventoryMoveItemCommit) error
+	CommitRemoveItem(ctx context.Context, commit InventoryRemoveItemCommit) error
 }
 
 // InventoryCounters records the last allocated inventory service sequences.
@@ -63,6 +67,20 @@ type AddItemReference struct {
 	Result       AddItemResult
 }
 
+// MoveItemReference records the durable duplicate result for a MoveItem mutation.
+type MoveItemReference struct {
+	PlayerID     foundation.PlayerID
+	ReferenceKey foundation.IdempotencyKey
+	Result       MoveItemResult
+}
+
+// RemoveItemReference records the durable duplicate result for a RemoveItem mutation.
+type RemoveItemReference struct {
+	PlayerID     foundation.PlayerID
+	ReferenceKey foundation.IdempotencyKey
+	Result       RemoveItemResult
+}
+
 // InventoryAddItemCommit is the durable write set for one AddItem mutation.
 type InventoryAddItemCommit struct {
 	StackableItems []StackableItem
@@ -70,6 +88,26 @@ type InventoryAddItemCommit struct {
 	LedgerEntry    ItemLedgerEntry
 	Reference      AddItemReference
 	Counters       InventoryCounters
+}
+
+// InventoryMoveItemCommit is the durable write set for one MoveItem mutation.
+type InventoryMoveItemCommit struct {
+	StackableItems        []StackableItem
+	DeletedStackableItems []StackableItem
+	InstanceItems         []InstanceItem
+	LedgerEntries         []ItemLedgerEntry
+	Reference             MoveItemReference
+	Counters              InventoryCounters
+}
+
+// InventoryRemoveItemCommit is the durable write set for one RemoveItem mutation.
+type InventoryRemoveItemCommit struct {
+	StackableItems        []StackableItem
+	DeletedStackableItems []StackableItem
+	DeletedInstanceItems  []InstanceItem
+	LedgerEntries         []ItemLedgerEntry
+	Reference             RemoveItemReference
+	Counters              InventoryCounters
 }
 
 // InventoryService is an in-memory Phase 02 mutation service.
@@ -165,6 +203,36 @@ func NewInventoryServiceWithRepository(clock foundation.Clock, repository Invent
 				referenceKey: reference.ReferenceKey,
 			}
 			service.addItemReferences[key] = cloneAddItemResult(reference.Result)
+		}
+		moveReferences, err := repository.LoadMoveItemReferences(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		for _, reference := range moveReferences {
+			if err := reference.Validate(); err != nil {
+				return nil, err
+			}
+			key := inventoryReferenceKey{
+				playerID:     reference.PlayerID,
+				operation:    moveItemOperation,
+				referenceKey: reference.ReferenceKey,
+			}
+			service.moveItemReferences[key] = cloneMoveItemResult(reference.Result)
+		}
+		removeReferences, err := repository.LoadRemoveItemReferences(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		for _, reference := range removeReferences {
+			if err := reference.Validate(); err != nil {
+				return nil, err
+			}
+			key := inventoryReferenceKey{
+				playerID:     reference.PlayerID,
+				operation:    removeItemOperation,
+				referenceKey: reference.ReferenceKey,
+			}
+			service.removeItemReferences[key] = cloneRemoveItemResult(reference.Result)
 		}
 		counters, err := repository.LoadInventoryCounters(context.Background())
 		if err != nil {
@@ -448,6 +516,42 @@ func (service *InventoryService) persistAddItemCommitLocked(input AddItemInput, 
 			PlayerID:     input.PlayerID,
 			ReferenceKey: input.ReferenceKey,
 			Result:       cloneAddItemResult(result),
+		},
+		Counters: service.inventoryCountersLocked(),
+	})
+}
+
+func (service *InventoryService) persistMoveItemCommitLocked(input MoveItemInput, result MoveItemResult) error {
+	if service.repository == nil {
+		return nil
+	}
+	return service.repository.CommitMoveItem(context.Background(), InventoryMoveItemCommit{
+		StackableItems:        append([]StackableItem(nil), result.StackableItems...),
+		DeletedStackableItems: append([]StackableItem(nil), result.DeletedStackableItems...),
+		InstanceItems:         append([]InstanceItem(nil), result.InstanceItems...),
+		LedgerEntries:         append([]ItemLedgerEntry(nil), result.LedgerEntries...),
+		Reference: MoveItemReference{
+			PlayerID:     input.PlayerID,
+			ReferenceKey: input.ReferenceKey,
+			Result:       cloneMoveItemResult(result),
+		},
+		Counters: service.inventoryCountersLocked(),
+	})
+}
+
+func (service *InventoryService) persistRemoveItemCommitLocked(input RemoveItemInput, result RemoveItemResult) error {
+	if service.repository == nil {
+		return nil
+	}
+	return service.repository.CommitRemoveItem(context.Background(), InventoryRemoveItemCommit{
+		StackableItems:        append([]StackableItem(nil), result.StackableItems...),
+		DeletedStackableItems: append([]StackableItem(nil), result.DeletedStackableItems...),
+		DeletedInstanceItems:  append([]InstanceItem(nil), result.InstanceItems...),
+		LedgerEntries:         append([]ItemLedgerEntry(nil), result.LedgerEntries...),
+		Reference: RemoveItemReference{
+			PlayerID:     input.PlayerID,
+			ReferenceKey: input.ReferenceKey,
+			Result:       cloneRemoveItemResult(result),
 		},
 		Counters: service.inventoryCountersLocked(),
 	})

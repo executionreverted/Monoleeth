@@ -152,6 +152,158 @@ func TestPostgresInventoryStorePersistsAddItemReferenceAcrossServiceReload(t *te
 	}
 }
 
+func TestPostgresInventoryStorePersistsMoveItemReferenceAcrossServiceReload(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+	playerID := foundation.PlayerID("player-postgres-move-ref")
+	seedPostgresWalletPlayer(t, ctx, store, playerID)
+	inventoryStore, err := contentdb.NewInventoryStore(store)
+	if err != nil {
+		t.Fatalf("NewInventoryStore() error = %v, want nil", err)
+	}
+	service, err := economy.NewInventoryServiceWithRepository(foundation.RealClock{}, inventoryStore)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository() error = %v, want nil", err)
+	}
+	definition := postgresStackableDefinitionForTest(t)
+	account := economy.ItemLocation{Kind: economy.LocationKindAccountInventory, ID: economy.LocationID("account")}
+	station := economy.ItemLocation{Kind: economy.LocationKindStationStorage, ID: economy.LocationID("station-postgres-move")}
+	addInput := economy.AddItemInput{
+		PlayerID:       playerID,
+		ItemDefinition: definition,
+		Quantity:       75,
+		Location:       account,
+		Reason:         economy.LedgerReason("postgres_inventory_move_seed"),
+		ReferenceKey:   postgresInventoryReferenceKey(t, "loot_pickup:postgres-move-seed"),
+	}
+	if _, err := service.AddItem(addInput); err != nil {
+		t.Fatalf("AddItem(stackable seed) error = %v, want nil", err)
+	}
+	moveInput := economy.MoveItemInput{
+		PlayerID: playerID,
+		ItemRef: economy.MoveItemRef{
+			Definition: definition,
+		},
+		FromLocation: account,
+		ToLocation:   station,
+		Quantity:     30,
+		Reason:       economy.LedgerReason("postgres_inventory_move_ref"),
+		ReferenceKey: postgresInventoryReferenceKey(t, "loot_pickup:postgres-move-ref"),
+	}
+	first, err := service.MoveItem(moveInput)
+	if err != nil {
+		t.Fatalf("first MoveItem() error = %v, want nil", err)
+	}
+
+	reopened, err := contentdb.NewInventoryStore(store)
+	if err != nil {
+		t.Fatalf("NewInventoryStore(reopen) error = %v, want nil", err)
+	}
+	reloaded, err := economy.NewInventoryServiceWithRepository(foundation.RealClock{}, reopened)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository(reopen) error = %v, want nil", err)
+	}
+	duplicate, err := reloaded.MoveItem(moveInput)
+	if err != nil {
+		t.Fatalf("duplicate MoveItem() after reload error = %v, want nil", err)
+	}
+
+	if !duplicate.Duplicate {
+		t.Fatal("duplicate MoveItem after reload Duplicate = false, want true")
+	}
+	if duplicate.LedgerEntries[0].LedgerID != first.LedgerEntries[0].LedgerID ||
+		duplicate.LedgerEntries[1].LedgerID != first.LedgerEntries[1].LedgerID {
+		t.Fatalf("duplicate move ledgers = %+v, want %+v", duplicate.LedgerEntries, first.LedgerEntries)
+	}
+	if got := reloaded.TotalItemQuantity(playerID, definition.ItemID, account); got != 45 {
+		t.Fatalf("account TotalItemQuantity() after duplicate reload = %d, want 45", got)
+	}
+	if got := reloaded.TotalItemQuantity(playerID, definition.ItemID, station); got != 30 {
+		t.Fatalf("station TotalItemQuantity() after duplicate reload = %d, want 30", got)
+	}
+	if got := len(reloaded.ItemLedgerEntries()); got != 3 {
+		t.Fatalf("ItemLedgerEntries() len after duplicate reload = %d, want 3", got)
+	}
+}
+
+func TestPostgresInventoryStorePersistsRemoveItemReferenceAcrossServiceReload(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+	playerID := foundation.PlayerID("player-postgres-remove-ref")
+	seedPostgresWalletPlayer(t, ctx, store, playerID)
+	inventoryStore, err := contentdb.NewInventoryStore(store)
+	if err != nil {
+		t.Fatalf("NewInventoryStore() error = %v, want nil", err)
+	}
+	service, err := economy.NewInventoryServiceWithRepository(foundation.RealClock{}, inventoryStore)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository() error = %v, want nil", err)
+	}
+	definition := postgresStackableDefinitionForTest(t)
+	account := economy.ItemLocation{Kind: economy.LocationKindAccountInventory, ID: economy.LocationID("account")}
+	addInput := economy.AddItemInput{
+		PlayerID:       playerID,
+		ItemDefinition: definition,
+		Quantity:       75,
+		Location:       account,
+		Reason:         economy.LedgerReason("postgres_inventory_remove_seed"),
+		ReferenceKey:   postgresInventoryReferenceKey(t, "loot_pickup:postgres-remove-seed"),
+	}
+	if _, err := service.AddItem(addInput); err != nil {
+		t.Fatalf("AddItem(stackable seed) error = %v, want nil", err)
+	}
+	removeInput := economy.RemoveItemInput{
+		PlayerID: playerID,
+		ItemRef: economy.RemoveItemRef{
+			Definition: definition,
+		},
+		SourceLocation: account,
+		Quantity:       30,
+		Reason:         economy.LedgerReason("postgres_inventory_remove_ref"),
+		ReferenceKey:   postgresInventoryReferenceKey(t, "loot_pickup:postgres-remove-ref"),
+	}
+	first, err := service.RemoveItem(removeInput)
+	if err != nil {
+		t.Fatalf("first RemoveItem() error = %v, want nil", err)
+	}
+
+	reopened, err := contentdb.NewInventoryStore(store)
+	if err != nil {
+		t.Fatalf("NewInventoryStore(reopen) error = %v, want nil", err)
+	}
+	reloaded, err := economy.NewInventoryServiceWithRepository(foundation.RealClock{}, reopened)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository(reopen) error = %v, want nil", err)
+	}
+	duplicate, err := reloaded.RemoveItem(removeInput)
+	if err != nil {
+		t.Fatalf("duplicate RemoveItem() after reload error = %v, want nil", err)
+	}
+
+	if !duplicate.Duplicate {
+		t.Fatal("duplicate RemoveItem after reload Duplicate = false, want true")
+	}
+	if duplicate.LedgerEntries[0].LedgerID != first.LedgerEntries[0].LedgerID {
+		t.Fatalf("duplicate remove ledger = %q, want %q", duplicate.LedgerEntries[0].LedgerID, first.LedgerEntries[0].LedgerID)
+	}
+	if got := reloaded.TotalItemQuantity(playerID, definition.ItemID, account); got != 45 {
+		t.Fatalf("account TotalItemQuantity() after duplicate reload = %d, want 45", got)
+	}
+	if got := len(reloaded.ItemLedgerEntries()); got != 2 {
+		t.Fatalf("ItemLedgerEntries() len after duplicate reload = %d, want 2", got)
+	}
+}
+
 func TestPostgresInventoryStoreGeneratedInstanceIDDoesNotCollideAfterServiceReload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -214,6 +366,34 @@ func TestPostgresInventoryStoreGeneratedInstanceIDDoesNotCollideAfterServiceRelo
 	}
 }
 
+func postgresStackableDefinitionForTest(t *testing.T) economy.ItemDefinition {
+	t.Helper()
+	maxStack, err := foundation.NewQuantity(100)
+	if err != nil {
+		t.Fatalf("NewQuantity(100) error = %v, want nil", err)
+	}
+	weight, err := foundation.NewQuantity(1)
+	if err != nil {
+		t.Fatalf("NewQuantity(1) error = %v, want nil", err)
+	}
+	definition, err := economy.NewItemDefinition(
+		catalog.VersionedDefinition{DefinitionID: catalog.DefinitionID("raw_ore"), Version: catalog.Version("test-v1")},
+		foundation.ItemID("raw_ore"),
+		"Raw Ore",
+		economy.ItemTypeStackable,
+		economy.ItemRarityCommon,
+		maxStack,
+		weight,
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewItemDefinition(stackable) error = %v, want nil", err)
+	}
+	return definition
+}
+
 func postgresStackableItemForTest(t *testing.T) economy.StackableItem {
 	t.Helper()
 	quantity, err := foundation.NewQuantity(12)
@@ -234,6 +414,15 @@ func postgresStackableItemForTest(t *testing.T) economy.StackableItem {
 	item.CreatedAt = time.Date(2026, 6, 25, 14, 0, 0, 0, time.UTC)
 	item.UpdatedAt = time.Date(2026, 6, 25, 14, 1, 0, 0, time.UTC)
 	return item
+}
+
+func postgresInventoryReferenceKey(t *testing.T, value string) foundation.IdempotencyKey {
+	t.Helper()
+	key, err := foundation.ParseIdempotencyKey(value)
+	if err != nil {
+		t.Fatalf("ParseIdempotencyKey(%q) error = %v, want nil", value, err)
+	}
+	return key
 }
 
 func postgresInstanceDefinitionForTest(t *testing.T) economy.ItemDefinition {

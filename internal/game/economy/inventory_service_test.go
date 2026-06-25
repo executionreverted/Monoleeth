@@ -430,6 +430,100 @@ func TestInventoryRepositoryAddItemReferenceSurvivesServiceReload(t *testing.T) 
 	}
 }
 
+func TestInventoryRepositoryMoveItemReferenceSurvivesServiceReload(t *testing.T) {
+	repository := &fakeInventoryRepository{}
+	service, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository() error = %v, want nil", err)
+	}
+	definition := validStackableDefinition(t)
+	fromLocation := validLocation(t)
+	toLocation := validStationStorageLocation(t)
+	addStackableItems(t, service, definition, 75, fromLocation, "loot_pickup:move-reload-seed")
+
+	input := validMoveItemInput(t)
+	input.ItemRef.Definition = definition
+	input.FromLocation = fromLocation
+	input.ToLocation = toLocation
+	input.Quantity = 30
+	input.ReferenceKey = validReferenceKey(t, "loot_pickup:move-reload")
+
+	first, err := service.MoveItem(input)
+	if err != nil {
+		t.Fatalf("first MoveItem() error = %v, want nil", err)
+	}
+	reloaded, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository(reload) error = %v, want nil", err)
+	}
+
+	second, err := reloaded.MoveItem(input)
+	if err != nil {
+		t.Fatalf("duplicate MoveItem() after reload error = %v, want nil", err)
+	}
+
+	if !second.Duplicate {
+		t.Fatal("duplicate MoveItem after reload Duplicate = false, want true")
+	}
+	if second.LedgerEntries[0].LedgerID != first.LedgerEntries[0].LedgerID ||
+		second.LedgerEntries[1].LedgerID != first.LedgerEntries[1].LedgerID {
+		t.Fatalf("duplicate ledgers = %+v, want %+v", second.LedgerEntries, first.LedgerEntries)
+	}
+	if got := reloaded.TotalItemQuantity(input.PlayerID, definition.ItemID, fromLocation); got != 45 {
+		t.Fatalf("source TotalItemQuantity() after duplicate reload = %d, want 45", got)
+	}
+	if got := reloaded.TotalItemQuantity(input.PlayerID, definition.ItemID, toLocation); got != 30 {
+		t.Fatalf("destination TotalItemQuantity() after duplicate reload = %d, want 30", got)
+	}
+	if got := len(repository.moveCommits); got != 1 {
+		t.Fatalf("repository move commits len = %d, want 1", got)
+	}
+}
+
+func TestInventoryRepositoryRemoveItemReferenceSurvivesServiceReload(t *testing.T) {
+	repository := &fakeInventoryRepository{}
+	service, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository() error = %v, want nil", err)
+	}
+	definition := validStackableDefinition(t)
+	sourceLocation := validLocation(t)
+	addStackableItems(t, service, definition, 75, sourceLocation, "loot_pickup:remove-reload-seed")
+
+	input := validRemoveItemInput(t)
+	input.ItemRef.Definition = definition
+	input.SourceLocation = sourceLocation
+	input.Quantity = 30
+	input.ReferenceKey = validReferenceKey(t, "loot_pickup:remove-reload")
+
+	first, err := service.RemoveItem(input)
+	if err != nil {
+		t.Fatalf("first RemoveItem() error = %v, want nil", err)
+	}
+	reloaded, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
+	if err != nil {
+		t.Fatalf("NewInventoryServiceWithRepository(reload) error = %v, want nil", err)
+	}
+
+	second, err := reloaded.RemoveItem(input)
+	if err != nil {
+		t.Fatalf("duplicate RemoveItem() after reload error = %v, want nil", err)
+	}
+
+	if !second.Duplicate {
+		t.Fatal("duplicate RemoveItem after reload Duplicate = false, want true")
+	}
+	if second.LedgerEntries[0].LedgerID != first.LedgerEntries[0].LedgerID {
+		t.Fatalf("duplicate ledger = %q, want %q", second.LedgerEntries[0].LedgerID, first.LedgerEntries[0].LedgerID)
+	}
+	if got := reloaded.TotalItemQuantity(input.PlayerID, definition.ItemID, sourceLocation); got != 45 {
+		t.Fatalf("source TotalItemQuantity() after duplicate reload = %d, want 45", got)
+	}
+	if got := len(repository.removeCommits); got != 1 {
+		t.Fatalf("repository remove commits len = %d, want 1", got)
+	}
+}
+
 func TestInventoryRepositoryCountersAvoidGeneratedInstanceIDCollisionAfterReload(t *testing.T) {
 	repository := &fakeInventoryRepository{}
 	service, err := NewInventoryServiceWithRepository(testutil.NewFakeClock(testInventoryNow), repository)
@@ -537,14 +631,18 @@ func mustQuantity(t *testing.T, amount int64) foundation.Quantity {
 }
 
 type fakeInventoryRepository struct {
-	stackables      []StackableItem
-	instances       []InstanceItem
-	ledgerEntries   []ItemLedgerEntry
-	references      []AddItemReference
-	counters        InventoryCounters
-	commits         []InventoryAddItemCommit
-	upserts         []StackableItem
-	instanceUpserts []InstanceItem
+	stackables       []StackableItem
+	instances        []InstanceItem
+	ledgerEntries    []ItemLedgerEntry
+	references       []AddItemReference
+	moveReferences   []MoveItemReference
+	removeReferences []RemoveItemReference
+	counters         InventoryCounters
+	commits          []InventoryAddItemCommit
+	moveCommits      []InventoryMoveItemCommit
+	removeCommits    []InventoryRemoveItemCommit
+	upserts          []StackableItem
+	instanceUpserts  []InstanceItem
 }
 
 func (repository *fakeInventoryRepository) LoadStackableItems(context.Context) ([]StackableItem, error) {
@@ -563,6 +661,24 @@ func (repository *fakeInventoryRepository) LoadAddItemReferences(context.Context
 	references := make([]AddItemReference, 0, len(repository.references))
 	for _, reference := range repository.references {
 		reference.Result = cloneAddItemResult(reference.Result)
+		references = append(references, reference)
+	}
+	return references, nil
+}
+
+func (repository *fakeInventoryRepository) LoadMoveItemReferences(context.Context) ([]MoveItemReference, error) {
+	references := make([]MoveItemReference, 0, len(repository.moveReferences))
+	for _, reference := range repository.moveReferences {
+		reference.Result = cloneMoveItemResult(reference.Result)
+		references = append(references, reference)
+	}
+	return references, nil
+}
+
+func (repository *fakeInventoryRepository) LoadRemoveItemReferences(context.Context) ([]RemoveItemReference, error) {
+	references := make([]RemoveItemReference, 0, len(repository.removeReferences))
+	for _, reference := range repository.removeReferences {
+		reference.Result = cloneRemoveItemResult(reference.Result)
 		references = append(references, reference)
 	}
 	return references, nil
@@ -622,6 +738,56 @@ func (repository *fakeInventoryRepository) CommitAddItem(ctx context.Context, co
 	return nil
 }
 
+func (repository *fakeInventoryRepository) CommitMoveItem(ctx context.Context, commit InventoryMoveItemCommit) error {
+	if err := commit.Validate(); err != nil {
+		return err
+	}
+	repository.moveCommits = append(repository.moveCommits, cloneInventoryMoveItemCommit(commit))
+	for _, item := range commit.DeletedStackableItems {
+		repository.deleteStackableItem(item)
+	}
+	for _, item := range commit.StackableItems {
+		if err := repository.UpsertStackableItem(ctx, item); err != nil {
+			return err
+		}
+	}
+	for _, item := range commit.InstanceItems {
+		if err := repository.UpsertInstanceItem(ctx, item); err != nil {
+			return err
+		}
+	}
+	for _, entry := range commit.LedgerEntries {
+		repository.upsertItemLedgerEntry(entry)
+	}
+	repository.upsertMoveItemReference(commit.Reference)
+	repository.advanceCounters(commit.Counters)
+	return nil
+}
+
+func (repository *fakeInventoryRepository) CommitRemoveItem(ctx context.Context, commit InventoryRemoveItemCommit) error {
+	if err := commit.Validate(); err != nil {
+		return err
+	}
+	repository.removeCommits = append(repository.removeCommits, cloneInventoryRemoveItemCommit(commit))
+	for _, item := range commit.DeletedStackableItems {
+		repository.deleteStackableItem(item)
+	}
+	for _, item := range commit.StackableItems {
+		if err := repository.UpsertStackableItem(ctx, item); err != nil {
+			return err
+		}
+	}
+	for _, item := range commit.DeletedInstanceItems {
+		repository.deleteInstanceItem(item)
+	}
+	for _, entry := range commit.LedgerEntries {
+		repository.upsertItemLedgerEntry(entry)
+	}
+	repository.upsertRemoveItemReference(commit.Reference)
+	repository.advanceCounters(commit.Counters)
+	return nil
+}
+
 func (repository *fakeInventoryRepository) upsertItemLedgerEntry(entry ItemLedgerEntry) {
 	for index := range repository.ledgerEntries {
 		if repository.ledgerEntries[index].LedgerID == entry.LedgerID {
@@ -650,10 +816,97 @@ func (repository *fakeInventoryRepository) upsertAddItemReference(reference AddI
 	})
 }
 
+func (repository *fakeInventoryRepository) upsertMoveItemReference(reference MoveItemReference) {
+	for index := range repository.moveReferences {
+		if repository.moveReferences[index].PlayerID == reference.PlayerID && repository.moveReferences[index].ReferenceKey == reference.ReferenceKey {
+			repository.moveReferences[index] = MoveItemReference{
+				PlayerID:     reference.PlayerID,
+				ReferenceKey: reference.ReferenceKey,
+				Result:       cloneMoveItemResult(reference.Result),
+			}
+			return
+		}
+	}
+	repository.moveReferences = append(repository.moveReferences, MoveItemReference{
+		PlayerID:     reference.PlayerID,
+		ReferenceKey: reference.ReferenceKey,
+		Result:       cloneMoveItemResult(reference.Result),
+	})
+}
+
+func (repository *fakeInventoryRepository) upsertRemoveItemReference(reference RemoveItemReference) {
+	for index := range repository.removeReferences {
+		if repository.removeReferences[index].PlayerID == reference.PlayerID && repository.removeReferences[index].ReferenceKey == reference.ReferenceKey {
+			repository.removeReferences[index] = RemoveItemReference{
+				PlayerID:     reference.PlayerID,
+				ReferenceKey: reference.ReferenceKey,
+				Result:       cloneRemoveItemResult(reference.Result),
+			}
+			return
+		}
+	}
+	repository.removeReferences = append(repository.removeReferences, RemoveItemReference{
+		PlayerID:     reference.PlayerID,
+		ReferenceKey: reference.ReferenceKey,
+		Result:       cloneRemoveItemResult(reference.Result),
+	})
+}
+
+func (repository *fakeInventoryRepository) deleteStackableItem(item StackableItem) {
+	filtered := repository.stackables[:0]
+	for _, existing := range repository.stackables {
+		if existing.OwnerPlayerID == item.OwnerPlayerID &&
+			existing.Location == item.Location &&
+			existing.ItemID == item.ItemID {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	repository.stackables = filtered
+}
+
+func (repository *fakeInventoryRepository) deleteInstanceItem(item InstanceItem) {
+	filtered := repository.instances[:0]
+	for _, existing := range repository.instances {
+		if existing.ItemInstanceID == item.ItemInstanceID {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	repository.instances = filtered
+}
+
+func (repository *fakeInventoryRepository) advanceCounters(counters InventoryCounters) {
+	if counters.ItemSequence > repository.counters.ItemSequence {
+		repository.counters.ItemSequence = counters.ItemSequence
+	}
+	if counters.LedgerSequence > repository.counters.LedgerSequence {
+		repository.counters.LedgerSequence = counters.LedgerSequence
+	}
+}
+
 func cloneInventoryAddItemCommit(commit InventoryAddItemCommit) InventoryAddItemCommit {
 	commit.StackableItems = append([]StackableItem(nil), commit.StackableItems...)
 	commit.InstanceItems = append([]InstanceItem(nil), commit.InstanceItems...)
 	commit.Reference.Result = cloneAddItemResult(commit.Reference.Result)
+	return commit
+}
+
+func cloneInventoryMoveItemCommit(commit InventoryMoveItemCommit) InventoryMoveItemCommit {
+	commit.StackableItems = append([]StackableItem(nil), commit.StackableItems...)
+	commit.DeletedStackableItems = append([]StackableItem(nil), commit.DeletedStackableItems...)
+	commit.InstanceItems = append([]InstanceItem(nil), commit.InstanceItems...)
+	commit.LedgerEntries = append([]ItemLedgerEntry(nil), commit.LedgerEntries...)
+	commit.Reference.Result = cloneMoveItemResult(commit.Reference.Result)
+	return commit
+}
+
+func cloneInventoryRemoveItemCommit(commit InventoryRemoveItemCommit) InventoryRemoveItemCommit {
+	commit.StackableItems = append([]StackableItem(nil), commit.StackableItems...)
+	commit.DeletedStackableItems = append([]StackableItem(nil), commit.DeletedStackableItems...)
+	commit.DeletedInstanceItems = append([]InstanceItem(nil), commit.DeletedInstanceItems...)
+	commit.LedgerEntries = append([]ItemLedgerEntry(nil), commit.LedgerEntries...)
+	commit.Reference.Result = cloneRemoveItemResult(commit.Reference.Result)
 	return commit
 }
 

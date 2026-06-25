@@ -33,6 +33,14 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0510: inventory `MoveItem`/`RemoveItem` now commit
+  stackable/instance row updates or deletions, item ledger rows, counters, and
+  durable move/remove mutation reference snapshots through `contentdb`.
+  `InventoryService` hydrates those references on repository reload, so
+  same-reference move/remove retries after reload return duplicate without a
+  second row/location/quantity mutation. Focused economy fake-repository tests
+  and contentdb Postgres smoke tests cover duplicate replay and persisted item
+  row quantity/location.
 - 2026-06-25 TASK-0507: contentdb wallet repository mode now persists and
   reloads currency ledger rows, wallet mutation reference rows, and wallet
   ledger counters. `WalletService` hydrates credit/debit/transfer reference

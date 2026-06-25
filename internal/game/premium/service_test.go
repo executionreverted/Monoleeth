@@ -2,14 +2,17 @@ package premium
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 	"gameproject/internal/game/testutil"
 )
 
@@ -297,6 +300,105 @@ func TestProviderWebhookDuplicateKeyCannotCreateConflictingEntitlement(t *testin
 	}
 }
 
+func TestPremiumProviderAndClaimTransitionLogsContainSafeFieldsNoSecrets(t *testing.T) {
+	logger := observability.NewMemoryPremiumTransitionLogger()
+	service, _, _ := newTestPremiumServiceWithTransitionLogger(t, logger)
+	input := validCurrencyPackCreateInput("entitlement-transition", "player-transition", "event-transition", 250)
+	if _, err := service.CreateEntitlement(input); err != nil {
+		t.Fatalf("CreateEntitlement() error = %v", err)
+	}
+	if _, err := service.ClaimEntitlement(ClaimEntitlementInput{
+		EntitlementID:    input.EntitlementID,
+		PlayerID:         input.PlayerID,
+		RequestReference: "claim-transition",
+	}); err != nil {
+		t.Fatalf("ClaimEntitlement() error = %v", err)
+	}
+
+	entries := logger.Snapshot()
+	if got := len(entries); got != 2 {
+		t.Fatalf("premium transition entries len = %d, want 2: %+v", got, entries)
+	}
+	provider := requirePremiumTransitionEntry(t, entries, observability.Operation(premiumProviderOperation), input.PlayerID)
+	wantProviderKey, err := foundation.PremiumWebhookIdempotencyKey("stripe.event-transition")
+	if err != nil {
+		t.Fatalf("PremiumWebhookIdempotencyKey(provider) error = %v", err)
+	}
+	if provider.IdempotencyKey != wantProviderKey ||
+		provider.Status != observability.CommandStatusOK ||
+		provider.ErrorCode != "" ||
+		provider.Duration < 0 ||
+		provider.Timestamp.IsZero() {
+		t.Fatalf("provider transition = %+v, want safe ok transition with idempotency", provider)
+	}
+	if len(provider.ProviderRefIDs) != 1 || provider.ProviderRefIDs[0] != "stripe.event-transition" {
+		t.Fatalf("provider refs = %+v, want stripe.event-transition", provider.ProviderRefIDs)
+	}
+
+	claim := requirePremiumTransitionEntry(t, entries, observability.Operation(premiumClaimOperation), input.PlayerID)
+	wantClaimKey, err := foundation.PremiumWebhookIdempotencyKey("claim.entitlement-transition.player-transition")
+	if err != nil {
+		t.Fatalf("PremiumWebhookIdempotencyKey(claim) error = %v", err)
+	}
+	if claim.RequestRef != "claim-transition" ||
+		claim.IdempotencyKey != wantClaimKey ||
+		claim.Status != observability.CommandStatusOK ||
+		claim.ErrorCode != "" ||
+		claim.Duration < 0 ||
+		claim.Timestamp.IsZero() {
+		t.Fatalf("claim transition = %+v, want safe ok transition with request/idempotency", claim)
+	}
+	if len(claim.ProviderRefIDs) != 1 || claim.ProviderRefIDs[0] != "stripe.event-transition" {
+		t.Fatalf("claim provider refs = %+v, want stripe.event-transition", claim.ProviderRefIDs)
+	}
+
+	payload, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatalf("marshal premium transition entries: %v", err)
+	}
+	assertPremiumTransitionLogHasNoSecrets(t, string(payload))
+}
+
+func TestPremiumClaimTransitionLogsErrorCodeAndDropsUnsafeRefs(t *testing.T) {
+	logger := observability.NewMemoryPremiumTransitionLogger()
+	service, _, _ := newTestPremiumServiceWithTransitionLogger(t, logger)
+	input := validCurrencyPackCreateInput("entitlement-risk", "player-owner", "event-token-secret-hash", 250)
+	if _, err := service.CreateEntitlement(input); err != nil {
+		t.Fatalf("CreateEntitlement() error = %v", err)
+	}
+
+	_, err := service.ClaimEntitlement(ClaimEntitlementInput{
+		EntitlementID:    input.EntitlementID,
+		PlayerID:         "player-attacker",
+		RequestReference: "claim-token-secret-hash",
+	})
+	if !errors.Is(err, ErrEntitlementWrongPlayer) {
+		t.Fatalf("ClaimEntitlement(wrong player) error = %v, want ErrEntitlementWrongPlayer", err)
+	}
+
+	entries := logger.Snapshot()
+	claim := requirePremiumTransitionEntry(t, entries, observability.Operation(premiumClaimOperation), "player-attacker")
+	if claim.Status != observability.CommandStatusError || claim.ErrorCode != foundation.CodeForbidden {
+		t.Fatalf("claim transition status/code = %q/%q, want error/%s", claim.Status, claim.ErrorCode, foundation.CodeForbidden)
+	}
+	if claim.RequestRef != "" {
+		t.Fatalf("unsafe request ref logged as %q, want omitted", claim.RequestRef)
+	}
+	wantClaimKey, err := foundation.PremiumWebhookIdempotencyKey("claim.entitlement-risk.player-attacker")
+	if err != nil {
+		t.Fatalf("PremiumWebhookIdempotencyKey(claim) error = %v", err)
+	}
+	if claim.IdempotencyKey != wantClaimKey {
+		t.Fatalf("claim idempotency = %q, want %q", claim.IdempotencyKey, wantClaimKey)
+	}
+
+	payload, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatalf("marshal premium transition entries: %v", err)
+	}
+	assertPremiumTransitionLogHasNoSecrets(t, string(payload))
+}
+
 func TestWeeklyXCorePurchaseEnforcesOnePerPlayerPerPeriod(t *testing.T) {
 	service, _, _ := newTestPremiumService(t)
 	if _, err := service.ConfigureWeeklyXCoreStock(ConfigureWeeklyXCoreStockInput{
@@ -557,6 +659,60 @@ func newTestPremiumServiceWithIdempotencyStore(
 		t.Fatalf("NewPremiumEntitlementServiceWithConfig() error = %v", err)
 	}
 	return service, wallet, clock
+}
+
+func newTestPremiumServiceWithTransitionLogger(
+	t *testing.T,
+	logger observability.PremiumTransitionLogger,
+) (*PremiumEntitlementService, *economy.WalletService, *testutil.FakeClock) {
+	t.Helper()
+
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC))
+	wallet := economy.NewWalletService(clock)
+	service, err := NewPremiumEntitlementServiceWithConfig(PremiumEntitlementServiceConfig{
+		Wallet:           wallet,
+		Clock:            clock,
+		TransitionLogger: logger,
+	})
+	if err != nil {
+		t.Fatalf("NewPremiumEntitlementServiceWithConfig() error = %v", err)
+	}
+	return service, wallet, clock
+}
+
+func requirePremiumTransitionEntry(
+	t *testing.T,
+	entries []observability.PremiumTransitionLogEntry,
+	operation observability.Operation,
+	playerID foundation.PlayerID,
+) observability.PremiumTransitionLogEntry {
+	t.Helper()
+
+	for _, entry := range entries {
+		if entry.Operation == operation && entry.PlayerID == playerID {
+			return entry
+		}
+	}
+	t.Fatalf("premium transition entry %s/%s not found in %+v", operation, playerID, entries)
+	return observability.PremiumTransitionLogEntry{}
+}
+
+func assertPremiumTransitionLogHasNoSecrets(t *testing.T, payload string) {
+	t.Helper()
+
+	for _, leaked := range []string{
+		"password",
+		"token",
+		"secret",
+		"cookie",
+		"hash",
+		"bearer",
+		"credential",
+	} {
+		if strings.Contains(payload, leaked) {
+			t.Fatalf("premium transition log leaked %q in %s", leaked, payload)
+		}
+	}
 }
 
 type memoryPremiumIdempotencyStore struct {

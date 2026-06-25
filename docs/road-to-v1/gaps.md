@@ -5,22 +5,13 @@ or unsafe for the current wave slice. Keep line/file references concrete.
 
 ## Forced Deferred Gaps
 
-### P01 Inventory Move/Remove Durable References — TASK-0475
-
-- MoveItem/RemoveItem durable mutation references and item-row durability remain
-  deferred; this slice persists `AddItem` ledger rows, mutation references, and
-  item/ledger counters only. Ref: `internal/game/economy/inventory_move.go`,
-  `internal/game/economy/inventory_remove.go`,
-  `internal/game/economy/inventory_service.go`,
-  `internal/game/contentdb/inventory_store.go`.
-
 ### P01 Loadout Move Ledger References — TASK-0479
 
 - Runtime now uses `contentdb.LoadoutStore` when core DB is enabled, and
   equipped rows plus moved instance item locations reload after restart through
-  `LoadoutService`. Equip/unequip durable item move ledger/reference storage
-  remains deferred with the inventory MoveItem durable-reference gap; runtime
-  still records those move ledgers in the in-process `InventoryService` only.
+  `LoadoutService`. Equip/unequip runtime proof remains deferred outside the
+  inventory/contentdb slice; TASK-0510 closed durable `MoveItem`/`RemoveItem`
+  mutation references and row-update persistence in the inventory service/store.
   Ref: `internal/game/server/runtime.go`,
   `internal/game/server/loadout_runtime_adapters.go`,
   `internal/game/economy/inventory_move.go`.
@@ -64,8 +55,8 @@ phase or moved above with a concrete deferral reason.
 - Inventory instance rows are now durable via `contentdb` load/upsert and
   `InventoryService` boot hydration/AddItem persistence. Item-ledger rows,
   `AddItem` mutation-reference rows, and durable item/ledger counters are now
-  covered by TASK-0475; move/remove durable references remain a forced deferral
-  above before full transactional inventory proof. Ref:
+  covered by TASK-0475. Move/remove durable references and item row
+  updates/deletes are covered by TASK-0510. Ref:
   `internal/game/economy/inventory_service.go`,
   `internal/game/contentdb/inventory_store.go`,
   `docs/road-to-v1/01-persistence-foundation.md:19`.

@@ -1,6 +1,7 @@
 package premium
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -8,6 +9,7 @@ import (
 
 	"gameproject/internal/game/economy"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 )
 
 const (
@@ -75,6 +77,7 @@ type PremiumEntitlementServiceConfig struct {
 	Wallet           *economy.WalletService
 	Clock            foundation.Clock
 	IdempotencyStore economy.IdempotencyStore
+	TransitionLogger observability.PremiumTransitionLogger
 }
 
 // CreateEntitlementResult reports the stored entitlement.
@@ -115,6 +118,7 @@ type PremiumEntitlementService struct {
 	clock            foundation.Clock
 	wallet           *economy.WalletService
 	idempotencyStore economy.IdempotencyStore
+	transitionLogger observability.PremiumTransitionLogger
 
 	entitlements            map[EntitlementID]Entitlement
 	providerReferences      map[providerReferenceKey]EntitlementID
@@ -183,6 +187,7 @@ func NewPremiumEntitlementServiceWithConfig(config PremiumEntitlementServiceConf
 		clock:                        clock,
 		wallet:                       config.Wallet,
 		idempotencyStore:             config.IdempotencyStore,
+		transitionLogger:             config.TransitionLogger,
 		entitlements:                 make(map[EntitlementID]Entitlement),
 		providerReferences:           make(map[providerReferenceKey]EntitlementID),
 		claimResults:                 make(map[claimReferenceKey]ClaimEntitlementResult),
@@ -197,7 +202,7 @@ func NewPremiumEntitlementServiceWithConfig(config PremiumEntitlementServiceConf
 
 // CreateEntitlement validates and stores a pending entitlement. Provider
 // reference replays return the original entitlement without creating value.
-func (service *PremiumEntitlementService) CreateEntitlement(input CreateEntitlementInput) (CreateEntitlementResult, error) {
+func (service *PremiumEntitlementService) CreateEntitlement(input CreateEntitlementInput) (result CreateEntitlementResult, err error) {
 	entitlement := Entitlement{
 		ID:                  input.EntitlementID,
 		PlayerID:            input.PlayerID,
@@ -208,13 +213,27 @@ func (service *PremiumEntitlementService) CreateEntitlement(input CreateEntitlem
 		CreatedAt:           input.CreatedAt,
 		ProviderConfirmedAt: input.ProviderConfirmedAt,
 	}
-	if err := entitlement.validateCreate(); err != nil {
+	if err = entitlement.validateCreate(); err != nil {
 		return CreateEntitlementResult{}, err
 	}
 	referenceKey, err := premiumProviderIdempotencyKey(entitlement.Provider)
 	if err != nil {
 		return CreateEntitlementResult{}, err
 	}
+	startedAt := service.nowUTC()
+	defer func() {
+		service.recordPremiumTransition(
+			observability.Operation(premiumProviderOperation),
+			input.PlayerID,
+			"",
+			referenceKey,
+			premiumTransitionReferenceIDs(input.EntitlementID, result.Entitlement.ID),
+			result.Entitlement.Provider,
+			input.Provider,
+			startedAt,
+			err,
+		)
+	}()
 	requestHash, err := premiumProviderRequestHash(input)
 	if err != nil {
 		return CreateEntitlementResult{}, err
@@ -231,12 +250,13 @@ func (service *PremiumEntitlementService) CreateEntitlement(input CreateEntitlem
 		if err := service.replayProviderEntitlementLocked(duplicateResult.Entitlement); err != nil {
 			return CreateEntitlementResult{}, err
 		}
-		return duplicateResult, nil
+		result = duplicateResult
+		return result, nil
 	}
 
 	providerKey := providerKey(entitlement.Provider)
 	if existingID, ok := service.providerReferences[providerKey]; ok {
-		result := CreateEntitlementResult{
+		result = CreateEntitlementResult{
 			Entitlement: service.entitlements[existingID],
 			Duplicate:   true,
 		}
@@ -255,7 +275,7 @@ func (service *PremiumEntitlementService) CreateEntitlement(input CreateEntitlem
 	snapshot := service.snapshotPremiumProviderMutationLocked()
 	service.entitlements[entitlement.ID] = entitlement
 	service.providerReferences[providerKey] = entitlement.ID
-	result := CreateEntitlementResult{Entitlement: entitlement}
+	result = CreateEntitlementResult{Entitlement: entitlement}
 	if err := service.completePremiumProviderIdempotency(idempotencyRow, result); err != nil {
 		service.restorePremiumProviderMutationLocked(snapshot)
 		return CreateEntitlementResult{}, service.failPremiumProviderIdempotency(idempotencyRow, err)
@@ -266,20 +286,34 @@ func (service *PremiumEntitlementService) CreateEntitlement(input CreateEntitlem
 // ClaimEntitlement grants a pending entitlement once. Retries with the same
 // entitlement/player/request reference return the original claim result with the
 // current entitlement state.
-func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlementInput) (ClaimEntitlementResult, error) {
-	if err := input.EntitlementID.Validate(); err != nil {
+func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlementInput) (result ClaimEntitlementResult, err error) {
+	if err = input.EntitlementID.Validate(); err != nil {
 		return ClaimEntitlementResult{}, err
 	}
-	if err := input.PlayerID.Validate(); err != nil {
+	if err = input.PlayerID.Validate(); err != nil {
 		return ClaimEntitlementResult{}, err
 	}
-	if err := validateRequestReference(input.RequestReference); err != nil {
+	if err = validateRequestReference(input.RequestReference); err != nil {
 		return ClaimEntitlementResult{}, err
 	}
 	referenceKey, err := premiumClaimIdempotencyKey(input)
 	if err != nil {
 		return ClaimEntitlementResult{}, err
 	}
+	startedAt := service.nowUTC()
+	defer func() {
+		service.recordPremiumTransition(
+			observability.Operation(premiumClaimOperation),
+			input.PlayerID,
+			input.RequestReference,
+			referenceKey,
+			premiumTransitionReferenceIDs(input.EntitlementID, result.Entitlement.ID),
+			result.Entitlement.Provider,
+			ProviderReference{},
+			startedAt,
+			err,
+		)
+	}()
 	requestHash, err := premiumClaimRequestHash(input)
 	if err != nil {
 		return ClaimEntitlementResult{}, err
@@ -309,7 +343,8 @@ func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlemen
 		if entitlement, ok := service.entitlements[input.EntitlementID]; ok && entitlement.PlayerID == input.PlayerID {
 			duplicateResult.Entitlement = entitlement
 		}
-		return duplicateResult, nil
+		result = duplicateResult
+		return result, nil
 	}
 
 	claimKey := claimReferenceKey{
@@ -325,7 +360,7 @@ func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlemen
 		return ClaimEntitlementResult{}, service.failPremiumClaimIdempotency(idempotencyRow, ErrEntitlementWrongPlayer)
 	}
 	if previous, ok := service.claimResults[claimKey]; ok {
-		result := cloneClaimEntitlementResult(previous)
+		result = cloneClaimEntitlementResult(previous)
 		result.Entitlement = entitlement
 		result.Duplicate = true
 		if err := service.completePremiumClaimIdempotency(idempotencyRow, result); err != nil {
@@ -350,7 +385,7 @@ func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlemen
 	}
 
 	now := service.clock.Now()
-	result := ClaimEntitlementResult{}
+	result = ClaimEntitlementResult{}
 	switch entitlement.Type {
 	case EntitlementTypePremiumCurrencyPack:
 		creditResult, err := service.creditPremiumCurrencyPackLocked(entitlement)
@@ -733,6 +768,117 @@ func (service *PremiumEntitlementService) ProviderRiskLocks() []ProviderRiskLock
 	defer service.mu.Unlock()
 
 	return append([]ProviderRiskLock(nil), service.providerRiskLocks...)
+}
+
+func (service *PremiumEntitlementService) recordPremiumTransition(
+	operation observability.Operation,
+	playerID foundation.PlayerID,
+	requestReference string,
+	idempotencyKey foundation.IdempotencyKey,
+	referenceIDs []string,
+	resultProvider ProviderReference,
+	fallbackProvider ProviderReference,
+	startedAt time.Time,
+	transitionErr error,
+) {
+	if service == nil || service.transitionLogger == nil {
+		return
+	}
+	finishedAt := service.nowUTC()
+	duration := finishedAt.Sub(startedAt)
+	if duration < 0 {
+		duration = 0
+	}
+
+	status := observability.CommandStatusOK
+	var code foundation.Code
+	if transitionErr != nil {
+		status = observability.CommandStatusError
+		code = premiumTransitionErrorCode(transitionErr)
+	}
+
+	provider := resultProvider
+	if provider.Source == "" && provider.Reference == "" {
+		provider = fallbackProvider
+	}
+	_ = service.transitionLogger.RecordPremiumTransition(observability.PremiumTransitionLogEntry{
+		PlayerID:       playerID,
+		RequestRef:     requestReference,
+		Operation:      operation,
+		ErrorCode:      code,
+		IdempotencyKey: idempotencyKey,
+		ReferenceIDs:   referenceIDs,
+		ProviderRefIDs: premiumTransitionProviderRefIDs(provider),
+		Duration:       duration,
+		Status:         status,
+		Timestamp:      startedAt,
+	})
+}
+
+func premiumTransitionErrorCode(err error) foundation.Code {
+	if domainCode, ok := foundation.CodeOf(err); ok {
+		return domainCode
+	}
+	switch {
+	case errors.Is(err, ErrEntitlementNotFound):
+		return foundation.CodeNotFound
+	case errors.Is(err, ErrEntitlementWrongPlayer):
+		return foundation.CodeForbidden
+	case errors.Is(err, economy.ErrInsufficientWalletFunds):
+		return foundation.CodeNotEnoughFunds
+	case errors.Is(err, economy.ErrIdempotencyKeyConflict):
+		return foundation.CodeRequestReplayMismatch
+	case errors.Is(err, ErrEntitlementAlreadyClaimed),
+		errors.Is(err, ErrEntitlementNotPending),
+		errors.Is(err, ErrDuplicateEntitlementID),
+		errors.Is(err, ErrPremiumProviderInProgress),
+		errors.Is(err, ErrPremiumClaimInProgress),
+		errors.Is(err, ErrInvalidEntitlementType),
+		errors.Is(err, ErrInvalidEntitlementState),
+		errors.Is(err, ErrInvalidEntitlementGrant),
+		errors.Is(err, ErrInvalidProviderSource),
+		errors.Is(err, ErrInvalidProviderReference),
+		errors.Is(err, ErrInvalidRequestReference),
+		errors.Is(err, ErrInvalidPurchaseReference),
+		errors.Is(err, ErrInvalidTimestamp),
+		errors.Is(err, foundation.ErrEmptyID),
+		errors.Is(err, foundation.ErrInvalidID),
+		errors.Is(err, foundation.ErrEmptyIdempotencyKey),
+		errors.Is(err, foundation.ErrInvalidIdempotencyKey):
+		return foundation.CodeInvalidPayload
+	default:
+		return foundation.CodeInternal
+	}
+}
+
+func premiumTransitionProviderRefIDs(provider ProviderReference) []string {
+	if provider.Source == "" || provider.Reference == "" {
+		return nil
+	}
+	return []string{providerWalletReference(provider)}
+}
+
+func premiumTransitionReferenceIDs(entitlementIDs ...EntitlementID) []string {
+	seen := make(map[EntitlementID]struct{}, len(entitlementIDs))
+	referenceIDs := make([]string, 0, len(entitlementIDs))
+	for _, entitlementID := range entitlementIDs {
+		if entitlementID.IsZero() {
+			continue
+		}
+		if _, ok := seen[entitlementID]; ok {
+			continue
+		}
+		seen[entitlementID] = struct{}{}
+		referenceIDs = append(referenceIDs, "entitlement."+entitlementID.String())
+	}
+	return referenceIDs
+}
+
+func (service *PremiumEntitlementService) nowUTC() time.Time {
+	if service == nil || service.clock == nil {
+		return foundation.RealClock{}.Now().UTC()
+	}
+	return service.clock.Now().UTC()
 }
 
 func providerKey(provider ProviderReference) providerReferenceKey {

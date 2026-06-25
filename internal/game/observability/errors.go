@@ -57,6 +57,18 @@ var (
 	// ErrMissingSettlementLogWriter reports a nil structured settlement log sink.
 	ErrMissingSettlementLogWriter = errors.New("missing settlement log writer")
 
+	// ErrMissingPremiumTransitionLogIdentity reports a missing required premium transition log identity field.
+	ErrMissingPremiumTransitionLogIdentity = errors.New("missing premium transition log identity field")
+
+	// ErrMissingPremiumTransitionLogTimestamp reports a missing premium transition log timestamp.
+	ErrMissingPremiumTransitionLogTimestamp = errors.New("missing premium transition log timestamp")
+
+	// ErrMissingPremiumTransitionLogWriter reports a nil structured premium transition log sink.
+	ErrMissingPremiumTransitionLogWriter = errors.New("missing premium transition log writer")
+
+	// ErrUnsafePremiumTransitionLogReference reports an unsafe optional premium transition reference.
+	ErrUnsafePremiumTransitionLogReference = errors.New("unsafe premium transition log reference")
+
 	// ErrInvalidValueFlowDirection reports an unsupported economy flow direction.
 	ErrInvalidValueFlowDirection = errors.New("invalid value flow direction")
 

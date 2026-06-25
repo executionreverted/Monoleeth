@@ -40,10 +40,11 @@ type MoveItemInput struct {
 
 // MoveItemResult reports item rows touched and ledger rows written by MoveItem.
 type MoveItemResult struct {
-	StackableItems []StackableItem   `json:"stackable_items,omitempty"`
-	InstanceItems  []InstanceItem    `json:"instance_items,omitempty"`
-	LedgerEntries  []ItemLedgerEntry `json:"ledger_entries"`
-	Duplicate      bool              `json:"duplicate"`
+	StackableItems        []StackableItem   `json:"stackable_items,omitempty"`
+	DeletedStackableItems []StackableItem   `json:"deleted_stackable_items,omitempty"`
+	InstanceItems         []InstanceItem    `json:"instance_items,omitempty"`
+	LedgerEntries         []ItemLedgerEntry `json:"ledger_entries"`
+	Duplicate             bool              `json:"duplicate"`
 }
 
 // MoveItem moves player-owned item quantity between inventory locations once for a player/reference pair.
@@ -167,6 +168,11 @@ func (service *InventoryService) moveItemValidatedLocked(input MoveItemInput, qu
 		return result, nil
 	}
 
+	previousItemSequence := service.nextItemSequence
+	previousLedgerSequence := service.nextLedgerSequence
+	previousStackableItems := append([]StackableItem(nil), service.stackableItems...)
+	previousInstanceItems := append([]InstanceItem(nil), service.instanceItems...)
+
 	var result MoveItemResult
 	var err error
 	switch input.ItemRef.Definition.Type {
@@ -178,6 +184,13 @@ func (service *InventoryService) moveItemValidatedLocked(input MoveItemInput, qu
 		err = input.ItemRef.Definition.Type.Validate()
 	}
 	if err != nil {
+		return MoveItemResult{}, err
+	}
+	if err := service.persistMoveItemCommitLocked(input, result); err != nil {
+		service.nextItemSequence = previousItemSequence
+		service.nextLedgerSequence = previousLedgerSequence
+		service.stackableItems = previousStackableItems
+		service.instanceItems = previousInstanceItems
 		return MoveItemResult{}, err
 	}
 
@@ -394,14 +407,15 @@ func (service *InventoryService) moveStackableItemLocked(input MoveItemInput, qu
 		return MoveItemResult{}, err
 	}
 
-	stackableItems, err := service.movedStackableRowsLocked(input, quantity, now, newDestinationItems)
+	stackableItems, deletedStackableItems, err := service.movedStackableRowsLocked(input, quantity, now, newDestinationItems)
 	if err != nil {
 		return MoveItemResult{}, err
 	}
 
 	return MoveItemResult{
-		StackableItems: stackableItems,
-		LedgerEntries:  ledgerEntries,
+		StackableItems:        stackableItems,
+		DeletedStackableItems: deletedStackableItems,
+		LedgerEntries:         ledgerEntries,
 	}, nil
 }
 
@@ -533,9 +547,10 @@ func (service *InventoryService) movedStackableRowsLocked(
 	quantity foundation.Quantity,
 	now time.Time,
 	newDestinationItems []StackableItem,
-) ([]StackableItem, error) {
+) ([]StackableItem, []StackableItem, error) {
 	remainingSource := quantity.Int64()
 	updatedItems := make([]StackableItem, 0, len(service.stackableItems)+len(newDestinationItems))
+	deletedItems := make([]StackableItem, 0)
 	for _, item := range service.stackableItems {
 		if remainingSource > 0 && matchesStackableDefinitionLocation(item, input.PlayerID, input.ItemRef.Definition, input.FromLocation) {
 			taken := item.Quantity.Int64()
@@ -545,11 +560,12 @@ func (service *InventoryService) movedStackableRowsLocked(
 			remainingSource -= taken
 			newAmount := item.Quantity.Int64() - taken
 			if newAmount == 0 {
+				deletedItems = append(deletedItems, item)
 				continue
 			}
 			quantity, err := foundation.NewQuantity(newAmount)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			item.Quantity = quantity
 			item.UpdatedAt = now
@@ -577,7 +593,7 @@ func (service *InventoryService) movedStackableRowsLocked(
 		}
 		quantity, err := foundation.NewQuantity(updatedItems[index].Quantity.Int64() + added)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		updatedItems[index].Quantity = quantity
 		updatedItems[index].UpdatedAt = now
@@ -586,7 +602,7 @@ func (service *InventoryService) movedStackableRowsLocked(
 	updatedItems = append(updatedItems, newDestinationItems...)
 
 	service.stackableItems = updatedItems
-	return service.stackableItemsForMoveLocked(input), nil
+	return service.stackableItemsForMoveLocked(input), deletedItems, nil
 }
 
 func (service *InventoryService) instanceItemIndexLocked(input MoveItemInput) int {
@@ -685,6 +701,7 @@ func isBlockedGenericMoveSourceLocation(kind LocationKind) bool {
 
 func cloneMoveItemResult(result MoveItemResult) MoveItemResult {
 	result.StackableItems = append([]StackableItem(nil), result.StackableItems...)
+	result.DeletedStackableItems = append([]StackableItem(nil), result.DeletedStackableItems...)
 	result.InstanceItems = append([]InstanceItem(nil), result.InstanceItems...)
 	result.LedgerEntries = append([]ItemLedgerEntry(nil), result.LedgerEntries...)
 	return result

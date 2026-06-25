@@ -82,6 +82,11 @@ func (service *InventoryService) removeItemWithValidatedQuantity(input RemoveIte
 		return result, nil
 	}
 
+	previousItemSequence := service.nextItemSequence
+	previousLedgerSequence := service.nextLedgerSequence
+	previousStackableItems := append([]StackableItem(nil), service.stackableItems...)
+	previousInstanceItems := append([]InstanceItem(nil), service.instanceItems...)
+
 	now := service.clock.Now()
 	var result RemoveItemResult
 	var err error
@@ -94,6 +99,13 @@ func (service *InventoryService) removeItemWithValidatedQuantity(input RemoveIte
 		err = input.ItemRef.Definition.Type.Validate()
 	}
 	if err != nil {
+		return RemoveItemResult{}, err
+	}
+	if err := service.persistRemoveItemCommitLocked(input, result); err != nil {
+		service.nextItemSequence = previousItemSequence
+		service.nextLedgerSequence = previousLedgerSequence
+		service.stackableItems = previousStackableItems
+		service.instanceItems = previousInstanceItems
 		return RemoveItemResult{}, err
 	}
 

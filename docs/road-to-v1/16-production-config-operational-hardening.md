@@ -36,6 +36,7 @@ for critical state transitions.
   - Verified slice: `auth.register` and `auth.login` transition logs now include a safe request summary, player/session identity on success, result, error code, duration, and reject password/token/hash/cookie leakage in focused tests.
   - Verified slice: `market.buy` and `market.cancel` command logs now include request/player/session/op/result/error/duration/idempotency/ref fields and reject secret payload leakage in focused tests.
   - Verified slice: `death.repair_ship` command logs now include request/player/session/op/result/error/duration/idempotency/ref fields and reject password/token/cookie/hash/cargo/drop payload leakage in focused tests.
+  - Verified slice: premium provider entitlement and claim transition logs now include player/request/op/result/error/duration/idempotency/provider-ref fields where safe and reject password/token/secret/hash/cookie leakage in focused tests.
 
 ## Server Ownership
 - Never log passwords, hashes, tokens, cookies, reset secrets (AGENTS.md).
