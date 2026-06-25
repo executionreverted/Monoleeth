@@ -12,6 +12,7 @@ import (
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 	"gameproject/internal/game/realtime"
 )
 
@@ -23,6 +24,14 @@ type outboundMessage struct {
 	closeStatus websocket.StatusCode
 	closeReason string
 }
+
+type enqueueResult string
+
+const (
+	enqueueResultOK                enqueueResult = "ok"
+	enqueueResultClosed            enqueueResult = "closed"
+	enqueueResultDroppedSlowClient enqueueResult = "dropped_slow_client"
+)
 
 type websocketWriter interface {
 	Write(context.Context, websocket.MessageType, []byte) error
@@ -192,20 +201,20 @@ func (client *clientConnection) writeOutboundMessage(writeTimeout time.Duration,
 	return true
 }
 
-func (client *clientConnection) enqueue(message outboundMessage) bool {
+func (client *clientConnection) enqueue(message outboundMessage) enqueueResult {
 	select {
 	case <-client.done:
-		return false
+		return enqueueResultClosed
 	default:
 	}
 	select {
 	case <-client.done:
-		return false
+		return enqueueResultClosed
 	case client.outbound <- message:
-		return true
+		return enqueueResultOK
 	default:
 		client.close(websocket.StatusPolicyViolation, "client too slow")
-		return false
+		return enqueueResultDroppedSlowClient
 	}
 }
 
@@ -291,6 +300,7 @@ func (server *Server) writeEvents(client *clientConnection, events []realtime.Ev
 	for _, event := range events {
 		payload, err := json.Marshal(event)
 		if err != nil {
+			server.recordTelemetryError(observability.TelemetryErrorEventEncode)
 			client.close(websocket.StatusInternalError, "event encode failed")
 			return false
 		}
@@ -309,7 +319,23 @@ func (server *Server) writeTextMessage(client *clientConnection, message outboun
 	if len(message.payload) > 0 {
 		message.payload = append([]byte(nil), message.payload...)
 	}
-	return client.enqueue(message)
+	switch client.enqueue(message) {
+	case enqueueResultOK:
+		return true
+	case enqueueResultDroppedSlowClient:
+		server.recordTelemetryError(observability.TelemetryErrorQueueDrop)
+		server.recordTelemetryError(observability.TelemetryErrorSlowClientDisconnect)
+		return false
+	default:
+		return false
+	}
+}
+
+func (server *Server) recordTelemetryError(reason observability.TelemetryErrorReason) {
+	if server == nil || server.runtime == nil || server.runtime.Metrics == nil {
+		return
+	}
+	_ = server.runtime.Metrics.RecordTelemetryError(reason)
 }
 
 func (server *Server) registerConnection(client *clientConnection) {

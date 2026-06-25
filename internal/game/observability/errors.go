@@ -18,6 +18,9 @@ var (
 	// ErrNegativeMetricValue reports a counter or gauge value below zero.
 	ErrNegativeMetricValue = errors.New("negative metric value")
 
+	// ErrInvalidTelemetryErrorReason reports an unsupported telemetry error bucket.
+	ErrInvalidTelemetryErrorReason = errors.New("invalid telemetry error reason")
+
 	// ErrUnsafeLabelName reports a blank or unsafe metric label name.
 	ErrUnsafeLabelName = errors.New("unsafe label name")
 

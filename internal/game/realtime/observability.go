@@ -18,6 +18,10 @@ type CommandMetricRecorder interface {
 	RecordCommandError(op observability.Operation, code foundation.Code) error
 }
 
+type telemetryErrorRecorder interface {
+	RecordTelemetryError(reason observability.TelemetryErrorReason) error
+}
+
 // CommandContext is server-resolved command identity. It must come from auth and
 // authoritative routing, never from the client payload.
 type CommandContext struct {
@@ -130,10 +134,22 @@ func recordCommandMetric(recorder CommandMetricRecorder, op observability.Operat
 	if recorder == nil {
 		return
 	}
-	_ = recorder.RecordCommandCount(op)
-	if !code.IsZero() {
-		_ = recorder.RecordCommandError(op, code)
+	if err := recorder.RecordCommandCount(op); err != nil {
+		recordTelemetryMetricError(recorder)
 	}
+	if !code.IsZero() {
+		if err := recorder.RecordCommandError(op, code); err != nil {
+			recordTelemetryMetricError(recorder)
+		}
+	}
+}
+
+func recordTelemetryMetricError(recorder CommandMetricRecorder) {
+	telemetryRecorder, ok := recorder.(telemetryErrorRecorder)
+	if !ok {
+		return
+	}
+	_ = telemetryRecorder.RecordTelemetryError(observability.TelemetryErrorMetricWrite)
 }
 
 func recordCommandLog(logger CommandLogger, entry observability.CommandLogEntry) {

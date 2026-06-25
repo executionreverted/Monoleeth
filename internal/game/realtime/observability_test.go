@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -108,6 +109,25 @@ func TestObservedCommandExecutorRecordsErrorCodeMetricWithoutLeakingDetails(t *t
 	}
 }
 
+func TestObservedCommandExecutorRecordsTelemetryErrorWhenMetricWriteFails(t *testing.T) {
+	telemetry := observability.NewMetricRecorder()
+	metrics := failingCommandMetricRecorder{telemetry: telemetry}
+	executor := ObservedCommandExecutor{Metrics: metrics}
+	request := NewRequestEnvelope("request-metric-write-failure", OperationMoveTo, json.RawMessage(`{"x":10,"y":20}`), 9)
+
+	_, err := executor.Execute(validCommandContext(), request, func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+		return json.RawMessage(`{"accepted":true}`), nil
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+
+	counter := requireCounterWithLabel(t, telemetry.Snapshot(), observability.MetricTelemetryErrors, "reason", observability.TelemetryErrorMetricWrite.String())
+	if counter.Value != 1 {
+		t.Fatalf("telemetry metric write error counter = %d, want 1", counter.Value)
+	}
+}
+
 func TestObservedCommandExecutorRequiresServerResolvedIdentity(t *testing.T) {
 	executor := ObservedCommandExecutor{}
 	request := NewRequestEnvelope("request-3", OperationMoveTo, json.RawMessage(`{"x":10,"y":20}`), 9)
@@ -187,6 +207,22 @@ func (clock *steppingClock) Now() time.Time {
 	now := clock.now
 	clock.now = clock.now.Add(clock.step)
 	return now
+}
+
+type failingCommandMetricRecorder struct {
+	telemetry *observability.MetricRecorder
+}
+
+func (recorder failingCommandMetricRecorder) RecordCommandCount(observability.Operation) error {
+	return errors.New("metric write failed")
+}
+
+func (recorder failingCommandMetricRecorder) RecordCommandError(observability.Operation, foundation.Code) error {
+	return errors.New("metric write failed")
+}
+
+func (recorder failingCommandMetricRecorder) RecordTelemetryError(reason observability.TelemetryErrorReason) error {
+	return recorder.telemetry.RecordTelemetryError(reason)
 }
 
 func requireRealtimeCounter(t *testing.T, snapshot observability.MetricSnapshot, name string) observability.CounterSnapshot {

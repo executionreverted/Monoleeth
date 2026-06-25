@@ -40,7 +40,7 @@ for critical state transitions.
 - [x] Production mode with insecure cookie fails startup.
 - [x] Production mode with an in-memory core store fails startup.
 - [x] Debug op is not registered in production protocol.
-- [ ] A simulated telemetry write failure increments the telemetry-error counter.
+- [x] A simulated telemetry write failure increments the telemetry-error counter.
 - [ ] A market settlement emits one structured log with an idempotency key and no secrets.
 
 ## Done Criteria

@@ -369,13 +369,13 @@ func TestShipDisabledDomainEventQueuesClientSafeRealtimeEvents(t *testing.T) {
 	}
 	disabledAt := time.Unix(1_720_000_000, 0).UTC()
 	domainPayload := deathdomain.ShipDisabledEvent{
-		DeathID:           foundation.EventID("death-runtime-1"),
+		DeathID:           foundation.EventID("death-secret-canary-runtime-1"),
 		LethalEventKey:    lethalKey,
 		PlayerID:          resolved.PlayerID,
 		ShipID:            starterShipID,
-		DisabledReason:    "death",
+		DisabledReason:    "attacker-secret-reason",
 		DisabledAt:        disabledAt,
-		RespawnLocationID: deathdomain.RespawnLocationID("origin-station"),
+		RespawnLocationID: deathdomain.RespawnLocationID("hidden-respawn-canary"),
 	}
 	raw, err := json.Marshal(domainPayload)
 	if err != nil {
@@ -419,6 +419,11 @@ func TestShipDisabledDomainEventQueuesClientSafeRealtimeEvents(t *testing.T) {
 			"death_id",
 			"lethal_event_key",
 			"respawn_location_id",
+			"hidden-respawn-canary",
+			"attacker-secret",
+			"source_stack_id",
+			"loot_drop_id",
+			"killer_entity_id",
 		} {
 			if strings.Contains(rawEvent, forbidden) {
 				t.Fatalf("death bridge event %s leaked %q in %s", event.Type, forbidden, rawEvent)
@@ -436,25 +441,124 @@ func TestShipDisabledDomainEventQueuesClientSafeRealtimeEvents(t *testing.T) {
 		}
 	}
 
-	var publicDisabled struct {
-		ShipID         string              `json:"ship_id"`
-		DisabledReason string              `json:"disabled_reason"`
-		Ship           shipSnapshotPayload `json:"ship"`
-		RepairQuote    repairQuotePayload  `json:"repair_quote"`
-	}
-	if err := json.Unmarshal(seen[realtime.EventDeathShipDisabled].Payload, &publicDisabled); err != nil {
-		t.Fatalf("decode public death disabled event: %v", err)
-	}
+	publicDisabled := assertDeathShipDisabledPayloadClientSafeForTest(
+		t,
+		seen[realtime.EventDeathShipDisabled],
+		resolved.PlayerID.String(),
+		resolved.SessionID.String(),
+		"hidden-respawn-canary",
+		"attacker-secret",
+	)
 	if publicDisabled.ShipID != starterShipID.String() ||
 		publicDisabled.DisabledReason != "death" ||
-		publicDisabled.Ship.ActiveShipID != starterShipID.String() ||
-		!publicDisabled.Ship.Disabled ||
-		publicDisabled.Ship.RepairState != "disabled" ||
-		publicDisabled.Ship.Hull != 0 ||
-		publicDisabled.Ship.Shield != 0 ||
-		publicDisabled.Ship.Capacitor != 0 ||
 		publicDisabled.RepairQuote.ShipID != starterShipID.String() ||
 		!publicDisabled.RepairQuote.Disabled {
 		t.Fatalf("public death disabled payload = %+v, want client-safe disabled ship state", publicDisabled)
 	}
+}
+
+func TestPVPDeathQueuesClientSafeShipDisabledEvent(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	attacker := createResolvedRuntimeSessionOnMap(t, gameServer, "pvp-disabled-safe-attacker@example.com", "PVP Disabled Safe Attacker", seededPVPMapID, "west_gate")
+	target := createResolvedRuntimeSessionOnMap(t, gameServer, "pvp-disabled-safe-target@example.com", "PVP Disabled Safe Target", seededPVPMapID, "west_gate")
+	moveTestPlayerEntity(gameServer, attacker.PlayerID, world.Vec2{X: 500, Y: 500})
+	moveTestPlayerEntity(gameServer, target.PlayerID, world.Vec2{X: 520, Y: 500})
+	setTestPlayerShipCombatValues(t, gameServer, target.PlayerID, 1, 0, 100)
+	addTestCargoStack(t, gameServer, target.PlayerID, "raw_ore", 3, "pvp-disabled-safe-hidden-cargo-stack")
+	attackerEntityID := testPlayerEntityID(t, gameServer, attacker.PlayerID)
+
+	attack := performLethalPVPAttackForTest(t, gameServer, attacker, target, foundation.RequestID("request-pvp-disabled-safe"))
+	if len(attack.Drops) != 1 {
+		t.Fatalf("pvp death drops = %+v, want one cargo-backed drop", attack.Drops)
+	}
+
+	gameServer.runtime.mu.Lock()
+	targetEvents := gameServer.runtime.drainQueuedEventsLocked(target.SessionID)
+	gameServer.runtime.mu.Unlock()
+
+	disabledEvent := requireEventTypeForTest(t, targetEvents, realtime.EventDeathShipDisabled)
+	publicDisabled := assertDeathShipDisabledPayloadClientSafeForTest(
+		t,
+		disabledEvent,
+		attacker.PlayerID.String(),
+		attacker.SessionID.String(),
+		attackerEntityID.String(),
+		target.PlayerID.String(),
+		target.SessionID.String(),
+		"raw_ore",
+		"pvp-disabled-safe-hidden-cargo-stack",
+		attack.Drops[0].DropID,
+		attack.Drops[0].EntityID,
+	)
+	if publicDisabled.ShipID != starterShipID.String() ||
+		publicDisabled.DisabledReason != "death" ||
+		publicDisabled.RepairQuote.ShipID != starterShipID.String() ||
+		!publicDisabled.RepairQuote.Disabled {
+		t.Fatalf("pvp death disabled payload = %+v, want public disabled starter ship", publicDisabled)
+	}
+}
+
+func assertDeathShipDisabledPayloadClientSafeForTest(
+	t *testing.T,
+	event realtime.EventEnvelope,
+	forbiddenValues ...string,
+) deathShipDisabledPayload {
+	t.Helper()
+	if event.Type != realtime.EventDeathShipDisabled {
+		t.Fatalf("event type = %s, want %s", event.Type, realtime.EventDeathShipDisabled)
+	}
+
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &keys); err != nil {
+		t.Fatalf("decode death.ship_disabled keys: %v", err)
+	}
+	expectedKeys := map[string]struct{}{
+		"ship_id":         {},
+		"disabled_reason": {},
+		"ship":            {},
+		"repair_quote":    {},
+	}
+	for key := range keys {
+		if _, ok := expectedKeys[key]; !ok {
+			t.Fatalf("death.ship_disabled key %q not client-safe in %s", key, string(event.Payload))
+		}
+	}
+	for key := range expectedKeys {
+		if _, ok := keys[key]; !ok {
+			t.Fatalf("death.ship_disabled payload missing %q in %s", key, string(event.Payload))
+		}
+	}
+
+	raw := string(event.Payload)
+	for _, forbidden := range append([]string{
+		"player_id",
+		"session_id",
+		"death_id",
+		"lethal_event_key",
+		"player_death:",
+		"respawn_location_id",
+		"killer_entity_id",
+		"attacker",
+		"cargo",
+		"drop",
+		"loot",
+		"owner_player_id",
+		"source_stack_id",
+		"item_instance_id",
+		"disabled_at",
+		"stat_invalidation",
+	}, forbiddenValues...) {
+		if forbidden == "" {
+			continue
+		}
+		if strings.Contains(raw, forbidden) {
+			t.Fatalf("death.ship_disabled leaked %q in %s", forbidden, raw)
+		}
+	}
+
+	var payload deathShipDisabledPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatalf("decode death.ship_disabled payload: %v", err)
+	}
+	return payload
 }

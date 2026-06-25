@@ -172,6 +172,31 @@ func TestCommandErrorMetricUsesStableCodeLabelOnly(t *testing.T) {
 	}
 }
 
+func TestMetricRecorderRecordsTelemetryErrorReasonCounter(t *testing.T) {
+	recorder := NewMetricRecorder()
+
+	if err := recorder.RecordTelemetryError(TelemetryErrorMetricWrite); err != nil {
+		t.Fatalf("record metric write telemetry error: %v", err)
+	}
+	if err := recorder.RecordTelemetryError(TelemetryErrorMetricWrite); err != nil {
+		t.Fatalf("record second metric write telemetry error: %v", err)
+	}
+	if err := recorder.RecordTelemetryError(TelemetryErrorQueueDrop); err != nil {
+		t.Fatalf("record queue drop telemetry error: %v", err)
+	}
+
+	snapshot := recorder.Snapshot()
+	if len(snapshot.Counters) != 2 {
+		t.Fatalf("counter series = %d, want 2: %#v", len(snapshot.Counters), snapshot.Counters)
+	}
+	assertCounterWithLabels(t, snapshot, MetricTelemetryErrors, 2, []Label{
+		{Name: "reason", Value: TelemetryErrorMetricWrite.String()},
+	})
+	assertCounterWithLabels(t, snapshot, MetricTelemetryErrors, 1, []Label{
+		{Name: "reason", Value: TelemetryErrorQueueDrop.String()},
+	})
+}
+
 func TestMetricRecorderRejectsInvalidNamesLabelsAndNegativeValues(t *testing.T) {
 	recorder := NewMetricRecorder()
 
@@ -236,6 +261,13 @@ func TestMetricRecorderRejectsInvalidNamesLabelsAndNegativeValues(t *testing.T) 
 			},
 			wantError: ErrInvalidDuration,
 		},
+		{
+			name: "invalid telemetry error reason",
+			record: func() error {
+				return recorder.RecordTelemetryError(TelemetryErrorReason("not_supported"))
+			},
+			wantError: ErrInvalidTelemetryErrorReason,
+		},
 	}
 
 	for _, tt := range tests {
@@ -259,6 +291,7 @@ func TestMetricHelpersRecordPhase12Series(t *testing.T) {
 		func() error {
 			return recorder.RecordCommandError(Operation("combat.use_skill"), foundation.CodeCooldown)
 		},
+		func() error { return recorder.RecordTelemetryError(TelemetryErrorMetricWrite) },
 		func() error {
 			return recorder.RecordZoneTickDuration(foundation.WorldID("world-1"), foundation.ZoneID("zone-1"), time.Millisecond)
 		},
@@ -324,6 +357,7 @@ func TestMetricHelpersRecordPhase12Series(t *testing.T) {
 	for _, want := range []string{
 		MetricCommandsPerSecond,
 		MetricErrorsByCode,
+		MetricTelemetryErrors,
 		MetricZoneTickMS,
 		MetricVisibleEntityCount,
 		MetricCombatActionsPerSecond,
@@ -412,4 +446,30 @@ func assertLabels(t *testing.T, got, want []Label) {
 			t.Fatalf("label[%d] = %#v, want %#v", i, got[i], want[i])
 		}
 	}
+}
+
+func assertCounterWithLabels(t *testing.T, snapshot MetricSnapshot, name string, value int64, labels []Label) {
+	t.Helper()
+
+	for _, counter := range snapshot.Counters {
+		if counter.Name == name && sameLabels(counter.Labels, labels) {
+			if counter.Value != value {
+				t.Fatalf("counter %s labels %+v value = %d, want %d", name, labels, counter.Value, value)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing counter %s labels %+v in snapshot %+v", name, labels, snapshot)
+}
+
+func sameLabels(left, right []Label) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }

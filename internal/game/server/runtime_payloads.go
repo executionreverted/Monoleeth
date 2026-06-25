@@ -43,6 +43,13 @@ type shipSnapshotPayload struct {
 	RepairState  string `json:"repair_state"`
 }
 
+type deathShipDisabledPayload struct {
+	ShipID         string              `json:"ship_id"`
+	DisabledReason string              `json:"disabled_reason"`
+	Ship           shipSnapshotPayload `json:"ship"`
+	RepairQuote    repairQuotePayload  `json:"repair_quote"`
+}
+
 type statSnapshotPayload struct {
 	Speed                 float64 `json:"speed"`
 	RadarRange            float64 `json:"radar_range"`

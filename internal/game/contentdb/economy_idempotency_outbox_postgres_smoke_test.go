@@ -163,6 +163,222 @@ func TestPostgresEconomyOutboxInsertLoadRoundTripsJSONAndStatus(t *testing.T) {
 	}
 }
 
+func TestPostgresEconomyOutboxPendingRowCanBeLeased(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+
+	now := time.Date(2026, 6, 25, 19, 0, 0, 0, time.UTC)
+	inserted := postgresOutboxRow(t, "outbox-postgres-pending-lease", now)
+	if err := store.InsertOutboxRow(ctx, inserted); err != nil {
+		t.Fatalf("InsertOutboxRow() error = %v, want nil", err)
+	}
+
+	leased, ok, err := store.LeaseOutboxRow(ctx, economy.OutboxLeaseInput{
+		OutboxID:    inserted.OutboxID,
+		LeaseOwner:  "worker-a",
+		Now:         now.Add(time.Second),
+		LeasedUntil: now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("LeaseOutboxRow() error = %v, want nil", err)
+	}
+	if !ok || leased.Status != economy.OutboxStatusLeased || leased.LeaseOwner != "worker-a" || !leased.LeasedUntil.Equal(now.Add(time.Minute)) {
+		t.Fatalf("leased row = %+v ok %v, want worker-a leased row", leased, ok)
+	}
+}
+
+func TestPostgresEconomyOutboxPublishedRowNoLongerDue(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+
+	now := time.Date(2026, 6, 25, 19, 10, 0, 0, time.UTC)
+	inserted := postgresOutboxRow(t, "outbox-postgres-published-not-due", now)
+	if err := store.InsertOutboxRow(ctx, inserted); err != nil {
+		t.Fatalf("InsertOutboxRow() error = %v, want nil", err)
+	}
+	if _, ok, err := store.LeaseOutboxRow(ctx, economy.OutboxLeaseInput{
+		OutboxID:    inserted.OutboxID,
+		LeaseOwner:  "worker-a",
+		Now:         now.Add(time.Second),
+		LeasedUntil: now.Add(time.Minute),
+	}); err != nil || !ok {
+		t.Fatalf("LeaseOutboxRow() = ok %v err %v, want true nil", ok, err)
+	}
+	published, ok, err := store.MarkOutboxPublished(ctx, economy.OutboxPublishInput{
+		OutboxID:   inserted.OutboxID,
+		LeaseOwner: "worker-a",
+		Now:        now.Add(2 * time.Second),
+	})
+	if err != nil || !ok {
+		t.Fatalf("MarkOutboxPublished() = ok %v err %v, want true nil", ok, err)
+	}
+	if published.Status != economy.OutboxStatusPublished || published.AttemptCount != 1 {
+		t.Fatalf("published row = %+v, want published attempt 1", published)
+	}
+
+	due, err := store.LoadDueOutboxRows(ctx, economy.OutboxDueRowsQuery{Now: now.Add(time.Hour), Limit: 10})
+	if err != nil {
+		t.Fatalf("LoadDueOutboxRows() error = %v, want nil", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("due rows = %+v, want published row excluded", due)
+	}
+}
+
+func TestPostgresEconomyOutboxFailedRowRetryDue(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+
+	now := time.Date(2026, 6, 25, 19, 20, 0, 0, time.UTC)
+	retryAt := now.Add(5 * time.Minute)
+	inserted := postgresOutboxRow(t, "outbox-postgres-failed-retry", now)
+	if err := store.InsertOutboxRow(ctx, inserted); err != nil {
+		t.Fatalf("InsertOutboxRow() error = %v, want nil", err)
+	}
+	if _, ok, err := store.LeaseOutboxRow(ctx, economy.OutboxLeaseInput{
+		OutboxID:    inserted.OutboxID,
+		LeaseOwner:  "worker-a",
+		Now:         now.Add(time.Second),
+		LeasedUntil: now.Add(time.Minute),
+	}); err != nil || !ok {
+		t.Fatalf("LeaseOutboxRow() = ok %v err %v, want true nil", ok, err)
+	}
+	failed, ok, err := store.MarkOutboxFailed(ctx, economy.OutboxFailureInput{
+		OutboxID:    inserted.OutboxID,
+		LeaseOwner:  "worker-a",
+		LastError:   "publish timeout",
+		Now:         now.Add(2 * time.Second),
+		AvailableAt: retryAt,
+	})
+	if err != nil || !ok {
+		t.Fatalf("MarkOutboxFailed() = ok %v err %v, want true nil", ok, err)
+	}
+	if failed.Status != economy.OutboxStatusFailed || failed.AttemptCount != 1 {
+		t.Fatalf("failed row = %+v, want failed attempt 1", failed)
+	}
+
+	due, err := store.LoadDueOutboxRows(ctx, economy.OutboxDueRowsQuery{Now: retryAt, Limit: 10})
+	if err != nil {
+		t.Fatalf("LoadDueOutboxRows() error = %v, want nil", err)
+	}
+	if len(due) != 1 || due[0].OutboxID != inserted.OutboxID {
+		t.Fatalf("due rows = %+v, want failed retry row", due)
+	}
+}
+
+func TestPostgresEconomyOutboxDuplicateLeaseGuarded(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+
+	now := time.Date(2026, 6, 25, 19, 30, 0, 0, time.UTC)
+	inserted := postgresOutboxRow(t, "outbox-postgres-duplicate-lease", now)
+	if err := store.InsertOutboxRow(ctx, inserted); err != nil {
+		t.Fatalf("InsertOutboxRow() error = %v, want nil", err)
+	}
+	if _, ok, err := store.LeaseOutboxRow(ctx, economy.OutboxLeaseInput{
+		OutboxID:    inserted.OutboxID,
+		LeaseOwner:  "worker-a",
+		Now:         now.Add(time.Second),
+		LeasedUntil: now.Add(time.Minute),
+	}); err != nil || !ok {
+		t.Fatalf("LeaseOutboxRow(first) = ok %v err %v, want true nil", ok, err)
+	}
+
+	_, ok, err := store.LeaseOutboxRow(ctx, economy.OutboxLeaseInput{
+		OutboxID:    inserted.OutboxID,
+		LeaseOwner:  "worker-b",
+		Now:         now.Add(2 * time.Second),
+		LeasedUntil: now.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("LeaseOutboxRow(second) error = %v, want nil", err)
+	}
+	if ok {
+		t.Fatal("LeaseOutboxRow(second) ok = true, want false while first lease active")
+	}
+}
+
+func TestPostgresEconomyOutboxDueRowsRespectLimit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+
+	now := time.Date(2026, 6, 25, 19, 40, 0, 0, time.UTC)
+	first := postgresOutboxRow(t, "outbox-postgres-limit-a", now)
+	second := postgresOutboxRow(t, "outbox-postgres-limit-b", now.Add(time.Second))
+	if err := store.InsertOutboxRow(ctx, first); err != nil {
+		t.Fatalf("InsertOutboxRow(first) error = %v, want nil", err)
+	}
+	if err := store.InsertOutboxRow(ctx, second); err != nil {
+		t.Fatalf("InsertOutboxRow(second) error = %v, want nil", err)
+	}
+
+	due, err := store.LoadDueOutboxRows(ctx, economy.OutboxDueRowsQuery{Now: now.Add(time.Minute), Limit: 1})
+	if err != nil {
+		t.Fatalf("LoadDueOutboxRows() error = %v, want nil", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("due row count = %d, want 1", len(due))
+	}
+}
+
+func TestPostgresEconomyOutboxFailureDiesAfterMaxAttempts(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+
+	now := time.Date(2026, 6, 25, 19, 50, 0, 0, time.UTC)
+	row := postgresOutboxRow(t, "outbox-postgres-dead-after-max", now)
+	row.MaxAttempts = 1
+	if err := store.InsertOutboxRow(ctx, row); err != nil {
+		t.Fatalf("InsertOutboxRow() error = %v, want nil", err)
+	}
+	if _, ok, err := store.LeaseOutboxRow(ctx, economy.OutboxLeaseInput{
+		OutboxID:    row.OutboxID,
+		LeaseOwner:  "worker-a",
+		Now:         now.Add(time.Second),
+		LeasedUntil: now.Add(time.Minute),
+	}); err != nil || !ok {
+		t.Fatalf("LeaseOutboxRow() = ok %v err %v, want true nil", ok, err)
+	}
+
+	dead, ok, err := store.MarkOutboxFailed(ctx, economy.OutboxFailureInput{
+		OutboxID:    row.OutboxID,
+		LeaseOwner:  "worker-a",
+		LastError:   "permanent timeout",
+		Now:         now.Add(2 * time.Second),
+		AvailableAt: now.Add(time.Hour),
+	})
+	if err != nil || !ok {
+		t.Fatalf("MarkOutboxFailed() = ok %v err %v, want true nil", ok, err)
+	}
+	if dead.Status != economy.OutboxStatusDead || dead.AttemptCount != 1 {
+		t.Fatalf("dead row = %+v, want dead attempt 1", dead)
+	}
+}
+
 func postgresIdempotencyRow(t *testing.T, key string) economy.IdempotencyKeyRow {
 	t.Helper()
 	now := time.Date(2026, 6, 25, 17, 0, 0, 0, time.UTC)
@@ -186,6 +402,26 @@ func postgresIdempotencyKey(t *testing.T, key string) foundation.IdempotencyKey 
 		t.Fatalf("ParseIdempotencyKey(%q) error = %v, want nil", key, err)
 	}
 	return parsed
+}
+
+func postgresOutboxRow(t *testing.T, outboxID string, now time.Time) economy.OutboxRow {
+	t.Helper()
+	row, err := economy.NewOutboxRow(economy.OutboxRow{
+		OutboxID:         outboxID,
+		Topic:            "economy",
+		EventType:        economy.EventWalletCredited,
+		AggregateType:    "player",
+		AggregateID:      "player-postgres-outbox-replay",
+		IdempotencyScope: economy.IdempotencyScopeEconomy,
+		IdempotencyKey:   postgresIdempotencyKey(t, "quest_reward:"+outboxID),
+		PayloadJSON:      json.RawMessage(`{"amount":25,"player_id":"player-postgres-outbox-replay"}`),
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	})
+	if err != nil {
+		t.Fatalf("NewOutboxRow(%q) error = %v, want nil", outboxID, err)
+	}
+	return row
 }
 
 func jsonEqual(left json.RawMessage, right json.RawMessage) bool {

@@ -400,6 +400,15 @@ func (runtime *Runtime) repairQuoteLocked(state playerRuntimeState) repairQuoteP
 	}
 }
 
+func (runtime *Runtime) deathShipDisabledPayloadLocked(state playerRuntimeState, reason string) deathShipDisabledPayload {
+	return deathShipDisabledPayload{
+		ShipID:         state.Ship.ActiveShipID,
+		DisabledReason: clientSafeShipDisabledReason(reason),
+		Ship:           state.Ship,
+		RepairQuote:    runtime.repairQuoteLocked(state),
+	}
+}
+
 func (runtime *Runtime) shipDisabledRefreshEvents(sessionID auth.SessionID, playerID foundation.PlayerID) ([]realtime.EventEnvelope, error) {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
@@ -415,12 +424,7 @@ func (runtime *Runtime) shipDisabledRefreshEvents(sessionID auth.SessionID, play
 		state.Ship.RepairState = "disabled"
 		runtime.players[playerID] = state
 	}
-	payload := map[string]any{
-		"ship_id":         state.Ship.ActiveShipID,
-		"disabled_reason": shipDisabledReason(state.Ship),
-		"ship":            state.Ship,
-		"repair_quote":    runtime.repairQuoteLocked(state),
-	}
+	payload := runtime.deathShipDisabledPayloadLocked(state, shipDisabledReason(state.Ship))
 	events := []realtime.EventEnvelope{
 		runtime.eventLocked(sessionID, realtime.EventDeathShipDisabled, payload),
 		runtime.eventLocked(sessionID, realtime.EventShipSnapshot, state.Ship),
@@ -435,6 +439,15 @@ func shipDisabledReason(ship shipSnapshotPayload) string {
 		return ship.RepairState
 	}
 	return "death"
+}
+
+func clientSafeShipDisabledReason(reason string) string {
+	switch reason {
+	case "death":
+		return reason
+	default:
+		return "death"
+	}
 }
 
 func (runtime *Runtime) queueEventLocked(sessionID auth.SessionID, eventType realtime.ClientEventType, payload any) {

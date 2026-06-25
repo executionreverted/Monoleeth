@@ -32,6 +32,11 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [ ] `[P:wave2/lane-C]` Make premium claim + provider-event ingest idempotent and durable (replay-safe).
 - [ ] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (close `docs/todo.md` item).
 
+## Progress Notes
+- 2026-06-25 TASK-0486: contentdb outbox pending/failed due-load,
+  guarded lease, publish, failure/dead transitions, and replay helper skeleton
+  tests landed. Broad after-commit publisher/replay worker task remains open.
+
 ## Server Ownership
 - Use canonical idempotency keys: `loot_pickup:<drop_id>`, `auction_close:<auction_id>`,
   `premium_webhook:<provider_event_id>`, etc. (AGENTS.md).

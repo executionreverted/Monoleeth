@@ -12,6 +12,7 @@ import (
 
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/foundation"
+	"gameproject/internal/game/observability"
 	"gameproject/internal/game/realtime"
 )
 
@@ -90,6 +91,60 @@ func TestWriterQueueOverflowClosesOnlySlowClient(t *testing.T) {
 	}
 }
 
+func TestWriterQueueOverflowRecordsTelemetryQueueDropCounter(t *testing.T) {
+	server, metrics := newTransportTelemetryServer()
+	slowClient := newClientConnection(newFakeWebSocketWriter(false), auth.SessionID("session-overflow-telemetry"), 1)
+
+	if !server.writeEvents(slowClient, []realtime.EventEnvelope{writerQueueEvent(1)}) {
+		t.Fatal("first slow client enqueue = false, want true")
+	}
+	if server.writeEvents(slowClient, []realtime.EventEnvelope{writerQueueEvent(2)}) {
+		t.Fatal("overflow enqueue = true, want false")
+	}
+
+	snapshot := metrics.Snapshot()
+	requireMetricCounter(t, snapshot, observability.MetricTelemetryErrors, 1, []observability.Label{
+		{Name: "reason", Value: observability.TelemetryErrorQueueDrop.String()},
+	})
+}
+
+func TestWriterQueueOverflowRecordsTelemetrySlowClientDisconnectCounter(t *testing.T) {
+	server, metrics := newTransportTelemetryServer()
+	slowClient := newClientConnection(newFakeWebSocketWriter(false), auth.SessionID("session-overflow-slow-client-telemetry"), 1)
+
+	if !server.writeEvents(slowClient, []realtime.EventEnvelope{writerQueueEvent(1)}) {
+		t.Fatal("first slow client enqueue = false, want true")
+	}
+	if server.writeEvents(slowClient, []realtime.EventEnvelope{writerQueueEvent(2)}) {
+		t.Fatal("overflow enqueue = true, want false")
+	}
+
+	requireMetricCounter(t, metrics.Snapshot(), observability.MetricTelemetryErrors, 1, []observability.Label{
+		{Name: "reason", Value: observability.TelemetryErrorSlowClientDisconnect.String()},
+	})
+}
+
+func TestWriteEventsRecordsTelemetryEncodeCounterOnEventEncodeError(t *testing.T) {
+	server, metrics := newTransportTelemetryServer()
+	conn := newFakeWebSocketWriter(false)
+	client := newClientConnection(conn, auth.SessionID("session-event-encode-telemetry"), 1)
+	event := realtime.NewEventEnvelope(
+		foundation.EventID("event-bad-json"),
+		realtime.EventServerNotice,
+		json.RawMessage(`{"bad"`),
+		123,
+		1,
+	)
+
+	if server.writeEvents(client, []realtime.EventEnvelope{event}) {
+		t.Fatal("writeEvents() = true, want false for event encode failure")
+	}
+
+	requireMetricCounter(t, metrics.Snapshot(), observability.MetricTelemetryErrors, 1, []observability.Label{
+		{Name: "reason", Value: observability.TelemetryErrorEventEncode.String()},
+	})
+}
+
 func TestWriterQueueNormalClientReceivesQueuedEvent(t *testing.T) {
 	server := &Server{}
 	conn := newFakeWebSocketWriter(false)
@@ -109,6 +164,11 @@ func TestWriterQueueNormalClientReceivesQueuedEvent(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("normal client received no queued event")
 	}
+}
+
+func newTransportTelemetryServer() (*Server, *observability.MetricRecorder) {
+	metrics := observability.NewMetricRecorder()
+	return &Server{runtime: &Runtime{Metrics: metrics}}, metrics
 }
 
 type fakeWebSocketWriter struct {

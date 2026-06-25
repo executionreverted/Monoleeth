@@ -159,6 +159,140 @@ func (store *Store) LoadOutboxRow(ctx context.Context, outboxID string) (economy
 	return row, true, nil
 }
 
+func (store *Store) LoadDueOutboxRows(ctx context.Context, query economy.OutboxDueRowsQuery) ([]economy.OutboxRow, error) {
+	if store == nil || store.db == nil {
+		return nil, ErrNilDatabase
+	}
+	query.Now = query.Now.UTC()
+	if err := query.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := store.db.QueryContext(ctx, outboxSelectSQL()+`
+		WHERE status IN ($2, $3)
+			AND available_at <= $1
+		ORDER BY available_at ASC, created_at ASC, outbox_id ASC
+		LIMIT $4
+	`, query.Now, string(economy.OutboxStatusPending), string(economy.OutboxStatusFailed), query.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	due := make([]economy.OutboxRow, 0, query.Limit)
+	for rows.Next() {
+		row, err := scanOutboxRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		due = append(due, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return due, nil
+}
+
+func (store *Store) LeaseOutboxRow(ctx context.Context, input economy.OutboxLeaseInput) (economy.OutboxRow, bool, error) {
+	if store == nil || store.db == nil {
+		return economy.OutboxRow{}, false, ErrNilDatabase
+	}
+	input.Now = input.Now.UTC()
+	input.LeasedUntil = input.LeasedUntil.UTC()
+	if err := input.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	row, err := scanOutboxRow(store.db.QueryRowContext(ctx, `
+		UPDATE outbox
+		SET status = $2,
+			lease_owner = $3,
+			leased_until = $4,
+			updated_at = $5
+		WHERE outbox_id = $1
+			AND (
+				(status IN ($6, $7) AND available_at <= $5)
+				OR (status = $2 AND leased_until <= $5)
+			)
+		`+outboxReturningSQL()+`
+	`, input.OutboxID, string(economy.OutboxStatusLeased), input.LeaseOwner,
+		input.LeasedUntil, input.Now, string(economy.OutboxStatusPending), string(economy.OutboxStatusFailed)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return economy.OutboxRow{}, false, nil
+	}
+	if err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	return row, true, nil
+}
+
+func (store *Store) MarkOutboxPublished(ctx context.Context, input economy.OutboxPublishInput) (economy.OutboxRow, bool, error) {
+	if store == nil || store.db == nil {
+		return economy.OutboxRow{}, false, ErrNilDatabase
+	}
+	input.Now = input.Now.UTC()
+	if err := input.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	row, err := scanOutboxRow(store.db.QueryRowContext(ctx, `
+		UPDATE outbox
+		SET status = $2,
+			lease_owner = '',
+			leased_until = NULL,
+			attempt_count = attempt_count + 1,
+			last_error = '',
+			updated_at = $4,
+			published_at = $4
+		WHERE outbox_id = $1
+			AND status = $3
+			AND lease_owner = $5
+			AND leased_until > $4
+		`+outboxReturningSQL()+`
+	`, input.OutboxID, string(economy.OutboxStatusPublished), string(economy.OutboxStatusLeased), input.Now, input.LeaseOwner))
+	if errors.Is(err, sql.ErrNoRows) {
+		return economy.OutboxRow{}, false, nil
+	}
+	if err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	return row, true, nil
+}
+
+func (store *Store) MarkOutboxFailed(ctx context.Context, input economy.OutboxFailureInput) (economy.OutboxRow, bool, error) {
+	if store == nil || store.db == nil {
+		return economy.OutboxRow{}, false, ErrNilDatabase
+	}
+	input.Now = input.Now.UTC()
+	input.AvailableAt = input.AvailableAt.UTC()
+	if err := input.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	row, err := scanOutboxRow(store.db.QueryRowContext(ctx, `
+		UPDATE outbox
+		SET status = CASE
+				WHEN attempt_count + 1 >= max_attempts THEN $2
+				ELSE $3
+			END,
+			available_at = $4,
+			lease_owner = '',
+			leased_until = NULL,
+			attempt_count = attempt_count + 1,
+			last_error = $5,
+			updated_at = $6
+		WHERE outbox_id = $1
+			AND status = $7
+			AND lease_owner = $8
+			AND leased_until > $6
+		`+outboxReturningSQL()+`
+	`, input.OutboxID, string(economy.OutboxStatusDead), string(economy.OutboxStatusFailed),
+		input.AvailableAt, input.LastError, input.Now, string(economy.OutboxStatusLeased), input.LeaseOwner))
+	if errors.Is(err, sql.ErrNoRows) {
+		return economy.OutboxRow{}, false, nil
+	}
+	if err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	return row, true, nil
+}
+
 func (store *Store) loadIdempotencyKeyRow(ctx context.Context, scope string, key foundation.IdempotencyKey) (economy.IdempotencyKeyRow, bool, error) {
 	row, err := scanIdempotencyKeyRow(store.db.QueryRowContext(ctx, idempotencyKeySelectSQL()+`
 		FROM idempotency_keys
@@ -275,6 +409,20 @@ func idempotencyKeySelectSQL() string {
 func outboxSelectSQL() string {
 	return `
 		SELECT
+			` + outboxColumnsSQL() + `
+		FROM outbox
+	`
+}
+
+func outboxReturningSQL() string {
+	return `
+		RETURNING
+			` + outboxColumnsSQL() + `
+	`
+}
+
+func outboxColumnsSQL() string {
+	return `
 			outbox_id,
 			topic,
 			event_type,
@@ -293,7 +441,6 @@ func outboxSelectSQL() string {
 			created_at,
 			updated_at,
 			published_at
-		FROM outbox
 	`
 }
 

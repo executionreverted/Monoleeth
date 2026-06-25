@@ -62,12 +62,7 @@ func (runtime *Runtime) applyShipDisabledDomainEventLocked(payload deathdomain.S
 		}
 	}
 
-	publicPayload := map[string]any{
-		"ship_id":         payload.ShipID.String(),
-		"disabled_reason": payload.DisabledReason,
-		"ship":            state.Ship,
-		"repair_quote":    runtime.repairQuoteLocked(state),
-	}
+	publicPayload := runtime.deathShipDisabledPayloadLocked(state, payload.DisabledReason)
 	for sessionID, playerID := range runtime.sessions {
 		if playerID != payload.PlayerID {
 			continue

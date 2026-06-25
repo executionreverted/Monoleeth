@@ -41,6 +41,18 @@ const (
 	MetricEnemySpawnerCommandRejections = "enemy_spawner_command_rejections"
 	MetricEnemySpawnerRejections        = MetricEnemySpawnerCommandRejections
 	MetricDevModeEnabled                = "dev_mode_enabled"
+	MetricTelemetryErrors               = "telemetry_errors"
+)
+
+// TelemetryErrorReason is a stable bucket for telemetry-path failures.
+type TelemetryErrorReason string
+
+const (
+	TelemetryErrorMetricWrite          TelemetryErrorReason = "metric_write"
+	TelemetryErrorEventEncode          TelemetryErrorReason = "event_encode"
+	TelemetryErrorQueueDrop            TelemetryErrorReason = "queue_drop"
+	TelemetryErrorSlowClientDisconnect TelemetryErrorReason = "slow_client_disconnect"
+	TelemetryErrorTickOverrun          TelemetryErrorReason = "tick_overrun"
 )
 
 // Labels is a caller-supplied metric label set.
@@ -281,6 +293,14 @@ func (recorder *MetricRecorder) RecordCommandError(op Operation, code foundation
 		"code": code.String(),
 		"op":   op.String(),
 	}, 1)
+}
+
+// RecordTelemetryError increments the telemetry error counter by stable reason.
+func (recorder *MetricRecorder) RecordTelemetryError(reason TelemetryErrorReason) error {
+	if err := reason.Validate(); err != nil {
+		return err
+	}
+	return recorder.AddCounter(MetricTelemetryErrors, Labels{"reason": reason.String()}, 1)
 }
 
 // RecordZoneTickDuration observes a zone tick duration.
@@ -572,6 +592,25 @@ func validateLabelValue(value string) error {
 		return fmt.Errorf("label value %q: %w", value, ErrUnsafeLabelValue)
 	}
 	return nil
+}
+
+// String returns the stable telemetry error reason representation.
+func (reason TelemetryErrorReason) String() string {
+	return string(reason)
+}
+
+// Validate reports whether reason is a supported telemetry error bucket.
+func (reason TelemetryErrorReason) Validate() error {
+	switch reason {
+	case TelemetryErrorMetricWrite,
+		TelemetryErrorEventEncode,
+		TelemetryErrorQueueDrop,
+		TelemetryErrorSlowClientDisconnect,
+		TelemetryErrorTickOverrun:
+		return nil
+	default:
+		return fmt.Errorf("telemetry error reason %q: %w", reason, ErrInvalidTelemetryErrorReason)
+	}
 }
 
 func enemyLifecycleLabels(worldID foundation.WorldID, zoneID foundation.ZoneID, mapKey, riskBand, stage, result, reason string) (Labels, error) {

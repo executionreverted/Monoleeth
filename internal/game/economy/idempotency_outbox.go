@@ -16,6 +16,8 @@ import (
 const (
 	IdempotencyScopeEconomy = "economy"
 
+	OutboxMaxDueRowsLimit = 100
+
 	IdempotencyStatusInProgress IdempotencyStatus = "in_progress"
 	IdempotencyStatusCompleted  IdempotencyStatus = "completed"
 	IdempotencyStatusFailed     IdempotencyStatus = "failed"
@@ -132,6 +134,84 @@ func (status OutboxStatus) Validate() error {
 	}
 }
 
+type OutboxDueRowsQuery struct {
+	Now   time.Time
+	Limit int
+}
+
+func (query OutboxDueRowsQuery) Validate() error {
+	if query.Now.IsZero() {
+		return fmt.Errorf("now: %w", ErrInvalidOutboxRow)
+	}
+	if query.Limit <= 0 || query.Limit > OutboxMaxDueRowsLimit {
+		return fmt.Errorf("limit %d: %w", query.Limit, ErrInvalidOutboxRow)
+	}
+	return nil
+}
+
+type OutboxLeaseInput struct {
+	OutboxID    string
+	LeaseOwner  string
+	Now         time.Time
+	LeasedUntil time.Time
+}
+
+func (input OutboxLeaseInput) Validate() error {
+	if strings.TrimSpace(input.OutboxID) == "" || input.OutboxID != strings.TrimSpace(input.OutboxID) {
+		return fmt.Errorf("outbox_id %q: %w", input.OutboxID, ErrInvalidOutboxRow)
+	}
+	if strings.TrimSpace(input.LeaseOwner) == "" || input.LeaseOwner != strings.TrimSpace(input.LeaseOwner) {
+		return fmt.Errorf("lease_owner %q: %w", input.LeaseOwner, ErrInvalidOutboxRow)
+	}
+	if input.Now.IsZero() || input.LeasedUntil.IsZero() || !input.LeasedUntil.After(input.Now) {
+		return fmt.Errorf("lease time: %w", ErrInvalidOutboxRow)
+	}
+	return nil
+}
+
+type OutboxPublishInput struct {
+	OutboxID   string
+	LeaseOwner string
+	Now        time.Time
+}
+
+func (input OutboxPublishInput) Validate() error {
+	if strings.TrimSpace(input.OutboxID) == "" || input.OutboxID != strings.TrimSpace(input.OutboxID) {
+		return fmt.Errorf("outbox_id %q: %w", input.OutboxID, ErrInvalidOutboxRow)
+	}
+	if strings.TrimSpace(input.LeaseOwner) == "" || input.LeaseOwner != strings.TrimSpace(input.LeaseOwner) {
+		return fmt.Errorf("lease_owner %q: %w", input.LeaseOwner, ErrInvalidOutboxRow)
+	}
+	if input.Now.IsZero() {
+		return fmt.Errorf("now: %w", ErrInvalidOutboxRow)
+	}
+	return nil
+}
+
+type OutboxFailureInput struct {
+	OutboxID    string
+	LeaseOwner  string
+	LastError   string
+	Now         time.Time
+	AvailableAt time.Time
+}
+
+func (input OutboxFailureInput) Validate() error {
+	if strings.TrimSpace(input.OutboxID) == "" || input.OutboxID != strings.TrimSpace(input.OutboxID) {
+		return fmt.Errorf("outbox_id %q: %w", input.OutboxID, ErrInvalidOutboxRow)
+	}
+	if strings.TrimSpace(input.LeaseOwner) == "" || input.LeaseOwner != strings.TrimSpace(input.LeaseOwner) {
+		return fmt.Errorf("lease_owner %q: %w", input.LeaseOwner, ErrInvalidOutboxRow)
+	}
+	if strings.TrimSpace(input.LastError) == "" || input.LastError != strings.TrimSpace(input.LastError) {
+		return fmt.Errorf("last_error %q: %w", input.LastError, ErrInvalidOutboxRow)
+	}
+	if input.Now.IsZero() || input.AvailableAt.IsZero() {
+		return fmt.Errorf("failure time: %w", ErrInvalidOutboxRow)
+	}
+	return nil
+}
+
 // OutboxRow is the durable event row contract for later after-commit publishers.
 type OutboxRow struct {
 	OutboxID         string
@@ -220,6 +300,10 @@ type IdempotencyStore interface {
 type OutboxStore interface {
 	InsertOutboxRow(ctx context.Context, row OutboxRow) error
 	LoadOutboxRow(ctx context.Context, outboxID string) (OutboxRow, bool, error)
+	LoadDueOutboxRows(ctx context.Context, query OutboxDueRowsQuery) ([]OutboxRow, error)
+	LeaseOutboxRow(ctx context.Context, input OutboxLeaseInput) (OutboxRow, bool, error)
+	MarkOutboxPublished(ctx context.Context, input OutboxPublishInput) (OutboxRow, bool, error)
+	MarkOutboxFailed(ctx context.Context, input OutboxFailureInput) (OutboxRow, bool, error)
 }
 
 func validateJSONObject(field string, raw json.RawMessage) error {
