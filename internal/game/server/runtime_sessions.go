@@ -125,7 +125,15 @@ func (runtime *Runtime) detachSession(sessionID auth.SessionID) {
 	delete(runtime.sessionEpochs, sessionID)
 }
 
-func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realtime.EventEnvelope, error) {
+func (runtime *Runtime) forgetSessionReplay(sessionID auth.SessionID) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	delete(runtime.eventSeq, sessionID)
+	delete(runtime.eventRings, sessionID)
+	delete(runtime.queuedEvents, sessionID)
+}
+
+func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession, lastSeenSeq ...uint64) ([]realtime.EventEnvelope, error) {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 
@@ -143,6 +151,10 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realti
 	}
 	if instance, _, err := runtime.activeMapInstanceLocked(resolved.PlayerID); err == nil {
 		instance.LastAOI[resolved.SessionID] = aoi.Snapshot{Entities: cloneAOIEntities(worldSnapshot.Entities)}
+	}
+	var replay []realtime.EventEnvelope
+	if len(lastSeenSeq) > 0 {
+		replay = runtime.replayEventsAfterLocked(resolved.SessionID, lastSeenSeq[0])
 	}
 	events := make([]realtime.EventEnvelope, 0, 8)
 	sessionPayload := sessionReadyPayload{
@@ -167,7 +179,14 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession) ([]realti
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventCargoSnapshot, state.Cargo))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventProgressionSnapshot, progressionPayload(progressionSnapshot)))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventWorldSnapshot, worldSnapshot))
-	return events, nil
+	runtime.recordReplayEventsLocked(resolved.SessionID, events)
+	if len(replay) == 0 {
+		return events, nil
+	}
+	result := make([]realtime.EventEnvelope, 0, len(replay)+len(events))
+	result = append(result, replay...)
+	result = append(result, events...)
+	return result, nil
 }
 
 func (runtime *Runtime) postCommandEvents(sessionID auth.SessionID, op realtime.Operation, playerID foundation.PlayerID) ([]realtime.EventEnvelope, error) {
@@ -204,7 +223,9 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 			events = append(events, runtime.eventAtLocked(sessionID, realtime.EventMovementStopped, payload, now))
 		}
 		events = append(events, runtime.aoiDiffEventsLocked(sessionID, playerID)...)
-		return map[auth.SessionID][]realtime.EventEnvelope{sessionID: events}, nil
+		eventsBySession := map[auth.SessionID][]realtime.EventEnvelope{sessionID: events}
+		runtime.recordReplayEventsBySessionLocked(eventsBySession)
+		return eventsBySession, nil
 	case realtime.OperationCombatUseSkill,
 		realtime.OperationLootPickup,
 		realtime.OperationShieldRepairTick,
@@ -260,6 +281,7 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 			}
 			eventsBySession[sessionID] = actorEvents
 		}
+		runtime.recordReplayEventsBySessionLocked(eventsBySession)
 		return eventsBySession, nil
 	default:
 		return nil, nil
@@ -315,6 +337,38 @@ func (runtime *Runtime) eventAtLocked(sessionID auth.SessionID, eventType realti
 		at.UTC().UnixMilli(),
 		runtime.eventSeq[sessionID],
 	)
+}
+
+func (runtime *Runtime) replayEventsAfterLocked(sessionID auth.SessionID, lastSeq uint64) []realtime.EventEnvelope {
+	ring := runtime.eventRings[sessionID]
+	events, ok := ring.replayAfter(lastSeq)
+	if !ok || len(events) == 0 {
+		return nil
+	}
+	return runtime.filterEventsForActiveEpochLocked(sessionID, events)
+}
+
+func (runtime *Runtime) recordReplayEventsBySessionLocked(eventsBySession map[auth.SessionID][]realtime.EventEnvelope) {
+	for sessionID, events := range eventsBySession {
+		runtime.recordReplayEventsLocked(sessionID, events)
+	}
+}
+
+func (runtime *Runtime) recordReplayEventsLocked(sessionID auth.SessionID, events []realtime.EventEnvelope) {
+	if len(events) == 0 {
+		return
+	}
+	if runtime.eventRings == nil {
+		runtime.eventRings = make(map[auth.SessionID]*sessionEventRing)
+	}
+	ring := runtime.eventRings[sessionID]
+	if ring == nil {
+		ring = newSessionEventRing(sessionEventRingCapacity)
+		runtime.eventRings[sessionID] = ring
+	}
+	for _, event := range events {
+		ring.append(event)
+	}
 }
 
 func (runtime *Runtime) payloadWithMapSubscriptionEpochLocked(sessionID auth.SessionID, payload any) any {

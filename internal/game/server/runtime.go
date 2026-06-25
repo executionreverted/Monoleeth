@@ -122,6 +122,7 @@ type Runtime struct {
 	players            map[foundation.PlayerID]playerRuntimeState
 	stealthBaseSpeeds  map[foundation.PlayerID]float64
 	eventSeq           map[auth.SessionID]uint64
+	eventRings         map[auth.SessionID]*sessionEventRing
 	sessions           map[auth.SessionID]foundation.PlayerID
 	sessionLocations   map[auth.SessionID]worldmaps.MapID
 	sessionEpochs      map[auth.SessionID]uint64
@@ -910,6 +911,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		players:                        make(map[foundation.PlayerID]playerRuntimeState),
 		stealthBaseSpeeds:              make(map[foundation.PlayerID]float64),
 		eventSeq:                       make(map[auth.SessionID]uint64),
+		eventRings:                     make(map[auth.SessionID]*sessionEventRing),
 		sessions:                       make(map[auth.SessionID]foundation.PlayerID),
 		sessionLocations:               make(map[auth.SessionID]worldmaps.MapID),
 		sessionEpochs:                  make(map[auth.SessionID]uint64),

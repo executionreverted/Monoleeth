@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,21 +54,43 @@ func TestRegisterCreatesAccountPlayerAndHashedSessionToken(t *testing.T) {
 	}
 }
 
-func TestDuplicateRegisterRejectedSafely(t *testing.T) {
+func TestDuplicateRegisterUsesGenericPublicError(t *testing.T) {
 	service, _, _ := newTestAuthService(t)
 	input := RegisterInput{Email: "pilot@example.com", Password: "correct-password", Callsign: "Frontier-01"}
 	if _, err := service.Register(context.Background(), input); err != nil {
 		t.Fatalf("first Register() error = %v, want nil", err)
 	}
 
-	_, err := service.Register(context.Background(), input)
+	publicErr := publicErrorFor(t, func() error {
+		_, err := service.Register(context.Background(), input)
+		return err
+	})
 
-	if !foundation.IsCode(err, foundation.CodeInvalidPayload) {
-		t.Fatalf("duplicate Register() error = %v, want %s", err, foundation.CodeInvalidPayload)
+	if publicErr.Code != foundation.CodeInvalidPayload || publicErr.Message != "Registration could not be completed." {
+		t.Fatalf("duplicate Register() public error = %+v, want generic invalid payload", publicErr)
 	}
 }
 
-func TestLoginCreatesFreshSessionAndInvalidCredentialsSharePublicShape(t *testing.T) {
+func TestRepeatedDuplicateRegisterDoesNotRevealAccountExistence(t *testing.T) {
+	service, _, _ := newTestAuthService(t)
+	input := RegisterInput{Email: "pilot@example.com", Password: "correct-password", Callsign: "Frontier-01"}
+	if _, err := service.Register(context.Background(), input); err != nil {
+		t.Fatalf("first Register() error = %v, want nil", err)
+	}
+
+	for attempt := 1; attempt <= defaultAuthAttemptMaxFailures; attempt++ {
+		publicErr := publicErrorFor(t, func() error {
+			_, err := service.Register(context.Background(), input)
+			return err
+		})
+		message := strings.ToLower(publicErr.Message)
+		if strings.Contains(message, "registered") || strings.Contains(message, "exists") || strings.Contains(message, "pilot@example.com") {
+			t.Fatalf("duplicate Register() public error leaked account existence: %+v", publicErr)
+		}
+	}
+}
+
+func TestLoginCreatesFreshSession(t *testing.T) {
 	service, _, _ := newTestAuthService(t)
 	registered, err := service.Register(context.Background(), RegisterInput{
 		Email:    "pilot@example.com",
@@ -85,6 +108,18 @@ func TestLoginCreatesFreshSessionAndInvalidCredentialsSharePublicShape(t *testin
 	if loggedIn.Token == registered.Token || loggedIn.Session.SessionID == registered.Session.SessionID {
 		t.Fatalf("login reused session token/id, want rotation")
 	}
+}
+
+func TestFailedLoginExistingAndMissingEmailSharePublicCodeMessage(t *testing.T) {
+	service, _, _ := newTestAuthService(t)
+	if _, err := service.Register(context.Background(), RegisterInput{
+		Email:    "pilot@example.com",
+		Password: "correct-password",
+		Callsign: "Frontier-01",
+	}); err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+
 	wrongPassword := publicErrorFor(t, func() error {
 		_, err := service.Login(context.Background(), LoginInput{Email: "pilot@example.com", Password: "wrong-password"})
 		return err
@@ -95,6 +130,117 @@ func TestLoginCreatesFreshSessionAndInvalidCredentialsSharePublicShape(t *testin
 	})
 	if wrongPassword != wrongEmail || wrongPassword.Code != foundation.CodeUnauthenticated {
 		t.Fatalf("invalid credential errors = %+v / %+v, want same unauthenticated public shape", wrongPassword, wrongEmail)
+	}
+}
+
+func TestRepeatedFailedLoginTriggersLockout(t *testing.T) {
+	service, _, _ := newTestAuthService(t)
+	if _, err := service.Register(context.Background(), RegisterInput{
+		Email:    "pilot@example.com",
+		Password: "correct-password",
+		Callsign: "Frontier-01",
+	}); err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+
+	for attempt := 1; attempt < defaultAuthAttemptMaxFailures; attempt++ {
+		_, err := service.Login(context.Background(), LoginInput{Email: "pilot@example.com", Password: "wrong-password"})
+		if !foundation.IsCode(err, foundation.CodeUnauthenticated) {
+			t.Fatalf("Login(wrong password) attempt %d error = %v, want %s", attempt, err, foundation.CodeUnauthenticated)
+		}
+	}
+	_, err := service.Login(context.Background(), LoginInput{Email: "pilot@example.com", Password: "wrong-password"})
+	if !foundation.IsCode(err, foundation.CodeRateLimited) {
+		t.Fatalf("Login(wrong password) lockout error = %v, want %s", err, foundation.CodeRateLimited)
+	}
+}
+
+func TestLoginLockoutExistingAndMissingEmailSharePublicCodeMessage(t *testing.T) {
+	service, _, _ := newTestAuthService(t)
+	if _, err := service.Register(context.Background(), RegisterInput{
+		Email:    "pilot@example.com",
+		Password: "correct-password",
+		Callsign: "Frontier-01",
+	}); err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+
+	existing := lockedLoginPublicError(t, service, "pilot@example.com")
+	missing := lockedLoginPublicError(t, service, "missing@example.com")
+
+	if existing != missing || existing.Code != foundation.CodeRateLimited {
+		t.Fatalf("lockout errors = %+v / %+v, want same rate-limited public shape", existing, missing)
+	}
+}
+
+func TestLockoutLoginDoesNotCreateSession(t *testing.T) {
+	service, store, _ := newTestAuthService(t)
+	if _, err := service.Register(context.Background(), RegisterInput{
+		Email:    "pilot@example.com",
+		Password: "correct-password",
+		Callsign: "Frontier-01",
+	}); err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	before := sessionCount(store)
+	for attempt := 1; attempt <= defaultAuthAttemptMaxFailures; attempt++ {
+		_, _ = service.Login(context.Background(), LoginInput{Email: "pilot@example.com", Password: "wrong-password"})
+	}
+
+	_, err := service.Login(context.Background(), LoginInput{Email: "pilot@example.com", Password: "correct-password"})
+
+	if !foundation.IsCode(err, foundation.CodeRateLimited) {
+		t.Fatalf("Login(throttled correct password) error = %v, want %s", err, foundation.CodeRateLimited)
+	}
+	if after := sessionCount(store); after != before {
+		t.Fatalf("session count after throttled login = %d, want unchanged %d", after, before)
+	}
+}
+
+func TestLoginLockoutExpires(t *testing.T) {
+	service, _, clock := newTestAuthService(t)
+	if _, err := service.Register(context.Background(), RegisterInput{
+		Email:    "pilot@example.com",
+		Password: "correct-password",
+		Callsign: "Frontier-01",
+	}); err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	for attempt := 1; attempt <= defaultAuthAttemptMaxFailures; attempt++ {
+		_, _ = service.Login(context.Background(), LoginInput{Email: "pilot@example.com", Password: "wrong-password"})
+	}
+
+	clock.now = clock.now.Add(defaultAuthAttemptLockout + time.Nanosecond)
+	_, err := service.Login(context.Background(), LoginInput{Email: "pilot@example.com", Password: "correct-password"})
+
+	if err != nil {
+		t.Fatalf("Login(after lockout expiry) error = %v, want nil", err)
+	}
+}
+
+func TestLoginSuccessResetsFailedAttempts(t *testing.T) {
+	service, _, _ := newTestAuthService(t)
+	if _, err := service.Register(context.Background(), RegisterInput{
+		Email:    "pilot@example.com",
+		Password: "correct-password",
+		Callsign: "Frontier-01",
+	}); err != nil {
+		t.Fatalf("Register() error = %v, want nil", err)
+	}
+	for attempt := 1; attempt < defaultAuthAttemptMaxFailures; attempt++ {
+		_, err := service.Login(context.Background(), LoginInput{Email: "pilot@example.com", Password: "wrong-password"})
+		if !foundation.IsCode(err, foundation.CodeUnauthenticated) {
+			t.Fatalf("Login(wrong password) before reset error = %v, want %s", err, foundation.CodeUnauthenticated)
+		}
+	}
+	if _, err := service.Login(context.Background(), LoginInput{Email: "pilot@example.com", Password: "correct-password"}); err != nil {
+		t.Fatalf("Login(correct password) error = %v, want nil", err)
+	}
+
+	_, err := service.Login(context.Background(), LoginInput{Email: "pilot@example.com", Password: "wrong-password"})
+
+	if !foundation.IsCode(err, foundation.CodeUnauthenticated) {
+		t.Fatalf("Login(wrong password) after reset error = %v, want %s", err, foundation.CodeUnauthenticated)
 	}
 }
 
@@ -181,6 +327,20 @@ func publicErrorFor(t *testing.T, run func() error) foundation.PublicError {
 	return domainErr.Public()
 }
 
+func lockedLoginPublicError(t *testing.T, service *Service, email string) foundation.PublicError {
+	t.Helper()
+	for attempt := 1; attempt < defaultAuthAttemptMaxFailures; attempt++ {
+		_, err := service.Login(context.Background(), LoginInput{Email: email, Password: "wrong-password"})
+		if !foundation.IsCode(err, foundation.CodeUnauthenticated) {
+			t.Fatalf("Login(lock setup %d) error = %v, want %s", attempt, err, foundation.CodeUnauthenticated)
+		}
+	}
+	return publicErrorFor(t, func() error {
+		_, err := service.Login(context.Background(), LoginInput{Email: email, Password: "wrong-password"})
+		return err
+	})
+}
+
 func newTestAuthService(t *testing.T) (*Service, *InMemoryStore, *testClock) {
 	t.Helper()
 	store := NewInMemoryStore()
@@ -196,6 +356,12 @@ func newTestAuthService(t *testing.T) (*Service, *InMemoryStore, *testClock) {
 		t.Fatalf("NewService() error = %v, want nil", err)
 	}
 	return service, store, clock
+}
+
+func sessionCount(store *InMemoryStore) int {
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	return len(store.sessionsByID)
 }
 
 type testClock struct {

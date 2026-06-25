@@ -214,6 +214,7 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 			}
 		}
 	}
+	runtime.recordReplayEventsBySessionLocked(eventsBySession)
 	return eventsBySession
 }
 

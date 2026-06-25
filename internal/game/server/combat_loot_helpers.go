@@ -403,11 +403,13 @@ func (runtime *Runtime) shipDisabledRefreshEvents(sessionID auth.SessionID, play
 		"ship":            state.Ship,
 		"repair_quote":    runtime.repairQuoteLocked(state),
 	}
-	return []realtime.EventEnvelope{
+	events := []realtime.EventEnvelope{
 		runtime.eventLocked(sessionID, realtime.EventDeathShipDisabled, payload),
 		runtime.eventLocked(sessionID, realtime.EventShipSnapshot, state.Ship),
 		runtime.eventLocked(sessionID, realtime.EventPlayerSnapshot, state.playerSnapshot()),
-	}, nil
+	}
+	runtime.recordReplayEventsLocked(sessionID, events)
+	return events, nil
 }
 
 func shipDisabledReason(ship shipSnapshotPayload) string {

@@ -33,7 +33,7 @@ type ShipService = HangarService
 // selection for the current Phase 03 slice.
 type HangarService struct {
 	catalog Catalog
-	store   *InMemoryHangarStore
+	store   HangarStore
 	ranks   PlayerRankProvider
 	cargo   ShipCargoCapacityProvider
 	clock   foundation.Clock
@@ -146,10 +146,10 @@ type HangarSnapshot struct {
 	HasActiveShip bool                `json:"has_active_ship"`
 }
 
-// NewShipService returns a ship service backed by an in-memory hangar store.
+// NewShipService returns a ship service backed by a hangar store.
 func NewShipService(
 	catalogRows Catalog,
-	store *InMemoryHangarStore,
+	store HangarStore,
 	ranks PlayerRankProvider,
 	cargo ShipCargoCapacityProvider,
 	clock foundation.Clock,
@@ -157,10 +157,10 @@ func NewShipService(
 	return NewHangarService(catalogRows, store, ranks, cargo, clock)
 }
 
-// NewHangarService returns a hangar service backed by an in-memory hangar store.
+// NewHangarService returns a hangar service backed by a hangar store.
 func NewHangarService(
 	catalogRows Catalog,
-	store *InMemoryHangarStore,
+	store HangarStore,
 	ranks PlayerRankProvider,
 	cargo ShipCargoCapacityProvider,
 	clock foundation.Clock,
@@ -174,7 +174,7 @@ func NewHangarService(
 	if cargo == nil {
 		return nil, ErrNilCargoCapacityProvider
 	}
-	if store == nil {
+	if typedStore, ok := store.(*InMemoryHangarStore); store == nil || ok && typedStore == nil {
 		store = NewInMemoryHangarStore()
 	}
 	if clock == nil {
@@ -202,7 +202,7 @@ func (service *HangarService) EnsureStarterShip(playerID foundation.PlayerID) (E
 
 	now := service.clock.Now()
 	var result EnsureStarterShipResult
-	err := service.store.updatePlayerHangar(playerID, func(record *hangarRecord) error {
+	err := service.store.UpdatePlayerHangar(playerID, func(record *HangarRecord) error {
 		starter, exists := record.ship(ShipIDStarter)
 		if !exists {
 			var err error
@@ -272,7 +272,7 @@ func (service *HangarService) UnlockShip(input UnlockShipInput) (UnlockShipResul
 
 	now := service.clock.Now()
 	var result UnlockShipResult
-	err := service.store.updatePlayerHangar(input.PlayerID, func(record *hangarRecord) error {
+	err := service.store.UpdatePlayerHangar(input.PlayerID, func(record *HangarRecord) error {
 		if existing, ok := record.ship(input.ShipID); ok {
 			result = UnlockShipResult{
 				PlayerShip: existing,
@@ -321,7 +321,7 @@ func (service *HangarService) SetActiveShip(input SetActiveShipInput) (SetActive
 
 	now := service.clock.Now()
 	var result SetActiveShipResult
-	err = service.store.updatePlayerHangar(input.PlayerID, func(record *hangarRecord) error {
+	err = service.store.UpdatePlayerHangar(input.PlayerID, func(record *HangarRecord) error {
 		targetShip, ok := record.ship(input.ShipID)
 		if !ok {
 			return fmt.Errorf("ship %q: %w", input.ShipID, ErrShipNotUnlocked)
@@ -386,7 +386,7 @@ func (service *HangarService) GetHangar(playerID foundation.PlayerID) (HangarSna
 	}
 
 	snapshot := HangarSnapshot{PlayerID: playerID}
-	err := service.store.viewPlayerHangar(playerID, func(record hangarRecord) error {
+	err := service.store.ViewPlayerHangar(playerID, func(record HangarRecord) error {
 		snapshot.Ships = record.sortedShips()
 		if active, ok := record.activeShip(); ok {
 			snapshot.ActiveShip = active
@@ -413,7 +413,7 @@ func (service *HangarService) WithActiveShipCombatLease(playerID foundation.Play
 		return ErrNilActiveShipCombatAction
 	}
 
-	return service.store.updatePlayerHangar(playerID, func(record *hangarRecord) error {
+	return service.store.UpdatePlayerHangar(playerID, func(record *HangarRecord) error {
 		if err := validateActiveShipCanFight(record); err != nil {
 			return err
 		}
@@ -561,7 +561,7 @@ func validateTargetShipForActivation(playerShip PlayerShipState) error {
 	return nil
 }
 
-func validateActiveShipCanFight(record *hangarRecord) error {
+func validateActiveShipCanFight(record *HangarRecord) error {
 	activeShip, hasActive := record.activeShip()
 	if !hasActive {
 		return ErrNoActiveShip
@@ -580,7 +580,7 @@ func validateActiveShipCanFight(record *hangarRecord) error {
 	}
 }
 
-func (record hangarRecord) hasUsableShip() bool {
+func (record HangarRecord) hasUsableShip() bool {
 	for _, playerShip := range record.ships {
 		if isUsableShipState(playerShip.State) {
 			return true
@@ -593,7 +593,7 @@ func isUsableShipState(state ShipState) bool {
 	return state == ShipStateAvailable || state == ShipStateActive
 }
 
-func activateStarterIfUsable(record *hangarRecord, starter PlayerShipState, now time.Time) (bool, ActiveShipState, error) {
+func activateStarterIfUsable(record *HangarRecord, starter PlayerShipState, now time.Time) (bool, ActiveShipState, error) {
 	if starter.State == ShipStateDisabled {
 		return false, ActiveShipState{}, nil
 	}
@@ -621,7 +621,7 @@ func activateStarterIfUsable(record *hangarRecord, starter PlayerShipState, now 
 	return true, activeShip, nil
 }
 
-func restoreStarterFallback(record *hangarRecord, starter PlayerShipState, now time.Time) (bool, ActiveShipState, error) {
+func restoreStarterFallback(record *HangarRecord, starter PlayerShipState, now time.Time) (bool, ActiveShipState, error) {
 	restored := !isUsableShipState(starter.State) || starter.DisabledReason != "" || starter.DisabledAt != nil
 	repairedAt := now
 	starter.State = ShipStateActive
@@ -643,7 +643,7 @@ func restoreStarterFallback(record *hangarRecord, starter PlayerShipState, now t
 	return restored, activeShip, nil
 }
 
-func markOtherActiveShipsAvailable(record *hangarRecord, targetShipID foundation.ShipID) {
+func markOtherActiveShipsAvailable(record *HangarRecord, targetShipID foundation.ShipID) {
 	for shipID, playerShip := range record.ships {
 		if shipID == targetShipID || playerShip.State != ShipStateActive {
 			continue

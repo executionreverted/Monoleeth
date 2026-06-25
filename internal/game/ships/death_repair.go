@@ -48,7 +48,7 @@ func (service *HangarService) DisableActiveShipForDeath(input DisableActiveShipF
 
 	now := service.clock.Now()
 	var result DisableActiveShipForDeathResult
-	err := service.store.updatePlayerHangar(input.PlayerID, func(record *hangarRecord) error {
+	err := service.store.UpdatePlayerHangar(input.PlayerID, func(record *HangarRecord) error {
 		activeShip, hasActive := record.activeShip()
 		if !hasActive {
 			return ErrNoActiveShip
@@ -110,7 +110,7 @@ func (service *HangarService) RepairShip(input RepairShipInput) (RepairShipResul
 
 	now := service.clock.Now()
 	var result RepairShipResult
-	err := service.store.updatePlayerHangar(input.PlayerID, func(record *hangarRecord) error {
+	err := service.store.UpdatePlayerHangar(input.PlayerID, func(record *HangarRecord) error {
 		playerShip, ok := record.ship(input.ShipID)
 		if !ok {
 			return fmt.Errorf("ship %q: %w", input.ShipID, ErrShipNotUnlocked)

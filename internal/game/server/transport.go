@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/coder/websocket"
@@ -35,6 +36,11 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeHTTPError(w, err)
 		return
 	}
+	lastSeq, hasLastSeq, err := reconnectLastSeenSeq(r)
+	if err != nil {
+		writeHTTPError(w, err)
+		return
+	}
 	if err := server.runtime.ensurePlayerSession(resolved); err != nil {
 		writeHTTPError(w, foundation.NewDomainError(foundation.CodeInternal, "Session bootstrap failed.", foundation.WithCause(err)))
 		return
@@ -58,7 +64,12 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 	conn.SetReadLimit(server.config.SocketReadLimit)
 
-	events, err := server.runtime.bootstrapEvents(resolved)
+	var events []realtime.EventEnvelope
+	if hasLastSeq {
+		events, err = server.runtime.bootstrapEvents(resolved, lastSeq)
+	} else {
+		events, err = server.runtime.bootstrapEvents(resolved)
+	}
 	if err != nil {
 		client.close(websocket.StatusInternalError, "bootstrap failed")
 		return
@@ -79,6 +90,7 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 		request, requestErr := realtime.DecodeRequestEnvelope(data)
 		response := server.runtime.Gateway.HandleRequest(realtime.SessionID(resolved.SessionID.String()), data)
 		if response.HasError && isTerminalAuthError(response.Error.Error.Code) {
+			server.runtime.forgetSessionReplay(resolved.SessionID)
 			_ = server.writeResponseAndClose(client, response, websocket.StatusPolicyViolation, "session invalid")
 			return
 		}
@@ -107,6 +119,25 @@ func (server *Server) serveWebSocket(w http.ResponseWriter, r *http.Request) {
 			server.writeEventsToSession(sessionID, events)
 		}
 	}
+}
+
+func reconnectLastSeenSeq(r *http.Request) (uint64, bool, error) {
+	if r == nil {
+		return 0, false, nil
+	}
+	raw := r.URL.Query().Get("last_seq")
+	if raw == "" {
+		return 0, false, nil
+	}
+	lastSeq, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0, false, foundation.NewDomainError(
+			foundation.CodeInvalidPayload,
+			"last_seq must be an unsigned integer.",
+			foundation.WithCause(err),
+		)
+	}
+	return lastSeq, true, nil
 }
 
 func newClientConnection(conn websocketWriter, sessionID auth.SessionID, queueSizeOverride ...int) *clientConnection {

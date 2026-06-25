@@ -17,6 +17,8 @@ type ServiceConfig struct {
 	PasswordHasher PasswordHasher
 	TokenGenerator TokenGenerator
 	SessionTTL     time.Duration
+	AttemptTracker AuthAttemptTracker
+	AttemptPolicy  AuthAttemptPolicy
 }
 
 // Service owns account, password, and session lifecycle rules.
@@ -26,6 +28,7 @@ type Service struct {
 	passwords  PasswordHasher
 	tokens     TokenGenerator
 	sessionTTL time.Duration
+	attempts   AuthAttemptTracker
 }
 
 // RegisterInput is the browser-supplied registration payload.
@@ -71,12 +74,17 @@ func NewService(config ServiceConfig) (*Service, error) {
 	if ttl <= 0 {
 		ttl = defaultSessionTTL
 	}
+	attempts := config.AttemptTracker
+	if attempts == nil {
+		attempts = NewInMemoryAuthAttemptTracker(config.AttemptPolicy)
+	}
 	return &Service{
 		store:      config.Store,
 		clock:      clock,
 		passwords:  passwords,
 		tokens:     tokens,
 		sessionTTL: ttl,
+		attempts:   attempts,
 	}, nil
 }
 
@@ -85,17 +93,21 @@ func (service *Service) Register(ctx context.Context, input RegisterInput) (Auth
 	if service == nil {
 		return AuthResult{}, ErrNilAuthService
 	}
+	attemptSubject := authAttemptSubject(input.Email)
+	if err := service.requireAuthAttemptAllowed(AuthAttemptRegister, attemptSubject); err != nil {
+		return AuthResult{}, err
+	}
 	email, err := NormalizeEmail(input.Email)
 	if err != nil {
-		return AuthResult{}, invalidAuthPayload("Email is invalid.", err)
+		return AuthResult{}, service.recordAuthAttemptFailure(AuthAttemptRegister, attemptSubject, invalidAuthPayload("Email is invalid.", err))
 	}
 	callsign, err := ValidateCallsign(input.Callsign)
 	if err != nil {
-		return AuthResult{}, invalidAuthPayload("Callsign is invalid.", err)
+		return AuthResult{}, service.recordAuthAttemptFailure(AuthAttemptRegister, attemptSubject, invalidAuthPayload("Callsign is invalid.", err))
 	}
 	passwordHash, err := service.passwords.HashPassword(input.Password)
 	if err != nil {
-		return AuthResult{}, invalidAuthPayload("Password is invalid.", err)
+		return AuthResult{}, service.recordAuthAttemptFailure(AuthAttemptRegister, attemptSubject, invalidAuthPayload("Password is invalid.", err))
 	}
 	now := service.now()
 	accountID, playerID, err := service.newAccountIDs()
@@ -118,8 +130,11 @@ func (service *Service) Register(ctx context.Context, input RegisterInput) (Auth
 	}
 	if err := service.store.InsertAccount(ctx, account, player); err != nil {
 		if errors.Is(err, ErrDuplicateEmail) {
-			return AuthResult{}, invalidAuthPayload("Email is already registered.", err)
+			return AuthResult{}, service.recordAuthAttemptFailure(AuthAttemptRegister, attemptSubject, registrationRejected(err))
 		}
+		return AuthResult{}, err
+	}
+	if err := service.resetAuthAttempts(AuthAttemptRegister, attemptSubject); err != nil {
 		return AuthResult{}, err
 	}
 	return service.createSession(ctx, account, player)
@@ -130,14 +145,18 @@ func (service *Service) Login(ctx context.Context, input LoginInput) (AuthResult
 	if service == nil {
 		return AuthResult{}, ErrNilAuthService
 	}
+	attemptSubject := authAttemptSubject(input.Email)
+	if err := service.requireAuthAttemptAllowed(AuthAttemptLogin, attemptSubject); err != nil {
+		return AuthResult{}, err
+	}
 	email, err := NormalizeEmail(input.Email)
 	if err != nil {
-		return AuthResult{}, invalidCredentials(err)
+		return AuthResult{}, service.recordAuthAttemptFailure(AuthAttemptLogin, attemptSubject, invalidCredentials(err))
 	}
 	account, player, err := service.store.AccountByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, ErrAccountNotFound) {
-			return AuthResult{}, invalidCredentials(err)
+			return AuthResult{}, service.recordAuthAttemptFailure(AuthAttemptLogin, attemptSubject, invalidCredentials(err))
 		}
 		return AuthResult{}, err
 	}
@@ -146,7 +165,10 @@ func (service *Service) Login(ctx context.Context, input LoginInput) (AuthResult
 		if err == nil {
 			err = ErrInvalidPassword
 		}
-		return AuthResult{}, invalidCredentials(err)
+		return AuthResult{}, service.recordAuthAttemptFailure(AuthAttemptLogin, attemptSubject, invalidCredentials(err))
+	}
+	if err := service.resetAuthAttempts(AuthAttemptLogin, attemptSubject); err != nil {
+		return AuthResult{}, err
 	}
 	return service.createSession(ctx, account, player)
 }
@@ -182,12 +204,67 @@ func invalidAuthPayload(message string, cause error) *foundation.DomainError {
 	return foundation.NewDomainError(foundation.CodeInvalidPayload, message, foundation.WithCause(cause))
 }
 
+func registrationRejected(cause error) *foundation.DomainError {
+	return foundation.NewDomainError(
+		foundation.CodeInvalidPayload,
+		"Registration could not be completed.",
+		foundation.WithCause(cause),
+	)
+}
+
 func invalidCredentials(cause error) *foundation.DomainError {
 	return foundation.NewDomainError(
 		foundation.CodeUnauthenticated,
 		"Email or password is invalid.",
 		foundation.WithCause(cause),
 	)
+}
+
+func authRateLimited(cause error) *foundation.DomainError {
+	opts := make([]foundation.DomainErrorOption, 0, 1)
+	if cause != nil {
+		opts = append(opts, foundation.WithCause(cause))
+	}
+	return foundation.NewDomainError(
+		foundation.CodeRateLimited,
+		"Too many auth attempts. Try again later.",
+		opts...,
+	)
+}
+
+func (service *Service) requireAuthAttemptAllowed(operation AuthAttemptOperation, subject string) error {
+	if service.attempts == nil {
+		return nil
+	}
+	decision, err := service.attempts.Check(operation, subject, service.now())
+	if err != nil {
+		return err
+	}
+	if decision.Limited {
+		return authRateLimited(nil)
+	}
+	return nil
+}
+
+func (service *Service) recordAuthAttemptFailure(operation AuthAttemptOperation, subject string, publicErr error) error {
+	if service.attempts == nil {
+		return publicErr
+	}
+	decision, err := service.attempts.RecordFailure(operation, subject, service.now())
+	if err != nil {
+		return err
+	}
+	if decision.Limited {
+		return authRateLimited(publicErr)
+	}
+	return publicErr
+}
+
+func (service *Service) resetAuthAttempts(operation AuthAttemptOperation, subject string) error {
+	if service.attempts == nil {
+		return nil
+	}
+	return service.attempts.Reset(operation, subject, service.now())
 }
 
 func authRequired(cause error) *foundation.DomainError {

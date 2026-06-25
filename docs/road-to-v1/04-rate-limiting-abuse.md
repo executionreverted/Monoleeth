@@ -25,7 +25,7 @@ protection and broader hidden-data leak canaries.
 ## Tasks
 - [x] `[P:wave1/lane-D]` Add rate-limit middleware in the gateway keyed by op `RateLimitPosture` class.
 - [ ] `[P:wave1/lane-D]` Define buckets for `auth.login`, `combat.use_skill`, `loot.pickup`, `scan.pulse`, `market.search`, `chat.send` (when added), `quest.reroll`, `inventory.move`.
-- [ ] `[P:wave1/lane-D]` Add login/register failure backoff + temporary lockout (no user-existence leak).
+- [x] `[P:wave1/lane-D]` Add login/register failure backoff + temporary lockout (no user-existence leak).
 - [x] `[P:wave1/lane-D]` Guarantee throttled requests perform zero mutation.
 - [ ] `[P:wave1/lane-E]` Expand leak canaries to admin/debug/CMS-projection/log surfaces.
 
@@ -35,8 +35,8 @@ protection and broader hidden-data leak canaries.
 ## Smoke Tests (one assertion each)
 - [ ] Burst over limit on one op returns throttle error.
 - [x] Throttled mutation op leaves state unchanged.
-- [ ] Repeated failed logins trigger backoff/lockout.
-- [ ] Throttle errors do not reveal whether an email exists.
+- [x] Repeated failed logins trigger backoff/lockout.
+- [x] Throttle errors do not reveal whether an email exists.
 - [ ] Leak canary finds no hidden seed/internal id in admin/debug responses.
 
 ## Done Criteria

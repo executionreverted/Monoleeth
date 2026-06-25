@@ -133,14 +133,14 @@ func TestSetActiveShipSwapsInSafeHangarAndReturnsStatInvalidation(t *testing.T) 
 	}
 	assertStatInvalidation(t, result.StatInvalidation, "player-1", ShipIDStarter, ShipIDFighterT1)
 
-	starter, ok := service.store.PlayerShip("player-1", ShipIDStarter)
+	starter, ok := inMemoryHangarStore(t, service).PlayerShip("player-1", ShipIDStarter)
 	if !ok {
 		t.Fatalf("starter ship missing after swap")
 	}
 	if starter.State != ShipStateAvailable {
 		t.Fatalf("starter state = %q, want available", starter.State)
 	}
-	fighter, ok := service.store.PlayerShip("player-1", ShipIDFighterT1)
+	fighter, ok := inMemoryHangarStore(t, service).PlayerShip("player-1", ShipIDFighterT1)
 	if !ok {
 		t.Fatalf("fighter ship missing after swap")
 	}
@@ -350,14 +350,14 @@ func TestRepairShipRestoresInactiveDisabledShipAvailable(t *testing.T) {
 	service, clock := newTestHangarService(t)
 	ensureStarterAndUnlockFighter(t, service)
 	disabledAt := testShipServiceNow
-	fighter, ok := service.store.PlayerShip("player-1", ShipIDFighterT1)
+	fighter, ok := inMemoryHangarStore(t, service).PlayerShip("player-1", ShipIDFighterT1)
 	if !ok {
 		t.Fatalf("fighter ship missing")
 	}
 	fighter.State = ShipStateDisabled
 	fighter.DisabledReason = DisabledReasonDeath
 	fighter.DisabledAt = &disabledAt
-	if err := service.store.PutPlayerShip(fighter); err != nil {
+	if err := inMemoryHangarStore(t, service).PutPlayerShip(fighter); err != nil {
 		t.Fatalf("PutPlayerShip(disabled fighter) error = %v", err)
 	}
 
@@ -439,14 +439,14 @@ func TestEnsureStarterShipFallbackRestoresAndActivatesStarterWhenAllShipsDisable
 	activateFighter(t, service)
 
 	disabledAt := testShipServiceNow
-	starter, ok := service.store.PlayerShip("player-1", ShipIDStarter)
+	starter, ok := inMemoryHangarStore(t, service).PlayerShip("player-1", ShipIDStarter)
 	if !ok {
 		t.Fatalf("starter ship missing")
 	}
 	starter.State = ShipStateDisabled
 	starter.DisabledReason = DisabledReasonDeath
 	starter.DisabledAt = &disabledAt
-	if err := service.store.PutPlayerShip(starter); err != nil {
+	if err := inMemoryHangarStore(t, service).PutPlayerShip(starter); err != nil {
 		t.Fatalf("PutPlayerShip(disabled starter) error = %v", err)
 	}
 	if _, err := service.DisableActiveShipForDeath(DisableActiveShipForDeathInput{PlayerID: "player-1"}); err != nil {
@@ -483,7 +483,7 @@ func TestEnsureStarterShipFallbackRestoresAndActivatesStarterWhenAllShipsDisable
 		restoredAt,
 	)
 
-	fighter, ok := service.store.PlayerShip("player-1", ShipIDFighterT1)
+	fighter, ok := inMemoryHangarStore(t, service).PlayerShip("player-1", ShipIDFighterT1)
 	if !ok {
 		t.Fatalf("fighter ship missing")
 	}
@@ -501,7 +501,7 @@ func TestSetActiveShipRejectsRankGatedActiveShip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPlayerShipState(fighter) error = %v, want nil", err)
 	}
-	if err := service.store.PutPlayerShip(fighter); err != nil {
+	if err := inMemoryHangarStore(t, service).PutPlayerShip(fighter); err != nil {
 		t.Fatalf("PutPlayerShip(fighter) error = %v, want nil", err)
 	}
 
@@ -555,7 +555,7 @@ func TestSetActiveShipRejectsInvalidEffectiveTargetCargoCapacity(t *testing.T) {
 	if !errors.Is(err, ErrInvalidTargetCargoCapacity) {
 		t.Fatalf("SetActiveShip invalid target capacity error = %v, want ErrInvalidTargetCargoCapacity", err)
 	}
-	active, ok := service.store.ActiveShip("player-1")
+	active, ok := inMemoryHangarStore(t, service).ActiveShip("player-1")
 	if !ok {
 		t.Fatalf("active ship missing after failed swap")
 	}
@@ -601,13 +601,13 @@ func TestSetActiveShipRejectsCombatUnsafeCargoAndDisabledTargets(t *testing.T) {
 			},
 			mutate: func(t *testing.T, service *HangarService) {
 				t.Helper()
-				fighter, ok := service.store.PlayerShip("player-1", ShipIDFighterT1)
+				fighter, ok := inMemoryHangarStore(t, service).PlayerShip("player-1", ShipIDFighterT1)
 				if !ok {
 					t.Fatalf("fighter ship missing")
 				}
 				fighter.State = ShipStateDisabled
 				fighter.DisabledReason = "death"
-				if err := service.store.PutPlayerShip(fighter); err != nil {
+				if err := inMemoryHangarStore(t, service).PutPlayerShip(fighter); err != nil {
 					t.Fatalf("PutPlayerShip(disabled) error = %v", err)
 				}
 			},
@@ -620,12 +620,12 @@ func TestSetActiveShipRejectsCombatUnsafeCargoAndDisabledTargets(t *testing.T) {
 			},
 			mutate: func(t *testing.T, service *HangarService) {
 				t.Helper()
-				fighter, ok := service.store.PlayerShip("player-1", ShipIDFighterT1)
+				fighter, ok := inMemoryHangarStore(t, service).PlayerShip("player-1", ShipIDFighterT1)
 				if !ok {
 					t.Fatalf("fighter ship missing")
 				}
 				fighter.State = ShipStateRepairing
-				if err := service.store.PutPlayerShip(fighter); err != nil {
+				if err := inMemoryHangarStore(t, service).PutPlayerShip(fighter); err != nil {
 					t.Fatalf("PutPlayerShip(repairing) error = %v", err)
 				}
 			},
@@ -650,7 +650,7 @@ func TestSetActiveShipRejectsCombatUnsafeCargoAndDisabledTargets(t *testing.T) {
 				t.Fatalf("SetActiveShip error = %v, want %v", err, test.wantErr)
 			}
 
-			active, ok := service.store.ActiveShip("player-1")
+			active, ok := inMemoryHangarStore(t, service).ActiveShip("player-1")
 			if !ok {
 				t.Fatalf("active ship missing after failed swap")
 			}
@@ -714,6 +714,16 @@ func newTestHangarServiceWithRanksAndCargo(
 		t.Fatalf("NewHangarService error = %v", err)
 	}
 	return service, clock
+}
+
+func inMemoryHangarStore(t *testing.T, service *HangarService) *InMemoryHangarStore {
+	t.Helper()
+
+	store, ok := service.store.(*InMemoryHangarStore)
+	if !ok {
+		t.Fatalf("service store = %T, want *InMemoryHangarStore", service.store)
+	}
+	return store
 }
 
 func ensureStarterAndUnlockFighter(t *testing.T, service *HangarService) {

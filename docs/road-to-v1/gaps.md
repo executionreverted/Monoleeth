@@ -15,19 +15,13 @@ phase or moved above with a concrete deferral reason.
 
 ### P03 Realtime Hardening Audit — TASK-0457
 
-- Request replay mismatch fixed by TASK-0459; remaining P03 audit items below.
-- Reconnect has cursor evidence but no bounded replay ring yet. Ref:
-  `internal/game/server/runtime_sessions.go`, `docs/road-to-v1/03-realtime-hardening.md:28`.
-- WebSocket writer queue fixed by TASK-0460; remaining P03 audit item below.
+- Closed by TASK-0459, TASK-0460, and TASK-0463. No accepted P03 deferral.
 
 ### P04 Rate Limiting Audit — TASK-0458
 
 - Realtime gateway limiter hook fixed by TASK-0461; remaining P04 audit items below.
-- Auth login/register route specs expose rate-limit metadata but no throttle,
-  backoff, or lockout. Ref: `internal/game/auth/http.go`,
-  `docs/road-to-v1/04-rate-limiting-abuse.md:28`.
-- Register duplicate-email response remains an existence leak candidate. Ref:
-  `internal/game/auth/service.go`, `docs/road-to-v1/04-rate-limiting-abuse.md:39`.
+- Auth login/register backoff and duplicate-register generic response fixed by TASK-0464.
+- Auth attempt backoff is process-local for this slice; durable/cross-process attempt storage remains future P16/P02-style operational hardening unless P04 later adds it. Ref: `internal/game/auth/attempts.go`, `docs/road-to-v1/04-rate-limiting-abuse.md:28`.
 
 ### P01 Persistence Foundation Audit — TASK-0462
 
