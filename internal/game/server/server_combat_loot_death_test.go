@@ -194,6 +194,83 @@ func pickupEventsComplete(seen map[realtime.ClientEventType]bool) bool {
 		seen[realtime.EventInventorySnapshot] &&
 		seen[realtime.EventProgressionSnapshot]
 }
+
+func TestLootDropInsertUsesWorkerCommandQueue(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	resolved := createResolvedRuntimeSession(t, gameServer, "loot-insert-command@example.com", "Loot Insert Command")
+
+	gameServer.runtime.mu.Lock()
+	instance, _, err := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active map instance: %v", err)
+	}
+	playerEntity, ok := instance.Worker.PlayerEntity(resolved.PlayerID)
+	if !ok {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("player entity for %q missing", resolved.PlayerID)
+	}
+	definition := instance.Definition
+	gameServer.runtime.mu.Unlock()
+
+	created, err := gameServer.runtime.Loot.CreateDropsForNPCKill(combat.NPCKilledEvent{
+		SourceID:      "npc_loot_insert_command",
+		NPCEntityID:   "npc_loot_insert_command",
+		NPCType:       trainingNPCType,
+		WorldID:       definition.WorldID,
+		ZoneID:        definition.ZoneID,
+		Position:      playerEntity.Position,
+		OwnerPlayerID: resolved.PlayerID,
+		KilledAt:      gameServer.runtime.clock.Now(),
+	}, testRuntimeLootTable(t, "loot_insert_command_table", "raw_ore", "Raw Ore", 3))
+	if err != nil {
+		t.Fatalf("CreateDropsForNPCKill() error = %v, want nil", err)
+	}
+	if len(created.Drops) != 1 {
+		t.Fatalf("drops len = %d, want 1", len(created.Drops))
+	}
+	drop := created.Drops[0]
+
+	gameServer.runtime.mu.Lock()
+	instance, _, err = gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+	if err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("active map instance after drop create: %v", err)
+	}
+	mailbox := replaceActiveMapWorkerWithRecordingMailboxLocked(t, gameServer, instance, resolved.PlayerID, resolved.SessionID)
+	beforeTick := instance.Worker.Snapshot().Tick
+	if err := gameServer.runtime.insertLootDropEntityLocked(drop); err != nil {
+		gameServer.runtime.mu.Unlock()
+		t.Fatalf("insert loot drop entity: %v", err)
+	}
+	afterTick := instance.Worker.Snapshot().Tick
+	inserted, insertedOK := instance.Worker.Entity(drop.ID)
+	speed, speedOK := instance.Worker.EntitySpeed(drop.ID)
+	gameServer.runtime.mu.Unlock()
+
+	submitted := mailbox.Submitted()
+	if len(submitted) != 1 {
+		t.Fatalf("submitted worker commands = %#v, want one insert command", submitted)
+	}
+	insert, ok := submitted[0].(worker.InsertEntityCommand)
+	if !ok {
+		t.Fatalf("submitted command type = %T, want worker.InsertEntityCommand", submitted[0])
+	}
+	if insert.Entity.ID != drop.ID || insert.Entity.Type != world.EntityTypeLoot || insert.Entity.Position != drop.Position || insert.Speed != 0 {
+		t.Fatalf("insert command = %+v, want loot drop %q at %+v with speed 0", insert, drop.ID, drop.Position)
+	}
+	if !insertedOK || inserted.ID != drop.ID || inserted.Type != world.EntityTypeLoot || inserted.Position != drop.Position {
+		t.Fatalf("inserted entity = %+v ok=%v, want loot drop %q at %+v", inserted, insertedOK, drop.ID, drop.Position)
+	}
+	if !speedOK || speed != 0 {
+		t.Fatalf("inserted entity speed = %v ok=%v, want 0", speed, speedOK)
+	}
+	if afterTick != beforeTick {
+		t.Fatalf("worker tick = %d after insert, want unchanged %d", afterTick, beforeTick)
+	}
+}
+
 func TestLootPickupRemovesDropThroughWorkerCommandQueue(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()

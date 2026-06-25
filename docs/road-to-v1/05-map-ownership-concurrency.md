@@ -46,10 +46,17 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 - Progress: loot pickup drop removal now submits `worker.RemoveEntityCommand`
   through the owning worker queue instead of calling `Worker.RemoveEntity`
   directly. Covered by `TestLootPickupRemovesDropThroughWorkerCommandQueue`.
+- Progress: loot drop creation now submits `worker.InsertEntityCommand` through
+  the owning worker queue instead of calling `Worker.InsertEntity` directly.
+  Covered by `TestLootDropInsertUsesWorkerCommandQueue`.
 - Progress: portal transfer source-player removal now submits
   `worker.RemoveEntityCommand` through the source worker queue instead of
   calling `Worker.RemoveEntity` directly. Covered by
   `TestPortalEnterRemovesSourcePlayerThroughWorkerCommandQueue`.
+- Progress: failed portal transfer source restore now submits
+  `worker.UpdateEntityCommand` through the source worker queue instead of
+  calling `Worker.UpdateEntity` directly. Covered by
+  `TestPortalEnterFailedTransferRestoresSourcePlayerThroughWorkerCommandQueue`.
 - Progress: runtime movement refresh now submits
   `worker.RefreshPlayerMovementPositionCommand` through the owning worker queue
   and flushes queued commands without running a full simulation tick. Covered by

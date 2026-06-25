@@ -311,7 +311,10 @@ func (runtime *Runtime) insertLootDropEntityLocked(drop loot.Drop) error {
 	if err != nil {
 		return err
 	}
-	return instance.Worker.InsertEntity(entity, 0)
+	if err := instance.Worker.Submit(worker.InsertEntityCommand{Entity: entity, Speed: 0}); err != nil {
+		return err
+	}
+	return commandErrors(instance.Worker.FlushCommands())
 }
 
 func (runtime *Runtime) activeCargoLocationLocked(playerID foundation.PlayerID) economy.ItemLocation {

@@ -332,7 +332,7 @@ func (runtime *Runtime) restoreSourceAfterFailedTransferLocked(source *mapInstan
 			Position: sourceEntity.Position,
 			Speed:    sourceSpeed,
 		}); err == nil {
-			_ = source.Worker.UpdateEntity(sourceEntity)
+			_ = runtime.submitWorkerCommandAndRecordMetricsLocked(source, worker.UpdateEntityCommand{Entity: sourceEntity})
 		}
 	}
 	for _, sessionID := range sessionIDs {

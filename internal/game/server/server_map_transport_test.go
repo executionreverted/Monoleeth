@@ -274,6 +274,80 @@ func TestPortalEnterRemovesSourcePlayerThroughWorkerCommandQueue(t *testing.T) {
 	}
 }
 
+func TestPortalEnterFailedTransferRestoresSourcePlayerThroughWorkerCommandQueue(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "portal-restore-command@example.com", "Portal Restore Command")
+	moveTestPlayerEntity(gameServer, resolved.PlayerID, world.Vec2{X: 9800, Y: 5000})
+
+	var sourceEntity world.Entity
+	var mailbox *recordingWorkerMailbox
+	func() {
+		gameServer.runtime.mu.Lock()
+		defer gameServer.runtime.mu.Unlock()
+
+		source, _, err := gameServer.runtime.activeMapInstanceLocked(resolved.PlayerID)
+		if err != nil {
+			t.Fatalf("active source map instance: %v", err)
+		}
+		var ok bool
+		sourceEntity, ok = source.Worker.PlayerEntity(resolved.PlayerID)
+		if !ok {
+			t.Fatalf("source player entity for %q missing", resolved.PlayerID)
+		}
+		mailbox = replaceActiveMapWorkerWithRecordingMailboxLocked(t, gameServer, source, resolved.PlayerID, resolved.SessionID)
+	}()
+
+	previousHook := portalTransferInterleaveTestHook
+	defer func() { portalTransferInterleaveTestHook = previousHook }()
+	var hookRan bool
+	portalTransferInterleaveTestHook = func(stage portalTransferInterleaveStage, runtime *Runtime, context portalTransferInterleaveContext) error {
+		if stage != portalTransferAfterDestinationPlayerAttach || hookRan {
+			return nil
+		}
+		hookRan = true
+		return errors.New("forced destination player attach failure")
+	}
+
+	response := gameServer.runtime.Gateway.HandleRequest(
+		realtime.SessionID(resolved.SessionID.String()),
+		[]byte(`{"request_id":"request-portal-restore-command","op":"portal.enter","payload":{"portal_id":"east_gate"},"client_seq":1,"v":1}`),
+	)
+	if !hookRan {
+		t.Fatalf("portal rollback hook did not run")
+	}
+	if !response.HasError || response.Error.Error.Code != foundation.CodeInternal {
+		t.Fatalf("portal rollback response = %+v, want internal error", response)
+	}
+
+	submitted := mailbox.Submitted()
+	var foundUpdate bool
+	for _, command := range submitted {
+		update, ok := command.(worker.UpdateEntityCommand)
+		if ok && update.Entity.ID == sourceEntity.ID {
+			foundUpdate = true
+			break
+		}
+	}
+	if !foundUpdate {
+		t.Fatalf("submitted worker commands = %#v, want UpdateEntityCommand for restored source entity %q", submitted, sourceEntity.ID)
+	}
+	assertPlayerOnlyInMapForTest(t, gameServer, resolved.PlayerID, worldmaps.StarterMapID)
+
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	source, err := gameServer.runtime.mapInstanceLocked(worldmaps.StarterMapID)
+	if err != nil {
+		t.Fatalf("starter map after rollback: %v", err)
+	}
+	restored, ok := source.Worker.PlayerEntity(resolved.PlayerID)
+	if !ok {
+		t.Fatalf("source worker missing restored player %q after rollback", resolved.PlayerID)
+	}
+	if restored.ID != sourceEntity.ID || restored.Position != sourceEntity.Position {
+		t.Fatalf("restored source entity = %+v, want id %q position %+v", restored, sourceEntity.ID, sourceEntity.Position)
+	}
+}
+
 func TestPortalEnterStructuredLogIncludesTransferIdempotencyNoSecrets(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "portal-transfer-log@example.com", "Portal Transfer Log")
