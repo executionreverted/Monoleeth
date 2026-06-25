@@ -100,3 +100,45 @@ http://localhost:4000
 - Keep `agent.max_concurrent_agents` low until CI, tests, and GitHub PR flow are reliable.
 - If package installs need network access inside Codex turns, keep `codex.turn_sandbox_policy.networkAccess: true`.
 - SSH worker pools and the rich LiveView dashboard from the Elixir prototype are not implemented in the Go port yet. The Go port does implement the repo workflow contract, Linear polling, local workspaces, hooks, Codex app-server JSONL protocol, retries, and JSON status API.
+
+## Agent backends (Codex and Crush)
+
+Symphony can drive each task with either the Codex app-server (default) or the
+Crush CLI. Different tasks can run different backends and models at the same
+time, so heavy work can go to one model while light work goes to another.
+
+Workflow defaults (optional; Codex stays the default if omitted):
+
+```yaml
+agent:
+  backend: crush        # "codex" (default) or "crush"
+crush:
+  command: crush        # binary on PATH, default "crush"
+  model: zai/glm-5.2    # provider/model passed to `crush run --model`
+  endpoint: ""          # optional API base URL override
+  extra_args: []        # extra flags appended to `crush run`
+  timeout_ms: 3600000   # per-run timeout; falls back to codex.turn_timeout_ms
+```
+
+Per-task overrides (sent when creating a local task via `POST /api/v1/tasks`,
+or chosen in the Tasks UI form):
+
+```json
+{
+  "title": "Heavy refactor",
+  "description": "...",
+  "agent_backend": "crush",
+  "agent_model": "openrouter/sakana/fugu-ultra",
+  "agent_endpoint": "https://api.z.ai/api/coding/paas/v4"
+}
+```
+
+If `agent_backend`/`agent_model`/`agent_endpoint` are empty, the workflow
+`agent.backend` and `crush.*` defaults are used. A Crush task runs
+`crush run --quiet --cwd <workspace> --model <model>` with the task prompt on
+stdin; `--model` accepts the `provider/model` form (for example `zai/glm-5.2`
+or `openrouter/sakana/fugu-ultra`). When an endpoint is provided, Symphony sets
+`CRUSH_BASE_URL`, `OPENAI_BASE_URL`, and `SYMPHONY_CRUSH_ENDPOINT` for that
+Crush process, so provider configs can opt into the per-task endpoint through
+environment expansion. Crush itself must already be installed and authenticated
+for the chosen providers (`~/.config/crush/crush.json`).

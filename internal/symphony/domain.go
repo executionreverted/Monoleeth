@@ -15,6 +15,9 @@ type Issue struct {
 	BlockedBy        []BlockerRef `json:"blocked_by"`
 	AssigneeID       string       `json:"assignee_id,omitempty"`
 	AssignedToWorker bool         `json:"assigned_to_worker"`
+	AgentBackend     string       `json:"agent_backend,omitempty"`
+	AgentModel       string       `json:"agent_model,omitempty"`
+	AgentEndpoint    string       `json:"agent_endpoint,omitempty"`
 	CreatedAt        *time.Time   `json:"created_at,omitempty"`
 	UpdatedAt        *time.Time   `json:"updated_at,omitempty"`
 }

@@ -368,6 +368,75 @@ done
 	t.Fatalf("local task did not complete after successful turn")
 }
 
+func TestAgentRunnerForSelectsBackendPerIssue(t *testing.T) {
+	logger := newDiscardLogger(t)
+	defer logger.Close()
+	workflow := testWorkflow(t)
+	orchestrator := NewOrchestrator(workflow, logger)
+
+	if _, ok := orchestrator.agentRunnerFor(Issue{ID: "local-1"}).(*CodexClient); !ok {
+		t.Fatalf("expected codex runner by default")
+	}
+	if _, ok := orchestrator.agentRunnerFor(Issue{ID: "local-2", AgentBackend: "crush"}).(*CrushClient); !ok {
+		t.Fatalf("expected crush runner for issue backend override")
+	}
+
+	workflow.Config.Agent.Backend = "crush"
+	crushDefault := NewOrchestrator(workflow, logger)
+	if _, ok := crushDefault.agentRunnerFor(Issue{ID: "local-3"}).(*CrushClient); !ok {
+		t.Fatalf("expected crush runner when workflow default backend is crush")
+	}
+	if _, ok := crushDefault.agentRunnerFor(Issue{ID: "local-4", AgentBackend: "codex"}).(*CodexClient); !ok {
+		t.Fatalf("expected codex runner when issue overrides crush default")
+	}
+}
+
+func TestLocalTaskCompletesThroughCrushBackend(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "fake-crush.sh")
+	script := "#!/bin/sh\ncat > /dev/null\nprintf 'crush finished\\n'\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logger := newDiscardLogger(t)
+	defer logger.Close()
+	workflow := testWorkflow(t)
+	workflow.Config.Workspace.Root = filepath.Join(dir, "workspaces")
+	workflow.Config.Tracker.LocalRoot = filepath.Join(dir, "tasks")
+	workflow.Config.Agent.Backend = "crush"
+	workflow.Config.Agent.MaxTurns = 4
+	workflow.Config.Crush.Command = fake
+	workflow.Config.Crush.Model = "zai/glm-5.2"
+	workflow.Config.Crush.TimeoutMS = 2000
+	orchestrator := NewOrchestrator(workflow, logger)
+	task, err := orchestrator.CreateTask(context.Background(), CreateTaskInput{Title: "Finish via crush"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := orchestrator.RunTask(context.Background(), task.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		tasks, err := orchestrator.ListTasks(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, current := range tasks {
+			if current.ID == task.ID && current.State == "Done" {
+				if entries := orchestrator.TaskRunLog(task.ID); !runLogContains(entries, "task_completed") {
+					t.Fatalf("expected task_completed event, got %#v", entries)
+				}
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("crush-backed task did not complete after successful turn")
+}
+
 func runLogContains(entries []RunLogEntry, event string) bool {
 	for _, entry := range entries {
 		if strings.EqualFold(entry.Event, event) {

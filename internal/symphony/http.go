@@ -696,6 +696,9 @@ const tasksHTML = `<!doctype html>
         <form id="taskForm" class="form-grid">
           <label>Title<input id="taskTitle" name="title" required placeholder="Tighten combat audit logging" /></label>
           <label>Description<textarea id="taskDescription" name="description" placeholder="Acceptance criteria, constraints, notes..."></textarea></label>
+          <label>Agent<input id="taskBackend" name="agent_backend" placeholder="codex or crush" /></label>
+          <label>Model<input id="taskModel" name="agent_model" placeholder="zai/glm-5.2 or openrouter/sakana/fugu-ultra" /></label>
+          <label>Endpoint<input id="taskEndpoint" name="agent_endpoint" placeholder="optional API base URL" /></label>
           <button type="submit">Create & run</button>
         </form>
       </section>
@@ -813,9 +816,15 @@ const tasksHTML = `<!doctype html>
         : '<span class="task-chip">no labels</span>';
       const overflow = labels.length > 3 ? '<span class="task-chip">+' + escapeHTML(labels.length - 3) + '</span>' : "";
       const priority = Number.isInteger(task.priority) ? '<span class="task-chip">P' + escapeHTML(task.priority) + '</span>' : "";
+      const backend = task.agent_backend ? '<span class="task-chip">' + escapeHTML(task.agent_backend) + '</span>' : "";
+      const model = task.agent_model ? '<span class="task-chip">' + escapeHTML(task.agent_model) + '</span>' : "";
+      const endpoint = task.agent_endpoint ? '<span class="task-chip">endpoint</span>' : "";
       return '<div class="task-meta">' +
         '<span class="task-chip">updated ' + escapeHTML(compactTime(task.updated_at || task.created_at)) + '</span>' +
         priority +
+        backend +
+        model +
+        endpoint +
         chips +
         overflow +
       '</div>';
@@ -1013,7 +1022,10 @@ const tasksHTML = `<!doctype html>
       event.preventDefault();
       const title = document.getElementById("taskTitle").value;
       const description = document.getElementById("taskDescription").value;
-      await api("/api/v1/tasks", { method: "POST", body: JSON.stringify({ title, description }) });
+      const agent_backend = document.getElementById("taskBackend").value.trim();
+      const agent_model = document.getElementById("taskModel").value.trim();
+      const agent_endpoint = document.getElementById("taskEndpoint").value.trim();
+      await api("/api/v1/tasks", { method: "POST", body: JSON.stringify({ title, description, agent_backend, agent_model, agent_endpoint }) });
       event.target.reset();
       await refresh();
     });

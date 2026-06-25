@@ -24,6 +24,7 @@ type Orchestrator struct {
 	tracker       Tracker
 	workspace     *WorkspaceManager
 	codex         *CodexClient
+	crush         *CrushClient
 	logger        *Logger
 	forcePoll     chan struct{}
 	done          chan struct{}
@@ -47,6 +48,7 @@ func NewOrchestrator(workflow WorkflowDefinition, logger *Logger) *Orchestrator 
 		tracker:   NewTracker(workflow.Config, logger),
 		workspace: NewWorkspaceManager(workflow.Config, logger),
 		codex:     NewCodexClient(workflow.Config, logger),
+		crush:     NewCrushClient(workflow.Config, logger),
 		logger:    logger,
 		forcePoll: make(chan struct{}, 1),
 		done:      make(chan struct{}),
@@ -334,6 +336,19 @@ func (o *Orchestrator) components() (WorkflowDefinition, Tracker, *WorkspaceMana
 	return o.workflow, o.tracker, o.workspace, o.codex
 }
 
+func (o *Orchestrator) agentRunnerFor(issue Issue) AgentRunner {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	backend := normalizeOptionalBackend(issue.AgentBackend)
+	if backend == "" {
+		backend = normalizeAgentBackend(o.workflow.Config.Agent.Backend)
+	}
+	if backend == agentBackendCrush {
+		return o.crush
+	}
+	return o.codex
+}
+
 func (o *Orchestrator) pollDelay() time.Duration {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -386,6 +401,7 @@ func (o *Orchestrator) updateWorkflow(workflow WorkflowDefinition) {
 	o.tracker = NewTracker(workflow.Config, o.logger)
 	o.workspace = NewWorkspaceManager(workflow.Config, o.logger)
 	o.codex = NewCodexClient(workflow.Config, o.logger)
+	o.crush = NewCrushClient(workflow.Config, o.logger)
 }
 
 func (o *Orchestrator) CreateTask(ctx context.Context, input CreateTaskInput) (Issue, error) {
@@ -564,7 +580,7 @@ func (o *Orchestrator) dispatch(ctx context.Context, issue Issue, attempt int) {
 }
 
 func (o *Orchestrator) runIssue(ctx context.Context, issue Issue, attempt int) error {
-	workflow, tracker, workspaceManager, codex := o.components()
+	workflow, tracker, workspaceManager, _ := o.components()
 	workspace, err := workspaceManager.CreateForIssue(ctx, issue)
 	if err != nil {
 		o.recordRunEvent(issue, attempt, 0, "workspace_create_failed", map[string]any{"error": err.Error()}, err.Error())
@@ -585,7 +601,8 @@ func (o *Orchestrator) runIssue(ctx context.Context, issue Issue, attempt int) e
 		return err
 	}
 	for turn := 0; turn < workflow.Config.Agent.MaxTurns; turn++ {
-		result, err := codex.Run(ctx, workspace.Path, prompt, issue, func(event RuntimeEvent) {
+		runner := o.agentRunnerFor(issue)
+		result, err := runner.Run(ctx, workspace.Path, prompt, issue, func(event RuntimeEvent) {
 			o.integrateCodexEvent(issue.ID, event)
 		})
 		o.updateRunning(issue.ID, func(entry *RunningEntry) {

@@ -17,6 +17,7 @@ type Config struct {
 	Hooks         HooksConfig         `yaml:"hooks" json:"hooks"`
 	Agent         AgentConfig         `yaml:"agent" json:"agent"`
 	Codex         CodexConfig         `yaml:"codex" json:"codex"`
+	Crush         CrushConfig         `yaml:"crush" json:"crush"`
 	Worker        WorkerConfig        `yaml:"worker" json:"worker"`
 	Server        ServerConfig        `yaml:"server" json:"server"`
 	Observability ObservabilityConfig `yaml:"observability" json:"observability"`
@@ -55,6 +56,7 @@ type AgentConfig struct {
 	MaxTurns                   int            `yaml:"max_turns" json:"max_turns"`
 	MaxRetryBackoffMS          int            `yaml:"max_retry_backoff_ms" json:"max_retry_backoff_ms"`
 	MaxConcurrentAgentsByState map[string]int `yaml:"max_concurrent_agents_by_state" json:"max_concurrent_agents_by_state"`
+	Backend                    string         `yaml:"backend" json:"backend,omitempty"`
 }
 
 type CodexConfig struct {
@@ -65,6 +67,14 @@ type CodexConfig struct {
 	TurnTimeoutMS     int            `yaml:"turn_timeout_ms" json:"turn_timeout_ms"`
 	ReadTimeoutMS     int            `yaml:"read_timeout_ms" json:"read_timeout_ms"`
 	StallTimeoutMS    int            `yaml:"stall_timeout_ms" json:"stall_timeout_ms"`
+}
+
+type CrushConfig struct {
+	Command   string   `yaml:"command" json:"command"`
+	Model     string   `yaml:"model" json:"model,omitempty"`
+	Endpoint  string   `yaml:"endpoint" json:"endpoint,omitempty"`
+	ExtraArgs []string `yaml:"extra_args" json:"extra_args,omitempty"`
+	TimeoutMS int      `yaml:"timeout_ms" json:"timeout_ms"`
 }
 
 type WorkerConfig struct {
@@ -109,6 +119,10 @@ func defaultConfig() Config {
 			ReadTimeoutMS:  5000,
 			StallTimeoutMS: 300000,
 		},
+		Crush: CrushConfig{
+			Command:   "crush",
+			TimeoutMS: 3600000,
+		},
 		Server:        ServerConfig{Host: "127.0.0.1"},
 		Observability: ObservabilityConfig{DashboardEnabled: true, RefreshMS: 1000, RenderIntervalMS: 16},
 	}
@@ -141,6 +155,7 @@ func finalizeConfig(cfg Config, workflowDir string) (Config, error) {
 	if cfg.Agent.MaxRetryBackoffMS <= 0 {
 		return cfg, errors.New("agent.max_retry_backoff_ms must be greater than 0")
 	}
+	cfg.Agent.Backend = normalizeAgentBackend(cfg.Agent.Backend)
 	if cfg.Codex.Command == "" {
 		cfg.Codex.Command = "codex app-server"
 	}
@@ -149,6 +164,12 @@ func finalizeConfig(cfg Config, workflowDir string) (Config, error) {
 	}
 	if cfg.Codex.TurnTimeoutMS <= 0 || cfg.Codex.ReadTimeoutMS <= 0 || cfg.Codex.StallTimeoutMS < 0 {
 		return cfg, errors.New("codex timeout values are invalid")
+	}
+	if cfg.Crush.Command == "" {
+		cfg.Crush.Command = "crush"
+	}
+	if cfg.Crush.TimeoutMS <= 0 {
+		cfg.Crush.TimeoutMS = cfg.Codex.TurnTimeoutMS
 	}
 	if cfg.Hooks.TimeoutMS <= 0 {
 		return cfg, errors.New("hooks.timeout_ms must be greater than 0")
@@ -198,6 +219,27 @@ func (c Config) TurnSandboxPolicy(workspace string) map[string]any {
 		"excludeTmpdirEnvVar": false,
 		"excludeSlashTmp":     false,
 	}
+}
+
+const (
+	agentBackendCodex = "codex"
+	agentBackendCrush = "crush"
+)
+
+func normalizeAgentBackend(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case agentBackendCrush:
+		return agentBackendCrush
+	default:
+		return agentBackendCodex
+	}
+}
+
+func normalizeOptionalBackend(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return normalizeAgentBackend(value)
 }
 
 func normalizeApprovalPolicy(value any) any {

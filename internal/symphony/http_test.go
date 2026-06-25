@@ -34,7 +34,7 @@ func TestHTTPDashboardTasksAndPresenterEndpoints(t *testing.T) {
 	}
 
 	tasksPage := getBody(t, server.URL+"/tasks")
-	for _, want := range []string{"Symphony Tasks", "Create & run", "Task board", "Pause auto-run", "Run stream", "Patch review", "Agent stream", "Follow latest", "agentIsland"} {
+	for _, want := range []string{"Symphony Tasks", "Create & run", "Task board", "Pause auto-run", "Run stream", "Patch review", "Agent stream", "Follow latest", "agentIsland", "taskBackend", "taskModel", "taskEndpoint"} {
 		if !strings.Contains(tasksPage, want) {
 			t.Fatalf("tasks page missing %q:\n%s", want, tasksPage)
 		}
@@ -56,7 +56,7 @@ func TestHTTPDashboardTasksAndPresenterEndpoints(t *testing.T) {
 		t.Fatalf("embedded css missing upstream dashboard selectors")
 	}
 
-	payload := []byte(`{"title":"Build local task flow","description":"from test"}`)
+	payload := []byte(`{"title":"Build local task flow","description":"from test","agent_backend":"crush","agent_model":"zai/glm-5.2","agent_endpoint":"https://api.z.ai/api/coding/paas/v4"}`)
 	resp, err := http.Post(server.URL+"/api/v1/tasks", "application/json", bytes.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +74,9 @@ func TestHTTPDashboardTasksAndPresenterEndpoints(t *testing.T) {
 	}
 	if len(created.Labels) != 1 || created.Labels[0] != "local" {
 		t.Fatalf("expected required label fallback, got %#v", created.Labels)
+	}
+	if created.AgentBackend != "crush" || created.AgentModel != "zai/glm-5.2" || created.AgentEndpoint != "https://api.z.ai/api/coding/paas/v4" {
+		t.Fatalf("expected agent override fields to persist, got %#v", created)
 	}
 	missingWorkspaceResp, err := http.Get(server.URL + "/api/v1/tasks/" + created.ID + "/workspace-diff")
 	if err != nil {

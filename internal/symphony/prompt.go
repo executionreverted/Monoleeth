@@ -80,6 +80,9 @@ func issueToMap(issue Issue) map[string]any {
 		"blocked_by":         blockedBy,
 		"assignee_id":        issue.AssigneeID,
 		"assigned_to_worker": issue.AssignedToWorker,
+		"agent_backend":      issue.AgentBackend,
+		"agent_model":        issue.AgentModel,
+		"agent_endpoint":     issue.AgentEndpoint,
 		"created_at":         timePtrString(issue.CreatedAt),
 		"updated_at":         timePtrString(issue.UpdatedAt),
 	}

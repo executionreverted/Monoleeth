@@ -15,10 +15,13 @@ import (
 )
 
 type CreateTaskInput struct {
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Labels      []string `json:"labels"`
-	Priority    *int     `json:"priority,omitempty"`
+	Title         string   `json:"title"`
+	Description   string   `json:"description"`
+	Labels        []string `json:"labels"`
+	Priority      *int     `json:"priority,omitempty"`
+	AgentBackend  string   `json:"agent_backend,omitempty"`
+	AgentModel    string   `json:"agent_model,omitempty"`
+	AgentEndpoint string   `json:"agent_endpoint,omitempty"`
 }
 
 type LocalTracker struct {
@@ -145,6 +148,9 @@ func (t *LocalTracker) CreateTask(_ context.Context, input CreateTaskInput) (Iss
 			Labels:           t.defaultLabels(input.Labels),
 			BlockedBy:        []BlockerRef{},
 			AssignedToWorker: true,
+			AgentBackend:     normalizeOptionalBackend(input.AgentBackend),
+			AgentModel:       strings.TrimSpace(input.AgentModel),
+			AgentEndpoint:    strings.TrimSpace(input.AgentEndpoint),
 			CreatedAt:        &now,
 			UpdatedAt:        &now,
 		}
