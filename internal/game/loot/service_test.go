@@ -1,9 +1,11 @@
 package loot_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -331,6 +333,100 @@ func TestPickupDropRecordsDuplicateLootXPReconciliationWithoutUndoingClaimOrCarg
 		t.Fatalf("Drop(%q) ok = false, want true", result.Drop.ID)
 	}
 	assertLootXPReconciliation(t, storedDrop, loot.LootXPReconciliationDuplicate, "")
+}
+
+func TestLootXPOutboxReplayDuplicateDoesNotGrantXPAgain(t *testing.T) {
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 25, 21, 0, 0, 0, time.UTC))
+	inventory := economy.NewInventoryService(clock)
+	cargo := economy.NewCargoService(inventory)
+	progressionService := progression.NewProgressionService(clock, nil)
+	outboxStore := newLootXPOutboxStore(t)
+	service, err := loot.NewService(loot.Config{
+		Clock:       clock,
+		RNG:         testutil.NewFakeRNG([]int{0}, []float64{0}),
+		Cargo:       cargo,
+		Progression: progressionService,
+		XPOutbox:    outboxStore,
+	})
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	drop := createOneDrop(t, service)
+	cargoLocation := mustCargoLocation(t, "ship_1")
+
+	pickup, err := service.PickupDrop(loot.PickupInput{
+		PlayerID:           drop.OwnerPlayerID,
+		DropID:             drop.ID,
+		Viewer:             viewerAt(drop.Position),
+		ActiveCargo:        cargoLocation,
+		CargoCapacityUnits: 100,
+	})
+	if err != nil {
+		t.Fatalf("PickupDrop() error = %v", err)
+	}
+	if pickup.XPResult == nil || pickup.XPResult.Duplicate || pickup.XPResult.Snapshot.Player.MainXP != 5 {
+		t.Fatalf("pickup XPResult = %+v, want first 5 XP grant", pickup.XPResult)
+	}
+
+	outboxID := "loot_xp:loot_pickup:" + drop.ID.String()
+	row, ok, err := outboxStore.LoadOutboxRow(context.Background(), outboxID)
+	if err != nil || !ok {
+		t.Fatalf("LoadOutboxRow(%q) = ok %v err %v, want true nil", outboxID, ok, err)
+	}
+	if row.Status != economy.OutboxStatusPending || row.EventType != loot.EventLootXPReconciliationRequested {
+		t.Fatalf("outbox row = %+v, want pending loot XP reconciliation row", row)
+	}
+
+	publisher, err := loot.NewLootXPOutboxPublisher(progressionService)
+	if err != nil {
+		t.Fatalf("NewLootXPOutboxPublisher() error = %v, want nil", err)
+	}
+	worker := economy.OutboxReplayWorker{
+		Store:         outboxStore,
+		Publisher:     publisher,
+		LeaseOwner:    "loot-xp-test-worker",
+		BatchSize:     10,
+		LeaseDuration: time.Minute,
+		RetryDelay:    time.Second,
+		Now:           clock.Now,
+	}
+
+	replayed, err := worker.RunOnce(context.Background())
+	if err != nil {
+		t.Fatalf("RunOnce() error = %v, want nil", err)
+	}
+	if replayed != (economy.OutboxReplayResult{Loaded: 1, Leased: 1, Published: 1}) {
+		t.Fatalf("RunOnce() result = %+v, want one published duplicate replay", replayed)
+	}
+	snapshot, err := progressionService.GetProgressionSnapshot(drop.OwnerPlayerID)
+	if err != nil {
+		t.Fatalf("GetProgressionSnapshot() error = %v, want nil", err)
+	}
+	if snapshot.Player.MainXP != 5 {
+		t.Fatalf("main XP after outbox replay = %d, want 5", snapshot.Player.MainXP)
+	}
+	stored, ok, err := outboxStore.LoadOutboxRow(context.Background(), outboxID)
+	if err != nil || !ok {
+		t.Fatalf("LoadOutboxRow(published) = ok %v err %v, want true nil", ok, err)
+	}
+	if stored.Status != economy.OutboxStatusPublished || stored.AttemptCount != 1 || stored.PublishedAt.IsZero() {
+		t.Fatalf("published row = %+v, want published attempt 1", stored)
+	}
+
+	again, err := worker.RunOnce(context.Background())
+	if err != nil {
+		t.Fatalf("RunOnce(second) error = %v, want nil", err)
+	}
+	if again != (economy.OutboxReplayResult{}) {
+		t.Fatalf("RunOnce(second) result = %+v, want no due rows", again)
+	}
+	snapshot, err = progressionService.GetProgressionSnapshot(drop.OwnerPlayerID)
+	if err != nil {
+		t.Fatalf("GetProgressionSnapshot(second) error = %v, want nil", err)
+	}
+	if snapshot.Player.MainXP != 5 {
+		t.Fatalf("main XP after second replay = %d, want 5", snapshot.Player.MainXP)
+	}
 }
 
 func TestPlayerDeathDropPickupDoesNotGrantLootXP(t *testing.T) {
@@ -833,6 +929,191 @@ type duplicateXPGranter struct{}
 
 func (duplicateXPGranter) GrantXP(progression.GrantXPInput) (progression.GrantXPResult, error) {
 	return progression.GrantXPResult{Duplicate: true}, nil
+}
+
+type lootXPOutboxStore struct {
+	mu   sync.Mutex
+	rows map[string]economy.OutboxRow
+}
+
+func newLootXPOutboxStore(t *testing.T) *lootXPOutboxStore {
+	t.Helper()
+	return &lootXPOutboxStore{rows: make(map[string]economy.OutboxRow)}
+}
+
+func (store *lootXPOutboxStore) InsertOutboxRow(ctx context.Context, row economy.OutboxRow) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	inserted, err := economy.NewOutboxRow(row)
+	if err != nil {
+		return err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	if _, exists := store.rows[inserted.OutboxID]; exists {
+		return fmt.Errorf("outbox %q: %w", inserted.OutboxID, economy.ErrInvalidOutboxRow)
+	}
+	store.rows[inserted.OutboxID] = inserted.Clone()
+	return nil
+}
+
+func (store *lootXPOutboxStore) LoadOutboxRow(ctx context.Context, outboxID string) (economy.OutboxRow, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	row, ok := store.rows[outboxID]
+	return row.Clone(), ok, nil
+}
+
+func (store *lootXPOutboxStore) LoadDueOutboxRows(
+	ctx context.Context,
+	query economy.OutboxDueRowsQuery,
+) ([]economy.OutboxRow, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := query.Validate(); err != nil {
+		return nil, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	rows := make([]economy.OutboxRow, 0, query.Limit)
+	for _, row := range store.rows {
+		if row.Status != economy.OutboxStatusPending && row.Status != economy.OutboxStatusFailed {
+			continue
+		}
+		if row.AvailableAt.After(query.Now) {
+			continue
+		}
+		rows = append(rows, row.Clone())
+	}
+	sort.Slice(rows, func(left int, right int) bool {
+		if !rows[left].AvailableAt.Equal(rows[right].AvailableAt) {
+			return rows[left].AvailableAt.Before(rows[right].AvailableAt)
+		}
+		if !rows[left].CreatedAt.Equal(rows[right].CreatedAt) {
+			return rows[left].CreatedAt.Before(rows[right].CreatedAt)
+		}
+		return rows[left].OutboxID < rows[right].OutboxID
+	})
+	if len(rows) > query.Limit {
+		rows = rows[:query.Limit]
+	}
+	return rows, nil
+}
+
+func (store *lootXPOutboxStore) LeaseOutboxRow(
+	ctx context.Context,
+	input economy.OutboxLeaseInput,
+) (economy.OutboxRow, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	if err := input.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	row, ok := store.rows[input.OutboxID]
+	if !ok || !lootXPOutboxLeaseEligible(row, input.Now) {
+		return economy.OutboxRow{}, false, nil
+	}
+	row.Status = economy.OutboxStatusLeased
+	row.LeaseOwner = input.LeaseOwner
+	row.LeasedUntil = input.LeasedUntil
+	row.UpdatedAt = input.Now
+	if err := row.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.rows[input.OutboxID] = row.Clone()
+	return row.Clone(), true, nil
+}
+
+func (store *lootXPOutboxStore) MarkOutboxPublished(
+	ctx context.Context,
+	input economy.OutboxPublishInput,
+) (economy.OutboxRow, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	if err := input.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	row, ok := store.rows[input.OutboxID]
+	if !ok || !lootXPOutboxLeaseMatches(row, input.LeaseOwner, input.Now) {
+		return economy.OutboxRow{}, false, nil
+	}
+	row.Status = economy.OutboxStatusPublished
+	row.LeaseOwner = ""
+	row.LeasedUntil = time.Time{}
+	row.AttemptCount++
+	row.LastError = ""
+	row.UpdatedAt = input.Now
+	row.PublishedAt = input.Now
+	if err := row.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.rows[input.OutboxID] = row.Clone()
+	return row.Clone(), true, nil
+}
+
+func (store *lootXPOutboxStore) MarkOutboxFailed(
+	ctx context.Context,
+	input economy.OutboxFailureInput,
+) (economy.OutboxRow, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	if err := input.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	row, ok := store.rows[input.OutboxID]
+	if !ok || !lootXPOutboxLeaseMatches(row, input.LeaseOwner, input.Now) {
+		return economy.OutboxRow{}, false, nil
+	}
+	row.AttemptCount++
+	if row.AttemptCount >= row.MaxAttempts {
+		row.Status = economy.OutboxStatusDead
+	} else {
+		row.Status = economy.OutboxStatusFailed
+	}
+	row.AvailableAt = input.AvailableAt
+	row.LeaseOwner = ""
+	row.LeasedUntil = time.Time{}
+	row.LastError = input.LastError
+	row.UpdatedAt = input.Now
+	if err := row.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.rows[input.OutboxID] = row.Clone()
+	return row.Clone(), true, nil
+}
+
+func lootXPOutboxLeaseEligible(row economy.OutboxRow, now time.Time) bool {
+	if (row.Status == economy.OutboxStatusPending || row.Status == economy.OutboxStatusFailed) && !row.AvailableAt.After(now) {
+		return true
+	}
+	return row.Status == economy.OutboxStatusLeased && !row.LeasedUntil.IsZero() && !row.LeasedUntil.After(now)
+}
+
+func lootXPOutboxLeaseMatches(row economy.OutboxRow, owner string, now time.Time) bool {
+	return row.Status == economy.OutboxStatusLeased &&
+		row.LeaseOwner == owner &&
+		!row.LeasedUntil.IsZero() &&
+		row.LeasedUntil.After(now)
 }
 
 type failingLootMetrics struct{}

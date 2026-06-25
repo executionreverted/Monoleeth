@@ -1,6 +1,7 @@
 package loot
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -55,6 +56,7 @@ type Service struct {
 
 	cargo       CargoAdder
 	progression XPGranter
+	xpOutbox    economy.OutboxStore
 
 	ownerLockDuration time.Duration
 	publicDuration    time.Duration
@@ -85,6 +87,7 @@ type Config struct {
 
 	Cargo       CargoAdder
 	Progression XPGranter
+	XPOutbox    economy.OutboxStore
 
 	OwnerLockDuration time.Duration
 	PublicDuration    time.Duration
@@ -124,6 +127,7 @@ func NewService(config Config) (*Service, error) {
 		rng:               config.RNG,
 		cargo:             config.Cargo,
 		progression:       config.Progression,
+		xpOutbox:          config.XPOutbox,
 		ownerLockDuration: config.OwnerLockDuration,
 		publicDuration:    config.PublicDuration,
 		totalLifetime:     config.TotalLifetime,
@@ -389,14 +393,7 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 		reconciliation.Error = ErrNilProgressionHook.Error()
 		xpErr = ErrNilProgressionHook
 	} else {
-		grant, err := service.progression.GrantXP(progression.GrantXPInput{
-			PlayerID:       input.PlayerID,
-			Amount:         5,
-			SourceType:     progression.XPSourceTypeLoot,
-			SourceID:       progression.XPSourceID(drop.ID.String()),
-			IdempotencyKey: progression.XPIdempotencyKey("loot_pickup:" + drop.ID.String()),
-			Authority:      progression.XPGrantAuthorityLootService,
-		})
+		grant, err := service.grantLootXP(drop, reconciliation)
 		if err != nil {
 			xpErr = err
 			reconciliation.Status = LootXPReconciliationFailed
@@ -420,6 +417,35 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 		XPResult:    xpResult,
 		XPError:     xpErr,
 	}, nil
+}
+
+func (service *Service) grantLootXP(drop Drop, reconciliation LootXPReconciliation) (progression.GrantXPResult, error) {
+	if service.xpOutbox == nil {
+		return service.progression.GrantXP(progression.GrantXPInput{
+			PlayerID:       reconciliation.PlayerID,
+			Amount:         defaultLootXPAmount,
+			SourceType:     reconciliation.SourceType,
+			SourceID:       reconciliation.SourceID,
+			IdempotencyKey: reconciliation.IdempotencyKey,
+			Authority:      progression.XPGrantAuthorityLootService,
+		})
+	}
+
+	row, err := newLootXPOutboxRow(drop, reconciliation, service.clock.Now())
+	if err != nil {
+		return progression.GrantXPResult{}, err
+	}
+	if err := service.xpOutbox.InsertOutboxRow(context.Background(), row); err != nil {
+		existing, ok, loadErr := service.xpOutbox.LoadOutboxRow(context.Background(), row.OutboxID)
+		if loadErr != nil {
+			return progression.GrantXPResult{}, loadErr
+		}
+		if !ok || !sameLootXPOutboxRow(existing, row) {
+			return progression.GrantXPResult{}, err
+		}
+		row = existing
+	}
+	return ReplayLootXPOutboxRow(context.Background(), row, service.progression)
 }
 
 func (service *Service) recordXPReconciliation(dropID world.EntityID, reconciliation LootXPReconciliation) Drop {

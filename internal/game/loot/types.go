@@ -35,6 +35,7 @@ var (
 	ErrNilProgressionHook   = errors.New("nil progression hook")
 	ErrInvalidLootDurations = errors.New("invalid loot durations")
 	ErrInvalidScheduledTask = errors.New("invalid loot scheduled task")
+	ErrInvalidLootXPOutbox  = errors.New("invalid loot xp outbox")
 )
 
 type DropSourceType string
@@ -70,6 +71,10 @@ type ScheduledDropTaskKind string
 const (
 	ScheduledDropTaskOwnerLockExpired ScheduledDropTaskKind = "loot.owner_lock_expired"
 	ScheduledDropTaskDespawn          ScheduledDropTaskKind = "loot.drop_despawn"
+
+	EventLootXPReconciliationRequested = "loot.xp_reconciliation_requested"
+
+	defaultLootXPAmount int64 = 5
 )
 
 // LootRow is one server-owned loot table roll.

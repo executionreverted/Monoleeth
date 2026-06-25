@@ -30,9 +30,16 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [ ] `[P:wave2/lane-B]` Wrap market buy/cancel in single DB transaction (escrow move + wallet + ledger).
 - [ ] `[P:wave2/lane-B]` Wrap auction bid/buy-now in single transaction (refund-replace, close-once).
 - [ ] `[P:wave2/lane-C]` Make premium claim + provider-event ingest idempotent and durable (replay-safe).
-- [ ] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (close `docs/todo.md` item).
+- [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0501: loot pickup XP now writes a stable `loot_xp:*`
+  economy outbox row and reuses an `OutboxReplayWorker` publisher hook to replay
+  the XP grant through progression's canonical `loot_pickup:<drop_id>`
+  idempotency key. Focused loot coverage proves a pending row can be replayed
+  after the immediate pickup grant without adding XP twice, then publishes the
+  row. Remaining gap is runtime/DB wiring that makes drop claim, cargo mutation,
+  and XP outbox insert one durable transaction.
 - 2026-06-25 TASK-0498: added a domain-neutral economy outbox replay worker
   helper over the existing `OutboxStore` lease/publish/fail contract. Fake-store
   tests cover publish-once success, publisher failure recorded as retryable
