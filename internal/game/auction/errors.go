@@ -18,6 +18,8 @@ var (
 	ErrBidReachesBuyNow        = errors.New("auction bid reaches buy-now price")
 	ErrCurrentWinningBidder    = errors.New("bidder is already winning auction")
 	ErrBuyNowUnavailable       = errors.New("auction buy-now unavailable")
+	ErrBuyNowInProgress        = errors.New("auction buy-now idempotency key in progress")
+	ErrBuyNowIdempotencyResult = errors.New("auction buy-now idempotency result unavailable")
 	ErrCloseTooEarly           = errors.New("auction close too early")
 	ErrAuctionAmountOverflow   = errors.New("auction amount overflow")
 	ErrBidReferenceMismatch    = errors.New("auction bid reference mismatch")

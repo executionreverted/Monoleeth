@@ -1,6 +1,7 @@
 package auction
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -15,14 +16,15 @@ import (
 var auctionTestNow = time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
 
 type auctionFixture struct {
-	clock    *testutil.FakeClock
-	wallet   *economy.WalletService
-	service  *Service
-	worldID  foundation.WorldID
-	bidderID foundation.PlayerID
-	otherID  foundation.PlayerID
-	buyerID  foundation.PlayerID
-	payload  LotPayload
+	clock       *testutil.FakeClock
+	wallet      *economy.WalletService
+	idempotency *memoryAuctionIdempotencyStore
+	service     *Service
+	worldID     foundation.WorldID
+	bidderID    foundation.PlayerID
+	otherID     foundation.PlayerID
+	buyerID     foundation.PlayerID
+	payload     LotPayload
 }
 
 func TestCreateLotStoresCatalogPayloadAndStatus(t *testing.T) {
@@ -323,6 +325,125 @@ func TestBuyNowDebitsRefundsGrantsAndClosesOnce(t *testing.T) {
 	}
 }
 
+func TestBuyNowDuplicateIdempotencyRowDoesNotMutateTwice(t *testing.T) {
+	fixture := newAuctionFixture(t)
+	fixture.seedCredits(t, fixture.bidderID, 500, "seed-bidder-buy-now-row")
+	fixture.seedCredits(t, fixture.buyerID, 1_000, "seed-buyer-buy-now-row")
+	lot := fixture.createLot(t, "auction-buy-now-row", 100, int64Pointer(300))
+	fixture.placeBid(t, lot.Lot.AuctionID, fixture.bidderID, 120, "bid-before-buy-now-row")
+	input := BuyNowInput{
+		AuctionID:     lot.Lot.AuctionID,
+		BuyerPlayerID: fixture.buyerID,
+		RequestID:     "buy-now-row",
+	}
+
+	first, err := fixture.service.BuyNow(input)
+	if err != nil {
+		t.Fatalf("first BuyNow: %v", err)
+	}
+	ledgerAfterFirst := len(fixture.wallet.CurrencyLedgerEntries())
+	fixture.service.buyNowResults = make(map[foundation.IdempotencyKey]BuyNowResult)
+	second, err := fixture.service.BuyNow(input)
+	if err != nil {
+		t.Fatalf("idempotency-row duplicate BuyNow: %v", err)
+	}
+
+	if first.Duplicate {
+		t.Fatal("first Duplicate = true, want false")
+	}
+	if !second.Duplicate {
+		t.Fatal("duplicate Duplicate = false, want true")
+	}
+	if got := fixture.wallet.Balance(fixture.buyerID, economy.CurrencyBucketCredits); got != 700 {
+		t.Fatalf("buyer balance = %d, want 700", got)
+	}
+	if got := fixture.wallet.Balance(fixture.bidderID, economy.CurrencyBucketCredits); got != 500 {
+		t.Fatalf("bidder balance = %d, want refunded once to 500", got)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != ledgerAfterFirst {
+		t.Fatalf("wallet ledger len = %d, want %d", got, ledgerAfterFirst)
+	}
+	if got := len(fixture.service.Grants()); got != 1 {
+		t.Fatalf("grants len = %d, want 1", got)
+	}
+}
+
+func TestConcurrentBuyNowSameKeyClosesLotExactlyOnce(t *testing.T) {
+	fixture := newAuctionFixture(t)
+	fixture.seedCredits(t, fixture.bidderID, 500, "seed-bidder-concurrent-buy-now")
+	fixture.seedCredits(t, fixture.buyerID, 1_000, "seed-buyer-concurrent-buy-now")
+	lot := fixture.createLot(t, "auction-concurrent-buy-now", 100, int64Pointer(300))
+	fixture.placeBid(t, lot.Lot.AuctionID, fixture.bidderID, 120, "bid-before-concurrent-buy-now")
+	ledgerBeforeBuyNow := len(fixture.wallet.CurrencyLedgerEntries())
+	input := BuyNowInput{
+		AuctionID:     lot.Lot.AuctionID,
+		BuyerPlayerID: fixture.buyerID,
+		RequestID:     "buy-now-concurrent",
+	}
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	results := make(chan BuyNowResult, 2)
+	errs := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			result, err := fixture.service.BuyNow(input)
+			results <- result
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent BuyNow error = %v, want nil", err)
+		}
+	}
+	duplicates := 0
+	nonDuplicates := 0
+	for result := range results {
+		if result.Duplicate {
+			duplicates++
+			continue
+		}
+		nonDuplicates++
+		if result.Lot.Status != LotStatusClosed || result.Lot.WinningPlayerID != fixture.buyerID {
+			t.Fatalf("non-duplicate lot status/winner = %q/%q, want closed/%q", result.Lot.Status, result.Lot.WinningPlayerID, fixture.buyerID)
+		}
+		if result.CurrentRefund == nil {
+			t.Fatal("non-duplicate CurrentRefund = nil, want previous bidder refund")
+		}
+	}
+	if nonDuplicates != 1 || duplicates != 1 {
+		t.Fatalf("non-duplicates/duplicates = %d/%d, want 1/1", nonDuplicates, duplicates)
+	}
+	if got := fixture.wallet.Balance(fixture.buyerID, economy.CurrencyBucketCredits); got != 700 {
+		t.Fatalf("buyer balance = %d, want 700", got)
+	}
+	if got := fixture.wallet.Balance(fixture.bidderID, economy.CurrencyBucketCredits); got != 500 {
+		t.Fatalf("bidder balance = %d, want refunded 500", got)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != ledgerBeforeBuyNow+2 {
+		t.Fatalf("wallet ledger len = %d, want %d", got, ledgerBeforeBuyNow+2)
+	}
+	if got := fixture.service.Grants(); len(got) != 1 || got[0].PlayerID != fixture.buyerID {
+		t.Fatalf("grants = %+v, want one buyer grant", got)
+	}
+	finalLot, ok := fixture.service.Lot(lot.Lot.AuctionID)
+	if !ok {
+		t.Fatal("final lot missing")
+	}
+	if finalLot.Status != LotStatusClosed || finalLot.CloseReason != CloseReasonBuyNow || finalLot.WinningPlayerID != fixture.buyerID {
+		t.Fatalf("final lot = %+v, want closed buy-now winner %q", finalLot, fixture.buyerID)
+	}
+}
+
 func TestBidRacingBuyNowCannotCreateTwoWinners(t *testing.T) {
 	fixture := newAuctionFixture(t)
 	fixture.seedCredits(t, fixture.bidderID, 500, "seed-race-bidder")
@@ -551,21 +672,24 @@ func newAuctionFixture(t *testing.T) *auctionFixture {
 
 	clock := testutil.NewFakeClock(auctionTestNow)
 	wallet := economy.NewWalletService(clock)
+	idempotency := newMemoryAuctionIdempotencyStore()
 	service, err := NewService(ServiceConfig{
-		Clock:  clock,
-		Wallet: wallet,
+		Clock:            clock,
+		Wallet:           wallet,
+		IdempotencyStore: idempotency,
 	})
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
 	return &auctionFixture{
-		clock:    clock,
-		wallet:   wallet,
-		service:  service,
-		worldID:  "world-1",
-		bidderID: "bidder-1",
-		otherID:  "bidder-2",
-		buyerID:  "buyer-1",
+		clock:       clock,
+		wallet:      wallet,
+		idempotency: idempotency,
+		service:     service,
+		worldID:     "world-1",
+		bidderID:    "bidder-1",
+		otherID:     "bidder-2",
+		buyerID:     "buyer-1",
 		payload: LotPayload{
 			Type:     LotPayloadTypeShipUnlock,
 			Source:   mustAuctionSource(t, "auction-slazar-unlock", "v1"),
@@ -655,4 +779,51 @@ func mustQuestRewardKey(t *testing.T, reference string) foundation.IdempotencyKe
 
 func int64Pointer(value int64) *int64 {
 	return &value
+}
+
+type memoryAuctionIdempotencyStore struct {
+	mu   sync.Mutex
+	rows map[string]economy.IdempotencyKeyRow
+}
+
+func newMemoryAuctionIdempotencyStore() *memoryAuctionIdempotencyStore {
+	return &memoryAuctionIdempotencyStore{rows: make(map[string]economy.IdempotencyKeyRow)}
+}
+
+func (store *memoryAuctionIdempotencyStore) ClaimIdempotencyKey(_ context.Context, row economy.IdempotencyKeyRow) (economy.IdempotencyClaimResult, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	key := auctionMemoryIdempotencyKey(row)
+	existing, ok := store.rows[key]
+	if !ok {
+		if err := row.Validate(); err != nil {
+			return economy.IdempotencyClaimResult{}, err
+		}
+		store.rows[key] = row.Clone()
+		return economy.IdempotencyClaimResult{Row: row.Clone()}, nil
+	}
+	return economy.ResolveIdempotencyClaim(&existing, row)
+}
+
+func (store *memoryAuctionIdempotencyStore) CompleteIdempotencyKey(_ context.Context, row economy.IdempotencyKeyRow) (economy.IdempotencyKeyRow, error) {
+	if err := row.Validate(); err != nil {
+		return economy.IdempotencyKeyRow{}, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	key := auctionMemoryIdempotencyKey(row)
+	existing, ok := store.rows[key]
+	if ok {
+		if _, err := economy.ResolveIdempotencyClaim(&existing, row); err != nil {
+			return economy.IdempotencyKeyRow{}, err
+		}
+	}
+	store.rows[key] = row.Clone()
+	return row.Clone(), nil
+}
+
+func auctionMemoryIdempotencyKey(row economy.IdempotencyKeyRow) string {
+	return row.Scope + ":" + row.Key.String()
 }

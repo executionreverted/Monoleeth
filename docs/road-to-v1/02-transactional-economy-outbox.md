@@ -47,6 +47,11 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
   tested post-return failure path. Duplicate same-key cancel returns the cached
   result without moving escrow twice. Full contentdb transaction across listing,
   escrow, idempotency, and outbox remains open.
+- 2026-06-25 TASK-0495: auction buy-now same-key concurrent retries now have a
+  focused close-once test proving one debit, one current-bid refund, one grant,
+  and one terminal lot close. Auction remains in-memory; full durable DB
+  transaction plus outbox persistence is still open under the broader auction
+  transaction task.
 
 ## Server Ownership
 - Use canonical idempotency keys: `loot_pickup:<drop_id>`, `auction_close:<auction_id>`,
@@ -56,7 +61,7 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 ## Smoke Tests (one assertion each)
 - [x] Duplicate market buy (same key) does not double-charge.
 - [x] Market cancel returns escrow exactly once.
-- [ ] Concurrent auction buy-now closes the lot exactly once.
+- [x] Concurrent auction buy-now closes the lot exactly once.
 - [ ] Replayed premium webhook grants entitlement exactly once.
 - [ ] Outbox replay re-delivers a missed economy event without duplicating state.
 - [x] Failed mid-transaction leaves no partial wallet/inventory mutation.
