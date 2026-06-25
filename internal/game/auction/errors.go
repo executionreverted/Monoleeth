@@ -17,6 +17,8 @@ var (
 	ErrBidTooLow               = errors.New("auction bid too low")
 	ErrBidReachesBuyNow        = errors.New("auction bid reaches buy-now price")
 	ErrCurrentWinningBidder    = errors.New("bidder is already winning auction")
+	ErrBidInProgress           = errors.New("auction bid idempotency key in progress")
+	ErrBidIdempotencyResult    = errors.New("auction bid idempotency result unavailable")
 	ErrBuyNowUnavailable       = errors.New("auction buy-now unavailable")
 	ErrBuyNowInProgress        = errors.New("auction buy-now idempotency key in progress")
 	ErrBuyNowIdempotencyResult = errors.New("auction buy-now idempotency result unavailable")

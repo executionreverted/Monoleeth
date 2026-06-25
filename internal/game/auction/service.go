@@ -20,6 +20,7 @@ const (
 	ledgerReasonAuctionRefund economy.LedgerReason = "auction_refund"
 	ledgerReasonAuctionBuyNow economy.LedgerReason = "auction_buy_now"
 
+	auctionBidOperation    = "auction_bid"
 	auctionBuyNowOperation = "auction_buy_now"
 )
 
@@ -48,6 +49,7 @@ type Service struct {
 	bidResults            map[foundation.IdempotencyKey]PlaceBidResult
 	buyNowResults         map[foundation.IdempotencyKey]BuyNowResult
 	closeResults          map[foundation.IdempotencyKey]CloseAuctionResult
+	bidIdempotencyRows    map[foundation.IdempotencyKey]economy.IdempotencyKeyRow
 	buyNowIdempotencyRows map[foundation.IdempotencyKey]economy.IdempotencyKeyRow
 	grants                []Grant
 }
@@ -69,6 +71,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 		bidResults:            make(map[foundation.IdempotencyKey]PlaceBidResult),
 		buyNowResults:         make(map[foundation.IdempotencyKey]BuyNowResult),
 		closeResults:          make(map[foundation.IdempotencyKey]CloseAuctionResult),
+		bidIdempotencyRows:    make(map[foundation.IdempotencyKey]economy.IdempotencyKeyRow),
 		buyNowIdempotencyRows: make(map[foundation.IdempotencyKey]economy.IdempotencyKeyRow),
 	}, nil
 }
@@ -113,6 +116,7 @@ func (service *Service) PlaceBid(input PlaceBidInput) (PlaceBidResult, error) {
 	if err != nil {
 		return PlaceBidResult{}, err
 	}
+	requestHash := auctionBidRequestHash(input)
 
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -125,22 +129,29 @@ func (service *Service) PlaceBid(input PlaceBidInput) (PlaceBidResult, error) {
 		result.Duplicate = true
 		return result, nil
 	}
+	idempotencyRow, duplicateResult, duplicate, err := service.claimAuctionBidIdempotency(input, referenceKey, requestHash)
+	if err != nil {
+		return PlaceBidResult{}, err
+	}
+	if duplicate {
+		return duplicateResult, nil
+	}
 
 	lot, ok := service.lots[input.AuctionID]
 	if !ok {
-		return PlaceBidResult{}, fmt.Errorf("auction %q: %w", input.AuctionID, ErrLotNotFound)
+		return PlaceBidResult{}, service.failAuctionBidIdempotency(idempotencyRow, fmt.Errorf("auction %q: %w", input.AuctionID, ErrLotNotFound))
 	}
 	if err := service.prepareActiveLotLocked(&lot); err != nil {
-		return PlaceBidResult{}, err
+		return PlaceBidResult{}, service.failAuctionBidIdempotency(idempotencyRow, err)
 	}
 	if lot.CurrentBidderID == input.BidderPlayerID {
-		return PlaceBidResult{}, ErrCurrentWinningBidder
+		return PlaceBidResult{}, service.failAuctionBidIdempotency(idempotencyRow, ErrCurrentWinningBidder)
 	}
 	if err := validateBidAmount(lot, input.Amount); err != nil {
-		return PlaceBidResult{}, err
+		return PlaceBidResult{}, service.failAuctionBidIdempotency(idempotencyRow, err)
 	}
 	if err := service.validateDebitCapacity(input.BidderPlayerID, lot.Currency, input.Amount); err != nil {
-		return PlaceBidResult{}, err
+		return PlaceBidResult{}, service.failAuctionBidIdempotency(idempotencyRow, err)
 	}
 
 	var refundReference foundation.IdempotencyKey
@@ -148,13 +159,14 @@ func (service *Service) PlaceBid(input PlaceBidInput) (PlaceBidResult, error) {
 	if !lot.CurrentBidderID.IsZero() {
 		refundReference, err = foundation.AuctionRefundIdempotencyKey(input.AuctionID, lot.CurrentBidderID, input.RequestID)
 		if err != nil {
-			return PlaceBidResult{}, err
+			return PlaceBidResult{}, service.failAuctionBidIdempotency(idempotencyRow, err)
 		}
 		if err := service.validateCreditCapacity(lot.CurrentBidderID, lot.Currency, lot.CurrentBid); err != nil {
-			return PlaceBidResult{}, err
+			return PlaceBidResult{}, service.failAuctionBidIdempotency(idempotencyRow, err)
 		}
 	}
 
+	walletSnapshot, restoreWallet, hasWalletSnapshot := service.snapshotWalletMutationState()
 	bidderDebit, err := service.wallet.DebitWallet(economy.DebitWalletInput{
 		PlayerID:     input.BidderPlayerID,
 		Currency:     lot.Currency,
@@ -163,7 +175,10 @@ func (service *Service) PlaceBid(input PlaceBidInput) (PlaceBidResult, error) {
 		ReferenceKey: referenceKey,
 	})
 	if err != nil {
-		return PlaceBidResult{}, err
+		if hasWalletSnapshot {
+			restoreWallet(walletSnapshot)
+		}
+		return PlaceBidResult{}, service.failAuctionBidIdempotency(idempotencyRow, err)
 	}
 	if !lot.CurrentBidderID.IsZero() {
 		refund, err := service.wallet.CreditWallet(economy.CreditWalletInput{
@@ -174,7 +189,10 @@ func (service *Service) PlaceBid(input PlaceBidInput) (PlaceBidResult, error) {
 			ReferenceKey: refundReference,
 		})
 		if err != nil {
-			return PlaceBidResult{}, err
+			if hasWalletSnapshot {
+				restoreWallet(walletSnapshot)
+			}
+			return PlaceBidResult{}, service.failAuctionBidIdempotency(idempotencyRow, err)
 		}
 		previousRefund = &refund
 	}
@@ -193,6 +211,9 @@ func (service *Service) PlaceBid(input PlaceBidInput) (PlaceBidResult, error) {
 		RefundReference: refundReference,
 	}
 	service.bidResults[referenceKey] = clonePlaceBidResult(result)
+	if err := service.completeAuctionBidIdempotency(idempotencyRow, result); err != nil {
+		return PlaceBidResult{}, err
+	}
 	return result, nil
 }
 
@@ -521,12 +542,157 @@ func (service *Service) validateCreditCapacity(playerID foundation.PlayerID, cur
 	return nil
 }
 
+type walletMutationSnapshotter interface {
+	SnapshotMutationState() economy.WalletMutationSnapshot
+	RestoreMutationState(economy.WalletMutationSnapshot)
+}
+
+func (service *Service) snapshotWalletMutationState() (economy.WalletMutationSnapshot, func(economy.WalletMutationSnapshot), bool) {
+	snapshotter, ok := service.wallet.(walletMutationSnapshotter)
+	if !ok {
+		return economy.WalletMutationSnapshot{}, nil, false
+	}
+	return snapshotter.SnapshotMutationState(), snapshotter.RestoreMutationState, true
+}
+
+type bidIdempotencyResult struct {
+	Lot             Lot                       `json:"lot"`
+	Amount          int64                     `json:"amount"`
+	ReferenceKey    foundation.IdempotencyKey `json:"reference_id"`
+	RefundReference foundation.IdempotencyKey `json:"refund_reference_id,omitempty"`
+}
+
 type buyNowIdempotencyResult struct {
 	Lot             Lot                       `json:"lot"`
 	Price           int64                     `json:"price"`
 	Grant           Grant                     `json:"grant"`
 	ReferenceKey    foundation.IdempotencyKey `json:"reference_id"`
 	RefundReference foundation.IdempotencyKey `json:"refund_reference_id,omitempty"`
+}
+
+func (service *Service) claimAuctionBidIdempotency(
+	input PlaceBidInput,
+	referenceKey foundation.IdempotencyKey,
+	requestHash string,
+) (economy.IdempotencyKeyRow, PlaceBidResult, bool, error) {
+	now := service.clock.Now()
+	candidate := economy.IdempotencyKeyRow{
+		Scope:       economy.IdempotencyScopeEconomy,
+		Key:         referenceKey,
+		Operation:   auctionBidOperation,
+		PlayerID:    input.BidderPlayerID,
+		RequestHash: requestHash,
+		Status:      economy.IdempotencyStatusInProgress,
+		ResultJSON:  json.RawMessage(`{}`),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if service.idempotencyStore == nil {
+		service.ensureBidIdempotencyRowsLocked()
+		existing, ok := service.bidIdempotencyRows[referenceKey]
+		if !ok {
+			if err := candidate.Validate(); err != nil {
+				return economy.IdempotencyKeyRow{}, PlaceBidResult{}, false, err
+			}
+			service.bidIdempotencyRows[referenceKey] = candidate.Clone()
+			return candidate.Clone(), PlaceBidResult{}, false, nil
+		}
+		return resolveAuctionBidIdempotencyClaim(existing, candidate)
+	}
+	claim, err := service.idempotencyStore.ClaimIdempotencyKey(context.Background(), candidate)
+	if err != nil {
+		return economy.IdempotencyKeyRow{}, PlaceBidResult{}, false, auctionBidIdempotencyClaimError(referenceKey, err)
+	}
+	return auctionBidResultFromClaim(claim)
+}
+
+func resolveAuctionBidIdempotencyClaim(
+	existing economy.IdempotencyKeyRow,
+	candidate economy.IdempotencyKeyRow,
+) (economy.IdempotencyKeyRow, PlaceBidResult, bool, error) {
+	claim, err := economy.ResolveIdempotencyClaim(&existing, candidate)
+	if err != nil {
+		return economy.IdempotencyKeyRow{}, PlaceBidResult{}, false, auctionBidIdempotencyClaimError(candidate.Key, err)
+	}
+	return auctionBidResultFromClaim(claim)
+}
+
+func auctionBidResultFromClaim(claim economy.IdempotencyClaimResult) (economy.IdempotencyKeyRow, PlaceBidResult, bool, error) {
+	if !claim.Duplicate {
+		return claim.Row, PlaceBidResult{}, false, nil
+	}
+	switch claim.Row.Status {
+	case economy.IdempotencyStatusCompleted:
+		result, err := auctionBidResultFromIdempotencyRow(claim.Row)
+		if err != nil {
+			return claim.Row, PlaceBidResult{}, false, err
+		}
+		return claim.Row, result, true, nil
+	case economy.IdempotencyStatusFailed:
+		return claim.Row, PlaceBidResult{}, false, nil
+	default:
+		return claim.Row, PlaceBidResult{}, false, ErrBidInProgress
+	}
+}
+
+func (service *Service) completeAuctionBidIdempotency(row economy.IdempotencyKeyRow, result PlaceBidResult) error {
+	if row.Key.IsZero() {
+		return nil
+	}
+	payload, err := auctionBidIdempotencyResultJSON(result)
+	if err != nil {
+		return err
+	}
+	now := service.clock.Now()
+	row.Status = economy.IdempotencyStatusCompleted
+	row.ResultJSON = payload
+	row.UpdatedAt = now
+	row.CompletedAt = now
+	if service.idempotencyStore != nil {
+		if _, err := service.idempotencyStore.CompleteIdempotencyKey(context.Background(), row); err != nil {
+			return err
+		}
+	}
+	service.ensureBidIdempotencyRowsLocked()
+	if existing, ok := service.bidIdempotencyRows[row.Key]; ok {
+		if _, err := economy.ResolveIdempotencyClaim(&existing, row); err != nil {
+			return auctionBidIdempotencyClaimError(row.Key, err)
+		}
+	}
+	service.bidIdempotencyRows[row.Key] = row.Clone()
+	return nil
+}
+
+func (service *Service) failAuctionBidIdempotency(row economy.IdempotencyKeyRow, cause error) error {
+	if row.Key.IsZero() {
+		return cause
+	}
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	payload, err := json.Marshal(map[string]string{"error": message})
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	row.Status = economy.IdempotencyStatusFailed
+	row.ResultJSON = payload
+	row.UpdatedAt = service.clock.Now()
+	row.CompletedAt = time.Time{}
+	if service.idempotencyStore != nil {
+		if _, err := service.idempotencyStore.CompleteIdempotencyKey(context.Background(), row); err != nil {
+			return errors.Join(cause, err)
+		}
+	}
+	service.ensureBidIdempotencyRowsLocked()
+	service.bidIdempotencyRows[row.Key] = row.Clone()
+	return cause
+}
+
+func (service *Service) ensureBidIdempotencyRowsLocked() {
+	if service.bidIdempotencyRows == nil {
+		service.bidIdempotencyRows = make(map[foundation.IdempotencyKey]economy.IdempotencyKeyRow)
+	}
 }
 
 func (service *Service) claimAuctionBuyNowIdempotency(
@@ -654,6 +820,17 @@ func (service *Service) ensureBuyNowIdempotencyRowsLocked() {
 	}
 }
 
+func auctionBidRequestHash(input PlaceBidInput) string {
+	hash := sha256.Sum256([]byte(fmt.Sprintf(
+		"auction_bid|auction=%s|bidder=%s|amount=%d|request=%s",
+		input.AuctionID,
+		input.BidderPlayerID,
+		input.Amount,
+		input.RequestID,
+	)))
+	return fmt.Sprintf("sha256:%x", hash[:])
+}
+
 func auctionBuyNowRequestHash(input BuyNowInput) string {
 	hash := sha256.Sum256([]byte(fmt.Sprintf(
 		"auction_buy_now|auction=%s|buyer=%s|request=%s",
@@ -676,6 +853,43 @@ func auctionBuyNowIdempotencyResultJSON(result BuyNowResult) (json.RawMessage, e
 		return nil, err
 	}
 	return json.RawMessage(payload), nil
+}
+
+func auctionBidIdempotencyResultJSON(result PlaceBidResult) (json.RawMessage, error) {
+	payload, err := json.Marshal(bidIdempotencyResult{
+		Lot:             cloneLot(result.Lot),
+		Amount:          result.Amount,
+		ReferenceKey:    result.ReferenceKey,
+		RefundReference: result.RefundReference,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(payload), nil
+}
+
+func auctionBidResultFromIdempotencyRow(row economy.IdempotencyKeyRow) (PlaceBidResult, error) {
+	var payload bidIdempotencyResult
+	if err := json.Unmarshal(row.ResultJSON, &payload); err != nil {
+		return PlaceBidResult{}, err
+	}
+	if payload.ReferenceKey.IsZero() {
+		return PlaceBidResult{}, ErrBidIdempotencyResult
+	}
+	return PlaceBidResult{
+		Lot:             cloneLot(payload.Lot),
+		Amount:          payload.Amount,
+		ReferenceKey:    payload.ReferenceKey,
+		RefundReference: payload.RefundReference,
+		Duplicate:       true,
+	}, nil
+}
+
+func auctionBidIdempotencyClaimError(referenceKey foundation.IdempotencyKey, err error) error {
+	if errors.Is(err, economy.ErrIdempotencyKeyConflict) {
+		return fmt.Errorf("reference %q: %w", referenceKey, ErrBidReferenceMismatch)
+	}
+	return err
 }
 
 func auctionBuyNowResultFromIdempotencyRow(row economy.IdempotencyKeyRow) (BuyNowResult, error) {
@@ -741,21 +955,23 @@ func cloneInt64Pointer(value *int64) *int64 {
 
 func clonePlaceBidResult(result PlaceBidResult) PlaceBidResult {
 	result.Lot = cloneLot(result.Lot)
-	if result.PreviousRefund != nil {
-		refund := *result.PreviousRefund
-		result.PreviousRefund = &refund
-	}
+	result.PreviousRefund = cloneCreditWalletResultPointer(result.PreviousRefund)
 	return result
 }
 
 func cloneBuyNowResult(result BuyNowResult) BuyNowResult {
 	result.Lot = cloneLot(result.Lot)
-	if result.CurrentRefund != nil {
-		refund := *result.CurrentRefund
-		result.CurrentRefund = &refund
-	}
+	result.CurrentRefund = cloneCreditWalletResultPointer(result.CurrentRefund)
 	result.Grant = cloneGrant(result.Grant)
 	return result
+}
+
+func cloneCreditWalletResultPointer(result *economy.CreditWalletResult) *economy.CreditWalletResult {
+	if result == nil {
+		return nil
+	}
+	cloned := *result
+	return &cloned
 }
 
 func cloneCloseAuctionResult(result CloseAuctionResult) CloseAuctionResult {

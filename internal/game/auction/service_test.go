@@ -237,6 +237,45 @@ func TestPlaceBidDuplicateRetryDoesNotDebitOrRefundTwice(t *testing.T) {
 	}
 }
 
+func TestPlaceBidDuplicateIdempotencyRowDoesNotDebitTwice(t *testing.T) {
+	fixture := newAuctionFixture(t)
+	fixture.seedCredits(t, fixture.bidderID, 500, "seed-bid-row")
+	lot := fixture.createLot(t, "auction-bid-row", 100, nil)
+	input := PlaceBidInput{
+		AuctionID:      lot.Lot.AuctionID,
+		BidderPlayerID: fixture.bidderID,
+		Amount:         120,
+		RequestID:      "bid-row",
+	}
+
+	first, err := fixture.service.PlaceBid(input)
+	if err != nil {
+		t.Fatalf("first PlaceBid: %v", err)
+	}
+	ledgerAfterFirst := len(fixture.wallet.CurrencyLedgerEntries())
+	fixture.service.bidResults = make(map[foundation.IdempotencyKey]PlaceBidResult)
+	second, err := fixture.service.PlaceBid(input)
+	if err != nil {
+		t.Fatalf("idempotency-row duplicate PlaceBid: %v", err)
+	}
+
+	if first.Duplicate {
+		t.Fatal("first Duplicate = true, want false")
+	}
+	if !second.Duplicate {
+		t.Fatal("duplicate Duplicate = false, want true")
+	}
+	if got := fixture.wallet.Balance(fixture.bidderID, economy.CurrencyBucketCredits); got != 380 {
+		t.Fatalf("bidder balance = %d, want 380", got)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != ledgerAfterFirst {
+		t.Fatalf("wallet ledger len = %d, want %d", got, ledgerAfterFirst)
+	}
+	if second.Amount != 120 || second.Lot.CurrentBidderID != fixture.bidderID {
+		t.Fatalf("duplicate result = %+v, want cached winning bid", second)
+	}
+}
+
 func TestPlaceBidRejectsTooLowAndEndedWithoutDebit(t *testing.T) {
 	fixture := newAuctionFixture(t)
 	fixture.seedCredits(t, fixture.bidderID, 500, "seed-too-low")
@@ -274,6 +313,87 @@ func TestPlaceBidRejectsTooLowAndEndedWithoutDebit(t *testing.T) {
 	}
 	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != ledgerBeforeEndedBid {
 		t.Fatalf("wallet ledger len = %d, want %d", got, ledgerBeforeEndedBid)
+	}
+}
+
+func TestPlaceBidDebitFailureLeavesCurrentBidUnchanged(t *testing.T) {
+	fixture := newAuctionFixture(t)
+	fixture.seedCredits(t, fixture.bidderID, 500, "seed-debit-failure")
+	lot := fixture.createLot(t, "auction-debit-failure", 100, nil)
+	fixture.placeBid(t, lot.Lot.AuctionID, fixture.bidderID, 120, "bid-before-debit-failure")
+	ledgerBeforeFailedBid := len(fixture.wallet.CurrencyLedgerEntries())
+
+	_, err := fixture.service.PlaceBid(PlaceBidInput{
+		AuctionID:      lot.Lot.AuctionID,
+		BidderPlayerID: fixture.otherID,
+		Amount:         150,
+		RequestID:      "bid-debit-failure",
+	})
+	if !errors.Is(err, economy.ErrInsufficientWalletFunds) {
+		t.Fatalf("debit failure error = %v, want ErrInsufficientWalletFunds", err)
+	}
+
+	finalLot, ok := fixture.service.Lot(lot.Lot.AuctionID)
+	if !ok {
+		t.Fatal("final lot missing")
+	}
+	if finalLot.CurrentBid != 120 || finalLot.CurrentBidderID != fixture.bidderID {
+		t.Fatalf("final bid/winner = %d/%q, want unchanged 120/%q", finalLot.CurrentBid, finalLot.CurrentBidderID, fixture.bidderID)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != ledgerBeforeFailedBid {
+		t.Fatalf("wallet ledger len = %d, want %d", got, ledgerBeforeFailedBid)
+	}
+}
+
+func TestPlaceBidRefundFailureLeavesCurrentBidUnchanged(t *testing.T) {
+	fixture := newAuctionFixture(t)
+	fixture.seedCredits(t, fixture.bidderID, 500, "seed-refund-failure-first")
+	fixture.seedCredits(t, fixture.otherID, 500, "seed-refund-failure-second")
+	refundErr := errors.New("forced refund failure")
+	failingWallet := &failingAuctionWallet{
+		WalletService:       fixture.wallet,
+		failCreditPlayerID:  fixture.bidderID,
+		failCreditReason:    ledgerReasonAuctionRefund,
+		failCreditWithError: refundErr,
+	}
+	service, err := NewService(ServiceConfig{
+		Clock:            fixture.clock,
+		Wallet:           failingWallet,
+		IdempotencyStore: fixture.idempotency,
+	})
+	if err != nil {
+		t.Fatalf("NewService failing wallet: %v", err)
+	}
+	fixture.service = service
+	lot := fixture.createLot(t, "auction-refund-failure", 100, nil)
+	fixture.placeBid(t, lot.Lot.AuctionID, fixture.bidderID, 120, "bid-before-refund-failure")
+	ledgerBeforeFailedBid := len(fixture.wallet.CurrencyLedgerEntries())
+
+	_, err = fixture.service.PlaceBid(PlaceBidInput{
+		AuctionID:      lot.Lot.AuctionID,
+		BidderPlayerID: fixture.otherID,
+		Amount:         150,
+		RequestID:      "bid-refund-failure",
+	})
+	if !errors.Is(err, refundErr) {
+		t.Fatalf("refund failure error = %v, want forced refund failure", err)
+	}
+
+	finalLot, ok := fixture.service.Lot(lot.Lot.AuctionID)
+	if !ok {
+		t.Fatal("final lot missing")
+	}
+	if finalLot.CurrentBid != 120 || finalLot.CurrentBidderID != fixture.bidderID {
+		t.Fatalf("final bid/winner = %d/%q, want unchanged 120/%q", finalLot.CurrentBid, finalLot.CurrentBidderID, fixture.bidderID)
+	}
+	if got := fixture.wallet.Balance(fixture.bidderID, economy.CurrencyBucketCredits); got != 380 {
+		t.Fatalf("previous bidder balance = %d, want still escrowed 380", got)
+	}
+	if got := fixture.wallet.Balance(fixture.otherID, economy.CurrencyBucketCredits); got != 500 {
+		t.Fatalf("failed bidder balance = %d, want rollback to 500", got)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != ledgerBeforeFailedBid {
+		t.Fatalf("wallet ledger len = %d, want rollback to %d", got, ledgerBeforeFailedBid)
 	}
 }
 
@@ -658,9 +778,23 @@ func TestConcurrentFinalBidsKeepSingleWinnerAndRefundLosers(t *testing.T) {
 		if got := fixture.wallet.Balance(bidderID, economy.CurrencyBucketCredits); got != 1_000 {
 			t.Fatalf("loser %q balance = %d, want refunded/unchanged 1000", bidderID, got)
 		}
+		bids := countAuctionLedgerEntries(fixture.wallet.CurrencyLedgerEntries(), bidderID, ledgerReasonAuctionBid, economy.LedgerActionDecrease)
+		refunds := countAuctionLedgerEntries(fixture.wallet.CurrencyLedgerEntries(), bidderID, ledgerReasonAuctionRefund, economy.LedgerActionIncrease)
+		if bids != refunds {
+			t.Fatalf("loser %q bid/refund ledger counts = %d/%d, want paired exactly once", bidderID, bids, refunds)
+		}
+		if bids > 1 {
+			t.Fatalf("loser %q bid ledger count = %d, want at most 1", bidderID, bids)
+		}
 	}
 	if got := fixture.wallet.Balance(wantWinner, economy.CurrencyBucketCredits); got != 893 {
 		t.Fatalf("winner balance = %d, want 893", got)
+	}
+	if bids := countAuctionLedgerEntries(fixture.wallet.CurrencyLedgerEntries(), wantWinner, ledgerReasonAuctionBid, economy.LedgerActionDecrease); bids != 1 {
+		t.Fatalf("winner bid ledger count = %d, want 1", bids)
+	}
+	if refunds := countAuctionLedgerEntries(fixture.wallet.CurrencyLedgerEntries(), wantWinner, ledgerReasonAuctionRefund, economy.LedgerActionIncrease); refunds != 0 {
+		t.Fatalf("winner refund ledger count = %d, want 0", refunds)
 	}
 	if got := len(fixture.service.Grants()); got != 0 {
 		t.Fatalf("grants len before close = %d, want 0", got)
@@ -826,4 +960,33 @@ func (store *memoryAuctionIdempotencyStore) CompleteIdempotencyKey(_ context.Con
 
 func auctionMemoryIdempotencyKey(row economy.IdempotencyKeyRow) string {
 	return row.Scope + ":" + row.Key.String()
+}
+
+type failingAuctionWallet struct {
+	*economy.WalletService
+	failCreditPlayerID  foundation.PlayerID
+	failCreditReason    economy.LedgerReason
+	failCreditWithError error
+}
+
+func (wallet *failingAuctionWallet) CreditWallet(input economy.CreditWalletInput) (economy.CreditWalletResult, error) {
+	if input.PlayerID == wallet.failCreditPlayerID && input.Reason == wallet.failCreditReason {
+		return economy.CreditWalletResult{}, wallet.failCreditWithError
+	}
+	return wallet.WalletService.CreditWallet(input)
+}
+
+func countAuctionLedgerEntries(
+	entries []economy.CurrencyLedgerEntry,
+	playerID foundation.PlayerID,
+	reason economy.LedgerReason,
+	action economy.LedgerAction,
+) int {
+	count := 0
+	for _, entry := range entries {
+		if entry.PlayerID == playerID && entry.Reason == reason && entry.Action == action {
+			count++
+		}
+	}
+	return count
 }

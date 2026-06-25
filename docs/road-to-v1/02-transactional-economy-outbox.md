@@ -33,6 +33,14 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0513: auction `PlaceBid` now claims/completes economy
+  idempotency rows with an amount-bound request hash before wallet mutation.
+  Replayed same-key bid rows return duplicate without a second debit, concurrent
+  final bids keep one current winner while loser debit/refund ledger rows pair
+  exactly once, and focused debit/refund failure tests keep bid state unchanged
+  with wallet snapshot rollback where the in-memory wallet boundary supports it.
+  Auction remains in-memory; full durable DB transaction plus outbox persistence
+  is still open under the broader auction transaction task.
 - 2026-06-25 TASK-0510: inventory `MoveItem`/`RemoveItem` now commit
   stackable/instance row updates or deletions, item ledger rows, counters, and
   durable move/remove mutation reference snapshots through `contentdb`.
@@ -94,9 +102,14 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 ## Smoke Tests (one assertion each)
 - [x] Duplicate market buy (same key) does not double-charge.
 - [x] Market cancel returns escrow exactly once.
+- [x] Duplicate auction bid (same key) does not double-charge.
+- [x] Concurrent auction bids keep one current bidder.
+- [x] Successful losing auction bids receive one matching refund.
 - [x] Concurrent auction buy-now closes the lot exactly once.
 - [x] Replayed premium webhook grants entitlement exactly once.
 - [ ] Outbox replay re-delivers a missed economy event without duplicating state.
+- [x] Failed auction bid debit leaves no partial in-memory bid state.
+- [x] Failed auction bid refund leaves no partial in-memory bid state.
 - [x] Failed mid-transaction leaves no partial wallet/inventory mutation.
 
 ## Done Criteria
