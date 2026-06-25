@@ -300,6 +300,132 @@ func TestProviderWebhookDuplicateKeyCannotCreateConflictingEntitlement(t *testin
 	}
 }
 
+func TestCreateEntitlementTransactionRepositoryReplaysProviderReference(t *testing.T) {
+	repository := newFakePremiumEntitlementTransactionRepository()
+	service, _, _ := newTestPremiumServiceWithTransactionRepository(t, repository)
+	input := validCurrencyPackCreateInput("entitlement-tx-provider", "player-tx-provider", "event-tx-provider", 500)
+	if _, err := service.CreateEntitlement(input); err != nil {
+		t.Fatalf("CreateEntitlement() error = %v, want nil", err)
+	}
+
+	replay := validCurrencyPackCreateInput("entitlement-tx-provider-replay", "player-tx-provider", "event-tx-provider", 500)
+	duplicate, err := service.CreateEntitlement(replay)
+	if err != nil {
+		t.Fatalf("CreateEntitlement(replay) error = %v, want nil", err)
+	}
+
+	if !duplicate.Duplicate || duplicate.Entitlement.ID != input.EntitlementID {
+		t.Fatalf("provider replay result = %+v, want duplicate original entitlement", duplicate)
+	}
+	if got := repository.entitlementCount(); got != 1 {
+		t.Fatalf("repository entitlement count = %d, want 1", got)
+	}
+	referenceKey, err := premiumProviderIdempotencyKey(input.Provider)
+	if err != nil {
+		t.Fatalf("premiumProviderIdempotencyKey() error = %v, want nil", err)
+	}
+	if outbox, ok := repository.outboxRow(premiumProviderOutboxPrefix + referenceKey.String()); !ok || outbox.EventType != premiumEntitlementCreatedEvent {
+		t.Fatalf("provider outbox row = %+v ok %v, want one created event", outbox, ok)
+	}
+}
+
+func TestClaimEntitlementTransactionRepositoryCommitsCurrencyPackRows(t *testing.T) {
+	repository := newFakePremiumEntitlementTransactionRepository()
+	service, wallet, _ := newTestPremiumServiceWithTransactionRepository(t, repository)
+	input := validCurrencyPackCreateInput("entitlement-tx-claim", "player-tx-claim", "event-tx-claim", 700)
+	if _, err := service.CreateEntitlement(input); err != nil {
+		t.Fatalf("CreateEntitlement() error = %v, want nil", err)
+	}
+
+	result, err := service.ClaimEntitlement(ClaimEntitlementInput{
+		EntitlementID:    input.EntitlementID,
+		PlayerID:         input.PlayerID,
+		RequestReference: "claim-tx",
+	})
+	if err != nil {
+		t.Fatalf("ClaimEntitlement() error = %v, want nil", err)
+	}
+
+	if result.WalletCredit == nil || result.Entitlement.State != EntitlementStateClaimed {
+		t.Fatalf("claim result = %+v, want wallet credit and claimed entitlement", result)
+	}
+	if got := wallet.Balance(input.PlayerID, economy.CurrencyBucketPremiumPaid); got != 700 {
+		t.Fatalf("premium_paid balance = %d, want 700", got)
+	}
+	stored, ok := repository.entitlement(input.EntitlementID)
+	if !ok || stored.State != EntitlementStateClaimed || stored.ClaimRequestRef != "claim-tx" {
+		t.Fatalf("stored entitlement = %+v ok %v, want claimed row", stored, ok)
+	}
+	if got := len(repository.walletCommitsSnapshot()); got != 1 {
+		t.Fatalf("wallet commits len = %d, want 1", got)
+	}
+	referenceKey, err := premiumClaimIdempotencyKey(ClaimEntitlementInput{
+		EntitlementID:    input.EntitlementID,
+		PlayerID:         input.PlayerID,
+		RequestReference: "claim-tx",
+	})
+	if err != nil {
+		t.Fatalf("premiumClaimIdempotencyKey() error = %v, want nil", err)
+	}
+	row, ok := repository.idempotencyRow(economy.IdempotencyScopeEconomy, referenceKey)
+	if !ok || row.Status != economy.IdempotencyStatusCompleted {
+		t.Fatalf("claim idempotency row = %+v ok %v, want completed", row, ok)
+	}
+	outbox, ok := repository.outboxRow(premiumClaimOutboxPrefix + referenceKey.String())
+	if !ok || outbox.EventType != premiumEntitlementClaimedEvent || outbox.AggregateID != input.EntitlementID.String() {
+		t.Fatalf("claim outbox row = %+v ok %v, want claimed event", outbox, ok)
+	}
+}
+
+func TestClaimEntitlementTransactionOutboxFailureRollsBackRowsAndWalletState(t *testing.T) {
+	repository := newFakePremiumEntitlementTransactionRepository()
+	service, wallet, _ := newTestPremiumServiceWithTransactionRepository(t, repository)
+	input := validCurrencyPackCreateInput("entitlement-tx-rollback", "player-tx-rollback", "event-tx-rollback", 900)
+	if _, err := service.CreateEntitlement(input); err != nil {
+		t.Fatalf("CreateEntitlement() error = %v, want nil", err)
+	}
+	injectedErr := errors.New("injected premium outbox failure")
+	repository.failOutboxWith = injectedErr
+	claimInput := ClaimEntitlementInput{
+		EntitlementID:    input.EntitlementID,
+		PlayerID:         input.PlayerID,
+		RequestReference: "claim-rollback",
+	}
+
+	_, err := service.ClaimEntitlement(claimInput)
+	if !errors.Is(err, injectedErr) {
+		t.Fatalf("ClaimEntitlement() error = %v, want injected outbox failure", err)
+	}
+
+	stored, ok := repository.entitlement(input.EntitlementID)
+	if !ok || stored.State != EntitlementStatePending {
+		t.Fatalf("stored entitlement after rollback = %+v ok %v, want pending", stored, ok)
+	}
+	if got := wallet.Balance(input.PlayerID, economy.CurrencyBucketPremiumPaid); got != 0 {
+		t.Fatalf("premium_paid balance after rollback = %d, want 0", got)
+	}
+	if got := len(wallet.CurrencyLedgerEntries()); got != 0 {
+		t.Fatalf("wallet ledger entries after rollback = %d, want 0", got)
+	}
+	if got := len(repository.walletCommitsSnapshot()); got != 0 {
+		t.Fatalf("repository wallet commits after rollback = %d, want 0", got)
+	}
+	referenceKey, err := premiumClaimIdempotencyKey(claimInput)
+	if err != nil {
+		t.Fatalf("premiumClaimIdempotencyKey() error = %v, want nil", err)
+	}
+	if row, ok := repository.idempotencyRow(economy.IdempotencyScopeEconomy, referenceKey); ok {
+		t.Fatalf("claim idempotency row after rollback = %+v, want none", row)
+	}
+	if outbox, ok := repository.outboxRow(premiumClaimOutboxPrefix + referenceKey.String()); ok {
+		t.Fatalf("claim outbox after rollback = %+v, want none", outbox)
+	}
+	entitlements := service.Entitlements()
+	if len(entitlements) != 1 || entitlements[0].State != EntitlementStatePending {
+		t.Fatalf("service entitlements after rollback = %+v, want pending entitlement", entitlements)
+	}
+}
+
 func TestPremiumProviderAndClaimTransitionLogsContainSafeFieldsNoSecrets(t *testing.T) {
 	logger := observability.NewMemoryPremiumTransitionLogger()
 	service, _, _ := newTestPremiumServiceWithTransitionLogger(t, logger)
@@ -680,6 +806,25 @@ func newTestPremiumServiceWithTransitionLogger(
 	return service, wallet, clock
 }
 
+func newTestPremiumServiceWithTransactionRepository(
+	t *testing.T,
+	repository *fakePremiumEntitlementTransactionRepository,
+) (*PremiumEntitlementService, *economy.WalletService, *testutil.FakeClock) {
+	t.Helper()
+
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC))
+	wallet := economy.NewWalletService(clock)
+	service, err := NewPremiumEntitlementServiceWithConfig(PremiumEntitlementServiceConfig{
+		Wallet:                wallet,
+		Clock:                 clock,
+		EntitlementRepository: repository,
+	})
+	if err != nil {
+		t.Fatalf("NewPremiumEntitlementServiceWithConfig() error = %v", err)
+	}
+	return service, wallet, clock
+}
+
 func requirePremiumTransitionEntry(
 	t *testing.T,
 	entries []observability.PremiumTransitionLogEntry,
@@ -767,6 +912,237 @@ func (store *memoryPremiumIdempotencyStore) CompleteIdempotencyKey(
 
 func memoryPremiumIdempotencyKey(scope string, key foundation.IdempotencyKey) string {
 	return scope + "\x00" + key.String()
+}
+
+type fakePremiumEntitlementTransactionRepository struct {
+	mu                 sync.Mutex
+	entitlements       map[EntitlementID]Entitlement
+	providerReferences map[providerReferenceKey]EntitlementID
+	idempotencyRows    map[string]economy.IdempotencyKeyRow
+	outboxRows         map[string]economy.OutboxRow
+	walletCommits      []economy.WalletMutationCommit
+	failOutboxWith     error
+	transactionCount   int
+	entitlementLocks   int
+	providerLocks      int
+}
+
+func newFakePremiumEntitlementTransactionRepository() *fakePremiumEntitlementTransactionRepository {
+	return &fakePremiumEntitlementTransactionRepository{
+		entitlements:       make(map[EntitlementID]Entitlement),
+		providerReferences: make(map[providerReferenceKey]EntitlementID),
+		idempotencyRows:    make(map[string]economy.IdempotencyKeyRow),
+		outboxRows:         make(map[string]economy.OutboxRow),
+	}
+}
+
+func (repository *fakePremiumEntitlementTransactionRepository) SavePremiumEntitlement(_ context.Context, entitlement Entitlement) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	return repository.savePremiumEntitlementLocked(entitlement)
+}
+
+func (repository *fakePremiumEntitlementTransactionRepository) WithPremiumEntitlementTransaction(
+	_ context.Context,
+	fn func(PremiumEntitlementTransaction) error,
+) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	repository.transactionCount++
+	tx := &fakePremiumEntitlementTransaction{
+		repository:         repository,
+		entitlements:       cloneEntitlementMap(repository.entitlements),
+		providerReferences: cloneProviderReferenceMap(repository.providerReferences),
+		idempotencyRows:    clonePremiumStringIdempotencyRows(repository.idempotencyRows),
+		outboxRows:         clonePremiumOutboxRows(repository.outboxRows),
+		walletCommits:      append([]economy.WalletMutationCommit(nil), repository.walletCommits...),
+		failOutboxWith:     repository.failOutboxWith,
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	repository.entitlements = cloneEntitlementMap(tx.entitlements)
+	repository.providerReferences = cloneProviderReferenceMap(tx.providerReferences)
+	repository.idempotencyRows = clonePremiumStringIdempotencyRows(tx.idempotencyRows)
+	repository.outboxRows = clonePremiumOutboxRows(tx.outboxRows)
+	repository.walletCommits = append([]economy.WalletMutationCommit(nil), tx.walletCommits...)
+	return nil
+}
+
+func (repository *fakePremiumEntitlementTransactionRepository) savePremiumEntitlementLocked(entitlement Entitlement) error {
+	if err := entitlement.ValidateSnapshot(); err != nil {
+		return err
+	}
+	key := providerKey(entitlement.Provider)
+	if existingID, ok := repository.providerReferences[key]; ok && existingID != entitlement.ID {
+		return economy.ErrIdempotencyKeyConflict
+	}
+	if existing, ok := repository.entitlements[entitlement.ID]; ok {
+		delete(repository.providerReferences, providerKey(existing.Provider))
+	}
+	repository.entitlements[entitlement.ID] = entitlement
+	repository.providerReferences[key] = entitlement.ID
+	return nil
+}
+
+func (repository *fakePremiumEntitlementTransactionRepository) entitlement(entitlementID EntitlementID) (Entitlement, bool) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	entitlement, ok := repository.entitlements[entitlementID]
+	return entitlement, ok
+}
+
+func (repository *fakePremiumEntitlementTransactionRepository) entitlementCount() int {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	return len(repository.entitlements)
+}
+
+func (repository *fakePremiumEntitlementTransactionRepository) idempotencyRow(scope string, key foundation.IdempotencyKey) (economy.IdempotencyKeyRow, bool) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	row, ok := repository.idempotencyRows[memoryPremiumIdempotencyKey(scope, key)]
+	return row.Clone(), ok
+}
+
+func (repository *fakePremiumEntitlementTransactionRepository) outboxRow(outboxID string) (economy.OutboxRow, bool) {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	row, ok := repository.outboxRows[outboxID]
+	return row.Clone(), ok
+}
+
+func (repository *fakePremiumEntitlementTransactionRepository) walletCommitsSnapshot() []economy.WalletMutationCommit {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+
+	return append([]economy.WalletMutationCommit(nil), repository.walletCommits...)
+}
+
+type fakePremiumEntitlementTransaction struct {
+	repository         *fakePremiumEntitlementTransactionRepository
+	entitlements       map[EntitlementID]Entitlement
+	providerReferences map[providerReferenceKey]EntitlementID
+	idempotencyRows    map[string]economy.IdempotencyKeyRow
+	outboxRows         map[string]economy.OutboxRow
+	walletCommits      []economy.WalletMutationCommit
+	failOutboxWith     error
+}
+
+func (tx *fakePremiumEntitlementTransaction) LoadPremiumEntitlementForUpdate(_ context.Context, entitlementID EntitlementID) (Entitlement, bool, error) {
+	tx.repository.entitlementLocks++
+	entitlement, ok := tx.entitlements[entitlementID]
+	return entitlement, ok, nil
+}
+
+func (tx *fakePremiumEntitlementTransaction) LoadPremiumEntitlementByProviderForUpdate(_ context.Context, provider ProviderReference) (Entitlement, bool, error) {
+	tx.repository.providerLocks++
+	entitlementID, ok := tx.providerReferences[providerKey(provider)]
+	if !ok {
+		return Entitlement{}, false, nil
+	}
+	entitlement, ok := tx.entitlements[entitlementID]
+	return entitlement, ok, nil
+}
+
+func (tx *fakePremiumEntitlementTransaction) SavePremiumEntitlement(_ context.Context, entitlement Entitlement) error {
+	if err := entitlement.ValidateSnapshot(); err != nil {
+		return err
+	}
+	key := providerKey(entitlement.Provider)
+	if existingID, ok := tx.providerReferences[key]; ok && existingID != entitlement.ID {
+		return economy.ErrIdempotencyKeyConflict
+	}
+	if existing, ok := tx.entitlements[entitlement.ID]; ok {
+		delete(tx.providerReferences, providerKey(existing.Provider))
+	}
+	tx.entitlements[entitlement.ID] = entitlement
+	tx.providerReferences[key] = entitlement.ID
+	return nil
+}
+
+func (tx *fakePremiumEntitlementTransaction) CommitWalletMutation(_ context.Context, commit economy.WalletMutationCommit) error {
+	if err := commit.Validate(); err != nil {
+		return err
+	}
+	tx.walletCommits = append(tx.walletCommits, commit)
+	return nil
+}
+
+func (tx *fakePremiumEntitlementTransaction) ClaimIdempotencyKey(
+	_ context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyClaimResult, error) {
+	key := memoryPremiumIdempotencyKey(row.Scope, row.Key)
+	if existing, ok := tx.idempotencyRows[key]; ok {
+		return economy.ResolveIdempotencyClaim(&existing, row)
+	}
+	claim, err := economy.ResolveIdempotencyClaim(nil, row)
+	if err != nil {
+		return economy.IdempotencyClaimResult{}, err
+	}
+	tx.idempotencyRows[key] = claim.Row.Clone()
+	return claim, nil
+}
+
+func (tx *fakePremiumEntitlementTransaction) CompleteIdempotencyKey(
+	_ context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyKeyRow, error) {
+	if err := row.Validate(); err != nil {
+		return economy.IdempotencyKeyRow{}, err
+	}
+	key := memoryPremiumIdempotencyKey(row.Scope, row.Key)
+	if existing, ok := tx.idempotencyRows[key]; ok {
+		if _, err := economy.ResolveIdempotencyClaim(&existing, row); err != nil {
+			return economy.IdempotencyKeyRow{}, err
+		}
+	}
+	tx.idempotencyRows[key] = row.Clone()
+	return row.Clone(), nil
+}
+
+func (tx *fakePremiumEntitlementTransaction) InsertOutboxRow(_ context.Context, row economy.OutboxRow) error {
+	if tx.failOutboxWith != nil {
+		return tx.failOutboxWith
+	}
+	inserted, err := economy.NewOutboxRow(row)
+	if err != nil {
+		return err
+	}
+	if _, exists := tx.outboxRows[inserted.OutboxID]; exists {
+		return fmt.Errorf("outbox %q: %w", inserted.OutboxID, economy.ErrInvalidOutboxRow)
+	}
+	tx.outboxRows[inserted.OutboxID] = inserted.Clone()
+	return nil
+}
+
+func clonePremiumStringIdempotencyRows(rows map[string]economy.IdempotencyKeyRow) map[string]economy.IdempotencyKeyRow {
+	if rows == nil {
+		return nil
+	}
+	cloned := make(map[string]economy.IdempotencyKeyRow, len(rows))
+	for key, row := range rows {
+		cloned[key] = row.Clone()
+	}
+	return cloned
+}
+
+func clonePremiumOutboxRows(rows map[string]economy.OutboxRow) map[string]economy.OutboxRow {
+	if rows == nil {
+		return nil
+	}
+	cloned := make(map[string]economy.OutboxRow, len(rows))
+	for key, row := range rows {
+		cloned[key] = row.Clone()
+	}
+	return cloned
 }
 
 func validCurrencyPackCreateInput(entitlementID EntitlementID, playerID foundation.PlayerID, providerReference string, amount int64) CreateEntitlementInput {

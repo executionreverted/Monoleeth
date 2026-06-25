@@ -93,6 +93,35 @@ func (service *CargoService) RegisterItemDefinition(definition ItemDefinition) e
 
 // AddItem validates active cargo capacity, then uses InventoryService.AddItem for the mutation.
 func (service *CargoService) AddItem(input CargoAddItemInput) (AddItemResult, error) {
+	return service.addItem(input, true)
+}
+
+func (service *CargoService) AddItemWithoutRepository(input CargoAddItemInput) (AddItemResult, error) {
+	return service.addItem(input, false)
+}
+
+func (service *CargoService) AddItemCommit(input CargoAddItemInput, result AddItemResult) InventoryAddItemCommit {
+	if service == nil || service.inventory == nil {
+		return InventoryAddItemCommit{}
+	}
+	return service.inventory.AddItemCommit(input.ToAddItemInput(), result)
+}
+
+func (service *CargoService) SnapshotMutationState() InventoryMutationSnapshot {
+	if service == nil || service.inventory == nil {
+		return InventoryMutationSnapshot{}
+	}
+	return service.inventory.SnapshotMutationState()
+}
+
+func (service *CargoService) RestoreMutationState(snapshot InventoryMutationSnapshot) {
+	if service == nil || service.inventory == nil {
+		return
+	}
+	service.inventory.RestoreMutationState(snapshot)
+}
+
+func (service *CargoService) addItem(input CargoAddItemInput, persistRepository bool) (AddItemResult, error) {
 	quantity, err := input.validate()
 	if err != nil {
 		return AddItemResult{}, err
@@ -154,15 +183,8 @@ func (service *CargoService) AddItem(input CargoAddItemInput) (AddItemResult, er
 	}
 
 	now := inventory.clock.Now()
-	addInput := AddItemInput{
-		PlayerID:       input.PlayerID,
-		ItemDefinition: input.ItemDefinition,
-		Quantity:       input.Quantity,
-		Location:       input.ActiveCargo,
-		Reason:         input.Reason,
-		ReferenceKey:   input.ReferenceKey,
-	}
-	result, err := inventory.addItemValidatedLocked(addInput, quantity, now)
+	addInput := input.ToAddItemInput()
+	result, err := inventory.addItemValidatedLocked(addInput, quantity, now, persistRepository)
 	if err != nil {
 		inventory.mu.Unlock()
 		service.mu.Unlock()
@@ -342,6 +364,17 @@ func (service *CargoService) duplicateMoveItemResult(playerID foundation.PlayerI
 	defer service.inventory.mu.Unlock()
 
 	return service.inventory.duplicateMoveItemResultLocked(playerID, referenceKey)
+}
+
+func (input CargoAddItemInput) ToAddItemInput() AddItemInput {
+	return AddItemInput{
+		PlayerID:       input.PlayerID,
+		ItemDefinition: input.ItemDefinition,
+		Quantity:       input.Quantity,
+		Location:       input.ActiveCargo,
+		Reason:         input.Reason,
+		ReferenceKey:   input.ReferenceKey,
+	}
 }
 
 func (input CargoAddItemInput) validate() (foundation.Quantity, error) {

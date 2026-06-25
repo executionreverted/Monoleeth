@@ -48,13 +48,13 @@ func premiumClaimRequestHash(input ClaimEntitlementInput) (string, error) {
 	return fmt.Sprintf("sha256:%x", hash[:]), nil
 }
 
-func (service *PremiumEntitlementService) claimPremiumProviderIdempotency(
+func (service *PremiumEntitlementService) premiumProviderIdempotencyCandidate(
 	entitlement Entitlement,
 	referenceKey foundation.IdempotencyKey,
 	requestHash string,
-) (economy.IdempotencyKeyRow, CreateEntitlementResult, bool, error) {
+) economy.IdempotencyKeyRow {
 	now := service.clock.Now()
-	candidate := economy.IdempotencyKeyRow{
+	return economy.IdempotencyKeyRow{
 		Scope:       economy.IdempotencyScopeEconomy,
 		Key:         referenceKey,
 		Operation:   premiumProviderOperation,
@@ -65,6 +65,33 @@ func (service *PremiumEntitlementService) claimPremiumProviderIdempotency(
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
+}
+
+func (service *PremiumEntitlementService) premiumClaimIdempotencyCandidate(
+	input ClaimEntitlementInput,
+	referenceKey foundation.IdempotencyKey,
+	requestHash string,
+) economy.IdempotencyKeyRow {
+	now := service.clock.Now()
+	return economy.IdempotencyKeyRow{
+		Scope:       economy.IdempotencyScopeEconomy,
+		Key:         referenceKey,
+		Operation:   premiumClaimOperation,
+		PlayerID:    input.PlayerID,
+		RequestHash: requestHash,
+		Status:      economy.IdempotencyStatusInProgress,
+		ResultJSON:  json.RawMessage(`{}`),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+}
+
+func (service *PremiumEntitlementService) claimPremiumProviderIdempotency(
+	entitlement Entitlement,
+	referenceKey foundation.IdempotencyKey,
+	requestHash string,
+) (economy.IdempotencyKeyRow, CreateEntitlementResult, bool, error) {
+	candidate := service.premiumProviderIdempotencyCandidate(entitlement, referenceKey, requestHash)
 	if service.idempotencyStore == nil {
 		service.ensurePremiumIdempotencyMapsLocked()
 		existing, ok := service.providerIdempotencyRows[referenceKey]
@@ -128,19 +155,34 @@ func (service *PremiumEntitlementService) completePremiumProviderIdempotency(row
 	if row.Key.IsZero() {
 		return nil
 	}
-	payload, err := premiumProviderResultJSON(result)
+	completed, err := service.completedPremiumProviderIdempotencyRow(row, result)
 	if err != nil {
 		return err
+	}
+	if service.idempotencyStore != nil {
+		if _, err := service.idempotencyStore.CompleteIdempotencyKey(context.Background(), completed); err != nil {
+			return err
+		}
+	}
+	return service.recordCompletedPremiumProviderIdempotencyRow(completed)
+}
+
+func (service *PremiumEntitlementService) completedPremiumProviderIdempotencyRow(row economy.IdempotencyKeyRow, result CreateEntitlementResult) (economy.IdempotencyKeyRow, error) {
+	payload, err := premiumProviderResultJSON(result)
+	if err != nil {
+		return economy.IdempotencyKeyRow{}, err
 	}
 	now := service.clock.Now()
 	row.Status = economy.IdempotencyStatusCompleted
 	row.ResultJSON = payload
 	row.UpdatedAt = now
 	row.CompletedAt = now
-	if service.idempotencyStore != nil {
-		if _, err := service.idempotencyStore.CompleteIdempotencyKey(context.Background(), row); err != nil {
-			return err
-		}
+	return row.Clone(), nil
+}
+
+func (service *PremiumEntitlementService) recordCompletedPremiumProviderIdempotencyRow(row economy.IdempotencyKeyRow) error {
+	if row.Key.IsZero() {
+		return nil
 	}
 	service.ensurePremiumIdempotencyMapsLocked()
 	if existing, ok := service.providerIdempotencyRows[row.Key]; ok {
@@ -179,18 +221,7 @@ func (service *PremiumEntitlementService) claimPremiumClaimIdempotency(
 	referenceKey foundation.IdempotencyKey,
 	requestHash string,
 ) (economy.IdempotencyKeyRow, ClaimEntitlementResult, bool, error) {
-	now := service.clock.Now()
-	candidate := economy.IdempotencyKeyRow{
-		Scope:       economy.IdempotencyScopeEconomy,
-		Key:         referenceKey,
-		Operation:   premiumClaimOperation,
-		PlayerID:    input.PlayerID,
-		RequestHash: requestHash,
-		Status:      economy.IdempotencyStatusInProgress,
-		ResultJSON:  json.RawMessage(`{}`),
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
+	candidate := service.premiumClaimIdempotencyCandidate(input, referenceKey, requestHash)
 	if service.idempotencyStore == nil {
 		service.ensurePremiumIdempotencyMapsLocked()
 		existing, ok := service.claimIdempotencyRows[referenceKey]
@@ -244,19 +275,34 @@ func (service *PremiumEntitlementService) completePremiumClaimIdempotency(row ec
 	if row.Key.IsZero() {
 		return nil
 	}
-	payload, err := premiumClaimResultJSON(result)
+	completed, err := service.completedPremiumClaimIdempotencyRow(row, result)
 	if err != nil {
 		return err
+	}
+	if service.idempotencyStore != nil {
+		if _, err := service.idempotencyStore.CompleteIdempotencyKey(context.Background(), completed); err != nil {
+			return err
+		}
+	}
+	return service.recordCompletedPremiumClaimIdempotencyRow(completed)
+}
+
+func (service *PremiumEntitlementService) completedPremiumClaimIdempotencyRow(row economy.IdempotencyKeyRow, result ClaimEntitlementResult) (economy.IdempotencyKeyRow, error) {
+	payload, err := premiumClaimResultJSON(result)
+	if err != nil {
+		return economy.IdempotencyKeyRow{}, err
 	}
 	now := service.clock.Now()
 	row.Status = economy.IdempotencyStatusCompleted
 	row.ResultJSON = payload
 	row.UpdatedAt = now
 	row.CompletedAt = now
-	if service.idempotencyStore != nil {
-		if _, err := service.idempotencyStore.CompleteIdempotencyKey(context.Background(), row); err != nil {
-			return err
-		}
+	return row.Clone(), nil
+}
+
+func (service *PremiumEntitlementService) recordCompletedPremiumClaimIdempotencyRow(row economy.IdempotencyKeyRow) error {
+	if row.Key.IsZero() {
+		return nil
 	}
 	service.ensurePremiumIdempotencyMapsLocked()
 	if existing, ok := service.claimIdempotencyRows[row.Key]; ok {
@@ -334,6 +380,24 @@ type premiumCurrencyLedgerEntryRow struct {
 	Reason       economy.LedgerReason      `json:"reason"`
 	ReferenceKey foundation.IdempotencyKey `json:"reference_id"`
 	CreatedAt    time.Time                 `json:"created_at"`
+}
+
+type premiumProviderOutboxPayload struct {
+	EntitlementID EntitlementID             `json:"entitlement_id"`
+	PlayerID      foundation.PlayerID       `json:"player_id"`
+	Type          EntitlementType           `json:"type"`
+	Provider      ProviderReference         `json:"provider"`
+	ReferenceKey  foundation.IdempotencyKey `json:"reference_id"`
+}
+
+type premiumClaimOutboxPayload struct {
+	Entitlement                   Entitlement                    `json:"entitlement"`
+	ReferenceKey                  foundation.IdempotencyKey      `json:"reference_id"`
+	WalletCredit                  *premiumWalletCreditResultRow  `json:"wallet_credit,omitempty"`
+	LoadoutSlotGrant              *LoadoutSlotGrant              `json:"loadout_slot_grant,omitempty"`
+	WeeklyXCorePurchaseRightGrant *WeeklyXCorePurchaseRightGrant `json:"weekly_x_core_purchase_right_grant,omitempty"`
+	CosmeticGrant                 *CosmeticGrant                 `json:"cosmetic_grant,omitempty"`
+	BadgeGrant                    *BadgeGrant                    `json:"badge_grant,omitempty"`
 }
 
 func premiumClaimResultJSON(result ClaimEntitlementResult) (json.RawMessage, error) {
@@ -416,6 +480,90 @@ func premiumWalletCreditResultFromRow(row *premiumWalletCreditResultRow) (*econo
 		},
 		Duplicate: true,
 	}, nil
+}
+
+func (service *PremiumEntitlementService) premiumProviderOutboxRow(
+	result CreateEntitlementResult,
+	input CreateEntitlementInput,
+	referenceKey foundation.IdempotencyKey,
+) (economy.OutboxRow, error) {
+	payload, err := json.Marshal(premiumProviderOutboxPayload{
+		EntitlementID: result.Entitlement.ID,
+		PlayerID:      input.PlayerID,
+		Type:          result.Entitlement.Type,
+		Provider:      result.Entitlement.Provider,
+		ReferenceKey:  referenceKey,
+	})
+	if err != nil {
+		return economy.OutboxRow{}, err
+	}
+	now := service.clock.Now()
+	return economy.NewOutboxRow(economy.OutboxRow{
+		OutboxID:         premiumProviderOutboxPrefix + referenceKey.String(),
+		Topic:            premiumOutboxTopic,
+		EventType:        premiumEntitlementCreatedEvent,
+		AggregateType:    premiumAggregateType,
+		AggregateID:      result.Entitlement.ID.String(),
+		IdempotencyScope: economy.IdempotencyScopeEconomy,
+		IdempotencyKey:   referenceKey,
+		PayloadJSON:      payload,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	})
+}
+
+func (service *PremiumEntitlementService) premiumClaimOutboxRow(
+	result ClaimEntitlementResult,
+	input ClaimEntitlementInput,
+	referenceKey foundation.IdempotencyKey,
+) (economy.OutboxRow, error) {
+	payload, err := json.Marshal(premiumClaimOutboxPayload{
+		Entitlement:                   result.Entitlement,
+		ReferenceKey:                  referenceKey,
+		WalletCredit:                  premiumWalletCreditResultRowFromResult(result.WalletCredit),
+		LoadoutSlotGrant:              result.LoadoutSlotGrant,
+		WeeklyXCorePurchaseRightGrant: result.WeeklyXCorePurchaseRightGrant,
+		CosmeticGrant:                 result.CosmeticGrant,
+		BadgeGrant:                    result.BadgeGrant,
+	})
+	if err != nil {
+		return economy.OutboxRow{}, err
+	}
+	now := service.clock.Now()
+	return economy.NewOutboxRow(economy.OutboxRow{
+		OutboxID:         premiumClaimOutboxPrefix + referenceKey.String(),
+		Topic:            premiumOutboxTopic,
+		EventType:        premiumEntitlementClaimedEvent,
+		AggregateType:    premiumAggregateType,
+		AggregateID:      input.EntitlementID.String(),
+		IdempotencyScope: economy.IdempotencyScopeEconomy,
+		IdempotencyKey:   referenceKey,
+		PayloadJSON:      payload,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	})
+}
+
+func premiumWalletCreditCommit(result economy.CreditWalletResult) economy.WalletMutationCommit {
+	return economy.WalletMutationCommit{
+		Balances:      []economy.WalletBalance{result.Balance},
+		LedgerEntries: []economy.CurrencyLedgerEntry{result.LedgerEntry},
+		Reference: economy.WalletMutationReference{
+			PlayerID:      result.Balance.PlayerID,
+			Operation:     economy.WalletMutationOperationCredit,
+			ReferenceKey:  result.LedgerEntry.ReferenceKey,
+			LedgerEntries: []economy.CurrencyLedgerEntry{result.LedgerEntry},
+		},
+		Counters: economy.WalletCounters{LedgerSequence: premiumWalletLedgerSequence(result.LedgerEntry.LedgerID)},
+	}
+}
+
+func premiumWalletLedgerSequence(ledgerID economy.LedgerID) int64 {
+	var sequence int64
+	if _, err := fmt.Sscanf(ledgerID.String(), "currency-ledger-%d", &sequence); err != nil || sequence < 0 {
+		return 0
+	}
+	return sequence
 }
 
 func idempotencyErrorJSON(cause error) (json.RawMessage, error) {

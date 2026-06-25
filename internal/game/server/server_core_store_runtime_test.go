@@ -33,7 +33,10 @@ func TestNewRuntimeCoreStoreDevFallbackLeavesEconomyStoresUnwired(t *testing.T) 
 	requireRuntimeServiceStoreNil(t, runtime.Auction, "idempotencyStore")
 	requireRuntimeServiceStoreNil(t, runtime.Auction, "lotRepository")
 	requireRuntimeServiceStoreNil(t, runtime.Premium, "idempotencyStore")
+	requireRuntimeServiceStoreNil(t, runtime.Premium, "entitlementRepo")
+	requireRuntimeServiceStoreNil(t, runtime.Premium, "entitlementTx")
 	requireRuntimeServiceStoreNil(t, runtime.Loot, "xpOutbox")
+	requireRuntimeServiceStoreNil(t, runtime.Loot, "pickupTx")
 }
 
 func TestPostgresRuntimeCoreStoreInjectsEconomyStores(t *testing.T) {
@@ -64,7 +67,10 @@ func TestPostgresRuntimeCoreStoreInjectsEconomyStores(t *testing.T) {
 	requireRuntimeServiceStoreType(t, runtime.Auction, "idempotencyStore", "*contentdb.Store")
 	requireRuntimeServiceStoreType(t, runtime.Auction, "lotRepository", "*contentdb.AuctionLotStore")
 	requireRuntimeServiceStoreType(t, runtime.Premium, "idempotencyStore", "*contentdb.Store")
+	requireRuntimeServiceStoreType(t, runtime.Premium, "entitlementRepo", "*contentdb.PremiumEntitlementStore")
+	requireRuntimeServiceStoreType(t, runtime.Premium, "entitlementTx", "*contentdb.PremiumEntitlementStore")
 	requireRuntimeServiceStoreType(t, runtime.Loot, "xpOutbox", "*contentdb.Store")
+	requireRuntimeServiceStoreType(t, runtime.Loot, "pickupTx", "*contentdb.LootPickupStore")
 }
 
 func requireRuntimeServiceStoreNil(t *testing.T, service any, fieldName string) {

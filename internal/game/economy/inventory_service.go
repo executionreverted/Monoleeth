@@ -257,6 +257,14 @@ func (service *InventoryService) SetCargoTransferGuard(guard CargoTransferGuard)
 
 // AddItem grants item quantity once for a player/reference pair and writes an item ledger row.
 func (service *InventoryService) AddItem(input AddItemInput) (AddItemResult, error) {
+	return service.addItem(input, true)
+}
+
+func (service *InventoryService) AddItemWithoutRepository(input AddItemInput) (AddItemResult, error) {
+	return service.addItem(input, false)
+}
+
+func (service *InventoryService) addItem(input AddItemInput, persistRepository bool) (AddItemResult, error) {
 	quantity, err := input.validate()
 	if err != nil {
 		return AddItemResult{}, err
@@ -272,7 +280,7 @@ func (service *InventoryService) AddItem(input AddItemInput) (AddItemResult, err
 	emitter = service.emitter
 
 	now := service.clock.Now()
-	result, err := service.addItemValidatedLocked(input, quantity, now)
+	result, err := service.addItemValidatedLocked(input, quantity, now, persistRepository)
 	if err != nil {
 		return AddItemResult{}, err
 	}
@@ -282,7 +290,7 @@ func (service *InventoryService) AddItem(input AddItemInput) (AddItemResult, err
 	return result, nil
 }
 
-func (service *InventoryService) addItemValidatedLocked(input AddItemInput, quantity foundation.Quantity, now time.Time) (AddItemResult, error) {
+func (service *InventoryService) addItemValidatedLocked(input AddItemInput, quantity foundation.Quantity, now time.Time, persistRepository bool) (AddItemResult, error) {
 	reference := inventoryReferenceKey{
 		playerID:     input.PlayerID,
 		operation:    addItemOperation,
@@ -325,7 +333,7 @@ func (service *InventoryService) addItemValidatedLocked(input AddItemInput, quan
 		InstanceItems:  instanceItems,
 		LedgerEntry:    ledgerEntry,
 	}
-	if err := service.persistAddItemCommitLocked(input, result); err != nil {
+	if err := service.persistAddItemCommitLocked(input, result, persistRepository); err != nil {
 		return AddItemResult{}, err
 	}
 
@@ -504,11 +512,22 @@ func (service *InventoryService) persistInstanceItemLocked(item InstanceItem) er
 	return service.repository.UpsertInstanceItem(context.Background(), item)
 }
 
-func (service *InventoryService) persistAddItemCommitLocked(input AddItemInput, result AddItemResult) error {
-	if service.repository == nil {
+func (service *InventoryService) persistAddItemCommitLocked(input AddItemInput, result AddItemResult, persistRepository bool) error {
+	if !persistRepository || service.repository == nil {
 		return nil
 	}
-	return service.repository.CommitAddItem(context.Background(), InventoryAddItemCommit{
+	return service.repository.CommitAddItem(context.Background(), service.addItemCommitLocked(input, result))
+}
+
+func (service *InventoryService) AddItemCommit(input AddItemInput, result AddItemResult) InventoryAddItemCommit {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	return service.addItemCommitLocked(input, result)
+}
+
+func (service *InventoryService) addItemCommitLocked(input AddItemInput, result AddItemResult) InventoryAddItemCommit {
+	return InventoryAddItemCommit{
 		StackableItems: append([]StackableItem(nil), result.StackableItems...),
 		InstanceItems:  append([]InstanceItem(nil), result.InstanceItems...),
 		LedgerEntry:    result.LedgerEntry,
@@ -518,7 +537,7 @@ func (service *InventoryService) persistAddItemCommitLocked(input AddItemInput, 
 			Result:       cloneAddItemResult(result),
 		},
 		Counters: service.inventoryCountersLocked(),
-	})
+	}
 }
 
 func (service *InventoryService) persistMoveItemCommitLocked(input MoveItemInput, result MoveItemResult, persistRepository bool) error {

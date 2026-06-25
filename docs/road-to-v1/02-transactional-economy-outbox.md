@@ -29,10 +29,25 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - [ ] `[P:wave2/lane-A]` Add `outbox` table + after-commit publisher + replay worker.
 - [x] `[P:wave2/lane-B]` Wrap market buy/cancel in single DB transaction (escrow move + wallet + ledger).
 - [x] `[P:wave2/lane-B]` Wrap auction bid/buy-now in single transaction (refund-replace, close-once).
-- [ ] `[P:wave2/lane-C]` Make premium claim + provider-event ingest idempotent and durable (replay-safe).
+- [x] `[P:wave2/lane-C]` Make premium claim + provider-event ingest idempotent and durable (replay-safe).
 - [x] `[P:wave2/lane-A]` Move loot XP reconciliation onto the durable outbox path (narrow `docs/todo.md` item).
 
 ## Progress Notes
+- 2026-06-25 TASK-0542: `PremiumEntitlementService` now accepts an optional
+  premium entitlement transaction repository and uses the `contentdb`
+  `PremiumEntitlementStore` seam when configured. Provider entitlement ingest
+  claims/completes premium idempotency, enforces durable provider-reference
+  uniqueness, persists the entitlement, and inserts a premium outbox row inside
+  one transaction. Currency-pack claims lock/load the durable entitlement row,
+  mutate claimed state, commit the no-repository wallet credit, complete
+  premium idempotency, and insert the claim outbox row in the same transaction.
+  Dev/no-store mode keeps the existing in-memory behavior, and skeleton
+  loadout-slot/X Core/cosmetic/badge grants remain service-owned placeholders.
+  Focused tests cover provider replay uniqueness, currency-pack transaction
+  commit, and rollback on injected outbox failure leaving entitlement, wallet,
+  idempotency, outbox, and service in-memory state unchanged; contentdb smoke
+  coverage verifies premium transaction rollback when
+  `GAME_CONTENT_DATABASE_URL` is available.
 - 2026-06-25 TASK-0541: `AuctionService` now accepts an optional auction lot
   transaction repository and uses the `contentdb.AuctionLotStore` seam when
   configured. Bid and buy-now settlement lock/load the durable lot row, save

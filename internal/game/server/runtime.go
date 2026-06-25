@@ -243,6 +243,8 @@ type runtimeEconomyStores struct {
 	outbox            economy.OutboxStore
 	marketRepository  market.MarketListingRepository
 	auctionRepository auction.AuctionLotRepository
+	premiumRepository premium.PremiumEntitlementRepository
+	lootPickup        loot.LootPickupTransactionRepository
 }
 
 func loadRuntimeContent(ctx context.Context, config RuntimeConfig) (gamecontent.GameplayContent, error) {
@@ -659,11 +661,23 @@ func loadRuntimeEconomyStores(ctx context.Context, config RuntimeConfig) (runtim
 		_ = closeStore()
 		return runtimeEconomyStores{}, nil, err
 	}
+	premiumRepository, err := contentdb.NewPremiumEntitlementStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return runtimeEconomyStores{}, nil, err
+	}
+	lootPickupStore, err := contentdb.NewLootPickupStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return runtimeEconomyStores{}, nil, err
+	}
 	return runtimeEconomyStores{
 		idempotency:       contentStore,
 		outbox:            contentStore,
 		marketRepository:  marketRepository,
 		auctionRepository: auctionRepository,
+		premiumRepository: premiumRepository,
+		lootPickup:        lootPickupStore,
 	}, closeStore, nil
 }
 
@@ -995,11 +1009,12 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, err
 	}
 	lootService, err := loot.NewService(loot.Config{
-		Clock:       clock,
-		Cargo:       cargoService,
-		Progression: progressionService,
-		XPOutbox:    economyStores.outbox,
-		PickupRange: contentBundle.Combat.LootPickupRange,
+		Clock:              clock,
+		Cargo:              cargoService,
+		Progression:        progressionService,
+		XPOutbox:           economyStores.outbox,
+		PickupTransactions: economyStores.lootPickup,
+		PickupRange:        contentBundle.Combat.LootPickupRange,
 	})
 	if err != nil {
 		return nil, err
@@ -1105,9 +1120,10 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, err
 	}
 	premiumService, err := premium.NewPremiumEntitlementServiceWithConfig(premium.PremiumEntitlementServiceConfig{
-		Wallet:           walletService,
-		Clock:            clock,
-		IdempotencyStore: economyStores.idempotency,
+		Wallet:                walletService,
+		Clock:                 clock,
+		IdempotencyStore:      economyStores.idempotency,
+		EntitlementRepository: economyStores.premiumRepository,
 	})
 	if err != nil {
 		return nil, err

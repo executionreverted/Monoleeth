@@ -12,8 +12,8 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 15 {
-		t.Fatalf("len(migrations) = %d, want 15", len(migrations))
+	if len(migrations) != 17 {
+		t.Fatalf("len(migrations) = %d, want 17", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
@@ -60,8 +60,59 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if migrations[14].Version != "0015_auction_lot_state_schema" {
 		t.Fatalf("Version = %q, want 0015_auction_lot_state_schema", migrations[14].Version)
 	}
+	if migrations[15].Version != "0016_premium_entitlement_state_schema" {
+		t.Fatalf("Version = %q, want 0016_premium_entitlement_state_schema", migrations[15].Version)
+	}
+	if migrations[16].Version != "0017_loot_drop_claims_schema" {
+		t.Fatalf("Version = %q, want 0017_loot_drop_claims_schema", migrations[16].Version)
+	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
+	}
+}
+
+func TestLootDropClaimsSchemaMigrationHasDurableClaimTable(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[16].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS loot_drop_claims",
+		"drop_id text PRIMARY KEY",
+		"player_id text NOT NULL CHECK",
+		"quantity bigint NOT NULL CHECK (quantity > 0)",
+		"payload_json jsonb NOT NULL",
+		"CREATE INDEX IF NOT EXISTS loot_drop_claims_player_claimed_idx",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("loot drop claim schema migration missing %q", fragment)
+		}
+	}
+}
+
+func TestPremiumEntitlementSchemaMigrationHasDurableEntitlementTable(t *testing.T) {
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
+	}
+	sql := migrations[15].SQL
+	for _, fragment := range []string{
+		"CREATE TABLE IF NOT EXISTS premium_entitlements",
+		"entitlement_id text PRIMARY KEY",
+		"entitlement_type text NOT NULL CHECK",
+		"state text NOT NULL CHECK (state IN ('pending', 'claimed', 'revoked'))",
+		"provider_source text NOT NULL CHECK",
+		"provider_reference text NOT NULL CHECK",
+		"payload_json jsonb NOT NULL",
+		"UNIQUE (provider_source, provider_reference)",
+		"CHECK (provider_confirmed_at <= created_at)",
+		"CHECK (state <> 'claimed' OR claimed_at IS NOT NULL)",
+		"CREATE INDEX IF NOT EXISTS premium_entitlements_player_state_idx",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("premium entitlement schema migration missing %q", fragment)
+		}
 	}
 }
 

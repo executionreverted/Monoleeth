@@ -1,6 +1,7 @@
 package premium
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -18,6 +19,13 @@ const (
 
 	premiumProviderOperation = "premium_provider_entitlement"
 	premiumClaimOperation    = "premium_claim"
+
+	premiumOutboxTopic             = "economy"
+	premiumAggregateType           = "premium_entitlement"
+	premiumEntitlementCreatedEvent = "premium.entitlement_created"
+	premiumEntitlementClaimedEvent = "premium.entitlement_claimed"
+	premiumProviderOutboxPrefix    = "premium_provider:"
+	premiumClaimOutboxPrefix       = "premium_claim:"
 )
 
 // CreateEntitlementInput describes one provider-confirmed entitlement.
@@ -74,10 +82,37 @@ type ApplyProviderRiskLockInput struct {
 
 // PremiumEntitlementServiceConfig wires premium grants to economy primitives.
 type PremiumEntitlementServiceConfig struct {
-	Wallet           *economy.WalletService
-	Clock            foundation.Clock
-	IdempotencyStore economy.IdempotencyStore
-	TransitionLogger observability.PremiumTransitionLogger
+	Wallet                           *economy.WalletService
+	Clock                            foundation.Clock
+	IdempotencyStore                 economy.IdempotencyStore
+	EntitlementRepository            PremiumEntitlementRepository
+	EntitlementTransactionRepository PremiumEntitlementTransactionRepository
+	TransitionLogger                 observability.PremiumTransitionLogger
+}
+
+// PremiumEntitlementRepository persists entitlement snapshots when durable
+// storage is wired.
+type PremiumEntitlementRepository interface {
+	SavePremiumEntitlement(ctx context.Context, entitlement Entitlement) error
+}
+
+// PremiumEntitlementTransactionRepository commits entitlement settlement rows
+// through one durable transaction when contentdb is configured.
+type PremiumEntitlementTransactionRepository interface {
+	PremiumEntitlementRepository
+	WithPremiumEntitlementTransaction(ctx context.Context, fn func(PremiumEntitlementTransaction) error) error
+}
+
+// PremiumEntitlementTransaction is the single-transaction seam for premium
+// provider ingest, entitlement claims, wallet credits, idempotency, and outbox.
+type PremiumEntitlementTransaction interface {
+	LoadPremiumEntitlementForUpdate(ctx context.Context, entitlementID EntitlementID) (Entitlement, bool, error)
+	LoadPremiumEntitlementByProviderForUpdate(ctx context.Context, provider ProviderReference) (Entitlement, bool, error)
+	SavePremiumEntitlement(ctx context.Context, entitlement Entitlement) error
+	CommitWalletMutation(ctx context.Context, commit economy.WalletMutationCommit) error
+	ClaimIdempotencyKey(ctx context.Context, row economy.IdempotencyKeyRow) (economy.IdempotencyClaimResult, error)
+	CompleteIdempotencyKey(ctx context.Context, row economy.IdempotencyKeyRow) (economy.IdempotencyKeyRow, error)
+	InsertOutboxRow(ctx context.Context, row economy.OutboxRow) error
 }
 
 // CreateEntitlementResult reports the stored entitlement.
@@ -118,6 +153,8 @@ type PremiumEntitlementService struct {
 	clock            foundation.Clock
 	wallet           *economy.WalletService
 	idempotencyStore economy.IdempotencyStore
+	entitlementRepo  PremiumEntitlementRepository
+	entitlementTx    PremiumEntitlementTransactionRepository
 	transitionLogger observability.PremiumTransitionLogger
 
 	entitlements            map[EntitlementID]Entitlement
@@ -183,10 +220,22 @@ func NewPremiumEntitlementServiceWithConfig(config PremiumEntitlementServiceConf
 	if clock == nil {
 		clock = foundation.RealClock{}
 	}
+	entitlementRepo := config.EntitlementRepository
+	entitlementTx := config.EntitlementTransactionRepository
+	if entitlementTx == nil {
+		if configured, ok := entitlementRepo.(PremiumEntitlementTransactionRepository); ok {
+			entitlementTx = configured
+		}
+	}
+	if entitlementRepo == nil && entitlementTx != nil {
+		entitlementRepo = entitlementTx
+	}
 	return &PremiumEntitlementService{
 		clock:                        clock,
 		wallet:                       config.Wallet,
 		idempotencyStore:             config.IdempotencyStore,
+		entitlementRepo:              entitlementRepo,
+		entitlementTx:                entitlementTx,
 		transitionLogger:             config.TransitionLogger,
 		entitlements:                 make(map[EntitlementID]Entitlement),
 		providerReferences:           make(map[providerReferenceKey]EntitlementID),
@@ -242,6 +291,10 @@ func (service *PremiumEntitlementService) CreateEntitlement(input CreateEntitlem
 	service.mu.Lock()
 	defer service.mu.Unlock()
 
+	if service.premiumEntitlementTransactionRepository() != nil {
+		return service.createEntitlementWithTransactionLocked(entitlement, input, referenceKey, requestHash)
+	}
+
 	idempotencyRow, duplicateResult, duplicate, err := service.claimPremiumProviderIdempotency(entitlement, referenceKey, requestHash)
 	if err != nil {
 		return CreateEntitlementResult{}, err
@@ -276,6 +329,10 @@ func (service *PremiumEntitlementService) CreateEntitlement(input CreateEntitlem
 	service.entitlements[entitlement.ID] = entitlement
 	service.providerReferences[providerKey] = entitlement.ID
 	result = CreateEntitlementResult{Entitlement: entitlement}
+	if err := service.saveEntitlementSnapshot(entitlement); err != nil {
+		service.restorePremiumProviderMutationLocked(snapshot)
+		return CreateEntitlementResult{}, service.failPremiumProviderIdempotency(idempotencyRow, err)
+	}
 	if err := service.completePremiumProviderIdempotency(idempotencyRow, result); err != nil {
 		service.restorePremiumProviderMutationLocked(snapshot)
 		return CreateEntitlementResult{}, service.failPremiumProviderIdempotency(idempotencyRow, err)
@@ -321,6 +378,10 @@ func (service *PremiumEntitlementService) ClaimEntitlement(input ClaimEntitlemen
 
 	service.mu.Lock()
 	defer service.mu.Unlock()
+
+	if service.premiumEntitlementTransactionRepository() != nil {
+		return service.claimEntitlementWithTransactionLocked(input, referenceKey, requestHash)
+	}
 
 	if service.idempotencyStore == nil {
 		entitlement, ok := service.entitlements[input.EntitlementID]
@@ -460,6 +521,280 @@ func (service *PremiumEntitlementService) creditPremiumCurrencyPackLocked(entitl
 		Reason:       LedgerReasonPremiumEntitlementClaim,
 		ReferenceKey: referenceKey,
 	})
+}
+
+func (service *PremiumEntitlementService) creditPremiumCurrencyPackWithoutRepositoryLocked(entitlement Entitlement) (economy.CreditWalletResult, error) {
+	referenceKey, err := foundation.PremiumWebhookIdempotencyKey(providerWalletReference(entitlement.Provider))
+	if err != nil {
+		return economy.CreditWalletResult{}, err
+	}
+	return service.wallet.CreditWalletWithoutRepository(economy.CreditWalletInput{
+		PlayerID:     entitlement.PlayerID,
+		Currency:     entitlement.Payload.CurrencyBucket,
+		Amount:       entitlement.Payload.Amount,
+		Reason:       LedgerReasonPremiumEntitlementClaim,
+		ReferenceKey: referenceKey,
+	})
+}
+
+func (service *PremiumEntitlementService) createEntitlementWithTransactionLocked(
+	entitlement Entitlement,
+	input CreateEntitlementInput,
+	referenceKey foundation.IdempotencyKey,
+	requestHash string,
+) (CreateEntitlementResult, error) {
+	repository := service.premiumEntitlementTransactionRepository()
+	if repository == nil {
+		return CreateEntitlementResult{}, errors.New("premium entitlement transaction repository missing")
+	}
+	idempotencyRow := service.premiumProviderIdempotencyCandidate(entitlement, referenceKey, requestHash)
+	snapshot := service.snapshotPremiumProviderMutationLocked()
+
+	var result CreateEntitlementResult
+	var completedRow economy.IdempotencyKeyRow
+	err := repository.WithPremiumEntitlementTransaction(context.Background(), func(tx PremiumEntitlementTransaction) error {
+		claim, err := tx.ClaimIdempotencyKey(context.Background(), idempotencyRow)
+		if err != nil {
+			return err
+		}
+		claimedRow, duplicateResult, isDuplicate, err := premiumProviderResultFromClaim(claim)
+		if err != nil {
+			return err
+		}
+		if isDuplicate {
+			result = duplicateResult
+			return nil
+		}
+
+		if existing, ok, err := tx.LoadPremiumEntitlementByProviderForUpdate(context.Background(), entitlement.Provider); err != nil {
+			return err
+		} else if ok {
+			result = CreateEntitlementResult{Entitlement: existing, Duplicate: true}
+			completedRow, err = service.completedPremiumProviderIdempotencyRow(claimedRow, result)
+			if err != nil {
+				return err
+			}
+			_, err = tx.CompleteIdempotencyKey(context.Background(), completedRow)
+			return err
+		}
+		if _, ok, err := tx.LoadPremiumEntitlementForUpdate(context.Background(), entitlement.ID); err != nil {
+			return err
+		} else if ok {
+			return fmt.Errorf("entitlement id %q: %w", entitlement.ID, ErrDuplicateEntitlementID)
+		}
+
+		result = CreateEntitlementResult{Entitlement: entitlement}
+		completedRow, err = service.completedPremiumProviderIdempotencyRow(claimedRow, result)
+		if err != nil {
+			return err
+		}
+		outboxRow, err := service.premiumProviderOutboxRow(result, input, referenceKey)
+		if err != nil {
+			return err
+		}
+		if err := tx.SavePremiumEntitlement(context.Background(), entitlement); err != nil {
+			return err
+		}
+		if _, err := tx.CompleteIdempotencyKey(context.Background(), completedRow); err != nil {
+			return err
+		}
+		return tx.InsertOutboxRow(context.Background(), outboxRow)
+	})
+	if err != nil {
+		service.restorePremiumProviderMutationLocked(snapshot)
+		return CreateEntitlementResult{}, err
+	}
+	if result.Duplicate {
+		if err := service.replayProviderEntitlementLocked(result.Entitlement); err != nil {
+			service.restorePremiumProviderMutationLocked(snapshot)
+			return CreateEntitlementResult{}, err
+		}
+		if err := service.recordCompletedPremiumProviderIdempotencyRow(completedRow); err != nil {
+			service.restorePremiumProviderMutationLocked(snapshot)
+			return CreateEntitlementResult{}, err
+		}
+		return result, nil
+	}
+	service.entitlements[result.Entitlement.ID] = result.Entitlement
+	service.providerReferences[providerKey(result.Entitlement.Provider)] = result.Entitlement.ID
+	if err := service.recordCompletedPremiumProviderIdempotencyRow(completedRow); err != nil {
+		service.restorePremiumProviderMutationLocked(snapshot)
+		return CreateEntitlementResult{}, err
+	}
+	return result, nil
+}
+
+func (service *PremiumEntitlementService) claimEntitlementWithTransactionLocked(
+	input ClaimEntitlementInput,
+	referenceKey foundation.IdempotencyKey,
+	requestHash string,
+) (ClaimEntitlementResult, error) {
+	repository := service.premiumEntitlementTransactionRepository()
+	if repository == nil {
+		return ClaimEntitlementResult{}, errors.New("premium entitlement transaction repository missing")
+	}
+	idempotencyRow := service.premiumClaimIdempotencyCandidate(input, referenceKey, requestHash)
+	snapshot := service.snapshotPremiumClaimMutationLocked()
+
+	var result ClaimEntitlementResult
+	var completedRow economy.IdempotencyKeyRow
+	var duplicate bool
+	err := repository.WithPremiumEntitlementTransaction(context.Background(), func(tx PremiumEntitlementTransaction) error {
+		entitlement, ok, err := tx.LoadPremiumEntitlementForUpdate(context.Background(), input.EntitlementID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrEntitlementNotFound
+		}
+		if entitlement.PlayerID != input.PlayerID {
+			return ErrEntitlementWrongPlayer
+		}
+
+		claim, err := tx.ClaimIdempotencyKey(context.Background(), idempotencyRow)
+		if err != nil {
+			return err
+		}
+		claimedRow, duplicateResult, isDuplicate, err := premiumClaimResultFromClaim(claim)
+		if err != nil {
+			return err
+		}
+		if isDuplicate {
+			duplicateResult.Entitlement = entitlement
+			result = duplicateResult
+			duplicate = true
+			return nil
+		}
+
+		if entitlement.State == EntitlementStateClaimed {
+			return ErrEntitlementAlreadyClaimed
+		}
+		if entitlement.State != EntitlementStatePending {
+			return fmt.Errorf("state %q: %w", entitlement.State, ErrEntitlementNotPending)
+		}
+
+		now := service.clock.Now()
+		result = ClaimEntitlementResult{}
+		switch entitlement.Type {
+		case EntitlementTypePremiumCurrencyPack:
+			creditResult, err := service.creditPremiumCurrencyPackWithoutRepositoryLocked(entitlement)
+			if err != nil {
+				return err
+			}
+			result.WalletCredit = &creditResult
+		case EntitlementTypeLoadoutSlot:
+			grant := LoadoutSlotGrant{
+				EntitlementID: entitlement.ID,
+				PlayerID:      entitlement.PlayerID,
+				Scope:         entitlement.Payload.LoadoutSlotScope,
+				Count:         entitlement.Payload.LoadoutSlotCount,
+				GrantedAt:     now,
+			}
+			result.LoadoutSlotGrant = &grant
+		case EntitlementTypeWeeklyXCorePurchaseRight:
+			grant := WeeklyXCorePurchaseRightGrant{
+				EntitlementID: entitlement.ID,
+				PlayerID:      entitlement.PlayerID,
+				WorldID:       entitlement.Payload.WorldID,
+				PeriodKey:     entitlement.Payload.PeriodKey,
+				GrantedAt:     now,
+			}
+			result.WeeklyXCorePurchaseRightGrant = &grant
+		case EntitlementTypeCosmetic:
+			grant := CosmeticGrant{
+				EntitlementID: entitlement.ID,
+				PlayerID:      entitlement.PlayerID,
+				CosmeticID:    entitlement.Payload.CosmeticID,
+				GrantedAt:     now,
+			}
+			result.CosmeticGrant = &grant
+		case EntitlementTypeBadge:
+			grant := BadgeGrant{
+				EntitlementID: entitlement.ID,
+				PlayerID:      entitlement.PlayerID,
+				BadgeID:       entitlement.Payload.BadgeID,
+				GrantedAt:     now,
+			}
+			result.BadgeGrant = &grant
+		default:
+			return fmt.Errorf("entitlement type %q: %w", entitlement.Type, ErrInvalidEntitlementType)
+		}
+
+		entitlement.State = EntitlementStateClaimed
+		entitlement.ClaimedAt = now
+		entitlement.ClaimRequestRef = input.RequestReference
+		result.Entitlement = entitlement
+		completedRow, err = service.completedPremiumClaimIdempotencyRow(claimedRow, result)
+		if err != nil {
+			return err
+		}
+		outboxRow, err := service.premiumClaimOutboxRow(result, input, referenceKey)
+		if err != nil {
+			return err
+		}
+		if err := tx.SavePremiumEntitlement(context.Background(), entitlement); err != nil {
+			return err
+		}
+		if result.WalletCredit != nil {
+			if err := tx.CommitWalletMutation(context.Background(), premiumWalletCreditCommit(*result.WalletCredit)); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.CompleteIdempotencyKey(context.Background(), completedRow); err != nil {
+			return err
+		}
+		return tx.InsertOutboxRow(context.Background(), outboxRow)
+	})
+	if err != nil {
+		service.restorePremiumClaimMutationLocked(snapshot)
+		return ClaimEntitlementResult{}, err
+	}
+	if duplicate {
+		return cloneClaimEntitlementResult(result), nil
+	}
+	service.entitlements[result.Entitlement.ID] = result.Entitlement
+	service.providerReferences[providerKey(result.Entitlement.Provider)] = result.Entitlement.ID
+	service.recordClaimSkeletonGrantsLocked(result)
+	claimKey := claimReferenceKey{
+		entitlementID: input.EntitlementID,
+		playerID:      input.PlayerID,
+		reference:     input.RequestReference,
+	}
+	service.claimResults[claimKey] = cloneClaimEntitlementResult(result)
+	if err := service.recordCompletedPremiumClaimIdempotencyRow(completedRow); err != nil {
+		service.restorePremiumClaimMutationLocked(snapshot)
+		return ClaimEntitlementResult{}, err
+	}
+	return cloneClaimEntitlementResult(result), nil
+}
+
+func (service *PremiumEntitlementService) recordClaimSkeletonGrantsLocked(result ClaimEntitlementResult) {
+	if result.LoadoutSlotGrant != nil {
+		service.loadoutSlotGrants = append(service.loadoutSlotGrants, *result.LoadoutSlotGrant)
+	}
+	if result.WeeklyXCorePurchaseRightGrant != nil {
+		service.weeklyXCorePurchaseRightGrants = append(service.weeklyXCorePurchaseRightGrants, *result.WeeklyXCorePurchaseRightGrant)
+	}
+	if result.CosmeticGrant != nil {
+		service.cosmeticGrants = append(service.cosmeticGrants, *result.CosmeticGrant)
+	}
+	if result.BadgeGrant != nil {
+		service.badgeGrants = append(service.badgeGrants, *result.BadgeGrant)
+	}
+}
+
+func (service *PremiumEntitlementService) saveEntitlementSnapshot(entitlement Entitlement) error {
+	if service == nil || service.entitlementRepo == nil {
+		return nil
+	}
+	return service.entitlementRepo.SavePremiumEntitlement(context.Background(), entitlement)
+}
+
+func (service *PremiumEntitlementService) premiumEntitlementTransactionRepository() PremiumEntitlementTransactionRepository {
+	if service == nil {
+		return nil
+	}
+	return service.entitlementTx
 }
 
 // ConfigureWeeklyXCoreStock creates or replaces one world/period stock record

@@ -429,35 +429,45 @@ func (store *InventoryStore) CommitAddItem(ctx context.Context, commit economy.I
 	if store == nil || store.store == nil || store.store.db == nil {
 		return ErrNilDatabase
 	}
-	if err := commit.Validate(); err != nil {
-		return err
-	}
 	tx, err := store.store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
+	if err := commitInventoryAddItem(ctx, tx, commit); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func commitInventoryAddItem(ctx context.Context, execer inventorySQLExecer, commit economy.InventoryAddItemCommit) error {
+	if execer == nil {
+		return ErrNilDatabase
+	}
+	if err := commit.Validate(); err != nil {
+		return err
+	}
 	for _, item := range commit.StackableItems {
-		if err := upsertInventoryStackableItem(ctx, tx, item); err != nil {
+		if err := upsertInventoryStackableItem(ctx, execer, item); err != nil {
 			return err
 		}
 	}
 	for _, item := range commit.InstanceItems {
-		if err := upsertInventoryInstanceItem(ctx, tx, item); err != nil {
+		if err := upsertInventoryInstanceItem(ctx, execer, item); err != nil {
 			return err
 		}
 	}
-	if err := insertInventoryItemLedgerEntry(ctx, tx, commit.LedgerEntry); err != nil {
+	if err := insertInventoryItemLedgerEntry(ctx, execer, commit.LedgerEntry); err != nil {
 		return err
 	}
-	if err := insertInventoryAddItemReference(ctx, tx, commit.Reference); err != nil {
+	if err := insertInventoryAddItemReference(ctx, execer, commit.Reference); err != nil {
 		return err
 	}
-	if err := upsertInventoryCounters(ctx, tx, commit.Counters); err != nil {
+	if err := upsertInventoryCounters(ctx, execer, commit.Counters); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (store *InventoryStore) CommitMoveItem(ctx context.Context, commit economy.InventoryMoveItemCommit) error {

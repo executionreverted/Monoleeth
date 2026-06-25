@@ -580,7 +580,7 @@ func seedCargoRowForTest(
 	inventory.mu.Lock()
 	defer inventory.mu.Unlock()
 
-	result, err := inventory.addItemValidatedLocked(input, amount, inventory.clock.Now())
+	result, err := inventory.addItemValidatedLocked(input, amount, inventory.clock.Now(), true)
 	if err != nil {
 		t.Fatalf("seed cargo add: %v", err)
 	}

@@ -29,6 +29,23 @@ type CargoAdder interface {
 	AddItem(economy.CargoAddItemInput) (economy.AddItemResult, error)
 }
 
+type transactionCargoAdder interface {
+	AddItemWithoutRepository(economy.CargoAddItemInput) (economy.AddItemResult, error)
+	AddItemCommit(economy.CargoAddItemInput, economy.AddItemResult) economy.InventoryAddItemCommit
+	SnapshotMutationState() economy.InventoryMutationSnapshot
+	RestoreMutationState(economy.InventoryMutationSnapshot)
+}
+
+type LootPickupTransactionRepository interface {
+	WithLootPickupTransaction(ctx context.Context, fn func(LootPickupTransaction) error) error
+}
+
+type LootPickupTransaction interface {
+	SaveLootDropClaim(ctx context.Context, drop Drop) error
+	CommitInventoryAddItem(ctx context.Context, commit economy.InventoryAddItemCommit) error
+	InsertOutboxRow(ctx context.Context, row economy.OutboxRow) error
+}
+
 // XPGranter is the progression boundary used for loot XP.
 type XPGranter interface {
 	GrantXP(progression.GrantXPInput) (progression.GrantXPResult, error)
@@ -57,6 +74,7 @@ type Service struct {
 	cargo       CargoAdder
 	progression XPGranter
 	xpOutbox    economy.OutboxStore
+	pickupTx    LootPickupTransactionRepository
 
 	ownerLockDuration time.Duration
 	publicDuration    time.Duration
@@ -85,9 +103,10 @@ type Config struct {
 	Clock foundation.Clock
 	RNG   foundation.RNG
 
-	Cargo       CargoAdder
-	Progression XPGranter
-	XPOutbox    economy.OutboxStore
+	Cargo              CargoAdder
+	Progression        XPGranter
+	XPOutbox           economy.OutboxStore
+	PickupTransactions LootPickupTransactionRepository
 
 	OwnerLockDuration time.Duration
 	PublicDuration    time.Duration
@@ -128,6 +147,7 @@ func NewService(config Config) (*Service, error) {
 		cargo:             config.Cargo,
 		progression:       config.Progression,
 		xpOutbox:          config.XPOutbox,
+		pickupTx:          config.PickupTransactions,
 		ownerLockDuration: config.OwnerLockDuration,
 		publicDuration:    config.PublicDuration,
 		totalLifetime:     config.TotalLifetime,
@@ -338,6 +358,10 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 	drop = cloneDrop(drop)
 	service.mu.Unlock()
 
+	if service.pickupTx != nil {
+		return service.pickupDropWithTransaction(input, drop)
+	}
+
 	cargoResult, err := service.cargo.AddItem(economy.CargoAddItemInput{
 		PlayerID:           input.PlayerID,
 		ActiveCargo:        input.ActiveCargo,
@@ -413,6 +437,118 @@ func (service *Service) PickupDrop(input PickupInput) (PickupResult, error) {
 
 	return PickupResult{
 		Drop:        cloneDrop(drop),
+		CargoResult: cargoResult,
+		XPResult:    xpResult,
+		XPError:     xpErr,
+	}, nil
+}
+
+func (service *Service) pickupDropWithTransaction(input PickupInput, drop Drop) (PickupResult, error) {
+	cargoTx, ok := service.cargo.(transactionCargoAdder)
+	if !ok {
+		service.clearPendingClaim(input.DropID)
+		return PickupResult{}, ErrNilCargoService
+	}
+	inventorySnapshot := cargoTx.SnapshotMutationState()
+	cargoInput := economy.CargoAddItemInput{
+		PlayerID:           input.PlayerID,
+		ActiveCargo:        input.ActiveCargo,
+		ItemDefinition:     drop.ItemDefinition,
+		Quantity:           drop.Quantity,
+		CargoCapacityUnits: input.CargoCapacityUnits,
+		Reason:             LedgerReasonLootPickup,
+		ReferenceKey:       foundation.IdempotencyKey("loot_pickup:" + drop.ID.String()),
+	}
+	cargoResult, err := cargoTx.AddItemWithoutRepository(cargoInput)
+	if err != nil {
+		service.clearPendingClaim(input.DropID)
+		return PickupResult{}, err
+	}
+
+	var claimed Drop
+	var reconciliation LootXPReconciliation
+	var outboxRow economy.OutboxRow
+	var hasOutboxRow bool
+	err = service.pickupTx.WithLootPickupTransaction(context.Background(), func(tx LootPickupTransaction) error {
+		now := service.clock.Now()
+		claimed = cloneDrop(drop)
+		claimed.ClaimedBy = input.PlayerID
+		claimedAt := now
+		claimed.ClaimedAt = &claimedAt
+		reconciliation = newLootXPReconciliation(claimed, input.PlayerID, now)
+		if !claimed.SourceType.eligibleForLootXP() {
+			reconciliation.Status = LootXPReconciliationNotEligible
+		} else {
+			row, err := newLootXPOutboxRow(claimed, reconciliation, now)
+			if err != nil {
+				return err
+			}
+			outboxRow = row
+			hasOutboxRow = true
+		}
+		if err := tx.SaveLootDropClaim(context.Background(), claimed); err != nil {
+			return err
+		}
+		if err := tx.CommitInventoryAddItem(context.Background(), cargoTx.AddItemCommit(cargoInput, cargoResult)); err != nil {
+			return err
+		}
+		if hasOutboxRow {
+			if err := tx.InsertOutboxRow(context.Background(), outboxRow); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		cargoTx.RestoreMutationState(inventorySnapshot)
+		service.clearPendingClaim(input.DropID)
+		return PickupResult{}, err
+	}
+
+	var emitted []events.EventEnvelope
+	var emitter EventEmitter
+	var metrics MetricRecorder
+	service.mu.Lock()
+	now := service.clock.Now()
+	service.drops[input.DropID] = cloneDrop(claimed)
+	delete(service.pendingClaims, input.DropID)
+	emitter = service.emitter
+	metrics = service.metrics
+	if emitter != nil {
+		emitted = append(emitted, service.newEventLocked(EventLootPickedUp, pickedUpPayload(claimed, now), now))
+	}
+	service.mu.Unlock()
+	recordLootPickedMetric(metrics, claimed)
+	emitEvents(emitter, emitted)
+
+	var xpResult *progression.GrantXPResult
+	var xpErr error
+	if hasOutboxRow {
+		if service.progression == nil {
+			reconciliation.Status = LootXPReconciliationFailed
+			reconciliation.Error = ErrNilProgressionHook.Error()
+			xpErr = ErrNilProgressionHook
+		} else {
+			grant, err := ReplayLootXPOutboxRow(context.Background(), outboxRow, service.progression)
+			if err != nil {
+				xpErr = err
+				reconciliation.Status = LootXPReconciliationFailed
+				reconciliation.Error = err.Error()
+			} else {
+				xpResult = &grant
+				grantedAt := service.clock.Now()
+				reconciliation.GrantedAt = &grantedAt
+				if grant.Duplicate {
+					reconciliation.Status = LootXPReconciliationDuplicate
+				} else {
+					reconciliation.Status = LootXPReconciliationGranted
+				}
+			}
+		}
+	}
+	claimed = service.recordXPReconciliation(input.DropID, reconciliation)
+	return PickupResult{
+		Drop:        cloneDrop(claimed),
 		CargoResult: cargoResult,
 		XPResult:    xpResult,
 		XPError:     xpErr,

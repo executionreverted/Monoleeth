@@ -207,7 +207,14 @@ func (provider ProviderReference) validate() error {
 	return nil
 }
 
-func (entitlement Entitlement) validateCreate() error {
+// Validate reports whether provider is well formed.
+func (provider ProviderReference) Validate() error {
+	return provider.validate()
+}
+
+// ValidateSnapshot reports whether entitlement is a valid persisted service
+// snapshot in any supported state.
+func (entitlement Entitlement) ValidateSnapshot() error {
 	if err := entitlement.ID.Validate(); err != nil {
 		return err
 	}
@@ -217,8 +224,8 @@ func (entitlement Entitlement) validateCreate() error {
 	if err := entitlement.Type.Validate(); err != nil {
 		return err
 	}
-	if entitlement.State != EntitlementStatePending {
-		return fmt.Errorf("entitlement state %q: %w", entitlement.State, ErrInvalidEntitlementState)
+	if err := entitlement.State.Validate(); err != nil {
+		return err
 	}
 	if err := entitlement.Provider.validate(); err != nil {
 		return err
@@ -232,8 +239,38 @@ func (entitlement Entitlement) validateCreate() error {
 	if entitlement.ProviderConfirmedAt.After(entitlement.CreatedAt) {
 		return fmt.Errorf("provider confirmed at after created at: %w", ErrInvalidTimestamp)
 	}
-	if !entitlement.ClaimedAt.IsZero() || entitlement.ClaimRequestRef != "" {
-		return fmt.Errorf("claimed fields on create: %w", ErrInvalidEntitlementState)
+	switch entitlement.State {
+	case EntitlementStatePending:
+		if !entitlement.ClaimedAt.IsZero() || entitlement.ClaimRequestRef != "" {
+			return fmt.Errorf("claimed fields on pending entitlement: %w", ErrInvalidEntitlementState)
+		}
+	case EntitlementStateClaimed:
+		if entitlement.ClaimedAt.IsZero() {
+			return fmt.Errorf("claimed_at missing: %w", ErrInvalidEntitlementState)
+		}
+		if err := validateRequestReference(entitlement.ClaimRequestRef); err != nil {
+			return err
+		}
+	case EntitlementStateRevoked:
+		if entitlement.ClaimedAt.IsZero() {
+			if entitlement.ClaimRequestRef != "" {
+				return fmt.Errorf("claim request without claimed_at: %w", ErrInvalidEntitlementState)
+			}
+			break
+		}
+		if err := validateRequestReference(entitlement.ClaimRequestRef); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (entitlement Entitlement) validateCreate() error {
+	if err := entitlement.ValidateSnapshot(); err != nil {
+		return err
+	}
+	if entitlement.State != EntitlementStatePending {
+		return fmt.Errorf("entitlement state %q: %w", entitlement.State, ErrInvalidEntitlementState)
 	}
 	return nil
 }
