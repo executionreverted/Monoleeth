@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -387,25 +389,43 @@ func cargoItemCategory(definition economy.ItemDefinition) string {
 	}
 }
 
-func (runtime *Runtime) repairQuoteLocked(state playerRuntimeState) repairQuotePayload {
+func (runtime *Runtime) issueRepairQuoteLocked(playerID foundation.PlayerID, state playerRuntimeState) repairQuotePayload {
+	now := runtime.clock.Now().UTC()
+	expiresAt := now.Add(repairQuoteTTL)
+	runtime.repairQuoteSeq++
+	digest := sha256.Sum256([]byte(fmt.Sprintf("repair_quote:%d:%s:%s:%d", runtime.repairQuoteSeq, playerID, state.Ship.ActiveShipID, now.UnixNano())))
+	quoteID := "repair_quote_" + hex.EncodeToString(digest[:12])
+	quote := runtime.repairQuotePayloadLocked(state, quoteID, now, expiresAt)
+	runtime.repairQuotes[playerID] = repairQuoteRecord{
+		PlayerID:  playerID,
+		Quote:     quote,
+		ExpiresAt: expiresAt,
+	}
+	return quote
+}
+
+func (runtime *Runtime) repairQuotePayloadLocked(state playerRuntimeState, quoteID string, issuedAt time.Time, expiresAt time.Time) repairQuotePayload {
 	cost := int64(0)
 	if state.Ship.ActiveShipID != starterShipID.String() {
 		cost = runtime.combatRules.NonStarterShipRepairFee
 	}
 	return repairQuotePayload{
-		ShipID:   state.Ship.ActiveShipID,
-		Currency: runtime.combatRules.RepairCurrency.String(),
-		Cost:     cost,
-		Disabled: state.Ship.Disabled,
+		ShipID:      state.Ship.ActiveShipID,
+		Currency:    runtime.combatRules.RepairCurrency.String(),
+		Cost:        cost,
+		Disabled:    state.Ship.Disabled,
+		QuoteID:     quoteID,
+		IssuedAtMS:  issuedAt.UTC().UnixMilli(),
+		ExpiresAtMS: expiresAt.UTC().UnixMilli(),
 	}
 }
 
-func (runtime *Runtime) deathShipDisabledPayloadLocked(state playerRuntimeState, reason string) deathShipDisabledPayload {
+func (runtime *Runtime) deathShipDisabledPayloadLocked(playerID foundation.PlayerID, state playerRuntimeState, reason string) deathShipDisabledPayload {
 	return deathShipDisabledPayload{
 		ShipID:         state.Ship.ActiveShipID,
 		DisabledReason: clientSafeShipDisabledReason(reason),
 		Ship:           state.Ship,
-		RepairQuote:    runtime.repairQuoteLocked(state),
+		RepairQuote:    runtime.issueRepairQuoteLocked(playerID, state),
 	}
 }
 
@@ -424,7 +444,7 @@ func (runtime *Runtime) shipDisabledRefreshEvents(sessionID auth.SessionID, play
 		state.Ship.RepairState = "disabled"
 		runtime.players[playerID] = state
 	}
-	payload := runtime.deathShipDisabledPayloadLocked(state, shipDisabledReason(state.Ship))
+	payload := runtime.deathShipDisabledPayloadLocked(playerID, state, shipDisabledReason(state.Ship))
 	events := []realtime.EventEnvelope{
 		runtime.eventLocked(sessionID, realtime.EventDeathShipDisabled, payload),
 		runtime.eventLocked(sessionID, realtime.EventShipSnapshot, state.Ship),

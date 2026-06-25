@@ -19,6 +19,8 @@ var (
 	ErrSellerCannotBuyOwnListing      = errors.New("seller cannot buy own listing")
 	ErrListingOwnership               = errors.New("market listing seller mismatch")
 	ErrBuyReferenceMismatch           = errors.New("market buy reference mismatch")
+	ErrMarketBuyInProgress            = errors.New("market buy idempotency key in progress")
+	ErrMarketBuyIdempotencyResult     = errors.New("market buy idempotency result unavailable")
 	ErrMarketAmountOverflow           = errors.New("market amount overflow")
 	ErrMarketEscrowQuantityMissing    = errors.New("market escrow quantity missing")
 )

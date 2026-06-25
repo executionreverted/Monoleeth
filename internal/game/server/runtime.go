@@ -196,6 +196,8 @@ type Runtime struct {
 	contentCatalogProjection gamecontent.PlayerContentProjection
 	contentCatalogVersion    string
 	repairAttempts           map[foundation.IdempotencyKey]repairAttemptRecord
+	repairQuotes             map[foundation.PlayerID]repairQuoteRecord
+	repairQuoteSeq           uint64
 	shopPurchases            map[foundation.IdempotencyKey]shopPurchaseRecord
 	scanCooldowns            map[scanCooldownKey]time.Time
 	scanCapacitorSpends      map[discovery.ScanPulseReference]scanCapacitorSpendRecord
@@ -1112,6 +1114,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		contentCatalogProjection:       contentCatalogProjection,
 		contentCatalogVersion:          contentCatalogProjection.Version,
 		repairAttempts:                 make(map[foundation.IdempotencyKey]repairAttemptRecord),
+		repairQuotes:                   make(map[foundation.PlayerID]repairQuoteRecord),
 		shopPurchases:                  make(map[foundation.IdempotencyKey]shopPurchaseRecord),
 		scanCooldowns:                  make(map[scanCooldownKey]time.Time),
 		scanCapacitorSpends:            make(map[discovery.ScanPulseReference]scanCapacitorSpendRecord),

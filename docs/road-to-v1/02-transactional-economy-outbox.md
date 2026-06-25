@@ -36,6 +36,12 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - 2026-06-25 TASK-0486: contentdb outbox pending/failed due-load,
   guarded lease, publish, failure/dead transitions, and replay helper skeleton
   tests landed. Broad after-commit publisher/replay worker task remains open.
+- 2026-06-25 TASK-0489: market buy now claims/completes economy idempotency
+  rows, writes a market-buy outbox row, and restores in-memory wallet/inventory
+  snapshots on tested mid-flow failure. Duplicate same-key buy and item-move
+  failure rollback are covered. Full contentdb transaction across listing,
+  wallet, inventory, idempotency, and outbox remains open; market cancel was not
+  touched.
 
 ## Server Ownership
 - Use canonical idempotency keys: `loot_pickup:<drop_id>`, `auction_close:<auction_id>`,
@@ -43,12 +49,12 @@ using a durable outbox. Cover wallet, inventory, market, auction, premium.
 - Broadcast only after commit; on broadcast failure, clients reconcile via snapshot.
 
 ## Smoke Tests (one assertion each)
-- [ ] Duplicate market buy (same key) does not double-charge.
+- [x] Duplicate market buy (same key) does not double-charge.
 - [ ] Market cancel returns escrow exactly once.
 - [ ] Concurrent auction buy-now closes the lot exactly once.
 - [ ] Replayed premium webhook grants entitlement exactly once.
 - [ ] Outbox replay re-delivers a missed economy event without duplicating state.
-- [ ] Failed mid-transaction leaves no partial wallet/inventory mutation.
+- [x] Failed mid-transaction leaves no partial wallet/inventory mutation.
 
 ## Done Criteria
 - [ ] No economy mutation can double-apply under retry/concurrency.

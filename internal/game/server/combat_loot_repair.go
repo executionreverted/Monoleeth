@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"gameproject/internal/game/combat"
 	gamecontent "gameproject/internal/game/content"
@@ -20,6 +21,7 @@ const (
 	basicLaserSkillID = gamecontent.DefaultBasicLaserSkillID
 	trainingNPCType   = gamecontent.DefaultTrainingNPCType
 	repairCurrency    = string(gamecontent.DefaultRepairCurrency)
+	repairQuoteTTL    = 2 * time.Minute
 )
 
 type combatUseSkillIntent struct {
@@ -42,12 +44,23 @@ type repairAttemptRecord struct {
 	RepairCost   int64
 }
 
-type repairQuotePayload struct {
-	ShipID   string `json:"ship_id"`
-	Currency string `json:"currency"`
-	Cost     int64  `json:"cost"`
-	Disabled bool   `json:"disabled"`
+type repairQuoteRecord struct {
+	PlayerID  foundation.PlayerID
+	Quote     repairQuotePayload
+	ExpiresAt time.Time
 }
+
+type repairQuotePayload struct {
+	ShipID      string `json:"ship_id"`
+	Currency    string `json:"currency"`
+	Cost        int64  `json:"cost"`
+	Disabled    bool   `json:"disabled"`
+	QuoteID     string `json:"quote_id"`
+	IssuedAtMS  int64  `json:"issued_at_ms"`
+	ExpiresAtMS int64  `json:"expires_at_ms"`
+}
+
+type deathRepairShipIntent = repairQuotePayload
 
 func runtimeShipRepairIdempotencyKey(playerID foundation.PlayerID, shipID foundation.ShipID, requestID foundation.RequestID) (foundation.IdempotencyKey, error) {
 	if err := playerID.Validate(); err != nil {
@@ -359,11 +372,15 @@ func (runtime *Runtime) handleDeathRepairQuote(ctx realtime.CommandContext, requ
 	if !ok {
 		return nil, domainErrorForRuntime(worker.ErrUnknownPlayer)
 	}
-	return marshalPayload(runtime.repairQuoteLocked(state))
+	return marshalPayload(runtime.issueRepairQuoteLocked(ctx.PlayerID, state))
 }
 
 func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
 	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	intent, err := decodeDeathRepairShipIntent(request.Payload)
+	if err != nil {
 		return nil, err
 	}
 	runtime.mu.Lock()
@@ -394,7 +411,10 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 		return nil, foundation.NewDomainError(foundation.CodeShipDisabled, "Ship is not disabled.")
 	}
 
-	quote := runtime.repairQuoteLocked(state)
+	quote, err := runtime.validateRepairQuoteLocked(ctx.PlayerID, state, intent)
+	if err != nil {
+		return nil, err
+	}
 	wallet := runtime.walletSnapshotLocked(ctx.PlayerID)
 	if wallet.Credits < quote.Cost {
 		return nil, foundation.NewDomainError(foundation.CodeNotEnoughFunds, "Not enough credits.")
@@ -422,6 +442,7 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 		return nil, domainErrorForRuntime(err)
 	}
 	state = runtime.players[ctx.PlayerID]
+	delete(runtime.repairQuotes, ctx.PlayerID)
 
 	record := repairAttemptRecord{
 		ReferenceKey: referenceKey,
@@ -455,4 +476,57 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 		"position":       respawn.Position,
 		"protection":     respawn.Protection,
 	})
+}
+
+func decodeDeathRepairShipIntent(raw json.RawMessage) (deathRepairShipIntent, error) {
+	var intent deathRepairShipIntent
+	if err := decodeStrict(raw, &intent); err != nil {
+		return deathRepairShipIntent{}, invalidPayload("Repair quote is invalid.", err)
+	}
+	if intent.QuoteID == "" {
+		return deathRepairShipIntent{}, invalidPayload("Repair quote is required.", nil)
+	}
+	return intent, nil
+}
+
+func (runtime *Runtime) validateRepairQuoteLocked(
+	playerID foundation.PlayerID,
+	state playerRuntimeState,
+	intent deathRepairShipIntent,
+) (repairQuotePayload, error) {
+	record, ok := runtime.repairQuotes[playerID]
+	if !ok || record.PlayerID != playerID {
+		return repairQuotePayload{}, invalidPayload("Repair quote is required.", nil)
+	}
+	now := runtime.clock.Now().UTC()
+	if !record.ExpiresAt.After(now) {
+		delete(runtime.repairQuotes, playerID)
+		return repairQuotePayload{}, invalidPayload("Repair quote is stale.", nil)
+	}
+	if !sameRepairQuotePayload(record.Quote, intent) {
+		return repairQuotePayload{}, invalidPayload("Repair quote was tampered.", nil)
+	}
+	current := runtime.repairQuotePayloadLocked(
+		state,
+		record.Quote.QuoteID,
+		time.UnixMilli(record.Quote.IssuedAtMS).UTC(),
+		record.ExpiresAt,
+	)
+	if current.ShipID != record.Quote.ShipID ||
+		current.Currency != record.Quote.Currency ||
+		current.Cost != record.Quote.Cost ||
+		current.Disabled != record.Quote.Disabled {
+		return repairQuotePayload{}, invalidPayload("Repair quote is no longer valid.", nil)
+	}
+	return record.Quote, nil
+}
+
+func sameRepairQuotePayload(a repairQuotePayload, b repairQuotePayload) bool {
+	return a.ShipID == b.ShipID &&
+		a.Currency == b.Currency &&
+		a.Cost == b.Cost &&
+		a.Disabled == b.Disabled &&
+		a.QuoteID == b.QuoteID &&
+		a.IssuedAtMS == b.IssuedAtMS &&
+		a.ExpiresAtMS == b.ExpiresAtMS
 }

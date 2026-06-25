@@ -1,7 +1,10 @@
 package market
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +28,7 @@ type marketFixture struct {
 	sourceLocation economy.ItemLocation
 	buyerLocation  economy.ItemLocation
 	definition     economy.ItemDefinition
+	economyStore   *memoryMarketEconomyStore
 }
 
 func TestCreateListingMovesStackableItemsIntoEscrow(t *testing.T) {
@@ -342,6 +346,7 @@ func TestBuyListingDuplicateRetryReturnsPreviousResultWithoutDuplication(t *test
 	}
 	walletLedgerAfterFirst := len(fixture.wallet.CurrencyLedgerEntries())
 	itemLedgerAfterFirst := len(fixture.inventory.ItemLedgerEntries())
+	outboxRowsAfterFirst := len(fixture.service.MarketBuyOutboxRows())
 	second, err := fixture.service.BuyListing(input)
 	if err != nil {
 		t.Fatalf("duplicate BuyListing: %v", err)
@@ -367,6 +372,66 @@ func TestBuyListingDuplicateRetryReturnsPreviousResultWithoutDuplication(t *test
 	}
 	if got := len(fixture.inventory.ItemLedgerEntries()); got != itemLedgerAfterFirst {
 		t.Fatalf("item ledger entries len = %d, want %d", got, itemLedgerAfterFirst)
+	}
+	if got := len(fixture.service.MarketBuyOutboxRows()); got != outboxRowsAfterFirst {
+		t.Fatalf("market buy outbox rows len = %d, want %d", got, outboxRowsAfterFirst)
+	}
+}
+
+func TestBuyListingItemMoveFailureRollsBackWalletMutations(t *testing.T) {
+	fixture := newMarketFixture(t)
+	fixture.seedSellerItems(t, 5, "seed-item-failure")
+	fixture.seedCredits(t, fixture.buyerID, 1_000, "buyer-item-failure")
+	create := fixture.createListing(t, "listing-item-failure", 5, 10)
+	injectedErr := errors.New("injected market buy item move failure")
+	fixture.service.inventory = failingMarketBuyInventory{
+		delegate:   fixture.inventory,
+		failReason: marketBuyReason,
+		err:        injectedErr,
+	}
+	walletLedgerBefore := len(fixture.wallet.CurrencyLedgerEntries())
+	itemLedgerBefore := len(fixture.inventory.ItemLedgerEntries())
+	outboxRowsBefore := len(fixture.service.MarketBuyOutboxRows())
+
+	_, err := fixture.service.BuyListing(BuyListingInput{
+		BuyerPlayerID: fixture.buyerID,
+		ListingID:     create.Listing.ListingID,
+		Quantity:      2,
+		RequestID:     "buy-item-failure",
+	})
+	if !errors.Is(err, injectedErr) {
+		t.Fatalf("BuyListing error = %v, want injected item move failure", err)
+	}
+	listing, ok := fixture.service.Listing(create.Listing.ListingID)
+	if !ok {
+		t.Fatal("listing missing")
+	}
+	if listing.RemainingQuantity != 5 || listing.Status != ListingStatusActive {
+		t.Fatalf("listing after failed buy = remaining %d status %q, want 5 active", listing.RemainingQuantity, listing.Status)
+	}
+	if got := fixture.wallet.Balance(fixture.buyerID, economy.CurrencyBucketCredits); got != 1_000 {
+		t.Fatalf("buyer balance after rollback = %d, want 1000", got)
+	}
+	if got := fixture.wallet.Balance(fixture.sellerID, economy.CurrencyBucketCredits); got != 0 {
+		t.Fatalf("seller balance after rollback = %d, want 0", got)
+	}
+	if got := fixture.wallet.Balance(defaultSystemFeePlayerID, economy.CurrencyBucketCredits); got != 0 {
+		t.Fatalf("fee balance after rollback = %d, want 0", got)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.sellerID, fixture.definition.ItemID, create.Listing.EscrowLocation); got != 5 {
+		t.Fatalf("escrow quantity after failed buy = %d, want 5", got)
+	}
+	if got := fixture.inventory.TotalItemQuantity(fixture.buyerID, fixture.definition.ItemID, fixture.buyerLocation); got != 0 {
+		t.Fatalf("buyer item quantity after failed buy = %d, want 0", got)
+	}
+	if got := len(fixture.wallet.CurrencyLedgerEntries()); got != walletLedgerBefore {
+		t.Fatalf("wallet ledger entries after failed buy = %d, want %d", got, walletLedgerBefore)
+	}
+	if got := len(fixture.inventory.ItemLedgerEntries()); got != itemLedgerBefore {
+		t.Fatalf("item ledger entries after failed buy = %d, want %d", got, itemLedgerBefore)
+	}
+	if got := len(fixture.service.MarketBuyOutboxRows()); got != outboxRowsBefore {
+		t.Fatalf("market buy outbox rows after failed buy = %d, want %d", got, outboxRowsBefore)
 	}
 }
 
@@ -762,10 +827,13 @@ func newMarketFixture(t *testing.T) *marketFixture {
 	clock := testutil.NewFakeClock(marketTestNow)
 	inventory := economy.NewInventoryService(clock)
 	wallet := economy.NewWalletService(clock)
+	economyStore := newMemoryMarketEconomyStore()
 	service, err := NewMarketService(MarketServiceConfig{
-		Clock:     clock,
-		Inventory: inventory,
-		Wallet:    wallet,
+		Clock:            clock,
+		Inventory:        inventory,
+		Wallet:           wallet,
+		IdempotencyStore: economyStore,
+		OutboxStore:      economyStore,
 	})
 	if err != nil {
 		t.Fatalf("NewMarketService: %v", err)
@@ -787,7 +855,245 @@ func newMarketFixture(t *testing.T) *marketFixture {
 		sourceLocation: sourceLocation,
 		buyerLocation:  buyerLocation,
 		definition:     marketStackableDefinition(t, "raw-ore", []economy.TradeFlag{economy.TradeFlagMarketTradeable}),
+		economyStore:   economyStore,
 	}
+}
+
+type failingMarketBuyInventory struct {
+	delegate   *economy.InventoryService
+	failReason economy.LedgerReason
+	err        error
+}
+
+func (inventory failingMarketBuyInventory) SystemMoveItem(input economy.MoveItemInput) (economy.MoveItemResult, error) {
+	if input.Reason == inventory.failReason {
+		return economy.MoveItemResult{}, inventory.err
+	}
+	return inventory.delegate.SystemMoveItem(input)
+}
+
+func (inventory failingMarketBuyInventory) TotalItemQuantity(
+	playerID foundation.PlayerID,
+	itemID foundation.ItemID,
+	location economy.ItemLocation,
+) int64 {
+	return inventory.delegate.TotalItemQuantity(playerID, itemID, location)
+}
+
+func (inventory failingMarketBuyInventory) SnapshotMutationState() economy.InventoryMutationSnapshot {
+	return inventory.delegate.SnapshotMutationState()
+}
+
+func (inventory failingMarketBuyInventory) RestoreMutationState(snapshot economy.InventoryMutationSnapshot) {
+	inventory.delegate.RestoreMutationState(snapshot)
+}
+
+type memoryMarketEconomyStore struct {
+	mu          sync.Mutex
+	idempotency map[string]economy.IdempotencyKeyRow
+	outbox      map[string]economy.OutboxRow
+}
+
+func newMemoryMarketEconomyStore() *memoryMarketEconomyStore {
+	return &memoryMarketEconomyStore{
+		idempotency: make(map[string]economy.IdempotencyKeyRow),
+		outbox:      make(map[string]economy.OutboxRow),
+	}
+}
+
+func (store *memoryMarketEconomyStore) ClaimIdempotencyKey(
+	ctx context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyClaimResult, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	key := memoryMarketIdempotencyKey(row.Scope, row.Key)
+	if existing, ok := store.idempotency[key]; ok {
+		return economy.ResolveIdempotencyClaim(&existing, row)
+	}
+	result, err := economy.ResolveIdempotencyClaim(nil, row)
+	if err != nil {
+		return economy.IdempotencyClaimResult{}, err
+	}
+	store.idempotency[key] = result.Row.Clone()
+	return result, nil
+}
+
+func (store *memoryMarketEconomyStore) CompleteIdempotencyKey(
+	ctx context.Context,
+	row economy.IdempotencyKeyRow,
+) (economy.IdempotencyKeyRow, error) {
+	if err := row.Validate(); err != nil {
+		return economy.IdempotencyKeyRow{}, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	key := memoryMarketIdempotencyKey(row.Scope, row.Key)
+	store.idempotency[key] = row.Clone()
+	return row.Clone(), nil
+}
+
+func (store *memoryMarketEconomyStore) InsertOutboxRow(ctx context.Context, row economy.OutboxRow) error {
+	inserted, err := economy.NewOutboxRow(row)
+	if err != nil {
+		return err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	if _, exists := store.outbox[inserted.OutboxID]; exists {
+		return fmt.Errorf("outbox %q: %w", inserted.OutboxID, economy.ErrInvalidOutboxRow)
+	}
+	store.outbox[inserted.OutboxID] = inserted.Clone()
+	return nil
+}
+
+func (store *memoryMarketEconomyStore) LoadOutboxRow(ctx context.Context, outboxID string) (economy.OutboxRow, bool, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	row, ok := store.outbox[outboxID]
+	return row.Clone(), ok, nil
+}
+
+func (store *memoryMarketEconomyStore) LoadDueOutboxRows(
+	ctx context.Context,
+	query economy.OutboxDueRowsQuery,
+) ([]economy.OutboxRow, error) {
+	if err := query.Validate(); err != nil {
+		return nil, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	rows := make([]economy.OutboxRow, 0, query.Limit)
+	for _, row := range store.outbox {
+		if row.Status != economy.OutboxStatusPending && row.Status != economy.OutboxStatusFailed {
+			continue
+		}
+		if row.AvailableAt.After(query.Now) {
+			continue
+		}
+		rows = append(rows, row.Clone())
+	}
+	sort.Slice(rows, func(left int, right int) bool {
+		if !rows[left].AvailableAt.Equal(rows[right].AvailableAt) {
+			return rows[left].AvailableAt.Before(rows[right].AvailableAt)
+		}
+		if !rows[left].CreatedAt.Equal(rows[right].CreatedAt) {
+			return rows[left].CreatedAt.Before(rows[right].CreatedAt)
+		}
+		return rows[left].OutboxID < rows[right].OutboxID
+	})
+	if len(rows) > query.Limit {
+		rows = rows[:query.Limit]
+	}
+	return rows, nil
+}
+
+func (store *memoryMarketEconomyStore) LeaseOutboxRow(
+	ctx context.Context,
+	input economy.OutboxLeaseInput,
+) (economy.OutboxRow, bool, error) {
+	if err := input.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	row, ok := store.outbox[input.OutboxID]
+	if !ok || !memoryMarketOutboxLeaseEligible(row, input.Now) {
+		return economy.OutboxRow{}, false, nil
+	}
+	row.Status = economy.OutboxStatusLeased
+	row.LeaseOwner = input.LeaseOwner
+	row.LeasedUntil = input.LeasedUntil
+	row.UpdatedAt = input.Now
+	if err := row.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.outbox[input.OutboxID] = row.Clone()
+	return row.Clone(), true, nil
+}
+
+func (store *memoryMarketEconomyStore) MarkOutboxPublished(
+	ctx context.Context,
+	input economy.OutboxPublishInput,
+) (economy.OutboxRow, bool, error) {
+	if err := input.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	row, ok := store.outbox[input.OutboxID]
+	if !ok || !memoryMarketOutboxLeaseMatches(row, input.LeaseOwner, input.Now) {
+		return economy.OutboxRow{}, false, nil
+	}
+	row.Status = economy.OutboxStatusPublished
+	row.LeaseOwner = ""
+	row.LeasedUntil = time.Time{}
+	row.AttemptCount++
+	row.LastError = ""
+	row.UpdatedAt = input.Now
+	row.PublishedAt = input.Now
+	if err := row.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.outbox[input.OutboxID] = row.Clone()
+	return row.Clone(), true, nil
+}
+
+func (store *memoryMarketEconomyStore) MarkOutboxFailed(
+	ctx context.Context,
+	input economy.OutboxFailureInput,
+) (economy.OutboxRow, bool, error) {
+	if err := input.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+
+	row, ok := store.outbox[input.OutboxID]
+	if !ok || !memoryMarketOutboxLeaseMatches(row, input.LeaseOwner, input.Now) {
+		return economy.OutboxRow{}, false, nil
+	}
+	row.AttemptCount++
+	if row.AttemptCount >= row.MaxAttempts {
+		row.Status = economy.OutboxStatusDead
+	} else {
+		row.Status = economy.OutboxStatusFailed
+	}
+	row.AvailableAt = input.AvailableAt
+	row.LeaseOwner = ""
+	row.LeasedUntil = time.Time{}
+	row.LastError = input.LastError
+	row.UpdatedAt = input.Now
+	if err := row.Validate(); err != nil {
+		return economy.OutboxRow{}, false, err
+	}
+	store.outbox[input.OutboxID] = row.Clone()
+	return row.Clone(), true, nil
+}
+
+func memoryMarketOutboxLeaseEligible(row economy.OutboxRow, now time.Time) bool {
+	if (row.Status == economy.OutboxStatusPending || row.Status == economy.OutboxStatusFailed) && !row.AvailableAt.After(now) {
+		return true
+	}
+	return row.Status == economy.OutboxStatusLeased && !row.LeasedUntil.IsZero() && !row.LeasedUntil.After(now)
+}
+
+func memoryMarketOutboxLeaseMatches(row economy.OutboxRow, owner string, now time.Time) bool {
+	return row.Status == economy.OutboxStatusLeased &&
+		row.LeaseOwner == owner &&
+		!row.LeasedUntil.IsZero() &&
+		row.LeasedUntil.After(now)
+}
+
+func memoryMarketIdempotencyKey(scope string, key foundation.IdempotencyKey) string {
+	return scope + "\x00" + key.String()
 }
 
 func (fixture *marketFixture) createListingInput(listingID string, quantity int64, unitPrice int64) CreateListingInput {

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+
 	deathdomain "gameproject/internal/game/death"
 	"gameproject/internal/game/economy"
 	gameevents "gameproject/internal/game/events"
@@ -294,20 +296,12 @@ func TestRepairQuoteAndRepairUseServerOwnedActiveShip(t *testing.T) {
 	resolved := resolvedSessionForCookie(t, gameServer, cookie)
 	setTestShipDisabled(gameServer, resolved.PlayerID, true)
 
-	writeText(t, conn, `{"request_id":"request-repair-quote","op":"death.repair_quote","payload":{},"client_seq":1,"v":1}`)
-	quoteResponse := readResponse(t, conn)
-	if !quoteResponse.OK {
-		t.Fatalf("repair quote response = %+v, want success", quoteResponse)
-	}
-	var quote repairQuotePayload
-	if err := json.Unmarshal(quoteResponse.Payload, &quote); err != nil {
-		t.Fatalf("decode quote: %v", err)
-	}
+	quote := requestRepairQuoteForTest(t, conn, "request-repair-quote", 1)
 	if !quote.Disabled || quote.ShipID != starterShipID.String() || quote.Cost != 0 {
 		t.Fatalf("repair quote = %+v, want disabled free starter repair", quote)
 	}
 
-	writeText(t, conn, `{"request_id":"request-repair-ship","op":"death.repair_ship","payload":{},"client_seq":2,"v":1}`)
+	writeDeathRepairShipForTest(t, conn, "request-repair-ship", 2, quote)
 	repairResponse := readResponse(t, conn)
 	if !repairResponse.OK {
 		t.Fatalf("repair response = %+v, want success", repairResponse)
@@ -338,6 +332,123 @@ func TestRepairQuoteAndRepairUseServerOwnedActiveShip(t *testing.T) {
 		if !seen[want] {
 			t.Fatalf("repair events seen = %#v, missing %s", seen, want)
 		}
+	}
+}
+
+func TestDeathRepairShipRejectsStaleRepairQuote(t *testing.T) {
+	gameServer, httpServer, clock := newTestServerWithFakeClock(t)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	setTestShipDisabled(gameServer, resolved.PlayerID, true)
+
+	quote := requestRepairQuoteForTest(t, conn, "request-repair-stale-quote", 1)
+	clock.Advance(repairQuoteTTL + time.Millisecond)
+	writeDeathRepairShipForTest(t, conn, "request-repair-stale-ship", 2, quote)
+	got := readError(t, conn)
+	if got.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("stale repair quote error = %+v, want %s", got.Error, foundation.CodeInvalidPayload)
+	}
+	state := testPlayerState(t, gameServer, resolved.PlayerID)
+	if !state.Ship.Disabled || state.Ship.RepairState != "disabled" {
+		t.Fatalf("state after stale quote = %+v, want disabled", state.Ship)
+	}
+}
+
+func TestDeathRepairShipRejectsTamperedRepairQuote(t *testing.T) {
+	gameServer, httpServer := newTestServer(t, false)
+	defer httpServer.Close()
+	cookie := registerPilot(t, httpServer)
+	conn := dialWebSocket(t, httpServer, cookie)
+	defer conn.CloseNow()
+	readBootstrapEvents(t, conn)
+	resolved := resolvedSessionForCookie(t, gameServer, cookie)
+	setTestShipDisabled(gameServer, resolved.PlayerID, true)
+
+	quote := requestRepairQuoteForTest(t, conn, "request-repair-tamper-quote", 1)
+	quote.Cost++
+	writeDeathRepairShipForTest(t, conn, "request-repair-tamper-ship", 2, quote)
+	got := readError(t, conn)
+	if got.Error.Code != foundation.CodeInvalidPayload {
+		t.Fatalf("tampered repair quote error = %+v, want %s", got.Error, foundation.CodeInvalidPayload)
+	}
+	state := testPlayerState(t, gameServer, resolved.PlayerID)
+	if !state.Ship.Disabled || state.Ship.RepairState != "disabled" {
+		t.Fatalf("state after tampered quote = %+v, want disabled", state.Ship)
+	}
+}
+
+func requestRepairQuoteForTest(t *testing.T, conn *websocket.Conn, requestID string, clientSeq int) repairQuotePayload {
+	t.Helper()
+	envelope := map[string]any{
+		"request_id": requestID,
+		"op":         realtime.OperationDeathRepairQuote,
+		"payload":    map[string]any{},
+		"client_seq": clientSeq,
+		"v":          1,
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("encode repair quote request: %v", err)
+	}
+	writeText(t, conn, string(raw))
+	quoteResponse := readResponse(t, conn)
+	if !quoteResponse.OK {
+		t.Fatalf("repair quote response = %+v, want success", quoteResponse)
+	}
+	var quote repairQuotePayload
+	if err := json.Unmarshal(quoteResponse.Payload, &quote); err != nil {
+		t.Fatalf("decode quote: %v", err)
+	}
+	assertRepairQuoteBoundForTest(t, quote)
+	return quote
+}
+
+func writeDeathRepairShipForTest(t *testing.T, conn *websocket.Conn, requestID string, clientSeq int, quote repairQuotePayload) {
+	t.Helper()
+	envelope := map[string]any{
+		"request_id": requestID,
+		"op":         realtime.OperationDeathRepairShip,
+		"payload":    quote,
+		"client_seq": clientSeq,
+		"v":          1,
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("encode repair request: %v", err)
+	}
+	writeText(t, conn, string(raw))
+}
+
+func repairShipPayloadForTest(t *testing.T, quote repairQuotePayload) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(quote)
+	if err != nil {
+		t.Fatalf("encode repair payload: %v", err)
+	}
+	return raw
+}
+
+func issueRepairQuoteForTest(t *testing.T, gameServer *Server, playerID foundation.PlayerID) repairQuotePayload {
+	t.Helper()
+	gameServer.runtime.mu.Lock()
+	defer gameServer.runtime.mu.Unlock()
+	state, ok := gameServer.runtime.players[playerID]
+	if !ok {
+		t.Fatalf("player %q missing runtime state", playerID)
+	}
+	quote := gameServer.runtime.issueRepairQuoteLocked(playerID, state)
+	assertRepairQuoteBoundForTest(t, quote)
+	return quote
+}
+
+func assertRepairQuoteBoundForTest(t *testing.T, quote repairQuotePayload) {
+	t.Helper()
+	if quote.QuoteID == "" || quote.IssuedAtMS <= 0 || quote.ExpiresAtMS <= quote.IssuedAtMS {
+		t.Fatalf("repair quote = %+v, want token and server expiry", quote)
 	}
 }
 func TestShipDisabledDomainEventQueuesClientSafeRealtimeEvents(t *testing.T) {

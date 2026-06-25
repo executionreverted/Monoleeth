@@ -297,10 +297,11 @@ func TestSeededPVPMapDeathRepairRespawnsAtCheckpointWithProtectionAndDuplicateRe
 	assertNoDeathInternalsInQueuedEventsForTest(t, attackerDeathEvents)
 	assertNoDeathInternalsInQueuedEventsForTest(t, targetDeathEvents)
 
+	quote := issueRepairQuoteForTest(t, gameServer, target.PlayerID)
 	repairRequest := realtime.RequestEnvelope{
 		RequestID: foundation.RequestID("request-pvp-death-repair-ship"),
 		Op:        realtime.OperationDeathRepairShip,
-		Payload:   json.RawMessage(`{}`),
+		Payload:   repairShipPayloadForTest(t, quote),
 		Version:   realtime.CurrentVersion,
 	}
 	repairContext := realtime.CommandContext{
@@ -483,10 +484,11 @@ func repairShipForTest(
 	requestID foundation.RequestID,
 ) ([]byte, repairShipResponseForTest) {
 	t.Helper()
+	quote := issueRepairQuoteForTest(t, gameServer, resolved.PlayerID)
 	request := realtime.RequestEnvelope{
 		RequestID: requestID,
 		Op:        realtime.OperationDeathRepairShip,
-		Payload:   json.RawMessage(`{}`),
+		Payload:   repairShipPayloadForTest(t, quote),
 		Version:   realtime.CurrentVersion,
 	}
 	context := realtime.CommandContext{
