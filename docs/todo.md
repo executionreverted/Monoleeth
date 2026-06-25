@@ -7,6 +7,22 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [ ] P05/P17: deep `Runtime.mu` narrowing in command handlers. Combat
+  `use_skill`, loot `pickup`, and death `repair` still hold the runtime
+  coordinator lock across their in-memory service calls (combat actor sync,
+  `Loot.PickupDrop`, wallet/hangar repair). This is justified for correctness
+  today: the visibility/range check and the value claim must stay atomic so a
+  movement command cannot interleave between the visibility check and the
+  mutation. The cross-map serialization it causes is microsecond-scale (no I/O
+  under the lock), and the §2 scalability bottleneck — global-mutex tick
+  serialization — is already resolved because `tickMapInstances` runs every
+  worker `Tick()` before acquiring `Runtime.mu`. Full narrowing means moving
+  live-position visibility/range into the owning service (loot/combat) so the
+  runtime only locks session/routing bookkeeping; defer to P17 (Runtime
+  Decomposition) with dedicated race coverage. Sources:
+  `internal/game/server/combat_loot_repair.go`,
+  `internal/game/server/runtime_world_snapshot.go`,
+  `docs/road-to-v1/05-map-ownership-concurrency.md`.
 - [ ] Finish the DB/CMS content pipeline after the static gameplay content
   bundle stabilizes. The first content-foundation slice adds a server-side
   `GameplayContent` bundle for static items, loot tables, modules, ships,

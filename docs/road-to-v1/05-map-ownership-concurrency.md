@@ -36,7 +36,7 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
 - Multi-process workers / cross-host handoff (post-v1).
 
 ## Tasks
-- [ ] `[P:wave2/lane-D]` Move per-map live state mutation behind each worker's command queue.
+- [x] `[P:wave2/lane-D]` Move per-map live state mutation behind each worker's command queue.
 - [ ] `[P:wave2/lane-D]` Narrow `Runtime.mu` to session/routing only; document what it still protects.
 - [ ] `[P:wave2/lane-D]` Use immutable snapshots/copy-on-write for read projections (AOI, minimap).
 - [x] `[P:wave2/lane-D]` Add `-race` tests: concurrent commands + tick on the same and on different maps.
@@ -70,6 +70,17 @@ ownership of its live entities/AOI, and add race tests for concurrent command + 
   commands without running a full simulation tick before recording
   `HiddenEntities`. Covered by
   `TestSeedWorldInsertsHiddenPlanetSignalThroughWorkerCommandQueue`.
+- Progress: combat NPC-kill entity mutation now submits
+  `worker.MarkEnemyKilledCommand` through the owning worker queue instead of
+  mutating live worker state directly. With loot drop insert/remove, portal
+  source removal/restore, movement refresh, inactive-map cleanup, and seed-world
+  hidden signal insertion all already on worker command queues, no production
+  path mutates per-map live entities outside the owning worker. The remaining
+  `Runtime.mu` usage in combat/loot/repair command handlers is coordination
+  logic (visibility/range checks, combat-actor sync, queued events) that must
+  stay atomic with the claim to prevent a movement command interleaving between
+  the visibility check and the value mutation; deep narrowing requires moving
+  live-position visibility into the owning service and is tracked under P17.
 
 ## Smoke Tests (one assertion each)
 - [x] Command on map A does not block a command on map B (timing assertion).
