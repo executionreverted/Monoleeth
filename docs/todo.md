@@ -70,11 +70,14 @@ for phase status; this file is a compact pending-work index.
   shop viewers without leaking private grants, provider refs, or
   viewer-relative auction `leading` state. Source:
   `docs/plans/task-001/01-gameplay-connection-audit.md`.
-- [ ] Wire loot XP outbox insertion/replay into the real durable runtime
+- [x] Wire loot XP outbox insertion/replay into the real durable runtime
   transaction boundary. TASK-0501 adds a stable `loot_xp:*` economy outbox row
   and `OutboxReplayWorker` publisher hook for `loot_pickup:<drop_id>` XP replay,
-  with duplicate replay covered. Remaining gap: drop claim, cargo mutation, and
-  XP outbox insert are not yet one durable DB transaction in runtime wiring.
+  with duplicate replay covered. `loot.Service.pickupDropWithTransaction` now
+  performs the drop claim (`SaveLootDropClaim`), cargo mutation
+  (`CommitInventoryAddItem`), and `loot_xp:*` outbox insert inside a single
+  `WithLootPickupTransaction` durable DB transaction, so a mid-step failure no
+  longer leaves a partial claim/cargo/XP state.
 - [x] Map gateway/API request ids to the required
   `CraftingService.StartCraft` domain `ReferenceKey` before exposing craft
   start externally. Phase06B exposes authenticated `crafting.start` through the
