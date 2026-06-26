@@ -93,6 +93,7 @@ const (
 	OperationAdminContentRollback      Operation = "admin.content.rollback"
 	OperationAdminContentAuditLog      Operation = "admin.content.audit_log"
 	OperationAdminContentVersions      Operation = "admin.content.versions"
+	OperationAdminContentDiff          Operation = "admin.content.diff"
 	OperationObservabilityLog          Operation = "observability.command_log"
 	OperationObservabilityMetric       Operation = "observability.metrics"
 	OperationObservabilityGate         Operation = "observability.release_gate"
@@ -492,6 +493,10 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationAdminContentVersions: {
 		Operation:        OperationAdminContentVersions,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationAdminContentDiff: {
+		Operation:        OperationAdminContentDiff,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationObservabilityLog: {

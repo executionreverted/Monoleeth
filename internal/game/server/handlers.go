@@ -226,6 +226,7 @@ func (runtime *Runtime) commandHandlers() map[realtime.Operation]realtime.Comman
 		realtime.OperationAdminContentRollback:      runtime.handleAdminContentRollback,
 		realtime.OperationAdminContentAuditLog:      runtime.handleAdminContentAuditLog,
 		realtime.OperationAdminContentVersions:      runtime.handleAdminContentVersions,
+		realtime.OperationAdminContentDiff:          runtime.handleAdminContentDiff,
 		realtime.OperationObservabilityLog:          runtime.handleObservabilityCommandLog,
 		realtime.OperationObservabilityMetric:       runtime.handleObservabilityMetrics,
 		realtime.OperationObservabilityGate:         runtime.handleObservabilityReleaseGate,

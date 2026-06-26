@@ -94,11 +94,27 @@ type adminContentAuditLogPayload struct {
 	GeneratedAt int64                           `json:"generated_at"`
 }
 
+type adminContentDiffPayload struct {
+	BaseVersionID   string                  `json:"base_version_id"`
+	TargetVersionID string                  `json:"target_version_id"`
+	Entries         []adminContentDiffEntry `json:"entries"`
+	Total           int                     `json:"total"`
+}
+
+type adminContentDiffEntry struct {
+	ContentType  string          `json:"content_type"`
+	ContentID    string          `json:"content_id"`
+	Change       string          `json:"change"`
+	OldValueJSON json.RawMessage `json:"old_value_json,omitempty"`
+	NewValueJSON json.RawMessage `json:"new_value_json,omitempty"`
+}
+
 type adminContentAuditEntryPayload struct {
 	ID               string          `json:"id"`
 	ContentVersionID string          `json:"content_version_id,omitempty"`
 	ContentType      string          `json:"content_type"`
 	ContentID        string          `json:"content_id"`
+	Action           string          `json:"action"`
 	FieldPath        string          `json:"field_path"`
 	OldValueJSON     json.RawMessage `json:"old_value_json,omitempty"`
 	NewValueJSON     json.RawMessage `json:"new_value_json,omitempty"`
@@ -305,6 +321,7 @@ func (runtime *Runtime) handleAdminContentAuditLog(ctx realtime.CommandContext, 
 		VersionID   string `json:"version_id,omitempty"`
 		ContentType string `json:"content_type,omitempty"`
 		ContentID   string `json:"content_id,omitempty"`
+		Action      string `json:"action,omitempty"`
 		Limit       int    `json:"limit,omitempty"`
 		Offset      int    `json:"offset,omitempty"`
 	}
@@ -318,6 +335,7 @@ func (runtime *Runtime) handleAdminContentAuditLog(ctx realtime.CommandContext, 
 		VersionID:   payload.VersionID,
 		ContentType: content.ContentType(payload.ContentType),
 		ContentID:   content.ContentID(payload.ContentID),
+		Action:      payload.Action,
 		Limit:       payload.Limit,
 		Offset:      payload.Offset,
 	})
@@ -352,6 +370,52 @@ func (runtime *Runtime) handleAdminContentVersions(ctx realtime.CommandContext, 
 		return nil, foundation.NewDomainError(foundation.CodeInternal, "Content versions unavailable.", foundation.WithCause(err))
 	}
 	return marshalPayload(map[string]any{"content_versions": adminContentVersionsPayloadFromList(versions)})
+}
+
+func (runtime *Runtime) handleAdminContentDiff(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	if _, err := runtime.requireAdmin(ctx, "Content diff is restricted."); err != nil {
+		return nil, err
+	}
+	var payload struct {
+		BaseVersionID   string `json:"base_version_id,omitempty"`
+		TargetVersionID string `json:"target_version_id,omitempty"`
+	}
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	if runtime.ContentAdmin == nil {
+		return nil, foundation.NewDomainError(foundation.CodeInternal, "Content admin service unavailable.")
+	}
+	diff, err := runtime.ContentAdmin.DiffVersions(context.Background(), content.DiffInput{
+		BaseVersionID:   payload.BaseVersionID,
+		TargetVersionID: payload.TargetVersionID,
+	})
+	if err != nil {
+		return nil, domainErrorForContentAdmin(err, "Content diff unavailable.")
+	}
+	return marshalPayload(map[string]any{"content_diff": adminContentDiffPayloadFromResult(diff)})
+}
+
+func adminContentDiffPayloadFromResult(diff content.DiffResult) adminContentDiffPayload {
+	payload := adminContentDiffPayload{
+		BaseVersionID:   diff.BaseVersionID,
+		TargetVersionID: diff.TargetVersionID,
+		Total:           diff.Total,
+		Entries:         make([]adminContentDiffEntry, 0, len(diff.Entries)),
+	}
+	for _, entry := range diff.Entries {
+		payload.Entries = append(payload.Entries, adminContentDiffEntry{
+			ContentType:  string(entry.ContentType),
+			ContentID:    string(entry.ContentID),
+			Change:       entry.Change,
+			OldValueJSON: append(json.RawMessage(nil), entry.OldValueJSON...),
+			NewValueJSON: append(json.RawMessage(nil), entry.NewValueJSON...),
+		})
+	}
+	return payload
 }
 
 func adminContentDraftListPayloadFromList(list content.DraftList) adminContentDraftListPayload {
@@ -422,6 +486,7 @@ func adminContentAuditLogPayloadFromLog(log content.AuditLog) adminContentAuditL
 			ContentVersionID: entry.ContentVersionID,
 			ContentType:      string(entry.ContentType),
 			ContentID:        string(entry.ContentID),
+			Action:           entry.Action,
 			FieldPath:        entry.FieldPath,
 			OldValueJSON:     append(json.RawMessage(nil), entry.OldValueJSON...),
 			NewValueJSON:     append(json.RawMessage(nil), entry.NewValueJSON...),

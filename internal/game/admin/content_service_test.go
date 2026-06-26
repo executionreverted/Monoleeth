@@ -285,6 +285,7 @@ func TestContentServicePublishDraftValidatesAndWritesImmutableVersion(t *testing
 	}
 	if len(store.publishedInput.AuditEntries) != 1 || store.publishedInput.AuditEntries[0].ActorAccountID != "account-admin" ||
 		store.publishedInput.AuditEntries[0].ContentType != content.ContentTypeModule ||
+		store.publishedInput.AuditEntries[0].Action != content.AuditActionPublish ||
 		store.publishedInput.AuditEntries[0].Note != "LC1 buff" ||
 		store.publishedInput.AuditEntries[0].BalanceTag != "starter_balance" {
 		t.Fatalf("audit entries = %+v, want module change with publish metadata by admin", store.publishedInput.AuditEntries)
@@ -391,6 +392,9 @@ func TestContentServicePublishDraftScrubsAuditJSON(t *testing.T) {
 	encoded := string(store.publishedInput.AuditEntries[0].NewValueJSON)
 	if strings.Contains(encoded, "super-secret") || strings.Contains(encoded, "seed-secret") || strings.Contains(encoded, "display-secret") {
 		t.Fatalf("audit JSON leaked secret values: %s", encoded)
+	}
+	if strings.Contains(encoded, "prov-secret") || strings.Contains(encoded, "hook/secret") || strings.Contains(encoded, "hash-secret") {
+		t.Fatalf("audit JSON leaked provider/webhook/hash secret values: %s", encoded)
 	}
 	if !strings.Contains(encoded, "[redacted]") {
 		t.Fatalf("audit JSON = %s, want redacted markers", encoded)
@@ -549,6 +553,7 @@ func TestContentServiceRollbackPublishesTargetSnapshotAsNewVersion(t *testing.T)
 		t.Fatalf("rollback result idempotency = %q, want published input key %q", result.IdempotencyKey, store.publishedInput.IdempotencyKey)
 	}
 	if len(store.publishedInput.AuditEntries) != 1 ||
+		store.publishedInput.AuditEntries[0].Action != content.AuditActionRollback ||
 		store.publishedInput.AuditEntries[0].Note != "restore starter" ||
 		store.publishedInput.AuditEntries[0].BalanceTag != "rollback_starter" {
 		t.Fatalf("rollback audit entries = %+v, want rollback metadata", store.publishedInput.AuditEntries)
@@ -612,6 +617,136 @@ func TestContentServiceAuditLogNormalizesAndUsesStore(t *testing.T) {
 	}
 	if log.Total != 1 || log.Limit != content.MaxAuditLogLimit || !log.GeneratedAt.Equal(now) {
 		t.Fatalf("audit log = %+v, want generated metadata", log)
+	}
+}
+
+func TestContentServiceDiffVersionsCurrentVsDraftReportsChangesAndScrubs(t *testing.T) {
+	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	current := snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_mvp_seed_v1", moduleSnapshotForAdminTest(8), now.Add(-time.Hour))
+	store := &fakeContentDraftStore{
+		currentSnapshot: current,
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeModule: {
+				{ContentID: "laser_alpha_t1", Enabled: true, DataJSON: []byte(`{"attack_damage":9,"api_token":"diff-secret"}`)},
+			},
+			content.ContentTypeItem: {
+				{ContentID: "item_added_draft", Enabled: true, DataJSON: []byte(`{"stackable":true}`)},
+			},
+		},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Snapshots: store,
+		Clock:     testutil.NewFakeClock(now),
+	})
+
+	result, err := service.DiffVersions(context.Background(), content.DiffInput{
+		BaseVersionID:   content.DiffSelectorCurrent,
+		TargetVersionID: content.DiffSelectorDraft,
+	})
+	if err != nil {
+		t.Fatalf("DiffVersions() error = %v, want nil", err)
+	}
+	if result.BaseVersionID != current.ID || result.TargetVersionID != content.DiffSelectorDraft {
+		t.Fatalf("diff selectors = %+v, want current id and draft", result)
+	}
+	byType := make(map[string][]content.DiffEntry)
+	for _, entry := range result.Entries {
+		byType[string(entry.ContentType)] = append(byType[string(entry.ContentType)], entry)
+	}
+	if len(byType[string(content.ContentTypeModule)]) != 1 ||
+		byType[string(content.ContentTypeModule)][0].Change != content.DiffChangeModified {
+		t.Fatalf("module diff = %+v, want single modified", byType[string(content.ContentTypeModule)])
+	}
+	if len(byType[string(content.ContentTypeItem)]) != 1 ||
+		byType[string(content.ContentTypeItem)][0].Change != content.DiffChangeAdded {
+		t.Fatalf("item diff = %+v, want single added", byType[string(content.ContentTypeItem)])
+	}
+	for _, entry := range result.Entries {
+		combined := string(entry.OldValueJSON) + string(entry.NewValueJSON)
+		if strings.Contains(combined, "diff-secret") {
+			t.Fatalf("diff entry %s leaked secret value: %s", entry.ContentID, combined)
+		}
+	}
+}
+
+func TestContentServiceDiffVersionsComparesTwoVersions(t *testing.T) {
+	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	base := snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "v1", moduleSnapshotForAdminTest(8), now.Add(-2*time.Hour))
+	target := snapshotVersionRecordForAdminTest("22222222-2222-5222-8222-222222222222", "v2", moduleSnapshotForAdminTest(10), now.Add(-time.Hour))
+	store := &fakeContentDraftStore{
+		currentSnapshot: target,
+		targetSnapshots: map[string]content.SnapshotVersionRecord{base.ID: base, target.ID: target},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Snapshots: store,
+		Clock:     testutil.NewFakeClock(now),
+	})
+
+	result, err := service.DiffVersions(context.Background(), content.DiffInput{
+		BaseVersionID:   base.ID,
+		TargetVersionID: target.ID,
+	})
+	if err != nil {
+		t.Fatalf("DiffVersions() error = %v, want nil", err)
+	}
+	if result.BaseVersionID != base.ID || result.TargetVersionID != target.ID {
+		t.Fatalf("diff selectors = %+v, want explicit version ids", result)
+	}
+	if result.Total != 1 || result.Entries[0].Change != content.DiffChangeModified {
+		t.Fatalf("diff = %+v, want single modified module", result)
+	}
+}
+
+func TestContentServicePublishDraftAuditsQuestTemplateChange(t *testing.T) {
+	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	current := snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_mvp_seed_v1", questSnapshotForAdminTest(18), now.Add(-time.Hour))
+	store := &fakeContentDraftStore{
+		currentSnapshot: current,
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeQuestTemplate: {
+				{ContentID: "quest_collect_carbon_shards_r1", Enabled: true, DataJSON: []byte(`{"required_count":99}`)},
+			},
+		},
+		publishResult: content.PublishSnapshotResult{
+			Record: snapshotVersionRecordForAdminTest("22222222-2222-5222-8222-222222222222", "content_balance_v2", questSnapshotForAdminTest(99), now),
+		},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{},
+		Clock:     testutil.NewFakeClock(now),
+	})
+
+	if _, err := service.PublishDraft(context.Background(), content.PublishDraftInput{Version: "content_balance_v2", Notes: "quest balance"}); err != nil {
+		t.Fatalf("PublishDraft() error = %v, want nil", err)
+	}
+	var questAudit *content.AuditLogEntryInput
+	for i := range store.publishedInput.AuditEntries {
+		if store.publishedInput.AuditEntries[i].ContentType == content.ContentTypeQuestTemplate {
+			questAudit = &store.publishedInput.AuditEntries[i]
+			break
+		}
+	}
+	if questAudit == nil || questAudit.ContentID != "quest_collect_carbon_shards_r1" || questAudit.Action != content.AuditActionPublish {
+		t.Fatalf("quest audit entry missing or wrong = %+v, want quest_template change with publish action", store.publishedInput.AuditEntries)
+	}
+}
+
+func TestContentServiceAuditLogRejectsUnknownAction(t *testing.T) {
+	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	store := &fakeContentDraftStore{}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts: store,
+		Audit:  store,
+		Clock:  testutil.NewFakeClock(now),
+	})
+
+	if _, err := service.AuditLog(context.Background(), content.AuditLogInput{Action: "delete"}); err == nil {
+		t.Fatalf("AuditLog(unknown action) error = nil, want error")
 	}
 }
 
@@ -763,6 +898,22 @@ func moduleSnapshotForAdminTest(damage int) content.Snapshot {
 		Version: "content_test",
 		Modules: []content.SnapshotRow{{
 			ContentID:   "laser_alpha_t1",
+			Enabled:     true,
+			DisplayJSON: []byte(`{}`),
+			DataJSON:    data,
+		}},
+	}
+}
+
+func questSnapshotForAdminTest(requiredCount int) content.Snapshot {
+	data, err := json.Marshal(map[string]any{"required_count": requiredCount})
+	if err != nil {
+		panic(err)
+	}
+	return content.Snapshot{
+		Version: "content_test",
+		QuestTemplates: []content.SnapshotRow{{
+			ContentID:   "quest_collect_carbon_shards_r1",
 			Enabled:     true,
 			DisplayJSON: []byte(`{}`),
 			DataJSON:    data,
