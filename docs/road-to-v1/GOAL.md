@@ -10,57 +10,39 @@ iki rapor: `docs/code-review/game-systems-code-review.md` ve
 `docs/code-review/feature-gap-analysis.md`. Index ve takip:
 `docs/road-to-v1/00-index.md`.
 
-## Durum Snapshot (Son Pause: 2026-06-25)
+## Durum Snapshot (Son Pause: 2026-06-26)
 
 Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 `docs/road-to-v1/00-index.md` Progress Dashboard.
 
 ### Wave bazlı statü
 - Wave 1: P01 Done, P03 Done, P04 Done.
-- Wave 2: P06 Done, P16 Done. P02 ~%95 (premium+loot+outbox-worker kaldı),
-  P05 direct-mutation tarafı bitti ama Done değil (Runtime.mu daralt kaldı).
-- Wave 3+: başlanmadı (P07–P15, P11, P12, P17).
+- Wave 2: P02 Done, P05 90% (deep mu narrowing → P17), P06 Done, P16 Done.
+- Wave 3: P07 Done, P09 Done (lane-F + lane-G), P08/P14 başlanmadı (DB engeli kalktı).
+- Wave 4+: başlanmadı (P10, P13, P15, P11, P12, P17).
+- Genel v1: ~55%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
-- `74badeb game: settle auction transactions through contentdb seam`
-  (P02: auction bid/buy-now tek contentdb tx + outbox + idempotency).
-- `a4283d5 game: seed hidden signals through worker commands`
-  (P05: seedWorld hidden entity worker command queue üstünden).
-- `523aea7 game: settle market transactions through contentdb seam`
-  (P02: market buy/cancel tek contentdb tx + outbox + idempotency).
-- `9ca4ddc game: route inactive map cleanup through worker`
-  (P05: inactive map cleanup worker command queue üstünden).
-- Not: `a40b21a glm-code-review` bu session'a ait değil, ayrı.
+- P09 lane-F tamamlandı (CMS diff API + audit action migration + quest compat test
+  + live-Postgres publish concurrency coverage). Çözüldü: P08 DB auth blocker
+  (port uyumsuzluğu — container 55432, `.env` 5432 → 55432'ye hizalandı).
+- `2de6a59 game: add economy source/sink balance telemetry` (P09 lane-G).
+- `912bc65 game: enable first non-starter ship shop purchase` (P07 lane-C).
+- `c89aca2 game: make effective cargo capacity authoritative` (P07 lane-B).
+- `cf72678 game: wire inventory.move command` (P07 lane-A).
+- `8270ff2 game: wire progression.unlock_skill command` (P07 lane-A).
+- `8d3ac42 docs: record P05 worker-ownership completion` (P05 docs).
+- `7d1bbbd game: drain economy outbox through runtime tick publisher` (P02 done).
 
-### P02 — kalan iş
-- [ ] Premium claim + provider-event tek durable tx/outbox. ÇALIŞMA SÜRÜYORDU:
-  Symphony `TASK-0542` In Progress (premium contentdb tx seam). Apply/commit
-  edilmedi. Resume: önce bu task'ın workspace-diff'ini topla/incele/apply et.
-- [ ] Loot pickup: drop claim + cargo mutate + XP outbox insert tek runtime tx
-  değil (`internal/game/loot/service.go`, `internal/game/server/combat_loot_repair.go`).
-- [ ] After-commit publisher / outbox replay worker'ı gerçek economy event
-  fanout'una bağla (handler'lar hâlâ doğrudan queue ediyor:
-  `internal/game/server/economy_handlers.go`).
-- Done değil: `02-...md` "Done Criteria" iki madde de açık.
-
-### P05 — kalan iş
-- [x] Production'da direct `Worker.(Insert|Remove|Update)Entity` kalmadı
-  (`rg` server altında temiz).
-- [ ] `Runtime.mu` daralt: combat/loot/portal/AOI hâlâ global lock altında
-  (`combat_loot_repair.go`, `portal_handlers.go`, `runtime_world_snapshot.go`).
-- [ ] Map A aktivitesi Map B arkasında serialize olmasın (Done Criteria açık).
-
-### Worktree notu (pause anında)
-- Commit'li işler temiz: `go test ./...`, `git diff --check` geçti.
-- Commit EDİLMEMİŞ, bana ait olmayan değişiklikler duruyor, dokunmadım:
-  - `M docs/road-to-v1/11-first-endgame-signal-gate.md`
-  - `M docs/road-to-v1/GOAL.md` (bu snapshot + senin kural edit'lerin)
-  - `?? game-server` (untracked binary, commit etme)
-
-### Resume ilk adımlar
-1. Context tazele: `00-index.md`, `02-...md`, `05-...md`, `git status`.
-2. Symphony çalışıyorsa `TASK-0542` durumunu kontrol et, diff'i apply/verify/commit et.
-3. Sırada: P02 loot tx + outbox publisher, sonra P05 `Runtime.mu` daraltma.
+### Sırada (resume sırası)
+1. Context tazele: `00-index.md`, `REMAINING-WORK.md`, ilgili faz dosyası.
+2. P14: CMS runtime application (HI-02/HI-08 — publish → canlı runtime'a yansıtma
+   veya dürüst `pending_restart` raporlama; `runtime_applied`/`runtime_version`/
+   `published_version`).
+3. P08: Durable planet/production/routes (DB engeli kalktı — durable store
+   adapter'ları + idempotent settlement + recovery worker).
+4. Wave 4+: P10 social, P13 release gate, P15 AOI perf.
+5. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
 
 ## Çalışma Kuralları
 

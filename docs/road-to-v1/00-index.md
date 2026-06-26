@@ -118,7 +118,7 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 | 06 | Movement, Combat & Death Correctness | 2 | Done | `██████████` 100% |
 | 07 | Equipment & Progression Closure | 3 | Done | `██████████` 100% |
 | 08 | Durable Planet, Production & Routes | 3 | Not started | `░░░░░░░░░░` 0% |
-| 09 | CMS Completion & Balance Telemetry | 3 | In progress | `█░░░░░░░░░` 15% |
+| 09 | CMS Completion & Balance Telemetry | 3 | Done | `██████████` 100% |
 | 10 | Social MVP | 4 | Not started | `░░░░░░░░░░` 0% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | Not started | `░░░░░░░░░░` 0% |
 | 12 | DarkOrbit Flavor | 6 | Not started | `░░░░░░░░░░` 0% |
@@ -127,7 +127,7 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 | 15 | World Performance & AOI/Aggro Optimization | 4 | Not started | `░░░░░░░░░░` 0% |
 | 16 | Production Config & Operational Hardening | 2 | Done | `██████████` 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | Not started | `░░░░░░░░░░` 0% |
-| — | **Overall v1** | — | In progress | `█████░░░░░` 50% |
+| — | **Overall v1** | — | In progress | `█████▌░░░░` 55% |
 
 ### Progress bar legend
 
