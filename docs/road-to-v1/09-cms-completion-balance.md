@@ -1,7 +1,7 @@
 # Phase 09 — CMS Completion & Balance Telemetry
 
 ## Status
-- State: Not started
+- State: In progress
 - Wave: 3
 - Depends on: P01
 - Unlocks: live ops content (P11/P12)
@@ -28,7 +28,7 @@ limit) and add economy source/sink telemetry so content balancing is measurable.
 - [ ] `[P:wave3/lane-F]` Add audit `action` column/migration; expand secret/seed scrubber policy.
 - [ ] `[P:wave3/lane-F]` Include quest rows in publish/rollback; add accepted-old-quest compatibility test.
 - [ ] `[P:wave3/lane-F]` Add live-Postgres duplicate/concurrent publish coverage + zero-mutation rate-limit coverage.
-- [ ] `[P:wave3/lane-G]` Add economy source/sink telemetry feeding release-gate balance checks.
+- [x] `[P:wave3/lane-G]` Add economy source/sink telemetry feeding release-gate balance checks.
 
 ## Server Ownership
 - All `admin.content.*` ops require server-resolved admin role; never leak hidden content to players.
