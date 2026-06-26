@@ -204,8 +204,7 @@ func runtimeShipShopProduct(definition ships.ShipDefinition) (catalog.ShopProduc
 		Price:       catalog.PricePolicy{Currency: catalog.PriceCurrencyCredits, Amount: price, Fixed: true},
 		Stock:       catalog.StockPolicy{Kind: catalog.StockPolicyUnlimited},
 		Availability: catalog.AvailabilityRule{
-			Available:    false,
-			LockedReason: "Ship purchase unavailable in this playtest.",
+			Available:    true,
 			RequiredRank: definition.RankRequirement,
 		},
 	}, true

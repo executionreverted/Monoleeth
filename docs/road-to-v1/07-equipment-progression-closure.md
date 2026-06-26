@@ -1,7 +1,7 @@
 # Phase 07 — Equipment & Progression Closure
 
 ## Status
-- State: In progress
+- State: Done
 - Wave: 3
 - Depends on: P01, P02
 - Unlocks: P11, P12
@@ -28,7 +28,7 @@ cargo recalculation after equipment changes, and a real first non-starter ship p
 - [x] `[P:wave3/lane-A]` Add `progression.unlock_skill` (point check, prereqs, consume once).
 - [x] `[P:wave3/lane-B]` Wire `StatService` into runtime; recalc on equip/unequip/ship activate.
 - [x] `[P:wave3/lane-B]` Make effective cargo capacity authoritative; emit `stats.updated` + cargo/inventory/hangar/loadout snapshots together.
-- [ ] `[P:wave3/lane-C]` Define first buyable/craftable non-starter ship with server price/rank; grant to hangar with events.
+- [x] `[P:wave3/lane-C]` Define first buyable/craftable non-starter ship with server price/rank; grant to hangar with events.
 - [ ] `[P:wave3/lane-C]` Add skill tree UI panel + unlock action (client).
 
 ## Server Ownership
@@ -40,11 +40,11 @@ cargo recalculation after equipment changes, and a real first non-starter ship p
 - [x] Skill unlock consumes exactly one point.
 - [x] Duplicate skill unlock does not double-spend.
 - [x] Equipping a cargo module increases server + visible cargo capacity.
-- [ ] Buying/crafting the first non-starter ship adds it to hangar once.
+- [x] Buying/crafting the first non-starter ship adds it to hangar once.
 
 ## Done Criteria
-- [ ] Equipment/skills measurably change effective stats and cargo.
-- [ ] Phase 06 open progression/inventory items closed.
+- [x] Equipment/skills measurably change effective stats and cargo.
+- [x] Phase 06 open progression/inventory items closed.
 
 ## Verification
 ```bash
