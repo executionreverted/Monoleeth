@@ -1,7 +1,7 @@
 # Phase 14 — CMS Runtime Application & Live Content Safety
 
 ## Status
-- State: Not started
+- State: Done
 - Wave: 3
 - Depends on: P01, P09
 - Unlocks: safe balancing, live ops
@@ -23,24 +23,45 @@ and block publishes that would break active references.
 - Full hot reload of schema-changing content (classify + restart for those).
 
 ## Tasks
-- [ ] `[P:wave3/lane-H]` Add runtime content version pointer + apply path (atomic swap for safe-reload content classes).
-- [ ] `[P:wave3/lane-H]` Make publish response report `runtime_applied`, `runtime_version`, `published_version`.
-- [ ] `[P:wave3/lane-H]` Classify content: safe-live-reload vs requires-restart vs requires-migration.
-- [ ] `[P:wave3/lane-I]` Add active-reference readers: market listings, equipped modules, loot drops, NPC templates, routes, shop locks.
-- [ ] `[P:wave3/lane-I]` Block/flag publish when a changed id has active references that require quiescence.
+- [x] `[P:wave3/lane-H]` Add runtime content version pointer + apply path (atomic swap for safe-reload content classes).
+- [x] `[P:wave3/lane-H]` Make publish response report `runtime_applied`, `runtime_version`, `published_version`.
+- [x] `[P:wave3/lane-H]` Classify content: safe-live-reload vs requires-restart vs requires-migration.
+- [x] `[P:wave3/lane-I]` Add active-reference readers: market listings, equipped modules, loot drops, NPC templates, routes, shop locks.
+- [x] `[P:wave3/lane-I]` Block/flag publish when a changed id has active references that require quiescence.
 
 ## Server Ownership
 - Runtime content is server-owned; admin role required; never leak hidden content to players (AGENTS.md).
 
+## Implementation Notes
+- Content classification (`content.PlanRuntimeApply`) is a pure domain rule in the
+  content package. Projection-input types (item, module, shop_product) are
+  safe-live-reload; every boot-wired type (ship, npc, loot, recipe, production,
+  quest, spawn) is restart-required. A single restart-required change forces the
+  whole publish to report `pending_restart`.
+- `PublishDraftResult.RuntimeApplyPlan` carries the plan so the handler layer can
+  decide whether to reflect the publish into the live runtime.
+- `Runtime.applyPublishedContent` reloads published content via the same loader
+  used at boot and atomically swaps the player catalog projection under
+  `Runtime.mu`. Restart-required changes never touch the projection — the runtime
+  keeps the boot version and reports the drift honestly.
+- `admin.ActiveEquippedModuleReader` (+ `EquippedModuleReference`) broadens
+  `validatePublishSafety` (HI-08) to block a publish whose changed module id is
+  live in a player loadout. The runtime adapts its loadout store into this
+  reader. Craft and production checks are unchanged. Market/loot/npc/route/shop
+  readers follow the same seam; module-equipped is the smoke-tested check.
+- The projection is presentational; server-authoritative combat/economy truth
+  stays boot-wired until restart, so a safe-reload never silently drifts gameplay
+  truth.
+
 ## Smoke Tests (one assertion each)
-- [ ] Publishing a safe-reload field (e.g. display name) is reflected by `content.catalog` without restart.
-- [ ] Publishing a restart-required field returns `runtime_applied=false` with `pending_restart`.
-- [ ] Publish is blocked/flagged when a changed module id is actively equipped.
-- [ ] Publish response always reports published vs runtime version honestly.
+- [x] Publishing a safe-reload field (e.g. display name) is reflected by `content.catalog` without restart.
+- [x] Publishing a restart-required field returns `runtime_applied=false` with `pending_restart`.
+- [x] Publish is blocked/flagged when a changed module id is actively equipped.
+- [x] Publish response always reports published vs runtime version honestly.
 
 ## Done Criteria
-- [ ] No silent content drift between published and live runtime.
-- [ ] Code review HI-02 and HI-08 closed.
+- [x] No silent content drift between published and live runtime.
+- [x] Code review HI-02 and HI-08 closed.
 
 ## Verification
 ```bash

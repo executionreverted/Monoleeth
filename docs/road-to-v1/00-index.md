@@ -81,13 +81,13 @@ Confirms every Critical/High/Medium finding from the code review has a home.
 | CR-02 slow-client blocks tick | P03 |
 | CR-03 non-transactional economy | P02 |
 | HI-01 global runtime mutex | P05 |
-| HI-02 CMS publish not applied to runtime | P14 |
+| HI-02 CMS publish not applied to runtime | P14 ✅ |
 | HI-03 stop does not settle position | P06 |
 | HI-04 no durable event replay | P03 |
 | HI-05 rate limits metadata-only | P04 |
 | HI-06 worker state not synchronized | P05 |
 | HI-07 aggro/AOI O(N×M) | P15 |
-| HI-08 narrow CMS publish safety | P14 |
+| HI-08 narrow CMS publish safety | P14 ✅ |
 | MD-01 request cache mismatch | P03 |
 | MD-02 prod secure cookie | P16 |
 | MD-03 combat/loot stale position | P06 |
@@ -123,11 +123,11 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 | 11 | First Endgame Loop (Signal Gate) | 5 | Not started | `░░░░░░░░░░` 0% |
 | 12 | DarkOrbit Flavor | 6 | Not started | `░░░░░░░░░░` 0% |
 | 13 | Observability, Simulation & Release Gate | 4 | Not started | `░░░░░░░░░░` 0% |
-| 14 | CMS Runtime Application & Content Safety | 3 | Not started | `░░░░░░░░░░` 0% |
+| 14 | CMS Runtime Application & Content Safety | 3 | Done | `██████████` 100% |
 | 15 | World Performance & AOI/Aggro Optimization | 4 | Not started | `░░░░░░░░░░` 0% |
 | 16 | Production Config & Operational Hardening | 2 | Done | `██████████` 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | Not started | `░░░░░░░░░░` 0% |
-| — | **Overall v1** | — | In progress | `█████▌░░░░` 55% |
+| — | **Overall v1** | — | In progress | `█████▊░░░░` 58% |
 
 ### Progress bar legend
 

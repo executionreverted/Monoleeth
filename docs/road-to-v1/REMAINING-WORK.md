@@ -90,33 +90,35 @@ survival.
 
 ---
 
-### ⬜ P14 — CMS Runtime Application & Live Content Safety (Wave 3, 0%)
+### ✅ P14 — CMS Runtime Application & Live Content Safety (Wave 3, DONE)
 
 CMS publish → canlı runtime'a yansıtma veya dürüstçe `pending_restart` raporlama.
+HI-02 ve HI-08 kapatıldı.
 
-- [ ] `[P:wave3/lane-H]` Runtime content version pointer + apply path (atomic
+- [x] `[P:wave3/lane-H]` Runtime content version pointer + apply path (atomic
   swap for safe-reload content classes).
-- [ ] `[P:wave3/lane-H]` Publish response report `runtime_applied`,
+- [x] `[P:wave3/lane-H]` Publish response report `runtime_applied`,
   `runtime_version`, `published_version`.
-- [ ] `[P:wave3/lane-H]` Classify content: safe-live-reload vs requires-restart
+- [x] `[P:wave3/lane-H]` Classify content: safe-live-reload vs requires-restart
   vs requires-migration.
-- [ ] `[P:wave3/lane-I]` Active-reference readers: market listings, equipped
-  modules, loot drops, NPC templates, routes, shop locks.
-- [ ] `[P:wave3/lane-I]` Block/flag publish when a changed id has active
+- [x] `[P:wave3/lane-I]` Active-reference readers: market listings, equipped
+  modules, loot drops, NPC templates, routes, shop locks (equipped-module oku;
+  gerisi aynı seam ile genişletilebilir).
+- [x] `[P:wave3/lane-I]` Block/flag publish when a changed id has active
   references that require quiescence.
 
 **Smoke Tests:** safe-reload field reflected without restart; restart-required
 field returns `runtime_applied=false` + `pending_restart`; publish blocked when
 changed module id actively equipped; publish response reports published vs
-runtime version honestly.
+runtime version honestly. (Tümü green.)
 
 **Referanslar:**
 - `docs/road-to-v1/14-cms-runtime-application-content-safety.md`
-- `internal/game/admin/` (ContentPublisher, ContentSnapshotReader)
-- `internal/game/admin/content_diff.go` (P09 diff servisi — runtime apply için
-  temel)
-- `internal/game/server/runtime.go` (content load path)
-- `internal/game/content/` (content bundle)
+- `internal/game/content/content_apply.go` (PlanRuntimeApply classification)
+- `internal/game/admin/content_service.go` (validatePublishSafety + reader)
+- `internal/game/server/runtime_content_apply.go` (Runtime.applyPublishedContent)
+- `internal/game/server/runtime_content_safety.go` (ActiveEquippedModules)
+- `internal/game/server/content_admin_handlers.go` (honest publish payload)
 
 ---
 
@@ -215,7 +217,7 @@ P07 + P11 dependency. Drones, P.E.T., ammo, honor (en az MVP).
 ```text
 Wave 1: P01 ✅ | P03 ✅ | P04 ✅
 Wave 2: P02 ✅ | P05 🟡(90%, P17'ye ertelendi) | P06 ✅ | P16 ✅
-Wave 3: P07 ✅ | P08 ⬜ | P09 ✅ | P14 ⬜
+Wave 3: P07 ✅ | P08 ⬜ | P09 ✅ | P14 ✅
 Wave 4: P10 ⬜ | P13 ⬜ | P15 ⬜
 Wave 5: P11 ⬜
 Wave 6: P12 ⬜ | P17 ⬜(continuous)

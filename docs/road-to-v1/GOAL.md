@@ -18,11 +18,18 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 ### Wave bazlı statü
 - Wave 1: P01 Done, P03 Done, P04 Done.
 - Wave 2: P02 Done, P05 90% (deep mu narrowing → P17), P06 Done, P16 Done.
-- Wave 3: P07 Done, P09 Done (lane-F + lane-G), P08/P14 başlanmadı (DB engeli kalktı).
+- Wave 3: P07 Done, P09 Done (lane-F + lane-G), P14 Done (HI-02/HI-08 closed —
+  runtime apply + equipped-module safety), P08 başlanmadı (DB engeli kalktı).
 - Wave 4+: başlanmadı (P10, P13, P15, P11, P12, P17).
-- Genel v1: ~55%.
+- Genel v1: ~58%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P14 tamamlandı (CMS runtime application + live content safety): content
+  classification (safe-reload vs restart-required), `Runtime.applyPublishedContent`
+  atomic projection swap, honest publish payload (`runtime_applied`/
+  `runtime_version`/`published_version`/`pending_restart`), broadened
+  `validatePublishSafety` with equipped-module active-reference reader (HI-02 +
+  HI-08 closed).
 - P09 lane-F tamamlandı (CMS diff API + audit action migration + quest compat test
   + live-Postgres publish concurrency coverage). Çözüldü: P08 DB auth blocker
   (port uyumsuzluğu — container 55432, `.env` 5432 → 55432'ye hizalandı).
@@ -36,13 +43,10 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 
 ### Sırada (resume sırası)
 1. Context tazele: `00-index.md`, `REMAINING-WORK.md`, ilgili faz dosyası.
-2. P14: CMS runtime application (HI-02/HI-08 — publish → canlı runtime'a yansıtma
-   veya dürüst `pending_restart` raporlama; `runtime_applied`/`runtime_version`/
-   `published_version`).
-3. P08: Durable planet/production/routes (DB engeli kalktı — durable store
-   adapter'ları + idempotent settlement + recovery worker).
-4. Wave 4+: P10 social, P13 release gate, P15 AOI perf.
-5. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
+2. P08: Durable planet/production/routes (DB engeli kalktı — durable store
+   adapter'ları + idempotent settlement + recovery worker). P14 artık done.
+3. Wave 4+: P10 social, P13 release gate, P15 AOI perf.
+4. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
 
 ## Çalışma Kuralları
 
