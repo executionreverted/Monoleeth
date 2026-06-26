@@ -208,6 +208,7 @@ type Runtime struct {
 	combatRules              gamecontent.CombatRulesContent
 	contentCatalogProjection gamecontent.PlayerContentProjection
 	contentCatalogVersion    string
+	contentReloader          func(context.Context) (gamecontent.GameplayContent, error)
 	repairAttempts           map[foundation.IdempotencyKey]repairAttemptRecord
 	repairQuotes             map[foundation.PlayerID]repairQuoteRecord
 	repairQuoteSeq           uint64
@@ -1239,11 +1240,15 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		combatRules:                    contentBundle.Combat,
 		contentCatalogProjection:       contentCatalogProjection,
 		contentCatalogVersion:          contentCatalogProjection.Version,
+		contentReloader:                buildRuntimeContentReloader(config),
 		repairAttempts:                 make(map[foundation.IdempotencyKey]repairAttemptRecord),
 		repairQuotes:                   make(map[foundation.PlayerID]repairQuoteRecord),
 		shopPurchases:                  make(map[foundation.IdempotencyKey]shopPurchaseRecord),
 		scanCooldowns:                  make(map[scanCooldownKey]time.Time),
 		scanCapacitorSpends:            make(map[discovery.ScanPulseReference]scanCapacitorSpendRecord),
+	}
+	if runtime.ContentAdmin != nil {
+		runtime.ContentAdmin.SetPublishSafetyModuleReader(runtime)
 	}
 	scannerSeed, err := contentBundle.Scanner.WorldSeed()
 	if err != nil {

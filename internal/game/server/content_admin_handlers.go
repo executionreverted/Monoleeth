@@ -69,21 +69,29 @@ type adminContentDraftValidationIssuePayload struct {
 }
 
 type adminContentPublishPayload struct {
-	Published      bool                               `json:"published"`
-	Idempotent     bool                               `json:"idempotent"`
-	IdempotencyKey string                             `json:"idempotency_key,omitempty"`
-	RowCount       int                                `json:"row_count"`
-	Version        adminContentVersionPayload         `json:"version"`
-	Validation     adminContentDraftValidationPayload `json:"validation"`
+	Published        bool                               `json:"published"`
+	Idempotent       bool                               `json:"idempotent"`
+	IdempotencyKey   string                             `json:"idempotency_key,omitempty"`
+	RowCount         int                                `json:"row_count"`
+	Version          adminContentVersionPayload         `json:"version"`
+	Validation       adminContentDraftValidationPayload `json:"validation"`
+	RuntimeApplied   bool                               `json:"runtime_applied"`
+	RuntimeVersion   string                             `json:"runtime_version"`
+	PublishedVersion string                             `json:"published_version"`
+	PendingRestart   bool                               `json:"pending_restart"`
 }
 
 type adminContentRollbackPayload struct {
-	RolledBack      bool                               `json:"rolled_back"`
-	Idempotent      bool                               `json:"idempotent"`
-	IdempotencyKey  string                             `json:"idempotency_key,omitempty"`
-	TargetVersionID string                             `json:"target_version_id"`
-	Version         adminContentVersionPayload         `json:"version"`
-	Validation      adminContentDraftValidationPayload `json:"validation"`
+	RolledBack       bool                               `json:"rolled_back"`
+	Idempotent       bool                               `json:"idempotent"`
+	IdempotencyKey   string                             `json:"idempotency_key,omitempty"`
+	TargetVersionID  string                             `json:"target_version_id"`
+	Version          adminContentVersionPayload         `json:"version"`
+	Validation       adminContentDraftValidationPayload `json:"validation"`
+	RuntimeApplied   bool                               `json:"runtime_applied"`
+	RuntimeVersion   string                             `json:"runtime_version"`
+	PublishedVersion string                             `json:"published_version"`
+	PendingRestart   bool                               `json:"pending_restart"`
 }
 
 type adminContentAuditLogPayload struct {
@@ -269,7 +277,11 @@ func (runtime *Runtime) handleAdminContentPublish(ctx realtime.CommandContext, r
 	if err != nil {
 		return nil, domainErrorForContentAdmin(err, "Content publish failed.")
 	}
-	return marshalPayload(map[string]any{"content_publish": adminContentPublishPayloadFromResult(result)})
+	outcome, err := runtime.reflectPublishedContent(context.Background(), result)
+	if err != nil {
+		return nil, err
+	}
+	return marshalPayload(map[string]any{"content_publish": adminContentPublishPayloadFromResult(result, outcome)})
 }
 
 func (runtime *Runtime) handleAdminContentRollback(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -307,7 +319,11 @@ func (runtime *Runtime) handleAdminContentRollback(ctx realtime.CommandContext, 
 	if err != nil {
 		return nil, domainErrorForContentAdmin(err, "Content rollback failed.")
 	}
-	return marshalPayload(map[string]any{"content_rollback": adminContentRollbackPayloadFromResult(payload.TargetVersionID, result)})
+	outcome, err := runtime.reflectPublishedContent(context.Background(), result)
+	if err != nil {
+		return nil, err
+	}
+	return marshalPayload(map[string]any{"content_rollback": adminContentRollbackPayloadFromResult(payload.TargetVersionID, result, outcome)})
 }
 
 func (runtime *Runtime) handleAdminContentAuditLog(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -450,25 +466,33 @@ func adminContentDraftValidationPayloadFromReport(report content.DraftValidation
 	return payload
 }
 
-func adminContentPublishPayloadFromResult(result content.PublishDraftResult) adminContentPublishPayload {
+func adminContentPublishPayloadFromResult(result content.PublishDraftResult, outcome contentApplyOutcome) adminContentPublishPayload {
 	return adminContentPublishPayload{
-		Published:      result.Published,
-		Idempotent:     result.Idempotent,
-		IdempotencyKey: result.IdempotencyKey,
-		RowCount:       result.RowCount,
-		Version:        adminContentVersionPayloadFromSummary(result.Version),
-		Validation:     adminContentDraftValidationPayloadFromReport(result.Validation),
+		Published:        result.Published,
+		Idempotent:       result.Idempotent,
+		IdempotencyKey:   result.IdempotencyKey,
+		RowCount:         result.RowCount,
+		Version:          adminContentVersionPayloadFromSummary(result.Version),
+		Validation:       adminContentDraftValidationPayloadFromReport(result.Validation),
+		RuntimeApplied:   outcome.Applied,
+		RuntimeVersion:   outcome.RuntimeVersion,
+		PublishedVersion: result.Version.Version,
+		PendingRestart:   outcome.PendingRestart,
 	}
 }
 
-func adminContentRollbackPayloadFromResult(targetVersionID string, result content.PublishDraftResult) adminContentRollbackPayload {
+func adminContentRollbackPayloadFromResult(targetVersionID string, result content.PublishDraftResult, outcome contentApplyOutcome) adminContentRollbackPayload {
 	return adminContentRollbackPayload{
-		RolledBack:      result.Published,
-		Idempotent:      result.Idempotent,
-		IdempotencyKey:  result.IdempotencyKey,
-		TargetVersionID: targetVersionID,
-		Version:         adminContentVersionPayloadFromSummary(result.Version),
-		Validation:      adminContentDraftValidationPayloadFromReport(result.Validation),
+		RolledBack:       result.Published,
+		Idempotent:       result.Idempotent,
+		IdempotencyKey:   result.IdempotencyKey,
+		TargetVersionID:  targetVersionID,
+		Version:          adminContentVersionPayloadFromSummary(result.Version),
+		Validation:       adminContentDraftValidationPayloadFromReport(result.Validation),
+		RuntimeApplied:   outcome.Applied,
+		RuntimeVersion:   outcome.RuntimeVersion,
+		PublishedVersion: result.Version.Version,
+		PendingRestart:   outcome.PendingRestart,
 	}
 }
 

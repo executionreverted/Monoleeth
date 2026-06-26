@@ -29,6 +29,7 @@ var ErrMissingContentPublishNotes = errors.New("missing content publish notes")
 var ErrInvalidContentBalanceTag = errors.New("invalid content balance tag")
 var ErrContentPublishActiveCraftDefinition = errors.New("content publish blocked by active craft recipe definition")
 var ErrContentPublishActiveProductionDefinition = errors.New("content publish blocked by active production building definition")
+var ErrContentPublishActiveEquippedModule = errors.New("content publish blocked by actively equipped module")
 var ErrInvalidAuditAction = errors.New("invalid content audit action")
 
 const (
@@ -73,17 +74,31 @@ type ActiveProductionBuildingReader interface {
 	ActiveProductionBuildings(context.Context) ([]production.PlanetBuilding, error)
 }
 
+// EquippedModuleReference names a module definition currently equipped on a
+// player ship. The runtime reports these so publish safety can block a content
+// change whose module id is live in someone's loadout.
+type EquippedModuleReference struct {
+	ModuleID content.ContentID
+	PlayerID string
+	ShipID   string
+}
+
+type ActiveEquippedModuleReader interface {
+	ActiveEquippedModules(context.Context) ([]EquippedModuleReference, error)
+}
+
 type ContentServiceConfig struct {
-	Versions         ContentVersionStore
-	Drafts           ContentDraftStore
-	Writer           ContentDraftWriter
-	Validator        ContentDraftValidator
-	Publisher        ContentPublisher
-	Snapshots        ContentSnapshotReader
-	Audit            ContentAuditStore
-	ActiveCraft      ActiveCraftJobReader
-	ActiveProduction ActiveProductionBuildingReader
-	Clock            foundation.Clock
+	Versions              ContentVersionStore
+	Drafts                ContentDraftStore
+	Writer                ContentDraftWriter
+	Validator             ContentDraftValidator
+	Publisher             ContentPublisher
+	Snapshots             ContentSnapshotReader
+	Audit                 ContentAuditStore
+	ActiveCraft           ActiveCraftJobReader
+	ActiveProduction      ActiveProductionBuildingReader
+	ActiveEquippedModules ActiveEquippedModuleReader
+	Clock                 foundation.Clock
 }
 
 type ContentService struct {
@@ -96,6 +111,7 @@ type ContentService struct {
 	audit            ContentAuditStore
 	activeCraft      ActiveCraftJobReader
 	activeProduction ActiveProductionBuildingReader
+	activeModules    ActiveEquippedModuleReader
 	clock            foundation.Clock
 }
 
@@ -138,6 +154,7 @@ func NewContentService(config ContentServiceConfig) *ContentService {
 		audit:            audit,
 		activeCraft:      config.ActiveCraft,
 		activeProduction: config.ActiveProduction,
+		activeModules:    config.ActiveEquippedModules,
 		clock:            clock,
 	}
 }
@@ -148,6 +165,15 @@ func (service *ContentService) SetPublishSafetyReaders(craft ActiveCraftJobReade
 	}
 	service.activeCraft = craft
 	service.activeProduction = production
+}
+
+// SetPublishSafetyModuleReader wires the equipped-module active-reference
+// reader used by publish safety to block changes to modules players hold live.
+func (service *ContentService) SetPublishSafetyModuleReader(modules ActiveEquippedModuleReader) {
+	if service == nil {
+		return
+	}
+	service.activeModules = modules
 }
 
 func (service *ContentService) ListVersions(ctx context.Context, input content.VersionListInput) (content.VersionList, error) {
@@ -291,6 +317,7 @@ func (service *ContentService) PublishDraft(ctx context.Context, input content.P
 	if err != nil {
 		return content.PublishDraftResult{}, err
 	}
+	result.RuntimeApplyPlan = content.PlanRuntimeApply(current.Snapshot, snapshot)
 	if err := service.validatePublishSafety(ctx, current.Snapshot, snapshot); err != nil {
 		return content.PublishDraftResult{}, err
 	}
@@ -368,6 +395,7 @@ func (service *ContentService) Rollback(ctx context.Context, input content.Rollb
 	if err != nil {
 		return content.PublishDraftResult{}, err
 	}
+	result.RuntimeApplyPlan = content.PlanRuntimeApply(current.Snapshot, snapshot)
 	validationJSON, err := json.Marshal(report)
 	if err != nil {
 		return content.PublishDraftResult{}, err
@@ -513,6 +541,20 @@ func (service *ContentService) validatePublishSafety(ctx context.Context, curren
 				return fmt.Errorf("production definition %q building %q planet %q version %q: %w",
 					building.Source.DefinitionID, building.BuildingID, building.PlanetID, building.Source.Version,
 					ErrContentPublishActiveProductionDefinition)
+			}
+		}
+	}
+
+	changedModules := changedContentIDs(current.Modules, next.Modules)
+	if len(changedModules) > 0 && service.activeModules != nil {
+		refs, err := service.activeModules.ActiveEquippedModules(ctx)
+		if err != nil {
+			return err
+		}
+		for _, ref := range refs {
+			if changedModules[ref.ModuleID] {
+				return fmt.Errorf("module %q player %q ship %q: %w",
+					ref.ModuleID, ref.PlayerID, ref.ShipID, ErrContentPublishActiveEquippedModule)
 			}
 		}
 	}

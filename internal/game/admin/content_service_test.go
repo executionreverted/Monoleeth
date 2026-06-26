@@ -295,6 +295,78 @@ func TestContentServicePublishDraftValidatesAndWritesImmutableVersion(t *testing
 	}
 }
 
+func TestContentServicePublishDraftPlansSafeReloadForModuleOnlyChange(t *testing.T) {
+	now := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
+	current := snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_mvp_seed_v1", moduleSnapshotForAdminTest(8), now.Add(-time.Hour))
+	store := &fakeContentDraftStore{
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeModule: {
+				{ContentID: "laser_alpha_t1", Enabled: true, DataJSON: []byte(`{"attack_damage":9}`), DisplayJSON: []byte(`{"display_name":"Prism Lance II"}`)},
+			},
+		},
+		currentSnapshot: current,
+		publishResult: content.PublishSnapshotResult{
+			Record: snapshotVersionRecordForAdminTest("22222222-2222-5222-8222-222222222222", "content_balance_v2", moduleSnapshotForAdminTest(9), now),
+		},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{},
+		Clock:     testutil.NewFakeClock(now),
+	})
+
+	result, err := service.PublishDraft(context.Background(), content.PublishDraftInput{
+		Version:        "content_balance_v2",
+		Notes:          "LC1 buff",
+		BalanceTag:     "starter_balance",
+		ActorAccountID: "account-admin",
+	})
+	if err != nil {
+		t.Fatalf("PublishDraft() error = %v, want nil", err)
+	}
+	if result.RuntimeApplyPlan.Class != content.ApplyClassSafeReload {
+		t.Fatalf("apply plan class = %q, want %q (module-only change is projection-safe)", result.RuntimeApplyPlan.Class, content.ApplyClassSafeReload)
+	}
+}
+
+func TestContentServicePublishDraftPlansRestartRequiredForQuestChange(t *testing.T) {
+	now := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
+	current := snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_mvp_seed_v1", questSnapshotForAdminTest(5), now.Add(-time.Hour))
+	store := &fakeContentDraftStore{
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeQuestTemplate: {
+				{ContentID: "quest_collect_carbon_shards_r1", Enabled: true, DataJSON: []byte(`{"required_count":10}`), DisplayJSON: []byte(`{}`)},
+			},
+		},
+		currentSnapshot: current,
+		publishResult: content.PublishSnapshotResult{
+			Record: snapshotVersionRecordForAdminTest("22222222-2222-5222-8222-222222222222", "content_quest_v2", questSnapshotForAdminTest(10), now),
+		},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{},
+		Clock:     testutil.NewFakeClock(now),
+	})
+
+	result, err := service.PublishDraft(context.Background(), content.PublishDraftInput{
+		Version:        "content_quest_v2",
+		Notes:          "quest rebalance",
+		BalanceTag:     "starter_balance",
+		ActorAccountID: "account-admin",
+	})
+	if err != nil {
+		t.Fatalf("PublishDraft() error = %v, want nil", err)
+	}
+	if result.RuntimeApplyPlan.Class != content.ApplyClassRestartRequired {
+		t.Fatalf("apply plan class = %q, want %q (quest template is boot-wired)", result.RuntimeApplyPlan.Class, content.ApplyClassRestartRequired)
+	}
+}
+
 func TestContentServicePublishDraftRequiresNotesAndValidatesBalanceTag(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -504,6 +576,103 @@ func TestContentServicePublishDraftBlocksChangedProductionDefinitionWithActiveBu
 	}
 	if store.publishCalled {
 		t.Fatal("PublishDraft() wrote version despite active production conflict")
+	}
+}
+
+func TestContentServicePublishDraftBlocksChangedModuleWithActiveEquip(t *testing.T) {
+	current := content.Snapshot{
+		Version: "content_v1",
+		Modules: []content.SnapshotRow{{
+			ContentID:   "laser_alpha_t1",
+			Enabled:     true,
+			DisplayJSON: []byte(`{}`),
+			DataJSON:    []byte(`{"attack_damage":8}`),
+		}},
+	}
+	store := &fakeContentDraftStore{
+		currentSnapshot: snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_v1", current, time.Now().UTC()),
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeModule: {
+				{
+					ContentID:   "laser_alpha_t1",
+					Enabled:     true,
+					DisplayJSON: []byte(`{}`),
+					DataJSON:    []byte(`{"attack_damage":9}`),
+				},
+			},
+		},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{},
+		ActiveEquippedModules: &fakeActiveEquippedModuleReader{refs: []admin.EquippedModuleReference{{
+			ModuleID: "laser_alpha_t1",
+			PlayerID: "player-1",
+			ShipID:   "starter",
+		}}},
+	})
+
+	_, err := service.PublishDraft(context.Background(), content.PublishDraftInput{
+		Version: "content_v2",
+		Notes:   "buff laser damage",
+	})
+	if !errors.Is(err, admin.ErrContentPublishActiveEquippedModule) {
+		t.Fatalf("PublishDraft() error = %v, want ErrContentPublishActiveEquippedModule", err)
+	}
+	if store.publishCalled {
+		t.Fatal("PublishDraft() wrote version despite active equip conflict")
+	}
+}
+
+func TestContentServicePublishDraftAllowsModuleChangeWhenChangedIdNotEquipped(t *testing.T) {
+	current := content.Snapshot{
+		Version: "content_v1",
+		Modules: []content.SnapshotRow{{
+			ContentID:   "laser_alpha_t2",
+			Enabled:     true,
+			DisplayJSON: []byte(`{}`),
+			DataJSON:    []byte(`{"attack_damage":8}`),
+		}},
+	}
+	store := &fakeContentDraftStore{
+		currentSnapshot: snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_v1", current, time.Now().UTC()),
+		rowsByType: map[content.ContentType][]content.DraftRow{
+			content.ContentTypeModule: {
+				{
+					ContentID:   "laser_alpha_t2",
+					Enabled:     true,
+					DisplayJSON: []byte(`{}`),
+					DataJSON:    []byte(`{"attack_damage":9}`),
+				},
+			},
+		},
+		publishResult: content.PublishSnapshotResult{
+			Record: snapshotVersionRecordForAdminTest("22222222-2222-5222-8222-222222222222", "content_v2", current, time.Now().UTC()),
+		},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{},
+		ActiveEquippedModules: &fakeActiveEquippedModuleReader{refs: []admin.EquippedModuleReference{{
+			ModuleID: "laser_alpha_t1",
+			PlayerID: "player-1",
+			ShipID:   "starter",
+		}}},
+	})
+
+	result, err := service.PublishDraft(context.Background(), content.PublishDraftInput{
+		Version: "content_v2",
+		Notes:   "buff unrelated laser",
+	})
+	if err != nil {
+		t.Fatalf("PublishDraft() error = %v, want nil (changed id not equipped)", err)
+	}
+	if !result.Published {
+		t.Fatalf("result.Published = false, want true (unrelated equip must not block)")
 	}
 }
 
@@ -826,6 +995,15 @@ type fakeActiveProductionReader struct {
 
 func (reader *fakeActiveProductionReader) ActiveProductionBuildings(context.Context) ([]production.PlanetBuilding, error) {
 	return append([]production.PlanetBuilding(nil), reader.buildings...), reader.err
+}
+
+type fakeActiveEquippedModuleReader struct {
+	refs []admin.EquippedModuleReference
+	err  error
+}
+
+func (reader *fakeActiveEquippedModuleReader) ActiveEquippedModules(context.Context) ([]admin.EquippedModuleReference, error) {
+	return append([]admin.EquippedModuleReference(nil), reader.refs...), reader.err
 }
 
 func (validator *fakeContentDraftValidator) ValidateContentSnapshot(_ context.Context, snapshot content.Snapshot) error {
