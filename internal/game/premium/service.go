@@ -17,8 +17,9 @@ const (
 	LedgerReasonPremiumEntitlementClaim economy.LedgerReason = "premium_entitlement_claim"
 	LedgerReasonPremiumWeeklyXCore      economy.LedgerReason = "premium_weekly_xcore_purchase"
 
-	premiumProviderOperation = "premium_provider_entitlement"
-	premiumClaimOperation    = "premium_claim"
+	premiumProviderOperation             = "premium_provider_entitlement"
+	premiumClaimOperation                = "premium_claim"
+	premiumPostCommitCacheAnomalyOperation = "premium_post_commit_cache_anomaly"
 
 	premiumOutboxTopic             = "economy"
 	premiumAggregateType           = "premium_entitlement"
@@ -610,16 +611,24 @@ func (service *PremiumEntitlementService) createEntitlementWithTransactionLocked
 			return CreateEntitlementResult{}, err
 		}
 		if err := service.recordCompletedPremiumProviderIdempotencyRow(completedRow); err != nil {
-			service.restorePremiumProviderMutationLocked(snapshot)
-			return CreateEntitlementResult{}, err
+			service.recordPostCommitIdempotencyCacheAnomaly(
+				result.Entitlement.PlayerID,
+				completedRow.Key,
+				premiumTransitionReferenceIDs(result.Entitlement.ID),
+				err,
+			)
 		}
 		return result, nil
 	}
 	service.entitlements[result.Entitlement.ID] = result.Entitlement
 	service.providerReferences[providerKey(result.Entitlement.Provider)] = result.Entitlement.ID
 	if err := service.recordCompletedPremiumProviderIdempotencyRow(completedRow); err != nil {
-		service.restorePremiumProviderMutationLocked(snapshot)
-		return CreateEntitlementResult{}, err
+		service.recordPostCommitIdempotencyCacheAnomaly(
+			result.Entitlement.PlayerID,
+			completedRow.Key,
+			premiumTransitionReferenceIDs(result.Entitlement.ID),
+			err,
+		)
 	}
 	return result, nil
 }
@@ -762,8 +771,12 @@ func (service *PremiumEntitlementService) claimEntitlementWithTransactionLocked(
 	}
 	service.claimResults[claimKey] = cloneClaimEntitlementResult(result)
 	if err := service.recordCompletedPremiumClaimIdempotencyRow(completedRow); err != nil {
-		service.restorePremiumClaimMutationLocked(snapshot)
-		return ClaimEntitlementResult{}, err
+		service.recordPostCommitIdempotencyCacheAnomaly(
+			input.PlayerID,
+			completedRow.Key,
+			premiumTransitionReferenceIDs(result.Entitlement.ID),
+			err,
+		)
 	}
 	return cloneClaimEntitlementResult(result), nil
 }
@@ -1103,6 +1116,36 @@ func (service *PremiumEntitlementService) ProviderRiskLocks() []ProviderRiskLock
 	defer service.mu.Unlock()
 
 	return append([]ProviderRiskLock(nil), service.providerRiskLocks...)
+}
+
+// recordPostCommitIdempotencyCacheAnomaly reports an in-memory idempotency cache
+// conflict discovered AFTER the durable transaction already committed. The
+// committed transaction is authoritative, so such a conflict must not roll back
+// committed state; the in-memory cache is an acceleration layer that reconciles
+// from durable rows. The anomaly is recorded best-effort through the transition
+// logger so it surfaces in metrics/logs without altering the primary operation
+// status.
+func (service *PremiumEntitlementService) recordPostCommitIdempotencyCacheAnomaly(
+	playerID foundation.PlayerID,
+	idempotencyKey foundation.IdempotencyKey,
+	referenceIDs []string,
+	cacheErr error,
+) {
+	if service == nil || cacheErr == nil {
+		return
+	}
+	startedAt := service.nowUTC()
+	service.recordPremiumTransition(
+		observability.Operation(premiumPostCommitCacheAnomalyOperation),
+		playerID,
+		"",
+		idempotencyKey,
+		referenceIDs,
+		ProviderReference{},
+		ProviderReference{},
+		startedAt,
+		cacheErr,
+	)
 }
 
 func (service *PremiumEntitlementService) recordPremiumTransition(

@@ -329,6 +329,92 @@ func TestCreateEntitlementTransactionRepositoryReplaysProviderReference(t *testi
 	}
 }
 
+func TestCreateEntitlementPostCommitIdempotencyCacheConflictKeepsCommittedState(t *testing.T) {
+	repository := newFakePremiumEntitlementTransactionRepository()
+	logger := observability.NewMemoryPremiumTransitionLogger()
+	clock := testutil.NewFakeClock(time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC))
+	wallet := economy.NewWalletService(clock)
+	service, err := NewPremiumEntitlementServiceWithConfig(PremiumEntitlementServiceConfig{
+		Wallet:                wallet,
+		Clock:                 clock,
+		EntitlementRepository: repository,
+		TransitionLogger:      logger,
+	})
+	if err != nil {
+		t.Fatalf("NewPremiumEntitlementServiceWithConfig() error = %v", err)
+	}
+
+	input := validCurrencyPackCreateInput("entitlement-post-commit", "player-post-commit", "event-post-commit", 500)
+	referenceKey, err := premiumProviderIdempotencyKey(input.Provider)
+	if err != nil {
+		t.Fatalf("premiumProviderIdempotencyKey() error = %v", err)
+	}
+	requestHash, err := premiumProviderRequestHash(input)
+	if err != nil {
+		t.Fatalf("premiumProviderRequestHash() error = %v", err)
+	}
+
+	// Simulate a corrupt/foreign in-memory idempotency cache entry for the same
+	// key but a mismatched request hash. The durable transaction has no such
+	// row, so the durable claim succeeds and commits; the post-commit in-memory
+	// record must then conflict without rolling back committed state.
+	staleRow := economy.IdempotencyKeyRow{
+		Scope:       economy.IdempotencyScopeEconomy,
+		Key:         referenceKey,
+		Operation:   premiumProviderOperation,
+		PlayerID:    input.PlayerID,
+		RequestHash: requestHash + ":stale-mismatch",
+		Status:      economy.IdempotencyStatusCompleted,
+		ResultJSON:  json.RawMessage(`{}`),
+		CreatedAt:   clock.Now(),
+		UpdatedAt:   clock.Now(),
+		CompletedAt: clock.Now(),
+	}
+	service.mu.Lock()
+	service.ensurePremiumIdempotencyMapsLocked()
+	service.providerIdempotencyRows[referenceKey] = staleRow
+	service.mu.Unlock()
+
+	result, err := service.CreateEntitlement(input)
+	if err != nil {
+		t.Fatalf("CreateEntitlement() error = %v, want nil (commit is authoritative)", err)
+	}
+	if result.Duplicate {
+		t.Fatalf("CreateEntitlement() result = duplicate, want fresh entitlement")
+	}
+
+	// Committed durable rows must be present.
+	stored, ok := repository.entitlement(input.EntitlementID)
+	if !ok || stored.State != EntitlementStatePending {
+		t.Fatalf("stored entitlement = %+v ok %v, want committed pending row", stored, ok)
+	}
+	if got := repository.entitlementCount(); got != 1 {
+		t.Fatalf("repository entitlement count = %d, want 1", got)
+	}
+
+	// The in-memory committed state must NOT have been rolled back.
+	service.mu.Lock()
+	entitlement, inMemory := service.entitlements[input.EntitlementID]
+	service.mu.Unlock()
+	if !inMemory {
+		t.Fatalf("in-memory entitlement missing: post-commit cache conflict rolled back committed state")
+	}
+	if entitlement.State != EntitlementStatePending {
+		t.Fatalf("in-memory entitlement state = %q, want pending", entitlement.State)
+	}
+
+	// The anomaly must surface in the transition log without failing the op.
+	anomaly := requirePremiumTransitionEntry(
+		t,
+		logger.Snapshot(),
+		observability.Operation(premiumPostCommitCacheAnomalyOperation),
+		input.PlayerID,
+	)
+	if anomaly.Status != observability.CommandStatusError {
+		t.Fatalf("anomaly transition status = %q, want error", anomaly.Status)
+	}
+}
+
 func TestClaimEntitlementTransactionRepositoryCommitsCurrencyPackRows(t *testing.T) {
 	repository := newFakePremiumEntitlementTransactionRepository()
 	service, wallet, _ := newTestPremiumServiceWithTransactionRepository(t, repository)
