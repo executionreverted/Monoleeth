@@ -176,14 +176,14 @@ func (runtime *Runtime) newPlayerRuntimeState(callsign string, entityID world.En
 			Speed:                combatRules.PlayerSpeed,
 			RadarRange:           combatRules.RadarRange,
 			WeaponRange:          260,
-			CargoCapacity:        60,
+			CargoCapacity:        50,
 			LootPickupRange:      combatRules.LootPickupRange,
 			BasicLaserEnergyCost: combatRules.BasicLaserEnergyCost,
 			BasicLaserCooldownMS: combatRules.BasicLaserCooldownMS,
 		},
 		Wallet: walletSnapshotPayload{},
 		Cargo: cargoSnapshotPayload{
-			Capacity: 60,
+			Capacity: 50,
 			Items:    []cargoItemStack{},
 		},
 	}

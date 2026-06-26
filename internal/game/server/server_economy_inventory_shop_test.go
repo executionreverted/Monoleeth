@@ -91,7 +91,7 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 				if len(payload.Inventory.Stackable) != 0 ||
 					len(payload.Inventory.Instances) != 3 ||
 					payload.Inventory.Counts.EquippedInstances != 2 ||
-					payload.Cargo.Capacity != 60 {
+					payload.Cargo.Capacity != 50 {
 					t.Fatalf("inventory payload = %+v cargo=%+v, want starter modules and cargo capacity", payload.Inventory, payload.Cargo)
 				}
 			case "hangar":
@@ -126,7 +126,7 @@ func TestPhase06SnapshotQueriesUseServerResolvedState(t *testing.T) {
 					t.Fatalf("decode stats snapshot: %v", err)
 				}
 				if payload.Stats.RadarRange != defaultRadarRange ||
-					payload.Stats.CargoCapacity != 60 ||
+					payload.Stats.CargoCapacity != 50 ||
 					payload.Stats.LootPickupRange != runtimeLootPickupRange ||
 					payload.Stats.BasicLaserEnergyCost != 8 ||
 					payload.Stats.BasicLaserCooldownMS != 1200 {

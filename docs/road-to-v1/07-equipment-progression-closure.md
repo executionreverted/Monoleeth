@@ -26,8 +26,8 @@ cargo recalculation after equipment changes, and a real first non-starter ship p
 ## Tasks
 - [x] `[P:wave3/lane-A]` Add `inventory.move` (ownership/amount/capacity checks, idempotent). Cargo-into-cargo capacity authority is wired under lane-B; the generic move blocks ship-cargo targets so capacity cannot be exceeded through this path.
 - [x] `[P:wave3/lane-A]` Add `progression.unlock_skill` (point check, prereqs, consume once).
-- [ ] `[P:wave3/lane-B]` Wire `StatService` into runtime; recalc on equip/unequip/ship activate.
-- [ ] `[P:wave3/lane-B]` Make effective cargo capacity authoritative; emit `stats.updated` + cargo/inventory/hangar/loadout snapshots together.
+- [x] `[P:wave3/lane-B]` Wire `StatService` into runtime; recalc on equip/unequip/ship activate.
+- [x] `[P:wave3/lane-B]` Make effective cargo capacity authoritative; emit `stats.updated` + cargo/inventory/hangar/loadout snapshots together.
 - [ ] `[P:wave3/lane-C]` Define first buyable/craftable non-starter ship with server price/rank; grant to hangar with events.
 - [ ] `[P:wave3/lane-C]` Add skill tree UI panel + unlock action (client).
 
@@ -39,7 +39,7 @@ cargo recalculation after equipment changes, and a real first non-starter ship p
 - [x] Duplicate `inventory.move` cannot duplicate a stack.
 - [x] Skill unlock consumes exactly one point.
 - [x] Duplicate skill unlock does not double-spend.
-- [ ] Equipping a cargo module increases server + visible cargo capacity.
+- [x] Equipping a cargo module increases server + visible cargo capacity.
 - [ ] Buying/crafting the first non-starter ship adds it to hangar once.
 
 ## Done Criteria

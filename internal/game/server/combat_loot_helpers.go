@@ -142,7 +142,7 @@ func (runtime *Runtime) syncWorldCombatActorLocked(playerID foundation.PlayerID,
 }
 
 func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, state playerRuntimeState) (stats.StatSnapshot, error) {
-	shipID, combatStats, err := runtime.effectivePlayerCombatStatsLocked(playerID, state)
+	shipID, effective, combatStats, err := runtime.effectivePlayerStatsLocked(playerID, state)
 	if err != nil {
 		return stats.StatSnapshot{}, err
 	}
@@ -160,16 +160,16 @@ func (runtime *Runtime) playerCombatStatsLocked(playerID foundation.PlayerID, st
 			EnergyMax:     float64(state.Ship.MaxCapacitor),
 			EnergyRegen:   4,
 			Speed:         state.Stats.Speed,
-			CargoCapacity: float64(state.Stats.CargoCapacity),
+			CargoCapacity: effective.Core.CargoCapacity,
 		},
 		Combat:      combatStats,
 		Exploration: exploration,
 	}, runtime.clock.Now()), nil
 }
 
-func (runtime *Runtime) effectivePlayerCombatStatsLocked(playerID foundation.PlayerID, state playerRuntimeState) (foundation.ShipID, stats.CombatStats, error) {
+func (runtime *Runtime) effectivePlayerStatsLocked(playerID foundation.PlayerID, state playerRuntimeState) (foundation.ShipID, stats.EffectiveStats, stats.CombatStats, error) {
 	if runtime.StatInputs == nil {
-		return "", stats.CombatStats{}, fmt.Errorf("stat input provider missing")
+		return "", stats.EffectiveStats{}, stats.CombatStats{}, fmt.Errorf("stat input provider missing")
 	}
 	shipID := foundation.ShipID(state.Ship.ActiveShipID)
 	if shipID == "" {
@@ -177,14 +177,14 @@ func (runtime *Runtime) effectivePlayerCombatStatsLocked(playerID foundation.Pla
 	}
 	input, err := runtime.StatInputs.BuildStatsInput(stats.NewStatSubject(playerID, shipID))
 	if err != nil {
-		return "", stats.CombatStats{}, err
+		return "", stats.EffectiveStats{}, stats.CombatStats{}, err
 	}
 	effective := stats.AggregateStats(input.AggregationInput())
 	weaponRange := effective.Combat.WeaponRange
 	if weaponRange <= 0 {
 		weaponRange = state.Stats.WeaponRange
 	}
-	return shipID, stats.CombatStats{
+	return shipID, effective, stats.CombatStats{
 		WeaponDamage:     effective.Combat.WeaponDamage,
 		WeaponRange:      weaponRange,
 		WeaponCooldown:   effective.Combat.WeaponCooldown,
@@ -198,13 +198,18 @@ func (runtime *Runtime) refreshPlayerCombatStatsPayloadLocked(playerID foundatio
 	if !ok {
 		return worker.ErrUnknownPlayer
 	}
-	_, combatStats, err := runtime.effectivePlayerCombatStatsLocked(playerID, state)
+	_, effective, combatStats, err := runtime.effectivePlayerStatsLocked(playerID, state)
 	if err != nil {
 		return err
 	}
 	state.Stats.WeaponRange = combatStats.WeaponRange
 	state.Stats.BasicLaserEnergyCost = roundCombatValue(combatStats.WeaponEnergyCost)
 	state.Stats.BasicLaserCooldownMS = roundCombatValue(combatStats.WeaponCooldown * 1000)
+	if effective.Core.CargoCapacity > 0 {
+		cargoCapacity := int64(effective.Core.CargoCapacity)
+		state.Stats.CargoCapacity = cargoCapacity
+		state.Cargo.Capacity = cargoCapacity
+	}
 	runtime.players[playerID] = state
 	return nil
 }
