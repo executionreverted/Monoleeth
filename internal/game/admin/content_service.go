@@ -29,6 +29,7 @@ var ErrMissingContentPublishNotes = errors.New("missing content publish notes")
 var ErrInvalidContentBalanceTag = errors.New("invalid content balance tag")
 var ErrContentPublishActiveCraftDefinition = errors.New("content publish blocked by active craft recipe definition")
 var ErrContentPublishActiveProductionDefinition = errors.New("content publish blocked by active production building definition")
+var ErrInvalidAuditAction = errors.New("invalid content audit action")
 
 const (
 	maxAuditRowJSONBytes = 32 * 1024
@@ -303,7 +304,7 @@ func (service *ContentService) PublishDraft(ctx context.Context, input content.P
 	}
 	result.IdempotencyKey = idempotencyKey
 	versionID := deterministicContentUUID("content_publish", idempotencyKey)
-	auditEntries, err := buildAuditEntries(versionID, current.Snapshot, snapshot, input.ActorAccountID, notes, balanceTag)
+	auditEntries, err := buildAuditEntries(versionID, current.Snapshot, snapshot, input.ActorAccountID, notes, balanceTag, content.AuditActionPublish)
 	if err != nil {
 		return content.PublishDraftResult{}, err
 	}
@@ -377,7 +378,7 @@ func (service *ContentService) Rollback(ctx context.Context, input content.Rollb
 	}
 	result.IdempotencyKey = idempotencyKey
 	versionID := deterministicContentUUID("content_rollback", idempotencyKey)
-	auditEntries, err := buildAuditEntries(versionID, current.Snapshot, snapshot, input.ActorAccountID, notes, balanceTag)
+	auditEntries, err := buildAuditEntries(versionID, current.Snapshot, snapshot, input.ActorAccountID, notes, balanceTag, content.AuditActionRollback)
 	if err != nil {
 		return content.PublishDraftResult{}, err
 	}
@@ -422,6 +423,9 @@ func (service *ContentService) AuditLog(ctx context.Context, input content.Audit
 		if err := content.ValidateContentID(string(input.ContentType), string(input.ContentID)); err != nil {
 			return content.AuditLog{}, err
 		}
+	}
+	if input.Action != "" && !content.IsKnownAuditAction(input.Action) {
+		return content.AuditLog{}, fmt.Errorf("%s: %w", input.Action, ErrInvalidAuditAction)
 	}
 	log, err := service.audit.ListContentAudit(ctx, input)
 	if err != nil {
@@ -611,10 +615,16 @@ func deterministicContentUUID(namespace string, value string) string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", id[0:4], id[4:6], id[6:8], id[8:10], id[10:16])
 }
 
-func buildAuditEntries(versionID string, oldSnapshot content.Snapshot, newSnapshot content.Snapshot, actor string, note string, balanceTag string) ([]content.AuditLogEntryInput, error) {
+func buildAuditEntries(versionID string, oldSnapshot content.Snapshot, newSnapshot content.Snapshot, actor string, note string, balanceTag string, action string) ([]content.AuditLogEntryInput, error) {
 	actor = strings.TrimSpace(actor)
 	note = strings.TrimSpace(note)
 	balanceTag = strings.TrimSpace(balanceTag)
+	if action == "" {
+		action = content.AuditActionPublish
+	}
+	if !content.IsKnownAuditAction(action) {
+		return nil, fmt.Errorf("content audit action %q: %w", action, ErrInvalidAuditAction)
+	}
 	var entries []content.AuditLogEntryInput
 	for _, contentType := range content.AllContentTypes() {
 		oldRows := snapshotGroupRows(oldSnapshot, contentType)
@@ -640,6 +650,7 @@ func buildAuditEntries(versionID string, oldSnapshot content.Snapshot, newSnapsh
 				ContentVersionID: versionID,
 				ContentType:      contentType,
 				ContentID:        contentID,
+				Action:           action,
 				FieldPath:        "$",
 				OldValueJSON:     oldJSON,
 				NewValueJSON:     newJSON,
@@ -747,8 +758,16 @@ func isSensitiveAuditKey(key string) bool {
 		strings.Contains(lower, "cookie") ||
 		strings.Contains(lower, "private_key") ||
 		strings.Contains(lower, "api_key") ||
+		strings.Contains(lower, "credential") ||
+		strings.Contains(lower, "provider_ref") ||
+		strings.Contains(lower, "provider_secret") ||
+		strings.Contains(lower, "webhook") ||
+		strings.Contains(lower, "salt") ||
+		strings.Contains(lower, "refresh") ||
 		strings.Contains(lower, "procedural_seed") ||
-		lower == "seed"
+		strings.Contains(lower, "spawn_seed") ||
+		lower == "seed" ||
+		lower == "hash"
 }
 
 func snapshotRowCount(snapshot content.Snapshot) int {

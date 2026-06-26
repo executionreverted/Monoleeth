@@ -103,6 +103,7 @@ type AuditEntry struct {
 	ContentVersionID string
 	ContentType      content.ContentType
 	ContentID        content.ContentID
+	Action           string
 	FieldPath        string
 	OldValueJSON     json.RawMessage
 	NewValueJSON     json.RawMessage
@@ -418,6 +419,7 @@ func (store *Store) InsertAudit(ctx context.Context, entry AuditEntry) error {
 		ContentVersionID: entry.ContentVersionID,
 		ContentType:      entry.ContentType,
 		ContentID:        entry.ContentID,
+		Action:           entry.Action,
 		FieldPath:        entry.FieldPath,
 		OldValueJSON:     entry.OldValueJSON,
 		NewValueJSON:     entry.NewValueJSON,
@@ -444,7 +446,8 @@ func (store *Store) ListContentAudit(ctx context.Context, input content.AuditLog
 		WHERE ($1 = '' OR COALESCE(content_version_id::text, '') = $1)
 			AND ($2 = '' OR content_type = $2)
 			AND ($3 = '' OR content_id = $3)
-	`, input.VersionID, input.ContentType, input.ContentID).Scan(&total); err != nil {
+			AND ($4 = '' OR action = $4)
+	`, input.VersionID, input.ContentType, input.ContentID, input.Action).Scan(&total); err != nil {
 		return content.AuditLog{}, err
 	}
 	rows, err := store.db.QueryContext(ctx, `
@@ -453,6 +456,7 @@ func (store *Store) ListContentAudit(ctx context.Context, input content.AuditLog
 			COALESCE(content_version_id::text, ''),
 			content_type,
 			content_id,
+			action,
 			field_path,
 			old_value_json,
 			new_value_json,
@@ -464,9 +468,10 @@ func (store *Store) ListContentAudit(ctx context.Context, input content.AuditLog
 		WHERE ($1 = '' OR COALESCE(content_version_id::text, '') = $1)
 			AND ($2 = '' OR content_type = $2)
 			AND ($3 = '' OR content_id = $3)
+			AND ($4 = '' OR action = $4)
 		ORDER BY created_at DESC, id DESC
-		LIMIT $4 OFFSET $5
-	`, input.VersionID, input.ContentType, input.ContentID, input.Limit, input.Offset)
+		LIMIT $5 OFFSET $6
+	`, input.VersionID, input.ContentType, input.ContentID, input.Action, input.Limit, input.Offset)
 	if err != nil {
 		return content.AuditLog{}, err
 	}
@@ -487,6 +492,7 @@ func (store *Store) ListContentAudit(ctx context.Context, input content.AuditLog
 			&entry.ContentVersionID,
 			&contentType,
 			&contentID,
+			&entry.Action,
 			&entry.FieldPath,
 			&oldValue,
 			&newValue,
@@ -527,6 +533,13 @@ func insertAuditExec(ctx context.Context, execer auditExecer, entry content.Audi
 	if err := content.ValidateContentID(string(entry.ContentType), string(entry.ContentID)); err != nil {
 		return err
 	}
+	action := entry.Action
+	if action == "" {
+		action = content.AuditActionPublish
+	}
+	if !content.IsKnownAuditAction(action) {
+		return fmt.Errorf("content audit action %q: %w", action, ErrUnknownAuditAction)
+	}
 	oldValue, err := nullableAuditJSON("old_value_json", entry.OldValueJSON)
 	if err != nil {
 		return err
@@ -537,11 +550,11 @@ func insertAuditExec(ctx context.Context, execer auditExecer, entry content.Audi
 	}
 	_, err = execer.ExecContext(ctx, `
 		INSERT INTO content_audit_log(
-			id, content_version_id, content_type, content_id, field_path, old_value_json,
+			id, content_version_id, content_type, content_id, action, field_path, old_value_json,
 			new_value_json, actor_account_id, note, balance_tag
 		)
-		VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, $4, $5, $6::jsonb, $7::jsonb, NULLIF($8, ''), $9, $10)
-	`, entry.ID, entry.ContentVersionID, entry.ContentType, entry.ContentID, entry.FieldPath, oldValue, newValue, entry.ActorAccountID, entry.Note, entry.BalanceTag)
+		VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, $4, $5, $6, $7::jsonb, $8::jsonb, NULLIF($9, ''), $10, $11)
+	`, entry.ID, entry.ContentVersionID, entry.ContentType, entry.ContentID, action, entry.FieldPath, oldValue, newValue, entry.ActorAccountID, entry.Note, entry.BalanceTag)
 	return err
 }
 

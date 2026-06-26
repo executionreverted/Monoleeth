@@ -41,6 +41,7 @@ var (
 	ErrCurrentContentNotFound    = errors.New("current published content not found")
 	ErrContentPublishConflict    = errors.New("content publish conflict")
 	ErrUnknownContentType        = errors.New("unknown content type")
+	ErrUnknownAuditAction        = errors.New("unknown content audit action")
 )
 
 type Config struct {

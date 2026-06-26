@@ -10,6 +10,24 @@ const (
 	MaxAuditLogLimit     = 200
 )
 
+// AuditAction values recorded on each content_audit_log row so audit consumers
+// can distinguish publish from rollback (and future actions) without inferring
+// from the version row.
+const (
+	AuditActionPublish  = "publish"
+	AuditActionRollback = "rollback"
+)
+
+// IsKnownAuditAction reports whether action is a supported content audit action.
+func IsKnownAuditAction(action string) bool {
+	switch action {
+	case AuditActionPublish, AuditActionRollback:
+		return true
+	default:
+		return false
+	}
+}
+
 type PublishDraftInput struct {
 	Version        string
 	Notes          string
@@ -76,6 +94,7 @@ type AuditLogInput struct {
 	VersionID   string
 	ContentType ContentType
 	ContentID   ContentID
+	Action      string
 	Limit       int
 	Offset      int
 }
@@ -85,6 +104,7 @@ type AuditLogEntryInput struct {
 	ContentVersionID string
 	ContentType      ContentType
 	ContentID        ContentID
+	Action           string
 	FieldPath        string
 	OldValueJSON     json.RawMessage
 	NewValueJSON     json.RawMessage
@@ -98,6 +118,7 @@ type AuditLogEntry struct {
 	ContentVersionID string
 	ContentType      ContentType
 	ContentID        ContentID
+	Action           string
 	FieldPath        string
 	OldValueJSON     json.RawMessage
 	NewValueJSON     json.RawMessage
