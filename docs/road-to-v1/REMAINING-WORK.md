@@ -20,13 +20,13 @@
 | 10 | Social MVP | 4 | ✅ Done | 100% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | ⬜ Not started | 0% |
 | 12 | DarkOrbit Flavor | 6 | ⬜ Not started | 0% |
-| 13 | Observability, Simulation & Release Gate | 4 | 🟡 In progress | 40% |
+| 13 | Observability, Simulation & Release Gate | 4 | 🟡 In progress | 50% |
 | 14 | CMS Runtime Application & Content Safety | 3 | ✅ Done | 100% |
 | 15 | World Performance & AOI/Aggro Optimization | 4 | 🟡 In progress | 70% |
 | 16 | Production Config & Operational Hardening | 2 | ✅ Done | 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | ⬜ Not started | 0% |
 
-**Genel v1:** ~75%
+**Genel v1:** ~76%
 
 ---
 
@@ -193,7 +193,7 @@ alliances) remain post-v1/out of scope.
 
 ---
 
-### 🟡 P13 — Observability, Simulation & Release Gate (Wave 4, 40%)
+### 🟡 P13 — Observability, Simulation & Release Gate (Wave 4, 50%)
 
 - [x] Prometheus-compatible metrics export endpoint. `GET /metrics` renders
   counters/gauges/duration summaries from the runtime `MetricRecorder`, exposes
@@ -206,6 +206,8 @@ alliances) remain post-v1/out of scope.
 - [x] Economy balance simulation smoke. The planet-production simulation now
   proves one scenario reports a nonzero balanced source/sink item flow, and
   release-gate module 16 evidence references that test.
+- [x] Release-gate fail-closed smoke. Coverage now fails when one required
+  module/check evidence item is missing.
 - [ ] OTel traces for command/tick paths.
 - [ ] §14 simulation/race test coverage beyond the combat/loot deterministic
   and economy balance smokes.
@@ -313,7 +315,8 @@ Wave 6: P12 ⬜ | P17 ⬜(continuous)
 4. **P07/P02 shop transaction gap:** non-starter ship shop buy path still needs
    single transaction boundary for wallet debit + hangar grant + idempotency.
 5. **P13 release gate gap:** Prometheus metrics endpoint, combat/loot
-   deterministic simulation, and economy balance simulation evidence exist; OTel/load/race
-   evidence and final green release gate remain.
+   deterministic simulation, economy balance simulation, and release-gate
+   fail-closed evidence exist; OTel/load/race evidence and final green release
+   gate remain.
 6. **Mevcut blocker yok:** P13 release/load gate çalışmaya hazır; P15 final
    scaling kanıtı P13 load evidence içinde kapanmalı.

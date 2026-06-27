@@ -24,18 +24,22 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
   `pending_restart`).
 - Wave 4: P10 Done (chat/party/clan runtime, durable clan rows/read models,
   party shared-target realtime, real client panels, moderation redaction/logging,
-  and contribution read models done), P13 40% (Prometheus-compatible `/metrics`
+  and contribution read models done), P13 50% (Prometheus-compatible `/metrics`
   endpoint exports runtime metric snapshots with production bearer-token guard,
   combat/loot simulation proves identical summaries across two runs, and one
-  economy simulation proves a balanced source/sink item flow;
+  economy simulation proves a balanced source/sink item flow; release-gate
+  coverage fails closed when one required evidence item is missing;
   OTel/load/race evidence remains), P15 70% (worker aggro target acquisition
   uses a player-only spatial index; AOI tick path reuses one per-map worker
   snapshot, versions public entity payloads, skips unchanged diffs, and emits
   tick sub-phase metrics).
 - Wave 5-6: P11/P12/P17 not started.
-- Genel v1: ~75%.
+- Genel v1: ~76%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P13 lane-D release gate fail-closed slice — release-gate coverage now has a
+  focused smoke proving a missing required module/check evidence item fails the
+  coverage report.
 - P13 lane-D economy balance simulation slice — planet-production simulation
   now has a focused smoke proving one scenario reports a nonzero balanced
   source/sink item flow, and release-gate module 16 evidence references it.

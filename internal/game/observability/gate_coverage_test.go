@@ -97,6 +97,34 @@ func TestGateCoverageReportsFailClosed(t *testing.T) {
 	}
 }
 
+func TestReleaseGateCoverageReportFailsWhenOneRequiredEvidenceItemIsMissing(t *testing.T) {
+	target := ReleaseGateCoverageMissing{
+		Module: RequiredReleaseGateModules()[0],
+		Check:  RequiredReleaseGateChecks()[0],
+	}
+	coverage := Phase12ReleaseGateCoverage()
+	filtered := make([]ReleaseGateCoverage, 0, len(coverage)-1)
+	removed := false
+	for _, item := range coverage {
+		if item.Module == target.Module && item.Check == target.Check {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	if !removed {
+		t.Fatalf("test setup did not remove required evidence item %+v", target)
+	}
+
+	report := NewReleaseGateCoverageReport(filtered)
+	if report.Covered || report.Passed {
+		t.Fatal("release coverage report passed with one required item missing")
+	}
+	if len(report.Missing) != 1 || report.Missing[0] != target {
+		t.Fatalf("missing = %+v, want [%+v]", report.Missing, target)
+	}
+}
+
 func TestPhase12GateEvidenceReferencesExistingFilesAndTests(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	for _, evidence := range allPhase12GateEvidence() {

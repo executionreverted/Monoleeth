@@ -1,7 +1,7 @@
 # Phase 13 — Observability, Simulation & Release Gate
 
 ## Status
-- State: In progress (40%)
+- State: In progress (50%)
 - Wave: 4 (runs alongside others), finalizes at v1
 - Depends on: P02, P05 (and consumes signals from all phases)
 - Unlocks: v1 sign-off
@@ -40,6 +40,8 @@ must be green before v1, covering the critical multiplayer/economy paths.
 - [ ] `[P:wave4/lane-E]` Add a concurrent-session load harness asserting tick stability under N sessions.
 - [ ] `[P:wave4/lane-E]` Add `-race` integration test across command + tick + economy mutation.
 - [ ] `[P:wave4/lane-D]` Extend release gate to require persistence/economy/rate-limit/social/gate evidence.
+  - [x] Release-gate coverage now fails closed when one required module/check
+    evidence item is missing.
 
 ## Server Ownership
 - Observability must stay separate from Symphony orchestration (AGENTS.md).
@@ -49,7 +51,7 @@ must be green before v1, covering the critical multiplayer/economy paths.
 - [x] Combat/loot simulation is deterministic across two runs.
 - [x] Economy simulation reports balanced source/sink for one scenario.
 - [ ] Load harness keeps tick within budget for N sessions.
-- [ ] Release gate fails when a required evidence item is missing.
+- [x] Release gate fails when a required evidence item is missing.
 
 ## Done Criteria
 - [ ] External metrics/traces available. Prometheus metrics are available; OTel

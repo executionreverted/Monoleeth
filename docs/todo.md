@@ -7,6 +7,11 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [x] P13: prove release-gate coverage fails closed for missing evidence. The
+  release-gate coverage report now has a focused smoke proving that removing
+  one required module/check evidence item fails the report. Load harness, race
+  evidence, OTel traces, and the final green release gate remain open in
+  `docs/road-to-v1/13-observability-simulation-release.md`.
 - [x] P13: prove one economy simulation balance scenario. The
   planet-production simulation now has a focused smoke proving one scenario
   reports a nonzero balanced source/sink item flow, and release-gate module 16
