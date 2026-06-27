@@ -75,6 +75,67 @@ if grep -q 'GAME_DEV_MODE.*:-true' "$release_dir/run.sh"; then
   exit 1
 fi
 
+set +e
+missing_mode_output="$(
+  GAME_ALLOWED_ORIGINS=https://playtest.example.com "$release_dir/run.sh" 2>&1
+)"
+missing_mode_status=$?
+set -e
+
+if [[ "$missing_mode_status" -eq 0 ]]; then
+  echo "expected run.sh to reject missing state mode" >&2
+  exit 1
+fi
+
+if [[ "$missing_mode_output" != *"Choose a playtest state mode"* ]]; then
+  echo "expected run.sh to explain missing state mode" >&2
+  echo "$missing_mode_output" >&2
+  exit 1
+fi
+
+set +e
+mixed_mode_output="$(
+  GAME_ALLOWED_ORIGINS=https://playtest.example.com \
+  GAME_DEV_MODE=true \
+  GAME_CONTENT_DATABASE_URL=postgres://gameproject:pw@db:5432/gameproject?sslmode=disable \
+  "$release_dir/run.sh" 2>&1
+)"
+mixed_mode_status=$?
+set -e
+
+if [[ "$mixed_mode_status" -eq 0 ]]; then
+  echo "expected run.sh to reject mixed dev and durable state modes" >&2
+  exit 1
+fi
+
+if [[ "$mixed_mode_output" != *"Choose exactly one playtest state mode"* ]]; then
+  echo "expected run.sh to explain mixed state modes" >&2
+  echo "$mixed_mode_output" >&2
+  exit 1
+fi
+
+set +e
+non_required_mode_output="$(
+  GAME_ALLOWED_ORIGINS=https://playtest.example.com \
+  GAME_CONTENT_DATABASE_URL=postgres://gameproject:pw@db:5432/gameproject?sslmode=disable \
+  GAME_CONTENT_MODE=off \
+  GAME_CORE_STORE_MODE=dev_fallback \
+  "$release_dir/run.sh" 2>&1
+)"
+non_required_mode_status=$?
+set -e
+
+if [[ "$non_required_mode_status" -eq 0 ]]; then
+  echo "expected run.sh to reject non-required durable modes" >&2
+  exit 1
+fi
+
+if [[ "$non_required_mode_output" != *"Durable package mode requires GAME_CONTENT_MODE=required and GAME_CORE_STORE_MODE=required"* ]]; then
+  echo "expected run.sh to explain durable required modes" >&2
+  echo "$non_required_mode_output" >&2
+  exit 1
+fi
+
 if ! grep -q 'GAME_DEV_MODE=true' "$release_dir/README.md"; then
   echo "expected README to document explicit local no-DB dev-mode opt-in" >&2
   exit 1

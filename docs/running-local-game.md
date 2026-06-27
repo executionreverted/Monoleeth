@@ -78,8 +78,18 @@ GAME_PLAYTEST_SEED=false scripts/run_playtest_server.sh
 ```
 
 `GAME_DEV_MODE=true` is the no-DB local/playtest path. For durable local runs,
-start Postgres and provide `GAME_CONTENT_DATABASE_URL`,
-`GAME_CONTENT_MODE=required`, and `GAME_CORE_STORE_MODE=required` instead.
+start Postgres and provide:
+
+```bash
+GAME_CONTENT_DATABASE_URL=postgres://gameproject:pw@127.0.0.1:55432/gameproject?sslmode=disable \
+GAME_CONTENT_MODE=required \
+GAME_CORE_STORE_MODE=required \
+GAME_CONTENT_MIGRATIONS=auto
+```
+
+Packaged releases do not default to dev mode. Their `run.sh` requires either an
+explicit resettable local/private `GAME_DEV_MODE=true` opt-in or durable
+Postgres env.
 
 For CI or deploy artifact preparation, run the same build and artifact scan
 without starting the long-running server:

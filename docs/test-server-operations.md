@@ -1,10 +1,25 @@
 # Test Server Operations Runbook
 
-Date: 2026-06-24
+Date: 2026-06-28
 
 This runbook covers the first playable test server for the DarkOrbit-style
-vertical slice. It is for private or controlled playtests while the game still
-uses process-local runtime state. It is not a public production launch plan.
+vertical slice. It is for private or controlled playtests. It is not a public
+production launch plan.
+
+## First Test Server Mode Decision
+
+Use two clearly separated modes:
+
+1. **Resettable private/source-tree playtest:** allowed for short internal
+   sessions where wipes are expected. This mode must explicitly set
+   `GAME_DEV_MODE=true`; it uses static content and process-local stores.
+2. **Packaged/shared playtest:** must choose a state mode before boot. Prefer
+   durable Postgres mode for any wider shared link. The packaged `run.sh` exits
+   early unless either `GAME_DEV_MODE=true` is explicitly set for a resettable
+   no-DB session or `GAME_CONTENT_DATABASE_URL` is provided for durable mode.
+
+Do not describe resettable mode as persistent progression. It is a disposable
+shard for testing the current browser loop.
 
 ## Current Readiness
 
@@ -52,6 +67,18 @@ Then run the packaged server with the real browser origin:
 
 ```bash
 GAME_ALLOWED_ORIGINS=https://playtest.example.com \
+GAME_CONTENT_DATABASE_URL=postgres://gameproject:pw@db:5432/gameproject?sslmode=disable \
+GAME_CONTENT_MODE=required \
+GAME_CORE_STORE_MODE=required \
+GAME_CONTENT_MIGRATIONS=auto \
+/srv/gameproject/releases/2026-06-24-de64311/run.sh
+```
+
+For a resettable local/private no-DB package run, the opt-in must be explicit:
+
+```bash
+GAME_ALLOWED_ORIGINS=http://127.0.0.1:8080 \
+GAME_DEV_MODE=true \
 /srv/gameproject/releases/2026-06-24-de64311/run.sh
 ```
 
@@ -71,9 +98,14 @@ artifact directory and externally reachable bind address:
 GAME_SERVER_ADDR=0.0.0.0:8080 \
 GAME_ALLOWED_ORIGINS=https://playtest.example.com \
 GAME_CLIENT_STATIC_DIR=/srv/gameproject/client-dist.current \
+GAME_DEV_MODE=true \
 GAME_PLAYTEST_SEED=true \
 go run ./cmd/game-server
 ```
+
+Use that source-tree no-DB form only for resettable private/internal playtests.
+For a shared durable source-tree run, replace `GAME_DEV_MODE=true` with the same
+Postgres content/core-store env used by the packaged durable example.
 
 If the server is behind a reverse proxy, terminate TLS at the proxy and forward
 HTTP/WebSocket traffic for `/`, `/api`, `/ws`, and `/healthz` to
@@ -126,8 +158,9 @@ for example by switching a symlink from `client-dist.current` to
 
 ## Seed Policy
 
-Use `GAME_PLAYTEST_SEED=true` for the first private test server. It gives each
-new player enough real server-owned state to reach the current playable loop:
+Use `GAME_PLAYTEST_SEED=true` for the first private or shared test server. It
+gives each new player enough real server-owned state to reach the current
+playable loop:
 
 - starter ship/loadout and normal authenticated spawn
 - one real Inventory `x_core`
@@ -136,9 +169,13 @@ new player enough real server-owned state to reach the current playable loop:
 - access to the seeded public maps and portals
 
 This seed is an onboarding aid, not a production economy rule. Do not enable
-`GAME_DEV_MODE`, `GAME_E2E_PLANET_CLAIM_SEED`, `GAME_E2E_ROUTE_SEED`, or
+`GAME_E2E_PLANET_CLAIM_SEED`, `GAME_E2E_ROUTE_SEED`, or
 `GAME_E2E_SCAN_NO_PLANET_SEED` on the test server. Those flags are for local
 E2E harnesses only and startup rejects them outside dev mode.
+
+`GAME_DEV_MODE=true` is allowed only for explicitly resettable private no-DB
+sessions. It also enables dev/debug handlers, so do not use it for a wider
+shared durable test.
 
 Production tuning must remain separate from playtest seeding. Scanner rarity,
 enemy density, drop rates, PvP rewards, and route risk should be changed in
@@ -146,7 +183,7 @@ content/config code and then covered by focused tests.
 
 ## Reset Policy
 
-The first test server can be reset by restarting the Go process because current
+Resettable no-DB mode can be wiped by restarting the Go process because current
 live gameplay state is process-local. This is acceptable only for controlled
 playtests where wipes are expected.
 
@@ -159,8 +196,9 @@ Before each scheduled reset:
 5. Run a login/spawn/portal sanity pass or the focused built-client gate before
    reopening the test link.
 
-Do not call this persistent progression until durable DB-backed rows exist for
-claims, production, routes, death/repair, inventory, wallet, and outbox events.
+Durable mode must be reset with an explicit database reset/migration/seed
+procedure. Do not wipe a durable shared shard by surprise; announce it and
+record the database revision or dump/restore point.
 
 ## Port And Origin Config
 
@@ -174,6 +212,12 @@ Use these server env vars:
   artifact.
 - `GAME_PLAYTEST_SEED`: `true` for the current private test-server onboarding
   seed.
+- `GAME_DEV_MODE`: `true` only for explicit resettable no-DB private playtests.
+- `GAME_CONTENT_DATABASE_URL`: required for durable shared playtests.
+- `GAME_CONTENT_MODE`: set to `required` for durable shared playtests.
+- `GAME_CORE_STORE_MODE`: set to `required` for durable shared playtests.
+- `GAME_CONTENT_MIGRATIONS`: set to `auto` for local/test migrations, or
+  `verify` when migrations are managed outside the process.
 
 Set `GAME_ALLOWED_ORIGINS` to the real browser URL. A mismatch will make login
 or WebSocket connection fail even if the server is reachable.
@@ -215,6 +259,10 @@ Before sharing the test link:
 - `GAME_ALLOWED_ORIGINS` matches the public URL.
 - `GAME_CLIENT_STATIC_DIR` points at the scanned artifact.
 - `GAME_PLAYTEST_SEED=true` is set.
+- Exactly one intended state mode is chosen:
+  - resettable private: `GAME_DEV_MODE=true`; or
+  - durable shared: `GAME_CONTENT_DATABASE_URL`, `GAME_CONTENT_MODE=required`,
+    and `GAME_CORE_STORE_MODE=required`.
 - Dev-only E2E seed flags are absent.
 - The packaged `manifest.json` revision matches the intended server revision
   if using `scripts/package_playtest_release.sh`.

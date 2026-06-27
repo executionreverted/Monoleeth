@@ -1,6 +1,6 @@
 # Playtest Vertical Slice Status
 
-Date: 2026-06-24
+Date: 2026-06-28
 
 This report tracks the current test-server readiness of the server-authoritative
 browser game. It is a status snapshot, not a completion claim. The active goal
@@ -76,6 +76,10 @@ directory:
 ```bash
 scripts/package_playtest_release.sh
 ```
+
+The packaged `run.sh` does not default to dev mode. Starting a package requires
+an explicit state-mode choice: `GAME_DEV_MODE=true` for resettable private
+no-DB sessions, or Postgres content/core-store env for durable shared sessions.
 
 Verify the release package shape:
 
@@ -197,9 +201,11 @@ client/src/assets/entities/
    - fuller browser scanner/claim/drop matrix variants
    - broader per-map/risk/rank loot balance coverage
    - production-log/admin-response leak canaries beyond the current harnesses
-4. Decide whether the first public test server accepts process-local in-memory
-   persistence, or whether durable DB-backed claim/production/route/death rows
-   must land first.
+4. First test-server state mode decision is now explicit:
+   - resettable private/source-tree playtests may use `GAME_DEV_MODE=true` and
+     process-local state with announced wipes;
+   - packaged/shared playtests should use durable Postgres mode, and packaged
+     `run.sh` refuses to boot unless a mode is chosen.
 5. Run the private test-server operations checklist in
    `docs/test-server-operations.md` against the target host, then record the
    exact artifact path, server revision, env vars, reset expectation, and

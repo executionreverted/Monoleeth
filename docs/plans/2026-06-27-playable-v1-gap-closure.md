@@ -97,11 +97,11 @@ Primary files:
 
 Tasks:
 
-- [ ] Add a short "first public test server mode" section that states one of:
+- [x] Add a short "first public test server mode" section that states one of:
   - process-local playtest mode is allowed for a resettable short test, or
   - durable Postgres mode is required before external testers.
-- [ ] If process-local is allowed, document reset expectation, wipe behavior, and what testers must not assume is persistent.
-- [ ] If durable mode is required, document exact env vars:
+- [x] If process-local is allowed, document reset expectation, wipe behavior, and what testers must not assume is persistent.
+- [x] If durable mode is required, document exact env vars:
 
 ```bash
 GAME_CONTENT_DATABASE_URL=...
