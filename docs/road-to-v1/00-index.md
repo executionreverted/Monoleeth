@@ -122,12 +122,12 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 | 10 | Social MVP | 4 | Done | `██████████` 100% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | Not started | `░░░░░░░░░░` 0% |
 | 12 | DarkOrbit Flavor | 6 | Not started | `░░░░░░░░░░` 0% |
-| 13 | Observability, Simulation & Release Gate | 4 | In progress | `█████░░░░░` 50% |
+| 13 | Observability, Simulation & Release Gate | 4 | In progress | `██████░░░░` 60% |
 | 14 | CMS Runtime Application & Content Safety | 3 | Done | `██████████` 100% |
-| 15 | World Performance & AOI/Aggro Optimization | 4 | In progress | `███████░░░` 70% |
+| 15 | World Performance & AOI/Aggro Optimization | 4 | In progress | `████████░░` 80% |
 | 16 | Production Config & Operational Hardening | 2 | Done | `██████████` 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | Not started | `░░░░░░░░░░` 0% |
-| — | **Overall v1** | — | In progress | `███████░░░` 76% |
+| — | **Overall v1** | — | In progress | `████████░░` 77% |
 
 ### Progress bar legend
 

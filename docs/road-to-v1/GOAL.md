@@ -24,19 +24,26 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
   `pending_restart`).
 - Wave 4: P10 Done (chat/party/clan runtime, durable clan rows/read models,
   party shared-target realtime, real client panels, moderation redaction/logging,
-  and contribution read models done), P13 50% (Prometheus-compatible `/metrics`
+  and contribution read models done), P13 60% (Prometheus-compatible `/metrics`
   endpoint exports runtime metric snapshots with production bearer-token guard,
-  combat/loot simulation proves identical summaries across two runs, and one
-  economy simulation proves a balanced source/sink item flow; release-gate
-  coverage fails closed when one required evidence item is missing;
-  OTel/load/race evidence remains), P15 70% (worker aggro target acquisition
-  uses a player-only spatial index; AOI tick path reuses one per-map worker
-  snapshot, versions public entity payloads, skips unchanged diffs, and emits
-  tick sub-phase metrics).
+  combat/loot simulation proves identical summaries across two runs, one
+  economy simulation proves a balanced source/sink item flow, release-gate
+  coverage fails closed when one required evidence item is missing, and P13/P15
+  load evidence proves bounded AOI payload and aggro candidate work; OTel/tick
+  stability/deeper race/final green gate remain), P15 80% (worker aggro target
+  acquisition uses a player-only spatial index; AOI tick path reuses one per-map
+  worker snapshot, versions public entity payloads, skips unchanged diffs, emits
+  tick sub-phase metrics, and has P13 load-envelope proof; full AOI runtime
+  work-budget proof remains).
 - Wave 5-6: P11/P12/P17 not started.
-- Genel v1: ~76%.
+- Genel v1: ~77%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P13/P15 load-envelope slice — observability load target now includes the AOI
+  payload envelope metric, P13/P15 smokes prove 1500 concurrent AOI viewers
+  over 1552 simulated entity states stay within the visible payload budget and
+  1500-player aggro acquisition checks one spatial candidate, and release-gate
+  load evidence references both proofs.
 - P13 lane-D release gate fail-closed slice — release-gate coverage now has a
   focused smoke proving a missing required module/check evidence item fails the
   coverage report.
@@ -108,8 +115,8 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 
 ### Sırada (resume sırası)
 1. Context tazele: `00-index.md`, `REMAINING-WORK.md`, ilgili faz dosyası.
-2. P13: release gate + simulation/load/race evidence, including P15 AOI/aggro
-   scaling evidence.
+2. P13: OTel traces, production/route simulation coverage, deeper race evidence,
+   and final green release gate.
 3. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
 
 ## Çalışma Kuralları

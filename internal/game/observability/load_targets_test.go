@@ -2,6 +2,7 @@ package observability
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,6 +44,8 @@ func TestPhase12LoadTestTargetsCoverExpectedThroughput(t *testing.T) {
 		LoadMetricGCPauseMS,
 		LoadMetricCPUPerZoneWorker,
 		LoadMetricMemoryPerZoneWorker,
+		LoadMetricAOIEntityPayloadsPerSnapshot,
+		LoadMetricAggroCandidateChecksPerNPCTick,
 	})
 }
 
@@ -97,6 +100,45 @@ func TestPhase12WorldRealtimeLoadSmokeCoversExpectedThroughput(t *testing.T) {
 		t.Fatalf("record load smoke metrics: %v", err)
 	}
 	assertPhase12LoadSmokeMetrics(t, recorder.Snapshot(), target)
+}
+
+func TestPhase13P15WorldRealtimeLoadEnvelopeKeepsAOIWorkBounded(t *testing.T) {
+	target := requirePhase12LoadTarget(t, LoadTestTargetWorldRealtime)
+	states := phase13P15WorldRealtimeStates(target)
+	visibleCounts := make(chan int, target.MinOnlinePlayers)
+
+	var wg sync.WaitGroup
+	for playerIndex := 0; playerIndex < target.MinOnlinePlayers; playerIndex++ {
+		wg.Add(1)
+		go func(playerIndex int) {
+			defer wg.Done()
+			snapshot := aoi.BuildVisibleSnapshot(phase12WorldRealtimeViewer(target, playerIndex), states)
+			visibleCounts <- len(snapshot.Entities)
+		}(playerIndex)
+	}
+	wg.Wait()
+	close(visibleCounts)
+
+	maxVisibleEntities := 0
+	for visibleCount := range visibleCounts {
+		if visibleCount != target.MinVisibleEntitiesPerPlayer {
+			t.Fatalf("concurrent AOI visible entities = %d, want %d", visibleCount, target.MinVisibleEntitiesPerPlayer)
+		}
+		if visibleCount > maxVisibleEntities {
+			maxVisibleEntities = visibleCount
+		}
+	}
+	if maxVisibleEntities > target.MaxVisibleEntitiesPerPlayer {
+		t.Fatalf("max AOI payloads/snapshot = %d, want <= %d", maxVisibleEntities, target.MaxVisibleEntitiesPerPlayer)
+	}
+
+	recorder := NewMetricRecorder()
+	labels := Labels{"target": string(target.Key)}
+	if err := recorder.SetGauge(LoadMetricAOIEntityPayloadsPerSnapshot, labels, int64(maxVisibleEntities)); err != nil {
+		t.Fatalf("record AOI envelope metric: %v", err)
+	}
+	snapshot := recorder.Snapshot()
+	assertMetricSeriesPresent(t, snapshot, LoadMetricAOIEntityPayloadsPerSnapshot)
 }
 
 func requirePhase12LoadTarget(t *testing.T, key LoadTestTargetKey) LoadTestTarget {
@@ -174,6 +216,23 @@ func phase12WorldRealtimeStates(target LoadTestTarget) []aoi.EntityState {
 	return states
 }
 
+func phase13P15WorldRealtimeStates(target LoadTestTarget) []aoi.EntityState {
+	states := phase12WorldRealtimeStates(target)
+	for index := 0; index < target.MinOnlinePlayers; index++ {
+		states = append(states, aoi.EntityState{
+			Entity: world.Entity{
+				WorldID:  "world-1",
+				ZoneID:   "zone-1",
+				ID:       world.EntityID(fmt.Sprintf("entity-load-out-of-range-%04d", index)),
+				Type:     world.EntityTypeNPCPlaceholder,
+				Position: world.Vec2{X: 5000 + float64(index%100)*25, Y: 5000 + float64(index/100)*25},
+			},
+			Signature: visibility.EntitySignature(1),
+		})
+	}
+	return states
+}
+
 func recordPhase12LoadSmokeMetrics(
 	recorder *MetricRecorder,
 	target LoadTestTarget,
@@ -209,21 +268,32 @@ func recordPhase12LoadSmokeMetrics(
 	if err := recorder.SetGauge(LoadMetricCPUPerZoneWorker, labels, 1); err != nil {
 		return err
 	}
-	return recorder.SetGauge(LoadMetricMemoryPerZoneWorker, labels, 1)
+	if err := recorder.SetGauge(LoadMetricMemoryPerZoneWorker, labels, 1); err != nil {
+		return err
+	}
+	if err := recorder.SetGauge(LoadMetricAOIEntityPayloadsPerSnapshot, labels, int64(target.MinVisibleEntitiesPerPlayer)); err != nil {
+		return err
+	}
+	return nil
 }
 
 func assertPhase12LoadSmokeMetrics(t *testing.T, snapshot MetricSnapshot, target LoadTestTarget) {
 	t.Helper()
 	for _, metric := range target.Metrics {
-		if !metricSnapshotHasSeries(snapshot, metric) {
-			t.Fatalf("load smoke metric %q has no recorded series", metric)
+		if metric == LoadMetricAggroCandidateChecksPerNPCTick {
+			// Worker-package load smoke proves this metric without creating an import cycle.
+			continue
 		}
+		assertMetricSeriesPresent(t, snapshot, metric)
 	}
-	if !metricSnapshotHasSeries(snapshot, MetricVisibleEntityCount) {
-		t.Fatalf("load smoke metric %q has no recorded series", MetricVisibleEntityCount)
-	}
-	if !metricSnapshotHasSeries(snapshot, MetricCommandsPerSecond) {
-		t.Fatalf("load smoke metric %q has no recorded series", MetricCommandsPerSecond)
+	assertMetricSeriesPresent(t, snapshot, MetricVisibleEntityCount)
+	assertMetricSeriesPresent(t, snapshot, MetricCommandsPerSecond)
+}
+
+func assertMetricSeriesPresent(t *testing.T, snapshot MetricSnapshot, name string) {
+	t.Helper()
+	if !metricSnapshotHasSeries(snapshot, name) {
+		t.Fatalf("load smoke metric %q has no recorded series", name)
 	}
 }
 

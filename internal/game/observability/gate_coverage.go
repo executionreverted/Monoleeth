@@ -197,6 +197,18 @@ var phase12LoadTestEvidence = GateEvidence{
 	Note:     "local load-smoke coverage executes the Phase 12 minimum player, visibility, snapshot, AOI, and metric envelope",
 }
 
+var phase13P15AOILoadEnvelopeEvidence = GateEvidence{
+	Package:  "gameproject/internal/game/observability",
+	TestName: "TestPhase13P15WorldRealtimeLoadEnvelopeKeepsAOIWorkBounded",
+	Note:     "concurrent-session load smoke keeps AOI payloads inside the configured visible-entity envelope",
+}
+
+var phase13P15AggroLoadEnvelopeEvidence = GateEvidence{
+	Package:  "gameproject/internal/game/world/worker",
+	TestName: "TestPhase13P15AggroLoadEnvelopeKeepsCandidateChecksBounded",
+	Note:     "worker load smoke proves 1500 players still produce one aggro candidate check for one NPC tick through the player spatial index",
+}
+
 var phase12GoTestAllEvidence = GateEvidence{
 	Command: "go test ./...",
 	Note:    "required final repository validation command before handoff",
@@ -1199,7 +1211,7 @@ func releaseModuleProfileFor(module string, unitTest GateEvidence, integration, 
 			ReleaseGateAdminInspection: admin,
 			ReleaseGateErrorCodes:      satisfied(evidence("gameproject/internal/game/foundation", "TestDomainErrorPublicSerializationOmitsInternalDetails", "public errors serialize with stable codes and without internal details")),
 			ReleaseGateLedgerReason:    ledger,
-			ReleaseGateLoadTest:        satisfied(phase12LoadTestEvidence),
+			ReleaseGateLoadTest:        satisfied(phase12LoadTestEvidence, phase13P15AOILoadEnvelopeEvidence, phase13P15AggroLoadEnvelopeEvidence),
 			ReleaseGateGoTestAll:       satisfied(phase12GoTestAllEvidence),
 			ReleaseGateGitDiffCheck:    satisfied(phase12GitDiffCheckEvidence),
 		},

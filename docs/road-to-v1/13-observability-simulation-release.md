@@ -1,7 +1,7 @@
 # Phase 13 — Observability, Simulation & Release Gate
 
 ## Status
-- State: In progress (50%)
+- State: In progress (60%)
 - Wave: 4 (runs alongside others), finalizes at v1
 - Depends on: P02, P05 (and consumes signals from all phases)
 - Unlocks: v1 sign-off
@@ -38,7 +38,16 @@ must be green before v1, covering the critical multiplayer/economy paths.
   - [ ] Production/route deterministic coverage remains open beyond existing
     route settlement accounting smokes.
 - [ ] `[P:wave4/lane-E]` Add a concurrent-session load harness asserting tick stability under N sessions.
+  - [x] P13/P15 load envelope smoke now runs 1500 concurrent AOI viewers
+    against 1552 simulated entity states and proves the configured visible
+    payload budget remains bounded.
+  - [x] Worker aggro load smoke now runs 1500 players and proves one NPC tick
+    checks one spatial-radius candidate instead of scanning all players.
+  - [ ] Wall-clock tick duration/stability budget remains open.
 - [ ] `[P:wave4/lane-E]` Add `-race` integration test across command + tick + economy mutation.
+  - [x] Narrow P13/P15 race target passed:
+    `go test -race ./internal/game/observability/... ./internal/game/server/... ./internal/game/world/... -run 'Load|Tick|AOI|Aggro|Race|Phase13|Phase15' -count=1`.
+  - [ ] Full command + tick + economy mutation race coverage remains open.
 - [ ] `[P:wave4/lane-D]` Extend release gate to require persistence/economy/rate-limit/social/gate evidence.
   - [x] Release-gate coverage now fails closed when one required module/check
     evidence item is missing.
@@ -50,13 +59,15 @@ must be green before v1, covering the critical multiplayer/economy paths.
 - [x] Metrics endpoint exposes command count for one op.
 - [x] Combat/loot simulation is deterministic across two runs.
 - [x] Economy simulation reports balanced source/sink for one scenario.
-- [ ] Load harness keeps tick within budget for N sessions.
+- [x] Load harness keeps AOI payload and aggro candidate work inside the configured envelope for N sessions.
 - [x] Release gate fails when a required evidence item is missing.
 
 ## Done Criteria
 - [ ] External metrics/traces available. Prometheus metrics are available; OTel
   traces remain open.
-- [ ] Simulation + load + race evidence feed a green release gate.
+- [ ] Simulation + load + race evidence feed a green release gate. Load evidence
+  now feeds the gate; OTel, production/route simulation, deeper race coverage,
+  and final green gate remain open.
 
 ## Verification
 ```bash

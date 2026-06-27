@@ -16,6 +16,8 @@ const (
 	LoadMetricGCPauseMS                       = "gc_pause_ms"
 	LoadMetricCPUPerZoneWorker                = "cpu_per_zone_worker"
 	LoadMetricMemoryPerZoneWorker             = "memory_per_zone_worker"
+	LoadMetricAOIEntityPayloadsPerSnapshot    = "aoi_entity_payloads_per_snapshot"
+	LoadMetricAggroCandidateChecksPerNPCTick  = "aggro_candidate_checks_per_npc_tick"
 )
 
 // LoadTestTarget records the expected Phase 12 throughput envelope for one
@@ -54,6 +56,8 @@ var phase12LoadTestTargets = []LoadTestTarget{
 			LoadMetricGCPauseMS,
 			LoadMetricCPUPerZoneWorker,
 			LoadMetricMemoryPerZoneWorker,
+			LoadMetricAOIEntityPayloadsPerSnapshot,
+			LoadMetricAggroCandidateChecksPerNPCTick,
 		},
 	},
 }

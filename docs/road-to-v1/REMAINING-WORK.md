@@ -20,13 +20,13 @@
 | 10 | Social MVP | 4 | ✅ Done | 100% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | ⬜ Not started | 0% |
 | 12 | DarkOrbit Flavor | 6 | ⬜ Not started | 0% |
-| 13 | Observability, Simulation & Release Gate | 4 | 🟡 In progress | 50% |
+| 13 | Observability, Simulation & Release Gate | 4 | 🟡 In progress | 60% |
 | 14 | CMS Runtime Application & Content Safety | 3 | ✅ Done | 100% |
-| 15 | World Performance & AOI/Aggro Optimization | 4 | 🟡 In progress | 70% |
+| 15 | World Performance & AOI/Aggro Optimization | 4 | 🟡 In progress | 80% |
 | 16 | Production Config & Operational Hardening | 2 | ✅ Done | 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | ⬜ Not started | 0% |
 
-**Genel v1:** ~76%
+**Genel v1:** ~77%
 
 ---
 
@@ -193,7 +193,7 @@ alliances) remain post-v1/out of scope.
 
 ---
 
-### 🟡 P13 — Observability, Simulation & Release Gate (Wave 4, 50%)
+### 🟡 P13 — Observability, Simulation & Release Gate (Wave 4, 60%)
 
 - [x] Prometheus-compatible metrics export endpoint. `GET /metrics` renders
   counters/gauges/duration summaries from the runtime `MetricRecorder`, exposes
@@ -208,10 +208,19 @@ alliances) remain post-v1/out of scope.
   release-gate module 16 evidence references that test.
 - [x] Release-gate fail-closed smoke. Coverage now fails when one required
   module/check evidence item is missing.
+- [x] P13/P15 load-envelope smoke. Observability load evidence now includes
+  `TestPhase13P15WorldRealtimeLoadEnvelopeKeepsAOIWorkBounded`, which runs 1500
+  concurrent AOI viewers over 1552 simulated entity states and keeps visible
+  payloads inside the configured 50-100 entity envelope, plus
+  `TestPhase13P15AggroLoadEnvelopeKeepsCandidateChecksBounded`, which runs 1500
+  players and proves one NPC tick checks one spatial candidate.
+- [x] Narrow P13/P15 race target:
+  `go test -race ./internal/game/observability/... ./internal/game/server/... ./internal/game/world/... -run 'Load|Tick|AOI|Aggro|Race|Phase13|Phase15' -count=1`.
 - [ ] OTel traces for command/tick paths.
+- [ ] §13 wall-clock tick duration/stability budget under concurrent sessions.
 - [ ] §14 simulation/race test coverage beyond the combat/loot deterministic
-  and economy balance smokes.
-- [ ] §13 load/scalability evidence.
+  and economy balance smokes, including deeper command + tick + economy mutation
+  race coverage.
 - [ ] Release gate yeşil (tüm module/check pair'ler).
 
 **Referanslar:**
@@ -221,7 +230,7 @@ alliances) remain post-v1/out of scope.
 
 ---
 
-### 🟡 P15 — World Performance & AOI/Aggro Optimization (Wave 4, 70%)
+### 🟡 P15 — World Performance & AOI/Aggro Optimization (Wave 4, 80%)
 
 - [x] NPC aggro target acquisition no longer scans every player: worker owns a
   player-only spatial index, keeps it in sync on insert/update/remove plus
@@ -230,9 +239,13 @@ alliances) remain post-v1/out of scope.
   AOI from that immutable copy, uses stable public entity versions to skip
   unchanged update events, and emits movement/aggro/AOI/enqueue tick phase
   metrics.
-- [ ] HI-07 final proof: P13 load/simulation evidence must show AOI/aggro costs
-  stay inside release target; add per-viewer candidate bucketing only if evidence
-  fails.
+- [x] HI-07 load-envelope proof: P13 load evidence shows bounded AOI payload
+  size and bounded aggro candidate checks. AOI load proof keeps 1500 concurrent
+  viewers inside the configured visible-payload envelope, and aggro proof checks
+  one spatial candidate under 1500 players.
+- [ ] Full AOI runtime work-budget proof: server still computes per-session AOI
+  diffs from the shared worker snapshot, so tick duration/stability evidence
+  must close the remaining §13 AOI concern.
 - [ ] AOI read projection immutable snapshot/copy-on-write follow-up if P13
   exposes remaining projection contention.
 
@@ -315,8 +328,9 @@ Wave 6: P12 ⬜ | P17 ⬜(continuous)
 4. **P07/P02 shop transaction gap:** non-starter ship shop buy path still needs
    single transaction boundary for wallet debit + hangar grant + idempotency.
 5. **P13 release gate gap:** Prometheus metrics endpoint, combat/loot
-   deterministic simulation, economy balance simulation, and release-gate
-   fail-closed evidence exist; OTel/load/race evidence and final green release
-   gate remain.
-6. **Mevcut blocker yok:** P13 release/load gate çalışmaya hazır; P15 final
-   scaling kanıtı P13 load evidence içinde kapanmalı.
+   deterministic simulation, economy balance simulation, release-gate
+   fail-closed evidence, and P13/P15 load-envelope evidence exist; OTel, tick
+   stability, deeper race evidence, production/route simulation, and final green
+   release gate remain.
+6. **Mevcut blocker yok:** P13 OTel/race/final gate çalışmaya hazır; P15 aggro
+   proof + AOI payload proof mevcut, full AOI tick-stability proof açık.

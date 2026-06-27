@@ -209,6 +209,46 @@ func TestEnemyAggroUsesSpatialPlayerIndexForCandidateChecks(t *testing.T) {
 	}
 }
 
+func TestPhase13P15AggroLoadEnvelopeKeepsCandidateChecksBounded(t *testing.T) {
+	const onlinePlayers = 1500
+
+	definition := aggressiveEnemyMapDefinition()
+	definition.NPCAggroProfiles[0].AggroRadius = 250
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	for index := 0; index < onlinePlayers-1; index++ {
+		if err := zoneWorker.Submit(SpawnPlayerCommand{
+			PlayerID: foundation.PlayerID(fmt.Sprintf("player-phase13-load-far-%04d", index)),
+			EntityID: world.EntityID(fmt.Sprintf("entity-phase13-load-far-%04d", index)),
+			Position: world.Vec2{
+				X: 2000 + float64(index%100)*25,
+				Y: 2000 + float64(index/100)*25,
+			},
+			Speed: 100,
+		}); err != nil {
+			t.Fatalf("Submit(far player %d) error = %v, want nil", index, err)
+		}
+	}
+	if err := zoneWorker.Submit(SpawnPlayerCommand{
+		PlayerID: "player-phase13-load-near",
+		EntityID: "entity-phase13-load-near",
+		Position: world.Vec2{X: 550, Y: 500},
+		Speed:    100,
+	}); err != nil {
+		t.Fatalf("Submit(near player) error = %v, want nil", err)
+	}
+	assertNoCommandErrors(t, zoneWorker.Tick())
+
+	result := tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition})
+	assertNoCommandErrors(t, result)
+	if got, want := result.EnemyAggroCandidateChecks, 1; got != want {
+		t.Fatalf("aggro candidate checks under %d players = %d, want %d from spatial radius query", onlinePlayers, got, want)
+	}
+	record := onlyEnemyAggroRecord(t, zoneWorker)
+	if got, want := record.AggroTargetEntityID, world.EntityID("entity-phase13-load-near"); got != want {
+		t.Fatalf("aggro target under %d players = %q, want %q", onlinePlayers, got, want)
+	}
+}
+
 func TestEnemyAggroSpatialPlayerIndexTracksMovementIntoRadius(t *testing.T) {
 	definition := aggressiveEnemyMapDefinition()
 	definition.NPCAggroProfiles[0].AggroRadius = 250

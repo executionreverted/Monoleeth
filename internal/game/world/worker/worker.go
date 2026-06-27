@@ -93,13 +93,14 @@ type Worker struct {
 
 // TickResult describes one deterministic worker tick.
 type TickResult struct {
-	Tick                uint64
-	DrainedCommands     int
-	CommandErrors       []CommandError
-	EnemyTelemetry      []EnemyLifecycleTelemetry
-	DueTasks            []ScheduledTask
-	ScheduledTaskErrors []ScheduledTaskError
-	PhaseDurations      map[string]time.Duration
+	Tick                      uint64
+	DrainedCommands           int
+	CommandErrors             []CommandError
+	EnemyTelemetry            []EnemyLifecycleTelemetry
+	EnemyAggroCandidateChecks int
+	DueTasks                  []ScheduledTask
+	ScheduledTaskErrors       []ScheduledTaskError
+	PhaseDurations            map[string]time.Duration
 }
 
 // CommandError records a command failure without stopping the rest of the drain.
@@ -257,6 +258,7 @@ func (worker *Worker) Tick() TickResult {
 	aggroStarted := time.Now()
 	result.CommandErrors = append(result.CommandErrors, worker.tickEnemySpawner()...)
 	result.CommandErrors = append(result.CommandErrors, worker.tickEnemyAggro()...)
+	result.EnemyAggroCandidateChecks = worker.enemyAggroCandidateChecks
 	result.PhaseDurations[TickPhaseAggro] = time.Since(aggroStarted)
 	result.DueTasks = worker.scheduler.drainDue(worker.clock.Now())
 	result.ScheduledTaskErrors = worker.dispatchScheduledTasks(result.DueTasks)
