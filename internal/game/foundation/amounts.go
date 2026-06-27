@@ -1,6 +1,7 @@
 package foundation
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -61,6 +62,18 @@ func (m Money) MarshalJSON() ([]byte, error) {
 	return []byte(m.String()), nil
 }
 
+// UnmarshalJSON accepts the whole-unit numeric representation produced by
+// MarshalJSON. It does not validate positivity so the zero value and negative
+// round-trip values used in edge-case fixtures survive a JSON cycle.
+func (m *Money) UnmarshalJSON(data []byte) error {
+	var raw int64
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("money: %w", err)
+	}
+	m.amount = raw
+	return nil
+}
+
 // Validate reports whether Money is strictly positive.
 func (m Money) Validate() error { return validatePositiveAmount("money", m.amount) }
 
@@ -93,6 +106,18 @@ func (q Quantity) String() string { return strconv.FormatInt(q.amount, 10) }
 // MarshalJSON returns the stable whole-unit numeric representation.
 func (q Quantity) MarshalJSON() ([]byte, error) {
 	return []byte(q.String()), nil
+}
+
+// UnmarshalJSON accepts the whole-unit numeric representation produced by
+// MarshalJSON. It does not validate positivity so the zero value and negative
+// round-trip values used in edge-case fixtures survive a JSON cycle.
+func (q *Quantity) UnmarshalJSON(data []byte) error {
+	var raw int64
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("quantity: %w", err)
+	}
+	q.amount = raw
+	return nil
 }
 
 // Validate reports whether Quantity is strictly positive.

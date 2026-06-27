@@ -15,7 +15,7 @@
 | 05 | Map Worker Ownership & Concurrency | 2 | 🟡 In progress | 90% |
 | 06 | Movement, Combat & Death Correctness | 2 | ✅ Done | 100% |
 | 07 | Equipment & Progression Closure | 3 | ✅ Done | 100% |
-| 08 | Durable Planet, Production & Routes | 3 | ⬜ Not started | 0% |
+| 08 | Durable Planet, Production & Routes | 3 | 🟡 In progress | 50% |
 | 09 | CMS Completion & Balance Telemetry | 3 | ✅ Done | 100% |
 | 10 | Social MVP | 4 | ⬜ Not started | 0% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | ⬜ Not started | 0% |
@@ -26,7 +26,7 @@
 | 16 | Production Config & Operational Hardening | 2 | ✅ Done | 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | ⬜ Not started | 0% |
 
-**Genel v1:** ~55%
+**Genel v1:** ~61%
 
 ---
 
@@ -54,24 +54,26 @@ taşımayı gerektiriyor → **P17'ye (Runtime Decomposition) ertelendi**.
 
 ---
 
-### ⬜ P08 — Durable Planet, Production & Routes (Wave 3, 0%)
+### 🟡 P08 — Durable Planet, Production & Routes (Wave 3, 50%)
 
-✅ **DB engeli çözüldü (2026-06-26):** "SASL auth hatası" aslında port
-uyumsuzluğuydu. Docker container `gameproject-postgres` host portu **55432**'de
-çalışıyor ama `.env`/`GAME_CONTENT_DATABASE_URL` **5432**'ye işaret ediyordu
-(orada yanlış şifreli native bir instance var). `.env` artık 55432'ye
-hizalanmış; contentdb smoke test'leri + tam `go test ./...` yeşil. P08 artık
-DB erişimine açık, store adapter'ları yazılıp smoke test'lerle doğrulanabilir.
+✅ **DB engeli çözüldü (2026-06-26).** Durable store adapter'ları yazıldı:
+- `contentdb.ClaimDurableLifecycleStore` — claim lifecycle plan JSON, idempotent
+  replay, conflict rejection.
+- `contentdb.BuildingMutationDurableStore` — building mutation plan JSON,
+  idempotent replay, conflict rejection.
+- `contentdb.SettlementDurableStore` — settlement plan JSON (planet + route
+  window lookups), idempotent replay, conflict rejection.
+- `contentdb.AutomationRouteDurableStore` — route CAS revision + reference-key
+  dedup log + owner listing.
+- Migrations 0019/0020/0021, 13 Postgres smoke test (persist/duplicate/conflict
+  per store), foundation `Quantity`/`Money` JSON round-trip fix.
 
-- [ ] `[P:wave3/lane-D]` Durable claim lifecycle + X Core consume tek
-  transaction/CAS içinde.
-- [ ] `[P:wave3/lane-D]` Production settlement window'ları durable idempotent
-  row olarak persist.
-- [ ] `[P:wave3/lane-D]` Route settlement window'ları + storage ledger durable.
-- [ ] `[P:wave3/lane-E]` Scheduled outbox publisher + recovery worker
-  (claim/production/route için, request-driven değil).
-- [ ] `[P:wave3/lane-E]` Process-local idempotency map'leri DB-backed key'lerle
-  değiştir.
+Kalan (runtime seviyesi):
+- [ ] Runtime'ın 4 in-memory durable store field'ını DB-backed adapter'a
+  bağla (opsiyonel contentdb.Store varsa). Şu an in-memory default güvenli.
+- [ ] Scheduled outbox publisher + recovery worker (claim/production/route
+  outbox drain, tick-driven). Store reader interface'leri hazır.
+- [ ] Process-local idempotency map'leri DB-backed key'lerle değiştir.
 
 **Smoke Tests:** claim tek X Core consume (restart sonrası), production window
 tek sefer, route settlement tek sefer, recovery worker miss replay, restart
