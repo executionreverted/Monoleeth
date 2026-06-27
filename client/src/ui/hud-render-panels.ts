@@ -17,6 +17,7 @@ export const baseWindowDefinitions: HUDPanelDefinition[] = [
   { id: 'quests', label: 'Quests', title: 'Quest Board', iconURL: galaxyIconURL, helpTopic: 'quests', render: questsPanel },
   { id: 'intel', label: 'Planets', title: 'Planets', iconURL: planetsIconURL, helpTopic: 'planets', render: planetCatalogPanel },
   { id: 'systems', label: 'Hangar', title: 'Hangar', iconURL: hangarIconURL, helpTopic: 'hangar', render: hangarPanel },
+  { id: 'chat', label: 'Chat', title: 'Chat', iconURL: menuIconURL, helpTopic: 'chat', render: chatPanel },
   { id: 'social', label: 'Social', title: 'Social', iconURL: menuIconURL, helpTopic: 'social', render: socialPanel },
   { id: 'ops', label: 'Ops', title: 'Admin Ops', iconURL: menuIconURL, helpTopic: 'ops', render: opsPanel, hidden: (state) => !state.auth.session?.account?.admin },
 ];
@@ -31,6 +32,8 @@ export function windowLayout(id: HUDWindowID): { width: number; preferredHeight:
       return { width: 620, preferredHeight: 710, size: 'dual-pane' };
     case 'systems':
       return { width: 540, preferredHeight: 470, size: 'system' };
+    case 'chat':
+      return { width: 560, preferredHeight: 520, size: 'dual-pane' };
     case 'social':
       return { width: 560, preferredHeight: 620, size: 'dual-pane' };
     case 'ops':
@@ -154,11 +157,20 @@ const helpTopicCatalog: Record<HUDHelpTopicID, { title: string; lead: string; po
       'Equip and unequip actions reconcile from inventory and loadout snapshots.',
     ],
   },
+  chat: {
+    title: 'Chat Help',
+    lead: 'Chat is a realtime channel surface for local, party, and clan messages.',
+    points: [
+      'Local, party, and clan messages send only when connected.',
+      'Chat history is rendered from server events and query responses.',
+      'Moderation, membership, and rate limits stay server-owned.',
+    ],
+  },
   social: {
     title: 'Social Help',
-    lead: 'Chat, party, and clan state are server-owned and update from realtime events.',
+    lead: 'Social groups friends, party, and clan state into MMO-style relationship panels.',
     points: [
-      'Local, party, and clan chat send only when connected.',
+      'Friend list stays empty until a server-owned friend feature is available.',
       'Party invite and shared target actions use server validation.',
       'Clan creation and join use durable server rows.',
     ],
@@ -374,33 +386,20 @@ export function socialPanel(state: ClientState): string {
   const canShareTarget = connected && Boolean(party && selectedTargetID);
   return `
     <h2>Social</h2>
+    <div class="social-tabs" role="tablist" aria-label="Social sections">
+      <button type="button" data-social-tab="friends" data-active="true">Friends</button>
+      <button type="button" data-social-tab="party">Party</button>
+      <button type="button" data-social-tab="clan">Clan</button>
+    </div>
     <section class="systems-block">
+      <div class="meta-row"><span>Friends</span><strong>0 online</strong></div>
       <div class="meta-row"><span>Party</span><strong>${party ? `${party.members.length} online` : 'None'}</strong></div>
       <div class="meta-row"><span>Clan</span><strong>${clan ? `${escapeHTML(clan.tag)} ${escapeHTML(clan.name)}` : 'None'}</strong></div>
       <div class="meta-row"><span>Target</span><strong>${party?.shared_target?.targetID ? escapeHTML(party.shared_target.targetID) : lockedValue()}</strong></div>
     </section>
     <section class="systems-block">
-      <div class="meta-row"><span>Chat</span><strong>${social.chatMessages.length}</strong></div>
-      ${
-        social.chatMessages.length > 0
-          ? `<ol class="log-lines">
-              ${social.chatMessages
-                .slice(-8)
-                .reverse()
-                .map((message) => `<li data-level="info"><strong>${escapeHTML(message.sender_name)}</strong> ${escapeHTML(message.content)}</li>`)
-                .join('')}
-            </ol>`
-          : '<div class="empty-line">No chat messages.</div>'
-      }
-      <div class="social-form-row">
-        <select data-social-field="chat-kind" ${connected ? '' : 'disabled'}>
-          <option value="local_map">Local</option>
-          <option value="party">Party</option>
-          <option value="clan">Clan</option>
-        </select>
-        <input data-social-field="chat-content" type="text" maxlength="500" placeholder="Message" ${connected ? '' : 'disabled'} />
-        <button class="ghost-action" type="button" data-action="social-chat-send" ${connected && !hasPendingOp(state, 'chat.send') ? '' : 'disabled'}>Send</button>
-      </div>
+      <div class="meta-row"><span>Friend List</span><strong>Unavailable</strong></div>
+      <div class="empty-line">No server-owned friends yet.</div>
     </section>
     <section class="systems-block">
       <div class="meta-row"><span>Party Members</span><strong>${party ? party.members.length : lockedValue()}</strong></div>
@@ -437,6 +436,37 @@ export function socialPanel(state: ClientState): string {
               <button class="ghost-action" type="button" data-action="clan-join" ${connected ? '' : 'disabled'}>Join</button>
             </div>`
       }
+    </section>
+  `;
+}
+
+export function chatPanel(state: ClientState): string {
+  const social = state.social;
+  const connected = realtimeReady(state);
+  return `
+    <h2>Chat</h2>
+    <section class="systems-block">
+      <div class="meta-row"><span>Messages</span><strong>${social.chatMessages.length}</strong></div>
+      ${
+        social.chatMessages.length > 0
+          ? `<ol class="log-lines log-lines--chat">
+              ${social.chatMessages
+                .slice(-12)
+                .reverse()
+                .map((message) => `<li data-level="info"><strong>${escapeHTML(message.sender_name)}</strong> ${escapeHTML(message.content)}</li>`)
+                .join('')}
+            </ol>`
+          : '<div class="empty-line">No chat messages.</div>'
+      }
+      <div class="social-form-row social-form-row--chat">
+        <select data-social-field="chat-kind" ${connected ? '' : 'disabled'}>
+          <option value="local_map">Local</option>
+          <option value="party">Party</option>
+          <option value="clan">Clan</option>
+        </select>
+        <input data-social-field="chat-content" type="text" maxlength="500" placeholder="Message" ${connected ? '' : 'disabled'} />
+        <button class="ghost-action" type="button" data-action="social-chat-send" ${connected && !hasPendingOp(state, 'chat.send') ? '' : 'disabled'}>Send</button>
+      </div>
     </section>
   `;
 }

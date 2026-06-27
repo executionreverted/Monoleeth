@@ -133,6 +133,7 @@ export abstract class WorldRendererEntities extends WorldRendererEffects {
     const asset = worldAssetForEntity(entity, self);
     view.label = `${entity.entity_id}:${asset.key}`;
     this.updateEntitySprite(entity, self);
+    const hasSpriteBody = this.hasLoadedEntitySpriteBody(entity, self);
 
     if (selected) {
       this.drawSelectedReticle(view, entity);
@@ -140,19 +141,30 @@ export abstract class WorldRendererEntities extends WorldRendererEffects {
 
     switch (entity.entity_type) {
       case 'player':
-        this.drawPlayerShip(view, self, asset.accentColor, asset.glowColor);
+        if (!hasSpriteBody) {
+          this.drawPlayerShip(view, self, asset.accentColor, asset.glowColor);
+        }
         break;
       case 'npc':
-        this.drawNpcSwarm(view, entity, asset.accentColor, asset.glowColor);
+        if (!hasSpriteBody) {
+          this.drawNpcSwarm(view, entity, asset.accentColor, asset.glowColor);
+        }
         this.drawCombatBars(view, entity);
         break;
       case 'loot':
-        this.drawLootCache(view, asset.accentColor);
+        if (!hasSpriteBody) {
+          this.drawLootCache(view, asset.accentColor);
+        }
         break;
       case 'planet_signal':
         this.drawPlanetSignal(view, entity, asset.accentColor, asset.glowColor);
         break;
     }
+  }
+
+  protected hasLoadedEntitySpriteBody(entity: EntityPayload, self: boolean): boolean {
+    const asset = worldAssetForEntity(entity, self);
+    return Boolean(this.entitySprites.get(entity.entity_id) && this.worldAssetTextures.get(asset.key));
   }
 
   protected updateEntitySprite(entity: EntityPayload, self: boolean): void {

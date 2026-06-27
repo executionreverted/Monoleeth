@@ -23,6 +23,7 @@ export function hudShellHTML(): string {
           <button class="tool-button" data-action="stop" type="button" title="Stop">Stop</button>
           <button class="tool-button" data-action="sync" type="button" title="Request snapshot">Sync</button>
           <button class="tool-button tool-button--locked" type="button" disabled title="Mail link unavailable">Mail</button>
+          <button class="tool-button" data-action="open-window" data-panel-id="chat" type="button" title="Open chat">Chat</button>
           <button class="tool-button" data-action="open-window" data-panel-id="social" type="button" title="Open social">Social</button>
           <button class="tool-button" data-action="logout" type="button" title="Logout">Logout</button>
         </div>
@@ -38,6 +39,7 @@ export function hudShellHTML(): string {
         <div class="panel panel--economy" data-panel="economy"></div>
         <div class="panel panel--systems" data-panel="systems"></div>
         <div class="panel panel--quests" data-panel="quests"></div>
+        <div class="panel panel--chat" data-panel="chat"></div>
         <div class="panel panel--social" data-panel="social"></div>
         <div class="panel panel--ops" data-panel="ops"></div>
         <div class="panel panel--drawer" data-panel="drawer" data-open="false"></div>
@@ -63,6 +65,7 @@ export function collectHUDPanels(root: HTMLElement): Record<string, HTMLElement>
     economy: panel(root, 'economy'),
     systems: panel(root, 'systems'),
     quests: panel(root, 'quests'),
+    chat: panel(root, 'chat'),
     ops: panel(root, 'ops'),
     drawer: panel(root, 'drawer'),
     planets: panel(root, 'planets'),

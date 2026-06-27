@@ -7,7 +7,7 @@ import (
 	"gameproject/internal/game/progression"
 )
 
-func TestPlaytestSeedGrantsClaimAndRouteOnboardingState(t *testing.T) {
+func TestPlaytestSeedGrantsClaimOnboardingStateWithoutOwnedRoutePlanets(t *testing.T) {
 	gameServer, err := New(Config{
 		AllowedOrigins:    []string{testOrigin},
 		PlaytestSeed:      true,
@@ -22,9 +22,6 @@ func TestPlaytestSeedGrantsClaimAndRouteOnboardingState(t *testing.T) {
 
 	assertPlaytestSeedState(t, gameServer, first.PlayerID)
 	assertPlaytestSeedState(t, gameServer, second.PlayerID)
-	if playtestRoutePlanetID(first.PlayerID, "source") == playtestRoutePlanetID(second.PlayerID, "source") {
-		t.Fatalf("playtest route source ids matched for different players")
-	}
 
 	if err := gameServer.runtime.ensurePlayerSession(first); err != nil {
 		t.Fatalf("ensurePlayerSession retry error = %v, want nil", err)
@@ -63,22 +60,9 @@ func assertPlaytestSeedState(t *testing.T, gameServer *Server, playerID foundati
 		t.Fatalf("progression rank = %d, want %d with playtest seed", snapshot.Player.Rank, progression.MaxMVPRank)
 	}
 
-	sourceID := playtestRoutePlanetID(playerID, "source")
-	destinationID := playtestRoutePlanetID(playerID, "destination")
-	for _, planetID := range []foundation.PlanetID{sourceID, destinationID} {
-		planet, ok, err := gameServer.runtime.Discovery.Planet(planetID)
-		if err != nil || !ok {
-			t.Fatalf("Discovery.Planet(%q) ok=%v err=%v, want playtest seeded", planetID, ok, err)
+	for _, planetID := range []foundation.PlanetID{playtestRoutePlanetID(playerID, "source"), playtestRoutePlanetID(playerID, "destination")} {
+		if _, ok, err := gameServer.runtime.Discovery.Planet(planetID); err != nil || ok {
+			t.Fatalf("Discovery.Planet(%q) ok=%v err=%v, want absent for manual playtest seed", planetID, ok, err)
 		}
-		if planet.OwnerPlayerID != playerID {
-			t.Fatalf("planet %q owner = %q, want %q", planetID, planet.OwnerPlayerID, playerID)
-		}
-	}
-	storage, ok, err := gameServer.runtime.Production.PlanetStorage(sourceID)
-	if err != nil || !ok {
-		t.Fatalf("PlanetStorage(%q) ok=%v err=%v, want playtest seeded", sourceID, ok, err)
-	}
-	if got := storage.QuantityOf("refined_alloy"); got != 160 {
-		t.Fatalf("refined_alloy quantity = %d, want 160 with playtest seed", got)
 	}
 }

@@ -69,9 +69,8 @@ scripts/run_playtest_server.sh
 
 The playtest seed is an explicit test-server onboarding aid. It keeps the
 normal server-authoritative flow, but gives each new player one X Core, claim
-rank eligibility, and two owned route-test production planets with source
-storage so the browser loop can reach claim and route actions without admin
-setup. Disable it with:
+rank eligibility, and normal starter spawn state without granting owned
+route-test planets. Disable it with:
 
 ```bash
 GAME_PLAYTEST_SEED=false scripts/run_playtest_server.sh
@@ -244,12 +243,13 @@ npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server
 
 That proof builds `client/dist`, starts `cmd/game-server` with
 `GAME_CLIENT_STATIC_DIR=client/dist`, `GAME_DEV_MODE=1`, and
-`GAME_PLAYTEST_SEED=true`, registers a real browser user from the served app,
-verifies the playtest onboarding seed, completes a starter NPC fight and loot
-pickup, clicks the real HUD scanner and planet claim controls, verifies X Core
-consumption plus production initialization, clicks real HUD route create/settle
-controls, then transfers through `east_gate` to public `1-2` and completes a
-destination-map NPC fight and loot pickup without Vite.
+`GAME_PLAYTEST_SEED=true`, plus `GAME_E2E_ROUTE_SEED=1` only inside the local
+E2E harness, registers a real browser user from the served app, verifies the
+playtest onboarding seed, completes a starter NPC fight and loot pickup, clicks
+the real HUD scanner and planet claim controls, verifies X Core consumption plus
+production initialization, clicks real HUD route create/settle controls against
+the E2E-only route fixture, then transfers through `east_gate` to public `1-2`
+and completes a destination-map NPC fight and loot pickup without Vite.
 
 Run the single-process built-client PvP/death/repair proof explicitly:
 

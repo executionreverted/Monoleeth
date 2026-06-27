@@ -165,7 +165,6 @@ playable loop:
 - starter ship/loadout and normal authenticated spawn
 - one real Inventory `x_core`
 - claim rank eligibility through Progression
-- two owned route-test production planets with source storage
 - access to the seeded public maps and portals
 
 This seed is an onboarding aid, not a production economy rule. Do not enable
@@ -211,7 +210,8 @@ Use these server env vars:
 - `GAME_CLIENT_STATIC_DIR`: absolute or repo-relative path to the built client
   artifact.
 - `GAME_PLAYTEST_SEED`: `true` for the current private test-server onboarding
-  seed.
+  seed. It grants claim onboarding state only; route fixture planets are
+  E2E-only.
 - `GAME_DEV_MODE`: `true` only for explicit resettable no-DB private playtests.
 - `GAME_CONTENT_DATABASE_URL`: required for durable shared playtests.
 - `GAME_CONTENT_MODE`: set to `required` for durable shared playtests.
@@ -259,6 +259,7 @@ Before sharing the test link:
 - `GAME_ALLOWED_ORIGINS` matches the public URL.
 - `GAME_CLIENT_STATIC_DIR` points at the scanned artifact.
 - `GAME_PLAYTEST_SEED=true` is set.
+- `GAME_E2E_ROUTE_SEED` is unset on manual/shared playtest servers.
 - Exactly one intended state mode is chosen:
   - resettable private: `GAME_DEV_MODE=true`; or
   - durable shared: `GAME_CONTENT_DATABASE_URL`, `GAME_CONTENT_MODE=required`,

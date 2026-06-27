@@ -282,11 +282,11 @@ Do not use or document this as a production feature flag.
 
 The single-process local playtest runner sets `GAME_PLAYTEST_SEED=true`. This
 is a test-server onboarding seed, not a production feature flag: each new player
-receives one real Inventory X Core, Progression claim eligibility, and two
-owned route-test production planets with source storage through the same
-server-owned services used by the E2E proofs. It exists so the deployed
-playtest loop can reach planet claim and route actions without manual admin
-setup.
+receives one real Inventory X Core and Progression claim eligibility through
+the same server-owned services used by the E2E proofs. It deliberately does not
+grant owned route-test production planets to manual/shared playtest accounts.
+The full built-client route proof now opts into `GAME_E2E_ROUTE_SEED=1`
+inside its local dev harness only.
 
 Production tuning must stay separate from dev/test seeds. Scanner rarity,
 enemy spawn density, drop rates, route risk, and PvP rewards should not inherit
@@ -373,11 +373,12 @@ npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server
 ```
 
 That proof builds the production client bundle, serves it from `cmd/game-server`
-with `GAME_CLIENT_STATIC_DIR=client/dist` and `GAME_PLAYTEST_SEED=true`,
-registers a real browser user over the same origin, verifies the playtest X Core
-and route-production onboarding seed, then clicks real HUD route create/settle
-controls while scanning smoke state, WebSocket frames, browser storage/cookies,
-and local server logs for hidden/internal leak tokens.
+with `GAME_CLIENT_STATIC_DIR=client/dist`, `GAME_PLAYTEST_SEED=true`, and
+`GAME_E2E_ROUTE_SEED=1` inside the local dev harness only, registers a real
+browser user over the same origin, verifies the playtest X Core plus E2E route
+fixture, then clicks real HUD route create/settle controls while scanning smoke
+state, WebSocket frames, browser storage/cookies, and local server logs for
+hidden/internal leak tokens.
 
 Run the full built-client playtest vertical-slice gate explicitly:
 

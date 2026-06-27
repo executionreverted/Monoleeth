@@ -5,6 +5,7 @@ import { activeEntityMovement, boundedMovementTarget, currentEntityPosition, dis
 import { isAttackableVisibleTarget } from '../state/target-eligibility';
 import { CLIENT_EVENTS, EntityPayload, Operation, OPERATIONS, RequestEnvelope, Vec2 } from '../protocol/envelope';
 import type { RouteDestinationInput } from '../protocol/commands';
+import type { MapBounds } from '../state/types';
 import {
   ClientAppCore,
   ECONOMY_REFRESH_DEBOUNCE_MS,
@@ -38,15 +39,17 @@ export abstract class ClientAppCommands extends ClientAppCore {
       this.pendingLootApproachID = null;
     }
 
-    this.navigationTarget = { ...target };
+    this.navigationTarget = clampMovementTargetToMapBounds(target, this.state.currentMap?.bounds);
     this.sendNavigationStep();
   }
 
   protected sendNavigationStep(): void {
-    const target = this.navigationTarget;
-    if (!target) {
+    const rawTarget = this.navigationTarget;
+    if (!rawTarget) {
       return;
     }
+    const target = clampMovementTargetToMapBounds(rawTarget, this.state.currentMap?.bounds);
+    this.navigationTarget = target;
 
     if (this.state.auth.mode === 'real' && this.state.connectionStatus !== 'connected') {
       this.dispatch({ type: 'appendLog', level: 'warn', text: 'Move rejected: waiting for authenticated realtime link.' });
@@ -78,7 +81,10 @@ export abstract class ClientAppCommands extends ClientAppCore {
       return;
     }
 
-    const moveTarget = boundedMovementTarget(origin, target, LONG_RANGE_MOVE_STEP_UNITS);
+    const moveTarget = clampMovementTargetToMapBounds(
+      boundedMovementTarget(origin, target, LONG_RANGE_MOVE_STEP_UNITS),
+      this.state.currentMap?.bounds,
+    );
     const stepDistance = distanceBetween(origin, moveTarget);
     const etaMs = movementEtaFromStats(stepDistance, this.state.stats?.speed ?? self.movement?.speed ?? null);
     const finalSuffix =
@@ -757,6 +763,23 @@ export abstract class ClientAppCommands extends ClientAppCore {
 
 function movementEtaFromStats(distance: number, speed: number | null): number | null {
   return speed && speed > 0 ? (distance / speed) * 1000 : null;
+}
+
+export function clampMovementTargetToMapBounds(target: Vec2, bounds: MapBounds | undefined | null): Vec2 {
+  if (!bounds) {
+    return { ...target };
+  }
+  return {
+    x: clampFinite(target.x, bounds.min_x, bounds.max_x),
+    y: clampFinite(target.y, bounds.min_y, bounds.max_y),
+  };
+}
+
+function clampFinite(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return value;
+  }
+  return Math.max(min, Math.min(max, value));
 }
 
 function routeDestinationActionKey(input: { destinationPlanetID?: string; destination?: RouteDestinationInput }): string {

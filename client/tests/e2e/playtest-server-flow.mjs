@@ -79,6 +79,7 @@ async function main() {
     GAME_CLIENT_STATIC_DIR: 'client/dist',
     GAME_DEV_MODE: '1',
     GAME_PLAYTEST_SEED: 'true',
+    GAME_E2E_ROUTE_SEED: '1',
   });
   let browser;
   let context;
@@ -115,7 +116,7 @@ async function main() {
 
     const sourceID = routeSourceID(seeded);
     const destinationID = routeDestinationID(seeded, sourceID);
-    assert(sourceID && destinationID, `playtest route planets missing ${compact(seeded.planetIntel)}`);
+    assert(sourceID && destinationID, `E2E route planets missing ${compact(seeded.planetIntel)}`);
     assertRouteSeedIDOpaque(sourceID, 'playtest source');
     assertRouteSeedIDOpaque(destinationID, 'playtest destination');
 
@@ -202,7 +203,7 @@ async function main() {
     const withRoute = await waitSmoke(
       client,
       (state) => (state.routes?.routes ?? []).length === 1 && !hasPendingOp(state, 'route.create') && !hasUnhandledEventLog(state),
-      'playtest route create reconciliation',
+      'E2E route create reconciliation',
       15000,
     );
     const routeID = withRoute.routes.routes[0].route_id;
@@ -213,8 +214,8 @@ async function main() {
     const settleFrames = await waitForOperation(client, 'route.settle', (payload) => payload.route_id === routeID, 15000);
     assertExactKeys(settleFrames.request.payload, ['route_id'], 'route.settle request');
     assertNoPayloadLeak(settleFrames.response, 'route.settle response');
-    const finalState = await waitSmoke(client, (state) => !hasPendingOp(state, 'route.settle') && !hasUnhandledEventLog(state), 'playtest route settle reconciliation', 15000);
-    await assertNoLeak(client, finalState, 'playtest route final');
+    const finalState = await waitSmoke(client, (state) => !hasPendingOp(state, 'route.settle') && !hasUnhandledEventLog(state), 'E2E route settle reconciliation', 15000);
+    await assertNoLeak(client, finalState, 'E2E route final');
 
     await closeModalIfOpen(client);
     await moveToPosition(client, eastGateTarget, 120, 'east_gate portal', 90000);
@@ -416,7 +417,7 @@ function screenshotLeakToken(text) {
 function routeSourceID(state) {
   return (
     state?.planetIntel?.planets?.find(
-      (planet) => planet.planet_id.includes('planet-playtest-route-source-') && planet.owner_status === 'owned_by_you',
+      (planet) => planet.planet_id.includes('planet-e2e-route-source-') && planet.owner_status === 'owned_by_you',
     )?.planet_id ?? ''
   );
 }
@@ -426,7 +427,7 @@ function routeDestinationID(state, sourceID) {
     state?.planetIntel?.planets?.find(
       (planet) =>
         planet.planet_id !== sourceID &&
-        planet.planet_id.includes('planet-playtest-route-destination-') &&
+        planet.planet_id.includes('planet-e2e-route-destination-') &&
         planet.owner_status === 'owned_by_you',
     )?.planet_id ?? ''
   );

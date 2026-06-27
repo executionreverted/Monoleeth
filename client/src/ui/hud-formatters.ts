@@ -110,6 +110,7 @@ export function normalizePanelID(value: string | undefined): HUDWindowID | null 
     value === 'quests' ||
     value === 'intel' ||
     value === 'systems' ||
+    value === 'chat' ||
     value === 'social' ||
     value === 'ops'
     ? value

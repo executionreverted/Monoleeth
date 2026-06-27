@@ -228,9 +228,6 @@ func (runtime *Runtime) claimSeedPrefix() (string, bool) {
 }
 
 func (runtime *Runtime) routeSeedPrefix() (string, bool) {
-	if runtime.playtestSeed {
-		return "playtest", true
-	}
 	if runtime.e2eRouteSeed {
 		return "e2e", true
 	}

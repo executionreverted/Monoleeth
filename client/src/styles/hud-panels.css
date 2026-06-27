@@ -491,6 +491,27 @@
   margin-top: 0.5rem;
 }
 
+.social-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.25rem;
+  margin-bottom: 0.55rem;
+}
+
+.social-tabs button {
+  min-height: 2rem;
+  border: 1px solid rgba(138, 245, 255, 0.22);
+  color: rgba(215, 247, 255, 0.72);
+  background: rgba(138, 245, 255, 0.06);
+  text-transform: uppercase;
+}
+
+.social-tabs button[data-active="true"] {
+  border-color: rgba(244, 201, 93, 0.58);
+  color: #f4c95d;
+  background: rgba(244, 201, 93, 0.13);
+}
+
 .social-form-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
@@ -511,6 +532,15 @@
 
 .social-form-row .ghost-action {
   margin-top: 0;
+}
+
+.social-form-row--chat {
+  grid-template-columns: minmax(5rem, 0.45fr) minmax(0, 1fr) minmax(5rem, 0.35fr);
+}
+
+.log-lines--chat {
+  max-height: 18rem;
+  overflow: auto;
 }
 
 .cms-console {

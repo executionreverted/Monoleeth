@@ -84,9 +84,9 @@ export interface HUDHandlers {
 export type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['combat']>;
 export type KnownLootDropStatus = ClientState['knownLoot'][string];
 export type VisibleEntity = ClientState['visibleEntities'][string];
-export type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' | 'social' | 'ops';
+export type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' | 'chat' | 'social' | 'ops';
 export type HUDModalID = 'target' | 'planets' | 'ship' | 'planet-detail' | 'tutorial' | 'admin-content-module-edit';
-export type HUDHelpTopicID = 'inventory' | 'shop' | 'quests' | 'planets' | 'hangar' | 'social' | 'ops';
+export type HUDHelpTopicID = 'inventory' | 'shop' | 'quests' | 'planets' | 'hangar' | 'chat' | 'social' | 'ops';
 export type QuickActionID = 'laser' | 'rocket' | 'scan' | 'stealth' | 'warp' | 'gather';
 export type QuickActionCommand = 'fire' | 'rocket' | 'scan' | 'stealth' | 'warp' | 'loot';
 export type QuestBoardSummary = NonNullable<ClientState['questBoard']>;

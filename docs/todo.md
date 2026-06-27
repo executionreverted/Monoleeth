@@ -85,9 +85,10 @@ for phase status; this file is a compact pending-work index.
   rows now resolve by server-owned active map while preserving the demo scanner
   canary loop. Starter/playtest seed content now owns starter ship/display,
   starter wallet, starter module grants/loadout scanner, weekly X Core stock,
-  first-NPC entity overrides, playtest claim core quantity, and route seed
-  storage while runtime keeps all server-authoritative mutations. Runtime now
-  loads through a `content.Repository` boundary backed by `StaticRepository`.
+  first-NPC entity overrides, playtest claim core quantity, and E2E route seed
+  storage while runtime keeps all server-authoritative mutations. Manual
+  playtest seed no longer grants owned route-test planets. Runtime now loads
+  through a `content.Repository` boundary backed by `StaticRepository`.
   Shop/category/product registry content now lives in the content bundle and is
   reference-validated before runtime serves shop payloads. Route policy content
   now owns routeable resources, caps, energy formula values, loss band, and
