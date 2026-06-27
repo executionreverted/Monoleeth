@@ -37,6 +37,7 @@ type InMemoryStore struct {
 	buildings                  map[foundation.PlanetID]map[BuildingID]PlanetBuilding
 	routes                     map[foundation.RouteID]AutomationRoute
 	routeDurable               AutomationRouteDurableStore
+	settlementDurable          SettlementDurableCommitReader
 	routeDurableRecords        map[foundation.RouteID]AutomationRouteDurableRecord
 	routeDurableReferences     map[foundation.IdempotencyKey]AutomationRouteDurableRecord
 	events                     []gameevents.EventEnvelope
@@ -88,6 +89,17 @@ func (store *InMemoryStore) SetAutomationRouteDurableStore(routeDurable Automati
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.routeDurable = routeDurable
+}
+
+// SetSettlementDurableStore redirects settlement readbacks to an external
+// adapter so route settlement retries can replay committed windows after restart.
+func (store *InMemoryStore) SetSettlementDurableStore(settlementDurable SettlementDurableCommitReader) {
+	if store == nil {
+		return
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.settlementDurable = settlementDurable
 }
 
 // Clone returns a detached copy of all production, storage, building, and route

@@ -138,7 +138,7 @@ for phase status; this file is a compact pending-work index.
   request cannot return a previous-map payload after portal/respawn transfer.
   Source:
   `docs/roadmap/08-world-discovery-planets-intel.md`.
-- [x] Prove Phase 08 restart/concurrency survival after replacing in-memory
+- [x] Prove Phase 08 restart survival after replacing in-memory
   discovery/production durable stores, idempotency maps, and local
   event/outbox slices with durable repositories/outbox records before
   multi-process runtime. Runtime core-store DB mode now wires Postgres-backed
@@ -151,6 +151,10 @@ for phase status; this file is a compact pending-work index.
   claim reference records plus claim outbox rows under the claim service lock,
   and Phase07N adds process-local delivery state plus claim-token guards, but
   the rows are not durable or cross-process.
+- [ ] Prove Phase 08 cross-process/concurrency enforcement after the restart
+  smoke layer. Remaining proof should cover simultaneous claim/route/settlement
+  attempts across independent runtimes and validate no double-apply beyond the
+  single-process restart replay cases.
 - [ ] Move Phase 08 planet claim into a durable transaction/CAS boundary that
   ties unowned-owner transition, X Core reservation/consume, idempotency, and
   event/outbox emission together. Phase07M now records successful cached claim

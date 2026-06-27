@@ -146,16 +146,25 @@ func TestP08PostgresRouteSettlementAfterRuntimeRestartAppliesOneWindowOnce(t *te
 	routeID := foundation.RouteID("p08-route-settle")
 	seedOwnedProductionPlanetForTest(t, first, owner.PlayerID, sourcePlanetID, first.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-p08-route-settle-source")
 	seedOwnedProductionPlanetForTest(t, first, owner.PlayerID, destinationPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-p08-route-settle-destination")
+	saveRouteControlStorage(t, first, sourcePlanetID, []production.StoredItem{{ItemID: "refined_alloy", Quantity: 100}})
 	seedAutomationRouteForTest(t, first, owner.PlayerID, routeID, sourcePlanetID, destinationPlanetID, "map_1_1", "map_1_2")
+	firstSettle, err := first.runtime.applyRouteSettlement(owner.PlayerID, routeID, base.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("applyRouteSettlement(before restart) error = %v, want nil", err)
+	}
+	if firstSettle.Settlement.NoOp || firstSettle.Settlement.TakenAmount != 40 || firstSettle.Settlement.AddedAmount != 40 {
+		t.Fatalf("route settlement before restart = %+v, want one applied transfer", firstSettle.Settlement)
+	}
 	if err := first.runtime.Close(); err != nil {
 		t.Fatalf("Close(first runtime) error = %v, want nil", err)
 	}
 
 	second := p08RestartSurvivalServer(t, schemaURL, testutil.NewFakeClock(base.Add(time.Hour)))
 	defer second.runtime.Close()
-	seedOwnedProductionPlanetForTest(t, second, owner.PlayerID, sourcePlanetID, second.runtime.zoneID, world.Vec2{X: 1300, Y: 1400}, "candidate-p08-route-settle-source")
-	seedOwnedProductionPlanetForTest(t, second, owner.PlayerID, destinationPlanetID, worldmaps.MapID("map_1_2").ZoneID(), world.Vec2{X: 1700, Y: 5200}, "candidate-p08-route-settle-destination")
-	saveRouteControlStorage(t, second, sourcePlanetID, []production.StoredItem{{ItemID: "refined_alloy", Quantity: 100}})
+	ledgerRowsBefore := len(second.runtime.Settlements.RouteStorageLedgerEntries())
+	if ledgerRowsBefore != 2 {
+		t.Fatalf("route settlement durable ledger rows after restart = %d, want one source/debit window", ledgerRowsBefore)
+	}
 
 	route, err := second.runtime.routeSettleRouteForOwner(owner.PlayerID, routeID)
 	if err != nil {
@@ -164,23 +173,15 @@ func TestP08PostgresRouteSettlementAfterRuntimeRestartAppliesOneWindowOnce(t *te
 	if route.RouteID != routeID || route.OwnerPlayerID != owner.PlayerID {
 		t.Fatalf("durable route after restart = %+v, want owner route %q", route, routeID)
 	}
-	firstSettle, err := second.runtime.applyRouteSettlement(owner.PlayerID, routeID, base.Add(time.Hour))
-	if err != nil {
-		t.Fatalf("applyRouteSettlement(after restart) error = %v, want nil", err)
-	}
-	if firstSettle.Settlement.NoOp || firstSettle.Settlement.TakenAmount != 40 || firstSettle.Settlement.AddedAmount != 40 {
-		t.Fatalf("route settlement after restart = %+v, want one applied transfer", firstSettle.Settlement)
-	}
-
 	secondSettle, err := second.runtime.applyRouteSettlement(owner.PlayerID, routeID, base.Add(time.Hour))
 	if err != nil {
-		t.Fatalf("second applyRouteSettlement(after restart) error = %v, want nil", err)
+		t.Fatalf("applyRouteSettlement(after restart replay) error = %v, want nil", err)
 	}
 	if !secondSettle.Settlement.NoOp {
-		t.Fatalf("second route settlement after restart = %+v, want no-op replay", secondSettle.Settlement)
+		t.Fatalf("route settlement after restart replay = %+v, want no-op replay", secondSettle.Settlement)
 	}
-	if got := len(second.runtime.Settlements.RouteStorageLedgerEntries()); got != 2 {
-		t.Fatalf("route settlement durable ledger rows after restart replay = %d, want one source/debit window", got)
+	if got := len(second.runtime.Settlements.RouteStorageLedgerEntries()); got != ledgerRowsBefore {
+		t.Fatalf("route settlement durable ledger rows after restart replay = %d, want unchanged %d", got, ledgerRowsBefore)
 	}
 }
 

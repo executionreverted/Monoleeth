@@ -157,6 +157,12 @@ func (store *InMemoryStore) routeSettlementTransactionReplayLocked(
 		return RouteSettlementTransactionResult{}, false, nil
 	}
 	reference, ok := store.references[record.ReferenceKey]
+	if !ok && store.settlementDurable != nil {
+		replay, durableOK, err := store.routeSettlementTransactionReplayFromDurable(input, settledAt, record)
+		if err != nil || durableOK {
+			return replay, durableOK, err
+		}
+	}
 	if !ok {
 		return RouteSettlementTransactionResult{}, false, nil
 	}
@@ -180,6 +186,47 @@ func (store *InMemoryStore) routeSettlementTransactionReplayLocked(
 		OutboxRecords: outboxRecords,
 		StorageLedger: ledgerRows,
 		StorageRows:   store.routeSettlementStorageRowsLocked(ledgerRows),
+	}
+	if err := validateRouteSettlementTransactionReplayRows(result); err != nil {
+		return RouteSettlementTransactionResult{}, false, err
+	}
+	if _, err := result.DurableCommitPlan(); err != nil {
+		return RouteSettlementTransactionResult{}, false, err
+	}
+	return result, true, nil
+}
+
+func (store *InMemoryStore) routeSettlementTransactionReplayFromDurable(
+	input RouteSettlementTransactionInput,
+	settledAt time.Time,
+	record AutomationRouteDurableRecord,
+) (RouteSettlementTransactionResult, bool, error) {
+	plan, ok, err := store.settlementDurable.CommittedSettlementDurableCommitPlan(record.ReferenceKey)
+	if err != nil || !ok {
+		return RouteSettlementTransactionResult{}, ok, err
+	}
+	if plan.Reference.Kind != SettlementKindRoute ||
+		plan.Reference.RouteID != input.RouteID ||
+		!plan.Reference.AppliedAt.Equal(settledAt) {
+		return RouteSettlementTransactionResult{}, false, nil
+	}
+	if plan.RouteRow == nil || plan.RouteRow.Route.OwnerPlayerID != input.OwnerPlayerID {
+		return RouteSettlementTransactionResult{}, false, fmt.Errorf("route %q owner %q: %w", input.RouteID, input.OwnerPlayerID, ErrRouteOwnerMismatch)
+	}
+
+	route := cloneAutomationRoute(record.Route)
+	settlement := newRouteSettlementResult(route, settledAt)
+	settlement.ReferenceKey = plan.Reference.ReferenceKey
+	settlement.SettlementWindow = plan.Reference.SettlementWindow
+	settlement.NoOp = true
+	clonedReference := cloneSettlementReferenceRecord(plan.Reference)
+	result := RouteSettlementTransactionResult{
+		Settlement:    settlement,
+		Reference:     &clonedReference,
+		RouteRow:      cloneAutomationRouteDurableRecordPointer(plan.RouteRow),
+		OutboxRecords: cloneProductionOutboxRecords(plan.Outbox.OutboxRecords),
+		StorageLedger: cloneRouteStorageLedgerEntries(plan.RouteStorageLedger),
+		StorageRows:   clonePlanetStorageRows(plan.StorageRows),
 	}
 	if err := validateRouteSettlementTransactionReplayRows(result); err != nil {
 		return RouteSettlementTransactionResult{}, false, err

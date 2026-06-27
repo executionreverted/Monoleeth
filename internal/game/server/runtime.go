@@ -1190,6 +1190,9 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if durableStores.automationRoutes != nil {
 		productionStore.SetAutomationRouteDurableStore(durableStores.automationRoutes)
 	}
+	if durableStores.settlements != nil {
+		productionStore.SetSettlementDurableStore(durableStores.settlements)
+	}
 	craftLocationAuthorizer, err := production.NewCraftLocationAuthorizer(production.CraftLocationAuthorizerConfig{
 		Planets:    discoveryStore,
 		Production: productionStore,
