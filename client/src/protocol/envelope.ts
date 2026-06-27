@@ -64,6 +64,14 @@ export const OPERATIONS = {
   questProgress: 'quest.progress',
   questClaimReward: 'quest.claim_reward',
   questReroll: 'quest.reroll',
+  chatSend: 'chat.send',
+  partyInvite: 'party.invite',
+  partyAccept: 'party.accept',
+  partyLeave: 'party.leave',
+  partyTargetSet: 'party.target.set',
+  clanCreate: 'clan.create',
+  clanJoin: 'clan.join',
+  clanLeave: 'clan.leave',
   adminInspectPlayer: 'admin.inspect_player',
   adminRepairCraftJob: 'admin.repair_craft_job',
   adminEconomyDashboard: 'admin.economy_dashboard',
@@ -149,6 +157,13 @@ export const CLIENT_EVENTS = {
   questRewardClaimed: 'quest.reward_claimed',
   questBoardRerolled: 'quest.board_rerolled',
   questAbandoned: 'quest.abandoned',
+  chatMessage: 'chat.message',
+  partyInvite: 'party.invite',
+  partyUpdated: 'party.updated',
+  partyLeft: 'party.left',
+  partyTargetUpdated: 'party.target_updated',
+  clanUpdated: 'clan.updated',
+  clanLeft: 'clan.left',
   adminActionCompleted: 'admin.action_completed',
   observabilityMetricUpdated: 'observability.metric_updated',
   releaseGateUpdated: 'release_gate.updated',
@@ -348,6 +363,40 @@ export const adminContentResponseAllowedPayloadKeys = new Set([
   'loot_table',
 ]);
 
+export const socialResponseAllowedPayloadKeys = new Set([
+  'player_id',
+  'sender_id',
+  'inviter_id',
+  'invitee_id',
+  'owner_id',
+  'set_by_player_id',
+]);
+
+function isSocialOperation(operation: string | null | undefined): boolean {
+  return (
+    operation === OPERATIONS.chatSend ||
+    operation === OPERATIONS.partyInvite ||
+    operation === OPERATIONS.partyAccept ||
+    operation === OPERATIONS.partyLeave ||
+    operation === OPERATIONS.partyTargetSet ||
+    operation === OPERATIONS.clanCreate ||
+    operation === OPERATIONS.clanJoin ||
+    operation === OPERATIONS.clanLeave
+  );
+}
+
+function isSocialEvent(eventType: string): boolean {
+  return (
+    eventType === CLIENT_EVENTS.chatMessage ||
+    eventType === CLIENT_EVENTS.partyInvite ||
+    eventType === CLIENT_EVENTS.partyUpdated ||
+    eventType === CLIENT_EVENTS.partyLeft ||
+    eventType === CLIENT_EVENTS.partyTargetUpdated ||
+    eventType === CLIENT_EVENTS.clanUpdated ||
+    eventType === CLIENT_EVENTS.clanLeft
+  );
+}
+
 export const playerContentCatalogResponseAllowedPayloadKeys = new Set([
   'total',
 ]);
@@ -418,13 +467,14 @@ export function parseServerMessage(raw: string, options: ServerParseOptions = {}
     }
   }
 
+  const eventType = requireString(parsed.type, 'type');
   const payload = requireObject(parsed.payload, 'event payload');
   assertPlayerContentCatalogResponseAllowed(payload, null);
-  rejectForbiddenPayloadKeys(payload);
+  rejectForbiddenPayloadKeys(payload, { allowedKeys: allowedEventPayloadKeys(eventType) });
 
   return {
     event_id: requireString(parsed.event_id, 'event_id'),
-    type: requireString(parsed.type, 'type'),
+    type: eventType,
     payload,
     server_time: requireNumber(parsed.server_time, 'server_time'),
     seq: requireNumber(parsed.seq, 'seq'),
@@ -452,7 +502,14 @@ function allowedResponsePayloadKeys(operation: string | null | undefined): Reado
   if (operation === OPERATIONS.contentCatalog) {
     return playerContentCatalogResponseAllowedPayloadKeys;
   }
+  if (isSocialOperation(operation)) {
+    return socialResponseAllowedPayloadKeys;
+  }
   return undefined;
+}
+
+function allowedEventPayloadKeys(eventType: string): ReadonlySet<string> | undefined {
+  return isSocialEvent(eventType) ? socialResponseAllowedPayloadKeys : undefined;
 }
 
 export interface ForbiddenPayloadOptions {

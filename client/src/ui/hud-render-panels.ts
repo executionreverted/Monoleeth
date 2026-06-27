@@ -17,6 +17,7 @@ export const baseWindowDefinitions: HUDPanelDefinition[] = [
   { id: 'quests', label: 'Quests', title: 'Quest Board', iconURL: galaxyIconURL, helpTopic: 'quests', render: questsPanel },
   { id: 'intel', label: 'Planets', title: 'Planets', iconURL: planetsIconURL, helpTopic: 'planets', render: planetCatalogPanel },
   { id: 'systems', label: 'Hangar', title: 'Hangar', iconURL: hangarIconURL, helpTopic: 'hangar', render: hangarPanel },
+  { id: 'social', label: 'Social', title: 'Social', iconURL: menuIconURL, helpTopic: 'social', render: socialPanel },
   { id: 'ops', label: 'Ops', title: 'Admin Ops', iconURL: menuIconURL, helpTopic: 'ops', render: opsPanel, hidden: (state) => !state.auth.session?.account?.admin },
 ];
 
@@ -30,6 +31,8 @@ export function windowLayout(id: HUDWindowID): { width: number; preferredHeight:
       return { width: 620, preferredHeight: 710, size: 'dual-pane' };
     case 'systems':
       return { width: 540, preferredHeight: 470, size: 'system' };
+    case 'social':
+      return { width: 560, preferredHeight: 620, size: 'dual-pane' };
     case 'ops':
       return { width: 640, preferredHeight: 700, size: 'dual-pane' };
     case 'cargo':
@@ -149,6 +152,15 @@ const helpTopicCatalog: Record<HUDHelpTopicID, { title: string; lead: string; po
       'Owned ships show selection and activation state.',
       'Module slots are grouped by the active ship layout.',
       'Equip and unequip actions reconcile from inventory and loadout snapshots.',
+    ],
+  },
+  social: {
+    title: 'Social Help',
+    lead: 'Chat, party, and clan state are server-owned and update from realtime events.',
+    points: [
+      'Local, party, and clan chat send only when connected.',
+      'Party invite and shared target actions use server validation.',
+      'Clan creation and join use durable server rows.',
     ],
   },
   ops: {
@@ -350,6 +362,83 @@ export function hangarStat(label: string, value: number | undefined, max: number
 
 export function hangarScalar(label: string, value: number | undefined): string {
   return `<div class="hangar-stat"><span>${escapeHTML(label)}</span><strong>${Math.max(0, Math.round(value ?? 0))}</strong></div>`;
+}
+
+export function socialPanel(state: ClientState): string {
+  const social = state.social;
+  const connected = realtimeReady(state);
+  const party = social.party;
+  const clan = social.clan;
+  const invite = social.pendingPartyInvite;
+  const selectedTargetID = state.selectedTargetID;
+  const canShareTarget = connected && Boolean(party && selectedTargetID);
+  return `
+    <h2>Social</h2>
+    <section class="systems-block">
+      <div class="meta-row"><span>Party</span><strong>${party ? `${party.members.length} online` : 'None'}</strong></div>
+      <div class="meta-row"><span>Clan</span><strong>${clan ? `${escapeHTML(clan.tag)} ${escapeHTML(clan.name)}` : 'None'}</strong></div>
+      <div class="meta-row"><span>Target</span><strong>${party?.shared_target?.targetID ? escapeHTML(party.shared_target.targetID) : lockedValue()}</strong></div>
+    </section>
+    <section class="systems-block">
+      <div class="meta-row"><span>Chat</span><strong>${social.chatMessages.length}</strong></div>
+      ${
+        social.chatMessages.length > 0
+          ? `<ol class="log-lines">
+              ${social.chatMessages
+                .slice(-8)
+                .reverse()
+                .map((message) => `<li data-level="info"><strong>${escapeHTML(message.sender_name)}</strong> ${escapeHTML(message.content)}</li>`)
+                .join('')}
+            </ol>`
+          : '<div class="empty-line">No chat messages.</div>'
+      }
+      <div class="social-form-row">
+        <select data-social-field="chat-kind" ${connected ? '' : 'disabled'}>
+          <option value="local_map">Local</option>
+          <option value="party">Party</option>
+          <option value="clan">Clan</option>
+        </select>
+        <input data-social-field="chat-content" type="text" maxlength="500" placeholder="Message" ${connected ? '' : 'disabled'} />
+        <button class="ghost-action" type="button" data-action="social-chat-send" ${connected && !hasPendingOp(state, 'chat.send') ? '' : 'disabled'}>Send</button>
+      </div>
+    </section>
+    <section class="systems-block">
+      <div class="meta-row"><span>Party Members</span><strong>${party ? party.members.length : lockedValue()}</strong></div>
+      ${
+        party
+          ? `<ul class="compact-list">
+              ${party.members.map((member) => `<li><span>${escapeHTML(member.playerID)}</span><strong>${member.is_leader ? 'Leader' : 'Member'}</strong></li>`).join('')}
+            </ul>`
+          : '<div class="empty-line">No party.</div>'
+      }
+      ${invite ? `<button class="ghost-action" type="button" data-action="party-accept" data-invite-id="${escapeHTML(invite.inviteID)}" ${connected ? '' : 'disabled'}>Accept Invite</button>` : ''}
+      <div class="social-form-row">
+        <input data-social-field="party-invite" type="text" placeholder="Callsign" ${connected ? '' : 'disabled'} />
+        <button class="ghost-action" type="button" data-action="party-invite" ${connected && !hasPendingOp(state, 'party.invite') ? '' : 'disabled'}>Invite</button>
+        <button class="ghost-action" type="button" data-action="party-target-set" ${canShareTarget ? '' : 'disabled'}>Share Target</button>
+        <button class="ghost-action" type="button" data-action="party-leave" ${connected && party ? '' : 'disabled'}>Leave</button>
+      </div>
+    </section>
+    <section class="systems-block">
+      <div class="meta-row"><span>Clan Members</span><strong>${clan ? social.clanMembers.length : lockedValue()}</strong></div>
+      ${
+        clan
+          ? `<ul class="compact-list">
+              ${social.clanMembers.map((member) => `<li><span>${escapeHTML(member.playerID)}</span><strong>${escapeHTML(member.rank)}</strong></li>`).join('')}
+            </ul>
+            <button class="ghost-action" type="button" data-action="clan-leave" ${connected ? '' : 'disabled'}>Leave Clan</button>`
+          : `<div class="social-form-row">
+              <input data-social-field="clan-name" type="text" maxlength="32" placeholder="Clan name" ${connected ? '' : 'disabled'} />
+              <input data-social-field="clan-tag" type="text" maxlength="5" placeholder="Tag" ${connected ? '' : 'disabled'} />
+              <button class="ghost-action" type="button" data-action="clan-create" ${connected ? '' : 'disabled'}>Create</button>
+            </div>
+            <div class="social-form-row">
+              <input data-social-field="clan-join-tag" type="text" maxlength="5" placeholder="Tag" ${connected ? '' : 'disabled'} />
+              <button class="ghost-action" type="button" data-action="clan-join" ${connected ? '' : 'disabled'}>Join</button>
+            </div>`
+      }
+    </section>
+  `;
 }
 
 export function opsPanel(state: ClientState): string {

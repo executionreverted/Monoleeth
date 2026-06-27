@@ -170,6 +170,50 @@ describe('parseServerMessage', () => {
     });
   });
 
+  test('allows social responses and events to carry server-owned identity fields', () => {
+    const response = parseServerMessage(
+      JSON.stringify({
+        request_id: 'request-social',
+        ok: true,
+        payload: {
+          clan: {
+            clan_id: 'clan-1',
+            name: 'Alpha Fleet',
+            tag: 'ALF',
+            owner_id: 'player-owner',
+            created_at: '2026-06-27T10:00:00Z',
+          },
+          membership: {
+            clan_id: 'clan-1',
+            player_id: 'player-owner',
+            rank: 'owner',
+            joined_at: '2026-06-27T10:00:00Z',
+          },
+        },
+        server_time: 182736126,
+        v: 1,
+      }),
+      { operationForRequestID: () => OPERATIONS.clanCreate },
+    );
+    expect(response).toMatchObject({ ok: true });
+
+    const socialEvent = parseServerMessage(
+      JSON.stringify({
+        event_id: 'social-1',
+        type: CLIENT_EVENTS.partyUpdated,
+        payload: {
+          party_id: 'party-1',
+          members: [{ player_id: 'player-owner', joined_at: '2026-06-27T10:00:00Z', is_leader: true }],
+          created_at: '2026-06-27T10:00:00Z',
+        },
+        server_time: 182736127,
+        seq: 1,
+        v: 1,
+      }),
+    );
+    expect(socialEvent).toMatchObject({ type: CLIENT_EVENTS.partyUpdated });
+  });
+
   test('still rejects secrets inside admin content responses', () => {
     expect(() =>
       parseServerMessage(

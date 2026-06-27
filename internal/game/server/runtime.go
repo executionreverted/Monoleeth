@@ -206,6 +206,7 @@ type Runtime struct {
 	durableStoreCloser             func() error
 	hangarStoreCloser              func() error
 	loadoutStoreCloser             func() error
+	socialStoreCloser              func() error
 
 	combatXP                 *combat.NPCKillXPHandler
 	lootTables               map[string]loot.LootTable
@@ -439,6 +440,11 @@ func (runtime *Runtime) Close() error {
 		closeLoadoutStore := runtime.loadoutStoreCloser
 		runtime.loadoutStoreCloser = nil
 		errs = append(errs, closeLoadoutStore())
+	}
+	if runtime.socialStoreCloser != nil {
+		closeSocialStore := runtime.socialStoreCloser
+		runtime.socialStoreCloser = nil
+		errs = append(errs, closeSocialStore())
 	}
 	return errors.Join(errs...)
 }
@@ -681,6 +687,43 @@ func loadRuntimeLoadoutStore(
 		return nil, nil, err
 	}
 	return runtimeDurableLoadoutStore{LoadoutStore: loadoutStore}, closeStore, nil
+}
+
+func loadRuntimeSocialClanStore(ctx context.Context, config RuntimeConfig) (social.ClanStore, func() error, error) {
+	contentConfig := runtimeCoreStoreDBConfig(config)
+	if err := contentConfig.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if !contentConfig.Enabled() {
+		return social.NewInMemoryClanStore(), nil, nil
+	}
+	openStore := config.contentDBOpen
+	if openStore == nil {
+		openStore = defaultRuntimeContentDBOpen
+	}
+	store, err := openStore(ctx, contentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if store == nil {
+		return nil, nil, contentdb.ErrNilDatabase
+	}
+	closeStore := func() error { return store.Close() }
+	if err := store.Migrate(ctx, contentConfig.Migrations); err != nil {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("migrate social clan db: %w", err)
+	}
+	contentStore, ok := store.(*contentdb.Store)
+	if !ok {
+		_ = closeStore()
+		return nil, nil, fmt.Errorf("social clan db store %T: %w", store, contentdb.ErrNilDatabase)
+	}
+	clanStore, err := contentdb.NewSocialClanStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return nil, nil, err
+	}
+	return clanStore, closeStore, nil
 }
 
 func loadRuntimeEconomyStores(ctx context.Context, config RuntimeConfig) (runtimeEconomyStores, func() error, error) {
@@ -1408,12 +1451,22 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if runtime.ContentAdmin != nil {
 		runtime.ContentAdmin.SetPublishSafetyModuleReader(runtime)
 	}
+	clanStore, socialStoreCloser, err := loadRuntimeSocialClanStore(context.Background(), config)
+	if err != nil {
+		if loadoutStoreCloser != nil {
+			_ = loadoutStoreCloser()
+		}
+		return nil, err
+	}
 	socialParty := social.NewPartyService(clock)
 	socialClan, err := social.NewClanService(social.ClanServiceConfig{
-		Store: social.NewInMemoryClanStore(),
+		Store: clanStore,
 		Clock: clock,
 	})
 	if err != nil {
+		if socialStoreCloser != nil {
+			_ = socialStoreCloser()
+		}
 		return nil, err
 	}
 	socialMembership := social.NewChannelMembershipService(socialParty, socialClan)
@@ -1426,12 +1479,16 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Clock:       clock,
 	})
 	if err != nil {
+		if socialStoreCloser != nil {
+			_ = socialStoreCloser()
+		}
 		return nil, err
 	}
 	runtime.SocialParty = socialParty
 	runtime.SocialClan = socialClan
 	runtime.SocialMembership = socialMembership
 	runtime.SocialChat = socialChat
+	runtime.socialStoreCloser = socialStoreCloser
 	scannerSeed, err := contentBundle.Scanner.WorldSeed()
 	if err != nil {
 		return nil, err

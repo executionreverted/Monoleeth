@@ -491,6 +491,28 @@
   margin-top: 0.5rem;
 }
 
+.social-form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+  min-width: 0;
+}
+
+.social-form-row input,
+.social-form-row select {
+  min-width: 0;
+  height: 2rem;
+  border: 1px solid rgba(125, 219, 255, 0.24);
+  background: rgba(7, 16, 24, 0.88);
+  color: #f5f7f8;
+  padding: 0 0.45rem;
+}
+
+.social-form-row .ghost-action {
+  margin-top: 0;
+}
+
 .cms-console {
   display: grid;
   gap: 0.55rem;

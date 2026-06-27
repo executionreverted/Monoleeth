@@ -124,6 +124,52 @@ export abstract class ClientAppCommands extends ClientAppCore {
     this.activateLootTarget(target, 'action');
   }
 
+  protected sendChatMessage(kind: 'local_map' | 'party' | 'clan', content: string): void {
+    if (!content.trim()) {
+      return;
+    }
+    this.sendCommand(this.commandBuilder.chatSend(kind, content.trim()));
+  }
+
+  protected sendPartyInvite(callsign: string): void {
+    if (!callsign.trim()) {
+      return;
+    }
+    this.sendCommand(this.commandBuilder.partyInvite(callsign.trim()));
+  }
+
+  protected sendPartyAccept(inviteID: string): void {
+    if (inviteID) {
+      this.sendCommand(this.commandBuilder.partyAccept(inviteID));
+    }
+  }
+
+  protected sendPartyLeave(): void {
+    this.sendCommand(this.commandBuilder.partyLeave());
+  }
+
+  protected sendPartyTargetSet(targetID: string): void {
+    if (targetID) {
+      this.sendCommand(this.commandBuilder.partyTargetSet(targetID));
+    }
+  }
+
+  protected sendClanCreate(name: string, tag: string): void {
+    if (name.trim() && tag.trim()) {
+      this.sendCommand(this.commandBuilder.clanCreate(name.trim(), tag.trim().toUpperCase()));
+    }
+  }
+
+  protected sendClanJoin(tag: string): void {
+    if (tag.trim()) {
+      this.sendCommand(this.commandBuilder.clanJoin(tag.trim().toUpperCase()));
+    }
+  }
+
+  protected sendClanLeave(): void {
+    this.sendCommand(this.commandBuilder.clanLeave());
+  }
+
   protected sendAuctionBid(auctionID: string, amount: number): void {
     if (!auctionID || amount <= 0) {
       return;

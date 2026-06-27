@@ -7,6 +7,11 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [ ] P10: finish social moderation redaction/logging policy and party/clan
+  contribution event semantics. Runtime now has durable clan rows/read models,
+  realtime `clan.create/join/leave`, visible-only `party.target.set`, and real
+  client social panels; remaining work is policy/read-model depth, not basic
+  chat/party/clan wiring. Source: `docs/road-to-v1/10-social-mvp.md`.
 - [ ] P05/P17: deep `Runtime.mu` narrowing in command handlers. Combat
   `use_skill`, loot `pickup`, and death `repair` still hold the runtime
   coordinator lock across their in-memory service calls (combat actor sync,

@@ -63,6 +63,14 @@ export interface HUDHandlers {
   onQuestAccept(offerID: string): void;
   onQuestClaim(questID: string): void;
   onQuestReroll(): void;
+  onChatSend(kind: 'local_map' | 'party' | 'clan', content: string): void;
+  onPartyInvite(callsign: string): void;
+  onPartyAccept(inviteID: string): void;
+  onPartyLeave(): void;
+  onPartyTargetSet(targetID: string): void;
+  onClanCreate(name: string, tag: string): void;
+  onClanJoin(tag: string): void;
+  onClanLeave(): void;
   onAdminRefresh(): void;
   onAdminRepairCraftJob(jobID: string): void;
   onAdminContentRefresh(): void;
@@ -76,9 +84,9 @@ export interface HUDHandlers {
 export type EntityCombatStatus = NonNullable<ClientState['visibleEntities'][string]['combat']>;
 export type KnownLootDropStatus = ClientState['knownLoot'][string];
 export type VisibleEntity = ClientState['visibleEntities'][string];
-export type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' | 'ops';
+export type HUDWindowID = 'cargo' | 'economy' | 'quests' | 'intel' | 'systems' | 'social' | 'ops';
 export type HUDModalID = 'target' | 'planets' | 'ship' | 'planet-detail' | 'tutorial' | 'admin-content-module-edit';
-export type HUDHelpTopicID = 'inventory' | 'shop' | 'quests' | 'planets' | 'hangar' | 'ops';
+export type HUDHelpTopicID = 'inventory' | 'shop' | 'quests' | 'planets' | 'hangar' | 'social' | 'ops';
 export type QuickActionID = 'laser' | 'rocket' | 'scan' | 'stealth' | 'warp' | 'gather';
 export type QuickActionCommand = 'fire' | 'rocket' | 'scan' | 'stealth' | 'warp' | 'loot';
 export type QuestBoardSummary = NonNullable<ClientState['questBoard']>;

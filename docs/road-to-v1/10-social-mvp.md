@@ -1,7 +1,7 @@
 # Phase 10 — Social MVP (Chat, Party, Clan)
 
 ## Status
-- State: In progress (domain package + chat/party realtime done; clan durability/client wiring pending)
+- State: In progress (chat/party/clan runtime + durable clan + real client panels done; moderation policy and contribution events pending)
 - Wave: 4
 - Depends on: P01 (durable identity), P04 (rate limits)
 - Unlocks: P11 group content, retention
@@ -27,17 +27,21 @@ clan foundation, all with moderation and rate limits from day one.
 - [x] `[P:wave4/lane-A]` Add `chat.send` + channel resolution server-side; enforce `chat.send` rate limit.
 - [ ] `[P:wave4/lane-A]` Add chat moderation hooks + redaction/logging policy (no PII leaks). Runtime moderation hook is wired and tested; redaction/logging policy remains.
 - [x] `[P:wave4/lane-B]` Add `party.invite/accept/leave` with server-owned membership.
-- [ ] `[P:wave4/lane-B]` Add party shared-target + contribution event foundation.
-- [ ] `[P:wave4/lane-C]` Add `clan.create/join/leave` + ranks + tag (durable rows).
-- [ ] `[P:wave4/lane-C]` Add clan chat channel bound to clan membership.
-- [ ] `[P:wave4/lane-A]` Client: chat panel + party panel + clan panel (real state only).
+- [x] `[P:wave4/lane-B]` Add party shared-target realtime foundation.
+- [ ] `[P:wave4/lane-B]` Add contribution event foundation.
+- [x] `[P:wave4/lane-C]` Add `clan.create/join/leave` + ranks + tag (durable rows).
+- [x] `[P:wave4/lane-C]` Add clan chat channel bound to clan membership.
+- [x] `[P:wave4/lane-A]` Client: chat panel + party panel + clan panel (real state only).
 
 ## Server Ownership
 - Channel membership, party/clan membership, ranks are server-owned; client sends intent only.
-- Runtime now owns `chat.send`, `party.invite`, `party.accept`, and
-  `party.leave`; clients send channel kind/content or invitee callsign, never
-  trusted player/session ids.
-- Clan realtime handlers, client UI, and durable clan rows are pending.
+- Runtime now owns `chat.send`, `party.invite`, `party.accept`, `party.leave`,
+  `party.target.set`, `clan.create`, `clan.join`, and `clan.leave`; clients
+  send channel kind/content, invitee callsign, selected target id, or clan
+  name/tag intent, never trusted player/session ids.
+- Core-store DB mode uses Postgres-backed clan/membership rows and emits
+  per-recipient clan read models on join/leave/bootstrap so clients do not
+  infer membership or rank from another player's snapshot.
 
 ## Smoke Tests (one assertion each)
 - [x] Local-map chat reaches same-map members and not others.
@@ -45,6 +49,10 @@ clan foundation, all with moderation and rate limits from day one.
 - [x] Runtime moderation rejection blocks chat without queued mutation.
 - [x] Realtime `party.invite/accept` adds exactly one membership using server-owned identity.
 - [x] Realtime `party.leave` publishes a leaver event after mutation.
+- [x] Realtime `party.target.set` rejects hidden targets and publishes a shared-target update after mutation.
+- [x] Realtime `clan.create/join/leave` publishes durable per-recipient clan snapshots.
+- [x] Runtime restart reloads durable clan rows and bootstraps a `clan.updated` read model.
+- [x] Client social panel parses social responses/events with server-owned ids and sends intent-only chat/party/clan commands.
 - [x] Party invite/accept adds exactly one membership.
 - [x] Non-member cannot read/send clan chat.
 - [x] Clan create assigns the creator the owner rank once.

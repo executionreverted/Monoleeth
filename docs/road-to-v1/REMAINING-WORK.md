@@ -17,7 +17,7 @@
 | 07 | Equipment & Progression Closure | 3 | ✅ Done | 100% |
 | 08 | Durable Planet, Production & Routes | 3 | 🟡 In progress | 90% |
 | 09 | CMS Completion & Balance Telemetry | 3 | ✅ Done | 100% |
-| 10 | Social MVP | 4 | 🟡 In progress | 60% |
+| 10 | Social MVP | 4 | 🟡 In progress | 80% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | ⬜ Not started | 0% |
 | 12 | DarkOrbit Flavor | 6 | ⬜ Not started | 0% |
 | 13 | Observability, Simulation & Release Gate | 4 | ⬜ Not started | 0% |
@@ -26,7 +26,7 @@
 | 16 | Production Config & Operational Hardening | 2 | ✅ Done | 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | ⬜ Not started | 0% |
 
-**Genel v1:** ~64%
+**Genel v1:** ~67%
 
 ---
 
@@ -142,7 +142,7 @@ honestly. (Green.)
 
 ---
 
-### 🟡 P10 — Social MVP (Chat, Party, Clan) (Wave 4, 60%)
+### 🟡 P10 — Social MVP (Chat, Party, Clan) (Wave 4, 80%)
 
 ✅ Domain package exists: `internal/game/social/`.
 ✅ Runtime chat/party realtime slice exists:
@@ -152,6 +152,15 @@ honestly. (Green.)
   identity; invite targets resolve from online callsign, not client-sent player
   ids.
 - Chat rate-limit and moderation seams are wired through `ChatService`.
+✅ Runtime clan/shared-target/client slice exists:
+- `party.target.set` validates visible targets server-side and broadcasts
+  shared-target realtime events after mutation.
+- `clan.create`, `clan.join`, and `clan.leave` use Postgres-backed
+  clan/membership rows in core-store DB mode, with in-memory dev fallback.
+- Runtime bootstrap emits durable `clan.updated` read models after restart, and
+  join/leave events are per-recipient so clients keep their own rank/membership.
+- Client social state/panel parses server-owned social ids, opens from the HUD,
+  and sends chat/party/clan intent-only commands.
 
 - [x] Chat service domain: server-resolved channels, moderation hook seam,
   rate-limit seam + default cooldown, in-memory message store.
@@ -163,12 +172,16 @@ honestly. (Green.)
   routing.
 - [x] Wire realtime ops/events: `chat.send`, `party.invite`, `party.accept`,
   `party.leave`.
-- [ ] Wire realtime ops/events: `clan.create`, `clan.join`, `clan.leave`.
-- [ ] Durable clan rows + durable/social read models. Current clan store is
-  process-local.
-- [ ] Party shared-target + contribution event foundation.
-- [ ] `[P:wave4/lane-A]` Client: chat panel + party panel + clan panel (real
+- [x] Wire realtime ops/events: `clan.create`, `clan.join`, `clan.leave`.
+- [x] Durable clan rows + durable/social read models.
+- [x] Party shared-target realtime foundation.
+- [ ] Contribution event foundation.
+- [x] `[P:wave4/lane-A]` Client: chat panel + party panel + clan panel (real
   state only).
+
+Kalan:
+- [ ] Chat moderation redaction/logging policy (no PII leaks).
+- [ ] Party/clan contribution event semantics and read models.
 
 **Referanslar:**
 - `docs/road-to-v1/10-social-mvp.md`

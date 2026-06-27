@@ -22,13 +22,18 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
   + DB outbox/recovery mutation support + restart survival smoke proof done),
   P09 Done, P14 Done (HI-02/HI-08 closed — rollback safety + honest
   `pending_restart`).
-- Wave 4: P10 60% (domain package + chat/party realtime commands/events done;
-  clan durability, shared-target foundation, and client panels pending), P13/P15
-  not started.
+- Wave 4: P10 80% (chat/party/clan runtime, durable clan rows/read models,
+  party shared-target realtime, and real client panels done; moderation
+  redaction/logging policy + contribution events pending), P13/P15 not started.
 - Wave 5-6: P11/P12/P17 not started.
-- Genel v1: ~64%.
+- Genel v1: ~67%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P10 clan/social client slice — Postgres-backed clan/membership rows in
+  core-store DB mode, realtime `party.target.set` + `clan.create/join/leave`,
+  durable clan bootstrap read models, client social state/panel, and review-fix
+  hardening for social parser allowlists, per-recipient clan snapshots, and
+  observability command coverage.
 - P10 chat/party realtime slice — `chat.send`, `party.invite`,
   `party.accept`, and `party.leave` are runtime-wired with server-owned session
   identity, online callsign invite resolution, chat rate/moderation seams, and
@@ -67,8 +72,7 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 
 ### Sırada (resume sırası)
 1. Context tazele: `00-index.md`, `REMAINING-WORK.md`, ilgili faz dosyası.
-2. P10: durable clan rows/read models, party shared-target foundation, and real
-   client chat/party/clan panels ekle.
+2. P10: moderation redaction/logging policy and contribution event foundation.
 3. P13/P15: release gate + AOI perf.
 4. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
 

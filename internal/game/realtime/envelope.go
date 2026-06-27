@@ -81,6 +81,10 @@ const (
 	OperationPartyInvite               Operation = "party.invite"
 	OperationPartyAccept               Operation = "party.accept"
 	OperationPartyLeave                Operation = "party.leave"
+	OperationPartyTargetSet            Operation = "party.target.set"
+	OperationClanCreate                Operation = "clan.create"
+	OperationClanJoin                  Operation = "clan.join"
+	OperationClanLeave                 Operation = "clan.leave"
 	OperationQuestBoard                Operation = "quest.board"
 	OperationQuestAccept               Operation = "quest.accept"
 	OperationQuestProgress             Operation = "quest.progress"
@@ -172,6 +176,9 @@ const (
 	EventPartyInvite           ClientEventType = "party.invite"
 	EventPartyUpdated          ClientEventType = "party.updated"
 	EventPartyLeft             ClientEventType = "party.left"
+	EventPartyTargetUpdated    ClientEventType = "party.target_updated"
+	EventClanUpdated           ClientEventType = "clan.updated"
+	EventClanLeft              ClientEventType = "clan.left"
 	EventAdminActionCompleted  ClientEventType = "admin.action_completed"
 	EventObservabilityMetric   ClientEventType = "observability.metric_updated"
 	EventReleaseGateUpdated    ClientEventType = "release_gate.updated"
@@ -453,6 +460,22 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationPartyLeave: {
 		Operation:        OperationPartyLeave,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationPartyTargetSet: {
+		Operation:        OperationPartyTargetSet,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationClanCreate: {
+		Operation:        OperationClanCreate,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationClanJoin: {
+		Operation:        OperationClanJoin,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationClanLeave: {
+		Operation:        OperationClanLeave,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationQuestBoard: {

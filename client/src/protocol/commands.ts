@@ -411,6 +411,38 @@ export class CommandBuilder {
     return this.build(OPERATIONS.questReroll, {});
   }
 
+  chatSend(kind: 'local_map' | 'party' | 'clan', content: string): RequestEnvelope<{ kind: string; content: string }> {
+    return this.build(OPERATIONS.chatSend, { kind, content });
+  }
+
+  partyInvite(inviteeCallsign: string): RequestEnvelope<{ invitee_callsign: string }> {
+    return this.build(OPERATIONS.partyInvite, { invitee_callsign: inviteeCallsign });
+  }
+
+  partyAccept(inviteID: string): RequestEnvelope<{ invite_id: string }> {
+    return this.build(OPERATIONS.partyAccept, { invite_id: inviteID });
+  }
+
+  partyLeave(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.partyLeave, {});
+  }
+
+  partyTargetSet(targetID: string): RequestEnvelope<{ target_id: string }> {
+    return this.build(OPERATIONS.partyTargetSet, { target_id: targetID });
+  }
+
+  clanCreate(name: string, tag: string): RequestEnvelope<{ name: string; tag: string }> {
+    return this.build(OPERATIONS.clanCreate, { name, tag });
+  }
+
+  clanJoin(tag: string): RequestEnvelope<{ tag: string }> {
+    return this.build(OPERATIONS.clanJoin, { tag });
+  }
+
+  clanLeave(): RequestEnvelope<Record<string, never>> {
+    return this.build(OPERATIONS.clanLeave, {});
+  }
+
   adminInspectPlayer(targetPlayerID?: string): RequestEnvelope<{ target_player_id?: string }> {
     return this.build(OPERATIONS.adminInspectPlayer, targetPlayerID ? { target_player_id: targetPlayerID } : {}, [
       'target_player_id',

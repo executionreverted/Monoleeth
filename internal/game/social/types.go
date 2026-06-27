@@ -65,6 +65,7 @@ var (
 	ErrAlreadyInParty        = errors.New("player already in party")
 	ErrNotInParty            = errors.New("player not in party")
 	ErrInvalidPartyID        = errors.New("invalid party id")
+	ErrInvalidPartyTarget    = errors.New("invalid party target")
 	ErrMessageRateLimited    = errors.New("chat message rate limited")
 )
 

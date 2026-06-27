@@ -12,6 +12,7 @@ import (
 	"gameproject/internal/game/auth"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
+	"gameproject/internal/game/social"
 	"gameproject/internal/game/world/aoi"
 	"gameproject/internal/game/world/worker"
 )
@@ -180,6 +181,15 @@ func (runtime *Runtime) bootstrapEvents(resolved auth.ResolvedSession, lastSeenS
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventWalletSnapshot, runtime.walletSnapshotLocked(resolved.PlayerID)))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventCargoSnapshot, state.Cargo))
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventProgressionSnapshot, progressionPayload(progressionSnapshot)))
+	if runtime.SocialClan != nil {
+		clanSnapshot, err := runtime.clanSnapshotFor(resolved.PlayerID)
+		if err != nil && !errors.Is(err, social.ErrNotInClan) {
+			return nil, err
+		}
+		if err == nil {
+			events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventClanUpdated, clanSnapshot))
+		}
+	}
 	events = append(events, runtime.eventLocked(resolved.SessionID, realtime.EventWorldSnapshot, worldSnapshot))
 	runtime.recordReplayEventsLocked(resolved.SessionID, events)
 	if len(replay) == 0 {
@@ -271,6 +281,10 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 		realtime.OperationPartyInvite,
 		realtime.OperationPartyAccept,
 		realtime.OperationPartyLeave,
+		realtime.OperationPartyTargetSet,
+		realtime.OperationClanCreate,
+		realtime.OperationClanJoin,
+		realtime.OperationClanLeave,
 		realtime.OperationAdminRepairCraftJob,
 		realtime.OperationObservabilityMetric,
 		realtime.OperationObservabilityGate:
@@ -301,6 +315,10 @@ func opEmitsPostCommandAOIDiff(op realtime.Operation) bool {
 		realtime.OperationPartyInvite,
 		realtime.OperationPartyAccept,
 		realtime.OperationPartyLeave,
+		realtime.OperationPartyTargetSet,
+		realtime.OperationClanCreate,
+		realtime.OperationClanJoin,
+		realtime.OperationClanLeave,
 		realtime.OperationShieldRepairTick,
 		realtime.OperationPortalEnter,
 		realtime.OperationDiscoveryClaimPlanet,

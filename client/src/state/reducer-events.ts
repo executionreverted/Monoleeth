@@ -1,6 +1,6 @@
-import { CLIENT_EVENTS, EventEnvelope, OPERATIONS, rejectForbiddenPayloadKeys } from '../protocol/envelope';
-import type { ClientState, MapTransferState } from './types';
-import { appendLog, numberField, objectField, stringField } from './reducer-helpers';
+import { CLIENT_EVENTS, EventEnvelope, JsonObject, OPERATIONS, rejectForbiddenPayloadKeys } from '../protocol/envelope';
+import type { ClientState, MapTransferState, SocialClanMembership, SocialChatMessage, SocialPartyInvite, SocialPartyMember, SocialPartySharedTarget, SocialPartyState } from './types';
+import { appendLog, isJsonObject, numberField, objectField, stringField } from './reducer-helpers';
 import {
   applyPlanetDetail,
   applyPlanetClaimed,
@@ -66,7 +66,7 @@ import {
 } from './reducer-world';
 
 export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientState {
-  rejectForbiddenPayloadKeys(envelope.payload);
+  rejectForbiddenPayloadKeys(envelope.payload, { allowedKeys: socialEventAllowedKeys(envelope.type) });
 
   switch (envelope.type) {
     case CLIENT_EVENTS.sessionReady:
@@ -168,6 +168,71 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
         feedbackEffect(nextState, envelope, 'destroyed'),
       );
     }
+
+    case CLIENT_EVENTS.chatMessage: {
+      const message = parseSocialChatMessage(envelope.payload);
+      return {
+        ...withoutPendingOperations(state, [OPERATIONS.chatSend]),
+        social: {
+          ...state.social,
+          chatMessages: message ? [...state.social.chatMessages, message].slice(-50) : state.social.chatMessages,
+        },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.partyInvite:
+      return {
+        ...state,
+        social: { ...state.social, pendingPartyInvite: parseSocialPartyInvite(envelope.payload) },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.partyUpdated: {
+      const party = parseSocialParty(envelope.payload);
+      return {
+        ...withoutPendingOperations(state, [OPERATIONS.partyInvite, OPERATIONS.partyAccept]),
+        social: { ...state.social, party: party ?? state.social.party, pendingPartyInvite: null },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.partyTargetUpdated: {
+      const party = parseSocialParty(objectField(envelope.payload, 'party') ?? envelope.payload);
+      return {
+        ...withoutPendingOperations(state, [OPERATIONS.partyTargetSet]),
+        social: { ...state.social, party: party ?? state.social.party },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.partyLeft:
+      return {
+        ...withoutPendingOperations(state, [OPERATIONS.partyLeave]),
+        social: { ...state.social, party: null, pendingPartyInvite: null },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.clanUpdated:
+      return {
+        ...withoutPendingOperations(state, [OPERATIONS.clanCreate, OPERATIONS.clanJoin, OPERATIONS.clanLeave]),
+        social: applyClanPayload(state.social, envelope.payload),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+
+    case CLIENT_EVENTS.clanLeft:
+      return {
+        ...withoutPendingOperations(state, [OPERATIONS.clanLeave]),
+        social: { ...state.social, clan: null, clanMembership: null, clanMembers: [] },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
 
     case CLIENT_EVENTS.lootCreated:
     case CLIENT_EVENTS.lootUpdated: {
@@ -964,4 +1029,122 @@ function parseMapTransferFailed(payload: EventEnvelope['payload'], serverTime: n
     reason: stringField(payload, 'reason') ?? 'Map transfer failed.',
     started_at: serverTime,
   };
+}
+
+const socialServerFieldAllowlist = new Set(['player_id', 'sender_id', 'inviter_id', 'invitee_id', 'owner_id', 'set_by_player_id']);
+
+function socialEventAllowedKeys(type: string): ReadonlySet<string> | undefined {
+  switch (type) {
+    case CLIENT_EVENTS.chatMessage:
+    case CLIENT_EVENTS.partyInvite:
+    case CLIENT_EVENTS.partyUpdated:
+    case CLIENT_EVENTS.partyLeft:
+    case CLIENT_EVENTS.partyTargetUpdated:
+    case CLIENT_EVENTS.clanUpdated:
+    case CLIENT_EVENTS.clanLeft:
+      return socialServerFieldAllowlist;
+    default:
+      return undefined;
+  }
+}
+
+function parseSocialChatMessage(payload: JsonObject): SocialChatMessage | null {
+  const messageID = stringField(payload, 'message_id');
+  const channelKind = stringField(payload, 'channel_kind');
+  const channelID = stringField(payload, 'channel_id');
+  const senderID = stringField(payload, 'sender_id');
+  const senderName = stringField(payload, 'sender_name');
+  const content = stringField(payload, 'content');
+  const sentAt = stringField(payload, 'sent_at');
+  if (!messageID || !channelKind || !channelID || !senderID || !senderName || !content || !sentAt) {
+    return null;
+  }
+  return { message_id: messageID, channel_kind: channelKind, channel_id: channelID, sender_id: senderID, sender_name: senderName, content, sent_at: sentAt };
+}
+
+function parseSocialPartyInvite(payload: JsonObject): SocialPartyInvite | null {
+  const inviteID = stringField(payload, 'invite_id');
+  const partyID = stringField(payload, 'party_id');
+  const inviterID = stringField(payload, 'inviter_id');
+  const inviteeID = stringField(payload, 'invitee_id');
+  const createdAt = stringField(payload, 'created_at');
+  const expiresAt = stringField(payload, 'expires_at');
+  if (!inviteID || !partyID || !inviterID || !inviteeID || !createdAt || !expiresAt) {
+    return null;
+  }
+  return { inviteID, partyID, inviterID, inviteeID, createdAt, expiresAt };
+}
+
+function parseSocialParty(payload: JsonObject): SocialPartyState | null {
+  const partyID = stringField(payload, 'party_id');
+  const createdAt = stringField(payload, 'created_at');
+  const rawMembers = payload.members;
+  if (!partyID || !createdAt || !Array.isArray(rawMembers)) {
+    return null;
+  }
+  const members = rawMembers.filter(isJsonObject).map(parseSocialPartyMember).filter((member): member is SocialPartyMember => member !== null);
+  return {
+    partyID,
+    members,
+    createdAt,
+    shared_target: parseSocialPartyTarget(objectField(payload, 'shared_target')),
+  };
+}
+
+function parseSocialPartyMember(payload: JsonObject): SocialPartyMember | null {
+  const playerID = stringField(payload, 'player_id');
+  const joinedAt = stringField(payload, 'joined_at');
+  if (!playerID || !joinedAt) {
+    return null;
+  }
+  return { playerID, joinedAt, is_leader: payload.is_leader === true };
+}
+
+function parseSocialPartyTarget(payload: JsonObject | null): SocialPartySharedTarget | undefined {
+  if (!payload) {
+    return undefined;
+  }
+  const partyID = stringField(payload, 'party_id');
+  const targetID = stringField(payload, 'target_id');
+  const setByPlayerID = stringField(payload, 'set_by_player_id');
+  const updatedAt = stringField(payload, 'updated_at');
+  if (!partyID || !targetID || !setByPlayerID || !updatedAt) {
+    return undefined;
+  }
+  return { partyID, targetID, setByPlayerID, updatedAt };
+}
+
+function applyClanPayload(social: ClientState['social'], payload: JsonObject): ClientState['social'] {
+  const clanPayload = objectField(payload, 'clan');
+  const membershipPayload = objectField(payload, 'membership');
+  const rawMembers = payload.members;
+  const clan = clanPayload ? parseSocialClan(clanPayload) : social.clan;
+  const membership = membershipPayload ? parseSocialClanMembership(membershipPayload) : social.clanMembership;
+  const members = Array.isArray(rawMembers)
+    ? rawMembers.filter(isJsonObject).map(parseSocialClanMembership).filter((member): member is SocialClanMembership => member !== null)
+    : social.clanMembers;
+  return { ...social, clan, clanMembership: membership, clanMembers: members };
+}
+
+function parseSocialClan(payload: JsonObject) {
+  const clanID = stringField(payload, 'clan_id');
+  const name = stringField(payload, 'name');
+  const tag = stringField(payload, 'tag');
+  const ownerID = stringField(payload, 'owner_id');
+  const createdAt = stringField(payload, 'created_at');
+  if (!clanID || !name || !tag || !ownerID || !createdAt) {
+    return null;
+  }
+  return { clanID, name, tag, ownerID, createdAt };
+}
+
+function parseSocialClanMembership(payload: JsonObject): SocialClanMembership | null {
+  const clanID = stringField(payload, 'clan_id');
+  const playerID = stringField(payload, 'player_id');
+  const rank = stringField(payload, 'rank');
+  const joinedAt = stringField(payload, 'joined_at');
+  if (!clanID || !playerID || !rank || !joinedAt) {
+    return null;
+  }
+  return { clanID, playerID, rank, joinedAt };
 }

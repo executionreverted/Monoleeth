@@ -34,6 +34,7 @@ type ClanStore interface {
 	Membership(playerID foundation.PlayerID) (ClanMembership, bool, error)
 	AddMembership(membership ClanMembership) error
 	RemoveMembership(playerID foundation.PlayerID) error
+	SetOwner(clanID ClanID, ownerID foundation.PlayerID) error
 }
 
 // ClanService owns server-authoritative clan lifecycle.
@@ -83,16 +84,20 @@ func (svc *ClanService) CreateClan(input CreateClanInput) (Clan, error) {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 
-	if _, ok, _ := svc.store.Membership(input.OwnerID); ok {
+	if _, ok, err := svc.store.Membership(input.OwnerID); err != nil {
+		return Clan{}, err
+	} else if ok {
 		return Clan{}, fmt.Errorf("player %q: %w", input.OwnerID, ErrAlreadyInClan)
 	}
-	if _, ok, _ := svc.store.ClanByTag(input.Tag); ok {
+	if _, ok, err := svc.store.ClanByTag(input.Tag); err != nil {
+		return Clan{}, err
+	} else if ok {
 		return Clan{}, ErrClanAlreadyExists
 	}
 
 	svc.seq++
 	now := svc.clock.Now()
-	clanID := ClanID(fmt.Sprintf("clan-%d", svc.seq))
+	clanID := ClanID(fmt.Sprintf("clan-%s-%d-%d", input.Tag, now.UnixNano(), svc.seq))
 	clan := Clan{
 		ClanID:    clanID,
 		Name:      input.Name,
@@ -117,7 +122,9 @@ func (svc *ClanService) JoinClan(clanID ClanID, playerID foundation.PlayerID) (C
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 
-	if existing, ok, _ := svc.store.Membership(playerID); ok {
+	if existing, ok, err := svc.store.Membership(playerID); err != nil {
+		return ClanMembership{}, err
+	} else if ok {
 		return ClanMembership{}, fmt.Errorf("player %q in clan %q: %w", playerID, existing.ClanID, ErrAlreadyInClan)
 	}
 	clan, ok, err := svc.store.Clan(clanID)
@@ -137,6 +144,54 @@ func (svc *ClanService) JoinClan(clanID ClanID, playerID foundation.PlayerID) (C
 		return ClanMembership{}, err
 	}
 	return membership, nil
+}
+
+// JoinClanByTag resolves a durable clan tag and joins the matching clan.
+func (svc *ClanService) JoinClanByTag(tag ClanTag, playerID foundation.PlayerID) (Clan, ClanMembership, error) {
+	if err := ValidateClanTag(tag); err != nil {
+		return Clan{}, ClanMembership{}, err
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+
+	if existing, ok, err := svc.store.Membership(playerID); err != nil {
+		return Clan{}, ClanMembership{}, err
+	} else if ok {
+		return Clan{}, ClanMembership{}, fmt.Errorf("player %q in clan %q: %w", playerID, existing.ClanID, ErrAlreadyInClan)
+	}
+	clan, ok, err := svc.store.ClanByTag(tag)
+	if err != nil {
+		return Clan{}, ClanMembership{}, err
+	}
+	if !ok {
+		return Clan{}, ClanMembership{}, ErrClanNotFound
+	}
+	membership := ClanMembership{
+		ClanID:   clan.ClanID,
+		PlayerID: playerID,
+		Rank:     ClanRankMember,
+		JoinedAt: svc.clock.Now(),
+	}
+	if err := svc.store.AddMembership(membership); err != nil {
+		return Clan{}, ClanMembership{}, err
+	}
+	return clan, membership, nil
+}
+
+func (svc *ClanService) Clan(clanID ClanID) (Clan, bool, error) {
+	return svc.store.Clan(clanID)
+}
+
+func (svc *ClanService) ClanByTag(tag ClanTag) (Clan, bool, error) {
+	return svc.store.ClanByTag(tag)
+}
+
+func (svc *ClanService) Membership(playerID foundation.PlayerID) (ClanMembership, bool, error) {
+	return svc.store.Membership(playerID)
+}
+
+func (svc *ClanService) Memberships(clanID ClanID) ([]ClanMembership, error) {
+	return svc.store.Memberships(clanID)
 }
 
 // LeaveClan removes a player's membership. If the owner leaves, ownership
@@ -168,6 +223,9 @@ func (svc *ClanService) LeaveClan(playerID foundation.PlayerID) error {
 		newOwner := selectClanSuccessor(members)
 		newOwner.Rank = ClanRankOwner
 		if err := svc.store.AddMembership(newOwner); err != nil {
+			return err
+		}
+		if err := svc.store.SetOwner(membership.ClanID, newOwner.PlayerID); err != nil {
 			return err
 		}
 	}
@@ -273,6 +331,15 @@ func (store *InMemoryClanStore) Membership(playerID foundation.PlayerID) (ClanMe
 func (store *InMemoryClanStore) AddMembership(membership ClanMembership) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if existing, ok := store.memberships[membership.PlayerID]; ok {
+		members := store.clanMembers[existing.ClanID]
+		for i, m := range members {
+			if m.PlayerID == membership.PlayerID {
+				store.clanMembers[existing.ClanID] = append(members[:i], members[i+1:]...)
+				break
+			}
+		}
+	}
 	store.memberships[membership.PlayerID] = membership
 	store.clanMembers[membership.ClanID] = append(store.clanMembers[membership.ClanID], membership)
 	return nil
@@ -293,5 +360,17 @@ func (store *InMemoryClanStore) RemoveMembership(playerID foundation.PlayerID) e
 			break
 		}
 	}
+	return nil
+}
+
+func (store *InMemoryClanStore) SetOwner(clanID ClanID, ownerID foundation.PlayerID) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	clan, ok := store.clans[clanID]
+	if !ok {
+		return ErrClanNotFound
+	}
+	clan.OwnerID = ownerID
+	store.clans[clanID] = clan
 	return nil
 }

@@ -225,6 +225,22 @@ func defaultRealtimeOperationBuckets() map[Operation]RealtimeRateLimitBucket {
 			Burst:       4,
 			RefillEvery: 5 * time.Second,
 		},
+		OperationPartyTargetSet: {
+			Burst:       4,
+			RefillEvery: 2 * time.Second,
+		},
+		OperationClanCreate: {
+			Burst:       2,
+			RefillEvery: 30 * time.Second,
+		},
+		OperationClanJoin: {
+			Burst:       3,
+			RefillEvery: 10 * time.Second,
+		},
+		OperationClanLeave: {
+			Burst:       3,
+			RefillEvery: 10 * time.Second,
+		},
 		OperationQuestReroll: {
 			Burst:       2,
 			RefillEvery: 30 * time.Second,

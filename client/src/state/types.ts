@@ -1042,6 +1042,69 @@ export interface WorldFeedbackEffect {
   expiresAt: number;
 }
 
+export interface SocialChatMessage {
+  message_id: string;
+  channel_kind: string;
+  channel_id: string;
+  sender_id: string;
+  sender_name: string;
+  content: string;
+  sent_at: string;
+}
+
+export interface SocialPartyMember {
+  playerID: string;
+  joinedAt: string;
+  is_leader?: boolean;
+}
+
+export interface SocialPartySharedTarget {
+  partyID: string;
+  targetID: string;
+  setByPlayerID: string;
+  updatedAt: string;
+}
+
+export interface SocialPartyState {
+  partyID: string;
+  members: SocialPartyMember[];
+  shared_target?: SocialPartySharedTarget;
+  createdAt: string;
+}
+
+export interface SocialPartyInvite {
+  inviteID: string;
+  partyID: string;
+  inviterID: string;
+  inviteeID: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface SocialClan {
+  clanID: string;
+  name: string;
+  tag: string;
+  ownerID: string;
+  createdAt: string;
+}
+
+export interface SocialClanMembership {
+  clanID: string;
+  playerID: string;
+  rank: 'owner' | 'officer' | 'member' | string;
+  joinedAt: string;
+}
+
+export interface SocialState {
+  chatMessages: SocialChatMessage[];
+  party: SocialPartyState | null;
+  pendingPartyInvite: SocialPartyInvite | null;
+  clan: SocialClan | null;
+  clanMembership: SocialClanMembership | null;
+  clanMembers: SocialClanMembership[];
+}
+
 export interface ClientState {
   auth: ClientAuthState;
   connectionStatus: ConnectionStatus;
@@ -1060,6 +1123,7 @@ export interface ClientState {
   movementTarget: Vec2 | null;
   lastCorrection: { entityID: string; position: Vec2 } | null;
   knownLoot: Record<string, KnownLootDrop>;
+  social: SocialState;
   worldEffects: WorldFeedbackEffect[];
   pendingCommands: Record<string, PendingCommand>;
   commandLog: LogLine[];

@@ -10,6 +10,7 @@ import (
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/social"
+	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 )
 
@@ -118,6 +119,103 @@ func TestPartyLeaveQueuesUpdatedPartyForRemainingMember(t *testing.T) {
 	}
 }
 
+func TestPartyTargetSetRequiresVisibleEntityAndQueuesUpdate(t *testing.T) {
+	gameServer, _ := newTestServer(t, true)
+	leader := createResolvedRuntimeSession(t, gameServer, "party-target-leader@example.com", "Target Leader")
+	member := createResolvedRuntimeSession(t, gameServer, "party-target-member@example.com", "Target Member")
+	inviteResponse := handleSocialRequestForTest(t, gameServer, leader, realtime.OperationPartyInvite, `{"invitee_callsign":"Target Member"}`)
+	var invitePayload partyInviteResponse
+	decodeSocialResponseForTest(t, inviteResponse, &invitePayload)
+	acceptResponse := handleSocialRequestForTest(t, gameServer, member, realtime.OperationPartyAccept, `{"invite_id":"`+invitePayload.Invite.InviteID+`"}`)
+	if acceptResponse.HasError {
+		t.Fatalf("party.accept error = %+v, want success", acceptResponse.Error)
+	}
+	_ = postSocialEventsForTest(t, gameServer, member, realtime.OperationPartyAccept)
+
+	targetID := testPlayerEntityID(t, gameServer, member.PlayerID)
+	response := handleSocialRequestForTest(t, gameServer, leader, realtime.OperationPartyTargetSet, `{"target_id":"`+targetID.String()+`"}`)
+	if response.HasError {
+		t.Fatalf("party.target.set error = %+v, want success", response.Error)
+	}
+	var payload partyTargetSetResponse
+	decodeSocialResponseForTest(t, response, &payload)
+	if payload.Target.TargetID != targetID.String() || payload.Party.SharedTarget == nil {
+		t.Fatalf("shared target payload = %+v, want %q", payload, targetID)
+	}
+	events := postSocialEventsForTest(t, gameServer, leader, realtime.OperationPartyTargetSet)
+	if got := countEventTypeForTest(events[member.SessionID], realtime.EventPartyTargetUpdated); got != 1 {
+		t.Fatalf("member party.target_updated events = %d, want 1", got)
+	}
+}
+
+func TestPartyTargetSetRejectsHiddenEntity(t *testing.T) {
+	gameServer, _ := newTestServer(t, true)
+	leader := createResolvedRuntimeSession(t, gameServer, "party-target-hidden-leader@example.com", "Hidden Leader")
+	member := createResolvedRuntimeSession(t, gameServer, "party-target-hidden-member@example.com", "Hidden Member")
+	inviteResponse := handleSocialRequestForTest(t, gameServer, leader, realtime.OperationPartyInvite, `{"invitee_callsign":"Hidden Member"}`)
+	var invitePayload partyInviteResponse
+	decodeSocialResponseForTest(t, inviteResponse, &invitePayload)
+	acceptResponse := handleSocialRequestForTest(t, gameServer, member, realtime.OperationPartyAccept, `{"invite_id":"`+invitePayload.Invite.InviteID+`"}`)
+	if acceptResponse.HasError {
+		t.Fatalf("party.accept error = %+v, want success", acceptResponse.Error)
+	}
+
+	hiddenTargetID := world.EntityID("entity_hidden_party_target")
+	insertTestWorldEntity(t, gameServer, hiddenTargetID, world.EntityTypeNPC, world.Vec2{X: 180, Y: 0}, true)
+	response := handleSocialRequestForTest(t, gameServer, leader, realtime.OperationPartyTargetSet, `{"target_id":"`+hiddenTargetID.String()+`"}`)
+	if !response.HasError || response.Error.Error.Code != foundation.CodeNotFound {
+		t.Fatalf("party.target.set hidden response = %+v, want %s", response, foundation.CodeNotFound)
+	}
+}
+
+func TestClanCreateJoinLeaveQueuesDurableSnapshots(t *testing.T) {
+	gameServer, _ := newTestServer(t, true)
+	owner := createResolvedRuntimeSession(t, gameServer, "clan-owner@example.com", "Clan Owner")
+	member := createResolvedRuntimeSession(t, gameServer, "clan-member@example.com", "Clan Member")
+
+	createResponse := handleSocialRequestForTest(t, gameServer, owner, realtime.OperationClanCreate, `{"name":"Alpha Fleet","tag":"ALF"}`)
+	if createResponse.HasError {
+		t.Fatalf("clan.create error = %+v, want success", createResponse.Error)
+	}
+	var createPayload clanResponse
+	decodeSocialResponseForTest(t, createResponse, &createPayload)
+	if createPayload.Clan.Tag != "ALF" || createPayload.Membership.Rank != social.ClanRankOwner || len(createPayload.Members) != 1 {
+		t.Fatalf("create clan payload = %+v, want owner snapshot", createPayload)
+	}
+	_ = postSocialEventsForTest(t, gameServer, owner, realtime.OperationClanCreate)
+
+	joinResponse := handleSocialRequestForTest(t, gameServer, member, realtime.OperationClanJoin, `{"tag":"alf"}`)
+	if joinResponse.HasError {
+		t.Fatalf("clan.join error = %+v, want success", joinResponse.Error)
+	}
+	var joinPayload clanResponse
+	decodeSocialResponseForTest(t, joinResponse, &joinPayload)
+	if joinPayload.Membership.Rank != social.ClanRankMember || len(joinPayload.Members) != 2 {
+		t.Fatalf("join clan payload = %+v, want two durable members", joinPayload)
+	}
+	events := postSocialEventsForTest(t, gameServer, member, realtime.OperationClanJoin)
+	if got := countEventTypeForTest(events[owner.SessionID], realtime.EventClanUpdated); got != 1 {
+		t.Fatalf("owner clan.updated events = %d, want 1", got)
+	}
+	var ownerUpdate clanResponse
+	decodeSocialEventForTest(t, events[owner.SessionID], realtime.EventClanUpdated, &ownerUpdate)
+	if ownerUpdate.Membership.PlayerID != owner.PlayerID || ownerUpdate.Membership.Rank != social.ClanRankOwner {
+		t.Fatalf("owner clan.updated membership = %+v, want owner snapshot", ownerUpdate.Membership)
+	}
+
+	leaveResponse := handleSocialRequestForTest(t, gameServer, member, realtime.OperationClanLeave, `{}`)
+	if leaveResponse.HasError {
+		t.Fatalf("clan.leave error = %+v, want success", leaveResponse.Error)
+	}
+	events = postSocialEventsForTest(t, gameServer, member, realtime.OperationClanLeave)
+	if got := countEventTypeForTest(events[member.SessionID], realtime.EventClanLeft); got != 1 {
+		t.Fatalf("member clan.left events = %d, want 1", got)
+	}
+	if got := countEventTypeForTest(events[owner.SessionID], realtime.EventClanUpdated); got != 1 {
+		t.Fatalf("owner clan.updated after leave events = %d, want 1", got)
+	}
+}
+
 func TestChatSendRateLimitRejectsWithoutQueuedMutation(t *testing.T) {
 	gameServer, _ := newTestServer(t, true)
 	sender := createResolvedRuntimeSession(t, gameServer, "chat-rate@example.com", "Chat Rate")
@@ -174,6 +272,14 @@ func handleRuntimeSocialRequestForTest(t *testing.T, runtime *Runtime, resolved 
 		requestID = foundation.RequestID(fmt.Sprintf("request-social-accept-%s-%d", resolved.PlayerID.String(), seq))
 	case realtime.OperationPartyLeave:
 		requestID = foundation.RequestID(fmt.Sprintf("request-social-leave-%s-%d", resolved.PlayerID.String(), seq))
+	case realtime.OperationPartyTargetSet:
+		requestID = foundation.RequestID(fmt.Sprintf("request-social-target-%s-%d", resolved.PlayerID.String(), seq))
+	case realtime.OperationClanCreate:
+		requestID = foundation.RequestID(fmt.Sprintf("request-social-clan-create-%s-%d", resolved.PlayerID.String(), seq))
+	case realtime.OperationClanJoin:
+		requestID = foundation.RequestID(fmt.Sprintf("request-social-clan-join-%s-%d", resolved.PlayerID.String(), seq))
+	case realtime.OperationClanLeave:
+		requestID = foundation.RequestID(fmt.Sprintf("request-social-clan-leave-%s-%d", resolved.PlayerID.String(), seq))
 	}
 	request := realtime.NewRequestEnvelope(requestID, op, json.RawMessage(payload), 1)
 	data, err := json.Marshal(request)
@@ -202,6 +308,20 @@ func decodeSocialResponseForTest(t *testing.T, response realtime.CachedResponse,
 	if err := json.Unmarshal(response.Response.Payload, target); err != nil {
 		t.Fatalf("decode response %s: %v", response.Response.Payload, err)
 	}
+}
+
+func decodeSocialEventForTest(t *testing.T, events []realtime.EventEnvelope, eventType realtime.ClientEventType, target any) {
+	t.Helper()
+	for _, event := range events {
+		if event.Type != eventType {
+			continue
+		}
+		if err := json.Unmarshal(event.Payload, target); err != nil {
+			t.Fatalf("decode event %s payload %s: %v", eventType, event.Payload, err)
+		}
+		return
+	}
+	t.Fatalf("event %s not found in %+v", eventType, events)
 }
 
 func countEventTypeForTest(events []realtime.EventEnvelope, eventType realtime.ClientEventType) int {

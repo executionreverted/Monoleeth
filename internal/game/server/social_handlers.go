@@ -8,6 +8,7 @@ import (
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/social"
+	"gameproject/internal/game/world"
 )
 
 type chatSendPayload struct {
@@ -44,6 +45,33 @@ type partyLeaveResponse struct {
 	PartyID  social.PartyID `json:"party_id,omitempty"`
 }
 
+type partyTargetSetPayload struct {
+	TargetID string `json:"target_id"`
+}
+
+type partyTargetSetResponse struct {
+	Accepted bool                     `json:"accepted"`
+	Party    social.Party             `json:"party"`
+	Target   social.PartySharedTarget `json:"target"`
+}
+
+type clanCreatePayload struct {
+	Name string         `json:"name"`
+	Tag  social.ClanTag `json:"tag"`
+}
+
+type clanJoinPayload struct {
+	Tag social.ClanTag `json:"tag"`
+}
+
+type clanResponse struct {
+	Accepted   bool                    `json:"accepted"`
+	Clan       social.Clan             `json:"clan,omitempty"`
+	Membership social.ClanMembership   `json:"membership,omitempty"`
+	Members    []social.ClanMembership `json:"members,omitempty"`
+	ClanID     social.ClanID           `json:"clan_id,omitempty"`
+}
+
 func (runtime *Runtime) handleChatSend(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
 	if err := rejectTrustedPayload(request.Payload); err != nil {
 		return nil, err
@@ -69,6 +97,122 @@ func (runtime *Runtime) handleChatSend(ctx realtime.CommandContext, request real
 	}
 	runtime.mu.Unlock()
 	return marshalPayload(chatSendResponse{Accepted: true, Message: result.Message})
+}
+
+func (runtime *Runtime) handlePartyTargetSet(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	var payload partyTargetSetPayload
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	targetID, err := foundation.ParseEntityID(strings.TrimSpace(payload.TargetID))
+	if err != nil {
+		return nil, invalidPayload("Party target is invalid.", err)
+	}
+	if runtime.SocialParty == nil {
+		return nil, foundation.NewDomainError(foundation.CodeInternal, "Social party is unavailable.")
+	}
+	if err := runtime.requireVisiblePartyTarget(ctx.PlayerID, targetID); err != nil {
+		return nil, err
+	}
+	party, target, err := runtime.SocialParty.SetSharedTarget(ctx.PlayerID, targetID.String())
+	if err != nil {
+		return nil, socialDomainError(err)
+	}
+	response := partyTargetSetResponse{Accepted: true, Party: party, Target: target}
+	runtime.mu.Lock()
+	runtime.queuePartyEventLocked(party, realtime.EventPartyTargetUpdated, response)
+	runtime.mu.Unlock()
+	return marshalPayload(response)
+}
+
+func (runtime *Runtime) handleClanCreate(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	var payload clanCreatePayload
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	if runtime.SocialClan == nil {
+		return nil, foundation.NewDomainError(foundation.CodeInternal, "Social clan is unavailable.")
+	}
+	clan, err := runtime.SocialClan.CreateClan(social.CreateClanInput{
+		OwnerID: ctx.PlayerID,
+		Name:    strings.TrimSpace(payload.Name),
+		Tag:     social.ClanTag(strings.ToUpper(strings.TrimSpace(string(payload.Tag)))),
+	})
+	if err != nil {
+		return nil, socialDomainError(err)
+	}
+	snapshot, err := runtime.clanSnapshotFor(ctx.PlayerID)
+	if err != nil {
+		return nil, err
+	}
+	snapshot.Accepted = true
+	snapshot.Clan = clan
+	runtime.mu.Lock()
+	runtime.queueSocialEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventClanUpdated, snapshot)
+	runtime.mu.Unlock()
+	return marshalPayload(snapshot)
+}
+
+func (runtime *Runtime) handleClanJoin(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	var payload clanJoinPayload
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	if runtime.SocialClan == nil {
+		return nil, foundation.NewDomainError(foundation.CodeInternal, "Social clan is unavailable.")
+	}
+	clan, _, err := runtime.SocialClan.JoinClanByTag(social.ClanTag(strings.ToUpper(strings.TrimSpace(string(payload.Tag)))), ctx.PlayerID)
+	if err != nil {
+		return nil, socialDomainError(err)
+	}
+	snapshot, err := runtime.clanSnapshotFor(ctx.PlayerID)
+	if err != nil {
+		return nil, err
+	}
+	snapshot.Accepted = true
+	snapshot.Clan = clan
+	runtime.mu.Lock()
+	runtime.queueClanSnapshotsLocked(clan.ClanID)
+	runtime.mu.Unlock()
+	return marshalPayload(snapshot)
+}
+
+func (runtime *Runtime) handleClanLeave(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
+	if err := rejectTrustedPayload(request.Payload); err != nil {
+		return nil, err
+	}
+	var payload struct{}
+	if err := decodeStrict(request.Payload, &payload); err != nil {
+		return nil, err
+	}
+	if runtime.SocialClan == nil {
+		return nil, foundation.NewDomainError(foundation.CodeInternal, "Social clan is unavailable.")
+	}
+	membership, ok, err := runtime.SocialClan.Membership(ctx.PlayerID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, socialDomainError(social.ErrNotInClan)
+	}
+	if err := runtime.SocialClan.LeaveClan(ctx.PlayerID); err != nil {
+		return nil, socialDomainError(err)
+	}
+	response := clanResponse{Accepted: true, ClanID: membership.ClanID}
+	runtime.mu.Lock()
+	runtime.queueSocialEventToPlayerSessionsLocked(ctx.PlayerID, realtime.EventClanLeft, response)
+	runtime.queueClanUpdatedAfterLeaveLocked(membership.ClanID)
+	runtime.mu.Unlock()
+	return marshalPayload(response)
 }
 
 func (runtime *Runtime) handlePartyInvite(ctx realtime.CommandContext, request realtime.RequestEnvelope) (json.RawMessage, error) {
@@ -176,6 +320,98 @@ func (runtime *Runtime) queuePartyEventLocked(party social.Party, eventType real
 	}
 }
 
+func (runtime *Runtime) queueClanEventLocked(clanID social.ClanID, eventType realtime.ClientEventType, payload any) {
+	if runtime.SocialClan == nil {
+		return
+	}
+	members, err := runtime.SocialClan.ClanChatMembers(clanID)
+	if err != nil {
+		return
+	}
+	for _, memberID := range members {
+		runtime.queueSocialEventToPlayerSessionsLocked(memberID, eventType, payload)
+	}
+}
+
+func (runtime *Runtime) queueClanUpdatedAfterLeaveLocked(clanID social.ClanID) {
+	if runtime.SocialClan == nil {
+		return
+	}
+	clan, ok, err := runtime.SocialClan.Clan(clanID)
+	if err != nil || !ok {
+		return
+	}
+	memberships, err := runtime.SocialClan.Memberships(clanID)
+	if err != nil {
+		return
+	}
+	for _, membership := range memberships {
+		payload := clanResponse{
+			Accepted:   true,
+			Clan:       clan,
+			Membership: membership,
+			Members:    memberships,
+			ClanID:     clan.ClanID,
+		}
+		runtime.queueSocialEventToPlayerSessionsLocked(membership.PlayerID, realtime.EventClanUpdated, payload)
+	}
+}
+
+func (runtime *Runtime) queueClanSnapshotsLocked(clanID social.ClanID) {
+	if runtime.SocialClan == nil {
+		return
+	}
+	clan, ok, err := runtime.SocialClan.Clan(clanID)
+	if err != nil || !ok {
+		return
+	}
+	memberships, err := runtime.SocialClan.Memberships(clanID)
+	if err != nil {
+		return
+	}
+	for _, membership := range memberships {
+		payload := clanResponse{
+			Accepted:   true,
+			Clan:       clan,
+			Membership: membership,
+			Members:    memberships,
+			ClanID:     clan.ClanID,
+		}
+		runtime.queueSocialEventToPlayerSessionsLocked(membership.PlayerID, realtime.EventClanUpdated, payload)
+	}
+}
+
+func (runtime *Runtime) clanSnapshotFor(playerID foundation.PlayerID) (clanResponse, error) {
+	membership, ok, err := runtime.SocialClan.Membership(playerID)
+	if err != nil {
+		return clanResponse{}, err
+	}
+	if !ok {
+		return clanResponse{}, social.ErrNotInClan
+	}
+	clan, ok, err := runtime.SocialClan.Clan(membership.ClanID)
+	if err != nil {
+		return clanResponse{}, err
+	}
+	if !ok {
+		return clanResponse{}, social.ErrClanNotFound
+	}
+	members, err := runtime.SocialClan.Memberships(membership.ClanID)
+	if err != nil {
+		return clanResponse{}, err
+	}
+	return clanResponse{Clan: clan, Membership: membership, Members: members, ClanID: clan.ClanID}, nil
+}
+
+func (runtime *Runtime) requireVisiblePartyTarget(playerID foundation.PlayerID, targetID world.EntityID) error {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if !runtime.entityVisibleToPlayerLocked(playerID, targetID) {
+		return foundation.NewDomainError(foundation.CodeNotFound, "Party target was not found.")
+	}
+	return nil
+}
+
 func (runtime *Runtime) queueSocialEventToPlayerSessionsLocked(playerID foundation.PlayerID, eventType realtime.ClientEventType, payload any) {
 	for _, sessionID := range runtime.sessionIDsForPlayerLocked(playerID, "") {
 		runtime.queueEventLocked(sessionID, eventType, payload)
@@ -229,11 +465,21 @@ func socialDomainError(err error) error {
 	case errors.Is(err, social.ErrChannelAccessDenied),
 		errors.Is(err, social.ErrAlreadyInParty),
 		errors.Is(err, social.ErrNotInParty),
-		errors.Is(err, social.ErrPartyFull):
+		errors.Is(err, social.ErrPartyFull),
+		errors.Is(err, social.ErrAlreadyInClan),
+		errors.Is(err, social.ErrNotInClan):
 		return foundation.NewDomainError(foundation.CodeForbidden, "Social action is not allowed.", foundation.WithCause(err))
 	case errors.Is(err, social.ErrPartyNotFound),
-		errors.Is(err, social.ErrPartyInviteNotFound):
+		errors.Is(err, social.ErrPartyInviteNotFound),
+		errors.Is(err, social.ErrClanNotFound):
 		return foundation.NewDomainError(foundation.CodeNotFound, "Social target was not found.", foundation.WithCause(err))
+	case errors.Is(err, social.ErrInvalidClanTag),
+		errors.Is(err, social.ErrInvalidClanName),
+		errors.Is(err, social.ErrInvalidClanRank),
+		errors.Is(err, social.ErrInvalidPartyTarget):
+		return invalidPayload("Social request is invalid.", err)
+	case errors.Is(err, social.ErrClanAlreadyExists):
+		return foundation.NewDomainError(foundation.CodeForbidden, "Clan already exists.", foundation.WithCause(err))
 	default:
 		return domainErrorForRuntime(err)
 	}

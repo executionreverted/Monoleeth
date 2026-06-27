@@ -515,6 +515,52 @@ export class HUD {
           }
           break;
         }
+        case 'social-chat-send': {
+          const kind = this.socialFieldValue('chat-kind');
+          const content = this.socialFieldValue('chat-content');
+          if ((kind === 'local_map' || kind === 'party' || kind === 'clan') && content) {
+            this.handlers.onChatSend(kind, content);
+          }
+          break;
+        }
+        case 'party-invite': {
+          const callsign = this.socialFieldValue('party-invite');
+          if (callsign) {
+            this.handlers.onPartyInvite(callsign);
+          }
+          break;
+        }
+        case 'party-accept':
+          if (button.dataset.inviteId) {
+            this.handlers.onPartyAccept(button.dataset.inviteId);
+          }
+          break;
+        case 'party-leave':
+          this.handlers.onPartyLeave();
+          break;
+        case 'party-target-set':
+          if (this.currentState?.selectedTargetID) {
+            this.handlers.onPartyTargetSet(this.currentState.selectedTargetID);
+          }
+          break;
+        case 'clan-create': {
+          const name = this.socialFieldValue('clan-name');
+          const tag = this.socialFieldValue('clan-tag');
+          if (name && tag) {
+            this.handlers.onClanCreate(name, tag);
+          }
+          break;
+        }
+        case 'clan-join': {
+          const tag = this.socialFieldValue('clan-join-tag');
+          if (tag) {
+            this.handlers.onClanJoin(tag);
+          }
+          break;
+        }
+        case 'clan-leave':
+          this.handlers.onClanLeave();
+          break;
         case 'admin-content-select':
           if (button.dataset.contentType && button.dataset.contentId) {
             hudSelection.selectedAdminContentType = button.dataset.contentType;
@@ -708,6 +754,11 @@ export class HUD {
     if (this.currentState) {
       this.render(this.currentState);
     }
+  }
+
+  private socialFieldValue(name: string): string {
+    const value = this.root.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-social-field="${HUD.cssAttributeValue(name)}"]`)?.value;
+    return value?.trim() ?? '';
   }
 
   private handleLoadoutDragStart(event: DragEvent): void {

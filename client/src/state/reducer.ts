@@ -45,6 +45,7 @@ export function createInitialState(): ClientState {
     movementTarget: null,
     lastCorrection: null,
     knownLoot: {},
+    social: initialSocialState(),
     worldEffects: [],
     pendingCommands: {},
     commandLog: [],
@@ -80,6 +81,17 @@ export function createInitialState(): ClientState {
     releaseGate: null,
     abuseCoverage: null,
     lastError: null,
+  };
+}
+
+function initialSocialState() {
+  return {
+    chatMessages: [],
+    party: null,
+    pendingPartyInvite: null,
+    clan: null,
+    clanMembership: null,
+    clanMembers: [],
   };
 }
 
