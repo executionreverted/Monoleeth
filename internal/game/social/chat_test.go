@@ -7,7 +7,9 @@ import (
 	"gameproject/internal/game/foundation"
 )
 
-type stubPlayerNameResolver struct{ names map[foundation.PlayerID]PlayerName }
+type stubPlayerNameResolver struct {
+	names map[foundation.PlayerID]PlayerName
+}
 
 func (r stubPlayerNameResolver) PlayerName(id foundation.PlayerID) (PlayerName, error) {
 	return r.names[id], nil

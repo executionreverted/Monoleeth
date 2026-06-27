@@ -23,24 +23,24 @@ func TestPostgresAuditActionColumnRoundTripsPublishAndRollback(t *testing.T) {
 	}
 
 	publishEntry := contentdb.AuditEntry{
-		ID:           "aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaa1",
-		ContentType:  content.ContentTypeItem,
-		ContentID:    "audit_action_item_publish",
-		Action:       content.AuditActionPublish,
-		FieldPath:    "$",
-		NewValueJSON: []byte(`{"content_id":"audit_action_item_publish","enabled":true,"display_json":{},"data_json":{"stackable":true}}`),
+		ID:             "aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaa1",
+		ContentType:    content.ContentTypeItem,
+		ContentID:      "audit_action_item_publish",
+		Action:         content.AuditActionPublish,
+		FieldPath:      "$",
+		NewValueJSON:   []byte(`{"content_id":"audit_action_item_publish","enabled":true,"display_json":{},"data_json":{"stackable":true}}`),
 		ActorAccountID: "account-admin",
-		Note:         "publish action",
+		Note:           "publish action",
 	}
 	rollbackEntry := contentdb.AuditEntry{
-		ID:           "bbbbbbbb-bbbb-5bbb-8bbb-bbbbbbbbbbb2",
-		ContentType:  content.ContentTypeItem,
-		ContentID:    "audit_action_item_rollback",
-		Action:       content.AuditActionRollback,
-		FieldPath:    "$",
-		NewValueJSON: []byte(`{"content_id":"audit_action_item_rollback","enabled":true,"display_json":{},"data_json":{"stackable":false}}`),
+		ID:             "bbbbbbbb-bbbb-5bbb-8bbb-bbbbbbbbbbb2",
+		ContentType:    content.ContentTypeItem,
+		ContentID:      "audit_action_item_rollback",
+		Action:         content.AuditActionRollback,
+		FieldPath:      "$",
+		NewValueJSON:   []byte(`{"content_id":"audit_action_item_rollback","enabled":true,"display_json":{},"data_json":{"stackable":false}}`),
 		ActorAccountID: "account-admin",
-		Note:         "rollback action",
+		Note:           "rollback action",
 	}
 	if err := store.InsertAudit(ctx, publishEntry); err != nil {
 		t.Fatalf("InsertAudit(publish) error = %v, want nil", err)

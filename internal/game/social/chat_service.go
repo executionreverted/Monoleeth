@@ -92,9 +92,9 @@ func (svc *ChatService) SendMessage(input SendChatInput) (SendChatResult, error)
 	now := svc.clock.Now()
 
 	resolution, err := svc.membership.ResolveChannel(ResolveChannelInput{
-		Kind:      input.Kind,
-		PlayerID:  input.SenderID,
-		MapID:     "",
+		Kind:     input.Kind,
+		PlayerID: input.SenderID,
+		MapID:    "",
 	})
 	if err != nil {
 		return SendChatResult{}, err
@@ -161,8 +161,8 @@ func (svc *ChatService) SendMessage(input SendChatInput) (SendChatResult, error)
 	members, _ := svc.membership.ChannelMembers(resolution.ChannelID)
 
 	return SendChatResult{
-		Message:  msg,
-		Members:  members,
+		Message: msg,
+		Members: members,
 	}, nil
 }
 

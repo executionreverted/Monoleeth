@@ -10,36 +10,36 @@ import (
 
 // PartyMember records one player's membership in a party.
 type PartyMember struct {
-	PlayerID   foundation.PlayerID `json:"player_id"`
-	JoinedAt   time.Time           `json:"joined_at"`
-	IsLeader   bool                `json:"is_leader"`
+	PlayerID foundation.PlayerID `json:"player_id"`
+	JoinedAt time.Time           `json:"joined_at"`
+	IsLeader bool                `json:"is_leader"`
 }
 
 // Party is a transient group with server-owned membership.
 type Party struct {
-	PartyID  PartyID        `json:"party_id"`
-	Members  []PartyMember  `json:"members"`
+	PartyID   PartyID       `json:"party_id"`
+	Members   []PartyMember `json:"members"`
 	CreatedAt time.Time     `json:"created_at"`
 }
 
 // PartyInvite is a pending invite from a leader to a player.
 type PartyInvite struct {
-	InviteID  string             `json:"invite_id"`
-	PartyID   PartyID            `json:"party_id"`
+	InviteID  string              `json:"invite_id"`
+	PartyID   PartyID             `json:"party_id"`
 	InviterID foundation.PlayerID `json:"inviter_id"`
 	InviteeID foundation.PlayerID `json:"invitee_id"`
-	CreatedAt time.Time          `json:"created_at"`
-	ExpiresAt time.Time          `json:"expires_at"`
+	CreatedAt time.Time           `json:"created_at"`
+	ExpiresAt time.Time           `json:"expires_at"`
 }
 
 // PartyService owns server-authoritative party lifecycle.
 type PartyService struct {
-	mu      sync.Mutex
-	clock   foundation.Clock
-	parties map[PartyID]*Party
+	mu          sync.Mutex
+	clock       foundation.Clock
+	parties     map[PartyID]*Party
 	playerParty map[foundation.PlayerID]PartyID
-	invites map[string]*PartyInvite
-	seq     uint64
+	invites     map[string]*PartyInvite
+	seq         uint64
 }
 
 func NewPartyService(clock foundation.Clock) *PartyService {

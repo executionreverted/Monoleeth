@@ -87,11 +87,11 @@ func (s *AutomationRouteDurableStore) ApplyAutomationRouteDurableCommitPlan(
 
 	newRevision := plan.ExpectedRevision + 1
 	record := production.AutomationRouteDurableRecord{
-		Route:            plan.Route,
+		Route:                 plan.Route,
 		SourceProductionState: plan.SourceProductionState,
-		ReferenceKey:     plan.ReferenceKey,
-		Revision:         newRevision,
-		RecordedAt:       plan.RecordedAt,
+		ReferenceKey:          plan.ReferenceKey,
+		Revision:              newRevision,
+		RecordedAt:            plan.RecordedAt,
 	}
 	recordJSON, mErr := json.Marshal(record)
 	if mErr != nil {

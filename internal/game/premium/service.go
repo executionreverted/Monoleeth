@@ -17,8 +17,8 @@ const (
 	LedgerReasonPremiumEntitlementClaim economy.LedgerReason = "premium_entitlement_claim"
 	LedgerReasonPremiumWeeklyXCore      economy.LedgerReason = "premium_weekly_xcore_purchase"
 
-	premiumProviderOperation             = "premium_provider_entitlement"
-	premiumClaimOperation                = "premium_claim"
+	premiumProviderOperation               = "premium_provider_entitlement"
+	premiumClaimOperation                  = "premium_claim"
 	premiumPostCommitCacheAnomalyOperation = "premium_post_commit_cache_anomaly"
 
 	premiumOutboxTopic             = "economy"

@@ -19,10 +19,10 @@ type Clan struct {
 
 // ClanMembership records one player's clan rank.
 type ClanMembership struct {
-	ClanID    ClanID              `json:"clan_id"`
-	PlayerID  foundation.PlayerID `json:"player_id"`
-	Rank      ClanRank            `json:"rank"`
-	JoinedAt  time.Time           `json:"joined_at"`
+	ClanID   ClanID              `json:"clan_id"`
+	PlayerID foundation.PlayerID `json:"player_id"`
+	Rank     ClanRank            `json:"rank"`
+	JoinedAt time.Time           `json:"joined_at"`
 }
 
 // ClanStore is the persistence boundary for clans and memberships.
@@ -65,9 +65,9 @@ func NewClanService(config ClanServiceConfig) (*ClanService, error) {
 
 // CreateClanInput is the player intent for creating a clan.
 type CreateClanInput struct {
-	OwnerID  foundation.PlayerID
-	Name     string
-	Tag      ClanTag
+	OwnerID foundation.PlayerID
+	Name    string
+	Tag     ClanTag
 }
 
 // CreateClan validates uniqueness, creates the clan, and assigns the creator

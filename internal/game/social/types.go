@@ -41,9 +41,9 @@ type ClanTag string
 type ClanRank string
 
 const (
-	ClanRankOwner  ClanRank = "owner"
+	ClanRankOwner   ClanRank = "owner"
 	ClanRankOfficer ClanRank = "officer"
-	ClanRankMember ClanRank = "member"
+	ClanRankMember  ClanRank = "member"
 )
 
 var (
@@ -69,33 +69,33 @@ var (
 )
 
 const (
-	maxMessageLength   = 500
-	maxClanNameLength  = 32
-	minClanNameLength  = 3
-	maxClanTagLength   = 5
-	minClanTagLength   = 3
-	maxPartyMembers    = 6
+	maxMessageLength  = 500
+	maxClanNameLength = 32
+	minClanNameLength = 3
+	maxClanTagLength  = 5
+	minClanTagLength  = 3
+	maxPartyMembers   = 6
 )
 
 // ChatMessage is one server-owned chat message.
 type ChatMessage struct {
-	MessageID   MessageID              `json:"message_id"`
-	ChannelKind ChannelKind            `json:"channel_kind"`
-	ChannelID   ChannelID              `json:"channel_id"`
-	SenderID    foundation.PlayerID    `json:"sender_id"`
-	SenderName  PlayerName             `json:"sender_name"`
-	Content     string                 `json:"content"`
-	SentAt      time.Time              `json:"sent_at"`
+	MessageID   MessageID           `json:"message_id"`
+	ChannelKind ChannelKind         `json:"channel_kind"`
+	ChannelID   ChannelID           `json:"channel_id"`
+	SenderID    foundation.PlayerID `json:"sender_id"`
+	SenderName  PlayerName          `json:"sender_name"`
+	Content     string              `json:"content"`
+	SentAt      time.Time           `json:"sent_at"`
 }
 
 // ResolveChannelInput asks the server to resolve a player's channel for routing.
 // The client sends intent (kind + optional scope); the server resolves membership.
 type ResolveChannelInput struct {
-	Kind        ChannelKind
-	PlayerID    foundation.PlayerID
-	MapID       string
-	PartyID     PartyID
-	ClanID      ClanID
+	Kind     ChannelKind
+	PlayerID foundation.PlayerID
+	MapID    string
+	PartyID  PartyID
+	ClanID   ClanID
 }
 
 // ResolveChannelResult reports the authoritative channel id and read access.
@@ -107,16 +107,16 @@ type ResolveChannelResult struct {
 
 // SendChatInput is the player intent for sending a chat message.
 type SendChatInput struct {
-	Kind     ChannelKind
+	Kind      ChannelKind
 	ChannelID ChannelID
-	SenderID foundation.PlayerID
-	Content  string
+	SenderID  foundation.PlayerID
+	Content   string
 }
 
 // SendChatResult reports the authoritative message after server validation.
 type SendChatResult struct {
-	Message  ChatMessage
-	Members  []foundation.PlayerID
+	Message ChatMessage
+	Members []foundation.PlayerID
 }
 
 func ValidateChannelKind(kind ChannelKind) error {

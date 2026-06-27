@@ -11,11 +11,11 @@ import (
 // It delegates to party and clan services for party/clan channels, and
 // resolves local-map/system channels from the runtime session map.
 type ChannelMembershipService struct {
-	mu          sync.RWMutex
-	parties     *PartyService
-	clans       *ClanService
-	playerMap   map[foundation.PlayerID]string
-	mapPlayers  map[string]map[foundation.PlayerID]bool
+	mu         sync.RWMutex
+	parties    *PartyService
+	clans      *ClanService
+	playerMap  map[foundation.PlayerID]string
+	mapPlayers map[string]map[foundation.PlayerID]bool
 }
 
 // NewChannelMembershipService creates a channel resolver backed by the given
