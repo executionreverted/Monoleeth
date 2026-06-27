@@ -2,6 +2,7 @@ package simulations_test
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -9,6 +10,27 @@ import (
 	"gameproject/internal/game/observability"
 	"gameproject/internal/game/observability/simulations"
 )
+
+func TestCombatLootSimulationIsDeterministicAcrossRuns(t *testing.T) {
+	config := simulations.CombatLootSimulationConfig{
+		Kills:                    4,
+		ConcurrentPickupAttempts: 8,
+		DropQuantity:             2,
+		StartTime:                time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
+	}
+	first, err := simulations.RunCombatLootSimulation(config)
+	if err != nil {
+		t.Fatalf("first RunCombatLootSimulation() error = %v", err)
+	}
+	second, err := simulations.RunCombatLootSimulation(config)
+	if err != nil {
+		t.Fatalf("second RunCombatLootSimulation() error = %v", err)
+	}
+
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("simulation summaries differ\nfirst:  %+v\nsecond: %+v", first, second)
+	}
+}
 
 func TestCombatLootSimulationTracksNPCDeathsAndConcurrentPickups(t *testing.T) {
 	summary, err := simulations.RunCombatLootSimulation(simulations.CombatLootSimulationConfig{

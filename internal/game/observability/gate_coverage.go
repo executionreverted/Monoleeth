@@ -331,7 +331,10 @@ var phase12ReleaseModuleProfiles = []releaseModuleProfile{
 	releaseModuleProfileFor(
 		"16-testing-observability-balancing",
 		evidence("gameproject/internal/game/observability", "TestMetricHelpersRecordPhase12Series", "observability metric helper unit coverage exists"),
-		satisfied(evidence("gameproject/internal/game/observability/simulations", "TestRouteSettlementSimulationTracksLossAndDuplicateNoOps", "simulation layer covers duplicate-safe route settlement accounting")),
+		satisfied(
+			evidence("gameproject/internal/game/observability/simulations", "TestCombatLootSimulationIsDeterministicAcrossRuns", "combat/loot simulation summary is deterministic across identical runs"),
+			evidence("gameproject/internal/game/observability/simulations", "TestRouteSettlementSimulationTracksLossAndDuplicateNoOps", "simulation layer covers duplicate-safe route settlement accounting"),
+		),
 		satisfied(evidence("gameproject/internal/game/observability", "TestPhase12AbuseTestCoverageCoversRequiredCases", "abuse coverage report covers every required Phase 12 abuse case")),
 		notApplicable("observability repair is delivered through the admin module"),
 		notApplicable("observability stores reports and metrics, not player item/currency value"),
