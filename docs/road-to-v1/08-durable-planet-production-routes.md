@@ -1,7 +1,7 @@
 # Phase 08 — Durable Planet, Production & Routes
 
 ## Status
-- State: In progress (durable adapters + runtime DB wiring + DB outbox/recovery mutation support done; restart survival proof pending)
+- State: In progress (durable adapters + runtime DB wiring + DB outbox/recovery mutation support + restart survival smoke proof done; cross-process/concurrency hardening remains)
 - Wave: 3
 - Depends on: P01, P02
 - Unlocks: clan outposts (post-v1), durable strategy layer
@@ -28,6 +28,7 @@ durable DB rows, real cross-process idempotency, and scheduled recovery workers.
 - [x] `[P:wave3/lane-D]` Route settlement covered by SettlementDurableStore (route ID/window lookup). Automation route durable Postgres adapter committed (route_id CAS + reference_key dedup, owner listing).
 - [x] `[P:wave3/lane-E]` Scheduled outbox publisher + recovery worker (not request-driven) for claim/production/route. Runtime tick drain now works against DB-backed claim/settlement/building durable stores when core store DB mode is enabled.
 - [x] `[P:wave3/lane-E]` Replace process-local idempotency maps with DB-backed keys. Runtime core-store DB mode wires claim lifecycle, claim production-init, settlement, building mutation, and automation route durable adapters; dev/off mode keeps the in-memory fallback.
+- [x] `[P:wave3/lane-F]` Restart-survival smoke proof for runtime DB mode: claim retry keeps one X Core debit, pending production-init recovers live state, durable route settlement applies one window once, and missed claim outbox replay publishes once after restart.
 
 ### Completed Store Adapters (2026-06-26; runtime wiring 2026-06-27)
 - `contentdb.ClaimDurableLifecycleStore` — `discovery.ClaimDurableLifecycleStore` + `Reader` + publisher/lease/retry + runtime diagnostic readback
@@ -50,7 +51,7 @@ durable DB rows, real cross-process idempotency, and scheduled recovery workers.
 - [x] Claim/settlement/building durable outbox rows claim + publish through Postgres-backed adapters.
 - [x] Automation route persists + duplicate reference idempotent + revision CAS enforced + owner listing (Postgres).
 - [x] Runtime core store DB mode injects DB-backed claim/production/route durable adapters; dev/off mode keeps in-memory fallback.
-- [ ] Owned planet/production/route state survives restart via runtime wiring.
+- [x] Owned planet/production/route restart-survival smokes pass through runtime DB wiring (Postgres).
 
 ## Done Criteria
 - [ ] No claim/production/route double-apply across restart/concurrency.

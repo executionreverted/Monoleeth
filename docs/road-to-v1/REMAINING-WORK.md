@@ -15,7 +15,7 @@
 | 05 | Map Worker Ownership & Concurrency | 2 | 🟡 In progress | 90% |
 | 06 | Movement, Combat & Death Correctness | 2 | ✅ Done | 100% |
 | 07 | Equipment & Progression Closure | 3 | ✅ Done | 100% |
-| 08 | Durable Planet, Production & Routes | 3 | 🟡 In progress | 80% |
+| 08 | Durable Planet, Production & Routes | 3 | 🟡 In progress | 90% |
 | 09 | CMS Completion & Balance Telemetry | 3 | ✅ Done | 100% |
 | 10 | Social MVP | 4 | 🟡 In progress | 50% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | ⬜ Not started | 0% |
@@ -26,7 +26,7 @@
 | 16 | Production Config & Operational Hardening | 2 | ✅ Done | 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | ⬜ Not started | 0% |
 
-**Genel v1:** ~63%
+**Genel v1:** ~64%
 
 ---
 
@@ -54,7 +54,7 @@ taşımayı gerektiriyor → **P17'ye (Runtime Decomposition) ertelendi**.
 
 ---
 
-### 🟡 P08 — Durable Planet, Production & Routes (Wave 3, 80%)
+### 🟡 P08 — Durable Planet, Production & Routes (Wave 3, 90%)
 
 ✅ **DB engeli çözüldü (2026-06-26).** Durable store adapter'ları yazıldı:
 - `contentdb.ClaimDurableLifecycleStore` — claim lifecycle plan JSON, idempotent
@@ -74,6 +74,9 @@ taşımayı gerektiriyor → **P17'ye (Runtime Decomposition) ertelendi**.
 - Claim/settlement/building durable outbox rows now support DB-backed
   claim/publish/fail/lease-release/retry mutation so the existing tick-driven
   drain can run against committed Postgres rows.
+- DB-only runtime restart smokes now prove one X Core debit across claim retry,
+  pending claim production-init recovery, one durable route settlement window,
+  and one missed durable claim outbox replay after runtime restart.
 - Migrations 0019/0020/0021/0022, Postgres smoke coverage (persist/duplicate/
   conflict/advance/pending filter + DB-backed outbox publish), foundation
   `Quantity`/`Money` JSON round-trip fix.
@@ -85,7 +88,7 @@ Kalan (runtime seviyesi):
   (claim/production/route outbox drain, tick-driven).
 - [x] Process-local claim/settlement/building/route idempotency map'lerini
   DB-backed key'lere bağla (core-store DB mode).
-- [ ] Restart-survival smoke: claim tek X Core consume, production window tek
+- [x] Restart-survival smoke: claim tek X Core consume, production window tek
   sefer, route settlement tek sefer, recovery worker miss replay.
 
 **Smoke Tests:** claim tek X Core consume (restart sonrası), production window

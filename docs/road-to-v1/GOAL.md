@@ -18,16 +18,19 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 ### Wave bazlı statü
 - Wave 1: P01 Done, P03 Done, P04 Done.
 - Wave 2: P02 Done, P05 90% (deep mu narrowing → P17), P06 Done, P16 Done.
-- Wave 3: P07 Done, P08 80% (durable adapters + migrations + runtime DB wiring
-  + DB outbox/recovery mutation support done; restart survival smoke pending),
+- Wave 3: P07 Done, P08 90% (durable adapters + migrations + runtime DB wiring
+  + DB outbox/recovery mutation support + restart survival smoke proof done),
   P09 Done, P14 Done (HI-02/HI-08 closed — rollback safety + honest
   `pending_restart`).
 - Wave 4: P10 50% (domain package + tests done; realtime/client/durable clan
   wiring pending), P13/P15 not started.
 - Wave 5-6: P11/P12/P17 not started.
-- Genel v1: ~63%.
+- Genel v1: ~64%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P08 restart-survival smoke slice — DB-only Postgres runtime restart tests prove
+  one X Core debit across claim retry, pending claim production-init recovery,
+  one route settlement window, and one missed durable claim outbox replay.
 - P08 lane-E runtime DB wiring slice — core-store DB mode injects Postgres-backed
   claim lifecycle, claim production-init, settlement, building mutation, and
   automation route durable stores; DB-backed claim/settlement/building outbox
@@ -59,12 +62,10 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 
 ### Sırada (resume sırası)
 1. Context tazele: `00-index.md`, `REMAINING-WORK.md`, ilgili faz dosyası.
-2. P08 restart-survival smoke/concurrency proof: claim tek X Core consume,
-   production window tek sefer, route settlement tek sefer, recovery replay.
-3. P10: social domain'i realtime commands/events + real client panellerine bağla;
+2. P10: social domain'i realtime commands/events + real client panellerine bağla;
    durable clan rows ekle.
-4. P13/P15: release gate + AOI perf.
-5. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
+3. P13/P15: release gate + AOI perf.
+4. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
 
 ## Çalışma Kuralları
 
