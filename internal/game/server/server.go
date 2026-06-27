@@ -66,6 +66,7 @@ func New(config Config) (*Server, error) {
 		E2EScanNoPlanetSeed:    config.E2EScanNoPlanetSeed,
 		AdminSeed:              config.AdminSeed,
 		Passwords:              config.PasswordHasher,
+		TracerProvider:         config.TracerProvider,
 		realtimeLimiter:        config.realtimeLimiter,
 		disableRealtimeLimiter: config.disableRealtimeLimiter,
 	})

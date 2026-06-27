@@ -9,6 +9,9 @@ import (
 
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/observability"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestObservedCommandExecutorRecordsSafeLogAndCommandMetric(t *testing.T) {
@@ -61,6 +64,40 @@ func TestObservedCommandExecutorRecordsSafeLogAndCommandMetric(t *testing.T) {
 		t.Fatalf("command count = %d, want 1", counter.Value)
 	}
 	assertRealtimeLabels(t, counter.Labels, []observability.Label{{Name: "op", Value: string(OperationMoveTo)}})
+}
+
+func TestObservedCommandExecutorRecordsOTelCommandSpan(t *testing.T) {
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	t.Cleanup(func() { _ = tracerProvider.Shutdown(t.Context()) })
+
+	clock := &steppingClock{now: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC), step: time.Millisecond}
+	executor := ObservedCommandExecutor{
+		Clock:  clock,
+		Tracer: tracerProvider.Tracer("gameproject/internal/game/realtime/test"),
+	}
+	request := NewRequestEnvelope("request-otel-command", OperationMoveTo, json.RawMessage(`{"x":10,"y":20}`), 1)
+	ctx := validCommandContext()
+
+	_, err := executor.Execute(ctx, request, func(CommandContext, RequestEnvelope) (json.RawMessage, error) {
+		return json.RawMessage(`{"accepted":true}`), nil
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+
+	spans := spanRecorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("ended spans = %d, want 1", len(spans))
+	}
+	span := spans[0]
+	if span.Name() != "game.command" {
+		t.Fatalf("span name = %q, want game.command", span.Name())
+	}
+	assertSpanAttribute(t, span.Attributes(), "game.command.op", string(OperationMoveTo))
+	assertSpanAttribute(t, span.Attributes(), "game.command.request_id", request.RequestID.String())
+	assertSpanAttribute(t, span.Attributes(), "game.player_id", ctx.PlayerID.String())
+	assertSpanAttribute(t, span.Attributes(), "game.command.result", observability.CommandStatusOK.String())
 }
 
 func TestObservedCommandExecutorStructuredLogForLootPickupIncludesIdempotencyRequestFieldsNoSecrets(t *testing.T) {
@@ -605,4 +642,17 @@ func assertRealtimeLabels(t *testing.T, got, want []observability.Label) {
 			t.Fatalf("label[%d] = %#v, want %#v", i, got[i], want[i])
 		}
 	}
+}
+
+func assertSpanAttribute(t *testing.T, attributes []attribute.KeyValue, key string, want string) {
+	t.Helper()
+	for _, attr := range attributes {
+		if string(attr.Key) == key {
+			if got := attr.Value.AsString(); got != want {
+				t.Fatalf("span attr %s = %q, want %q", key, got, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("span missing attr %s in %+v", key, attributes)
 }

@@ -1,11 +1,15 @@
 package realtime
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/observability"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // CommandLogger is the structured command log sink used by the realtime command boundary.
@@ -41,6 +45,7 @@ type ObservedCommandExecutor struct {
 	Clock   foundation.Clock
 	Logger  CommandLogger
 	Metrics CommandMetricRecorder
+	Tracer  trace.Tracer
 }
 
 // Execute runs handler and records command observability using server-resolved context.
@@ -59,6 +64,8 @@ func (executor ObservedCommandExecutor) Execute(ctx CommandContext, request Requ
 	if clock == nil {
 		clock = foundation.RealClock{}
 	}
+	_, span := executor.startCommandSpan(ctx, request)
+	defer span.End()
 	startedAt := clock.Now().UTC()
 	payload, err := handler(ctx, request)
 	finishedAt := clock.Now().UTC()
@@ -75,10 +82,19 @@ func (executor ObservedCommandExecutor) Execute(ctx CommandContext, request Requ
 		if domainCode, ok := foundation.CodeOf(err); ok {
 			code = domainCode
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, code.String())
+	} else {
+		span.SetStatus(codes.Ok, "")
 	}
 
 	op := observability.Operation(request.Op)
 	referenceID := commandLogReferenceID(ctx, request, payload)
+	span.SetAttributes(
+		attribute.String("game.command.result", status.String()),
+		attribute.String("game.command.error_code", code.String()),
+		attribute.String("game.command.idempotency_key", referenceID.String()),
+	)
 	recordCommandMetric(executor.Metrics, op, code)
 	recordCommandLog(executor.Logger, observability.CommandLogEntry{
 		RequestID:   request.RequestID,
@@ -95,6 +111,22 @@ func (executor ObservedCommandExecutor) Execute(ctx CommandContext, request Requ
 	})
 
 	return cloneRawMessage(payload), err
+}
+
+func (executor ObservedCommandExecutor) startCommandSpan(ctx CommandContext, request RequestEnvelope) (context.Context, trace.Span) {
+	if executor.Tracer == nil {
+		return context.Background(), trace.SpanFromContext(context.Background())
+	}
+	return executor.Tracer.Start(context.Background(), "game.command",
+		trace.WithAttributes(
+			attribute.String("game.command.op", string(request.Op)),
+			attribute.String("game.command.request_id", request.RequestID.String()),
+			attribute.String("game.session_id", ctx.SessionID.String()),
+			attribute.String("game.player_id", ctx.PlayerID.String()),
+			attribute.String("game.world_id", ctx.WorldID.String()),
+			attribute.String("game.zone_id", ctx.ZoneID.String()),
+		),
+	)
 }
 
 // Validate reports whether context contains server-resolved command identity.

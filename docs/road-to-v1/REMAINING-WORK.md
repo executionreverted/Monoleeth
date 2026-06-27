@@ -20,13 +20,13 @@
 | 10 | Social MVP | 4 | ✅ Done | 100% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | ⬜ Not started | 0% |
 | 12 | DarkOrbit Flavor | 6 | ⬜ Not started | 0% |
-| 13 | Observability, Simulation & Release Gate | 4 | 🟡 In progress | 60% |
+| 13 | Observability, Simulation & Release Gate | 4 | ✅ Done | 100% |
 | 14 | CMS Runtime Application & Content Safety | 3 | ✅ Done | 100% |
-| 15 | World Performance & AOI/Aggro Optimization | 4 | 🟡 In progress | 80% |
+| 15 | World Performance & AOI/Aggro Optimization | 4 | 🟡 In progress | 90% |
 | 16 | Production Config & Operational Hardening | 2 | ✅ Done | 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | ⬜ Not started | 0% |
 
-**Genel v1:** ~77%
+**Genel v1:** ~80%
 
 ---
 
@@ -193,7 +193,7 @@ alliances) remain post-v1/out of scope.
 
 ---
 
-### 🟡 P13 — Observability, Simulation & Release Gate (Wave 4, 60%)
+### ✅ P13 — Observability, Simulation & Release Gate (Wave 4, DONE)
 
 - [x] Prometheus-compatible metrics export endpoint. `GET /metrics` renders
   counters/gauges/duration summaries from the runtime `MetricRecorder`, exposes
@@ -214,14 +214,19 @@ alliances) remain post-v1/out of scope.
   payloads inside the configured 50-100 entity envelope, plus
   `TestPhase13P15AggroLoadEnvelopeKeepsCandidateChecksBounded`, which runs 1500
   players and proves one NPC tick checks one spatial candidate.
-- [x] Narrow P13/P15 race target:
-  `go test -race ./internal/game/observability/... ./internal/game/server/... ./internal/game/world/... -run 'Load|Tick|AOI|Aggro|Race|Phase13|Phase15' -count=1`.
-- [ ] OTel traces for command/tick paths.
-- [ ] §13 wall-clock tick duration/stability budget under concurrent sessions.
-- [ ] §14 simulation/race test coverage beyond the combat/loot deterministic
-  and economy balance smokes, including deeper command + tick + economy mutation
-  race coverage.
-- [ ] Release gate yeşil (tüm module/check pair'ler).
+- [x] P13/P15 race target:
+  `go test -race ./internal/game/observability/... ./internal/game/server/... ./internal/game/production/... ./internal/game/world/... -run 'Load|Tick|AOI|Aggro|Race|Command|Economy|Route|Production|Phase13|Phase15|OTel|Trace' -count=1`.
+- [x] OTel traces for command/tick paths. `TestObservedCommandExecutorRecordsOTelCommandSpan`
+  and `TestPhase13RuntimeTickRecordsOTelSpans` prove command + runtime tick/AOI
+  spans with server-owned attributes.
+- [x] §13 wall-clock tick duration/stability budget under concurrent sessions.
+  `TestPhase13P15RuntimeAOITickStabilityKeepsDurationBudget` covers 128 active
+  sessions inside the 3s targeted-race budget.
+- [x] §14 simulation/race coverage beyond combat/loot and economy balance:
+  production and route deterministic summary smokes are present, and
+  `TestPhase13CommandTickEconomyMutationRaceTarget` runs under targeted `-race`.
+- [x] Release gate yeşil (tüm module/check pair'ler): coverage references metrics,
+  OTel, deterministic sim, load, race, `go test ./...`, and `git diff --check`.
 
 **Referanslar:**
 - `docs/road-to-v1/13-observability-simulation-release.md`
@@ -230,7 +235,7 @@ alliances) remain post-v1/out of scope.
 
 ---
 
-### 🟡 P15 — World Performance & AOI/Aggro Optimization (Wave 4, 80%)
+### 🟡 P15 — World Performance & AOI/Aggro Optimization (Wave 4, 90%)
 
 - [x] NPC aggro target acquisition no longer scans every player: worker owns a
   player-only spatial index, keeps it in sync on insert/update/remove plus
@@ -241,13 +246,14 @@ alliances) remain post-v1/out of scope.
   metrics.
 - [x] HI-07 load-envelope proof: P13 load evidence shows bounded AOI payload
   size and bounded aggro candidate checks. AOI load proof keeps 1500 concurrent
-  viewers inside the configured visible-payload envelope, and aggro proof checks
-  one spatial candidate under 1500 players.
-- [ ] Full AOI runtime work-budget proof: server still computes per-session AOI
-  diffs from the shared worker snapshot, so tick duration/stability evidence
-  must close the remaining §13 AOI concern.
-- [ ] AOI read projection immutable snapshot/copy-on-write follow-up if P13
-  exposes remaining projection contention.
+  viewers inside the configured visible-payload envelope, aggro proof checks one
+  spatial candidate under 1500 players, and runtime tick-stability proof covers
+  128 active sessions inside the 3s targeted-race budget.
+- [ ] Full 1500-session AOI runtime projection proof: server still computes
+  per-session AOI diffs from the shared worker snapshot, so a spatial read
+  projection or copy-on-write follow-up remains for the full hot-path envelope.
+- [ ] AOI read projection immutable snapshot/spatial index follow-up for full
+  1500-session runtime envelope.
 
 **Referanslar:**
 - `docs/road-to-v1/15-world-performance-aoi-optimization.md`
@@ -308,7 +314,7 @@ P07 + P11 dependency. Drones, P.E.T., ammo, honor (en az MVP).
 Wave 1: P01 ✅ | P03 ✅ | P04 ✅
 Wave 2: P02 ✅ | P05 🟡(90%, P17'ye ertelendi) | P06 ✅ | P16 ✅
 Wave 3: P07 ✅ | P08 🟡 | P09 ✅ | P14 ✅
-Wave 4: P10 ✅ | P13 🟡 | P15 🟡
+Wave 4: P10 ✅ | P13 ✅ | P15 🟡
 Wave 5: P11 ⬜
 Wave 6: P12 ⬜ | P17 ⬜(continuous)
 ```
@@ -327,10 +333,9 @@ Wave 6: P12 ⬜ | P17 ⬜(continuous)
    follow-up before "all offline loadouts protected" claim.
 4. **P07/P02 shop transaction gap:** non-starter ship shop buy path still needs
    single transaction boundary for wallet debit + hangar grant + idempotency.
-5. **P13 release gate gap:** Prometheus metrics endpoint, combat/loot
-   deterministic simulation, economy balance simulation, release-gate
-   fail-closed evidence, and P13/P15 load-envelope evidence exist; OTel, tick
-   stability, deeper race evidence, production/route simulation, and final green
-   release gate remain.
-6. **Mevcut blocker yok:** P13 OTel/race/final gate çalışmaya hazır; P15 aggro
-   proof + AOI payload proof mevcut, full AOI tick-stability proof açık.
+5. **P15 runtime AOI projection gap:** Aggro spatial proof, 1500-viewer AOI
+   payload proof, and 128-session runtime tick-stability proof exist. Full
+   1500-session runtime AOI projection still needs spatial/copy-on-write read
+   proof.
+6. **Mevcut blocker yok:** P11 endgame gate çalışmaya hazır; P15/P17 full AOI
+   projection/decomposition follow-up açık.

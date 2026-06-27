@@ -14,6 +14,7 @@ import (
 	"gameproject/internal/game/realtime"
 	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -72,6 +73,7 @@ type Config struct {
 	ContentRepository   gamecontent.Repository
 	PasswordHasher      auth.PasswordHasher
 	Clock               foundation.Clock
+	TracerProvider      trace.TracerProvider
 
 	realtimeLimiter        realtime.RateLimiter
 	disableRealtimeLimiter bool

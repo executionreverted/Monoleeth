@@ -209,6 +209,30 @@ var phase13P15AggroLoadEnvelopeEvidence = GateEvidence{
 	Note:     "worker load smoke proves 1500 players still produce one aggro candidate check for one NPC tick through the player spatial index",
 }
 
+var phase13RuntimeTickStabilityEvidence = GateEvidence{
+	Package:  "gameproject/internal/game/server",
+	TestName: "TestPhase13P15RuntimeAOITickStabilityKeepsDurationBudget",
+	Note:     "runtime AOI tick smoke measures 128 active sessions against the three-second wall-clock stability budget under the targeted race command",
+}
+
+var phase13CommandTickEconomyRaceEvidence = GateEvidence{
+	Package:  "gameproject/internal/game/server",
+	TestName: "TestPhase13CommandTickEconomyMutationRaceTarget",
+	Note:     "targeted race command runs crafting economy mutation concurrently with runtime ticks under the documented -race command",
+}
+
+var phase13CommandTraceEvidence = GateEvidence{
+	Package:  "gameproject/internal/game/realtime",
+	TestName: "TestObservedCommandExecutorRecordsOTelCommandSpan",
+	Note:     "command executor emits an OpenTelemetry span with server-owned command/session/player attributes",
+}
+
+var phase13RuntimeTickTraceEvidence = GateEvidence{
+	Package:  "gameproject/internal/game/server",
+	TestName: "TestPhase13RuntimeTickRecordsOTelSpans",
+	Note:     "runtime tick path emits OpenTelemetry root and AOI phase spans with active-session attributes",
+}
+
 var phase12GoTestAllEvidence = GateEvidence{
 	Command: "go test ./...",
 	Note:    "required final repository validation command before handoff",
@@ -346,7 +370,9 @@ var phase12ReleaseModuleProfiles = []releaseModuleProfile{
 		satisfied(
 			evidence("gameproject/internal/game/observability/simulations", "TestCombatLootSimulationIsDeterministicAcrossRuns", "combat/loot simulation summary is deterministic across identical runs"),
 			evidence("gameproject/internal/game/observability/simulations", "TestEconomySimulationReportsBalancedSourceSinkForOneScenario", "economy simulation reports a balanced source/sink item flow for one scenario"),
-			evidence("gameproject/internal/game/observability/simulations", "TestRouteSettlementSimulationTracksLossAndDuplicateNoOps", "simulation layer covers duplicate-safe route settlement accounting"),
+			evidence("gameproject/internal/game/observability/simulations", "TestPhase13ProductionSettlementSimulationSummaryIsDeterministic", "production settlement simulation summary is deterministic across identical runs"),
+			evidence("gameproject/internal/game/observability/simulations", "TestPhase13RouteSettlementSimulationSummaryIsDeterministic", "route settlement simulation summary is deterministic across identical runs"),
+			phase13CommandTickEconomyRaceEvidence,
 		),
 		satisfied(evidence("gameproject/internal/game/observability", "TestPhase12AbuseTestCoverageCoversRequiredCases", "abuse coverage report covers every required Phase 12 abuse case")),
 		notApplicable("observability repair is delivered through the admin module"),
@@ -1207,11 +1233,13 @@ func releaseModuleProfileFor(module string, unitTest GateEvidence, integration, 
 			ReleaseGateMetrics: satisfied(
 				evidence("gameproject/internal/game/observability", "TestMetricHelpersRecordPhase12Series", "Phase 12 metrics include gameplay and economy series for release dashboards"),
 				evidence("gameproject/internal/game/server", "TestMetricsEndpointExposesCommandCount", "Prometheus-compatible /metrics endpoint exposes runtime command counters"),
+				phase13CommandTraceEvidence,
+				phase13RuntimeTickTraceEvidence,
 			),
 			ReleaseGateAdminInspection: admin,
 			ReleaseGateErrorCodes:      satisfied(evidence("gameproject/internal/game/foundation", "TestDomainErrorPublicSerializationOmitsInternalDetails", "public errors serialize with stable codes and without internal details")),
 			ReleaseGateLedgerReason:    ledger,
-			ReleaseGateLoadTest:        satisfied(phase12LoadTestEvidence, phase13P15AOILoadEnvelopeEvidence, phase13P15AggroLoadEnvelopeEvidence),
+			ReleaseGateLoadTest:        satisfied(phase12LoadTestEvidence, phase13P15AOILoadEnvelopeEvidence, phase13P15AggroLoadEnvelopeEvidence, phase13RuntimeTickStabilityEvidence),
 			ReleaseGateGoTestAll:       satisfied(phase12GoTestAllEvidence),
 			ReleaseGateGitDiffCheck:    satisfied(phase12GitDiffCheckEvidence),
 		},

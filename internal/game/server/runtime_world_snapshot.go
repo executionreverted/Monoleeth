@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"sort"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/visibility"
 	"gameproject/internal/game/world/worker"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -220,7 +223,13 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 	runtime.tickMu.Lock()
 	defer runtime.tickMu.Unlock()
 
+	ctx, tickSpan := runtime.startRuntimeSpan(context.Background(), "game.runtime.tick")
+	defer tickSpan.End()
+
+	workerCtx, workerSpan := runtime.startRuntimeSpan(ctx, "game.runtime.tick.worker")
 	tickedInstances := runtime.tickMapInstances()
+	workerSpan.SetAttributes(attribute.Int("game.runtime.maps", len(tickedInstances)))
+	workerSpan.End()
 
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
@@ -249,9 +258,17 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 		if _, failed := failedInstances[instance]; failed {
 			continue
 		}
+		_, aoiSpan := runtime.startRuntimeSpan(workerCtx, "game.runtime.tick.aoi",
+			attribute.String("game.world_id", instance.Definition.WorldID.String()),
+			attribute.String("game.zone_id", instance.Definition.ZoneID.String()),
+			attribute.String("game.map_id", instance.Definition.InternalMapID.String()),
+			attribute.Int("game.runtime.sessions", len(instance.ActiveSessions)),
+		)
 		sharedSnapshot, hasSharedSnapshot := sharedSnapshots[instance]
 		var aoiDuration time.Duration
 		var enqueueDuration time.Duration
+		diffCount := 0
+		enqueuedEvents := 0
 		for _, sessionID := range sortedSessionIDs(instance.ActiveSessions) {
 			playerID := instance.ActiveSessions[sessionID]
 			diffStarted := time.Now()
@@ -260,18 +277,38 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 			if !ok {
 				continue
 			}
+			diffCount++
 			enqueueStarted := time.Now()
 			events := runtime.eventsForAOIDiffLocked(sessionID, diff)
 			if len(events) > 0 {
 				eventsBySession[sessionID] = append(eventsBySession[sessionID], events...)
+				enqueuedEvents += len(events)
 			}
 			enqueueDuration += time.Since(enqueueStarted)
 		}
+		aoiSpan.SetAttributes(
+			attribute.Int("game.runtime.aoi_diffs", diffCount),
+			attribute.Int("game.runtime.enqueued_events", enqueuedEvents),
+			attribute.Int64("game.runtime.aoi_duration_ms", aoiDuration.Milliseconds()),
+			attribute.Int64("game.runtime.enqueue_duration_ms", enqueueDuration.Milliseconds()),
+		)
+		aoiSpan.End()
 		runtime.recordAOITickPhaseDurationLocked(instance, runtimeAOITickPhaseAOI, aoiDuration)
 		runtime.recordAOITickPhaseDurationLocked(instance, runtimeAOITickPhaseEnqueue, enqueueDuration)
 	}
 	runtime.recordReplayEventsBySessionLocked(eventsBySession)
+	tickSpan.SetAttributes(attribute.Int("game.runtime.event_sessions", len(eventsBySession)))
 	return eventsBySession
+}
+
+func (runtime *Runtime) startRuntimeSpan(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if runtime == nil || runtime.tracer == nil {
+		return ctx, trace.SpanFromContext(ctx)
+	}
+	return runtime.tracer.Start(ctx, name, trace.WithAttributes(attrs...))
 }
 
 type tickedMapInstance struct {

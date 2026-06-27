@@ -68,6 +68,26 @@ func TestEconomySimulationReportsBalancedSourceSinkForOneScenario(t *testing.T) 
 	}
 }
 
+func TestPhase13ProductionSettlementSimulationSummaryIsDeterministic(t *testing.T) {
+	config := simulations.PlanetSettlementSimulationConfig{
+		Planets:         2,
+		OfflineDuration: time.Hour,
+		StartTime:       time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
+	}
+	first, err := simulations.RunPlanetSettlementSimulation(config)
+	if err != nil {
+		t.Fatalf("first RunPlanetSettlementSimulation() error = %v", err)
+	}
+	second, err := simulations.RunPlanetSettlementSimulation(config)
+	if err != nil {
+		t.Fatalf("second RunPlanetSettlementSimulation() error = %v", err)
+	}
+
+	if got, want := summarizePlanetSettlementSimulation(first), summarizePlanetSettlementSimulation(second); got != want {
+		t.Fatalf("production simulation digest = %+v, want %+v", got, want)
+	}
+}
+
 func TestRouteSettlementSimulationTracksLossAndDuplicateNoOps(t *testing.T) {
 	summary, err := simulations.RunRouteSettlementSimulation(simulations.RouteSettlementSimulationConfig{
 		Routes:             4,
@@ -117,6 +137,26 @@ func TestRouteSettlementSimulationTracksLossAndDuplicateNoOps(t *testing.T) {
 	}
 }
 
+func TestPhase13RouteSettlementSimulationSummaryIsDeterministic(t *testing.T) {
+	config := simulations.RouteSettlementSimulationConfig{
+		Routes:             2,
+		SettlementDuration: time.Hour,
+		StartTime:          time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
+	}
+	first, err := simulations.RunRouteSettlementSimulation(config)
+	if err != nil {
+		t.Fatalf("first RunRouteSettlementSimulation() error = %v", err)
+	}
+	second, err := simulations.RunRouteSettlementSimulation(config)
+	if err != nil {
+		t.Fatalf("second RunRouteSettlementSimulation() error = %v", err)
+	}
+
+	if got, want := summarizeRouteSettlementSimulation(first), summarizeRouteSettlementSimulation(second); got != want {
+		t.Fatalf("route simulation digest = %+v, want %+v", got, want)
+	}
+}
+
 func itemFlowTotal(flows []observability.ItemFlowSummary, itemID string, reason economy.LedgerReason) int64 {
 	var total int64
 	for _, flow := range flows {
@@ -125,6 +165,62 @@ func itemFlowTotal(flows []observability.ItemFlowSummary, itemID string, reason 
 		}
 	}
 	return total
+}
+
+type planetSettlementSimulationDigest struct {
+	Planets             int
+	Settlements         int
+	DuplicateNoOps      int
+	TotalProducedItems  int64
+	TotalConsumedInputs int64
+	FinalIronOre        int64
+	FinalRefinedAlloy   int64
+	IronOreSource       int64
+	IronOreSink         int64
+}
+
+func summarizePlanetSettlementSimulation(summary simulations.PlanetSettlementSimulationSummary) planetSettlementSimulationDigest {
+	return planetSettlementSimulationDigest{
+		Planets:             summary.Planets,
+		Settlements:         summary.Settlements,
+		DuplicateNoOps:      summary.DuplicateNoOps,
+		TotalProducedItems:  summary.TotalProducedItems,
+		TotalConsumedInputs: summary.TotalConsumedInputs,
+		FinalIronOre:        summary.FinalIronOre,
+		FinalRefinedAlloy:   summary.FinalRefinedAlloy,
+		IronOreSource:       itemFlowTotal(summary.FlowSnapshot.ItemFaucets, "iron_ore", simulations.ReasonPlanetProduction),
+		IronOreSink:         itemFlowTotal(summary.FlowSnapshot.ItemSinks, "iron_ore", simulations.ReasonPlanetProduction),
+	}
+}
+
+type routeSettlementSimulationDigest struct {
+	Routes              int
+	Settlements         int
+	DuplicateNoOps      int
+	TotalWanted         int64
+	TotalTaken          int64
+	TotalLost           int64
+	TotalDelivered      int64
+	TotalAdded          int64
+	SourceRemaining     int64
+	DestinationQuantity int64
+	RouteLossSink       int64
+}
+
+func summarizeRouteSettlementSimulation(summary simulations.RouteSettlementSimulationSummary) routeSettlementSimulationDigest {
+	return routeSettlementSimulationDigest{
+		Routes:              summary.Routes,
+		Settlements:         summary.Settlements,
+		DuplicateNoOps:      summary.DuplicateNoOps,
+		TotalWanted:         summary.TotalWanted,
+		TotalTaken:          summary.TotalTaken,
+		TotalLost:           summary.TotalLost,
+		TotalDelivered:      summary.TotalDelivered,
+		TotalAdded:          summary.TotalAdded,
+		SourceRemaining:     summary.SourceRemaining,
+		DestinationQuantity: summary.DestinationQuantity,
+		RouteLossSink:       itemFlowTotal(summary.FlowSnapshot.ItemSinks, "refined_alloy", simulations.ReasonRouteLoss),
+	}
 }
 
 func TestProductionRouteSettlementSimulationsRejectInvalidConfig(t *testing.T) {

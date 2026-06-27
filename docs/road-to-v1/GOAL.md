@@ -24,21 +24,26 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
   `pending_restart`).
 - Wave 4: P10 Done (chat/party/clan runtime, durable clan rows/read models,
   party shared-target realtime, real client panels, moderation redaction/logging,
-  and contribution read models done), P13 60% (Prometheus-compatible `/metrics`
-  endpoint exports runtime metric snapshots with production bearer-token guard,
-  combat/loot simulation proves identical summaries across two runs, one
-  economy simulation proves a balanced source/sink item flow, release-gate
-  coverage fails closed when one required evidence item is missing, and P13/P15
-  load evidence proves bounded AOI payload and aggro candidate work; OTel/tick
-  stability/deeper race/final green gate remain), P15 80% (worker aggro target
+  and contribution read models done), P13 Done (Prometheus-compatible `/metrics`
+  endpoint exports runtime metric snapshots with production bearer-token guard;
+  OTel command/tick spans, combat/loot/economy/production/route deterministic
+  simulation, load-envelope + runtime tick-stability smokes, command+tick+economy
+  mutation race target, fail-closed release-gate coverage, and final green
+  evidence registry are in place), P15 90% (worker aggro target
   acquisition uses a player-only spatial index; AOI tick path reuses one per-map
   worker snapshot, versions public entity payloads, skips unchanged diffs, emits
-  tick sub-phase metrics, and has P13 load-envelope proof; full AOI runtime
-  work-budget proof remains).
+  tick sub-phase metrics, and has P13 load-envelope plus 128-session runtime
+  tick-stability proof; full 1500-session runtime AOI projection proof remains).
 - Wave 5-6: P11/P12/P17 not started.
-- Genel v1: ~77%.
+- Genel v1: ~80%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P13 release evidence completion slice — OTel spans now cover realtime command
+  execution and runtime tick/AOI phases, production and route simulations prove
+  deterministic summaries across identical runs, runtime AOI tick stability is
+  smoke-tested with 128 active sessions, command+tick+economy mutation race
+  evidence passes under targeted `-race`, and release-gate coverage references
+  the new trace/sim/load/race evidence.
 - P13/P15 load-envelope slice — observability load target now includes the AOI
   payload envelope metric, P13/P15 smokes prove 1500 concurrent AOI viewers
   over 1552 simulated entity states stay within the visible payload budget and
@@ -115,8 +120,8 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 
 ### Sırada (resume sırası)
 1. Context tazele: `00-index.md`, `REMAINING-WORK.md`, ilgili faz dosyası.
-2. P13: OTel traces, production/route simulation coverage, deeper race evidence,
-   and final green release gate.
+2. P15/P17 later: full 1500-session runtime AOI projection proof/decomposition if
+   needed; 128-session tick stability is already proven.
 3. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
 
 ## Çalışma Kuralları
@@ -191,14 +196,16 @@ git diff --check
 - [ ] Her value mutation transactional, idempotent, commit sonrası broadcast (P02).
 - [ ] Slow client tick loop'u bloklamıyor; reconnect replay çalışıyor (P03).
 - [ ] Her op'ta enforced rate limit var; abuse truth'u değiştiremiyor (P04, P16).
-- [ ] Global mutex daraltıldı; aggro/AOI O(N×M) değil (P05, P15).
+- [ ] Global mutex daraltıldı; aggro/AOI O(N×M) değil (P05, P15). Aggro is
+  bounded and AOI has payload + 128-session runtime tick proof; full 1500-session
+  runtime AOI projection proof remains.
 - [ ] Movement stop/disconnect settle; death/repair tam (P06).
 - [ ] Equipment/skill effective stat ve cargo'yu doğru değiştiriyor (P07).
 - [ ] CMS publish canlı runtime'a yansıyor veya dürüstçe pending_restart raporluyor (P09, P14).
 - [x] Chat + party + clan MVP moderation/rate limit ile çalışıyor (P10).
 - [ ] Tek tekrarlanabilir endgame gate loop'u uçtan uca çalışıyor (P11).
 - [ ] Drones/ammo/honor (en az) shipped (P12).
-- [ ] Release gate yeşil; simulation/load/race kanıtı var (P13).
+- [x] Release gate yeşil; simulation/load/race kanıtı var (P13).
 - [ ] `Runtime` coordinator'lara bölündü; davranış regresyonu yok (P17).
 - [ ] `go test ./...`, client `check`, `git diff --check` geçiyor.
 

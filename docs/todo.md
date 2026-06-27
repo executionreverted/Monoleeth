@@ -13,35 +13,34 @@ for phase status; this file is a compact pending-work index.
   AOI viewers over 1552 simulated entity states stay inside the configured
   visible-payload envelope) and
   `TestPhase13P15AggroLoadEnvelopeKeepsCandidateChecksBounded` (1500 players,
-  one NPC tick, one spatial candidate check). The narrow P13/P15 race target also
-  passed. OTel, production/route simulation, deeper command + tick + economy
-  mutation race coverage, full AOI tick-stability proof, and final green release
-  gate remain open in
+  one NPC tick, one spatial candidate check). Runtime tick-stability proof now
+  covers 128 active sessions inside the targeted-race wall-clock budget. Full
+  1500-session runtime AOI projection proof remains open in
+  `docs/road-to-v1/15-world-performance-aoi-optimization.md`.
+- [x] P13: complete release evidence suite. OTel command/tick spans,
+  production/route deterministic summary smokes, runtime AOI tick-stability
+  smoke, command+tick+economy mutation race target, and final release-gate
+  coverage evidence now pass. Source:
   `docs/road-to-v1/13-observability-simulation-release.md`.
 - [x] P13: prove release-gate coverage fails closed for missing evidence. The
   release-gate coverage report now has a focused smoke proving that removing
-  one required module/check evidence item fails the report. Deeper race
-  evidence, OTel traces, and the final green release gate remain open in
+  one required module/check evidence item fails the report. Source:
   `docs/road-to-v1/13-observability-simulation-release.md`.
 - [x] P13: prove one economy simulation balance scenario. The
   planet-production simulation now has a focused smoke proving one scenario
   reports a nonzero balanced source/sink item flow, and release-gate module 16
-  evidence references that proof. Deeper race evidence, OTel traces, and the
-  final green release gate remain open in
+  evidence references that proof. Source:
   `docs/road-to-v1/13-observability-simulation-release.md`.
 - [x] P13: prove combat/loot simulation determinism. The combat/loot simulation
   now has a focused smoke proving identical summaries across two identical
   runs, and release-gate module 16 evidence references that deterministic proof.
-  Remaining deterministic production/route coverage, deeper race evidence, OTel
-  traces, and the final green release gate remain open in
-  `docs/road-to-v1/13-observability-simulation-release.md`.
+  Source: `docs/road-to-v1/13-observability-simulation-release.md`.
 - [x] P13: expose runtime metrics through a Prometheus-compatible endpoint.
   `GET /metrics` now renders `MetricRecorder` counters/gauges/duration
   summaries, proves one realtime command count in a focused server smoke,
   normalizes metric/label identifiers for Prometheus text exposition, and
   requires `GAME_METRICS_TOKEN` + bearer auth in production/configured
-  deployments. OTel traces, remaining deterministic production/route sim,
-  deeper race evidence, and the final release gate remain open in
+  deployments. Source:
   `docs/road-to-v1/13-observability-simulation-release.md`.
 - [x] P15: share one per-map AOI worker snapshot across session diffs and add
   public entity versions. Runtime AOI ticks now build per-session visibility

@@ -1,7 +1,7 @@
 # Phase 15 — World Performance & AOI/Aggro Optimization
 
 ## Status
-- State: In progress (80%)
+- State: In progress (90%)
 - Wave: 4
 - Depends on: P05
 - Unlocks: higher player/NPC counts
@@ -35,6 +35,9 @@ rebuilds, and re-serialization of unchanged entities.
   - [x] `TestPhase13P15AggroLoadEnvelopeKeepsCandidateChecksBounded` runs 1500
     players and proves one NPC tick performs one aggro candidate check through
     the player spatial index.
+  - [x] `TestPhase13P15RuntimeAOITickStabilityKeepsDurationBudget` runs the
+    runtime AOI tick path with 128 active sessions and keeps wall-clock duration
+    within the 3s targeted-race budget.
 
 ## Server Ownership
 - Visibility/radar/stealth still recomputed server-side; optimization must not leak hidden entities.
@@ -45,19 +48,21 @@ rebuilds, and re-serialization of unchanged entities.
 - [x] Hidden entity stays excluded after AOI snapshot sharing.
 - [x] Tick sub-phase metrics are emitted.
 - [x] P13/P15 load envelope keeps AOI payloads and aggro candidate checks bounded.
+- [x] Runtime AOI tick stability smoke stays inside the configured wall-clock budget.
 
 ## Done Criteria
 - [ ] Aggro/AOI no longer scale O(N×M) on the full runtime hot-path envelope.
   - [x] Aggro candidate acquisition is bounded by player spatial radius query.
   - [x] AOI visible payload size is bounded in the load-envelope smoke.
-  - [ ] AOI runtime work budget still needs tick-stability proof because the
+  - [x] AOI runtime work budget has a 128-active-session wall-clock smoke proof.
+  - [ ] Full 1500-session runtime AOI projection proof remains open because the
     server still computes per-session AOI diffs from the shared worker snapshot.
 - [ ] Code review HI-07 and §13 AOI items closed.
-  - [ ] AOI read projection immutable snapshot/copy-on-write follow-up remains
-    only if later P13 evidence exposes contention.
+  - [ ] AOI read projection spatial/copy-on-write follow-up remains open for the
+    full 1500-session runtime envelope.
 
 ## Verification
 ```bash
-go test ./internal/game/world/... ./internal/game/server/... -run 'Aggro|AOI|Spatial|EntityVersion|Tick' -count=1 -race
+go test -race ./internal/game/server/... ./internal/game/world/... -run 'Load|Tick|AOI|Aggro|Race|Phase13|Phase15|Trace' -count=1
 go test ./... && git diff --check
 ```

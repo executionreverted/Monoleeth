@@ -37,6 +37,7 @@ import (
 	"gameproject/internal/game/world/aoi"
 	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -91,6 +92,7 @@ type RuntimeConfig struct {
 	SocialChatLimiter   social.RateLimitChecker
 	AdminSeed           auth.AdminSeedInput
 	Passwords           auth.PasswordHasher
+	TracerProvider      trace.TracerProvider
 
 	realtimeLimiter        realtime.RateLimiter
 	disableRealtimeLimiter bool
@@ -199,6 +201,7 @@ type Runtime struct {
 	BuildingMutations              runtimeBuildingMutationDurableStore
 	CommandLog                     *observability.MemoryCommandLogger
 	Metrics                        *observability.MetricRecorder
+	tracer                         trace.Tracer
 	contentAdminCloser             func() error
 	authStoreCloser                func() error
 	walletStoreCloser              func() error
@@ -926,6 +929,12 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if config.E2EScanNoPlanetSeed && !config.DevMode {
 		return nil, fmt.Errorf("%s requires %s=true", EnvE2EScanNoPlanetSeed, EnvDevMode)
 	}
+	tracerProvider := config.TracerProvider
+	if tracerProvider == nil {
+		tracerProvider = trace.NewNoopTracerProvider()
+	}
+	runtimeTracer := tracerProvider.Tracer("gameproject/internal/game/server")
+	commandTracer := tracerProvider.Tracer("gameproject/internal/game/realtime")
 	clock := config.Clock
 	if clock == nil {
 		clock = foundation.RealClock{}
@@ -1425,6 +1434,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		BuildingMutations:              durableStores.buildingMutations,
 		CommandLog:                     commandLogger,
 		Metrics:                        metricRecorder,
+		tracer:                         runtimeTracer,
 		contentAdminCloser:             contentAdminCloser,
 		authStoreCloser:                authStoreCloser,
 		walletStoreCloser:              walletStoreCloser,
@@ -1587,6 +1597,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 			Clock:   clock,
 			Logger:  commandLogger,
 			Metrics: metricRecorder,
+			Tracer:  commandTracer,
 		},
 		Limiter:  runtimeRealtimeLimiter(config, clock),
 		Handlers: runtime.commandHandlers(),
