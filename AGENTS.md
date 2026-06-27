@@ -123,7 +123,7 @@ docs/2026-06-16-space-morpg-architecture-notes.md
     - `git diff --check`
 12. Report what changed, what phase was touched, what was tested, and any
     remaining risk.
-13. Arayüzde çalışırken amacımız `/Users/canersevince/gameproject/output/mockups/final-mockup.png` tasarımındaki HUD'u birebir kopyalamak. Oyun için objeler ve diğer assetler (iconlar - map arkaplanı vs.) subagent spawnlatıp asset ürettirebilirsin. Tek kriter mockup dosyasında ilgili alanla birebir / çok benzer olması assetin. Olabildiğince ona yakın tutacağız. Ayrıca @output/assets/hud-svg klasöründe icon-marker vs gibi şeyler var. İşine yararsa kullanırsın.
+<!-- 13. Arayüzde çalışırken amacımız `/Users/canersevince/gameproject/output/mockups/final-mockup.png` tasarımındaki HUD'u birebir kopyalamak. Oyun için objeler ve diğer assetler (iconlar - map arkaplanı vs.) subagent spawnlatıp asset ürettirebilirsin. Tek kriter mockup dosyasında ilgili alanla birebir / çok benzer olması assetin. Olabildiğince ona yakın tutacağız. Ayrıca @output/assets/hud-svg klasöründe icon-marker vs gibi şeyler var. İşine yararsa kullanırsın. -->
 
 ## Real UI Rules
 
@@ -370,69 +370,6 @@ Examples:
   browsing belongs to the inventory/loadout phase.
 - Market/auction/premium phase must use escrow and ledger-backed services; it
   must not create client-side price totals as truth.
-
-## Symphony And Tooling
-
-If you are running inside a Symphony-managed worker workspace, do not use this
-file as your operating guide. Follow `docs/symphony-worker-rules.md` and the
-task prompt instead. Do not spawn subagents, create Symphony tasks, dispatch
-agents, or manage the Symphony queue.
-
-Keep Symphony/orchestration code in Go.
-
-Symphony code should stay separate from game server domain code. Do not mix
-issue orchestration, OpenAI client logic, or workflow runner concerns into
-gameplay modules.
-
-### Symphony Agent Backends
-
-Symphony can run worker tasks on more than one agent backend:
-
-- `codex` (default): the Codex app-server backend (`codex` config).
-- `crush`: the `crush` CLI backend (`crush` config), which can target external
-  model providers, including:
-  - GLM models on z.ai, e.g. model `zai/glm-5.2` with endpoint
-    `https://api.z.ai/api/coding/paas/v4`.
-  - Sakana models via provider, e.g. `sakana/fugu-ultra` with the
-    matching compatible endpoint. ~/.config/crush/crush.json has it.
-
-Selecting a backend/model:
-
-- Global default: `agent.backend` plus `crush.{command,model,endpoint}` in the
-  Symphony config.
-- Per-task override: `agent_backend`, `agent_model`, `agent_endpoint` on
-  `POST /api/v1/tasks` (also exposed in the `/tasks` dashboard form).
-- The crush backend forwards the endpoint via `CRUSH_BASE_URL` /
-  `OPENAI_BASE_URL`; provider API keys come from the environment and must never
-  be committed or logged. Crush config already has required API keys and data;
-  spawn tasks through Symphony without hard-coding secrets or custom provider
-  URLs unless a task explicitly needs an endpoint override.
-
-Agent selection guide:
-
-- Use GLM 5.2 (`agent_backend: "crush"`, `agent_model: "zai/glm-5.2"`) for
-  easy, mechanical, repetitive, or output-heavy implementation work.
-- Use Sakana Fugu through Crush for serious reasoning, architecture decisions,
-  planning, code plan review, research, snippet design, and complex debugging.
-  Keep Fugu reasoning at `high` by default unless the task requires deeper
-  analysis.
-- For code plans and snippets, prefer Fugu first. Use its output as the task
-  contract for worker agents.
-- For pure execution or bulk file work, delegate to GLM 5.2, then have Fugu or
-  the manager review the diff, tests, and assumptions before merging or
-  claiming completion.
-- For mixed work, split the job: Fugu plans and reviews; GLM 5.2 implements the
-  narrow slices; Codex can still be used for baseline/default local tasks.
-- Keep task prompts explicit about scope, files, tests, and "Do not commit".
-  Provider choice does not relax any project rule.
-- If a Sakana model override fails because Crush reports duplicate provider
-  names, use the configured Crush default Sakana model for Fugu tasks instead
-  of editing secrets or provider config during gameplay work.
-- Always use Caveman skill for saving tokens.
-
-This is orchestration-only configuration. It does not change any
-server-authoritative gameplay rule, and gameplay domain code must not depend on
-which agent backend or model produced a change. Coding rules applies for everyone.
 
 ## Code Shape
 
