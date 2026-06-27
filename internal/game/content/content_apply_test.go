@@ -30,7 +30,7 @@ func TestPlanRuntimeApplyClassifiesIdenticalSnapshotAsSafeReload(t *testing.T) {
 	}
 }
 
-func TestPlanRuntimeApplyClassifiesItemDisplayChangeAsSafeReload(t *testing.T) {
+func TestPlanRuntimeApplyClassifiesItemDisplayChangeAsRestartRequired(t *testing.T) {
 	base := Snapshot{Version: "v1", Items: []SnapshotRow{applyTestRow("raw_ore", true, `{"stackable":true}`)}}
 	next := Snapshot{
 		Version: "v2",
@@ -39,15 +39,15 @@ func TestPlanRuntimeApplyClassifiesItemDisplayChangeAsSafeReload(t *testing.T) {
 
 	plan := PlanRuntimeApply(base, next)
 
-	if plan.Class != ApplyClassSafeReload {
-		t.Fatalf("class = %q, want %q (item display-only change is projection-safe)", plan.Class, ApplyClassSafeReload)
+	if plan.Class != ApplyClassRestartRequired {
+		t.Fatalf("class = %q, want %q (item catalog is boot-wired)", plan.Class, ApplyClassRestartRequired)
 	}
 	if !containsContentType(plan.ChangedContentTypes, ContentTypeItem) {
 		t.Fatalf("changed types = %v, want item", plan.ChangedContentTypes)
 	}
 }
 
-func TestPlanRuntimeApplyClassifiesShopProductChangeAsSafeReload(t *testing.T) {
+func TestPlanRuntimeApplyClassifiesShopProductChangeAsRestartRequired(t *testing.T) {
 	base := Snapshot{Version: "v1", ShopProducts: []SnapshotRow{applyTestRow("product_ferrite_ore", true, `{"price":10}`)}}
 	next := Snapshot{
 		Version:      "v2",
@@ -56,8 +56,8 @@ func TestPlanRuntimeApplyClassifiesShopProductChangeAsSafeReload(t *testing.T) {
 
 	plan := PlanRuntimeApply(base, next)
 
-	if plan.Class != ApplyClassSafeReload {
-		t.Fatalf("class = %q, want %q (shop product change is projection-safe)", plan.Class, ApplyClassSafeReload)
+	if plan.Class != ApplyClassRestartRequired {
+		t.Fatalf("class = %q, want %q (shop product catalog is boot-wired)", plan.Class, ApplyClassRestartRequired)
 	}
 }
 

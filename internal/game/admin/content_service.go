@@ -396,6 +396,9 @@ func (service *ContentService) Rollback(ctx context.Context, input content.Rollb
 		return content.PublishDraftResult{}, err
 	}
 	result.RuntimeApplyPlan = content.PlanRuntimeApply(current.Snapshot, snapshot)
+	if err := service.validatePublishSafety(ctx, current.Snapshot, snapshot); err != nil {
+		return content.PublishDraftResult{}, err
+	}
 	validationJSON, err := json.Marshal(report)
 	if err != nil {
 		return content.PublishDraftResult{}, err

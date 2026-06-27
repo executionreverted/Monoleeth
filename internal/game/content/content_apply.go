@@ -22,13 +22,9 @@ const (
 )
 
 // safeReloadContentTypes are the snapshot groups that only feed the player
-// content projection. They can be live-reloaded because the projection is
-// presentational; server-authoritative gameplay truth stays boot-wired.
-var safeReloadContentTypes = map[ContentType]bool{
-	ContentTypeItem:        true,
-	ContentTypeModule:      true,
-	ContentTypeShopProduct: true,
-}
+// content projection. Keep this list empty until runtime apply swaps every
+// authoritative read model touched by a changed content type.
+var safeReloadContentTypes = map[ContentType]bool{}
 
 // RuntimeApplyPlan is the domain decision produced by comparing the currently
 // live content snapshot against the one about to be published. It tells the

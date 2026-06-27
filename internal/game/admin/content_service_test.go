@@ -295,7 +295,7 @@ func TestContentServicePublishDraftValidatesAndWritesImmutableVersion(t *testing
 	}
 }
 
-func TestContentServicePublishDraftPlansSafeReloadForModuleOnlyChange(t *testing.T) {
+func TestContentServicePublishDraftPlansRestartRequiredForModuleOnlyChange(t *testing.T) {
 	now := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
 	current := snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_mvp_seed_v1", moduleSnapshotForAdminTest(8), now.Add(-time.Hour))
 	store := &fakeContentDraftStore{
@@ -326,8 +326,8 @@ func TestContentServicePublishDraftPlansSafeReloadForModuleOnlyChange(t *testing
 	if err != nil {
 		t.Fatalf("PublishDraft() error = %v, want nil", err)
 	}
-	if result.RuntimeApplyPlan.Class != content.ApplyClassSafeReload {
-		t.Fatalf("apply plan class = %q, want %q (module-only change is projection-safe)", result.RuntimeApplyPlan.Class, content.ApplyClassSafeReload)
+	if result.RuntimeApplyPlan.Class != content.ApplyClassRestartRequired {
+		t.Fatalf("apply plan class = %q, want %q (module catalog is boot-wired)", result.RuntimeApplyPlan.Class, content.ApplyClassRestartRequired)
 	}
 }
 
@@ -726,6 +726,43 @@ func TestContentServiceRollbackPublishesTargetSnapshotAsNewVersion(t *testing.T)
 		store.publishedInput.AuditEntries[0].Note != "restore starter" ||
 		store.publishedInput.AuditEntries[0].BalanceTag != "rollback_starter" {
 		t.Fatalf("rollback audit entries = %+v, want rollback metadata", store.publishedInput.AuditEntries)
+	}
+}
+
+func TestContentServiceRollbackBlocksChangedModuleWithActiveEquip(t *testing.T) {
+	now := time.Date(2026, 6, 25, 9, 30, 0, 0, time.UTC)
+	target := snapshotVersionRecordForAdminTest("11111111-1111-5111-8111-111111111111", "content_mvp_seed_v1", moduleSnapshotForAdminTest(8), now.Add(-2*time.Hour))
+	current := snapshotVersionRecordForAdminTest("22222222-2222-5222-8222-222222222222", "content_balance_v2", moduleSnapshotForAdminTest(9), now.Add(-time.Hour))
+	store := &fakeContentDraftStore{
+		currentSnapshot: current,
+		targetSnapshots: map[string]content.SnapshotVersionRecord{target.ID: target},
+	}
+	service := admin.NewContentService(admin.ContentServiceConfig{
+		Drafts:    store,
+		Publisher: store,
+		Snapshots: store,
+		Validator: &fakeContentDraftValidator{},
+		Clock:     testutil.NewFakeClock(now),
+		ActiveEquippedModules: &fakeActiveEquippedModuleReader{refs: []admin.EquippedModuleReference{{
+			ModuleID: "laser_alpha_t1",
+			PlayerID: "player-1",
+			ShipID:   "starter",
+		}}},
+	})
+
+	_, err := service.Rollback(context.Background(), content.RollbackInput{
+		TargetVersionID: target.ID,
+		Version:         "content_rollback_v3",
+		Notes:           "restore starter",
+		BalanceTag:      "rollback_starter",
+		ActorAccountID:  "account-admin",
+		IdempotencyKey:  "content_rollback:target:req-active-equip",
+	})
+	if !errors.Is(err, admin.ErrContentPublishActiveEquippedModule) {
+		t.Fatalf("Rollback() error = %v, want ErrContentPublishActiveEquippedModule", err)
+	}
+	if store.publishCalled {
+		t.Fatal("Rollback() wrote version despite active equip conflict")
 	}
 }
 

@@ -381,8 +381,8 @@ func TestAdminContentPublishRollbackAndAuditUseServerActor(t *testing.T) {
 		publishPayload.ContentPublish.IdempotencyKey != contentStore.publishedInput.IdempotencyKey {
 		t.Fatalf("publish idempotency payload=%q input=%q, want service key surfaced", publishPayload.ContentPublish.IdempotencyKey, contentStore.publishedInput.IdempotencyKey)
 	}
-	if !publishPayload.ContentPublish.RuntimeApplied || publishPayload.ContentPublish.PendingRestart {
-		t.Fatalf("publish runtime honesty = applied=%v pending=%v, want applied safe-reload for module change", publishPayload.ContentPublish.RuntimeApplied, publishPayload.ContentPublish.PendingRestart)
+	if publishPayload.ContentPublish.RuntimeApplied || !publishPayload.ContentPublish.PendingRestart {
+		t.Fatalf("publish runtime honesty = applied=%v pending=%v, want pending restart for boot-wired module change", publishPayload.ContentPublish.RuntimeApplied, publishPayload.ContentPublish.PendingRestart)
 	}
 	if publishPayload.ContentPublish.PublishedVersion != "content_balance_v2" || publishPayload.ContentPublish.RuntimeVersion == "" {
 		t.Fatalf("publish runtime honesty = published=%q runtime=%q, want published label and non-empty runtime version", publishPayload.ContentPublish.PublishedVersion, publishPayload.ContentPublish.RuntimeVersion)
