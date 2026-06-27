@@ -113,7 +113,12 @@ for phase status; this file is a compact pending-work index.
   safe-zone, and radar/marker visuals, with procedural Pixi `Graphics` retained
   as glow and interaction affordance layers. Built-client playtest proof now
   writes `output/screenshots/ui-implementation/playtest/asset-sprites-desktop.png`
-  and checks screenshot pixels before completing the server-owned loop.
+  and checks screenshot pixels before completing the server-owned loop. The
+  first generated-entity curated set now copies one deploy-safe player ship,
+  hostile NPC, and loot cache PNG into `client/src/assets/world/entities/` and
+  wires them through `client/src/render/world-entity-asset-catalog.ts`; broader
+  ship variants, per-map NPC silhouettes, material icons, planet states, portal
+  variants, and final effect polish remain open.
 - [ ] Add owner-aware passive economy fanout for online market, auction, and
   premium viewers. The Task 001 Phase 01 client now refreshes `market.search`,
   `auction.search`, `premium.entitlements`, wallet, inventory, and admin economy

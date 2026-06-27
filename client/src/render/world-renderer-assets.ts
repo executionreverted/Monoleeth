@@ -1,11 +1,10 @@
 import type { EntityPayload } from '../protocol/envelope';
 import type { WorldMapMemoryMarker } from '../state/types';
 import type { MapOverlayPortalDebug, MapOverlaySafeZoneDebug } from './map-overlay';
+import { CURATED_ENTITY_ASSETS } from './world-entity-asset-catalog';
 import damageBurstURL from '../assets/world/damage_burst.svg?url';
-import lootCrateURL from '../assets/world/loot_crate.svg?url';
 import lootSparkURL from '../assets/world/loot_spark.svg?url';
 import movementMarkerURL from '../assets/world/movement_marker.svg?url';
-import npcHostileURL from '../assets/world/npc_hostile.svg?url';
 import planetKnownURL from '../assets/world/planet_known.svg?url';
 import planetUnknownURL from '../assets/world/planet_unknown.svg?url';
 import portalGateURL from '../assets/world/portal_gate.svg?url';
@@ -13,7 +12,6 @@ import projectileLaserURL from '../assets/world/projectile_laser.svg?url';
 import radarWarningURL from '../assets/world/radar_warning.svg?url';
 import safeZoneURL from '../assets/world/safe_zone.svg?url';
 import selectionReticleURL from '../assets/world/selection_reticle.svg?url';
-import shipPlayerURL from '../assets/world/ship_player.svg?url';
 import starfieldURL from '../assets/starfield_2048x1152.png?url';
 
 export type WorldRenderAssetKey =
@@ -59,7 +57,7 @@ export const WORLD_RENDER_ASSETS: Record<WorldRenderAssetKey, WorldRenderAssetDe
   'ship.player.self': {
     key: 'ship.player.self',
     layer: 'world',
-    assetURL: shipPlayerURL,
+    assetURL: CURATED_ENTITY_ASSETS['player.ship.vanguard'].runtimeURL,
     visualRole: 'player ship',
     accentColor: 0x2bdfff,
     glowColor: 0x8af5ff,
@@ -67,7 +65,7 @@ export const WORLD_RENDER_ASSETS: Record<WorldRenderAssetKey, WorldRenderAssetDe
   'ship.player.friendly': {
     key: 'ship.player.friendly',
     layer: 'world',
-    assetURL: shipPlayerURL,
+    assetURL: CURATED_ENTITY_ASSETS['player.ship.vanguard'].runtimeURL,
     visualRole: 'friendly player ship',
     accentColor: 0x44e878,
     glowColor: 0x8af5ff,
@@ -75,7 +73,7 @@ export const WORLD_RENDER_ASSETS: Record<WorldRenderAssetKey, WorldRenderAssetDe
   'ship.player.neutral': {
     key: 'ship.player.neutral',
     layer: 'world',
-    assetURL: shipPlayerURL,
+    assetURL: CURATED_ENTITY_ASSETS['player.ship.vanguard'].runtimeURL,
     visualRole: 'neutral player ship',
     accentColor: 0x8af5ff,
     glowColor: 0x2bdfff,
@@ -83,7 +81,7 @@ export const WORLD_RENDER_ASSETS: Record<WorldRenderAssetKey, WorldRenderAssetDe
   'npc.swarm.hostile': {
     key: 'npc.swarm.hostile',
     layer: 'world',
-    assetURL: npcHostileURL,
+    assetURL: CURATED_ENTITY_ASSETS['npc.hostile.crab'].runtimeURL,
     visualRole: 'hostile npc',
     accentColor: 0xff4236,
     glowColor: 0xff5c7a,
@@ -91,7 +89,7 @@ export const WORLD_RENDER_ASSETS: Record<WorldRenderAssetKey, WorldRenderAssetDe
   'loot.cache': {
     key: 'loot.cache',
     layer: 'world',
-    assetURL: lootCrateURL,
+    assetURL: CURATED_ENTITY_ASSETS['loot.cache.cube'].runtimeURL,
     visualRole: 'loot crate',
     accentColor: 0xf4c95d,
     glowColor: 0xfff0a8,

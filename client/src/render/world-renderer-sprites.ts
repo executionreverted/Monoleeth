@@ -17,11 +17,11 @@ export function spriteAlphaForEntity(entity: EntityPayload): number {
 export function spriteScaleForEntity(entity: EntityPayload, worldScale: number): number {
   const base =
     entity.entity_type === 'player'
-      ? 0.62
+      ? 0.18
       : entity.entity_type === 'npc'
-        ? 0.55
+        ? 0.16
         : entity.entity_type === 'loot'
-          ? 0.48
+          ? 0.14
           : 0.5;
   return base * Math.max(0.86, worldScale);
 }

@@ -151,6 +151,9 @@ canary, and the scanner no-signal canary.
 Focused canaries and repair proof also verified standalone:
 
 ```text
+2026-06-28: npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server passed after wiring curated generated-entity PNGs for player, hostile NPC, and loot cache; screenshots below were refreshed.
+2026-06-28: scripts/ci_playtest_artifact_gate.sh passed with curated runtime-safe PNG names and source entity asset guard still green.
+2026-06-28: npm --cache /tmp/gameproject-npm-cache --prefix client run check passed with 34 Vitest files / 371 tests.
 2026-06-24: PHASE10_BUILT_CLIENT=1 node client/tests/e2e/phase10-enemy-aggro-flow.mjs passed.
 2026-06-24: go test ./internal/game/server -run 'TestShieldRepairTick|TestCombatUseSkillRefreshesShieldRepairCombatLock|TestRealtimeOperationRegistry' -count=1 passed.
 2026-06-24: npm --cache /tmp/gameproject-npm-cache --prefix client run check passed after adding repair.shield_tick.
@@ -174,6 +177,8 @@ The playtest asset screenshot proof writes:
 
 ```text
 output/screenshots/ui-implementation/playtest/asset-sprites-desktop.png
+output/screenshots/ui-implementation/playtest/origin-npc-sprites-desktop.png
+output/screenshots/ui-implementation/playtest/origin-loot-sprites-desktop.png
 ```
 
 The renderer currently loads the first world asset set from:
@@ -181,6 +186,19 @@ The renderer currently loads the first world asset set from:
 ```text
 client/src/assets/world/
 ```
+
+The first curated generated-entity runtime set is:
+
+```text
+client/src/assets/world/entities/ship_player_iso_east.png
+client/src/assets/world/entities/npc_hostile_iso_east.png
+client/src/assets/world/entities/loot_cache_iso_east.png
+```
+
+Those files are copied from frame `10` (`east`) of the source manifests
+`Nebula_Vanguard_2`, `Nebula_War_Crab`, and `Nebula_Hypercube`. The runtime
+catalog is `client/src/render/world-entity-asset-catalog.ts`; source manifest
+names stay documented here instead of being required by gameplay state.
 
 The larger generated entity source set remains outside the deployed bundle:
 

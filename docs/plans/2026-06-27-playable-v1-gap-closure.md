@@ -459,17 +459,23 @@ Direction convention from the generated isometric assets:
 
 Tasks:
 
-- [ ] Add a small generated/curated metadata catalog that lists asset id, kind, display name, source manifest, and frame direction mapping.
-- [ ] Do not import the whole `client/src/assets/entities/` source pool into the deploy bundle.
-- [ ] Pick a small first visual set:
+- [x] Add a small generated/curated metadata catalog that lists asset id, kind, display name, and frame direction mapping.
+- [x] Do not import the whole `client/src/assets/entities/` source pool into the deploy bundle.
+- [x] Pick a small first visual set:
   - one player ship
   - one hostile NPC ship
   - one lootbox/lootable
-- [ ] Optimize/copy only selected runtime-safe frames into a deploy-safe asset folder, likely under `client/src/assets/world/entities/`.
-- [ ] Wire `world-renderer-assets.ts` to use the curated runtime-safe assets for player, NPC, and loot sprites.
-- [ ] Add a renderer test proving selected entity sprite asset keys resolve from the catalog.
-- [ ] Keep `client/tests/bundle-scan.mjs` green by allowing only the curated runtime-safe output names, not source asset tokens like `spin_512`.
-- [ ] Update screenshots and playtest proof so the current game visibly uses the selected ship/lootbox assets.
+- [x] Optimize/copy only selected runtime-safe frames into a deploy-safe asset folder, likely under `client/src/assets/world/entities/`.
+- [x] Wire `world-renderer-assets.ts` to use the curated runtime-safe assets for player, NPC, and loot sprites.
+- [x] Add a renderer test proving selected entity sprite asset keys resolve from the catalog.
+- [x] Keep `client/tests/bundle-scan.mjs` green by allowing only the curated runtime-safe output names, not source asset tokens like `spin_512`.
+- [x] Update screenshots and playtest proof so the current game visibly uses the selected ship/lootbox assets.
+
+First curated set:
+
+- player ship: `client/src/assets/entities/Nebula_Vanguard_2/manifest.json`, frame `10` (`east`) copied as `client/src/assets/world/entities/ship_player_iso_east.png`
+- hostile NPC: `client/src/assets/entities/Nebula_War_Crab/manifest.json`, frame `10` (`east`) copied as `client/src/assets/world/entities/npc_hostile_iso_east.png`
+- lootable: `client/src/assets/entities/Nebula_Hypercube/manifest.json`, frame `10` (`east`) copied as `client/src/assets/world/entities/loot_cache_iso_east.png`
 
 Verification:
 

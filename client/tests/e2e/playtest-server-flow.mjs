@@ -120,7 +120,7 @@ async function main() {
     assertRouteSeedIDOpaque(destinationID, 'playtest destination');
 
     await openCommandSocket(client);
-    const afterLoot = await completeFightLootLoop(client);
+    const afterLoot = await completeFightLootLoop(client, { assetProofPrefix: 'origin' });
     await assertNoLeak(client, afterLoot, 'playtest combat loot');
 
     await resetWebSocketFrames(client);
@@ -501,17 +501,21 @@ async function completeFightLootLoop(client, options = {}) {
   const mapKey = options.mapKey ?? '1-1';
   const approachTarget = options.approachTarget ?? starterNpcApproachTarget;
   const label = options.label ?? 'playtest';
+  const assetProofPrefix = options.assetProofPrefix ?? '';
   if (!findHostileNPC(await smoke(client))) {
     await moveToPosition(client, approachTarget, 260, `${label} hostile radar approach`, 30000);
   }
   const withNPC = await waitSmoke(client, (state) => state.currentMap?.public_map_key === mapKey && findHostileNPC(state), `${label} visible NPC`, 15000);
   assert(hasRenderedEntityAsset(withNPC, 'npc.swarm.hostile'), `${label} hostile NPC sprite asset missing`);
+  if (assetProofPrefix) await captureAssetSpriteProof(client, `${assetProofPrefix}-npc-sprites-desktop`);
   const npc = findHostileNPC(withNPC);
   const killedNPCID = npc.entity_id;
   await moveToPosition(client, npc.position, Math.max(80, Math.min(220, (withNPC.stats?.weapon_range ?? 260) - 40)), `combat target ${killedNPCID}`, 30000);
   const combatPayload = await fightNPCUntilKilled(client, killedNPCID);
   const expectedDrop = responseDrop(combatPayload, `${label} combat response`);
   const withDrop = await waitForKnownDrop(client, mapKey, expectedDrop, `${label} server-created loot drop`, 15000);
+  assert(hasRenderedEntityAsset(withDrop, 'loot.cache'), `${label} loot cache sprite asset missing`);
+  if (assetProofPrefix) await captureAssetSpriteProof(client, `${assetProofPrefix}-loot-sprites-desktop`);
   const drop = findKnownDrop(withDrop, expectedDrop);
   assertDropMatches(drop, expectedDrop, `${label} loot drop`);
   assertNoPayloadLeak({ drop }, `${label} smoke loot drop`);

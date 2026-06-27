@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { CURATED_ENTITY_ASSETS, ENTITY_ASSET_DIRECTION_LABELS } from './world-entity-asset-catalog';
 import {
   isUnknownSignalAsset,
   WORLD_RENDER_ASSETS,
@@ -31,6 +32,23 @@ describe('world renderer asset registry', () => {
     expect(roles.has('portal gate')).toBe(true);
     expect(roles.has('safe zone')).toBe(true);
     expect(roles.has('radar warning zone')).toBe(true);
+  });
+
+  test('uses the curated runtime-safe PNG catalog for player, hostile NPC, and loot sprites', () => {
+    expect(ENTITY_ASSET_DIRECTION_LABELS['10']).toBe('east');
+    expect(Object.values(CURATED_ENTITY_ASSETS).map((asset) => asset.key)).toEqual([
+      'player.ship.vanguard',
+      'npc.hostile.crab',
+      'loot.cache.cube',
+    ]);
+
+    expect(WORLD_RENDER_ASSETS['ship.player.self'].assetURL).toContain('ship_player_iso_east');
+    expect(WORLD_RENDER_ASSETS['npc.swarm.hostile'].assetURL).toContain('npc_hostile_iso_east');
+    expect(WORLD_RENDER_ASSETS['loot.cache'].assetURL).toContain('loot_cache_iso_east');
+    expect(WORLD_RENDER_ASSETS['ship.player.self'].assetURL).toMatch(/\.png(\?|$)/);
+    expect(WORLD_RENDER_ASSETS['npc.swarm.hostile'].assetURL).toMatch(/\.png(\?|$)/);
+    expect(WORLD_RENDER_ASSETS['loot.cache'].assetURL).toMatch(/\.png(\?|$)/);
+    expect(JSON.stringify(CURATED_ENTITY_ASSETS)).not.toMatch(/spin_512|Nebula_Vanguard|Nebula_War_Crab|Nebula_Hypercube/);
   });
 
   test('maps server-visible entities to stable render assets', () => {
