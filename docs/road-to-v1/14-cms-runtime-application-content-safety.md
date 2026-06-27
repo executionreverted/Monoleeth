@@ -34,29 +34,32 @@ and block publishes that would break active references.
 
 ## Implementation Notes
 - Content classification (`content.PlanRuntimeApply`) is a pure domain rule in the
-  content package. Projection-input types (item, module, shop_product) are
-  safe-live-reload; every boot-wired type (ship, npc, loot, recipe, production,
-  quest, spawn) is restart-required. A single restart-required change forces the
+  content package. It is conservative now: changed gameplay content types are
+  `restart_required` until runtime apply can atomically swap every boot-wired
+  read model touched by that type. A single restart-required change forces the
   whole publish to report `pending_restart`.
 - `PublishDraftResult.RuntimeApplyPlan` carries the plan so the handler layer can
   decide whether to reflect the publish into the live runtime.
 - `Runtime.applyPublishedContent` reloads published content via the same loader
   used at boot and atomically swaps the player catalog projection under
-  `Runtime.mu`. Restart-required changes never touch the projection — the runtime
-  keeps the boot version and reports the drift honestly.
+  `Runtime.mu` only for explicitly safe plans. Restart-required changes never
+  touch the projection — the runtime keeps the boot version and reports the drift
+  honestly.
 - `admin.ActiveEquippedModuleReader` (+ `EquippedModuleReference`) broadens
   `validatePublishSafety` (HI-08) to block a publish whose changed module id is
   live in a player loadout. The runtime adapts its loadout store into this
   reader. Craft and production checks are unchanged. Market/loot/npc/route/shop
   readers follow the same seam; module-equipped is the smoke-tested check.
+- Rollback now uses the same `validatePublishSafety` gate as publish.
 - The projection is presentational; server-authoritative combat/economy truth
-  stays boot-wired until restart, so a safe-reload never silently drifts gameplay
-  truth.
+  stays boot-wired until restart. Item/module/shop changes therefore report
+  `pending_restart` until those read models can hot-swap together.
 
 ## Smoke Tests (one assertion each)
-- [x] Publishing a safe-reload field (e.g. display name) is reflected by `content.catalog` without restart.
-- [x] Publishing a restart-required field returns `runtime_applied=false` with `pending_restart`.
+- [x] Explicit safe-reload apply path reflects `content.catalog` without restart.
+- [x] Publishing a changed boot-wired field returns `runtime_applied=false` with `pending_restart`.
 - [x] Publish is blocked/flagged when a changed module id is actively equipped.
+- [x] Rollback is blocked by the same active-reference safety check.
 - [x] Publish response always reports published vs runtime version honestly.
 
 ## Done Criteria

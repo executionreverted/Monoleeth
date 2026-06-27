@@ -22,6 +22,8 @@ clan foundation, all with moderation and rate limits from day one.
 - Clan outposts/territory war (post-v1), alliances (post-v1).
 
 ## Tasks
+- [x] Domain package foundation: `internal/game/social/` chat, party, clan,
+  channel membership, rate-limit/moderation seams, in-memory stores, unit tests.
 - [ ] `[P:wave4/lane-A]` Add `chat.send` + channel resolution server-side; enforce `chat.send` rate limit.
 - [ ] `[P:wave4/lane-A]` Add chat moderation hooks + redaction/logging policy (no PII leaks).
 - [ ] `[P:wave4/lane-B]` Add `party.invite/accept/leave` with server-owned membership.
@@ -32,6 +34,8 @@ clan foundation, all with moderation and rate limits from day one.
 
 ## Server Ownership
 - Channel membership, party/clan membership, ranks are server-owned; client sends intent only.
+- Current implementation is domain-only. Realtime command handlers, client UI,
+  and durable clan rows are pending.
 
 ## Smoke Tests (one assertion each)
 - [x] Local-map chat reaches same-map members and not others.
