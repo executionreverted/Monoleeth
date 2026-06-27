@@ -93,6 +93,16 @@ func TestConfigFromEnvClientStaticDir(t *testing.T) {
 	}
 }
 
+func TestConfigFromEnvMetricsToken(t *testing.T) {
+	t.Setenv(EnvMetricsToken, " scrape-secret ")
+
+	config := ConfigFromEnv()
+
+	if config.MetricsToken != "scrape-secret" {
+		t.Fatalf("MetricsToken = %q, want trimmed scrape-secret", config.MetricsToken)
+	}
+}
+
 func TestConfigFromEnvPlaytestSeedOptIn(t *testing.T) {
 	t.Setenv(EnvPlaytestSeed, "true")
 
@@ -222,6 +232,18 @@ func TestNewProductionRejectsContentDBDevFallbackBeforeRuntime(t *testing.T) {
 	}
 }
 
+func TestNewProductionRejectsMissingMetricsTokenBeforeRuntime(t *testing.T) {
+	_, err := New(productionGuardTestConfig(func(config *Config) {
+		config.MetricsToken = ""
+	}))
+	if err == nil {
+		t.Fatal("New() error = nil, want production metrics-token guard")
+	}
+	if !strings.Contains(err.Error(), EnvMetricsToken) {
+		t.Fatalf("New() error = %q, want metrics-token guard", err)
+	}
+}
+
 func TestNewRuntimeRejectsRequiredCoreStoreWithoutURL(t *testing.T) {
 	_, err := NewRuntime(RuntimeConfig{
 		SessionTTL:        time.Hour,
@@ -240,6 +262,7 @@ func productionGuardTestConfig(mutate func(*Config)) Config {
 	config := Config{
 		GameEnv:       GameEnvProduction,
 		CookieSecure:  true,
+		MetricsToken:  "test-metrics-token",
 		ContentDB:     productionGuardContentDBConfig(),
 		CoreStoreMode: contentdb.ContentModeRequired,
 	}

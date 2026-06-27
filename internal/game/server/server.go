@@ -88,6 +88,7 @@ func New(config Config) (*Server, error) {
 	authHandler.RegisterRoutes(mux)
 	mux.HandleFunc("/ws", gameServer.serveWebSocket)
 	mux.HandleFunc("/healthz", gameServer.serveHealth)
+	mux.HandleFunc("/metrics", gameServer.serveMetrics)
 	if config.ClientStaticDir != "" {
 		staticHandler, err := newClientStaticHandler(config.ClientStaticDir)
 		if err != nil {

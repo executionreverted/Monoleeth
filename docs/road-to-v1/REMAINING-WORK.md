@@ -20,13 +20,13 @@
 | 10 | Social MVP | 4 | ✅ Done | 100% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | ⬜ Not started | 0% |
 | 12 | DarkOrbit Flavor | 6 | ⬜ Not started | 0% |
-| 13 | Observability, Simulation & Release Gate | 4 | ⬜ Not started | 0% |
+| 13 | Observability, Simulation & Release Gate | 4 | 🟡 In progress | 20% |
 | 14 | CMS Runtime Application & Content Safety | 3 | ✅ Done | 100% |
 | 15 | World Performance & AOI/Aggro Optimization | 4 | 🟡 In progress | 70% |
 | 16 | Production Config & Operational Hardening | 2 | ✅ Done | 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | ⬜ Not started | 0% |
 
-**Genel v1:** ~72%
+**Genel v1:** ~73%
 
 ---
 
@@ -193,8 +193,14 @@ alliances) remain post-v1/out of scope.
 
 ---
 
-### ⬜ P13 — Observability, Simulation & Release Gate (Wave 4, 0%)
+### 🟡 P13 — Observability, Simulation & Release Gate (Wave 4, 20%)
 
+- [x] Prometheus-compatible metrics export endpoint. `GET /metrics` renders
+  counters/gauges/duration summaries from the runtime `MetricRecorder`, exposes
+  the command-count smoke, normalizes metric/label identifiers for Prometheus
+  text exposition, and requires `GAME_METRICS_TOKEN` + bearer auth in
+  production/configured deployments.
+- [ ] OTel traces for command/tick paths.
 - [ ] §14 simulation/race test coverage.
 - [ ] §13 load/scalability evidence.
 - [ ] Release gate yeşil (tüm module/check pair'ler).
@@ -280,7 +286,7 @@ P07 + P11 dependency. Drones, P.E.T., ammo, honor (en az MVP).
 Wave 1: P01 ✅ | P03 ✅ | P04 ✅
 Wave 2: P02 ✅ | P05 🟡(90%, P17'ye ertelendi) | P06 ✅ | P16 ✅
 Wave 3: P07 ✅ | P08 🟡 | P09 ✅ | P14 ✅
-Wave 4: P10 ✅ | P13 ⬜ | P15 🟡
+Wave 4: P10 ✅ | P13 🟡 | P15 🟡
 Wave 5: P11 ⬜
 Wave 6: P12 ⬜ | P17 ⬜(continuous)
 ```
@@ -299,7 +305,7 @@ Wave 6: P12 ⬜ | P17 ⬜(continuous)
    follow-up before "all offline loadouts protected" claim.
 4. **P07/P02 shop transaction gap:** non-starter ship shop buy path still needs
    single transaction boundary for wallet debit + hangar grant + idempotency.
-5. **P09/P13 release gate gap:** balance telemetry helper exists; release-gate
-   integration still belongs to P13.
+5. **P13 release gate gap:** Prometheus metrics endpoint evidence exists;
+   OTel/simulation/load/race evidence and final green release gate remain.
 6. **Mevcut blocker yok:** P13 release/load gate çalışmaya hazır; P15 final
    scaling kanıtı P13 load evidence içinde kapanmalı.

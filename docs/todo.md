@@ -7,6 +7,14 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [x] P13: expose runtime metrics through a Prometheus-compatible endpoint.
+  `GET /metrics` now renders `MetricRecorder` counters/gauges/duration
+  summaries, proves one realtime command count in a focused server smoke,
+  normalizes metric/label identifiers for Prometheus text exposition, and
+  requires `GAME_METRICS_TOKEN` + bearer auth in production/configured
+  deployments. OTel traces, deterministic sim/load/race evidence, and the final
+  release gate remain open in
+  `docs/road-to-v1/13-observability-simulation-release.md`.
 - [x] P15: share one per-map AOI worker snapshot across session diffs and add
   public entity versions. Runtime AOI ticks now build per-session visibility
   from the shared worker copy, unchanged entity versions skip update events,

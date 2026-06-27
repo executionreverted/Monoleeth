@@ -24,14 +24,21 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
   `pending_restart`).
 - Wave 4: P10 Done (chat/party/clan runtime, durable clan rows/read models,
   party shared-target realtime, real client panels, moderation redaction/logging,
-  and contribution read models done), P15 70% (worker aggro target acquisition
+  and contribution read models done), P13 20% (Prometheus-compatible `/metrics`
+  endpoint exports runtime metric snapshots with production bearer-token guard;
+  OTel/sim/load/race evidence remains), P15 70% (worker aggro target acquisition
   uses a player-only spatial index; AOI tick path reuses one per-map worker
   snapshot, versions public entity payloads, skips unchanged diffs, and emits
-  tick sub-phase metrics), P13 not started.
+  tick sub-phase metrics).
 - Wave 5-6: P11/P12/P17 not started.
-- Genel v1: ~72%.
+- Genel v1: ~73%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P13 lane-D metrics export slice — server now exposes Prometheus-compatible
+  `GET /metrics` from the runtime `MetricRecorder`, production startup requires
+  `GAME_METRICS_TOKEN`, configured scrapes require bearer auth, metric/label
+  identifiers are normalized for text exposition, and release-gate metrics
+  evidence references the endpoint smoke.
 - P15 lane-G AOI diff slice — runtime tick now collects one worker snapshot per
   map and builds per-session AOI from that copy, public AOI payloads carry stable
   entity versions so unchanged entities do not produce update events, hidden

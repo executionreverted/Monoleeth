@@ -23,6 +23,7 @@ const (
 	EnvAllowMissingOrigin  = "GAME_ALLOW_MISSING_ORIGIN"
 	EnvCookieSecure        = "GAME_COOKIE_SECURE"
 	EnvClientStaticDir     = "GAME_CLIENT_STATIC_DIR"
+	EnvMetricsToken        = "GAME_METRICS_TOKEN"
 	EnvPlaytestSeed        = "GAME_PLAYTEST_SEED"
 	EnvDevMode             = "GAME_DEV_MODE"
 	EnvCoreStoreMode       = "GAME_CORE_STORE_MODE"
@@ -51,6 +52,7 @@ type Config struct {
 	AllowMissingOrigin  bool
 	CookieSecure        bool
 	ClientStaticDir     string
+	MetricsToken        string
 	PlaytestSeed        bool
 	DevMode             bool
 	E2EPlanetClaimSeed  bool
@@ -108,6 +110,7 @@ func ConfigFromEnv() Config {
 	config.AllowMissingOrigin = envBool(EnvAllowMissingOrigin, config.AllowMissingOrigin)
 	config.CookieSecure = envBool(EnvCookieSecure, config.CookieSecure)
 	config.ClientStaticDir = strings.TrimSpace(os.Getenv(EnvClientStaticDir))
+	config.MetricsToken = strings.TrimSpace(os.Getenv(EnvMetricsToken))
 	config.PlaytestSeed = envBool(EnvPlaytestSeed, config.PlaytestSeed)
 	config.DevMode = envBool(EnvDevMode, config.DevMode)
 	if config.GameEnv == GameEnvDev {
@@ -224,6 +227,9 @@ func (config Config) validateStartup() error {
 	}
 	if config.CoreStoreMode != contentdb.ContentModeRequired {
 		return fmt.Errorf("%s=%s requires %s=%s for durable core stores", EnvGameEnv, GameEnvProduction, EnvCoreStoreMode, contentdb.ContentModeRequired)
+	}
+	if config.MetricsToken == "" {
+		return fmt.Errorf("%s=%s requires %s for metrics scrape auth", EnvGameEnv, GameEnvProduction, EnvMetricsToken)
 	}
 	return nil
 }

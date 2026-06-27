@@ -1,7 +1,7 @@
 # Phase 13 — Observability, Simulation & Release Gate
 
 ## Status
-- State: Not started
+- State: In progress (20%)
 - Wave: 4 (runs alongside others), finalizes at v1
 - Depends on: P02, P05 (and consumes signals from all phases)
 - Unlocks: v1 sign-off
@@ -25,6 +25,11 @@ must be green before v1, covering the critical multiplayer/economy paths.
 
 ## Tasks
 - [ ] `[P:wave4/lane-D]` Export metrics via Prometheus endpoint + OTel traces for command/tick paths.
+  - [x] Prometheus-compatible `GET /metrics` endpoint exports runtime
+    `MetricRecorder` counters/gauges/duration summaries. Production startup now
+    requires `GAME_METRICS_TOKEN`, and configured endpoints require
+    `Authorization: Bearer <token>`.
+  - [ ] OTel traces for command/tick paths remain open.
 - [ ] `[P:wave4/lane-D]` Add deterministic simulation tests (extend `observability/simulations`) per critical loop.
 - [ ] `[P:wave4/lane-E]` Add a concurrent-session load harness asserting tick stability under N sessions.
 - [ ] `[P:wave4/lane-E]` Add `-race` integration test across command + tick + economy mutation.
@@ -34,14 +39,15 @@ must be green before v1, covering the critical multiplayer/economy paths.
 - Observability must stay separate from Symphony orchestration (AGENTS.md).
 
 ## Smoke Tests (one assertion each)
-- [ ] Metrics endpoint exposes command count for one op.
+- [x] Metrics endpoint exposes command count for one op.
 - [ ] Combat/loot simulation is deterministic across two runs.
 - [ ] Economy simulation reports balanced source/sink for one scenario.
 - [ ] Load harness keeps tick within budget for N sessions.
 - [ ] Release gate fails when a required evidence item is missing.
 
 ## Done Criteria
-- [ ] External metrics/traces available.
+- [ ] External metrics/traces available. Prometheus metrics are available; OTel
+  traces remain open.
 - [ ] Simulation + load + race evidence feed a green release gate.
 
 ## Verification
