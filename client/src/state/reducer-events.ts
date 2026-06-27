@@ -1,5 +1,5 @@
 import { CLIENT_EVENTS, EventEnvelope, JsonObject, OPERATIONS, rejectForbiddenPayloadKeys } from '../protocol/envelope';
-import type { ClientState, MapTransferState, SocialClanMembership, SocialChatMessage, SocialPartyInvite, SocialPartyMember, SocialPartySharedTarget, SocialPartyState } from './types';
+import type { ClientState, MapTransferState, SocialClanMembership, SocialChatMessage, SocialContributionSnapshot, SocialPartyInvite, SocialPartyMember, SocialPartySharedTarget, SocialPartyState } from './types';
 import { appendLog, isJsonObject, numberField, objectField, stringField } from './reducer-helpers';
 import {
   applyPlanetDetail,
@@ -205,6 +205,17 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
       return {
         ...withoutPendingOperations(state, [OPERATIONS.partyTargetSet]),
         social: { ...state.social, party: party ?? state.social.party },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.partyContributionUpdated:
+    case CLIENT_EVENTS.clanContributionUpdated: {
+      const contribution = parseSocialContribution(envelope.payload);
+      return {
+        ...state,
+        social: contribution ? applySocialContribution(state.social, contribution) : state.social,
         lastServerTime: envelope.server_time,
         lastSequence: Math.max(state.lastSequence, envelope.seq),
       };
@@ -1040,8 +1051,10 @@ function socialEventAllowedKeys(type: string): ReadonlySet<string> | undefined {
     case CLIENT_EVENTS.partyUpdated:
     case CLIENT_EVENTS.partyLeft:
     case CLIENT_EVENTS.partyTargetUpdated:
+    case CLIENT_EVENTS.partyContributionUpdated:
     case CLIENT_EVENTS.clanUpdated:
     case CLIENT_EVENTS.clanLeft:
+    case CLIENT_EVENTS.clanContributionUpdated:
       return socialServerFieldAllowlist;
     default:
       return undefined;
@@ -1124,6 +1137,38 @@ function applyClanPayload(social: ClientState['social'], payload: JsonObject): C
     ? rawMembers.filter(isJsonObject).map(parseSocialClanMembership).filter((member): member is SocialClanMembership => member !== null)
     : social.clanMembers;
   return { ...social, clan, clanMembership: membership, clanMembers: members };
+}
+
+function applySocialContribution(social: ClientState['social'], contribution: SocialContributionSnapshot): ClientState['social'] {
+  const key = socialContributionKey(contribution);
+  const next = social.contributions.filter((existing) => socialContributionKey(existing) !== key);
+  next.push(contribution);
+  return { ...social, contributions: next.slice(-20) };
+}
+
+function socialContributionKey(contribution: SocialContributionSnapshot): string {
+  return `${contribution.scopeKind}:${contribution.scopeID}:${contribution.sourceKind}:${contribution.sourceID}`;
+}
+
+function parseSocialContribution(payload: JsonObject): SocialContributionSnapshot | null {
+  const scopeKind = stringField(payload, 'scope_kind');
+  const scopeID = stringField(payload, 'scope_id');
+  const sourceKind = stringField(payload, 'source_kind');
+  const sourceID = stringField(payload, 'source_id');
+  const targetID = stringField(payload, 'target_id');
+  const updatedAt = stringField(payload, 'updated_at');
+  if (!scopeKind || !scopeID || !sourceKind || !sourceID || !targetID || !updatedAt || !Array.isArray(payload.members)) {
+    return null;
+  }
+  const members = payload.members
+    .filter(isJsonObject)
+    .map((member) => {
+      const playerID = stringField(member, 'player_id');
+      const amount = numberField(member, 'amount');
+      return playerID && typeof amount === 'number' ? { playerID, amount } : null;
+    })
+    .filter((member): member is { playerID: string; amount: number } => member !== null);
+  return { scopeKind, scopeID, sourceKind, sourceID, targetID, members, updatedAt };
 }
 
 function parseSocialClan(payload: JsonObject) {

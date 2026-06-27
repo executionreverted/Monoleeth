@@ -3,10 +3,13 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"gameproject/internal/game/auth"
+	"gameproject/internal/game/combat"
 	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/social"
@@ -254,6 +257,105 @@ func TestChatSendModerationRejectsWithoutQueuedMutation(t *testing.T) {
 	}
 }
 
+func TestChatSendDefaultModerationRedactsPIIWithoutLogLeak(t *testing.T) {
+	gameServer, _ := newTestServer(t, true)
+	sender := createResolvedRuntimeSession(t, gameServer, "chat-pii@example.com", "Chat PII")
+
+	response := handleSocialRequestForTest(t, gameServer, sender, realtime.OperationChatSend, `{"kind":"local_map","content":"contact pilot@example.com token=secret123"}`)
+	if response.HasError {
+		t.Fatalf("chat.send pii response = %+v, want success", response.Error)
+	}
+	var payload chatSendResponse
+	decodeSocialResponseForTest(t, response, &payload)
+	if payload.Message.Content == "contact pilot@example.com token=secret123" {
+		t.Fatalf("chat content = %q, want redacted", payload.Message.Content)
+	}
+	entries := gameServer.runtime.SocialModerationLog.Snapshot()
+	if len(entries) != 1 || entries[0].Action != social.ChatModerationActionRedacted {
+		t.Fatalf("moderation log = %+v, want one redacted entry", entries)
+	}
+	rawLog := fmt.Sprintf("%+v", entries[0])
+	if containsAny(rawLog, "pilot@example.com", "secret123") {
+		t.Fatalf("moderation log leaked raw PII: %+v", entries[0])
+	}
+}
+
+func TestSocialContributionSnapshotsQueuePartyAndClanReadModels(t *testing.T) {
+	gameServer, _ := newTestServer(t, true)
+	leader := createResolvedRuntimeSession(t, gameServer, "contrib-leader@example.com", "Contrib Leader")
+	member := createResolvedRuntimeSession(t, gameServer, "contrib-member@example.com", "Contrib Member")
+	observer := createResolvedRuntimeSession(t, gameServer, "contrib-observer@example.com", "Contrib Observer")
+
+	party, err := gameServer.runtime.SocialParty.CreateParty(leader.PlayerID)
+	if err != nil {
+		t.Fatalf("CreateParty() error = %v", err)
+	}
+	invite, err := gameServer.runtime.SocialParty.InvitePlayer(leader.PlayerID, member.PlayerID)
+	if err != nil {
+		t.Fatalf("InvitePlayer() error = %v", err)
+	}
+	if _, err := gameServer.runtime.SocialParty.AcceptInvite(invite.InviteID, member.PlayerID); err != nil {
+		t.Fatalf("AcceptInvite() error = %v", err)
+	}
+	observerInvite, err := gameServer.runtime.SocialParty.InvitePlayer(leader.PlayerID, observer.PlayerID)
+	if err != nil {
+		t.Fatalf("InvitePlayer(observer) error = %v", err)
+	}
+	if _, err := gameServer.runtime.SocialParty.AcceptInvite(observerInvite.InviteID, observer.PlayerID); err != nil {
+		t.Fatalf("AcceptInvite(observer) error = %v", err)
+	}
+	clan, err := gameServer.runtime.SocialClan.CreateClan(social.CreateClanInput{OwnerID: leader.PlayerID, Name: "Contrib Clan", Tag: "CTB"})
+	if err != nil {
+		t.Fatalf("CreateClan() error = %v", err)
+	}
+	if _, err := gameServer.runtime.SocialClan.JoinClan(clan.ClanID, member.PlayerID); err != nil {
+		t.Fatalf("JoinClan() error = %v", err)
+	}
+	if _, err := gameServer.runtime.SocialClan.JoinClan(clan.ClanID, observer.PlayerID); err != nil {
+		t.Fatalf("JoinClan(observer) error = %v", err)
+	}
+
+	snapshots, err := gameServer.runtime.recordSocialNPCKillContributionsLocked(combat.NPCKilledEvent{
+		NPCEntityID: world.EntityID("npc-social-contrib"),
+		NPCType:     "training_drone",
+		KilledAt:    time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC),
+	}, map[foundation.PlayerID]float64{
+		leader.PlayerID: 7,
+		member.PlayerID: 3,
+	})
+	if err != nil {
+		t.Fatalf("recordSocialNPCKillContributionsLocked() error = %v", err)
+	}
+	gameServer.runtime.mu.Lock()
+	gameServer.runtime.queueSocialContributionSnapshotsLocked(snapshots)
+	gameServer.runtime.mu.Unlock()
+
+	events, err := gameServer.runtime.postCommandEventsBySession(leader.SessionID, realtime.OperationCombatUseSkill, leader.PlayerID)
+	if err != nil {
+		t.Fatalf("postCommandEventsBySession() error = %v", err)
+	}
+	if got := countEventTypeForTest(events[leader.SessionID], realtime.EventPartyContribution); got != 1 {
+		t.Fatalf("leader party contribution events = %d, want 1 (party %s)", got, party.PartyID)
+	}
+	if got := countEventTypeForTest(events[member.SessionID], realtime.EventClanContribution); got != 1 {
+		t.Fatalf("member clan contribution events = %d, want 1", got)
+	}
+	if got := countEventTypeForTest(events[observer.SessionID], realtime.EventPartyContribution); got != 1 {
+		t.Fatalf("observer party contribution events = %d, want 1", got)
+	}
+	var snapshot social.ContributionSnapshot
+	decodeSocialEventForTest(t, events[leader.SessionID], realtime.EventPartyContribution, &snapshot)
+	if containsAny(snapshot.SourceID, "npc-social-contrib") || containsAny(snapshot.TargetID, "npc-social-contrib") {
+		t.Fatalf("contribution snapshot leaked npc entity id: %+v", snapshot)
+	}
+	if contributionAmountForTest(snapshot, member.PlayerID) != 3 {
+		t.Fatalf("party contribution snapshot = %+v, want member amount 3", snapshot)
+	}
+	if contributionAmountForTest(snapshot, observer.PlayerID) != 0 {
+		t.Fatalf("party contribution snapshot = %+v, want observer absent from contribution totals", snapshot)
+	}
+}
+
 func handleSocialRequestForTest(t *testing.T, gameServer *Server, resolved auth.ResolvedSession, op realtime.Operation, payload string) realtime.CachedResponse {
 	t.Helper()
 	return handleRuntimeSocialRequestForTest(t, gameServer.runtime, resolved, op, payload)
@@ -332,6 +434,24 @@ func countEventTypeForTest(events []realtime.EventEnvelope, eventType realtime.C
 		}
 	}
 	return count
+}
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func contributionAmountForTest(snapshot social.ContributionSnapshot, playerID foundation.PlayerID) float64 {
+	for _, member := range snapshot.Members {
+		if member.PlayerID == playerID {
+			return member.Amount
+		}
+	}
+	return 0
 }
 
 type rejectingSocialModeration struct{}

@@ -15,6 +15,7 @@ import (
 	"gameproject/internal/game/quests"
 	"gameproject/internal/game/realtime"
 	"gameproject/internal/game/ships"
+	"gameproject/internal/game/social"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 	"gameproject/internal/game/world/worker"
@@ -142,6 +143,7 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 	}
 	var progressionSnapshot *progressionSnapshotPayload
 	var questUpdates []quests.PlayerQuest
+	var socialContributionSnapshots []social.ContributionSnapshot
 	if result.KillEvent != nil {
 		instance, _, err := runtime.activeMapInstanceLocked(ctx.PlayerID)
 		if err != nil {
@@ -187,6 +189,11 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 				return nil, domainErrorForRuntime(err)
 			}
 		}
+		snapshots, err := runtime.recordSocialNPCKillContributionsLocked(*result.KillEvent, result.Target.Contributions)
+		if err != nil {
+			return nil, domainErrorForRuntime(err)
+		}
+		socialContributionSnapshots = snapshots
 	}
 
 	state, ok := runtime.applyCombatActorToPlayerShipLocked(ctx.PlayerID, result.Attacker)
@@ -247,6 +254,7 @@ func (runtime *Runtime) handleCombatUseSkill(ctx realtime.CommandContext, reques
 		if progressionSnapshot != nil {
 			runtime.queueEventLocked(sessionID, realtime.EventProgressionSnapshot, *progressionSnapshot)
 		}
+		runtime.queueSocialContributionSnapshotsLocked(socialContributionSnapshots)
 		for _, drop := range drops {
 			runtime.queueEventLocked(sessionID, realtime.EventLootCreated, lootDropPayload(drop, runtime.clock.Now()))
 		}

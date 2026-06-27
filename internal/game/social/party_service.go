@@ -255,6 +255,18 @@ func (svc *PartyService) GetParty(playerID foundation.PlayerID) (Party, bool) {
 	return *svc.cloneParty(party), true
 }
 
+// Party returns one party by id for server-owned read-model fanout.
+func (svc *PartyService) Party(partyID PartyID) (Party, bool) {
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+
+	party, ok := svc.parties[partyID]
+	if !ok {
+		return Party{}, false
+	}
+	return *svc.cloneParty(party), true
+}
+
 func (svc *PartyService) cloneParty(p *Party) *Party {
 	c := &Party{
 		PartyID:   p.PartyID,

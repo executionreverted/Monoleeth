@@ -1096,6 +1096,21 @@ export interface SocialClanMembership {
   joinedAt: string;
 }
 
+export interface SocialContributionMember {
+  playerID: string;
+  amount: number;
+}
+
+export interface SocialContributionSnapshot {
+  scopeKind: 'party' | 'clan' | string;
+  scopeID: string;
+  sourceKind: string;
+  sourceID: string;
+  targetID: string;
+  members: SocialContributionMember[];
+  updatedAt: string;
+}
+
 export interface SocialState {
   chatMessages: SocialChatMessage[];
   party: SocialPartyState | null;
@@ -1103,6 +1118,7 @@ export interface SocialState {
   clan: SocialClan | null;
   clanMembership: SocialClanMembership | null;
   clanMembers: SocialClanMembership[];
+  contributions: SocialContributionSnapshot[];
 }
 
 export interface ClientState {

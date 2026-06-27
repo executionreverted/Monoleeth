@@ -172,6 +172,8 @@ type Runtime struct {
 	SocialParty                    *social.PartyService
 	SocialClan                     *social.ClanService
 	SocialMembership               *social.ChannelMembershipService
+	SocialContributions            *social.ContributionService
+	SocialModerationLog            *social.MemoryChatModerationLogger
 	Admin                          *admin.Service
 	ContentAdmin                   *admin.ContentService
 	Progression                    *progression.ProgressionService
@@ -1470,13 +1472,31 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		return nil, err
 	}
 	socialMembership := social.NewChannelMembershipService(socialParty, socialClan)
+	socialModerationLog := social.NewMemoryChatModerationLogger()
+	socialModeration := config.SocialModeration
+	if socialModeration == nil {
+		socialModeration = social.NewPIIChatModerationPolicy()
+	}
 	socialChat, err := social.NewChatService(social.ChatServiceConfig{
 		Store:       social.NewInMemoryChatStore(),
 		Names:       runtimeSocialNameResolver{runtime: runtime},
 		Membership:  socialMembership,
-		Moderation:  config.SocialModeration,
+		Moderation:  socialModeration,
+		ModLogger:   socialModerationLog,
 		RateLimiter: config.SocialChatLimiter,
 		Clock:       clock,
+	})
+	if err != nil {
+		if socialStoreCloser != nil {
+			_ = socialStoreCloser()
+		}
+		return nil, err
+	}
+	socialContributions, err := social.NewContributionService(social.ContributionServiceConfig{
+		Store:   social.NewInMemoryContributionStore(),
+		Parties: socialParty,
+		Clans:   socialClan,
+		Clock:   clock,
 	})
 	if err != nil {
 		if socialStoreCloser != nil {
@@ -1488,6 +1508,8 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	runtime.SocialClan = socialClan
 	runtime.SocialMembership = socialMembership
 	runtime.SocialChat = socialChat
+	runtime.SocialContributions = socialContributions
+	runtime.SocialModerationLog = socialModerationLog
 	runtime.socialStoreCloser = socialStoreCloser
 	scannerSeed, err := contentBundle.Scanner.WorldSeed()
 	if err != nil {

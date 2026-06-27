@@ -128,6 +128,7 @@ export function clearGameplay(state: ClientState): ClientState {
       clan: null,
       clanMembership: null,
       clanMembers: [],
+      contributions: [],
     },
     worldEffects: [],
     pendingCommands: {},

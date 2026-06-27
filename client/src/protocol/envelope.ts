@@ -162,8 +162,10 @@ export const CLIENT_EVENTS = {
   partyUpdated: 'party.updated',
   partyLeft: 'party.left',
   partyTargetUpdated: 'party.target_updated',
+  partyContributionUpdated: 'party.contribution_updated',
   clanUpdated: 'clan.updated',
   clanLeft: 'clan.left',
+  clanContributionUpdated: 'clan.contribution_updated',
   adminActionCompleted: 'admin.action_completed',
   observabilityMetricUpdated: 'observability.metric_updated',
   releaseGateUpdated: 'release_gate.updated',
@@ -392,8 +394,10 @@ function isSocialEvent(eventType: string): boolean {
     eventType === CLIENT_EVENTS.partyUpdated ||
     eventType === CLIENT_EVENTS.partyLeft ||
     eventType === CLIENT_EVENTS.partyTargetUpdated ||
+    eventType === CLIENT_EVENTS.partyContributionUpdated ||
     eventType === CLIENT_EVENTS.clanUpdated ||
-    eventType === CLIENT_EVENTS.clanLeft
+    eventType === CLIENT_EVENTS.clanLeft ||
+    eventType === CLIENT_EVENTS.clanContributionUpdated
   );
 }
 

@@ -212,6 +212,26 @@ describe('parseServerMessage', () => {
       }),
     );
     expect(socialEvent).toMatchObject({ type: CLIENT_EVENTS.partyUpdated });
+
+    const contributionEvent = parseServerMessage(
+      JSON.stringify({
+        event_id: 'social-2',
+        type: CLIENT_EVENTS.partyContributionUpdated,
+        payload: {
+          scope_kind: 'party',
+          scope_id: 'party-1',
+          source_kind: 'npc_kill',
+          source_id: 'npc-1',
+          target_id: 'npc-1',
+          members: [{ player_id: 'player-owner', amount: 7 }],
+          updated_at: '2026-06-27T10:00:01Z',
+        },
+        server_time: 182736128,
+        seq: 2,
+        v: 1,
+      }),
+    );
+    expect(contributionEvent).toMatchObject({ type: CLIENT_EVENTS.partyContributionUpdated });
   });
 
   test('still rejects secrets inside admin content responses', () => {

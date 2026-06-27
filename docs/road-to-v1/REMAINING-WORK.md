@@ -17,7 +17,7 @@
 | 07 | Equipment & Progression Closure | 3 | ✅ Done | 100% |
 | 08 | Durable Planet, Production & Routes | 3 | 🟡 In progress | 90% |
 | 09 | CMS Completion & Balance Telemetry | 3 | ✅ Done | 100% |
-| 10 | Social MVP | 4 | 🟡 In progress | 80% |
+| 10 | Social MVP | 4 | ✅ Done | 100% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | ⬜ Not started | 0% |
 | 12 | DarkOrbit Flavor | 6 | ⬜ Not started | 0% |
 | 13 | Observability, Simulation & Release Gate | 4 | ⬜ Not started | 0% |
@@ -26,7 +26,7 @@
 | 16 | Production Config & Operational Hardening | 2 | ✅ Done | 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | ⬜ Not started | 0% |
 
-**Genel v1:** ~67%
+**Genel v1:** ~68%
 
 ---
 
@@ -142,7 +142,7 @@ honestly. (Green.)
 
 ---
 
-### 🟡 P10 — Social MVP (Chat, Party, Clan) (Wave 4, 80%)
+### ✅ P10 — Social MVP (Chat, Party, Clan) (Wave 4, DONE)
 
 ✅ Domain package exists: `internal/game/social/`.
 ✅ Runtime chat/party realtime slice exists:
@@ -161,6 +161,10 @@ honestly. (Green.)
   join/leave events are per-recipient so clients keep their own rank/membership.
 - Client social state/panel parses server-owned social ids, opens from the HUD,
   and sends chat/party/clan intent-only commands.
+- Default chat moderation redacts emails/secrets before storage/fanout and
+  records only keyed HMAC fingerprints plus safe metadata in moderation logs.
+- Party/clan contribution read models publish server-owned NPC-kill totals with
+  opaque occurrence ids, so social events do not expose exact NPC entity ids.
 
 - [x] Chat service domain: server-resolved channels, moderation hook seam,
   rate-limit seam + default cooldown, in-memory message store.
@@ -175,13 +179,12 @@ honestly. (Green.)
 - [x] Wire realtime ops/events: `clan.create`, `clan.join`, `clan.leave`.
 - [x] Durable clan rows + durable/social read models.
 - [x] Party shared-target realtime foundation.
-- [ ] Contribution event foundation.
+- [x] Contribution event foundation.
 - [x] `[P:wave4/lane-A]` Client: chat panel + party panel + clan panel (real
   state only).
 
-Kalan:
-- [ ] Chat moderation redaction/logging policy (no PII leaks).
-- [ ] Party/clan contribution event semantics and read models.
+Kalan: none for P10 MVP. Deeper social systems (friend lists, clan war/outposts,
+alliances) remain post-v1/out of scope.
 
 **Referanslar:**
 - `docs/road-to-v1/10-social-mvp.md`

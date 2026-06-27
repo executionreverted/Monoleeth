@@ -22,13 +22,17 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
   + DB outbox/recovery mutation support + restart survival smoke proof done),
   P09 Done, P14 Done (HI-02/HI-08 closed — rollback safety + honest
   `pending_restart`).
-- Wave 4: P10 80% (chat/party/clan runtime, durable clan rows/read models,
-  party shared-target realtime, and real client panels done; moderation
-  redaction/logging policy + contribution events pending), P13/P15 not started.
+- Wave 4: P10 Done (chat/party/clan runtime, durable clan rows/read models,
+  party shared-target realtime, real client panels, moderation redaction/logging,
+  and contribution read models done), P13/P15 not started.
 - Wave 5-6: P11/P12/P17 not started.
-- Genel v1: ~67%.
+- Genel v1: ~68%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P10 completion slice — default chat moderation redacts PII/secrets before
+  storage/fanout, moderation audit logs keep only keyed HMAC fingerprints plus
+  safe metadata, and party/clan contribution read models publish server-owned
+  NPC-kill contribution totals with opaque occurrence ids.
 - P10 clan/social client slice — Postgres-backed clan/membership rows in
   core-store DB mode, realtime `party.target.set` + `clan.create/join/leave`,
   durable clan bootstrap read models, client social state/panel, and review-fix
@@ -72,9 +76,8 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 
 ### Sırada (resume sırası)
 1. Context tazele: `00-index.md`, `REMAINING-WORK.md`, ilgili faz dosyası.
-2. P10: moderation redaction/logging policy and contribution event foundation.
-3. P13/P15: release gate + AOI perf.
-4. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
+2. P13/P15: release gate + AOI perf.
+3. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
 
 ## Çalışma Kuralları
 
@@ -152,7 +155,7 @@ git diff --check
 - [ ] Movement stop/disconnect settle; death/repair tam (P06).
 - [ ] Equipment/skill effective stat ve cargo'yu doğru değiştiriyor (P07).
 - [ ] CMS publish canlı runtime'a yansıyor veya dürüstçe pending_restart raporluyor (P09, P14).
-- [ ] Chat + party + clan MVP moderation/rate limit ile çalışıyor (P10).
+- [x] Chat + party + clan MVP moderation/rate limit ile çalışıyor (P10).
 - [ ] Tek tekrarlanabilir endgame gate loop'u uçtan uca çalışıyor (P11).
 - [ ] Drones/ammo/honor (en az) shipped (P12).
 - [ ] Release gate yeşil; simulation/load/race kanıtı var (P13).

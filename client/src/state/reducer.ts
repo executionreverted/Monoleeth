@@ -92,6 +92,7 @@ function initialSocialState() {
     clan: null,
     clanMembership: null,
     clanMembers: [],
+    contributions: [],
   };
 }
 
