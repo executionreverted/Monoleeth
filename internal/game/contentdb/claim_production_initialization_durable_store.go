@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 
 	"gameproject/internal/game/discovery"
@@ -35,11 +36,15 @@ func (s *ClaimProductionInitializationDurableStore) ApplyClaimProductionInitiali
 	if s == nil || s.store == nil || s.store.db == nil {
 		return discovery.ClaimProductionInitializationDurableResult{}, ErrNilDatabase
 	}
-	reference := plan.Initialization.ClaimReference
-	if reference == "" {
+	if claimProductionInitializationPlanIsNoOp(plan) {
 		return discovery.ClaimProductionInitializationDurableResult{}, nil
 	}
-	planJSON, mErr := json.Marshal(plan)
+	normalized, nErr := normalizeClaimProductionInitializationPlan(plan)
+	if nErr != nil {
+		return discovery.ClaimProductionInitializationDurableResult{}, nErr
+	}
+	reference := normalized.Initialization.ClaimReference
+	planJSON, mErr := json.Marshal(normalized)
 	if mErr != nil {
 		return discovery.ClaimProductionInitializationDurableResult{}, fmt.Errorf("marshal claim production init durable plan: %w", mErr)
 	}
@@ -54,7 +59,7 @@ func (s *ClaimProductionInitializationDurableStore) ApplyClaimProductionInitiali
 
 	var existingRaw string
 	err = tx.QueryRowContext(ctx, `
-		SELECT plan_json FROM claim_production_initialization_durable WHERE claim_reference = $1
+		SELECT plan_json FROM claim_production_initialization_durable WHERE claim_reference = $1 FOR UPDATE
 	`, string(reference)).Scan(&existingRaw)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return discovery.ClaimProductionInitializationDurableResult{}, err
@@ -63,6 +68,36 @@ func (s *ClaimProductionInitializationDurableStore) ApplyClaimProductionInitiali
 		var existing discovery.ClaimProductionInitializationDurablePlan
 		if jErr := json.Unmarshal([]byte(existingRaw), &existing); jErr != nil {
 			return discovery.ClaimProductionInitializationDurableResult{}, jErr
+		}
+		existing, nErr = normalizeClaimProductionInitializationPlan(existing)
+		if nErr != nil {
+			return discovery.ClaimProductionInitializationDurableResult{}, nErr
+		}
+		if advanced, ok := advanceClaimProductionInitializationPlan(existing, normalized); ok {
+			advancedJSON, jErr := json.Marshal(advanced)
+			if jErr != nil {
+				return discovery.ClaimProductionInitializationDurableResult{}, fmt.Errorf("marshal advanced claim production init durable plan: %w", jErr)
+			}
+			if _, err = tx.ExecContext(ctx, `
+				UPDATE claim_production_initialization_durable
+				SET plan_json = $2::jsonb, committed_at = now()
+				WHERE claim_reference = $1
+			`, string(reference), string(advancedJSON)); err != nil {
+				return discovery.ClaimProductionInitializationDurableResult{}, err
+			}
+			if err = tx.Commit(); err != nil {
+				return discovery.ClaimProductionInitializationDurableResult{}, err
+			}
+			return discovery.ClaimProductionInitializationDurableResult{Plan: advanced}, nil
+		}
+		if stalePendingReplay(existing, normalized) {
+			if err = tx.Commit(); err != nil {
+				return discovery.ClaimProductionInitializationDurableResult{}, err
+			}
+			return discovery.ClaimProductionInitializationDurableResult{Plan: existing, Duplicate: true}, nil
+		}
+		if !reflect.DeepEqual(existing, normalized) {
+			return discovery.ClaimProductionInitializationDurableResult{}, fmt.Errorf("claim_reference_conflict: %w", discovery.ErrInvalidClaimDurableCommit)
 		}
 		if err = tx.Commit(); err != nil {
 			return discovery.ClaimProductionInitializationDurableResult{}, err
@@ -80,7 +115,7 @@ func (s *ClaimProductionInitializationDurableStore) ApplyClaimProductionInitiali
 	if err = tx.Commit(); err != nil {
 		return discovery.ClaimProductionInitializationDurableResult{}, err
 	}
-	return discovery.ClaimProductionInitializationDurableResult{Plan: plan}, nil
+	return discovery.ClaimProductionInitializationDurableResult{Plan: normalized}, nil
 }
 
 func (s *ClaimProductionInitializationDurableStore) CommittedClaimProductionInitializationDurablePlan(
@@ -108,7 +143,11 @@ func (s *ClaimProductionInitializationDurableStore) CommittedClaimProductionInit
 	if err := json.Unmarshal([]byte(raw), &plan); err != nil {
 		return discovery.ClaimProductionInitializationDurablePlan{}, false, err
 	}
-	return plan, true, nil
+	normalized, err := normalizeClaimProductionInitializationPlan(plan)
+	if err != nil {
+		return discovery.ClaimProductionInitializationDurablePlan{}, false, err
+	}
+	return normalized, true, nil
 }
 
 func (s *ClaimProductionInitializationDurableStore) PendingClaimProductionInitializationDurablePlans(
@@ -141,10 +180,74 @@ func (s *ClaimProductionInitializationDurableStore) PendingClaimProductionInitia
 		if err := json.Unmarshal([]byte(raw), &plan); err != nil {
 			return nil, err
 		}
-		plans = append(plans, plan)
+		normalized, err := normalizeClaimProductionInitializationPlan(plan)
+		if err != nil {
+			return nil, err
+		}
+		if normalized.Boundary.Status != discovery.ClaimBoundaryStatusPendingSideEffects {
+			continue
+		}
+		plans = append(plans, normalized)
 	}
 	sort.Slice(plans, func(i, j int) bool {
 		return plans[i].Initialization.ClaimReference < plans[j].Initialization.ClaimReference
 	})
 	return plans, rows.Err()
+}
+
+func claimProductionInitializationPlanIsNoOp(plan discovery.ClaimProductionInitializationDurablePlan) bool {
+	return reflect.DeepEqual(plan, discovery.ClaimProductionInitializationDurablePlan{})
+}
+
+func normalizeClaimProductionInitializationPlan(
+	plan discovery.ClaimProductionInitializationDurablePlan,
+) (discovery.ClaimProductionInitializationDurablePlan, error) {
+	if claimProductionInitializationPlanIsNoOp(plan) {
+		return discovery.ClaimProductionInitializationDurablePlan{}, nil
+	}
+	return plan.Initialization.DurablePlan(&plan.Boundary)
+}
+
+func advanceClaimProductionInitializationPlan(
+	existing discovery.ClaimProductionInitializationDurablePlan,
+	next discovery.ClaimProductionInitializationDurablePlan,
+) (discovery.ClaimProductionInitializationDurablePlan, bool) {
+	if !reflect.DeepEqual(existing.Initialization, next.Initialization) {
+		return discovery.ClaimProductionInitializationDurablePlan{}, false
+	}
+	if existing.Boundary.Status != discovery.ClaimBoundaryStatusPendingSideEffects ||
+		next.Boundary.Status != discovery.ClaimBoundaryStatusComplete {
+		return discovery.ClaimProductionInitializationDurablePlan{}, false
+	}
+	if !sameClaimProductionInitializationBoundaryIdentity(existing.Boundary, next.Boundary) {
+		return discovery.ClaimProductionInitializationDurablePlan{}, false
+	}
+	if next.Boundary.CompletedAt.Before(existing.Boundary.ClaimedAt) {
+		return discovery.ClaimProductionInitializationDurablePlan{}, false
+	}
+	return next, true
+}
+
+func stalePendingReplay(
+	existing discovery.ClaimProductionInitializationDurablePlan,
+	next discovery.ClaimProductionInitializationDurablePlan,
+) bool {
+	return reflect.DeepEqual(existing.Initialization, next.Initialization) &&
+		existing.Boundary.Status == discovery.ClaimBoundaryStatusComplete &&
+		next.Boundary.Status == discovery.ClaimBoundaryStatusPendingSideEffects &&
+		sameClaimProductionInitializationBoundaryIdentity(existing.Boundary, next.Boundary)
+}
+
+func sameClaimProductionInitializationBoundaryIdentity(
+	left discovery.ClaimBoundaryRecord,
+	right discovery.ClaimBoundaryRecord,
+) bool {
+	return left.ClaimReference == right.ClaimReference &&
+		left.ReferenceKey == right.ReferenceKey &&
+		left.PlayerID == right.PlayerID &&
+		left.PlanetID == right.PlanetID &&
+		left.EventID == right.EventID &&
+		left.StaleIntelCount == right.StaleIntelCount &&
+		left.ClaimedAt.Equal(right.ClaimedAt) &&
+		left.RecordedAt.Equal(right.RecordedAt)
 }
