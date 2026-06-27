@@ -89,6 +89,51 @@ func TestPostgresBuildingMutationDurableStoreDuplicateReplayIsIdempotent(t *test
 	}
 }
 
+func TestPostgresBuildingMutationDurableStorePublishesCommittedOutboxRow(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+	now := time.Date(2026, 6, 26, 12, 30, 0, 0, time.UTC)
+	plan := production.BuildingMutationDurableCommitPlan{
+		Reference: production.BuildingMutationReferenceRecord{
+			ReferenceKey: foundation.IdempotencyKey("planet_building_build:planet-smoke-bp-outbox:building-bp-outbox"),
+			Operation:    production.BuildingMutationKind("build"),
+			PlanetID:     foundation.PlanetID("planet-smoke-building-outbox"),
+			BuildingID:   production.BuildingID("building-smoke-outbox-1"),
+			RecordedAt:   now,
+		},
+		OutboxRecords: []production.ProductionOutboxRecord{{
+			OutboxID:     "building-outbox-smoke-publish",
+			Status:       production.ProductionOutboxStatusPending,
+			CreatedAt:    now,
+			ReferenceKey: foundation.IdempotencyKey("planet_building_build:planet-smoke-bp-outbox:building-bp-outbox"),
+		}},
+	}
+
+	mutationStore, err := contentdb.NewBuildingMutationDurableStore(store)
+	if err != nil {
+		t.Fatalf("NewBuildingMutationDurableStore() error = %v, want nil", err)
+	}
+	if _, err := mutationStore.ApplyBuildingMutationDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplyBuildingMutationDurableCommitPlan() error = %v, want nil", err)
+	}
+	claimed, err := mutationStore.ClaimPendingProductionOutboxRecords(1, now.Add(time.Second))
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimPendingProductionOutboxRecords() = %+v/%v, want one row nil", claimed, err)
+	}
+	if _, ok, err := mutationStore.MarkProductionOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, now.Add(2*time.Second)); err != nil || !ok {
+		t.Fatalf("MarkProductionOutboxPublished() ok=%v err=%v, want true nil", ok, err)
+	}
+	records := mutationStore.OutboxRecords()
+	if len(records) != 1 || records[0].Status != production.ProductionOutboxStatusPublished {
+		t.Fatalf("OutboxRecords() = %+v, want one published row", records)
+	}
+}
+
 func TestPostgresBuildingMutationDurableStoreRejectsConflictingReference(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -199,6 +244,56 @@ func TestPostgresSettlementDurableStoreDuplicateReplayIsIdempotent(t *testing.T)
 	}
 	if !second.Duplicate {
 		t.Fatalf("duplicate replay Duplicate = false, want true")
+	}
+}
+
+func TestPostgresSettlementDurableStorePublishesCommittedOutboxRow(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+	now := time.Date(2026, 6, 26, 13, 30, 0, 0, time.UTC)
+	referenceKey := foundation.IdempotencyKey("offline_settlement:planet-smoke-sp-outbox:20260626T1330Z")
+	plan := production.SettlementDurableCommitPlan{
+		Reference: production.SettlementReferenceRecord{
+			ReferenceKey:     referenceKey,
+			SettlementWindow: "2026-06-26T13:30:00Z",
+			Kind:             production.SettlementKind("production"),
+			PlanetID:         foundation.PlanetID("planet-smoke-settlement-outbox"),
+			AppliedAt:        now,
+			RecordedAt:       now,
+		},
+		Outbox: production.SettlementOutboxDispatchPlan{
+			OutboxRecords: []production.ProductionOutboxRecord{{
+				OutboxID:         "settlement-outbox-smoke-publish",
+				Status:           production.ProductionOutboxStatusPending,
+				CreatedAt:        now,
+				ReferenceKey:     referenceKey,
+				SettlementWindow: "2026-06-26T13:30:00Z",
+			}},
+		},
+	}
+
+	settlementStore, err := contentdb.NewSettlementDurableStore(store)
+	if err != nil {
+		t.Fatalf("NewSettlementDurableStore() error = %v, want nil", err)
+	}
+	if _, err := settlementStore.ApplySettlementDurableCommitPlan(plan); err != nil {
+		t.Fatalf("ApplySettlementDurableCommitPlan() error = %v, want nil", err)
+	}
+	claimed, err := settlementStore.ClaimPendingProductionOutboxRecords(1, now.Add(time.Second))
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimPendingProductionOutboxRecords() = %+v/%v, want one row nil", claimed, err)
+	}
+	if _, ok, err := settlementStore.MarkProductionOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, now.Add(2*time.Second)); err != nil || !ok {
+		t.Fatalf("MarkProductionOutboxPublished() ok=%v err=%v, want true nil", ok, err)
+	}
+	records := settlementStore.OutboxRecords()
+	if len(records) != 1 || records[0].Status != production.ProductionOutboxStatusPublished {
+		t.Fatalf("OutboxRecords() = %+v, want one published row", records)
 	}
 }
 

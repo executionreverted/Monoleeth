@@ -138,9 +138,15 @@ for phase status; this file is a compact pending-work index.
   request cannot return a previous-map payload after portal/respawn transfer.
   Source:
   `docs/roadmap/08-world-discovery-planets-intel.md`.
-- [ ] Replace Phase 08 in-memory discovery stores, idempotency maps, and local
+- [ ] Prove Phase 08 restart/concurrency survival after replacing in-memory
+  discovery/production durable stores, idempotency maps, and local
   event/outbox slices with durable repositories/outbox records before
-  multi-process runtime or DB-backed deployment. Phase07M adds process-local
+  multi-process runtime. Runtime core-store DB mode now wires Postgres-backed
+  claim lifecycle, claim production-init, settlement, building mutation, and
+  automation route durable adapters, and the claim/settlement/building DB
+  outbox rows support claim/publish/fail/lease-release/retry mutation. Remaining
+  proof: restart smoke for one X Core consume, one production window, one route
+  settlement, and missed recovery replay. Phase07M adds process-local
   claim reference records plus claim outbox rows under the claim service lock,
   and Phase07N adds process-local delivery state plus claim-token guards, but
   the rows are not durable or cross-process.
@@ -211,8 +217,9 @@ for phase status; this file is a compact pending-work index.
   lifecycle/outbox readbacks before claiming, publishing, failing, releasing,
   or retrying rows, so corrupt process-local rows fail closed without partial
   worker mutation.
-  Durable DB rows, cross-process leases, scheduled publisher workers, and
-  cross-process enforcement remain open.
+  Runtime DB-backed durable rows, cross-process leases, and scheduled publisher
+  worker contracts are now wired under core-store DB mode; restart survival and
+  cross-process enforcement proof remain open.
 - [ ] Add claim-production initialization recovery to the durable Phase 08/09
   planet claim transaction. Current in-memory flow can repair production state
   on retry, and Phase07W now records process-local claim recovery evidence
@@ -254,9 +261,11 @@ for phase status; this file is a compact pending-work index.
   rows are advanced to complete, preserving the single X Core debit while
   making worker recovery return initialized live state. Phase07CZ proves the
   authenticated gateway rejects planets owned by another player before X Core
-  consume, production init, lifecycle rows, or owner-scoped claim events. Real
-  durable claim/production DB rows, cross-service row locks/CAS, an atomic
-  claim/production transaction, and scheduled recovery workers remain open.
+  consume, production init, lifecycle rows, or owner-scoped claim events.
+  Runtime DB mode now wires the durable claim/production-init rows and scheduled
+  recovery worker contracts through Postgres-backed adapters. Remaining gap:
+  prove restart survival and tighten the X Core debit + owner-CAS +
+  production-init path into one cross-service atomic transaction.
 - [ ] Add pending/complete or compensation handling around Phase 08 coordinate
   scroll item mint/consume plus metadata/intel writes before using real durable
   economy storage. Phase07T now mints and consumes the real account-inventory

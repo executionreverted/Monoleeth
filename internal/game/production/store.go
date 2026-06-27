@@ -36,6 +36,7 @@ type InMemoryStore struct {
 	storage                    map[foundation.PlanetID]PlanetStorage
 	buildings                  map[foundation.PlanetID]map[BuildingID]PlanetBuilding
 	routes                     map[foundation.RouteID]AutomationRoute
+	routeDurable               AutomationRouteDurableStore
 	routeDurableRecords        map[foundation.RouteID]AutomationRouteDurableRecord
 	routeDurableReferences     map[foundation.IdempotencyKey]AutomationRouteDurableRecord
 	events                     []gameevents.EventEnvelope
@@ -76,6 +77,17 @@ func newInMemoryStore(catalogRows Catalog) *InMemoryStore {
 		references:             make(map[foundation.IdempotencyKey]SettlementReferenceRecord),
 		buildingReferences:     make(map[foundation.IdempotencyKey]BuildingMutationReferenceRecord),
 	}
+}
+
+// SetAutomationRouteDurableStore redirects durable route row commits/readbacks
+// to an external adapter while preserving this store as the live read model.
+func (store *InMemoryStore) SetAutomationRouteDurableStore(routeDurable AutomationRouteDurableStore) {
+	if store == nil {
+		return
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.routeDurable = routeDurable
 }
 
 // Clone returns a detached copy of all production, storage, building, and route

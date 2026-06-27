@@ -37,6 +37,11 @@ func TestNewRuntimeCoreStoreDevFallbackLeavesEconomyStoresUnwired(t *testing.T) 
 	requireRuntimeServiceStoreNil(t, runtime.Premium, "entitlementTx")
 	requireRuntimeServiceStoreNil(t, runtime.Loot, "xpOutbox")
 	requireRuntimeServiceStoreNil(t, runtime.Loot, "pickupTx")
+	requireRuntimeValueType(t, runtime.ClaimLifecycles, "*discovery.InMemoryClaimDurableLifecycleStore")
+	requireRuntimeValueType(t, runtime.ClaimProductionInitializations, "*discovery.InMemoryClaimProductionInitializationDurableStore")
+	requireRuntimeValueType(t, runtime.Settlements, "*production.InMemorySettlementDurableCommitStore")
+	requireRuntimeValueType(t, runtime.BuildingMutations, "*production.InMemoryBuildingMutationDurableCommitStore")
+	requireRuntimeServiceStoreNil(t, runtime.Production, "routeDurable")
 }
 
 func TestPostgresRuntimeCoreStoreInjectsEconomyStores(t *testing.T) {
@@ -71,6 +76,18 @@ func TestPostgresRuntimeCoreStoreInjectsEconomyStores(t *testing.T) {
 	requireRuntimeServiceStoreType(t, runtime.Premium, "entitlementTx", "*contentdb.PremiumEntitlementStore")
 	requireRuntimeServiceStoreType(t, runtime.Loot, "xpOutbox", "*contentdb.Store")
 	requireRuntimeServiceStoreType(t, runtime.Loot, "pickupTx", "*contentdb.LootPickupStore")
+	requireRuntimeValueType(t, runtime.ClaimLifecycles, "*contentdb.ClaimDurableLifecycleStore")
+	requireRuntimeValueType(t, runtime.ClaimProductionInitializations, "*contentdb.ClaimProductionInitializationDurableStore")
+	requireRuntimeValueType(t, runtime.Settlements, "*contentdb.SettlementDurableStore")
+	requireRuntimeValueType(t, runtime.BuildingMutations, "*contentdb.BuildingMutationDurableStore")
+	requireRuntimeServiceStoreType(t, runtime.Production, "routeDurable", "*contentdb.AutomationRouteDurableStore")
+}
+
+func requireRuntimeValueType(t *testing.T, value any, want string) {
+	t.Helper()
+	if got := reflect.TypeOf(value).String(); got != want {
+		t.Fatalf("value type = %s, want %s", got, want)
+	}
 }
 
 func requireRuntimeServiceStoreNil(t *testing.T, service any, fieldName string) {

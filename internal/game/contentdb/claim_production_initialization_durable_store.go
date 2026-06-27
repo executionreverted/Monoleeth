@@ -195,6 +195,35 @@ func (s *ClaimProductionInitializationDurableStore) PendingClaimProductionInitia
 	return plans, rows.Err()
 }
 
+// ClaimReferences returns committed claim references in commit order for
+// diagnostics and parity with the in-memory runtime adapter.
+func (s *ClaimProductionInitializationDurableStore) ClaimReferences() []discovery.PlanetClaimReference {
+	if s == nil || s.store == nil || s.store.db == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), claimLifecycleStoreTimeout)
+	defer cancel()
+	rows, err := s.store.db.QueryContext(ctx, `
+		SELECT claim_reference FROM claim_production_initialization_durable ORDER BY committed_at, claim_reference
+	`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	references := make([]discovery.PlanetClaimReference, 0)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil
+		}
+		references = append(references, discovery.PlanetClaimReference(raw))
+	}
+	if err := rows.Err(); err != nil {
+		return nil
+	}
+	return references
+}
+
 func claimProductionInitializationPlanIsNoOp(plan discovery.ClaimProductionInitializationDurablePlan) bool {
 	return reflect.DeepEqual(plan, discovery.ClaimProductionInitializationDurablePlan{})
 }

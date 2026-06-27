@@ -182,12 +182,12 @@ type Runtime struct {
 	Discovery                      *discovery.InMemoryStore
 	Scanner                        *discovery.ScannerService
 	Claim                          *discovery.ClaimService
-	ClaimLifecycles                *discovery.InMemoryClaimDurableLifecycleStore
-	ClaimProductionInitializations *discovery.InMemoryClaimProductionInitializationDurableStore
+	ClaimLifecycles                runtimeClaimDurableLifecycleStore
+	ClaimProductionInitializations runtimeClaimProductionInitializationDurableStore
 	Intel                          *intel.Service
 	Production                     *production.InMemoryStore
-	Settlements                    *production.InMemorySettlementDurableCommitStore
-	BuildingMutations              *production.InMemoryBuildingMutationDurableCommitStore
+	Settlements                    runtimeSettlementDurableStore
+	BuildingMutations              runtimeBuildingMutationDurableStore
 	CommandLog                     *observability.MemoryCommandLogger
 	Metrics                        *observability.MetricRecorder
 	contentAdminCloser             func() error
@@ -196,6 +196,7 @@ type Runtime struct {
 	inventoryStoreCloser           func() error
 	progressionStoreCloser         func() error
 	economyStoreCloser             func() error
+	durableStoreCloser             func() error
 	hangarStoreCloser              func() error
 	loadoutStoreCloser             func() error
 
@@ -247,6 +248,52 @@ type runtimeEconomyStores struct {
 	auctionRepository auction.AuctionLotRepository
 	premiumRepository premium.PremiumEntitlementRepository
 	lootPickup        loot.LootPickupTransactionRepository
+}
+
+type runtimeClaimDurableLifecycleStore interface {
+	discovery.ClaimDurableLifecycleStore
+	discovery.ClaimDurableLifecycleReader
+	discovery.ClaimOutboxPublisherStore
+	discovery.ClaimOutboxLeaseReaperStore
+	discovery.ClaimOutboxRetryStore
+	ClaimReferences() []discovery.PlanetClaimReference
+	OutboxRecords() []discovery.ClaimOutboxRecord
+}
+
+type runtimeClaimProductionInitializationDurableStore interface {
+	discovery.ClaimProductionInitializationDurableStore
+	discovery.ClaimProductionInitializationDurableReader
+	ClaimReferences() []discovery.PlanetClaimReference
+}
+
+type runtimeSettlementDurableStore interface {
+	production.SettlementDurableCommitStore
+	production.SettlementDurableCommitReader
+	production.ProductionOutboxPublisherStore
+	production.ProductionOutboxLeaseReaperStore
+	production.ProductionOutboxRetryStore
+	SettlementReferences() []production.SettlementReferenceRecord
+	OutboxRecords() []production.ProductionOutboxRecord
+	RouteStorageLedgerEntries() []production.RouteStorageLedgerEntry
+}
+
+type runtimeBuildingMutationDurableStore interface {
+	production.BuildingMutationDurableCommitStore
+	production.BuildingMutationDurableCommitReader
+	production.ProductionOutboxPublisherStore
+	production.ProductionOutboxLeaseReaperStore
+	production.ProductionOutboxRetryStore
+	BuildingMutationReferences() []production.BuildingMutationReferenceRecord
+	OutboxRecords() []production.ProductionOutboxRecord
+	BuildingMaterialLedgerEntries() []production.BuildingMaterialLedgerEntry
+}
+
+type runtimeDurableStores struct {
+	claimLifecycles                runtimeClaimDurableLifecycleStore
+	claimProductionInitializations runtimeClaimProductionInitializationDurableStore
+	settlements                    runtimeSettlementDurableStore
+	buildingMutations              runtimeBuildingMutationDurableStore
+	automationRoutes               production.AutomationRouteDurableStore
 }
 
 func loadRuntimeContent(ctx context.Context, config RuntimeConfig) (gamecontent.GameplayContent, error) {
@@ -370,6 +417,11 @@ func (runtime *Runtime) Close() error {
 		closeEconomyStore := runtime.economyStoreCloser
 		runtime.economyStoreCloser = nil
 		errs = append(errs, closeEconomyStore())
+	}
+	if runtime.durableStoreCloser != nil {
+		closeDurableStore := runtime.durableStoreCloser
+		runtime.durableStoreCloser = nil
+		errs = append(errs, closeDurableStore())
 	}
 	if runtime.hangarStoreCloser != nil {
 		closeHangarStore := runtime.hangarStoreCloser
@@ -683,6 +735,74 @@ func loadRuntimeEconomyStores(ctx context.Context, config RuntimeConfig) (runtim
 	}, closeStore, nil
 }
 
+func loadRuntimeDurableStores(ctx context.Context, config RuntimeConfig) (runtimeDurableStores, func() error, error) {
+	contentConfig := runtimeCoreStoreDBConfig(config)
+	if err := contentConfig.Validate(); err != nil {
+		return runtimeDurableStores{}, nil, err
+	}
+	if !contentConfig.Enabled() {
+		return runtimeDurableStores{
+			claimLifecycles:                discovery.NewInMemoryClaimDurableLifecycleStore(),
+			claimProductionInitializations: discovery.NewInMemoryClaimProductionInitializationDurableStore(),
+			settlements:                    production.NewInMemorySettlementDurableCommitStore(),
+			buildingMutations:              production.NewInMemoryBuildingMutationDurableCommitStore(),
+		}, nil, nil
+	}
+	openStore := config.contentDBOpen
+	if openStore == nil {
+		openStore = defaultRuntimeContentDBOpen
+	}
+	store, err := openStore(ctx, contentConfig)
+	if err != nil {
+		return runtimeDurableStores{}, nil, err
+	}
+	if store == nil {
+		return runtimeDurableStores{}, nil, contentdb.ErrNilDatabase
+	}
+	closeStore := func() error { return store.Close() }
+	if err := store.Migrate(ctx, contentConfig.Migrations); err != nil {
+		_ = closeStore()
+		return runtimeDurableStores{}, nil, fmt.Errorf("migrate durable runtime db: %w", err)
+	}
+	contentStore, ok := store.(*contentdb.Store)
+	if !ok {
+		_ = closeStore()
+		return runtimeDurableStores{}, nil, fmt.Errorf("durable runtime db store %T: %w", store, contentdb.ErrNilDatabase)
+	}
+	claimLifecycles, err := contentdb.NewClaimDurableLifecycleStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return runtimeDurableStores{}, nil, err
+	}
+	claimProductionInitializations, err := contentdb.NewClaimProductionInitializationDurableStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return runtimeDurableStores{}, nil, err
+	}
+	settlements, err := contentdb.NewSettlementDurableStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return runtimeDurableStores{}, nil, err
+	}
+	buildingMutations, err := contentdb.NewBuildingMutationDurableStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return runtimeDurableStores{}, nil, err
+	}
+	automationRoutes, err := contentdb.NewAutomationRouteDurableStore(contentStore)
+	if err != nil {
+		_ = closeStore()
+		return runtimeDurableStores{}, nil, err
+	}
+	return runtimeDurableStores{
+		claimLifecycles:                claimLifecycles,
+		claimProductionInitializations: claimProductionInitializations,
+		settlements:                    settlements,
+		buildingMutations:              buildingMutations,
+		automationRoutes:               automationRoutes,
+	}, closeStore, nil
+}
+
 func runtimeCoreStoreDBConfig(config RuntimeConfig) contentdb.Config {
 	contentConfig := config.ContentDB.WithDefaults()
 	mode := config.CoreStoreMode
@@ -871,6 +991,34 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 			_ = economyStoreCloser()
 		}
 	}()
+	durableStores, durableStoreCloser, err := loadRuntimeDurableStores(context.Background(), config)
+	if err != nil {
+		if economyStoreCloser != nil {
+			_ = economyStoreCloser()
+		}
+		if progressionStoreCloser != nil {
+			_ = progressionStoreCloser()
+		}
+		if inventoryStoreCloser != nil {
+			_ = inventoryStoreCloser()
+		}
+		if walletStoreCloser != nil {
+			_ = walletStoreCloser()
+		}
+		if authStoreCloser != nil {
+			_ = authStoreCloser()
+		}
+		if contentAdminCloser != nil {
+			_ = contentAdminCloser()
+		}
+		return nil, err
+	}
+	closeDurableStoreOnError := true
+	defer func() {
+		if closeDurableStoreOnError && durableStoreCloser != nil {
+			_ = durableStoreCloser()
+		}
+	}()
 	mapCatalog := contentBundle.Maps
 	mapRouter, err := worldmaps.NewRouter(mapCatalog)
 	if err != nil {
@@ -1039,6 +1187,9 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	if durableStores.automationRoutes != nil {
+		productionStore.SetAutomationRouteDurableStore(durableStores.automationRoutes)
+	}
 	craftLocationAuthorizer, err := production.NewCraftLocationAuthorizer(production.CraftLocationAuthorizerConfig{
 		Planets:    discoveryStore,
 		Production: productionStore,
@@ -1140,10 +1291,6 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Progression: progressionService,
 	})
 	questService.SetRerollServices(quests.QuestRerollServices{Wallet: walletService})
-	claimLifecycleStore := discovery.NewInMemoryClaimDurableLifecycleStore()
-	claimProductionInitializationStore := discovery.NewInMemoryClaimProductionInitializationDurableStore()
-	settlementStore := production.NewInMemorySettlementDurableCommitStore()
-	buildingMutationStore := production.NewInMemoryBuildingMutationDurableCommitStore()
 	intelService := intel.NewService(clock)
 	adminService := admin.NewService(admin.ServiceConfig{
 		Inventory:  inventory,
@@ -1217,10 +1364,10 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		Discovery:                      discoveryStore,
 		Intel:                          intelService,
 		Production:                     productionStore,
-		ClaimLifecycles:                claimLifecycleStore,
-		ClaimProductionInitializations: claimProductionInitializationStore,
-		Settlements:                    settlementStore,
-		BuildingMutations:              buildingMutationStore,
+		ClaimLifecycles:                durableStores.claimLifecycles,
+		ClaimProductionInitializations: durableStores.claimProductionInitializations,
+		Settlements:                    durableStores.settlements,
+		BuildingMutations:              durableStores.buildingMutations,
 		CommandLog:                     commandLogger,
 		Metrics:                        metricRecorder,
 		contentAdminCloser:             contentAdminCloser,
@@ -1229,6 +1376,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		inventoryStoreCloser:           inventoryStoreCloser,
 		progressionStoreCloser:         progressionStoreCloser,
 		economyStoreCloser:             economyStoreCloser,
+		durableStoreCloser:             durableStoreCloser,
 		hangarStoreCloser:              hangarStoreCloser,
 		loadoutStoreCloser:             loadoutStoreCloser,
 		combatXP:                       combatXP,
@@ -1337,6 +1485,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	closeHangarStoreOnError = false
 	closeLoadoutStoreOnError = false
 	closeEconomyStoreOnError = false
+	closeDurableStoreOnError = false
 	return runtime, nil
 }
 

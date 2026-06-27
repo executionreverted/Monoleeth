@@ -66,8 +66,14 @@ func (store *InMemoryStore) ApplyRouteCreateTransaction(
 		}
 		return RouteCreateTransactionResult{}, fmt.Errorf("route %q: %w", input.Route.RouteID, ErrDuplicateRoute)
 	}
-	if input.MaxRouteCount > 0 && store.countOwnerRoutesLocked(input.Route.OwnerPlayerID) >= input.MaxRouteCount {
-		return RouteCreateTransactionResult{}, ErrRouteCapacityExceeded
+	if input.MaxRouteCount > 0 {
+		routeCount, err := store.countOwnerRoutesLocked(input.Route.OwnerPlayerID)
+		if err != nil {
+			return RouteCreateTransactionResult{}, err
+		}
+		if routeCount >= input.MaxRouteCount {
+			return RouteCreateTransactionResult{}, ErrRouteCapacityExceeded
+		}
 	}
 	updatedSourceState, updateSourceState, err := store.prepareRouteEnergyReservationLocked(
 		input.Route.SourcePlanetID,
@@ -125,12 +131,19 @@ func routeCreateReplayMatches(committed AutomationRoute, incoming AutomationRout
 		committed.Enabled == incoming.Enabled
 }
 
-func (store *InMemoryStore) countOwnerRoutesLocked(playerID foundation.PlayerID) int {
+func (store *InMemoryStore) countOwnerRoutesLocked(playerID foundation.PlayerID) (int, error) {
+	if store.routeDurable != nil {
+		records, err := store.routeDurable.CommittedAutomationRouteDurableRecordsForOwner(playerID)
+		if err != nil {
+			return 0, err
+		}
+		return len(records), nil
+	}
 	count := 0
 	for _, route := range store.routes {
 		if route.OwnerPlayerID == playerID {
 			count++
 		}
 	}
-	return count
+	return count, nil
 }

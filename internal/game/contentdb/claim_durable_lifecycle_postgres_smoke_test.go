@@ -100,6 +100,43 @@ func TestPostgresClaimDurableLifecycleStoreDuplicateReplayIsIdempotent(t *testin
 	}
 }
 
+func TestPostgresClaimDurableLifecycleStorePublishesCommittedOutboxRow(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, store := openPostgresSmokeStore(t, ctx)
+
+	if err := store.Migrate(ctx, contentdb.MigrationModeAuto); err != nil {
+		t.Fatalf("Migrate(auto) error = %v, want nil", err)
+	}
+	plan := claimDurableLifecyclePlanForSmoke(t, "outbox-publish")
+	plan.Commit.Outbox = discovery.ClaimOutboxRecord{
+		OutboxID:       "claim-outbox-smoke-publish",
+		Status:         discovery.ClaimOutboxStatusPending,
+		ReferenceKey:   plan.Commit.Boundary.ReferenceKey,
+		ClaimReference: plan.Commit.Boundary.ClaimReference,
+		CreatedAt:      plan.Commit.Boundary.CompletedAt,
+	}
+
+	lifecycleStore, err := contentdb.NewClaimDurableLifecycleStore(store)
+	if err != nil {
+		t.Fatalf("NewClaimDurableLifecycleStore() error = %v, want nil", err)
+	}
+	if _, err := lifecycleStore.ApplyClaimDurableLifecyclePlan(plan); err != nil {
+		t.Fatalf("ApplyClaimDurableLifecyclePlan() error = %v, want nil", err)
+	}
+	claimed, err := lifecycleStore.ClaimPendingClaimOutboxRecordsForPublish(1, plan.Commit.Boundary.CompletedAt.Add(time.Second))
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimPendingClaimOutboxRecordsForPublish() = %+v/%v, want one row nil", claimed, err)
+	}
+	if _, ok, err := lifecycleStore.MarkClaimOutboxPublished(claimed[0].OutboxID, claimed[0].ClaimToken, plan.Commit.Boundary.CompletedAt.Add(2*time.Second)); err != nil || !ok {
+		t.Fatalf("MarkClaimOutboxPublished() ok=%v err=%v, want true nil", ok, err)
+	}
+	records := lifecycleStore.OutboxRecords()
+	if len(records) != 1 || records[0].Status != discovery.ClaimOutboxStatusPublished {
+		t.Fatalf("OutboxRecords() = %+v, want one published row", records)
+	}
+}
+
 func TestPostgresClaimDurableLifecycleStoreRejectsConflictingReference(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

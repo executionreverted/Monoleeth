@@ -10,7 +10,7 @@ iki rapor: `docs/code-review/game-systems-code-review.md` ve
 `docs/code-review/feature-gap-analysis.md`. Index ve takip:
 `docs/road-to-v1/00-index.md`.
 
-## Durum Snapshot (Son Pause: 2026-06-26)
+## Durum Snapshot (Son Review: 2026-06-27)
 
 Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 `docs/road-to-v1/00-index.md` Progress Dashboard.
@@ -18,18 +18,34 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 ### Wave bazlı statü
 - Wave 1: P01 Done, P03 Done, P04 Done.
 - Wave 2: P02 Done, P05 90% (deep mu narrowing → P17), P06 Done, P16 Done.
-- Wave 3: P07 Done, P09 Done (lane-F + lane-G), P14 Done (HI-02/HI-08 closed —
-  runtime apply + equipped-module safety), P08 başlanmadı (DB engeli kalktı).
-- Wave 4+: başlanmadı (P10, P13, P15, P11, P12, P17).
-- Genel v1: ~58%.
+- Wave 3: P07 Done, P08 80% (durable adapters + migrations + runtime DB wiring
+  + DB outbox/recovery mutation support done; restart survival smoke pending),
+  P09 Done, P14 Done (HI-02/HI-08 closed — rollback safety + honest
+  `pending_restart`).
+- Wave 4: P10 50% (domain package + tests done; realtime/client/durable clan
+  wiring pending), P13/P15 not started.
+- Wave 5-6: P11/P12/P17 not started.
+- Genel v1: ~63%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P08 lane-E runtime DB wiring slice — core-store DB mode injects Postgres-backed
+  claim lifecycle, claim production-init, settlement, building mutation, and
+  automation route durable stores; DB-backed claim/settlement/building outbox
+  rows now support claim/publish/fail/lease-release/retry.
+- `fc30e15 game: make cms rollback and runtime apply safety honest` — rollback
+  publish safety'den geçiyor; item/module/shop_product değişiklikleri boot-wired
+  read model hot-swap tamamlanana kadar `pending_restart` raporluyor.
+- `d9f23f5 game: harden claim production initialization durable store` — P08
+  production-init Postgres adapter pending → complete advance, stale replay,
+  pending-row filter, conflict rejection destekliyor.
+- `6ee8163 game: add social MVP domain (chat, party, clan) with rate limits and tests` — P10 domain package done, runtime/client wiring pending.
+- `d35f231` + `c2874e2` — P08 durable claim/building/settlement/route adapters
+  + migrations/smoke coverage.
 - P14 tamamlandı (CMS runtime application + live content safety): content
-  classification (safe-reload vs restart-required), `Runtime.applyPublishedContent`
-  atomic projection swap, honest publish payload (`runtime_applied`/
-  `runtime_version`/`published_version`/`pending_restart`), broadened
-  `validatePublishSafety` with equipped-module active-reference reader (HI-02 +
-  HI-08 closed).
+  classification, `Runtime.applyPublishedContent` projection path, honest publish
+  payload (`runtime_applied`/`runtime_version`/`published_version`/
+  `pending_restart`), broadened `validatePublishSafety` with equipped-module
+  active-reference reader (HI-02 + HI-08 closed).
 - P09 lane-F tamamlandı (CMS diff API + audit action migration + quest compat test
   + live-Postgres publish concurrency coverage). Çözüldü: P08 DB auth blocker
   (port uyumsuzluğu — container 55432, `.env` 5432 → 55432'ye hizalandı).
@@ -43,10 +59,12 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 
 ### Sırada (resume sırası)
 1. Context tazele: `00-index.md`, `REMAINING-WORK.md`, ilgili faz dosyası.
-2. P08: Durable planet/production/routes (DB engeli kalktı — durable store
-   adapter'ları + idempotent settlement + recovery worker). P14 artık done.
-3. Wave 4+: P10 social, P13 release gate, P15 AOI perf.
-4. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
+2. P08 restart-survival smoke/concurrency proof: claim tek X Core consume,
+   production window tek sefer, route settlement tek sefer, recovery replay.
+3. P10: social domain'i realtime commands/events + real client panellerine bağla;
+   durable clan rows ekle.
+4. P13/P15: release gate + AOI perf.
+5. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
 
 ## Çalışma Kuralları
 

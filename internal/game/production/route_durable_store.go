@@ -21,6 +21,11 @@ type AutomationRouteDurableReader interface {
 	CommittedAutomationRouteDurableRecordsForOwner(foundation.PlayerID) ([]AutomationRouteDurableRecord, error)
 }
 
+type AutomationRouteDurableStore interface {
+	AutomationRouteDurableCommitStore
+	AutomationRouteDurableReader
+}
+
 type AutomationRouteDurableCommitPlan struct {
 	Route                 AutomationRoute           `json:"route"`
 	SourceProductionState *PlanetProductionState    `json:"source_production_state,omitempty"`
@@ -234,6 +239,9 @@ func (store *InMemoryStore) CommittedAutomationRouteDurableRecord(
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 
+	if store.routeDurable != nil {
+		return store.routeDurable.CommittedAutomationRouteDurableRecord(routeID)
+	}
 	record, ok := store.routeDurableRecords[routeID]
 	if !ok {
 		return AutomationRouteDurableRecord{}, false, nil
@@ -256,6 +264,9 @@ func (store *InMemoryStore) CommittedAutomationRouteDurableRecordByReference(
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 
+	if store.routeDurable != nil {
+		return store.routeDurable.CommittedAutomationRouteDurableRecordByReference(referenceKey)
+	}
 	record, ok := store.routeDurableReferences[referenceKey]
 	if !ok {
 		return AutomationRouteDurableRecord{}, false, nil
@@ -278,6 +289,9 @@ func (store *InMemoryStore) CommittedAutomationRouteDurableRecordsForOwner(
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 
+	if store.routeDurable != nil {
+		return store.routeDurable.CommittedAutomationRouteDurableRecordsForOwner(playerID)
+	}
 	if err := validateAutomationRouteDurableRecordMap(store.routeDurableRecords); err != nil {
 		return nil, err
 	}
@@ -291,12 +305,25 @@ func (store *InMemoryStore) AutomationRouteDurableRecords() []AutomationRouteDur
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 
+	if store.routeDurable != nil {
+		return nil
+	}
 	return automationRouteDurableRecordsFromMap(store.routeDurableRecords)
 }
 
 func (store *InMemoryStore) applyAutomationRouteDurableCommitPlanLocked(
 	plan AutomationRouteDurableCommitPlan,
 ) (AutomationRouteDurableCommitResult, error) {
+	if store.routeDurable != nil {
+		result, err := store.routeDurable.ApplyAutomationRouteDurableCommitPlan(plan)
+		if err != nil {
+			return AutomationRouteDurableCommitResult{}, err
+		}
+		if !result.Duplicate && plan.SourceProductionState != nil {
+			store.states[plan.SourceProductionState.PlanetID] = cloneProductionState(*plan.SourceProductionState)
+		}
+		return result, nil
+	}
 	result, err := applyAutomationRouteDurableCommitPlanToMaps(
 		&store.routeDurableRecords,
 		&store.routeDurableReferences,
@@ -321,7 +348,15 @@ func (store *InMemoryStore) commitRouteDurableMutationLocked(
 		return nil
 	}
 	expectedRevision := uint64(0)
-	if record, ok := store.routeDurableRecords[route.RouteID]; ok {
+	if store.routeDurable != nil {
+		record, ok, err := store.routeDurable.CommittedAutomationRouteDurableRecord(route.RouteID)
+		if err != nil {
+			return err
+		}
+		if ok {
+			expectedRevision = record.Revision
+		}
+	} else if record, ok := store.routeDurableRecords[route.RouteID]; ok {
 		expectedRevision = record.Revision
 	}
 	_, err := store.applyAutomationRouteDurableCommitPlanLocked(AutomationRouteDurableCommitPlan{
@@ -337,6 +372,9 @@ func (store *InMemoryStore) commitRouteDurableMutationLocked(
 func (store *InMemoryStore) committedAutomationRouteDurableRecordByReferenceLocked(
 	referenceKey foundation.IdempotencyKey,
 ) (AutomationRouteDurableRecord, bool, error) {
+	if store.routeDurable != nil {
+		return store.routeDurable.CommittedAutomationRouteDurableRecordByReference(referenceKey)
+	}
 	record, ok := store.routeDurableReferences[referenceKey]
 	if !ok {
 		return AutomationRouteDurableRecord{}, false, nil

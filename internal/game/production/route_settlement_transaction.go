@@ -133,7 +133,17 @@ func (store *InMemoryStore) routeSettlementTransactionReplayLocked(
 	input RouteSettlementTransactionInput,
 	settledAt time.Time,
 ) (RouteSettlementTransactionResult, bool, error) {
-	record, ok := store.routeDurableRecords[input.RouteID]
+	var record AutomationRouteDurableRecord
+	var ok bool
+	var err error
+	if store.routeDurable != nil {
+		record, ok, err = store.routeDurable.CommittedAutomationRouteDurableRecord(input.RouteID)
+		if err != nil {
+			return RouteSettlementTransactionResult{}, false, err
+		}
+	} else {
+		record, ok = store.routeDurableRecords[input.RouteID]
+	}
 	if !ok {
 		return RouteSettlementTransactionResult{}, false, nil
 	}
@@ -193,7 +203,17 @@ func (store *InMemoryStore) restoreAutomationRouteReadModelFromDurableLocked(
 		}
 		return cloneAutomationRoute(route), true, nil
 	}
-	record, ok := store.routeDurableRecords[routeID]
+	var record AutomationRouteDurableRecord
+	var ok bool
+	var err error
+	if store.routeDurable != nil {
+		record, ok, err = store.routeDurable.CommittedAutomationRouteDurableRecord(routeID)
+		if err != nil {
+			return AutomationRoute{}, false, err
+		}
+	} else {
+		record, ok = store.routeDurableRecords[routeID]
+	}
 	if !ok {
 		return AutomationRoute{}, false, nil
 	}

@@ -195,8 +195,12 @@ func (runtime *Runtime) publishPendingClaimDurableOutbox(
 	if runtime.ClaimLifecycles == nil {
 		return nil, nil
 	}
+	store, ok := runtime.ClaimLifecycles.(discovery.ClaimOutboxPublisherStore)
+	if !ok {
+		return nil, nil
+	}
 	return discovery.PublishPendingClaimOutbox(discovery.ClaimOutboxPublishInput{
-		Store:       runtime.ClaimLifecycles,
+		Store:       store,
 		Limit:       limit,
 		ClaimedAt:   claimedAt,
 		CompletedAt: completedAt,
@@ -216,8 +220,12 @@ func (runtime *Runtime) publishPendingSettlementDurableOutbox(
 	if runtime.Settlements == nil {
 		return nil, nil
 	}
+	store, ok := runtime.Settlements.(production.ProductionOutboxPublisherStore)
+	if !ok {
+		return nil, nil
+	}
 	return production.PublishPendingProductionOutbox(production.ProductionOutboxPublishInput{
-		Store:       runtime.Settlements,
+		Store:       store,
 		Limit:       limit,
 		ClaimedAt:   claimedAt,
 		CompletedAt: completedAt,
@@ -237,8 +245,12 @@ func (runtime *Runtime) publishPendingBuildingMutationDurableOutbox(
 	if runtime.BuildingMutations == nil {
 		return nil, nil
 	}
+	store, ok := runtime.BuildingMutations.(production.ProductionOutboxPublisherStore)
+	if !ok {
+		return nil, nil
+	}
 	return production.PublishPendingProductionOutbox(production.ProductionOutboxPublishInput{
-		Store:       runtime.BuildingMutations,
+		Store:       store,
 		Limit:       limit,
 		ClaimedAt:   claimedAt,
 		CompletedAt: completedAt,
@@ -282,8 +294,12 @@ func (runtime *Runtime) releaseExpiredClaimDurableOutboxLeases(
 	if runtime.ClaimLifecycles == nil {
 		return nil, nil
 	}
+	store, ok := runtime.ClaimLifecycles.(discovery.ClaimOutboxLeaseReaperStore)
+	if !ok {
+		return nil, nil
+	}
 	return discovery.ReleaseExpiredClaimOutboxLeases(discovery.ClaimOutboxLeaseReleaseInput{
-		Store:         runtime.ClaimLifecycles,
+		Store:         store,
 		Limit:         limit,
 		ClaimedBefore: claimedBefore,
 		ReleasedAt:    releasedAt,
@@ -301,8 +317,12 @@ func (runtime *Runtime) releaseExpiredSettlementDurableOutboxLeases(
 	if runtime.Settlements == nil {
 		return nil, nil
 	}
+	store, ok := runtime.Settlements.(production.ProductionOutboxLeaseReaperStore)
+	if !ok {
+		return nil, nil
+	}
 	return production.ReleaseExpiredProductionOutboxLeases(production.ProductionOutboxLeaseReleaseInput{
-		Store:         runtime.Settlements,
+		Store:         store,
 		Limit:         limit,
 		ClaimedBefore: claimedBefore,
 		ReleasedAt:    releasedAt,
@@ -320,8 +340,12 @@ func (runtime *Runtime) releaseExpiredBuildingMutationDurableOutboxLeases(
 	if runtime.BuildingMutations == nil {
 		return nil, nil
 	}
+	store, ok := runtime.BuildingMutations.(production.ProductionOutboxLeaseReaperStore)
+	if !ok {
+		return nil, nil
+	}
 	return production.ReleaseExpiredProductionOutboxLeases(production.ProductionOutboxLeaseReleaseInput{
-		Store:         runtime.BuildingMutations,
+		Store:         store,
 		Limit:         limit,
 		ClaimedBefore: claimedBefore,
 		ReleasedAt:    releasedAt,
@@ -338,8 +362,12 @@ func (runtime *Runtime) retryFailedClaimDurableOutbox(
 	if runtime.ClaimLifecycles == nil {
 		return nil, nil
 	}
+	store, ok := runtime.ClaimLifecycles.(discovery.ClaimOutboxRetryStore)
+	if !ok {
+		return nil, nil
+	}
 	return discovery.RetryFailedClaimOutboxRows(discovery.ClaimOutboxRetryInput{
-		Store:     runtime.ClaimLifecycles,
+		Store:     store,
 		Limit:     limit,
 		RetriedAt: retriedAt,
 	})
@@ -355,8 +383,12 @@ func (runtime *Runtime) retryFailedSettlementDurableOutbox(
 	if runtime.Settlements == nil {
 		return nil, nil
 	}
+	store, ok := runtime.Settlements.(production.ProductionOutboxRetryStore)
+	if !ok {
+		return nil, nil
+	}
 	return production.RetryFailedProductionOutboxRows(production.ProductionOutboxRetryInput{
-		Store:     runtime.Settlements,
+		Store:     store,
 		Limit:     limit,
 		RetriedAt: retriedAt,
 	})
@@ -372,8 +404,12 @@ func (runtime *Runtime) retryFailedBuildingMutationDurableOutbox(
 	if runtime.BuildingMutations == nil {
 		return nil, nil
 	}
+	store, ok := runtime.BuildingMutations.(production.ProductionOutboxRetryStore)
+	if !ok {
+		return nil, nil
+	}
 	return production.RetryFailedProductionOutboxRows(production.ProductionOutboxRetryInput{
-		Store:     runtime.BuildingMutations,
+		Store:     store,
 		Limit:     limit,
 		RetriedAt: retriedAt,
 	})

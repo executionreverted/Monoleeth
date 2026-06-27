@@ -1,6 +1,6 @@
 # Road to v1 — Kalan İşler & Referanslar
 
-> Tarih: 2026-06-26 (güncellendi)
+> Tarih: 2026-06-27 (güncellendi)
 > Kaynak: `docs/road-to-v1/00-index.md` Progress Dashboard + her faz dosyası.
 > Aktif goal: `docs/road-to-v1/GOAL.md`
 
@@ -15,18 +15,18 @@
 | 05 | Map Worker Ownership & Concurrency | 2 | 🟡 In progress | 90% |
 | 06 | Movement, Combat & Death Correctness | 2 | ✅ Done | 100% |
 | 07 | Equipment & Progression Closure | 3 | ✅ Done | 100% |
-| 08 | Durable Planet, Production & Routes | 3 | 🟡 In progress | 50% |
+| 08 | Durable Planet, Production & Routes | 3 | 🟡 In progress | 80% |
 | 09 | CMS Completion & Balance Telemetry | 3 | ✅ Done | 100% |
-| 10 | Social MVP | 4 | ⬜ Not started | 0% |
+| 10 | Social MVP | 4 | 🟡 In progress | 50% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | ⬜ Not started | 0% |
 | 12 | DarkOrbit Flavor | 6 | ⬜ Not started | 0% |
 | 13 | Observability, Simulation & Release Gate | 4 | ⬜ Not started | 0% |
-| 14 | CMS Runtime Application & Content Safety | 3 | ⬜ Not started | 0% |
+| 14 | CMS Runtime Application & Content Safety | 3 | ✅ Done | 100% |
 | 15 | World Performance & AOI/Aggro Optimization | 4 | ⬜ Not started | 0% |
 | 16 | Production Config & Operational Hardening | 2 | ✅ Done | 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | ⬜ Not started | 0% |
 
-**Genel v1:** ~61%
+**Genel v1:** ~63%
 
 ---
 
@@ -54,7 +54,7 @@ taşımayı gerektiriyor → **P17'ye (Runtime Decomposition) ertelendi**.
 
 ---
 
-### 🟡 P08 — Durable Planet, Production & Routes (Wave 3, 50%)
+### 🟡 P08 — Durable Planet, Production & Routes (Wave 3, 80%)
 
 ✅ **DB engeli çözüldü (2026-06-26).** Durable store adapter'ları yazıldı:
 - `contentdb.ClaimDurableLifecycleStore` — claim lifecycle plan JSON, idempotent
@@ -65,15 +65,28 @@ taşımayı gerektiriyor → **P17'ye (Runtime Decomposition) ertelendi**.
   window lookups), idempotent replay, conflict rejection.
 - `contentdb.AutomationRouteDurableStore` — route CAS revision + reference-key
   dedup log + owner listing.
-- Migrations 0019/0020/0021, 13 Postgres smoke test (persist/duplicate/conflict
-  per store), foundation `Quantity`/`Money` JSON round-trip fix.
+- `contentdb.ClaimProductionInitializationDurableStore` — production-init plan
+  JSON, pending → complete advance, stale pending replay, pending-row filter,
+  conflict rejection.
+- Runtime core-store DB mode now wires these adapters into `Runtime` for claim
+  lifecycle, claim production-init, settlement, building mutation, and
+  automation route durable rows; dev/off mode keeps the safe in-memory fallback.
+- Claim/settlement/building durable outbox rows now support DB-backed
+  claim/publish/fail/lease-release/retry mutation so the existing tick-driven
+  drain can run against committed Postgres rows.
+- Migrations 0019/0020/0021/0022, Postgres smoke coverage (persist/duplicate/
+  conflict/advance/pending filter + DB-backed outbox publish), foundation
+  `Quantity`/`Money` JSON round-trip fix.
 
 Kalan (runtime seviyesi):
-- [ ] Runtime'ın 4 in-memory durable store field'ını DB-backed adapter'a
-  bağla (opsiyonel contentdb.Store varsa). Şu an in-memory default güvenli.
-- [ ] Scheduled outbox publisher + recovery worker (claim/production/route
-  outbox drain, tick-driven). Store reader interface'leri hazır.
-- [ ] Process-local idempotency map'leri DB-backed key'lerle değiştir.
+- [x] Runtime'ın 4 in-memory durable store field'ını DB-backed adapter'a bağla
+  (core-store DB mode); in-memory default dev/off fallback olarak kalır.
+- [x] Scheduled outbox publisher + recovery worker DB store contracts
+  (claim/production/route outbox drain, tick-driven).
+- [x] Process-local claim/settlement/building/route idempotency map'lerini
+  DB-backed key'lere bağla (core-store DB mode).
+- [ ] Restart-survival smoke: claim tek X Core consume, production window tek
+  sefer, route settlement tek sefer, recovery worker miss replay.
 
 **Smoke Tests:** claim tek X Core consume (restart sonrası), production window
 tek sefer, route settlement tek sefer, recovery worker miss replay, restart
@@ -98,21 +111,23 @@ CMS publish → canlı runtime'a yansıtma veya dürüstçe `pending_restart` ra
 HI-02 ve HI-08 kapatıldı.
 
 - [x] `[P:wave3/lane-H]` Runtime content version pointer + apply path (atomic
-  swap for safe-reload content classes).
+  swap path for explicitly safe-reload content classes).
 - [x] `[P:wave3/lane-H]` Publish response report `runtime_applied`,
   `runtime_version`, `published_version`.
-- [x] `[P:wave3/lane-H]` Classify content: safe-live-reload vs requires-restart
-  vs requires-migration.
+- [x] `[P:wave3/lane-H]` Classify content: safe-live-reload vs requires-restart.
+  Current changed gameplay content types are conservative `restart_required`
+  until all boot-wired read models can hot-swap together.
 - [x] `[P:wave3/lane-I]` Active-reference readers: market listings, equipped
   modules, loot drops, NPC templates, routes, shop locks (equipped-module oku;
   gerisi aynı seam ile genişletilebilir).
 - [x] `[P:wave3/lane-I]` Block/flag publish when a changed id has active
   references that require quiescence.
 
-**Smoke Tests:** safe-reload field reflected without restart; restart-required
-field returns `runtime_applied=false` + `pending_restart`; publish blocked when
-changed module id actively equipped; publish response reports published vs
-runtime version honestly. (Tümü green.)
+**Smoke Tests:** safe-reload apply path reflects catalog when explicitly safe;
+changed boot-wired content returns `runtime_applied=false` + `pending_restart`;
+rollback uses same publish safety; publish blocked when changed module id is
+actively equipped; publish response reports published vs runtime version
+honestly. (Green.)
 
 **Referanslar:**
 - `docs/road-to-v1/14-cms-runtime-application-content-safety.md`
@@ -124,22 +139,30 @@ runtime version honestly. (Tümü green.)
 
 ---
 
-### ⬜ P10 — Social MVP (Chat, Party, Clan) (Wave 4, 0%)
+### 🟡 P10 — Social MVP (Chat, Party, Clan) (Wave 4, 50%)
 
-- [ ] `[P:wave4/lane-A]` Chat send + channel resolution server-side; enforce
-  `chat.send` rate limit.
-- [ ] `[P:wave4/lane-A]` Chat moderation hooks + redaction/logging policy.
-- [ ] `[P:wave4/lane-B]` Party invite/accept/leave with server-owned membership.
-- [ ] `[P:wave4/lane-B]` Party shared-target + contribution event foundation.
-- [ ] `[P:wave4/lane-C]` Clan create/join/leave + ranks + tag (durable rows).
-- [ ] `[P:wave4/lane-C]` Clan chat channel bound to clan membership.
+✅ Domain package exists: `internal/game/social/`.
+
+- [x] Chat service domain: server-resolved channels, moderation hook seam,
+  rate-limit seam + default cooldown, in-memory message store.
+- [x] Party service domain: create/invite/accept/leave, leader transfer,
+  server-owned membership.
+- [x] Clan service domain: create/join/leave, owner rank, membership store,
+  clan-chat membership list.
+- [x] Channel membership resolver: local-map, party, clan, system channel
+  routing.
+- [ ] Wire realtime ops/events: `chat.send`, `party.invite`, `party.accept`,
+  `party.leave`, `clan.create`, `clan.join`, `clan.leave`.
+- [ ] Durable clan rows + durable/social read models. Current clan store is
+  process-local.
+- [ ] Party shared-target + contribution event foundation.
 - [ ] `[P:wave4/lane-A]` Client: chat panel + party panel + clan panel (real
   state only).
 
 **Referanslar:**
 - `docs/road-to-v1/10-social-mvp.md`
 - `docs/code-review/feature-gap-analysis.md` (§social)
-- Henüz domain kodu yok — yeni paket gerekiyor (`internal/game/social/`).
+- `internal/game/social/`
 
 ---
 
@@ -219,8 +242,8 @@ P07 + P11 dependency. Drones, P.E.T., ammo, honor (en az MVP).
 ```text
 Wave 1: P01 ✅ | P03 ✅ | P04 ✅
 Wave 2: P02 ✅ | P05 🟡(90%, P17'ye ertelendi) | P06 ✅ | P16 ✅
-Wave 3: P07 ✅ | P08 ⬜ | P09 ✅ | P14 ✅
-Wave 4: P10 ⬜ | P13 ⬜ | P15 ⬜
+Wave 3: P07 ✅ | P08 🟡 | P09 ✅ | P14 ✅
+Wave 4: P10 🟡 | P13 ⬜ | P15 ⬜
 Wave 5: P11 ⬜
 Wave 6: P12 ⬜ | P17 ⬜(continuous)
 ```
@@ -234,5 +257,12 @@ Wave 6: P12 ⬜ | P17 ⬜(continuous)
 2. **P05→P17**: Deep mu narrowing Runtime decomposition gerektiriyor, Wave 6'ya
    ait. Risk düşük (tick serialization zaten çözüldü, command-handler lock
    microsecond-scale, I/O yok).
-3. **Mevcut blocker yok:** P08 (DB artık açık), P14, P10, P13, P15 hepsi
+3. **P14 offline active-reference gap:** Equipped-module safety currently reads
+   runtime-known players. Durable/offline loadout-wide reader remains P17/P14
+   follow-up before "all offline loadouts protected" claim.
+4. **P07/P02 shop transaction gap:** non-starter ship shop buy path still needs
+   single transaction boundary for wallet debit + hangar grant + idempotency.
+5. **P09/P13 release gate gap:** balance telemetry helper exists; release-gate
+   integration still belongs to P13.
+6. **Mevcut blocker yok:** P08 runtime wiring, P10 realtime/client, P13, P15
    çalışmaya hazır.
