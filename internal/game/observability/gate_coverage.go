@@ -333,6 +333,7 @@ var phase12ReleaseModuleProfiles = []releaseModuleProfile{
 		evidence("gameproject/internal/game/observability", "TestMetricHelpersRecordPhase12Series", "observability metric helper unit coverage exists"),
 		satisfied(
 			evidence("gameproject/internal/game/observability/simulations", "TestCombatLootSimulationIsDeterministicAcrossRuns", "combat/loot simulation summary is deterministic across identical runs"),
+			evidence("gameproject/internal/game/observability/simulations", "TestEconomySimulationReportsBalancedSourceSinkForOneScenario", "economy simulation reports a balanced source/sink item flow for one scenario"),
 			evidence("gameproject/internal/game/observability/simulations", "TestRouteSettlementSimulationTracksLossAndDuplicateNoOps", "simulation layer covers duplicate-safe route settlement accounting"),
 		),
 		satisfied(evidence("gameproject/internal/game/observability", "TestPhase12AbuseTestCoverageCoversRequiredCases", "abuse coverage report covers every required Phase 12 abuse case")),

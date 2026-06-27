@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"gameproject/internal/game/economy"
 	"gameproject/internal/game/observability"
 	"gameproject/internal/game/observability/simulations"
 	"gameproject/internal/game/production"
@@ -47,6 +48,23 @@ func TestPlanetSettlementSimulationTracksOfflineProductionAndDuplicateNoOps(t *t
 	}
 	if got := sumCounter(summary.MetricSnapshot, observability.MetricPlanetSettlements); got != 8 {
 		t.Fatalf("planet settlement counter = %d, want 8", got)
+	}
+}
+
+func TestEconomySimulationReportsBalancedSourceSinkForOneScenario(t *testing.T) {
+	summary, err := simulations.RunPlanetSettlementSimulation(simulations.PlanetSettlementSimulationConfig{
+		Planets:         1,
+		OfflineDuration: time.Hour,
+		StartTime:       time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("RunPlanetSettlementSimulation() error = %v", err)
+	}
+
+	source := itemFlowTotal(summary.FlowSnapshot.ItemFaucets, "iron_ore", simulations.ReasonPlanetProduction)
+	sink := itemFlowTotal(summary.FlowSnapshot.ItemSinks, "iron_ore", simulations.ReasonPlanetProduction)
+	if source == 0 || source != sink {
+		t.Fatalf("iron_ore source/sink = %d/%d, want nonzero balanced flow", source, sink)
 	}
 }
 
@@ -97,6 +115,16 @@ func TestRouteSettlementSimulationTracksLossAndDuplicateNoOps(t *testing.T) {
 	if got := sumCounter(summary.MetricSnapshot, observability.MetricRouteSettlements); got != 8 {
 		t.Fatalf("route settlement counter = %d, want 8", got)
 	}
+}
+
+func itemFlowTotal(flows []observability.ItemFlowSummary, itemID string, reason economy.LedgerReason) int64 {
+	var total int64
+	for _, flow := range flows {
+		if flow.ItemID.String() == itemID && flow.Reason == reason {
+			total += flow.Total
+		}
+	}
+	return total
 }
 
 func TestProductionRouteSettlementSimulationsRejectInvalidConfig(t *testing.T) {

@@ -7,11 +7,17 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [x] P13: prove one economy simulation balance scenario. The
+  planet-production simulation now has a focused smoke proving one scenario
+  reports a nonzero balanced source/sink item flow, and release-gate module 16
+  evidence references that proof. Load harness, race evidence, OTel traces, and
+  the final green release gate remain open in
+  `docs/road-to-v1/13-observability-simulation-release.md`.
 - [x] P13: prove combat/loot simulation determinism. The combat/loot simulation
   now has a focused smoke proving identical summaries across two identical
   runs, and release-gate module 16 evidence references that deterministic proof.
-  Economy simulation, load harness, race evidence, OTel traces, and the final
-  green release gate remain open in
+  Remaining deterministic production/route coverage, load harness, race
+  evidence, OTel traces, and the final green release gate remain open in
   `docs/road-to-v1/13-observability-simulation-release.md`.
 - [x] P13: expose runtime metrics through a Prometheus-compatible endpoint.
   `GET /metrics` now renders `MetricRecorder` counters/gauges/duration
