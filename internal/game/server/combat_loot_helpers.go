@@ -55,12 +55,15 @@ func (runtime *Runtime) validateShipCanActLocked(playerID foundation.PlayerID) e
 }
 
 func (runtime *Runtime) syncPlayerCombatActorLocked(playerID foundation.PlayerID) (combat.ActorState, error) {
+	if err := runtime.refreshPlayerMovementPositionLocked(playerID); err != nil {
+		return combat.ActorState{}, err
+	}
+	if err := runtime.refreshPlayerCapacitorLocked(playerID); err != nil {
+		return combat.ActorState{}, err
+	}
 	state, ok := runtime.players[playerID]
 	if !ok {
 		return combat.ActorState{}, worker.ErrUnknownPlayer
-	}
-	if err := runtime.refreshPlayerMovementPositionLocked(playerID); err != nil {
-		return combat.ActorState{}, err
 	}
 	instance, _, err := runtime.activeMapInstanceLocked(playerID)
 	if err != nil {
@@ -108,6 +111,59 @@ func (runtime *Runtime) syncPlayerCombatActorLocked(playerID foundation.PlayerID
 		return combat.ActorState{}, err
 	}
 	return actor, nil
+}
+
+func (runtime *Runtime) refreshPlayerCapacitorLocked(playerID foundation.PlayerID) error {
+	state, ok := runtime.players[playerID]
+	if !ok {
+		return worker.ErrUnknownPlayer
+	}
+	now := runtime.clock.Now()
+	if runtime.capacitorRefreshes == nil {
+		runtime.capacitorRefreshes = make(map[foundation.PlayerID]time.Time)
+	}
+	last, hasLast := runtime.capacitorRefreshes[playerID]
+	runtime.capacitorRefreshes[playerID] = now
+	if !hasLast || !now.After(last) || state.Ship.Disabled || state.Ship.Capacitor >= state.Ship.MaxCapacitor {
+		return nil
+	}
+	statSnapshot, err := runtime.playerCombatStatsLocked(playerID, state)
+	if err != nil {
+		return err
+	}
+	regen := statSnapshot.Stats.Core.EnergyRegen
+	if regen <= 0 || math.IsNaN(regen) || math.IsInf(regen, 0) {
+		return nil
+	}
+	next := float64(state.Ship.Capacitor) + regen*now.Sub(last).Seconds()
+	if maxCapacitor := float64(state.Ship.MaxCapacitor); next > maxCapacitor {
+		next = maxCapacitor
+	}
+	state.Ship.Capacitor = roundCombatValue(next)
+	runtime.players[playerID] = state
+	return nil
+}
+
+func (runtime *Runtime) projectedPlayerCapacitorLocked(playerID foundation.PlayerID, state playerRuntimeState) (int, error) {
+	projected := state.Ship.Capacitor
+	last, hasLast := runtime.capacitorRefreshes[playerID]
+	now := runtime.clock.Now()
+	if !hasLast || !now.After(last) || state.Ship.Disabled || state.Ship.Capacitor >= state.Ship.MaxCapacitor {
+		return projected, nil
+	}
+	statSnapshot, err := runtime.playerCombatStatsLocked(playerID, state)
+	if err != nil {
+		return projected, err
+	}
+	regen := statSnapshot.Stats.Core.EnergyRegen
+	if regen <= 0 || math.IsNaN(regen) || math.IsInf(regen, 0) {
+		return projected, nil
+	}
+	next := float64(state.Ship.Capacitor) + regen*now.Sub(last).Seconds()
+	if maxCapacitor := float64(state.Ship.MaxCapacitor); next > maxCapacitor {
+		next = maxCapacitor
+	}
+	return roundCombatValue(next), nil
 }
 
 func (runtime *Runtime) syncWorldCombatActorLocked(playerID foundation.PlayerID, entityID world.EntityID) error {

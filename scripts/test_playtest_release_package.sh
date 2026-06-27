@@ -70,6 +70,16 @@ if ! grep -q 'GAME_ALLOWED_ORIGINS' "$release_dir/run.sh"; then
   exit 1
 fi
 
+if grep -q 'GAME_DEV_MODE.*:-true' "$release_dir/run.sh"; then
+  echo "expected run.sh not to default GAME_DEV_MODE on packaged releases" >&2
+  exit 1
+fi
+
+if ! grep -q 'GAME_DEV_MODE=true' "$release_dir/README.md"; then
+  echo "expected README to document explicit local no-DB dev-mode opt-in" >&2
+  exit 1
+fi
+
 (
   cd client
   GAME_ARTIFACT_SCAN_ROOTS="$release_dir/client-dist" node tests/bundle-scan.mjs >/dev/null

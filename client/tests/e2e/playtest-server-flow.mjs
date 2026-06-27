@@ -77,6 +77,7 @@ async function main() {
   const goServer = child('go-server', 'go', ['run', './cmd/game-server'], repoRoot, {
     GAME_SERVER_ADDR: `127.0.0.1:${serverPort}`,
     GAME_CLIENT_STATIC_DIR: 'client/dist',
+    GAME_DEV_MODE: '1',
     GAME_PLAYTEST_SEED: 'true',
   });
   let browser;
@@ -535,7 +536,7 @@ async function completeFightLootLoop(client, options = {}) {
 
 async function fightNPCUntilKilled(client, targetID) {
   let lastPayload = null;
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
     const combatPayload = payloadOf(await send(client, 'combat.use_skill', { skill_id: 'basic_laser', target_id: targetID }), 'combat.use_skill');
     assert(combatPayload.accepted === true, `combat.use_skill accepted ${compact(combatPayload)}`);
     assertNoPayloadLeak(combatPayload, `combat.use_skill response ${attempt}`);

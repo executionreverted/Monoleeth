@@ -157,6 +157,7 @@ type Runtime struct {
 	pendingRespawns    map[foundation.PlayerID]pendingRespawnTarget
 	combatLocks        map[foundation.PlayerID]time.Time
 	shieldRepairTicks  map[foundation.PlayerID]time.Time
+	capacitorRefreshes map[foundation.PlayerID]time.Time
 
 	nextPlayerEntity int
 
@@ -1401,6 +1402,7 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 		pendingRespawns:                make(map[foundation.PlayerID]pendingRespawnTarget),
 		combatLocks:                    make(map[foundation.PlayerID]time.Time),
 		shieldRepairTicks:              make(map[foundation.PlayerID]time.Time),
+		capacitorRefreshes:             make(map[foundation.PlayerID]time.Time),
 		Combat:                         combatService,
 		Death:                          deathService,
 		Loot:                           lootService,

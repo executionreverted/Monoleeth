@@ -104,6 +104,7 @@ async function main() {
   const goEnv = {
     GAME_SERVER_ADDR: `127.0.0.1:${serverPort}`,
     GAME_ALLOWED_ORIGINS: clientOrigin,
+    GAME_DEV_MODE: '1',
   };
   if (useBuiltClientServer) {
     goEnv.GAME_CLIENT_STATIC_DIR = 'client/dist';

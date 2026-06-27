@@ -900,6 +900,9 @@ export interface RepairQuote {
   currency: string;
   cost: number;
   disabled: boolean;
+  quote_id: string;
+  issued_at_ms: number;
+  expires_at_ms: number;
 }
 
 export interface MapBounds {

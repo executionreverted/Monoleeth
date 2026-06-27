@@ -13,7 +13,7 @@ private test-server operations, see `docs/test-server-operations.md`.
 From the repo root:
 
 ```bash
-go run ./cmd/game-server
+GAME_DEV_MODE=1 go run ./cmd/game-server
 ```
 
 The default server address is `:8080`, and the default allowed browser origins
@@ -24,6 +24,7 @@ Useful local overrides:
 ```bash
 GAME_SERVER_ADDR=127.0.0.1:8080 \
 GAME_ALLOWED_ORIGINS=http://127.0.0.1:5173 \
+GAME_DEV_MODE=1 \
 go run ./cmd/game-server
 ```
 
@@ -33,6 +34,7 @@ Optional local admin seed:
 GAME_ADMIN_EMAIL=admin@example.com \
 GAME_ADMIN_PASSWORD='replace-with-local-secret' \
 GAME_ADMIN_CALLSIGN=Admin \
+GAME_DEV_MODE=1 \
 go run ./cmd/game-server
 ```
 
@@ -54,9 +56,9 @@ http://127.0.0.1:8080
 ```
 
 The script runs `npm --prefix client run build`, sets
-`GAME_CLIENT_STATIC_DIR=client/dist` and `GAME_PLAYTEST_SEED=true`, scans the
-built bundle for fixture/server-only leak tokens, then starts
-`go run ./cmd/game-server`.
+`GAME_CLIENT_STATIC_DIR=client/dist`, `GAME_DEV_MODE=true`, and
+`GAME_PLAYTEST_SEED=true`, scans the built bundle for fixture/server-only leak
+tokens, then starts `go run ./cmd/game-server`.
 Override the bind address or static dir when needed:
 
 ```bash
@@ -74,6 +76,10 @@ setup. Disable it with:
 ```bash
 GAME_PLAYTEST_SEED=false scripts/run_playtest_server.sh
 ```
+
+`GAME_DEV_MODE=true` is the no-DB local/playtest path. For durable local runs,
+start Postgres and provide `GAME_CONTENT_DATABASE_URL`,
+`GAME_CONTENT_MODE=required`, and `GAME_CORE_STORE_MODE=required` instead.
 
 For CI or deploy artifact preparation, run the same build and artifact scan
 without starting the long-running server:
@@ -227,13 +233,13 @@ npm --cache /tmp/gameproject-npm-cache --prefix client run e2e:playtest-server
 ```
 
 That proof builds `client/dist`, starts `cmd/game-server` with
-`GAME_CLIENT_STATIC_DIR=client/dist` and `GAME_PLAYTEST_SEED=true`, registers a
-real browser user from the served app, verifies the playtest onboarding seed,
-completes a starter NPC fight and loot pickup, clicks the real HUD scanner and
-planet claim controls, verifies X Core consumption plus production
-initialization, clicks real HUD route create/settle controls, then transfers
-through `east_gate` to public `1-2` and completes a destination-map NPC fight
-and loot pickup without Vite.
+`GAME_CLIENT_STATIC_DIR=client/dist`, `GAME_DEV_MODE=1`, and
+`GAME_PLAYTEST_SEED=true`, registers a real browser user from the served app,
+verifies the playtest onboarding seed, completes a starter NPC fight and loot
+pickup, clicks the real HUD scanner and planet claim controls, verifies X Core
+consumption plus production initialization, clicks real HUD route create/settle
+controls, then transfers through `east_gate` to public `1-2` and completes a
+destination-map NPC fight and loot pickup without Vite.
 
 Run the single-process built-client PvP/death/repair proof explicitly:
 

@@ -74,10 +74,12 @@ fi
 
 export GAME_CLIENT_STATIC_DIR="${GAME_CLIENT_STATIC_DIR:-client/dist}"
 export GAME_SERVER_ADDR="${GAME_SERVER_ADDR:-127.0.0.1:8080}"
+export GAME_DEV_MODE="${GAME_DEV_MODE:-true}"
 export GAME_PLAYTEST_SEED="${GAME_PLAYTEST_SEED:-true}"
 
 echo "Playtest client: http://${GAME_SERVER_ADDR}"
 echo "Static dir: ${GAME_CLIENT_STATIC_DIR}"
+echo "Dev mode: ${GAME_DEV_MODE}"
 echo "Playtest seed: ${GAME_PLAYTEST_SEED}"
 if [[ -n "${GAME_PLAYTEST_PUBLISHED_ARTIFACT_DIR:-}" ]]; then
   echo "Published artifact dir: ${published_artifact_dir}"

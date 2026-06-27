@@ -42,6 +42,10 @@ Start a playable local test server:
 scripts/run_playtest_server.sh
 ```
 
+The script uses `GAME_DEV_MODE=true` by default so no-DB playtest runs can load
+static content and process-local stores. Durable test servers should override
+that with explicit Postgres content/core-store env.
+
 Build and scan the deployable artifact without starting the server:
 
 ```bash
@@ -125,6 +129,10 @@ diff -u docs/ci/playtest-artifact-gate-github-actions.yml .github/workflows/play
 Full local vertical-slice gate:
 
 ```text
+2026-06-27: scripts/verify_playtest_vertical_slice.sh passed after refreshing
+the no-DB playtest env (`GAME_DEV_MODE=true`), runtime passive capacitor
+recovery, quote-bound repair smoke payloads, and current NPC durability retry
+budgets.
 2026-06-24: scripts/verify_playtest_vertical_slice.sh passed.
 2026-06-24: scripts/verify_playtest_vertical_slice.sh passed again on the
 post-shield-repair/package/entity-asset-guard candidate.

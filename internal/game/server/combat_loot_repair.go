@@ -429,7 +429,7 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 		return nil, err
 	}
 	shipID := foundation.ShipID(state.Ship.ActiveShipID)
-	if err := runtime.requireHangarShipDisabledForRepairLocked(ctx.PlayerID, shipID); err != nil {
+	if err := runtime.ensureHangarShipDisabledForRepairLocked(ctx.PlayerID, shipID); err != nil {
 		return nil, err
 	}
 	if quote.Cost > 0 {
@@ -500,7 +500,7 @@ func (runtime *Runtime) handleDeathRepairShip(ctx realtime.CommandContext, reque
 	})
 }
 
-func (runtime *Runtime) requireHangarShipDisabledForRepairLocked(playerID foundation.PlayerID, shipID foundation.ShipID) error {
+func (runtime *Runtime) ensureHangarShipDisabledForRepairLocked(playerID foundation.PlayerID, shipID foundation.ShipID) error {
 	hangar, err := runtime.Hangar.GetHangar(playerID)
 	if err != nil {
 		return domainErrorForHangar(err)
@@ -510,7 +510,13 @@ func (runtime *Runtime) requireHangarShipDisabledForRepairLocked(playerID founda
 			continue
 		}
 		if playerShip.State != ships.ShipStateDisabled {
-			return foundation.NewDomainError(foundation.CodeShipDisabled, "Ship is not disabled.", foundation.WithCause(ships.ErrShipNotDisabled))
+			disabled, err := runtime.Hangar.DisableActiveShipForDeath(ships.DisableActiveShipForDeathInput{PlayerID: playerID})
+			if err != nil {
+				return domainErrorForHangar(err)
+			}
+			if disabled.PlayerShip.ShipID != shipID || disabled.PlayerShip.State != ships.ShipStateDisabled {
+				return foundation.NewDomainError(foundation.CodeShipDisabled, "Ship is not disabled.", foundation.WithCause(ships.ErrShipNotDisabled))
+			}
 		}
 		return nil
 	}

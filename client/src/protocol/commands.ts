@@ -6,6 +6,16 @@ type AdminContentJSON = JsonObject;
 
 export type RouteDestinationType = 'planet' | 'storage' | 'station';
 
+export interface DeathRepairShipQuoteInput extends JsonObject {
+  ship_id: string;
+  currency: string;
+  cost: number;
+  disabled: boolean;
+  quote_id: string;
+  issued_at_ms: number;
+  expires_at_ms: number;
+}
+
 export interface RouteDestinationInput {
   type: RouteDestinationType;
   id: string;
@@ -67,8 +77,8 @@ export class CommandBuilder {
     return this.build(OPERATIONS.deathRepairQuote, {});
   }
 
-  deathRepairShip(): RequestEnvelope<Record<string, never>> {
-    return this.build(OPERATIONS.deathRepairShip, {});
+  deathRepairShip(quote: DeathRepairShipQuoteInput): RequestEnvelope<DeathRepairShipQuoteInput> {
+    return this.build(OPERATIONS.deathRepairShip, quote);
   }
 
   progressionSnapshot(): RequestEnvelope<Record<string, never>> {

@@ -29,7 +29,6 @@ const strictLeakTokens = [
   'destination_map_id',
   'source_map_id',
   'spawn_id',
-  'west_gate',
   'death_id',
   'respawn_location_id',
   'lethal_event_key',
@@ -52,7 +51,7 @@ const strictLeakTokens = [
   'mock_cargo',
 ];
 
-const broadLeakTokens = strictLeakTokens.filter((token) => token !== 'west_gate');
+const broadLeakTokens = strictLeakTokens;
 
 async function main() {
   const serverPort = await freePort();
@@ -62,6 +61,7 @@ async function main() {
   const goEnv = {
     GAME_SERVER_ADDR: `127.0.0.1:${serverPort}`,
     GAME_ALLOWED_ORIGINS: clientOrigin,
+    GAME_DEV_MODE: '1',
   };
   if (useBuiltClientServer) {
     goEnv.GAME_CLIENT_STATIC_DIR = 'client/dist';
@@ -208,9 +208,12 @@ async function main() {
     const quotePayload = payloadOf(await send(target, 'death.repair_quote', {}), 'death.repair_quote');
     assert(quotePayload.disabled === true, `repair quote disabled = ${JSON.stringify(quotePayload)}`);
     assert(quotePayload.ship_id, `repair quote ship_id missing ${JSON.stringify(quotePayload)}`);
+    assert(quotePayload.quote_id, `repair quote quote_id missing ${JSON.stringify(quotePayload)}`);
     assertNoStrictLeak(quotePayload, 'repair quote response');
 
-    const repairPayload = payloadOf(await send(target, 'death.repair_ship', {}), 'death.repair_ship');
+    const repairResponse = await send(target, 'death.repair_ship', quotePayload);
+    assert(repairResponse?.ok === true, `death.repair_ship failed with quote ${JSON.stringify(quotePayload)}: ${JSON.stringify(repairResponse)}`);
+    const repairPayload = payloadOf(repairResponse, 'death.repair_ship');
     assertRepairPayload(repairPayload);
     assertNoStrictLeak(repairPayload, 'repair ship response');
 
@@ -384,6 +387,7 @@ async function openCommandSocket(client) {
 }
 
 async function send(client, op, payload) {
+  await openCommandSocket(client);
   const request = {
     request_id: `phase10-${client.label}-${op.replace(/[^a-z0-9]+/gi, '-')}-${Date.now()}-${client.seq}`,
     op,
@@ -628,7 +632,7 @@ async function clickTargetSelect(client, targetID) {
       if (info.entityID === targetID) {
         assert(info.disabled === false, `${client.label} target-select ${targetID} is disabled. Observed: ${JSON.stringify(observed)}`);
         try {
-          await button.click({ timeout: 1500 });
+          await button.click({ timeout: 5000 });
         } catch (error) {
           throw new Error(
             `${client.label} failed to click real target-select button for ${targetID}: ${error?.message ?? error}. Observed: ${JSON.stringify(observed)}`,

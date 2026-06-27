@@ -406,5 +406,8 @@ export function parseRepairQuote(payload: JsonObject, fallback: RepairQuote | nu
     currency: stringField(payload, 'currency') ?? fallback?.currency ?? 'credits',
     cost: Math.max(0, Math.round(numberField(payload, 'cost') ?? fallback?.cost ?? 0)),
     disabled: booleanField(payload, 'disabled') ?? fallback?.disabled ?? false,
+    quote_id: stringField(payload, 'quote_id') ?? fallback?.quote_id ?? '',
+    issued_at_ms: Math.max(0, Math.round(numberField(payload, 'issued_at_ms') ?? fallback?.issued_at_ms ?? 0)),
+    expires_at_ms: Math.max(0, Math.round(numberField(payload, 'expires_at_ms') ?? fallback?.expires_at_ms ?? 0)),
   };
 }

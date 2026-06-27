@@ -743,7 +743,15 @@ describe('actionBar', () => {
             disabled: true,
             repair_state: 'disabled',
           },
-          repair_quote: { ship_id: 'starter', cost: 15, currency: 'credits', disabled: true },
+          repair_quote: {
+            ship_id: 'starter',
+            cost: 15,
+            currency: 'credits',
+            disabled: true,
+            quote_id: 'quote-1',
+            issued_at_ms: 1000,
+            expires_at_ms: 61000,
+          },
         },
         server_time: 20_000,
         seq: 10,
@@ -775,7 +783,15 @@ describe('actionBar', () => {
       disabled: true,
       repair_state: 'repair_pending',
     };
-    state.repairQuote = { ship_id: 'starter', cost: 15, currency: 'credits', disabled: true };
+    state.repairQuote = {
+      ship_id: 'starter',
+      cost: 15,
+      currency: 'credits',
+      disabled: true,
+      quote_id: 'quote-1',
+      issued_at_ms: 1000,
+      expires_at_ms: 61000,
+    };
 
     const barHTML = actionBar(state, 20_000);
     const laserSlot = actionSlot(barHTML, 'laser');

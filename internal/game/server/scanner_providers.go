@@ -135,6 +135,9 @@ func (runtime *Runtime) spendScannerCapacitorLocked(input discovery.ScannerCoold
 		return nil
 	}
 
+	if err := runtime.refreshPlayerCapacitorLocked(input.PlayerID); err != nil {
+		return err
+	}
 	state, ok := runtime.players[input.PlayerID]
 	if !ok {
 		return worker.ErrUnknownPlayer
@@ -184,7 +187,11 @@ func (provider runtimeScannerEnergyProvider) CheckScanEnergy(input discovery.Sca
 	if !ok {
 		return discovery.ScannerEnergyResult{}, worker.ErrUnknownPlayer
 	}
-	accepted := !state.Ship.Disabled && state.Ship.Capacitor >= provider.runtime.starterContent.ScannerEnergyCost
+	projectedCapacitor, err := provider.runtime.projectedPlayerCapacitorLocked(input.PlayerID, state)
+	if err != nil {
+		return discovery.ScannerEnergyResult{}, err
+	}
+	accepted := !state.Ship.Disabled && projectedCapacitor >= provider.runtime.starterContent.ScannerEnergyCost
 	return discovery.ScannerEnergyResult{Accepted: accepted}, nil
 }
 

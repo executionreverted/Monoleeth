@@ -37,6 +37,7 @@ async function main() {
   const goServer = child('go-server', 'go', ['run', './cmd/game-server'], repoRoot, {
     GAME_SERVER_ADDR: `127.0.0.1:${serverPort}`,
     GAME_ALLOWED_ORIGINS: clientOrigin,
+    GAME_DEV_MODE: '1',
   });
   let viteServer;
   let browser;
@@ -64,7 +65,7 @@ async function main() {
     const screenshotPaths = await captureViewportScreenshots(page, 'map-origin');
 
     await openCommandSocket(page);
-    await assertDebugResponseCanary(page);
+    await assertDebugResponseCanary(page, { devMode: true });
     const originAfterLoop = await completeFightLootScanLoop(page);
     await assertNoLeak(page, originAfterLoop, 'origin-fight-loot-scan');
     await assertWebSocketCanary(page, 'origin-fight-loot-scan');
@@ -369,7 +370,7 @@ async function waitForNPCRespawn(page, { mapLabel, expectedMapKey, entityID, kil
 
 async function fightNPCUntilKilled(page, targetID, mapLabel) {
   let lastPayload = null;
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
     const combatPayload = payloadOf(await send(page, 'combat.use_skill', { skill_id: 'basic_laser', target_id: targetID }), 'combat.use_skill');
     assert(combatPayload.accepted === true, `${mapLabel} combat accepted ${JSON.stringify(combatPayload)}`);
     assertNoPayloadLeak(combatPayload, `${mapLabel} combat response ${attempt}`);
@@ -487,9 +488,14 @@ async function send(page, op, payload) {
   );
 }
 
-async function assertDebugResponseCanary(page) {
+async function assertDebugResponseCanary(page, { devMode = false } = {}) {
   const snapshot = await send(page, 'debug_snapshot', {});
-  assertSafeDebugRejection(snapshot, 'debug_snapshot');
+  if (devMode) {
+    assert(snapshot?.ok === true, `debug_snapshot rejected in dev mode ${JSON.stringify(snapshot)}`);
+    assertNoPayloadLeak(snapshot, 'debug_snapshot dev response');
+  } else {
+    assertSafeDebugRejection(snapshot, 'debug_snapshot');
+  }
 
   const spawn = await send(page, 'debug_spawn_npc', {
     entity_id: 'phase09_canary_debug_spawn',

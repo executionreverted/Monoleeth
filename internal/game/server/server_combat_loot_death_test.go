@@ -621,6 +621,29 @@ func TestCombatRejectsHiddenOutOfRangeAndDisabledWithoutEnergySpend(t *testing.T
 		}
 	})
 }
+
+func TestRuntimeRefreshesCapacitorBeforeCombatActorSync(t *testing.T) {
+	gameServer, httpServer, clock := newTestServerWithFakeClock(t)
+	defer httpServer.Close()
+
+	resolved := createResolvedRuntimeSession(t, gameServer, "capacitor-refresh@example.com", "Capacitor Refresh")
+	gameServer.runtime.mu.Lock()
+	state := gameServer.runtime.players[resolved.PlayerID]
+	state.Ship.Capacitor = 4
+	gameServer.runtime.players[resolved.PlayerID] = state
+	gameServer.runtime.capacitorRefreshes[resolved.PlayerID] = clock.Now()
+	clock.Advance(5 * time.Second)
+	actor, err := gameServer.runtime.syncPlayerCombatActorLocked(resolved.PlayerID)
+	refreshed := gameServer.runtime.players[resolved.PlayerID].Ship.Capacitor
+	gameServer.runtime.mu.Unlock()
+	if err != nil {
+		t.Fatalf("syncPlayerCombatActorLocked() error = %v, want nil", err)
+	}
+	if refreshed <= 4 || actor.Energy != float64(refreshed) {
+		t.Fatalf("refreshed capacitor = %d actor energy = %.0f, want passive recovery before combat sync", refreshed, actor.Energy)
+	}
+}
+
 func TestLootPickupRejectsOutOfRangeDropWithoutCargoMutation(t *testing.T) {
 	gameServer, httpServer := newTestServer(t, false)
 	defer httpServer.Close()

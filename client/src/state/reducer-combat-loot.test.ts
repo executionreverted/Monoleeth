@@ -310,7 +310,7 @@ describe('reduceClientState', () => {
     expect(withoutLootEntity.knownLoot['drop-1']).toBeUndefined();
     expect(withoutLootEntity.selectedTargetID).toBeNull();
     expect(progressed.progression).toMatchObject({ main_level: 2, rank: 2, combat_xp: 40 });
-    expect(quoted.repairQuote).toEqual({ ship_id: 'starter', cost: 0, currency: 'credits', disabled: true });
+    expect(quoted.repairQuote).toMatchObject({ ship_id: 'starter', cost: 0, currency: 'credits', disabled: true });
     expect(repaired.repairQuote).toBeNull();
   });
 
@@ -358,7 +358,15 @@ describe('reduceClientState', () => {
             disabled: true,
             repair_state: 'disabled',
           },
-          repair_quote: { ship_id: 'starter', cost: 15, currency: 'credits', disabled: true },
+          repair_quote: {
+            ship_id: 'starter',
+            cost: 15,
+            currency: 'credits',
+            disabled: true,
+            quote_id: 'quote-1',
+            issued_at_ms: 1000,
+            expires_at_ms: 61000,
+          },
           respawn_location_id: 'origin-station',
         },
         2,
@@ -371,7 +379,7 @@ describe('reduceClientState', () => {
       repair_state: 'disabled',
       hull: 0,
     });
-    expect(disabled.repairQuote).toEqual({ ship_id: 'starter', cost: 15, currency: 'credits', disabled: true });
+    expect(disabled.repairQuote).toMatchObject({ ship_id: 'starter', cost: 15, currency: 'credits', disabled: true });
     expect(disabled.combatLog.at(-1)?.text).toBe('Ship disabled.');
 
     const quoted = reduceClientState(disabled, {
@@ -379,12 +387,20 @@ describe('reduceClientState', () => {
       envelope: {
         request_id: 'repair-quote',
         ok: true,
-        payload: { ship_id: 'starter', cost: 15, currency: 'credits', disabled: true },
+        payload: {
+          ship_id: 'starter',
+          cost: 15,
+          currency: 'credits',
+          disabled: true,
+          quote_id: 'quote-2',
+          issued_at_ms: 1003,
+          expires_at_ms: 61003,
+        },
         server_time: 1003,
         v: 1,
       },
     });
 
-    expect(quoted.repairQuote).toEqual({ ship_id: 'starter', cost: 15, currency: 'credits', disabled: true });
+    expect(quoted.repairQuote).toMatchObject({ ship_id: 'starter', cost: 15, currency: 'credits', disabled: true });
   });
 });

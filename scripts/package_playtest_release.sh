@@ -120,7 +120,9 @@ Defaults:
 - GAME_CLIENT_STATIC_DIR=./client-dist
 - GAME_PLAYTEST_SEED=true
 
-Use this bundle only for controlled playtests with process-local state.
+Production-like durable runs must provide the required Postgres content/core
+store env. For a local resettable no-DB playtest only, explicitly opt in with
+GAME_DEV_MODE=true.
 README
 
 echo "Playtest release packaged: $release_physical"

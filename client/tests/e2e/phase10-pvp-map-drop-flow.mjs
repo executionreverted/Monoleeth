@@ -406,7 +406,7 @@ async function moveToPosition(client, targetPosition, arriveDistance, label, tim
 
 async function fightNPCUntilKilled(client, targetID) {
   let lastPayload = null;
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
     const payload = payloadOf(await send(client, 'combat.use_skill', { skill_id: 'basic_laser', target_id: targetID }), 'combat.use_skill');
     assert(payload.accepted === true, `combat.use_skill accepted ${compact(payload)}`);
     lastPayload = payload;

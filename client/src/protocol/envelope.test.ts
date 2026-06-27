@@ -583,6 +583,19 @@ describe('default outbound operations', () => {
     expect(shieldRepair.op).toBe(OPERATIONS.shieldRepairTick);
     expect(shieldRepair.payload).toEqual({});
     expect(Object.keys(shieldRepair.payload)).toEqual([]);
+    const repairQuote = {
+      ship_id: 'starter',
+      currency: 'credits',
+      cost: 15,
+      disabled: true,
+      quote_id: 'repair_quote_abc',
+      issued_at_ms: 1000,
+      expires_at_ms: 61000,
+    };
+    const repairShip = builder.deathRepairShip(repairQuote);
+    expect(repairShip.op).toBe(OPERATIONS.deathRepairShip);
+    expect(repairShip.payload).toEqual(repairQuote);
+    expect(Object.keys(repairShip.payload)).toEqual(['ship_id', 'currency', 'cost', 'disabled', 'quote_id', 'issued_at_ms', 'expires_at_ms']);
     expect(builder.stealthToggle(true).payload).toEqual({ enabled: true });
     const craftStart = builder.craftingStart({ recipeID: 'refined_alloy_batch' });
     expect(craftStart.op).toBe(OPERATIONS.craftingStart);

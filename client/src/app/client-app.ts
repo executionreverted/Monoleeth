@@ -38,7 +38,22 @@ export class ClientApp extends ClientAppHandlers {
       onFire: () => this.sendBasicSkill(),
       onLoot: () => this.sendLootPickup(),
       onRepairQuote: () => this.sendCommand(this.commandBuilder.deathRepairQuote()),
-      onRepair: () => this.sendCommand(this.commandBuilder.deathRepairShip()),
+      onRepair: () => {
+        const quote = this.state.repairQuote;
+        if (quote) {
+          this.sendCommand(
+            this.commandBuilder.deathRepairShip({
+              ship_id: quote.ship_id,
+              currency: quote.currency,
+              cost: quote.cost,
+              disabled: quote.disabled,
+              quote_id: quote.quote_id,
+              issued_at_ms: quote.issued_at_ms,
+              expires_at_ms: quote.expires_at_ms,
+            }),
+          );
+        }
+      },
       onScan: () => this.toggleScanMode(),
       onStealthToggle: () => this.toggleStealth(),
       onSelectTarget: (entityID, source) => this.selectEntity(entityID, source ?? 'hud'),
