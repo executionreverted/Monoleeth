@@ -15,6 +15,11 @@ import (
 	"gameproject/internal/game/world/worker"
 )
 
+const (
+	runtimeAOITickPhaseAOI     = "aoi"
+	runtimeAOITickPhaseEnqueue = "enqueue"
+)
+
 func (runtime *Runtime) worldSnapshotLocked(playerID foundation.PlayerID) (worldSnapshotPayload, error) {
 	snapshot, radarRange, tick, err := runtime.aoiSnapshotForPlayerLocked(playerID)
 	if err != nil {
@@ -70,6 +75,40 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 	now := runtime.clock.Now()
 	statSnapshot := runtime.visibilityStatSnapshotLocked(playerID, now)
 	projectionRange := visibility.RadarRangeFromStatSnapshot(statSnapshot)
+	workerSnapshot, err := instance.Worker.EntitiesWithinRadius(playerEntity.Position, projectionRange.Units())
+	if err != nil {
+		return aoi.Snapshot{}, 0, 0, err
+	}
+	snapshot := runtime.aoiSnapshotFromWorkerSnapshotLocked(playerID, instance, location, playerEntity, workerSnapshot)
+	return snapshot, projectionRange.Units(), workerSnapshot.Tick, nil
+}
+
+func (runtime *Runtime) aoiSnapshotForPlayerFromSharedWorkerSnapshotLocked(playerID foundation.PlayerID, instance *mapInstance, location worldmaps.PlayerMapLocation, workerSnapshot worker.Snapshot) (aoi.Snapshot, uint64, error) {
+	playerEntity, ok := runtime.playerEntityFromWorkerSnapshotLocked(playerID, workerSnapshot)
+	if !ok {
+		return aoi.Snapshot{}, 0, worker.ErrUnknownPlayer
+	}
+	snapshot := runtime.aoiSnapshotFromWorkerSnapshotLocked(playerID, instance, location, playerEntity, workerSnapshot)
+	return snapshot, workerSnapshot.Tick, nil
+}
+
+func (runtime *Runtime) playerEntityFromWorkerSnapshotLocked(playerID foundation.PlayerID, workerSnapshot worker.Snapshot) (world.Entity, bool) {
+	state, ok := runtime.players[playerID]
+	if !ok {
+		return world.Entity{}, false
+	}
+	for _, entity := range workerSnapshot.Entities {
+		if entity.ID == state.EntityID {
+			return entity, true
+		}
+	}
+	return world.Entity{}, false
+}
+
+func (runtime *Runtime) aoiSnapshotFromWorkerSnapshotLocked(playerID foundation.PlayerID, instance *mapInstance, location worldmaps.PlayerMapLocation, playerEntity world.Entity, workerSnapshot worker.Snapshot) aoi.Snapshot {
+	now := runtime.clock.Now()
+	statSnapshot := runtime.visibilityStatSnapshotLocked(playerID, now)
+	projectionRange := visibility.RadarRangeFromStatSnapshot(statSnapshot)
 	viewer := visibility.Viewer{
 		PlayerID:       playerID,
 		WorldID:        location.WorldID,
@@ -79,10 +118,6 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 		DetectionStats: visibility.DetectionStatsFromStatSnapshot(statSnapshot),
 		Witnesses:      runtime.hiddenPlayerWitnessesForViewerLocked(instance, playerID, now),
 		ObservedAt:     now,
-	}
-	workerSnapshot, err := instance.Worker.EntitiesWithinRadius(playerEntity.Position, projectionRange.Units())
-	if err != nil {
-		return aoi.Snapshot{}, 0, 0, err
 	}
 	states := make([]aoi.EntityState, 0, len(workerSnapshot.Entities))
 	for _, entity := range workerSnapshot.Entities {
@@ -117,8 +152,7 @@ func (runtime *Runtime) aoiSnapshotForPlayerLocked(playerID foundation.PlayerID)
 			ProjectionSource:  runtimeProjectionSourceWorker,
 		})
 	}
-	snapshot := aoi.BuildVisibleSnapshot(viewer, states)
-	return snapshot, projectionRange.Units(), workerSnapshot.Tick, nil
+	return aoi.BuildVisibleSnapshot(viewer, states)
 }
 
 func (runtime *Runtime) effectiveRadarRangeUnitsLocked(playerID foundation.PlayerID) float64 {
@@ -192,9 +226,11 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 	defer runtime.mu.Unlock()
 
 	failedInstances := make(map[*mapInstance]struct{})
+	sharedSnapshots := make(map[*mapInstance]worker.Snapshot, len(tickedInstances))
 	for _, ticked := range tickedInstances {
 		instance := ticked.instance
 		result := ticked.result
+		runtime.recordAOITickPhaseDurationsLocked(instance, result.PhaseDurations)
 		runtime.recordEnemyTelemetryLocked(instance, result)
 		if err := commandErrors(result); err != nil {
 			runtime.recordAOITickErrorLocked(instance, "worker_tick", err)
@@ -206,19 +242,33 @@ func (runtime *Runtime) tickAndCollectAOIEvents() map[auth.SessionID][]realtime.
 			failedInstances[instance] = struct{}{}
 			continue
 		}
+		sharedSnapshots[instance] = instance.Worker.Snapshot()
 	}
 	eventsBySession := make(map[auth.SessionID][]realtime.EventEnvelope)
 	for _, instance := range runtime.sortedMapInstancesLocked() {
 		if _, failed := failedInstances[instance]; failed {
 			continue
 		}
+		sharedSnapshot, hasSharedSnapshot := sharedSnapshots[instance]
+		var aoiDuration time.Duration
+		var enqueueDuration time.Duration
 		for _, sessionID := range sortedSessionIDs(instance.ActiveSessions) {
 			playerID := instance.ActiveSessions[sessionID]
-			events := runtime.aoiDiffEventsForInstanceLocked(instance, sessionID, playerID)
+			diffStarted := time.Now()
+			diff, ok := runtime.aoiDiffForInstanceLocked(instance, sessionID, playerID, sharedSnapshot, hasSharedSnapshot)
+			aoiDuration += time.Since(diffStarted)
+			if !ok {
+				continue
+			}
+			enqueueStarted := time.Now()
+			events := runtime.eventsForAOIDiffLocked(sessionID, diff)
 			if len(events) > 0 {
 				eventsBySession[sessionID] = append(eventsBySession[sessionID], events...)
 			}
+			enqueueDuration += time.Since(enqueueStarted)
 		}
+		runtime.recordAOITickPhaseDurationLocked(instance, runtimeAOITickPhaseAOI, aoiDuration)
+		runtime.recordAOITickPhaseDurationLocked(instance, runtimeAOITickPhaseEnqueue, enqueueDuration)
 	}
 	runtime.recordReplayEventsBySessionLocked(eventsBySession)
 	return eventsBySession
@@ -268,12 +318,20 @@ func (runtime *Runtime) aoiDiffEventsLocked(sessionID auth.SessionID, playerID f
 	if err != nil {
 		return nil
 	}
-	return runtime.aoiDiffEventsForInstanceLocked(instance, sessionID, playerID)
+	return runtime.aoiDiffEventsForInstanceLocked(instance, sessionID, playerID, worker.Snapshot{}, false)
 }
 
-func (runtime *Runtime) aoiDiffEventsForInstanceLocked(instance *mapInstance, sessionID auth.SessionID, playerID foundation.PlayerID) []realtime.EventEnvelope {
-	if instance == nil {
+func (runtime *Runtime) aoiDiffEventsForInstanceLocked(instance *mapInstance, sessionID auth.SessionID, playerID foundation.PlayerID, sharedSnapshot worker.Snapshot, hasSharedSnapshot bool) []realtime.EventEnvelope {
+	diff, ok := runtime.aoiDiffForInstanceLocked(instance, sessionID, playerID, sharedSnapshot, hasSharedSnapshot)
+	if !ok {
 		return nil
+	}
+	return runtime.eventsForAOIDiffLocked(sessionID, diff)
+}
+
+func (runtime *Runtime) aoiDiffForInstanceLocked(instance *mapInstance, sessionID auth.SessionID, playerID foundation.PlayerID, sharedSnapshot worker.Snapshot, hasSharedSnapshot bool) (aoi.Diff, bool) {
+	if instance == nil {
+		return aoi.Diff{}, false
 	}
 	location, err := runtime.mapRouter.ActiveLocation(playerID)
 	if err != nil || location.InternalMapID != instance.Definition.InternalMapID {
@@ -282,20 +340,33 @@ func (runtime *Runtime) aoiDiffEventsForInstanceLocked(instance *mapInstance, se
 		if runtime.sessionLocations[sessionID] == instance.Definition.InternalMapID {
 			delete(runtime.sessionLocations, sessionID)
 		}
-		return nil
+		return aoi.Diff{}, false
 	}
 	if runtime.sessionLocations[sessionID] != instance.Definition.InternalMapID {
 		delete(instance.LastAOI, sessionID)
 		runtime.attachSessionToInstanceLocked(instance, sessionID, playerID)
 	}
-	current, _, _, err := runtime.aoiSnapshotForPlayerLocked(playerID)
-	if err != nil {
-		return nil
+	var current aoi.Snapshot
+	if hasSharedSnapshot {
+		shared, _, err := runtime.aoiSnapshotForPlayerFromSharedWorkerSnapshotLocked(playerID, instance, location, sharedSnapshot)
+		if err != nil {
+			return aoi.Diff{}, false
+		}
+		current = shared
+	} else {
+		snapshot, _, _, err := runtime.aoiSnapshotForPlayerLocked(playerID)
+		if err != nil {
+			return aoi.Diff{}, false
+		}
+		current = snapshot
 	}
 	previous := instance.LastAOI[sessionID]
 	diff := aoi.DiffSnapshots(previous, current)
 	instance.LastAOI[sessionID] = aoi.Snapshot{Entities: cloneAOIEntities(current.Entities)}
+	return diff, true
+}
 
+func (runtime *Runtime) eventsForAOIDiffLocked(sessionID auth.SessionID, diff aoi.Diff) []realtime.EventEnvelope {
 	events := make([]realtime.EventEnvelope, 0, len(diff.Entered)+len(diff.Updated)+len(diff.Left))
 	for _, entity := range diff.Entered {
 		events = append(events, runtime.eventLocked(sessionID, realtime.EventAOIEntityEntered, entity))
@@ -307,6 +378,19 @@ func (runtime *Runtime) aoiDiffEventsForInstanceLocked(instance *mapInstance, se
 		events = append(events, runtime.eventLocked(sessionID, realtime.EventAOIEntityLeft, map[string]string{"entity_id": entityID.String()}))
 	}
 	return events
+}
+
+func (runtime *Runtime) recordAOITickPhaseDurationsLocked(instance *mapInstance, phases map[string]time.Duration) {
+	for phase, duration := range phases {
+		runtime.recordAOITickPhaseDurationLocked(instance, phase, duration)
+	}
+}
+
+func (runtime *Runtime) recordAOITickPhaseDurationLocked(instance *mapInstance, phase string, duration time.Duration) {
+	if runtime == nil || runtime.Metrics == nil || instance == nil || phase == "" || duration < 0 {
+		return
+	}
+	_ = runtime.Metrics.RecordZoneTickPhaseDuration(instance.Definition.WorldID, instance.Definition.ZoneID, phase, duration)
 }
 
 func (runtime *Runtime) sortedMapInstancesLocked() []*mapInstance {

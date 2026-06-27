@@ -24,12 +24,19 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
   `pending_restart`).
 - Wave 4: P10 Done (chat/party/clan runtime, durable clan rows/read models,
   party shared-target realtime, real client panels, moderation redaction/logging,
-  and contribution read models done), P15 40% (worker aggro target acquisition
-  uses a player-only spatial index), P13 not started.
+  and contribution read models done), P15 70% (worker aggro target acquisition
+  uses a player-only spatial index; AOI tick path reuses one per-map worker
+  snapshot, versions public entity payloads, skips unchanged diffs, and emits
+  tick sub-phase metrics), P13 not started.
 - Wave 5-6: P11/P12/P17 not started.
-- Genel v1: ~70%.
+- Genel v1: ~72%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P15 lane-G AOI diff slice — runtime tick now collects one worker snapshot per
+  map and builds per-session AOI from that copy, public AOI payloads carry stable
+  entity versions so unchanged entities do not produce update events, hidden
+  entities remain filtered after snapshot sharing, and tick sub-phase durations
+  are emitted for movement, aggro, AOI, and enqueue.
 - P15 lane-F aggro spatial slice — worker-owned player spatial index now tracks
   player insert/update/remove plus move/settle/speed/tick movement paths, and
   `nearestAggroTarget` queries player candidates by aggro radius instead of
@@ -82,9 +89,9 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 
 ### Sırada (resume sırası)
 1. Context tazele: `00-index.md`, `REMAINING-WORK.md`, ilgili faz dosyası.
-2. P15 lane-G: shared per-map AOI snapshot, entity versions, tick sub-phase metrics.
-3. P13: release gate + simulation/load/race evidence.
-4. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
+2. P13: release gate + simulation/load/race evidence, including P15 AOI/aggro
+   scaling evidence.
+3. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
 
 ## Çalışma Kuralları
 

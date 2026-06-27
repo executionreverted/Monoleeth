@@ -22,6 +22,9 @@ const (
 	// DefaultSpatialCellSize is a conservative placeholder cell size for the
 	// worker-owned spatial index.
 	DefaultSpatialCellSize = 128
+
+	TickPhaseMovement = "movement"
+	TickPhaseAggro    = "aggro"
 )
 
 var (
@@ -96,6 +99,7 @@ type TickResult struct {
 	EnemyTelemetry      []EnemyLifecycleTelemetry
 	DueTasks            []ScheduledTask
 	ScheduledTaskErrors []ScheduledTaskError
+	PhaseDurations      map[string]time.Duration
 }
 
 // CommandError records a command failure without stopping the rest of the drain.
@@ -242,13 +246,18 @@ func (worker *Worker) Tick() TickResult {
 		Tick:            worker.tick + 1,
 		DrainedCommands: len(commands),
 		CommandErrors:   make([]CommandError, 0),
+		PhaseDurations:  make(map[string]time.Duration, 2),
 	}
 
 	worker.applyCommandsLocked(&result, commands)
 
+	movementStarted := time.Now()
 	result.CommandErrors = append(result.CommandErrors, worker.advanceMovement()...)
+	result.PhaseDurations[TickPhaseMovement] = time.Since(movementStarted)
+	aggroStarted := time.Now()
 	result.CommandErrors = append(result.CommandErrors, worker.tickEnemySpawner()...)
 	result.CommandErrors = append(result.CommandErrors, worker.tickEnemyAggro()...)
+	result.PhaseDurations[TickPhaseAggro] = time.Since(aggroStarted)
 	result.DueTasks = worker.scheduler.drainDue(worker.clock.Now())
 	result.ScheduledTaskErrors = worker.dispatchScheduledTasks(result.DueTasks)
 	result.EnemyTelemetry = worker.enemyLifecycleTelemetrySnapshot()

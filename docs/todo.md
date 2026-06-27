@@ -7,6 +7,12 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [x] P15: share one per-map AOI worker snapshot across session diffs and add
+  public entity versions. Runtime AOI ticks now build per-session visibility
+  from the shared worker copy, unchanged entity versions skip update events,
+  hidden entities remain excluded, and movement/aggro/AOI/enqueue tick phase
+  metrics are emitted. Source:
+  `docs/road-to-v1/15-world-performance-aoi-optimization.md`.
 - [x] P15: replace NPC aggro full-player scan with a worker-owned player
   spatial index. `nearestAggroTarget` now queries candidate player entities by
   aggro radius, the player layer stays in sync through insert/update/remove and

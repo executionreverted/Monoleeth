@@ -25,18 +25,18 @@ rebuilds, and re-serialization of unchanged entities.
 ## Tasks
 - [x] `[P:wave4/lane-F]` Replace `nearestAggroTarget` linear scan with spatial-index radius query.
 - [x] `[P:wave4/lane-F]` Add entity-type/layer indexes so aggro skips irrelevant entities.
-- [ ] `[P:wave4/lane-G]` Collect one per-map entity snapshot per tick; build per-session AOI from it.
-- [ ] `[P:wave4/lane-G]` Add entity version numbers; skip serializing unchanged entities in AOI diffs.
-- [ ] `[P:wave4/lane-G]` Add tick sub-phase metrics: movement ms, aggro ms, AOI ms, enqueue ms.
+- [x] `[P:wave4/lane-G]` Collect one per-map entity snapshot per tick; build per-session AOI from it.
+- [x] `[P:wave4/lane-G]` Add entity version numbers; skip serializing unchanged entities in AOI diffs.
+- [x] `[P:wave4/lane-G]` Add tick sub-phase metrics: movement ms, aggro ms, AOI ms, enqueue ms.
 
 ## Server Ownership
 - Visibility/radar/stealth still recomputed server-side; optimization must not leak hidden entities.
 
 ## Smoke Tests (one assertion each)
 - [x] Aggro target selection uses spatial query (no full player scan) — assert via instrumented count.
-- [ ] An unchanged entity is not re-serialized in the next AOI diff.
-- [ ] Hidden entity stays excluded after AOI snapshot sharing.
-- [ ] Tick sub-phase metrics are emitted.
+- [x] An unchanged entity is not re-serialized in the next AOI diff.
+- [x] Hidden entity stays excluded after AOI snapshot sharing.
+- [x] Tick sub-phase metrics are emitted.
 
 ## Done Criteria
 - [ ] Aggro/AOI no longer scale O(N×M) on the hot path.
@@ -44,6 +44,6 @@ rebuilds, and re-serialization of unchanged entities.
 
 ## Verification
 ```bash
-go test ./internal/game/world/... ./internal/game/server/... -run 'Aggro|AOI|Spatial|EntityVersion' -count=1 -race
+go test ./internal/game/world/... ./internal/game/server/... -run 'Aggro|AOI|Spatial|EntityVersion|Tick' -count=1 -race
 go test ./... && git diff --check
 ```

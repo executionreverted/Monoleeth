@@ -1,6 +1,9 @@
 package aoi
 
 import (
+	"encoding/binary"
+	"hash/fnv"
+	"math"
 	"reflect"
 	"sort"
 
@@ -65,6 +68,7 @@ type EntityPayload struct {
 	ID               world.EntityID        `json:"entity_id"`
 	Type             world.EntityType      `json:"entity_type"`
 	Position         world.Vec2            `json:"position"`
+	Version          uint64                `json:"version"`
 	StatusFlags      []StatusFlag          `json:"status_flags,omitempty"`
 	Display          *EntityDisplay        `json:"display,omitempty"`
 	Combat           *EntityCombatStatus   `json:"combat,omitempty"`
@@ -105,7 +109,7 @@ func BuildVisibleSnapshot(viewer visibility.Viewer, entities []EntityState) Snap
 		}) {
 			continue
 		}
-		payloads = append(payloads, EntityPayload{
+		payload := EntityPayload{
 			ID:               state.Entity.ID,
 			Type:             state.Entity.Type,
 			Position:         state.Entity.Position,
@@ -114,10 +118,59 @@ func BuildVisibleSnapshot(viewer visibility.Viewer, entities []EntityState) Snap
 			Combat:           cloneEntityCombatStatus(state.PublicCombat),
 			Movement:         cloneEntityMovementStatus(state.PublicMovement),
 			ProjectionSource: state.ProjectionSource,
-		})
+		}
+		payload.Version = PublicEntityVersion(payload)
+		payloads = append(payloads, payload)
 	}
 	sortEntityPayloads(payloads)
 	return Snapshot{Entities: payloads}
+}
+
+// PublicEntityVersion returns a stable opaque version for the client-safe entity
+// payload. Callers use it to skip unchanged AOI serialization work.
+func PublicEntityVersion(entity EntityPayload) uint64 {
+	hash := fnv.New64a()
+	writeString(hash, string(entity.ID))
+	writeString(hash, string(entity.Type))
+	writeFloat64(hash, entity.Position.X)
+	writeFloat64(hash, entity.Position.Y)
+	flags := cloneStatusFlags(entity.StatusFlags)
+	for _, flag := range flags {
+		writeString(hash, string(flag))
+	}
+	if entity.Display == nil {
+		writeString(hash, "display:nil")
+	} else {
+		writeString(hash, entity.Display.Label)
+		writeString(hash, entity.Display.Disposition)
+	}
+	if entity.Combat == nil {
+		writeString(hash, "combat:nil")
+	} else {
+		writeInt64(hash, int64(entity.Combat.HP))
+		writeInt64(hash, int64(entity.Combat.MaxHP))
+		writeInt64(hash, int64(entity.Combat.Shield))
+		writeInt64(hash, int64(entity.Combat.MaxShield))
+		writeString(hash, entity.Combat.Status)
+	}
+	if entity.Movement == nil {
+		writeString(hash, "movement:nil")
+	} else {
+		writeBool(hash, entity.Movement.Moving)
+		writeFloat64(hash, entity.Movement.Origin.X)
+		writeFloat64(hash, entity.Movement.Origin.Y)
+		writeFloat64(hash, entity.Movement.Target.X)
+		writeFloat64(hash, entity.Movement.Target.Y)
+		writeFloat64(hash, entity.Movement.Speed)
+		writeInt64(hash, entity.Movement.StartedAtMS)
+		writeInt64(hash, entity.Movement.ArriveAtMS)
+	}
+	writeString(hash, entity.ProjectionSource)
+	version := hash.Sum64()
+	if version == 0 {
+		return 1
+	}
+	return version
 }
 
 // DiffSnapshots returns entered, updated, and left public entity changes from
@@ -139,6 +192,9 @@ func DiffSnapshots(previous Snapshot, current Snapshot) Diff {
 		previousEntity, existed := previousByID[entity.ID]
 		if !existed {
 			diff.Entered = append(diff.Entered, entity)
+			continue
+		}
+		if previousEntity.Version != 0 && entity.Version != 0 && previousEntity.Version == entity.Version {
 			continue
 		}
 		if !reflect.DeepEqual(previousEntity, entity) {
@@ -221,4 +277,35 @@ func cloneEntityMovementStatus(movement *EntityMovementStatus) *EntityMovementSt
 	}
 	cloned := *movement
 	return &cloned
+}
+
+type byteWriter interface {
+	Write([]byte) (int, error)
+}
+
+func writeString(writer byteWriter, value string) {
+	var length [8]byte
+	binary.LittleEndian.PutUint64(length[:], uint64(len(value)))
+	_, _ = writer.Write(length[:])
+	_, _ = writer.Write([]byte(value))
+}
+
+func writeBool(writer byteWriter, value bool) {
+	if value {
+		_, _ = writer.Write([]byte{1})
+		return
+	}
+	_, _ = writer.Write([]byte{0})
+}
+
+func writeFloat64(writer byteWriter, value float64) {
+	var encoded [8]byte
+	binary.LittleEndian.PutUint64(encoded[:], math.Float64bits(value))
+	_, _ = writer.Write(encoded[:])
+}
+
+func writeInt64(writer byteWriter, value int64) {
+	var encoded [8]byte
+	binary.LittleEndian.PutUint64(encoded[:], uint64(value))
+	_, _ = writer.Write(encoded[:])
 }

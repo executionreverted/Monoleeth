@@ -14,6 +14,7 @@ const (
 	MetricCommandsPerSecond             = "commands_per_sec"
 	MetricErrorsByCode                  = "errors_by_code"
 	MetricZoneTickMS                    = "zone_tick_ms"
+	MetricZoneTickPhaseMS               = "zone_tick_phase_ms"
 	MetricVisibleEntityCount            = "visible_entity_count"
 	MetricCombatActionsPerSecond        = "combat_actions_per_sec"
 	MetricLootCreatedPerSecond          = "loot_created_per_sec"
@@ -312,6 +313,21 @@ func (recorder *MetricRecorder) RecordZoneTickDuration(worldID foundation.WorldI
 		return err
 	}
 	return recorder.ObserveDuration(MetricZoneTickMS, Labels{
+		"world_id": worldID.String(),
+		"zone_id":  zoneID.String(),
+	}, duration)
+}
+
+// RecordZoneTickPhaseDuration observes a named sub-phase inside one zone tick.
+func (recorder *MetricRecorder) RecordZoneTickPhaseDuration(worldID foundation.WorldID, zoneID foundation.ZoneID, phase string, duration time.Duration) error {
+	if err := worldID.Validate(); err != nil {
+		return err
+	}
+	if err := zoneID.Validate(); err != nil {
+		return err
+	}
+	return recorder.ObserveDuration(MetricZoneTickPhaseMS, Labels{
+		"phase":    phase,
 		"world_id": worldID.String(),
 		"zone_id":  zoneID.String(),
 	}, duration)

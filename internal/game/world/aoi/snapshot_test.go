@@ -119,6 +119,23 @@ func TestDiffSnapshotsReportsUpdatedEntityMovingInsideAOI(t *testing.T) {
 	}
 }
 
+func TestEntityVersionStaysStableUntilPublicPayloadChanges(t *testing.T) {
+	viewer := testViewer(100)
+	first := aoi.BuildVisibleSnapshot(viewer, []aoi.EntityState{
+		testState("entity-npc-1", world.EntityTypeNPCPlaceholder, world.Vec2{X: 10}, false),
+	})
+	second := aoi.BuildVisibleSnapshot(viewer, []aoi.EntityState{
+		testState("entity-npc-1", world.EntityTypeNPCPlaceholder, world.Vec2{X: 10}, false),
+	})
+	moved := aoi.BuildVisibleSnapshot(viewer, []aoi.EntityState{
+		testState("entity-npc-1", world.EntityTypeNPCPlaceholder, world.Vec2{X: 12}, false),
+	})
+
+	if first.Entities[0].Version == 0 || first.Entities[0].Version != second.Entities[0].Version || first.Entities[0].Version == moved.Entities[0].Version {
+		t.Fatalf("versions stable=%d repeat=%d moved=%d, want nonzero stable then changed", first.Entities[0].Version, second.Entities[0].Version, moved.Entities[0].Version)
+	}
+}
+
 func TestDiffSnapshotsReportsLeftEntity(t *testing.T) {
 	viewer := testViewer(100)
 	previous := aoi.BuildVisibleSnapshot(viewer, []aoi.EntityState{
@@ -181,7 +198,7 @@ func TestSnapshotPayloadOmitsHiddenInternalFields(t *testing.T) {
 	}
 
 	payloadType := reflect.TypeOf(aoi.EntityPayload{})
-	if got, want := exportedFieldNames(payloadType), []string{"ID", "Type", "Position", "StatusFlags", "Display", "Combat", "Movement", "ProjectionSource"}; !reflect.DeepEqual(got, want) {
+	if got, want := exportedFieldNames(payloadType), []string{"ID", "Type", "Position", "Version", "StatusFlags", "Display", "Combat", "Movement", "ProjectionSource"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("EntityPayload fields = %v, want %v", got, want)
 	}
 }

@@ -22,11 +22,11 @@
 | 12 | DarkOrbit Flavor | 6 | ⬜ Not started | 0% |
 | 13 | Observability, Simulation & Release Gate | 4 | ⬜ Not started | 0% |
 | 14 | CMS Runtime Application & Content Safety | 3 | ✅ Done | 100% |
-| 15 | World Performance & AOI/Aggro Optimization | 4 | 🟡 In progress | 40% |
+| 15 | World Performance & AOI/Aggro Optimization | 4 | 🟡 In progress | 70% |
 | 16 | Production Config & Operational Hardening | 2 | ✅ Done | 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | ⬜ Not started | 0% |
 
-**Genel v1:** ~70%
+**Genel v1:** ~72%
 
 ---
 
@@ -206,13 +206,20 @@ alliances) remain post-v1/out of scope.
 
 ---
 
-### 🟡 P15 — World Performance & AOI/Aggro Optimization (Wave 4, 40%)
+### 🟡 P15 — World Performance & AOI/Aggro Optimization (Wave 4, 70%)
 
 - [x] NPC aggro target acquisition no longer scans every player: worker owns a
   player-only spatial index, keeps it in sync on insert/update/remove plus
   move/settle/speed/tick movement paths, and queries candidates by aggro radius.
-- [ ] HI-07: AOI hot path O(N×M) değil → shared per-map snapshot / entity versions.
-- [ ] AOI read projection immutable snapshot/copy-on-write (P05 ile ilişkili).
+- [x] AOI tick path now collects one worker snapshot per map, builds per-session
+  AOI from that immutable copy, uses stable public entity versions to skip
+  unchanged update events, and emits movement/aggro/AOI/enqueue tick phase
+  metrics.
+- [ ] HI-07 final proof: P13 load/simulation evidence must show AOI/aggro costs
+  stay inside release target; add per-viewer candidate bucketing only if evidence
+  fails.
+- [ ] AOI read projection immutable snapshot/copy-on-write follow-up if P13
+  exposes remaining projection contention.
 
 **Referanslar:**
 - `docs/road-to-v1/15-world-performance-aoi-optimization.md`
@@ -294,4 +301,5 @@ Wave 6: P12 ⬜ | P17 ⬜(continuous)
    single transaction boundary for wallet debit + hangar grant + idempotency.
 5. **P09/P13 release gate gap:** balance telemetry helper exists; release-gate
    integration still belongs to P13.
-6. **Mevcut blocker yok:** P15 lane-G ve P13 çalışmaya hazır.
+6. **Mevcut blocker yok:** P13 release/load gate çalışmaya hazır; P15 final
+   scaling kanıtı P13 load evidence içinde kapanmalı.

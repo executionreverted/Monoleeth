@@ -49,6 +49,20 @@ func TestAOIDiffEventsAreFilteredPerSession(t *testing.T) {
 	}
 }
 
+func requireMetricDuration(t *testing.T, snapshot observability.MetricSnapshot, name string, count int64, labels []observability.Label) {
+	t.Helper()
+	for _, duration := range snapshot.Durations {
+		if duration.Name != name || !sameMetricLabels(duration.Labels, labels) {
+			continue
+		}
+		if duration.Count != count {
+			t.Fatalf("metric %s labels %+v count = %d, want %d", name, labels, duration.Count, count)
+		}
+		return
+	}
+	t.Fatalf("missing duration metric %s labels %+v in snapshot %+v", name, labels, snapshot)
+}
+
 func TestAOIDiffSkipsFailedWorkerTickInstance(t *testing.T) {
 	gameServer, _ := newTestServer(t, false)
 	resolved := createResolvedRuntimeSession(t, gameServer, "aoi-worker-error@example.com", "AOI-Worker-Error")
@@ -101,6 +115,68 @@ func TestAOIDiffSkipsFailedWorkerTickInstance(t *testing.T) {
 	}
 	if entered.EntityID != "entity_tick_error_visible" {
 		t.Fatalf("delayed entered entity = %+v, want entity_tick_error_visible", entered)
+	}
+}
+
+func TestAOIDiffDoesNotSerializeUnchangedEntityAfterSharedSnapshot(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "aoi-unchanged@example.com", "AOI-Unchanged")
+
+	events, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("bootstrap events: %v", err)
+	}
+	_ = decodeWorldSnapshotForTest(t, events)
+	insertTestWorldEntity(t, gameServer, "entity_unchanged_visible", world.EntityTypeNPC, world.Vec2{X: 200, Y: 0}, false)
+
+	firstTick := gameServer.runtime.tickAndCollectAOIEvents()
+	if got := countEventTypeForTest(firstTick[resolved.SessionID], realtime.EventAOIEntityEntered); got != 1 {
+		t.Fatalf("first tick entered events = %d, want 1", got)
+	}
+
+	secondTick := gameServer.runtime.tickAndCollectAOIEvents()
+	if got := countEventTypeForTest(secondTick[resolved.SessionID], realtime.EventAOIEntityUpdated); got != 0 {
+		t.Fatalf("unchanged second tick updated events = %d, want 0", got)
+	}
+}
+
+func TestAOISharedSnapshotKeepsHiddenEntityExcluded(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "aoi-hidden-shared@example.com", "AOI-Hidden-Shared")
+
+	events, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("bootstrap events: %v", err)
+	}
+	_ = decodeWorldSnapshotForTest(t, events)
+	insertTestWorldEntity(t, gameServer, "entity_shared_snapshot_hidden", world.EntityTypeNPC, world.Vec2{X: 180, Y: 0}, true)
+	insertTestWorldEntity(t, gameServer, "entity_shared_snapshot_visible", world.EntityTypeNPC, world.Vec2{X: 220, Y: 0}, false)
+
+	eventsBySession := gameServer.runtime.tickAndCollectAOIEvents()
+	raw := string(mustJSON(t, eventsBySession[resolved.SessionID]))
+	if strings.Contains(raw, "entity_shared_snapshot_hidden") {
+		t.Fatalf("shared snapshot AOI leaked hidden entity in %s", raw)
+	}
+}
+
+func TestAOITickEmitsSubphaseMetrics(t *testing.T) {
+	gameServer, _ := newTestServer(t, false)
+	resolved := createResolvedRuntimeSession(t, gameServer, "aoi-metrics@example.com", "AOI-Metrics")
+
+	events, err := gameServer.runtime.bootstrapEvents(resolved)
+	if err != nil {
+		t.Fatalf("bootstrap events: %v", err)
+	}
+	_ = decodeWorldSnapshotForTest(t, events)
+
+	gameServer.runtime.tickAndCollectAOIEvents()
+	snapshot := gameServer.runtime.Metrics.Snapshot()
+	for _, phase := range []string{worker.TickPhaseMovement, worker.TickPhaseAggro, runtimeAOITickPhaseAOI, runtimeAOITickPhaseEnqueue} {
+		requireMetricDuration(t, snapshot, observability.MetricZoneTickPhaseMS, 1, []observability.Label{
+			{Name: "phase", Value: phase},
+			{Name: "world_id", Value: "world-1"},
+			{Name: "zone_id", Value: "map_1_1"},
+		})
 	}
 }
 

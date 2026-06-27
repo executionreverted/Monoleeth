@@ -7,7 +7,7 @@
 
 ## Objective
 
-Take the current playable MVP (≈70% local loop) to a credible, durable, social,
+Take the current playable MVP (≈72% local loop) to a credible, durable, social,
 DarkOrbit-like v1:
 
 ```text
@@ -124,10 +124,10 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 | 12 | DarkOrbit Flavor | 6 | Not started | `░░░░░░░░░░` 0% |
 | 13 | Observability, Simulation & Release Gate | 4 | Not started | `░░░░░░░░░░` 0% |
 | 14 | CMS Runtime Application & Content Safety | 3 | Done | `██████████` 100% |
-| 15 | World Performance & AOI/Aggro Optimization | 4 | In progress | `████░░░░░░` 40% |
+| 15 | World Performance & AOI/Aggro Optimization | 4 | In progress | `███████░░░` 70% |
 | 16 | Production Config & Operational Hardening | 2 | Done | `██████████` 100% |
 | 17 | Runtime Decomposition & Maintainability | 6 | Not started | `░░░░░░░░░░` 0% |
-| — | **Overall v1** | — | In progress | `██████░░░░` 70% |
+| — | **Overall v1** | — | In progress | `███████░░░` 72% |
 
 ### Progress bar legend
 
