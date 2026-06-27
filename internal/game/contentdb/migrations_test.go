@@ -12,8 +12,8 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EmbeddedMigrations() error = %v, want nil", err)
 	}
-	if len(migrations) != 21 {
-		t.Fatalf("len(migrations) = %d, want 21", len(migrations))
+	if len(migrations) != 22 {
+		t.Fatalf("len(migrations) = %d, want 22", len(migrations))
 	}
 	if migrations[0].Version != "0001_schema_migrations" {
 		t.Fatalf("Version = %q, want 0001_schema_migrations", migrations[0].Version)
@@ -77,6 +77,9 @@ func TestEmbeddedMigrationsHaveChecksums(t *testing.T) {
 	}
 	if migrations[20].Version != "0021_automation_route_durable" {
 		t.Fatalf("Version = %q, want 0021_automation_route_durable", migrations[20].Version)
+	}
+	if migrations[21].Version != "0022_claim_production_initialization_durable" {
+		t.Fatalf("Version = %q, want 0022_claim_production_initialization_durable", migrations[21].Version)
 	}
 	if migrations[0].Checksum == "" || migrations[0].SQL == "" {
 		t.Fatalf("migration = %+v, want SQL and checksum", migrations[0])
