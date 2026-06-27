@@ -2,7 +2,6 @@ package worker
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 const npcSafeZoneAttackPolicyNever = "never"
 
 func (worker *Worker) tickEnemyAggro() []CommandError {
+	worker.enemyAggroCandidateChecks = 0
 	if worker.enemySpawner == nil || !worker.enemySpawner.hasTickDefinition {
 		return nil
 	}
@@ -107,7 +107,10 @@ func (worker *Worker) tickEnemyAggroRow(
 	}
 
 	if record.AggroTargetEntityID.IsZero() {
-		target, acquired := worker.nearestAggroTarget(definition, entity, record.LeashOrigin, aggroProfile, leashProfile)
+		target, acquired, err := worker.nearestAggroTarget(definition, entity, record.LeashOrigin, aggroProfile, leashProfile)
+		if err != nil {
+			return err
+		}
 		if !acquired {
 			entity, err := worker.resetEnemyTargetAndMaybeReturn(entity, &record, leashProfile, now)
 			if err != nil {
@@ -247,24 +250,22 @@ func (worker *Worker) nearestAggroTarget(
 	leashOrigin world.Vec2,
 	aggroProfile worldmaps.NPCAggroProfile,
 	leashProfile worldmaps.NPCLeashProfile,
-) (world.Entity, bool) {
+) (world.Entity, bool, error) {
 	if safeZoneAttackNever(aggroProfile) && definitionPositionInPVPBlockingSafeZone(definition, npc.Position) {
-		return world.Entity{}, false
+		return world.Entity{}, false, nil
 	}
-	playerEntityIDs := make([]world.EntityID, 0, len(worker.playerEntities))
-	for _, entityID := range worker.playerEntities {
-		playerEntityIDs = append(playerEntityIDs, entityID)
+	candidates, err := worker.playerIndex.QueryRadius(spatialPosition(npc.Position), aggroProfile.AggroRadius)
+	if err != nil {
+		return world.Entity{}, false, err
 	}
-	sort.Slice(playerEntityIDs, func(i, j int) bool {
-		return playerEntityIDs[i] < playerEntityIDs[j]
-	})
+	worker.enemyAggroCandidateChecks += len(candidates)
 
 	var best world.Entity
 	var bestDistanceSquared float64
 	found := false
 	aggroRadiusSquared := aggroProfile.AggroRadius * aggroProfile.AggroRadius
-	for _, entityID := range playerEntityIDs {
-		candidate, ok := worker.entities[entityID]
+	for _, result := range candidates {
+		candidate, ok := worker.entities[world.EntityID(result.ID)]
 		if !ok || candidate.Type != world.EntityTypePlayer || candidate.WorldID != npc.WorldID || candidate.ZoneID != npc.ZoneID {
 			continue
 		}
@@ -287,7 +288,7 @@ func (worker *Worker) nearestAggroTarget(
 			found = true
 		}
 	}
-	return best, found
+	return best, found, nil
 }
 
 func (worker *Worker) currentAggroTarget(entityID world.EntityID) (world.Entity, bool, string) {

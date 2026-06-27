@@ -56,12 +56,13 @@ type Config struct {
 
 // Worker is a single-owner in-process simulation harness for one zone.
 type Worker struct {
-	worldID   world.WorldID
-	zoneID    world.ZoneID
-	tickDelta time.Duration
-	mailbox   Mailbox
-	clock     foundation.Clock
-	index     *spatial.Index
+	worldID     world.WorldID
+	zoneID      world.ZoneID
+	tickDelta   time.Duration
+	mailbox     Mailbox
+	clock       foundation.Clock
+	index       *spatial.Index
+	playerIndex *spatial.Index
 
 	mu   sync.RWMutex
 	tick uint64
@@ -74,10 +75,11 @@ type Worker struct {
 	entityPlayers  map[world.EntityID]foundation.PlayerID
 	// playerAggroIneligible is worker-local server truth used only by NPC
 	// aggro targeting. It is not serialized to clients.
-	playerAggroIneligible map[foundation.PlayerID]bool
-	sessionPlayers        map[realtime.SessionID]foundation.PlayerID
-	playerSessions        map[foundation.PlayerID]map[realtime.SessionID]struct{}
-	enemyTelemetry        []EnemyLifecycleTelemetry
+	playerAggroIneligible     map[foundation.PlayerID]bool
+	sessionPlayers            map[realtime.SessionID]foundation.PlayerID
+	playerSessions            map[foundation.PlayerID]map[realtime.SessionID]struct{}
+	enemyTelemetry            []EnemyLifecycleTelemetry
+	enemyAggroCandidateChecks int
 	// movementAdvanceSuppressed is a per-tick guard for commands that already
 	// settle an entity to the authoritative clock.
 	movementAdvanceSuppressed map[world.EntityID]struct{}
@@ -164,6 +166,10 @@ func NewWorker(config Config) (*Worker, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidWorkerConfig, err)
 	}
+	playerIndex, err := spatial.NewIndex(cellSize)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidWorkerConfig, err)
+	}
 
 	mailbox := config.Mailbox
 	if mailbox == nil {
@@ -187,6 +193,7 @@ func NewWorker(config Config) (*Worker, error) {
 		mailbox:               mailbox,
 		clock:                 clock,
 		index:                 index,
+		playerIndex:           playerIndex,
 		entities:              make(map[world.EntityID]world.Entity),
 		entitySpeeds:          make(map[world.EntityID]float64),
 		enemySpawner:          newEnemySpawnerState(),
@@ -553,6 +560,14 @@ func (worker *Worker) insertEntity(entity world.Entity, serverSpeed float64) err
 		delete(worker.entitySpeeds, entity.ID)
 		return err
 	}
+	if entity.Type == world.EntityTypePlayer {
+		if err := worker.playerIndex.Insert(spatial.EntityID(entity.ID.String()), spatialPosition(entity.Position)); err != nil {
+			delete(worker.entities, entity.ID)
+			delete(worker.entitySpeeds, entity.ID)
+			worker.index.Remove(spatial.EntityID(entity.ID.String()))
+			return err
+		}
+	}
 	return nil
 }
 
@@ -560,15 +575,12 @@ func (worker *Worker) updateEntity(entity world.Entity) error {
 	if err := worker.validateOwnedEntity(entity); err != nil {
 		return err
 	}
-	if _, exists := worker.entities[entity.ID]; !exists {
+	previous, exists := worker.entities[entity.ID]
+	if !exists {
 		return fmt.Errorf("entity %q: %w", entity.ID, ErrUnknownEntity)
 	}
 
-	if err := worker.index.Update(spatial.EntityID(entity.ID.String()), spatialPosition(entity.Position)); err != nil {
-		return err
-	}
-	worker.entities[entity.ID] = entity
-	return nil
+	return worker.replaceIndexedEntity(previous, entity)
 }
 
 func (worker *Worker) removeEntity(entityID world.EntityID) bool {
@@ -579,11 +591,38 @@ func (worker *Worker) removeEntity(entityID world.EntityID) bool {
 	delete(worker.entities, entityID)
 	delete(worker.entitySpeeds, entityID)
 	worker.index.Remove(spatial.EntityID(entityID.String()))
+	worker.playerIndex.Remove(spatial.EntityID(entityID.String()))
 
 	if playerID, ok := worker.entityPlayers[entityID]; ok {
 		worker.detachPlayerEntity(playerID)
 	}
 	return true
+}
+
+func (worker *Worker) replaceIndexedEntity(previous world.Entity, next world.Entity) error {
+	if err := worker.updatePlayerSpatialIndex(previous, next); err != nil {
+		return err
+	}
+	if err := worker.index.Update(spatial.EntityID(next.ID.String()), spatialPosition(next.Position)); err != nil {
+		_ = worker.updatePlayerSpatialIndex(next, previous)
+		return err
+	}
+	worker.entities[next.ID] = next
+	return nil
+}
+
+func (worker *Worker) updatePlayerSpatialIndex(previous world.Entity, next world.Entity) error {
+	entityID := spatial.EntityID(next.ID.String())
+	if previous.Type == world.EntityTypePlayer && next.Type == world.EntityTypePlayer {
+		return worker.playerIndex.Update(entityID, spatialPosition(next.Position))
+	}
+	if previous.Type == world.EntityTypePlayer {
+		worker.playerIndex.Remove(entityID)
+	}
+	if next.Type == world.EntityTypePlayer {
+		return worker.playerIndex.Insert(entityID, spatialPosition(next.Position))
+	}
+	return nil
 }
 
 func (worker *Worker) attachPlayerEntity(playerID foundation.PlayerID, entityID world.EntityID) error {
@@ -701,8 +740,7 @@ func (worker *Worker) movePlayerTo(playerID foundation.PlayerID, intent world.Mo
 		return err
 	}
 	entity.Movement = movement
-	worker.entities[entity.ID] = entity
-	return nil
+	return worker.replaceIndexedEntity(worker.entities[entity.ID], entity)
 }
 
 func (worker *Worker) settlePlayerMovement(playerID foundation.PlayerID) error {
@@ -731,10 +769,9 @@ func (worker *Worker) refreshPlayerMovementPositionWithOptions(playerID foundati
 	if stop || done {
 		entity.Movement = world.MovementState{}
 	}
-	if err := worker.index.Update(spatial.EntityID(entity.ID.String()), spatialPosition(entity.Position)); err != nil {
+	if err := worker.replaceIndexedEntity(worker.entities[entity.ID], entity); err != nil {
 		return err
 	}
-	worker.entities[entity.ID] = entity
 	if suppressTickAdvance {
 		worker.suppressMovementAdvance(entity.ID)
 	}
@@ -763,7 +800,7 @@ func (worker *Worker) setPlayerSpeed(playerID foundation.PlayerID, speed float64
 		} else {
 			next.Movement = world.MovementState{}
 		}
-		if err := worker.index.Update(spatial.EntityID(next.ID.String()), spatialPosition(next.Position)); err != nil {
+		if err := worker.replaceIndexedEntity(entity, next); err != nil {
 			return err
 		}
 	}
@@ -835,14 +872,13 @@ func (worker *Worker) advanceMovement() []CommandError {
 		if done {
 			entity.Movement = world.MovementState{}
 		}
-		if err := worker.index.Update(spatial.EntityID(entity.ID.String()), spatialPosition(entity.Position)); err != nil {
+		if err := worker.replaceIndexedEntity(worker.entities[entityID], entity); err != nil {
 			movementErrors = append(movementErrors, CommandError{
 				Index: -1,
 				Err:   fmt.Errorf("advance movement for entity %q: %w", entity.ID, err),
 			})
 			continue
 		}
-		worker.entities[entityID] = entity
 	}
 	return movementErrors
 }

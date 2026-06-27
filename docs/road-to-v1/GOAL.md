@@ -24,11 +24,17 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
   `pending_restart`).
 - Wave 4: P10 Done (chat/party/clan runtime, durable clan rows/read models,
   party shared-target realtime, real client panels, moderation redaction/logging,
-  and contribution read models done), P13/P15 not started.
+  and contribution read models done), P15 40% (worker aggro target acquisition
+  uses a player-only spatial index), P13 not started.
 - Wave 5-6: P11/P12/P17 not started.
-- Genel v1: ~68%.
+- Genel v1: ~70%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P15 lane-F aggro spatial slice — worker-owned player spatial index now tracks
+  player insert/update/remove plus move/settle/speed/tick movement paths, and
+  `nearestAggroTarget` queries player candidates by aggro radius instead of
+  scanning every player. Focused tests prove nearest-target parity, movement
+  index refresh into aggro radius, and no full player scan via candidate count.
 - P10 completion slice — default chat moderation redacts PII/secrets before
   storage/fanout, moderation audit logs keep only keyed HMAC fingerprints plus
   safe metadata, and party/clan contribution read models publish server-owned
@@ -76,8 +82,9 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 
 ### Sırada (resume sırası)
 1. Context tazele: `00-index.md`, `REMAINING-WORK.md`, ilgili faz dosyası.
-2. P13/P15: release gate + AOI perf.
-3. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
+2. P15 lane-G: shared per-map AOI snapshot, entity versions, tick sub-phase metrics.
+3. P13: release gate + simulation/load/race evidence.
+4. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
 
 ## Çalışma Kuralları
 

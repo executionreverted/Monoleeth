@@ -1,9 +1,11 @@
 package worker
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
+	"gameproject/internal/game/foundation"
 	"gameproject/internal/game/world"
 	worldmaps "gameproject/internal/game/world/maps"
 )
@@ -177,6 +179,56 @@ func TestEnemyAggroAcquiresNearestPlayerAndStartsChase(t *testing.T) {
 	}
 	if entity.Movement.Target != (world.Vec2{X: 550, Y: 500}) || entity.Movement.Speed != definition.NPCStatTemplates[0].Speed {
 		t.Fatalf("entity movement = %+v, want target nearest player with server speed %v", entity.Movement, definition.NPCStatTemplates[0].Speed)
+	}
+}
+
+func TestEnemyAggroUsesSpatialPlayerIndexForCandidateChecks(t *testing.T) {
+	definition := aggressiveEnemyMapDefinition()
+	definition.NPCAggroProfiles[0].AggroRadius = 250
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	for index := 0; index < 64; index++ {
+		spawnPlayer(
+			t,
+			zoneWorker,
+			foundation.PlayerID(fmt.Sprintf("player-far-%02d", index)),
+			world.EntityID(fmt.Sprintf("entity-player-far-%02d", index)),
+			world.Vec2{X: 2000 + float64(index*25), Y: 2000},
+			100,
+		)
+	}
+	spawnPlayer(t, zoneWorker, "player-near", "entity-player-near", world.Vec2{X: 550, Y: 500}, 100)
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+
+	record := onlyEnemyAggroRecord(t, zoneWorker)
+	if got, want := record.AggroTargetEntityID, world.EntityID("entity-player-near"); got != want {
+		t.Fatalf("aggro target = %q, want nearest %q", got, want)
+	}
+	if got, want := lastEnemyAggroCandidateChecks(t, zoneWorker), 1; got != want {
+		t.Fatalf("aggro candidate checks = %d, want %d from player spatial radius query", got, want)
+	}
+}
+
+func TestEnemyAggroSpatialPlayerIndexTracksMovementIntoRadius(t *testing.T) {
+	definition := aggressiveEnemyMapDefinition()
+	definition.NPCAggroProfiles[0].AggroRadius = 250
+	definition.NPCLeashProfiles[0].LeashDistance = 1000
+	zoneWorker := newWorkerForMapDefinition(t, definition)
+	spawnPlayer(t, zoneWorker, "player-1", "entity-player-1", world.Vec2{X: 900, Y: 500}, 1000)
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, InitializeEnemyPoolsCommand{Definition: definition}))
+	before := onlyEnemyAggroRecord(t, zoneWorker)
+	if !before.AggroTargetEntityID.IsZero() {
+		t.Fatalf("initial aggro target = %q, want none outside radius", before.AggroTargetEntityID)
+	}
+
+	assertNoCommandErrors(t, tickSubmitted(t, zoneWorker, MoveToCommand{
+		PlayerID: "player-1",
+		Intent:   mustMovementIntent(t, world.Vec2{X: 550, Y: 500}),
+	}))
+
+	after := onlyEnemyAggroRecord(t, zoneWorker)
+	if got, want := after.AggroTargetEntityID, world.EntityID("entity-player-1"); got != want {
+		t.Fatalf("aggro target after movement = %q, want moved player %q", got, want)
 	}
 }
 
@@ -461,4 +513,12 @@ func setWorkerEntityPosition(t *testing.T, zoneWorker *Worker, entityID world.En
 	if err := zoneWorker.UpdateEntity(entity); err != nil {
 		t.Fatalf("UpdateEntity(%q) error = %v, want nil", entityID, err)
 	}
+}
+
+func lastEnemyAggroCandidateChecks(t *testing.T, zoneWorker *Worker) int {
+	t.Helper()
+
+	zoneWorker.mu.RLock()
+	defer zoneWorker.mu.RUnlock()
+	return zoneWorker.enemyAggroCandidateChecks
 }

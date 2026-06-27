@@ -7,6 +7,12 @@ waves or manual review sessions. Roadmap phase files remain the source of truth
 for phase status; this file is a compact pending-work index.
 
 ## Open
+- [x] P15: replace NPC aggro full-player scan with a worker-owned player
+  spatial index. `nearestAggroTarget` now queries candidate player entities by
+  aggro radius, the player layer stays in sync through insert/update/remove and
+  move/settle/speed/tick movement paths, and focused worker tests prove target
+  parity plus no full player scan. Source:
+  `docs/road-to-v1/15-world-performance-aoi-optimization.md`.
 - [x] P10: finish social moderation redaction/logging policy and party/clan
   contribution event semantics. Runtime now redacts chat PII/secrets before
   storage/fanout, logs only keyed HMAC fingerprints plus safe moderation

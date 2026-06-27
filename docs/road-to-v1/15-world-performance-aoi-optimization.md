@@ -1,7 +1,7 @@
 # Phase 15 — World Performance & AOI/Aggro Optimization
 
 ## Status
-- State: Not started
+- State: In progress
 - Wave: 4
 - Depends on: P05
 - Unlocks: higher player/NPC counts
@@ -23,8 +23,8 @@ rebuilds, and re-serialization of unchanged entities.
 - Multi-process sharding (post-v1).
 
 ## Tasks
-- [ ] `[P:wave4/lane-F]` Replace `nearestAggroTarget` linear scan with spatial-index radius query.
-- [ ] `[P:wave4/lane-F]` Add entity-type/layer indexes so aggro skips irrelevant entities.
+- [x] `[P:wave4/lane-F]` Replace `nearestAggroTarget` linear scan with spatial-index radius query.
+- [x] `[P:wave4/lane-F]` Add entity-type/layer indexes so aggro skips irrelevant entities.
 - [ ] `[P:wave4/lane-G]` Collect one per-map entity snapshot per tick; build per-session AOI from it.
 - [ ] `[P:wave4/lane-G]` Add entity version numbers; skip serializing unchanged entities in AOI diffs.
 - [ ] `[P:wave4/lane-G]` Add tick sub-phase metrics: movement ms, aggro ms, AOI ms, enqueue ms.
@@ -33,7 +33,7 @@ rebuilds, and re-serialization of unchanged entities.
 - Visibility/radar/stealth still recomputed server-side; optimization must not leak hidden entities.
 
 ## Smoke Tests (one assertion each)
-- [ ] Aggro target selection uses spatial query (no full player scan) — assert via instrumented count.
+- [x] Aggro target selection uses spatial query (no full player scan) — assert via instrumented count.
 - [ ] An unchanged entity is not re-serialized in the next AOI diff.
 - [ ] Hidden entity stays excluded after AOI snapshot sharing.
 - [ ] Tick sub-phase metrics are emitted.
