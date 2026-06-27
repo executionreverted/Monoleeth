@@ -267,6 +267,10 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 		realtime.OperationQuestAccept,
 		realtime.OperationQuestClaimReward,
 		realtime.OperationQuestReroll,
+		realtime.OperationChatSend,
+		realtime.OperationPartyInvite,
+		realtime.OperationPartyAccept,
+		realtime.OperationPartyLeave,
 		realtime.OperationAdminRepairCraftJob,
 		realtime.OperationObservabilityMetric,
 		realtime.OperationObservabilityGate:
@@ -293,6 +297,10 @@ func (runtime *Runtime) postCommandEventsBySession(sessionID auth.SessionID, op 
 func opEmitsPostCommandAOIDiff(op realtime.Operation) bool {
 	switch op {
 	case realtime.OperationMarketCreateListing,
+		realtime.OperationChatSend,
+		realtime.OperationPartyInvite,
+		realtime.OperationPartyAccept,
+		realtime.OperationPartyLeave,
 		realtime.OperationShieldRepairTick,
 		realtime.OperationPortalEnter,
 		realtime.OperationDiscoveryClaimPlanet,

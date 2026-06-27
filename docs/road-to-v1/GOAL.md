@@ -22,12 +22,17 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
   + DB outbox/recovery mutation support + restart survival smoke proof done),
   P09 Done, P14 Done (HI-02/HI-08 closed — rollback safety + honest
   `pending_restart`).
-- Wave 4: P10 50% (domain package + tests done; realtime/client/durable clan
-  wiring pending), P13/P15 not started.
+- Wave 4: P10 60% (domain package + chat/party realtime commands/events done;
+  clan durability, shared-target foundation, and client panels pending), P13/P15
+  not started.
 - Wave 5-6: P11/P12/P17 not started.
 - Genel v1: ~64%.
 
 ### Bu session yapılanlar (commitler, en yeni üstte)
+- P10 chat/party realtime slice — `chat.send`, `party.invite`,
+  `party.accept`, and `party.leave` are runtime-wired with server-owned session
+  identity, online callsign invite resolution, chat rate/moderation seams, and
+  post-mutation social events.
 - P08 restart-survival smoke slice — DB-only Postgres runtime restart tests prove
   one X Core debit across claim retry, pending claim production-init recovery,
   one route settlement window, and one missed durable claim outbox replay.
@@ -62,8 +67,8 @@ Pause noktası. Resume eden buradan devam etsin. Faz statü doğrusu hep
 
 ### Sırada (resume sırası)
 1. Context tazele: `00-index.md`, `REMAINING-WORK.md`, ilgili faz dosyası.
-2. P10: social domain'i realtime commands/events + real client panellerine bağla;
-   durable clan rows ekle.
+2. P10: durable clan rows/read models, party shared-target foundation, and real
+   client chat/party/clan panels ekle.
 3. P13/P15: release gate + AOI perf.
 4. Wave 5-6: P11 endgame, P12 flavor, P17 runtime decomposition (+ P05 deep mu).
 

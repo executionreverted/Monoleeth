@@ -209,6 +209,22 @@ func defaultRealtimeOperationBuckets() map[Operation]RealtimeRateLimitBucket {
 			Burst:       5,
 			RefillEvery: 2 * time.Second,
 		},
+		OperationChatSend: {
+			Burst:       3,
+			RefillEvery: time.Second,
+		},
+		OperationPartyInvite: {
+			Burst:       4,
+			RefillEvery: 5 * time.Second,
+		},
+		OperationPartyAccept: {
+			Burst:       4,
+			RefillEvery: 5 * time.Second,
+		},
+		OperationPartyLeave: {
+			Burst:       4,
+			RefillEvery: 5 * time.Second,
+		},
 		OperationQuestReroll: {
 			Burst:       2,
 			RefillEvery: 30 * time.Second,

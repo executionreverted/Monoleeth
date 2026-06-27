@@ -176,6 +176,9 @@ func (runtime *Runtime) attachSessionToInstanceLocked(instance *mapInstance, ses
 		}
 	}
 	runtime.sessionLocations[sessionID] = instance.Definition.InternalMapID
+	if runtime.SocialMembership != nil {
+		runtime.SocialMembership.SetPlayerMap(playerID, string(instance.Definition.InternalMapID))
+	}
 }
 
 // detachSessionFromInstanceLocked must be called with Runtime.mu held. It
@@ -193,11 +196,29 @@ func (runtime *Runtime) detachSessionFromInstanceLocked(instance *mapInstance, s
 	result := instance.Worker.Tick()
 	runtime.recordEnemyTelemetryLocked(instance, result)
 	_ = commandErrors(result)
+	playerID := instance.ActiveSessions[sessionID]
 	delete(instance.ActiveSessions, sessionID)
 	delete(instance.LastAOI, sessionID)
 	if runtime.sessionLocations[sessionID] == instance.Definition.InternalMapID {
 		delete(runtime.sessionLocations, sessionID)
 	}
+	if playerID != "" && runtime.SocialMembership != nil && !runtime.playerHasActiveSessionLocked(playerID) {
+		runtime.SocialMembership.RemovePlayerMap(playerID)
+	}
+}
+
+func (runtime *Runtime) playerHasActiveSessionLocked(playerID foundation.PlayerID) bool {
+	for _, instance := range runtime.mapInstances {
+		if instance == nil {
+			continue
+		}
+		for _, activePlayerID := range instance.ActiveSessions {
+			if activePlayerID == playerID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (runtime *Runtime) sessionMapEpochLocked(sessionID auth.SessionID) uint64 {

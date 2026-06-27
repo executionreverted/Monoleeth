@@ -17,7 +17,7 @@
 | 07 | Equipment & Progression Closure | 3 | ✅ Done | 100% |
 | 08 | Durable Planet, Production & Routes | 3 | 🟡 In progress | 90% |
 | 09 | CMS Completion & Balance Telemetry | 3 | ✅ Done | 100% |
-| 10 | Social MVP | 4 | 🟡 In progress | 50% |
+| 10 | Social MVP | 4 | 🟡 In progress | 60% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | ⬜ Not started | 0% |
 | 12 | DarkOrbit Flavor | 6 | ⬜ Not started | 0% |
 | 13 | Observability, Simulation & Release Gate | 4 | ⬜ Not started | 0% |
@@ -142,9 +142,16 @@ honestly. (Green.)
 
 ---
 
-### 🟡 P10 — Social MVP (Chat, Party, Clan) (Wave 4, 50%)
+### 🟡 P10 — Social MVP (Chat, Party, Clan) (Wave 4, 60%)
 
 ✅ Domain package exists: `internal/game/social/`.
+✅ Runtime chat/party realtime slice exists:
+- `chat.send` resolves local-map/party/clan membership server-side and queues
+  `chat.message` events after message commit.
+- `party.invite`, `party.accept`, and `party.leave` use server-owned session
+  identity; invite targets resolve from online callsign, not client-sent player
+  ids.
+- Chat rate-limit and moderation seams are wired through `ChatService`.
 
 - [x] Chat service domain: server-resolved channels, moderation hook seam,
   rate-limit seam + default cooldown, in-memory message store.
@@ -154,8 +161,9 @@ honestly. (Green.)
   clan-chat membership list.
 - [x] Channel membership resolver: local-map, party, clan, system channel
   routing.
-- [ ] Wire realtime ops/events: `chat.send`, `party.invite`, `party.accept`,
-  `party.leave`, `clan.create`, `clan.join`, `clan.leave`.
+- [x] Wire realtime ops/events: `chat.send`, `party.invite`, `party.accept`,
+  `party.leave`.
+- [ ] Wire realtime ops/events: `clan.create`, `clan.join`, `clan.leave`.
 - [ ] Durable clan rows + durable/social read models. Current clan store is
   process-local.
 - [ ] Party shared-target + contribution event foundation.

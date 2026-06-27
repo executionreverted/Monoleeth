@@ -77,6 +77,10 @@ const (
 	OperationPremiumEntitlements       Operation = "premium.entitlements"
 	OperationPremiumClaim              Operation = "premium.claim"
 	OperationPremiumWeeklyXCore        Operation = "premium.purchase_weekly_xcore"
+	OperationChatSend                  Operation = "chat.send"
+	OperationPartyInvite               Operation = "party.invite"
+	OperationPartyAccept               Operation = "party.accept"
+	OperationPartyLeave                Operation = "party.leave"
 	OperationQuestBoard                Operation = "quest.board"
 	OperationQuestAccept               Operation = "quest.accept"
 	OperationQuestProgress             Operation = "quest.progress"
@@ -164,6 +168,10 @@ const (
 	EventQuestRewardClaimed    ClientEventType = "quest.reward_claimed"
 	EventQuestBoardRerolled    ClientEventType = "quest.board_rerolled"
 	EventQuestAbandoned        ClientEventType = "quest.abandoned"
+	EventChatMessage           ClientEventType = "chat.message"
+	EventPartyInvite           ClientEventType = "party.invite"
+	EventPartyUpdated          ClientEventType = "party.updated"
+	EventPartyLeft             ClientEventType = "party.left"
 	EventAdminActionCompleted  ClientEventType = "admin.action_completed"
 	EventObservabilityMetric   ClientEventType = "observability.metric_updated"
 	EventReleaseGateUpdated    ClientEventType = "release_gate.updated"
@@ -429,6 +437,22 @@ var registeredOperations = map[Operation]OperationSpec{
 	},
 	OperationPremiumWeeklyXCore: {
 		Operation:        OperationPremiumWeeklyXCore,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationChatSend: {
+		Operation:        OperationChatSend,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationPartyInvite: {
+		Operation:        OperationPartyInvite,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationPartyAccept: {
+		Operation:        OperationPartyAccept,
+		RateLimitPosture: RateLimitPostureIntentBurst,
+	},
+	OperationPartyLeave: {
+		Operation:        OperationPartyLeave,
 		RateLimitPosture: RateLimitPostureIntentBurst,
 	},
 	OperationQuestBoard: {

@@ -130,6 +130,10 @@ func TestDefaultOperationBucketsCoverPhase04NamedRealtimeOperations(t *testing.T
 		OperationScanPulse,
 		OperationMarketSearch,
 		OperationQuestReroll,
+		OperationChatSend,
+		OperationPartyInvite,
+		OperationPartyAccept,
+		OperationPartyLeave,
 	} {
 		bucket, ok := buckets[operation]
 		if !ok {
@@ -144,9 +148,9 @@ func TestDefaultOperationBucketsCoverPhase04NamedRealtimeOperations(t *testing.T
 	}
 
 	registry := OperationRegistry()
-	for _, absent := range []Operation{Operation("chat.send")} {
-		if _, ok := registry[absent]; ok {
-			t.Fatalf("operation %q registered, want absent until server-owned contract exists", absent)
+	for _, operation := range []Operation{OperationChatSend, OperationPartyInvite, OperationPartyAccept, OperationPartyLeave} {
+		if _, ok := registry[operation]; !ok {
+			t.Fatalf("operation %q missing from registry", operation)
 		}
 	}
 }

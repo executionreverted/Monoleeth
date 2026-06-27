@@ -32,6 +32,7 @@ import (
 	"gameproject/internal/game/realtime"
 	gameruntime "gameproject/internal/game/runtime"
 	"gameproject/internal/game/ships"
+	"gameproject/internal/game/social"
 	"gameproject/internal/game/world"
 	"gameproject/internal/game/world/aoi"
 	worldmaps "gameproject/internal/game/world/maps"
@@ -86,6 +87,8 @@ type RuntimeConfig struct {
 	E2EPlanetClaimCores int
 	E2ERouteSeed        bool
 	E2EScanNoPlanetSeed bool
+	SocialModeration    social.MessageModerationHook
+	SocialChatLimiter   social.RateLimitChecker
 	AdminSeed           auth.AdminSeedInput
 	Passwords           auth.PasswordHasher
 
@@ -165,6 +168,10 @@ type Runtime struct {
 	Auction                        *auction.Service
 	Premium                        *premium.PremiumEntitlementService
 	Quest                          *quests.QuestService
+	SocialChat                     *social.ChatService
+	SocialParty                    *social.PartyService
+	SocialClan                     *social.ClanService
+	SocialMembership               *social.ChannelMembershipService
 	Admin                          *admin.Service
 	ContentAdmin                   *admin.ContentService
 	Progression                    *progression.ProgressionService
@@ -1401,6 +1408,30 @@ func NewRuntime(config RuntimeConfig) (*Runtime, error) {
 	if runtime.ContentAdmin != nil {
 		runtime.ContentAdmin.SetPublishSafetyModuleReader(runtime)
 	}
+	socialParty := social.NewPartyService(clock)
+	socialClan, err := social.NewClanService(social.ClanServiceConfig{
+		Store: social.NewInMemoryClanStore(),
+		Clock: clock,
+	})
+	if err != nil {
+		return nil, err
+	}
+	socialMembership := social.NewChannelMembershipService(socialParty, socialClan)
+	socialChat, err := social.NewChatService(social.ChatServiceConfig{
+		Store:       social.NewInMemoryChatStore(),
+		Names:       runtimeSocialNameResolver{runtime: runtime},
+		Membership:  socialMembership,
+		Moderation:  config.SocialModeration,
+		RateLimiter: config.SocialChatLimiter,
+		Clock:       clock,
+	})
+	if err != nil {
+		return nil, err
+	}
+	runtime.SocialParty = socialParty
+	runtime.SocialClan = socialClan
+	runtime.SocialMembership = socialMembership
+	runtime.SocialChat = socialChat
 	scannerSeed, err := contentBundle.Scanner.WorldSeed()
 	if err != nil {
 		return nil, err
