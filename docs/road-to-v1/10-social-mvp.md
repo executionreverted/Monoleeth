@@ -1,7 +1,7 @@
 # Phase 10 — Social MVP (Chat, Party, Clan)
 
 ## Status
-- State: Not started
+- State: In progress (domain package done; runtime/client wiring pending)
 - Wave: 4
 - Depends on: P01 (durable identity), P04 (rate limits)
 - Unlocks: P11 group content, retention
@@ -34,12 +34,12 @@ clan foundation, all with moderation and rate limits from day one.
 - Channel membership, party/clan membership, ranks are server-owned; client sends intent only.
 
 ## Smoke Tests (one assertion each)
-- [ ] Local-map chat reaches same-map members and not others.
-- [ ] Chat over rate limit is throttled without mutation.
-- [ ] Party invite/accept adds exactly one membership.
-- [ ] Non-member cannot read clan chat.
-- [ ] Clan create assigns the creator the owner rank once.
-- [ ] Leaving a clan removes membership and clan-chat access.
+- [x] Local-map chat reaches same-map members and not others.
+- [x] Chat over rate limit is throttled without mutation.
+- [x] Party invite/accept adds exactly one membership.
+- [x] Non-member cannot read/send clan chat.
+- [x] Clan create assigns the creator the owner rank once.
+- [x] Leaving a clan removes membership and clan-chat access.
 
 ## Done Criteria
 - [ ] Chat + party + clan MVP usable with moderation/rate limits.

@@ -119,7 +119,7 @@ Update the bar as boxes close inside each phase file. Bar = 10 cells
 | 07 | Equipment & Progression Closure | 3 | Done | `██████████` 100% |
 | 08 | Durable Planet, Production & Routes | 3 | In progress | `█████░░░░░` 50% |
 | 09 | CMS Completion & Balance Telemetry | 3 | Done | `██████████` 100% |
-| 10 | Social MVP | 4 | Not started | `░░░░░░░░░░` 0% |
+| 10 | Social MVP | 4 | In progress | `█████░░░░░` 50% |
 | 11 | First Endgame Loop (Signal Gate) | 5 | Not started | `░░░░░░░░░░` 0% |
 | 12 | DarkOrbit Flavor | 6 | Not started | `░░░░░░░░░░` 0% |
 | 13 | Observability, Simulation & Release Gate | 4 | Not started | `░░░░░░░░░░` 0% |
