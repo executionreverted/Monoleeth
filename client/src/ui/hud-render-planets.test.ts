@@ -685,7 +685,8 @@ describe('actionBar', () => {
       const laserSlot = actionSlot(html, 'laser');
 
       expect(laserSlot).toContain('data-state="ready"');
-      expect(laserSlot).toContain('Laser');
+      expect(laserSlot).toContain('data-command-op="combat.start_attack"');
+      expect(laserSlot).toContain('Attack');
       expect(laserSlot).toContain('10 cap');
       expect(laserSlot).not.toContain('Cooling');
       expect(laserSlot).not.toContain('disabled');
@@ -714,11 +715,35 @@ describe('actionBar', () => {
     const targetHTML = targetPanel(state, 20_000);
 
     expect(laserSlot).toContain('data-state="ready"');
+    expect(laserSlot).toContain('data-command-op="combat.start_attack"');
     expect(laserSlot).toContain('data-action="fire"');
     expect(laserSlot).not.toContain('disabled');
     expect(targetHTML).toContain('data-target-kind="player"');
-    expect(targetHTML).toMatch(/data-action="fire"[^>]*>Fire/);
+    expect(targetHTML).toMatch(/data-action="fire"[^>]*>Attack/);
     expect(targetHTML).not.toMatch(/data-action="fire"[^>]*disabled/);
+  });
+
+  test('active combat engagement turns the laser slot into Stop for the same target', () => {
+    const state = combatReadyState();
+    state.combatEngagement = {
+      active: true,
+      targetID: 'npc-1',
+      skillID: 'basic_laser',
+      startedAt: 19_000,
+      nextFireAt: 20_600,
+      lastStopReason: null,
+    };
+
+    const barHTML = actionBar(state, 20_000);
+    const laserSlot = actionSlot(barHTML, 'laser');
+    const targetHTML = targetPanel(state, 20_000);
+
+    expect(laserSlot).toContain('data-state="ready"');
+    expect(laserSlot).toContain('data-command-op="combat.stop_attack"');
+    expect(laserSlot).toContain('Stop');
+    expect(laserSlot).toContain('&lt;1s');
+    expect(laserSlot).not.toContain('disabled');
+    expect(targetHTML).toMatch(/data-action="fire"[^>]*>Stop/);
   });
 
   test('target panel exposes direct enter action for visible in-range portals', () => {
@@ -794,7 +819,7 @@ describe('actionBar', () => {
     expect(laserSlot).toContain('data-state="blocked"');
     expect(laserSlot).toMatch(/data-action="fire"[^>]*disabled/);
     expect(laserSlot).toContain('Repair the ship before firing.');
-    expect(targetHTML).toMatch(/data-action="fire"[^>]*disabled[^>]*>Fire/);
+    expect(targetHTML).toMatch(/data-action="fire"[^>]*disabled[^>]*>Attack/);
     expect(shipHTML).toContain('<div class="meta-row"><span>State</span><strong>disabled</strong></div>');
     expect(shipHTML).toContain('<div class="meta-row"><span>Quote</span><strong>15 credits</strong></div>');
     expect(shipHTML).not.toContain('<strong>active</strong>');
@@ -829,7 +854,7 @@ describe('actionBar', () => {
     expect(laserSlot).toContain('Disabled');
     expect(laserSlot).toMatch(/data-action="fire"[^>]*disabled/);
     expect(laserSlot).toContain('Repair the ship before firing.');
-    expect(targetHTML).toMatch(/data-action="fire"[^>]*disabled[^>]*>Fire/);
+    expect(targetHTML).toMatch(/data-action="fire"[^>]*disabled[^>]*>Attack/);
     expect(shipHTML).toContain('<div class="meta-row"><span>State</span><strong>repair_pending</strong></div>');
     expect(shipHTML).toContain('<div class="meta-row"><span>Quote</span><strong>15 credits</strong></div>');
     expect(shipHTML).not.toContain('<strong>active</strong>');

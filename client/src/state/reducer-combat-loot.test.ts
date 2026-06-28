@@ -216,6 +216,8 @@ describe('reduceClientState', () => {
       envelope: event(CLIENT_EVENTS.combatDamage, {
         target_id: 'npc-1',
         amount: 45,
+        shield_amount: 10,
+        hull_amount: 35,
       }, 5),
     });
     const withDropNotice = reduceClientState(withDamage, {
@@ -300,7 +302,14 @@ describe('reduceClientState', () => {
     );
     expect(withDuplicateCooldown.worldEffects.filter((effect) => effect.id === 'event-4:laser')).toHaveLength(1);
     expect(withDamage.combatLog.at(-1)?.text).toContain('Hit Training Drone for 45.');
-    expect(withDamage.worldEffects.some((effect) => effect.kind === 'damage' && effect.amount === 45)).toBe(true);
+    expect(withDamage.worldEffects).toContainEqual(expect.objectContaining({
+      kind: 'damage',
+      amount: 45,
+      shieldAmount: 10,
+      hullAmount: 35,
+      damageKind: 'mixed',
+      phase: 'resolved',
+    }));
     expect(withDropNotice.knownLoot['drop-1']).toMatchObject({ item_id: 'raw_ore', quantity: 3 });
     expect(withDropNotice.worldEffects.some((effect) => effect.kind === 'loot_spawn' && effect.targetID === 'drop-1')).toBe(true);
     expect(leftClearsKnownLoot.knownLoot['drop-1']).toBeUndefined();
@@ -312,6 +321,174 @@ describe('reduceClientState', () => {
     expect(progressed.progression).toMatchObject({ main_level: 2, rank: 2, combat_xp: 40 });
     expect(quoted.repairQuote).toMatchObject({ ship_id: 'starter', cost: 0, currency: 'credits', disabled: true });
     expect(repaired.repairQuote).toBeNull();
+  });
+
+  test('combat engagement events reconcile server-owned attack stance and shot effects', () => {
+    const withEntities = reduceClientState(createInitialState(), {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.entityEntered, {
+        entity_id: 'player-1',
+        entity_type: 'player',
+        position: { x: 0, y: 0 },
+        status_flags: ['self'],
+      }),
+    });
+    const withNPC = reduceClientState(withEntities, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.entityEntered, {
+        entity_id: 'npc-1',
+        entity_type: 'npc',
+        position: { x: 120, y: 0 },
+        display: { label: 'Saimon', disposition: 'hostile' },
+        combat: { hp: 60, max_hp: 60, shield: 20, max_shield: 20, status: 'active' },
+      }, 2),
+    });
+    const queuedStart = reduceClientState({
+      ...withNPC,
+      pendingCommands: {
+        'start-1': { requestID: 'start-1', op: OPERATIONS.combatStartAttack, queuedAt: 1 },
+      },
+    }, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.combatAttackStarted, {
+        active: true,
+        target_id: 'npc-1',
+        skill_id: 'basic_laser',
+        started_at_ms: 5000,
+        next_fire_at_ms: 5000,
+      }, 3),
+    });
+    const shotStarted = reduceClientState(queuedStart, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.combatShotStarted, {
+        source_id: 'player-1',
+        target_id: 'npc-1',
+        skill_id: 'basic_laser',
+      }, 4),
+    });
+    const shotResolved = reduceClientState(shotStarted, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.combatShotResolved, {
+        source_id: 'player-1',
+        target_id: 'npc-1',
+        skill_id: 'basic_laser',
+        hit: true,
+        amount: 15,
+        cooldown_ready_at_ms: 7600,
+      }, 5),
+    });
+    const reconciled = reduceClientState(shotResolved, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.combatStateSnapshot, {
+        active: true,
+        target_id: 'npc-1',
+        skill_id: 'basic_laser',
+        started_at_ms: 5000,
+        next_fire_at_ms: 7600,
+        last_stop_reason: '',
+      }, 6),
+    });
+    const stopped = reduceClientState({
+      ...reconciled,
+      pendingCommands: {
+        'stop-1': { requestID: 'stop-1', op: OPERATIONS.combatStopAttack, queuedAt: 1 },
+      },
+    }, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.combatAttackStopped, {
+        active: false,
+        target_id: '',
+        skill_id: '',
+        started_at_ms: 0,
+        next_fire_at_ms: 0,
+        last_stop_reason: 'out_of_range',
+      }, 7),
+    });
+
+    expect(queuedStart.pendingCommands['start-1']).toBeUndefined();
+    expect(queuedStart.combatEngagement).toMatchObject({
+      active: true,
+      targetID: 'npc-1',
+      skillID: 'basic_laser',
+      startedAt: 5000,
+      nextFireAt: 5000,
+      lastStopReason: null,
+    });
+    expect(shotStarted.worldEffects).toContainEqual(expect.objectContaining({
+      id: 'event-4:laser',
+      kind: 'laser',
+      phase: 'started',
+      sourceID: 'player-1',
+      sourceEntityID: 'player-1',
+      sourcePosition: { x: 0, y: 0 },
+      targetID: 'npc-1',
+      targetEntityID: 'npc-1',
+      position: { x: 120, y: 0 },
+    }));
+    expect(shotResolved.skillCooldowns.basic_laser).toBe(7600);
+    expect(shotResolved.worldEffects).toContainEqual(expect.objectContaining({
+      id: 'event-5:damage',
+      kind: 'damage',
+      phase: 'resolved',
+      damageKind: 'hull',
+      sourceID: 'player-1',
+      sourceEntityID: 'player-1',
+      targetID: 'npc-1',
+      targetEntityID: 'npc-1',
+      amount: 15,
+    }));
+    expect(reconciled.combatEngagement.nextFireAt).toBe(7600);
+    expect(stopped.pendingCommands['stop-1']).toBeUndefined();
+    expect(stopped.combatEngagement).toMatchObject({
+      active: false,
+      targetID: null,
+      skillID: null,
+      startedAt: null,
+      nextFireAt: null,
+      lastStopReason: 'out_of_range',
+    });
+  });
+
+  test('combat state snapshot clears idle attack stance and auth reset clears engagement state', () => {
+    const active = {
+      ...createInitialState(),
+      combatEngagement: {
+        active: true,
+        targetID: 'npc-1',
+        skillID: 'basic_laser',
+        startedAt: 5000,
+        nextFireAt: 7600,
+        lastStopReason: null,
+      },
+    };
+
+    const idle = reduceClientState(active, {
+      type: 'eventReceived',
+      envelope: event(CLIENT_EVENTS.combatStateSnapshot, {
+        active: false,
+        target_id: '',
+        skill_id: '',
+        started_at_ms: 0,
+        next_fire_at_ms: 0,
+        last_stop_reason: 'target_lost',
+      }, 2),
+    });
+
+    expect(idle.combatEngagement).toMatchObject({
+      active: false,
+      targetID: null,
+      skillID: null,
+      startedAt: null,
+      nextFireAt: null,
+      lastStopReason: 'target_lost',
+    });
+
+    const withServerGameplay = {
+      ...stateWithServerOwnedGameplay(),
+      combatEngagement: active.combatEngagement,
+    };
+    const loggedOut = reduceClientState(withServerGameplay, { type: 'authLoggedOut' });
+    expectServerOwnedGameplayCleared(loggedOut);
   });
 
   test('death disabled event marks active ship disabled without inventing a repair quote', () => {

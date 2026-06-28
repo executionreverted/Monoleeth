@@ -10,9 +10,12 @@ import { WorldRendererStarfield } from './world-renderer-starfield';
 import {
   clamp,
   damageLabel,
+  damageKindForEffect,
   hudColors,
   lerpVec,
   pickupLabel,
+  projectileDebugFromEffect,
+  ProjectileDebugState,
   PROJECTILE_TRAVEL_MS,
 } from './world-renderer-types';
 
@@ -206,6 +209,7 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
           this.drawLaserEffect(effect, now);
           break;
         case 'damage':
+          this.drawImpactEffect(effect, now);
           this.drawFloatingText(effect, now, damageLabel(effect), 0xff8c9c);
           break;
         case 'miss':
@@ -253,18 +257,26 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
         sprite.tint = asset.glowColor;
         this.markerLayer.addChild(sprite);
       }
+      const startPulse = effect.phase === 'started' ? 1 - clamp(progress / 0.34, 0, 1) : 0;
+      if (startPulse > 0) {
+        marker
+          .circle(source.x, source.y, 15 + startPulse * 14)
+          .stroke({ color: asset.accentColor, width: 2, alpha: 0.5 * startPulse * alpha })
+          .circle(source.x, source.y, 5 + startPulse * 5)
+          .fill({ color: 0xfff0a8, alpha: 0.56 * startPulse * alpha });
+      }
       marker
         .moveTo(source.x, source.y)
         .lineTo(target.x, target.y)
-        .stroke({ color: asset.glowColor, width: 1, alpha: 0.12 * alpha })
+        .stroke({ color: asset.glowColor, width: effect.phase === 'started' ? 2 : 1, alpha: (effect.phase === 'started' ? 0.2 : 0.12) * alpha })
         .circle(source.x, source.y, 6 + (1 - progress) * 5)
         .stroke({ color: asset.glowColor, width: 1, alpha: 0.42 * alpha })
         .moveTo(tail.x, tail.y)
         .lineTo(head.x, head.y)
-        .stroke({ color: asset.glowColor, width: 7, alpha: 0.22 * alpha })
+        .stroke({ color: asset.glowColor, width: effect.phase === 'started' ? 9 : 7, alpha: 0.22 * alpha })
         .moveTo(tail.x, tail.y)
         .lineTo(head.x, head.y)
-        .stroke({ color: asset.accentColor, width: 2, alpha: 0.92 * alpha })
+        .stroke({ color: asset.accentColor, width: effect.phase === 'started' ? 3 : 2, alpha: 0.92 * alpha })
         .circle(head.x, head.y, 5)
         .fill({ color: 0xfff0a8, alpha: 0.95 * alpha })
         .circle(head.x, head.y, 11)
@@ -286,6 +298,50 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
           width: 2,
           alpha: 0.86 * flashAlpha,
         });
+    }
+    this.markerLayer.addChild(marker);
+  }
+
+  protected drawImpactEffect(effect: WorldFeedbackEffect, now: number): void {
+    const target = this.effectScreenPosition(effect);
+    if (!target) {
+      return;
+    }
+    const kind = damageKindForEffect(effect);
+    const progress = this.effectProgress(effect, now);
+    const alpha = this.effectAlpha(effect, now);
+    const marker = new Graphics();
+    marker.label = `effect.impact.${kind}`;
+    marker
+      .circle(target.x, target.y, 18 + progress * 16)
+      .stroke({ color: hudColors.amber, width: 1, alpha: 0.46 * alpha })
+      .moveTo(target.x - 13, target.y)
+      .lineTo(target.x - 4, target.y)
+      .moveTo(target.x + 4, target.y)
+      .lineTo(target.x + 13, target.y)
+      .moveTo(target.x, target.y - 13)
+      .lineTo(target.x, target.y - 4)
+      .moveTo(target.x, target.y + 4)
+      .lineTo(target.x, target.y + 13)
+      .stroke({ color: 0xfff0a8, width: 2, alpha: 0.64 * alpha });
+    if (kind === 'shield' || kind === 'mixed') {
+      marker
+        .circle(target.x, target.y, 24 + progress * 30)
+        .stroke({ color: hudColors.cyanSoft, width: 3, alpha: 0.5 * alpha })
+        .circle(target.x, target.y, 31 + progress * 34)
+        .stroke({ color: hudColors.cyan, width: 1, alpha: 0.24 * alpha });
+    }
+    if (kind === 'hull' || kind === 'mixed') {
+      const sparkRadius = 16 + progress * 24;
+      for (let index = 0; index < 6; index += 1) {
+        const angle = (Math.PI * 2 * index) / 6 + progress * 1.4;
+        const inner = sparkRadius * 0.35;
+        const outer = sparkRadius;
+        marker
+          .moveTo(target.x + Math.cos(angle) * inner, target.y + Math.sin(angle) * inner)
+          .lineTo(target.x + Math.cos(angle) * outer, target.y + Math.sin(angle) * outer);
+      }
+      marker.stroke({ color: hudColors.redSoft, width: 2, alpha: 0.58 * alpha });
     }
     this.markerLayer.addChild(marker);
   }
@@ -376,7 +432,7 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
   protected projectileDebugSnapshot(
     effect: WorldFeedbackEffect,
     now: number,
-  ): Array<{ id: string; source: Vec2; target: Vec2; head: Vec2; progress: number; active: boolean; alpha: number }> {
+  ): ProjectileDebugState[] {
     if (effect.kind !== 'laser' || effect.expiresAt <= now) {
       return [];
     }
@@ -385,18 +441,8 @@ export abstract class WorldRendererEffects extends WorldRendererStarfield {
     if (!source || !target) {
       return [];
     }
-    const progress = this.projectileProgress(effect, now);
-    return [
-      {
-        id: effect.id,
-        source,
-        target,
-        head: lerpVec(source, target, progress),
-        progress,
-        active: progress < 1,
-        alpha: this.effectAlpha(effect, now),
-      },
-    ];
+    const snapshot = projectileDebugFromEffect(effect, now, source, target);
+    return snapshot ? [snapshot] : [];
   }
 
   protected effectProgress(effect: WorldFeedbackEffect, now: number): number {

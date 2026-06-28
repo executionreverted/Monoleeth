@@ -540,6 +540,14 @@ describe('default outbound operations', () => {
   test('include server-owned hangar and loadout mutation contracts', () => {
     expect(OPERATIONS.hangarActivateShip).toBe('hangar.activate_ship');
     expect(OPERATIONS.portalEnter).toBe('portal.enter');
+    expect(OPERATIONS.combatStartAttack).toBe('combat.start_attack');
+    expect(OPERATIONS.combatStopAttack).toBe('combat.stop_attack');
+    expect(OPERATIONS.combatState).toBe('combat.state');
+    expect(CLIENT_EVENTS.combatAttackStarted).toBe('combat.attack_started');
+    expect(CLIENT_EVENTS.combatAttackStopped).toBe('combat.attack_stopped');
+    expect(CLIENT_EVENTS.combatShotStarted).toBe('combat.shot_started');
+    expect(CLIENT_EVENTS.combatShotResolved).toBe('combat.shot_resolved');
+    expect(CLIENT_EVENTS.combatStateSnapshot).toBe('combat.state_snapshot');
     expect(CLIENT_EVENTS.mapSnapshot).toBe('map.snapshot');
     expect(CLIENT_EVENTS.mapChanged).toBe('map.changed');
     expect(CLIENT_EVENTS.mapTransferStarted).toBe('map.transfer_started');
@@ -654,6 +662,43 @@ describe('default outbound operations', () => {
         'public_map_key',
         'level',
         'definition_id',
+      ]) {
+        expect(payload).not.toHaveProperty(forbidden);
+      }
+    }
+  });
+
+  test('combat attack stance commands send only client intent fields', () => {
+    const builder = new CommandBuilder();
+
+    const start = builder.combatStartAttack('npc-drone-1');
+    expect(start.op).toBe(OPERATIONS.combatStartAttack);
+    expect(start.payload).toEqual({ target_id: 'npc-drone-1' });
+    expect(Object.keys(start.payload)).toEqual(['target_id']);
+
+    const stop = builder.combatStopAttack();
+    expect(stop.op).toBe(OPERATIONS.combatStopAttack);
+    expect(stop.payload).toEqual({});
+    expect(Object.keys(stop.payload)).toEqual([]);
+
+    const state = builder.combatState();
+    expect(state.op).toBe(OPERATIONS.combatState);
+    expect(state.payload).toEqual({});
+    expect(Object.keys(state.payload)).toEqual([]);
+
+    for (const payload of [start.payload, stop.payload, state.payload]) {
+      for (const forbidden of [
+        'player_id',
+        'ship_id',
+        'damage',
+        'hit',
+        'cooldown',
+        'energy',
+        'position',
+        'range',
+        'visible',
+        'next_fire_at',
+        'server_time',
       ]) {
         expect(payload).not.toHaveProperty(forbidden);
       }

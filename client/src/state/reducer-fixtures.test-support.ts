@@ -31,6 +31,14 @@ export function expectServerOwnedGameplayCleared(state: ClientState): void {
   expect(state.lastCorrection).toBeNull();
   expect(state.knownLoot).toEqual({});
   expect(state.worldEffects).toEqual([]);
+  expect(state.combatEngagement).toMatchObject({
+    active: false,
+    targetID: null,
+    skillID: null,
+    startedAt: null,
+    nextFireAt: null,
+    lastStopReason: null,
+  });
   expect(state.pendingCommands).toEqual({});
   expect(state.combatLog).toEqual([]);
   expect(state.cargo).toBeNull();
@@ -123,6 +131,14 @@ export function stateWithServerOwnedGameplay(): ClientState {
     lastCorrection: { entityID: 'player-1', position: { x: 1, y: 2 } },
     knownLoot: { 'drop-1': { drop_id: 'drop-1', item_id: 'raw_ore', quantity: 3 } },
     worldEffects: [{ id: 'effect-1', kind: 'damage', targetID: 'npc-1', amount: 4, createdAt: 1, expiresAt: 2 }],
+    combatEngagement: {
+      active: true,
+      targetID: 'npc-1',
+      skillID: 'basic_laser',
+      startedAt: 1000,
+      nextFireAt: 1250,
+      lastStopReason: null,
+    },
     pendingCommands: { 'request-1': { requestID: 'request-1', op: 'move_to', queuedAt: 1 } },
     commandLog: [{ id: 'log-1', level: 'info', text: 'Server log.', at: 1 }],
     combatLog: [{ id: 'combat-1', level: 'info', text: 'Hit Training Drone.', at: 1 }],

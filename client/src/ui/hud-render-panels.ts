@@ -666,7 +666,7 @@ export function targetActionButtons(target: VisibleEntity | null, laser: QuickAc
   const buttons: string[] = [];
   if (isAttackableVisibleTarget(target, self)) {
     buttons.push(
-      `<button type="button" data-action="fire" ${laser.enabled ? '' : 'disabled'} title="${escapeHTML(laser.title)}">Fire</button>`,
+      `<button type="button" data-action="fire" ${laser.enabled ? '' : 'disabled'} title="${escapeHTML(laser.title)}">${escapeHTML(laser.label)}</button>`,
     );
   }
   if (target?.entity_type === 'loot') {
@@ -913,7 +913,7 @@ export function quickActionStates(state: ClientState, serverNow: number | null):
   const target = state.selectedTargetID ? state.visibleEntities[state.selectedTargetID] : null;
   const loot = lootActionState(state, target, serverNow);
   return [
-    liveQuickAction('laser', 'fire', 1, '1', laserIconURL, 'combat.use_skill', laserActionState(state, target, serverNow)),
+    liveQuickAction('laser', 'fire', 1, '1', laserIconURL, laserCommandOp(state, target), laserActionState(state, target, serverNow)),
     lockedQuickAction('rocket', 'rocket', 2, '2', rocketIconURL, 'Rocket', 'Missile systems are not installed yet.'),
     liveQuickAction('scan', 'scan', 3, '3', scanIconURL, 'scan.pulse', scanActionState(state)),
     liveQuickAction('stealth', 'stealth', 4, '4', shieldIconURL, 'stealth.toggle', stealthActionState(state)),
@@ -1002,18 +1002,34 @@ export function lootCommandOp(action: ActionState): string {
   return action.label === 'Approach' ? 'move_to' : 'loot.pickup';
 }
 
+export function laserCommandOp(state: ClientState, target: VisibleEntity | null): string {
+  return state.combatEngagement.active && target?.entity_id === state.combatEngagement.targetID
+    ? OPERATIONS.combatStopAttack
+    : OPERATIONS.combatStartAttack;
+}
+
 export function laserActionState(state: ClientState, target: VisibleEntity | null, serverNow: number | null = Date.now()): ActionState {
   if (!realtimeReady(state)) {
-    return { enabled: false, label: 'Laser', detail: 'Offline', title: 'Realtime link is not authenticated.' };
+    return { enabled: false, label: 'Attack', detail: 'Offline', title: 'Realtime link is not authenticated.' };
   }
   if (state.ship?.disabled === true) {
-    return { enabled: false, label: 'Laser', detail: 'Disabled', title: 'Repair the ship before firing.' };
+    return { enabled: false, label: 'Attack', detail: 'Disabled', title: 'Repair the ship before firing.' };
   }
-  if (!isAttackableVisibleTarget(target, selfEntity(state.visibleEntities))) {
-    return { enabled: false, label: 'Laser', detail: 'Standby', title: 'Select an attackable target.' };
+  if (!target || !isAttackableVisibleTarget(target, selfEntity(state.visibleEntities))) {
+    return { enabled: false, label: 'Attack', detail: 'Standby', title: 'Select an attackable target.' };
   }
-  if (hasPendingOp(state, 'combat.use_skill')) {
-    return { enabled: false, label: 'Laser', detail: 'Pending', title: 'Basic laser is pending.' };
+  if (hasPendingOp(state, OPERATIONS.combatStartAttack) || hasPendingOp(state, OPERATIONS.combatStopAttack)) {
+    return { enabled: false, label: state.combatEngagement.active ? 'Stop' : 'Attack', detail: 'Pending', title: 'Attack stance change is pending.' };
+  }
+  if (state.combatEngagement.active && state.combatEngagement.targetID === target.entity_id) {
+    return {
+      enabled: true,
+      label: 'Stop',
+      detail: state.combatEngagement.nextFireAt && state.combatEngagement.nextFireAt > (serverNow ?? Date.now())
+        ? formatCooldown(state.combatEngagement.nextFireAt - (serverNow ?? Date.now()))
+        : 'Active',
+      title: 'Stop the active attack stance.',
+    };
   }
 
   const cooldownRemaining = (state.skillCooldowns.basic_laser ?? 0) - (serverNow ?? Date.now());
@@ -1029,12 +1045,12 @@ export function laserActionState(state: ClientState, target: VisibleEntity | nul
   const energyCost = state.stats?.basic_laser_energy_cost ?? null;
   const capacitor = state.ship?.capacitor ?? null;
   if (energyCost === null || energyCost <= 0 || capacitor === null) {
-    return { enabled: false, label: 'Laser', detail: 'Stats', title: 'Awaiting combat stats.' };
+    return { enabled: false, label: 'Attack', detail: 'Stats', title: 'Awaiting combat stats.' };
   }
   if (capacitor < energyCost) {
     return {
       enabled: false,
-      label: 'Laser',
+      label: 'Attack',
       detail: `Need ${Math.ceil(energyCost - capacitor)}`,
       title: `Basic laser needs ${Math.round(energyCost)} capacitor.`,
     };
@@ -1042,9 +1058,9 @@ export function laserActionState(state: ClientState, target: VisibleEntity | nul
 
   return {
     enabled: true,
-    label: 'Laser',
+    label: state.combatEngagement.active ? 'Switch' : 'Attack',
     detail: `${Math.round(energyCost)} cap`,
-    title: `Fire basic laser for ${Math.round(energyCost)} capacitor.`,
+    title: `Start basic laser attack stance for ${Math.round(energyCost)} capacitor.`,
   };
 }
 

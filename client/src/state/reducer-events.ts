@@ -1,6 +1,6 @@
 import { CLIENT_EVENTS, EventEnvelope, JsonObject, OPERATIONS, rejectForbiddenPayloadKeys } from '../protocol/envelope';
 import type { ClientState, MapTransferState, SocialClanMembership, SocialChatMessage, SocialContributionSnapshot, SocialPartyInvite, SocialPartyMember, SocialPartySharedTarget, SocialPartyState } from './types';
-import { appendLog, isJsonObject, numberField, objectField, stringField } from './reducer-helpers';
+import { appendLog, booleanField, isJsonObject, numberField, objectField, stringField } from './reducer-helpers';
 import {
   applyPlanetDetail,
   applyPlanetClaimed,
@@ -110,6 +110,62 @@ export function applyEvent(state: ClientState, envelope: EventEnvelope): ClientS
 
     case CLIENT_EVENTS.targetUpdated:
       return applyTargetUpdated(state, envelope);
+
+    case CLIENT_EVENTS.combatAttackStarted: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.combatStartAttack]);
+      return {
+        ...nextState,
+        combatEngagement: combatEngagementFromPayload(envelope.payload, envelope.server_time),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        combatLog: appendLog(nextState.combatLog, 'info', `Attack started on ${displayNameForEntity(nextState, stringField(envelope.payload, 'target_id'))}.`),
+      };
+    }
+
+    case CLIENT_EVENTS.combatAttackStopped: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.combatStartAttack, OPERATIONS.combatStopAttack]);
+      return {
+        ...nextState,
+        combatEngagement: combatEngagementFromPayload(envelope.payload, envelope.server_time),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.combatStateSnapshot: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.combatState]);
+      return {
+        ...nextState,
+        combatEngagement: combatEngagementFromPayload(envelope.payload, envelope.server_time),
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+      };
+    }
+
+    case CLIENT_EVENTS.combatShotStarted: {
+      const nextState = withoutPendingOperations(state, [OPERATIONS.combatStartAttack]);
+      return appendWorldEffect(
+        {
+          ...nextState,
+          lastServerTime: envelope.server_time,
+          lastSequence: Math.max(nextState.lastSequence, envelope.seq),
+        },
+        feedbackEffect(nextState, envelope, 'laser'),
+      );
+    }
+
+    case CLIENT_EVENTS.combatShotResolved: {
+      const skillID = stringField(envelope.payload, 'skill_id') ?? 'basic_laser';
+      const readyAt = numberField(envelope.payload, 'cooldown_ready_at_ms');
+      const hit = booleanField(envelope.payload, 'hit') ?? false;
+      const nextState = {
+        ...state,
+        skillCooldowns: readyAt === null ? state.skillCooldowns : { ...state.skillCooldowns, [skillID]: readyAt },
+        lastServerTime: envelope.server_time,
+        lastSequence: Math.max(state.lastSequence, envelope.seq),
+      };
+      return appendWorldEffect(nextState, feedbackEffect(nextState, envelope, hit ? 'damage' : 'miss'));
+    }
 
     case CLIENT_EVENTS.combatDamage: {
       const nextState = withoutPendingOperations(state, [OPERATIONS.combatUseSkill]);
@@ -1039,6 +1095,33 @@ function parseMapTransferFailed(payload: EventEnvelope['payload'], serverTime: n
     from_public_map_key: stringField(payload, 'from_public_map_key') ?? undefined,
     reason: stringField(payload, 'reason') ?? 'Map transfer failed.',
     started_at: serverTime,
+  };
+}
+
+function combatEngagementFromPayload(payload: JsonObject, serverTime: number): ClientState['combatEngagement'] {
+  const active = booleanField(payload, 'active') ?? false;
+  const targetID = stringField(payload, 'target_id');
+  const skillID = stringField(payload, 'skill_id');
+  const startedAt = numberField(payload, 'started_at_ms');
+  const nextFireAt = numberField(payload, 'next_fire_at_ms');
+  const lastStopReason = stringField(payload, 'last_stop_reason');
+  if (!active) {
+    return {
+      active: false,
+      targetID: null,
+      skillID: null,
+      startedAt: null,
+      nextFireAt: null,
+      lastStopReason: lastStopReason || null,
+    };
+  }
+  return {
+    active: true,
+    targetID: targetID || null,
+    skillID: skillID || 'basic_laser',
+    startedAt: startedAt && startedAt > 0 ? startedAt : serverTime,
+    nextFireAt: nextFireAt && nextFireAt > 0 ? nextFireAt : serverTime,
+    lastStopReason: lastStopReason || null,
   };
 }
 
