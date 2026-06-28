@@ -10,9 +10,10 @@ import {
 import { isSelfEntity } from '../state/movement';
 import { WorldMapMemoryMarker } from '../state/types';
 import { WorldViewState } from './world-view';
-import { worldAssetForEntity, worldAssetForMemoryMarker } from './world-renderer-assets';
+import type { EntityAssetDirectionCode } from './world-entity-asset-catalog';
+import { worldAssetForEntity, worldAssetForMemoryMarker, worldTextureKeyForAsset } from './world-renderer-assets';
 import { WorldRendererEffects } from './world-renderer-effects';
-import { spriteAlphaForEntity, spriteScaleForEntity } from './world-renderer-sprites';
+import { spriteAlphaForEntity, spriteDirectionForEntity, spriteScaleForEntity } from './world-renderer-sprites';
 import {
   clamp,
   drawAsteroidShard,
@@ -92,18 +93,19 @@ export abstract class WorldRendererEntities extends WorldRendererEffects {
   protected createEntityView(entity: EntityPayload): Graphics {
     const view = new Graphics();
     const asset = worldAssetForEntity(entity, isSelfEntity(entity));
-    view.label = `${entity.entity_id}:${asset.key}`;
+    view.label = `${entity.entity_id}:${asset.key}:${this.entitySpriteDirection(entity)}`;
     return view;
   }
 
   protected createEntitySprite(entity: EntityPayload): Sprite | null {
     const asset = worldAssetForEntity(entity, isSelfEntity(entity));
-    const texture = this.worldAssetTextures.get(asset.key);
+    const direction = this.entitySpriteDirection(entity);
+    const texture = this.worldAssetTextures.get(worldTextureKeyForAsset(asset, direction));
     if (!texture) {
       return null;
     }
     const sprite = new Sprite(texture);
-    sprite.label = `${asset.key}:sprite:${entity.entity_id}`;
+    sprite.label = `${asset.key}:${direction}:sprite:${entity.entity_id}`;
     sprite.anchor.set(0.5);
     sprite.tint = asset.accentColor;
     sprite.alpha = spriteAlphaForEntity(entity);
@@ -131,7 +133,8 @@ export abstract class WorldRendererEntities extends WorldRendererEffects {
   protected drawEntity(view: Graphics, entity: EntityPayload, selected: boolean, self: boolean): void {
     view.clear();
     const asset = worldAssetForEntity(entity, self);
-    view.label = `${entity.entity_id}:${asset.key}`;
+    const direction = this.entitySpriteDirection(entity);
+    view.label = `${entity.entity_id}:${asset.key}:${direction}`;
     this.updateEntitySprite(entity, self);
     const hasSpriteBody = this.hasLoadedEntitySpriteBody(entity, self);
 
@@ -164,7 +167,7 @@ export abstract class WorldRendererEntities extends WorldRendererEffects {
 
   protected hasLoadedEntitySpriteBody(entity: EntityPayload, self: boolean): boolean {
     const asset = worldAssetForEntity(entity, self);
-    return Boolean(this.entitySprites.get(entity.entity_id) && this.worldAssetTextures.get(asset.key));
+    return Boolean(this.entitySprites.get(entity.entity_id) && this.worldAssetTextures.get(worldTextureKeyForAsset(asset, this.entitySpriteDirection(entity))));
   }
 
   protected updateEntitySprite(entity: EntityPayload, self: boolean): void {
@@ -173,14 +176,24 @@ export abstract class WorldRendererEntities extends WorldRendererEffects {
       return;
     }
     const asset = worldAssetForEntity(entity, self);
-    const texture = this.worldAssetTextures.get(asset.key);
+    const direction = this.entitySpriteDirection(entity);
+    const texture = this.worldAssetTextures.get(worldTextureKeyForAsset(asset, direction));
     if (texture && sprite.texture !== texture) {
       sprite.texture = texture;
     }
-    sprite.label = `${asset.key}:sprite:${entity.entity_id}`;
+    sprite.label = `${asset.key}:${direction}:sprite:${entity.entity_id}`;
     sprite.tint = asset.accentColor;
     sprite.alpha = spriteAlphaForEntity(entity);
     sprite.scale.set(spriteScaleForEntity(entity, this.scale));
+  }
+
+  protected entitySpriteDirection(entity: EntityPayload): EntityAssetDirectionCode {
+    const direction = spriteDirectionForEntity(entity);
+    if (direction) {
+      this.entitySpriteDirections.set(entity.entity_id, direction);
+      return direction;
+    }
+    return this.entitySpriteDirections.get(entity.entity_id) ?? '10';
   }
 
   protected drawSelectedReticle(view: Graphics, entity: EntityPayload): void {

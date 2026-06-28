@@ -5,7 +5,7 @@ import { currentEntityPosition, estimateServerTime } from '../state/movement';
 import { WorldMapMemoryMarker } from '../state/types';
 import { emptyMapOverlayDebug, MapOverlayDebugState } from './map-overlay';
 import { WorldInputHandlers, WorldViewState } from './world-view';
-import type { WorldRenderAssetKey } from './world-renderer-assets';
+import type { EntityAssetDirectionCode } from './world-entity-asset-catalog';
 import { StarfieldDebugState, StarfieldTile } from './world-renderer-types';
 
 export abstract class WorldRendererBase {
@@ -22,6 +22,7 @@ export abstract class WorldRendererBase {
   protected readonly gridLayer = new Graphics();
   protected readonly entityViews = new Map<string, Graphics>();
   protected readonly entitySprites = new Map<string, Sprite>();
+  protected readonly entitySpriteDirections = new Map<string, EntityAssetDirectionCode>();
   protected readonly entityLabels = new Map<string, Text>();
   protected readonly entityTargets = new Map<string, EntityPayload>();
   protected readonly entityWorldPositions = new Map<string, Vec2>();
@@ -30,7 +31,7 @@ export abstract class WorldRendererBase {
   protected readonly memoryMarkerTargets = new Map<string, WorldMapMemoryMarker>();
   protected readonly starfieldTiles: StarfieldTile[] = [];
   protected readonly stars: Array<{ view: Graphics; base: Vec2; depth: number }> = [];
-  protected readonly worldAssetTextures = new Map<WorldRenderAssetKey, Texture>();
+  protected readonly worldAssetTextures = new Map<string, Texture>();
   protected starfieldTexture: Texture | null = null;
   protected starfieldDebug: StarfieldDebugState = {
     assetLoaded: false,

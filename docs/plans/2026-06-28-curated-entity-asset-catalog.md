@@ -8,6 +8,23 @@
 
 **Tech Stack:** Browser client, Vite static asset imports, Pixi renderer registry, existing bundle scan and E2E playtest screenshot proof.
 
+**Directional Follow-up:** Runtime now ships eight deploy-safe directions for
+each curated entity family. Pixi keeps one `Sprite` per entity and swaps its
+texture by server movement vector:
+
+- `00` southwest
+- `02` west
+- `04` northwest
+- `06` north
+- `08` northeast
+- `10` east
+- `12` southeast
+- `14` south
+
+The source `client/src/assets/entities/` folders remain source art. The runtime
+imports only `client/src/assets/world/entities/*_iso_XX.png` names so bundle
+scan does not expose source model tokens.
+
 ---
 
 ## Task 1: Runtime-Safe Asset Selection
@@ -18,7 +35,8 @@
 - Create: `client/src/assets/world/entities/loot_cache_iso_east.png`
 
 **Steps:**
-1. Copy only frame `10` from the chosen source assets.
+1. Copy frames `00`, `02`, `04`, `06`, `08`, `10`, `12`, and `14` from the
+   chosen source assets.
 2. Use deploy-safe names that do not include source folder tokens or `spin_512`.
 3. Keep the full source directories untouched.
 
@@ -32,9 +50,10 @@
 **Steps:**
 1. Add the direction convention for generated frames.
 2. Add three runtime catalog entries: player ship, hostile NPC, loot cache.
-3. Import catalog URLs into `world-renderer-assets.ts`.
-4. Assert the renderer maps player/NPC/loot keys to curated PNG URLs.
-5. Assert source asset tokens and `spin_512` are absent from runtime descriptors.
+3. Import direction URL maps into `world-renderer-assets.ts`.
+4. Resolve facing from movement vectors and swap `Sprite.texture` in place.
+5. Assert the renderer maps player/NPC/loot keys to curated PNG URLs.
+6. Assert source asset tokens and `spin_512` are absent from runtime descriptors.
 
 ## Task 3: Docs And Verification
 

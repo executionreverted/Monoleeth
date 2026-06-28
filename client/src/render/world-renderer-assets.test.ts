@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { CURATED_ENTITY_ASSETS, ENTITY_ASSET_DIRECTION_LABELS } from './world-entity-asset-catalog';
+import { CURATED_ENTITY_ASSETS, ENTITY_ASSET_DIRECTION_CODES, ENTITY_ASSET_DIRECTION_LABELS } from './world-entity-asset-catalog';
 import {
   isUnknownSignalAsset,
   WORLD_RENDER_ASSETS,
@@ -42,13 +42,20 @@ describe('world renderer asset registry', () => {
       'loot.cache.cube',
     ]);
 
-    expect(WORLD_RENDER_ASSETS['ship.player.self'].assetURL).toContain('ship_player_iso_east');
-    expect(WORLD_RENDER_ASSETS['npc.swarm.hostile'].assetURL).toContain('npc_hostile_iso_east');
-    expect(WORLD_RENDER_ASSETS['loot.cache'].assetURL).toContain('loot_cache_iso_east');
+    expect(WORLD_RENDER_ASSETS['ship.player.self'].assetURL).toContain('ship_player_iso_10');
+    expect(WORLD_RENDER_ASSETS['npc.swarm.hostile'].assetURL).toContain('npc_hostile_iso_10');
+    expect(WORLD_RENDER_ASSETS['loot.cache'].assetURL).toContain('loot_cache_iso_10');
     expect(WORLD_RENDER_ASSETS['ship.player.self'].assetURL).toMatch(/\.png(\?|$)/);
     expect(WORLD_RENDER_ASSETS['npc.swarm.hostile'].assetURL).toMatch(/\.png(\?|$)/);
     expect(WORLD_RENDER_ASSETS['loot.cache'].assetURL).toMatch(/\.png(\?|$)/);
-    expect(JSON.stringify(CURATED_ENTITY_ASSETS)).not.toMatch(/spin_512|Nebula_Vanguard|Nebula_War_Crab|Nebula_Hypercube/);
+    for (const asset of Object.values(CURATED_ENTITY_ASSETS)) {
+      expect(asset.defaultDirection).toBe('10');
+      expect(Object.keys(asset.directionURLs).sort()).toEqual([...ENTITY_ASSET_DIRECTION_CODES].sort());
+      for (const code of ENTITY_ASSET_DIRECTION_CODES) {
+        expect(asset.directionURLs[code]).toContain(`_${code}`);
+      }
+    }
+    expect(JSON.stringify(CURATED_ENTITY_ASSETS)).not.toMatch(/spin_512|Nebula_Vanguard|Nebula_War_Crab|Nebula_Hypercube|\.gif/i);
   });
 
   test('maps server-visible entities to stable render assets', () => {

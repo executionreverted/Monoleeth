@@ -4,7 +4,8 @@ import { Vec2 } from '../protocol/envelope';
 import { isSelfEntity, serverClockOffset } from '../state/movement';
 import { cloneMapOverlayDebug, MapOverlayDebugState } from './map-overlay';
 import { WorldInputHandlers, WorldViewState } from './world-view';
-import { WORLD_RENDER_ASSETS } from './world-renderer-assets';
+import type { EntityAssetDirectionCode } from './world-entity-asset-catalog';
+import { WORLD_RENDER_ASSETS, worldTextureKeyForAsset } from './world-renderer-assets';
 import { WorldRendererEntities } from './world-renderer-entities';
 import { labelColorForEntity, labelForEntity, StarfieldDebugState } from './world-renderer-types';
 
@@ -97,6 +98,7 @@ export class WorldRenderer extends WorldRendererEntities {
         this.entityViews.delete(entityID);
         this.entitySprites.get(entityID)?.destroy();
         this.entitySprites.delete(entityID);
+        this.entitySpriteDirections.delete(entityID);
         this.entityLabels.get(entityID)?.destroy();
         this.entityLabels.delete(entityID);
         this.entityTargets.delete(entityID);
@@ -150,6 +152,12 @@ export class WorldRenderer extends WorldRendererEntities {
       descriptors.map(async (descriptor) => {
         const texture = await Assets.load<Texture>(descriptor.assetURL);
         this.worldAssetTextures.set(descriptor.key, texture);
+        await Promise.all(
+          Object.entries(descriptor.directionURLs ?? {}).map(async ([direction, url]) => {
+            const directionalTexture = await Assets.load<Texture>(url);
+            this.worldAssetTextures.set(worldTextureKeyForAsset(descriptor, direction as EntityAssetDirectionCode), directionalTexture);
+          }),
+        );
       }),
     );
   }

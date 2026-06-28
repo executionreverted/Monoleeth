@@ -1,7 +1,7 @@
 import type { EntityPayload } from '../protocol/envelope';
 import type { WorldMapMemoryMarker } from '../state/types';
 import type { MapOverlayPortalDebug, MapOverlaySafeZoneDebug } from './map-overlay';
-import { CURATED_ENTITY_ASSETS } from './world-entity-asset-catalog';
+import { CURATED_ENTITY_ASSETS, EntityAssetDirectionCode } from './world-entity-asset-catalog';
 import damageBurstURL from '../assets/world/damage_burst.svg?url';
 import lootSparkURL from '../assets/world/loot_spark.svg?url';
 import movementMarkerURL from '../assets/world/movement_marker.svg?url';
@@ -40,6 +40,7 @@ export interface WorldRenderAssetDescriptor {
   key: WorldRenderAssetKey;
   layer: WorldRenderAssetLayer;
   assetURL: string;
+  directionURLs?: Record<EntityAssetDirectionCode, string>;
   visualRole: string;
   accentColor: number;
   glowColor: number;
@@ -58,6 +59,7 @@ export const WORLD_RENDER_ASSETS: Record<WorldRenderAssetKey, WorldRenderAssetDe
     key: 'ship.player.self',
     layer: 'world',
     assetURL: CURATED_ENTITY_ASSETS['player.ship.vanguard'].runtimeURL,
+    directionURLs: CURATED_ENTITY_ASSETS['player.ship.vanguard'].directionURLs,
     visualRole: 'player ship',
     accentColor: 0x2bdfff,
     glowColor: 0x8af5ff,
@@ -66,6 +68,7 @@ export const WORLD_RENDER_ASSETS: Record<WorldRenderAssetKey, WorldRenderAssetDe
     key: 'ship.player.friendly',
     layer: 'world',
     assetURL: CURATED_ENTITY_ASSETS['player.ship.vanguard'].runtimeURL,
+    directionURLs: CURATED_ENTITY_ASSETS['player.ship.vanguard'].directionURLs,
     visualRole: 'friendly player ship',
     accentColor: 0x44e878,
     glowColor: 0x8af5ff,
@@ -74,6 +77,7 @@ export const WORLD_RENDER_ASSETS: Record<WorldRenderAssetKey, WorldRenderAssetDe
     key: 'ship.player.neutral',
     layer: 'world',
     assetURL: CURATED_ENTITY_ASSETS['player.ship.vanguard'].runtimeURL,
+    directionURLs: CURATED_ENTITY_ASSETS['player.ship.vanguard'].directionURLs,
     visualRole: 'neutral player ship',
     accentColor: 0x8af5ff,
     glowColor: 0x2bdfff,
@@ -82,6 +86,7 @@ export const WORLD_RENDER_ASSETS: Record<WorldRenderAssetKey, WorldRenderAssetDe
     key: 'npc.swarm.hostile',
     layer: 'world',
     assetURL: CURATED_ENTITY_ASSETS['npc.hostile.crab'].runtimeURL,
+    directionURLs: CURATED_ENTITY_ASSETS['npc.hostile.crab'].directionURLs,
     visualRole: 'hostile npc',
     accentColor: 0xff4236,
     glowColor: 0xff5c7a,
@@ -90,6 +95,7 @@ export const WORLD_RENDER_ASSETS: Record<WorldRenderAssetKey, WorldRenderAssetDe
     key: 'loot.cache',
     layer: 'world',
     assetURL: CURATED_ENTITY_ASSETS['loot.cache.cube'].runtimeURL,
+    directionURLs: CURATED_ENTITY_ASSETS['loot.cache.cube'].directionURLs,
     visualRole: 'loot crate',
     accentColor: 0xf4c95d,
     glowColor: 0xfff0a8,
@@ -208,6 +214,10 @@ export function worldAssetForEntity(entity: EntityPayload, self = false): WorldR
     case 'planet_signal':
       return isUnknownSignalAsset(entity) ? WORLD_RENDER_ASSETS['planet.signal.unknown'] : WORLD_RENDER_ASSETS['planet.signal.known'];
   }
+}
+
+export function worldTextureKeyForAsset(descriptor: WorldRenderAssetDescriptor, direction?: EntityAssetDirectionCode): string {
+  return direction && descriptor.directionURLs?.[direction] ? `${descriptor.key}:${direction}` : descriptor.key;
 }
 
 export function worldAssetForPortal(_portal: MapOverlayPortalDebug): WorldRenderAssetDescriptor {
