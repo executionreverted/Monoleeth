@@ -477,7 +477,7 @@ func moduleDefinition(source mappedKalaazuItemSource) (modules.ModuleDefinition,
 	case 16:
 		category = modules.ModuleCategoryOffensive
 		slotType = modules.ModuleSlotTypeOffensive
-		statModifiers = []modules.StatModifier{{Stat: modules.StatWeaponDamage, Kind: modules.StatModifierFlat, Value: int64(maxInt(1, source.Source.Bonus))}}
+		statModifiers = []modules.StatModifier{{Stat: modules.StatWeaponDamage, Kind: modules.StatModifierFlat, Value: int64(laserWeaponDamage(source.Source))}}
 	case 17:
 		category = modules.ModuleCategoryOffensive
 		slotType = modules.ModuleSlotTypeOffensive
@@ -651,15 +651,34 @@ func utilityModuleDefinitionWithID(source kalaazuItemSource, itemID foundation.I
 }
 
 func moduleTier(source kalaazuItemSource) int {
+	damage := source.Bonus
+	if source.Type == 16 {
+		damage = laserWeaponDamage(source)
+	}
 	switch {
-	case source.Bonus >= 150:
+	case damage >= 150:
 		return 4
-	case source.Bonus >= 100:
+	case damage >= 100:
 		return 3
-	case source.Bonus >= 50:
+	case damage >= 50:
 		return 2
 	default:
 		return 1
+	}
+}
+
+func laserWeaponDamage(source kalaazuItemSource) int {
+	switch source.LootID {
+	case "equipment_weapon_laser_lf_1":
+		return 40
+	case "equipment_weapon_laser_lf_2":
+		return 100
+	case "equipment_weapon_laser_lf_3":
+		return 150
+	case "equipment_weapon_laser_lf_4":
+		return 200
+	default:
+		return maxInt(1, source.Bonus)
 	}
 }
 

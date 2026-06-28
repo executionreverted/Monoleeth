@@ -90,7 +90,7 @@ func BuildDefaultRows(filesystem fs.FS) (DefaultRows, error) {
 	if err != nil {
 		return DefaultRows{}, err
 	}
-	combatRuleRows, err := mapCombatRuleRows(itemRows, moduleRows, npcRows)
+		combatRuleRows, err := mapCombatRuleRows(source.Items, itemRows, moduleRows, npcRows)
 	if err != nil {
 		return DefaultRows{}, err
 	}

@@ -74,16 +74,17 @@ func mapStarterShipRows(itemRows []DumpRow, shipRows []DumpRow) ([]content.Snaps
 }
 
 type kalaazuItemSource struct {
-	KalaazuID int
-	Name      string
-	LootID    string
-	Category  int
-	Type      int
-	Price     int64
-	IsElite   bool
-	IsEvent   bool
-	IsBuyable bool
-	Bonus     int
+	KalaazuID    int
+	Name         string
+	LootID       string
+	Category     int
+	Type         int
+	Price        int64
+	IsElite      bool
+	IsEvent      bool
+	IsBuyable    bool
+	SlotbarOrder int
+	Bonus        int
 }
 
 func decodeKalaazuItem(row DumpRow) (kalaazuItemSource, error) {
@@ -123,21 +124,26 @@ func decodeKalaazuItem(row DumpRow) (kalaazuItemSource, error) {
 	if err != nil {
 		return kalaazuItemSource{}, err
 	}
+	slotbarOrder, err := row.Int("slotbar_order")
+	if err != nil {
+		return kalaazuItemSource{}, err
+	}
 	bonus, err := row.Int("bonus")
 	if err != nil {
 		return kalaazuItemSource{}, err
 	}
 	return kalaazuItemSource{
-		KalaazuID: id,
-		Name:      normalizeDisplayName(name),
-		LootID:    normalizeIdentifier(lootID),
-		Category:  category,
-		Type:      itemType,
-		Price:     int64(price),
-		IsElite:   isElite,
-		IsEvent:   isEvent,
-		IsBuyable: isBuyable,
-		Bonus:     bonus,
+		KalaazuID:    id,
+		Name:         normalizeDisplayName(name),
+		LootID:       normalizeIdentifier(lootID),
+		Category:     category,
+		Type:         itemType,
+		Price:        int64(price),
+		IsElite:      isElite,
+		IsEvent:      isEvent,
+		IsBuyable:    isBuyable,
+		SlotbarOrder: slotbarOrder,
+		Bonus:        bonus,
 	}, nil
 }
 

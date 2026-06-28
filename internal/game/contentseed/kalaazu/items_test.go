@@ -126,9 +126,20 @@ func TestBuildStarterModuleRowsMapsKalaazuLasersShieldsSpeedGeneratorsRocketLaun
 		t.Fatalf("module rows = %d, want %d laser/shield/speed/rocket/repair rows plus compatibility rows", got, want)
 	}
 
-	lf1 := requireModuleDefinitionForTest(t, rows, "equipment_weapon_laser_lf_1")
-	if lf1.SlotType != "offensive" || lf1.StatModifiers[0].Stat != "weapon_damage" || lf1.StatModifiers[0].Value != 40 {
-		t.Fatalf("lf1 module = %+v, want Kalaazu laser damage module", lf1)
+	for _, want := range []struct {
+		contentID content.ContentID
+		damage    int64
+	}{
+		{contentID: "equipment_weapon_laser_lf_1", damage: 40},
+		{contentID: "equipment_weapon_laser_lf_2", damage: 100},
+		{contentID: "equipment_weapon_laser_lf_3", damage: 150},
+		{contentID: "equipment_weapon_laser_lf_4", damage: 200},
+	} {
+		laser := requireModuleDefinitionForTest(t, rows, want.contentID)
+		if laser.SlotType != modules.ModuleSlotTypeOffensive ||
+			moduleTestStatValue(laser, modules.StatWeaponDamage) != want.damage {
+			t.Fatalf("laser module %s = %+v, want normalized damage %d", want.contentID, laser, want.damage)
+		}
 	}
 	sg3n := requireModuleDefinitionForTest(t, rows, "equipment_generator_shield_sg3n_a01")
 	if sg3n.SlotType != "defensive" || sg3n.StatModifiers[0].Stat != "shield_max" || sg3n.StatModifiers[0].Value != 1000 {
