@@ -18,6 +18,8 @@ Bu işler önceki commitlerde tamamlandı:
 - `74a3a404` game: add server combat ammo selection
 - `608b6730` game: consume laser ammo during combat
 - `03fb2a65` client: wire combat ammo selection
+- `957a3abc` client: add quickbar ammo assignment
+- `83d6f609` test: cover combat ammo security gate
 
 Bunların kapsadığı aktif-goal dışı işler:
 
@@ -43,35 +45,20 @@ Bunların kapsadığı aktif-goal dışı işler:
   and ammo multiplier damage application.
 - Client inventory ammo selection intent and HUD display of server-selected ammo
   state.
+- Client quickbar ammo assignment from inventory stacks, assigned ammo slot
+  selection intent, and empty/selected/pending UI driven by server inventory and
+  combat state.
+- DB-published dense `1-1 -> 1-2 -> 1-3` proof, no static production fallback
+  proof, fail-closed invalid published content proof, and browser smoke proof.
 
 ## Remaining Work
 
-### 1. Client Quickbar Assignment Polish
+No required implementation work remains in this focused DarkOrbit-feel +
+Kalaazu default seed goal.
 
-- Let inventory ammo be assignable to quick action bar slots, beyond the current
-  inventory-row select button.
-- Selecting an assigned ammo quickbar slot sends only `combat.select_ammo`
-  intent.
-- Laser attacks use server-selected ammo state from snapshots/events.
-- If server says ammo unavailable, UI shows locked/empty/disabled state from
-  real server response.
-- No fake inventory, ammo, damage, target, cargo, wallet, NPC, map, or quest
-  values.
-
-### 2. DB-Backed Dense Early Sector Verification
-
-- Keep early route `1-1 -> 1-2 -> 1-3` dense, risky, and rewarding through
-  DB-published Kalaazu/default seed data, not static Go catalog edits.
-- Verify runtime loads configured DB content as production truth.
-- Invalid/missing published DB content must fail closed.
-- Prove DB-published edits affect runtime and static fallback is not used.
-
-### 3. Optional Browser Feel Gate
-
-- If UI/browser behavior changes, run browser smoke/screenshot verification.
-- Run or schedule the opt-in 10-minute observation loop:
-  `DARKORBIT_FEEL_LONG_RUN_MS=600000`.
-- Record human playtest notes if this loop runs.
+Optional manual/human feel pass remains available but is not required for this
+goal: run `DARKORBIT_FEEL_LONG_RUN_MS=600000 npm run e2e:darkorbit-feel` from
+`client/` to produce a 10-minute observation artifact.
 
 ## Required Context
 
